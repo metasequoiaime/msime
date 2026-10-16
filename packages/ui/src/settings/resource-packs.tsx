@@ -7,7 +7,7 @@ import { useMountedRef } from "./use-mounted-ref";
 import { ActionRow } from "./action-row";
 import { VoiceModelMirrorRow } from "./voice-model-mirror-section";
 import { defaultVoiceInput } from "./voice-input-defaults";
-import type { SettingsClient } from "../index";
+import type { SettingsClient } from "../core/settings-client";
 import type { LocalVoiceModelProgress } from "../voice/local-models";
 import {
   formatModelBytes,

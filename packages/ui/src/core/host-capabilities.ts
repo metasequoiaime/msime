@@ -43,13 +43,13 @@ export interface HostCapabilities {
   traditional_chinese_variants?: boolean;
   /** 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格（目前只有 macOS）。 */
   expand_candidates?: boolean;
-  /** 宿主画的各个界面一律跟随颜色模式，不读 `settings_theme` 等各界面的单独明暗，只有候选窗口仍读 `candidate_theme`（目前只有 macOS）。 */
+  /** 宿主画的各个界面一律跟随颜色模式，不读 `settings_theme` 等各界面的单独明暗，只有候选窗口仍读 `candidate_theme`（macOS、Windows、Linux 和 HarmonyOS；Android 和 iOS 不是）。 */
   surface_themes_follow?: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
-  /** 宿主按用户选的边框色给候选窗描边。Linux 由 Fcitx5 的 classicui 主题描边，没有 hover 状态；IBus 面板描不了，运行中的 IBus 宿主以 `candidate_panel_limit: "ibus_panel"` 说明。macOS 的边框色固定跟随主题，不读用户选的值。 */
+  /** 宿主按用户选的边框色给候选窗描边。Linux 由 Fcitx5 的 classicui 主题描边，没有 hover 状态；桌面宿主（macOS、Windows、Linux 和 HarmonyOS）的边框色固定跟随主题和皮肤，不读用户选的值，只有 Android 和 iOS 照旧读。 */
   candidate_border_color: boolean;
-  /** 宿主按用户选的编号色画候选编号。macOS 的编号色固定跟随主题（选了文字颜色时由它推出），不读用户选的值；缺省按读取处理。 */
+  /** 宿主按用户选的编号色画候选编号。桌面宿主（macOS、Windows、Linux 和 HarmonyOS）的编号色固定跟随主题（选了文字颜色时由它推出），不读用户选的值，只有 Android 和 iOS 照旧读；缺省按读取处理。 */
   candidate_number_color?: boolean;
   /** 宿主绘制独立候选窗，并按 `candidate_scale_percent` 缩放字体与几何尺寸。 */
   candidate_window_scale: boolean;
@@ -71,9 +71,9 @@ export interface HostCapabilities {
   fixed_candidate_page_size?: number;
   /** 宿主能排的最大每页候选数：macOS、Linux、Android 为 10（第十个用 0 键选），其余为 9。 */
   max_candidate_page_size?: number;
-  /** 宿主固定使用的 AI 联想候选数量（macOS 为 3）；有它时设置页不显示「候选数量」，宿主也不读文档里存的值。 */
+  /** 宿主固定使用的 AI 联想候选数量（macOS、Windows、Linux、鸿蒙为 3）；有它时设置页不显示「候选数量」，宿主也不读文档里存的值。 */
   fixed_ai_candidate_limit?: number;
-  /** 宿主固定使用的打字效果强度（macOS 为 50）；有它时设置页不显示「效果强度」，宿主也不读文档里存的值。 */
+  /** 宿主固定使用的打字效果强度（macOS、Windows、鸿蒙为 50）；有它时设置页不显示「效果强度」，宿主也不读文档里存的值。 */
   fixed_effect_intensity?: number;
   /** 宿主只支持一种候选排列时固定为此值，不提供选择。 */
   fixed_candidate_layout?: "horizontal" | "vertical";
@@ -116,7 +116,7 @@ export interface HostCapabilities {
   input_method_framework?: string;
   /** 设备型号（Linux 的 DMI 厂商与产品名）。 */
   device_model?: string;
-  /** 运行中的 Linux 宿主报告的、画候选列表的桌面面板为什么不理会候选字体、颜色和皮肤；面板全都照办时缺省。`ibus_panel` 是部分不生效：IBus 面板接收字体和颜色，不接收圆角、边框颜色和皮肤的装饰图。 */
+  /** 运行中的 Linux 宿主报告的、画候选列表的桌面面板为什么不理会候选字体、颜色和皮肤；面板全都照办时缺省。`ibus_panel` 是部分不生效：IBus 面板接收字体和颜色，不接收圆角和皮肤的装饰图，也不描边（Linux 本来就不给边框色取色器）。 */
   candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel" | "ibus_panel";
   /** 宿主播放 `plugins` 中的音效包：按键音、旋律、上屏音和成就提示音。 */
   key_sound: boolean;

@@ -26,20 +26,21 @@ int main() {
   assert(candidate_dark_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false));
   assert(!candidate_dark_theme(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true));
 
-  // A floating surface's own mode key (toolbar_theme) wins when it names a mode and otherwise defers to the global mode, whose default "system" follows the desktop; the candidate mode plays no part.
+  // 浮动界面（模式角标）一律跟随颜色模式：存下的 toolbar_theme 被忽略，只看全局的 `theme`，它的默认值 "system" 跟随桌面；候选窗的明暗不参与。
   using host::surface_dark_theme;
-  assert(surface_dark_theme(Json{{"toolbar_theme", "dark"}, {"candidate_theme", "light"}}, "toolbar_theme", false));
-  assert(!surface_dark_theme(Json{{"toolbar_theme", "light"}, {"theme", "dark"}}, "toolbar_theme", true));
-  assert(surface_dark_theme(Json{{"toolbar_theme", "follow"}, {"theme", "dark"}}, "toolbar_theme", false));
-  assert(!surface_dark_theme(Json{{"toolbar_theme", "follow"}, {"candidate_theme", "dark"}}, "toolbar_theme", false));
-  assert(surface_dark_theme(Json::object(), "toolbar_theme", true));
+  assert(!surface_dark_theme(Json{{"toolbar_theme", "dark"}, {"candidate_theme", "dark"}, {"theme", "light"}}, true));
+  assert(surface_dark_theme(Json{{"toolbar_theme", "light"}, {"theme", "dark"}}, false));
+  assert(surface_dark_theme(Json{{"toolbar_theme", "light"}, {"theme", "system"}}, true));
+  assert(!surface_dark_theme(Json{{"toolbar_theme", "dark"}, {"theme", "system"}}, false));
+  assert(!surface_dark_theme(Json{{"candidate_theme", "dark"}}, false));
+  assert(surface_dark_theme(Json::object(), true));
 
   // 运行时选项里的 preferences 可能是 null、数组或数字（runtime-options.json 被手工改过，或写入被截断）。
   // 两个宿主共用的入口必须照一份空文档处理：跟随系统明暗、默认纵向布局、解析成 system，而不是抛 nlohmann 的 type_error。
   for (const auto &document : {Json(nullptr), Json::array({Json("paper")}), Json(7)}) {
     assert(candidate_dark_theme(document, true) && !candidate_dark_theme(document, false));
-    assert(surface_dark_theme(document, "toolbar_theme", true));
-    assert(!surface_dark_theme(document, "toolbar_theme", false));
+    assert(surface_dark_theme(document, true));
+    assert(!surface_dark_theme(document, false));
     assert(host::candidate_layout_id(document) == "vertical");
     assert(host::candidate_theme_request(document, false, Json::object()) ==
            Json::parse(R"({"dark":false,"global_theme":"system","layout":"vertical"})"));
@@ -48,8 +49,8 @@ int main() {
   // Treat those fields as absent so a damaged runtime option cannot interrupt candidate rendering.
   assert(candidate_dark_theme(Json{{"candidate_theme", 7}, {"theme", "dark"}}, false));
   assert(candidate_dark_theme(Json{{"theme", Json::array()}}, true));
-  assert(!surface_dark_theme(Json{{"toolbar_theme", 7}, {"theme", "light"}}, "toolbar_theme", true));
-  assert(surface_dark_theme(Json{{"theme", nullptr}}, "toolbar_theme", true));
+  assert(!surface_dark_theme(Json{{"toolbar_theme", 7}, {"theme", "light"}}, true));
+  assert(surface_dark_theme(Json{{"theme", nullptr}}, true));
   assert(host::candidate_layout_id(Json{{"candidate_layout", 7}}) == "vertical");
   assert(host::candidate_layout_id(Json{{"candidate_layout", "horizontal"}}) == "horizontal");
 
@@ -161,6 +162,16 @@ int main() {
   const auto request = host::candidate_theme_request(with_package, false, catalog);
   assert(request.at("custom_theme") == with_package.at("custom_theme"));
   assert(request.at("package") == catalog.at("packages").at(0));
+  // 编号色和边框色跟随主题：请求里的自定义主题去掉这两个槽位，其余颜色原样带上；选择指纹仍看存下的整个 custom_theme。
+  const Json stored_colors = {{"global_theme", "custom"},
+                              {"custom_theme",
+                               {{"base", "system"},
+                                {"candidate_colors", {{"text", "#102030"}, {"hover", "#405060"}, {"number", "#123456"}, {"border", "#654321"}}}}}};
+  const auto trimmed_request = host::candidate_theme_request(stored_colors, false, catalog);
+  assert(trimmed_request.at("custom_theme").at("candidate_colors") ==
+         Json::parse(R"({"text":"#102030","hover":"#405060"})"));
+  assert(trimmed_request.at("custom_theme").at("base") == "system");
+  assert(host::candidate_theme_selection(stored_colors).at("custom_theme") == stored_colors.at("custom_theme"));
   // Not while another theme is selected, and not for a package the catalogue does not list.
   auto elsewhere = with_package;
   elsewhere["global_theme"] = "ink";

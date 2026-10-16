@@ -126,7 +126,7 @@ export const pages = [
 export type SettingsPageId = (typeof pages)[number]["id"];
 
 /**
- * 一级导航的分组：桌面侧栏、手机「全部设置」列表和旧的分组导出都从这里派生，页面顺序只有这一个来源。Windows 原生设置窗口的 `SettingsNavigation.h` 也要与它保持一致。
+ * 一级导航的分组：桌面侧栏、手机「全部设置」列表和旧的分组导出都从这里派生，页面顺序只有这一个来源。Windows 原生设置窗口的 `SettingsNavigation.h` 也要与它保持一致：和共享桌面侧栏一样，是这里去掉 `desktopMergedPages` 之后的页面。
  *
  * 「打字」排在「外观」之前：打字行为会反复调整，外观通常只调一次。
  */
@@ -151,7 +151,7 @@ export const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
 };
 
 /**
- * 桌面上并进另一页的页面，键是并进去的页，值是承载它的页。它们仍是可路由的 id：宿主菜单、托盘、旧链接和页内跳转打开它时显示承载页，桌面侧栏不再列出它。`settingsNavGroups` 不变，触屏宿主和 Windows 原生设置窗口（`SettingsNavigation.h`）照旧列出这些页。
+ * 桌面上并进另一页的页面，键是并进去的页，值是承载它的页。它们仍是可路由的 id：宿主菜单、托盘、旧链接和页内跳转打开它时显示承载页，桌面侧栏不再列出它。`settingsNavGroups` 不变，触屏宿主照旧列出这些页；Windows 原生设置窗口（`SettingsNavigation.h`）和共享桌面侧栏一样不列它们，路由别名把它们指向承载页。
  *
  * 「帮助与反馈」没有一项偏好，只有帮助入口、问题报告和反馈渠道，桌面上画在「关于」里。
  */
@@ -164,12 +164,12 @@ export function desktopPage(id: SettingsPageId): SettingsPageId {
   return desktopMergedPages[id] ?? id;
 }
 
-/** 桌面宿主按平台改写的页名；触屏宿主的页名由 `mobilePageTitle` 改写。macOS 的账号页没有设置同步（设置同步只接在 Windows 的账号会话上），叫「账号」。 */
+/** 桌面宿主按平台改写的页名；触屏宿主的页名由 `mobilePageTitle` 改写。macOS 和 Linux 的账号页没有设置同步（设置同步只接在 Windows 和鸿蒙的账号会话上），叫「账号」。 */
 export function desktopPageTitle(
   id: SettingsPageId,
   title: string,
   platform: string | undefined,
 ): string {
-  if (id === "account" && platform === "macos") return "账号";
+  if (id === "account" && (platform === "macos" || platform === "linux")) return "账号";
   return title;
 }

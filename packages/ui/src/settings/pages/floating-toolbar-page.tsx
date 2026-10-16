@@ -139,7 +139,7 @@ export function FloatingToolbarSettingsPage() {
               ))}
             </SelectRow>
           )}
-          {/* Linux 宿主不读 toolbar_theme，「主题」页没有工具栏一行可指，所以这条链接和整个「尺寸」组一起只在非 Linux 宿主上出现。各界面一律跟随颜色模式的宿主（`surfaceThemesFollow`，目前是 macOS）也没有工具栏一行，工具栏跟随「主题」页的颜色模式和主题，链接照样指向「主题」页，描述照实说。 */}
+          {/* Linux 宿主不读 toolbar_theme，「主题」页没有工具栏一行可指，所以这条链接和整个「尺寸」组一起只在非 Linux 宿主上出现。各界面一律跟随颜色模式的宿主（`surfaceThemesFollow`，macOS、Windows 和 HarmonyOS 2in1）也没有工具栏一行，工具栏跟随「主题」页的颜色模式和主题，链接照样指向「主题」页，描述照实说。 */}
           <LinkRow
             title="颜色与明暗"
             description={

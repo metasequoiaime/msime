@@ -4267,6 +4267,49 @@ group("a theme with a fixed mode is offered and drawn only in that mode", () => 
   );
 });
 
+// 编号色和边框色跟随主题（HostCapabilities 的 candidate_number_color、candidate_border_color 在 HarmonyOS 为假）：解析请求里的自定义主题去掉存下的这两个槽位，其余原样带上，原文档不变。
+group("the resolve request drops the number and border colours the host does not draw", () => {
+  const stored = {
+    base: "paper",
+    candidate_skin: "sakura",
+    candidate_skin_dark: "dusk",
+    candidate_colors: {
+      text: "#102030",
+      number: "#123456",
+      accent: "#203040",
+      selected: "#304050",
+      hover: "#405060",
+      surface: "#506070",
+      border: "#654321",
+    },
+  };
+  const drawn = GlobalTheme.hostDrawnCustomTheme(stored);
+  check(
+    JSON.stringify(drawn?.candidate_colors) ===
+      JSON.stringify({
+        text: "#102030",
+        accent: "#203040",
+        selected: "#304050",
+        hover: "#405060",
+        surface: "#506070",
+      }),
+    `only the drawn slots reach the resolver: ${JSON.stringify(drawn?.candidate_colors)}`,
+  );
+  check(
+    drawn?.base === "paper" &&
+      drawn.candidate_skin === "sakura" &&
+      drawn.candidate_skin_dark === "dusk",
+    "the base and both skin slots are kept",
+  );
+  check(stored.candidate_colors.number === "#123456", "the stored document is left alone");
+  check(GlobalTheme.hostDrawnCustomTheme(undefined) === undefined, "no custom theme stays absent");
+  const plain = { base: "night" };
+  check(
+    GlobalTheme.hostDrawnCustomTheme(plain) === plain,
+    "a theme without colours passes through",
+  );
+});
+
 group("maps safe external toolbar CSS to ArkUI values", () => {
   const base = GlobalTheme.candidateColors(null, true);
   const toolbar = ToolbarSkinPolicy.fromCss(
@@ -18305,17 +18348,19 @@ group("typing effects decode host-api's answer and draw what it asks", () => {
   });
   check(
     power.style === TypingEffectStyle.POWER_MODE &&
-      power.intensity === 80 &&
       power.comboCounter &&
       power.tierSound &&
       TypingEffectPolicy.active(power),
     "the shared preference keys are read",
   );
   check(
-    TypingEffectPolicy.settings({ effect_style: "confetti", effect_intensity: 150 }).style ===
-      TypingEffectStyle.OFF &&
+    power.intensity === 50 &&
       TypingEffectPolicy.settings({ effect_intensity: 150 }).intensity === 50,
-    "an unknown style is off and an out-of-range intensity takes the default",
+    "the stored intensity is not read: HarmonyOS fixes it at the default, as HostPlatform::fixed_effect_intensity says",
+  );
+  check(
+    TypingEffectPolicy.settings({ effect_style: "confetti" }).style === TypingEffectStyle.OFF,
+    "an unknown style is off",
   );
   check(
     TypingEffectPolicy.active(TypingEffectPolicy.settings({ combo_counter: true })),
@@ -18473,7 +18518,7 @@ group("an effect pack's parameters replace the preference values once host-api r
     duration_ms: 99999,
   });
   check(
-    odd.intensity === 40 && odd.flashMillis === 1500 && odd.color === undefined,
+    odd.intensity === 50 && odd.flashMillis === 1500 && odd.color === undefined,
     "out-of-range values are clamped or ignored rather than drawn",
   );
   check(

@@ -61,14 +61,25 @@ impl HostPlatform {
 
     /// 这个宿主固定使用的 AI 联想候选数量，不读 `ai_assistant.candidate_limit`；`None` 表示按偏好。见 `HostCapabilities::fixed_ai_candidate_limit`。
     pub fn fixed_ai_candidate_limit(self) -> Option<u8> {
-        // macOS 的 AI 座位只坐一行，同一批多出来的回答排到候选列表末尾，数量改了几乎看不出差别，所以固定为默认值 3，设置页不再给这一项。
-        (self == HostPlatform::Macos).then_some(3)
+        // AI 座位在共享的 engine/input-runtime 里只坐一行，同一批多出来的回答排到候选列表末尾，数量改了几乎看不出差别，所以桌面三家和鸿蒙固定为默认值 3，设置页不再给这一项。鸿蒙的候选条横向滚动，排在末尾的回答更难看到。Android、iOS 这一轮没有跟进，仍按偏好。
+        matches!(
+            self,
+            HostPlatform::Macos
+                | HostPlatform::Windows
+                | HostPlatform::Linux
+                | HostPlatform::Harmony
+        )
+        .then_some(3)
     }
 
     /// 这个宿主固定使用的打字效果强度（0-100），不读 `plugins.effect_intensity`；`None` 表示按偏好。特效包自带的强度不受影响。见 `HostCapabilities::fixed_effect_intensity`。
     pub fn fixed_effect_intensity(self) -> Option<u8> {
-        // macOS 的三种样式（闪光、火花、Power Mode）本身就是强度的粗调，特效包也会换掉强度，所以强度固定为默认值 50。
-        (self == HostPlatform::Macos).then_some(50)
+        // macOS 和 Windows 的三种样式（闪光、火花、Power Mode）本身就是强度的粗调，鸿蒙把三种样式都画成亮度不同的卡片闪光，特效包也会换掉强度，所以强度固定为默认值 50。Linux 不画样式，只在辅助行里显示连击数，没有强度可调，仍是 `None`，能力文档不变。
+        matches!(
+            self,
+            HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Harmony
+        )
+        .then_some(50)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -115,7 +126,7 @@ pub enum CandidatePanelLimit {
     FcitxTheme,
     /// Fcitx5 hands the list to the desktop's Kimpanel, which draws it with the desktop's own font and theme.
     Kimpanel,
-    /// IBus 交给桌面面板（ibus-ui-gtk3 一类）的只有候选文字和 RGB 前景、背景属性：字体和颜色生效，候选窗的圆角、边框颜色和外部皮肤的装饰图都画不出来。`candidate_corner_radius` 与 `candidate_border_color` 是按平台给的，Linux 上它们说的是 Fcitx5 的 classicui 主题，所以由运行中的 IBus 宿主用这一项说明自己的面板。
+    /// IBus 交给桌面面板（ibus-ui-gtk3 一类）的只有候选文字和 RGB 前景、背景属性：字体和颜色生效，候选窗的圆角、边框颜色和外部皮肤的装饰图都画不出来。`candidate_corner_radius` 是按平台给的，Linux 上它说的是 Fcitx5 的 classicui 主题，所以由运行中的 IBus 宿主用这一项说明自己的面板。
     IbusPanel,
 }
 
@@ -214,9 +225,9 @@ pub struct HostCapabilities {
     pub candidate_row_colors: bool,
     /// The host can apply candidate accent, selection, hover and border appearance.
     pub candidate_selection_appearance: bool,
-    /// 宿主按用户在自定义主题里选的边框色（`custom_theme.candidate_colors.border`）给候选窗描边。与 `candidate_selection_appearance` 分开，因为 Linux 画边框（Fcitx5 classicui 主题带边框色）而两个 Linux 面板都没有悬停状态。macOS 不读这个槽位：边框是 1pt 的发丝线，一律跟随主题和皮肤，设置页不给取色器。
+    /// 宿主按用户在自定义主题里选的边框色（`custom_theme.candidate_colors.border`）给候选窗描边。与 `candidate_selection_appearance` 分开，因为两者各自成立：Linux 的 Fcitx5 经典界面画边框而没有悬停状态。macOS、Windows、Linux 和 HarmonyOS 不读这个槽位：边框是发丝线，一律跟随主题和皮肤，设置页不给取色器；只有 Android 和 iOS 照旧读。
     pub candidate_border_color: bool,
-    /// 宿主按用户在自定义主题里选的编号色（`custom_theme.candidate_colors.number`）画候选编号。macOS 不读这个槽位：选了文字颜色时编号色由它推出，否则跟随主题和皮肤，设置页不给取色器。
+    /// 宿主按用户在自定义主题里选的编号色（`custom_theme.candidate_colors.number`）画候选编号。macOS、Windows、Linux 和 HarmonyOS 不读这个槽位：选了文字颜色时编号色由它推出，否则跟随主题和皮肤，设置页不给取色器；只有 Android 和 iOS 照旧读。
     pub candidate_number_color: bool,
     /// 宿主应用 `candidate_scale_percent` 调整候选显示。自绘浮动窗口缩放字体和几何尺寸；桌面面板可以缩放自己拥有的字体描述。
     pub candidate_window_scale: bool,
@@ -304,10 +315,10 @@ pub struct HostCapabilities {
     pub fixed_candidate_page_size: Option<u8>,
     /// 宿主能画、能用数字键选的每页候选数上限，共享文档里更大的值在这个宿主上按它截断，设置页也只给到它。macOS、Linux 和 Android 的实体键盘用 0 键选第十个，上限是 `MAX_CANDIDATE_PAGE_SIZE`（10）；Windows 的 TSF 只把 1–9 当作选词键、候选窗口也只排得下九个，iOS 固定九个，鸿蒙没有这项设置、实体键盘也只认 1–9，这三个宿主是 9。
     pub max_candidate_page_size: u8,
-    /// 宿主固定使用的 AI 联想候选数量（`HostPlatform::fixed_ai_candidate_limit`），这时设置页不显示「候选数量」，宿主也不读文档里存的值。按偏好的宿主没有这一项。
+    /// 宿主固定使用的 AI 联想候选数量（`HostPlatform::fixed_ai_candidate_limit`，macOS、Windows、Linux、鸿蒙），这时设置页不显示「候选数量」，宿主也不读文档里存的值。按偏好的宿主没有这一项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_ai_candidate_limit: Option<u8>,
-    /// 宿主固定使用的打字效果强度（`HostPlatform::fixed_effect_intensity`），这时设置页不显示「效果强度」，宿主也不读文档里存的值。按偏好的宿主没有这一项。
+    /// 宿主固定使用的打字效果强度（`HostPlatform::fixed_effect_intensity`，macOS、Windows、鸿蒙），这时设置页不显示「效果强度」，宿主也不读文档里存的值。按偏好的宿主没有这一项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_effect_intensity: Option<u8>,
     /// The one candidate layout the host draws, when it offers no choice. The iOS candidate strip is a horizontal row above the keys, so an external skin is adopted there only for its horizontal layout; the skin page has to judge compatibility by that rather than by the shared setting, which defaults to vertical. Absent on a host that follows the setting.
@@ -339,7 +350,7 @@ pub struct HostCapabilities {
     pub input_mode_status_item: bool,
     /// 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格。目前只有 macOS 实现；其他桌面宿主接上之前不提供这个开关，免得设置页存下一个宿主不理会的值。
     pub expand_candidates: bool,
-    /// 宿主画的各个界面（设置窗口、屏幕键盘、悬浮工具栏与中英文提示、菜单、表情面板、手写识别板、语音输入弹出条）一律跟随颜色模式，不读 `settings_theme`、`screen_keyboard_theme`、`toolbar_theme`、`menu_theme`、`emoji_theme`、`handwriting_theme`、`voice_theme`，设置页也不给这几行；候选窗口仍按 `candidate_theme` 单独设明暗。目前只有 macOS：固定明暗的内置主题本来就会盖过工具栏和菜单的单独设置，单给一个界面定明暗的需求由「夜」「墨」这类主题满足。
+    /// 宿主画的各个界面（设置窗口、屏幕键盘、悬浮工具栏与中英文提示、菜单、表情面板、手写识别板、语音输入弹出条）一律跟随颜色模式，不读 `settings_theme`、`screen_keyboard_theme`、`toolbar_theme`、`menu_theme`、`emoji_theme`、`handwriting_theme`、`voice_theme`，设置页也不给这几行；候选窗口仍按 `candidate_theme` 单独设明暗。桌面宿主（macOS、Windows、Linux、HarmonyOS）都是这样，Android 和 iOS 不是：固定明暗的内置主题本来就会盖过工具栏和菜单的单独设置，单给一个界面定明暗的需求由「夜」「墨」这类主题满足。
     pub surface_themes_follow: bool,
     /// The host can run a 背单词 review session — that is, it has wired the shared vocabulary
     /// entry point and can reach the review store.
@@ -636,17 +647,10 @@ impl HostCapabilities {
                     | HostPlatform::Android
                     | HostPlatform::Ios
             ),
-            // Linux 上只有 Fcitx5 的 classicui 主题画边框和圆角（下面的 `candidate_corner_radius` 同理）；IBus 面板画不了，运行中的 IBus 宿主经 `candidate_panel_limit`（`CandidatePanelLimit::IbusPanel`）让设置页说明这一点，能力位本身仍按平台给。macOS 的边框色固定跟随主题和皮肤，宿主不读用户选的边框色。
-            candidate_border_color: matches!(
-                platform,
-                HostPlatform::Windows
-                    | HostPlatform::Harmony
-                    | HostPlatform::Android
-                    | HostPlatform::Ios
-                    | HostPlatform::Linux
-            ),
-            // macOS 的编号色固定跟随主题和皮肤（选了文字颜色时由文字颜色推出），宿主不读用户选的编号色；其余宿主照旧。
-            candidate_number_color: platform != HostPlatform::Macos,
+            // 桌面宿主（macOS、Windows、Linux 的 Fcitx5 经典界面、HarmonyOS 2in1 的候选窗）的边框色固定跟随主题和皮肤，宿主不读用户选的边框色；只有 Android 和 iOS 的候选条照旧读。
+            candidate_border_color: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
+            // 桌面宿主的编号色固定跟随主题和皮肤（选了文字颜色时由文字颜色推出），宿主不读用户选的编号色；只有 Android 和 iOS 照旧读。
+            candidate_number_color: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             // Windows 和 macOS 自绘候选浮窗并缩放全部几何尺寸。Linux 的桌面面板拥有卡片几何，但可以缩放唯一的 Pango 字体描述，这正是高 DPI 面板需要的部分。鸿蒙只随字号调整，iOS 和 Android 绘制键盘候选条，所以两者都不提供此控件。
             candidate_window_scale: matches!(
                 platform,
@@ -656,6 +660,7 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
             ),
+            // Linux 上只有 Fcitx5 的 classicui 主题画圆角；IBus 面板画不了，运行中的 IBus 宿主经 `candidate_panel_limit`（`CandidatePanelLimit::IbusPanel`）让设置页说明这一点，能力位本身仍按平台给。
             candidate_corner_radius: matches!(
                 platform,
                 HostPlatform::Windows
@@ -690,8 +695,8 @@ impl HostCapabilities {
             input_mode_status_item: matches!(platform, HostPlatform::Macos),
             // 展开候选网格目前只有 macOS 的候选窗画（#7307）。Windows 和 Linux 的桌面候选窗以后可以接同一个偏好；触屏键盘本来就有自己的展开面板。
             expand_candidates: matches!(platform, HostPlatform::Macos),
-            // 只有 macOS 让工具栏、菜单和各面板一律跟随颜色模式；Windows 原生设置页和其他宿主仍提供各界面的单独明暗。
-            surface_themes_follow: platform == HostPlatform::Macos,
+            // 桌面宿主（macOS、Windows、Linux、HarmonyOS）让工具栏、菜单和各面板一律跟随颜色模式；Android 和 iOS 的键盘仍按各界面的单独明暗着色。
+            surface_themes_follow: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             // Windows chooses between TSF, SendInput and a paste; macOS between system events and its input session. The Linux hosts commit through the IBus or Fcitx5 input context, the desktop voice panel hands its text to the active host the way every panel does, and the voice provider only recognizes, so a stored mode would change nothing there. A keyboard extension commits through its input client and has nothing to choose between either.
             voice_commit_mode: matches!(platform, HostPlatform::Windows | HostPlatform::Macos),
             // The Linux hosts write the snapshot's `preedit` into the IBus and

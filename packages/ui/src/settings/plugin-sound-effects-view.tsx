@@ -32,7 +32,7 @@ export interface PluginSoundEffectsViewProps {
   effectPacks: boolean;
   /** 宿主把每种样式都画成候选卡片闪一下，越强的样式闪得越亮，不画火花（HarmonyOS）。 */
   effectFlashOnly?: boolean;
-  /** 宿主按 `plugins.effect_intensity` 画效果，所以给出「效果强度」；固定强度的宿主（macOS，`HostCapabilities.fixed_effect_intensity`）不给。 */
+  /** 宿主按 `plugins.effect_intensity` 画效果，所以给出「效果强度」；固定强度的宿主（macOS、Windows、鸿蒙，`HostCapabilities.fixed_effect_intensity`）不给。 */
   effectIntensity?: boolean;
   /** 打字统计是否打开（`typing-statistics.json` 的 `enabled`）。成就按打字统计计数，关着时「成就音效」不能打开；不知道时（还没读到，或宿主没有打字统计）按打开处理。 */
   statisticsEnabled?: boolean;
@@ -76,7 +76,8 @@ export function PluginSoundEffectsView({
   const musicPack = preferences.music.pack || musicPackToSelect(packages, listed);
   // 成就按打字统计计数，统计关着时打开它什么也不会响。已经打开的仍然可以关掉，不把用户锁在一个改不回来的状态里。
   const achievementsBlocked = statisticsEnabled === false && !achievements.enabled;
-  const tierSound = typingEffects && effectStyles;
+  // 升档音由 host-api 在连击升档时从音效包播放，不画任何样式的宿主（Linux）也会响，所以只看宿主有没有打字效果（连击计数）。
+  const tierSound = typingEffects;
   return (
     <>
       <PluginViewHeader title="声音与效果" onBack={onBack} />

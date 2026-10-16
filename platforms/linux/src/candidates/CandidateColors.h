@@ -89,7 +89,7 @@ inline std::optional<std::uint32_t> contrasting_color(std::optional<std::uint32_
   return black_contrast >= white_contrast ? 0x000000u : 0xffffffu;
 }
 
-// Whether the candidate surfaces draw dark. An explicit candidate_theme wins; "follow" takes the global theme mode, as Windows resolves theme_cand against theme_mode and as the voice overlay does here (VoiceAction.h): the desktop appearance decides only when that mode is "system", which is also the shared default when the key is absent. The Fcitx5 mode badge takes its colours from here too, so it always matches the panel.
+// 候选窗是否画深色。明确的 candidate_theme 优先；"follow" 取全局颜色模式，与 Windows 按 theme_mode 解析 theme_cand、这里的语音浮层（VoiceAction.h）一致：只有颜色模式是 "system"（键缺省时也是这个共享默认值）时才看桌面明暗。Fcitx5 模式角标和语音浮层不看 candidate_theme，按 surface_dark_theme 跟随颜色模式。
 // 运行时的 preferences 可能是 null、数组或数字（runtime-options.json 被手工改过、或写入被截断）：按一份空偏好文档处理，即跟随系统明暗，而不是让 nlohmann 的 value() 抛出 type_error。两个宿主都从这里取模式，所以这个入口是唯一需要设防的地方。
 inline bool candidate_dark_theme(const nlohmann::json &preferences, bool system_dark) {
   if (!preferences.is_object()) return system_dark;
@@ -100,13 +100,10 @@ inline bool candidate_dark_theme(const nlohmann::json &preferences, bool system_
              ? system_dark : *global != "light";
 }
 
-// Whether a floating surface with a mode preference of its own (toolbar_theme, voice_theme) draws dark, by the rule macOS gives its floating toolbar and mode badge: that preference when it names a mode, otherwise the global mode, whose "system" (also the shared default when the key is absent) follows the desktop. A resolved theme with a fixed appearance still overrides this, as it does for the candidate window.
-inline bool surface_dark_theme(const nlohmann::json &preferences, const char *surface_key, bool system_dark) {
+// 候选窗以外的浮动界面（Fcitx5 模式角标）是否画深色：各界面一律跟随颜色模式（HostCapabilities::surface_themes_follow），只看全局的 `theme`，它的 "system"（键缺省时也是这个共享默认值）跟随桌面明暗；存下的 toolbar_theme、voice_theme 不再读。解析出的主题若有固定明暗仍会盖过它，与候选窗相同。
+inline bool surface_dark_theme(const nlohmann::json &preferences, bool system_dark) {
   // 与 candidate_dark_theme 同一份文档、同一条边界：非对象按空文档处理。
   if (!preferences.is_object()) return system_dark;
-  const auto theme = preferences.find(surface_key);
-  if (theme != preferences.end() && theme->is_string() && (*theme == "dark" || *theme == "light"))
-    return *theme == "dark";
   const auto global = preferences.find("theme");
   return global == preferences.end() || !global->is_string() || *global == "system"
              ? system_dark : *global != "light";
@@ -130,7 +127,7 @@ inline nlohmann::json candidate_theme_selection(const nlohmann::json &preference
               {"custom_theme", custom != preferences.end() ? *custom : Json(nullptr)}};
 }
 
-// 候选窗的 msime_client_resolve_theme 请求：原样存储的全局主题和自定义主题、要绘制的明暗 `dark`（候选窗是 candidate_dark_theme 定下的那个，语音浮层和模式角标各按自己的规则）、正在绘制的布局，以及自定义主题在这个明暗下的槽位指名已安装皮肤包时，该包在目录里的原样条目。槽位按 candidate_skin_for 取：深色取 `candidate_skin_dark`，没设时取 `candidate_skin`；浅色取 `candidate_skin`。共享层只在 `custom` 下、且包 id 正是当前模式槽位指名的那个时才用它，所以只在这时发送。FFI 调用由调用方做，这个头文件不碰它，调色板测试因此不需要引擎。
+// 候选窗的 msime_client_resolve_theme 请求：原样存储的全局主题、去掉编号色和边框色的自定义主题、要绘制的明暗 `dark`（候选窗是 candidate_dark_theme 定下的那个，语音浮层和模式角标各按自己的规则）、正在绘制的布局，以及自定义主题在这个明暗下的槽位指名已安装皮肤包时，该包在目录里的原样条目。槽位按 candidate_skin_for 取：深色取 `candidate_skin_dark`，没设时取 `candidate_skin`；浅色取 `candidate_skin`。共享层只在 `custom` 下、且包 id 正是当前模式槽位指名的那个时才用它，所以只在这时发送。FFI 调用由调用方做，这个头文件不碰它，调色板测试因此不需要引擎。
 inline nlohmann::json candidate_theme_request(const nlohmann::json &preferences, bool dark,
                                               const nlohmann::json &catalog) {
   using Json = nlohmann::json;
@@ -141,6 +138,13 @@ inline nlohmann::json candidate_theme_request(const nlohmann::json &preferences,
   const auto custom = preferences.find("custom_theme");
   if (custom == preferences.end() || !custom->is_object()) return request;
   request["custom_theme"] = *custom;
+  // 编号色和边框色跟随主题和皮肤（HostCapabilities 的 candidate_number_color、candidate_border_color 在 Linux 为假）：存下的两个槽位不交给解析器，编号色由文字颜色推出，边框取主题的发丝线。不改文档，选择指纹（candidate_theme_selection）照旧看整个 custom_theme。
+  auto &drawn = request["custom_theme"];
+  const auto colors = drawn.find("candidate_colors");
+  if (colors != drawn.end() && colors->is_object()) {
+    colors->erase("number");
+    colors->erase("border");
+  }
   const auto skin = candidate_skin_for(*custom, dark);
   if (request["global_theme"] != "custom" || skin.empty()) return request;
   if (const auto *package = candidate_skin_package(catalog, skin))

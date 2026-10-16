@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SettingsClient } from "../index";
+import type { SettingsClient } from "../core/settings-client";
 import {
   inputSourceNeedsRecheck,
   type InputSourceStartupStatus,

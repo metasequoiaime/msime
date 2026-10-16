@@ -5,7 +5,8 @@ import { aiCredentialOrigin } from "./credential-utils";
 import { aiEndpointHint } from "./ai-endpoint-policy";
 import { aiPolishTestPrompt } from "./ai-assistant-defaults";
 import { useAsyncGeneration } from "./use-async-generation";
-import type { AiAssistantClient, AiAssistantPreferences } from "../index";
+import type { AiAssistantPreferences } from "./ai-assistant-preferences";
+import type { AiAssistantClient } from "../core/ai-assistant-client";
 
 export interface UseAiAssistantOptions {
   client?: AiAssistantClient;

@@ -38,12 +38,15 @@ test("a theme the host does not offer reads as system", () => {
   expect(settingsThemePreferences({ global_theme: "night" }, "android").globalTheme).toBe("night");
 });
 
-// macOS 的设置窗口跟随颜色模式（`surface_themes_follow`），存下的设置界面主题不再起作用。
-test("a host whose surfaces follow the colour mode ignores the stored settings theme", () => {
-  const draft = { theme: "dark" as const, settings_theme: "light" as const };
-  expect(settingsThemePreferences(draft, "macos", true)).toMatchObject({
-    themeMode: "dark",
-    settingsTheme: "follow",
-  });
-  expect(settingsThemePreferences(draft, "windows", false).settingsTheme).toBe("light");
-});
+// 桌面宿主的设置窗口跟随颜色模式（`surface_themes_follow`），存下的设置界面主题不再起作用；宿主报告不跟随时照旧读它。
+test.each(["macos", "windows", "linux", "harmony"] as const)(
+  "%s, whose surfaces follow the colour mode, ignores the stored settings theme",
+  (platform) => {
+    const draft = { theme: "dark" as const, settings_theme: "light" as const };
+    expect(settingsThemePreferences(draft, platform, true)).toMatchObject({
+      themeMode: "dark",
+      settingsTheme: "follow",
+    });
+    expect(settingsThemePreferences(draft, platform, false).settingsTheme).toBe("light");
+  },
+);

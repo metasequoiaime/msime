@@ -183,8 +183,8 @@ fn capabilities_describe_each_host() {
     assert!(!linux.candidate_preedit_font);
     assert!(linux.candidate_row_colors);
     assert!(!linux.candidate_selection_appearance);
-    // The Fcitx5 classic UI theme draws the border even though neither Linux panel has a hover state.
-    assert!(linux.candidate_border_color);
+    // Fcitx5 经典界面的边框跟随主题和皮肤，宿主不读用户选的边框色。
+    assert!(!linux.candidate_border_color);
     // IBus owns the candidate list's placement, so the host cannot pin it.
     assert!(!linux.candidate_follow_cursor);
     // The host chooses the preedit string the panel draws, so the raw keys
@@ -232,7 +232,7 @@ fn capabilities_describe_each_host() {
     assert!(windows.candidate_preedit_font);
     assert!(windows.candidate_row_colors);
     assert!(windows.candidate_selection_appearance);
-    assert!(windows.candidate_border_color);
+    assert!(!windows.candidate_border_color);
     // Windows positions its own card, so pinning it is a real choice there.
     assert!(windows.candidate_follow_cursor);
     let macos = HostCapabilities::for_platform(HostPlatform::Macos);
@@ -250,17 +250,19 @@ fn capabilities_describe_each_host() {
     assert!(macos.candidate_font_controls);
     assert!(macos.candidate_row_colors);
     assert!(macos.candidate_selection_appearance);
-    // macOS 的编号色和边框色固定跟随主题，宿主不读这两个槽位，设置页也不给取色器；其他宿主照旧。
-    assert!(!macos.candidate_border_color && !macos.candidate_number_color);
-    // macOS 上只有候选窗口还能单独设明暗，其余界面一律跟随颜色模式。
-    assert!(macos.surface_themes_follow);
+    // 桌面宿主的编号色和边框色固定跟随主题，宿主不读这两个槽位，设置页也不给取色器；桌面宿主上只有候选窗口还能单独设明暗，其余界面一律跟随颜色模式。
     for platform in [
+        HostPlatform::Macos,
         HostPlatform::Windows,
         HostPlatform::Linux,
-        HostPlatform::Android,
-        HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert!(!host.candidate_number_color && !host.candidate_border_color);
+        assert!(host.surface_themes_follow);
+    }
+    // Android 和 iOS 的键盘仍读这两个槽位和各界面的单独明暗。
+    for platform in [HostPlatform::Android, HostPlatform::Ios] {
         let host = HostCapabilities::for_platform(platform);
         assert!(host.candidate_number_color && host.candidate_border_color);
         assert!(!host.surface_themes_follow);
@@ -624,7 +626,7 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     assert!(harmony.candidate_font_controls);
     assert!(harmony.candidate_row_colors);
     assert!(harmony.candidate_selection_appearance);
-    assert!(harmony.candidate_border_color);
+    assert!(!harmony.candidate_border_color);
     assert!(harmony.candidate_follow_cursor);
     // The 2in1 status-bar badge is the only mode readout a machine with a hardware keyboard
     // gets when the toolbar is off, so the switch that governs it belongs on this host too.
@@ -1019,35 +1021,51 @@ fn editions_without_a_chinese_scheme_offer_no_handwriting_or_offline_glosses() {
 }
 
 #[test]
-fn macos_fixes_ai_candidate_limit_and_effect_intensity_at_their_defaults() {
-    // macOS 不再给「候选数量」和「效果强度」，宿主固定用默认值；固定的值必须正好是新档案的默认值，否则没改过的人升级后也会变。
-    let macos = HostCapabilities::for_platform(HostPlatform::Macos);
-    assert_eq!(
-        macos.fixed_ai_candidate_limit,
-        Some(crate::preferences::AiAssistantPreferences::default().candidate_limit)
-    );
-    assert_eq!(
-        macos.fixed_effect_intensity,
-        Some(crate::preferences::PluginPreferences::default().effect_intensity)
-    );
-    let json = serde_json::to_value(&macos).unwrap();
-    assert_eq!(json["fixed_ai_candidate_limit"], 3);
-    assert_eq!(json["fixed_effect_intensity"], 50);
+fn fixed_ai_candidate_limit_and_effect_intensity_sit_at_their_defaults() {
+    // 不给「候选数量」「效果强度」的宿主固定用默认值；固定的值必须正好是新档案的默认值，否则没改过的人升级后也会变。
+    let limit = crate::preferences::AiAssistantPreferences::default().candidate_limit;
+    let intensity = crate::preferences::PluginPreferences::default().effect_intensity;
     for platform in [
+        HostPlatform::Macos,
         HostPlatform::Windows,
         HostPlatform::Linux,
-        HostPlatform::Android,
-        HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
         let host = HostCapabilities::for_platform(platform);
-        assert_eq!(host.fixed_ai_candidate_limit, None);
-        assert_eq!(host.fixed_effect_intensity, None);
-        assert_eq!(platform.fixed_ai_candidate_limit(), None);
-        assert_eq!(platform.fixed_effect_intensity(), None);
-        // 按偏好的宿主不写这两个键，旧版本设置页读到的能力文档不变。
+        assert_eq!(host.fixed_ai_candidate_limit, Some(limit), "{platform:?}");
         let json = serde_json::to_value(&host).unwrap();
-        assert!(json.get("fixed_ai_candidate_limit").is_none());
-        assert!(json.get("fixed_effect_intensity").is_none());
+        assert_eq!(json["fixed_ai_candidate_limit"], 3, "{platform:?}");
+    }
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Harmony,
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert_eq!(host.fixed_effect_intensity, Some(intensity), "{platform:?}");
+        let json = serde_json::to_value(&host).unwrap();
+        assert_eq!(json["fixed_effect_intensity"], 50, "{platform:?}");
+    }
+    // Android、iOS 仍按偏好决定 AI 候选数量；Linux 不画效果样式，没有强度，Android、iOS 也按偏好。按偏好的宿主不写这些键，旧版本设置页读到的能力文档不变。
+    for platform in [HostPlatform::Android, HostPlatform::Ios] {
+        let host = HostCapabilities::for_platform(platform);
+        assert_eq!(host.fixed_ai_candidate_limit, None, "{platform:?}");
+        assert_eq!(platform.fixed_ai_candidate_limit(), None, "{platform:?}");
+        let json = serde_json::to_value(&host).unwrap();
+        assert!(
+            json.get("fixed_ai_candidate_limit").is_none(),
+            "{platform:?}"
+        );
+    }
+    for platform in [
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert_eq!(host.fixed_effect_intensity, None, "{platform:?}");
+        assert_eq!(platform.fixed_effect_intensity(), None, "{platform:?}");
+        let json = serde_json::to_value(&host).unwrap();
+        assert!(json.get("fixed_effect_intensity").is_none(), "{platform:?}");
     }
 }

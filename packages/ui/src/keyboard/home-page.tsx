@@ -8,6 +8,7 @@ import { FluentIcon } from "../core/fluent-icons";
 import { NavGroup, NavRow } from "../core/platform-controls";
 import type { ImeSetupClient } from "../core/host-contracts";
 import type { Preferences } from "../core/preferences-model";
+import type { SurfaceTheme } from "../settings/theme-preferences";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 import { SetupStatusCard } from "./setup-status-card";
 import { logo } from "../settings/app-resources";
@@ -104,12 +105,15 @@ export function HomePage({
   touchLayout = false,
   ios = false,
   rootPages,
+  keyboardSurfaceTheme,
 }: {
   preferences: Preferences;
   actions?: HomePageActions;
   onOpenPage: (page: string) => void;
   onOpenChat?: () => void;
   touchLayout?: boolean;
+  /** 桌面首页键盘预览的单独明暗，取宿主真正会用的那个值：各界面跟随颜色模式的宿主不读存下的 `screen_keyboard_theme`，调用方就不传，预览照颜色模式画。触屏首页忽略它。 */
+  keyboardSurfaceTheme?: SurfaceTheme;
   /** iOS opens the keyboard extension's settings, where 完全访问 lives; Android and HarmonyOS open the system input method settings. */
   ios?: boolean;
   /** 触屏首页以分组行列出的页面，标题与手机上显示的一致；桌面首页忽略它。 */
@@ -132,6 +136,7 @@ export function HomePage({
       onOpenPage={onOpenPage}
       onOpenChat={onOpenChat}
       ios={ios}
+      keyboardSurfaceTheme={keyboardSurfaceTheme}
     />
   );
 }
@@ -255,14 +260,16 @@ function DesktopHomePage({
   onOpenPage,
   onOpenChat,
   ios,
+  keyboardSurfaceTheme,
 }: {
   preferences: Preferences;
   actions?: HomePageActions;
   onOpenPage: (page: string) => void;
   onOpenChat?: () => void;
   ios: boolean;
+  keyboardSurfaceTheme?: SurfaceTheme;
 }) {
-  const theme = useCandidatePreviewTheme(preferences.theme, preferences.screen_keyboard_theme);
+  const theme = useCandidatePreviewTheme(preferences.theme, keyboardSurfaceTheme);
   const selected = themeEntry(preferences.global_theme).id;
   const skin = keyboardThemeId(selected, preferences.custom_theme);
   const customDesign = preferences.custom_theme?.keyboard ?? undefined;

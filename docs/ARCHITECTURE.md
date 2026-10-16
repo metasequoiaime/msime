@@ -31,7 +31,7 @@ crates/engine                  输入算法与组合状态（纯 Rust）
 | macOS | 共享 React 设置页 | 输入法菜单的设置项以 `--route=settings:<类别>` 拉起 Tauri 设置应用 `app.msime.macos`（`platforms/macos/src/core/DesktopSettingsLauncher.h`） |
 | Linux | 共享 React 设置页 | IBus 与 Fcitx5 的「设置…」以 `--route=settings` 调用 `msime-linux-settings`，关于、帮助、反馈和词库四项以 `--route=settings:<类别>` 调用（`platforms/linux/src/core/ClientEngine.cpp`、`platforms/linux/fcitx5/FcitxEngine.cpp`），由它启动 Tauri 外壳（`platforms/linux/data/msime-linux-settings.in`）；没有原生设置界面 |
 | HarmonyOS | 共享 React 设置页 | `pages/Settings.ets` 用 ArkWeb 加载 `stage-settings.sh` 打包的 `rawfile/settings/index.html`，ArkTS 一侧只做原生桥，不画设置表单 |
-| Windows | 原生 WinUI 3 | `msime-client-settings.exe`（`platforms/windows/settings/`）原生绘制全部 17 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`）；React 设置页仍随 Tauri 的 `MSIME.exe` 安装，直接运行 `MSIME.exe` 能看到，但没有设置入口指向它 |
+| Windows | 原生 WinUI 3 | `msime-client-settings.exe`（`platforms/windows/settings/`）原生绘制全部 16 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`）；React 设置页仍随 Tauri 的 `MSIME.exe` 安装，直接运行 `MSIME.exe` 能看到，但没有设置入口指向它 |
 | iOS | 原生 SwiftUI | `platforms/ios/App/Sources/`；App、`SharedUI` 和键盘扩展里都没有 WebView |
 | Android | 原生 Java | 发布的 APK（`platforms/android/build-apk.sh`）的设置 App 各页在 `java/app/msime/android/home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面，不含 Tauri/React；带 React 设置的 Tauri 合包（`build-client-apk.sh`）只用于开发验证，不发布 |
 

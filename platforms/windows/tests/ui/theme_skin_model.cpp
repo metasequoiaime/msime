@@ -161,9 +161,12 @@ int main() {
         "picking a colour on the custom theme keeps its skins");
   const auto clear = candidate_color_change(L"night", L"system", true);
   check(!clear.select_custom && !clear.reset_skins, "following the theme changes nothing else");
-  check(std::size(color_slots) == 7 && color_slots[0].key == L"surface" &&
-            color_slots[6].key == L"border" && !color_slots[0].pressed && color_slots[1].pressed,
-        "seven pickers from surface to border");
+  // 编号色和边框色跟随主题，不给取色器。
+  check(std::size(color_slots) == 5 && color_slots[0].key == L"surface" &&
+            color_slots[4].key == L"hover" && !color_slots[0].pressed && color_slots[1].pressed,
+        "five pickers from surface to hover");
+  for (const auto &slot : color_slots)
+    check(slot.key != L"number" && slot.key != L"border", "no number or border picker");
 
   if (failures)
     return 1;

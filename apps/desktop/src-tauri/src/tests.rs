@@ -359,7 +359,7 @@ fn candidate_panel_status_reader_rejects_oversized_documents() {
     assert!(super::read_candidate_panel_status(&path).is_none());
 }
 
-/// IBus 宿主在 GNOME Shell 以外的会话里写 `ibus_panel`：设置页读到它，才会说明圆角、边框颜色和皮肤装饰图在 IBus 面板上不生效，「关于」页照样认出输入法框架。
+/// IBus 宿主在 GNOME Shell 以外的会话里写 `ibus_panel`：设置页读到它，才会说明圆角和皮肤装饰图在 IBus 面板上不生效，「关于」页照样认出输入法框架。
 #[test]
 fn candidate_panel_status_reader_reports_the_ibus_panel_limit() {
     use msime_client_core::host_surface::{environment, CandidatePanelLimit};

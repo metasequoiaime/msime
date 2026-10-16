@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-// 「帮助与反馈」页「提交可复现的问题」一组的报告：反馈类型、附上的诊断信息、报告正文和预填的 GitHub 新 issue 地址。逐条照搬共享设置的 `feedback-kind-options.tsx`、`support-diagnostics.ts`、`use-feedback-report.ts` 和 `label-helpers.ts` 的 `schemeTitle`；不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「关于」页里并进来的帮助与反馈（共享页的 `FeedbackSections`）中「提交可复现的问题」一组的报告：反馈类型、附上的诊断信息、报告正文和预填的 GitHub 新 issue 地址。逐条照搬共享设置的 `feedback-kind-options.tsx`、`support-diagnostics.ts`、`use-feedback-report.ts` 和 `label-helpers.ts` 的 `schemeTitle`；不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings {
 
 // 反馈类型的选项，顺序与共享页相同；第一项是默认值。选项的值就是显示的文字，报告和 issue 标题都用它。

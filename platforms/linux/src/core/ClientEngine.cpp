@@ -1061,10 +1061,9 @@ struct State {
     wubi_auto_commit_unique = wubi_auto_commit_unique_override.value_or(
         preferences.value("wubi_auto_commit_unique", true));
     const auto voice = preferences.value("voice_input", Json::object());
-    // The voice overlay's mode from voice_theme by its own rule, its colours from the theme the candidate window resolves (as the floating toolbar takes them), so the bar matches the panel's theme; a fixed-appearance theme overrides the mode.
+    // 语音浮层的明暗跟随颜色模式（各界面一律跟随，存下的 voice_theme 不再读），颜色取候选窗解析出的主题（与悬浮工具栏取法相同），所以浮层与面板同一套主题；固定明暗的主题照样盖过它。
     const auto voice_theme = theme_in_mode(
-        display_preferences, !msime_voice_overlay_light_theme(preferences.value("voice_theme", "follow"),
-                                                              preferences.value("theme", "dark"), system_dark));
+        display_preferences, !msime_voice_overlay_light_theme("follow", preferences.value("theme", "dark"), system_dark));
     wave_overlay.light_theme = !voice_theme.dark;
     wave_overlay.palette = msime::linux_host::floating_surface_colors(voice_theme);
     voice_enabled = voice.value("enabled", true);
@@ -2292,9 +2291,9 @@ void online_dispatch(IBusEngine *engine, uint8_t only_source, bool ai_cache_only
         const auto desired = s.applied_preferences_snapshot.value("ai_assistant", Json::object());
         const auto current = query.value("ai_assistant", Json::object());
         bool matches = desired.value("enabled", false) && current.value("enabled", false);
-        // Engine preference application may be deferred until composition
-        // ends. Never launch another request with the superseded AI settings.
-        for (const auto *key : {"provider", "model", "endpoint", "candidate_limit",
+        // 引擎可能等组字结束才应用偏好，不能再用已被替换的 AI 设置发出请求。
+        // 不比较 candidate_limit：Linux 的候选数量由 host-api 固定（client-core 的 `HostPlatform::fixed_ai_candidate_limit`），查询里永远是固定值，而 desired 是文档里存的原值，存的不是 3 时两边永远不等，AI 请求就再也发不出去。推迟应用的偏好改动也改不了这个固定值，没有什么要防。
+        for (const auto *key : {"provider", "model", "endpoint",
                                 "prompt_id", "prompt_custom_1",
                                 "prompt_custom_2", "prompt_custom_3"}) {
           if (desired.contains(key) &&

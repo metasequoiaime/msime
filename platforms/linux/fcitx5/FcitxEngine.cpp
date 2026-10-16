@@ -426,11 +426,10 @@ msime::linux_host::CandidateTheme resolveCandidateTheme(const Json &preferences,
   return resolveThemeInMode(preferences, msime::linux_host::candidate_dark_theme(preferences, system_dark), catalog);
 }
 
-// The voice overlay's theme: its mode from voice_theme by the rule it has always used (VoiceAction.h), its colours from the resolved theme as the floating toolbar takes them, so the bar MSIME draws matches the candidate window's theme rather than fixed greys. A fixed-appearance theme overrides the mode, as it does for the panel.
+// 语音浮层的主题：明暗跟随颜色模式（各界面一律跟随，存下的 voice_theme 不再读），按 VoiceAction.h 一直用的规则解析；颜色取解析出的主题，与悬浮工具栏取法相同，所以 MSIME 画的浮层与候选窗是同一套主题而不是固定的灰色。固定明暗的主题照样盖过它，与候选窗相同。
 msime::linux_host::CandidateTheme resolveVoiceOverlayTheme(const Json &preferences, bool system_dark,
                                                            const Json &catalog) {
-  const bool dark = !msime_voice_overlay_light_theme(preferences.value("voice_theme", "follow"),
-                                                     preferences.value("theme", "dark"), system_dark);
+  const bool dark = !msime_voice_overlay_light_theme("follow", preferences.value("theme", "dark"), system_dark);
   return resolveThemeInMode(preferences, dark, catalog);
 }
 
@@ -7158,9 +7157,9 @@ void FcitxState::maintenance(int operation) {
   }
 }
 
-// The badge's theme, by the macOS badge's rule: its mode is toolbar_theme when that names one, otherwise the global mode, whose "system" (跟随系统) default follows the desktop. A global theme with a fixed appearance (水杉 is dark, 纸白 light) decides it either way, and the colours are that theme's palette as the floating toolbar takes it.
+// 模式角标的主题：与 macOS 的角标一样跟随颜色模式，"system"（跟随系统，也是默认值）看桌面明暗，存下的 toolbar_theme 不再读。固定明暗的全局主题（水杉是深色，纸白是浅色）照样决定明暗，颜色取那个主题的调色板，与悬浮工具栏取法相同。
 msime::linux_host::CandidateTheme fcitx_mode_badge_theme(const Json &preferences, bool system_dark, const Json &catalog) {
-  const bool dark = msime::linux_host::surface_dark_theme(preferences, "toolbar_theme", system_dark);
+  const bool dark = msime::linux_host::surface_dark_theme(preferences, system_dark);
   return resolveThemeInMode(preferences, dark, catalog);
 }
 

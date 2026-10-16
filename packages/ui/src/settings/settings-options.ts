@@ -26,7 +26,7 @@ export const candidatePanelLimitNotes: Record<
   kimpanel:
     "Fcitx5 的候选窗口由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
   ibus_panel:
-    "IBus 的候选窗口由桌面的输入法面板绘制，只接收候选字体和颜色：这里的圆角、边框颜色和皮肤的装饰图在 IBus 下不会生效。",
+    "IBus 的候选窗口由桌面的输入法面板绘制，只接收候选字体和颜色：这里的圆角和皮肤的装饰图在 IBus 下不会生效。",
 };
 
 // The last column is the description on a host whose skin reaches only the candidate window (Linux presents the toolbar as an input method menu).

@@ -1,20 +1,10 @@
+import type { SettingsClient } from "./core/settings-client";
 import type { Preferences, Snapshot } from "./core/preferences-model";
 
-import type { HostCapabilities } from "./core/host-capabilities";
-import type { ProviderCredentialClient } from "./core/provider-credential-contracts";
-
-import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
-
-import type {
-  BuiltinShuangpinProfile,
-  ShuangpinCustomProblem,
-  ShuangpinCustomProfile,
-} from "./settings/shuangpin-custom-profile";
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
 import { ToastProvider } from "./core/toast";
 import { appThemeStyle, seasonAttr } from "./core/app-theme-style";
-import type { AppThemeClient, FeedbackClient, HostChromeClient } from "./core/host-contracts";
 import { SetupWarningStrip } from "./keyboard/setup-status-card";
 import { KeyboardSwitchGuideHost } from "./keyboard/keyboard-switch-guide";
 import { TryKeyboardPage } from "./keyboard/try-keyboard-page";
@@ -45,7 +35,6 @@ import {
   isSettingsFormPage,
 } from "./settings/settings-page-visibility";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
-import type { PickedApplication } from "./settings/app-input-mode-rules";
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
 import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
@@ -53,12 +42,8 @@ import {
   hostDrawnCustomTheme,
   settingsThemePreferences,
 } from "./settings/settings-theme-preferences";
-import type { VoiceDeviceReader } from "./voice/voice-device-picker";
-import type { LocalVoiceModelClient } from "./voice/local-models";
-import type { ResourcePackClient } from "./settings/resource-packs";
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import type { DictionaryClient, DictionaryManifest } from "./dictionary/dictionary-contracts";
 export type {
   DictionaryEntry,
   DictionaryPageFormat,
@@ -128,9 +113,8 @@ export {
 } from "./settings/use-dictionary-manager";
 import { SettingsFormFooter } from "./settings/settings-form-footer";
 import { SettingsPageStatus } from "./settings/settings-page-status";
-import type { InputSourceStartupStatus } from "./settings/input-source-startup-model";
 import { SettingsFormFrame } from "./settings/settings-form-frame";
-import { NoticeBanner, type NoticesClient } from "./settings/notice-banner";
+import { NoticeBanner } from "./settings/notice-banner";
 import { WindowTitlebar } from "./settings/window-titlebar";
 import { useProviderCredentials } from "./settings/use-provider-credentials";
 import { useFeedbackReport } from "./settings/use-feedback-report";
@@ -151,7 +135,6 @@ import {
 } from "./settings/use-community-gallery-subview";
 import { CommunityGallerySubview } from "./settings/community-gallery-subview";
 import { useMacosSettings } from "./settings/use-macos-settings";
-import type { MacosInputModesClient } from "./settings/macos-input-mode-entries-section";
 import { useWindowState } from "./settings/use-window-state";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
@@ -383,12 +366,7 @@ export {
 } from "./settings/settings-capabilities";
 import { useAiAssistant } from "./settings/use-ai-assistant";
 export { useAiAssistant, type UseAiAssistantOptions } from "./settings/use-ai-assistant";
-import type { FontCatalogReader } from "./candidate/font-catalog";
-import {
-  type GlobalTheme,
-  type ResolveThemeRequest,
-  type ResolvedTheme,
-} from "./theme/global-theme";
+import { type GlobalTheme } from "./theme/global-theme";
 export {
   candidatePaletteStyle,
   customCandidateStyle,
@@ -419,10 +397,6 @@ export {
   useVoiceInputSettings,
   type UseVoiceInputSettingsOptions,
 } from "./settings/use-voice-input-settings";
-import {
-  type AiSkinClient,
-  type CustomSkinLibraryClient,
-} from "./keyboard/touch-keyboard-skin-design";
 export type {
   AiSkinClient,
   AiSkinProposal,
@@ -432,26 +406,13 @@ export type {
   SavedTouchKeyboardSkin,
   TouchKeyboardSkinDesign,
 } from "./keyboard/touch-keyboard-skin-design";
-import { type SkinCatalog } from "./skin/external-skins";
 import { TypingStatisticsPage } from "./settings/typing-statistics";
-import type { TypingStatisticsClient } from "./settings/typing-statistics-model";
-import { VocabularyReviewPage, type VocabularyReviewClient } from "./settings/vocabulary-review";
-import {
-  type McpClientId,
-  type McpFlag,
-  type McpInstallOutcome,
-  type McpServerStatus,
-} from "./settings/mcp-connect";
+import { VocabularyReviewPage } from "./settings/vocabulary-review";
 import * as settings from "./settings/settings-style";
 import { FluentIcon } from "./core/fluent-icons";
-import {
-  AccountPage,
-  type AccountClient,
-  type AccountCommunityDestination,
-  type AppIconClient,
-} from "./account/account-page";
-import { ChatPage, type ChatClient } from "./chat/chat-page";
-import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
+import { AccountPage, type AccountCommunityDestination } from "./account/account-page";
+import { ChatPage } from "./chat/chat-page";
+import { HomePage, MoreSettingsPage } from "./keyboard/home-page";
 import {
   ScreenKeyboardLayoutContext,
   screenKeyboardLayoutFor,
@@ -480,31 +441,22 @@ import { ScreenKeyboardSettingsPage } from "./settings/pages/screen-keyboard-pag
 import { ShortcutSettingsPage } from "./settings/pages/shortcuts-page";
 import { ToolsSettingsPage } from "./settings/pages/tools-page";
 import { PluginsSettingsPage } from "./settings/pages/plugins-page";
-import type { PluginClient } from "./settings/plugins-section";
 
 import { AboutSettingsPage } from "./settings/pages/about-page";
 import { UsageReportingSettingsPage } from "./settings/pages/usage-reporting-page";
 import { PrivacySettingsPage } from "./settings/pages/privacy-page";
-import type { CustomHelpcodeSchema } from "./settings/helpcode-preferences";
-import type { ClipboardHistoryClient } from "./settings/clipboard-history-section";
-import type { CloudClipboardRequest } from "./settings/cloud-clipboard-send";
 
 import { floatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
 
 import { HelpSettingsPage } from "./settings/help-settings-page";
-import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
 import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
 import { logo } from "./settings/settings-options";
-import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
+import { CommunitySkinsPage } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
-import type {
-  CommunityResource,
-  CommunityResourceClient,
-} from "./community/community-resource-model";
-import type { CandidateSkinCommunityClient } from "./community/community-candidate-skins";
-import { CommunityPluginsPage, type CommunityPluginClient } from "./community/community-plugins";
+import type { CommunityResource } from "./community/community-resource-model";
+import { CommunityPluginsPage } from "./community/community-plugins";
 import * as communityStyle from "./community/community-style";
 import { CommunityPage } from "./community/community-page";
 export { useConfirm, type ConfirmRequest } from "./core/confirm";
@@ -1540,9 +1492,7 @@ export {
 } from "./community/community-plugins";
 export { CommunityPage, type CommunityPageProps } from "./community/community-page";
 export type { SkinCatalog, ExternalSkin } from "./skin/external-skins";
-import type { SkinImageReader } from "./skin/skin-image";
 export type { SkinImage, SkinImageReader } from "./skin/skin-image";
-import type { SkinFontReader } from "./skin/skin-font";
 export type { SkinFont, SkinFontReader } from "./skin/skin-font";
 export {
   POLISH_CUSTOM_IDS,
@@ -1582,11 +1532,7 @@ export {
   type CandidateAppearance,
   type CandidateOrientation,
 } from "./candidate/candidate-themes";
-import {
-  describeInstallerTrust,
-  type UpdateCheckRequest,
-  type UpdateCheckResult,
-} from "./settings/update-manifest";
+import { describeInstallerTrust } from "./settings/update-manifest";
 import { editionUsesHelpcode } from "./settings/input-scheme-options";
 export {
   serializeWindowHostMessage,
@@ -1716,32 +1662,8 @@ export type {
   VoiceCredentialSaveResult,
   ProviderCredentialClient,
 } from "./core/provider-credential-contracts";
-export type AiAssistantClient = {
-  // `provider` is for the hosts whose provider service holds the credential: it
-  // is what that service checks its private configuration against. The hosts that
-  // hold the token themselves ignore it and authenticate with `token`.
-  fetchModels(configuration: {
-    endpoint: string;
-    token: string;
-    provider: string;
-  }): Promise<string[]>;
-  test(configuration: {
-    endpoint: string;
-    model: string;
-    prompt: string;
-    token: string;
-    text: string;
-    provider: string;
-  }): Promise<string>;
-};
-export type ApiCredentialTestService =
-  | "translation.tencent"
-  | "translation.niutrans"
-  | "translation.custom"
-  | "voice.asr"
-  | "voice.polish"
-  | "ai.assistant";
-export type ApiCredentialTestResult = { ok: boolean; message: string };
+export type { AiAssistantClient } from "./core/ai-assistant-client";
+export type { ApiCredentialTestService, ApiCredentialTestResult } from "./core/api-credential-test";
 export type { ProviderPreset, ProviderDefaults } from "./core/provider-preset";
 export {
   AI_PROVIDER_OPTIONS,
@@ -1775,213 +1697,7 @@ export type { FloatingToolbarPreferences } from "./settings/floating-toolbar-pre
 export { InputSourceStartupNotice } from "./settings/input-source-startup-notice";
 /** macOS 设置宿主启动时对内嵌输入法的安装与启用状态。 */
 export type { InputSourceStartupStatus } from "./settings/input-source-startup-model";
-export interface SettingsClient {
-  /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
-  host?: HostCapabilities;
-  /** Android's platform-adapted Apple-style keyboard home surface. */
-  home?: HomePageActions;
-  /** Mobile account commands expose user/profile DTOs but never session tokens. */
-  account?: AccountClient;
-  /** Mobile hosts expose platform-native launcher or alternate icon selection. */
-  appIcon?: AppIconClient;
-  /** Mobile account commands expose the authenticated EveryAPI chat surface. */
-  chat?: ChatClient;
-  /** Android performs user-configured AI service requests in its native host. */
-  aiAssistant?: AiAssistantClient;
-  /** Linux writes AI and translation credentials to the online provider's owner-only files. */
-  providerCredentials?: ProviderCredentialClient;
-  /** Native hosts test credentials without exposing private provider secrets to the webview. */
-  testApiCredential?: (
-    service: ApiCredentialTestService,
-    config: Record<string, unknown>,
-  ) => Promise<ApiCredentialTestResult>;
-  /** Android community commands expose bounded public skin metadata and designs. */
-  communitySkins?: CommunitySkinClient;
-  /** Android community commands expose dictionaries and reply templates. */
-  communityResources?: CommunityResourceClient;
-  /** Desktop community commands that publish, install and rate candidate-window skin packages. */
-  communityCandidateSkins?: CandidateSkinCommunityClient;
-  /** Desktop community commands that publish, install and rate plugin packs; installs land in the store behind `plugins`. */
-  communityPlugins?: CommunityPluginClient;
-  listVoiceCaptureDevices?: VoiceDeviceReader;
-  listFontFamilies?: FontCatalogReader;
-  resolveFontFamilies?: (names: string[]) => Promise<string[]>;
-  scanSkinCatalog?: () => Promise<SkinCatalog>;
-  /** Custom helper-code tables found below the host's verified resource directory. */
-  listHelpcodeSchemas?: () => Promise<CustomHelpcodeSchema[]>;
-  /**
-   * The colours a host draws for a theme, from the same `resolve` the input method runs (`msime_client_resolve_theme`), with the custom theme's package read from the host's own skin directory. Absent on hosts whose bridge has no theme call; the picker and built-in previews read `themeCatalog` and need no host.
-   */
-  resolveTheme?: (request: ResolveThemeRequest) => Promise<ResolvedTheme>;
-  /** 编辑中的自定义双拼表有什么问题，能用时是 `null`。与 MCP 保存前的校验结论相同，但宿主不为它留下任何东西，页面每改一个键都可以问。和 `builtinShuangpinTable` 都提供时，输入页才提供自定义双拼的编辑、导入和导出。 */
-  validateShuangpinCustomProfile?: (
-    profile: ShuangpinCustomProfile,
-  ) => Promise<ShuangpinCustomProblem | null>;
-  /** 内置双拼方案的键位表，编辑自定义方案时从它开始。 */
-  builtinShuangpinTable?: (name: BuiltinShuangpinProfile) => Promise<ShuangpinCustomProfile | null>;
-  readSkinImage?: SkinImageReader;
-  readSkinFont?: SkinFontReader;
-  readSkinToolbarCss?: (id: string, relative?: string) => Promise<string | null>;
-  openSkinDirectory?: () => Promise<void>;
-  /**
-   * Shows the input method's diagnostic log in the file manager so it can be sent after a reproduction. The host resolves the location itself; absent on hosts without a reachable file manager, which then show no button.
-   */
-  openDiagnosticLogDirectory?: () => Promise<void>;
-  /**
-   * Write an exported document into the user's Downloads folder and resolve to the absolute path written, which may carry a " (2)" suffix when the name was taken. A host that asks where to save (the Harmony save picker) resolves null when the user closes the picker, and may reject with an Error whose message is shown as is. A host whose webview drops download links (the macOS WKWebView cancels them) offers this; without it the page falls back to a download link.
-   */
-  saveExport?: (name: string, contents: string) => Promise<string | null>;
-  load(): Promise<Snapshot>;
-  save(revision: number, preferences: Preferences): Promise<Snapshot>;
-  onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
-  dictionary?: DictionaryClient;
-  /** 命名词库：新建、导入、启用停用、装社区词库。提供它的宿主在手机的「词库」页按词库列出，而不是按种类查词条。 */
-  dictionaryCollections?: DictionaryCollectionsClient;
-  /** 原子地恢复内置词库并清除全部学习数据；宿主只在真正能清除的平台（三个桌面宿主）上提供它。 */
-  resetLearnedData?: () => Promise<void>;
-  /**
-   * What a restore-to-defaults would write, without writing it. The host decides what survives --
-   * the credentials, and the endpoint and model that address the same service -- because that rule
-   * belongs with the document, not with this page.
-   */
-  loadDefaultPreferences?: () => Promise<Preferences>;
-  /**
-   * Repair a preferences document the host cannot read, as the Windows source repairs a config.toml that does not parse. The host backs the damaged file up beside it first, then keeps every setting and service key it still recognises. `backupPath` is absent when the document already loaded and nothing was written.
-   */
-  recoverPreferences?: () => Promise<PreferencesRecovery>;
-  /** Open the folder holding the preferences document, where a repair leaves its backup. */
-  openPreferencesDirectory?: () => Promise<void>;
-  readAppVersion?: () => Promise<string>;
-  /** 经由 `msime_client_services::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
-  checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
-  openExternalUrl?: (url: string) => Promise<void>;
-  /** The console's app notices; the host fetches and caches the feed and remembers dismissals. Absent shows none. */
-  notices?: NoticesClient;
-  /** macOS opens the versioned third-party notices shipped with the app bundle. */
-  openThirdPartyLicenses?: () => Promise<void>;
-  /** 「输入时显示双拼键位提示」以前只存在 macOS 本机 defaults 里，现在是共享偏好 `shuangpin_keymap_hint`。文档里还没有这一项时，macOS 输入法仍按本机的旧选择显示键位图，设置页读这个值只为显示同一个状态；改动写进共享偏好。 */
-  loadMacosShuangpinKeymap?: () => Promise<boolean>;
-  copyText?: (text: string) => Promise<void>;
-  /** The desktop hosts ship `msime-mcp` beside the settings app and report where it is and the entry an AI assistant runs it with. */
-  mcpServerStatus?: () => Promise<McpServerStatus>;
-  /** 把条目（`args` 末尾加上 `flags`）写进助手的配置文件。已有条目只差权限参数时直接更新；其它不同的 `msime` 条目在未设 `replace` 时以 `mcp_entry_exists` 拒绝。 */
-  installMcpClient?: (
-    client: McpClientId,
-    replace: boolean,
-    flags: readonly McpFlag[],
-  ) => Promise<McpInstallOutcome>;
-  /** Mobile hosts can open the platform keyboard/input-method settings. */
-  openSystemKeyboardSettings?: () => Promise<void>;
-  /** Mobile hosts persist keyboard sound and haptic feedback in native preferences. */
-  mobileKeyboardFeedback?: MobileKeyboardFeedbackClient;
-  openScreenKeyboard?: () => Promise<void>;
-  openHandwriting?: () => Promise<void>;
-  openVoice?: () => Promise<void>;
-  /** Opens the 背单词 panel. Absent on hosts with no panel windows; the settings page then keeps
-   * the review inline rather than offering a button that opens nothing. */
-  openVocabulary?: () => Promise<void>;
-  openCloudClipboard?: () => Promise<void>;
-  /** 设置窗口自己发云剪贴板请求，经登录的水杉账号或配置的自建中继；有它时本机剪贴板历史可以把一条发到云剪贴板。 */
-  cloudClipboardRequest?: CloudClipboardRequest;
-  /** 这个宿主的云剪贴板会按偏好 `cloud_clipboard_relay` 改走自建中继；有它时「剪贴板」页显示同步方式和中继的地址、令牌。 */
-  cloudClipboardRelay?: boolean;
-  openCloudDictionary?: () => Promise<void>;
-  restartInputMethod?: () => Promise<void>;
-  /** macOS installs/updates the separate InputMethodKit bundle before registering it. */
-  installInputSource?: () => Promise<void>;
-  /** macOS 上哪几个输入模式已经加入输入法列表，用于「方案」里的「菜单栏入口」提示。 */
-  macosInputModes?: MacosInputModesClient;
-  /** macOS installs or refreshes the input method on every start; this reports what that did. */
-  inputSourceStartup?: {
-    /** Resolves once the start-time check has finished; `null` when it did not run for this launch. Whether the source is enabled is read afresh on every call, and nothing is installed again, so it is safe to call repeatedly. */
-    status(): Promise<InputSourceStartupStatus | null>;
-    /** Opens the System Settings page where input sources are added and enabled. */
-    openSettings(): Promise<void>;
-  };
-  /**
-   * macOS translates the Chinese candidates no offline dictionary answers, whole sentences included, with Apple's on-device models, but only for a language pair already downloaded in System Settings.
-   */
-  onDeviceTranslation?: {
-    /** Target language codes the input method last found downloadable but not yet downloaded. */
-    downloadableLanguages(): Promise<string[]>;
-    /** Opens 语言与地区, where 翻译语言 are downloaded. */
-    openSettings(): Promise<void>;
-  };
-  /** macOS moves the installed input source to Trash; data removal is explicit. */
-  uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
-  /** macOS keeps small fixed locators while the state root itself may move to another volume. */
-  dataDirectory?: {
-    status(): Promise<{ path: string; isDefault: boolean }>;
-    pick(): Promise<string | null>;
-    /** `inputMethodRestarted` is false when the data moved but the host could not restart the input method; absent means the host restarts nothing itself or it succeeded. */
-    move(): Promise<{
-      path: string;
-      isDefault: boolean;
-      retainedOldData: boolean;
-      inputMethodRestarted?: boolean;
-    }>;
-  };
-  /**
-   * Ask the host for an installed local speech model directory (one holding msime-model.json), resolving to null when the user cancels. The model is loaded by path and a file input hands back contents instead, so only the host can answer this.
-   */
-  pickVoiceModelPath?: () => Promise<string | null>;
-  /** 应用例外的「添加应用…」：宿主弹出系统的选应用对话框，交回规则用的标识（macOS 的 Bundle ID，Windows 的程序文件名）和应用名称，用户取消时为 null；所选不是应用程序时以 `not_application` 拒绝。没有它的宿主只能手填应用标识。 */
-  pickApplication?: () => Promise<PickedApplication | null>;
-  /** 应用例外列表的显示名称：按规则标识查本机装着的应用，查不到的不返回（macOS）。 */
-  applicationNames?: (ids: string[]) => Promise<Record<string, string>>;
-  /** The host's on-device speech model store; hosts that provide it offer the `local` provider with a model manager. */
-  localVoiceModels?: LocalVoiceModelClient;
-  /** 按需下载的资源包（日文词库、「粤语、注音与笔画词库」、手写模型）。只有 macOS 提供：发布包不再内置它们，选用对应方案时由设置页下载。 */
-  resourcePacks?: ResourcePackClient;
-  windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
-  beginWindowDrag?: () => Promise<void>;
-  resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
-  onWindowStateChanged?: (
-    listener: (maximized: boolean) => void,
-    onError?: () => void,
-  ) => Promise<() => void>;
-  clipboard?: ClipboardHistoryClient;
-  typingStatistics?: TypingStatisticsClient;
-  /** Absent on a host that has not wired the shared vocabulary entry point. */
-  vocabularyReview?: VocabularyReviewClient;
-  /** The host exposes the shared fuzzy-pinyin settings. */
-  fuzzyPinyin?: boolean;
-  /** Android exposes Apple-compatible touch-keyboard scheme visibility and selection. */
-  touchKeyboardSchemes?: boolean;
-  /** Android exposes Apple's current custom touch-keyboard design editor and renderer. */
-  customTouchKeyboardSkins?: boolean;
-  /** Named custom designs use a separate bounded file, outside hot-path preferences. */
-  customSkinLibrary?: CustomSkinLibraryClient;
-  /** Android account-backed AI skin draw and artwork jobs. */
-  aiSkins?: AiSkinClient;
-  /** Mobile and desktop hosts can show packaged offline English glosses without changing candidate identity. */
-  candidateEnglishGloss?: boolean;
-  /** Hosts that draw a reading (English IPA, Japanese romaji) after each gloss line. */
-  candidatePronunciation?: boolean;
-  /** The desktop hosts' plugin pack store and the @ name list, behind the 插件 page. */
-  plugins?: PluginClient;
-  /**
-   * Which packaged dictionary is installed, for the dictionary page to state.
-   *
-   * A host that stages its resources into a sandbox is the only thing that knows where the
-   * manifest ended up, and the path is not something this page should be told. Absent means the
-   * host cannot answer, and the section is not drawn: a dictionary version stated wrongly is worse
-   * than one not stated at all.
-   */
-  dictionaryManifest?: () => Promise<DictionaryManifest>;
-  /** HarmonyOS 设置所用的季节应用主题（水杉四季和四个固定季节）。其他平台没有这一项，保持平台自己的 token 颜色。 */
-  appTheme?: AppThemeClient;
-  /** 给系统状态栏和导航栏着色以匹配页面；只有掌管自己窗口系统栏的宿主（HarmonyOS 手机）才提供。 */
-  chrome?: HostChromeClient;
-  /** 向服务发送应用内反馈报告；只通过 GitHub issue 途径反馈的宿主没有这一项。 */
-  feedback?: FeedbackClient;
-}
-
-export interface PreferencesRecovery {
-  snapshot: Snapshot;
-  backupPath?: string | null;
-  salvaged: boolean;
-}
+export type { SettingsClient, PreferencesRecovery } from "./core/settings-client";
 
 /** What a load or save that failed on an unreadable document says; the repair button sits beside exactly this message. */
 /**
@@ -2458,7 +2174,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const floatingToolbar = floatingToolbarPreferences(draft);
   const { themeMode, settingsTheme, globalTheme, customColors, customTouchKeyboardSkin } =
     settingsThemePreferences(draft, host?.platform, surfaceThemesFollow);
-  // 预览画的自定义主题只含宿主会读的槽位：macOS 不读编号色和边框色，存下的旧值不能在预览里画出来。只给预览用，不写回草稿。
+  // 预览画的自定义主题只含宿主会读的槽位：桌面宿主不读编号色和边框色，存下的旧值不能在预览里画出来。只给预览用，不写回草稿。
   const previewCustomTheme = hostDrawnCustomTheme(
     draft?.custom_theme,
     showCandidateNumberColor,
@@ -2963,6 +2679,7 @@ function SettingsShell(props: SettingsPageProps) {
     recoverPreferences,
     dirty,
     keyboardPreviewTheme,
+    surfaceThemesFollow,
     availablePages,
     handwritingOnScreenKeyboardPage,
     sidebarGroups,
@@ -3335,6 +3052,9 @@ function SettingsShell(props: SettingsPageProps) {
                   }
                   touchLayout={mobilePlatform}
                   ios={iosPlatform}
+                  keyboardSurfaceTheme={
+                    surfaceThemesFollow ? undefined : draft.screen_keyboard_theme
+                  }
                   rootPages={mobileSecondaryGroups
                     .flatMap((group) => group.pages)
                     .map((item) => ({ id: item.id, title: item.title }))}

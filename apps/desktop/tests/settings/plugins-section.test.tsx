@@ -1442,7 +1442,7 @@ test("selects an installed effect pack, which takes over the style and intensity
   expect(screen.queryByText("特效包")).toBeNull();
 });
 
-test("offers only the combo count where the host draws no effect styles", () => {
+test("offers only the combo count and the tier sound where the host draws no effect styles", () => {
   renderSection({
     client: undefined,
     typingEffects: true,
@@ -1452,7 +1452,8 @@ test("offers only the combo count where the host draws no effect styles", () => 
   expect(screen.getByRole("switch", { name: "连击计数" })).toBeTruthy();
   expect(screen.queryByRole("radiogroup", { name: "效果样式" })).toBeNull();
   expect(screen.queryByRole("slider", { name: "效果强度" })).toBeNull();
-  expect(screen.queryByRole("switch", { name: "升档音" })).toBeNull();
+  // 升档音由 host-api 从音效包播放，不画样式的宿主（Linux）一样会响。
+  expect(screen.getByRole("switch", { name: "升档音" })).toBeTruthy();
 });
 
 test("lists the built-in packs by their Chinese names, each under its own kind", async () => {
@@ -1946,7 +1947,7 @@ test("the 插件 page offers the typing effects where the host draws them, and o
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: testHost({ platform: "linux", typing_effects: true }),
+        host: testHost({ platform: "linux", typing_effects: true, key_sound: true }),
       }}
     />,
   );
@@ -1956,10 +1957,12 @@ test("the 插件 page offers the typing effects where the host draws them, and o
   fireEvent.click(within(linux).getByRole("button", { name: "声音与效果" }));
   expect(within(linux).getByRole("switch", { name: "连击计数" })).toBeTruthy();
   expect(within(linux).queryByRole("radiogroup", { name: "效果样式" })).toBeNull();
-  expect(within(linux).queryByRole("switch", { name: "升档音" })).toBeNull();
+  expect(within(linux).queryByRole("slider", { name: "效果强度" })).toBeNull();
+  // Linux 的 host-api 在连击升档时播放音效包的上屏音，升档音照样给出。
+  expect(within(linux).getByRole("switch", { name: "升档音" })).toBeTruthy();
 });
 
-test("the 插件 page on macOS fixes the effect intensity and reads the statistics switch for the achievement jingle", async () => {
+test("the 插件 page on macOS, Windows and HarmonyOS fixes the effect intensity, and macOS reads the statistics switch for the achievement jingle", async () => {
   // 只有 `statistics.enabled` 被读到，其余字段与这个测试无关。
   const load = vi.fn(
     async () => ({ statistics: { enabled: false } }) as unknown as TypingStatisticsStatus,
@@ -2001,25 +2004,52 @@ test("the 插件 page on macOS fixes the effect intensity and reads the statisti
   expect(load).toHaveBeenCalled();
 
   cleanup();
-  // Windows 按偏好画强度，滑块照旧。
-  render(
-    <SettingsPage
-      client={{
-        load: async () => snapshot,
-        save: vi.fn(),
-        host: testHost({
-          platform: "windows",
-          typing_effects: true,
-          key_sound: true,
-        }),
-      }}
-    />,
-  );
-  await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
-  const windows = screen.getByRole("group", { name: "插件" });
-  fireEvent.click(within(windows).getByRole("button", { name: "声音与效果" }));
-  expect(within(windows).getByRole("slider", { name: "效果强度" })).toBeTruthy();
+  // Windows 和鸿蒙 2in1（手机没有插件页）同样固定强度，不给滑块。
+  for (const platform of ["windows", "harmony"]) {
+    render(
+      <SettingsPage
+        client={{
+          load: async () => snapshot,
+          save: vi.fn(),
+          host: testHost({
+            platform,
+            typing_effects: true,
+            key_sound: true,
+            ...(platform === "harmony" ? { mobile_settings: false, panel_windows: true } : {}),
+          }),
+        }}
+      />,
+    );
+    await settingsFormReady();
+    fireEvent.click(screen.getByRole("button", { name: "插件" }));
+    const page = screen.getByRole("group", { name: "插件" });
+    fireEvent.click(within(page).getByRole("button", { name: "声音与效果" }));
+    expect(within(page).getByRole("radiogroup", { name: "效果样式" })).toBeTruthy();
+    expect(within(page).queryByRole("slider", { name: "效果强度" })).toBeNull();
+    cleanup();
+  }
+
+  // 没有宿主时（网页预览）没有固定值，照样给出滑块；Linux 不画样式，没有强度可固定，靠样式开关藏起滑块。
+  const preview = {
+    linux: false,
+    android: false,
+    ios: false,
+    harmony: false,
+    windows: false,
+    macos: false,
+    mobile: false,
+    canRestartInputMethod: false,
+    canInstallInputSource: false,
+    canListVoiceCaptureDevices: false,
+  };
+  expect(settingsCapabilities(preview).showEffectIntensity).toBe(true);
+  expect(
+    settingsCapabilities({
+      ...preview,
+      linux: true,
+      host: testHost({ platform: "linux", typing_effects: true }),
+    }).showEffectIntensity,
+  ).toBe(true);
 });
 
 test("effect packs are offered where the host draws a style, not on Linux", () => {

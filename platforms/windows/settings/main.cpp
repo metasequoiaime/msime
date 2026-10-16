@@ -959,7 +959,7 @@ struct PageLabel {
 };
 
 // 「手写输入」并进了「屏幕键盘」页（见 `SettingsNavigation.h`），提供手写的版本里那一页叫「屏幕键盘与手写」，与共享设置 UI 的 `screenKeyboardAndHandwritingTitle` 相同。
-constexpr std::array<PageLabel, 17> page_labels{{
+constexpr std::array<PageLabel, 16> page_labels{{
     {"typing", L"输入方案", 0xE765, L"选择输入方式；专属选项随当前方案变化。"},
     {"expression", L"输入习惯", 0xE8C1, L"调整标点、混输、输出和选词习惯。"},
     {"shortcuts", L"按键", 0xEDA7, L"设置中英文切换、选词和翻页使用的按键。"},
@@ -977,8 +977,7 @@ constexpr std::array<PageLabel, 17> page_labels{{
     {"ai", L"AI 辅助", 0xE99A, L"配置候选补全、文本整理和服务连接。"},
     {"account", L"账号", 0xE77B, L"登录并管理跨设备同步与云端内容。"},
     {"dev", L"维护与诊断", 0xE90F, L"导入导出设置，检查本机状态和诊断信息。"},
-    {"feedback", L"帮助与反馈", 0xED15, L"查阅使用帮助，反馈问题和建议。"},
-    {"about", L"关于", 0xE946, L"查看版本、更新和许可信息。"},
+    {"about", L"关于", 0xE946, L"查看版本和更新，查阅使用帮助、反馈问题，以及许可信息。"},
 }};
 static_assert(page_labels.size() == nav::pages.size());
 static_assert(page_labels[0].id == nav::default_page);
@@ -2963,13 +2962,8 @@ private:
     return background.R < 128;
   }
 
-  // 设置界面主题 overrides 颜色模式 for this window only; 跟随系统 follows Windows.
+  // 设置窗口跟随颜色模式（HostCapabilities::surface_themes_follow），不读存下的 settings_theme；跟随系统时看 Windows 的应用模式。
   bool resolve_dark() {
-    const auto settings = document_.String(L"settings_theme", L"follow");
-    if (settings == L"dark")
-      return true;
-    if (settings == L"light")
-      return false;
     const auto theme = document_.String(L"theme", L"system");
     if (theme == L"dark")
       return true;
@@ -3006,6 +3000,15 @@ private:
       for (const auto *key : dropped)
         if (copy.HasKey(key))
           copy.Remove(key);
+      // 编号色和边框色跟随主题，Server 不读这两个槽位（candidate_theme_values），预览也不画，与真窗口一致。
+      if (copy.HasKey(L"candidate_colors") &&
+          copy.GetNamedValue(L"candidate_colors").ValueType() == JsonValueType::Object) {
+        auto colors = copy.GetNamedObject(L"candidate_colors");
+        for (const auto *slot : {L"number", L"border"})
+          if (colors.HasKey(slot))
+            colors.Remove(slot);
+        copy.SetNamedValue(L"candidate_colors", colors);
+      }
       request.SetNamedValue(L"custom_theme", copy);
     }
     request.SetNamedValue(L"dark", JsonValue::CreateBooleanValue(dark));
@@ -3563,7 +3566,7 @@ private:
 
   void rebuild_search_index() {
     search_index_.clear();
-    candidate_search_tabs_.clear();
+    search_folds_.clear();
     indexing_ = true;
     const auto saved_page = current_page_;
     for (const auto &page : nav::pages) {
@@ -3580,14 +3583,20 @@ private:
   void record(std::wstring const &title, std::wstring const &detail) {
     if (!indexing_ || title.empty())
       return;
-    if (current_page_ == "candidate" && !candidate_index_tab_.empty())
-      candidate_search_tabs_[title] = candidate_index_tab_;
+    if (!fold_index_.empty())
+      search_folds_[title] = fold_index_;
     SearchEntry entry;
     entry.title = title;
     entry.detail = detail;
     entry.page = current_page_;
     entry.display = title + L" · " + page_label(current_page_).title;
     search_index_.push_back(std::move(entry));
+  }
+
+  // 搜索结果落在折叠区里的一行时，那个折叠区要展开才看得见它：索引时 record 记下每行所在的折叠区（`fold_index_`）。
+  bool fold_holds_focus(std::wstring const &fold) const {
+    const auto found = search_folds_.find(focus_row_);
+    return found != search_folds_.end() && found->second == fold;
   }
 
   // The element a search result lands on: the first one drawn under the chosen title. Every element that records a search entry marks itself here, so a check box, a theme card or a section is scrolled to and focused like a settings card.
@@ -4713,8 +4722,6 @@ private:
       build_account_page(page);
     else if (id == "dev")
       build_dev_page(page);
-    else if (id == "feedback")
-      build_feedback_page(page);
     else if (id == "about")
       build_about_page(page);
   }
@@ -4735,7 +4742,7 @@ private:
 
   // ---- 账号与同步 ----
 
-  // 共享账号页（packages/ui/src/account/account-page.tsx）在 Windows 上画的是桌面那一支：没有 App 图标卡片（只有手机有）、没有「我的设计」（Windows 没有触屏键盘皮肤）、没有「关于」一组和登录后返回的「取消」（都只给手机或从别的页面跳来登录时）。没登录时是登录卡片（Google、邮箱、手机号验证码登录，刷新登录方式，清除失效登录状态）；登录后是资料卡片（点开「编辑资料」对话框：更换和移除头像、社区昵称、账号信息）、「设置同步」卡片、「云端」一组（云词库和云剪贴板面板是输入工具，仍由共享应用打开）、「我的内容」一组（共享应用的社区页，Windows 上只有词包与回复模板）和「账号」一组（退出登录、退出所有设备、注销账号）。所有账号操作经 msime_client_account，用共享应用和输入法读的同一份会话文件，除状态和取消 Google 登录外都在工作线程上进行；文案和规则在 AccountPageModel.h。
+  // 共享账号页（packages/ui/src/account/account-page.tsx）在 Windows 上画的是桌面那一支：没有 App 图标卡片（只有手机有）、没有「我的设计」（Windows 没有触屏键盘皮肤）、没有「关于」一组和登录后返回的「取消」（都只给手机或从别的页面跳来登录时）。没登录时是登录卡片（Google、邮箱、手机号验证码登录；没有可用的登录方式时给「刷新登录方式」，读不出本机登录状态时给「清除失效登录状态」）；登录后是资料卡片（点开「编辑资料」对话框：更换和移除头像、社区昵称、账号信息）、「设置同步」卡片、「云端」一组（云剪贴板面板是输入工具，仍由共享应用打开；云词库的入口在「词库」页，不登录也看得到，这里不再重复）、「我的内容」一组（共享应用的社区页，Windows 上只有词包与回复模板）和「账号」一组（退出登录、退出所有设备、注销账号）。所有账号操作经 msime_client_account，用共享应用和输入法读的同一份会话文件，除状态和取消 Google 登录外都在工作线程上进行；文案和规则在 AccountPageModel.h。
 
   struct AccountUser {
     std::wstring id, display_name, created_at, email, avatar_url;
@@ -4896,6 +4903,11 @@ private:
     account_challenge_.reset();
     account_resend_at_ = {};
     account_google_waiting_ = false;
+    account_session_unreadable_ = false;
+    // 登录方式每次进入本页重读：上一次读到的结果不能留下来，否则这次读失败时旧的 true 会藏起「暂无可用登录方式」和「刷新」。共享页每次重新挂载，状态本来就是新的。
+    account_email_ = false;
+    account_phone_ = false;
+    account_google_ = false;
     account_avatar_requested_.clear();
     reset_settings_sync();
   }
@@ -4943,13 +4955,16 @@ private:
     else if (const auto code = account_failure(providers); !am::cancelled(code))
       account_error_ = am::error_message(code);
     if (!status.ok) {
-      if (const auto code = account_failure(status); !am::cancelled(code))
+      if (const auto code = account_failure(status); !am::cancelled(code)) {
         account_error_ = am::error_message(code);
+        account_session_unreadable_ = true;
+      }
       account_signed_out();
       account_loading_ = false;
       redraw_account();
       return;
     }
+    account_session_unreadable_ = false;
     account_user_ = status_user(account_value(status));
     if (!account_user_) {
       account_signed_out();
@@ -4989,6 +5004,8 @@ private:
       account_finish(L"account_unavailable");
       return;
     }
+    // 登录成功说明保存的登录状态是可读的，之前那次读不出来的结论作废；否则退出登录后又会冒出「清除失效登录状态」。
+    account_session_unreadable_ = false;
     account_user_ = std::move(user);
     account_name_ = account_user_->display_name;
     account_providers_linked_.clear();
@@ -5127,6 +5144,7 @@ private:
         return;
       }
       account_signed_out();
+      account_session_unreadable_ = false;
       account_finish({}, notice);
     });
   }
@@ -5599,7 +5617,6 @@ private:
       record(L"手机号登录", L"我们会发送一个 6 位验证码完成登录");
       record(L"编辑资料", L"社区昵称");
       record(L"设置同步", std::wstring(am::sync_description));
-      record(L"云词库", L"");
       record(L"云剪贴板", L"");
       record(L"退出登录", L"");
       record(L"退出所有设备", L"");
@@ -5698,14 +5715,18 @@ private:
     mark_search_target(L"邮箱登录", group);
     mark_search_target(L"手机号登录", group);
 
-    if (account_channel_ == AccountChannel::none) {
+    // 两个恢复动作只在出了问题时出现，与共享页相同：登录方式只在进入本页时读一次，读失败或一个都没有时（上面那行「暂无可用登录方式」）才给「刷新」；读不出本机登录状态（status 失败）时才给「清除失效登录状态」。
+    const bool no_providers = !account_email_ && !account_phone_ && !account_google_;
+    if (account_channel_ == AccountChannel::none && (no_providers || account_session_unreadable_)) {
       auto actions = add_group(page, L"登录状态");
-      add_row(actions, 0, L"登录方式", L"重新获取当前可用的登录服务",
-              button_control(L"刷新", [this] { refresh_account_providers(); }, !account_busy_));
-      add_row(actions, 0, L"清除失效登录状态", L"无法正常登录时可清除本机失效状态后重试",
-              button_control(L"清除", [this] {
-                end_account_session(account_action(L"forget"), L"已清除失效登录状态。");
-              }, !account_busy_));
+      if (no_providers)
+        add_row(actions, 0, L"登录方式", L"重新获取当前可用的登录服务",
+                button_control(L"刷新", [this] { refresh_account_providers(); }, !account_busy_));
+      if (account_session_unreadable_)
+        add_row(actions, 0, L"清除失效登录状态", L"无法正常登录时可清除本机失效状态后重试",
+                button_control(L"清除", [this] {
+                  end_account_session(account_action(L"forget"), L"已清除失效登录状态。");
+                }, !account_busy_));
     }
   }
 
@@ -6019,13 +6040,9 @@ private:
       rename_account();
   }
 
-  // 「云端」：云词库和云剪贴板是输入工具的面板，仍由共享应用打开（本窗口只剩这几处会拉起共享应用，另外是屏幕键盘、语音输入和手写的面板）。
+  // 「云端」：云剪贴板是输入工具的面板，仍由共享应用打开（本窗口只剩这几处会拉起共享应用，另外是「词库」页的云词库和屏幕键盘、语音输入和手写的面板）。云词库与共享页一样只在「词库」页给入口。
   void build_account_cloud(StackPanel const &page) {
     auto group = add_group(page, L"云端");
-    add_row(group, 0xE753, L"云词库", L"",
-            button_control(L"打开云词库",
-                           [this] { open_shell(nav::shell_links::cloud_dictionary); },
-                           !account_busy_));
     add_row(group, 0xE77F, L"云剪贴板", L"",
             button_control(L"打开云剪贴板",
                            [this] { open_shell(nav::shell_links::cloud_clipboard); },
@@ -6757,7 +6774,7 @@ private:
     return card;
   }
 
-  // 皮肤页提供内置主题、外部皮肤包和社区图库；字体与候选配色在候选窗口的对应标签管理。
+  // 皮肤页提供内置主题、外部皮肤包、自定义配色和社区图库；字体在「候选窗口」页管理。
   // 搜索「社区皮肤」时进入图库，其他本页条目回到「我的皮肤」；图库不画完整实时预览。
   void follow_skin_search() {
     if (indexing_ || focus_row_.empty())
@@ -6850,31 +6867,41 @@ private:
       page.Children().Append(note);
     }
 
+    // 设置窗口、工具栏、菜单和各面板一律跟随颜色模式（HostCapabilities::surface_themes_follow），只剩候选窗口还能单独设明暗，放在颜色模式下面（共享页「明暗」组里的 CandidateThemeRow）。
     auto look = add_group(page, L"外观");
-    segment_row(look, 0xE706, L"颜色模式", L"深色、浅色或跟随 Windows 的应用模式",
+    segment_row(look, 0xE706, L"颜色模式", L"设置窗口和各界面的明暗模式；候选窗口可在下面单独设置",
                 L"theme",
                 {{L"system", L"跟随系统"}, {L"light", L"浅色"}, {L"dark", L"深色"}},
                 L"system");
-    select_row(look, 0xE713, L"设置界面主题", L"覆盖颜色模式，仅影响当前设置窗口",
-               L"settings_theme", surface_theme_options(), L"follow", true);
+    select_row(look, 0xE8FD, L"候选窗口主题", L"覆盖颜色模式，只影响候选窗口",
+               L"candidate_theme", surface_theme_options(), L"follow", true);
 
     auto more = add_group(page, L"更多皮肤");
     external_skins_row(more);
 
-    auto surfaces = add_group(page, L"界面主题");
-    select_row(surfaces, 0xE700, L"菜单主题",
-               L"覆盖托盘菜单与候选右键菜单的明暗外观", L"menu_theme",
-               surface_theme_options(), L"follow");
-    select_row(surfaces, 0xE76E, L"表情面板主题",
-               L"覆盖 Emoji、颜文字和符号面板的明暗外观", L"emoji_theme",
-               surface_theme_options(), L"follow");
-    select_row(surfaces, 0xE929, L"手写识别板主题", L"覆盖手写识别板的明暗外观",
-               L"handwriting_theme", surface_theme_options(), L"follow");
-    select_row(surfaces, 0xE720, L"语音输入弹出条主题",
-               L"覆盖语音输入面板的明暗外观", L"voice_theme",
-               surface_theme_options(), L"follow");
-    select_row(surfaces, 0xE92E, L"屏幕键盘主题", L"", L"screen_keyboard_theme",
-               surface_theme_options(), L"follow");
+    // 取色器收在默认收起的「自定义配色」里（共享页的 MoreOptions title），悬停色也在其中。搜索命中「自定义主题」或某个取色器时展开。
+    auto colors = add_group(page, L"自定义主题");
+    record(L"自定义主题", L"候选颜色取色器");
+    Expander custom_colors;
+    custom_colors.Header(box_value(L"自定义配色"));
+    custom_colors.HorizontalAlignment(HorizontalAlignment::Stretch);
+    custom_colors.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    custom_colors.IsExpanded(custom_colors_open_ || focus_row_ == L"自定义主题" ||
+                             fold_holds_focus(L"custom-colors"));
+    custom_colors.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+      custom_colors_open_ = true;
+    });
+    custom_colors.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+      custom_colors_open_ = false;
+    });
+    mark_search_target(L"自定义主题", custom_colors);
+    StackPanel color_rows;
+    color_rows.Spacing(4);
+    fold_index_ = L"custom-colors";
+    candidate_color_rows(color_rows);
+    fold_index_.clear();
+    custom_colors.Content(color_rows);
+    colors.Children().Append(custom_colors);
   }
 
   // ---- 皮肤包 ----
@@ -9777,7 +9804,7 @@ private:
 
   // ---- 候选颜色 ----
 
-  // 「自定义主题」组的七个取色器。没设的颜色在色块上显示候选窗口当前明暗下的默认色，与共享页按预览明暗取默认色一样。
+  // 「自定义主题」组「自定义配色」里的五个取色器（编号色和边框色跟随主题，见 ThemeSkinModel.h 的 color_slots）。没设的颜色在色块上显示候选窗口当前明暗下的默认色，与共享页按预览明暗取默认色一样。
   void candidate_color_rows(StackPanel const &group) {
     const bool light = !candidate_dark();
     for (const auto &slot : sk::color_slots) {
@@ -9814,7 +9841,7 @@ private:
     }
   }
 
-  // 色块打开 WinUI 的取色器；拖动时颜色随时写入并刷新顶部的预览，停下后保存，取色器关上时整页重画。「跟随主题」把这一项交还给底下的主题：文字、编号、强调、选中和悬停的按钮在没设颜色时是按下的，再点不起作用；表面色和边框色的没有按下状态，点它总会清掉那一项。
+  // 色块打开 WinUI 的取色器；拖动时颜色随时写入并刷新顶部的预览，停下后保存，取色器关上时整页重画。「跟随主题」把这一项交还给底下的主题：文字、强调、选中和悬停的按钮在没设颜色时是按下的，再点不起作用；表面色的没有按下状态，点它总会清掉那一项。
   FrameworkElement candidate_color_control(sk::ColorSlot const &slot, std::wstring const &key,
                                            bool set, std::wstring const &shown) {
     const std::wstring title(slot.title);
@@ -9901,8 +9928,8 @@ private:
 
   // ---- 候选字体 ----
 
-  // 共享设置「候选窗口」页「字体与大小」组里的字体各行，按 Windows 宿主的样子：「候选字体」预设、主字体、英文字体和系统字体列表。规则在 CandidateFontPresets.h。与共享页一样没有回退字体列表的编辑器：预设和主字体会写它。
-  void candidate_font_rows(StackPanel const &group) {
+  // 共享设置「候选窗口」页的字体各行，按 Windows 宿主的样子：「布局与字体」组里是「候选字体」预设（末尾是「自定义…」）和按需出现的主字体，「更多选项」里是英文字体（candidate_english_font_row）。规则在 CandidateFontPresets.h。与共享页一样没有回退字体列表的编辑器：预设和主字体会写它。返回主字体框画没画出来：读取字体列表的状态和「刷新」按钮跟着当前第一个可见的字体框走，主字体框不在时由英文字体框带着。
+  bool candidate_font_rows(StackPanel const &group) {
     StackPanel preset_host;
     group.Children().Append(preset_host);
     candidate_font_preset_row(preset_host);
@@ -9911,50 +9938,81 @@ private:
       font_menu_updaters_.clear();
     }
 
-    add_row(group, 0xE8C1, L"主字体", L"",
-            font_input(L"主字体",
-                       document_.String(L"candidate_font_family",
-                                        nav::candidate_default_font_family),
-                       [this](std::wstring const &font) {
-                         // Windows 的候选窗从回退列表取汉字，主字体同时排到回退列表最前。
-                         const auto patch = nav::candidate_main_font_patch(
-                             font,
-                             document_.String(L"candidate_font_family",
-                                              nav::candidate_default_font_family),
-                             document_.Strings(L"candidate_fallback_fonts"));
-                         document_.SetString(L"candidate_font_family", patch.family);
-                         document_.SetOrderedStrings(L"candidate_fallback_fonts", patch.fallback);
-                         schedule_save();
-                         update_preview();
-                         refresh_font_preset_row();
-                       }));
-    add_row(group, 0xE8D3, L"英文字体",
-            L"优先用于候选和预编辑；缺字时使用主字体，不限英文输入模式。保存后自动应用。",
-            font_input(L"英文字体",
-                       document_.String(L"candidate_english_font",
-                                        nav::candidate_default_english_font),
-                       [this](std::wstring const &font) {
-                         document_.SetString(L"candidate_english_font", font);
-                         schedule_save();
-                         update_preview();
-                       }));
+    // 索引时总要画，搜索才找得到「主字体」；搜索落到它上面时也画出来。
+    const bool shown =
+        indexing_ || focus_row_ == L"主字体" ||
+        nav::candidate_main_font_shown(
+            candidate_font_custom_,
+            document_.String(L"candidate_font_family", nav::candidate_default_font_family),
+            document_.Strings(L"candidate_fallback_fonts"));
+    if (!shown)
+      return false;
+    auto [field, status] = font_field_with_catalog(
+        font_input(L"主字体",
+                   document_.String(L"candidate_font_family",
+                                    nav::candidate_default_font_family),
+                   [this](std::wstring const &font) {
+                     // Windows 的候选窗从回退列表取汉字，主字体同时排到回退列表最前。
+                     const auto patch = nav::candidate_main_font_patch(
+                         font,
+                         document_.String(L"candidate_font_family",
+                                          nav::candidate_default_font_family),
+                         document_.Strings(L"candidate_fallback_fonts"));
+                     document_.SetString(L"candidate_font_family", patch.family);
+                     document_.SetOrderedStrings(L"candidate_fallback_fonts", patch.fallback);
+                     schedule_save();
+                     update_preview();
+                     refresh_font_preset_row();
+                   }));
+    add_row(group, 0xE8C1, L"主字体", L"", field, status);
+    return true;
+  }
 
+  // 「更多选项」里的英文字体。`catalog` 为真（主字体框收起）时由它带着字体列表的读取状态和「刷新」按钮，读取失败后的重试和装了新字体后的刷新仍然找得到。
+  void candidate_english_font_row(StackPanel const &group, bool catalog) {
+    auto input = font_input(L"英文字体",
+                            document_.String(L"candidate_english_font",
+                                             nav::candidate_default_english_font),
+                            [this](std::wstring const &font) {
+                              document_.SetString(L"candidate_english_font", font);
+                              schedule_save();
+                              update_preview();
+                            });
+    const std::wstring subtitle =
+        L"优先用于候选和预编辑；缺字时使用主字体，不限英文输入模式。保存后自动应用。";
+    if (!catalog) {
+      add_row(group, 0xE8D3, L"英文字体", subtitle, input);
+      return;
+    }
+    auto [field, status] = font_field_with_catalog(input);
+    add_row(group, 0xE8D3, L"英文字体", subtitle, field, status);
+  }
+
+  // 字体框和它旁边的「刷新」按钮（读屏名「刷新字体列表」），以及放在这一行下面的读取状态：共享页把原来单独的「系统字体列表」一行并进了第一个字体框。状态和按钮绑到这一行，show_font_catalog_status 在原处更新它们。Windows 只有一份字体目录状态，两个字体框共用，不会读两次。
+  std::pair<FrameworkElement, TextBlock> font_field_with_catalog(FrameworkElement const &input) {
+    StackPanel field;
+    field.Orientation(Orientation::Horizontal);
+    field.Spacing(8);
+    field.Children().Append(input);
+    auto refresh_button = button_control(
+        L"刷新", [this] { load_font_catalog(); },
+        loaded_ && font_catalog_status_ != FontCatalogStatus::loading);
+    refresh_button.VerticalAlignment(VerticalAlignment::Top);
+    A11y::SetName(refresh_button, hstring(L"刷新字体列表"));
+    field.Children().Append(refresh_button);
     // 状态是读屏会播报的区域。
     auto status = make_text(font_catalog_message(), 12, palette_.sub);
-    status.Margin(Thickness{0, 0, 0, 14});
+    status.Margin(Thickness{0, 0, 0, 8});
     A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
     status.Visibility(status.Text().empty() ? Visibility::Collapsed : Visibility::Visible);
-    auto refresh_button = button_control(
-        L"刷新字体列表", [this] { load_font_catalog(); },
-        loaded_ && font_catalog_status_ != FontCatalogStatus::loading);
-    add_row(group, 0xE72C, L"系统字体列表", L"", refresh_button, status);
     if (!indexing_) {
       font_catalog_text_ = status;
       font_catalog_button_ = refresh_button.as<Button>();
     }
+    return {field, status};
   }
 
-  // 「候选字体」预设一行。它画在自己的容器里，主字体每输入一个字就在原处重画这一行，不必重建整页而丢掉输入框的焦点。
+  // 「候选字体」预设一行。它画在自己的容器里，主字体每输入一个字就在原处重画这一行，不必重建整页而丢掉输入框的焦点。末尾的「自定义…」只亮出主字体框、不改字体（共享页的 onCustomChange）；字体不是任何预设时选中的就是它。
   void candidate_font_preset_row(StackPanel const &host) {
     const auto family =
         document_.String(L"candidate_font_family", nav::candidate_default_font_family);
@@ -9964,12 +10022,20 @@ private:
     for (auto const &entry : nav::candidate_font_presets)
       options.push_back({std::wstring(entry.id), std::wstring(entry.label),
                          nav::candidate_font_preset_available(entry.id)});
+    options.push_back({L"custom", L"自定义…", true});
     add_row(host, 0xE8D2, L"候选字体",
             preset ? std::wstring(L"Windows 没有自带圆体")
                    : L"当前为自定义字体 " + family + L"，可在下方修改",
             segmented_control(L"候选字体", options,
-                              preset ? std::wstring(*preset) : std::wstring(L"custom"),
+                              preset && !candidate_font_custom_ ? std::wstring(*preset)
+                                                                : std::wstring(L"custom"),
                               [this](std::wstring const &id) {
+                                if (id == L"custom") {
+                                  candidate_font_custom_ = true;
+                                  queue_refresh();
+                                  return;
+                                }
+                                candidate_font_custom_ = false;
                                 change([&](PreferencesDocument &doc) {
                                   const auto patch = nav::candidate_font_preset_patch(
                                       id, doc.Strings(L"candidate_fallback_fonts"));
@@ -10363,123 +10429,94 @@ private:
 
   // ---- 候选窗口 ----
 
+  // 共享设置「候选窗口」页的一列布局（appearance-page.tsx）：预览，「布局与字体」组的主流程只有排列方式、每页数量、候选字体（及按需出现的主字体）和字号，其余各行按共享页的顺序收进同一个「更多选项」。展开候选、页码和内边距在 Windows 上没有（能力位为假），不画。「游戏」组管游戏里候选窗能不能出现，是功能开关而不是外观，放在折叠区之后照常展开。
   void build_candidate_page(StackPanel const &page) {
-    if (!indexing_ && !focus_row_.empty()) {
-      if (const auto found = candidate_search_tabs_.find(focus_row_);
-          found != candidate_search_tabs_.end())
-        candidate_tab_ = found->second;
-    }
-    if (!indexing_) {
-      auto tabs = segmented_control(
-          L"候选窗口设置标签",
-          {{L"layout", L"布局"},
-           {L"font", L"字体大小"},
-           {L"style", L"窗口样式"},
-           {L"preedit", L"预编辑"}},
-          candidate_tab_,
-          [this](std::wstring const &value) {
-            candidate_tab_ = value;
-            DispatcherQueue().TryEnqueue([weak = get_weak()] {
-              if (auto self = weak.get())
-                self->render_page(false);
-            });
-          },
-          true, false, 4, L"candidate-tab");
-      tabs.HorizontalAlignment(HorizontalAlignment::Left);
-      tabs.Margin(Thickness{0, 0, 0, 8});
-      page.Children().Append(tabs);
-      if (preview_visible_)
-        page.Children().Append(make_preview());
-    }
+    if (preview_visible_ && !indexing_)
+      page.Children().Append(make_preview());
 
-    // 搜索索引遍历全部标签；实际页面只构造当前标签，定位结果时先切到所属标签。
-    if (indexing_ || candidate_tab_ == L"layout") {
-      candidate_index_tab_ = L"layout";
-      auto layout = add_group(page, L"布局");
-      segment_row(layout, 0xE8FD, L"候选项排列方式", L"", L"candidate_layout",
-                  {{L"horizontal", L"横向"}, {L"vertical", L"纵向"}},
-                  L"vertical");
-      slider_row(layout, 0xE8CB, L"每页候选项数量", L"每页显示的候选项（1–9）",
-                 L"candidate_page_size", 1, 9, 6);
-      bool_row(layout, 0xE718, L"候选窗口跟随光标",
-               L"关闭后保持首次出现的位置，直到候选窗口消失。",
-               L"candidate_follow_cursor", true);
+    auto layout = add_group(page, L"布局与字体");
+    segment_row(layout, 0xE8FD, L"候选项排列方式", L"", L"candidate_layout",
+                {{L"horizontal", L"横向"}, {L"vertical", L"纵向"}},
+                L"vertical");
+    slider_row(layout, 0xE8CB, L"每页候选项数量", L"每页显示的候选项（1–9）",
+               L"candidate_page_size", 1, 9, 6);
+    const bool main_font = candidate_font_rows(layout);
+    slider_row(layout, 0xE8E9, L"候选窗字号", L"候选词的字号（12–32）",
+               L"candidate_font_size", 12, 32, 18);
 
-      // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
-      bool_row(layout, 0xE790, L"显示水杉 logo",
-               L"在候选窗和悬浮工具栏左端显示水杉图标。", L"show_app_logo",
-               false);
+    // 搜索命中折叠区里的某一行时展开它（fold_holds_focus）。
+    Expander more;
+    more.Header(box_value(L"更多选项"));
+    A11y::SetAutomationId(more, L"candidate-more");
+    more.HorizontalAlignment(HorizontalAlignment::Stretch);
+    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    more.IsExpanded(candidate_more_open_ || fold_holds_focus(L"candidate-more"));
+    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+      candidate_more_open_ = true;
+    });
+    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+      candidate_more_open_ = false;
+    });
+    StackPanel rows;
+    rows.Spacing(4);
+    fold_index_ = L"candidate-more";
+    // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
+    bool_row(rows, 0xE790, L"显示水杉 logo",
+             L"在候选窗和悬浮工具栏左端显示水杉图标。", L"show_app_logo",
+             false);
+    bool_row(rows, 0xE718, L"候选窗口跟随光标",
+             L"关闭后保持首次出现的位置，直到候选窗口消失。",
+             L"candidate_follow_cursor", true);
+    candidate_english_font_row(rows, !main_font);
+    slider_row(rows, 0xE8E9, L"预编辑字号", L"候选窗口中拼音的字号（12–32）",
+               L"candidate_preedit_font_size", 12, 32, 15);
+    slider_row(rows, 0xE740, L"整体大小",
+               L"候选窗口连同文字一起缩放（75–150%）",
+               L"candidate_scale_percent", 75, 150, 100, 5, L"%");
+    slider_row(rows, 0xE7B3, L"不透明度",
+               L"只淡化候选框的底色和边框，文字保持清晰（50–100%）",
+               L"candidate_opacity_percent", 50, 100, 100, 5, L"%");
+    corner_radius_row(rows);
+    select_row(
+        rows, 0xE70F, L"候选窗口预编辑", L"", L"candidate_preedit_style",
+        {{L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}}, L"pinyin", true);
+    select_row(rows, 0xE8D2, L"行内预编辑", L"", L"tsf_preedit_style",
+               {{L"raw", L"原始按键"},
+                {L"pinyin", L"拼音分词"},
+                {L"empty", L"不显示"}},
+               L"raw");
+    fold_index_.clear();
+    more.Content(rows);
+    layout.Children().Append(more);
 
-      auto games = add_group(page, L"游戏");
-      bool_row(
-          games, 0xE7FC, L"在游戏中显示候选窗口",
-          L"游戏声明自己画候选却不画时，由水杉显示候选窗口。CS2、Dota 2 和使用 "
-          L"SDL2 "
-          L"的游戏会自动识别。候选窗口不出现或跑到左上角的游戏，可以加进「总是"
-          L"显示」；游戏自带的候选被替换时，加进「从不显示」。对已打开的游戏，"
-          L"切换一次输入法后生效。独占全屏下不显示，请把游戏改为无边框窗口。",
-          L"game_compatibility.candidate_overlay", true);
-      const bool gameProfile = msime::windows::game_profile::enabled();
-      add_row(games, 0xE7FC, L"CS2 / Dota 2 原生候选兼容",
-              L"将本版本的系统登记名称改为「拼音输入法」，让游戏自行绘制候选。"
-              L"Windows 输入法列表也会显示这个名称，需要管理员授权并重启游戏；"
-              L"关闭后恢复本版本名称。用户「总是显示」列表仍优先。",
-              button_control(gameProfile ? L"恢复产品名称" : L"启用兼容名称", [this, gameProfile] {
-                const auto error = msime::windows::game_profile::apply(GetActiveWindow(), !gameProfile);
-                if (!error.empty()) show_notice(error);
-                else show_notice(L"登记名称已更新，请重启游戏并重新切换输入法。");
-                render_page(true);
-              }));
-      game_process_row(
-          games, 0xE890, L"总是显示候选窗口的程序",
-          L"候选窗口不出现或跑到左上角的游戏。填程序文件名，例如 game.exe。",
-          L"game_compatibility.overlay_processes");
-      game_process_row(
-          games, 0xED1A, L"从不显示候选窗口的程序",
-          L"自带候选被水杉的候选窗口替换的游戏。填程序文件名，例如 game.exe。",
-          L"game_compatibility.excluded_processes");
-    }
-    if (indexing_ || candidate_tab_ == L"font") {
-      candidate_index_tab_ = L"font";
-      auto fonts = add_group(page, L"字体大小");
-      candidate_font_rows(fonts);
-      slider_row(fonts, 0xE8E9, L"候选窗字号", L"候选词的字号（12–32）",
-                 L"candidate_font_size", 12, 32, 18);
-      slider_row(fonts, 0xE740, L"整体大小",
-                 L"候选窗口连同文字一起缩放（75–150%）",
-                 L"candidate_scale_percent", 75, 150, 100, 5, L"%");
-      slider_row(fonts, 0xE8E9, L"预编辑字号", L"候选窗口中拼音的字号（12–32）",
-                 L"candidate_preedit_font_size", 12, 32, 15);
-    }
-    if (indexing_ || candidate_tab_ == L"style") {
-      candidate_index_tab_ = L"style";
-      auto look = add_group(page, L"窗口样式");
-      slider_row(look, 0xE7B3, L"不透明度",
-                 L"只淡化候选框的底色和边框，文字保持清晰（50–100%）",
-                 L"candidate_opacity_percent", 50, 100, 100, 5, L"%");
-      corner_radius_row(look);
-
-      auto colors = add_group(page, L"配色");
-      select_row(colors, 0xE8FD, L"候选窗口主题",
-                 L"覆盖颜色模式，只影响候选窗口", L"candidate_theme",
-                 surface_theme_options(), L"follow", true);
-      record(L"自定义主题", L"候选颜色取色器");
-      mark_search_target(L"自定义主题", colors);
-      candidate_color_rows(colors);
-    }
-    if (indexing_ || candidate_tab_ == L"preedit") {
-      candidate_index_tab_ = L"preedit";
-      auto preedit = add_group(page, L"预编辑");
-      select_row(
-          preedit, 0xE70F, L"候选窗口预编辑", L"", L"candidate_preedit_style",
-          {{L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}}, L"pinyin", true);
-      select_row(preedit, 0xE8D2, L"行内预编辑", L"", L"tsf_preedit_style",
-                 {{L"raw", L"原始按键"},
-                  {L"pinyin", L"拼音分词"},
-                  {L"empty", L"不显示"}},
-                 L"raw");
-    }
-    candidate_index_tab_.clear();
+    auto games = add_group(page, L"游戏");
+    bool_row(
+        games, 0xE7FC, L"在游戏中显示候选窗口",
+        L"游戏声明自己画候选却不画时，由水杉显示候选窗口。CS2、Dota 2 和使用 "
+        L"SDL2 "
+        L"的游戏会自动识别。候选窗口不出现或跑到左上角的游戏，可以加进「总是"
+        L"显示」；游戏自带的候选被替换时，加进「从不显示」。对已打开的游戏，"
+        L"切换一次输入法后生效。独占全屏下不显示，请把游戏改为无边框窗口。",
+        L"game_compatibility.candidate_overlay", true);
+    const bool gameProfile = msime::windows::game_profile::enabled();
+    add_row(games, 0xE7FC, L"CS2 / Dota 2 原生候选兼容",
+            L"将本版本的系统登记名称改为「拼音输入法」，让游戏自行绘制候选。"
+            L"Windows 输入法列表也会显示这个名称，需要管理员授权并重启游戏；"
+            L"关闭后恢复本版本名称。用户「总是显示」列表仍优先。",
+            button_control(gameProfile ? L"恢复产品名称" : L"启用兼容名称", [this, gameProfile] {
+              const auto error = msime::windows::game_profile::apply(GetActiveWindow(), !gameProfile);
+              if (!error.empty()) show_notice(error);
+              else show_notice(L"登记名称已更新，请重启游戏并重新切换输入法。");
+              render_page(true);
+            }));
+    game_process_row(
+        games, 0xE890, L"总是显示候选窗口的程序",
+        L"候选窗口不出现或跑到左上角的游戏。填程序文件名，例如 game.exe。",
+        L"game_compatibility.overlay_processes");
+    game_process_row(
+        games, 0xED1A, L"从不显示候选窗口的程序",
+        L"自带候选被水杉的候选窗口替换的游戏。填程序文件名，例如 game.exe。",
+        L"game_compatibility.excluded_processes");
   }
 
   // 圆角大小. A value overrides the skin package's radius; 默认 clears it, so the card follows the package again, else the theme. An unset radius shows the theme's on the slider.
@@ -10823,12 +10860,9 @@ private:
     const bool logo = document_.Boolean(L"show_app_logo", false);
     const auto metrics =
         msime::windows::toolbar_metrics(font_size, false, logo);
-    const auto mode = document_.String(L"toolbar_theme", L"follow");
+    // 工具栏跟随颜色模式（Server 不读 toolbar_theme），预览也只看 `theme`。
     const auto common_mode = document_.String(L"theme", L"system");
-    const bool dark =
-        mode == L"dark" ||
-        (mode != L"light" && (common_mode == L"dark" ||
-                              (common_mode == L"system" && system_dark_)));
+    const bool dark = common_mode == L"dark" || (common_mode == L"system" && system_dark_);
     const auto colors = msime::windows::toolbar_palette(candidate_theme(
         document_.String(L"global_theme", L"system"), true, dark));
     std::vector<ToolbarComponent> components;
@@ -10945,9 +10979,12 @@ private:
     bool_row(general, 0xE7F4, L"在桌面显示悬浮工具栏",
              L"快速访问输入法状态与常用功能", L"floating_toolbar.enabled",
              true);
-    select_row(general, 0xE7F4, L"悬浮工具栏主题",
-               L"覆盖颜色模式，只影响悬浮工具栏", L"toolbar_theme",
-               surface_theme_options(), L"follow");
+    // 工具栏跟随「主题」页的颜色模式和主题，没有自己的明暗；这一行只是指向那里（共享页 floating-toolbar-page.tsx 的「颜色与明暗」）。
+    add_row(general, 0xE790, L"颜色与明暗", L"悬浮工具栏跟随「主题」页的颜色模式和主题",
+            button_control(L"前往", [this] {
+              focus_row_ = L"颜色模式";
+              navigate("themes", true);
+            }));
     std::vector<Check> checks;
     for (const auto &component : toolbar_components_) {
       if (component.button == msime::windows::kToolbarHandwriting &&
@@ -13150,7 +13187,7 @@ private:
 
   // ---- 剪贴板 ----
 
-  // 共享的「剪贴板」页（packages/ui/src/settings/pages/tools-page.tsx 和 clipboard-history-section.tsx）在 Windows 上画三组：「剪贴板」（历史开关、从系统剪贴板同步、清空历史）、开着历史时的「历史记录」（每条可重新复制、发到云剪贴板、固定和删除），以及打开云剪贴板面板的「云剪贴板」。历史文件与共享应用的相同（偏好目录下的 clipboard_history.json），经 msime_client_desktop_clipboard_history 读写；发到云剪贴板经 msime_client_account_cloud_clipboard 用共享应用登录的账号会话。云剪贴板面板是输入工具，仍由共享应用打开。
+  // 共享的「剪贴板」页（packages/ui/src/settings/pages/tools-page.tsx 和 clipboard-history-section.tsx）在 Windows 上画三组：「剪贴板」（历史开关、有历史时的清空历史）、开着历史时的「历史记录」（每条可重新复制、发到云剪贴板、固定和删除），以及打开云剪贴板面板的「云剪贴板」。历史文件与共享应用的相同（偏好目录下的 clipboard_history.json），经 msime_client_desktop_clipboard_history 读写；发到云剪贴板经 msime_client_account_cloud_clipboard 用共享应用登录的账号会话。云剪贴板面板是输入工具，仍由共享应用打开。
 
   struct ClipboardEntry {
     std::wstring text;
@@ -13269,7 +13306,7 @@ private:
     change_clipboard_history(action, L"无法删除剪贴板记录");
   }
 
-  // 共享页的 useClipboardHistoryToggle：写偏好；从开到关时再清空已存的历史，失败时说明。开关一变，进行中的读写都作废，列表和「确认清空」复位，云剪贴板重新查询。
+  // 共享页的 useClipboardHistoryToggle：写偏好；从开到关时再清空已存的历史，从关到开时把系统剪贴板上现有的那一条同步进来一次（Server 的 ClipboardMonitor 只记打开以后的复制，原来要另按「从系统剪贴板同步」才补得上这一条），失败时说明。开关一变，进行中的读写都作废，列表和「确认清空」复位，云剪贴板重新查询。
   void toggle_clipboard_history(bool on) {
     const bool was = clipboard_history_enabled();
     change([on](PreferencesDocument &doc) { doc.SetBoolean(L"clipboard_history", on); }, true);
@@ -13280,8 +13317,11 @@ private:
     clip_busy_ = false;
     clip_stale_ = true;
     reset_cloud_clipboard();
-    if (on)
+    if (on) {
+      if (!was)
+        change_clipboard_history(clipboard_action(L"sync"), L"无法同步剪贴板历史");
       return;
+    }
     clip_entries_.clear();
     clip_clear_armed_ = false;
     if (was)
@@ -13442,15 +13482,13 @@ private:
     }
 
     auto group = add_group(page, L"剪贴板");
-    StackPanel actions;
-    actions.Orientation(Orientation::Horizontal);
-    actions.Spacing(8);
-    actions.Margin(Thickness{0, 0, 0, 16});
-    actions.Children().Append(button_control(
-        L"从系统剪贴板同步",
-        [this] { change_clipboard_history(clipboard_action(L"sync"), L"无法同步剪贴板历史"); },
-        enabled && !clip_busy_));
+    // 没有「从系统剪贴板同步」：打开历史的那一次已经自动同步过（toggle_clipboard_history）。只剩有历史时的「清空历史」，没有历史时开关下面不留空行。
+    FrameworkElement actions_row{nullptr};
     if (!clip_entries_.empty()) {
+      StackPanel actions;
+      actions.Orientation(Orientation::Horizontal);
+      actions.Spacing(8);
+      actions.Margin(Thickness{0, 0, 0, 16});
       actions.Children().Append(button_control(
           clip_clear_armed_ ? L"确认清空" : L"清空历史",
           [this] {
@@ -13463,12 +13501,13 @@ private:
                                      L"无法清空剪贴板历史，请稍后重试。");
           },
           enabled && !clip_busy_));
+      actions_row = actions;
     }
     add_row(group, 0xE81C, L"剪贴板历史",
             L"开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。",
             toggle_control(L"剪贴板历史", enabled,
                            [this](bool on) { toggle_clipboard_history(on); }, !clip_busy_),
-            actions);
+            actions_row);
 
     if (enabled) {
       auto history = add_group(page, L"历史记录");
@@ -13577,7 +13616,7 @@ private:
 
   // ---- 打字统计 ----
 
-  // 共享的「打字统计」页（packages/ui/src/settings/typing-statistics.tsx）在 Windows 上画的那一版：没有手机外观、不是 iOS，有「自动清理」和「打开数据目录」。概览六格、标签（按键、趋势、类型、模式、方案、候选）下的图表、记录开关、保留期、刷新、打开数据目录、清空和「统计没有数据」的说明都照搬；派生数字和文案在 TypingStatisticsModel.h。统计经 msime_client_typing_statistics 读写状态目录下的 typing-statistics.json，与输入法和共享应用是同一份；请求带 status:true，回答里有文件是否写过和最后写入时间。所有读写都在工作线程上。
+  // 共享的「打字统计」页（packages/ui/src/settings/typing-statistics.tsx）在 Windows 上画的那一版：没有手机外观、不是 iOS，有「自动清理」。概览六格、标签（按键、趋势、类型、模式、方案、候选）下的图表、记录开关、保留期、清空和「统计没有数据」的说明都照搬。桌面版没有「刷新统计」：页面开着时每 5 秒和窗口重新激活时自动重读（poll_statistics）。也没有「打开数据目录」：统计文件所在的状态目录就是「维护与诊断 › 数据目录」的「打开」打开的那个，这里不再重复一个入口（Windows 上的共享页没有维护页的打开按钮，仍保留它）；派生数字和文案在 TypingStatisticsModel.h。统计经 msime_client_typing_statistics 读写状态目录下的 typing-statistics.json，与输入法和共享应用是同一份；请求带 status:true，回答里有文件是否写过和最后写入时间。所有读写都在工作线程上。
 
   static constexpr const wchar_t *statistics_failure =
       L"无法读取或保存统计，请稍后重试。原有统计不会被自动重置。";
@@ -13745,24 +13784,6 @@ private:
       co_return;
     stats_selected_.reset();
     update_statistics(statistics_action(L"reset"));
-  }
-
-  // 「打开数据目录」：统计文件所在的状态目录，没有时先建出来，与 Tauri 外壳的 open_typing_statistics_directory 一样；打不开时在页面顶部说明。
-  void open_statistics_directory() {
-    stats_error_.clear();
-    const auto directory = state_directory();
-    std::error_code error;
-    bool opened = !directory.empty() && directory.is_absolute();
-    if (opened) {
-      std::filesystem::create_directories(directory, error);
-      opened = std::filesystem::is_directory(directory, error);
-    }
-    if (opened)
-      opened = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", directory.c_str(), nullptr,
-                                                       nullptr, SW_SHOWNORMAL)) > 32;
-    if (!opened)
-      stats_error_ = L"无法打开数据目录，可能是文件管理器不可用。";
-    redraw_stats();
   }
 
   // 点按一天看它的分类与占比，再点一次回到整个时间范围。
@@ -14903,11 +14924,6 @@ private:
     StackPanel buttons;
     buttons.Orientation(Orientation::Horizontal);
     buttons.Spacing(9);
-    buttons.Children().Append(button_control(stats_busy_ ? L"处理中…" : L"刷新统计",
-                                             [this] { update_statistics(statistics_action(L"load"), true); },
-                                             !stats_busy_));
-    buttons.Children().Append(
-        button_control(L"打开数据目录", [this] { open_statistics_directory(); }, !stats_busy_));
     auto clear = button_control(L"清空统计", [this] { reset_statistics(); }, !stats_busy_);
     clear.as<Button>().Foreground(brush(danger_color()));
     buttons.Children().Append(clear);
@@ -14962,13 +14978,23 @@ private:
       queue_refresh();
   }
 
-  // 每次进入页面都与共享页重新激活一样：回到列表，作废上一次留下的请求，下一次绘制时重读目录和名单。没存的名单改动留着。
+  // 每次进入页面都与共享页重新激活一样：回到列表，作废上一次留下的请求，下一次绘制时重读目录和名单。没存的名单改动留着。进入时读一次打字统计开没开（共享页的 statisticsEnabled），用来决定「成就音效」能不能打开；读不了时按打开处理。
   void enter_plugins_page() {
     ++plugins_generation_;
     plugins_busy_ = false;
     plugins_stale_ = true;
     plugin_view_ = PluginView::list;
     plugin_pending_focus_.clear();
+    plugin_statistics_enabled_.reset();
+    const auto generation = plugins_generation_;
+    statistics_host(statistics_action(L"load"),
+                    [this, generation](std::optional<StatisticsStatus> const &status) {
+                      if (generation != plugins_generation_ || !status)
+                        return;
+                      plugin_statistics_enabled_ = status->statistics.enabled;
+                      if (plugin_view_ == PluginView::sound_effects)
+                        redraw_plugins();
+                    });
   }
 
   static bool helpcode_offered() {
@@ -15760,7 +15786,7 @@ private:
       edit(next);
       change_plugins(next);
     };
-    // 音量和强度像别的滑块一样拖动时写文档、停下后保存。
+    // 音量像别的滑块一样拖动时写文档、停下后保存。
     auto percent = [this](std::wstring const &title, wchar_t const *key, double value, bool enabled) {
       return slider_control(title, 0, 100, value,
                             [this, key = std::wstring(key)](double next) {
@@ -15796,13 +15822,42 @@ private:
             toggle_control(L"上屏音", preferences.commit_sound_enabled, [set](bool on) {
               set([on](pg::Preferences &next) { next.commit_sound_enabled = on; });
             }));
-    add_row(keys, 0xE734, L"成就音效",
-            L"上屏字数累计达到 100、1000、1 万等里程碑时播放一段短音。按打字统计计数，需要打开打字统计。",
-            toggle_control(L"成就音效", preferences.achievements_enabled, [set](bool on) {
-              set([on](pg::Preferences &next) { next.achievements_enabled = on; });
-            }));
+    // 成就音效和升档音都是默认关闭的小玩法，收进「更多音效」，主列表只留常用的几项；搜索落到其中一项时展开。
+    Expander more;
+    more.Header(box_value(L"更多音效"));
+    more.HorizontalAlignment(HorizontalAlignment::Stretch);
+    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    more.IsExpanded(plugin_sound_more_open_ || focus_row_ == L"成就音效" || focus_row_ == L"升档音");
+    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+      plugin_sound_more_open_ = true;
+    });
+    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+      plugin_sound_more_open_ = false;
+    });
+    StackPanel extra;
+    extra.Spacing(4);
+    const bool achievements_blocked =
+        pg::achievements_blocked(plugin_statistics_enabled_, preferences.achievements_enabled);
+    add_row(extra, 0xE734, L"成就音效",
+            achievements_blocked
+                ? L"上屏字数累计达到 100、1000、1 万等里程碑时播放一段短音。按打字统计计数，请先在「打字统计」页打开记录。"
+                : L"上屏字数累计达到 100、1000、1 万等里程碑时播放一段短音。按打字统计计数，需要打开打字统计。",
+            toggle_control(L"成就音效", preferences.achievements_enabled,
+                           [set](bool on) {
+                             set([on](pg::Preferences &next) { next.achievements_enabled = on; });
+                           },
+                           !achievements_blocked));
+    add_row(extra, 0xE767, L"升档音",
+            L"连击达到 10、25、50、100 时播放音效包的上屏音，每升一档音调更高，音量随音效音量。需要打开「打字效果」里的连击计数。",
+            toggle_control(L"升档音", preferences.combo_tier_sound,
+                           [set](bool on) {
+                             set([on](pg::Preferences &next) { next.combo_tier_sound = on; });
+                           },
+                           preferences.combo_counter));
+    more.Content(extra);
+    keys.Children().Append(more);
 
-    // 选了特效包时由它决定样式和强度，这两项只描述不选包时画什么。
+    // 选了特效包时由它决定样式，这一项只描述不选包时画什么。强度在 Windows 上固定为 50（client-core 的 `HostPlatform::fixed_effect_intensity`），宿主不读存下的值，所以没有「效果强度」。
     const bool pack_selected = !preferences.effect_pack.empty();
     auto effects = add_group(page, L"打字效果");
     plugin_summary_row(effects, 0xE790, L"特效包",
@@ -15818,27 +15873,27 @@ private:
                                 set([style](pg::Preferences &next) { next.effect_style = style; });
                               },
                               !pack_selected));
-    add_row(effects, 0xE9D2, L"效果强度", L"效果的大小和持续时间。",
-            percent(L"效果强度", L"plugins.effect_intensity", preferences.effect_intensity,
-                    !pack_selected && preferences.effect_style != L"off"));
     add_row(effects, 0xE8EF, L"连击计数",
             L"连续打字时在候选栏显示连击数，停顿 3 秒或按退格后重新计数。自动重复的按键不计数。",
             toggle_control(L"连击计数", preferences.combo_counter, [set](bool on) {
               set([on](pg::Preferences &next) { next.combo_counter = on; });
             }));
-    add_row(effects, 0xE767, L"升档音",
-            L"连击达到 10、25、50、100 时播放音效包的上屏音，每升一档音调更高，音量随音效音量。",
-            toggle_control(L"升档音", preferences.combo_tier_sound,
-                           [set](bool on) {
-                             set([on](pg::Preferences &next) { next.combo_tier_sound = on; });
-                           },
-                           preferences.combo_counter));
 
+    // 宿主只在开关打开并且选了音乐包时播放；还没选包时，打开开关顺手选一个随带的音乐包，而不是打开一个听不到声音的开关。一个音乐包都没有时开关不能打开。
+    const auto music_pack = preferences.music_pack.empty()
+                                ? pg::music_pack_to_select(packages, listed)
+                                : preferences.music_pack;
     auto music = add_group(page, L"背景音乐");
     add_row(music, 0xEC4F, L"背景音乐", L"默认关闭。只在输入法处于活动状态时播放，切换到其他输入法时暂停。",
-            toggle_control(L"背景音乐", preferences.music_enabled, [set](bool on) {
-              set([on](pg::Preferences &next) { next.music_enabled = on; });
-            }));
+            toggle_control(L"背景音乐", preferences.music_enabled,
+                           [set, music_pack](bool on) {
+                             set([on, music_pack](pg::Preferences &next) {
+                               next.music_enabled = on;
+                               if (on && next.music_pack.empty())
+                                 next.music_pack = music_pack;
+                             });
+                           },
+                           preferences.music_enabled || !music_pack.empty()));
     const bool no_music = listed && std::none_of(packages.begin(), packages.end(), [](pg::Package const &pack) {
                             return pack.kind == L"music";
                           });
@@ -16564,7 +16619,7 @@ private:
     }
 
     FrameworkElement up{nullptr}, down{nullptr};
-    if (active) {
+    if (active && pg::script_order_shown(position, running.size())) {
       const bool can_up = position > 0;
       const bool can_down = position >= 0 && static_cast<std::size_t>(position) + 1 < running.size();
       up = button_control(L"提前", [this, id = pack.id] { move_script(id, -1); }, !plugins_busy_ && can_up);
@@ -16665,11 +16720,11 @@ private:
     if constexpr (MSIME_EDITION_HANDWRITING != 0)
       build_hand_page(page);
 
-    // 共享页把键盘的明暗覆盖放在「主题」页的「高级」组，这个窗口的同一组叫「界面主题」，所以说明换成这个组名，按钮直接落到「屏幕键盘主题」那一行。
+    // 屏幕键盘跟随「主题」页的颜色模式和主题，没有自己的明暗（共享页在跟随颜色模式的宿主上同样这样说），按钮落到「颜色模式」那一行。
     auto look = add_group(page, L"外观");
-    add_row(look, 0xE790, L"屏幕键盘外观", L"主题与明暗外观在「主题」页的「界面主题」中设置",
+    add_row(look, 0xE790, L"屏幕键盘外观", L"屏幕键盘跟随「主题」页的颜色模式和主题",
             button_control(L"前往", [this] {
-              focus_row_ = L"屏幕键盘主题";
+              focus_row_ = L"颜色模式";
               navigate("themes", true);
             }));
   }
@@ -16791,11 +16846,8 @@ private:
       show_notice(L"屏幕键盘设置已恢复默认。", InfoBarSeverity::Success);
   }
 
-  // The preview's light or dark look (`useCandidatePreviewTheme` with 屏幕键盘主题): the keyboard's own override, else 颜色模式.
+  // 预览的明暗：屏幕键盘跟随颜色模式（surface_themes_follow），不读存下的 screen_keyboard_theme，与共享页的 keyboardPreviewTheme 一致。
   bool keyboard_preview_dark() const {
-    const auto surface = document_.String(L"screen_keyboard_theme", L"follow");
-    if (surface == L"dark" || surface == L"light")
-      return surface == L"dark";
     const auto theme = document_.String(L"theme", L"system");
     return theme == L"system" ? system_dark_ : theme != L"light";
   }
@@ -18578,13 +18630,10 @@ private:
                            : std::wstring();
   }
 
-  // 共享页 updateAi 除写设置以外做的事：作废进行中的获取模型和润色测试，清掉测试结果；改了服务商或接口地址时，已获取的模型列表和它的提示也清掉。
+  // 共享页 updateAi 除写设置以外做的事：作废进行中的获取模型；改了服务商或接口地址时，已获取的模型列表和它的提示也清掉。
   void ai_edited(bool models) {
     ++ai_generation_;
     ai_models_busy_ = false;
-    ai_test_busy_ = false;
-    ai_test_output_.clear();
-    ai_test_status_.clear();
     if (models) {
       ai_models_.reset();
       ai_models_status_.clear();
@@ -18597,12 +18646,11 @@ private:
     change(edit, true);
   }
 
-  // 输入框的改动不重画整页，跟着变的控件就地更新：Token 行、地址说明、「获取模型列表」、「测试 AI 辅助配置」和测试工具。
+  // 输入框的改动不重画整页，跟着变的控件就地更新：Token 行、地址说明、「获取模型列表」和「测试 AI 辅助配置」。
   void sync_ai() {
     for (auto const &update : ai_sync_)
       update();
     refresh_credential_test(L"ai.assistant");
-    refresh_ai_test();
     refresh_ai_models();
   }
 
@@ -18630,13 +18678,12 @@ private:
     line.Visibility(value.empty() ? Visibility::Collapsed : Visibility::Visible);
   }
 
-  // 共享 AI 页（`ai-settings-content.tsx`、`ai-settings-page-section.tsx`）在 Windows 上的内容，顺序也相同：「服务」（开关、服务提供商、API Token、接入说明、模型（预置的和获取到的模型在一个下拉里，末项「自定义…」）、获取模型列表、「更多选项」里的接口地址，末尾是「测试 AI 辅助配置」），「联想」（候选数量），「提示词」（方案和所选槽位的提示词），「测试工具」（AI 润色测试）。Windows 的设置应用没有 AI 对话（宿主不提供 chat），所以最后没有「AI 对话」一组。Token 存在偏好文件里，按接口地址的来源键分开存（ai_assistant.tokens）。服务商表和规则在 AiSettings.h。
+  // 共享 AI 页（`ai-settings-content.tsx`、`ai-settings-page-section.tsx`）在 Windows 上的内容，顺序也相同：只有「服务」一组（开关、服务提供商、API Token、接入说明、模型（预置的和获取到的模型在一个下拉里，末项「自定义…」）、「更多选项」里的接口地址、获取模型列表和当前槽位的自定义提示词，末尾是「测试 AI 辅助配置」）。Windows 固定 AI 候选数量为 3（client-core 的 `HostPlatform::fixed_ai_candidate_limit`，TSF 从 host-api 的在线查询读这个值），所以没有「联想」组；桌面上这份配置只给拼音联想用，没有「AI 润色测试」。Windows 的设置应用没有 AI 对话（宿主不提供 chat），所以最后没有「AI 对话」一组。Token 存在偏好文件里，按接口地址的来源键分开存（ai_assistant.tokens）。服务商表和规则在 AiSettings.h。
   void build_ai_page(StackPanel const &page) {
     if (!indexing_) {
       credential_test_views_.clear();
       ai_sync_.clear();
       ai_models_host_ = nullptr;
-      ai_test_view_ = nullptr;
     }
     const auto provider = document_.String(L"ai_assistant.provider", L"deepseek");
     const auto endpoint = ai_endpoint();
@@ -18699,18 +18746,13 @@ private:
                                     return true;
                                   });
         });
-    StackPanel models;
-    models.Spacing(4);
-    service.Children().Append(models);
-    if (!indexing_)
-      ai_models_host_ = models;
-    fill_ai_models(models);
-
     Expander more;
     more.Header(box_value(L"更多选项"));
     more.HorizontalAlignment(HorizontalAlignment::Stretch);
     more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(ai_more_open_.value_or(false) || focus_row_ == L"接口地址");
+    // 搜索落到收在里面的行时展开。
+    more.IsExpanded(ai_more_open_.value_or(false) || focus_row_ == L"接口地址" ||
+                    focus_row_ == L"服务模型" || focus_row_ == L"自定义提示词");
     more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
       ai_more_open_ = true;
     });
@@ -18738,6 +18780,48 @@ private:
           set_subtitle(line, value.empty() ? std::wstring() : ai_endpoint(value).hint);
         }
       });
+    // 获取模型列表和自定义提示词也是接自定义服务或代理的同一批用户才用，和接口地址一起收在这里。
+    StackPanel models;
+    models.Spacing(4);
+    rows.Children().Append(models);
+    if (!indexing_)
+      ai_models_host_ = models;
+    fill_ai_models(models);
+
+    // 只编辑当前槽位（prompt_id）的提示词，存着的槽位和 prompt_id 都不动；填了就整个替换内置提示词，说明见 ais::prompt_description。
+    const auto prompt_id = document_.String(L"ai_assistant.prompt_id", L"");
+    auto const &slot = ais::prompt_slot(prompt_id);
+    const std::wstring label = L"自定义提示词";
+    const std::wstring description = ais::prompt_description(prompt_id);
+    record(label, description);
+    StackPanel block;
+    block.Spacing(6);
+    block.Padding(Thickness{25, 16, 25, 16});
+    block.Children().Append(make_text(label, 14, palette_.text));
+    block.Children().Append(make_text(description, 12, palette_.sub));
+    TextBox prompt;
+    prompt.AcceptsReturn(true);
+    prompt.TextWrapping(TextWrapping::Wrap);
+    prompt.MinHeight(120);
+    prompt.MaxHeight(360);
+    prompt.IsSpellCheckEnabled(false);
+    const std::wstring prompt_key = L"ai_assistant.prompt_" + std::wstring(slot.id);
+    prompt.Text(hstring(document_.String(prompt_key, L"")));
+    prompt.IsEnabled(loaded_);
+    A11y::SetName(prompt, L"AI 联想自定义提示词");
+    prompt.TextChanged([this, prompt_key](Inspectable const &sender, TextChangedEventArgs const &) {
+      const auto value = textarea_value(sender.as<TextBox>());
+      if (value == document_.String(prompt_key, L""))
+        return;
+      write_credential(prompt_key, value);
+      ai_edited(false);
+      sync_ai();
+    });
+    block.Children().Append(prompt);
+    auto prompt_card = make_card();
+    prompt_card.Child(block);
+    rows.Children().Append(prompt_card);
+    mark_search_target(label, prompt_card);
     more.Content(rows);
     service.Children().Append(more);
     add_credential_test(
@@ -18761,82 +18845,6 @@ private:
                                                document_.String(L"ai_assistant.model", L""),
                                                ai_token(current));
         });
-
-    // 「联想」：候选数量是 type=number、min=1、max=10 的输入框，取值规则见 ais::candidate_limit。上下限与 min、max 一样让上下箭头停在 1 和 10：不设下限时在 1 上按向下得到 0，按「|| 3」存成了 3。代价是手输 0 被 NumberBox 改成 1，共享页取 3。
-    auto suggestion = add_group(page, L"联想");
-    NumberBox limit;
-    limit.Width(120);
-    limit.SpinButtonPlacementMode(NumberBoxSpinButtonPlacementMode::Compact);
-    limit.Minimum(1);
-    limit.Maximum(10);
-    limit.SmallChange(1);
-    limit.Value(document_.Number(L"ai_assistant.candidate_limit", 3));
-    limit.IsEnabled(loaded_);
-    A11y::SetName(limit, L"AI 候选数量");
-    limit.ValueChanged([this](NumberBox const &sender, NumberBoxValueChangedEventArgs const &args) {
-      const int value = ais::candidate_limit(args.NewValue());
-      if (value != static_cast<int>(document_.Number(L"ai_assistant.candidate_limit", 3))) {
-        document_.SetNumber(L"ai_assistant.candidate_limit", value);
-        schedule_save();
-        ai_edited(false);
-        sync_ai();
-      }
-      // 输入框受控：清空或小数时显示存下的值。不在自己的 ValueChanged 里改值。
-      if (args.NewValue() != static_cast<double>(value))
-        DispatcherQueue().TryEnqueue([weak = make_weak(sender), value] {
-          if (auto box = weak.get(); box && box.Value() != static_cast<double>(value))
-            box.Value(value);
-        });
-    });
-    add_row(suggestion, 0xE8EF, L"候选数量", L"每次 AI 联想给出的候选个数，1 到 10", limit);
-
-    // 「提示词」：只显示所选槽位的提示词；槽位留空时使用内置的联想提示词。
-    auto prompts = add_group(page, L"提示词");
-    auto const &slot = ais::prompt_slot(document_.String(L"ai_assistant.prompt_id", L""));
-    std::vector<Option> slots;
-    for (auto const &entry : ais::prompt_slots)
-      slots.push_back({std::wstring(entry.id), std::wstring(entry.option)});
-    add_row(prompts, 0xE8BD, L"提示词方案", L"使用选中的独立槽位；槽位留空时使用内置的联想提示词",
-            select_control(L"AI 联想提示词方案", std::move(slots), std::wstring(slot.id),
-                           [this](std::wstring const &value) {
-                             ai_change([&](PreferencesDocument &doc) {
-                               doc.SetString(L"ai_assistant.prompt_id", value);
-                             }, false);
-                           }));
-    const std::wstring label(slot.label);
-    const std::wstring description = L"发送给 AI 联想服务的额外提示词";
-    record(label, description);
-    StackPanel block;
-    block.Spacing(6);
-    block.Padding(Thickness{25, 16, 25, 16});
-    block.Children().Append(make_text(label, 14, palette_.text));
-    block.Children().Append(make_text(description, 12, palette_.sub));
-    TextBox prompt;
-    prompt.AcceptsReturn(true);
-    prompt.TextWrapping(TextWrapping::Wrap);
-    prompt.MinHeight(120);
-    prompt.MaxHeight(360);
-    prompt.IsSpellCheckEnabled(false);
-    const std::wstring prompt_key = L"ai_assistant.prompt_" + std::wstring(slot.id);
-    prompt.Text(hstring(document_.String(prompt_key, L"")));
-    prompt.IsEnabled(loaded_);
-    A11y::SetName(prompt, hstring(label));
-    prompt.TextChanged([this, prompt_key](Inspectable const &sender, TextChangedEventArgs const &) {
-      const auto value = textarea_value(sender.as<TextBox>());
-      if (value == document_.String(prompt_key, L""))
-        return;
-      write_credential(prompt_key, value);
-      ai_edited(false);
-      sync_ai();
-    });
-    block.Children().Append(prompt);
-    auto prompt_card = make_card();
-    prompt_card.Child(block);
-    prompts.Children().Append(prompt_card);
-    mark_search_target(label, prompt_card);
-
-    build_ai_test_tools(page);
-    refresh_ai_test();
   }
 
   // API Token（AiApiTokenSection）：带「显示」「隐藏」的密钥框，接口地址能用时才可填，说明写着 Token 只用于哪个来源；地址不能用时是地址的说明，或请先填写接口地址。改接口地址时就地换成新来源下存的 Token。
@@ -18971,136 +18979,6 @@ private:
         });
   }
 
-  // 「测试工具」（AiTestToolsSection）：待润色文字、「发送并润色」、状态和结果，结果旁边是「复制结果」。测试文字跨页面重建保留，不写进设置。按钮、状态和结果由 ai_test_view_ 就地更新。
-  void build_ai_test_tools(StackPanel const &page) {
-    auto group = add_group(page, L"测试工具");
-    const std::wstring title = L"AI 润色测试";
-    const std::wstring description = L"仅在点击发送时请求当前配置；测试文字不会写入日志。";
-    record(title, description);
-    StackPanel block;
-    block.Spacing(8);
-    block.Padding(Thickness{25, 16, 25, 16});
-    block.Children().Append(make_text(title, 14, palette_.text));
-    block.Children().Append(make_text(description, 12, palette_.sub));
-    TextBox input;
-    input.AcceptsReturn(true);
-    input.TextWrapping(TextWrapping::Wrap);
-    input.MinHeight(96);
-    input.MaxHeight(240);
-    input.IsSpellCheckEnabled(false);
-    input.PlaceholderText(L"输入一段待润色文字");
-    input.Text(hstring(ai_test_input_));
-    A11y::SetName(input, L"AI 测试输入");
-    input.TextChanged([this](Inspectable const &sender, TextChangedEventArgs const &) {
-      ai_test_input_ = textarea_value(sender.as<TextBox>());
-      refresh_ai_test();
-    });
-    block.Children().Append(input);
-    Button send;
-    send.Height(32);
-    send.Padding(Thickness{16, 0, 16, 0});
-    send.Click([this](Inspectable const &, RoutedEventArgs const &) { run_ai_test(); });
-    block.Children().Append(send);
-    auto status = make_text(L"", 13, palette_.sub);
-    A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
-    block.Children().Append(status);
-    StackPanel result;
-    result.Spacing(8);
-    auto output = make_text(L"", 14, palette_.text);
-    output.IsTextSelectionEnabled(true);
-    result.Children().Append(output);
-    result.Children().Append(button_control(L"复制结果", [this] {
-      // 共享页的 copyText（Tauri 的 copy_text）：放进系统剪贴板，剪贴板历史开着时也记进历史；失败时不提示。copy_text 不收空文字、含 NUL 或超过 12000 字节（clipboard::MAX_TEXT_BYTES）的文字，什么也不复制。
-      const auto bytes = utf8(hstring(ai_test_output_));
-      if (bytes.empty() || bytes.size() > 12000 || ai_test_output_.find(L'\0') != std::wstring::npos)
-        return;
-      recopy_clipboard_entry(ai_test_output_);
-    }));
-    block.Children().Append(result);
-    auto card = make_card();
-    card.Child(block);
-    group.Children().Append(card);
-    mark_search_target(title, card);
-    if (indexing_)
-      return;
-    ai_test_view_ = [this, weak_send = make_weak(send), weak_status = make_weak(status),
-                     weak_result = make_weak(result), weak_output = make_weak(output)] {
-      if (auto button = weak_send.get()) {
-        button.Content(box_value(ai_test_busy_ ? L"发送中…" : L"发送并润色"));
-        button.IsEnabled(!ai_test_busy_ && !nav::js_trim(ai_test_input_).empty());
-      }
-      if (auto line = weak_status.get())
-        set_subtitle(line, ai_test_status_);
-      if (auto line = weak_output.get())
-        line.Text(hstring(ai_test_output_));
-      if (auto panel = weak_result.get())
-        panel.Visibility(ai_test_output_.empty() ? Visibility::Collapsed : Visibility::Visible);
-    };
-  }
-
-  void refresh_ai_test() {
-    if (ai_test_view_)
-      ai_test_view_();
-  }
-
-  // 共享页的 test：用固定的润色指令把待润色文字发给当前配置（msime_client_ai_test，会联网，最长约 15 秒，在 UI 线程之外调用）。期间改了任何一项 AI 设置，结果作废。
-  void run_ai_test() {
-    if (nav::js_trim(ai_test_input_).empty()) {
-      ai_test_status_ = L"请先输入待润色文字。";
-      refresh_ai_test();
-      return;
-    }
-    const auto endpoint = ai_endpoint();
-    if (!endpoint.origin) {
-      ai_test_status_ = endpoint.hint;
-      refresh_ai_test();
-      return;
-    }
-    const auto token = ai_token(endpoint);
-    if (nav::js_trim(token).empty()) {
-      ai_test_status_ = L"请先填写 API Token。";
-      refresh_ai_test();
-      return;
-    }
-    if (ai_test_busy_)
-      return;
-    const auto generation = ai_generation_;
-    const auto owner = ++ai_test_request_;
-    ai_test_output_.clear();
-    ai_test_status_.clear();
-    ai_test_busy_ = true;
-    refresh_ai_test();
-    auto string = [](std::wstring const &value) {
-      return JsonValue::CreateStringValue(hstring(value));
-    };
-    JsonObject request;
-    request.SetNamedValue(L"endpoint", string(document_.String(L"ai_assistant.endpoint", L"")));
-    request.SetNamedValue(L"model", string(document_.String(L"ai_assistant.model", L"")));
-    request.SetNamedValue(L"prompt", string(std::wstring(ais::polish_test_prompt)));
-    request.SetNamedValue(L"token", string(token));
-    request.SetNamedValue(L"text", string(ai_test_input_));
-    run_host(
-        [body = utf8(request.Stringify())] {
-          return take_response(msime_client_ai_test(
-              reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-        },
-        [this, generation, owner](Response const &response) {
-          if (generation != ai_generation_ || owner != ai_test_request_)
-            return;
-          ai_test_busy_ = false;
-          ai_test_status_ = std::wstring(ais::test_failure);
-          if (response.ok) {
-            try {
-              ai_test_output_ =
-                  JsonObject::Parse(text(response.text)).GetNamedString(L"value").c_str();
-              ai_test_status_ = L"已完成";
-            } catch (...) {
-            }
-          }
-          refresh_ai_test();
-        });
-  }
-
   // ---- 维护与诊断 ----
 
   void build_dev_page(StackPanel const &page) {
@@ -19143,13 +19021,10 @@ private:
     }
   }
 
-  // ---- 帮助与反馈、关于 ----
+  // ---- 关于（含并进来的帮助与反馈） ----
 
-  // 共享设置的「帮助与反馈」页（`packages/ui/src/settings/pages/feedback-page.tsx`）在 Windows 上的样子：页首一句说明，「帮助」，「提交可复现的问题」的报告，「反馈与交流」的三个渠道。共享页的「帮助」是一个子页入口，本窗口没有子页，直接把帮助内容画在这里（`build_help_section`）。报告的格式、诊断信息和 GitHub 地址的拼法在 `FeedbackReport.h`。
-  void build_feedback_page(StackPanel const &page) {
-    auto intro = make_text(L"遇到问题或有功能建议时，可以通过以下渠道提交和交流。", 14, palette_.sub);
-    intro.Margin(Thickness{4, 0, 4, 4});
-    page.Children().Append(intro);
+  // 共享设置的 `FeedbackSections`（`packages/ui/src/settings/pages/feedback-page.tsx`）在 Windows 上的样子，画在「关于」页「版本与更新」之后：「帮助」，「提交可复现的问题」的报告，「反馈与交流」的三个渠道。桌面上「帮助与反馈」并进了「关于」（`desktopMergedPages`），没有单独的页，也就没有页首那句说明。共享页的「帮助」是一个子页入口，本窗口没有子页，直接把帮助内容画在这里（`build_help_section`），「关于」因此比共享页长。报告的格式、诊断信息和 GitHub 地址的拼法在 `FeedbackReport.h`。
+  void build_feedback_sections(StackPanel const &page) {
     build_help_section(page);
 
     auto report = add_group(page, L"提交可复现的问题");
@@ -19426,6 +19301,9 @@ private:
             }));
     url_row(updates, 0xE8A5, L"历史版本", L"各版本的更新说明与安装包。", L"查看", releases_url);
 
+    // 并进来的帮助与反馈，顺序与共享的 about-page.tsx 相同：版本与更新 → 帮助与反馈 → 许可与隐私。
+    build_feedback_sections(page);
+
     auto privacy = add_group(page, L"许可与隐私");
     bool_row(privacy, 0xE9D2, L"匿名使用统计",
              L"仅发送匿名使用记录和崩溃摘要，不含输入内容、候选、剪贴板、账号或设备信息；关闭后不再发送，并清空待发记录。",
@@ -19619,9 +19497,13 @@ private:
   bool preview_visible_ = true;
   std::wstring preview_sample_;
   std::optional<bool> preview_dark_;
-  std::wstring candidate_tab_ = L"layout";
-  std::wstring candidate_index_tab_;
-  std::map<std::wstring, std::wstring> candidate_search_tabs_;
+  // 正在索引的折叠区（「候选窗口」页的「更多选项」、「主题」页的「自定义配色」），以及索引时记下的每行所在的折叠区，见 fold_holds_focus。
+  std::wstring fold_index_;
+  std::map<std::wstring, std::wstring> search_folds_;
+  // 两个折叠区和「候选字体」的「自定义…」各自的状态，跨重画保留。
+  bool candidate_more_open_ = false;
+  bool custom_colors_open_ = false;
+  bool candidate_font_custom_ = false;
   std::wstring notice_;
   InfoBarSeverity notice_severity_ = InfoBarSeverity::Error;
 
@@ -19727,23 +19609,17 @@ private:
   bool capture_stale_ = true;
   bool capture_read_ = false;
 
-  // 「AI 辅助」页（共享页 useAiAssistant 的状态，跨页面重建保留）：已获取的模型和获取的提示，待润色文字、测试结果和状态，两个请求是否在进行。ai_generation_ 在每次改 AI 设置时递增，作废进行中的请求；两个请求各自的序号作废同一种的更早请求。「更多选项」是否展开在第一次画这一页时按接口地址能不能用决定。随输入就地更新的控件每次绘制时重建。
+  // 「AI 辅助」页（共享页 useAiAssistant 的状态，跨页面重建保留）：已获取的模型和获取的提示，获取是否在进行。ai_generation_ 在每次改 AI 设置时递增，作废进行中的获取；获取请求的序号作废更早的获取。「更多选项」是否展开在第一次画这一页时按接口地址能不能用决定。随输入就地更新的控件每次绘制时重建。
   std::optional<std::vector<std::wstring>> ai_models_;
   std::wstring ai_models_status_;
   // 选了「自定义…」的模型下拉（add_model_picker）：模型的键对应选的时候列出的模型，跨页面重建保留，列表换了就不算数。
   std::map<std::wstring, std::wstring> custom_model_lists_;
   bool ai_models_busy_ = false;
-  std::wstring ai_test_input_;
-  std::wstring ai_test_output_;
-  std::wstring ai_test_status_;
-  bool ai_test_busy_ = false;
   uint64_t ai_generation_ = 0;
   uint64_t ai_models_request_ = 0;
-  uint64_t ai_test_request_ = 0;
   std::optional<bool> ai_more_open_;
   std::vector<std::function<void()>> ai_sync_;
   StackPanel ai_models_host_{nullptr};
-  std::function<void()> ai_test_view_;
 
   // 「账号与同步」页（共享账号页的组件状态，每次进入页面时重置）：读状态时等着的两份回答、用户和资料里已绑定的登录方式、可用的登录方式、选中的验证码方式、号码、验证码和这次的 challenge 及其过期和可重发的时刻（steady_clock 毫秒）、错误和提示、编辑资料里正在输入的昵称、「已复制」、是否在等浏览器完成 Google 登录。account_generation_ 在进出页面时递增，作废在途的回答；account_busy_ 是进行中的操作（共享页的 busy）。头像按 avatarUrl 缓存解码好的图片。设置同步卡片有自己的状态：卡片读的是哪个账号的、字段表和云端设置是否读到、云端设置文档、忙碌和一行说明；sync_generation_ 在换账号或进出页面时作废在途的回答。随时间变的两个按钮和验证码一栏是该页当前的那一组；对话框开着时 account_dialog_refresh_ 就地更新它。
   bool account_stale_ = true;
@@ -19758,6 +19634,8 @@ private:
   bool account_phone_ = false;
   bool account_google_ = false;
   bool account_google_waiting_ = false;
+  // 读不出本机保存的登录状态（status 失败、不是取消）。只有这时才给「清除失效登录状态」；进入页面、读出状态、登录成功或清掉会话后复位。
+  bool account_session_unreadable_ = false;
   AccountChannel account_channel_ = AccountChannel::none;
   std::wstring account_target_;
   std::wstring account_code_;
@@ -19792,7 +19670,7 @@ private:
   TextBlock update_status_{nullptr};
   TextBlock update_detail_{nullptr};
 
-  // 「帮助与反馈」页的报告草稿和「已复制」标记：跨页面重建保留，关闭窗口即丢弃，与共享页的组件状态一样。按钮是该页当前的那一组。
+  // 「关于」页里并进来的帮助与反馈的报告草稿和「已复制」标记：跨页面重建保留，关闭窗口即丢弃，与共享页的组件状态一样。按钮是该页当前的那一组。
   std::wstring feedback_kind_{msime::settings::feedback_kinds[0]};
   std::wstring feedback_detail_;
   bool feedback_report_copied_ = false;
@@ -19849,6 +19727,9 @@ private:
   std::vector<pg::Mention> plugin_mentions_;
   std::vector<pg::Mention> plugin_saved_mentions_;
   std::set<std::wstring> plugin_sound_titles_;
+  // 「声音与效果」里「更多音效」是否展开，跨页面重建保留；进入插件页时读到的打字统计开关，没读到时为空。
+  bool plugin_sound_more_open_ = false;
+  std::optional<bool> plugin_statistics_enabled_;
   TextBlock plugin_mentions_warning_{nullptr};
   Button plugin_mentions_save_{nullptr};
   // 脚本插件的授权和输入法记下的停用（`script_grants` 的回答），还没读到时为空，跨页面重建保留。plugin_grant_ 是开着的授权对话框。

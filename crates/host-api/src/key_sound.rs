@@ -217,7 +217,7 @@ impl SoundSettings {
             music_pack: preferences.music.pack.clone(),
             music_volume: preferences.music.volume,
             effect_style: preferences.effect_style,
-            // 本库编译到的平台固定了强度（`HostPlatform::fixed_effect_intensity`，macOS）时不读偏好里存的值。
+            // 本库编译到的平台固定了强度（`HostPlatform::fixed_effect_intensity`，macOS、Windows、鸿蒙）时不读偏好里存的值。鸿蒙键盘的效果由 ArkTS 的 `TypingEffectPolicy` 画，它同样用固定的 `DEFAULT_INTENSITY`，不读存下的值。
             effect_intensity: crate::ffi::host::compiled_platform()
                 .fixed_effect_intensity()
                 .unwrap_or(preferences.effect_intensity),

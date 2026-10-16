@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { SettingsClient, VoiceInputPreferences } from "../index";
+import type { VoiceInputPreferences } from "./voice-input-preferences";
+import type { SettingsClient } from "../core/settings-client";
 import type { Preferences } from "../core/preferences-model";
 import { LocalModelManager, localModelInUse } from "../voice/local-models";
 import { MoreOptions } from "../core/platform-controls";

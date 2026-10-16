@@ -540,7 +540,7 @@ int main(int argc, char **argv) {
     invoke("FocusIn");
     require(!wait_until([&] { return seen.auxiliary_visible; }) || seen.auxiliary != "中",
             "A repeated focus showed the input mode again");
-    // GNOME Shell 以外，IBus 宿主告诉设置页它的面板只接收字体和颜色（candidate-panel.json 的 ibus_panel），设置页据此说明圆角、边框颜色和皮肤的装饰图不生效。目录名随安装版本，所以按文件名找。
+    // GNOME Shell 以外，IBus 宿主告诉设置页它的面板只接收字体和颜色（candidate-panel.json 的 ibus_panel），设置页据此说明圆角和皮肤的装饰图不生效。目录名随安装版本，所以按文件名找。
     const auto panel_status = [&] {
       std::error_code error;
       for (const auto &entry : std::filesystem::recursive_directory_iterator(runtime, error))
@@ -3189,8 +3189,9 @@ int main(int argc, char **argv) {
             "Highlighted candidate text is not readable on the picked selection colour");
     require(seen.first_candidate_background == 0x204060,
             "Selected candidate color attribute missing");
-    require(seen.second_candidate_number_color == 0xabcdef,
-            "Candidate number color attribute missing");
+    // 存下的编号色 #abcdef 不再读（编号色跟随主题，HostCapabilities::candidate_number_color 在 Linux 为假）：编号色由文字颜色 #123456 按 PICKED_NUMBER_ALPHA（0x9D）推出，再合成到表面色 #654321 上。
+    require(seen.second_candidate_number_color == 0x323a42,
+            "Candidate number color is not derived from the picked text color");
     // The host publishes the candidate menu on a 400ms timer after the page changes, so wait for it rather than reading it in the turn that drew the page.
     const auto candidate_actions_deadline = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
     while ((seen.first_candidate_fix_name.empty() || seen.first_candidate_clear_name.empty()) &&

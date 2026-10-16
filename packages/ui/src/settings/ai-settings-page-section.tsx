@@ -46,7 +46,7 @@ export interface AiSettingsPageSectionProps {
     status: string;
     onFetch: () => void;
   } | null;
-  /** 宿主按偏好决定 AI 候选数量，所以给出「候选数量」；固定数量的宿主（macOS，`HostCapabilities.fixed_ai_candidate_limit`）不给，整个「联想」组随之不出现。 */
+  /** 宿主按偏好决定 AI 候选数量，所以给出「候选数量」；固定数量的宿主（macOS、Windows、Linux、鸿蒙，`HostCapabilities.fixed_ai_candidate_limit`）不给，整个「联想」组随之不出现。 */
   candidateLimitShown: boolean;
   candidateLimit: number;
   onCandidateLimitChange: (candidateLimit: number) => void;

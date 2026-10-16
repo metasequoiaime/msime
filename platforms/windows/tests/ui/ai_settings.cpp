@@ -1,5 +1,4 @@
 #include "../../settings/AiSettings.h"
-#include <cmath>
 #include <cstdio>
 #include <set>
 #include <string>
@@ -84,25 +83,25 @@ int main() {
   check(credential_test_disabled(true, true, L" \t", L"t"), "blank model");
   check(credential_test_disabled(true, true, L"m", L"　"), "blank token");
 
-  // 候选数量：clamp(Number(value) || 3, 1, 10)。
-  check(candidate_limit(std::nan("")) == 3 && candidate_limit(0) == 3 && candidate_limit(-0.0) == 3,
-        "empty and zero take 3");
-  check(candidate_limit(-4) == 1 && candidate_limit(42) == 10 && candidate_limit(7) == 7,
-        "clamped to 1..10");
-  check(candidate_limit(2.4) == 2 && candidate_limit(2.6) == 3, "rounded to a whole number");
-
-  // 提示词槽位。
+  // 提示词槽位：只编辑 prompt_id 选中的那一个。
   check(prompt_slot(L"").id == L"custom_1" && prompt_slot(L"default").id == L"custom_1" &&
-            prompt_slot(L"custom_3").label == L"自定义提示词三" &&
-            prompt_slot(L"custom_2").option == L"自定义二",
+            prompt_slot(L"custom_3").name == L"三" && prompt_slot(L"custom_2").name == L"二",
         "prompt slots");
+  // 说明讲清楚是整个替换、要求只输出 JSON；不是第一个槽位时说出是哪一个，与共享页相同。
+  const std::wstring base =
+      L"留空时使用内置的联想提示词。填写后会整个替换内置提示词，不是追加；内置提示词规定了只输出 JSON 格式的候选，自定义时也要这样要求，否则联想可能不出结果。";
+  check(prompt_description(L"") == base && prompt_description(L"custom_1") == base &&
+            prompt_description(L"default") == base,
+        "the first slot names no slot");
+  check(prompt_description(L"custom_2") == base + L"当前使用的是槽位二。" &&
+            prompt_description(L"custom_3") == base + L"当前使用的是槽位三。",
+        "another slot is named");
 
   // 获取模型后的提示和要换上的模型。
   check(models_status(3) == L"已获取 3 个可用模型。", "models status");
   check(fetched_model({L"a", L"b"}, L"b").empty() && fetched_model({}, L"x").empty() &&
             fetched_model({L"a", L"b"}, L"x") == L"a",
         "the fetched model replaces an unknown one");
-  check(polish_test_prompt == L"请润色以下文字，保持原意，只返回修改后的文字。", "polish prompt");
 
   if (failures == 0)
     std::puts("ai settings: ok");
