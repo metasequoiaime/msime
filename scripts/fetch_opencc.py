@@ -29,7 +29,7 @@ def read_lock() -> dict:
     names = set()
     for entry in lock["files"]:
         path = entry["path"]
-        if (not re.fullmatch(r"sources/opencc/[A-Za-z0-9_.]+", path) or path in names
+        if (not re.fullmatch(r"sources/opencc/[A-Za-z][A-Za-z0-9_.]*", path) or path in names
                 or type(entry["size"]) is not int or not 0 < entry["size"] <= 2_000_000
                 or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])):
             raise ValueError(f"无效的 OpenCC 输入记录：{path}")

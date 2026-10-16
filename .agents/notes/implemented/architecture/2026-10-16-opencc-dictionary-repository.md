@@ -12,9 +12,9 @@ Status: implemented
 
 `resources/opencc.lock.json` 固定 msime-dictionary 完整提交、OpenCC 上游提交、八份输入的大小与 SHA-256。`client-base/build.rs` 调用 Python 3.10+ 的 `scripts/fetch_opencc.py` 在构建主机准备数据，`include_str!` 仍把验证过的七张表编入各宿主。下载来自固定提交的 raw URL，不跟随 main；先限长，再校验，最后原子替换。默认缓存在 `target/opencc/<commit>/`，每次使用检查大小和摘要。`MSIME_OPENCC_OFFLINE=1` 禁止下载；`MSIME_OPENCC_SOURCE_DIR` 可指定离线检出的 `sources/opencc/`，它也必须逐字节匹配。运行时没有新增文件访问或联网。
 
-OpenCC 是构建期内嵌输入，不进入按需安装的数据库生命周期，所以这是 msime 通常只消费词库 Release 附件的一项明确例外，两个仓的说明同步登记，不新增发布附件。配套 PR 先合词库仓，再把下游锁更新到其合并后的提交；下游 PR 在此之前保持 draft，不让默认分支引用未合并的历史。
+OpenCC 是构建期内嵌输入，不进入按需安装的数据库生命周期，所以这是 msime 通常只消费词库 Release 附件的一项明确例外，两个仓的说明同步登记，不新增发布附件。配套 PR 先合词库仓，再把下游锁更新到其合并后的提交，不让默认分支引用未合并的历史。数据已由 msime-dictionary #80 合入，本仓固定其实际合并提交 `232e6dad2fbe788ad8adeb24bfa801ee1ec02c84`。构建器的来源登记与该仓的记录同步，避免读取新 checkout 时拒绝 OpenCC 记录。
 
-插件常用字与拆字表生成器复用同一个下载和校验入口，检查模式缺少缓存时按既有约定跳过，不自动联网。许可证原文继续作为 `resources/licenses/OpenCC-Apache-2.0.txt` 随应用提交和打包，不让声明收集额外依赖网络；构建时核对它与锁定的上游许可证一致。词库构建器的上游名表同步登记 OpenCC，以便读取增加该记录的词库仓 checkout。
+插件常用字与拆字表生成器复用同一个下载和校验入口，检查模式缺少缓存时按既有约定跳过，不自动联网。迁移时同时补齐 macOS、iOS、Android 和 HarmonyOS 原先遗漏的 OpenCC 许可证打包。许可证原文继续作为 `resources/licenses/OpenCC-Apache-2.0.txt` 随应用提交和打包，不让声明收集额外依赖网络；构建时核对它与锁定的上游许可证一致。词库构建器的上游名表同步登记 OpenCC，以便读取增加该记录的词库仓 checkout。
 
 ## Alternatives considered
 
@@ -32,3 +32,9 @@ OpenCC 是构建期内嵌输入，不进入按需安装的数据库生命周期�
 ## Related notes
 
 检索现有 OpenCC、简繁、词库、插件与拆字笔记：[client crate 分层](2026-10-15-client-core-split.md)、[臺灣变体](../feature/2026-10-15-traditional-chinese-variants.md) 部分重叠，保留各自决定并更新数据归属；[拆字模式](../feature/2026-10-13-builtin-chaizi-mode.md)和[插件合集](2026-10-12-script-plugin-collection.md)保留生成语义，改用同一锁定输入。前缀扫描与分配优化、标点及候选渲染笔记与数据归属无关。本地未推送的数据 crate 实现已撤回，不作为已落地架构保留。
+
+## Verification
+
+七份词表和许可证与迁移前逐字节一致。基础层 42 项、核心层 386 项单测通过；宿主转换分配预算 2 项、来源校验 14 项、合成下载与离线校验 7 项通过。使用新增上游记录的词库 checkout 离线构建 Hanja 成功（555 个音节、28,416 条读音），说明共享构建器接受这组记录。iOS 从固定发布清单准备生成工程的输入，XcodeGen 生成成功，23 项工程配置测试通过。静态缓存、离线源目录均通过同一份锁校验；拆字表离线不变量通过，缺少其余上游缓存的重新生成检查按原规则跳过。
+
+本地 quick 门禁通过：完整契约检查、Rust workspace、Android 与 Wasm 编译、Android JVM、Windows x64 交叉编译与桌面外壳、macOS 原生宿主、共享 Apple 桥、Windows x64/i686 pipe-only 均通过；Windows 本机可运行套件 162 项通过。Linux 因缺少 Docker、HarmonyOS 因缺少完整构建环境而跳过；Nix 无本机构建环境，未实测沙箱构建。未进行设备安装或运行时验收。本次文件下载与校验发生在构建主机，没有改变 Android 应用端的文件权限或目录操作。

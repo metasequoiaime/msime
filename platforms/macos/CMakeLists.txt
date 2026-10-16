@@ -236,6 +236,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-h
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt" "${MSIME_LEGAL_DIRECTORY}/kfcd-chaizi-CC-BY-3.0.txt" COPYONLY)
 # 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Unicode-License-V3.txt" "${MSIME_LEGAL_DIRECTORY}/Unicode-License-V3.txt" COPYONLY)
+# 简繁转换内嵌 OpenCC 词表，Apache-2.0 原文随宿主分发。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/OpenCC-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/OpenCC-Apache-2.0.txt" COPYONLY)
 # The Cantonese and Zhuyin schemes, whose syllables and words come from the dictionaries in language-dictionaries/ (when installed), built from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-cantonese-CC-BY-4.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt" "${MSIME_LEGAL_DIRECTORY}/libchewing-data-LGPL-2.1.txt" COPYONLY)

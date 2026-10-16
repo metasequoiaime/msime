@@ -76,6 +76,25 @@ class OpenCCInputTests(unittest.TestCase):
         self.assertEqual(lock["upstream"], references["OpenCC"])
         licence = next(entry for entry in lock["files"] if entry["path"].endswith("/LICENSE"))
         self.assertTrue(fetch_opencc.matches(fetch_opencc.ROOT / "resources/licenses/OpenCC-Apache-2.0.txt", licence))
+        for consumer in ("platforms/windows/Collect-Notices.ps1", "platforms/linux/CMakeLists.txt",
+                         "platforms/macos/CMakeLists.txt", "platforms/ios/project.yml",
+                         "platforms/android/build-native.sh", "platforms/harmony/stage-resources.sh"):
+            with self.subTest(consumer=consumer):
+                text = (fetch_opencc.ROOT / consumer).read_text(encoding="utf-8")
+                live = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+                self.assertIn("resources/licenses/OpenCC-Apache-2.0.txt", live)
+
+    def test_lock_rejects_traversal_and_unpinned_revision(self):
+        original = json.loads(fetch_opencc.LOCK.read_text())
+        for commit, path in (("main", "sources/opencc/LICENSE"),
+                             ("a" * 40, "sources/opencc/.."),
+                             ("a" * 40, "sources/opencc/../../outside")):
+            lock = dict(original, commit=commit, files=[dict(self.entry, path=path)])
+            record = self.cache / "lock.json"
+            record.write_text(json.dumps(lock))
+            with self.subTest(commit=commit, path=path), patch.object(fetch_opencc, "LOCK", record):
+                with self.assertRaises(ValueError):
+                    fetch_opencc.read_lock()
 
 
 if __name__ == "__main__":
