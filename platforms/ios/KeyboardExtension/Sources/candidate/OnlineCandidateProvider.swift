@@ -17,8 +17,8 @@ final class OnlineCandidateProvider {
   private let session: MetasequoiaInputSessionBridge
   private let transport: any OnlineCandidateTransport
   private var signature: String?
-  /// 问过 AI 却没有结果的那次请求的签名：同一组字不再向 AI 发请求；组字一变就清掉（#6888）。
-  private var aiResolvedSignature: String?
+  /// 问过 AI 却没有结果的那次请求的签名：同一组字不再向 AI 发请求；组字一变就清掉（#6888）。只读地公开给测试，用来确认空回答已经处理完。
+  private(set) var aiResolvedSignature: String?
   private var epoch: UInt64 = 0
   private var debounce: Timer?
   private var task: Task<Void, Never>?

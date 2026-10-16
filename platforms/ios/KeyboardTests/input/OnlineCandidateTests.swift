@@ -369,13 +369,13 @@ final class OnlineCandidateTests: XCTestCase {
       let rows = try XCTUnwrap(bridge.allCandidates()["candidates"] as? [[String: Any]])
       return rows.compactMap { $0["text"] as? String }
     }
-    let settle = { (calls: Int) in
+    // 等空回答真的处理完：provider 记下了这次请求的签名（换了组字时是一个新签名），而不是等一段固定时间。
+    let resolved = { (previous: String?) -> String? in
       let deadline = Date().addingTimeInterval(5)
-      while transport.callCount < calls, Date() < deadline {
+      while provider.aiResolvedSignature == nil || provider.aiResolvedSignature == previous, Date() < deadline {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
       }
-      // 回答到达后还要在主线程上解析、交给 Host API。
-      RunLoop.main.run(until: Date().addingTimeInterval(OnlineCandidateProvider.quietInterval + 0.2))
+      return provider.aiResolvedSignature
     }
 
     _ = bridge.cancel()
@@ -389,7 +389,7 @@ final class OnlineCandidateTests: XCTestCase {
     var applied = 0
     provider.onApplied = { _ in applied += 1 }
     provider.refresh(allowed: true)
-    settle(1)
+    let first = try XCTUnwrap(resolved(nil), "the empty AI answer was never handled")
     XCTAssertEqual(transport.callCount, 1)
     XCTAssertEqual(applied, 0, "an empty answer renders nothing")
     XCTAssertEqual(try allTexts(), before)
@@ -406,7 +406,8 @@ final class OnlineCandidateTests: XCTestCase {
 
     type(bridge, "zhongguo")
     provider.refresh(allowed: true)
-    settle(2)
+    let second = try XCTUnwrap(resolved(first), "the new composition's empty AI answer was never handled")
+    XCTAssertNotEqual(second, first)
     XCTAssertEqual(transport.callCount, 2)
     XCTAssertEqual(applied, 0)
     provider.cancel()

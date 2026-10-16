@@ -83,7 +83,8 @@ public final class AiCandidateSeatDeviceSmoke extends DeviceSmoke {
 
                 stage = "empty answer changes nothing";
                 server.answer(new JSONArray());
-                SystemClock.sleep(1500);
+                // 等键盘读完这个空回答、关掉连接（`OnlineCandidateTransport.ai` 返回之后才断开），而不是等一段固定时间；之后的解析和 resolve 都是同步的几步，3 秒后还会再比一次。
+                server.awaitAnswered();
                 List<String> after = strip();
                 if (!before.equals(after))
                     throw new AssertionError("Candidates changed when the answer was empty: " + before + " -> " + after);
@@ -215,6 +216,7 @@ public final class AiCandidateSeatDeviceSmoke extends DeviceSmoke {
         private final AtomicInteger requests = new AtomicInteger();
         private final BlockingQueue<Integer> received = new LinkedBlockingQueue<>();
         private final BlockingQueue<JSONArray> answers = new LinkedBlockingQueue<>();
+        private final BlockingQueue<Integer> answered = new LinkedBlockingQueue<>();
         private volatile JSONArray immediate;
 
         StubAiServer(String marker) throws IOException {
@@ -237,6 +239,12 @@ public final class AiCandidateSeatDeviceSmoke extends DeviceSmoke {
 
         void answer(JSONArray candidates) { answers.add(candidates); }
 
+        /** 等键盘读完一个问完整组字的回答并关掉连接。 */
+        void awaitAnswered() throws InterruptedException {
+            if (answered.poll(15, TimeUnit.SECONDS) == null)
+                throw new AssertionError("The keyboard never finished reading the AI answer");
+        }
+
         /** 之后的请求不等测试，立刻用这些候选回答。 */
         void answerImmediately(JSONArray candidates) { immediate = candidates; }
 
@@ -245,6 +253,7 @@ public final class AiCandidateSeatDeviceSmoke extends DeviceSmoke {
             immediate = null;
             answers.clear();
             received.clear();
+            answered.clear();
         }
 
         private void serve() {
@@ -282,6 +291,12 @@ public final class AiCandidateSeatDeviceSmoke extends DeviceSmoke {
                     + body.length + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
                 output.write(body);
                 output.flush();
+                if (request.contains(marker)) {
+                    // 键盘读完正文后断开连接，读到流末尾就说明这个回答已经交到它手里。
+                    InputStream input = client.getInputStream();
+                    while (input.read() >= 0) { }
+                    answered.add(requests.get());
+                }
             } catch (Exception ignored) {
                 // 宿主断开连接（换了组字、超时）：这个请求就此作罢。
             }
