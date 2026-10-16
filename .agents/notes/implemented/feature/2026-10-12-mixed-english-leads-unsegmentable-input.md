@@ -72,7 +72,7 @@ Status: implemented
 - 已检索的相关笔记：
   - [混入的 emoji、颜文字紧跟它描绘的候选词](2026-10-08-expressive-rows-follow-their-word.md)：部分重叠，它的 Decision 写的「英文不变：第一行进优先位置」作为当时的决定保留，事实处已就地补上指向本篇的链接。
   - [九宫格无拼音读法时给英文词](../bug-fix/2026-10-08-nine-key-path-ranking.md)：部分重叠，九宫格「列表为空时给英文」是本篇最近的先例，两篇互链。
-  - [AI 候选先占座位，回答到达时不挪动其他候选](2026-10-11-ai-seat-placeholder.md)：无关，`priority_slot` 把占位行当 AI 候选、`rerank_pick` 不比较来源 3 和 12，这些事实不变。
+  - [AI 候选先占座位，回答到达时不挪动其他候选](2026-10-11-ai-seat-placeholder.md)：无关；`rerank_pick` 不比较来源 3 和 12 的事实不变，`priority_slot` 后来不再看 AI 行（[AI 候选坐第一页最后一格](2026-10-16-ai-candidate-last-slot.md)）。
   - [拼音组字里直接出日期、时间、星期和农历](2026-10-10-inline-date-time-candidates.md)：无关，它否掉固定优先位的理由（简拼 `sj` 被误伤）和本篇保留 `minimum_prefix` 的理由同源。
   - [双拼的纠错整句](2026-10-09-shuangpin-typo-sentence.md)：无关，`rerank_pick` 里另一处不让某类行被模型转到首位的先例（双拼纠错行）。
   - [全拼、双拼里混进一行日文整段转换](2026-10-12-mixed-japanese-candidates.md)：部分重叠，第二阶段沿用本篇的音节判定和优先位置；日文和英文都领先时英文第一、日文第二，「领先行后面是默认选择」推广到两类行。

@@ -10,6 +10,8 @@ AI 联想是异步的：宿主在组字停下约 0.65 秒后才发请求，回�
 
 ## Decision
 
+> 部分已被取代（2026-10-16）：占位行、第 2 位的座位、resolve 把占位行换成「—」，以及下面「谁打开 AI 座位」一节，由 [AI 候选不再占座位，回答到达时坐第一页最后一格](2026-10-16-ai-candidate-last-slot.md) 取代：共享内核不再产生来源 12 的行，第一条 AI 候选在回答到达时插进第一页最后一格，`msime_client_resolve_online_candidates` 只校验参数并回答 applied:false。本篇仍持有：宿主在 AI 落空后同一组字不再重问（`aiResolvedSignature`）、macOS AI 定时器的 common modes 与 8 秒批次预算、`MSIMEViewContainsAICandidate` 按来源 3 判断、在线归位的两次扫描与固定英文缓冲。下文被取代的部分保留原文，供追溯当时的理由。
+
 AI 候选有一个固定的座位，回答到达前先放一行占位，回答到达后只替换这一行。
 
 - 新候选来源 `CandidateSource::AiPending = 12`（追加在枚举末尾，旧值不动，10 是已退役的 NeuralDesktop）。占位行的文字等回答时是「…」，回答为空或失败后是「—」，宿主把来源 12 画成次要色。
@@ -21,7 +23,7 @@ AI 候选有一个固定的座位，回答到达前先放一行占位，回答�
 - 回答为空、失败、被拒，或宿主这次不会发问时，宿主调用 `msime_client_resolve_online_candidates(session, query, length, 1)`，占位行换成「—」，留到组字变化为止（判据是 `OnlineRequestGuard::matches`，代次和查询字段都一样才算同一次）。回答的词全都已在列表里时引擎自己这样处理。
 - 占位行不是候选：选它或按它的数字键返回 handled 但不上屏，不学习，不计统计；固定、置顶、删除都不受理；不能从它进入整句改字；收尾时高亮在它上面按首选处理；`candidate_answers_key` 对它为 false。
 
-### 谁打开 AI 座位
+### 谁打开 AI 座位（已取代）
 
 Host API 在 AI 请求真的发得出去时打开：AI 开着、接口地址有效、偏好或会话里有可用密钥（`ai_seat_ready`）。macOS 和 Windows 出厂开着 AI 却没有密钥，这时一个请求也不发，若照开关打开座位，每次组字都会留一个永远等不到回答的「…」。桌面 Linux 的密钥只在用户自己的在线服务里，Host API 看不到，只看开关；没有在线服务或在私密输入框里不会发问时由宿主调用 resolve。座位在建会话、偏好更新（不等组字结束）、Engine 重建和 `msime_client_set_ai_credential` 时重算。
 

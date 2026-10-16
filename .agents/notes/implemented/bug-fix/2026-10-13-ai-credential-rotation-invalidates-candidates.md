@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`msime_client_set_ai_credential` 比较端点和令牌。凭据确实变化且当前有组字时，先经 `Runtime::clear_online_candidates(1)` 清理 AI 来源候选并使本组字的旧在线查询失效，成功后保存新凭据、重算座位；清理报错时旧凭据保持不变。空闲时没有待失效的查询，直接更新凭据。同一凭据的重复同步不清理候选。
+`msime_client_set_ai_credential` 比较端点和令牌。凭据确实变化且当前有组字时，先经 `Runtime::clear_online_candidates(1)` 清理 AI 来源候选并使本组字的旧在线查询失效，成功后保存新凭据（AI 座位开关后来随占位行一起去掉，见 [AI 候选坐第一页最后一格](../feature/2026-10-16-ai-candidate-last-slot.md)）；清理报错时旧凭据保持不变。空闲时没有待失效的查询，直接更新凭据。同一凭据的重复同步不清理候选。
 
 `HostSession::update` 同样比较最新请求与上一份请求（没有请求时比较已应用偏好）的完整 AI 配置。模型、提示词、端点、开关或保存的令牌变化时，先清理旧 AI 来源，再发布新偏好；修订号变化但 AI 配置相同则保留候选。清理发生在尚未写入新请求前，失败不留下半份新偏好。
 

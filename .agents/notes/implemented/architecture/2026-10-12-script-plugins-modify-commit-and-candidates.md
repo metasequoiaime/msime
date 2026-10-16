@@ -115,4 +115,4 @@ Status: implemented
 - 一个插件一轮最多用 225 000 fuel（其余钩子 125 000 加 `before_commit` 100 000），8 个插件合计 1 800 000，比设计 §4.4 的每轮合计 1 000 000 多；只有同时声明了 `before_commit` 并且每个钩子都烧满的插件才到这个数，按 wall-clock 的熔断照样管它。
 - 时延目标（`before_commit` p99 ≤ 1 ms、候选变换 p99 ≤ 2 ms）还没在真机上量；dev 构建里 64 页全脏的快照复位已经量到 0.68 ms。
 
-相关：[桌面端生命周期核心](2026-10-11-desktop-lifecycle-core.md) 推导出 `before_commit` 和可改写条件；[AI 座位的占位行](../feature/2026-10-11-ai-seat-placeholder.md) 定下了插件挪不动的 AI 座位。
+相关：[桌面端生命周期核心](2026-10-11-desktop-lifecycle-core.md) 推导出 `before_commit` 和可改写条件；[AI 座位的占位行](../feature/2026-10-11-ai-seat-placeholder.md) 定下了插件挪不动的 AI 座位，现在 AI 行坐第一页最后一格（[AI 候选坐第一页最后一格](../feature/2026-10-16-ai-candidate-last-slot.md)），插件同样挪不动、藏不了它。

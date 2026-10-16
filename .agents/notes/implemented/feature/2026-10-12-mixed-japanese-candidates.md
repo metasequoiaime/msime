@@ -43,7 +43,7 @@ Status: implemented
 - 拼音拆不开时 `lead = known`。只有精确词条、整句不认得（比如打错的拼音碰巧是某个词条的读音，最佳整句成本超过上限）时给一行但不领先，进优先位置。
 - 拼音拆得开时 `lead = !chinese_whole_word`。`chinese_whole_word` 是打头的非英文行是词典行（`is_dictionary()`），且选它能结束整段组字（快照算 `answers_key` 用的同一个 `selection_completes_composition`）。拼音拆得开时能给一行的只有精确词条。
 
-领先时占首位；英文已经按第一阶段的规则占了首位时排第二。不领先时进和英文相同的 `priority_slot`（首选之后，有云候选、AI 候选或占位行时再往后），排在英文那一行前面。文字和已有候选（含刚混进来的英文）重复时不加。始终最多一行。这些都在 `insert_mixed_rows_with_japanese`；`insert_mixed_rows` 和九宫格的 `insert_expressive_rows` 不带日文，行为不变。
+领先时占首位；英文已经按第一阶段的规则占了首位时排第二。不领先时进和英文相同的 `priority_slot`（首选之后，有云候选时再往后；AI 行不算，见 [AI 候选坐第一页最后一格](2026-10-16-ai-candidate-last-slot.md)），排在英文那一行前面。文字和已有候选（含刚混进来的英文）重复时不加。始终最多一行。这些都在 `insert_mixed_rows_with_japanese`；`insert_mixed_rows` 和九宫格的 `insert_expressive_rows` 不带日文，行为不变。
 
 行的字段：`word` 是转换文字，`pinyin` 是整段输入，`canonical_pinyin` 为空，`scheme` 为 `JapaneseRomaji`，权重 0。
 
