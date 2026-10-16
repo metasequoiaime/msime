@@ -22,7 +22,7 @@ Status: implemented
 - 历史记录约定：打开图库时先 `selectPage` 到所在功能页，再压一条 `{ page: <功能页>, communityGallery: { category, scope, initialMine } }`，与皮肤页的 `skinSubpage` 是同一种做法。`popstate` 时图库的开关只取自记录里的 `communityGallery`，且记录的 `page` 要等于它所在的功能页；离开那一页时图库随之关上。图库里的详情原先压的是写死的 `page: "community"`，现在由 `historyPage` 传入所在功能页（缺省仍是 `community`，桌面不变），而 `pushMobileSettingsState` 会带上当前记录里的 `communityGallery`，所以系统返回依次关掉详情、图库，最后才离开功能页。
 - 图库关上时功能页重读它依赖的本机数据：皮肤网格在图库打开期间不算可见，关上后重读皮肤库和社区第一页；鸿蒙手机词库页在图库关上后重读词库列表，图库里添加的词库出现在「已安装」，「发现词库」的「添加」变成「已添加」。图库里「添加」词库与原来的社区页一样：宿主有命名词库时 `installCommunity` 装成独立词库，否则导入本机词库。
 
-共享 React 的资源模型与添加操作分别归入 `community-resource-model.ts` 和 `community-resource-actions.ts`，原图库页面保留兼容导出。详情与图库共用词库安装操作，各入口的提示及生命周期保持原样，见[社区资源公共操作](../../implemented/simplification/2026-10-16-community-resource-actions.md)。
+共享 React 的资源模型与添加操作分别归入 `community-resource-model.ts` 和 `community-resource-actions.ts`，原图库页面保留兼容导出。详情与图库共用词库安装操作，各入口的提示及生命周期保持原样，见[社区资源公共操作](../../implemented/simplification/2026-10-16-community-resource-actions.md)。共享图库的列表、详情历史和会话添加状态由[资源图库状态](../../implemented/simplification/2026-10-16-community-resource-gallery.md)持有，原有功能页历史约定保持。
 
 ## Alternatives considered
 

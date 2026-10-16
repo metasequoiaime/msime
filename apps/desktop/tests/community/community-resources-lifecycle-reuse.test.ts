@@ -8,7 +8,17 @@ test("community resources page reuses the shared client lifecycle hook", () => {
       import: "default",
     }),
   )[0];
-  const page = source.slice(source.indexOf("export function CommunityResourcesPage"));
+  const page = Object.values(
+    import.meta.glob<string>(
+      "../../../../packages/ui/src/community/use-community-resource-gallery.ts",
+      {
+        eager: true,
+        query: "?raw",
+        import: "default",
+      },
+    ),
+  )[0];
+  expect(source).toContain("useCommunityResourceGallery(");
 
   expect(page).toContain("useCommunityClientLifecycle(");
   expect(page).not.toContain("const generation = useRef(0)");
