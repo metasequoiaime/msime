@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
     expect(presenter, "_OpenCandidateCommitPair(pairedOpening, pairedClosing)", true, "a digit-selected pair is tracked and the caret moved");
     // 数字选词上屏后必须结束组字，不只是在补成对标点时：组字留着的话，下一个字母开始的新组字会把刚上屏的词整段替换掉。
     {
-        const auto commit = presenter.find("hrReturn = _AddCharAndFinalize(ec, pContext, &selectedText);");
+        const auto commit = presenter.find("_AddCharAndFinalize(ec, pContext, &selectedText);");
         const auto complete = commit == std::string::npos ? commit : presenter.find("_HandleCompleteCommitFirst(ec, pContext);", commit);
         const auto pair = commit == std::string::npos ? commit : presenter.find("_OpenCandidateCommitPair(pairedOpening, pairedClosing);", commit);
         if (commit == std::string::npos || complete == std::string::npos || pair == std::string::npos || complete > pair) {
