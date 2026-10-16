@@ -2,11 +2,9 @@ package app.msime.android.test;
 
 import android.graphics.Rect;
 import android.content.Intent;
-import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.MotionEvent;
-import android.view.accessibility.AccessibilityNodeInfo;
 
 /** 在合成编辑器中通过系统触摸执行清除、下滑撤回、滑回取消和输入框切换。 */
 public final class QuickDeleteUndoDeviceSmoke extends DeviceSmoke {
@@ -47,6 +45,13 @@ public final class QuickDeleteUndoDeviceSmoke extends DeviceSmoke {
         undo(false, false);
         // 按下即删的 X 属于既有短按行为，撤回恢复的是之后快速清除的部分。
         expect("合成😀内容尾");
+        stage = "multi-chunk deletion restores Unicode text in order";
+        String large = "多段😀甲".repeat(1800);
+        setup(large + "X尾", large.length() + 1);
+        quickDelete();
+        expect("尾");
+        undo(false, false);
+        expect(large + "尾");
         stage = "quick-delete backup survives short press until release";
         setup("合成文本X", 5);
         quickDelete();
@@ -113,33 +118,30 @@ public final class QuickDeleteUndoDeviceSmoke extends DeviceSmoke {
     }
 
     private void setup(String text, int cursor) {
-        Bundle args = new Bundle();
-        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
-        if (!await(field(EDITOR)).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args))
-            throw new AssertionError("Synthetic editor setup failed");
-        Bundle selection = new Bundle();
-        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursor);
-        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursor);
-        await(field(EDITOR)).performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection);
-        await(field(EDITOR).and(node -> node.getTextSelectionStart() == cursor));
+        // 合成文本只通过测试拥有的控件设置；产品操作仍由系统触摸和 InputConnection 完成。
+        runOnMainSync(() -> {
+            fixture.editor.setText(text);
+            fixture.editor.setSelection(cursor);
+        });
         SystemClock.sleep(250);
     }
 
     private void expect(String text) {
-        try {
-            await(field(EDITOR).and(node -> text.isEmpty()
-                ? node.isShowingHintText() || node.getText() == null || node.getText().length() == 0
-                : !node.isShowingHintText() && equalsText(text, node.getText())));
-        } catch (AssertionError failure) {
-            int[] state = new int[3];
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        boolean[] matches = new boolean[1];
+        int[] state = new int[3];
+        do {
             runOnMainSync(() -> {
+                matches[0] = text.contentEquals(fixture.editor.getText());
                 state[0] = fixture.editor.length();
                 state[1] = fixture.editor.getSelectionStart();
                 state[2] = fixture.acceptedWrites;
             });
-            throw new AssertionError("Synthetic editor length=" + state[0] + ";cursor=" + state[1]
-                + ";accepted=" + state[2] + ";expected-length=" + text.length());
-        }
+            if (matches[0]) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Synthetic editor length=" + state[0] + ";cursor=" + state[1]
+            + ";accepted=" + state[2] + ";expected-length=" + text.length());
     }
 
     private Rect deleteBounds() {

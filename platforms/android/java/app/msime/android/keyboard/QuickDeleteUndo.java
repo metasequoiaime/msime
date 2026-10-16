@@ -5,8 +5,8 @@ import java.util.Objects;
 
 /** 快速删除的一次性内存备份；不接入剪贴板、统计或磁盘。 */
 public final class QuickDeleteUndo {
-    public static final int MAX_UNITS = BackspaceSwipePolicy.CLEAR_CHUNK
-        * BackspaceSwipePolicy.CLEAR_MAX_ROUNDS;
+    /** 单次撤回只提交至多 128 KiB UTF-16，给共享的 Binder 事务缓冲留出余量。 */
+    public static final int MAX_UNITS = 64 * 1024;
     public static final int CONTEXT_UNITS = 64;
     public static final long LIFETIME_MS = 60_000;
 

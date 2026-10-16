@@ -42,7 +42,9 @@ public final class QuickDeleteEditorActivity extends Activity {
                 };
             }
         };
-        editor.setInputType(InputType.TYPE_CLASS_TEXT);
+        // 显式允许大段合成文本，避免系统单行编辑器的默认长度限制截断多段回归。
+        editor.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        editor.setFilters(new android.text.InputFilter[0]);
         editor.setHint("Synthetic quick-delete editor");
         editor.setContentDescription("msime-test-plain");
         editor.setOnFocusChangeListener((view, focused) -> {

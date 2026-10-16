@@ -4895,8 +4895,10 @@ public final class MSIMEInputService extends InputMethodService {
         // 迟到的回报可能只是输入法自己上一次写入的回声（例如上屏之后用户已经按下了下一个键），那不是光标移动，不能把新开始的组字取消掉；对不上任何预期的才按原来的规则处理。
         boolean ownEcho = selectionEcho.acknowledge(newStart, newEnd, composingStart, composingEnd);
         if (!ownEcho && selectionChanged) englishCorrectionRejectedPrefix = "";
-        if (!ownEcho && quickDeleteUndo != null && !quickDeleteUndo.atSelection(newStart, newEnd))
-            clearQuickDeleteUndo();
+        if (!ownEcho && quickDeleteUndo != null && !quickDeleteUndo.atSelection(newStart, newEnd)) {
+            // 分段删除的中间选区回报可能迟到；按编辑器此刻的真实位置核对，不能仅凭旧回报丢掉备份。
+            canUndoQuickDelete();
+        }
         // 用户自己移了光标（或应用改了文字），之前补上的后半个不再是「下一个要跨过的」。
         if (!ownEcho && selectionChanged) pairedPunctuationStack.clear();
         if (!ownEcho && session != 0 && view != null && !InputViewValuePolicy.editingText(view).isEmpty()
