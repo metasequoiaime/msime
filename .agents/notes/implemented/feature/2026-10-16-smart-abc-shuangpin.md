@@ -41,6 +41,7 @@ Status: implemented
 - client-core 1475 项、host-api 636 项、MCP 60 项单测及 11 项集成测试通过；新宿主测试使用合成 SQLite 词条，验证 ABI 5、组词中延后切换和切回智能 ABC 后上屏。
 - 共享设置、引导及触屏兼容的 85 项测试通过，类型检查、构建和定向 lint 通过。上述四个 Rust crate 的 `cargo clippy --all-targets -- -D warnings` 通过。
 - Linux 原生构建门禁 87 项、IBus 原生 ctest 81 项和完整 IBus D-Bus 共享运行时验收通过；真实 daemon 的智能 ABC 三组编码上屏、切回全拼及崩溃恢复通过。
+- `check-container.sh <固定资源目录>` 完整通过：安装与卸载、词库和剪贴板、GTK3 X11、Qt5/Qt6 X11、GTK Wayland、Qt5/Qt6 Wayland 及 IBus portal 的系统编辑器验收均运行。
 - Fcitx5 完整原生上下文、独立智能 ABC 状态栏选择与保存、AI、真实 daemon 前端、GTK 与 IBus GTK 编辑器共 6 项验收通过。独立用例既检查标签和落盘，也经真实按键上屏「你好」并轮换回小鹤。
 - 系统验收夹具同步现有契约：语音合成回包补齐 `ok: true`；Fcitx5 测试显式开启译文并结束大写串后测快捷模式；IBus 用 Ctrl+左右测试逐字母编辑，临时模式回车保留入口字母。均未修改相应生产行为。
 - 最终 `bash scripts/verify-local.sh --quick`、`pnpm run verify-notes` 和差异检查通过；HarmonyOS 真打包因缺少 staged 依赖明确跳过。
