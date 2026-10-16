@@ -63,7 +63,8 @@ Status: proposed
 
 - [原生设置窗口账号页用到的 C 接口](../../implemented/architecture/2026-10-11-windows-settings-account-host-api.md)：部分重叠。那篇定下了 `msime_client_account` 每个 `directory` 一个会话对象、Google 登录与取消用同一对象；这里沿用它，并给同一个导出加上 `session_store`，目录模式的行为不变。
 - [鸿蒙设置应用与键盘扩展经共享沙箱镜像交换数据](../../implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md)：部分重叠。鸿蒙的会话在 ArkTS 里、两个进程沙箱分开，是它不走注入、改为整端切到目录模式的背景之一。
-- [iOS 原生应用的自动云同步](../../implemented/feature/2026-10-12-ios-automatic-cloud-sync.md)：与本篇无关，同步编排收进 Rust 时另写一篇并与它互链。
+- [iOS 原生应用的自动云同步](../../implemented/feature/2026-10-12-ios-automatic-cloud-sync.md)：与本篇无关；同步编排收进 Rust 的决定见下一条。
+- [多分类自动云同步的编排收进 Rust](2026-10-16-cloud-sync-orchestration-in-rust.md)：部分重叠。同步的 C 入口沿用这里的会话来源和 `session_store` 字段。
 - [旧账号会话迁移不覆盖新登录](../../implemented/bug-fix/2026-10-13-account-session-migration-no-clobber.md)：无关；匿名身份的「不存在才写」沿用的是同一种 no-clobber 思路，但那篇只管目录间的会话迁移。
 
 ## Alternatives considered

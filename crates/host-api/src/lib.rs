@@ -73,6 +73,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 mod account_ops;
 mod bounded_file;
 mod chinese_english_spacing;
+/// 多分类自动云同步的驱动；C 入口在 `ffi::cloud_sync`。与 `cloud_dictionary` 一样和 C 入口模块同名，所以公开，免得遮住 `ffi` 的同名模块。
+pub mod cloud_sync;
 mod dictionary;
 // The exports live in `ffi`, but Rust consumers - this crate's own tests and
 // examples, and anything linking the rlib - have always reached them at the

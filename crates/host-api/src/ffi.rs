@@ -214,6 +214,7 @@ pub mod ai_skin;
 pub mod android_data;
 pub mod candidates;
 pub mod cloud_dictionary;
+pub mod cloud_sync;
 pub mod community;
 pub mod credentials;
 pub mod google;
