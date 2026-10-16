@@ -478,7 +478,7 @@ final class OnboardingUITests: XCTestCase {
   /// 语音输入 has its own row on the home page again, in the 键盘 / 语音输入 / 手写输入 group of the mobile design, so every entry is reached the same way.
   @MainActor
   private func reachSettingsLink(_ identifier: String, in app: XCUIApplication) {
-    // 先回到设置标签页再弹出页面：「对话」标签页的根没有返回键，导航栏左边第一个按钮是它自己的「收起键盘」或「新对话」，不能当返回键点。从「试用键盘」过来时它的键盘还盖着标签栏，所以先收起键盘。
+    // 先回到设置标签页再弹出页面。从「试用键盘」打开的 AI 对话页会弹出键盘盖住标签栏，所以先收起键盘。
     let dismissKeyboard = app.buttons["dismissKeyboardButton"]
     if dismissKeyboard.exists && dismissKeyboard.isHittable { dismissKeyboard.tap() }
     let settingsTab = app.tabBars.buttons["设置"]
@@ -632,6 +632,48 @@ final class OnboardingUITests: XCTestCase {
     add(attachment)
   }
 
+  /// 「全部设置」里点的行推入它自己这条栈，不会漏到设置标签页上；两个标签页来回切换时各自保留已经打开的页面，包括页面里更深一层的页面。
+  @MainActor
+  func testAllSettingsRowsPushInsideTheirOwnTab() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    let settingsTab = app.tabBars.buttons["设置"]
+    let allSettingsTab = app.tabBars.buttons["全部设置"]
+    XCTAssertTrue(allSettingsTab.waitForExistence(timeout: 10))
+    allSettingsTab.tap()
+    XCTAssertTrue(app.navigationBars["全部设置"].waitForExistence(timeout: 5))
+    tapRevealed("inputSettingsLink", in: app)
+    XCTAssertTrue(app.navigationBars["输入"].waitForExistence(timeout: 5), "全部设置 的行没有推入页面: \(visible(app))")
+    XCTAssertTrue(allSettingsTab.isSelected)
+
+    // 设置标签页仍停在根页面：全部设置 里点的行不会推到这里。
+    settingsTab.tap()
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.navigationBars["输入"].exists)
+    XCTAssertTrue(app.buttons["keyboardTryoutLink"].exists)
+    tapRevealed("expressionSettingsLink", in: app)
+    XCTAssertTrue(app.navigationBars["表达"].waitForExistence(timeout: 5))
+    tapRevealed("punctuationSettingsLink", in: app)
+    XCTAssertTrue(app.navigationBars["标点"].waitForExistence(timeout: 5))
+
+    allSettingsTab.tap()
+    XCTAssertTrue(app.navigationBars["输入"].waitForExistence(timeout: 5))
+    // 切回设置时整条栈原样还在，第二层的 标点 页没有被弹掉再重新推入 表达 页。
+    settingsTab.tap()
+    XCTAssertTrue(app.navigationBars["标点"].waitForExistence(timeout: 5), "设置标签页的栈在切换后丢了: \(visible(app))")
+    app.navigationBars["标点"].buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.navigationBars["表达"].waitForExistence(timeout: 5))
+    app.navigationBars["表达"].buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+
+    allSettingsTab.tap()
+    XCTAssertTrue(app.navigationBars["输入"].waitForExistence(timeout: 5))
+    app.navigationBars["输入"].buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.navigationBars["全部设置"].waitForExistence(timeout: 5))
+  }
+
   @MainActor
   func testSkinPageAppliesCommunitySkinAndBrowsesMore() {
     let app = XCUIApplication()
@@ -690,7 +732,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertFalse(app.buttons["accountLocalDesigns"].exists)
     XCTAssertFalse(app.buttons["aboutSettingsLink"].exists)
     app.buttons["accountLoginClose"].tap()
-    XCTAssertTrue(app.navigationBars["对话"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["AI 对话"].waitForExistence(timeout: 5))
     // 「试用键盘」把焦点放进了输入框，弹出的键盘盖住标签栏，先收起它再点「设置」。
     let dismissKeyboard = app.buttons["dismissKeyboardButton"]
     if dismissKeyboard.waitForExistence(timeout: 2) { dismissKeyboard.tap() }
