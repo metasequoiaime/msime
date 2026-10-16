@@ -46,6 +46,8 @@ constexpr UINT_PTR typing_flash_timer = 0x4501;
 constexpr UINT_PTR typing_combo_timer = 0x4502;
 constexpr UINT_PTR skin_animation_timer = 0x4503;
 constexpr UINT typing_flash_frame_millis = 30;
+// 还没有会话发布特效设置时闪光的强度。Windows 固定打字效果强度为 50（client-core 的 `HostPlatform::fixed_effect_intensity`），不读 plugins.effect_intensity；特效包自带的强度随每个按键从输入线程发布（TypingEffectSignal），不受影响。
+constexpr uint32_t typing_effect_default_intensity = 50;
 // Affect only this UI operation; restore the caller's thread context even on
 // failure. The created HWND retains PMv2 awareness for its entire lifetime.
 struct DpiScope {
@@ -1011,11 +1013,11 @@ void CandidateWindow::take_typing_effect() {
   // A 0 decodes to no combo and no flash, which kills both timers below and clears a count still on the card.
   effect_ = decode_typing_effect(*packed);
   effect_started_ = GetTickCount64();
-  // The focused session's effect pack, published with the key; before any session has published one the preference-derived intensity and the host's own flash stand.
+  // The focused session's effect pack, published with the key; before any session has published one the fixed default intensity and the host's own flash stand.
   if (const auto settings = unpack_typing_effect_settings(TypingEffectSignal::instance().settings()))
     effect_settings_ = *settings;
   else
-    effect_settings_ = resolve_typing_effect_settings(effect_intensity_, std::nullopt, std::nullopt);
+    effect_settings_ = resolve_typing_effect_settings(typing_effect_default_intensity, std::nullopt, std::nullopt);
   // Windows' "Show animations" switch is its reduced motion setting: with it off the card does not flash, and the combo count still shows.
   BOOL animations = TRUE;
   if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0))

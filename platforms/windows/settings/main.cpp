@@ -14959,13 +14959,23 @@ private:
       queue_refresh();
   }
 
-  // 每次进入页面都与共享页重新激活一样：回到列表，作废上一次留下的请求，下一次绘制时重读目录和名单。没存的名单改动留着。
+  // 每次进入页面都与共享页重新激活一样：回到列表，作废上一次留下的请求，下一次绘制时重读目录和名单。没存的名单改动留着。进入时读一次打字统计开没开（共享页的 statisticsEnabled），用来决定「成就音效」能不能打开；读不了时按打开处理。
   void enter_plugins_page() {
     ++plugins_generation_;
     plugins_busy_ = false;
     plugins_stale_ = true;
     plugin_view_ = PluginView::list;
     plugin_pending_focus_.clear();
+    plugin_statistics_enabled_.reset();
+    const auto generation = plugins_generation_;
+    statistics_host(statistics_action(L"load"),
+                    [this, generation](std::optional<StatisticsStatus> const &status) {
+                      if (generation != plugins_generation_ || !status)
+                        return;
+                      plugin_statistics_enabled_ = status->statistics.enabled;
+                      if (plugin_view_ == PluginView::sound_effects)
+                        redraw_plugins();
+                    });
   }
 
   static bool helpcode_offered() {
@@ -15757,7 +15767,7 @@ private:
       edit(next);
       change_plugins(next);
     };
-    // 音量和强度像别的滑块一样拖动时写文档、停下后保存。
+    // 音量像别的滑块一样拖动时写文档、停下后保存。
     auto percent = [this](std::wstring const &title, wchar_t const *key, double value, bool enabled) {
       return slider_control(title, 0, 100, value,
                             [this, key = std::wstring(key)](double next) {
@@ -15793,13 +15803,42 @@ private:
             toggle_control(L"上屏音", preferences.commit_sound_enabled, [set](bool on) {
               set([on](pg::Preferences &next) { next.commit_sound_enabled = on; });
             }));
-    add_row(keys, 0xE734, L"成就音效",
-            L"上屏字数累计达到 100、1000、1 万等里程碑时播放一段短音。按打字统计计数，需要打开打字统计。",
-            toggle_control(L"成就音效", preferences.achievements_enabled, [set](bool on) {
-              set([on](pg::Preferences &next) { next.achievements_enabled = on; });
-            }));
+    // 成就音效和升档音都是默认关闭的小玩法，收进「更多音效」，主列表只留常用的几项；搜索落到其中一项时展开。
+    Expander more;
+    more.Header(box_value(L"更多音效"));
+    more.HorizontalAlignment(HorizontalAlignment::Stretch);
+    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    more.IsExpanded(plugin_sound_more_open_ || focus_row_ == L"成就音效" || focus_row_ == L"升档音");
+    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+      plugin_sound_more_open_ = true;
+    });
+    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+      plugin_sound_more_open_ = false;
+    });
+    StackPanel extra;
+    extra.Spacing(4);
+    const bool achievements_blocked =
+        pg::achievements_blocked(plugin_statistics_enabled_, preferences.achievements_enabled);
+    add_row(extra, 0xE734, L"成就音效",
+            achievements_blocked
+                ? L"上屏字数累计达到 100、1000、1 万等里程碑时播放一段短音。按打字统计计数，请先在「打字统计」页打开记录。"
+                : L"上屏字数累计达到 100、1000、1 万等里程碑时播放一段短音。按打字统计计数，需要打开打字统计。",
+            toggle_control(L"成就音效", preferences.achievements_enabled,
+                           [set](bool on) {
+                             set([on](pg::Preferences &next) { next.achievements_enabled = on; });
+                           },
+                           !achievements_blocked));
+    add_row(extra, 0xE767, L"升档音",
+            L"连击达到 10、25、50、100 时播放音效包的上屏音，每升一档音调更高，音量随音效音量。需要打开「打字效果」里的连击计数。",
+            toggle_control(L"升档音", preferences.combo_tier_sound,
+                           [set](bool on) {
+                             set([on](pg::Preferences &next) { next.combo_tier_sound = on; });
+                           },
+                           preferences.combo_counter));
+    more.Content(extra);
+    keys.Children().Append(more);
 
-    // 选了特效包时由它决定样式和强度，这两项只描述不选包时画什么。
+    // 选了特效包时由它决定样式，这一项只描述不选包时画什么。强度在 Windows 上固定为 50（client-core 的 `HostPlatform::fixed_effect_intensity`），宿主不读存下的值，所以没有「效果强度」。
     const bool pack_selected = !preferences.effect_pack.empty();
     auto effects = add_group(page, L"打字效果");
     plugin_summary_row(effects, 0xE790, L"特效包",
@@ -15815,27 +15854,27 @@ private:
                                 set([style](pg::Preferences &next) { next.effect_style = style; });
                               },
                               !pack_selected));
-    add_row(effects, 0xE9D2, L"效果强度", L"效果的大小和持续时间。",
-            percent(L"效果强度", L"plugins.effect_intensity", preferences.effect_intensity,
-                    !pack_selected && preferences.effect_style != L"off"));
     add_row(effects, 0xE8EF, L"连击计数",
             L"连续打字时在候选栏显示连击数，停顿 3 秒或按退格后重新计数。自动重复的按键不计数。",
             toggle_control(L"连击计数", preferences.combo_counter, [set](bool on) {
               set([on](pg::Preferences &next) { next.combo_counter = on; });
             }));
-    add_row(effects, 0xE767, L"升档音",
-            L"连击达到 10、25、50、100 时播放音效包的上屏音，每升一档音调更高，音量随音效音量。",
-            toggle_control(L"升档音", preferences.combo_tier_sound,
-                           [set](bool on) {
-                             set([on](pg::Preferences &next) { next.combo_tier_sound = on; });
-                           },
-                           preferences.combo_counter));
 
+    // 宿主只在开关打开并且选了音乐包时播放；还没选包时，打开开关顺手选一个随带的音乐包，而不是打开一个听不到声音的开关。一个音乐包都没有时开关不能打开。
+    const auto music_pack = preferences.music_pack.empty()
+                                ? pg::music_pack_to_select(packages, listed)
+                                : preferences.music_pack;
     auto music = add_group(page, L"背景音乐");
     add_row(music, 0xEC4F, L"背景音乐", L"默认关闭。只在输入法处于活动状态时播放，切换到其他输入法时暂停。",
-            toggle_control(L"背景音乐", preferences.music_enabled, [set](bool on) {
-              set([on](pg::Preferences &next) { next.music_enabled = on; });
-            }));
+            toggle_control(L"背景音乐", preferences.music_enabled,
+                           [set, music_pack](bool on) {
+                             set([on, music_pack](pg::Preferences &next) {
+                               next.music_enabled = on;
+                               if (on && next.music_pack.empty())
+                                 next.music_pack = music_pack;
+                             });
+                           },
+                           preferences.music_enabled || !music_pack.empty()));
     const bool no_music = listed && std::none_of(packages.begin(), packages.end(), [](pg::Package const &pack) {
                             return pack.kind == L"music";
                           });
@@ -16561,7 +16600,7 @@ private:
     }
 
     FrameworkElement up{nullptr}, down{nullptr};
-    if (active) {
+    if (active && pg::script_order_shown(position, running.size())) {
       const bool can_up = position > 0;
       const bool can_down = position >= 0 && static_cast<std::size_t>(position) + 1 < running.size();
       up = button_control(L"提前", [this, id = pack.id] { move_script(id, -1); }, !plugins_busy_ && can_up);
@@ -18526,13 +18565,10 @@ private:
                            : std::wstring();
   }
 
-  // 共享页 updateAi 除写设置以外做的事：作废进行中的获取模型和润色测试，清掉测试结果；改了服务商或接口地址时，已获取的模型列表和它的提示也清掉。
+  // 共享页 updateAi 除写设置以外做的事：作废进行中的获取模型；改了服务商或接口地址时，已获取的模型列表和它的提示也清掉。
   void ai_edited(bool models) {
     ++ai_generation_;
     ai_models_busy_ = false;
-    ai_test_busy_ = false;
-    ai_test_output_.clear();
-    ai_test_status_.clear();
     if (models) {
       ai_models_.reset();
       ai_models_status_.clear();
@@ -18545,12 +18581,11 @@ private:
     change(edit, true);
   }
 
-  // 输入框的改动不重画整页，跟着变的控件就地更新：Token 行、地址说明、「获取模型列表」、「测试 AI 辅助配置」和测试工具。
+  // 输入框的改动不重画整页，跟着变的控件就地更新：Token 行、地址说明、「获取模型列表」和「测试 AI 辅助配置」。
   void sync_ai() {
     for (auto const &update : ai_sync_)
       update();
     refresh_credential_test(L"ai.assistant");
-    refresh_ai_test();
     refresh_ai_models();
   }
 
@@ -18578,13 +18613,12 @@ private:
     line.Visibility(value.empty() ? Visibility::Collapsed : Visibility::Visible);
   }
 
-  // 共享 AI 页（`ai-settings-content.tsx`、`ai-settings-page-section.tsx`）在 Windows 上的内容，顺序也相同：「服务」（开关、服务提供商、API Token、接入说明、模型（预置的和获取到的模型在一个下拉里，末项「自定义…」）、获取模型列表、「更多选项」里的接口地址，末尾是「测试 AI 辅助配置」），「联想」（候选数量），「提示词」（方案和所选槽位的提示词），「测试工具」（AI 润色测试）。Windows 的设置应用没有 AI 对话（宿主不提供 chat），所以最后没有「AI 对话」一组。Token 存在偏好文件里，按接口地址的来源键分开存（ai_assistant.tokens）。服务商表和规则在 AiSettings.h。
+  // 共享 AI 页（`ai-settings-content.tsx`、`ai-settings-page-section.tsx`）在 Windows 上的内容，顺序也相同：只有「服务」一组（开关、服务提供商、API Token、接入说明、模型（预置的和获取到的模型在一个下拉里，末项「自定义…」）、「更多选项」里的接口地址、获取模型列表和当前槽位的自定义提示词，末尾是「测试 AI 辅助配置」）。Windows 固定 AI 候选数量为 3（client-core 的 `HostPlatform::fixed_ai_candidate_limit`，TSF 从 host-api 的在线查询读这个值），所以没有「联想」组；桌面上这份配置只给拼音联想用，没有「AI 润色测试」。Windows 的设置应用没有 AI 对话（宿主不提供 chat），所以最后没有「AI 对话」一组。Token 存在偏好文件里，按接口地址的来源键分开存（ai_assistant.tokens）。服务商表和规则在 AiSettings.h。
   void build_ai_page(StackPanel const &page) {
     if (!indexing_) {
       credential_test_views_.clear();
       ai_sync_.clear();
       ai_models_host_ = nullptr;
-      ai_test_view_ = nullptr;
     }
     const auto provider = document_.String(L"ai_assistant.provider", L"deepseek");
     const auto endpoint = ai_endpoint();
@@ -18647,18 +18681,13 @@ private:
                                     return true;
                                   });
         });
-    StackPanel models;
-    models.Spacing(4);
-    service.Children().Append(models);
-    if (!indexing_)
-      ai_models_host_ = models;
-    fill_ai_models(models);
-
     Expander more;
     more.Header(box_value(L"更多选项"));
     more.HorizontalAlignment(HorizontalAlignment::Stretch);
     more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(ai_more_open_.value_or(false) || focus_row_ == L"接口地址");
+    // 搜索落到收在里面的行时展开。
+    more.IsExpanded(ai_more_open_.value_or(false) || focus_row_ == L"接口地址" ||
+                    focus_row_ == L"服务模型" || focus_row_ == L"自定义提示词");
     more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
       ai_more_open_ = true;
     });
@@ -18686,6 +18715,48 @@ private:
           set_subtitle(line, value.empty() ? std::wstring() : ai_endpoint(value).hint);
         }
       });
+    // 获取模型列表和自定义提示词也是接自定义服务或代理的同一批用户才用，和接口地址一起收在这里。
+    StackPanel models;
+    models.Spacing(4);
+    rows.Children().Append(models);
+    if (!indexing_)
+      ai_models_host_ = models;
+    fill_ai_models(models);
+
+    // 只编辑当前槽位（prompt_id）的提示词，存着的槽位和 prompt_id 都不动；填了就整个替换内置提示词，说明见 ais::prompt_description。
+    const auto prompt_id = document_.String(L"ai_assistant.prompt_id", L"");
+    auto const &slot = ais::prompt_slot(prompt_id);
+    const std::wstring label = L"自定义提示词";
+    const std::wstring description = ais::prompt_description(prompt_id);
+    record(label, description);
+    StackPanel block;
+    block.Spacing(6);
+    block.Padding(Thickness{25, 16, 25, 16});
+    block.Children().Append(make_text(label, 14, palette_.text));
+    block.Children().Append(make_text(description, 12, palette_.sub));
+    TextBox prompt;
+    prompt.AcceptsReturn(true);
+    prompt.TextWrapping(TextWrapping::Wrap);
+    prompt.MinHeight(120);
+    prompt.MaxHeight(360);
+    prompt.IsSpellCheckEnabled(false);
+    const std::wstring prompt_key = L"ai_assistant.prompt_" + std::wstring(slot.id);
+    prompt.Text(hstring(document_.String(prompt_key, L"")));
+    prompt.IsEnabled(loaded_);
+    A11y::SetName(prompt, L"AI 联想自定义提示词");
+    prompt.TextChanged([this, prompt_key](Inspectable const &sender, TextChangedEventArgs const &) {
+      const auto value = textarea_value(sender.as<TextBox>());
+      if (value == document_.String(prompt_key, L""))
+        return;
+      write_credential(prompt_key, value);
+      ai_edited(false);
+      sync_ai();
+    });
+    block.Children().Append(prompt);
+    auto prompt_card = make_card();
+    prompt_card.Child(block);
+    rows.Children().Append(prompt_card);
+    mark_search_target(label, prompt_card);
     more.Content(rows);
     service.Children().Append(more);
     add_credential_test(
@@ -18709,82 +18780,6 @@ private:
                                                document_.String(L"ai_assistant.model", L""),
                                                ai_token(current));
         });
-
-    // 「联想」：候选数量是 type=number、min=1、max=10 的输入框，取值规则见 ais::candidate_limit。上下限与 min、max 一样让上下箭头停在 1 和 10：不设下限时在 1 上按向下得到 0，按「|| 3」存成了 3。代价是手输 0 被 NumberBox 改成 1，共享页取 3。
-    auto suggestion = add_group(page, L"联想");
-    NumberBox limit;
-    limit.Width(120);
-    limit.SpinButtonPlacementMode(NumberBoxSpinButtonPlacementMode::Compact);
-    limit.Minimum(1);
-    limit.Maximum(10);
-    limit.SmallChange(1);
-    limit.Value(document_.Number(L"ai_assistant.candidate_limit", 3));
-    limit.IsEnabled(loaded_);
-    A11y::SetName(limit, L"AI 候选数量");
-    limit.ValueChanged([this](NumberBox const &sender, NumberBoxValueChangedEventArgs const &args) {
-      const int value = ais::candidate_limit(args.NewValue());
-      if (value != static_cast<int>(document_.Number(L"ai_assistant.candidate_limit", 3))) {
-        document_.SetNumber(L"ai_assistant.candidate_limit", value);
-        schedule_save();
-        ai_edited(false);
-        sync_ai();
-      }
-      // 输入框受控：清空或小数时显示存下的值。不在自己的 ValueChanged 里改值。
-      if (args.NewValue() != static_cast<double>(value))
-        DispatcherQueue().TryEnqueue([weak = make_weak(sender), value] {
-          if (auto box = weak.get(); box && box.Value() != static_cast<double>(value))
-            box.Value(value);
-        });
-    });
-    add_row(suggestion, 0xE8EF, L"候选数量", L"每次 AI 联想给出的候选个数，1 到 10", limit);
-
-    // 「提示词」：只显示所选槽位的提示词；槽位留空时使用内置的联想提示词。
-    auto prompts = add_group(page, L"提示词");
-    auto const &slot = ais::prompt_slot(document_.String(L"ai_assistant.prompt_id", L""));
-    std::vector<Option> slots;
-    for (auto const &entry : ais::prompt_slots)
-      slots.push_back({std::wstring(entry.id), std::wstring(entry.option)});
-    add_row(prompts, 0xE8BD, L"提示词方案", L"使用选中的独立槽位；槽位留空时使用内置的联想提示词",
-            select_control(L"AI 联想提示词方案", std::move(slots), std::wstring(slot.id),
-                           [this](std::wstring const &value) {
-                             ai_change([&](PreferencesDocument &doc) {
-                               doc.SetString(L"ai_assistant.prompt_id", value);
-                             }, false);
-                           }));
-    const std::wstring label(slot.label);
-    const std::wstring description = L"发送给 AI 联想服务的额外提示词";
-    record(label, description);
-    StackPanel block;
-    block.Spacing(6);
-    block.Padding(Thickness{25, 16, 25, 16});
-    block.Children().Append(make_text(label, 14, palette_.text));
-    block.Children().Append(make_text(description, 12, palette_.sub));
-    TextBox prompt;
-    prompt.AcceptsReturn(true);
-    prompt.TextWrapping(TextWrapping::Wrap);
-    prompt.MinHeight(120);
-    prompt.MaxHeight(360);
-    prompt.IsSpellCheckEnabled(false);
-    const std::wstring prompt_key = L"ai_assistant.prompt_" + std::wstring(slot.id);
-    prompt.Text(hstring(document_.String(prompt_key, L"")));
-    prompt.IsEnabled(loaded_);
-    A11y::SetName(prompt, hstring(label));
-    prompt.TextChanged([this, prompt_key](Inspectable const &sender, TextChangedEventArgs const &) {
-      const auto value = textarea_value(sender.as<TextBox>());
-      if (value == document_.String(prompt_key, L""))
-        return;
-      write_credential(prompt_key, value);
-      ai_edited(false);
-      sync_ai();
-    });
-    block.Children().Append(prompt);
-    auto prompt_card = make_card();
-    prompt_card.Child(block);
-    prompts.Children().Append(prompt_card);
-    mark_search_target(label, prompt_card);
-
-    build_ai_test_tools(page);
-    refresh_ai_test();
   }
 
   // API Token（AiApiTokenSection）：带「显示」「隐藏」的密钥框，接口地址能用时才可填，说明写着 Token 只用于哪个来源；地址不能用时是地址的说明，或请先填写接口地址。改接口地址时就地换成新来源下存的 Token。
@@ -18916,136 +18911,6 @@ private:
           ai_change([&](PreferencesDocument &doc) {
             doc.SetString(L"ai_assistant.model", next);
           }, false);
-        });
-  }
-
-  // 「测试工具」（AiTestToolsSection）：待润色文字、「发送并润色」、状态和结果，结果旁边是「复制结果」。测试文字跨页面重建保留，不写进设置。按钮、状态和结果由 ai_test_view_ 就地更新。
-  void build_ai_test_tools(StackPanel const &page) {
-    auto group = add_group(page, L"测试工具");
-    const std::wstring title = L"AI 润色测试";
-    const std::wstring description = L"仅在点击发送时请求当前配置；测试文字不会写入日志。";
-    record(title, description);
-    StackPanel block;
-    block.Spacing(8);
-    block.Padding(Thickness{25, 16, 25, 16});
-    block.Children().Append(make_text(title, 14, palette_.text));
-    block.Children().Append(make_text(description, 12, palette_.sub));
-    TextBox input;
-    input.AcceptsReturn(true);
-    input.TextWrapping(TextWrapping::Wrap);
-    input.MinHeight(96);
-    input.MaxHeight(240);
-    input.IsSpellCheckEnabled(false);
-    input.PlaceholderText(L"输入一段待润色文字");
-    input.Text(hstring(ai_test_input_));
-    A11y::SetName(input, L"AI 测试输入");
-    input.TextChanged([this](Inspectable const &sender, TextChangedEventArgs const &) {
-      ai_test_input_ = textarea_value(sender.as<TextBox>());
-      refresh_ai_test();
-    });
-    block.Children().Append(input);
-    Button send;
-    send.Height(32);
-    send.Padding(Thickness{16, 0, 16, 0});
-    send.Click([this](Inspectable const &, RoutedEventArgs const &) { run_ai_test(); });
-    block.Children().Append(send);
-    auto status = make_text(L"", 13, palette_.sub);
-    A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
-    block.Children().Append(status);
-    StackPanel result;
-    result.Spacing(8);
-    auto output = make_text(L"", 14, palette_.text);
-    output.IsTextSelectionEnabled(true);
-    result.Children().Append(output);
-    result.Children().Append(button_control(L"复制结果", [this] {
-      // 共享页的 copyText（Tauri 的 copy_text）：放进系统剪贴板，剪贴板历史开着时也记进历史；失败时不提示。copy_text 不收空文字、含 NUL 或超过 12000 字节（clipboard::MAX_TEXT_BYTES）的文字，什么也不复制。
-      const auto bytes = utf8(hstring(ai_test_output_));
-      if (bytes.empty() || bytes.size() > 12000 || ai_test_output_.find(L'\0') != std::wstring::npos)
-        return;
-      recopy_clipboard_entry(ai_test_output_);
-    }));
-    block.Children().Append(result);
-    auto card = make_card();
-    card.Child(block);
-    group.Children().Append(card);
-    mark_search_target(title, card);
-    if (indexing_)
-      return;
-    ai_test_view_ = [this, weak_send = make_weak(send), weak_status = make_weak(status),
-                     weak_result = make_weak(result), weak_output = make_weak(output)] {
-      if (auto button = weak_send.get()) {
-        button.Content(box_value(ai_test_busy_ ? L"发送中…" : L"发送并润色"));
-        button.IsEnabled(!ai_test_busy_ && !nav::js_trim(ai_test_input_).empty());
-      }
-      if (auto line = weak_status.get())
-        set_subtitle(line, ai_test_status_);
-      if (auto line = weak_output.get())
-        line.Text(hstring(ai_test_output_));
-      if (auto panel = weak_result.get())
-        panel.Visibility(ai_test_output_.empty() ? Visibility::Collapsed : Visibility::Visible);
-    };
-  }
-
-  void refresh_ai_test() {
-    if (ai_test_view_)
-      ai_test_view_();
-  }
-
-  // 共享页的 test：用固定的润色指令把待润色文字发给当前配置（msime_client_ai_test，会联网，最长约 15 秒，在 UI 线程之外调用）。期间改了任何一项 AI 设置，结果作废。
-  void run_ai_test() {
-    if (nav::js_trim(ai_test_input_).empty()) {
-      ai_test_status_ = L"请先输入待润色文字。";
-      refresh_ai_test();
-      return;
-    }
-    const auto endpoint = ai_endpoint();
-    if (!endpoint.origin) {
-      ai_test_status_ = endpoint.hint;
-      refresh_ai_test();
-      return;
-    }
-    const auto token = ai_token(endpoint);
-    if (nav::js_trim(token).empty()) {
-      ai_test_status_ = L"请先填写 API Token。";
-      refresh_ai_test();
-      return;
-    }
-    if (ai_test_busy_)
-      return;
-    const auto generation = ai_generation_;
-    const auto owner = ++ai_test_request_;
-    ai_test_output_.clear();
-    ai_test_status_.clear();
-    ai_test_busy_ = true;
-    refresh_ai_test();
-    auto string = [](std::wstring const &value) {
-      return JsonValue::CreateStringValue(hstring(value));
-    };
-    JsonObject request;
-    request.SetNamedValue(L"endpoint", string(document_.String(L"ai_assistant.endpoint", L"")));
-    request.SetNamedValue(L"model", string(document_.String(L"ai_assistant.model", L"")));
-    request.SetNamedValue(L"prompt", string(std::wstring(ais::polish_test_prompt)));
-    request.SetNamedValue(L"token", string(token));
-    request.SetNamedValue(L"text", string(ai_test_input_));
-    run_host(
-        [body = utf8(request.Stringify())] {
-          return take_response(msime_client_ai_test(
-              reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-        },
-        [this, generation, owner](Response const &response) {
-          if (generation != ai_generation_ || owner != ai_test_request_)
-            return;
-          ai_test_busy_ = false;
-          ai_test_status_ = std::wstring(ais::test_failure);
-          if (response.ok) {
-            try {
-              ai_test_output_ =
-                  JsonObject::Parse(text(response.text)).GetNamedString(L"value").c_str();
-              ai_test_status_ = L"已完成";
-            } catch (...) {
-            }
-          }
-          refresh_ai_test();
         });
   }
 
@@ -19668,23 +19533,17 @@ private:
   bool output_more_open_ = false;
   bool local_modes_more_open_ = false;
 
-  // 「AI 辅助」页（共享页 useAiAssistant 的状态，跨页面重建保留）：已获取的模型和获取的提示，待润色文字、测试结果和状态，两个请求是否在进行。ai_generation_ 在每次改 AI 设置时递增，作废进行中的请求；两个请求各自的序号作废同一种的更早请求。「更多选项」是否展开在第一次画这一页时按接口地址能不能用决定。随输入就地更新的控件每次绘制时重建。
+  // 「AI 辅助」页（共享页 useAiAssistant 的状态，跨页面重建保留）：已获取的模型和获取的提示，获取是否在进行。ai_generation_ 在每次改 AI 设置时递增，作废进行中的获取；获取请求的序号作废更早的获取。「更多选项」是否展开在第一次画这一页时按接口地址能不能用决定。随输入就地更新的控件每次绘制时重建。
   std::optional<std::vector<std::wstring>> ai_models_;
   std::wstring ai_models_status_;
   // 选了「自定义…」的模型下拉（add_model_picker）：模型的键对应选的时候列出的模型，跨页面重建保留，列表换了就不算数。
   std::map<std::wstring, std::wstring> custom_model_lists_;
   bool ai_models_busy_ = false;
-  std::wstring ai_test_input_;
-  std::wstring ai_test_output_;
-  std::wstring ai_test_status_;
-  bool ai_test_busy_ = false;
   uint64_t ai_generation_ = 0;
   uint64_t ai_models_request_ = 0;
-  uint64_t ai_test_request_ = 0;
   std::optional<bool> ai_more_open_;
   std::vector<std::function<void()>> ai_sync_;
   StackPanel ai_models_host_{nullptr};
-  std::function<void()> ai_test_view_;
 
   // 「账号与同步」页（共享账号页的组件状态，每次进入页面时重置）：读状态时等着的两份回答、用户和资料里已绑定的登录方式、可用的登录方式、选中的验证码方式、号码、验证码和这次的 challenge 及其过期和可重发的时刻（steady_clock 毫秒）、错误和提示、编辑资料里正在输入的昵称、「已复制」、是否在等浏览器完成 Google 登录。account_generation_ 在进出页面时递增，作废在途的回答；account_busy_ 是进行中的操作（共享页的 busy）。头像按 avatarUrl 缓存解码好的图片。设置同步卡片有自己的状态：卡片读的是哪个账号的、字段表和云端设置是否读到、云端设置文档、忙碌和一行说明；sync_generation_ 在换账号或进出页面时作废在途的回答。随时间变的两个按钮和验证码一栏是该页当前的那一组；对话框开着时 account_dialog_refresh_ 就地更新它。
   bool account_stale_ = true;
@@ -19790,6 +19649,9 @@ private:
   std::vector<pg::Mention> plugin_mentions_;
   std::vector<pg::Mention> plugin_saved_mentions_;
   std::set<std::wstring> plugin_sound_titles_;
+  // 「声音与效果」里「更多音效」是否展开，跨页面重建保留；进入插件页时读到的打字统计开关，没读到时为空。
+  bool plugin_sound_more_open_ = false;
+  std::optional<bool> plugin_statistics_enabled_;
   TextBlock plugin_mentions_warning_{nullptr};
   Button plugin_mentions_save_{nullptr};
   // 脚本插件的授权和输入法记下的停用（`script_grants` 的回答），还没读到时为空，跨页面重建保留。plugin_grant_ 是开着的授权对话框。

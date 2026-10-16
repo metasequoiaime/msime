@@ -2,12 +2,11 @@
 #include "TranslationServiceSettings.h"
 #include <algorithm>
 #include <array>
-#include <cmath>
 #include <string>
 #include <string_view>
 #include <vector>
 
-// 「AI 辅助」页的规则，平台固定为 Windows：服务商列表和各服务商的默认地址、模型、已知模型与接入文档（`packages/ui/src/settings/ai-provider-options.ts`），换服务商时改哪些字段（`ai-provider-update.ts`），「测试 AI 辅助配置」何时可用（`ai-credential-test-config.ts` 的 aiServiceCredentialTestDisabled），候选数量怎么取值、提示词槽位（`ai-settings-page-section.tsx`），以及获取模型和润色测试的提示文字（`use-ai-assistant.ts`、`ai-assistant-defaults.ts`）。接口地址的规则和说明在 Rust（msime_client_ai_endpoint_check），不在这里。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「AI 辅助」页的规则，平台固定为 Windows：服务商列表和各服务商的默认地址、模型、已知模型与接入文档（`packages/ui/src/settings/ai-provider-options.ts`），换服务商时改哪些字段（`ai-provider-update.ts`），「测试 AI 辅助配置」何时可用（`ai-credential-test-config.ts` 的 aiServiceCredentialTestDisabled），提示词槽位和自定义提示词的说明（`ai-settings-page-section.tsx`），以及获取模型的提示文字（`use-ai-assistant.ts`）。接口地址的规则和说明在 Rust（msime_client_ai_endpoint_check），不在这里。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::ai {
 
 // 一个服务商（AI_PROVIDER_OPTIONS 的一项）。models 和 documentation 只用来显示，请求总是用设置里保存的值。
@@ -101,24 +100,16 @@ inline bool credential_test_disabled(bool enabled, bool has_origin, std::wstring
   return !enabled || !has_origin || js_trim(model).empty() || js_trim(token).empty();
 }
 
-// 候选数量输入框（type=number，1 到 10）：clamp(Number(value) || 3, 1, 10)。读不出数（NaN）或是 0 时取 3。偏好里存的是整数，所以小数四舍五入，共享页会原样存下小数而被偏好库拒绝。
-inline int candidate_limit(double value) {
-  if (std::isnan(value) || value == 0)
-    return 3;
-  return static_cast<int>(std::clamp(std::round(value), 1.0, 10.0));
-}
-
 struct PromptSlot {
   std::wstring_view id;
-  std::wstring_view option;
-  std::wstring_view label;
+  std::wstring_view name;
 };
 
-// 三个提示词槽位（customPromptSlotOptions 的选项和 slotPrompts 的标签），提示词存在 ai_assistant.prompt_<id>。
+// 三个提示词槽位（slotPrompts 的 name），提示词存在 ai_assistant.prompt_<id>。设置页只编辑 prompt_id 选中的那一个，不再给选槽位的下拉，语音润色另有自己的槽位选项（VoiceSettings.h）。
 inline constexpr std::array<PromptSlot, 3> prompt_slots{{
-    {L"custom_1", L"自定义一", L"自定义提示词一"},
-    {L"custom_2", L"自定义二", L"自定义提示词二"},
-    {L"custom_3", L"自定义三", L"自定义提示词三"},
+    {L"custom_1", L"一"},
+    {L"custom_2", L"二"},
+    {L"custom_3", L"三"},
 }};
 
 // 所选的槽位：prompt_id 为空或不是三个槽位之一时用第一个（`promptId || "custom_1"`，slotPrompts 找不到时退回 custom_1）。
@@ -129,9 +120,15 @@ inline PromptSlot const &prompt_slot(std::wstring_view prompt_id) {
   return prompt_slots[0];
 }
 
-// 「AI 润色测试」发给服务的指令，与联想提示词无关（aiPolishTestPrompt）。
-inline constexpr std::wstring_view polish_test_prompt =
-    L"请润色以下文字，保持原意，只返回修改后的文字。";
+// 「自定义提示词」的说明，与共享页相同：填了就整个替换内置提示词，内置的那份规定了 JSON 输出格式（ai.rs 的 DEFAULT_CANDIDATE_PROMPT），所以要讲清楚。当前槽位不是第一个时说出是哪一个，用户在别的设备或旧版本里选过别的槽位时才看得到这一句。
+inline std::wstring prompt_description(std::wstring_view prompt_id) {
+  std::wstring text =
+      L"留空时使用内置的联想提示词。填写后会整个替换内置提示词，不是追加；内置提示词规定了只输出 JSON 格式的候选，自定义时也要这样要求，否则联想可能不出结果。";
+  auto const &slot = prompt_slot(prompt_id);
+  if (slot.id != L"custom_1")
+    text += L"当前使用的是槽位" + std::wstring(slot.name) + L"。";
+  return text;
+}
 
 // 获取模型成功后的提示。
 inline std::wstring models_status(std::size_t count) {
@@ -147,6 +144,5 @@ inline std::wstring fetched_model(std::vector<std::wstring> const &models, std::
 
 // 宿主返回的是错误码而不是 Error，共享页只显示它自己的兜底文字。
 inline constexpr std::wstring_view models_failure = L"获取模型失败，请检查地址、密钥和网络。";
-inline constexpr std::wstring_view test_failure = L"AI 请求失败，请检查地址、模型、密钥和网络。";
 
 } // namespace msime::settings::ai

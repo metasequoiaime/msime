@@ -820,17 +820,6 @@ void start_watchdog(const std::filesystem::path &directory) {
     CloseHandle(process.hProcess);
   }
 }
-// preferences.plugins.effect_intensity, how bright the candidate card's typing flash is. Only the hosts read it, so this is where an out-of-range or mistyped value falls back: clamped to 0-100, and anything not a number is the default 50.
-unsigned typing_effect_intensity(const nlohmann::json &preferences) {
-  const auto plugins = preferences.value("plugins", nlohmann::json::object());
-  if (!plugins.is_object())
-    return 50u;
-  const auto found = plugins.find("effect_intensity");
-  if (found == plugins.end() || !found->is_number())
-    return 50u;
-  const double value = found->get<double>();
-  return static_cast<unsigned>(value <= 0.0 ? 0.0 : (value >= 100.0 ? 100.0 : value));
-}
 // 诊断日志里前台呈现方式的名字。
 const char *foreground_presentation_name(
     msime::windows::ForegroundPresentation value) {
@@ -1050,9 +1039,6 @@ int wmain(int argc, wchar_t **argv) {
     // 「输入时显示双拼键位提示」（共享偏好 `shuangpin_keymap_hint`，没选过时文档里没有这一项，按关处理），同样经原子量发布，改了设置不用重启 Server。
     auto shuangpin_keymap_enabled = std::make_shared<std::atomic<bool>>(
         shuangpin_keymap_preference(prepared.at("value").at("preferences")));
-    // The typing flash's strength, published the same way. The effect itself comes with each key from the input thread.
-    auto effect_intensity = std::make_shared<std::atomic<unsigned>>(
-        typing_effect_intensity(prepared.at("value").at("preferences")));
     // 按键音或打字特效开着没有：Aux 管道的 KeySound 只在开着时回 "OK"，同样经原子量发布。
     auto typing_feedback = std::make_shared<std::atomic<bool>>(
         typing_feedback_wanted(prepared.at("value").at("preferences")));
@@ -1146,7 +1132,7 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, voice_host_options, traditional_output,
-         toolbar_enabled, follow_cursor, shuangpin_keymap_enabled, effect_intensity, typing_feedback, candidate_mouse_wheel, voice_theme, candidate_fonts, candidate_style,
+         toolbar_enabled, follow_cursor, shuangpin_keymap_enabled, typing_feedback, candidate_mouse_wheel, voice_theme, candidate_fonts, candidate_style,
          toolbar_theme, menu_theme, mode_scope_global, app_mode_rules,
          input_mode_hud_enabled, tsf_config, candidate_layout,
          tsf_config_mutex, tray_preferences, tray_preferences_mutex,
@@ -1232,8 +1218,6 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           shuangpin_keymap_enabled->store(shuangpin_keymap_preference(preferences),
                                           std::memory_order_release);
-          effect_intensity->store(typing_effect_intensity(preferences),
-                                  std::memory_order_release);
           typing_feedback->store(typing_feedback_wanted(preferences),
                                  std::memory_order_release);
           candidate_mouse_wheel->store(
@@ -1553,7 +1537,6 @@ int wmain(int argc, wchar_t **argv) {
       candidate_skin_applied = theme.candidate_skin;
     }
     candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
-    candidates.set_effect_intensity(effect_intensity->load(std::memory_order_acquire));
     // The toolbar and the menus draw the card's theme in their own light/dark mode, with the card's layout deciding whether a package is drawn.
     auto surface_palette = [&](bool dark) {
       return candidate_theme_palette(
@@ -2337,8 +2320,6 @@ int wmain(int argc, wchar_t **argv) {
       }
       candidates.set_follow_cursor(
           follow_cursor->load(std::memory_order_acquire));
-      candidates.set_effect_intensity(
-          effect_intensity->load(std::memory_order_acquire));
       if (typing_overlay && typing_overlay->failed() && !typing_overlay_failure_reported) {
         typing_overlay_failure_reported = true;
         notice(component_failure("Typing effect overlay", typing_overlay->failure_site()) +

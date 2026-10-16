@@ -309,6 +309,9 @@ int main() {
   check(script_order_note(-1, 8) == L"同时启用的脚本插件超过 8 个，这个插件排在第 8 个之后，不会运行。" &&
             script_order_note(0, 3) == L"第 1 位，共 3 个。多个插件按这个顺序依次处理同一件事。",
         "order notes");
+  check(!script_order_shown(0, 1) && script_order_shown(0, 2) && script_order_shown(1, 3) &&
+            script_order_shown(-1, 8),
+        "the order shows with two running scripts, or for one past the cap");
   // 每个列表一次 check，理由同下面名单那几条（GCC 的 -Wdangling-pointer）。
   const Caps three{L"a", L"b", L"c"};
   check((moved_order(three, L"b", -1) == std::optional<Caps>{Caps{L"b", L"a", L"c"}}), "moving up");
@@ -384,6 +387,32 @@ int main() {
               L"需要先打开 / 指令，并使用中文标点；在全拼、双拼、五笔下没有输入时按 / 再输入触发词。",
           "the slash mode note");
   }
+
+  // 打开背景音乐时替用户选的音乐包（musicPackToSelect）。
+  {
+    check(music_pack_to_select({}, false) == L"msime-music-lofi",
+          "a catalog not yet read picks the first bundled pack");
+    auto ambient = pack(L"music", L"msime-music-ambient");
+    ambient.builtin = true;
+    auto lofi = pack(L"music", L"msime-music-lofi");
+    lofi.builtin = true;
+    auto mine = pack(L"music", L"mine");
+    check(music_pack_to_select({mine, ambient, lofi}, true) == L"msime-music-lofi",
+          "bundled packs win, in their own order");
+    check(music_pack_to_select({mine, ambient}, true) == L"msime-music-ambient",
+          "the other bundled pack when the first is gone");
+    auto imitation = pack(L"music", L"msime-music-lofi");
+    check(music_pack_to_select({pack(L"sound", L"s"), imitation, mine}, true) == L"msime-music-lofi" &&
+              music_pack_to_select({pack(L"sound", L"s"), mine}, true) == L"mine",
+          "otherwise the first music pack in the catalog");
+    check(music_pack_to_select({pack(L"sound", L"s")}, true).empty(),
+          "nothing to pick when the catalog lists no music pack");
+  }
+
+  // 成就音效：统计关着时不能打开，已经打开的可以关掉；不知道统计开没开时按打开处理。
+  check(achievements_blocked(false, false) && !achievements_blocked(false, true) &&
+            !achievements_blocked(true, false) && !achievements_blocked(std::nullopt, false),
+        "the achievement jingle waits for typing statistics");
 
   if (failures == 0)
     std::puts("plugin page model: ok");
