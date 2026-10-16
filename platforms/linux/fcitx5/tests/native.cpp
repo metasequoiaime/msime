@@ -2089,9 +2089,34 @@ int main(int argc, char **argv) {
     engine.smart_punctuation_action_.activate(&ic);
     require(!state->preferences_.value("smart_punctuation", true),
             "smart punctuation status action toggles live mode");
+    // 与设置页相同，总开关连同数字后、字母后直出一起写；否则设置页关过一次之后，这里打开的只是一个不起作用的总开关。
+    require(!state->preferences_.value("smart_punctuation_direct_digit", true) &&
+                !state->preferences_.value("smart_punctuation_direct_letter", true),
+            "turning smart punctuation off from the status bar turns both halves off");
     engine.smart_punctuation_action_.activate(&ic);
     require(state->preferences_.value("smart_punctuation", false),
             "smart punctuation status action restores live mode");
+    require(state->preferences_.value("smart_punctuation_direct_digit", false) &&
+                state->preferences_.value("smart_punctuation_direct_letter", false),
+            "turning smart punctuation on from the status bar turns both halves on");
+    {
+      // 三个键在同一次保存里落盘。
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      Json saved;
+      auto halvesOn = [&] {
+        const auto stored = saved.value("preferences", Json::object());
+        return stored.value("smart_punctuation", false) &&
+               stored.value("smart_punctuation_direct_digit", false) &&
+               stored.value("smart_punctuation_direct_letter", false);
+      };
+      while (std::chrono::steady_clock::now() < deadline) {
+        saved = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        if (halvesOn()) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+      require(halvesOn(), "the status bar persists smart punctuation with both halves");
+    }
     require(engine.smart_punctuation_repeat_action_.isChecked(&ic),
             "smart punctuation repeat status action reflects preference");
     engine.smart_punctuation_repeat_action_.activate(&ic);
