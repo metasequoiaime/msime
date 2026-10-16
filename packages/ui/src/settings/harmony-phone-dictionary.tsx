@@ -46,7 +46,7 @@ import * as settings from "./settings-style";
 const DISCOVER_LIMIT = 8;
 /** 内置词库详情页一次读的词条数，与 Android 的词库详情页相同。 */
 const ENTRY_PAGE_SIZE = 100;
-/** 命名词库一次导入的文本上限，与 client-core 的 `MAX_IMPORT_TEXT_BYTES` 相同。 */
+/** 命名词库一次导入的文本上限，与 client-services 的 `MAX_IMPORT_TEXT_BYTES` 相同。 */
 const MAX_COLLECTION_IMPORT_BYTES = 16 * 1024 * 1024;
 const BUILTIN = "builtin:pinyin";
 

@@ -6,7 +6,7 @@
 //! msime-pack hash [--builtin] <pack folder or .zip>
 //! ```
 //!
-//! Every rule lives in `msime_client_core::plugins`: `validate` stages each pack the way `import` does and runs the same checks, so a pack this tool accepts is one the 插件 page installs, and the other way round. Nothing is installed and no plugins directory is touched. One line per pack, in the order given: `ok <id> <kind> <version>`, or `error <path>: <reason>` where the reason starts with the same failure code the settings page decodes (`plugin_invalid`, `plugin_archive`, ...) followed by the broken rule in Chinese. The exit status is 0 when every pack is valid, 1 when any is not, and 2 for a usage error.
+//! Every rule lives in `msime_client_services::plugins`: `validate` stages each pack the way `import` does and runs the same checks, so a pack this tool accepts is one the 插件 page installs, and the other way round. Nothing is installed and no plugins directory is touched. One line per pack, in the order given: `ok <id> <kind> <version>`, or `error <path>: <reason>` where the reason starts with the same failure code the settings page decodes (`plugin_invalid`, `plugin_archive`, ...) followed by the broken rule in Chinese. The exit status is 0 when every pack is valid, 1 when any is not, and 2 for a usage error.
 //!
 //! `run`（只在桌面）按夹具里的事件运行一个脚本插件，每个事件输出一行 JSON，细节见 `src/run.rs`（那个模块只在桌面编译）。退出码：全部事件都没有失败为 0；有任何失败（trap、fuel 耗尽、返回负数、初始化失败）或者包不合规为 1；命令行、`--grant` 或夹具写错为 2。
 //!
@@ -18,7 +18,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
 
-use msime_client_core::plugins::{self, PluginError, ReservedIds};
+use msime_client_services::plugins::{self, PluginError, ReservedIds};
 
 #[cfg(any(
     target_os = "macos",

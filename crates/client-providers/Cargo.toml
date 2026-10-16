@@ -1,0 +1,44 @@
+[package]
+name = "msime-client-providers"
+description = "Client side of the third-party providers: voice sessions and on-device speech models, credential probes, AI candidate settings and on-demand resource packs."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+msime-client-base = { path = "../client-base" }
+msime-client-core = { path = "../client-core" }
+msime-path-trust = { path = "../path-trust" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+hex = "0.4"
+base64 = "0.23"
+flate2 = "1"
+uuid = { workspace = true, features = ["serde", "v4"] }
+time.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+tokio = { workspace = true, features = ["rt", "net", "time"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+# On-device speech models: the catalog archives are tar.bz2. bzip2 0.6 defaults to the pure-Rust libbz2-rs-sys backend, so no C toolchain is needed on any host.
+tar = { version = "0.4", default-features = false }
+bzip2 = "0.6"
+# Toneless pinyin for hotword post-correction of recognizers without native hotword support.
+pinyin = { version = "0.11", default-features = false, features = ["plain", "heteronym"] }
+# 下载来的 .zip 归档在 `voice::local_models` 里解出指定的成员。只开 flate2 的 deflate 后端，与 client-services 用的是同一份。
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+
+[dev-dependencies]
+msime-path-trust = { path = "../path-trust", features = ["test-support"] }
+tempfile.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+rustix = { workspace = true, features = ["fs"] }
+
+[lints]
+workspace = true

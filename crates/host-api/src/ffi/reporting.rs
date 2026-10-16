@@ -1,13 +1,13 @@
-//! 面向原生宿主的使用情况上报、公告和检查更新：`msime_client_core::telemetry` 与 `msime_client_core::notices` 提供的上报队列、公告源和 Markdown 渲染，以及 `msime_client_core::update_check`。
+//! 面向原生宿主的使用情况上报、公告和检查更新：`msime_client_services::telemetry` 与 `msime_client_services::notices` 提供的上报队列、公告源和 Markdown 渲染，以及 `msime_client_services::update_check`。
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee. Every request is a small JSON document so a host builds it with the JSON library it already has, and a field added later does not change a signature.
 
 use super::with_bounded_bytes;
 use crate::*;
-use msime_client_core::account::BackendAccountClient;
-use msime_client_core::notices::{fetch_notices, markdown_to_html, NoticeChannel, NoticeStore};
-use msime_client_core::telemetry::{TelemetryApp, TelemetryStore};
-use msime_client_core::update_check::{check_for_update, UpdateCheckRequest};
+use msime_client_services::account::BackendAccountClient;
+use msime_client_services::notices::{fetch_notices, markdown_to_html, NoticeChannel, NoticeStore};
+use msime_client_services::telemetry::{TelemetryApp, TelemetryStore};
+use msime_client_services::update_check::{check_for_update, UpdateCheckRequest};
 use std::time::SystemTime;
 
 const MAX_REQUEST_BYTES: usize = 16 * 1024;

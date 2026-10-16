@@ -7700,7 +7700,7 @@ test("macOS sidebar uses the same six groups", async () => {
   ]);
 });
 
-// 宿主提供哪个发布、哪个安装包由 Rust 决定（`crates/client-core/src/update_check.rs`）；这里覆盖的是关于页向宿主问什么、拿到答复后怎么做。
+// 宿主提供哪个发布、哪个安装包由 Rust 决定（`crates/client-services/src/update_check.rs`）；这里覆盖的是关于页向宿主问什么、拿到答复后怎么做。
 const releasesPage = "https://github.com/metasequoiaime/msime/releases";
 
 function hostRelease(

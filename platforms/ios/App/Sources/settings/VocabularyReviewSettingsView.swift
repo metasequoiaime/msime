@@ -1,11 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 背单词: the review session, as a page of the settings app.
+/// 背单词：复习会话，作为设置应用里的一个页面。
 ///
-/// Nothing here schedules anything. The intervals, the ease, what a lapse costs and the order of
-/// the queue all come back from `client-core::vocabulary` through `VocabularyReviewStore`; this
-/// view shows a card, reports which button was pressed, and draws the counts it is handed.
+/// 这里不做任何排期。间隔、难易系数、一次遗忘的代价和队列的顺序，都经由 `VocabularyReviewStore` 从 `client-services::vocabulary` 返回；这个视图只显示卡片、报告按下了哪个按钮，并画出交给它的计数。
 struct VocabularyReviewSettingsView: View {
   @Environment(\.horizontalSizeClass) private var widthClass
   @State private var status = VocabularyReviewStatus()

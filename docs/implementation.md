@@ -4,21 +4,24 @@
 
 ## 一、目标与范围
 
-一个仓库承载六个平台（Android、iOS、macOS、Linux、Windows、HarmonyOS）的输入法客户端：业务逻辑写一次放在 Rust，管理界面写一次放在 React，输入算法完全留在上游 C++ msime-engine，各平台只保留自己的系统入口和平台能力适配。
+一个仓库承载六个平台（Android、iOS、macOS、Linux、Windows、HarmonyOS）的输入法客户端：业务逻辑写一次放在 Rust，设置界面按平台归属（macOS、Linux 与 HarmonyOS 用共享 React 设置页，Windows、iOS 与 Android 用各自的原生设置，见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)），输入算法完全由 Rust 引擎 `crates/engine`（`msime-engine`）持有，各平台只保留自己的系统入口和平台能力适配。
 
-范围内的是「宿主编排」：会话生命周期、焦点、候选分页与身份、偏好的持久化与应用时机、账号与云服务、资源分代安装、面板与工具栏的展示状态。范围外的是「输入算法」：拼音切分、词格仲裁、候选排序、学习与调频、日文转换表，这些全部由 Engine 提供，客户端只传配置、取快照、按身份回选。简繁转换是共享层 `crates/client-core/src/chinese_conversion.rs` 按 OpenCC s2t 实现的词级转换，由宿主在显示与上屏边界调用。
+范围内的是「宿主编排」：会话生命周期、焦点、候选分页与身份、偏好的持久化与应用时机、账号与云服务、资源分代安装、面板与工具栏的展示状态。范围外的是「输入算法」：拼音切分、词格仲裁、候选排序、学习与调频、日文转换表，这些全部由 Engine 提供，客户端只传配置、取快照、按身份回选。简繁转换是共享层 `crates/client-base/src/chinese_conversion.rs` 按 OpenCC s2t 实现的词级转换，由宿主在显示与上屏边界调用。
 
-一条贯穿全仓库的规则：**Tauri 是公共组件，不是任何平台的产品本体**。最终安装、启动、被系统识别为输入法的，始终是 `platforms/<os>` 下的原生宿主；Tauri/React 由它按需承载（`platforms/ios/build-app.sh` 顶部的注释写明了这一点，iOS 上只有 `MSIME_IOS_TAURI_COMPONENT=1` 才单独构建那部分）。
+一条贯穿全仓库的规则：**Tauri 是公共组件，不是任何平台的产品本体**。最终安装、启动、被系统识别为输入法的，始终是 `platforms/<os>` 下的原生宿主；Tauri/React 只在用到它的平台上由它承载，iOS App 与 Android 发布 APK 都不承载（`platforms/ios/build-app.sh` 顶部的注释写明了 iOS 这一点：产品 App 里没有 WebView，只有 `MSIME_IOS_TAURI_COMPONENT=1` 才单独构建那个组件）。
 
 ## 二、分层与目录
 
 ### Rust workspace
 
-工作区共九个成员：八个 `crates/*` 加 `apps/desktop/src-tauri`。`default-members` 刻意排除 `msime-desktop`——它需要已构建的前端和已打包的平台 bundle 才能跑 build script，所以裸 `cargo test` 只覆盖库。工具链钉在 `rust-toolchain.toml` 的 1.97.1；`[workspace.lints.rust] unsafe_code = "deny"` 用 `deny` 而非 `forbid`，因为四个 FFI crate 需要在 crate root 写 `#![allow(unsafe_code)]` 作为有据可查的豁免，`forbid` 下它们只能整体不继承 lint 表。
+工作区共二十个成员：十九个 `crates/*` 加 `apps/desktop/src-tauri`。`default-members` 刻意排除 `msime-desktop`——它需要已构建的前端和已打包的平台 bundle 才能跑 build script，所以裸 `cargo test` 只覆盖库。工具链钉在 `rust-toolchain.toml` 的 1.97.1；`[workspace.lints.rust] unsafe_code = "deny"` 用 `deny` 而非 `forbid`，因为四个 FFI crate 需要在 crate root 写 `#![allow(unsafe_code)]` 作为有据可查的豁免，`forbid` 下它们只能整体不继承 lint 表。
 
 | crate | 职责 |
 | --- | --- |
-| `msime-client-core` | 宿主无关的客户端业务：`preferences`、`account`、`ai`、`cloud`、`community`、`credential`、`dictionary`、`helpcode`、`skin`、`translation`、`voice`、`clipboard`、`punctuation`、`chinese_conversion`、`typing_statistics`、`resources`、`host_surface`、`panels`。不依赖 Tauri、React、Engine 或任何平台 API。 |
+| `msime-client-base` | 客户端最底层、不联网的本地能力：`storage`、`file_lock`、`bounded_io`、`text`、`calendar`、`chinese_conversion`（含 `data/opencc/`）。client-core 用 `use`/`pub use` 把它们接回原来的路径，`msime-backend-engine` 只依赖这一层。 |
+| `msime-client-core` | 宿主无关的客户端核心：`preferences`、`edition`、`host_surface`、`settings_document`、`theme`、`punctuation`、`helpcode`、`clipboard`、`translation`、`cloud`、`resources`、`panels`、`candidate_document`。不带网络栈，`msime-input-runtime` 只依赖它。与另外三个 client crate 一样不依赖 Tauri、React、Engine 或任何平台 API。 |
+| `msime-client-services` | 账号与用户内容，依赖 client-core：`account`、`community`、`telemetry`、`notices`、`update_check`、`diagnostics`、`clipboard_relay`、`skin`、`plugins`、`dictionary`、`vocabulary`、`common_phrases`、`typing_statistics`。 |
+| `msime-client-providers` | 语音与外部服务，依赖 client-core，与 client-services 互不引用：`voice`、`credential`、`ai`、`resource_packs`。 |
 | `msime-engine` | 纯 Rust 输入引擎（由 C++ MSIME-Engine 移植）：组合状态、全拼／双拼／五笔／九键／全拼 14 键／日语等方案、词库查询与分代准备、学习日志与回放、手写识别；`examples/` 下是各类真实词库探针，`tests/golden/` 是从 C++ 参考实现录下的行为基准。 |
 | `msime-input-runtime` | 输入宿主的会话编排：焦点、候选翻页、代次选择、全半角转换、在线候选调度。含重排模型 `Reranker` 的接入。 |
 | `msime-host-api` | 版本化 C ABI（`msime_client_abi_version()` 返回 3），132 个 `msime_client_*` 导出（头文件另有 2 个 `static inline` 辅助函数），`crate-type = ["cdylib", "staticlib", "rlib"]`。`ffi/` 按 host/session/input/candidates/lifecycle/providers/translation/voice 分文件。 |
@@ -79,7 +82,7 @@ React 只依赖一个 `SettingsClient` 接口；所有平台动作（读写偏�
 
 ### 数据与网络边界
 
-新装的默认配置下没有功能会把输入内容发出设备。云联想会发送当前正在组的拼音串给 Google 输入工具，新装默认关闭，由桌面平台的首次询问或设置页打开，关闭后宿主既不发起请求也拒绝任何云来源候选。其余联网功能——语音识别、语音润色、候选翻译、AI 联想、账号同步——默认凭据为空或要显式选择服务，不填密钥、不选服务就不会发出请求。另有一条自有的匿名使用统计路径（`crates/client-core/src/telemetry.rs`，各宿主经 Host API 的 `msime_client_telemetry_*` 调用，端点是本项目的 `api.msime.app`），默认开启、可由 `usage_reporting` 关闭；事件里只有随机事件 id、事件类型、平台名、版本号和本机随机生成的安装 id，崩溃事件另带截断过的异常摘要与去掉目录的调用栈，不含任何输入内容、候选、剪贴板或账号标识；仓库不接入任何第三方统计或崩溃上报 SDK。完整的逐条说明在 [PRIVACY.md](../PRIVACY.md)，这份文档不重复它。
+新装的默认配置下没有功能会把输入内容发出设备。云联想会发送当前正在组的拼音串给 Google 输入工具，新装默认关闭，由桌面平台的首次询问或设置页打开，关闭后宿主既不发起请求也拒绝任何云来源候选。其余联网功能——语音识别、语音润色、候选翻译、AI 联想、账号同步——默认凭据为空或要显式选择服务，不填密钥、不选服务就不会发出请求。另有一条自有的匿名使用统计路径（`crates/client-services/src/telemetry.rs`，各宿主经 Host API 的 `msime_client_telemetry_*` 调用，端点是本项目的 `api.msime.app`），默认开启、可由 `usage_reporting` 关闭；事件里只有随机事件 id、事件类型、平台名、版本号和本机随机生成的安装 id，崩溃事件另带截断过的异常摘要与去掉目录的调用栈，不含任何输入内容、候选、剪贴板或账号标识；仓库不接入任何第三方统计或崩溃上报 SDK。完整的逐条说明在 [PRIVACY.md](../PRIVACY.md)，这份文档不重复它。
 
 实现上与之配套的约束有两条。一是凭据不进 WebView：探测、请求构造和 token 持久化都在 Rust 或原生侧完成，交给 React 的是脱敏 DTO 和「这个服务配没配好」的布尔结果。二是诊断日志不记内容：Linux 的 `diagnostic.log` 写在偏好目录下、1 MiB 轮转一份、只用户可读，各平台的错误路径一律记类别与错误码，不记响应正文、提示词、输入串或路径。
 
@@ -164,7 +167,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 **需要重建 Engine 的配置等到组词结束才应用。** 快照进来时若组合处于活动状态，只保留最新的一份，等结束组合或失焦后再应用；拒绝旧 revision、同 revision 不同内容和非法配置。替换 Engine 前先验证新实例，保留会话句柄与焦点、推进视图代次；重建失败保留旧会话、待应用配置和已完成提交，等下一次重试。纯展示字段（字号、颜色、皮肤、布局）不走这条路，直接刷新渲染状态，因为它们不需要重建任何东西。
 
-**Tauri 是公共组件，不是产品本体。** 六个平台的产品形态都是 `platforms/<os>` 下的原生宿主，Tauri/React 由宿主按需承载。这条决策直接决定了几个看起来不一致的选择：iOS 的默认构建产物是 XcodeGen 工程的 `MSIMEApp` 而不是 Tauri 归档；Android 把 `InputMethodService` 隔离到 `:ime` 进程，因为 Tauri 最后一个窗口关闭会退出进程；macOS 的原生入口在 Tauri bundle 不可用时全部有回退路径；HarmonyOS 干脆把设置页打成随包的单文件 HTML。
+**Tauri 是公共组件，不是产品本体。** 六个平台的产品形态都是 `platforms/<os>` 下的原生宿主，Tauri/React 只在用到它的平台上由宿主承载。这条决策直接决定了几个看起来不一致的选择：iOS 的默认构建产物是 XcodeGen 工程的 `MSIMEApp` 而不是 Tauri 归档；Android 把 `InputMethodService` 隔离到 `:ime` 进程，因为 Tauri 最后一个窗口关闭会退出进程；macOS 的原生入口在 Tauri bundle 不可用时全部有回退路径；HarmonyOS 干脆把设置页打成随包的单文件 HTML。
 
 **展示状态只在回复被确认之后发布。** Windows 的候选窗口、模式面板和展示快照都不在 Engine 刚算完时更新，而是等回复写进管道并被对端确认、且焦点门禁仍然有效之后才发布。这条顺序换来两件事：窗口上看到的候选一定是编辑器里正在生效的那一组；投递失败或焦点过期时没有一个「已显示但没送到」的中间态需要回滚。隐藏事件同样是语义动作而不是视觉动作——宿主发来隐藏就调共享取消命令清掉组合与已选前缀，此后的显示/移动不复活旧内容，新输入重新发布。
 
@@ -196,7 +199,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 测试跟着边界走：能在宿主机上跑的就别要求设备，需要设备才成立的就明确标成设备套件，两者不互相冒充。
 
-**共享 Rust。** 裸 `cargo test` 覆盖八个 `default-members`（`client-core`、`engine`、`input-runtime`、`host-api`、`host-macos`、`host-windows`、`tauri-mobile-platform`、`ios-native-ffi`）；`verify-local.sh` 另外把 `msime-desktop` 一并跑上，并单独检测「编译失败」而不是把它误读成「零个失败测试名」。真实词库不是单测的前提：`crates/engine/examples/` 下是一批探针，接收一个已备齐的资源目录后在临时用户目录里验证具体行为（九键候选顺序、调频五种模式、混输优先级、辅助码五种方案、双拼四套键位、首尾字抽取），原资源不被改写。`crates/input-runtime/examples/` 另有 `convert_eval` 与 `rerank_latency`，前者跑 `resources/eval/` 的四套数据集比对基线，后者量重排的逐键延迟。
+**共享 Rust。** 裸 `cargo test` 覆盖十五个 `default-members`（`path-trust`、`client-base`、`client-core`、`client-providers`、`client-services`、`engine`、`engine-wasm`、`input-runtime`、`host-api`、`host-windows`、`host-macos`、`tauri-mobile-platform`、`ios-native-ffi`、`mcp-server`、`script-runtime`）；`verify-local.sh` 另外把 `msime-desktop` 一并跑上，并单独检测「编译失败」而不是把它误读成「零个失败测试名」。真实词库不是单测的前提：`crates/engine/examples/` 下是一批探针，接收一个已备齐的资源目录后在临时用户目录里验证具体行为（九键候选顺序、调频五种模式、混输优先级、辅助码五种方案、双拼四套键位、首尾字抽取），原资源不被改写。`crates/input-runtime/examples/` 另有 `convert_eval` 与 `rerank_latency`，前者跑 `resources/eval/` 的四套数据集比对基线，后者量重排的逐键延迟。
 
 **共享界面。** `apps/desktop/tests/` 下 99 个 Vitest 文件按 account / candidate / chat / community / core / dictionary / emoji / input / settings / skin / support / voice 十二个域组织。写这些用例有一条必须遵守的时序：`render(<SettingsPage …>)` 之后要先等初始加载落定再去点侧栏，页面此时还在解析快照，加载完成后自己做的选择会覆盖掉提前点下的分类——不等就会得到一个随机失败、看起来像产品回归的用例。
 

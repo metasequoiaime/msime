@@ -57,8 +57,8 @@ pub struct AndroidVoicePolishRequest {
 #[cfg(any(target_os = "android", test))]
 impl AndroidVoicePolishRequest {
     pub fn is_valid(&self) -> bool {
-        msime_client_core::voice::provider::valid_mobile_voice_endpoint(&self.endpoint, false)
-            && msime_client_core::voice::provider::bounded_voice_fields(
+        msime_client_providers::voice::provider::valid_mobile_voice_endpoint(&self.endpoint, false)
+            && msime_client_providers::voice::provider::bounded_voice_fields(
                 &self.endpoint,
                 &self.model,
                 &self.token,
@@ -84,7 +84,7 @@ struct AndroidVoiceResponse {
 
 #[cfg(any(target_os = "android", test))]
 fn valid_android_voice_request(request_id: &str, language: &str) -> bool {
-    msime_client_core::voice::is_valid_request_id(request_id)
+    msime_client_providers::voice::is_valid_request_id(request_id)
         && !language.is_empty()
         && is_bounded_text(language, 64)
 }
@@ -253,7 +253,7 @@ pub struct MobileVoiceRequestHeader {
 pub struct MobileVoiceTranscriptionRequest {
     pub request_id: String,
     pub provider: String,
-    /// 请求格式（`msime_client_core::voice::provider::asr_request_format`）：`multipart`、`chat_audio`、`doubao_websocket` 或 `local`。原生插件按它挑请求构造，不按 provider 名字判断。
+    /// 请求格式（`msime_client_providers::voice::provider::asr_request_format`）：`multipart`、`chat_audio`、`doubao_websocket` 或 `local`。原生插件按它挑请求构造，不按 provider 名字判断。
     pub request_format: String,
     pub endpoint: String,
     pub model: String,
@@ -271,7 +271,7 @@ pub struct MobileVoiceTranscriptionRequest {
     pub hotwords: Vec<MobileVoiceHotword>,
 }
 
-/// One user-dictionary word for on-device recognition, shaped like `msime_client_core::voice::hotwords::Hotword`.
+/// 一个用于设备端识别的用户词库词，形状同 `msime_client_providers::voice::hotwords::Hotword`。
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileVoiceHotword {
@@ -291,8 +291,8 @@ fn valid_mobile_voice_hotwords(hotwords: &[MobileVoiceHotword]) -> bool {
 
 impl MobileVoiceTranscriptionRequest {
     pub fn is_valid(&self) -> bool {
-        let common = msime_client_core::voice::is_valid_request_id(&self.request_id)
-            && msime_client_core::voice::provider::bounded_voice_fields(
+        let common = msime_client_providers::voice::is_valid_request_id(&self.request_id)
+            && msime_client_providers::voice::provider::bounded_voice_fields(
                 &self.endpoint,
                 &self.model,
                 &self.token,
@@ -305,7 +305,7 @@ impl MobileVoiceTranscriptionRequest {
             && valid_mobile_voice_hotwords(&self.hotwords);
         // 格式必须就是这个 provider 的格式，插件只看格式，所以两者不一致的请求一律拒绝。
         if !common
-            || msime_client_core::voice::provider::asr_request_format(&self.provider)
+            || msime_client_providers::voice::provider::asr_request_format(&self.provider)
                 != Some(self.request_format.as_str())
         {
             return false;
@@ -325,10 +325,10 @@ impl MobileVoiceTranscriptionRequest {
         // multipart 和 chat_audio 都是带 Bearer 密钥的 HTTPS 整句上传，形状检查相同；豆包是流式 WebSocket，在下面单独检查。
         if matches!(
             self.request_format.as_str(),
-            msime_client_core::voice::provider::ASR_REQUEST_MULTIPART
-                | msime_client_core::voice::provider::ASR_REQUEST_CHAT_AUDIO
+            msime_client_providers::voice::provider::ASR_REQUEST_MULTIPART
+                | msime_client_providers::voice::provider::ASR_REQUEST_CHAT_AUDIO
         ) {
-            return msime_client_core::voice::provider::valid_mobile_voice_endpoint(
+            return msime_client_providers::voice::provider::valid_mobile_voice_endpoint(
                 &self.endpoint,
                 false,
             ) && !self.model.trim().is_empty()
@@ -336,7 +336,10 @@ impl MobileVoiceTranscriptionRequest {
                 && self.boosting_table_id.is_empty();
         }
         self.provider == "doubao"
-            && msime_client_core::voice::provider::valid_mobile_voice_endpoint(&self.endpoint, true)
+            && msime_client_providers::voice::provider::valid_mobile_voice_endpoint(
+                &self.endpoint,
+                true,
+            )
             && self.model.is_empty()
             && self.token.is_empty()
             && valid_doubao_headers(&self.headers)
@@ -408,11 +411,8 @@ impl IosKeyboardPreferences {
             self.haptic_strength.as_str(),
             "light" | "medium" | "strong" | "system"
         )
-            // The ids of msime_client_core::skin::theme::GlobalTheme, which this crate does not depend on; the desktop crate's iOS account tests hold the two lists together.
-            && matches!(
-                self.global_theme.as_str(),
-                "system" | "native" | "shuishan" | "light" | "paper" | "night" | "ink" | "custom"
-            )
+            // 全局主题 id 直接按 client-core 的 `theme::GlobalTheme` 校验，不另抄一份列表。
+            && msime_client_core::theme::GlobalTheme::from_id(&self.global_theme).is_some()
             && self.custom_keyboard_skin.as_ref().is_none_or(|value| {
                 value.len() <= MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES
                     && serde_json::from_str::<Value>(value)
@@ -770,7 +770,7 @@ impl<R: Runtime> MobilePlatform<R> {
     }
 
     pub fn stop_voice(&self, request_id: &str) -> Result<(), ()> {
-        if !msime_client_core::voice::is_valid_request_id(request_id) {
+        if !msime_client_providers::voice::is_valid_request_id(request_id) {
             return Err(());
         }
         self.0
@@ -784,7 +784,9 @@ impl<R: Runtime> MobilePlatform<R> {
     }
 
     pub fn cancel_voice(&self, request_id: Option<&str>) -> Result<(), ()> {
-        if request_id.is_some_and(|value| !msime_client_core::voice::is_valid_request_id(value)) {
+        if request_id
+            .is_some_and(|value| !msime_client_providers::voice::is_valid_request_id(value))
+        {
             return Err(());
         }
         self.0

@@ -1,6 +1,6 @@
 import XCTest
 
-/// The strip's desktop candidate palette is the one client-core resolves for the global theme (a built-in theme, or the custom theme's base, package and pickers), and stays off until the iOS switch is on.
+/// 候选条的桌面候选配色就是 client-services 为全局主题解析出的配色（内置主题，或自定义主题的 base、皮肤包和取色器），在 iOS 开关打开之前一直关闭。
 final class CandidatePaletteTests: XCTestCase {
   override func tearDown() {
     CandidatePalette.defaults.removeObject(forKey: CandidatePalette.followsDesktopKey)
@@ -9,7 +9,7 @@ final class CandidatePaletteTests: XCTestCase {
 
   private func hex(_ color: UIColor) -> String { ThemeColor.hex(color) }
 
-  /// What `global_theme` alone draws, as client-core resolves it.
+  /// 只有 `global_theme` 时画出的样子，按 client-services 的解析结果。
   private func builtIn(_ id: String) throws -> CandidatePalette {
     CandidatePalette.palette(try XCTUnwrap(ResolvedTheme.resolve(globalTheme: id, customTheme: nil, dark: false)))
   }
@@ -68,7 +68,7 @@ final class CandidatePaletteTests: XCTestCase {
     XCTAssertEqual(explicit.number.cgColor.alpha, 1)
   }
 
-  /// Pickers lie over the base; a malformed picker makes client-core refuse the whole custom theme, and the strip draws the native tokens.
+  /// 取色器叠在 base 之上；一个格式错误的取色器会让 client-services 拒绝整个自定义主题，候选条于是画原生 token。
   func testPickersOverTheBaseAndMalformedColours() throws {
     let picked = CandidatePalette.resolve(
       custom(["base": "paper", "candidate_colors": ["surface": "#040506"]]), systemDark: false)

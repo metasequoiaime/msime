@@ -1,12 +1,12 @@
 import UIKit
 
-/// The candidate strip's own colours: the `candidate` palette client-core resolves for the global theme (a built-in theme, or the custom theme's base, imported package and colour pickers), in the mode `candidate_theme` asks for.
+/// 候选条自己的颜色：client-services 为全局主题（内置主题，或自定义主题的基础主题、导入的包和取色器）解析出的 `candidate` 调色板，使用 `candidate_theme` 要求的模式。
 ///
-/// On iOS the strip is part of the keyboard, so it normally draws with the keyboard palette (the selected candidate in the accent, no fill; dc.html `mobCands`). The resolved candidate palette only replaces those colours when the iOS switch (`followsDesktop`) is on, the same palette the desktop candidate window draws. The switch lives in the App Group, like the cloud candidate switch; the theme and colours stay in the shared document and sync with the desktop.
+/// 在 iOS 上候选条是键盘的一部分，所以平时用键盘调色板绘制（选中的候选用强调色，不填充；见 dc.html `mobCands`）。只有打开 iOS 开关（`followsDesktop`）时，解析出的候选调色板才替换这些颜色，也就是桌面候选窗用的同一套调色板。这个开关和云候选开关一样存在 App Group 里；主题和颜色留在共享文档中，与桌面同步。
 struct CandidatePalette: Equatable {
   var text: UIColor
   var number: UIColor
-  /// Hints and translations: an imported package's translation colour, otherwise the numbers, as client-core resolves `secondary`.
+  /// 提示和翻译：用导入包的翻译颜色，没有则用序号颜色，与 client-services 解析 `secondary` 的方式一致。
   var secondary: UIColor
   var accent: UIColor
   var selected: UIColor

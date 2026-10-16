@@ -23,18 +23,18 @@ import java.util.concurrent.TimeUnit;
 import org.json.JSONObject;
 
 /**
- * Anonymous usage reporting for the Android app and keyboard, on the shared reporter in client-core (msime_client_telemetry_* in msime_client.h).
+ * Android 应用和键盘的匿名使用情况上报，建立在 client-services 的共享上报器之上（msime_client.h 中的 msime_client_telemetry_*）。
  *
- * <p>The shared store owns the queue, the random install id, the daily `active`, the session marker and the network: both processes point it at the same directory and it serialises them with a file lock. This class only decides when to call it and writes crash records, which is the one thing that has to happen inside a dying process.
+ * <p>队列、随机安装 id、每日 `active`、会话标记和网络都归共享存储负责：两个进程把它指向同一个目录，由它用文件锁把两者串行化。这个类只决定何时调用它，以及写崩溃记录，这是唯一一件必须在即将崩溃的进程内完成的事。
  *
- * <p>Sessions belong to the keyboard process (`:ime`): one per process lifetime, begun in {@link #beginInputSession} and ended in {@link #endInputSession}. The app process only flushes and records crashes. A crash in the keyboard is written to the session's own record, so the next start reports it as `crash` plus `session_crash`; a crash in the app is written as a loose record and reported as a `crash` on the keyboard's next start. A session that left only its marker (the system killed the process) is not a crash.
+ * <p>会话属于键盘进程（`:ime`）：每个进程生命周期一个，在 {@link #beginInputSession} 中开始，在 {@link #endInputSession} 中结束。应用进程只负责刷出队列和记录崩溃。键盘里的崩溃写进该会话自己的记录，所以下次启动时报告为 `crash` 加 `session_crash`；应用里的崩溃写成一条独立记录，在键盘下次启动时报告为 `crash`。只留下标记的会话（进程被系统杀掉）不算崩溃。
  *
- * <p>Consent is the shared `usage_reporting` preference (on by default). With it off the shared store clears the queue, the marker and the crash records and sends nothing.
+ * <p>是否同意以共享的 `usage_reporting` 偏好为准（默认开启）。关闭时共享存储会清空队列、标记和崩溃记录，不发送任何东西。
  */
 public final class Telemetry {
     private static final String TAG = "MSIMETelemetry";
     private static final String DIRECTORY = "telemetry";
-    /** Must match CRASH_DIRECTORY in crates/client-core/src/telemetry.rs: every `*.crash` file there is turned into a crash event on the next session start. */
+    /** 必须与 crates/client-services/src/telemetry.rs 中的 CRASH_DIRECTORY 一致：那里的每个 `*.crash` 文件都会在下次会话开始时变成一条崩溃事件。 */
     static final String CRASH_DIRECTORY = "telemetry-crashes";
     static final String CRASH_EXTENSION = ".crash";
     /** The server's limits (message 1000 Unicode scalars, stack 16000) and the stack's byte cap that keeps an event under 32 KiB. The shared store applies them again when it reads the record; clipping here keeps the dying process's write small. */

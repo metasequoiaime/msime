@@ -1,15 +1,15 @@
 //! 云剪贴板请求：每个宿主都接受的形状（[`validate_request`]）、经水杉账号的答复（[`account_request`]），以及经自建中继的答复（[`relay_request`]，见 `docs/cloud-clipboard-relay.md`）。
 
-use msime_client_core::account::{
-    AccountApi, AccountClipboardError, AccountError, AccountSessionStorage, BackendAccountSession,
-};
-use msime_client_core::clipboard_relay::{
-    RelayClipboard, RelayConfig, RelayError, RelayTransport, RETENTION_DAYS,
-};
 use msime_client_core::preferences::PreferencesStore;
 use msime_client_core::{
     has_disallowed_control_with_options, is_bounded_ascii_identifier, is_bounded_text,
     is_bounded_utf16, is_lower_hex,
+};
+use msime_client_services::account::{
+    AccountApi, AccountClipboardError, AccountError, AccountSessionStorage, BackendAccountSession,
+};
+use msime_client_services::clipboard_relay::{
+    RelayClipboard, RelayConfig, RelayError, RelayTransport, RETENTION_DAYS,
 };
 use serde_json::{json, Value};
 use std::path::Path;
@@ -320,8 +320,8 @@ mod tests {
 
     mod relay {
         use super::super::{configured_relay, relay_request, source};
-        use msime_client_core::clipboard_relay::RelayConfig;
         use msime_client_core::preferences::{Preferences, PreferencesStore};
+        use msime_client_services::clipboard_relay::RelayConfig;
         use serde_json::json;
 
         fn store_with(url: &str, token: &str) -> tempfile::TempDir {
@@ -399,11 +399,11 @@ mod tests {
 
     mod account {
         use super::super::account_request;
-        use msime_client_core::account::{
+        use msime_client_core::cloud::clipboard_e2e::{HttpRequest, HttpResponse};
+        use msime_client_services::account::{
             AccountApi, AccountChallenge, AccountError, AccountProfile, AccountSessionStorage,
             AccountTokens, AccountUser, BackendAccountSession, SavedAccountSession,
         };
-        use msime_client_core::cloud::clipboard_e2e::{HttpRequest, HttpResponse};
         use serde_json::json;
         use std::sync::{Arc, Mutex};
 

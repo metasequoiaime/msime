@@ -1,4 +1,4 @@
-//! 原生设置窗口的社区操作：与共享应用（Tauri）在 Windows 上的社区命令一一对应——候选窗皮肤社区（`desktop_candidate_skin_community.rs`）、插件社区（`desktop_plugin_community.rs`）、社区词包与回复模板（`community_resources.rs`）和举报（`desktop_community_report.rs`）。服务经 [`super::account`] 里同一个账号会话对象认证，用同一份 `account-session.json`；发布和安装都在这里对着宿主给的皮肤根目录或插件根目录做，规则、错误码和返回形状都是 client-core 的，与共享应用相同。
+//! 原生设置窗口的社区操作：与共享应用（Tauri）在 Windows 上的社区命令一一对应——候选窗皮肤社区（`desktop_candidate_skin_community.rs`）、插件社区（`desktop_plugin_community.rs`）、社区词包与回复模板（`community_resources.rs`）和举报（`desktop_community_report.rs`）。服务经 [`super::account`] 里同一个账号会话对象认证，用同一份 `account-session.json`；发布和安装都在这里对着宿主给的皮肤根目录或插件根目录做，规则、错误码和返回形状都是 client-services 的，与共享应用相同。
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
@@ -8,24 +8,26 @@ use super::with_bounded_bytes;
 use crate::*;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use key_sound::PluginRoots;
-use msime_client_core::account::{AccountError, BackendAccountClient, FileAccountSessionStorage};
-use msime_client_core::community::report::{
+use msime_client_core::uuid::Uuid;
+use msime_client_services::account::{
+    AccountError, BackendAccountClient, FileAccountSessionStorage,
+};
+use msime_client_services::community::report::{
     BackendCommunityReportService, CommunityReport, CommunityReportKind,
 };
-use msime_client_core::community::resource::{
+use msime_client_services::community::resource::{
     BackendCommunityResourceService, CommunityResourceContent, CommunityResourceKind,
     CommunityResourceScope,
 };
-use msime_client_core::plugins::community::{
+use msime_client_services::plugins::community::{
     self as plugin_community, BackendCommunityPluginService,
 };
-use msime_client_core::plugins::{PluginFailure, PluginKind};
-use msime_client_core::skin::candidate_community::{
+use msime_client_services::plugins::{PluginFailure, PluginKind};
+use msime_client_services::skin::candidate_community::{
     self, BackendCandidateSkinCommunityService, CandidateSkinCategory, CandidateSkinVisibility,
 };
-use msime_client_core::skin::candidate_sync::{self, CandidateSkinPublishError};
-use msime_client_core::skin::catalog;
-use msime_client_core::uuid::Uuid;
+use msime_client_services::skin::candidate_sync::{self, CandidateSkinPublishError};
+use msime_client_services::skin::catalog;
 
 /// 请求的上限：发布词包时请求里带着整份词条，加上皮肤预览图的 base64，4 MiB 足够；目录各最多 16 KiB。
 const MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;

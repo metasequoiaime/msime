@@ -56,15 +56,22 @@ constexpr ULONG_PTR SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO = 0x4D535050u;
 // Marker for caret movement synthesized by paired punctuation. Key sinks and
 // the bare-Shift hook must pass these events through to the host.
 constexpr ULONG_PTR PAIRED_PUNCTUATION_SENDINPUT_EXTRA_INFO = 0x4D535051u;
-// Marker for a caret or editing key replayed after a queued Korean syllable commit. Key sinks and the bare-Shift hook must pass these events through to the host.
-constexpr ULONG_PTR KOREAN_SYLLABLE_SENDINPUT_EXTRA_INFO = 0x4D535052u;
+// 行内组字结束后交给应用的方向或编辑键：固定前缀加进程内不复用的 nonce，x86 与 x64 使用同一格式。
+constexpr UINT APPLICATION_KEY_REPLAY_PREFIX = 0xB9000000u;
+constexpr UINT APPLICATION_KEY_REPLAY_NONCE_MASK = 0x00FFFFFFu;
+constexpr bool IsApplicationKeyReplayExtraInfo(ULONG_PTR extraInfo)
+{
+    return extraInfo == static_cast<ULONG_PTR>(static_cast<UINT>(extraInfo)) &&
+           (static_cast<UINT>(extraInfo) & ~APPLICATION_KEY_REPLAY_NONCE_MASK) == APPLICATION_KEY_REPLAY_PREFIX &&
+           (static_cast<UINT>(extraInfo) & APPLICATION_KEY_REPLAY_NONCE_MASK) != 0;
+}
 // 单按 Caps Lock 切换中英文后，为撤回大写锁定再按的那一次 Caps Lock。按键处理和裸 Shift 钩子都要放它过去，不能再当成一次轻点。
 // 0x4D535053 已用于面板文字，Caps Lock 必须使用独立标记，避免面板按键被当作自注入而整键放行。
 constexpr ULONG_PTR CAPS_LOCK_SENDINPUT_EXTRA_INFO = 0x4D535054u;
 constexpr bool IsSelfGeneratedSendInputExtraInfo(ULONG_PTR extraInfo)
 {
     return extraInfo == SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO || extraInfo == PAIRED_PUNCTUATION_SENDINPUT_EXTRA_INFO ||
-           extraInfo == KOREAN_SYLLABLE_SENDINPUT_EXTRA_INFO || extraInfo == CAPS_LOCK_SENDINPUT_EXTRA_INFO;
+           IsApplicationKeyReplayExtraInfo(extraInfo) || extraInfo == CAPS_LOCK_SENDINPUT_EXTRA_INFO;
 }
 constexpr ULONGLONG SMART_PUNCTUATION_REPEAT_INTERVAL_MS = 2000;
 // How long a queued rewrite stays valid. Unlike the interval above this is not
@@ -197,9 +204,10 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                  bool *handled);
     // 韩文、注音、越南文和藏文：上屏当前组字，`wch` 是可打印 ASCII 时再插入它；注音的标点键改为连同组字一起走中文标点表。`code` 是结束组字的按键，没有按键结束时（焦点或方案切换）为 0。
     HRESULT _HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
-                                  bool replayKey = false);
+                                  uint64_t replayToken = 0);
     // Korean and Zhuyin: the key that opens the list (the Hanja key, which also closes it; Zhuyin's Down) and a key the open list takes, which chooses, moves or closes. Both are applied to the host session, which the Server's session follows from the same key; with no list open by the time the key runs, it does what it does without one.
-    HRESULT _HandleKoreanHanjaKey(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch, uint64_t requestId);
+    HRESULT _HandleKoreanHanjaKey(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch, uint64_t requestId,
+                                  uint64_t replayToken = 0);
     // Whether the host session's composing Korean syllable or Zhuyin conversion has its list open.
     bool _IsKoreanHanjaListOpen() const;
     // 注音、越南文和藏文的按键分类从宿主会话视图读取的内容：列表是否打开、是否正在组字（藏文的空格只在组字时属于组字），以及组字拼写用的非字母键。没有宿主会话时为空。
@@ -217,9 +225,13 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _QueueCapsLockTap(_In_ ITfContext *pContext, WPARAM wParam);
     // 向宿主会话发 MSIME_CANCEL；第一次只关闭了韩文或注音的列表、只把越南文词或藏文音节串重新显示为原文、或只退出了整句改字时再发一次，所以组字无论如何都会被丢弃。没有宿主会话时返回 true。
     bool _CancelHostComposition();
-    // A caret or editing key that ended a Korean syllable behind the deferred-key barrier was eaten to keep its place in the queue; once the syllable is committed it is sent again through the input queue so the application still does its own work with it.
-    void _QueueKoreanSyllableKeyReplay(UINT virtualKey);
-    void _RunKoreanSyllableKeyReplay(UINT virtualKey);
+    // 音节已经上屏，应用键使用独立屏障；不能因为导航发送失败而重试原音节。
+    void _QueueKoreanSyllableKeyReplay(UINT virtualKey, ITfContext *context, uint64_t replayToken);
+    void _RunKoreanSyllableKeyReplay(UINT marker);
+    bool _HasPendingApplicationKeyReplay() const;
+    bool _ObserveApplicationKeyReplay(ITfContext *context, UINT virtualKey, ULONG_PTR marker);
+    void _PollApplicationKeyReplay();
+    void _ClearApplicationKeyReplay();
     HRESULT _HandleCompleteCommitFirst(TfEditCookie ec, _In_ ITfContext *pContext);
     HRESULT _HandleCancel(TfEditCookie ec, _In_ ITfContext *pContext);
     HRESULT _HandleEscape(TfEditCookie ec, _In_ ITfContext *pContext);
@@ -474,7 +486,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                UINT modifiersDown, const _KEYSTROKE_STATE &keyState);
     bool _QueueDeferredPreservedKey(_In_ ITfContext *pContext, REFGUID preservedKey);
     void _ClearDeferredKeyDowns();
-    void _ScheduleDeferredKeyDownDrain();
+    void _ScheduleDeferredKeyDownDrain(bool allowSyncFallback = true);
     void _DrainOneDeferredKeyDown();
     void _TryLeaveServerUnavailableFallback();
     void _WakeServerIfNeeded();
@@ -705,7 +717,19 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
         std::wstring previousWord;
     };
     std::vector<CreatingWordRestoreEntry> _creatingWordRestoreHistory;
-    uint64_t _koreanKeyReplayFocusToken = 0;
+    struct ApplicationKeyReplay
+    {
+        ITfContext *context = nullptr;
+        UINT marker = 0;
+        UINT virtualKey = 0;
+        uint64_t focusToken = 0;
+        uint64_t focusGeneration = 0;
+        ULONGLONG deadline = 0;
+        bool downSent = false;
+        bool upSent = false;
+        bool downObserved = false;
+    };
+    ApplicationKeyReplay _applicationKeyReplay;
     int _pendingPairedCaretDelta = 0;
     uint64_t _pendingPairedCaretFocusToken = 0;
     ULONGLONG _pendingPairedCaretDeadline = 0;

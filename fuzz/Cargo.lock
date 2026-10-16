@@ -1360,42 +1360,96 @@ dependencies = [
 ]
 
 [[package]]
+name = "msime-client-base"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "msime-path-trust",
+ "rustix",
+ "serde",
+ "tempfile",
+ "winapi-util",
+]
+
+[[package]]
 name = "msime-client-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
- "bzip2",
  "chacha20poly1305",
- "flate2",
- "futures-util",
  "getrandom 0.4.3",
  "hex",
  "hkdf",
  "hmac",
- "image",
- "libc",
  "md-5",
+ "msime-client-base",
  "msime-path-trust",
- "msime-script-runtime",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "unicode-segmentation",
+ "url",
+ "uuid",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "msime-client-providers"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "bzip2",
+ "flate2",
+ "futures-util",
+ "hex",
+ "libc",
+ "msime-client-base",
+ "msime-client-core",
+ "msime-path-trust",
  "pinyin",
- "pulldown-cmark",
  "reqwest",
  "rustix",
  "serde",
  "serde_json",
  "sha2",
  "tar",
- "tempfile",
  "thiserror 2.0.21",
  "time",
  "tokio",
  "tokio-tungstenite",
+ "uuid",
+ "zip",
+]
+
+[[package]]
+name = "msime-client-services"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "getrandom 0.4.3",
+ "hex",
+ "image",
+ "msime-client-base",
+ "msime-client-core",
+ "msime-path-trust",
+ "msime-script-runtime",
+ "pulldown-cmark",
+ "reqwest",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
  "toml",
  "unicode-general-category",
  "unicode-segmentation",
  "uuid",
- "winapi-util",
- "x25519-dalek",
  "zip",
  "zune-jpeg",
 ]
@@ -1433,6 +1487,7 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "msime-client-core",
+ "msime-client-services",
  "msime-host-api",
  "rusqlite",
  "serde_json",
@@ -1450,6 +1505,8 @@ dependencies = [
  "libc",
  "lru",
  "msime-client-core",
+ "msime-client-providers",
+ "msime-client-services",
  "msime-engine",
  "msime-host-windows",
  "msime-input-runtime",
@@ -1471,6 +1528,7 @@ name = "msime-host-windows"
 version = "0.1.0"
 dependencies = [
  "msime-client-core",
+ "msime-client-providers",
  "windows",
  "windows-collections",
  "windows-numerics",

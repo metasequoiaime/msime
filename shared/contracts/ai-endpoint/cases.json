@@ -1,5 +1,5 @@
 {
-  "description": "AI 辅助接口地址的传输策略用例，权威实现是 crates/client-core/src/ai/endpoint.rs。https 不限主机；http 只能指向本机或局域网（回环、RFC 1918、100.64.0.0/10、链路本地、IPv6 ULA、.local），不做 DNS 解析。result 取 allowed、cleartext_public 或 invalid；origin 是保存 Token 用的来源键，不合规时为 null。每个平台宿主的测试都要逐条跑这里的全部用例；只放各平台 URL 解析器结论一致的写法。",
+  "description": "AI 辅助接口地址的传输策略用例，权威实现是 crates/client-providers/src/ai/endpoint.rs。https 不限主机；http 只能指向本机或局域网（回环、RFC 1918、100.64.0.0/10、链路本地、IPv6 ULA、.local），不做 DNS 解析。result 取 allowed、cleartext_public 或 invalid；origin 是保存 Token 用的来源键，不合规时为 null。每个平台宿主的测试都要逐条跑这里的全部用例；只放各平台 URL 解析器结论一致的写法。",
   "cases": [
     { "endpoint": "http://localhost:1234/v1/chat/completions", "result": "allowed", "origin": "http://localhost:1234" },
     { "endpoint": "HTTP://LOCALHOST:1234/v1", "result": "allowed", "origin": "http://localhost:1234" },

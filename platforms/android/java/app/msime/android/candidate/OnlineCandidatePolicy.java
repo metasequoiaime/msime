@@ -103,7 +103,7 @@ public final class OnlineCandidatePolicy {
         return content != null && !content.isEmpty() && TextPolicy.utf8Length(content) <= MAX_AI_CONTENT_BYTES;
     }
 
-    /** 去掉包在正文外面的 Markdown 代码块，与 client-core 的 `strip_code_fence` 一致：不支持 `response_format` 的模型（如经网关调用的 Claude）会把 JSON 写成 ```json ... ```。 */
+    /** 去掉包在正文外面的 Markdown 代码块，与 client-providers 的 `strip_code_fence` 一致：不支持 `response_format` 的模型（如经网关调用的 Claude）会把 JSON 写成 ```json ... ```。 */
     public static String stripCodeFence(String content) {
         String trimmed = content.trim();
         if (trimmed.length() < 6 || !trimmed.startsWith("```") || !trimmed.endsWith("```")) return trimmed;

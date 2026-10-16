@@ -9,12 +9,12 @@ use crate::platform::desktop::desktop_plugin_community::PluginCommunityState;
 use crate::shared::account_dto::{
     providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
-use msime_client_core::account::{
+use msime_client_services::account::{
     AccountError, BackendAccountClient, BackendAccountSession, FileAccountSessionStorage,
 };
-use msime_client_core::community::report::BackendCommunityReportService;
-use msime_client_core::plugins::community::BackendCommunityPluginService;
-use msime_client_core::skin::candidate_community::BackendCandidateSkinCommunityService;
+use msime_client_services::community::report::BackendCommunityReportService;
+use msime_client_services::plugins::community::BackendCommunityPluginService;
+use msime_client_services::skin::candidate_community::BackendCandidateSkinCommunityService;
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
@@ -25,7 +25,7 @@ pub(crate) type Session = BackendAccountSession<BackendAccountClient, Storage>;
 
 pub struct AccountState {
     pub(crate) session: Arc<Session>,
-    /// 会话文件所在的目录。云剪贴板配置了自建中继时，本机的中继密钥串也放在这里，与输入法读写同一份（见 `msime_client_core::clipboard_relay`）。
+    /// 会话文件所在的目录。云剪贴板配置了自建中继时，本机的中继密钥串也放在这里，与输入法读写同一份（见 `msime_client_services::clipboard_relay`）。
     pub(crate) directory: std::path::PathBuf,
 }
 

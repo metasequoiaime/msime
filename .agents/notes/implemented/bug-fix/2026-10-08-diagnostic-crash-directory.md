@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-#5539：Android「开发者选项」里「导出诊断包」点了只弹「诊断包生成失败，请重试」，MCP 上传也因为同一个诊断包而失败。Android 宿主把 `files/telemetry/telemetry-crashes`（`Telemetry` 的崩溃目录）作为 `sources.crash_logs` 传给 `msime_client_diagnostic_bundle`，而 `crates/client-core/src/diagnostics.rs` 的 `read_section` 只接受普通文件，遇到目录返回 `diagnostics_invalid`。键盘每次开会话时 `TelemetryStore::begin_session` 都会建好这个目录，所以只要键盘用过一次，诊断包就一定失败；设计、测试里用的都是一行一条 `{at, message, stack}` 的文件，没人覆盖过宿主真正传的东西。
+#5539：Android「开发者选项」里「导出诊断包」点了只弹「诊断包生成失败，请重试」，MCP 上传也因为同一个诊断包而失败。Android 宿主把 `files/telemetry/telemetry-crashes`（`Telemetry` 的崩溃目录）作为 `sources.crash_logs` 传给 `msime_client_diagnostic_bundle`，而 `crates/client-services/src/diagnostics.rs` 的 `read_section` 只接受普通文件，遇到目录返回 `diagnostics_invalid`。键盘每次开会话时 `TelemetryStore::begin_session` 都会建好这个目录，所以只要键盘用过一次，诊断包就一定失败；设计、测试里用的都是一行一条 `{at, message, stack}` 的文件，没人覆盖过宿主真正传的东西。
 
 同一页上 MCP 上传开关点开后要先在「确认上传」里确认，等待确认时开关仍显示为关闭，再点也只是又进一次等待确认，看起来毫无反应；读云端快照状态的 HTTP 请求还放在设置页存储的串行线程上，网络慢时开关的保存都排在它后面。
 

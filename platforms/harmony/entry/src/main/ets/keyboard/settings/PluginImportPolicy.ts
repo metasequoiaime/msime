@@ -1,7 +1,7 @@
 /**
- * How much of a picked pack the 扩展 page copies into its staging directory before `msime_client_plugins` checks it.
+ * 「扩展」页在 `msime_client_plugins` 检查之前，把选中的包复制多少到它的暂存目录。
  *
- * The picker hands back a document URI the native library cannot open, so the pick is copied into the app's cache first. The desktop shell has no such copy: client-core's `plugins::import` reads the picked folder or archive itself and stops at its bounds while copying. A staging copy that copied whatever was picked would bypass those bounds, and a wrong pick such as Downloads would be copied whole, possibly filling the device, before client-core refused it. So the copy stops at the same bounds, taken from `crates/client-core/src/plugins/import.rs` and `plugins.rs`; every rule a pack must meet is still checked by client-core on the staged copy.
+ * 选择器交回的是原生库打不开的文档 URI，所以选中的内容要先复制到应用的缓存里。桌面外壳没有这道复制：client-services 的 `plugins::import` 自己读取选中的文件夹或压缩包，复制时到上限就停。暂存复制如果选中什么就复制什么，就会绕开这些上限，而且像「下载」这样选错的目录会被整个复制，可能把设备塞满，之后 client-services 才拒绝它。所以这里的复制也停在同样的上限，取自 `crates/client-services/src/plugins/import.rs` 和 `plugins.rs`；包必须满足的每一条规则，仍由 client-services 在暂存副本上检查。
  */
 
 /** `plugins::MAX_PACK_FILES`. */
@@ -13,7 +13,7 @@ const MAX_TOTAL_BYTES: number = 66 * 1024 * 1024;
 /** import.rs `MAX_ARCHIVE_BYTES`. */
 const MAX_ARCHIVE_BYTES: number = 80 * 1024 * 1024;
 
-/** A refusal in the reply shape `msime_client_plugins` uses, with client-core's code and the detail it gives for the same rule. */
+/** 一个拒绝，采用 `msime_client_plugins` 的回答形状，带 client-services 对同一条规则给出的错误码和详情。 */
 export interface PluginImportRefusal {
   ok: boolean;
   error: string;
@@ -30,12 +30,12 @@ export enum PickedEntryKind {
 }
 
 export class PluginImportPolicy {
-  /** The staged copy of a picked archive. client-core goes by the `.zip` extension and reads the pack id from plugin.toml, so the picked file's own name, which may be long or carry spaces, is not needed. */
+  /** 选中的压缩包的暂存副本。client-services 按 `.zip` 扩展名判断，并从 `plugin.toml` 读出包 id，所以用不着选中文件自己的名字，那个名字可能很长或带空格。 */
   static readonly ARCHIVE_NAME: string = "pack.zip";
   /** The staged copy of a picked folder, named for the same reason. */
   static readonly FOLDER_NAME: string = "pack";
 
-  /** A name client-core's folder copy leaves behind (`.DS_Store`, `.git`), so it is neither checked nor copied here. */
+  /** client-services 复制文件夹时略过的名字（`.DS_Store`、`.git`），所以这里既不检查也不复制。 */
   static hidden(name: string): boolean {
     return name.startsWith(".");
   }
@@ -55,7 +55,7 @@ export class PluginFolderScan {
   private bytes: number = 0;
 
   /**
-   * Take one entry that is not hidden, of `bytes`. Returns the refusal once the folder cannot be a pack, with the detail client-core's folder copy gives for the same rule, or null to go on.
+   * 接收一个大小为 `bytes` 的非隐藏条目。一旦这个文件夹不可能是包，就返回拒绝，详情与 client-services 复制文件夹时对同一条规则给出的相同；否则返回 null，继续扫描。
    */
   take(name: string, kind: PickedEntryKind, bytes: number): PluginImportRefusal | null {
     if (kind === PickedEntryKind.LINK) {

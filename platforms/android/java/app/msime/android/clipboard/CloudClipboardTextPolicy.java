@@ -4,7 +4,7 @@ import app.msime.android.TextPolicy;
 
 /** The account API's cloud clipboard text contract, shared by validation and the native screen. */
 public final class CloudClipboardTextPolicy {
-    /** The service counts UTF-16 units for this field, as does the shared client-core validator. */
+    /** 服务端按 UTF-16 码元计算这个字段的长度，共享的 client-services 校验器也是如此。 */
     public static final int MAX_UTF16_UNITS = 4_000;
 
     private CloudClipboardTextPolicy() {}

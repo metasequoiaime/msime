@@ -10,7 +10,7 @@ export type UpdateCheckRequest = {
   arch?: string;
 };
 
-/** `msime_client_core::update_check::ReleaseUpdate` 序列化后的发布。 */
+/** `msime_client_services::update_check::ReleaseUpdate` 序列化后的发布。 */
 export type HostReleaseUpdate = {
   version: { display: string; parts: number[] };
   release_url: string;
@@ -19,7 +19,7 @@ export type HostReleaseUpdate = {
   signed: boolean | null;
 };
 
-/** 宿主检查更新的结果（`msime_client_core::update_check::UpdateCheck`）：有更新的发布、当前运行的已是最新版本，或者本平台还没有发布。 */
+/** 宿主检查更新的结果（`msime_client_services::update_check::UpdateCheck`）：有更新的发布、当前运行的已是最新版本，或者本平台还没有发布。 */
 export type UpdateCheckResult =
   | { status: "available" | "current"; update: HostReleaseUpdate }
   | { status: "none" };
@@ -87,7 +87,7 @@ export function fromHostUpdate(update: HostReleaseUpdate): ValidatedUpdate | nul
 
 const editionIdPattern = /^[a-z][a-z0-9]*$/;
 
-/** 版本的 Windows 安装包名前缀，例如 full（也是没有版本时）是 `MetasequoiaIME-Full_Setup_v`，五笔版是 `MetasequoiaIME-Wubi_Setup_v`；不是合法的版本 id 时为 null。与 `crates/client-core/src/update_check.rs` 的 `edition_installer_prefix` 相同。 */
+/** 版本的 Windows 安装包名前缀，例如 full（也是没有版本时）是 `MetasequoiaIME-Full_Setup_v`，五笔版是 `MetasequoiaIME-Wubi_Setup_v`；不是合法的版本 id 时为 null。与 `crates/client-services/src/update_check.rs` 的 `edition_installer_prefix` 相同。 */
 function editionInstallerPrefix(edition: string | undefined): string | null {
   const id = edition ?? "full";
   if (!editionIdPattern.test(id)) return null;

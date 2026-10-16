@@ -1268,7 +1268,7 @@ std::filesystem::path builtin_sound_packs() {
   return std::filesystem::is_directory(directory, error) ? directory : std::filesystem::path();
 }
 
-// 桌面安装包随带的官方插件包（uuid 脚本插件、latex-symbols 短语表）：本程序所在目录（安装后是 Program Files 下的 Server 目录，只有管理员能写）的 plugin-packs，与 Server 写进会话选项的 plugin_packs（src/system/PluginPackRoot.h）、Tauri 的 builtin_plugin_packs 在 Windows 上取的是同一个目录。目录不在（开发运行）时也照样给出：不给的话 client-core 会去内置音效包旁边找，而内置音效包在普通用户可写的数据目录里。只取模块路径，不碰文件系统。
+// 桌面安装包随带的官方插件包（uuid 脚本插件、latex-symbols 短语表）：本程序所在目录（安装后是 Program Files 下的 Server 目录，只有管理员能写）的 plugin-packs，与 Server 写进会话选项的 plugin_packs（src/system/PluginPackRoot.h）、Tauri 的 builtin_plugin_packs 在 Windows 上取的是同一个目录。目录不在（开发运行）时也照样给出：不给的话 client-services 会去内置音效包旁边找，而内置音效包在普通用户可写的数据目录里。只取模块路径，不碰文件系统。
 std::filesystem::path official_plugin_packs() {
   std::wstring buffer(MAX_PATH, L'\0');
   for (;;) {
@@ -1333,7 +1333,7 @@ JsonObject plugin_action(wchar_t const *operation) {
 // 数据目录下 plugins 里已安装的插件，与 Tauri 的 plugin_catalog 是同一份 msime_client_plugins catalog。辅助码表插件都是装上的包，所以不传内置声音包的目录。读目录，只在 UI 线程之外调用。
 Response plugin_catalog_call() { return plugins_call(plugin_action(L"catalog"), false); }
 
-// 失败的插件请求在页面上的那句话：error 是 client-core 的失败码，detail 是它报告的规则（共享页的 pluginErrorMessage）。
+// 失败的插件请求在页面上的那句话：error 是 client-services 的失败码，detail 是它报告的规则（共享页的 pluginErrorMessage）。
 std::wstring plugin_failure(Response const &response, std::wstring const &fallback) {
   std::wstring code, detail;
   try {
@@ -1374,7 +1374,7 @@ std::vector<JsonObject> named_objects(JsonObject const &object, wchar_t const *k
   return result;
 }
 
-// catalog 和 import 回答里的一个包（client-core 的 PluginSummary，各类内容平铺在里面）。
+// catalog 和 import 回答里的一个包（client-services 的 PluginSummary，各类内容平铺在里面）。
 msime::settings::plugins::Package plugin_package(JsonObject const &object) {
   msime::settings::plugins::Package pack;
   pack.id = named_string(object, L"id");
@@ -1431,7 +1431,7 @@ std::optional<msime::settings::plugins::Catalog> plugin_catalog(Response const &
   }
 }
 
-// script_grants、set_script_grant 和 reorder_scripts 的回答（client-core 的 ScriptGrantsView）；读不懂时为空。
+// script_grants、set_script_grant 和 reorder_scripts 的回答（client-services 的 ScriptGrantsView）；读不懂时为空。
 std::optional<msime::settings::plugins::ScriptGrants> plugin_script_grants(Response const &response) {
   if (!response.ok)
     return std::nullopt;
@@ -2142,7 +2142,7 @@ std::wstring random_uuid() {
   return buffer;
 }
 
-// 社区里的一款候选窗口皮肤（client-core 的 CandidateSkinItem，共享页的 CommunityCandidateSkin）。
+// 社区里的一款候选窗口皮肤（client-services 的 CandidateSkinItem，共享页的 CommunityCandidateSkin）。
 struct CommunitySkinItem {
   std::wstring id, package_id, name, description, author, version;
   std::wstring license_code, license_assets, license_source;
@@ -2157,7 +2157,7 @@ struct CommunitySkinItem {
   std::wstring category;
 };
 
-// 社区里的一个插件（client-core 的 CommunityPlugin）。
+// 社区里的一个插件（client-services 的 CommunityPlugin）。
 struct CommunityPluginItem {
   std::wstring id, kind, plugin_id, name, description, author, version, license;
   double size = 0, downloads = 0, rating_count = 0, rating_average = 0;
@@ -2213,7 +2213,7 @@ void parse_community_item(JsonObject const &object, CommunityPluginItem &plugin)
   plugin.moderation = named_string(object, L"moderation");
 }
 
-// 社区里的一个词库或回复模板（client-core 的 CommunityResource，共享页的 CommunityResource）。词库带词条，回复模板带提示词。
+// 社区里的一个词库或回复模板（client-services 的 CommunityResource，共享页的 CommunityResource）。词库带词条，回复模板带提示词。
 struct CommunityResourceItem {
   std::wstring id, kind, name, description, author, prompt;
   std::vector<cm::SharedWord> entries;
@@ -2447,7 +2447,7 @@ std::optional<std::vector<uint8_t>> encode_preview(IWICImagingFactory *factory, 
   return bytes;
 }
 
-// The community's preview limit (`MAX_PREVIEW_BYTES` in client-core).
+// 社区的预览图上限（client-services 里的 `MAX_PREVIEW_BYTES`）。
 constexpr size_t skin_preview_limit = 256 * 1024;
 
 // renderSkinPreview（skin-preview-render.ts）：给没有预览图的已装皮肤画一张。皮肤支持浅色时画浅色（多数卡片在浅色页面上），配色是 resolve() 给这款包的；有装饰图时先画装饰带，再画按包的圆角和最小宽度的候选窗口，铺上背景图，写上拼音和设置预览里的头五个候选，第一个选中；每 dip 两个像素。PNG 超过 256 KiB 时改用质量 0.85 的 JPEG，仍超过时失败。在工作线程上调用。
@@ -14766,7 +14766,7 @@ private:
 
   // ---- 插件 ----
 
-  // 共享的「插件」页（packages/ui/src/settings/pages/plugins-page.tsx 和 plugins-section.tsx）在 Windows 上的「我的插件」：列表（plugin-list-view.tsx）先是「声音与效果」和「@ 名单」两个入口，再是按八类分组的已安装插件和缺失的选择、「脚本插件（实验）」，然后是「导入插件」和「无法载入的插件」；点一行在原处打开它的视图（plugin-sound-effects-view.tsx、plugin-mentions-view.tsx、plugin-detail-view.tsx、plugin-script-view.tsx），视图头上的「我的插件」回到列表。Windows 宿主的能力全为真（播放音效和音乐、路由 / 与 @、画特效样式和特效包、背单词列单词本、符号面板列符号集），辅助码表随版本（与「输入」页的辅助码组同一个条件）。插件目录、导入、删除和名单都经 msime_client_plugins，与 Tauri 的 desktop_plugins.rs 同一份 client-core 规则；内置声音包取 Server 状态目录下的 sound-packs。规则和文案在 PluginPageModel.h。所有读写都在工作线程上。页首的「社区插件」标签见「社区皮肤与社区插件」一节。
+  // 共享的「插件」页（packages/ui/src/settings/pages/plugins-page.tsx 和 plugins-section.tsx）在 Windows 上的「我的插件」：列表（plugin-list-view.tsx）先是「声音与效果」和「@ 名单」两个入口，再是按八类分组的已安装插件和缺失的选择、「脚本插件（实验）」，然后是「导入插件」和「无法载入的插件」；点一行在原处打开它的视图（plugin-sound-effects-view.tsx、plugin-mentions-view.tsx、plugin-detail-view.tsx、plugin-script-view.tsx），视图头上的「我的插件」回到列表。Windows 宿主的能力全为真（播放音效和音乐、路由 / 与 @、画特效样式和特效包、背单词列单词本、符号面板列符号集），辅助码表随版本（与「输入」页的辅助码组同一个条件）。插件目录、导入、删除和名单都经 msime_client_plugins，与 Tauri 的 desktop_plugins.rs 同一份 client-services 规则；内置声音包取 Server 状态目录下的 sound-packs。规则和文案在 PluginPageModel.h。所有读写都在工作线程上。页首的「社区插件」标签见「社区皮肤与社区插件」一节。
 
   enum class PluginView { list, pack, missing, sound_effects, mentions };
   enum class PluginCatalogState { loading, loaded, failed };
@@ -16056,7 +16056,7 @@ private:
 
   // ---- 脚本插件（实验） ----
 
-  // 共享页 plugin-script-view.tsx 在 Windows 上的样子：列表里的「脚本插件（实验）」分组见 build_plugin_list，这里是详情和授权对话框。授权、撤销和排序都经 msime_client_plugins 的 set_script_grant 和 reorder_scripts，规则在 client-core 的 script_grants，与 Tauri 的同名命令相同；页面的勾选联动、标记和文案在 PluginPageModel.h。
+  // 共享页 plugin-script-view.tsx 在 Windows 上的样子：列表里的「脚本插件（实验）」分组见 build_plugin_list，这里是详情和授权对话框。授权、撤销和排序都经 msime_client_plugins 的 set_script_grant 和 reorder_scripts，规则在 client-services 的 script_grants，与 Tauri 的同名命令相同；页面的勾选联动、标记和文案在 PluginPageModel.h。
 
   pg::ScriptGrants const *plugin_grants() const { return plugin_scripts_ ? &*plugin_scripts_ : nullptr; }
 

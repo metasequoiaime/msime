@@ -1,7 +1,7 @@
 use crate::shared::voice::voice_sessions::VoiceSessions;
 use crate::voice::{VoiceRecognitionRequest, VoiceRecognitionResult, VoiceRecognitionUpdate};
 use crate::HostActionError;
-use msime_client_core::voice::controller::{Error, Phase};
+use msime_client_providers::voice::controller::{Error, Phase};
 use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager};
 

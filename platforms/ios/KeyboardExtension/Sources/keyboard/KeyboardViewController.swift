@@ -2890,6 +2890,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ]
     let phoneSpace = Self.phoneSpaceWeight
     phoneActionWidths = [
+      weight(nineKeySymbolsButton, 1.05, space: phoneSpace, optional: true),
       weight(layoutToggle, 1.25, space: phoneSpace),
       weight(language, 1.05, space: phoneSpace),
       weight(globe, 1, space: phoneSpace, optional: true),
@@ -2911,7 +2912,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       entries.map { key, value, optional in weight(key, value, space: spaceWeight, optional: optional) }
     }
     phoneExpandedSpaceWidths = expandedWidths(spaceWeight: phoneSpace + 1.05, entries: [
-      (layoutToggle, 1.25, false), (globe, 1, true), (delete, 1, true),
+      (nineKeySymbolsButton, 1.05, true), (layoutToggle, 1.25, false), (globe, 1, true), (delete, 1, true),
       (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
     ])
     nineKeyExpandedSpaceWidths = expandedWidths(spaceWeight: Self.nineKeySpaceWeight + 1.05, entries: [
@@ -4978,23 +4979,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       let layout = KeyboardLayoutPreference.geometry
       // 符：#+= 层的符号键、假名标点菜单、字母行上的可选键，以及拼音网格和笔画键底行最左边的键，九键上打开符号面板只走它（网格的 @# 键把常用标点放进候选条）。
+      // 手机 26 键底行最左边也有 符（与九键、搜狗一致）；14 键第三排自带 符，手写不画字母行，都不加。
+      let phoneLetterSymbols = style == .phone && letterRowsShown
       nineKeySymbolsButton.isHidden = !(kana || (symbolLayer ? showsMoreSymbols
-        : nineKeyFrame ? !showsSymbols : !showsSymbols && layout.showsFullKeyboardSymbols))
+        : nineKeyFrame ? !showsSymbols : !showsSymbols && (layout.showsFullKeyboardSymbols || phoneLetterSymbols)))
       let symbolsTitle = symbolLayer ? "符号" : "符"
       if nineKeySymbolsButton.configuration?.title != symbolsTitle {
         nineKeySymbolsButton.configuration?.title = symbolsTitle
         nineKeySymbolsButton.configuration?.titleTextAttributesTransformer = symbolLayer ? Self.functionLabelTransformer : Self.keyLabelTransformer
       }
-      fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && (style == .phone || style == .standard || style == .tablet)
+      fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && (style == .standard || style == .tablet)
       layerEmojiButton.isHidden = !(symbolLayer && !showsMoreSymbols)
       nineKeyZeroButton.isHidden = style != .nineKey || (!showsSymbols && inputScheme != .nineKeyShuangpin)
       let hidesLanguage = !layout.showsBottomLanguage
       bottomLanguageButton?.isHidden = style == .symbolLayer || hidesLanguage
       bottomLanguageWidth?.isActive = style == .standard && !hidesLanguage
       // iPad 的 26 键从第三排字母输入 ，。，所以它的底行没有自己的 ，。
-      quickPunctuationButton.isHidden = nineKeyFrame || showsSymbols || kana || style == .tablet
+      // 手机 26 键底行与九键一样不放 ， 和 。（符 | 123 | space | 中 | return）；14 键和手写的底行仍带它们。
+      quickPunctuationButton.isHidden = nineKeyFrame || showsSymbols || kana || style == .tablet || phoneLetterSymbols
       quickPunctuationWidth?.isActive = !quickPunctuationButton.isHidden && style == .standard
-      periodKey.isHidden = style != .phone || showsSymbols
+      periodKey.isHidden = style != .phone || showsSymbols || phoneLetterSymbols
       let punctuation = quickPunctuationSymbols
       if phoneRow {
         // ， 与旁边的 。 一样从下面的标点键面取键面；长按仍弹出快捷标点。
@@ -5095,7 +5099,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 屏幕上当前界面画哪种底行。
   private enum ActionRowStyle {
-    /// 手机 26 键底行：123 | ， | space | 。 | 中 | return，中/英 紧挨回车左边。
+    /// 手机底行：26 键是 符 | 123 | space | 中 | return（与九键一样）；14 键和手写是 123 | ， | space | 。 | 中 | return。中/英 紧挨回车左边。
     case phone
     /// 九键外框：符 | 123 | space | 中 | return，中/英 紧挨回车左边；网格的数字层没有 符，0 排在空格右边。
     case nineKey

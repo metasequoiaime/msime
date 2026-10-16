@@ -10,7 +10,7 @@ Windows 的原生 WinUI 设置窗口用 C++ 写，用不了这段 TypeScript，�
 
 ## Decision
 
-挑选规则和网络请求在 `crates/client-core/src/update_check.rs`，各宿主都调用它：
+挑选规则和网络请求在 `crates/client-services/src/update_check.rs`，各宿主都调用它：
 
 - `check_for_update(&UpdateCheckRequest)` 读 `https://api.github.com/repos/metasequoiaime/msime/releases?per_page=100`（10 秒超时、16 MiB 上限、`User-Agent: msime-client`），交给 `evaluate_update` 判断。`select_platform_release` 跳过草稿和预发布、去掉 `<platform>-` 前缀、只接受 `https://github.com/metasequoiaime/msime/releases/tag/…` 的发布页，按版本号取最新；Linux 和 Windows 上再按版本 id（和 Linux 的架构）挑出唯一的安装包与 GitHub 给的 `sha256:` 摘要，`signed` 为 `false`。规则逐条沿用原 TypeScript 实现，原来的选择测试移植成了 `update_check/tests.rs`。
 - 结果序列化为 `{status:"available"|"current", update:{version:{display,parts}, release_url, installer_name, installer_sha256, signed}}` 或 `{status:"none"}`。

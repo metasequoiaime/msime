@@ -3,23 +3,23 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee. 每个函数都读写文件，宿主在工作线程调用。
 
 use crate::*;
-use msime_client_core::account::settings_sync::{
+use msime_client_core::edition::{
+    filter_downloaded_account_settings, filter_uploaded_account_settings,
+};
+use msime_client_services::account::settings_sync::{
     android_local_settings, apply_android_settings, custom_keyboard_skins, export_android_settings,
     insert_android_local_settings, insert_custom_keyboard_skins, HostKeyboardFeedback,
     CUSTOM_KEYBOARD_SKINS,
 };
-use msime_client_core::account::{
+use msime_client_services::account::{
     merge_account_preferences, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences,
 };
-use msime_client_core::common_phrases::{CommonPhrasesAction, CommonPhrasesStore};
-use msime_client_core::diagnostics::{build_bundle, DiagnosticBundleRequest};
-use msime_client_core::dictionary::collections::{
+use msime_client_services::common_phrases::{CommonPhrasesAction, CommonPhrasesStore};
+use msime_client_services::diagnostics::{build_bundle, DiagnosticBundleRequest};
+use msime_client_services::dictionary::collections::{
     DictionaryCollectionsAction, DictionaryCollectionsStore, HanReadings,
 };
-use msime_client_core::dictionary::personal::PersonalDictionaryStore;
-use msime_client_core::edition::{
-    filter_downloaded_account_settings, filter_uploaded_account_settings,
-};
+use msime_client_services::dictionary::personal::PersonalDictionaryStore;
 
 /// 常用语请求的字节上限：安装一个社区短语包时请求里带着整个资源（200 条，每条最多 2000 个 UTF-16 单元）。
 const COMMON_PHRASES_REQUEST_LIMIT: usize = 4 * 1024 * 1024;
@@ -46,7 +46,7 @@ struct CommonPhrasesRequest {
     action: CommonPhrasesAction,
 }
 
-/// 无编码常用语。请求 `{directory: 偏好目录的绝对路径, action: {operation, ...}}`，操作见 client-core `common_phrases`。成功时返回整份文档 `{phrases, packs, skipped?}`；失败时 `error` 是稳定错误码（`common_phrases_*`）。
+/// 无编码常用语。请求 `{directory: 偏好目录的绝对路径, action: {operation, ...}}`，操作见 client-services `common_phrases`。成功时返回整份文档 `{phrases, packs, skipped?}`；失败时 `error` 是稳定错误码（`common_phrases_*`）。
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.
@@ -94,7 +94,7 @@ impl HanReadings for EngineReadings<'_> {
     }
 }
 
-/// 命名词库。请求 `{options: 宿主选项（须带 preferences_directory）, action: {operation, ...}}`，操作见 client-core `dictionary::collections`。词条经个人词库队列（`<preferences_directory>/PersonalDictionary`）送进 Engine，键盘下次同步时应用。成功时返回集合视图；失败时 `error` 是稳定错误码（`collections_*`、`builtin_locked`、`unsupported_format` 等）。
+/// 命名词库。请求 `{options: 宿主选项（须带 preferences_directory）, action: {operation, ...}}`，操作见 client-services `dictionary::collections`。词条经个人词库队列（`<preferences_directory>/PersonalDictionary`）送进 Engine，键盘下次同步时应用。成功时返回集合视图；失败时 `error` 是稳定错误码（`collections_*`、`builtin_locked`、`unsupported_format` 等）。
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.

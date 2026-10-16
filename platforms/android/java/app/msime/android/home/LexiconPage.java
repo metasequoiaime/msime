@@ -40,7 +40,7 @@ import org.json.JSONObject;
  *
  * <p>导入、导出和刷新原先是大标题行右侧的三个胶囊，窄屏上把「词库」两个字挤成「词…」（#5682），现在和新建一起放在「已安装」下面那张卡片里，行间有分隔线；大标题和其他详情页一样只放标题。
  *
- * <p>命名词库的元数据和词条都经 {@link DictionaryCollectionsStore}；导入和导出走系统文件选择器（SAF），不申请存储权限。导入来源对话框只列 client-core 实际接受的格式。
+ * <p>命名词库的元数据和词条都经 {@link DictionaryCollectionsStore}；导入和导出走系统文件选择器（SAF），不申请存储权限。导入来源对话框只列 client-services 实际接受的格式。
  */
 public final class LexiconPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {

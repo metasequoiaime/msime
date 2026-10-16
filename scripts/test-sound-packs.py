@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The built-in sound packs are exactly what scripts/generate_sound_packs.py synthesizes, and each one is a pack client-core accepts.
+"""The built-in sound packs are exactly what scripts/generate_sound_packs.py synthesizes, and each one is a pack client-services accepts.
 
 Their CC0-1.0 dedication rests on every sample being computed by that script rather than recorded or downloaded. This regenerates the samples into a temporary directory and compares them with the committed ones, so a sample edited by hand, or one dropped in from elsewhere, fails here instead of shipping under a licence nobody can vouch for. Samples are compared to within one step of 16-bit quantization, since the sines and exponentials come from the platform's libm.
 
-Every built-in folder is also held to the limits client-core enforces on a pack, read from its source rather than copied here: the manifest's kind and id, the built-in id lists, the files a pack may hold, each sample's rate, length and size, and the melody's notes. A pack that breaks one of them is listed as an issue at runtime and never plays, on every platform at once, which only shows on a running host. The loops also have a budget of their own, because every host bundle carries them.
+Every built-in folder is also held to the limits client-services enforces on a pack, read from its source rather than copied here: the manifest's kind and id, the built-in id lists, the files a pack may hold, each sample's rate, length and size, and the melody's notes. A pack that breaks one of them is listed as an issue at runtime and never plays, on every platform at once, which only shows on a running host. The loops also have a budget of their own, because every host bundle carries them.
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKS = ROOT / "resources/sound-packs"
-PLUGINS = ROOT / "crates/client-core/src/plugins.rs"
-SOUND_PACK = ROOT / "crates/client-core/src/plugins/sound_pack.rs"
-MUSIC_PACK = ROOT / "crates/client-core/src/plugins/music_pack.rs"
+PLUGINS = ROOT / "crates/client-services/src/plugins.rs"
+SOUND_PACK = ROOT / "crates/client-services/src/plugins/sound_pack.rs"
+MUSIC_PACK = ROOT / "crates/client-services/src/plugins/music_pack.rs"
 # Bytes of every built-in music track together. They ship in every host's bundle, so a new loop has to fit or replace one.
 MUSIC_BUDGET = 3_670_016
 SAMPLE_RATES = range(8_000, 192_001)
@@ -43,7 +43,7 @@ def samples(path: Path) -> tuple[tuple[int, int, int], array]:
 
 
 def constant(source: Path, name: str) -> int:
-    """An integer `pub const` of client-core, written as a product of literals such as `512 * 1024`."""
+    """An integer `pub const` of client-services, written as a product of literals such as `512 * 1024`."""
     for line in source.read_text(encoding="utf-8").splitlines():
         if line.startswith(f"pub const {name}:"):
             expression = line.split("=", 1)[1].rstrip(";").strip()
@@ -79,7 +79,7 @@ def check_sound(name: str, manifest: dict, files: list[str], failures: list[str]
         with wave.open(str(path), "rb") as source:
             rate, frames = source.getframerate(), source.getnframes()
         if rate not in SAMPLE_RATES or frames == 0 or frames * 1_000 > sample_millis * rate:
-            failures.append(f"{name}/{file} has a sample rate or length client-core refuses")
+            failures.append(f"{name}/{file} has a sample rate or length client-services refuses")
     semitones = manifest.get("sequence", {}).get("semitones", [])
     if len(semitones) > constant(SOUND_PACK, "MAX_SEMITONES") or any(note not in SEMITONE_RANGE for note in semitones):
         failures.append(f"{name} has more notes, or a note further from the sample's pitch, than a melody may")
@@ -99,7 +99,7 @@ def check_music(name: str, files: list[str], failures: list[str]) -> None:
         with wave.open(str(path), "rb") as source:
             rate, frames = source.getframerate(), source.getnframes()
         if rate not in SAMPLE_RATES or frames == 0 or frames > track_seconds * rate:
-            failures.append(f"{name}/{file} has a sample rate or length client-core refuses")
+            failures.append(f"{name}/{file} has a sample rate or length client-services refuses")
 
 
 def check_manifests(failures: list[str]) -> None:
@@ -116,7 +116,7 @@ def check_manifests(failures: list[str]) -> None:
             failures.append(f"{name}/plugin.toml must be a sound or music pack")
             continue
         if name not in builtin[kind]:
-            failures.append(f"{name} is a {kind} pack missing from client-core's built-in {kind} ids")
+            failures.append(f"{name} is a {kind} pack missing from client-services' built-in {kind} ids")
         if kind == "sound":
             named = list(manifest.get("sounds", {}).values())
             if "sequence" in manifest:
@@ -137,7 +137,7 @@ def check_manifests(failures: list[str]) -> None:
             music_bytes += sum((directory / file).stat().st_size for file in files)
     for kind, ids in builtin.items():
         for missing in sorted(ids - {directory.name for directory in folders}):
-            failures.append(f"client-core lists {missing} as a built-in {kind} pack, but resources/sound-packs has no such folder")
+            failures.append(f"client-services lists {missing} as a built-in {kind} pack, but resources/sound-packs has no such folder")
     if music_bytes > MUSIC_BUDGET:
         failures.append(f"the built-in music tracks take {music_bytes} bytes, past the {MUSIC_BUDGET}-byte budget every bundle pays")
 

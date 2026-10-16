@@ -46,26 +46,26 @@ ANSWERED_BY: dict[str, str] = {
     # Cloud and translation. The request logic is shared because no part of it is Windows-specific;
     # only the worker that runs it on the input queue stayed native.
     "cloud_ime": "platforms/windows/src/candidate/CloudCandidateWorker.cpp",
-    "tencent_tmt": "crates/client-core/src/credential/translation.rs",
-    "cloud_translation": "crates/client-core/src/credential/translation.rs",
+    "tencent_tmt": "crates/client-providers/src/credential/translation.rs",
+    "cloud_translation": "crates/client-providers/src/credential/translation.rs",
     "custom_translation": "crates/client-core/src/translation.rs",
     "translation_gloss": "crates/client-core/src/translation.rs",
     "ai_assistant": "apps/desktop/src-tauri/src/ai.rs",
     "api_credential_test": "apps/desktop/src-tauri/src/ai.rs",
     # Statistics. Eleven files in the reference's Server, one shared document here plus the Windows
     # recording site; the aggregation the reference does in SQLite is done over the document.
-    "stats_types": "crates/client-core/src/typing_statistics.rs",
-    "stats_store": "crates/client-core/src/typing_statistics.rs",
-    "stats_aggregate": "crates/client-core/src/typing_statistics.rs",
+    "stats_types": "crates/client-services/src/typing_statistics.rs",
+    "stats_store": "crates/client-services/src/typing_statistics.rs",
+    "stats_aggregate": "crates/client-services/src/typing_statistics.rs",
     "stats_overview": "packages/ui/src/settings/typing-statistics.tsx",
     "stats_frames": "packages/ui/src/settings/typing-statistics.tsx",
     "stats_pipe": "platforms/windows/src/input/TypingStatistics.h",
     "stats_collector": "platforms/windows/src/input/TypingStatistics.h",
     "stats_passthrough": "platforms/windows/src/input/TypingStatistics.h",
-    "char_classify": "crates/client-core/src/typing_statistics.rs",
+    "char_classify": "crates/client-services/src/typing_statistics.rs",
     # Dictionaries.
-    "dictionary_manager": "crates/client-core/src/dictionary/import.rs",
-    "dictionary_validation": "crates/client-core/src/dictionary/import.rs",
+    "dictionary_manager": "crates/client-services/src/dictionary/import.rs",
+    "dictionary_validation": "crates/client-services/src/dictionary/import.rs",
     "dictionary_page": "crates/engine/src/host/dictionary.rs",
     # Windows settings are a native WinUI 3 window. The shared Tauri shell remains the panel host,
     # so its launcher is still part of the platform boundary but is no longer the settings product.
@@ -80,7 +80,7 @@ ANSWERED_BY: dict[str, str] = {
     "candidate_size_estimator": "platforms/windows/src/candidate/CandidateCardSize.h",
     "candidate_wheel_paging": "platforms/windows/src/candidate/CandidateWheel.h",
     "candidate_selection_policy": "crates/input-runtime/src/runtime.rs",
-    "candidate_skin_catalog": "crates/client-core/src/skin/catalog.rs",
+    "candidate_skin_catalog": "crates/client-services/src/skin/catalog.rs",
     "floating_toolbar_presenter": "platforms/windows/src/candidate/FloatingToolbarWindow.cpp",
     "tray_menu_presenter": "platforms/windows/src/candidate/TrayMenuWindow.cpp",
     "ime_windows": "platforms/windows/src/candidate/CandidateWindow.cpp",

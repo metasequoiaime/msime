@@ -199,7 +199,7 @@ export class SharedStateSync {
   }
 
   /**
-   * 设置应用一侧：把键盘的统计合并进自己的统计文件。持有统计存储的锁（与 client-core 的 `typing-statistics.lock` 是同一把 flock）再写，免得与工作线程上的 `summary`、`record_skin` 互相覆盖；锁被占着时下次再试。
+   * 设置应用一侧：把键盘的统计合并进自己的统计文件。持有统计存储的锁（与 client-services 的 `typing-statistics.lock` 是同一把 flock）再写，免得与工作线程上的 `summary`、`record_skin` 互相覆盖；锁被占着时下次再试。
    */
   private static adoptKeyboardStatistics(stateDirectory: string, keyboardText: string): boolean {
     let lock: fs.File | null = null;

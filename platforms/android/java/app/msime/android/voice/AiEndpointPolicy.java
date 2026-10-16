@@ -11,14 +11,14 @@ import java.util.Locale;
 /**
  * AI 辅助接口地址的传输策略：什么样的地址可以收到用户的 API Token 和输入内容。
  *
- * <p>与 crates/client-core/src/ai/endpoint.rs 逐条一致，两边跑同一组用例 shared/contracts/ai-endpoint/cases.json：https 不限主机；http 只能指向本机或局域网，也就是回环（`localhost`、127.0.0.0/8、::1）、RFC 1918 私有 IPv4、100.64.0.0/10、链路本地（169.254/16、fe80::/10）、IPv6 唯一本地地址 fc00::/7 和 `.local` 主机名。公网主机必须走 https，API Token 不能明文经过互联网。
+ * <p>与 crates/client-providers/src/ai/endpoint.rs 逐条一致，两边跑同一组用例 shared/contracts/ai-endpoint/cases.json：https 不限主机；http 只能指向本机或局域网，也就是回环（`localhost`、127.0.0.0/8、::1）、RFC 1918 私有 IPv4、100.64.0.0/10、链路本地（169.254/16、fe80::/10）、IPv6 唯一本地地址 fc00::/7 和 `.local` 主机名。公网主机必须走 https，API Token 不能明文经过互联网。
  *
  * <p>这里从不做 DNS 解析：IP 只认严格写法的字面量（点分十进制不带前导零、方括号里的 IPv6 不带内嵌 IPv4 和区域标识），其余一律按域名处理，域名只认 `localhost` 和 `.local`。写法不规范的 IP 因此会被当成公网域名拒绝，方向是安全的。
  *
  * <p>云候选（Google）不走这里，仍然只接受 https；见 {@link OnlineCandidatePolicy#validURL}。
  */
 public final class AiEndpointPolicy {
-    /** 接口地址能接受的最大 UTF-8 字节数，与 client-core 和设置页一致。 */
+    /** 接口地址能接受的最大 UTF-8 字节数，与 client-providers 和设置页一致。 */
     public static final int MAX_ENDPOINT_BYTES = 2048;
     /** 公网 http 地址被拒绝时给用户看的说明。 */
     public static final String CLEARTEXT_REASON = "http 只能用于本机或局域网地址（如 192.168.x.x、localhost、*.local），公网服务请用 https，以免 API Token 明文经过互联网";
@@ -174,7 +174,7 @@ public final class AiEndpointPolicy {
         return value;
     }
 
-    /** 主机小写；IPv6 改写成 RFC 5952 的压缩形式，和设置页（WHATWG URL）与 client-core 算出的来源键一致。 */
+    /** 主机小写；IPv6 改写成 RFC 5952 的压缩形式，和设置页（WHATWG URL）与 client-providers 算出的来源键一致。 */
     private static String canonicalHost(String host) {
         String lower = host.toLowerCase(Locale.ROOT);
         if (!lower.startsWith("[") || !lower.endsWith("]")) return lower;

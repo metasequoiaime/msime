@@ -159,7 +159,7 @@ export function candidateSkinMessage(error: unknown, publishing = false): string
 }
 
 /**
- * Fixed sentences for the plugin gallery and its publish dialog. Pack failures come back with client-core's `plugin_*` codes, which read as they do on the 插件 page, and the community ones with the host's HTTP-status `community_*` codes; backend text is never shown. `publishing` picks the sentence for a `community_invalid` or `community_conflict` publish, where the server has rejected something only it can check.
+ * Fixed sentences for the plugin gallery and its publish dialog. Pack failures come back with client-services' `plugin_*` codes, which read as they do on the 插件 page, and the community ones with the host's HTTP-status `community_*` codes; backend text is never shown. `publishing` picks the sentence for a `community_invalid` or `community_conflict` publish, where the server has rejected something only it can check.
  */
 export function communityPluginMessage(error: unknown, publishing = false): string {
   const moderation = communityModerationMessage(error);

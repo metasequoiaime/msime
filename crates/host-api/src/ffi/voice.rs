@@ -464,10 +464,10 @@ pub unsafe extern "C" fn msime_client_voice_hotwords(
             local_voice_request(request, length, HOST_OPTIONS_DOCUMENT_LIMIT)?;
         let limit = request
             .limit
-            .unwrap_or(msime_client_core::voice::hotwords::DEFAULT_HOTWORD_LIMIT)
+            .unwrap_or(msime_client_providers::voice::hotwords::DEFAULT_HOTWORD_LIMIT)
             .min(1_000);
         // Enough rows that the heaviest words can be picked even from a large dictionary, without reading the whole store for every voice session.
-        let hotwords = msime_client_core::voice::hotwords::hotwords_from_dictionary_pages(
+        let hotwords = msime_client_providers::voice::hotwords::hotwords_from_dictionary_pages(
             limit,
             1_000,
             5_000,
@@ -488,11 +488,13 @@ pub unsafe extern "C" fn msime_client_voice_hotwords(
                         entry["weight"].as_i64().unwrap_or(0),
                     ))
                 }));
-                Ok::<Option<msime_client_core::voice::hotwords::DictionaryHotwordPage>, String>(
-                    Some(msime_client_core::voice::hotwords::DictionaryHotwordPage {
-                        entries: hotword_entries,
-                        has_more: page["has_more"].as_bool() == Some(true),
-                    }),
+                Ok::<Option<msime_client_providers::voice::hotwords::DictionaryHotwordPage>, String>(
+                    Some(
+                        msime_client_providers::voice::hotwords::DictionaryHotwordPage {
+                            entries: hotword_entries,
+                            has_more: page["has_more"].as_bool() == Some(true),
+                        },
+                    ),
                 )
             },
         )?;
@@ -516,7 +518,7 @@ pub unsafe extern "C" fn msime_client_voice_hotword_correct(
         struct CorrectRequest {
             text: String,
             #[serde(default)]
-            hotwords: Vec<msime_client_core::voice::hotwords::Hotword>,
+            hotwords: Vec<msime_client_providers::voice::hotwords::Hotword>,
         }
         let request: CorrectRequest =
             local_voice_request(request, length, LOCAL_VOICE_REQUEST_LIMIT)?;
@@ -531,7 +533,7 @@ pub unsafe extern "C" fn msime_client_voice_hotword_correct(
             return Err("invalid voice hotword correction request".into());
         }
         Ok(json!({
-            "text": msime_client_core::voice::hotwords::correct(&request.text, &request.hotwords),
+            "text": msime_client_providers::voice::hotwords::correct(&request.text, &request.hotwords),
         }))
     })
 }
@@ -555,8 +557,8 @@ pub unsafe extern "C" fn msime_client_voice_local_models(
         let request: ModelsRequest = local_voice_request(request, length, 16_384)?;
         let root = local_model_root(&request.root)?;
         Ok(json!({
-            "models": msime_client_core::voice::local_models::list(root),
-            "default": msime_client_core::voice::local_models::default_model_id(),
+            "models": msime_client_providers::voice::local_models::list(root),
+            "default": msime_client_providers::voice::local_models::default_model_id(),
         }))
     })
 }
@@ -565,7 +567,7 @@ pub unsafe extern "C" fn msime_client_voice_local_models(
 ///
 /// Request `{"root": "<absolute dir>", "id": "<catalog id>", "mirror": ""}`; response `{"path": "<root>/<id>"}`. `progress` (may be null) is called on the calling thread with `{"id","stage","downloaded","total"}` JSON, stage one of download, verify, extract, done; the buffer is only valid during the call. `msime_client_voice_local_model_cancel` stops it from any thread, and the call then fails with "local_model_cancelled". One install per id at a time; a second fails with "local_model_install_running". Other failures are "local_model_*" codes (network, http_status, size_mismatch, checksum_mismatch, unsafe_archive, missing_file, io, invalid_mirror, unknown).
 ///
-/// 请求带 `"files": ["<absolute path>", ...]`（至多 16 个）时不联网，改用用户自己下载好的这些文件安装（`msime_client_core::voice::local_models::import`）：按长度和 SHA-256 认文件，不看文件名，`mirror` 不用；进度里原来的 download 阶段报成 import；缺文件时失败为 "local_model_import_missing: <上游文件名>"，所选文件打不开或读出错时为 "local_model_import_unreadable: <说明>"。和下载共用同一个按 id 的登记，所以取消、互斥和删除时的拒绝都一样。
+/// 请求带 `"files": ["<absolute path>", ...]`（至多 16 个）时不联网，改用用户自己下载好的这些文件安装（`msime_client_providers::voice::local_models::import`）：按长度和 SHA-256 认文件，不看文件名，`mirror` 不用；进度里原来的 download 阶段报成 import；缺文件时失败为 "local_model_import_missing: <上游文件名>"，所选文件打不开或读出错时为 "local_model_import_unreadable: <说明>"。和下载共用同一个按 id 的登记，所以取消、互斥和删除时的拒绝都一样。
 ///
 /// # Safety
 /// `request` must point to `length` readable bytes. `progress` must stay valid for the call, must copy the buffer before returning and must not unwind.
@@ -620,7 +622,7 @@ pub unsafe extern "C" fn msime_client_voice_local_model_install(
             }
         }
         let _registered = Registered(&request.id);
-        let mut report = |event: msime_client_core::voice::local_models::InstallProgress| {
+        let mut report = |event: msime_client_providers::voice::local_models::InstallProgress| {
             if let Some(callback) = progress {
                 let text = json!({
                     "id": request.id,
@@ -635,14 +637,14 @@ pub unsafe extern "C" fn msime_client_voice_local_model_install(
             }
         };
         let path = match &files {
-            Some(files) => msime_client_core::voice::local_models::import(
+            Some(files) => msime_client_providers::voice::local_models::import(
                 root,
                 &request.id,
                 files,
                 &mut report,
                 &cancel,
             ),
-            None => msime_client_core::voice::local_models::install(
+            None => msime_client_providers::voice::local_models::install(
                 root,
                 &request.id,
                 &request.mirror,
@@ -714,7 +716,7 @@ pub unsafe extern "C" fn msime_client_voice_local_model_remove(
         if installs.contains_key(&request.id) {
             return Err("local_model_install_running".into());
         }
-        let removed = msime_client_core::voice::local_models::remove(root, &request.id);
+        let removed = msime_client_providers::voice::local_models::remove(root, &request.id);
         drop(installs);
         removed.map_err(|error| error.to_string())?;
         Ok(Value::Null)

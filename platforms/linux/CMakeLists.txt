@@ -137,7 +137,9 @@ add_library(msime-ibus-host STATIC
   src/overlay/WaveOverlaySurfaceFactory.cpp)
 target_compile_options(msime-ibus-host PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-ibus-host PUBLIC src src/core src/candidates src/clipboard src/providers src/voice src/overlay src/system src/entrypoints ../../crates/host-api/include)
-target_link_libraries(msime-ibus-host PUBLIC PkgConfig::IBUS PkgConfig::XKBCOMMON nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+# ClientEngine.cpp 用到 pthread，由这个库自己公开声明，链接它的可执行文件不必各自补 `Threads::Threads`。glibc 2.34 之前 pthread 不在 libc 里，漏掉就只在 Debian 10 这类旧系统上链接失败（#7849 新加的 ibus-mode-hint-lifecycle 就是这样）。
+find_package(Threads REQUIRED)
+target_link_libraries(msime-ibus-host PUBLIC PkgConfig::IBUS PkgConfig::XKBCOMMON nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}" Threads::Threads)
 if(X11_SURFACE_FOUND)
   target_sources(msime-ibus-host PRIVATE src/overlay/WaveOverlayX11Surface.cpp)
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_HAS_X11_SURFACE)
@@ -241,7 +243,7 @@ target_link_libraries(msime-linux-emoji PRIVATE msime-ibus-host)
 if(BUILD_TESTING)
   add_executable(ibus-mode-hint-lifecycle tests/runtime/mode_hint_lifecycle.cpp)
   target_compile_options(ibus-mode-hint-lifecycle PRIVATE -Wall -Wextra -Werror)
-  target_link_libraries(ibus-mode-hint-lifecycle PRIVATE msime-ibus-host)
+  target_link_libraries(ibus-mode-hint-lifecycle PRIVATE msime-ibus-host Threads::Threads)
   foreach(scenario english blocked destroyed)
     add_test(NAME ibus-mode-hint-${scenario} COMMAND ibus-mode-hint-lifecycle ${scenario})
     set_tests_properties(ibus-mode-hint-${scenario} PROPERTIES TIMEOUT 15)
@@ -640,7 +642,7 @@ install(FILES data/voice/start.pcm data/voice/end.pcm data/voice/SOURCE.md
         DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/voice")
 # `msime-linux-handwriting --local` 识别用的 zinnia 模型及其 LGPL-2.1 许可证。它有 26.8 MB，不进版本库：scripts/fetch_handwriting_model.py 把 resources/handwriting-model.lock.json 锁定的文件下载到 target/handwriting-model，存在时这里取用，并逐个文件按锁校验。MSIME_BUNDLE_HANDWRITING_MODEL 打开时（默认如此，packaging/ 下的发行版构建和 nix 都依赖这个默认值）打包必须带上模型，否则包里的离线识别器第一笔就会失败；关闭时（我们自己发布的 deb/rpm，由 package-container.sh 关闭）不安装模型，由设置应用按需下载到用户目录。开发安装没有模型时，只是 --local 报告未安装模型。
 # 模型只认汉字：不提供手写的版本（版本表 `features.handwriting` 为 false 的日文、越南文和藏文版）即使下载或指定了模型，也既不装模型也不装它的许可证，打包时也不要求有模型。
-# 我们自己发布的 deb/rpm（package-container.sh）传 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF：包里不带模型和它的许可证，设置应用在需要时按同一份锁把两者下载到用户的状态目录（client-core 的手写资源包）。发行版仓库的包不传这个选项，照旧随包。
+# 我们自己发布的 deb/rpm（package-container.sh）传 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF：包里不带模型和它的许可证，设置应用在需要时按同一份锁把两者下载到用户的状态目录（client-providers 的手写资源包）。发行版仓库的包不传这个选项，照旧随包。
 if(NOT MSIME_EDITION_HANDWRITING)
   if(MSIME_HANDWRITING_MODEL_DIR)
     message(STATUS "Edition ${MSIME_EDITION} offers no handwriting; not installing the model in ${MSIME_HANDWRITING_MODEL_DIR}")
@@ -940,7 +942,7 @@ if(MSIME_MCP_BINARY)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/mcp/msime" DESTINATION "${CMAKE_INSTALL_BINDIR}")
   endif()
 endif()
-# The built-in sound packs, synthesized by scripts/generate_sound_packs.py and dedicated to the public domain, beside the resource directory rather than in it: that directory has to hold exactly what the dictionary lock pins. The hosts and the settings window name this directory to client-core as the built-in pack root.
+# 内置音效包，由 `scripts/generate_sound_packs.py` 合成并贡献到公有领域，装在资源目录旁边而不是里面：资源目录必须恰好只放词库锁固定的内容。各宿主和设置窗口把这个目录作为内置包根目录告诉 client-services。
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/sound-packs/"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/sound-packs")
 # 随桌面安装包分发的官方插件包（plugins/official-packs.json 登记的脚本插件和短语表），由 scripts/build-official-plugins.sh 构建到 target/plugin-packs，装在内置音效包旁边：IBus 和 Fcitx5 只传 sound_packs，host-api 和设置窗口从那里推出 plugin-packs。选项给了才装：发布页的 deb、rpm 由 package-container.sh 传它；从源码构建的发行版定义（Arch、Gentoo、nix、OBS）不跑 wasm 构建，不带官方包。
@@ -1099,7 +1101,7 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ewts-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke-LGPL-3.0.txt"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/client-core/data/opencc/LICENSE")
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/client-base/data/opencc/LICENSE")
 # `copyright` is the name Debian policy requires for the package license.
 set(MSIME_NOTICE_NAMES
   copyright

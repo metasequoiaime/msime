@@ -24,5 +24,5 @@ target/debug/msime-pack validate docs/plugin-template
 
 - 短语表（`phrase_table`）和符号集（`symbol_set`）只有清单，把上面的 `[sounds]` 和两段音频换成 [docs/plugins.md](../plugins.md) 对应一节里的 `[[phrases]]` 或 `[[groups]]` 即可，`mode` 一行也要删掉。
 - 辅助码表（`helpcode`）和单词本（`wordbook`）各需要一个数据文件：辅助码表在 `[helpcode] table` 里点名一个 `.txt`，单词本在 `[wordbook] file` 里点名一个 `.tsv`。单词本的 `id` 只能用小写字母、数字和 `-`，不超过 59 个字符。
-- 每种类型能通过校验的完整例子在 `crates/client-core/tests/fixtures/plugin-packs/valid/` 下，按 `<类型>-<用例>` 命名；`invalid/` 下是会被拒绝的例子。
+- 每种类型能通过校验的完整例子在 `crates/client-services/tests/fixtures/plugin-packs/valid/` 下，按 `<类型>-<用例>` 命名；`invalid/` 下是会被拒绝的例子。
 - 桌面脚本插件（`script`）要编译一个 wasm 模块，模板是单独的一个文件夹：[script-plugin-template](../script-plugin-template/)。

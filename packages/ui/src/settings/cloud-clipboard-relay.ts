@@ -7,7 +7,7 @@ const MIN_TOKEN_CHARS = 16;
 const MAX_TOKEN_CHARS = 256;
 const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
-/** 中继地址的问题，没有问题时为空。规则与 `crates/client-core/src/clipboard_relay.rs` 的 `valid_relay_url` 相同：https（http 只放行本机回环地址）、有主机名、可以带路径前缀，不带查询串、片段和用户信息。只看 `new URL` 的结果不够：末尾单独的 `?`、`#` 在这里解析成空串，Rust 那边却算作带了查询串或片段，保存会失败，所以按原文再查一遍。 */
+/** 中继地址的问题，没有问题时为空。规则与 `crates/client-core/src/preferences.rs` 的 `valid_relay_url` 相同：https（http 只放行本机回环地址）、有主机名、可以带路径前缀，不带查询串、片段和用户信息。只看 `new URL` 的结果不够：末尾单独的 `?`、`#` 在这里解析成空串，Rust 那边却算作带了查询串或片段，保存会失败，所以按原文再查一遍。 */
 export function cloudClipboardRelayUrlIssue(url: string): string {
   if (!url) return "请填写中继地址。";
   if (new TextEncoder().encode(url).length > MAX_URL_BYTES) return "中继地址过长。";

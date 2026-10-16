@@ -1,7 +1,7 @@
 /**
- * What the 2in1 background music plays and when, decided without a device.
+ * 2in1 背景音乐播什么、什么时候播，不需要设备就能判定。
  *
- * The desktop hosts stream music through host-api's player (`crates/host-api/src/key_sound/player.rs`, `tick_music`), which HarmonyOS does not link; this host streams the same packs through AVPlayer instead. The rules are that player's: music plays only while switched on with a pack chosen and while the host says the input method is active in a field that is not a secure one; tracks play in the pack's order and start over after the last; a track whose length is not within the pack bound is skipped; a pack with no playable track plays nothing until the settings change. Validating a pack is not ported: `msime_client_music_pack` answers with the tracks client-core's validation accepted.
+ * 桌面宿主经 host-api 的播放器（`crates/host-api/src/key_sound/player.rs`，`tick_music`）流式播放音乐，HarmonyOS 不链接它；这个宿主改用 AVPlayer 流式播放同样的包。规则沿用那个播放器的：只有开关打开且选了包、并且宿主表示输入法正在一个非安全输入框里活动时才播放音乐；音轨按包里的顺序播放，播完最后一首从头再来；时长不在包上限内的音轨被跳过；没有可播音轨的包在设置改变之前什么都不播。校验包的逻辑没有移植过来：`msime_client_music_pack` 回答的就是 client-services 校验后接受的音轨。
  */
 import { MusicPreferenceDocument, PluginPreferenceDocument } from "./KeySoundPolicy";
 import { AudioVolumePolicy } from "./AudioVolumePolicy";

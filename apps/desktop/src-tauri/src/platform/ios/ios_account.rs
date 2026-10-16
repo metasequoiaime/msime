@@ -34,14 +34,14 @@ use crate::platform::community_resources::CommunityResourceState;
 #[cfg(target_os = "ios")]
 use crate::platform::mobile::mobile_community::MobileCommunityState;
 #[cfg(target_os = "ios")]
-use msime_client_core::account::{
-    merge_account_preferences, AccountChatMessage, AccountError, AccountPreferences,
-    AccountSessionStorage, BackendAccountClient, BackendAccountSession, SavedAccountSession,
-};
-#[cfg(target_os = "ios")]
 use msime_client_core::cloud::dictionary::DictionaryKind;
 #[cfg(target_os = "ios")]
 use msime_client_core::preferences::PreferencesStore;
+#[cfg(target_os = "ios")]
+use msime_client_services::account::{
+    merge_account_preferences, AccountChatMessage, AccountError, AccountPreferences,
+    AccountSessionStorage, BackendAccountClient, BackendAccountSession, SavedAccountSession,
+};
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::{IosKeyboardPreferences, MobilePlatform};
 #[cfg(target_os = "ios")]
@@ -936,7 +936,7 @@ pub async fn mobile_keyboard_feedback_preview(
 #[cfg(test)]
 mod tests {
     use super::{ChatModelsResponse, ChatResponse, PreferenceSchemaResponse};
-    use msime_client_core::account::{
+    use msime_client_services::account::{
         AccountChatModel, AccountChatModels, AccountPreferenceField, AccountPreferenceSchema,
     };
     use serde_json::json;

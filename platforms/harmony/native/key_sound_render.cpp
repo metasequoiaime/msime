@@ -117,7 +117,7 @@ KeySoundRender renderKeySoundNotes(const std::string &sample, const std::vector<
         return refused("unsupported sample rate");
     }
     if (channels < 1 || channels > 2) return refused("only mono and stereo samples are played");
-    // client-core's sample_frames_allowed, from the header's own count.
+    // 即 client-services 的 sample_frames_allowed，按头部自己声明的帧数计算。
     if (frames == 0 || frames * 1000 > static_cast<ma_uint64>(max_millis) * rate) {
         return refused("sample longer than the pack bound");
     }

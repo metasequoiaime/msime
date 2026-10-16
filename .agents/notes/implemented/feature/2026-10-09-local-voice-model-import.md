@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-- 共享安装器 `crates/client-core/src/voice/local_models.rs` 新增 `import(root, id, files, progress, cancel)`。`files` 是宿主文件选择器给出的绝对路径，顺序和文件名都不看：对目录里这个模型要的每个文件（压缩包，以及带 `url` 的附加文件，内嵌的 `resource` 不算），先按长度找；只有一个长度对得上时直接用它，有几个时逐个算 SHA-256 挑出对的那个。一个都没有时报 `LocalModelError::MissingImportFile`（`local_model_import_missing: <上游文件名>`），长度相同但摘要都不对时报 `ChecksumMismatch`。多选的无关文件忽略。
+- 共享安装器 `crates/client-providers/src/voice/local_models.rs` 新增 `import(root, id, files, progress, cancel)`。`files` 是宿主文件选择器给出的绝对路径，顺序和文件名都不看：对目录里这个模型要的每个文件（压缩包，以及带 `url` 的附加文件，内嵌的 `resource` 不算），先按长度找；只有一个长度对得上时直接用它，有几个时逐个算 SHA-256 挑出对的那个。一个都没有时报 `LocalModelError::MissingImportFile`（`local_model_import_missing: <上游文件名>`），长度相同但摘要都不对时报 `ChecksumMismatch`。多选的无关文件忽略。
 - 对上之后用 `LocalFileFetcher`（实现已有的 `Fetcher` trait，把目录里的下载地址映射到本地文件）调用原来的 `install_model`，镜像列表为空。校验、暂存、解压、写 `msime-model.json`、整体改名发布全部复用下载的那一套，文件不对或被改过时什么也不会装上。进度里原来的 `download` 阶段报成 `import`，其余阶段不变。
 - `LocalModelStatus` 新增 `import_files: [{name, url, size}]`，设置页据此列出不联网安装要下载的文件，每个文件直接链到目录里的上游下载地址（`github.com/k2-fsa/sherpa-onnx` 的 release 资产），不另建官网页面。
 - C ABI 不新增函数：`msime_client_voice_local_model_install` 的请求多一个可选的 `files`（至多 16 个绝对路径），带了就走 `import`。这样导入和下载共用同一个按 id 的登记，取消、互斥（`local_model_install_running`）和删除时的拒绝不用另写；iOS 和 HarmonyOS 的绑定也不用加新符号。

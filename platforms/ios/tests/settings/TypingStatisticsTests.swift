@@ -193,7 +193,7 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(unreachable?.contains("允许完全访问"), false)
   }
 
-  /// 按 `crates/client-core/src/typing_statistics/metrics.rs` 的序列化方式给出的 `summary` 应答，包含 null 字段。
+  /// 按 `crates/client-services/src/typing_statistics/metrics.rs` 的序列化方式给出的 `summary` 应答，包含 null 字段。
   private static let summaryFixture = """
   {"overview":{"week_total":12846,"previous_week_total":10886,
     "last7":[{"day":"2026-10-01","count":1620},{"day":"2026-10-02","count":2140},{"day":"2026-10-03","count":1880},

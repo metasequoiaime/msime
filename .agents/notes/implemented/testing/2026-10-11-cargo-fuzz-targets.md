@@ -12,7 +12,7 @@ Status: implemented
 
 两个目标：
 
-- `plugin_pack`：把输入写成 `pack.zip` 交给 `msime_client_core::plugins::validate`。它与 `plugins::import` 共用 `stage` 和 `check_staged`，覆盖 zip 目录解析、成员名与路径规则、大小上限和各类清单解析，只是不装进插件目录。
+- `plugin_pack`：把输入写成 `pack.zip` 交给 `msime_client_services::plugins::validate`。它与 `plugins::import` 共用 `stage` 和 `check_staged`，覆盖 zip 目录解析、成员名与路径规则、大小上限和各类清单解析，只是不装进插件目录。
 - `host_session`：第一个字节从 12 种方案与触屏布局组合里选一个，用 `msime_client_create` 打开会话；其余字节解码成一串 C ABI 调用（字符、标点、编辑与翻页命令、选词、置顶与删词、九键选拼音与筛选、14 键、各类开关、滑行、英文补全、带上下文的标点、中途经 `msime_client_update_preferences` 换方案、重排、取视图），最后 `msime_client_destroy`。回应按宿主的方式读出并交回 `msime_client_string_free`，并断言它是带 `ok` 的 JSON。
 
 设计上的几条约束：

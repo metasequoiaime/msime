@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// AI 辅助接口地址的传输策略，是 `platforms/ios/SharedUI/core/AIEndpointPolicy.swift` 的同一份实现：这个插件包编不进那个文件，而两边算出的来源键必须一致，键盘扩展才能按 App 设置页存下的键读到 Token。规则以 `crates/client-core/src/ai/endpoint.rs` 为准，用例在 `shared/contracts/ai-endpoint/cases.json`；改动时三处一起改。
+/// AI 辅助接口地址的传输策略，是 `platforms/ios/SharedUI/core/AIEndpointPolicy.swift` 的同一份实现：这个插件包编不进那个文件，而两边算出的来源键必须一致，键盘扩展才能按 App 设置页存下的键读到 Token。规则以 `crates/client-providers/src/ai/endpoint.rs` 为准，用例在 `shared/contracts/ai-endpoint/cases.json`；改动时三处一起改。
 enum AIEndpointPolicy {
   enum Problem: Error, Equatable {
     /// 不是带主机的完整 `http(s)://` 地址，或者带了用户名、密码、`#` 片段、控制字符。

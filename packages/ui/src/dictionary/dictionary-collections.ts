@@ -2,7 +2,7 @@ import type { CommunityResource } from "../community/community-resources";
 import { formatZhNumber } from "../core/format-number";
 
 /**
- * 命名词库（`msime_client_dictionary_collections`）在界面上的形状，与 client-core `dictionary/collections.rs` 的 `DictionaryCollectionsView` 一致。
+ * 命名词库（`msime_client_dictionary_collections`）在界面上的形状，与 client-services `dictionary/collections.rs` 的 `DictionaryCollectionsView` 一致。
  *
  * Engine 只有一个用户词库；命名词库是它上面的一层元数据，词条经个人词库队列分批送进 Engine，所以启用、停用、删除只增删「不属于别的已启用词库、也不是用户自己加的」那些词。内置拼音词库不是集合，任何修改都会得到 `builtin_locked`。
  */
@@ -41,7 +41,7 @@ export interface DictionaryCollectionImportReport {
 
 export interface DictionaryCollectionsView {
   collections: DictionaryCollection[];
-  /** client-core 接受的导入格式。 */
+  /** client-services 接受的导入格式。 */
   formats: string[];
   import?: DictionaryCollectionImportReport;
   sent?: number;
@@ -70,7 +70,7 @@ export interface DictionaryCollectionsClient {
 
 export const MAX_COLLECTION_NAME_CHARS = 32;
 
-/** 词库名能否使用：1–32 个字，首尾没有空白，没有控制字符。与 client-core 的校验相同，提交前先在界面上挡住。 */
+/** 词库名能否使用：1–32 个字，首尾没有空白，没有控制字符。与 client-services 的校验相同，提交前先在界面上挡住。 */
 export function validCollectionName(name: string): boolean {
   if (name.length === 0 || name !== name.trim()) return false;
   if (Array.from(name).length > MAX_COLLECTION_NAME_CHARS) return false;
@@ -130,7 +130,7 @@ export interface CollectionImportSource {
   accept: string;
 }
 
-/** 「导入词库」的来源：只列 client-core 接受的格式，按「文本、搜狗、Rime、纯汉字」排。`standard` 和 `windows` 是文本文件的两种列顺序，client-core 在 `txt` 里自动识别，不单独列出。与 Android 的 `importSources` 相同。 */
+/** 「导入词库」的来源：只列 client-services 接受的格式，按「文本、搜狗、Rime、纯汉字」排。`standard` 和 `windows` 是文本文件的两种列顺序，client-services 在 `txt` 里自动识别，不单独列出。与 Android 的 `importSources` 相同。 */
 export function collectionImportSources(formats: readonly string[]): CollectionImportSource[] {
   const sources: CollectionImportSource[] = [];
   if (formats.includes("txt")) {
@@ -169,7 +169,7 @@ export function collectionImportMessage(
   return message;
 }
 
-/** client-core 的错误码换成可直接展示的话；不认识的码按通用失败处理。与 Android 的 `failureMessage` 相同。 */
+/** client-services 的错误码换成可直接展示的话；不认识的码按通用失败处理。与 Android 的 `failureMessage` 相同。 */
 export function collectionFailureMessage(error: unknown): string {
   const code =
     typeof error === "object" && error !== null && "code" in error

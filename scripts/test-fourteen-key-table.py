@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """全拼 14 键的键表三端一致：Android、iOS、HarmonyOS 的 `FourteenKeyLayout` 与引擎 `KeyGrid::FourteenKey` 是同一张表。
 
-14 键的键面由三端各自画，解码只在引擎里：宿主把一组的首字母经 `msime_client_grid_key` 交给引擎，引擎按 `FOURTEEN_KEYPAD` 把 `a`–`z` 归成组码。某一端把一个字母挪到相邻的键上（比如画成 `QW E RT`），照样能编译、能打字，候选也照样出来，只是那一端按下的组和引擎认的组不再是同一组，用户打出的字悄悄变了，三端也不再一致。打字统计的 `Fourteen*` 键位 id 同理：client-core 的 `KEY_IDS` 是严格契约，宿主上报一个它不认识的 id 会让整批统计被拒。
+14 键的键面由三端各自画，解码只在引擎里：宿主把一组的首字母经 `msime_client_grid_key` 交给引擎，引擎按 `FOURTEEN_KEYPAD` 把 `a`–`z` 归成组码。某一端把一个字母挪到相邻的键上（比如画成 `QW E RT`），照样能编译、能打字，候选也照样出来，只是那一端按下的组和引擎认的组不再是同一组，用户打出的字悄悄变了，三端也不再一致。打字统计的 `Fourteen*` 键位 id 同理：client-services 的 `KEY_IDS` 是严格契约，宿主上报一个它不认识的 id 会让整批统计被拒。
 
 这里离线比对：
 - 引擎的十四组按键面顺序正好覆盖 `a`–`z` 各一次，`FOURTEEN_KEYPAD` 就是由这十四组逐字母取首字母生成的；
 - 三端的三行键与引擎的十四组逐键相同，每行键数也相同（5、5、4）；
 - Android 的 `GROUP_CODES` 与引擎的编码表逐字相同；
-- client-core、Android、iOS、HarmonyOS 的 `Fourteen*` 键位 id 都是按键面顺序的 `Fourteen` 加这一组的大写字母。
+- client-services、Android、iOS、HarmonyOS 的 `Fourteen*` 键位 id 都是按键面顺序的 `Fourteen` 加这一组的大写字母。
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ ANDROID = ROOT / "platforms/android/java/app/msime/android/keyboard/FourteenKeyL
 IOS = ROOT / "platforms/ios/KeyboardExtension/Sources/input/FourteenKeyLayout.swift"
 HARMONY = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/input/FourteenKeyLayout.ts"
 KEY_ID_SOURCES = {
-    "client-core": ROOT / "crates/client-core/src/typing_statistics.rs",
+    "client-services": ROOT / "crates/client-services/src/typing_statistics.rs",
     "android": ROOT / "platforms/android/java/app/msime/android/statistics/KeyPressIds.java",
     "harmony": ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyIdPolicy.ts",
 }
