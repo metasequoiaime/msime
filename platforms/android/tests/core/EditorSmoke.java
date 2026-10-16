@@ -173,13 +173,17 @@ public final class EditorSmoke {
             | InputType.TYPE_TEXT_VARIATION_URI));
         check(EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS));
-        // #6147：邮箱后缀只在系统标记为邮箱的输入框里出现。
-        check(EditorPolicy.emailAddress(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS));
-        check(EditorPolicy.emailAddress(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS));
-        check(!EditorPolicy.emailAddress(InputType.TYPE_CLASS_TEXT));
-        check(!EditorPolicy.emailAddress(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI));
-        check(!EditorPolicy.emailAddress(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD));
-        check(!EditorPolicy.emailAddress(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS));
+        // #6147：邮箱后缀除了密码框都给，普通文本框、聊天框（不给建议、短消息）、搜索框、网址框和邮箱框都算。
+        check(EditorPolicy.offersEmailSuffixes(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS));
+        check(EditorPolicy.offersEmailSuffixes(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS));
+        check(EditorPolicy.offersEmailSuffixes(InputType.TYPE_CLASS_TEXT));
+        check(EditorPolicy.offersEmailSuffixes(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS));
+        check(EditorPolicy.offersEmailSuffixes(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_SHORT_MESSAGE));
+        check(EditorPolicy.offersEmailSuffixes(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI));
+        check(EditorPolicy.offersEmailSuffixes(0x80011));
+        check(EditorPolicy.offersEmailSuffixes(0));
+        // 密码框（三种文字密码和数字密码）一律不给，也不读上文。
+        for (int type : new int[] {0x81, 0x91, 0xe1, 0x12}) check(!EditorPolicy.offersEmailSuffixes(type));
         // 只要求不给建议的聊天框、搜索框按用户的默认中英文进框（#5998）；Chrome 地址栏仍因 URI 进英文。
         check(!EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS));

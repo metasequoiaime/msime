@@ -5,15 +5,15 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 邮箱后缀（#6147）：符号面板「网络」分类里的后缀表，以及邮箱输入框里打到 `xxx@` 时候选栏给出的后缀。
+ * 邮箱后缀（#6147）：符号面板「网络」分类里的后缀表，以及输入框里打到 `xxx@` 时候选栏给出的后缀。
  *
- * <p>只看光标前的文字：末尾要是 `<本地部分>@<已打的域名>`，本地部分至少一个 ASCII 字母、数字或 `._%+-`，紧挨着 `@`；已打的域名可以为空，只含 ASCII 字母、数字、`.` 和 `-`。以最后一个 `@` 为准。给出以已打域名开头（不分大小写）的后缀；已打的域名已经是一个完整后缀时不再给。全角的 `＠` 不算。是否只在邮箱输入框里出现由宿主决定（{@link EditorPolicy#emailAddress}）。
+ * <p>只看光标前的文字：末尾要是 `<本地部分>@<已打的域名>`，本地部分至少一个 ASCII 字母、数字或 `._%+-`，紧挨着 `@`；已打的域名可以为空，只含 ASCII 字母、数字、`.` 和 `-`。以最后一个 `@` 为准。给出以已打域名开头（不分大小写）的后缀；已打的域名已经是一个完整后缀时不再给。全角的 `＠` 不算。哪些输入框里给由宿主决定（{@link EditorPolicy#offersEmailSuffixes}：除密码框外都给）。
  */
 public final class EmailSuffixPolicy {
     /** 最多看光标前多少个字符；也是调用方向编辑器要上文时的长度。 */
     public static final int MAX_CONTEXT = 64;
 
-    /** 常用邮箱后缀：国内常用的在前，然后是海外的。符号面板「网络」分类和候选栏用同一份、同一个顺序。引擎网址模式的邮箱补全（`crates/engine/src/local/url.rs` 的 `EMAIL_SUFFIXES`）也是这一份，`scripts/test-email-suffixes.py` 核对两边一致。 */
+    /** 常用邮箱后缀：国内常用的在前，然后是海外的。符号面板「网络」分类和候选栏用同一份、同一个顺序。引擎网址模式的邮箱补全（`crates/engine/src/local/url.rs` 的 `EMAIL_SUFFIXES`）也是这一份，iOS 和 HarmonyOS 键盘的后缀表同样是它的副本，`scripts/test-email-suffixes.py` 核对四处一致。 */
     public static final List<String> SUFFIXES = List.of(
         "@qq.com", "@163.com", "@126.com", "@foxmail.com", "@139.com", "@189.cn", "@aliyun.com",
         "@gmail.com", "@outlook.com", "@hotmail.com", "@live.com", "@icloud.com", "@yahoo.com",

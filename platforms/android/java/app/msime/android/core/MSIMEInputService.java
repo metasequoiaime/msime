@@ -4896,7 +4896,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (directEnglishActive()) refreshEnglishSuggestions();
         // 数字键面上打完算式（或光标挪到算式后面）时，工具栏给出计算结果。
         imeCalculator.refresh();
-        // 邮箱输入框里打到 `xxx@` 时，候选栏给出邮箱后缀（#6147）。
+        // 除密码框外的输入框里打到 `xxx@` 时，候选栏给出邮箱后缀（#6147）。
         imeEmailSuffixes.refresh();
     }
 

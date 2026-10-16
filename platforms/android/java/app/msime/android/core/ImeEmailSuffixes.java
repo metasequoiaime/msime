@@ -7,9 +7,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 邮箱后缀建议（#6147）：在系统标记为邮箱的输入框里，光标前打到 `xxx@`（或 `xxx@` 后面接着打了域名的开头）时，候选栏列出 {@link EmailSuffixPolicy#SUFFIXES} 里能接上的后缀，点一下补全。
+ * 邮箱后缀建议（#6147）：光标前打到 `xxx@`（或 `xxx@` 后面接着打了域名的开头）时，候选栏列出 {@link EmailSuffixPolicy#SUFFIXES} 里能接上的后缀，点一下补全。
  *
- * <p>只在 `EMAIL_ADDRESS` / `WEB_EMAIL_ADDRESS` 输入框里出现，聊天框、搜索框里的 `@` 不触发，也没有开关。上文在每次选区变化时向编辑器要 {@link EmailSuffixPolicy#MAX_CONTEXT} 个字符；组字中不读。读到的文字只在内存里匹配一次，不记录、不保存，与 {@link ImeCalculator} 的约定相同。后缀按 ASCII 原样上屏，不随全角模式变成全角。
+ * <p>除了密码框，任何输入框里都给（{@link EditorPolicy#offersEmailSuffixes}），不只是系统标记为邮箱的输入框：聊天框、备注、搜索框里写邮箱地址同样用得上，`@` 单独出现、`微信@` 这类中文提及和全角 `＠` 由 {@link EmailSuffixPolicy#match} 排除，没有开关。上文在每次选区变化时向编辑器要 {@link EmailSuffixPolicy#MAX_CONTEXT} 个字符；组字中不读，密码框里不读。读到的文字只在内存里匹配一次，不记录、不保存，与 {@link ImeCalculator} 的约定相同。后缀按 ASCII 原样上屏，不随全角模式变成全角。
  */
 final class ImeEmailSuffixes {
     private final MSIMEInputService s;
@@ -28,7 +28,7 @@ final class ImeEmailSuffixes {
     /** 按光标前的文字重新匹配；结果变了才重画。 */
     void refresh() {
         EmailSuffixPolicy.Match next = null;
-        if (s.connection != null && EditorPolicy.emailAddress(s.editorInputType) && !s.hasEngineComposition()) {
+        if (s.connection != null && EditorPolicy.offersEmailSuffixes(s.editorInputType) && !s.hasEngineComposition()) {
             CharSequence before = InputConnectionGuard.textBeforeCursor(s.connection, EmailSuffixPolicy.MAX_CONTEXT);
             next = EmailSuffixPolicy.match(before);
         }

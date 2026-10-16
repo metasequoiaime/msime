@@ -2,7 +2,7 @@ import app.msime.android.EmailSuffixPolicy;
 
 import java.util.List;
 
-/** #6147：邮箱输入框里打到 `xxx@` 时候选栏给出的邮箱后缀。 */
+/** #6147：输入框（密码框除外）里打到 `xxx@` 时候选栏给出的邮箱后缀。 */
 public final class EmailSuffixPolicySmoke {
     public static void main(String[] args) {
         List<String> all = EmailSuffixPolicy.SUFFIXES;

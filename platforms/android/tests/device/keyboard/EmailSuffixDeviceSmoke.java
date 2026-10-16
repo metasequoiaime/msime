@@ -6,10 +6,10 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import java.util.function.Predicate;
 
-/** 邮箱后缀（#6147）的设备验收：邮箱输入框里打到 `abc@` 后候选栏给出后缀、点一下补全；普通输入框里的 `@` 不给。覆盖宿主接线（选区变化后重新匹配、候选栏分支、batch edit 里的上屏），这些在 JVM 层没有测试。 */
+/** 邮箱后缀（#6147）的设备验收：邮箱输入框和普通输入框里打到 `abc@` 后候选栏都给出后缀、点一下补全；密码框里的 `@` 不给。普通输入框进框是中文，`abc` 先作为拼音组字，点 123 层的 `@` 时按原文上屏再接半角 `@`，覆盖了中文模式下的这条路。覆盖宿主接线（选区变化后重新匹配、候选栏分支、batch edit 里的上屏），这些在 JVM 层没有测试。 */
 public final class EmailSuffixDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "email suffix chips in an email field, completion, and no chips in a plain field";
+        return "email suffix chips and completion in email and plain fields, and no chips in a password field";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -31,15 +31,32 @@ public final class EmailSuffixDeviceSmoke extends DeviceSmoke {
         stage = "email suffix chips gone after completion";
         assertNoSuffixChips();
 
-        // 普通输入框（TYPE_CLASS_TEXT）里的 @ 不触发：打完 abc@ 也不出现后缀。
+        // 普通输入框（TYPE_CLASS_TEXT）里同样给：聊天框、备注里写邮箱地址也能补全。
         stage = "plain field typing";
         tap(field("msime-test-plain"));
         for (String key : new String[] {"a", "b", "c"}) tap(key(key));
         stage = "plain field at sign";
         tapSymbol("@");
         await(field("msime-test-plain").and(node -> node.getText() != null
-            && node.getText().toString().endsWith("@")));
-        stage = "plain field shows no suffix";
+            && node.getText().toString().endsWith("abc@")));
+        stage = "plain field suffix chips";
+        await(suffixChip("@qq.com"));
+        stage = "plain field suffix completion";
+        tap(suffixChip("@gmail.com"));
+        await(field("msime-test-plain").and(node -> node.getText() != null
+            && node.getText().toString().endsWith("abc@gmail.com")));
+        stage = "plain field chips gone after completion";
+        assertNoSuffixChips();
+
+        // 密码框里不读上文，打完 abc@ 也不出现后缀。密码框的无障碍文字是掩码，只核对长度。
+        stage = "password field typing";
+        tap(field("msime-test-password"));
+        await(field("msime-test-password").and(AccessibilityNodeInfo::isFocused));
+        for (String key : new String[] {"a", "b", "c"}) tap(key(key));
+        stage = "password field at sign";
+        tapSymbol("@");
+        await(field("msime-test-password").and(node -> node.getText() != null && node.getText().length() == 4));
+        stage = "password field shows no suffix";
         assertNoSuffixChips();
     }
 

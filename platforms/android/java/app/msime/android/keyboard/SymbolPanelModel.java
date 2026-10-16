@@ -102,7 +102,7 @@ public final class SymbolPanelModel {
 
     private SymbolPanelModel() { }
 
-    /** 「网络」分类：网址和常用符号，后面接全部邮箱后缀（{@link EmailSuffixPolicy#SUFFIXES}，#6147），和邮箱输入框里候选栏给的是同一份。 */
+    /** 「网络」分类：网址和常用符号，后面接全部邮箱后缀（{@link EmailSuffixPolicy#SUFFIXES}，#6147），和输入框里打到 `xxx@` 时候选栏给的是同一份。 */
     private static List<String> network() {
         ArrayList<String> values = new ArrayList<>(List.of(
             "@", "#", "/", "\\", ":", "_", "-", "+", "=", "&",

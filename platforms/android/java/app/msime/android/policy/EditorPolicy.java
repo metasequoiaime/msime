@@ -50,12 +50,9 @@ public final class EditorPolicy {
             || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
     }
 
-    /** 系统标记为邮箱的输入框（`EMAIL_ADDRESS` / `WEB_EMAIL_ADDRESS`）：只在这里打到 `xxx@` 时给邮箱后缀（{@link EmailSuffixPolicy}，#6147），聊天框、搜索框里的 `@` 不触发。 */
-    public static boolean emailAddress(int type) {
-        if ((type & InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false;
-        int variation = type & InputType.TYPE_MASK_VARIATION;
-        return variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-            || variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS;
+    /** 打到 `xxx@` 时可以给邮箱后缀（{@link EmailSuffixPolicy}，#6147）的输入框：除了密码框（文字和数字密码的各种 variation）都给，不只是系统标记为邮箱的输入框，聊天框、搜索框里写邮箱地址同样能用。密码框里不读上文，与算式结果（`ImeCalculator`）同一个隐私口径。 */
+    public static boolean offersEmailSuffixes(int type) {
+        return !password(type);
     }
 
     public static EnglishCapitalizationPolicy.Mode capitalizationMode(int type) {
