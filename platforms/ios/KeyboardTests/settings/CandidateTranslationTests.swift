@@ -337,13 +337,16 @@ final class CandidateTranslationTests: XCTestCase {
   /// of the keyboard. The whole switch being off reserves nothing whatever the languages say.
   func testARowIsReservedOnlyForAGlossThatCanActuallyBeFetched() {
     let previousGloss = CandidateGlossPreference.enabled
+    let previousPrimary = CandidateTranslationPreference.primaryIndex
     let previousSecondary = CandidateTranslationPreference.secondaryIndex
     let previousOnline = CandidateTranslationPreference.onlineEnabled
     defer {
       CandidateGlossPreference.enabled = previousGloss
+      CandidateTranslationPreference.primaryIndex = previousPrimary
       CandidateTranslationPreference.secondaryIndex = previousSecondary
       CandidateTranslationPreference.onlineEnabled = previousOnline
     }
+    CandidateTranslationPreference.primaryIndex = CandidateTranslationPreference.languages.firstIndex { $0.code == "EN" } ?? 0
 
     CandidateTranslationPreference.onlineEnabled = true
     CandidateGlossPreference.enabled = false
@@ -355,20 +358,29 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: true), 1,
                    "English comes from the dictionary in the bundle, with or without a network")
 
-    // 日语 - the second entry of the table, and one that has to be fetched.
-    CandidateTranslationPreference.secondaryIndex = 1
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: true), 1,
+    // 手机只显示一种候选翻译：设了第二种语言也不多留一行。
+    let japanese = CandidateTranslationPreference.languages.firstIndex { $0.code == "JA" } ?? 1
+    CandidateTranslationPreference.secondaryIndex = japanese
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: true), 1,
+                   "a second language never adds a row on the phone")
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: false, offline: ["JA"]), 1,
+                   "not even when its dictionary is installed")
+
+    // 日语 as the only language - one that has to be fetched.
+    CandidateTranslationPreference.secondaryIndex = -1
+    CandidateTranslationPreference.primaryIndex = japanese
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: true), 0,
                    "no full access means no network, so that row could never be filled")
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: true), 2,
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: true), 1,
                    "the row appears once the gloss can be reached")
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: false), 1,
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: false), 0,
                    "no translation service is chosen, so the Japanese row could never be filled")
     CandidateTranslationPreference.onlineEnabled = false
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: true), 1,
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: true), 0,
                    "the user turned the network off, which is the same answer as not having one")
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: false, offline: ["JA"]), 2,
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: false, offline: ["JA"]), 1,
                    "an installed Japanese dictionary fills that row without any network")
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: false, offline: ["FR"]), 1,
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: false, offline: ["FR"]), 0,
                    "a dictionary for a language nobody picked reserves nothing")
   }
 

@@ -26,6 +26,7 @@ def main() -> int:
     for source, text in texts.items():
         if "TextPolicy.lowercaseTrimmed(" not in text:
             errors.append(f"{source}: Android 文本调用点应直接复用 TextPolicy.lowercaseTrimmed")
+
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

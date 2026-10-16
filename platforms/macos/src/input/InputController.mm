@@ -1282,11 +1282,6 @@ static NSImage *MSIMECandidateLogoImage() {
     NSMutableDictionary<NSString *, NSString *> *_englishPronunciations;
     NSMutableSet<NSString *> *_pronunciationPending;
     NSMutableDictionary<NSString *, NSString *> *_romajiCache;
-    // Sentences no dictionary has whole: their word-by-word breakdown from the shared tables (text -> line, "" for
-    // none). Keyed by text, it outlives a composition; the pending set keeps a text from being asked twice while an
-    // answer is on its way.
-    NSMutableDictionary<NSString *, NSString *> *_breakdowns;
-    NSMutableSet<NSString *> *_breakdownPending;
     MSIMECustomTranslationBatch *_customBatch;
     NSMutableArray<MSIMECustomTranslationBatch *> *_customBatches;
     // Batches whose page went away while a paid request was in flight. They are held here until that request lands, so its answer still reaches the cache and the glossary (Windows' cloud worker caches before its staleness check, cloud_translation.cpp); a batch deallocated early would cancel it.
@@ -6714,76 +6709,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self synchronizeCustomTranslations];
     [self synchronizeAITranslations];
     [self synchronizePronunciation];
-    [self synchronizeGlossBreakdowns];
     if (!nested) [self invalidateServiceSnapshots];
-}
-
-// A candidate is a sentence to break down when it is 2 to 32 Han characters, the shared rule of
-// msime_client_gloss_breakdown_request.
-static BOOL MSIMESentenceCandidateText(NSString *text) {
-    if (![text isKindOfClass:NSString.class]) return NO;
-    NSUInteger count = 0;
-    BOOL han = YES;
-    for (NSUInteger index = 0; index < text.length && han;) {
-        const NSRange range = [text rangeOfComposedCharacterSequenceAtIndex:index];
-        UTF32Char character = 0;
-        [text getBytes:&character maxLength:sizeof(character) usedLength:NULL encoding:NSUTF32LittleEndianStringEncoding
-               options:0 range:range remainingRange:NULL];
-        han = (character >= 0x3400 && character <= 0x4DBF) || (character >= 0x4E00 && character <= 0x9FFF) ||
-              (character >= 0xF900 && character <= 0xFAFF) || (character >= 0x20000 && character <= 0x2FA1F);
-        ++count;
-        index = NSMaxRange(range);
-    }
-    return han && count >= 2 && count <= 32;
-}
-
-// The word-by-word line under `candidate`, or empty while glosses are off or it has none.
-- (NSString *)breakdownForCandidate:(NSDictionary *)candidate {
-    if (!_glossRequest || ![candidate[@"text"] isKindOfClass:NSString.class]) return @"";
-    return _breakdowns[candidate[@"text"]] ?: @"";
-}
-
-// Asks the shared tables for the breakdown of every sentence on the page not yet known, then redraws. Answers are
-// keyed by text and cached, an empty string meaning the tables have none.
-- (void)synchronizeGlossBreakdowns {
-    NSDictionary *request = [self currentGlossRequest];
-    if (!request) return;
-    NSString *resources = [_session.hostOptions[@"resources"] copy];
-    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) return;
-    if (!_breakdowns || _breakdowns.count > 4096) _breakdowns = [NSMutableDictionary dictionary];
-    if (!_breakdownPending) _breakdownPending = [NSMutableSet set];
-    NSMutableOrderedSet<NSString *> *sentences = [NSMutableOrderedSet orderedSet];
-    for (NSDictionary *candidate in request[@"candidates"])
-        if (MSIMESentenceCandidateText(candidate[@"text"])) [sentences addObject:candidate[@"text"]];
-    NSMutableArray<NSString *> *missing = [NSMutableArray array];
-    for (NSString *text in sentences)
-        if (!_breakdowns[text] && ![_breakdownPending containsObject:text]) [missing addObject:text];
-    if (!missing.count) return;
-    [_breakdownPending addObjectsFromArray:missing];
-    if (!_pronunciationQueue) {
-        _pronunciationQueue = [NSOperationQueue new];
-        _pronunciationQueue.maxConcurrentOperationCount = 1;
-        _pronunciationQueue.qualityOfService = NSQualityOfServiceUtility;
-    }
-    NSDictionary *ask = @{@"generation": [self serviceSnapshotQuery][@"generation"] ?: @0, @"texts": [missing copy]};
-    NSArray<NSString *> *asked = [missing copy];
-    __weak MSIMEInputController *weakSelf = self;
-    [_pronunciationQueue addOperationWithBlock:^{
-        NSDictionary *result = [MSIMEClientSession glossBreakdownRequest:ask resources:resources error:nil];
-        NSMutableDictionary<NSString *, NSString *> *answered = [NSMutableDictionary dictionary];
-        for (NSDictionary *entry in [result[@"breakdowns"] isKindOfClass:NSArray.class] ? result[@"breakdowns"] : @[])
-            if ([entry[@"text"] isKindOfClass:NSString.class] && [entry[@"breakdown"] isKindOfClass:NSString.class])
-                answered[entry[@"text"]] = entry[@"breakdown"];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            MSIMEInputController *current = weakSelf;
-            if (!current) return;
-            for (NSString *text in asked) {
-                current->_breakdowns[text] = answered[text] ?: @"";
-                [current->_breakdownPending removeObject:text];
-            }
-            if (current->_activeClient && answered.count) [current renderCandidates];
-        });
-    }];
 }
 
 // How the gloss lines of `candidate` are read, "\n"-joined parallel to them; empty while the switch is off or nothing is known.
@@ -6907,9 +6833,8 @@ static BOOL MSIMESentenceCandidateText(NSString *text) {
         [scriptAnnotations addObject:scriptAnnotation];
         // 按画出来的样子量：读音和插件注释都算进释义行，行的宽高才和按钮画的释义行一致。
         NSString *pronunciation = [self pronunciationForCandidate:candidate];
-        NSString *breakdown = [self breakdownForCandidate:candidate];
-        [translations addObject:MSIMECandidateGlossWithScriptAnnotation(pronunciation.length || breakdown.length
-            ? MSIMECandidateGlossRun(reading, MSIMECandidateGlossDisplay(CandidateTranslation(candidate), pronunciation, breakdown, nil, nil))
+        [translations addObject:MSIMECandidateGlossWithScriptAnnotation(pronunciation.length
+            ? MSIMECandidateGlossRun(reading, MSIMECandidateGlossDisplay(CandidateTranslation(candidate), pronunciation, nil, nil))
             : gloss, scriptAnnotation)];
         NSString *tip = MSIMECandidateGlossWithScriptAnnotation(gloss, scriptAnnotation);
         [tooltips addObject:tip.length ? [NSString stringWithFormat:@"%@\n%@", hanjaReadings ? text : display, tip] : display];
@@ -7121,13 +7046,12 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     button.glossReading = geometry.readings[slot];
     button.scriptAnnotation = scriptAnnotation;
     button.pronunciation = [self pronunciationForCandidate:candidate];
-    button.breakdown = [self breakdownForCandidate:candidate];
     button.armedGlossColumn = _armedGlossColumn;
     button.translationFont = glossFont;
     button.itemLayout = row.item;
     button.hasItemLayout = YES;
     button.contentLeft = geometry.contentLeft;
-    button.translationBelow = MSIMECandidateGlossRun(button.glossReading, button.translation).length || button.breakdown.length || scriptAnnotation.length ? row.item.translation.below : !vertical;
+    button.translationBelow = MSIMECandidateGlossRun(button.glossReading, button.translation).length || scriptAnnotation.length ? row.item.translation.below : !vertical;
     button.toolTip = geometry.tooltips[slot];
     button.bordered = NO;
     button.candidateHighlighted = MSIMEStrictBoolean(candidate[@"highlighted"]);

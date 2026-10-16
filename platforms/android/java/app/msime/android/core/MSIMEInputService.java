@@ -2349,15 +2349,11 @@ public final class MSIMEInputService extends InputMethodService {
         userTranslationAppliedGeneration = -1L;
     }
 
+    /** 只取主目标语言：触屏键盘不显示第二种候选翻译（见 {@link CandidateTranslationPolicy#MAX_TARGETS}）。 */
     private java.util.List<String> translationTargetsFrom(JSONObject preferences) {
         String primary = preferences == null ? "en"
             : InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
-        String secondary = "";
-        if (preferences != null) {
-            Object value = preferences.opt("translation_secondary_language");
-            if (value instanceof String) secondary = (String) value;
-        }
-        return CandidateTranslationPolicy.targets(primary, secondary);
+        return CandidateTranslationPolicy.targets(primary);
     }
 
     private void applyWubiCodeHintPreference(JSONObject preferences) {

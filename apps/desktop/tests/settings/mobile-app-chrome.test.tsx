@@ -140,10 +140,11 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   expect(within(phoneSettings).queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
   expect(within(phoneSettings).queryByRole("button", { name: "快捷键" })).toBeNull();
   expect(within(phoneSettings).queryByRole("button", { name: "外接键盘快捷键" })).toBeNull();
-  // 手机把候选翻译放在 输入 页的 翻译 分组里。
+  // 手机把候选翻译放在 输入 页的 翻译 分组里，只显示一种候选翻译，没有第二种语言。
   fireEvent.click(within(phoneSettings).getByRole("button", { name: "输入" }));
   selectSettingsTab("候选释义");
-  expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "候选词翻译目标语言" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
 });
 
 test("Harmony appearance names only the surfaces the form factor actually has", async () => {
