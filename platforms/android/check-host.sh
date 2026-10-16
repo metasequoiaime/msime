@@ -510,6 +510,12 @@ if rg -n 'KOREAN_SCHEME' <(sed -n '/void scheduleCandidateGlosses()/,/^    }$/p;
   echo "Android must gloss Korean Hanja rows and draw their 훈음 on its own reserved row" >&2
   exit 1
 fi
+# 手机上只显示一种候选翻译：键盘不读第二种语言偏好，目标语言只从主目标语言算出，否则请求第二种语言、候选栏多预留一行释义。
+if rg -n 'translation_secondary_language' "$repo_root/platforms/android/java" \
+  || ! rg -qF 'return CandidateTranslationPolicy.targets(primary);' "$account_service"; then
+  echo "Android touch keyboards must request and reserve only the primary translation language" >&2
+  exit 1
+fi
 if ! rg -q '<asr_text>' \
     "$repo_root/platforms/android/java/app/msime/android/voice/VoicePolishPolicy.java"; then
   echo "Android polish must wrap the transcript in the boundary the presets name" >&2
