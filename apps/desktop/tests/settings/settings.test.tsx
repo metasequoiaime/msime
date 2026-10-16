@@ -2179,7 +2179,7 @@ test("the macOS shortcuts page omits the maintenance chords and 维护与诊断 
 });
 
 test("Linux restart copy covers both input method frameworks", async () => {
-  // The page cannot tell whether IBus or Fcitx5 is running, so the copy has to be true for both: IBus restarts its service, Fcitx5 resets the MSIME addon in process.
+  // 页面不判断当前运行 IBus 还是 Fcitx5，提示同时说明服务重启与插件会话重建。
   const restartInputMethod = vi.fn().mockResolvedValue(undefined);
   render(
     <SettingsPage
@@ -2191,6 +2191,7 @@ test("Linux restart copy covers both input method frameworks", async () => {
       }}
     />,
   );
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(
     await screen.findByText(

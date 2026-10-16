@@ -28,6 +28,10 @@ Status: implemented
 
 迁移前 3 文件 34 项基线通过；新增 9 项直接组件测试先因公共组件不存在而失败，迁移后 4 文件 42 项通过。直接使用包入口，覆盖展示、类型文案、说明回退、作者与下架标记、评分收藏数、字素首字、胶囊三态、打开与添加事件。禁用按钮使用 DOM 原生 `click()`，避免合成事件绕过浏览器禁用规则。桌面类型检查与生产构建、HarmonyOS 类型检查通过；机械比对确认两种展示的实现与页面正文保持，只改组件引用。完整社区套件 87 文件 431 项通过。独立审查通过，无待修问题；格式、lint、笔记与差异检查通过。`bash scripts/verify-local.sh --quick` 退出 0，契约检查、Rust workspace、Android Rust target、Harmony 设置打包与共享 Apple bridge 通过。桌面 Rust 外壳缺 macOS app bundle，Harmony ArkTS 真编译、Linux 桌面外壳和 Windows 原生宿主缺本机环境而跳过，其余未受影响平台按范围跳过。
 
+## CI 中发现的既有测试时序
+
+前两次完整 CI 均只有 `Linux restart copy covers both input method frameworks` 失败：宿主调用已发生，成功提示未被观察到。本片社区测试全部通过，该用例单独运行及整个设置页 386 项在本机均通过。测试在设置初始异步加载完成前点击导航，违背同文件 `settingsReady()` 和公共 `settingsFormReady()` 已记录的交互起点。用例现复用该就绪条件后再进入维护页，保留原服务文案、宿主调用与成功提示断言，不扩大超时或改变产品生命周期。修正后目标用例、格式、lint、独立审查与 quick 复查通过。
+
 ## Consequences
 
 其他共享界面可独立使用两种资源展示，页面负责资源及动作接线；代价是新增公开组件与 props 契约。组件只发出原回调，不接管异步添加、提示、历史或请求代次；不改变原生资源、文件读写、权限或协议。页面与 hook 保留原有 API，桌面和鸿蒙的 DOM、样式及可访问名称不变。
