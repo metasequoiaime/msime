@@ -1540,6 +1540,10 @@ export {
 } from "./community/candidate-skin-publish-dialog";
 export { CommunityPluginsPage } from "./community/community-plugins";
 export {
+  CommunityPluginCard,
+  type CommunityPluginCardProps,
+} from "./community/community-plugin-card";
+export {
   CommunityPluginDetail,
   type CommunityPluginDetailProps,
 } from "./community/community-plugin-detail";
