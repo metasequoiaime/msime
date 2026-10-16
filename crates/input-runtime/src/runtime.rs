@@ -2092,6 +2092,14 @@ impl<E: InputEngine> Runtime<E> {
         self.advance()?;
         // Invalidate the client before cancellation, including on engine failure.
         self.focused = false;
+        // 获得焦点只重置组字，不送出旧词段；先清掉暂存和撤回记录，取消或刷新失败也不能在下一次聚焦时补交。
+        if focused {
+            self.phrase_selections.clear();
+            if !self.phrase_prefix.is_empty() {
+                self.phrase_prefix.clear();
+                self.bump_composition_epoch();
+            }
+        }
         // A Korean syllable is text the user already wrote, not a reading still to be converted, so leaving the client commits it, as it does for every scheme that commits on blur; every other composition is cancelled. Attaching a client (`focused`) stays a pure reset: a syllable typed in the previous client must never be written into the new one.
         let commits_on_blur = !focused
             && scheme_type(self.cached.scheme).is_some_and(SchemeType::commits_on_blur)
@@ -2116,8 +2124,7 @@ impl<E: InputEngine> Runtime<E> {
         if let Some(error) = refresh_error {
             result.diagnostic = format!("Candidate refresh failed: {error}");
         }
-        // Leaving the client cancels the composition, but a phrase piece being held back is text
-        // the user chose and, before it was held back, would already be in the document. Send it.
+        // 失焦时送出用户已经选好的暂存段；获得焦点时旧词段已丢弃，不会产生提交。
         self.hold_phrase_progress(false, false, false, "", &mut result);
         self.focused = focused;
         // A different client is a different sentence, so context never leaks

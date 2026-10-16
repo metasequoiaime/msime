@@ -2361,6 +2361,42 @@ fn phrase_runtime(reading: &str, consumes: Vec<usize>) -> Runtime<PhraseEngine> 
     runtime
 }
 
+#[test]
+fn taking_focus_discards_held_phrase_even_if_refresh_fails() {
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words: vec!["海滩".into()],
+            remaining_after_select: Some("paobu".into()),
+            ..Fixture::default()
+        },
+        5,
+    )
+    .unwrap();
+    runtime.set_phrase_preedit(true);
+    runtime.focus(true).unwrap();
+    for value in *b"haitanpaobu" {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap();
+    }
+    let selected = runtime.view().candidates[0].id;
+    let held = runtime.dispatch(Action::Select(selected)).unwrap();
+    assert_eq!(held.view.phrase_prefix, "海滩");
+    assert_eq!(runtime.phrase_selections.len(), 1);
+    runtime.engine.snapshot_fails = true;
+
+    assert!(runtime.focus(true).is_err());
+
+    assert!(runtime.phrase_prefix.is_empty());
+    assert!(runtime.phrase_selections.is_empty());
+    runtime.engine.snapshot_fails = false;
+    assert!(runtime.focus(true).unwrap().commit.is_none());
+}
+
 // A Ctrl+Backspace that empties the reading does not end the phrase: the chosen piece stays in the composition with its selection, as the reference's `keep_creating_word_after_empty_raw` keeps it (MSIME-Windows server/src/ipc/event_listener.cpp, pinned by `ShouldRetreatCreatingWordSelection(true, false, true, 0, 0, 1)` and `ShouldDropCreatingWordSegment(true, false, true, 0, 1)` in test_input_key_policy.cpp). Every follow-up key then acts on that phrase.
 #[test]
 fn a_segment_backspace_that_empties_the_reading_keeps_the_phrase() {

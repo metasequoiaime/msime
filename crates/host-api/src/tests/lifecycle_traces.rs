@@ -384,6 +384,89 @@ fn focus_loss_ends_the_composition_before_focus_out_and_its_commit_is_silent() {
     read(msime_client_destroy(handle));
 }
 
+#[test]
+fn taking_focus_discards_held_phrase_while_leaving_focus_commits_it() {
+    for focused in [true, false] {
+        for empty_reading in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let handle =
+                golden_pinyin_host_with_phrase_preedit(dir.path(), chinese_preferences(), true);
+            let trace = record(handle, FEEDBACK);
+            for &key in b"nihao" {
+                letter(handle, key);
+            }
+            let view = read(msime_client_view(handle))["value"].clone();
+            let seat = view["candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .position(|candidate| candidate["text"] == "你")
+                .unwrap_or_else(|| panic!("{view}"));
+            let held = read(msime_client_select(
+                handle,
+                view["generation"].as_u64().unwrap(),
+                seat,
+            ));
+            assert_eq!(held["value"]["commit"], Value::Null, "{held}");
+            assert_eq!(held["value"]["view"]["phrase_prefix"], "你", "{held}");
+            assert_eq!(held["value"]["view"]["editing_text"], "hao", "{held}");
+            let generation = held["value"]["view"]["generation"].as_u64().unwrap();
+            if empty_reading {
+                let kept = read(msime_client_command(handle, 12));
+                assert_eq!(kept["value"]["view"]["phrase_prefix"], "你", "{kept}");
+                assert_eq!(kept["value"]["view"]["editing_text"], "", "{kept}");
+                assert_eq!(kept["value"]["commit"], Value::Null, "{kept}");
+            }
+            trace.borrow_mut().clear();
+
+            let reset = read(msime_client_focus(handle, focused));
+
+            assert_eq!(reset["ok"], true, "{reset}");
+            assert_eq!(
+                reset["value"]["commit"],
+                if focused { Value::Null } else { json!("你") },
+                "{reset}"
+            );
+            assert_eq!(reset["value"]["view"]["editing_text"], "", "{reset}");
+            assert!(
+                reset["value"]["view"]["phrase_prefix"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .is_empty(),
+                "{reset}"
+            );
+            let mut expected = Vec::new();
+            if !focused {
+                expected.push("commit{FocusLoss}");
+            }
+            expected.push("end{Focus}");
+            if !empty_reading {
+                expected.push("hidden{Focus}");
+            }
+            expected.push(if focused { "focus_in" } else { "focus_out" });
+            assert_eq!(names(&trace), expected);
+            if !focused {
+                assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+            }
+            assert_eq!(
+                read(msime_client_select(handle, generation, 0))["ok"],
+                false
+            );
+            let backspace = read(msime_client_command(handle, 0));
+            assert_eq!(
+                backspace["value"]["view"]["editing_text"], "",
+                "{backspace}"
+            );
+            for &key in b"hao" {
+                letter(handle, key);
+            }
+            let committed = read(msime_client_command(handle, 1));
+            assert_eq!(committed["value"]["commit"], "好", "{committed}");
+            read(msime_client_destroy(handle));
+        }
+    }
+}
+
 /// 命令 20 是宿主替失焦结束组字（macOS 的 `commitComposition:`）：对会话同命令 9，上的是同一段文字，但来源记 FocusLoss，不可改写、不出提交音也不画；同一段组字用命令 9 结束则照常出声、画。
 #[test]
 fn a_finish_on_focus_loss_commits_like_a_finish_but_silently() {
