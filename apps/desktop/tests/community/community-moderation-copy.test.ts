@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 
-test("candidate and screen skin pages reuse moderation controls", () => {
+test("candidate and shared skin detail pages reuse moderation controls", () => {
   const screen = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/community/community-skins.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/community/community-skin-detail.tsx", {
       eager: true,
       query: "?raw",
       import: "default",

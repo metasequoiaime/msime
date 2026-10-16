@@ -1,20 +1,16 @@
 // Source: MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0
 // (`SkinCommunityView.swift`, `CommunityGalleryStyle.swift`).
-import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import { communityPublishLoginAction } from "./community-helpers";
-import { CommunityDetailSummary } from "./community-detail-summary";
-import { CommunityDetailFrame } from "./community-detail-frame";
+import { CommunitySkinDetail } from "./community-skin-detail";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 export { CommunityHarmonySearch } from "./community-search-form";
 export { CommunityHarmonyLoadMore } from "./community-gallery-load-more";
 import { CommunityScopeButtons } from "./community-scope-buttons";
-import { CommunityReportSection } from "./community-report";
 import { CommunityNotice } from "./community-notice";
 import { CommunitySkinPublishDialog } from "./community-skin-publish-dialog";
 import { CommunitySkinCard } from "./community-skin-card";
 import { CommunityHarmonySkinCard } from "./community-harmony-skin-card";
-import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityGalleryHeader } from "./community-gallery-header";
@@ -23,13 +19,9 @@ import { CommunityPageShell } from "./community-page-shell";
 import { ActionButton } from "../core/action-button";
 import { useToast } from "../core/toast";
 import type { Preferences } from "../core/preferences-model";
-import {
-  CommunitySkinCategoryFilter,
-  CommunitySkinCategorySelect,
-} from "./community-skin-category";
+import { CommunitySkinCategoryFilter } from "./community-skin-category";
 import {
   communitySkinCategories,
-  communitySkinCategoryLabel,
   communitySkinCategoryLabels,
 } from "./community-skin-category-model";
 import { useCommunitySkinLibrary } from "./use-community-skin-library";
@@ -131,82 +123,27 @@ export function CommunitySkinsPage({
 
   if (selected)
     return (
-      <CommunityDetailFrame
-        backDisabled={actionBusy}
-        onBack={() => void closeDetail()}
+      <CommunitySkinDetail
+        skin={selected}
+        theme={theme}
+        actionBusy={actionBusy}
+        detailBusy={detailBusy}
+        actionNotice={actionNotice}
+        confirmUnpublish={confirmUnpublish}
+        trial={trial}
         error={error}
         signInRequired={signInRequired}
         onLogin={onLogin}
-      >
-        <div className={style.detailStage}>
-          <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={selected.design} />
-        </div>
-        <CommunityDetailSummary
-          title={selected.name}
-          noteParts={[communitySkinCategoryLabel(selected.category), selected.author]}
-          owned={selected.owned}
-          moderation={selected.moderation}
-          description={selected.description}
-          downloads={selected.downloads}
-          ratingCount={selected.rating_count}
-          ratingAverage={selected.rating_average}
-          myRating={selected.my_rating}
-          detailBusy={detailBusy}
-          actionNotice={actionNotice}
-          loadingText="正在读取皮肤详情…"
-        />
-        {!trial && (
-          <ActionButton
-            action={() => void download()}
-            className={`primary ${style.action}`}
-            disabled={actionBusy || detailBusy}
-            label="下载并试用"
-          />
-        )}
-        {trial && (
-          <div
-            className={`${style.divided} grid grid-cols-2 gap-2 [&>p]:col-span-full [&>p]:mt-0 [&>p]:mb-2.5 [&>p]:text-xs [&>p]:text-secondary`}
-            aria-label="皮肤试用"
-          >
-            <p>正在试用：{trial.name}</p>
-            <ActionButton
-              action={() => void finishTrial(false)}
-              className="secondary"
-              disabled={actionBusy}
-              label="恢复原皮肤"
-            />
-            <ActionButton
-              action={() => void finishTrial(true)}
-              className="primary"
-              disabled={actionBusy}
-              label="保留使用"
-            />
-          </div>
-        )}
-        {selected.owned && (
-          <CommunitySkinCategorySelect
-            ariaLabel="修改分类"
-            value={selected.category ?? "other"}
-            disabled={actionBusy || detailBusy}
-            onChange={(next) => void changeOwnCategory(next)}
-          />
-        )}
-        <CommunityModerationSection
-          owned={selected.owned}
-          actionBusy={actionBusy}
-          ratingDescription="我的评分（下载后可评，可重新选择）"
-          unpublishMessage={`下架后其他用户无法再下载，已下载的本地皮肤会保留。确定下架“${selected.name}”吗？`}
-          unpublishDisabled={Boolean(trial)}
-          confirmUnpublish={confirmUnpublish}
-          onRate={(stars) => void rateSelected(stars)}
-          onRequestUnpublish={() => setConfirmUnpublish(true)}
-          onUnpublish={() => void unpublish()}
-          onCancelUnpublish={() => setConfirmUnpublish(false)}
-        />
-        {!selected.owned && client.report && (
-          <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
-        )}
-      </CommunityDetailFrame>
+        onBack={() => void closeDetail()}
+        onDownload={() => void download()}
+        onFinishTrial={(keep) => void finishTrial(keep)}
+        onChangeCategory={(next) => void changeOwnCategory(next)}
+        onRate={(stars) => void rateSelected(stars)}
+        onRequestUnpublish={() => setConfirmUnpublish(true)}
+        onUnpublish={() => void unpublish()}
+        onCancelUnpublish={() => setConfirmUnpublish(false)}
+        onReport={client.report ? reportSelected : undefined}
+      />
     );
 
   const publishDialog = publishOpen && localSkinLibrary && (

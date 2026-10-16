@@ -12,7 +12,7 @@ test("all community detail pages reuse the shared detail header", () => {
     ),
   )[0];
   const skins = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/community/community-skins.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/community/community-skin-detail.tsx", {
       eager: true,
       query: "?raw",
       import: "default",

@@ -1250,6 +1250,10 @@ export {
   type TsfPreeditStyle,
 } from "./settings/preedit-settings-section";
 export { CommunitySkinsPage } from "./community/community-skins";
+export {
+  CommunitySkinDetail,
+  type CommunitySkinDetailProps,
+} from "./community/community-skin-detail";
 export { CommunitySkinCard, type CommunitySkinCardProps } from "./community/community-skin-card";
 export {
   useCommunitySkinGallery,
