@@ -5533,6 +5533,109 @@ static void *MonitoredSourceProperty(TISInputSourceRef source, CFStringRef key) 
 }
 static void DrainMainQueue();
 
+// 不回读文档的客户端：Electron/Chromium 一类聊天应用常常对 attributedSubstringFromRange: 什么也不给，智能标点只能靠影子记下的前一个字符。
+@interface UnreadableShortcutClient : ShortcutClient
+@end
+@implementation UnreadableShortcutClient
+- (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
+    (void)range;
+    ++self.documentReads;
+    return nil;
+}
+@end
+
+// 用户在五笔下连着打 `0.10.1`，智能标点开着却得到 `0。10。1`。这里按用户的偏好建真会话，从 handleEvent: 一路打进去：控制器不收的键由应用自己写进文档，和真实宿主一样。全拼做对照。`typed` 只含数字和句号。
+static NSString *TypeThroughRealSession(NSString *scheme, ShortcutClient *client, NSString *typed, BOOL chinesePunctuation) {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSDictionary *preferences = @{
+        @"scheme": scheme, @"wubi_profile": @"wubi86", @"default_ime_mode": @"chinese", @"candidate_page_size": @6,
+        @"learning": @NO, @"chinese_punctuation": @(chinesePunctuation), @"punctuation_lock": @"follow",
+        @"wubi_mixed_pinyin": @YES, @"wubi_auto_commit_unique": @YES, @"wubi_code_hint": @YES,
+        @"number_row_selection": @YES, @"smart_punctuation": @YES, @"smart_punctuation_direct_digit": @YES,
+        @"smart_punctuation_direct_letter": @YES, @"smart_punctuation_repeat": @YES,
+        @"smart_punctuation_space_convert": @NO, @"paired_punctuation": @YES, @"character_width": @"halfwidth"};
+    NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": preferences} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    NSError *error = nil;
+    MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+    assert(session && !error);
+    NSDictionary *view = [session setFocused:YES error:&error][@"view"];
+    assert(view && !error);
+
+    NSString *suite = [@"msime.smart-punctuation-version." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:root]];
+    [prefs applySharedInputPreferences:preferences];
+    assert(prefs.smartPunctuation && prefs.smartPunctuationRepeatToChinese && prefs.runtimeChinesePunctuation == chinesePunctuation);
+    client.document = @"";
+    client.selection = NSMakeRange(0, 0);
+    client.caret = NSMakeRect(100, 100, 1, 16);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:view forKey:@"view"];
+    [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+
+    for (NSUInteger index = 0; index < typed.length; ++index) {
+        NSString *character = [typed substringWithRange:NSMakeRange(index, 1)];
+        static NSDictionary<NSString *, NSNumber *> *const codes = @{@"0": @29, @"1": @18, @".": @47};
+        assert(codes[character]);
+        // 控制器不收的键由应用照原样写进文档。
+        if (![controller handleEvent:KeypadKey(codes[character].unsignedShortValue, character, 0, NO) client:client])
+            [client insertText:character replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    }
+    assert(client.marked.length == 0);
+    assert([session closeWithError:&error] && !error);
+    return client.document;
+}
+
+static void AssertTypedThroughRealSession(NSString *scheme, ShortcutClient *client, NSString *typed, BOOL chinesePunctuation, NSString *expected) {
+    NSString *document = TypeThroughRealSession(scheme, client, typed, chinesePunctuation);
+    if (![document isEqual:expected])
+        fprintf(stderr, "smart punctuation: scheme=%s client=%s typed=%s document=%s expected=%s\n", scheme.UTF8String,
+                NSStringFromClass(client.class).UTF8String, typed.UTF8String, document.UTF8String, expected.UTF8String);
+    assert([document isEqual:expected]);
+}
+
+// 没有组字时智能标点判为 ASCII，Engine 把键交回宿主；宿主要自己写出字面标点，不能再把键交给后面的普通标点路线，否则 Engine 照常写成中文标点。读不回文档的客户端靠影子判断，结果一样。
+static void TestSmartPunctuationVersionNumberThroughRealSession() {
+    for (NSString *scheme in @[@"quanpin", @"wubi"]) {
+        for (Class type in @[ShortcutClient.class, UnreadableShortcutClient.class]) {
+            AssertTypedThroughRealSession(scheme, [type new], @"0.10.1", YES, @"0.10.1");
+            // 前面没有数字或字母的句号仍是中文句号。
+            AssertTypedThroughRealSession(scheme, [type new], @".", YES, @"。");
+            // 中文标点关着时 Engine 同样把键交回，打出来的本来就是 ASCII，连按不武装改中文的手势。
+            AssertTypedThroughRealSession(scheme, [type new], @"0..", NO, @"0..");
+        }
+        // 两秒内紧接着再按同一个键，刚写出的 ASCII 句号改成中文句号；中间打过别的键（上面的 `0.10.1`）就不算连按。
+        AssertTypedThroughRealSession(scheme, [ShortcutClient new], @"0..", YES, @"0。");
+    }
+
+    // 诊断日志开着时每次判断记一行：前一个字符的来源和类别、判断结果，不记字符本身。
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    msime_macos_diagnostic_configure(root.fileSystemRepresentation, true);
+    AssertTypedThroughRealSession(@"wubi", [UnreadableShortcutClient new], @"0.10.", YES, @"0.10.");
+    AssertTypedThroughRealSession(@"wubi", [ShortcutClient new], @".", YES, @"。");
+    msime_macos_diagnostic_configure(root.fileSystemRepresentation, false);
+    NSString *log = [NSString stringWithContentsOfFile:[root stringByAppendingPathComponent:@"diagnostic.log"]
+                                              encoding:NSUTF8StringEncoding error:nil];
+    NSArray<NSString *> *lines = [log componentsSeparatedByString:@"\n"];
+    NSPredicate *smart = [NSPredicate predicateWithFormat:@"SELF CONTAINS '[smart-punctuation]'"];
+    NSArray<NSString *> *decisions = [lines filteredArrayUsingPredicate:smart];
+    assert(decisions.count == 3);
+    assert([decisions[0] hasSuffix:@"[smart-punctuation] composing=0 shadow=digit preceding=shadow:digit decision=ascii_literal"]);
+    assert([decisions[1] hasSuffix:@"[smart-punctuation] composing=0 shadow=digit preceding=shadow:digit decision=ascii_literal"]);
+    assert([decisions[2] hasSuffix:@"[smart-punctuation] composing=0 shadow=invalid preceding=document:none decision=engine"]);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
 // What an editor receives, driven through the real engine.
 //
 // Every other controller test here hands the controller a stand-in session, and the tests that drive a real
@@ -11701,6 +11804,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestApplicationInputModeRuleEditsKeepDocumentTable(); }
         @autoreleasepool { TestInputSourceModeReset(); }
         @autoreleasepool { TestRealSessionComposition(); }
+        @autoreleasepool { TestSmartPunctuationVersionNumberThroughRealSession(); }
         @autoreleasepool { TestModifierTaps(); }
         @autoreleasepool { TestInputModeStatusItem(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
