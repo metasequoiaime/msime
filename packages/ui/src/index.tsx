@@ -675,6 +675,23 @@ export {
   CLOUD_PANEL_SESSION_NOTE,
 } from "./settings/cloud-panel-session-notice";
 export {
+  cloudClipboardRelayConfigured,
+  cloudClipboardRelayTokenIssue,
+  cloudClipboardRelayUrlIssue,
+  withCloudClipboardRelay,
+  type CloudClipboardRelayPreferences,
+} from "./settings/cloud-clipboard-relay";
+export {
+  CloudClipboardRelaySection,
+  type CloudClipboardRelaySectionProps,
+} from "./settings/cloud-clipboard-relay-section";
+export {
+  useCloudClipboardRelay,
+  type UseCloudClipboardRelayOptions,
+  type CloudClipboardRelayState,
+  type CloudClipboardSyncMode,
+} from "./settings/use-cloud-clipboard-relay";
+export {
   CLOUD_CLIPBOARD_DISABLED,
   CLOUD_CLIPBOARD_MAX_UTF16,
   CLOUD_CLIPBOARD_PENDING,
