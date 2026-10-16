@@ -43,7 +43,7 @@ macOS 设置窗口的「语音输入」页有 5 个标签页、约 43 个控件�
 - 三个标志在 TS 里是可选字段，缺省按 true：只有明确报 false 的宿主收掉控件。
 - 存储里缺某个按住组合键时，设置页按 client-core 的出厂值算（只有 `hotkey_ralt` 默认开），不再一律按开算，免得显示一个宿主上并没有生效的组合键。
 - 设置页判断存着的后端是否有效时与宿主的 `MSIMEVoiceCaptureBackendSupported` 一样不分大小写。外来后端在麦克风下拉里单独占一项「系统默认设备（已忽略其他平台的录音设置）」，选「系统默认设备」才会把它和它的设备清掉；读取设备列表失败时，存着的设备显示「未连接」，不再停在「读取中」。
-- 不迁移数据：共享文档里的 `start_sound`、`end_sound`、`hotkey_hold_space_lock`、`capture_backend` 原样保留，macOS 宿主不再读前三个，也不再把它们搬进 NSUserDefaults（`MSIMEApplySharedVoicePreferences`）或从 NSUserDefaults 写回共享文档（`MSIMEVoicePreferencesFromDefaults`，`sharedPreferencesByMerging:` 经它写回）。原生回退窗口的「按住说话时按空格锁定录音」开关、它的属性、探针和恢复默认用的键一起删掉。回退窗口本来就只有一个「播放提示音」和一个带「自动」的「录音设备」下拉，不用改。
+- 不迁移数据：共享文档里的 `start_sound`、`end_sound`、`hotkey_hold_space_lock`、`capture_backend` 原样保留，macOS 宿主不再读前三个，也不再把它们搬进 NSUserDefaults（`MSIMEApplySharedVoicePreferences`）或从 NSUserDefaults 写回共享文档（`MSIMEVoicePreferencesFromDefaults`，`sharedPreferencesByMerging:` 经它写回）。原生回退窗口的「按住说话时按空格锁定录音」开关、它的属性、探针和恢复默认用的键一起删掉。回退窗口本来就只有一个「播放提示音」和一个带「自动」的「录音设备」下拉，排版不用改；它的「录音设备」跟宿主对外来后端的处理对齐：存着外来后端时显示「自动」，在那里选了麦克风就把 `MSIMEClientVoiceCaptureBackend` 写成 `macos`（与共享页的麦克风下拉一样），仍是「自动」就后端和设备都不写（`MSIMEVoiceProviderCaptureBackendForSaving`）。否则回退窗口只写设备，选的麦克风会连同外来后端一起被忽略，录音悄悄用系统默认设备。
 
 ### Bug
 
@@ -81,5 +81,5 @@ macOS 设置窗口的「语音输入」页有 5 个标签页、约 43 个控件�
 
 - 共享设置页：`apps/desktop` 下 `pnpm typecheck` 通过；rebase 到 develop 后全量 `vitest run` 657 个文件中 653 个通过，另四个（`settings-persistence-load-reuse.test.ts`、`settings-persistence-save-generation-reuse.test.ts` 读临时缓存时 ENOENT，`community-candidate-skins.test.tsx`、`translation-settings.test.tsx` 等待超时，都与语音页无关）是在负载均值 200 以上时失败，单独重跑 106 个用例全部通过。新增或改写的用例覆盖：主页面和子视图各有哪些组、返回后回到主页面（`voice-settings-copy.test.tsx`）；macOS 不画空格锁定、提示音细分、录音后端，豆包不画识别语言和识别模型，麦克风只在子视图可见时读取；HTTP 服务的识别模型和接口地址在「更多选项」里；`desktopVoiceServiceStatus` 各分支；按住录音的选择、多开配置显示第一个且不写、改动时三个一起写（`voice-hotkeys-section.test.tsx`）；流式接口和自定义地址合成一个控件、空地址显示默认（`doubao-stream-endpoint*.test.tsx`）；缺的组合键按出厂值算（`{hotkey_ralt:false}` 显示「不使用」）；麦克风下拉的系统默认设备、未连接设备、外来后端单独一项且选系统默认能清掉、后端不分大小写、读取失败不再显示「读取中」（`voice-capture-devices-section.test.tsx`）；先改识别语言再换成豆包，保存时语言照样写进 `voice_input`（`settings.test.tsx`）；2in1 照旧显示识别语言和手机的状态文案。
 - client-core：`host_surface` 新增 `macos_alone_fixes_space_lock_cue_split_and_capture_backend`。
-- macOS 原生：`ShortcutTest.mm` 改为关掉三个按住组合键来隔离语音快捷键；`SharedVoicePreferencesTest.mm`（提示音只看总开关、三个键不再双向搬运、外来后端的设备当作系统默认）、`HTTPVoiceControllerTest.mm`、`LiveVoiceControllerTest.mm`（外来后端照常录音、交给采集的设备为 nil）、`doubao_voice_fixture.py`（未写资源 ID 时请求头是 seedasr）随改动更新。这台机器没有编译原生宿主，这些只由 CI 编译和运行。
+- macOS 原生：`ShortcutTest.mm` 改为关掉三个按住组合键来隔离语音快捷键；`SharedVoicePreferencesTest.mm`（提示音只看总开关、三个键不再双向搬运、外来后端的设备当作系统默认）、`HTTPVoiceControllerTest.mm`、`LiveVoiceControllerTest.mm`（外来后端照常录音、交给采集的设备为 nil）、`doubao_voice_fixture.py`（未写资源 ID 时请求头是 seedasr）随改动更新；`VoiceProviderSettingsKeysTest.mm` 新增回退窗口在外来后端下显示「自动」、选了麦克风把后端写成 `macos`、仍是「自动」时两个都不写。这台机器没有编译原生宿主，这些只由 CI 编译和运行。
 - 没有启动设置应用核对实际排版。

@@ -69,6 +69,17 @@ static inline NSDictionary *MSIMEVoiceProviderTokenSlotsByUpdating(id current,
     return [slots copy];
 }
 
+// 回退窗口保存时录音设备怎么写，与共享设置页的麦克风下拉一致。存着 macOS 认识的后端（空、`auto`、`macos`）时照旧写设备、不动后端。存着别的平台的后端（比如 Linux 的 `pulse`）时窗口把设备显示成「自动」，宿主经 `MSIMEVoiceCaptureDeviceUID` 同样当作系统默认设备：这时选了麦克风就把后端写成 `macos`，否则这个 CoreAudio UID 会连同外来后端一起被忽略；仍是「自动」就两个都不写，存储只在用户重新选择时改写。返回要写的后端，nil 表示后端和设备都不写。
+static inline NSString *MSIMEVoiceProviderCaptureBackendForSaving(id storedBackend, NSString *device,
+                                                                  BOOL *writeDevice)
+{
+    const BOOL supported = MSIMEVoiceCaptureBackendSupported(storedBackend);
+    const BOOL picked = device.length > 0;
+    if (writeDevice) *writeDevice = supported || picked;
+    if (supported || !picked) return nil;
+    return @"macos";
+}
+
 // Keychain accounts include the provider as well as the endpoint origin. Two
 // providers may intentionally share an OpenAI-compatible origin but must never
 // read each other's bearer token. Paths do not affect the credential origin.
