@@ -89,6 +89,34 @@ pub fn read_snapshot_file(path: &Path) -> io::Result<String> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "snapshot is not UTF-8"))
 }
 
+/// 把临时目录里校验过的快照复制到宿主选的保存位置 `destination`：先在目标旁边写完并同步一个私有的临时文件，再换入目标路径，中途任何一步失败，目标上原有的文件都原样保留。源文件经不跟随符号链接的句柄读，最多 [`MAX_SNAPSHOT_BYTES`]；目标的各级上级目录不能是符号链接（受信任的系统别名除外），目标本身是符号链接时替换链接本身，不跟随它。临时目录和保存位置可能在不同的卷上，所以是复制而不是改名。
+pub fn copy_snapshot_file(source: &Path, destination: &Path) -> io::Result<()> {
+    let parent = destination
+        .parent()
+        .filter(|parent| parent.is_absolute())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "destination has no parent"))?;
+    msime_path_trust::reject_symlinked_components(parent)?;
+    let input = file_lock::open_private_file_in(source)?;
+    let mut temporary = tempfile::Builder::new()
+        .prefix(".msime-export-")
+        .tempfile_in(parent)?;
+    let copied = io::copy(
+        &mut io::Read::take(input, MAX_SNAPSHOT_BYTES as u64 + 1),
+        temporary.as_file_mut(),
+    )?;
+    if copied > MAX_SNAPSHOT_BYTES as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "snapshot is too large",
+        ));
+    }
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist(destination)
+        .map(|_| ())
+        .map_err(|error| error.error)
+}
+
 /// 相对于已打开的父目录删除文件，父目录的路径同时被换掉也不会删到别处。
 pub fn remove_snapshot_file(path: &Path) -> io::Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));

@@ -1,6 +1,6 @@
 //! iOS 的账号设置同步：账号设置文档与 App Group 里的键盘设置、共享偏好之间的映射（client-services 的 `account::ios_settings`），与 Tauri iOS 的 `account_preferences_upload`、`account_preferences_apply` 相同。两个函数都不经过会话，联网、读会话和代次检查由宿主做，与 Android 那一对（`msime_client_account_settings_export`、`msime_client_account_settings_apply`）相同。
 //!
-//! Part of the C ABI; see the parent module for what these shims guarantee. 每个函数都读写文件，宿主在工作线程调用。
+//! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。每个函数都读写文件，宿主在工作线程调用。
 
 use super::with_bounded_bytes;
 use crate::*;
@@ -82,15 +82,14 @@ fn export(request: IosSettingsExportRequest) -> Result<Value, String> {
 
 /// 把本机的 iOS 设置导出成账号设置文档的键值。请求、返回值和错误码见头文件。
 /// # Safety
-/// `request` must point to `length` readable bytes. Null is rejected.
-/// The returned response must be released with `msime_client_string_free`.
+/// `request` 指向 `length` 个可读字节；NULL 被拒绝。返回的响应要用 `msime_client_string_free` 释放。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_account_ios_settings_export(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        // SAFETY: guaranteed by the caller contract above.
+        // SAFETY: 由上面的调用方契约保证。
         unsafe {
             with_bounded_bytes(
                 request,
@@ -158,15 +157,14 @@ fn apply(mut request: IosSettingsApplyRequest) -> Result<Value, String> {
 
 /// 把云端设置文档应用到 iOS 的键盘设置和共享偏好，分 `plan` 和 `commit` 两步。请求、返回值和错误码见头文件。
 /// # Safety
-/// `request` must point to `length` readable bytes. Null is rejected.
-/// The returned response must be released with `msime_client_string_free`.
+/// `request` 指向 `length` 个可读字节；NULL 被拒绝。返回的响应要用 `msime_client_string_free` 释放。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_account_ios_settings_apply(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        // SAFETY: guaranteed by the caller contract above.
+        // SAFETY: 由上面的调用方契约保证。
         unsafe {
             with_bounded_bytes(
                 request,
@@ -193,7 +191,7 @@ mod tests {
         request: &Value,
     ) -> Value {
         let bytes = request.to_string();
-        // SAFETY: the buffer is live for the call, and the returned string is freed below.
+        // SAFETY: 缓冲区在本次调用期间有效，返回的字符串在下面释放。
         unsafe {
             let raw = function(bytes.as_ptr(), bytes.len());
             let text = CStr::from_ptr(raw).to_str().unwrap().to_owned();
@@ -203,12 +201,12 @@ mod tests {
     }
 
     fn export_call(request: Value) -> Value {
-        // SAFETY: `call` keeps the buffer alive and frees the response.
+        // SAFETY: `call` 让缓冲区在调用期间有效，并释放响应。
         unsafe { call(msime_client_account_ios_settings_export, &request) }
     }
 
     fn apply_call(request: Value) -> Value {
-        // SAFETY: as above.
+        // SAFETY: 同上。
         unsafe { call(msime_client_account_ios_settings_apply, &request) }
     }
 

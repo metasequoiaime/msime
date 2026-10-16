@@ -8,8 +8,8 @@
 
 use super::account::account_request;
 use super::snapshot_files::{
-    cleanup_stale_scratch_files, cleanup_stale_snapshot_previews, prepare_snapshot_directory,
-    publish_snapshot_preview, read_snapshot_file, remove_snapshot_file,
+    cleanup_stale_scratch_files, cleanup_stale_snapshot_previews, copy_snapshot_file,
+    prepare_snapshot_directory, publish_snapshot_preview, read_snapshot_file, remove_snapshot_file,
     take_invalid_snapshot_previews, write_snapshot_file, MAX_SNAPSHOT_BYTES,
 };
 use super::CloudDictionaryRequest;
@@ -446,28 +446,37 @@ fn export<A: AccountApi, S: AccountSessionStorage>(
     result.map_err(|error| error.code())
 }
 
-/// 把完整云端备份直接下载到宿主给的 `destination`（绝对路径，宿主自己选的保存位置），校验以后返回 `{path, filename, snapshot}`；校验不过时删掉写出的文件。整份快照可能有 512 MiB，C ABI 用它代替把文本放进响应的 `snapshot_export`。
+/// 把完整云端备份保存到宿主给的 `destination`（绝对路径，宿主自己选的保存位置），返回 `{path, filename, snapshot}`。先下载到临时目录里的 `export-<token>.ndjson` 并校验，通过以后才复制过去换入 `destination`；未登录、令牌过期、联网失败、校验不过或复制失败时，`destination` 上原有的文件原样保留。默认文件名是固定的，覆盖上一份备份是最常见的用法，所以绝不能在失败时删掉目标。整份快照可能有 512 MiB，C ABI 用它代替把文本放进响应的 `snapshot_export`。
 pub fn export_to_file<A: AccountApi, S: AccountSessionStorage>(
     session: &BackendAccountSession<A, S>,
+    state: &CloudDictionaryState,
     destination: &Path,
 ) -> Result<Value, &'static str> {
-    if !destination.is_absolute() || destination.file_name().is_none() {
+    // 保存位置不可用时在下载之前就拒绝，不白下载一整份快照。
+    let valid_destination = destination.is_absolute()
+        && destination.file_name().is_some()
+        && destination
+            .parent()
+            .is_some_and(|parent| msime_path_trust::reject_symlinked_components(parent).is_ok());
+    if !valid_destination {
         return Err(AccountError::Invalid.code());
     }
+    let token = Uuid::new_v4();
+    prepare_snapshot_directory(&state.directory).map_err(|_| AccountError::Unavailable.code())?;
+    let path = state.directory.join(format!("export-{token}.ndjson"));
     let result = session
-        .dictionary_snapshot_to_file(destination)
-        .and_then(|_| inspect(destination));
-    match result {
-        Ok(metadata) => Ok(json!({
-            "path": destination,
-            "filename": EXPORT_FILENAME,
-            "snapshot": public_metadata(metadata),
-        })),
-        Err(error) => {
-            let _ = remove_snapshot_file(destination);
-            Err(error.code())
-        }
-    }
+        .dictionary_snapshot_to_file(&path)
+        .and_then(|_| inspect(&path))
+        .and_then(|metadata| {
+            copy_snapshot_file(&path, destination).map_err(|_| AccountError::Unavailable)?;
+            Ok(json!({
+                "path": destination,
+                "filename": EXPORT_FILENAME,
+                "snapshot": public_metadata(metadata),
+            }))
+        });
+    let _ = remove_snapshot_file(&path);
+    result.map_err(|error| error.code())
 }
 
 /// 页面选的备份文件先在本机校验，再给出云端当前的 revision，恢复时用它防止覆盖别处刚做的修改。
@@ -624,9 +633,10 @@ mod tests {
         hex::encode(Sha256::digest(body.as_bytes()))
     }
 
-    /// 记下收到的云词库调用，并用合成数据回答；云词库以外的调用都算测试失败。
+    /// 记下收到的云词库调用，并用合成数据回答；云词库以外的调用都算测试失败。`snapshot` 是下载完整快照时写出的正文，`None` 表示联网失败。
     struct FakeApi {
         calls: Arc<Mutex<Vec<String>>>,
+        snapshot: Option<String>,
     }
 
     impl FakeApi {
@@ -706,7 +716,7 @@ mod tests {
             token: &str,
         ) -> Result<u64, AccountError> {
             self.record("snapshot".into(), token);
-            let text = snapshot();
+            let text = self.snapshot.clone().ok_or(AccountError::Unavailable)?;
             std::fs::write(destination, &text).map_err(|_| AccountError::Storage)?;
             Ok(text.len() as u64)
         }
@@ -767,12 +777,20 @@ mod tests {
     type Calls = Arc<Mutex<Vec<String>>>;
 
     fn fixture() -> (Session, Calls, CloudDictionaryState, tempfile::TempDir) {
+        fixture_with(Some(signed_in()), Some(snapshot()))
+    }
+
+    fn fixture_with(
+        saved: Option<SavedAccountSession>,
+        snapshot: Option<String>,
+    ) -> (Session, Calls, CloudDictionaryState, tempfile::TempDir) {
         let calls = Calls::default();
         let session = BackendAccountSession::new(
             FakeApi {
                 calls: Arc::clone(&calls),
+                snapshot,
             },
-            MemoryStorage(Some(signed_in())),
+            MemoryStorage(saved),
         );
         let directory = tempfile::tempdir().unwrap();
         let state = CloudDictionaryState::new(directory.path().join("dictionary-snapshots"));
@@ -846,19 +864,59 @@ mod tests {
 
     #[test]
     fn a_full_backup_can_be_written_straight_to_the_chosen_file() {
-        let (session, calls, _state, directory) = fixture();
+        let (session, calls, state, directory) = fixture();
         let destination = directory.path().join("backup.ndjson");
-        let exported = export_to_file(&session, &destination).unwrap();
+        std::fs::write(&destination, "上一份合成备份\n").unwrap();
+        let exported = export_to_file(&session, &state, &destination).unwrap();
         assert_eq!(exported["path"], json!(destination));
         assert_eq!(exported["filename"], "msime-dictionary-snapshot.ndjson");
         assert_eq!(exported["snapshot"]["sha256"], body_sha256());
         assert!(exported["snapshot"].get("fileSha256").is_none());
         assert_eq!(std::fs::read_to_string(&destination).unwrap(), snapshot());
         assert_eq!(*calls.lock().unwrap(), ["snapshot"]);
+        // 中转文件用完就删。
+        let left = std::fs::read_dir(directory.path().join("dictionary-snapshots"))
+            .unwrap()
+            .count();
+        assert_eq!(left, 0);
         assert_eq!(
-            export_to_file(&session, Path::new("relative.ndjson")),
+            export_to_file(&session, &state, Path::new("relative.ndjson")),
             Err("account_invalid")
         );
+    }
+
+    #[test]
+    fn a_failed_full_backup_keeps_the_file_already_at_the_chosen_location() {
+        let previous = "上一份合成备份\n";
+        for (saved, snapshot, code) in [
+            // 没登录：还没联网就失败。
+            (None, Some(snapshot()), "account_unauthorized"),
+            // 联网失败。
+            (Some(signed_in()), None, "account_unavailable"),
+            // 下载到的不是合法快照，校验不过。
+            (
+                Some(signed_in()),
+                Some("{\"type\":\"header\"}\n".to_owned()),
+                "account_invalid",
+            ),
+        ] {
+            let (session, _calls, state, directory) = fixture_with(saved, snapshot);
+            let destination = directory.path().join("msime-dictionary-snapshot.ndjson");
+            std::fs::write(&destination, previous).unwrap();
+            assert_eq!(export_to_file(&session, &state, &destination), Err(code));
+            assert_eq!(std::fs::read_to_string(&destination).unwrap(), previous);
+            // 中转文件和目标旁边的临时文件都不留下。
+            let mut left: Vec<_> = std::fs::read_dir(directory.path())
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                .collect();
+            left.sort();
+            assert_eq!(
+                left,
+                ["dictionary-snapshots", "msime-dictionary-snapshot.ndjson"]
+            );
+            assert_eq!(std::fs::read_dir(&state.directory).unwrap().count(), 0);
+        }
     }
 
     #[test]

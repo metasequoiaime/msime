@@ -2,7 +2,7 @@
 //!
 //! 整份快照可能有 512 MiB，放不进一次响应，所以 C 上的备份与恢复走宿主给的文件路径（`snapshot_export_file`、`snapshot_restore_preview_file`、`snapshot_restore_file`），文本版的三条报 `snapshot_unavailable`。
 //!
-//! Part of the C ABI; see the parent module for what these shims guarantee.
+//! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。
 
 use super::account::session_for;
 use super::session_store::{session_source, Source};
@@ -167,7 +167,7 @@ fn run(call: CloudDictionaryCall) -> Result<Value, String> {
     let state = state_for(&snapshot_directory.ok_or_else(invalid)?)?;
     match call.action {
         Action::File(FileSnapshotAction::Export { path }) => {
-            full_backup::export_to_file(session.as_ref(), Path::new(&path))
+            full_backup::export_to_file(session.as_ref(), &state, Path::new(&path))
         }
         Action::File(FileSnapshotAction::RestorePreview { path }) => {
             full_backup::restore_preview_from_file(session.as_ref(), &state, Path::new(&path))
@@ -190,15 +190,14 @@ fn run(call: CloudDictionaryCall) -> Result<Value, String> {
 
 /// 云词库面板的一次请求。请求、各操作的返回值和错误码见头文件。会联网、读写文件，宿主在工作线程调用。
 /// # Safety
-/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
-/// The returned response must be released with `msime_client_string_free`.
+/// `request` 指向 `length` 个可读的 UTF-8 JSON 字节；NULL 被拒绝。返回的响应要用 `msime_client_string_free` 释放。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_cloud_dictionary(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        // SAFETY: forwarded from the documented caller contract.
+        // SAFETY: 由调用方契约保证。
         let call: CloudDictionaryCall = unsafe {
             with_bounded_bytes(request, length, MAX_REQUEST_BYTES, INVALID, |bytes| {
                 serde_json::from_slice(bytes).map_err(|_| INVALID.to_owned())
@@ -215,7 +214,7 @@ mod tests {
 
     fn call(request: Value) -> Value {
         let bytes = request.to_string();
-        // SAFETY: the buffer is live for the call, and the returned string is freed below.
+        // SAFETY: 缓冲区在本次调用期间有效，返回的字符串在下面释放。
         unsafe {
             let raw = msime_client_cloud_dictionary(bytes.as_ptr(), bytes.len());
             let text = CStr::from_ptr(raw).to_str().unwrap().to_owned();
@@ -312,5 +311,18 @@ mod tests {
         }));
         assert_eq!(error(cancelled), "account_unauthorized");
         assert!(snapshots.is_dir());
+        // 没登录时导出备份失败，宿主选的位置上已有的那份备份原样保留。
+        let backup = directory.path().join("msime-dictionary-snapshot.ndjson");
+        std::fs::write(&backup, "上一份合成备份\n").unwrap();
+        let exported = call(json!({
+            "directory": account,
+            "snapshot_directory": snapshots,
+            "action": { "operation": "snapshot_export_file", "path": backup },
+        }));
+        assert_eq!(error(exported), "account_unauthorized");
+        assert_eq!(
+            std::fs::read_to_string(&backup).unwrap(),
+            "上一份合成备份\n"
+        );
     }
 }
