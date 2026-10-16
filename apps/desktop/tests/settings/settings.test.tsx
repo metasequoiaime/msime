@@ -1585,7 +1585,11 @@ test("input parity controls persist cloud, translation and punctuation settings"
   });
 });
 
-test("Android candidate translations persist an optional second language", async () => {
+test("Android 只编辑首选译文语言并保留共享的第二语言", async () => {
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: { ...initial.preferences, translation_secondary_language: "ko" },
+  };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
     revision: 8,
@@ -1594,24 +1598,24 @@ test("Android candidate translations persist an optional second language", async
   render(
     <SettingsPage
       client={{
-        load: async () => initial,
+        load: async () => snapshot,
         save,
         host: testHost({ platform: "android" }),
       }}
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "表达" }));
-  const secondary = screen.getByRole("combobox", {
-    name: "候选词翻译第二种语言",
-  }) as HTMLSelectElement;
-  expect(secondary.value).toBe("");
-  fireEvent.change(secondary, { target: { value: "ja" } });
+  expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "候选词翻译目标语言" }), {
+    target: { value: "ja" },
+  });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save).toHaveBeenCalledWith(
     7,
     expect.objectContaining({
-      translation_secondary_language: "ja",
+      translation_target_language: "ja",
+      translation_secondary_language: "ko",
     }),
   );
 });
@@ -1658,7 +1662,7 @@ test("macOS candidate translations expose the shared second language", async () 
   );
 });
 
-test("mobile translation languages stay editable for offline English glosses", async () => {
+test("手机离线释义开启时可编辑首选译文语言", async () => {
   const snapshot: Snapshot = {
     ...initial,
     preferences: {
@@ -1679,19 +1683,14 @@ test("mobile translation languages stay editable for offline English glosses", a
   );
   fireEvent.click(await screen.findByRole("button", { name: "表达" }));
   const primary = screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement;
-  const secondary = screen.getByRole("combobox", {
-    name: "候选词翻译第二种语言",
-  }) as HTMLSelectElement;
+  expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
   expect([...primary.options].map((option) => option.value)).not.toContain("ru");
-  expect([...secondary.options].map((option) => option.value)).not.toContain("ru");
   expect(primary.disabled).toBe(false);
-  expect(secondary.disabled).toBe(false);
   fireEvent.click(screen.getByRole("switch", { name: "显示英文释义" }));
   expect(primary.disabled).toBe(true);
-  expect(secondary.disabled).toBe(true);
 });
 
-test("mobile preserves legacy Russian gloss values without leaking them to new pages", async () => {
+test("手机保留已存俄语释义但不污染新页面选项", async () => {
   const legacy: Snapshot = {
     ...initial,
     preferences: {
@@ -1711,10 +1710,7 @@ test("mobile preserves legacy Russian gloss values without leaking them to new p
     (screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement)
       .selectedOptions[0].textContent,
   ).toContain("已保存");
-  expect(
-    (screen.getByRole("combobox", { name: "候选词翻译第二种语言" }) as HTMLSelectElement)
-      .selectedOptions[0].textContent,
-  ).toContain("已保存");
+  expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
   first.unmount();
   render(<SettingsPage client={{ ...client, load: async () => initial }} />);
   fireEvent.click(await screen.findByRole("button", { name: "表达" }));
