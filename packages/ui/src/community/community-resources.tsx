@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { useAsyncActionRunner } from "../core/use-async-action";
 import { formatZhNumber } from "../core/format-number";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { CommunitySkinsPage } from "./community-skins";
+import { CommunityResourceDetail } from "./community-resource-detail";
 import { CommunityResourceEditor } from "./community-resource-editor";
 import { CommunitySearchForm } from "./community-search-form";
 import { type CommunitySkinClient } from "./community-skin-model";
@@ -19,20 +19,12 @@ import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-de
 import * as style from "./community-style";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
-import { CommunityMetrics } from "./community-metrics";
 import { CommunityGalleryHeader } from "./community-gallery-header";
-import { CommunityDetailHeader } from "./community-detail-header";
-import { CommunityRatingMetrics } from "./community-rating-metrics";
-import { CommunityReportSection } from "./community-report";
-import { communityReportedNotice, type CommunityReportReason } from "./community-report-model";
 import { CommunityResourceScopeButtons } from "./community-resource-scope-buttons";
 import { CommunityNotice } from "./community-notice";
-import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { ActionButton } from "../core/action-button";
-import { CommunityModerationSection } from "./community-moderation-section";
-import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
@@ -84,238 +76,6 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         人收藏
       </span>
     </CommunityCard>
-  );
-}
-
-function ResourceDetail({
-  client,
-  initial,
-  close,
-  localDictionary,
-}: {
-  client: CommunityResourceClient;
-  initial: CommunityResource;
-  close: () => void;
-  localDictionary?: CommunityLocalDictionaryClient;
-}) {
-  const [item, setItem] = useState(initial);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const {
-    busy,
-    mounted,
-    generation: clientGeneration,
-    run: runAsyncAction,
-  } = useAsyncActionRunner(setError, setNotice, client, initial.id);
-  const renderGeneration = clientGeneration.current;
-  const run = (action: (generation: number) => Promise<void>) => {
-    const generation = clientGeneration.current;
-    return runAsyncAction(() => action(generation), {
-      formatError: resourceMessage,
-    });
-  };
-  useEffect(() => {
-    const generation = clientGeneration.current;
-    void client
-      .detail(initial.id)
-      .then((value) => {
-        if (mounted.current && generation === clientGeneration.current) setItem(value);
-      })
-      .catch((errorValue) => {
-        if (mounted.current && generation === clientGeneration.current)
-          setError(resourceMessage(errorValue));
-      });
-  }, [client, initial.id, clientGeneration, mounted]);
-  const save = () =>
-    void run(async (generation) => {
-      await client.save(item.id, !item.saved);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      const updated = await client.detail(item.id);
-      if (mounted.current && generation === clientGeneration.current) setItem(updated);
-    });
-  const apply = () =>
-    void run(async (generation) => {
-      const result = await client.apply(item.id, item.revision);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      setNotice(`已导入云端词库，新增或更新 ${result.imported} 个词条。`);
-    });
-  const applyLocal = () =>
-    void run(async (generation) => {
-      if (!localDictionary) return;
-      const result = await installCommunityDictionaryLocally(localDictionary, item);
-      if (!mounted.current || generation !== clientGeneration.current || !result) return;
-      setNotice(
-        result.kind === "collection"
-          ? `已添加为词库「${item.name}」，可以在「词库」里停用或删除。`
-          : `已导入本机词库，应用 ${result.applied} 个词条。`,
-      );
-    });
-  const storeReply = () =>
-    void run(async (generation) => {
-      if (!client.storeReply) return;
-      await client.save(item.id, true);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      const latest = await client.detail(item.id);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      await client.storeReply(latest);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      setItem(latest);
-      setNotice("已添加到高情商回复键盘；只有点按生成时才会发送文字。");
-    });
-  const rateResource = (stars: number) =>
-    void run(async (generation) => {
-      await client.rate(item.id, stars);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      const updated = await client.detail(item.id);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      setItem(updated);
-      setNotice(`已评分：${stars} 星。`);
-    });
-  const removeReply = () =>
-    void run(async (generation) => {
-      if (!client.removeReply) return;
-      await client.removeReply(item.id);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      setNotice("已从本机高情商回复键盘移除，社区收藏保留。");
-    });
-  const unpublish = () =>
-    void run(async (generation) => {
-      await client.unpublish(item.id);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      setConfirmDelete(false);
-      close();
-    });
-  const report = async (reason: CommunityReportReason, detail: string) => {
-    if (!client.report) return false;
-    let reported = false;
-    await run(async (generation) => {
-      await client.report!(item.kind, item.id, reason, detail);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      reported = true;
-      setNotice(communityReportedNotice);
-    });
-    return reported;
-  };
-  return (
-    <CommunityDetailFrame backDisabled={busy} onBack={close} backAriaLabel="← 社区" error={error}>
-      <CommunityDetailHeader
-        title={item.name}
-        note={`${item.author} · v${item.revision}`}
-        owned={item.owned}
-        moderation={item.moderation}
-        description={item.description}
-      />
-      <CommunityRatingMetrics
-        count={item.saves}
-        countLabel="收藏"
-        ratingCount={item.rating_count}
-        ratingAverage={item.rating_average}
-      />
-      {item.kind === "dictionary" ? (
-        <>
-          <h3>词条预览 · {(item.content.entries ?? []).length} 条</h3>
-          <div className={style.entryPreview}>
-            {(item.content.entries ?? []).map((entry, index) => (
-              <div key={`${entry.kind}-${entry.code}-${index}`}>
-                <span>{entry.word}</span>
-                <code>{entry.code}</code>
-              </div>
-            ))}
-          </div>
-          {localDictionary?.import && (
-            <ActionButton
-              action={applyLocal}
-              className={`primary ${style.action}`}
-              disabled={busy}
-              label="导入这版词库到本机"
-            />
-          )}
-          <ActionButton
-            action={apply}
-            className={`secondary ${style.action}`}
-            disabled={busy}
-            label="导入这版词库到云端"
-          />
-          <CommunityMetrics className={style.divided}>
-            本机导入只更新当前设备；云端导入会合并到账号云词库。版本发生变化时云端导入会停止并要求重新查看。
-          </CommunityMetrics>
-        </>
-      ) : (
-        <>
-          <h3>提示词预览</h3>
-          <pre className={style.promptPreview}>{item.content.prompt}</pre>
-          {client.storeReply && (
-            <ActionButton
-              action={storeReply}
-              className={`primary ${style.action}`}
-              disabled={busy}
-              label="添加到高情商回复键盘"
-            />
-          )}
-          {client.removeReply && (
-            <ActionButton
-              action={removeReply}
-              className={`secondary ${style.action}`}
-              disabled={busy}
-              label="从本机高情商回复键盘移除"
-            />
-          )}
-        </>
-      )}
-      {notice && <CommunityActionNotice>{notice}</CommunityActionNotice>}
-      <ActionButton
-        action={save}
-        className={`secondary ${style.action}`}
-        disabled={busy}
-        label={item.saved ? "取消收藏" : "收藏，关注后续更新"}
-      />
-      {item.owned && (
-        <ActionButton
-          action={() => setEditing(true)}
-          className={`secondary ${style.action}`}
-          disabled={busy}
-          label="编辑并发布新版本"
-        />
-      )}
-      <CommunityModerationSection
-        owned={item.owned}
-        actionBusy={busy}
-        ratingDescription="我的评分（可重新选择）"
-        unpublishMessage={
-          <>
-            下架后其他用户无法获取此作品，已有本地回复模板和云词库副本不会被删除。确定下架“
-            {item.name}”吗？
-          </>
-        }
-        confirmUnpublish={confirmDelete}
-        onRate={rateResource}
-        onRequestUnpublish={() => setConfirmDelete(true)}
-        onUnpublish={unpublish}
-        onCancelUnpublish={() => setConfirmDelete(false)}
-        unpublishButtonClassName="danger-text community-unpublish"
-        unpublishLabel="下架作品"
-        unpublishConfirmLabel="确认下架作品"
-      />
-      {!item.owned && client.report && (
-        <CommunityReportSection actionBusy={busy} onReport={report} />
-      )}
-      {editing && (
-        <CommunityResourceEditor
-          client={client}
-          kind={item.kind}
-          existing={item}
-          onClose={() => setEditing(false)}
-          onPublished={async () => {
-            setEditing(false);
-            const updated = await client.detail(item.id);
-            if (!mounted.current || renderGeneration !== clientGeneration.current) return;
-            setItem(updated);
-          }}
-        />
-      )}
-    </CommunityDetailFrame>
   );
 }
 
@@ -496,10 +256,10 @@ export function CommunityResourcesPage({
   };
   if (selected)
     return (
-      <ResourceDetail
+      <CommunityResourceDetail
         client={client}
         initial={selected}
-        close={closeDetail}
+        onClose={closeDetail}
         localDictionary={localDictionary}
       />
     );

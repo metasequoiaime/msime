@@ -1323,6 +1323,10 @@ export {
 } from "./community/community-destination";
 export { CommunityHomePage, CommunityResourcesPage } from "./community/community-resources";
 export {
+  CommunityResourceDetail,
+  type CommunityResourceDetailProps,
+} from "./community/community-resource-detail";
+export {
   CommunityResourceEditor,
   type CommunityResourceEditorProps,
 } from "./community/community-resource-editor";

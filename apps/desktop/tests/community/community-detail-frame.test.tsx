@@ -57,11 +57,14 @@ test("plugin gallery reuses the shared community detail frame", () => {
 
 test("resource gallery reuses the shared community detail frame", () => {
   const source = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/community/community-resources.tsx", {
-      eager: true,
-      query: "?raw",
-      import: "default",
-    }),
+    import.meta.glob<string>(
+      "../../../../packages/ui/src/community/community-resource-detail.tsx",
+      {
+        eager: true,
+        query: "?raw",
+        import: "default",
+      },
+    ),
   )[0];
 
   expect(source).toContain('import { CommunityDetailFrame } from "./community-detail-frame";');
