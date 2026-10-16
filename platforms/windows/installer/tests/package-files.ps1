@@ -17,6 +17,8 @@ try {
     # Prepare-PackageFiles.ps1 从版本表取本次打包的版本，fixture 用仓库里的那一份。
     New-Item -ItemType Directory -Force -Path (Join-Path $fixture 'shared/contracts') | Out-Null
     Copy-Item (Join-Path $PSScriptRoot '../../../../shared/contracts/editions.json') (Join-Path $fixture 'shared/contracts/editions.json')
+    # 不传 -TargetVersion 时版本取 platforms/windows/version.txt，也就是脚本所在目录的上一层；fixture 里 installer 的上一层是 fixture 本身。
+    Copy-Item (Join-Path $PSScriptRoot '../../version.txt') (Join-Path $fixture 'version.txt')
     # 落定重排模型和手写模型由设置应用按需下载，不进安装包：构建目录里即使有它们（以前的构建取过），也不能被装进去。
     function Assert-NoOnDemandModels([string]$Context) {
         foreach ($absent in @('server_exe/handwriting', 'server_exe/settled-model')) {
@@ -88,6 +90,8 @@ try {
         Write-Fixture "target/windows-$edition/arm64/bin/msime_host_api$($suffix)_arm64.dll" "synthetic $edition ARM64 host"
         Write-Fixture "target/windows-$edition/arm64/bin/msime_host_api.pdb" "synthetic $edition ARM64 host symbols"
     }
+    # The GPL text differs from every dictionary licence, so a staging that ships the wrong file as LICENSE.txt is visible below.
+    Write-Fixture 'LICENSE' 'GNU GENERAL PUBLIC LICENSE fixture'
     $english = Join-Path $fixture 'target/desktop-resources/msime-english.db'
     New-Item -ItemType Directory -Force (Split-Path -Parent $english) | Out-Null
     python -c "import sqlite3,sys; sqlite3.connect(sys.argv[1]).execute('CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER,PRIMARY KEY(word,display))')" $english
@@ -177,6 +181,8 @@ try {
     if (Test-Path (Join-Path $installer 'server_exe/word-glosses')) { throw 'Packaged word glosses without their notice' }
     if (Test-Path (Join-Path $installer 'app_data/helpcodes/NOTICE.md')) { throw 'Staged a helpcode notice as a table' }
     # The Zhuyin and Stroke dictionaries travel beside resources with their licences; the absent Cantonese one leaves that scheme unavailable, and a dictionary without its licence is refused.
+    # LICENSE.txt is the repository's GPL text even when language dictionaries with their own licences are staged.
+    if ([IO.File]::ReadAllText((Join-Path $installer 'LICENSE.txt')) -ne 'GNU GENERAL PUBLIC LICENSE fixture') { throw 'LICENSE.txt is not the repository LICENSE' }
     foreach ($name in @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt', 'msime-stroke.db', 'msime-rime_stroke_LICENSE.txt')) {
         if (-not (Test-Path (Join-Path $installer "server_exe/language-dictionaries/$name"))) { throw "Missing language dictionary file: $name" }
     }

@@ -23,10 +23,10 @@ Status: implemented
 ## Consequences
 
 - **收益**：Visual Studio 2022 上能完整编出 WinUI 设置窗口；本地安装默认就是当前 Windows 版本，不会被更新检查当成旧版本。
-- **代价**：本地安装与已发布的同号版本在版本号上无法区分，需要区分时显式传 `-TargetVersion`。`version.txt` 缺失时四个脚本在参数绑定阶段就报错，不再静默用 0.0.1。
+- **代价**：本地安装与已发布的同号版本在版本号上无法区分，需要区分时显式传 `-TargetVersion`。`version.txt` 缺失时四个脚本在参数绑定阶段就报错，不再静默用 0.0.1。把这些脚本复制进夹具目录调用的测试必须在脚本目录的上一层放一份 `version.txt`：`tests/package-files.ps1` 不传 `-TargetVersion` 调 `Prepare-PackageFiles.ps1`，引入这个默认值时没有补上，它因此在参数绑定阶段失败，直到 [空格在宿主会话里选词](2026-10-16-windows-space-selects-in-host-session.md) 那次才补。
 - **重访信号**：如果某个 NuGet 包将来依赖旧解析器的 copy-local 输出，VS 2022 上会少文件，要重新评估这个属性；Visual Studio 2022 不再受支持时，这个属性可以随之删除。
 
 ## Verification
 
 - Windows 11（Visual Studio 2022 生成工具 17.14）：不改工程时 `msbuild MSIME.Settings.vcxproj -t:ResolveNuGetPackageAssets` 复现上面的错误；加上该属性后 restore 加这一目标退出 0，`ResolveNuGetPackages=false` 下 `installer/test.ps1` 的完整构建、本地签名和安装包编译通过。
-- 新默认值解析为 `0.2.1`（`version.txt` 的当前值）；`platforms/windows/installer/tests/installer_entry.ps1` 通过。
+- 新默认值解析为 `0.2.1`（`version.txt` 的当前值）；`platforms/windows/installer/tests/installer_entry.ps1` 通过；`tests/package-files.ps1` 当时没有跑，补上夹具里的 `version.txt` 后通过。
