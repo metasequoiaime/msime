@@ -266,6 +266,46 @@ impl QuanpinDictionary {
         result
     }
 
+    /// 九键只按词面、显示读法、规范读法和模糊标记筛选，返回行仍拥有全部字段。
+    pub(crate) fn query_filtered(
+        &mut self,
+        raw: &str,
+        segmentation: &str,
+        fuzzy: FuzzyPinyinOptions,
+        mut keep: impl FnMut(&str, &str, &str, bool) -> bool,
+    ) -> Vec<WordItem> {
+        if fuzzy.rules != 0 {
+            // 模糊合并的去重和站位必须先完成，避免被筛掉的词让另一条同文行复活。
+            let mut rows = self.query(raw, segmentation, 0, fuzzy);
+            rows.retain(|row| keep(&row.word, &row.pinyin, &row.canonical_pinyin, row.fuzzy));
+            return rows;
+        }
+        self.query_exact_projected(raw, segmentation, 0, |rows, primary, alternatives| {
+            let mut result = match rows {
+                Cow::Owned(mut rows) => {
+                    rows.retain(|row| {
+                        keep(&row.word, &row.pinyin, &row.canonical_pinyin, row.fuzzy)
+                    });
+                    rows
+                }
+                Cow::Borrowed(rows) => {
+                    // 保留原热页容器容量，只跳过拒绝行的字段复制。
+                    let mut result = Vec::with_capacity(rows.len());
+                    result.extend(
+                        rows.iter()
+                            .filter(|row| {
+                                keep(&row.word, &row.pinyin, &row.canonical_pinyin, row.fuzzy)
+                            })
+                            .cloned(),
+                    );
+                    result
+                }
+            };
+            mark_autocorrect_candidates(&mut result, raw, primary, alternatives);
+            result
+        })
+    }
+
     /// 个人上下文模型的只读视图（与同一份用户日志上的输入会话共用）。九键查一次简拼时取一次，按 `PersonalNgram::word_count` 把用户用过的简拼词排到前面（#6185）；拿着它时不要记录新的使用，记录要写锁。
     pub fn personal_model(&self) -> RwLockReadGuard<'_, PersonalNgram> {
         self.personal.model()
@@ -608,8 +648,23 @@ impl QuanpinDictionary {
 
     /// QD:320-482.
     fn query_exact(&mut self, raw: &str, segmentation: &str, types: u32) -> Vec<WordItem> {
+        self.query_exact_projected(raw, segmentation, types, |rows, _, _| rows.into_owned())
+    }
+
+    /// 投影同步完成；热槽只借用，冷查询移交原页，不让缓存引用逃出本次调用。
+    fn query_exact_projected<R>(
+        &mut self,
+        raw: &str,
+        segmentation: &str,
+        types: u32,
+        project: impl FnOnce(Cow<'_, [WordItem]>, &str, &[String]) -> R,
+    ) -> R {
         if raw.is_empty() {
-            return Vec::new();
+            return project(
+                Cow::Owned(Vec::new()),
+                &self.pinyin_segmentation,
+                &self.alternative_segmentations,
+            );
         }
         self.current_autocorrect_types = types;
         if types & TYPO_EDGE_TYPES != 0 {
@@ -666,8 +721,12 @@ impl QuanpinDictionary {
                 segments.get_or_insert_with(|| self.resolve_segments(raw, segmentation));
                 self.reset_cache();
             }
-            if let Some(cached) = self.series_cache.get(&slot) {
-                return cached;
+            if let Some(cached) = self.series_cache.get_ref(&slot) {
+                return project(
+                    Cow::Borrowed(cached),
+                    &self.pinyin_segmentation,
+                    &self.alternative_segmentations,
+                );
             }
         }
 
@@ -731,7 +790,11 @@ impl QuanpinDictionary {
         } else {
             self.series_cache.insert(slot, result.clone());
         }
-        result
+        project(
+            Cow::Owned(result),
+            &self.pinyin_segmentation,
+            &self.alternative_segmentations,
+        )
     }
 
     /// `merge_alternative_segmentations` 的词典查询部分（QD:888-945），升位与合并规则在 `series`。
@@ -1661,3 +1724,6 @@ mod prefix_row_stream_tests;
 
 #[cfg(test)]
 mod alternative_row_stream_tests;
+
+#[cfg(test)]
+mod filtered_query_tests;
