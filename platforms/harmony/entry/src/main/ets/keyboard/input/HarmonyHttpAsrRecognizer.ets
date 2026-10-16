@@ -1,3 +1,4 @@
+import { NativeCleanup } from '../NativeCleanup';
 import audio from '@ohos.multimedia.audio';
 import http from '@ohos.net.http';
 import { installNoRedirectGuard } from '../../network/HarmonyHttpSecurity';
@@ -135,11 +136,11 @@ export class HarmonyHttpAsrRecognizer {
     };
     this.capturer = capturer;
     this.readCallback = readCallback;
-    capturer.on('readData', readCallback);
     try {
+      capturer.on('readData', readCallback);
       await capturer.start();
     } catch (error) {
-      capturer.off('readData', readCallback);
+      NativeCleanup.detach(capturer, readCallback);
       if (this.capturer === capturer) {
         this.capturer = undefined;
         this.readCallback = undefined;
@@ -328,7 +329,7 @@ export class HarmonyHttpAsrRecognizer {
     const capturer: audio.AudioCapturer | undefined = this.capturer;
     this.capturer = undefined;
     if (capturer === undefined) return;
-    if (this.readCallback !== undefined) capturer.off('readData', this.readCallback);
+    if (this.readCallback !== undefined) NativeCleanup.detach(capturer, this.readCallback);
     this.readCallback = undefined;
     try {
       await capturer.stop();

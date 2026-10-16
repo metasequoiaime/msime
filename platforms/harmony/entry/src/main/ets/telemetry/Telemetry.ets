@@ -1,3 +1,4 @@
+import { NativeCleanup } from '../keyboard/NativeCleanup';
 import bundleManager from '@ohos.bundle.bundleManager';
 import hiAppEvent from '@ohos.hiviewdfx.hiAppEvent';
 import process from '@ohos.process';
@@ -289,7 +290,7 @@ export class HarmonyTelemetry {
       }
       return null;
     } finally {
-      if (handle !== null) fs.closeSync(handle);
+      if (handle !== null) NativeCleanup.close(handle);
     }
   }
 
@@ -307,28 +308,33 @@ export class HarmonyTelemetry {
   }
 
   private static atomicWrite(path: string, text: string, replaceExisting: boolean): boolean {
-    const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
-    let renamed: boolean = false;
     try {
-      const file: fs.File = fs.openSync(staging,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
+      let renamed: boolean = false;
       try {
-        fs.writeSync(file.fd, text);
-      } finally {
-        fs.closeSync(file);
-      }
-      if (!replaceExisting && fs.accessSync(path)) return false;
-      fs.renameSync(staging, path);
-      renamed = true;
-      return true;
-    } finally {
-      if (!renamed) {
+        const file: fs.File = fs.openSync(staging,
+          fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
         try {
-          if (fs.accessSync(staging)) fs.unlinkSync(staging);
-        } catch {
-          // A failed telemetry write leaves at most its uniquely named staging file.
+          fs.writeSync(file.fd, text);
+        } finally {
+          fs.closeSync(file);
+        }
+        if (!replaceExisting && fs.accessSync(path)) return false;
+        fs.renameSync(staging, path);
+        renamed = true;
+        return true;
+      } finally {
+        if (!renamed) {
+          try {
+            if (fs.accessSync(staging)) fs.unlinkSync(staging);
+          } catch {
+            // A failed telemetry write leaves at most its uniquely named staging file.
+          }
         }
       }
+    } catch (error) {
+      KeyboardLog.error('telemetry.Telemetry.atomicWrite failed');
+      throw error as Error;
     }
   }
 

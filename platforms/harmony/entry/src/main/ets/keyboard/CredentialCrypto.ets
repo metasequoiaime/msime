@@ -1,3 +1,4 @@
+import { KeyboardLog } from './KeyboardLog';
 import cryptoFramework from '@ohos.security.cryptoFramework';
 import util from '@ohos.util';
 
@@ -12,29 +13,44 @@ export async function hmacSha256Hex(key: string, message: string): Promise<strin
 }
 
 export async function hmacSha256Bytes(key: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
-  const generator: cryptoFramework.SymKeyGenerator = cryptoFramework.createSymKeyGenerator('HMAC');
-  const keyObject: cryptoFramework.SymKey = await generator.convertKey({ data: key });
-  const mac: cryptoFramework.Mac = cryptoFramework.createMac('HMAC|SHA256');
-  await mac.init(keyObject);
-  await mac.update({ data: message });
-  const output: cryptoFramework.DataBlob = await mac.doFinal();
-  return output.data;
+  try {
+    const generator: cryptoFramework.SymKeyGenerator = cryptoFramework.createSymKeyGenerator('HMAC');
+    const keyObject: cryptoFramework.SymKey = await generator.convertKey({ data: key });
+    const mac: cryptoFramework.Mac = cryptoFramework.createMac('HMAC|SHA256');
+    await mac.init(keyObject);
+    await mac.update({ data: message });
+    const output: cryptoFramework.DataBlob = await mac.doFinal();
+    return output.data;
+  } catch (error) {
+    KeyboardLog.error('keyboard.CredentialCrypto.hmacSha256Bytes failed');
+    throw error as Error;
+  }
 }
 
 export async function md5Hex(value: string): Promise<string> {
-  const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
-  const digest: cryptoFramework.Md = cryptoFramework.createMd('MD5');
-  await digest.update({ data: encoder.encodeInto(value) });
-  const output: cryptoFramework.DataBlob = await digest.digest();
-  return hex(output.data);
+  try {
+    const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+    const digest: cryptoFramework.Md = cryptoFramework.createMd('MD5');
+    await digest.update({ data: encoder.encodeInto(value) });
+    const output: cryptoFramework.DataBlob = await digest.digest();
+    return hex(output.data);
+  } catch (error) {
+    KeyboardLog.error('keyboard.CredentialCrypto.md5Hex failed');
+    throw error as Error;
+  }
 }
 
 export async function sha256Hex(value: string): Promise<string> {
-  const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
-  const digest: cryptoFramework.Md = cryptoFramework.createMd('SHA256');
-  await digest.update({ data: encoder.encodeInto(value) });
-  const output: cryptoFramework.DataBlob = await digest.digest();
-  return hex(output.data);
+  try {
+    const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+    const digest: cryptoFramework.Md = cryptoFramework.createMd('SHA256');
+    await digest.update({ data: encoder.encodeInto(value) });
+    const output: cryptoFramework.DataBlob = await digest.digest();
+    return hex(output.data);
+  } catch (error) {
+    KeyboardLog.error('keyboard.CredentialCrypto.sha256Hex failed');
+    throw error as Error;
+  }
 }
 
 export async function tencentAuthorization(secretId: string, secretKey: string,
