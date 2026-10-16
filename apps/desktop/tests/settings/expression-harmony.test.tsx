@@ -208,8 +208,11 @@ describe("the HarmonyOS phone 表达 page", () => {
     expect(screen.queryByRole("region", { name: "高情商回复" })).toBeNull();
     expect(screen.queryByRole("region", { name: "候选词翻译" })).toBeNull();
     expect(screen.queryByRole("region", { name: "多语言与释义" })).toBeNull();
-    // 翻译服务仍可访问，收在「更多选项」下。
+    // 翻译服务仍可访问，收在「更多选项」下；默认的腾讯云凭据里的地域不再另套一层「更多选项」。
     expect(within(group("翻译服务")).getByText("更多选项")).toBeTruthy();
+    expect(within(group("翻译服务")).getByLabelText("腾讯云地域").closest("details")).toBe(
+      within(group("翻译服务")).getByText("更多选项").closest("details"),
+    );
   });
 
   test("saves the inverse punctuation switch and the chosen level", async () => {
@@ -269,7 +272,7 @@ describe("the HarmonyOS phone 表达 page", () => {
   test("the 2in1 keeps the desktop page", async () => {
     await mountPhone({}, { mobile_settings: false, panel_windows: true });
     expect(screen.getByRole("group", { name: "标点与翻译" })).toBeTruthy();
-    expect(screen.getByRole("switch", { name: "中文标点" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: /^标点/ })).toBeTruthy();
     expect(screen.queryByRole("switch", { name: "使用英文标点" })).toBeNull();
     expect(screen.queryByRole("region", { name: "智能" })).toBeNull();
   });

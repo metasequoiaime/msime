@@ -103,6 +103,7 @@ export function createTranslationProviderSettings({
         !customTranslation.enabled &&
         !tencentSecretConfigured(tencentTranslation.secret_id) &&
         !tencentSecretConfigured(tencentTranslation.secret_key),
+      offlineFallback: macos,
       status: providerCredentials
         ? {
             tencent: providerCredentials.tencent,

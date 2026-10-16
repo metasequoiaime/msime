@@ -7,7 +7,7 @@
 #include <vector>
 
 namespace msime::windows {
-// 候选释义每一行后面画的读音和整句的逐词拆解，只用于显示，从不上屏。规则移植自 macOS 的 platforms/macos/src/candidate/CandidatePronunciation.h：释义每种目标语言一行，每行按它的第一个词读；英文走共享的离线读音表（msime_client_pronunciation_request），日文行读罗马字，macOS 的来自系统分词器，Windows 的来自微软日语输入法的 IFELanguage（JapaneseReader.cpp），没有它时只读纯假名的行。
+// 候选释义每一行后面画的读音，只用于显示，从不上屏。规则移植自 macOS 的 platforms/macos/src/candidate/CandidatePronunciation.h：释义每种目标语言一行，每行按它的第一个词读；英文走共享的离线读音表（msime_client_pronunciation_request），日文行读罗马字，macOS 的来自系统分词器，Windows 的来自微软日语输入法的 IFELanguage（JapaneseReader.cpp），没有它时只读纯假名的行。
 
 namespace gloss_reading_detail {
 // 从 `index` 处解出一个 UTF-8 码位并前移；不合法的字节当作 U+FFFD 前移一个字节。
@@ -103,20 +103,6 @@ inline std::string gloss_line_language(std::string_view line, size_t index,
   return target == "ja" ? "ja" : std::string{};
 }
 
-// 整句候选：2 到 32 个汉字，和 msime_client_gloss_breakdown_request 的共享规则一致。
-inline bool gloss_sentence_candidate(std::string_view text) {
-  size_t count = 0;
-  for (size_t index = 0; index < text.size();) {
-    const auto value = gloss_reading_detail::next_code_point(text, index);
-    const bool han = (value >= 0x3400 && value <= 0x4DBF) || (value >= 0x4E00 && value <= 0x9FFF) ||
-                     (value >= 0xF900 && value <= 0xFAFF) || (value >= 0x20000 && value <= 0x2FA1F);
-    if (!han)
-      return false;
-    ++count;
-  }
-  return count >= 2 && count <= 32;
-}
-
 // 一个候选需要共享读音表回答的英文文本：英文候选是它自己（它那一行英文目标的释义是中文），其他候选是它的英文释义行，整行发过去，共享那边取第一个词。
 inline std::vector<std::string> gloss_english_texts(const std::string &candidate_text,
                                                     const std::vector<std::string> &lines,
@@ -165,10 +151,9 @@ gloss_pronunciation_lines(const std::string &candidate_text, const std::vector<s
   return readings;
 }
 
-// 候选窗画出来的释义：每行释义后面空两格跟它的读音，逐词拆解另起一行放在最后。读音和拆解都是 "\n" 分行的纯文本，和释义同一种颜色。
+// 候选窗画出来的释义：每行释义后面空两格跟它的读音。读音是 "\n" 分行的纯文本，和释义同一种颜色。
 inline std::string candidate_gloss_display(const std::vector<std::string> &lines,
-                                           const std::vector<std::string> &readings,
-                                           const std::string &breakdown) {
+                                           const std::vector<std::string> &readings) {
   std::string display;
   for (size_t index = 0; index < lines.size(); ++index) {
     if (index)
@@ -179,18 +164,12 @@ inline std::string candidate_gloss_display(const std::vector<std::string> &lines
       display.append(readings[index]);
     }
   }
-  if (!breakdown.empty()) {
-    if (!display.empty())
-      display.push_back('\n');
-    display.append(breakdown);
-  }
   return display;
 }
-// 翻译工作线程为一个候选算好的读音和拆解，按候选文字存。translation 是算读音时那条释义（U+2028 分行）：候选眼下的释义与它相同才挂读音，免得旧读音跟到新释义后面；拆解只看候选文字。
+// 翻译工作线程为一个候选算好的读音，按候选文字存。translation 是算读音时那条释义（U+2028 分行）：候选眼下的释义与它相同才挂读音，免得旧读音跟到新释义后面。
 struct CandidateReading {
   std::string translation;
   std::string pronunciation;
-  std::string breakdown;
 };
 using CandidateReadings = std::unordered_map<std::string, CandidateReading>;
 } // namespace msime::windows

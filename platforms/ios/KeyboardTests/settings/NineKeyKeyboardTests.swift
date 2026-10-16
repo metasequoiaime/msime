@@ -1820,8 +1820,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(space.superview?.alpha, 0, "the keys are hidden under the panel", file: file, line: line)
   }
 
-  func testLetterFacesAreLowercaseUntilShiftUppercasesThem() throws {
-    // 设计稿在所有模式下都画小写键面；只有下一键会输入大写字母时键面才变成大写。无论哪种情况，引擎收到的都是小写输入。
+  func testLetterFacesAreUppercaseForChineseAndLowercaseUntilShiftOtherwise() throws {
+    // 中文方案的键面画大写（与主流拼音键盘一致）；日语罗马字和英文画小写，只有下一键会输入大写字母时键面才变成大写。无论哪种情况，引擎收到的都是小写输入。
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     for scheme in [ChineseInputScheme.quanpin, .japanese] {
@@ -1834,7 +1834,8 @@ final class NineKeyKeyboardTests: XCTestCase {
 
       let a = try XCTUnwrap(
         descendants(controller.view).first { $0.accessibilityLabel == "字母 A" } as? UIButton)
-      XCTAssertEqual(a.configuration?.title, "a", "\(scheme) draws lowercase letter faces")
+      let chineseFace = scheme == .quanpin ? "A" : "a"
+      XCTAssertEqual(a.configuration?.title, chineseFace, "\(scheme) letter faces")
       XCTAssertEqual(a.accessibilityLabel, "字母 A", "The pinyin face is not an uppercase keystroke")
       // 设计稿在手机上用固定的 22pt 键面字号，不用 Dynamic Type 样式。
       let transformer = try XCTUnwrap(a.configuration?.titleTextAttributesTransformer)
@@ -1845,7 +1846,7 @@ final class NineKeyKeyboardTests: XCTestCase {
 
       a.sendActions(for: .primaryActionTriggered)
       XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidate-1" })
-      XCTAssertEqual(a.configuration?.title, "a", "composing keeps lowercase faces")
+      XCTAssertEqual(a.configuration?.title, chineseFace, "composing keeps the faces")
 
       try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
@@ -3332,9 +3333,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       .compactMap { $0.configuration?.title }
   }
 
-  /// 正在组的内容：拼写写进输入框、候选栏不画它，读屏值仍是完整的组字。
+  /// 正在组的内容：拼写写进输入框、候选栏不画它，读屏值仍是完整的组字。空闲时这个键给的是本地输入菜单、没有读屏值，返回空串，调用方可以拿它当空闲的基准比较。
   private func preedit(in controller: KeyboardViewController) throws -> String {
-    try XCTUnwrap(button("preeditButton", in: controller).accessibilityValue)
+    try button("preeditButton", in: controller).accessibilityValue ?? ""
   }
 
   /// 全拼九键的展开面板是三栏、只盖住键区；在面板里选拼音、退格都不收起面板，而是按新的一代候选重建。

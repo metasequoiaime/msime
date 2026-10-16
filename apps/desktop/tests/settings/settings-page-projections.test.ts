@@ -222,3 +222,41 @@ test("a touch host offers the 试用键盘 sub-page only when it has no chat", (
   expect(ids(false)).toContain("try-keyboard");
   expect(project().availablePages.map((page) => page.id)).not.toContain("try-keyboard");
 });
+
+// macOS 和 Linux 桌面上手写页只有一个打开按钮，并进屏幕键盘页：侧栏少一项，屏幕键盘页改叫「屏幕键盘与手写」，旧的 handwriting id 指向它。
+test("folds 手写输入 into the screen keyboard page where the host asks for it", () => {
+  const merged = project({ handwritingOnScreenKeyboardPage: true });
+  expect(merged.handwritingOnScreenKeyboardPage).toBe(true);
+  expect(merged.availablePages.map((page) => page.id)).not.toContain("handwriting");
+  expect(merged.availablePages.find((page) => page.id === "screen-keyboard")?.title).toBe(
+    "屏幕键盘与手写",
+  );
+  expect(groupIds(merged.sidebarGroups)).toContainEqual({
+    title: "更多输入方式",
+    ids: ["screen-keyboard", "voice"],
+  });
+  expect(merged.pageAliases).toEqual({ handwriting: "screen-keyboard" });
+  // 同一个宿主两次投影拿到同一个别名对象，依赖它的 effect 不会每次渲染都重跑。
+  expect(project({ handwritingOnScreenKeyboardPage: true }).pageAliases).toBe(merged.pageAliases);
+
+  // Windows（与原生设置窗口的 SettingsNavigation.h 一致）和默认情况照旧分两页。
+  const separate = project();
+  expect(separate.handwritingOnScreenKeyboardPage).toBe(false);
+  expect(separate.availablePages.find((page) => page.id === "screen-keyboard")?.title).toBe(
+    "屏幕键盘",
+  );
+  expect(separate.pageAliases).toEqual({});
+
+  // 触屏宿主的手写页另有内容，不并。
+  const phone = project({ mobilePlatform: true, handwritingOnScreenKeyboardPage: true });
+  expect(phone.handwritingOnScreenKeyboardPage).toBe(false);
+  expect(phone.availablePages.map((page) => page.id)).toContain("handwriting");
+
+  // 本版本没有手写时没有可并的页，屏幕键盘页保留原名。
+  const noHandwriting = project({ hasHandwriting: false, handwritingOnScreenKeyboardPage: true });
+  expect(noHandwriting.handwritingOnScreenKeyboardPage).toBe(false);
+  expect(noHandwriting.availablePages.find((page) => page.id === "screen-keyboard")?.title).toBe(
+    "屏幕键盘",
+  );
+  expect(noHandwriting.pageAliases).toEqual({});
+});

@@ -10,7 +10,7 @@ Status: implemented
 
 增加无 React 依赖的 `settings/floating-toolbar-options.ts`，持有按钮选项、宿主能力过滤和两组选项数组。页面消费纯模型；Linux/GNOME 文案、页面分组、持久化回调和预览仍由页面负责。
 
-保留按钮顺序和能力约束：模式切换始终列出且勾选、禁用；`input_scheme`、`handwriting`、`voice` 只在宿主声明对应能力时列出；其余按钮不受能力门控。缩放和字号数组保持现有值和顺序。
+保留按钮顺序和能力约束：`input_scheme`、`handwriting`、`voice` 只在宿主声明对应能力时列出；其余按钮不受能力门控。清单里没有锁定的模式切换项，`english_mode` 一项就叫「中英文切换」；尺寸是「工具栏大小」的五档 `floatingToolbarSizes`，每档同时给出 `scale_percent` 和 `font_size`，见[精简悬浮工具栏、屏幕键盘和手写输入三页的设置](2026-10-16-toolbar-keyboard-handwriting-settings-prune.md)。
 
 ## Historical audit
 
@@ -23,6 +23,6 @@ Status: implemented
 
 ## Consequences
 
-按钮顺序、宿主能力门控、必选模式切换项、缩放和字号值集中在纯模块；页面只负责 Linux/GNOME 文案、布局、预览和单字段回调。模型以类型导入 `HostCapabilities`，不增加运行时循环；每次调用生成新的选项数组，不把投影写回偏好。
+按钮顺序、宿主能力门控和「工具栏大小」各档集中在纯模块；页面只负责 Linux/GNOME 文案、布局、预览和单字段回调。模型以类型导入 `HostCapabilities`，不增加运行时循环；每次调用生成新的选项数组，不把投影写回偏好。
 
 新增两项模型测试先因未导出 API 失败，再与既有工具栏偏好、页面投影、页面可见性、主题和输入偏好共六文件 28 项通过。共享 UI 构建、Harmony 类型检查、格式、lint 和 diff 检查通过。

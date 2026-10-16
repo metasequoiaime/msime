@@ -1,4 +1,9 @@
-import type { PunctuationPreferences, QuoteStyle, BracketStyle } from "./punctuation-preferences";
+import type {
+  PunctuationMode,
+  PunctuationPreferences,
+  QuoteStyle,
+  BracketStyle,
+} from "./punctuation-preferences";
 
 export type PunctuationSwitch =
   | "smart_punctuation"
@@ -46,10 +51,12 @@ export const capsLockPunctuation: PunctuationSwitchCopy = [
   "大写锁定打开时，中文输入下的标点使用英文标点；正在组字或固定中文标点时不变",
 ];
 
-export const punctuationSwitches: readonly PunctuationSwitchCopy[] = [
-  smartPunctuation,
-  ...smartPunctuationRefinements,
-  pairedPunctuation,
+/** 桌面「标点」选择的选项，把「中文标点」开关和「固定标点」合成一行；取值的含义见 `PunctuationMode`。 */
+export const punctuationModeOptions: readonly { value: PunctuationMode; label: string }[] = [
+  { value: "chinese", label: "中文标点" },
+  { value: "english", label: "英文标点" },
+  { value: "always_chinese", label: "始终中文标点（英文模式也用）" },
+  { value: "always_english", label: "始终英文标点" },
 ];
 
 export const punctuationLockOptions: readonly {

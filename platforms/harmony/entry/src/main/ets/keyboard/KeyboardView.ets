@@ -1035,7 +1035,7 @@ struct KeyboardView {
   }
 
   /**
-   * 字母键平时画小写，与设计稿、Android 和 iOS 一致；只有下一键真的会输入大写时才画大写（`typesUppercase`）。
+   * 中文模式下中文方案的字母键面画大写，与 Android 和 iOS 一致，输入的仍是小写拼写；英文模式和日语罗马字平时画小写，只有下一键真的会输入大写时才画大写（`typesUppercase`）。规则在 `LetterKeyFacePolicy.displaysUppercase`。
    */
   private letterFace(letter: string): string {
     if (this.koreanFace()) {
@@ -1043,9 +1043,11 @@ struct KeyboardView {
     }
     if (this.vietnameseFace() || this.tibetanFace()) {
       // 越南语和藏文（威利转写区分大小写）的字母按 Shift 给出的大小写输入，所以键面显示那个大小写，和英文一样。
-      return LetterKeyFacePolicy.face(letter, false, false, this.caseMode !== LetterCaseMode.LOWERCASE);
+      return LetterKeyFacePolicy.face(letter, false, false, false, this.caseMode !== LetterCaseMode.LOWERCASE);
     }
-    return LetterKeyFacePolicy.face(letter, !this.english, this.localMode !== 'none', this.typesUppercase());
+    // 日语罗马字读键盘自己选的方案，和 `koreanFace` 同理：引擎还没回报方案时键面也要画对。
+    return LetterKeyFacePolicy.face(letter, !this.english, this.scheme.engineScheme === 'japanese',
+      this.localMode !== 'none', this.typesUppercase());
   }
 
   /**

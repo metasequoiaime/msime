@@ -3557,6 +3557,22 @@ fn custom_helpcode_schemas_reach_native_presenters_without_the_settings_shell() 
 }
 
 #[test]
+fn discovered_custom_helpcode_extensions_are_loadable_by_the_engine() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    let custom = resources.join("helpcodes/custom");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(custom.join("synthetic.TXT"), "# name: uppercase\n你=ab\n").unwrap();
+    let path = resources.to_str().unwrap();
+    let catalog = read(unsafe { msime_client_helpcode_schemas(path.as_ptr(), path.len()) });
+    assert_eq!(catalog["ok"], true);
+    assert_eq!(catalog["value"].as_array().unwrap().len(), 1);
+    let schema = catalog["value"][0]["schema"].as_str().unwrap();
+    let loaded = msime_engine::host::load_helpcode_keymap(&resources, schema).unwrap();
+    assert_eq!(loaded.code("你"), Some("ab"));
+}
+
+#[test]
 fn a_picked_skin_folder_is_copied_in_through_the_c_abi() {
     let files = tempfile::tempdir().unwrap();
     let state = tempfile::tempdir().unwrap();
@@ -5942,7 +5958,7 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     );
     assert_eq!(secondary_gloss["value"]["english_gloss"], true);
 
-    // 离线英文释义关着、只开候选翻译时：用户目录照旧带上，存成功的英文翻译；英文目标下整句候选仍要逐词拆解（和 macOS currentGlossRequest 一样不要求离线释义开着），所以带 gloss_breakdown 和拆解表所在的资源目录。
+    // 离线英文释义关着、只开候选翻译时：用户目录照旧带上，存成功的英文翻译。整句候选不再逐词拆解，所以不带 gloss_breakdown；读音和离线释义都没开，资源目录也不带。
     preferences.candidate_english_gloss = false;
     preferences.translation_target_language =
         msime_client_core::preferences::TranslationTargetLanguage::En;
@@ -5951,11 +5967,11 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     update(handle, 9, &preferences);
     let online = read(msime_client_translation_query(handle));
     assert_eq!(online["value"]["english_gloss"], false);
-    assert_eq!(online["value"]["gloss_breakdown"], true);
-    assert!(online["value"]["resources"].is_string());
+    assert!(online["value"].get("gloss_breakdown").is_none());
+    assert!(online["value"]["resources"].is_null());
     assert!(online["value"]["user_data"].is_string());
 
-    // 目标语言里没有英文时没有拆解，资源目录也不带。
+    // 目标语言里没有英文时资源目录同样不带。
     preferences.translation_target_language =
         msime_client_core::preferences::TranslationTargetLanguage::Ja;
     preferences.translation_secondary_language = None;

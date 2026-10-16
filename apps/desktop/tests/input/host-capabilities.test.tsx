@@ -223,7 +223,7 @@ test("the restart action needs both the capability and an injected handler", asy
 
 test("toolbar scale is hidden while Linux component choices remain available", async () => {
   // The Linux host stands the toolbar up as an IBus property menu: the enable
-  // switch and component visibility work, but scale and icon size have no surface.
+  // switch and component visibility work, but the toolbar size has no surface.
   const menuOnly = mount({
     host: capabilities({
       platform: "linux",
@@ -235,8 +235,7 @@ test("toolbar scale is hidden while Linux component choices remain available", a
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
   expect(screen.getByLabelText("在输入法菜单显示工具栏")).toBeTruthy();
   expect(screen.queryByLabelText("在桌面显示悬浮工具栏")).toBeNull();
-  expect(screen.queryByLabelText("工具栏缩放")).toBeNull();
-  expect(screen.queryByLabelText("图标尺寸")).toBeNull();
+  expect(screen.queryByLabelText("工具栏大小")).toBeNull();
   expect(screen.getByRole("group", { name: "按钮" })).toBeTruthy();
   menuOnly.unmount();
 
@@ -245,8 +244,10 @@ test("toolbar scale is hidden while Linux component choices remain available", a
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
   expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
-  expect(screen.getByLabelText("工具栏缩放")).toBeTruthy();
-  expect(screen.getByLabelText("图标尺寸")).toBeTruthy();
+  expect(screen.getByLabelText("工具栏大小")).toBeTruthy();
+  // 缩放和图标尺寸合并成了这一个控件，不再分开出现。
+  expect(screen.queryByLabelText("工具栏缩放")).toBeNull();
+  expect(screen.queryByLabelText("图标尺寸")).toBeNull();
 });
 
 test("the Linux toolbar page explains the menu at the top instead of previewing a floating bar", async () => {

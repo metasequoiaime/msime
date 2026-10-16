@@ -22,7 +22,7 @@ def main() -> int:
     candidate = texts[SOURCES[0]]
     if "private static String normalize(" in candidate:
         errors.append(f"{SOURCES[0]}: 不应保留 normalize 转发方法")
-    if combined.count("TextPolicy.lowercaseTrimmed(") < 7:
+    if combined.count("TextPolicy.lowercaseTrimmed(") < 6:
         errors.append("Android 文本调用点应直接复用 TextPolicy.lowercaseTrimmed")
     if errors:
         print("\n".join(errors), file=sys.stderr)

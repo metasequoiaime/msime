@@ -16,6 +16,8 @@ export interface SettingsPageProjectionOptions {
   hasPlugins: boolean;
   /** 「手写输入」页：手写识别器只认汉字，不提供手写的版本（`EditionInfo.handwriting` 为 false）没有这一页。 */
   hasHandwriting: boolean;
+  /** 「手写输入」并进「屏幕键盘」页，那一页改叫「屏幕键盘与手写」。macOS 和 Linux 桌面上手写页只有一个打开按钮，单占一个侧栏入口不值得；Windows 的共享设置页仍与原生设置窗口的 `SettingsNavigation.h` 一样分成两页，触屏宿主的手写页另有内容，都不并。本版本不提供手写时没有可并的页。 */
+  handwritingOnScreenKeyboardPage?: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   mobilePageTitle: (id: SettingsPageId, title: string) => string;
 }
@@ -37,7 +39,20 @@ export interface SettingsPageProjections {
   sidebarGroups: SettingsPageGroup[];
   mobilePrimaryPages: SettingsPageItem[];
   mobileSecondaryGroups: SettingsPageGroup[];
+  /** 已经并进别的页面的页 id 指向现在承载它的页。旧路由（例如 `settings:handwriting`）和记住的页面经它打开合并后的页，而不是落到默认页。 */
+  pageAliases: Partial<Record<SettingsPageId, SettingsPageId>>;
+  /** 「手写输入」这次确实并进了「屏幕键盘」页：页面据此在屏幕键盘页里画手写的分组。 */
+  handwritingOnScreenKeyboardPage: boolean;
 }
+
+/** 合并后「屏幕键盘」页的标题。 */
+export const screenKeyboardAndHandwritingTitle = "屏幕键盘与手写";
+
+// 模块级常量，每次渲染拿到同一个对象，依赖它的 effect 不会白白重跑。
+const handwritingAliases: Partial<Record<SettingsPageId, SettingsPageId>> = {
+  handwriting: "screen-keyboard",
+};
+const noPageAliases: Partial<Record<SettingsPageId, SettingsPageId>> = {};
 
 /** Projects the current registry into the host-aware page lists used by the settings shell. */
 export function settingsPageProjections({
@@ -52,9 +67,11 @@ export function settingsPageProjections({
   showDeveloperPage,
   hasPlugins,
   hasHandwriting,
+  handwritingOnScreenKeyboardPage: combineHandwriting = false,
   mobileHiddenPageIds,
   mobilePageTitle,
 }: SettingsPageProjectionOptions): SettingsPageProjections {
+  const handwritingOnScreenKeyboardPage = combineHandwriting && hasHandwriting && !mobilePlatform;
   const availablePages = pages
     .filter(
       (item) =>
@@ -68,7 +85,7 @@ export function settingsPageProjections({
         (item.id !== "floating-toolbar" || showFloatingToolbar) &&
         (item.id !== "developer" || showDeveloperPage) &&
         (item.id !== "plugins" || hasPlugins) &&
-        (item.id !== "handwriting" || hasHandwriting) &&
+        (item.id !== "handwriting" || (hasHandwriting && !handwritingOnScreenKeyboardPage)) &&
         (item.id !== "more" || mobilePlatform) &&
         // 「隐私」页是触屏「我的」里那一行打开的；桌面的隐私设置在「关于」里。
         (item.id !== "privacy" || mobilePlatform) &&
@@ -77,7 +94,11 @@ export function settingsPageProjections({
     )
     .map((item) => ({
       ...item,
-      title: mobilePlatform ? mobilePageTitle(item.id, item.title) : item.title,
+      title: mobilePlatform
+        ? mobilePageTitle(item.id, item.title)
+        : handwritingOnScreenKeyboardPage && item.id === "screen-keyboard"
+          ? screenKeyboardAndHandwritingTitle
+          : item.title,
     }));
 
   const mobileListedPage = (id: SettingsPageId): boolean =>
@@ -117,5 +138,14 @@ export function settingsPageProjections({
     }))
     .filter((group) => group.pages.length > 0);
 
-  return { availablePages, sidebarGroups, mobilePrimaryPages, mobileSecondaryGroups };
+  const pageAliases = handwritingOnScreenKeyboardPage ? handwritingAliases : noPageAliases;
+
+  return {
+    availablePages,
+    sidebarGroups,
+    mobilePrimaryPages,
+    mobileSecondaryGroups,
+    pageAliases,
+    handwritingOnScreenKeyboardPage,
+  };
 }
