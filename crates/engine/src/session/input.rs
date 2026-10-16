@@ -31,8 +31,8 @@ use crate::time::Instant;
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FirstPageRows,
     FrequencyAdjustmentOptions, KeyResult, LocalInputMode, LocalModeOptions, MentionEntry,
-    MixedExpressiveOptions, OnlineQuery, PluginCommand, QuickPhraseEntry, SchemeKey, SchemeType,
-    WordItem, WubiInputOptions,
+    MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeKey, SchemeType, WordItem,
+    WubiInputOptions,
 };
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -93,10 +93,6 @@ pub(super) struct InputSession {
     /// 插件指令行的缓存：（问的是哪一份本地预编辑串，插件给的行）。只有一槽，预编辑串一变就清掉，所以 `/uuid` 退成 `/uui` 再打回 `/uuid` 会重新问插件；预编辑串不变时（方向键、翻页、列表重建）行一直在，不再问。0 行也缓存成空表。
     pub plugin_rows: Option<(String, Vec<WordItem>)>,
     pub online_requests: OnlineRequestGuard,
-    /// 宿主为这个会话开着 AI 候选：可以问 AI 的组字先在 AI 座位上放占位行（#6888）。
-    pub ai_seat: bool,
-    /// 回答为空或失败的那次查询；它仍是当前查询时占位行显示「—」。
-    pub ai_seat_resolved: Option<OnlineQuery>,
     pub chain: CommitChain,
     pub personal_context: Arc<PersonalNgramStore>,
     pub typo_profile: Arc<PersonalTypoProfile>,
@@ -176,8 +172,6 @@ impl InputSession {
             uppercase_passthrough: false,
             plugin_rows: None,
             online_requests: OnlineRequestGuard::new(),
-            ai_seat: false,
-            ai_seat_resolved: None,
             chain: CommitChain::default(),
             personal_context: PersonalNgramStore::for_journal(&journal),
             typo_profile: PersonalTypoProfile::shared(&journal),

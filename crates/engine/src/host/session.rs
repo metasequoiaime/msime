@@ -366,23 +366,6 @@ impl Session {
         Ok(())
     }
 
-    /// 宿主为这个会话打开或关掉 AI 候选（`crate::session::Session::set_ai_seat`）；返回开关是否变了。
-    pub fn set_ai_seat(&mut self, enabled: bool) -> bool {
-        self.inner.set_ai_seat(enabled)
-    }
-
-    /// AI 回答为空或失败（宿主来源 1）：当前查询的占位行换成「—」。返回显示的列表是否变了；过期查询和其他来源返回 false。
-    pub fn resolve_online_candidates(
-        &mut self,
-        query: &OnlineQuerySnapshot,
-        source: u8,
-    ) -> Result<bool> {
-        let Some((request, source)) = online_request(query, source) else {
-            return Ok(false);
-        };
-        Ok(self.inner.resolve_online_candidates(&request, source))
-    }
-
     pub fn set_caret(&mut self, caret: Option<usize>) {
         self.inner.set_caret(caret);
     }

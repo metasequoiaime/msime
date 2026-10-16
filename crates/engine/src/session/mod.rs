@@ -634,23 +634,6 @@ impl Session {
         self.input.clear_online_candidates(source);
     }
 
-    /// 宿主为这个会话打开或关掉 AI 候选；打开时可以问 AI 的组字先在 AI 座位上放占位行（`CandidateSource::AiPending`），回答到达时由第一条 AI 候选替换，前后的候选都不挪位（#6888）。返回开关是否变了。
-    pub fn set_ai_seat(&mut self, enabled: bool) -> bool {
-        self.input.set_ai_seat(enabled)
-    }
-
-    /// AI 回答为空或失败：当前查询的占位行换成「—」，留到组字变化为止。返回显示的列表是否变了；过期查询、云候选和九宫格组字都返回 false。
-    pub fn resolve_online_candidates(
-        &mut self,
-        query: &OnlineQuery,
-        source: CandidateSource,
-    ) -> bool {
-        if self.nine_key.active() {
-            return false;
-        }
-        self.input.resolve_online_candidates(query, source)
-    }
-
     pub fn apply_online_candidate(
         &mut self,
         query: &OnlineQuery,

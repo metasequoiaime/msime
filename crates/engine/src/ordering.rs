@@ -13,7 +13,7 @@ pub const LATTICE_SOURCE: u8 = 8;
 /// `CandidateSource::QuickPhrase`, `Emoji` and `Kaomoji`: entries a keyword finds in a catalog, listed in the catalog's order. They are not readings of the key, so the reranker neither compares them nor promotes them: typing `kiss` in kaomoji mode had the model seat the catalog's 646th entry, `French Kiss!(*￣(￣　*)`, above its first.
 const CATALOG_SOURCES: [u8; 3] = [5, 6, 7];
 
-/// `CandidateSource::AiSuggestion` 和它的占位行 `AiPending`：在线座位规则（`normalize_online_slots`）总把它们放回 AI 座位，模型提它们也没用；更要紧的是，若让 AI 候选参与比较，它一到就可能抢走本来要提到首位的本地候选，回答到达时本地候选的次序就变了（#6888）。
+/// `CandidateSource::AiSuggestion` 和已经不再产生的占位行 `AiPending`：在线座位规则（`normalize_online_slots`）总把 AI 行放回第一页最后一格和列表末尾，模型提它们也没用；更要紧的是，若让 AI 候选参与比较，它一到就可能抢走本来要提到首位的本地候选，回答到达时本地候选的次序就变了（#6888）。
 const AI_SEAT_SOURCES: [u8; 2] = [3, 12];
 
 /// `CandidateSource::EnglishDictionary`。混输英文只在拼音拆不开、英文完全匹配（或用户固定在第一位）时才由引擎放到首位，那是引擎有意的安排；句子模型读的是中文，不能因为英文行不算词典命中就把中文行转到它前面。这道检查不分方案和模式：只有英文行的列表（比如专用英文模式、临时英文）首行也是英文，同样不重排，这是有意的：模型读的是中文，比较英文行没有意义。

@@ -116,4 +116,6 @@ Since #5667 / #5907 the mixed emoji and kaomoji rows no longer take the priority
 
 #7616 之后本地模式下回车（`CommitRaw`）原样上屏屏幕上的预编辑，两个临时模式的入口字母也在内：只有入口字母时上屏它本身（以前上屏空串），有内容时上屏 `Rka` / `Yhe`（以前去掉入口字母记 `ka` / `he`）。`temp_japanese_enter` 与 `temp_english_enter_and_learning` 只在这一处与参考不同；学进词库的词没有变（临时日文仍是带 `r` 前缀的 `rkk`，临时英文仍是 `he`），入口字母在写词库前照旧去掉。
 
+#6888 之后引擎把 AI 行放在候选列表最后（`replace_online_candidate_batch` 和固定位置归位都这样排），第一条显示在第一页最后一格由 input-runtime 安排；英文行的优先位置也不再因为有 AI 行往后让。`online_cloud_and_ai_slots`、`online_learning_rules`、`online_mixed_english_ai_first`、`online_mixed_english_slots`、`online_quanpin_slots`、`online_rows_across_compositions` 和 `online_shuangpin` 里 AI 行和它后面那几行的先后据此更新，字段值和其余步骤保持参考断言（`.agents/notes/implemented/feature/2026-10-16-ai-candidate-last-slot.md`）。
+
 #8043 修复本地模式静默吞键：`local_date_time_incomplete`、`local_emoji_edges`、`local_quick_phrase`、`local_quick_phrase_edges`、`local_super_jianpin_queries`、`local_unicode_edges` 和 `personal_dictionary_entries` 中不被模式接受的字符改为先提交所见原文（含入口字母），再以未处理结果交还当前键。对应步骤及随后空组字的取消／退格期望据此更新，其他步骤保留固定参考断言；临时英文、临时日文和网址的独立拒绝分支保持原有行为。

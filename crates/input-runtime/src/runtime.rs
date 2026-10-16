@@ -435,62 +435,6 @@ impl Runtime<Session> {
         self.apply_online_candidates_snapshot(query, candidates, source, cloud_candidates, limit)
     }
 
-    /// 宿主为这个会话打开或关掉 AI 候选。打开时可以问 AI 的组字先在 AI 座位上放一行占位（来源 12，`CandidateSource::AiPending`），回答到达时由第一条 AI 候选替换，前后的候选都不挪位（#6888）。组字中途改变时立刻换一代并刷新。
-    pub fn set_ai_seat(&mut self, enabled: bool) -> Result<(), RuntimeError> {
-        if !self.engine.set_ai_seat(enabled) || self.is_idle() {
-            return Ok(());
-        }
-        self.advance()?;
-        self.refresh()
-    }
-
-    /// AI 回答为空、失败，或 `apply_online_candidates` 没有采用它时由宿主调用：这次查询的占位行换成「—」，留到组字变化为止，后面的候选不挪位。只认 AI（来源 1）；过期查询、没开 AI 的会话和已经坐着 AI 候选的座位返回 `Ok(false)`，列表不变。
-    pub fn resolve_online_candidates_owned(
-        &mut self,
-        query: OnlineQuery,
-        source: u8,
-    ) -> Result<bool, RuntimeError> {
-        if source != 1 || !query.ai_eligible {
-            return Ok(false);
-        }
-        if self.generation == u64::MAX {
-            return Err(RuntimeError::IdentityExhausted);
-        }
-        let OnlineQuery {
-            scheme,
-            generation,
-            identity,
-            query_text,
-            cache_key,
-            pinyin_segments,
-            cloud_eligible,
-            ai_eligible,
-            session_id,
-            ..
-        } = query;
-        let query = OnlineQuerySnapshot {
-            available: true,
-            scheme,
-            generation,
-            identity,
-            query_text,
-            cache_key,
-            pinyin_segments,
-            cloud_eligible,
-            ai_eligible,
-            session_id,
-        };
-        let resolved = self
-            .engine
-            .resolve_online_candidates(&query, source)
-            .map_err(|error| RuntimeError::Engine(error.to_string()))?;
-        if resolved {
-            self.advance()?;
-            self.refresh_online_candidates()?;
-        }
-        Ok(resolved)
-    }
-
     /// Remove cached and visible rows for one online provider.
     pub fn clear_online_candidates(&mut self, source: u8) -> Result<(), RuntimeError> {
         if source > 1 {
@@ -1745,7 +1689,7 @@ impl<E: InputEngine> Runtime<E> {
     /// Engine already produces the fourth line, so there is nothing to rearrange and nothing to
     /// risk.
     ///
-    /// AI 的座位只坐一行：第一条 AI 候选，回答到达之前是它的占位行（`CandidateSource::AiPending`）。同一批里多出来的 AI 候选排在整个列表最后，回答到达时座位前后已经显示的候选都不挪位（#6888）。
+    /// AI 行不按上表的座位坐（#6888）。其余行先排好：有云候选时按上表分组，没有云候选时保持引擎的次序，和 AI 回答到达之前一模一样。第一条 AI 候选再插进第一页最后一格（下标 `page_size - 1`；每页只有一格时是下标 1，不顶掉首选；第一页排不满时紧跟在其余行之后），同一批多出来的排在整个列表最后。回答到达时第一页前 `page_size - 1` 格一格都不动，原来在最后一格的候选和它后面的行各往后挪一格。`page_size` 在组字中途不会变（`set_page_size` 只在空闲时生效），翻页、展开刷新时这里按同一个值重算，AI 行始终在第一页最后一格，数字键按的就是画出来的那一格。
     fn normalize_online_slots(&mut self) -> bool {
         const CLOUD: u8 = 2;
         const AI: u8 = 3;
@@ -1783,6 +1727,15 @@ impl<E: InputEngine> Runtime<E> {
         const ENGLISH_GROUP: usize = 4;
         const EMOJI_GROUP: usize = 5;
         const KAOMOJI_GROUP: usize = 6;
+        let group_of = |source: u8| match source {
+            CLOUD => CLOUD_GROUP,
+            AI | AI_PENDING => AI_GROUP,
+            JAPANESE => JAPANESE_GROUP,
+            ENGLISH => ENGLISH_GROUP,
+            EMOJI => EMOJI_GROUP,
+            KAOMOJI => KAOMOJI_GROUP,
+            _ => LOCAL_GROUP,
+        };
         let mut counts = [0; 7];
         let mut fixed_english_count = 0;
         for (source, position) in snapshot
@@ -1790,96 +1743,90 @@ impl<E: InputEngine> Runtime<E> {
             .iter()
             .zip(&snapshot.candidate_positions)
         {
-            match *source {
-                CLOUD => counts[CLOUD_GROUP] += 1,
-                AI | AI_PENDING => counts[AI_GROUP] += 1,
-                JAPANESE => counts[JAPANESE_GROUP] += 1,
-                ENGLISH => {
-                    counts[ENGLISH_GROUP] += 1;
-                    fixed_english_count += usize::from(*position > 0);
-                }
-                EMOJI => counts[EMOJI_GROUP] += 1,
-                KAOMOJI => counts[KAOMOJI_GROUP] += 1,
-                _ => counts[LOCAL_GROUP] += 1,
-            }
+            counts[group_of(*source)] += 1;
+            fixed_english_count += usize::from(*source == ENGLISH && *position > 0);
         }
-        // 引擎把完全匹配或固定在首位的英文保留在首位；领先的日文混输行也不被在线行挤走。
-        let promoted_english = counts[LOCAL_GROUP] > 0 && snapshot.candidate_sources[0] == ENGLISH;
-        let promoted_japanese = counts[LOCAL_GROUP] > 0
-            && snapshot.candidate_sources[usize::from(promoted_english)] == JAPANESE;
         let has_cloud = counts[CLOUD_GROUP] > 0;
-        let mut reading = snapshot.reading.chars();
-        let single_kana = scheme_type(snapshot.scheme) == Some(SchemeType::JapaneseRomaji)
-            && matches!((reading.next(), reading.next()), (Some(kana), None) if ('\u{3041}'..='\u{3096}').contains(&kana));
-        let local_prefix = if single_kana { 2 } else { 1 };
+        let ai_count = counts[AI_GROUP];
+        let non_ai = count - ai_count;
+        // 第一条 AI 候选的座位：第一页最后一格，不占首位；第一页排不满时紧跟在其余行之后。
+        let ai_seat = self.page_size.saturating_sub(1).max(1).min(non_ai);
 
-        // 每组有优先段和剩余段，组内按引擎原顺序排列；AI 的剩余段放在整个列表末尾。
+        // 有云候选时其余行每组有优先段和剩余段，组内按引擎原顺序排列。
         let mut head_starts = [0; 7];
         let mut head_counts = [0; 7];
-        let mut next_seat = 0;
-        let mut head = |group: usize, limit: usize| {
-            head_starts[group] = next_seat;
-            head_counts[group] = counts[group].min(limit);
-            next_seat += head_counts[group];
-        };
-        if promoted_english {
-            head(ENGLISH_GROUP, 1);
-        }
-        if promoted_japanese {
-            head(JAPANESE_GROUP, 1);
-        }
-        head(LOCAL_GROUP, local_prefix);
-        head(CLOUD_GROUP, counts[CLOUD_GROUP]);
-        if has_cloud {
-            head(AI_GROUP, 1);
-        }
-        if !promoted_japanese {
-            head(JAPANESE_GROUP, 1);
-        }
-        if !promoted_english {
-            head(ENGLISH_GROUP, 1);
-        }
-        if !has_cloud {
-            head(AI_GROUP, 1);
-        }
-        head(EMOJI_GROUP, 1);
-        head(KAOMOJI_GROUP, 1);
         let mut tail_starts = [0; 7];
-        for group in [
-            LOCAL_GROUP,
-            ENGLISH_GROUP,
-            JAPANESE_GROUP,
-            EMOJI_GROUP,
-            KAOMOJI_GROUP,
-            AI_GROUP,
-        ] {
-            tail_starts[group] = next_seat;
-            next_seat += counts[group] - head_counts[group];
+        if has_cloud {
+            // 引擎把完全匹配或固定在首位的英文保留在首位；领先的日文混输行也不被在线行挤走。
+            let promoted_english =
+                counts[LOCAL_GROUP] > 0 && snapshot.candidate_sources[0] == ENGLISH;
+            let promoted_japanese = counts[LOCAL_GROUP] > 0
+                && snapshot.candidate_sources[usize::from(promoted_english)] == JAPANESE;
+            let mut reading = snapshot.reading.chars();
+            let single_kana = scheme_type(snapshot.scheme) == Some(SchemeType::JapaneseRomaji)
+                && matches!((reading.next(), reading.next()), (Some(kana), None) if ('\u{3041}'..='\u{3096}').contains(&kana));
+            let local_prefix = if single_kana { 2 } else { 1 };
+
+            let mut next_seat = 0;
+            let mut head = |group: usize, limit: usize| {
+                head_starts[group] = next_seat;
+                head_counts[group] = counts[group].min(limit);
+                next_seat += head_counts[group];
+            };
+            if promoted_english {
+                head(ENGLISH_GROUP, 1);
+            }
+            if promoted_japanese {
+                head(JAPANESE_GROUP, 1);
+            }
+            head(LOCAL_GROUP, local_prefix);
+            head(CLOUD_GROUP, counts[CLOUD_GROUP]);
+            if !promoted_japanese {
+                head(JAPANESE_GROUP, 1);
+            }
+            if !promoted_english {
+                head(ENGLISH_GROUP, 1);
+            }
+            head(EMOJI_GROUP, 1);
+            head(KAOMOJI_GROUP, 1);
+            for group in [
+                LOCAL_GROUP,
+                ENGLISH_GROUP,
+                JAPANESE_GROUP,
+                EMOJI_GROUP,
+                KAOMOJI_GROUP,
+            ] {
+                tail_starts[group] = next_seat;
+                next_seat += counts[group] - head_counts[group];
+            }
+            debug_assert_eq!(next_seat, non_ai);
         }
-        debug_assert_eq!(next_seat, count);
 
         // 第二次扫描直接计算每行的新座位；全部未变位时不建立索引表。
         let mut order = None;
         let mut seen = [0; 7];
-        let mut take_ordinal = |group: usize| {
+        let mut arranged_without_ai = 0;
+        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+            let group = group_of(*source);
             let ordinal = seen[group];
             seen[group] += 1;
-            (group, ordinal)
-        };
-        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-            let (group, ordinal) = match *source {
-                CLOUD => take_ordinal(CLOUD_GROUP),
-                AI | AI_PENDING => take_ordinal(AI_GROUP),
-                JAPANESE => take_ordinal(JAPANESE_GROUP),
-                ENGLISH => take_ordinal(ENGLISH_GROUP),
-                EMOJI => take_ordinal(EMOJI_GROUP),
-                KAOMOJI => take_ordinal(KAOMOJI_GROUP),
-                _ => take_ordinal(LOCAL_GROUP),
-            };
-            let seat = if ordinal < head_counts[group] {
-                head_starts[group] + ordinal
+            let seat = if group == AI_GROUP {
+                if ordinal == 0 {
+                    ai_seat
+                } else {
+                    non_ai + ordinal
+                }
             } else {
-                tail_starts[group] + ordinal - head_counts[group]
+                // 这一行在不含 AI 行的排列里的座位；第一条 AI 候选插进去后，它和它后面的行各往后挪一格。
+                let arranged = if !has_cloud {
+                    arranged_without_ai
+                } else if ordinal < head_counts[group] {
+                    head_starts[group] + ordinal
+                } else {
+                    tail_starts[group] + ordinal - head_counts[group]
+                };
+                arranged_without_ai += 1;
+                arranged + usize::from(ai_count > 0 && arranged >= ai_seat)
             };
             if seat != index && order.is_none() {
                 order = Some((0..count).collect::<Vec<usize>>());
@@ -1888,14 +1835,16 @@ impl<E: InputEngine> Runtime<E> {
                 order[seat] = index;
             }
         }
-        // 固定英文行在在线座位排好后归位，云或 AI 不能把它挤离指定座位（参考 server/src/ipc/candidate_selection_policy.h 的 NormalizeMixedCandidateOrder）。位置从 1 开始，超出末尾时夹到末尾；来源统计给出实际行数，空缓冲不申请存储。
-        if fixed_english_count > 0 {
+        // 有云候选时固定英文行在在线座位排好后归位，云候选不能把它挤离指定座位（参考 server/src/ipc/candidate_selection_policy.h 的 NormalizeMixedCandidateOrder）。位置从 1 开始，超出末尾时夹到末尾；来源统计给出实际行数，空缓冲不申请存储。没有云候选时其余行保持引擎的次序，引擎已经按固定位置排好了它们。
+        if has_cloud && fixed_english_count > 0 {
             let order = order.get_or_insert_with(|| (0..count).collect::<Vec<usize>>());
-            // 只压缩非 AI 尾部；空出的槽供固定英文插回，AI 尾部始终留在原处。
-            let prefix_len = count - counts[AI_GROUP].saturating_sub(1);
+            // 固定英文只在其余行里归位：先把第一条 AI 候选移回其余行之后，归位完再放回它的座位；AI 的尾部始终留在原处。
+            if ai_count > 0 {
+                order[ai_seat..=non_ai].rotate_left(1);
+            }
             let mut fixed_english = Vec::with_capacity(fixed_english_count);
             let mut write = 0;
-            for read in 0..prefix_len {
+            for read in 0..non_ai {
                 let index = order[read];
                 if snapshot.candidate_sources[index] == ENGLISH
                     && snapshot.candidate_positions[index] > 0
@@ -1913,7 +1862,10 @@ impl<E: InputEngine> Runtime<E> {
                 order[seat] = index;
                 write += 1;
             }
-            debug_assert_eq!(write, prefix_len);
+            debug_assert_eq!(write, non_ai);
+            if ai_count > 0 {
+                order[ai_seat..=non_ai].rotate_right(1);
+            }
         }
         let Some(order) = order else {
             return false;

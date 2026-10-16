@@ -388,16 +388,16 @@ fn fixed_positions_and_online_rows_keep_their_seats() {
     harness.key(b'a');
     assert_eq!(harness.shown(), ["丙", "乙", "甲"]);
 
-    // 云和 AI 行先由内置排序坐好（甲 丙 丁 乙 戊），插件既挪不动也藏不了它们。
+    // 云和 AI 行先由内置排序坐好（甲 丙 乙 戊 丁：第一页排不满，AI 紧跟在其余行之后，#6888），插件既挪不动也藏不了它们；藏掉乙之后 AI 仍紧跟在可见行之后。
     let mut online = TransformEngine::new(&FIVE);
     online.sources = vec![0, 0, 2, 3, 0];
     let mut harness = Harness::new(online, vec![ops(&[4, 3, 2, 1], &[1, 2], &[])]);
     harness.key(b'a');
     assert_eq!(
         harness.calls.borrow().windows[0],
-        ["甲", "丙", "丁", "乙", "戊"]
+        ["甲", "丙", "乙", "戊", "丁"]
     );
-    assert_eq!(harness.shown(), ["戊", "丙", "丁", "乙", "甲"]);
+    assert_eq!(harness.shown(), ["戊", "丙", "甲", "丁"]);
 }
 
 #[test]

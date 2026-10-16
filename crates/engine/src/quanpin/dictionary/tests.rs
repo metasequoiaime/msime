@@ -1005,7 +1005,7 @@ fn online_rows_land_in_the_series_slot_the_query_used() {
         &ai,
         CandidateSource::AiSuggestion
     ));
-    // 第二次云回答替换掉第一次，AI 座位仍在下标 2；第二条 AI 候选排在最后（#6888）。
+    // 第二次云回答替换掉第一次，仍在下标 1；AI 候选按回答的顺序排在最后（#6888）。
     assert!(dictionary.insert_online_words(
         "nihao",
         "ni'hao",
@@ -1014,8 +1014,8 @@ fn online_rows_land_in_the_series_slot_the_query_used() {
         CandidateSource::CloudSuggestion
     ));
     let listed = query(&mut dictionary, "nihao", "ni'hao", NONE);
-    assert_eq!(words(&listed[..3]), ["你好", "妮好", "智能甲"]);
-    assert_eq!(listed.last().unwrap().word, "智能乙");
+    assert_eq!(words(&listed[..2]), ["你好", "妮好"]);
+    assert_eq!(words(&listed[listed.len() - 2..]), ["智能甲", "智能乙"]);
     assert!(!contains(&listed, "倪好"));
 
     let two = vec!["一".to_string(), "二".to_string()];

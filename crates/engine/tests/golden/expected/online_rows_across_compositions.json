@@ -125,15 +125,6 @@
       "answers_key": false
      },
      {
-      "word": "您好",
-      "pinyin": "nihao",
-      "canonical_pinyin": "",
-      "source": 3,
-      "scheme": "quanpin",
-      "weight": 1,
-      "answers_key": true
-     },
-     {
       "word": "倪",
       "pinyin": "ni",
       "canonical_pinyin": "ni",
@@ -141,6 +132,15 @@
       "scheme": "quanpin",
       "weight": 100,
       "answers_key": false
+     },
+     {
+      "word": "您好",
+      "pinyin": "nihao",
+      "canonical_pinyin": "",
+      "source": 3,
+      "scheme": "quanpin",
+      "weight": 1,
+      "answers_key": true
      }
     ],
     "online_query": {
@@ -221,15 +221,6 @@
       "answers_key": false
      },
      {
-      "word": "您好",
-      "pinyin": "nihao",
-      "canonical_pinyin": "",
-      "source": 3,
-      "scheme": "quanpin",
-      "weight": 1,
-      "answers_key": true
-     },
-     {
       "word": "倪",
       "pinyin": "ni",
       "canonical_pinyin": "ni",
@@ -237,6 +228,15 @@
       "scheme": "quanpin",
       "weight": 100,
       "answers_key": false
+     },
+     {
+      "word": "您好",
+      "pinyin": "nihao",
+      "canonical_pinyin": "",
+      "source": 3,
+      "scheme": "quanpin",
+      "weight": 1,
+      "answers_key": true
      }
     ],
     "online_query": {
@@ -296,15 +296,6 @@
       "answers_key": true
      },
      {
-      "word": "您好",
-      "pinyin": "nihao",
-      "canonical_pinyin": "",
-      "source": 3,
-      "scheme": "quanpin",
-      "weight": 1,
-      "answers_key": true
-     },
-     {
       "word": "你",
       "pinyin": "ni",
       "canonical_pinyin": "ni",
@@ -321,6 +312,15 @@
       "scheme": "quanpin",
       "weight": 100,
       "answers_key": false
+     },
+     {
+      "word": "您好",
+      "pinyin": "nihao",
+      "canonical_pinyin": "",
+      "source": 3,
+      "scheme": "quanpin",
+      "weight": 1,
+      "answers_key": true
      }
     ],
     "online_query": {

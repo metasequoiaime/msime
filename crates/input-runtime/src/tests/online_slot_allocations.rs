@@ -3,7 +3,8 @@ use super::*;
 
 fn seated_runtime(rows: usize, source: u8, fixed: usize) -> Runtime<Fixture> {
     let mut sources = vec![0; rows];
-    sources[1] = source;
+    // 已经坐好的位置：云候选在第 2 格，AI 行在每页 5 个的第一页最后一格（#6888）。
+    sources[if source == 2 { 1 } else { 4 }] = source;
     let mut positions = vec![0; rows];
     for &seat in [3, 7, 12, 20, 25].iter().take(fixed) {
         sources[seat] = 4;
@@ -109,7 +110,8 @@ fn fixed_english_seats_keep_stable_ties_clamping_and_the_ai_tail() {
             text: "a".into(),
             ..Fixture::default()
         },
-        9,
+        // 每页 5 个：第一条 AI 坐下标 4，固定英文在其余行里归位后它仍在那里。
+        5,
     )
     .unwrap();
     runtime.focus(true).unwrap();
@@ -150,14 +152,18 @@ fn fixed_english_seats_keep_stable_ties_clamping_and_the_ai_tail() {
 
 #[test]
 fn online_seating_materializes_early_and_late_mismatches() {
-    for rows in [4, 32, 128, 129, 4096] {
+    for rows in [8, 32, 128, 129, 4096] {
         for late in [false, true] {
             let mut sources = vec![0; rows];
             if late {
-                // 大段云候选已经归位，只有末尾的本地行和 AI 行需要互换。
+                // 大段云候选和第一页最后一格的 AI 行已经归位，只有末尾的本地行和第二条 AI 行需要互换。
                 sources[1..rows - 2].fill(2);
+                sources[4] = 3;
+                sources[rows - 2] = 3;
+            } else {
+                // 引擎把 AI 行放在最后，它要挪到第一页最后一格（每页 5 个，下标 4）。
+                sources[rows - 1] = 3;
             }
-            sources[rows - 1] = 3;
             let mut runtime = Runtime::new(
                 Fixture {
                     words: (0..rows).map(|index| format!("合成候选{index}")).collect(),
@@ -175,7 +181,7 @@ fn online_seating_materializes_early_and_late_mismatches() {
                 expected.swap(rows - 2, rows - 1);
             } else {
                 expected.remove(rows - 1);
-                expected.insert(1, rows - 1);
+                expected.insert(4, rows - 1);
             }
             assert_eq!(runtime.engine_order, expected);
             for (seat, &row) in expected.iter().enumerate() {
@@ -199,7 +205,7 @@ fn online_seating_materializes_early_and_late_mismatches() {
             assert_eq!(runtime.cached.candidates.len(), snapshot.candidates.len());
             assert_eq!(runtime.engine_order, expected);
             runtime.focused = true;
-            let seat = if late { rows - 2 } else { 1 };
+            let seat = if late { rows - 2 } else { 4 };
             let id = CandidateId {
                 session: runtime.session,
                 generation: runtime.generation,
@@ -218,16 +224,17 @@ fn online_seating_materializes_early_and_late_mismatches() {
 
 #[test]
 fn seated_source_groups_need_no_order_allocation() {
+    // 每页 5 个：第一条 AI 行坐下标 4，其余 AI 行在最后（#6888）。
     let cases = [
         (
-            vec![0, 2, 2, 3, 13, 4, 6, 7, 0, 0, 4, 13, 6, 7, 3, 12],
+            vec![0, 2, 2, 13, 3, 4, 6, 7, 0, 0, 4, 13, 6, 7, 3, 12],
             false,
         ),
-        (vec![0, 13, 4, 3, 6, 7, 0, 4, 13, 6, 7, 12, 3], false),
+        (vec![0, 13, 4, 6, 3, 7, 0, 4, 13, 6, 7, 12, 3], false),
         (vec![4, 13, 0, 2, 3, 6, 7, 0, 4, 13, 6, 7, 12], false),
-        (vec![13, 0, 2, 3, 4, 6, 7, 0, 4, 13, 6, 7, 3], false),
-        (vec![2, 2, 3, 13, 4, 6, 7, 4, 13, 6, 7, 3], false),
-        (vec![0, 0, 2, 3, 4, 6, 7, 0, 4, 6, 7, 3], true),
+        (vec![13, 0, 2, 4, 3, 6, 7, 0, 4, 13, 6, 7, 3], false),
+        (vec![2, 2, 13, 4, 3, 6, 7, 4, 13, 6, 7, 3], false),
+        (vec![0, 0, 2, 4, 3, 6, 7, 0, 4, 6, 7, 3], true),
     ];
     let mut measurements = Vec::new();
     for (sources, single_kana) in cases {
@@ -300,12 +307,12 @@ fn seated_source_groups_need_no_order_allocation() {
 fn fixed_english_materializes_an_identity_prefix_before_the_ai_tail() {
     let mut runtime = Runtime::new(
         Fixture {
-            words: ["本地", "英文", "AI首行", "AI占位尾行"]
+            words: ["本地", "云", "英文", "AI首行", "AI占位尾行"]
                 .map(str::to_owned)
                 .to_vec(),
-            codes: (0..4).map(|index| format!("k{index}")).collect(),
-            sources: vec![0, 4, 3, 12],
-            positions: vec![0, 2, 0, 0],
+            codes: (0..5).map(|index| format!("k{index}")).collect(),
+            sources: vec![0, 2, 4, 3, 12],
+            positions: vec![0, 0, 3, 0, 0],
             text: "a".into(),
             ..Fixture::default()
         },
@@ -325,5 +332,5 @@ fn fixed_english_materializes_an_identity_prefix_before_the_ai_tail() {
     );
     assert!(runtime.engine_order.is_empty());
     assert!(refresh_allocations - snapshot_allocations <= 2);
-    assert!(refresh_bytes - snapshot_bytes <= 5 * std::mem::size_of::<usize>());
+    assert!(refresh_bytes - snapshot_bytes <= 6 * std::mem::size_of::<usize>());
 }

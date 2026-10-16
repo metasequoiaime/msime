@@ -578,22 +578,12 @@ fn with_first_position<R>(
     }
 }
 
-/// 英文第一行默认的位置：首选之后；有云候选时在它之后，有 AI 候选或 AI 占位行时再往后一位。占位行和 AI 候选同样算，回答到达前后英文行的位置才不变（#6888）。拼音拆不开、英文完全匹配时不用它，英文直接占首位（见 `insert_mixed_rows`）。
+/// 英文第一行默认的位置：首选之后；有云候选时在它之后。AI 候选不算：引擎把 AI 行排在最后，第一条显示在第一页最后一格（input-runtime 的 `normalize_online_slots`），英文行的位置因此在回答到达前后不变（#6888）。拼音拆不开、英文完全匹配时不用它，英文直接占首位（见 `insert_mixed_rows`）。
 fn priority_slot(candidates: &[WordItem]) -> usize {
-    let (has_ai, has_cloud) = candidates.iter().fold((false, false), |(ai, cloud), item| {
-        (
-            ai || item.source.holds_ai_seat(),
-            cloud || item.source == CandidateSource::CloudSuggestion,
-        )
-    });
-    let slot = if has_ai {
-        3
-    } else if has_cloud {
-        2
-    } else {
-        1
-    };
-    slot.min(candidates.len())
+    let has_cloud = candidates
+        .iter()
+        .any(|item| item.source == CandidateSource::CloudSuggestion);
+    (1 + usize::from(has_cloud)).min(candidates.len())
 }
 
 /// 一行 emoji 或颜文字的某个关键词正好是某个候选词时，紧接在第一个这样的候选后面；同一个词后面的几行 emoji 在颜文字前，各自按查询的先后。它总跟在一个词后面，所以不会占首选。接不上任何候选的行每组只留前 `MIXED_RESULT_LIMIT` 行，emoji 在前，排在列表末尾。只对插入前的行找词，混入的行不互相接。容量由调用方预留；有关键词时为候选词的有序索引分配一次。
@@ -960,13 +950,13 @@ mod tests {
     }
 
     #[test]
-    fn anchored_rows_follow_their_word_behind_cloud_ai_and_english_rows() {
-        // 首选、云候选、AI 候选之后是英文首行；emoji 不看这些位置，只跟着它描绘的词，哪怕词就是云候选或英文词。
+    fn anchored_rows_follow_their_word_behind_cloud_and_english_rows() {
+        // 首选、云候选之后是英文首行，AI 行在引擎里排在最后；emoji 不看这些位置，只跟着它描绘的词，哪怕词就是云候选或英文词。
         let list = vec![
             row("你", CandidateSource::Database),
             row("美国", CandidateSource::CloudSuggestion),
-            row("智", CandidateSource::AiSuggestion),
             row("倪", CandidateSource::Database),
+            row("智", CandidateSource::AiSuggestion),
         ];
         let merged = insert_mixed_rows(
             list,
@@ -984,51 +974,54 @@ mod tests {
         );
         assert_eq!(
             words(&merged),
-            vec!["你", "(^_^)", "美国", "🇺🇸", "智", "Ni", "倪", "Ninja", "🥷", "😀"]
+            vec!["你", "(^_^)", "美国", "🇺🇸", "Ni", "倪", "智", "Ninja", "🥷", "😀"]
         );
     }
 
     #[test]
-    fn online_rows_push_the_priority_slot_back() {
+    fn a_cloud_row_pushes_the_priority_slot_back() {
         let mut list = chinese();
         list.insert(1, row("云", CandidateSource::CloudSuggestion));
         let with_cloud = insert_mixed_rows(
-            list.clone(),
-            vec![row("Ni", CandidateSource::EnglishDictionary)],
-            Vec::new(),
-            Vec::new(),
-            None,
-        );
-        assert_eq!(words(&with_cloud), vec!["你", "云", "Ni", "倪"]);
-
-        list.insert(2, row("智", CandidateSource::AiSuggestion));
-        let with_ai = insert_mixed_rows(
             list,
             vec![row("Ni", CandidateSource::EnglishDictionary)],
             Vec::new(),
             Vec::new(),
             None,
         );
-        assert_eq!(words(&with_ai), vec!["你", "云", "智", "Ni", "倪"]);
+        assert_eq!(words(&with_cloud), vec!["你", "云", "Ni", "倪"]);
     }
 
+    /// AI 行不占英文的优先位置：它排在首选和云候选之后的哪里（引擎现在放在最后，旧规则放在第 2 位），英文行在其余候选中的位置都和没有 AI 行时一样（#6888）。
     #[test]
-    fn the_ai_placeholder_holds_the_english_slot_like_an_ai_row() {
-        let with_row = |source: CandidateSource, word: &str| {
-            let mut list = chinese();
-            list.insert(2.min(list.len()), row(word, source));
-            insert_mixed_rows(
-                list,
-                vec![row("Ni", CandidateSource::EnglishDictionary)],
-                Vec::new(),
-                Vec::new(),
-                None,
-            )
+    fn an_ai_row_does_not_move_the_english_slot() {
+        let english = || vec![row("Ni", CandidateSource::EnglishDictionary)];
+        let others = |list: &[WordItem]| -> Vec<String> {
+            list.iter()
+                .filter(|item| !item.source.holds_ai_seat())
+                .map(|item| item.word.clone())
+                .collect()
         };
-        let pending = with_row(CandidateSource::AiPending, "…");
-        let answered = with_row(CandidateSource::AiSuggestion, "智");
-        let english = |list: &[WordItem]| list.iter().position(|item| item.word == "Ni");
-        assert_eq!(english(&pending), english(&answered));
+        for cloud in [false, true] {
+            let base = || {
+                let mut list = chinese();
+                if cloud {
+                    list.insert(1, row("云", CandidateSource::CloudSuggestion));
+                }
+                list
+            };
+            let without = insert_mixed_rows(base(), english(), Vec::new(), Vec::new(), None);
+            for at in [2, base().len()] {
+                let mut list = base();
+                list.insert(at, row("智", CandidateSource::AiSuggestion));
+                let with_ai = insert_mixed_rows(list, english(), Vec::new(), Vec::new(), None);
+                assert_eq!(
+                    others(&with_ai),
+                    others(&without),
+                    "cloud {cloud}, AI at {at}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1377,19 +1370,16 @@ mod tests {
         assert_eq!(words(&list), vec!["へっぉ", "何咯", "hellos", "和"]);
     }
 
-    /// 有云候选、AI 候选或占位行时，不领先的日文和英文一样往后让，领先的仍在首位。
+    /// 有云候选时，不领先的日文和英文一样往后让，领先的仍在首位；AI 行（引擎排在最后）不让它再往后。
     #[test]
-    fn japanese_rows_respect_the_cloud_and_ai_seats() {
-        for (ai, slot) in [
-            (None, 2),
-            (Some(CandidateSource::AiSuggestion), 3),
-            (Some(CandidateSource::AiPending), 3),
-        ] {
+    fn japanese_rows_respect_the_cloud_seat() {
+        let slot = 2;
+        for ai in [None, Some(CandidateSource::AiSuggestion)] {
             let with_online = || {
                 let mut list = kaishi_chinese();
                 list.insert(1, row("云", CandidateSource::CloudSuggestion));
                 if let Some(ai) = ai {
-                    list.insert(2, row("智", ai));
+                    list.push(row("智", ai));
                 }
                 list
             };

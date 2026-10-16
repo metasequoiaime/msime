@@ -163,7 +163,7 @@ pub unsafe extern "C" fn msime_client_apply_online_candidates(
     })
 }
 
-/// AI 回答为空、失败，或 `msime_client_apply_online_candidates` 返回 `applied:false` 时调用：这次查询在 AI 座位上的占位行换成暗色的「—」，留到组字变化为止，后面的候选不挪位（#6888）。只认来源 1（AI）；过期查询、AI 已关或座位上已经是 AI 候选时 `applied` 为 false，视图不变。
+/// AI 回答为空、失败，或 `msime_client_apply_online_candidates` 返回 `applied:false` 时宿主会调用它。原来用来把 AI 座位上的占位行换成「—」；共享内核不再放占位行（AI 回答到达时第一条直接插在第一页最后一格，#6888），这个入口为已发布的宿主留着：缓冲和来源照旧校验，合法的调用一律回答 `applied:false` 和当前视图，不改候选、不换代。
 ///
 /// # Safety
 /// `query` 必须指向 `query_length` 个可读字节；只在本次调用期间读取，不保留。
@@ -178,23 +178,13 @@ pub unsafe extern "C" fn msime_client_resolve_online_candidates(
         if query.is_null() || query_length > 16384 || source > 1 {
             return Err("invalid online resolve buffer".into());
         }
-        let query = serde_json::from_slice::<OnlineQuery>(unsafe {
+        // 只校验文档是一份在线查询，内容不再用到。
+        serde_json::from_slice::<OnlineQuery>(unsafe {
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid online query document")?;
         with_session(handle, |session| {
-            if source != 1 || !session.ai_query_is_current(&query) {
-                return Ok(json!({"applied":false,"view":session.runtime.view()}));
-            }
-            let pending = session.lifecycle_begin(lifecycle::Call::SideChannel);
-            let applied = session
-                .runtime
-                .resolve_online_candidates_owned(query, source)
-                .map_err(|e| e.to_string());
-            let applied = session.lifecycle_on_error(pending, applied)?;
-            let view = session.runtime.view();
-            session.lifecycle_view(pending, &view);
-            Ok(json!({ "applied": applied, "view": view }))
+            Ok(json!({"applied":false,"view":session.runtime.view()}))
         })
     })
 }

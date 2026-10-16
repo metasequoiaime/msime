@@ -903,9 +903,7 @@ char *msime_client_apply_online_candidates(uint64_t session,
                                           uint8_t source);
 /* Remove cached and visible rows for one source (source=0 cloud, 1 AI). */
 char *msime_client_clear_online_candidates(uint64_t session, uint8_t source);
-/* AI 回答为空、失败，或 apply_online_candidates 返回 applied:false 时调用（source 只认 1）：
- * 这次查询在 AI 座位上的占位行（候选 source 12）换成「—」，留到组字变化为止。
- * 返回 {applied, view}；过期查询、AI 已关或座位上已经是 AI 候选时 applied 为 false。 */
+/* AI 回答为空、失败，或 apply_online_candidates 返回 applied:false 时宿主会调用它（source 只认 0 和 1，其余报错）。共享内核不再放 AI 占位行（候选 source 12），AI 回答到达时第一条直接插在第一页最后一格；这个入口为已发布的宿主留着，合法的调用一律返回 {applied:false, view}，不改候选、不换代。 */
 char *msime_client_resolve_online_candidates(uint64_t session,
                                              const uint8_t *query,
                                              size_t query_length,

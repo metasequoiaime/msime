@@ -7,7 +7,6 @@ use rusqlite::params;
 
 use super::journal::{open_journal, UNSTORABLE_ENTRY};
 use crate::error::{EngineError, Result};
-use crate::ime::online_batch::AI_SEAT;
 use crate::types::{CandidateSource, WordItem};
 
 /// Looks a fixed row up by `(entry_key, value)` when it is not in the list; the session passes its engine's `find_candidate`.
@@ -99,7 +98,7 @@ fn fixed_row_contains(rows: &[(WordItem, i32)], word: &str) -> bool {
     rows.iter().any(|(item, _)| item.word == word)
 }
 
-/// Move the context's fixed rows into their slots, matching by word; with `include_missing`, rows not in the list are fetched through `find_candidate(entry_key, value)`. Online rows are lifted out and put back at 1 (cloud) and 2 (AI) unless `keep_dynamic_candidate_positions` (J:1272-1346). No journal file means nothing to apply.
+/// Move the context's fixed rows into their slots, matching by word; with `include_missing`, rows not in the list are fetched through `find_candidate(entry_key, value)`. Online rows are lifted out and put back unless `keep_dynamic_candidate_positions` (J:1272-1346): cloud at 1, AI rows at the end in their order (input-runtime seats the first one in the last slot of page one, #6888). No journal file means nothing to apply.
 pub fn apply_fixed_positions(
     user_db: &Path,
     context: &str,
@@ -189,23 +188,17 @@ pub(crate) fn apply_fixed_positions_with_state(
             .min(candidates.len());
         candidates.insert(index, item);
     }
-    // 云候选回到第 1 位；AI 座位上的那一行（第一条 AI 候选或占位行）回到第 2 位，其余 AI 候选排在列表末尾，回答到达时已经显示的行不动（#6888）。
-    let mut seated = false;
-    let mut extra_ai = Vec::new();
+    // 云候选回到第 1 位；AI 行按原来的先后排在列表末尾，回答到达时不挪动任何本地行。第一条 AI 候选显示在第一页最后一格，由知道每页几格的 input-runtime 安排（`normalize_online_slots`，#6888）。
+    let mut ai = Vec::new();
     for item in dynamic_candidates {
-        let preferred = if item.source == CandidateSource::CloudSuggestion {
-            1
-        } else if !seated {
-            seated = true;
-            AI_SEAT
+        if item.source == CandidateSource::CloudSuggestion {
+            let index = 1.min(candidates.len());
+            candidates.insert(index, item);
         } else {
-            extra_ai.push(item);
-            continue;
-        };
-        let index = preferred.min(candidates.len());
-        candidates.insert(index, item);
+            ai.push(item);
+        }
     }
-    candidates.append(&mut extra_ai);
+    candidates.append(&mut ai);
 }
 
 /// One pinned value per context; a later pin replaces it (J:671-680).
@@ -318,9 +311,9 @@ mod tests {
         let mut found =
             |key: &str, word: &str| (key == "ni" && word == "戊").then(|| item("ni", "戊", 1));
         apply_fixed_positions(&journal, "ni", &mut list, true, Some(&mut found), false);
-        assert_eq!(words(&list), ["丙", "云", "智", "戊", "甲", "乙"]);
+        assert_eq!(words(&list), ["丙", "云", "戊", "甲", "乙", "智"]);
         assert_eq!(list[0].fixed_position, 1);
-        assert_eq!(list[3].fixed_position, 2);
+        assert_eq!(list[2].fixed_position, 2);
 
         // Without include_missing the lookup is never asked, and kept dynamic rows stay where they are.
         let mut list = vec![
@@ -369,28 +362,29 @@ mod tests {
             online("云", CandidateSource::CloudSuggestion),
         ];
         apply_fixed_positions(&journal, "ni", &mut list, true, None, false);
-        // Online rows go back in list order, so the later cloud row pushes the AI row one further down, as in the reference.
-        assert_eq!(words(&list), ["甲", "云", "乙", "智", "丙"]);
+        // 云候选回到第 1 位，AI 行排到最后。
+        assert_eq!(words(&list), ["甲", "云", "乙", "丙", "智"]);
         assert!(!is_pinned_candidate(&journal, "ni", "甲"));
         assert!(!journal.exists());
     }
 
+    /// AI 行排到最后，本地行和固定行的位置与没有 AI 行时一样（#6888）。
     #[test]
-    fn the_ai_seat_returns_to_slot_two_and_extra_ai_rows_go_last() {
+    fn ai_rows_go_last_and_leave_the_other_rows_in_place() {
         let dir = Dir::new();
         let journal = dir.journal();
-        let pending = |list: &mut Vec<WordItem>| {
+        set_fixed_position(&journal, "ni", "ni", "丁", 2).unwrap();
+        let apply = |list: &mut Vec<WordItem>| {
             apply_fixed_positions(&journal, "ni", list, true, None, false);
         };
-        let mut placeholder = vec![
+        let mut local = vec![
             item("ni", "甲", 3),
             item("ni", "乙", 2),
-            online("…", CandidateSource::AiPending),
             item("ni", "丙", 1),
             item("ni", "丁", 1),
         ];
-        pending(&mut placeholder);
-        assert_eq!(words(&placeholder), ["甲", "乙", "…", "丙", "丁"]);
+        apply(&mut local);
+        assert_eq!(words(&local), ["甲", "丁", "乙", "丙"]);
 
         let mut answered = vec![
             item("ni", "甲", 3),
@@ -400,8 +394,8 @@ mod tests {
             item("ni", "丁", 1),
             online("智二", CandidateSource::AiSuggestion),
         ];
-        pending(&mut answered);
-        assert_eq!(words(&answered), ["甲", "乙", "智一", "丙", "丁", "智二"]);
+        apply(&mut answered);
+        assert_eq!(words(&answered), ["甲", "丁", "乙", "丙", "智一", "智二"]);
     }
 
     #[test]

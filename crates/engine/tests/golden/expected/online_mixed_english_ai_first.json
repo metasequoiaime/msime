@@ -113,6 +113,15 @@
       "answers_key": true
      },
      {
+      "word": "Ninja",
+      "pinyin": "ninja",
+      "canonical_pinyin": "",
+      "source": 4,
+      "scheme": "quanpin",
+      "weight": 100,
+      "answers_key": true
+     },
+     {
       "word": "倪",
       "pinyin": "ni",
       "canonical_pinyin": "ni",
@@ -128,15 +137,6 @@
       "source": 3,
       "scheme": "quanpin",
       "weight": 1,
-      "answers_key": true
-     },
-     {
-      "word": "Ninja",
-      "pinyin": "ninja",
-      "canonical_pinyin": "",
-      "source": 4,
-      "scheme": "quanpin",
-      "weight": 100,
       "answers_key": true
      }
     ],
@@ -195,15 +195,6 @@
       "answers_key": true
      },
      {
-      "word": "拟",
-      "pinyin": "ni",
-      "canonical_pinyin": "",
-      "source": 3,
-      "scheme": "quanpin",
-      "weight": 1,
-      "answers_key": true
-     },
-     {
       "word": "Ninja",
       "pinyin": "ninja",
       "canonical_pinyin": "",
@@ -219,6 +210,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 100,
+      "answers_key": true
+     },
+     {
+      "word": "拟",
+      "pinyin": "ni",
+      "canonical_pinyin": "",
+      "source": 3,
+      "scheme": "quanpin",
+      "weight": 1,
       "answers_key": true
      }
     ],

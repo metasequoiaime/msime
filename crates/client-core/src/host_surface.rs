@@ -61,7 +61,7 @@ impl HostPlatform {
 
     /// 这个宿主固定使用的 AI 联想候选数量，不读 `ai_assistant.candidate_limit`；`None` 表示按偏好。见 `HostCapabilities::fixed_ai_candidate_limit`。
     pub fn fixed_ai_candidate_limit(self) -> Option<u8> {
-        // AI 座位在共享的 engine/input-runtime 里只坐一行，同一批多出来的回答排到候选列表末尾，数量改了几乎看不出差别，所以桌面三家和鸿蒙固定为默认值 3，设置页不再给这一项。鸿蒙的候选条横向滚动，排在末尾的回答更难看到。Android、iOS 这一轮没有跟进，仍按偏好。
+        // 共享的 engine/input-runtime 只让第一条 AI 回答坐第一页最后一格，同一批多出来的回答排到候选列表末尾，数量改了几乎看不出差别，所以桌面三家和鸿蒙固定为默认值 3，设置页不再给这一项。鸿蒙的候选条横向滚动，排在末尾的回答更难看到。Android、iOS 这一轮没有跟进，仍按偏好。
         matches!(
             self,
             HostPlatform::Macos

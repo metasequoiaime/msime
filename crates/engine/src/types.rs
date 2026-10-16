@@ -20,7 +20,7 @@ pub enum CandidateSource {
     Fallback = 9,
     /// A lattice path the keyboard (speed) sentence model picked.
     NeuralKeyboard = 11,
-    /// AI 候选的占位行（#6888）：会话开着 AI、当前组字可以问 AI 时，先占住 AI 候选的座位，回答到了由第一条 AI 候选替换；回答为空或失败时文字换成「—」，留到组字变化为止。它不能上屏、不学习、不计入统计，宿主把它画成暗色。
+    /// AI 候选的占位行（#6888），已退役：共享内核不再产生它，AI 回答到达时第一条直接插在第一页最后一格（`.agents/notes/implemented/feature/2026-10-16-ai-candidate-last-slot.md`）。值保留不复用；引擎和宿主对它的处理（不能上屏、不学习、不计入统计、画成暗色）照旧，旧版本留下的行仍按这些规则处理。
     AiPending = 12,
     /// 日文混输（实验选项，默认关）混进全拼、双拼候选的那一行：整段输入按罗马字转换出的最佳日文。它不属于下面任何一个谓词，所以选中时整段上屏并结束组字（与混输英文同一条路），不调词频、不记整句、不进个人上下文，也不能置顶、固定或删除；宿主不对它做简繁转换。
     MixedJapanese = 13,
@@ -53,12 +53,12 @@ impl CandidateSource {
         matches!(self, Self::CloudSuggestion | Self::AiSuggestion)
     }
 
-    /// 坐 AI 座位的行：AI 候选和它的占位行。
+    /// AI 行：AI 候选和已退役的占位行。
     pub fn holds_ai_seat(self) -> bool {
         matches!(self, Self::AiSuggestion | Self::AiPending)
     }
 
-    /// 由在线座位规则摆放的行：云候选、AI 候选和 AI 占位行。
+    /// 由在线座位规则摆放的行：云候选、AI 候选和已退役的 AI 占位行。
     pub fn takes_online_seat(self) -> bool {
         self.is_online() || self == Self::AiPending
     }

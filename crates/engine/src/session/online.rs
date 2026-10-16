@@ -4,9 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::composition::resolve_shuangpin_composition_base;
 use super::input::InputSession;
-use crate::ime::online_batch::{
-    validate_online_candidate_batch, AI_PENDING_TEXT, AI_SEAT, AI_UNAVAILABLE_TEXT,
-};
+use crate::ime::online_batch::validate_online_candidate_batch;
 use crate::local::command::TEXT_UTF16_LIMIT;
 use crate::pinyin::active_helpcode::strip_active_helpcodes;
 use crate::pinyin::segment::{is_complete_pinyin_input, split_segments};
@@ -224,88 +222,8 @@ impl InputSession {
         if !self.engine.apply_dynamic_candidates(words, source) {
             return false;
         }
-        // 回答的词都已经在列表里时没有 AI 行可以坐座位，占位行当作回答为空，换成「—」。
-        if source == CandidateSource::AiSuggestion
-            && !self
-                .engine
-                .candidates()
-                .iter()
-                .any(|item| item.source == CandidateSource::AiSuggestion)
-        {
-            self.ai_seat_resolved = Some(query.clone());
-        }
         self.update_mixed_candidates();
         true
-    }
-
-    /// 宿主为这个会话打开或关掉 AI 候选；返回开关是否变了。组字中途改变时立刻重排当前列表。
-    pub(super) fn set_ai_seat(&mut self, enabled: bool) -> bool {
-        if self.ai_seat == enabled {
-            return false;
-        }
-        self.ai_seat = enabled;
-        self.ai_seat_resolved = None;
-        if self.has_composition() {
-            self.update_mixed_candidates();
-        }
-        true
-    }
-
-    /// AI 回答为空、失败或被拒时宿主调用：当前查询的占位行换成「—」，留到组字变化为止，不让后面的候选挪位。只认 AI（云候选这一轮不留座位）；查询过期、会话没开 AI、或座位上已经是 AI 候选时返回 false。返回 true 表示显示的列表变了。
-    pub(super) fn resolve_online_candidates(
-        &mut self,
-        query: &OnlineQuery,
-        source: CandidateSource,
-    ) -> bool {
-        if source != CandidateSource::AiSuggestion
-            || !self.ai_seat
-            || !self.online_answer_accepted(query, source)
-            || self.ai_seat_resolved.as_ref() == Some(query)
-        {
-            return false;
-        }
-        self.ai_seat_resolved = Some(query.clone());
-        self.update_mixed_candidates();
-        self.candidates().iter().any(|item| {
-            item.source == CandidateSource::AiPending && item.word == AI_UNAVAILABLE_TEXT
-        })
-    }
-
-    /// 需要占 AI 座位时返回当前查询：会话开着 AI，当前组字可以问 AI，而且回答到了能显示出来（不在光标前缀解码里，也不是只出单字时会被滤掉的词组）。
-    fn ai_seat_query(&self) -> Option<OnlineQuery> {
-        if !self.ai_seat
-            || self.prefix_active
-            || (self.single_character_only && self.scheme().filters_to_single_characters())
-        {
-            return None;
-        }
-        self.online_query().filter(|query| query.ai_eligible)
-    }
-
-    /// 在引擎候选（混排之前）的 AI 座位上放占位行，位置规则与 AI 候选相同（`replace_online_candidate_batch`），英文行、固定位置和在线座位因此对占位行和 AI 候选一视同仁。列表里已有 AI 候选、或没有本地候选时不放。
-    pub(super) fn reserve_ai_seat(&self, decoded: &mut Vec<WordItem>) {
-        if decoded.iter().any(|item| item.source.holds_ai_seat())
-            || !decoded.iter().any(|item| !item.source.takes_online_seat())
-        {
-            return;
-        }
-        let Some(live) = self.ai_seat_query() else {
-            return;
-        };
-        let resolved = self
-            .ai_seat_resolved
-            .as_ref()
-            .is_some_and(|answered| self.online_requests.matches(&live, answered));
-        let text = if resolved {
-            AI_UNAVAILABLE_TEXT
-        } else {
-            AI_PENDING_TEXT
-        };
-        let seat = AI_SEAT.min(decoded.len());
-        decoded.insert(
-            seat,
-            WordItem::new("", text, 1, CandidateSource::AiPending, ""),
-        );
     }
 
     /// The answer belongs to the live query and the source is one that query may take.

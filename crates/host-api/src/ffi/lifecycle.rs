@@ -23,7 +23,7 @@ pub unsafe extern "C" fn msime_client_update_preferences(
         let bytes = unsafe { std::slice::from_raw_parts(snapshot, length) };
         let snapshot = serde_json::from_slice(bytes).map_err(|_| "invalid preferences document")?;
         with_session(handle, |session| {
-            // 开关 AI 会在组字中途换掉候选里的 AI 座位：按旁路调用推导。
+            // 关掉 AI 或换了 AI 配置会在组字中途去掉候选里的 AI 行：按旁路调用推导。
             let pending = session.lifecycle_begin(lifecycle::Call::SideChannel);
             let updated = session.update(snapshot);
             let updated = session.lifecycle_on_error(pending, updated)?;

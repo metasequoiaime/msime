@@ -195,15 +195,6 @@
       "answers_key": true
      },
      {
-      "word": "拟",
-      "pinyin": "ni",
-      "canonical_pinyin": "",
-      "source": 3,
-      "scheme": "quanpin",
-      "weight": 1,
-      "answers_key": true
-     },
-     {
       "word": "Ninja",
       "pinyin": "ninja",
       "canonical_pinyin": "",
@@ -219,6 +210,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 100,
+      "answers_key": true
+     },
+     {
+      "word": "拟",
+      "pinyin": "ni",
+      "canonical_pinyin": "",
+      "source": 3,
+      "scheme": "quanpin",
+      "weight": 1,
       "answers_key": true
      }
     ],
