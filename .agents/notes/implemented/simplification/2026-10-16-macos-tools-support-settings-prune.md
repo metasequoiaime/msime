@@ -48,7 +48,7 @@ macOS 的决定逐项搬到 Windows、Linux 和 HarmonyOS，判据是控件在�
 - 打字统计：撤掉「刷新统计」（页面本来就每 5 秒和窗口回到前台时重读）和「打开数据目录」。后者在原生窗口里与「维护与诊断 › 数据目录」的「打开」是同一个 `state_directory()`，macOS 的理由成立；第一轮说「Windows 上只有这一个入口」只对 Windows 上的共享页成立，那里没有维护页的打开按钮（`openDiagnosticLogDirectory` 只注入给 macOS），所以 `main.tsx` 照旧给 `openDirectory`。
 - 剪贴板：撤掉「从系统剪贴板同步」，保存的 `clipboard_history` 从关变成开、并且存上时自动 `sync` 一次。Server 的 `ClipboardMonitor`（`AddClipboardFormatListener`）只记打开以后的复制，按钮补的正是打开前剪贴板上那一条，和 macOS 一样。原生窗口的「云剪贴板」组有真的「打开云剪贴板」按钮，不动。
 - 账号：「云端」组去掉云词库（「词库」页有同一个入口）；「登录状态」组只在没有可用登录方式时给「刷新」、只在读不出本机登录状态时给「清除失效登录状态」，两样都不需要时整组不出现。登录说明许诺的设置同步在 Windows 上是真的，不改；侧栏本来就叫「账号」。
-- 帮助与反馈并进关于：`SettingsNavigation.h` 去掉 `feedback`（侧栏 17 页，与共享桌面侧栏即 `settingsNavGroups` 减去 `desktopMergedPages` 一致），`help`、`feedback` 路由改为打开「关于」，托盘和工具栏菜单仍发这两个路由，落到「关于」。「关于」在「版本与更新」之后画帮助、问题报告和反馈渠道（`build_feedback_sections`）。本窗口没有子页，帮助内容仍直接画出，所以原生「关于」比共享页长。
+- 帮助与反馈并进关于：`SettingsNavigation.h` 去掉 `feedback`（手写页已并入屏幕键盘页后，侧栏共 16 页；与共享桌面侧栏即 `settingsNavGroups` 减去 `desktopMergedPages` 一致），`help`、`feedback` 路由改为打开「关于」，托盘和工具栏菜单仍发这两个路由，落到「关于」。「关于」在「版本与更新」之后画帮助、问题报告和反馈渠道（`build_feedback_sections`）。本窗口没有子页，帮助内容仍直接画出，所以原生「关于」比共享页长。
 
 **Linux**
 

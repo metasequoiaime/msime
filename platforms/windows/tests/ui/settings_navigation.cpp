@@ -54,7 +54,7 @@ int main() {
         {"typing", 0},  {"expression", 0}, {"shortcuts", 0}, {"lexicon", 0},
         {"themes", 1},  {"candidate", 1},  {"toolbar", 1},   {"osk", 2},
         {"voice", 2},   {"clip", 3},       {"stats", 3},     {"plugins", 3},
-        {"ai", 3},      {"account", 4},    {"dev", 5},       
+        {"ai", 3},      {"account", 4},    {"dev", 5},
         {"about", 5}}};
     require(sidebar.size() == pages.size());
     for (std::size_t i = 0; i < pages.size(); ++i)
