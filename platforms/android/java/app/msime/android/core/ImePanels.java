@@ -552,16 +552,23 @@ final class ImePanels {
         else ViewPolicy.setInvisible(dots);
         LinearLayout.LayoutParams dotParams = LayoutPolicy.linearParamsPx(
             s.pixels(Math.round(KeyboardPagerDots.totalWidthDp(
-                BoundsPolicy.bounded(grid.pageCount(), 1, Integer.MAX_VALUE)))), s.pixels(10));
+                BoundsPolicy.bounded(grid.pageCount(), 1, Integer.MAX_VALUE)))), s.pixels(PAGER_DOTS_HEIGHT_DP));
         dotParams.gravity = Gravity.CENTER_HORIZONTAL;
-        dotParams.topMargin = s.pixels(6);
-        dotParams.bottomMargin = s.pixels(6);
+        dotParams.topMargin = s.pixels(PAGER_DOTS_MARGIN_DP);
+        dotParams.bottomMargin = s.pixels(PAGER_DOTS_MARGIN_DP);
         parent.addView(dots, dotParams);
         grid.setOnPageChangeListener((page, count) -> dots.setActive(page, true));
         grid.post(() -> grid.setPage(initialPage, false));
     }
 
     private static final String PAGER_DOTS_TAG = "msime-pager-dots";
+    /** {@link #addPagedGrid} 里页点那一格的高度和上下边距。 */
+    private static final int PAGER_DOTS_HEIGHT_DP = 10;
+    private static final int PAGER_DOTS_MARGIN_DP = 6;
+    /** 输入方式卡片的行高和面板的上下内边距，面板选行数时算进网格以外的高度。 */
+    private static final int SCHEME_ROW_HEIGHT_DP = 56;
+    private static final int SCHEME_PANEL_PADDING_TOP_DP = 14;
+    private static final int SCHEME_PANEL_PADDING_BOTTOM_DP = 6;
 
     private void styleDots(LinearLayout parent) {
         View dots = parent == null ? null : parent.findViewWithTag(PAGER_DOTS_TAG);
@@ -1038,14 +1045,16 @@ final class ImePanels {
     void renderSchemePicker() {
         if (s.schemePanel == null) return;
         s.schemePanel.removeAllViews();
-        LayoutPolicy.setPaddingDp(s.schemePanel, s, 8, 14, 8, 6);
-        // 4×3 分页网格：已启用的方案按共享目录的顺序，英文 26 键排在第三格（方案不够时排最后），末尾是「+ 添加语言」。
+        LayoutPolicy.setPaddingDp(s.schemePanel, s, 8, SCHEME_PANEL_PADDING_TOP_DP, 8, SCHEME_PANEL_PADDING_BOTTOM_DP);
+        // 4 列分页网格，手机竖屏和平板三行、手机横屏两行（MSIMEInputService.pickerGrid）：已启用的方案按共享目录的顺序，英文 26 键排在第三格（方案不够时排最后），末尾是「+ 添加语言」。
         java.util.List<KeyboardScheme> schemes = s.visibleSchemes;
         final int englishIndex = BoundsPolicy.bounded(2, 0, schemes.size());
         int cardCount = schemes.size() + 2;
+        PagedTileGrid.PickerGrid layout = s.pickerGrid(SCHEME_ROW_HEIGHT_DP, SCHEME_PANEL_PADDING_TOP_DP
+            + SCHEME_PANEL_PADDING_BOTTOM_DP + PAGER_DOTS_HEIGHT_DP + 2 * PAGER_DOTS_MARGIN_DP);
         PagedTileGrid grid = new PagedTileGrid(s);
-        grid.setGrid(4, 3);
-        grid.setSpacing(56, 16, 4, 4);
+        grid.setGrid(4, layout.rows());
+        grid.setSpacing(SCHEME_ROW_HEIGHT_DP, layout.rowGap(), 4, 4);
         grid.setContentDescription("输入方案卡片区域");
         java.util.List<KeyboardSchemeCard> schemeCards = new java.util.ArrayList<>(cardCount);
         java.util.List<Boolean> cardSelection = new java.util.ArrayList<>(cardCount);
@@ -1087,7 +1096,7 @@ final class ImePanels {
             cardSelection.add(selected);
             grid.addView(card);
         }
-        addPagedGrid(s.schemePanel, grid, PagedTileGrid.pageOf(selectedIndex, PagedTileGrid.perPage(4, 3)));
+        addPagedGrid(s.schemePanel, grid, PagedTileGrid.pageOf(selectedIndex, PagedTileGrid.perPage(4, layout.rows())));
         s.imeStyler.applySkin();
         // 必须在换肤遍历之后：那一趟会把每个 TextView 重新刷成 keyForeground。
         int accent = Color.parseColor(s.skin.accent());
