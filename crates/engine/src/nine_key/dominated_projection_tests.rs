@@ -419,8 +419,8 @@ fn assert_dominated_rows_are_rejected_before_field_copies() {
     let (_, new_count) = count(|| after.refresh());
     assert_session(&after, &before);
     eprintln!("完整热刷新申请：{old_count} → {new_count}");
-    // 新路径同时复用首候选读音行缓冲，比冻结实现再少一次分配。
-    assert_eq!(new_count + 1039, old_count, "重复前缀行不能先复制再丢弃");
+    // 新路径同时复用首候选读音行和左列选项缓冲，比冻结实现再少两次分配。
+    assert_eq!(new_count + 1040, old_count, "重复前缀行不能先复制再丢弃");
 }
 
 #[test]
