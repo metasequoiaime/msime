@@ -37,6 +37,11 @@ SCHEME_LANGID = {
     "tibetan": "0x0451",
 }
 GENERATOR = ROOT / "platforms/windows/scripts/edition_windows.py"
+# TSF 拉起 Server 前创建的启动互斥量（不含版本后缀），安装器要占住同一个名字。从 TIP 源码里读，两边改名时这里会失配。
+TSF_LAUNCH_MUTEX_PREFIX = re.search(
+    r'SERVER_LAUNCH_MUTEX_NAME\[\] = L"([^"]+)" MSIME_EDITION_NAME_SUFFIX;',
+    (ROOT / "platforms/windows/tsf/IME/MetasequoiaIME.cpp").read_text(encoding="utf-8"),
+).group(1).replace("\\\\", "\\")
 FULL = "full"
 # 允许出现 full 的 Windows 标识的源文件：生成器的输入和输出，以及描述、检查它们的地方。
 IDENTIFIER_HOMES = {
@@ -259,6 +264,11 @@ def check_installer(errors: list[str], editions: list[dict], msime_windows: dict
         server_dir = "ServerDir := ExpandConstant('{commonpf64}\\" + entry["platforms"]["windows"]["install_dir"] + "\\server');"
         if server_dir not in output or "StopProcessesUnder(ServerDir, '');" not in output:
             errors.append(f"msime_setup.iss for edition {edition_id}: does not stop exactly the processes under its own server directory ({server_dir!r})")
+        # 停进程之前先占住 TSF 的 Server 启动互斥量，名字与已装 TIP 用的完全一致：否则加载在各程序里的 TIP 会把刚停掉的 Server 重新拉起来，[Files] 替换词库时以错误 32 失败。
+        gate = f"CreateMutex('{TSF_LAUNCH_MUTEX_PREFIX}{entry['platforms']['windows']['name_suffix']}');"
+        stop = output[output.find("procedure StopImeProcesses"):]
+        if gate not in output or not 0 <= stop.find("HoldServerLaunchGate;") < stop.find("StopProcessesUnder("):
+            errors.append(f"msime_setup.iss for edition {edition_id}: does not hold the TIP's Server launch mutex {gate!r} before stopping the Server")
         if marker == f"DataDirMarkerName = '{msime_windows['data_dir_marker']}';":
             errors.append(f"msime_setup.iss for edition {edition_id}: the data-directory ownership marker is msime-windows' {msime_windows['data_dir_marker']!r}")
         # 每个版本（包括 full）都不认带着别的版本或 msime-windows 标记的目录，即使那是它的默认数据目录。msime-windows 的标记就是不带后缀的前缀本身，所以前缀必须是它。
