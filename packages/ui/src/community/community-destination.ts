@@ -1,4 +1,4 @@
-import type { AccountCommunityDestination } from "../account/account-page";
+import type { AccountCommunityDestination } from "../account/account-model";
 
 export type CommunityDestination = AccountCommunityDestination | "all";
 export type CommunityDestinationCategory = "skin" | "dictionary" | "reply";

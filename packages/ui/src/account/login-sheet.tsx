@@ -7,7 +7,7 @@ import { useAccountRecoveryActions } from "./use-account-recovery-actions";
 import { useAccountGoogleLogin } from "./use-account-google-login";
 import { useAccountVerification, type AccountChannel } from "./use-account-verification";
 import * as account from "./account-style";
-import type { AccountClient, AccountProviders, AccountUser } from "./account-page";
+import type { AccountClient, AccountProviders, AccountUser } from "./account-model";
 
 /**
  * HarmonyOS 手机的底部面板：页面上覆盖一层 .35 的遮罩，再从底边升起一张卡片，带拖动条、22px 标题、可选副标题和 30px 关闭按钮。遮罩、关闭按钮和 Escape 都能关闭它，除非 `closeDisabled` 在其操作进行期间让它保持打开。

@@ -1,4 +1,4 @@
-import type { AccountUser } from "./account-page";
+import type { AccountUser } from "./account-model";
 
 const MAX_ACCOUNT_NAME_LENGTH = 64;
 

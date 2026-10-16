@@ -1,5 +1,5 @@
 import { useState, type MutableRefObject } from "react";
-import type { AccountChallenge, AccountClient } from "./account-page";
+import type { AccountChallenge, AccountClient } from "./account-model";
 import { useInterval } from "../core/use-interval";
 
 export type AccountChannel = "email" | "phone";

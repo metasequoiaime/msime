@@ -1,3 +1,15 @@
+import type {
+  AccountUser,
+  AccountProviders,
+  AccountProfile,
+  AccountPreferences,
+  AccountPreferenceSchema,
+  AppIconInfo,
+  AppIconClient,
+  SettingsSyncClient,
+  AccountClient,
+  AccountCommunityDestination,
+} from "./account-model";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import type { Preferences } from "../core/preferences-model";
 import { ActionButton } from "../core/action-button";
@@ -35,102 +47,20 @@ import { useAccountGoogleLogin } from "./use-account-google-login";
 import { useAccountVerification, type AccountChannel } from "./use-account-verification";
 import { useMobilePopState } from "../settings/use-mobile-pop-state";
 
-export type AccountUser = {
-  id: string;
-  displayName: string;
-  createdAt: string;
-  /** The verified email of a linked Google account. */
-  email?: string;
-  /** Changes whenever the avatar does; the image itself comes from `AccountClient.avatar`, since the page loads no remote image. */
-  avatarUrl?: string;
-  /** The avatar is one the user uploaded, which they can remove, rather than their Google picture. */
-  avatarUploaded?: boolean;
-};
-
-export type AccountProviders = {
-  email: boolean;
-  phone: boolean;
-  apple?: boolean;
-  google?: boolean;
-};
-
-export type AccountChallenge = {
-  challengeId: string;
-  expiresIn: number;
-};
-
-export type AccountProfile = {
-  user: AccountUser;
-  providers: string[];
-};
-
-export type AccountPreferenceValue = boolean | number | string;
-
-export type AccountPreferences = {
-  revision: number;
-  settings: Record<string, AccountPreferenceValue>;
-};
-
-export type AccountPreferenceSchema = {
-  fields: Record<string, { type: string }>;
-  maximumBytes: number;
-  updateMode: string;
-  revisionRequired: boolean;
-};
-
-export type AppIconInfo = {
-  supported: boolean;
-  selected: string;
-};
-
-export interface AppIconClient {
-  info(): Promise<AppIconInfo>;
-  set(style: string): Promise<AppIconInfo>;
-}
-
-export interface SettingsSyncClient {
-  /** 卡片上说明同步哪些设置。宿主同步的范围不同（Windows 只同步各平台共有的输入设置）时自己给，缺省是移动端的说明。 */
-  description?: string;
-  /** 应用云端设置成功后的提示。缺省是移动端的说法，要用户重新打开键盘；设置当场生效的宿主（Windows 的 Server 从共享偏好里实时读到）自己给。 */
-  appliedMessage?: string;
-  schema(): Promise<AccountPreferenceSchema>;
-  load(): Promise<AccountPreferences>;
-  upload(): Promise<AccountPreferences>;
-  apply(userId: string, preferences: AccountPreferences): Promise<void>;
-}
-
-export interface AccountClient {
-  status(): Promise<{ user?: AccountUser | null }>;
-  providers(): Promise<AccountProviders>;
-  requestCode(provider: "email" | "phone", target: string): Promise<AccountChallenge>;
-  login(challengeId: string, code: string): Promise<{ user?: AccountUser | null }>;
-  /** iOS performs the nonce and AuthenticationServices exchange natively. */
-  appleLogin?: () => Promise<{ user?: AccountUser | null }>;
-  /** Desktop hosts run the Google browser and loopback redirect natively; the page never sees the authorization code. */
-  googleLogin?: () => Promise<{ user?: AccountUser | null }>;
-  /** Ends a pending googleLogin, which then rejects as cancelled. The browser cannot report a closed Google tab, so this is how the user gives up without waiting for the timeout. */
-  googleCancel?: () => Promise<void>;
-  profile(): Promise<AccountProfile>;
-  rename(displayName: string): Promise<AccountProfile>;
-  /** The signed-in user's avatar as a `data:` URL, or null without one. Absent on hosts that do not fetch avatars, which show the name's first character. */
-  avatar?: () => Promise<string | null>;
-  /** Opens the platform's file dialog for a PNG or JPEG and uploads it; null when the user closes the dialog. The page never names a path. */
-  chooseAvatar?: () => Promise<AccountProfile | null>;
-  /** Removes the uploaded avatar; the Google picture, if any, shows again. */
-  removeAvatar?: () => Promise<AccountProfile>;
-  logout(all: boolean): Promise<void>;
-  deleteAccount(): Promise<void>;
-  clearExpired(): Promise<void>;
-  settingsSync?: SettingsSyncClient;
-  appIcon?: AppIconClient;
-}
-
-export type AccountCommunityDestination =
-  | "published-skins"
-  | "published-dictionary"
-  | "saved-dictionary"
-  | "published-reply"
-  | "saved-reply";
+export type {
+  AccountUser,
+  AccountProviders,
+  AccountChallenge,
+  AccountProfile,
+  AccountPreferenceValue,
+  AccountPreferences,
+  AccountPreferenceSchema,
+  AppIconInfo,
+  AppIconClient,
+  SettingsSyncClient,
+  AccountClient,
+  AccountCommunityDestination,
+} from "./account-model";
 
 type Confirmation = "logout-all" | "delete" | null;
 

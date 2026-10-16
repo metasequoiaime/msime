@@ -1,5 +1,5 @@
 import { desktopDownloadUrl } from "./app-resources";
-import type { AccountCommunityDestination } from "../account/account-page";
+import type { AccountCommunityDestination } from "../account/account-model";
 
 export interface UseAccountPageActionsOptions {
   hasAccountLoginReturnPage: boolean;

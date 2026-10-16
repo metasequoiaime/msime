@@ -410,7 +410,8 @@ import { TypingStatisticsPage } from "./settings/typing-statistics";
 import { VocabularyReviewPage } from "./settings/vocabulary-review";
 import * as settings from "./settings/settings-style";
 import { FluentIcon } from "./core/fluent-icons";
-import { AccountPage, type AccountCommunityDestination } from "./account/account-page";
+import { AccountPage } from "./account/account-page";
+import type { AccountCommunityDestination } from "./account/account-model";
 import { ChatPage } from "./chat/chat-page";
 import { HomePage, MoreSettingsPage } from "./keyboard/home-page";
 import {
@@ -521,21 +522,21 @@ export {
   type McpInstallOutcome,
   type McpServerStatus,
 } from "./settings/mcp-connect";
-export {
-  AccountPage,
-  type AccountChallenge,
-  type AccountClient,
-  type AccountCommunityDestination,
-  type AccountPreferenceSchema,
-  type AccountPreferences,
-  type AccountPreferenceValue,
-  type AccountProfile,
-  type AccountProviders,
-  type AccountUser,
-  type AppIconClient,
-  type AppIconInfo,
-  type SettingsSyncClient,
-} from "./account/account-page";
+export { AccountPage } from "./account/account-page";
+export type {
+  AccountChallenge,
+  AccountClient,
+  AccountCommunityDestination,
+  AccountPreferenceSchema,
+  AccountPreferences,
+  AccountPreferenceValue,
+  AccountProfile,
+  AccountProviders,
+  AccountUser,
+  AppIconClient,
+  AppIconInfo,
+  SettingsSyncClient,
+} from "./account/account-model";
 export {
   AccountConfirmation,
   type AccountConfirmationAction,

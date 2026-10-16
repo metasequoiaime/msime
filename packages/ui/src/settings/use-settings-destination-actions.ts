@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { AccountCommunityDestination } from "../account/account-page";
+import type { AccountCommunityDestination } from "../account/account-model";
 import {
   communityDestinationView,
   type CommunityDestinationView,
