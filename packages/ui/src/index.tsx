@@ -1252,6 +1252,11 @@ export {
 export { CommunitySkinsPage } from "./community/community-skins";
 export { CommunitySkinCard, type CommunitySkinCardProps } from "./community/community-skin-card";
 export {
+  useCommunitySkinGallery,
+  type CommunitySkinGallery,
+  type UseCommunitySkinGalleryOptions,
+} from "./community/use-community-skin-gallery";
+export {
   CommunityHarmonySkinCard,
   type CommunityHarmonySkinCardProps,
 } from "./community/community-harmony-skin-card";
