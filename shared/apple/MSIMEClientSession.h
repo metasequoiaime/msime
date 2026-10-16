@@ -76,7 +76,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 /// Engine validates candidate limit, eligibility and query identity. No network I/O.
 - (nullable NSDictionary *)applyOnlineCandidates:(NSArray<NSString *> *)candidates source:(NSUInteger)source
                                            query:(NSDictionary *)query error:(NSError **)error;
-/// AI 回答为空、失败，或 applyOnlineCandidates 没有采用时调用（source 只认 1）：AI 座位上的占位行换成「—」，留到组字变化为止。返回 {applied, view}。
+/// AI 回答为空、失败，或 applyOnlineCandidates 没有采用时宿主会调用它。共享内核不再放 AI 占位行，这个入口为已发布的宿主留着：参数照旧校验（source 只认 0 和 1），合法调用一律返回 {applied: false, view}，不改候选、不换代。
 - (nullable NSDictionary *)resolveOnlineCandidatesForSource:(NSUInteger)source
                                                      query:(NSDictionary *)query error:(NSError **)error;
 /// Copied enabled translation query, or nil when no candidates are eligible.
