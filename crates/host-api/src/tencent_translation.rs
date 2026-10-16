@@ -165,7 +165,7 @@ mod tests {
             assert_eq!(build(invalid), Err("invalid Tencent parameters"));
         }
         for (field, value) in [
-            ("texts", json!(["x".repeat(41)])),
+            ("texts", json!(["x".repeat(257)])),
             ("texts", json!([])),
             ("texts", json!(vec!["x"; 11])),
             ("timestamp", json!(-1)),

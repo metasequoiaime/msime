@@ -150,11 +150,13 @@ struct TranslationServices {
     custom_translation: Option<Value>,
     tencent_tmt: Option<Value>,
     niutrans: Option<Value>,
+    ai_assistant: Option<Value>,
 }
 
 fn selected_translation_services(
     preferences: &msime_client_core::preferences::Preferences,
     account_allowed: bool,
+    session_ai_credential: Option<&SessionAiCredential>,
 ) -> Result<TranslationServices, &'static str> {
     let custom_translation = &preferences.custom_translation;
     let tencent = &preferences.tencent_tmt;
@@ -175,6 +177,17 @@ fn selected_translation_services(
         TranslationService::Custom
     } else if tencent.enabled {
         TranslationService::Tencent
+    } else if preferences.ai_assistant.enabled
+        && (msime_client_providers::ai::credential_for_endpoint(&preferences.ai_assistant)
+            .is_some()
+            || session_ai_credential.is_some_and(|credential| {
+                credential.endpoint == preferences.ai_assistant.endpoint
+                    && msime_client_core::translation::usable_credential(&credential.token)
+            }))
+        && msime_client_core::preferences::AI_PROVIDERS
+            .contains(&preferences.ai_assistant.provider.as_str())
+    {
+        TranslationService::Ai
     } else {
         TranslationService::Off
     };
@@ -203,12 +216,29 @@ fn selected_translation_services(
     .then(|| serde_json::to_value(&preferences.niutrans))
     .transpose()
     .map_err(|_| "invalid NiuTrans translation configuration")?;
+    let ai_assistant = (matches!(provider, TranslationService::Ai))
+        .then(|| {
+            let mut config = preferences.ai_assistant.clone();
+            if let Some(credential) = session_ai_credential {
+                if credential.endpoint == config.endpoint {
+                    if let Some(origin) =
+                        msime_client_providers::ai::endpoint::credential_origin(&config.endpoint)
+                    {
+                        config.tokens.insert(origin, credential.token.clone());
+                    }
+                }
+            }
+            serde_json::to_value(config)
+        })
+        .transpose()
+        .map_err(|_| "invalid AI translation configuration")?;
     Ok(TranslationServices {
         provider,
         translation_account,
         custom_translation,
         tencent_tmt,
         niutrans,
+        ai_assistant,
     })
 }
 
@@ -267,7 +297,11 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             // `/fy` asks the selected service whatever the gloss switches say: it is the user's explicit request, a single English text translated into Chinese that comes back as a row which commits it. Nothing else rides it, so no offline dictionary is consulted and nothing is persisted.
             if let Some(command) = session.runtime.command_translation() {
                 // The hosted account only glosses Chinese candidates, so `/fy` needs a service of the user's own.
-                let services = selected_translation_services(preferences, true)?;
+                let services = selected_translation_services(
+                    preferences,
+                    true,
+                    session.ai_credential.as_ref(),
+                )?;
                 if matches!(
                     services.provider,
                     TranslationService::Off | TranslationService::Account
@@ -285,6 +319,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                     "custom_translation": services.custom_translation,
                     "tencent_tmt": services.tencent_tmt,
                     "niutrans": services.niutrans,
+                    "ai_assistant": services.ai_assistant,
                     "english_gloss": false,
                     "resources": Value::Null,
                     "user_data": Value::Null,
@@ -345,8 +380,11 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                         ),
                 })
             }));
-            let services =
-                selected_translation_services(preferences, preferences.candidate_translations)?;
+            let services = selected_translation_services(
+                preferences,
+                preferences.candidate_translations,
+                session.ai_credential.as_ref(),
+            )?;
             let mut query = json!({
                 "generation": candidates_view.generation,
                 "target_language": serde_json::to_value(preferences.translation_target_language)
@@ -361,6 +399,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 "custom_translation": services.custom_translation,
                 "tencent_tmt": services.tencent_tmt,
                 "niutrans": services.niutrans,
+                "ai_assistant": services.ai_assistant,
                 "english_gloss": english_gloss,
                 // 资源目录在要查离线释义（英文或其他语言）时带上，打开读音时也带上：读音表 pronunciations/en-phonetic.db 装在资源目录旁边，在线翻译出来的英文释义也要靠读音表标音标。
                 // 用户目录在要查英文释义时带上，要把成功的英文翻译存下来时也带上：宿主的后台工作线程把它们写进用户目录。

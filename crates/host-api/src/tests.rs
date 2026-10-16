@@ -8826,7 +8826,7 @@ fn custom_translation_plan_preserves_direction_and_filters_visible_sources() {
         {"text":"smile","source":7},
         {"text":"123","source":0},
         {"text":"test😀","source":0},
-        {"text":"x".repeat(41),"source":0},
+        {"text":"x".repeat(257),"source":0},
         {"text":"unknown","source":10}
     ]);
     for target in ["en", "fr", "ja", "es", "ru", "de", "ko"] {
@@ -8915,6 +8915,38 @@ fn learned_translation_buffers_are_bounded() {
         read(unsafe { msime_client_parse_ai_response(b"x".as_ptr(), 1, 11) })["ok"],
         false
     );
+    assert_eq!(
+        read(unsafe { msime_client_ai_translation_http_request(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_parse_ai_translation_response(b"x".as_ptr(), 1048577) })["ok"],
+        false
+    );
+    let request = serde_json::to_vec(&json!({
+        "config": {
+            "enabled": true,
+            "provider": "openai",
+            "endpoint": "https://synthetic.invalid/v1/chat/completions",
+            "model": "synthetic-model",
+            "tokens": {"https://synthetic.invalid:443": "synthetic-token"}
+        },
+        "input": {"text": "合成翻译句子", "source_language": "zh", "target_language": "en"}
+    }))
+    .unwrap();
+    let descriptor =
+        read(unsafe { msime_client_ai_translation_http_request(request.as_ptr(), request.len()) });
+    assert_eq!(descriptor["ok"], true);
+    assert_eq!(descriptor["value"]["body"]["model"], "synthetic-model");
+    let body = serde_json::to_vec(&json!({
+        "choices": [{"message": {"content": "{\"translation\":\"synthetic gloss\"}"}}]
+    }))
+    .unwrap();
+    assert_eq!(
+        read(unsafe { msime_client_parse_ai_translation_response(body.as_ptr(), body.len()) })
+            ["value"],
+        "synthetic gloss"
+    );
     for (pointer, length) in [(std::ptr::null(), 0), (b"x".as_ptr(), 65537)] {
         assert_eq!(
             read(unsafe { msime_client_learned_translation_request(pointer, length) })["ok"],
@@ -9001,7 +9033,7 @@ fn custom_translation_http_bridge_is_bounded_and_pure() {
         .get("Authorization")
         .is_none());
     for (field, value) in [
-        ("text", "x".repeat(41)),
+        ("text", "x".repeat(257)),
         ("source_language", "en\r\n".into()),
     ] {
         let mut invalid = request.clone();

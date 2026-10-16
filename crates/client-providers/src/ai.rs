@@ -38,6 +38,15 @@ pub struct AiSuggestionResponse {
     pub candidates: Vec<AiSuggestion>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AiTranslationRequest {
+    pub text: String,
+    pub source_language: String,
+    pub target_language: String,
+}
+
+pub const DEFAULT_TRANSLATION_PROMPT: &str = "你是一个机器翻译服务。把用户给出的文本从 source_language 翻译成 target_language。只翻译文本本身，保留原意和标点，不要解释、注释或改写。只输出合法 JSON，不要输出 Markdown：{\"translation\":\"译文\"}。没有合适译文时输出空字符串。";
+
 /// The system prompt a blank prompt slot stands for. It used to exist only in the Windows installer's default configuration, so every other host that never wrote a prompt sent an empty system message and got replies the JSON parser rejects.
 pub const DEFAULT_CANDIDATE_PROMPT: &str = "你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。\n\n优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。";
 
@@ -121,6 +130,78 @@ pub fn chat_completion_http_request(
     Ok(Some(serde_json::json!({"url":endpoint,"method":"POST",
         "headers":{"Content-Type":"application/json","Authorization":format!("Bearer {token}")},
         "body":body,"timeout_ms":8000,"connect_timeout_ms":2500,"max_response_bytes":1048576})))
+}
+
+/// 构造与候选请求相同的带凭据 Chat Completions 描述器。
+/// 翻译提示词固定，避免用户自定义联想提示词让模型返回键盘会显示为释义的任意文本。
+pub fn chat_translation_http_request(
+    config: &crate::preferences::AiAssistantPreferences,
+    request: &AiTranslationRequest,
+) -> Result<Option<serde_json::Value>, AiError> {
+    if !config.enabled {
+        return Ok(None);
+    }
+    request.validate()?;
+    let token = credential_for_endpoint(config).ok_or(AiError::InvalidConfiguration)?;
+    let user = serde_json::json!({
+        "source_language": request.source_language,
+        "target_language": request.target_language,
+        "text": request.text,
+        "output_format": "json",
+    });
+    let mut body = serde_json::json!({
+        "model": config.model,
+        "stream": false,
+        "temperature": 0.0,
+        "max_tokens": 512,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": DEFAULT_TRANSLATION_PROMPT},
+            {"role": "user", "content": serde_json::to_string(&user).map_err(|_| AiError::InvalidConfiguration)?},
+        ]
+    });
+    if config.provider == "deepseek" {
+        body["thinking"] = serde_json::json!({"type": "disabled"});
+    }
+    if serde_json::to_vec(&body)
+        .map_err(|_| AiError::InvalidConfiguration)?
+        .len()
+        > 65536
+    {
+        return Err(AiError::InvalidConfiguration);
+    }
+    Ok(Some(serde_json::json!({
+        "url": config.endpoint,
+        "method": "POST",
+        "headers": {"Content-Type": "application/json", "Authorization": format!("Bearer {token}")},
+        "body": body,
+        "timeout_ms": 8000,
+        "connect_timeout_ms": 2500,
+        "max_response_bytes": 1048576,
+    })))
+}
+
+pub fn parse_chat_translation_response(body: &[u8]) -> Option<String> {
+    if body.len() > 1024 * 1024 {
+        return None;
+    }
+    let outer: serde_json::Value = serde_json::from_slice(body).ok()?;
+    if outer.get("error").is_some_and(|error| !error.is_null()) {
+        return None;
+    }
+    let content = outer
+        .get("choices")?
+        .as_array()?
+        .first()?
+        .get("message")?
+        .get("content")?
+        .as_str()?;
+    let inner: serde_json::Value = serde_json::from_str(strip_code_fence(content)).ok()?;
+    let text = inner.get("translation")?.as_str()?.trim();
+    if text.is_empty() || text.chars().count() > 4096 || text.chars().any(char::is_control) {
+        return None;
+    }
+    Some(text.to_owned())
 }
 
 /// Resolve a secret only for the configured endpoint's origin. Never log the result.
@@ -253,6 +334,22 @@ impl AiSuggestionRequest {
         }
         if !(1..=10).contains(&self.candidate_limit) {
             return Err(AiError::InvalidLimit);
+        }
+        Ok(())
+    }
+}
+
+impl AiTranslationRequest {
+    pub fn validate(&self) -> Result<(), AiError> {
+        if !msime_client_core::translation::is_valid_source_text(&self.text) {
+            return Err(AiError::InvalidCandidate);
+        }
+        if !msime_client_core::translation::is_supported_translation_pair(
+            &self.source_language,
+            &self.target_language,
+        ) || self.source_language == self.target_language
+        {
+            return Err(AiError::InvalidConfiguration);
         }
         Ok(())
     }
@@ -458,6 +555,57 @@ mod tests {
                 "{content:?}"
             );
         }
+    }
+
+    #[test]
+    fn translation_descriptor_reuses_ai_credentials_and_parses_one_gloss() {
+        let mut config = crate::preferences::Preferences::default().ai_assistant;
+        config.enabled = true;
+        config.provider = "openai".into();
+        config.endpoint = "https://synthetic.invalid/v1/chat/completions".into();
+        config.model = "synthetic-model".into();
+        config.tokens.insert(
+            "https://synthetic.invalid:443".into(),
+            "synthetic-token".into(),
+        );
+        let request = AiTranslationRequest {
+            text: "这是一段超过旧限制的合成长句，用来验证共享翻译上限已经放宽。".into(),
+            source_language: "zh".into(),
+            target_language: "en".into(),
+        };
+        let descriptor = chat_translation_http_request(&config, &request)
+            .unwrap()
+            .unwrap();
+        assert_eq!(descriptor["body"]["model"], "synthetic-model");
+        assert_eq!(descriptor["body"]["response_format"]["type"], "json_object");
+        assert_eq!(
+            descriptor["headers"]["Authorization"],
+            "Bearer synthetic-token"
+        );
+        let body = envelope(serde_json::json!({"translation":"a synthetic translation"}));
+        assert_eq!(
+            parse_chat_translation_response(&body).as_deref(),
+            Some("a synthetic translation")
+        );
+    }
+
+    #[test]
+    fn translation_rejects_invalid_pairs_and_malformed_replies() {
+        assert!(AiTranslationRequest {
+            text: "你好".into(),
+            source_language: "zh".into(),
+            target_language: "zh".into(),
+        }
+        .validate()
+        .is_err());
+        assert!(
+            parse_chat_translation_response(&envelope(serde_json::json!({"translation":""})))
+                .is_none()
+        );
+        assert!(parse_chat_translation_response(&envelope(
+            serde_json::json!({"translation":"x\u{0}"})
+        ))
+        .is_none());
     }
     #[test]
     fn response_rejects_malformed_envelopes_and_bounds() {

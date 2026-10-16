@@ -404,6 +404,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
                 translation_account: false,
                 custom_translation: None,
                 niutrans: None,
+                ai_assistant: None,
             })
             .is_none());
     }
@@ -446,6 +447,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
         translation_account: false,
         custom_translation: None,
         niutrans: None,
+        ai_assistant: None,
     };
     for _ in (0..=0x1f).chain(0x7f..=0x9f) {
         assert!(provider.translate(query.clone()).is_none());
@@ -468,6 +470,7 @@ fn translation_query_carries_the_selected_service() {
         (TranslationService::Tencent, "tencent"),
         (TranslationService::NiuTrans, "niutrans"),
         (TranslationService::Custom, "custom"),
+        (TranslationService::Ai, "ai"),
     ] {
         let document = json!({"generation": 1, "candidates": ["中"], "provider": name});
         let query: TranslationQuery = serde_json::from_value(document).unwrap();
@@ -518,6 +521,7 @@ fn sentence_translation_is_single_item_and_bounded() {
         translation_account: false,
         custom_translation: None,
         niutrans: None,
+        ai_assistant: None,
     };
     assert!(provider.translate(too_long).is_none());
     let two_items = TranslationQuery {
@@ -529,6 +533,7 @@ fn sentence_translation_is_single_item_and_bounded() {
         translation_account: false,
         custom_translation: None,
         niutrans: None,
+        ai_assistant: None,
     };
     assert!(provider.translate(two_items).is_none());
 }
@@ -549,6 +554,7 @@ fn translation_switched_off_never_reaches_the_provider() {
         translation_account: false,
         custom_translation: None,
         niutrans: None,
+        ai_assistant: None,
     };
     assert_eq!(
         UnixSocketProvider::new(&socket).translate(query),

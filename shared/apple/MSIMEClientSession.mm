@@ -217,12 +217,25 @@ static NSDictionary *decode(char *response, NSError **error) {
     id value = decodeValue(msime_client_niutrans_translation_http_request((const uint8_t *)data.bytes, data.length), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;
 }
++ (NSDictionary *)aiTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error {
+    if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"AI 翻译请求格式错误"); return nil; }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!data || data.length > 65536) { setError(error, @"AI 翻译请求过大"); return nil; }
+    id value = decodeValue(msime_client_ai_translation_http_request((const uint8_t *)data.bytes, data.length), error);
+    return [value isKindOfClass:NSDictionary.class] ? value : nil;
+}
 + (NSString *)parseNiuTransTranslationResponse:(NSData *)body error:(NSError **)error {
     if (![body isKindOfClass:NSData.class] || body.length > 1048576) {
         setError(error, @"小牛翻译响应格式错误或过大"); return nil;
     }
     if (!body.length) return nil;
     id value = decodeValue(msime_client_parse_niutrans_translation_response((const uint8_t *)body.bytes, body.length), error);
+    return [value isKindOfClass:NSString.class] ? value : nil;
+}
++ (NSString *)parseAITranslationResponse:(NSData *)body error:(NSError **)error {
+    if (![body isKindOfClass:NSData.class] || body.length > 1048576) { setError(error, @"AI 翻译响应格式错误或过大"); return nil; }
+    if (!body.length) return nil;
+    id value = decodeValue(msime_client_parse_ai_translation_response((const uint8_t *)body.bytes, body.length), error);
     return [value isKindOfClass:NSString.class] ? value : nil;
 }
 + (NSString *)formatTranslationGloss:(NSString *)gloss error:(NSError **)error {

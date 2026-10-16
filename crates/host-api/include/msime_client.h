@@ -476,7 +476,7 @@ char *msime_client_resource_pack_adopt(const uint8_t *request, size_t length);
  * {config:{enabled,endpoint,api_key},text,source_language,target_language}.
  * Returns null if disabled; otherwise {url,method,headers,body,timeout_ms,max_response_bytes}.
  * Descriptor can contain credentials: never log it. Host enforces timeout/size,
- * rejects redirects and checks HTTP status before parsing. Text <=40 scalars. */
+ * rejects redirects and checks HTTP status before parsing. Text <=256 scalars. */
 char *msime_client_custom_translation_http_request(const uint8_t *request, size_t length);
 /* Pure visible-page plan <=64 KiB: {target_language,candidates:[{text,source}]}.
  * Returns [{text,key,source_language,target_language}]; at most nine candidates. */
@@ -488,6 +488,11 @@ char *msime_client_tencent_translation_http_request(const uint8_t *request, size
 /* Pure NiuTrans v2 descriptor <=64 KiB. Input: {config:{enabled,app_id,apikey},
  * text,source_language,target_language,timestamp}. */
 char *msime_client_niutrans_translation_http_request(const uint8_t *request, size_t length);
+/* OpenAI 兼容的 AI 翻译描述器和解析器。请求不超过 64 KiB：
+ * {config: AiAssistantPreferences, input:{text,source_language,target_language}}.
+ * It reuses the configured AI endpoint and token, and returns one JSON string or null. */
+char *msime_client_ai_translation_http_request(const uint8_t *request, size_t length);
+char *msime_client_parse_ai_translation_response(const uint8_t *body, size_t length);
 /* A settings page's 「测试配置」 check, the one the Tauri settings shell runs on Windows and
  * macOS. Request <=64 KiB: {service,config}, service one of translation.tencent ({secret_id,
  * secret_key,region}), translation.niutrans ({app_id,apikey}), translation.custom ({endpoint,

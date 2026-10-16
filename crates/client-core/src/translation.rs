@@ -6,7 +6,8 @@ use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
 
-pub const MAX_SOURCE_CHARS: usize = 40;
+/// 候选可能是完整句子；按 Unicode 标量值限制长度，确保各宿主在发送私密文本前使用同一上限。
+pub const MAX_SOURCE_CHARS: usize = 256;
 const MAX_PERSIST_GLOSS_CHARS: usize = 32;
 
 /// Tencent TC3 signing primitive. The caller owns credential lifetime.
@@ -713,7 +714,8 @@ Signature=fdaffffbe1460ecd8cbc30e296ff6f49cc3b4af10b11e099462cca023fdb2c6c"
         assert_eq!(value["Target"], "en");
         assert_eq!(value["ProjectId"], 0);
         assert_eq!(value["SourceTextList"][0], "你好");
-        assert!(tencent_tmt_payload("zh", "en", &["字".repeat(41)]).is_none());
+        assert!(tencent_tmt_payload("zh", "en", &["字".repeat(257)]).is_none());
+        assert!(tencent_tmt_payload("zh", "en", &["字".repeat(256)]).is_some());
         assert!(tencent_tmt_payload("zh", "en", &[String::new()]).is_none());
         for codepoint in (0..=0x1f).chain(0x7f..=0x9f) {
             let control = char::from_u32(codepoint).unwrap();

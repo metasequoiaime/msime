@@ -366,6 +366,8 @@ pub enum TranslationService {
     Tencent,
     NiuTrans,
     Custom,
+    #[serde(rename = "ai")]
+    Ai,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -402,6 +404,8 @@ pub struct TranslationQuery {
     pub custom_translation: Option<TranslationProviderConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub niutrans: Option<NiuTransProviderConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_assistant: Option<serde_json::Value>,
 }
 
 /// The `/fy` request: English the user typed after the translate command, for the selected translation service to translate into Chinese. A host sends it as a one-item sentence `TranslationQuery` only when a service is selected, and hands the answer back with this value through `Runtime::apply_command_translation`, which puts it first as a row that commits the translation. It is the only request a local mode makes; `Runtime::online_query` stays `None` there.

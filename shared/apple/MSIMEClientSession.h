@@ -88,7 +88,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 + (nullable NSDictionary *)tencentTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
 /// Signed NiuTrans v2 form descriptor. Send body_utf8 unchanged; never log it.
 + (nullable NSDictionary *)niuTransTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
+/// OpenAI 兼容的 AI 翻译请求描述器；描述器带凭据，不得记录。
++ (nullable NSDictionary *)aiTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
 + (nullable NSString *)parseNiuTransTranslationResponse:(NSData *)body error:(NSError **)error;
++ (nullable NSString *)parseAITranslationResponse:(NSData *)body error:(NSError **)error;
 /// A gloss this host produced itself, formatted as provider replies are: whitespace collapsed, ends trimmed. nil when nothing usable is left.
 + (nullable NSString *)formatTranslationGloss:(NSString *)gloss error:(NSError **)error;
 /// Pure AI descriptor with credentials; never log it or follow HTTP redirects.
