@@ -203,6 +203,7 @@ for entry in \
     "LongSymbolCellDeviceSmoke|Long symbol cell acceptance failed" \
     "EmailSuffixDeviceSmoke|Email suffix acceptance failed" \
     "NumberRowDeviceSmoke|Number row acceptance failed" \
+    "QuickDeleteUndoDeviceSmoke|Quick delete undo acceptance failed" \
     "EmptyEditorBackspaceDeviceSmoke|Empty editor backspace acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \
     "TextEditRecentClipboardDeviceSmoke|Text edit recent clipboard acceptance failed" \

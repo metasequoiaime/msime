@@ -705,6 +705,15 @@ public final class MSIMEInputService extends InputMethodService {
     private long keyStatisticsGeneration;
     private Runnable keyPressFlushTask;
     long editorContextRevision;
+    /** 当前输入框的一次快速删除备份，超时或输入上下文变化立即清除。 */
+    private QuickDeleteUndo quickDeleteUndo;
+    private final Runnable expireQuickDeleteUndo = this::clearQuickDeleteUndo;
+
+    private void clearQuickDeleteUndo() {
+        quickDeleteUndo = null;
+        main.removeCallbacks(expireQuickDeleteUndo);
+    }
+
     /** Editor-owned smart-punctuation snapshots; never persisted or sent to the UI. */
     private JSONObject smartRepeatSnapshot;
     private JSONObject smartSpaceSnapshot;
@@ -1238,6 +1247,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean commitText(String text, TypingSource source) {
+        clearQuickDeleteUndo();
         if (connection == null) return false;
         boolean committed;
         try { committed = connection.commitText(text, 1); }
@@ -1257,6 +1267,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 删光标前 `length` 个 UTF-16 单元，并记下删完后的选区预期，免得这次删除迟到的回报把紧接着开始的新组字取消掉。有选区或组字区时删的位置由编辑器决定，追踪器会自己作废预期。 */
     boolean deleteBeforeCursor(int length) {
+        clearQuickDeleteUndo();
         pairedPunctuationStack.clear();
         boolean deleted = InputConnectionGuard.deleteSurroundingText(connection, length, 0);
         if (deleted) {
@@ -1270,6 +1281,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 删除键先删选区；没有前文可删时交给编辑器处理引用等控件，其余按码位删字并追踪回声。 */
     void deleteCodePointBeforeCursor() {
+        clearQuickDeleteUndo();
         pairedPunctuationStack.clear();
         if (deleteSelection()) return;
         CharSequence before = InputConnectionGuard.textBeforeCursor(connection, 1);
@@ -1590,6 +1602,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInput() {
         flushKeyPresses();
+        clearQuickDeleteUndo();
         imeLetterRows.cancelBackspaceRepeat();
         cancelInputViewRefresh();
         // 新输入会话会按当前隐私设置创建，不把上一个输入框的待重建请求带过去。
@@ -1739,6 +1752,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        clearQuickDeleteUndo();
         deviceInfoCopyGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
@@ -2204,6 +2218,7 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         numberRowEnabled = localSettings.bool(AndroidLocalSettings.NUMBER_ROW);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
+        if (incognitoEnabled) clearQuickDeleteUndo();
     }
 
     /** 键盘高度：本地设置里有设计范围（-46..110）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
@@ -3654,6 +3669,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean character(int ascii, boolean shifted) {
+        clearQuickDeleteUndo();
         if (session == 0) return false;
         try { return apply(NativeClient.character(session, ascii, shifted)); }
         catch (JSONException | LinkageError error) { fail(error); return true; }
@@ -3661,6 +3677,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 14 键的一键：送这一组的首字母（{@link FourteenKeyLayout.Key#input}），由引擎按 14 键网格组字。不走 {@link #type}：那里的辅助码、微软双拼 `;` 和英文直出分支都按单个确定的字母处理。引擎不收（26 键正在组字、本地模式等）时什么也不输入，同九键的数字键。 */
     boolean gridKey(char letter) {
+        clearQuickDeleteUndo();
         if (session == 0) return false;
         try { return apply(NativeClient.gridKey(session, letter)); }
         catch (JSONException | LinkageError error) { fail(error); return true; }
@@ -3688,6 +3705,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean command(int code) {
+        if (code == 0) clearQuickDeleteUndo();
         if (session == 0) return false;
         try { return apply(NativeClient.command(session, code)); }
         catch (JSONException | LinkageError error) { fail(error); return true; }
@@ -3718,6 +3736,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void type(char key) {
+        clearQuickDeleteUndo();
         if (connection == null) return;
         if (directEnglishActive()) {
             char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
@@ -3883,6 +3902,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void clearSmartPunctuationSnapshots() {
+        clearQuickDeleteUndo();
         smartRepeatSnapshot = null;
         smartSpaceSnapshot = null;
     }
@@ -4861,6 +4881,8 @@ public final class MSIMEInputService extends InputMethodService {
         // 迟到的回报可能只是输入法自己上一次写入的回声（例如上屏之后用户已经按下了下一个键），那不是光标移动，不能把新开始的组字取消掉；对不上任何预期的才按原来的规则处理。
         boolean ownEcho = selectionEcho.acknowledge(newStart, newEnd, composingStart, composingEnd);
         if (!ownEcho && selectionChanged) englishCorrectionRejectedPrefix = "";
+        if (!ownEcho && quickDeleteUndo != null && !quickDeleteUndo.atSelection(newStart, newEnd))
+            clearQuickDeleteUndo();
         // 用户自己移了光标（或应用改了文字），之前补上的后半个不再是「下一个要跨过的」。
         if (!ownEcho && selectionChanged) pairedPunctuationStack.clear();
         if (!ownEcho && session != 0 && view != null && !InputViewValuePolicy.editingText(view).isEmpty()
@@ -7703,27 +7725,104 @@ public final class MSIMEInputService extends InputMethodService {
         showHandwritingStatus("在此手写，停笔后选字");
     }
 
-    /**
-     * 删除键上滑「快速删除」后松手（#5585）：先清掉手写墨迹、丢掉组字，再删掉选中的文字和光标前的全部文字。光标后的文字不动。读到的文字只用来确定每轮删多长，不保存、不记录。
-     */
+    /** 快速删除只备份编辑器实际接受的删除；不在密码、不学习或无痕输入框中保存。 */
     void deleteAllBeforeCursor() {
+        clearQuickDeleteUndo();
         if (handwritingCanvas != null && handwritingCanvas.hasInk()) clearHandwriting();
         if (hasEngineComposition()) discardComposition();
         InputConnection target = connection;
         if (target == null) return;
-        selectionEcho.invalidate();
+        boolean captureAllowed = !EditorPolicy.password(editorInputType) && allowLearning && !incognitoEnabled;
+        QuickDeleteUndo.Capture capture = captureAllowed ? new QuickDeleteUndo.Capture() : null;
+        int initialCursor = capture == null ? -1 : quickDeleteCursor(target);
+        CharSequence following = capture == null ? null
+            : InputConnectionGuard.textAfterCursor(target, QuickDeleteUndo.CONTEXT_UNITS);
+        String after = following == null ? null : following.toString();
         CharSequence selected = InputConnectionGuard.selectedText(target);
-        if (selected != null && selected.length() > 0
-                && !InputConnectionGuard.commitText(target, "", 1)) return;
-        BackspaceSwipePolicy.clearBeforeCursor(new BackspaceSwipePolicy.Editor() {
+        if (selected != null && selected.length() > 0) {
+            selected = selected.toString();
+            if (!InputConnectionGuard.commitText(target, "", 1)) return;
+            selectionEcho.commit(0);
+            if (capture != null) capture.deleted(selected);
+            initialCursor = capture == null ? -1 : quickDeleteCursor(target);
+        }
+        long deleted = BackspaceSwipePolicy.clearBeforeCursor(new BackspaceSwipePolicy.Editor() {
             @Override public CharSequence textBeforeCursor(int length) {
                 return InputConnectionGuard.textBeforeCursor(target, length);
             }
 
             @Override public boolean deleteBeforeCursor(int length) {
-                return InputConnectionGuard.deleteSurroundingText(target, length, 0);
+                boolean accepted = InputConnectionGuard.deleteSurroundingText(target, length, 0);
+                if (accepted) selectionEcho.deleteBefore(length);
+                else selectionEcho.invalidate();
+                return accepted;
             }
-        });
+        }, capture);
+        selectionEcho.expect();
+        int cursor = capture == null ? -1 : quickDeleteCursor(target);
+        CharSequence before = capture == null ? null
+            : InputConnectionGuard.textBeforeCursor(target, QuickDeleteUndo.CONTEXT_UNITS);
+        CharSequence currentAfter = capture == null ? null
+            : InputConnectionGuard.textAfterCursor(target, QuickDeleteUndo.CONTEXT_UNITS);
+        // 输入连接声称成功却没删、读取失败或光标位置不符时，不能生成一份会重复插入的备份。
+        if (capture != null && initialCursor >= 0 && cursor == initialCursor - deleted
+                && before != null && after != null && currentAfter != null && after.contentEquals(currentAfter)) {
+            String text = capture.text();
+            if (!text.isEmpty()) {
+                quickDeleteUndo = new QuickDeleteUndo(target, cursor, text, before.toString(), after,
+                    SystemClock.elapsedRealtime());
+                main.postDelayed(expireQuickDeleteUndo, QuickDeleteUndo.LIFETIME_MS);
+            }
+        }
+        refreshAfterQuickDelete();
+    }
+
+    /** 只取绝对选区位置；编辑器不支持或仍有选区时不提供撤回。 */
+    private int quickDeleteCursor(InputConnection target) {
+        if (target == null) return -1;
+        try {
+            android.view.inputmethod.ExtractedTextRequest request = new android.view.inputmethod.ExtractedTextRequest();
+            request.hintMaxChars = QuickDeleteUndo.CONTEXT_UNITS;
+            request.hintMaxLines = 1;
+            android.view.inputmethod.ExtractedText text = target.getExtractedText(request, 0);
+            if (text == null || text.selectionStart < 0 || text.selectionStart != text.selectionEnd) return -1;
+            return text.startOffset + text.selectionStart;
+        } catch (RuntimeException ignored) { return -1; }
+    }
+
+    boolean canUndoQuickDelete() {
+        QuickDeleteUndo snapshot = quickDeleteUndo;
+        if (snapshot == null) return false;
+        if (EditorPolicy.password(editorInputType) || !allowLearning || incognitoEnabled || hasEngineComposition()
+                || !snapshot.matches(connection, quickDeleteCursor(connection),
+                    InputConnectionGuard.textBeforeCursor(connection, QuickDeleteUndo.CONTEXT_UNITS),
+                    InputConnectionGuard.textAfterCursor(connection, QuickDeleteUndo.CONTEXT_UNITS),
+                    SystemClock.elapsedRealtime())) {
+            clearQuickDeleteUndo();
+            return false;
+        }
+        return true;
+    }
+
+    void undoQuickDelete() {
+        if (!canUndoQuickDelete()) return;
+        QuickDeleteUndo snapshot = quickDeleteUndo;
+        // 撤回不算新输入，不学习、不写统计；明确拒绝且上下文未变时保留一次重试机会。
+        boolean batch = InputConnectionGuard.beginBatchEdit(connection);
+        boolean accepted = InputConnectionGuard.commitText(connection, snapshot.text(), 1);
+        if (batch) InputConnectionGuard.endBatchEdit(connection);
+        if (accepted) {
+            // 跨进程的 true 可能只表示请求已投递；批量结束后原位置和上下文完全未变则仍可重试。
+            if (canUndoQuickDelete()) return;
+            selectionEcho.commit(snapshot.text().length());
+            selectionEcho.expect();
+            refreshAfterQuickDelete();
+        } else {
+            canUndoQuickDelete();
+        }
+    }
+
+    private void refreshAfterQuickDelete() {
         if (directEnglishActive()) {
             clearEnglishSuggestions();
             refreshEnglishSuggestions();

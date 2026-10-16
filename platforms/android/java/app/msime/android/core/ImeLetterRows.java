@@ -359,11 +359,13 @@ final class ImeLetterRows {
         return spacer;
     }
 
-    /** 这一次删除键按压的上滑阶段，见 {@link BackspaceSwipePolicy}。 */
+    /** 这一次删除键按压的滑动阶段，见 {@link BackspaceSwipePolicy}。 */
     private BackspaceSwipePolicy.Phase backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
+    private boolean backspaceUndo;
+    private boolean backspaceUndoHeld;
 
     /**
-     * 和 Apple 的删除键一样：短按删一次，按住连删并逐级加速（BackspaceRepeatPolicy）。按住往上滑弹出「快速删除」框，滑进框里松手删掉光标前的全部文字，滑回框外松手什么也不删（#5585）。
+     * 短按删一次，按住连删并逐级加速；上滑框内松手快速删除（#5585）。存在备份时短按改为松手删，长按后下滑框内松手撤回（#8325）。
      */
     void bindBackspaceRepeat(Button button, Runnable action) {
         button.setOnTouchListener((view, event) -> {
@@ -373,19 +375,26 @@ final class ImeLetterRows {
                     s.backspaceRepeatButton = button;
                     s.backspaceRepeated = false;
                     s.backspaceClearedComposition = false;
+                    backspaceUndo = s.canUndoQuickDelete();
                     button.setPressed(true);
-                    // 按下就删一次，和 BackspaceRepeatPolicy 说的一样；等到松手才删，删除就慢了整整一个按压时长。这次点击同时播反馈、记一次按键。
-                    button.performClick();
+                    // 没有备份时按下即删并计数；有备份先等到松手，免得下滑撤回之前又破坏恢复位置。
+                    if (!backspaceUndo) button.performClick();
                     s.backspaceRepeatTask = new Runnable() {
                         private int repeats;
 
                         @Override public void run() {
                             if (s.backspaceRepeatButton != button || !button.isPressed()) return;
-                            // A held delete is one press however often it repeats; the press was counted by the click on touch-down.
+                            if (backspaceUndo) {
+                                backspaceUndoHeld = true;
+                                backspaceSwipePhase = BackspaceSwipePolicy.Phase.REVEALED;
+                                if (s.quickDeleteOverlay != null) s.quickDeleteOverlay.show(button, false, true);
+                                return;
+                            }
+                            // 连删无论重复几次都算一次按压，按下时已经计数。
                             s.backspaceRepeated = true;
                             if (s.hasEngineComposition()) {
                                 s.imeKeyFeedback.playFeedback(button);
-                                // A held delete drops the whole syllable, also through an open Hanja list.
+                                // 长按删除整个音节，汉字列表打开时也一样。
                                 s.discardComposition();
                                 s.backspaceClearedComposition = true;
                                 s.main.removeCallbacks(this);
@@ -403,6 +412,23 @@ final class ImeLetterRows {
                 }
                 case MotionEvent.ACTION_MOVE -> {
                     if (s.backspaceRepeatButton != button) return true;
+                    if (backspaceUndo) {
+                        if (backspaceUndoHeld) {
+                            BackspaceSwipePolicy.Phase next = BackspaceSwipePolicy.undoPhase(
+                                event.getY(), button.getHeight(), DimensionPolicy.density(s));
+                            if (next != backspaceSwipePhase && next == BackspaceSwipePolicy.Phase.ARMED)
+                                s.imeKeyFeedback.playFeedback(button);
+                            backspaceSwipePhase = next;
+                            if (s.quickDeleteOverlay != null)
+                                s.quickDeleteOverlay.show(button, next == BackspaceSwipePolicy.Phase.ARMED, true);
+                        } else if (event.getX() < 0 || event.getX() >= button.getWidth()
+                                || event.getY() < 0 || event.getY() >= button.getHeight()) {
+                            // 未到长按时离开键，取消这次点击；不能顺便删掉备份的位置。
+                            stopBackspaceRepeatTask();
+                            button.setPressed(false);
+                        }
+                        return true;
+                    }
                     if (trackBackspaceSwipe(button, event.getY())) return true;
                     if (event.getX() < 0 || event.getY() < 0
                             || event.getX() >= button.getWidth()
@@ -416,12 +442,16 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_UP -> {
                     boolean clear = s.backspaceRepeatButton == button
                         && BackspaceSwipePolicy.clearsOnRelease(backspaceSwipePhase);
+                    boolean undo = backspaceUndo;
+                    boolean click = undo && !backspaceUndoHeld && button.isPressed();
                     cancelBackspaceRepeat();
                     button.setPressed(false);
                     if (clear) {
                         s.imeKeyFeedback.playFeedback(button);
-                        s.deleteAllBeforeCursor();
+                        if (undo) s.undoQuickDelete();
+                        else s.deleteAllBeforeCursor();
                     }
+                    if (click) button.performClick();
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
@@ -469,6 +499,8 @@ final class ImeLetterRows {
         s.backspaceRepeated = false;
         s.backspaceClearedComposition = false;
         backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
+        backspaceUndo = false;
+        backspaceUndoHeld = false;
         if (s.quickDeleteOverlay != null) s.quickDeleteOverlay.hide();
     }
 
