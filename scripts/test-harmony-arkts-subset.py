@@ -1,50 +1,23 @@
 #!/usr/bin/env python3
-"""Check HarmonyOS host sources against the ArkTS rules `tsc` does not enforce.
+"""检查普通 TypeScript 编译器不强制执行的 ArkTS 语法子集。
 
-`platforms/harmony/tests/run.sh` type-checks the ported logic with `tsc`, and `tsc` accepts the
-whole TypeScript language. The HarmonyOS application is not compiled by `tsc` — `hvigorw
-assembleHap` runs the ArkTS compiler, which accepts a deliberately smaller language. Code can
-therefore type-check, pass every unit test, build the settings bundle, pass `verify-local.sh
---quick`, merge, and still not produce a HAP.
+`tests/run.sh` 只编译移植的 `.ts` 逻辑，应用的 `.ets` 由 `hvigorw assembleHap`
+调用真正的 ArkTS 编译器。逻辑测试、设置页构建和 quick 通过，仍可能打不出 HAP；
+此前多批合入的 PR 就留下过这类错误。此脚本只检查无需 SDK 即可识别的窄写法：
 
-That is not hypothetical. Six merged pull requests left `develop` in exactly that state: thirteen
-ArkTS errors across three `.ets` files, none of which any gate looked at, found only when a HAP was
-finally assembled for a device.
+  arkts-no-any-unknown           类型位置的 `any` 与 `unknown`。
+  arkts-no-aliases-by-index      类型位置的 `T["member"]`。
+  arkts-no-spread                以对象展开开头的字面量 `{ ...other }`。
+  arkts-limited-throw            catch 内直接重抛无类型绑定，未写 `as Error`。
+  arkts-no-obj-literals-as-types 参数、返回值和接口成员中的对象字面量类型。
 
-Assembling a HAP here is not an option: it needs DevEco Studio or the command-line SDK, the
-OpenHarmony NDK, cross-compiled natives and a 180 MB dictionary release. This checks the three
-rules those thirteen errors fell under, which are the ones ordinary TypeScript habits walk into:
+只扫描应用的 `.ets`，旁边的 `.ts` 仍按普通 TypeScript 检查；把规则扩大到 `.ts`
+曾误报编译器接受的数百处写法。接口体只有类型声明，所以能检查其中的 `key: {`；
+在接口之外，这也可能是合法的对象值，不能全文件一律禁止。
 
-  arkts-no-any-unknown       `any` and `unknown` are not types here.
-  arkts-no-aliases-by-index  `T["member"]` is not a type.
-
-The third rule those errors fell under, arkts-no-untyped-obj-literals, is deliberately **not**
-checked. Whether a literal needs a named type depends on the type of what receives it — ArkTS
-accepts `JSON.stringify({ ok: false, error: x })` and rejects the same call with a literal nested
-inside it — so a text-only rule either misses the real cases or reports two hundred that the
-compiler accepts. Both were tried. That rule needs the real compiler, and this file says so rather
-than pretending otherwise.
-
-Only `.ets` files. That is not a simplification: the same build that rejected thirteen `.ets`
-constructions compiled `AccountCloudBridge.ts` unchanged, and that file is full of `unknown`. The
-strict subset applies to the ArkTS sources, and the plain TypeScript beside them - the ported
-policies, which are also what `platforms/harmony/tests` compiles under tsc - is checked as
-TypeScript. Widening this to `.ts` produced hundreds of findings the real compiler does not make.
-
-It is a subset of the real compiler and does not replace it. It is the part that can run on any
-machine, and it would have caught all thirteen.
-
-It happened again: ten more errors from four later pull requests, in five `.ets` files, found the
-same way. Seven of them fell under three rules that are readable from the text alone, in the narrow
-forms checked here, with no finding on code the compiler accepts:
-
-  arkts-no-spread                 `{ ...other }`: an object literal that starts by spreading.
-  arkts-limited-throw             `throw error;` inside `catch (error)`: the binding has no type,
-                                  so it must be rethrown `as Error`.
-  arkts-no-obj-literals-as-types  `{ fd: number }` as a parameter or return type.
-
-Of the other three, two were a missing import and one an untyped object literal, which only the
-compiler can see.
+`arkts-no-untyped-obj-literals` 是否违规取决于接收方类型，纯文本规则无法可靠判断。
+漏 import、只读数组赋给可变状态等类型兼容问题也留给真实编译器。此检查用于提前
+拦截已知语法错误，不替代带原生库、资源、依赖和 SDK 的 HAP 构建。
 """
 import pathlib
 import re
@@ -103,6 +76,9 @@ CATCH = re.compile(r"\bcatch\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*\{")
 # inside an object literal, which ArkTS accepts, so those positions are left to the compiler.
 LITERAL_PARAMETER_TYPE = re.compile(r"\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\??\s*:\s*\{\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\??\s*:")
 LITERAL_RETURN_TYPE = re.compile(r"\)\s*:\s*\{\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\??\s*:")
+# 接口体只有类型声明；在这个范围内，成员后的 `{` 不会是对象值。
+INTERFACE = re.compile(r"\binterface\s+[A-Za-z_$][A-Za-z0-9_$]*\b[^{};]*\{")
+LITERAL_MEMBER_TYPE = re.compile(r"\b[A-Za-z_$][A-Za-z0-9_$]*\s*\??\s*:\s*\{")
 
 
 def block_end(text: str, open_brace: int) -> int:
@@ -138,6 +114,14 @@ def findings(path: pathlib.Path) -> list[tuple[int, str]]:
                 line_of(text, match.start()),
                 "object literal used as a type (arkts-no-obj-literals-as-types)",
             ))
+    for interface in INTERFACE.finditer(text):
+        start = interface.end()
+        body = text[start : block_end(text, start - 1) - 1]
+        for member in LITERAL_MEMBER_TYPE.finditer(body):
+            found.append((
+                line_of(text, start + member.start()),
+                "object literal used as a type (arkts-no-obj-literals-as-types)",
+            ))
     for match in CATCH.finditer(text):
         name = re.escape(match.group(1))
         start = match.end() - 1
@@ -147,7 +131,7 @@ def findings(path: pathlib.Path) -> list[tuple[int, str]]:
                 line_of(text, start + rethrow.start()),
                 f"untyped catch binding rethrown; write `throw {match.group(1)} as Error` (arkts-limited-throw)",
             ))
-    return sorted(found)
+    return sorted(set(found))
 
 
 def main() -> int:
@@ -170,7 +154,7 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"harmony ArkTS subset: {len(files)} host sources use only constructions ArkTS accepts")
+    print(f"harmony ArkTS subset: {len(files)} host sources pass the checked rules; HAP compilation is still required")
     return 0
 
 
