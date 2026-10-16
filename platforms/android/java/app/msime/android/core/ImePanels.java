@@ -16,7 +16,9 @@ import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
 import android.view.Gravity;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -2305,14 +2307,14 @@ final class ImePanels {
     void buildEmojiPanel() {
         s.emojiPreferences = s.getSharedPreferences(MSIMEInputService.EMOJI_RECENTS_PREFERENCES, Context.MODE_PRIVATE);
         s.emojiRecents = s.loadEmojiRecents();
-        // 设计：盖在键区上、不盖顶部一行；上面是每行八个的表情网格（可见三行，可滚动），底栏是 ABC | 分类 | ⌫。高度由 PanelSurface 限定为键区高度。
+        // 盖在键区上、不盖顶部工具栏；底栏空间由分类和删除键使用，返回入口沿用顶部工具栏。
         s.emojiPanel = LayoutPolicy.column(s);
         LayoutPolicy.setSymmetricPaddingDp(s.emojiPanel, s, 6, 4);
         ViewPolicy.setBackgroundColor(s.emojiPanel, Color.parseColor(s.skin.background()));
         s.emojiPanel.setContentDescription("表情面板");
         ViewPolicy.setFocusable(s.emojiPanel, true);
         s.emojiGrid = LayoutPolicy.column(s);
-        s.emojiGridScroll = new ScrollView(s);
+        s.emojiGridScroll = new EmojiCategoryScroll();
         s.emojiGridScroll.setFillViewport(false);
         s.emojiGridScroll.setVerticalScrollBarEnabled(false);
         s.emojiGridScroll.setContentDescription("表情网格；每行八个");
@@ -2328,11 +2330,6 @@ final class ImePanels {
         s.emojiPanel.addView(s.emojiGridScroll, LayoutPolicy.weightedWidthParams(1));
         LinearLayout bar = LayoutPolicy.row(s);
         ViewPolicy.setCenteredVertically(bar);
-        Button abc = MSIMEInputService.role(s.button(bar, "ABC", s::closeEmojiPicker), KeyboardKeyRole.ACCENT);
-        ViewPolicy.setTextSizeSp(abc, 14);
-        compactReplyControl(abc, 0);
-        abc.setContentDescription("返回键盘");
-        abc.setLayoutParams(LayoutPolicy.linearParams(s, 60, 40));
         s.emojiTabs = LayoutPolicy.row(s);
         s.emojiTabs.setContentDescription("表情分类");
         LinearLayout.LayoutParams tabsParams = LayoutPolicy.weightedHeightPxParams(s.pixels(40), 1);
@@ -2347,5 +2344,53 @@ final class ImePanels {
         s.emojiPanel.addView(bar, LayoutPolicy.matchWidthHeightPx(s.pixels(46)));
         ViewPolicy.hide(s.emojiPanel);
         s.keyboardSurface.addView(s.emojiPanel, LayoutPolicy.frameMatchParentParams());
+    }
+
+    /** 横划在容器上接管并取消原按钮点击，纵向滚动和加载下一页仍由 ScrollView 处理。 */
+    private final class EmojiCategoryScroll extends ScrollView {
+        private final int touchSlop = ViewConfiguration.get(s).getScaledTouchSlop();
+        private float downX;
+        private float downY;
+        private boolean horizontal;
+        private boolean vertical;
+        private boolean multiplePointers;
+
+        EmojiCategoryScroll() { super(s); }
+
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                downX = event.getX();
+                downY = event.getY();
+                horizontal = vertical = multiplePointers = false;
+            } else if (action == MotionEvent.ACTION_POINTER_DOWN) {
+                multiplePointers = true;
+            }
+            float dx = event.getX() - downX;
+            float dy = event.getY() - downY;
+            if (action == MotionEvent.ACTION_MOVE && !horizontal && !vertical && !multiplePointers) {
+                if (Math.abs(dx) > touchSlop && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                    horizontal = true;
+                    MotionEvent cancel = MotionEvent.obtain(event);
+                    cancel.setAction(MotionEvent.ACTION_CANCEL);
+                    super.dispatchTouchEvent(cancel);
+                    cancel.recycle();
+                } else if (Math.abs(dy) > touchSlop) {
+                    vertical = true;
+                }
+            }
+            if (!horizontal) return super.dispatchTouchEvent(event);
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                horizontal = false;
+                if (action == MotionEvent.ACTION_UP && !multiplePointers &&
+                        Math.abs(dx) >= s.pixels(48) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                    int category = s.emojiSelectedCategory + (dx < 0 ? 1 : -1);
+                    int first = s.emojiRecents.isEmpty() ? 0 : -1;
+                    if (category >= first && category < EmojiCatalogModel.categories().size())
+                        s.selectEmojiCategory(category);
+                }
+            }
+            return true;
+        }
     }
 }
