@@ -79,7 +79,13 @@ function Assert-SelectedAccent($element) {
     }
 }
 function Open-Page($window, [string]$page) {
-    $item = Find-ById $window $page
+    # 下拉框等弹出层刚关闭时，UIA 树要稍晚才把侧栏交回来；等待导航项而非固定延时。
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $item = Find-ById $window $page
+        if ($item) { break }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
     if (-not $item) { throw "Missing native page: $page" }
     $item.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()
     $item = Find-ById $window $page
