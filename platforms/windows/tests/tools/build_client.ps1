@@ -8,6 +8,7 @@ $originalTarget = $env:CARGO_TARGET_DIR
 $originalDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
 $originalArm64Flags = $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS
 $originalVersion = $env:MSIME_VERSION
+$originalPlatformBuild = $env:MSIME_PLATFORM_BUILD
 . (Join-Path $PSScriptRoot 'pe_fixture.ps1')
 try {
     $desktopSymbols = Join-Path $fixture 'target/x86_64-pc-windows-msvc/release/msime_desktop.pdb'
@@ -52,7 +53,7 @@ try {
     Write-PEFixture (Join-Path $x86 'bin/synthetic-runtime.dll') x86 dll
     function global:Invoke-ClientCommandProbe {
         param([string]$Name, [object[]]$Values)
-        $global:ClientBuildCalls.Add(@{ Name = $Name; Values = $Values; Prefix = $env:CMAKE_PREFIX_PATH })
+        $global:ClientBuildCalls.Add(@{ Name = $Name; Values = $Values; Prefix = $env:CMAKE_PREFIX_PATH; PlatformBuild = $env:MSIME_PLATFORM_BUILD })
         $global:LASTEXITCODE = if ($global:ClientBuildCalls.Count -eq $global:ClientBuildFailAt) { 19 } else { 0 }
     }
     function global:cargo { Invoke-ClientCommandProbe cargo $args }
@@ -67,6 +68,8 @@ try {
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -TargetVersion '2026.9.1'
     $count = $global:ClientBuildCalls.Count
     $desktopCall = @($global:ClientBuildCalls | Where-Object { $_.Name -eq 'pnpm' -and $_.Values -contains 'tauri' })[0]
+    # The Tauri gate (apps/desktop/scripts/require-platform-build.mjs) lets only this call through.
+    if ($desktopCall.PlatformBuild -ne '1') { throw 'Tauri build ran without MSIME_PLATFORM_BUILD' }
     $desktopArgs = $desktopCall.Values
     $configIndex = [Array]::IndexOf($desktopArgs, '--config')
     if ($configIndex -lt 0 -or (Get-Content -LiteralPath $desktopArgs[$configIndex + 1] -Raw -Encoding UTF8 | ConvertFrom-Json).version -ne '2026.9.1') {
@@ -205,7 +208,8 @@ try {
         if ((Get-Location).Path -ne $originalLocation -or $env:CMAKE_PREFIX_PATH -ne $originalPrefix -or
             $env:CARGO_TARGET_DIR -ne $originalTarget -or
             $env:CARGO_PROFILE_RELEASE_DEBUG -ne $originalDebug -or
-            $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS -ne $originalArm64Flags -or $env:MSIME_VERSION -ne $originalVersion) { throw 'Build leaked caller environment' }
+            $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS -ne $originalArm64Flags -or $env:MSIME_VERSION -ne $originalVersion -or
+            $env:MSIME_PLATFORM_BUILD -ne $originalPlatformBuild) { throw 'Build leaked caller environment' }
     }
     $global:ClientBuildCalls.Clear()
     $global:ClientBuildFailAt = 0

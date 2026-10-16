@@ -47,6 +47,7 @@
 #include "AiSettings.h"
 #include "AppInputModeRuleList.h"
 #include "FeedbackReport.h"
+#include "FloatingToolbarSizeModel.h"
 #include "CandidateFontPresets.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsNavigation.h"
@@ -955,7 +956,8 @@ struct PageLabel {
   const wchar_t *summary;
 };
 
-constexpr std::array<PageLabel, 18> page_labels{{
+// 「手写输入」并进了「屏幕键盘」页（见 `SettingsNavigation.h`），提供手写的版本里那一页叫「屏幕键盘与手写」，与共享设置 UI 的 `screenKeyboardAndHandwritingTitle` 相同。
+constexpr std::array<PageLabel, 17> page_labels{{
     {"typing", L"输入方案", 0xE765, L"选择输入方式；专属选项随当前方案变化。"},
     {"expression", L"输入习惯", 0xE8C1, L"调整标点、混输、输出和选词习惯。"},
     {"shortcuts", L"按键", 0xEDA7, L"设置中英文切换、选词和翻页使用的按键。"},
@@ -963,9 +965,10 @@ constexpr std::array<PageLabel, 18> page_labels{{
     {"themes", L"皮肤", 0xE790, L"选择候选窗口皮肤，搭配自己的字体和配色。"},
     {"candidate", L"候选窗口", 0xE8FD, L"调整候选的排列、文字和显示位置。"},
     {"toolbar", L"状态栏", 0xE7F4, L"选择悬浮工具栏显示的内容和交互方式。"},
-    {"osk", L"屏幕键盘", 0xE92E, L"设置屏幕键盘的布局、按键和外观。"},
+    {"osk", MSIME_EDITION_HANDWRITING ? L"屏幕键盘与手写" : L"屏幕键盘", 0xE92E,
+     MSIME_EDITION_HANDWRITING ? L"设置屏幕键盘的布局、按键和外观，打开手写识别板。"
+                               : L"设置屏幕键盘的布局、按键和外观。"},
     {"voice", L"语音输入", 0xE720, L"选择识别方式，配置语音转写和文本整理。"},
-    {"hand", L"手写输入", 0xE929, L"设置手写识别和候选展示。"},
     {"clip", L"剪贴板", 0xE77F, L"管理剪贴板记录和跨设备发送。"},
     {"stats", L"打字统计", 0xE9D2, L"查看输入量、速度和使用趋势。"},
     {"plugins", L"插件", 0xEA86, L"管理输入扩展，浏览和安装社区插件。"},
@@ -3444,8 +3447,6 @@ private:
     // 每组以标题开头；`SettingsNavigation.h` 的页面按组排序，所以组一变就该插入标题。
     std::optional<std::size_t> group;
     for (const auto &page : nav::pages) {
-      if (!nav::page_offered(page.id, MSIME_EDITION_HANDWRITING != 0))
-        continue;
       if (page.group != group) {
         group = page.group;
         NavigationViewItemHeader header;
@@ -3561,8 +3562,6 @@ private:
     indexing_ = true;
     const auto saved_page = current_page_;
     for (const auto &page : nav::pages) {
-      if (!nav::page_offered(page.id, MSIME_EDITION_HANDWRITING != 0))
-        continue;
       current_page_ = std::string(page.id);
       StackPanel scratch;
       build_page(page.id, scratch);
@@ -4675,8 +4674,6 @@ private:
       build_osk_page(page);
     else if (id == "voice")
       build_voice_page(page);
-    else if (id == "hand")
-      build_hand_page(page);
     else if (id == "clip")
       build_clip_page(page);
     else if (id == "stats")
@@ -10956,15 +10953,41 @@ private:
     }
     add_row(general, 0xE71D, L"工具栏按钮", L"按工具栏中的顺序选择要显示的功能",
             nullptr, checks_panel(std::move(checks)));
+    // 缩放和图标尺寸相乘才是工具栏的大小，和共享页一样只给一个「工具栏大小」，选一档同时写两个值（见 FloatingToolbarSizeModel.h）。
     auto appearance = add_group(page, L"尺寸");
-    number_select_row(appearance, 0xE740, L"工具栏缩放",
-                      L"相对系统 DPI 的额外缩放，不改变系统显示缩放",
-                      L"floating_toolbar.scale_percent", {75, 100, 125, 150},
-                      100, L"%");
-    number_select_row(appearance, 0xE8E9, L"图标尺寸",
-                      L"图标基准大小（像素），再乘以上方缩放",
-                      L"floating_toolbar.font_size",
-                      {16, 18, 20, 22, 24, 26, 28}, 24, L"");
+    add_row(appearance, 0xE740, L"工具栏大小", L"按钮和图标一起放大或缩小，不改变系统显示缩放",
+            toolbar_size_control());
+  }
+
+  // 「工具栏大小」的下拉框，照共享页 floating-toolbar-page.tsx 的 SelectRow：存下的两个值凑不成任何一档时（以前分开调过），最前面多一项灰着的「自定义（缩放 X%，图标 Y）」并选着它，不改写存储；选一档后重画页面，这一项随之消失。
+  FrameworkElement toolbar_size_control() {
+    const int scale = static_cast<int>(
+        std::lround(document_.Number(L"floating_toolbar.scale_percent", 100)));
+    const int font = static_cast<int>(
+        std::lround(document_.Number(L"floating_toolbar.font_size", 24)));
+    const auto current = nav::toolbar_size::size_for(scale, font);
+    std::vector<Option> options;
+    if (!current)
+      options.push_back({L"custom",
+                         L"自定义（缩放 " + std::to_wstring(scale) + L"%，图标 " +
+                             std::to_wstring(font) + L"）",
+                         false});
+    for (const auto &size : nav::toolbar_size::sizes)
+      options.push_back({std::to_wstring(size.percent), std::to_wstring(size.percent) + L"%"});
+    return select_control(
+        L"工具栏大小", std::move(options),
+        current ? std::to_wstring(current->percent) : std::wstring(L"custom"),
+        [this](std::wstring const &value) {
+          for (const auto &size : nav::toolbar_size::sizes) {
+            if (std::to_wstring(size.percent) != value)
+              continue;
+            change([&](PreferencesDocument &doc) {
+              doc.SetNumber(L"floating_toolbar.scale_percent", size.scale_percent);
+              doc.SetNumber(L"floating_toolbar.font_size", size.font_size);
+            }, true);
+            return;
+          }
+        });
   }
 
   // ---- 输入 ----
@@ -16454,7 +16477,7 @@ private:
 
   // ---- 屏幕键盘、语音、手写 ----
 
-  // 共享的「屏幕键盘」页（packages/ui/src/settings/pages/screen-keyboard-page.tsx 和 touch-keyboard-geometry-section.tsx）在 Windows 上画四组：「屏幕键盘」（打开面板和可拖动的预览）、「尺寸」（高度、两种间距和恢复默认）、「工具栏」，以及指向「主题」的「外观」。Windows 不是 `touch_toolbar_components` 的宿主，「工具栏」里只有顶部语音入口；「布局」「手势」两组和触屏反馈只在手机上画，这里也不画。面板本身是输入工具，仍由共享应用打开。
+  // 共享的「屏幕键盘」页（packages/ui/src/settings/pages/screen-keyboard-page.tsx 和 touch-keyboard-geometry-section.tsx）在 Windows 上画四组：「屏幕键盘」（打开面板和可拖动的预览）、「尺寸」（高度、两种间距和恢复默认）、「工具栏」，以及指向「主题」的「外观」；提供手写的版本在「工具栏」和「外观」之间多一组「手写识别板」，即并进来的「手写输入」页（build_hand_page），与共享页 `handwritingOnScreenKeyboardPage` 的顺序相同。Windows 不是 `touch_toolbar_components` 的宿主，「工具栏」里只有顶部语音入口；「布局」「手势」两组和触屏反馈只在手机上画，这里也不画。Windows 有触屏的二合一设备，面板也写明「使用鼠标或触控方式」，所以高度和间距都留着（macOS 没有触屏，那里去掉了间距）。面板本身是输入工具，仍由共享应用打开。
   void build_osk_page(StackPanel const &page) {
     if (!indexing_) {
       osk_drag_.reset();
@@ -16498,14 +16521,17 @@ private:
       osk_key_slider_ = key_slider.Children().GetAt(0).as<Slider>();
       osk_row_slider_ = row_slider.Children().GetAt(0).as<Slider>();
     }
-    // 恢复默认也管下面的「工具栏」组，所以和共享页一样放在它重置的第一组末尾。
+    // 恢复默认也管下面「工具栏」组的顶部语音入口，所以和共享页一样放在它重置的第一组末尾；说明只列这一页看得到的几项，与共享页的 `touchKeyboardResetSubjects` 给 Windows 的相同。
     auto reset = button_control(L"恢复默认", [this] { reset_screen_keyboard(); }, loaded_);
     A11y::SetName(reset, L"恢复屏幕键盘默认设置");
-    add_row(size, 0xE777, L"恢复默认", L"高度、间距、顶部语音入口和工具栏按钮回到默认", reset);
+    add_row(size, 0xE777, L"恢复默认", L"高度、间距和顶部语音入口回到默认", reset);
 
     auto toolbar = add_group(page, L"工具栏");
     bool_row(toolbar, 0xE720, L"顶部语音入口", L"在键盘顶部显示一个语音按钮，点按开始语音输入",
              L"touch_voice_shortcut", false);
+
+    if constexpr (MSIME_EDITION_HANDWRITING != 0)
+      build_hand_page(page);
 
     // 共享页把键盘的明暗覆盖放在「主题」页的「高级」组，这个窗口的同一组叫「界面主题」，所以说明换成这个组名，按钮直接落到「屏幕键盘主题」那一行。
     auto look = add_group(page, L"外观");
@@ -16616,12 +16642,12 @@ private:
       slider.Value(value);
   }
 
-  // 共享页的 `resetTouchKeyboardSettings`（use-touch-keyboard-settings-reset.ts）：确认后把五项从文档里删掉而不是写入当前默认值，宿主以后改默认值时也跟着变。Windows 的键盘有顶部语音入口，确认文案因此提到它。
+  // 共享页的 `resetTouchKeyboardSettings`（use-touch-keyboard-settings-reset.ts）：确认后把五项从文档里删掉而不是写入当前默认值，宿主以后改默认值时也跟着变。确认文案照 `touchKeyboardResetSubjects` 只说这一页看得到的高度、间距和顶部语音入口；`touch_toolbar` 照样删掉，与共享页删的键相同，只是 Windows 页面上没有工具栏按钮的开关，不在文案里提它。
   fire_and_forget reset_screen_keyboard() {
     auto strong = get_strong();
     if (!loaded_)
       co_return;
-    if (!co_await confirm(L"恢复屏幕键盘默认值", L"高度、间距、顶部语音入口和工具栏按钮都会回到默认。",
+    if (!co_await confirm(L"恢复屏幕键盘默认值", L"高度、间距和顶部语音入口都会回到默认。",
                           L"恢复"))
       co_return;
     flush_pending();
@@ -18326,7 +18352,7 @@ private:
     return files;
   }
 
-  // 共享的「手写输入」页在 Windows 上只有「手写识别板」一组：打开面板的一行和一张静态预览，没有可调的项（手写面板主题在「主题」页），所以这里只留打开面板的一行，文案与 handwriting-settings-section.tsx 相同。
+  // 共享的「手写输入」在 Windows 上只有「手写识别板」一组：打开面板的一行和一张静态预览，没有可调的项（手写面板主题在「主题」页），所以这里只留打开面板的一行，文案与 handwriting-settings-section.tsx 相同。它不再单独成页，由 build_osk_page 画在「屏幕键盘与手写」页的「外观」之前。
   void build_hand_page(StackPanel const &page) {
     auto group = add_group(page, L"手写识别板");
     shell_row(group, 0xE929, L"打开手写识别板", L"使用鼠标或触控方式手写输入，自动识别候选汉字",

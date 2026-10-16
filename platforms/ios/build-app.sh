@@ -26,7 +26,8 @@ if [ "${MSIME_IOS_TAURI_COMPONENT:-0}" = 1 ]; then
     command -v pod >/dev/null || { echo "CocoaPods is required for the device handwriting build" >&2; exit 1; }
     (cd "$repo_root/apps/desktop/src-tauri/gen/apple" && pod install --deployment)
   fi
-  (cd "$repo_root" && pnpm --filter @msime/desktop tauri ios build \
+  # MSIME_PLATFORM_BUILD=1 passes apps/desktop/scripts/require-platform-build.mjs, which refuses a Tauri build no platform script asked for.
+  (cd "$repo_root" && MSIME_PLATFORM_BUILD=1 pnpm --filter @msime/desktop tauri ios build \
     --target "$tauri_target" --no-sign --ci)
   exit 0
 fi

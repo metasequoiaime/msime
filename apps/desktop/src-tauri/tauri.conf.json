@@ -4,9 +4,9 @@
   "version": "0.52.0",
   "identifier": "app.msime.client",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "node scripts/require-platform-build.mjs && pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "node scripts/require-platform-build.mjs && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {

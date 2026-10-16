@@ -51,6 +51,10 @@ impl EnglishDictionary {
         {
             return None;
         }
+        // 显式大小写也优先于固定词形恢复，避免把 IM、ENGLISH 等自动改写。
+        if raw.bytes().skip(1).any(|byte| byte.is_ascii_uppercase()) {
+            return None;
+        }
         let input = raw.to_ascii_lowercase();
         if protected(&input) {
             return None;
@@ -67,10 +71,6 @@ impl EnglishDictionary {
             }
         }
         if !self.ready() || input.contains('\'') {
-            return None;
-        }
-        // 保留用户显式输入的混合大小写和缩写，不把程序标识符重新分词。
-        if raw.bytes().skip(1).any(|byte| byte.is_ascii_uppercase()) {
             return None;
         }
         if let Some(item) = self.exact_correction_word(&input) {
@@ -414,6 +414,23 @@ mod tests {
             "abcdefghijklmnopqrstuvwxyzabcdefg",
         ] {
             assert_eq!(dictionary.correct_mobile_english(input), None, "{input}");
+        }
+    }
+
+    #[test]
+    fn mobile_english_preserves_explicit_case_before_canonical_spelling() {
+        let (_root, dictionary) = dictionary();
+        for input in [
+            "IM", "I'M", "I'VE", "ENGLISH", "CHINESE", "eNglish", "yOuRe",
+        ] {
+            assert_eq!(dictionary.correct_mobile_english(input), None, "{input}");
+        }
+        for (input, expected) in [("Im", "I'm"), ("Youre", "You're"), ("English", "English")] {
+            assert_eq!(
+                dictionary.correct_mobile_english(input).as_deref(),
+                (input != expected).then_some(expected),
+                "{input}"
+            );
         }
     }
 

@@ -32,7 +32,11 @@ import {
   dictionaryKeyMatches,
   importFailureMessage,
 } from "../dictionary/dictionary-errors";
-import type { DictionaryClient, DictionaryFailure, DictionaryImportResult } from "../index";
+import type {
+  DictionaryClient,
+  DictionaryFailure,
+  DictionaryImportResult,
+} from "../dictionary/dictionary-contracts";
 import type { DictionaryPhraseForm } from "./dictionary-entries";
 import { useMountedRef } from "./use-mounted-ref";
 import { useAsyncGeneration } from "./use-async-generation";

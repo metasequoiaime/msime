@@ -1,9 +1,7 @@
-export type ImportSummary = {
-  applied: number;
-  failed?: number;
-  truncated?: boolean;
-  swapped?: boolean;
-  first_failures?: { line: number; issue: string }[];
+import type { DictionaryImportResult } from "./dictionary-contracts";
+
+export type ImportSummary = Omit<DictionaryImportResult, "failed"> & {
+  failed?: DictionaryImportResult["failed"];
 };
 
 /** 导入完成的提示。`source` 是放在最前面的一句来源说明，例如细胞词库的「已读取搜狗细胞词库「…」的 n 个词条。」。 */

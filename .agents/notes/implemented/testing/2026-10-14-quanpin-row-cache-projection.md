@@ -76,3 +76,5 @@ Status: implemented
 - `cargo clippy -p msime-engine --locked --all-targets -- -D warnings`：通过。
 - `cargo fmt --all -- --check`、`git diff --check`、`pnpm run verify-notes`：通过，849 篇活跃笔记与 2 篇归档封印完成校验。
 - `CARGO_BUILD_JOBS=6 bash scripts/verify-local.sh --quick`：退出 0。仓库契约、actionlint、Rust workspace、Android target、wasm target、Android Java、macOS 原生配置/编译和 shared Apple bridge 编译通过。macOS workspace 的 `msime-desktop` 因原生资源 bundle 未预先生成而跳过；Linux 外壳/原生因无 Docker，Windows 本机/交叉与 pipe-only 因无相应工具链，HarmonyOS 真打包因缺少 hvigor/产物/依赖而跳过。该门禁没有运行真实宿主输入链路，也不声称设备验收。
+
+外层九键系列答案由[读法筛选后复制](2026-10-16-nine-key-filter-before-clone.md)减少随后拒绝行的字段副本；本篇继续持有原始行到候选的映射和冷缓存容量决定。

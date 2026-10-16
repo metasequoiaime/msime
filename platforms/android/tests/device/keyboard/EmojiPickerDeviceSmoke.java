@@ -83,11 +83,25 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         swipe(-1, false, true);
         await(description("表情分类 笑脸").and(AccessibilityNodeInfo::isSelected));
         assertEditorText(beforeSwipe);
-        stage = "last category does not wrap";
+        stage = "flags swipe reaches combinations";
         tap(description("表情分类 旗帜"));
         await(description("表情分类 旗帜").and(AccessibilityNodeInfo::isSelected));
         swipe(-1, false);
-        await(description("表情分类 旗帜").and(AccessibilityNodeInfo::isSelected));
+        await(description("表情分类 组合表情").and(AccessibilityNodeInfo::isSelected));
+        await(description("表情网格；组合表情自动适配宽度"));
+        assertEditorText(beforeSwipe);
+        stage = "select last category";
+        AccessibilityNodeInfo tabs = await(description("表情分类"));
+        AccessibilityNodeInfo lastTab = tabs.getChild(tabs.getChildCount() - 1);
+        if (lastTab == null || lastTab.getContentDescription() == null)
+            throw new AssertionError("Last emoji category was not exposed");
+        // 分类可能继续追加，边界以当前栏的末项为准，不把某个 Unicode 分类写死为末项。
+        String lastCategory = lastTab.getContentDescription().toString();
+        tap(description(lastCategory));
+        await(description(lastCategory).and(AccessibilityNodeInfo::isSelected));
+        stage = "last category does not wrap";
+        swipe(-1, false);
+        await(description(lastCategory).and(AccessibilityNodeInfo::isSelected));
         assertEditorText(beforeSwipe);
         tap(description("表情分类 笑脸"));
         await(emojiCount(value -> value > 0));
@@ -151,7 +165,9 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
 
     private void swipe(int direction, boolean vertical, boolean cancel) throws Exception {
         Rect grid = new Rect();
-        await(description("表情网格；每行八个")).getBoundsInScreen(grid);
+        await(node -> equalsText("app.msime.android", node.getPackageName())
+            && node.getContentDescription() != null
+            && node.getContentDescription().toString().startsWith("表情网格；")).getBoundsInScreen(grid);
         float startX = vertical ? grid.centerX() : grid.left + grid.width() * (direction < 0 ? .8f : .2f);
         float startY = vertical ? grid.top + grid.height() * .8f : grid.centerY();
         float endX = vertical ? startX : grid.left + grid.width() * (direction < 0 ? .2f : .8f);
