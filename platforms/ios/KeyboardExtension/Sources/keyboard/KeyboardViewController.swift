@@ -109,6 +109,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var keyAreaPanel: UIView?
   private let moreShortcut = KeyboardBrandMarkButton()
   private var morePicker: KeyboardMorePickerView?
+  /// 输入方式或功能面板打开时是不是横屏；转屏后行数变了就关掉它（`closePickerBuiltForOtherOrientation`）。
+  private var pickerLandscape = false
   /// 键盘高度：占据工具栏位置的内联调节条（此时按键照常可用），以及按「取消」时要恢复的调整值。
   private var inlineHeightBar: InlineHeightBar?
   private var inlineHeightSnapshot: CGFloat = 0
@@ -6784,7 +6786,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     closeKeyboardPicker()
     moreToolsPage = .root
-    let picker = KeyboardMorePickerView(tools: makeTools(), formFactor: formFactor)
+    let picker = KeyboardMorePickerView(tools: makeTools(), formFactor: formFactor, landscape: isLandscape)
+    pickerLandscape = isLandscape
     morePicker = picker
     installPanel(picker)
     picker.resetToFirstPage()
@@ -6960,8 +6963,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func showSchemePicker() {
     closeKeyboardService()
     closeKeyboardPicker()
+    pickerLandscape = isLandscape
     let picker = KeyboardSchemePickerView(
-      selected: inputScheme, isChineseMode: isChineseMode, showsHeader: false, formFactor: formFactor,
+      selected: inputScheme, isChineseMode: isChineseMode, showsHeader: false, formFactor: formFactor, landscape: isLandscape,
       shuangpinProfile: session.sharedPreferences?["shuangpin_profile"] as? String,
       onSelect: { [weak self] scheme in
         guard let self else { return }
@@ -7193,7 +7197,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// iPad 旋转时 size class 不变，traitCollectionDidChange 不会被叫到；转完再核对一次分离式键盘（viewDidLayoutSubviews 通常已经处理过）。
   override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
     super.viewWillTransition(to: size, with: coordinator)
-    coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.updateSplitKeyboardIfNeeded() }
+    coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+      guard let self else { return }
+      updateSplitKeyboardIfNeeded()
+      closePickerBuiltForOtherOrientation()
+    }
+  }
+
+  /// 输入方式和功能面板按打开时的横竖屏定行数（`KeyboardPagedGridView.pickerRows`）：手机竖屏三行的面板转到横屏放不下，所以转屏后行数不再相同时关掉面板，再打开就按新方向排。
+  private func closePickerBuiltForOtherOrientation() {
+    guard morePicker != nil || schemePicker != nil else { return }
+    let rows = { KeyboardPagedGridView.pickerRows(formFactor: self.formFactor, landscape: $0) }
+    if rows(pickerLandscape) != rows(isLandscape) { closeKeyboardPicker() }
   }
 
   @objc private func prepareKeyFeedback() {

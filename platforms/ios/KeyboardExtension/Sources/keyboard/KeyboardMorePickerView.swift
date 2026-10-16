@@ -1,22 +1,22 @@
 import UIKit
 
-/// 键盘的功能面板（更多工具），从工具栏的品牌键打开：工具排成横向分页的网格，下面带页码圆点，手机每页 4 × 2，iPad 键盘每页 6 × 2。
+/// 键盘的功能面板（更多工具），从工具栏的品牌键打开：工具排成横向分页的网格，下面带页码圆点，手机竖屏每页 4 × 3、横屏 4 × 2，iPad 键盘每页 6 × 3（`KeyboardPagedGridView.pickerRows`）。
 ///
 /// 面板没有标题栏，也没有「返回」按钮；上方的工具栏一直可见，由它关闭面板。每次切换开关或换皮肤后都会调用 `update(tools:)`，它就地重新设置已有格子的样式（列表变了时挪动格子），让面板停在用户所在的那一页：在第 2 页切换「按键音」不会跳回第 1 页。
 final class KeyboardMorePickerView: UIView {
   private static let topMargin: CGFloat = 10
   private static let bottomMargin: CGFloat = 4
-  private static let rowGap: CGFloat = 16
   private static let columnGap: CGFloat = 4
 
   private let grid: KeyboardPagedGridView
   private var tiles: [KeyboardFunctionTileView] = []
 
-  init(tools: [KeyboardTool], formFactor: KeyboardFormFactor) {
+  init(tools: [KeyboardTool], formFactor: KeyboardFormFactor, landscape: Bool = false) {
     let tablet = formFactor == .tablet
+    let rows = KeyboardPagedGridView.pickerRows(formFactor: formFactor, landscape: landscape)
     grid = KeyboardPagedGridView(
-      columns: tablet ? 6 : 4, rows: 2, rowHeight: KeyboardFunctionTileView.height,
-      rowGap: Self.rowGap, columnGap: Self.columnGap, sidePadding: tablet ? 48 : 4)
+      columns: tablet ? 6 : 4, rows: rows, rowHeight: KeyboardFunctionTileView.height,
+      rowGap: KeyboardPagedGridView.pickerRowGap(rows: rows), columnGap: Self.columnGap, sidePadding: tablet ? 48 : 4)
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardMorePicker"
     accessibilityLabel = "更多工具"

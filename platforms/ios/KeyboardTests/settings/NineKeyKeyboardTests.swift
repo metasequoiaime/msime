@@ -1169,12 +1169,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(panel.currentPage, 0)
       XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "closeMorePicker" }, "the toolbar row is the menu's only header")
 
-      // 手机上每页 4 × 2 个 52pt 图块，每页一个圆点，当前页圆点宽 16pt。
+      // 手机竖屏每页 4 × 3 个 52pt 图块，每页一个圆点，当前页圆点宽 16pt。
       let tiles = descendants(panel).compactMap { $0 as? KeyboardFunctionTileView }
       for tile in tiles { XCTAssertEqual(tile.bounds.height, 52, accuracy: 0.5, tile.tool.title) }
       let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
-      XCTAssertEqual(tiles.filter { page(of: $0, in: scroll) == 0 }.count, 8)
-      XCTAssertEqual(panel.pageCount, (tiles.count + 7) / 8)
+      XCTAssertEqual(tiles.filter { page(of: $0, in: scroll) == 0 }.count, min(12, tiles.count))
+      XCTAssertEqual(panel.pageCount, (tiles.count + 11) / 12)
       let dots = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagerDotsView }.first)
       XCTAssertEqual(dots.count, panel.pageCount)
       XCTAssertEqual(dots.subviews[dots.active].bounds.width, KeyboardPagerDotsView.activeWidth)
@@ -1187,12 +1187,11 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(try tile("moreCard-振动", in: controller).accessibilityLabel, "按键振动")
       }
 
-      // 拨动开关后菜单保持打开，停在原来那一页。
+      // 拨动开关后菜单保持打开，停在原来那一页：停在第 2 页时拨动一个开关（每页 12 个时隐私模式在第 1 页），面板就地重画，不跳回第 1 页。
       let grid = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagedGridView }.first)
       grid.scrollToPage(1, animated: false)
       XCTAssertEqual(panel.currentPage, 1)
       let privacy = try tile("moreCard-隐私模式", in: controller)
-      XCTAssertEqual(page(of: privacy, in: scroll), 1)
       XCTAssertEqual(privacy.accessibilityValue, "已关闭")
       privacy.sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(KeyboardPrivacyPreference.incognito)
