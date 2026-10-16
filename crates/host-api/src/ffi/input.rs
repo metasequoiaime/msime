@@ -470,7 +470,11 @@ pub unsafe extern "C" fn msime_client_smart_punctuation_decide(
                 },
             );
             let space = msime_client_core::punctuation::decide_space_convert(
-                space_snapshot,
+                // 快照由宿主保存，偏好热更新不会撤回它；执行时仍需检查当前开关。
+                space_snapshot.filter(|_| {
+                    session.applied.smart_punctuation
+                        && session.applied.smart_punctuation_space_convert
+                }),
                 value.character,
                 preceding,
                 !session.runtime.is_idle(),

@@ -16,6 +16,7 @@ Status: implemented
 
 - `crates/client-core/src/preferences.rs` 的 `smart_punctuation_default()` 在所有平台上返回 `true`，它是 `smart_punctuation`、`smart_punctuation_repeat`、`smart_punctuation_direct_digit`、`smart_punctuation_direct_letter` 的 `Default` 值和缺键时的 serde 默认。
 - `smart_punctuation_space_convert` 仍处处默认关。它把刚上屏的中文标点按空格改回 ASCII，改写的是用户已经看着落下去的字符，而且没有反悔手势（再按一次空格只是空格），默认关的理由对它仍然成立。
+- Host API 在保存快照和执行空格转换时都检查已生效的 `smart_punctuation` 与 `smart_punctuation_space_convert`。快照归宿主保存，偏好热更新不会撤回旧快照，所以关闭任一开关后，旧快照也必须停止改写文字；执行入口过滤快照，继续复用共享的编辑器代次、前文与组字校验。
 - 跟着改的副本：Windows 安装模板 `platforms/windows/installer/config.default.toml`（四项 `true`，空格转换 `false`）；共享设置页 `punctuationControlState` 的缺键显示值（`packages/ui/src/settings/punctuation-preferences.ts`）；Windows 原生设置页和 Server 读偏好时的回退值（`platforms/windows/settings/main.cpp`、`platforms/windows/src/entrypoints/server_main.cpp`）；macOS 原生 `AppearancePreferences.mm` 在共享文档载入前的回退值和 `CloudAppearanceSettings.h` 的云端快照缺省值。Linux、Android、iOS、HarmonyOS 自己的副本本来就是开，不用改。
 - Windows TIP 在 Server 送来已存设置之前保持关（`platforms/windows/tsf/IPC/Ipc.h`），这不是默认值而是「还不知道用户选了什么」的安全态，不改。
 
@@ -69,6 +70,7 @@ Status: implemented
 - **在 `route()` 里把「总开关开、两半从未设过」当作开。** [「标点与翻译」页精简](../../implemented/simplification/2026-10-16-expression-page-prune.md)已经否过：Rust 分不出「从未设过」和「用户关掉」，现在仍然如此。迁移标记正是为这个区分补上的唯一信息，而且只用一次。
 - **同步应用旧快照时也迁移（快照里 `input.smart_punctuation` 为假就忽略）。** 最强的理由是一份迁移前上传的快照会把刚迁移的设备拉回关。没有采用：账号文档没有版本或平台标记，分不出旧默认和有意关掉，忽略它会让在别的设备上真关掉的人同步不过来；桌面上的应用是带预览的手动操作，用户看得到这一项。
 - **空格转换也默认开。** 没有采用：它改写已落下的字符，又没有反悔手势，默认关的理由对它完全成立。
+- **由各宿主在偏好热更新时清除空格转换快照。** 可以让宿主立即释放旧状态，但要求每个调用方都补一份相同规则，遗漏时仍会改写已经关闭的功能。Host API 自己持有生效偏好，在执行入口统一拒绝旧快照，宿主继续只负责编辑器上下文。
 
 ## Consequences
 
@@ -85,6 +87,7 @@ Status: implemented
 
 ## Verification
 
+- `msime-host-api::smart_punctuation_space_decision_rechecks_live_switches`：真实上屏「。」并保存快照，经公开偏好更新接口分别保持开启、关闭总开关、关闭空格转换开关，再传回同一份有效快照。旧实现关闭总开关后仍返回 ASCII `46`；修复后只有两项都开启时允许转换。
 - `msime-client-core`（Studio，macOS，迁移会翻转的平台）：`preferences::tests::smart_punctuation_defaults_on_everywhere`、`smart_punctuation_settle_flips_only_where_the_old_default_was_off`（两种平台参数都测）、`smart_punctuation_migration_runs_once_and_a_later_off_sticks`（旧文档读入时打开、文件不变、写入方漏掉标记照样落盘、关掉后再读仍关、恢复默认回到开）、`smart_punctuation_turned_off_on_a_fresh_profile_stays_off`、`smart_punctuation_recovery_migrates_only_a_legacy_document`；`punctuation::tests::the_shipped_defaults_do_what_the_switch_says_they_do`（默认偏好下数字和字母后的 `,` `.` `:` 走 ASCII，中文、空格、中文标点和无前文后归 Engine，重复按句点换回「。」）；`settings_document::tests::an_old_file_keeps_its_smart_punctuation_and_this_machine_s_marker`。全部 395 项通过。
 - `msime-host-api`：`default_preferences_keep_ascii_after_a_digit_and_repeat_turns_it_chinese` 经 `msime_client_punctuation_with_context` 和 `msime_client_smart_punctuation_arm`/`decide` 验证默认偏好下数字后三个标点交给宿主出 ASCII、「计」后出「，。：」、ASCII 句点后再按句点换成「。」；`a_legacy_preferences_document_loads_with_smart_punctuation_settled` 经 `msime_client_load_preferences` 验证旧文档读出时迁移。645 项通过。
 - `msime-client-services`：`settings_sync_after_the_smart_punctuation_migration` 验证迁移后上传「开」、手动应用旧快照后关掉且再读不被改回。873 项通过。`msime-mcp-server` 全部通过。四个 crate 的 clippy `-D warnings` 无告警。
