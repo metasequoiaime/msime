@@ -97,6 +97,44 @@ private final class AttemptCounter: @unchecked Sendable {
 final class BackendAccountSessionTests: XCTestCase {
   private enum CleanupRefused: Error { case busy }
 
+  func testSessionStorageRechecksIdentityAfterWaitingForSharedLock() async throws {
+    let original = try BackendSavedSession.forTokens(RefreshAPI.tokens())
+    let storage = MemorySessions(original)
+    let replacement = try BackendSavedSession.forTokens(RefreshAPI.tokens())
+    let session = BackendAccountSession(api: RefreshAPI(), storage: storage,
+      refreshLock: ReplacingSessionLock(storage: storage, replacement: replacement))
+    let writes = AttemptCounter()
+    do {
+      _ = try await session.withSessionStorage(matchingUserID: original.tokens.user.id,
+                                               matchingSessionID: try XCTUnwrap(original.sessionID)) { writes.increment() }
+      XCTFail("锁等待期间重新登录后不能执行旧操作")
+    } catch is CancellationError { }
+    XCTAssertEqual(writes.count, 0)
+  }
+
+  func testSessionStorageAllowsTokenRefreshWithinSameLogin() async throws {
+    let original = try BackendSavedSession.forTokens(RefreshAPI.tokens())
+    let storage = MemorySessions(original)
+    let replacement = try BackendSavedSession.forTokens(RefreshAPI.tokens("b"), sessionID: original.sessionID)
+    let session = BackendAccountSession(api: RefreshAPI(), storage: storage,
+      refreshLock: ReplacingSessionLock(storage: storage, replacement: replacement))
+    let result = try await session.withSessionStorage(matchingUserID: original.tokens.user.id,
+      matchingSessionID: try XCTUnwrap(original.sessionID)) { "synthetic-result" }
+    XCTAssertEqual(result, "synthetic-result")
+  }
+
+  func testSessionStorageDoesNotWriteWithoutSharedLock() async throws {
+    let original = try BackendSavedSession.forTokens(RefreshAPI.tokens())
+    let session = BackendAccountSession(api: RefreshAPI(), storage: MemorySessions(original), refreshLock: FailingRefreshLock())
+    let writes = AttemptCounter()
+    do {
+      _ = try await session.withSessionStorage(matchingUserID: original.tokens.user.id,
+        matchingSessionID: try XCTUnwrap(original.sessionID)) { writes.increment() }
+      XCTFail("拿不到共享锁时不能写入")
+    } catch is BackendAccountClient.Failure { }
+    XCTAssertEqual(writes.count, 0)
+  }
+
   func testReplacingAccountCancelsOldWorkBeforePublishingNewIdentity() async throws {
     let old = try BackendSavedSession.forTokens(RefreshAPI.tokens())
     let storage = MemorySessions(old)

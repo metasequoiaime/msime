@@ -16,6 +16,7 @@ Status: implemented
 - **去重和搜索**：去重用 `HMAC(由 K 派生的去重密钥, 明文)`，服务端只比较标签；搜索移到客户端，在解密后的最多 50 条上做。明文长度上限仍是 4000 个 UTF-16 单元，密文字段上限 16384 个字符。
 - **流程只写一份，sans-IO**：`crates/client-core/src/cloud/clipboard_e2e.rs` 既有原语，也有驱动：驱动决定下一步发哪个请求（取密钥状态、登记本机、建钥、解封装、列出并解密、上传、批准、换钥），宿主只负责带凭据发请求、把状态码和正文交回、保存驱动交回的密钥串。C ABI 是 `msime_client_cloud_clipboard_e2e`，Android 经 JNI、HarmonyOS 经 NAPI、Apple 平台由宿主把它注入 `shared/backend`（那个 SPM 包不链接 Rust 库）、桌面端在 Rust 里用 `run` 直接驱动。各宿主原有的列表解析几乎不用改：驱动交回的列表与旧接口的明文形状相同，只多了 `e2e` 状态。
 - **一台设备一份密钥串**：存在与账号会话相同的安全存储里（位置见协议文档的表），输入法进程、设置进程和 Tauri 设置页共用；否则同一台设备会登记成几台、要批准几次。Tauri 移动端经平台插件的 `loadCloudClipboardKeystore` / `saveCloudClipboardKeystore` 读写原生那一份。退出登录时与会话一起删除。
+- **Swift 密钥读写绑定登录**：每次操作把驱动绑定到发起时的 `userID` / `sessionID`。读写密钥串时取得账号已有的跨进程刷新锁，重读持久化会话并在 actor 同一同步段里校验、读写；网络请求不持锁。驱动每步及下一次发送前再核对会话，令牌刷新保持绑定，退出或同账号重新登录后旧操作取消。iOS App、键盘扩展、macOS 原生回退页与共享面板 provider 都传入这份绑定。
 
 ## 威胁模型与残余风险
 
@@ -29,6 +30,8 @@ Status: implemented
 - **各平台原生实现加密（CryptoKit、javax.crypto、cryptoFramework、Rust 各一份）** — 不加 Rust 依赖，各平台用系统库。不用的原因是五份实现、互通只靠测试向量兜底，流程（建钥竞争、换钥后的重试、解封装失败）也要写五遍；每个平台都已经链接了 Rust 库，写一份就够。
 - **服务端托管密钥、静态加密**（Telegram 普通云聊天的做法） — 换设备零成本、能服务端搜索。但服务端仍能解密，不是 issue 要的东西。
 - **保留明文模式作为可选项** — 旧客户端不受影响。用户选择唯一模式：两条路径要在五套客户端里长期维护，而且「可选」意味着多数人仍是明文。
+- **只在保存前异步调用 `requireSession`** — 能复用现有 API、改动最少，但检查返回后 actor 可重入，别的进程也能在写入前登出；校验必须和实际读写在同一共享锁和同步段中。
+- **锁住整个加密操作** — 最容易串行化所有步骤，但网络等待会挡住登出与令牌刷新，iOS 扩展挂起还会长期占锁；只锁本地读写。
 
 ## Consequences
 
@@ -48,3 +51,5 @@ Status: implemented
 Windows 原生设置窗口的剪贴板页（`platforms/windows/settings/main.cpp`）照共享页认得「本机待批准」和「已关闭」，这处 C++ 改动只由 PR 上的 MinGW 交叉构建检查，本机没有编译。
 
 没有验证的：真实服务端（还没部署）、各平台装机后的真实输入法会话与设置页界面、macOS 上 Tauri 面板经 IPC 与原生 provider 的联调、Android 的 Tauri 合包 APK。服务端上线前要在一台 macOS 和一台 Android 上用测试账号走一遍：开启、在另一台上批准、互传、移除、重置。
+
+Swift 登录绑定回归：合成请求暂停后退出登录、同账号重新登录、跨 actor 退出与重登均验证旧请求不再保存密钥或发送后续请求；锁等待期间身份被替换时不执行存储操作，同一登录的令牌刷新仍可执行，锁失败时不写入。`swift test --package-path shared/backend` 198 项通过；独立 iOS 27 模拟器的 `KeyboardCloudClipboardTests` 18 项通过，原生 service 的列表、上传及按需上传三个入口均覆盖；macOS 原生账号模型和 desktop cloud provider 测试通过，iOS 原生 App 与键盘扩展的 Release 模拟器构建通过。页面生命周期契约同步双参数操作闭包，原有两项生命周期检查通过。测试均使用合成数据，未使用真实账号或剪贴板内容。

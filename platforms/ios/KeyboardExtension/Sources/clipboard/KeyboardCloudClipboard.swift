@@ -46,13 +46,14 @@ struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
     } catch { return false }
   }
   func page(matching binding: KeyboardCloudClipboardBinding) async throws -> BackendAccountClient.ClipboardPage {
-    try await authorized(matching: binding) { [client, e2e] token in try await client.clipboard(token: token, e2e: e2e) }
+    try await authorized(matching: binding) { [client] token, e2e in try await client.clipboard(token: token, e2e: e2e) }
   }
   func add(_ text: String, matching binding: KeyboardCloudClipboardBinding) async throws {
-    _ = try await authorized(matching: binding) { [client, e2e] token in try await client.addClipboard(text, token: token, e2e: e2e) }
+    _ = try await authorized(matching: binding) { [client] token, e2e in try await client.addClipboard(text, token: token, e2e: e2e) }
   }
   /// 驱动上传前自己会读服务端的开关和本机是否已获批准：开关关着时返回 nil，本机等待批准时以 `clipboard_device_pending` 失败，两种情况都不上传。
   func uploadIfEnabled(_ text: String, matching binding: KeyboardCloudClipboardBinding) async throws -> BackendAccountClient.ClipboardPage? {
+    let e2e = e2e?.bound(to: session, userID: binding.userID, sessionID: binding.sessionID)
     func request<T: Sendable>(_ operation: @Sendable (String) async throws -> T) async throws -> T {
       try await session.authenticated(matchingUserID: binding.userID,
                                       matchingSessionID: binding.sessionID, operation).value
@@ -66,10 +67,11 @@ struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
   }
   /// 将请求及可能发生的令牌刷新绑定到发起时的登录会话。
   private func authorized<T: Sendable>(matching binding: KeyboardCloudClipboardBinding,
-                                       _ body: @Sendable (String) async throws -> T) async throws -> T {
+                                       _ body: @Sendable (String, BackendClipboardE2E?) async throws -> T) async throws -> T {
+    let e2e = e2e?.bound(to: session, userID: binding.userID, sessionID: binding.sessionID)
     let result = try await session.authenticated(matchingUserID: binding.userID,
                                                  matchingSessionID: binding.sessionID) { token in
-      try await body(token)
+      try await body(token, e2e)
     }.value
     try await session.requireSession(matchingUserID: binding.userID, matchingSessionID: binding.sessionID)
     try Task.checkCancellation()

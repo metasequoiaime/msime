@@ -41,19 +41,19 @@ final class MacClipboardModel: ObservableObject {
     return identity.token
   }
   /// 执行一个操作，然后重新读列表；云剪贴板开着时再读一次设备状态（操作本身已经带回设备状态时不再读）。
-  func run(_ action: @escaping @MainActor (String) async throws -> BackendAccountClient.ClipboardDevices?) {
+  func run(_ action: @escaping @MainActor (String, BackendClipboardE2E?) async throws -> BackendAccountClient.ClipboardDevices?) {
     guard !busy else { return }
     busy = true; message = nil
-    let e2e = clipboardE2E
     pending = Task {
       defer { busy = false }
       do {
         let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
         try Task.checkCancellation()
         sessionID = identity.sessionID
+        let e2e = clipboardE2E?.bound(to: account, userID: identity.userID, sessionID: identity.sessionID)
         var status = try await account.authenticated(matchingUserID: identity.userID,
                                                      matchingSessionID: identity.sessionID) { token in
-          try await action(token)
+          try await action(token, e2e)
         }.value
         let page = try await client.clipboard(search: search, e2e: e2e, session: account,
                                               matchingUserID: identity.userID,
@@ -76,26 +76,24 @@ final class MacClipboardModel: ObservableObject {
       }
     }
   }
-  func refresh() { run { _ in nil } }
-  func setEnabled(_ value: Bool) { run { try await self.client.setClipboardEnabled(value, token: $0); return nil } }
+  func refresh() { run { _, _ in nil } }
+  func setEnabled(_ value: Bool) { run { token, _ in try await self.client.setClipboardEnabled(value, token: token); return nil } }
   func upload() {
     let value = text
-    let e2e = clipboardE2E
-    run { token in
+    run { token, e2e in
       _ = try await self.client.addClipboard(value, token: token, e2e: e2e)
       _ = try await self.credentials()
       self.text = ""
       return nil
     }
   }
-  func delete(id: String? = nil) { run { try await self.client.deleteClipboard(id: id, token: $0); return nil } }
+  func delete(id: String? = nil) { run { token, _ in try await self.client.deleteClipboard(id: id, token: token); return nil } }
   /// 批准、拒绝、移除一台设备或重置云剪贴板。
   func change(_ operation: BackendAccountClient.ClipboardE2EOperation) {
-    let e2e = clipboardE2E
-    run { token in try await self.client.clipboardDevices(operation, token: token, e2e: e2e) }
+    run { token, e2e in try await self.client.clipboardDevices(operation, token: token, e2e: e2e) }
   }
   func copy(_ item: BackendAccountClient.ClipboardItem) {
-    run { _ in
+    run { _, _ in
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(item.text, forType: .string)
       return nil

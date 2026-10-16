@@ -14,6 +14,39 @@ struct BackendClipboardE2E: Sendable {
     self.drive = drive; self.keystore = keystore; self.deviceName = deviceName
   }
 
+  private struct SessionBinding: Sendable {
+    let session: BackendAccountSession
+    let userID: String
+    let sessionID: UUID
+  }
+  private var binding: SessionBinding?
+
+  /// 每次操作固定发起时的登录身份；令牌刷新保留身份，重新登录使旧操作失效。
+  func bound(to session: BackendAccountSession, userID: String, sessionID: UUID) -> Self {
+    var copy = self
+    copy.binding = SessionBinding(session: session, userID: userID, sessionID: sessionID)
+    return copy
+  }
+
+  func requireSession() async throws {
+    try Task.checkCancellation()
+    if let binding {
+      try await binding.session.requireSession(matchingUserID: binding.userID, matchingSessionID: binding.sessionID)
+    }
+  }
+
+  func loadKeystore() async throws -> String? {
+    guard let binding else { return try keystore.load() }
+    return try await binding.session.withSessionStorage(matchingUserID: binding.userID,
+                                                        matchingSessionID: binding.sessionID) { try keystore.load() }
+  }
+
+  func saveKeystore(_ value: String) async throws {
+    guard let binding else { return try keystore.save(value) }
+    try await binding.session.withSessionStorage(matchingUserID: binding.userID,
+                                                 matchingSessionID: binding.sessionID) { try keystore.save(value) }
+  }
+
   /// 把 C ABI 的驱动函数和释放函数包成 `drive`。回复按 `msime_client_string_free` 的约定释放且只释放一次。
   static func callingCABI(_ function: @escaping (UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?,
                           free: @escaping (UnsafeMutablePointer<CChar>?) -> Void) -> @Sendable (Data) -> Data? {
@@ -128,16 +161,16 @@ extension BackendAccountClient {
       throw Failure(status: 400)
     }
     guard let e2e else { throw Failure(status: 0) }
-    var saved = try e2e.keystore.load()
+    var saved = try await e2e.loadKeystore()
     var input: [String: Any] = ["start": operation.json, "keystore": saved ?? NSNull(),
                                 "device_name": await e2e.deviceName()]
     for _ in 0..<Self.clipboardDriverSteps {
-      try Task.checkCancellation()
+      try await e2e.requireSession()
       let step = try Self.clipboardDriverStep(e2e, input)
       if let value = step["keystore"] {
         guard let keystore = value as? String else { throw Failure(status: 0) }
         if keystore != saved {
-          try e2e.keystore.save(keystore)
+          try await e2e.saveKeystore(keystore)
           saved = keystore
         }
       }
@@ -151,6 +184,7 @@ extension BackendAccountClient {
         case let text as String: body = Data(text.utf8)
         default: throw Failure(status: 0)
         }
+        try await e2e.requireSession()
         let response = try await exchange(method, path, token: token, body: body,
                                           maximumResponseBytes: Self.clipboardResponseLimit)
         let text: String
@@ -180,14 +214,13 @@ extension BackendAccountClient {
     return try Self.validatedClipboardPage(data)
   }
 
-  /// Read the clipboard with the session binding held across a possible access-token refresh.
-  /// Callers cannot accidentally publish a page from an account that changed while the request
-  /// was in flight.
+  /// 读取与发起时登录绑定的列表；令牌刷新不改变绑定，换号后不再保存密钥或发布结果。
   func clipboard(search: String = "", e2e: BackendClipboardE2E?, session: BackendAccountSession,
                  matchingUserID expected: String? = nil,
                  matchingSessionID expectedSessionID: UUID? = nil) async throws -> ClipboardPage {
     let identity = try await session.credentials(matchingUserID: expected,
                                                  matchingSessionID: expectedSessionID)
+    let e2e = e2e?.bound(to: session, userID: identity.userID, sessionID: identity.sessionID)
     let page = try await session.authenticated(matchingUserID: identity.userID,
                                                matchingSessionID: identity.sessionID) { token in
       try await clipboard(token: token, search: search, e2e: e2e)

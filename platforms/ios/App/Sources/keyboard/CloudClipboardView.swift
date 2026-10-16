@@ -72,7 +72,7 @@ struct CloudClipboardView: View {
           }
         } else if !busy {
           DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
-            Button { run { _ in nil } } label: {
+            Button { run { _, _ in nil } } label: {
               HStack {
                 VStack(alignment: .leading, spacing: 2) {
                   Text("重试").font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.accent)
@@ -96,7 +96,7 @@ struct CloudClipboardView: View {
     }
     .designCanvasBackground()
     .searchable(text: $search, prompt: "搜索云端内容")
-    .onSubmit(of: .search) { run { _ in nil } }
+    .onSubmit(of: .search) { run { _, _ in nil } }
     .settingsStatus(busy: busy, message: message)
     .disabled(busy)
     .navigationTitle("云剪贴板")
@@ -111,7 +111,7 @@ struct CloudClipboardView: View {
       }
     }
     .sheet(isPresented: $addsText) { addSheet }
-    .task { request.appear(); run { _ in nil } }
+    .task { request.appear(); run { _, _ in nil } }
     .onDisappear {
       ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
@@ -119,7 +119,7 @@ struct CloudClipboardView: View {
     }
     .confirmationDialog("清空云剪贴板？", isPresented: $confirmsClear, titleVisibility: .visible) {
       Button("确认清空", role: .destructive) {
-        run { token in try await client.deleteClipboard(token: token); return nil }
+        run { token, _ in try await client.deleteClipboard(token: token); return nil }
       }
       Button("取消", role: .cancel) { }
     }
@@ -153,7 +153,7 @@ struct CloudClipboardView: View {
           .designSubtext()
           .fixedSize(horizontal: false, vertical: true)
         HStack {
-          Button("刷新") { run { _ in nil } }
+          Button("刷新") { run { _, _ in nil } }
             .accessibilityIdentifier("cloudClipboardPendingRefresh")
           Spacer()
           Button("重置云剪贴板", role: .destructive) { deviceConfirmation = .reset }
@@ -264,7 +264,7 @@ struct CloudClipboardView: View {
     DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
       Toggle(isOn: Binding(
         get: { enabled },
-        set: { on in run { token in try await client.setClipboardEnabled(on, token: token); return nil } }
+        set: { on in run { token, _ in try await client.setClipboardEnabled(on, token: token); return nil } }
       )) {
         VStack(alignment: .leading, spacing: 2) {
           Text("云剪贴板").font(.system(size: 16)).foregroundStyle(.primary)
@@ -289,7 +289,7 @@ struct CloudClipboardView: View {
               get: { retention },
               set: { days in
                 guard days != retention else { return }
-                run { token in try await client.setClipboardRetention(days: days, token: token); return nil }
+                run { token, _ in try await client.setClipboardRetention(days: days, token: token); return nil }
               }
             ),
             identifierPrefix: "cloudClipboardRetention"
@@ -369,7 +369,7 @@ struct CloudClipboardView: View {
       .buttonStyle(.plain)
       .accessibilityHint("轻点复制")
       Button {
-        run { token in try await client.setClipboardPinned(id: item.id, pinned: !pinned, token: token); return nil }
+        run { token, _ in try await client.setClipboardPinned(id: item.id, pinned: !pinned, token: token); return nil }
       } label: {
         Image(systemName: pinned ? "pin.fill" : "pin").font(.system(size: 15))
           .foregroundStyle(pinned ? MetasequoiaTheme.accent : MetasequoiaTheme.sub)
@@ -379,7 +379,7 @@ struct CloudClipboardView: View {
       .buttonStyle(.plain)
       .accessibilityLabel(pinned ? "取消置顶" : "置顶")
       Button {
-        run { token in try await client.deleteClipboard(id: item.id, token: token); return nil }
+        run { token, _ in try await client.deleteClipboard(id: item.id, token: token); return nil }
       } label: {
         Image(systemName: "trash").font(.system(size: 15))
           .foregroundStyle(MetasequoiaTheme.sub)
@@ -432,7 +432,7 @@ struct CloudClipboardView: View {
           Button("上传") {
             let value = text
             addsText = false
-            run { token in
+            run { token, e2e in
               _ = try await client.addClipboard(value, token: token, e2e: e2e)
               text = ""
               return nil
@@ -450,23 +450,24 @@ struct CloudClipboardView: View {
 
   /// 批准、拒绝、移除一台设备或重置云剪贴板。
   @MainActor private func change(_ operation: BackendAccountClient.ClipboardE2EOperation) {
-    run { [client, e2e] token in try await client.clipboardDevices(operation, token: token, e2e: e2e) }
+    run { [client] token, e2e in try await client.clipboardDevices(operation, token: token, e2e: e2e) }
   }
 
   /// 执行一个操作，然后重新读列表；云剪贴板开着时再读一次设备状态（操作本身已经带回设备状态时不再读）。
-  @MainActor private func run(_ action: @escaping @MainActor @Sendable (String) async throws -> BackendAccountClient.ClipboardDevices?) {
+  @MainActor private func run(_ action: @escaping @MainActor @Sendable (String, BackendClipboardE2E?) async throws -> BackendAccountClient.ClipboardDevices?) {
     ViewRequestTask.run(request: $request, busy: $busy, message: $message,
                         pending: $pending) { id in await execute(action, requestID: id) }
   }
-  @MainActor private func execute(_ action: @MainActor @Sendable (String) async throws -> BackendAccountClient.ClipboardDevices?, requestID id: UUID) async {
+  @MainActor private func execute(_ action: @MainActor @Sendable (String, BackendClipboardE2E?) async throws -> BackendAccountClient.ClipboardDevices?, requestID id: UUID) async {
     guard request.isCurrent(id) else { return }
     do {
       let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
       try request.checkCurrent(id)
       accountID = identity.userID; sessionID = identity.sessionID
+      let e2e = e2e?.bound(to: session, userID: identity.userID, sessionID: identity.sessionID)
       var status = try await session.authenticated(matchingUserID: identity.userID,
                                                    matchingSessionID: identity.sessionID) { token in
-        try await action(token)
+        try await action(token, e2e)
       }.value
       try request.checkCurrent(id)
       let page = try await client.clipboard(search: search, e2e: e2e, session: session,

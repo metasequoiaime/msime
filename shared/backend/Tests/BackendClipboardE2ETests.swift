@@ -106,9 +106,11 @@ private final class ClipboardE2EProtocol: URLProtocol {
   private static var responses: [(status: Int?, body: String)] = []
   private static var recorded: [Recorded] = []
   static var events = ClipboardEventLog()
+  private static var beforeResponse: (@Sendable () async -> Void)?
   static var requests: [Recorded] { lock.lock(); defer { lock.unlock() }; return recorded }
-  static func reset(_ responses: [(status: Int?, body: String)], events: ClipboardEventLog) {
-    lock.lock(); Self.responses = responses; recorded = []; Self.events = events; lock.unlock()
+  static func reset(_ responses: [(status: Int?, body: String)], events: ClipboardEventLog,
+                    beforeResponse: (@Sendable () async -> Void)? = nil) {
+    lock.lock(); Self.responses = responses; recorded = []; Self.events = events; Self.beforeResponse = beforeResponse; lock.unlock()
   }
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -127,8 +129,16 @@ private final class ClipboardE2EProtocol: URLProtocol {
                                authorization: request.value(forHTTPHeaderField: "Authorization"),
                                body: payload.flatMap { String(data: $0, encoding: .utf8) }))
     let next: (status: Int?, body: String) = Self.responses.isEmpty ? (500, "") : Self.responses.removeFirst()
+    let pause = Self.beforeResponse
+    Self.beforeResponse = nil
     Self.lock.unlock()
     Self.events.append(request.httpMethod! + " " + target)
+    Task {
+      await pause?()
+      self.respond(next)
+    }
+  }
+  private func respond(_ next: (status: Int?, body: String)) {
     guard let status = next.status else {
       client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
       return
@@ -140,6 +150,31 @@ private final class ClipboardE2EProtocol: URLProtocol {
     client?.urlProtocolDidFinishLoading(self)
   }
   override func stopLoading() {}
+}
+
+private actor ClipboardResponseGate {
+  private var waiting: CheckedContinuation<Void, Never>?
+  private var observer: CheckedContinuation<Void, Never>?
+  func pause() async {
+    await withCheckedContinuation { waiting = $0; observer?.resume(); observer = nil }
+  }
+  func waitUntilPaused() async {
+    if waiting != nil { return }
+    await withCheckedContinuation { observer = $0 }
+  }
+  func resume() { waiting?.resume(); waiting = nil }
+}
+
+private final class ClipboardSessionStore: BackendSessionStorage, @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: BackendSavedSession?
+  let keystore: MemoryClipboardKeystore
+  init(_ value: BackendSavedSession, keystore: MemoryClipboardKeystore) {
+    self.value = value; self.keystore = keystore
+  }
+  func load() throws -> BackendSavedSession? { lock.withLock { value } }
+  func save(_ value: BackendSavedSession) throws { lock.withLock { self.value = value } }
+  func clear() throws { lock.withLock { value = nil }; try keystore.clear() }
 }
 
 final class BackendClipboardE2ETests: XCTestCase {
@@ -158,6 +193,58 @@ final class BackendClipboardE2ETests: XCTestCase {
   }
   private func status(_ devices: [[String: Any]], status: String = "ready") -> [String: Any] {
     ["enabled": true, "status": status, "device_id": deviceID, "code": "0421 9873 5530 1176", "devices": devices]
+  }
+
+  func testLateClipboardResponseCannotRestoreKeystoreAfterLogout() async throws {
+    try await checkLateClipboardResponse(relogin: false)
+  }
+
+  func testLateClipboardResponseCannotOverwriteReloginKeystore() async throws {
+    try await checkLateClipboardResponse(relogin: true)
+  }
+
+  func testOtherProcessLogoutStopsLateClipboardResponse() async throws {
+    try await checkLateClipboardResponse(relogin: false, otherProcess: true)
+  }
+
+  func testOtherProcessReloginStopsLateClipboardResponse() async throws {
+    try await checkLateClipboardResponse(relogin: true, otherProcess: true)
+  }
+
+  private func checkLateClipboardResponse(relogin: Bool, otherProcess: Bool = false) async throws {
+    let tokens = BackendAccountClient.Tokens(access_token: String(repeating: "a", count: 64),
+      refresh_token: String(repeating: "f", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-user", display_name: "合成用户", created_at: "2026-10-16"))
+    let keystore = MemoryClipboardKeystore("old-keystore")
+    let storage = ClipboardSessionStore(try BackendSavedSession.forTokens(tokens), keystore: keystore)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let sharedLock = BackendFileRefreshLock(url: directory.appendingPathComponent("account-refresh.lock"))
+    let session = BackendAccountSession(storage: storage, refreshLock: sharedLock)
+    let gate = ClipboardResponseGate()
+    let page: [String: Any] = ["enabled": true, "items": []]
+    let driver = ScriptedClipboardDriver([
+      request("GET", "/v1/users/me/clipboard", state: 1, keystore: "old-keystore"),
+      request("POST", "/v1/users/me/clipboard", state: 2, keystore: "late-keystore"),
+      ["done": page, "keystore": "late-keystore"],
+    ])
+    ClipboardE2EProtocol.reset([(200, "{}"), (200, "{}")], events: .init(), beforeResponse: { await gate.pause() })
+    let e2e = BackendClipboardE2E(drive: { driver.call($0) }, keystore: keystore, deviceName: { "合成设备" })
+    let api = client()
+    let pending = Task { try await api.clipboard(e2e: e2e, session: session) }
+    await gate.waitUntilPaused()
+    let signingOut = otherProcess ? BackendAccountSession(storage: storage, refreshLock: sharedLock) : session
+    try await signingOut.forget()
+    if relogin {
+      // 同一账号重新登录也必须隔开旧操作。
+      try storage.save(BackendSavedSession.forTokens(tokens))
+      try keystore.save("replacement-keystore")
+    }
+    await gate.resume()
+    do { _ = try await pending.value; XCTFail("旧会话应取消") }
+    catch is CancellationError { }
+    XCTAssertEqual(keystore.stored, relogin ? "replacement-keystore" : nil)
+    XCTAssertEqual(ClipboardE2EProtocol.requests.count, 1)
   }
 
   /// 每个请求都带账号凭据发出，任何状态码的响应都原样交回驱动；密钥串一变就在下一个请求之前保存，没变就不写。

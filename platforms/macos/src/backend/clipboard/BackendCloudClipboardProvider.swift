@@ -28,7 +28,8 @@ final class BackendCloudClipboardProvider: NSObject {
     Task {
       do {
         let identity = try await BackendAccountSession.shared.credentials()
-        completion(BackendCloudClipboardProvider(client: BackendAccountClient(), credentials: {
+        completion(BackendCloudClipboardProvider(client: BackendAccountClient(),
+          e2e: MacCloudClipboardDriver.e2e?.bound(to: .shared, userID: identity.userID, sessionID: identity.sessionID), credentials: {
           try await BackendAccountSession.shared.credentials(matchingUserID: identity.userID,
                                                               matchingSessionID: identity.sessionID).token
         }, refreshCredentials: { rejected in

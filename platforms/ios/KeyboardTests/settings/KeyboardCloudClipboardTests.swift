@@ -162,6 +162,39 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
 
 @MainActor
 final class KeyboardCloudClipboardTests: XCTestCase {
+  func testNativeServiceBindsEveryDriverEntryToItsLogin() async throws {
+    for operation in ["page", "add", "upload"] {
+      let tokens = BackendAccountClient.Tokens(access_token: ClipboardAccountProtocol.oldToken,
+        refresh_token: String(repeating: "f", count: 64), token_type: "Bearer", expires_in: 900,
+        user: .init(id: "synthetic-user", display_name: "合成用户", created_at: "2026-10-16"))
+      let storage = ClipboardAccountStorage(try BackendSavedSession.forTokens(tokens))
+      let session = BackendAccountSession(storage: storage, refreshLock: ClipboardSharedRefreshLock())
+      let keystore = MemoryClipboardKeystore()
+      let e2e = BackendClipboardE2E(drive: passthroughClipboardE2E().drive, keystore: keystore, deviceName: {
+        // 名称查询是驱动开始前的挂起点，模拟另一端恰好退出登录。
+        try? await session.forget()
+        return "合成设备"
+      })
+      let configuration = URLSessionConfiguration.ephemeral
+      configuration.protocolClasses = [ClipboardAccountProtocol.self]
+      ClipboardAccountProtocol.reset(onRejection: {})
+      let service = BackendKeyboardCloudClipboardService(session: session,
+        client: BackendAccountClient(configuration: configuration), e2e: e2e)
+      let captured = try await service.binding()
+      let binding = try XCTUnwrap(captured)
+      do {
+        switch operation {
+        case "page": _ = try await service.page(matching: binding)
+        case "add": try await service.add("合成文本", matching: binding)
+        default: _ = try await service.uploadIfEnabled("合成文本", matching: binding)
+        }
+        XCTFail("旧登录应取消")
+      } catch is CancellationError { }
+      XCTAssertNil(keystore.stored, operation)
+      XCTAssertTrue(ClipboardAccountProtocol.paths.isEmpty, operation)
+    }
+  }
+
   func testUploadNeverUsesTheReplacementAccountsToken() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [ClipboardAccountProtocol.self]

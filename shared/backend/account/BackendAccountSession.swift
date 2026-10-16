@@ -604,6 +604,24 @@ actor BackendAccountSession {
     try load()
     guard saved?.tokens.user.id == userID, saved?.sessionID == sessionID else { throw CancellationError() }
   }
+  /// 在账号共享锁内核对持久化身份并完成一次短同步读写，校验与写入之间不能挂起。
+  func withSessionStorage<T: Sendable>(matchingUserID userID: String, matchingSessionID sessionID: UUID,
+                                      _ body: @escaping @Sendable () throws -> T) async throws -> T {
+    let version = generation
+    return try await refreshLock.run {
+      try await self.withSessionStorageHoldingLock(userID: userID, sessionID: sessionID,
+                                                   version: version, body)
+    }
+  }
+  private func withSessionStorageHoldingLock<T: Sendable>(userID: String, sessionID: UUID, version: Int,
+                                                          _ body: @Sendable () throws -> T) throws -> T {
+    try Task.checkCancellation()
+    guard generation == version else { throw CancellationError() }
+    // 共享锁等待期间别的进程可能已经换号；即使本 actor 缓存未变也必须重读磁盘。
+    let current = try storage.load().map { try BackendSavedSession.validated($0) }
+    guard current?.tokens.user.id == userID, current?.sessionID == sessionID else { throw CancellationError() }
+    return try body()
+  }
   /// Perform one authenticated request and retry it once when the backend rejects the
   /// still locally valid access token. The returned token is the one paired with the
   /// successful result, so callers that update cached account data cannot bind it to a
