@@ -155,6 +155,8 @@ for entry in \
     "ThemeModeDeviceSmoke|Theme mode acceptance failed" \
     "LanguageNumberKeySwapDeviceSmoke|Language/number key swap acceptance failed" \
     "ChineseLanguageReturnDeviceSmoke|Chinese language return acceptance failed" \
+    "BottomPaddingSettingsDeviceSmoke|Bottom padding settings acceptance failed" \
+    "BottomPaddingHeightDeviceSmoke|Bottom padding height acceptance failed" \
     "KeyboardHeightDeviceSmoke|Keyboard height acceptance failed" \
     "FuzzyPinyinDeviceSmoke|Fuzzy pinyin acceptance failed" \
     "CandidateGlossDeviceSmoke|Candidate gloss acceptance failed" \
