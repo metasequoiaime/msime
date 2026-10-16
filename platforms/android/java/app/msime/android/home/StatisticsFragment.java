@@ -29,6 +29,8 @@ import app.msime.android.DrawablePolicy;
 import app.msime.android.JsonPolicy;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.DictionaryCollectionsStore;
+import app.msime.android.KeyHeatmapLayout;
+import app.msime.android.KeyPressIds;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.NumberPolicy;
 import app.msime.android.R;
@@ -308,9 +310,12 @@ public final class StatisticsFragment extends HomeTabFragment {
         heatmap.setNineKey(nine);
         heatmap.setKeys(presses);
         board.addView(heatmap, LayoutPolicy.matchWidthWrapParams());
+        LinearLayout others = card(context, content, 16);
+        otherKeys(context, others, presses, nine);
         layout.setOnSelect(index -> {
             nineKey = index == 1;
             heatmap.setNineKey(nineKey);
+            otherKeys(context, others, presses, nineKey);
         });
 
         Keys keys = value.keys();
@@ -350,6 +355,34 @@ public final class StatisticsFragment extends HomeTabFragment {
             donut.setShares(methods, DistributionView.Style.DONUT);
             card.addView(donut, LayoutPolicy.matchWidthWrapParams());
         }
+    }
+
+    /**
+     * 热力图下的「其他键」卡：按过、但当前这套键盘图上没有位置的键（{@link KeyHeatmapLayout#others}），按次数从多到少，每行键名和次数，让每一次按键都能在页面上找到。没有这样的键时整张卡不显示；切换 26 键 / 9 键时重新列。
+     */
+    private static void otherKeys(Context context, LinearLayout card, Map<String, Long> presses, boolean nine) {
+        card.removeAllViews();
+        List<String> ids = KeyHeatmapLayout.others(presses, nine);
+        ViewPolicy.setVisible(card, !ids.isEmpty());
+        if (ids.isEmpty()) return;
+        card.addView(ViewPolicy.label(context, "其他键", 15, ThemeColorPolicy.text(context)));
+        for (String id : ids) {
+            String label = KeyPressIds.label(id);
+            String count = NumberPolicy.grouped(presses.get(id)) + " 次";
+            LinearLayout row = LayoutPolicy.row(context);
+            ViewPolicy.setCenteredVertically(row);
+            ViewPolicy.setMinimumHeightDp(context, row, 36);
+            row.addView(ViewPolicy.label(context, label, 15, ThemeColorPolicy.text(context)),
+                LayoutPolicy.weightedWrapParams(1f));
+            row.addView(ViewPolicy.label(context, count, 15, ThemeColorPolicy.subText(context)));
+            row.setContentDescription(label + " " + count);
+            ViewPolicy.setImportantForAccessibility(row, View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+            card.addView(row, LayoutPolicy.matchWidthWrapParams());
+        }
+        TextView note = ViewPolicy.label(context, "数字、标点、符号键等键盘图上没有位置的键。", 12,
+            ThemeColorPolicy.subText(context));
+        ViewPolicy.setPaddingDp(context, note, 0, 6, 0, 0);
+        card.addView(note);
     }
 
     /** 近 7 天每个键的按键次数，和按键 KPI 同一个时间窗。 */

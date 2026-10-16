@@ -11708,7 +11708,7 @@ private:
   // ---- 标点与翻译 ----
 
   void build_expression_page(StackPanel const &page) {
-    // 与共享页 PunctuationSection 相同，主流程只留四行：「标点」选择、引号样式、智能标点、成对标点；方头括号样式和智能标点的四个细分开关收进「更多选项」。规则在 PunctuationSettings.h。
+    // 与共享页 PunctuationSection 相同，主流程只留三行：「标点」选择、引号样式、成对标点；方头括号样式、智能标点总开关和它的四个细分开关收进「更多选项」（智能标点默认开，用户不必先找到它）。规则在 PunctuationSettings.h。
     auto punctuation = add_group(page, L"标点");
     // 「中文标点」开关和「固定标点」合成一个「标点」选择（PunctuationModeRow）：显示值每次从两个键推出，锁定优先，打开页面不改写文档；只有用户选了一项才写入。
     {
@@ -11736,31 +11736,18 @@ private:
                {{L"curly", L"弯引号 “ ” ‘ ’"}, {L"corner", L"直角引号 「 」『 』"},
                 {L"corner_when_traditional", L"繁体输出时用直角引号"}},
                L"curly");
-    // 智能标点（SmartPunctuationRow）：用户切换时连同数字后直出、字母后直出一起写成同一个值。Windows 上三者默认都是关，TIP 的 ResolvePunctuation 要所在一侧的直出也开着才输出 ASCII，只写总开关时打开了也不起作用。以前只写过总开关的文档在说明里多一句提示，不改写存储。
-    const bool smart = document_.Boolean(L"smart_punctuation", false);
-    const bool inert =
-        ps::smart_punctuation_inert(smart, document_.Boolean(L"smart_punctuation_direct_digit", false),
-                                    document_.Boolean(L"smart_punctuation_direct_letter", false));
-    add_row(punctuation, 0xE945, L"智能标点",
-            std::wstring(inert ? ps::smart_punctuation_inert_description
-                               : ps::smart_punctuation_description),
-            toggle_control(L"智能标点", smart, [this](bool value) {
-              change([&](PreferencesDocument &doc) {
-                for (auto const key : ps::smart_punctuation_keys)
-                  doc.SetBoolean(key, value);
-              }, true);
-            }));
     bool_row(punctuation, 0xE943, L"成对标点自动补全",
              L"输入左侧符号时自动补全右侧符号，并将光标置于中间",
              L"paired_punctuation", false);
-    // 「更多选项」：方头括号样式和智能标点的四个细分开关。细分开关只在智能标点打开时才起作用，所以总开关关着时变灰，值不动。Windows 没有「大写锁定时使用英文标点」一行（HostCapabilities 的 caps_lock_punctuation 只在 macOS 为真）。
+    // 「更多选项」：方头括号样式、智能标点总开关和它的四个细分开关。细分开关只在智能标点打开时才起作用，所以总开关关着时变灰，值不动。搜索落在其中任何一行时展开。Windows 没有「大写锁定时使用英文标点」一行（HostCapabilities 的 caps_lock_punctuation 只在 macOS 为真）。
     Expander more;
     more.Header(box_value(L"更多选项"));
     more.HorizontalAlignment(HorizontalAlignment::Stretch);
     more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
     more.IsExpanded(punctuation_more_open_ || focus_row_ == L"方头括号样式" ||
-                    focus_row_ == L"重复标点转中文" || focus_row_ == L"中文标点后按空格转换" ||
-                    focus_row_ == L"数字后直出" || focus_row_ == L"字母后直出");
+                    focus_row_ == L"智能标点" || focus_row_ == L"重复标点转中文" ||
+                    focus_row_ == L"中文标点后按空格转换" || focus_row_ == L"数字后直出" ||
+                    focus_row_ == L"字母后直出");
     more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
       punctuation_more_open_ = true;
     });
@@ -11771,18 +11758,32 @@ private:
     rows.Spacing(4);
     select_row(rows, 0xE8C1, L"方头括号样式", L"中文标点下 [ ] 键输出的括号",
                L"bracket_style", {{L"solid", L"实心 【 】"}, {L"hollow", L"空心 〖 〗"}}, L"solid");
+    // 智能标点（SmartPunctuationRow）：用户切换时连同数字后直出、字母后直出一起写成同一个值，TIP 的 ResolvePunctuation 要所在一侧的直出也开着才输出 ASCII。四个键默认都是开（client-core 的 smart_punctuation_default，读进来的文档总带着这些键，这里的回退值只是与它一致）。只写过总开关的旧文档在说明里多一句提示，不改写存储。
+    const bool smart = document_.Boolean(L"smart_punctuation", true);
+    const bool inert =
+        ps::smart_punctuation_inert(smart, document_.Boolean(L"smart_punctuation_direct_digit", true),
+                                    document_.Boolean(L"smart_punctuation_direct_letter", true));
+    add_row(rows, 0xE945, L"智能标点",
+            std::wstring(inert ? ps::smart_punctuation_inert_description
+                               : ps::smart_punctuation_description),
+            toggle_control(L"智能标点", smart, [this](bool value) {
+              change([&](PreferencesDocument &doc) {
+                for (auto const key : ps::smart_punctuation_keys)
+                  doc.SetBoolean(key, value);
+              }, true);
+            }));
     bool_row(rows, 0xE8EE, L"重复标点转中文",
              L"智能标点输出英文标点后，2 秒内再次输入同一标点时替换为中文标点",
-             L"smart_punctuation_repeat", false, false, smart);
+             L"smart_punctuation_repeat", true, false, smart);
     bool_row(rows, 0xE8EE, L"中文标点后按空格转换",
              L"刚输入中文标点后按空格，转换为对应英文标点",
              L"smart_punctuation_space_convert", false, false, smart);
     bool_row(rows, 0xE8EE, L"数字后直出",
              L"数字后输入逗号、句点或冒号时保留 ASCII 标点",
-             L"smart_punctuation_direct_digit", false, true, smart);
+             L"smart_punctuation_direct_digit", true, true, smart);
     bool_row(rows, 0xE8EE, L"字母后直出",
              L"字母后输入逗号、句点或冒号时保留 ASCII 标点",
-             L"smart_punctuation_direct_letter", false, true, smart);
+             L"smart_punctuation_direct_letter", true, true, smart);
     more.Content(rows);
     punctuation.Children().Append(more);
 

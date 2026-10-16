@@ -24,7 +24,7 @@ SCHEMA = ROOT / "crates/client-core/src/preferences.rs"
 # `NAME(Group.X, "key", default, "title", "description")`
 ENTRY = re.compile(r"^\s*[A-Z_]+\(Group\.[A-Z_]+,\s*\"([a-z0-9_]+)\",\s*(true|false)\b", re.MULTILINE)
 
-# Defaults in `impl Default for Preferences` that are a function call rather than a literal, as that function evaluates on Android. smart_punctuation_default() is `!cfg!(any(windows, target_os = "macos"))`, so true here.
+# Defaults in `impl Default for Preferences` that are a function call rather than a literal, as that function evaluates on Android. smart_punctuation_default() is `true` on every host.
 ANDROID_CALL_DEFAULTS = {"smart_punctuation_default()": True}
 
 entries = ENTRY.findall(TOGGLES.read_text())

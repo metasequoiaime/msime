@@ -152,6 +152,71 @@ fn hot_series_appends_prefixes_without_temporary_pages() {
 }
 
 #[test]
+fn complete_rows_preserve_database_weight_order_when_merging() {
+    let fixture = Fixture::new();
+    for index in 0..4 {
+        fixture.insert("ni'hao", &format!("合成同音{index}😀"), 100 - index);
+    }
+    for index in 0..32 {
+        fixture.insert("ni'hao'ma", &format!("合成长词{index}😀"), 1000 - index);
+    }
+    let cuts = vec!["ni".to_owned(), "hao".to_owned()];
+    let mut before = QuanpinDictionary::new(&fixture.paths);
+    let mut after = QuanpinDictionary::new(&fixture.paths);
+    before.sentence_association.word_lattice = false;
+    after.sentence_association.word_lattice = false;
+
+    let (expected, _) = count(|| before.legacy_stream_query_series("nihao", "ni'hao", &cuts));
+    let (actual, _) = count(|| after.query_series("nihao", "ni'hao", &cuts));
+    assert_rows(&actual, &expected);
+}
+
+#[test]
+#[ignore = "手动配对计时，需在没有并行构建时运行"]
+fn complete_rows_skip_redundant_sort_paired_timing() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let fixture = Fixture::new();
+    for index in 0..4 {
+        fixture.insert("ni'hao", &format!("合成同音{index}😀"), 100 - index);
+    }
+    for index in 0..32 {
+        fixture.insert("ni'hao'ma", &format!("合成长词{index}😀"), 1000 - index);
+    }
+    let cuts = vec!["ni".to_owned(), "hao".to_owned()];
+    let mut before = QuanpinDictionary::new(&fixture.paths);
+    let mut after = QuanpinDictionary::new(&fixture.paths);
+    before.sentence_association.word_lattice = false;
+    after.sentence_association.word_lattice = false;
+    black_box(before.legacy_stream_query_series("nihao", "ni'hao", &cuts));
+    black_box(after.query_series("nihao", "ni'hao", &cuts));
+
+    let mut ratios = Vec::new();
+    for round in 0..7 {
+        let mut elapsed = [0u128; 2];
+        for side in if round % 2 == 0 { [0, 1] } else { [1, 0] } {
+            let started = Instant::now();
+            for _ in 0..20_000 {
+                let rows = if side == 0 {
+                    before.legacy_stream_query_series("nihao", "ni'hao", &cuts)
+                } else {
+                    after.query_series("nihao", "ni'hao", &cuts)
+                };
+                black_box(rows);
+            }
+            elapsed[side] = started.elapsed().as_nanos();
+        }
+        ratios.push(elapsed[0] as f64 / elapsed[1] as f64);
+    }
+    ratios.sort_by(f64::total_cmp);
+    println!(
+        "完整切分合并旧/新墙钟比 p10={:.3} p50={:.3} p90={:.3}",
+        ratios[1], ratios[3], ratios[5]
+    );
+}
+
+#[test]
 fn series_stream_keeps_cache_and_owned_output() {
     let fixture = fixture();
     for word_lattice in [false, true] {

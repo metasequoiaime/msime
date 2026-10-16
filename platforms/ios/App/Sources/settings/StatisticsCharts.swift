@@ -335,18 +335,34 @@ struct StatisticsCompositionBar: View {
 
 // MARK: - 按键
 
-/// 按键热力图标题旁的 26 键 / 9 键小切换：轨道 8pt，选项 24pt 配 6pt 滑块，文字 12pt。
+/// 按键热力图标题旁的 26 键 / 9 键小切换：轨道 8pt，选项 24pt 配 6pt 滑块，文字 12pt。iOS 26 起与 `DesignSegmentedControl` 一样画成液态玻璃胶囊轨道加滑动的胶囊滑块。
 struct StatisticsLayoutSwitch: View {
   @Binding var nineKey: Bool
+  @Namespace private var thumbSpace
+
+  private static var glass: Bool {
+    if #available(iOS 26, *) { return true }
+    return false
+  }
 
   var body: some View {
-    HStack(spacing: 2) {
-      item("26 键", nine: false, index: 0)
-      item("9 键", nine: true, index: 1)
+    if #available(iOS 26, *) {
+      HStack(spacing: 0) {
+        item("26 键", nine: false, index: 0)
+        item("9 键", nine: true, index: 1)
+      }
+      .padding(3)
+      .glassEffect(.regular.interactive(), in: Capsule())
+      .animation(.spring(response: 0.32, dampingFraction: 0.82), value: nineKey)
+    } else {
+      HStack(spacing: 2) {
+        item("26 键", nine: false, index: 0)
+        item("9 键", nine: true, index: 1)
+      }
+      .padding(2)
+      .background(StatisticsStyle.segmentTrack, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+      .animation(.easeInOut(duration: 0.2), value: nineKey)
     }
-    .padding(2)
-    .background(StatisticsStyle.segmentTrack, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    .animation(.easeInOut(duration: 0.2), value: nineKey)
   }
 
   private func item(_ title: String, nine: Bool, index: Int) -> some View {
@@ -359,8 +375,14 @@ struct StatisticsLayoutSwitch: View {
         .frame(height: 24)
         .background {
           if isSelected {
-            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(StatisticsStyle.segmentThumb)
-              .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
+            if Self.glass {
+              Capsule().fill(StatisticsStyle.segmentThumb)
+                .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+                .matchedGeometryEffect(id: "thumb", in: thumbSpace)
+            } else {
+              RoundedRectangle(cornerRadius: 6, style: .continuous).fill(StatisticsStyle.segmentThumb)
+                .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
+            }
           }
         }
         .contentShape(Rectangle())
@@ -371,7 +393,7 @@ struct StatisticsLayoutSwitch: View {
   }
 }
 
-/// 按键热力图：按键盘的画法画出 26 键或九键键盘，每个键按它在统计窗口内全部按键中的占比填色（`TypingKeyHeatmap.heatLevel`），占比印在键面下方。下面是按得最多的字母键和图例。各键依次出现。
+/// 按键热力图：照手机竖屏键盘的样子画出全拼 26 键或拼音九键（`TypingKeyHeatmap.keyboardRows`、`nineKey*`），键的顺序、相对宽度和键面都与键盘一致，每个键按它在统计窗口内全部按键中的占比填色（`TypingKeyHeatmap.heatLevel`），占比印在键面下方。下面是按得最多的字母键和图例。各键依次出现。
 ///
 /// 只画在键盘上有位置的键；其余的键由页面另外列出。
 struct StatisticsKeyboardHeatmap: View {
@@ -382,19 +404,8 @@ struct StatisticsKeyboardHeatmap: View {
 
   private static let gap: CGFloat = 4
   private static let rowGap: CGFloat = 6
-  /// 一行以字母键宽度为单位排布：26 键键盘一行十个单位。
-  private static let rowUnits: CGFloat = 10
 
   private var keyHeight: CGFloat { nineKey ? 52 : 44 }
-
-  private static func units(_ id: String) -> CGFloat {
-    switch id {
-    case TypingKeyID.space: return 5
-    case TypingKeyID.shift, TypingKeyID.backspace: return 1.5
-    case TypingKeyID.layer, TypingKeyID.globe, TypingKeyID.language, TypingKeyID.enter: return 1.25
-    default: return 1
-    }
-  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -419,8 +430,9 @@ struct StatisticsKeyboardHeatmap: View {
     }
   }
 
+  /// 两块键盘都是四排：26 键三排字母加底行，九键三排格子加底行。
   private var boardHeight: CGFloat {
-    let rows: CGFloat = nineKey ? 4 : CGFloat(TypingKeyHeatmap.keyboardRows.count)
+    let rows: CGFloat = 4
     return keyHeight * rows + Self.rowGap * (rows - 1)
   }
 
@@ -428,99 +440,85 @@ struct StatisticsKeyboardHeatmap: View {
   private var headline: String {
     guard let id = heatmap.busiestLetterKey(nineKey: nineKey) else { return "近 7 天还没有按键记录" }
     let share = TypingSummaryText.percentTenths(heatmap.percent(id) / 100)
-    return nineKey ? "最常按 \(face(id)) · \(share)%" : "字母键最常按 \(face(id)) · \(share)%"
+    let face = TypingKeyHeatmap.nineKeyFaces[id]?.pinyin ?? TypingKeyID.label(id)
+    return nineKey ? "最常按 \(face) · \(share)%" : "字母键最常按 \(face) · \(share)%"
   }
 
   private func reveal() {
     if reduceMotion { withAnimation(.easeOut(duration: 0.2)) { appeared = true } } else { appeared = true }
   }
 
+  /// 一排里的键按 `Cell.width` 分摊扣掉键缝和两侧缩进之后的宽度，与键盘的约束同比例。
+  private func keyRow(_ cells: [TypingKeyHeatmap.Cell], width: CGFloat, inset: CGFloat = 0, firstOrder: Int) -> some View {
+    let weights = cells.reduce(0) { $0 + $1.width }
+    let unit = (width - inset * 2 - Self.gap * CGFloat(cells.count - 1)) / CGFloat(weights)
+    return HStack(spacing: Self.gap) {
+      ForEach(Array(cells.enumerated()), id: \.offset) { column, cell in
+        key(cell, order: firstOrder + column).frame(width: unit * CGFloat(cell.width), height: keyHeight)
+      }
+    }
+    .padding(.horizontal, inset)
+    .frame(width: width)
+  }
+
   private func letterBoard(width: CGFloat) -> some View {
-    let unit = (width - Self.gap * (Self.rowUnits - 1)) / Self.rowUnits
     let rows = TypingKeyHeatmap.keyboardRows
+    let inset = width * CGFloat(TypingKeyHeatmap.keyboardMiddleRowInset)
     return VStack(spacing: Self.rowGap) {
-      ForEach(rows.indices, id: \.self) { row in
-        HStack(spacing: Self.gap) {
-          ForEach(rows[row], id: \.self) { id in
-            let units = Self.units(id)
-            key(id, order: order(row: row, id: id, in: rows))
-              .frame(width: unit * units + Self.gap * (units - 1), height: keyHeight)
-          }
-        }
-        .frame(maxWidth: .infinity)
+      ForEach(rows.indices, id: \.self) { index in
+        keyRow(rows[index], width: width, inset: index == 1 ? inset : 0,
+            firstOrder: rows.prefix(index).reduce(0) { $0 + $1.count })
       }
     }
   }
 
-  /// 侧栏和右侧控制键宽 0.9 个单位，每个格子宽 1.3 个单位，与设计稿一致。
+  /// 侧栏和右列各占整块宽度的 14%，三列格子平分其余部分，与键盘的 `nineSidebarWidth` 一致。
   private func nineKeyBoard(width: CGFloat) -> some View {
-    let unit = (width - Self.gap * 4) / (0.9 + 1.3 * 3 + 0.9)
-    let side = unit * 0.9
-    let cell = unit * 1.3
+    let side = width * CGFloat(TypingKeyHeatmap.nineKeySideRatio)
+    let cell = (width - side * 2 - Self.gap * 4) / 3
     let gridHeight = keyHeight * 3 + Self.rowGap * 2
-    let bottom = TypingKeyHeatmap.keyboardRows[TypingKeyHeatmap.keyboardRows.count - 1]
-    let bottomUnit = (width - Self.gap * (Self.rowUnits - 1)) / Self.rowUnits
     return VStack(spacing: Self.rowGap) {
       HStack(alignment: .top, spacing: Self.gap) {
         key(TypingKeyHeatmap.nineKeySidebar, order: 0).frame(width: side, height: gridHeight)
         VStack(spacing: Self.rowGap) {
           ForEach(TypingKeyHeatmap.nineKeyGrid.indices, id: \.self) { row in
             HStack(spacing: Self.gap) {
-              ForEach(Array(TypingKeyHeatmap.nineKeyGrid[row].enumerated()), id: \.element) { column, id in
-                key(id, order: 1 + row * 5 + column).frame(width: cell, height: keyHeight)
+              ForEach(Array(TypingKeyHeatmap.nineKeyGrid[row].enumerated()), id: \.offset) { column, grid in
+                key(grid, order: 1 + row * 5 + column).frame(width: cell, height: keyHeight)
               }
             }
           }
         }
         VStack(spacing: Self.rowGap) {
-          ForEach(Array(TypingKeyHeatmap.nineKeyControls.enumerated()), id: \.element) { row, id in
-            key(id, order: 4 + row * 5).frame(width: side, height: keyHeight)
+          ForEach(Array(TypingKeyHeatmap.nineKeyControls.enumerated()), id: \.offset) { row, control in
+            key(control, order: 4 + row * 5).frame(width: side, height: keyHeight)
           }
         }
       }
-      HStack(spacing: Self.gap) {
-        ForEach(Array(bottom.enumerated()), id: \.element) { column, id in
-          let units = Self.units(id)
-          key(id, order: 15 + column).frame(width: bottomUnit * units + Self.gap * (units - 1), height: keyHeight)
-        }
-      }
+      keyRow(TypingKeyHeatmap.nineKeyBottomRow, width: width, firstOrder: 15)
     }
     .frame(width: width)
   }
 
-  private func order(row: Int, id: String, in rows: [[String]]) -> Int {
-    rows.prefix(row).reduce(0) { $0 + $1.count } + (rows[row].firstIndex(of: id) ?? 0)
-  }
-
-  /// 键面显示的内容：字母、九键的字母组，或功能键的图标。
-  private func face(_ id: String) -> String {
-    switch id {
-    case TypingKeyID.space: return "空格"
-    case TypingKeyID.layer: return "123"
-    case TypingKeyID.language: return "中/英"
-    case TypingKeyID.punctuation: return "标点"
-    case "Period": return "."
-    case "Nine0": return "0"
-    default:
-      if let face = TypingKeyHeatmap.nineKeyFaces[id] { return face.pinyin }
-      return TypingKeyID.label(id)
-    }
-  }
-
+  /// 键盘上画成图标的键：删除和回车。
   private func symbol(_ id: String) -> String? {
     switch id {
-    case TypingKeyID.shift: return "shift"
     case TypingKeyID.backspace: return "delete.left"
     case TypingKeyID.enter: return "return"
-    case TypingKeyID.globe: return "globe"
     default: return nil
     }
   }
 
-  private func key(_ id: String, order: Int) -> some View {
+  private func key(_ cell: TypingKeyHeatmap.Cell, order: Int) -> some View {
+    let id = cell.id
     let percent = heatmap.percent(id)
     let level = TypingKeyHeatmap.heatLevel(percent: percent, nineKey: nineKey)
     let ink = level >= 4 ? Color.white : Color.primary
+    // 与别的键记同一个 id 的键（九键的侧栏和 ！）同色，但都不印占比。
+    let sharedFaces = TypingKeyHeatmap.sharedFaces(cell, nineKey: nineKey)
+    let shared = !sharedFaces.isEmpty
+    // 侧栏的 ，。？ 在键盘上是竖排的三个键。
+    let sidebar = cell == TypingKeyHeatmap.nineKeySidebar
     return RoundedRectangle(cornerRadius: 6, style: .continuous)
       .fill(StatisticsStyle.keyHeat[level])
       .overlay {
@@ -528,10 +526,13 @@ struct StatisticsKeyboardHeatmap: View {
           if let symbol = symbol(id) {
             Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
           } else {
-            Text(face(id)).font(.system(size: nineKey ? 15 : 14, weight: .semibold))
-              .lineLimit(1).minimumScaleFactor(0.5)
+            Text(sidebar ? cell.face.map(String.init).joined(separator: "\n") : cell.face)
+              .font(.system(size: nineKey ? 15 : 14, weight: .semibold))
+              .multilineTextAlignment(.center)
+              .lineSpacing(sidebar ? 10 : 0)
+              .lineLimit(sidebar ? 3 : 1).minimumScaleFactor(0.5)
           }
-          if heatmap.total > 0 {
+          if heatmap.total > 0 && !shared {
             Text("\(TypingSummaryText.percentTenths(percent / 100))%").font(.system(size: 9)).monospacedDigit()
               .lineLimit(1).minimumScaleFactor(0.7)
               .opacity(0.85)
@@ -545,8 +546,12 @@ struct StatisticsKeyboardHeatmap: View {
       .scaleEffect(appeared || reduceMotion ? 1 : 0.86)
       .animation(reduceMotion ? nil : StatisticsStyle.curve(0.45).delay(Double(order) * 0.018), value: appeared)
       .accessibilityElement(children: .ignore)
-      .accessibilityLabel(TypingKeyHeatmap.accessibilityLabel(id, count: heatmap.count(id)))
-      .accessibilityIdentifier("statisticsKey_\(id)")
+      .accessibilityLabel(shared
+        ? "\(cell.face)，与 \(sharedFaces.joined(separator: "、")) 合计 \(heatmap.count(id)) 次"
+        : TypingKeyHeatmap.accessibilityLabel(id, count: heatmap.count(id), face: cell.face))
+      // 同一个 id 画了几次时，第一个键保留 `statisticsKey_<id>`，其余的加 `-shared`，标识不重复。
+      .accessibilityIdentifier(TypingKeyHeatmap.cells(nineKey: nineKey).first { $0.id == id } == cell
+        ? "statisticsKey_\(id)" : "statisticsKey_\(id)-shared")
   }
 }
 

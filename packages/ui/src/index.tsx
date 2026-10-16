@@ -1321,7 +1321,11 @@ export {
   type CommunityDestinationScope,
   type CommunityDestinationView,
 } from "./community/community-destination";
-export { CommunityHomePage, CommunityResourcesPage } from "./community/community-resources";
+export {
+  CommunityHomePage,
+  CommunityResourcesPage,
+  type CommunityResourcesPageProps,
+} from "./community/community-resources";
 export {
   CommunityResourceDetail,
   type CommunityResourceDetailProps,

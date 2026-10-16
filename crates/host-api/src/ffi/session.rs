@@ -103,6 +103,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
         runtime.set_phrase_preedit(phrase_preedit);
+        runtime.set_backspace_reverts_selection(applied.backspace_reverts_selection);
         runtime.set_wubi_auto_commit_unique(applied.wubi_auto_commit_unique);
         runtime.set_wubi_candidate_selection(applied.wubi_candidate_selection.clone());
         runtime.set_punctuation_marks(msime_client_core::punctuation::punctuation_marks(&applied));

@@ -31,6 +31,7 @@ public final class InputFeatureToggleSmoke {
 
         // 默认值必须跟 crates/client-core 的 Preferences 一致：一个默认开的设置在界面上画成关，
         // 说的就是键盘行为的反面，而「打开」它写进去的又是本来就在的值。
+        check(enabledByDefault("backspace_reverts_selection"), "selection retreat stays enabled for existing users");
         check(enabledByDefault("learning"), "learning is on by default");
         // 自动纠错 is the two nested `quanpin` corrections, each with its own row in the sheet, not one top-level switch; scripts/test-android-preference-keys.py checks every key the sheets write against the shared schema.
         check(!hasToggle("autocorrect"), "there is no all-types autocorrect switch");

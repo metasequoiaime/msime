@@ -377,8 +377,8 @@ final class ImeLayoutRows {
             Button more = s.keyId(s.keyboardKey("#+=", "切换到更多符号", s.imeLetterRows::showMoreSymbols), "SoftLayer");
             KeyboardTypographyPolicy.setKeyTextSize(more, 14);
             left.addView(more, LayoutPolicy.matchWidthHeightPx(s.pixels(40)));
-            container.addView(left, LayoutPolicy.weightedMatchParentParams(0.9f));
-        } else container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(0.9f));
+            container.addView(left, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
+        } else container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
 
         LinearLayout grid = LayoutPolicy.column(s);
         boolean composing = s.hasEngineComposition();
@@ -422,7 +422,7 @@ final class ImeLayoutRows {
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
         }
-        container.addView(grid, LayoutPolicy.weightedMatchParentParams(3));
+        container.addView(grid, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));
 
         LinearLayout actions = LayoutPolicy.column(s);
         Runnable deleteAction = borrowed ? s::deleteFromHandwriting : () -> {
@@ -443,7 +443,7 @@ final class ImeLayoutRows {
             adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
             // 重建数字网格时空格换了父容器，即使底行签名相同也要重新确认归属。
             s.actionRowSignature = "";
-            container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.9f));
+            container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
             return;
         }
         // 重输：组字时丢掉整串数字和选过的拼音，和搜狗、讯飞九键右列的「重输」在同一个位置。这一格曾经改成「拆分」、重输挪到长按 ⌫，用户照习惯按这里清空却得到一个音节分界，长按 ⌫ 也没人知道；拆分现在是组字时的 1 键「分词」（symbolKey）。长按 ⌫ 清空照旧保留。没在组字时什么也不发生。
@@ -460,7 +460,7 @@ final class ImeLayoutRows {
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
         if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
-        container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.9f));
+        container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
     }
 
     /**

@@ -25,6 +25,9 @@ public enum InputFeatureToggle {
     SINGLE_CHARACTER_ONLY(Group.DICTIONARY, "single_character_only", false, "只出单字",
         "候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字"),
 
+    BACKSPACE_REVERTS_SELECTION(Group.DICTIONARY, "backspace_reverts_selection", true, "退格键回退已选候选词",
+        "关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字"),
+
     CHINESE_PUNCTUATION(Group.OUTPUT, "chinese_punctuation", true, "中文标点",
         "中文模式下把逗号句号打成全角"),
     SMART_PUNCTUATION(Group.OUTPUT, "smart_punctuation", true, "智能标点",

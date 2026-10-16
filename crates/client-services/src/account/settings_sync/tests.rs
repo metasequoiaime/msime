@@ -1013,6 +1013,51 @@ fn settings_sync_smart_punctuation_change_writes_both_halves() {
     }
 }
 
+/// 智能标点默认开的一次性迁移和设置同步：迁移后的本机上传的是迁移后的值（macOS、Windows 上旧文档里的 `false` 已经读成开）；用户手动应用一份迁移前上传的云端快照时，快照里的「关」照常生效，迁移标记留在本机，之后再读不会把它改回开。
+#[test]
+fn settings_sync_after_the_smart_punctuation_migration() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::preferences::PreferencesStore::new(dir.path());
+    let mut legacy =
+        serde_json::to_value(crate::preferences::PreferencesSnapshot::default()).unwrap();
+    let preferences = legacy["preferences"].as_object_mut().unwrap();
+    for key in [
+        "smart_punctuation",
+        "smart_punctuation_repeat",
+        "smart_punctuation_direct_digit",
+        "smart_punctuation_direct_letter",
+    ] {
+        preferences.insert(key.into(), false.into());
+    }
+    preferences.remove("smart_punctuation_migrated").unwrap();
+    std::fs::write(
+        dir.path().join("preferences.json"),
+        serde_json::to_vec(&legacy).unwrap(),
+    )
+    .unwrap();
+    let flipped = cfg!(any(windows, target_os = "macos"));
+
+    let local = store.load().unwrap();
+    assert_eq!(
+        export_desktop_settings(&local.preferences).get("input.smart_punctuation"),
+        Some(&AccountPreferenceValue::Boolean(flipped))
+    );
+
+    let stale = export_desktop_settings(&Preferences {
+        smart_punctuation: false,
+        ..Preferences::default()
+    });
+    let applied =
+        apply_desktop_settings(&local.preferences, &document(stale), &full_schema()).unwrap();
+    assert!(!applied.preferences.smart_punctuation);
+    assert!(applied.preferences.smart_punctuation_migrated);
+    store.save(local.revision, applied.preferences).unwrap();
+    let reloaded = store.load().unwrap().preferences;
+    assert!(!reloaded.smart_punctuation);
+    assert!(!reloaded.smart_punctuation_direct_digit);
+    assert!(reloaded.smart_punctuation_migrated);
+}
+
 /// 云端的智能标点和本机相同时，本机单独调过的一半保持原样，同步不会每次都把它冲掉。
 #[test]
 fn settings_sync_unchanged_smart_punctuation_leaves_the_halves_alone() {

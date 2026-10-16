@@ -379,7 +379,7 @@ pub struct PreferencesView {
     pub character_width: Width,
     /// Type Chinese punctuation in Chinese mode.
     pub chinese_punctuation: bool,
-    /// With Chinese punctuation on, type , . : after a letter or digit as English punctuation.
+    /// With Chinese punctuation on, type , . : after a letter or digit as English punctuation; pressing the same key again within two seconds turns it back into the Chinese mark. On by default on every platform.
     pub smart_punctuation: bool,
     /// Output Traditional Chinese.
     pub traditional_chinese_output: bool,
@@ -628,7 +628,7 @@ impl PreferencesChange {
         if let Some(value) = self.chinese_punctuation {
             preferences.chinese_punctuation = value;
         }
-        // 与设置页的总开关一样：数字后直出和字母后直出是智能标点真正起作用的两半（`punctuation::route` 要其中之一为真才走 ASCII），所以总开关被改时两半跟着写成同一个值，否则在 macOS 和 Windows 的新配置上只打开总开关什么都不变。
+        // 与设置页的总开关一样：数字后直出和字母后直出是智能标点真正起作用的两半（`punctuation::route` 要其中之一为真才走 ASCII），所以总开关被改时两半跟着写成同一个值，否则关过两半的文档再打开总开关什么都不变。
         if let Some(value) = self.smart_punctuation {
             preferences.smart_punctuation = value;
             preferences.smart_punctuation_direct_digit = value;

@@ -180,6 +180,14 @@ export function InputSharedSettingsSection({
         "selection",
         <GroupList title={foldIntoMore && !paging ? "选词" : "选词与翻页"}>
           {wordCharacterRows}
+          <SwitchRow
+            title="退格键回退已选候选词"
+            description="关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字。"
+            checked={preferences.backspace_reverts_selection ?? true}
+            onChange={(backspace_reverts_selection) =>
+              onPreferencesChange({ backspace_reverts_selection })
+            }
+          />
           {paging}
         </GroupList>,
       )}

@@ -14,7 +14,7 @@ Status: implemented
 
 - 共享偏好 `Preferences::caps_lock_ascii_punctuation`（`crates/client-core/src/preferences.rs`），serde 缺省和 `Default` 都是 `false`，打开前行为不变。
 - `punctuation::route` 的 `PunctuationContext` 多一个 `caps_lock_ascii`（大写锁定打开且开关打开）。它排在「组字中」「宿主上下文不可用（英文模式、本地模式、韩文/越南文/藏文/注音/日文）」和 `punctuation_lock` 之后：组字中仍由 Engine 决定，固定中文标点仍是中文标点，其余没有组字的标点一律走 ASCII 路线，和英文模式一样。
-- `host-api` 的会话记住宿主报告的状态（新 C 接口 `msime_client_set_caps_lock`，会话状态而非偏好）。`dispatch` 在分发前用 `HostSession::caps_lock_punctuation` 把 `Action::Character`（ASCII 标点）和 `Action::Punctuation` 改成 `Action::PunctuationAscii`；`msime_client_punctuation_with_context` 用同一份 `HostSession::punctuation_context`。没有组字时 ASCII 路线不出字（`handled: false`），键交回宿主按普通字符输出，全角开关照旧由宿主处理。
+- `host-api` 的会话记住宿主报告的状态（新 C 接口 `msime_client_set_caps_lock`，会话状态而非偏好）。`dispatch` 在分发前用 `HostSession::caps_lock_punctuation` 把 `Action::Character`（ASCII 标点）和 `Action::Punctuation` 改成 `Action::PunctuationAscii`；`msime_client_punctuation_with_context` 用同一份 `HostSession::punctuation_context`。没有组字时 ASCII 路线不出字（`handled: false`），键交回宿主按普通字符输出，全角开关照旧由宿主处理。macOS 宿主的智能标点曾把这个回答当成「不归我」，键落到普通标点路线又成了中文标点，见 [macOS 智能标点判为 ASCII 时由宿主写出字面标点](../bug-fix/2026-10-16-macos-smart-punctuation-literal-mark.md)。
 - `HostCapabilities::caps_lock_punctuation` 只在 macOS 为真，共享设置页「标点」组的「大写锁定时使用英文标点」只在声明了它的宿主上显示。
 - macOS 宿主（`InputController.mm` 的 `syncCapsLock`）在激活、会话建立和按键时大写锁定状态变化时报告；`MSIMEClientSession` 在内部重建会话后恢复这个状态。
 

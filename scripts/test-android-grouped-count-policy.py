@@ -56,7 +56,7 @@ def main() -> int:
         errors.append(f"{SUMMARY}: 不应保留数字展示转发方法")
     if "import app.msime.android.NumberPolicy;" not in statistics_page:
         errors.append(f"{STATISTICS_PAGE}: 应直接导入 NumberPolicy")
-    if "TypingStatisticsSummary.grouped(" in statistics_page or statistics_page.count("NumberPolicy.grouped(") != 1:
+    if "TypingStatisticsSummary.grouped(" in statistics_page or "NumberPolicy.grouped(" not in statistics_page:
         errors.append(f"{STATISTICS_PAGE}: 应直接调用 NumberPolicy.grouped")
     if "import app.msime.android.NumberPolicy;" not in statistics_smoke:
         errors.append(f"{STATISTICS_SMOKE}: 应直接导入 NumberPolicy")

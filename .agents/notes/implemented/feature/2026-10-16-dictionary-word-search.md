@@ -25,7 +25,7 @@ Status: implemented
 
 ## Verification
 
-固定 Node 24.21.0 下，6 个界面回归文件共 461 项测试通过，覆盖中文命中、编码兼容、旧宿主过滤与查询空态。类型检查、lint 和全仓前端格式检查通过；lint 的 3 条未使用导入警告位于未改动文件。引擎词库模块 7 项测试通过。Host API 真实 SQLite 回归 6 项、完整 quick、Rust Clippy（engine 与 host-api，所有 target，警告视为错误）及前端生产构建均通过。quick 编译了 macOS 原生宿主、Windows x64 链接与 GNU 设置外壳、Apple 桥和双架构协议；Linux 因本机无 Docker 跳过，HarmonyOS 原生 ArkTS 因未暂存原生库、资源和 oh_modules 跳过。本次不改 ArkTS；共享设置打包已通过。验证覆盖真实数据库与共享界面组件，未执行产品设置窗口交互验收。
+固定 Node 24.21.0 下，6 个界面回归文件共 461 项测试通过，覆盖中文命中、编码兼容、旧宿主过滤与查询空态。类型检查、lint 和全仓前端格式检查通过；lint 的 3 条未使用导入警告位于未改动文件。引擎词库模块 7 项测试通过。Host API 真实 SQLite 回归 6 项、完整 quick、Rust Clippy（engine 与 host-api，所有 target，警告视为错误）及前端生产构建均通过。quick 编译了 macOS 原生宿主、Windows x64 链接与 GNU 设置外壳、Apple 桥和双架构协议；Linux 因本机无 Docker 跳过，HarmonyOS 原生 ArkTS 因未暂存原生库、资源和 oh_modules 跳过。本次不改 ArkTS；共享设置打包已通过。验证覆盖真实数据库与共享界面组件，未执行产品设置窗口交互验收。同步最新 develop 后再次通过完整 quick；修正普通标点用例对新默认智能标点的隐式依赖后，macOS `shortcut`、`smart-punctuation-space`、`cloud-appearance-settings` 三项通过。
 
 ## Consequences
 

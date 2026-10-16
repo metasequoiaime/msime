@@ -620,16 +620,16 @@ msime::windows::TsfLocalConfig tsf_local_config(
   // PreviewConfig spells the pass-through case "local"; the TIP spells it "raw".
   if (config.preedit_style == "local")
     config.preedit_style = "raw";
-  // Windows follows the upstream split smart-punctuation policy: the feature is opt-in, so a profile without the key must not enable punctuation rewriting.
-  config.smart_punctuation = preferences.value("smart_punctuation", false);
+  // 回退值与 client-core 的 smart_punctuation_default 相同：智能标点、重复转中文和两种直出默认开，空格转换默认关。偏好经 msime_client_load_preferences 读出，总带着这些键（macOS、Windows 上旧文档存着的旧默认 false 已在读入时一次性改过来），回退值只在键缺失时起作用。
+  config.smart_punctuation = preferences.value("smart_punctuation", true);
   config.smart_punctuation_repeat_to_chinese =
-      preferences.value("smart_punctuation_repeat", false);
+      preferences.value("smart_punctuation_repeat", true);
   config.smart_punctuation_space_convert =
       preferences.value("smart_punctuation_space_convert", false);
   config.smart_punctuation_direct_digit =
-      preferences.value("smart_punctuation_direct_digit", false);
+      preferences.value("smart_punctuation_direct_digit", true);
   config.smart_punctuation_direct_letter =
-      preferences.value("smart_punctuation_direct_letter", false);
+      preferences.value("smart_punctuation_direct_letter", true);
   config.paired_punctuation = preferences.value("paired_punctuation", true);
   // 不只看方案名：自定义方案把韵母或零声母编码放在 `;` 上时，TIP 同样要把 `;` 当输入键。
   config.microsoft_shuangpin =
