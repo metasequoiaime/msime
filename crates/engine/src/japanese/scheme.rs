@@ -246,6 +246,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn kana_variant_cycling_preserves_contextual_prefixes() {
+        for (input, before, after) in [
+            ("xtsutsu", "っつ", "っっ"),
+            ("xtsuxtsuha", "っっは", "っっば"),
+            ("nnxtsuyaha", "んっやは", "んっやば"),
+            ("nnxtsuyuha", "んっゆは", "んっゆば"),
+            ("nnxtsuyoha", "んっよは", "んっよば"),
+        ] {
+            let mut scheme = typed(input);
+            assert_eq!(reading(&scheme), before);
+            assert!(scheme.cycle_last_kana_variant());
+            assert_eq!(reading(&scheme), after);
+        }
+    }
+
     // test_input_session.cpp:729-759：变体键替换最后一个假名，而不是插入新假名。
     #[test]
     fn kana_variant_cycling() {
