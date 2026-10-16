@@ -21,3 +21,5 @@ Status: implemented
 ## Verification
 
 目标测试先在旧实现上观察到 150 次分配并失败，复用后通过 149 次以内的预算；后续运行九键相关测试、Engine 全量测试、golden、Clippy、Rustfmt、笔记校验、差异检查和 quick 门禁。
+
+简拼查询还有一条独立的 initials 行路径：它把完整词库读音改成整串数字，原先用 `self.digits.clone()` 覆盖并丢弃已有容量。现在同样清空后追加数字；固定合成词库的刷新分配从 104 降到 102，候选快照和行文本逐项相等，并确认 `每天` 行仍保留 `mei'tian` 的字符串容量。

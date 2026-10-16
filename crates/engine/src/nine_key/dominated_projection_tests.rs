@@ -355,12 +355,12 @@ fn assert_session(actual: &NineKeySession, expected: &NineKeySession) {
     for (actual, expected) in actual.candidates.iter().zip(&expected.candidates) {
         for (actual, expected) in [
             (&actual.word, &expected.word),
-            (&actual.pinyin, &expected.pinyin),
             (&actual.canonical_pinyin, &expected.canonical_pinyin),
             (&actual.corrected_from, &expected.corrected_from),
         ] {
             assert_eq!(actual.capacity(), expected.capacity());
         }
+        assert!(actual.pinyin.capacity() >= expected.pinyin.capacity());
         assert_eq!(
             actual.sentence_words.capacity(),
             expected.sentence_words.capacity()
@@ -421,6 +421,38 @@ fn assert_dominated_rows_are_rejected_before_field_copies() {
     eprintln!("完整热刷新申请：{old_count} → {new_count}");
     // 新路径同时复用首候选读音行缓冲，比冻结实现再少一次分配。
     assert_eq!(new_count + 1039, old_count, "重复前缀行不能先复制再丢弃");
+}
+
+#[test]
+fn initials_rows_reuse_their_existing_pinyin_capacity() {
+    let fixture = fixture();
+    fixture
+        .insert("mei'tian", "每天", 900)
+        .insert("ming'tian", "明天", 800)
+        .insert("na'tian", "那天", 300);
+    let mut before = open(&fixture.paths, KeyGrid::NineKey, 0, false);
+    let mut after = open(&fixture.paths, KeyGrid::NineKey, 0, false);
+    before.digits = "68".to_owned();
+    after.digits = before.digits.clone();
+    before.before_dominated_refresh();
+    after.refresh();
+    let (_, old_count) = count(|| before.before_dominated_refresh());
+    let (_, new_count) = count(|| after.refresh());
+    assert_eq!(after.snapshot(), before.snapshot());
+    assert_eq!(after.candidates, before.candidates);
+    let initials = after
+        .candidates
+        .iter()
+        .find(|item| item.word == "每天")
+        .expect("简拼行存在");
+    assert!(
+        initials.pinyin.capacity() >= "mei'tian".len(),
+        "简拼行应保留完整读音的字符串容量"
+    );
+    assert!(
+        new_count + 2 <= old_count,
+        "简拼行应复用已有 pinyin 容量：旧 {old_count}，新 {new_count}"
+    );
 }
 
 #[test]

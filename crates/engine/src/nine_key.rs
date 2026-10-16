@@ -1389,7 +1389,8 @@ impl NineKeySession {
             }
             for mut candidate in rows {
                 // 没有锁定的拼音时 `remaining` 就是全部数字，简拼行一个数字一个音节，吃掉全部数字。
-                candidate.pinyin = self.digits.clone();
+                candidate.pinyin.clear();
+                candidate.pinyin.push_str(&self.digits);
                 push_ranked(
                     &mut candidates,
                     &mut leading,
