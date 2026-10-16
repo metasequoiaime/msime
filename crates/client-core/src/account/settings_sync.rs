@@ -316,14 +316,14 @@ pub fn account_wubi_schema(profile: WubiProfile) -> &'static str {
     }
 }
 
-/// 双拼方案在账号里的取值。自定义方案为空：账号 schema 既没有 `custom` 也装不下用户的表，不写它，账号保留上次记录的方案，与 `account_input_schema` 对待账号还没有收录的方案相同。
+/// 双拼方案在账号里的取值。现有账号契约尚未收录智能 ABC 和自定义表，不写这些取值，账号保留上次记录的方案，与 `account_input_schema` 对待未收录方案的方式相同。
 fn shuangpin_schema(profile: ShuangpinProfile) -> Option<&'static str> {
     match profile {
         ShuangpinProfile::Xiaohe => Some("xiaohe"),
         ShuangpinProfile::Ziranma => Some("ziranma"),
         ShuangpinProfile::Shoudao => Some("shoudao"),
         ShuangpinProfile::Microsoft => Some("microsoft"),
-        ShuangpinProfile::Custom => None,
+        ShuangpinProfile::Custom | ShuangpinProfile::SmartAbc => None,
     }
 }
 
@@ -783,9 +783,9 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
         };
         Some(())
     })?;
-    // 本机选着自定义方案时不导出这个键（账号装不下这张表），账号里留着的是上次的内置方案；合并上传后再应用回来时不能拿它盖掉本机的自定义方案。
+    // 本机选择账号尚不支持的方案时不导出此键；合并回写也不能用账号保留的旧值覆盖本机选择。
     applier.set_string("input.shuangpin_schema", |preferences, value| {
-        if preferences.shuangpin_profile == ShuangpinProfile::Custom {
+        if shuangpin_schema(preferences.shuangpin_profile).is_none() {
             return Some(());
         }
         preferences.shuangpin_profile = match value {

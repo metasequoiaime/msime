@@ -90,6 +90,18 @@ for character in "nihao":
 assert context.process_key_event(IBus.KEY_space, 0, 0)
 wait(lambda: commits == ["你好", "你好"])
 
+# 从真实 IBus 属性菜单选择内置方案，验证特色声母和韵母，而非仅检查菜单标签。
+context.property_activate("Scheme/Shuangpin", IBus.PropState.CHECKED)
+context.property_activate("ShuangpinProfile/smart_abc", IBus.PropState.CHECKED)
+for code, expected_text in (("nihk", "你好"), ("asgo", "中国"), ("vurufa", "输入法")):
+    expected = commits + [expected_text]
+    for character in code:
+        assert context.process_key_event(ord(character), 0, 0), "智能 ABC 按键未被处理"
+    assert context.process_key_event(IBus.KEY_space, 0, 0)
+    wait(lambda: commits == expected)
+context.property_activate("Scheme/Quanpin", IBus.PropState.CHECKED)
+print("IBus 智能 ABC 菜单切换与组词上屏通过")
+
 supervisor = int(os.environ.get("MSIME_SMOKE_SUPERVISOR_PID", "0"))
 if supervisor:
     # ibus-daemon never respawns a dead component. The launcher's supervisor does, and the restarted host puts MSIME back on the focused context, so typing resumes without the user reselecting the input source. The second crash lands inside the backoff window and waits 4 s instead of 2 s.

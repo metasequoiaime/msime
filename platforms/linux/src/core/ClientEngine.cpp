@@ -5526,8 +5526,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (property_name.rfind("ShuangpinProfile/", 0) == 0) {
       if (value != PROP_STATE_CHECKED || menu_save_pending) return;
       const auto selected = property_name.substr(std::string("ShuangpinProfile/").size());
-      if (selected != "xiaohe" && selected != "ziranma" && selected != "shoudao" &&
-          selected != "microsoft")
+      if (std::none_of(msime::linux_host::kShuangpinProfileNames.begin(),
+                       msime::linux_host::kShuangpinProfileNames.end(),
+                       [&](const auto &profile) { return selected == profile.value; }))
         return;
       if (s.shuangpin_profile_override.value_or(
               configured.at("preferences").value("shuangpin_profile", "xiaohe")) == selected)

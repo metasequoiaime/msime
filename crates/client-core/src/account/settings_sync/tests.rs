@@ -243,6 +243,30 @@ fn settings_sync_leaves_a_custom_shuangpin_profile_on_the_device() {
 }
 
 #[test]
+fn settings_sync_preserves_a_local_smart_abc_profile() {
+    let local = Preferences {
+        shuangpin_profile: ShuangpinProfile::SmartAbc,
+        ..Preferences::default()
+    };
+    let exported = export_android_settings(&local, None).unwrap();
+    assert!(!exported.contains_key("input.shuangpin_schema"));
+    let values = BTreeMap::from([(
+        "input.shuangpin_schema".into(),
+        AccountPreferenceValue::String("microsoft".into()),
+    )]);
+    let applied = apply(
+        &local,
+        values,
+        &schema_for(&[("input.shuangpin_schema", "string")]),
+    );
+    assert_eq!(
+        applied.preferences.shuangpin_profile,
+        ShuangpinProfile::SmartAbc
+    );
+    assert!(applied.skipped.is_empty());
+}
+
+#[test]
 fn settings_sync_round_trips_every_exported_key() {
     let mut expected = Preferences {
         scheme: InputScheme::Wubi,

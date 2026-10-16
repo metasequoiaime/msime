@@ -1719,6 +1719,7 @@ fn builtin_shuangpin_tables_are_valid_custom_profiles() {
         ShuangpinProfile::Ziranma,
         ShuangpinProfile::Shoudao,
         ShuangpinProfile::Microsoft,
+        ShuangpinProfile::SmartAbc,
     ] {
         let table = builtin_shuangpin_custom_profile(profile).unwrap();
         assert_eq!(
@@ -6698,6 +6699,52 @@ fn shuangpin_preedit_mode_is_applied_after_composition() {
     let restored = read(msime_client_character(handle, b'k', false));
     assert_eq!(restored["value"]["view"]["preedit"], before["preedit"]);
     msime_client_destroy(handle);
+}
+
+#[test]
+fn smart_abc_profile_commits_and_defers_switching_until_composition_finishes() {
+    let dir = tempfile::tempdir().unwrap();
+    let smart_abc = Preferences {
+        scheme: InputScheme::Shuangpin,
+        shuangpin_profile: ShuangpinProfile::SmartAbc,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), smart_abc.clone());
+    read(msime_client_focus(handle, true));
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["shuangpin_profile"],
+        "smart_abc"
+    );
+    SESSIONS.with(|sessions| assert_eq!(sessions.borrow()[&handle].options.shuangpin_profile, 5));
+    for character in b"nihk" {
+        assert_eq!(
+            read(msime_client_character(handle, *character, false))["ok"],
+            true
+        );
+    }
+    let xiaohe = Preferences {
+        shuangpin_profile: ShuangpinProfile::Xiaohe,
+        ..smart_abc.clone()
+    };
+    assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], true);
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "本地"
+    );
+    assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], false);
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["shuangpin_profile"],
+        "xiaohe"
+    );
+    assert_eq!(update(handle, 2, &smart_abc)["value"]["deferred"], false);
+    for character in b"agfu" {
+        read(msime_client_character(handle, *character, false));
+    }
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "政府"
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
 #[test]
