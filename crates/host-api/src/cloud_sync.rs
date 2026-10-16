@@ -1283,7 +1283,13 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
         }
         outcomes.insert(section, outcome);
     }
-    if let Some(reason) = needs_choice {
+    // 云端被清空也可能是在写的阶段（写入冲突后重读）才发现的，这时排在前面的分类可能已经写了云端或本机：不能把它们的进度连同要宿主写的值一起丢掉，照常提交，问选择的那一类在上面已经记下清空、丢掉基线，下一轮读完云端就会问。
+    let wrote = !writes.is_empty()
+        || deferred.is_some()
+        || outcomes
+            .values()
+            .any(|outcome| outcome.outcome == OutcomeKind::Synced);
+    if let Some(reason) = needs_choice.filter(|_| !wrote) {
         let result = store
             .update(|state| {
                 if !state.lease_matches(run_id, user) {
@@ -1538,14 +1544,14 @@ fn library_contained(library: &str, host: Option<&str>) -> bool {
     }
 }
 
-/// 快照文件里的用户词：`entry` 减去标成删除的 `overlay`，与 Android 的 `SyncApi.snapshotWords` 相同。
+/// 快照文件里的用户词：`entry` 减去同一 (kind, code, word) 上标成删除的 `overlay`。墓碑按词本身匹配，不按 `data.id`：云词库面板改词时服务端保留词条 id，旧词写成删除、新词写成生效的覆盖层，两条覆盖层和改后的词条共用同一个 id（msime-cloud `dictionary_store.go` 的 `dictionaryEdit`），按 id 匹配会把改后的词也当成删掉；覆盖层在服务端本来就以 (user, kind, code, word) 为唯一键，恢复快照时也按这个三元组校验词条与覆盖层。Android 的 `SyncApi.snapshotWords` 按 id 匹配，有同样的问题，这里以 Rust 为准。
 fn snapshot_words(file: &Path) -> Result<Vec<policy::Word>, String> {
     use std::io::BufRead;
     let reader = std::io::BufReader::new(
         std::fs::File::open(file).map_err(|_| "dictionary_storage".to_owned())?,
     );
-    let mut entries: Vec<(String, policy::Word)> = Vec::new();
-    let mut deleted = HashSet::new();
+    let mut entries: Vec<policy::Word> = Vec::new();
+    let mut deleted: HashSet<(String, String, String)> = HashSet::new();
     for line in reader.lines() {
         let line = line.map_err(|_| "dictionary_invalid".to_owned())?;
         if line.is_empty() {
@@ -1556,38 +1562,31 @@ fn snapshot_words(file: &Path) -> Result<Vec<policy::Word>, String> {
         let Some(data) = record.get("data") else {
             continue;
         };
-        let Some(id) = data.get("id").and_then(Value::as_str) else {
+        let text = |key: &str| data.get(key).and_then(Value::as_str).map(str::to_owned);
+        let (Some(kind), Some(key), Some(value)) = (text("kind"), text("code"), text("word"))
+        else {
             continue;
         };
         match record.get("type").and_then(Value::as_str) {
             Some("overlay") => {
                 if record.get("deleted") == Some(&Value::Bool(true)) {
-                    deleted.insert(id.to_owned());
+                    deleted.insert((kind, key, value));
                 }
             }
-            Some("entry") => {
-                let text = |key: &str| data.get(key).and_then(Value::as_str).map(str::to_owned);
-                if let (Some(kind), Some(key), Some(value)) =
-                    (text("kind"), text("code"), text("word"))
-                {
-                    entries.push((
-                        id.to_owned(),
-                        policy::Word {
-                            kind,
-                            key,
-                            value,
-                            weight: data.get("weight").and_then(Value::as_i64).unwrap_or(1),
-                        },
-                    ));
-                }
-            }
+            Some("entry") => entries.push(policy::Word {
+                kind,
+                key,
+                value,
+                weight: data.get("weight").and_then(Value::as_i64).unwrap_or(1),
+            }),
             _ => {}
         }
     }
     Ok(entries
         .into_iter()
-        .filter(|(id, _)| !deleted.contains(id))
-        .map(|(_, word)| word)
+        .filter(|word| {
+            !deleted.contains(&(word.kind.clone(), word.key.clone(), word.value.clone()))
+        })
         .collect())
 }
 

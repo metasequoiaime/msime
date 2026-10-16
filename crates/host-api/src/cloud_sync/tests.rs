@@ -726,6 +726,83 @@ fn a_conflicting_put_is_refetched_and_merged() {
     assert_eq!(fixture.state().sections.phrases.cursor, Some(3));
 }
 
+#[test]
+fn a_cloud_cleared_after_the_read_asks_instead_of_deleting_local_phrases() {
+    let fixture = Fixture::new();
+    synced_phrases(&fixture, &["甲", "乙"]);
+    fixture.local.add_phrase("丙");
+    store_mark(&fixture, Section::Phrases);
+    // 这一轮读完常用语、写之前，另一台设备「删除云端数据」。
+    fixture.api.cloud().phrases_written_elsewhere = Some(AccountPhrases {
+        revision: 2,
+        phrases: Vec::new(),
+    });
+    let asked = fixture.run(Trigger::Manual, None, phrases_only(), NOW + 60_000);
+    assert_eq!(asked["outcome"], "needs_choice", "{asked}");
+    assert_eq!(asked["reason"], "cloud_cleared");
+    assert_eq!(fixture.local.texts(), ["甲", "乙", "丙"]);
+    assert!(fixture.api.cloud_texts().is_empty());
+    assert_eq!(fixture.api.calls(), ["phrases", "put_phrases", "phrases"]);
+    let state = fixture.state();
+    assert!(state.sections.phrases.cleared);
+    assert!(state.sections.phrases.base.is_none());
+    // 选了合并：没有旧基线，本机的全部传回云端。
+    let merged = fixture.run(
+        Trigger::Choice,
+        Some(Choice::Merge),
+        phrases_only(),
+        NOW + 70_000,
+    );
+    assert_eq!(merged["outcome"], "done", "{merged}");
+    assert_eq!(fixture.api.cloud_texts(), ["甲", "乙", "丙"]);
+    assert_eq!(fixture.local.texts(), ["甲", "乙", "丙"]);
+    assert!(!fixture.state().sections.phrases.cleared);
+}
+
+#[test]
+fn a_cloud_cleared_after_another_section_wrote_keeps_its_progress_and_asks_next_round() {
+    let fixture = Fixture::new();
+    fixture.local.local().settings = [("input.schema".to_owned(), string("quanpin"))].into();
+    fixture.local.add_phrase("甲");
+    fixture.enable();
+    let synced = fixture.run(Trigger::Enable, None, settings_and_phrases(), NOW);
+    assert_eq!(synced["outcome"], "done", "{synced}");
+    fixture.local.local().settings = [("input.schema".to_owned(), string("wubi"))].into();
+    fixture.local.add_phrase("乙");
+    store_mark(&fixture, Section::Settings);
+    store_mark(&fixture, Section::Phrases);
+    // 设置先写上了云端；常用语写的时候 409，重读到的是被别的设备清空的云端。
+    fixture.api.cloud().phrases_written_elsewhere = Some(AccountPhrases {
+        revision: 2,
+        phrases: Vec::new(),
+    });
+    let result = fixture.run(Trigger::Manual, None, settings_and_phrases(), NOW + 60_000);
+    assert_eq!(result["outcome"], "done", "{result}");
+    assert_eq!(result["sections"]["settings"]["outcome"], "synced");
+    assert_eq!(result["sections"]["phrases"]["outcome"], "needs_choice");
+    assert_eq!(result["sections"]["phrases"]["reason"], "cloud_cleared");
+    assert_eq!(
+        fixture.api.cloud().preferences.settings,
+        [("input.schema".to_owned(), string("wubi"))].into()
+    );
+    assert_eq!(fixture.local.texts(), ["甲", "乙"]);
+    assert!(fixture.api.cloud_texts().is_empty());
+    let state = fixture.state();
+    assert_eq!(state.sections.settings.cursor, Some(2));
+    assert!(!state.sections.settings.dirty());
+    assert!(state.sections.phrases.cleared);
+    assert!(state.sections.phrases.base.is_none());
+    assert_eq!(
+        result["status"]["status_line"],
+        "云端数据已被清空，请选择合并或使用云端"
+    );
+    // 下一轮读完云端就问，什么都不写。
+    let asked = fixture.run(Trigger::Manual, None, settings_and_phrases(), NOW + 120_000);
+    assert_eq!(asked["outcome"], "needs_choice", "{asked}");
+    assert_eq!(asked["reason"], "cloud_cleared");
+    assert_eq!(fixture.local.texts(), ["甲", "乙"]);
+}
+
 fn store_mark(fixture: &Fixture, section: Section) {
     assert_eq!(mark_dirty(&fixture.store, section).unwrap()["marked"], true);
 }
@@ -1799,6 +1876,49 @@ fn snapshot_words_drop_deleted_entries_and_the_queue_needs_a_published_version()
         queued.snapshot_revision(&file),
         Err("dictionary_invalid".to_owned())
     );
+}
+
+#[test]
+fn a_word_edited_in_the_cloud_panel_is_merged_rather_than_dropped() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = crate::tests::host_options_with_main_dictionary(directory.path());
+    let local = HostLocal {
+        options: Some(options.clone()),
+        ..host_local(directory.path(), HostInputs::default())
+    };
+    let work = directory.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let file = work.join("download.ndjson");
+    // 云词库面板把「你好」改成「你号」：服务端保留词条 id，旧词写成删除的覆盖层，新词写成生效的覆盖层，三条记录共用 id `x`。
+    let lines = [
+        json!({"type": "header", "format": "msime-dictionary-snapshot", "version": 1, "revision": 2}),
+        json!({"type": "entry", "data": {"id": "x", "kind": "pinyin", "code": "ni'hao", "word": "你号", "weight": 3, "revision": 2, "updated_at": "2026-09-01T00:00:00Z"}}),
+        json!({"type": "overlay", "deleted": true, "data": {"id": "x", "kind": "pinyin", "code": "ni'hao", "word": "你好", "weight": 3, "revision": 1, "updated_at": "2026-09-01T00:00:00Z"}}),
+        json!({"type": "overlay", "deleted": false, "data": {"id": "x", "kind": "pinyin", "code": "ni'hao", "word": "你号", "weight": 3, "revision": 2, "updated_at": "2026-09-01T00:00:00Z"}}),
+        json!({"type": "footer", "sha256": "0".repeat(64)}),
+    ];
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    std::fs::write(&file, text).unwrap();
+    let edited = policy::Word {
+        kind: "pinyin".into(),
+        key: "ni'hao".into(),
+        value: "你号".into(),
+        weight: 3,
+    };
+    assert_eq!(snapshot_words(&file).unwrap(), [edited]);
+    // 改后的词还不在本机：排进导入队列，合并没完，不能整份上传把它从云端删掉。
+    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let queued: Vec<String> = store
+        .read()
+        .unwrap()
+        .requests
+        .iter()
+        .filter_map(|request| request.replacement.as_ref().map(|word| word.value.clone()))
+        .collect();
+    assert_eq!(queued, ["你号"]);
+    drain_personal_queue(&options);
+    assert_eq!(local.merge_dictionary(&file), Ok(()));
 }
 
 /// 合成的云端快照：`count` 个两字拼音词，外加一个重复的词。不合规的词见 `cloud_words_that_never_reach_this_device_keep_the_merge_from_finishing`。

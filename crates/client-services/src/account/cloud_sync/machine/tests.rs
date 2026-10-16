@@ -447,6 +447,60 @@ fn a_cleared_cloud_asks_and_a_choice_reuploads_instead_of_wiping() {
 }
 
 #[test]
+fn a_cloud_cleared_between_the_read_and_the_write_asks_instead_of_merging() {
+    // 读云端时还有数据，写的时候 409：别的设备在这中间「删除云端数据」，重读到的是空的。
+    for section in [Section::Settings, Section::Phrases] {
+        let mut dirty = input(section, Some(5));
+        dirty.dirty = true;
+        let trace = drive(
+            dirty,
+            cloud(5, true),
+            local(true),
+            vec![Err(conflict())],
+            cloud(6, false),
+        );
+        assert_eq!(
+            trace.needs_choice(),
+            Some(ChoiceReason::CloudCleared),
+            "{section:?} {:?}",
+            trace.steps
+        );
+        assert_eq!(trace.puts, [Mode::Upload], "{section:?}");
+        assert!(
+            trace.writes.is_empty() && trace.commit.is_none(),
+            "{section:?}"
+        );
+    }
+    // 词库：重读到第一条新改动是 reset 而且云端已空，不把云端的空快照并进本机再标待上传。
+    let mut dirty = input(Section::Dictionary, Some(4));
+    dirty.dirty = true;
+    let mut emptied = cloud(6, false);
+    emptied.reset_and_empty = true;
+    let trace = drive(
+        dirty,
+        cloud(4, true),
+        local(true),
+        vec![Err(conflict())],
+        emptied,
+    );
+    assert_eq!(trace.needs_choice(), Some(ChoiceReason::CloudCleared));
+    assert!(trace.writes.is_empty() && trace.commit.is_none());
+    // 这一轮本来就是清空以后带着选择来的：重读到的还是空的也不再问，照常合并。
+    let mut chosen = input(Section::Phrases, Some(5));
+    chosen.cleared = true;
+    chosen.choice = Some(Choice::Merge);
+    let trace = drive(
+        chosen,
+        cloud(6, false),
+        local(true),
+        vec![Err(conflict())],
+        cloud(7, false),
+    );
+    assert_eq!(trace.puts, [Mode::Merge, Mode::Merge]);
+    assert!(trace.commit.unwrap().reset_cleared);
+}
+
+#[test]
 fn first_run_asks_when_the_cloud_has_data_and_uploads_otherwise() {
     let trace = drive(
         input(Section::Settings, None),

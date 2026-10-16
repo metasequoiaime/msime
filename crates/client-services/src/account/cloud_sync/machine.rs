@@ -308,12 +308,13 @@ impl SectionMachine {
         self.input.section == Section::Dictionary
     }
 
-    /// 读完两边之后定模式。
-    fn decide(&mut self, cloud: CloudProbe, local: LocalProbe) -> Result<Mode, ChoiceReason> {
+    /// 读到的云端相对上次同步被清空了（不算状态里已经记着的清空）。
+    fn cleared_now(&self, cloud: CloudProbe) -> bool {
         let input = self.input;
-        let changed = cloud_changed(input.cursor, cloud.revision);
-        let cleared_now = if self.dictionary() {
-            input.cursor.is_some() && changed && cloud.reset_and_empty
+        if self.dictionary() {
+            input.cursor.is_some()
+                && cloud_changed(input.cursor, cloud.revision)
+                && cloud.reset_and_empty
         } else {
             cloud_cleared(
                 input.base_present,
@@ -321,8 +322,23 @@ impl SectionMachine {
                 cloud.revision,
                 !cloud.has_data,
             )
-        };
-        self.awaiting_choice = input.cleared || cleared_now;
+        }
+    }
+
+    fn ask(&mut self, reason: ChoiceReason) -> Step {
+        self.phase = Phase::Finished;
+        self.outcome = Some(SectionOutcome::new(
+            OutcomeKind::NeedsChoice,
+            Some(reason.as_str()),
+        ));
+        Step::NeedsChoice(reason)
+    }
+
+    /// 读完两边之后定模式。
+    fn decide(&mut self, cloud: CloudProbe, local: LocalProbe) -> Result<Mode, ChoiceReason> {
+        let input = self.input;
+        let changed = cloud_changed(input.cursor, cloud.revision);
+        self.awaiting_choice = input.cleared || self.cleared_now(cloud);
         if input.cursor.is_some() && !self.awaiting_choice {
             // 下载的快照没有激活：本机缺着游标以前的云端改动，不管两边有没有新改动都要把云端的词补进本机；本机没有词时再下载一次。
             if self.dictionary() && local.activation == SnapshotActivation::Lost {
@@ -436,18 +452,16 @@ impl SectionMachine {
                         self.mode = mode;
                         self.act(local)
                     }
-                    Err(reason) => {
-                        self.phase = Phase::Finished;
-                        self.outcome = Some(SectionOutcome::new(
-                            OutcomeKind::NeedsChoice,
-                            Some(reason.as_str()),
-                        ));
-                        Step::NeedsChoice(reason)
-                    }
+                    Err(reason) => self.ask(reason),
                 }
             }
             (Phase::Refetching, Some(Event::Fetched(probe))) => {
                 self.probe = Some(probe);
+                // 别的设备在这一轮读云端和写云端之间删除了云端数据：和第一次读到时一样停下来问，不拿旧基线三方合并（否则基线里有、云端没有的本机数据会被当成在云端删掉），也不把本机的词并进去以后再整份传回被清空的云端。这一轮本来就是因为清空才问过、带着选择来的，不再问。
+                if !self.awaiting_choice && self.cleared_now(probe) {
+                    self.awaiting_choice = true;
+                    return self.ask(ChoiceReason::CloudCleared);
+                }
                 if self.dictionary() {
                     // 词库上传冲突：云端在探测之后变了，把云端的词并进本机，下一轮再整份上传。
                     self.phase = Phase::Writing;
