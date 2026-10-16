@@ -2,7 +2,7 @@ import UIKit
 
 /// Categorized symbol surface used by the keyboard's punctuation shortcut.
 ///
-/// Symbols the user picked before lead as 最近, the way the Windows panel opens on its recently used items. The hand-picked phone categories come next; after them come the parents of the Engine's symbol catalog in `msime-others.db`, the same catalog the desktop, macOS and Harmony panels browse, loaded a parent at a time off the main thread.
+/// 第一页「常用」是用户点过的符号在前，后面用默认常用标点补满六行（`commonSymbols`），与 Android、鸿蒙的「常用」同一份默认内容；只列点过的符号时，刚开始用的人打开面板只看到一两个符号，一整屏几乎是空的。The hand-picked phone categories come next; after them come the parents of the Engine's symbol catalog in `msime-others.db`, the same catalog the desktop, macOS and Harmony panels browse, loaded a parent at a time off the main thread.
 ///
 /// 搜索 looks the whole catalog up by keyword, as the search box of the Windows panel does. A keyboard extension has no text field of its own to type into, so the search swaps the category column for a letter pad under the results; the catalog files every symbol under English words, full pinyin and pinyin initials, which letters are enough to type.
 final class KeyboardSymbolPanelView: UIView {
@@ -35,6 +35,17 @@ final class KeyboardSymbolPanelView: UIView {
       case .catalog(let parent): return KeyboardEmojiCatalog.symbolParentTitles[parent] ?? parent
       }
     }
+  }
+
+  /// 「常用」的内容：最近点过的在前，后面用 `categories[0]` 的默认常用标点补到 `KeyboardSymbolRecents.limit` 个，去掉重复。
+  static func commonSymbols(recents: [String]) -> [String] {
+    var seen = Set<String>()
+    var output: [String] = []
+    for symbol in recents + categories[0].symbols where seen.insert(symbol).inserted {
+      output.append(symbol)
+      if output.count == KeyboardSymbolRecents.limit { break }
+    }
+    return output
   }
 
   static let categories: [Category] = [
@@ -105,8 +116,8 @@ final class KeyboardSymbolPanelView: UIView {
     self.catalog = catalog
     // Listing the parents is one small grouped query; without a readable catalog the phone categories stand alone.
     let parents = (try? catalog?.parents()) ?? []
-    let recent = recents.isEmpty ? [] : [Entry.fixed(Category(title: "最近", symbols: recents))]
-    entries = recent + Self.categories.map(Entry.fixed) + parents.map { Entry.catalog(parent: $0) }
+    let common = Category(title: Self.categories[0].title, symbols: Self.commonSymbols(recents: recents))
+    entries = [Entry.fixed(common)] + Self.categories.dropFirst().map(Entry.fixed) + parents.map { Entry.catalog(parent: $0) }
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardSymbolPanel"
     backgroundColor = surface

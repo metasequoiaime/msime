@@ -2073,7 +2073,7 @@ final class NineKeyKeyboardTests: XCTestCase {
 
   func testSymbolKeyOpensAPanelInsteadOfAMenu() throws {
     let previous = InputSchemePreference.scheme
-    // The panel leads with 最近 once anything was picked, which shifts every category index; this test itself records `@`, so a second run on the same device would otherwise start from its own leftovers.
+    // 「常用」把点过的符号排在最前，这个测试自己会记下 `@`；同一台设备上再跑一次就会从上次留下的记录开始，所以先清掉。
     let defaults = KeyboardFeedbackPreference.defaults
     let previousRecents = defaults.stringArray(forKey: KeyboardSymbolRecents.key)
     defer {

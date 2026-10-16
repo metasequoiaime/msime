@@ -225,14 +225,21 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
                                         onDelete: {}, onClose: {})
     panel.frame = CGRect(x: 0, y: 0, width: 390, height: 260)
     panel.layoutIfNeeded()
-    XCTAssertEqual(panel.categoryCount, KeyboardSymbolPanelView.categories.count + 1)
-    XCTAssertEqual(try button("symbolCategory_0", in: panel).title(for: .normal), "最近")
-    XCTAssertEqual(try button("symbolCategory_1", in: panel).title(for: .normal), "常用")
+    // 点过的符号并进「常用」排在最前，后面用默认常用标点补满六行，不再单独列一个只有几个符号的「最近」。
+    XCTAssertEqual(panel.categoryCount, KeyboardSymbolPanelView.categories.count)
+    XCTAssertEqual(try button("symbolCategory_0", in: panel).title(for: .normal), "常用")
+    XCTAssertEqual(Array(panel.shownSymbols.prefix(2)), ["→", "㎡"])
+    XCTAssertEqual(panel.shownSymbols.count, KeyboardSymbolRecents.limit)
+    XCTAssertEqual(Array(panel.shownSymbols.dropFirst(2)),
+                   Array(KeyboardSymbolPanelView.categories[0].symbols.prefix(KeyboardSymbolRecents.limit - 2)))
     try button("symbolKey_㎡", in: panel).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(inserted, ["㎡"])
+    // 点过的符号若本来就在默认里，不重复出现。
+    XCTAssertEqual(KeyboardSymbolPanelView.commonSymbols(recents: ["。", "→"]).filter { $0 == "。" }.count, 1)
 
     let fresh = KeyboardSymbolPanelView(onInsert: { _ in }, onDelete: {}, onClose: {})
-    XCTAssertEqual(fresh.categoryCount, KeyboardSymbolPanelView.categories.count, "没用过符号时不显示空的最近")
+    XCTAssertEqual(fresh.categoryCount, KeyboardSymbolPanelView.categories.count)
+    XCTAssertEqual(fresh.shownSymbols, KeyboardSymbolPanelView.categories[0].symbols, "没用过符号时「常用」是默认的一整页")
   }
 
   func testSymbolPanelAppendsCatalogCategoriesAndLoadsThemOffTheMainThread() async throws {
