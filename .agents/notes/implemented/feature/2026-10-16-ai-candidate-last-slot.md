@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-[AI 候选先占座位](2026-10-11-ai-seat-placeholder.md) 为了 #6888（AI 回答到达时本地候选整体后移，用户按下的数字键选中了另一个词）给每个能问 AI 的组字在第 2 位放一行占位：等回答时是「…」，落空后是「—」，回答到达时由第一条 AI 候选替换。它确实做到了回答到达时一格都不动，代价却落在每一次组字上：第 2 位几乎总被「…」占着，按 2 什么都不上屏，真正的第二个本地候选被挤到第 3 位；模型慢、网关不兼容或请求失败时，这一格从头到尾就是「…」或「—」。用户的反馈是第一页白白少了一个能选的格子，而且是最常用的第二格。
+[AI 候选先占座位](../../archived/feature/2026-10-11-ai-seat-placeholder.md)（已归档，本篇吸收了它仍成立的事实）为了 #6888（AI 回答到达时本地候选整体后移，用户按下的数字键选中了另一个词）给每个能问 AI 的组字在第 2 位放一行占位：等回答时是「…」，落空后是「—」，回答到达时由第一条 AI 候选替换。它确实做到了回答到达时一格都不动，代价却落在每一次组字上：第 2 位几乎总被「…」占着，按 2 什么都不上屏，真正的第二个本地候选被挤到第 3 位；模型慢、网关不兼容或请求失败时，这一格从头到尾就是「…」或「—」。用户的反馈是第一页白白少了一个能选的格子，而且是最常用的第二格。
 
 防误选只需要在回答到达的那一刻成立，不需要让 AI 在回答之前就占住位置。
 
@@ -37,14 +37,31 @@ Status: implemented
 | 宿主 | 改了什么 |
 |---|---|
 | macOS | AI 空回答或失败时保留查询身份，同一组字不再重发；有回答却被 apply 拒绝时清掉身份，等下一次渲染重试。以前不重发靠 resolve 返回 applied:true，现在它总是 false |
-| iOS | 展开网格的 `onlyTheAISeatChanged` 改判：组字相同，除 AI 行（来源 3、12）外各行的文字和来源先后相同，新列表有来源 3 的行。回答插进最后一格时网格原地刷新、不收起、不跳回开头 |
+| iOS | 展开网格的 `onlyTheAISeatChanged` 改判：组字相同，除 AI 行（来源 3、12）外各行的文字和来源逐行相同。回答插进最后一格时网格原地刷新、不收起、不跳回开头。`aiResolvedSignature` 对测试只读公开，用来确认空回答已经处理完 |
 | Android、iOS、HarmonyOS | 「同一组字 AI 落空后不再问」（`aiResolvedSignature`）照旧，否则键盘每次重画都再发一次请求 |
 | Windows、Linux | 只改注释；`AiCandidateWorker` 照旧把空回答交给 owner，owner 调用的 resolve 不再改视图 |
 
 各宿主说明 resolve 和来源 12 的注释改成现状。Android 设备验收 `AiPlaceholderDeviceSmoke` 改名 `AiCandidateSeatDeviceSmoke`，按新规则验收。
 
+iOS 的判据不要求新列表里有 AI 行：回答的词全都已经在列表里时，引擎什么都不插却照样接受，Runtime 推进代次（`apply_online_candidates_snapshot` 的 `if applied`），列表一行没变；这时网格同样原地刷新。不能改成「没插行就不换代」：macOS 把 `applied:false` 当成回答被拒，会清掉查询身份、下一次渲染再问一遍。
+
+### 沿用的宿主规则
+
+下面三条随占位行一起在 2026-10-11 定下，与占位行无关，继续有效：
+
+- **同一组字 AI 落空后不再问。** Android、iOS、HarmonyOS 记下落空的那次请求的签名（`aiResolvedSignature`）：同一组字之后不再向 AI 发请求，云候选失败触发的重试也只重问云候选；签名一变（组字变了、AI 设置变了）就清掉，回到原来的组字时重新问。三个宿主原来在 AI 失败后释放签名、在下一次渲染时重问，这是为「云候选成功掩盖了 AI 失败」加的重试（iOS `cd033bdd57`）；Android 键盘在模拟器上每秒重画一次，一个回答为空的组字因此每秒发一次 AI 请求。macOS 见上表。
+- **macOS 的 AI 启动定时器加入主事件循环的 `NSRunLoopCommonModes`**，与云候选一致：输入法处于事件跟踪模式时仍在停顿 0.65 秒后启动，只在默认模式等待的定时器在事件跟踪模式下不触发。`MSIMECustomTranslationBatch` 的 AI 批次预算与传输的 8 秒一致，普通翻译仍为 6 秒：6 秒后、8 秒前返回的有效 AI 回答照样采用，8 秒截止只完成一次并忽略迟到回包。
+- **macOS `MSIMEViewContainsAICandidate` 按 `source == 3` 判断。** 视图里的 `source` 是 Engine 的 CandidateSource，1 是用户词库、3 是 AI；按 1 判断时候选里有用户词，AI 缓存就一直被跳过。
+
+### 在线归位的扫描与缓冲
+
+`normalize_online_slots` 先按本地、云、AI（含来源 12）、日文混输、英文、emoji、颜文字七组统计数量和固定英文行数，有云候选时排出各组优先段和剩余段的起始座位；第二次扫描按组内序号直接算出每行的新座位。全部未变位且没有要归位的固定英文时不建立索引表，出现第一处变位时才一次建立完整排列；固定英文缓冲只按实际行数预留，非空时在其余行里压缩、稳定排序后用 `copy_within` 插回，同位次依次插入、超范围夹到末尾。普通列表（没有云和 AI 行）提前返回，平行数组长度不一致时不动。引擎现在把 AI 行放在最后，所以有 AI 行的列表每次刷新都会建一次排列；`online_slot_allocations` 的预算测试钉住已坐好列表的零分配路径，`online_slot_order_equivalence` 用按组追加的独立参考实现对照穷举和随机列表。两次扫描相对旧的多次扫描实现的配对测量记在归档的旧篇里。
+
 ## Alternatives considered
 
+- **按键后一段时间内不重排（冷却期）。** 最强的理由：不需要新来源、不改任何宿主。不用：请求本来就在最后一次按键 0.65 秒后才发，危险的时刻是用户读候选的时候而不是按键的时候；长到能防误选的冷却期只会把 AI 再推迟一截。
+- **只在宿主里加一个「加载中」提示（例如 macOS 面板末尾一个暗色标记）。** 最强的理由：改动最小，只碰一个宿主。不用：它只是提醒用户，候选照样挪位，误选照样发生，其他五个宿主也不变。
+- **给 `candidate_limit` 条 AI 候选都预留座位。** 最强的理由：回答到达时完全不动。不用：默认要占 3 个位置（最多 10 个），没回答或回答少于上限时一页里留一串空座位，比一个占位行代价更大。
 - **保留占位行（2026-10-11 的做法）。** 最强的理由：回答到达时页上任何一格都不动，最后一格也不动；失败时「—」明确告诉用户 AI 没有结果；读屏用户能听到「AI 候选等待中」。不用：代价落在每一次组字上，第 2 位常年是一个按了没反应的格子，而防误选只在回答到达的那一刻需要。新规则把会被挪动的格子限制在最后一格，前 `page_size - 1` 格保持 #6888 的保证。
 - **回答到达后插在第 2 位（#6888 之前的做法）。** 最强的理由：AI 候选最显眼，引擎和参考实现原来就这样排。不用：这就是 #6888 的误选，第 2 位以后的每一格都会挪。
 - **只把 AI 行接在整个列表末尾。** 最强的理由：回答到达时一格都不动，规则最简单。不用：默认每页 6 个，常用读音的本地候选远不止一页，开着 AI 的用户几乎看不到它，等于没开。
@@ -52,17 +69,21 @@ Status: implemented
 - **固定位置的英文优先于 AI。** 最强的理由：用户明确固定的位置一格不差。不用：固定在最后一格的英文不让，AI 只能坐到前一格，那一格的候选就被挪动，破坏「前 `page_size - 1` 格不动」；固定在前面几格的英文不受影响。
 - **保留 `set_ai_seat`、`ai_seat_ready` 作为不起作用的开关。** 最强的理由：改动面小，引擎、Runtime 和 host-api 的接口不变。不用：没有读者的开关只会让下一个人以为它还决定着什么；宿主从 C ABI 看不到它们，需要保留的只有 `msime_client_resolve_online_candidates`。
 
+占位行本身的细节取舍（写进提供者的序列缓存还是放在会话里、落空后去掉还是留着「—」、只按 AI 开关还是按密钥可用打开）只在重新引入占位行时才有意义，记在归档的旧篇里。
+
 ## Consequences
 
 - **收益**：第 2 位总是第二个本地候选，等回答时第一页全是能选的候选，不再有常年显示的「…」「—」。回答到达时第一页前 `page_size - 1` 格不动，#6888 的保证只在最后一格让步。
 - **代价**：用户正要按最后一格的数字键时回答恰好到达，会选中 AI 候选；被挤走的候选到了下一页。AI 落空时没有任何提示。读屏不再念「AI 候选等待中」。
 - **行为变化**：没有云候选、有 AI 行时，Runtime 不再把 emoji、英文拉进分组座位表，而是保持引擎的次序（emoji 跟着它描绘的词）；`candidate_limit` 默认 3 时第一页仍只有一条 AI 候选。
-- **触屏宿主**：Android、iOS、HarmonyOS 的候选条横向滚动、列出全部候选，AI 行落在第 `page_size` 个（偏好默认 6），窄屏上可能要滑一下才看得到。
+- **触屏宿主**：候选条画的是当前页，不是全部候选：iOS 取前 `candidatePageSize` 个，Android 是当前页的一行、可以横向滚动，HarmonyOS 的候选条同样横向滚动。AI 行是第一页的最后一个（偏好默认每页 6 个），窄屏上可能要横向滑一下才看得到；展开的候选面板列出全部候选，AI 行在第 `page_size` 格。
+- **高亮回到第一格**：`Runtime::refresh` 只在候选前后完全相同时保留高亮（`previous_highlight`），AI 回答到达后候选变了，高亮回到第一格，停在第二页的用户被带回第一页。用户正用方向键移到某一格、准备按空格时回答到达，空格上屏的是首选。这在占位行之前就是这样，本次没有改。
+- **落空不重问**：一次偶然的网络失败要等组字变了才再问（沿用的宿主规则）。
 - **开销**：有 AI 行的列表每次刷新多一次 O(n) 排列（索引表加平行数组重排）；没有 AI 行、或已经坐好的列表仍走零分配路径（`online_slot_allocations` 的预算测试）。
 - **golden**：引擎的 AI 行位置和英文优先位置变了，7 个在线场景的期望顺序更新，`tools/engine-golden/README.md` 记了这次偏离。
 - **重访信号**：如果用户反映最后一格经常误选，考虑在回答到达后的短时间内暂不插入，或把 AI 放到下一页第一格；如果宿主开始按可见宽度而不是 `page_size` 决定一页，座位要改成跟着宿主报的可见格数。
 
-与其它笔记的关系：[AI 候选先占座位](2026-10-11-ai-seat-placeholder.md) 的占位行、第 2 位座位、resolve 换「—」和「谁打开 AI 座位」由本篇取代，该篇仍持有宿主不重问 AI、macOS 定时器与批次预算、`MSIMEViewContainsAICandidate` 和在线归位两次扫描的事实；[日文混输](2026-10-12-mixed-japanese-candidates.md)、[英文领先](2026-10-12-mixed-english-leads-unsegmentable-input.md)、[macOS 设置精简](../simplification/2026-10-16-macos-tools-support-settings-prune.md)、[脚本插件改候选](../architecture/2026-10-12-script-plugins-modify-commit-and-candidates.md) 和 [AI 凭据轮换](../bug-fix/2026-10-13-ai-credential-rotation-invalidates-candidates.md) 里关于优先位置和 AI 座位的事实已就地更新；[MCP 关 AI](2026-10-15-mcp-ai-assistant-off-switch.md)、[AI JSON 网关](../bug-fix/2026-10-15-ai-candidate-json-mode-gateways.md)、[释义代次](../bug-fix/2026-10-11-generation-gloss-merge.md) 的 Problem 描述的是当时的占位行，不改；[macOS 读屏高亮](../bug-fix/2026-10-13-macos-candidate-voiceover-highlight.md) 的占位行读法仍在代码里，不改。
+与其它笔记的关系：本篇完全取代 [AI 候选先占座位](../../archived/feature/2026-10-11-ai-seat-placeholder.md)，它仍成立的事实（宿主不重问 AI、macOS 定时器与批次预算、`MSIMEViewContainsAICandidate`、在线归位的两次扫描）已并入上文，旧篇归档，保留它的测量记录和占位行的细节取舍；[日文混输](2026-10-12-mixed-japanese-candidates.md)、[英文领先](2026-10-12-mixed-english-leads-unsegmentable-input.md)、[macOS 设置精简](../simplification/2026-10-16-macos-tools-support-settings-prune.md)、[脚本插件改候选](../architecture/2026-10-12-script-plugins-modify-commit-and-candidates.md) 和 [AI 凭据轮换](../bug-fix/2026-10-13-ai-credential-rotation-invalidates-candidates.md) 里关于优先位置和 AI 座位的事实已就地更新；[MCP 关 AI](2026-10-15-mcp-ai-assistant-off-switch.md)、[AI JSON 网关](../bug-fix/2026-10-15-ai-candidate-json-mode-gateways.md)、[释义代次](../bug-fix/2026-10-11-generation-gloss-merge.md) 的 Problem 描述的是当时的占位行，不改；[macOS 读屏高亮](../bug-fix/2026-10-13-macos-candidate-voiceover-highlight.md) 的占位行读法仍在代码里，不改。
 
 ## Verification
 
@@ -71,4 +92,6 @@ Status: implemented
   - input-runtime：`the_first_ai_candidate_takes_the_last_slot_of_the_first_page`（每页 5、9、10、1 个，第一页排不满，引擎把 AI 放在中间，有云候选、英文、emoji，固定在第 2 位和第 5 位的英文，前 `page_size - 1` 格与回答前相同）；真 Engine 的 `the_ai_answer_takes_the_last_slot_of_the_first_page_without_moving_the_rest`（每页 5 个，翻到下一页再翻回，按 5 上屏 AI 候选）和 `a_short_first_page_takes_the_ai_answer_after_its_last_row`；`online_slot_order_equivalence` 的独立参考实现按新规则穷举对照；`online_slot_allocations` 的已坐好列表零分配。
   - host-api：`an_ai_answer_takes_the_last_slot_of_the_first_page_and_resolve_changes_nothing`（没有来源 12，resolve 来源 0 和 1 都答 applied:false 且视图不变，来源 2 和坏文档报错，回答到达后坐第 5 格）。
 - `rbuild cargo clippy -p msime-engine -p msime-input-runtime -p msime-host-api -p msime-client-core --all-targets -- -D warnings` 和 `cargo fmt --check` 通过。
+- 复审后补的：`online_slot_order_equivalence` 对每页 5 个和默认 6 个两种页长逐一对照（`rbuild cargo test -p msime-input-runtime` 295 项通过，clippy 通过）；iOS `testOnlyAChangeInTheAISeatKeepsTheExpandedPanel` 加了「回答的词都已在列表里、列表一行没变」原地刷新的正例，`testAnEmptyAIAnswerChangesNothingAndIsNotAskedAgain` 等 `aiResolvedSignature` 写下再断言；Android `AiCandidateSeatDeviceSmoke` 等桩服务看到键盘读完空回答、断开连接再比较，不靠固定的等待。
+- 2026-10-11 的宿主验证（macOS 事件跟踪模式下的定时器与第 7 秒回包的原生测试、Android API 35 与 API 28 模拟器上的占位行验收、iOS 模拟器的 `MSIMEClientTests`）验的是占位行时代的行为，记在归档的旧篇；本次没有在设备上重跑。
 - 宿主原生代码只做了静态检查：`platforms/android/check-host.sh`（237 项 JVM 冒烟、144 个设备套件源文件编译），改过的 Swift 文件 `xcrun swiftc -parse`，`ShortcutTest.mm`（引入 `InputController.mm`）`clang++ -fsyntax-only -Wall -Wextra -Werror`；`scripts/test-candidate-sources.py`、`scripts/test-android-device-ime-rebind.py` 通过。iOS XCTest、macOS `ctest`、Android 模拟器验收、Windows、Linux、HarmonyOS 的构建和真机都没有跑。

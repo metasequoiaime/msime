@@ -1,6 +1,7 @@
 # Agent Note: AI 候选先占座位，回答到达时不挪动其他候选
 
 Status: implemented
+Archived: 2026-10-16
 
 ## Problem
 

@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-AI 助手开着时，每次组字都在候选第 2 位留一个座位，等待模型时显示「…」（见 [AI 座位占位](2026-10-11-ai-seat-placeholder.md)）。模型慢或请求失败时，用户只看到一个迟迟不出结果的「…」或「—」。用户通过 MCP 找代理排查这类问题时，代理查得到原因却改不了：MCP 的偏好白名单（`crates/mcp-server/src/preferences.rs`）没有 AI 助手的开关，只能让用户自己去设置里关，而 MCP 的说明要求代理替不懂技术的用户把步骤做掉。
+AI 助手开着时，每次组字都在候选第 2 位留一个座位，等待模型时显示「…」（见 [AI 座位占位](../../archived/feature/2026-10-11-ai-seat-placeholder.md)，后来被 [AI 候选坐第一页最后一格](2026-10-16-ai-candidate-last-slot.md) 取代）。模型慢或请求失败时，用户只看到一个迟迟不出结果的「…」或「—」。用户通过 MCP 找代理排查这类问题时，代理查得到原因却改不了：MCP 的偏好白名单（`crates/mcp-server/src/preferences.rs`）没有 AI 助手的开关，只能让用户自己去设置里关，而 MCP 的说明要求代理替不懂技术的用户把步骤做掉。
 
 ## Decision
 

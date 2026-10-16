@@ -26,7 +26,7 @@ AI 候选请求（`crates/client-providers/src/ai.rs` 的 `chat_completion_body`
 - **收益**：EveryAPI 这类转换协议的网关上的 GPT 系列不再 400；Claude 这类无视 JSON 模式的模型的回答可以用了。macOS、Windows、iOS、HarmonyOS 的请求和解析都走 `chat_completion_http_request` 与 `msime_client_parse_ai_response`，一起生效；Android 共用请求、单独改解析；Linux 走自己的 provider 同步修改。
 - **代价与已知上限**：发给模型的 user 消息多了一个字段，用户自定义提示若逐字段描述输入，会看到这个新字段。修好请求不等于够快：同一次实测 `gpt-6-luna` 的回答要 2.5 到 40 秒不等（EveryAPI 统计 24 小时平均 17.5 秒），常常超过宿主 8 秒的 AI 超时，座位仍会落到「—」；输入法联想要选一两秒内回答的模型，这是配置问题，不在本修复范围。
 
-与 [AI 座位占位](../feature/2026-10-11-ai-seat-placeholder.md) 部分重叠：本篇修的是座位等不到回答的两种原因，座位规则不变。与 [AI 配置测试兼容思考模型](2026-10-13-ai-credential-reasoning-probe.md) 部分重叠：那篇只改配置测试的探测请求，本篇改实际候选请求，推理参数仍未加到候选请求上（实测 `gpt-6-luna` 默认不产生推理 token，加 `reasoning_effort: none` 不改变延迟）。与 [AI 空候选缓冲](../testing/2026-10-11-ai-empty-candidate-buffer.md) 部分重叠：解析器的容量预留规则不变，只在解析前多一步去围栏。
+与 [AI 座位占位](../../archived/feature/2026-10-11-ai-seat-placeholder.md)（已由 [AI 候选坐第一页最后一格](../feature/2026-10-16-ai-candidate-last-slot.md) 取代） 部分重叠：本篇修的是座位等不到回答的两种原因，座位规则不变。与 [AI 配置测试兼容思考模型](2026-10-13-ai-credential-reasoning-probe.md) 部分重叠：那篇只改配置测试的探测请求，本篇改实际候选请求，推理参数仍未加到候选请求上（实测 `gpt-6-luna` 默认不产生推理 token，加 `reasoning_effort: none` 不改变延迟）。与 [AI 空候选缓冲](../testing/2026-10-11-ai-empty-candidate-buffer.md) 部分重叠：解析器的容量预留规则不变，只在解析前多一步去围栏。
 
 ## Verification
 
