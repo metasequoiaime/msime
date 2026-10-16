@@ -1952,6 +1952,7 @@ public final class MSIMEInputService extends InputMethodService {
      * the session after the bounded maintenance transaction has finished.
      */
     private void scheduleEngineStartup(String options, long generation) {
+        if (pendingEngineStartup != generation) dictionaryStartupRetryDeadline = SystemClock.uptimeMillis() + 5_000;
         pendingEngineStartup = generation;
         Runnable complete = () -> {
             if (generation != engineStartGeneration || connection == null || session != 0) return;
@@ -2027,7 +2028,19 @@ public final class MSIMEInputService extends InputMethodService {
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
             int drawnLayout = displayedTouchLayout(view);
-            view = value(NativeClient.create(options.toString()));
+            String created = NativeClient.create(options.toString());
+            JSONObject response = new JSONObject(created);
+            if ("dictionary maintenance busy".equals(response.optString("error"))
+                    && engineStartupPending() && SystemClock.uptimeMillis() < dictionaryStartupRetryDeadline) {
+                // 导入页可能刚取得一批词的维护租约。保留「准备中」并稍后重试，不能一次竞争就退回直接输入。
+                long generation = engineStartGeneration;
+                main.postDelayed(() -> {
+                    if (generation == engineStartGeneration && connection != null && engineStartupPending())
+                        scheduleEngineStartup(optionsText, generation);
+                }, 50);
+                return;
+            }
+            view = value(created);
             session = strictCandidateLong(view, "session");
             String resources = options.optString("resources", "");
             if (new File(resources).isAbsolute()) {
@@ -4196,6 +4209,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** scheduleEngineStartup 排上、还没建好也没作废的那次会话启动所属的代次；没有时为 -1。 */
     private long pendingEngineStartup = -1;
+    private long dictionaryStartupRetryDeadline;
 
     /** 有一次会话启动在路上：排上之后没有换代（换输入框、收起、销毁都会换代），也没有被 stop 取消（建会话失败、输入连接失败都经过 stop）。 */
     private boolean engineStartupPending() {

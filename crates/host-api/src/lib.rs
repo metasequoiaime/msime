@@ -2410,18 +2410,7 @@ pub fn edit_personal_dictionary(
     replacement: Option<&msime_engine::host::DictionaryEntry>,
     request_id: &str,
 ) -> Result<(), String> {
-    for entry in previous.iter().chain(replacement.iter()) {
-        require_dictionary_kind(options, entry.kind)?;
-    }
-    // The previous row is one the list returned, whose weight learning may have lifted past the ceiling a new entry is held to.
-    for entry in previous.iter() {
-        msime_engine::host::dictionary_validate_previous(entry)
-            .map_err(|error| invalid_dictionary_entry(&error.to_string()))?;
-    }
-    for entry in replacement.iter() {
-        msime_engine::host::dictionary_validate(entry)
-            .map_err(|error| invalid_dictionary_entry(&error.to_string()))?;
-    }
+    validate_personal_dictionary_edit(options, previous, replacement)?;
     let _access = DictionaryAccess::try_maintenance(
         std::path::Path::new(&options.user_data),
         std::path::Path::new(&options.dictionaries),
@@ -2433,6 +2422,27 @@ pub fn edit_personal_dictionary(
     }
     msime_engine::host::dictionary_edit(options, previous, replacement, request_id)
         .map_err(|_| "dictionary edit rejected".into())
+}
+
+// 调用方已经持有维护租约时复用同一套校验，不能再次申请独占锁。
+fn validate_personal_dictionary_edit(
+    options: &EngineOptions,
+    previous: Option<&msime_engine::host::DictionaryEntry>,
+    replacement: Option<&msime_engine::host::DictionaryEntry>,
+) -> Result<(), String> {
+    for entry in previous.iter().chain(replacement.iter()) {
+        require_dictionary_kind(options, entry.kind)?;
+    }
+    // 原词条来自列表，学习可能已把权重提高到新词条上限以上。
+    for entry in previous.iter() {
+        msime_engine::host::dictionary_validate_previous(entry)
+            .map_err(|error| invalid_dictionary_entry(&error.to_string()))?;
+    }
+    for entry in replacement.iter() {
+        msime_engine::host::dictionary_validate(entry)
+            .map_err(|error| invalid_dictionary_entry(&error.to_string()))?;
+    }
+    Ok(())
 }
 
 /// A host-owned view of one entry in the verified local Emoji catalog.

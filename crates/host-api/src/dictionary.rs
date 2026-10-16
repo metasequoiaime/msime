@@ -2,7 +2,7 @@
 
 use super::{
     edit_personal_dictionary, invalid_dictionary_entry, require_dictionary_kind, response,
-    DictionaryAccess, HostOptions, DICTIONARY_REQUEST_LIMIT,
+    validate_personal_dictionary_edit, DictionaryAccess, HostOptions, DICTIONARY_REQUEST_LIMIT,
 };
 use msime_client_services::dictionary::import::{dictionary_row_matches, PageSelector};
 use msime_client_services::dictionary::is_han_character;
@@ -1352,9 +1352,7 @@ fn user_entries_page(
     Ok((entries, has_more))
 }
 
-/// Synchronize the queue with the Engine. The caller must invoke this
-/// only after its Engine session has been destroyed; the shared dictionary lock
-/// then prevents races with any other host.
+/// 分批把队列应用到 Engine。整批先申请独占维护租约；词库忙碌时不修改队列，调用方稍后重试。
 ///
 /// The request is the bare HostOptions a host passes to `msime_client_create`, as the C header documents and as both the Android and HarmonyOS hosts send it. Parsing it as an `{options, action}` envelope refused every call, which Android swallowed and HarmonyOS answered by rebuilding its session every two seconds.
 pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
@@ -1379,6 +1377,13 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
         .ok_or("personal dictionary shared directory unavailable")?;
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
     let options = options.into_engine_options();
+    // 忙碌是整批的可重试状态，不能进入逐词回调，把仍在等待的词标成 Failed。
+    let _access = DictionaryAccess::try_maintenance(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
     // Read once per synchronization, and only when a collection addition is pending.
     let mut user_words: Option<std::collections::HashSet<String>> = None;
     store
@@ -1395,13 +1400,23 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                         }
                     }
                 }
-                edit_personal_dictionary(
+                validate_personal_dictionary_edit(
+                    &options,
+                    previous.as_ref(),
+                    replacement.as_ref(),
+                )?;
+                if queued.id.is_empty() {
+                    return Err("dictionary request id required".into());
+                }
+                // 整批已经持有维护租约，直接进入同一份 Engine 编辑实现。
+                msime_engine::host::dictionary_edit(
                     &options,
                     previous.as_ref(),
                     replacement.as_ref(),
                     &queued.id,
                 )
                 .map(|()| PersonalWordApplied::Written)
+                .map_err(|_| "dictionary edit rejected".to_owned())
             },
             |request| {
                 let (entries, has_more) = user_entries_page(
@@ -1432,6 +1447,7 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
     Ok(json!({
         "synchronized": true,
         "pending_count": state.pending_count(),
+        "failed_count": state.requests.iter().filter(|request| request.status == PersonalWordRequestStatus::Failed).count(),
         "snapshot_error": state.snapshot_error,
     }))
 }

@@ -309,6 +309,7 @@ public final class LexiconPage extends ReloadingDetailPage {
         if (report.duplicates() > 0) message.append("，跳过重复 ").append(report.duplicates()).append(" 条");
         if (report.failed() > 0) message.append("，").append(report.failed()).append(" 行无法识别");
         if (report.truncated()) message.append("，词库已满");
+        if (!report.applicationNotice().isEmpty()) message.append("；").append(report.applicationNotice());
         return message.toString();
     }
 
