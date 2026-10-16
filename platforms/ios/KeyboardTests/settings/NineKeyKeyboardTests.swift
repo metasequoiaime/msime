@@ -867,8 +867,16 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNil(shownSymbolKey("：", in: controller))
   }
 
-  /// 123 / #+= 层：第三行为 #+= 1.4 | 五个符号 | ⌫ 1.4，底行按相对空格键的比例为 拼音 1.25 | emoji 1.05 | space 6 | return 1.9，没有 中 键。
+  /// 123 / #+= 层的底行使用同一套比例；顶部有表情时底行用符号入口，没有中/英键。
   func testSymbolLayerFollowsTheDesignsWeights() throws {
+    let previousToolbar = MetasequoiaInputSessionBridge.loadSharedPreferences()?["touch_toolbar"]
+    let previousHidden = TouchToolbarLocalPreference.hidden
+    defer {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = previousToolbar }
+      TouchToolbarLocalPreference.hidden = previousHidden
+    }
+    TouchToolbarLocalPreference.hidden = false
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": true] })
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     InputSchemePreference.scheme = .quanpin
@@ -885,10 +893,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let visible = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
-    XCTAssertEqual(visible, ["layoutToggleButton", "layerEmojiKey"] + globe + ["spaceKey", "returnKey"])
+    XCTAssertEqual(visible, ["layoutToggleButton", "symbolPanelKey"] + globe + ["spaceKey", "returnKey"])
     let unit = try button("spaceKey", in: controller).bounds.width / SymbolLayerLayout.spaceWeight
     XCTAssertEqual(try button("layoutToggleButton", in: controller).bounds.width, unit * 1.25, accuracy: 0.5)
-    XCTAssertEqual(try button("layerEmojiKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+    XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+    XCTAssertTrue(try button("layerEmojiKey", in: controller).isHidden)
     XCTAssertEqual(try button("returnKey", in: controller).bounds.width, unit * 1.9, accuracy: 0.5)
     XCTAssertEqual(try button("spaceKey", in: controller).configuration?.title, "空格")
 
@@ -913,6 +922,59 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     XCTAssertFalse(try button("symbolPanelKey", in: controller).isHidden)
     XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+  }
+
+  /// 同一个已打开的数字页跟随顶部入口设置变化，表情和符号互斥且真实动作可达。
+  func testNumberLayerKeepsEmojiFallbackWhenToolbarEntryIsUnavailable() async throws {
+    let previous = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
+    let previousScheme = InputSchemePreference.scheme
+    let previousHidden = TouchToolbarLocalPreference.hidden
+    defer {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previous }
+      InputSchemePreference.scheme = previousScheme
+      TouchToolbarLocalPreference.hidden = previousHidden
+    }
+    InputSchemePreference.scheme = .quanpin
+    TouchToolbarLocalPreference.hidden = false
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": true] })
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    let emoji = try button("layerEmojiKey", in: controller)
+    let symbols = try button("symbolPanelKey", in: controller)
+    func reload(emojiExpected: Bool) async throws {
+      controller.viewWillAppear(false)
+      let deadline = Date().addingTimeInterval(15)
+      while emoji.isHidden == emojiExpected && Date() < deadline {
+        // 让出主线程，允许后台偏好读取的主队列回调更新键面。
+        try await Task.sleep(for: .milliseconds(50))
+      }
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(!emoji.isHidden, emojiExpected)
+      XCTAssertEqual(symbols.isHidden, emojiExpected)
+      XCTAssertGreaterThan((emojiExpected ? emoji : symbols).bounds.width, 20)
+    }
+    try await reload(emojiExpected: false)
+    XCTAssertEqual(symbols.configuration?.title, "符号")
+    symbols.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "closeSymbolPanel" } as? UIControl)
+      .sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": false] })
+    try await reload(emojiExpected: true)
+    emoji.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardEmojiPicker" })
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "closeEmojiPicker" } as? UIControl)
+      .sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": true] })
+    try await reload(emojiExpected: false)
+    TouchToolbarLocalPreference.hidden = true
+    try await reload(emojiExpected: true)
+    TouchToolbarLocalPreference.hidden = false
+    try await reload(emojiExpected: false)
+    controller.viewDidDisappear(false)
   }
 
   func testSymbolLayerKeysRouteThroughThePunctuationPathOrInsertAsDrawn() {

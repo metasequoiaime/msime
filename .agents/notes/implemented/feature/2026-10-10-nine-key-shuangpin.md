@@ -98,9 +98,9 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
   - 进程为用过的每一张不同的合法表常驻一份表和拼写表（几十 KB），不能回收。
   - `View.nine_key` 在九键双拼下为假，宿主判断「数字是组码」要看 `View.key_grid`。
   - 降级：选了九键双拼后装回旧版，偏好严格解析整份读不出来（`touch_keyboard_layout` 和 `touch_keyboard_schemes` 有新值）。与 14 键相同，照现有的严格解析接受这个代价。
-  - 鸿蒙和桌面的共享设置页还选不到九键双拼，iOS 由[原生宿主设置页](2026-10-16-ios-nine-key-shuangpin.md)提供，React 的 `Preferences` 只认识这两个字段，没有编辑入口。
+  - 鸿蒙由[共享设置页](2026-10-17-harmony-nine-key-shuangpin-editor.md)提供内置选表和自定义表编辑，iOS 由[原生宿主设置页](2026-10-16-ios-nine-key-shuangpin.md)提供；桌面宿主没有九键双拼的设置入口。
   - Android 的四行网格挤在三行九键的高度里，键比拼音九键扁，数字主标签为 22sp，单行简短提示为 11sp；触摸键面不再铺完整韵母表，初学者需要查看设置中的映射。
-  - HarmonyOS 复用已有九键外框和底行，数字键直接把 1–9、0 交给 `character()`，不提供电话字母长按；当前设置页可选九键双拼并使用默认米旮旯 3，完整自定义表编辑器仍由后续设置页工作补齐。
+  - HarmonyOS 复用已有九键外框和底行，数字键直接把 1–9、0 交给 `character()`，不提供电话字母长按；设置页的选表与自定义表编辑见[鸿蒙设置页](2026-10-17-harmony-nine-key-shuangpin-editor.md)，仍通过同一无状态接口取表与校验。
 
 ## Verification
 

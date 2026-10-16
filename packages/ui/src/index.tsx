@@ -402,6 +402,12 @@ export {
   useVoiceInputSettings,
   type UseVoiceInputSettingsOptions,
 } from "./settings/use-voice-input-settings";
+export { AiSkinGeneration, type AiSkinGenerationProps } from "./keyboard/ai-skin-generation";
+export {
+  useAiSkinGeneration,
+  type UseAiSkinGenerationOptions,
+  type AiSkinGenerationState,
+} from "./keyboard/use-ai-skin-generation";
 export type {
   AiSkinClient,
   AiSkinProposal,
@@ -631,9 +637,20 @@ export {
 export type { AppInputModeRule, PickedApplication } from "./settings/app-input-mode-rules";
 export {
   ClipboardHistorySection,
+  type ClipboardHistorySectionProps,
   type ClipboardHistoryClient,
   type ClipboardHistoryEntry,
 } from "./settings/clipboard-history-section";
+export {
+  useClipboardHistory,
+  type UseClipboardHistoryOptions,
+  type ClipboardHistoryState,
+} from "./settings/use-clipboard-history";
+export {
+  useClipboardHistoryCloud,
+  type UseClipboardHistoryCloudOptions,
+  type ClipboardHistoryCloudState,
+} from "./settings/use-clipboard-history-cloud";
 export {
   CloudPanelSessionNotice,
   CLOUD_PANEL_SESSION_NOTE,
@@ -938,8 +955,14 @@ export {
 } from "./settings/input-scheme-details-section";
 export {
   ShuangpinCustomEditor,
+  NineKeyShuangpinEditor,
   type ShuangpinCustomEditorProps,
+  type NineKeyShuangpinEditorProps,
 } from "./settings/shuangpin-custom-editor";
+export type {
+  NineKeyShuangpinLayout,
+  NineKeyShuangpinLayoutReader,
+} from "./settings/nine-key-shuangpin-profile";
 export {
   parseShuangpinCustomProfile,
   shuangpinCustomProblemMessage,
@@ -1381,6 +1404,11 @@ export type {
 } from "./community/community-resource-model";
 export { CommunityCandidateSkinsPage } from "./community/community-candidate-skins";
 export {
+  useCommunityCandidateSkinGallery,
+  type UseCommunityCandidateSkinGalleryOptions,
+  type CommunityCandidateSkinGallery,
+} from "./community/use-community-candidate-skin-gallery";
+export {
   CommunityCandidateSkinCard,
   type CommunityCandidateSkinCardProps,
 } from "./community/community-candidate-skin-card";
@@ -1544,7 +1572,21 @@ export {
   CandidateSkinPublishDialog,
   type CandidateSkinPublishDialogProps,
 } from "./community/candidate-skin-publish-dialog";
+export {
+  CommunityReplyTemplates,
+  type CommunityReplyTemplatesProps,
+} from "./community/community-reply-templates";
+export {
+  useCommunityReplyTemplates,
+  type UseCommunityReplyTemplatesOptions,
+  type CommunityReplyTemplatesState,
+} from "./community/use-community-reply-templates";
 export { CommunityPluginsPage } from "./community/community-plugins";
+export {
+  useCommunityPluginGallery,
+  type UseCommunityPluginGalleryOptions,
+  type CommunityPluginGallery,
+} from "./community/use-community-plugin-gallery";
 export {
   CommunityPluginCard,
   type CommunityPluginCardProps,
@@ -1668,6 +1710,11 @@ export {
 } from "./keyboard/cloud-dictionary-item";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
+  PanelActivationButtons,
+  type PanelActivationButtonsProps,
+  type PanelActivationMode,
+} from "./keyboard/panel-activation-buttons";
+export {
   CloudDictionaryPagination,
   type CloudDictionaryPaginationProps,
 } from "./keyboard/cloud-dictionary-pagination";
@@ -1688,7 +1735,21 @@ export {
   type CloudDictionaryQueryToolbarProps,
 } from "./keyboard/cloud-dictionary-query-toolbar";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
-export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
+export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-model";
+export {
+  VoiceDevicePicker,
+  VoiceMicrophonePicker,
+  type VoiceDevicePickerProps,
+  type VoiceMicrophonePickerProps,
+} from "./voice/voice-device-picker";
+export {
+  useVoiceDevicePicker,
+  useVoiceMicrophonePicker,
+  type UseVoiceDevicePickerOptions,
+  type UseVoiceMicrophonePickerOptions,
+  type VoiceDevicePickerState,
+  type VoiceMicrophonePickerState,
+} from "./voice/use-voice-device-picker";
 export {
   LocalModelManager,
   formatModelBytes,

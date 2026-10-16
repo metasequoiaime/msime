@@ -706,6 +706,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     readToolbarPreferences()
     readGesturePreferences()
     applyOneHanded()
+    updateKeyboardLayoutIfNeeded()
     // 隐私模式和输入框都可能在两次出现之间变了，日志开不开要重新判断。
     configureDiagnosticLog()
     DiagnosticLog.shared.write("focus_in \(DiagnosticLog.MemorySample.current().fields)")
@@ -4549,6 +4550,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if skinChanged { applyKeyboardSkin() }
     applyLayoutPreferences()
+    updateKeyboardLayoutIfNeeded()
     updateShortcutButtons()
     updatePreferredKeyboardHeight()
     scheduleCandidateGlosses()
@@ -4992,17 +4994,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updatePreferredKeyboardHeight()
   }
 
-  /// Everything `updateKeyboardLayout` branches on.
-  ///
-  /// The list has to be complete, because the layout is only rebuilt when this changes. Gating on
-  /// a subset is how a nine-key keyboard stayed on its grid after a local mode opened: the value
-  /// that moved was not in the signature, so nothing relaid out.
+  /// `updateKeyboardLayout` 的全部依赖；任一状态变化都必须使布局缓存失效。
+  /// 工具栏表情入口也决定数字页底行的按钮，不能只记录几何与输入方案。
   private struct KeyboardLayoutInputs: Equatable {
     let chinese: Bool
     let scheme: ChineseInputScheme
     let localMode: String
     let symbols: Bool
     let moreSymbols: Bool
+    let toolbarEmojiAvailable: Bool
     let globe: Bool
     let hasSpellings: Bool
     let geometry: KeyboardGeometry
@@ -5014,11 +5014,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var layoutInputs: KeyboardLayoutInputs {
     KeyboardLayoutInputs(
       chinese: isChineseMode, scheme: inputScheme, localMode: currentLocalMode,
-      symbols: showsSymbols, moreSymbols: showsMoreSymbols, globe: needsInputModeSwitchKey,
+      symbols: showsSymbols, moreSymbols: showsMoreSymbols,
+      toolbarEmojiAvailable: toolbarEmojiAvailable, globe: needsInputModeSwitchKey,
       hasSpellings: sidebarCarriesSpellings,
       geometry: KeyboardLayoutPreference.geometry,
       formFactor: formFactor, fullKeys: KeyboardLayoutPreference.tabletFullKeys,
       split: wantsSplitKeyboard)
+  }
+
+  private var toolbarEmojiAvailable: Bool {
+    !toolbarHidden && TouchToolbarPreference(in: session.sharedPreferences).emoji
   }
 
   /// 键盘此刻是否横屏。有窗口场景时按它的界面方向；没有时（例如测试里还没进窗口的控制器）退回到竖直 size class：手机横屏是 compact，iPad 两个方向都是 regular，于是按竖屏处理，不会误画分离式键盘。测试用 `traitOverrides` 把它设成 compact 来模拟 iPad 横屏。
@@ -5169,10 +5174,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         globeWidthConstraint?.isActive = true
       }
       let layout = KeyboardLayoutPreference.geometry
-      // 符：#+= 层的符号键、假名标点菜单、字母行上的可选键，以及拼音网格和笔画键底行最左边的键，九键上打开符号面板只走它（网格的 @# 键把常用标点放进候选条）。
+      // 符：数字页在顶部有表情入口时的符号键、#+= 层的符号键、假名标点菜单、字母行上的可选键，以及拼音网格和笔画键底行最左边的键，九键上打开符号面板只走它（网格的 @# 键把常用标点放进候选条）。
       // 手机 26 键在 123 之后放 符，空格右边放逗号；14 键第三排自带 符，手写不画字母行，都不加。
       let phoneLetterSymbols = style == .phone && letterRowsShown
-      nineKeySymbolsButton.isHidden = !(kana || (symbolLayer ? showsMoreSymbols
+      nineKeySymbolsButton.isHidden = !(kana || (symbolLayer ? (showsMoreSymbols || toolbarEmojiAvailable)
         : nineKeyFrame ? !showsSymbols : !showsSymbols && (layout.showsFullKeyboardSymbols || phoneLetterSymbols)))
       let symbolsTitle = symbolLayer ? "符号" : "符"
       if nineKeySymbolsButton.configuration?.title != symbolsTitle {
@@ -5180,7 +5185,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         nineKeySymbolsButton.configuration?.titleTextAttributesTransformer = symbolLayer ? Self.functionLabelTransformer : Self.keyLabelTransformer
       }
       fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && (style == .standard || style == .tablet)
-      layerEmojiButton.isHidden = !(symbolLayer && !showsMoreSymbols)
+      layerEmojiButton.isHidden = !(symbolLayer && !showsMoreSymbols && !toolbarEmojiAvailable)
       nineKeyZeroButton.isHidden = style != .nineKey || (!showsSymbols && inputScheme != .nineKeyShuangpin)
       let hidesLanguage = !layout.showsBottomLanguage
       bottomLanguageButton?.isHidden = style == .symbolLayer || hidesLanguage

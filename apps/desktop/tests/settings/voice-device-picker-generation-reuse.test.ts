@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 test("voice device refresh reuses the shared async action lifecycle", () => {
   const source = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/voice/voice-device-picker.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/voice/use-voice-device-picker.ts", {
       eager: true,
       query: "?raw",
       import: "default",

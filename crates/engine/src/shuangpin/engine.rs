@@ -61,12 +61,12 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
         if position + 2 > typed.len() {
             return;
         }
-        let code = &typed[position..position + 2];
-        if cvt_single_sp_to_pinyin(code, profile).is_empty() {
+        let code = typed[position..position + 2].to_ascii_lowercase();
+        if cvt_single_sp_to_pinyin(&code, profile).is_empty() {
             return;
         }
         path.push(DirectSpelling {
-            code: code.to_ascii_lowercase(),
+            code: code.clone(),
             first: None,
             second: None,
             end: position + 2,
@@ -78,7 +78,7 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
             let first = typed.as_bytes()[position + 2] as char;
             if first.is_ascii_lowercase() {
                 path.push(DirectSpelling {
-                    code: code.to_ascii_lowercase(),
+                    code: code.clone(),
                     first: Some(first.to_ascii_lowercase()),
                     second: None,
                     end: position + 3,
@@ -92,7 +92,7 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
             let second = typed.as_bytes()[position + 3] as char;
             if first.is_ascii_lowercase() && second.is_ascii_uppercase() {
                 path.push(DirectSpelling {
-                    code: code.to_ascii_lowercase(),
+                    code,
                     first: Some(first.to_ascii_lowercase()),
                     second: Some(second.to_ascii_lowercase()),
                     end: position + 4,

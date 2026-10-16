@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   SettingsPage,
   type AccountClient,
@@ -404,4 +404,47 @@ test("the HarmonyOS phone's 浏览更多词库 switches to the 社区 tab's 词�
       .getAttribute("aria-selected"),
   ).toBe("true");
   expect(screen.queryByRole("dialog", { name: "社区词库" })).toBeNull();
+});
+
+test("离开回复模板区后旧添加完成不弹出迟到提示", async () => {
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const resources = resourcesClient(replies);
+  resources.save = vi.fn().mockReturnValue(pending);
+  renderPhone("ai", { resources });
+  const group = await screen.findByRole("region", { name: "回复模板" });
+  fireEvent.click(await within(group).findByRole("button", { name: "添加回复模板 回复模板1" }));
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "主要功能" })).getByRole("button", {
+      name: "我的",
+    }),
+  );
+  expect(screen.queryByRole("region", { name: "回复模板" })).toBeNull();
+  await act(async () => {
+    finish();
+  });
+  expect(resources.storeReply).toHaveBeenCalledWith(replies[0]);
+  expect(screen.queryByText("已添加「回复模板1」到高情商回复键盘")).toBeNull();
+});
+
+test("同一批事件不能重复添加回复模板", async () => {
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const resources = resourcesClient(replies);
+  resources.save = vi.fn().mockReturnValue(pending);
+  renderPhone("ai", { resources });
+  const group = await screen.findByRole("region", { name: "回复模板" });
+  const add = await within(group).findByRole("button", { name: "添加回复模板 回复模板1" });
+  act(() => {
+    fireEvent.click(add);
+    fireEvent.click(add);
+  });
+  await act(async () => {
+    finish();
+  });
+  expect(resources.save).toHaveBeenCalledExactlyOnceWith(replies[0].id, true);
 });

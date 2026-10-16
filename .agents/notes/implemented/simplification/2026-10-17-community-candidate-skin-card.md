@@ -10,7 +10,7 @@ Status: implemented
 
 `community-candidate-skin-card.tsx` 公开 `CommunityCandidateSkinCard` 和 `CommunityCandidateSkinCardProps`。卡片只负责候选皮肤的展示和打开回调，不持有客户端、请求或图库状态。
 
-候选皮肤预览图及 `CandidateSkinPreviewLoader` 移到无详情依赖的 `community-candidate-skin-preview.tsx`；详情模块继续从原路径转导出它们，保持已有公共导入兼容。卡片和详情仍共享调用方提供的缓存加载器、代次防护和原有文案、样式及元数据规则。
+候选皮肤预览图及 `CandidateSkinPreviewLoader` 移到无详情依赖的 `community-candidate-skin-preview.tsx`；详情模块继续从原路径转导出它们，保持已有公共导入兼容。卡片和详情仍共享调用方提供的缓存加载器、代次防护和原有文案、样式及元数据规则；图库状态与预览 LRU 由[候选皮肤图库 hook](2026-10-17-community-candidate-skin-gallery.md)持有。
 
 ## Alternatives considered
 

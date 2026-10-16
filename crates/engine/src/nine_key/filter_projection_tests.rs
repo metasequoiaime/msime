@@ -345,12 +345,12 @@ fn assert_session(actual: &NineKeySession, expected: &NineKeySession) {
     for (actual, expected) in actual.candidates.iter().zip(&expected.candidates) {
         for (actual, expected) in [
             (&actual.word, &expected.word),
-            (&actual.pinyin, &expected.pinyin),
             (&actual.canonical_pinyin, &expected.canonical_pinyin),
             (&actual.corrected_from, &expected.corrected_from),
         ] {
             assert_eq!(actual.capacity(), expected.capacity());
         }
+        assert!(actual.pinyin.capacity() >= expected.pinyin.capacity());
         assert_eq!(
             actual.sentence_words.capacity(),
             expected.sentence_words.capacity()

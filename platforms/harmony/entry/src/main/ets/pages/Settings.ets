@@ -828,7 +828,7 @@ struct Settings {
               this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
                 ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
                   'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                  'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
+                  'dictionaryManifest', 'dictionary', 'nineKeyShuangpinLayout', 'cloudDictionaryDownload',
                   'typingStatistics', 'openExternalUrl', 'copyText',
                   'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                   'keyboardFeedback', 'onboardingStatus',
@@ -1877,6 +1877,11 @@ class SettingsBridge {
       ? JSON.stringify({ directory: this.stateDirectory })
       : `{"directory":${JSON.stringify(this.stateDirectory)},"action":${action}}`;
     return await client.customSkinLibrary(request);
+  }
+
+  /** 复用键盘已有的无状态计算，网页不另存方案表或校验规则。 */
+  nineKeyShuangpinLayout(request: string): string {
+    return client.nineKeyShuangpinLayout(request);
   }
 
   /**

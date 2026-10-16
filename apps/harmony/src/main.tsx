@@ -47,6 +47,7 @@ import {
   type CloudDictionaryAction,
   type CloudDictionaryPanelClient,
   type SettingsClient,
+  type NineKeyShuangpinLayout,
   type Snapshot,
   type PreferencesRecovery,
   type UpdateCheckRequest,
@@ -116,6 +117,8 @@ interface NativeBridge {
   dictionaryManifest(): string;
   appVersion(): string;
   dictionary(action: string): string;
+  /** 只计算九键双拼键位和错误，不读写偏好。 */
+  nineKeyShuangpinLayout(request: string): string;
   cloudDictionaryDownload(entry: string): string;
   typingStatistics(action: string): string;
   /**
@@ -1394,6 +1397,11 @@ function makeClient(
       },
     },
     dictionary,
+    nineKeyShuangpinLayout:
+      typeof native.nineKeyShuangpinLayout === "function"
+        ? async (request) =>
+            unwrap<NineKeyShuangpinLayout>(native.nineKeyShuangpinLayout(JSON.stringify(request)))
+        : undefined,
     dictionaryCollections,
     typingStatistics,
     vocabularyReview,

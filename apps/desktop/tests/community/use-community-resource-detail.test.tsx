@@ -90,6 +90,95 @@ test("收藏同步防重，完成后重读服务器状态", async () => {
   expect(result.current.busy).toBe(false);
 });
 
+test.each([
+  { action: "save", outcome: "success" },
+  { action: "save", outcome: "failure" },
+  { action: "rate", outcome: "success" },
+  { action: "rate", outcome: "failure" },
+  { action: "publish", outcome: "success" },
+  { action: "publish", outcome: "failure" },
+])("$action 后初始详情的 $outcome 不覆盖新结果", async ({ action, outcome }) => {
+  const props = options();
+  const pending = deferred<CommunityResource>();
+  const updated = { ...props.initial, saved: true, my_rating: 4, revision: 8 };
+  props.client.detail.mockReturnValueOnce(pending.promise).mockResolvedValue(updated);
+  const { result } = renderHook(() => useCommunityResourceDetail(props));
+  if (action === "publish") {
+    act(() => result.current.openEditor());
+    await act(async () => result.current.onPublished());
+  } else {
+    act(() => {
+      if (action === "save") result.current.save();
+      else result.current.rateResource(4);
+    });
+  }
+  await waitFor(() => expect(result.current.item).toEqual(updated));
+  await act(async () => {
+    if (outcome === "success") pending.resolve(props.initial);
+    else pending.reject(new Error("过期合成加载失败"));
+  });
+  expect(result.current.item).toEqual(updated);
+  expect(result.current.error).toBe("");
+});
+
+test.each(["success", "failure"])("收藏等待期间初始详情的 %s 已失效", async (outcome) => {
+  const props = options();
+  const loading = deferred<CommunityResource>();
+  const saving = deferred<void>();
+  props.client.detail.mockReturnValueOnce(loading.promise).mockResolvedValue({
+    ...props.initial,
+    saved: true,
+  });
+  props.client.save.mockReturnValue(saving.promise);
+  const { result } = renderHook(() => useCommunityResourceDetail(props));
+  act(() => result.current.save());
+  await act(async () => {
+    if (outcome === "success") loading.resolve({ ...props.initial, name: "过期合成词库" });
+    else loading.reject(new Error("过期合成加载失败"));
+  });
+  expect(result.current.busy).toBe(true);
+  expect(result.current.item).toEqual(props.initial);
+  expect(result.current.error).toBe("");
+  await act(async () => saving.resolve());
+  await waitFor(() => expect(result.current.item.saved).toBe(true));
+});
+
+test.each(["success", "failure"])("收藏后较早的发布刷新 %s 不覆盖当前结果", async (outcome) => {
+  const props = options();
+  const { result } = renderHook(() => useCommunityResourceDetail(props));
+  await act(async () => {});
+  act(() => result.current.openEditor());
+  const pending = deferred<CommunityResource>();
+  const updated = { ...props.initial, saved: true };
+  props.client.detail.mockReturnValueOnce(pending.promise).mockResolvedValue(updated);
+  let refreshing!: Promise<void>;
+  act(() => {
+    refreshing = result.current.onPublished();
+  });
+  act(() => result.current.save());
+  await waitFor(() => expect(result.current.item).toEqual(updated));
+  await act(async () => {
+    if (outcome === "success") pending.resolve(props.initial);
+    else pending.reject(new Error("过期合成刷新失败"));
+    await refreshing;
+  });
+  expect(result.current.item).toEqual(updated);
+  expect(result.current.error).toBe("");
+});
+
+test("当前发布刷新失败仍向调用方报告", async () => {
+  const props = options();
+  const { result } = renderHook(() => useCommunityResourceDetail(props));
+  await act(async () => {});
+  act(() => result.current.openEditor());
+  const failure = new Error("当前合成刷新失败");
+  props.client.detail.mockRejectedValueOnce(failure);
+  await act(async () => {
+    await expect(result.current.onPublished()).rejects.toBe(failure);
+  });
+  expect(result.current.editing).toBe(false);
+});
+
 test("云端导入使用当前展示版本并显示导入数量", async () => {
   const props = options();
   const { result } = renderHook(() => useCommunityResourceDetail(props));

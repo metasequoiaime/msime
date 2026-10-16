@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-将 `CommunityPluginCard` 与 `CommunityPluginCardProps` 放入独立模块并从 `packages/ui` 包入口公开。组件只接收完整的 `CommunityPlugin` 和打开详情的回调，继续复用公共卡片外壳、作者行和指标行；插件页面保留图库请求、安装预检查、发布和详情动作，只把列表项交给卡片渲染。
+将 `CommunityPluginCard` 与 `CommunityPluginCardProps` 放入独立模块并从 `packages/ui` 包入口公开。组件只接收完整的 `CommunityPlugin` 和打开详情的回调，继续复用公共卡片外壳、作者行和指标行；[插件图库 hook](2026-10-17-community-plugin-gallery.md) 持有图库请求、安装预检查、发布刷新和详情动作，插件页面只把列表项交给卡片渲染。
 
 ## Alternatives considered
 
@@ -18,7 +18,7 @@ Status: implemented
 ## Consequences
 
 - 插件列表卡片可由其他共享页面直接复用，输入和动作边界与皮肤、资源卡片保持一致。
-- 插件页面继续拥有请求代次、安装冲突确认、发布和举报等状态，运行时行为和 DOM 文案保持不变。
+- 插件图库 hook 拥有请求代次、安装冲突确认、发布刷新和举报等状态，运行时行为和 DOM 文案保持不变。
 - 包入口增加一个公开组件和 props 类型；卡片的展示契约由独立组件测试直接覆盖，页面集成测试继续覆盖图库接线。
 
 ## Verification

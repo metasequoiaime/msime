@@ -1,16 +1,7 @@
-import { useMemo, useRef, useState } from "react";
 import type { PluginCatalogResult, PluginPackage } from "../settings/plugin-types";
 import { kindLabels } from "../settings/plugin-catalog-helpers";
-import {
-  communityNeedsSignIn,
-  communityPluginMessage,
-  communityPublishLoginAction,
-} from "./community-helpers";
-import {
-  createCommunityGalleryClient,
-  useCommunityGallery,
-  type CommunityGalleryClient,
-} from "./community-gallery";
+import { communityPublishLoginAction } from "./community-helpers";
+import { useCommunityPluginGallery } from "./use-community-plugin-gallery";
 import * as style from "./community-style";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityScopeButtons } from "./community-scope-buttons";
@@ -22,17 +13,10 @@ import { ActionButton } from "../core/action-button";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
-import { useCommunityInstallState } from "./community-install-state";
-import { communityInstallPreflight } from "./community-install-preflight";
 import { CommunityPluginPublishDialog } from "./community-plugin-publish-dialog";
 import { CommunityPluginDetail } from "./community-plugin-detail";
 
-import {
-  type CommunityPluginKind,
-  communityPluginKinds,
-  type CommunityPlugin,
-  type CommunityPluginClient,
-} from "./community-plugin-model";
+import { communityPluginKinds, type CommunityPluginClient } from "./community-plugin-model";
 export {
   type CommunityPluginKind,
   communityPluginKinds,
@@ -47,7 +31,7 @@ export {
   type CommunityPluginPublishDialogProps,
 } from "./community-plugin-publish-dialog";
 
-/** The community gallery of plugin packs: browse by kind, install into the plugins directory, rate, publish and take down. */
+/** 社区插件包图库：按类型浏览、安装、评分、发布与下架。 */
 export function CommunityPluginsPage({
   client,
   localPlugins,
@@ -55,33 +39,14 @@ export function CommunityPluginsPage({
   onLogin,
 }: {
   client: CommunityPluginClient;
-  /** The installed packs: the publish choices, and how an install learns it would replace one. */
+  /** 已安装包目录，供发布选择与安装替换预检使用。 */
   localPlugins?: () => Promise<PluginCatalogResult>;
-  /** Called once a pack lands in the plugins directory, so a listing of that directory can read it again. */
+  /** 安装完成后通知调用方重新读取本机插件目录。 */
   onInstalled?: (installed: PluginPackage) => void;
   onLogin?: () => void;
 }) {
-  // The gallery hook pages by offset and search; the kind filter rides along through a ref so a page appended by 加载更多 keeps the filter the first page was read with.
-  const kindFilter = useRef<CommunityPluginKind | null>(null);
-  const galleryClient = useMemo<CommunityGalleryClient<CommunityPlugin>>(
-    () =>
-      createCommunityGalleryClient(
-        client,
-        async (offset, search, mine) => {
-          const page = await client.list(offset, search, kindFilter.current, mine ?? false);
-          return { items: page.plugins, has_more: page.has_more, skipped: page.skipped };
-        },
-        (id) => client.delete(id),
-      ),
-    [client],
-  );
-  const gallery = useCommunityGallery({
-    client: galleryClient,
-    errorMessage: communityPluginMessage,
-    needsSignIn: communityNeedsSignIn,
-  });
   const {
-    items: plugins,
+    plugins,
     hasMore,
     listBusy,
     detailBusy,
@@ -93,73 +58,26 @@ export function CommunityPluginsPage({
     signInRequired,
     confirmUnpublish,
     activeSearch,
-    setActionNotice,
     changeMineOnly,
     setConfirmUnpublish,
     requestList,
     open,
-    closeDetail: closeGalleryDetail,
+    closeDetail,
     rateSelected,
     unpublishSelected,
     reportSelected,
-    runAction,
-  } = gallery;
-  const [search, setSearch] = useState("");
-  const [kind, setKind] = useState<CommunityPluginKind | null>(null);
-  const [publishOpen, setPublishOpen] = useState(false);
-  const { installed, setInstalled, confirmReplace, setConfirmReplace, closeDetail } =
-    useCommunityInstallState(actionBusy, closeGalleryDetail);
-
-  const changeKind = async (next: CommunityPluginKind | null) => {
-    const previous = kindFilter.current;
-    if (next === previous) return;
-    kindFilter.current = next;
-    setKind(next);
-    // A failed first page leaves the previous kind's items and offset in place, so the filter goes back with them; otherwise 加载更多 would append the new kind's page at the old kind's offset.
-    const listed = await requestList(activeSearch, false);
-    if (!listed && kindFilter.current === next) {
-      kindFilter.current = previous;
-      setKind(previous);
-    }
-  };
-
-  const install = async (replace: boolean) => {
-    if (!selected) return;
-    const target = selected;
-    setInstalled(false);
-    await runAction(
-      async (currentClient) => {
-        // An install replaces a pack of the same kind and id whole, so ask first. The scan is only a courtesy: when it fails the install goes ahead as the import from a local `.zip` would.
-        if (!replace && localPlugins) {
-          const preflight = await communityInstallPreflight(
-            localPlugins,
-            () => gallery.isCurrent(currentClient),
-            (catalog) =>
-              catalog.packages.some(
-                (item) => item.kind === target.kind && item.id === target.plugin_id,
-              ),
-          );
-          if (preflight === "stale") return;
-          if (preflight === "conflict") {
-            setConfirmReplace(true);
-            return;
-          }
-        }
-        const pack = await client.install(target.id, target.kind, target.plugin_id);
-        if (!gallery.isCurrent(currentClient)) return;
-        setConfirmReplace(false);
-        setInstalled(true);
-        onInstalled?.(pack);
-      },
-      { clearNotice: true },
-    );
-  };
-
-  const publishDone = async () => {
-    setPublishOpen(false);
-    setActionNotice("已发布到社区。");
-    await requestList(activeSearch, false);
-  };
+    search,
+    setSearch,
+    kind,
+    changeKind,
+    publishOpen,
+    setPublishOpen,
+    installed,
+    confirmReplace,
+    setConfirmReplace,
+    install,
+    publishDone,
+  } = useCommunityPluginGallery({ client, localPlugins, onInstalled });
 
   if (selected) {
     return (

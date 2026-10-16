@@ -82,7 +82,11 @@ export class NumberSymbolLayout {
   static readonly RETURN_WEIGHT: number = 1.9;
 
   /** 1–0 / 十个符号 / `#+=`、五个标点和删除键 / 拼音（或 ABC）、表情、空格、回车。 */
-  static numberLayer(chinese: boolean, cornerQuotes: boolean = false): LayerKey[][] {
+  static numberLayer(
+    chinese: boolean,
+    cornerQuotes: boolean = false,
+    toolbarEmojiAvailable: boolean = false,
+  ): LayerKey[][] {
     return NumberSymbolLayout.layer(
       NUMBER_DIGITS,
       chinese
@@ -92,7 +96,14 @@ export class NumberSymbolLayout {
         : ENGLISH_NUMBER_SYMBOLS,
       layerKey("#+=", "更多符号", LayerKeyKind.LAYER_TOGGLE, NumberSymbolLayout.EDGE_WEIGHT),
       chinese,
-      layerKey("😀", "表情", LayerKeyKind.EMOJI, NumberSymbolLayout.EMOJI_WEIGHT),
+      toolbarEmojiAvailable
+        ? layerKey(
+            "符号",
+            "切换符号键盘",
+            LayerKeyKind.SYMBOL_PANEL,
+            NumberSymbolLayout.EMOJI_WEIGHT,
+          )
+        : layerKey("😀", "表情", LayerKeyKind.EMOJI, NumberSymbolLayout.EMOJI_WEIGHT),
     );
   }
 
@@ -113,10 +124,15 @@ export class NumberSymbolLayout {
   }
 
   /** 当前显示的层：`moreSymbols` 为真时是 #+=，否则是 123。 */
-  static rows(moreSymbols: boolean, chinese: boolean, cornerQuotes: boolean = false): LayerKey[][] {
+  static rows(
+    moreSymbols: boolean,
+    chinese: boolean,
+    cornerQuotes: boolean = false,
+    toolbarEmojiAvailable: boolean = false,
+  ): LayerKey[][] {
     return moreSymbols
       ? NumberSymbolLayout.moreSymbolLayer(chinese)
-      : NumberSymbolLayout.numberLayer(chinese, cornerQuotes);
+      : NumberSymbolLayout.numberLayer(chinese, cornerQuotes, toolbarEmojiAvailable);
   }
 
   /** 底行返回字母键的键面：中文为「拼音」，英文为「ABC」。 */

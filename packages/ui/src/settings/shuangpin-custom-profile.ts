@@ -31,9 +31,9 @@ export type ShuangpinCustomProblem = {
 };
 
 /** 宿主提供的两项计算，都没有副作用。两项都有时设置页才提供自定义双拼的编辑、导入和导出。 */
-export interface ShuangpinCustomProfileClient {
+export interface ShuangpinCustomProfileClient<Profile extends string = BuiltinShuangpinProfile> {
   validate: (profile: ShuangpinCustomProfile) => Promise<ShuangpinCustomProblem | null>;
-  builtin: (name: BuiltinShuangpinProfile) => Promise<ShuangpinCustomProfile | null>;
+  builtin: (name: Profile) => Promise<ShuangpinCustomProfile | null>;
 }
 
 /** 与 Engine 的 `MULTI_LETTER_INITIALS`、`FINALS`、`ZERO_INITIALS` 同序：编辑器按这个顺序画格子。 */

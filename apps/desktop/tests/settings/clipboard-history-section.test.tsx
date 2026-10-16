@@ -293,3 +293,83 @@ test("clipboard history checks the cloud clipboard again when its route changes"
   expect(cloudRequest).toHaveBeenCalledTimes(2);
   expect(screen.queryByText("登录水杉账号后可在设备间同步剪贴板")).toBeNull();
 });
+
+test("同一批点击只发送一条云端记录", async () => {
+  let finish!: (value: { items: [] }) => void;
+  const pending = new Promise<{ items: [] }>((resolve) => {
+    finish = resolve;
+  });
+  const cloudRequest = vi
+    .fn()
+    .mockResolvedValueOnce({ enabled: true, items: [] })
+    .mockReturnValue(pending);
+  renderWithCloud(cloudRequest, [
+    { text: "合成记录一", timestampMs: 1_700_000_000_000, pinned: false },
+    { text: "合成记录二", timestampMs: 1_700_000_000_001, pinned: false },
+  ]);
+  const buttons = await screen.findAllByRole("button", { name: "发到云剪贴板" });
+  await waitFor(() => expect(buttons[0].hasAttribute("disabled")).toBe(false));
+  act(() => {
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+  });
+  expect(cloudRequest.mock.calls.filter(([action]) => action.operation === "add")).toHaveLength(1);
+  await act(async () => finish({ items: [] }));
+});
+
+test("替换本地客户端时立即清掉旧条目和清空确认", async () => {
+  const old = {
+    clear: vi.fn(async () => undefined),
+    list: vi.fn(async () => [{ text: "合成旧条目", timestampMs: 1, pinned: false }]),
+  };
+  let finish!: (value: ClipboardHistoryEntry[]) => void;
+  const next = {
+    clear: vi.fn(async () => undefined),
+    list: vi.fn(
+      () =>
+        new Promise<ClipboardHistoryEntry[]>((resolve) => {
+          finish = resolve;
+        }),
+    ),
+  };
+  const props = {
+    historyEnabled: true,
+    persistedHistoryEnabled: true,
+    ios: false,
+    onToggle: vi.fn(),
+    onError: vi.fn(),
+  };
+  const view = render(<ClipboardHistorySection {...props} client={old} />);
+  await screen.findByText("合成旧条目");
+  fireEvent.click(screen.getByRole("button", { name: "清空历史" }));
+  expect(screen.getByRole("button", { name: "确认清空" })).toBeTruthy();
+  view.rerender(<ClipboardHistorySection {...props} client={next} />);
+  expect(screen.queryByText("合成旧条目")).toBeNull();
+  expect(screen.queryByRole("button", { name: "确认清空" })).toBeNull();
+  await act(async () => finish([{ text: "合成新条目", timestampMs: 2, pinned: false }]));
+  expect(screen.getByRole("button", { name: "清空历史" })).toBeTruthy();
+  expect(next.clear).not.toHaveBeenCalled();
+});
+
+test("重新复制失败由当前客户端的错误入口报告", async () => {
+  const onError = vi.fn();
+  render(
+    <ClipboardHistorySection
+      client={{
+        clear: vi.fn(),
+        list: async () => [{ text: "合成复制条目", timestampMs: 1, pinned: false }],
+        copy: vi.fn(async () => {
+          throw new Error("synthetic copy failure");
+        }),
+      }}
+      historyEnabled
+      persistedHistoryEnabled
+      ios={false}
+      onToggle={vi.fn()}
+      onError={onError}
+    />,
+  );
+  const button = await screen.findByRole("button", { name: "重新复制" });
+  await act(async () => fireEvent.click(button));
+  expect(onError).toHaveBeenCalledExactlyOnceWith("无法复制剪贴板记录");
+});

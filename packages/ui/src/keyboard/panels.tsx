@@ -88,6 +88,7 @@ import { CloudDictionaryItem } from "./cloud-dictionary-item";
 import { CloudPanelHeader } from "./cloud-panel-header";
 import { CloudDictionaryPagination } from "./cloud-dictionary-pagination";
 import { NativePanelHeader } from "./native-panel-header";
+import { PanelActivationButtons, type PanelActivationMode } from "./panel-activation-buttons";
 import { CloudDictionaryKindTabs } from "./cloud-dictionary-kind-tabs";
 import { CloudDictionaryKindSelect } from "./cloud-dictionary-kind-select";
 import { CloudDictionarySelectField } from "./cloud-dictionary-select-field";
@@ -668,7 +669,7 @@ export function HandwritingPanel({
     ensuredModel.current = true;
     packs.ensure("handwriting");
   }, [handwritingPack, packs]);
-  const [activationMode, setActivationMode] = useState<"copy" | "input">(() => {
+  const [activationMode, setActivationMode] = useState<PanelActivationMode>(() => {
     return readOptionalStorage("msime.handwriting.activation") === "input" ? "input" : "copy";
   });
   const effectiveMode =
@@ -677,7 +678,7 @@ export function HandwritingPanel({
       : activationMode === "input" && !client.submitHandwritingCandidate
         ? "copy"
         : activationMode;
-  function selectActivation(mode: "copy" | "input") {
+  function selectActivation(mode: PanelActivationMode) {
     if (!recognitionQueue.current.active || closingRef.current) return;
     setActivationMode(mode);
     writeOptionalStorage("msime.handwriting.activation", mode);
@@ -1100,24 +1101,13 @@ export function HandwritingPanel({
           <h2>识别结果</h2>
           <div className={surface.handwritingActions} role="group" aria-label="点击手写候选的操作">
             <span>点击候选：</span>
-            <button
-              type="button"
-              aria-pressed={effectiveMode === "copy"}
-              disabled={closing || submitting || !client.copyHandwritingCandidate}
-              onClick={() => selectActivation("copy")}
-            >
-              复制
-            </button>
-            {client.submitHandwritingCandidate && (
-              <button
-                type="button"
-                aria-pressed={effectiveMode === "input"}
-                disabled={closing || submitting}
-                onClick={() => selectActivation("input")}
-              >
-                输入
-              </button>
-            )}
+            <PanelActivationButtons
+              mode={effectiveMode}
+              onModeChange={selectActivation}
+              disabled={closing || submitting}
+              copyDisabled={!client.copyHandwritingCandidate}
+              inputAvailable={Boolean(client.submitHandwritingCandidate)}
+            />
           </div>
           <div
             className={surface.candidateGrid}
@@ -3868,7 +3858,7 @@ export function EmojiPanel({
   } = usePanelAction(setNotice);
   const [clipboardLoadFailed, setClipboardLoadFailed] = useState(false);
   const [clipboardRefresh, setClipboardRefresh] = useState(0);
-  const [activationMode, setActivationMode] = useState<"copy" | "input">("copy");
+  const [activationMode, setActivationMode] = useState<PanelActivationMode>("copy");
   const [clipboardEnabled, setClipboardEnabled] = useState<boolean | null>(null);
   const clipboardGeneration = useAsyncGeneration();
   const deletedRowFocus = useRef<{ element: HTMLElement; index: number; query: string } | null>(
@@ -4464,38 +4454,23 @@ export function EmojiPanel({
             aria-label="点击项目时的操作"
           >
             <span>点击项目：</span>
-            <button
-              type="button"
-              className={`rounded-md border px-[9px] py-[5px] font-[inherit] disabled:cursor-wait disabled:opacity-55 ${
-                effectiveMode === "copy"
-                  ? `${panelAccentBorder} ${panelChosen}`
-                  : "border-transparent bg-transparent text-inherit"
-              }`}
-              aria-pressed={effectiveMode === "copy"}
+            <PanelActivationButtons
+              mode={effectiveMode}
               disabled={clipboardBusy}
-              onClick={() => {
-                setActivationMode("copy");
-                setNotice("点击项目即可复制");
+              inputAvailable
+              inputLabel="输入到原应用"
+              onModeChange={(mode) => {
+                setActivationMode(mode);
+                setNotice(mode === "copy" ? "点击项目即可复制" : "点击项目即可输入到原应用");
               }}
-            >
-              复制
-            </button>
-            <button
-              type="button"
-              className={`rounded-md border px-[9px] py-[5px] font-[inherit] disabled:cursor-wait disabled:opacity-55 ${
-                effectiveMode === "input"
-                  ? `${panelAccentBorder} ${panelChosen}`
-                  : "border-transparent bg-transparent text-inherit"
-              }`}
-              aria-pressed={effectiveMode === "input"}
-              disabled={clipboardBusy}
-              onClick={() => {
-                setActivationMode("input");
-                setNotice("点击项目即可输入到原应用");
-              }}
-            >
-              输入到原应用
-            </button>
+              buttonClassName={(selected) =>
+                `rounded-md border px-[9px] py-[5px] font-[inherit] disabled:cursor-wait disabled:opacity-55 ${
+                  selected
+                    ? `${panelAccentBorder} ${panelChosen}`
+                    : "border-transparent bg-transparent text-inherit"
+                }`
+              }
+            />
           </div>
         )}
       {categoryPage && page !== "symbols" && (

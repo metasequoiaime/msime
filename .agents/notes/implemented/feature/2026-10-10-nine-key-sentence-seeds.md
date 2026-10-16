@@ -48,3 +48,5 @@ Status: implemented
 - 相关：每音节扣一份奖励的原始决定和当时被否的「只扣词组实际拿到的奖励」见 [九宫格切分路径按音节频度截断](../bug-fix/2026-10-08-nine-key-path-ranking.md)，本篇在它之上给每个多字词再加一份代价；九键的整句选项和键盘模型重排见 [九键遵守句子联想设置](2026-10-09-nine-key-sentence-options.md)。
 
 每词代价的实施位置由[共享词网格插入代价](../bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)部分取代：代价前移到共享解码，`comparable_weight` 只再扣音节奖励。种子、搜索预算及其约束继续成立；本篇验证保留当时的实施对照，新对照见该笔记。
+
+后续[种子尾段按采用上限选择与物化](../../implemented/testing/2026-10-17-nine-key-seed-tail-materialization.md)只在根页选择前3条并物化；非根页仍保留完整48条搜索宽度，种子数量与采用条数不变。
