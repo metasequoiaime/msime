@@ -1149,6 +1149,7 @@ void CMetasequoiaIME::_RequestLocalSessionReset(_In_opt_ ITfContext *preferredCo
         return;
     }
     _workerCommitReady.store(false, std::memory_order_release);
+    _ClearApplicationKeyReplay();
     _ClearPendingIpcRequests();
 
     if (_localResetEditSessionQueued)
@@ -2588,6 +2589,7 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         }
         if (wParam == TIMER_REFRESH_HOST_PREFERENCES)
         {
+            pIME->_PollApplicationKeyReplay();
             pIME->_ConsumeCandidateContinuationFailure();
             auto *engine = pIME->GetCompositionProcessorEngine();
             if (engine && engine->GetHostEngineAdapter() && engine->GetHostEngineAdapter()->valid())

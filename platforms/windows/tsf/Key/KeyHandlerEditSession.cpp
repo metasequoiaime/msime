@@ -94,6 +94,7 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
         KeyHandlerEditSessionDTO keyHandlerEditSessioDTO(ec, _pContext, _uCode, _wch, _KeyState.Function, _requestId,
                                                          _prefetchedText,
                                                          MapVirtualKeyW(_uCode, MAPVK_VK_TO_VSC));
+        keyHandlerEditSessioDTO.deferredReplayToken = _deferredReplayToken;
         hResult = pKeyStateCategory->KeyStateHandler(_KeyState.Function, keyHandlerEditSessioDTO);
         deferredReplayCompletion.applied = hResult == S_OK;
 

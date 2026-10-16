@@ -1378,7 +1378,8 @@ STDAPI CMetasequoiaIME::OnSetFocus(BOOL fForeground)
 bool CMetasequoiaIME::_HasDeferredKeyBarrier() const
 {
     if (_localSessionResetPending.load(std::memory_order_acquire) || _focusResetPending || _activationRequired ||
-        _deferredKeyProjectionValid || !_deferredKeyDowns.empty() || _hasDeferredKeyInFlight)
+        _deferredKeyProjectionValid || !_deferredKeyDowns.empty() || _hasDeferredKeyInFlight ||
+        _HasPendingApplicationKeyReplay())
     {
         return true;
     }
@@ -2207,6 +2208,12 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
     {
         return E_INVALIDARG;
     }
+    const ULONG_PTR replayMarker = static_cast<ULONG_PTR>(GetMessageExtraInfo());
+    if (IsApplicationKeyReplayExtraInfo(replayMarker))
+    {
+        *pIsEaten = _ObserveApplicationKeyReplay(pContext, static_cast<UINT>(wParam), replayMarker) ? FALSE : TRUE;
+        return S_OK;
+    }
     if (IsSelfGeneratedSendInputExtraInfo(static_cast<ULONG_PTR>(GetMessageExtraInfo())))
     {
         *pIsEaten = FALSE;
@@ -2374,6 +2381,7 @@ bool CMetasequoiaIME::_QueueDeferredPreservedKey(_In_ ITfContext *pContext, REFG
 
 void CMetasequoiaIME::_ClearDeferredKeyDowns()
 {
+    _ClearApplicationKeyReplay();
     _backspaceHoldArmed = false;
     const size_t queuedCount = _deferredKeyDowns.size();
     const bool hadInFlight = _hasDeferredKeyInFlight;
@@ -2609,17 +2617,18 @@ void CMetasequoiaIME::_RetryDeferredKeyReplay(uint64_t replayToken)
     }
 }
 
-void CMetasequoiaIME::_ScheduleDeferredKeyDownDrain()
+void CMetasequoiaIME::_ScheduleDeferredKeyDownDrain(bool allowSyncFallback)
 {
-    if (!_deferredKeyDowns.empty() && !_hasDeferredKeyInFlight && !_deferredKeyDrainPosted && _msgWndHandle &&
+    if (!_deferredKeyDowns.empty() && !_hasDeferredKeyInFlight && !_HasPendingApplicationKeyReplay() &&
+        !_deferredKeyDrainPosted && _msgWndHandle &&
         IsWindow(_msgWndHandle))
     {
         _deferredKeyDrainPosted = true;
         if (!PostMessage(_msgWndHandle, WM_DrainDeferredKeyDown, 0, 0))
         {
-            // The owner window is thread-affine. A synchronous fallback keeps
-            // a transient queue-post failure from stranding an eaten key.
-            SendMessage(_msgWndHandle, WM_DrainDeferredKeyDown, 0, 0);
+            // key sink 确认回放时，必须先返回应用处理当前键；投递失败由已有 UI 定时器重试。
+            _deferredKeyDrainPosted = false;
+            if (allowSyncFallback) SendMessage(_msgWndHandle, WM_DrainDeferredKeyDown, 0, 0);
         }
     }
 }
@@ -2643,7 +2652,8 @@ void CMetasequoiaIME::_TryLeaveServerUnavailableFallback()
 void CMetasequoiaIME::_DrainOneDeferredKeyDown()
 {
     _deferredKeyDrainPosted = false;
-    if (_hasDeferredKeyInFlight || _deferredKeyDowns.empty() || !Global::g_connected)
+    if (_hasDeferredKeyInFlight || _HasPendingApplicationKeyReplay() || _deferredKeyDowns.empty() ||
+        !Global::g_connected)
     {
         return;
     }
@@ -2800,6 +2810,12 @@ STDAPI CMetasequoiaIME::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lP
     if (pContext == nullptr || pIsEaten == nullptr)
     {
         return E_INVALIDARG;
+    }
+    const ULONG_PTR replayMarker = static_cast<ULONG_PTR>(GetMessageExtraInfo());
+    if (IsApplicationKeyReplayExtraInfo(replayMarker))
+    {
+        *pIsEaten = _ObserveApplicationKeyReplay(pContext, static_cast<UINT>(wParam), replayMarker) ? FALSE : TRUE;
+        return S_OK;
     }
     if (IsSelfGeneratedSendInputExtraInfo(static_cast<ULONG_PTR>(GetMessageExtraInfo())))
     {
