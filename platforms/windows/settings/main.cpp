@@ -4732,7 +4732,7 @@ private:
 
   // ---- 账号与同步 ----
 
-  // 共享账号页（packages/ui/src/account/account-page.tsx）在 Windows 上画的是桌面那一支：没有 App 图标卡片（只有手机有）、没有「我的设计」（Windows 没有触屏键盘皮肤）、没有「关于」一组和登录后返回的「取消」（都只给手机或从别的页面跳来登录时）。没登录时是登录卡片（Google、邮箱、手机号验证码登录，刷新登录方式，清除失效登录状态）；登录后是资料卡片（点开「编辑资料」对话框：更换和移除头像、社区昵称、账号信息）、「设置同步」卡片、「云端」一组（云词库和云剪贴板面板是输入工具，仍由共享应用打开）、「我的内容」一组（共享应用的社区页，Windows 上只有词包与回复模板）和「账号」一组（退出登录、退出所有设备、注销账号）。所有账号操作经 msime_client_account，用共享应用和输入法读的同一份会话文件，除状态和取消 Google 登录外都在工作线程上进行；文案和规则在 AccountPageModel.h。
+  // 共享账号页（packages/ui/src/account/account-page.tsx）在 Windows 上画的是桌面那一支：没有 App 图标卡片（只有手机有）、没有「我的设计」（Windows 没有触屏键盘皮肤）、没有「关于」一组和登录后返回的「取消」（都只给手机或从别的页面跳来登录时）。没登录时是登录卡片（Google、邮箱、手机号验证码登录；没有可用的登录方式时给「刷新登录方式」，读不出本机登录状态时给「清除失效登录状态」）；登录后是资料卡片（点开「编辑资料」对话框：更换和移除头像、社区昵称、账号信息）、「设置同步」卡片、「云端」一组（云剪贴板面板是输入工具，仍由共享应用打开；云词库的入口在「词库」页，不登录也看得到，这里不再重复）、「我的内容」一组（共享应用的社区页，Windows 上只有词包与回复模板）和「账号」一组（退出登录、退出所有设备、注销账号）。所有账号操作经 msime_client_account，用共享应用和输入法读的同一份会话文件，除状态和取消 Google 登录外都在工作线程上进行；文案和规则在 AccountPageModel.h。
 
   struct AccountUser {
     std::wstring id, display_name, created_at, email, avatar_url;
@@ -4893,6 +4893,11 @@ private:
     account_challenge_.reset();
     account_resend_at_ = {};
     account_google_waiting_ = false;
+    account_session_unreadable_ = false;
+    // 登录方式每次进入本页重读：上一次读到的结果不能留下来，否则这次读失败时旧的 true 会藏起「暂无可用登录方式」和「刷新」。共享页每次重新挂载，状态本来就是新的。
+    account_email_ = false;
+    account_phone_ = false;
+    account_google_ = false;
     account_avatar_requested_.clear();
     reset_settings_sync();
   }
@@ -4940,13 +4945,16 @@ private:
     else if (const auto code = account_failure(providers); !am::cancelled(code))
       account_error_ = am::error_message(code);
     if (!status.ok) {
-      if (const auto code = account_failure(status); !am::cancelled(code))
+      if (const auto code = account_failure(status); !am::cancelled(code)) {
         account_error_ = am::error_message(code);
+        account_session_unreadable_ = true;
+      }
       account_signed_out();
       account_loading_ = false;
       redraw_account();
       return;
     }
+    account_session_unreadable_ = false;
     account_user_ = status_user(account_value(status));
     if (!account_user_) {
       account_signed_out();
@@ -4986,6 +4994,8 @@ private:
       account_finish(L"account_unavailable");
       return;
     }
+    // 登录成功说明保存的登录状态是可读的，之前那次读不出来的结论作废；否则退出登录后又会冒出「清除失效登录状态」。
+    account_session_unreadable_ = false;
     account_user_ = std::move(user);
     account_name_ = account_user_->display_name;
     account_providers_linked_.clear();
@@ -5124,6 +5134,7 @@ private:
         return;
       }
       account_signed_out();
+      account_session_unreadable_ = false;
       account_finish({}, notice);
     });
   }
@@ -5596,7 +5607,6 @@ private:
       record(L"手机号登录", L"我们会发送一个 6 位验证码完成登录");
       record(L"编辑资料", L"社区昵称");
       record(L"设置同步", std::wstring(am::sync_description));
-      record(L"云词库", L"");
       record(L"云剪贴板", L"");
       record(L"退出登录", L"");
       record(L"退出所有设备", L"");
@@ -5695,14 +5705,18 @@ private:
     mark_search_target(L"邮箱登录", group);
     mark_search_target(L"手机号登录", group);
 
-    if (account_channel_ == AccountChannel::none) {
+    // 两个恢复动作只在出了问题时出现，与共享页相同：登录方式只在进入本页时读一次，读失败或一个都没有时（上面那行「暂无可用登录方式」）才给「刷新」；读不出本机登录状态（status 失败）时才给「清除失效登录状态」。
+    const bool no_providers = !account_email_ && !account_phone_ && !account_google_;
+    if (account_channel_ == AccountChannel::none && (no_providers || account_session_unreadable_)) {
       auto actions = add_group(page, L"登录状态");
-      add_row(actions, 0, L"登录方式", L"重新获取当前可用的登录服务",
-              button_control(L"刷新", [this] { refresh_account_providers(); }, !account_busy_));
-      add_row(actions, 0, L"清除失效登录状态", L"无法正常登录时可清除本机失效状态后重试",
-              button_control(L"清除", [this] {
-                end_account_session(account_action(L"forget"), L"已清除失效登录状态。");
-              }, !account_busy_));
+      if (no_providers)
+        add_row(actions, 0, L"登录方式", L"重新获取当前可用的登录服务",
+                button_control(L"刷新", [this] { refresh_account_providers(); }, !account_busy_));
+      if (account_session_unreadable_)
+        add_row(actions, 0, L"清除失效登录状态", L"无法正常登录时可清除本机失效状态后重试",
+                button_control(L"清除", [this] {
+                  end_account_session(account_action(L"forget"), L"已清除失效登录状态。");
+                }, !account_busy_));
     }
   }
 
@@ -6016,13 +6030,9 @@ private:
       rename_account();
   }
 
-  // 「云端」：云词库和云剪贴板是输入工具的面板，仍由共享应用打开（本窗口只剩这几处会拉起共享应用，另外是屏幕键盘、语音输入和手写的面板）。
+  // 「云端」：云剪贴板是输入工具的面板，仍由共享应用打开（本窗口只剩这几处会拉起共享应用，另外是「词库」页的云词库和屏幕键盘、语音输入和手写的面板）。云词库与共享页一样只在「词库」页给入口。
   void build_account_cloud(StackPanel const &page) {
     auto group = add_group(page, L"云端");
-    add_row(group, 0xE753, L"云词库", L"",
-            button_control(L"打开云词库",
-                           [this] { open_shell(nav::shell_links::cloud_dictionary); },
-                           !account_busy_));
     add_row(group, 0xE77F, L"云剪贴板", L"",
             button_control(L"打开云剪贴板",
                            [this] { open_shell(nav::shell_links::cloud_clipboard); },
@@ -13147,7 +13157,7 @@ private:
 
   // ---- 剪贴板 ----
 
-  // 共享的「剪贴板」页（packages/ui/src/settings/pages/tools-page.tsx 和 clipboard-history-section.tsx）在 Windows 上画三组：「剪贴板」（历史开关、从系统剪贴板同步、清空历史）、开着历史时的「历史记录」（每条可重新复制、发到云剪贴板、固定和删除），以及打开云剪贴板面板的「云剪贴板」。历史文件与共享应用的相同（偏好目录下的 clipboard_history.json），经 msime_client_desktop_clipboard_history 读写；发到云剪贴板经 msime_client_account_cloud_clipboard 用共享应用登录的账号会话。云剪贴板面板是输入工具，仍由共享应用打开。
+  // 共享的「剪贴板」页（packages/ui/src/settings/pages/tools-page.tsx 和 clipboard-history-section.tsx）在 Windows 上画三组：「剪贴板」（历史开关、有历史时的清空历史）、开着历史时的「历史记录」（每条可重新复制、发到云剪贴板、固定和删除），以及打开云剪贴板面板的「云剪贴板」。历史文件与共享应用的相同（偏好目录下的 clipboard_history.json），经 msime_client_desktop_clipboard_history 读写；发到云剪贴板经 msime_client_account_cloud_clipboard 用共享应用登录的账号会话。云剪贴板面板是输入工具，仍由共享应用打开。
 
   struct ClipboardEntry {
     std::wstring text;
@@ -13266,7 +13276,7 @@ private:
     change_clipboard_history(action, L"无法删除剪贴板记录");
   }
 
-  // 共享页的 useClipboardHistoryToggle：写偏好；从开到关时再清空已存的历史，失败时说明。开关一变，进行中的读写都作废，列表和「确认清空」复位，云剪贴板重新查询。
+  // 共享页的 useClipboardHistoryToggle：写偏好；从开到关时再清空已存的历史，从关到开时把系统剪贴板上现有的那一条同步进来一次（Server 的 ClipboardMonitor 只记打开以后的复制，原来要另按「从系统剪贴板同步」才补得上这一条），失败时说明。开关一变，进行中的读写都作废，列表和「确认清空」复位，云剪贴板重新查询。
   void toggle_clipboard_history(bool on) {
     const bool was = clipboard_history_enabled();
     change([on](PreferencesDocument &doc) { doc.SetBoolean(L"clipboard_history", on); }, true);
@@ -13277,8 +13287,11 @@ private:
     clip_busy_ = false;
     clip_stale_ = true;
     reset_cloud_clipboard();
-    if (on)
+    if (on) {
+      if (!was)
+        change_clipboard_history(clipboard_action(L"sync"), L"无法同步剪贴板历史");
       return;
+    }
     clip_entries_.clear();
     clip_clear_armed_ = false;
     if (was)
@@ -13439,15 +13452,13 @@ private:
     }
 
     auto group = add_group(page, L"剪贴板");
-    StackPanel actions;
-    actions.Orientation(Orientation::Horizontal);
-    actions.Spacing(8);
-    actions.Margin(Thickness{0, 0, 0, 16});
-    actions.Children().Append(button_control(
-        L"从系统剪贴板同步",
-        [this] { change_clipboard_history(clipboard_action(L"sync"), L"无法同步剪贴板历史"); },
-        enabled && !clip_busy_));
+    // 没有「从系统剪贴板同步」：打开历史的那一次已经自动同步过（toggle_clipboard_history）。只剩有历史时的「清空历史」，没有历史时开关下面不留空行。
+    FrameworkElement actions_row{nullptr};
     if (!clip_entries_.empty()) {
+      StackPanel actions;
+      actions.Orientation(Orientation::Horizontal);
+      actions.Spacing(8);
+      actions.Margin(Thickness{0, 0, 0, 16});
       actions.Children().Append(button_control(
           clip_clear_armed_ ? L"确认清空" : L"清空历史",
           [this] {
@@ -13460,12 +13471,13 @@ private:
                                      L"无法清空剪贴板历史，请稍后重试。");
           },
           enabled && !clip_busy_));
+      actions_row = actions;
     }
     add_row(group, 0xE81C, L"剪贴板历史",
             L"开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。",
             toggle_control(L"剪贴板历史", enabled,
                            [this](bool on) { toggle_clipboard_history(on); }, !clip_busy_),
-            actions);
+            actions_row);
 
     if (enabled) {
       auto history = add_group(page, L"历史记录");
@@ -13574,7 +13586,7 @@ private:
 
   // ---- 打字统计 ----
 
-  // 共享的「打字统计」页（packages/ui/src/settings/typing-statistics.tsx）在 Windows 上画的那一版：没有手机外观、不是 iOS，有「自动清理」和「打开数据目录」。概览六格、标签（按键、趋势、类型、模式、方案、候选）下的图表、记录开关、保留期、刷新、打开数据目录、清空和「统计没有数据」的说明都照搬；派生数字和文案在 TypingStatisticsModel.h。统计经 msime_client_typing_statistics 读写状态目录下的 typing-statistics.json，与输入法和共享应用是同一份；请求带 status:true，回答里有文件是否写过和最后写入时间。所有读写都在工作线程上。
+  // 共享的「打字统计」页（packages/ui/src/settings/typing-statistics.tsx）在 Windows 上画的那一版：没有手机外观、不是 iOS，有「自动清理」。概览六格、标签（按键、趋势、类型、模式、方案、候选）下的图表、记录开关、保留期、清空和「统计没有数据」的说明都照搬。桌面版没有「刷新统计」：页面开着时每 5 秒和窗口重新激活时自动重读（poll_statistics）。也没有「打开数据目录」：统计文件所在的状态目录就是「维护与诊断 › 数据目录」的「打开」打开的那个，这里不再重复一个入口（Windows 上的共享页没有维护页的打开按钮，仍保留它）；派生数字和文案在 TypingStatisticsModel.h。统计经 msime_client_typing_statistics 读写状态目录下的 typing-statistics.json，与输入法和共享应用是同一份；请求带 status:true，回答里有文件是否写过和最后写入时间。所有读写都在工作线程上。
 
   static constexpr const wchar_t *statistics_failure =
       L"无法读取或保存统计，请稍后重试。原有统计不会被自动重置。";
@@ -13742,24 +13754,6 @@ private:
       co_return;
     stats_selected_.reset();
     update_statistics(statistics_action(L"reset"));
-  }
-
-  // 「打开数据目录」：统计文件所在的状态目录，没有时先建出来，与 Tauri 外壳的 open_typing_statistics_directory 一样；打不开时在页面顶部说明。
-  void open_statistics_directory() {
-    stats_error_.clear();
-    const auto directory = state_directory();
-    std::error_code error;
-    bool opened = !directory.empty() && directory.is_absolute();
-    if (opened) {
-      std::filesystem::create_directories(directory, error);
-      opened = std::filesystem::is_directory(directory, error);
-    }
-    if (opened)
-      opened = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", directory.c_str(), nullptr,
-                                                       nullptr, SW_SHOWNORMAL)) > 32;
-    if (!opened)
-      stats_error_ = L"无法打开数据目录，可能是文件管理器不可用。";
-    redraw_stats();
   }
 
   // 点按一天看它的分类与占比，再点一次回到整个时间范围。
@@ -14900,11 +14894,6 @@ private:
     StackPanel buttons;
     buttons.Orientation(Orientation::Horizontal);
     buttons.Spacing(9);
-    buttons.Children().Append(button_control(stats_busy_ ? L"处理中…" : L"刷新统计",
-                                             [this] { update_statistics(statistics_action(L"load"), true); },
-                                             !stats_busy_));
-    buttons.Children().Append(
-        button_control(L"打开数据目录", [this] { open_statistics_directory(); }, !stats_busy_));
     auto clear = button_control(L"清空统计", [this] { reset_statistics(); }, !stats_busy_);
     clear.as<Button>().Foreground(brush(danger_color()));
     buttons.Children().Append(clear);
@@ -19558,6 +19547,8 @@ private:
   bool account_phone_ = false;
   bool account_google_ = false;
   bool account_google_waiting_ = false;
+  // 读不出本机保存的登录状态（status 失败、不是取消）。只有这时才给「清除失效登录状态」；进入页面、读出状态、登录成功或清掉会话后复位。
+  bool account_session_unreadable_ = false;
   AccountChannel account_channel_ = AccountChannel::none;
   std::wstring account_target_;
   std::wstring account_code_;
