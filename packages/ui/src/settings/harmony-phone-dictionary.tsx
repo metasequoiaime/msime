@@ -1,4 +1,5 @@
 import { isComposingKeyEvent } from "../core/ime-key-event";
+import { LabeledInputField } from "../core/labeled-input-field";
 import { downloadBlob } from "../core/download-blob";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ActionSheet } from "../core/action-sheet";
@@ -920,16 +921,15 @@ function DialogField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="flex flex-col gap-1.5 text-[14px] [color:var(--p-sub)]">
-      {label}
-      <input
-        className={dialog.fieldControl}
-        aria-label={label}
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
+    <LabeledInputField
+      label={label}
+      labelClassName="flex flex-col gap-1.5 text-[14px] [color:var(--p-sub)]"
+      className={dialog.fieldControl}
+      ariaLabel={label}
+      value={value}
+      placeholder={placeholder}
+      onChange={onChange}
+    />
   );
 }
 
