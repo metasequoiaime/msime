@@ -3022,6 +3022,61 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',100),('ni','n','拟',90);",
     assert!(!words(&session).contains(&"云候选".to_owned()));
 }
 
+#[test]
+fn repeated_dedicated_english_preserves_chinese_grid_composition() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for grid in [KeyGrid::NineKey, KeyGrid::FourteenKey] {
+        let mut session = fixture.session();
+        session.set_key_grid(Some(grid));
+        if grid == KeyGrid::FourteenKey {
+            assert!(session.grid_key(b'n').handled);
+            assert!(session.grid_key(b'i').handled);
+        } else {
+            type_text(&mut session, "64");
+        }
+        assert!(session.grid_composing());
+        let before = session.snapshot();
+        assert!(!before.candidates.is_empty());
+
+        session.set_dedicated_english(false);
+
+        assert_eq!(session.snapshot(), before, "{grid:?}");
+        assert_eq!(
+            session.select(0).commit,
+            Some(before.candidates[0].word.clone())
+        );
+    }
+}
+
+#[test]
+fn repeated_dedicated_english_preserves_english_t9_composition() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+    let mut session = fixture.session();
+    session.set_nine_key_enabled(true);
+    session.set_dedicated_english(true);
+    type_text(&mut session, "435");
+    let before = session.snapshot();
+    assert!(session.grid_composing());
+    assert!(!before.candidates.is_empty());
+
+    session.set_dedicated_english(true);
+
+    assert_eq!(session.snapshot(), before);
+    assert_eq!(
+        session.select(0).commit,
+        Some(before.candidates[0].word.clone())
+    );
+
+    type_text(&mut session, "435");
+    session.set_dedicated_english(false);
+    assert!(!session.grid_composing());
+    assert!(session.snapshot().preedit.is_empty());
+    type_text(&mut session, "64");
+    session.set_dedicated_english(true);
+    assert!(!session.grid_composing());
+    assert!(session.snapshot().preedit.is_empty());
+}
+
 /// 14 键：组码只从 `grid_key` 进九宫格，组里任一字母都归成首字母；硬件键盘的字母照常走全拼，九宫格组字中不处理。
 #[test]
 fn fourteen_key_letters_enter_the_grid_only_through_grid_key() {

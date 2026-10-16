@@ -356,11 +356,14 @@ impl Session {
         self.input.set_helpcode_enabled(enabled);
     }
 
-    /// Flipping it resets the composition.
+    /// 只有模式改变时才取消组字；重复设置保留当前输入。
     pub fn set_dedicated_english(&mut self, enabled: bool) {
+        if self.input.dedicated_english == enabled {
+            return;
+        }
         self.nine_key.command(Command::Cancel);
         self.input.set_dedicated_english_mode(enabled);
-        // The grid's digits mean letters in English and syllables outside it, so whichever of the two switches moves last has to tell it.
+        // 九键在英文里用数字拼单词，在中文里拼音节，模式或网格改变时都要同步。
         self.nine_key
             .set_english_only(self.key_grid == Some(KeyGrid::NineKey) && enabled);
     }

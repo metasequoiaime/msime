@@ -3839,6 +3839,36 @@ fn switching_the_language_drops_the_composition_being_spelled() {
 }
 
 #[test]
+fn repeated_dedicated_english_preserves_real_grid_candidates() {
+    for grid in [KeyGrid::NineKey, KeyGrid::FourteenKey] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = ai_answer_runtime(directory.path(), 5);
+        runtime.set_key_grid(Some(grid)).unwrap();
+        if grid == KeyGrid::FourteenKey {
+            runtime.dispatch(Action::GridKey(b'n')).unwrap();
+            runtime.dispatch(Action::GridKey(b'i')).unwrap();
+        } else {
+            type_characters(&mut runtime, "64");
+        }
+        let before = runtime.view();
+        assert!(!before.editing_text.is_empty());
+        assert!(!before.nine_key_spellings.is_empty());
+        let expected = before.candidates[0].text.clone();
+
+        runtime.set_dedicated_english(false).unwrap();
+
+        let after = runtime.view();
+        assert_eq!(after.editing_text, before.editing_text, "{grid:?}");
+        assert_eq!(after.nine_key_spellings, before.nine_key_spellings);
+        assert_eq!(texts(&after), texts(&before));
+        let picked = runtime
+            .dispatch(Action::Select(after.candidates[0].id))
+            .unwrap();
+        assert_eq!(picked.commit.as_deref(), Some(expected.as_str()));
+    }
+}
+
+#[test]
 fn dedicated_english_caret_does_not_turn_rejected_keys_into_candidate_picks() {
     for value in *b"1! " {
         let directory = tempfile::tempdir().unwrap();
