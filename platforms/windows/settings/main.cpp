@@ -382,7 +382,7 @@ Response settings_dictionary_call(std::string const &options, std::string const 
 
 // The dictionaries the page manages, in the shared page's order and words.
 constexpr std::array<std::pair<std::wstring_view, std::wstring_view>, 5> lexicon_kinds{{
-    {L"pinyin", L"全拼"},
+    {L"pinyin", L"拼音"},
     {L"wubi", L"86 五笔"},
     {L"wubi98", L"98 五笔"},
     {L"english", L"英文"},

@@ -3347,7 +3347,7 @@ test("dictionary manager pages through entries instead of loading the whole dict
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   fireEvent.click(screen.getByRole("button", { name: "查询" }));
   expect(await screen.findByText("第 1–100 条，后面还有结果")).toBeDefined();
-  // This case selected 全拼, so that is the kind the host is asked for.
+  // This case selected 拼音, so that is the kind the host is asked for.
   expect(list).toHaveBeenCalledWith(0, 100, "pinyin", "");
   // The first page must not be followed by a second request on its own.
   expect(list).toHaveBeenCalledTimes(1);
