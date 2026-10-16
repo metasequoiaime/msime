@@ -2054,22 +2054,66 @@ fn a_snapshot_the_keyboard_cannot_take_yet_keeps_the_first_run_choice() {
     );
     let state = fixture.state();
     assert_eq!(state.sections.dictionary.cursor, None);
-    assert_eq!(state.sections.dictionary.choice, Some(Choice::UseCloud));
+    // 本机这时没有自己的词，两个选择没有区别：留成「合并」，以后键盘学到的词不会被云端快照整份替换。
+    assert_eq!(state.sections.dictionary.choice, Some(Choice::Merge));
     assert!(state.sections.dictionary.stall.is_some());
-    // 键盘打开过一次以后，退避过后的自动同步接着下载，不再问一次选择。
-    fixture.local.local().replace_failure = None;
-    let resumed = fixture.run(
+    // 还没打开过键盘：退避过后的自动同步照样下载，不再问一次选择。
+    let again = fixture.run(
         Trigger::Active,
         None,
         dictionary,
         NOW + policy::STALL_BASE_MS,
     );
+    assert_eq!(
+        again["sections"]["dictionary"]["reason"], DICTIONARY_UNPUBLISHED,
+        "{again}"
+    );
+    assert_eq!(
+        fixture.state().sections.dictionary.choice,
+        Some(Choice::Merge)
+    );
+    // 键盘打开过、学到了词以后，退避过后的自动同步把云端的词并进来，不拿快照替换本机的词，也不再问一次选择。
+    {
+        let mut local = fixture.local.local();
+        local.replace_failure = None;
+        local.words = true;
+    }
+    let resumed = fixture.run(
+        Trigger::Active,
+        None,
+        dictionary,
+        NOW + policy::STALL_BASE_MS + policy::stall_ms(2),
+    );
     assert_eq!(resumed["outcome"], "done", "{resumed}");
-    assert_eq!(fixture.local.local().replaced, [(USER.to_owned(), 4)]);
+    assert!(fixture.local.local().replaced.is_empty());
+    assert_eq!(fixture.local.local().merged, 1);
     let state = fixture.state();
     assert_eq!(state.sections.dictionary.cursor, Some(4));
     assert_eq!(state.sections.dictionary.choice, None);
     assert_eq!(state.sections.dictionary.stall, None);
+
+    // 本机已经有自己的词、用户明确选了「使用云端」：快照交不给激活队列时这个选择原样留着，键盘可用以后照用户选的下载。
+    let fixture = Fixture::new();
+    fixture.api.cloud().dictionary_revision = 4;
+    {
+        let mut local = fixture.local.local();
+        local.words = true;
+        local.replace_failure = Some(DICTIONARY_UNPUBLISHED.to_owned());
+    }
+    fixture.enable();
+    let first = fixture.run(Trigger::Choice, Some(Choice::UseCloud), dictionary, NOW);
+    assert_eq!(
+        first["sections"]["dictionary"]["reason"], DICTIONARY_UNPUBLISHED,
+        "{first}"
+    );
+    assert_eq!(
+        fixture.state().sections.dictionary.choice,
+        Some(Choice::UseCloud)
+    );
+    fixture.local.local().replace_failure = None;
+    let resumed = fixture.run(Trigger::Manual, None, dictionary, NOW + 1_000);
+    assert_eq!(resumed["outcome"], "done", "{resumed}");
+    assert_eq!(fixture.local.local().replaced, [(USER.to_owned(), 4)]);
 }
 
 #[test]

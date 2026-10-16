@@ -506,6 +506,8 @@ struct DictionaryData {
     enqueued: Option<String>,
     /// 这一轮合并往导入队列里排了词。
     queued: bool,
+    /// 这一轮读本机时本机词库有没有用户自己的词；还没读到时为 `None`。
+    local_words: Option<bool>,
 }
 
 /// 云端文档里会写回本机、也会被上传的部分：去掉隐私键和字段表外的键。
@@ -877,14 +879,17 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                 }
             }
             Step::ReadLocal => match context.local.dictionary(awaited) {
-                Ok(local) => Event::LocalRead(LocalProbe {
-                    has_data: local.has_words,
-                    content_dirty: false,
-                    upload_blocked: policy::upload_blocked(
-                        local.pending,
-                        local.activation == SnapshotActivation::Waiting,
-                    ),
-                    activation: local.activation,
+                Ok(local) => Event::LocalRead({
+                    data.local_words = Some(local.has_words);
+                    LocalProbe {
+                        has_data: local.has_words,
+                        content_dirty: false,
+                        upload_blocked: policy::upload_blocked(
+                            local.pending,
+                            local.activation == SnapshotActivation::Waiting,
+                        ),
+                        activation: local.activation,
+                    }
                 }),
                 Err(reason) => Event::LocalFailed { reason },
             },
@@ -1255,6 +1260,7 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                 probe: None,
                 enqueued: None,
                 queued: false,
+                local_words: None,
             },
         ));
     }
@@ -1320,7 +1326,10 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     };
     let previous_stall = round.state.sections.dictionary.stall;
     let mut keep_choice = false;
+    // 留给词库的选择改记成「合并」：见下面 `dictionary_unpublished` 那一条。
+    let mut keep_as_merge = false;
     let mut dictionary_queued = false;
+    let mut dictionary_local_words = None;
     let mut skins_skipped = None;
     if dictionary_stalled {
         let outcome = SectionOutcome::new(OutcomeKind::Skipped, Some(DICTIONARY_BACKOFF));
@@ -1355,6 +1364,7 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     }
     if let Some((slot, data)) = round.dictionary {
         dictionary_queued = data.queued;
+        dictionary_local_words = data.local_words;
         slots.push((Section::Dictionary, slot));
     }
     let mut failed = false;
@@ -1394,6 +1404,10 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                 let stalled = section == Section::Dictionary
                     && outcome.reason.as_deref().is_some_and(merge_stalled);
                 keep_choice |= stalled && dictionary_needs_choice;
+                // 键盘还没发布过本机词库版本时本机没有自己的词，「合并」和「使用云端」这一轮都是下载云端快照，用户的选择在这时没有区别。留到以后的那一轮时键盘多半已经打开过、学到了词，留着「使用云端」就会拿云端快照把这些词整份替换掉，所以改记成「合并」。本机这一轮就有词、用户选了「使用云端」时照原样留着。
+                keep_as_merge |= section == Section::Dictionary
+                    && outcome.reason.as_deref() == Some(DICTIONARY_UNPUBLISHED)
+                    && dictionary_local_words != Some(true);
                 if progress.failure.is_none() {
                     progress.failure = Some(failure_record(section, &slot, &outcome));
                 }
@@ -1505,7 +1519,9 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     // 词库在退避里没有跑，也不算同步成功：上次的失败原因留着，状态行照旧说明词库为什么停下。
     progress.synced = !failed && !dictionary_stalled;
     progress.consumed_choice = lease.choice.is_some();
-    progress.kept_choice = round_dictionary_choice.filter(|_| keep_choice);
+    progress.kept_choice = round_dictionary_choice
+        .filter(|_| keep_choice)
+        .map(|choice| if keep_as_merge { Choice::Merge } else { choice });
     if writes.is_empty() && deferred.is_none() {
         let result = store
             .update(|state| {
