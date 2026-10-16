@@ -6846,7 +6846,7 @@ show_selected_bar = true
     [NSApp sendAction:skinSwitches.lastObject.action to:skinSwitches.lastObject.target from:skinSwitches.lastObject];
     assert([external.globalTheme isEqual:@"custom"] && [external.customCandidateSkin isEqual:@"synthetic"] && [external decorationImageForDark:NO]);
     assert(skinSwitches.lastObject.state == NSControlStateValueOn);
-    assert([panel.contentView.subviews.lastObject isKindOfClass:NSImageView.class]);
+    assert([panel.contentView.subviews.lastObject isKindOfClass:MSIMECandidateDecorationView.class]);
     assert([[controller valueForKey:@"view"] isEqual:before]);
     [NSNotificationCenter.defaultCenter removeObserver:controller name:MSIMEAppearanceDidChangeNotification object:external];
     for (NSNumber *vertical in @[@NO, @YES]) {
@@ -6862,8 +6862,8 @@ show_selected_bar = true
             assert([toolbarFill isEqual:SkinColor(toolbarTokens.surface)]);
             assert([toolbarFill isEqual:SkinColor([external resolvedSkinForDark:dark].tokens.surface)]);
             MSIMECandidateChromeView *chrome = (id)panel.contentView;
-            NSImageView *decoration = (id)chrome.subviews.lastObject;
-            assert([decoration isKindOfClass:NSImageView.class] && decoration.image);
+            MSIMECandidateDecorationView *decoration = (id)chrome.subviews.lastObject;
+            assert([decoration isKindOfClass:MSIMECandidateDecorationView.class] && decoration.image);
             assert(panel.frame.size.width >= 240);
             // The 48pt band above the card is transparent and the square fixture, too tall at 120pt wide for the band plus the card's inset it overhangs, shrinks whole to that room: flush with the window's top, the inset in from the card's right edge.
             const CGFloat overhang = decoration.frame.size.height - 48;
@@ -6897,7 +6897,7 @@ show_selected_bar = true
     NSArray<NSSwitch *> *rescannedSwitches = [rescanned valueForKey:@"switches"];
     assert(rescannedSwitches.count == 7 && [rescannedSwitches.firstObject.identifier isEqual:@"system"]);
     [controller appearanceChanged:nil];
-    for (NSView *view in panel.contentView.subviews) assert(![view isKindOfClass:NSImageView.class]);
+    for (NSView *view in panel.contentView.subviews) assert(![view isKindOfClass:MSIMECandidateDecorationView.class]);
     panel.appearance = nil;
     std::filesystem::remove_all(root);
 }
@@ -6978,8 +6978,8 @@ background = "#F4F8FF"
         MSIMECandidateChromeView *chrome = (id)panel.contentView;
         assert(chrome.cornerRadius == 30.0 && skin.tokens.radius == 30.0f);
         assert(chrome.backgroundImage == [styled backgroundImageForDark:dark] && chrome.backgroundFit == msime::mac::BackgroundFit::stretch && chrome.backgroundOpacity == 1.0);
-        NSImageView *decoration = (id)chrome.subviews.lastObject;
-        assert([decoration isKindOfClass:NSImageView.class] && decoration.image == [styled decorationImageForDark:dark]);
+        MSIMECandidateDecorationView *decoration = (id)chrome.subviews.lastObject;
+        assert([decoration isKindOfClass:MSIMECandidateDecorationView.class] && decoration.image == [styled decorationImageForDark:dark]);
         // Left-aligned: in from the card's left edge by the same inset its bottom overhangs the card's top edge (the card starts 48pt down, under the band).
         const CGFloat overhang = NSHeight(chrome.bounds) - 48 - NSMinY(decoration.frame);
         assert(overhang > 0 && NSMinX(decoration.frame) == overhang && decoration.frame.size.width == decoration.frame.size.height);
@@ -7016,8 +7016,8 @@ background = "#F4F8FF"
     [styled reloadSkins];
     [controller appearanceChanged:nil];
     MSIMECandidateChromeView *chrome = (id)panel.contentView;
-    NSImageView *decoration = (id)chrome.subviews.lastObject;
-    assert([decoration isKindOfClass:NSImageView.class]);
+    MSIMECandidateDecorationView *decoration = (id)chrome.subviews.lastObject;
+    assert([decoration isKindOfClass:MSIMECandidateDecorationView.class]);
     assert(std::abs(NSMidX(decoration.frame) - NSWidth(chrome.bounds) / 2) < 0.01);
     for (NSView *child in chrome.subviews) assert(![child isKindOfClass:NSVisualEffectView.class]);
     // 旧版皮肤格式没有材质字段；半透明表面只改变颜色的 alpha，不能隐式开启模糊。
@@ -7093,19 +7093,19 @@ static void TestSkinSlotsPerMode(MSIMEInputController *controller, HiddenCandida
         panel.appearance = [NSAppearance appearanceNamed:theme];
         [controller appearanceChanged:nil];
         MSIMECandidateChromeView *chrome = (id)panel.contentView;
-        NSImageView *decoration = (id)chrome.subviews.lastObject;
-        assert([decoration isKindOfClass:NSImageView.class] && decoration.image == [slots decorationImageForDark:dark]);
+        MSIMECandidateDecorationView *decoration = (id)chrome.subviews.lastObject;
+        assert([decoration isKindOfClass:MSIMECandidateDecorationView.class] && decoration.image == [slots decorationImageForDark:dark]);
         assert(chrome.backgroundImage == [slots backgroundImageForDark:dark]);
         assert([chrome.fillColor isEqual:SkinColor([slots resolvedSkinForDark:dark].tokens.surface)]);
     }
     // 只是外观变了、没有整页重排：画的包换了，候选窗也要重排成另一个包的装饰。
     panel.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     [controller appearanceChanged:nil];
-    assert(((NSImageView *)panel.contentView.subviews.lastObject).image == lightDecoration);
+    assert(((MSIMECandidateDecorationView *)panel.contentView.subviews.lastObject).image == lightDecoration);
     panel.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     [controller refreshCandidateSkin];
     MSIMECandidateChromeView *switched = (id)panel.contentView;
-    assert(((NSImageView *)switched.subviews.lastObject).image == darkDecoration && switched.backgroundImage == darkBackground);
+    assert(((MSIMECandidateDecorationView *)switched.subviews.lastObject).image == darkDecoration && switched.backgroundImage == darkBackground);
     // 停用深色皮肤只清深色槽位；深色模式回落到浅色槽位，但浅色底的包不在深色模式画。
     [slots removeCustomCandidateSkin:@"dusk"];
     assert([slots.customCandidateSkin isEqual:@"dawn"] && slots.customCandidateSkinDark == nil);
