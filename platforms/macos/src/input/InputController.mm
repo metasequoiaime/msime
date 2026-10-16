@@ -1323,6 +1323,7 @@ static NSImage *MSIMECandidateLogoImage() {
     NSDictionary *_customTranslationConfig;
     NSDictionary *_tencentTranslationConfig;
     NSDictionary *_niuTransConfig;
+    NSDictionary *_aiTranslationConfig;
     NSArray<NSDictionary *> *_customResults;
     NSString *_accountGlossSignature;
     NSDictionary *_accountGlossRequest;
@@ -2353,13 +2354,17 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     if (!niuTrans) config = query[@"custom_translation"];
     BOOL custom = !niuTrans && [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
     if (!niuTrans && !custom) config = query[@"tencent_tmt"];
+    BOOL tencent = !niuTrans && !custom && [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
+    if (!tencent) config = query[@"ai_assistant"];
+    BOOL ai = !niuTrans && !custom && !tencent && [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
     if (![config isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(config[@"enabled"])) return nil;
     // A preference snapshot can be pending in Engine while the composition is active.
     if ((niuTrans && _niuTransConfig && ![_niuTransConfig isEqual:config]) ||
         (!niuTrans && MSIMEStrictBoolean(_niuTransConfig[@"enabled"])) ||
         (custom && _customTranslationConfig && ![_customTranslationConfig isEqual:config]) ||
-        (!niuTrans && !custom && (MSIMEStrictBoolean(_customTranslationConfig[@"enabled"]) ||
+        (!niuTrans && !custom && !ai && (MSIMEStrictBoolean(_customTranslationConfig[@"enabled"]) ||
             (_tencentTranslationConfig && ![_tencentTranslationConfig isEqual:config]))) ||
+        (ai && _aiTranslationConfig && ![_aiTranslationConfig isEqual:config]) ||
         (!command && _glossTargetLanguages && ![_glossTargetLanguages isEqual:MSIMETranslationTargets(query)])) return nil;
     NSDictionary *view = [self serviceSnapshotView];
     if (command) {
@@ -2369,7 +2374,7 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
         NSString *target = [query[@"target_language"] isKindOfClass:NSString.class] ? query[@"target_language"] : nil;
         if (!text.length || !target.length || ![view[@"generation"] isEqual:query[@"generation"]]) return nil;
         return @{@"command":@YES, @"target_language":target, @"target_languages":@[target],
-            (niuTrans ? @"niutrans" : custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":@[@{@"text":text}]};
+            (niuTrans ? @"niutrans" : custom ? @"custom_translation" : tencent ? @"tencent_tmt" : @"ai_assistant"):config, @"candidates":@[@{@"text":text}]};
     }
     // Korean Hanja rows are translated like Chinese ones; their 훈음 is drawn whatever comes back. Japanese, including temporary Japanese composition, is still left out.
     if (!MSIMEViewShowsGlosses(view) || ![view[@"generation"] isEqual:query[@"generation"]]) return nil;
@@ -2383,7 +2388,7 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     }
     if (!candidates.count) return nil;
     return @{@"target_language":query[@"target_language"], @"target_languages":MSIMETranslationTargets(query),
-        (niuTrans ? @"niutrans" : custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":[candidates copy],
+        (niuTrans ? @"niutrans" : custom ? @"custom_translation" : tencent ? @"tencent_tmt" : @"ai_assistant"):config, @"candidates":[candidates copy],
         @"directory":_preferencesDirectory ?: @""};
 }
 // Each offline dictionary answers a single target language, so the rows are merged per candidate in the user's target order. The English gloss and any account gloss fill the targets they cover; otherwise whichever source answered a candidate first would hide the other target rows. On-device translation comes last and fills only what every dictionary left empty: it translates the word without context, which a dictionary entry does not.
@@ -2849,9 +2854,10 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *values = [NSMutableDictionary dictionary];
     MSIMETranslationCache *cache = [MSIMETranslationCache sharedCache];
     BOOL tencent = query[@"tencent_tmt"] != nil;
+    BOOL ai = query[@"ai_assistant"] != nil;
     BOOL niuTrans = query[@"niutrans"] != nil;
-    NSString *scope = MSIMETranslationProviderScope(niuTrans ? @"niutrans" : tencent ? @"tencent" : @"custom",
-        niuTrans ? query[@"niutrans"] : tencent ? query[@"tencent_tmt"] : query[@"custom_translation"]);
+    NSString *scope = MSIMETranslationProviderScope(niuTrans ? @"niutrans" : tencent ? @"tencent" : ai ? @"ai" : @"custom",
+        niuTrans ? query[@"niutrans"] : tencent ? query[@"tencent_tmt"] : ai ? query[@"ai_assistant"] : query[@"custom_translation"]);
     if (!scope) return;
     _customQuery = query;
     NSSet *glossTexts = [NSSet setWithArray:[_glossResults valueForKey:@"text"] ?: @[]];
@@ -2894,6 +2900,17 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
             if (tencent || niuTrans) {
                 [pending addObject:item];
                 if (!command) identities[workKey] = identity;
+                continue;
+            }
+            if (ai) {
+                NSDictionary *request = @{ @"config":query[@"ai_assistant"], @"input":@{
+                    @"text":item[@"key"], @"source_language":item[@"source_language"],
+                    @"target_language":item[@"target_language"] }};
+                NSDictionary *descriptor = [MSIMEClientSession aiTranslationHTTPRequest:request error:nil];
+                if (descriptor) {
+                    [pending addObject:@{@"text":item[@"text"], @"request":descriptor}];
+                    if (!command) identities[workKey] = identity;
+                } else if (!command) [cache rememberTranslation:nil identity:identity];
                 continue;
             }
             NSDictionary *descriptor = [MSIMEClientSession customTranslationHTTPRequest:@{@"config":query[@"custom_translation"],
@@ -2983,6 +3000,7 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
             };
             MSIMECustomTranslationBatch *batch = niuTrans ? [owner niuTransBatchForItems:items config:query[@"niutrans"] completion:completion]
                 : tencent ? [owner tencentBatchForItems:items config:query[@"tencent_tmt"] completion:completion]
+                : ai ? [[MSIMECustomTranslationBatch alloc] initWithAIItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion]
                 : [owner customBatchForItems:items completion:completion];
             batch.onReply = onReply;
             owner->_customBatch = batch;
@@ -5416,6 +5434,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (_niuTransConfig && ![_niuTransConfig isEqual:niuTrans]) [[MSIMETranslationCache sharedCache] clear];
         translationChanged |= ![_niuTransConfig isEqual:niuTrans];
         _niuTransConfig = [niuTrans copy];
+    }
+    NSDictionary *aiTranslation = preferences[@"ai_assistant"];
+    if ([aiTranslation isKindOfClass:NSDictionary.class]) {
+        if (_aiTranslationConfig && ![_aiTranslationConfig isEqual:aiTranslation]) [[MSIMETranslationCache sharedCache] clear];
+        translationChanged |= ![_aiTranslationConfig isEqual:aiTranslation];
+        _aiTranslationConfig = [aiTranslation copy];
     }
     if (translationChanged || (_glossEnabled && !_glossEnabled.boolValue)) {
         // None of these settings feed the AI request, so a pending AI suggestion survives them; AI config changes are caught by the _aiQuery identity check on the next render.

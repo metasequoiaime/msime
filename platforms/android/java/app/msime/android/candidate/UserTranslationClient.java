@@ -25,7 +25,7 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
     /** 腾讯每批的词数，与 iOS、Linux 相同（共享层上限是 10）。 */
     public static final int TENCENT_BATCH = 9;
     /** 共享层 `MAX_SOURCE_CHARS`：超过的词描述器会拒绝，所以根本不发。 */
-    public static final int MAX_SOURCE_CODE_POINTS = 40;
+    public static final int MAX_SOURCE_CODE_POINTS = 256;
     /** store 拿到的译文超过这个字节数会丢掉，所以也不算回答。 */
     private static final int MAX_GLOSS_BYTES = 4096;
 
@@ -66,6 +66,14 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
                 continue;
             }
             if (memory.shouldAsk(language, word)) eligible.add(index);
+        }
+        if (route.provider() == CandidateTranslationRoute.Provider.AI) {
+            for (int index : eligible) {
+                if (stale.getAsBoolean() || memory.serviceBackingOff()) break;
+                String word = texts.get(index);
+                result.set(index, ai(word, language));
+            }
+            return result;
         }
         if (route.provider() == CandidateTranslationRoute.Provider.TENCENT) {
             for (int start = 0; start < eligible.size(); start += TENCENT_BATCH) {
@@ -122,6 +130,25 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
             return null;
         }
         return answer(language, word, stringValue(NativeClient.parseCustomTranslationResponse(body)));
+    }
+
+    /** 使用当前 AI 凭据构造并解析一次 AI 候选翻译。 */
+    private String ai(String word, String language) throws JSONException {
+        JSONObject tokens = new JSONObject().put(
+            AiEndpointPolicy.credentialOrigin(route.endpoint()), route.aiToken());
+        JSONObject config = new JSONObject()
+            .put("enabled", true).put("provider", route.aiProvider()).put("endpoint", route.endpoint())
+            .put("model", route.aiModel()).put("tokens", tokens);
+        JSONObject descriptor = descriptor(NativeClient.aiTranslationHttpRequest(
+            config.toString(), word, "zh", language));
+        if (descriptor == null) return null;
+        byte[] body = TranslationHttpTransport.post(descriptor);
+        if (body == null) {
+            memory.unreachable();
+            return null;
+        }
+        return answer(language, word,
+            stringValue(NativeClient.parseAiTranslationResponse(body)));
     }
 
     private void tencent(List<String> texts, List<Integer> batch, String language, List<String> result)

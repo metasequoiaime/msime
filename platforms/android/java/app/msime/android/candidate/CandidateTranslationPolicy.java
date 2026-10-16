@@ -108,6 +108,27 @@ public final class CandidateTranslationPolicy {
         return CandidateTranslationRoute.NONE;
     }
 
+    /** 在已有翻译服务都未选中时，才使用复用的 AI 助手配置；旧路由优先级保持不变。 */
+    public static CandidateTranslationRoute route(boolean candidateTranslations, boolean translationAccount,
+            boolean niutransEnabled, String niutransAppId, String niutransApiKey,
+            boolean customEnabled, String customEndpoint, String customApiKey,
+            boolean tencentEnabled, String tencentSecretId, String tencentSecretKey, String tencentRegion,
+            boolean aiEnabled, String aiProvider, String aiEndpoint, String aiModel, String aiToken) {
+        CandidateTranslationRoute existing = route(candidateTranslations, translationAccount,
+            niutransEnabled, niutransAppId, niutransApiKey, customEnabled, customEndpoint, customApiKey,
+            tencentEnabled, tencentSecretId, tencentSecretKey, tencentRegion);
+        if (existing.provider() != CandidateTranslationRoute.Provider.NONE || !aiEnabled)
+            return existing;
+        String provider = credentialTrimmed(aiProvider);
+        String endpoint = credentialTrimmed(aiEndpoint);
+        String model = credentialTrimmed(aiModel);
+        String token = credentialTrimmed(aiToken);
+        return !provider.isEmpty() && !endpoint.isEmpty() && !model.isEmpty()
+                && usableCredential(token) && AiEndpointPolicy.allowed(endpoint)
+            ? CandidateTranslationRoute.ai(provider, endpoint, model, token)
+            : CandidateTranslationRoute.NONE;
+    }
+
     /** 与共享层的 source_gets_no_gloss 保持一致：这些来源既不请求也不显示候选释义。 */
     public static boolean sourceGetsNoGloss(int source) {
         return source == 6 || source == 7 || source == 13 || source == 14;

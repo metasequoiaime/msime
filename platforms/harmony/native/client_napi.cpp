@@ -838,8 +838,10 @@ TEXT_ENTRY(GoogleLoopback, msime_client_google_loopback)
 TEXT_ENTRY(TencentTranslationHttpRequest, msime_client_tencent_translation_http_request)
 TEXT_ENTRY(NiuTransTranslationHttpRequest, msime_client_niutrans_translation_http_request)
 TEXT_ENTRY(CustomTranslationHttpRequest, msime_client_custom_translation_http_request)
+TEXT_ENTRY(AiTranslationHttpRequest, msime_client_ai_translation_http_request)
 TEXT_ENTRY(ParseNiuTransTranslationResponse, msime_client_parse_niutrans_translation_response)
 TEXT_ENTRY(ParseCustomTranslationResponse, msime_client_parse_custom_translation_response)
+TEXT_ENTRY(ParseAiTranslationResponse, msime_client_parse_ai_translation_response)
 
 static napi_value ParseTencentTranslationResponse(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
@@ -1513,9 +1515,11 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("tencentTranslationHttpRequest", TencentTranslationHttpRequest),
         ENTRY("niuTransTranslationHttpRequest", NiuTransTranslationHttpRequest),
         ENTRY("customTranslationHttpRequest", CustomTranslationHttpRequest),
+        ENTRY("aiTranslationHttpRequest", AiTranslationHttpRequest),
         ENTRY("parseTencentTranslationResponse", ParseTencentTranslationResponse),
         ENTRY("parseNiuTransTranslationResponse", ParseNiuTransTranslationResponse),
         ENTRY("parseCustomTranslationResponse", ParseCustomTranslationResponse),
+        ENTRY("parseAiTranslationResponse", ParseAiTranslationResponse),
         ENTRY("onlineQuery", OnlineQuery),
         ENTRY("cloudRequestUrl", CloudRequestUrl),
         ENTRY("keySoundPack", KeySoundPack),

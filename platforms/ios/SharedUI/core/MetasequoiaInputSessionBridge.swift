@@ -125,6 +125,10 @@ private func msimeClientTencentTranslationHTTPRequest(_ request: UnsafePointer<M
 private func msimeClientNiuTransTranslationHTTPRequest(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_custom_translation_http_request")
 private func msimeClientCustomTranslationHTTPRequest(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_ai_translation_http_request")
+private func msimeClientAITranslationHTTPRequest(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_parse_ai_translation_response")
+private func msimeClientParseAITranslationResponse(_ body: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_parse_tencent_translation_response")
 private func msimeClientParseTencentTranslationResponse(_ body: UnsafePointer<MSIMEByte>?, _ length: UInt, _ expected: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_parse_niutrans_translation_response")
@@ -1009,6 +1013,21 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           let data = try? JSONSerialization.data(withJSONObject: request), data.count <= 16_384 else { return nil }
     return data.withUnsafeBytes { bytes in
       (try? decode(function(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))) as? [String: Any]
+    }
+  }
+
+  static func aiTranslationRequest(request: [String: Any]) -> [String: Any]? {
+    guard JSONSerialization.isValidJSONObject(request),
+          let data = try? JSONSerialization.data(withJSONObject: request), data.count <= 65_536 else { return nil }
+    return data.withUnsafeBytes { bytes in
+      (try? decode(msimeClientAITranslationHTTPRequest(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))) as? [String: Any]
+    }
+  }
+
+  static func parseAITranslationResponse(body: Data) -> String? {
+    guard !body.isEmpty, body.count <= 1_048_576 else { return nil }
+    return body.withUnsafeBytes { bytes in
+      (try? decode(msimeClientParseAITranslationResponse(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(body.count)))) as? String
     }
   }
 

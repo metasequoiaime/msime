@@ -285,6 +285,36 @@ void append_niutrans_item(const nlohmann::json &config,
   }
 }
 
+void append_ai_item(const nlohmann::json &config, const nlohmann::json &item,
+                    std::string &translations,
+                    const std::function<bool()> &cancelled) {
+  if (cancelled() || !config.is_object() || !config.value("enabled", false))
+    return;
+  const auto request = nlohmann::json{
+      {"config", config},
+      {"input", { {"text", item.at("key")},
+                   {"source_language", item.at("source_language")},
+                   {"target_language", item.at("target_language")} }}};
+  const auto bytes = request.dump();
+  auto descriptor = host_value(msime_client_ai_translation_http_request(
+      reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()));
+  if (!descriptor || descriptor->is_null() || cancelled())
+    return;
+  auto body = http_request(*descriptor, cancelled, false, kNiuTransTranslationTimeoutMs);
+  if (!body || cancelled())
+    return;
+  auto parsed = host_value(msime_client_parse_ai_translation_response(
+      reinterpret_cast<const uint8_t *>(body->data()), body->size()));
+  if (!parsed || !parsed->is_string() || parsed->get<std::string>().empty())
+    return;
+  try {
+    auto output = nlohmann::json::parse(translations);
+    output.push_back({{"text", item.at("text")}, {"translation", *parsed}});
+    translations = output.dump();
+  } catch (...) {
+  }
+}
+
 std::mutex &account_directory_mutex() {
   static std::mutex mutex;
   return mutex;
@@ -750,6 +780,7 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       const auto custom =
           query.value("custom_translation", nlohmann::json(nullptr));
       const auto tencent = query.value("tencent_tmt", nlohmann::json(nullptr));
+      const auto ai = query.value("ai_assistant", nlohmann::json(nullptr));
       if (niutrans.is_object() && niutrans.value("enabled", false)) {
         append_niutrans_item(niutrans, item, translations, cancelled);
       } else if (custom.is_object() && custom.value("enabled", false)) {
@@ -760,6 +791,8 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       } else if (tencent.is_object() && tencent.value("enabled", false)) {
         append_tencent_group(tencent, std::vector<nlohmann::json>{item},
                              translations, cancelled);
+      } else if (ai.is_object() && ai.value("enabled", false)) {
+        append_ai_item(ai, item, translations, cancelled);
       }
       if (cancelled() || nlohmann::json::parse(translations).empty())
         return std::nullopt;
@@ -1024,9 +1057,14 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       provider_scope = "custom:" + custom.value("endpoint", std::string{});
     } else {
       const auto tencent = query.value("tencent_tmt", nlohmann::json(nullptr));
-      if (!tencent.is_object() || !tencent.value("enabled", false))
-        return local_result();
-      provider_scope = "tencent";
+      const auto ai = query.value("ai_assistant", nlohmann::json(nullptr));
+      if (ai.is_object() && ai.value("enabled", false))
+        provider_scope = "ai:" + ai.value("provider", std::string{});
+      else {
+        if (!tencent.is_object() || !tencent.value("enabled", false))
+          return local_result();
+        provider_scope = "tencent";
+      }
     }
     const auto target_language = query.at("target_language");
     const auto item_cache_id = [&](const nlohmann::json &item) {
@@ -1099,22 +1137,33 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       }
     } else {
       const auto tencent = query.value("tencent_tmt", nlohmann::json(nullptr));
-      if (!tencent.is_object() || !tencent.value("enabled", false))
+      const auto ai = query.value("ai_assistant", nlohmann::json(nullptr));
+      if ((!tencent.is_object() || !tencent.value("enabled", false)) &&
+          (!ai.is_object() || !ai.value("enabled", false)))
         return std::nullopt;
-      std::unordered_map<std::string, std::vector<nlohmann::json>> groups;
-      groups.reserve(pending.size());
-      for (const auto &item : pending)
-        groups[item.at("source_language").get<std::string>() + "\n" +
-               item.at("target_language").get<std::string>()]
-            .push_back(item);
-      for (const auto &[key, items] : groups) {
-        (void)key;
-        if (cancelled() ||
-            std::chrono::steady_clock::now() >= provider_deadline)
-          break;
-        for (const auto &item : items)
+      if (ai.is_object() && ai.value("enabled", false)) {
+        for (const auto &item : pending) {
+          if (cancelled() || std::chrono::steady_clock::now() >= provider_deadline)
+            break;
           attempted_cache_ids.insert(item_cache_id(item));
-        append_tencent_group(tencent, items, translations, cancelled);
+          append_ai_item(ai, item, translations, cancelled);
+        }
+      } else {
+        std::unordered_map<std::string, std::vector<nlohmann::json>> groups;
+        groups.reserve(pending.size());
+        for (const auto &item : pending)
+          groups[item.at("source_language").get<std::string>() + "\n" +
+                 item.at("target_language").get<std::string>()]
+              .push_back(item);
+        for (const auto &[key, items] : groups) {
+          (void)key;
+          if (cancelled() ||
+              std::chrono::steady_clock::now() >= provider_deadline)
+            break;
+          for (const auto &item : items)
+            attempted_cache_ids.insert(item_cache_id(item));
+          append_tencent_group(tencent, items, translations, cancelled);
+        }
       }
     }
     if (cancelled())

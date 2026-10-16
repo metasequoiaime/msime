@@ -91,7 +91,17 @@ public final class CandidateTranslationRouteSmoke {
             "the same settings give the same route");
         check(custom.userService() && !CandidateTranslationRoute.ACCOUNT.userService()
                 && !CandidateTranslationRoute.NONE.userService(),
-            "only NiuTrans, custom and Tencent are user services");
+            "only direct providers are user services");
+        CandidateTranslationRoute ai = CandidateTranslationPolicy.route(true, false, false, "", "",
+            false, "", "", false, "", "", "", true, "openai",
+            "https://api.openai.com/v1/chat/completions", "synthetic-model", "synthetic-token");
+        check(ai.provider() == Provider.AI && ai.userService()
+                && "openai".equals(ai.aiProvider()) && "synthetic-model".equals(ai.aiModel()),
+            "valid AI settings select the shared AI translation route");
+        CandidateTranslationRoute aiFallback = CandidateTranslationPolicy.route(true, false, false, "", "",
+            false, "", "", false, "", "", "", true, "openai",
+            "https://api.openai.com/v1/chat/completions", "synthetic-model", "");
+        check(aiFallback.provider() == Provider.NONE, "AI without a token does not send text");
         System.out.println("Android candidate translation route mirrors the shared provider selection");
     }
 

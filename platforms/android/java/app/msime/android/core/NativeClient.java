@@ -10,6 +10,7 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 /** JNI transport for an Android IME host. Session operations use the creating thread.
@@ -743,6 +744,25 @@ public final class NativeClient {
     public static String aiRequestForQuery(long session, String query) {
         return TextPolicy.utf8(aiRequestForQueryRaw(session, boundedQuery(query)));
     }
+    /** 使用当前 AI 凭据构造一次候选翻译请求。 */
+    public static String aiTranslationHttpRequest(String config, String text, String source,
+            String target) {
+        if (config == null || text == null || source == null || target == null)
+            throw new IllegalArgumentException("Missing AI translation request");
+        JSONObject request;
+        try {
+            request = new JSONObject(config)
+                .put("input", new JSONObject().put("text", text)
+                    .put("source_language", source).put("target_language", target));
+        } catch (JSONException error) {
+            throw new IllegalArgumentException("Invalid AI translation configuration", error);
+        }
+        return TextPolicy.utf8(aiTranslationHttpRequestRaw(request.toString().getBytes(StandardCharsets.UTF_8)));
+    }
+    public static String parseAiTranslationResponse(byte[] body) {
+        if (body == null || body.length > GLOSS_RESPONSE_LIMIT) throw new IllegalArgumentException("AI response is too large");
+        return TextPolicy.utf8(parseAiTranslationResponseRaw(body));
+    }
     public static String applyCloudResponse(long session, String query, String body) {
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
         if (payload.length > OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES)
@@ -876,6 +896,8 @@ public final class NativeClient {
     private static native byte[] onlineQueryRaw(long session);
     private static native byte[] cloudRequestUrlRaw(byte[] query);
     private static native byte[] aiRequestForQueryRaw(long session, byte[] query);
+    private static native byte[] aiTranslationHttpRequestRaw(byte[] request);
+    private static native byte[] parseAiTranslationResponseRaw(byte[] body);
     private static native byte[] applyCloudResponseRaw(long session, byte[] query, byte[] body);
     private static native byte[] applyOnlineCandidatesRaw(long session, byte[] query,
         byte[] candidates, int source);

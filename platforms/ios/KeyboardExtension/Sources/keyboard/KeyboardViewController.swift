@@ -6112,7 +6112,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   static func preferredGloss(offline: String?, online: String?, route: TranslationRoute) -> String? {
     switch route {
     case .account, .none: return offline ?? online
-    case .niutrans, .tencent, .custom: return online ?? offline
+    case .niutrans, .tencent, .custom, .ai: return online ?? offline
     }
   }
 
@@ -6128,7 +6128,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func synchronizeTranslationRoute() -> Bool {
-    let route = TranslationProviderPreference.route(in: session.sharedPreferences)
+    var route = TranslationProviderPreference.route(in: session.sharedPreferences)
+    if case let .ai(provider, endpoint, model, _) = route,
+       let configuration = KeyboardAIService.configuration(),
+       let configuredURL = try? configuration.validatedURL(allowsLocalHTTP: true),
+       configuredURL.absoluteString == endpoint,
+       let token = try? KeyboardAIService.token(for: configuration) {
+      route = .ai(provider: provider, endpoint: endpoint, model: model, token: token)
+    }
     translationRouteGeneration &+= 1
     let generation = translationRouteGeneration
     if route == .account {

@@ -21,7 +21,9 @@ public final class CandidateTranslationRoute {
         ACCOUNT,
         NIUTRANS,
         CUSTOM,
-        TENCENT
+        TENCENT,
+        /** 复用现有 AI 助手配置的 Chat Completions 翻译。 */
+        AI
     }
 
     public static final CandidateTranslationRoute NONE =
@@ -61,11 +63,16 @@ public final class CandidateTranslationRoute {
             region.isEmpty() ? DEFAULT_TENCENT_REGION : region);
     }
 
+    static CandidateTranslationRoute ai(String provider, String endpoint, String model, String token) {
+        return new CandidateTranslationRoute(Provider.AI, provider, token, endpoint, "", "", model);
+    }
+
     public Provider provider() { return provider; }
 
-    /** 是不是用户自己的服务（小牛、自定义、腾讯）：这三种由 {@link UserTranslationClient} 直接请求，不经过水杉账号。 */
+    /** 是不是键盘直接请求的用户服务（含复用 AI 助手配置），这些路径不经过水杉账号。 */
     public boolean userService() {
-        return provider == Provider.NIUTRANS || provider == Provider.CUSTOM || provider == Provider.TENCENT;
+        return provider == Provider.NIUTRANS || provider == Provider.CUSTOM
+            || provider == Provider.TENCENT || provider == Provider.AI;
     }
 
     /** 小牛翻译的 App ID。 */
@@ -83,6 +90,15 @@ public final class CandidateTranslationRoute {
 
     /** 腾讯云的地域，没填时是 {@link #DEFAULT_TENCENT_REGION}。 */
     public String region() { return region; }
+
+    /** AI 服务商名称；只有 {@link Provider#AI} 路由使用。 */
+    public String aiProvider() { return appId; }
+
+    /** AI 模型名称；只有 {@link Provider#AI} 路由使用。 */
+    public String aiModel() { return region; }
+
+    /** AI 请求令牌；只在构造描述器时读取，不进入日志。 */
+    public String aiToken() { return apiKey; }
 
     /** 缓存归属：服务加凭据的 SHA-256 前 16 位十六进制。换服务或换凭据后它就变，旧服务的译文不会留到新服务下。 */
     public String scope() {

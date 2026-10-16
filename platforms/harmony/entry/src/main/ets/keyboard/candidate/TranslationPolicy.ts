@@ -25,6 +25,15 @@ export interface NiuTransTranslationConfig {
   apikey: string;
 }
 
+export interface AiTranslationConfig {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  token: string;
+  tokens?: Record<string, string>;
+  endpoint: string;
+}
+
 export interface TranslationQuery {
   generation: number;
   target_language: string;
@@ -35,6 +44,7 @@ export interface TranslationQuery {
   custom_translation?: TranslationProviderConfig | null;
   tencent_tmt?: TencentTranslationConfig | null;
   niutrans?: NiuTransTranslationConfig | null;
+  ai_assistant?: AiTranslationConfig | null;
   english_gloss: boolean;
   /** True only for the `/fy` command's request: one English sentence for the selected service, into target_language. */
   sentence?: boolean;
@@ -126,6 +136,7 @@ export class TranslationPolicy {
     if (query.niutrans?.enabled === true) return "niutrans";
     if (query.custom_translation?.enabled === true) return "custom";
     if (query.tencent_tmt?.enabled === true) return "tencent";
+    if (query.ai_assistant?.enabled === true) return "ai";
     return "";
   }
 
@@ -134,6 +145,7 @@ export class TranslationPolicy {
     const custom: TranslationProviderConfig | null = query.custom_translation ?? null;
     const niutrans: NiuTransTranslationConfig | null = query.niutrans ?? null;
     const tencent: TencentTranslationConfig | null = query.tencent_tmt ?? null;
+    const ai: AiTranslationConfig | null = query.ai_assistant ?? null;
     return JSON.stringify({
       generation: query.generation,
       target_languages: TranslationPolicy.targets(query),
@@ -152,6 +164,10 @@ export class TranslationPolicy {
       niutrans_credential: TranslationPolicy.credentialFingerprint(niutrans?.apikey ?? ""),
       tencent_id: TranslationPolicy.credentialFingerprint(tencent?.secret_id ?? ""),
       tencent_credential: TranslationPolicy.credentialFingerprint(tencent?.secret_key ?? ""),
+      ai_provider: ai?.provider ?? "",
+      ai_endpoint: ai?.endpoint ?? "",
+      ai_model: ai?.model ?? "",
+      ai_credential: TranslationPolicy.credentialFingerprint(ai?.token ?? ""),
     });
   }
 
@@ -217,6 +233,9 @@ export class TranslationPolicy {
       return `tencent:${query.tencent_tmt?.region ?? ""}:${TranslationPolicy.credentialFingerprint(
         query.tencent_tmt?.secret_id ?? "",
       )}:${TranslationPolicy.credentialFingerprint(query.tencent_tmt?.secret_key ?? "")}`;
+    }
+    if (provider === "ai") {
+      return `ai:${query.ai_assistant?.provider ?? ""}:${query.ai_assistant?.endpoint ?? ""}:${query.ai_assistant?.model ?? ""}:${TranslationPolicy.credentialFingerprint(query.ai_assistant?.token ?? "")}`;
     }
     return provider;
   }

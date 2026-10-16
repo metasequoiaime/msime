@@ -57,6 +57,7 @@ REQUEST_LINE_LIMIT = 16384
 AI_TEST_REQUEST_LINE_LIMIT = 32768
 # 空白提示词槽位所代表的联想提示词：Windows 把它编译进 AiAssistantConfig::prompt（ime_config.h），client-providers 把同样的文本存为 ai::DEFAULT_CANDIDATE_PROMPT，供在那里构造请求的宿主使用。共享偏好让这个槽位留空，所以没有这一份时，Linux 的每个 AI 请求都带着空的 system 消息，模型回的是 JSON 解析器拒收的散文。ai_service_contract.py 保证这份副本与 client-providers 的那份相同。
 DEFAULT_AI_PROMPT = "你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。\n\n优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。"
+DEFAULT_TRANSLATION_PROMPT = "你是一个机器翻译服务。把用户给出的文本从 source_language 翻译成 target_language。只翻译文本本身，保留原意和标点，不要解释、注释或改写。只输出合法 JSON，不要输出 Markdown：{\"translation\":\"译文\"}。没有合适译文时输出空字符串。"
 
 
 class ConnectBoundedHTTPSConnection(http.client.HTTPSConnection):
@@ -418,6 +419,36 @@ def translation_gloss(value):
     return value if candidate(value, 0) and not any(127 <= ord(c) <= 159 for c in value) else None
 
 
+def ai_translation(text, target, options, path):
+    """使用候选栏 AI 的私有配置翻译一个候选词，不把令牌经过 provider socket。"""
+    direction = translation_direction(text, target)
+    if direction is None or not isinstance(options, dict) or not options.get("enabled"):
+        return None
+    config = None
+    if path:
+        loaded = load_ai_config(path)
+        provider = options.get("provider")
+        config = loaded if loaded.get("provider") == provider else loaded.get("profiles", {}).get(provider)
+    if not ai_config_matches(options, config):
+        return None
+    source, destination = direction
+    body = {"model": config["model"], "stream": False, "temperature": 0.0,
+            "max_tokens": 512, "response_format": {"type": "json_object"},
+            "messages": [{"role": "system", "content": DEFAULT_TRANSLATION_PROMPT},
+                         {"role": "user", "content": json.dumps({
+                             "source_language": source, "target_language": destination,
+                             "text": text, "output_format": "json"}, ensure_ascii=False)}]}
+    if config["provider"] == "deepseek":
+        body["thinking"] = {"type": "disabled"}
+    result = fetch(config["endpoint"], AI_REQUEST_TIMEOUT, body, config["token"],
+                   connect_timeout=AI_CONNECT_TIMEOUT)
+    content = result.get("choices", [{}])[0].get("message", {}).get("content")
+    if not isinstance(content, str):
+        return None
+    value = json.loads(strip_code_fence(content)).get("translation")
+    return translation_gloss(value)
+
+
 def _anonymous_private_path(path):
     """Read one owner-only anonymous-account document, or return None when absent."""
     if path is None:
@@ -767,7 +798,7 @@ def translations(query, server):
     texts = query.get("candidates")
     target = query.get("target_language", "en")
     sentence = query.get("sentence", False)
-    max_text_chars = 512 if sentence else 40
+    max_text_chars = 512 if sentence else 256
     if (not isinstance(sentence, bool) or not isinstance(texts, list) or
         len(texts) > (1 if sentence else 9) or
         any(not isinstance(text, str) or len(text.encode()) > 4096 for text in texts) or
@@ -785,7 +816,7 @@ def translations(query, server):
         # MSIME account and no user-owned service is usable. Keep that choice
         # visible to this process instead of falling back to Tencent.
         selected = "account"
-    if (selected not in ("tencent", "niutrans", "custom", "account") or
+    if (selected not in ("tencent", "niutrans", "custom", "account", "ai") or
         (selected == "niutrans" and not niutrans) or (selected == "custom" and not custom)):
         return []
     if selected == "account":
@@ -816,6 +847,8 @@ def translations(query, server):
         custom = {**custom, "endpoint": endpoint, "api_key": token}
         # Keep credentials out of cache keys and separate caches when they change.
         provider = (endpoint, hashlib.sha256(token.encode()).digest())
+    elif selected == "ai":
+        provider = ("ai", options.get("provider", ""))
     else:
         # Each request keeps one credential snapshot, including both directions.
         # A removed or invalid file disables Tencent until a valid file is restored.
@@ -826,6 +859,16 @@ def translations(query, server):
         scope = json.dumps(tencent_config, sort_keys=True, separators=(",", ":")).encode()
         provider = ("tencent", hashlib.sha256(scope).digest())
     deadline = time.monotonic() + 6
+    if selected == "ai":
+        options = query.get("ai_assistant")
+        rows = []
+        for text in texts:
+            if time.monotonic() >= deadline:
+                break
+            value = safely(ai_translation, text, target, options, server.ai_config_path)
+            if value:
+                rows.append({"text": text, "translation": value})
+        return rows
     found = {}
     groups = {}
     for text in dict.fromkeys(texts):

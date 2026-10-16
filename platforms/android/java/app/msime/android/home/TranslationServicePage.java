@@ -179,7 +179,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
                 MessageDialog.show(requireContext(), result.ok() ? "测试成功" : "测试未通过", result.message());
             });
         });
-        group.footer("选择自己的服务后，键盘把当前一页的中文候选（最多 10 个，每个不超过 40 字）直接发给该服务，不经过水杉服务器。小牛和自定义每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次，都会消耗你在该服务的额度。离线释义查得到的语言仍优先显示离线释义。");
+        group.footer("选择自己的服务后，键盘把当前一页的中文候选（最多 10 个，每个不超过 256 字）直接发给该服务，不经过水杉服务器。小牛、自定义和 AI 每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次，都会消耗你在该服务的额度。离线释义查得到的语言仍优先显示离线释义。");
     }
 
     private static JSONObject testConfig(Choice selected, JSONObject niutrans, JSONObject custom, JSONObject tencent) {

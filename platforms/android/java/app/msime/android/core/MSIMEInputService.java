@@ -2355,6 +2355,14 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject niutrans = preferences.optJSONObject("niutrans");
         JSONObject custom = preferences.optJSONObject("custom_translation");
         JSONObject tencent = preferences.optJSONObject("tencent_tmt");
+        JSONObject ai = preferences.optJSONObject("ai_assistant");
+        String aiEndpoint = translationProviderText(ai, "endpoint");
+        String aiOrigin = AiEndpointPolicy.credentialOrigin(aiEndpoint);
+        String aiToken = ai == null ? "" : ai.optJSONObject("tokens") == null || aiOrigin == null
+            ? translationProviderText(ai, "token")
+            : JsonPolicy.strictStringOrEmpty(ai.optJSONObject("tokens").opt(aiOrigin));
+        if (aiToken.isEmpty() && ai != null && "deepseek".equals(translationProviderText(ai, "provider")))
+            aiToken = translationProviderText(ai, "token");
         return CandidateTranslationPolicy.route(
             preferences.optBoolean("candidate_translations", true),
             preferences.optBoolean("translation_account", false),
@@ -2363,7 +2371,9 @@ public final class MSIMEInputService extends InputMethodService {
             translationProviderEnabled(custom, false), translationProviderText(custom, "endpoint"),
             translationProviderText(custom, "api_key"),
             translationProviderEnabled(tencent, true), translationProviderText(tencent, "secret_id"),
-            translationProviderText(tencent, "secret_key"), translationProviderText(tencent, "region"));
+            translationProviderText(tencent, "secret_key"), translationProviderText(tencent, "region"),
+            ai != null && ai.optBoolean("enabled", false), translationProviderText(ai, "provider"),
+            aiEndpoint, translationProviderText(ai, "model"), aiToken);
     }
 
     private static boolean translationProviderEnabled(JSONObject provider, boolean fallback) {

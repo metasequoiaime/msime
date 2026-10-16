@@ -91,7 +91,7 @@ import { PrivacyGate, PrivacyRecord } from './PrivacyGate';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
-  TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, TranslationCandidate
+  TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, AiTranslationConfig, TranslationCandidate
 } from './candidate/TranslationPolicy';
 import { TranslationSensePolicy } from './candidate/TranslationSensePolicy';
 import pasteboard from '@ohos.pasteboard';
@@ -4719,6 +4719,12 @@ export class KeyboardSession implements HardwareKeyTarget {
             query.custom_translation, item, epoch, handle);
           value = result.value;
           completed = result.completed;
+        } else if (provider === 'ai' && query.ai_assistant !== null
+          && query.ai_assistant !== undefined) {
+          const result: TranslationProviderResult = await this.fetchAiTranslation(
+            query.ai_assistant, item, epoch, handle);
+          value = result.value;
+          completed = result.completed;
         }
         if (!completed) providerComplete = false;
         this.recordTranslation(query, target, item, value, answered);
@@ -4907,6 +4913,27 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const reply: NativeReply<string | null> = JSON.parse(
         client.parseCustomTranslationResponse(body)) as NativeReply<string | null>;
+      const value: string | null = NativeReplyPolicy.successfulValue(reply);
+      return { value: value, completed: value !== null };
+    } catch {
+      return { value: null, completed: false };
+    }
+  }
+
+  private async fetchAiTranslation(config: AiTranslationConfig, item: TranslationPlanItem,
+    epoch: number, handle: number): Promise<TranslationProviderResult> {
+    const request = {
+      config: config,
+      input: { text: item.key, source_language: item.source_language, target_language: item.target_language }
+    };
+    const descriptor: TranslationHttpDescriptor | null = this.translationDescriptor(
+      client.aiTranslationHttpRequest(JSON.stringify(request)));
+    if (descriptor === null) return { value: null, completed: false };
+    const body: string | null = await this.translationHttp(descriptor, false, epoch, handle);
+    if (body === null) return { value: null, completed: false };
+    try {
+      const reply: NativeReply<string | null> = JSON.parse(
+        client.parseAiTranslationResponse(body)) as NativeReply<string | null>;
       const value: string | null = NativeReplyPolicy.successfulValue(reply);
       return { value: value, completed: value !== null };
     } catch {
