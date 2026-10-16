@@ -554,7 +554,12 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                 let schema = data.schema.clone().expect("schema is read first");
                 let cloud = data.cloud.clone().expect("cloud is read first");
                 let local = data.local.as_ref().expect("local is read first");
-                let base = self.state.sections.settings.base_keys().cloned();
+                // 这一轮发现云端被清空时，旧基线已经不作数：按首次合并处理，不能把「云端删光」当成云端删了这些键再传到本机。
+                let base = if slot.machine.awaiting_choice() {
+                    None
+                } else {
+                    self.state.sections.settings.base_keys().cloned()
+                };
                 match settings_upload(&cloud, local, base.as_ref(), &schema, skins, mode) {
                     Err(reason) => Event::LocalFailed { reason },
                     Ok((document, trimmed)) => {
@@ -631,7 +636,12 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
         };
         let context = &self.context;
         let section = &self.state.sections.phrases;
-        let base = section.base_texts().cloned();
+        // 这一轮发现云端被清空时不用旧基线：否则合并会把基线里有、云端没有的本机常用语当成在云端被删掉，再从本机删掉。
+        let base = if slot.machine.awaiting_choice() {
+            None
+        } else {
+            section.base_texts().cloned()
+        };
         let unheld = section.unheld_set();
         let event = match slot.step.clone() {
             Step::Fetch => match context.remote(|api, token| api.phrases(token))? {
@@ -766,9 +776,8 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                         event
                     }
                     Ok(probe) => {
-                        // 第一条新改动是 reset 时再看云端是不是空了：「删除云端数据」会清掉全部历史再写一条 reset；别的设备整份上传快照也写 reset，但云端不空。读不出汇总时按不空处理。
-                        let reset_and_empty = cursor.is_some()
-                            && probe.reset
+                        // 第一条新改动是 reset 时再看云端是不是空了：「删除云端数据」会清掉全部历史再写一条 reset；别的设备整份上传快照也写 reset，但云端不空。读不出汇总时按不空处理。从没同步过（没有游标）时也要看：删除以后云端只剩那条 reset，不能当成云端有词。
+                        let reset_and_empty = probe.reset
                             && matches!(
                                 context.remote(|api, token| api.data_summary(token))?,
                                 Ok(summary) if summary.sections.iter().any(|section| section.id == "dictionary" && section.items == 0)
@@ -776,7 +785,7 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                         data.probe = Some(probe);
                         Event::Fetched(CloudProbe {
                             revision: probe.revision,
-                            has_data: probe.changed,
+                            has_data: probe.changed && !reset_and_empty,
                             reset_and_empty,
                         })
                     }
@@ -941,7 +950,15 @@ fn settings_upload(
             }
         }
     } else {
-        settings.remove(policy::SKINS_KEY);
+        // 本机不同步皮肤库（iOS）：云端的皮肤库是别的平台上传的，原样留着。服务端整份替换设置文档，去掉这个键就等于从云端删掉了它。
+        match cloud_settings.get(policy::SKINS_KEY) {
+            Some(library) => {
+                settings.insert(policy::SKINS_KEY.to_owned(), library.clone());
+            }
+            None => {
+                settings.remove(policy::SKINS_KEY);
+            }
+        }
     }
     let document = AccountPreferences {
         revision: cloud.revision,

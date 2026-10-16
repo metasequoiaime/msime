@@ -1061,6 +1061,162 @@ fn a_cleared_cloud_asks_instead_of_deleting_local_data() {
 }
 
 #[test]
+fn a_cloud_cleared_in_a_round_that_already_has_a_choice_does_not_use_the_old_base() {
+    for choice in [Choice::Merge, Choice::UseCloud] {
+        let fixture = Fixture::new();
+        fixture.local.local().settings = [("input.schema".to_owned(), string("quanpin"))].into();
+        fixture.local.add_phrase("甲");
+        fixture.local.add_phrase("乙");
+        fixture.enable();
+        let synced = fixture.run(Trigger::Enable, None, settings_and_phrases(), NOW);
+        assert_eq!(synced["outcome"], "done", "{synced}");
+        assert!(fixture.state().sections.phrases.base.is_some());
+        // 另一台设备「删除云端数据」，而这一轮已经带着（旧界面发来的）选择。
+        {
+            let mut cloud = fixture.api.cloud();
+            cloud.preferences = AccountPreferences {
+                revision: 2,
+                settings: BTreeMap::new(),
+            };
+            cloud.phrases = AccountPhrases {
+                revision: 2,
+                phrases: Vec::new(),
+            };
+        }
+        let result = fixture.run(
+            Trigger::Choice,
+            Some(choice),
+            settings_and_phrases(),
+            NOW + 60_000,
+        );
+        assert_eq!(result["outcome"], "done", "{choice:?} {result}");
+        assert_eq!(fixture.local.texts(), ["甲", "乙"], "{choice:?}");
+        assert_eq!(fixture.api.cloud_texts(), ["甲", "乙"], "{choice:?}");
+        assert_eq!(
+            fixture.local.local().settings,
+            [("input.schema".to_owned(), string("quanpin"))].into(),
+            "{choice:?}"
+        );
+        assert_eq!(
+            fixture.api.cloud().preferences.settings,
+            [("input.schema".to_owned(), string("quanpin"))].into(),
+            "{choice:?}"
+        );
+        let state = fixture.state();
+        assert!(!state.sections.phrases.cleared && !state.sections.settings.cleared);
+    }
+}
+
+#[test]
+fn a_host_without_the_skin_library_keeps_the_cloud_library() {
+    let fixture = Fixture::new();
+    let library =
+        json!([{ "id": "android", "name": "android", "design": {}, "updated_at": 1 }]).to_string();
+    fixture.api.cloud().preferences = AccountPreferences {
+        revision: 2,
+        settings: [
+            ("input.schema".to_owned(), string("wubi")),
+            (policy::SKINS_KEY.to_owned(), string(&library)),
+        ]
+        .into(),
+    };
+    fixture.local.local().settings = [("input.schema".to_owned(), string("quanpin"))].into();
+    fixture.enable();
+    let merged = fixture.run(
+        Trigger::Choice,
+        Some(Choice::Merge),
+        settings_and_phrases(),
+        NOW,
+    );
+    assert_eq!(merged["outcome"], "done", "{merged}");
+    let cloud = fixture.api.cloud().preferences.clone();
+    assert_eq!(cloud.revision, 3);
+    assert_eq!(
+        cloud.settings.get(policy::SKINS_KEY),
+        Some(&string(&library))
+    );
+    assert_eq!(cloud.settings.get("input.schema"), Some(&string("quanpin")));
+    // 皮肤库不写回不同步它的本机。
+    assert!(!fixture
+        .local
+        .local()
+        .settings
+        .contains_key(policy::SKINS_KEY));
+    // 之后本机改了设置再上传（有基线）：云端的皮肤库仍然留着。
+    fixture
+        .local
+        .local()
+        .settings
+        .insert("input.schema".to_owned(), string("shuangpin"));
+    store_mark(&fixture, Section::Settings);
+    let uploaded = fixture.run(Trigger::Manual, None, settings_and_phrases(), NOW + 60_000);
+    assert_eq!(
+        uploaded["sections"]["settings"]["outcome"], "synced",
+        "{uploaded}"
+    );
+    let cloud = fixture.api.cloud().preferences.clone();
+    assert_eq!(cloud.revision, 4);
+    assert_eq!(
+        cloud.settings.get("input.schema"),
+        Some(&string("shuangpin"))
+    );
+    assert_eq!(
+        cloud.settings.get(policy::SKINS_KEY),
+        Some(&string(&library))
+    );
+}
+
+#[test]
+fn an_emptied_dictionary_cloud_never_replaces_local_words() {
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    // 首次同步，云端在「删除云端数据」以后只剩一条 reset：当作空的云端，直接上传本机，「使用云端」也不清空本机。
+    let fixture = Fixture::new();
+    fixture.local.local().words = true;
+    {
+        let mut cloud = fixture.api.cloud();
+        cloud.dictionary_revision = 3;
+        cloud.dictionary_reset = true;
+        cloud.dictionary_items = 0;
+    }
+    fixture.enable();
+    let first = fixture.run(Trigger::Choice, Some(Choice::UseCloud), dictionary, NOW);
+    assert_eq!(first["outcome"], "done", "{first}");
+    assert_eq!(first["sections"]["dictionary"]["outcome"], "synced");
+    assert!(fixture.local.local().replaced.is_empty());
+    assert_eq!(fixture.api.cloud().snapshot_uploads, 1);
+    assert_eq!(fixture.state().sections.dictionary.cursor, Some(4));
+
+    // 同步过以后云端被清空：问用户；选「使用云端」时按合并处理，不拿空快照替换本机。
+    {
+        let mut cloud = fixture.api.cloud();
+        cloud.dictionary_revision = 5;
+        cloud.dictionary_reset = true;
+        cloud.dictionary_items = 0;
+    }
+    let asked = fixture.run(Trigger::Manual, None, dictionary, NOW + 60_000);
+    assert_eq!(asked["outcome"], "needs_choice", "{asked}");
+    assert_eq!(asked["reason"], "cloud_cleared");
+    let chosen = fixture.run(
+        Trigger::Choice,
+        Some(Choice::UseCloud),
+        dictionary,
+        NOW + 120_000,
+    );
+    assert_eq!(chosen["outcome"], "done", "{chosen}");
+    assert!(fixture.local.local().replaced.is_empty());
+    assert_eq!(fixture.local.local().merged, 1);
+    let state = fixture.state();
+    assert!(!state.sections.dictionary.cleared);
+    assert!(
+        state.sections.dictionary.dirty(),
+        "local words are uploaded next round"
+    );
+}
+
+#[test]
 fn an_account_switch_during_the_round_voids_it() {
     let fixture = Fixture::new();
     fixture.local.add_phrase("本机");

@@ -101,7 +101,7 @@ pub struct SectionInput {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CloudProbe {
     pub revision: i64,
-    /// 云端有内容：设置文档非空、常用语列表非空、词库自 0 以来有改动。
+    /// 云端有内容：设置文档非空、常用语列表非空、词库自 0 以来有改动而且不是被清空成空的（`reset_and_empty` 为真时它为假）。
     pub has_data: bool,
     /// 只对词库：第一条新改动是 `reset`，而且云端词库现在是空的（「删除云端数据」）。
     pub reset_and_empty: bool,
