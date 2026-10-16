@@ -2379,12 +2379,17 @@ fn initials_for_digit(grid: KeyGrid, digit: u8) -> impl Iterator<Item = u8> {
 
 /// 每个数字当一个音节的首字母时能拼出的全部简拼（`68` → mt、nt、ot）；多于 `limit` 个，或有数字不是 2-9 时为 `None`。
 fn initials_codes(grid: KeyGrid, digits: &str, limit: usize) -> Option<Vec<String>> {
-    let mut codes = vec![String::with_capacity(digits.len())];
+    // 先检查完整展开的预算，拒绝时不创建任何中间前缀。
+    let mut total = 1usize;
     for digit in digits.bytes() {
         let count = initials_for_digit(grid, digit).count();
-        if count == 0 || codes.len().saturating_mul(count) > limit {
+        total = total.saturating_mul(count);
+        if count == 0 || total > limit {
             return None;
         }
+    }
+    let mut codes = vec![String::with_capacity(digits.len())];
+    for digit in digits.bytes() {
         codes = codes
             .iter()
             .flat_map(|code| {
@@ -3022,6 +3027,9 @@ mod filter_projection_tests;
 
 #[cfg(test)]
 mod cached_rank_tests;
+
+#[cfg(test)]
+mod initials_code_tests;
 
 #[cfg(test)]
 mod path_chain_tests;
