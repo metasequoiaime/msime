@@ -1303,7 +1303,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let button = makeKey(title: symbol, accessibilityLabel: "运算符 \(symbol)") { [weak self] in
         guard let self else { return }
         countKeyPress(TypingKeyID.punctuation)
-        insertSymbolLayerLiteral(symbol)
+        insertNumberPadLiteral(symbol)
       }
       Self.drawBareInSidebar(button)
       numberPadSidebar.addArrangedSubview(button)
@@ -1357,7 +1357,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           guard let self else { return }
           self.countKeyPress(self.numberPadKeyID(digit))
           if self.showsSymbols {
-            self.insertSymbolLayerLiteral(String(digit))
+            self.insertNumberPadLiteral(String(digit))
           }
           else if letters == nil && self.inputScheme != .nineKeyShuangpin { self.showNineKeyQuickSymbols() }
           else { self.handleCharacter(String(digit)) }
@@ -1526,7 +1526,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       handleCharacter("'")
     case .period:
       countKeyPress(TypingKeyID.character("."))
-      insertSymbolLayerLiteral(".")
+      insertNumberPadLiteral(".")
     case .rewrite:
       playInputClick()
       if hasComposition { render(discardComposition()) }
@@ -2715,6 +2715,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     insertDirectText(text)
   }
 
+  /// 数字页原样结束组字，与 Android、鸿蒙一致；普通符号页仍沿用选词后插入的路径。
+  private func insertNumberPadLiteral(_ text: String) {
+    playInputClick()
+    let literal = FullWidthInputPolicy.output(text, enabled: fullWidthInput && !typesKorean && !typesCasedLetters)
+    render(session.commitRaw(), appendingLiteral: literal)
+    if !isChineseMode { refreshEnglishSuggestions() }
+  }
+
   private func toggleMoreSymbols() {
     playInputClick()
     showsMoreSymbols.toggle()
@@ -2860,7 +2868,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard let self else { return }
       countKeyPress(numberPadKeyID(0))
       if inputScheme == .nineKeyShuangpin && !showsSymbols { handleCharacter("0") }
-      else { insertSymbolLayerLiteral("0") }
+      else { insertNumberPadLiteral("0") }
     }
     zero.configuration?.contentInsets = .zero
     zero.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
@@ -5687,7 +5695,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     noteOwnEdit()
   }
 
-  private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil) {
+  private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil,
+                      appendingLiteral: String? = nil) {
     candidateRevision &+= 1
     // 下面的 `updateCandidateStrip` 用这次快照的候选盖掉 1 键放进来的常用标点。
     nineKeyQuickSymbols = []
@@ -5709,9 +5718,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     currentNineKeySingleCharacter = snapshot.nineKeySingleCharacter
     currentNineKeyStrokes = snapshot.nineKeyStrokes
     updateLetterCaseControls()
-    if let commitText = snapshot.commitText {
-      insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source,
-                    replacingComposition: true)
+    if snapshot.commitText != nil || appendingLiteral != nil {
+      let commit = snapshot.commitText.map { source == .japanese ? $0 : chineseOutput($0) } ?? ""
+      // 原组字和数字作为同一次文档替换提交；先撤标记再插数字会读到尚未更新的选区，数字可能跑到拼音前面。
+      insertOwnText(commit + (appendingLiteral ?? ""), source: source,
+                    replacingComposition: snapshot.commitText != nil)
     }
     let wasComposing = hasComposition
     let wasKoreanHanjaListOpen = koreanHanjaListOpen

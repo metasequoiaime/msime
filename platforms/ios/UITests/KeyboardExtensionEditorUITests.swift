@@ -261,6 +261,35 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
                   "添加语言应打开应用的输入设置")
   }
 
+  /// 数字页只接受字面输入，不能在结束拼音时悄悄选中首选候选。
+  func testNumberPadCommitsRawCompositionBeforeEveryLiteral() throws {
+    let app = XCUIApplication()
+    let field = try focusedTryoutKeyboard(app)
+    app.buttons["schemeButton"].tap()
+    let card = app.buttons["schemeCard-quanpin"]
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    card.tap()
+    func key(_ id: String) -> XCUIElement {
+      app.descendants(matching: .any)[id].firstMatch
+    }
+    var expected = ""
+    for (identifier, literal) in [("nineKey1", "1"), ("nineKeyZero", "0"),
+                                  ("nineKeyMiddleKey", "."), ("运算符 +", "+"),
+                                  ("运算符 -", "-"), ("运算符 *", "*"), ("运算符 /", "/")] {
+      key("字母 N").tap()
+      key("字母 I").tap()
+      XCTAssertTrue(app.buttons["candidate-1"].exists, "必须先建立可选词的拼音组合")
+      key("layoutToggleButton").tap()
+      let target = key(identifier)
+      XCTAssertTrue(target.isHittable)
+      target.tap()
+      expected += "ni" + literal
+      XCTAssertEqual(field.value as? String, expected, "数字页必须原样结束组合，再写入 \(literal)")
+      XCTAssertTrue(key("numberPadMoreSymbols").isHittable, "输入后必须留在数字页")
+      key("layoutToggleButton").tap()
+    }
+  }
+
   /// 常规中文和原九键的数字页在系统编辑器里连续输入，扩展符号往返不丢失原方案。
   func testNumberPadTypesContinuousArithmeticIntoTheHostEditor() throws {
     let app = XCUIApplication()
