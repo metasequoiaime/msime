@@ -654,6 +654,14 @@ impl SyncStateStore {
         self.load()
     }
 
+    /// 只读当前状态，不建状态目录、不写状态文件：目录还不存在时直接是全新的默认值。给不持有登录的进程看开关用。
+    pub fn peek(&self) -> Result<SyncState, StateError> {
+        match std::fs::symlink_metadata(&self.directory) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(SyncState::default()),
+            _ => self.read(),
+        }
+    }
+
     /// 在锁内读出、修改、写回；没有改动时不写。
     pub fn update<T>(&self, change: impl FnOnce(&mut SyncState) -> T) -> Result<T, StateError> {
         let _lock = self.lock()?;

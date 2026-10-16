@@ -306,3 +306,38 @@ fn an_injected_store_supplies_the_account() {
     }));
     assert_eq!(gone["error"], INVALID);
 }
+
+#[test]
+fn a_process_without_the_login_reads_the_switch_with_peek_and_clears_nothing() {
+    let paths = paths();
+    let peek = |directory: Option<&Path>| {
+        let mut request = json!({
+            "state_directory": paths.state,
+            "action": { "operation": "peek" },
+        });
+        if let Some(directory) = directory {
+            request["directory"] = json!(directory);
+        }
+        call(request)
+    };
+    // 还没有状态：全新的默认值，不建状态目录。
+    let fresh = peek(None);
+    assert_eq!(fresh["value"]["enabled"], false, "{fresh}");
+    assert!(!paths.state.join("cloud-sync").exists());
+    save_session(&paths.account, "synthetic-user");
+    call(request(
+        &paths,
+        json!({ "operation": "set_enabled", "enabled": true }),
+    ));
+    // Android 的 :ime 进程：给的会话目录里看不到登录。只读，不对账，共享的进度和开关都留着。
+    let ime = paths.account.join("ime");
+    std::fs::create_dir_all(&ime).unwrap();
+    for directory in [Some(ime.as_path()), None] {
+        let seen = peek(directory);
+        assert_eq!(seen["value"]["enabled"], true, "{seen}");
+        assert_eq!(seen["value"]["account_id"], "synthetic-user");
+    }
+    let owner = call(request(&paths, json!({ "operation": "status" })));
+    assert_eq!(owner["value"]["enabled"], true, "{owner}");
+    assert_eq!(owner["value"]["sections"]["phrases"]["dirty"], true);
+}

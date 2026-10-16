@@ -1,6 +1,6 @@
 //! `msime_client_cloud_sync`：多分类自动云同步的 C 入口，一个按 `operation` 分发的 JSON 请求。请求、各操作的返回值和错误码见头文件；驱动在 crate 的 `cloud_sync`。
 //!
-//! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。`run` 和 `commit` 要联网、读写文件，宿主在工作线程调用；`mark_dirty` 只读写状态文件，键盘扩展和 Android 的 `:ime` 进程也能调。
+//! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。`run` 和 `commit` 要联网、读写文件，宿主在工作线程调用；`mark_dirty` 只读写状态文件、`peek` 只读状态文件，键盘扩展和 Android 的 `:ime` 进程也能调；其余操作要会话来源，只有持有登录的进程能调（`status`、`set_enabled` 和 `run` 会按会话对账，看不到登录就清空共享的进度）。
 
 use super::account::session_for;
 use super::session_store::{session_source, Source};
@@ -53,6 +53,7 @@ struct HostResults {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Action {
     Status {},
+    Peek {},
     SignOut {},
     SetEnabled {
         enabled: bool,
@@ -102,8 +103,9 @@ fn now_ms() -> u64 {
 fn perform(request: CloudSyncRequest) -> Result<Value, String> {
     let store = SyncStateStore::new(&absolute(&request.state_directory)?);
     let now = now_ms();
-    // 只碰状态文件的两个操作不需要会话。
+    // 只碰状态文件的几个操作不需要会话，也从不按会话对账：不持有登录的进程只能调它们。
     let action = match request.action {
+        Action::Peek {} => return cloud_sync::peek(&store, now),
         Action::MarkDirty { section } => return cloud_sync::mark_dirty(&store, section),
         Action::ImportLegacy { ios_v1, android } => {
             let snapshot_queue = request
@@ -219,7 +221,7 @@ fn perform(request: CloudSyncRequest) -> Result<Value, String> {
                 now,
             )
         }
-        Action::MarkDirty { .. } | Action::ImportLegacy { .. } => Err(invalid()),
+        Action::Peek {} | Action::MarkDirty { .. } | Action::ImportLegacy { .. } => Err(invalid()),
     }
 }
 

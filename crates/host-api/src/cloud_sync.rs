@@ -319,6 +319,12 @@ pub(crate) fn set_enabled<A: AccountApi, S: AccountSessionStorage>(
     Ok(status_value(&state, now_ms))
 }
 
+/// `peek`：只读状态文件，不读会话、不对账、不写任何东西。不持有登录的进程（键盘扩展、Android 的 `:ime`）用它看开关：它们的会话来源里可能看不到登录，调 `status` 会按「已经退出」对账，把共享的进度清空、开关关掉。
+pub(crate) fn peek(store: &SyncStateStore, now_ms: u64) -> Result<Value, String> {
+    let state = store.peek().map_err(storage)?;
+    Ok(status_value(&state, now_ms))
+}
+
 /// `mark_dirty`：只做文件操作，不读会话。返回有没有记下（开关关闭时不记）。
 pub(crate) fn mark_dirty(store: &SyncStateStore, section: Section) -> Result<Value, String> {
     let marked = store
