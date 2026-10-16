@@ -63,3 +63,26 @@ export function sortedAppInputModeRules(
     left < right ? -1 : left > right ? 1 : 0,
   );
 }
+
+/** 应用标识校验失败时的说明，手填和系统选择共用。 */
+export function appInputModeRuleProblemText(
+  problem: AppInputModeRuleProblem,
+  windows: boolean,
+): string {
+  switch (problem) {
+    case "empty":
+      return windows
+        ? "请填写程序文件名，例如 code.exe。"
+        : "请填写应用的 Bundle ID，例如 com.apple.Terminal。";
+    case "not_exe":
+      return "程序文件名要以 .exe 结尾，例如 code.exe。";
+    case "invalid_character":
+      return "不能包含控制字符，也不能带 \\ 或 /。";
+    case "too_long":
+      return `应用标识不能超过 ${maxAppInputModeRuleIdBytes} 个字节。`;
+    case "duplicate":
+      return "这个应用已经有例外了，在下面的列表里改它的模式即可。";
+    case "too_many":
+      return `最多 ${maxAppInputModeRules} 个应用例外，请先移除不再需要的。`;
+  }
+}

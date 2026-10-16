@@ -2,15 +2,17 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 import {
+  SettingsPage,
+  AppInputModeRulesSection,
+  type SettingsClient,
+  type Snapshot,
   appInputModeRuleProblem,
   normalizeAppInputModeRuleId,
   sortedAppInputModeRules,
-} from "../../../../packages/ui/src/settings/app-input-mode-rules";
+} from "@msime/ui";
 import { selectSettingsTab, saveSettingsNow, settingsFormReady } from "../support/settings-form";
 import { testHost } from "../support/host";
-import { AppInputModeRulesSection } from "../../../../packages/ui/src/settings/app-input-mode-rules-section";
 
 afterEach(cleanup);
 
@@ -199,11 +201,13 @@ test("a host with an application picker adds rules by picking an application and
 
   const add = screen.getByRole("button", { name: "添加应用…" });
   fireEvent.click(add);
-  await vi.waitFor(() => expect(pickApplication).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  expect(pickApplication).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("alert")).toBeNull();
 
   fireEvent.click(add);
   expect((await screen.findByRole("alert")).textContent).toContain("不是应用程序");
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
 
   fireEvent.click(add);
   const mode = (await screen.findByLabelText("Visual Studio Code 的输入模式")) as HTMLSelectElement;
@@ -353,4 +357,107 @@ test("StrictMode 重放后，只接受当前应用名称查询", async () => {
   expect(screen.queryByLabelText("重放前的应用 的输入模式")).toBeNull();
   await act(async () => current.resolve({ [firstApp]: "重放后的应用" }));
   expect(screen.getByLabelText("重放后的应用 的输入模式")).toBeTruthy();
+});
+
+function pickerRequest() {
+  let resolve!: (value: { id: string; name: string } | null) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<{ id: string; name: string } | null>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
+
+test("选择应用期间规则变化，完成时合并当前规则而不恢复已删除项", async () => {
+  const request = pickerRequest();
+  const pickApplication = vi.fn(() => request.promise);
+  const onChange = vi.fn();
+  const view = render(
+    <AppInputModeRulesSection
+      windows={false}
+      value={{ "org.example.deleted": "english" }}
+      pickApplication={pickApplication}
+      onChange={onChange}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "添加应用…" }));
+  view.rerender(
+    <AppInputModeRulesSection
+      windows={false}
+      value={{ "org.example.current": "english" }}
+      pickApplication={pickApplication}
+      onChange={onChange}
+    />,
+  );
+  await act(async () => request.resolve({ id: "org.example.picked", name: "合成所选应用" }));
+  expect(onChange).toHaveBeenCalledExactlyOnceWith({
+    "org.example.current": "english",
+    "org.example.picked": "chinese",
+  });
+});
+
+test("同一批点击只打开一个应用选择对话框", async () => {
+  const request = pickerRequest();
+  const pickApplication = vi.fn(() => request.promise);
+  render(
+    <AppInputModeRulesSection
+      windows={false}
+      pickApplication={pickApplication}
+      onChange={vi.fn()}
+    />,
+  );
+  const add = screen.getByRole("button", { name: "添加应用…" });
+  act(() => {
+    fireEvent.click(add);
+    fireEvent.click(add);
+  });
+  expect(pickApplication).toHaveBeenCalledOnce();
+  await act(async () => request.resolve(null));
+});
+
+test.each(["成功", "失败"])(
+  "更换应用选择器后旧%s不修改当前规则、警告或忙碌状态",
+  async (outcome) => {
+    const old = pickerRequest();
+    const next = pickerRequest();
+    const onChange = vi.fn();
+    const oldPicker = vi.fn(() => old.promise);
+    const nextPicker = vi.fn(() => next.promise);
+    const view = render(
+      <AppInputModeRulesSection windows={false} pickApplication={oldPicker} onChange={onChange} />,
+    );
+    const add = screen.getByRole<HTMLButtonElement>("button", { name: "添加应用…" });
+    fireEvent.click(add);
+    view.rerender(
+      <AppInputModeRulesSection windows={false} pickApplication={nextPicker} onChange={onChange} />,
+    );
+    fireEvent.click(add);
+    await act(async () => {
+      if (outcome === "成功") old.resolve({ id: "org.example.old", name: "合成旧应用" });
+      else old.reject(new Error("合成旧选择失败"));
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(add.disabled).toBe(true);
+    await act(async () => next.resolve({ id: "org.example.current", name: "合成当前应用" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({ "org.example.current": "chinese" });
+    expect(add.disabled).toBe(false);
+  },
+);
+
+test("应用规则控件卸载后选择结果不再写回", async () => {
+  const request = pickerRequest();
+  const onChange = vi.fn();
+  const view = render(
+    <AppInputModeRulesSection
+      windows={false}
+      pickApplication={() => request.promise}
+      onChange={onChange}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "添加应用…" }));
+  view.unmount();
+  await act(async () => request.resolve({ id: "org.example.closed", name: "合成已关闭应用" }));
+  expect(onChange).not.toHaveBeenCalled();
 });

@@ -634,7 +634,26 @@ export {
   type HelpcodeSchema,
   type HelpcodeSettings,
 } from "./settings/helpcode-preferences";
-export type { AppInputModeRule, PickedApplication } from "./settings/app-input-mode-rules";
+export {
+  appInputModeRuleProblem,
+  appInputModeRuleProblemText,
+  maxAppInputModeRuleIdBytes,
+  maxAppInputModeRules,
+  normalizeAppInputModeRuleId,
+  sortedAppInputModeRules,
+  type AppInputModeRule,
+  type AppInputModeRuleProblem,
+  type PickedApplication,
+} from "./settings/app-input-mode-rules";
+export {
+  AppInputModeRulesSection,
+  type AppInputModeRulesSectionProps,
+} from "./settings/app-input-mode-rules-section";
+export {
+  useAppInputModeRules,
+  type UseAppInputModeRulesOptions,
+  type AppInputModeRulesState,
+} from "./settings/use-app-input-mode-rules";
 export {
   ClipboardHistorySection,
   type ClipboardHistorySectionProps,

@@ -39,11 +39,18 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 
 `app-input-mode-rules.ts` 持有 `AppInputModeRule` 与 `PickedApplication`，入口偏好、`SettingsClient.pickApplication` 和规则组件直接引用同一份模型，规则校验模块不再从总入口反向导入类型。包入口保留 `AppInputModeRule` 导出并公开 `PickedApplication`；规则组件保留旧的 `PickedApplication` 转导出。选择取消仍返回 null，名称回退、宿主命令和名称查询契约保持不变。
 
+公共 `useAppInputModeRules`（`settings/use-app-input-mode-rules.ts`）持有规则草稿、提示、名称缓存和添加、修改模式、移除动作；控件只负责展示和输入法组字回车的事件判断。规则校验说明归入纯模型，现有纯函数、常量、控件、hook 及其类型经包入口公开。
+
 共享规则表的应用名称查询使用 `useAsyncGeneration(applicationNames, unnamedKey)`，查询函数更换、待查标识批次变化与卸载作废旧成功和失败回包。已解析的名称、查不到时的标识回退以及选应用时直接记下的名称仍保存在页面缓存中；规则模式变化不触发名称重查。公共 hook 替代局部布尔守卫与 cleanup。名称查询与选应用动作各自保留请求归属和触发时机。
+
+选应用动作复用 `useAsyncActionRunner` 的同步锁，防止同一批点击重复打开对话框。动作所有者只有选择器和平台，规则表及 `onChange` 的变化不取消选择；对话框完成时从最新渲染引用读取当前规则和回调，重新校验重复与条数上限，再合并所选应用，避免覆盖期间新增、改模式或移除的规则。选择器或平台更换、卸载后，旧成功、失败与收尾都不更新当前状态。
 
 **MCP 也能读写这两项。** `crates/mcp-server/src/preferences.rs` 的 `get_preferences` 显示 `app_input_mode_rules`（模式沿用 `default_ime_mode` 的 `chinese`/`english`）和 `shuangpin_keymap_hint`（从没设置过时为 null，macOS 这时仍读本机旧设置）；`update_preferences` 可以整张替换规则表（`{}` 清空）、开关键位提示。规则表的合法性由存储层的同一条校验判定，不合法时整次更新被拒、原表不变，不在 MCP 里另写一份规则。
 
 ## Alternatives considered
+
+- **只导出规则控件**：调用最少且整页测试完整，但无界面调用方仍要复制名称查询、草稿与选应用流程。提供独立领域 hook，控件继续使用相同纯模型和动作生命周期。
+- **选择期间冻结整个规则表**：能避免对话框闭包覆盖中途改动，但会阻止其他条目的正常编辑，也挡不住外部载入偏好。完成时合并当前受控值并重新校验，保留合法的并行编辑。
 
 - **入口内联应用选择结果，组件单独声明类型。** 两边都能就地看见字段，少一个模型导入；但同一份结果会有两个类型来源，规则校验还需从总入口取得模式类型。两种类型集中到既有规则模型中，保留兼容导出即可避免这两项依赖。
 
@@ -67,9 +74,12 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
   - Alt+Shift+H 依赖 TSF 把带 Alt 的按键交给按键接收器，也依赖 Windows 的 Alt+Shift 换语言热键在中间按了别的键时不触发。这两点都要在真机上确认。
   - 规则表让偏好文档变大，32 条、每条 64 字节时最多约 2.6KB。Windows Server 的偏好快照和 iOS 桥接都把整份文档限在 16KiB，规则表和游戏程序列表一样只限制自己这部分，整份能否留在上限以内还取决于其他字段。
   - 规则表的 32 条上限对两个平台合计生效。
+- 公共状态与纯规则可以独立复用；代价是维护新增 hook 和公开的动作契约。受控调用方需要及时把 `onChange` 的结果写回 `value`；选择器和名称读取函数的身份仍表示各自请求所有者。
 - **何时重访**：产品决定 Windows 也要 Shift+空格时；有人反馈某类应用里徽标位置不对时，比如 UWP、游戏或远程桌面；macOS 的原生设置窗口下线时，本地旧键的回退可以一起删掉。
 
 ## Verification
+
+- 公共抽取：`use-app-input-mode-rules.test.tsx` 独立调用 hook，覆盖手填校验、排序、修改、移除、名称回退、最新规则和回调、同步防重、取消/失败、当前上限及平台切换。控件的五项新增回归先在旧实现下失败，覆盖选择期间规则变化、重复打开、更换选择器后的旧成功/失败和卸载写回；原有名称生命周期和真实设置保存回归继续保留。此片不改变原生选择器或文件访问，只验证共享前端交互、类型与构建。
 
 - Rust：`cargo test -p msime-client-core --lib -- app_input_mode host_surface` 覆盖文档读写、校验和能力位。
 - MCP：`cargo test -p msime-mcp-server` 的 `app_input_mode_rules_and_the_keymap_hint_are_set_and_invalid_rules_refused` 覆盖设置、只差大小写的重复被拒且原表不变、清空；`the_mirrors_serialize_as_the_store_does` 钉住模式值与存储一致。

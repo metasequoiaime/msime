@@ -1,54 +1,16 @@
 import { isComposingKeyEvent } from "../core/ime-key-event";
-import { useEffect, useState } from "react";
 import { Row, Select } from "../core/platform-controls";
-import { errorCode } from "../core/error-code";
 import { ActionButton } from "./action-button";
-import {
-  appInputModeRuleProblem,
-  maxAppInputModeRuleIdBytes,
-  maxAppInputModeRules,
-  normalizeAppInputModeRuleId,
-  sortedAppInputModeRules,
-  type AppInputModeRule,
-  type PickedApplication,
-  type AppInputModeRuleProblem,
-} from "./app-input-mode-rules";
+import { maxAppInputModeRules, type AppInputModeRule } from "./app-input-mode-rules";
+import type { UseAppInputModeRulesOptions } from "./use-app-input-mode-rules";
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsRowStack } from "./settings-row-stack";
 import { SettingsWarning } from "./settings-warning";
-import { useAsyncGeneration } from "./use-async-generation";
+import { useAppInputModeRules } from "./use-app-input-mode-rules";
 
 export type { PickedApplication } from "./app-input-mode-rules";
 
-export interface AppInputModeRulesSectionProps {
-  value?: Record<string, AppInputModeRule>;
-  /** Windows 按进程基名记规则，macOS 按 bundle id；决定提示文字和规范化方式。 */
-  windows: boolean;
-  /** 宿主弹出系统的选应用对话框，用户取消时为 null。有它时只提供「添加应用…」，没有时才退回手填标识。 */
-  pickApplication?: () => Promise<PickedApplication | null>;
-  /** 按规则标识查本机装着的应用名称，查不到的不返回；没有它或查不到时列表显示标识本身。 */
-  applicationNames?: (ids: string[]) => Promise<Record<string, string>>;
-  onChange: (rules: Record<string, AppInputModeRule>) => void;
-}
-
-function problemText(problem: AppInputModeRuleProblem, windows: boolean): string {
-  switch (problem) {
-    case "empty":
-      return windows
-        ? "请填写程序文件名，例如 code.exe。"
-        : "请填写应用的 Bundle ID，例如 com.apple.Terminal。";
-    case "not_exe":
-      return "程序文件名要以 .exe 结尾，例如 code.exe。";
-    case "invalid_character":
-      return "不能包含控制字符，也不能带 \\ 或 /。";
-    case "too_long":
-      return `应用标识不能超过 ${maxAppInputModeRuleIdBytes} 个字节。`;
-    case "duplicate":
-      return "这个应用已经有例外了，在下面的列表里改它的模式即可。";
-    case "too_many":
-      return `最多 ${maxAppInputModeRules} 个应用例外，请先移除不再需要的。`;
-  }
-}
+export interface AppInputModeRulesSectionProps extends UseAppInputModeRulesOptions {}
 
 /** 应用例外：「中英文」组里的规则表。每条规则一行，显示应用名称，可改模式或移除；末尾的「添加应用…」弹出系统的选应用对话框，新加的规则从中文开始，与 macOS 原生设置相同。宿主不能弹对话框时才退回手填应用标识。 */
 export function AppInputModeRulesSection({
@@ -58,67 +20,19 @@ export function AppInputModeRulesSection({
   applicationNames,
   onChange,
 }: AppInputModeRulesSectionProps) {
-  const [draft, setDraft] = useState("");
-  const [warning, setWarning] = useState<string | null>(null);
-  // 选应用时就知道名称；之前就有的规则（包括别的机器同步来的）向宿主查一次。
-  const [names, setNames] = useState<Record<string, string>>({});
-  const rules = value ?? {};
-  const entries = sortedAppInputModeRules(rules);
-  const unnamed = entries.map(([id]) => id).filter((id) => !(id in names));
-  const unnamedKey = unnamed.join("\n");
-  const namesGeneration = useAsyncGeneration(applicationNames, unnamedKey);
-  useEffect(() => {
-    if (!applicationNames || unnamedKey === "") return;
-    const current = namesGeneration.current;
-    const ids = unnamedKey.split("\n");
-    applicationNames(ids).then(
-      (found) => {
-        if (namesGeneration.current !== current) return;
-        // 查不到的也记下（名称就是标识），同一批标识不再反复去问。
-        setNames((known) => ({
-          ...known,
-          ...Object.fromEntries(ids.map((id) => [id, found[id] || id])),
-        }));
-      },
-      () => {
-        if (namesGeneration.current === current)
-          setNames((known) => ({ ...known, ...Object.fromEntries(ids.map((id) => [id, id])) }));
-      },
-    );
-  }, [applicationNames, unnamedKey]);
-
-  const addRule = (raw: string): boolean => {
-    const id = normalizeAppInputModeRuleId(raw, windows);
-    const found = appInputModeRuleProblem(id, rules, windows);
-    setWarning(found && problemText(found, windows));
-    if (found) return false;
-    onChange({ ...rules, [id]: "chinese" });
-    return true;
-  };
-  const addTyped = () => {
-    if (addRule(draft)) setDraft("");
-  };
-  const pick =
-    pickApplication &&
-    (async () => {
-      setWarning(null);
-      let picked: PickedApplication | null;
-      try {
-        picked = await pickApplication();
-      } catch (error) {
-        setWarning(
-          errorCode(error) === "not_application"
-            ? "所选项目不是应用程序，无法加入应用例外。"
-            : "无法打开选择应用的对话框，请稍后再试。",
-        );
-        return;
-      }
-      if (!picked) return;
-      const id = normalizeAppInputModeRuleId(picked.id, windows);
-      const name = picked.name || id;
-      if (addRule(picked.id)) setNames((known) => ({ ...known, [id]: name }));
-    });
-  const full = entries.length >= maxAppInputModeRules;
+  const {
+    draft,
+    warning,
+    names,
+    entries,
+    full,
+    picking,
+    edit,
+    addTyped,
+    pick,
+    changeMode,
+    remove,
+  } = useAppInputModeRules({ value, windows, pickApplication, applicationNames, onChange });
   return (
     <SettingsRowStack role="group" aria-label="应用例外">
       <SettingsGroupNote>
@@ -132,19 +46,13 @@ export function AppInputModeRulesSection({
             <Select
               aria-label={`${name} 的输入模式`}
               value={mode}
-              onChange={(event) =>
-                onChange({ ...rules, [id]: event.target.value as AppInputModeRule })
-              }
+              onChange={(event) => changeMode(id, event.target.value as AppInputModeRule)}
             >
               <option value="chinese">中文</option>
               <option value="english">英文</option>
             </Select>
             <ActionButton
-              action={() => {
-                const next = { ...rules };
-                delete next[id];
-                onChange(next);
-              }}
+              action={() => remove(id)}
               ariaLabel={`移除 ${name} 的应用例外`}
               label="移除"
             />
@@ -160,7 +68,7 @@ export function AppInputModeRulesSection({
               : "选择一个应用程序，新加的应用从中文开始，可在上面的列表里改成英文。"
           }
         >
-          <ActionButton action={pick} disabled={full} label="添加应用…" />
+          <ActionButton action={pick} disabled={full || picking} label="添加应用…" />
         </Row>
       ) : (
         <Row title="添加应用例外">
@@ -170,10 +78,7 @@ export function AppInputModeRulesSection({
             placeholder={windows ? "例如 code.exe" : "例如 com.apple.Terminal"}
             autoCapitalize="off"
             spellCheck={false}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setWarning(null);
-            }}
+            onChange={(event) => edit(event.target.value)}
             onKeyDown={(event) => {
               // 输入法组字时按回车是把组字串上屏，不是提交；WKWebView 在 compositionend 之后才送这个回车，keyCode 为 229。
               if (isComposingKeyEvent(event)) return;
