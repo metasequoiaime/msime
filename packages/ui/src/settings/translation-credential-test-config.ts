@@ -1,18 +1,12 @@
-import type { Preferences } from "../index";
-
-type NiuTransPreferences = Pick<NonNullable<Preferences["niutrans"]>, "app_id" | "apikey">;
-type TencentTranslationPreferences = Pick<
-  NonNullable<Preferences["tencent_tmt"]>,
-  "secret_id" | "secret_key" | "region"
->;
-type CustomTranslationPreferences = Pick<
-  NonNullable<Preferences["custom_translation"]>,
-  "endpoint" | "api_key"
->;
+import type {
+  CustomTranslationCredentialPreferences,
+  NiuTransCredentialPreferences,
+  TencentTranslationCredentialPreferences,
+} from "./translation-credential-preferences";
 
 /** Configuration sent to the NiuTrans service credential check. */
 export function niutransCredentialTestConfig(
-  preferences: NiuTransPreferences,
+  preferences: NiuTransCredentialPreferences,
 ): Record<string, string> {
   return {
     app_id: preferences.app_id,
@@ -22,7 +16,7 @@ export function niutransCredentialTestConfig(
 
 /** Configuration sent to the Tencent translation credential check. */
 export function tencentTranslationCredentialTestConfig(
-  preferences: TencentTranslationPreferences,
+  preferences: TencentTranslationCredentialPreferences,
 ): Record<string, string> {
   return {
     secret_id: preferences.secret_id,
@@ -33,7 +27,7 @@ export function tencentTranslationCredentialTestConfig(
 
 /** Configuration sent to a custom translation credential check. */
 export function customTranslationCredentialTestConfig(
-  preferences: CustomTranslationPreferences,
+  preferences: CustomTranslationCredentialPreferences,
 ): Record<string, string> {
   return {
     endpoint: preferences.endpoint,
@@ -44,7 +38,7 @@ export function customTranslationCredentialTestConfig(
 /** Whether NiuTrans can run its credential check from the current settings. */
 export function niutransCredentialTestDisabled(
   available: boolean,
-  preferences: NiuTransPreferences,
+  preferences: NiuTransCredentialPreferences,
 ): boolean {
   return !available || !preferences.app_id.trim() || !preferences.apikey.trim();
 }
