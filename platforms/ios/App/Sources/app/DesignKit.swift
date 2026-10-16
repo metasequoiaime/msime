@@ -860,7 +860,9 @@ struct ToastOverlay: View {
 
 // MARK: - 分段控件
 
-/// 设计稿的分段控件。`.capsule` 是剪贴板和 AI 设计皮肤的切换器（选中的滑块上是强调色文字）；`.rounded` 是统计页的切换器（主文字色，着色轨道）。每一项都是一个按钮，id 为 "<identifierPrefix>-<index>"。
+/// 设计稿的分段控件。`.capsule` 是剪贴板和 AI 设计皮肤的切换器（选中的滑块上是强调色文字）；`.rounded` 是统计页、皮肤页和社区页的切换器（主文字色，着色轨道）。每一项都是一个按钮，id 为 "<identifierPrefix>-<index>"。
+///
+/// iOS 26 起两种样式都画成系统分段控件的液态玻璃外形：胶囊轨道是 `glassEffect`，选中的滑块是一枚浮起的胶囊，切换时滑过去，与标签栏、导航栏同一种材质。更早的系统沿用设计稿的平面轨道。
 struct DesignSegmentedControl<Value: Hashable>: View {
   enum Style { case capsule, rounded }
 
@@ -868,6 +870,7 @@ struct DesignSegmentedControl<Value: Hashable>: View {
   @Binding var selection: Value
   var style: Style = .capsule
   let identifierPrefix: String
+  @Namespace private var thumbSpace
 
   init(items: [(title: String, value: Value)], selection: Binding<Value>, style: Style = .capsule, identifierPrefix: String) {
     self.items = items
@@ -889,17 +892,26 @@ struct DesignSegmentedControl<Value: Hashable>: View {
   }
 
   var body: some View {
-    HStack(spacing: 2) {
-      ForEach(items.indices, id: \.self) { index in item(index) }
-    }
-    .padding(2)
-    .background {
-      switch style {
-      case .capsule: Capsule().fill(MetasequoiaTheme.segBg)
-      case .rounded: RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Self.roundedTrack)
+    if #available(iOS 26, *) {
+      HStack(spacing: 0) {
+        ForEach(items.indices, id: \.self) { index in glassItem(index) }
       }
+      .padding(4)
+      .glassEffect(.regular.interactive(), in: Capsule())
+      .animation(.spring(response: 0.32, dampingFraction: 0.82), value: selection)
+    } else {
+      HStack(spacing: 2) {
+        ForEach(items.indices, id: \.self) { index in item(index) }
+      }
+      .padding(2)
+      .background {
+        switch style {
+        case .capsule: Capsule().fill(MetasequoiaTheme.segBg)
+        case .rounded: RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Self.roundedTrack)
+        }
+      }
+      .animation(.easeInOut(duration: 0.2), value: selection)
     }
-    .animation(.easeInOut(duration: 0.2), value: selection)
   }
 
   private func item(_ index: Int) -> some View {
@@ -921,6 +933,32 @@ struct DesignSegmentedControl<Value: Hashable>: View {
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 
+  /// iOS 26 的一项：选中的滑块用 `matchedGeometryEffect` 在各项之间滑动，而不是在旧位置淡出、新位置淡入。
+  @available(iOS 26, *)
+  private func glassItem(_ index: Int) -> some View {
+    let item = items[index]
+    let isSelected = item.value == selection
+    return Button { selection = item.value } label: {
+      Text(item.title)
+        .font(.system(size: style == .capsule ? 13 : 15, weight: isSelected ? .semibold : .medium))
+        .foregroundStyle(foreground(isSelected))
+        .lineLimit(1).minimumScaleFactor(0.8)
+        .frame(maxWidth: .infinity)
+        .frame(height: style == .capsule ? 28 : 34)
+        .background {
+          if isSelected {
+            Capsule().fill(Self.thumbFill)
+              .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+              .matchedGeometryEffect(id: "thumb", in: thumbSpace)
+          }
+        }
+        .contentShape(Capsule())
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("\(identifierPrefix)-\(index)")
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+  }
+
   @ViewBuilder private var thumb: some View {
     switch style {
     case .capsule:
@@ -934,6 +972,19 @@ struct DesignSegmentedControl<Value: Hashable>: View {
     switch style {
     case .capsule: return isSelected ? MetasequoiaTheme.accent : MetasequoiaTheme.sub
     case .rounded: return .primary
+    }
+  }
+}
+
+// MARK: - 固定在页面顶部的分段
+
+extension View {
+  /// 皮肤页和社区页标题下固定的一排分段。iOS 26 起放进 `safeAreaBar`：分段浮在内容上，滚到它下面的内容与导航栏一样按滚动边缘效果渐隐，不再垫一条实色底把玻璃导航栏和内容切开。更早的系统仍放在安全区内边距里，垫页面色；背景限制在自己的 frame 内，颜色默认会延伸进安全区盖住大标题。两种方式里列表都仍是页面的滚动视图，大标题照样随滚动收进导航栏。
+  @ViewBuilder func designPinnedSegments<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+    if #available(iOS 26, *) {
+      safeAreaBar(edge: .top, spacing: 0) { bar() }
+    } else {
+      safeAreaInset(edge: .top, spacing: 0) { bar().background(MetasequoiaTheme.canvas, ignoresSafeAreaEdges: []) }
     }
   }
 }

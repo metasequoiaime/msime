@@ -45,11 +45,10 @@ struct SkinSettingsView: View {
       case .community: SkinCommunityView(embedded: true)
       }
     }
-    .safeAreaInset(edge: .top, spacing: 0) {
+    .designPinnedSegments {
       DesignSegmentedControl(items: Tab.allCases.map { ($0.title, $0) }, selection: $tab, style: .rounded,
                              identifierPrefix: "skinTab")
         .padding(.horizontal, 16).padding(.vertical, 8)
-        .background(MetasequoiaTheme.canvas)
     }
     .designCanvasBackground()
     .navigationTitle("皮肤")
