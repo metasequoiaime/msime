@@ -9,6 +9,7 @@ struct KeyCompositionState {
     std::size_t caret = 0;
     bool unicodeMode = false;
     bool urlMode = false;
+    bool phraseActive = false;
 };
 
 template<class Host, class ToWide>
@@ -18,6 +19,7 @@ KeyCompositionState ReadKeyCompositionState(Host *host, KeyCompositionState lega
         if (!HostView(*host, &current)) return {};
         KeyCompositionState state;
         state.rawInput = toWide(current.view.editing_text);
+        state.phraseActive = !current.view.phrase_prefix.empty();
         // 中文方案和网址等本地模式的原文为 ASCII；其他方案沿用按 UTF-16 长度钳制的位置。
         state.caret = (std::min)(current.view.caret, state.rawInput.size());
         state.unicodeMode = current.view.local_mode == "unicode";

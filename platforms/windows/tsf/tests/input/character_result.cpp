@@ -40,5 +40,9 @@ int main() {
     events.clear();
     result.view.editing_text.clear();
     if (apply() != CharacterResultStatus::Applied || events != std::vector<std::string>{"cleanup"}) return EXIT_FAILURE;
+    events.clear();
+    refreshOK = true;
+    result.view.phrase_prefix = "合成词";
+    if (apply() != CharacterResultStatus::Applied || events != std::vector<std::string>{"refresh"}) return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

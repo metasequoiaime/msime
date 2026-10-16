@@ -96,7 +96,7 @@ struct CMetasequoiaIME {
     std::size_t _deferredProjectedInputLength = 0, _deferredProjectedCaret = 0;
     std::wstring _deferredProjectedRawInput;
     bool _deferredProjectedCandidateActive = false, _deferredProjectedUnicodeMode = false,
-         _deferredProjectedUrlMode = false, _deferredProjectedKoreanHanjaListOpen = false;
+         _deferredProjectedPhraseActive = false, _deferredProjectedUrlMode = false, _deferredProjectedKoreanHanjaListOpen = false;
     int drainSchedules = 0;
     bool _IsComposing() const { return ! _pCompositionProcessorEngine->current.rawInput.empty(); }
     void _TryLeaveServerUnavailableFallback() {}

@@ -31,3 +31,5 @@ Status: implemented
 - iOS：`NineKeyKeyboardTests.testPhoneBottomRowFollowsTheDesignsWeights` 改为断言 `符 | 123 | 空格 | 中 | 回车` 的顺序和宽度、中英文两种模式都没有 ， 和 。；`FourteenKeyKeyboardTests` 断言 14 键底行没有第二个 符。测试在 Studio 上 `build-for-testing`、拉回本机 iOS 27 模拟器运行。
 - Android：`check-host.sh` 通过，`KeyboardActionRowSmoke` 覆盖 26 键与韩文的四种顺序（有无地球键、交换与否）及 14 键、手写、大千注音仍有逗号句号；未在设备上运行。
 - HarmonyOS：`tests/run.sh` 与 51 个 `scripts/test-harmony-*.py` 通过；磁盘不足，未运行 `hvigorw assembleHap`，ArkTS 改动没有经过编译器，交给 CI。
+
+手机 26 键的标点与符号位置由后续[逗号次级句号决定](../../implemented/feature/2026-10-16-comma-key-secondary-period.md)部分取代；九键与其他布局边界仍沿用本文。

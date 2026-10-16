@@ -233,8 +233,8 @@ export type DictionaryEntry = {
   source?: "user" | "bundled";
 };
 
-/// Status line for one page of results, matching the shipped pager.
+/// 查询结果分页状态；首屏空结果与翻页到末尾分别说明。
 export function dictionaryPageStatus(offset: number, count: number, hasMore: boolean): string {
-  if (!count) return "没有更多结果";
+  if (!count) return offset === 0 ? "未找到匹配词条" : "没有更多结果";
   return `第 ${offset + 1}–${offset + count} 条${hasMore ? "，后面还有结果" : ""}`;
 }

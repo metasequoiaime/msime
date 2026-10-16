@@ -20,12 +20,12 @@ test("all community detail pages reuse the shared detail header", () => {
   )[0];
   const candidates = Object.values(
     import.meta.glob<string>(
-      "../../../../packages/ui/src/community/community-candidate-skins.tsx",
+      "../../../../packages/ui/src/community/community-candidate-skin-detail.tsx",
       { eager: true, query: "?raw", import: "default" },
     ),
   )[0];
   const plugins = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/community/community-plugins.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/community/community-plugin-detail.tsx", {
       eager: true,
       query: "?raw",
       import: "default",

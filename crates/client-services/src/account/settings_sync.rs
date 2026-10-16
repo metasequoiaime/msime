@@ -7,13 +7,15 @@
 //! 设计改版新增的 Android 设置（应用主题、单手、平板横屏分离式键盘、按键细节、工具栏的常用语/输入方式/隐藏、手写、离线语音）不在共享偏好里，而在 Android 宿主自己的本地设置文件里。宿主把其中参与同步的值按同步键传进来（[`insert_android_local_settings`]），应用时拿回云端校验过的值写回本地文件（[`android_local_settings`]）。隐私模式、开发者选项和语音数据贡献也在那个文件里，但不在 [`ANDROID_LOCAL_SETTINGS`] 里，所以永远不同步。
 //!
 //! 按键音、振动开关和振动强度不在共享偏好里，而在宿主自己的本地存储（Android 的 `KeyboardFeedbackStore`），由调用方读出来作为 [`HostKeyboardFeedback`] 传入，应用后再由调用方写回。
+//!
+//! 鸿蒙读写的是同一份共享偏好，触屏那组键（[`TouchHostKeys`]）与 Android 共用这里的导出和应用，只是放在 `platform.harmony.*` 下，见 [`super::harmony_settings`]。
 
 use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences};
 use crate::host_surface::HostPlatform;
 use crate::preferences::{
-    BracketStyle, FrequencyMode, InputScheme, NumberKeypadOrder, Preferences, QuoteStyle,
-    ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TraditionalVariant, TwentySixKeyNumberLayout,
-    WubiProfile,
+    BracketStyle, FrequencyMode, FrequencyPreferences, InputScheme, NumberKeypadOrder, Preferences,
+    QuoteStyle, ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TraditionalVariant,
+    TwentySixKeyNumberLayout, WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -38,6 +40,50 @@ const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
 /// 深色模式槽位的候选窗口皮肤包（`custom_theme.candidate_skin_dark`），与 [`CUSTOM_CANDIDATE_SKIN`] 同一形状。
 const CUSTOM_CANDIDATE_SKIN_DARK: &str = "platform.android.custom_candidate_skin_dark";
+
+/// 触屏宿主（Android、鸿蒙）在账号文档里的那组平台键：两端读写同一份共享偏好里的同一批成员，只是各用自己的命名空间。两台设备各有自己的键盘，共用一个命名空间会让鸿蒙手机改掉用户 Android 键盘的皮肤和键距。
+pub(super) struct TouchHostKeys {
+    /// 应用全局主题时按它判断这个宿主提供不提供（iOS 才有的 `native` 在 Android 和鸿蒙上都只跳过这个键）。
+    pub(super) platform: HostPlatform,
+    pub(super) keyboard_layout: &'static str,
+    /// 本机是 14 键时导不导出触屏布局。不导出时云端保留它原来记的布局，应用云端文档（包括上传之后把合并结果写回本机）时也就不能拿那个旧布局盖掉本机的 14 键。
+    pub(super) uploads_fourteen_key: bool,
+    pub(super) global_theme: &'static str,
+    pub(super) custom_theme_base: &'static str,
+    pub(super) custom_keyboard_skin: &'static str,
+    pub(super) custom_candidate_skin: &'static str,
+    pub(super) custom_candidate_skin_dark: &'static str,
+    pub(super) theme: &'static str,
+    pub(super) touch_key_spacing_tenths: &'static str,
+    pub(super) touch_row_spacing_tenths: &'static str,
+    pub(super) keyboard_height_adjustment: &'static str,
+    pub(super) voice_shortcut: &'static str,
+    pub(super) number_keypad_order: &'static str,
+    pub(super) twenty_six_key_number_layout: &'static str,
+    pub(super) shuangpin_key_hints: &'static str,
+    /// 按键音、振动开关、振动强度，值来自宿主本地存储。
+    pub(super) feedback: [&'static str; 3],
+}
+
+const ANDROID_KEYS: TouchHostKeys = TouchHostKeys {
+    platform: HostPlatform::Android,
+    keyboard_layout: "platform.android.keyboard_layout",
+    uploads_fourteen_key: true,
+    global_theme: GLOBAL_THEME,
+    custom_theme_base: CUSTOM_THEME_BASE,
+    custom_keyboard_skin: CUSTOM_KEYBOARD_SKIN,
+    custom_candidate_skin: CUSTOM_CANDIDATE_SKIN,
+    custom_candidate_skin_dark: CUSTOM_CANDIDATE_SKIN_DARK,
+    theme: "platform.android.theme",
+    touch_key_spacing_tenths: "platform.android.touch_key_spacing_tenths",
+    touch_row_spacing_tenths: "platform.android.touch_row_spacing_tenths",
+    keyboard_height_adjustment: "platform.android.keyboard_height_adjustment",
+    voice_shortcut: "platform.android.voice_shortcut",
+    number_keypad_order: NUMBER_KEYPAD_ORDER,
+    twenty_six_key_number_layout: TWENTY_SIX_KEY_NUMBER_LAYOUT,
+    shuangpin_key_hints: SHUANGPIN_KEY_HINTS,
+    feedback: ANDROID_FEEDBACK_KEYS,
+};
 /// 整个自定义键盘皮肤库（JSON 数组，只含设计参数），值来自宿主的皮肤库而不是共享偏好。
 pub const CUSTOM_KEYBOARD_SKINS: &str = "platform.android.custom_keyboard_skins";
 /// [`CUSTOM_KEYBOARD_SKINS`] 的字节上限，与服务端字段表相同。
@@ -359,15 +405,43 @@ fn theme_mode(theme: ThemeMode) -> &'static str {
     }
 }
 
-fn insert_string(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: &str) {
+pub(super) fn insert_string(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+    value: &str,
+) {
     settings.insert(
         key.to_owned(),
         AccountPreferenceValue::String(value.to_owned()),
     );
 }
 
-fn insert_bool(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: bool) {
+pub(super) fn insert_bool(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+    value: bool,
+) {
     settings.insert(key.to_owned(), AccountPreferenceValue::Boolean(value));
+}
+
+/// 调频的三个账号键，iOS 的上传映射（[`super::ios_settings`]）用它。
+pub(super) fn frequency_account_preferences(
+    frequency: &FrequencyPreferences,
+) -> BTreeMap<String, AccountPreferenceValue> {
+    BTreeMap::from([
+        (
+            "input.frequency_mode".into(),
+            AccountPreferenceValue::String(frequency.mode.as_str().into()),
+        ),
+        (
+            "input.frequency_trigger_count".into(),
+            AccountPreferenceValue::Integer(i64::from(frequency.trigger_count)),
+        ),
+        (
+            "input.frequency_linear_step".into(),
+            AccountPreferenceValue::Integer(i64::from(frequency.linear_step)),
+        ),
+    ])
 }
 
 fn insert_integer(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: i64) {
@@ -381,75 +455,74 @@ pub fn export_android_settings(
 ) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
-    insert_string(
-        &mut settings,
-        "platform.android.keyboard_layout",
-        keyboard_layout(preferences.touch_keyboard_layout),
-    );
-    insert_theme_settings(&mut settings, preferences)?;
-    insert_string(
-        &mut settings,
-        "platform.android.theme",
-        theme_mode(preferences.theme),
-    );
-    insert_integer(
-        &mut settings,
-        "platform.android.touch_key_spacing_tenths",
-        i64::from(preferences.touch_key_spacing_tenths),
-    );
-    insert_integer(
-        &mut settings,
-        "platform.android.touch_row_spacing_tenths",
-        i64::from(preferences.touch_row_spacing_tenths),
-    );
-    insert_integer(
-        &mut settings,
-        "platform.android.keyboard_height_adjustment",
-        i64::from(preferences.touch_keyboard_height_adjustment),
-    );
-    insert_bool(
-        &mut settings,
-        "platform.android.voice_shortcut",
-        preferences.touch_voice_shortcut,
-    );
-    insert_string(
-        &mut settings,
-        NUMBER_KEYPAD_ORDER,
-        number_keypad_order(preferences.touch_number_keypad_order),
-    );
-    insert_string(
-        &mut settings,
-        TWENTY_SIX_KEY_NUMBER_LAYOUT,
-        twenty_six_key_number_layout(preferences.touch_twenty_six_key_number_layout),
-    );
-    insert_bool(
-        &mut settings,
-        SHUANGPIN_KEY_HINTS,
-        preferences.touch_shuangpin_key_hints,
-    );
+    insert_touch_settings(&mut settings, preferences, feedback, &ANDROID_KEYS)?;
     insert_new_android_settings(&mut settings, preferences);
-    if let Some(feedback) = feedback {
-        insert_bool(
-            &mut settings,
-            ANDROID_FEEDBACK_KEYS[0],
-            feedback.sound_enabled,
-        );
-        insert_bool(
-            &mut settings,
-            ANDROID_FEEDBACK_KEYS[1],
-            feedback.haptics_enabled,
-        );
-        insert_string(
-            &mut settings,
-            ANDROID_FEEDBACK_KEYS[2],
-            &feedback.haptic_strength,
-        );
-    }
     Ok(settings)
 }
 
-/// 各平台共有的 `input.*` 键：方案、繁简、双拼和五笔版本、学习、调频和标点。Android 与桌面宿主都上传它们。
-fn insert_input_settings(
+/// 触屏宿主的平台键：触屏布局、主题、键距与键盘高度、语音键、数字层、双拼键位提示，`feedback` 不为空时再加按键反馈三个键。Android 和鸿蒙各按自己的 [`TouchHostKeys`] 导出。
+pub(super) fn insert_touch_settings(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+    feedback: Option<&HostKeyboardFeedback>,
+    keys: &TouchHostKeys,
+) -> Result<(), AccountError> {
+    if keys.uploads_fourteen_key
+        || preferences.touch_keyboard_layout != TouchKeyboardLayout::FourteenKey
+    {
+        insert_string(
+            settings,
+            keys.keyboard_layout,
+            keyboard_layout(preferences.touch_keyboard_layout),
+        );
+    }
+    insert_theme_settings(settings, preferences, keys)?;
+    insert_string(settings, keys.theme, theme_mode(preferences.theme));
+    insert_integer(
+        settings,
+        keys.touch_key_spacing_tenths,
+        i64::from(preferences.touch_key_spacing_tenths),
+    );
+    insert_integer(
+        settings,
+        keys.touch_row_spacing_tenths,
+        i64::from(preferences.touch_row_spacing_tenths),
+    );
+    insert_integer(
+        settings,
+        keys.keyboard_height_adjustment,
+        i64::from(preferences.touch_keyboard_height_adjustment),
+    );
+    insert_bool(
+        settings,
+        keys.voice_shortcut,
+        preferences.touch_voice_shortcut,
+    );
+    insert_string(
+        settings,
+        keys.number_keypad_order,
+        number_keypad_order(preferences.touch_number_keypad_order),
+    );
+    insert_string(
+        settings,
+        keys.twenty_six_key_number_layout,
+        twenty_six_key_number_layout(preferences.touch_twenty_six_key_number_layout),
+    );
+    insert_bool(
+        settings,
+        keys.shuangpin_key_hints,
+        preferences.touch_shuangpin_key_hints,
+    );
+    if let Some(feedback) = feedback {
+        insert_bool(settings, keys.feedback[0], feedback.sound_enabled);
+        insert_bool(settings, keys.feedback[1], feedback.haptics_enabled);
+        insert_string(settings, keys.feedback[2], &feedback.haptic_strength);
+    }
+    Ok(())
+}
+
+/// 各平台共有的 `input.*` 键：方案、繁简、双拼和五笔版本、学习、调频和标点。Android、鸿蒙与桌面宿主都上传它们。
+pub(super) fn insert_input_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
 ) {
@@ -575,21 +648,22 @@ fn insert_new_android_settings(
 fn insert_theme_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
+    keys: &TouchHostKeys,
 ) -> Result<(), AccountError> {
-    insert_string(settings, GLOBAL_THEME, preferences.global_theme.id());
+    insert_string(settings, keys.global_theme, preferences.global_theme.id());
     insert_string(
         settings,
-        CUSTOM_THEME_BASE,
+        keys.custom_theme_base,
         preferences.custom_theme.base.id(),
     );
     let custom_skin = match &preferences.custom_theme.keyboard {
         Some(design) => serde_json::to_string(design).map_err(|_| AccountError::Invalid)?,
         None => String::new(),
     };
-    insert_string(settings, CUSTOM_KEYBOARD_SKIN, &custom_skin);
+    insert_string(settings, keys.custom_keyboard_skin, &custom_skin);
     insert_string(
         settings,
-        CUSTOM_CANDIDATE_SKIN,
+        keys.custom_candidate_skin,
         preferences
             .custom_theme
             .candidate_skin
@@ -598,7 +672,7 @@ fn insert_theme_settings(
     );
     insert_string(
         settings,
-        CUSTOM_CANDIDATE_SKIN_DARK,
+        keys.custom_candidate_skin_dark,
         preferences
             .custom_theme
             .candidate_skin_dark
@@ -610,8 +684,16 @@ fn insert_theme_settings(
 
 /// 应用云端文档之前是否需要先读出宿主的按键反馈：字段表和文档里都有其中某个键时才需要。
 pub fn needs_host_feedback(cloud: &AccountPreferences, schema: &AccountPreferenceSchema) -> bool {
-    ANDROID_FEEDBACK_KEYS
-        .iter()
+    needs_feedback(cloud, schema, &ANDROID_FEEDBACK_KEYS)
+}
+
+/// 字段表和文档里都有 `keys` 里的某个按键反馈键。
+pub(super) fn needs_feedback(
+    cloud: &AccountPreferences,
+    schema: &AccountPreferenceSchema,
+    keys: &[&str; 3],
+) -> bool {
+    keys.iter()
         .any(|key| schema.fields.contains_key(*key) && cloud.settings.contains_key(*key))
 }
 
@@ -635,7 +717,7 @@ fn supports_schema_field(
 }
 
 /// 一次应用的进行状态：逐键改写偏好，取值不能用的键记进 `skipped`。
-struct Applier<'a> {
+pub(super) struct Applier<'a> {
     values: &'a BTreeMap<String, AccountPreferenceValue>,
     schema: &'a AccountPreferenceSchema,
     preferences: Preferences,
@@ -756,6 +838,10 @@ fn validate_cloud_document(
 fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     // 本机不提供的方案（较新设备上的粤拼、注音、越南文或笔画）保留本机的方案，文档里其他的键照常应用。
     applier.set_string("input.schema", |preferences, value| {
+        // 本机选着账号装不下的方案（粤拼、注音、越南文、藏文、笔画）时不导出这个键，账号里留着的是上次的方案；合并上传后再应用回来、或者下载别的设备的设置时，都不能拿它盖掉本机的方案，否则用户刚切过去的方案会被触发这一轮同步的那次上传自己改回去。
+        if account_input_schema(preferences.scheme).is_none() {
+            return Some(());
+        }
         preferences.scheme = match value {
             "quanpin" => InputScheme::Quanpin,
             "shuangpin" => InputScheme::Shuangpin,
@@ -952,8 +1038,32 @@ pub fn apply_android_settings(
     schema: &AccountPreferenceSchema,
     feedback: Option<HostKeyboardFeedback>,
 ) -> Result<AndroidSettingsApplied, AccountError> {
+    let (preferences, feedback, skipped) = apply_touch_settings(
+        local,
+        cloud,
+        schema,
+        feedback,
+        &ANDROID_KEYS,
+        apply_new_android_settings,
+    )?;
+    Ok(AndroidSettingsApplied {
+        preferences,
+        feedback,
+        skipped,
+    })
+}
+
+/// 触屏宿主的应用：先整体校验文档，再应用 `input.*` 键、`keys` 里的平台键、`extra`（宿主自己才有的键）和按键反馈。返回应用后的偏好（已经通过 `Preferences::validate`）、按键反馈（文档里有按键反馈的键时）和按键名排序的 `skipped`。`feedback` 在 [`needs_feedback`] 为真时必须传入，否则返回 `Storage`。
+pub(super) fn apply_touch_settings(
+    local: &Preferences,
+    cloud: &AccountPreferences,
+    schema: &AccountPreferenceSchema,
+    feedback: Option<HostKeyboardFeedback>,
+    keys: &TouchHostKeys,
+    extra: impl FnOnce(&mut Applier<'_>) -> Result<(), AccountError>,
+) -> Result<(Preferences, Option<HostKeyboardFeedback>, Vec<String>), AccountError> {
     validate_cloud_document(cloud, schema)?;
-    let needs_feedback = needs_host_feedback(cloud, schema);
+    let needs_feedback = needs_feedback(cloud, schema, &keys.feedback);
     let mut applier = Applier {
         values: &cloud.settings,
         schema,
@@ -963,7 +1073,13 @@ pub fn apply_android_settings(
     };
 
     apply_input_settings(&mut applier)?;
-    applier.set_string("platform.android.keyboard_layout", |preferences, value| {
+    applier.set_string(keys.keyboard_layout, |preferences, value| {
+        // 道理同 `input.schema`：本机的 14 键没有导出（见 `uploads_fourteen_key`），云端这个值是本机切到 14 键之前的，不应用。
+        if !keys.uploads_fourteen_key
+            && preferences.touch_keyboard_layout == TouchKeyboardLayout::FourteenKey
+        {
+            return Some(());
+        }
         preferences.touch_keyboard_layout = match value {
             "twenty_six_key" => TouchKeyboardLayout::TwentySixKey,
             "nine_key" => TouchKeyboardLayout::NineKey,
@@ -974,18 +1090,18 @@ pub fn apply_android_settings(
         };
         Some(())
     })?;
-    // 只在部分宿主上提供的主题（只在 iOS 的 `native`）对 Android 来说和不认识的 id 一样：只跳过这个键，本机主题不变。
-    applier.set_string(GLOBAL_THEME, |preferences, value| {
-        preferences.global_theme = GlobalTheme::from_id(value)
-            .filter(|theme| theme.is_offered_on(HostPlatform::Android))?;
+    // 只在部分宿主上提供的主题（只在 iOS 的 `native`）对这个宿主来说和不认识的 id 一样：只跳过这个键，本机主题不变。
+    applier.set_string(keys.global_theme, |preferences, value| {
+        preferences.global_theme =
+            GlobalTheme::from_id(value).filter(|theme| theme.is_offered_on(keys.platform))?;
         Some(())
     })?;
-    applier.set_string(CUSTOM_THEME_BASE, |preferences, value| {
+    applier.set_string(keys.custom_theme_base, |preferences, value| {
         preferences.custom_theme.base =
             GlobalTheme::from_id(value).filter(|base| base.is_base())?;
         Some(())
     })?;
-    applier.set_string(CUSTOM_KEYBOARD_SKIN, |preferences, value| {
+    applier.set_string(keys.custom_keyboard_skin, |preferences, value| {
         preferences.custom_theme.keyboard = if value.is_empty() {
             None
         } else {
@@ -993,14 +1109,14 @@ pub fn apply_android_settings(
         };
         Some(())
     })?;
-    applier.set_string(CUSTOM_CANDIDATE_SKIN, |preferences, value| {
+    applier.set_string(keys.custom_candidate_skin, |preferences, value| {
         if !value.is_empty() && !crate::skin::catalog::is_selectable_id(value) {
             return None;
         }
         preferences.custom_theme.candidate_skin = (!value.is_empty()).then(|| value.to_owned());
         Some(())
     })?;
-    applier.set_string(CUSTOM_CANDIDATE_SKIN_DARK, |preferences, value| {
+    applier.set_string(keys.custom_candidate_skin_dark, |preferences, value| {
         if !value.is_empty() && !crate::skin::catalog::is_selectable_id(value) {
             return None;
         }
@@ -1008,7 +1124,7 @@ pub fn apply_android_settings(
             (!value.is_empty()).then(|| value.to_owned());
         Some(())
     })?;
-    applier.set_string("platform.android.theme", |preferences, value| {
+    applier.set_string(keys.theme, |preferences, value| {
         preferences.theme = match value {
             "dark" => ThemeMode::Dark,
             "light" => ThemeMode::Light,
@@ -1017,31 +1133,22 @@ pub fn apply_android_settings(
         };
         Some(())
     })?;
-    applier.set_integer(
-        "platform.android.touch_key_spacing_tenths",
-        |preferences, value| {
-            preferences.touch_key_spacing_tenths = u8::try_from(value).ok()?;
-            Some(())
-        },
-    )?;
-    applier.set_integer(
-        "platform.android.touch_row_spacing_tenths",
-        |preferences, value| {
-            preferences.touch_row_spacing_tenths = u8::try_from(value).ok()?;
-            Some(())
-        },
-    )?;
-    applier.set_integer(
-        "platform.android.keyboard_height_adjustment",
-        |preferences, value| {
-            preferences.touch_keyboard_height_adjustment = i8::try_from(value).ok()?;
-            Some(())
-        },
-    )?;
-    applier.set_bool("platform.android.voice_shortcut", |preferences, value| {
+    applier.set_integer(keys.touch_key_spacing_tenths, |preferences, value| {
+        preferences.touch_key_spacing_tenths = u8::try_from(value).ok()?;
+        Some(())
+    })?;
+    applier.set_integer(keys.touch_row_spacing_tenths, |preferences, value| {
+        preferences.touch_row_spacing_tenths = u8::try_from(value).ok()?;
+        Some(())
+    })?;
+    applier.set_integer(keys.keyboard_height_adjustment, |preferences, value| {
+        preferences.touch_keyboard_height_adjustment = i8::try_from(value).ok()?;
+        Some(())
+    })?;
+    applier.set_bool(keys.voice_shortcut, |preferences, value| {
         preferences.touch_voice_shortcut = value
     })?;
-    applier.set_string(NUMBER_KEYPAD_ORDER, |preferences, value| {
+    applier.set_string(keys.number_keypad_order, |preferences, value| {
         preferences.touch_number_keypad_order = match value {
             "phone" => NumberKeypadOrder::Phone,
             "calculator" => NumberKeypadOrder::Calculator,
@@ -1049,7 +1156,7 @@ pub fn apply_android_settings(
         };
         Some(())
     })?;
-    applier.set_string(TWENTY_SIX_KEY_NUMBER_LAYOUT, |preferences, value| {
+    applier.set_string(keys.twenty_six_key_number_layout, |preferences, value| {
         preferences.touch_twenty_six_key_number_layout = match value {
             "row" => TwentySixKeyNumberLayout::Row,
             "nine_key" => TwentySixKeyNumberLayout::NineKey,
@@ -1057,23 +1164,23 @@ pub fn apply_android_settings(
         };
         Some(())
     })?;
-    applier.set_bool(SHUANGPIN_KEY_HINTS, |preferences, value| {
+    applier.set_bool(keys.shuangpin_key_hints, |preferences, value| {
         preferences.touch_shuangpin_key_hints = value
     })?;
 
-    apply_new_android_settings(&mut applier)?;
+    extra(&mut applier)?;
 
-    if let Some(value) = applier.boolean(ANDROID_FEEDBACK_KEYS[0])? {
+    if let Some(value) = applier.boolean(keys.feedback[0])? {
         applier.feedback_mut()?.sound_enabled = value;
     }
-    if let Some(value) = applier.boolean(ANDROID_FEEDBACK_KEYS[1])? {
+    if let Some(value) = applier.boolean(keys.feedback[1])? {
         applier.feedback_mut()?.haptics_enabled = value;
     }
-    if let Some(value) = applier.string(ANDROID_FEEDBACK_KEYS[2])? {
+    if let Some(value) = applier.string(keys.feedback[2])? {
         if valid_haptic_strength(&value) {
             applier.feedback_mut()?.haptic_strength = value;
         } else {
-            applier.skipped.push(ANDROID_FEEDBACK_KEYS[2].to_owned());
+            applier.skipped.push(keys.feedback[2].to_owned());
         }
     }
 
@@ -1085,11 +1192,7 @@ pub fn apply_android_settings(
     } = applier;
     preferences.validate().map_err(|_| AccountError::Invalid)?;
     skipped.sort();
-    Ok(AndroidSettingsApplied {
-        preferences,
-        feedback,
-        skipped,
-    })
+    Ok((preferences, feedback, skipped))
 }
 
 /// [`insert_new_android_settings`] 的反方向。取值不认识或超出本机范围时跳过这一个键。

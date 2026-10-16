@@ -353,6 +353,167 @@ motion_period_ms = 2400
     std::filesystem::remove_all(root);
 }
 
+// 读音单独占释义下面的一行。横排时格宽取候选、释义、读音三行里最宽的一行，长音标不再跟在释义后面把这一格撑到下一格的释义边上；同一行的各格一样高，释义都在同一高度；这一页没有读音、或者「显示读音」关着时高度和从前一样。
+static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *panel, MSIMEAppearancePreferences *appearance)
+{
+    appearance.vertical = NO;
+    appearance.candidateTranslations = YES;
+    NSString *ipa = @"/.ænɪˈmeɪʃən prəʊˈtægənɪst/";
+    NSDictionary *view = @{@"focused": @YES, @"editing_text": @"donghuazhuti", @"page": @0, @"page_count": @1,
+                           @"candidates": @[@{@"text": @"动画主体", @"translation": @"Animation protagonist", @"highlighted": @YES},
+                                            @{@"text": @"东华主题", @"translation": @"Donghua theme"}]};
+    [controller setValue:nil forKey:@"pronunciationTargets"];
+    [controller setValue:[@{@"Animation protagonist": ipa} mutableCopy] forKey:@"englishPronunciations"];
+    [controller setValue:view forKey:@"view"];
+    [controller renderCandidates];
+    MSIMECandidateButton *plain = CandidateButton(panel.contentView, 0);
+    assert(plain && plain.pronunciation.length == 0);
+    const CGFloat plainHeight = NSHeight(plain.frame);
+    const CGFloat glossLine = plain.itemLayout.translation.height;
+    const CGFloat plainCard = NSHeight(panel.frame);
+
+    // 打开读音：读音在释义下面单独一行，释义行的位置不变。
+    [controller setValue:@[@"en"] forKey:@"pronunciationTargets"];
+    [controller renderCandidates];
+    MSIMECandidateButton *read = CandidateButton(panel.contentView, 0);
+    MSIMECandidateButton *neighbour = CandidateButton(panel.contentView, 1);
+    assert(read && neighbour && [read.pronunciation isEqual:ipa] && neighbour.pronunciation.length == 0);
+    NSFont *glossFont = read.translationFont;
+    const CGFloat glossWidth = MSIMECandidateSingleLineWidth(@"Animation protagonist", glossFont);
+    const CGFloat ipaWidth = MSIMECandidateSingleLineWidth(ipa, glossFont);
+    const msime::mac::CandidateRunBox &run = read.itemLayout.translation;
+    assert(run.below && fabs(run.y - plain.itemLayout.translation.y) < 0.5);
+    assert(run.height > glossLine * 1.5 && run.height < glossLine * 2.5);
+    // 每一行都放得下，不折行：格子按较宽的那一行量，不按「释义  读音」连在一起的宽度。
+    assert(run.width >= glossWidth && run.width >= ipaWidth);
+    assert(fabs(run.width - MAX(glossWidth, ipaWidth)) < 1.0);
+    const CGFloat joined = MSIMECandidateSingleLineWidth([NSString stringWithFormat:@"Animation protagonist  %@", ipa], glossFont);
+    assert(NSWidth(read.frame) < read.contentLeft + joined);
+    // 画出来的释义和读音都在自己的格子里，两格不重叠。
+    assert(read.contentLeft + run.x + run.width <= NSWidth(read.frame) + 0.5);
+    assert(NSMaxX(read.frame) <= NSMinX(neighbour.frame) + 0.5);
+    assert(neighbour.contentLeft + neighbour.itemLayout.translation.x + neighbour.itemLayout.translation.width <= NSWidth(neighbour.frame) + 0.5);
+    // 有读音的这一页多出一行高，同一行的格子一样高、释义在同一高度，选中底色盖住整格连同读音那一行。
+    assert(NSHeight(read.frame) > plainHeight + glossLine * 0.5 && NSHeight(panel.frame) > plainCard + glossLine * 0.5);
+    assert(fabs(NSHeight(read.frame) - NSHeight(neighbour.frame)) < 0.5 && fabs(NSMinY(read.frame) - NSMinY(neighbour.frame)) < 0.5);
+    assert(fabs(neighbour.itemLayout.translation.y - run.y) < 0.5);
+    assert(NSHeight(read.frame) >= run.y + run.height - 0.5);
+    NSBitmapImageRep *bitmap = [read bitmapImageRepForCachingDisplayInRect:read.bounds];
+    [read cacheDisplayInRect:read.bounds toBitmapImageRep:bitmap];
+
+    // 这一页没有读音时高度不变。
+    NSMutableDictionary *unread = [view mutableCopy];
+    unread[@"candidates"] = @[@{@"text": @"东华主题", @"translation": @"Donghua theme", @"highlighted": @YES}, @{@"text": @"冬化", @"translation": @"winterize"}];
+    [controller setValue:[unread copy] forKey:@"view"];
+    [controller renderCandidates];
+    assert(fabs(NSHeight(CandidateButton(panel.contentView, 0).frame) - plainHeight) < 0.5);
+    // 「显示读音」关掉：没有第三行，回到原来的高度。
+    [controller setValue:view forKey:@"view"];
+    [controller setValue:nil forKey:@"pronunciationTargets"];
+    [controller renderCandidates];
+    assert(CandidateButton(panel.contentView, 0).pronunciation.length == 0);
+    assert(fabs(NSHeight(CandidateButton(panel.contentView, 0).frame) - plainHeight) < 0.5 && fabs(NSHeight(panel.frame) - plainCard) < 0.5);
+
+    // 只有释义变了、格子没变时按钮原地重画，读音跟着新释义换，不留上一条释义的读音。
+    [controller setValue:@[@"en"] forKey:@"pronunciationTargets"];
+    [controller setValue:[@{@"ab": @"/ab/", @"ba": @"/ba/"} mutableCopy] forKey:@"englishPronunciations"];
+    NSDictionary *(^swapView)(NSString *) = ^NSDictionary *(NSString *gloss) {
+        return @{@"session": @1, @"generation": @3, @"focused": @YES, @"editing_text": @"d", @"page": @0, @"page_count": @1,
+                 @"candidates": @[@{@"id": @{@"session": @1, @"generation": @3, @"index": @0}, @"text": @"的", @"translation": gloss, @"highlighted": @YES}]};
+    };
+    [controller setValue:swapView(@"ab") forKey:@"view"];
+    [controller renderCandidates];
+    MSIMECandidateButton *before = CandidateButton(panel.contentView, 0);
+    assert([before.pronunciation isEqual:@"/ab/"]);
+    [controller setValue:swapView(@"ba") forKey:@"view"];
+    [controller renderCandidates];
+    MSIMECandidateButton *after = CandidateButton(panel.contentView, 0);
+    assert(after == before && [after.translation isEqual:@"ba"] && [after.pronunciation isEqual:@"/ba/"]);
+
+    // 竖排：释义仍在候选同一行，读音在释义下面，行高容得下两行。
+    appearance.vertical = YES;
+    [controller setValue:view forKey:@"view"];
+    [controller setValue:[@{@"Animation protagonist": ipa} mutableCopy] forKey:@"englishPronunciations"];
+    [controller renderCandidates];
+    MSIMECandidateButton *vertical = CandidateButton(panel.contentView, 0);
+    assert([vertical.pronunciation isEqual:ipa] && !vertical.itemLayout.translation.below);
+    assert(vertical.itemLayout.translation.height > glossLine * 1.5 && NSHeight(vertical.frame) >= vertical.itemLayout.height - 0.5);
+    assert(vertical.itemLayout.translation.width >= ipaWidth);
+    [controller setValue:nil forKey:@"pronunciationTargets"];
+    appearance.vertical = NO;
+}
+
+// 前景按它的不透明度叠到不透明的底色上后，和底色的 WCAG 对比度。
+static double CandidateContrast(NSColor *foreground, NSColor *fill)
+{
+    NSColor *fore = [foreground colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    NSColor *back = [fill colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    auto linear = [](double c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); };
+    auto luminance = [&](double r, double g, double b) { return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b); };
+    const double a = fore.alphaComponent;
+    const double over = luminance(fore.redComponent * a + back.redComponent * (1 - a), fore.greenComponent * a + back.greenComponent * (1 - a),
+                                  fore.blueComponent * a + back.blueComponent * (1 - a));
+    const double under = luminance(back.redComponent, back.greenComponent, back.blueComponent);
+    return (MAX(over, under) + 0.05) / (MIN(over, under) + 0.05);
+}
+
+// 皮肤的选中底色不透明、释义色和它同一色系时，选中行的释义和读音换成按底色挑出的颜色，和底色至少 3:1；底色半透明时仍是皮肤的释义色。
+static void TestSelectedGlossColour(RowLayoutClient *client)
+{
+    char temporary[] = "/tmp/msime-selected-gloss-XXXXXX";
+    assert(mkdtemp(temporary));
+    const std::filesystem::path root(temporary);
+    struct Palette { const char *id, *selected, *translation; bool opaque; };
+    for (const Palette &palette : {Palette{"blue-on-blue", "#4D6BFE", "#2F5BD3", true}, Palette{"slate", "#23262F", "#6B7180", true},
+                                   Palette{"translucent", "#2F5BD329", "#2F5BD3", false}}) {
+        std::filesystem::create_directories(root / palette.id);
+        {
+            std::ofstream manifest(root / palette.id / "skin.toml");
+            manifest << "schema_version = 2\nid = \"" << palette.id << "\"\nname = \"Selected Gloss\"\nversion = \"1\"\nbase = \"system\"\n"
+                     << "[supports]\nlayouts = [\"horizontal\", \"vertical\"]\nthemes = [\"light\", \"dark\"]\n[candidate_window]\nmin_width_dip = 0\n";
+            for (const char *mode : {"light", "dark"})
+                manifest << "[candidate." << mode << "]\nselected = \"" << palette.selected << "\"\ntranslation = \"" << palette.translation << "\"\n";
+            assert(manifest.good());
+        }
+        NSString *suite = [@"app.msime.test.selected-gloss." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        [defaults setObject:@"custom" forKey:@"MSIMEClientGlobalTheme"];
+        [defaults setObject:@(palette.id) forKey:@"MSIMEClientCustomCandidateSkin"];
+        MSIMEAppearancePreferences *appearance =
+            [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+        appearance.vertical = NO;
+        appearance.candidateTranslations = YES;
+        MSIMEInputController *controller = [[MSIMEInputController alloc] init];
+        RowLayoutPanel *panel = [[RowLayoutPanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+                                                                    backing:NSBackingStoreBuffered defer:NO];
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:panel forKey:@"panel"];
+        [controller setValue:@[@"en"] forKey:@"pronunciationTargets"];
+        [controller setValue:[@{@"to": @"/tuː/"} mutableCopy] forKey:@"englishPronunciations"];
+        [controller setValue:@{@"focused": @YES, @"editing_text": @"dao", @"page": @0, @"page_count": @1,
+                               @"candidates": @[@{@"text": @"到", @"translation": @"to", @"highlighted": @YES}, @{@"text": @"道", @"translation": @"to"}]}
+                      forKey:@"view"];
+        [controller renderCandidates];
+        MSIMECandidateButton *selected = CandidateButton(panel.contentView, 0);
+        MSIMECandidateButton *other = CandidateButton(panel.contentView, 1);
+        assert(selected.candidateHighlighted && !other.candidateHighlighted && [selected.pronunciation isEqual:@"/tuː/"]);
+        const auto tokens = [appearance candidateWindowSkinForDark:NO].tokens;
+        assert(tokens.translation && tokens.selectedTranslation);
+        assert([other.translationColor isEqual:SkinColor(*tokens.translation)]);
+        if (palette.opaque) {
+            assert(selected.fillColor.alphaComponent >= 0.85 && CandidateContrast(selected.translationColor, selected.fillColor) >= 3.0);
+            assert(![selected.translationColor isEqual:SkinColor(*tokens.translation)]);
+        } else {
+            assert([selected.translationColor isEqual:SkinColor(*tokens.translation)]);
+        }
+        NSBitmapImageRep *bitmap = [selected bitmapImageRepForCachingDisplayInRect:selected.bounds];
+        [selected cacheDisplayInRect:selected.bounds toBitmapImageRep:bitmap];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+    std::filesystem::remove_all(root);
+}
+
 int main(void)
 {
     @autoreleasepool
@@ -782,6 +943,8 @@ int main(void)
         appearance.showsCandidatePageNumber = YES;
         assert([controller renderExpandedCandidates]);
         assert([CandidateButton(panel.contentView, -3).identifier isEqual:@"candidate-collapse"]);
+        TestPronunciationLine(controller, panel, appearance);
+        TestSelectedGlossColour(client);
         TestDeclaredMotion(client);
         TestDecorationMotion(client);
         MSIMERemoveTestPreferenceSuite(defaults, suite);

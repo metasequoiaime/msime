@@ -303,22 +303,12 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     if rows.len() < 2 {
         return None;
     }
+    let leader = rows.get(0);
     // 引擎让英文或日文混输行领先的列表原样保留，见 `ENGLISH_SOURCE`、`MIXED_JAPANESE_SOURCE`。
-    if matches!(rows.get(0).source, ENGLISH_SOURCE | MIXED_JAPANESE_SOURCE) {
+    if matches!(leader.source, ENGLISH_SOURCE | MIXED_JAPANESE_SOURCE) {
         return None;
     }
-    // A dictionary hit earns the model's deference because it carries corpus frequency for the
-    // key the user typed. That premise fails the moment the engine offers a correction of that
-    // key: the frequency then belongs to the letters that arrived rather than to the word they
-    // were aiming at, and the list holds both readings. So the whole list loses the exemption,
-    // not the corrected rows — the row that would wrongly win is the uncorrected one.
-    //
-    // With correction off, or with nothing corrected, this is exactly the previous behaviour,
-    // which is what the 2052-case dictionary measurement was taken on.
-    //
-    // 不许领先的纠错行（双拼）只是附带的一个改正：它不算回答了按键，模型不拿它比较，也不因为它的存在撤掉词典命中的豁免，排序和没有纠错时完全一样。
     let corrections_lead = corrections_may_lead(scheme);
-    let corrected_key = corrections_lead && (0..rows.len()).any(|index| rows.get(index).corrected);
     let answers_key = |row: OrderRow<'a>| {
         row.answers_key
             && !CATALOG_SOURCES.contains(&row.source)
@@ -326,38 +316,42 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
             && row.source != MIXED_JAPANESE_SOURCE
             && (corrections_lead || !row.corrected)
     };
-    // Only candidates that answer the key are scored, so they are the ones the window has to leave room for.
+    // 首行不回答当前按键时，上游同样拒绝比较，无需准备模型输入。
+    if !answers_key(leader) {
+        return None;
+    }
+    // 词典命中携带当前按键的词频；全拼出现任何纠错行时，这份依据不再可信，
+    // 整表撤销豁免。双拼纠错行不许领先，也不撤销词典首选的豁免。
+    let corrected_key = corrections_lead && (0..rows.len()).any(|index| rows.get(index).corrected);
+    let trusted_leader = DICTIONARY_SOURCES.contains(&leader.source) && !corrected_key;
+    if trusted_leader {
+        return None;
+    }
+    // 只有参与比较的候选需要占用模型上下文窗口。
     let longest = longest_rerank_candidate(rows, &answers_key);
     let context = rerank_context(context, reranker.model().context_length(), longest);
-    with_row_texts(rows, |texts| {
-        let leader = rows.get(0);
-        let trusted_leader = DICTIONARY_SOURCES.contains(&leader.source) && !corrected_key;
-        if !trusted_leader && answers_key(leader) && rows.static_evidence(0).is_some() {
-            let mut considered = [0; STATIC_RERANK_LIMIT];
-            let mut statik = [0.0; STATIC_RERANK_LIMIT];
-            let mut subset = [""; STATIC_RERANK_LIMIT];
-            if let Some(count) = fill_static_rerank_inputs(
-                rows,
-                texts,
-                answers_key,
-                &mut considered,
-                &mut statik,
-                &mut subset,
-            ) {
-                let neural = reranker.log_probabilities(context, &subset[..count]);
-                if neural.len() == count {
-                    // 模型逐字分与词网格逐字分等权混合，两侧均为自然对数。
-                    let combined = |index: usize| (statik[index] + f64::from(neural[index])) * 0.5;
-                    let mut best = 0;
-                    for index in 1..count {
-                        if combined(index) > combined(best) {
-                            best = index;
-                        }
+    if rows.static_evidence(0).is_some() {
+        let mut considered = [0; STATIC_RERANK_LIMIT];
+        let mut statik = [0.0; STATIC_RERANK_LIMIT];
+        let mut subset = [""; STATIC_RERANK_LIMIT];
+        if let Some(count) =
+            fill_static_rerank_inputs(rows, answers_key, &mut considered, &mut statik, &mut subset)
+        {
+            let neural = reranker.log_probabilities(context, &subset[..count]);
+            if neural.len() == count {
+                // 模型逐字分与词网格逐字分等权混合，两侧均为自然对数。
+                let combined = |index: usize| (statik[index] + f64::from(neural[index])) * 0.5;
+                let mut best = 0;
+                for index in 1..count {
+                    if combined(index) > combined(best) {
+                        best = index;
                     }
-                    return (best != 0).then(|| considered[best]);
                 }
+                return (best != 0).then(|| considered[best]);
             }
         }
+    }
+    with_row_texts(rows, |texts| {
         reranker.best_where(context, texts, |index| CandidateFacts {
             answers_key: answers_key(rows.get(index)),
             trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&rows.get(index).source)
@@ -368,7 +362,6 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
 
 fn fill_static_rerank_inputs<'a, R, F>(
     rows: &'a R,
-    texts: &[&'a str],
     answers_key: F,
     considered: &mut [usize; STATIC_RERANK_LIMIT],
     statik: &mut [f64; STATIC_RERANK_LIMIT],
@@ -378,10 +371,10 @@ where
     R: OrderRowSource<'a> + ?Sized,
     F: Fn(OrderRow<'a>) -> bool,
 {
-    debug_assert_eq!(rows.len(), texts.len());
     let mut count = 0;
-    for (index, text) in texts.iter().enumerate().take(rows.len()) {
-        if !answers_key(rows.get(index)) {
+    for index in 0..rows.len() {
+        let row = rows.get(index);
+        if !answers_key(row) {
             continue;
         }
         if count == STATIC_RERANK_LIMIT {
@@ -389,7 +382,7 @@ where
         }
         considered[count] = index;
         statik[count] = rows.static_evidence(index)?.mean()?;
-        subset[count] = text;
+        subset[count] = row.text;
         count += 1;
     }
     (count >= 2).then_some(count)
@@ -746,20 +739,17 @@ mod tests {
         ];
         let scored = ScoredOrderRows::new(&rows, &scores);
         let (summary, allocations) = crate::ime::personal_rerank::allocations::count(|| {
-            with_row_texts(&scored, |texts| {
-                let mut considered = [0; STATIC_RERANK_LIMIT];
-                let mut statik = [0.0; STATIC_RERANK_LIMIT];
-                let mut subset = [""; STATIC_RERANK_LIMIT];
-                let count = fill_static_rerank_inputs(
-                    &scored,
-                    texts,
-                    |row| row.answers_key,
-                    &mut considered,
-                    &mut statik,
-                    &mut subset,
-                );
-                (count, considered[0], considered[1], statik[0], subset[1])
-            })
+            let mut considered = [0; STATIC_RERANK_LIMIT];
+            let mut statik = [0.0; STATIC_RERANK_LIMIT];
+            let mut subset = [""; STATIC_RERANK_LIMIT];
+            let count = fill_static_rerank_inputs(
+                &scored,
+                |row| row.answers_key,
+                &mut considered,
+                &mut statik,
+                &mut subset,
+            );
+            (count, considered[0], considered[1], statik[0], subset[1])
         });
         assert_eq!(summary, (Some(2), 0, 1, -1.0, "乙"));
         assert_eq!(allocations, 0);

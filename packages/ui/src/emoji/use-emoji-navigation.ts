@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 
 // Use rendered positions so navigation follows both responsive grids and
@@ -32,7 +33,7 @@ export function useEmojiNavigation(onEscape: () => void, viewKey?: string) {
   }, [viewKey]);
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.defaultPrevented || isComposingKeyEvent(event)) return;
     if (
       event.ctrlKey &&
       !event.altKey &&

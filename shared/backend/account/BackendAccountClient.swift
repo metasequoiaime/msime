@@ -78,6 +78,9 @@ struct BackendAccountClient: Sendable {
     let id: String
     let display_name: String
     let created_at: String
+    /// 已绑定 Google 身份的验证邮箱和头像 URL，与 Rust 的 `AccountUser` 一样都是可选的。保留它们是为了 Swift 改写会话（刷新、更新资料）时不替同一份存储的 Rust 读取方丢掉这两个字段；声明为 `var`，memberwise 初始化器才会默认给 nil。
+    var email: String?
+    var avatar_url: String?
     var preferredDisplayName: String {
       display_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         ? "水杉小鹿·" + id.prefix(6).uppercased() : display_name

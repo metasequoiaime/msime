@@ -208,7 +208,7 @@ test("the HarmonyOS phone 词库 page lists dictionaries the way Android does, w
   await screen.findByText("工作");
   expect(groupTitles()).toEqual(["已安装", "发现词库", "学习", "更多"]);
   for (const desktop of [
-    "编码前缀",
+    "词条或编码",
     "文件格式",
     "导出当前类型",
     "导出全部",
@@ -716,7 +716,7 @@ test("学习 writes the preference and 更多 opens 背单词 and 云词库", as
 
 test("other hosts keep the desktop dictionary form", () => {
   setup({ harmonyPhone: false });
-  expect(screen.getByText("编码前缀")).toBeTruthy();
+  expect(screen.getByText("词条或编码")).toBeTruthy();
   expect(screen.queryByText("添加词库")).toBeNull();
 });
 

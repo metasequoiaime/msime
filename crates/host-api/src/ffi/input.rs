@@ -288,6 +288,16 @@ pub extern "C" fn msime_client_punctuation_with_context(
     }
 }
 
+/// 重复按键手势把 ASCII 标点换成中文标点。韩文、越南文和藏文只写 ASCII 标点，注音的标点键用来拼注音符号，所以这些方案不启用；日文照旧启用。
+fn scheme_allows_repeat_punctuation(scheme: u8) -> bool {
+    !matches!(
+        SchemeType::from_u8(scheme),
+        Some(
+            SchemeType::Korean | SchemeType::Zhuyin | SchemeType::Vietnamese | SchemeType::Tibetan
+        )
+    )
+}
+
 /// Whether the commit just made arms either smart-punctuation follow-up gesture.
 ///
 /// Both answers are pure, but the switches that gate them live in the applied preferences, so the
@@ -328,23 +338,17 @@ pub unsafe extern "C" fn msime_client_smart_punctuation_arm(
                 .get(&handle)
                 .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
             let smart = session.applied.smart_punctuation;
-            // 重复按键手势把 ASCII 标点换成中文标点。韩文、越南文和藏文只写 ASCII 标点，注音的标点键用来拼注音符号，所以这几个方案里从不启用；日文照旧启用。
-            let smart_scheme = !matches!(
-                SchemeType::from_u8(session.runtime.scheme()),
-                Some(
-                    SchemeType::Korean
-                        | SchemeType::Zhuyin
-                        | SchemeType::Vietnamese
-                        | SchemeType::Tibetan
-                )
-            );
             let repeat = msime_client_core::punctuation::arm_repeat(
                 value.ascii,
                 &value.commit,
                 value.timestamp_ms,
                 value.editor_generation,
             )
-            .filter(|_| smart && session.applied.smart_punctuation_repeat && smart_scheme);
+            .filter(|_| {
+                smart
+                    && session.applied.smart_punctuation_repeat
+                    && scheme_allows_repeat_punctuation(session.runtime.scheme())
+            });
             let space = msime_client_core::punctuation::arm_space_convert(
                 &value.commit,
                 value.auto_closed_pair,
@@ -464,13 +468,18 @@ pub unsafe extern "C" fn msime_client_smart_punctuation_decide(
                     timestamp_ms: value.timestamp_ms,
                     editor_generation: value.editor_generation,
                     smart_punctuation: session.applied.smart_punctuation,
-                    repeat_enabled: session.applied.smart_punctuation_repeat,
+                    repeat_enabled: session.applied.smart_punctuation_repeat
+                        && scheme_allows_repeat_punctuation(session.runtime.scheme()),
                     has_composition: !session.runtime.is_idle(),
                     candidate_count,
                 },
             );
             let space = msime_client_core::punctuation::decide_space_convert(
-                space_snapshot,
+                // 快照由宿主保存，偏好热更新不会撤回它；执行时仍需检查当前开关。
+                space_snapshot.filter(|_| {
+                    session.applied.smart_punctuation
+                        && session.applied.smart_punctuation_space_convert
+                }),
                 value.character,
                 preceding,
                 !session.runtime.is_idle(),

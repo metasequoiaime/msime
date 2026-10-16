@@ -405,29 +405,29 @@ fn a_digit_records_the_seat_on_the_visible_page() {
 
 #[test]
 fn fourteen_key_commit_raw_finishes_from_the_highlight() {
-    let mut runtime = focused(FactEngine {
-        key_grid: Some(KeyGrid::FourteenKey),
-        ..pinyin()
-    });
-    runtime.dispatch(Action::GridKey(b'n')).unwrap();
-    runtime.dispatch(Action::GridKey(b'h')).unwrap();
-    runtime.dispatch(Action::NextCandidate).unwrap();
-    let done = runtime
-        .dispatch(Action::Command(Command::CommitRaw))
-        .unwrap();
-    assert_eq!(done.commit.as_deref(), Some("拟好"));
-    let facts = runtime.facts();
-    assert_eq!(
-        facts.selection,
-        Some(fact(
-            1,
-            5,
-            SelectionHow::GridRaw,
-            SelectionOutcome::Committed
-        ))
-    );
-    // 14 键的组码不是可上屏的字母，这一路是选词，不是原样上屏。
-    assert!(!facts.raw);
+    for command in [Command::CommitRaw, Command::CommitRawWithoutLearning] {
+        let mut runtime = focused(FactEngine {
+            key_grid: Some(KeyGrid::FourteenKey),
+            ..pinyin()
+        });
+        runtime.dispatch(Action::GridKey(b'n')).unwrap();
+        runtime.dispatch(Action::GridKey(b'h')).unwrap();
+        runtime.dispatch(Action::NextCandidate).unwrap();
+        let done = runtime.dispatch(Action::Command(command)).unwrap();
+        assert_eq!(done.commit.as_deref(), Some("拟好"));
+        let facts = runtime.facts();
+        assert_eq!(
+            facts.selection,
+            Some(fact(
+                1,
+                5,
+                SelectionHow::GridRaw,
+                SelectionOutcome::Committed
+            ))
+        );
+        // 14 键的组码不是可上屏的字母，这一路是选词，不是原样上屏。
+        assert!(!facts.raw);
+    }
 }
 
 #[test]

@@ -244,7 +244,12 @@ pub unsafe extern "C" fn msime_client_ensure_anonymous_account(
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AccountAccessTokenRequest {
-    directory: String,
+    /// 与 `session_store` 恰好给一个。
+    #[serde(default)]
+    directory: Option<String>,
+    /// `msime_client_session_store_register` 给的 id：登录会话和匿名会话都在宿主注入的存储里。
+    #[serde(default)]
+    session_store: Option<u64>,
     #[serde(default)]
     rejected_token: Option<String>,
 }
@@ -265,16 +270,34 @@ pub unsafe extern "C" fn msime_client_account_access_token(
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
         let request: AccountAccessTokenRequest =
             serde_json::from_slice(bytes).map_err(|_| "account_invalid")?;
-        let directory = std::path::Path::new(&request.directory);
-        if !directory.is_absolute() {
-            return Err("account_invalid".into());
-        }
-        msime_client_services::account::shared_access_token(
-            directory,
-            request.rejected_token.as_deref(),
+        let rejected = request.rejected_token.as_deref();
+        let token = match super::session_store::session_source(
+            request.directory.as_deref(),
+            false,
+            request.session_store,
         )
-        .map_err(|error| error.code().to_owned())
-        .and_then(|token| serde_json::to_value(token).map_err(|_| "account_unavailable".into()))
+        .ok_or("account_invalid")?
+        {
+            super::session_store::Source::Directory(directory) => {
+                let directory = std::path::Path::new(directory);
+                if !directory.is_absolute() {
+                    return Err("account_invalid".into());
+                }
+                msime_client_services::account::shared_access_token(directory, rejected)
+            }
+            // 登录的优先，没有时用匿名的，与按目录时相同。
+            super::session_store::Source::Store(entry) => {
+                msime_client_services::account::shared_access_token_in(
+                    &entry.account,
+                    &entry.anonymous,
+                    rejected,
+                    None,
+                )
+            }
+        };
+        token
+            .map_err(|error| error.code().to_owned())
+            .and_then(|token| serde_json::to_value(token).map_err(|_| "account_unavailable".into()))
     })
 }
 
@@ -1246,7 +1269,7 @@ pub unsafe extern "C" fn msime_client_custom_skin_library(
 /// for a log into a Chinese dialog.
 fn custom_skin_library_code(
     error: msime_client_services::skin::custom_library::CustomSkinLibraryError,
-) -> String {
+) -> &'static str {
     use msime_client_services::skin::custom_library::CustomSkinLibraryError as Failure;
     match error {
         Failure::Full => "community_skin_library_full",
@@ -1256,7 +1279,6 @@ fn custom_skin_library_code(
         Failure::Json(_) | Failure::Invalid => "community_skin_library_format",
         Failure::Io(_) => "community_storage",
     }
-    .to_owned()
 }
 
 #[derive(Debug, Deserialize)]
@@ -1306,28 +1328,43 @@ pub unsafe extern "C" fn msime_client_community_skin_install(
         }
         let id = msime_client_core::uuid::Uuid::parse_str(&request.id)
             .map_err(|_| "community_invalid")?;
-        let library = msime_client_services::skin::custom_library::CustomSkinLibraryStore::new(
-            &request.directory,
-        );
-        let trials = msime_client_services::skin::keyboard_trial::KeyboardSkinTrialStore::new(
-            &request.directory,
-            std::sync::Arc::new(msime_client_core::preferences::PreferencesStore::new(
-                &request.directory,
-            )),
-        );
-        let (trial, _) = trials
-            .begin(&request.name, request.design.clone())
-            .map_err(keyboard_skin_trial_code)?;
-        let skin = match library.import_download(id, &request.name, request.design) {
-            Ok(skin) => skin,
-            Err(error) => {
-                let _ = trials.finish(trial.id, false);
-                return Err(custom_skin_library_code(error));
-            }
-        };
-        serde_json::to_value(CommunitySkinInstallResponse { skin, trial })
-            .map_err(|_| "community_storage".into())
+        install_downloaded_keyboard_skin(
+            Path::new(&request.directory),
+            id,
+            &request.name,
+            request.design,
+        )
+        .map_err(Into::into)
     })
+}
+
+/// 把下载好的社区键盘皮肤装上：先开始试用、再导入皮肤库，导入失败就结束试用、不保留，返回 `{skin, trial}`。`directory` 是状态根目录的绝对路径。`msime_client_community_skin_install` 和 `msime_client_community` 的 `keyboard_skin_install` 共用它；错误是 `keyboard_skin_trial_code` 和 `custom_skin_library_code` 的码。
+pub(super) fn install_downloaded_keyboard_skin(
+    directory: &Path,
+    id: msime_client_core::uuid::Uuid,
+    name: &str,
+    design: msime_client_core::preferences::TouchKeyboardSkinDesign,
+) -> Result<Value, &'static str> {
+    let library =
+        msime_client_services::skin::custom_library::CustomSkinLibraryStore::new(directory);
+    let trials = msime_client_services::skin::keyboard_trial::KeyboardSkinTrialStore::new(
+        directory,
+        std::sync::Arc::new(msime_client_core::preferences::PreferencesStore::new(
+            directory,
+        )),
+    );
+    let (trial, _) = trials
+        .begin(name, design.clone())
+        .map_err(keyboard_skin_trial_code)?;
+    let skin = match library.import_download(id, name, design) {
+        Ok(skin) => skin,
+        Err(error) => {
+            let _ = trials.finish(trial.id, false);
+            return Err(custom_skin_library_code(error));
+        }
+    };
+    serde_json::to_value(CommunitySkinInstallResponse { skin, trial })
+        .map_err(|_| "community_storage")
 }
 
 #[derive(Debug, Deserialize)]
@@ -1391,13 +1428,12 @@ pub unsafe extern "C" fn msime_client_keyboard_skin_trial(
 
 fn keyboard_skin_trial_code(
     error: msime_client_services::skin::keyboard_trial::KeyboardSkinTrialError,
-) -> String {
+) -> &'static str {
     use msime_client_services::skin::keyboard_trial::KeyboardSkinTrialError as Failure;
     match error {
         Failure::Io(_) | Failure::Preferences(_) => "community_storage",
         Failure::Json(_) | Failure::Invalid => "community_trial_format",
     }
-    .to_owned()
 }
 
 #[derive(Debug, Deserialize)]
@@ -1993,23 +2029,43 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct CloudRequest {
-            directory: String,
+            #[serde(default)]
+            directory: Option<String>,
+            #[serde(default)]
+            session_store: Option<u64>,
             action: Value,
         }
         // SAFETY: guaranteed by the documented caller contract.
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
         let request: CloudRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
-        let directory = std::path::Path::new(&request.directory);
-        if !directory.is_absolute() || request.directory.len() > 16384 {
-            return Err(INVALID.into());
+        let source = super::session_store::session_source(
+            request.directory.as_deref(),
+            false,
+            request.session_store,
+        )
+        .ok_or(INVALID)?;
+        if let super::session_store::Source::Directory(directory) = &source {
+            if !std::path::Path::new(directory).is_absolute() || directory.len() > 16384 {
+                return Err(INVALID.into());
+            }
         }
-        crate::cloud_clipboard::validate_request(&request.action).map_err(|_| INVALID)?;
-        let client = BackendAccountClient::new().map_err(|error| error.code().to_owned())?;
-        let session = BackendAccountSession::new(
-            client,
-            FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
-        );
-        crate::cloud_clipboard::account_request(&session, &request.action).map_err(str::to_owned)
+        crate::cloud_clipboard::validate_account_request(&request.action).map_err(|_| INVALID)?;
+        match source {
+            super::session_store::Source::Directory(directory) => {
+                let client =
+                    BackendAccountClient::new().map_err(|error| error.code().to_owned())?;
+                let session = BackendAccountSession::new(
+                    client,
+                    FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
+                );
+                crate::cloud_clipboard::account_request(&session, &request.action)
+            }
+            // 注入的存储用注册时建好的会话对象，不每次新建。
+            super::session_store::Source::Store(entry) => {
+                crate::cloud_clipboard::account_request(&entry.account, &request.action)
+            }
+        }
+        .map_err(str::to_owned)
     })
 }
 

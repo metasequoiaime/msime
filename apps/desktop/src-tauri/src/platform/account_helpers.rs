@@ -1,63 +1,18 @@
 use msime_client_services::account::AccountError;
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
-use msime_client_services::account::{AccountApi, AccountSessionStorage, BackendAccountSession};
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 use std::path::Path;
 use std::sync::Arc;
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
-use std::{collections::HashMap, sync::Mutex};
 
-/// 在账户代次锁内发布预览，避免退出登录后旧下载重新写入预览表。
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
-pub(crate) fn publish_snapshot_preview<A, S, V>(
-    session: &BackendAccountSession<A, S>,
-    generation: u64,
-    account_id: &str,
-    previews: &Mutex<HashMap<String, V>>,
-    token: String,
-    preview: V,
-) -> Result<Vec<V>, AccountError>
-where
-    A: AccountApi,
-    S: AccountSessionStorage,
-{
-    session.with_generation(generation, Some(account_id), || {
-        let mut pending = previews.lock().map_err(|_| AccountError::Unavailable)?;
-        let old = pending.drain().map(|(_, item)| item).collect();
-        pending.insert(token, preview);
-        Ok(old)
-    })
-}
-
-/// 在账户锁内取走不属于当前代次的预览，避免退出后的清理误删新会话预览。
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
-pub(crate) fn take_invalid_snapshot_previews<A, S, V, F>(
-    session: &BackendAccountSession<A, S>,
-    previews: &Mutex<HashMap<String, V>>,
-    identity: F,
-) -> Result<Vec<V>, AccountError>
-where
-    A: AccountApi,
-    S: AccountSessionStorage,
-    F: for<'a> Fn(&'a V) -> (&'a str, u64),
-{
-    session.with_current_identity(|current| {
-        let mut pending = previews.lock().map_err(|_| AccountError::Unavailable)?;
-        let (valid, invalid): (HashMap<_, _>, HashMap<_, _>) = std::mem::take(&mut *pending)
-            .into_iter()
-            .partition(|(_, preview)| {
-                let (account_id, generation) = identity(preview);
-                current == Some((account_id, generation))
-            });
-        *pending = valid;
-        Ok(invalid.into_values().collect())
-    })
-}
+/// 预览表的发布与清理搬到了 host-api，与 Windows 设置应用和 `msime_client_cloud_dictionary` 共用。
+#[cfg(any(target_os = "ios", target_os = "android"))]
+pub(crate) use msime_host_api::cloud_dictionary::snapshot_files::{
+    publish_snapshot_preview, take_invalid_snapshot_previews,
+};
 
 /// Create a snapshot scratch directory only when every path component is a real directory.
 /// Snapshot writers pass paths in this directory to native bridges, so following a replaced
 /// temporary-directory symlink would redirect cloud data outside the app's scratch area.
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn prepare_snapshot_directory(directory: &Path) -> std::io::Result<()> {
     crate::shared::atomic_file::create_directory_and_check(directory).map(|_| ())
 }
@@ -65,13 +20,13 @@ pub(crate) fn prepare_snapshot_directory(directory: &Path) -> std::io::Result<()
 /// Write snapshot text through a private temporary sibling before replacing the requested path.
 /// Restore paths are generated internally, but a concurrent filesystem change must not turn one
 /// into a write through a leaf symlink.
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn write_snapshot_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     crate::shared::atomic_file::write(path, contents)
 }
 
 /// Read a staged snapshot through a no-follow handle and the native 512 MiB limit.
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn read_snapshot_file(path: &Path) -> std::io::Result<String> {
     let file = crate::shared::atomic_file::open_private(path)?;
     let bytes =
@@ -88,13 +43,13 @@ pub(crate) fn read_snapshot_file(path: &Path) -> std::io::Result<String> {
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "snapshot is not UTF-8"))
 }
 
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 #[allow(dead_code)]
 pub(crate) fn remove_snapshot_file(path: &Path) -> std::io::Result<()> {
     crate::shared::atomic_file::remove_private(path)
 }
 
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
@@ -153,21 +108,13 @@ fn cleanup_stale_snapshot_previews_in_directory(
 }
 
 /// Keep restore requests from copying data that the native snapshot inspectors will reject.
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn snapshot_text_within_limit(bytes: usize) -> bool {
     bytes <= 512 * 1024 * 1024
 }
 
 pub(crate) fn account_command_error(error: AccountError) -> crate::CommandError {
     crate::CommandError { code: error.code() }
-}
-
-/// Serializes an account response for the page. A value that cannot be serialized is reported as the service being unavailable, the code the page already handles for a failed call.
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
-pub(crate) fn account_value<T: serde::Serialize>(
-    value: T,
-) -> Result<serde_json::Value, AccountError> {
-    serde_json::to_value(value).map_err(|_| AccountError::Unavailable)
 }
 
 /// Maps an account error from a community service to the `community_*` codes the community pages translate. It is the mapping `mobile_community` uses, so a page reads the same code on every host.
@@ -226,134 +173,8 @@ where
 mod tests {
     use super::{
         cleanup_stale_snapshot_previews, cleanup_stale_snapshot_previews_in_directory,
-        prepare_snapshot_directory, publish_snapshot_preview, read_snapshot_file,
-        take_invalid_snapshot_previews, write_snapshot_file,
+        prepare_snapshot_directory, read_snapshot_file, write_snapshot_file,
     };
-
-    #[test]
-    fn snapshot_preview_published_after_logout_is_rejected() {
-        use msime_client_services::account::{
-            AccountError, AccountSessionStorage, AccountTokens, AccountUser, BackendAccountClient,
-            BackendAccountSession, SavedAccountSession,
-        };
-        use std::collections::HashMap;
-        use std::sync::Mutex;
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        struct MemoryStorage(Mutex<Option<SavedAccountSession>>);
-        impl AccountSessionStorage for MemoryStorage {
-            fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
-                Ok(self.0.lock().map_err(|_| AccountError::Storage)?.clone())
-            }
-            fn save(&self, saved: &SavedAccountSession) -> Result<(), AccountError> {
-                *self.0.lock().map_err(|_| AccountError::Storage)? = Some(saved.clone());
-                Ok(())
-            }
-            fn clear(&self) -> Result<(), AccountError> {
-                *self.0.lock().map_err(|_| AccountError::Storage)? = None;
-                Ok(())
-            }
-        }
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-        let saved = SavedAccountSession {
-            tokens: AccountTokens {
-                access_token: "a".repeat(64),
-                refresh_token: "b".repeat(64),
-                token_type: "Bearer".into(),
-                expires_in: 3600,
-                user: AccountUser {
-                    id: "synthetic-user".into(),
-                    display_name: "合成用户".into(),
-                    created_at: "2026-01-01T00:00:00Z".into(),
-                    email: None,
-                    avatar_url: None,
-                },
-            },
-            expires_at_unix_ms: now + 3_600_000,
-            session_id: None,
-        };
-        let session = BackendAccountSession::new(
-            BackendAccountClient::new().unwrap(),
-            MemoryStorage(Mutex::new(Some(saved))),
-        );
-        let (_, _, generation) = session
-            .credentials_with_generation(None, Some("synthetic-user"))
-            .unwrap();
-        let previews = Mutex::new(HashMap::new());
-        assert_eq!(
-            publish_snapshot_preview(
-                &session,
-                generation,
-                "synthetic-user",
-                &previews,
-                "first-preview".into(),
-                3_u8,
-            ),
-            Ok(Vec::new())
-        );
-        assert_eq!(
-            publish_snapshot_preview(
-                &session,
-                generation,
-                "synthetic-user",
-                &previews,
-                "second-preview".into(),
-                5_u8,
-            ),
-            Ok(vec![3_u8])
-        );
-        assert_eq!(
-            previews.lock().unwrap().remove("second-preview"),
-            Some(5_u8)
-        );
-        let mixed_previews = Mutex::new(HashMap::from([
-            (
-                "current".to_owned(),
-                ("synthetic-user".to_owned(), generation),
-            ),
-            (
-                "invalid".to_owned(),
-                ("synthetic-user".to_owned(), generation + 1),
-            ),
-        ]));
-        assert_eq!(
-            take_invalid_snapshot_previews(&session, &mixed_previews, |preview| {
-                (&preview.0, preview.1)
-            }),
-            Ok(vec![("synthetic-user".to_owned(), generation + 1)])
-        );
-        assert!(mixed_previews.lock().unwrap().contains_key("current"));
-        assert!(!mixed_previews.lock().unwrap().contains_key("invalid"));
-        session.forget().unwrap();
-
-        assert_eq!(
-            publish_snapshot_preview(
-                &session,
-                generation,
-                "synthetic-user",
-                &previews,
-                "preview-token".into(),
-                7_u8,
-            ),
-            Err(AccountError::Cancelled)
-        );
-        assert!(previews.lock().unwrap().is_empty());
-
-        let stale_previews = Mutex::new(HashMap::from([(
-            "stale-token".to_owned(),
-            ("synthetic-user".to_owned(), generation),
-        )]));
-        assert_eq!(
-            take_invalid_snapshot_previews(&session, &stale_previews, |preview| {
-                (&preview.0, preview.1)
-            }),
-            Ok(vec![("synthetic-user".to_owned(), generation)])
-        );
-        assert!(stale_previews.lock().unwrap().is_empty());
-    }
 
     #[test]
     fn stale_snapshot_cleanup_removes_only_download_ndjson_files() {

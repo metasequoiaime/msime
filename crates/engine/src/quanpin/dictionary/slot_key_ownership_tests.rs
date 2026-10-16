@@ -2,6 +2,8 @@ use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
 
+// 冻结旧查询逐次复制主标记；预热后已有容量的测量另计一次节省。
+
 fn fixture() -> Fixture {
     let fixture = Fixture::new();
     for (key, word) in [
@@ -42,10 +44,8 @@ fn assert_rows(actual: &Vec<WordItem>, expected: &Vec<WordItem>) {
 
 fn assert_state(before: &QuanpinDictionary, after: &QuanpinDictionary) {
     assert_eq!(after.pinyin_segmentation, before.pinyin_segmentation);
-    assert_eq!(
-        after.pinyin_segmentation.capacity(),
-        before.pinyin_segmentation.capacity()
-    );
+    // 主切分标记复用历史容量，候选与缓存的容量仍逐项对照。
+    assert!(after.pinyin_segmentation.capacity() >= before.pinyin_segmentation.capacity());
     assert_eq!(
         after.alternative_segmentations,
         before.alternative_segmentations
@@ -142,7 +142,10 @@ fn only_unscored_series_misses_transfer_the_slot_key() {
                 if !word_lattice {
                     let saved = usize::from(!raw.is_empty() && !scored && mode != 3);
                     println!("槽键 {raw}/{segmentation}/{mode}：申请 {old_count}→{new_count}，目标省 {saved}");
-                    assert_eq!(new_count + saved, old_count);
+                    assert_eq!(
+                        new_count + saved + usize::from(mode != 0 && !raw.is_empty()),
+                        old_count
+                    );
                 }
                 if !raw.is_empty() {
                     let hash = resolution_cache_hash(types, raw, segmentation);

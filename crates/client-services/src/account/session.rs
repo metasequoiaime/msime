@@ -279,6 +279,82 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.sign_in_google(&challenge.challenge_id, &code)
     }
 
+    /// 申请一个 Apple challenge，给宿主自己弹的 `ASAuthorizationAppleIDRequest` 用：`nonce` 原样放进请求的 `nonce`，`challenge_id` 放进 `state`，拿到的 identity token 交给 [`Self::sign_in_apple`]。
+    pub fn apple_challenge(&self) -> Result<AccountChallenge, AccountError> {
+        self.nonce_challenge("apple")
+    }
+
+    /// 申请一个 Google ID token 流程的 challenge（不带回跳地址），给 iOS 的 GoogleSignIn 和安卓的 Credential Manager 用：`nonce` 原样交给 Google，拿到的 ID token 交给 [`Self::sign_in_google_id_token`]。
+    pub fn google_id_token_challenge(&self) -> Result<AccountChallenge, AccountError> {
+        self.nonce_challenge("google")
+    }
+
+    /// 这两种流程的 identity token 里必须带着服务端生成的 nonce，响应里没有 nonce 时登录不可能成功，按服务端不可用处理。
+    fn nonce_challenge(&self, provider: &str) -> Result<AccountChallenge, AccountError> {
+        let challenge = self.api.challenge(provider, "")?;
+        validate_challenge(&challenge)?;
+        if challenge.nonce.as_deref().is_none_or(str::is_empty) {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(challenge)
+    }
+
+    /// 申请一个 Google 回环流程的 challenge，给自己监听回环端口的宿主（鸿蒙）用。`target` 是 [`google_loopback_target`] 给的回跳地址；授权链接必须是指向这个回跳地址的 Google 授权链接，否则是 [`AccountError::Unavailable`]，不要打开它。浏览器回跳带来的授权码交给 [`Self::sign_in_google`]。
+    pub fn google_loopback_challenge(
+        &self,
+        target: &str,
+    ) -> Result<AccountChallenge, AccountError> {
+        let challenge = self.request_code("google", target)?;
+        validate_challenge(&challenge)?;
+        let url = challenge
+            .authorization_url
+            .as_deref()
+            .ok_or(AccountError::Unavailable)?;
+        google_authorization_state(url, target)?;
+        Ok(challenge)
+    }
+
+    /// 用 Google 的 ID token 完成 [`Self::google_id_token_challenge`] 申请的 challenge。
+    pub fn sign_in_google_id_token(
+        &self,
+        challenge: &str,
+        credential: &str,
+    ) -> Result<AccountUser, AccountError> {
+        validate_google_id_token_login(challenge, credential)?;
+        self.sign_in_validated(challenge, credential, |_| {})
+    }
+
+    /// 开始一次 Apple 网页登录（安卓）：生成 verifier，把它的 S256 摘要交给服务端，返回要在浏览器里打开的 Apple 授权链接和 verifier。`app` 是发起登录的安卓 applicationId。
+    pub fn apple_web_start(&self, app: &str) -> Result<AppleWebSignIn, AccountError> {
+        if !super::apple_web::valid_apple_web_app(app) {
+            return Err(AccountError::Invalid);
+        }
+        let code_verifier = super::apple_web::new_code_verifier()?;
+        let challenge = self
+            .api
+            .apple_web_challenge(&super::apple_web::code_challenge(&code_verifier), app)?;
+        super::apple_web::validate_apple_web_challenge(&challenge)?;
+        Ok(AppleWebSignIn {
+            authorization_url: challenge.authorization_url,
+            expires_in: challenge.expires_in,
+            code_verifier,
+        })
+    }
+
+    /// 用回调交回来的 `grant` 和 [`Self::apple_web_start`] 给的 verifier 换会话并保存。
+    pub fn sign_in_apple_web(
+        &self,
+        grant: &str,
+        code_verifier: &str,
+    ) -> Result<AccountUser, AccountError> {
+        if !super::apple_web::valid_apple_web_grant(grant)
+            || !super::apple_web::valid_code_verifier(code_verifier)
+        {
+            return Err(AccountError::Invalid);
+        }
+        self.sign_in_exchanging(|| self.api.apple_web_login(grant, code_verifier), |_| {})
+    }
+
     fn sign_in_validated<F>(
         &self,
         challenge: &str,
@@ -288,13 +364,22 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     where
         F: FnOnce(&str),
     {
+        self.sign_in_exchanging(|| self.api.login(challenge, credential), cleanup)
+    }
+
+    /// 登录的公共部分：`exchange` 向服务端换来令牌，然后在刷新锁里保存新会话。换令牌之前先推进会话代次，所以期间开始的另一次登录或退出会让这一次以 [`AccountError::Cancelled`] 结束，不会覆盖它。
+    fn sign_in_exchanging<E, F>(&self, exchange: E, cleanup: F) -> Result<AccountUser, AccountError>
+    where
+        E: FnOnce() -> Result<AccountTokens, AccountError>,
+        F: FnOnce(&str),
+    {
         let version = {
             let mut state = self.lock()?;
             let version = Self::next_generation(&mut state)?;
             state.refresh = None;
             version
         };
-        let tokens = self.api.login(challenge, credential)?;
+        let tokens = exchange()?;
         validate_tokens(&tokens)?;
         let value = saved_session(tokens, Some(uuid::Uuid::new_v4()))?;
         let user = value.tokens.user.clone();
@@ -711,25 +796,35 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.authenticated_with_user_at(None, operation)
     }
 
-    fn authenticated_with_user_at<T, F>(
+    /// 返回 [`AccountFailure`] 的新接口用的 [`Self::authenticated`]：401 时同样带着被拒的令牌刷新一次、在同一个账号里重试，结束时同样核对账号没有变。
+    fn authenticated_detailed<T, F>(&self, operation: F) -> Result<T, AccountFailure>
+    where
+        F: Fn(&A, &str) -> Result<T, AccountFailure>,
+    {
+        self.authenticated_with_user_at(None, operation)
+            .map(|(_, result, _)| result)
+    }
+
+    fn authenticated_with_user_at<T, E, F>(
         &self,
         expected: Option<(&str, u64)>,
         operation: F,
-    ) -> Result<(String, T, u64), AccountError>
+    ) -> Result<(String, T, u64), E>
     where
-        F: Fn(&A, &str) -> Result<T, AccountError>,
+        E: AuthenticationError,
+        F: Fn(&A, &str) -> Result<T, E>,
     {
         let (user_id, token, generation) =
             self.credentials_with_generation(None, expected.map(|(user, _)| user))?;
         if expected.is_some_and(|(_, prior)| prior != generation) {
-            return Err(AccountError::Cancelled);
+            return Err(AccountError::Cancelled.into());
         }
         let result = match operation(&self.api, &token) {
-            Err(AccountError::Unauthorized) => {
+            Err(error) if error.unauthorized() => {
                 let (_, replacement, replacement_generation) =
                     self.credentials_with_generation(Some(&token), Some(&user_id))?;
                 if replacement_generation != generation {
-                    return Err(AccountError::Cancelled);
+                    return Err(AccountError::Cancelled.into());
                 }
                 operation(&self.api, &replacement)
             }
@@ -744,9 +839,100 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 .map(|saved| saved.tokens.user.id.as_str())
                 != Some(user_id.as_str())
         {
-            return Err(AccountError::Cancelled);
+            return Err(AccountError::Cancelled.into());
         }
         Ok((user_id, result, generation))
+    }
+
+    /// 与 [`Self::chat`] 相同，失败时是 [`AccountFailure`]：序列化后的请求体超过服务端的 64 KiB 整包上限时在本地报 `account_too_large`，不发出去。
+    pub fn chat_checked(
+        &self,
+        messages: &[AccountChatMessage],
+        model: &str,
+    ) -> Result<String, AccountFailure> {
+        validate_chat_request(messages, model)?;
+        if super::client::chat_request_body(messages, model)?.len() > MAX_CHAT_REQUEST_BYTES {
+            return Err(AccountFailure::too_large());
+        }
+        self.chat(messages, model).map_err(Into::into)
+    }
+
+    /// 云端的常用语列表。只用这个会话的账号。
+    pub fn phrases(&self) -> Result<AccountPhrases, AccountFailure> {
+        self.authenticated_detailed(|api, token| api.phrases(token))
+    }
+
+    /// 按 `phrases.revision` 比较并交换，整份替换云端的常用语；发送前完整校验，冲突是 `account_conflict`，不重试。
+    pub fn put_phrases(&self, phrases: &AccountPhrases) -> Result<AccountPhrases, AccountFailure> {
+        phrases_request_body(phrases)?;
+        self.authenticated_detailed(|api, token| api.put_phrases(phrases, token))
+    }
+
+    /// 「我的设备」：本人未撤销、未过期的登录会话。
+    pub fn devices(&self) -> Result<AccountDevices, AccountFailure> {
+        self.authenticated_detailed(|api, token| api.devices(token))
+    }
+
+    /// 撤销一个登录会话，返回本机是否因此退出了登录。本地保存的会话 id 是客户端生成的 UUID，不是服务端的会话 id，所以先列一次：要撤销的是当前会话时改走 [`Self::logout`]（服务端效果相同，本地会话同时清掉）；否则 `DELETE`。列不出来时直接 `DELETE`：万一撤销的是当前会话，下一次请求 401、刷新被拒时本地会话会被清掉。
+    pub fn revoke_device(&self, id: &str) -> Result<bool, AccountFailure> {
+        if !valid_device_session_id(id) {
+            return Err(AccountError::Invalid.into());
+        }
+        let current = self.devices().is_ok_and(|devices| {
+            devices
+                .sessions
+                .iter()
+                .any(|device| device.id == id && device.current)
+        });
+        if current {
+            self.logout(false)?;
+            return Ok(true);
+        }
+        self.authenticated_detailed(|api, token| api.revoke_device(id, token))
+            .map(|()| false)
+    }
+
+    /// 云端数据各分区的汇总。
+    pub fn data_summary(&self) -> Result<AccountDataSummary, AccountFailure> {
+        self.authenticated_detailed(|api, token| api.data_summary(token))
+    }
+
+    /// 把云端数据导出成 zip 写到 `destination`（绝对路径）。服务端每天只允许 3 次，超了是 `account_rate_limited`，带 `retry_after_seconds`。
+    pub fn data_export(&self, destination: &Path) -> Result<AccountDataExport, AccountFailure> {
+        if !destination.is_absolute() {
+            return Err(AccountError::Invalid.into());
+        }
+        self.authenticated_detailed(|api, token| api.data_export(destination, token))
+    }
+
+    /// 清空所选分区。服务端要求会话在 10 分钟内建立，否则是 `account_recent_login_required`。
+    pub fn data_delete(&self, sections: &[String]) -> Result<(), AccountFailure> {
+        if !valid_data_sections(sections) {
+            return Err(AccountError::Invalid.into());
+        }
+        self.authenticated_detailed(|api, token| api.data_delete(sections, token))
+    }
+
+    /// 把 `platform`（[`DOWNLOAD_LINK_PLATFORMS`] 之一）的下载链接发到这个账号已验证的邮箱。只用这个会话的账号；没有已验证邮箱是 `account_no_verified_email`。
+    pub fn download_link(&self, platform: &str) -> Result<AccountDownloadLink, AccountFailure> {
+        if !DOWNLOAD_LINK_PLATFORMS.contains(&platform) {
+            return Err(AccountError::Invalid.into());
+        }
+        self.authenticated_detailed(|api, token| api.download_link(platform, token))
+    }
+
+    /// 以指定的那一次登录发一个请求：`user_id` 和 `generation` 是调用方先前从 [`Self::with_current_identity`] 读到的。会话换了账号、退出后重新登录（代次变了）时是 `account_cancelled`，不会用别的登录去发；401 时带着被拒的令牌刷新一次，在同一次登录里重试。给云同步这种「读、合并、写」要横跨好几个请求的调用方用，每一步都落在开始那一轮的登录上。
+    pub fn authenticated_as<T, F>(
+        &self,
+        user_id: &str,
+        generation: u64,
+        operation: F,
+    ) -> Result<T, AccountFailure>
+    where
+        F: Fn(&A, &str) -> Result<T, AccountFailure>,
+    {
+        self.authenticated_with_user_at(Some((user_id, generation)), operation)
+            .map(|(_, result, _)| result)
     }
 
     pub fn preference_schema(&self) -> Result<AccountPreferenceSchema, AccountError> {
@@ -821,6 +1007,14 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
 
     pub fn delete_clipboard(&self, id: Option<&str>) -> Result<(), AccountError> {
         self.authenticated(|api, token| api.delete_clipboard(id, token))
+    }
+
+    pub fn pin_clipboard(&self, id: &str, pinned: bool) -> Result<(), AccountError> {
+        self.authenticated(|api, token| api.pin_clipboard(id, pinned, token))
+    }
+
+    pub fn set_clipboard_retention(&self, days: u32) -> Result<(), AccountError> {
+        self.authenticated(|api, token| api.set_clipboard_retention(days, token))
     }
 
     pub fn dictionary(
@@ -1084,6 +1278,23 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             current.tokens.user = user;
             self.storage.save(current)
         })
+    }
+}
+
+/// 认证调用的错误类型：已有接口用 [`AccountError`]，新接口用 [`AccountFailure`]；两者都要能从会话错误转换过来，也都要认得出 401。
+trait AuthenticationError: From<AccountError> {
+    fn unauthorized(&self) -> bool;
+}
+
+impl AuthenticationError for AccountError {
+    fn unauthorized(&self) -> bool {
+        *self == AccountError::Unauthorized
+    }
+}
+
+impl AuthenticationError for AccountFailure {
+    fn unauthorized(&self) -> bool {
+        self.is_unauthorized()
     }
 }
 

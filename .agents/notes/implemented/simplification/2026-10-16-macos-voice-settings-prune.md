@@ -73,6 +73,8 @@ macOS 这一批合入前，用户要求鸿蒙、Windows、Linux 也跟进。逐�
   - 手机页不画语音快捷键，按住录音的合并只在 2in1 上有效。
 - **不带过去的**：macOS 原生回退窗口、`ShortcutTest.mm`、`LiveVoiceControllerTest.mm` 和 `DoubaoVoiceRequest.mm` 的改动只属于 macOS。
 
+共享设置页中两种设备控件的展示与请求状态由[公共录音设备选择状态](2026-10-17-voice-device-picker-state.md)分层；原有平台能力、自动读取与显式刷新区别保持不变。
+
 ### 原样保留
 
 - 豆包鉴权方式、旧版 App Key、接入说明按钮：默认服务商的必填流程，留在子视图里「更多选项」之外，和密钥在一起；Windows 原生页上也留在「更多选项」外面。

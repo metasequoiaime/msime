@@ -947,3 +947,74 @@ mod tests {
         assert!(indexes.capacity() >= candidates.len());
     }
 }
+
+/// `msime_client_account_gloss` 的请求：组请求体，或解读宿主收到的响应。
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+enum AccountGlossRequest {
+    Request {
+        texts: Vec<String>,
+        source_lang: String,
+        target_lang: String,
+    },
+    Parse {
+        texts: Vec<String>,
+        status: u16,
+        body: String,
+        #[serde(default)]
+        retry_after: Option<String>,
+    },
+}
+
+/// 账号释义的 sans-IO 一半，给在按键路径上自己发 HTTP 的宿主（Windows 的 curl、Linux）：`request` 校验后给出 `POST /v1/translate` 的请求体，`parse` 解读收到的响应。规则与 `msime_client_account` 的 `translate` 相同。请求、返回值和错误码见头文件。
+/// # Safety
+/// `request` 指向 `length` 个可读的 UTF-8 JSON 字节，NULL 被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_account_gloss(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_services::account::{
+        translate_request_body, translate_response, AccountError, AccountTranslateRequest,
+        TRANSLATE_PATH,
+    };
+    super::account::account_failure_response(|| {
+        // SAFETY: 由调用方契约保证；长度先经过上限检查。
+        let request: AccountGlossRequest = unsafe {
+            super::with_bounded_bytes(
+                request,
+                length,
+                4 * 1024 * 1024,
+                "account_invalid",
+                |bytes| serde_json::from_slice(bytes).map_err(|_| "account_invalid".to_owned()),
+            )
+        }?;
+        match request {
+            AccountGlossRequest::Request {
+                texts,
+                source_lang,
+                target_lang,
+            } => {
+                let body = translate_request_body(&AccountTranslateRequest {
+                    texts,
+                    source_lang,
+                    target_lang,
+                })?;
+                let body =
+                    String::from_utf8(body).map_err(|_| AccountError::Invalid.code().to_owned())?;
+                Ok(json!({ "method": "POST", "path": TRANSLATE_PATH, "body": body }))
+            }
+            AccountGlossRequest::Parse {
+                texts,
+                status,
+                body,
+                retry_after,
+            } => {
+                let translations =
+                    translate_response(&texts, status, body.as_bytes(), retry_after.as_deref())?;
+                serde_json::to_value(translations)
+                    .map_err(|_| AccountError::Unavailable.code().to_owned().into())
+            }
+        }
+    })
+}

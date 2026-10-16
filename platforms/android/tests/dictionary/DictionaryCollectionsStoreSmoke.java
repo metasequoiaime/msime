@@ -25,6 +25,9 @@ public final class DictionaryCollectionsStoreSmoke {
         check(DictionaryCollectionsStore.normalizePinyin(" Shui Shan ").equals("shui'shan"));
         check(DictionaryCollectionsStore.normalizePinyin("hou’xuan").equals("hou'xuan"));
         check(DictionaryCollectionsStore.displayCode("hou'xuan'xiang").equals("hou’xuan’xiang"));
+        check(DictionaryCollectionsStore.pendingDescription(0).isEmpty());
+        check(DictionaryCollectionsStore.pendingDescription(1).equals("，还有 1 条等键盘同步"));
+        check(DictionaryCollectionsStore.pendingDescription(128406).equals("，还有 128,406 条等键盘同步"));
 
         check(NumberPolicy.groupedCount(128406).equals("128,406 条"));
         check(NumberPolicy.groupedCount(-3).equals("0 条"));

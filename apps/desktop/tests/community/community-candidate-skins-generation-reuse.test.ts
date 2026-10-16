@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 test("candidate skin preview loading reuses the shared owner generation lifecycle", () => {
   const source = Object.values(
     import.meta.glob<string>(
-      "../../../../packages/ui/src/community/community-candidate-skins.tsx",
+      "../../../../packages/ui/src/community/community-candidate-skin-preview.tsx",
       {
         eager: true,
         query: "?raw",

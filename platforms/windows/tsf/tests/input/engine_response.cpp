@@ -61,6 +61,13 @@ int main() {
         zhuyin.view.spelling_symbols != "1234567890,./;- " || !result.view.spelling_symbols.empty())
       return EXIT_FAILURE;
   }
+  {
+    EngineResult held;
+    if (!EngineSessionAdapter::parse_result(
+          R"({"ok":true,"value":{"handled":true,"commit":null,"view":{"editing_text":"","preedit":"","phrase_prefix":"合成词"}}})",
+          &held, &error) || held.view.phrase_prefix != "合成词" || !held.view.editing_text.empty())
+      return EXIT_FAILURE;
+  }
   if (EngineSessionAdapter::parse_result(
           R"({"ok":false,"error":"redacted"})", &result, &error))
     return EXIT_FAILURE;

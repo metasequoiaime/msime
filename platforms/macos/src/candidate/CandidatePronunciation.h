@@ -134,7 +134,9 @@ static inline NSArray<NSString *> *MSIMEGlossEnglishTexts(NSString *candidateTex
     return texts;
 }
 
-// The gloss as drawn: each line followed by its reading. The reading ranges are reported so they can be styled apart, and `lineStarts` gives where each gloss line begins in the result, for underlining an armed column.
+// The gloss as drawn: each line, then its reading on a line of its own under it. The reading ranges are reported so they can be styled apart, and `lineStarts` gives where each gloss line begins in the result, for underlining an armed column.
+//
+// 读音单独占一行，不再接在释义后面：英文释义加上 IPA 常常比候选本身宽出一倍，横排时整格跟着这一行变宽，读音的末尾紧挨下一格的释义，读起来像压在了相邻候选上；格子被挤窄时这一行又在音标中间折开。单独一行后格宽取释义和读音里较宽的一行，没有读音的页高度不变。
 static inline NSString *MSIMECandidateGlossDisplay(NSString *translation, NSString *pronunciation,
                                                    NSMutableArray<NSValue *> *readingRanges,
                                                    NSMutableArray<NSNumber *> *lineStarts)
@@ -148,7 +150,7 @@ static inline NSString *MSIMECandidateGlossDisplay(NSString *translation, NSStri
         [display appendString:lines[index]];
         NSString *reading = index < readings.count ? readings[index] : @"";
         if (lines[index].length && reading.length) {
-            [display appendString:@"  "];
+            [display appendString:@"\n"];
             [readingRanges addObject:[NSValue valueWithRange:NSMakeRange(display.length, reading.length)]];
             [display appendString:reading];
         }

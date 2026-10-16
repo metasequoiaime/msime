@@ -10,8 +10,8 @@ Status: implemented
 
 三端的触屏热力图都按各自键盘在手机竖屏、默认设置下的真实排布绘制：同样的键、顺序、宽度份额和键面，每个键带着键盘按下时记录的 id，计数落在按下的那个键帽上。
 
-- 26 键（全拼）：字母大写；第三行是 分词 | Z…M | ⌫；底行是 符 | 123 | 空格 | 中 | 回车。第二行是否缩进照各平台键盘自己（iOS 两端各 5%，鸿蒙各半键，Android 不缩进）。
-- 9 键（拼音）：左列 ，。？；3 × 3 字母格，首格 @# 记 `Nine1`；右列 ⌫ / 分词 / ！（Android 是 ⌫ / 重输 / ！）；底行同 26 键，没有 0。
+- 26 键（全拼）：字母大写；第三行是 分词 | Z…M | ⌫；底行是 123 | 符 | 空格 | ， | 中 | 回车，随[逗号次级句号决定](../feature/2026-10-16-comma-key-secondary-period.md)同步，长按逗号仍统计实际按下的 `Comma`。第二行是否缩进照各平台键盘自己（iOS 两端各 5%，鸿蒙各半键，Android 不缩进）。
+- 9 键（拼音）：左列 ，。？；3 × 3 字母格，首格 @# 记 `Nine1`；右列 ⌫ / 分词 / ！（Android 是 ⌫ / 重输 / ！）；底行为 符 | 123 | 空格 | 中 | 回车，没有 0。
 - 布局尽量取自键盘本身的常量：Android 的 `KeyHeatmapLayout` 由 `KeyboardLayout`、`KeyboardActionRow.designEntries`、`NineKeyLayout` 等推出；鸿蒙的测试直接读 `NineKeyLayout`、`KeyIdPolicy` 核对；iOS 的单元测试在 402pt 宽的真实 `KeyboardViewController` 上量出键位与宽度，再和热力图比对。键盘再改，测试会失败。
 
 三端统一的计数规则：

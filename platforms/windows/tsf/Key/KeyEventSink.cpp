@@ -60,6 +60,7 @@ struct DeferredShadowState
     bool urlMode = false;
     // Korean and Zhuyin: whether the composition's list is open once the keys ahead have run (see project_korean_hanja_key).
     bool koreanHanjaListOpen = false;
+    bool phraseActive = false;
     bool projectionValid = true;
 };
 
@@ -95,6 +96,7 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.unicodeMode = false;
         shadow.urlMode = false;
         shadow.koreanHanjaListOpen = false;
+        shadow.phraseActive = false;
     };
 
     switch (keyState.Function)
@@ -147,6 +149,8 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.koreanHanjaListOpen = false;
         break;
     case FUNCTION_BACKSPACE:
+        // 有暂存词段时删空可能恢复读音或上屏，等 Runtime 返回后再分类后续键。
+        if (shadow.phraseActive) { shadow.projectionValid = false; break; }
         shadow.caret = min(shadow.caret, shadow.rawInput.size());
         if (shadow.caret > 0)
         {
@@ -1426,6 +1430,7 @@ void CMetasequoiaIME::_EnsureDeferredKeyProjection()
     _deferredProjectedCandidateActive = _candidateMode == CANDIDATE_ORIGINAL;
     _deferredProjectedUnicodeMode = composition.unicodeMode;
     _deferredProjectedUrlMode = composition.urlMode;
+    _deferredProjectedPhraseActive = composition.phraseActive;
     _deferredProjectedKoreanHanjaListOpen =
         msime::windows::scheme::OpensCandidateList(Global::InputModeScheme.load(std::memory_order_relaxed)) &&
         _IsKoreanHanjaListOpen();
@@ -1447,6 +1452,9 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
         break;
     }
     _EnsureDeferredKeyProjection();
+    if (keyState.Function == FUNCTION_BACKSPACE_SEGMENT ||
+        (keyState.Function == FUNCTION_BACKSPACE && _deferredProjectedPhraseActive))
+        _deferredKeyClassificationPending = true;
     DeferredShadowState shadow;
     shadow.imeOpen = _deferredProjectedImeOpen;
     shadow.punctuationOpen = _deferredProjectedPunctuationOpen;
@@ -1457,6 +1465,7 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
     shadow.candidateActive = _deferredProjectedCandidateActive;
     shadow.unicodeMode = _deferredProjectedUnicodeMode;
     shadow.urlMode = _deferredProjectedUrlMode;
+    shadow.phraseActive = _deferredProjectedPhraseActive;
     shadow.koreanHanjaListOpen = _deferredProjectedKoreanHanjaListOpen;
     ApplyDeferredKeyState(shadow, keyState, wch, code);
     if (!shadow.projectionValid)
@@ -1468,6 +1477,7 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
         _deferredProjectedCandidateActive = false;
         _deferredProjectedUnicodeMode = false;
         _deferredProjectedUrlMode = false;
+        _deferredProjectedPhraseActive = false;
         _deferredProjectedKoreanHanjaListOpen = false;
         return;
     }
@@ -1477,6 +1487,7 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
     _deferredProjectedCandidateActive = shadow.candidateActive;
     _deferredProjectedUnicodeMode = shadow.unicodeMode;
     _deferredProjectedUrlMode = shadow.urlMode;
+    _deferredProjectedPhraseActive = shadow.phraseActive;
     _deferredProjectedKoreanHanjaListOpen = shadow.koreanHanjaListOpen;
     if (keyState.Function == FUNCTION_BACKSPACE && shadow.inputLength == 0)
         _backspaceHoldArmed = true;
@@ -1501,6 +1512,7 @@ void CMetasequoiaIME::_ApplyDeferredPreservedKeyProjection(REFGUID preservedKey)
         _deferredProjectedCandidateActive = false;
         _deferredProjectedUnicodeMode = false;
         _deferredProjectedUrlMode = false;
+        _deferredProjectedPhraseActive = false;
         _deferredProjectedKoreanHanjaListOpen = false;
         break;
     case CCompositionProcessorEngine::PreservedKeyAction::ToggleDoubleSingleByteMode:
@@ -1714,8 +1726,8 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
     // 只有段落编辑快捷键依赖组字状态，其余修饰键组合交给应用。
     const bool projectedCompositionActive = useProjection
                                                 ? (_deferredProjectedInputLength > 0 ||
-                                                   _deferredProjectedCandidateActive)
-                                                : (!_pCompositionProcessorEngine->GetKeyCompositionState().rawInput.empty() ||
+                                                   _deferredProjectedCandidateActive || _deferredProjectedPhraseActive)
+                                                : (_IsComposing() || !_pCompositionProcessorEngine->GetKeyCompositionState().rawInput.empty() ||
                                                    _candidateMode != CANDIDATE_NONE);
     const KEYSTROKE_FUNCTION segmentEdit = SegmentEditFunction(*classifiedCode, capturedModifiers);
     if (segmentEdit != FUNCTION_NONE && !_IsKeyboardDisabled() && projectedCompositionActive)
@@ -1741,6 +1753,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         shadow.candidateActive = _deferredProjectedCandidateActive;
         shadow.unicodeMode = _deferredProjectedUnicodeMode;
         shadow.urlMode = _deferredProjectedUrlMode;
+        shadow.phraseActive = _deferredProjectedPhraseActive;
         shadow.koreanHanjaListOpen = _deferredProjectedKoreanHanjaListOpen;
     }
     else
@@ -1756,6 +1769,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         shadow.candidateActive = _candidateMode == CANDIDATE_ORIGINAL;
         shadow.unicodeMode = composition.unicodeMode;
         shadow.urlMode = composition.urlMode;
+        shadow.phraseActive = composition.phraseActive;
         shadow.koreanHanjaListOpen =
             msime::windows::scheme::OpensCandidateList(Global::InputModeScheme.load(std::memory_order_relaxed)) &&
             _IsKoreanHanjaListOpen();
@@ -1891,7 +1905,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             isInputKey = false;
         }
         // Match the normal path: "/" and "@" open their modes on an empty composition.
-        if (!isInputKey && shadow.inputLength == 0 && !shadow.candidateActive &&
+        if (!isInputKey && shadow.inputLength == 0 && !shadow.candidateActive && !shadow.phraseActive &&
             Global::OpensLocalMode(*classifiedWch, false,
                                    shadow.punctuationOpen && Global::PunctuationLockMode.load(std::memory_order_relaxed) !=
                                                                  Global::PunctuationLock::AlwaysEnglish,
@@ -1902,6 +1916,10 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         }
     }
 
+    // 仅剩已选词段时，斜杠结束它并原样上屏，不能在词段后重新打开命令模式。
+    if (shadow.imeOpen && shadow.phraseActive && *classifiedWch == L'/')
+        return setKeyState(CATEGORY_COMPOSING, FUNCTION_PUNCTUATION);
+
     if (shadow.candidateActive && isInputKey)
     {
         return setKeyState(CATEGORY_CANDIDATE, FUNCTION_FINALIZE_CANDIDATELIST_AND_INPUT);
@@ -1911,7 +1929,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
     }
 
-    if (shadow.imeOpen && shadow.inputLength > 0)
+    if (shadow.imeOpen && (shadow.inputLength > 0 || shadow.phraseActive))
     {
         // Match the normal path: V's digits and operators compose ahead of their paging and punctuation meanings, and a digit key printing anything else selects.
         if (Global::IsExpressionModeComposition(shadow.rawInput.c_str(), shadow.rawInput.size(),
@@ -2484,6 +2502,7 @@ void CMetasequoiaIME::_ClearDeferredKeyDowns()
     _deferredProjectedCandidateActive = false;
     _deferredProjectedUnicodeMode = false;
     _deferredProjectedUrlMode = false;
+    _deferredProjectedPhraseActive = false;
     _deferredProjectedKoreanHanjaListOpen = false;
     _shiftHotkeyArmed = false;
     _ctrlHotkeyArmed = false;
@@ -2518,6 +2537,7 @@ void CMetasequoiaIME::_CompleteDeferredKeyReplay(uint64_t replayToken)
         _deferredProjectedCandidateActive = false;
         _deferredProjectedUnicodeMode = false;
         _deferredProjectedUrlMode = false;
+        _deferredProjectedPhraseActive = false;
         _deferredProjectedKoreanHanjaListOpen = false;
         (void)_RefreshDeferredRecoveryPrefix(context);
         _deferredKeyInFlight = {};

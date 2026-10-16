@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { exceptionMessage } from "../core/exception-message";
 import { runAsyncAction } from "../core/async-action";
 import { deepEqual } from "../core/deep-equal";
 import { aiCredentialOrigin } from "./credential-utils";
@@ -173,8 +174,7 @@ export function useAiAssistant({
         setModelsStatus(`已获取 ${available.length} 个可用模型。`);
         if (available.length && !available.includes(ai.model)) updateAi({ model: available[0] });
       },
-      (cause) =>
-        cause instanceof Error ? cause.message : "获取模型失败，请检查地址、密钥和网络。",
+      (cause) => exceptionMessage(cause, "获取模型失败，请检查地址、密钥和网络。"),
     );
   };
 
@@ -215,8 +215,7 @@ export function useAiAssistant({
         setTestOutput(result);
         setTestStatus("已完成");
       },
-      (cause) =>
-        cause instanceof Error ? cause.message : "AI 请求失败，请检查地址、模型、密钥和网络。",
+      (cause) => exceptionMessage(cause, "AI 请求失败，请检查地址、模型、密钥和网络。"),
     );
   };
 

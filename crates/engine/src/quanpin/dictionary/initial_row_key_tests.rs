@@ -2,6 +2,8 @@ use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
 
+// 冻结旧查询逐次复制主标记；预热后已有容量的测量另计一次节省。
+
 // 固定 194ec019b6a65ac90317ec24b3b1173636bee471 的完整方法，只改名、转接旧查询链并移除注释。
 impl QuanpinDictionary {
     fn legacy_initial_key_query_exact(
@@ -290,10 +292,8 @@ fn assert_rows(actual: &Vec<WordItem>, expected: &Vec<WordItem>) {
 
 fn assert_state(before: &QuanpinDictionary, after: &QuanpinDictionary) {
     assert_eq!(after.pinyin_segmentation, before.pinyin_segmentation);
-    assert_eq!(
-        after.pinyin_segmentation.capacity(),
-        before.pinyin_segmentation.capacity()
-    );
+    // 主切分标记复用历史容量，候选与缓存的容量仍逐项对照。
+    assert!(after.pinyin_segmentation.capacity() >= before.pinyin_segmentation.capacity());
     assert_eq!(
         after.alternative_segmentations,
         before.alternative_segmentations
@@ -435,7 +435,7 @@ fn full_queries_save_a_key_only_when_initial_rows_outlive_path_answers() {
             assert_rows(&actual, &expected);
             assert_state(&before, &after);
             assert_eq!(
-                new_count + usize::from(initial_hit),
+                new_count + usize::from(initial_hit) + usize::from(mode != 0 && !raw.is_empty()),
                 old_count,
                 "完整查询 {raw}/{segmentation}/缓存={mode}"
             );
@@ -481,5 +481,5 @@ fn stack_lookup_preserves_fifo_age_and_database_invalidation() {
     let (actual, new_count) = count(|| after.query_exact("n", "n", 0));
     assert_rows(&actual, &expected);
     assert!(actual.iter().any(|item| item.word == "合成外部写入"));
-    assert_eq!(new_count, old_count, "版本失效重建必须按原成本拥有缓存键");
+    assert_eq!(new_count + 1, old_count, "版本重建仅省去已复用的主标记副本");
 }

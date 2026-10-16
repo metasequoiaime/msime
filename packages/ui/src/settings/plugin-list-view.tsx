@@ -1,7 +1,6 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
-import { useId } from "react";
 import { GroupList } from "../core/platform-controls";
 import * as controls from "../core/platform-controls-style";
 import * as settings from "./settings-style";
@@ -25,6 +24,7 @@ import type {
 } from "./plugin-types";
 import { ActionButton } from "./action-button";
 import { scriptMarker } from "./plugin-script-view";
+import { PluginNavRow } from "./plugin-nav-row";
 
 /** 「脚本插件（实验）」分组要的东西：宿主运行脚本插件时才有。 */
 export type PluginListScripts = {
@@ -36,54 +36,6 @@ export type PluginListScripts = {
   /** 同一用户下的程序能伪造授权的残余风险说明（`scriptResidualRisk`），不认识的平台为 null。 */
   risk: string | null;
 };
-
-/** A row that opens a view, in the markup `SubPageEntries` gives its rows: named by its title, described by its description and its trailing marker. `rowKey` is what focus returns to when the view is closed. */
-function PluginNavRow({
-  title,
-  description,
-  marker,
-  rowKey,
-  onOpen,
-}: {
-  title: string;
-  description?: string;
-  marker?: string | null;
-  rowKey: string;
-  onOpen: () => void;
-}) {
-  const descriptionId = useId();
-  const markerId = useId();
-  const describedBy = [description ? descriptionId : null, marker ? markerId : null]
-    .filter(Boolean)
-    .join(" ");
-  return (
-    <button
-      type="button"
-      className={`${controls.row} w-full cursor-pointer border-0 text-left hover:bg-[var(--p-hover)]`}
-      aria-label={title}
-      aria-describedby={describedBy || undefined}
-      data-plugin-row={rowKey}
-      onClick={onOpen}
-    >
-      <span className={controls.rowText}>
-        <span className={controls.rowTitle}>{title}</span>
-        {description && (
-          <span id={descriptionId} className={controls.rowDescription}>
-            {description}
-          </span>
-        )}
-      </span>
-      {marker && (
-        <span id={markerId} className={`${controls.rowDescription} shrink-0`}>
-          {marker}
-        </span>
-      )}
-      <span className={controls.rowDescription} aria-hidden="true">
-        ›
-      </span>
-    </button>
-  );
-}
 
 export interface PluginListViewProps {
   /** Absent on a host with no pack store: nothing is listed or imported, but the 声音与效果 entry still opens. */

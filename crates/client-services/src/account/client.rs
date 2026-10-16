@@ -12,12 +12,91 @@ pub struct BackendAccountClient {
     origin: Url,
 }
 
+/// 没有宿主自报的 User-Agent 时发的值，与改动前相同。
+const DEFAULT_USER_AGENT: &str = "MSIME/Android";
+/// 服务端认的平台 ID（msime-cloud `internal/account/sessions.go` 的 `sessionPlatforms`）。
+const CLIENT_AGENT_PLATFORMS: [&str; 6] =
+    ["android", "ios", "macos", "windows", "linux", "harmony"];
+const MAX_CLIENT_AGENT_BYTES: usize = 256;
+const MAX_CLIENT_AGENT_VERSION_BYTES: usize = 32;
+
+/// 宿主自报的 User-Agent 是否是服务端「我的设备」认得出的形状：`msime-<平台>/<版本> (<设备>; <系统>; edition=<id>)`，括号部分可省略。与服务端的 `msimeAgent` 正则 `^msime-([a-z]+)/([0-9A-Za-z.+_-]{1,32})(?: \(([^()]*)\))?$` 等价，另外要求平台是六个之一、整串不超过 256 字节且全是可打印 ASCII。用字符串切分实现，不用正则。
+pub fn valid_client_agent(agent: &str) -> bool {
+    if agent.len() > MAX_CLIENT_AGENT_BYTES
+        || !agent.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
+    {
+        return false;
+    }
+    let Some(rest) = agent.strip_prefix("msime-") else {
+        return false;
+    };
+    let Some((platform, rest)) = rest.split_once('/') else {
+        return false;
+    };
+    if !CLIENT_AGENT_PLATFORMS.contains(&platform) {
+        return false;
+    }
+    let (version, detail) = match rest.split_once(' ') {
+        Some((version, detail)) => (version, Some(detail)),
+        None => (rest, None),
+    };
+    let version_valid = !version.is_empty()
+        && version.len() <= MAX_CLIENT_AGENT_VERSION_BYTES
+        && version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b".+_-".contains(&byte));
+    let detail_valid = detail.is_none_or(|detail| {
+        detail
+            .strip_prefix('(')
+            .and_then(|inner| inner.strip_suffix(')'))
+            .is_some_and(|inner| !inner.contains(['(', ')']))
+    });
+    version_valid && detail_valid
+}
+
+fn build_http_client(agent: &str) -> Result<Client, AccountError> {
+    Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(30))
+        .user_agent(agent)
+        .build()
+        .map_err(|_| AccountError::Unavailable)
+}
+
+/// [`BackendAccountClient::new`] 用的 HTTP 客户端，整个进程共用一个（克隆只是多一个引用）。reqwest 的阻塞客户端各自带一个后台线程和它的事件循环（macOS 上占三个文件描述符），宿主按账号目录、社区服务、AI 皮肤、整份快照各建一个 `BackendAccountClient`，各建一份时这些线程和描述符跟着按目录缓存的会话一直留着：测试里每个用例一个临时目录，几十个用例就把默认 256 的打开文件上限占掉一大半。客户端里只有连接池、不跟随重定向和 30 秒超时这几样与账号无关的配置，令牌每个请求单独带，共用不会串号。建不出来时不缓存，下一次再试。
+fn shared_default_client() -> Result<Client, AccountError> {
+    static SHARED: std::sync::Mutex<Option<Client>> = std::sync::Mutex::new(None);
+    let mut shared = SHARED.lock().map_err(|_| AccountError::Unavailable)?;
+    if let Some(client) = shared.as_ref() {
+        return Ok(client.clone());
+    }
+    let client = build_http_client(DEFAULT_USER_AGENT)?;
+    *shared = Some(client.clone());
+    Ok(client)
+}
+
 impl BackendAccountClient {
     pub fn new() -> Result<Self, AccountError> {
         Self::with_origin(ACCOUNT_ORIGIN, false)
     }
 
+    /// 与 [`Self::new`] 相同，只是登录、刷新和其余请求都以 `agent` 作 User-Agent，服务端「我的设备」据此显示平台、设备和版本。`agent` 不是 [`valid_client_agent`] 认的形状时是 [`AccountError::Invalid`]。
+    pub fn with_user_agent(agent: &str) -> Result<Self, AccountError> {
+        if !valid_client_agent(agent) {
+            return Err(AccountError::Invalid);
+        }
+        Self::with_origin_and_agent(ACCOUNT_ORIGIN, false, agent)
+    }
+
     fn with_origin(origin: &str, allow_http_loopback: bool) -> Result<Self, AccountError> {
+        Self::with_origin_and_agent(origin, allow_http_loopback, DEFAULT_USER_AGENT)
+    }
+
+    fn with_origin_and_agent(
+        origin: &str,
+        allow_http_loopback: bool,
+        agent: &str,
+    ) -> Result<Self, AccountError> {
         let origin = Url::parse(origin).map_err(|_| AccountError::Invalid)?;
         let valid_scheme = origin.scheme() == "https"
             || (allow_http_loopback
@@ -32,18 +111,23 @@ impl BackendAccountClient {
         {
             return Err(AccountError::Invalid);
         }
-        let client = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(30))
-            .user_agent("MSIME/Android")
-            .build()
-            .map_err(|_| AccountError::Unavailable)?;
+        // 正式服务端、默认 User-Agent 的客户端整个进程共用一个；自报 User-Agent 的和测试连本机回环的各建各的。
+        let client = if agent == DEFAULT_USER_AGENT && !allow_http_loopback {
+            shared_default_client()?
+        } else {
+            build_http_client(agent)?
+        };
         Ok(Self { client, origin })
     }
 
     #[cfg(test)]
     pub(crate) fn loopback(origin: &str) -> Result<Self, AccountError> {
         Self::with_origin(origin, true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn loopback_with_agent(origin: &str, agent: &str) -> Result<Self, AccountError> {
+        Self::with_origin_and_agent(origin, true, agent)
     }
 
     fn request(
@@ -244,6 +328,82 @@ impl BackendAccountClient {
         serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
     }
 
+    /// 返回 [`AccountFailure`] 的新接口发请求用：与 [`Self::request_with_limit_timeout_accept`] 相同，失败时带着状态码、服务端错误码和 `Retry-After`。请求体超过 `maximum_request_bytes` 时在本地以 [`AccountFailure::too_large`] 拒绝，不发出去。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn request_detailed(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<Vec<u8>>,
+        maximum_request_bytes: usize,
+        maximum_response_bytes: usize,
+        timeout: Duration,
+        accept: &str,
+    ) -> Result<Vec<u8>, AccountFailure> {
+        if body
+            .as_ref()
+            .is_some_and(|body| body.len() > maximum_request_bytes)
+        {
+            return Err(AccountFailure::too_large());
+        }
+        let response = self
+            .prepare(method, path, token, body, maximum_request_bytes, accept)?
+            .timeout(timeout)
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
+        read_detailed_response(response, maximum_response_bytes)
+    }
+
+    /// [`Self::request_detailed`] 的 JSON 版本：请求体由 `body` 序列化，2xx 的正文解成 `T`，解不出是 `account_unavailable`。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn json_detailed<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<&B>,
+        maximum_request_bytes: usize,
+        maximum_response_bytes: usize,
+        timeout: Duration,
+    ) -> Result<T, AccountFailure> {
+        let body = body
+            .map(serde_json::to_vec)
+            .transpose()
+            .map_err(|_| AccountError::Invalid)?;
+        let bytes = self.request_detailed(
+            method,
+            path,
+            token,
+            body,
+            maximum_request_bytes,
+            maximum_response_bytes,
+            timeout,
+            "application/json",
+        )?;
+        serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable.into())
+    }
+
+    /// 给不经 [`Self::prepare`] 的请求（multipart 上传、流式下载）拼出地址，只允许发往构造时给定的源站。
+    pub(super) fn url(&self, path: &str) -> Result<Url, AccountError> {
+        if !path.starts_with("/v1/") || path.contains('\\') {
+            return Err(AccountError::Invalid);
+        }
+        let url = self.origin.join(path).map_err(|_| AccountError::Invalid)?;
+        if url.scheme() != self.origin.scheme()
+            || url.host_str() != self.origin.host_str()
+            || url.port_or_known_default() != self.origin.port_or_known_default()
+        {
+            return Err(AccountError::Invalid);
+        }
+        Ok(url)
+    }
+
+    /// 本客户端的 HTTP 客户端，给 [`Self::url`] 配套的请求用。
+    pub(super) fn http(&self) -> &Client {
+        &self.client
+    }
+
     /// POSTs a JSON `body` to `path` without credentials and reports the response status with its `Retry-After` delay (seconds form only), for callers whose handling depends on the status itself rather than on a decoded document, such as telemetry delivery. The response body is discarded. A request that never got a response is `Err(Unavailable)`.
     pub(crate) fn post_for_status(
         &self,
@@ -367,6 +527,47 @@ impl BackendAccountClient {
         self.empty::<()>(Method::DELETE, &path, Some(access_token), None)
     }
 
+    /// 置顶或取消置顶一条云剪贴板条目（见 [`AccountApi::pin_clipboard`]）。`id` 不是 64 位小写十六进制时不联网，答 `Invalid`。
+    pub fn pin_clipboard(
+        &self,
+        id: &str,
+        pinned: bool,
+        access_token: &str,
+    ) -> Result<(), AccountError> {
+        #[derive(Serialize)]
+        struct Body {
+            pinned: bool,
+        }
+        validate_clipboard_id(id)?;
+        self.empty(
+            Method::PUT,
+            &format!("{CLIPBOARD_PATH}/{id}/pin"),
+            Some(access_token),
+            Some(&Body { pinned }),
+        )
+    }
+
+    /// 设置云剪贴板的保留天数（见 [`AccountApi::set_clipboard_retention`]）。不在 [`crate::clipboard_relay::RETENTION_DAYS`] 里的天数不联网，答 `Invalid`。
+    pub fn set_clipboard_retention(
+        &self,
+        days: u32,
+        access_token: &str,
+    ) -> Result<(), AccountError> {
+        #[derive(Serialize)]
+        struct Body {
+            days: u32,
+        }
+        if !crate::clipboard_relay::RETENTION_DAYS.contains(&days) {
+            return Err(AccountError::Invalid);
+        }
+        self.empty(
+            Method::PUT,
+            &format!("{CLIPBOARD_PATH}/retention"),
+            Some(access_token),
+            Some(&Body { days }),
+        )
+    }
+
     pub fn dictionary(
         &self,
         kind: DictionaryKind,
@@ -443,6 +644,52 @@ impl BackendAccountClient {
         Ok(page)
     }
 
+    /// 云同步的词库探测：只取自 `after` 以来的第一条改动。翻页的 `next` 不能后退，有改动时必须前进，没有改动时必须停在 `after`，与 Android `SyncApi.dictionaryChangedSince` 的检查相同；不合规的响应是 `account_unavailable`。
+    pub fn dictionary_probe(
+        &self,
+        after: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryProbe, AccountFailure> {
+        #[derive(Deserialize)]
+        struct Change {
+            revision: i64,
+            #[serde(default)]
+            reset: bool,
+        }
+        #[derive(Deserialize)]
+        struct Page {
+            changes: Vec<Change>,
+            next: i64,
+        }
+        if after < 0 || !crate::text::is_lower_hex(access_token, 64) {
+            return Err(AccountError::Invalid.into());
+        }
+        let page = self.json_detailed::<Page, ()>(
+            Method::GET,
+            &format!("/v1/users/me/dictionary/changes?after={after}&limit=1"),
+            Some(access_token),
+            None,
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        let first = page.changes.first();
+        let valid = match first {
+            Some(change) => {
+                page.changes.len() == 1 && change.revision > after && page.next == change.revision
+            }
+            None => page.next == after,
+        };
+        if !valid {
+            return Err(AccountError::Unavailable.into());
+        }
+        Ok(AccountDictionaryProbe {
+            changed: first.is_some(),
+            revision: page.next,
+            reset: first.is_some_and(|change| change.reset),
+        })
+    }
+
     pub fn dictionary_snapshot(&self, access_token: &str) -> Result<Vec<u8>, AccountError> {
         self.request_with_limit_timeout_accept(
             Method::GET,
@@ -461,12 +708,22 @@ impl BackendAccountClient {
         destination: &Path,
         access_token: &str,
     ) -> Result<u64, AccountError> {
+        self.snapshot_to_file_with(destination, access_token, error_from_response)
+    }
+
+    /// [`Self::dictionary_snapshot_to_file`] 的实现：非 2xx 的响应交给 `failed` 读成错误，两种错误类型（[`AccountError`] 和云同步用的 [`AccountFailure`]）共用同一段下载和落盘代码。
+    fn snapshot_to_file_with<E: From<AccountError>>(
+        &self,
+        destination: &Path,
+        access_token: &str,
+        failed: impl FnOnce(Response) -> E,
+    ) -> Result<u64, E> {
         if !destination.is_absolute() || !crate::text::is_lower_hex(access_token, 64) {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
         }
         let parent = destination.parent().ok_or(AccountError::Invalid)?;
         if !parent.is_absolute() {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
         }
         crate::storage::reject_symlink(parent).map_err(|_| AccountError::Invalid)?;
         let url = self
@@ -482,13 +739,13 @@ impl BackendAccountClient {
             .send()
             .map_err(|_| AccountError::Unavailable)?;
         if !response.status().is_success() {
-            return Err(error_from_response(response));
+            return Err(failed(response));
         }
         if response
             .content_length()
             .is_some_and(|length| length > MAX_DICTIONARY_SNAPSHOT_BYTES as u64)
         {
-            return Err(AccountError::Unavailable);
+            return Err(AccountError::Unavailable.into());
         }
         #[cfg(unix)]
         {
@@ -529,7 +786,7 @@ impl BackendAccountClient {
             )
             .map_err(|_| AccountError::Unavailable)?;
             if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
-                return Err(AccountError::Unavailable);
+                return Err(AccountError::Unavailable.into());
             }
             temporary
                 .as_file_mut()
@@ -583,6 +840,31 @@ impl BackendAccountClient {
         revision: i64,
         access_token: &str,
     ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        let response = self.send_snapshot_file(snapshot, revision, access_token)?;
+        Self::decode_snapshot_restore(response, revision)
+    }
+
+    /// 与 [`Self::restore_dictionary_snapshot_file`] 相同，失败时是带状态码、服务端错误码和 `Retry-After` 的 [`AccountFailure`]：云同步要分清 409 `revision_conflict`、429 限流和 503 `snapshot_restore_busy`。
+    pub fn restore_dictionary_snapshot_file_detailed(
+        &self,
+        snapshot: &Path,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountFailure> {
+        let response = self.send_snapshot_file(snapshot, revision, access_token)?;
+        if !response.status().is_success() {
+            return Err(failure_from_response(response));
+        }
+        Self::decode_snapshot_restore(response, revision).map_err(Into::into)
+    }
+
+    /// 校验快照文件并把它作为请求体流式发出去，返回原样的响应。
+    fn send_snapshot_file(
+        &self,
+        snapshot: &Path,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<Response, AccountError> {
         if revision < 0 || !snapshot.is_absolute() || !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
@@ -607,8 +889,7 @@ impl BackendAccountClient {
                 "/v1/users/me/dictionary/snapshot?revision={revision}"
             ))
             .map_err(|_| AccountError::Invalid)?;
-        let response = self
-            .client
+        self.client
             .put(url)
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::CONTENT_TYPE, "application/x-ndjson")
@@ -616,8 +897,7 @@ impl BackendAccountClient {
             .timeout(Duration::from_secs(600))
             .body(reqwest::blocking::Body::sized(file, bytes))
             .send()
-            .map_err(|_| AccountError::Unavailable)?;
-        Self::decode_snapshot_restore(response, revision)
+            .map_err(|_| AccountError::Unavailable)
     }
 
     fn decode_snapshot_restore(
@@ -1035,6 +1315,34 @@ impl BackendAccountClient {
     }
 }
 
+/// `/v1/chat/completions` 的请求体。[`BackendAccountClient`] 发请求和会话层的本地预检用同一份，量的是同一串字节。
+#[derive(Serialize)]
+struct ChatBody<'a> {
+    messages: &'a [AccountChatMessage],
+    model: &'a str,
+    max_tokens: u16,
+    stream: bool,
+}
+
+impl<'a> ChatBody<'a> {
+    fn new(messages: &'a [AccountChatMessage], model: &'a str) -> Self {
+        Self {
+            messages,
+            model,
+            max_tokens: 2048,
+            stream: false,
+        }
+    }
+}
+
+/// 序列化后的聊天请求体。
+pub(super) fn chat_request_body(
+    messages: &[AccountChatMessage],
+    model: &str,
+) -> Result<Vec<u8>, AccountError> {
+    serde_json::to_vec(&ChatBody::new(messages, model)).map_err(|_| AccountError::Invalid)
+}
+
 impl AccountApi for BackendAccountClient {
     fn providers(&self) -> Result<std::collections::HashMap<String, bool>, AccountError> {
         #[derive(Deserialize)]
@@ -1047,7 +1355,7 @@ impl AccountApi for BackendAccountClient {
     }
 
     fn challenge(&self, provider: &str, target: &str) -> Result<AccountChallenge, AccountError> {
-        validate_provider_target(provider, target)?;
+        validate_challenge_request(provider, target)?;
         #[derive(Serialize)]
         struct Body<'a> {
             provider: &'a str,
@@ -1082,6 +1390,66 @@ impl AccountApi for BackendAccountClient {
             Some(&Body {
                 challenge_id: challenge,
                 credential,
+            }),
+        )?;
+        validate_tokens(&tokens)?;
+        Ok(tokens)
+    }
+
+    fn apple_web_challenge(
+        &self,
+        code_challenge: &str,
+        app: &str,
+    ) -> Result<AccountAppleWebChallenge, AccountError> {
+        if !super::apple_web::valid_base64url_token(code_challenge, 32)
+            || !super::apple_web::valid_apple_web_app(app)
+        {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            code_challenge: &'a str,
+            code_challenge_method: &'static str,
+            app: &'a str,
+            purpose: &'static str,
+        }
+        let challenge = self.json(
+            Method::POST,
+            "/v1/auth/apple/web",
+            None,
+            Some(&Body {
+                code_challenge,
+                code_challenge_method: "S256",
+                app,
+                purpose: "login",
+            }),
+        )?;
+        super::apple_web::validate_apple_web_challenge(&challenge)?;
+        Ok(challenge)
+    }
+
+    fn apple_web_login(
+        &self,
+        grant: &str,
+        code_verifier: &str,
+    ) -> Result<AccountTokens, AccountError> {
+        if !super::apple_web::valid_apple_web_grant(grant)
+            || !super::apple_web::valid_code_verifier(code_verifier)
+        {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            grant: &'a str,
+            code_verifier: &'a str,
+        }
+        let tokens = self.json(
+            Method::POST,
+            "/v1/auth/apple/web/login",
+            None,
+            Some(&Body {
+                grant,
+                code_verifier,
             }),
         )?;
         validate_tokens(&tokens)?;
@@ -1210,13 +1578,6 @@ impl AccountApi for BackendAccountClient {
             return Err(AccountError::Invalid);
         }
         validate_chat_request(messages, model)?;
-        #[derive(Serialize)]
-        struct Body<'a> {
-            messages: &'a [AccountChatMessage],
-            model: &'a str,
-            max_tokens: u16,
-            stream: bool,
-        }
         #[derive(Deserialize)]
         struct Response {
             choices: Vec<Choice>,
@@ -1225,14 +1586,8 @@ impl AccountApi for BackendAccountClient {
         struct Choice {
             message: AccountChatMessage,
         }
-        let body = Body {
-            messages,
-            model,
-            max_tokens: 2048,
-            stream: false,
-        };
-        let body_bytes = serde_json::to_vec(&body).map_err(|_| AccountError::Invalid)?;
-        if body_bytes.len() > MAX_CHAT_REQUEST_BYTES {
+        let body = ChatBody::new(messages, model);
+        if chat_request_body(messages, model)?.len() > MAX_CHAT_REQUEST_BYTES {
             return Err(AccountError::Invalid);
         }
         let response = self.json_with_limit_timeout::<Response, _>(
@@ -1323,6 +1678,19 @@ impl AccountApi for BackendAccountClient {
 
     fn delete_clipboard(&self, id: Option<&str>, access_token: &str) -> Result<(), AccountError> {
         self.delete_clipboard(id, access_token)
+    }
+
+    fn pin_clipboard(
+        &self,
+        id: &str,
+        pinned: bool,
+        access_token: &str,
+    ) -> Result<(), AccountError> {
+        self.pin_clipboard(id, pinned, access_token)
+    }
+
+    fn set_clipboard_retention(&self, days: u32, access_token: &str) -> Result<(), AccountError> {
+        self.set_clipboard_retention(days, access_token)
     }
 
     fn dictionary(
@@ -1507,5 +1875,184 @@ impl AccountApi for BackendAccountClient {
         access_token: &str,
     ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
         self.restore_dictionary_snapshot(snapshot, revision, access_token)
+    }
+
+    fn translate(
+        &self,
+        request: &AccountTranslateRequest,
+        timeout: Duration,
+        access_token: &str,
+    ) -> Result<AccountTranslations, AccountFailure> {
+        self.translate_texts(request, timeout, access_token)
+    }
+
+    fn phrases(&self, access_token: &str) -> Result<AccountPhrases, AccountFailure> {
+        self.load_phrases(access_token)
+    }
+
+    fn put_phrases(
+        &self,
+        phrases: &AccountPhrases,
+        access_token: &str,
+    ) -> Result<AccountPhrases, AccountFailure> {
+        self.store_phrases(phrases, access_token)
+    }
+
+    fn devices(&self, access_token: &str) -> Result<AccountDevices, AccountFailure> {
+        self.list_devices(access_token)
+    }
+
+    fn revoke_device(&self, id: &str, access_token: &str) -> Result<(), AccountFailure> {
+        self.revoke_device(id, access_token)
+    }
+
+    fn data_summary(&self, access_token: &str) -> Result<AccountDataSummary, AccountFailure> {
+        self.data_summary(access_token)
+    }
+
+    fn data_export(
+        &self,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<AccountDataExport, AccountFailure> {
+        self.data_export_to_file(destination, access_token)
+    }
+
+    fn data_delete(&self, sections: &[String], access_token: &str) -> Result<(), AccountFailure> {
+        self.data_delete(sections, access_token)
+    }
+
+    fn feedback(
+        &self,
+        feedback: &AccountFeedback,
+        access_token: &str,
+    ) -> Result<AccountFeedbackReceipt, AccountFailure> {
+        self.send_feedback(feedback, access_token)
+    }
+
+    fn diagnostics_upload(
+        &self,
+        upload: &crate::diagnostics::upload::DiagnosticUpload,
+        access_token: &str,
+    ) -> Result<crate::diagnostics::upload::DiagnosticUploadReceipt, AccountFailure> {
+        self.diagnostics_upload(upload, access_token)
+    }
+
+    fn diagnostics_state(
+        &self,
+        access_token: &str,
+    ) -> Result<crate::diagnostics::upload::DiagnosticState, AccountFailure> {
+        self.diagnostics_state(access_token)
+    }
+
+    fn diagnostics_regenerate_token(&self, access_token: &str) -> Result<String, AccountFailure> {
+        self.diagnostics_regenerate_token(access_token)
+    }
+
+    fn diagnostics_delete(&self, access_token: &str) -> Result<(), AccountFailure> {
+        self.diagnostics_delete(access_token)
+    }
+
+    fn download_link(
+        &self,
+        platform: &str,
+        access_token: &str,
+    ) -> Result<AccountDownloadLink, AccountFailure> {
+        self.send_download_link(platform, access_token)
+    }
+
+    fn voice_contribution(
+        &self,
+        contribution: &AccountVoiceContribution,
+        access_token: &str,
+    ) -> Result<AccountVoiceContributionReceipt, AccountFailure> {
+        self.send_voice_contribution(contribution, access_token)
+    }
+
+    fn preference_schema_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountPreferenceSchema, AccountFailure> {
+        if !crate::text::is_lower_hex(access_token, 64) {
+            return Err(AccountError::Invalid.into());
+        }
+        let schema = self.json_detailed::<AccountPreferenceSchema, ()>(
+            Method::GET,
+            "/v1/users/me/preferences/schema",
+            Some(access_token),
+            None,
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_preference_schema(&schema)?;
+        Ok(schema)
+    }
+
+    fn preferences_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountPreferences, AccountFailure> {
+        if !crate::text::is_lower_hex(access_token, 64) {
+            return Err(AccountError::Invalid.into());
+        }
+        let preferences = self.json_detailed::<AccountPreferences, ()>(
+            Method::GET,
+            "/v1/users/me/preferences",
+            Some(access_token),
+            None,
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_account_preferences(&preferences)?;
+        Ok(preferences)
+    }
+
+    fn put_preferences_detailed(
+        &self,
+        preferences: &AccountPreferences,
+        access_token: &str,
+    ) -> Result<AccountPreferences, AccountFailure> {
+        if !crate::text::is_lower_hex(access_token, 64) {
+            return Err(AccountError::Invalid.into());
+        }
+        validate_account_preferences(preferences)?;
+        let updated = self.json_detailed::<AccountPreferences, _>(
+            Method::PUT,
+            "/v1/users/me/preferences",
+            Some(access_token),
+            Some(preferences),
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_account_preferences(&updated)?;
+        Ok(updated)
+    }
+
+    fn dictionary_probe(
+        &self,
+        after: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryProbe, AccountFailure> {
+        self.dictionary_probe(after, access_token)
+    }
+
+    fn dictionary_snapshot_download(
+        &self,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<u64, AccountFailure> {
+        self.snapshot_to_file_with(destination, access_token, failure_from_response)
+    }
+
+    fn dictionary_snapshot_upload(
+        &self,
+        snapshot: &Path,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountFailure> {
+        self.restore_dictionary_snapshot_file_detailed(snapshot, revision, access_token)
     }
 }

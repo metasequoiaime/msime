@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import { useEffect, useState } from "react";
 import { Row, Select } from "../core/platform-controls";
 import { errorCode } from "../core/error-code";
@@ -175,7 +176,7 @@ export function AppInputModeRulesSection({
             }}
             onKeyDown={(event) => {
               // 输入法组字时按回车是把组字串上屏，不是提交；WKWebView 在 compositionend 之后才送这个回车，keyCode 为 229。
-              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+              if (isComposingKeyEvent(event)) return;
               if (event.key === "Enter") addTyped();
             }}
           />

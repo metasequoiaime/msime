@@ -210,13 +210,18 @@ pub(crate) fn keyboard_reranker(
 }
 
 pub mod account;
+pub mod ai_skin;
 pub mod android_data;
 pub mod candidates;
+pub mod cloud_dictionary;
+pub mod cloud_sync;
 pub mod community;
 pub mod credentials;
 pub mod google;
+pub mod harmony_settings;
 pub mod host;
 pub mod input;
+pub mod ios_settings;
 pub mod lifecycle;
 pub mod mcp;
 pub mod moderation;
@@ -225,6 +230,7 @@ pub mod plugins;
 pub mod providers;
 pub mod reporting;
 pub mod session;
+pub mod session_store;
 pub mod translation;
 pub mod voice;
 

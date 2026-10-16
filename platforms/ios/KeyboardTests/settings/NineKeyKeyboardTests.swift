@@ -867,8 +867,16 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNil(shownSymbolKey("：", in: controller))
   }
 
-  /// 123 / #+= 层：第三行为 #+= 1.4 | 五个符号 | ⌫ 1.4，底行按相对空格键的比例为 拼音 1.25 | emoji 1.05 | space 6 | return 1.9，没有 中 键。
+  /// 123 / #+= 层的底行使用同一套比例；顶部有表情时底行用符号入口，没有中/英键。
   func testSymbolLayerFollowsTheDesignsWeights() throws {
+    let previousToolbar = MetasequoiaInputSessionBridge.loadSharedPreferences()?["touch_toolbar"]
+    let previousHidden = TouchToolbarLocalPreference.hidden
+    defer {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = previousToolbar }
+      TouchToolbarLocalPreference.hidden = previousHidden
+    }
+    TouchToolbarLocalPreference.hidden = false
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": true] })
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     InputSchemePreference.scheme = .quanpin
@@ -885,10 +893,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let visible = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
-    XCTAssertEqual(visible, ["layoutToggleButton", "layerEmojiKey"] + globe + ["spaceKey", "returnKey"])
+    XCTAssertEqual(visible, ["layoutToggleButton", "symbolPanelKey"] + globe + ["spaceKey", "returnKey"])
     let unit = try button("spaceKey", in: controller).bounds.width / SymbolLayerLayout.spaceWeight
     XCTAssertEqual(try button("layoutToggleButton", in: controller).bounds.width, unit * 1.25, accuracy: 0.5)
-    XCTAssertEqual(try button("layerEmojiKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+    XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+    XCTAssertTrue(try button("layerEmojiKey", in: controller).isHidden)
     XCTAssertEqual(try button("returnKey", in: controller).bounds.width, unit * 1.9, accuracy: 0.5)
     XCTAssertEqual(try button("spaceKey", in: controller).configuration?.title, "空格")
 
@@ -913,6 +922,59 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     XCTAssertFalse(try button("symbolPanelKey", in: controller).isHidden)
     XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+  }
+
+  /// 同一个已打开的数字页跟随顶部入口设置变化，表情和符号互斥且真实动作可达。
+  func testNumberLayerKeepsEmojiFallbackWhenToolbarEntryIsUnavailable() async throws {
+    let previous = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
+    let previousScheme = InputSchemePreference.scheme
+    let previousHidden = TouchToolbarLocalPreference.hidden
+    defer {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previous }
+      InputSchemePreference.scheme = previousScheme
+      TouchToolbarLocalPreference.hidden = previousHidden
+    }
+    InputSchemePreference.scheme = .quanpin
+    TouchToolbarLocalPreference.hidden = false
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": true] })
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    let emoji = try button("layerEmojiKey", in: controller)
+    let symbols = try button("symbolPanelKey", in: controller)
+    func reload(emojiExpected: Bool) async throws {
+      controller.viewWillAppear(false)
+      let deadline = Date().addingTimeInterval(15)
+      while emoji.isHidden == emojiExpected && Date() < deadline {
+        // 让出主线程，允许后台偏好读取的主队列回调更新键面。
+        try await Task.sleep(for: .milliseconds(50))
+      }
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(!emoji.isHidden, emojiExpected)
+      XCTAssertEqual(symbols.isHidden, emojiExpected)
+      XCTAssertGreaterThan((emojiExpected ? emoji : symbols).bounds.width, 20)
+    }
+    try await reload(emojiExpected: false)
+    XCTAssertEqual(symbols.configuration?.title, "符号")
+    symbols.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "closeSymbolPanel" } as? UIControl)
+      .sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": false] })
+    try await reload(emojiExpected: true)
+    emoji.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardEmojiPicker" })
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "closeEmojiPicker" } as? UIControl)
+      .sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": true] })
+    try await reload(emojiExpected: false)
+    TouchToolbarLocalPreference.hidden = true
+    try await reload(emojiExpected: true)
+    TouchToolbarLocalPreference.hidden = false
+    try await reload(emojiExpected: false)
+    controller.viewDidDisappear(false)
   }
 
   func testSymbolLayerKeysRouteThroughThePunctuationPathOrInsertAsDrawn() {
@@ -2238,15 +2300,17 @@ final class NineKeyKeyboardTests: XCTestCase {
             }
           }
           let punctuation = try button("quickPunctuationKey", in: controller)
-          // 26 键字母层的底行与九键一样没有 ，（符 | 123 | 空格 | 中 | 回车）；手写、全拼 14 键和大千注音的底行仍带 ， 和 。，与 Android 的 designEntries 一致。
-          XCTAssertEqual(punctuation.isHidden, symbols || ![.handwriting, .fourteenKey, .zhuyin].contains(scheme), "\(scheme)")
+          // 26 键恢复独立逗号，九键、笔画与假名继续隐藏；其他设计底行保留逗号句号。
+          XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .nineKeyShuangpin, .japaneseNineKey, .stroke].contains(scheme), "\(scheme)")
           if !punctuation.isHidden {
             XCTAssertEqual(punctuation.configuration?.title, scheme.isJapanese ? "、" : scheme.writesAsciiPunctuation ? "," : "，")
             // 手机 26 键底行按相对空格键的比例分配宽度：， 占一份，空格占四份。
             let space = try button("spaceKey", in: controller)
             XCTAssertEqual(punctuation.bounds.width, space.bounds.width / KeyboardViewController.phoneSpaceWeight, accuracy: 0.5)
             XCTAssertGreaterThanOrEqual(space.bounds.width, 79.2)
-            XCTAssertEqual(punctuation.menu?.children.count, 7)
+            let secondary = ![.handwriting, .fourteenKey, .zhuyin].contains(scheme)
+            XCTAssertEqual(punctuation.menu?.children.count, secondary ? nil : 7)
+            XCTAssertEqual((punctuation as? KeyboardKeyButton)?.cornerHint != nil, secondary)
           }
           // 底行的 ⌫ 只属于 Dachen 符号行：123 / #+= 层的 ⌫ 在第三行，九键网格的在右列，假名网格的在它自己的网格里。
           XCTAssertEqual(try button("symbolDeleteKey", in: controller).isHidden, !(symbols && scheme == .zhuyin))
@@ -3165,7 +3229,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 手机 26 键底行与九键一样：符 1.05 | 123 1.25 | space 4 | 中 1.05 | return 1.9，没有 ， 和 。；符 打开符号面板。
+  /// 手机 26 键底行：123 | 符 | 空格 | ， | 中 | 回车，逗号长按输入句号。
   func testPhoneBottomRowFollowsTheDesignsWeights() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -3177,7 +3241,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let visible = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
-    XCTAssertEqual(visible, ["symbolPanelKey", "layoutToggleButton"] + globe + ["spaceKey", "bottomLanguageKey", "returnKey"])
+    XCTAssertEqual(visible, ["layoutToggleButton"] + globe + ["symbolPanelKey", "spaceKey", "quickPunctuationKey", "bottomLanguageKey", "returnKey"])
     let space = try button("spaceKey", in: controller).bounds.width
     let unit = space / KeyboardViewController.phoneSpaceWeight
     XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
@@ -3190,11 +3254,18 @@ final class NineKeyKeyboardTests: XCTestCase {
       let transformer = try XCTUnwrap(try button(id, in: controller).configuration?.titleTextAttributesTransformer, id)
       XCTAssertEqual(transformer.callAsFunction(AttributeContainer()).uiKit.font?.pointSize, 15, id)
     }
-    // 英文下底行一样：仍有 符，没有 ， 和 。。
+    // 英文下底行位置相同，逗号保留，句号通过长按输入。
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
-                   ["symbolPanelKey", "layoutToggleButton"] + globe + ["spaceKey", "bottomLanguageKey", "returnKey"])
+                   ["layoutToggleButton"] + globe + ["symbolPanelKey", "spaceKey", "quickPunctuationKey", "bottomLanguageKey", "returnKey"])
+
+    let comma = try XCTUnwrap(try button("quickPunctuationKey", in: controller) as? KeyboardKeyButton)
+    XCTAssertNil(comma.menu)
+    XCTAssertNotNil(comma.onCornerHint)
+    XCTAssertEqual(comma.cornerHint, ".")
+    XCTAssertFalse(comma.swipesCornerHint)
+    XCTAssertEqual(comma.bounds.width, unit, accuracy: 0.5)
 
     // 123 层自带底行：ABC | emoji | space | return，⌫ 上移到该层第三行。
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
@@ -3205,6 +3276,31 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(try button("symbolDeleteKey", in: controller).isHidden)
     XCTAssertFalse(try button("symbolLayerDeleteKey", in: controller).isHidden)
     XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
+  }
+
+  /// 长按逗号沿用标点路由结束组字，数字层不遗留长按回调。
+  func testPhoneCommaHoldFinishesCompositionAndResetsOnNumberLayer() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    for label in ["字母 N", "字母 I"] {
+      let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == label } as? UIButton)
+      key.sendActions(for: .primaryActionTriggered)
+    }
+    let preedit = try button("preeditButton", in: controller)
+    XCTAssertTrue(preedit.accessibilityValue?.contains("ni") == true)
+    let comma = try XCTUnwrap(try button("quickPunctuationKey", in: controller) as? KeyboardKeyButton)
+    try XCTUnwrap(comma.onCornerHint)("。")
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(preedit.configuration?.title, "水杉输入法")
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(comma.isHidden)
+    XCTAssertNil(comma.cornerHint)
+    XCTAssertNil(comma.onCornerHint)
   }
 
   /// 九键保留自己的底行：符 1.05 | 123 1.25 | space 4.2 | 中 1.05 | return 1.6，中/英 紧挨回车左边，没有 0、， 或 。 键；网格的数字层把 符 换成空格右边的 0。

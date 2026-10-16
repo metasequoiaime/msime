@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 test("clipboard history loading reuses the shared async generation lifecycle", () => {
   const source = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/settings/clipboard-history-section.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/settings/use-clipboard-history.ts", {
       eager: true,
       query: "?raw",
       import: "default",

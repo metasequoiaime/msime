@@ -21,8 +21,8 @@ enum BackendAnonymousAccount {
   static func sessionStorage() -> any BackendSessionStorage {
     BackendLocalStore(fileName: "anonymous-session.json")
   }
-  /// One in-process actor for the anonymous storage, so its rotating refresh token has one owner.
-  static let session = BackendAccountSession(storage: sessionStorage())
+  /// 匿名存储在进程内只有这一个 actor，轮换的刷新令牌只有一个持有者。macOS 上刷新同样拿存储旁边的 App Group 锁，否则默认的锁在进程内什么也不做，而输入法和账号窗口各自持有这个会话。
+  static let session = BackendAccountSession(storage: sessionStorage(), refreshLock: BackendFileRefreshLock.appGroup)
 
   /// Discard the local-only identity and its session after it has been replaced
   /// by a real account or explicitly deleted by the user.

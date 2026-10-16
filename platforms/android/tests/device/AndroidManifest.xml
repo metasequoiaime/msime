@@ -3,6 +3,7 @@
     <instrumentation android:name="app.msime.android.test.VoiceRecognitionLifecycleDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SyntheticSpeechSetup" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.QuanpinSeparatorDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.DictionaryImportDeviceSmoke" android:targetPackage="app.msime.android" />
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
     <instrumentation android:name="app.msime.android.test.HostIconPreparation" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.DiagnosticsBundleDeviceSmoke" android:targetPackage="app.msime.android" />
@@ -68,6 +69,8 @@
     <instrumentation android:name="app.msime.android.test.InitialKeyboardRowDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.FeedbackInputStabilityDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.ChineseLanguageReturnDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.QuickDeleteUndoDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.QuickDeletePreviewDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.EmptyEditorBackspaceDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.HelpcodeImportDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SymbolPanelLayoutDeviceSmoke" android:targetPackage="app.msime.android" />
@@ -94,6 +97,7 @@
         <activity android:name="app.msime.android.test.EnglishCorrectionEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
         <!-- 合成编辑器「复制图片」的来源（#6781）：不导出，剪贴板按 grantUriPermissions 把读权限授给读它的输入法。 -->
         <provider android:name="app.msime.android.test.ImageClipProvider" android:authorities="app.msime.android.test.images" android:exported="false" android:grantUriPermissions="true" />
+        <activity android:name="app.msime.android.test.QuickDeleteEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
     </application>
     <instrumentation android:name="app.msime.android.test.ToolbarEdgesDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.ToolbarEditorDeviceSmoke" android:targetPackage="app.msime.android" />
@@ -102,4 +106,5 @@
     <instrumentation android:name="app.msime.android.test.EmojiCombinationDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.LocalSpeechHandleDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.ClipboardExportDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.NumberLayerEntryDeviceSmoke" android:targetPackage="app.msime.android" />
 </manifest>

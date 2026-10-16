@@ -164,6 +164,7 @@ pub async fn ai_skin_cancel(
     state
         .ai_skin_requests
         .cancel(&request_id)
+        .map(|_| ())
         .map_err(|code| crate::CommandError { code })
 }
 

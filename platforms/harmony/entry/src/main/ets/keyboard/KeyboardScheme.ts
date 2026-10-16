@@ -637,11 +637,11 @@ export class KeyboardScheme {
   }
 
   /**
-   * 触屏设计底行是否与九键外框一样画成 符 | 123 | 空格 | 中/英 | 回车（和搜狗一样，不放逗号句号）：26 键一族的字母层，全拼、双拼、五笔、英文、韩文、越南语等都是，中英文模式相同。14 键第三行左端已经有 符，大千注音和它沿用的共享符号行仍是 123 | ， | 空格 | 。 | 中/英 | 回车。只用于走设计底行的键面，九键、笔画、手写和假名网格各有自己的底行。
+   * 触屏 26 键字母层使用 123 | 符 | 空格 | ， | 中/英 | 回车，长按逗号输入句号；14 键和大千注音保留独立逗号句号。只用于设计底行，九键、笔画、手写和假名网格沿用各自底行。
    *
    * @param rulesScheme 按键实际交给的方案（`SchemeCompositionPolicy.selectedRulesScheme`），英文和本地模式下不是注音
    */
-  static designRowLeadsWithSymbolPanel(
+  static designRowUsesCommaSecondaryPeriod(
     rulesScheme: number,
     fourteenKeyFace: boolean,
     symbols: boolean,

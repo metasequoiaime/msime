@@ -3257,34 +3257,34 @@ group("九键外框底行：符 | 123 | 空格 | 中 | 回车，数字层把 符
   );
 });
 
-group("26 键底行与九键一样：符 | 123 | 空格 | 中 | 回车；14 键和大千注音保留逗号句号", () => {
+group("26 键底行保留逗号并长按句号；14 键和大千注音保留独立句号", () => {
   const leads = (
     scheme: string,
     english: boolean,
     fourteenKey: boolean,
     symbols: boolean,
   ): boolean =>
-    KeyboardScheme.designRowLeadsWithSymbolPanel(
+    KeyboardScheme.designRowUsesCommaSecondaryPeriod(
       SchemeCompositionPolicy.selectedRulesScheme(scheme, english, "none"),
       KeyboardScheme.usesFourteenKeyFace(fourteenKey, english, "none"),
       symbols,
     );
   for (const scheme of ["quanpin", "shuangpin", "wubi", "korean", "vietnamese", "tibetan"]) {
-    check(leads(scheme, false, false, false), `${scheme} 的 26 键字母层以 符 打头`);
-    check(leads(scheme, true, false, false), `${scheme} 切到英文仍以 符 打头`);
+    check(leads(scheme, false, false, false), `${scheme} 的 26 键字母层使用逗号长按句号`);
+    check(leads(scheme, true, false, false), `${scheme} 切到英文仍使用逗号长按句号`);
     check(!leads(scheme, false, false, true), `${scheme} 的符号行不带 符`);
   }
   check(!leads("quanpin", false, true, false), "14 键第三行已有 符，底行保留逗号句号");
-  check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行以 符 打头");
+  check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行使用逗号长按句号");
   check(!leads("zhuyin", false, false, false), "大千注音保留逗号句号");
-  check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行以 符 打头");
+  check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行使用逗号长按句号");
   check(
-    KeyboardScheme.designRowLeadsWithSymbolPanel(
+    KeyboardScheme.designRowUsesCommaSecondaryPeriod(
       SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
       false,
       false,
     ),
-    "本地模式画 26 键，底行以 符 打头",
+    "本地模式画 26 键，底行使用逗号长按句号",
   );
 });
 
@@ -3318,6 +3318,32 @@ group("the 123 layer carries Android's rows in both languages", () => {
       [LayerKeyKind.LETTERS, LayerKeyKind.EMOJI, LayerKeyKind.SPACE, LayerKeyKind.RETURN].join(","),
     "the bottom row's kinds",
   );
+});
+
+group("数字页的表情入口随顶部可用性切换，符号面板不留空位", () => {
+  for (const chinese of [false, true]) {
+    for (const corner of [false, true]) {
+      const fallback = NumberSymbolLayout.rows(false, chinese, corner, false);
+      const toolbar = NumberSymbolLayout.rows(false, chinese, corner, true);
+      check(fallback[3][1].kind === LayerKeyKind.EMOJI, "顶部不可用时保留表情");
+      check(toolbar[3][1].kind === LayerKeyKind.SYMBOL_PANEL, "顶部已有表情时直接打开符号面板");
+      check(toolbar[3][1].text === "符号", "符号入口键面");
+      check(
+        !toolbar[3].some((key: LayerKey): boolean => key.kind === LayerKeyKind.EMOJI),
+        "没有重复表情键",
+      );
+      check(rowWeight(toolbar[3]) === rowWeight(fallback[3]), "替换不改变底行总宽");
+      check(
+        JSON.stringify(toolbar.slice(0, 3)) === JSON.stringify(fallback.slice(0, 3)),
+        "字符和标点行不变",
+      );
+      check(
+        JSON.stringify(NumberSymbolLayout.rows(true, chinese, corner, true)) ===
+          JSON.stringify(NumberSymbolLayout.rows(true, chinese, corner, false)),
+        "扩展页仍保留符号入口",
+      );
+    }
+  }
 });
 
 group("the #+= layer swaps the first two rows, its toggle and the emoji key", () => {

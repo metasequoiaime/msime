@@ -139,6 +139,8 @@ export interface PluginClient {
   catalog(): Promise<PluginCatalogResult>;
   /** Shows the platform's picker for a pack folder or a `.zip` file and installs what was picked; null when the picker was closed. */
   importPack(source: "folder" | "archive"): Promise<PluginPackage | null>;
+  /** 用系统选择器导入单个 UTF-8 辅助码表；取消时返回 null。 */
+  importHelpcodeTable?(): Promise<PluginPackage | null>;
   remove(kind: PluginKind, id: string): Promise<void>;
   loadMentions(): Promise<MentionEntry[]>;
   saveMentions(entries: MentionEntry[]): Promise<void>;

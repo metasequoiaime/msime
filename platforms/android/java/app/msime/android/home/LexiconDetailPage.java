@@ -126,7 +126,9 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
 
         GroupCard header = GroupCard.add(sectionColumn(target, "管理"), null);
         String count = current.count() < 0 ? null : NumberPolicy.groupedCount(current.count());
-        GroupCard.Row toggle = header.toggle("启用此词库", builtin ? (count == null ? "内置词库始终启用" : count + " · 内置词库始终启用") : count,
+        String collectionDescription = collection == null ? null
+            : count + DictionaryCollectionsStore.pendingDescription(collection.pending());
+        GroupCard.Row toggle = header.toggle("启用此词库", builtin ? (count == null ? "内置词库始终启用" : count + " · 内置词库始终启用") : collectionDescription,
             builtin || collection.enabled(), this::setEnabled);
         if (builtin) toggle.setEnabled(false);
 

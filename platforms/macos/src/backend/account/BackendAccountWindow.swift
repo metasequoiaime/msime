@@ -23,7 +23,7 @@ final class MacAccountModel: NSObject, ObservableObject {
   private var pending: Task<Void, Never>?
 
   init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
-       anonymousAccount: BackendAccountSession = BackendAccountSession(storage: BackendAnonymousAccount.sessionStorage()),
+       anonymousAccount: BackendAccountSession = BackendAnonymousAccount.session,
        closeAccountWindows: @escaping @MainActor () -> Void = { BackendWindowBridge.shared.closeAll() },
        discardAnonymous: @escaping () async throws -> Void = BackendAnonymousAccount.discard) {
     self.client = client; self.account = account; self.anonymousAccount = anonymousAccount

@@ -77,6 +77,7 @@
 #include "../src/core/KoreanHanja.h"
 #include "../src/core/InputSchemes.h"
 #include "../src/core/JsonInteger.h"
+#include "../src/clipboard/CloudClipboardRoute.h"
 #include "../src/system/TypingStatistics.h"
 #include "SystemTheme.h"
 #include "PrecedingCharacters.h"
@@ -453,6 +454,14 @@ std::string onlineSocket(const Json &options) {
                         "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
 }
 
+std::string explicitCloudClipboardSocket(const Json &options) {
+  auto value = options.value("cloud_clipboard_provider_socket", std::string{});
+  if (value.empty()) {
+    if (const auto *env = std::getenv("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET")) value = env;
+  }
+  return value;
+}
+
 std::string cloudClipboardSocket(const Json &options) {
   return providerSocket(options, "cloud_clipboard_provider_socket",
                         "MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET", "cloud-clipboard.sock");
@@ -583,6 +592,9 @@ public:
     clipboard_job_ = {};
     clipboard_mutation_job_ = {};
     cloud_clipboard_socket_.clear();
+    cloud_clipboard_explicit_socket_.clear();
+    cloud_clipboard_directory_.clear();
+    cloud_clipboard_relay_ = Json::object();
     ++cloud_clipboard_generation_;
     cloud_clipboard_items_.clear();
     cloud_clipboard_enabled_ = true;
@@ -1850,14 +1862,7 @@ public:
       clipboard_mutation_job_ = {};
     }
     clipboard_path_ = std::move(clipboard_path);
-    auto cloud_clipboard_socket = cloudClipboardSocket(options);
-    if (cloud_clipboard_socket != cloud_clipboard_socket_) {
-      ++cloud_clipboard_generation_;
-      cloud_clipboard_items_.clear();
-      cloud_clipboard_enabled_ = true;
-      cloud_clipboard_job_ = {};
-    }
-    cloud_clipboard_socket_ = std::move(cloud_clipboard_socket);
+    updateCloudClipboardRoute(options);
     voice_socket_ = providerSocket(options, "voice_provider_socket",
                                    "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
     const auto voicePreferences = preferences_.value("voice_input", Json::object());
@@ -2072,14 +2077,7 @@ public:
         clipboard_mutation_job_ = {};
         clipboard_path_ = std::move(nextClipboard);
       }
-      auto nextCloudClipboard = cloudClipboardSocket(options);
-      if (nextCloudClipboard != cloud_clipboard_socket_) {
-        ++cloud_clipboard_generation_;
-        cloud_clipboard_items_.clear();
-        cloud_clipboard_enabled_ = true;
-        cloud_clipboard_job_ = {};
-        cloud_clipboard_socket_ = std::move(nextCloudClipboard);
-      }
+      updateCloudClipboardRoute(options);
       auto nextVoice = providerSocket(options, "voice_provider_socket",
                                       "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
       if (nextVoice != voice_socket_) {
@@ -2540,7 +2538,31 @@ public:
     });
     return true;
   }
+  void invalidateCloudClipboard() {
+    ++cloud_clipboard_generation_;
+    cloud_clipboard_items_.clear();
+    cloud_clipboard_enabled_ = true;
+    cloud_clipboard_job_ = {};
+  }
+  void updateCloudClipboardPreferences() {
+    const auto relay = preferences_.value("cloud_clipboard_relay", Json::object());
+    if (cloud_clipboard_directory_ == options_path_ && cloud_clipboard_relay_ == relay) return;
+    invalidateCloudClipboard();
+    cloud_clipboard_directory_ = options_path_;
+    cloud_clipboard_relay_ = relay;
+  }
+  void updateCloudClipboardRoute(const Json &options) {
+    const auto nextCloudClipboard = cloudClipboardSocket(options);
+    const auto explicitSocket = explicitCloudClipboardSocket(options);
+    if (nextCloudClipboard != cloud_clipboard_socket_ || explicitSocket != cloud_clipboard_explicit_socket_) {
+      invalidateCloudClipboard();
+      cloud_clipboard_socket_ = nextCloudClipboard;
+      cloud_clipboard_explicit_socket_ = explicitSocket;
+    }
+    updateCloudClipboardPreferences();
+  }
   void refreshCloudClipboard() {
+    updateCloudClipboardPreferences();
     try {
       if (cloud_clipboard_job_.valid()) {
         if (cloud_clipboard_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
@@ -2548,6 +2570,7 @@ public:
         cloud_clipboard_job_ = {};
         if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object() &&
             result.value("_socket", std::string{}) == cloud_clipboard_socket_ &&
+            result.value("_directory", std::string{}) == options_path_ &&
             msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == cloud_clipboard_generation_)
         {
           cloud_clipboard_enabled_ = result.value("enabled", true);
@@ -2559,7 +2582,7 @@ public:
     } catch (...) { cloud_clipboard_items_.clear(); }
   }
   bool pasteCloudClipboard(size_t index = 0) {
-    if (cloud_clipboard_socket_.empty() || restricted() || privateInput() || !ic_.hasFocus()) return false;
+    if ((cloud_clipboard_socket_.empty() && options_path_.empty()) || restricted() || privateInput() || !ic_.hasFocus()) return false;
     refreshCloudClipboard();
     if (!cloud_clipboard_enabled_) return false;
     if (index < cloud_clipboard_items_.size()) {
@@ -2571,13 +2594,28 @@ public:
     if (cloud_clipboard_job_.valid()) return false;
     const auto socket = cloud_clipboard_socket_;
     const auto generation = cloud_clipboard_generation_;
-    cloud_clipboard_job_ = detachedJob([socket, generation] {
-      const auto request = Json{{"operation", "list"}, {"search", ""}}.dump();
-      auto raw = response(msime_client_cloud_clipboard_provider_request(
-          reinterpret_cast<const uint8_t *>(request.data()), request.size(),
-          reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
+    const auto explicitSocket = cloud_clipboard_explicit_socket_;
+    const auto directory = options_path_;
+    cloud_clipboard_job_ = detachedJob([socket, explicitSocket, directory, generation] {
+      auto raw = msime::linux_host::cloud_clipboard_list(directory, explicitSocket, socket,
+          [](const std::string &path) {
+            return response(msime_client_cloud_clipboard_source(
+                reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+          },
+          [](const Json &request) {
+            const auto encoded = request.dump();
+            return response(msime_client_relay_cloud_clipboard(
+                reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+          },
+          [](const std::string &path, const Json &action) {
+            const auto encoded = action.dump();
+            return response(msime_client_cloud_clipboard_provider_request(
+                reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(),
+                reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+          });
       if (!raw.is_object()) return Json::object();
       raw["_socket"] = socket;
+      raw["_directory"] = directory;
       raw["_generation"] = generation;
       return raw;
     });
@@ -3821,6 +3859,9 @@ public:
   std::shared_future<Json> clipboard_job_;
   std::shared_future<Json> clipboard_mutation_job_;
   std::string cloud_clipboard_socket_;
+  std::string cloud_clipboard_explicit_socket_;
+  std::string cloud_clipboard_directory_;
+  Json cloud_clipboard_relay_ = Json::object();
   uint64_t cloud_clipboard_generation_ = 0;
   Json cloud_clipboard_items_ = Json::array();
   bool cloud_clipboard_enabled_ = true;

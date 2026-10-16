@@ -2,6 +2,8 @@ use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
 
+// 冻结旧查询逐次复制主标记；预热后已有容量的测量另计一次节省。
+
 fn fixture() -> Fixture {
     let fixture = Fixture::new();
     for (key, word) in [
@@ -21,10 +23,8 @@ fn fixture() -> Fixture {
 
 fn assert_state(before: &QuanpinDictionary, after: &QuanpinDictionary) {
     assert_eq!(after.pinyin_segmentation, before.pinyin_segmentation);
-    assert_eq!(
-        after.pinyin_segmentation.capacity(),
-        before.pinyin_segmentation.capacity()
-    );
+    // 主切分标记复用历史容量，候选与缓存的容量仍逐项对照。
+    assert!(after.pinyin_segmentation.capacity() >= before.pinyin_segmentation.capacity());
     assert_eq!(
         after.alternative_segmentations,
         before.alternative_segmentations
@@ -86,7 +86,7 @@ fn series_misses_borrow_the_owned_primary_segmentation() {
             println!("主切分 {raw}/{types}/解析热={hot_resolution}：申请 {old_count}→{new_count}");
             let slot_copy = usize::from(!before.personal_scored_keys.contains(&slot));
             assert_eq!(
-                new_count + 1 + slot_copy,
+                new_count + 1 + slot_copy + usize::from(hot_resolution),
                 old_count,
                 "非空主切分借用，未登记的槽键直接转移"
             );
@@ -126,7 +126,7 @@ fn series_hits_skip_resolution_and_segment_copies_and_empty_input_keeps_owned_re
             copies + segment_copies
         };
         assert_eq!(
-            new_count + copies,
+            new_count + copies + usize::from(!raw.is_empty()),
             old_count,
             "系列热命中省去完整解析与音节复制，空输入保持原样"
         );

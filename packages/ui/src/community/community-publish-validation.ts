@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import type { KeyboardEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 
@@ -29,7 +30,7 @@ export function handleCommunityPublishKeyDown(
   submit: () => void,
 ) {
   if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
-  if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+  if (isComposingKeyEvent(event)) return;
   event.preventDefault();
   if (event.target.type !== "checkbox") submit();
 }

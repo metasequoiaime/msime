@@ -1,9 +1,6 @@
+import type { VoiceDeviceReader } from "../voice/voice-device-model";
 import { SettingsGroupNote } from "./settings-group-note";
-import {
-  VoiceDevicePicker,
-  VoiceMicrophonePicker,
-  type VoiceDeviceReader,
-} from "../voice/voice-device-picker";
+import { VoiceDevicePicker, VoiceMicrophonePicker } from "../voice/voice-device-picker";
 import { GroupList } from "../core/platform-controls";
 import { SelectRow } from "./select-row";
 import { TextInputRow } from "./text-input-row";

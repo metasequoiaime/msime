@@ -22,6 +22,24 @@ pub trait AccountApi: Send + Sync + 'static {
         Err(AccountError::Unavailable)
     }
 
+    /// `POST /v1/auth/apple/web`：登记 PKCE 的 `code_challenge`（S256），返回 Apple 的授权链接。`app` 是发起登录的安卓 applicationId，服务端回调时跳回 `<app>://auth/apple`。
+    fn apple_web_challenge(
+        &self,
+        _code_challenge: &str,
+        _app: &str,
+    ) -> Result<AccountAppleWebChallenge, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    /// `POST /v1/auth/apple/web/login`：用回调交回来的一次性 `grant` 和本机的 `code_verifier` 换会话，响应与 `/v1/auth/login` 相同。
+    fn apple_web_login(
+        &self,
+        _grant: &str,
+        _code_verifier: &str,
+    ) -> Result<AccountTokens, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
     /// Removes the user's uploaded avatar; the Google picture, if any, shows again.
     fn delete_avatar(&self, _access_token: &str) -> Result<(), AccountError> {
         Err(AccountError::Unavailable)
@@ -77,6 +95,21 @@ pub trait AccountApi: Send + Sync + 'static {
     }
 
     fn delete_clipboard(&self, _id: Option<&str>, _access_token: &str) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    /// `PUT /v1/users/me/clipboard/{id}/pin {"pinned"}`：置顶或取消置顶一条条目。`id` 是 64 位小写十六进制；别人的或已经不在的条目服务端回 404。
+    fn pin_clipboard(
+        &self,
+        _id: &str,
+        _pinned: bool,
+        _access_token: &str,
+    ) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    /// `PUT /v1/users/me/clipboard/retention {"days"}`：设置保留天数，取 [`crate::clipboard_relay::RETENTION_DAYS`] 中的一个，0 表示一直保留；不改同步开关。
+    fn set_clipboard_retention(&self, _days: u32, _access_token: &str) -> Result<(), AccountError> {
         Err(AccountError::Unavailable)
     }
 
@@ -253,6 +286,172 @@ pub trait AccountApi: Send + Sync + 'static {
         _access_token: &str,
     ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
         Err(AccountError::Unavailable)
+    }
+
+    // 以下是 #8201 补上的接口。它们返回带状态码、服务端错误码和 `Retry-After` 的 [`AccountFailure`]，默认实现都是 `account_unavailable`，不影响已有的实现者。
+
+    /// `POST /v1/translate`，见 [`translate_request_body`] 和 [`parse_translate_response`]。
+    fn translate(
+        &self,
+        _request: &AccountTranslateRequest,
+        _timeout: Duration,
+        _access_token: &str,
+    ) -> Result<AccountTranslations, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/phrases`。
+    fn phrases(&self, _access_token: &str) -> Result<AccountPhrases, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `PUT /v1/users/me/phrases`：按 `phrases.revision` 比较并交换，整份替换。
+    fn put_phrases(
+        &self,
+        _phrases: &AccountPhrases,
+        _access_token: &str,
+    ) -> Result<AccountPhrases, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/sessions`。
+    fn devices(&self, _access_token: &str) -> Result<AccountDevices, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `DELETE /v1/users/me/sessions/{id}`。
+    fn revoke_device(&self, _id: &str, _access_token: &str) -> Result<(), AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/data`。
+    fn data_summary(&self, _access_token: &str) -> Result<AccountDataSummary, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/data/export`，流式写到 `destination`。
+    fn data_export(
+        &self,
+        _destination: &Path,
+        _access_token: &str,
+    ) -> Result<AccountDataExport, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `DELETE /v1/users/me/data`。
+    fn data_delete(&self, _sections: &[String], _access_token: &str) -> Result<(), AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/feedback`，`feedback` 由 [`prepare_feedback`] 校验过。
+    fn feedback(
+        &self,
+        _feedback: &AccountFeedback,
+        _access_token: &str,
+    ) -> Result<AccountFeedbackReceipt, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/users/me/diagnostics`，`upload` 由 [`crate::diagnostics::upload::prepare_upload`] 重建过。
+    fn diagnostics_upload(
+        &self,
+        _upload: &crate::diagnostics::upload::DiagnosticUpload,
+        _access_token: &str,
+    ) -> Result<crate::diagnostics::upload::DiagnosticUploadReceipt, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/diagnostics`。
+    fn diagnostics_state(
+        &self,
+        _access_token: &str,
+    ) -> Result<crate::diagnostics::upload::DiagnosticState, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/users/me/diagnostics/token`：旧令牌立即失效。
+    fn diagnostics_regenerate_token(&self, _access_token: &str) -> Result<String, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `DELETE /v1/users/me/diagnostics`。
+    fn diagnostics_delete(&self, _access_token: &str) -> Result<(), AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/users/me/download-link`：把 `platform` 的下载链接发到账号已验证的邮箱。
+    fn download_link(
+        &self,
+        _platform: &str,
+        _access_token: &str,
+    ) -> Result<AccountDownloadLink, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/voice/contributions`，`contribution` 由 [`prepare_voice_contribution`] 校验过。
+    fn voice_contribution(
+        &self,
+        _contribution: &AccountVoiceContribution,
+        _access_token: &str,
+    ) -> Result<AccountVoiceContributionReceipt, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    // 以下几项给云同步（`cloud_sync`）用：与上面同名的接口相同，失败时带着状态码、服务端错误码和 `Retry-After`，同步据此区分 409 `revision_conflict` 和别的 409，并尊重限流。默认实现转调不带细节的那个，只实现了旧接口的假后端照样能用。
+
+    /// 与 [`Self::preference_schema`] 相同，失败时是 [`AccountFailure`]。
+    fn preference_schema_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountPreferenceSchema, AccountFailure> {
+        self.preference_schema(access_token).map_err(Into::into)
+    }
+
+    /// 与 [`Self::preferences`] 相同，失败时是 [`AccountFailure`]。
+    fn preferences_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountPreferences, AccountFailure> {
+        self.preferences(access_token).map_err(Into::into)
+    }
+
+    /// 与 [`Self::put_preferences`] 相同，失败时是 [`AccountFailure`]。
+    fn put_preferences_detailed(
+        &self,
+        preferences: &AccountPreferences,
+        access_token: &str,
+    ) -> Result<AccountPreferences, AccountFailure> {
+        self.put_preferences(preferences, access_token)
+            .map_err(Into::into)
+    }
+
+    /// `GET /v1/users/me/dictionary/changes?after=&limit=1`：云端词库自 `after` 以来有没有改动，以及第一条改动是不是 `reset`（整份替换或清空）。
+    fn dictionary_probe(
+        &self,
+        _after: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryProbe, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// 与 [`Self::dictionary_snapshot_to_file`] 相同，失败时是 [`AccountFailure`]。
+    fn dictionary_snapshot_download(
+        &self,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<u64, AccountFailure> {
+        self.dictionary_snapshot_to_file(destination, access_token)
+            .map_err(Into::into)
+    }
+
+    /// `PUT /v1/users/me/dictionary/snapshot?revision=N`，正文从 `snapshot`（宿主私有的绝对路径）流式读出；按 `revision` 比较并交换。
+    fn dictionary_snapshot_upload(
+        &self,
+        _snapshot: &Path,
+        _revision: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountFailure> {
+        Err(AccountError::Unavailable.into())
     }
 }
 

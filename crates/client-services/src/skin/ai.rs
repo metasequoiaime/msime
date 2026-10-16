@@ -10,18 +10,23 @@ use crate::theme::{luminance, readable_text};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const MAX_PROMPT_CHARACTERS: usize = 500;
+/// 插画任务的提示词上限（服务端 `createSkinArtworkJob`：去掉首尾空白后 1–1200 个码点，不含 NUL）。
+const MAX_JOB_PROMPT_CHARACTERS: usize = 1200;
+/// 失败任务 `reason` 的字节上限；超过或含控制字符时丢掉这个字段。
+const MAX_JOB_REASON_BYTES: usize = 256;
 const MAX_CHAT_RESPONSE_BYTES: usize = 16 * 1024;
 const MAX_ARTWORK_RESPONSE_BYTES: usize = 12 * 1024 * 1024;
 const MAX_ARTWORK_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ARTWORK_SECONDS: u64 = 200;
 
+/// 一张插画。拒绝未知字段，因为 `msime_client_ai_skin_plan` 的 `artwork` 用它解析宿主交来的插画；服务端任务响应里的插画先按不拒绝未知字段的 `RawArtwork` 解析再换成它。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiSkinArtwork {
@@ -68,11 +73,51 @@ pub struct AiChatMessage<'a> {
     pub content: &'a str,
 }
 
-#[derive(Clone, Debug)]
+/// 一个插画任务。`state` 是 `running`、`succeeded` 或 `failed`；`reason` 是失败的原因码，`expires_at` 是任务过期的时间（RFC 3339），服务端没给或不合法时没有。
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AiSkinJob {
     pub id: String,
     pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub artwork: Option<AiSkinArtwork>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
+/// 进行中的生成按宿主给的请求 id 登记，好让另一次调用取消它。同一个 id 正在生成时再次开始是 `ai_skin_busy`，原任务的取消标记不变。
+#[derive(Default)]
+pub struct AiSkinRequests(Mutex<HashMap<String, Arc<AtomicBool>>>);
+
+impl AiSkinRequests {
+    /// 登记一次生成，返回它的取消标记。
+    pub fn begin(&self, id: &str) -> Result<Arc<AtomicBool>, &'static str> {
+        let mut requests = self.0.lock().map_err(|_| "ai_skin_unavailable")?;
+        // 拒绝重复 id 时保留原任务的取消标记。
+        if requests.contains_key(id) {
+            return Err("ai_skin_busy");
+        }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        requests.insert(id.to_owned(), Arc::clone(&cancelled));
+        Ok(cancelled)
+    }
+
+    /// 取消 `id` 的生成，返回是否有一个在跑。只碰这张表，立即返回。
+    pub fn cancel(&self, id: &str) -> Result<bool, &'static str> {
+        let requests = self.0.lock().map_err(|_| "ai_skin_unavailable")?;
+        Ok(requests
+            .get(id)
+            .map(|cancelled| cancelled.store(true, Ordering::Release))
+            .is_some())
+    }
+
+    /// 生成结束（成功、失败或取消）后注销，同一个 id 之后可以再用。
+    pub fn finish(&self, id: &str) {
+        if let Ok(mut requests) = self.0.lock() {
+            requests.remove(id);
+        }
+    }
 }
 
 pub trait AiSkinApi: Send + Sync + 'static {
@@ -229,12 +274,37 @@ impl AiSkinApi for BackendAccountClient {
     }
 }
 
+/// 服务端的任务响应。不拒绝未知字段：这是服务端的响应，本地测试回放的只是当前的形状，服务端以后再加字段时测试抓不到，生产上就会再坏一次（2026-10-01 加了 `expires_at` 以后，带 `deny_unknown_fields` 的旧版本每次创建任务都解析失败）。
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct RawSkinJob {
     id: String,
     state: String,
-    artwork: Option<AiSkinArtwork>,
+    #[serde(default)]
+    artwork: Option<RawArtwork>,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    expires_at: Option<String>,
+}
+
+/// 任务响应里的插画，字段与 [`AiSkinArtwork`] 相同；同 [`RawSkinJob`]，服务端以后在 `artwork` 里加字段时不能让每个成功的任务都解析失败。
+#[derive(Clone, Debug, Deserialize)]
+struct RawArtwork {
+    b64_json: String,
+    mime_type: String,
+    width: u32,
+    height: u32,
+}
+
+impl From<RawArtwork> for AiSkinArtwork {
+    fn from(raw: RawArtwork) -> Self {
+        Self {
+            b64_json: raw.b64_json,
+            mime_type: raw.mime_type,
+            width: raw.width,
+            height: raw.height,
+        }
+    }
 }
 
 fn validate_job(job: RawSkinJob) -> Result<AiSkinJob, AccountError> {
@@ -243,14 +313,32 @@ fn validate_job(job: RawSkinJob) -> Result<AiSkinJob, AccountError> {
     {
         return Err(AccountError::Unavailable);
     }
-    if let Some(artwork) = &job.artwork {
+    let artwork = job.artwork.map(AiSkinArtwork::from);
+    if let Some(artwork) = &artwork {
         validate_artwork(artwork).map_err(|_| AccountError::Unavailable)?;
     }
     Ok(AiSkinJob {
         id: job.id,
         state: job.state,
-        artwork: job.artwork,
+        artwork,
+        reason: job
+            .reason
+            .filter(|reason| crate::text::is_bounded_text(reason, MAX_JOB_REASON_BYTES)),
+        expires_at: job
+            .expires_at
+            .filter(|at| crate::account::parse_rfc3339(at).is_some()),
     })
+}
+
+/// 插画任务的提示词按服务端的规则检查：去掉首尾空白后 1–1200 个码点，不含 NUL。返回去掉首尾空白的提示词。
+fn job_prompt(prompt: &str) -> Result<&str, AiSkinError> {
+    let prompt = prompt.trim();
+    if prompt.is_empty()
+        || !crate::text::is_bounded_chars_without_nul(prompt, MAX_JOB_PROMPT_CHARACTERS)
+    {
+        return Err(AiSkinError::InvalidResponse);
+    }
+    Ok(prompt)
 }
 
 fn validate_artwork(artwork: &AiSkinArtwork) -> Result<Vec<u8>, AiSkinError> {
@@ -297,7 +385,7 @@ where
         &self,
         prompt: &str,
         cancelled: &AtomicBool,
-        progress: impl Fn(usize) + Send + Sync,
+        mut progress: impl FnMut(usize),
     ) -> Result<Vec<AiSkinProposal>, AiSkinError> {
         if prompt.is_empty() || !crate::text::is_bounded_chars(prompt, MAX_PROMPT_CHARACTERS) {
             return Err(AiSkinError::InvalidResponse);
@@ -330,23 +418,28 @@ where
         })?;
         let plans = plan_ai_skins(&response)?;
         check_cancelled(cancelled)?;
-        let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let user_id_ref = user_id.as_str();
-        let progress_ref = &progress;
         let mut results = thread::scope(|scope| {
+            // 出图线程只经通道报告完成，进度回调在调用 `generate` 的线程上依次调用，与 C 接口其他进度回调的约定相同：JNI 和 NAPI 胶水可以直接用调用线程的 env，回调也不会并发。
+            let (finished, completions) = mpsc::channel::<()>();
             let mut handles = Vec::with_capacity(3);
             for (index, plan) in plans.into_iter().enumerate() {
-                let completed = Arc::clone(&completed);
                 let user_id = user_id_ref;
-                let progress = progress_ref;
+                let finished = finished.clone();
                 handles.push(scope.spawn(move || {
                     let result = self.illustrate(user_id, generation, &plan, cancelled);
                     if result.is_ok() {
-                        let count = completed.fetch_add(1, Ordering::AcqRel) + 1;
-                        progress(count);
+                        let _ = finished.send(());
                     }
                     (index, result)
                 }));
+            }
+            drop(finished);
+            let mut completed = 0;
+            // 所有出图线程结束、发送端都放下以后 `recv` 才返回错误，之后再按原来的顺序 join。
+            while completions.recv().is_ok() {
+                completed += 1;
+                progress(completed);
             }
             let mut results = Vec::with_capacity(3);
             let mut first_error = None;
@@ -374,6 +467,40 @@ where
         ordered.extend(results.into_iter().map(|(_, result)| result));
         self.ensure_identity(&user_id, generation)?;
         Ok(ordered)
+    }
+
+    /// 新建一个插画任务（`POST /v1/skins/jobs`），立即返回 `running` 的任务；只用登录账号。提示词去掉首尾空白后 1–1200 个码点、不含 NUL，否则是 [`AiSkinError::InvalidResponse`]（`ai_skin_invalid`）。
+    pub fn create_artwork_job(&self, prompt: &str) -> Result<AiSkinJob, AiSkinError> {
+        let prompt = job_prompt(prompt)?;
+        self.job_request(|api, token| api.create_skin_artwork(prompt, token))
+    }
+
+    /// 读一个插画任务（`GET /v1/skins/jobs/{id}`）。`id` 是 48 位小写十六进制。
+    pub fn artwork_job(&self, id: &str) -> Result<AiSkinJob, AiSkinError> {
+        if !crate::text::is_lower_hex(id, 48) {
+            return Err(AiSkinError::InvalidResponse);
+        }
+        self.job_request(|api, token| api.get_skin_artwork(id, token))
+    }
+
+    /// 删除一个插画任务（`DELETE /v1/skins/jobs/{id}`），进行中的任务同时取消。
+    pub fn delete_artwork_job(&self, id: &str) -> Result<(), AiSkinError> {
+        if !crate::text::is_lower_hex(id, 48) {
+            return Err(AiSkinError::InvalidResponse);
+        }
+        self.job_request(|api, token| api.delete_skin_artwork(id, token))
+    }
+
+    /// 用登录账号的令牌做一次任务请求：401 时刷新一次、在同一个账号里重试，结束时核对账号和会话代次没有变。
+    fn job_request<T>(
+        &self,
+        operation: impl Fn(&A, &str) -> Result<T, AccountError>,
+    ) -> Result<T, AiSkinError> {
+        let (user_id, token, generation) = self
+            .session
+            .credentials_with_generation(None, None)
+            .map_err(Self::account_error)?;
+        self.request_authenticated(&user_id, generation, token, operation)
     }
 
     fn request_authenticated<T>(
@@ -768,8 +895,11 @@ mod tests {
         }
     }
 
+    /// `working` 为假时 AI 接口一律失败；为真时按合成数据走完一次生成：模型目录、三套设计、每张插画第一次读就已完成。
     #[derive(Clone, Default)]
-    struct FakeApi;
+    struct FakeApi {
+        working: bool,
+    }
 
     impl AccountApi for FakeApi {
         fn providers(&self) -> Result<HashMap<String, bool>, AccountError> {
@@ -810,9 +940,36 @@ mod tests {
         }
     }
 
+    fn artwork() -> AiSkinArtwork {
+        AiSkinArtwork {
+            b64_json: BASE64.encode(b"\x89PNG\r\n\x1A\nfixture"),
+            mime_type: "image/png".into(),
+            width: 64,
+            height: 64,
+        }
+    }
+
+    fn job(id: &str, state: &str, artwork: Option<AiSkinArtwork>) -> AiSkinJob {
+        AiSkinJob {
+            id: id.into(),
+            state: state.into(),
+            artwork,
+            reason: None,
+            expires_at: None,
+        }
+    }
+
     impl AiSkinApi for FakeApi {
         fn ai_models(&self, _: &str) -> Result<AiModelCatalog, AccountError> {
-            Err(AccountError::Unavailable)
+            if !self.working {
+                return Err(AccountError::Unavailable);
+            }
+            Ok(AiModelCatalog {
+                data: vec![AiModel {
+                    id: "synthetic-model".into(),
+                }],
+                default_model: "synthetic-model".into(),
+            })
         }
         fn ai_chat(
             &self,
@@ -820,16 +977,33 @@ mod tests {
             _: &str,
             _: &str,
         ) -> Result<String, AccountError> {
-            Err(AccountError::Unavailable)
+            if !self.working {
+                return Err(AccountError::Unavailable);
+            }
+            Ok(response())
         }
-        fn create_skin_artwork(&self, _: &str, _: &str) -> Result<AiSkinJob, AccountError> {
-            Err(AccountError::Unavailable)
+        fn create_skin_artwork(&self, prompt: &str, _: &str) -> Result<AiSkinJob, AccountError> {
+            if !self.working {
+                return Err(AccountError::Unavailable);
+            }
+            // 三套设计的插画提示词只差一个数字，按字节和区分出三个任务 id。
+            let seed = prompt
+                .bytes()
+                .fold(0_u8, |sum, byte| sum.wrapping_add(byte));
+            let id = format!("{seed:02x}").repeat(24);
+            Ok(job(&id, "running", None))
         }
-        fn get_skin_artwork(&self, _: &str, _: &str) -> Result<AiSkinJob, AccountError> {
-            Err(AccountError::Unavailable)
+        fn get_skin_artwork(&self, id: &str, _: &str) -> Result<AiSkinJob, AccountError> {
+            if !self.working {
+                return Err(AccountError::Unavailable);
+            }
+            Ok(job(id, "succeeded", Some(artwork())))
         }
         fn delete_skin_artwork(&self, _: &str, _: &str) -> Result<(), AccountError> {
-            Err(AccountError::Unavailable)
+            if !self.working {
+                return Err(AccountError::Unavailable);
+            }
+            Ok(())
         }
     }
 
@@ -944,8 +1118,8 @@ mod tests {
     fn authenticated_ai_result_is_cancelled_after_same_user_relogin() {
         let storage = MemoryStorage::default();
         installed(&storage);
-        let session = Arc::new(BackendAccountSession::new(FakeApi, storage));
-        let service = BackendAiSkinService::new(FakeApi, Arc::clone(&session));
+        let session = Arc::new(BackendAccountSession::new(FakeApi::default(), storage));
+        let service = BackendAiSkinService::new(FakeApi::default(), Arc::clone(&session));
         let (_, token, generation) = session
             .credentials_with_generation(None, Some("fixture-user"))
             .unwrap();
@@ -956,5 +1130,179 @@ mod tests {
             Ok::<_, AccountError>("stale result")
         });
         assert_eq!(result, Err(AiSkinError::Cancelled));
+    }
+
+    #[test]
+    fn progress_is_reported_on_the_calling_thread_in_order() {
+        let storage = MemoryStorage::default();
+        installed(&storage);
+        let api = FakeApi { working: true };
+        let session = Arc::new(BackendAccountSession::new(api.clone(), storage));
+        let service = BackendAiSkinService::new(api, session);
+        let caller = std::thread::current().id();
+        let mut seen = Vec::new();
+        let cancelled = AtomicBool::new(false);
+        let proposals = service
+            .generate("合成的提示词", &cancelled, |completed| {
+                assert_eq!(std::thread::current().id(), caller);
+                seen.push(completed);
+            })
+            .unwrap();
+        assert_eq!(proposals.len(), 3);
+        assert_eq!(seen, [1, 2, 3]);
+    }
+
+    #[test]
+    fn job_requests_validate_prompts_and_ids_before_the_network() {
+        let storage = MemoryStorage::default();
+        installed(&storage);
+        let session = Arc::new(BackendAccountSession::new(FakeApi::default(), storage));
+        let service = BackendAiSkinService::new(FakeApi::default(), session);
+        assert_eq!(
+            service.create_artwork_job("   ").unwrap_err(),
+            AiSkinError::InvalidResponse
+        );
+        assert_eq!(
+            service.create_artwork_job(&"字".repeat(1201)).unwrap_err(),
+            AiSkinError::InvalidResponse
+        );
+        assert_eq!(
+            service.create_artwork_job("nul\0").unwrap_err(),
+            AiSkinError::InvalidResponse
+        );
+        assert_eq!(
+            service.artwork_job("not-a-job").unwrap_err(),
+            AiSkinError::InvalidResponse
+        );
+        assert_eq!(
+            service.delete_artwork_job(&"A".repeat(48)).unwrap_err(),
+            AiSkinError::InvalidResponse
+        );
+        // 合法的请求到了 API 这一层，FakeApi 不工作时是账号错误。
+        assert_eq!(
+            service.artwork_job(&"a".repeat(48)).unwrap_err(),
+            AiSkinError::Account(AccountError::Unavailable)
+        );
+    }
+
+    #[test]
+    fn signed_out_job_requests_are_unauthorized() {
+        let session = Arc::new(BackendAccountSession::new(
+            FakeApi::default(),
+            MemoryStorage::default(),
+        ));
+        let service = BackendAiSkinService::new(FakeApi::default(), session);
+        assert_eq!(
+            service.create_artwork_job("合成提示词").unwrap_err(),
+            AiSkinError::Account(AccountError::Unauthorized)
+        );
+    }
+
+    fn serve(status: &'static str, body: String) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 8192];
+            let _ = stream.read(&mut request);
+            write!(
+                stream,
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+        origin
+    }
+
+    /// 回放 msime-cloud `origin/main` 的真实响应（`internal/server/skin_jobs.go` 的 `respondSkinJobCreated` 与 `respondSkinJob`）。修复前 `RawSkinJob` 拒绝未知字段，这两种响应都解析失败。
+    #[test]
+    fn production_job_responses_parse() {
+        let id = "0123456789abcdef".repeat(3);
+        let client = BackendAccountClient::loopback(&serve(
+            "202 Accepted",
+            serde_json::json!({ "id": id, "state": "running", "expires_at": "2026-10-16T09:40:00Z" })
+                .to_string(),
+        ))
+        .unwrap();
+        let created = client
+            .create_skin_artwork("合成的插画提示词", &token(b'a'))
+            .unwrap();
+        assert_eq!(created.state, "running");
+        assert_eq!(created.expires_at.as_deref(), Some("2026-10-16T09:40:00Z"));
+
+        let client = BackendAccountClient::loopback(&serve(
+            "200 OK",
+            serde_json::json!({ "id": id, "state": "failed", "artwork": null, "reason": "upstream_timeout" })
+                .to_string(),
+        ))
+        .unwrap();
+        let failed = client.get_skin_artwork(&id, &token(b'a')).unwrap();
+        assert_eq!(failed.state, "failed");
+        assert_eq!(failed.reason.as_deref(), Some("upstream_timeout"));
+        assert_eq!(failed.artwork, None);
+        assert_eq!(
+            serde_json::to_value(&failed).unwrap(),
+            serde_json::json!({ "id": id, "state": "failed", "reason": "upstream_timeout" })
+        );
+
+        // 不合规的 reason 和 expires_at 只丢掉那个字段，任务本身照常可用。
+        let client = BackendAccountClient::loopback(&serve(
+            "200 OK",
+            serde_json::json!({ "id": id, "state": "running", "artwork": null, "reason": "bad\u{7}", "expires_at": "soon", "added_later": 1 })
+                .to_string(),
+        ))
+        .unwrap();
+        let running = client.get_skin_artwork(&id, &token(b'a')).unwrap();
+        assert_eq!((running.reason, running.expires_at), (None, None));
+
+        // 成功的任务带插画；服务端以后在 artwork 里加的字段不让任务解析失败。
+        let mut served = serde_json::to_value(artwork()).unwrap();
+        served["revised_prompt"] = serde_json::json!("合成的改写提示词");
+        let client = BackendAccountClient::loopback(&serve(
+            "200 OK",
+            serde_json::json!({ "id": id, "state": "succeeded", "artwork": served }).to_string(),
+        ))
+        .unwrap();
+        let succeeded = client.get_skin_artwork(&id, &token(b'a')).unwrap();
+        assert_eq!(succeeded.state, "succeeded");
+        assert_eq!(succeeded.artwork, Some(artwork()));
+        // 宿主交来的插画仍然拒绝未知字段。
+        assert!(serde_json::from_value::<AiSkinArtwork>(served).is_err());
+    }
+
+    #[test]
+    fn duplicate_request_keeps_original_generation_cancellable() {
+        let requests = AiSkinRequests::default();
+        let original = requests.begin("synthetic-request").unwrap();
+        assert_eq!(
+            requests.begin("synthetic-request").unwrap_err(),
+            "ai_skin_busy"
+        );
+        assert_eq!(requests.cancel("synthetic-request"), Ok(true));
+        assert!(original.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn cancelling_one_request_does_not_cancel_another() {
+        let requests = AiSkinRequests::default();
+        let first = requests.begin("synthetic-first").unwrap();
+        let second = requests.begin("synthetic-second").unwrap();
+        assert_eq!(requests.cancel("synthetic-missing"), Ok(false));
+        assert_eq!(requests.cancel("synthetic-first"), Ok(true));
+        assert!(first.load(Ordering::Acquire));
+        assert!(!second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn finished_request_id_can_be_reused_with_a_new_cancel_flag() {
+        let requests = AiSkinRequests::default();
+        let first = requests.begin("synthetic-request").unwrap();
+        requests.finish("synthetic-request");
+        let second = requests.begin("synthetic-request").unwrap();
+        requests.cancel("synthetic-request").unwrap();
+        assert!(!first.load(Ordering::Acquire));
+        assert!(second.load(Ordering::Acquire));
     }
 }

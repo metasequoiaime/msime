@@ -58,6 +58,25 @@ public final class KeyboardLayoutSmoke {
         for (int tall : new int[] {KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP, 552, 0})
             check(KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, tall));
 
+        // #8210：第五排资格只继承源字母页；符号页实际增加可用字符。
+        for (int layout = 0; layout <= 8; layout++) {
+            for (int height : new int[] {0, 416, 480, 760}) {
+                boolean eligible = KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, layout, height);
+                check(KeyboardLayout.drawsSymbolExtraRow(true, KeyboardLayout.Layer.SYMBOLS, layout, height) == eligible);
+                check(!KeyboardLayout.drawsSymbolExtraRow(false, KeyboardLayout.Layer.SYMBOLS, layout, height));
+                check(!KeyboardLayout.drawsSymbolExtraRow(true, KeyboardLayout.Layer.LETTERS, layout, height));
+            }
+        }
+        check(KeyboardLayout.symbolExtraRow(true, false, true).equals(KeyboardLayout.NUMBER_ROW));
+        check(KeyboardLayout.symbolExtraRow(false, false, true).equals(
+            List.of("[", "]", "{", "}", "#", "%", "^", "*", "+", "=")));
+        for (boolean chinese : new boolean[] {true, false}) {
+            List<String> extra = KeyboardLayout.symbolExtraRow(false, true, chinese);
+            check(extra.size() == 10 && new java.util.HashSet<>(extra).size() == 10);
+            check(extra.get(0).equals(chinese ? "（" : "("));
+            check(extra.contains("‰") && extra.contains("²"));
+        }
+
         // 同属 26 键的双拼和直输场景仍是 Shift，不能仅凭布局决定分词动作。
         check(KeyboardLayout.usesQuanpinSeparator(true, true,
             KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, "none"));
@@ -114,6 +133,19 @@ public final class KeyboardLayoutSmoke {
         check(texts(KeyboardLayout.moreSymbolLayer(true, false).get(1))
             .equals(texts(KeyboardLayout.moreSymbolLayer(false).get(1))));
         check(KeyboardLayout.moreSymbolLayer(true, false).get(3).get(0).text().equals("拼音"));
+        // 数字页根据顶部入口换键，符号和表情互斥，宽度与其余按键保持一致。
+        for (boolean chinese : List.of(false, true)) {
+            for (boolean punctuation : List.of(false, true)) {
+                List<KeyboardLayout.LayerKey> fallback = KeyboardLayout.numberLayer(chinese, punctuation, true, false).get(3);
+                List<KeyboardLayout.LayerKey> toolbar = KeyboardLayout.numberLayer(chinese, punctuation, true, true).get(3);
+                check(fallback.get(1).kind() == KeyboardLayout.LayerKeyKind.EMOJI);
+                check(toolbar.get(1).kind() == KeyboardLayout.LayerKeyKind.SYMBOL_PANEL);
+                check(toolbar.get(1).text().equals("符号"));
+                check(toolbar.stream().noneMatch(key -> key.kind() == KeyboardLayout.LayerKeyKind.EMOJI));
+                check(toolbar.get(1).weight() == fallback.get(1).weight());
+                for (int index : List.of(0, 2, 3, 4)) check(toolbar.get(index).equals(fallback.get(index)));
+            }
+        }
         // #+= 层：左下原表情位是打开符号面板的「符号」键，切换键翻成 123。
         List<List<KeyboardLayout.LayerKey>> more = KeyboardLayout.moreSymbolLayer(true);
         check(texts(more.get(0)).equals(List.of("[", "]", "{", "}", "#", "%", "^", "*", "+", "=")));

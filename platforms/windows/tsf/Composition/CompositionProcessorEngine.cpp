@@ -9,7 +9,7 @@
 #include "LanguageBar.h"
 #include "RegKey.h"
 #include "Define.h"
-#include "../HostOptionsPaths.h"
+#include "../HostConfiguration.h"
 #include <msctf.h>
 #include <string>
 #include <fmt/xchar.h>
@@ -260,13 +260,16 @@ BOOL CCompositionProcessorEngine::SetupLanguageProfile(LANGID langid, REFGUID gu
     SetupKeystroke();
     SetupConfiguration();
     if (_hostEngineAdapter && !_hostEngineAdapter->valid()) {
-        const std::string options = msime::tsf::default_host_options_json();
+        const auto configuration = msime::tsf::cached_host_configuration();
+        const std::string options = configuration ? configuration->hostOptions : std::string{};
         std::string error;
         if (!options.empty())
             (void)InitializeHostSession(options, &error);
     } else if (_hostEngineAdapter && _hostEngineAdapter->valid()) {
         std::string error, ignored;
-        (void)_hostEngineAdapter->reload_preferences(msime::tsf::default_state_directory(), &ignored, &error);
+        const auto configuration = msime::tsf::cached_host_configuration();
+        if (configuration && !configuration->preferenceSnapshot.empty())
+            (void)_hostEngineAdapter->update_preferences(configuration->preferenceSnapshot, &ignored, &error);
     }
     if (Global::msgWndHandle)
         SetTimer(Global::msgWndHandle, TIMER_REFRESH_HOST_PREFERENCES, 500, nullptr);

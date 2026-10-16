@@ -189,6 +189,66 @@ function Select-ComboChoice($window, [string]$id, [string]$label) {
     $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()
 }
+function Wait-RelayControl($window, [string]$id) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $control = Find-ById $window $id
+        if ($control -and $control.Current.IsEnabled) { return $control }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Missing enabled cloud clipboard control: $id"
+}
+function Assert-CloudClipboardRelaySettings($window) {
+    function Read-RelayPreference($document) {
+        $property = $document.preferences.PSObject.Properties['cloud_clipboard_relay']
+        if ($property) { return $property.Value }
+        return $null
+    }
+    $path = Join-Path $state 'preferences.json'
+    $beforeEdit = [IO.File]::ReadAllText($path)
+    $scroll = (Find-ById $window 'settings-content').GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+    if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, 100) }
+    Select-ComboChoice $window 'cloud-clipboard-source' '自建中继'
+    $url = Wait-RelayControl $window 'cloud-clipboard-relay-url'
+    $token = Wait-RelayControl $window 'cloud-clipboard-relay-token'
+    if (-not $token.Current.IsPassword) { throw 'Relay token is not masked' }
+    $url.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('http://relay.example.test')
+    $token.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic-relay-token')
+    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'Relay draft was persisted before saving' }
+    (Wait-RelayControl $window 'cloud-clipboard-save-source').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-RelayControl $window 'settings-notice' | Out-Null
+    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'Invalid HTTP relay passed Rust preference validation' }
+    # 校验失败后窗口按共享设置的冲突处理重新读取，重新选择中继再填写合成配置；只使用本机拒绝连接的端口，不发送真实数据。
+    Select-ComboChoice $window 'cloud-clipboard-source' '自建中继'
+    $url = Wait-RelayControl $window 'cloud-clipboard-relay-url'
+    $token = Wait-RelayControl $window 'cloud-clipboard-relay-token'
+    $url.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('http://127.0.0.1:9/msime')
+    $token.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic-relay-token')
+    (Wait-RelayControl $window 'cloud-clipboard-save-source').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $relay = Read-RelayPreference $saved
+    } while (($relay.url -ne 'http://127.0.0.1:9/msime' -or $relay.token -ne 'synthetic-relay-token') -and [DateTime]::UtcNow -lt $deadline)
+    if ($relay.url -ne 'http://127.0.0.1:9/msime' -or $relay.token -ne 'synthetic-relay-token') { throw 'Relay address and token were not saved together' }
+    Open-Page $window 'typing'
+    Open-Page $window 'clip'
+    $url = Wait-RelayControl $window 'cloud-clipboard-relay-url'
+    if ($url.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne 'http://127.0.0.1:9/msime') { throw 'Reload lost the relay configuration' }
+    $scroll = (Find-ById $window 'settings-content').GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+    if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, 100) }
+    Select-ComboChoice $window 'cloud-clipboard-source' '水杉账号'
+    (Wait-RelayControl $window 'cloud-clipboard-save-source').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $relay = Read-RelayPreference $saved
+    } while ($relay -and [DateTime]::UtcNow -lt $deadline)
+    if ($relay) { throw 'Switching to account retained relay credentials' }
+    Write-Host 'Cloud clipboard relay masking, draft, Rust validation, atomic save, reload and account switch passed'
+}
 function Save-Window($element, [string]$file) {
     $bounds = $element.Current.BoundingRectangle
     if ($bounds.Width -lt 600 -or $bounds.Height -lt 400) { throw 'Settings window bounds are invalid' }
@@ -455,6 +515,7 @@ try {
         if (-not $pinnedVisible -or -not $more -or -not $more.Current.IsEnabled) { throw 'Clipboard pin result did not finish rendering' }
         Start-Sleep -Milliseconds 200
         Save-Window $window "$theme-clipboard-pinned.png"
+        Assert-CloudClipboardRelaySettings $window
         $process.CloseMainWindow() | Out-Null
         if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
         if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }

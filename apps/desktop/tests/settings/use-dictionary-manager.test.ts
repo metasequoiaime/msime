@@ -6,6 +6,29 @@ import {
   type DictionaryManagerClient,
 } from "../../../../packages/ui/src/settings/use-dictionary-manager";
 
+test("Chinese word queries retain matching host rows and report an empty result", async () => {
+  const entry = { kind: "pinyin" as const, key: "he'cheng", value: "合成", weight: 10 };
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ entries: [entry], has_more: false })
+    .mockResolvedValueOnce({ entries: [], has_more: false });
+  const client: DictionaryManagerClient = { dictionary: { list, edit: vi.fn() } };
+  const { result } = renderHook(() => useDictionaryManager({ client, confirm: vi.fn() }));
+  expect(result.current.phrasePage.status).toBe("");
+  act(() => result.current.setPhraseSearch("合成"));
+  await act(async () => {
+    await result.current.loadPhrases("pinyin");
+  });
+  expect(list).toHaveBeenLastCalledWith(0, 100, "pinyin", "合成");
+  expect(result.current.phrases).toEqual([entry]);
+  act(() => result.current.setPhraseSearch("无匹配合成词"));
+  await act(async () => {
+    await result.current.loadPhrases("pinyin");
+  });
+  expect(result.current.phrases).toEqual([]);
+  expect(result.current.phrasePage.status).toBe("未找到匹配词条");
+});
+
 test("ignores a second phrase save while the first is pending", async () => {
   let resolve!: () => void;
   const pending = new Promise<void>((accept) => {

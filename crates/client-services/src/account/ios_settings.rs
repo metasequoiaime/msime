@@ -1,15 +1,19 @@
-use crate::platform::mobile::mobile_account_preferences::{
-    frequency_account_preferences, insert_bool, insert_string, valid_mobile_haptic_strength,
+//! 账号设置文档与 iOS 键盘设置之间的映射：上传时把 App Group 里的键盘设置（[`IosKeyboardPreferences`]）和共享偏好导出成账号键值，下载时先校验整份云端文档、算出要写回 App Group 的键盘设置，再把它应用到共享偏好。Tauri iOS 和 `msime_client_account_ios_settings_*` 共用这一份。
+//!
+//! 写回分两步：宿主先按 [`IosPreferencePlan::requested_native`] 写 App Group，再拿实际保存下来的值调 [`IosPreferencePlan::apply_shared`] 写共享偏好，后一步失败时宿主把 App Group 恢复成旧值。
+
+use super::settings_sync::{
+    frequency_account_preferences, insert_bool, insert_string, valid_haptic_strength,
 };
-use msime_client_core::preferences::{
+use crate::account::{
+    validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
+};
+use crate::preferences::{
     ChineseScheme, FrequencyMode, InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout,
     TouchKeyboardScheme, TouchKeyboardSkinDesign, WubiProfile,
 };
-use msime_client_services::account::{
-    validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
-};
-use msime_client_services::skin::theme::GlobalTheme;
-use msime_tauri_mobile_platform::IosKeyboardPreferences;
+use crate::skin::theme::GlobalTheme;
+use msime_client_core::ios_keyboard::IosKeyboardPreferences;
 use std::collections::BTreeMap;
 
 fn decoded_custom_skin(
@@ -22,7 +26,8 @@ fn decoded_custom_skin(
         .or_else(|| fallback.cloned())
 }
 
-pub(crate) fn local_account_preferences(
+/// 本机设置导出成账号键值。调用方再按版本（`edition::filter_uploaded_account_settings`）和服务端字段表过滤，然后合并上传。`fallback_custom_skin` 是共享偏好里自定义主题的键盘设计，App Group 里没有时用它。
+pub fn local_account_preferences(
     native: &IosKeyboardPreferences,
     shared: &Preferences,
     fallback_custom_skin: Option<&TouchKeyboardSkinDesign>,
@@ -46,7 +51,7 @@ pub(crate) fn local_account_preferences(
         "japanese" => Some(("japanese", None, "twenty_six_key")),
         "japaneseNineKey" => Some(("japanese", None, "nine_key")),
         "korean" => Some(("korean", None, "twenty_six_key")),
-        "cantonese" | "zhuyin" | "vietnamese" | "tibetan" | "stroke" => None,
+        scheme if UNSYNCED_NATIVE_SCHEMES.contains(&scheme) => None,
         _ => return Err(AccountError::Storage),
     };
     if let Some((schema, profile, _)) = scheme {
@@ -161,13 +166,18 @@ fn integer_setting(
     }
 }
 
+/// 账号的 `input.schema` 装不下的 iOS 键盘方案：导出时不写方案、九键开关和触屏布局，应用时本机是其中之一就保留本机的方案（见 `requested_native`）。
+const UNSYNCED_NATIVE_SCHEMES: [&str; 5] =
+    ["cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"];
+
 /// iOS 的触屏布局键，取值与 Android 的 `platform.android.keyboard_layout` 相同。服务端只限它是不超过 32 字节的字符串，以后可能多出别的取值，所以下载时不认识的取值当作没有这一项。
 const IOS_KEYBOARD_LAYOUT: &str = "platform.ios.keyboard_layout";
 const IOS_KEYBOARD_LAYOUTS: [&str; 4] =
     ["twenty_six_key", "nine_key", "fourteen_key", "handwriting"];
 
+/// 一份已经校验过的云端设置文档要改的 iOS 值；没有出现在文档里的键是 `None`，应用时保留本机的值。
 #[derive(Debug, PartialEq)]
-pub(crate) struct IosPreferencePlan {
+pub struct IosPreferencePlan {
     input_scheme: Option<String>,
     /// 云端写着认得的 `platform.ios.keyboard_layout`：方案的键盘布局由它说了算，见 `requested_native`。
     has_keyboard_layout: bool,
@@ -186,7 +196,8 @@ pub(crate) struct IosPreferencePlan {
 }
 
 impl IosPreferencePlan {
-    pub(crate) fn from_cloud(cloud: &AccountPreferences) -> Result<Self, AccountError> {
+    /// 校验整份云端文档并取出 iOS 认得的值；任何一个值不合规都拒绝整份文档（`Invalid`）。
+    pub fn from_cloud(cloud: &AccountPreferences) -> Result<Self, AccountError> {
         validate_account_preferences(cloud)?;
         let values = &cloud.settings;
         // 有 `keyboard_layout` 时以它为准，没有（旧版本上传的文档、服务端还不认识这个键）时退回 `nine_key`。
@@ -260,7 +271,7 @@ impl IosPreferencePlan {
         let haptic_strength = string_setting(values, "platform.ios.haptic_strength")?;
         if haptic_strength
             .as_deref()
-            .is_some_and(|value| !valid_mobile_haptic_strength(value))
+            .is_some_and(|value| !valid_haptic_strength(value))
         {
             return Err(AccountError::Invalid);
         }
@@ -319,7 +330,8 @@ impl IosPreferencePlan {
         })
     }
 
-    pub(crate) fn requested_native(
+    /// 宿主应写进 App Group 的键盘设置：本机当前值 `current` 加上文档里的值。
+    pub fn requested_native(
         &self,
         current: &IosKeyboardPreferences,
     ) -> Result<IosKeyboardPreferences, AccountError> {
@@ -331,7 +343,14 @@ impl IosPreferencePlan {
         let keeps_fourteen_key = !self.has_keyboard_layout
             && self.input_scheme.as_deref() == Some("quanpin")
             && current.input_scheme == "fourteenKey";
-        if let Some(value) = self.input_scheme.as_ref().filter(|_| !keeps_fourteen_key) {
+        // 本机是账号装不下的方案时没有导出方案，云端留着的是上次的方案：合并上传后写回本机、或者下载别的设备的设置时都不拿它盖掉本机的方案，否则用户刚切过去的粤拼会被这一轮自己的上传改回全拼。
+        let keeps_unsynced_scheme =
+            UNSYNCED_NATIVE_SCHEMES.contains(&current.input_scheme.as_str());
+        if let Some(value) = self
+            .input_scheme
+            .as_ref()
+            .filter(|_| !keeps_fourteen_key && !keeps_unsynced_scheme)
+        {
             requested.input_scheme.clone_from(value);
         }
         if let Some(value) = self.traditional_chinese_output {
@@ -362,7 +381,8 @@ impl IosPreferencePlan {
             .ok_or(AccountError::Invalid)
     }
 
-    pub(crate) fn apply_shared(
+    /// 把文档应用到共享偏好。`native` 是宿主实际保存下来的键盘设置，方案、繁简、学习和全局主题以它为准。
+    pub fn apply_shared(
         &self,
         native: &IosKeyboardPreferences,
         preferences: &mut Preferences,
@@ -545,16 +565,16 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
 
 #[cfg(test)]
 mod tests {
-    use super::{local_account_preferences, IosPreferencePlan};
+    use super::{
+        local_account_preferences, IosPreferencePlan, IOS_KEYBOARD_LAYOUT, UNSYNCED_NATIVE_SCHEMES,
+    };
+    use crate::account::{AccountError, AccountPreferenceValue, AccountPreferences};
+    use crate::skin::theme::GlobalTheme;
+    use msime_client_core::ios_keyboard::IosKeyboardPreferences;
     use msime_client_core::preferences::{
         InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
         WubiProfile,
     };
-    use msime_client_services::account::{
-        AccountError, AccountPreferenceValue, AccountPreferences,
-    };
-    use msime_client_services::skin::theme::GlobalTheme;
-    use msime_tauri_mobile_platform::IosKeyboardPreferences;
     use std::collections::BTreeMap;
 
     fn native() -> IosKeyboardPreferences {
@@ -1140,6 +1160,40 @@ mod tests {
         plan.apply_shared(&native, &mut preferences).unwrap();
         assert_eq!(preferences.scheme, InputScheme::Shuangpin);
         assert_eq!(preferences.shuangpin_profile, ShuangpinProfile::Microsoft);
+    }
+
+    /// 本机是账号装不下的方案时没有导出方案，云端留着的是上次的方案和布局。上传之后把合并结果写回本机、或者应用别的设备的文档时，本机的方案不变，其余的键照常应用。
+    #[test]
+    fn a_local_scheme_the_account_cannot_hold_is_kept_when_the_cloud_applies() {
+        for scheme in UNSYNCED_NATIVE_SCHEMES {
+            let mut native = native();
+            native.input_scheme = scheme.into();
+            native.traditional_chinese_output = false;
+            let exported =
+                local_account_preferences(&native, &Preferences::default(), None).unwrap();
+            assert!(!exported.contains_key("input.schema"), "{scheme}");
+            let cloud = AccountPreferences {
+                revision: 4,
+                settings: BTreeMap::from([
+                    (
+                        "input.schema".into(),
+                        AccountPreferenceValue::String("quanpin".into()),
+                    ),
+                    (
+                        IOS_KEYBOARD_LAYOUT.into(),
+                        AccountPreferenceValue::String("nine_key".into()),
+                    ),
+                    (
+                        "input.character_set".into(),
+                        AccountPreferenceValue::String("traditional".into()),
+                    ),
+                ]),
+            };
+            let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+            let requested = plan.requested_native(&native).unwrap();
+            assert_eq!(requested.input_scheme, scheme, "{scheme}");
+            assert!(requested.traditional_chinese_output, "{scheme}");
+        }
     }
 
     #[test]

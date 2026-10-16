@@ -255,7 +255,7 @@ const sidePunctuation = (label: string) =>
 /**
  * 统计概览画的手机键盘，照 HarmonyOS 手机竖屏、默认设置下的触屏键盘（`KeyboardView.ets`），每行按份额铺满整行：
  *
- * - 26 键（全拼）：中文模式的字母键面画大写（`LetterKeyFacePolicy`）；第二行两端各缩进半键；第三行左端在全拼中文模式下是「分词」（`usesQuanpinSeparator`，按下记 `'` 的键 `Quote`，其他模式下是记 `ShiftLeft` 的 ⇧），左右两键各 1.4 份（`LETTER_EDGE_SHARE`）；底行是 `designActionRow` 的 符 1.05 | 123 1.25 | 空格 4 | 中 1.05 | 回车 1.9。
+ * - 26 键（全拼）：中文模式的字母键面画大写（`LetterKeyFacePolicy`）；第二行两端各缩进半键；第三行左端在全拼中文模式下是「分词」（`usesQuanpinSeparator`，按下记 `'` 的键 `Quote`，其他模式下是记 `ShiftLeft` 的 ⇧），左右两键各 1.4 份（`LETTER_EDGE_SHARE`）；底行是 `designActionRow` 的 123 1.25 | 符 1.05 | 空格 4 | ， 1 | 中 1.05 | 回车 1.9，逗号长按输入句号。
  * - 9 键（拼音）：`touchNineKeyGrid` 的左列 ，。？（1.15 份）、3 × 3 字母格（每格 2 份，首格 @# 记 `Nine1`）、右列 删除 / 分词 / ！（1.15 份，分词记 `Quote`）；底行是 `NineKeyLayout.actionRow(false)` 的 符 1.05 | 123 1.25 | 空格 4.2 | 中 1.05 | 回车 1.6。
  *
  * 每个键带着键盘按下时记录的 id（`KeyIdPolicy`），计数因此落在按下的那个键帽上。空格键在键盘上印的是方案简称（如「全拼」），这里统一印「空格」，与 Android、iOS 的热力图一致。
@@ -271,9 +271,10 @@ export const phoneHeatmapRows: Record<PhoneHeatmapLayout, PhoneHeatmapKey[][]> =
       phoneKey("⌫", "Backspace", 1.4),
     ],
     [
-      phoneKey("符", "SoftSymbol", 1.05),
       phoneKey("123", "SoftLayer", 1.25),
+      phoneKey("符", "SoftSymbol", 1.05),
       phoneKey("空格", "Space", 4),
+      phoneKey("，", "Comma", 1),
       phoneKey("中", "SoftLanguage", 1.05),
       phoneKey("↵", "Enter", 1.9),
     ],

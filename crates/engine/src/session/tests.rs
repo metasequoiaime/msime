@@ -1349,6 +1349,56 @@ INSERT INTO tbl_1_h VALUES('hao','h','好',100);",
 
 // ---- shuangpin candidate assembly ----
 
+#[test]
+fn direct_shuangpin_helpcodes_commit_without_leaving_auxiliary_letters() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_s VALUES('shi','s','实',100);\
+         CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_s VALUES('shi''jian','sj','实践',100);\
+         CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_j VALUES('jian','j','践',100);\
+         CREATE TABLE tbl_1_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_t VALUES('ta','t','他',100),('ta','t','她',90),('ta','t','它',80);\
+         CREATE TABLE tbl_3_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_t VALUES('ta''ta''ta','ttt','他她它',100);",
+    );
+    for (typed, expected) in [
+        ("uibjm", "实践"),
+        ("uibTjm", "实践"),
+        ("tartantab", "他她它"),
+        ("tartantabA", "他她它"),
+    ] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Ziranma;
+            options.helpcode_table = Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+                [("实", "bt"), ("他", "ra"), ("她", "na"), ("它", "ba")]
+                    .map(|(word, code)| (word.to_owned(), code.to_owned()))
+                    .into_iter()
+                    .collect(),
+            )));
+        });
+        type_text(&mut session, typed);
+        let index = index_of(&session, expected);
+        assert_eq!(
+            session.select(index).commit.as_deref(),
+            Some(expected),
+            "{typed}"
+        );
+        assert!(session.snapshot().preedit.is_empty(), "{typed}");
+        if typed == "uibjm" {
+            type_text(&mut session, typed);
+            let prefix = index_of(&session, "实");
+            assert_eq!(session.select(prefix).commit.as_deref(), Some("实"));
+            assert_eq!(session.input.engine.request().raw_input, "jm");
+            let tail = index_of(&session, "践");
+            assert_eq!(session.select(tail).commit.as_deref(), Some("践"));
+            assert!(session.snapshot().preedit.is_empty());
+        }
+    }
+}
+
 /// Microsoft `ni'nni` (golden ri_microsoft_semicolon_editing step 18): every shorter prefix group answers 你 and 拟, and the trailing `i` is also a single helpcode whose answer appends the whole-input series again, so the reference listed each word four times. A word keeps its first seat (decision 2026-09-30).
 #[test]
 fn shuangpin_lists_a_word_once() {
@@ -1558,7 +1608,7 @@ fn ignored_scheme_key_does_not_clone_preedit_for_change_detection() {
     });
 
     assert!(!result.handled);
-    assert_eq!(allocations, 23);
+    assert_eq!(allocations, 22);
 }
 
 #[test]
@@ -1572,7 +1622,7 @@ fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
     });
 
     assert!(result.handled);
-    assert_eq!(allocations, 126);
+    assert_eq!(allocations, 125);
 }
 
 #[test]
@@ -1585,7 +1635,7 @@ fn backspacing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection()
         crate::ime::personal_rerank::allocations::count(|| session.command(Command::Backspace));
 
     assert!(result.handled);
-    assert_eq!(allocations, 15);
+    assert_eq!(allocations, 14);
 }
 
 #[test]
@@ -1645,7 +1695,7 @@ fn setting_the_caret_does_not_build_editing_text_to_clamp_it() {
     });
 
     assert_eq!(session.snapshot().caret_position, 2);
-    assert_eq!(allocations, 22);
+    assert_eq!(allocations, 21);
 }
 
 #[test]
@@ -1659,7 +1709,7 @@ fn moving_the_caret_does_not_build_the_preedit_twice() {
 
     assert!(result.handled);
     assert_eq!(
-        allocations, 22,
+        allocations, 21,
         "光标移动复用编辑文本长度后的分配次数：{allocations}"
     );
 }
@@ -1675,7 +1725,7 @@ fn typing_at_a_caret_reuses_the_editing_text_length() {
         crate::ime::personal_rerank::allocations::count(|| session.character(b'x', false));
 
     assert!(result.handled);
-    assert_eq!(allocations, 192, "光标处输入的分配次数：{allocations}");
+    assert_eq!(allocations, 191, "光标处输入的分配次数：{allocations}");
 }
 
 #[test]
@@ -3020,6 +3070,61 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',100),('ni','n','拟',90);",
     session.set_nine_key_enabled(false);
     type_text(&mut session, "ni");
     assert!(!words(&session).contains(&"云候选".to_owned()));
+}
+
+#[test]
+fn repeated_dedicated_english_preserves_chinese_grid_composition() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for grid in [KeyGrid::NineKey, KeyGrid::FourteenKey] {
+        let mut session = fixture.session();
+        session.set_key_grid(Some(grid));
+        if grid == KeyGrid::FourteenKey {
+            assert!(session.grid_key(b'n').handled);
+            assert!(session.grid_key(b'i').handled);
+        } else {
+            type_text(&mut session, "64");
+        }
+        assert!(session.grid_composing());
+        let before = session.snapshot();
+        assert!(!before.candidates.is_empty());
+
+        session.set_dedicated_english(false);
+
+        assert_eq!(session.snapshot(), before, "{grid:?}");
+        assert_eq!(
+            session.select(0).commit,
+            Some(before.candidates[0].word.clone())
+        );
+    }
+}
+
+#[test]
+fn repeated_dedicated_english_preserves_english_t9_composition() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+    let mut session = fixture.session();
+    session.set_nine_key_enabled(true);
+    session.set_dedicated_english(true);
+    type_text(&mut session, "435");
+    let before = session.snapshot();
+    assert!(session.grid_composing());
+    assert!(!before.candidates.is_empty());
+
+    session.set_dedicated_english(true);
+
+    assert_eq!(session.snapshot(), before);
+    assert_eq!(
+        session.select(0).commit,
+        Some(before.candidates[0].word.clone())
+    );
+
+    type_text(&mut session, "435");
+    session.set_dedicated_english(false);
+    assert!(!session.grid_composing());
+    assert!(session.snapshot().preedit.is_empty());
+    type_text(&mut session, "64");
+    session.set_dedicated_english(true);
+    assert!(!session.grid_composing());
+    assert!(session.snapshot().preedit.is_empty());
 }
 
 /// 14 键：组码只从 `grid_key` 进九宫格，组里任一字母都归成首字母；硬件键盘的字母照常走全拼，九宫格组字中不处理。

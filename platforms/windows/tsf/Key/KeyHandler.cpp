@@ -305,7 +305,6 @@ HRESULT CMetasequoiaIME::_HandleConversionKey(TfEditCookie ec, _In_ ITfContext *
         if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
                                 static_cast<int>(result.commit.size()), commit.data(), length) != length)
             return E_FAIL;
-        commit = GlobalIme::word_for_creating_word + commit;
         GlobalIme::word_for_creating_word.clear();
         GlobalIme::pending_create_word_preedit.clear();
         CStringRange range;
@@ -1160,31 +1159,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
                 result.commit.push_back(static_cast<char>(wch));
                 result.handled = true;
             }
-            const auto status = msime::tsf::ApplyHostCharacterResult(result, [&](const std::string &text) {
-                if (text.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return false;
-                const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                                                       static_cast<int>(text.size()), nullptr, 0);
-                if (length <= 0) return false;
-                std::wstring commit(static_cast<size_t>(length), L'\0');
-                if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                                       static_cast<int>(text.size()), commit.data(), length) != length) return false;
-                CStringRange range;
-                range.Set(commit.c_str(), commit.size());
-                workerResult = _AddCharAndFinalize(ec, pContext, &range);
-                return workerResult == S_OK;
-            }, [&] {
-                workerResult = _HandleCompleteCommitFirst(ec, pContext);
-                return workerResult == S_OK;
-            }, [&] {
-                if (!_IsComposing()) _StartComposition(pContext);
-                if (!_IsComposing()) { workerResult = E_FAIL; return false; }
-                workerResult = _HandleCompositionInputWorker(pCompositionProcessorEngine, ec, pContext,
-                                                             FANY_IME_NO_REQUEST_ID);
-                return workerResult == S_OK;
-            });
-            if (status == msime::tsf::CharacterResultStatus::Unhandled) workerResult = S_FALSE;
-            else if (status == msime::tsf::CharacterResultStatus::Failed && SUCCEEDED(workerResult))
-                workerResult = E_FAIL;
+            workerResult = _ApplyHostCompositionResult(ec, pContext, result);
         }
         tfSelection.range->Release();
         return workerResult;
@@ -1207,6 +1182,42 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
 Exit:
     tfSelection.range->Release();
     return workerResult;
+}
+
+HRESULT CMetasequoiaIME::_ApplyHostCompositionResult(TfEditCookie ec, ITfContext *pContext,
+                                                       const msime::tsf::EngineResult &result)
+{
+    HRESULT outcome = S_OK;
+    const auto status = msime::tsf::ApplyHostCharacterResult(result, [&](const std::string &text) {
+        if (text.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return false;
+        const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                               static_cast<int>(text.size()), nullptr, 0);
+        if (length <= 0) return false;
+        std::wstring commit(static_cast<size_t>(length), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                               static_cast<int>(text.size()), commit.data(), length) != length) return false;
+        CStringRange range;
+        range.Set(commit.c_str(), commit.size());
+        outcome = _AddCharAndFinalize(ec, pContext, &range);
+        return outcome == S_OK;
+    }, [&] {
+        GlobalIme::word_for_creating_word.clear();
+        GlobalIme::pending_create_word_preedit.clear();
+        // 无提交的删空必须移除旧组字，直接结束会把最后一个拼写或词段留在文档里。
+        outcome = result.has_commit ? _HandleCompleteCommitFirst(ec, pContext)
+                                    : _HandleCancel(ec, pContext);
+        return outcome == S_OK;
+    }, [&] {
+        if (!_IsComposing()) _StartComposition(pContext);
+        if (!_IsComposing()) { outcome = E_FAIL; return false; }
+        outcome = _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext,
+                                                FANY_IME_NO_REQUEST_ID);
+        return outcome == S_OK;
+    });
+    if (status == msime::tsf::CharacterResultStatus::Unhandled) outcome = S_FALSE;
+    else if (status == msime::tsf::CharacterResultStatus::Failed && SUCCEEDED(outcome))
+        outcome = E_FAIL;
+    return outcome;
 }
 
 //+---------------------------------------------------------------------------
@@ -1256,11 +1267,18 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
             if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
                                            static_cast<int>(value.size()), hostPreedit.data(), n);
             readingStrings.Clear();
-            if (!hostPreedit.empty())
+            if (!hostPreedit.empty() || !result.view.phrase_prefix.empty())
             {
                 auto *reading = readingStrings.Append();
                 if (reading) reading->Set(hostPreedit.c_str(), hostPreedit.size());
             }
+            // 旧全局只作为绘制镜像；选词、撤回与提交的持有者是当前 Runtime。
+            const auto &prefix = result.view.phrase_prefix;
+            const int prefixLength = prefix.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                prefix.data(), static_cast<int>(prefix.size()), nullptr, 0);
+            GlobalIme::word_for_creating_word.assign(static_cast<size_t>(prefixLength > 0 ? prefixLength : 0), L'\0');
+            if (prefixLength > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, prefix.data(),
+                static_cast<int>(prefix.size()), GlobalIme::word_for_creating_word.data(), prefixLength);
             const std::string &conversion = result.view.conversion;
             const auto toWide = [](const char *data, size_t size) {
                 const int length = size == 0 ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data,
@@ -1774,21 +1792,11 @@ HRESULT CMetasequoiaIME::_HandleCompositionBackspace(TfEditCookie ec, _In_ ITfCo
             msime::tsf::EngineResult result;
             if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
             {
-                const std::string &value = result.view.preedit;
-                int n = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
-                                                                 static_cast<int>(value.size()), nullptr, 0);
-                std::wstring preedit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
-                if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
-                                               static_cast<int>(value.size()), preedit.data(), n);
-                if (preedit.empty()) {
+                // 删空拼写可能提交已选词：先替换组字再结束，不能把上一帧最后一个字母留下。
+                if (result.view.editing_text.empty() && result.view.phrase_prefix.empty())
                     _backspaceHoldArmed = true;
-                    tfSelection.range->Release();
-                    return _HandleCompositionFinalize(ec, pContext, FALSE);
-                }
-                CStringRange rendered;
-                rendered.Set(preedit.c_str(), preedit.size());
                 tfSelection.range->Release();
-                return _AddComposingAndChar(ec, pContext, &rendered);
+                return _ApplyHostCompositionResult(ec, pContext, result);
             }
         }
     }
@@ -1860,35 +1868,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionSegmentEdit(TfEditCookie ec, _In_ ITf
 
     if (isBackspace)
     {
-        const std::string &value = result.view.preedit;
-        const int length = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
-                                                                    static_cast<int>(value.size()), nullptr, 0);
-        if (length <= 0 && !_creatingWordRestoreHistory.empty())
-        {
-            const auto restore = _creatingWordRestoreHistory.back();
-            _creatingWordRestoreHistory.pop_back();
-            GlobalIme::word_for_creating_word = restore.previousWord;
-            std::string replayResult, replayError;
-            for (const unsigned char ch : restore.consumedRaw)
-            {
-                if (!host->character(ch, false, &replayResult, &replayError))
-                    return fallback();
-            }
-            return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext,
-                                                 FANY_IME_NO_REQUEST_ID);
-        }
-        if (length <= 0)
-        {
-            _creatingWordRestoreHistory.clear();
-            return _HandleCompositionFinalize(ec, pContext, FALSE);
-        }
-        std::wstring preedit(static_cast<size_t>(length), L'\0');
-        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
-                                preedit.data(), length) != length)
-            return fallback();
-        CStringRange rendered;
-        rendered.Set(preedit.c_str(), preedit.size());
-        return _AddComposingAndChar(ec, pContext, &rendered);
+        // 包括无剩余拼写、只有暂存词段的状态，历史由 Runtime 回退，不在 TIP 重放。
+        return _ApplyHostCompositionResult(ec, pContext, result);
     }
 
     for (unsigned char byte : result.view.editing_text)

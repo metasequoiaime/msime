@@ -2587,8 +2587,8 @@ impl<E: InputEngine> Runtime<E> {
             Action::Command(Command::ConversionLeft) if self.cached.conversion.is_empty() => self
                 .engine
                 .conversion_left_from(self.engine_index(self.highlighted)),
-            // 14 键的组码不是可上屏的字母，引擎把原样上屏当成结束组字、从它自己的首位取词；用户看到的首位可能是重排上来的另一行，所以与 `Finish` 一样从宿主高亮的那一行结束组字。
-            Action::Command(Command::CommitRaw)
+            // 14 键的组码不是可上屏的字母，两种原样提交都与 `Finish` 一样从宿主高亮行结束组字；它们在这里都不涉及英文原文学词。
+            Action::Command(Command::CommitRaw | Command::CommitRawWithoutLearning)
                 if self.cached.grid_composing
                     && self
                         .cached

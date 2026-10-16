@@ -2,6 +2,7 @@ import { SettingsGroupNote } from "../settings-group-note";
 import { Fragment } from "react";
 import { GroupList, MoreOptions } from "../../core/platform-controls";
 import { SelectRow } from "../select-row";
+import { ActionRow } from "../action-row";
 import { SwitchRow } from "../switch-row";
 import { pluginPreferences } from "../plugin-preferences";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
@@ -54,6 +55,9 @@ export interface HelpcodeSettingsPageProps {
   packs?: readonly HelpcodePackOption[];
   /** 当前方案所用的那一族。HarmonyOS 手机（`mobile`）用紧凑形式，类似 Android 的 `TypingPage`：分组只显示这一族的 辅助码方案，两族的其他控件都移进 更多选项 折叠区。桌面显示这一族的三行，另一族的三行收进 更多选项：另一族的设置对当前方案不起作用。 */
   activeFamily?: HelpcodeKey;
+  onImport?: (family: HelpcodeKey) => Promise<void>;
+  importBusy?: boolean;
+  importStatus?: string;
   onChange: (patch: HelpcodeSettings) => void;
 }
 
@@ -85,6 +89,9 @@ export function HelpcodeSettingsGroup({
   customSchemas = [],
   packs = [],
   activeFamily,
+  onImport,
+  importBusy = false,
+  importStatus,
   onChange,
 }: HelpcodeSettingsGroupProps) {
   const plugins = pluginPreferences(draft);
@@ -168,6 +175,24 @@ export function HelpcodeSettingsGroup({
     );
   };
 
+  const importRow = (key: HelpcodeKey, label: string) =>
+    onImport && (
+      <ActionRow
+        title="导入辅助码表"
+        description="UTF-8 文本，最大 1 MiB，每行「字=码」，码为一到两个小写字母。"
+        label={importBusy ? "导入中…" : "导入…"}
+        ariaLabel={`导入${label}辅助码表`}
+        ariaBusy={importBusy}
+        disabled={importBusy}
+        action={() => onImport(key)}
+      />
+    );
+  const importNote = importStatus && (
+    <SettingsGroupNote>
+      <span role="status">{importStatus}</span>
+    </SettingsGroupNote>
+  );
+
   const displayRow = (key: HelpcodeKey, label: string) => {
     const current = currentOf(key);
     // Named after its own scheme, the way the reference window names these: both rows are on the page at once, so one shared wording left two switches with the same accessible name and nothing to tell a screen reader -- or a test -- which one it had.
@@ -197,6 +222,8 @@ export function HelpcodeSettingsGroup({
         {shiftNote}
         {enabledRow(activeFamily, activeLabel)}
         {schemaRow(activeFamily, activeLabel, `${activeLabel}辅助码方案`)}
+        {importRow(activeFamily, activeLabel)}
+        {importNote}
         {displayRow(activeFamily, activeLabel)}
         <MoreOptions>
           {families
@@ -205,6 +232,7 @@ export function HelpcodeSettingsGroup({
               <Fragment key={key}>
                 {enabledRow(key, label)}
                 {schemaRow(key, label, `${label}辅助码方案`)}
+                {importRow(key, label)}
                 {displayRow(key, label)}
               </Fragment>
             ))}
@@ -218,6 +246,8 @@ export function HelpcodeSettingsGroup({
     return (
       <GroupList title="辅助码">
         {schemaRow(activeFamily, activeLabel, "辅助码方案", activeLabel)}
+        {importRow(activeFamily, activeLabel)}
+        {importNote}
         <MoreOptions>
           {shiftNote}
           {families.map(([key, label]) => (
@@ -235,11 +265,13 @@ export function HelpcodeSettingsGroup({
   return (
     <GroupList title="辅助码">
       {shiftNote}
+      {importNote}
       {/* 全拼在前，和输入方案选择器「全拼、双拼」的顺序一致。 */}
       {families.map(([key, label]) => (
         <Fragment key={key}>
           {enabledRow(key, label)}
           {schemaRow(key, label, `${label}辅助码方案`)}
+          {importRow(key, label)}
           {displayRow(key, label)}
         </Fragment>
       ))}

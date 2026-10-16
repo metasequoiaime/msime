@@ -437,7 +437,10 @@ mod tests {
         let fixture = shell(signed_in(), enabled_elsewhere());
         for action in [
             json!({}),
-            json!({ "operation": "clear" }),
+            json!({ "operation": "unknown" }),
+            // 账号分派也收置顶和保留期（Tauri 命令先按 `validate_request` 把它们拦在中继以外的路上），形状不对的同样不到后端。
+            json!({ "operation": "pin", "id": "short", "pinned": true }),
+            json!({ "operation": "set_retention", "days": 5 }),
             json!({ "operation": "add" }),
             json!({ "operation": "delete" }),
             json!({ "operation": "set_enabled", "enabled": "yes" }),

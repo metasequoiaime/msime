@@ -71,7 +71,8 @@ static inline msime::mac::CandidateLayoutMetrics MSIMECandidateLayoutMetrics(NSF
     msime::mac::CandidateLayoutMetrics metrics;
     metrics.candidateRow = candidateRow;
     metrics.chrome = chrome;
-    metrics.annotationGap = 4.0 * scale;
+    // 注释包在括号里紧贴候选字（「你好(wqvb)」），括号本身就是分隔，不再留空隙。
+    metrics.annotationGap = 0.0;
     metrics.annotationLine = MSIMECandidateTextHeight(@"", font);
     metrics.translationGap = font.pointSize * 0.65;
     metrics.translationLine = MSIMECandidateGlossHeight(@"X", glossFont, scale);
@@ -153,7 +154,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 // AI 占位行（Engine 候选来源 12）：等回答时是「…」，回答为空或失败后是「—」，画成次要色，选它什么都不上屏。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
 @property(nonatomic) BOOL candidatePending;
 @property(nonatomic, copy) NSString *translation;
-// How each gloss line is read, "\n"-joined parallel to translation. Drawn after its line and never part of what a gloss column commits.
+// How each gloss line is read, "\n"-joined parallel to translation. Drawn on a line of its own under its gloss line and never part of what a gloss column commits.
 @property(nonatomic, copy) NSString *pronunciation;
 @property(nonatomic, strong) NSFont *translationFont;
 @property(nonatomic, copy) NSColor *translationColor;
@@ -353,7 +354,9 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
         NSColor *glossColor = self.translationColor ?: [titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
         NSMutableAttributedString *glossText = [[NSMutableAttributedString alloc] initWithString:translation
             attributes:MSIMECandidateRunAttributes(glossFont, glossColor, run.below)];
-        NSColor *readingColor = [glossColor colorWithAlphaComponent:glossColor.alphaComponent * MSIMECandidatePronunciationOpacity];
+        // 选中底色不透明时读音不再减淡：那时的释义色已经是按底色挑出的次要色，再乘 0.72 在中等亮度的底色上对比度不到 3:1。读音单独一行，靠位置就和释义分得开。
+        const BOOL opaqueSelection = self.candidateHighlighted && self.fillColor.alphaComponent >= 0.85;
+        NSColor *readingColor = opaqueSelection ? glossColor : [glossColor colorWithAlphaComponent:glossColor.alphaComponent * MSIMECandidatePronunciationOpacity];
         for (NSValue *range in readingRanges)
             [glossText addAttribute:NSForegroundColorAttributeName value:readingColor
                               range:NSMakeRange(glossOffset + range.rangeValue.location, range.rangeValue.length)];
@@ -361,7 +364,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
             [glossText addAttribute:NSObliquenessAttributeName value:@(MSIMECandidateScriptAnnotationObliqueness)
                               range:NSMakeRange(translation.length - scriptAnnotation.length, scriptAnnotation.length)];
         if (self.armedGlossColumn > 0) {
-            // The underline marks what the column commits: the gloss line, not the reading drawn after it nor the 훈음 lines before it.
+            // The underline marks what the column commits: the gloss line, not the reading drawn under it nor the 훈음 lines before it.
             NSArray<NSString *> *parts = [self.translation componentsSeparatedByString:@"\n"];
             NSUInteger selected = (NSUInteger)(self.armedGlossColumn - 1);
             if (selected < parts.count && selected < glossLineStarts.count && parts[selected].length)

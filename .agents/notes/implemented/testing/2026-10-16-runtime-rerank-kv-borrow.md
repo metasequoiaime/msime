@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-接入已合并的上游 [PR #59](https://github.com/metasequoiaime/chinese-ime-lm/pull/59)，固定提交为 `093f4a260cb1144efee6bb5a6f1b6c71dc8dea2b`。私有 `Prefix` 用 `Cow` 借用普通续跑的 KV，前向入口按 `length * n_embd` 限定可见部分后只复制一次；独立上文和待处理末位置拼接继续持有 KV。两个 crate 清单、主锁与 fuzz 锁使用同一提交。
+接入已合并的上游 [PR #59](https://github.com/metasequoiaime/chinese-ime-lm/pull/59)，固定提交为 `093f4a260cb1144efee6bb5a6f1b6c71dc8dea2b`。私有 `Prefix` 用 `Cow` 借用普通续跑的 KV，前向入口按 `length * n_embd` 限定可见部分后只复制一次；独立上文继续持有 KV，待处理末位置的中间拼接由[末位置两段借用](2026-10-17-runtime-terminal-prefix-view.md)补齐；普通借用与可见长度契约继续成立。两个 crate 清单、主锁与 fuzz 锁使用同一提交。
 
 公开接口、权重、矩阵计算、归一化、候选顺序和缓存寿命保持。借用只存在于同步评分，不进入跨轮持久缓存。空前向和非空前向都必须截断可见位置，不能把旧缓冲中的未来位置带入新候选。
 

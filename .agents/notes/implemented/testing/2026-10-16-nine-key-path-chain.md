@@ -65,3 +65,5 @@ Status: implemented
 本机 quick 通过，含 Android/WASM、Android Java、macOS 原生与共享 Apple bridge，以及 151 项 Windows 原生测试；Docker、MinGW、HarmonyOS 完整前置不足的阶段跳过。这是编译与单测检查，不是设备 GUI 验收。
 
 局部配对不能推断九键 16 ms 达标；只有完整逐键模型运行能判断该预算。无公开接口、持久缓存、依赖和 unsafe 变化。
+
+后续[种子尾段按采用上限选择与物化](../../implemented/testing/2026-10-17-nine-key-seed-tail-materialization.md)只在根页选择前3条并物化；非根页仍保留完整48条搜索宽度，种子数量与采用条数不变。

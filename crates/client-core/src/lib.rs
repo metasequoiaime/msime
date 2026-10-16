@@ -35,6 +35,7 @@ pub mod endpoint;
 pub use msime_client_base::file_lock;
 pub mod helpcode;
 pub mod host_surface;
+pub mod ios_keyboard;
 pub mod panels;
 pub mod preferences;
 pub mod punctuation;

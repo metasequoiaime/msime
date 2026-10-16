@@ -41,9 +41,9 @@ function props(initial = resource()): CommunityResourceDetailProps {
   };
 }
 
-test("公共详情无需列表能力即可展示词库、按展示版本导入与返回", async () => {
+test.each([undefined, {}])("无本机安装能力 %j 时只显示云端导入与返回", async (localDictionary) => {
   const options = props();
-  render(<CommunityResourceDetail {...options} />);
+  render(<CommunityResourceDetail {...options} localDictionary={localDictionary} />);
   expect(screen.getByRole("heading", { name: "合成词库" })).toBeTruthy();
   expect(screen.getByText("合成词")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "导入这版词库到本机" })).toBeNull();
@@ -52,6 +52,34 @@ test("公共详情无需列表能力即可展示词库、按展示版本导入�
   await screen.findByText("已导入云端词库，新增或更新 2 个词条。");
   fireEvent.click(screen.getByRole("button", { name: "← 社区" }));
   expect(options.onClose).toHaveBeenCalledOnce();
+});
+
+test.each(["collection", "entries"])("仅有本机 %s 能力时显示并执行安装", async (capability) => {
+  const options = props();
+  const installCollection = vi.fn(async () => {});
+  const importEntries = vi.fn(async () => ({ applied: 1 }));
+  const localDictionary =
+    capability === "collection" ? { installCollection } : { import: importEntries };
+  render(<CommunityResourceDetail {...options} localDictionary={localDictionary} />);
+  fireEvent.click(screen.getByRole("button", { name: "导入这版词库到本机" }));
+  await screen.findByText(
+    capability === "collection"
+      ? "已添加为词库「合成词库」，可以在「词库」里停用或删除。"
+      : "已导入本机词库，应用 1 个词条。",
+  );
+  if (capability === "collection") {
+    expect(installCollection).toHaveBeenCalledExactlyOnceWith(options.initial);
+    expect(importEntries).not.toHaveBeenCalled();
+  } else {
+    expect(importEntries).toHaveBeenCalledWith(
+      "pinyin",
+      "standard",
+      "合成词\the\t100",
+      expect.any(String),
+    );
+    expect(installCollection).not.toHaveBeenCalled();
+  }
+  expect(options.client.apply).not.toHaveBeenCalled();
 });
 
 test("公共回复详情按可选能力显示操作，发布新版本后关闭编辑器并刷新", async () => {

@@ -326,7 +326,9 @@ class IOSProjectConfigTests(unittest.TestCase):
         swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         shared_account = (TAURI_ROOT / "src/platform/mobile/mobile_account_helpers.rs").read_text()
-        mapping = (TAURI_ROOT / "src/platform/ios/ios_account/account_preferences.rs").read_text()
+        # 键盘设置的形状在 client-core，账号设置文档与它之间的映射在 client-services，Tauri iOS 和 C ABI 共用。
+        keyboard = (TAURI_ROOT / "../../../crates/client-core/src/ios_keyboard.rs").read_text()
+        mapping = (TAURI_ROOT / "../../../crates/client-services/src/account/ios_settings.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
         mobile_services = (TAURI_ROOT.parent / "src/core/mobile-host-services.ts").read_text()
 
@@ -345,13 +347,16 @@ class IOSProjectConfigTests(unittest.TestCase):
         ]:
             self.assertIn(key, swift)
         # IosKeyboardPreferences is camelCase serde, so the plugin must read and write the same field names; a leftover retired key would fail every load and save.
-        self.assertIn("pub global_theme: String", rust)
+        self.assertIn("pub use msime_client_core::ios_keyboard::IosKeyboardPreferences;", rust)
+        self.assertIn("pub global_theme: String", keyboard)
         self.assertIn("let globalTheme: String", swift)
         self.assertNotIn('"keyboardSkin"', swift)
         for theme in ["system", "shuishan", "light", "paper", "night", "ink", "custom"]:
             self.assertIn(f'"{theme}"', swift)
         self.assertIn("merge_account_preferences", account)
         self.assertIn("platform.save_keyboard_preferences(&previous_native)", account)
+        self.assertIn("msime_client_services::account::ios_settings::local_account_preferences(", account)
+        self.assertIn("msime_client_services::account::ios_settings::IosPreferencePlan::from_cloud(", account)
         self.assertIn('"platform.ios.nine_key"', mapping)
         self.assertIn('"platform.ios.custom_keyboard_skin"', mapping)
         self.assertIn('"platform.ios.custom_theme_base"', mapping)
@@ -399,14 +404,16 @@ class IOSProjectConfigTests(unittest.TestCase):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         shared_account = (TAURI_ROOT / "src/platform/mobile/mobile_account_helpers.rs").read_text()
-        shared_dispatch = (TAURI_ROOT / "src/platform/cloud_dictionary.rs").read_text()
+        shared_shell = (TAURI_ROOT / "src/platform/cloud_dictionary.rs").read_text()
+        # 分发本身在 host-api，与 Windows 设置应用和 msime_client_cloud_dictionary 共用。
+        shared_dispatch = (TAURI_ROOT / "../../../crates/host-api/src/cloud_dictionary/account.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
         bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/dictionary/TauriDictionarySnapshotBridge.swift").read_text()
 
         self.assertIn("ios_account::cloud_dictionary_request(state, request).await", rust_entry)
         self.assertIn("pub async fn cloud_dictionary_request", account)
         for method in [
-            "dictionary_catalog(kind, &code, offset, &scheme, &profile)",
+            "dictionary_catalog(kind, code, *offset, scheme, profile)",
             ".add_dictionary(",
             ".update_dictionary(",
             ".personal_candidates(",
@@ -416,6 +423,7 @@ class IOSProjectConfigTests(unittest.TestCase):
             ".export_dictionary(",
         ]:
             self.assertIn(method, shared_dispatch)
+        self.assertIn("dictionary_account::account_request(&session, &request)", shared_shell)
         self.assertIn("crate::platform::cloud_dictionary::account_request(state.session(), request)", shared_account)
         self.assertIn(
             'openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary")',

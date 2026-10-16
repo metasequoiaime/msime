@@ -71,7 +71,7 @@ test("延迟变化会取消旧计时器", () => {
 const debouncedConsumers = import.meta.glob<string>(
   [
     "../../../../packages/ui/src/settings/shuangpin-custom-editor.tsx",
-    "../../../../packages/ui/src/settings/handwriting-settings-section.tsx",
+    "../../../../packages/ui/src/core/use-settled-slider.ts",
     "../../../../packages/ui/src/settings/harmony-phone-dictionary.tsx",
     "../../../../packages/ui/src/chat/chat-page.tsx",
   ],
@@ -79,7 +79,7 @@ const debouncedConsumers = import.meta.glob<string>(
 );
 
 test.each(Object.entries(debouncedConsumers))("%s 复用公共防抖回调生命周期", (_path, source) => {
-  expect(source).toContain('from "../core/use-debounced-callback"');
+  expect(source).toMatch(/from "(?:\.\.\/core|\.)\/use-debounced-callback"/);
   expect(source).not.toContain("setTimeout(");
   expect(source).not.toContain("clearTimeout(");
 });

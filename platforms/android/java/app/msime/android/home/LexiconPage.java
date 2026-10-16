@@ -135,6 +135,7 @@ public final class LexiconPage extends ReloadingDetailPage {
             ThemeColorPolicy.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
             String subtitle = NumberPolicy.groupedCount(collection.entryCount())
+                + DictionaryCollectionsStore.pendingDescription(collection.pending())
                 + ("community".equals(collection.sourceType()) ? " · 社区" : "");
             installed.addView(KeyboardSheets.badgeNavRow(context, TextPolicy.initial(collection.name(), "词"), collection.name(),
                 subtitle, collection.enabled() ? "已启用" : "已停用",
@@ -309,6 +310,7 @@ public final class LexiconPage extends ReloadingDetailPage {
         if (report.duplicates() > 0) message.append("，跳过重复 ").append(report.duplicates()).append(" 条");
         if (report.failed() > 0) message.append("，").append(report.failed()).append(" 行无法识别");
         if (report.truncated()) message.append("，词库已满");
+        if (!report.applicationNotice().isEmpty()) message.append("；").append(report.applicationNotice());
         return message.toString();
     }
 

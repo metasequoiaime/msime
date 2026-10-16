@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-抽卡组件位于 `keyboard/ai-skin-generation.tsx`，两个使用者直接导入。全屏样式位于 `core/full-screen-style.ts`，由抽卡、编辑器、图库和语音设置直接引用。模块迁移保持属性、样式字符串和业务结构；进度监听的取消句柄由公共工具持有，见 [AI 皮肤进度监听](2026-10-14-ai-skin-progress-subscription.md)，组件仍维护请求代次。
+抽卡组件位于 `keyboard/ai-skin-generation.tsx`，两个使用者直接导入。全屏样式位于 `core/full-screen-style.ts`，由抽卡、编辑器、图库和语音设置直接引用。控件只持有全屏滚动与展示绑定；生成、保存与发布状态由 [AI 抽卡状态](2026-10-17-ai-skin-generation-state.md)的 `useAiSkinGeneration` 管理。进度监听的取消句柄仍归公共工具，见 [AI 皮肤进度监听](2026-10-14-ai-skin-progress-subscription.md)。
 
 ## 历史约束
 
@@ -21,7 +21,7 @@ Status: implemented
 
 ## Consequences
 
-皮肤页可以独立使用抽卡组件，图库和语音设置只依赖公共全屏样式。代价是新增两个模块及对应导入；不保留从编辑器转出的兼容出口，因为包公共入口没有导出它们，仓内引用已全部迁移。模块迁移时函数体和样式字符串逐字一致；进度订阅的句柄维护归上面的监听笔记。
+皮肤页可以独立使用抽卡组件，图库和语音设置只依赖公共全屏样式。代价是新增两个模块及对应导入；不保留从编辑器转出的兼容出口，仓内引用已全部迁移；包公共入口直接公开抽卡控件、状态 hook 与类型。模块迁移时函数体和样式字符串逐字一致；进度订阅的句柄维护归上面的监听笔记。
 
 源码生命周期复用检查随组件迁到 `tests/keyboard/ai-skin-generation-mounted-reuse.test.ts`，保留既有断言。本次验证覆盖共享 UI 行为、类型和构建，不声称做过原生设备验收。
 

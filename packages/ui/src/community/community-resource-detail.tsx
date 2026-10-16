@@ -7,6 +7,7 @@ import { CommunityReportSection } from "./community-report";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityResourceEditor } from "./community-resource-editor";
+import { canInstallCommunityDictionary } from "./community-resource-actions";
 import type { CommunityResourceClient } from "./community-resource-model";
 import * as style from "./community-style";
 import {
@@ -71,7 +72,7 @@ export function CommunityResourceDetail({
               </div>
             ))}
           </div>
-          {localDictionary?.import && (
+          {canInstallCommunityDictionary(localDictionary) && (
             <ActionButton
               action={applyLocal}
               className={`primary ${style.action}`}

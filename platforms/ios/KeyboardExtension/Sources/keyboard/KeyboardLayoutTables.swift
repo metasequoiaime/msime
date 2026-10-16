@@ -34,6 +34,13 @@ enum SymbolLayerLayout {
     return [numberDigits, numberSymbols, punctuation]
   }
 
+  /// 保留源字母页第五排：数字页补符号，扩展符号页补数字。
+  static func extraRow(more: Bool, numberPad: Bool, chinese: Bool) -> [String] {
+    if more { return numberDigits }
+    if !numberPad { return moreSymbolsFirst }
+    return [chinese ? "（" : "(", chinese ? "）" : ")", "%", "¥", "$", "€", "£", "‰", "²", "³"]
+  }
+
   /// 第三行的第一个键：123 层上是 `#+=`，#+= 层上是 `123`。
   static func toggleTitle(more: Bool) -> String { more ? "123" : "#+=" }
 

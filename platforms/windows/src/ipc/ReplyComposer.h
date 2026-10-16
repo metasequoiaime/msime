@@ -13,7 +13,7 @@ namespace msime::windows {
 enum class ReplyPath {
   Composition,
   AutoCommitAndContinue,
-  // A Korean key that finished a syllable. The TIP inserts that syllable from its own host session, so the reply carries at most the composition that follows it.
+  // TIP 从自己的宿主会话写出的提交（音节完成、退格删空前缀），回复至多带后续组字。
   SyllableCommit,
   // 整句改字时的回车：TIP 从自己的宿主会话上屏改好的整句（MSIME_COMMIT_RAW），这边的会话做同样的事，不发回复帧。
   ConversionCommit,
@@ -61,12 +61,12 @@ struct PendingReply {
   bool restoring_segment = false;
   std::optional<NavigationReply> host_navigation = std::nullopt;
 };
-// One instance per authenticated client activation, on the Server input queue.
-// prefix is transport presentation state: text already selected by Engine but
-// not yet committed by the legacy DLL. It never selects or edits Engine input.
+// 每个已认证客户端的激活在 Server 输入队列持有一份。
+// 前缀只是送达后的展示镜像，真实会话的选词与撤回由 Runtime 持有；
+// runtime_phrase=false 只兼容旧回复投影。
 class ReplyComposer final {
 public:
-  ReplyComposer(uint64_t client, uint64_t epoch);
+  ReplyComposer(uint64_t client, uint64_t epoch, bool runtime_phrase = true);
   const PendingReply &
   stage(const KeyResult &result, ReplyPath path, bool uiless = false,
         std::optional<std::string> local_text = std::nullopt,
@@ -177,6 +177,8 @@ private:
   uint64_t epoch_;
   uint64_t session_ = 0;
   std::string prefix_;
+  // 生产会话由 Runtime 持有前缀；无宿主的旧回复测试仍可验证原来的投影协议。
+  bool runtime_phrase_;
   std::optional<PendingReply> pending_;
   bool traditional_output_ = false;
   bool translation_page_active_ = false;

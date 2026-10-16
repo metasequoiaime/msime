@@ -7,7 +7,7 @@ pub(crate) mod desktop_data_directory;
 pub(crate) mod desktop_account;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub(crate) mod desktop_candidate_skin_community;
-// 只有 Windows 由设置应用自己服务云词库；测试在每个平台都编译它，那里没有调用方。
+// 只有 Windows 由设置应用自己服务云词库；实现和测试在 host-api，这层壳在测试构建里也编译，别的平台上没有调用方。
 #[cfg(any(target_os = "windows", test))]
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub(crate) mod desktop_cloud_dictionary;

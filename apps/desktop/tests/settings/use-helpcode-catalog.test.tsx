@@ -173,3 +173,19 @@ test("removing catalog capability clears a previous pack list", async () => {
   rerender({ catalog: undefined, open: true });
   expect(result.current).toEqual([]);
 });
+
+test("导入刷新后旧目录结果不能盖掉新码表", async () => {
+  const old = deferred<PluginCatalogResult>();
+  const catalog = vi.fn().mockReturnValueOnce(old.promise).mockResolvedValue(catalogResult("new"));
+  const { result, rerender } = renderHook(
+    ({ revision }) => useHelpcodePacks(catalog, true, revision),
+    { initialProps: { revision: 0 } },
+  );
+  rerender({ revision: 1 });
+  await waitFor(() => expect(result.current).toEqual([{ id: "new", name: "示例new" }]));
+  await act(async () => {
+    old.resolve(catalogResult("old"));
+    await old.promise;
+  });
+  expect(result.current).toEqual([{ id: "new", name: "示例new" }]);
+});

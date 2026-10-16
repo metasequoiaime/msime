@@ -126,6 +126,81 @@ fn row<'a>(rows: &'a [Value], value: &str) -> Option<&'a Value> {
 }
 
 #[test]
+fn word_queries_search_all_pinyin_tables_before_paging_and_keep_literals() {
+    let fixture = Fixture::new();
+    let connection =
+        rusqlite::Connection::open(fixture.path("dictionaries").join("msime-pinyin.db")).unwrap();
+    connection.execute_batch(
+        "CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+         INSERT INTO tbl_2_c VALUES('ce''shi','cs','测试',10);
+         CREATE TABLE tbl_4_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+         INSERT INTO tbl_4_h VALUES('he''cheng''ce''shi','hccs','合成测试',20);
+         CREATE TABLE tbl_others_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+         INSERT INTO tbl_others_c VALUES('chao''chang''he''cheng''ce''shi''ci''tiao','cchccsct','超长合成测试词条',30);",
+    ).unwrap();
+    for value in ["测试%_词", "测试'词"] {
+        connection
+            .execute("INSERT INTO tbl_2_c VALUES('ce''shi','cs',?1,100)", [value])
+            .unwrap();
+    }
+    drop(connection);
+
+    let rows = fixture.lookup("pinyin", "测试");
+    assert_eq!(rows[0]["value"], "测试");
+    assert_eq!(rows.len(), 5);
+    assert!(row(&rows, "合成测试").is_some());
+    assert!(row(&rows, "超长合成测试词条").is_some());
+    assert!(rows.iter().all(|row| row["source"] == "bundled"));
+    for (offset, value, has_more) in [(0, "合成测试", true), (1, "超长合成测试词条", false)]
+    {
+        let page = fixture
+            .request(json!({
+                "operation": "list", "kind": "pinyin", "query": "合成测试",
+                "offset": offset, "limit": 1,
+            }))
+            .unwrap();
+        assert_eq!(page["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(page["entries"][0]["value"], value);
+        assert_eq!(page["has_more"], has_more);
+    }
+    for query in ["测试%_", "测试'"] {
+        assert_eq!(fixture.lookup("pinyin", query).len(), 1);
+    }
+    assert!(fixture.lookup("pinyin", "测试' OR 1=1 --").is_empty());
+    assert!(fixture.lookup("pinyin", "未命中合成词").is_empty());
+    assert_eq!(fixture.lookup("pinyin", "CeShi").len(), 3);
+    assert_eq!(fixture.lookup("wubi", "你好").len(), 1);
+    assert_eq!(fixture.lookup("quick_phrase", "电话").len(), 1);
+}
+
+#[test]
+fn word_queries_keep_user_only_and_untyped_lists_private() {
+    let fixture = Fixture::new();
+    let entry = json!({"kind": "wubi", "key": "aaaa", "value": "合成测试", "weight": 100});
+    fixture
+        .edit(&json!(null), entry, "synthetic-word-search")
+        .unwrap();
+    for kind in [Some("wubi"), None] {
+        let page = fixture
+            .request(json!({
+                "operation": "list", "kind": kind, "query": "成测",
+                "offset": 0, "limit": 10, "user_only": true,
+            }))
+            .unwrap();
+        assert_eq!(page["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(page["entries"][0]["value"], "合成测试");
+        assert_eq!(page["entries"][0]["source"], "user");
+    }
+    let page = fixture
+        .request(json!({
+            "operation": "list", "kind": "wubi", "query": "你好",
+            "offset": 0, "limit": 10, "user_only": true,
+        }))
+        .unwrap();
+    assert_eq!(page["entries"], json!([]));
+}
+
+#[test]
 fn a_bundled_word_is_found_reweighted_and_deleted_and_the_change_survives_an_upgrade() {
     let fixture = Fixture::new();
 
@@ -298,8 +373,9 @@ fn quick_phrases_list_whole_and_english_words_are_found_by_prefix() {
     assert!(fixture.lookup("english", "hel").is_empty());
     fixture.upgrade();
     assert!(fixture.lookup("english", "hel").is_empty());
-    // A code no dictionary of the kind can hold matches nothing rather than failing.
-    assert!(fixture.lookup("wubi", "你").is_empty());
+    // 中文按词条内容查询；无效 ASCII 编码仍返回空页。
+    assert_eq!(fixture.lookup("wubi", "你")[0]["value"], "你好");
+    assert!(fixture.lookup("wubi", "a1").is_empty());
 }
 
 #[test]

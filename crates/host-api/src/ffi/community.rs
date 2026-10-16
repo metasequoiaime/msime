@@ -1,17 +1,16 @@
-//! 原生设置窗口的社区操作：与共享应用（Tauri）在 Windows 上的社区命令一一对应——候选窗皮肤社区（`desktop_candidate_skin_community.rs`）、插件社区（`desktop_plugin_community.rs`）、社区词包与回复模板（`community_resources.rs`）和举报（`desktop_community_report.rs`）。服务经 [`super::account`] 里同一个账号会话对象认证，用同一份 `account-session.json`；发布和安装都在这里对着宿主给的皮肤根目录或插件根目录做，规则、错误码和返回形状都是 client-services 的，与共享应用相同。
+//! 原生设置窗口的社区操作：与共享应用（Tauri）在 Windows 上的社区命令一一对应——候选窗皮肤社区（`desktop_candidate_skin_community.rs`）、插件社区（`desktop_plugin_community.rs`）、社区词包与回复模板（`community_resources.rs`）和举报（`desktop_community_report.rs`）——另有移动端的键盘皮肤社区（Tauri 的 `mobile_community.rs`）。服务经 [`super::account`] 里同一个账号会话对象认证，用同一份 `account-session.json`；发布和安装都在这里对着宿主给的皮肤根目录或插件根目录做，规则、错误码和返回形状都是 client-services 的，与共享应用相同。
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use super::account::{session_for, Session};
 use super::plugins::plugin_response;
+use super::session_store::{session_source, SessionStorage, Source};
 use super::with_bounded_bytes;
 use crate::*;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use key_sound::PluginRoots;
 use msime_client_core::uuid::Uuid;
-use msime_client_services::account::{
-    AccountError, BackendAccountClient, FileAccountSessionStorage,
-};
+use msime_client_services::account::{AccountError, BackendAccountClient};
 use msime_client_services::community::report::{
     BackendCommunityReportService, CommunityReport, CommunityReportKind,
 };
@@ -28,19 +27,24 @@ use msime_client_services::skin::candidate_community::{
 };
 use msime_client_services::skin::candidate_sync::{self, CandidateSkinPublishError};
 use msime_client_services::skin::catalog;
+use msime_client_services::skin::category::SkinCategory;
+use msime_client_services::skin::community::BackendCommunitySkinService;
 
 /// 请求的上限：发布词包时请求里带着整份词条，加上皮肤预览图的 base64，4 MiB 足够；目录各最多 16 KiB。
 const MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
+/// 发布键盘皮肤时设计里可能带着照片背景，入口处放宽到与 `msime_client_community_skin_install` 相同的 9,000,000 字节；解析出操作后，除 `keyboard_skin_publish` 外仍按 [`MAX_REQUEST_BYTES`] 拒绝。
+const MAX_KEYBOARD_SKIN_PUBLISH_BYTES: usize = 9_000_000;
 const MAX_DIRECTORY_BYTES: usize = 16 * 1024;
 
-type Storage = FileAccountSessionStorage;
+type Storage = SessionStorage;
 
-/// 一个账号目录上的四个社区服务，与共享应用在 `desktop_account::manage` 里建的相同，都经同一个会话对象认证。
-struct Services {
+/// 一个账号目录（或一个注入的会话存储）上的五个社区服务，前四个与共享应用在 `desktop_account::manage` 里建的相同，键盘皮肤与移动端的 `MobileCommunityState` 相同，都经同一个会话对象认证。
+pub(super) struct Services {
     candidate_skins: BackendCandidateSkinCommunityService<BackendAccountClient, Storage>,
     plugins: BackendCommunityPluginService<BackendAccountClient, Storage>,
     resources: BackendCommunityResourceService<BackendAccountClient, Storage>,
     report: BackendCommunityReportService<BackendAccountClient, Storage>,
+    keyboard_skins: BackendCommunitySkinService<BackendAccountClient, Storage>,
 }
 
 /// 每个账号目录一组服务，第一次用到时建立。只在取对象时持锁，请求本身在锁外进行。
@@ -53,25 +57,36 @@ fn services_for(directory: &Path, legacy: Option<&Path>) -> Result<Arc<Services>
         return Ok(Arc::clone(existing));
     }
     let session: Arc<Session> = session_for(directory, legacy)?;
-    let client = BackendAccountClient::new()?;
-    let created = Arc::new(Services {
-        candidate_skins: BackendCandidateSkinCommunityService::new(
-            client.clone(),
-            Arc::clone(&session),
-        ),
-        plugins: BackendCommunityPluginService::new(client.clone(), Arc::clone(&session)),
-        resources: BackendCommunityResourceService::new(client.clone(), Arc::clone(&session)),
-        report: BackendCommunityReportService::new(client, session),
-    });
+    let created = Arc::new(Services::new(BackendAccountClient::new()?, session));
     services.insert(directory.to_path_buf(), Arc::clone(&created));
     Ok(created)
+}
+
+impl Services {
+    /// 经 `session` 认证的五个服务，共用 `client`。
+    pub(super) fn new(client: BackendAccountClient, session: Arc<Session>) -> Self {
+        Self {
+            candidate_skins: BackendCandidateSkinCommunityService::new(
+                client.clone(),
+                Arc::clone(&session),
+            ),
+            plugins: BackendCommunityPluginService::new(client.clone(), Arc::clone(&session)),
+            resources: BackendCommunityResourceService::new(client.clone(), Arc::clone(&session)),
+            report: BackendCommunityReportService::new(client.clone(), Arc::clone(&session)),
+            keyboard_skins: BackendCommunitySkinService::new(client, session),
+        }
+    }
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CommunityRequest {
-    /// 账号目录，与 `msime_client_account` 的 `directory` 相同。
-    directory: String,
+    /// 账号目录，与 `msime_client_account` 的 `directory` 相同；与 `session_store` 恰好给一个。
+    #[serde(default)]
+    directory: Option<String>,
+    /// 注入的会话存储，与 `msime_client_account` 的 `session_store` 相同。
+    #[serde(default)]
+    session_store: Option<u64>,
     /// 旧版本放会话的目录，与 `msime_client_account` 的 `legacy_directory` 相同。
     #[serde(default)]
     legacy_directory: Option<String>,
@@ -217,6 +232,43 @@ enum CommunityAction {
         #[serde(default)]
         detail: Option<String>,
     },
+    KeyboardSkinList {
+        offset: usize,
+        search: String,
+        #[serde(default)]
+        mine: Option<bool>,
+        #[serde(default)]
+        category: Option<SkinCategory>,
+    },
+    KeyboardSkinDetail {
+        id: String,
+    },
+    KeyboardSkinDownload {
+        id: String,
+    },
+    KeyboardSkinInstall {
+        id: String,
+        name: String,
+    },
+    KeyboardSkinRate {
+        id: String,
+        stars: u8,
+    },
+    KeyboardSkinPublish {
+        id: String,
+        name: String,
+        description: String,
+        design: msime_client_core::preferences::TouchKeyboardSkinDesign,
+        #[serde(default)]
+        category: Option<SkinCategory>,
+    },
+    KeyboardSkinSetCategory {
+        id: String,
+        category: SkinCategory,
+    },
+    KeyboardSkinUnpublish {
+        id: String,
+    },
 }
 
 fn invalid() -> PluginFailure {
@@ -255,15 +307,17 @@ fn catalog_response(root: &Path) -> Result<Value, PluginFailure> {
     Ok(response)
 }
 
-/// 一次操作。皮肤根目录和插件根目录只在用到的操作里要求。
+/// 一次操作。皮肤根目录、插件根目录和状态根目录只在用到的操作里要求。
 fn run(
     services: &Services,
     skins: Option<&Path>,
     plugins: Option<&Path>,
+    state_root: Option<&Path>,
     action: CommunityAction,
 ) -> Result<Value, PluginFailure> {
     let skins = || skins.ok_or_else(invalid);
     let plugins = || plugins.ok_or_else(invalid);
+    let keyboard = &services.keyboard_skins;
     let package = |code: &'static str| PluginFailure::code(code);
     let candidate = &services.candidate_skins;
     match action {
@@ -494,6 +548,54 @@ fn run(
             services.report.report(&report).map_err(account)?;
             Ok(Value::Null)
         }
+        CommunityAction::KeyboardSkinList {
+            offset,
+            search,
+            mine,
+            category,
+        } => value(
+            keyboard
+                .list(offset, &search, mine.unwrap_or(false), category)
+                .map_err(account)?,
+        ),
+        CommunityAction::KeyboardSkinDetail { id: item } => {
+            value(keyboard.detail(id(&item)?).map_err(account)?)
+        }
+        CommunityAction::KeyboardSkinDownload { id: item } => {
+            value(keyboard.download(id(&item)?).map_err(account)?)
+        }
+        CommunityAction::KeyboardSkinInstall { id: item, name } => {
+            let item = id(&item)?;
+            let root = state_root.ok_or_else(invalid)?;
+            let design = keyboard.download(item).map_err(account)?;
+            super::host::install_downloaded_keyboard_skin(root, item, &name, design)
+                .map_err(PluginFailure::code)
+        }
+        CommunityAction::KeyboardSkinRate { id: item, stars } => {
+            keyboard.rate(id(&item)?, stars).map_err(account)?;
+            Ok(Value::Null)
+        }
+        CommunityAction::KeyboardSkinPublish {
+            id: item,
+            name,
+            description,
+            design,
+            category,
+        } => {
+            keyboard
+                .publish(id(&item)?, &name, &description, &design, category)
+                .map_err(account)?;
+            Ok(Value::Null)
+        }
+        CommunityAction::KeyboardSkinSetCategory { id: item, category } => value(
+            keyboard
+                .set_category(id(&item)?, category)
+                .map_err(account)?,
+        ),
+        CommunityAction::KeyboardSkinUnpublish { id: item } => {
+            keyboard.unpublish(id(&item)?).map_err(account)?;
+            Ok(Value::Null)
+        }
     }
 }
 
@@ -506,19 +608,49 @@ pub unsafe extern "C" fn msime_client_community(request: *const u8, length: usiz
     plugin_response(|| {
         // SAFETY: forwarded from the documented caller contract; the length is bounded first.
         let request: CommunityRequest = unsafe {
-            with_bounded_bytes(request, length, MAX_REQUEST_BYTES, "", |bytes| {
-                serde_json::from_slice(bytes).map_err(|_| String::new())
-            })
+            with_bounded_bytes(
+                request,
+                length,
+                MAX_KEYBOARD_SKIN_PUBLISH_BYTES,
+                "",
+                |bytes| serde_json::from_slice(bytes).map_err(|_| String::new()),
+            )
         }
         .map_err(|_| invalid())?;
-        let directory = absolute_directory(&request.directory)?;
+        // 只有发布键盘皮肤可以超过 4 MiB，其余操作的上限与以前相同。
+        if length > MAX_REQUEST_BYTES
+            && !matches!(request.action, CommunityAction::KeyboardSkinPublish { .. })
+        {
+            return Err(invalid());
+        }
+        let source = session_source(
+            request.directory.as_deref(),
+            request.legacy_directory.is_some(),
+            request.session_store,
+        )
+        .ok_or_else(invalid)?;
+        let directory = match &source {
+            Source::Directory(directory) => Some(absolute_directory(directory)?),
+            Source::Store(_) => None,
+        };
         let legacy = optional_directory(request.legacy_directory.as_deref())?;
         let skins = optional_directory(request.skins_directory.as_deref())?;
-        optional_directory(request.state_root.as_deref())?;
+        let state_root = optional_directory(request.state_root.as_deref())?;
         // `<state_root>/plugins`, the root `msime_client_plugins` lists and imports into.
         let plugins = PluginRoots::new(request.state_root.as_deref(), None, None, "").installed;
-        let services = services_for(directory, legacy).map_err(account)?;
-        run(&services, skins, plugins.as_deref(), request.action)
+        let services = match source {
+            Source::Store(entry) => Arc::clone(&entry.community),
+            Source::Directory(_) => {
+                services_for(directory.ok_or_else(invalid)?, legacy).map_err(account)?
+            }
+        };
+        run(
+            &services,
+            skins,
+            plugins.as_deref(),
+            state_root,
+            request.action,
+        )
     })
 }
 
