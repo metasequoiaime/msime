@@ -37,10 +37,11 @@ import SwiftUI
     assert(appearance.colorScheme == nil)
     appearance.apply(["theme": "light"])
     assert(appearance.colorScheme == .light)
+    // macOS 的表情面板只看颜色模式，它单独的明暗设置不读。
     appearance.apply(["theme": "light", "emoji_theme": "dark"])
-    assert(appearance.colorScheme == .dark)
-    appearance.apply(["theme": "dark", "emoji_theme": "light"])
     assert(appearance.colorScheme == .light)
+    appearance.apply(["theme": "dark", "emoji_theme": "light"])
+    assert(appearance.colorScheme == .dark)
     appearance.apply(["theme": "dark", "emoji_theme": "follow"])
     assert(appearance.colorScheme == .dark)
     appearance.apply(["theme": "system"])

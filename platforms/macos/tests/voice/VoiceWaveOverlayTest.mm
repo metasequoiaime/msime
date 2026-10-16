@@ -94,10 +94,11 @@ int main(int argc, char **argv) {
         assert(!panel.isVisible);
         panel.preferredScreen = NSScreen.mainScreen;
         assert(panel.preferredScreen == NSScreen.mainScreen);
+        // macOS 的语音输入弹出条只看颜色模式，它单独的明暗设置不读。
         [panel applyThemePreferences:@{@"theme": @"light", @"voice_theme": @"dark"}];
-        assert(!panel.isLightTheme && panel.appearance != nil);
-        [panel applyThemePreferences:@{@"theme": @"dark", @"voice_theme": @"light"}];
         assert(panel.isLightTheme && panel.appearance != nil);
+        [panel applyThemePreferences:@{@"theme": @"dark", @"voice_theme": @"light"}];
+        assert(!panel.isLightTheme && panel.appearance != nil);
         [panel applyThemePreferences:@{@"theme": @"system", @"voice_theme": @"follow"}];
         assert(panel.appearance == nil);
         [panel applyThemePreferences:@{@"theme": @"dark", @"voice_theme": @"invalid"}];

@@ -200,8 +200,13 @@ pub(crate) fn package_edition() -> &'static msime_client_core::edition::Edition 
     #[cfg(target_os = "linux")]
     let declared = Edition::of_linux_package();
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    let declared: Result<&'static Edition, &'static str> = Ok(Edition::full());
-    declared.unwrap_or_else(|_| Edition::full())
+    {
+        Edition::full()
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    {
+        declared.unwrap_or_else(|_| Edition::full())
+    }
 }
 
 /// 版本是否提供这个界面。手写面板只认汉字，不提供手写的版本（版本表 `features.handwriting` 为 false：日文、越南文和藏文版）既不从启动参数、也不从菜单转发或设置页打开它，对应的设置页同样不打开。其他界面每个版本都有。
@@ -1090,7 +1095,7 @@ struct RuntimeOptionsState {
     skins: Option<PathBuf>,
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(mobile)))]
 impl RuntimeOptionsState {
     fn snapshot(&self) -> Result<Value, std::io::Error> {
         let document = self
@@ -2040,11 +2045,11 @@ async fn dictionary_request(
         {
             let bytes =
                 serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
-            return msime_host_api::personal_dictionary_request_json(&bytes).map_err(|reason| {
+            msime_host_api::personal_dictionary_request_json(&bytes).map_err(|reason| {
                 CommandError {
                     code: msime_host_api::settings_dictionary::error_code(&reason),
                 }
-            });
+            })
         }
         // The input hosts are released before a write, an import is batched and a refusal becomes the page's code in the host API, where the native Windows settings window gets the same through msime_client_settings_dictionary. The macOS input method is also told at once over a distributed notification when the release first goes up.
         #[cfg(not(target_os = "android"))]
@@ -3572,6 +3577,7 @@ pub(crate) fn chrome_background(theme: Option<tauri::Theme>) -> tauri::window::C
     }
 }
 
+#[cfg(any(not(mobile), test))]
 fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
     args.iter().find_map(|argument| {
         argument
@@ -3585,6 +3591,7 @@ fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
 /// 产品自己打开的界面都带路由：Windows 宿主在 `platforms/windows/src/system/ShellLauncher.cpp` 里把 `--route=` 拼进命令行，托盘、悬浮工具栏和原生设置窗口里的面板入口都经过它。Windows 的设置本身是 WinUI 3 原生程序 `msime-client-settings.exe`（`platforms/windows/settings/`），托盘的设置项和开始菜单都打开它，不打开本程序；按 `platforms/windows/src/system/ShellSurfaces.h` 的 `shell_executable_names`，本程序 `MSIME.exe` 在 Windows 上只收到面板路由。所以不带路由的启动是用户自己启动本程序：Linux 的桌面入口，macOS 的 Finder 或启动台，Windows 上则是直接运行 `MSIME.exe`；这时用户要的是设置窗口。
 ///
 /// 这种情况下什么都不做，再次启动就像坏了：已在运行的实例留在前台窗口后面，点击看起来被忽略。参照实现在这里激活已有窗口，而不是悄悄退出。
+#[cfg(any(not(mobile), test))]
 fn second_launch_route(args: &[String]) -> SurfaceRoute {
     launch_route_from_args(args).unwrap_or(SurfaceRoute::Settings(None))
 }
@@ -4469,8 +4476,7 @@ async fn send_voice_text(
                 .ok_or(HostActionError {
                     code: "unavailable",
                 })?
-                .inner()
-                .clone();
+                .inner();
             platform
                 .save_voice_text(&text)
                 .map_err(|_| HostActionError {

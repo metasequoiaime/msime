@@ -43,6 +43,8 @@ int main() {
             TypingSource::Microsoft);
     require(resolve_typing_source(1, false, false, "none", "shoudao") ==
             TypingSource::Shoudao);
+    require(resolve_typing_source(1, false, false, "none", "smart_abc") == TypingSource::SmartAbc);
+    require(typing_source_id(TypingSource::SmartAbc) == "smart_abc");
     require(resolve_typing_source(2, false, false, "none", "xiaohe") ==
             TypingSource::Wubi);
     require(resolve_typing_source(3, false, false, "none", "xiaohe") ==

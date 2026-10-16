@@ -51,7 +51,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>这里的键盘是绑定到这个输入框上的真正输入法，不是首页的静态预览。打的字不会被读取、保存或发送到任何地方；只有用户点了发送，那一条消息才会作为 AI 对话发给水杉的后端。用哪个模型由服务端决定：页面不加载模型目录，请求里也不带 `model`，用户在这里选不了模型。没登录时发出去会得到失败提示，对话区开头只有水杉的问候。
  *
- * <p>这一页有两种承载方式。主要的是 {@link HomeActivity} 底部第二格的「对话」tab：没有返回键，标题是「对话」，点 tab 进来不弹键盘，切走时收起键盘；设置首页状态卡上的「试用键盘」切到这个 tab 并经 {@link #focusInput} 把键盘弹出来。另一种是 {@link KeyboardTryoutActivity} 单独承载（参数 {@link #ARG_STANDALONE}），留给 Tauri 共享设置的「屏幕键盘」页：和原来的试用页一样有「‹ 设置」返回，一打开就弹键盘，账号变了就关掉。
+ * <p>宿主通过设置导航栈打开本二级页，保留返回按钮；「试用键盘」还会请求输入框焦点。独立的 {@link KeyboardTryoutActivity} 继续承载共享设置发起的试用。
  */
 public final class ChatFragment extends HomeTabFragment {
 
@@ -84,7 +84,7 @@ public final class ChatFragment extends HomeTabFragment {
     @Nullable private LinearLayout chat;
     @Nullable private ScrollView scroll;
 
-    /** 给 {@link KeyboardTryoutActivity} 用的单独承载版本。 */
+    /** 给共享设置的独立试用 Activity 使用。 */
     static ChatFragment standalone() {
         ChatFragment fragment = new ChatFragment();
         Bundle arguments = new Bundle();
@@ -129,9 +129,8 @@ public final class ChatFragment extends HomeTabFragment {
         if (standalone) {
             ViewPolicy.bindClick(back, () -> requireActivity().finish());
         } else {
-            // tab 是根页，没有可返回的地方；标题和底部那一格一样叫「对话」。
-            ViewPolicy.hide(back);
-            title.setText(R.string.tab_chat);
+            ViewPolicy.bindClick(back, () -> requireActivity().getOnBackPressedDispatcher().onBackPressed());
+            title.setText("AI 对话");
         }
 
         // 设计的输入栏：andCard 底、上面一条分隔线；输入框是页面底色的胶囊，描一圈 hair。

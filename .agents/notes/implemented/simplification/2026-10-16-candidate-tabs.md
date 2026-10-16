@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`candidate-tabs.ts` 公开 `candidateTabs` 和从数组推导的 `CandidateTab` 类型。候选窗口页面继续使用同一数组作为标签来源，包入口公开模型供其他宿主复用。标签顺序、标识和中文标题保持不变。
+`candidate-tabs.ts` 公开 `candidateTabs` 和从数组推导的 `CandidateTab` 类型，包入口公开模型供其他宿主复用。标签顺序、标识和中文标题保持不变。共享的候选窗口页已经不再分标签（见 [macOS 主题页与候选窗口页精简](2026-10-16-macos-appearance-settings-prune.md)），页面不再引用这个数组，模型和包入口的导出仍保留。
 
 ## Alternatives considered
 

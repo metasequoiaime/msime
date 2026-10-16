@@ -1585,20 +1585,39 @@ test("input parity controls persist cloud, translation and punctuation settings"
   });
 });
 
-test("Android candidate translations offer no second language", async () => {
+test("Android 只编辑首选译文语言并保留共享的第二语言", async () => {
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: { ...initial.preferences, translation_secondary_language: "ko" },
+  };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   render(
     <SettingsPage
       client={{
-        load: async () => initial,
-        save: vi.fn(),
+        load: async () => snapshot,
+        save,
         host: testHost({ platform: "android" }),
       }}
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "表达" }));
-  // 触屏键盘只显示一种候选翻译（#8218），Android 只给目标语言，不给第二种语言。
-  expect(screen.getByRole("combobox", { name: "候选词翻译目标语言" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "候选词翻译目标语言" }), {
+    target: { value: "ja" },
+  });
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({
+      translation_target_language: "ja",
+      translation_secondary_language: "ko",
+    }),
+  );
 });
 
 test("macOS candidate translations expose the shared second language", async () => {
@@ -1643,7 +1662,7 @@ test("macOS candidate translations expose the shared second language", async () 
   );
 });
 
-test("mobile translation languages stay editable for offline English glosses", async () => {
+test("手机离线释义开启时可编辑首选译文语言", async () => {
   const snapshot: Snapshot = {
     ...initial,
     preferences: {
@@ -1664,13 +1683,14 @@ test("mobile translation languages stay editable for offline English glosses", a
   );
   fireEvent.click(await screen.findByRole("button", { name: "表达" }));
   const primary = screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement;
+  expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
   expect([...primary.options].map((option) => option.value)).not.toContain("ru");
   expect(primary.disabled).toBe(false);
   fireEvent.click(screen.getByRole("switch", { name: "显示英文释义" }));
   expect(primary.disabled).toBe(true);
 });
 
-test("mobile preserves legacy Russian gloss values without leaking them to new pages", async () => {
+test("手机保留已存俄语释义但不污染新页面选项", async () => {
   const legacy: Snapshot = {
     ...initial,
     preferences: {
@@ -1690,6 +1710,7 @@ test("mobile preserves legacy Russian gloss values without leaking them to new p
     (screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement)
       .selectedOptions[0].textContent,
   ).toContain("已保存");
+  expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
   first.unmount();
   render(<SettingsPage client={{ ...client, load: async () => initial }} />);
   fireEvent.click(await screen.findByRole("button", { name: "表达" }));
@@ -3797,7 +3818,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
     within(primary)
       .getAllByRole("button")
       .map((button) => button.textContent),
-  ).toEqual(["设置", "对话", "统计", "我的"]);
+  ).toEqual(["设置", "全部设置", "统计", "我的"]);
   // 标签栏只有这四项。其余页面都是「设置」标签根页上的一行，「社区」和「AI 对话」不在其中。
   const home = screen.getByRole("region", { name: "首页" });
   const secondaryLabels = [...home.querySelectorAll("[data-row-title]")].map(
@@ -4512,6 +4533,8 @@ test("font family controls validate drafts and save Unicode without touching the
     preferences,
   }));
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
+  // 主字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByLabelText("自定义…"));
   const primary = await screen.findByLabelText("主字体");
   expect((primary as HTMLInputElement).value).toBe("Noto Sans SC");
   // An empty family holds the automatic save back, and submitting the form does not force one.
@@ -4559,6 +4582,8 @@ test("the candidate window page has no fallback font editor and keeps the stored
       }}
     />,
   );
+  // 主字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByLabelText("自定义…"));
   const primary = await screen.findByLabelText("主字体");
   expect(screen.queryByRole("button", { name: "添加补充字体" })).toBeNull();
   expect(screen.queryByLabelText(/^补充字体/)).toBeNull();
@@ -4589,6 +4614,8 @@ test("on Windows the main font leads the fallback chain", async () => {
       }}
     />,
   );
+  // 主字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByLabelText("自定义…"));
   const primary = await screen.findByLabelText("主字体");
   for (const typed of ["L", "LX", "LXGW WenKai"])
     fireEvent.change(primary, { target: { value: typed } });
@@ -5663,7 +5690,6 @@ test("complete candidate and preedit font sizes load, preview independently and 
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
   render(<SettingsPage initialPage="appearance" client={{ load: async () => saved, save }} />);
-  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   const size = (await screen.findByLabelText("字号")) as HTMLSelectElement;
   const preedit = screen.getByLabelText("预编辑字号") as HTMLSelectElement;
   expect(size.value).toBe("19");
@@ -5714,11 +5740,9 @@ test("appearance preview follows drafts and skin selection before they are saved
     }),
   );
   fireEvent.change(screen.getByLabelText("每页候选项数量"), { target: { value: "9" } });
-  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   // 水杉 logo 在首行拼音之前。
   expect(preview.querySelector(".pinyin > .candidate-brand + .text")).not.toBeNull();
-  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
   fireEvent.change(screen.getByLabelText("候选窗口预编辑"), { target: { value: "empty" } });
   // 隐藏拼音后，首行仍为 logo 保留。
   expect(
@@ -6897,7 +6921,8 @@ const referenceSections: {
       "候选项排列方式",
       "每页候选项数量",
       "跟随光标",
-      "主字体",
+      // 来源的「字体」：这里是「候选字体」预设加「自定义…」，主字体框只在选了「自定义…」或字体不是预设时出现。
+      "候选字体",
       "字号",
       "预编辑字号",
       "候选窗口预编辑",
@@ -7158,7 +7183,9 @@ const macosHostCapabilities = testHost({
   candidate_font_controls: true,
   candidate_row_colors: true,
   candidate_selection_appearance: true,
-  candidate_border_color: true,
+  // 边框色和编号色在 macOS 固定跟随主题，宿主不读用户选的值。
+  candidate_border_color: false,
+  candidate_number_color: false,
   candidate_follow_cursor: true,
   input_mode_hud: true,
   voice_commit_mode: true,
@@ -7167,6 +7194,8 @@ const macosHostCapabilities = testHost({
   // macOS 把 Tab、PageUp/PageDown 两组翻页键和中英混输的触发字符数固定下来。
   tab_page_paging_switches: false,
   mixed_input_minimum_prefix: false,
+  // 设置窗口、工具栏、菜单和各面板一律跟随颜色模式。
+  surface_themes_follow: true,
 });
 
 const macosMergedPages: Record<string, string> = {
@@ -7191,6 +7220,13 @@ const macosAbsentSections: Record<string, string> = {
   // preference events it actually records.
   "Server 端日志": "macOS names this 输入法日志, having no Server process",
   基本功能: "macOS answers the same questions as help cards",
+  // macOS 的这些界面一律跟随颜色模式（`surface_themes_follow`），主题页只留「候选窗口主题」。
+  设置界面主题: "macOS draws the settings window in the colour mode",
+  悬浮工具栏主题: "macOS draws the toolbar and the mode badge in the colour mode",
+  菜单主题: "macOS draws its menus in the colour mode",
+  表情面板主题: "macOS draws the emoji panel in the colour mode",
+  手写识别板主题: "macOS draws the handwriting panel in the colour mode",
+  语音输入弹出条主题: "macOS draws the voice overlay in the colour mode",
 };
 
 test.each(referenceSections)(
@@ -7379,7 +7415,7 @@ const referenceOptions: {
     page: "input",
     button: "输入",
     control: "双拼方案",
-    options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼"],
+    options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼", "智能 ABC 双拼"],
   },
   {
     page: "input",
@@ -7501,8 +7537,13 @@ test("macOS offers no 触发字符数, which it fixes at five", async () => {
 test.each(
   referenceOptions.flatMap((entry) =>
     optionHosts
-      .filter(([platform]) => !(platform === "macos" && entry.control in macosFixedOptions))
-      .map(([platform, host]) => ({ ...entry, platform, host })),
+      .map(([platform, host]) => ({ ...entry, platform, host }))
+      // macOS 不给的那几行在上面的小节表里按 `macosAbsentSections` 核对过不出现；macOS 固定下来的几项（`macosFixedOptions`）也不在页面上。
+      .filter(
+        ({ control, host, platform }) =>
+          !(host.surface_themes_follow && control in macosAbsentSections) &&
+          !(platform === "macos" && control in macosFixedOptions),
+      ),
   ),
 )(
   "$control offers the reference window's choices on $platform",
@@ -7523,14 +7564,6 @@ test.each(
     );
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: button }));
-    if (button === "候选窗口") {
-      const tab = ["字号", "预编辑字号"].includes(control)
-        ? "字体与大小"
-        : ["行内预编辑", "候选窗口预编辑"].includes(control)
-          ? "预编辑"
-          : "布局";
-      fireEvent.click(screen.getByRole("tab", { name: tab }));
-    }
     if (button === "输入") {
       selectSettingsTab(
         ["默认中英文", "中英文状态"].includes(control)
@@ -7637,20 +7670,16 @@ test.each(optionHosts)(
     await settingsReady();
     const appearance = screen.getByRole("group", { name: "候选窗口" });
     const present = sectionTitles(appearance);
-    // 先是候选的排列，然后是绘制大小、外围的窗口，最后是预编辑。该页不再沿用参考窗口的顺序，颜色和明暗只在「主题」页，「窗口样式」链接到那里。
+    // 一列：先是排列、每页数量、字体和字号，其余收在一个「更多选项」里，从布局到绘制大小、外围的窗口，最后是预编辑。不再分标签，颜色和明暗只在侧栏的「主题」页，本页没有跳转行。
     const expected = [
-      "布局",
+      "布局与字体",
       "候选项排列方式",
       "每页候选项数量",
+      "候选字体",
+      "字号",
       platform === "macos" ? "显示页码和翻页按钮" : "显示页码",
       "跟随光标",
-      "字体与大小",
-      "候选字体",
-      "主字体",
-      "字号",
       "预编辑字号",
-      "窗口样式",
-      "预编辑",
       "候选窗口预编辑",
       "行内预编辑",
     ];
@@ -7661,10 +7690,8 @@ test.each(optionHosts)(
     // 每项偏好只有一个入口：主题和颜色选择器不在这里重复。
     expect(within(appearance).queryByRole("combobox", { name: "主题" })).toBeNull();
     expect(appearance.querySelector('input[type="color"]')).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "窗口样式" }));
-    const link = within(appearance).getByRole("button", { name: "皮肤、颜色与明暗" });
-    fireEvent.click(link);
-    expect(screen.getByRole("group", { name: "主题" }).hidden).toBe(false);
+    expect(within(appearance).queryByRole("button", { name: "皮肤、颜色与明暗" })).toBeNull();
+    expect(within(appearance).queryByRole("tablist")).toBeNull();
   },
 );
 

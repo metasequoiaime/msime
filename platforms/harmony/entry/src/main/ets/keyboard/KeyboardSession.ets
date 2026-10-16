@@ -1,3 +1,4 @@
+import { NativeCleanup } from './NativeCleanup';
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
@@ -4736,8 +4737,13 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Whether the Cantonese or Zhuyin dictionary `file` is staged in `language-dictionaries` beside the resources, which is where host preparation looks for it. */
   private languageDictionaryInstalled(file: string): boolean {
-    const parent: string = this.resourceDirectory.substring(0, this.resourceDirectory.lastIndexOf('/'));
-    return parent.length > 0 && fs.accessSync(`${parent}/language-dictionaries/${file}`);
+    try {
+      const parent: string = this.resourceDirectory.substring(0, this.resourceDirectory.lastIndexOf('/'));
+      return parent.length > 0 && fs.accessSync(`${parent}/language-dictionaries/${file}`);
+    } catch (error) {
+      KeyboardLog.error('keyboard.KeyboardSession.languageDictionaryInstalled failed');
+      return false;
+    }
   }
 
   /** The non-English targets with an offline dictionary staged beside the resources, known before any query so the gloss line is reserved up front. */
@@ -5165,17 +5171,22 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 按一档振一下，按键和设置页的试听共用。档位怎么振见 `KeyboardFeedback.plan`：设备支持预置效果就用效果加强度，不支持就按时长振；「跟随系统」用 `touch` 用途，由系统的触感反馈设置决定振不振、多强，不带自定义强度。
    */
   static vibrate(strength: HapticStrength): Promise<void> {
-    const plan: HapticPlan = KeyboardFeedback.plan(strength);
-    const attribute: vibrator.VibrateAttribute = { usage: plan.followsSystem ? 'touch' : 'physicalFeedback' };
-    if (!KeyboardSession.supportsEffect(plan.effectId)) {
-      const timed: vibrator.VibrateTime = { type: 'time', duration: plan.fallbackMillis };
-      return vibrator.startVibration(timed, attribute);
+    try {
+      const plan: HapticPlan = KeyboardFeedback.plan(strength);
+      const attribute: vibrator.VibrateAttribute = { usage: plan.followsSystem ? 'touch' : 'physicalFeedback' };
+      if (!KeyboardSession.supportsEffect(plan.effectId)) {
+        const timed: vibrator.VibrateTime = { type: 'time', duration: plan.fallbackMillis };
+        return vibrator.startVibration(timed, attribute);
+      }
+      const preset: vibrator.VibratePreset = { type: 'preset', effectId: plan.effectId, count: 1 };
+      if (plan.intensity > 0) {
+        preset.intensity = plan.intensity;
+      }
+      return vibrator.startVibration(preset, attribute);
+    } catch (error) {
+      KeyboardLog.error('keyboard.KeyboardSession.vibrate failed');
+      throw error as Error;
     }
-    const preset: vibrator.VibratePreset = { type: 'preset', effectId: plan.effectId, count: 1 };
-    if (plan.intensity > 0) {
-      preset.intensity = plan.intensity;
-    }
-    return vibrator.startVibration(preset, attribute);
   }
 
   /** `stateRoot` is `<files>/state`; the shared mobile store owns `<files>/MSIME`. */
@@ -5503,28 +5514,33 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private static writePrivateText(path: string, text: string): boolean {
-    const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
-    let renamed: boolean = false;
     try {
-      const handle: fs.File = fs.openSync(staging,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
+      let renamed: boolean = false;
       try {
-        const written: number = fs.writeSync(handle.fd, text);
-        if (!utf8WriteComplete(text, written)) throw new Error('private_write');
-      } finally {
-        fs.closeSync(handle);
-      }
-      fs.renameSync(staging, path);
-      renamed = true;
-      return true;
-    } finally {
-      if (!renamed) {
+        const handle: fs.File = fs.openSync(staging,
+          fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
         try {
-          if (fs.accessSync(staging)) fs.unlinkSync(staging);
-        } catch {
-          // A failed private write may leave only its uniquely named staging file.
+          const written: number = fs.writeSync(handle.fd, text);
+          if (!utf8WriteComplete(text, written)) throw new Error('private_write');
+        } finally {
+          fs.closeSync(handle);
+        }
+        fs.renameSync(staging, path);
+        renamed = true;
+        return true;
+      } finally {
+        if (!renamed) {
+          try {
+            if (fs.accessSync(staging)) fs.unlinkSync(staging);
+          } catch {
+            // 私有文件写入失败时，最多留下以唯一名称创建的暂存文件。
+          }
         }
       }
+    } catch (error) {
+      KeyboardLog.error('keyboard.KeyboardSession.writePrivateText failed');
+      throw error as Error;
     }
   }
 
@@ -5539,11 +5555,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
       const count: number = fs.readSync(handle.fd, buffer);
       if (count !== stat.size) return null;
-      return util.TextDecoder.create('utf-8').decode(new Uint8Array(buffer, 0, count));
+      return util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer, 0, count));
     } catch {
       return null;
     } finally {
-      if (handle !== null) fs.closeSync(handle);
+      if (handle !== null) NativeCleanup.close(handle);
     }
   }
 
@@ -5638,42 +5654,45 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 列表无法读取时 reject，面板会显示为加载错误，而不是空列表。
    */
   async commonPhrases(): Promise<string[]> {
-    const directory: string = this.stateDirectory;
-    if (directory.length === 0) {
-      throw new Error('common phrases unavailable: no session directory');
-    }
-    let document: CommonPhrasesDocument =
-      KeyboardSession.commonPhrasesDocument(await KeyboardSession.commonPhrasesCall(directory, { operation: 'load' }));
-    const marker: string = `${directory}/${CommonPhraseStarters.MARKER_FILE_NAME}`;
-    const marked: boolean = fs.accessSync(marker);
-    if (!marked) {
-      const seeded: string[] = [];
-      if (CommonPhraseStarters.seeds(marked, (document.phrases ?? []).length, (document.packs ?? []).length)) {
-        for (const text of CommonPhraseStarters.TEXTS) {
-          const added: CommonPhrasesReply =
-            await KeyboardSession.commonPhrasesCall(directory, { operation: 'add', text: text });
-          if (added.ok === true && added.value !== undefined && added.value !== null) {
-            document = added.value;
-            seeded.push(text);
-          } else {
-            KeyboardLog.error(`common phrase starter not added: ${added.error ?? 'malformed reply'}`);
+    try {
+      const directory: string = this.stateDirectory;
+      if (directory.length === 0) {
+        throw new Error('common phrases unavailable: no session directory');
+      }
+      let document: CommonPhrasesDocument =
+        KeyboardSession.commonPhrasesDocument(await KeyboardSession.commonPhrasesCall(directory, { operation: 'load' }));
+      const marker: string = `${directory}/${CommonPhraseStarters.MARKER_FILE_NAME}`;
+      const marked: boolean = fs.accessSync(marker);
+      if (!marked) {
+        const seeded: string[] = [];
+        if (CommonPhraseStarters.seeds(marked, (document.phrases ?? []).length, (document.packs ?? []).length)) {
+          for (const text of CommonPhraseStarters.TEXTS) {
+            const added: CommonPhrasesReply =
+              await KeyboardSession.commonPhrasesCall(directory, { operation: 'add', text: text });
+            if (added.ok === true && added.value !== undefined && added.value !== null) {
+              document = added.value;
+              seeded.push(text);
+            } else {
+              KeyboardLog.error(`common phrase starter not added: ${added.error ?? 'malformed reply'}`);
+            }
           }
         }
+        this.writeCommonPhrasesMarker(marker, seeded);
+        // 初始化依次执行各自加锁的原生操作；设置进程可能在操作间修改文档，因此重新加锁读取快照，不把最后一次添加的响应当作完整列表。
+        document = KeyboardSession.commonPhrasesDocument(
+          await KeyboardSession.commonPhrasesCall(directory, { operation: 'load' }));
       }
-      this.writeCommonPhrasesMarker(marker, seeded);
-      // Seeding is deliberately a sequence of independently locked native operations. The settings
-      // process may edit the document between them, so do not return the last add response as if it
-      // were the complete current list; publish a fresh locked snapshot instead.
-      document = KeyboardSession.commonPhrasesDocument(
-        await KeyboardSession.commonPhrasesCall(directory, { operation: 'load' }));
-    }
-    const texts: string[] = [];
-    for (const phrase of document.phrases ?? []) {
-      if (typeof phrase.text === 'string' && phrase.text.length > 0) {
-        texts.push(phrase.text);
+      const texts: string[] = [];
+      for (const phrase of document.phrases ?? []) {
+        if (typeof phrase.text === 'string' && phrase.text.length > 0) {
+          texts.push(phrase.text);
+        }
       }
+      return texts;
+    } catch (error) {
+      KeyboardLog.error('keyboard.KeyboardSession.commonPhrases failed');
+      throw error as Error;
     }
-    return texts;
   }
 
   /** 在原生工作线程上执行一次加锁的常用语操作；工作线程的 reject 原样传出。 */

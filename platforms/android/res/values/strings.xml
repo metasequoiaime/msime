@@ -7,6 +7,7 @@
     <string name="splash_skip">轻点跳过</string>
     <string name="tab_chat">对话</string>
     <string name="tab_community">社区</string>
+    <string name="tab_allsettings">全部设置</string>
     <string name="tab_statistics">统计</string>
     <string name="tab_account">我的</string>
     <!-- 设置页顶部那张状态卡：两项检查各自说清楚还差哪一步，差的那一步旁边就是去完成它的按钮。 -->

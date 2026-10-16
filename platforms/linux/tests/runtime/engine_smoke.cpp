@@ -3140,7 +3140,7 @@ int main(int argc, char **argv) {
     invoke("Reset");
     for (guint delete_key : {IBUS_Delete, IBUS_KP_Delete}) {
       phrase();
-      require(key(IBUS_Left) && key(delete_key) && seen.preedit == "niha" &&
+      require(key(IBUS_Left, IBUS_CONTROL_MASK) && key(delete_key) && seen.preedit == "niha" &&
                   seen.preedit_visible && seen.committed.empty(),
               "Forward delete cancelled incremental composition instead of editing at caret");
       invoke("Reset");
@@ -3158,13 +3158,12 @@ int main(int argc, char **argv) {
                   .c_str());
       seen.committed.clear();
     }
-    // Ctrl-only segment editing follows the Windows composition behavior:
-    // arrows cross one pinyin unit and Backspace removes the unit to the left.
+    // 全拼的 Ctrl+左右移动一个字母，Ctrl+退格仍删除左侧拼音段；普通左右键用于整句改字。
     phrase();
-    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.preedit_cursor == 2,
-            "Ctrl+Left did not move to the preceding pinyin segment");
+    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.preedit_cursor == 4,
+            "Ctrl+Left did not move to the preceding pinyin letter");
     require(key(IBUS_Right, IBUS_CONTROL_MASK) && seen.preedit_cursor == 5,
-            "Ctrl+Right did not move to the following pinyin segment");
+            "Ctrl+Right did not move to the following pinyin letter");
     require(key(IBUS_BackSpace, IBUS_CONTROL_MASK) && seen.preedit == "ni" &&
                 seen.preedit_cursor == 2,
             "Ctrl+Backspace did not remove one pinyin segment");
@@ -3218,7 +3217,7 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(seen.candidates.front().find("固定") == std::string::npos,
             "Candidate position clear did not release the fixed candidate");
-    require(key(IBUS_Left) && seen.auxiliary.find("niha|o") != std::string::npos,
+    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.auxiliary.find("niha|o") != std::string::npos,
             "Candidate auxiliary text did not expose the preedit caret");
     const auto stale_candidate_action = seen.first_candidate_fix_name;
     invoke("Reset");
@@ -3484,9 +3483,13 @@ int main(int argc, char **argv) {
             "Temporary English mode did not expose its raw candidate");
     const bool settled_commit_5 = key(IBUS_Return);
     settle_lookup();
-    require(settled_commit_5 && seen.committed == "MSIME" && !seen.preedit_visible &&
+    require(settled_commit_5 && seen.committed == "YMSIME" && !seen.preedit_visible &&
                 !seen.lookup_visible,
-            "Temporary English raw text was not committed through IBus");
+            ("Temporary English raw text was not committed through IBus: handled=" +
+             std::to_string(settled_commit_5) + " committed=[" + seen.committed +
+             "] preedit=[" + seen.preedit + "] preedit_visible=" +
+             std::to_string(seen.preedit_visible) + " lookup_visible=" +
+             std::to_string(seen.lookup_visible)).c_str());
 
     invoke("Reset");
     seen.committed.clear();
@@ -3530,14 +3533,13 @@ int main(int argc, char **argv) {
     require(key('n') && seen.preedit == "n",
             "Temporary Japanese candidate commit did not restore Chinese input");
 
-    // Enter commits the raw Romaji spelling, without the display-only R
-    // prefix, and also returns to the original Chinese session.
+    // 回车按共享契约原样上屏含入口字母的预编辑，再恢复中文会话。
     invoke("Reset");
     seen.committed.clear();
     require(key('r', IBUS_SHIFT_MASK) && key('k') && key('a') && key(IBUS_Return),
             "Temporary Japanese raw Enter path was not consumed");
-    require(seen.committed == "ka",
-            "Temporary Japanese raw Enter committed the display-only prefix");
+    require(seen.committed == "Rka",
+            "临时日文回车未原样上屏包含入口字母的预编辑");
     require(key('n') && seen.preedit == "n",
             "Temporary Japanese raw Enter did not restore Chinese input");
 

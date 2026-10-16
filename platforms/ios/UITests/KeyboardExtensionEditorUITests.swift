@@ -105,16 +105,13 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     if toolbarTest { app.launchArguments.append("--keyboard-toolbar-ui-test") }
     app.launch()
-    if toolbarTest {
-      // 工具栏验收直接进入对话标签，避免上一轮深链接留下的设置导航栈。
-      let chatTab = app.tabBars.buttons["对话"]
-      XCTAssertTrue(chatTab.waitForExistence(timeout: 10), "对话标签必须可用")
-      chatTab.tap()
-    } else {
-      let tryout = app.buttons["keyboardTryoutLink"]
-      XCTAssertTrue(tryout.waitForExistence(timeout: 20), "试用入口必须可用")
-      tryout.tap()
-    }
+    let settings = app.tabBars.buttons["设置"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 10))
+    settings.tap()
+    settings.tap()
+    let tryout = app.buttons["keyboardTryoutLink"]
+    XCTAssertTrue(tryout.waitForExistence(timeout: 20), "试用入口必须可用")
+    tryout.tap()
 
     let field = app.textFields["keyboardTryoutField"]
     XCTAssertTrue(field.waitForExistence(timeout: 15), "试用编辑器必须可用")

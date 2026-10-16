@@ -737,6 +737,12 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(macos["value"]["expand_candidates"], true);
     assert_eq!(windows["value"]["expand_candidates"], false);
     assert_eq!(linux["value"]["expand_candidates"], false);
+    // macOS 的各界面一律跟随颜色模式，编号色和边框色跟随主题，设置页按这三项收起对应的控件。
+    assert_eq!(macos["value"]["surface_themes_follow"], true);
+    assert_eq!(macos["value"]["candidate_number_color"], false);
+    assert_eq!(macos["value"]["candidate_border_color"], false);
+    assert_eq!(windows["value"]["surface_themes_follow"], false);
+    assert_eq!(windows["value"]["candidate_number_color"], true);
 
     let android = capabilities("android");
     assert_eq!(android["value"]["panel_windows"], false);
@@ -1739,6 +1745,7 @@ fn builtin_shuangpin_tables_are_valid_custom_profiles() {
         ShuangpinProfile::Ziranma,
         ShuangpinProfile::Shoudao,
         ShuangpinProfile::Microsoft,
+        ShuangpinProfile::SmartAbc,
     ] {
         let table = builtin_shuangpin_custom_profile(profile).unwrap();
         assert_eq!(
@@ -6737,6 +6744,52 @@ fn shuangpin_preedit_mode_is_applied_after_composition() {
 }
 
 #[test]
+fn smart_abc_profile_commits_and_defers_switching_until_composition_finishes() {
+    let dir = tempfile::tempdir().unwrap();
+    let smart_abc = Preferences {
+        scheme: InputScheme::Shuangpin,
+        shuangpin_profile: ShuangpinProfile::SmartAbc,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), smart_abc.clone());
+    read(msime_client_focus(handle, true));
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["shuangpin_profile"],
+        "smart_abc"
+    );
+    SESSIONS.with(|sessions| assert_eq!(sessions.borrow()[&handle].options.shuangpin_profile, 5));
+    for character in b"nihk" {
+        assert_eq!(
+            read(msime_client_character(handle, *character, false))["ok"],
+            true
+        );
+    }
+    let xiaohe = Preferences {
+        shuangpin_profile: ShuangpinProfile::Xiaohe,
+        ..smart_abc.clone()
+    };
+    assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], true);
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "本地"
+    );
+    assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], false);
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["shuangpin_profile"],
+        "xiaohe"
+    );
+    assert_eq!(update(handle, 2, &smart_abc)["value"]["deferred"], false);
+    for character in b"agfu" {
+        read(msime_client_character(handle, *character, false));
+    }
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "政府"
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
 fn shuangpin_profile_creation_and_deferred_replacement_use_real_engine() {
     let dir = tempfile::tempdir().unwrap();
     let microsoft = Preferences {
@@ -8665,6 +8718,33 @@ fn custom_translation_http_bridge_speaks_deepl_to_official_endpoints() {
     ] {
         assert!(parse(body)["value"].is_null());
         assert!(unsafe { msime_client_custom_translation_reply_failed(body.as_ptr(), body.len()) });
+    }
+}
+
+#[test]
+fn translation_object_fallback_reaches_the_custom_response_bridge() {
+    for (body, expected) in [
+        (
+            r#"{"data":{"text":"","translation":"synthetic"}}"#,
+            "synthetic",
+        ),
+        (
+            r#"{"code":200,"result":[{"text":"","data":"  synthetic\ntranslation  "}]}"#,
+            "synthetic translation",
+        ),
+        (
+            r#"{"translations":[{"text":"","translation":"synthetic translation"}]}"#,
+            "synthetic translation",
+        ),
+    ] {
+        assert!(!unsafe {
+            msime_client_custom_translation_reply_failed(body.as_ptr(), body.len())
+        });
+        let parsed = read(unsafe {
+            msime_client_parse_custom_translation_response(body.as_ptr(), body.len())
+        });
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["value"], expected, "{body}");
     }
 }
 

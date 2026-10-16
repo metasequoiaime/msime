@@ -8,6 +8,7 @@ import type { PunctuationPreferences } from "./settings/punctuation-preferences"
 import type { KeybindingPreferences } from "./settings/keybinding-preferences";
 import type { WubiPreferences } from "./settings/wubi-preferences";
 import type { VietnamesePreferences } from "./settings/vietnamese-preferences";
+import type { FloatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
 import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
 import type { TraditionalChineseVariant } from "./settings/chinese-output-preferences";
 import type {
@@ -48,7 +49,10 @@ import type { AppInputModeRule, PickedApplication } from "./settings/app-input-m
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
 import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
-import { settingsThemePreferences } from "./settings/settings-theme-preferences";
+import {
+  hostDrawnCustomTheme,
+  settingsThemePreferences,
+} from "./settings/settings-theme-preferences";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import type { ResourcePackClient } from "./settings/resource-packs";
@@ -1767,10 +1771,14 @@ export interface HostCapabilities {
   traditional_chinese_variants?: boolean;
   /** 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格（目前只有 macOS）。 */
   expand_candidates?: boolean;
+  /** 宿主画的各个界面一律跟随颜色模式，不读 `settings_theme` 等各界面的单独明暗，只有候选窗口仍读 `candidate_theme`（目前只有 macOS）。 */
+  surface_themes_follow?: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
-  /** 宿主用边框颜色给候选窗描边。Linux 由 Fcitx5 的 classicui 主题描边，没有 hover 状态；IBus 面板描不了，运行中的 IBus 宿主以 `candidate_panel_limit: "ibus_panel"` 说明。 */
+  /** 宿主按用户选的边框色给候选窗描边。Linux 由 Fcitx5 的 classicui 主题描边，没有 hover 状态；IBus 面板描不了，运行中的 IBus 宿主以 `candidate_panel_limit: "ibus_panel"` 说明。macOS 的边框色固定跟随主题，不读用户选的值。 */
   candidate_border_color: boolean;
+  /** 宿主按用户选的编号色画候选编号。macOS 的编号色固定跟随主题（选了文字颜色时由它推出），不读用户选的值；缺省按读取处理。 */
+  candidate_number_color?: boolean;
   /** The host draws its own floating candidate window and scales its font and geometry by `candidate_scale_percent`. */
   candidate_window_scale: boolean;
   /** The host lowers the alpha of the candidate card fill, border and skin background by `candidate_opacity_percent`, keeping text opaque. */
@@ -2185,22 +2193,7 @@ export type {
   DictionaryCollectionsClient,
 } from "./dictionary/dictionary-collections";
 
-export type FloatingToolbarPreferences = {
-  enabled: boolean;
-  english_mode: boolean;
-  /** 切换输入方案的按钮。 */
-  input_scheme: boolean;
-  fullwidth: boolean;
-  punctuation: boolean;
-  character_set: boolean;
-  emoji: boolean;
-  handwriting: boolean;
-  screen_keyboard: boolean;
-  voice: boolean;
-  settings: boolean;
-  scale_percent: 75 | 100 | 125 | 150;
-  font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
-};
+export type { FloatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
 export { InputSourceStartupNotice } from "./settings/input-source-startup-notice";
 /** macOS 设置宿主启动时对内嵌输入法的安装与启用状态。 */
 export type { InputSourceStartupStatus } from "./settings/input-source-startup-model";
@@ -2490,6 +2483,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
+    showCandidateNumberColor,
+    surfaceThemesFollow,
     showCandidateFollowCursor,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
@@ -2585,7 +2580,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const mobileInitialTab = mobileTabForPage(page);
   const mobileLastPageByTab = useRef<Record<MobilePrimaryPageId, SettingsPageId>>({
     home: mobileInitialTab === "home" ? page : "home",
-    chat: mobileInitialTab === "chat" ? page : "chat",
+    more: mobileInitialTab === "more" ? page : "more",
     "typing-statistics": mobileInitialTab === "typing-statistics" ? page : "typing-statistics",
     account: mobileInitialTab === "account" ? page : "account",
   });
@@ -2876,7 +2871,13 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const floatingToolbar = floatingToolbarPreferences(draft);
   const { themeMode, settingsTheme, globalTheme, customColors, customTouchKeyboardSkin } =
-    settingsThemePreferences(draft, host?.platform);
+    settingsThemePreferences(draft, host?.platform, surfaceThemesFollow);
+  // 预览画的自定义主题只含宿主会读的槽位：macOS 不读编号色和边框色，存下的旧值不能在预览里画出来。只给预览用，不写回草稿。
+  const previewCustomTheme = hostDrawnCustomTheme(
+    draft?.custom_theme,
+    showCandidateNumberColor,
+    showCandidateBorderColor,
+  );
   const dark = useSettingsTheme(themeMode, settingsTheme);
   // 两种 HarmonyOS 外观都用用户的应用主题（水杉四季或某个固定季节）着色；每种外观取哪些 token 由 `appThemeStyle` 决定。
   const resolvedAppTheme = useResolvedAppTheme(
@@ -2889,8 +2890,15 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     dark,
   );
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
-  const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
-  const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
+  // 各界面一律跟随颜色模式的宿主不读工具栏和屏幕键盘的单独明暗，预览也照颜色模式画。
+  const toolbarPreviewTheme = useCandidatePreviewTheme(
+    themeMode,
+    surfaceThemesFollow ? undefined : draft?.toolbar_theme,
+  );
+  const keyboardPreviewTheme = useCandidatePreviewTheme(
+    themeMode,
+    surfaceThemesFollow ? undefined : draft?.screen_keyboard_theme,
+  );
   // A picker colour is part of the custom theme, so choosing one selects that theme; clearing one leaves the selection alone. Choosing one while another theme is selected customizes that theme: it becomes the custom theme's base, and a package, whose own base would replace it, is dropped.
   // A custom theme without a keyboard design draws its base's keyboard, so the custom keyboard card is selected only when the theme carries one.
   const customKeyboardSelected = globalTheme === "custom" && Boolean(draft?.custom_theme?.keyboard);
@@ -3048,6 +3056,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
+    showCandidateNumberColor,
+    surfaceThemesFollow,
     showCandidateFollowCursor,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
@@ -3254,6 +3264,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     keyboardPreviewTheme,
     globalTheme,
     customColors,
+    previewCustomTheme,
     customTouchKeyboardSkin,
     onCandidateColorChange,
     onCustomKeyboardChange,
@@ -3378,8 +3389,6 @@ function SettingsShell(props: SettingsPageProps) {
   } = model;
   // 对话页第一次打开后就一直挂着（见下方渲染处），切走只隐藏。
   const [chatMounted, setChatMounted] = useState(page === "chat");
-  // 对话页的输入框正在打字：底部标签栏让开，键盘上方只留输入栏，和常见的聊天应用一样。
-  const [chatTyping, setChatTyping] = useState(false);
   // 首页「试用键盘」切到对话页时加一，对话页随即聚焦输入框、弹出键盘；点底部标签进来不加，不弹键盘。
   const [chatFocusRequest, setChatFocusRequest] = useState(0);
   useEffect(() => {
@@ -3558,7 +3567,7 @@ function SettingsShell(props: SettingsPageProps) {
         )}
         <div className={settings.body} data-settings-body="">
           {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so assistive technology and keyboard focus still reach the navigation first, and the bottom padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
-          {mobilePlatform && !fillsContent && !(page === "chat" && chatTyping) && (
+          {mobilePlatform && !fillsContent && (
             <MobileSettingsTabs
               tabs={mobilePrimaryPages}
               activeTab={mobileActiveTab}
@@ -3823,14 +3832,13 @@ function SettingsShell(props: SettingsPageProps) {
                   appVersion={currentAppVersion}
                 />
               )}
-              {/* 触屏上「对话」是常驻的底部标签：第一次打开后一直挂着，切到别的标签只是隐藏，对话记录和进行中的回复都不丢；点标签进来不弹键盘，点输入框或从首页「试用键盘」进来才弹，与 Android 的对话标签一致。 */}
+              {/* 触屏上 AI 对话从「AI 辅助」二级页进入：第一次打开后一直挂着，切换标签只是隐藏，对话记录和进行中的回复都不丢。 */}
               {client.chat && (page === "chat" || (mobilePlatform && chatMounted)) && (
                 <div className={page === "chat" ? "contents" : undefined} hidden={page !== "chat"}>
                   <ChatPage
                     client={client.chat}
                     touch={mobilePlatform}
                     active={page === "chat"}
-                    onComposerFocusChange={setChatTyping}
                     focusRequest={chatFocusRequest}
                     setup={client.home}
                     onLogin={openAccountLogin}

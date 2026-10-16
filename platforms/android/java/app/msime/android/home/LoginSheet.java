@@ -396,6 +396,8 @@ final class LoginSheet {
 
         @Override public void setColorFilter(ColorFilter filter) { paint.setColorFilter(filter); }
 
+        // Drawable 在最低支持版本上仍要求实现此抽象方法，现代绘制管线不再查询它。
+        @SuppressWarnings("deprecation")
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 }

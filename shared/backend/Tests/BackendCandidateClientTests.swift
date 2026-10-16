@@ -135,6 +135,16 @@ final class BackendCandidateClientTests: XCTestCase {
     let result = try await client().setFixedPosition(context: "server:context", code: "ni'hao", word: "你好", position: nil, revision: 42, token: "session")
     XCTAssertEqual(result.revision, 43)
   }
+  func testSmartAbcCandidateQueryReachesTheBackend() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AcceptingCandidateProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let query = BackendAccountClient.CandidateQuery(text: "ni", kind: "pinyin", scheme: "shuangpin", profile: "smart_abc", limit: 100)
+    let result = try await client.personalCandidates(query, token: "synthetic-session")
+    XCTAssertTrue(result.candidates.isEmpty)
+    XCTAssertEqual(result.context, "pinyin")
+    XCTAssertEqual(result.revision, 1)
+  }
   func testPersonalCandidatesRejectMalformedServerResponses() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [MalformedCandidatesProtocol.self]

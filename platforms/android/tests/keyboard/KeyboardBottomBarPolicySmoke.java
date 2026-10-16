@@ -60,6 +60,24 @@ public final class KeyboardBottomBarPolicySmoke {
         check(!KeyboardBottomBarPolicy.paddingShown(true, false, false, true, false),
             "not while a hardware keyboard collapses the keys");
         check(!KeyboardBottomBarPolicy.paddingShown(true, false, false, false, true), "not on a phone in landscape");
+        for (int height : new int[] {0, 40, 80, 160}) {
+            check(KeyboardBottomBarPolicy.extraPaddingDp(true, height, false, false, false, false) == height,
+                "independent target without bottom bar");
+            check(KeyboardBottomBarPolicy.extraPaddingDp(true, height, true, false, false, false)
+                    == Math.max(0, height - 40), "bottom bar counts toward target");
+            check(KeyboardBottomBarPolicy.extraPaddingDp(false, height, false, false, false, false) == 0,
+                "disabled padding preserves saved target");
+            check(KeyboardBottomBarPolicy.extraPaddingDp(true, height, false, true, false, false) == 0,
+                "floating suppresses custom target");
+            check(KeyboardBottomBarPolicy.extraPaddingDp(true, height, false, false, true, false) == 0,
+                "collapsed keys suppress custom target");
+            check(KeyboardBottomBarPolicy.extraPaddingDp(true, height, false, false, false, true) == 0,
+                "phone landscape suppresses custom target");
+        }
+        check(KeyboardBottomBarPolicy.extraPaddingDp(true, -1, false, false, false, false) == 0,
+            "negative target clamps");
+        check(KeyboardBottomBarPolicy.extraPaddingDp(true, 161, false, false, false, false) == 160,
+            "oversized target clamps");
     }
 
     private static void check(boolean condition, String message) {

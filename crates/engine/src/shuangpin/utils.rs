@@ -224,11 +224,12 @@ mod tests {
     use crate::shuangpin::profile::profile;
     use crate::types::ShuangpinProfileKind;
 
-    const ALL: [ShuangpinProfileKind; 4] = [
+    const ALL: [ShuangpinProfileKind; 5] = [
         ShuangpinProfileKind::Xiaohe,
         ShuangpinProfileKind::Ziranma,
         ShuangpinProfileKind::Shoudao,
         ShuangpinProfileKind::Microsoft,
+        ShuangpinProfileKind::SmartAbc,
     ];
 
     fn xiaohe() -> &'static ShuangpinProfile {

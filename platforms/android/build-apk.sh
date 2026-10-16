@@ -181,7 +181,7 @@ unsigned="$gradle_dir/app/build/outputs/apk/$edition/release/app-$edition-releas
 source "$repo_root/platforms/android/scripts/signing.sh"
 output="$repo_root/target/android/$apk_name.apk"
 aligned="$repo_root/target/android/$apk_name-aligned.apk"
-"$tools_dir/zipalign" -P 16 4 "$unsigned" "$aligned"
+"$tools_dir/zipalign" -f -P 16 4 "$unsigned" "$aligned"
 "$tools_dir/apksigner" sign "${android_signing[@]}" --out "$output" "$aligned"
 "$tools_dir/apksigner" verify --verbose --print-certs "$output"
 "$tools_dir/zipalign" -c -P 16 4 "$output"

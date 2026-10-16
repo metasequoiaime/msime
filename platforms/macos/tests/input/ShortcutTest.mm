@@ -1144,8 +1144,8 @@ static void TestSharedInputPreferences() {
 
 static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     NSPopUpButton *profiles = (id)PreferenceControl(appearance, @selector(profileChanged:));
-    NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"];
-    NSArray *titles = @[@"小鹤双拼", @"自然码双拼", @"首道双拼", @"微软双拼"];
+    NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc"];
+    NSArray *titles = @[@"小鹤双拼", @"自然码双拼", @"首道双拼", @"微软双拼", @"智能 ABC 双拼"];
     assert([profiles.itemTitles isEqual:titles]);
     for (NSUInteger index = 0; index < identifiers.count; ++index) {
         [profiles selectItemAtIndex:index];
@@ -1156,6 +1156,9 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
         NSPopUpButton *restoredProfiles = (id)PreferenceControl(restored, @selector(profileChanged:));
         assert([restoredProfiles.titleOfSelectedItem isEqual:titles[index]]);
     }
+    [appearance applySharedInputPreferences:@{@"shuangpin_profile": @"smart_abc"}];
+    assert([appearance.shuangpinProfile isEqual:@"smart_abc"]);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"shuangpin_profile"] isEqual:@"smart_abc"]);
     assert(!appearance.shuangpinKeymap);
     NSButton *toggle = (id)PreferenceControl(appearance, @selector(keymapChanged:));
     toggle.state = NSControlStateValueOn;
@@ -1184,7 +1187,7 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     [defaults setBool:YES forKey:@"MSIMEClientShuangpinKeymap"];
     HiddenKeymapPanel *panel = [[HiddenKeymapPanel alloc] init];
     assert(panel.ignoresMouseEvents && panel.floatingPanel);
-    for (NSString *profile in @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"]) {
+    for (NSString *profile in @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc"]) {
         NSArray *rows = MSIMEShuangpinKeymapRows(profile);
         assert(rows.count == 3 && [rows[0] count] == 10 && [rows[2] count] == 7);
         assert([rows[1] count] == ([profile isEqual:@"microsoft"] ? 10 : 9));
@@ -6672,6 +6675,9 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     appearance.globalTheme = @"paper";
     assert([controller.menu.appearance.name isEqual:NSAppearanceNameAqua]);
     appearance.globalTheme = @"system";
+    // 跟随系统的主题下菜单按颜色模式着色，菜单单独的明暗设置在 macOS 上不读。
+    [controller setValue:@{@"theme": @"light", @"menu_theme": @"dark"} forKey:@"menuThemePreferences"];
+    assert([controller.menu.appearance.name isEqual:NSAppearanceNameAqua]);
     [controller setValue:@{@"theme": @"system", @"menu_theme": @"follow"} forKey:@"menuThemePreferences"];
     assert(controller.menu.appearance == nil);
     [controller setValue:nil forKey:@"menuThemePreferences"];
@@ -10544,7 +10550,7 @@ int main(int argc, char **argv) {
             assert([preeditLabel.textColor isEqual:SkinColor(preeditTokens.accent)]);
             assert([caretLabel.caretColor isEqual:SkinColor(preeditTokens.accent)]);
             if (!vertical.boolValue) {
-                // The seven pickers are the custom theme's, and draw while it is selected.
+                // 取色器属于自定义主题，选中它时才画。文档里的编号色和边框色在 macOS 上不读，下面比的是解析出的颜色，所以照样成立。
                 [appearance applySharedCandidatePreferences:@{@"global_theme": @"custom", @"custom_theme": @{@"candidate_colors": @{
                     @"text": @"#102030", @"number": @"#203040", @"accent": @"#304050", @"selected": @"#405060",
                     @"hover": @"#506070", @"surface": @"#607080", @"border": @"#708090"}}}];

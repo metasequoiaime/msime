@@ -17,7 +17,13 @@ import { SegmentedRow } from "./segmented-row";
 import { PreeditStyleRow } from "./preedit-style-row";
 
 export type InputSchemeDetailsScheme = InputScheme;
-export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft" | "custom";
+export type ShuangpinProfile =
+  | "xiaohe"
+  | "ziranma"
+  | "shoudao"
+  | "microsoft"
+  | "smart_abc"
+  | "custom";
 export type WubiProfile = "wubi86" | "wubi98";
 
 /**
@@ -32,6 +38,7 @@ function shuangpinProfileOptions(editable: boolean, current: ShuangpinProfile) {
       <option value="ziranma">自然码双拼</option>
       <option value="shoudao">首道双拼</option>
       <option value="microsoft">微软双拼</option>
+      <option value="smart_abc">智能 ABC 双拼</option>
       {(editable || current === "custom") && (
         <option value="custom" disabled={!editable}>
           自定义双拼

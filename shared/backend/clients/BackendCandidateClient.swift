@@ -110,7 +110,7 @@ extension BackendAccountClient {
     validCandidateText(query.text, maximum: 256)
       && ["pinyin", "jianpin", "wubi", "wubi98", "quick", "english"].contains(query.kind)
       && ["pinyin", "shuangpin"].contains(query.scheme)
-      && ["xiaohe", "ziranma", "microsoft", "shoudao"].contains(query.profile)
+      && ["xiaohe", "ziranma", "microsoft", "shoudao", "smart_abc"].contains(query.profile)
       && (1...100).contains(query.limit)
   }
 

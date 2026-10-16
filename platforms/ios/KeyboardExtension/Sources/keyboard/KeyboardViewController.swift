@@ -594,6 +594,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self]) {
+      (controller: KeyboardViewController, previous: UITraitCollection) in controller.refreshTraits(previous)
+    }
     // 先读数再做别的：与 `sessionMemory` 之差是 `session` 之后声明的存储属性和 `loadView` 的开销，与下面 `keyboard_built` 之差是建键盘界面的开销。
     let loadedMemory = DiagnosticLog.MemorySample.current()
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
@@ -711,7 +714,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
     applyLearningPreferences()
-    synchronizeTranslationRoute()
+    _ = synchronizeTranslationRoute()
     glideTypingEnabled = KeyboardLayoutPreference.glideTyping
     // The Tauri settings app writes the shared PreferencesStore rather than the
     // legacy App Group UserDefaults used by the old SwiftUI settings page.
@@ -7175,26 +7178,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     renderCandidateStrip()
   }
 
-  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-    super.traitCollectionDidChange(previousTraitCollection)
+  private func refreshTraits(_ previousTraitCollection: UITraitCollection) {
     if isViewLoaded, actionRow != nil,
-       previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
+       previousTraitCollection.userInterfaceStyle != traitCollection.userInterfaceStyle {
       // 明暗变了，实际生效的主题可能跟着变：所选主题属于另一种明暗时换成跟随系统，切回来时换回所选主题。
       KeyboardTheme.reload(session.sharedPreferences, dark: drawsDark)
       applyKeyboardSkin()
       // 键盘的明暗变了，表情面板是否与它一致也要重新判断。
       if let emojiPicker { applyEmojiPickerAppearance(emojiPicker) }
     }
-    // Docking or undocking the iPad keyboard changes the width class, and with it the form factor.
+    // iPad 键盘停靠状态变化会改变宽度类别，需要重新计算布局。
     if isViewLoaded, actionRow != nil,
-       previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
+       previousTraitCollection.horizontalSizeClass != traitCollection.horizontalSizeClass {
       updateKeyboardLayoutIfNeeded()
-      // The form factor also sets how large a synced candidate size may be drawn.
+      // 设备形态也决定同步的候选字号上限。
       applyCandidateGlossLayout()
     }
   }
 
-  /// iPad 旋转时 size class 不变，traitCollectionDidChange 不会被叫到；转完再核对一次分离式键盘（viewDidLayoutSubviews 通常已经处理过）。
+  /// iPad 旋转时 size class 不变，trait 观察器不会被叫到；转完再核对一次分离式键盘（viewDidLayoutSubviews 通常已经处理过）。
   override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
     super.viewWillTransition(to: size, with: coordinator)
     coordinator.animate(alongsideTransition: nil) { [weak self] _ in
