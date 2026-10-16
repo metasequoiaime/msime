@@ -667,7 +667,7 @@ macOS 缺后半条。`ShouldRoutePhysicalCandidateDigit` 明确把 Unicode 模�
 
 候选管理菜单不改。来源的桌面右键菜单是 置顶 / 固定排位→第 1–5 位 + 取消固定 / 删除；本仓是 优先显示 / 第 1–5 位 / 取消固定 / 删除词条…，把悬停子菜单摊平（触屏上没有悬停），措辞则与 iOS、Android 一致。`platforms/android/README.md` 写明这套顺序与措辞对齐的是 Apple 来源的长按菜单，三个触屏平台共用。HarmonyOS 是触屏平台，改成 Windows 的说法会破坏三端一致并推翻既有决定。「删除词条…」的省略号也有意义：本仓这一项 `confirmationRequired` 为真，来源那条不是。
 
-悬浮工具栏已齐。来源设置页里的 6 个组件 id 与标签（character_set / emoji / fullwidth / punctuation / screen_keyboard / settings）与本仓 `floatingToolbarComponents` 完全一致，加上「中英文切换」这个始终显示项；本仓多一个 `english_mode` 属扩展。缩放、图标尺寸、组件三节的标题也与来源同名同序。
+悬浮工具栏已齐。来源设置页里的 6 个组件 id 与标签（character_set / emoji / fullwidth / punctuation / screen_keyboard / settings）与本仓 `floatingToolbarComponents` 完全一致。来源的「中英文切换」是始终显示项，本仓的中/英按钮由 `english_mode` 控制、可以关掉，所以共享设置页不再画锁定的「始终显示」一行，`english_mode` 那一项直接叫「中英文切换」（与 Windows 原生设置页同名）。来源的缩放和图标尺寸两节在共享设置页合成一个「工具栏大小」（75%–175%，175% 写成 150% 缩放加 28 的图标，最大尺寸与来源相同），Windows 原生设置页仍按来源分成两节。
 
 组件**默认值**有一处刻意不跟：`emoji` 在共享层默认关（与 `handwriting`、`voice`、`screen_keyboard` 一起），来源默认开。id、标签和顺序不变，只是新配置拿到的是精简工具栏。Windows 不受影响——`platforms/windows/installer/config.default.toml` 逐项显式写出每个组件（`floating_toolbar_emoji = true`），镜像来源自己的默认配置，共享默认值轮不到生效；变的是不带出厂配置的宿主（macOS、HarmonyOS）。理由与升级代价见下面《工具栏可选按钮改为默认关》。
 

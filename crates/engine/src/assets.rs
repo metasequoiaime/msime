@@ -52,6 +52,6 @@ pub const HELPCODES: [(&str, &str); 7] = [
     ("wubi86", "helpcodes/wubi86_helpcode.txt"),
 ];
 
-/// `custom/<stem>` schemas resolve to `helpcodes/custom/<stem>.txt`.
+/// `custom/<stem>` 方案从 `helpcodes/custom` 加载，扩展名支持 `.txt` 的 ASCII 大小写变体。
 pub const CUSTOM_HELPCODE_PREFIX: &str = "custom/";
 pub const CUSTOM_HELPCODE_DIRECTORY: &str = "helpcodes/custom";

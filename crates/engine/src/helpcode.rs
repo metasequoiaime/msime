@@ -87,7 +87,9 @@ pub fn is_supported_helpcode_schema(schema: &str) -> bool {
     built_in_helpcode_file(schema).is_some() || custom_schema_stem(schema).is_some()
 }
 
-/// The table file for a schema under the resource root; `UNKNOWN_HELPCODE_SCHEMA` for an unsupported name. This joins directly rather than through `paths::join_checked`, as helpcode_utils.cpp:37-40 does: `custom_schema_stem` already refuses every separator and a leading `.`, so the stem is one normal component and can never be `..`, which is a stricter guarantee than the `..` refusal would add.
+/// 查找资源目录里的方案文件，不支持的名称返回 `UNKNOWN_HELPCODE_SCHEMA`。
+/// 自定义主干由 `custom_schema_stem` 限定为单个路径成分；优先小写 `.txt`，再按扩展名字典序尝试普通文件。
+/// 文件均缺失时仍返回小写路径，交给加载器按原规则处理。
 pub fn helpcode_path(resources: &Path, schema: &str) -> Result<PathBuf> {
     if let Some(file) = built_in_helpcode_file(schema) {
         return Ok(resources.join(file));
@@ -97,7 +99,17 @@ pub fn helpcode_path(resources: &Path, schema: &str) -> Result<PathBuf> {
             let mut filename = String::with_capacity(stem.len() + ".txt".len());
             filename.push_str(stem);
             filename.push_str(".txt");
-            Ok(resources.join(CUSTOM_HELPCODE_DIRECTORY).join(filename))
+            let mut path = resources.join(CUSTOM_HELPCODE_DIRECTORY).join(filename);
+            for extension in ["txt", "TXT", "TXt", "TxT", "Txt", "tXT", "tXt", "txT"] {
+                path.set_extension(extension);
+                if std::fs::symlink_metadata(&path)
+                    .is_ok_and(|metadata| metadata.file_type().is_file())
+                {
+                    return Ok(path);
+                }
+            }
+            path.set_extension("txt");
+            Ok(path)
         }
         None => Err(EngineError::invalid(UNKNOWN_HELPCODE_SCHEMA)),
     }
@@ -521,6 +533,48 @@ mod tests {
     }
 
     #[test]
+    fn loading_custom_tables_accepts_extension_case_variants() {
+        let resources = tempfile::tempdir().unwrap();
+        let custom = resources.path().join("helpcodes/custom");
+        std::fs::create_dir_all(&custom).unwrap();
+        for (index, extension) in ["txt", "txT", "tXt", "tXT", "Txt", "TxT", "TXt", "TXT"]
+            .into_iter()
+            .enumerate()
+        {
+            let stem = format!("synthetic{index}");
+            std::fs::write(custom.join(format!("{stem}.{extension}")), "你=ab\n").unwrap();
+            let loaded = load_helpcode_keymap(resources.path(), &format!("custom/{stem}"))
+                .unwrap_or_else(|error| panic!("{extension}: {error}"));
+            assert_eq!(loaded.code("你"), Some("ab"));
+        }
+    }
+
+    #[test]
+    fn extension_variants_load_the_same_winner_as_the_catalog() {
+        let resources = tempfile::tempdir().unwrap();
+        let custom = resources.path().join("helpcodes/custom");
+        std::fs::create_dir_all(&custom).unwrap();
+        let canonical = custom.join("synthetic.txt");
+        let upper = custom.join("synthetic.TXT");
+        std::fs::write(&canonical, "你=ab\n").unwrap();
+        std::fs::write(&upper, "你=cd\n").unwrap();
+        if std::fs::read(&canonical).unwrap() == std::fs::read(&upper).unwrap() {
+            return;
+        }
+        let code = || {
+            load_helpcode_keymap(resources.path(), "custom/synthetic")
+                .unwrap()
+                .code("你")
+                .unwrap()
+                .to_owned()
+        };
+        assert_eq!(code(), "ab");
+        std::fs::remove_file(canonical).unwrap();
+        std::fs::write(custom.join("synthetic.TxT"), "你=ef\n").unwrap();
+        assert_eq!(code(), "cd");
+    }
+
+    #[test]
     fn oversized_custom_table_is_not_loaded() {
         let resources = tempfile::tempdir().unwrap();
         let custom = resources.path().join("helpcodes/custom");
@@ -583,15 +637,18 @@ mod tests {
         std::fs::create_dir_all(&custom).unwrap();
         let external = outside.path().join("mine.txt");
         std::fs::write(&external, "你=aa\n").unwrap();
-        symlink(&external, custom.join("mine.txt")).unwrap();
-        assert_eq!(
-            load_helpcode_keymap(resources.path(), "custom/mine")
-                .unwrap_err()
-                .to_string(),
-            UNKNOWN_HELPCODE_SCHEMA
-        );
+        for extension in ["txt", "TXT", "tXt"] {
+            let path = custom.join(format!("mine.{extension}"));
+            symlink(&external, &path).unwrap();
+            assert_eq!(
+                load_helpcode_keymap(resources.path(), "custom/mine")
+                    .unwrap_err()
+                    .to_string(),
+                UNKNOWN_HELPCODE_SCHEMA
+            );
+            std::fs::remove_file(path).unwrap();
+        }
 
-        std::fs::remove_file(custom.join("mine.txt")).unwrap();
         std::fs::remove_dir(&custom).unwrap();
         symlink(outside.path(), &custom).unwrap();
         assert_eq!(

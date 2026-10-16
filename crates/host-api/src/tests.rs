@@ -3557,6 +3557,22 @@ fn custom_helpcode_schemas_reach_native_presenters_without_the_settings_shell() 
 }
 
 #[test]
+fn discovered_custom_helpcode_extensions_are_loadable_by_the_engine() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    let custom = resources.join("helpcodes/custom");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(custom.join("synthetic.TXT"), "# name: uppercase\n你=ab\n").unwrap();
+    let path = resources.to_str().unwrap();
+    let catalog = read(unsafe { msime_client_helpcode_schemas(path.as_ptr(), path.len()) });
+    assert_eq!(catalog["ok"], true);
+    assert_eq!(catalog["value"].as_array().unwrap().len(), 1);
+    let schema = catalog["value"][0]["schema"].as_str().unwrap();
+    let loaded = msime_engine::host::load_helpcode_keymap(&resources, schema).unwrap();
+    assert_eq!(loaded.code("你"), Some("ab"));
+}
+
+#[test]
 fn a_picked_skin_folder_is_copied_in_through_the_c_abi() {
     let files = tempfile::tempdir().unwrap();
     let state = tempfile::tempdir().unwrap();
