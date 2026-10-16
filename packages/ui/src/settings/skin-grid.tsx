@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { ActionButton } from "../core/action-button";
 import { deepEqual } from "../core/deep-equal";
 import { FluentIcon } from "../core/fluent-icons";

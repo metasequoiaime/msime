@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { defaultFrequency } from "./frequency-preferences";
 import { defaultFuzzyPinyin } from "./fuzzy-pinyin-preferences";
 import { defaultKeybindings } from "./keybinding-defaults";

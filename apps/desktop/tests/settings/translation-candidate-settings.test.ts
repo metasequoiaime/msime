@@ -131,7 +131,7 @@ test("reads a saved MSIME account choice back as the account provider on Windows
   expect(derive(false)).toBe("tencent");
 });
 
-test("macOS shows the unconfigured default Tencent as offline translation until the user picks Tencent", () => {
+test("macOS, Windows and HarmonyOS show the unconfigured default Tencent as none until the user picks Tencent", () => {
   const unconfigured = {
     candidate_translations: true,
     custom_translation: { enabled: false, endpoint: "", api_key: "" },
@@ -139,7 +139,12 @@ test("macOS shows the unconfigured default Tencent as offline translation until 
     niutrans: { enabled: false, app_id: "", apikey: "" },
   } as unknown as Preferences;
   const changes: Preferences[] = [];
-  const hook = (platform: { macos: boolean; windows: boolean; linux: boolean }) =>
+  const hook = (platform: {
+    macos: boolean;
+    windows: boolean;
+    linux: boolean;
+    harmony?: boolean;
+  }) =>
     renderHook(
       ({ preferences }) =>
         useTranslationSettings({
@@ -179,16 +184,25 @@ test("macOS shows the unconfigured default Tencent as offline translation until 
   macos.rerender({ preferences: configured });
   expect(macos.result.current.translationProvider).toBe("tencent");
 
-  // Windows 和 Linux 的显示不变：Linux 的密钥不在偏好里，偏好里的空密钥不代表没配置。
-  expect(
-    hook({ macos: false, windows: true, linux: false }).result.current.translationProvider,
-  ).toBe("tencent");
+  // Windows 的 Server 和 HarmonyOS 的 TranslationPolicy 同样只按 host-api 的查询走，没有可用密钥的腾讯云不会被请求，所以同样显示成 none，选了腾讯云才显示腾讯云。
+  for (const platform of [
+    { macos: false, windows: true, linux: false },
+    { macos: false, windows: false, linux: false, harmony: true },
+  ]) {
+    const other = hook(platform);
+    expect(other.result.current.translationProvider).toBe("none");
+    act(() => other.result.current.setTranslationProvider("tencent"));
+    other.rerender({ preferences: changes.at(-1)! });
+    expect(other.result.current.translationProvider).toBe("tencent");
+  }
+
+  // Linux 的显示不变：它的密钥在 provider 自己的文件里，偏好里的空密钥不代表没配置。
   expect(
     hook({ macos: false, windows: false, linux: true }).result.current.translationProvider,
   ).toBe("tencent");
 });
 
-test("only macOS calls the no-service choice offline translation", () => {
+test("macOS calls the no-service choice offline translation, the other desktop hosts 不使用在线服务", () => {
   const options = {
     candidateTranslations: true,
     translationTargetLanguage: "en",
@@ -208,12 +222,22 @@ test("only macOS calls the no-service choice offline translation", () => {
     setTranslationProvider: () => undefined,
   } as const;
   expect(createCandidateTranslationSettings({ ...options, macos: true }).offlineFallback).toBe(
-    true,
+    "system",
   );
   expect(createCandidateTranslationSettings({ ...options, windows: true }).offlineFallback).toBe(
-    false,
+    "dictionary",
   );
   expect(createCandidateTranslationSettings({ ...options, linux: true }).offlineFallback).toBe(
-    false,
+    "dictionary",
   );
+  expect(createCandidateTranslationSettings({ ...options, harmony: true }).offlineFallback).toBe(
+    "dictionary",
+  );
+  // Android 和 iOS 沿用「关闭」。
+  expect(
+    createCandidateTranslationSettings({ ...options, android: true }).offlineFallback,
+  ).toBeUndefined();
+  expect(
+    createCandidateTranslationSettings({ ...options, ios: true }).offlineFallback,
+  ).toBeUndefined();
 });

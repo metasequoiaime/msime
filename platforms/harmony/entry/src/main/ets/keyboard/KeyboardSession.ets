@@ -118,6 +118,7 @@ import { AiEndpointPolicy } from './settings/AiEndpointPolicy';
 import { SmartPunctuationSpacePolicy, SmartPunctuationSpaceSnapshot, SpaceConvertDecision }
   from './input/SmartPunctuationSpacePolicy';
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
+import { PunctuationLockPolicy } from './input/PunctuationLockPolicy';
 import { PairedPunctuationPolicy, PairedPunctuationCompletion } from
   './input/PairedPunctuationPolicy';
 import { ChineseSymbolFaces, PunctuationMarksView } from './input/ChineseSymbolFaces';
@@ -1522,8 +1523,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         minusEqual: preferences.navigation?.minus_equal ?? true,
         commaPeriod: preferences.navigation?.comma_period ?? true,
         brackets: preferences.navigation?.brackets ?? false,
-        tab: preferences.navigation?.tab ?? true,
-        pageUpDown: preferences.navigation?.page_up_down ?? true,
+        // Tab 和 PageUp/PageDown 两组翻页键固定开启，不读存着的值：组字时关掉的绑定被 HardwareKeyRouter 判为 IGNORED 吃掉，并不会还给应用，关掉只让键失效。韩文汉字 / 注音列表原本会把关掉的键交还应用，固定开启后在列表里也翻页。设置页也不再给这两组的开关（HostCapabilities.tab_page_paging_switches）。
+        tab: true,
+        pageUpDown: true,
         mouseWheel: preferences.navigation?.mouse_wheel ?? false,
         arrows: preferences.navigation?.arrows ?? true
       },
@@ -2347,6 +2349,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.punctuationLock === 'chinese';
   }
 
+  /** 切换中文标点有没有作用：固定标点锁定时没有（`PunctuationLockPolicy.toggles`），功能面板据此把「中文标点」磁贴置灰，而不是让它点了又弹回。 */
+  punctuationToggles(): boolean {
+    return PunctuationLockPolicy.toggles(this.punctuationLock);
+  }
+
   /**
    * Ctrl+Shift+E, as `IsEnglishModeToggleKey` → `SetEnglishInputMode` + `ClearState` on Windows.
    *
@@ -2419,9 +2426,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.wordCharacter;
   }
 
-  /** Whether punctuation keys write Chinese punctuation, which the touch strip and the function panel show as a switch. */
+  /** Whether punctuation keys write Chinese punctuation, which the touch strip and the function panel show as a switch. 固定标点锁定时显示锁定值，与真正出标点的共享层一致（`PunctuationLockPolicy`）。 */
   usesChinesePunctuation(): boolean {
-    return this.chinesePunctuation;
+    return PunctuationLockPolicy.effectiveChinese(this.chinesePunctuation, this.punctuationLock);
   }
 
   /**
@@ -2430,8 +2437,13 @@ export class KeyboardSession implements HardwareKeyTarget {
    * Written as a preference rather than as a live session mode because that is how this host has always changed it: the same value drives the toolbar face and the settings page, and two mechanisms for one switch is how they come to disagree.
    *
    * The switch moves only once the store has taken the write: the reload that follows skips this session's own revision, so a refused write that still flipped the flag would write punctuation the settings page says is off. Returns the state now in effect.
+   *
+   * 固定标点锁定时什么都不做，返回锁定值：这时共享层不看这个开关，写它只会借账号同步改掉用户其他设备的起始标点。Windows TIP 和 fcitx5 在锁定时同样不理会切换。
    */
   togglePunctuation(): boolean {
+    if (!PunctuationLockPolicy.toggles(this.punctuationLock)) {
+      return this.usesChinesePunctuation();
+    }
     if (!this.writePreference('chinese_punctuation', !this.chinesePunctuation)) {
       return this.chinesePunctuation;
     }
@@ -2608,8 +2620,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       tibetan: !this.englishMode && this.schemeName === 'tibetan',
       stroke: !this.englishMode && this.schemeName === 'stroke',
       capsLock: this.capsLock,
-      // Korean and Vietnamese write ASCII punctuation whatever the switch says (`uses_chinese_punctuation`), and the face reports what is written.
-      chinesePunctuation: this.chinesePunctuation && !this.writesAsciiPunctuation(),
+      // Korean and Vietnamese write ASCII punctuation whatever the switch says (`uses_chinese_punctuation`), and the face reports what is written. 固定标点锁定时按锁定值显示（usesChinesePunctuation）。
+      chinesePunctuation: this.usesChinesePunctuation() && !this.writesAsciiPunctuation(),
       fullWidth: this.fullWidth, traditional: this.traditional
     };
     this.onToolbar(state, FloatingToolbarLayout.buttons(this.toolbarComponents()),

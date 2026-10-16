@@ -132,7 +132,7 @@ macOS 只播放皮肤清单 `[animation]` 表里显式写出的预设。显示�
 
 代价：
 
-- **作者需要显式写出预设**：同一个 v2 包，省略 `[animation]` 在 Windows 和 Web 上会动，在 macOS 上不动。作者想在 macOS 上要动效，必须显式写出预设。
+- **作者需要显式写出预设**：同一个 v2 包，省略 `[animation]` 在 Windows 和 Web 上会动，在 macOS 上不动。作者想在 macOS 上要动效，必须显式写出预设。用 MCP 做皮肤的 agent 也是作者：`list_candidate_skins` 的 `animation` 报的是补好默认之后的预设，所以同时带上 `declared`，标出哪几个是清单写出来的，否则 agent 会把省略后的默认组合当成皮肤在 macOS 上的动效；`create_candidate_skin` 的说明和 `make_skin` prompt 也要求三个预设都显式写出。
 - **选中的触发比 Windows 和 Web 窄**：那两边只比较高亮格位，打字让高亮回到第一格时也播选中；macOS 只在用户移动高亮时播。
 - **阴影突然出现**：进场结束时窗口阴影是突然出现的。
 - **退场窗口的副作用**：

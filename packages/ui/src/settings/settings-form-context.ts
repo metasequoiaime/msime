@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
-import type { Preferences, SettingsPageModel } from "../index";
+import type { SettingsPageModel } from "../index";
+import type { Preferences } from "../core/preferences-model";
 
 /**
  * What a page of the settings form reads. The form is only drawn once the preferences have loaded, so its pages see the draft as present rather than each re-checking it.

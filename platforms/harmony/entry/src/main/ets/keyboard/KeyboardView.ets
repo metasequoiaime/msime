@@ -474,6 +474,8 @@ struct KeyboardView {
   @State traditional: boolean = false;
   /** Chinese punctuation, mirrored from the session so the strip's pill and the panel's tile redraw when it flips. */
   @State chinesePunctuation: boolean = true;
+  /** 固定标点锁定了中文或英文标点：这时切换不起作用，功能面板的「中文标点」磁贴置灰。 */
+  @State punctuationLocked: boolean = false;
   /** View 的 `punctuation_marks`：引号与方头括号样式，符号键和 123 层的键面跟着它画。 */
   @State cornerQuotes: boolean = false;
   @State hollowBrackets: boolean = false;
@@ -2747,6 +2749,7 @@ struct KeyboardView {
     this.feedback = KeyboardSession.shared.feedbackSettings();
     this.traditional = KeyboardSession.shared.usesTraditional();
     this.chinesePunctuation = KeyboardSession.shared.usesChinesePunctuation();
+    this.punctuationLocked = !KeyboardSession.shared.punctuationToggles();
     this.fullWidth = KeyboardSession.shared.isFullWidth();
     this.translations = KeyboardSession.shared.showsCandidateTranslations();
     this.fuzzyPinyin = KeyboardSession.shared.usesFuzzyPinyin();
@@ -7534,9 +7537,12 @@ struct KeyboardView {
     }
   }
 
-  /** 磁贴当前是否可用：繁体输出对日文没有意义，手写需要带中文方案的版本，语音和 AI 润色需要各自的服务商，强度需要开启振动。 */
+  /** 磁贴当前是否可用：固定标点锁定时中文标点切换不起作用，繁体输出对日文没有意义，手写需要带中文方案的版本，语音和 AI 润色需要各自的服务商，强度需要开启振动。 */
   private functionTileEnabled(id: string): boolean {
     switch (id) {
+      case FunctionPanelPolicy.CHINESE_PUNCTUATION:
+        // 锁定时 `togglePunctuation` 什么都不做，磁贴照常可点只会点了又弹回；置灰与 Windows 托盘在锁定时禁用「中文标点」相同，读屏也会报不可用。
+        return !this.punctuationLocked;
       case FunctionPanelPolicy.TRADITIONAL:
         return !this.japanese;
       case FunctionPanelPolicy.HANDWRITING:

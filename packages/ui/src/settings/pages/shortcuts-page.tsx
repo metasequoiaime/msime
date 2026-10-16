@@ -74,6 +74,7 @@ export function ShortcutSettingsPage() {
             wordCharacter={wordCharacter}
             linux={false}
             harmonyPhone
+            tabPageSwitches={showTabPagePagingSwitches}
             onChange={onPagingChange}
           />
         )

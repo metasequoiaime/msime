@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import type { PluginKind } from "./plugin-types";
 
 /** Mirrors `client-core::preferences::KeySoundMode`. */

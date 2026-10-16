@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import type { DiagnosticLogPreferences } from "./diagnostic-logs-section";
 import { diagnosticLogPreferences } from "./diagnostic-log-preferences";
 import { createSettingsDraftActions } from "./settings-draft-actions";

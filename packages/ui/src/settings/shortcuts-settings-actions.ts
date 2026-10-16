@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { defaultKeybindings } from "./keybinding-defaults";
 
 export interface CreateShortcutsSettingsActionsOptions {

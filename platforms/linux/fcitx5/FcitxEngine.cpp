@@ -61,6 +61,7 @@
 #endif
 #include "../src/core/BackspaceHoldPolicy.h"
 #include "../src/core/SmartPunctuationSpace.h"
+#include "../src/core/SmartPunctuationChoice.h"
 #include "../src/core/SpellingSymbols.h"
 #include "../src/core/LocalModeSwitches.h"
 #include "../src/system/KeySound.h"
@@ -207,6 +208,8 @@ struct PendingPreferenceSave {
   bool theme_choice = false;
   // The value is a 辅助码方案 status-bar choice for `section` (quanpin_helpcode or shuangpin_helpcode): besides `section.schema` it clears that scheme's helpcode pack, as the settings page does, or the pack would keep overriding the schema just chosen (core/HelpcodePack.h).
   bool helpcode_schema_choice = false;
+  // The value is the 智能标点 menu toggle: smart_punctuation is written together with smart_punctuation_direct_digit and smart_punctuation_direct_letter in one save (core/SmartPunctuationChoice.h), not as three jobs that could each land on a different revision.
+  bool smart_punctuation_choice = false;
 };
 
 // ABI buffers and errors never escape into diagnostics or the panel.
@@ -250,6 +253,8 @@ Json savePreference(const PendingPreferenceSave &request) {
     msime::linux_host::apply_helpcode_schema_choice(
         snapshot["preferences"], request.section == "shuangpin_helpcode" ? "shuangpin" : "quanpin",
         request.value.get<std::string>());
+  else if (request.smart_punctuation_choice)
+    msime::linux_host::apply_smart_punctuation_choice(snapshot["preferences"], request.value.get<bool>());
   else if (request.section.empty()) snapshot["preferences"][request.key] = request.value;
   else snapshot["preferences"][request.section][request.key] = request.value;
   const auto encoded = snapshot.dump();
@@ -1033,7 +1038,10 @@ public:
     auto snapshot = preferences_snapshot_;
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
-    snapshot["preferences"][key] = enabled;
+    // 智能标点总开关连同数字后、字母后直出一起写，与设置页相同；否则设置页关过一次之后，这里打开的只是一个不起作用的总开关。
+    const bool smart_choice = std::string_view(key) == "smart_punctuation";
+    if (smart_choice) msime::linux_host::apply_smart_punctuation_choice(snapshot["preferences"], enabled);
+    else snapshot["preferences"][key] = enabled;
     const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
@@ -1043,7 +1051,8 @@ public:
     smart_punctuation_ = preferences_.value("smart_punctuation", true);
     smart_punctuation_repeat_ = preferences_.value("smart_punctuation_repeat", true);
     preferences_snapshot_ = std::move(snapshot);
-    saveBooleanPreference(key, enabled);
+    if (smart_choice) saveSmartPunctuationChoice(enabled);
+    else saveBooleanPreference(key, enabled);
     render();
     return true;
   }
@@ -1242,6 +1251,12 @@ public:
   void saveNestedNumberPreference(const char *object, const char *key, uint8_t value) {
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
     startPreferenceSave({options_path_, object, key, value});
+  }
+  void saveSmartPunctuationChoice(bool enabled) {
+    if (options_path_.empty() || private_) return;
+    PendingPreferenceSave request{options_path_, {}, "smart_punctuation", enabled};
+    request.smart_punctuation_choice = true;
+    startPreferenceSave(std::move(request));
   }
   void saveHelpcodeSchemaChoice(const char *section, const std::string &schema) {
     if (options_path_.empty() || private_) return;

@@ -51,6 +51,37 @@ class IntersectionParityTests(unittest.TestCase):
         self.assertIn("chinese_punctuation", errors.getvalue())
         self.assertIn("never takes effect", errors.getvalue())
 
+    def preferences_in_leaf_module(self):
+        leaf = PARITY.UI.parent / "core" / "preferences-model.ts"
+        leaf.parent.mkdir()
+        leaf.write_text(PARITY.UI.read_text())
+        PARITY.UI.write_text('export type { Preferences } from "./core/preferences-model";')
+        return leaf
+
+    def test_preferences_in_leaf_module_still_expands_imported_bases(self):
+        self.preferences_in_leaf_module()
+        bodies = PARITY.page_object_bodies()
+        self.assertEqual(
+            set(PARITY.ts_members(bodies["Preferences"])),
+            {"scheme", "child", "chinese_punctuation", "smart_punctuation"},
+        )
+
+    def test_missing_field_in_leaf_preferences_still_fails_parity(self):
+        leaf = self.preferences_in_leaf_module()
+        leaf.write_text(leaf.read_text().replace("scheme: string;", ""))
+        PARITY.RUST.write_text(
+            "pub struct Preferences {\n"
+            "    pub scheme: String,\n"
+            "    pub child: bool,\n"
+            "    pub chinese_punctuation: bool,\n"
+            "    pub smart_punctuation: bool,\n"
+            "}\n"
+        )
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            self.assertEqual(PARITY.main(), 1)
+        self.assertIn("['scheme'] exist in client_core::preferences::Preferences", errors.getvalue())
+
     def test_missing_base_is_rejected_instead_of_skipping_its_fields(self):
         self.shared.write_text("")
         with self.assertRaisesRegex(ValueError, "Shared"):

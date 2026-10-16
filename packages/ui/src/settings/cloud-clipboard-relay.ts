@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import type { CloudClipboardRelayPreferences } from "./cloud-clipboard-relay-preferences";
 export type { CloudClipboardRelayPreferences } from "./cloud-clipboard-relay-preferences";
 

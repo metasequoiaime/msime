@@ -114,8 +114,9 @@ void preference_monitor_tests(const std::string &options,
             "Live character-set shortcut setting was not published");
     require(state.japanese_toggle_shortcut_enabled(),
             "Live Japanese toggle shortcut setting was not published");
+    // Tab 和 PageUp/PageDown 固定开启（preference_navigation），存着的关不起作用。
     require(!navigation.minus_equal && !navigation.comma_period && navigation.brackets &&
-            !navigation.tab && !navigation.page_up_down && !navigation.arrows,
+            navigation.tab && navigation.page_up_down && !navigation.arrows,
             "Live navigation settings were not published or were reverted by stale settings");
     bool join_rejected = false;
     try {

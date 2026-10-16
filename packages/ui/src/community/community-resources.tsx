@@ -11,7 +11,7 @@ import {
 } from "./community-skins";
 import { useToast } from "../core/toast";
 import { boundedGraphemes } from "../core/text";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import {
   appendUniqueById,
   communityRating,

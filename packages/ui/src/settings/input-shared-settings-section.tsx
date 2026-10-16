@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { GroupList, MoreOptions } from "../core/platform-controls";
 import { ChineseEnglishSpacingSection } from "./chinese-english-spacing-section";
 import { CloudCandidatesSection } from "./cloud-candidates-section";

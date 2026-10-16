@@ -24,6 +24,7 @@
 #include "ViewComposition.h"
 #include "ReplacedProgram.h"
 #include "SmartPunctuationSpace.h"
+#include "SmartPunctuationChoice.h"
 #include "SpellingSymbols.h"
 #include "PreparePaths.h"
 #include "LocalModeSwitches.h"
@@ -8006,7 +8007,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             snapshot["preferences"]["wubi_auto_commit_unique"] = request.value;
             break;
           case MenuPreference::SmartPunctuation:
-            snapshot["preferences"]["smart_punctuation"] = request.value;
+            // 连同数字后、字母后直出一起写，与设置页相同（SmartPunctuationChoice.h）。
+            msime::linux_host::apply_smart_punctuation_choice(snapshot["preferences"], request.value.get<bool>());
             break;
           case MenuPreference::SmartPunctuationRepeat:
             snapshot["preferences"]["smart_punctuation_repeat"] = request.value;

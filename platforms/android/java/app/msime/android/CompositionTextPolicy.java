@@ -5,7 +5,8 @@ public final class CompositionTextPolicy {
     private CompositionTextPolicy() {}
 
     /**
-     * 编辑器不提供最大长度，但 `setComposingText` 后可以同步读光标前的文字。
+     * 编辑器不提供最大长度，但 `setComposingText` 所在批量编辑结束后可以读光标前的文字。
+     * 批内读取可能只是 Compose 的旧快照，不能用来判断截短。
      * 读不到上下文时保守地认为成功，避免把正常组字误判成被截短。
      */
     public static boolean matchesEditorSuffix(CharSequence beforeCursor, String composing) {

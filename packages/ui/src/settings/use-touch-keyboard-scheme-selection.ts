@@ -7,7 +7,7 @@ import {
   updateTouchKeyboardSchemeEnabled,
   type TouchKeyboardScheme,
 } from "./touch-keyboard-scheme-helpers";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 
 export interface UseTouchKeyboardSchemeSelectionOptions {
   draft: Preferences | undefined;

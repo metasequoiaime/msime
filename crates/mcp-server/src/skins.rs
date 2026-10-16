@@ -50,6 +50,16 @@ pub struct SkinAnimationView {
     pub selection: String,
     pub duration_ms: u16,
     pub stagger_ms: u16,
+    /// 三个预设各自是否由清单的 `[animation]` 表写出。没写的预设是补上的默认值：版本 2 皮肤省略时 Windows 和网页仍按默认组合播放，macOS 只播放写出来的预设，所以要在 macOS 上动起来必须显式写出。
+    pub declared: SkinAnimationDeclaredView,
+}
+
+#[derive(Debug, Serialize, JsonSchema, PartialEq)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SkinAnimationDeclaredView {
+    pub enter: bool,
+    pub exit: bool,
+    pub selection: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema, PartialEq)]
@@ -109,6 +119,11 @@ pub fn list(state_dir: &Path) -> SkinList {
                     selection: package.animation.selection.id().into(),
                     duration_ms: package.animation.duration_ms,
                     stagger_ms: package.animation.stagger_ms,
+                    declared: SkinAnimationDeclaredView {
+                        enter: package.animation.declared.enter,
+                        exit: package.animation.declared.exit,
+                        selection: package.animation.declared.selection,
+                    },
                 },
             })
             .collect(),
@@ -241,9 +256,68 @@ mod tests {
                     selection: "none".into(),
                     duration_ms: 0,
                     stagger_ms: 0,
+                    declared: SkinAnimationDeclaredView {
+                        enter: false,
+                        exit: false,
+                        selection: false,
+                    },
                 },
                 synced: false,
             }]
+        );
+    }
+
+    #[test]
+    fn the_listing_tells_declared_presets_from_filled_in_defaults() {
+        let state = tempfile::tempdir().unwrap();
+        for (id, animation) in [
+            ("implicit", ""),
+            ("enter_only", "[animation]\nenter = 'slide_up'\n"),
+        ] {
+            let manifest = format!(
+                "schema_version = 2\nid = '{id}'\nname = 'Motion'\nversion = '2.0'\nbase = 'system'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{animation}"
+            );
+            create(
+                state.path(),
+                &CreateSkinRequest {
+                    package_id: id.into(),
+                    manifest,
+                    images: BTreeMap::from([("preview.png".into(), PNG.into())]),
+                    replace: false,
+                },
+            )
+            .unwrap();
+        }
+        let listed = list(state.path());
+        let animation = |id: &str| {
+            &listed
+                .skins
+                .iter()
+                .find(|skin| skin.id == id)
+                .unwrap()
+                .animation
+        };
+        // 省略 `[animation]` 的版本 2 皮肤照样报出默认组合，但标明一个都没写，macOS 不会播放。
+        let implicit = animation("implicit");
+        assert_eq!(implicit.enter, "fade_scale");
+        assert_eq!(
+            implicit.declared,
+            SkinAnimationDeclaredView {
+                enter: false,
+                exit: false,
+                selection: false,
+            }
+        );
+        let enter_only = animation("enter_only");
+        assert_eq!(enter_only.enter, "slide_up");
+        assert_eq!(enter_only.selection, "spring");
+        assert_eq!(
+            enter_only.declared,
+            SkinAnimationDeclaredView {
+                enter: true,
+                exit: false,
+                selection: false,
+            }
         );
     }
 

@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { MobileKeyboardFeedback } from "./mobile-keyboard-feedback";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { createSettingsDraftActions } from "./settings-draft-actions";
 
 export interface CreateAppearanceSettingsActionsOptions {

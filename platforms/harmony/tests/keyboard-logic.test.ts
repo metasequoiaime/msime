@@ -12772,6 +12772,70 @@ group("local preference documents require an object", () => {
   );
 });
 
+// 两半不上云。云端的智能标点和本机不同时，等于别的设备替用户切了一次总开关，两半跟着写；相同时本机单独调过的一半不动。与 client-services 的 apply_input_settings 相同。
+group("a changed smart punctuation from the account writes both halves", () => {
+  const schema = fullPreferenceSchema();
+  // 别的设备上先关掉（设置页把两半一起写成假），再在另一台打开：同步过来时两半要跟着打开，否则看着开着却不起作用。
+  const applied = applyAccountPreferences(
+    {
+      smart_punctuation: false,
+      smart_punctuation_direct_digit: false,
+      smart_punctuation_direct_letter: false,
+    },
+    { revision: 2, settings: { "input.smart_punctuation": true } },
+    schema,
+    syncFeedback,
+  );
+  check(applied.preferences.smart_punctuation === true, "the master switch is applied");
+  check(
+    applied.preferences.smart_punctuation_direct_digit === true &&
+      applied.preferences.smart_punctuation_direct_letter === true,
+    "both halves follow a changed master switch",
+  );
+  const off = applyAccountPreferences(
+    {},
+    { revision: 3, settings: { "input.smart_punctuation": false } },
+    schema,
+    syncFeedback,
+  );
+  check(
+    off.preferences.smart_punctuation === false &&
+      off.preferences.smart_punctuation_direct_digit === false &&
+      off.preferences.smart_punctuation_direct_letter === false,
+    "turning it off elsewhere turns both halves off, reading a missing local switch as on",
+  );
+});
+
+group("an unchanged smart punctuation from the account leaves a tuned half alone", () => {
+  const applied = applyAccountPreferences(
+    {
+      smart_punctuation: true,
+      smart_punctuation_direct_digit: true,
+      smart_punctuation_direct_letter: false,
+    },
+    { revision: 2, settings: { "input.smart_punctuation": true } },
+    fullPreferenceSchema(),
+    syncFeedback,
+  );
+  check(applied.preferences.smart_punctuation === true, "the master switch stays on");
+  check(
+    applied.preferences.smart_punctuation_direct_digit === true &&
+      applied.preferences.smart_punctuation_direct_letter === false,
+    "the halves tuned on this device are kept",
+  );
+  const absent = applyAccountPreferences(
+    { smart_punctuation_direct_letter: false },
+    { revision: 3, settings: {} },
+    fullPreferenceSchema(),
+    syncFeedback,
+  );
+  check(
+    absent.preferences.smart_punctuation_direct_letter === false &&
+      absent.preferences.smart_punctuation_direct_digit === undefined,
+    "a cloud document without the switch touches neither half",
+  );
+});
+
 group("the digit order and 跟随系统 travel with the account", () => {
   const schema = fullPreferenceSchema();
   const uploaded = localAccountPreferences(

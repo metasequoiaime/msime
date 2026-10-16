@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 
 export type ClipboardHistoryPreferencesSource = Pick<Preferences, "clipboard_history">;
 

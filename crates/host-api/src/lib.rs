@@ -110,7 +110,7 @@ fn host_page_size(requested: u8) -> u8 {
     requested.min(ffi::host::compiled_platform().max_candidate_page_size())
 }
 
-/// 会话实际用的中英混输触发字符数：本库编译到的平台不读这一项时（macOS，`HostPlatform::reads_mixed_input_minimum_prefix`）固定为默认值，文档里存的数不起作用，设置页也不再给出这一行。
+/// 会话实际用的中英混输触发字符数：本库编译到的平台不读这一项时（macOS、Windows 和 Linux 三个桌面宿主，`HostPlatform::reads_mixed_input_minimum_prefix`）固定为默认值，文档里存的数不起作用，设置页也不再给出这一行。
 fn host_english_minimum_prefix(stored: u8) -> u8 {
     english_minimum_prefix_for(ffi::host::compiled_platform(), stored)
 }

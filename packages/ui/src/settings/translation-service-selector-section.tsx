@@ -4,24 +4,62 @@ import { SelectRow } from "./select-row";
 
 export type TranslationProvider = "none" | "custom" | "tencent" | "niutrans" | "account";
 
+/** 不选在线服务时宿主还会用什么出释义，决定 `none` 一项的叫法。`system`：macOS，离线词库，macOS 26 起再加系统本机翻译（`InputController` 的 `currentOnDeviceGlossRequest`）。`dictionary`：Windows、Linux、HarmonyOS，没有系统翻译，但 host-api 仍把装好的离线词库语言放进查询（`msime_client_translation_query` 的 `offline_gloss_languages`），各宿主照样查出释义。缺省（Android、iOS）沿用「关闭」，那边没有核对过。 */
+export type TranslationOfflineFallback = "system" | "dictionary";
+
+/** 各宿主的 `TranslationOfflineFallback`。 */
+export function translationOfflineFallback({
+  macos,
+  windows = false,
+  linux,
+  harmony = false,
+}: {
+  macos: boolean;
+  windows?: boolean;
+  linux: boolean;
+  harmony?: boolean;
+}): TranslationOfflineFallback | undefined {
+  if (macos) return "system";
+  if (windows || linux || harmony) return "dictionary";
+  return undefined;
+}
+
 export interface TranslationServiceSelectorSectionProps {
   grouped?: boolean;
   available: boolean;
   provider: TranslationProvider;
   showAccountProvider: boolean;
-  /** 不选在线服务时宿主仍用离线翻译（macOS：离线词库，macOS 26 起再加系统本机翻译，见 `InputController` 的 `currentOnDeviceGlossRequest`）。为真时 `none` 叫「离线翻译」并说明来源，不再叫「关闭」，因为候选词翻译打开时它并没有关掉翻译。 */
-  offlineFallback?: boolean;
+  /** 不选在线服务时宿主仍会出的释义（见 `TranslationOfflineFallback`）。有值时 `none` 不再叫「关闭」，因为候选词翻译打开时它并没有关掉释义：`system` 叫「离线翻译（不联网）」，`dictionary` 叫「不使用在线服务」，两者都说明释义从哪里来。 */
+  offlineFallback?: TranslationOfflineFallback;
   onChange: (provider: TranslationProvider) => void;
 }
 
-const offlineFallbackDescription =
-  "离线翻译用随输入法打包的离线词库，macOS 26 起词库查不到的候选再由系统在本机翻译，都不联网；选择在线服务后由该服务翻译";
+const offlineFallbackCopy: Record<
+  TranslationOfflineFallback,
+  { label: string; description: string }
+> = {
+  system: {
+    label: "离线翻译（不联网）",
+    description:
+      "离线翻译用随输入法打包的离线词库，macOS 26 起词库查不到的候选再由系统在本机翻译，都不联网；选择在线服务后由该服务翻译",
+  },
+  dictionary: {
+    label: "不使用在线服务",
+    description:
+      "不联网，候选只显示离线词库查得到的释义：英文来自「显示英文释义」，其他语言要装有对应的离线词库；选择在线服务后由该服务翻译",
+  },
+};
 
 /** 翻译服务的选项。写成返回 Fragment 的普通函数而不是组件，鸿蒙手机的 `SelectRow` 才能从中读出面板选项。 */
-function translationServiceOptions(showAccountProvider: boolean, offlineFallback: boolean) {
+function translationServiceOptions(
+  showAccountProvider: boolean,
+  offlineFallback: TranslationOfflineFallback | undefined,
+) {
   return (
     <>
-      <option value="none">{offlineFallback ? "离线翻译（不联网）" : "关闭"}</option>
+      <option value="none">
+        {offlineFallback ? offlineFallbackCopy[offlineFallback].label : "关闭"}
+      </option>
       <option value="tencent">腾讯云机器翻译</option>
       <option value="niutrans">小牛翻译（NiuTrans）</option>
       <option value="custom">自定义（DeepLX 或 DeepL API）</option>
@@ -38,10 +76,12 @@ export function TranslationServiceSelectorSection({
   available,
   provider,
   showAccountProvider,
-  offlineFallback = false,
+  offlineFallback,
   onChange,
 }: TranslationServiceSelectorSectionProps) {
-  const description = offlineFallback ? offlineFallbackDescription : undefined;
+  const description = offlineFallback
+    ? offlineFallbackCopy[offlineFallback].description
+    : undefined;
   return grouped ? (
     <SettingsRowStack role="group" aria-label="候选词翻译服务">
       <SelectRow

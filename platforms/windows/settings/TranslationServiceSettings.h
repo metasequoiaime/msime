@@ -42,20 +42,22 @@ struct TranslationServiceChoice {
   bool tencent = false;
   std::wstring tencent_secret_id;
   std::wstring tencent_secret_key;
+  // 用户这次在设置窗口里选了腾讯云（共享页 useTranslationSettings 的 tencentChosen）。不是偏好，窗口关掉就忘。
+  bool tencent_chosen = false;
 };
 
-// 选中的服务：account、niutrans、custom、tencent 或 none。与共享页一样，腾讯云默认开着、却没有可用凭据时不算用户的选择，不会盖过水杉账号；Windows 的 Server 认得水杉账号，所以这一支在 Windows 上生效。
+// 选中的服务：account、niutrans、custom、tencent 或 none。与共享页一样，腾讯云默认开着、却没有可用凭据时不算用户的选择，不会盖过水杉账号；Windows 的 Server 认得水杉账号，所以这一支在 Windows 上生效。没有可用凭据的腾讯云也不会被请求（host-api 的 selected_translation_services 只在两个密钥都可用时才把它放进查询，Server 按查询走），所以用户这次没选过腾讯云时显示成 none，与实际一致；选了才显示腾讯云，凭据框随之出现。
 inline std::wstring_view translation_provider(TranslationServiceChoice const &choice) {
-  const bool tencent_in_use = choice.tencent &&
-                              tencent_secret_configured(choice.tencent_secret_id) &&
-                              tencent_secret_configured(choice.tencent_secret_key);
+  const bool tencent_configured = tencent_secret_configured(choice.tencent_secret_id) &&
+                                  tencent_secret_configured(choice.tencent_secret_key);
+  const bool tencent_in_use = choice.tencent && tencent_configured;
   if (choice.account && !choice.niutrans && !choice.custom && !tencent_in_use)
     return L"account";
   if (choice.niutrans)
     return L"niutrans";
   if (choice.custom)
     return L"custom";
-  if (choice.tencent)
+  if (choice.tencent && (tencent_configured || choice.tencent_chosen))
     return L"tencent";
   return L"none";
 }

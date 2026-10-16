@@ -827,24 +827,27 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
 }
 
-/// macOS 把 Tab、PageUp/PageDown 两组翻页键固定为开，中英混输的触发字符数固定为默认值；其他宿主照旧读偏好并显示开关。
+/// macOS、Windows 和 HarmonyOS 把 Tab、PageUp/PageDown 两组翻页键固定为开（关掉只让键失效，不会还给应用），Linux 和 Android、iOS 照旧读偏好并显示开关。三个桌面宿主把中英混输的触发字符数固定为默认值，触屏宿主照旧读。
 #[test]
-fn macos_fixes_the_tab_page_paging_keys_and_the_mixed_input_prefix() {
-    for platform in [
-        HostPlatform::Windows,
-        HostPlatform::Macos,
-        HostPlatform::Linux,
-        HostPlatform::Harmony,
-        HostPlatform::Android,
-        HostPlatform::Ios,
+fn hosts_fix_the_tab_page_paging_keys_and_the_mixed_input_prefix() {
+    // (宿主, 读 Tab/PageUp 开关, 读触发字符数)
+    for (platform, reads_paging, reads_prefix) in [
+        (HostPlatform::Windows, false, false),
+        (HostPlatform::Macos, false, false),
+        (HostPlatform::Linux, true, false),
+        (HostPlatform::Harmony, false, true),
+        (HostPlatform::Android, true, true),
+        (HostPlatform::Ios, true, true),
     ] {
         let host = HostCapabilities::for_platform(platform);
-        let reads = platform != HostPlatform::Macos;
-        assert_eq!(host.tab_page_paging_switches, reads, "{platform:?}");
-        assert_eq!(host.mixed_input_minimum_prefix, reads, "{platform:?}");
+        assert_eq!(host.tab_page_paging_switches, reads_paging, "{platform:?}");
+        assert_eq!(
+            host.mixed_input_minimum_prefix, reads_prefix,
+            "{platform:?}"
+        );
         assert_eq!(
             platform.reads_mixed_input_minimum_prefix(),
-            reads,
+            reads_prefix,
             "{platform:?}"
         );
     }
