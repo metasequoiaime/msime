@@ -404,6 +404,7 @@ test("试用键盘 goes to the chat when the host has one, also when its keyboar
   });
   fireEvent.click(within(statusCard()).getByRole("button", { name: "试用键盘" }));
   await waitFor(() => expect(onOpenChat).toHaveBeenCalledTimes(2));
+  expect(onOpenChat.mock.calls).toEqual([[], []]);
   expect(onOpenPage).not.toHaveBeenCalled();
 });
 
@@ -515,6 +516,43 @@ test("opening a root row from the shell lands on that page", async () => {
 });
 
 // ---- 桌面首页：保持不变 ----
+
+test.each(
+  ["missing", "success", "rejected"].flatMap((outcome) =>
+    [false, true].map((chat) => ({ outcome, chat })),
+  ),
+)("桌面键盘入口保留 $outcome 时的回退，聊天能力 $chat", async ({ outcome, chat }) => {
+  const onOpenPage = vi.fn();
+  const onOpenChat = chat ? vi.fn() : undefined;
+  const receivers: unknown[] = [];
+  const actions =
+    outcome === "missing"
+      ? undefined
+      : {
+          openKeyboard() {
+            receivers.push(this);
+            return outcome === "success"
+              ? Promise.resolve()
+              : Promise.reject(new Error("合成窗口错误"));
+          },
+        };
+  render(
+    <HomePage
+      preferences={initial.preferences}
+      actions={actions}
+      onOpenPage={onOpenPage}
+      onOpenChat={onOpenChat}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /我的键盘/ }));
+  await act(async () => {});
+
+  if (outcome !== "missing") expect(receivers).toEqual([actions]);
+  expect(onOpenPage.mock.calls).toEqual(
+    outcome !== "success" && !chat ? [["screen-keyboard"]] : [],
+  );
+  if (onOpenChat) expect(onOpenChat.mock.calls).toEqual(outcome === "success" ? [] : [[]]);
+});
 
 test("renders the keyboard home surface with the current skin and scheme", () => {
   render(<HomePage preferences={initial.preferences} onOpenPage={vi.fn()} />);

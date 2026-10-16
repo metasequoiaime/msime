@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-桌面外壳与触屏首页的搜索键盘入口先检查 `nativeEvent.isComposing` 和 `keyCode === 229`，组合事件直接返回，保留当前查询和页面，不取消默认行为。普通回车仍打开首个匹配页，普通 Esc 仍清空搜索；搜索过滤与点击导航保持原有契约。
+桌面外壳与触屏首页的搜索键盘入口（首页由 `keyboard/use-home-search.ts` 的 `searchKeyDown` 持有）先检查 `nativeEvent.isComposing` 和 `keyCode === 229`，组合事件直接返回，保留当前查询和页面，不取消默认行为。普通回车仍打开首个匹配页，普通 Esc 仍清空搜索；搜索过滤与点击导航保持原有契约。
 
 共享外壳的一个入口分别显示在 macOS 和 HarmonyOS 2-in-1 侧栏、Windows 的共享设置标题栏或侧栏。本次约束的是共享组件，不是 Windows 原生 WinUI 搜索实现。
 

@@ -1,21 +1,17 @@
-import { useState, type KeyboardEvent } from "react";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import { globalThemeTitle, keyboardThemeId, themeEntry } from "../theme/global-theme";
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
 import { ActionButton } from "../core/action-button";
 import { NavGroup } from "../core/platform-controls";
-import type { ImeSetupClient } from "../core/host-contracts";
+import { openHomeKeyboard, type HomePageActions } from "./home-model";
+import { useHomeSearch } from "./use-home-search";
 import type { Preferences } from "../core/preferences-model";
 import type { SurfaceTheme } from "../settings/theme-preferences";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 import { SetupStatusCard } from "./setup-status-card";
 import { logo } from "../settings/app-resources";
-import {
-  RootSettingsList,
-  RootSettingsRowView,
-  rootSettingsGroups,
-  type RootPage,
-} from "./root-settings-list";
+import { RootSettingsList, RootSettingsRowView } from "./root-settings-list";
+import type { RootPage } from "./root-settings-model";
 
 // Every tappable surface on this page is the same card: full width, a hairline that strengthens on
 // hover, and the shared press animation. Named here rather than repeated at each of the five call
@@ -60,15 +56,7 @@ function RowIcon({ glyph, chip = false }: { glyph: string; chip?: boolean }) {
   );
 }
 
-export interface HomePageActions {
-  openKeyboard?: () => Promise<void>;
-  openEmojiPanel?: () => Promise<void>;
-  openClipboardPanel?: () => Promise<void>;
-  openSystemKeyboardSettings?: () => Promise<void>;
-  showInputMethodPicker?: () => Promise<void>;
-  /** 本输入法是否已启用、是否为当前输入法，供触屏首页的状态卡片使用；没有它的宿主照常显示卡片并提供两个步骤。 */
-  setup?: ImeSetupClient;
-}
+export type { HomePageActions } from "./home-model";
 
 export function HomePage({
   preferences,
@@ -137,35 +125,12 @@ function TouchHomePage({
   onOpenChat?: () => void;
   rootPages?: readonly RootPage[];
 }) {
-  const [query, setQuery] = useState("");
-  const groups = rootPages ? rootSettingsGroups(rootPages, preferences) : [];
-  const needle = query.trim().toLowerCase();
-  const matches = needle
-    ? groups
-        .flat()
-        .filter(
-          (row) =>
-            row.title.toLowerCase().includes(needle) ||
-            Boolean(row.value?.toLowerCase().includes(needle)),
-        )
-    : [];
-
-  const tryInPage = () => (onOpenChat ? onOpenChat() : onOpenPage("try-keyboard"));
-  const tryKeyboard = () => {
-    const openKeyboard = actions?.openKeyboard;
-    if (!openKeyboard) {
-      tryInPage();
-      return;
-    }
-    void openKeyboard().catch(tryInPage);
-  };
-  const searchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-    if (event.key !== "Escape" || !query) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setQuery("");
-  };
+  const { query, setQuery, groups, needle, matches, searchKeyDown } = useHomeSearch(
+    preferences,
+    rootPages,
+  );
+  const tryKeyboard = () =>
+    openHomeKeyboard(actions?.openKeyboard, onOpenChat ?? (() => onOpenPage("try-keyboard")));
 
   return (
     <section className="flex flex-col gap-5" aria-label="首页">
@@ -239,22 +204,11 @@ function DesktopHomePage({
   const invokeAction = (action?: () => Promise<void>) => {
     if (action) void action();
   };
-  const openKeyboard = () => {
-    if (!actions?.openKeyboard) {
-      // iOS has no separate desktop-style panel. Its Apple home card opens a
-      // real text field so the system keyboard extension can be tried in place.
-      if (onOpenChat) {
-        onOpenChat();
-        return;
-      }
-      onOpenPage("screen-keyboard");
-      return;
-    }
-    void actions.openKeyboard().catch(() => {
-      if (onOpenChat) onOpenChat();
-      else onOpenPage("screen-keyboard");
-    });
-  };
+  const openKeyboard = () =>
+    openHomeKeyboard(
+      actions?.openKeyboard?.bind(actions),
+      onOpenChat ?? (() => onOpenPage("screen-keyboard")),
+    );
 
   return (
     <section className="flex flex-col gap-3.5 pb-6" aria-label="首页">
