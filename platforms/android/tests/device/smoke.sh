@@ -95,6 +95,10 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
+# Compose 可在批量结束时才执行写入，核心验收覆盖延迟组字和中英往返。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.BatchCompositionDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Deferred batch composition acceptance failed" >&2; exit 1; }
 # 菜单复制使用真实系统剪贴板与组字会话，最低 API 的核心验收也必须覆盖。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CopyDeviceInfoDeviceSmoke)
 printf '%s\n' "$result"

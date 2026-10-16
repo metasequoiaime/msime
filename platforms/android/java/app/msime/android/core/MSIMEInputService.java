@@ -989,23 +989,6 @@ public final class MSIMEInputService extends InputMethodService {
                     selectionEcho.invalidate();
                     return false;
                 }
-                CharSequence before;
-                try { before = target.getTextBeforeCursor(text.length(), 0); }
-                catch (RuntimeException error) { before = null; }
-                int actualLength = CompositionTextPolicy.composingLength(before, text);
-                if (actualLength >= 0 && actualLength < text.length()) {
-                    // LengthFilter 截短后可能连组字标记也丢掉；空 setComposingText 无法删掉已变成普通文字的前缀。
-                    // 先结束标记，再按读回的实际长度删除光标前缀，之后只在键盘上保留整段组字。
-                    if (!target.finishComposingText()
-                            || (actualLength > 0 && !target.deleteSurroundingText(actualLength, 0))) {
-                        selectionEcho.invalidate();
-                        return false;
-                    }
-                    editorCompositionSuppressed = true;
-                    selectionEcho.compose(0);
-                    selectionEcho.finish();
-                    return true;
-                }
                 selectionEcho.compose(text.length());
                 return true;
             }
@@ -1027,6 +1010,44 @@ public final class MSIMEInputService extends InputMethodService {
                 selectionEcho.expect();
             }
         };
+    }
+
+    /** 批量结束后才验证组字：Compose 在批内读取时仍可能返回写入前的快照。 */
+    private boolean applyEditorUpdate(String commit, String composing) {
+        final InputConnection target = connection;
+        if (target == null) return true;
+        if (!bridge.apply(sink(typingSource()), commit, composing)) return false;
+        if (composing.isEmpty() || editorCompositionSuppressed) return true;
+        CharSequence before = InputConnectionGuard.textBeforeCursor(target, composing.length());
+        int actualLength = CompositionTextPolicy.composingLength(before, composing);
+        if (actualLength < 0 || actualLength == composing.length()) return true;
+
+        // 第一批已经结束，编辑器可能先回报截短后的选区；过滤器可能保留或移除组字标记。
+        selectionEcho.compose(actualLength);
+        selectionEcho.expect();
+        selectionEcho.finish();
+        selectionEcho.expect();
+        if (!InputConnectionGuard.beginBatchEdit(target)) {
+            selectionEcho.invalidate();
+            return false;
+        }
+        try {
+            // 空 setComposingText 无法删除已被过滤器转成普通文字的前缀，只删这次读回的实际长度。
+            if (!target.finishComposingText()
+                    || (actualLength > 0 && !target.deleteSurroundingText(actualLength, 0))) {
+                selectionEcho.invalidate();
+                return false;
+            }
+            editorCompositionSuppressed = true;
+            selectionEcho.deleteBefore(actualLength);
+            return true;
+        } catch (RuntimeException disconnected) {
+            selectionEcho.invalidate();
+            return false;
+        } finally {
+            InputConnectionGuard.endBatchEdit(target);
+            selectionEcho.expect();
+        }
     }
 
     private TypingSource typingSource() {
@@ -2755,8 +2776,7 @@ public final class MSIMEInputService extends InputMethodService {
             commit = chineseOutput(commit, result.optJSONObject("commit_context"));
         }
         String composing = composingText(next, next.getString("editing_text"), true);
-        if (connection != null
-                && !bridge.apply(sink(typingSource()), commit, composing)) {
+        if (!applyEditorUpdate(commit, composing)) {
             throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
         }
         view = next;
