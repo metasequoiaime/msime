@@ -641,7 +641,7 @@ pub(super) fn validate_google_id_token_login(
     Ok(())
 }
 
-/// The transport check for `/v1/auth/login`. The session has already applied the provider's own rule (six digits, an Apple identity token, a Google authorization code or a Google ID token), so the client accepts a credential that satisfies any of them.
+/// `/v1/auth/login` 的传输检查：会话层已按各登录方式自己的规则检查过凭据（六位数字、Apple identity token、Google 授权码或 Google ID token），这里只要凭据满足其中任意一种就放行。
 pub(super) fn validate_login_request(
     challenge: &str,
     credential: &str,
