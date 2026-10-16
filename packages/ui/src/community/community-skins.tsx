@@ -14,10 +14,11 @@ import {
   type CommunityGalleryClient,
 } from "./community-gallery";
 import { CommunityDetailSummary } from "./community-detail-summary";
-import { StatusMessage } from "../core/status-message";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import * as style from "./community-style";
-import type { CommunitySearchFormProps } from "./community-search-form";
+import { CommunitySearchForm } from "./community-search-form";
+export { CommunityHarmonySearch } from "./community-search-form";
+export { CommunityHarmonyLoadMore } from "./community-gallery-load-more";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunityReportSection } from "./community-report";
 import { CommunityNotice } from "./community-notice";
@@ -31,10 +32,8 @@ import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
-import { CommunityLoadMoreButton } from "./community-gallery-controls";
 import { ActionButton } from "../core/action-button";
 import { useToast } from "../core/toast";
-import { boundedGraphemes } from "../core/text";
 import type { Preferences } from "../core/preferences-model";
 import { useCommunityDetailHistory } from "./use-community-detail-history";
 import {
@@ -91,65 +90,6 @@ function CommunitySkinCard({
         ratingAverage={skin.rating_average}
       />
     </CommunityCard>
-  );
-}
-
-/** HarmonyOS 手机的搜索：一个胶囊输入框，按 Enter 提交，没有单独的搜索按钮。 */
-export function CommunityHarmonySearch({
-  label,
-  value,
-  onChange,
-  onSubmit,
-}: CommunitySearchFormProps) {
-  return (
-    <form
-      className="m-0 min-w-0"
-      role="search"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit();
-      }}
-    >
-      <input
-        className={style.harmonySearch}
-        aria-label={label}
-        placeholder={label}
-        enterKeyHint="search"
-        value={value}
-        onChange={(event) => onChange(boundedGraphemes(event.target.value, 128))}
-      />
-    </form>
-  );
-}
-
-/** HarmonyOS 手机的「加载更多」：列表下方一个低调的文字按钮，下一页加载期间显示加载中的提示行。 */
-export function CommunityHarmonyLoadMore({
-  hasMore,
-  busy,
-  loadingText,
-  onLoadMore,
-}: {
-  hasMore: boolean;
-  busy: boolean;
-  loadingText: string;
-  onLoadMore: () => void;
-}) {
-  if (!hasMore && !busy) return null;
-  return (
-    <>
-      {hasMore && (
-        <CommunityLoadMoreButton
-          className={style.harmonyMore}
-          disabled={busy}
-          onClick={onLoadMore}
-        />
-      )}
-      {busy && (
-        <StatusMessage role="status" className={style.harmonyNotice}>
-          {loadingText}
-        </StatusMessage>
-      )}
-    </>
   );
 }
 
@@ -511,7 +451,8 @@ export function CommunitySkinsPage({
     const shown = skins.filter((skin) => !mineOnly || skin.owned);
     return (
       <div className={style.harmonyPage}>
-        <CommunityHarmonySearch
+        <CommunitySearchForm
+          look="harmony"
           label="搜索皮肤设计"
           value={search}
           onChange={setSearch}
@@ -594,7 +535,8 @@ export function CommunitySkinsPage({
             })}
           </div>
         )}
-        <CommunityHarmonyLoadMore
+        <CommunityGalleryLoadMore
+          look="harmony"
           hasMore={hasMore}
           busy={listBusy}
           loadingText="正在读取社区皮肤…"

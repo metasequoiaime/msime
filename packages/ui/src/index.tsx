@@ -1361,6 +1361,10 @@ export {
   type CommunityResourceScopeButtonsProps,
 } from "./community/community-resource-scope-buttons";
 export {
+  CommunitySearchForm,
+  type CommunitySearchFormProps,
+} from "./community/community-search-form";
+export {
   CommunityGalleryLoadMore,
   type CommunityGalleryLoadMoreProps,
 } from "./community/community-gallery-load-more";
