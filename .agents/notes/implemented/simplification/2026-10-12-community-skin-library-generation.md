@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`packages/ui/src/community/use-community-skin-library.ts` 持有社区卡片的本机库状态、`pillState`、`take` 和 `apply`。页面注入客户端、网格可见性、偏好修改及提示回调，并保留 JSX、按钮文案、详情试用与发布流程。hook 的客户端契约只需要 `download` 与 `finishTrial`，本机库只需要 `load`；独立使用不依赖整页、图库或 toast provider。
+`packages/ui/src/community/use-community-skin-library.ts` 持有社区卡片的本机库状态、`pillState`、`take` 和 `apply`。页面注入客户端、网格可见性、偏好修改及提示回调；普通卡片与 Harmony 卡片由[公共皮肤卡片](2026-10-16-community-skin-cards.md)持有，原 JSX、按钮文案、详情试用与发布流程保持。胶囊状态类型继续由本 hook 持有并经公共包入口导出。hook 的客户端契约只需要 `download` 与 `finishTrial`，本机库只需要 `load`；独立使用不依赖整页、图库或 toast provider。
 
 使用 `useAsyncGeneration(harmony, browsing, localSkinLibrary)` 处理加载请求的生命周期，并保留 `libraryGeneration` 处理本地库变更与读取之间的业务顺序。两种代次各自负责独立约束，不合并它们。
 
