@@ -2174,7 +2174,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const floatingToolbar = floatingToolbarPreferences(draft);
   const { themeMode, settingsTheme, globalTheme, customColors, customTouchKeyboardSkin } =
     settingsThemePreferences(draft, host?.platform, surfaceThemesFollow);
-  // 预览画的自定义主题只含宿主会读的槽位：macOS 不读编号色和边框色，存下的旧值不能在预览里画出来。只给预览用，不写回草稿。
+  // 预览画的自定义主题只含宿主会读的槽位：桌面宿主不读编号色和边框色，存下的旧值不能在预览里画出来。只给预览用，不写回草稿。
   const previewCustomTheme = hostDrawnCustomTheme(
     draft?.custom_theme,
     showCandidateNumberColor,
@@ -2679,6 +2679,7 @@ function SettingsShell(props: SettingsPageProps) {
     recoverPreferences,
     dirty,
     keyboardPreviewTheme,
+    surfaceThemesFollow,
     availablePages,
     handwritingOnScreenKeyboardPage,
     sidebarGroups,
@@ -3051,6 +3052,9 @@ function SettingsShell(props: SettingsPageProps) {
                   }
                   touchLayout={mobilePlatform}
                   ios={iosPlatform}
+                  keyboardSurfaceTheme={
+                    surfaceThemesFollow ? undefined : draft.screen_keyboard_theme
+                  }
                   rootPages={mobileSecondaryGroups
                     .flatMap((group) => group.pages)
                     .map((item) => ({ id: item.id, title: item.title }))}

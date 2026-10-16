@@ -183,8 +183,8 @@ fn capabilities_describe_each_host() {
     assert!(!linux.candidate_preedit_font);
     assert!(linux.candidate_row_colors);
     assert!(!linux.candidate_selection_appearance);
-    // The Fcitx5 classic UI theme draws the border even though neither Linux panel has a hover state.
-    assert!(linux.candidate_border_color);
+    // Fcitx5 经典界面的边框跟随主题和皮肤，宿主不读用户选的边框色。
+    assert!(!linux.candidate_border_color);
     // IBus owns the candidate list's placement, so the host cannot pin it.
     assert!(!linux.candidate_follow_cursor);
     // The host chooses the preedit string the panel draws, so the raw keys
@@ -232,7 +232,7 @@ fn capabilities_describe_each_host() {
     assert!(windows.candidate_preedit_font);
     assert!(windows.candidate_row_colors);
     assert!(windows.candidate_selection_appearance);
-    assert!(windows.candidate_border_color);
+    assert!(!windows.candidate_border_color);
     // Windows positions its own card, so pinning it is a real choice there.
     assert!(windows.candidate_follow_cursor);
     let macos = HostCapabilities::for_platform(HostPlatform::Macos);
@@ -250,17 +250,19 @@ fn capabilities_describe_each_host() {
     assert!(macos.candidate_font_controls);
     assert!(macos.candidate_row_colors);
     assert!(macos.candidate_selection_appearance);
-    // macOS 的编号色和边框色固定跟随主题，宿主不读这两个槽位，设置页也不给取色器；其他宿主照旧。
-    assert!(!macos.candidate_border_color && !macos.candidate_number_color);
-    // macOS 上只有候选窗口还能单独设明暗，其余界面一律跟随颜色模式。
-    assert!(macos.surface_themes_follow);
+    // 桌面宿主的编号色和边框色固定跟随主题，宿主不读这两个槽位，设置页也不给取色器；桌面宿主上只有候选窗口还能单独设明暗，其余界面一律跟随颜色模式。
     for platform in [
+        HostPlatform::Macos,
         HostPlatform::Windows,
         HostPlatform::Linux,
-        HostPlatform::Android,
-        HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert!(!host.candidate_number_color && !host.candidate_border_color);
+        assert!(host.surface_themes_follow);
+    }
+    // Android 和 iOS 的键盘仍读这两个槽位和各界面的单独明暗。
+    for platform in [HostPlatform::Android, HostPlatform::Ios] {
         let host = HostCapabilities::for_platform(platform);
         assert!(host.candidate_number_color && host.candidate_border_color);
         assert!(!host.surface_themes_follow);
@@ -624,7 +626,7 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     assert!(harmony.candidate_font_controls);
     assert!(harmony.candidate_row_colors);
     assert!(harmony.candidate_selection_appearance);
-    assert!(harmony.candidate_border_color);
+    assert!(!harmony.candidate_border_color);
     assert!(harmony.candidate_follow_cursor);
     // The 2in1 status-bar badge is the only mode readout a machine with a hardware keyboard
     // gets when the toolbar is off, so the switch that governs it belongs on this host too.

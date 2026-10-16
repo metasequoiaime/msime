@@ -237,7 +237,7 @@ export function SkinSettingsPage({
         value={themeMode}
         onChange={(theme) => onPreferencesChange({ theme })}
       />
-      {/* 各界面一律跟随颜色模式的宿主（macOS）只剩候选窗口还能单独设明暗，放在颜色模式下面，主题页因此没有「高级」组。 */}
+      {/* 各界面一律跟随颜色模式的宿主（macOS、Windows、Linux 和 HarmonyOS 2in1）只剩候选窗口还能单独设明暗，放在颜色模式下面，主题页因此没有「高级」组。 */}
       {surfaceThemesFollow && (
         <CandidateThemeRow
           mobile={mobilePlatform}

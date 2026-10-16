@@ -711,8 +711,8 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(linux["value"]["platform"], "linux");
     assert_eq!(linux["value"]["restart_input_method"], true);
     assert_eq!(linux["value"]["ime_mode_scope"], true);
-    // Every host reads capabilities through this boundary, so the border colour reaches the Linux page here.
-    assert_eq!(linux["value"]["candidate_border_color"], true);
+    // Every host reads capabilities through this boundary; the Fcitx5 border follows the theme, so the Linux page gets no border picker.
+    assert_eq!(linux["value"]["candidate_border_color"], false);
     assert_eq!(linux["value"]["candidate_selection_appearance"], false);
     // Fcitx5 主题支持圆角和候选字号缩放，桌面面板仍不提供半透明填充。
     assert_eq!(linux["value"]["candidate_corner_radius"], true);
@@ -737,16 +737,22 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(macos["value"]["expand_candidates"], true);
     assert_eq!(windows["value"]["expand_candidates"], false);
     assert_eq!(linux["value"]["expand_candidates"], false);
-    // macOS 的各界面一律跟随颜色模式，编号色和边框色跟随主题，设置页按这三项收起对应的控件。
+    // 桌面宿主的各界面一律跟随颜色模式，编号色和边框色跟随主题，设置页按这三项收起对应的控件。
     assert_eq!(macos["value"]["surface_themes_follow"], true);
     assert_eq!(macos["value"]["candidate_number_color"], false);
     assert_eq!(macos["value"]["candidate_border_color"], false);
-    assert_eq!(windows["value"]["surface_themes_follow"], false);
-    assert_eq!(windows["value"]["candidate_number_color"], true);
+    assert_eq!(windows["value"]["surface_themes_follow"], true);
+    assert_eq!(windows["value"]["candidate_number_color"], false);
+    assert_eq!(windows["value"]["candidate_border_color"], false);
+    assert_eq!(linux["value"]["surface_themes_follow"], true);
+    assert_eq!(linux["value"]["candidate_number_color"], false);
 
     let android = capabilities("android");
     assert_eq!(android["value"]["panel_windows"], false);
     assert_eq!(android["value"]["window_chrome"], false);
+    // Android 的键盘仍读各界面的单独明暗和自定义编号色。
+    assert_eq!(android["value"]["surface_themes_follow"], false);
+    assert_eq!(android["value"]["candidate_number_color"], true);
 
     assert_eq!(capabilities("bsd")["ok"], false);
     assert_eq!(capabilities("")["ok"], false);

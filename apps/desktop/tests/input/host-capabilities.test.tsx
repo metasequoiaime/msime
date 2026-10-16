@@ -22,6 +22,7 @@ const initial: Snapshot = {
 function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabilities {
   const platform = overrides.platform ?? "windows";
   const mobile = platform === "android" || platform === "ios" || platform === "harmony";
+  const touchStrip = platform === "android" || platform === "ios";
   return {
     platform,
     restart_input_method: true,
@@ -55,7 +56,10 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     number_row_selection: false,
     candidate_preedit_font: true,
     candidate_page_number: false,
-    candidate_border_color: overrides.candidate_selection_appearance ?? true,
+    // 桌面宿主的编号色和边框色跟随主题，各界面跟随颜色模式；只有 Android 和 iOS 的键盘照旧读这几项。
+    candidate_border_color: touchStrip,
+    candidate_number_color: touchStrip,
+    surface_themes_follow: !touchStrip,
     candidate_window_scale: false,
     candidate_window_opacity: false,
     candidate_corner_radius: false,
@@ -372,36 +376,56 @@ test("candidate appearance follows host capabilities", async () => {
   expect(screen.queryByLabelText("候选边框色")).toBeNull();
   expect(screen.getByLabelText("候选文字颜色")).toBeTruthy();
   expect(screen.getByLabelText("候选表面色")).toBeTruthy();
-  expect(screen.getByLabelText("候选编号颜色")).toBeTruthy();
+  // Linux 的编号色跟随主题（由文字颜色推出），不给取色器。
+  expect(screen.queryByLabelText("候选编号颜色")).toBeNull();
   expect(screen.getByText("当前宿主的候选窗口不支持自定义字体或字号。")).toBeTruthy();
-  expect(
-    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗口无边框。"),
-  ).toBeTruthy();
+  expect(screen.getByText("悬停颜色不支持：Linux 的候选面板没有悬停状态。")).toBeTruthy();
 });
 
-test("Linux offers the border colour Fcitx5 draws and says which host each colour reaches", async () => {
-  // What host_surface.rs answers for Linux: no hover state on either panel, but the Fcitx5 classic UI theme carries the border.
+test("Linux leaves the number and border colours to the theme and says which host the accent reaches", async () => {
+  // What host_surface.rs answers for Linux: no hover state on either panel, and the number and border colours follow the theme.
+  mount({
+    host: capabilities({
+      platform: "linux",
+      candidate_row_colors: true,
+      candidate_selection_appearance: false,
+    }),
+  });
+  await settingsFormReady();
+  expect(screen.queryByLabelText("候选边框色")).toBeNull();
+  expect(screen.queryByLabelText("候选编号颜色")).toBeNull();
+  expect(screen.queryByLabelText("候选悬停色")).toBeNull();
+  expect(screen.getByText("悬停颜色不支持：Linux 的候选面板没有悬停状态。")).toBeTruthy();
+  expect(screen.queryByText("当前宿主的候选窗口不支持悬停或边框颜色。")).toBeNull();
+  // The classic UI theme has no accent colour, so the accent picker says it reaches IBus only.
+  const captions = screen.getAllByText(
+    "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效",
+  );
+  expect(captions).toHaveLength(1);
+  expect(captions[0].parentElement?.textContent).toContain("候选强调色");
+});
+
+// 宿主报告读边框色和编号色时（不是现在的 Linux），边框说明照旧讲清 Fcitx5 与 IBus 的区别，编号色同样标明只对 IBus 生效。
+test("a Linux host that reads the border and number colours says which panel draws them", async () => {
   mount({
     host: capabilities({
       platform: "linux",
       candidate_row_colors: true,
       candidate_selection_appearance: false,
       candidate_border_color: true,
+      candidate_number_color: true,
     }),
   });
   await settingsFormReady();
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
-  expect(screen.queryByLabelText("候选悬停色")).toBeNull();
   expect(
     screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗口无边框。"),
   ).toBeTruthy();
-  expect(screen.queryByText("当前宿主的候选窗口不支持悬停或边框颜色。")).toBeNull();
-  // The classic UI theme has no label or accent colour, so both pickers say they reach IBus only.
   const captions = screen.getAllByText(
     "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效",
   );
-  expect(captions).toHaveLength(2);
   // 每条说明是对应颜色那一行的描述，紧挨着行标题；页码颜色排在强调色之前，紧跟在它所编号的文字颜色之后。
+  expect(captions).toHaveLength(2);
   expect(captions[0].parentElement?.textContent).toContain("候选编号颜色");
   expect(captions[1].parentElement?.textContent).toContain("候选强调色");
 });
@@ -421,7 +445,7 @@ test.each([
   ],
   [
     "ibus_panel",
-    "IBus 的候选窗口由桌面的输入法面板绘制，只接收候选字体和颜色：这里的圆角、边框颜色和皮肤的装饰图在 IBus 下不会生效。",
+    "IBus 的候选窗口由桌面的输入法面板绘制，只接收候选字体和颜色：这里的圆角和皮肤的装饰图在 IBus 下不会生效。",
   ],
 ] as const)(
   "a Linux panel that ignores the appearance settings (%s) is named on the appearance and skin pages",
@@ -488,8 +512,10 @@ test("Windows candidate appearance keeps native controls", async () => {
   await settingsFormReady();
   expect(screen.getByLabelText("字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
-  expect(screen.getByLabelText("候选边框色")).toBeTruthy();
   expect(screen.getByLabelText("候选悬停色")).toBeTruthy();
+  // 编号色和边框色在 Windows 上跟随主题，宿主不读这两个槽位。
+  expect(screen.queryByLabelText("候选边框色")).toBeNull();
+  expect(screen.queryByLabelText("候选编号颜色")).toBeNull();
   expect(screen.queryByText(/Fcitx5 经典界面/)).toBeNull();
   // Windows places its own card, so pinning it is a real choice there.
   expect(screen.getByLabelText("跟随光标")).toBeTruthy();

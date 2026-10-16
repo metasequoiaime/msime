@@ -4201,7 +4201,7 @@ test("the shuangpin key hint switch is not listed on an edition without double p
   expect(screen.queryByRole("switch", { name: "双拼键位提示" })).toBeNull();
 });
 
-test("the theme page runs from the colour mode to the per-surface overrides", async () => {
+test("the theme page runs from the colour mode to the custom colours", async () => {
   render(
     <SettingsPage
       initialPage="skin"
@@ -4214,7 +4214,6 @@ test("the theme page runs from the colour mode to the per-surface overrides", as
           candidate_panel_limit: "fcitx_theme",
           candidate_row_colors: true,
           candidate_selection_appearance: true,
-          candidate_border_color: true,
         }),
       }}
     />,
@@ -4222,26 +4221,24 @@ test("the theme page runs from the colour mode to the per-surface overrides", as
   await settingsReady();
   const skin = screen.getByRole("group", { name: "主题" });
   const groups = [...skin.querySelectorAll("[data-group-title]")].map((title) => title.textContent);
-  expect(groups).toEqual(["明暗", "更多皮肤", "自定义主题", "高级"]);
+  // Linux 的各界面跟随颜色模式（`surface_themes_follow`），没有「高级」组，候选窗口主题在「明暗」组里。
+  expect(groups).toEqual(["明暗", "更多皮肤", "自定义主题"]);
+  expect(
+    within(skin)
+      .getByRole("region", { name: "明暗", hidden: true })
+      .contains(within(skin).getByLabelText("候选窗口主题")),
+  ).toBe(true);
   // 颜色模式自成一组，排在卡片之前，卡片的明暗预览以它为起点。
   const mode = within(skin).getByRole("radiogroup", { name: "颜色模式" });
   const firstCard = skin.querySelector("article")!;
   expect(mode.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  // 颜色从背景排到边框。
+  // 颜色从背景排到行的各种状态；编号色和边框色跟随主题，Linux 不给取色器（顺序的完整版见 skin-custom-colors.test.tsx）。
   const colours = [
     ...within(skin)
       .getByRole("region", { name: "自定义主题" })
       .querySelectorAll("[data-row-title]"),
   ].map((title) => title.textContent);
-  expect(colours).toEqual([
-    "候选表面色",
-    "候选文字颜色",
-    "候选编号颜色",
-    "候选强调色",
-    "候选选中色",
-    "候选悬停色",
-    "候选边框色",
-  ]);
+  expect(colours).toEqual(["候选表面色", "候选文字颜色", "候选强调色", "候选选中色", "候选悬停色"]);
   // Linux 面板的说明放在页首，排在那些皮肤和颜色会被该面板忽略的组之前。
   const note = within(skin).getByText(/Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题/);
   expect(note.compareDocumentPosition(mode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -7180,6 +7177,16 @@ const mergedPages: Record<string, string> = {
   手写输入: "屏幕键盘与手写",
 };
 
+/** 参考窗口有、而各界面一律跟随颜色模式的桌面宿主（`surface_themes_follow`：macOS、Windows、Linux）有意不给的主题行：这些界面只看颜色模式，主题页只留「候选窗口主题」。 */
+const followedSurfaceThemeSections: Record<string, string> = {
+  设置界面主题: "the settings window is drawn in the colour mode",
+  悬浮工具栏主题: "the toolbar and the mode badge are drawn in the colour mode",
+  菜单主题: "the menus are drawn in the colour mode",
+  表情面板主题: "the emoji panel is drawn in the colour mode",
+  手写识别板主题: "the handwriting panel is drawn in the colour mode",
+  语音输入弹出条主题: "the voice overlay is drawn in the colour mode",
+};
+
 test.each(referenceSections)(
   "the $page page still carries the reference window's sections",
   async ({ button, via, group, titles }) => {
@@ -7226,7 +7233,14 @@ test.each(referenceSections)(
       ? await screen.findByRole("region", { name: group })
       : await screen.findByRole("group", { name: pageName });
     const present = sectionTitles(page);
-    expect(titles.filter((title) => !present.includes(title))).toEqual([]);
+    const wanted = titles.filter((title) => !(title in followedSurfaceThemeSections));
+    expect(wanted.filter((title) => !present.includes(title))).toEqual([]);
+    for (const [title, reason] of Object.entries(followedSurfaceThemeSections)) {
+      if (!titles.includes(title)) continue;
+      expect(present.includes(title), `${title} is shown on Windows after all: ${reason}`).toBe(
+        false,
+      );
+    }
   },
 );
 
@@ -7298,12 +7312,7 @@ const macosAbsentSections: Record<string, string> = {
   "Server 端日志": "macOS names this 输入法日志, having no Server process",
   基本功能: "macOS answers the same questions as help cards",
   // macOS 的这些界面一律跟随颜色模式（`surface_themes_follow`），主题页只留「候选窗口主题」。
-  设置界面主题: "macOS draws the settings window in the colour mode",
-  悬浮工具栏主题: "macOS draws the toolbar and the mode badge in the colour mode",
-  菜单主题: "macOS draws its menus in the colour mode",
-  表情面板主题: "macOS draws the emoji panel in the colour mode",
-  手写识别板主题: "macOS draws the handwriting panel in the colour mode",
-  语音输入弹出条主题: "macOS draws the voice overlay in the colour mode",
+  ...followedSurfaceThemeSections,
 };
 
 test.each(referenceSections)(
@@ -7683,7 +7692,7 @@ test.each(
   referenceOptions.flatMap((entry) =>
     optionHosts
       .map(([platform, host]) => ({ ...entry, platform, host }))
-      // macOS 不给的那几行在上面的小节表里按 `macosAbsentSections` 核对过不出现；各宿主固定下来的几项（`fixedOptions`）也不在页面上。
+      // 跟随颜色模式的宿主（macOS、Windows）不给的那几行在上面的小节表里按 `macosAbsentSections` 和 `followedSurfaceThemeSections` 核对过不出现；各宿主固定下来的几项（`fixedOptions`）也不在页面上。
       .filter(
         ({ control, host, platform }) =>
           !(host.surface_themes_follow && control in macosAbsentSections) &&

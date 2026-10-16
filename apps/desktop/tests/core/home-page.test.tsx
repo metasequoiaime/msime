@@ -687,3 +687,40 @@ test("the desktop home reply entry opens AI settings and leaves the touch scheme
   expect(screen.queryByRole("button", { name: "设为当前输入方案 高情商回复" })).toBeNull();
   expect(save).not.toHaveBeenCalled();
 });
+
+// 「我的键盘 · 当前外观」画的是宿主真正会用的键盘：各界面跟随颜色模式的宿主不读存下的屏幕键盘明暗，预览也不能照它画；明确不跟随的宿主照旧用它。
+test.each([
+  ["macos", undefined, "light"],
+  ["windows", undefined, "light"],
+  ["linux", undefined, "light"],
+  ["windows", false, "dark"],
+] as const)(
+  "the desktop home keyboard preview on %s (surface_themes_follow %s) is %s",
+  async (platform, surfaceThemesFollow, expected) => {
+    render(
+      <SettingsPage
+        client={{
+          load: async () => ({
+            ...initial,
+            preferences: { ...initial.preferences, theme: "light", screen_keyboard_theme: "dark" },
+          }),
+          save: vi.fn(),
+          host: testHost({
+            platform,
+            ...(surfaceThemesFollow === undefined
+              ? {}
+              : { surface_themes_follow: surfaceThemesFollow }),
+          }),
+          home: {
+            openKeyboard: vi.fn().mockResolvedValue(undefined),
+          },
+        }}
+      />,
+    );
+    const home = await screen.findByRole("region", { name: "首页" });
+    const preview = within(home).getByRole("img", { name: "屏幕键盘完整布局预览" });
+    expect(preview.closest("[data-preview-theme]")?.getAttribute("data-preview-theme")).toBe(
+      expected,
+    );
+  },
+);

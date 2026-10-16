@@ -17,7 +17,7 @@ export interface CandidateColorsSectionProps {
   showRowColors: boolean;
   showSelectionAppearance: boolean;
   showBorderColor: boolean;
-  /** 宿主读用户选的编号色时显示「候选编号颜色」（`HostCapabilities.candidate_number_color`，缺省为显示）。macOS 的编号色固定跟随主题，不给这一行。 */
+  /** 宿主读用户选的编号色时显示「候选编号颜色」（`HostCapabilities.candidate_number_color`，缺省为显示）。桌面宿主的编号色固定跟随主题，不给这一行。 */
   showNumberColor?: boolean;
   linux: boolean;
   /** Sets or clears one slot. The settings model's `onCandidateColorChange` also selects the custom theme when a colour is chosen (see THEME_CONTRACT). */
@@ -150,8 +150,11 @@ export function CandidateColorsSection({
         />
       ) : (
         <SettingsGroupNote>
+          {/* Linux 的边框色跟随主题（`candidate_border_color` 为假）时没有边框取色器，说明只讲悬停。 */}
           {linux
-            ? "悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗口无边框。"
+            ? showBorderColor
+              ? "悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗口无边框。"
+              : "悬停颜色不支持：Linux 的候选面板没有悬停状态。"
             : "当前宿主的候选窗口不支持悬停或边框颜色。"}
         </SettingsGroupNote>
       )}

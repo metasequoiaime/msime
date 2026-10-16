@@ -62,7 +62,7 @@ export function useHostPlatform(host: SettingsClient["host"]): string | undefine
   return usePanelHost(host).host?.platform;
 }
 
-/** 面板实际按哪一项单独明暗着色：各界面一律跟随颜色模式的宿主（`surface_themes_follow`，目前是 macOS）不读存下的值，与原生面板一致。宿主能力还没读到时也先只按颜色模式画，免得 macOS 面板在答复到来前闪一下已经砍掉的单独明暗；确定没有宿主（浏览器预览，或外壳没答上来）时照旧套用。 */
+/** 面板实际按哪一项单独明暗着色：各界面一律跟随颜色模式的宿主（`surface_themes_follow`，macOS、Windows 和 Linux）不读存下的值，与原生面板一致。宿主能力还没读到时也先只按颜色模式画，免得面板在答复到来前闪一下已经砍掉的单独明暗；确定没有宿主（浏览器预览，或外壳没答上来）时照旧套用。 */
 export function panelSurfaceTheme(
   { host, resolved }: PanelHostState,
   surface: SurfaceTheme | undefined,

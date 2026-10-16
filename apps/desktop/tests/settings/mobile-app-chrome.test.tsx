@@ -210,8 +210,13 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   // 预编辑各行在「候选窗口」页的「更多选项」里，不再有「预编辑」标签。
   expect(screen.getByRole("combobox", { name: "候选窗口预编辑" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "主题" }));
-  expect(screen.getByRole("combobox", { name: "候选窗口主题" })).toBeTruthy();
-  expect(screen.getByRole("combobox", { name: "悬浮工具栏主题" })).toBeTruthy();
+  // 2in1 的各界面跟随颜色模式（`surface_themes_follow`）：候选窗口主题在「明暗」组里，没有工具栏主题和「高级」组。
+  const candidateTheme = screen.getByRole("combobox", { name: "候选窗口主题" });
+  expect(screen.getByRole("region", { name: "明暗", hidden: true }).contains(candidateTheme)).toBe(
+    true,
+  );
+  expect(screen.queryByRole("combobox", { name: "悬浮工具栏主题" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "高级", hidden: true })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "候选栏主题" })).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));

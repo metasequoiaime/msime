@@ -142,13 +142,15 @@ test("Windows retains its PC key faces", () => {
   expect(screen.getByRole("button", { name: "PrtSc" })).toBeTruthy();
 });
 
-// 面板窗口的客户端不带宿主能力，要等外壳答复 `host_capabilities`。答复到来之前不能套用存下的屏幕键盘明暗，否则 macOS 面板会先按已经砍掉的单独设置闪一下；Windows 在答复后照旧套用。
+// 面板窗口的客户端不带宿主能力，要等外壳答复 `host_capabilities`。答复到来之前不能套用存下的屏幕键盘明暗，否则桌面面板会先按已经砍掉的单独设置闪一下；宿主报告各界面不跟随（`surface_themes_follow` 为假）时在答复后照旧套用。
 test.each([
-  ["macos", "light"],
-  ["windows", "dark"],
+  ["macos", true, "light"],
+  ["windows", true, "light"],
+  ["linux", true, "light"],
+  ["windows", false, "dark"],
 ] as const)(
-  "a %s panel never draws the stored keyboard theme before the host answers",
-  async (platform, answered) => {
+  "a %s panel (surfaces follow: %s) never draws the stored keyboard theme before the host answers",
+  async (platform, follow, answered) => {
     let answer!: (value: HostCapabilities) => void;
     vi.mocked(isTauri).mockReturnValueOnce(true);
     vi.mocked(invoke).mockReturnValueOnce(
@@ -175,7 +177,7 @@ test.each([
       screen.getByRole("main", { name: "屏幕键盘" }).getAttribute("data-keyboard-theme");
     await waitFor(() => expect(load).toHaveBeenCalledOnce());
     await waitFor(() => expect(theme()).toBe("light"));
-    await act(async () => answer(testHost({ platform })));
+    await act(async () => answer(testHost({ platform, surface_themes_follow: follow })));
     expect(theme()).toBe(answered);
   },
 );
