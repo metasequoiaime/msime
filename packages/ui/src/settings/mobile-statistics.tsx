@@ -4,9 +4,12 @@ import { formatZhNumber } from "../core/format-number";
 import { statisticsTrack } from "../core/statistics-style";
 import {
   keyLabel,
+  phoneHeatmapCount,
   phoneHeatmapLeader,
+  phoneHeatmapOthers,
   phoneHeatmapPeak,
   phoneHeatmapRows,
+  phoneHeatmapSharedCodes,
   prefersNineKey,
   scopedKeyCounts,
   summaryHeatLevel,
@@ -434,22 +437,23 @@ function LayoutSwitch({
   );
 }
 
-/** 每个键在 flex 空间里的份额：26 键键盘按设计稿的排法以一行的十分之一为单位定宽，所以较短的行会居中；九键网格的键只按权重平分所在的行。 */
-function keyFlex(layout: PhoneHeatmapLayout, weight: number): CSSProperties {
-  return layout === "nine"
-    ? { flex: `${weight} 1 0%` }
-    : { flex: `0 0 calc((100% - 36px) / 10 * ${weight} + ${(weight - 1) * 4}px)` };
+/** 每个键在所在行里的份额：与 HarmonyOS 触屏键盘的 `layoutWeight` 一样，各行按份额铺满整行，键距之外的宽度按份额分给各键。 */
+function keyFlex(weight: number): CSSProperties {
+  return { flex: `${weight} 1 0%` };
 }
 
 /**
- * 用户所用手机键盘最近七天的按键热力图：每个键按它的次数相对于所画按键中最忙的那个着色，并标出它占全部按键次数的比例，键盘下方给出按得最多的拼写键。
+ * 用户所用手机键盘最近七天的按键热力图：每个键按它的次数相对于所画按键中最忙的那个着色，并标出它占全部按键次数的比例；几个键帽共用一个 id 时（9 键两侧的标点）只着色、不标占比。按过但这张键盘上没有的键列在下面的「其他键」里，键盘下方给出按得最多的拼写键。
  */
 function KeyHeatmap({ counts, card }: { counts: Record<string, number>; card: string }) {
   const [chosen, setChosen] = useState<PhoneHeatmapLayout | null>(null);
+  const othersId = useId();
   const layout: PhoneHeatmapLayout = chosen ?? (prefersNineKey(counts) ? "nine" : "full");
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
   const peak = phoneHeatmapPeak(counts, layout);
   const leader = phoneHeatmapLeader(counts, layout);
+  const shared = phoneHeatmapSharedCodes(layout);
+  const others = phoneHeatmapOthers(counts, layout);
   const headline = leader
     ? `${layout === "nine" ? "最常按" : "字母键最常按"} ${leader.label} · ${percentTenths(leader.count / total)}%`
     : "这段时间还没有按键记录";
@@ -463,23 +467,31 @@ function KeyHeatmap({ counts, card }: { counts: Record<string, number>; card: st
           aria-label={`${layout === "nine" ? "9 键" : "26 键"}按键热力图，${headline}`}
         >
           {phoneHeatmapRows[layout].map((row, rowIndex) => (
-            <div className="flex justify-center gap-1" key={`${layout}-${rowIndex}`}>
-              {row.map((key) => {
-                const code = key.code ?? "";
-                const count = counts[code] ?? 0;
+            <div className="flex gap-1" key={`${layout}-${rowIndex}`}>
+              {row.map((key, keyIndex) => {
+                const code = key.code;
+                if (!code)
+                  return (
+                    <span
+                      style={keyFlex(key.weight)}
+                      aria-hidden="true"
+                      key={`${rowIndex}-${keyIndex}`}
+                    />
+                  );
+                const count = phoneHeatmapCount(counts, key);
                 const level = summaryHeatLevel(count, peak);
                 const delay = order++ * 18;
                 return (
                   <span
                     className={`flex min-w-0 animate-ms-badge-in flex-col items-center justify-center gap-px overflow-hidden rounded-[6px] [animation-duration:0.4s] motion-reduce:animate-none ${layout === "nine" ? "h-[52px]" : "h-11"} ${level >= 4 ? "text-[color:var(--p-on-accent,#fff)]" : "text-[color:var(--p-text)]"}`}
                     style={{
-                      ...keyFlex(layout, key.weight),
+                      ...keyFlex(key.weight),
                       background: accentMix(keyShades[level]),
                       animationDelay: `${delay}ms`,
                     }}
                     role="img"
-                    aria-label={`${keyLabel(code)}，${formatZhNumber(count)} 次`}
-                    key={code}
+                    aria-label={`${key.name ?? keyLabel(code)}，${formatZhNumber(count)} 次`}
+                    key={`${rowIndex}-${keyIndex}`}
                   >
                     <span
                       className={`leading-none font-semibold whitespace-nowrap ${layout === "nine" ? "text-[15px]" : "text-[14px]"}`}
@@ -487,7 +499,7 @@ function KeyHeatmap({ counts, card }: { counts: Record<string, number>; card: st
                     >
                       {key.label}
                     </span>
-                    {total > 0 && (
+                    {total > 0 && !shared.has(code) && (
                       <span className="text-[9px] leading-none opacity-85" aria-hidden="true">
                         {percentTenths(count / total)}%
                       </span>
@@ -498,6 +510,36 @@ function KeyHeatmap({ counts, card }: { counts: Record<string, number>; card: st
             </div>
           ))}
         </div>
+        {others.length > 0 && (
+          <div className="flex flex-col gap-1.5 px-1">
+            <p className={`m-0 text-[12px] ${subText}`} id={othersId}>
+              其他键
+            </p>
+            <ul
+              className="m-0 flex list-none flex-wrap gap-1.5 p-0 text-[12px]"
+              aria-labelledby={othersId}
+            >
+              {others.map((key) => (
+                <li
+                  className="flex items-center gap-1.5 rounded-[6px] px-2 py-1"
+                  style={{ background: accentMix(keyShades[0]) }}
+                  aria-label={`${key.label}，${formatZhNumber(key.count)} 次`}
+                  key={key.code}
+                >
+                  <i
+                    className="block size-2.5 rounded-[2px]"
+                    style={{ background: accentMix(keyShades[summaryHeatLevel(key.count, peak)]) }}
+                    aria-hidden="true"
+                  />
+                  <span aria-hidden="true">{key.label}</span>
+                  <span className={`tabular-nums ${subText}`} aria-hidden="true">
+                    {percentTenths(key.count / total)}%
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className={`flex items-center justify-between gap-3 px-1 text-[12px] ${subText}`}>
           <span className="min-w-0 truncate">{headline}</span>
           <ShadeLegend shades={keyShades} />

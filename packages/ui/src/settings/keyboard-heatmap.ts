@@ -239,56 +239,120 @@ export function keyHeatLevel(count: number, maximum: number): number {
 /** 统计概览的按键热力图画哪种屏幕键盘。 */
 export type PhoneHeatmapLayout = "full" | "nine";
 
-const phoneKey = (label: string, code: string, weight = 1): PreviewKey => ({ label, weight, code });
+/**
+ * 统计概览热力图上的一个键：`label` 印在键帽上，`name` 是读屏念的名字，省略时取 `keyLabel(code)`。`also` 是同一个键位在别的模式下记的 id，与 `code` 的次数相加。没有 `code` 的是占位，只占宽度、不画键帽（26 键第二行两端的半键缩进）。
+ */
+export type PhoneHeatmapKey = PreviewKey & { name?: string; also?: readonly string[] };
+
+const phoneKey = (label: string, code: string, weight = 1, name?: string): PhoneHeatmapKey =>
+  name === undefined ? { label, weight, code } : { label, weight, code, name };
 const phoneLetters = (text: string) => [...text].map((letter) => phoneKey(letter, `Key${letter}`));
+const phoneIndent: PhoneHeatmapKey = { label: "", weight: 0.5 };
+// 九宫格两侧的 ，。？！ 四个键按下都记作同一个 `SoftPunctuation`，所以每个键帽上画的是四键合计。
+const sidePunctuation = (label: string) =>
+  phoneKey(label, "SoftPunctuation", 1.15, "侧栏标点（四键合计）");
 
 /**
- * 统计概览画的手机键盘，按 Android 的 `KeyHeatmapView` 布局：26 键键盘每行十个单位、按键居中，以及带两侧列的九宫格。每个键带着键盘记录的 id，计数因此落在按下的那个键帽上；`Nine1` 按鸿蒙九宫格的印字读作「分词」。
+ * 统计概览画的手机键盘，照 HarmonyOS 手机竖屏、默认设置下的触屏键盘（`KeyboardView.ets`），每行按份额铺满整行：
+ *
+ * - 26 键（全拼）：中文模式的字母键面画大写（`LetterKeyFacePolicy`）；第二行两端各缩进半键；第三行左端在全拼中文模式下是「分词」（`usesQuanpinSeparator`，按下记 `'` 的键 `Quote`，其他模式下是记 `ShiftLeft` 的 ⇧），左右两键各 1.4 份（`LETTER_EDGE_SHARE`）；底行是 `designActionRow` 的 符 1.05 | 123 1.25 | 空格 4 | 中 1.05 | 回车 1.9。
+ * - 9 键（拼音）：`touchNineKeyGrid` 的左列 ，。？（1.15 份）、3 × 3 字母格（每格 2 份，首格 @# 记 `Nine1`）、右列 删除 / 分词 / ！（1.15 份，分词记 `Quote`）；底行是 `NineKeyLayout.actionRow(false)` 的 符 1.05 | 123 1.25 | 空格 4.2 | 中 1.05 | 回车 1.6。
+ *
+ * 每个键带着键盘按下时记录的 id（`KeyIdPolicy`），计数因此落在按下的那个键帽上。空格键在键盘上印的是方案简称（如「全拼」），这里统一印「空格」，与 Android、iOS 的热力图一致。
  */
-export const phoneHeatmapRows: Record<PhoneHeatmapLayout, PreviewKey[][]> = {
+export const phoneHeatmapRows: Record<PhoneHeatmapLayout, PhoneHeatmapKey[][]> = {
   full: [
     phoneLetters("QWERTYUIOP"),
-    phoneLetters("ASDFGHJKL"),
-    [phoneKey("⇧", "ShiftLeft", 1.5), ...phoneLetters("ZXCVBNM"), phoneKey("⌫", "Backspace", 1.5)],
+    [phoneIndent, ...phoneLetters("ASDFGHJKL"), phoneIndent],
     [
+      // 热力图画的是中文全拼键盘，这一格只算分词的 `Quote`；英文模式下同一键位的 ⇧ 记 `ShiftLeft`，是另一个键，列进「其他键」，与 Android、iOS 一致。
+      phoneKey("分词", "Quote", 1.4, "分词"),
+      ...phoneLetters("ZXCVBNM"),
+      phoneKey("⌫", "Backspace", 1.4),
+    ],
+    [
+      phoneKey("符", "SoftSymbol", 1.05),
       phoneKey("123", "SoftLayer", 1.25),
-      phoneKey("中", "SoftLanguage"),
-      phoneKey("，", "Comma"),
-      phoneKey("空格", "Space", 4.25),
-      phoneKey("。", "Period"),
-      phoneKey("↵", "Enter", 1.5),
+      phoneKey("空格", "Space", 4),
+      phoneKey("中", "SoftLanguage", 1.05),
+      phoneKey("↵", "Enter", 1.9),
     ],
   ],
   nine: [
     [
-      phoneKey("，", "Comma"),
-      phoneKey("分词", "Nine1", 1.4),
-      phoneKey("ABC", "Nine2", 1.4),
-      phoneKey("DEF", "Nine3", 1.4),
-      phoneKey("⌫", "Backspace"),
+      sidePunctuation("，"),
+      phoneKey("@#", "Nine1", 2, "常用标点"),
+      phoneKey("ABC", "Nine2", 2),
+      phoneKey("DEF", "Nine3", 2),
+      phoneKey("⌫", "Backspace", 1.15),
     ],
     [
-      phoneKey("。", "Period"),
-      phoneKey("GHI", "Nine4", 1.4),
-      phoneKey("JKL", "Nine5", 1.4),
-      phoneKey("MNO", "Nine6", 1.4),
-      phoneKey("符", "SoftSymbol"),
+      sidePunctuation("。"),
+      phoneKey("GHI", "Nine4", 2),
+      phoneKey("JKL", "Nine5", 2),
+      phoneKey("MNO", "Nine6", 2),
+      phoneKey("分词", "Quote", 1.15, "分词"),
     ],
     [
-      phoneKey("标点", "SoftPunctuation"),
-      phoneKey("PQRS", "Nine7", 1.4),
-      phoneKey("TUV", "Nine8", 1.4),
-      phoneKey("WXYZ", "Nine9", 1.4),
-      phoneKey("0", "Nine0"),
+      sidePunctuation("？"),
+      phoneKey("PQRS", "Nine7", 2),
+      phoneKey("TUV", "Nine8", 2),
+      phoneKey("WXYZ", "Nine9", 2),
+      sidePunctuation("！"),
     ],
     [
-      phoneKey("123", "SoftLayer"),
-      phoneKey("中", "SoftLanguage"),
-      phoneKey("空格", "Space", 2.8),
-      phoneKey("↵", "Enter", 1.4),
+      phoneKey("符", "SoftSymbol", 1.05),
+      phoneKey("123", "SoftLayer", 1.25),
+      phoneKey("空格", "Space", 4.2),
+      phoneKey("中", "SoftLanguage", 1.05),
+      phoneKey("↵", "Enter", 1.6),
     ],
   ],
 };
+
+/** 一个画出的键的次数：`code` 加上 `also` 里各 id 的次数；占位为 0。 */
+export function phoneHeatmapCount(counts: Record<string, number>, key: PhoneHeatmapKey): number {
+  if (!key.code) return 0;
+  let count = counts[key.code] ?? 0;
+  for (const code of key.also ?? []) count += counts[code] ?? 0;
+  return count;
+}
+
+/** `layout` 画出的键所用的 id（含 `also`），每个只出现一次。 */
+function phoneHeatmapCodes(layout: PhoneHeatmapLayout): Set<string> {
+  const codes = new Set<string>();
+  for (const row of phoneHeatmapRows[layout])
+    for (const key of row) {
+      if (key.code) codes.add(key.code);
+      for (const code of key.also ?? []) codes.add(code);
+    }
+  return codes;
+}
+
+/** `layout` 中由不止一个键帽共用的 id：这些键帽画的是合计，所以不单独标占比。 */
+export function phoneHeatmapSharedCodes(layout: PhoneHeatmapLayout): Set<string> {
+  const seen = new Set<string>();
+  const shared = new Set<string>();
+  for (const row of phoneHeatmapRows[layout])
+    for (const key of row) {
+      if (!key.code) continue;
+      if (seen.has(key.code)) shared.add(key.code);
+      seen.add(key.code);
+    }
+  return shared;
+}
+
+/** 按过但 `layout` 没有画出来的键，按得多的在前，次数相同按 id 排序；与画出的键合起来正好是全部按键。 */
+export function phoneHeatmapOthers(
+  counts: Record<string, number>,
+  layout: PhoneHeatmapLayout,
+): KeyCount[] {
+  const drawn = phoneHeatmapCodes(layout);
+  return Object.entries(counts)
+    .filter(([code, count]) => count > 0 && !drawn.has(code))
+    .map(([code, count]) => ({ code, label: keyLabel(code), count }))
+    .sort(byCount);
+}
 
 /** 九宫格按键是否比字母键按得更多，据此选择热力图打开时的布局。 */
 export function prefersNineKey(counts: Record<string, number>): boolean {
@@ -320,7 +384,7 @@ export function phoneHeatmapPeak(
 ): number {
   let peak = 0;
   for (const row of phoneHeatmapRows[layout])
-    for (const key of row) if (key.code) peak = Math.max(peak, counts[key.code] ?? 0);
+    for (const key of row) peak = Math.max(peak, phoneHeatmapCount(counts, key));
   return peak;
 }
 

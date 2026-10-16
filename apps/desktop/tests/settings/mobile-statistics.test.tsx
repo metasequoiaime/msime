@@ -254,6 +254,87 @@ test("习惯 and 按键 draw the summary's habits and key figures", async () => 
   expect(screen.getByText(footer)).toBeTruthy();
 });
 
+test("按键 draws the HarmonyOS touch keyboard and lists the keys it has no place for", async () => {
+  const keys = {
+    KeyN: 10,
+    Quote: 4,
+    SoftSymbol: 2,
+    Space: 6,
+    Digit1: 3,
+    SoftPunctuation: 5,
+    Nine1: 1,
+    ShiftLeft: 1,
+  };
+  renderPage(
+    client({
+      load: vi.fn().mockResolvedValue(status({ ...statistics(), dailyKeys: { [key(0)]: keys } })),
+    }),
+  );
+
+  fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
+  const full = screen.getByRole("group", { name: /^26 键按键热力图/ });
+  const names = within(full)
+    .getAllByRole("img")
+    .map((cap) => cap.getAttribute("aria-label"));
+  // 全拼中文模式：字母印大写，Shift 位是分词，底行 符 | 123 | 空格 | 中 | 回车，没有逗号句号。
+  expect(names.slice(0, 3)).toEqual(["Q，0 次", "W，0 次", "E，0 次"]);
+  expect(names.slice(19)).toEqual([
+    "分词，4 次",
+    "Z，0 次",
+    "X，0 次",
+    "C，0 次",
+    "V，0 次",
+    "B，0 次",
+    "N，10 次",
+    "M，0 次",
+    "退格，0 次",
+    "符号，2 次",
+    "123，0 次",
+    "空格，6 次",
+    "中/英，0 次",
+    "回车，0 次",
+  ]);
+  expect(within(full).queryByText("，")).toBeNull();
+  expect(within(full).getByText("Q")).toBeTruthy();
+  const others = screen.getByRole("list", { name: "其他键" });
+  expect(
+    within(others)
+      .getAllByRole("listitem")
+      .map((item) => item.getAttribute("aria-label")),
+  ).toEqual(["九宫格侧栏标点，5 次", "1，3 次", "九宫格 1（标点），1 次", "左 Shift，1 次"]);
+
+  fireEvent.click(screen.getByRole("button", { name: "9 键" }));
+  const nine = screen.getByRole("group", { name: /^9 键按键热力图/ });
+  const cells = within(nine)
+    .getAllByRole("img")
+    .map((cap) => cap.getAttribute("aria-label") ?? "");
+  expect(cells.slice(0, 5)).toEqual([
+    "侧栏标点（四键合计），5 次",
+    "常用标点，1 次",
+    "九宫格 2，0 次",
+    "九宫格 3，0 次",
+    "退格，0 次",
+  ]);
+  expect(cells[9]).toBe("分词，4 次");
+  expect(cells.filter((name) => name.startsWith("侧栏标点"))).toHaveLength(4);
+  expect(cells.slice(15)).toEqual([
+    "符号，2 次",
+    "123，0 次",
+    "空格，6 次",
+    "中/英，0 次",
+    "回车，0 次",
+  ]);
+  expect(cells.some((name) => name.startsWith("九宫格 0"))).toBe(false);
+  // 四个标点键共用一个计数，只着色、不各自标占比。
+  const punctuation = within(nine).getAllByRole("img", { name: /^侧栏标点/ });
+  for (const cap of punctuation) expect(cap.textContent).not.toContain("%");
+  expect(
+    within(screen.getByRole("list", { name: "其他键" }))
+      .getAllByRole("listitem")
+      .map((item) => item.getAttribute("aria-label")),
+  ).toEqual(["N，10 次", "1，3 次", "左 Shift，1 次"]);
+});
+
 test("成就 counts unlocked badges and toasts what a tapped badge is for", async () => {
   renderPage(client());
 
