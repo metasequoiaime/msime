@@ -10,7 +10,7 @@ Status: implemented
 
 Windows 的两个真实引擎会话都启用共享暂存。`phrase_prefix` 由 Runtime 拥有，TIP 只绘制前缀及光标，Server 的 ReplyComposer 只投影回复与记录送达。普通退格、分段退格、取消、实时切换复用共享实现，不再为新路径重放 C++ 选词历史。旧无宿主回退保留原路径。
 
-原生输入设置提供现有共享偏好。删除剩余拼写时如 Runtime 提交已选文字，TIP 必须先替换组字文本再结束，Server 只记一次提交，不再拼接一次前缀。鼠标部分选词沿用已协商的候选继续协议，在各自会话中独立选择并核对前后状态。
+原生输入设置提供现有共享偏好。删除剩余拼写时如 Runtime 提交已选文字，TIP 必须先替换组字文本再结束，Server 只记一次提交，不再拼接一次前缀。仅剩词段时标点仍结束当前组字，不能让斜杠重新打开命令模式。鼠标部分选词沿用已协商的候选继续协议，在各自会话中独立选择并核对前后状态。
 
 ## Historical note audit
 
@@ -24,8 +24,8 @@ Windows 的两个真实引擎会话都启用共享暂存。`phrase_prefix` 由 R
 ## Verification
 
 - `cargo build --locked -p msime-host-api -j 2` 产出实际宿主库；新用例在接入前失败于部分选择仍产生提交，接入后通过。
-- `windows-backspace-selected-phrase` 使用三个合成词条和两份独立 C ABI 会话，覆盖开关两值及组字中双向切换、鼠标继续协议与重复帧拒绝、数字部分选词、多段选词、两次分段删除、取消、原样提交和最终候选无重复前缀。
-- TIP 的 `phrase_prefix` 解析、仅前缀状态的绘制回调与按键快照另有单测；延迟分类回归直接编译生产方法，175 项检查通过，包含仅前缀状态和退格后的等待分类。
+- `windows-backspace-selected-phrase` 使用三个合成词条和两份独立 C ABI 会话，覆盖开关两值及组字中双向切换、鼠标继续协议与重复帧拒绝、数字部分选词、多段选词、两次分段删除、仅剩词段时追加斜杠、取消、原样提交和最终候选无重复前缀。
+- TIP 的 `phrase_prefix` 解析、仅前缀状态的绘制回调与按键快照另有单测；延迟分类回归直接编译生产方法，176 项检查通过，包含仅前缀状态和退格后的等待分类。
 - Windows 可移植原生套件链接同批实际动态宿主库、限制两路编译：167 项通过，2 项主机差异排除，57 项需 Windows 构建，1 项为非测试 fixture。静态库目标回归单独运行也通过；动态链接用于避免在磁盘紧张时为每个测试复制整份 Rust 静态代码。
 - MinGW x64 对 7 个改动的生产/集成测试翻译单元运行语法检查通过，包括 TIP 的 `KeyHandler.cpp` 和 `KeyEventSink.cpp`。完整 `verify-local.sh --quick` 已尝试：契约、工作区 Rust 检查通过，Android/wasm 目标和 Windows 完整链接等阶段遭遇 `No space left on device`，没有完成；不能报告门禁通过。
 - macOS 主机回归和 MinGW 语法检查不能替代 Windows TSF 编辑器验收，原生 WinUI 设置页也需 Windows CI 编译。

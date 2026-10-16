@@ -1905,7 +1905,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             isInputKey = false;
         }
         // Match the normal path: "/" and "@" open their modes on an empty composition.
-        if (!isInputKey && shadow.inputLength == 0 && !shadow.candidateActive &&
+        if (!isInputKey && shadow.inputLength == 0 && !shadow.candidateActive && !shadow.phraseActive &&
             Global::OpensLocalMode(*classifiedWch, false,
                                    shadow.punctuationOpen && Global::PunctuationLockMode.load(std::memory_order_relaxed) !=
                                                                  Global::PunctuationLock::AlwaysEnglish,
@@ -1915,6 +1915,10 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             isInputKey = true;
         }
     }
+
+    // 仅剩已选词段时，斜杠结束它并原样上屏，不能在词段后重新打开命令模式。
+    if (shadow.imeOpen && shadow.phraseActive && *classifiedWch == L'/')
+        return setKeyState(CATEGORY_COMPOSING, FUNCTION_PUNCTUATION);
 
     if (shadow.candidateActive && isInputKey)
     {

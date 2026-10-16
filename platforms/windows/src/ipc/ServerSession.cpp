@@ -695,9 +695,10 @@ KeyResult ServerSession::punctuation(const FanyImeNamedpipeData &packet,
     throw std::invalid_argument("Invalid Windows punctuation request");
   if (!input_enabled_)
     return key(packet, epoch);
-  // Numpad arithmetic keys, the numpad decimal and '/' finish the highlighted candidate and append their ASCII mark untranslated. Without a composition there is no candidate to finish, and the key keeps its ordinary punctuation.
+  // 数字键盘的算术键、小数点和 '/' 结束当前组字（包括只有暂存词段），再追加原样 ASCII 标记；空闲时沿用普通标点。
   const char literal = literal_candidate_punctuation(packet);
-  if (literal && !view().at("editing_text").get<std::string>().empty())
+  if (literal && (!view().at("editing_text").get<std::string>().empty() ||
+                  !view().value("phrase_prefix", std::string{}).empty()))
     return {client_, epoch_, packet.request_id, true,
             response(msime_client_punctuation_ascii(
                 session_, static_cast<uint8_t>(literal)))};

@@ -236,6 +236,10 @@ int main() {
         modifiers = 0;
         check(f.ime._ClassifyDeferredKeyDown(&f.context, VK_BACK, 0, &original, &modifiers, &wch, &code, &state) &&
               state.Function == FUNCTION_BACKSPACE, "prefix-only ordinary Backspace remains an IME edit");
+        WCHAR mark = L'/';
+        _KEYSTROKE_STATE markState{};
+        check(f.ime._ClassifyDeferredKeyDown(&f.context, 0xBF, 0, &mark, &modifiers, &wch, &code, &markState) &&
+              markState.Function == FUNCTION_PUNCTUATION, "slash ends held-only phrase instead of opening a local mode");
         f.ime._ApplyDeferredKeyProjection(state, 0, VK_BACK);
         check(f.ime._deferredKeyClassificationPending && !f.ime._deferredKeyProjectionValid,
               "phrase Backspace waits for Runtime before classifying queued keys");

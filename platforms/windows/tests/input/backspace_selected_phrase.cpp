@@ -15,7 +15,7 @@ std::filesystem::path fixture;
 void require(bool value, const char *message) {
   if (!value) { std::fprintf(stderr, "FAIL: %s\n", message); std::exit(EXIT_FAILURE); }
 }
-enum class Action { Backspace, Keyboard, Segment, SegmentRestore, Cancel, Raw, Finish, Multiple, OldDefault };
+enum class Action { Backspace, Keyboard, Segment, SegmentRestore, SegmentMark, Cancel, Raw, Finish, Multiple, OldDefault };
 void scenario(bool initial, bool change, Action action = Action::Backspace) {
   const auto root = std::filesystem::temp_directory_path() /
       ("msime-backspace-phrase-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -121,10 +121,22 @@ void scenario(bool initial, bool change, Action action = Action::Backspace) {
     return result;
   };
   phase = "post-selection command";
-  if (action == Action::Segment || action == Action::SegmentRestore) {
+  if (action == Action::Segment || action == Action::SegmentRestore || action == Action::SegmentMark) {
     auto result = command(0x08, 2, MSIME_BACKSPACE_SEGMENT);
     require(result.at("commit").is_null() && result.at("view").at("editing_text") == "" &&
             result.at("view").value("phrase_prefix", "") == "我", "segment deletion keeps prefix-only composition");
+    if (action == Action::SegmentMark) {
+      FanyImeNamedpipeData packet{}; packet.client_id = 42; packet.request_id = ++request;
+      packet.keycode = 0xBF; packet.wch = '/';
+      const auto reply = composer.configured_key(server, packet, 1, TsfPreeditStyle::Local, preference_navigation(preferences));
+      require(reply && (!reply->encoded || static_cast<bool>(*reply->encoded)), "mark after prefix-only state has a valid Server projection");
+      require(tip.character('/', false, &raw, &error), "TIP mark after prefix-only composition");
+      const auto edited = json::parse(raw).at("value");
+      require(!edited.at("commit").is_null() && edited.at("commit").get<std::string>().rfind("我", 0) == 0 &&
+              reply->committed_text == std::optional<std::string>(edited.at("commit").get<std::string>()),
+              "following mark commits held prefix exactly once in both processes");
+      composer.confirm_delivery(42, 1, request); same(); return;
+    }
     if (action == Action::SegmentRestore) {
       result = command(0x08, 0, MSIME_BACKSPACE);
       require(initial ? (result.at("commit").is_null() && result.at("view").at("editing_text") == "wo")
@@ -207,7 +219,7 @@ int main(int argc, char **argv) {
   try {
     for (bool initial : {false, true}) {
       for (bool change : {false, true}) scenario(initial, change);
-      for (auto action : {Action::Keyboard, Action::Segment, Action::SegmentRestore, Action::Cancel, Action::Raw, Action::Finish, Action::Multiple})
+      for (auto action : {Action::Keyboard, Action::Segment, Action::SegmentRestore, Action::SegmentMark, Action::Cancel, Action::Raw, Action::Finish, Action::Multiple})
         scenario(initial, false, action);
     }
     scenario(true, false, Action::OldDefault);

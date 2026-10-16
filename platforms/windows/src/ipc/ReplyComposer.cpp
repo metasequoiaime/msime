@@ -314,7 +314,7 @@ const PendingReply &ReplyComposer::dispatch(
     path = result.reply_expected ? ReplyPath::IgnoredNavigation
                                  : ReplyPath::NoReply;
   const auto &pending = stage(result, path, uiless, std::move(local_text));
-  if (candidate_enter && !selected_raw_before.empty()) {
+  if (!runtime_phrase_ && candidate_enter && !selected_raw_before.empty()) {
     const auto after = result.transition.at("view").at("editing_text").get<std::string>();
     if (after.size() < selected_raw_before.size() &&
         selected_raw_before.compare(selected_raw_before.size() - after.size(),
@@ -1177,7 +1177,8 @@ std::optional<PendingReply> ReplyComposer::configured_key(
   if (!session.input_enabled() || current.at("local_mode") == "unknown")
     return std::nullopt;
   const bool composing =
-      !current.at("editing_text").get<std::string>().empty();
+      !current.at("editing_text").get<std::string>().empty() ||
+      (runtime_phrase_ && !current.value("phrase_prefix", std::string{}).empty());
   // Checked first: the numpad decimal is also on the candidate punctuation list, where it would be translated to '。'.
   if ((composing && literal_candidate_punctuation(packet)) ||
       candidate_punctuation(packet, bindings, view_scheme(current) == scheme::Japanese,
