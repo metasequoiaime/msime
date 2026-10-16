@@ -637,9 +637,20 @@ export {
 export type { AppInputModeRule, PickedApplication } from "./settings/app-input-mode-rules";
 export {
   ClipboardHistorySection,
+  type ClipboardHistorySectionProps,
   type ClipboardHistoryClient,
   type ClipboardHistoryEntry,
 } from "./settings/clipboard-history-section";
+export {
+  useClipboardHistory,
+  type UseClipboardHistoryOptions,
+  type ClipboardHistoryState,
+} from "./settings/use-clipboard-history";
+export {
+  useClipboardHistoryCloud,
+  type UseClipboardHistoryCloudOptions,
+  type ClipboardHistoryCloudState,
+} from "./settings/use-clipboard-history-cloud";
 export {
   CloudPanelSessionNotice,
   CLOUD_PANEL_SESSION_NOTE,

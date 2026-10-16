@@ -33,7 +33,7 @@ import type { ChatClient } from "../chat/chat-model";
 import type { HomePageActions } from "../keyboard/home-model";
 import type { PluginClient } from "../settings/plugin-types";
 import type { CustomHelpcodeSchema } from "../settings/helpcode-preferences";
-import type { ClipboardHistoryClient } from "../settings/clipboard-history-section";
+import type { ClipboardHistoryClient } from "../settings/clipboard-history-model";
 import type { CloudClipboardRequest } from "../settings/cloud-clipboard-send";
 import type { MobileKeyboardFeedbackClient } from "../settings/mobile-keyboard-feedback";
 import type { CommunitySkinClient } from "../community/community-skin-model";
