@@ -46,6 +46,10 @@ int main() {
         "the defaults read as 默认");
   check(current_candidate_font_preset(song.family, song.fallback) == std::wstring_view(L"song"),
         "a preset reads back as itself");
+  // 主字体框：选了「自定义…」或字体不是预设时出现，选回预设时收起。
+  check(!candidate_main_font_shown(false, song.family, song.fallback), "a preset hides the main font field");
+  check(candidate_main_font_shown(true, song.family, song.fallback), "自定义… shows the field without changing the font");
+  check(candidate_main_font_shown(false, L"LXGW WenKai", defaults), "a font outside the presets shows the field");
   check(current_candidate_font_preset(hei.family, hei.fallback) == std::wstring_view(L"hei"),
         "黑体 reads back as 黑体");
   check(current_candidate_font_preset(L"Noto Sans SC",

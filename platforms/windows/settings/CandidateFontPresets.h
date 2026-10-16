@@ -148,6 +148,12 @@ inline std::optional<std::wstring_view> current_candidate_font_preset(
   return family == candidate_default_font_family ? std::wstring_view(L"default") : matches.front()->id;
 }
 
+// 「候选窗口」页主流程里的「主字体」框什么时候出现（共享页的 `showFontField`）：用户刚选了「候选字体」的「自定义…」，或者当前字体不是任何预设（例如霞鹜文楷）时。选回预设就收起。
+inline bool candidate_main_font_shown(bool custom_chosen, std::wstring_view family,
+                                      std::vector<std::wstring> const &fallback) {
+  return custom_chosen || !current_candidate_font_preset(family, fallback);
+}
+
 // 字体名按 UTF-8 计的字节数，与浏览器的 TextEncoder 相同：落单的代理项按 U+FFFD 计 3 字节。
 inline std::size_t font_name_utf8_bytes(std::wstring_view value) {
   std::size_t bytes = 0;

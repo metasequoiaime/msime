@@ -2962,13 +2962,8 @@ private:
     return background.R < 128;
   }
 
-  // 设置界面主题 overrides 颜色模式 for this window only; 跟随系统 follows Windows.
+  // 设置窗口跟随颜色模式（HostCapabilities::surface_themes_follow），不读存下的 settings_theme；跟随系统时看 Windows 的应用模式。
   bool resolve_dark() {
-    const auto settings = document_.String(L"settings_theme", L"follow");
-    if (settings == L"dark")
-      return true;
-    if (settings == L"light")
-      return false;
     const auto theme = document_.String(L"theme", L"system");
     if (theme == L"dark")
       return true;
@@ -3005,6 +3000,15 @@ private:
       for (const auto *key : dropped)
         if (copy.HasKey(key))
           copy.Remove(key);
+      // 编号色和边框色跟随主题，Server 不读这两个槽位（candidate_theme_values），预览也不画，与真窗口一致。
+      if (copy.HasKey(L"candidate_colors") &&
+          copy.GetNamedValue(L"candidate_colors").ValueType() == JsonValueType::Object) {
+        auto colors = copy.GetNamedObject(L"candidate_colors");
+        for (const auto *slot : {L"number", L"border"})
+          if (colors.HasKey(slot))
+            colors.Remove(slot);
+        copy.SetNamedValue(L"candidate_colors", colors);
+      }
       request.SetNamedValue(L"custom_theme", copy);
     }
     request.SetNamedValue(L"dark", JsonValue::CreateBooleanValue(dark));
@@ -3562,7 +3566,7 @@ private:
 
   void rebuild_search_index() {
     search_index_.clear();
-    candidate_search_tabs_.clear();
+    search_folds_.clear();
     indexing_ = true;
     const auto saved_page = current_page_;
     for (const auto &page : nav::pages) {
@@ -3579,14 +3583,20 @@ private:
   void record(std::wstring const &title, std::wstring const &detail) {
     if (!indexing_ || title.empty())
       return;
-    if (current_page_ == "candidate" && !candidate_index_tab_.empty())
-      candidate_search_tabs_[title] = candidate_index_tab_;
+    if (!fold_index_.empty())
+      search_folds_[title] = fold_index_;
     SearchEntry entry;
     entry.title = title;
     entry.detail = detail;
     entry.page = current_page_;
     entry.display = title + L" · " + page_label(current_page_).title;
     search_index_.push_back(std::move(entry));
+  }
+
+  // 搜索结果落在折叠区里的一行时，那个折叠区要展开才看得见它：索引时 record 记下每行所在的折叠区（`fold_index_`）。
+  bool fold_holds_focus(std::wstring const &fold) const {
+    const auto found = search_folds_.find(focus_row_);
+    return found != search_folds_.end() && found->second == fold;
   }
 
   // The element a search result lands on: the first one drawn under the chosen title. Every element that records a search entry marks itself here, so a check box, a theme card or a section is scrolled to and focused like a settings card.
@@ -6764,7 +6774,7 @@ private:
     return card;
   }
 
-  // 皮肤页提供内置主题、外部皮肤包和社区图库；字体与候选配色在候选窗口的对应标签管理。
+  // 皮肤页提供内置主题、外部皮肤包、自定义配色和社区图库；字体在「候选窗口」页管理。
   // 搜索「社区皮肤」时进入图库，其他本页条目回到「我的皮肤」；图库不画完整实时预览。
   void follow_skin_search() {
     if (indexing_ || focus_row_.empty())
@@ -6857,31 +6867,41 @@ private:
       page.Children().Append(note);
     }
 
+    // 设置窗口、工具栏、菜单和各面板一律跟随颜色模式（HostCapabilities::surface_themes_follow），只剩候选窗口还能单独设明暗，放在颜色模式下面（共享页「明暗」组里的 CandidateThemeRow）。
     auto look = add_group(page, L"外观");
-    segment_row(look, 0xE706, L"颜色模式", L"深色、浅色或跟随 Windows 的应用模式",
+    segment_row(look, 0xE706, L"颜色模式", L"设置窗口和各界面的明暗模式；候选窗口可在下面单独设置",
                 L"theme",
                 {{L"system", L"跟随系统"}, {L"light", L"浅色"}, {L"dark", L"深色"}},
                 L"system");
-    select_row(look, 0xE713, L"设置界面主题", L"覆盖颜色模式，仅影响当前设置窗口",
-               L"settings_theme", surface_theme_options(), L"follow", true);
+    select_row(look, 0xE8FD, L"候选窗口主题", L"覆盖颜色模式，只影响候选窗口",
+               L"candidate_theme", surface_theme_options(), L"follow", true);
 
     auto more = add_group(page, L"更多皮肤");
     external_skins_row(more);
 
-    auto surfaces = add_group(page, L"界面主题");
-    select_row(surfaces, 0xE700, L"菜单主题",
-               L"覆盖托盘菜单与候选右键菜单的明暗外观", L"menu_theme",
-               surface_theme_options(), L"follow");
-    select_row(surfaces, 0xE76E, L"表情面板主题",
-               L"覆盖 Emoji、颜文字和符号面板的明暗外观", L"emoji_theme",
-               surface_theme_options(), L"follow");
-    select_row(surfaces, 0xE929, L"手写识别板主题", L"覆盖手写识别板的明暗外观",
-               L"handwriting_theme", surface_theme_options(), L"follow");
-    select_row(surfaces, 0xE720, L"语音输入弹出条主题",
-               L"覆盖语音输入面板的明暗外观", L"voice_theme",
-               surface_theme_options(), L"follow");
-    select_row(surfaces, 0xE92E, L"屏幕键盘主题", L"", L"screen_keyboard_theme",
-               surface_theme_options(), L"follow");
+    // 取色器收在默认收起的「自定义配色」里（共享页的 MoreOptions title），悬停色也在其中。搜索命中「自定义主题」或某个取色器时展开。
+    auto colors = add_group(page, L"自定义主题");
+    record(L"自定义主题", L"候选颜色取色器");
+    Expander custom_colors;
+    custom_colors.Header(box_value(L"自定义配色"));
+    custom_colors.HorizontalAlignment(HorizontalAlignment::Stretch);
+    custom_colors.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    custom_colors.IsExpanded(custom_colors_open_ || focus_row_ == L"自定义主题" ||
+                             fold_holds_focus(L"custom-colors"));
+    custom_colors.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+      custom_colors_open_ = true;
+    });
+    custom_colors.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+      custom_colors_open_ = false;
+    });
+    mark_search_target(L"自定义主题", custom_colors);
+    StackPanel color_rows;
+    color_rows.Spacing(4);
+    fold_index_ = L"custom-colors";
+    candidate_color_rows(color_rows);
+    fold_index_.clear();
+    custom_colors.Content(color_rows);
+    colors.Children().Append(custom_colors);
   }
 
   // ---- 皮肤包 ----
@@ -9784,7 +9804,7 @@ private:
 
   // ---- 候选颜色 ----
 
-  // 「自定义主题」组的七个取色器。没设的颜色在色块上显示候选窗口当前明暗下的默认色，与共享页按预览明暗取默认色一样。
+  // 「自定义主题」组「自定义配色」里的五个取色器（编号色和边框色跟随主题，见 ThemeSkinModel.h 的 color_slots）。没设的颜色在色块上显示候选窗口当前明暗下的默认色，与共享页按预览明暗取默认色一样。
   void candidate_color_rows(StackPanel const &group) {
     const bool light = !candidate_dark();
     for (const auto &slot : sk::color_slots) {
@@ -9821,7 +9841,7 @@ private:
     }
   }
 
-  // 色块打开 WinUI 的取色器；拖动时颜色随时写入并刷新顶部的预览，停下后保存，取色器关上时整页重画。「跟随主题」把这一项交还给底下的主题：文字、编号、强调、选中和悬停的按钮在没设颜色时是按下的，再点不起作用；表面色和边框色的没有按下状态，点它总会清掉那一项。
+  // 色块打开 WinUI 的取色器；拖动时颜色随时写入并刷新顶部的预览，停下后保存，取色器关上时整页重画。「跟随主题」把这一项交还给底下的主题：文字、强调、选中和悬停的按钮在没设颜色时是按下的，再点不起作用；表面色的没有按下状态，点它总会清掉那一项。
   FrameworkElement candidate_color_control(sk::ColorSlot const &slot, std::wstring const &key,
                                            bool set, std::wstring const &shown) {
     const std::wstring title(slot.title);
@@ -9908,8 +9928,8 @@ private:
 
   // ---- 候选字体 ----
 
-  // 共享设置「候选窗口」页「字体与大小」组里的字体各行，按 Windows 宿主的样子：「候选字体」预设、主字体、英文字体和系统字体列表。规则在 CandidateFontPresets.h。与共享页一样没有回退字体列表的编辑器：预设和主字体会写它。
-  void candidate_font_rows(StackPanel const &group) {
+  // 共享设置「候选窗口」页的字体各行，按 Windows 宿主的样子：「布局与字体」组里是「候选字体」预设（末尾是「自定义…」）和按需出现的主字体，「更多选项」里是英文字体（candidate_english_font_row）。规则在 CandidateFontPresets.h。与共享页一样没有回退字体列表的编辑器：预设和主字体会写它。返回主字体框画没画出来：读取字体列表的状态和「刷新」按钮跟着当前第一个可见的字体框走，主字体框不在时由英文字体框带着。
+  bool candidate_font_rows(StackPanel const &group) {
     StackPanel preset_host;
     group.Children().Append(preset_host);
     candidate_font_preset_row(preset_host);
@@ -9918,50 +9938,81 @@ private:
       font_menu_updaters_.clear();
     }
 
-    add_row(group, 0xE8C1, L"主字体", L"",
-            font_input(L"主字体",
-                       document_.String(L"candidate_font_family",
-                                        nav::candidate_default_font_family),
-                       [this](std::wstring const &font) {
-                         // Windows 的候选窗从回退列表取汉字，主字体同时排到回退列表最前。
-                         const auto patch = nav::candidate_main_font_patch(
-                             font,
-                             document_.String(L"candidate_font_family",
-                                              nav::candidate_default_font_family),
-                             document_.Strings(L"candidate_fallback_fonts"));
-                         document_.SetString(L"candidate_font_family", patch.family);
-                         document_.SetOrderedStrings(L"candidate_fallback_fonts", patch.fallback);
-                         schedule_save();
-                         update_preview();
-                         refresh_font_preset_row();
-                       }));
-    add_row(group, 0xE8D3, L"英文字体",
-            L"优先用于候选和预编辑；缺字时使用主字体，不限英文输入模式。保存后自动应用。",
-            font_input(L"英文字体",
-                       document_.String(L"candidate_english_font",
-                                        nav::candidate_default_english_font),
-                       [this](std::wstring const &font) {
-                         document_.SetString(L"candidate_english_font", font);
-                         schedule_save();
-                         update_preview();
-                       }));
+    // 索引时总要画，搜索才找得到「主字体」；搜索落到它上面时也画出来。
+    const bool shown =
+        indexing_ || focus_row_ == L"主字体" ||
+        nav::candidate_main_font_shown(
+            candidate_font_custom_,
+            document_.String(L"candidate_font_family", nav::candidate_default_font_family),
+            document_.Strings(L"candidate_fallback_fonts"));
+    if (!shown)
+      return false;
+    auto [field, status] = font_field_with_catalog(
+        font_input(L"主字体",
+                   document_.String(L"candidate_font_family",
+                                    nav::candidate_default_font_family),
+                   [this](std::wstring const &font) {
+                     // Windows 的候选窗从回退列表取汉字，主字体同时排到回退列表最前。
+                     const auto patch = nav::candidate_main_font_patch(
+                         font,
+                         document_.String(L"candidate_font_family",
+                                          nav::candidate_default_font_family),
+                         document_.Strings(L"candidate_fallback_fonts"));
+                     document_.SetString(L"candidate_font_family", patch.family);
+                     document_.SetOrderedStrings(L"candidate_fallback_fonts", patch.fallback);
+                     schedule_save();
+                     update_preview();
+                     refresh_font_preset_row();
+                   }));
+    add_row(group, 0xE8C1, L"主字体", L"", field, status);
+    return true;
+  }
 
+  // 「更多选项」里的英文字体。`catalog` 为真（主字体框收起）时由它带着字体列表的读取状态和「刷新」按钮，读取失败后的重试和装了新字体后的刷新仍然找得到。
+  void candidate_english_font_row(StackPanel const &group, bool catalog) {
+    auto input = font_input(L"英文字体",
+                            document_.String(L"candidate_english_font",
+                                             nav::candidate_default_english_font),
+                            [this](std::wstring const &font) {
+                              document_.SetString(L"candidate_english_font", font);
+                              schedule_save();
+                              update_preview();
+                            });
+    const std::wstring subtitle =
+        L"优先用于候选和预编辑；缺字时使用主字体，不限英文输入模式。保存后自动应用。";
+    if (!catalog) {
+      add_row(group, 0xE8D3, L"英文字体", subtitle, input);
+      return;
+    }
+    auto [field, status] = font_field_with_catalog(input);
+    add_row(group, 0xE8D3, L"英文字体", subtitle, field, status);
+  }
+
+  // 字体框和它旁边的「刷新」按钮（读屏名「刷新字体列表」），以及放在这一行下面的读取状态：共享页把原来单独的「系统字体列表」一行并进了第一个字体框。状态和按钮绑到这一行，show_font_catalog_status 在原处更新它们。Windows 只有一份字体目录状态，两个字体框共用，不会读两次。
+  std::pair<FrameworkElement, TextBlock> font_field_with_catalog(FrameworkElement const &input) {
+    StackPanel field;
+    field.Orientation(Orientation::Horizontal);
+    field.Spacing(8);
+    field.Children().Append(input);
+    auto refresh_button = button_control(
+        L"刷新", [this] { load_font_catalog(); },
+        loaded_ && font_catalog_status_ != FontCatalogStatus::loading);
+    refresh_button.VerticalAlignment(VerticalAlignment::Top);
+    A11y::SetName(refresh_button, hstring(L"刷新字体列表"));
+    field.Children().Append(refresh_button);
     // 状态是读屏会播报的区域。
     auto status = make_text(font_catalog_message(), 12, palette_.sub);
-    status.Margin(Thickness{0, 0, 0, 14});
+    status.Margin(Thickness{0, 0, 0, 8});
     A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
     status.Visibility(status.Text().empty() ? Visibility::Collapsed : Visibility::Visible);
-    auto refresh_button = button_control(
-        L"刷新字体列表", [this] { load_font_catalog(); },
-        loaded_ && font_catalog_status_ != FontCatalogStatus::loading);
-    add_row(group, 0xE72C, L"系统字体列表", L"", refresh_button, status);
     if (!indexing_) {
       font_catalog_text_ = status;
       font_catalog_button_ = refresh_button.as<Button>();
     }
+    return {field, status};
   }
 
-  // 「候选字体」预设一行。它画在自己的容器里，主字体每输入一个字就在原处重画这一行，不必重建整页而丢掉输入框的焦点。
+  // 「候选字体」预设一行。它画在自己的容器里，主字体每输入一个字就在原处重画这一行，不必重建整页而丢掉输入框的焦点。末尾的「自定义…」只亮出主字体框、不改字体（共享页的 onCustomChange）；字体不是任何预设时选中的就是它。
   void candidate_font_preset_row(StackPanel const &host) {
     const auto family =
         document_.String(L"candidate_font_family", nav::candidate_default_font_family);
@@ -9971,12 +10022,20 @@ private:
     for (auto const &entry : nav::candidate_font_presets)
       options.push_back({std::wstring(entry.id), std::wstring(entry.label),
                          nav::candidate_font_preset_available(entry.id)});
+    options.push_back({L"custom", L"自定义…", true});
     add_row(host, 0xE8D2, L"候选字体",
             preset ? std::wstring(L"Windows 没有自带圆体")
                    : L"当前为自定义字体 " + family + L"，可在下方修改",
             segmented_control(L"候选字体", options,
-                              preset ? std::wstring(*preset) : std::wstring(L"custom"),
+                              preset && !candidate_font_custom_ ? std::wstring(*preset)
+                                                                : std::wstring(L"custom"),
                               [this](std::wstring const &id) {
+                                if (id == L"custom") {
+                                  candidate_font_custom_ = true;
+                                  queue_refresh();
+                                  return;
+                                }
+                                candidate_font_custom_ = false;
                                 change([&](PreferencesDocument &doc) {
                                   const auto patch = nav::candidate_font_preset_patch(
                                       id, doc.Strings(L"candidate_fallback_fonts"));
@@ -10370,123 +10429,94 @@ private:
 
   // ---- 候选窗口 ----
 
+  // 共享设置「候选窗口」页的一列布局（appearance-page.tsx）：预览，「布局与字体」组的主流程只有排列方式、每页数量、候选字体（及按需出现的主字体）和字号，其余各行按共享页的顺序收进同一个「更多选项」。展开候选、页码和内边距在 Windows 上没有（能力位为假），不画。「游戏」组管游戏里候选窗能不能出现，是功能开关而不是外观，放在折叠区之后照常展开。
   void build_candidate_page(StackPanel const &page) {
-    if (!indexing_ && !focus_row_.empty()) {
-      if (const auto found = candidate_search_tabs_.find(focus_row_);
-          found != candidate_search_tabs_.end())
-        candidate_tab_ = found->second;
-    }
-    if (!indexing_) {
-      auto tabs = segmented_control(
-          L"候选窗口设置标签",
-          {{L"layout", L"布局"},
-           {L"font", L"字体大小"},
-           {L"style", L"窗口样式"},
-           {L"preedit", L"预编辑"}},
-          candidate_tab_,
-          [this](std::wstring const &value) {
-            candidate_tab_ = value;
-            DispatcherQueue().TryEnqueue([weak = get_weak()] {
-              if (auto self = weak.get())
-                self->render_page(false);
-            });
-          },
-          true, false, 4, L"candidate-tab");
-      tabs.HorizontalAlignment(HorizontalAlignment::Left);
-      tabs.Margin(Thickness{0, 0, 0, 8});
-      page.Children().Append(tabs);
-      if (preview_visible_)
-        page.Children().Append(make_preview());
-    }
+    if (preview_visible_ && !indexing_)
+      page.Children().Append(make_preview());
 
-    // 搜索索引遍历全部标签；实际页面只构造当前标签，定位结果时先切到所属标签。
-    if (indexing_ || candidate_tab_ == L"layout") {
-      candidate_index_tab_ = L"layout";
-      auto layout = add_group(page, L"布局");
-      segment_row(layout, 0xE8FD, L"候选项排列方式", L"", L"candidate_layout",
-                  {{L"horizontal", L"横向"}, {L"vertical", L"纵向"}},
-                  L"vertical");
-      slider_row(layout, 0xE8CB, L"每页候选项数量", L"每页显示的候选项（1–9）",
-                 L"candidate_page_size", 1, 9, 6);
-      bool_row(layout, 0xE718, L"候选窗口跟随光标",
-               L"关闭后保持首次出现的位置，直到候选窗口消失。",
-               L"candidate_follow_cursor", true);
+    auto layout = add_group(page, L"布局与字体");
+    segment_row(layout, 0xE8FD, L"候选项排列方式", L"", L"candidate_layout",
+                {{L"horizontal", L"横向"}, {L"vertical", L"纵向"}},
+                L"vertical");
+    slider_row(layout, 0xE8CB, L"每页候选项数量", L"每页显示的候选项（1–9）",
+               L"candidate_page_size", 1, 9, 6);
+    const bool main_font = candidate_font_rows(layout);
+    slider_row(layout, 0xE8E9, L"候选窗字号", L"候选词的字号（12–32）",
+               L"candidate_font_size", 12, 32, 18);
 
-      // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
-      bool_row(layout, 0xE790, L"显示水杉 logo",
-               L"在候选窗和悬浮工具栏左端显示水杉图标。", L"show_app_logo",
-               false);
+    // 搜索命中折叠区里的某一行时展开它（fold_holds_focus）。
+    Expander more;
+    more.Header(box_value(L"更多选项"));
+    A11y::SetAutomationId(more, L"candidate-more");
+    more.HorizontalAlignment(HorizontalAlignment::Stretch);
+    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    more.IsExpanded(candidate_more_open_ || fold_holds_focus(L"candidate-more"));
+    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+      candidate_more_open_ = true;
+    });
+    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+      candidate_more_open_ = false;
+    });
+    StackPanel rows;
+    rows.Spacing(4);
+    fold_index_ = L"candidate-more";
+    // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
+    bool_row(rows, 0xE790, L"显示水杉 logo",
+             L"在候选窗和悬浮工具栏左端显示水杉图标。", L"show_app_logo",
+             false);
+    bool_row(rows, 0xE718, L"候选窗口跟随光标",
+             L"关闭后保持首次出现的位置，直到候选窗口消失。",
+             L"candidate_follow_cursor", true);
+    candidate_english_font_row(rows, !main_font);
+    slider_row(rows, 0xE8E9, L"预编辑字号", L"候选窗口中拼音的字号（12–32）",
+               L"candidate_preedit_font_size", 12, 32, 15);
+    slider_row(rows, 0xE740, L"整体大小",
+               L"候选窗口连同文字一起缩放（75–150%）",
+               L"candidate_scale_percent", 75, 150, 100, 5, L"%");
+    slider_row(rows, 0xE7B3, L"不透明度",
+               L"只淡化候选框的底色和边框，文字保持清晰（50–100%）",
+               L"candidate_opacity_percent", 50, 100, 100, 5, L"%");
+    corner_radius_row(rows);
+    select_row(
+        rows, 0xE70F, L"候选窗口预编辑", L"", L"candidate_preedit_style",
+        {{L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}}, L"pinyin", true);
+    select_row(rows, 0xE8D2, L"行内预编辑", L"", L"tsf_preedit_style",
+               {{L"raw", L"原始按键"},
+                {L"pinyin", L"拼音分词"},
+                {L"empty", L"不显示"}},
+               L"raw");
+    fold_index_.clear();
+    more.Content(rows);
+    layout.Children().Append(more);
 
-      auto games = add_group(page, L"游戏");
-      bool_row(
-          games, 0xE7FC, L"在游戏中显示候选窗口",
-          L"游戏声明自己画候选却不画时，由水杉显示候选窗口。CS2、Dota 2 和使用 "
-          L"SDL2 "
-          L"的游戏会自动识别。候选窗口不出现或跑到左上角的游戏，可以加进「总是"
-          L"显示」；游戏自带的候选被替换时，加进「从不显示」。对已打开的游戏，"
-          L"切换一次输入法后生效。独占全屏下不显示，请把游戏改为无边框窗口。",
-          L"game_compatibility.candidate_overlay", true);
-      const bool gameProfile = msime::windows::game_profile::enabled();
-      add_row(games, 0xE7FC, L"CS2 / Dota 2 原生候选兼容",
-              L"将本版本的系统登记名称改为「拼音输入法」，让游戏自行绘制候选。"
-              L"Windows 输入法列表也会显示这个名称，需要管理员授权并重启游戏；"
-              L"关闭后恢复本版本名称。用户「总是显示」列表仍优先。",
-              button_control(gameProfile ? L"恢复产品名称" : L"启用兼容名称", [this, gameProfile] {
-                const auto error = msime::windows::game_profile::apply(GetActiveWindow(), !gameProfile);
-                if (!error.empty()) show_notice(error);
-                else show_notice(L"登记名称已更新，请重启游戏并重新切换输入法。");
-                render_page(true);
-              }));
-      game_process_row(
-          games, 0xE890, L"总是显示候选窗口的程序",
-          L"候选窗口不出现或跑到左上角的游戏。填程序文件名，例如 game.exe。",
-          L"game_compatibility.overlay_processes");
-      game_process_row(
-          games, 0xED1A, L"从不显示候选窗口的程序",
-          L"自带候选被水杉的候选窗口替换的游戏。填程序文件名，例如 game.exe。",
-          L"game_compatibility.excluded_processes");
-    }
-    if (indexing_ || candidate_tab_ == L"font") {
-      candidate_index_tab_ = L"font";
-      auto fonts = add_group(page, L"字体大小");
-      candidate_font_rows(fonts);
-      slider_row(fonts, 0xE8E9, L"候选窗字号", L"候选词的字号（12–32）",
-                 L"candidate_font_size", 12, 32, 18);
-      slider_row(fonts, 0xE740, L"整体大小",
-                 L"候选窗口连同文字一起缩放（75–150%）",
-                 L"candidate_scale_percent", 75, 150, 100, 5, L"%");
-      slider_row(fonts, 0xE8E9, L"预编辑字号", L"候选窗口中拼音的字号（12–32）",
-                 L"candidate_preedit_font_size", 12, 32, 15);
-    }
-    if (indexing_ || candidate_tab_ == L"style") {
-      candidate_index_tab_ = L"style";
-      auto look = add_group(page, L"窗口样式");
-      slider_row(look, 0xE7B3, L"不透明度",
-                 L"只淡化候选框的底色和边框，文字保持清晰（50–100%）",
-                 L"candidate_opacity_percent", 50, 100, 100, 5, L"%");
-      corner_radius_row(look);
-
-      auto colors = add_group(page, L"配色");
-      select_row(colors, 0xE8FD, L"候选窗口主题",
-                 L"覆盖颜色模式，只影响候选窗口", L"candidate_theme",
-                 surface_theme_options(), L"follow", true);
-      record(L"自定义主题", L"候选颜色取色器");
-      mark_search_target(L"自定义主题", colors);
-      candidate_color_rows(colors);
-    }
-    if (indexing_ || candidate_tab_ == L"preedit") {
-      candidate_index_tab_ = L"preedit";
-      auto preedit = add_group(page, L"预编辑");
-      select_row(
-          preedit, 0xE70F, L"候选窗口预编辑", L"", L"candidate_preedit_style",
-          {{L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}}, L"pinyin", true);
-      select_row(preedit, 0xE8D2, L"行内预编辑", L"", L"tsf_preedit_style",
-                 {{L"raw", L"原始按键"},
-                  {L"pinyin", L"拼音分词"},
-                  {L"empty", L"不显示"}},
-                 L"raw");
-    }
-    candidate_index_tab_.clear();
+    auto games = add_group(page, L"游戏");
+    bool_row(
+        games, 0xE7FC, L"在游戏中显示候选窗口",
+        L"游戏声明自己画候选却不画时，由水杉显示候选窗口。CS2、Dota 2 和使用 "
+        L"SDL2 "
+        L"的游戏会自动识别。候选窗口不出现或跑到左上角的游戏，可以加进「总是"
+        L"显示」；游戏自带的候选被替换时，加进「从不显示」。对已打开的游戏，"
+        L"切换一次输入法后生效。独占全屏下不显示，请把游戏改为无边框窗口。",
+        L"game_compatibility.candidate_overlay", true);
+    const bool gameProfile = msime::windows::game_profile::enabled();
+    add_row(games, 0xE7FC, L"CS2 / Dota 2 原生候选兼容",
+            L"将本版本的系统登记名称改为「拼音输入法」，让游戏自行绘制候选。"
+            L"Windows 输入法列表也会显示这个名称，需要管理员授权并重启游戏；"
+            L"关闭后恢复本版本名称。用户「总是显示」列表仍优先。",
+            button_control(gameProfile ? L"恢复产品名称" : L"启用兼容名称", [this, gameProfile] {
+              const auto error = msime::windows::game_profile::apply(GetActiveWindow(), !gameProfile);
+              if (!error.empty()) show_notice(error);
+              else show_notice(L"登记名称已更新，请重启游戏并重新切换输入法。");
+              render_page(true);
+            }));
+    game_process_row(
+        games, 0xE890, L"总是显示候选窗口的程序",
+        L"候选窗口不出现或跑到左上角的游戏。填程序文件名，例如 game.exe。",
+        L"game_compatibility.overlay_processes");
+    game_process_row(
+        games, 0xED1A, L"从不显示候选窗口的程序",
+        L"自带候选被水杉的候选窗口替换的游戏。填程序文件名，例如 game.exe。",
+        L"game_compatibility.excluded_processes");
   }
 
   // 圆角大小. A value overrides the skin package's radius; 默认 clears it, so the card follows the package again, else the theme. An unset radius shows the theme's on the slider.
@@ -10830,12 +10860,9 @@ private:
     const bool logo = document_.Boolean(L"show_app_logo", false);
     const auto metrics =
         msime::windows::toolbar_metrics(font_size, false, logo);
-    const auto mode = document_.String(L"toolbar_theme", L"follow");
+    // 工具栏跟随颜色模式（Server 不读 toolbar_theme），预览也只看 `theme`。
     const auto common_mode = document_.String(L"theme", L"system");
-    const bool dark =
-        mode == L"dark" ||
-        (mode != L"light" && (common_mode == L"dark" ||
-                              (common_mode == L"system" && system_dark_)));
+    const bool dark = common_mode == L"dark" || (common_mode == L"system" && system_dark_);
     const auto colors = msime::windows::toolbar_palette(candidate_theme(
         document_.String(L"global_theme", L"system"), true, dark));
     std::vector<ToolbarComponent> components;
@@ -10952,9 +10979,12 @@ private:
     bool_row(general, 0xE7F4, L"在桌面显示悬浮工具栏",
              L"快速访问输入法状态与常用功能", L"floating_toolbar.enabled",
              true);
-    select_row(general, 0xE7F4, L"悬浮工具栏主题",
-               L"覆盖颜色模式，只影响悬浮工具栏", L"toolbar_theme",
-               surface_theme_options(), L"follow");
+    // 工具栏跟随「主题」页的颜色模式和主题，没有自己的明暗；这一行只是指向那里（共享页 floating-toolbar-page.tsx 的「颜色与明暗」）。
+    add_row(general, 0xE790, L"颜色与明暗", L"悬浮工具栏跟随「主题」页的颜色模式和主题",
+            button_control(L"前往", [this] {
+              focus_row_ = L"颜色模式";
+              navigate("themes", true);
+            }));
     std::vector<Check> checks;
     for (const auto &component : toolbar_components_) {
       if (component.button == msime::windows::kToolbarHandwriting &&
@@ -16690,11 +16720,11 @@ private:
     if constexpr (MSIME_EDITION_HANDWRITING != 0)
       build_hand_page(page);
 
-    // 共享页把键盘的明暗覆盖放在「主题」页的「高级」组，这个窗口的同一组叫「界面主题」，所以说明换成这个组名，按钮直接落到「屏幕键盘主题」那一行。
+    // 屏幕键盘跟随「主题」页的颜色模式和主题，没有自己的明暗（共享页在跟随颜色模式的宿主上同样这样说），按钮落到「颜色模式」那一行。
     auto look = add_group(page, L"外观");
-    add_row(look, 0xE790, L"屏幕键盘外观", L"主题与明暗外观在「主题」页的「界面主题」中设置",
+    add_row(look, 0xE790, L"屏幕键盘外观", L"屏幕键盘跟随「主题」页的颜色模式和主题",
             button_control(L"前往", [this] {
-              focus_row_ = L"屏幕键盘主题";
+              focus_row_ = L"颜色模式";
               navigate("themes", true);
             }));
   }
@@ -16816,11 +16846,8 @@ private:
       show_notice(L"屏幕键盘设置已恢复默认。", InfoBarSeverity::Success);
   }
 
-  // The preview's light or dark look (`useCandidatePreviewTheme` with 屏幕键盘主题): the keyboard's own override, else 颜色模式.
+  // 预览的明暗：屏幕键盘跟随颜色模式（surface_themes_follow），不读存下的 screen_keyboard_theme，与共享页的 keyboardPreviewTheme 一致。
   bool keyboard_preview_dark() const {
-    const auto surface = document_.String(L"screen_keyboard_theme", L"follow");
-    if (surface == L"dark" || surface == L"light")
-      return surface == L"dark";
     const auto theme = document_.String(L"theme", L"system");
     return theme == L"system" ? system_dark_ : theme != L"light";
   }
@@ -19470,9 +19497,13 @@ private:
   bool preview_visible_ = true;
   std::wstring preview_sample_;
   std::optional<bool> preview_dark_;
-  std::wstring candidate_tab_ = L"layout";
-  std::wstring candidate_index_tab_;
-  std::map<std::wstring, std::wstring> candidate_search_tabs_;
+  // 正在索引的折叠区（「候选窗口」页的「更多选项」、「主题」页的「自定义配色」），以及索引时记下的每行所在的折叠区，见 fold_holds_focus。
+  std::wstring fold_index_;
+  std::map<std::wstring, std::wstring> search_folds_;
+  // 两个折叠区和「候选字体」的「自定义…」各自的状态，跨重画保留。
+  bool candidate_more_open_ = false;
+  bool custom_colors_open_ = false;
+  bool candidate_font_custom_ = false;
   std::wstring notice_;
   InfoBarSeverity notice_severity_ = InfoBarSeverity::Error;
 
