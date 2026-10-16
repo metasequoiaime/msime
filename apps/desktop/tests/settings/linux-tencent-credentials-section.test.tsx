@@ -69,3 +69,43 @@ test("shows clear controls and stored-state guidance when credentials exist", ()
   fireEvent.click(screen.getByRole("button", { name: "清除凭据" }));
   expect(onClear).toHaveBeenCalledOnce();
 });
+
+test("keeps 地域 under 更多选项, opens it only for an invalid region, and still saves it", () => {
+  const onSave = vi.fn();
+  const props = {
+    available: true,
+    status: { tencent: null, tencentInvalid: false },
+    busy: false,
+    onInputChange: vi.fn(),
+    onSave,
+    onClear: vi.fn(),
+  };
+  render(
+    <LinuxTencentCredentialsSection
+      {...props}
+      input={{ secretId: "AKIDsynthetic", secretKey: "secret-synthetic", region: "ap-hongkong" }}
+    />,
+  );
+  const fold = () => screen.getByLabelText("腾讯云地域").closest("details") as HTMLDetailsElement;
+  expect(fold().textContent).toContain("更多选项");
+  expect(fold().open).toBe(false);
+  // 凭据和保存按钮不在折叠区里。
+  expect(screen.getByLabelText("腾讯云 SecretId").closest("details")).toBeNull();
+  expect(screen.getByRole("button", { name: "保存凭据" }).closest("details")).toBeNull();
+  // 折叠着的地域照样随「保存」写进凭据文件。
+  fireEvent.click(screen.getByRole("button", { name: "保存凭据" }));
+  expect(onSave).toHaveBeenCalledWith({
+    secretId: "AKIDsynthetic",
+    secretKey: "secret-synthetic",
+    region: "ap-hongkong",
+  });
+  cleanup();
+
+  render(
+    <LinuxTencentCredentialsSection
+      {...props}
+      input={{ secretId: "", secretKey: "", region: "ap hongkong" }}
+    />,
+  );
+  expect(fold().open).toBe(true);
+});

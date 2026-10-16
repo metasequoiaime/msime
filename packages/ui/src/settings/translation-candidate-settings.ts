@@ -6,7 +6,10 @@ import type {
   TranslationSecondaryLanguage,
   TranslationSecondaryLanguageOption,
 } from "./translation-language-helpers";
-import type { TranslationProvider } from "./translation-service-selector-section";
+import {
+  translationOfflineFallback,
+  type TranslationProvider,
+} from "./translation-service-selector-section";
 
 export interface CandidateTranslationSettingsOptions {
   grouped?: boolean;
@@ -83,8 +86,8 @@ export function createCandidateTranslationSettings({
     showTranslationService: !android,
     translationProvider,
     showAccountProvider: macos || linux || windows,
-    // 只有 macOS 在不选在线服务时还会用系统本机翻译补齐释义（`InputController` 的 `currentOnDeviceGlossRequest`），所以只在 macOS 上把「关闭」改叫「离线翻译」；其他宿主沿用原来的叫法，等各自核对过再改。
-    offlineFallback: macos,
+    // 不选在线服务时宿主仍会出的释义：macOS 还有系统本机翻译，叫「离线翻译」；Windows、Linux、HarmonyOS 只有离线词库，叫「不使用在线服务」；Android、iOS 沿用「关闭」，等各自核对过再改。
+    offlineFallback: translationOfflineFallback({ macos, windows, linux, harmony }),
     onTranslationProviderChange: setTranslationProvider,
   };
 }

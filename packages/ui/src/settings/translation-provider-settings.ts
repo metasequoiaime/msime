@@ -10,7 +10,10 @@ import {
   tencentTranslationCredentialTestDisabled,
 } from "./translation-credential-test-config";
 import type { TranslationProviderSettingsSectionProps } from "./translation-provider-settings-section";
-import { type TranslationProvider } from "./translation-service-selector-section";
+import {
+  translationOfflineFallback,
+  type TranslationProvider,
+} from "./translation-service-selector-section";
 import type {
   CustomTranslationPreferences,
   NiuTransPreferences,
@@ -32,6 +35,8 @@ export interface TranslationProviderSettingsOptions {
   linux: boolean;
   windows: boolean;
   macos: boolean;
+  /** 只决定缺腾讯云凭据时警告的说法（`translationOfflineFallback`）。 */
+  harmony?: boolean;
   customTranslation: CustomTranslationPreferences;
   tencentTranslation: TencentTranslationPreferences;
   niutrans: NiuTransPreferences;
@@ -56,6 +61,7 @@ export function createTranslationProviderSettings({
   linux,
   windows,
   macos,
+  harmony = false,
   customTranslation,
   tencentTranslation,
   niutrans,
@@ -104,7 +110,7 @@ export function createTranslationProviderSettings({
         !customTranslation.enabled &&
         !tencentSecretConfigured(tencentTranslation.secret_id) &&
         !tencentSecretConfigured(tencentTranslation.secret_key),
-      offlineFallback: macos,
+      offlineFallback: translationOfflineFallback({ macos, windows, linux, harmony }),
       status: providerCredentials
         ? {
             tencent: providerCredentials.tencent,

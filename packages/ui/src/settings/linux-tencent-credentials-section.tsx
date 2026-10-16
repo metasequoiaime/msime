@@ -5,6 +5,8 @@ import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { PasswordSettingField } from "./password-setting-field";
 import { TextSettingField } from "./text-setting-field";
 import { SettingsInputDescription } from "./settings-input-description";
+import { MoreOptions } from "../core/platform-controls";
+import { tencentCredentialIssue } from "./translation-validation";
 
 export interface LinuxTencentCredentialStatus {
   tencent: { region: string } | null;
@@ -76,12 +78,15 @@ export function LinuxTencentCredentialsSection({
             value={input.secretKey}
             onChange={(secretKey) => onInputChange({ secretKey })}
           />
-          <TextSettingField
-            label="地域"
-            inputLabel="腾讯云地域"
-            value={region}
-            onChange={(value) => onInputChange({ region: value })}
-          />
+          {/* 与共享的 TencentTranslationSection 相同：provider 一律请求 tmt.tencentcloudapi.com，地域只写进 X-TC-Region，留空按广州处理（msime-linux-online-provider），平时用不着改，收进「更多选项」；值不合规时展开。地域仍在 input 里，「保存」照样带上它。 */}
+          <MoreOptions defaultOpen={tencentCredentialIssue("", "", region) !== ""}>
+            <TextSettingField
+              label="地域"
+              inputLabel="腾讯云地域"
+              value={region}
+              onChange={(value) => onInputChange({ region: value })}
+            />
+          </MoreOptions>
           <CredentialActions
             saveDisabled={busy || (!stored && (!input.secretId.trim() || !input.secretKey.trim()))}
             clearDisabled={busy}

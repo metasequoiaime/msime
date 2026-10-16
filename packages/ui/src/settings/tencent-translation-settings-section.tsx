@@ -7,6 +7,7 @@ import {
 } from "./linux-tencent-credentials-section";
 import { TencentTranslationSection } from "./tencent-translation-section";
 import type { CredentialStatusMessageValue } from "./credential-status-message";
+import type { TranslationOfflineFallback } from "./translation-service-selector-section";
 
 export interface TencentTranslationSettingsSectionProps {
   grouped?: boolean;
@@ -18,7 +19,7 @@ export interface TencentTranslationSettingsSectionProps {
   region: string;
   credentialIssue?: string;
   showMissingCredentialsWarning?: boolean;
-  offlineFallback?: boolean;
+  offlineFallback?: TranslationOfflineFallback;
   /** 见 `TencentTranslationSectionProps.foldRegion`；Linux 的凭据表单不受影响。 */
   foldRegion?: boolean;
   status?: LinuxTencentCredentialStatus;
@@ -46,7 +47,7 @@ export function TencentTranslationSettingsSection({
   region,
   credentialIssue,
   showMissingCredentialsWarning = false,
-  offlineFallback = false,
+  offlineFallback,
   foldRegion = true,
   status,
   input,

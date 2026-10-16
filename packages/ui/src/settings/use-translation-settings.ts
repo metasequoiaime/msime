@@ -15,6 +15,8 @@ export interface UseTranslationSettingsOptions {
   linux: boolean;
   /** Windows Server 的翻译线程也会把候选发给水杉账号（TranslationWorker 的 account_glosses），所以同样认得「水杉账号」。 */
   windows?: boolean;
+  /** HarmonyOS 的腾讯云密钥存在偏好里（它画的是 `TencentTranslationSection`，不是 Linux 的凭据文件表单），没有可用密钥时 host-api 不把腾讯云放进查询，与 macOS、Windows 相同。 */
+  harmony?: boolean;
   candidateEnglishGlossAvailable: boolean;
   onDeviceDownloadable: string[];
   onChange: (preferences: Preferences) => void;
@@ -27,6 +29,7 @@ export function useTranslationSettings({
   macos,
   linux,
   windows = false,
+  harmony = false,
   candidateEnglishGlossAvailable,
   onDeviceDownloadable,
   onChange,
@@ -65,9 +68,12 @@ export function useTranslationSettings({
           : tencentTranslation.enabled
             ? "tencent"
             : "none";
-  // macOS 上没有可用密钥的腾讯云不会被请求，宿主改用离线翻译（`InputController` 的 `currentOnDeviceGlossRequest` 只看共享查询里有没有服务配置，而 host-api 只在两个密钥都可用时才放进腾讯云），所以新装时默认的 `enabled: true` 显示成「离线翻译」，与实际一致；用户本次选了腾讯云才显示腾讯云，让凭据输入框出现。Windows、Linux 的显示不变：Linux 的密钥在 provider 自己的文件里，偏好里的空密钥不代表没配置。
+  // 没有可用密钥的腾讯云不会被请求：host-api 的 `selected_translation_services` 只在两个密钥都可用时才把它放进查询，macOS（`InputController` 的 `currentOnDeviceGlossRequest`）、Windows（Server 的 `msime_client_translation_query`）和 HarmonyOS（`TranslationPolicy.provider`）都按查询走。所以新装时默认的 `enabled: true` 在这三处显示成 `none`，与实际一致；用户本次选了腾讯云才显示腾讯云，让凭据输入框出现。Linux 的显示不变：它的密钥在 provider 自己的 tencent-provider.json 里，偏好里的空密钥不代表没配置，host-api 也正靠 `enabled: true` 把查询交给那边。
   const translationProvider =
-    macos && storedProvider === "tencent" && !tencentConfigured && !tencentChosen
+    (macos || windows || harmony) &&
+    storedProvider === "tencent" &&
+    !tencentConfigured &&
+    !tencentChosen
       ? "none"
       : storedProvider;
   const onDeviceTranslationInUse =
