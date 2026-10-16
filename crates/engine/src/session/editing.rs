@@ -132,8 +132,7 @@ impl InputSession {
                     accepted = value.is_ascii_hexdigit()
                         || (value == b'+' && caret == 1 && !text.contains('+'));
                 }
-                LocalInputMode::QuickPhrase => accepted = lower,
-                LocalInputMode::DateTime => accepted = false,
+                LocalInputMode::QuickPhrase | LocalInputMode::DateTime => accepted = lower,
                 // 笔画只接受笔画键；通配符不能插在最前面；已满 `MAX_STROKES` 笔时不再插入（否则截断会丢掉末尾那一笔）。组合中的其他字母被吞掉，与在末尾键入时一样。
                 LocalInputMode::None if self.stroke_rules_apply() => {
                     if !stroke::is_key(value)

@@ -3,11 +3,8 @@ import { useAsyncActionRunner } from "../core/use-async-action";
 import { randomUuid } from "../core/random-id";
 import { formatZhNumber } from "../core/format-number";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
-import {
-  CommunityHarmonyLoadMore,
-  CommunityHarmonySearch,
-  CommunitySkinsPage,
-} from "./community-skins";
+import { CommunitySkinsPage } from "./community-skins";
+import { CommunitySearchForm } from "./community-search-form";
 import { type CommunitySkinClient } from "./community-skin-model";
 import { useToast } from "../core/toast";
 import { boundedGraphemes } from "../core/text";
@@ -715,7 +712,8 @@ export function CommunityResourcesPage({
     ];
     return (
       <div className={style.harmonyPage}>
-        <CommunityHarmonySearch
+        <CommunitySearchForm
+          look="harmony"
           label={`搜索${resourceKindTitle(kind)}`}
           value={search}
           onChange={setSearch}
@@ -768,7 +766,8 @@ export function CommunityResourcesPage({
             </div>
           </div>
         )}
-        <CommunityHarmonyLoadMore
+        <CommunityGalleryLoadMore
+          look="harmony"
           hasMore={more}
           busy={busy}
           loadingText="正在读取社区…"

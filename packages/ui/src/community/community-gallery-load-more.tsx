@@ -7,24 +7,39 @@ export interface CommunityGalleryLoadMoreProps {
   busy: boolean;
   loadingText: string;
   onLoadMore: () => void;
+  /** 鸿蒙手机用轻量文字按钮和提示；缺省保留桌面外观。 */
+  look?: "harmony";
 }
 
-/** Shared load-more action and status used by community gallery pages. */
+/** 社区图库共用的分页按钮与加载提示，两种外观共用显示和禁用条件。 */
 export function CommunityGalleryLoadMore({
   hasMore,
   busy,
   loadingText,
   onLoadMore,
+  look,
 }: CommunityGalleryLoadMoreProps) {
+  const harmony = look === "harmony";
   if (!hasMore && !busy) return null;
   return (
     <>
-      {hasMore && <CommunityLoadMoreButton disabled={busy} onClick={onLoadMore} />}
+      {hasMore && (
+        <CommunityLoadMoreButton
+          className={harmony ? style.harmonyMore : undefined}
+          disabled={busy}
+          onClick={onLoadMore}
+        />
+      )}
       {busy && (
-        <StatusMessage role="status" className={style.notice}>
+        <StatusMessage role="status" className={harmony ? style.harmonyNotice : style.notice}>
           {loadingText}
         </StatusMessage>
       )}
     </>
   );
+}
+
+/** 兼容原鸿蒙分页入口，逻辑统一由公共分页控件持有。 */
+export function CommunityHarmonyLoadMore(props: Omit<CommunityGalleryLoadMoreProps, "look">) {
+  return <CommunityGalleryLoadMore {...props} look="harmony" />;
 }
