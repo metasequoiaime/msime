@@ -1875,12 +1875,15 @@ impl NineKeySession {
         {
             return Vec::new();
         }
-        let digits = self.digits.clone();
         let grid = self.grid;
-        let Some(english) = self.open_english() else {
+        if self.open_english().is_none() {
+            return Vec::new();
+        }
+        let Some(english) = self.english.as_ref() else {
             return Vec::new();
         };
-        let prefixes = letter_prefixes(grid, &digits, ENGLISH_PREFIX_BUDGET);
+        let digits = self.digits.as_str();
+        let prefixes = letter_prefixes(grid, digits, ENGLISH_PREFIX_BUDGET);
         let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
         let mut words = Vec::new();
         for prefix in prefixes {
@@ -1888,7 +1891,7 @@ impl NineKeySession {
                 // 词条必须覆盖全部输入数字，防止展开前缀后面的字母读出不匹配的词。
                 // 对照 `pinyin` 中的小写查询键；`word` 是展示形式，可以带标点或空格，
                 // 例如查询键 `dont` 可以显示为 `don't`。
-                if !word_matches_digits(grid, &word.pinyin, &digits) {
+                if !word_matches_digits(grid, &word.pinyin, digits) {
                     continue;
                 }
                 if words.capacity() == 0 {
@@ -4200,6 +4203,22 @@ mod tests {
             .iter()
             .any(|word| word.word == "合成展示" && word.pinyin == "dont"));
         assert_eq!(words.capacity(), capacity);
+    }
+
+    #[test]
+    fn english_refresh_does_not_allocate_a_copy_of_typed_digits() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        session.set_english_only(true);
+        session.digits = "3668".into();
+        session.english_candidates(false);
+
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.english_candidates(false));
+        assert!(
+            allocations < 157,
+            "英文候选热刷新不应复制已输入的数字：{allocations} 次分配"
+        );
     }
 
     #[test]
