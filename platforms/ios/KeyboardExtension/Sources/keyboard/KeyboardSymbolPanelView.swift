@@ -67,11 +67,12 @@ final class KeyboardSymbolPanelView: UIView {
       "Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ",
       "½", "⅓", "¼", "‰", "′", "″", "㎡", "㎏", "㎝", "№",
     ]),
+    // 网址片段之后接全部常用邮箱后缀（`EmailSuffixPolicy.suffixes`），与 Android、鸿蒙的「网络」和候选栏给的后缀是同一份。
     Category(title: "网络", symbols: [
       "@", "#", "/", "\\", ":", "_", "-", "+", "=", "&",
       "?", "%", "~", "^", "*", "|", "<", ">", "$", "€",
-      "http://", "https://", "www.", ".com", ".cn", ".net", ".org", ".io", "@qq.com", "@gmail.com",
-    ]),
+      "http://", "https://", "www.", ".com", ".cn", ".net", ".org", ".io",
+    ] + EmailSuffixPolicy.suffixes),
   ]
 
   private let onInsert: (String) -> Void

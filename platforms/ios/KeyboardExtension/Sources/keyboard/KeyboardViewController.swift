@@ -212,6 +212,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyMiddleButton: UIButton?
   /// 拼音网格 1 键放进候选条的常用标点；为空时候选条画 Engine 的候选。下一次 `render` 换回 Engine 的候选。
   private var nineKeyQuickSymbols: [String] = []
+  /// 候选条上正显示的邮箱后缀（`EmailSuffixPolicy`）；为空时候选条画别的内容。每次 `updateCandidateStrip` 都按光标前的文字重新决定，不另外保存读到的上文。
+  private var visibleEmailSuffixes: [String] = []
+  /// 自己改了文档之后，下一轮主线程上已排好一次邮箱后缀的重新匹配。
+  private var emailSuffixRefreshScheduled = false
   /// The four Dachen rows, shown instead of the letter rows while the Zhuyin scheme is active.
   private var zhuyinRowViews: [UIView] = []
   /// 全拼 14 键的三排键（`FourteenKeyLayout`），中文模式下代替三排字母。
@@ -672,7 +676,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.synchronizeInputSchemePreference()
       self.updateLanguageModeButton()
       self.updateLetterCaseControls()
-      self.updateCandidateStrip(preedit: self.visiblePreedit, candidates: self.visibleCandidates)
+      // 邮箱后缀不是候选条底下的内容，由 `updateCandidateStrip` 按这时的上文重新决定给不给。
+      self.updateCandidateStrip(preedit: self.visiblePreedit,
+                                candidates: self.visibleEmailSuffixes.isEmpty ? self.visibleCandidates : [])
     }
     synchronizeInputContext()
     prepareKeyFeedback()
@@ -862,6 +868,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateReturnKey()
     updateAutomaticCapitalization()
     synchronizeReplyKeyboard()
+    refreshEmailSuffixes()
+  }
+
+  override func selectionDidChange(_ textInput: UITextInput?) {
+    super.selectionDidChange(textInput)
+    // 光标移到了 `xxx@` 后面，或者从那里移开。
+    refreshEmailSuffixes()
   }
 
   override func viewWillDisappear(_ animated: Bool) {
@@ -3248,6 +3261,46 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     finishTemporaryEnglish()
   }
 
+  /// 候选条这时该给的邮箱后缀：没在组字、不在本地模式、候选条没被九键 1 键的常用标点或手写结果占着、不是密码或验证码输入框时，按光标前的文字匹配（`EmailSuffixPolicy`）。上文只在这里读一次、在内存里匹配，不记录、不保存。组字时候选条归 Engine 的候选。
+  private func emailSuffixesForStrip(preedit: String) -> [String] {
+    guard preedit.isEmpty, !hasComposition, !isInLocalMode, nineKeyQuickSymbols.isEmpty,
+          inputScheme != .handwriting || handwritingResults.isEmpty, !isCredentialField else { return [] }
+    return EmailSuffixPolicy.match(textBeforeCursor: textDocumentProxy.documentContextBeforeInput)?.suffixes ?? []
+  }
+
+  /// 按这时光标前的文字重新决定候选条给不给邮箱后缀；结果变了才重画。后缀不再匹配时，英文模式换回英文建议，中文模式回到空闲。
+  private func refreshEmailSuffixes() {
+    let next = emailSuffixesForStrip(preedit: visiblePreedit)
+    guard next != visibleEmailSuffixes else { return }
+    if next.isEmpty && !isChineseMode {
+      refreshEnglishSuggestions()
+    } else {
+      updateCandidateStrip(preedit: "", candidates: [])
+    }
+  }
+
+  /// 键盘自己经 `textDocumentProxy` 插入或删除文字时，iOS 不回调 `textDidChange`（见 `OwnEditEchoWindow`），而符号面板、中文模式下的符号层按键这类路径上屏之后不再更新候选条。所以每次自己改了文档都在下一轮主线程上重新匹配一次：那时这一键的所有改动和候选条更新都已做完，一轮里的几次改动只匹配一次。
+  private func scheduleEmailSuffixRefresh() {
+    guard !emailSuffixRefreshScheduled else { return }
+    emailSuffixRefreshScheduled = true
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      emailSuffixRefreshScheduled = false
+      refreshEmailSuffixes()
+    }
+  }
+
+  /// 补全邮箱后缀：按点下这一刻的上文重新匹配，删掉已经打的域名，上屏完整后缀（不带 `@`，ASCII，不随全角开关变）。上文已经变了、对不上这个后缀时只收起。补全后上文以完整后缀结尾，不再匹配，候选条回到空闲。
+  private func useEmailSuffix(at index: Int) {
+    let suffix = visibleEmailSuffixes[index]
+    let match = EmailSuffixPolicy.match(textBeforeCursor: textDocumentProxy.documentContextBeforeInput)
+    if let replacement = EmailSuffixPolicy.replacement(match, suffix: suffix) {
+      for _ in 0..<replacement.deleteCount { deleteOwnBackward() }
+      insertOwnText(replacement.insert)
+    }
+    updateCandidateStrip(preedit: "", candidates: [])
+  }
+
   /// A digit past the chips on show while composing. The session answers it with an unhandled diagnostic carrying no preedit, which the path below would take for "no composition" and type the digit into the document mid-word, so it does nothing instead. Not private: the page-size tests pin it.
   static func digitHasNoChip(_ digit: String, chips: Int, composing: Bool) -> Bool {
     guard composing, let number = Int(digit) else { return false }
@@ -3310,7 +3363,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // absolute index the chip with that number is actually displaying, and a digit with no chip
       // on this page has to do nothing: falling through would hand it to handleCandidateKey and
       // commit a first-page candidate the user cannot see.
-      let composing = !visiblePreedit.isEmpty || !visibleCandidates.isEmpty
+      // 候选条上的邮箱后缀不归 Engine，`abc@1` 的数字照常上屏。
+      let composing = !visiblePreedit.isEmpty || (!visibleCandidates.isEmpty && visibleEmailSuffixes.isEmpty)
       if Self.digitHasNoChip(symbol, chips: min(candidatePageSize, visibleCandidates.count), composing: composing) { return }
       let snapshot = session.handleCandidateKey(symbol)
       if !snapshot.isHandled && snapshot.preedit.isEmpty {
@@ -5245,7 +5299,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// Tab on the full-size iPad keyboard. On the desktop Tab turns the candidate page; the strip here has no pages to turn, only the full candidate panel behind it, so with candidates showing Tab opens that. Otherwise it ends any composition and types a tab, as an unhandled key does.
   private func handleTab() {
-    let composing = isChineseMode && (!visiblePreedit.isEmpty || !visibleCandidates.isEmpty)
+    // 邮箱后缀不在会话的候选列表里，Tab 不为它们打开候选面板。
+    let composing = isChineseMode && (!visiblePreedit.isEmpty || (!visibleCandidates.isEmpty && visibleEmailSuffixes.isEmpty))
     if composing, !visibleCandidates.isEmpty, Self.tabShowsMoreCandidates(session.sharedPreferences) {
       showCandidatePanel()
       return
@@ -5524,6 +5579,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 键盘每次经 `textDocumentProxy` 改动文档之后都记一笔，`textWillChange` 据此认出自己的回声。
   private func noteOwnEdit() {
     ownEditEcho.recordOwnEdit(at: ProcessInfo.processInfo.systemUptime)
+    scheduleEmailSuffixRefresh()
   }
 
   private var typingSource: TypingSource {
@@ -5817,18 +5873,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                     candidateAnnotations: [String] = [], candidateSources: [Int] = [],
                                     candidateFixedPositions: [Int] = [], candidatePageCount: Int = 0,
                                     answeredByPinyinFallback: Bool = false) {
+    // 光标前打到 `xxx@` 时邮箱后缀占候选条，排在英文建议之前，与 Android 一样；它们不是 Engine 的候选，不带编码、释义和来源。
+    let emailSuffixes = emailSuffixesForStrip(preedit: preedit)
+    visibleEmailSuffixes = emailSuffixes
+    let showsEmailSuffixes = !emailSuffixes.isEmpty
+    let candidates = showsEmailSuffixes ? emailSuffixes : candidates
     if visibleCandidates != candidates {
       candidateGlossRequestedGeneration = nil
     }
     visiblePreedit = preedit
     visibleCandidates = candidates
-    visibleCandidateCodes = candidateCodes
-    visibleCandidateGlosses = candidateGlosses
-    visibleCandidateAnnotations = candidateAnnotations
-    visibleCandidateSources = candidateSources
-    visibleCandidateFixedPositions = candidateFixedPositions
-    visibleCandidatePageCount = candidatePageCount
-    visibleCandidatesAnsweredByPinyinFallback = answeredByPinyinFallback
+    visibleCandidateCodes = showsEmailSuffixes ? [] : candidateCodes
+    visibleCandidateGlosses = showsEmailSuffixes ? [] : candidateGlosses
+    visibleCandidateAnnotations = showsEmailSuffixes ? [] : candidateAnnotations
+    visibleCandidateSources = showsEmailSuffixes ? [] : candidateSources
+    visibleCandidateFixedPositions = showsEmailSuffixes ? [] : candidateFixedPositions
+    visibleCandidatePageCount = showsEmailSuffixes ? 0 : candidatePageCount
+    visibleCandidatesAnsweredByPinyinFallback = showsEmailSuffixes ? false : answeredByPinyinFallback
     requestCandidateTranslations()
     // Any new candidate list is a different composition or a different set of matches, so the page
     // it was showing no longer describes anything.
@@ -5850,7 +5911,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     readingRow.isHidden = !showsCandidates
     candidateContent?.isHidden = !showsCandidates
     updatePreeditButton()
-    let page = Array(visibleCandidates.prefix(candidatePageSize))
+    // 邮箱后缀不分页：二十个全排在候选条上横向滚动，与 Android 一样。
+    let page = visibleEmailSuffixes.isEmpty ? Array(visibleCandidates.prefix(candidatePageSize)) : visibleEmailSuffixes
     while candidateStack.arrangedSubviews.count < page.count {
       let index = candidateStack.arrangedSubviews.count
       candidateStack.addArrangedSubview(makeCandidateButton(index: index))
@@ -5859,6 +5921,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard let chip = view as? KeyboardKeyButton else { continue }
       chip.isHidden = offset >= page.count
       guard offset < page.count else { continue }
+      if !visibleEmailSuffixes.isEmpty {
+        // 样式与英文建议的词块相同，只是读作邮箱后缀。
+        updateCandidateButton(chip, candidate: page[offset], hint: "", glosses: [], number: offset + 1, converting: false)
+        chip.accessibilityLabel = "邮箱后缀 \(offset + 1)：\(page[offset])"
+        continue
+      }
       // A Korean Hanja's 훈음 goes on the first line under it rather than after it, so it is not read as part of the candidate.
       let annotation = candidateAnnotation(at: offset)
       updateCandidateButton(
@@ -6050,7 +6118,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard CandidateGlossPreference.enabled, CandidateTranslationPreference.onlineEnabled,
           translationRoute != .none, hasFullAccess, glossesCandidates, !isInLocalMode,
           translationRoute != .account || translationAccountScope != nil,
-          !visibleCandidates.isEmpty else { translations.cancel(); return }
+          !visibleCandidates.isEmpty, visibleEmailSuffixes.isEmpty else { translations.cancel(); return }
     var codes = [CandidateTranslationPreference.primary.code]
     if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
     let words = Array(visibleCandidates.prefix(candidatePageSize))
@@ -6102,7 +6170,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// still visible. A failed or missing dictionary is intentionally silent.
   private func scheduleCandidateGlosses() {
     guard CandidateGlossPreference.enabled, glossesCandidates,
-          !isInLocalMode, !visibleCandidates.isEmpty,
+          !isInLocalMode, !visibleCandidates.isEmpty, visibleEmailSuffixes.isEmpty,
           let resources = session.candidateGlossResources(), !resources.isEmpty else {
       let hadVisibleGlosses = !visibleCandidateGlosses.isEmpty || !candidateTargetGlosses.isEmpty
       if candidateGlossRequestedGeneration != nil || hadVisibleGlosses {
@@ -6285,6 +6353,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func selectCandidate(at index: Int) {
     guard visibleCandidates.indices.contains(index) else { return }
+    if visibleEmailSuffixes.indices.contains(index) {
+      useEmailSuffix(at: index)
+      return
+    }
     if nineKeyQuickSymbols.indices.contains(index) {
       let symbol = nineKeyQuickSymbols[index]
       nineKeyQuickSymbols = []
@@ -6499,7 +6571,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// gave them none, so the press that managed an entry on the strip did nothing once the list was
   /// expanded -- and the expanded list is exactly where a rarely used entry is reached.
   func candidateMenuElements(at index: Int) -> [UIMenuElement] {
-    guard isChineseMode, inputScheme.writesChinese, !isInLocalMode,
+    // 邮箱后缀不是词条，长按没有固定、删除或以词定字可做。
+    guard isChineseMode, inputScheme.writesChinese, !isInLocalMode, visibleEmailSuffixes.isEmpty,
           visibleCandidates.indices.contains(index) else { return [] }
     let candidate = visibleCandidates[index]
     let revision = candidateRevision
