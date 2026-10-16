@@ -438,7 +438,7 @@ impl Session {
         self.input.expand_initial_candidates()
     }
 
-    /// Composition caret for prefix decoding (overlays.md §7.6); `None` returns to the end. A no-op while nine-key digits are active.
+    /// 设置前缀解码的组字光标（overlays.md §7.6）；位置限制在可编辑范围，不能越过本地模式的入口标记。`None` 回到末尾，九键组码时无操作。
     pub fn set_caret(&mut self, caret: Option<usize>) {
         if self.nine_key.active() {
             return;

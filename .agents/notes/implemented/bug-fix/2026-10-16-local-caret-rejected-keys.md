@@ -39,3 +39,8 @@ Status: implemented
 ## Allocation investigation follow-up
 
 [九键分配隔离](../testing/2026-10-17-nine-key-allocation-isolation.md)通过受控 `close_cached_journals` 在两臂之间推进全局 generation，使预算稳定失败为 `144>136`；均匀暂停和单侧查询暂停没有支持上文 20 ms 事务续期的假设。该机制足以导致预算失败，但没有捕获上文两次历史失败的精确时序。两个原预算测试以单目标子进程隔离其他测试的全局失效，原断言保留。
+
+
+## Direct caret boundary
+
+[本地模式入口标记](2026-10-17-local-caret-entry-marker.md)让公开直接光标入口与方向键共用可编辑起点，避免从零位置删掉标记或把合法插入误判为拒绝。本篇字符拒绝后的提交与透传决定继续成立。

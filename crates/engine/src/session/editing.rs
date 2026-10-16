@@ -59,6 +59,14 @@ impl InputSession {
         }
     }
 
+    // 本地模式的入口是不可编辑的标记；普通方案和网址模式从第一个字符开始编辑。
+    fn editing_begin(&self) -> usize {
+        usize::from(!matches!(
+            self.local_mode,
+            LocalInputMode::None | LocalInputMode::Url
+        ))
+    }
+
     pub(super) fn caret_position(&self) -> usize {
         let length = self.editing_text_len();
         self.caret.unwrap_or(length).min(length)
@@ -68,11 +76,7 @@ impl InputSession {
     pub(super) fn edit_at_caret(&mut self, command: Command) -> KeyResult {
         let text_len = self.editing_text_len();
         let mut caret = self.caret.unwrap_or(text_len).min(text_len);
-        // 本地模式的前缀字母是模式标记，不是可编辑的内容；网址模式没有前缀字母，整段都能编辑。
-        let begin = usize::from(!matches!(
-            self.local_mode,
-            LocalInputMode::None | LocalInputMode::Url
-        ));
+        let begin = self.editing_begin();
         match command {
             Command::MoveLeft => caret = caret.saturating_sub(1).max(begin),
             Command::MoveRight => caret = (caret + 1).min(text_len),
@@ -312,7 +316,7 @@ impl InputSession {
         }
     }
 
-    /// Clamped to the editing text; recomputes the prefix candidates. Korean has no caret inside its open syllable and Zhuyin none inside its conversion, so the caret stays at the end.
+    /// 将光标限制在可编辑范围内并重算前缀候选；禁止内部光标的方案仍留在末尾。
     pub(super) fn set_caret(&mut self, caret: Option<usize>) {
         // 宿主直接放字母光标，就是回到拼音编辑。
         self.leave_conversion();
@@ -324,7 +328,8 @@ impl InputSession {
             return;
         }
         let length = self.editing_text_len();
-        self.caret = caret.map(|position| position.min(length));
+        let begin = self.editing_begin().min(length);
+        self.caret = caret.map(|position| position.clamp(begin, length));
         // Only the scheme composition decodes by caret; local and English lists do not depend on it.
         if !self.dedicated_english && self.local_mode == LocalInputMode::None {
             self.update_mixed_candidates();

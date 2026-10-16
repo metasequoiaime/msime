@@ -4474,6 +4474,45 @@ fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host(
 }
 
 #[test]
+fn direct_local_caret_preserves_the_mode_through_runtime_edits() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+        .dispatch(Action::Character {
+            value: b'U',
+            shift: true,
+        })
+        .unwrap();
+    type_characters(&mut runtime, "0041");
+    runtime.set_caret(Some(0)).unwrap();
+
+    let inserted = character(&mut runtime, b'+');
+
+    assert!(
+        inserted.handled && inserted.commit.is_none(),
+        "{inserted:?}"
+    );
+    assert_eq!(inserted.view.editing_text, "U+0041");
+    assert_eq!(inserted.view.caret_position, 2);
+    assert_eq!(texts(&inserted.view)[0], "A");
+    runtime.set_caret(Some(0)).unwrap();
+    let deleted = runtime
+        .dispatch(Action::Command(Command::DeleteForward))
+        .unwrap();
+    assert!(deleted.handled && deleted.commit.is_none());
+    assert_eq!(deleted.view.editing_text, "U0041");
+    assert_eq!(deleted.view.caret_position, 1);
+    assert_eq!(texts(&deleted.view)[0], "A");
+    let committed = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert_eq!(committed.commit.as_deref(), Some("U0041"));
+    assert!(committed.view.editing_text.is_empty());
+}
+
+#[test]
 fn caret_rejected_local_keys_keep_the_commit_and_pass_the_key_to_the_host() {
     for (entry, spelling, rejected) in [(b'E', "ab", b'1'), (b'U', "0041", b'g')] {
         let directory = tempfile::tempdir().unwrap();

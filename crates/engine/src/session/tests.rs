@@ -3968,6 +3968,130 @@ fn caret_rejected_local_characters_commit_raw_and_return_the_key() {
 }
 
 #[test]
+fn direct_local_caret_keeps_the_entry_marker_when_deleting() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (entry, spelling) in [
+        (b'U', "0041"),
+        (b'T', "rq"),
+        (b'K', "ab"),
+        (b'E', "xiao"),
+        (b'M', "xiao"),
+        (b'J', "nh"),
+        (b'C', "huo"),
+        (b'V', "12"),
+        (b'/', "uuid"),
+        (b'@', "user"),
+        (b'Y', "ab"),
+        (b'R', "ka"),
+    ] {
+        let mut session = fixture.session_with(|options| {
+            options.local_modes.chaizi = true;
+            options.local_modes.expression = true;
+            options.local_modes.command = true;
+            options.local_modes.mention = true;
+        });
+        assert!(session.character(entry, entry.is_ascii_uppercase()).handled);
+        type_text(&mut session, spelling);
+        let mode = session.snapshot().local_mode;
+        assert_ne!(mode, LocalInputMode::None);
+        session.set_caret(Some(0));
+
+        let result = session.command(Command::DeleteForward);
+
+        assert!(
+            result.handled && result.commit.is_none(),
+            "{entry}: {result:?}"
+        );
+        let snapshot = session.snapshot();
+        assert_eq!(
+            snapshot.editing_text,
+            format!("{}{}", entry as char, &spelling[1..])
+        );
+        assert_eq!(snapshot.local_mode, mode);
+        assert_eq!(snapshot.caret_position, 1);
+        let before = snapshot;
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot(), before);
+    }
+}
+
+#[test]
+fn direct_local_caret_inserts_after_the_entry_marker() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (entry, spelling, value) in [(b'U', "0041", b'+'), (b'Y', "ab", b'x'), (b'R', "ka", b'a')] {
+        let mut session = fixture.session();
+        assert!(session.character(entry, true).handled);
+        type_text(&mut session, spelling);
+        let mode = session.snapshot().local_mode;
+        session.set_caret(Some(0));
+
+        let result = session.character(value, false);
+
+        assert!(
+            result.handled && result.commit.is_none(),
+            "{entry}: {result:?}"
+        );
+        let snapshot = session.snapshot();
+        assert_eq!(
+            snapshot.editing_text,
+            format!("{}{}{spelling}", entry as char, value as char)
+        );
+        assert_eq!(snapshot.local_mode, mode);
+        assert_eq!(snapshot.caret_position, 2);
+    }
+}
+
+#[test]
+fn direct_caret_keeps_zero_for_modes_without_an_entry_marker() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (typed, dedicated, expected) in [
+        ("ni", false, "i"),
+        ("ab", true, "b"),
+        ("www.example", false, "ww.example"),
+    ] {
+        let mut session = fixture.session();
+        session.set_dedicated_english(dedicated);
+        type_text(&mut session, typed);
+        let mode = session.snapshot().local_mode;
+        session.set_caret(Some(0));
+        assert_eq!(session.snapshot().caret_position, 0);
+
+        let result = session.command(Command::DeleteForward);
+
+        assert!(result.handled && result.commit.is_none());
+        let snapshot = session.snapshot();
+        assert_eq!(snapshot.editing_text, expected);
+        assert_eq!(snapshot.caret_position, 0);
+        assert_eq!(snapshot.local_mode, mode);
+    }
+}
+
+#[test]
+fn direct_local_caret_keeps_end_clamping_and_bare_marker_exit() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    session.character(b'U', true);
+    session.set_caret(Some(0));
+    assert_eq!(session.snapshot().caret_position, 1);
+    assert!(session.command(Command::DeleteForward).handled);
+    assert_eq!(session.snapshot().editing_text, "U");
+    assert!(session.command(Command::Backspace).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+    assert!(session.snapshot().editing_text.is_empty());
+
+    session.character(b'U', true);
+    type_text(&mut session, "0041");
+    session.set_caret(Some(usize::MAX));
+    assert_eq!(session.snapshot().caret_position, 5);
+    session.set_caret(Some(0));
+    session.set_caret(None);
+    assert_eq!(session.snapshot().caret_position, 5);
+    let result = session.character(b'2', false);
+    assert!(result.handled && result.commit.is_none());
+    assert_eq!(session.snapshot().editing_text, "U00412");
+}
+
+#[test]
 fn accepted_local_mode_characters_keep_spelling_until_enter() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     for (entry, spelling) in [(b'U', "+4e2d"), (b'T', "rq"), (b'K', "ab")] {

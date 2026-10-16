@@ -36,3 +36,8 @@ Status: implemented
 - [在线候选更新保留释义](../../implemented/bug-fix/2026-10-11-online-candidate-gloss-retention.md)：部分重叠，沿用其变更候选前推进代次、旧 ID 被拒绝的边界，不更改释义保留策略。
 
 其余命中属于原生候选窗口、宿主异步请求或展示事件，与直接光标入口无关；没有完全吸收或需要否决的旧提案。
+
+
+## Editable range
+
+[本地模式入口标记](2026-10-17-local-caret-entry-marker.md)补齐同一直接 Rust 光标接口的引擎下界：带标记模式不能把光标设在入口之前。runtime 仍按本篇规则提前推进代次，候选身份协议不变。
