@@ -511,6 +511,7 @@ struct State {
   bool voice_hotkey_ralt = true;
   bool voice_hotkey_ctrl_win = false;
   bool voice_hotkey_rctrl_ralt = false;
+  // 空格锁定固定为开，不读存下的 `hotkey_hold_space_lock`：空格只在按住录音组合键期间才被拦下，平常打字不受影响，设置页也不再给这个开关（`voice_space_lock_switch`）。
   bool voice_hotkey_hold_space_lock = true;
   bool voice_hotkey_ctrl_f9 = true;
   // The lock state as the last key event reported it; IBus sends no event of its own when it changes.
@@ -806,8 +807,6 @@ struct State {
     voice_hotkey_ralt = voice_preferences.value("hotkey_ralt", true);
     voice_hotkey_ctrl_win = voice_preferences.value("hotkey_ctrl_win", false);
     voice_hotkey_rctrl_ralt = voice_preferences.value("hotkey_rctrl_ralt", false);
-    voice_hotkey_hold_space_lock =
-        voice_preferences.value("hotkey_hold_space_lock", true);
     voice_hotkey_ctrl_f9 = voice_preferences.value("hotkey_ctrl_f9", true);
     const auto keybindings = preferences.value("keybindings", Json::object());
     mode_ctrl_space_enabled = keybindings.value("switch_language_ctrl_space", true);
@@ -1073,7 +1072,6 @@ struct State {
     voice_hotkey_ralt = voice.value("hotkey_ralt", true);
     voice_hotkey_ctrl_win = voice.value("hotkey_ctrl_win", false);
     voice_hotkey_rctrl_ralt = voice.value("hotkey_rctrl_ralt", false);
-    voice_hotkey_hold_space_lock = voice.value("hotkey_hold_space_lock", true);
     voice_hotkey_ctrl_f9 = voice.value("hotkey_ctrl_f9", true);
     const auto keybindings = preferences.value("keybindings", Json::object());
     mode_ctrl_space_enabled = keybindings.value("switch_language_ctrl_space", true);

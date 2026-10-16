@@ -1867,8 +1867,6 @@ public:
     voice_hotkey_ralt_ = voicePreferences.value("hotkey_ralt", true);
     voice_hotkey_ctrl_win_ = voicePreferences.value("hotkey_ctrl_win", false);
     voice_hotkey_rctrl_ralt_ = voicePreferences.value("hotkey_rctrl_ralt", false);
-    voice_hotkey_hold_space_lock_ =
-        voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
     voice_language_ = voicePreferences.value("language", std::string("zh-cn"));
     loadVoiceOptions();
     syncVoiceOverlayTheme();
@@ -2009,8 +2007,6 @@ public:
             voice_hotkey_ralt_ = voicePreferences.value("hotkey_ralt", voice_hotkey_ralt_);
             voice_hotkey_ctrl_win_ = voicePreferences.value("hotkey_ctrl_win", voice_hotkey_ctrl_win_);
             voice_hotkey_rctrl_ralt_ = voicePreferences.value("hotkey_rctrl_ralt", voice_hotkey_rctrl_ralt_);
-            voice_hotkey_hold_space_lock_ =
-                voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
             voice_language_ = voicePreferences.value("language", voice_language_);
             loadVoiceOptions();
             syncVoiceOverlayTheme();
@@ -3861,6 +3857,7 @@ public:
   bool voice_hotkey_ralt_ = true;
   bool voice_hotkey_ctrl_win_ = false;
   bool voice_hotkey_rctrl_ralt_ = false;
+  // 空格锁定固定为开，不读存下的 `hotkey_hold_space_lock`：空格只在按住录音组合键期间才被拦下，平常打字不受影响，设置页也不再给这个开关（`voice_space_lock_switch`）。
   bool voice_hotkey_hold_space_lock_ = true;
   bool voice_ralt_held_ = false;
   bool voice_f9_held_ = false;

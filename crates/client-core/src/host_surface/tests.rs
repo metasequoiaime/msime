@@ -714,24 +714,27 @@ fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
     }
 }
 
-/// macOS 把空格锁定固定为开、只读提示音总开关、只经 CoreAudio 录音，所以只有它不给这三组控件；其他宿主照旧读存下的值。
+/// 空格锁定和开始、结束提示音的细分只有 Android、iOS 还读存下的值；录音后端只有 Linux 有得选。macOS、Windows、HarmonyOS 只给一个「麦克风」下拉。
 #[test]
-fn macos_alone_fixes_space_lock_cue_split_and_capture_backend() {
-    let macos = HostCapabilities::for_platform(HostPlatform::Macos);
-    assert!(!macos.voice_space_lock_switch);
-    assert!(!macos.voice_cue_switches);
-    assert!(!macos.voice_capture_backends);
-    for platform in [
-        HostPlatform::Windows,
-        HostPlatform::Linux,
-        HostPlatform::Android,
-        HostPlatform::Ios,
-        HostPlatform::Harmony,
+fn only_mobile_reads_space_lock_and_cue_split_and_only_linux_picks_capture_backend() {
+    for (platform, space_lock, cues, backends) in [
+        (HostPlatform::Macos, false, false, false),
+        (HostPlatform::Windows, false, false, false),
+        (HostPlatform::Linux, false, false, true),
+        (HostPlatform::Harmony, false, false, false),
+        (HostPlatform::Android, true, true, true),
+        (HostPlatform::Ios, true, true, true),
     ] {
         let capabilities = HostCapabilities::for_platform(platform);
-        assert!(capabilities.voice_space_lock_switch);
-        assert!(capabilities.voice_cue_switches);
-        assert!(capabilities.voice_capture_backends);
+        assert_eq!(
+            capabilities.voice_space_lock_switch, space_lock,
+            "{platform:?} space lock"
+        );
+        assert_eq!(capabilities.voice_cue_switches, cues, "{platform:?} cues");
+        assert_eq!(
+            capabilities.voice_capture_backends, backends,
+            "{platform:?} capture backends"
+        );
     }
 }
 

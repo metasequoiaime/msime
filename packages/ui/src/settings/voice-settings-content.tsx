@@ -357,7 +357,7 @@ export function VoiceSettingsContent({
       updateVoice={updateVoice}
     />
   );
-  // 只在分别读开始、结束提示音的宿主上给出这两个开关；macOS 只读总开关。Android 不画录音行为，这里也一样。
+  // 只在分别读开始、结束提示音的宿主上给出这两个开关；macOS、Windows、Linux、HarmonyOS 只认总开关。Android 不画录音行为，这里也一样。
   const cueSwitches = showVoiceCueSwitches && !androidPlatform && (
     <VoiceCueSwitchesSection
       soundEnabled={voiceInput.sound_enabled !== false}
@@ -425,20 +425,23 @@ export function VoiceSettingsContent({
                 {asrServiceTest}
               </GroupList>
               {polish}
-              <GroupList title="提示音">
-                <SwitchRow
-                  title="开始录音提示音"
-                  disabled={!soundEnabled}
-                  checked={voiceInput.start_sound !== false}
-                  onChange={(start_sound) => updateVoice({ start_sound })}
-                />
-                <SwitchRow
-                  title="结束录音提示音"
-                  disabled={!soundEnabled}
-                  checked={voiceInput.end_sound !== false}
-                  onChange={(end_sound) => updateVoice({ end_sound })}
-                />
-              </GroupList>
+              {/* HarmonyOS 只认提示音总开关（`voice_cue_switches` 为 false），这一组随之不画；保留它给分别读开始、结束提示音的宿主。 */}
+              {showVoiceCueSwitches && (
+                <GroupList title="提示音">
+                  <SwitchRow
+                    title="开始录音提示音"
+                    disabled={!soundEnabled}
+                    checked={voiceInput.start_sound !== false}
+                    onChange={(start_sound) => updateVoice({ start_sound })}
+                  />
+                  <SwitchRow
+                    title="结束录音提示音"
+                    disabled={!soundEnabled}
+                    checked={voiceInput.end_sound !== false}
+                    onChange={(end_sound) => updateVoice({ end_sound })}
+                  />
+                </GroupList>
+              )}
               {captureDevices(!hidden && serviceOpen)}
             </section>
           </div>

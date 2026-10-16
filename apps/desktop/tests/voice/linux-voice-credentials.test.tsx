@@ -179,10 +179,11 @@ test("Linux offers the Doubao streaming interfaces in the credential it saves", 
   const stream = screen.getByLabelText("流式接口") as HTMLSelectElement;
   // No stored address means the provider default, the bidirectional endpoint.
   expect(stream.value).toBe("async");
+  // 预设不再另画一行地址输入框：下拉和输入框写的是同一个接口地址。
+  expect(screen.queryByLabelText("识别接口地址")).toBeNull();
   fireEvent.change(stream, { target: { value: "nostream" } });
-  expect((screen.getByLabelText("识别接口地址") as HTMLInputElement).value).toBe(
-    "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
-  );
+  expect(stream.value).toBe("nostream");
+  expect(screen.queryByLabelText("识别接口地址")).toBeNull();
   fireEvent.change(screen.getByLabelText("识别 API Token"), { target: { value: "access" } });
   fireEvent.change(screen.getByLabelText("Doubao App Key"), { target: { value: "app-1" } });
   fireEvent.click(screen.getByRole("button", { name: "保存识别凭据" }));

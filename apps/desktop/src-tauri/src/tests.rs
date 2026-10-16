@@ -782,6 +782,61 @@ fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
     assert!(options.get("doubao_auth_mode").is_none());
 }
 
+/// 设置页只给提示音总开关，开始、结束提示音不再交给语音服务；服务没收到这两项时按缺省都播放。
+#[cfg(unix)]
+#[test]
+fn voice_provider_options_forward_only_the_cue_master_switch() {
+    let document = serde_json::json!({
+        "preferences": {"voice_input": {
+            "sound_enabled": true,
+            "start_sound": false,
+            "end_sound": false
+        }}
+    });
+    let options = crate::voice::voice_provider_options(&document).unwrap();
+    assert_eq!(options.get("sound_enabled"), Some(&serde_json::json!(true)));
+    assert!(options.get("start_sound").is_none());
+    assert!(options.get("end_sound").is_none());
+}
+
+/// 别的平台写下的录音后端语音服务会拒绝录音，所以连同设备一起不转发，服务改用自己的录音设置；它认识的后端照常转发。
+#[cfg(unix)]
+#[test]
+fn voice_provider_options_drop_a_foreign_capture_backend_with_its_device() {
+    for foreign in ["macos", "windows", "harmony", "Pulse"] {
+        let document = serde_json::json!({
+            "preferences": {"voice_input": {
+                "capture_backend": foreign,
+                "capture_device": "uid-usb"
+            }}
+        });
+        let options = crate::voice::voice_provider_options(&document).unwrap();
+        assert!(options.get("capture_backend").is_none(), "{foreign}");
+        assert!(options.get("capture_device").is_none(), "{foreign}");
+    }
+    for supported in ["", "auto", "pulse", "pipewire", "alsa"] {
+        let document = serde_json::json!({
+            "preferences": {"voice_input": {
+                "capture_backend": supported,
+                "capture_device": "alsa_input.synthetic"
+            }}
+        });
+        let options = crate::voice::voice_provider_options(&document).unwrap();
+        assert_eq!(
+            options
+                .get("capture_backend")
+                .and_then(|value| value.as_str()),
+            Some(supported)
+        );
+        assert_eq!(
+            options
+                .get("capture_device")
+                .and_then(|value| value.as_str()),
+            Some("alsa_input.synthetic")
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn voice_provider_options_bound_strings_by_utf8_bytes() {

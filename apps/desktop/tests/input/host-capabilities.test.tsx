@@ -722,21 +722,23 @@ test("a host that can enumerate microphones gets the picker, whatever it is call
           load: async () => initial,
           save: vi.fn(),
           listVoiceCaptureDevices: read,
-          // 2in1 把录音设备列在语音页上；手机收在「服务配置」子视图里，这里测的是能力。
+          // 录音设备收在「服务配置」子视图里，这里测的是能力。HarmonyOS 只有一种录音方式（`voice_capture_backends` 为 false），只给一个「麦克风」下拉。
           host: capabilities({
             platform: "harmony",
             mobile_settings: false,
             voice_capture_devices,
+            voice_capture_backends: false,
           }),
         }}
       />,
     );
   voice(true);
-  expect(await screen.findByLabelText("可用录音设备")).toBeTruthy();
+  expect(await screen.findByLabelText("麦克风")).toBeTruthy();
+  expect(screen.queryByLabelText("可用录音设备")).toBeNull();
   cleanup();
   voice(false);
   await screen.findByText("录音行为");
-  expect(screen.queryByLabelText("可用录音设备")).toBeNull();
+  expect(screen.queryByLabelText("麦克风")).toBeNull();
 });
 
 test("the mode badge switch follows the capability rather than the macOS platform name", async () => {

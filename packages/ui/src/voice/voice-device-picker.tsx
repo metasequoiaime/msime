@@ -18,15 +18,16 @@ const STORED = "stored";
 const FOREIGN = "foreign";
 
 /**
- * 只有一种录音后端的宿主（macOS 只用 CoreAudio）上，录音设备只用一个「麦克风」下拉选：第一项是系统默认设备，下面是读到的设备。可见时自动读取设备列表，不需要先点刷新。
+ * 只有一种录音后端的宿主（macOS 只用 CoreAudio，Windows、HarmonyOS 也各只有一种）上，录音设备只用一个「麦克风」下拉选：第一项是系统默认设备，下面是读到的设备。可见时自动读取设备列表，不需要先点刷新。
  *
- * 系统默认设备这一项必须有：选过的耳机或 USB 麦克风拔掉后录音会失败，只有改回它才能恢复。存着别的平台的后端（比如 `pulse`）时宿主不理会它和它的设备、用系统默认设备录音，这里也照实显示为系统默认设备，但用单独的一项标出存着外来设置，选「系统默认设备」就把它清掉；打开页面时不改写存储。
+ * 系统默认设备这一项必须有：在 macOS 和 Windows 上，选过的耳机或 USB 麦克风拔掉后录音会失败，只有改回它才能恢复；HarmonyOS 自己会退回系统默认设备，说明文字随之不同。存着别的平台的后端（比如 `pulse`）时宿主不理会它和它的设备、用系统默认设备录音，这里也照实显示为系统默认设备，但用单独的一项标出存着外来设置，选「系统默认设备」就把它清掉；打开页面时不改写存储。
  */
 export function VoiceMicrophonePicker({
   read,
   active,
   device,
   backendSupported,
+  fallsBackToDefault = false,
   choose,
 }: {
   read: VoiceDeviceReader;
@@ -35,6 +36,8 @@ export function VoiceMicrophonePicker({
   device: string;
   /** 存着的后端在这个宿主上有效；无效时宿主不读存着的设备。 */
   backendSupported: boolean;
+  /** 选中的麦克风拔掉后宿主改用系统默认设备照常录音（HarmonyOS），而不是拒绝录音（macOS、Windows）。 */
+  fallsBackToDefault?: boolean;
   choose: (backend: VoiceCaptureDevice["backend"] | "", device: string) => void;
 }) {
   const [devices, setDevices] = useState<VoiceCaptureDevice[]>([]);
@@ -66,7 +69,10 @@ export function VoiceMicrophonePicker({
       title="麦克风"
       description={
         <span role="status">
-          {error || "从下一次录音生效。选中的麦克风拔掉后无法录音，改回系统默认设备即可。"}
+          {error ||
+            (fallsBackToDefault
+              ? "从下一次录音生效。选中的麦克风拔掉后改用系统默认设备；系统语音识别由服务自行取音，不受此项影响。"
+              : "从下一次录音生效。选中的麦克风拔掉后无法录音，改回系统默认设备即可。")}
         </span>
       }
       aria-label="麦克风"

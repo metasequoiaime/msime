@@ -6241,13 +6241,17 @@ export class KeyboardSession implements HardwareKeyTarget {
     return true;
   }
 
-  /** The five switches as the policy reads them; an older document keeps the shared defaults. */
+  /**
+   * The five switches as the policy reads them; an older document keeps the shared defaults.
+   *
+   * 空格锁定固定为开，不读存下的 `hotkey_hold_space_lock`：空格只在按住录音组合键期间才被拦下，平常打字不受影响。设置页不再给这个开关（`voice_space_lock_switch` 为 false），与 macOS、Windows、Linux 一致。
+   */
   private static hotkeyBindings(voice: VoiceInputConfiguration): VoiceHotkeyBindings {
     return {
       ralt: voice.hotkey_ralt ?? DEFAULT_VOICE_HOTKEY_BINDINGS.ralt,
       ctrlWin: voice.hotkey_ctrl_win ?? DEFAULT_VOICE_HOTKEY_BINDINGS.ctrlWin,
       rctrlRalt: voice.hotkey_rctrl_ralt ?? DEFAULT_VOICE_HOTKEY_BINDINGS.rctrlRalt,
-      holdSpaceLock: voice.hotkey_hold_space_lock ?? DEFAULT_VOICE_HOTKEY_BINDINGS.holdSpaceLock,
+      holdSpaceLock: DEFAULT_VOICE_HOTKEY_BINDINGS.holdSpaceLock,
       ctrlF9: voice.hotkey_ctrl_f9 ?? DEFAULT_VOICE_HOTKEY_BINDINGS.ctrlF9
     };
   }

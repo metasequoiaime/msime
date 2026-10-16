@@ -1190,7 +1190,7 @@ fire_and_forget show_logo(Image image, int32_t pixels) {
 struct Option {
   std::wstring value;
   std::wstring label;
-  // 不可选的选项照常显示，但选不了：分段控件的按钮按不下去（「候选字体」在 Windows 上的「圆体」），下拉框里那一项是灰的（「录音后端」里此平台不可用的已存值）。
+  // 不可选的选项照常显示，但选不了：分段控件的按钮按不下去（「候选字体」在 Windows 上的「圆体」），下拉框里那一项是灰的（「麦克风」里已忽略的其他平台录音设置和未连接的已选设备）。
   bool enabled = true;
 };
 
@@ -3542,6 +3542,9 @@ private:
     // 每次进入「主题」页都重扫皮肤目录，与共享页重新显示时一样。
     if (id == "themes" && id != current_page_)
       skins_stale_ = true;
+    // 每次进入「语音输入」页都读一次录音设备，与共享页的「麦克风」下拉变为可见时一样。
+    if (id == "voice" && id != current_page_)
+      capture_stale_ = true;
     current_page_ = id;
     select_navigation_item();
     render_page(false);
@@ -17223,7 +17226,7 @@ private:
     std::wstring backend, id, label;
   };
 
-  // 共享语音页（`voice-settings-content.tsx` 的桌面分支）在 Windows 上的内容，顺序也相同：按识别服务说明怎么用的一组，「识别」（开关、服务、语言），「识别服务配置」（接入说明、识别模型、豆包的鉴权和流式接口、地址、凭据、豆包选项、本地模型，末尾是测试），语音快捷键，录音行为，识别结果，文本润色，录音设备。服务表、换服务的规则和本地模型的文字在 VoiceSettings.h。输入框边输入边写进设置、停下后保存，不重建页面，跟着输入内容变的下拉框选中项和测试按钮由 voice_sync_ 就地更新；下拉框和开关的改动保存后重画整页。
+  // 共享语音页（`voice-settings-content.tsx` 的桌面分支）在 Windows 上的内容。共享页把服务的配置收进页内的「服务配置」子视图，这个原生页没有子视图控件，所以仍是一整页，但按共享页的先后排：按识别服务说明怎么用的一组，「识别」（开关、服务、识别语言、豆包的自动添加标点、边说边显示），语音快捷键，录音行为，然后是子视图里的那些：「识别服务配置」（接入说明、豆包鉴权方式、旧版 App Key、凭据，「更多选项」里是接口地址、识别模型、资源 ID 和豆包选项；本地模型；末尾是测试），识别结果，文本润色，录音设备。没有子视图可开，所以不画「服务配置」那一行。服务表、换服务的规则和本地模型的文字在 VoiceSettings.h。输入框边输入边写进设置、停下后保存，不重建页面，跟着输入内容变的下拉框选中项和测试按钮由 voice_sync_ 就地更新；下拉框和开关的改动保存后重画整页。
   void build_voice_page(StackPanel const &page) {
     if (!indexing_) {
       credential_test_views_.clear();
@@ -17255,6 +17258,7 @@ private:
                 L"打开", nav::shell_links::voice_panel);
     }
 
+    // 「识别」组照共享页桌面主页面的「识别」：开关、服务、识别语言、豆包的自动添加标点和边说边显示。豆包的识别请求不读识别语言（DoubaoAsrClient 不发它），选豆包时不画这一行，值照旧保存、照旧上云。
     auto recognition = add_group(page, L"识别");
     add_row(recognition, 0xE720, L"语音输入", L"使用语音识别将录音转换为文字",
             toggle_control(L"启用语音输入", document_.Boolean(L"voice_input.enabled", true),
@@ -17271,11 +17275,38 @@ private:
         [this](std::wstring const &value) { select_asr_provider(value); });
     provider_combo.Width(200);
     add_row(recognition, 0xE753, L"识别服务", L"", provider_combo);
-    add_row(recognition, 0xE8C1, L"识别语言",
-            system_voice ? L"选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定" : L"",
-            language_input(document_.String(L"voice_input.language", L""), system_voice));
+    if (!doubao || indexing_)
+      add_row(recognition, 0xE8C1, L"识别语言",
+              system_voice ? L"选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定" : L"",
+              language_input(document_.String(L"voice_input.language", L""), system_voice));
+    if (doubao || indexing_)
+      bool_row(recognition, 0xE8D2, L"自动添加标点", L"", L"voice_input.doubao_enable_punc", true);
+    bool_row(recognition, 0xE8D2, L"边说边显示", L"识别服务支持时显示实时识别片段",
+             L"voice_input.stream_inline_preedit", true);
 
-    // 「识别服务配置」：系统识别没有要配的，这一组不画。
+    build_voice_hotkey_group(page);
+
+    // 「录音行为」只剩提示音总开关和静音：宿主不再分别读开始、结束提示音（`voice_cue_switches` 为 false）。
+    auto recording = add_group(page, L"录音行为");
+    const std::array<std::pair<const wchar_t *, const wchar_t *>, 2> sounds{{
+        {L"sound_enabled", L"语音提示音"},
+        {L"mute_system_audio", L"录音时静音其他声音"},
+    }};
+    std::vector<Check> sound_checks;
+    sound_checks.reserve(sounds.size());
+    for (const auto &[id, label] : sounds) {
+      const std::wstring key = std::wstring(L"voice_input.") + id;
+      sound_checks.push_back({label, document_.Boolean(key, false),
+                              [this, key](bool on) {
+                                change([&](PreferencesDocument &doc) {
+                                  doc.SetBoolean(key, on);
+                                }, false);
+                              }});
+    }
+    add_row(recording, 0xE767, L"录音行为", L"录音期间的提示音与静音由输入法在本机处理",
+            nullptr, checks_panel(std::move(sound_checks), 200));
+
+    // 「识别服务配置」：系统识别没有要配的，这一组不画。共享页把它收在「服务配置」子视图里，这里没有子视图，排在常用的几组下面。
     if (!system_voice || indexing_) {
       auto config = add_group(page, L"识别服务配置");
       if (service_voice || indexing_)
@@ -17303,54 +17334,8 @@ private:
       }
     }
 
-    const std::array<std::pair<const wchar_t *, const wchar_t *>, 5> hotkeys{{
-        {L"hotkey_ctrl_f9", L"Ctrl+F9 切换语音"},
-        {L"hotkey_ralt", L"长按右 Alt 录音"},
-        {L"hotkey_rctrl_ralt", L"长按右 Ctrl+右 Alt 录音"},
-        {L"hotkey_ctrl_win", L"长按 Ctrl+Win 录音"},
-        {L"hotkey_hold_space_lock", L"长按录音时按空格锁定"},
-    }};
-    std::vector<Check> hotkey_checks;
-    hotkey_checks.reserve(hotkeys.size());
-    for (const auto &[id, label] : hotkeys) {
-      const std::wstring key = std::wstring(L"voice_input.") + id;
-      hotkey_checks.push_back({label, document_.Boolean(key, false),
-                               [this, key](bool on) {
-                                 change([&](PreferencesDocument &doc) {
-                                   doc.SetBoolean(key, on);
-                                 }, false);
-                               }});
-    }
-    auto shortcuts = add_group(page, L"语音快捷键");
-    add_row(shortcuts, 0xEDA7, L"语音快捷键",
-            L"输入法运行时全局生效。长按快捷键录音，松开结束；按住期间按空格锁定录音，锁定后再按一次快捷键或点 ✓ 结束，Escape 或 ✗ 取消。Ctrl+F9 按一次开始、再按一次结束。",
-            nullptr, checks_panel(std::move(hotkey_checks), 230));
-
-    auto recording = add_group(page, L"录音行为");
-    const std::array<std::pair<const wchar_t *, const wchar_t *>, 4> sounds{{
-        {L"sound_enabled", L"语音提示音"},
-        {L"start_sound", L"开始录音提示音"},
-        {L"end_sound", L"结束录音提示音"},
-        {L"mute_system_audio", L"录音时静音其他声音"},
-    }};
-    std::vector<Check> sound_checks;
-    sound_checks.reserve(sounds.size());
-    for (const auto &[id, label] : sounds) {
-      const std::wstring key = std::wstring(L"voice_input.") + id;
-      sound_checks.push_back({label, document_.Boolean(key, false),
-                              [this, key](bool on) {
-                                change([&](PreferencesDocument &doc) {
-                                  doc.SetBoolean(key, on);
-                                }, false);
-                              }});
-    }
-    add_row(recording, 0xE767, L"录音行为", L"录音期间的提示音与静音由输入法在本机处理",
-            nullptr, checks_panel(std::move(sound_checks), 200));
-
-    // 「识别结果」（VoiceRecognitionResultSection）：Windows 两项都有。
+    // 「识别结果」（VoiceRecognitionResultSection）：边说边显示已经移到「识别」组，这里只剩结果提交策略。
     auto result = add_group(page, L"识别结果");
-    bool_row(result, 0xE8D2, L"流式预编辑", L"识别服务支持时显示实时识别片段",
-             L"voice_input.stream_inline_preedit", true);
     select_row(result, 0xE8C8, L"结果提交策略", L"由当前桌面宿主决定如何把识别结果交给前台窗口",
                L"voice_input.commit_mode",
                {{L"tsf", L"输入法会话"}, {L"sendinput", L"系统按键"}, {L"ctrl_v", L"剪贴板粘贴"}},
@@ -17358,6 +17343,47 @@ private:
 
     build_polish_group(page);
     build_capture_device_group(page);
+  }
+
+  // 「语音快捷键」（VoiceHotkeysSection）：三个长按录音的组合键合成一个「长按录音」选择，末项「不使用」，宿主同一时刻只认一个。以前可以同时打开几个，这样的配置在用户改动之前照旧显示第一个，打开页面时不改写存储；换一项时三个一起写。空格锁定固定为开（宿主不再读 hotkey_hold_space_lock），不给开关。Ctrl+F9 收在「更多选项」里，与共享页一致。
+  void build_voice_hotkey_group(StackPanel const &page) {
+    auto shortcuts = add_group(page, L"语音快捷键");
+    shortcuts.Children().Append(group_note(
+        L"输入法运行时全局生效。长按快捷键录音，松开结束；按住期间按空格锁定录音，锁定后再按一次快捷键或点 ✓ 结束，Escape 或 ✗ 取消。Ctrl+F9 按一次开始、再按一次结束。"));
+    // document_.Boolean 在用户没存时取 client-core 的出厂值（defaults_），与 HoldKey::fallback 相同。
+    std::map<std::wstring_view, bool> stored;
+    for (auto const &hold : vs::hold_keys)
+      stored[hold.key] =
+          document_.Boolean(L"voice_input." + std::wstring(hold.key), hold.fallback);
+    std::vector<Option> holds;
+    for (auto const &hold : vs::hold_keys)
+      holds.push_back({std::wstring(hold.key), std::wstring(hold.label)});
+    holds.push_back({std::wstring(vs::no_hold_key), L"不使用"});
+    add_row(shortcuts, 0xEDA7, L"长按录音", L"",
+            select_control(L"长按录音", std::move(holds),
+                           std::wstring(vs::selected_hold_key(stored)),
+                           [this](std::wstring const &value) {
+                             change([&](PreferencesDocument &doc) {
+                               for (auto const &[key, on] : vs::hold_key_patch(value))
+                                 doc.SetBoolean(L"voice_input." + std::wstring(key), on);
+                             }, true);
+                           }));
+    Expander more;
+    more.Header(box_value(L"更多选项"));
+    more.HorizontalAlignment(HorizontalAlignment::Stretch);
+    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    more.IsExpanded(voice_hotkeys_more_open_ || focus_row_ == L"Ctrl+F9 切换语音");
+    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+      voice_hotkeys_more_open_ = true;
+    });
+    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+      voice_hotkeys_more_open_ = false;
+    });
+    StackPanel rows;
+    rows.Spacing(4);
+    bool_row(rows, 0xEDA7, L"Ctrl+F9 切换语音", L"", L"voice_input.hotkey_ctrl_f9", true);
+    more.Content(rows);
+    shortcuts.Children().Append(more);
   }
 
   void redraw_voice() {
@@ -17554,15 +17580,13 @@ private:
         });
   }
 
-  // 云服务的几行（VoiceAsrProviderSettingsSection 的 Windows 分支和 DoubaoOptionsRows）：豆包多出鉴权方式、流式接口、资源 ID 和识别选项，旧版鉴权多出 App Key。
+  // 云服务的几行（VoiceAsrProviderSettingsSection 的 foldAdvanced 排法和 DoubaoOptionsRows）：接入说明、豆包鉴权方式、旧版鉴权的 App Key 和令牌留在外面；接口地址、识别模型、资源 ID 和豆包的识别选项收进「更多选项」，用户改过接口地址或资源 ID 时一打开就展开。豆包的两个流式预设和自定义地址写的都是 asr_endpoint，合成一个「流式接口」下拉，选「自定义地址」或存的地址不是预设时下面多一行地址输入框。豆包的识别请求不读识别模型（VoiceInputSession 只给 DoubaoAsrClient 接口、凭据和资源 ID），选豆包时不画这一行。
   void build_asr_service_rows(StackPanel const &group, std::wstring const &provider, bool doubao,
                               std::wstring const &auth_mode) {
     const auto *asr_preset = vs::find_defaults(vs::asr_provider_defaults(), provider);
     if (asr_preset)
       add_provider_link(group, L"识别服务", asr_preset->documentation);
-    add_voice_model_picker(group, L"识别模型", L"由语音服务选择对应模型", L"识别模型",
-                           L"voice_input.asr_model", asr_preset);
-    if (doubao || indexing_) {
+    if (doubao || indexing_)
       add_row(group, 0xE8D7, L"豆包鉴权方式", L"新版控制台使用单 API Key；旧版使用 App ID + Access Token",
               select_control(L"豆包鉴权方式",
                              {{L"api_key", L"新版 API Key"}, {L"legacy", L"旧版 App ID + Access Token"}},
@@ -17571,30 +17595,67 @@ private:
                                  doc.SetString(L"voice_input.doubao_auth_mode", value);
                                }, true);
                              }));
+    if ((doubao && auth_mode == L"legacy") || indexing_)
+      voice_text_row(group, 0xE8D7, L"Doubao App Key", L"旧版控制台鉴权使用", L"Doubao App Key",
+                     L"voice_input.asr_app_key", true);
+    const std::wstring token_label(vs::asr_token_label(provider, auth_mode));
+    voice_text_row(group, 0xE72E, token_label, L"仅保存在本机设置中", token_label,
+                   L"voice_input.asr_token", true);
+
+    const auto endpoint = document_.String(L"voice_input.asr_endpoint", L"");
+    // 搜索结果指向收起的那几行时也要展开，否则滚过去也看不见。
+    static constexpr std::array<std::wstring_view, 9> folded{
+        L"流式接口", L"自定义接口地址", L"识别接口地址", L"识别模型", L"自定义模型",
+        L"Doubao 资源 ID", L"数字格式化", L"语义顺滑", L"热词表 ID"};
+    Expander more;
+    more.Header(box_value(L"更多选项"));
+    more.HorizontalAlignment(HorizontalAlignment::Stretch);
+    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    more.IsExpanded(
+        voice_service_more_open_.value_or(vs::asr_advanced_changed(
+            provider, endpoint, document_.String(L"voice_input.asr_resource_id", L""))) ||
+        std::find(folded.begin(), folded.end(), focus_row_) != folded.end());
+    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+      voice_service_more_open_ = true;
+    });
+    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+      voice_service_more_open_ = false;
+    });
+    StackPanel rows;
+    rows.Spacing(4);
+    if (doubao || indexing_) {
+      // 地址为空时宿主用默认的双向流式地址，下拉照实显示它；选「自定义地址」不改地址，只重画出输入框（共享页 DoubaoStreamEndpointSection 的 customRequested），在输入框里打出预设的地址也不收起。
+      const bool custom = voice_custom_endpoint_ || vs::doubao_stream_endpoint_id(endpoint) == L"custom";
       std::vector<Option> streams;
       for (auto const &option : vs::doubao_stream_endpoints)
         streams.push_back({std::wstring(option.id), std::wstring(option.title)});
       streams.push_back({L"custom", L"自定义地址"});
       auto stream = select_control(
           L"流式接口", std::move(streams),
-          std::wstring(vs::doubao_stream_endpoint_id(document_.String(L"voice_input.asr_endpoint", L""))),
+          custom ? std::wstring(L"custom") : std::wstring(vs::doubao_stream_endpoint_id(endpoint)),
           [this](std::wstring const &value) {
+            const bool was_custom = voice_custom_endpoint_;
+            voice_custom_endpoint_ = value == L"custom";
             for (auto const &option : vs::doubao_stream_endpoints)
               if (option.id == value) {
-                const std::wstring endpoint(option.endpoint);
-                if (endpoint == document_.String(L"voice_input.asr_endpoint", L""))
+                const std::wstring chosen(option.endpoint);
+                if (chosen == document_.String(L"voice_input.asr_endpoint", L"")) {
+                  if (was_custom)
+                    queue_refresh();
                   return;
+                }
                 change([&](PreferencesDocument &doc) {
-                  doc.SetString(L"voice_input.asr_endpoint", endpoint);
+                  doc.SetString(L"voice_input.asr_endpoint", chosen);
                 }, true);
                 return;
               }
-            // 「自定义地址」不改地址（共享页的 updateDoubaoStreamEndpoint），选中项回到地址对应的那一项。
-            resync_voice();
+            // 「自定义地址」不改地址（共享页的 updateDoubaoStreamEndpoint），只重画出地址输入框。
+            if (!was_custom)
+              queue_refresh();
           });
       stream.Width(200);
-      add_row(group, 0xE895, L"流式接口",
-              L"整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址。",
+      add_row(rows, 0xE895, L"流式接口",
+              L"整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，边说边显示刷新更频繁。",
               stream);
       if (!indexing_)
         voice_sync_.push_back([this, weak = make_weak(stream.as<ComboBox>())] {
@@ -17604,32 +17665,39 @@ private:
           const auto id =
               vs::doubao_stream_endpoint_id(document_.String(L"voice_input.asr_endpoint", L""));
           int32_t index = static_cast<int32_t>(vs::doubao_stream_endpoints.size());
-          for (size_t i = 0; i < vs::doubao_stream_endpoints.size(); ++i)
-            if (vs::doubao_stream_endpoints[i].id == id)
-              index = static_cast<int32_t>(i);
+          if (!voice_custom_endpoint_)
+            for (size_t i = 0; i < vs::doubao_stream_endpoints.size(); ++i)
+              if (vs::doubao_stream_endpoints[i].id == id)
+                index = static_cast<int32_t>(i);
           if (shown.SelectedIndex() != index)
             shown.SelectedIndex(index);
         });
+      if (custom || indexing_)
+        voice_text_row(rows, 0xE71B, L"自定义接口地址", L"留空使用豆包的默认地址", L"识别接口地址",
+                       L"voice_input.asr_endpoint", false, L"", 0, [this](std::wstring const &) {
+                         // 在输入框里打字就算选了「自定义地址」：打出预设的地址时下拉也停在这一项。
+                         voice_custom_endpoint_ = true;
+                         return true;
+                       });
     }
-    voice_text_row(group, 0xE71B, L"识别接口地址", L"留空使用当前服务的默认地址", L"识别接口地址",
-                   L"voice_input.asr_endpoint");
-    if ((doubao && auth_mode == L"legacy") || indexing_)
-      voice_text_row(group, 0xE8D7, L"Doubao App Key", L"旧版控制台鉴权使用", L"Doubao App Key",
-                     L"voice_input.asr_app_key", true);
-    const std::wstring token_label(vs::asr_token_label(provider, auth_mode));
-    voice_text_row(group, 0xE72E, token_label, L"仅保存在本机设置中", token_label,
-                   L"voice_input.asr_token", true);
-    if (!doubao && !indexing_)
-      return;
-    // 只有豆包的识别请求读资源 ID 和下面这几项。
-    voice_text_row(group, 0xE8EC, L"Doubao 资源 ID", L"仅豆包识别使用", L"Doubao 资源 ID",
-                   L"voice_input.asr_resource_id");
-    group.Children().Append(group_note(L"以下豆包识别选项随识别请求发送给豆包"));
-    bool_row(group, 0xE8EF, L"数字格式化", L"", L"voice_input.doubao_enable_itn", true);
-    bool_row(group, 0xE8D2, L"标点预测", L"", L"voice_input.doubao_enable_punc", true);
-    bool_row(group, 0xE8FB, L"语义顺滑", L"", L"voice_input.doubao_enable_ddc", false);
-    voice_text_row(group, 0xE8EC, L"热词表 ID", L"", L"热词表 ID",
-                   L"voice_input.doubao_boosting_table_id");
+    if (!doubao || indexing_) {
+      voice_text_row(rows, 0xE71B, L"识别接口地址", L"留空使用当前服务的默认地址", L"识别接口地址",
+                     L"voice_input.asr_endpoint");
+      add_voice_model_picker(rows, L"识别模型", L"由语音服务选择对应模型", L"识别模型",
+                             L"voice_input.asr_model", asr_preset);
+    }
+    if (doubao || indexing_) {
+      // 只有豆包的识别请求读资源 ID 和下面这几项；标点在「识别」组里的「自动添加标点」。
+      voice_text_row(rows, 0xE8EC, L"Doubao 资源 ID", L"仅豆包识别使用", L"Doubao 资源 ID",
+                     L"voice_input.asr_resource_id");
+      rows.Children().Append(group_note(L"以下豆包识别选项随识别请求发送给豆包"));
+      bool_row(rows, 0xE8EF, L"数字格式化", L"", L"voice_input.doubao_enable_itn", true);
+      bool_row(rows, 0xE8FB, L"语义顺滑", L"", L"voice_input.doubao_enable_ddc", false);
+      voice_text_row(rows, 0xE8EC, L"热词表 ID", L"", L"热词表 ID",
+                     L"voice_input.doubao_boosting_table_id");
+    }
+    more.Content(rows);
+    group.Children().Append(more);
   }
 
   // 「测试豆包识别配置」「测试语音识别配置」发给 msime_client_test_api_credential 的配置（asrServiceCredentialTestConfig）。
@@ -17653,8 +17721,8 @@ private:
     config.SetNamedValue(L"app_id", string(auth_mode == L"legacy"
                                                ? document_.String(L"voice_input.asr_app_key", L"")
                                                : std::wstring()));
-    config.SetNamedValue(L"resource_id", string(document_.String(L"voice_input.asr_resource_id",
-                                                                 L"volc.seedasr.sauc.duration")));
+    config.SetNamedValue(L"resource_id", string(vs::doubao_test_resource_id(
+                                             document_.String(L"voice_input.asr_resource_id", L""))));
     config.SetNamedValue(L"doubao_enable_itn", JsonValue::CreateBooleanValue(
                                                    document_.Boolean(L"voice_input.doubao_enable_itn", true)));
     config.SetNamedValue(L"doubao_enable_punc", JsonValue::CreateBooleanValue(
@@ -17709,6 +17777,8 @@ private:
     const auto update = vs::asr_provider_update(provider, current);
     const bool locale = provider == L"system" &&
                         document_.String(L"voice_input.language", L"") == L"auto";
+    // 换服务像共享页那样重新挂上服务的几行：豆包「流式接口」上次选的「自定义地址」不再算数。
+    voice_custom_endpoint_ = false;
     change([&](PreferencesDocument &doc) {
       apply_provider_update(doc, L"asr", update);
       if (locale)
@@ -17842,94 +17912,77 @@ private:
     return normalized;
   }
 
-  // 「录音设备」（VoiceCaptureDevicesSection 的 Windows 分支）：录音后端、读取并选择麦克风，以及手填的设备标识。
+  // 「录音设备」（VoiceCaptureDevicesSection 只有一种录音后端时的那一支，VoiceMicrophonePicker）：Windows 只经 WASAPI 录音，空、auto、windows 效果相同，所以只有一个「麦克风」下拉，第一项是系统默认设备，下面是读到的设备。每次进入语音页自动读一次列表，不再有录音后端、「刷新设备」和手填的设备标识。选中的设备拔掉后显示「已选的麦克风（未连接）」，录音会失败，改回系统默认设备即可。存着别的平台的后端时宿主不理会它和它的设备、用系统默认设备录音，这里单列一项标出，选「系统默认设备」才是一次真正的改动，把它清掉。打开页面时不改写存储。
   void build_capture_device_group(StackPanel const &page) {
+    if (!indexing_ && capture_stale_) {
+      capture_stale_ = false;
+      // 读完会重画页面，所以等这一次绘制结束后再开始读。
+      DispatcherQueue().TryEnqueue([weak = get_weak()] {
+        if (auto self = weak.get(); self && !self->closed_)
+          self->refresh_capture_devices();
+      });
+    }
     auto group = add_group(page, L"录音设备");
-    group.Children().Append(group_note(L"保存后从下一次录音生效，不打断当前录音"));
     const auto backend = document_.String(L"voice_input.capture_backend", L"");
     const auto device = document_.String(L"voice_input.capture_device", L"");
-    std::vector<Option> backends;
-    bool known = false;
-    for (auto const &choice : vs::capture_backend_choices) {
-      backends.push_back({std::wstring(choice.value), std::wstring(choice.label)});
-      known = known || choice.value == backend;
-    }
-    if (!known)
-      backends.push_back({backend, backend + L"（此平台不可用）", false});
-    add_row(group, 0xE7F5, L"录音后端", L"",
-            select_control(L"录音后端", std::move(backends), backend,
-                           [this](std::wstring const &value) {
-                             change([&](PreferencesDocument &doc) {
-                               doc.SetString(L"voice_input.capture_backend", value);
-                               doc.SetString(L"voice_input.capture_device", L"");
-                             }, true);
-                           }));
-
-    // VoiceDevicePicker：先读取设备列表，再从中选择。
-    auto status = make_text(capture_notice_, 12, palette_.sub);
-    A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
-    add_row(group, 0xE72C, L"读取录音设备", L"",
-            button_control(capture_busy_ ? L"读取中…" : L"刷新设备",
-                           [this] { refresh_capture_devices(); }, !capture_busy_),
-            [&] {
-              StackPanel holder;
-              holder.Margin(Thickness{0, 0, 0, 14});
-              holder.Children().Append(status);
-              return holder;
-            }());
-    std::vector<Option> listed;
-    std::wstring selected;
+    static constexpr wchar_t foreign[] = L"foreign";
+    static constexpr wchar_t stored[] = L"stored";
+    std::wstring selected = !vs::capture_backend_supported(backend) ? foreign
+                            : device.empty()                         ? L""
+                                                                     : stored;
+    std::vector<Option> options;
+    options.push_back({L"", L"系统默认设备"});
     for (size_t index = 0; index < capture_devices_.size(); ++index) {
-      auto const &item = capture_devices_[index];
-      listed.push_back({std::to_wstring(index), item.label + L" (" + item.backend + L")"});
-      if (selected.empty() && item.backend == backend && item.id == device)
+      options.push_back({std::to_wstring(index), capture_devices_[index].label});
+      if (selected == stored && capture_devices_[index].id == device)
         selected = std::to_wstring(index);
     }
+    if (selected == foreign)
+      options.push_back({foreign, L"系统默认设备（已忽略其他平台的录音设置）", false});
+    if (selected == stored)
+      options.push_back({stored, capture_read_ ? L"已选的麦克风（未连接）" : L"已选的麦克风（读取中…）",
+                         false});
     auto picker = select_control(
-        L"可用录音设备", std::move(listed), selected,
-        [this](std::wstring const &value) {
-          const auto index = static_cast<size_t>(std::stoul(value));
-          if (index >= capture_devices_.size())
-            return;
-          const auto chosen = capture_devices_[index];
-          if (chosen.backend == document_.String(L"voice_input.capture_backend", L"") &&
-              chosen.id == document_.String(L"voice_input.capture_device", L""))
+        L"麦克风", std::move(options), selected, [this](std::wstring const &value) {
+          const auto current_backend = document_.String(L"voice_input.capture_backend", L"");
+          const auto current_device = document_.String(L"voice_input.capture_device", L"");
+          std::wstring next_backend, next_device;
+          if (!value.empty()) {
+            // 「已忽略其他平台的录音设置」和「已选的麦克风」都是灰的，选不到；其余的值是列表里的一项。
+            if (value == foreign || value == stored)
+              return;
+            const auto index = static_cast<size_t>(std::stoul(value));
+            if (index >= capture_devices_.size())
+              return;
+            next_backend = capture_devices_[index].backend;
+            next_device = capture_devices_[index].id;
+          }
+          if (next_backend == current_backend && next_device == current_device)
             return;
           change([&](PreferencesDocument &doc) {
-            doc.SetString(L"voice_input.capture_backend", chosen.backend);
-            doc.SetString(L"voice_input.capture_device", chosen.id);
+            doc.SetString(L"voice_input.capture_backend", next_backend);
+            doc.SetString(L"voice_input.capture_device", next_device);
           }, true);
-        },
-        !capture_devices_.empty() && !capture_busy_);
-    auto picker_box = picker.as<ComboBox>();
-    picker_box.PlaceholderText(L"选择设备");
-    picker_box.Width(240);
-    add_row(group, 0xE720, L"可用录音设备", L"", picker);
-    if (!indexing_)
-      voice_sync_.push_back([this, weak = make_weak(picker_box)] {
-        auto shown = weak.get();
-        if (!shown)
-          return;
-        const auto current_backend = document_.String(L"voice_input.capture_backend", L"");
-        const auto current_device = document_.String(L"voice_input.capture_device", L"");
-        int32_t index = -1;
-        for (size_t i = 0; i < capture_devices_.size() && index < 0; ++i)
-          if (capture_devices_[i].backend == current_backend && capture_devices_[i].id == current_device)
-            index = static_cast<int32_t>(i);
-        if (shown.SelectedIndex() != index)
-          shown.SelectedIndex(index);
-      });
-    voice_text_row(group, 0xE8D6, L"麦克风设备",
-                   L"刷新列表并选择麦克风，保存其端点标识而非设备序号。留空使用系统默认设备；已选设备不可用时录音失败，不切换到其他麦克风。",
-                   L"麦克风设备", L"voice_input.capture_device", false, L"", 1024);
+        });
+    picker.as<ComboBox>().Width(240);
+    auto status = make_text(capture_notice_.empty()
+                                ? L"从下一次录音生效。选中的麦克风拔掉后无法录音，改回系统默认设备即可。"
+                                : capture_notice_,
+                            12, palette_.sub);
+    A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
+    add_row(group, 0xE720, L"麦克风", L"", picker, [&] {
+      StackPanel holder;
+      holder.Margin(Thickness{0, 0, 0, 14});
+      holder.Children().Append(status);
+      return holder;
+    }());
   }
 
-  // 「刷新设备」：在工作线程上经 msime_client_voice_capture_devices 列出 WASAPI 录音设备（与 Tauri 的 list_voice_capture_devices 同一份），读不到时留着上次的列表。
+  // 读取录音设备：在工作线程上经 msime_client_voice_capture_devices 列出 WASAPI 录音设备（与 Tauri 的 list_voice_capture_devices 同一份），读不到时留着上次的列表，说明里写读取失败。
   void refresh_capture_devices() {
     if (capture_busy_)
       return;
     capture_busy_ = true;
-    redraw_voice();
     run_host([] { return take_response(msime_client_voice_capture_devices()); },
              [this](Response const &response) {
                capture_busy_ = false;
@@ -17948,10 +18001,9 @@ private:
                  } catch (...) {
                  }
                }
-               capture_notice_ = !read ? L"无法读取设备列表，可重试或手动填写"
-                                 : capture_devices_.empty()
-                                     ? L"未发现设备，可手动填写设备名称或使用默认设备"
-                                     : L"选择设备后从下一次录音生效";
+               // 读取失败也算读完了：失败原因写在说明里，不能一直显示「读取中」。
+               capture_read_ = true;
+               capture_notice_ = read ? L"" : L"无法读取设备列表，可以先用系统默认设备";
                redraw_voice();
              });
   }
@@ -19499,10 +19551,10 @@ private:
   Imaging::BitmapImage keyboard_photo_{nullptr};
 
 
-  // 「语音输入」页：跟着输入内容就地更新的控件（每次绘制时重建）；读到的录音设备和「刷新设备」的说明，跨页面重建保留（共享页 VoiceDevicePicker 的组件状态）；本地模型的列表、说明、各模型的安装、导入、删除状态和进度（共享页 LocalModelManager 的组件状态），local_models_generation_ 在换到或换走本地模型时递增，作废进行中的请求；进度条是当前页面上的那一组，按模型 id 就地更新；「更多选项」是否展开。
+  // 「语音输入」页：跟着输入内容就地更新的控件（每次绘制时重建）；读到的录音设备和读取失败时的说明（为空时显示「麦克风」的常规说明），跨页面重建保留（共享页 VoiceMicrophonePicker 的组件状态）；本地模型的列表、说明、各模型的安装、导入、删除状态和进度（共享页 LocalModelManager 的组件状态），local_models_generation_ 在换到或换走本地模型时递增，作废进行中的请求；进度条是当前页面上的那一组，按模型 id 就地更新；「更多选项」是否展开。
   std::vector<std::function<void()>> voice_sync_;
   std::vector<CaptureDevice> capture_devices_;
-  std::wstring capture_notice_ = L"点击刷新读取可用录音设备";
+  std::wstring capture_notice_;
   bool capture_busy_ = false;
   std::optional<std::vector<LocalModel>> local_models_;
   std::wstring local_models_notice_;
@@ -19518,6 +19570,13 @@ private:
   bool candidates_more_open_ = false;
   bool output_more_open_ = false;
   bool local_modes_more_open_ = false;
+  // 「语音快捷键」的「更多选项」（Ctrl+F9）是否展开；「识别服务配置」的「更多选项」是否展开，没动过时按用户改没改过接口地址或资源 ID 决定（共享页 MoreOptions 的 defaultOpen）；豆包的「流式接口」选了「自定义地址」，地址输入框照旧显示。都跨页面重建保留。
+  bool voice_hotkeys_more_open_ = false;
+  std::optional<bool> voice_service_more_open_;
+  bool voice_custom_endpoint_ = false;
+  // 每次进入语音页自动读一次录音设备列表（共享页 VoiceMicrophonePicker 变为可见时读取）；读完过一次（成功或失败）后，不在列表里的已选设备显示为未连接而不是读取中。
+  bool capture_stale_ = true;
+  bool capture_read_ = false;
 
   // 「AI 辅助」页（共享页 useAiAssistant 的状态，跨页面重建保留）：已获取的模型和获取的提示，获取是否在进行。ai_generation_ 在每次改 AI 设置时递增，作废进行中的获取；获取请求的序号作废更早的获取。「更多选项」是否展开在第一次画这一页时按接口地址能不能用决定。随输入就地更新的控件每次绘制时重建。
   std::optional<std::vector<std::wstring>> ai_models_;

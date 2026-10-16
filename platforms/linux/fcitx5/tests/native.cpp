@@ -1085,6 +1085,7 @@ int main(int argc, char **argv) {
     options["preferences"]["learning"] = false;
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["clipboard_history"] = true;
+    // 存着关掉的空格锁定：宿主不再读它，下面检查锁定照旧打开。
     options["preferences"]["voice_input"]["hotkey_hold_space_lock"] = false;
     // A stored commit strategy, which the Linux settings page does not offer and the hosts ignore: the streaming preedit below must still appear.
     options["preferences"]["voice_input"]["commit_mode"] = "ctrl_v";
@@ -1376,8 +1377,8 @@ int main(int argc, char **argv) {
       }
       require(state->session_ != 0, ("focus must unpack transition view: " + reason).c_str());
     }
-    require(!state->voice_hotkey_hold_space_lock_,
-            "initial voice context reads the hold-to-lock preference");
+    require(state->voice_hotkey_hold_space_lock_,
+            "a stored false no longer turns off the hold-to-lock space lock");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
     // 标准双拼方案的独立验收也在完整上下文套件中运行，避免通用测试的其它失败掩盖新增入口。
     {

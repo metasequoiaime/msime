@@ -117,7 +117,8 @@ test("Windows voice shortcuts describe hold-to-record, the right Ctrl chord and 
       .getAllByRole("option")
       .map((option) => option.textContent),
   ).toEqual(["右 Alt", "右 Ctrl+右 Alt", "Ctrl+Win", "不使用"]);
-  expect(screen.getByRole("switch", { name: "长按录音时按空格锁定" })).toBeTruthy();
+  // Windows 的 TSF 宿主把空格锁定固定为开（`voice_space_lock_switch` 为 false），不给开关；说明里照旧写着按空格锁定。
+  expect(screen.queryByRole("switch", { name: "长按录音时按空格锁定" })).toBeNull();
   expect(screen.getByLabelText("Ctrl+F9 切换语音")).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "切换语音" })).toBeNull();
   expect(screen.getByText(/按住期间按空格锁定录音/)).toBeTruthy();
@@ -138,7 +139,8 @@ test("Linux voice shortcuts describe hold-to-record like Windows and keep Ctrl+F
   await settingsReady();
   const hold = await screen.findByRole("combobox", { name: "长按录音" });
   expect(within(hold).getByRole("option", { name: "右 Ctrl+右 Alt" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "长按录音时按空格锁定" })).toBeTruthy();
+  // IBus 和 Fcitx5 都把空格锁定固定为开，不给开关。
+  expect(screen.queryByRole("switch", { name: "长按录音时按空格锁定" })).toBeNull();
   expect(screen.getByLabelText("Ctrl+F9 切换语音")).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "切换语音" })).toBeNull();
   expect(screen.queryByRole("switch", { name: "空格锁定语音" })).toBeNull();
@@ -1351,8 +1353,8 @@ test("voice capture backend choices follow the host platform", async () => {
     return values;
   };
   expect(await options("linux")).toEqual(["", "auto", "pulse", "pipewire", "alsa"]);
-  expect(await options("windows")).toEqual(["", "auto", "windows"]);
-  // macOS 只经 CoreAudio 录音，不给后端选择，只有一个「麦克风」下拉。
+  // macOS（CoreAudio）和 Windows 各只有一种录音方式，不给后端选择，只有一个「麦克风」下拉。
+  expect(await options("windows")).toBeNull();
   expect(await options("macos")).toBeNull();
 });
 

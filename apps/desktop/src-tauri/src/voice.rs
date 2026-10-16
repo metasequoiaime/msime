@@ -61,10 +61,9 @@ pub(crate) fn voice_provider_options(document: &Value) -> Result<Value, HostActi
         return Ok(Value::Object(Default::default()));
     };
     let mut options = serde_json::Map::new();
+    // 开始、结束提示音（`start_sound`、`end_sound`）不转发：设置页只给提示音总开关（`voice_cue_switches` 为 false），语音服务没收到这两项时按缺省都播放，与 IBus、Fcitx5 的转发一致。
     for key in [
         "sound_enabled",
-        "start_sound",
-        "end_sound",
         "mute_system_audio",
         "polish_enabled",
         "polish_text",
@@ -99,6 +98,15 @@ pub(crate) fn voice_provider_options(document: &Value) -> Result<Value, HostActi
                 Value::String(utf8_prefix(value, 512).to_owned()),
             );
         }
+    }
+    // 语音服务只认这几种录音后端，别的一律拒绝录音。别的平台写下的后端（从 macOS、Windows 拷来的配置里的 `macos`、`windows`）连同它的设备一起不转发，服务改用自己的录音设置照常录音，与 IBus、Fcitx5 的转发一致。后端名区分大小写，与服务和 Linux 设置页的「录音后端」一致：存着的 `Pulse` 在页面上写「此平台不可用」，这里也不转发。
+    if options
+        .get("capture_backend")
+        .and_then(Value::as_str)
+        .is_some_and(|backend| !matches!(backend, "" | "auto" | "pulse" | "pipewire" | "alsa"))
+    {
+        options.remove("capture_backend");
+        options.remove("capture_device");
     }
     // A path is not cut like the names above: a truncated path names a different file. One too long for any host is left out and the provider reports the model missing.
     if let Some(path) = voice

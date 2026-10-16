@@ -17,6 +17,10 @@ export interface DoubaoStreamEndpointSectionProps {
 export interface DoubaoStreamEndpointSelectProps {
   endpoint: string;
   onChange: (endpoint: string) => void;
+  /** 用户选了「自定义地址」：即使地址还是预设，下拉也停在这一项，下面的地址输入框不收起。 */
+  custom?: boolean;
+  /** 选中或离开「自定义地址」。选它时不写地址，由调用方露出地址输入框。 */
+  onCustomChange?: (custom: boolean) => void;
 }
 
 /** 「自定义地址」的选项值。 */
@@ -45,13 +49,18 @@ function updateDoubaoStreamEndpoint(value: string, onChange: (endpoint: string) 
 export function DoubaoStreamEndpointSelect({
   endpoint,
   onChange,
+  custom = false,
+  onCustomChange,
 }: DoubaoStreamEndpointSelectProps) {
-  const selected = doubaoStreamEndpointId(endpoint);
+  const selected = custom ? CUSTOM : doubaoStreamEndpointId(endpoint);
   return (
     <ControlledSelect
       aria-label="流式接口"
       value={selected}
-      onChange={(value) => updateDoubaoStreamEndpoint(value, onChange)}
+      onChange={(value) => {
+        onCustomChange?.(value === CUSTOM);
+        updateDoubaoStreamEndpoint(value, onChange);
+      }}
     >
       {doubaoStreamEndpointOptions()}
     </ControlledSelect>
