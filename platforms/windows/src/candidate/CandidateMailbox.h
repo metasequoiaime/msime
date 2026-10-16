@@ -68,7 +68,7 @@ public:
   }
   // Translation application keeps the same Engine generation; only the
   // candidate metadata changes.
-  // readings 是同一次翻译算出的读音和拆解，替换上一次的；之后同样文字的候选（下一个键、翻页回来）也挂得上，直到下一次翻译或偏好变化。
+  // readings 是同一次翻译算出的读音，替换上一次的；之后同样文字的候选（下一个键、翻页回来）也挂得上，直到下一次翻译或偏好变化。
   void translations(const FocusLease &lease, const nlohmann::json &view,
                     CandidateReadings readings = {}) {
     auto keyed = keyed_readings(std::move(readings));
@@ -78,7 +78,7 @@ public:
     }
     refresh_view(lease, view, false);
   }
-  // 这一页没有新释义可交给会话、只有读音或拆解（比如整句候选没有释义但有逐词拆解）：换上新的读音和拆解，重新挂到眼下的候选上，并发布一个新快照让候选窗重画。
+  // 这一页没有新释义可交给会话、只有读音：换上新的读音，重新挂到眼下的候选上，并发布一个新快照让候选窗重画。
   void readings(const FocusLease &lease, CandidateReadings readings) {
     auto keyed = keyed_readings(std::move(readings));
     std::lock_guard lock(mutex_);
@@ -90,7 +90,7 @@ public:
     attach_candidate_readings(latest_->candidates, readings_);
     latest_->render_serial = ++render_serial_;
   }
-  // 偏好变了（读音开关、释义开关、目标语言）：旧的读音和拆解作废，眼下的候选上也摘掉，等重新翻译。
+  // 偏好变了（读音开关、释义开关、目标语言）：旧的读音作废，眼下的候选上也摘掉，等重新翻译。
   void clear_readings() {
     std::lock_guard lock(mutex_);
     readings_.clear();
@@ -99,7 +99,7 @@ public:
     const bool shown = std::any_of(
         latest_->candidates.begin(), latest_->candidates.end(),
         [](const PresentationCandidate &candidate) {
-          return !candidate.pronunciation.empty() || !candidate.breakdown.empty();
+          return !candidate.pronunciation.empty();
         });
     if (!shown)
       return;
@@ -331,7 +331,7 @@ private:
   bool suppressed_ = false;
   std::optional<std::chrono::steady_clock::time_point> pending_hide_;
   std::optional<CandidatePresentation> latest_;
-  // 最近一次翻译算出的读音和拆解，按候选文字存，见 translations()。
+  // 最近一次翻译算出的读音，按候选文字存，见 translations()。
   CandidateReadings readings_;
   std::optional<FocusLease> rendered_lease_;
   uint64_t rendered_generation_ = 0;

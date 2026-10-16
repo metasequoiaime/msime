@@ -89,12 +89,12 @@ SessionController::SessionController(
               [this, result = std::move(result)](InputState &state) mutable {
                 if (stopping_ || !transport_.current(result.lease.transport))
                   return;
-                // 只带读音和拆解、没有释义的结果（TranslationWorker 交的是空列表）不交给会话：空列表会把会话里已有的释义清掉。
+                // 只带读音、没有释义的结果（释义是空列表）不交给会话：空列表会把会话里已有的释义清掉。
                 std::optional<nlohmann::json> view;
                 if (result.translations != "[]")
                   view = state.apply_translations(
                       result.lease, result.generation, result.translations);
-                // 读音和逐词拆解只用于显示，不进会话，随释义一起交给候选窗；没有新释义可交时单独交。
+                // 读音只用于显示，不进会话，随释义一起交给候选窗；没有新释义可交时单独交。
                 if (view)
                   candidates_.translations(result.lease, *view,
                                            std::move(result.readings));
@@ -183,7 +183,7 @@ SessionController::SessionController(
             // both positive and negative results before asking for the new
             // query, even when the candidate page remains eligible.
             translations_.clear_cache();
-            // 读音开关、释义开关或目标语言变了：旧的读音和拆解作废，等这次重新翻译带回新的。
+            // 读音开关、释义开关或目标语言变了：旧的读音作废，等这次重新翻译带回新的。
             candidates_.clear_readings();
             if (auto request = state.current_translation_request())
               (void)translations_.submit(request->first,

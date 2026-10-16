@@ -764,7 +764,7 @@ void CandidateWindow::reposition() {
     }
   }
   value = anchored;
-  // render_serial 也要比：读音和逐词拆解在同一个 Engine generation 上单独到达（CandidateMailbox::readings），只换了快照编号。
+  // render_serial 也要比：读音在同一个 Engine generation 上单独到达（CandidateMailbox::readings），只换了快照编号。
   if (shown_ && shown_dpi_ == GetDpiForWindow(window_) &&
       shown_->session == value->session &&
       shown_->generation == value->generation &&
