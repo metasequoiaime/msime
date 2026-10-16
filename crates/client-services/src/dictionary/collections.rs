@@ -19,8 +19,6 @@ use crate::file_lock;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(not(unix))]
-use std::fs;
-#[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -983,6 +981,7 @@ impl DictionaryCollectionsStore {
         }
         #[cfg(not(unix))]
         {
+            let _ = directory;
             let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
             temporary.write_all(&bytes)?;
             temporary.as_file().sync_all()?;
