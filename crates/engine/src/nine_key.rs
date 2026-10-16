@@ -224,7 +224,7 @@ impl KeyGrid {
     /// 一行候选的全拼（`'` 连接的完整音节）一共占几个组码，不分配。
     fn reading_code_len(self, canonical_pinyin: &str) -> usize {
         match self {
-            Self::NineKeyShuangpin(_) => 2 * canonical_pinyin.split('\'').count(),
+            Self::NineKeyShuangpin(_) => 2 * reading_syllable_count(canonical_pinyin),
             _ => canonical_pinyin
                 .bytes()
                 .filter(u8::is_ascii_lowercase)
@@ -1240,7 +1240,7 @@ impl NineKeySession {
                     canonical
                 };
                 // 多出音节的行是越过本条路径的补全，不参与这条读法。
-                if canonical.matches('\'').count() >= full_len {
+                if reading_syllable_count(canonical) > full_len {
                     return false;
                 }
                 let matched = if fuzzy { pinyin } else { canonical };
@@ -2378,11 +2378,16 @@ fn comparable_weight(item: &WordItem) -> i64 {
     comparable_weight_for_reading(item, &item.canonical_pinyin)
 }
 
+/// 保留 `split` 的空段语义；ASCII 撇号不会出现在 UTF-8 多字节编码内部。
+fn reading_syllable_count(canonical: &str) -> usize {
+    canonical.bytes().filter(|&byte| byte == b'\'').count() + 1
+}
+
 fn comparable_weight_for_reading(item: &WordItem, canonical: &str) -> i64 {
     if item.source != CandidateSource::Generated || canonical.is_empty() {
         return item.weight;
     }
-    let syllables = canonical.split('\'').count();
+    let syllables = reading_syllable_count(canonical);
     // 每词插入代价已在共享词网格解码中扣除；这里只消去跨切分比较的音节奖励。
     item.weight - (PHRASE_LENGTH_BONUS * 1000.0 * syllables as f64) as i64
 }
@@ -2407,7 +2412,7 @@ fn is_initials_row(item: &WordItem) -> bool {
 fn is_initials_reading(item: &WordItem, digits: usize, canonical: &str) -> bool {
     digits >= 2
         && !item.source.is_generated_or_fallback()
-        && canonical.split('\'').count() == digits
+        && reading_syllable_count(canonical) == digits
         && canonical.bytes().filter(u8::is_ascii_lowercase).count() > digits
 }
 
@@ -3102,6 +3107,8 @@ mod isolated_test;
 
 #[cfg(test)]
 mod cached_rank_tests;
+#[cfg(test)]
+mod syllable_count_tests;
 
 #[cfg(test)]
 mod initials_code_tests;

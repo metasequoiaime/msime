@@ -10,6 +10,8 @@ Status: implemented
 
 超过 32 条的候选使用稳定 `sort_by_cached_key`，每条只计算一次原 `RankKey`；32 条以内保留原排序，避免为常见短列表引入缓存键数组。排序键、同分到达顺序、同词去重、简拼交错、个人调频和 128 条截断保持。缓存只存在于一次排序，不增加跨轮状态或来源字段。
 
+[读音段数按字节计数](2026-10-17-nine-key-syllable-byte-count.md)继续减少每次求键的扫描成本，保留本篇的32条门槛、缓存范围与后处理契约。
+
 ## Historical audit
 
 已按 rank_candidates、rank_key、排序键、cached key 检索活跃笔记。[二元行前缀负结果](../../rejected/testing/2026-10-15-lattice-bigram-prefix.md)部分相关，其中明确把缓存九键排序键留作后续方向，不翻转其二元评分决定；[候选缓冲复用](../../implemented/testing/2026-10-10-nine-key-candidate-buffer-reuse.md)、[leading 表延迟预留](../../implemented/testing/2026-10-10-nine-key-leading-map-storage.md)只管理外层容器，不管理排序键计算。简拼、跨路径权重、个人调频仍由各自笔记持有，没有完全吸收或过时提案。
