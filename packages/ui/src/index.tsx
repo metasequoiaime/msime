@@ -478,6 +478,8 @@ import { DeveloperSettingsPage } from "./settings/pages/developer-page";
 import { DictionarySettingsPage } from "./settings/pages/dictionary-page";
 import { AppearanceSettingsPage } from "./settings/pages/appearance-page";
 import { SkinSettingsPage } from "./settings/pages/skin-page";
+import { skinGridTabs } from "./settings/skin-grid";
+import { useSettingsTabs } from "./settings/use-settings-tabs";
 import { FloatingToolbarSettingsPage } from "./settings/pages/floating-toolbar-page";
 import { ScreenKeyboardSettingsPage } from "./settings/pages/screen-keyboard-page";
 import { ShortcutSettingsPage } from "./settings/pages/shortcuts-page";
@@ -511,7 +513,7 @@ import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
 import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
 import { logo } from "./settings/settings-options";
-import type { CommunitySkinClient } from "./community/community-skins";
+import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
 import type {
   CommunityResource,
@@ -3159,6 +3161,14 @@ function SettingsShell(props: SettingsPageProps) {
   const recordCommunitySkin = (id: string) => {
     void client.typingStatistics?.recordSkin?.(id);
   };
+  // HarmonyOS 手机的皮肤页与 Android 皮肤页一样在顶部分「内置 / 我的 / 社区」。「社区」是完整的社区皮肤图库，自带搜索和发布表单，所以和桌面的「社区皮肤」一样画在设置表单之外，标签的选择也就放在这里；前两个分类的网格由皮肤页自己画。没有社区服务的宿主不给「社区」。
+  const skinTabs = useSettingsTabs(
+    skinGridTabs.filter((tab) => tab.id !== "community" || Boolean(client.communitySkins)),
+    "皮肤分类",
+    harmonyPlatform && mobilePlatform,
+  );
+  const phoneSkinCommunityShown =
+    page === "skin" && Boolean(client.communitySkins) && skinTabs.selected === "community";
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
     recoverPreferences,
@@ -3200,7 +3210,8 @@ function SettingsShell(props: SettingsPageProps) {
   const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "输入";
   // A community gallery stands in for the page's own settings, so the form's page-level actions do not apply while it is shown.
   const skinCommunityShown =
-    page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community";
+    (page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community") ||
+    phoneSkinCommunityShown;
   const pluginCommunityShown =
     page === "plugins" && Boolean(client.communityPlugins) && pluginView === "community";
   // 子页面（「词库」下的「背单词」、「帮助与反馈」下的「帮助」，桌面上还有「AI 辅助」下的「AI 对话」）在返回时写出父页面的名字。
@@ -3660,7 +3671,29 @@ function SettingsShell(props: SettingsPageProps) {
                   </button>
                 </div>
               )}
-              {skinCommunityShown && (
+              {page === "skin" && skinTabs.tabList}
+              {phoneSkinCommunityShown && client.communitySkins && (
+                <div className="mt-6">
+                  {skinTabs.panel(
+                    "community",
+                    <CommunitySkinsPage
+                      client={client.communitySkins}
+                      theme={keyboardPreviewTheme}
+                      localSkinLibrary={client.customSkinLibrary}
+                      mobile
+                      onLogin={openAccountLogin}
+                      look="harmony"
+                      preferences={draft}
+                      // 「使用」和网格里的卡片一样先进入草稿，再由表单的自动保存写入。
+                      onApplyPreferences={setDraft}
+                      onSkinApplied={recordCommunitySkin}
+                      // 详情的历史记录留在皮肤页上，返回先关详情、再离开这一页。
+                      historyPage="skin"
+                    />,
+                  )}
+                </div>
+              )}
+              {skinCommunityShown && client.communityCandidateSkins && (
                 <div className="mt-4">
                   <CommunityPage
                     candidateSkins={client.communityCandidateSkins}
@@ -3709,7 +3742,7 @@ function SettingsShell(props: SettingsPageProps) {
               {draft && isSettingsFormPage(page) && (
                 <SettingsFormFrame showReload={false} busy={busy}>
                   <SettingsFormContext.Provider value={{ ...model, draft }}>
-                    <SkinSettingsPage hidden={skinCommunityShown} />
+                    <SkinSettingsPage hidden={skinCommunityShown} tabs={skinTabs} />
                     <AppearanceSettingsPage />
                     <FloatingToolbarSettingsPage />
                     <InputSettingsPage />
