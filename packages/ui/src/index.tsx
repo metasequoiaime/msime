@@ -938,8 +938,14 @@ export {
 } from "./settings/input-scheme-details-section";
 export {
   ShuangpinCustomEditor,
+  NineKeyShuangpinEditor,
   type ShuangpinCustomEditorProps,
+  type NineKeyShuangpinEditorProps,
 } from "./settings/shuangpin-custom-editor";
+export type {
+  NineKeyShuangpinLayout,
+  NineKeyShuangpinLayoutReader,
+} from "./settings/nine-key-shuangpin-profile";
 export {
   parseShuangpinCustomProfile,
   shuangpinCustomProblemMessage,

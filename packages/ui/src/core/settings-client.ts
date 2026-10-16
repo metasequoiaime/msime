@@ -1,3 +1,4 @@
+import type { NineKeyShuangpinLayoutReader } from "../settings/nine-key-shuangpin-profile";
 import type { Preferences, Snapshot } from "./preferences-model";
 import type { HostCapabilities } from "./host-capabilities";
 import type { ProviderCredentialClient } from "./provider-credential-contracts";
@@ -88,6 +89,8 @@ export interface SettingsClient {
   ) => Promise<ShuangpinCustomProblem | null>;
   /** 内置双拼方案的键位表，编辑自定义方案时从它开始。 */
   builtinShuangpinTable?: (name: BuiltinShuangpinProfile) => Promise<ShuangpinCustomProfile | null>;
+  /** 九键双拼的内置表与用户表校验，复用引擎的无状态布局接口。 */
+  nineKeyShuangpinLayout?: NineKeyShuangpinLayoutReader;
   readSkinImage?: SkinImageReader;
   readSkinFont?: SkinFontReader;
   readSkinToolbarCss?: (id: string, relative?: string) => Promise<string | null>;
