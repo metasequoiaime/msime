@@ -91,14 +91,20 @@ fi
 
 failed=0
 new_failures=""
-observed_wine="$(mktemp)"
-collected="$(mktemp)"
-# One EXIT trap for every temp file and whichever build lock this run holds; the lock sections set and clear held_lock instead of replacing the trap.
+observed_wine=""
+collected=""
+# 临时文件与构建锁共用退出清理，申请失败时也能回收已经创建的文件。
 held_lock=""
 # shellcheck disable=SC2317  # reached through the trap
 cleanup() {
   local file
-  for file in "$collected" "$collected".* "$observed_wine" "${harmony_log:-}" "${cross_log:-}" "${wine_log:-}" "${android_host_log:-}"; do
+  # 空收集器不能展开为 .*，否则会删除 worktree 的 .git 等隐藏文件。
+  if [ -n "$collected" ]; then
+    for file in "$collected" "$collected".*; do
+      rm -f -- "$file"
+    done
+  fi
+  for file in "$observed_wine" "${harmony_log:-}" "${cross_log:-}" "${wine_log:-}" "${android_host_log:-}"; do
     if [ -n "$file" ]; then rm -f -- "$file"; fi
   done
   if [ -n "$held_lock" ]; then rmdir "$held_lock" 2>/dev/null; fi
@@ -107,6 +113,14 @@ cleanup() {
   return 0
 }
 trap cleanup EXIT
+if ! observed_wine="$(mktemp)"; then
+  echo "FAIL: cannot create verification temporary file" >&2
+  exit 1
+fi
+if ! collected="$(mktemp)"; then
+  echo "FAIL: cannot create verification collector" >&2
+  exit 1
+fi
 note() { printf '\n=== %s ===\n' "$1"; }
 fail() { echo "FAIL: $1"; failed=1; }
 

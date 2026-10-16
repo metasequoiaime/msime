@@ -64,6 +64,8 @@ export {
   type DictionaryFormatOptionsProps,
 } from "./dictionary/dictionary-format-options";
 export { dictionaryErrorMessage } from "./dictionary/dictionary-errors";
+export { PluginNavRow, type PluginNavRowProps } from "./settings/plugin-nav-row";
+export { PluginActionBlock, type PluginActionBlockProps } from "./settings/plugin-action-block";
 
 export {
   type TouchKeyboardScheme,
@@ -1539,6 +1541,10 @@ export {
   type CandidateSkinPublishDialogProps,
 } from "./community/candidate-skin-publish-dialog";
 export { CommunityPluginsPage } from "./community/community-plugins";
+export {
+  CommunityPluginCard,
+  type CommunityPluginCardProps,
+} from "./community/community-plugin-card";
 export {
   CommunityPluginDetail,
   type CommunityPluginDetailProps,

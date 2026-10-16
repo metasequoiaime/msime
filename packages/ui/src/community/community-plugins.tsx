@@ -15,9 +15,7 @@ import * as style from "./community-style";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunityNotice } from "./community-notice";
-import { CommunityCardMetrics } from "./community-card-metrics";
-import { CommunityCardAuthor } from "./community-card-author";
-import { CommunityCard } from "./community-card";
+import { CommunityPluginCard } from "./community-plugin-card";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { ActionButton } from "../core/action-button";
@@ -48,28 +46,6 @@ export {
   CommunityPluginPublishDialog,
   type CommunityPluginPublishDialogProps,
 } from "./community-plugin-publish-dialog";
-
-function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: () => void }) {
-  return (
-    <CommunityCard aria-label={`查看插件 ${plugin.name}`} onClick={open}>
-      <strong className={style.cardTitle}>{plugin.name}</strong>
-      <CommunityCardAuthor
-        prefix={kindLabels[plugin.kind]}
-        author={plugin.author}
-        owned={plugin.owned}
-        removed={plugin.moderation === "removed"}
-      />
-      {plugin.description && (
-        <span className={style.resourceDescription}>{plugin.description}</span>
-      )}
-      <CommunityCardMetrics
-        downloads={plugin.downloads}
-        ratingCount={plugin.rating_count}
-        ratingAverage={plugin.rating_average}
-      />
-    </CommunityCard>
-  );
-}
 
 /** The community gallery of plugin packs: browse by kind, install into the plugins directory, rate, publish and take down. */
 export function CommunityPluginsPage({
