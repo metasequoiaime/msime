@@ -2,12 +2,22 @@ import AudioToolbox
 import SwiftUI
 import UIKit
 
-/// 皮肤：设计稿里键盘缩略图的两列网格（dc.html 主题页），每个目录主题一格，外加 AI 设计皮肤一格；接着是同样排成两列的社区皮肤和进入完整皮肤社区的「浏览更多皮肤」，最下面是一个短分组，放自定义设计器和外观页。社区不再单独占一个标签页，皮肤社区的搜索、分类、详情、评分、举报和发布都在「浏览更多皮肤」推入的列表里。
+/// 皮肤：与 Android `SkinsPage` 一样，标题下固定一排「内置 / 我的 / 社区」分类，页面打开期间记住所选分类。「内置」是设计稿里键盘缩略图的两列网格（dc.html 主题页），每个目录主题一格，下面是外观页入口；「我的」先是 AI 设计皮肤一格，再是本机皮肤库里保存的设计，下面是自定义设计器入口；「社区」直接嵌入完整的皮肤社区列表（搜索、分类、详情、评分、举报和发布）。
 struct SkinSettingsView: View {
-  /// 皮肤页直接列出的社区皮肤数，两列排两行；其余在「浏览更多皮肤」里。
-  private static let communityLimit = 4
+  private enum Tab: CaseIterable {
+    case builtin, mine, community
+
+    var title: String {
+      switch self {
+      case .builtin: "内置"
+      case .mine: "我的"
+      case .community: "社区"
+      }
+    }
+  }
 
   @Environment(\.colorScheme) private var colorScheme
+  @State private var tab = Tab.builtin
   @AppStorage(CustomKeyboardSkinStore.key, store: KeyboardFeedbackPreference.defaults)
   private var customSkinData = Data()
   @AppStorage(GlobalThemePreference.key, store: KeyboardFeedbackPreference.defaults)
@@ -19,55 +29,50 @@ struct SkinSettingsView: View {
   @State private var keyboardStyle = UIUserInterfaceStyle.unspecified
   @State private var savedDesigns = CustomSkinLibrary.designs.count
   @State private var skinSaveFailed = false
-  /// 社区列表的第一页的前几款；nil 表示还没读到。
-  @State private var communitySkins: [CommunitySkin]?
-  @State private var communityFailed = false
-  /// 本地皮肤库（「我的设计」），用来判断一款社区皮肤是否已经领取过。
+  /// 本地皮肤库（「我的」分类列出的设计）。
   @State private var library: [SavedKeyboardSkin] = CustomSkinLibrary.designs
-  /// 正在下载的社区皮肤 id。
-  @State private var taking: Set<String> = []
-  @State private var communityMessage: String?
 
   private static let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
   /// 设计稿中的键盘缩略图是 390 × 292。
   private static let tileAspect: CGFloat = 390 / 292
 
   var body: some View {
+    Group {
+      switch tab {
+      case .builtin: builtinTab
+      case .mine: mineTab
+      // 社区列表自带滚动、刷新、搜索和右上角的发布按钮，只是不改本页标题。
+      case .community: SkinCommunityView(embedded: true)
+      }
+    }
+    .safeAreaInset(edge: .top, spacing: 0) {
+      DesignSegmentedControl(items: Tab.allCases.map { ($0.title, $0) }, selection: $tab, style: .rounded,
+                             identifierPrefix: "skinTab")
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .background(MetasequoiaTheme.canvas)
+    }
+    .designCanvasBackground()
+    .navigationTitle("皮肤")
+    .navigationBarTitleDisplayMode(.inline)
+    .reloadOnAppearAndActive({ reloadLibrary(); reloadThemes() })
+    // 在「社区」里刚获取的皮肤，切到「我的」时就要列出来。
+    .onChange(of: tab) { reloadLibrary() }
+  }
+
+  // MARK: - 分类
+
+  private var builtinTab: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 28) {
         VStack(alignment: .leading, spacing: 7) {
-          SettingsGroupHeader(title: "皮肤").padding(.horizontal, 20)
           LazyVGrid(columns: Self.columns, spacing: 18) {
             // 只列键盘当前明暗下的主题：浅色键盘不提供深色主题，反之亦然。
             ForEach(themeCards.filter { GlobalThemeCatalog.fits($0.id, dark: keyboardDark) }, id: \.id) { themeTile($0) }
-            aiTile
           }
           .padding(4)
-          if skinSaveFailed {
-            Text("主题没有保存，键盘可能正在写入同一份设置，请再试一次。")
-              .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.danger)
-              .padding(.horizontal, 20)
-          }
-        }
-        VStack(alignment: .leading, spacing: 7) {
-          SettingsGroupHeader(title: "社区皮肤").padding(.horizontal, 20)
-          communitySkinGrid
-          DesignCard {
-            NavigationLink(destination: SkinCommunityView()) {
-              DesignNavRowLabel(title: "浏览更多皮肤", subtitle: "搜索、分类、评分和发布")
-            }
-            .buttonStyle(PressFillButtonStyle())
-            .accessibilityIdentifier("skinCommunityLink")
-          }
+          saveFailure
         }
         DesignGroup {
-          NavigationLink(destination: CustomSkinEditorView()) {
-            DesignNavRowLabel(title: "设计我的皮肤",
-                              subtitle: savedDesigns == 0 ? "还没有命名保存的方案" : "本机保存了 \(savedDesigns) 套方案")
-          }
-          .buttonStyle(PressFillButtonStyle())
-          .accessibilityIdentifier("customSkinEditorLink")
-          DesignDivider()
           NavigationLink(destination: SkinAppearanceSettingsView()) {
             DesignNavRowLabel(title: "明暗与候选颜色")
           }
@@ -76,36 +81,53 @@ struct SkinSettingsView: View {
         }
       }
       .padding(.horizontal, 16)
-      .padding(.top, 16)
+      .padding(.top, 8)
       .padding(.bottom, 32)
     }
-    .designCanvasBackground()
-    .navigationTitle("皮肤")
-    .navigationBarTitleDisplayMode(.inline)
-    .reloadOnAppearAndActive({ reloadLibrary(); reloadThemes() })
-    .task { await loadCommunitySkins() }
-    .refreshable { await loadCommunitySkins() }
-    .alert("皮肤社区", isPresented: Binding(get: { communityMessage != nil }, set: { if !$0 { communityMessage = nil } })) {
-      Button("好", role: .cancel) {}
-    } message: { Text(communityMessage ?? "") }
   }
 
-  // MARK: - 社区皮肤
-
-  @ViewBuilder private var communitySkinGrid: some View {
-    if let communitySkins, !communitySkins.isEmpty {
-      let active = activeDesign
-      LazyVGrid(columns: Self.columns, spacing: 18) {
-        ForEach(communitySkins) { communityTile($0, active: active) }
+  private var mineTab: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 28) {
+        VStack(alignment: .leading, spacing: 7) {
+          let active = activeDesign
+          LazyVGrid(columns: Self.columns, spacing: 18) {
+            aiTile
+            ForEach(library) { designTile($0, active: active) }
+          }
+          .padding(4)
+          if library.isEmpty {
+            Text("还没有保存的皮肤。可到社区获取喜欢的皮肤。")
+              .font(.system(size: 14)).foregroundStyle(MetasequoiaTheme.sub)
+              .padding(.horizontal, 20)
+              .accessibilityIdentifier("savedSkinsEmpty")
+          }
+          saveFailure
+        }
+        DesignGroup {
+          NavigationLink(destination: CustomSkinEditorView()) {
+            DesignNavRowLabel(title: "设计我的皮肤",
+                              subtitle: savedDesigns == 0 ? "还没有命名保存的方案" : "本机保存了 \(savedDesigns) 套方案")
+          }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("customSkinEditorLink")
+        }
       }
-      .padding(4)
-    } else {
-      Text(communitySkins == nil ? (communityFailed ? "暂时无法加载社区皮肤" : "正在读取社区皮肤…") : "社区里还没有皮肤。")
-        .font(.system(size: 14)).foregroundStyle(MetasequoiaTheme.sub)
-        .padding(.horizontal, 20).padding(.vertical, 8)
-        .accessibilityIdentifier("communitySkinStatus")
+      .padding(.horizontal, 16)
+      .padding(.top, 8)
+      .padding(.bottom, 32)
     }
   }
+
+  @ViewBuilder private var saveFailure: some View {
+    if skinSaveFailed {
+      Text("主题没有保存，键盘可能正在写入同一份设置，请再试一次。")
+        .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.danger)
+        .padding(.horizontal, 20)
+    }
+  }
+
+  // MARK: - 我的设计
 
   /// 键盘当前绘制的设计；键盘绘制内置主题时为 nil。
   private var activeDesign: CustomKeyboardSkin? {
@@ -113,87 +135,30 @@ struct SkinSettingsView: View {
     return CustomKeyboardSkinStore.stored
   }
 
-  /// 一款社区皮肤：和主题格一样的缩略图与名字，正在键盘上的那款外圈描强调色。点一下就换上，还没领取过的先下载进「我的设计」。
-  private func communityTile(_ item: CommunitySkin, active: CustomKeyboardSkin?) -> some View {
-    let saved = CommunitySkinInstall.saved(item, in: library)
-    let selected = saved != nil && saved?.design == active
-    let pending = taking.contains(item.id)
-    let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-    return Button { useCommunitySkin(item) } label: {
-      VStack(spacing: 8) {
-        CommunityDesignPreview(design: item.design, style: .card)
-          .aspectRatio(Self.tileAspect, contentMode: .fit)
-          .clipShape(shape)
-          .overlay {
-            if selected {
-              shape.inset(by: -1).stroke(MetasequoiaTheme.canvas, lineWidth: 2)
-              shape.inset(by: -3).stroke(MetasequoiaTheme.accent, lineWidth: 2)
-            } else {
-              shape.strokeBorder(MetasequoiaTheme.hair, lineWidth: 1)
-            }
-          }
-          .overlay { if pending { ProgressView() } }
-        HStack(spacing: 4) {
-          if selected { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)) }
-          Text(item.name).font(.system(size: 15, weight: selected ? .semibold : .regular)).lineLimit(1)
-        }
-        .foregroundStyle(selected ? MetasequoiaTheme.accent : Color.primary)
+  /// 皮肤库里的一款设计：和主题格一样的缩略图与名字，正在键盘上的那款外圈描强调色。点一下按键盘自己的皮肤面板和编辑器「使用」的方式换上：设计写进 `custom_theme.keyboard` 并选中 `custom`。
+  private func designTile(_ item: SavedKeyboardSkin, active: CustomKeyboardSkin?) -> some View {
+    let selected = item.design == active
+    return Button {
+      guard !selected else { return }
+      skinSaveFailed = !GlobalThemePreference.apply(item.design)
+      if !skinSaveFailed {
+        // 换装达人：按皮肤库槽位 id 计数，与编辑器、皮肤社区的「使用」和 Android 我的设计卡片一致。
+        TypingStatisticsExtras.recordSkin(item.id.uuidString)
+        reloadThemes()
       }
-      .contentShape(Rectangle())
+    } label: {
+      tileFace(title: item.name, selected: selected) {
+        KeyboardSkinPreview(skin: .designed(item.design), nineKey: false,
+                            topStrip: .toolbar([.emoji, .phrases, .clipboard, .skin, .scheme]), letterHints: true)
+      }
     }
     .buttonStyle(SkinTilePressStyle())
-    .disabled(pending)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(item.name)
-    .accessibilityHint(saved == nil ? "\(item.author) 的社区皮肤，获取到我的设计并换上" : "\(item.author) 的社区皮肤，换上")
+    .accessibilityHint("我保存的皮肤")
     .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-    .accessibilityIdentifier("communitySkinTile-\(item.id)")
-    .accessibilityValue(pending ? "获取中" : selected ? "已选择" : "未选择")
-  }
-
-  /// 皮肤社区里要先点「获取」再点「使用」，这里合成一次点按，与上面的主题格一样点了就换上：还没领取过的先用 `CommunitySkinInstall.take` 下载进皮肤库（计入下载次数），再用 `CommunitySkinInstall.apply` 放到键盘上；已经在用的不做任何事。
-  private func useCommunitySkin(_ item: CommunitySkin) {
-    guard !taking.contains(item.id) else { return }
-    if let saved = CommunitySkinInstall.saved(item, in: library) {
-      applyCommunitySkin(saved.design, statisticID: saved.id.uuidString, name: item.name)
-      return
-    }
-    taking.insert(item.id)
-    Task { @MainActor in
-      defer { taking.remove(item.id) }
-      do {
-        let design = try await CommunitySkinInstall.take(item)
-        reloadLibrary()
-        let statisticID = CommunitySkinInstall.saved(item, in: library)?.id.uuidString ?? item.id
-        applyCommunitySkin(design, statisticID: statisticID, name: item.name)
-      } catch { communityMessage = error.localizedDescription }
-    }
-  }
-
-  private func applyCommunitySkin(_ design: CustomKeyboardSkin, statisticID: String, name: String) {
-    guard design != activeDesign else { return }
-    guard CommunitySkinInstall.apply(design) else {
-      communityMessage = "没能换上「\(name)」，请稍后重试。"
-      return
-    }
-    // 换装达人：与皮肤社区里「使用」记录的是同一个皮肤库槽位 id。
-    TypingStatisticsExtras.recordSkin(statisticID)
-    skinSaveFailed = false
-    reloadThemes()
-    ToastCenter.shared.show("已换上「\(name)」")
-  }
-
-  @MainActor private func loadCommunitySkins() async {
-    do {
-      let page = try await SkinCommunityAPI.shared.list()
-      communitySkins = Array(page.skins.prefix(Self.communityLimit))
-      communityFailed = false
-    } catch is CancellationError {
-      return
-    } catch {
-      // 已经加载过的列表保留下来；刷新失败只替换加载提示。
-      if communitySkins == nil { communityFailed = true }
-    }
+    .accessibilityIdentifier("savedSkinTile-\(item.id.uuidString)")
+    .accessibilityValue(selected ? "已选择" : "未选择")
   }
 
   private func reloadLibrary() {
@@ -201,11 +166,36 @@ struct SkinSettingsView: View {
     savedDesigns = library.count
   }
 
+  // MARK: - 格子
+
+  /// 一格的外观：键盘缩略图，选中时外圈描强调色，名字在下方。
+  private func tileFace<Preview: View>(title: String, selected: Bool, @ViewBuilder preview: () -> Preview) -> some View {
+    let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+    return VStack(spacing: 8) {
+      preview()
+        .aspectRatio(Self.tileAspect, contentMode: .fit)
+        .clipShape(shape)
+        .overlay {
+          if selected {
+            shape.inset(by: -1).stroke(MetasequoiaTheme.canvas, lineWidth: 2)
+            shape.inset(by: -3).stroke(MetasequoiaTheme.accent, lineWidth: 2)
+          } else {
+            shape.strokeBorder(MetasequoiaTheme.hair, lineWidth: 1)
+          }
+        }
+      HStack(spacing: 4) {
+        if selected { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)) }
+        Text(title).font(.system(size: 15, weight: selected ? .semibold : .regular)).lineLimit(1)
+      }
+      .foregroundStyle(selected ? MetasequoiaTheme.accent : Color.primary)
+    }
+    .contentShape(Rectangle())
+  }
+
   /// 一格：主题的键盘缩略图（带空闲状态的工具栏），选中时外圈描强调色，名字在下方。
   private func themeTile(_ option: KeyboardTheme) -> some View {
     // 所选主题属于另一种明暗时键盘按跟随系统画，选中态也落在跟随系统上。
     let selected = GlobalThemeCatalog.effectiveId(skin, dark: keyboardDark) == option.id
-    let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
     return Button {
       skinSaveFailed = !GlobalThemePreference.save(option.id)
       if !skinSaveFailed {
@@ -214,28 +204,12 @@ struct SkinSettingsView: View {
         reloadThemes()
       }
     } label: {
-      VStack(spacing: 8) {
+      tileFace(title: option.title, selected: selected) {
         KeyboardSkinPreview(skin: option, nineKey: false, topStrip: .toolbar([.emoji, .phrases, .clipboard, .skin, .scheme]),
                             letterHints: true)
           .id(option.isCustom ? customSkinData : Data())
           .environment(\.colorScheme, tileScheme(option))
-          .aspectRatio(Self.tileAspect, contentMode: .fit)
-          .clipShape(shape)
-          .overlay {
-            if selected {
-              shape.inset(by: -1).stroke(MetasequoiaTheme.canvas, lineWidth: 2)
-              shape.inset(by: -3).stroke(MetasequoiaTheme.accent, lineWidth: 2)
-            } else {
-              shape.strokeBorder(MetasequoiaTheme.hair, lineWidth: 1)
-            }
-          }
-        HStack(spacing: 4) {
-          if selected { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)) }
-          Text(option.title).font(.system(size: 15, weight: selected ? .semibold : .regular)).lineLimit(1)
-        }
-        .foregroundStyle(selected ? MetasequoiaTheme.accent : Color.primary)
       }
-      .contentShape(Rectangle())
     }
     .buttonStyle(SkinTilePressStyle())
     .accessibilityElement(children: .ignore)
@@ -246,7 +220,7 @@ struct SkinSettingsView: View {
     .accessibilityValue(selected ? "已选择" : "未选择")
   }
 
-  /// 最后一格打开 AI 设计器：accentSoft 底上画强调色虚线轮廓，宽高比与缩略图相同。
+  /// 「我的」第一格打开 AI 设计器：accentSoft 底上画强调色虚线轮廓，宽高比与缩略图相同。
   private var aiTile: some View {
     let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
     return NavigationLink(destination: AISkinDesignView()) {
