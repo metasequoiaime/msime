@@ -6,7 +6,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 CALLERS = (
-    "platforms/android/tests/device/candidate/AiPlaceholderDeviceSmoke.java",
+    "platforms/android/tests/device/candidate/AiCandidateSeatDeviceSmoke.java",
     "platforms/android/tests/device/clipboard/ClipboardEditDeviceSmoke.java",
     "platforms/android/tests/device/keyboard/EmptyEditorBackspaceDeviceSmoke.java",
     "platforms/android/tests/device/settings/HostLaunchDeviceSmoke.java",

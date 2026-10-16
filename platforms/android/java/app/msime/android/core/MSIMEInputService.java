@@ -243,7 +243,7 @@ public final class MSIMEInputService extends InputMethodService {
     private String candidateGlossStateRoot = "";
     private String onlineSignature = "";
     /**
-     * 问过 AI 却没有结果、占位行已换成「—」的那次请求的签名：同一组字不再向 AI 发请求，只在本地把占位行再换成「—」（#6888）。
+     * 问过 AI 却没有结果的那次请求的签名：同一组字不再向 AI 发请求（#6888）。
      *
      * <p>失败后释放 {@link #onlineSignature} 是为了让云候选下次渲染时重试；没有这一条，AI 会跟着在每次渲染时重问；释义到达、设置轮询都会重画，模拟器上一个回答为空的组字因此每秒发一次 AI 请求。组字一变就清掉，回到这个组字时重新问。
      */
@@ -3484,7 +3484,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
             final String queryDocument = aiDocument;
             aiResolveDocument = aiDocument;
-            // 这个组字问过 AI 而没有结果：不再发请求，finally 只把占位行换成「—」。
+            // 这个组字问过 AI 而没有结果：不再发请求。
             if (requestSignature.equals(aiResolvedSignature)) return;
             JSONObject descriptor = aiRequestDescriptor(onSessionThread(targetSession, epoch,
                 () -> NativeClient.aiRequestForQuery(targetSession, queryDocument)));
@@ -3501,7 +3501,7 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | RuntimeException | LinkageError ignored) {
             // 在线候选是可选能力，解析或服务异常交给 finally 触发下一次重试。
         } finally {
-            // AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：AI 座位上的占位行换成「—」，后面的候选不挪位（#6888）。
+            // AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：告诉 Host API 这次没有回答。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变（#6888）。
             if (!aiComplete && aiResolveDocument != null && epoch == onlineEpoch) {
                 final String resolveDocument = aiResolveDocument;
                 applyOnlineResult(targetSession, epoch,
@@ -7415,7 +7415,7 @@ public final class MSIMEInputService extends InputMethodService {
         configureCandidateTextLayout(button, labelLines);
         KeyboardTypographyPolicy.setKeyTextSize(button, candidateFontSize);
         ViewPolicy.setSelected(button, highlighted);
-        // AI 座位上的占位行（Engine 候选来源 12，「…」或「—」）画淡一些，和真候选区分开；按钮会复用，其他候选恢复不透明。读屏念它的状态，不提示长按管理（#6888）。
+        // AI 占位行（Engine 候选来源 12，「…」或「—」）画淡一些，和真候选区分开；按钮会复用，其他候选恢复不透明。读屏念它的状态，不提示长按管理（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         button.setAlpha(AiPendingCandidatePolicy.alpha(source));
         // render() attaches the button and applies the complete skin tree once below.

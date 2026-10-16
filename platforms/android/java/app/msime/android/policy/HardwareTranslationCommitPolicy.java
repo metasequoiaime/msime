@@ -100,7 +100,7 @@ public final class HardwareTranslationCommitPolicy {
     }
 
     /**
-     * 云候选、AI 候选（以及 AI 落空时把占位换成「—」）异步到达时，runtime 像处理一次输入那样推进 generation，用户却什么也没做。组字和高亮候选都没变时义项页仍然有效，跟到新的 generation 上；任一变了就随旧的 generation 失效。
+     * 云候选、AI 候选异步到达时，runtime 像处理一次输入那样推进 generation，用户却什么也没做。组字和高亮候选都没变时义项页仍然有效，跟到新的 generation 上；任一变了就随旧的 generation 失效。
      */
     public static boolean pageSurvivesRefresh(String openedEditing, String openedCandidate,
                                               String nextEditing, String nextCandidate) {

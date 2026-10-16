@@ -25,18 +25,21 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * AI 候选占座（#6888）的设备验收：开着 AI 时组字，候选条第 2 位先出现一行「…」占位行，读屏念「AI 候选等待中」；点它不上屏；AI 回答为空时它换成「—」，其他候选不挪位；回答到达时答案坐进这个座位，其他候选也不挪位。
+ * AI 候选座位（#6888）的设备验收：开着 AI 时组字，候选条上没有占位行；AI 回答为空时候选一个都不变，同一组字也不再向 AI 发请求；回答到达时答案插在第一页最后一格（这里每页 6 个，第 6 位），前 5 位不挪位。
  *
- * <p>AI 接口是本进程里的一个 OpenAI 兼容桩服务，只监听回环地址：本套件以 `app.msime.android` 为目标运行在应用的主进程里，输入法的 `:ime` 进程与它同一个 UID，`http://127.0.0.1:<端口>` 是 AI 设置允许的本机地址（`AiEndpointPolicy`）。桩服务收到请求后等测试给出回答再回复，所以「…」停留多久由测试决定，不靠网络快慢。密钥是合成值，请求不出这台模拟器。
+ * <p>AI 接口是本进程里的一个 OpenAI 兼容桩服务，只监听回环地址：本套件以 `app.msime.android` 为目标运行在应用的主进程里，输入法的 `:ime` 进程与它同一个 UID，`http://127.0.0.1:<端口>` 是 AI 设置允许的本机地址（`AiEndpointPolicy`）。桩服务收到请求后等测试给出回答再回复，所以回答什么时候到由测试决定，不靠网络快慢。密钥是合成值，请求不出这台模拟器。
  */
-public final class AiPlaceholderDeviceSmoke extends DeviceSmoke {
+public final class AiCandidateSeatDeviceSmoke extends DeviceSmoke {
+    /** 共享内核以前在 AI 座位上放的占位行文字，现在不应再出现。 */
     private static final String WAITING = "…";
     private static final String RESOLVED = "—";
+    /** 本套件把每页候选数定成 6：答案坐第一页最后一格，下标 5。 */
+    private static final int PAGE_SIZE = 6;
     /** 桩服务给出的 AI 候选：不是词库里的词，免得它本来就在列表里而被引擎跳过。 */
     private static final String ANSWER = "倪浩答案";
 
     @Override protected String successDescription() {
-        return "AI seat placeholder shown and read as waiting, tap ignored, empty answer turns it into a dash and a real answer takes the seat without moving other candidates";
+        return "no AI placeholder, an empty answer changes nothing and is not asked again, and a real answer takes the last first-page slot without moving the earlier candidates";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -57,7 +60,8 @@ public final class AiPlaceholderDeviceSmoke extends DeviceSmoke {
                 .put("tokens", new JSONObject().put(origin, "msime-test-token")).put("candidate_limit", 1);
             JSONObject snapshot = new JSONObject().put("format_version", 1).put("revision", revision + 1)
                 .put("preferences", new JSONObject(options.getJSONObject("preferences").toString())
-                    .put("ai_assistant", assistant).put("cloud_candidates", false).put("learning", false));
+                    .put("ai_assistant", assistant).put("cloud_candidates", false).put("learning", false)
+                    .put("candidate_page_size", PAGE_SIZE));
             try {
                 stage = "AI preferences";
                 publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
@@ -69,36 +73,20 @@ public final class AiPlaceholderDeviceSmoke extends DeviceSmoke {
                 await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
 
                 // 第一次组字：回答为空。
-                stage = "placeholder while waiting";
+                stage = "no placeholder while waiting";
                 typePhrase();
-                AccessibilityNodeInfo waiting = await(placeholder(WAITING));
-                CharSequence spoken = waiting.getContentDescription();
-                if (spoken == null || !spoken.toString().endsWith("：AI 候选等待中")
-                        || spoken.toString().contains("长按管理"))
-                    throw new AssertionError("Waiting placeholder is read as " + spoken);
-                if (waiting.isLongClickable())
-                    throw new AssertionError("Waiting placeholder offers a long press");
                 stage = "AI request sent";
                 server.awaitRequest();
                 List<String> before = strip();
-                int seat = before.indexOf(WAITING);
-                if (seat != 1) throw new AssertionError("Placeholder is not in the AI seat: " + before);
+                if (before.isEmpty() || before.contains(WAITING) || before.contains(RESOLVED))
+                    throw new AssertionError("Unexpected candidates while waiting for AI: " + before);
 
-                stage = "tapping the placeholder commits nothing";
-                tap(placeholder(WAITING));
-                SystemClock.sleep(500);
-                await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
-                await(placeholder(WAITING));
-
-                stage = "empty answer resolves the placeholder";
+                stage = "empty answer changes nothing";
                 server.answer(new JSONArray());
-                AccessibilityNodeInfo resolved = await(placeholder(RESOLVED));
-                spoken = resolved.getContentDescription();
-                if (spoken == null || !spoken.toString().endsWith("：AI 候选没有结果"))
-                    throw new AssertionError("Resolved placeholder is read as " + spoken);
+                SystemClock.sleep(1500);
                 List<String> after = strip();
-                if (!sameExceptSeat(before, after, seat, RESOLVED))
-                    throw new AssertionError("Candidates moved when the answer was empty: " + before + " -> " + after);
+                if (!before.equals(after))
+                    throw new AssertionError("Candidates changed when the answer was empty: " + before + " -> " + after);
 
                 // 同一组字问过 AI 而没有结果，之后的重画（释义到达、每秒的设置轮询）不再向 AI 发请求。
                 stage = "no request loop after an empty answer";
@@ -108,37 +96,39 @@ public final class AiPlaceholderDeviceSmoke extends DeviceSmoke {
                 if (server.requests() != requests)
                     throw new AssertionError("Host kept asking AI for the same composition: "
                         + (server.requests() - requests) + " more requests in 3 s");
-                await(placeholder(RESOLVED));
+                after = strip();
+                if (!before.equals(after))
+                    throw new AssertionError("Candidates changed after an empty answer: " + before + " -> " + after);
 
-                stage = "commit after the placeholder";
+                stage = "commit after an empty answer";
                 tap(key("空格"));
                 await(field("msime-test-plain").and(node -> node.getText() != null
-                    && !node.getText().toString().contains("nihao")
-                    && !node.getText().toString().contains(RESOLVED)));
+                    && !node.getText().toString().contains("nihao")));
 
-                // 第二次组字：回答到达，答案坐进占位行的座位。
-                stage = "placeholder before an answer";
+                // 第二次组字：回答到达，答案插在第一页最后一格，前面的候选不动。
+                stage = "candidates before an answer";
                 server.holdNext();
                 int committed = fieldText().length();
                 typePhrase();
-                await(placeholder(WAITING));
                 server.awaitRequest();
                 before = strip();
-                seat = before.indexOf(WAITING);
-                if (seat != 1) throw new AssertionError("Placeholder is not in the AI seat: " + before);
-                stage = "answer takes the seat";
+                if (before.isEmpty() || before.contains(WAITING))
+                    throw new AssertionError("Unexpected candidates while waiting for AI: " + before);
+                int seat = Math.min(PAGE_SIZE - 1, before.size());
+                stage = "answer takes the last first-page slot";
                 server.answer(new JSONArray().put(new JSONObject().put("text", ANSWER)));
                 await(candidateText(ANSWER));
                 after = strip();
-                if (!sameExceptSeat(before, after, seat, ANSWER))
-                    throw new AssertionError("Candidates moved when the answer arrived: " + before + " -> " + after);
+                if (!seatedAt(before, after, seat, ANSWER))
+                    throw new AssertionError("Answer did not take slot " + (seat + 1) + " without moving earlier candidates: "
+                        + before + " -> " + after);
                 stage = "answer commits";
                 tap(candidateText(ANSWER));
                 await(field("msime-test-plain").and(node -> node.getText() != null
                     && node.getText().length() > committed
                     && node.getText().toString().endsWith(ANSWER)));
             } catch (Exception | AssertionError error) {
-                shellDiscard("screencap -p /data/local/tmp/msime-ai-placeholder-failure.png");
+                shellDiscard("screencap -p /data/local/tmp/msime-ai-seat-failure.png");
                 throw error;
             } finally {
                 shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
@@ -168,14 +158,10 @@ public final class AiPlaceholderDeviceSmoke extends DeviceSmoke {
             && node.getText() != null && firstLine(node.getText()).equals(text);
     }
 
-    private Predicate<AccessibilityNodeInfo> placeholder(String text) {
-        return candidateText(text);
-    }
-
-    /** 候选条前六个位置上的候选字，按「候选 N：」排好；空位是 null。 */
+    /** 候选条第一页上的候选字，按「候选 N：」排好；空位是 null。 */
     private List<String> strip() {
         List<String> slots = new ArrayList<>();
-        for (int index = 0; index < 6; index++) slots.add(null);
+        for (int index = 0; index < PAGE_SIZE; index++) slots.add(null);
         for (AccessibilityWindowInfo window : automation.getWindows())
             collect(window.getRoot(), slots);
         while (!slots.isEmpty() && slots.get(slots.size() - 1) == null) slots.remove(slots.size() - 1);
@@ -208,18 +194,15 @@ public final class AiPlaceholderDeviceSmoke extends DeviceSmoke {
         return newline < 0 ? value : value.substring(0, newline);
     }
 
-    /** 除了座位上那一行换成了 `seated`，前六个位置上的候选都没变。 */
-    private static boolean sameExceptSeat(List<String> before, List<String> after, int seat, String seated) {
-        int shared = Math.min(before.size(), after.size());
-        if (shared <= seat + 1) return false;
-        for (int index = 0; index < shared; index++) {
-            String expected = index == seat ? seated : before.get(index);
+    /** 答案坐在 `seat`，它前面的候选都没变。 */
+    private static boolean seatedAt(List<String> before, List<String> after, int seat, String seated) {
+        if (after.size() <= seat || !seated.equals(after.get(seat))) return false;
+        for (int index = 0; index < seat; index++) {
+            String expected = before.get(index);
             if (expected == null || !expected.equals(after.get(index))) return false;
         }
         return true;
     }
-
-
 
     /**
      * 只监听回环地址的 OpenAI 兼容桩服务，每个连接一个线程。

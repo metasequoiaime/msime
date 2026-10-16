@@ -172,7 +172,7 @@ final class ImeCandidates {
             JSONObject current = s.visibleCandidate(slot);
             JSONObject id = current == null ? null : current.optJSONObject("id");
             if (id == null || (!s.candidateManagementEnabled() && !s.candidateGlossInsertionEnabled())) return false;
-            // AI 座位上的占位行没有可管理的词，长按不弹菜单（#6888）；平时它也不可长按，见 updateCandidateButton。
+            // AI 占位行（来源 12，共享内核已经不再产出）没有可管理的词，长按不弹菜单（#6888）；平时它也不可长按，见 updateCandidateButton。
             if (!AiPendingCandidatePolicy.offersMenu(InputViewValuePolicy.integer(current, "source", -1))) return false;
             String text = s.chineseOutput(InputViewValuePolicy.textOr(current, "text", ""), s.view);
             return showCandidateMenu(button, slot, id, text);
@@ -194,7 +194,7 @@ final class ImeCandidates {
         s.configureCandidateTextLayout(button, labelLines);
         KeyboardTypographyPolicy.setKeyTextSize(button, 17);
         ViewPolicy.setSelected(button, highlighted);
-        // AI 座位上的占位行（Engine 候选来源 12，「…」或「—」）和候选条一样画淡，免得在完整候选列表里像真候选（#6888）。
+        // AI 占位行（Engine 候选来源 12，「…」或「—」）和候选条一样画淡，免得在完整候选列表里像真候选（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         boolean placeholder = AiPendingCandidatePolicy.isPlaceholder(source);
         button.setAlpha(AiPendingCandidatePolicy.alpha(source));

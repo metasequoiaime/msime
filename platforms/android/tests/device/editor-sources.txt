@@ -8,7 +8,7 @@ platforms/android/tests/device/core/DeviceSmoke.java
 platforms/android/tests/device/core/ImageClipProvider.java
 platforms/android/tests/device/clipboard/ClipboardImageDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidatePanelDeviceSmoke.java
-platforms/android/tests/device/candidate/AiPlaceholderDeviceSmoke.java
+platforms/android/tests/device/candidate/AiCandidateSeatDeviceSmoke.java
 platforms/android/tests/device/keyboard/MoreToolsDeviceSmoke.java
 platforms/android/tests/device/keyboard/CopyDeviceInfoDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmojiPickerDeviceSmoke.java

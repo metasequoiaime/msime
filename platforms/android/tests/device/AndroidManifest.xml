@@ -51,7 +51,7 @@
     <instrumentation android:name="app.msime.android.test.NumberRowDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.CaretCandidatesDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.HardwareTranslationDeviceSmoke" android:targetPackage="app.msime.android" />
-    <instrumentation android:name="app.msime.android.test.AiPlaceholderDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.AiCandidateSeatDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.WubiLookupDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SettingsDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SettingsLifecycleSmoke" android:targetPackage="app.msime.android.test" />

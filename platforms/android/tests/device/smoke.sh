@@ -206,7 +206,7 @@ for entry in \
     "TextEditRecentClipboardDeviceSmoke|Text edit recent clipboard acceptance failed" \
     "CaretCandidatesDeviceSmoke|Caret candidates acceptance failed" \
     "HardwareTranslationDeviceSmoke|Hardware Ctrl+Enter translation acceptance failed" \
-    "AiPlaceholderDeviceSmoke|AI placeholder acceptance failed" \
+    "AiCandidateSeatDeviceSmoke|AI candidate seat acceptance failed" \
     "WubiLookupDeviceSmoke|Wubi lookup acceptance failed"
 do
   suite=${entry%%|*}

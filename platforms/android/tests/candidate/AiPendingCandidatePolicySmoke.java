@@ -1,6 +1,6 @@
 import app.msime.android.AiPendingCandidatePolicy;
 
-/** AI 座位上的占位行（来源 12）的画法与响应规则：画淡、读屏念状态、长按不弹菜单，其他来源原样（#6888）。 */
+/** AI 占位行（来源 12）的画法与响应规则：画淡、读屏念状态、长按不弹菜单，其他来源原样（#6888）。共享内核已经不再产出这种行，规则留着，旧数据里出现时仍按占位行对待。 */
 public final class AiPendingCandidatePolicySmoke {
     static void check(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
 

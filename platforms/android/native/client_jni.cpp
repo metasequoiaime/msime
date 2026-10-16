@@ -816,7 +816,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyOnlineCand
     env->ReleaseByteArrayElements(query, queryBytes, JNI_ABORT);
     return response(env, result);
 }
-// AI 回答为空、失败或被拒：AI 座位上的占位行换成「—」（#6888）。
+// AI 回答为空、失败或被拒时调用。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变（#6888）。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resolveOnlineCandidatesRaw(JNIEnv *env, jclass, jlong handle, jbyteArray query, jint source) {
     if (!query || source < 0 || source > 1) {
         return response(env, msime_client_resolve_online_candidates(

@@ -759,7 +759,7 @@ public final class NativeClient {
             throw new IllegalArgumentException("Online candidates are too large");
         return TextPolicy.utf8(applyOnlineCandidatesRaw(session, boundedQuery(query), payload, source));
     }
-    /** AI 回答为空、失败或被拒时调用（source 只认 1）：AI 座位上的占位行换成「—」，留到组字变化为止。 */
+    /** AI 回答为空、失败或被拒时调用（source 只认 1）。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变。 */
     public static String resolveOnlineCandidates(long session, String query, int source) {
         if (source != 0 && source != 1)
             throw new IllegalArgumentException("Unknown online candidate source");
