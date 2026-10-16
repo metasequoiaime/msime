@@ -315,7 +315,7 @@ jobs:
         with:
           persist-credentials: false
       # The settings page below is built with the same toolchain contributors and the release build run; the runner's default Node is not pinned to anything.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ needs.changes.outputs.harmonyos == 'true' }}
         with:
           node-version-file: .nvmrc
@@ -346,7 +346,7 @@ jobs:
         if: ${{ needs.changes.outputs.ui == 'true' }}
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ needs.changes.outputs.ui == 'true' }}
         with:
           node-version-file: .nvmrc
@@ -443,7 +443,7 @@ jobs:
         run: |
           & platforms/windows/tests/tools/settings_ui.ps1 -Program target/windows-full/x64/settings/msime-client-settings.exe -OutputDirectory target/windows-full/x64/settings-screenshots
           if ($LASTEXITCODE -ne 0) { throw 'Settings UI smoke failed' }
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && needs.changes.outputs.windows == 'true' }}
         with:
           name: windows-native-settings-screenshots
@@ -526,7 +526,7 @@ jobs:
           tar -xzf "$tools/binaryen.tar.gz" -C "$tools"
           echo "$tools/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
           echo "$tools/binaryen-version_133/bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ needs.changes.outputs.web == 'true' }}
         with:
           node-version-file: .nvmrc
@@ -558,7 +558,7 @@ jobs:
           AR_wasm32_unknown_unknown: llvm-ar
         run: cargo clippy --locked -p msime-engine-wasm --target wasm32-unknown-unknown -- -D warnings
       # PR 上只验证能构建，不出产物。
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ needs.changes.outputs.web == 'true' && github.event_name != 'pull_request' }}
         with:
           name: web-engine-${{ github.sha }}

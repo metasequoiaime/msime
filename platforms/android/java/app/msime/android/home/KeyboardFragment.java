@@ -42,6 +42,15 @@ import org.json.JSONObject;
  */
 public final class KeyboardFragment extends HomeTabFragment {
 
+    /** 全部设置入口复用设置列表，不重复首页的键盘状态卡。 */
+    static KeyboardFragment allSettings() {
+        KeyboardFragment fragment = new KeyboardFragment();
+        Bundle arguments = new Bundle();
+        arguments.putBoolean("all_settings", true);
+        fragment.setArguments(arguments);
+        return fragment;
+    }
+
     @Nullable private JSONObject snapshot;
     private AndroidLocalSettings.Snapshot local = AndroidLocalSettings.defaults();
     /** The current scheme's title for the status line, or null until the preferences are read. */
@@ -67,7 +76,7 @@ public final class KeyboardFragment extends HomeTabFragment {
             DimensionPolicy.pixels(requireContext(), Ui.NAV_GROUP_RADIUS)));
 
         MaterialButton trial = view.findViewById(R.id.keyboard_try);
-        // 这里和 Apple 一样打开一个输入框而不是系统的输入法选择器：试用键盘就是用它打字，选择器只能把它换走。试用的输入框就是「对话」tab 的那一个，所以切过去并弹出键盘，不再另开一页。
+        // 这里和 Apple 一样打开一个输入框而不是系统的输入法选择器：试用键盘就是用它打字，选择器只能把它换走。试用入口打开 AI 对话二级页并弹出键盘。
         ViewPolicy.bindClick(trial, () -> {
             if (getActivity() instanceof HomeActivity home) home.openChat();
         });
@@ -104,6 +113,11 @@ public final class KeyboardFragment extends HomeTabFragment {
         buildRows(view);
         render();
         reload();
+        if (getArguments() != null && getArguments().getBoolean("all_settings")) {
+            ViewPolicy.hide(card);
+            ((TextView) view.findViewById(R.id.keyboard_title)).setText("全部设置");
+            ((TextView) bar).setText("全部设置");
+        }
 
         // Preparation is silent while it works out and while it is done; it only takes the screen
         // when the keyboard cannot reach the Engine, which is the one case the user has to know.
@@ -270,7 +284,8 @@ public final class KeyboardFragment extends HomeTabFragment {
             ((SearchPill) view.findViewById(R.id.keyboard_search)).query());
         boolean active = !query.isEmpty();
         ViewPolicy.setVisible(view.findViewById(R.id.keyboard_notices), !active);
-        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_status_card), !active);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_status_card), !active
+            && (getArguments() == null || !getArguments().getBoolean("all_settings")));
         ViewPolicy.setVisible(view.findViewById(R.id.keyboard_rows), !active);
         LinearLayout results = view.findViewById(R.id.keyboard_search_results);
         results.removeAllViews();

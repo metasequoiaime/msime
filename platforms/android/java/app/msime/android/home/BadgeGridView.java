@@ -381,7 +381,8 @@ public final class BadgeGridView extends View {
         @Override protected void onPopulateNodeForVirtualView(int id, @NonNull AccessibilityNodeInfoCompat node) {
             if (id < 0 || id >= badges.size()) {
                 node.setContentDescription("");
-                node.setBoundsInParent(bounds);
+                bounds.setEmpty();
+                setBoundsInScreenFromBoundsInParent(node, bounds);
                 return;
             }
             Achievement badge = badges.get(id);
@@ -391,7 +392,7 @@ public final class BadgeGridView extends View {
             node.addAction(AccessibilityNodeInfoCompat.ACTION_CLICK);
             tile(id, scratch);
             scratch.roundOut(bounds);
-            node.setBoundsInParent(bounds);
+            setBoundsInScreenFromBoundsInParent(node, bounds);
         }
 
         @Override protected boolean onPerformActionForVirtualView(int id, int action, @Nullable Bundle arguments) {

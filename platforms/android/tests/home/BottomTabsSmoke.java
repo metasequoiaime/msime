@@ -10,9 +10,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 底部导航的四格、`HomeActivity.TAB_IDS` 和 `HostDeepLink.TAB_*` 下标三处要对得上：0 设置、1 对话、2 统计、3 我的。
+ * 底部导航的四格、`HomeActivity.TAB_IDS` 和 `HostDeepLink.TAB_*` 下标三处要对得上：0 设置、1 全部设置、2 统计、3 我的。
  *
- * <p>菜单和 `TAB_IDS` 引用了 `R`，进不了 check-host 只有 android.jar 的 JVM 编译，所以像 SettingsSearchIndexSmoke 那样直接读源码。第二格先后是「社区」、空位和「对话」，每次都要同时改这三处，漏一处时深链会切到别的 tab，或者底部那一格点了没有页面。
+ * <p>菜单和 `TAB_IDS` 引用了 `R`，进不了 check-host 只有 android.jar 的 JVM 编译，所以像 SettingsSearchIndexSmoke 那样直接读源码。更换入口时要同时改这三处，漏一处时深链会切到别的 tab，或者底部那一格点了没有页面。
  */
 public final class BottomTabsSmoke {
     private static final String MENU = "platforms/android/res/menu/bottom_tabs.xml";
@@ -30,14 +30,14 @@ public final class BottomTabsSmoke {
 
         List<String> expected = new ArrayList<>(4);
         expected.add("tab_settings");
-        expected.add("tab_chat");
+        expected.add("tab_allsettings");
         expected.add("tab_statistics");
         expected.add("tab_account");
-        check(menu.equals(expected), "bottom menu is 设置 / 对话 / 统计 / 我的, got " + menu);
+        check(menu.equals(expected), "bottom menu is 设置 / 全部设置 / 统计 / 我的, got " + menu);
         check(home.equals(expected), "HomeActivity.TAB_IDS follows the bottom menu, got " + home);
 
         check(expected.get(HostDeepLink.TAB_SETTINGS).equals("tab_settings"), "TAB_SETTINGS is the first item");
-        check(expected.get(HostDeepLink.TAB_CHAT).equals("tab_chat"), "TAB_CHAT is the second item");
+        check(expected.get(HostDeepLink.TAB_ALL_SETTINGS).equals("tab_allsettings"), "TAB_ALL_SETTINGS is the second item");
         check(expected.get(HostDeepLink.TAB_STATISTICS).equals("tab_statistics"), "TAB_STATISTICS is the third item");
         check(expected.get(HostDeepLink.TAB_ACCOUNT).equals("tab_account"), "TAB_ACCOUNT is the fourth item");
         for (int tab = 0; tab < expected.size(); tab++) check(HostDeepLink.isTab(tab), "every bottom item has a deep-link index");

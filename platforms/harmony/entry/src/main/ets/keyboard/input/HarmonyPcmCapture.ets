@@ -1,3 +1,4 @@
+import { NativeCleanup } from '../NativeCleanup';
 import audio from '@ohos.multimedia.audio';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
@@ -50,8 +51,8 @@ export class HarmonyPcmCapture {
     };
     this.capturer = capturer;
     this.readCallback = readCallback;
-    capturer.on('readData', readCallback);
     try {
+      capturer.on('readData', readCallback);
       await capturer.start();
     } catch (error) {
       await this.stop();
@@ -80,7 +81,7 @@ export class HarmonyPcmCapture {
     this.capturer = undefined;
     this.readCallback = undefined;
     if (capturer === undefined) return;
-    if (readCallback !== undefined) capturer.off('readData', readCallback);
+    if (readCallback !== undefined) NativeCleanup.detach(capturer, readCallback);
     try {
       await capturer.stop();
     } catch (error) {

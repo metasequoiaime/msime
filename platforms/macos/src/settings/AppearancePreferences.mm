@@ -1035,6 +1035,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedSmartPunctuation;
     NSNumber *_sharedSmartPunctuationRepeatToChinese;
     NSNumber *_sharedSmartPunctuationSpaceConvert;
+    // 在这个窗口里切换「智能标点」后、共享文档还没写进去的值。数字后直出和字母后直出是智能标点真正起作用的两半（client-core 的 punctuation::route），共享设置页的总开关被切换时两半跟着写成同一个值（punctuation-preferences.ts 的 smartPunctuationPatch），这里照做：每次保存都带上，直到载入的文档里两半都等于它才撤销，所以一次保存失败不会把它丢掉；之后不再碰这两个键，别处单独设过的值不会被冲掉。
+    NSNumber *_pendingSmartPunctuationDirect;
     NSNumber *_sharedPairedPunctuation;
     NSString *_sharedPunctuationLock;
     NSSwitch *_pairedPunctuationToggle;
@@ -1435,6 +1437,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
     merged[@"smart_punctuation"] = @(self.smartPunctuation);
+    if (_pendingSmartPunctuationDirect) {
+        merged[@"smart_punctuation_direct_digit"] = _pendingSmartPunctuationDirect;
+        merged[@"smart_punctuation_direct_letter"] = _pendingSmartPunctuationDirect;
+    }
     merged[@"smart_punctuation_repeat"] = @(self.smartPunctuationRepeatToChinese);
     merged[@"smart_punctuation_space_convert"] = @(self.smartPunctuationSpaceConvert);
     merged[@"paired_punctuation"] = @(self.pairedPunctuation);
@@ -2036,6 +2042,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
     id smart = preferences[@"smart_punctuation"];
     if (LocalModeBoolean(smart)) _sharedSmartPunctuation = smart;
+    if (_pendingSmartPunctuationDirect && [preferences[@"smart_punctuation_direct_digit"] isEqual:_pendingSmartPunctuationDirect] &&
+        [preferences[@"smart_punctuation_direct_letter"] isEqual:_pendingSmartPunctuationDirect])
+        _pendingSmartPunctuationDirect = nil;
     id smartRepeat = preferences[@"smart_punctuation_repeat"];
     if (LocalModeBoolean(smartRepeat)) _sharedSmartPunctuationRepeatToChinese = smartRepeat;
     id smartSpace = preferences[@"smart_punctuation_space_convert"];
@@ -2205,6 +2214,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 // Punctuation and width toggles are always per app, whatever ime_mode_scope says: the reference keeps them in compartments of each UI thread. Without an active application they share one unnamed slot.
 - (NSString *)runtimeInputStateKey { return _activeModeApplication ?: @""; }
 - (BOOL)runtimeChinesePunctuation {
+    // 固定标点锁定时，运行时标点就是锁定值：菜单勾选、工具栏标题和成对括号都跟着它，不回落到起始标点 `chinesePunctuation`。设置页选「始终中文/英文标点」因此只需写不上云的 `punctuation_lock`，不必改写会同步到别的设备的起始标点。
+    if ([self.punctuationLock isEqual:@"chinese"]) return YES;
+    if ([self.punctuationLock isEqual:@"english"]) return NO;
     NSNumber *value = _runtimeChinesePunctuation[[self runtimeInputStateKey]];
     return value ? value.boolValue : self.chinesePunctuation;
 }
@@ -5038,7 +5050,12 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)wubiChanged:(NSSwitch *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
 - (void)wubiMixedPinyinChanged:(NSSwitch *)sender { self.wubiMixedPinyinEnabled = sender.state == NSControlStateValueOn; }
 - (void)punctuationChanged:(NSSwitch *)sender { self.chinesePunctuation = sender.state == NSControlStateValueOn; }
-- (void)smartPunctuationChanged:(NSSwitch *)sender { self.smartPunctuation = sender.state == NSControlStateValueOn; }
+- (void)smartPunctuationChanged:(NSSwitch *)sender {
+    const BOOL enabled = sender.state == NSControlStateValueOn;
+    // 先记下两半要写的值，再改总开关：setter 触发的那次保存就会带上它们。
+    _pendingSmartPunctuationDirect = @(enabled);
+    self.smartPunctuation = enabled;
+}
 - (void)smartPunctuationRepeatChanged:(NSSwitch *)sender { self.smartPunctuationRepeatToChinese = sender.state == NSControlStateValueOn; }
 - (void)smartPunctuationSpaceChanged:(NSSwitch *)sender { self.smartPunctuationSpaceConvert = sender.state == NSControlStateValueOn; }
 - (void)pairedPunctuationChanged:(NSSwitch *)sender { self.pairedPunctuation = sender.state == NSControlStateValueOn; }

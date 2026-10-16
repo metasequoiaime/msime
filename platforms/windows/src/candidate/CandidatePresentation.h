@@ -37,8 +37,6 @@ struct PresentationCandidate {
   std::string gloss{};
   // 释义每一行的读音，按 "\n" 分行，和 translation 的各行（U+2028 分行）逐行对应；只用于显示，从不上屏。由翻译工作线程算好、CandidateMailbox 按候选文字和释义挂上来，见 CandidateReading。
   std::string pronunciation{};
-  // 整句候选的逐词拆解（「我 I · 喜欢 to like · 你 you」），画在释义下面单独一行，同样只用于显示。
-  std::string breakdown{};
   // AI 座位上的占位行（Engine 候选来源 12）：等回答时是「…」，回答为空或失败后是「—」。画成次要色，选它什么都不上屏（#6888）。
   bool pending = false;
   // 授权的脚本插件给这一行加的注释（view 候选的 script_annotation，没有插件注释时为空）。和引擎的 annotation 分开放、分开画：跟在注释那一段后面，换成次要色，从不替换引擎的注释，见 candidate_annotation_run。
@@ -61,14 +59,14 @@ inline void move_korean_hanja_gloss(PresentationCandidate &candidate) {
   candidate.gloss = std::move(candidate.annotation);
   candidate.annotation.clear();
 }
-// 释义部分画出来的样子：每种目标语言一行，行后跟读音，整句的逐词拆解在最后一行（candidate_gloss_display）。with_readings 为 false 时只有释义各行，不带读音和拆解。
+// 释义部分画出来的样子：每种目标语言一行，行后跟读音（candidate_gloss_display）。with_readings 为 false 时只有释义各行，不带读音。
 inline std::string candidate_translation_display(const PresentationCandidate &candidate,
                                                  bool with_readings = true) {
   std::vector<std::string> lines;
   if (!candidate.translation.empty())
     lines = translation_lines(candidate.translation);
   if (!with_readings)
-    return candidate_gloss_display(lines, {}, {});
+    return candidate_gloss_display(lines, {});
   std::vector<std::string> readings;
   for (size_t start = 0; !candidate.pronunciation.empty();) {
     const auto cut = candidate.pronunciation.find('\n', start);
@@ -77,9 +75,9 @@ inline std::string candidate_translation_display(const PresentationCandidate &ca
       break;
     start = cut + 1;
   }
-  return candidate_gloss_display(lines, readings, candidate.breakdown);
+  return candidate_gloss_display(lines, readings);
 }
-// 一行候选下面那段较小的次要文字：只有 훈음、只有释义，或 훈음 在上、释义在下一行。释义部分是 candidate_translation_display：每种目标语言一行并跟着读音，最后是逐词拆解。候选窗只画不超过 4096 字节的文字（CandidateWindow 的 wide()），读音和拆解加上去超过时就不带它们，免得一条很长的释义让整个候选窗画不出来。
+// 一行候选下面那段较小的次要文字：只有 훈음、只有释义，或 훈음 在上、释义在下一行。释义部分是 candidate_translation_display：每种目标语言一行并跟着读音。候选窗只画不超过 4096 字节的文字（CandidateWindow 的 wide()），读音加上去超过时就不带读音，免得一条很长的释义让整个候选窗画不出来。
 inline std::string candidate_secondary_text(const PresentationCandidate &candidate) {
   const auto compose = [&](bool with_readings) {
     const auto translation = candidate_translation_display(candidate, with_readings);
@@ -90,22 +88,20 @@ inline std::string candidate_secondary_text(const PresentationCandidate &candida
     return candidate.gloss + "\n" + translation;
   };
   auto text = compose(true);
-  if (text.size() > 4096 && (!candidate.pronunciation.empty() || !candidate.breakdown.empty()))
+  if (text.size() > 4096 && !candidate.pronunciation.empty())
     text = compose(false);
   return text;
 }
-// 把翻译工作线程算好的读音和拆解挂到候选上，没有的清空：读音只在候选眼下的释义与算它时的释义相同才挂，拆解按候选文字挂。
+// 把翻译工作线程算好的读音挂到候选上，没有的清空：读音只在候选眼下的释义与算它时的释义相同才挂。
 inline void attach_candidate_readings(std::vector<PresentationCandidate> &candidates,
                                       const CandidateReadings &readings) {
   for (auto &candidate : candidates) {
     candidate.pronunciation.clear();
-    candidate.breakdown.clear();
     const auto found = readings.find(candidate.text);
     if (found == readings.end())
       continue;
     if (!candidate.translation.empty() && found->second.translation == candidate.translation)
       candidate.pronunciation = found->second.pronunciation;
-    candidate.breakdown = found->second.breakdown;
   }
 }
 // The correction marker is display-only: keep it out of the text used for
@@ -134,7 +130,7 @@ inline std::string candidate_tooltip_text(const PresentationCandidate &candidate
     text += "\n" + secondary;
   return text;
 }
-// candidate_secondary_text 在折行之前有几行：훈음、每种目标语言一行和逐词拆解。Engine 不收含控制字符的释义，훈음 表里也没有，所以每个换行都是 candidate_secondary_text 自己放进去的。
+// candidate_secondary_text 在折行之前有几行：훈음 和每种目标语言一行。Engine 不收含控制字符的释义，훈음 表里也没有，所以每个换行都是 candidate_secondary_text 自己放进去的。
 inline size_t candidate_secondary_lines(const PresentationCandidate &candidate) {
   const auto text = candidate_secondary_text(candidate);
   return 1 + static_cast<size_t>(std::count(text.begin(), text.end(), '\n'));

@@ -18,6 +18,8 @@ export interface CandidateTranslationSettingsSectionProps extends CandidateTrans
   showTranslationService?: boolean;
   translationProvider?: TranslationProvider;
   showAccountProvider?: boolean;
+  /** 见 `TranslationServiceSelectorSectionProps.offlineFallback`。 */
+  offlineFallback?: boolean;
   onTranslationProviderChange?: (provider: TranslationProvider) => void;
 }
 
@@ -30,6 +32,7 @@ export function CandidateTranslationSettingsSection({
   showTranslationService = false,
   translationProvider = "none",
   showAccountProvider = false,
+  offlineFallback = false,
   onTranslationProviderChange,
   ...options
 }: CandidateTranslationSettingsSectionProps) {
@@ -58,6 +61,7 @@ export function CandidateTranslationSettingsSection({
           available={options.enabled}
           provider={translationProvider}
           showAccountProvider={showAccountProvider}
+          offlineFallback={offlineFallback}
           onChange={onTranslationProviderChange}
         />
       )}

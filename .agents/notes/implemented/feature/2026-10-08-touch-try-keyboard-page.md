@@ -47,6 +47,8 @@ Status: implemented
 - **保留底部弹窗，只把里面做丰富。** 改动最小，也不用碰外壳的页面注册。不用它，一是 HarmonyOS 上这个弹窗本身就坏了（见上），二是 Android 和 Apple 的试用都是一整页，聊天样式放在一个盖着首页的弹窗里，键盘一弹就只剩很窄的一条对话区。
 - **为 HarmonyOS 写一个 ArkTS 原生页面，像 Android 的 Activity 那样。** 最强的理由是跟 Android 的实现方式一致，弹键盘、处理键盘遮挡都由系统直接负责，不受 WebView 的限制。不用它，是因为 HarmonyOS 的设置本来就是共享的 WebView 页面，`chat` 通道也只接在 WebView 一侧；原生页面得自己再接一遍 AI 对话、自己配色，还会跟同样用触屏首页的其他外壳分叉。
 
+入口层级由[移动端 AI 对话二级页](2026-10-16-mobile-chat-secondary-page.md)统一，试用行为和会话边界继续保留。
+
 ## Consequences
 
 - **收益**：HarmonyOS 上的试用键盘跟 Android 对齐，进页面键盘就弹起来，打完字可以直接拿 AI 对话试一试。路由走共享外壳的子页面机制，返回、系统返回手势和标签页记忆都不用单独处理。

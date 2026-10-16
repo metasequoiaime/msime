@@ -1,3 +1,4 @@
+import { NativeCleanup } from './NativeCleanup';
 /**
  * Copying the packaged Engine resources out of the HAP, once per generation.
  *
@@ -86,13 +87,18 @@ export class StagedResources {
    * The Cantonese, Zhuyin and Stroke dictionaries, from `language-dictionaries` under `resourceDir` to `language-dictionaries` beside the staged Engine resources in `filesDir`, where host-api looks for them. A package built without them removes any an earlier one left, and those schemes are then not offered; either way the keyboard still starts.
    */
   static stageLanguageDictionaries(resourceDir: string, filesDir: string): void {
-    const packaged: string = `${resourceDir}/language-dictionaries`;
-    const destination: string = `${filesDir}/language-dictionaries`;
-    const marker: string = `${filesDir}/language-dictionaries.ready`;
-    if (fs.accessSync(packaged)) {
-      StagedResources.stage(packaged, destination, marker);
-    } else {
-      StagedResources.unstage(destination, marker);
+    try {
+      const packaged: string = `${resourceDir}/language-dictionaries`;
+      const destination: string = `${filesDir}/language-dictionaries`;
+      const marker: string = `${filesDir}/language-dictionaries.ready`;
+      if (fs.accessSync(packaged)) {
+        StagedResources.stage(packaged, destination, marker);
+      } else {
+        StagedResources.unstage(destination, marker);
+      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.StagedResources.stageLanguageDictionaries failed');
+      throw error as Error;
     }
   }
 
@@ -112,18 +118,23 @@ export class StagedResources {
    * Every file below `root`, named by its path relative to it. The Engine's helpcodes/ directory is nested, so its tables are listed as helpcodes/<file> and a changed table changes the generation token like any other artifact.
    */
   private static listFiles(root: string, relative: string, into: StagedArtifact[]): void {
-    const directory: string = relative.length === 0 ? root : `${root}/${relative}`;
-    for (const name of fs.listFileSync(directory)) {
-      const path: string = relative.length === 0 ? name : `${relative}/${name}`;
-      const stat: fs.Stat = fs.lstatSync(`${root}/${path}`);
-      if (stat.isSymbolicLink()) {
-        throw new Error(`packaged resource is a symbolic link: ${path}`);
+    try {
+      const directory: string = relative.length === 0 ? root : `${root}/${relative}`;
+      for (const name of fs.listFileSync(directory)) {
+        const path: string = relative.length === 0 ? name : `${relative}/${name}`;
+        const stat: fs.Stat = fs.lstatSync(`${root}/${path}`);
+        if (stat.isSymbolicLink()) {
+          throw new Error(`packaged resource is a symbolic link: ${path}`);
+        }
+        if (stat.isDirectory()) {
+          StagedResources.listFiles(root, path, into);
+        } else {
+          into.push({ name: path, size: stat.size });
+        }
       }
-      if (stat.isDirectory()) {
-        StagedResources.listFiles(root, path, into);
-      } else {
-        into.push({ name: path, size: stat.size });
-      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.StagedResources.listFiles failed');
+      throw error as Error;
     }
   }
 
@@ -138,36 +149,41 @@ export class StagedResources {
       const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
       const count: number = fs.readSync(handle.fd, buffer);
       if (count !== stat.size) return null;
-      return util.TextDecoder.create('utf-8').decode(new Uint8Array(buffer, 0, count));
+      return util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer, 0, count));
     } catch (error) {
       return null;
     } finally {
-      if (handle !== null) fs.closeSync(handle);
+      if (handle !== null) NativeCleanup.close(handle);
     }
   }
 
   /** Remove a staged tree before replacing it; rmdirSync only accepts empty directories. */
   static removeDirectory(directory: string): void {
-    let directoryStat: fs.Stat;
     try {
-      directoryStat = fs.lstatSync(directory);
-    } catch {
-      return;
-    }
-    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
-      // 清理阶段遇到外部链接或意外的普通文件时，只删除目录项，绝不跟随到目录外。
-      fs.unlinkSync(directory);
-      return;
-    }
-    for (const entry of fs.listFileSync(directory)) {
-      const child: string = `${directory}/${entry}`;
-      if (fs.lstatSync(child).isDirectory()) {
-        StagedResources.removeDirectory(child);
-      } else {
-        fs.unlinkSync(child);
+      let directoryStat: fs.Stat;
+      try {
+        directoryStat = fs.lstatSync(directory);
+      } catch {
+        return;
       }
+      if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+        // 清理阶段遇到外部链接或意外的普通文件时，只删除目录项，绝不跟随到目录外。
+        fs.unlinkSync(directory);
+        return;
+      }
+      for (const entry of fs.listFileSync(directory)) {
+        const child: string = `${directory}/${entry}`;
+        if (fs.lstatSync(child).isDirectory()) {
+          StagedResources.removeDirectory(child);
+        } else {
+          fs.unlinkSync(child);
+        }
+      }
+      fs.rmdirSync(directory);
+    } catch (error) {
+      KeyboardLog.error('keyboard.StagedResources.removeDirectory failed');
+      throw error as Error;
     }
-    fs.rmdirSync(directory);
   }
 
   /** Replace a live resource tree only after its replacement is complete. */

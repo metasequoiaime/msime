@@ -20,7 +20,7 @@ public:
     FocusLease lease;
     uint64_t generation = 0;
     std::string translations;
-    // 这一页候选的读音（打开「显示读音」时）和整句逐词拆解（打开离线英文释义时），只用于显示，不交给会话；见 CandidateMailbox::translations。
+    // 这一页候选的读音（打开「显示读音」时），只用于显示，不交给会话；见 CandidateMailbox::translations。
     CandidateReadings readings{};
   };
   using Completed = std::function<void(Result)>;

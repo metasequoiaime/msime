@@ -1,5 +1,6 @@
 //! Integrations shared by the three desktop hosts.
 
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub(crate) mod desktop_data_directory;
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]

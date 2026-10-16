@@ -831,6 +831,11 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
         preferences.chinese_punctuation = value
     })?;
     applier.set_bool("input.smart_punctuation", |preferences, value| {
+        // 数字后、字母后直出两半不上云，但智能标点要其中之一为真才起作用（`punctuation::route`）。别的设备打开或关掉了智能标点时，两半跟着写成同一个值，和设置页切换总开关的写法一致；云端值和本机相同时不动，用户在本机单独调过的一半不会每次同步都被冲掉。
+        if preferences.smart_punctuation != value {
+            preferences.smart_punctuation_direct_digit = value;
+            preferences.smart_punctuation_direct_letter = value;
+        }
         preferences.smart_punctuation = value
     })?;
     applier.set_bool("input.paired_punctuation", |preferences, value| {

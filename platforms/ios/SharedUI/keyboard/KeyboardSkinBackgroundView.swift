@@ -19,6 +19,9 @@ final class KeyboardSkinBackgroundView: UIView {
     isAccessibilityElement = false
     contentMode = .redraw
     backgroundColor = skin.background
+    registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) {
+      (view: KeyboardSkinBackgroundView, _: UITraitCollection) in view.setNeedsDisplay()
+    }
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -71,10 +74,6 @@ final class KeyboardSkinBackgroundView: UIView {
     }
   }
 
-  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-    super.traitCollectionDidChange(previousTraitCollection)
-    setNeedsDisplay()
-  }
 }
 
 struct KeyboardSkinBackdrop: UIViewRepresentable {

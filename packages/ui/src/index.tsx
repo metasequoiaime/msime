@@ -7,6 +7,7 @@ import type {
 import type { PunctuationPreferences } from "./settings/punctuation-preferences";
 import type { KeybindingPreferences } from "./settings/keybinding-preferences";
 import type { WubiPreferences } from "./settings/wubi-preferences";
+import type { VietnamesePreferences } from "./settings/vietnamese-preferences";
 import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
 import type { TraditionalChineseVariant } from "./settings/chinese-output-preferences";
 import type {
@@ -53,6 +54,7 @@ import type { LocalVoiceModelClient } from "./voice/local-models";
 import type { ResourcePackClient } from "./settings/resource-packs";
 import type { WubiCodeLookup } from "./settings/wubi-code-lookup-section";
 import type { CloudClipboardRelayPreferences } from "./settings/cloud-clipboard-relay-preferences";
+import type { VoiceInputPreferences } from "./settings/voice-input-preferences";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   type DictionaryEntry,
@@ -188,6 +190,7 @@ export {
   type UseInputSourceUninstallOptions,
 } from "./settings/use-input-source-uninstall";
 export {
+  touchKeyboardResetSubjects,
   useTouchKeyboardSettingsReset,
   type TouchKeyboardSettingsResetConfirmOptions,
   type UseTouchKeyboardSettingsResetOptions,
@@ -1155,8 +1158,9 @@ export {
 export { FloatingToolbarPlatformNotice } from "./settings/floating-toolbar-platform-notice";
 export {
   floatingToolbarButtonOptions,
-  floatingToolbarFontSizes,
-  floatingToolbarScales,
+  floatingToolbarSize,
+  floatingToolbarSizes,
+  type FloatingToolbarSize,
 } from "./settings/floating-toolbar-options";
 export {
   DoubaoAuthModeSection,
@@ -1719,11 +1723,6 @@ export type InputScheme =
   | "stroke";
 /** 对应 `client-core::preferences::ChineseScheme`：选日文、韩文、越南文或藏文后要回到的中文方案。 */
 export type ChineseScheme = "quanpin" | "shuangpin" | "wubi" | "cantonese" | "zhuyin" | "stroke";
-/** Mirrors `client-core::preferences::VietnamesePreferences`. Absent from a document left at its defaults: Telex with modern tone placement. */
-export type VietnamesePreferences = {
-  input_method?: "telex" | "vni";
-  tone_style?: "modern" | "classic";
-};
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
   platform: HostPlatform;
@@ -1794,6 +1793,10 @@ export interface HostCapabilities {
   fixed_candidate_layout?: "horizontal" | "vertical";
   /** The touch keyboard picks its toolbar buttons from `touch_toolbar`. */
   touch_toolbar_components: boolean;
+  /** 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度（Windows 与触屏宿主）；macOS 和 Linux 的键盘窗口高度固定，不给「键盘高度」滑块。缺省按提供处理。 */
+  touch_keyboard_height?: boolean;
+  /** 宿主的屏幕键盘按 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 画间距；macOS 为 false，键盘面板固定用默认间距，设置页不给间距滑块、拖动调间距和「恢复默认」。缺省按提供处理。 */
+  touch_keyboard_spacing?: boolean;
   shuangpin_preedit: boolean;
   /** 宿主在双拼组字时按 `shuangpin_keymap_hint` 在候选窗旁画键位图（macOS 和 Windows）。 */
   shuangpin_keymap_hint?: boolean;
@@ -1875,7 +1878,9 @@ export interface EditionInfo {
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 
 export type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
+export type { VoiceInputPreferences } from "./settings/voice-input-preferences";
 export type { AiAssistantPreferences } from "./settings/ai-assistant-preferences";
+export type { VietnamesePreferences } from "./settings/vietnamese-preferences";
 
 export type Preferences = PunctuationPreferences &
   PreeditPreferences &
@@ -2079,51 +2084,6 @@ export type ApiCredentialTestService =
   | "voice.polish"
   | "ai.assistant";
 export type ApiCredentialTestResult = { ok: boolean; message: string };
-export type VoiceInputPreferences = {
-  enabled: boolean;
-  language: string;
-  capture_backend?: "" | "auto" | "pulse" | "pipewire" | "alsa" | "windows" | "macos" | "harmony";
-  capture_device?: string;
-  asr_provider?: string;
-  asr_endpoint?: string;
-  asr_token?: string;
-  asr_tokens?: Record<string, string>;
-  asr_app_key?: string;
-  doubao_auth_mode?: "api_key" | "legacy";
-  hotkey_ralt?: boolean;
-  hotkey_ctrl_f9?: boolean;
-  hotkey_ctrl_win?: boolean;
-  hotkey_rctrl_ralt?: boolean;
-  hotkey_hold_space_lock?: boolean;
-  sound_enabled?: boolean;
-  start_sound?: boolean;
-  end_sound?: boolean;
-  mute_system_audio?: boolean;
-  polish_enabled?: boolean;
-  polish_text?: boolean;
-  asr_model?: string;
-  /** Absolute path the `local` provider loads: an installed model directory (one holding msime-model.json). */
-  asr_model_path?: string;
-  /** Optional `https://` prefix put in front of every model download URL (a ghproxy-style mirror); empty downloads from the catalog URLs as-is. */
-  asr_model_mirror?: string;
-  asr_resource_id?: string;
-  commit_mode?: "tsf" | "sendinput" | "ctrl_v";
-  polish_provider?: string;
-  polish_endpoint?: string;
-  polish_token?: string;
-  polish_tokens?: Record<string, string>;
-  polish_model?: string;
-  polish_prompt_id?: string;
-  polish_prompt_custom_1?: string;
-  polish_prompt_custom_2?: string;
-  polish_prompt_custom_3?: string;
-  stream_inline_preedit?: boolean;
-  doubao_enable_itn?: boolean;
-  doubao_enable_punc?: boolean;
-  doubao_enable_ddc?: boolean;
-  doubao_boosting_table_id?: string;
-  [key: string]: unknown;
-};
 export type { ProviderPreset, ProviderDefaults } from "./core/provider-preset";
 export {
   AI_PROVIDER_OPTIONS,
@@ -2507,6 +2467,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showFloatingToolbar,
     showToolbarAppearance,
     showToolbarComponents,
+    showTouchKeyboardHeight,
+    showTouchKeyboardSpacing,
     showCandidateFontControls,
     showCandidatePreeditFont,
     showCandidateEnglishFont,
@@ -2615,7 +2577,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const mobileInitialTab = mobileTabForPage(page);
   const mobileLastPageByTab = useRef<Record<MobilePrimaryPageId, SettingsPageId>>({
     home: mobileInitialTab === "home" ? page : "home",
-    chat: mobileInitialTab === "chat" ? page : "chat",
+    more: mobileInitialTab === "more" ? page : "more",
     "typing-statistics": mobileInitialTab === "typing-statistics" ? page : "typing-statistics",
     account: mobileInitialTab === "account" ? page : "account",
   });
@@ -2774,7 +2736,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setError,
     setNotice,
     confirm,
-    voiceShortcut: !macosPlatform,
   });
   const openExternalUrl = useExternalUrl({
     openExternalUrl: client.openExternalUrl,
@@ -2959,31 +2920,39 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     // Sound packs, music and the / and @ modes all belong to a physical keyboard and a desktop candidate window; a phone keeps its own keyboard feedback settings.
     "plugins",
   ];
-  const { availablePages, sidebarGroups, mobilePrimaryPages, mobileSecondaryGroups } =
-    settingsPageProjections({
-      mobilePlatform,
-      hasHomePage,
-      hasTypingStatistics: Boolean(client.typingStatistics),
-      hasVocabularyReview: Boolean(client.vocabularyReview),
-      hasAccount: Boolean(client.account || client.appIcon),
-      hasChat: Boolean(client.chat),
-      hasCommunity: Boolean(client.communitySkins || client.communityResources),
-      showFloatingToolbar,
-      showDeveloperPage,
-      // A host with a pack store, or one that plays or routes something the page switches.
-      hasPlugins:
-        !mobilePlatform &&
-        (Boolean(client.plugins) ||
-          Boolean(client.communityPlugins) ||
-          showKeySound ||
-          showMusic ||
-          showPluginTriggers ||
-          showTypingEffects),
-      // full 不带版本信息，手写一直都在。
-      hasHandwriting: client.host?.edition?.handwriting ?? true,
-      mobileHiddenPageIds,
-      mobilePageTitle,
-    });
+  const {
+    availablePages,
+    sidebarGroups,
+    mobilePrimaryPages,
+    mobileSecondaryGroups,
+    pageAliases,
+    handwritingOnScreenKeyboardPage,
+  } = settingsPageProjections({
+    mobilePlatform,
+    hasHomePage,
+    hasTypingStatistics: Boolean(client.typingStatistics),
+    hasVocabularyReview: Boolean(client.vocabularyReview),
+    hasAccount: Boolean(client.account || client.appIcon),
+    hasChat: Boolean(client.chat),
+    hasCommunity: Boolean(client.communitySkins || client.communityResources),
+    showFloatingToolbar,
+    showDeveloperPage,
+    // A host with a pack store, or one that plays or routes something the page switches.
+    hasPlugins:
+      !mobilePlatform &&
+      (Boolean(client.plugins) ||
+        Boolean(client.communityPlugins) ||
+        showKeySound ||
+        showMusic ||
+        showPluginTriggers ||
+        showTypingEffects),
+    // full 不带版本信息，手写一直都在。
+    hasHandwriting: client.host?.edition?.handwriting ?? true,
+    // macOS 和 Linux 桌面的手写页只有一个打开按钮，并进屏幕键盘页；Windows 的共享设置页跟原生设置窗口一样分成两页。
+    handwritingOnScreenKeyboardPage: macosPlatform || linuxPlatform,
+    mobileHiddenPageIds,
+    mobilePageTitle,
+  });
   // 子页面在导航里点亮它的上级页面，并提供回到上级的入口。触屏宿主上「AI 对话」是底部的「对话」标签页，不再是「AI 辅助」的子页面，标签页的根页面没有上级。
   const navigationPage: SettingsPageId =
     mobilePlatform && mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
@@ -2994,6 +2963,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       mobilePlatform,
       mobileHiddenPageIds,
       availablePages,
+      pageAliases,
       page,
       setPage,
       mobileLastPageByTab,
@@ -3052,6 +3022,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showFloatingToolbar,
     showToolbarAppearance,
     showToolbarComponents,
+    showTouchKeyboardHeight,
+    showTouchKeyboardSpacing,
     showCandidateFontControls,
     showCandidatePreeditFont,
     showCandidateEnglishFont,
@@ -3282,6 +3254,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     touchKeyboardHeightAdjustment,
     installerTrust,
     availablePages,
+    handwritingOnScreenKeyboardPage,
     sidebarGroups,
     mobileActiveTab,
     untitledOnPhone,
@@ -3373,6 +3346,7 @@ function SettingsShell(props: SettingsPageProps) {
     dirty,
     keyboardPreviewTheme,
     availablePages,
+    handwritingOnScreenKeyboardPage,
     sidebarGroups,
     mobileActiveTab,
     untitledOnPhone,
@@ -3394,8 +3368,6 @@ function SettingsShell(props: SettingsPageProps) {
   } = model;
   // 对话页第一次打开后就一直挂着（见下方渲染处），切走只隐藏。
   const [chatMounted, setChatMounted] = useState(page === "chat");
-  // 对话页的输入框正在打字：底部标签栏让开，键盘上方只留输入栏，和常见的聊天应用一样。
-  const [chatTyping, setChatTyping] = useState(false);
   // 首页「试用键盘」切到对话页时加一，对话页随即聚焦输入框、弹出键盘；点底部标签进来不加，不弹键盘。
   const [chatFocusRequest, setChatFocusRequest] = useState(0);
   useEffect(() => {
@@ -3574,7 +3546,7 @@ function SettingsShell(props: SettingsPageProps) {
         )}
         <div className={settings.body} data-settings-body="">
           {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so assistive technology and keyboard focus still reach the navigation first, and the bottom padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
-          {mobilePlatform && !fillsContent && !(page === "chat" && chatTyping) && (
+          {mobilePlatform && !fillsContent && (
             <MobileSettingsTabs
               tabs={mobilePrimaryPages}
               activeTab={mobileActiveTab}
@@ -3839,14 +3811,13 @@ function SettingsShell(props: SettingsPageProps) {
                   appVersion={currentAppVersion}
                 />
               )}
-              {/* 触屏上「对话」是常驻的底部标签：第一次打开后一直挂着，切到别的标签只是隐藏，对话记录和进行中的回复都不丢；点标签进来不弹键盘，点输入框或从首页「试用键盘」进来才弹，与 Android 的对话标签一致。 */}
+              {/* 触屏上 AI 对话从「AI 辅助」二级页进入：第一次打开后一直挂着，切换标签只是隐藏，对话记录和进行中的回复都不丢。 */}
               {client.chat && (page === "chat" || (mobilePlatform && chatMounted)) && (
                 <div className={page === "chat" ? "contents" : undefined} hidden={page !== "chat"}>
                   <ChatPage
                     client={client.chat}
                     touch={mobilePlatform}
                     active={page === "chat"}
-                    onComposerFocusChange={setChatTyping}
                     focusRequest={chatFocusRequest}
                     setup={client.home}
                     onLogin={openAccountLogin}
@@ -3996,7 +3967,8 @@ function SettingsShell(props: SettingsPageProps) {
                     <DictionarySettingsPage />
                     <ScreenKeyboardSettingsPage />
                     <VoiceSettingsPage />
-                    <HandwritingSettingsPage />
+                    {/* 手写并进屏幕键盘页时，那一页自己画手写的分组。 */}
+                    {!handwritingOnScreenKeyboardPage && <HandwritingSettingsPage />}
                     <ToolsSettingsPage />
                     <PluginsSettingsPage hidden={pluginCommunityShown} />
                     <DeveloperSettingsPage />
@@ -4028,6 +4000,13 @@ function SettingsShell(props: SettingsPageProps) {
                     showRestoreDefaults={
                       Boolean(client.loadDefaultPreferences) &&
                       canRestoreDefaultsOnPage(page) &&
+                      // macOS 的屏幕键盘页（并进手写之后）只剩两个打开按钮，没有一项偏好，页脚的全局「恢复默认设置」在那里只会让人以为它恢复这一页。
+                      !(
+                        page === "screen-keyboard" &&
+                        !mobilePlatform &&
+                        !model.showTouchKeyboardHeight &&
+                        !model.showTouchKeyboardSpacing
+                      ) &&
                       !skinCommunityShown &&
                       !pluginCommunityShown
                     }

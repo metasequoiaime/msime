@@ -12,10 +12,10 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 在真实输入法面板逐字检查后缀的绘制位置，并验证宽键仍上屏完整值。 */
+/** 在系统键盘检查底栏切类、连续输入和删除，并逐字检查长后缀的绘制与上屏。 */
 public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "network and recent suffix keys show distinct complete domains and commit the complete suffix";
+        return "bottom category navigation, swipe isolation, continuous insertion, deletion and complete long suffixes";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -39,6 +39,8 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
             shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             openPanel();
+            checkNavigation();
+            reveal(describedPrefix("符号分类 网络"));
             tap(describedPrefix("符号分类 网络"));
             Rect shortKey = new Rect();
             awaitStableBounds(symbol("@")).getBoundsInScreen(shortKey);
@@ -54,6 +56,8 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
             reveal(symbol("@protonmail.com"));
             tap(symbol("@protonmail.com"));
             await(field("msime-test-plain").and(node -> equalsText("@protonmail.com", node.getText())));
+            await(described("符号面板"));
+            tap(described("关闭符号面板"));
             stage = "recent suffix width";
             openPanel();
             tap(describedPrefix("符号分类 常用"));
@@ -75,6 +79,74 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
     }
 
     private Predicate<AccessibilityNodeInfo> symbol(String value) { return described("按键 符号 " + value); }
+
+    private void checkNavigation() throws Exception {
+        stage = "symbol panel bottom geometry";
+        tap(describedPrefix("符号分类 中文"));
+        Rect panel = bounds(described("符号面板"));
+        Rect grid = bounds(described("符号网格；长条目加宽"));
+        Rect category = bounds(describedPrefix("符号分类 中文"));
+        Rect delete = bounds(described("删除").and(this::inSymbolPanel));
+        Rect back = bounds(described("关闭符号面板"));
+        if (grid.width() < panel.width() * 0.95f || category.top < grid.bottom
+                || delete.top < grid.bottom || back.bottom > grid.top)
+            throw new AssertionError("Symbol layout bounds: panel " + panel + ", grid " + grid
+                + ", category " + category + ", delete " + delete + ", back " + back);
+
+        stage = "real horizontal grid swipe";
+        shellDiscard("input swipe " + (grid.left + grid.width() * 4 / 5) + " " + grid.centerY()
+            + " " + (grid.left + grid.width() / 5) + " " + grid.centerY() + " 250");
+        await(described("符号分类 英文，已选中"));
+        assertEmptyEditor();
+        stage = "real vertical grid swipe";
+        shellDiscard("input swipe " + grid.centerX() + " " + (grid.top + grid.height() * 4 / 5)
+            + " " + grid.centerX() + " " + (grid.top + grid.height() / 5) + " 250");
+        await(described("符号分类 英文，已选中"));
+        assertEmptyEditor();
+
+        stage = "bottom category scrolling reaches the last category";
+        Predicate<AccessibilityNodeInfo> bar = described("符号分类栏，左右滑动查看更多分类");
+        for (int index = 0; index < 5; index++) {
+            await(bar).performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+            SystemClock.sleep(200);
+        }
+        await(describedPrefix("符号分类 更多"));
+        tap(describedPrefix("符号分类 更多"));
+        await(described("符号分类 更多，已选中"));
+        Rect deleteAfter = bounds(described("删除").and(this::inSymbolPanel));
+        if (!delete.equals(deleteAfter)) throw new AssertionError("Delete moved with the category strip");
+        assertEmptyEditor();
+
+        stage = "continuous symbol insertion and fixed delete";
+        reveal(describedPrefix("符号分类 数字"));
+        tap(describedPrefix("符号分类 数字"));
+        tap(symbol("1"));
+        tap(symbol("2"));
+        await(field("msime-test-plain").and(node -> equalsText("12", node.getText())));
+        await(described("符号面板"));
+        tap(described("删除").and(this::inSymbolPanel));
+        await(field("msime-test-plain").and(node -> equalsText("1", node.getText())));
+        tap(described("删除").and(this::inSymbolPanel));
+        assertEmptyEditor();
+    }
+
+    private Rect bounds(Predicate<AccessibilityNodeInfo> match) {
+        Rect bounds = new Rect();
+        awaitStableBounds(match).getBoundsInScreen(bounds);
+        return bounds;
+    }
+
+    private boolean inSymbolPanel(AccessibilityNodeInfo node) {
+        for (AccessibilityNodeInfo parent = node.getParent(); parent != null; parent = parent.getParent()) {
+            if (equalsText("符号面板", parent.getContentDescription())) return true;
+        }
+        return false;
+    }
+
+    private void assertEmptyEditor() {
+        await(field("msime-test-plain").and(node -> node.isShowingHintText()
+            || node.getText() == null || node.getText().length() == 0));
+    }
 
     private void openPanel() {
         stage = "open symbol panel";
@@ -108,16 +180,5 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Suffix contains clipped or collapsed characters");
             previousRight = bounds.right;
         }
-    }
-
-    // 旧 Android 的布局重建不总是清掉无障碍子树缓存，查询之前刷新节点。
-    @Override protected AccessibilityNodeInfo find(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
-        if (node != null && android.os.Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
-        return super.find(node, match);
-    }
-
-    @Override protected AccessibilityNodeInfo findAny(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
-        if (node != null && android.os.Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
-        return super.findAny(node, match);
     }
 }

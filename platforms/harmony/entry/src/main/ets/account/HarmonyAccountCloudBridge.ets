@@ -1,3 +1,5 @@
+import { NativeCleanup } from '../keyboard/NativeCleanup';
+import { KeyboardLog } from '../keyboard/KeyboardLog';
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import common from '@ohos.app.ability.common';
@@ -167,82 +169,85 @@ class HarmonyTransport extends HarmonyAccountTransport {
 
   async download(path: string, token: string, destination: string, maximumBytes: number,
     mediaType: string): Promise<AccountDownloadResponse> {
-    if (!path.startsWith('/v1/') || path.includes('\\') || destination.length === 0
-      || maximumBytes <= 0 || maximumBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
-      throw new Error('account_invalid');
-    }
-    const request = http.createHttp();
-    this.activeDownloads.add(request);
-    const headers: DownloadHeaders = {
-      Accept: mediaType,
-      Authorization: `Bearer ${token}`,
-      'Accept-Encoding': 'identity'
-    };
-    const options = noRedirectOptions({
-      method: http.RequestMethod.GET,
-      header: headers,
-      connectTimeout: 30000,
-      readTimeout: 600000
-    });
-    let handle: fs.File | undefined = undefined;
-    let bytes: number = 0;
-    let failed: boolean = false;
-    let contentLength: number | undefined = undefined;
-    let contentType: string | undefined = undefined;
-    let endResolve: (() => void) | undefined = undefined;
-    const ended: Promise<void> = new Promise<void>((resolve: () => void): void => {
-      endResolve = resolve;
-      // `requestInStream` returns the status code; `dataEnd` is the SDK's explicit statement that
-      // the streamed body is complete. Waiting for both keeps the file open through the last chunk.
-      request.on('dataEnd', (): void => resolve());
-    });
-    installNoRedirectGuard(request, (): void => {
-      failed = true;
-      endResolve?.();
-    });
-    request.on('headersReceive', (responseHeaders: Object): void => {
-      contentLength = responseContentLength(responseHeaders);
-      contentType = responseContentType(responseHeaders);
-      if (contentLength !== undefined && (contentLength < 0 || contentLength > maximumBytes)) {
-        failed = true;
+    try {
+      if (!path.startsWith('/v1/') || path.includes('\\') || destination.length === 0
+        || maximumBytes <= 0 || maximumBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
+        throw new Error('account_invalid');
       }
-    });
-    request.on('dataReceive', (chunk: ArrayBuffer): void => {
-      const view: Uint8Array = new Uint8Array(chunk);
-      // The file is opened before the request starts streaming, but the closure cannot see that narrowing.
-      if (failed || handle === undefined || bytes + view.byteLength > maximumBytes || view.includes(0)) {
+      const request = http.createHttp();
+      this.activeDownloads.add(request);
+      const headers: DownloadHeaders = {
+        Accept: mediaType,
+        Authorization: `Bearer ${token}`,
+        'Accept-Encoding': 'identity'
+      };
+      const options = noRedirectOptions({
+        method: http.RequestMethod.GET,
+        header: headers,
+        connectTimeout: 30000,
+        readTimeout: 600000
+      });
+      let handle: fs.File | undefined = undefined;
+      let bytes: number = 0;
+      let failed: boolean = false;
+      let contentLength: number | undefined = undefined;
+      let contentType: string | undefined = undefined;
+      let endResolve: (() => void) | undefined = undefined;
+      const ended: Promise<void> = new Promise<void>((resolve: () => void): void => {
+        endResolve = resolve;
+        // `requestInStream` 返回状态码，`dataEnd` 表示流式正文完成；等待两者后再关闭文件，确保最后一块也写入。
+        request.on('dataEnd', (): void => resolve());
+      });
+      installNoRedirectGuard(request, (): void => {
         failed = true;
-        return;
-      }
-      try {
-        const written: number = fs.writeSync(handle.fd, chunk);
-        if (written !== view.byteLength) {
+        endResolve?.();
+      });
+      request.on('headersReceive', (responseHeaders: Object): void => {
+        contentLength = responseContentLength(responseHeaders);
+        contentType = responseContentType(responseHeaders);
+        if (contentLength !== undefined && (contentLength < 0 || contentLength > maximumBytes)) {
+          failed = true;
+        }
+      });
+      request.on('dataReceive', (chunk: ArrayBuffer): void => {
+        const view: Uint8Array = new Uint8Array(chunk);
+        // 文件在开始接收流之前打开，但闭包内仍需单独收窄句柄类型。
+        if (failed || handle === undefined || bytes + view.byteLength > maximumBytes || view.includes(0)) {
           failed = true;
           return;
         }
-        bytes += written;
-      } catch {
-        failed = true;
-      }
-    });
-    try {
-      // Open the destination inside the guarded region: if the picker URI or parent directory is
-      // unavailable, the request created above still needs to be destroyed.
-      handle = this.openSafeDestination(destination);
-      const status: number = await request.requestInStream(`${ACCOUNT_ORIGIN}${path}`, options);
-      await ended;
-      if (status < 200 || status >= 300) {
+        try {
+          const written: number = fs.writeSync(handle.fd, chunk);
+          if (written !== view.byteLength) {
+            failed = true;
+            return;
+          }
+          bytes += written;
+        } catch {
+          failed = true;
+        }
+      });
+      try {
+        // 在受保护的范围内打开目标文件：选择器 URI 或父目录不可用时，仍须销毁已创建的请求。
+        handle = this.openSafeDestination(destination);
+        const status: number = await request.requestInStream(`${ACCOUNT_ORIGIN}${path}`, options);
+        await ended;
+        if (status < 200 || status >= 300) {
+          return { status: status, bytes: bytes, contentLength: contentLength, contentType: contentType };
+        }
+        if (failed || bytes === 0 || contentType !== mediaType
+          || (contentLength !== undefined && contentLength !== bytes)) {
+          return { status: 503, bytes: bytes, contentLength: contentLength, contentType: contentType };
+        }
         return { status: status, bytes: bytes, contentLength: contentLength, contentType: contentType };
+      } finally {
+        this.activeDownloads.delete(request);
+        if (handle !== undefined) NativeCleanup.close(handle);
+        request.destroy();
       }
-      if (failed || bytes === 0 || contentType !== mediaType
-        || (contentLength !== undefined && contentLength !== bytes)) {
-        return { status: 503, bytes: bytes, contentLength: contentLength, contentType: contentType };
-      }
-      return { status: status, bytes: bytes, contentLength: contentLength, contentType: contentType };
-    } finally {
-      this.activeDownloads.delete(request);
-      if (handle !== undefined) fs.closeSync(handle);
-      request.destroy();
+    } catch (error) {
+      KeyboardLog.error('account.HarmonyAccountCloudBridge.download failed');
+      throw error as Error;
     }
   }
 
@@ -302,7 +307,7 @@ class HarmonyTransport extends HarmonyAccountTransport {
       }
       return handle;
     } catch (error) {
-      if (handle !== undefined) fs.closeSync(handle);
+      if (handle !== undefined) NativeCleanup.close(handle);
       // ArkTS 只允许抛 Error（arkts-limited-throw）；原样抛出同一个对象，调用方仍能读到它的错误码。
       throw error as Error;
     }

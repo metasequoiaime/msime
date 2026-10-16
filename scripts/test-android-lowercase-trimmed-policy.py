@@ -22,10 +22,11 @@ def main() -> int:
     candidate = texts[SOURCES[0]]
     if "private static String normalize(" in candidate:
         errors.append(f"{SOURCES[0]}: 不应保留 normalize 转发方法")
-    # 调用数量会随功能删减变化，只要求每个相关文件直接复用共享策略。
+    # 按文件守住策略复用；候选翻译改成单目标后调用点会减少，固定总数会误报。
     for source, text in texts.items():
         if "TextPolicy.lowercaseTrimmed(" not in text:
-            errors.append(f"{source}: 应直接复用 TextPolicy.lowercaseTrimmed")
+            errors.append(f"{source}: Android 文本调用点应直接复用 TextPolicy.lowercaseTrimmed")
+
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

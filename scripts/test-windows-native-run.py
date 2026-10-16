@@ -295,6 +295,11 @@ def build(
     companions = companion_flags(relative)
     if companions is None:
         return None, ""
+    environment = os.environ.copy()
+    if sys.platform == "darwin":
+        # 这些 Windows 策略测试在当前主机运行，不继承 macOS 产品的最低系统版本。
+        # 例如浮点 `to_chars` 在 macOS 13.3 才可用，产品的 13.0 目标不应限制宿主测试。
+        environment.pop("MACOSX_DEPLOYMENT_TARGET", None)
     # Compiling is CPU-bound and safe to do many at once.
     compiled = subprocess.run(
         # -fdeclspec: these sources are written for MSVC, and a `__declspec(dllexport)` on a
@@ -307,6 +312,7 @@ def build(
         [compiler(), "-std=c++17", "-w", "-fdeclspec", *flags, "-o", str(binary), str(source), *companions],
         capture_output=True,
         text=True,
+        env=environment,
     )
     if compiled.returncode == 0:
         return binary, ""

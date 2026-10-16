@@ -89,7 +89,6 @@ import {
   CloudClipboardSendOutcome, CloudClipboardState
 } from './clipboard/CloudClipboardPolicy';
 import { CloudClipboardBoundListing } from './clipboard/CloudClipboardClient';
-import componentSnapshot from '@ohos.arkui.componentSnapshot';
 import { image } from '@kit.ImageKit';
 import { textRecognition } from '@kit.CoreVisionKit';
 import {
@@ -6093,7 +6092,7 @@ struct KeyboardView {
     }
     this.handwritingBusy = true;
     this.handwritingNotice = '正在识别…';
-    componentSnapshot.get(HANDWRITING_CANVAS_ID, (error: Object, pixelMap: image.PixelMap): void => {
+    this.getUIContext().getComponentSnapshot().get(HANDWRITING_CANVAS_ID, (error: Object, pixelMap: image.PixelMap): void => {
       // Testing the error object itself took this branch on every successful snapshot, so every
       // stroke answered 无法读取手写画布 and nothing was ever recognised.
       if (BusinessErrorPolicy.failed(error)) {
@@ -6691,9 +6690,14 @@ struct KeyboardView {
 
   /** 按屏幕此刻的宽高（转屏后两者互换）判断是不是手机横屏。 */
   private readOrientation(): void {
-    const screen: display.Display = display.getDefaultDisplaySync();
-    this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
-      screen.height / screen.densityPixels);
+    try {
+      const screen: display.Display = display.getDefaultDisplaySync();
+      this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
+        screen.height / screen.densityPixels);
+    } catch {
+      // 显示服务暂不可用时保留上次方向，等待下一次窗口布局通知。
+      KeyboardLog.error('keyboard orientation unavailable');
+    }
   }
 
   /** 功能面板和方案选择的行数和行距（`FunctionPanelPolicy.pickerGrid`）；是否放得下按有圆点算。 */

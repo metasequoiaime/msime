@@ -209,28 +209,39 @@ pub fn merge_alternative_segmentations(
     primary_full: Vec<WordItem>,
     alternatives: Vec<WordItem>,
 ) -> Vec<WordItem> {
+    merge_alternative_rows(result, primary_full.into_iter(), alternatives)
+}
+
+/// 主行可逐条从缓存复制进最终向量，拥有页调用方仍直接移交行。
+pub(super) fn merge_alternative_rows(
+    result: Vec<WordItem>,
+    mut primary_full: impl ExactSizeIterator<Item = WordItem>,
+    alternatives: Vec<WordItem>,
+) -> Vec<WordItem> {
     let Some(best_alternative) = alternatives.first() else {
         return result;
     };
+    let capacity = result
+        .len()
+        .saturating_add(primary_full.len())
+        .saturating_add(alternatives.len());
+    let first_primary = primary_full.next();
     let promote = best_alternative
         .weight
         .saturating_mul(ALTERNATIVE_SEGMENTATION_PROMOTION_RATIO)
-        >= primary_full.first().map_or(0, |item| item.weight);
+        >= first_primary.as_ref().map_or(0, |item| item.weight);
     // 先记录词面缓冲地址；移动 `WordItem` 不会改变其 `String` 缓冲，唯一词无需复制。存在同文行时保留文字副本，以便去重后回退到幸存行。
     let best_word_pointer = best_alternative.word.as_ptr();
+    let mut merged = Vec::with_capacity(capacity);
+    merged.extend(first_primary);
+    merged.extend(primary_full);
     let duplicate_best_word = (promote
-        && primary_full
+        && merged
             .iter()
             .chain(alternatives.iter().skip(1))
             .any(|item| item.word == best_alternative.word))
     .then(|| best_alternative.word.clone());
 
-    let capacity = result
-        .len()
-        .saturating_add(primary_full.len())
-        .saturating_add(alternatives.len());
-    let mut merged = Vec::with_capacity(capacity);
-    merged.extend(primary_full);
     merged.extend(alternatives);
     merged.sort_by_key(|item| std::cmp::Reverse(item.weight));
     retain_unique_sorted_rows(&mut merged);
