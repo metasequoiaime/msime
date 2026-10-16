@@ -215,11 +215,71 @@ inline constexpr std::array<StreamEndpoint, 2> doubao_stream_endpoints{{
      L"双向流式（增量结果）"},
 }};
 
+// 下拉里显示哪一项（DoubaoStreamEndpointSection 的 presetId）：地址为空时宿主用豆包的默认地址（双向流式），照实显示它，而不是显示成自定义。
 inline std::wstring_view doubao_stream_endpoint_id(std::wstring_view endpoint) {
+  const auto trimmed = js_trim(endpoint);
+  if (trimmed.empty())
+    return L"async";
   for (auto const &option : doubao_stream_endpoints)
-    if (option.endpoint == endpoint)
+    if (option.endpoint == trimmed)
       return option.id;
   return L"custom";
+}
+
+// 豆包资源 ID 的出厂值（defaultVoiceInput.asr_resource_id）。
+inline constexpr std::wstring_view doubao_default_resource_id = L"volc.seedasr.sauc.duration";
+
+// 「测试豆包识别配置」发出的资源 ID：去掉首尾空白，留空（缺省或用户清空后存下的 ""）时用出厂值，与 Server 录音时的 `doubao_resource_id` 和共享页的 `asrServiceCredentialTestConfig` 一致，免得检查报配置无效、录音却照常进行。
+inline std::wstring doubao_test_resource_id(std::wstring_view stored) {
+  const auto trimmed = js_trim(stored);
+  return std::wstring(trimmed.empty() ? doubao_default_resource_id : trimmed);
+}
+
+// 「识别服务配置」的「更多选项」打开页面时就展开（advancedChanged）：用户改过接口地址（不为空，也不是这个服务的默认地址），或豆包的资源 ID 不是出厂值，免得改过的值藏起来看不见。
+inline bool asr_advanced_changed(std::wstring_view provider, std::wstring_view endpoint,
+                                 std::wstring_view resource_id) {
+  const auto *defaults = find_defaults(asr_provider_defaults(), provider);
+  const auto stored_endpoint = js_trim(endpoint);
+  const auto stored_resource = js_trim(resource_id);
+  return (!stored_endpoint.empty() &&
+          stored_endpoint != (defaults ? defaults->endpoint : std::wstring_view())) ||
+         (provider == L"doubao" && !stored_resource.empty() &&
+          stored_resource != doubao_default_resource_id);
+}
+
+// ---- 语音快捷键（voice-hotkeys.ts） ----
+
+// 三个长按录音的组合键，按设置页列出的先后，连同下拉里的名字和存储里缺这个键时宿主用的出厂值（client-core 的 VoiceInputPreferences::default()，只有右 Alt 默认打开）。宿主同一时刻只认一个，所以设置页把它们合成一个「长按录音」选择。
+struct HoldKey {
+  std::wstring_view key;
+  std::wstring_view label;
+  bool fallback;
+};
+
+inline constexpr std::array<HoldKey, 3> hold_keys{{
+    {L"hotkey_ralt", L"右 Alt", true},
+    {L"hotkey_rctrl_ralt", L"右 Ctrl+右 Alt", false},
+    {L"hotkey_ctrl_win", L"Ctrl+Win", false},
+}};
+
+// 「不使用」在下拉里的值；三个组合键的值是各自的偏好名。
+inline constexpr std::wstring_view no_hold_key = L"none";
+
+// 当前选中的组合键（selectedHoldKey）：存储里打开的第一个，缺的键按 HoldKey::fallback 算；三个都关时为「不使用」。以前可以同时打开几个，这样的配置在用户改动之前照旧显示第一个，打开页面时不改写存储。`stored` 只放存储里有的键。
+inline std::wstring_view selected_hold_key(std::map<std::wstring_view, bool> const &stored) {
+  for (auto const &hold : hold_keys) {
+    const auto found = stored.find(hold.key);
+    if (found == stored.end() ? hold.fallback : found->second)
+      return hold.key;
+  }
+  return no_hold_key;
+}
+
+// 选中 `key`（「不使用」或不认识的值时三个都关）时要写入的值（holdKeyPatch）：三个一起写，选中的那个为开，其余为关。
+inline std::array<std::pair<std::wstring_view, bool>, 3> hold_key_patch(std::wstring_view key) {
+  return {{{hold_keys[0].key, hold_keys[0].key == key},
+           {hold_keys[1].key, hold_keys[1].key == key},
+           {hold_keys[2].key, hold_keys[2].key == key}}};
 }
 
 // 豆包鉴权方式：没有存或存空时是新版 API Key。
@@ -321,12 +381,22 @@ inline std::wstring_view polish_preset_prompt(std::wstring_view slot) {
   return {};
 }
 
-// 「录音后端」：Windows 上空值是「系统默认」，然后是 voiceCaptureBackendOptions 给 Windows 的两项。
+// 「录音后端」：Windows 上空值是「系统默认」，然后是 voiceCaptureBackendOptions 给 Windows 的两项。设置页不再画这个下拉（Windows 只有一种录音方式，只给「麦克风」下拉），这张表留作判断存着的后端是不是这台主机的。
 inline constexpr std::array<Choice, 3> capture_backend_choices{{
     {L"", L"系统默认"},
     {L"auto", L"自动选择"},
     {L"windows", L"Windows Audio"},
 }};
+
+// 存着的录音后端是不是这台主机的：与宿主的 VoiceCaptureSelection 一样不分大小写。不是时宿主不理会它和它的设备、用系统默认设备录音，「麦克风」下拉也照实显示成系统默认设备。
+inline bool capture_backend_supported(std::wstring_view backend) {
+  std::wstring lowered(backend);
+  for (auto &ch : lowered)
+    if (ch >= L'A' && ch <= L'Z')
+      ch = static_cast<wchar_t>(ch - L'A' + L'a');
+  return std::any_of(capture_backend_choices.begin(), capture_backend_choices.end(),
+                     [&lowered](Choice const &choice) { return choice.value == lowered; });
+}
 
 // ---- 本地识别模型（local-model-helpers.ts） ----
 
