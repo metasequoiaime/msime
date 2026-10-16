@@ -25,3 +25,5 @@ Status: implemented
 验证覆盖 `msime-client-core` 全量单测、MCP server 单测、Host API 皮肤测试、Web skin 单测、macOS 候选面板 Objective-C++ 严格语法检查和 Rust 格式检查；Web 测试还核对动画 CSS 变量只包含有限的 `ms` 数值，不能跳出样式声明。
 
 macOS 动画映射先由[即时显隐决定](../bug-fix/2026-10-14-macos-candidate-instant-display.md)取代，现由[只播放清单写出的动效](../feature/2026-10-16-macos-candidate-declared-motion.md)决定。macOS 原生候选窗只执行清单 `[animation]` 表里显式写出的预设，省略的预设（包括没有这张表的 v2 包得到的活泼默认组合）按 `none` 处理；catalog 用 `SkinAnimation.declared` 标出哪些预设是写出的。显隐和选中状态同步变化，动画只加在 Core Animation 图层上，退场在独立的不接收鼠标的窗口里进行。各预设在 macOS 上的映射见那篇笔记。共享格式、隐式默认组合与其他平台映射仍成立。
+
+`[animation]` 只管显隐和选中。候选窗在屏幕上时装饰图自己的待机动效和 APNG 帧动画是另一份契约，见[装饰图的待机动效与 APNG 帧动画](../feature/2026-10-16-skin-decoration-idle-motion-and-apng.md)。
