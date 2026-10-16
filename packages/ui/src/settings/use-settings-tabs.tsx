@@ -58,5 +58,5 @@ export function useSettingsTabs<T extends string>(
     ) : (
       children
     );
-  return { tabList, panel };
+  return { tabList, panel, selected };
 }

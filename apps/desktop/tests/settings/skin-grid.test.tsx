@@ -53,42 +53,44 @@ const builtinTitles = themeCatalog
   .filter((entry) => entry.id !== "custom" && fitsMode(entry.appearance, false))
   .map((e) => e.title);
 
-function grid(props: Partial<ComponentProps<typeof SkinGrid>> = {}) {
+// 和皮肤页一样把「内置」和「我的」两个分类的网格画在一起，两者共用同一组卡片数据。
+function grid(props: Partial<Omit<ComponentProps<typeof SkinGrid>, "section">> = {}) {
   const onApply = vi.fn();
   const onSelectDesign = vi.fn();
+  const shared = {
+    themes: themeCatalog,
+    globalTheme: "system",
+    customTheme: undefined,
+    packages: [sample],
+    customDesign: { design, selected: false, onSelect: onSelectDesign },
+    keyboardTheme: "light",
+    onApply,
+    ...props,
+  } satisfies Omit<ComponentProps<typeof SkinGrid>, "section">;
   render(
-    <SkinGrid
-      themes={themeCatalog}
-      globalTheme="system"
-      customTheme={undefined}
-      packages={[sample]}
-      customDesign={{ design, selected: false, onSelect: onSelectDesign }}
-      keyboardTheme="light"
-      onApply={onApply}
-      {...props}
-    />,
+    <>
+      <SkinGrid section="builtin" {...shared} />
+      <SkinGrid section="mine" {...shared} />
+    </>,
   );
   return { onApply, onSelectDesign };
 }
 
-function cardNames(): string[] {
-  const section = screen.getByRole("region", { name: "皮肤" });
+function cardNames(section: "builtin" | "mine"): string[] {
+  const container = document.querySelector<HTMLElement>(`[data-skin-grid="${section}"]`)!;
   return (
-    within(section)
-      .getAllByRole("button")
+    within(container)
+      .queryAllByRole("button")
       // 标题跟在缩略图后面，缩略图上的按键标签是绘制的文字，对辅助技术隐藏。
       .map((button) => button.getAttribute("aria-label") ?? button.lastElementChild!.textContent!)
   );
 }
 
-test("lists the built-in themes, then 我的皮肤, then the packages, with the AI tile last", () => {
+// 与 Android 皮肤页一致：「内置」是目录里的主题和皮肤包，「我的」最前面是 AI 设计入口，然后是我的皮肤。
+test("内置 lists the built-in themes then the packages, and 我的 starts with the AI tile before 我的皮肤", () => {
   grid({ onOpenAi: vi.fn() });
-  expect(cardNames()).toEqual([
-    ...builtinTitles,
-    "我的皮肤",
-    "Sample skin",
-    "AI 设计皮肤，描述一句话生成",
-  ]);
+  expect(cardNames("builtin")).toEqual([...builtinTitles, "Sample skin"]);
+  expect(cardNames("mine")).toEqual(["AI 设计皮肤，描述一句话生成", "我的皮肤"]);
   // 每张卡片都是设计里 390 × 292 画布上的键盘缩略图。
   const thumbnails = document.querySelectorAll("[data-skin-frame] svg[viewBox='0 0 390 292']");
   expect(thumbnails).toHaveLength(builtinTitles.length + 2);
@@ -112,14 +114,15 @@ test("reports the applied skin's id for the badge", () => {
   expect(inUse).not.toHaveBeenCalled();
 });
 
-test("keeps the catalog's 自定义 card on a host without the keyboard skin editor", () => {
+test("keeps the catalog's 自定义 card under 内置 on a host without the keyboard skin editor", () => {
   grid({ customDesign: undefined });
-  expect(cardNames()).toEqual(
+  expect(cardNames("builtin")).toEqual(
     themeCatalog
       .filter((entry) => fitsMode(entry.appearance, false))
       .map((entry) => entry.title)
       .concat("Sample skin"),
   );
+  expect(cardNames("mine")).toEqual([]);
 });
 
 test("rings and checks only the theme in use", () => {
@@ -284,6 +287,22 @@ function skinClients() {
   };
 }
 
+function communitySkins() {
+  return {
+    list: vi.fn().mockResolvedValue({ skins: [], has_more: false }),
+    detail: vi.fn(),
+    download: vi.fn(),
+    rate: vi.fn(),
+    publish: vi.fn(),
+    unpublish: vi.fn(),
+    setCategory: vi.fn(),
+    finishTrial: vi.fn(),
+  };
+}
+
+const skinTab = (name: string) =>
+  within(screen.getByRole("tablist", { name: "皮肤分类" })).getByRole("tab", { name });
+
 test("the HarmonyOS phone's 皮肤 page is only the grid, without 更多选项", async () => {
   const save = vi.fn().mockImplementation(async (_revision: number, preferences) => ({
     ...initial,
@@ -335,6 +354,8 @@ test("the AI tile opens AI 皮肤抽卡 as a full-screen view the back gesture c
       />,
     );
     await settingsFormReady();
+    // AI 设计入口在「我的」分类里，与 Android 皮肤页一致。
+    fireEvent.click(skinTab("我的"));
     fireEvent.click(screen.getByRole("button", { name: /AI 设计皮肤/ }));
     const view = screen.getByRole("dialog", { name: "AI 皮肤抽卡" });
     expect(window.history.state).toMatchObject({ page: "skin", skinSubpage: "ai" });
@@ -367,6 +388,7 @@ test("tapping the chosen 我的皮肤 card again opens the editor as a full-scre
       />,
     );
     await settingsFormReady();
+    fireEvent.click(skinTab("我的"));
     const page = screen.getByRole("group", { name: "皮肤" });
     const card = () => within(page).getByRole("button", { name: /我的皮肤/ });
     // 第一次点选中它，再点一次打开编辑器。
@@ -484,9 +506,98 @@ test("desktop hosts and the HarmonyOS 2-in-1 keep the carousel", async () => {
   const page = screen.getByRole("group", { name: "主题" });
   expect(within(page).getByRole("region", { name: "主题列表" })).toBeTruthy();
   expect(page.querySelector("[data-skin-grid]")).toBeNull();
+  // 「内置 / 我的 / 社区」分类只在手机上；2-in-1 和桌面一样是轮播加设置分组。
+  expect(screen.queryByRole("tablist", { name: "皮肤分类" })).toBeNull();
+  cleanup();
+
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: testHost({ platform: "windows" }),
+        communitySkins: communitySkins(),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  expect(
+    within(screen.getByRole("group", { name: "主题" })).getByRole("region", { name: "主题列表" }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("tablist", { name: "皮肤分类" })).toBeNull();
+  expect(document.querySelector("[data-skin-grid]")).toBeNull();
 });
 
-// 皮肤库里的设计（在「社区」获取的皮肤也存在这里）排在我的皮肤之后，两种明暗下都列出；正在用的那款打勾，我的皮肤不再同时打勾。
+// 与 Android 皮肤页一致，鸿蒙手机皮肤页顶部是「内置 / 我的 / 社区」：内置是目录里的主题，我的是 AI 设计入口和自己的皮肤，没有保存的设计时说明去社区获取。
+test("the HarmonyOS phone's 皮肤 page splits into 内置, 我的 and 社区 tabs", async () => {
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: testHost({ platform: "harmony" }),
+        ...skinClients(),
+        communitySkins: communitySkins(),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  const tabs = within(screen.getByRole("tablist", { name: "皮肤分类" })).getAllByRole("tab");
+  expect(tabs.map((tab) => tab.textContent)).toEqual(["内置", "我的", "社区"]);
+  expect(skinTab("内置").getAttribute("aria-selected")).toBe("true");
+
+  const page = screen.getByRole("group", { name: "皮肤" });
+  const builtin = within(page).getByRole("tabpanel", { name: "内置" });
+  expect(within(builtin).getByRole("button", { name: "跟随系统" })).toBeTruthy();
+  expect(within(page).queryByRole("button", { name: /我的皮肤/ })).toBeNull();
+  expect(within(page).queryByRole("button", { name: /AI 设计皮肤/ })).toBeNull();
+  // 社区不再是网格里的第一页预览加「浏览更多皮肤」，而是单独的分类。
+  expect(screen.queryByRole("button", { name: "浏览更多皮肤" })).toBeNull();
+
+  fireEvent.click(skinTab("我的"));
+  const mine = within(page).getByRole("tabpanel", { name: "我的" });
+  expect(
+    within(mine)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label") ?? button.lastElementChild!.textContent!),
+  ).toEqual(["AI 设计皮肤，描述一句话生成", "我的皮肤"]);
+  expect(within(mine).getByText("还没有保存的皮肤。可到社区获取喜欢的皮肤。")).toBeTruthy();
+  expect(within(page).queryByRole("button", { name: "跟随系统" })).toBeNull();
+});
+
+test("the 我的 tab lists the saved designs and drops the empty note", async () => {
+  const fox = { ...design, background: 0x1b2340 };
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: testHost({ platform: "harmony" }),
+        ...skinClients(),
+        customSkinLibrary: {
+          load: vi.fn().mockResolvedValue([{ id: "fox", name: "月光狐狸茶屋", design: fox }]),
+          mutate: vi.fn(),
+        },
+      }}
+    />,
+  );
+  await settingsFormReady();
+  // 没有社区服务的宿主只有前两个分类。
+  expect(
+    within(screen.getByRole("tablist", { name: "皮肤分类" }))
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent),
+  ).toEqual(["内置", "我的"]);
+  fireEvent.click(skinTab("我的"));
+  const mine = screen.getByRole("tabpanel", { name: "我的" });
+  expect(await within(mine).findByRole("button", { name: "月光狐狸茶屋" })).toBeTruthy();
+  expect(within(mine).queryByText("还没有保存的皮肤。可到社区获取喜欢的皮肤。")).toBeNull();
+});
+
+// 皮肤库里的设计（在「社区」获取的皮肤也存在这里）在「我的」里排在我的皮肤之后，两种明暗下都列出；正在用的那款打勾，我的皮肤不再同时打勾。
 test("saved designs follow 我的皮肤, the one in use is checked, and tapping one applies it", () => {
   const panda = { ...design, accent: 0x1f6b4a };
   const fox = { ...design, background: 0x1b2340 };
@@ -504,12 +615,7 @@ test("saved designs follow 我的皮肤, the one in use is checked, and tapping 
       onSelectSavedDesign,
       keyboardTheme,
     });
-    const names = cardNames();
-    expect(names.slice(names.indexOf("我的皮肤"), names.indexOf("我的皮肤") + 3)).toEqual([
-      "我的皮肤",
-      "竹林熊猫茶会",
-      "月光狐狸茶屋",
-    ]);
+    expect(cardNames("mine")).toEqual(["我的皮肤", "竹林熊猫茶会", "月光狐狸茶屋"]);
     expect(screen.getByRole("button", { name: "月光狐狸茶屋" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
@@ -519,42 +625,4 @@ test("saved designs follow 我的皮肤, the one in use is checked, and tapping 
     expect(onSelectSavedDesign).toHaveBeenLastCalledWith(panda);
     cleanup();
   }
-});
-
-// 社区皮肤排在皮肤库的设计之后，已获取的（同一 id，大小写不论）不再重复；点一下就获取并换上，获取失败时不计入换装统计。
-test("community skins follow the saved designs, skip ones already taken, and count only when applied", async () => {
-  const panda = { ...design, accent: 0x1f6b4a };
-  const fox = { ...design, background: 0x1b2340 };
-  const snow = { ...design, background: 0xdde6f0 };
-  const onSelectCommunitySkin = vi.fn(async () => true);
-  const onApplied = vi.fn();
-  grid({
-    savedDesigns: [{ id: "PANDA", name: "竹林熊猫茶会", design: panda }],
-    onSelectSavedDesign: vi.fn(),
-    communitySkins: [
-      { id: "panda", name: "竹林熊猫茶会", design: panda },
-      { id: "fox", name: "月光狐狸茶屋", design: fox },
-      { id: "snow", name: "极光雪山小屋", design: snow },
-    ],
-    onSelectCommunitySkin,
-    onApplied,
-  });
-  const names = cardNames();
-  expect(names.filter((name) => name === "竹林熊猫茶会")).toHaveLength(1);
-  expect(names.indexOf("月光狐狸茶屋")).toBeGreaterThan(names.indexOf("竹林熊猫茶会"));
-  expect(names.indexOf("极光雪山小屋")).toBeGreaterThan(names.indexOf("月光狐狸茶屋"));
-  fireEvent.click(screen.getByRole("button", { name: "月光狐狸茶屋" }));
-  await waitFor(() => expect(onApplied).toHaveBeenCalledWith("custom"));
-  expect(onSelectCommunitySkin).toHaveBeenCalledWith({
-    id: "fox",
-    name: "月光狐狸茶屋",
-    design: fox,
-  });
-
-  onApplied.mockClear();
-  onSelectCommunitySkin.mockResolvedValueOnce(false);
-  fireEvent.click(screen.getByRole("button", { name: "极光雪山小屋" }));
-  await waitFor(() => expect(onSelectCommunitySkin).toHaveBeenCalledTimes(2));
-  await act(async () => undefined);
-  expect(onApplied).not.toHaveBeenCalled();
 });

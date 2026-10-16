@@ -10,3 +10,6 @@ crates/engine/src/local/chaizi*.tsv text eol=lf
 
 # Unicode 许可证按锁文件校验原始字节，跨平台检出必须保持 LF。
 resources/licenses/Unicode-License-V3.txt text eol=lf
+
+# OpenCC 许可证与固定源码输入逐字节核对，Windows 检出也保持 LF。
+resources/licenses/OpenCC-Apache-2.0.txt text eol=lf

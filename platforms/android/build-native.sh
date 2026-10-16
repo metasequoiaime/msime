@@ -87,4 +87,6 @@ cp resources/licenses/ewts-MIT.txt "$notices/ewts.txt"
 cp resources/licenses/kfcd-chaizi-CC-BY-3.0.txt "$notices/kfcd-chaizi.txt"
 # 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
 cp resources/licenses/Unicode-License-V3.txt "$notices/unicode-unihan.txt"
+# 简繁转换内嵌的 OpenCC 词表许可证与原生库一并打包。
+cp resources/licenses/OpenCC-Apache-2.0.txt "$notices/OpenCC-Apache-2.0.txt"
 echo "Android native libraries built: $output (not yet device-verified)"

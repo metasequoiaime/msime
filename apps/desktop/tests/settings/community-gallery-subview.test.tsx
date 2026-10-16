@@ -182,29 +182,35 @@ test("我发布的词库 opens the dictionary gallery on 词库 in the user's ow
   await waitFor(() => expect(resources.list).toHaveBeenCalledWith("dictionary", "mine", "", 0));
 });
 
-// 鸿蒙手机皮肤页的网格下方是「浏览更多皮肤」，打开的图库是本页上的子视图，网格本身不变。
-test("the HarmonyOS phone skin grid ends with 浏览更多皮肤, which opens the gallery over the page", async () => {
+// 鸿蒙手机皮肤页的「社区」分类直接就是完整的社区皮肤图库（搜索、分类、详情、发布），不再是网格里的第一页预览加「浏览更多皮肤」，与 Android 皮肤页一致。
+test("the HarmonyOS phone's 社区 tab is the full skin gallery on the page itself", async () => {
   const { skins } = renderPhone("skin");
-  fireEvent.click(await screen.findByRole("button", { name: "浏览更多皮肤" }));
+  const tabs = await screen.findByRole("tablist", { name: "皮肤分类" });
+  expect(screen.queryByRole("button", { name: "浏览更多皮肤" })).toBeNull();
+  expect(skins.list).not.toHaveBeenCalled();
 
-  const gallery = await screen.findByRole("dialog", { name: "社区皮肤" });
-  expect(within(gallery).getByRole("search")).toBeTruthy();
-  expect(within(gallery).getByRole("button", { name: "发布设计" })).toBeTruthy();
+  fireEvent.click(within(tabs).getByRole("tab", { name: "社区" }));
+  const panel = screen.getByRole("tabpanel", { name: "社区" });
+  expect(within(panel).getByRole("search")).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "发布设计" })).toBeTruthy();
   await waitFor(() => expect(skins.list).toHaveBeenCalledWith(0, "", false, null));
-  expect(window.history.state).toMatchObject({
-    page: "skin",
-    communityGallery: { category: "skin", scope: "", initialMine: false },
-  });
-
-  fireEvent.click(within(gallery).getByRole("button", { name: "返回" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "社区皮肤" })).toBeNull());
+  // 图库自带搜索和发布表单，嵌在设置的 <form> 里会被 WebView 当成外层表单提交，所以和桌面的「社区皮肤」一样画在表单之外；它在页面里，不是盖在页面上的子视图。
+  expect(panel.closest("form")).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "社区皮肤" })).toBeNull();
+  expect(screen.queryByRole("group", { name: "皮肤" })).toBeNull();
   expect(screen.getByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
+
+  fireEvent.click(within(tabs).getByRole("tab", { name: "内置" }));
+  expect(screen.queryByRole("tabpanel", { name: "社区" })).toBeNull();
+  expect(
+    within(screen.getByRole("group", { name: "皮肤" })).getByRole("button", { name: "跟随系统" }),
+  ).toBeTruthy();
 });
 
 // 图库自带搜索和发布表单，不能嵌在设置的 <form> 里：嵌套的表单在 WebView 里会被当成外层表单提交。
 test("the gallery is drawn outside the settings form", async () => {
-  renderPhone("skin");
-  fireEvent.click(await screen.findByRole("button", { name: "浏览更多皮肤" }));
+  renderPhone("account");
+  fireEvent.click(await communityRow("我发布的皮肤"));
   const gallery = await screen.findByRole("dialog", { name: "社区皮肤" });
   expect(gallery.closest("form")).toBeNull();
 });

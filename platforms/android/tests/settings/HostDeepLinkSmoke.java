@@ -15,7 +15,7 @@ public final class HostDeepLinkSmoke {
         // 第二格为「全部设置」，下标没有重排：已经发出去的 2、3 仍然是统计和我的。
         check(HostDeepLink.TAB_SETTINGS == 0 && HostDeepLink.TAB_ALL_SETTINGS == 1
             && HostDeepLink.TAB_STATISTICS == 2 && HostDeepLink.TAB_ACCOUNT == 3,
-            "tab indices follow the bottom bar: settings, community, statistics, account");
+            "tab indices follow the bottom bar: settings, all settings, statistics, account");
         for (int tab = 0; tab <= 3; tab++) check(HostDeepLink.isTab(tab), "tab " + tab + " is accepted");
         check(!HostDeepLink.isTab(-1) && !HostDeepLink.isTab(4) && !HostDeepLink.isTab(Integer.MAX_VALUE), "out-of-range tabs are rejected");
         check(!HostDeepLink.isTab(HostDeepLink.NO_TAB), "the missing-tab marker is not a tab");
