@@ -430,14 +430,15 @@ if (-not $Light) {
         # 只带本版本的方案用得到的语言词库（版本表 language_dictionaries）。
         if ($languageDictionaryNames -notcontains $pair[0]) { continue }
         $database = Join-Path $languagesSource $pair[0]
-        $license = Join-Path $languagesSource $pair[1]
+        # 不能叫 $license：那是仓库的 GPL LICENSE，下面要复制成安装包的 LICENSE.txt。以前循环复用这个名字，LICENSE.txt 被换成最后一份语言词库的授权文本（full 是 rime-stroke 的），词库不在时打包则因找不到那份文件而失败。
+        $languageLicense = Join-Path $languagesSource $pair[1]
         if (-not (Test-Path -LiteralPath $database -PathType Leaf)) { continue }
-        if (-not (Test-Path -LiteralPath $license -PathType Leaf)) {
+        if (-not (Test-Path -LiteralPath $languageLicense -PathType Leaf)) {
             throw "$database 旁边没有 $($pair[1])，不能在缺少授权声明的情况下打包这份数据"
         }
         New-Item -ItemType Directory -Path $languagesTarget -Force | Out-Null
         Copy-Item -LiteralPath $database -Destination $languagesTarget -Force
-        Copy-Item -LiteralPath $license -Destination $languagesTarget -Force
+        Copy-Item -LiteralPath $languageLicense -Destination $languagesTarget -Force
         $stagedLanguages += $pair[0]
     }
     if ($stagedLanguages.Count -gt 0) {
