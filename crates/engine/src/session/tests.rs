@@ -3668,6 +3668,80 @@ fn a_date_row_commits_and_leaves_date_time_mode() {
     );
 }
 
+#[test]
+fn date_time_mode_restores_keyword_letters_at_the_caret() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (keyword, index) in [
+        ("rq", 0),
+        ("riqi", 1),
+        ("date", 2),
+        ("sj", 0),
+        ("shijian", 3),
+        ("time", 1),
+        ("xq", 0),
+        ("xingqi", 2),
+        ("week", 1),
+        ("nl", 0),
+        ("nongli", 2),
+        ("yinli", 3),
+    ] {
+        let mut session = fixture.session();
+        TestClock::install(&mut session);
+        assert!(session.character(b'T', true).handled);
+        type_text(&mut session, keyword);
+        let expected = words(&session);
+        assert!(!expected.is_empty(), "{keyword}");
+        session.command(Command::MoveHome);
+        for _ in 0..index {
+            session.command(Command::MoveRight);
+        }
+        assert_eq!(session.snapshot().caret_position, index + 1);
+        assert!(session.command(Command::DeleteForward).handled);
+        let mut missing = keyword.to_owned();
+        let letter = missing.remove(index);
+        assert_eq!(session.snapshot().preedit, format!("T{missing}"));
+
+        let result = session.character(letter as u8, false);
+
+        assert!(result.handled, "{keyword}: {result:?}");
+        assert!(result.commit.is_none(), "{keyword}: {result:?}");
+        let snapshot = session.snapshot();
+        assert_eq!(snapshot.local_mode, LocalInputMode::DateTime);
+        assert_eq!(snapshot.preedit, format!("T{keyword}"));
+        assert_eq!(snapshot.caret_position, index + 2);
+        assert_eq!(words(&session), expected);
+        assert!(snapshot
+            .candidates
+            .iter()
+            .all(|item| item.source == CandidateSource::Generated));
+        assert_eq!(
+            session.select(0).commit.as_deref(),
+            Some(expected[0].as_str())
+        );
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+        assert!(session.snapshot().preedit.is_empty());
+    }
+}
+
+#[test]
+fn date_time_mode_still_rejects_non_lowercase_insertions() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for value in *b"A'1;" {
+        let mut session = fixture.session();
+        TestClock::install(&mut session);
+        session.character(b'T', true);
+        type_text(&mut session, "rq");
+        session.command(Command::MoveLeft);
+        let before = session.snapshot();
+
+        let result = session.character(value, false);
+
+        assert!(!result.handled, "{result:?}");
+        assert!(result.commit.is_none(), "{result:?}");
+        assert_eq!(session.snapshot(), before);
+    }
+}
+
 /// 组字里的日期时间行（#5952）用的词：每个关键词的锚定词，加上同一串字母、数字的其他读法。
 const INLINE_DATE_TIME_FIXTURE: &str = "CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
 INSERT INTO tbl_1_r VALUES('ri','r','日',100);\
