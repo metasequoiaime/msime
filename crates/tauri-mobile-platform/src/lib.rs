@@ -2,6 +2,7 @@ use msime_client_core::is_bounded_text;
 use serde::{Deserialize, Serialize};
 #[cfg(any(target_os = "ios", test))]
 use serde_json::json;
+#[cfg(any(target_os = "ios", test))]
 use serde_json::Value;
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::Runtime;
@@ -174,7 +175,6 @@ pub struct AppIconInfo {
     pub selected: String,
 }
 
-const MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES: usize = 800_000;
 #[cfg(any(target_os = "ios", test))]
 const MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS: usize = 4_000;
 #[cfg(any(target_os = "android", target_os = "ios", test))]
@@ -187,33 +187,8 @@ const MAX_MOBILE_VOICE_HOTWORDS: usize = 1_000;
 const MAX_MOBILE_VOICE_HOTWORD_TEXT_BYTES: usize = 256;
 const MAX_MOBILE_VOICE_HOTWORD_PINYIN_BYTES: usize = 1_024;
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct IosKeyboardPreferences {
-    pub input_scheme: String,
-    pub traditional_chinese_output: bool,
-    pub sound_enabled: bool,
-    pub haptics_enabled: bool,
-    pub haptic_strength: String,
-    pub english_suggestions: bool,
-    /// The candidate strip draws the shared desktop candidate skin and colours instead of the keyboard skin's; the switch lives in the App Group because the keyboard reads it on every redraw.
-    pub candidate_palette_follows_desktop: bool,
-    /// 行内预编辑: the keyboard also writes the composition into the text field as marked text. Off by default and kept in the App Group, because the shared `tsf_preedit_style` defaults to raw in every document and would switch every existing iOS user over.
-    pub inline_preedit: bool,
-    /// Whether this device can vibrate for key presses: false on iPad, which has no Taptic Engine. Read-only; the plugin reports it and never stores it.
-    pub haptics_available: bool,
-    /// 数字行与 Tab 键 on the iPad full-width keyboard, kept in the App Group. The plugin reports it only on an iPad and writes it only when present, so a phone neither shows nor stores it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tablet_full_keys: Option<bool>,
-    /// 横屏分离式键盘：iPad 全宽键盘横屏时把键区分成左右两半，存在 App Group 的 `keyboard.tablet.split`，默认关。和 `tablet_full_keys` 一样只在 iPad 上报告、只在请求里带着时才写入。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tablet_split_keyboard: Option<bool>,
-    pub dictionary_learning: bool,
-    /// 全局主题 id（`Preferences::global_theme`），存在 App Group 的 `globalTheme` 下，键盘扩展不读偏好文档也能拿到。只有八个主题 id 有效。
-    pub global_theme: String,
-    /// The custom theme's keyboard design (`Preferences::custom_theme.keyboard`) as JSON; `None` when the custom theme has no design and draws its base theme's keyboard. The App Group keeps it under `customKeyboardSkin.v1`.
-    pub custom_keyboard_skin: Option<String>,
-}
+/// iOS 键盘在 App Group 里的设置，定义在 client-core，账号设置的 iOS 映射（client-services 的 `account::ios_settings`）和 C ABI 也用它。
+pub use msime_client_core::ios_keyboard::IosKeyboardPreferences;
 
 /// The small, native-facing AI configuration shared by the Tauri settings app
 /// and the keyboard extension. The extension deliberately receives only the
@@ -388,41 +363,6 @@ pub struct MobileVoiceTranscriptionResponse {
 impl MobileVoiceTranscriptionResponse {
     fn is_valid(&self) -> bool {
         msime_client_core::is_bounded_chars_without_nul(&self.text, MAX_MOBILE_VOICE_TEXT_CHARS)
-    }
-}
-
-impl IosKeyboardPreferences {
-    pub fn is_valid(&self) -> bool {
-        matches!(
-            self.input_scheme.as_str(),
-            "quanpin"
-                | "nineKey"
-                | "shuangpin"
-                | "ziranma"
-                | "microsoft"
-                | "shoudao"
-                | "wubi"
-                | "japaneseNineKey"
-                | "japanese"
-                | "korean"
-                | "handwriting"
-                | "cantonese"
-                | "zhuyin"
-                | "vietnamese"
-                | "tibetan"
-                | "stroke"
-                | "fourteenKey"
-        ) && matches!(
-            self.haptic_strength.as_str(),
-            "light" | "medium" | "strong" | "system"
-        )
-            // 全局主题 id 直接按 client-core 的 `theme::GlobalTheme` 校验，不另抄一份列表。
-            && msime_client_core::theme::GlobalTheme::from_id(&self.global_theme).is_some()
-            && self.custom_keyboard_skin.as_ref().is_none_or(|value| {
-                value.len() <= MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES
-                    && serde_json::from_str::<Value>(value)
-                        .is_ok_and(|document| document.is_object())
-            })
     }
 }
 

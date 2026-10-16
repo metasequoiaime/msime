@@ -11,9 +11,9 @@
 use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences};
 use crate::host_surface::HostPlatform;
 use crate::preferences::{
-    BracketStyle, FrequencyMode, InputScheme, NumberKeypadOrder, Preferences, QuoteStyle,
-    ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TraditionalVariant, TwentySixKeyNumberLayout,
-    WubiProfile,
+    BracketStyle, FrequencyMode, FrequencyPreferences, InputScheme, NumberKeypadOrder, Preferences,
+    QuoteStyle, ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TraditionalVariant,
+    TwentySixKeyNumberLayout, WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -359,15 +359,43 @@ fn theme_mode(theme: ThemeMode) -> &'static str {
     }
 }
 
-fn insert_string(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: &str) {
+pub(super) fn insert_string(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+    value: &str,
+) {
     settings.insert(
         key.to_owned(),
         AccountPreferenceValue::String(value.to_owned()),
     );
 }
 
-fn insert_bool(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: bool) {
+pub(super) fn insert_bool(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+    value: bool,
+) {
     settings.insert(key.to_owned(), AccountPreferenceValue::Boolean(value));
+}
+
+/// 调频的三个账号键，iOS 的上传映射（[`super::ios_settings`]）用它。
+pub(super) fn frequency_account_preferences(
+    frequency: &FrequencyPreferences,
+) -> BTreeMap<String, AccountPreferenceValue> {
+    BTreeMap::from([
+        (
+            "input.frequency_mode".into(),
+            AccountPreferenceValue::String(frequency.mode.as_str().into()),
+        ),
+        (
+            "input.frequency_trigger_count".into(),
+            AccountPreferenceValue::Integer(i64::from(frequency.trigger_count)),
+        ),
+        (
+            "input.frequency_linear_step".into(),
+            AccountPreferenceValue::Integer(i64::from(frequency.linear_step)),
+        ),
+    ])
 }
 
 fn insert_integer(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: i64) {

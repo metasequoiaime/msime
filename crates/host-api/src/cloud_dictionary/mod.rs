@@ -1,7 +1,15 @@
+//! 云词库面板的请求：形状与校验在这里，Linux 的 provider、Tauri 和 C ABI 共用。
+//!
+//! [`account`] 只经账号会话处理列表、目录、增删改、导入导出、候选调频和固定排位；[`full_backup`] 是完整快照（下载预览、应用到本机、备份与恢复），Windows 设置应用和 `msime_client_cloud_dictionary` 共用；[`snapshot_files`] 是快照预览表和本用户私有临时目录里的文件工具。
+
+pub mod account;
+pub mod full_backup;
+pub mod snapshot_files;
+
 use msime_client_core::{has_disallowed_control_with_options, is_bounded_text, is_bounded_utf16};
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum CloudDictionaryRequest {
     SnapshotPreview,
@@ -119,7 +127,7 @@ pub enum CloudDictionaryRequest {
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct CloudDictionaryValue {
     pub code: String,
     pub word: String,

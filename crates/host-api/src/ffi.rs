@@ -212,11 +212,13 @@ pub(crate) fn keyboard_reranker(
 pub mod account;
 pub mod android_data;
 pub mod candidates;
+pub mod cloud_dictionary;
 pub mod community;
 pub mod credentials;
 pub mod google;
 pub mod host;
 pub mod input;
+pub mod ios_settings;
 pub mod lifecycle;
 pub mod mcp;
 pub mod moderation;
