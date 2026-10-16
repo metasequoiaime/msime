@@ -3097,6 +3097,8 @@ impl SyllablePrior {
 mod dominated_projection_tests;
 #[cfg(test)]
 mod filter_projection_tests;
+#[cfg(test)]
+mod isolated_test;
 
 #[cfg(test)]
 mod cached_rank_tests;

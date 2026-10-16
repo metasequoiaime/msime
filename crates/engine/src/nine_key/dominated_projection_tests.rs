@@ -1,9 +1,7 @@
+use super::isolated_test as isolation;
 use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
-
-#[path = "isolated_test.rs"]
-mod isolation;
 
 // 固定 92058b68c2eda173906abb9ace0723836fc661eb 的完整刷新，只改名、扩大测试可见性和移除注释。
 impl NineKeySession {
