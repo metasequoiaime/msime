@@ -135,6 +135,7 @@ public final class LexiconPage extends ReloadingDetailPage {
             ThemeColorPolicy.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
             String subtitle = NumberPolicy.groupedCount(collection.entryCount())
+                + DictionaryCollectionsStore.pendingDescription(collection.pending())
                 + ("community".equals(collection.sourceType()) ? " · 社区" : "");
             installed.addView(KeyboardSheets.badgeNavRow(context, TextPolicy.initial(collection.name(), "词"), collection.name(),
                 subtitle, collection.enabled() ? "已启用" : "已停用",

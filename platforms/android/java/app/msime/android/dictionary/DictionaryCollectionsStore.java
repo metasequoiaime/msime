@@ -33,6 +33,11 @@ public final class DictionaryCollectionsStore {
     public static final long DEFAULT_WEIGHT = 10000;
     private static final int EXPORT_PAGE = 1000;
 
+    /** 待写入个人词库的条数；键盘会话结束后才会应用，零条时不显示。 */
+    public static String pendingDescription(int pending) {
+        return pending <= 0 ? "" : "，还有 " + NumberPolicy.groupedCount(pending) + "等键盘同步";
+    }
+
     /** 一个命名词库；`sourceType` 是 `user`、`import` 或 `community`，社区词库带 `resourceId`。 */
     public record Collection(String id, String name, String kind, String sourceType, String resourceId,
                              boolean enabled, int entryCount, int pending) {}
