@@ -3320,6 +3320,32 @@ group("the 123 layer carries Android's rows in both languages", () => {
   );
 });
 
+group("数字页的表情入口随顶部可用性切换，符号面板不留空位", () => {
+  for (const chinese of [false, true]) {
+    for (const corner of [false, true]) {
+      const fallback = NumberSymbolLayout.rows(false, chinese, corner, false);
+      const toolbar = NumberSymbolLayout.rows(false, chinese, corner, true);
+      check(fallback[3][1].kind === LayerKeyKind.EMOJI, "顶部不可用时保留表情");
+      check(toolbar[3][1].kind === LayerKeyKind.SYMBOL_PANEL, "顶部已有表情时直接打开符号面板");
+      check(toolbar[3][1].text === "符号", "符号入口键面");
+      check(
+        !toolbar[3].some((key: LayerKey): boolean => key.kind === LayerKeyKind.EMOJI),
+        "没有重复表情键",
+      );
+      check(rowWeight(toolbar[3]) === rowWeight(fallback[3]), "替换不改变底行总宽");
+      check(
+        JSON.stringify(toolbar.slice(0, 3)) === JSON.stringify(fallback.slice(0, 3)),
+        "字符和标点行不变",
+      );
+      check(
+        JSON.stringify(NumberSymbolLayout.rows(true, chinese, corner, true)) ===
+          JSON.stringify(NumberSymbolLayout.rows(true, chinese, corner, false)),
+        "扩展页仍保留符号入口",
+      );
+    }
+  }
+});
+
 group("the #+= layer swaps the first two rows, its toggle and the emoji key", () => {
   const chinese: LayerKey[][] = NumberSymbolLayout.moreSymbolLayer(true);
   check(texts(chinese[0]) === "[ ] { } # % ^ * + =", "brackets and operators across the top");

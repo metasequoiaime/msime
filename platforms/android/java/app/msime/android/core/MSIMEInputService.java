@@ -9274,7 +9274,9 @@ public final class MSIMEInputService extends InputMethodService {
         imeFrame.setKeysCollapsed(keysCollapsed);
         applyCaretCandidates(!idle || hasDiagnostic);
         // 候选条模式里空闲时工具栏总要显示：展开键在上面，「显示方式：隐藏」时整副键盘会只剩导航栏那一截。
-        boolean toolbarRow = !heightMode && idle && !hasDiagnostic && (!toolbarHidden || keysCollapsed);
+        // 隐藏工具栏时，底行仍能打开表情面板；面板的返回键在工具栏上，打开期间必须临时显示。
+        boolean toolbarRow = !heightMode && idle && !hasDiagnostic
+            && (!toolbarHidden || keysCollapsed || anyToolbarPanelOpen());
         // 开始打字就收起「最近复制」：用户已经在输入别的内容了。
         if (!idle) recentClip.dismiss();
         long nowMs = System.currentTimeMillis();

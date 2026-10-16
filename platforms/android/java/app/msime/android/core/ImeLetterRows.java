@@ -71,6 +71,8 @@ final class ImeLetterRows {
     private boolean builtSymbolExtraRow;
     /** 123 / #+= 层建的时候用的标点：全角中文或半角英文。中文标点开关变了要重建，否则键面和上屏的还是旧的。 */
     private Boolean builtLayerPunctuation;
+    /** 数字页建行时顶部是否提供表情入口，变更后重建底行。 */
+    private Boolean builtLayerToolbarEmoji;
     /** 当前键行若是 {@link #rebuildKeyRows} 的通用分支在字母层建的，记下按哪个布局建；其他分支建的为 -1。只有这种键行能就地换大小写（{@link #refreshLetterCase}）。 */
     private int builtLetterLayout = -1;
     /** 分离式键盘建行时第二行有没有算上微软双拼的 `;` 键（{@link #microsoftTenKeys}）；它决定两半的切分位置和内侧 G 是否重复，变了只能重建，不能就地换大小写。 */
@@ -287,11 +289,12 @@ final class ImeLetterRows {
             || builtSymbolExtraRow != s.symbolExtraRowDrawn());
     }
 
-    /** 正显示着 123 / #+= 层，而中文标点开关和建层时不一样了。 */
+    /** 正显示着 123 / #+= 层，而标点或顶部表情入口和建层时不一样了。 */
     boolean layerPunctuationStale() {
         return s.keyRows != null && builtLayerPunctuation != null
             && s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-            && builtLayerPunctuation != s.sendsChinesePunctuation();
+            && (builtLayerPunctuation != s.sendsChinesePunctuation()
+                || (builtLayerToolbarEmoji != null && builtLayerToolbarEmoji != (!s.toolbarHidden && s.toolbarEmoji)));
     }
 
     /** 分离式键盘中间的空隙：普通的 View，不是键、不可点击，也不带键距外边距，所以 {@link KeyboardKeyArea} 不会把落在这里的按下交给旁边的键，点它什么也不发生。 */
@@ -563,6 +566,7 @@ final class ImeLetterRows {
         drawnTouchLayout = s.displayedTouchLayout(s.view);
         builtLanguageNumberSwap = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
         builtLayerPunctuation = null;
+        builtLayerToolbarEmoji = null;
         builtLetterLayout = -1;
         koreanKeyButtons.clear();
         koreanKeyInputs.clear();
@@ -933,9 +937,11 @@ final class ImeLetterRows {
         boolean chinese = !s.dedicatedEnglish;
         boolean chinesePunctuation = s.sendsChinesePunctuation();
         builtLayerPunctuation = chinesePunctuation;
+        builtLayerToolbarEmoji = !s.toolbarHidden && s.toolbarEmoji;
         java.util.List<java.util.List<KeyboardLayout.LayerKey>> rows = moreSymbols
             ? KeyboardLayout.moreSymbolLayer(chinese, chinesePunctuation)
-            : KeyboardLayout.numberLayer(chinese, chinesePunctuation, s.punctuationMarks().cornerQuotes());
+            : KeyboardLayout.numberLayer(chinese, chinesePunctuation, s.punctuationMarks().cornerQuotes(),
+                builtLayerToolbarEmoji);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             LinearLayout row = LayoutPolicy.row(s);
             // 最后一行是这一层自带的底行，和功能行一样挂底行角色：和一行键同高，分到四行均分后底行的那一份调整；前三行和字母键一样分摊其余部分，整层与字母层同高。底行原先挂的是 rowCount 为 1 的普通角色，整份调整量在三行之外又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底行被压成 0 高。
@@ -992,7 +998,11 @@ final class ImeLetterRows {
             case EMOJI -> {
                 KeyboardIconKey icon = new KeyboardIconKey(s, KeyboardIconKey.Kind.EMOJI);
                 icon.setText(text);
-                s.bindCountedAction(icon, s.imePanels::showEmojiPicker);
+                s.bindCountedAction(icon, () -> {
+                    s.imePanels.showEmojiPicker();
+                    // 底行入口也刷新工具栏的返回动作；隐藏工具栏时，面板需要临时显示它。
+                    s.render();
+                });
                 key = icon;
             }
             case PUNCTUATION_TOGGLE -> {
@@ -1000,7 +1010,10 @@ final class ImeLetterRows {
                 s.keyId(key, "SoftPunctuation");
             }
             case SYMBOL_PANEL -> {
-                key = s.keyboardKey(text, layerKey.description(), s.imePanels::showSymbolPanel);
+                key = s.keyboardKey(text, layerKey.description(), () -> {
+                    s.imePanels.showSymbolPanel();
+                    s.render();
+                });
                 s.keyId(key, "SoftSymbol");
             }
             case DELETE -> {

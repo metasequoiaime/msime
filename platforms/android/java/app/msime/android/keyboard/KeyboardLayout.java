@@ -222,12 +222,20 @@ public final class KeyboardLayout {
     /** 同 {@link #numberLayer(boolean, boolean)}；`cornerQuotes` 为真时中文标点下的两个引号键是「」。 */
     public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation,
             boolean cornerQuotes) {
+        return numberLayer(chinese, chinesePunctuation, cornerQuotes, false);
+    }
+
+    /** 顶部已有表情入口时，同一位置直接打开符号面板；关闭顶部入口时保留表情兜底。 */
+    public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation,
+            boolean cornerQuotes, boolean toolbarEmojiAvailable) {
         return layer(NUMBER_DIGITS,
             chinesePunctuation ? (cornerQuotes ? CHINESE_CORNER_NUMBER_SYMBOLS : CHINESE_NUMBER_SYMBOLS)
                 : ENGLISH_NUMBER_SYMBOLS,
             new LayerKey("#+=", "更多符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
             chinese, chinesePunctuation,
-            new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT),
+            toolbarEmojiAvailable
+                ? new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL, LAYER_EMOJI_WEIGHT)
+                : new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT),
             punctuationToggle(chinesePunctuation));
     }
 

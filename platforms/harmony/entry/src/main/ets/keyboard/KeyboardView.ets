@@ -9330,7 +9330,8 @@ struct KeyboardView {
   }
 
   private designLayerRows(): LayerKey[][] {
-    return NumberSymbolLayout.rows(this.moreSymbols, this.designLayerChinese(), this.cornerQuotes);
+    return NumberSymbolLayout.rows(this.moreSymbols, this.designLayerChinese(), this.cornerQuotes,
+      this.stripIdle());
   }
 
   /** 字符键输入它显示的内容；哪些键仍走符号行路径见 `NumberSymbolLayout.route`。 */

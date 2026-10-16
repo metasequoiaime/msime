@@ -133,6 +133,19 @@ public final class KeyboardLayoutSmoke {
         check(texts(KeyboardLayout.moreSymbolLayer(true, false).get(1))
             .equals(texts(KeyboardLayout.moreSymbolLayer(false).get(1))));
         check(KeyboardLayout.moreSymbolLayer(true, false).get(3).get(0).text().equals("拼音"));
+        // 数字页根据顶部入口换键，符号和表情互斥，宽度与其余按键保持一致。
+        for (boolean chinese : List.of(false, true)) {
+            for (boolean punctuation : List.of(false, true)) {
+                List<KeyboardLayout.LayerKey> fallback = KeyboardLayout.numberLayer(chinese, punctuation, true, false).get(3);
+                List<KeyboardLayout.LayerKey> toolbar = KeyboardLayout.numberLayer(chinese, punctuation, true, true).get(3);
+                check(fallback.get(1).kind() == KeyboardLayout.LayerKeyKind.EMOJI);
+                check(toolbar.get(1).kind() == KeyboardLayout.LayerKeyKind.SYMBOL_PANEL);
+                check(toolbar.get(1).text().equals("符号"));
+                check(toolbar.stream().noneMatch(key -> key.kind() == KeyboardLayout.LayerKeyKind.EMOJI));
+                check(toolbar.get(1).weight() == fallback.get(1).weight());
+                for (int index : List.of(0, 2, 3, 4)) check(toolbar.get(index).equals(fallback.get(index)));
+            }
+        }
         // #+= 层：左下原表情位是打开符号面板的「符号」键，切换键翻成 123。
         List<List<KeyboardLayout.LayerKey>> more = KeyboardLayout.moreSymbolLayer(true);
         check(texts(more.get(0)).equals(List.of("[", "]", "{", "}", "#", "%", "^", "*", "+", "=")));

@@ -155,3 +155,4 @@ platforms/android/tests/device/settings/ClipboardExportDeviceSmoke.java
 platforms/android/tests/device/keyboard/QuickDeleteUndoDeviceSmoke.java
 platforms/android/tests/device/keyboard/QuickDeleteEditorActivity.java
 platforms/android/tests/device/settings/DictionaryImportDeviceSmoke.java
+platforms/android/tests/device/keyboard/NumberLayerEntryDeviceSmoke.java

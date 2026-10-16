@@ -5169,10 +5169,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         globeWidthConstraint?.isActive = true
       }
       let layout = KeyboardLayoutPreference.geometry
-      // 符：#+= 层的符号键、假名标点菜单、字母行上的可选键，以及拼音网格和笔画键底行最左边的键，九键上打开符号面板只走它（网格的 @# 键把常用标点放进候选条）。
+      // 符：数字页在顶部有表情入口时的符号键、#+= 层的符号键、假名标点菜单、字母行上的可选键，以及拼音网格和笔画键底行最左边的键，九键上打开符号面板只走它（网格的 @# 键把常用标点放进候选条）。
       // 手机 26 键在 123 之后放 符，空格右边放逗号；14 键第三排自带 符，手写不画字母行，都不加。
       let phoneLetterSymbols = style == .phone && letterRowsShown
-      nineKeySymbolsButton.isHidden = !(kana || (symbolLayer ? showsMoreSymbols
+      let layerToolbarEmoji = !toolbarHidden && TouchToolbarPreference(in: session.sharedPreferences).emoji
+      nineKeySymbolsButton.isHidden = !(kana || (symbolLayer ? (showsMoreSymbols || layerToolbarEmoji)
         : nineKeyFrame ? !showsSymbols : !showsSymbols && (layout.showsFullKeyboardSymbols || phoneLetterSymbols)))
       let symbolsTitle = symbolLayer ? "符号" : "符"
       if nineKeySymbolsButton.configuration?.title != symbolsTitle {
@@ -5180,7 +5181,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         nineKeySymbolsButton.configuration?.titleTextAttributesTransformer = symbolLayer ? Self.functionLabelTransformer : Self.keyLabelTransformer
       }
       fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && (style == .standard || style == .tablet)
-      layerEmojiButton.isHidden = !(symbolLayer && !showsMoreSymbols)
+      layerEmojiButton.isHidden = !(symbolLayer && !showsMoreSymbols && !layerToolbarEmoji)
       nineKeyZeroButton.isHidden = style != .nineKey || (!showsSymbols && inputScheme != .nineKeyShuangpin)
       let hidesLanguage = !layout.showsBottomLanguage
       bottomLanguageButton?.isHidden = style == .symbolLayer || hidesLanguage
