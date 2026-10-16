@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 final class TypingStatisticsTests: XCTestCase {
   func testEnabledResponseRequiresABooleanField() throws {
@@ -454,11 +455,13 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertFalse(TypingKeyHeatmap(counts: statistics.keyCounts(on: [day], calendar: calendar)).showsNineKey)
     // Ties keep id order, so Backspace comes before KeyB.
     XCTAssertEqual(heatmap.top().map(\.id), ["KeyA", "Backspace", "KeyB", "Comma", "Nine5"])
-    // 页面一次只画一块键盘，其他键按当前那块列出：26 键热力图下列出九键格子，九键热力图下列出字母。
-    XCTAssertEqual(heatmap.others(nineKey: false).map(\.id), ["Comma", "Nine5", "SoftSymbol", "Digit1"])
-    XCTAssertEqual(heatmap.others(nineKey: false).map(\.label), [",", "九键 5", "符", "1"])
-    XCTAssertEqual(heatmap.others(nineKey: true).map(\.id), ["KeyA", "KeyB", "Comma", "SoftSymbol", "Digit1"])
+    // 页面一次只画一块键盘，其他键按当前那块列出：26 键热力图下列出九键格子，九键热力图下列出字母。两块键盘的底行都有 符，所以它不在其他键里。
+    XCTAssertEqual(heatmap.others(nineKey: false).map(\.id), ["Comma", "Nine5", "Digit1"])
+    XCTAssertEqual(heatmap.others(nineKey: false).map(\.label), [",", "九键 5", "1"])
+    XCTAssertEqual(heatmap.others(nineKey: true).map(\.id), ["KeyA", "KeyB", "Comma", "Digit1"])
     XCTAssertEqual(TypingKeyHeatmap.accessibilityLabel("KeyA", count: 123), "A，123 次")
+    // 画在键盘图上的键读它的键面：分词键记在 `'` 上，读出来仍是「分词」。
+    XCTAssertEqual(TypingKeyHeatmap.accessibilityLabel(TypingKeyID.pinyinSeparator, count: 4, face: "分词"), "分词，4 次")
     // Pinyin and kana presses share the nine-key ids, so a cell names both.
     XCTAssertEqual(TypingKeyHeatmap.nineKeySubtitle("Nine2"), "ABC か")
     XCTAssertEqual(TypingKeyHeatmap.nineKeySubtitle("Nine0"), "わ")
@@ -468,5 +471,143 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(TypingKeyHeatmap.nineKeyRows.joined().map { TypingKeyHeatmap.nineKeyFaces[$0]?.kana },
                    ["あ", "か", "さ", "た", "な", "は", "ま", "や", "ら", "わ"])
     XCTAssertEqual(TypingKeyHeatmap(counts: [:]).level("KeyA"), 0)
+  }
+
+  /// 26 键热力图画的就是 iPhone 竖屏的中文全拼 26 键：每一排的键、顺序、键面和相对宽度都从真的键盘上量出来比对。
+  @MainActor
+  func testLetterHeatmapMatchesThePhoneQuanpinKeyboard() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let controller = Self.phoneKeyboard()
+    let views = Self.descendants(controller.view)
+    let shift = try XCTUnwrap(views.first { $0.accessibilityIdentifier == "shiftButton" } as? UIButton)
+    let thirdRow = try XCTUnwrap(shift.superview as? UIStackView)
+    func letterRow(_ first: String) throws -> UIStackView {
+      try XCTUnwrap(views.first {
+        ($0 as? UIButton)?.configuration?.title?.uppercased() == first && !$0.isHidden
+      }?.superview as? UIStackView, "No letter row starting with \(first)")
+    }
+    let space = try XCTUnwrap(views.first { $0.accessibilityIdentifier == "spaceKey" })
+    let bottomRow = try XCTUnwrap(space.superview as? UIStackView)
+    let rows = [try letterRow("Q"), try letterRow("A"), thirdRow, bottomRow]
+    XCTAssertEqual(rows.count, TypingKeyHeatmap.keyboardRows.count)
+    for (row, cells) in zip(rows, TypingKeyHeatmap.keyboardRows) {
+      Self.assertRow(row, draws: cells)
+    }
+    // 第二排两侧各缩进本行宽度的 5%。
+    XCTAssertEqual(rows[1].layoutMargins.left / rows[1].bounds.width, TypingKeyHeatmap.keyboardMiddleRowInset, accuracy: 0.005)
+    XCTAssertEqual(rows[1].layoutMargins.right / rows[1].bounds.width, TypingKeyHeatmap.keyboardMiddleRowInset, accuracy: 0.005)
+  }
+
+  /// 九键热力图画的就是 iPhone 竖屏的拼音九键：侧栏、3×3 格子、右列和底行都从真的键盘上量出来比对。
+  @MainActor
+  func testNineKeyHeatmapMatchesThePhoneNineKeyKeyboard() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    let controller = Self.phoneKeyboard()
+    let views = Self.descendants(controller.view)
+    func view(_ identifier: String) throws -> UIView {
+      try XCTUnwrap(views.first { $0.accessibilityIdentifier == identifier }, "No view \(identifier)")
+    }
+    let sidebar = try view("nineKeySidebar")
+    let block = try XCTUnwrap(sidebar.superview)
+    // 侧栏里显示的是 ，。？ 三个键，自上而下。
+    let marks = Self.descendants(sidebar).compactMap { $0 as? UIButton }.filter { !Self.hidden($0, below: sidebar) }
+      .sorted { $0.convert($0.bounds, to: sidebar).minY < $1.convert($1.bounds, to: sidebar).minY }
+      .compactMap { $0.configuration?.title }
+    XCTAssertEqual(marks.joined(), TypingKeyHeatmap.nineKeySidebar.face)
+    XCTAssertEqual(sidebar.bounds.width / block.bounds.width, TypingKeyHeatmap.nineKeySideRatio, accuracy: 0.005)
+    // 3×3 格子：键面是 @# 和各组拼音字母。
+    for (row, cells) in TypingKeyHeatmap.nineKeyGrid.enumerated() {
+      for (column, cell) in cells.enumerated() {
+        let digit = row * 3 + column + 1
+        XCTAssertEqual(cell.id, TypingKeyID.nineKey(digit))
+        let key = try XCTUnwrap(try view("nineKey\(digit)") as? UIButton)
+        XCTAssertEqual(key.configuration?.title, cell.face)
+      }
+    }
+    // 右列自上而下：⌫、分词、！，宽度与侧栏相同。
+    let controls = ["nineKeyDelete", "nineKeyMiddleKey", "nineKeyClosingMark"]
+    let column = try XCTUnwrap(try view(controls[0]).superview as? UIStackView)
+    XCTAssertEqual(column.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier), controls)
+    XCTAssertEqual(column.bounds.width, sidebar.bounds.width, accuracy: 0.5)
+    XCTAssertEqual(controls.map { Self.recordedID[$0] }, TypingKeyHeatmap.nineKeyControls.map(\.id))
+    for (identifier, cell) in zip(controls, TypingKeyHeatmap.nineKeyControls) {
+      let title = try XCTUnwrap(try view(identifier) as? UIButton).configuration?.title
+      if let title, !title.isEmpty { XCTAssertEqual(title, cell.face, identifier) }
+    }
+    let bottomRow = try XCTUnwrap(try view("spaceKey").superview as? UIStackView)
+    Self.assertRow(bottomRow, draws: TypingKeyHeatmap.nineKeyBottomRow)
+  }
+
+  /// 统计页画的键盘没有画面以外的键，也没有存储层不认的 id。
+  func testKeyHeatmapDrawsOnlyKnownKeys() {
+    let letters = TypingKeyHeatmap.cells(nineKey: false), nine = TypingKeyHeatmap.cells(nineKey: true)
+    XCTAssertEqual((letters + nine).map(\.id).filter { !TypingKeyID.known.contains($0) }, [])
+    XCTAssertEqual(nine.count, 1 + 9 + 3 + 5)
+    // 26 键画的键各不相同；九键上只有侧栏 ，。？ 和右列的 ！ 记同一个 id，这两个键都不印占比。
+    XCTAssertTrue(letters.allSatisfy { TypingKeyHeatmap.sharedFaces($0, nineKey: false).isEmpty })
+    XCTAssertEqual(nine.filter { !TypingKeyHeatmap.sharedFaces($0, nineKey: true).isEmpty }.map(\.face), ["，。？", "！"])
+    XCTAssertEqual(TypingKeyHeatmap.sharedFaces(TypingKeyHeatmap.nineKeySidebar, nineKey: true), ["！"])
+    // 两块键盘都没画的键列在其他键里：英文模式的 Shift、九键数字层的 0 和句点。
+    let others = TypingKeyHeatmap(counts: [TypingKeyID.shift: 5, "Nine0": 4, "Period": 3, TypingKeyID.pinyinSeparator: 2])
+    XCTAssertEqual(others.others(nineKey: false).map(\.id), [TypingKeyID.shift, "Nine0", "Period"])
+    XCTAssertEqual(others.others(nineKey: true).map(\.id), [TypingKeyID.shift, "Nine0", "Period"])
+  }
+
+  /// 键盘按下各键时 `countKeyPress` 记的 id，按无障碍标识对应。地球键也列出来，好让比对时把它当作热力图不画的键滤掉。
+  private static let recordedID: [String: String] = [
+    "shiftButton": TypingKeyID.pinyinSeparator, "letterDeleteKey": TypingKeyID.backspace,
+    "symbolPanelKey": TypingKeyID.symbol, "layoutToggleButton": TypingKeyID.layer, "inputModeSwitchButton": TypingKeyID.globe,
+    "spaceKey": TypingKeyID.space, "bottomLanguageKey": TypingKeyID.language, "returnKey": TypingKeyID.enter,
+    "nineKeyDelete": TypingKeyID.backspace, "nineKeyMiddleKey": TypingKeyID.pinyinSeparator,
+    "nineKeyClosingMark": TypingKeyID.punctuation,
+  ]
+
+  /// iPhone 17 竖屏宽度的键盘，默认设置。
+  @MainActor
+  private static func phoneKeyboard() -> KeyboardViewController {
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 402, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    return controller
+  }
+
+  /// 比对一排：显示着的键依次记的 id、印着字的键的键面（空格印的是方案名，不比），以及每个键占本行键宽之和的比例。iPhone 自带地球键时键盘不画自己的，热力图也不画，所以地球键不算在内。
+  @MainActor
+  private static func assertRow(_ row: UIStackView, draws cells: [TypingKeyHeatmap.Cell], file: StaticString = #filePath, line: UInt = #line) {
+    let keys = row.arrangedSubviews.filter { !$0.isHidden && $0.accessibilityIdentifier != "inputModeSwitchButton" }
+    let ids = keys.map { key -> String in
+      if let id = key.accessibilityIdentifier.flatMap({ recordedID[$0] }) { return id }
+      return "Key\((key as? UIButton)?.configuration?.title?.uppercased() ?? "?")"
+    }
+    XCTAssertEqual(ids, cells.map(\.id), file: file, line: line)
+    guard ids.count == cells.count else { return }
+    let keyboardTotal = keys.reduce(0) { $0 + $1.bounds.width }
+    let weights = cells.reduce(0) { $0 + $1.width }
+    for (key, cell) in zip(keys, cells) {
+      if let title = (key as? UIButton)?.configuration?.title, !title.isEmpty, cell.id != TypingKeyID.space {
+        XCTAssertEqual(title, cell.face, cell.id, file: file, line: line)
+      }
+      XCTAssertEqual(Double(key.bounds.width / keyboardTotal), cell.width / weights, accuracy: 0.01, cell.id, file: file, line: line)
+    }
+  }
+
+  private static func descendants(_ view: UIView) -> [UIView] {
+    [view] + view.subviews.flatMap { descendants($0) }
+  }
+
+  /// 视图自己或它到 `root` 之间的某一层是否隐藏。
+  private static func hidden(_ view: UIView, below root: UIView) -> Bool {
+    var node: UIView? = view
+    while let current = node, current !== root {
+      if current.isHidden { return true }
+      node = current.superview
+    }
+    return false
   }
 }

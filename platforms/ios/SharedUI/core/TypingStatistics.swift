@@ -353,6 +353,8 @@ enum TypingKeyID {
   static let punctuation = "SoftPunctuation"
   /// The bottom-row quick punctuation key, which sits where a hardware comma does whichever mark it types.
   static let quickPunctuation = "Comma"
+  /// 拼音分词键（全拼 26 键第三排左端、九键右列中间）：它送的是 `'`，所以记在 `'` 所在的 Quote 键上，即 `character("'")`。
+  static let pinyinSeparator = "Quote"
   static let symbol = "SoftSymbol"
   static let layer = "SoftLayer"
   static let language = "SoftLanguage"
@@ -474,24 +476,76 @@ struct TypingKeyHeatmap: Equatable {
     let count: Int
   }
 
-  /// The 26-key keyboard as the touch keyboard lays it out, with its bottom row.
-  static let keyboardRows: [[String]] = [
-    "QWERTYUIOP".map { "Key\($0)" },
-    "ASDFGHJKL".map { "Key\($0)" },
-    [TypingKeyID.shift] + "ZXCVBNM".map { "Key\($0)" } + [TypingKeyID.backspace],
-    [TypingKeyID.layer, TypingKeyID.globe, TypingKeyID.space, TypingKeyID.language, TypingKeyID.enter],
+  /// 热力图上画出的一个键：键盘按下它时记的 id、键面上印的字，以及它在本行里占的相对宽度。
+  struct Cell: Equatable {
+    let id: String
+    /// 键盘上这个键印的字；回车和删除在键盘上是图标，这里写它们的名字，热力图画同样的图标。
+    let face: String
+    /// 一行里各键按这个权重分摊扣掉键缝之后的宽度。
+    let width: Double
+
+    init(_ id: String, _ face: String, width: Double = 1) {
+      self.id = id
+      self.face = face
+      self.width = width
+    }
+  }
+
+  private static func letters(_ row: String) -> [Cell] {
+    row.map { Cell("Key\($0)", String($0)) }
+  }
+
+  /// 手机竖屏、默认设置下的中文全拼 26 键（`KeyboardViewController.makeLetterRow` 和 `makeActionRow`）：中文字母键面是大写；第三排左端在全拼里是「分词」（`usesQuanpinSeparator`），按下记 `'` 键，右端是 ⌫；底行是 符 | 123 | 空格 | 中 | 回车，没有 ， 和 。。iPhone 自带地球键时键盘不画自己的地球键（`needsInputModeSwitchKey`），这里也不画。
+  ///
+  /// 宽度照键盘的约束：前两排字母等宽，第二排两侧各缩进本行宽度的 5%（`keyboardMiddleRowInset`）；第三排的分词键和 ⌫ 在键盘上固定 44pt，iPhone 17 竖屏时约是同排字母键的 1.2 倍；底行是 `phoneActionWidths` 的权重，空格为 4。
+  static let keyboardRows: [[Cell]] = [
+    letters("QWERTYUIOP"),
+    letters("ASDFGHJKL"),
+    [Cell(TypingKeyID.pinyinSeparator, "分词", width: 1.2)] + letters("ZXCVBNM") + [Cell(TypingKeyID.backspace, "删除", width: 1.2)],
+    [
+      Cell(TypingKeyID.symbol, "符", width: 1.05), Cell(TypingKeyID.layer, "123", width: 1.25),
+      Cell(TypingKeyID.space, "空格", width: 4), Cell(TypingKeyID.language, "中", width: 1.05),
+      Cell(TypingKeyID.enter, "换行", width: 1.9),
+    ],
   ]
-  /// The nine-key grid, 1 to 9 and the 0 below them.
+  /// 26 键第二排每侧缩进本行宽度的比例，即 `KeyboardGeometry.letterInsetRatio`。
+  static let keyboardMiddleRowInset = 0.05
+
+  /// 九键的十个格子 id：1 到 9 和 0。用来判断有没有九键按键记录，以及给假名格对位；拼音九键现在只在数字层的底行画 0。
   static let nineKeyRows: [[String]] = [
     ["Nine1", "Nine2", "Nine3"], ["Nine4", "Nine5", "Nine6"], ["Nine7", "Nine8", "Nine9"], ["Nine0"],
   ]
-  /// 按键盘实际排布的九键键盘：左侧是纵贯整个格区的标点侧栏，中间是 3×3 的格子，右侧从上到下叠着删除、句号和 0。最下一排与 26 键相同。
-  static let nineKeySidebar = TypingKeyID.punctuation
-  static let nineKeyGrid: [[String]] = [["Nine1", "Nine2", "Nine3"], ["Nine4", "Nine5", "Nine6"], ["Nine7", "Nine8", "Nine9"]]
-  static let nineKeyControls: [String] = [TypingKeyID.backspace, "Period", "Nine0"]
-  /// 两块键盘各自画出的键：26 键是 `keyboardRows`；九键是标点侧栏、3×3 格子、右侧控制键和与 26 键相同的最下一排。
-  private static let letterDrawn = Set(keyboardRows.joined())
-  private static let nineKeyDrawn = Set([nineKeySidebar] + nineKeyGrid.joined() + nineKeyControls + (keyboardRows.last ?? []))
+  /// 手机竖屏、默认设置下的拼音九键（`KeyboardViewController.makeNineKeyLayout`）：左侧是一整条标点侧栏，竖排 ，。？，三个键都记 `SoftPunctuation`；中间是 3×3 格子，1 是 @#（点一下把常用标点放进候选条，记 `Nine1`）；右列从上到下是 ⌫、分词（记 `'` 键）和 ！。侧栏和右列各占这一块宽度的 14%（`nineKeySideRatio`），格子平分其余部分。
+  static let nineKeySidebar = Cell(TypingKeyID.punctuation, "，。？")
+  static let nineKeySideRatio = 0.14
+  /// 3×3 格子，键面是 `nineKeyFaces` 里的拼音字母组。
+  static let nineKeyGrid: [[Cell]] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]].map { row in
+    row.map { Cell("Nine\($0)", nineKeyFaces["Nine\($0)"]?.pinyin ?? "") }
+  }
+  /// 右列的 ！ 与左侧栏的 ，。？ 记同一个 id（`sharedFaces`）。
+  static let nineKeyControls: [Cell] = [
+    Cell(TypingKeyID.backspace, "删除"), Cell(TypingKeyID.pinyinSeparator, "分词"), Cell(TypingKeyID.punctuation, "！"),
+  ]
+  /// 九键底行（`nineKeyActionWidths`，空格为 4.2）：符 | 123 | 空格 | 中 | 回车。0 只出现在数字层，不画。
+  static let nineKeyBottomRow: [Cell] = [
+    Cell(TypingKeyID.symbol, "符", width: 1.05), Cell(TypingKeyID.layer, "123", width: 1.25),
+    Cell(TypingKeyID.space, "空格", width: 4.2), Cell(TypingKeyID.language, "中", width: 1.05),
+    Cell(TypingKeyID.enter, "换行", width: 1.6),
+  ]
+
+  /// 一块键盘上画出的全部键。
+  static func cells(nineKey: Bool) -> [Cell] {
+    nineKey ? [nineKeySidebar] + nineKeyGrid.joined() + nineKeyControls + nineKeyBottomRow : Array(keyboardRows.joined())
+  }
+
+  /// 同一块键盘上与 `cell` 记同一个 id 的其他键的键面。不为空时这几个键按同一个占比着色，但都不印占比：同一个数印在几个键上，看起来像是各自的次数。
+  static func sharedFaces(_ cell: Cell, nineKey: Bool) -> [String] {
+    cells(nineKey: nineKey).filter { $0.id == cell.id && $0 != cell }.map(\.face)
+  }
+
+  /// 两块键盘各自画出的键。
+  private static let letterDrawn = Set(cells(nineKey: false).map(\.id))
+  private static let nineKeyDrawn = Set(cells(nineKey: true).map(\.id))
 
   /// 共用同一 id 的两套格子上，一个九键格各自承载的内容：拼音字母（1 是 @#，0 没有字母），以及 `TypingKeyID.japaneseKana` 放在这里的假名行首字，1 到 9 是あ到ら，0 是わ。
   static let nineKeyFaces: [String: (pinyin: String, kana: String)] = [
@@ -552,7 +606,7 @@ struct TypingKeyHeatmap: Equatable {
     return best
   }
 
-  /// 当前显示的那块键盘上没有位置的已按键，按次数从多到少排列。页面一次只画一块键盘，所以 26 键热力图下也列出 。 键、九键侧栏标点和九键格子。
+  /// 当前显示的那块键盘上没有位置的已按键，按次数从多到少排列。页面一次只画一块键盘，所以 26 键热力图下也列出九键侧栏标点和九键格子，九键热力图下列出字母；两块都没画的键（英文 Shift、， 和 。、数字层的 0 等）两边都列。
   func others(nineKey: Bool) -> [Key] {
     let drawn = nineKey ? Self.nineKeyDrawn : Self.letterDrawn
     return ranked.filter { !drawn.contains($0.id) }
@@ -567,8 +621,9 @@ struct TypingKeyHeatmap: Equatable {
   }
 
   /// `A，123 次`, what VoiceOver reads for a key. A nine-key cell also names what it carries on each grid, since pinyin and kana presses land on the same id: `九键 2，拼音 ABC，日文 か，7 次`.
-  static func accessibilityLabel(_ id: String, count: Int) -> String {
-    guard let face = nineKeyFaces[id] else { return "\(TypingKeyID.label(id))，\(count) 次" }
+  /// 画在键盘图上的键传入它的键面（`Cell.face`），读出键盘上印的字，例如分词键读「分词」而不是它记在的 `'`。
+  static func accessibilityLabel(_ id: String, count: Int, face drawn: String? = nil) -> String {
+    guard let face = nineKeyFaces[id] else { return "\(drawn ?? TypingKeyID.label(id))，\(count) 次" }
     let pinyin = face.pinyin.isEmpty ? "" : "拼音 \(face.pinyin)，"
     return "\(TypingKeyID.label(id))，\(pinyin)日文 \(face.kana)，\(count) 次"
   }
