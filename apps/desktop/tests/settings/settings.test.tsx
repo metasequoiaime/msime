@@ -3807,7 +3807,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
     within(primary)
       .getAllByRole("button")
       .map((button) => button.textContent),
-  ).toEqual(["设置", "对话", "统计", "我的"]);
+  ).toEqual(["设置", "全部设置", "统计", "我的"]);
   // 标签栏只有这四项。其余页面都是「设置」标签根页上的一行，「社区」和「AI 对话」不在其中。
   const home = screen.getByRole("region", { name: "首页" });
   const secondaryLabels = [...home.querySelectorAll("[data-row-title]")].map(

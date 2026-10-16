@@ -8649,6 +8649,33 @@ fn custom_translation_http_bridge_speaks_deepl_to_official_endpoints() {
 }
 
 #[test]
+fn translation_object_fallback_reaches_the_custom_response_bridge() {
+    for (body, expected) in [
+        (
+            r#"{"data":{"text":"","translation":"synthetic"}}"#,
+            "synthetic",
+        ),
+        (
+            r#"{"code":200,"result":[{"text":"","data":"  synthetic\ntranslation  "}]}"#,
+            "synthetic translation",
+        ),
+        (
+            r#"{"translations":[{"text":"","translation":"synthetic translation"}]}"#,
+            "synthetic translation",
+        ),
+    ] {
+        assert!(!unsafe {
+            msime_client_custom_translation_reply_failed(body.as_ptr(), body.len())
+        });
+        let parsed = read(unsafe {
+            msime_client_parse_custom_translation_response(body.as_ptr(), body.len())
+        });
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["value"], expected, "{body}");
+    }
+}
+
+#[test]
 fn custom_translation_reply_success_code_requires_a_supported_result() {
     for (body, failed) in [
         (r#"{"code":200}"#, true),

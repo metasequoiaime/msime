@@ -7021,7 +7021,9 @@ public final class MSIMEInputService extends InputMethodService {
             if (!apply(result)) {
                 imeDebugOverlay.showDiagnostic("当前候选不支持此操作");
             } else if (keyboardRoot != null) {
-                keyboardRoot.announceForAccessibility(action.announcement());
+                // 候选操作结果属于可见状态，由已有的 polite live region 播报。
+                imeDebugOverlay.showMessage(action.announcement());
+                render();
             }
         } catch (JSONException | LinkageError error) { fail(error); }
     }

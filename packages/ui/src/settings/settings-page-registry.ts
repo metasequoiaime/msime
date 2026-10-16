@@ -83,7 +83,7 @@ export const pages = [
     icon: settingsIcons.feedback,
   },
   { id: "about", title: "关于", icon: settingsIcons.about },
-  // 不在导航分组里。桌面从「AI 辅助」页里的一行进入（见 `subPageParents`）；触屏宿主上它是底部的「对话」标签页（见 `mobilePrimaryPageIds`），在那里没有上级页面。
+  // 不在导航分组里。桌面从「AI 辅助」页里的一行进入（见 `subPageParents`）；触屏宿主上它从「AI 辅助」页作为二级页面进入。
   { id: "chat", title: "AI 对话", icon: settingsIcons.help },
   {
     id: "vocabulary",

@@ -12,10 +12,10 @@ public final class HostDeepLinkSmoke {
         // FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TOP | FLAG_ACTIVITY_SINGLE_TOP
         check(HostDeepLink.FLAGS == (0x10000000 | 0x04000000 | 0x20000000), "flags are new task, clear top and single top");
 
-        // 第二格从「社区」换成「对话」，下标没有重排：已经发出去的 2、3 仍然是统计和我的。
-        check(HostDeepLink.TAB_SETTINGS == 0 && HostDeepLink.TAB_CHAT == 1
+        // 第二格为「全部设置」，下标没有重排：已经发出去的 2、3 仍然是统计和我的。
+        check(HostDeepLink.TAB_SETTINGS == 0 && HostDeepLink.TAB_ALL_SETTINGS == 1
             && HostDeepLink.TAB_STATISTICS == 2 && HostDeepLink.TAB_ACCOUNT == 3,
-            "tab indices follow the bottom bar: settings, chat, statistics, account");
+            "tab indices follow the bottom bar: settings, community, statistics, account");
         for (int tab = 0; tab <= 3; tab++) check(HostDeepLink.isTab(tab), "tab " + tab + " is accepted");
         check(!HostDeepLink.isTab(-1) && !HostDeepLink.isTab(4) && !HostDeepLink.isTab(Integer.MAX_VALUE), "out-of-range tabs are rejected");
         check(!HostDeepLink.isTab(HostDeepLink.NO_TAB), "the missing-tab marker is not a tab");

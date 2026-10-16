@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 底部四个 tab 的顺序就是 HostDeepLink 的 TAB_* 下标：0 设置、1 对话、2 统计、3 我的。第二格原先是「社区」，社区内容并进各功能页以后换成 AI 对话（ChatFragment）。图标是 Material Symbols 的 settings、chat、bar_chart、person。 -->
+<!-- 底部四个入口与 HostDeepLink 下标保持一致：设置、全部设置、统计、我的。AI 对话通过设置详情页打开。 -->
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@+id/tab_settings" android:icon="@drawable/ic_ms_settings" android:title="@string/tab_settings" />
-    <item android:id="@+id/tab_chat" android:icon="@drawable/ic_ms_chat" android:title="@string/tab_chat" />
+    <item android:id="@+id/tab_allsettings" android:icon="@drawable/ic_ms_grid" android:title="@string/tab_allsettings" />
     <item android:id="@+id/tab_statistics" android:icon="@drawable/ic_ms_bar_chart" android:title="@string/tab_statistics" />
     <item android:id="@+id/tab_account" android:icon="@drawable/ic_ms_person" android:title="@string/tab_account" />
 </menu>

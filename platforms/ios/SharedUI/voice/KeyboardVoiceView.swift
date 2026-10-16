@@ -36,7 +36,7 @@ struct KeyboardVoiceView: View {
           }
         }
         .disablingScrollEdgeEffects()
-        .onChange(of: errorID) { _ in proxy.scrollTo("status", anchor: .top) }
+        .onChange(of: errorID) { proxy.scrollTo("status", anchor: .top) }
       }
       if entry != nil {
         Button("插入语音结果") {

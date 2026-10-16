@@ -17,10 +17,9 @@ test("maps the settings tab icon and compact labels", () => {
 });
 
 // 「对话」标签页叫「对话」，画对话气泡：页面注册表给 `chat` 的图标是问号，放在标签栏上会被看成「帮助」。
-test("names the 对话 tab and draws it as a speech bubble", () => {
-  expect(mobileTabTitle("chat", "AI 对话")).toBe("对话");
-  expect(mobileTabIcon("chat", "help.svg")).toMatch(/feedback\.svg$/);
-  expect(harmonyTabIcon("chat")).toBe("chat");
+test("names the 全部设置 tab and draws it as a grid", () => {
+  expect(mobileTabTitle("more", "更多")).toBe("全部设置");
+  expect(harmonyTabIcon("more")).toBe("grid");
   expect(fluentIconPaths.chat).toMatch(/^M10 2a8 8 0 1 1/);
   expect(harmonyTabIcon("community")).toBeUndefined();
 });

@@ -2577,7 +2577,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const mobileInitialTab = mobileTabForPage(page);
   const mobileLastPageByTab = useRef<Record<MobilePrimaryPageId, SettingsPageId>>({
     home: mobileInitialTab === "home" ? page : "home",
-    chat: mobileInitialTab === "chat" ? page : "chat",
+    more: mobileInitialTab === "more" ? page : "more",
     "typing-statistics": mobileInitialTab === "typing-statistics" ? page : "typing-statistics",
     account: mobileInitialTab === "account" ? page : "account",
   });
@@ -3368,8 +3368,6 @@ function SettingsShell(props: SettingsPageProps) {
   } = model;
   // 对话页第一次打开后就一直挂着（见下方渲染处），切走只隐藏。
   const [chatMounted, setChatMounted] = useState(page === "chat");
-  // 对话页的输入框正在打字：底部标签栏让开，键盘上方只留输入栏，和常见的聊天应用一样。
-  const [chatTyping, setChatTyping] = useState(false);
   // 首页「试用键盘」切到对话页时加一，对话页随即聚焦输入框、弹出键盘；点底部标签进来不加，不弹键盘。
   const [chatFocusRequest, setChatFocusRequest] = useState(0);
   useEffect(() => {
@@ -3548,7 +3546,7 @@ function SettingsShell(props: SettingsPageProps) {
         )}
         <div className={settings.body} data-settings-body="">
           {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so assistive technology and keyboard focus still reach the navigation first, and the bottom padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
-          {mobilePlatform && !fillsContent && !(page === "chat" && chatTyping) && (
+          {mobilePlatform && !fillsContent && (
             <MobileSettingsTabs
               tabs={mobilePrimaryPages}
               activeTab={mobileActiveTab}
@@ -3813,14 +3811,13 @@ function SettingsShell(props: SettingsPageProps) {
                   appVersion={currentAppVersion}
                 />
               )}
-              {/* 触屏上「对话」是常驻的底部标签：第一次打开后一直挂着，切到别的标签只是隐藏，对话记录和进行中的回复都不丢；点标签进来不弹键盘，点输入框或从首页「试用键盘」进来才弹，与 Android 的对话标签一致。 */}
+              {/* 触屏上 AI 对话从「AI 辅助」二级页进入：第一次打开后一直挂着，切换标签只是隐藏，对话记录和进行中的回复都不丢。 */}
               {client.chat && (page === "chat" || (mobilePlatform && chatMounted)) && (
                 <div className={page === "chat" ? "contents" : undefined} hidden={page !== "chat"}>
                   <ChatPage
                     client={client.chat}
                     touch={mobilePlatform}
                     active={page === "chat"}
-                    onComposerFocusChange={setChatTyping}
                     focusRequest={chatFocusRequest}
                     setup={client.home}
                     onLogin={openAccountLogin}

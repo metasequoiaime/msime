@@ -3,6 +3,7 @@
 //! 模型放在 `<app data dir>/voice-models/<id>`，用户选中某个模型时 `voice_input.asr_model_path` 就设为这个目录。安装由 `msime_client_providers::voice::local_models` 完成：它下载到暂存目录，校验每一个校验和，再把完成的模型改名放到位；本模块只把它放到命令线程之外运行，把进度转发成 `voice-local-model-progress` 事件，并保管每个进行中安装的取消标志。
 
 use crate::*;
+#[cfg(unix)]
 use msime_client_providers::voice::hotwords::Hotword;
 use msime_client_providers::voice::local_models::{self, LocalModelError, LocalModelStatus};
 use std::path::{Path, PathBuf};
