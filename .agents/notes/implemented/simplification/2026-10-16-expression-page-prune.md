@@ -6,7 +6,7 @@ Status: implemented
 
 macOS 设置精简调研发现，「标点与翻译」页的拥挤主要来自三处：同一个决定被拆成几行、少数人用的选项平铺在主流程里、两个标签控制同一行释义。其中几处还会误导用户：
 
-- 智能标点有三个开关：总开关、数字后直出、字母后直出。macOS 和 Windows 新配置上三个都是关（`smart_punctuation_default`）。`client-core` 的 `punctuation::route` 只有在两半之一也打开时才走 ASCII，所以只打开总开关，已经上屏的数字或字母后面打 `,` 仍然是中文标点，和它的说明「字母或数字后的 , . : 自动使用英文标点」相反。只有正在组字的那条路径（macOS `InputController` 的 `punctuationASCII`）绕过了这个检查。
+- 智能标点有三个开关：总开关、数字后直出、字母后直出。macOS 和 Windows 新配置上三个都是关（`smart_punctuation_default`；之后的[智能标点默认开启](../../implemented/feature/2026-10-16-smart-punctuation-default-on.md)把它们在所有平台上改成默认开，并把旧文档一次性迁移）。`client-core` 的 `punctuation::route` 只有在两半之一也打开时才走 ASCII，所以只打开总开关，已经上屏的数字或字母后面打 `,` 仍然是中文标点，和它的说明「字母或数字后的 , . : 自动使用英文标点」相反。只有正在组字的那条路径（macOS `InputController` 的 `punctuationASCII`）绕过了这个检查。
 - 智能标点关着时，四个细分开关仍然能点，但都不起作用：重复转中文和空格转换在 `InputController` 里先检查总开关，两种直出在 `route()` 里先检查总开关。
 - 「中文标点」开关和「固定标点」三选一描述的是同一件事。`punctuation_lock` 为 `chinese` 或 `english` 时，引擎不看 `chinese_punctuation`：`engine_chinese_punctuation` 和 `route()` 按锁定走，`InputController` 的工具栏切换直接把运行时状态设成锁定值。「三者互斥」的说明和旁边单独的开关也对不上。只有 macOS 的 `runtimeChinesePunctuation` 在没有运行时覆盖（新开会话、从英文模式切回）时回落到 `chinesePunctuation`，于是「锁定英文、起始中文」时菜单勾选、工具栏标题和成对 `{` 显示成中文。
 - 翻译服务在新配置上显示「腾讯云机器翻译」，密钥却是空的，因为 `TencentTmtPreferences::default` 是 `enabled: true`。macOS 上没有可用密钥的腾讯云不会被请求：host-api 的 `selected_translation_services` 只在两个密钥都可用时才把腾讯云放进查询，`InputController` 的 `currentOnDeviceGlossRequest` 看到查询里没有服务，就改用系统本机翻译。所以 macOS 上的「关闭」和「没配好的腾讯云」实际都是离线翻译，不是关掉翻译。
@@ -16,7 +16,7 @@ macOS 设置精简调研发现，「标点与翻译」页的拥挤主要来自�
 
 ### 标点
 
-- 桌面、Android、iOS 共用的 `PunctuationSection` 把主流程减到四行：「标点」选择、引号样式、智能标点、成对标点自动补全。方头括号样式、智能标点的四个细分开关、大写锁定时使用英文标点收进「更多选项」（`MoreOptions`）。
+- 桌面、Android、iOS 共用的 `PunctuationSection` 把主流程减到四行：「标点」选择、引号样式、智能标点、成对标点自动补全。方头括号样式、智能标点的四个细分开关、大写锁定时使用英文标点收进「更多选项」（`MoreOptions`）。（之后的[智能标点默认开启](../../implemented/feature/2026-10-16-smart-punctuation-default-on.md)让智能标点默认开，把总开关也收进「更多选项」，主流程剩三行。）
 - 「标点」选择有四项。显示值由 `punctuationMode` 从两个已存的键推出，锁定优先；打开页面不改写文档：
   - `chinese`：`chinese_punctuation = true`，`punctuation_lock = follow`
   - `english`：`chinese_punctuation = false`，`follow`
@@ -28,7 +28,7 @@ macOS 设置精简调研发现，「标点与翻译」页的拥挤主要来自�
 - 账号同步只映射 `input.smart_punctuation`，两半不上云。`client-services` 的 `apply_input_settings` 在云端值和本机不同时把两半写成同一个值，等于别的设备替用户切了一次总开关；值相同就不动，本机单独调过的一半不会每次同步都被冲掉。不这样做的话，在 Linux 或另一台设备打开智能标点后同步到 macOS，这里会是「总开关开、两半都关」，又回到开了不起作用。
 - 以前只写过总开关的存量文档仍是「总开关开、两半都关」。这里不改写存储，`SmartPunctuationRow` 按已存的值在说明后面加一句「数字后直出和字母后直出都已关闭，这一条暂不生效」，并指向「更多选项」或重新切换总开关。
 - 四个细分开关（`PunctuationSwitchRow` 新增 `disabled`）在总开关关着时变灰，值不变。大写锁定标点不依赖智能标点（`route()` 在直出检查之前就处理了它），所以收进「更多选项」但不变灰。
-- HarmonyOS 手机的 `PhonePunctuationSection` 保持设计稿布局（「使用英文标点」开关，「更多选项」里的「固定标点」），只修两处 bug：总开关同样连同两半一起写，细分开关同样会变灰。
+- HarmonyOS 手机的 `PhonePunctuationSection` 保持设计稿布局（「使用英文标点」开关，「更多选项」里的「固定标点」），只修两处 bug：总开关同样连同两半一起写，细分开关同样会变灰。（智能标点总开关之后随[智能标点默认开启](../../implemented/feature/2026-10-16-smart-punctuation-default-on.md)收进「更多选项」。）
 - macOS 原生回退窗口（`AppearancePreferences.mm`）的「智能标点」开关同样这样做。`_pendingSmartPunctuationDirect` 记下用户刚切换的值，`sharedPreferencesByMerging:` 每次保存都带上两半，直到 `applySharedInputPreferences:` 载入的文档里两半都等于它才撤销。所以一次保存失败不会把它丢掉，撤销之后也不再写这两个键。回退窗口里的「中文标点」和「固定标点」仍是两个控件，这次只合并 React 页面。
 - MCP 的 `update_preferences` 改 `smart_punctuation` 时同样写两半，与它改模糊音时跟设置页保持一致是同一个做法。
 
@@ -56,7 +56,7 @@ macOS 之后，Windows、Linux、HarmonyOS 逐项按同一个标准跟进：控�
 
 - 「中文标点」开关和「固定标点」合成四项的「标点」选择（`PunctuationSettings.h`，推导和补丁与 `punctuation-preferences.ts` 相同，`windows-punctuation-settings` 测试）。理由在 Windows 同样成立：TIP 的 `ResolvePunctuationOpen` 让锁定压过 Ctrl+. 和工具栏，托盘在锁定时禁用「中文标点」。
 - 「标点」的说明与共享页不同。TIP 每次激活和每次切换中英文时都按模式重定标点（`CompositionProcessorEngine.cpp` 的 `SetPunctuationMode`，以及开关中英文时的 `CompartmentCallback`），从不读已存的 `chinese_punctuation`，Server 端会话的起始值随后就被 TIP 的每会话覆盖取代。所以不锁定时，「中文标点」「英文标点」在这台电脑上没有持久作用，只决定同一账号其他设备上的起始标点，说明照实写出这一点。TIP 没有改成从已存值起步，理由见「Alternatives considered」。
-- 智能标点总开关连同两半写。这个陷阱在 Windows 上最常见：三个键默认都是关，TIP 的 `ResolvePunctuation` 要所在一侧的直出也开着才出 ASCII，原来的页面只写总开关，新装后打开智能标点什么都不发生。「总开关开、两半都关」时说明多一句提示，两半的开关切换后重画页面，提示跟着变。
+- 智能标点总开关连同两半写。这个陷阱在 Windows 上最常见：三个键默认都是关（[智能标点默认开启](../../implemented/feature/2026-10-16-smart-punctuation-default-on.md)之后改为默认开，总开关也挪进下面的「更多选项」），TIP 的 `ResolvePunctuation` 要所在一侧的直出也开着才出 ASCII，原来的页面只写总开关，新装后打开智能标点什么都不发生。「总开关开、两半都关」时说明多一句提示，两半的开关切换后重画页面，提示跟着变。
 - 方头括号样式和四个细分开关收进「更多选项」，控件用页面里语音页、AI 页已有的 `Expander`，细分开关在总开关关着时变灰（原来就有）。Windows 没有「大写锁定时使用英文标点」一行（`caps_lock_punctuation` 只在 macOS 为真）。
 - WinUI 页面没有标签，「多语言与释义」和「候选词翻译」两组本来就挨着，所以没有合并标签这一步，`SettingsNavigation.h` 的页数不变。
 - 「显示读音」移到目标语言之后，只在英文释义或候选词翻译打开时出现。除 macOS 外只有 Windows 提供读音（`TranslationWorker` 画读音）。

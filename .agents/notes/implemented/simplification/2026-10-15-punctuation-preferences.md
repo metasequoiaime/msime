@@ -10,7 +10,7 @@ Status: implemented
 
 `settings/punctuation-preferences.ts` 用对象类型持有十二个字段和两种样式类型，并通过 `punctuationControlState` 为共享控件补齐缺省状态。`Preferences` 与该类型组合；组件保留原名接口并继承叶子对象类型，原有类型导出路径和接口扩展能力保持。所有必填性、可选性、默认值与存储格式不变。
 
-`punctuation-options.ts` 持有桌面与手机共用的标点开关文案和固定标点、引号、方头括号的有序选项。React 组件直接将数据映射成 `<option>`，不包一层选项组件，让 HarmonyOS 的 `SelectRow` 能继续读取面板项。原字段名、文案、顺序、可编辑状态和单字段补丁保持不变（之后的[「标点与翻译」页精简](../../implemented/simplification/2026-10-16-expression-page-prune.md)把中文标点和固定标点合成一个选择、让智能标点总开关连同两半一起写，这两处不再是单字段补丁）；解析只生成显示值，不把补齐后的字段写入文档。只有缺少 `paired_punctuation` 时开关默认开启，其他可选标点开关默认关闭。
+`punctuation-options.ts` 持有桌面与手机共用的标点开关文案和固定标点、引号、方头括号的有序选项。React 组件直接将数据映射成 `<option>`，不包一层选项组件，让 HarmonyOS 的 `SelectRow` 能继续读取面板项。原字段名、文案、顺序、可编辑状态和单字段补丁保持不变（之后的[「标点与翻译」页精简](../../implemented/simplification/2026-10-16-expression-page-prune.md)把中文标点和固定标点合成一个选择、让智能标点总开关连同两半一起写，这两处不再是单字段补丁）；解析只生成显示值，不把补齐后的字段写入文档。缺少 `paired_punctuation`、`smart_punctuation`、`smart_punctuation_repeat`、`smart_punctuation_direct_digit`、`smart_punctuation_direct_letter` 时开关默认开启（智能标点这几项见[智能标点默认开启](../../implemented/feature/2026-10-16-smart-punctuation-default-on.md)），其他可选标点开关默认关闭。
 
 `test-preferences-field-parity.py` 原本只识别直接对象声明。门禁收集所有模块的唯一对象类型后，递归展开 `Preferences` 可达的命名交叉部分，再沿原路径比较 Rust 字段；引用缺失、重名而无法解析或循环时明确失败，不能通过忽略抽取字段来放行。其他 UI 组件的不可达接口组合不参与偏好遍历，门禁仍核对 35 组共享类型。
 
