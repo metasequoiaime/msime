@@ -103,6 +103,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.InputFailureCategoryDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Input failure category acceptance failed" >&2; exit 1; }
+# 批量结束才应用的编辑器也要保留组字；限长回退的两批选区回声都不能取消候选。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CompositionBatchDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Composition batch acceptance failed" >&2; exit 1; }
 # 旧菜单、展开按钮和拼写回调只检查身份，不写编辑器、不停止当前会话。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke)
 printf '%s\n' "$result"

@@ -139,3 +139,5 @@ platforms/android/tests/device/keyboard/ToolbarEdgesDeviceSmoke.java
 platforms/android/tests/device/keyboard/ToolbarScrollDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmojiCombinationLayoutDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmojiCombinationDeviceSmoke.java
+
+platforms/android/tests/device/keyboard/CompositionBatchDeviceSmoke.java
