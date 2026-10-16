@@ -1202,7 +1202,6 @@ void CCandidateListUIPresenter::_ClearList()
 {
     _candidateState.Clear();
     _lastUiLessCandidatePage.clear();
-    _lastUiLessGeneration = 0;
 }
 
 //+---------------------------------------------------------------------------

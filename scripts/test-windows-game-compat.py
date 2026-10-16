@@ -69,11 +69,14 @@ public:
  struct Engine { Host host; Host* GetHostEngineAdapter() { return &host; } };
  struct Service { Engine engine; Engine* GetCompositionProcessorEngine() { return &engine; } };
  Service* _pTextService = nullptr;
+ struct State { int clears = 0; void Clear() { ++clears; } } _candidateState;
+ std::wstring _lastUiLessCandidatePage;
  std::uint64_t _lastUiLessGeneration = 0;
  std::wstring page;
  int selected = 0;
  void _ApplyUiLessCandidatePage(const std::wstring& text, int selection) { page = text; selected = selection; }
  bool _ApplyUiLessPayload(const FanyImeUiLessPage::Payload& payload);
+ void _ClearList();
 };
 namespace nlohmann { struct json {}; }
 struct FocusLease { int transport = 1; };
@@ -131,6 +134,11 @@ int main() {
  assert(presenter.page == L"你,拟");
  assert(presenter._ApplyUiLessPayload(FanyImeUiLessPage::Parse(L"ni\t旧协议\t0")));
  assert(presenter.page == L"旧协议" && presenter._lastUiLessGeneration == 42);
+ presenter._lastUiLessCandidatePage = L"旧协议";
+ presenter._ClearList();
+ assert(presenter._candidateState.clears == 1 && presenter._lastUiLessCandidatePage.empty());
+ assert(presenter._lastUiLessGeneration == 42);
+ assert(!presenter._ApplyUiLessPayload(FanyImeUiLessPage::Parse(L"ni\t旧页\t0\t41")));
  CCandidateListUIPresenter::Service service;
  presenter._pTextService = &service;
  service.engine.host.ready = true;
@@ -194,6 +202,7 @@ def main() -> int:
     methods.append(function(layout, "POINT GetPhysicalTextAnchor("))
     presenter = (ROOT / "platforms/windows/tsf/UI/CandidateListUIPresenter.cpp").read_text()
     methods.append(function(presenter, "bool CCandidateListUIPresenter::_ApplyUiLessPayload("))
+    methods.append(function(presenter, "void CCandidateListUIPresenter::_ClearList("))
     controller = (ROOT / "platforms/windows/src/ipc/SessionController.cpp").read_text()
     methods.append(function(controller, "void SessionController::push_uiless_candidates("))
     paging = ime[ime.index("case WM_AsyncServerCandidateKey: {", ime.index("LRESULT CALLBACK CMetasequoiaIME_WindowProc")):]
