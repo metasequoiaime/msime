@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "./core/ime-key-event";
 import type { SettingsClient } from "./core/settings-client";
 import type { Preferences, Snapshot } from "./core/preferences-model";
 
@@ -43,7 +44,7 @@ import {
   settingsThemePreferences,
 } from "./settings/settings-theme-preferences";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 export type {
   DictionaryEntry,
   DictionaryPageFormat,
@@ -64,6 +65,8 @@ export {
   type DictionaryFormatOptionsProps,
 } from "./dictionary/dictionary-format-options";
 export { dictionaryErrorMessage } from "./dictionary/dictionary-errors";
+export { PluginNavRow, type PluginNavRowProps } from "./settings/plugin-nav-row";
+export { PluginActionBlock, type PluginActionBlockProps } from "./settings/plugin-action-block";
 
 export {
   type TouchKeyboardScheme,
@@ -399,6 +402,12 @@ export {
   useVoiceInputSettings,
   type UseVoiceInputSettingsOptions,
 } from "./settings/use-voice-input-settings";
+export { AiSkinGeneration, type AiSkinGenerationProps } from "./keyboard/ai-skin-generation";
+export {
+  useAiSkinGeneration,
+  type UseAiSkinGenerationOptions,
+  type AiSkinGenerationState,
+} from "./keyboard/use-ai-skin-generation";
 export type {
   AiSkinClient,
   AiSkinProposal,
@@ -573,6 +582,9 @@ export {
 } from "./core/use-async-action";
 export { useInterval } from "./core/use-interval";
 export { useDebouncedCallback, type DebouncedCallback } from "./core/use-debounced-callback";
+export { isComposingKeyEvent } from "./core/ime-key-event";
+export { exceptionMessage } from "./core/exception-message";
+export { useSettledSlider } from "./core/use-settled-slider";
 export {
   subscribeToWindowBlur,
   subscribeToWindowEvent,
@@ -625,9 +637,20 @@ export {
 export type { AppInputModeRule, PickedApplication } from "./settings/app-input-mode-rules";
 export {
   ClipboardHistorySection,
+  type ClipboardHistorySectionProps,
   type ClipboardHistoryClient,
   type ClipboardHistoryEntry,
 } from "./settings/clipboard-history-section";
+export {
+  useClipboardHistory,
+  type UseClipboardHistoryOptions,
+  type ClipboardHistoryState,
+} from "./settings/use-clipboard-history";
+export {
+  useClipboardHistoryCloud,
+  type UseClipboardHistoryCloudOptions,
+  type ClipboardHistoryCloudState,
+} from "./settings/use-clipboard-history-cloud";
 export {
   CloudPanelSessionNotice,
   CLOUD_PANEL_SESSION_NOTE,
@@ -932,8 +955,14 @@ export {
 } from "./settings/input-scheme-details-section";
 export {
   ShuangpinCustomEditor,
+  NineKeyShuangpinEditor,
   type ShuangpinCustomEditorProps,
+  type NineKeyShuangpinEditorProps,
 } from "./settings/shuangpin-custom-editor";
+export type {
+  NineKeyShuangpinLayout,
+  NineKeyShuangpinLayoutReader,
+} from "./settings/nine-key-shuangpin-profile";
 export {
   parseShuangpinCustomProfile,
   shuangpinCustomProblemMessage,
@@ -1375,6 +1404,21 @@ export type {
 } from "./community/community-resource-model";
 export { CommunityCandidateSkinsPage } from "./community/community-candidate-skins";
 export {
+  useCommunityCandidateSkinGallery,
+  type UseCommunityCandidateSkinGalleryOptions,
+  type CommunityCandidateSkinGallery,
+} from "./community/use-community-candidate-skin-gallery";
+export {
+  CommunityCandidateSkinCard,
+  type CommunityCandidateSkinCardProps,
+} from "./community/community-candidate-skin-card";
+export {
+  CandidateSkinPreviewImage,
+  CommunityCandidateSkinDetail,
+  type CandidateSkinPreviewLoader,
+  type CommunityCandidateSkinDetailProps,
+} from "./community/community-candidate-skin-detail";
+export {
   candidateSkinCategories,
   candidateSkinCategoryLabels,
   type CandidateSkinCategory,
@@ -1528,7 +1572,29 @@ export {
   CandidateSkinPublishDialog,
   type CandidateSkinPublishDialogProps,
 } from "./community/candidate-skin-publish-dialog";
+export {
+  CommunityReplyTemplates,
+  type CommunityReplyTemplatesProps,
+} from "./community/community-reply-templates";
+export {
+  useCommunityReplyTemplates,
+  type UseCommunityReplyTemplatesOptions,
+  type CommunityReplyTemplatesState,
+} from "./community/use-community-reply-templates";
 export { CommunityPluginsPage } from "./community/community-plugins";
+export {
+  useCommunityPluginGallery,
+  type UseCommunityPluginGalleryOptions,
+  type CommunityPluginGallery,
+} from "./community/use-community-plugin-gallery";
+export {
+  CommunityPluginCard,
+  type CommunityPluginCardProps,
+} from "./community/community-plugin-card";
+export {
+  CommunityPluginDetail,
+  type CommunityPluginDetailProps,
+} from "./community/community-plugin-detail";
 export {
   CommunityPluginPublishDialog,
   type CommunityPluginPublishDialogProps,
@@ -1644,6 +1710,11 @@ export {
 } from "./keyboard/cloud-dictionary-item";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
+  PanelActivationButtons,
+  type PanelActivationButtonsProps,
+  type PanelActivationMode,
+} from "./keyboard/panel-activation-buttons";
+export {
   CloudDictionaryPagination,
   type CloudDictionaryPaginationProps,
 } from "./keyboard/cloud-dictionary-pagination";
@@ -1664,7 +1735,21 @@ export {
   type CloudDictionaryQueryToolbarProps,
 } from "./keyboard/cloud-dictionary-query-toolbar";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
-export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
+export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-model";
+export {
+  VoiceDevicePicker,
+  VoiceMicrophonePicker,
+  type VoiceDevicePickerProps,
+  type VoiceMicrophonePickerProps,
+} from "./voice/voice-device-picker";
+export {
+  useVoiceDevicePicker,
+  useVoiceMicrophonePicker,
+  type UseVoiceDevicePickerOptions,
+  type UseVoiceMicrophonePickerOptions,
+  type VoiceDevicePickerState,
+  type VoiceMicrophonePickerState,
+} from "./voice/use-voice-device-picker";
 export {
   LocalModelManager,
   formatModelBytes,
@@ -1945,7 +2030,16 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     fallbackVersion: fallbackAppVersion,
   });
   const customHelpcodeSchemas = useCustomHelpcodeSchemas(client.listHelpcodeSchemas);
-  const helpcodePacks = useHelpcodePacks(client.plugins?.catalog, page === "input");
+  const [helpcodeCatalogRevision, setHelpcodeCatalogRevision] = useState(0);
+  const refreshHelpcodePacks = useCallback(
+    () => setHelpcodeCatalogRevision((value) => value + 1),
+    [],
+  );
+  const helpcodePacks = useHelpcodePacks(
+    client.plugins?.catalog,
+    page === "input",
+    helpcodeCatalogRevision,
+  );
   const {
     value: mobileKeyboardFeedback,
     busy: mobileKeyboardFeedbackBusy,
@@ -2438,6 +2532,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showHelpcode,
     customHelpcodeSchemas,
     helpcodePacks,
+    refreshHelpcodePacks,
     showShuangpinPreedit,
     showCharacterWidth,
     showVoiceCommitMode,
@@ -2935,7 +3030,7 @@ function SettingsShell(props: SettingsPageProps) {
         value={navQuery}
         onChange={(event) => setNavQuery(event.target.value)}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (isComposingKeyEvent(event)) return;
           if (event.key === "Escape") setNavQuery("");
           if (event.key !== "Enter") return;
           const first = shownSidebarGroups[0]?.pages[0];

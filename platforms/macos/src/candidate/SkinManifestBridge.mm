@@ -663,8 +663,12 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             ApplyThemeColor(palette, @"selected", tokens.selected);
             const bool selectedText = ApplyThemeColor(palette, @"selected_text", tokens.selectedText);
             const bool selectedNumber = ApplyThemeColor(palette, @"selected_number", tokens.selectedNumber);
+            // 皮肤清单可以写 `selected_translation`；共享层哪天把它放进解析结果，就照它画，不再推导。
+            Rgba selectedTranslation;
+            const bool givenSelectedTranslation = tokens.translation && ApplyThemeColor(palette, @"selected_translation", selectedTranslation);
+            if (givenSelectedTranslation) tokens.selectedTranslation = selectedTranslation;
             // Over a system base the shared resolver leaves these two to the platform, and the native white is only readable on the native solid accent: a package's translucent `selected` or a light picked colour needs them from the fill that is actually drawn.
-            DeriveSelectedForegrounds(tokens, !selectedText, !selectedNumber);
+            DeriveSelectedForegrounds(tokens, !selectedText, !selectedNumber, !givenSelectedTranslation);
             ApplyThemeColor(palette, @"hover", tokens.hover);
             tokens.selectedHover = tokens.selected;
             NSNumber *bar = palette[@"show_selected_bar"];

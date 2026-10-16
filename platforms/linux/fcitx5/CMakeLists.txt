@@ -267,6 +267,7 @@ if(BUILD_TESTING)
   endif()
   # 候选行的文字和格式（纠错标记、训音、脚本插件注释）只靠插件代码，不需要词库，所以不跟着下面的资源 fixture 注册。
   add_test(NAME fcitx5-candidate-rows COMMAND fcitx5-native-test --rows)
+  add_test(NAME fcitx5-cloud-clipboard COMMAND fcitx5-native-test --cloud-clipboard)
   set(MSIME_FCITX5_TEST_RESOURCES "" CACHE PATH "Verified resources directory for the native Fcitx5 test")
   if(MSIME_FCITX5_TEST_RESOURCES)
     add_test(NAME fcitx5-native-context

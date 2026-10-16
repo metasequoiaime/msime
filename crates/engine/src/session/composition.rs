@@ -280,6 +280,19 @@ pub(super) fn build_quanpin_autocorrect_display<'a>(request: &'a QueryRequest) -
 }
 
 impl InputSession {
+    /// 直接辅助码行的 `pinyin` 包含音节内辅助码，长度超过规范读音的两键编码。
+    fn direct_shuangpin_consumed(&self, selected: &WordItem) -> Option<usize> {
+        let request = self.engine.request();
+        let consumed = selected.pinyin.len();
+        (request.enable_shuangpin_helpcode
+            && selected.corrected_from.is_empty()
+            && !selected.canonical_pinyin.is_empty()
+            && !selected.pinyin.contains('\'')
+            && consumed > selected.canonical_pinyin.split('\'').count() * 2
+            && request.raw_input.starts_with(&selected.pinyin))
+        .then_some(consumed)
+    }
+
     /// 纠错候选的读音可能比实际按键短或长；`corrected_from` 记录它实际回答的原文长度。
     fn selected_quanpin_length(selected: &WordItem) -> usize {
         if selected.corrected_from.is_empty() {
@@ -299,6 +312,9 @@ impl InputSession {
         }
         let request = self.engine.request();
         if self.is_shuangpin() {
+            if let Some(consumed) = self.direct_shuangpin_consumed(selected) {
+                return consumed >= request.raw_input.len();
+            }
             let base = resolve_shuangpin_composition_base(request, self.shuangpin_profile());
             let word_length = count_han_chars(&selected.word) * 2;
             let total = base.effective_raw_input.len();
@@ -385,7 +401,12 @@ impl InputSession {
                     base.effective_raw_input.clone().into_owned()
                 };
                 let rest = if transition.continues_composition {
-                    let (start, end) = if base.helpcode_length > 0 {
+                    let (start, end) = if let Some(consumed) =
+                        self.direct_shuangpin_consumed(selected)
+                    {
+                        // 内嵌辅助码跟随选中字一起消耗，剩余音节保留原始大小写。
+                        (consumed, base.raw_input.len())
+                    } else if base.helpcode_length > 0 {
                         // 辅助码选中了这个词，剩余输入不再保留该辅助码。
                         (
                             raw_length_for_effective_prefix(

@@ -64,7 +64,7 @@ describe("dictionary pagination status", () => {
   });
 
   it("says so when a page came back empty", () => {
-    expect(dictionaryPageStatus(0, 0, false)).toBe("没有更多结果");
+    expect(dictionaryPageStatus(0, 0, false)).toBe("未找到匹配词条");
     expect(dictionaryPageStatus(300, 0, true)).toBe("没有更多结果");
   });
 });

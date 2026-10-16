@@ -41,6 +41,7 @@ export interface DictionaryImportResult {
 export type DictionaryManifest = { profile: string; sourceCommit: string };
 
 export interface DictionaryClient {
+  /** ASCII 查询匹配编码前缀，含非 ASCII 字符时匹配词条字面内容；宿主在分页前完成筛选。 */
   list(
     offset: number,
     limit: number,

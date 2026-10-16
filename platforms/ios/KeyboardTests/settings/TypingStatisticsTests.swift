@@ -456,8 +456,8 @@ final class TypingStatisticsTests: XCTestCase {
     // Ties keep id order, so Backspace comes before KeyB.
     XCTAssertEqual(heatmap.top().map(\.id), ["KeyA", "Backspace", "KeyB", "Comma", "Nine5"])
     // 页面一次只画一块键盘，其他键按当前那块列出：26 键热力图下列出九键格子，九键热力图下列出字母。两块键盘的底行都有 符，所以它不在其他键里。
-    XCTAssertEqual(heatmap.others(nineKey: false).map(\.id), ["Comma", "Nine5", "Digit1"])
-    XCTAssertEqual(heatmap.others(nineKey: false).map(\.label), [",", "九键 5", "1"])
+    XCTAssertEqual(heatmap.others(nineKey: false).map(\.id), ["Nine5", "Digit1"])
+    XCTAssertEqual(heatmap.others(nineKey: false).map(\.label), ["九键 5", "1"])
     XCTAssertEqual(heatmap.others(nineKey: true).map(\.id), ["KeyA", "KeyB", "Comma", "Digit1"])
     XCTAssertEqual(TypingKeyHeatmap.accessibilityLabel("KeyA", count: 123), "A，123 次")
     // 画在键盘图上的键读它的键面：分词键记在 `'` 上，读出来仍是「分词」。
@@ -562,6 +562,7 @@ final class TypingStatisticsTests: XCTestCase {
     "shiftButton": TypingKeyID.pinyinSeparator, "letterDeleteKey": TypingKeyID.backspace,
     "symbolPanelKey": TypingKeyID.symbol, "layoutToggleButton": TypingKeyID.layer, "inputModeSwitchButton": TypingKeyID.globe,
     "spaceKey": TypingKeyID.space, "bottomLanguageKey": TypingKeyID.language, "returnKey": TypingKeyID.enter,
+    "quickPunctuationKey": TypingKeyID.quickPunctuation,
     "nineKeyDelete": TypingKeyID.backspace, "nineKeyMiddleKey": TypingKeyID.pinyinSeparator,
     "nineKeyClosingMark": TypingKeyID.punctuation,
   ]

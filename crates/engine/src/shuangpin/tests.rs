@@ -866,3 +866,64 @@ fn a_helpcode_never_moves_the_typo_sentence_to_the_first_seat() {
         assert!(double.is_empty(), "{:?}", words(&double));
     }
 }
+
+#[test]
+fn direct_helpcode_accepts_mobile_sentence_examples() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_s VALUES('shi','s','实',100),('shi','s','使',90);\
+         CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_s VALUES('shi''jian','sj','实践',100);\
+         CREATE TABLE tbl_1_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_t VALUES('ta','t','他',100),('ta','t','她',90),('ta','t','它',80);\
+         CREATE TABLE tbl_3_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_t VALUES('ta''ta''ta','ttt','他她它',100);",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Ziranma);
+    let codes = keymap(&[
+        ("实", "bt"),
+        ("使", "zz"),
+        ("他", "ra"),
+        ("她", "na"),
+        ("它", "ba"),
+    ]);
+
+    // 重复查询同时覆盖普通候选缓存命中后的辅助码过滤和输入范围。
+    for _ in 0..2 {
+        for (typed, expected) in [
+            ("uib", "实"),
+            ("uibT", "实"),
+            ("uibjm", "实践"),
+            ("uibTjm", "实践"),
+            ("Uibjm", "实践"),
+            ("tartantab", "他她它"),
+            ("tartantabA", "他她它"),
+        ] {
+            let candidates = engine.query(&request(typed, true), Some(&codes));
+            assert_eq!(words(&candidates)[0], expected, "{typed}");
+            if typed.len() >= 4 {
+                assert_eq!(candidates[0].pinyin, typed.to_ascii_lowercase(), "{typed}");
+            }
+        }
+    }
+    let disabled = engine.query(&request("uibjm", false), Some(&codes));
+    assert!(!words(&disabled).contains(&"实践"));
+    let no_keymap = engine.query(&request("uibjm", true), None);
+    assert!(!words(&no_keymap).contains(&"实践"));
+}
+
+#[test]
+fn direct_helpcode_builds_an_unstored_sentence_before_pruning_homophones() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_t VALUES('ta','t','他',100),('ta','t','她',90),('ta','t','它',1);\
+         WITH RECURSIVE filler(n) AS (SELECT 0 UNION ALL SELECT n+1 FROM filler WHERE n<39)\
+         INSERT INTO tbl_1_t SELECT 'ta','t',char(19968+n),1000 FROM filler;",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Ziranma);
+    let codes = keymap(&[("他", "ra"), ("她", "na"), ("它", "ba")]);
+    let candidates = engine.query(&request("tartantab", true), Some(&codes));
+    assert_eq!(words(&candidates)[0], "他她它");
+    assert_eq!(candidates[0].canonical_pinyin, "ta'ta'ta");
+    assert_eq!(candidates[0].pinyin, "tartantab");
+}

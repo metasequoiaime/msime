@@ -9,7 +9,7 @@ use super::query::{
     remove_manual_delimiters, segment_input, to_quanpin_segmentation,
     trim_trailing_letters_preserve_delimiters,
 };
-use super::utils::{get_full_help_codes, is_all_complete_pinyin};
+use super::utils::{cvt_single_sp_to_pinyin, get_full_help_codes, is_all_complete_pinyin};
 use super::ShuangpinProfile;
 use crate::helpcode::{
     filter_candidates_with_double_helpcodes, reorder_candidates_with_single_helpcode,
@@ -29,6 +29,111 @@ struct HelpcodeQuery {
     base_pure: String,
     base_segmentation: String,
     help_codes: String,
+}
+
+#[derive(Clone, Debug)]
+struct DirectSpelling {
+    code: String,
+    first: Option<char>,
+    second: Option<char>,
+    end: usize,
+}
+
+fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<DirectSpelling>> {
+    fn visit(
+        typed: &str,
+        position: usize,
+        profile: &ShuangpinProfile,
+        path: &mut Vec<DirectSpelling>,
+        paths: &mut Vec<Vec<DirectSpelling>>,
+        remaining: &mut usize,
+    ) {
+        if paths.len() >= 64 || *remaining == 0 {
+            return;
+        }
+        *remaining -= 1;
+        if position == typed.len() {
+            if path.iter().any(|spelling| spelling.first.is_some()) {
+                paths.push(path.clone());
+            }
+            return;
+        }
+        if position + 2 > typed.len() {
+            return;
+        }
+        let code = typed[position..position + 2].to_ascii_lowercase();
+        if cvt_single_sp_to_pinyin(&code, profile).is_empty() {
+            return;
+        }
+        path.push(DirectSpelling {
+            code: code.clone(),
+            first: None,
+            second: None,
+            end: position + 2,
+        });
+        visit(typed, position + 2, profile, path, paths, remaining);
+        path.pop();
+
+        if position + 3 <= typed.len() {
+            let first = typed.as_bytes()[position + 2] as char;
+            if first.is_ascii_lowercase() {
+                path.push(DirectSpelling {
+                    code: code.clone(),
+                    first: Some(first.to_ascii_lowercase()),
+                    second: None,
+                    end: position + 3,
+                });
+                visit(typed, position + 3, profile, path, paths, remaining);
+                path.pop();
+            }
+        }
+        if position + 4 <= typed.len() {
+            let first = typed.as_bytes()[position + 2] as char;
+            let second = typed.as_bytes()[position + 3] as char;
+            if first.is_ascii_lowercase() && second.is_ascii_uppercase() {
+                path.push(DirectSpelling {
+                    code,
+                    first: Some(first.to_ascii_lowercase()),
+                    second: Some(second.to_ascii_lowercase()),
+                    end: position + 4,
+                });
+                visit(typed, position + 4, profile, path, paths, remaining);
+                path.pop();
+            }
+        }
+    }
+
+    let mut paths = Vec::new();
+    if typed.is_ascii() {
+        // 同时限制搜索节点，避免大量无解分支绕过结果数量上限。
+        visit(typed, 0, profile, &mut Vec::new(), &mut paths, &mut 512);
+    }
+    paths
+}
+
+fn direct_helpcode_matches(word: &str, path: &[DirectSpelling], keymap: &HelpcodeKeymap) -> bool {
+    let characters: Vec<char> = word.chars().collect();
+    for (index, spelling) in path.iter().enumerate() {
+        let Some(first) = spelling.first else {
+            continue;
+        };
+        let Some(character) = characters.get(index) else {
+            return false;
+        };
+        let character = character.to_string();
+        let Some(code) = keymap.code(&character) else {
+            return false;
+        };
+        if code.as_bytes().first().copied() != Some(first as u8) {
+            return false;
+        }
+        if let Some(second) = spelling.second {
+            if code.as_bytes().get(1).copied() != Some(second as u8) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// engine.cpp:59-74.
@@ -147,6 +252,65 @@ impl ShuangpinEngine {
         // Without a loaded table nothing matches a helpcode, which is what the reference's null keymap did.
         let empty_keymap = HelpcodeKeymap::default();
         let keymap = keymap.unwrap_or(&empty_keymap);
+
+        // 移动端在直接辅助码后会继续输入：`uibjm` 是 `ui` 加首码 `b` 再加 `jm`，
+        // `tartantab` 则在三个音节上各带一位辅助码。普通的末尾辅助码路径只会看到最后一个奇数字母，
+        // 所以先把这类编码解析成逐音节约束，再回退到原有路径。
+        let typed = if request.raw_input_with_cases.is_empty() {
+            raw.as_str()
+        } else {
+            request.raw_input_with_cases.as_str()
+        };
+        if request.enable_shuangpin_helpcode && !keymap.is_empty() {
+            let mut direct_best: Option<(usize, Vec<WordItem>)> = None;
+            for path in direct_helpcode_paths(typed, self.profile) {
+                if typed.len() < 4 && path.len() == 1 {
+                    continue;
+                }
+                let pure: String = path.iter().map(|spelling| spelling.code.as_str()).collect();
+                let segmentation = segment_input(&pure, self.profile);
+                let mut candidates = self.dictionary.generate_series(&pure, &segmentation, &pure);
+                candidates
+                    .retain(|candidate| direct_helpcode_matches(&candidate.word, &path, keymap));
+                if path.len() >= 2
+                    && !candidates.iter().any(|candidate| {
+                        candidate.canonical_pinyin.split('\'').count() == path.len()
+                    })
+                {
+                    let sentences = self.dictionary.generate_constrained_sentences(
+                        &segmentation,
+                        raw,
+                        |start, word| {
+                            let end = start + word.chars().count();
+                            path.get(start..end)
+                                .is_some_and(|span| direct_helpcode_matches(word, span, keymap))
+                        },
+                    );
+                    candidates.splice(0..0, sentences);
+                }
+                // 选词按原始输入消耗编码，不能留下解析时剥掉的辅助码。
+                for candidate in &mut candidates {
+                    let syllables = candidate.canonical_pinyin.split('\'').count();
+                    if let Some(spelling) = path.get(syllables - 1) {
+                        candidate.pinyin = raw[..spelling.end].to_string();
+                    }
+                }
+                let constrained = path
+                    .iter()
+                    .filter(|spelling| spelling.first.is_some())
+                    .count();
+                if candidates.is_empty() {
+                    continue;
+                }
+                let score = constrained * 2 + candidates[0].word.chars().count().min(path.len());
+                if direct_best.as_ref().is_none_or(|(best, _)| score > *best) {
+                    direct_best = Some((score, candidates));
+                }
+            }
+            if let Some((_, candidates)) = direct_best {
+                return candidates;
+            }
+        }
 
         let mut candidates = if let Some(helpcode) = active_helpcode_query(request, self.profile) {
             let exact = self.dictionary.generate_with_helpcodes(
@@ -375,6 +539,17 @@ fn append_fuzzy_rows(exact: &mut Vec<WordItem>, fuzzy: Vec<WordItem>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn direct_helpcode_search_handles_invalid_and_long_input() {
+        let profile =
+            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Ziranma)
+                .unwrap();
+        assert!(super::direct_helpcode_paths("uib字", profile).is_empty());
+        assert!(super::direct_helpcode_paths("ui'bjm", profile).is_empty());
+        let ambiguous = "ta".repeat(80);
+        assert!(super::direct_helpcode_paths(&ambiguous, profile).len() <= 64);
+    }
+
     use super::{
         append_fuzzy_rows, keep_typo_sentence_off_first_seat, relabel_fuzzy_rows, segment_count,
         sort_by_coverage,

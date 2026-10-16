@@ -1,9 +1,5 @@
 import type { InputScheme } from "../core/input-scheme";
 import { SettingsGroupNote } from "./settings-group-note";
-import { SettingsManagerNote } from "./settings-manager-note";
-import { SettingsManagerActions } from "./settings-manager-actions";
-import { SettingsManagerBlock } from "./settings-manager-block";
-import type { ReactNode } from "react";
 
 import { GroupList, Row } from "../core/platform-controls";
 import {
@@ -35,15 +31,7 @@ import type { PluginPackage, PluginSettingsPage } from "./plugin-types";
 import { SummaryRow } from "./summary-row";
 import { SwitchRow } from "./switch-row";
 import { ActionButton } from "./action-button";
-
-function ActionBlock({ note, children }: { note?: ReactNode; children?: ReactNode }) {
-  return (
-    <SettingsManagerBlock>
-      {note && <SettingsManagerNote>{note}</SettingsManagerNote>}
-      {children && <SettingsManagerActions>{children}</SettingsManagerActions>}
-    </SettingsManagerBlock>
-  );
-}
+import { PluginActionBlock } from "./plugin-action-block";
 
 export interface PluginDetailViewProps {
   pack: PluginPackage;
@@ -144,7 +132,7 @@ export function PluginDetailView({
       </GroupList>
       {!pack.builtin && (
         <GroupList>
-          <ActionBlock note="删除后包里的文件会从本机移除；正在使用的话，设置会回到默认选择。">
+          <PluginActionBlock note="删除后包里的文件会从本机移除；正在使用的话，设置会回到默认选择。">
             <ActionButton
               action={() => onRemove(pack)}
               ariaBusy={working}
@@ -152,7 +140,7 @@ export function PluginDetailView({
               disabled={working}
               label="删除"
             />
-          </ActionBlock>
+          </PluginActionBlock>
         </GroupList>
       )}
     </>
@@ -334,13 +322,13 @@ function PackActions({
 }) {
   switch (pack.kind) {
     case "sound": {
-      if (!keySound) return <ActionBlock note="这台设备不播放音效。" />;
+      if (!keySound) return <PluginActionBlock note="这台设备不播放音效。" />;
       // 选用即使用：按钮在包已选中但开关没开（之后在「声音与效果」关掉了按键音或换了发声方式）时仍可点，点了会把开关重新打开。
       if (pack.mode === "sequence") {
         const selected = preferences.melody.pack === pack.id;
         const playing = melodyPlays(preferences);
         return (
-          <ActionBlock
+          <PluginActionBlock
             note={
               playing
                 ? "按键旋律每按一键弹出旋律的下一个音，停顿 3 秒后从头开始。"
@@ -352,7 +340,7 @@ function PackActions({
               disabled={selected && playing}
               label={selected ? (playing ? "使用中" : "打开按键旋律") : "设为按键旋律"}
             />
-          </ActionBlock>
+          </PluginActionBlock>
         );
       }
       const selected = preferences.key_sound.pack === pack.id;
@@ -360,7 +348,7 @@ function PackActions({
       const playing = keysEnabled && preferences.key_sound.mode === "keys";
       const resume = keysEnabled ? "改用按键音效" : "打开按键音";
       return (
-        <ActionBlock
+        <PluginActionBlock
           note={
             playing
               ? "按键、上屏和成就音效都取自当前音效包；开关和音量在「声音与效果」里。"
@@ -374,14 +362,14 @@ function PackActions({
             disabled={selected && playing}
             label={selected ? (playing ? "使用中" : resume) : "设为当前音效包"}
           />
-        </ActionBlock>
+        </PluginActionBlock>
       );
     }
     case "effect": {
-      if (!effectPacks) return <ActionBlock note="这台设备不绘制特效包。" />;
+      if (!effectPacks) return <PluginActionBlock note="这台设备不绘制特效包。" />;
       const current = preferences.effect_pack === pack.id;
       return (
-        <ActionBlock
+        <PluginActionBlock
           note={
             effectFlashOnly
               ? "特效包决定样式、强度、颜色和时长，使用后「声音与效果」里的样式和强度不再生效。这台设备只让候选栏闪光，不绘制火花：火花和 Power Mode 闪得更亮，粒子数不起作用。"
@@ -396,15 +384,15 @@ function PackActions({
           ) : (
             <ActionButton action={onSelect} label="使用此特效包" />
           )}
-        </ActionBlock>
+        </PluginActionBlock>
       );
     }
     case "music": {
-      if (!music) return <ActionBlock note="这台设备不播放背景音乐。" />;
+      if (!music) return <PluginActionBlock note="这台设备不播放背景音乐。" />;
       const selected = preferences.music.pack === pack.id;
       const playing = preferences.music.enabled;
       return (
-        <ActionBlock
+        <PluginActionBlock
           note={
             playing
               ? "背景音乐只在输入法处于活动状态时播放。"
@@ -422,11 +410,11 @@ function PackActions({
               label="不再使用"
             />
           )}
-        </ActionBlock>
+        </PluginActionBlock>
       );
     }
     case "command_table": {
-      if (!triggers) return <ActionBlock note="这台设备不支持 / 指令。" />;
+      if (!triggers) return <PluginActionBlock note="这台设备不支持 / 指令。" />;
       const position = preferences.command_tables.indexOf(pack.id);
       const full = position < 0 && preferences.command_tables.length >= MAX_COMMAND_TABLES;
       const schemeNote = schemeTableModeNote(scheme, "指令（/ 模式）");
@@ -446,7 +434,7 @@ function PackActions({
             onChange={(enabled) => onCommandTable(pack.id, enabled)}
           />
           {!commandMode && (
-            <ActionBlock note="/ 指令（「输入 → 快捷模式」里的开关）已关闭，启用的指令表不会生效。打开后，在中文标点下没有输入时按 / 再输入指令字母即可使用。">
+            <PluginActionBlock note="/ 指令（「输入 → 快捷模式」里的开关）已关闭，启用的指令表不会生效。打开后，在中文标点下没有输入时按 / 再输入指令字母即可使用。">
               {onLocalMode ? (
                 <ActionButton action={() => onLocalMode("command")} label="打开 / 指令" />
               ) : (
@@ -454,15 +442,15 @@ function PackActions({
                   <ActionButton action={() => onOpenPage("input")} label="前往输入设置" />
                 )
               )}
-            </ActionBlock>
+            </PluginActionBlock>
           )}
-          {schemeNote && <ActionBlock note={schemeNote} />}
+          {schemeNote && <PluginActionBlock note={schemeNote} />}
         </>
       );
     }
     case "symbol_set":
       return (
-        <ActionBlock
+        <PluginActionBlock
           note={
             symbolSetPacks
               ? "装上即在符号面板里显示：符号组以插件名为分类排在内置符号之后，颜文字组排在颜文字的 All 之后。卸载后不再显示。"
@@ -472,18 +460,18 @@ function PackActions({
       );
     case "wordbook": {
       if (!wordbookPacks || !onOpenWordbook)
-        return <ActionBlock note="这台设备的背单词不列出单词本插件。" />;
+        return <PluginActionBlock note="这台设备的背单词不列出单词本插件。" />;
       return (
-        <ActionBlock note="这本书出现在背单词的词书里。卸载插件后复习进度仍会保留，重新安装后可以接着复习。">
+        <PluginActionBlock note="这本书出现在背单词的词书里。卸载插件后复习进度仍会保留，重新安装后可以接着复习。">
           <ActionButton
             action={() => onOpenWordbook(wordbookPackBookId(pack.id))}
             label="去背单词"
           />
-        </ActionBlock>
+        </PluginActionBlock>
       );
     }
     case "helpcode": {
-      if (!helpcode) return <ActionBlock note="这台设备不使用辅助码。" />;
+      if (!helpcode) return <PluginActionBlock note="这台设备不使用辅助码。" />;
       const toggle = (key: "helpcode_pack_quanpin" | "helpcode_pack_shuangpin", on: boolean) =>
         onChange({ ...preferences, [key]: on ? pack.id : "" });
       return (
@@ -501,15 +489,15 @@ function PackActions({
             onChange={(on) => toggle("helpcode_pack_shuangpin", on)}
           />
           {onOpenPage && (
-            <ActionBlock note="辅助码的开关和显示方式在「输入 → 辅助码」里。">
+            <PluginActionBlock note="辅助码的开关和显示方式在「输入 → 辅助码」里。">
               <ActionButton action={() => onOpenPage("input")} label="前往辅助码设置" />
-            </ActionBlock>
+            </PluginActionBlock>
           )}
         </>
       );
     }
     case "phrase_table": {
-      if (!triggers) return <ActionBlock note="这台设备不支持快捷短语插件。" />;
+      if (!triggers) return <PluginActionBlock note="这台设备不支持快捷短语插件。" />;
       const position = preferences.phrase_tables.indexOf(pack.id);
       const full = position < 0 && preferences.phrase_tables.length >= MAX_PHRASE_TABLES;
       const schemeNote = schemeTableModeNote(scheme, "快捷短语（K 模式）");
@@ -529,13 +517,13 @@ function PackActions({
             onChange={(enabled) => onPhraseTable(pack.id, enabled)}
           />
           {!quickPhraseMode && (
-            <ActionBlock note="快捷短语（K 模式）已关闭。在「输入 → 快捷模式」打开后，按 Shift+K 再输入编码即可用到短语表。">
+            <PluginActionBlock note="快捷短语（K 模式）已关闭。在「输入 → 快捷模式」打开后，按 Shift+K 再输入编码即可用到短语表。">
               {onOpenPage && (
                 <ActionButton action={() => onOpenPage("input")} label="前往输入设置" />
               )}
-            </ActionBlock>
+            </PluginActionBlock>
           )}
-          {schemeNote && <ActionBlock note={schemeNote} />}
+          {schemeNote && <PluginActionBlock note={schemeNote} />}
         </>
       );
     }
@@ -577,7 +565,7 @@ export function MissingPluginView({
     <>
       <PluginViewHeader title={missingTitle(entry)} onBack={onBack} />
       <GroupList>
-        <ActionBlock note={note}>
+        <PluginActionBlock note={note}>
           <ActionButton
             action={() => {
               onChange(dropped());
@@ -585,7 +573,7 @@ export function MissingPluginView({
             }}
             label={action}
           />
-        </ActionBlock>
+        </PluginActionBlock>
       </GroupList>
     </>
   );

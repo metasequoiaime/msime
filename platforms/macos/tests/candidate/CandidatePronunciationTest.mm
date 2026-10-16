@@ -67,7 +67,7 @@ int main()
         NSMutableArray<NSValue *> *ranges = [NSMutableArray array];
         NSMutableArray<NSNumber *> *starts = [NSMutableArray array];
         NSString *display = MSIMECandidateGlossDisplay(@"love; affection\n愛する", @"/lʌv/\naisuru", ranges, starts);
-        Check([display isEqual:@"love; affection  /lʌv/\n愛する  aisuru"], "display appends each reading to its line");
+        Check([display isEqual:@"love; affection\n/lʌv/\n愛する\naisuru"], "each reading takes its own line under its gloss line");
         Check(ranges.count == 2 && [[display substringWithRange:ranges[0].rangeValue] isEqual:@"/lʌv/"] &&
                   [[display substringWithRange:ranges[1].rangeValue] isEqual:@"aisuru"],
               "reading ranges cover exactly the readings");
@@ -78,7 +78,9 @@ int main()
         [starts removeAllObjects];
         Check([MSIMECandidateGlossDisplay(@"sky", @"", ranges, starts) isEqual:@"sky"] && ranges.count == 0,
               "no reading leaves the gloss as it is");
-        Check([MSIMECandidateGlossDisplay(@"sky", @"/skai/", nil, nil) isEqual:@"sky  /skai/"], "ranges are optional");
+        Check([MSIMECandidateGlossDisplay(@"sky", @"/skai/", nil, nil) isEqual:@"sky\n/skai/"], "ranges are optional");
+        Check([MSIMECandidateGlossDisplay(@"sky\n\nsora", @"/skai/\n\nsora", nil, nil) isEqual:@"sky\n/skai/\n\nsora\nsora"],
+              "an empty target line stays empty and gets no reading line");
     }
     if (failures) std::fprintf(stderr, "%d failure(s)\n", failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;

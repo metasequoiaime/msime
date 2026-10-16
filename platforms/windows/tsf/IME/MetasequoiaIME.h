@@ -100,6 +100,8 @@ constexpr UINT FOCUS_LOSS_DEFER_MS = 300;
 constexpr UINT FOCUS_STATUS_RESEND_DELAY_MS = 50;
 LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND wndHandle, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
+namespace msime::tsf { struct EngineResult; }
+
 class CMetasequoiaIME : public ITfTextInputProcessorEx,
                         public ITfThreadMgrEventSink,
                         public ITfTextEditSink,
@@ -334,6 +336,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _CommitServerExactText(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     // 宿主会话拥有组字时，在宿主会话里选中候选窗高亮的那一项：选完了就上屏并结束组字，只选了一段（分段选词）就按宿主会话剩下的原文继续组字。数字键和空格都走这里，宿主会话因此和 Server 一样前进，之后的 Shift、回车不会再把已经上屏或选过的拼音交出来。候选窗与宿主会话的候选列表对不上（代次过期）或选择失败时返回 S_FALSE，什么也不写。
     HRESULT _SelectHighlightedHostCandidate(TfEditCookie ec, _In_ ITfContext *pContext);
+    HRESULT _ApplyHostCompositionResult(TfEditCookie ec, ITfContext *pContext,
+                                         const msime::tsf::EngineResult &result);
     HRESULT _HandleCandidateConvert(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId,
                                     const std::wstring &prefetchedText);
     HRESULT _HandleCandidateArrowKey(TfEditCookie ec, _In_ ITfContext *pContext, _In_ KEYSTROKE_FUNCTION keyFunction,
@@ -819,6 +823,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _deferredProjectedCandidateActive;
     bool _deferredProjectedUnicodeMode;
     bool _deferredProjectedUrlMode;
+    bool _deferredProjectedPhraseActive;
     bool _deferredProjectedKoreanHanjaListOpen;
     uint64_t _deferredKeyFocusGeneration;
     bool _deferredKeyDrainPosted;

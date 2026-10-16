@@ -1,6 +1,7 @@
 #include "EngineSessionAdapter.h"
 #include "../common/HostOnlineCandidateSync.h"
 #include "../../common/HostApiString.h"
+#include "../common/PhrasePreeditOptions.h"
 #include <nlohmann/json.hpp>
 namespace msime::tsf {
 using json = nlohmann::json;
@@ -33,7 +34,10 @@ bool EngineSessionAdapter::response(char *raw, std::string *out,
 }
 bool EngineSessionAdapter::create(const std::string &options, std::string *error) {
   destroy(); std::string result;
-  if (!response(msime_client_create(reinterpret_cast<const uint8_t *>(options.data()), options.size()), &result, error)) return false;
+  std::string prepared;
+  try { prepared = msime::windows::phrase_preedit_options(options); }
+  catch (...) { if (error) *error = "Invalid Engine options"; return false; }
+  if (!response(msime_client_create(reinterpret_cast<const uint8_t *>(prepared.data()), prepared.size()), &result, error)) return false;
   try {
     auto value = json::parse(result).at("value");
     session_ = value.is_object() ? value.at("session").get<uint64_t>() : value.get<uint64_t>();

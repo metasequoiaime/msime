@@ -53,6 +53,7 @@ HOST_DIFFERENCES = {
 
 # Sources whose `main` takes an argument the build system supplies.
 ARGUMENTS = {
+    "input/backspace_selected_phrase.cpp": ["platforms/windows/tests/input/fixtures/msime-phrase-backspace.db"],
     "input/host_online_candidates.cpp": ["platforms/windows/tests/input/fixtures/msime-pinyin-online.db"],
     "core/installer_launch.cpp": ["platforms/windows/installer/msime_setup.iss"],
     "input/zhuyin_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-zhuyin.db"],
@@ -68,6 +69,12 @@ ARGUMENTS = {
 # other source that needs more than itself.
 # Values are (sources relative to platforms/windows, whether they need the shared host library).
 COMPANIONS: dict[str, tuple[list[str], bool]] = {
+    # Windows 的两份真实会话共同验证部分选词、普通退格与实时设置。
+    "input/backspace_selected_phrase.cpp": (
+        ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp",
+         "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"],
+        True,
+    ),
     "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),

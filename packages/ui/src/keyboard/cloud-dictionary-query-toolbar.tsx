@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import type { ReactNode } from "react";
 import * as cloud from "./cloud-panel-style";
 import { CloudDictionaryKindSelect } from "./cloud-dictionary-kind-select";
@@ -52,13 +53,7 @@ export function CloudDictionaryQueryToolbar({
           value={queryValue}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
-            if (
-              event.key !== "Enter" ||
-              busy ||
-              queryDisabled ||
-              event.nativeEvent.isComposing ||
-              event.keyCode === 229
-            )
+            if (event.key !== "Enter" || busy || queryDisabled || isComposingKeyEvent(event))
               return;
             void onQuery();
           }}

@@ -1,34 +1,19 @@
 import { SettingsGroupNote } from "./settings-group-note";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import * as settings from "./settings-style";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { GroupList, Row } from "../core/platform-controls";
-import {
-  CLOUD_CLIPBOARD_MAX_UTF16,
-  cloudClipboardAvailabilityNote,
-  cloudClipboardErrorMessage,
-  cloudClipboardFailure,
-  type CloudClipboardAvailability,
-  type CloudClipboardRequest,
-} from "./cloud-clipboard-send";
-import { cloudClipboardE2e } from "../keyboard/cloud-response";
+import type { CloudClipboardRequest } from "./cloud-clipboard-send";
 import { ActionButton } from "./action-button";
 import { SwitchRow } from "./switch-row";
-import { useAsyncGeneration } from "./use-async-generation";
+import { useClipboardHistory } from "./use-clipboard-history";
+import { useClipboardHistoryCloud } from "./use-clipboard-history-cloud";
+import type { ClipboardHistoryClient } from "./clipboard-history-model";
 import { formatDateTime } from "../core/format-date";
 
-export type ClipboardHistoryEntry = { text: string; timestampMs: number; pinned: boolean };
-
-export type ClipboardHistoryClient = {
-  clear(): Promise<void>;
-  list?(): Promise<ClipboardHistoryEntry[]>;
-  sync?(): Promise<ClipboardHistoryEntry[]>;
-  copy?(text: string): Promise<void>;
-  remove?(text: string): Promise<void>;
-  setPinned?(text: string, pinned: boolean): Promise<void>;
-};
+export type { ClipboardHistoryClient, ClipboardHistoryEntry } from "./clipboard-history-model";
 
 export interface ClipboardHistorySectionProps {
   client?: ClipboardHistoryClient;
@@ -39,7 +24,7 @@ export interface ClipboardHistorySectionProps {
   ios: boolean;
   onToggle: (enabled: boolean) => void;
   onError: (message: string) => void;
-  /** Present while the page is shown on a host that offers the cloud clipboard; each history entry then gets a 发到云剪贴板 action. Nothing is uploaded unless the user picks an entry. */
+  /** 页面可见且宿主支持云剪贴板时提供；用户选择某条记录后才发送。 */
   cloudRequest?: CloudClipboardRequest;
   /** 云剪贴板现在走哪条路，例如已保存的自建中继地址和令牌；它一变（同一页上保存或改回了中继）就重新查一次可用状态，不沿用另一条路的结果。 */
   cloudRoute?: string;
@@ -63,190 +48,22 @@ export function ClipboardHistorySection({
   note,
   children,
 }: ClipboardHistorySectionProps) {
-  const [entries, setEntries] = useState<ClipboardHistoryEntry[]>([]);
-  const [clearArmed, setClearArmed] = useState(false);
-  const [historyBusy, setHistoryBusy] = useState(false);
-  const [cloud, setCloud] = useState<CloudClipboardAvailability>("checking");
-  const [cloudNotice, setCloudNotice] = useState("");
-  const [sending, setSending] = useState(false);
-  const historyShown = historyEnabled && Boolean(client?.list);
-  const cloudRevision = useAsyncGeneration(cloudRequest, historyShown, cloudRoute);
-  const historyGeneration = useAsyncGeneration(
-    client,
-    ios,
-    page,
-    historyEnabled,
-    persistedHistoryEnabled,
-    revision,
-  );
-  // A write belongs to the client even while the user visits another settings page.
-  const historyActionGeneration = useAsyncGeneration(
-    client,
-    ios,
-    historyEnabled,
-    persistedHistoryEnabled,
-  );
-  const historyActionBusy = useRef(false);
-  const historyRead = useRef(0);
-
-  useEffect(() => {
-    historyActionBusy.current = false;
-    setHistoryBusy(false);
-    return () => {
-      historyActionBusy.current = false;
-    };
-  }, [client, ios, historyEnabled, persistedHistoryEnabled]);
-
-  // The account state and the server's enabled flag are read once each time the page is opened with the history showing; there is no polling.
-  useEffect(() => {
-    const revision = cloudRevision.current;
-    setCloud("checking");
-    setCloudNotice("");
-    setSending(false);
-    if (!cloudRequest || !historyShown) return;
-    cloudRequest({ operation: "list", search: "" }).then(
-      (result) => {
-        if (revision !== cloudRevision.current) return;
-        const e2e = cloudClipboardE2e(result);
-        setCloud(
-          result.enabled === false || e2e?.status === "disabled"
-            ? "disabled"
-            : e2e?.status === "pending"
-              ? "pending"
-              : "ready",
-        );
-      },
-      (error: unknown) => {
-        if (revision === cloudRevision.current) setCloud(cloudClipboardFailure(error));
-      },
-    );
-  }, [cloudRequest, cloudRevision, historyShown, cloudRoute]);
-
-  const sendToCloud = async (text: string) => {
-    if (!cloudRequest || cloud !== "ready" || sending) return;
-    if (text.length > CLOUD_CLIPBOARD_MAX_UTF16) {
-      setCloudNotice(`这条记录超过 ${CLOUD_CLIPBOARD_MAX_UTF16} 个 UTF-16 单元，无法发到云剪贴板`);
-      return;
-    }
-    const revision = cloudRevision.current;
-    setSending(true);
-    setCloudNotice("正在发到云剪贴板…");
-    try {
-      await cloudRequest({ operation: "add", text });
-      if (revision === cloudRevision.current) setCloudNotice("已发到云剪贴板");
-    } catch (error) {
-      if (revision !== cloudRevision.current) return;
-      const failure = cloudClipboardFailure(error);
-      if (failure === "unavailable") {
-        setCloudNotice(cloudClipboardErrorMessage(error, "发到云剪贴板失败，请稍后重试"));
-      } else {
-        // 未登录、本设备待批准和云剪贴板已关闭都要先由用户处理，在那之前不再允许发送。
-        setCloud(failure);
-        setCloudNotice("");
-      }
-    } finally {
-      if (revision === cloudRevision.current) setSending(false);
-    }
-  };
-  const cloudNote = cloudRequest ? cloudNotice || cloudClipboardAvailabilityNote(cloud) : undefined;
-
-  useEffect(() => {
-    const currentGeneration = historyGeneration.current;
-    const currentRead = historyRead.current;
-    // The section remains mounted behind other settings pages. Read on entry instead of
-    // starting a request that will be invalidated before the history is shown.
-    if (page && page !== "tools") return;
-    if (!ios && !persistedHistoryEnabled) {
-      setEntries([]);
-      setClearArmed(false);
-      return;
-    }
-    if (!client?.list) {
-      setEntries([]);
-      setClearArmed(false);
-      return;
-    }
-    void client
-      .list()
-      .then((next) => {
-        if (
-          currentGeneration === historyGeneration.current &&
-          currentRead === historyRead.current
-        ) {
-          setEntries(next);
-          setClearArmed(false);
-        }
-      })
-      .catch(() => undefined);
-  }, [client, historyGeneration, ios, page, historyEnabled, persistedHistoryEnabled, revision]);
-
-  // 「从系统剪贴板同步」按钮已经撤掉：打开剪贴板历史并保存之后自动记一次。后台每 750 ms 采样一次剪贴板，但开关关着时 change count 照样往前走，刚打开时剪贴板里已有的那一条不会被记下，按钮原来只补这一条。只在保存的值从关变成开的那一次同步，进入页面或者本来就开着时不同步。Windows 原生设置页的同步按钮走同一个 `sync_clipboard_history`，不受影响。
-  const persistedBefore = useRef(persistedHistoryEnabled);
-  useEffect(() => {
-    const turnedOn = !persistedBefore.current && persistedHistoryEnabled;
-    persistedBefore.current = persistedHistoryEnabled;
-    const sync = client?.sync;
-    if (ios || !turnedOn || !historyEnabled || !sync || historyActionBusy.current) return;
-    historyActionBusy.current = true;
-    setHistoryBusy(true);
-    const currentGeneration = historyActionGeneration.current;
-    void sync()
-      .then((next) => {
-        if (currentGeneration !== historyActionGeneration.current) return;
-        historyRead.current++;
-        setEntries(next);
-        setClearArmed(false);
-      })
-      .catch(() => {
-        if (currentGeneration === historyActionGeneration.current) onError("无法同步剪贴板历史");
-      })
-      .finally(() => {
-        if (currentGeneration === historyActionGeneration.current) {
-          historyActionBusy.current = false;
-          setHistoryBusy(false);
-        }
-      });
-    // 只跟着保存的开关走；onError 每次渲染都是新函数，不该触发同步。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, ios, historyEnabled, persistedHistoryEnabled]);
-
-  const mutate = async (action: () => Promise<void>, failure: string) => {
-    if (historyActionBusy.current) return;
-    historyActionBusy.current = true;
-    setHistoryBusy(true);
-    const currentGeneration = historyActionGeneration.current;
-    const currentClient = client;
-    try {
-      await action();
-      if (currentGeneration !== historyActionGeneration.current) return;
-      const currentRead = ++historyRead.current;
-      setClearArmed(false);
-      if (currentClient?.list) {
-        const next = await currentClient.list();
-        if (
-          currentGeneration !== historyActionGeneration.current ||
-          currentRead !== historyRead.current
-        )
-          return;
-        setEntries(next);
-      }
-    } catch {
-      if (currentGeneration === historyActionGeneration.current) onError(failure);
-    } finally {
-      if (currentGeneration === historyActionGeneration.current) {
-        historyActionBusy.current = false;
-        setHistoryBusy(false);
-      }
-    }
-  };
-
-  const toggle = (enabled: boolean) => {
-    onToggle(enabled);
-    if (!enabled) {
-      setEntries([]);
-      setClearArmed(false);
-    }
-  };
+  const { entries, clearArmed, historyBusy, historyShown, toggle, clear, copy, remove, setPinned } =
+    useClipboardHistory({
+      client,
+      historyEnabled,
+      persistedHistoryEnabled,
+      revision,
+      page,
+      ios,
+      onToggle,
+      onError,
+    });
+  const { cloud, sending, cloudNote, sendToCloud } = useClipboardHistoryCloud({
+    cloudRequest,
+    cloudRoute,
+    historyShown,
+  });
 
   const clipboardDescription = ios
     ? "由键盘的“允许完全访问”权限控制；记录仅保存在本机。"
@@ -272,13 +89,7 @@ export function ClipboardHistorySection({
           <SettingsManagerBlock>
             <SettingsManagerActions>
               <ActionButton
-                action={() => {
-                  if (!clearArmed) {
-                    setClearArmed(true);
-                    return;
-                  }
-                  void mutate(() => client.clear(), "无法清空剪贴板历史，请稍后重试。");
-                }}
+                action={() => void clear()}
                 disabled={!historyEnabled || historyBusy}
                 label={clearArmed ? "确认清空" : "清空历史"}
               />
@@ -286,7 +97,7 @@ export function ClipboardHistorySection({
           </SettingsManagerBlock>
         )}
       </GroupList>
-      {historyEnabled && client?.list && (
+      {historyShown && (
         <GroupList title="历史记录">
           {cloudNote && <SettingsGroupNote role="status">{cloudNote}</SettingsGroupNote>}
           <div className={settings.clipboardList} aria-label="剪贴板历史">
@@ -305,8 +116,8 @@ export function ClipboardHistorySection({
                     </small>
                   </span>
                   <span className={settings.clipboardActions}>
-                    {client.copy && (
-                      <ActionButton action={() => void client.copy!(entry.text)} label="重新复制" />
+                    {client?.copy && (
+                      <ActionButton action={() => void copy(entry.text)} label="重新复制" />
                     )}
                     {cloudRequest && (
                       <ActionButton
@@ -315,24 +126,17 @@ export function ClipboardHistorySection({
                         label="发到云剪贴板"
                       />
                     )}
-                    {client.setPinned && (
+                    {client?.setPinned && (
                       <ActionButton
-                        action={() =>
-                          void mutate(
-                            () => client.setPinned!(entry.text, !entry.pinned),
-                            "无法更新剪贴板固定状态",
-                          )
-                        }
+                        action={() => void setPinned(entry.text, !entry.pinned)}
                         ariaLabel={`${entry.pinned ? "取消固定" : "固定"}剪贴板记录`}
                         disabled={historyBusy}
                         label={entry.pinned ? "取消固定" : "固定"}
                       />
                     )}
-                    {client.remove && (
+                    {client?.remove && (
                       <ActionButton
-                        action={() =>
-                          void mutate(() => client.remove!(entry.text), "无法删除剪贴板记录")
-                        }
+                        action={() => void remove(entry.text)}
                         ariaLabel="删除剪贴板记录"
                         disabled={historyBusy}
                         label="删除"

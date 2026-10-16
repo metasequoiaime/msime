@@ -41,6 +41,8 @@ struct SkinTokens
     bool showSelectedBar = false;
     // The translation line when a package gives one (the resolved `secondary` differs from `number`); none draws it like the numbers.
     std::optional<Rgba> translation;
+    // 选中行的释义行（连同它下面的读音行），只在有 `translation` 时才有：选中底色不透明时按底色挑白或近黑、0.82 不透明度，和选中序号一样；底色半透明时就是 `translation` 本身。没有它时选中行仍画 `translation`，皮肤的释义色和不透明的选中底色常常是同一色系（`selected = "#4D6BFE"`、`translation = "#2F5BD3"`），蓝字压在蓝底上读不出来。
+    std::optional<Rgba> selectedTranslation;
     // The floating toolbar's separator, set only by a package's `[toolbar]` colours; none draws it in the border colour. The candidate window does not read it.
     std::optional<Rgba> divider;
 };
@@ -393,8 +395,8 @@ struct ResolvedSkin
 bool IsSafeSkinId(std::string_view id);
 // The native macOS candidate tokens (design-tokens-desktop §1.2) that every null slot of a resolved theme falls back to.
 SkinTokens NativeCandidateTokens(bool dark);
-// The selected row's foregrounds for a palette that left them to the platform, derived from the fill actually drawn (THEME_CONTRACT §5 step 6): white or near-black on an opaque fill, the number at 0.82 like the native one, and the row's own text and number colours on a translucent fill, where they are what stays readable. On the native solid accent this gives the native white.
-void DeriveSelectedForegrounds(SkinTokens &tokens, bool text, bool number);
+// The selected row's foregrounds for a palette that left them to the platform, derived from the fill actually drawn (THEME_CONTRACT §5 step 6): white or near-black on an opaque fill, the number at 0.82 like the native one, and the row's own text and number colours on a translucent fill, where they are what stays readable. On the native solid accent this gives the native white. `translation` 为真且皮肤给了释义色时，选中行的释义色按选中序号同样的规则推导。
+void DeriveSelectedForegrounds(SkinTokens &tokens, bool text, bool number, bool translation = true);
 // A resolved candidate skin with the user's style laid over it, for the candidate window and its preview only: the floating toolbar and the colour wells keep the skin as resolved.
 //
 // The radius goes user value, then the package's corner_radius_dip (already in tokens.radius), then the native card radius, and a row is never rounder than the card it sits in. The opacity reaches the card surface, its border and the package background image and nothing else, so text, numbers and the selected fill stay as legible as the theme made them. The scale multiplies every length the skin carries, the radii, the inset and the package's decoration and minimum width, so the card keeps its proportions at any size; the hairline border keeps its width.

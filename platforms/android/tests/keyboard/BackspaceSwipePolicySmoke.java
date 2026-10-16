@@ -29,11 +29,14 @@ public final class BackspaceSwipePolicySmoke {
 
         BackspaceSwipePolicy.Box box = BackspaceSwipePolicy.box(900f, keyTop, 1000f, 1080f, density);
         check(box.bottom() == 220f && box.top() == 140f, "the box ends at the arm line and is 40 dp tall");
-        check(box.right() <= 1080f - 8f && box.right() - box.left() == 240f,
-            "the box is at least 120 dp wide and stays inside the right edge");
+        check(box.right() <= 1080f - 8f && box.right() - box.left() == 320f,
+            "the box is at least 160 dp wide and stays inside the right edge");
         BackspaceSwipePolicy.Box wide = BackspaceSwipePolicy.box(400f, keyTop, 560f, 1080f, density);
         check(wide.right() - wide.left() == 320f && wide.left() == 320f,
             "the box is two keys wide and centred on the key");
+        BackspaceSwipePolicy.Box narrow = BackspaceSwipePolicy.box(90f, keyTop, 110f, 120f, density);
+        check(narrow.left() == 8f && narrow.right() == 112f,
+            "a narrow keyboard uses the available width without overflowing");
 
         // 九键的删除键在第一排，上面只有约 50 dp 的工具栏：框缩到至少 28 dp，待命线仍在弹出线之上。
         float topRow = 100f;

@@ -17,6 +17,8 @@ struct EngineView {
   uint64_t session = 0;
   std::string preedit;
   std::string editing_text;
+  // Runtime 暂存的已选词段，显示在剩余拼写前面，不是一次提交。
+  std::string phrase_prefix;
   // The kana a Japanese composition converts to; empty for every other scheme. The composition
   // shows this rather than the letters - see shared/input/CompositionDisplay.h.
   std::string reading;

@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import { useState, type KeyboardEvent } from "react";
 import type { Preferences } from "../core/preferences-model";
 import { rootSettingsGroups, type RootPage } from "./root-settings-model";
@@ -18,7 +19,7 @@ export function useHomeSearch(preferences: Preferences, rootPages?: readonly Roo
     : [];
 
   const searchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (isComposingKeyEvent(event)) return;
     if (event.key !== "Escape" || !query) return;
     event.preventDefault();
     event.stopPropagation();

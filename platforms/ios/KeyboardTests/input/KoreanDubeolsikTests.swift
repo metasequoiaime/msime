@@ -156,8 +156,12 @@ final class KoreanDubeolsikTests: XCTestCase {
 
     let punctuation = try button("quickPunctuationKey", in: controller)
     XCTAssertEqual(punctuation.configuration?.title, ",")
-    XCTAssertEqual(punctuation.menu?.children.compactMap { ($0 as? UIAction)?.title },
-                   [",", ".", "?", "!", ":", ";", "@"])
+    // 韩文手机 26 键同样通过逗号长按输入 ASCII 句号，不再打开常用标点菜单。
+    let comma = try XCTUnwrap(punctuation as? KeyboardKeyButton)
+    XCTAssertNil(comma.menu)
+    XCTAssertEqual(comma.cornerHint, ".")
+    XCTAssertNotNil(comma.onCornerHint)
+    XCTAssertFalse(comma.swipesCornerHint)
     XCTAssertFalse(try button("punctuationShortcut", in: controller).isEnabled)
     XCTAssertFalse(try button("characterSetShortcut", in: controller).isEnabled)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)

@@ -350,12 +350,22 @@ static BOOL MSIMESpellingSymbolString(NSDictionary *view, NSString *characters) 
     return characters.length == 1 && MSIMESpellingSymbol(view, [characters characterAtIndex:0]);
 }
 
+// 候选字后面的注释（辅助码、五笔编码提示、emoji 说明、地名所属省份……）一律包在半角括号里、紧贴候选字，画成「你好(wqvb)」；已经带括号的原样保留，空串不显示。
+static NSString *MSIMEParenthesizedAnnotation(id value) {
+    if (![value isKindOfClass:NSString.class]) return @"";
+    NSString *annotation = [(NSString *)value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (annotation.length == 0) return @"";
+    const unichar first = [annotation characterAtIndex:0], last = [annotation characterAtIndex:annotation.length - 1];
+    if ((first == '(' && last == ')') || (first == 0xFF08 && last == 0xFF09)) return annotation;
+    return [NSString stringWithFormat:@"(%@)", annotation];
+}
+
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
-    NSString *annotation = candidate[@"annotation"];
+    NSString *annotation = MSIMEParenthesizedAnnotation(candidate[@"annotation"]);
     NSString *text = candidate[@"text"];
     id corrected = candidate[@"corrected"];
     if (MSIMEStrictBoolean(corrected)) text = [text stringByAppendingString:@"*"];
-    if ([annotation isKindOfClass:NSString.class]) text = [text stringByAppendingString:annotation];
+    if (annotation.length) text = [text stringByAppendingString:annotation];
     id source = candidate[@"source"];
     const BOOL integerSource = [source isKindOfClass:NSNumber.class] &&
                                CFGetTypeID((__bridge CFTypeRef)source) != CFBooleanGetTypeID() &&
@@ -6877,6 +6887,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (hanjaReadings) {
             reading = annotation;
             annotation = @"";
+        } else {
+            annotation = MSIMEParenthesizedAnnotation(annotation);
         }
         NSString *gloss = MSIMECandidateGlossRun(reading, CandidateTranslation(candidate));
         // The tooltip and the accessibility label keep the reading apart from the Hanja rather than running the two together.
@@ -7525,6 +7537,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
                                       row.width, row.height);
             button.toolTip = pageGeometry.tooltips[index];
             button.translation = CandidateTranslation(candidate);
+            // 读音跟着新的释义重算，和上面排版量的是同一份；留着旧的会把上一条释义的读音画在新释义下面。
+            button.pronunciation = [self pronunciationForCandidate:candidate];
             button.glossReading = pageGeometry.readings[index];
             button.armedGlossColumn = _armedGlossColumn;
             button.translationFont = glossFont;
@@ -7727,7 +7741,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             button.titleColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
         // The translation is the theme's secondary colour, which always equals the number colour: the design draws a plain row's gloss in cSub (dc.html L2150, L2183), the theme's kb.sub or the platform's sub, and on the selected fill in candSelTr (dc.html L1533), the selected number's colour. A fixed-position row keeps the Windows renderer's rule instead, where the translation is a child of the candidate text and takes its fixed-position colour at reduced opacity.
         // A package's own translation colour is its secondary colour, drawn on every row as Windows does.
-        if (tokens.translation) button.translationColor = SkinColor(*tokens.translation);
+        // 选中行换成按选中底色推导的释义色（SkinTokens::selectedTranslation），释义和它下面的读音才不会和不透明的选中底色同色。
+        if (tokens.translation)
+            button.translationColor = SkinColor(button.candidateHighlighted && tokens.selectedTranslation ? *tokens.selectedTranslation : *tokens.translation);
         else if (button.candidateFixed) button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
         else button.translationColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);

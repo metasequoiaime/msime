@@ -705,6 +705,15 @@ public final class MSIMEInputService extends InputMethodService {
     private long keyStatisticsGeneration;
     private Runnable keyPressFlushTask;
     long editorContextRevision;
+    /** 当前输入框的一次快速删除备份，超时或输入上下文变化立即清除。 */
+    private QuickDeleteUndo quickDeleteUndo;
+    private final Runnable expireQuickDeleteUndo = this::clearQuickDeleteUndo;
+
+    private void clearQuickDeleteUndo() {
+        quickDeleteUndo = null;
+        main.removeCallbacks(expireQuickDeleteUndo);
+    }
+
     /** Editor-owned smart-punctuation snapshots; never persisted or sent to the UI. */
     private JSONObject smartRepeatSnapshot;
     private JSONObject smartSpaceSnapshot;
@@ -1238,6 +1247,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean commitText(String text, TypingSource source) {
+        clearQuickDeleteUndo();
         if (connection == null) return false;
         boolean committed;
         try { committed = connection.commitText(text, 1); }
@@ -1257,6 +1267,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 删光标前 `length` 个 UTF-16 单元，并记下删完后的选区预期，免得这次删除迟到的回报把紧接着开始的新组字取消掉。有选区或组字区时删的位置由编辑器决定，追踪器会自己作废预期。 */
     boolean deleteBeforeCursor(int length) {
+        clearQuickDeleteUndo();
         pairedPunctuationStack.clear();
         boolean deleted = InputConnectionGuard.deleteSurroundingText(connection, length, 0);
         if (deleted) {
@@ -1270,6 +1281,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 删除键先删选区；没有前文可删时交给编辑器处理引用等控件，其余按码位删字并追踪回声。 */
     void deleteCodePointBeforeCursor() {
+        clearQuickDeleteUndo();
         pairedPunctuationStack.clear();
         if (deleteSelection()) return;
         CharSequence before = InputConnectionGuard.textBeforeCursor(connection, 1);
@@ -1590,6 +1602,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInput() {
         flushKeyPresses();
+        clearQuickDeleteUndo();
         imeLetterRows.cancelBackspaceRepeat();
         cancelInputViewRefresh();
         // 新输入会话会按当前隐私设置创建，不把上一个输入框的待重建请求带过去。
@@ -1739,6 +1752,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        clearQuickDeleteUndo();
         deviceInfoCopyGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
@@ -1952,6 +1966,7 @@ public final class MSIMEInputService extends InputMethodService {
      * the session after the bounded maintenance transaction has finished.
      */
     private void scheduleEngineStartup(String options, long generation) {
+        if (pendingEngineStartup != generation) dictionaryStartupRetryDeadline = SystemClock.uptimeMillis() + 5_000;
         pendingEngineStartup = generation;
         Runnable complete = () -> {
             if (generation != engineStartGeneration || connection == null || session != 0) return;
@@ -2027,7 +2042,19 @@ public final class MSIMEInputService extends InputMethodService {
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
             int drawnLayout = displayedTouchLayout(view);
-            view = value(NativeClient.create(options.toString()));
+            String created = NativeClient.create(options.toString());
+            JSONObject response = new JSONObject(created);
+            if ("dictionary maintenance busy".equals(response.optString("error"))
+                    && engineStartupPending() && SystemClock.uptimeMillis() < dictionaryStartupRetryDeadline) {
+                // 导入页可能刚取得一批词的维护租约。保留「准备中」并稍后重试，不能一次竞争就退回直接输入。
+                long generation = engineStartGeneration;
+                main.postDelayed(() -> {
+                    if (generation == engineStartGeneration && connection != null && engineStartupPending())
+                        scheduleEngineStartup(optionsText, generation);
+                }, 50);
+                return;
+            }
+            view = value(created);
             session = strictCandidateLong(view, "session");
             String resources = options.optString("resources", "");
             if (new File(resources).isAbsolute()) {
@@ -2204,6 +2231,7 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         numberRowEnabled = localSettings.bool(AndroidLocalSettings.NUMBER_ROW);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
+        if (incognitoEnabled) clearQuickDeleteUndo();
     }
 
     /** 键盘高度：本地设置里有设计范围（-46..110）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
@@ -2762,7 +2790,8 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject result = value(response);
         JSONObject next = result.getJSONObject("view");
         // 偏好改了样式时，引擎在空闲重建后的那次转换里才换样式，键面在这里跟上。
-        boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(next)
+        // 启动快照可能迟于占位键区：实际已经画成目标布局时不能再重建，免得首次退格摘掉正在按住的键。
+        boolean rebuildLayout = imeLetterRows.drawnTouchLayout() != displayedTouchLayout(next)
             || !InputViewValuePolicy.punctuationMarks(view).equals(
                 InputViewValuePolicy.punctuationMarks(next));
         String commit = result.isNull("commit") ? null : result.getString("commit");
@@ -3654,6 +3683,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean character(int ascii, boolean shifted) {
+        clearQuickDeleteUndo();
         if (session == 0) return false;
         try { return apply(NativeClient.character(session, ascii, shifted)); }
         catch (JSONException | LinkageError error) { fail(error); return true; }
@@ -3661,6 +3691,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 14 键的一键：送这一组的首字母（{@link FourteenKeyLayout.Key#input}），由引擎按 14 键网格组字。不走 {@link #type}：那里的辅助码、微软双拼 `;` 和英文直出分支都按单个确定的字母处理。引擎不收（26 键正在组字、本地模式等）时什么也不输入，同九键的数字键。 */
     boolean gridKey(char letter) {
+        clearQuickDeleteUndo();
         if (session == 0) return false;
         try { return apply(NativeClient.gridKey(session, letter)); }
         catch (JSONException | LinkageError error) { fail(error); return true; }
@@ -3688,6 +3719,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean command(int code) {
+        if (code == 0) clearQuickDeleteUndo();
         if (session == 0) return false;
         try { return apply(NativeClient.command(session, code)); }
         catch (JSONException | LinkageError error) { fail(error); return true; }
@@ -3718,6 +3750,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void type(char key) {
+        clearQuickDeleteUndo();
         if (connection == null) return;
         if (directEnglishActive()) {
             char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
@@ -3883,6 +3916,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void clearSmartPunctuationSnapshots() {
+        clearQuickDeleteUndo();
         smartRepeatSnapshot = null;
         smartSpaceSnapshot = null;
     }
@@ -4130,6 +4164,12 @@ public final class MSIMEInputService extends InputMethodService {
             getResources().getConfiguration().screenHeightDp);
     }
 
+    /** 数字、符号页保留源字母数字行占用的一排。 */
+    boolean symbolExtraRowDrawn() {
+        return KeyboardLayout.drawsSymbolExtraRow(numberRowEnabled, keyboardLayer, displayedTouchLayout(view),
+            getResources().getConfiguration().screenHeightDp);
+    }
+
     /** 分词键只服务于已就绪的中文全拼组合，密码框和本地直输保留 Shift。 */
     boolean usesQuanpinSeparator() {
         return KeyboardLayout.usesQuanpinSeparator(selectedScheme == KeyboardScheme.QUANPIN,
@@ -4196,6 +4236,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** scheduleEngineStartup 排上、还没建好也没作废的那次会话启动所属的代次；没有时为 -1。 */
     private long pendingEngineStartup = -1;
+    private long dictionaryStartupRetryDeadline;
 
     /** 有一次会话启动在路上：排上之后没有换代（换输入框、收起、销毁都会换代），也没有被 stop 取消（建会话失败、输入连接失败都经过 stop）。 */
     private boolean engineStartupPending() {
@@ -4219,20 +4260,21 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean quickPunctuationVisible() {
-        int layout = displayedTouchLayout(view);
+        int layout = imeLetterRows.drawnTouchLayout();
         return keyboardLayer == KeyboardLayout.Layer.LETTERS
             && layout != QUANPIN_NINE_KEY_LAYOUT && layout != JAPANESE_NINE_KEY_LAYOUT
             && layout != KeyboardLayout.STROKE_LAYOUT
-            && layout != KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT
-            && selectedScheme != KeyboardScheme.QUANPIN_NINE_KEY
-            && selectedScheme != KeyboardScheme.NINE_KEY_SHUANGPIN
-            && selectedScheme != KeyboardScheme.JAPANESE_NINE_KEY
-            && selectedScheme != KeyboardScheme.ZHUYIN_NINE_KEY;
+            && layout != KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
     }
 
     private void insertQuickPunctuation() {
         java.util.List<QuickPunctuationPolicy.Entry> entries = quickPunctuationEntries();
         if (!entries.isEmpty()) type(entries.get(0).input());
+    }
+
+    private boolean commaSecondaryPeriod() {
+        return keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && KeyboardActionRow.usesCommaSecondaryPeriod(imeLetterRows.drawnTouchLayout());
     }
 
     private void showQuickPunctuationMenu() {
@@ -4258,7 +4300,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 与句号键一样按墨迹居中放大画：全角「，」原样居中时只剩键底一个小点。
         CenteredGlyphSpan.apply(quickPunctuationButton, face, 1.3f);
         quickPunctuationButton.setContentDescription("常用标点：" + face
-            + "；长按选择常用标点");
+            + (commaSecondaryPeriod() ? "；长按输入句号" : "；长按选择常用标点"));
     }
 
     private void updateSymbolKeyFaces() {
@@ -4861,6 +4903,10 @@ public final class MSIMEInputService extends InputMethodService {
         // 迟到的回报可能只是输入法自己上一次写入的回声（例如上屏之后用户已经按下了下一个键），那不是光标移动，不能把新开始的组字取消掉；对不上任何预期的才按原来的规则处理。
         boolean ownEcho = selectionEcho.acknowledge(newStart, newEnd, composingStart, composingEnd);
         if (!ownEcho && selectionChanged) englishCorrectionRejectedPrefix = "";
+        if (!ownEcho && quickDeleteUndo != null && !quickDeleteUndo.atSelection(newStart, newEnd)) {
+            // 分段删除的中间选区回报可能迟到；按编辑器此刻的真实位置核对，不能仅凭旧回报丢掉备份。
+            canUndoQuickDelete();
+        }
         // 用户自己移了光标（或应用改了文字），之前补上的后半个不再是「下一个要跨过的」。
         if (!ownEcho && selectionChanged) pairedPunctuationStack.clear();
         if (!ownEcho && session != 0 && view != null && !InputViewValuePolicy.editingText(view).isEmpty()
@@ -7703,27 +7749,104 @@ public final class MSIMEInputService extends InputMethodService {
         showHandwritingStatus("在此手写，停笔后选字");
     }
 
-    /**
-     * 删除键上滑「快速删除」后松手（#5585）：先清掉手写墨迹、丢掉组字，再删掉选中的文字和光标前的全部文字。光标后的文字不动。读到的文字只用来确定每轮删多长，不保存、不记录。
-     */
+    /** 快速删除只备份编辑器实际接受的删除；不在密码、不学习或无痕输入框中保存。 */
     void deleteAllBeforeCursor() {
+        clearQuickDeleteUndo();
         if (handwritingCanvas != null && handwritingCanvas.hasInk()) clearHandwriting();
         if (hasEngineComposition()) discardComposition();
         InputConnection target = connection;
         if (target == null) return;
-        selectionEcho.invalidate();
+        boolean captureAllowed = !EditorPolicy.password(editorInputType) && allowLearning && !incognitoEnabled;
+        QuickDeleteUndo.Capture capture = captureAllowed ? new QuickDeleteUndo.Capture() : null;
+        int initialCursor = capture == null ? -1 : quickDeleteCursor(target);
+        CharSequence following = capture == null ? null
+            : InputConnectionGuard.textAfterCursor(target, QuickDeleteUndo.CONTEXT_UNITS);
+        String after = following == null ? null : following.toString();
         CharSequence selected = InputConnectionGuard.selectedText(target);
-        if (selected != null && selected.length() > 0
-                && !InputConnectionGuard.commitText(target, "", 1)) return;
-        BackspaceSwipePolicy.clearBeforeCursor(new BackspaceSwipePolicy.Editor() {
+        if (selected != null && selected.length() > 0) {
+            selected = selected.toString();
+            if (!InputConnectionGuard.commitText(target, "", 1)) return;
+            selectionEcho.commit(0);
+            if (capture != null) capture.deleted(selected);
+            initialCursor = capture == null ? -1 : quickDeleteCursor(target);
+        }
+        long deleted = BackspaceSwipePolicy.clearBeforeCursor(new BackspaceSwipePolicy.Editor() {
             @Override public CharSequence textBeforeCursor(int length) {
                 return InputConnectionGuard.textBeforeCursor(target, length);
             }
 
             @Override public boolean deleteBeforeCursor(int length) {
-                return InputConnectionGuard.deleteSurroundingText(target, length, 0);
+                boolean accepted = InputConnectionGuard.deleteSurroundingText(target, length, 0);
+                if (accepted) selectionEcho.deleteBefore(length);
+                else selectionEcho.invalidate();
+                return accepted;
             }
-        });
+        }, capture);
+        selectionEcho.expect();
+        int cursor = capture == null ? -1 : quickDeleteCursor(target);
+        CharSequence before = capture == null ? null
+            : InputConnectionGuard.textBeforeCursor(target, QuickDeleteUndo.CONTEXT_UNITS);
+        CharSequence currentAfter = capture == null ? null
+            : InputConnectionGuard.textAfterCursor(target, QuickDeleteUndo.CONTEXT_UNITS);
+        // 输入连接声称成功却没删、读取失败或光标位置不符时，不能生成一份会重复插入的备份。
+        if (capture != null && initialCursor >= 0 && cursor == initialCursor - deleted
+                && before != null && after != null && currentAfter != null && after.contentEquals(currentAfter)) {
+            String text = capture.text();
+            if (!text.isEmpty()) {
+                quickDeleteUndo = new QuickDeleteUndo(target, cursor, text, before.toString(), after,
+                    SystemClock.elapsedRealtime());
+                main.postDelayed(expireQuickDeleteUndo, QuickDeleteUndo.LIFETIME_MS);
+            }
+        }
+        refreshAfterQuickDelete();
+    }
+
+    /** 只取绝对选区位置；编辑器不支持或仍有选区时不提供撤回。 */
+    private int quickDeleteCursor(InputConnection target) {
+        if (target == null) return -1;
+        try {
+            android.view.inputmethod.ExtractedTextRequest request = new android.view.inputmethod.ExtractedTextRequest();
+            request.hintMaxChars = QuickDeleteUndo.CONTEXT_UNITS;
+            request.hintMaxLines = 1;
+            android.view.inputmethod.ExtractedText text = target.getExtractedText(request, 0);
+            if (text == null || text.selectionStart < 0 || text.selectionStart != text.selectionEnd) return -1;
+            return text.startOffset + text.selectionStart;
+        } catch (RuntimeException ignored) { return -1; }
+    }
+
+    boolean canUndoQuickDelete() {
+        QuickDeleteUndo snapshot = quickDeleteUndo;
+        if (snapshot == null) return false;
+        if (EditorPolicy.password(editorInputType) || !allowLearning || incognitoEnabled || hasEngineComposition()
+                || !snapshot.matches(connection, quickDeleteCursor(connection),
+                    InputConnectionGuard.textBeforeCursor(connection, QuickDeleteUndo.CONTEXT_UNITS),
+                    InputConnectionGuard.textAfterCursor(connection, QuickDeleteUndo.CONTEXT_UNITS),
+                    SystemClock.elapsedRealtime())) {
+            clearQuickDeleteUndo();
+            return false;
+        }
+        return true;
+    }
+
+    void undoQuickDelete() {
+        if (!canUndoQuickDelete()) return;
+        QuickDeleteUndo snapshot = quickDeleteUndo;
+        // 撤回不算新输入，不学习、不写统计；明确拒绝且上下文未变时保留一次重试机会。
+        boolean batch = InputConnectionGuard.beginBatchEdit(connection);
+        boolean accepted = InputConnectionGuard.commitText(connection, snapshot.text(), 1);
+        if (batch) InputConnectionGuard.endBatchEdit(connection);
+        if (accepted) {
+            // 跨进程的 true 可能只表示请求已投递；批量结束后原位置和上下文完全未变则仍可重试。
+            if (canUndoQuickDelete()) return;
+            selectionEcho.commit(snapshot.text().length());
+            selectionEcho.expect();
+            refreshAfterQuickDelete();
+        } else {
+            canUndoQuickDelete();
+        }
+    }
+
+    private void refreshAfterQuickDelete() {
         if (directEnglishActive()) {
             clearEnglishSuggestions();
             refreshEnglishSuggestions();
@@ -8105,7 +8228,11 @@ public final class MSIMEInputService extends InputMethodService {
         symbolPanelButton.setContentDescription("打开符号面板");
         quickPunctuationButton = keyId(button(controls, ",", this::insertQuickPunctuation), "Comma");
         quickPunctuationButton.setOnLongClickListener(ignored -> {
-            showQuickPunctuationMenu();
+            if (commaSecondaryPeriod()) {
+                imeKeyFeedback.playFeedback(quickPunctuationButton);
+                countKey(quickPunctuationButton);
+                type('.');
+            } else showQuickPunctuationMenu();
             return true;
         });
         deleteButton = keyId(button(controls, "⌫", this::deleteFromHandwriting), "Backspace");
@@ -9148,7 +9275,9 @@ public final class MSIMEInputService extends InputMethodService {
         imeFrame.setKeysCollapsed(keysCollapsed);
         applyCaretCandidates(!idle || hasDiagnostic);
         // 候选条模式里空闲时工具栏总要显示：展开键在上面，「显示方式：隐藏」时整副键盘会只剩导航栏那一截。
-        boolean toolbarRow = !heightMode && idle && !hasDiagnostic && (!toolbarHidden || keysCollapsed);
+        // 隐藏工具栏时，底行仍能打开表情面板；面板的返回键在工具栏上，打开期间必须临时显示。
+        boolean toolbarRow = !heightMode && idle && !hasDiagnostic
+            && (!toolbarHidden || keysCollapsed || anyToolbarPanelOpen());
         // 开始打字就收起「最近复制」：用户已经在输入别的内容了。
         if (!idle) recentClip.dismiss();
         long nowMs = System.currentTimeMillis();

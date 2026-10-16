@@ -19,6 +19,7 @@ export interface DictionaryEntriesProps {
   entries: DictionaryEntry[];
   form: DictionaryPhraseForm | null;
   busy: boolean;
+  emptyMessage?: string;
   listRef: RefObject<HTMLUListElement | null>;
   onFormChange: (form: DictionaryPhraseForm) => void;
   onSave: () => void;
@@ -27,12 +28,13 @@ export interface DictionaryEntriesProps {
   onRemove: (entry: DictionaryEntry) => void;
 }
 
-/** Editor and result list for one page of local dictionary entries. */
+/** 本地词条的单页编辑与查询结果。 */
 export function DictionaryEntries({
   kind,
   entries,
   form,
   busy,
+  emptyMessage,
   listRef,
   onFormChange,
   onSave,
@@ -75,8 +77,12 @@ export function DictionaryEntries({
       )}
       {entries.length === 0 ? (
         <SettingsEmptyMessage compact>
-          点击查询后查看
-          {localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库"}词条
+          {emptyMessage || (
+            <>
+              点击查询后查看
+              {localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库"}词条
+            </>
+          )}
         </SettingsEmptyMessage>
       ) : (
         <ul ref={listRef} className={settings.phraseList} aria-label="词库查询结果">

@@ -70,7 +70,7 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 
 九键的数字本身是可上屏的文字，14 键的组码不是：按「你好」的键是 `bugao`。`NineKeySession` 的 `CommitRaw` 在 14 键下（`!offers_raw_key()`）有候选时与 `finish(0)` 相同，结束组字、逐段取首选，锁定的音节照样算数；没有候选时只剩组码可上屏。宿主有多条路在组字中发原样上屏——Android 的回车和 `commitNineKeyLiteral`，鸿蒙在 123 层点字符、打开符号或表情面板——修在引擎里，三端一次对齐。
 
-引擎的首位不一定是用户看到的首位：runtime 会按键盘模型重排（`sentence_association.neural_keyboard`）或把次选读音往后放，宿主还可能高亮着另一行。所以 runtime 在 14 键网格组字时把 `CommitRaw` 换成 `finish(engine_index(highlighted))`，与 `Finish` 和标点那两条路相同；iOS 本来就发 `Finish`，三端上屏的都是屏幕上高亮的那一行。九键的 `CommitRaw` 仍交给引擎上屏数字。引擎快照为此多了 `grid_composing`：14 键布局下硬件键盘打的是 26 键组字，它的原样上屏照旧是字母。
+引擎的首位不一定是用户看到的首位：runtime 会按键盘模型重排（`sentence_association.neural_keyboard`）或把次选读音往后放，宿主还可能高亮着另一行。所以 runtime 在 14 键网格组字时把 `CommitRaw` 和 `CommitRawWithoutLearning` 都换成 `finish(engine_index(highlighted))`，与 `Finish` 和标点那两条路相同；iOS 本来就发 `Finish`，三端上屏的都是屏幕上高亮的那一行。鸿蒙切换中英文走命令 15（`CommitRawWithoutLearning`），也遵守这条规则。两种原样提交只在英文原文学词策略上有区别，14 键网格结束组字不走那条英文学习路径。九键的两种提交仍交给引擎上屏数字。引擎快照为此多了 `grid_composing`：14 键布局下硬件键盘打的是 26 键组字，它的原样上屏照旧是字母。
 
 三端都开着 `phrase_preedit`。退格收回一次选词时，runtime 把这次选词吃掉的读音重新打回去；14 键的读音是组码字母，原来经 `character` 打回去就进了全拼 26 键，之后 14 键的键全都不处理。`PhraseSelection` 记下选词时正在组字的网格，14 键的组码改从 `grid_key` 打回去，分词键 `'` 和九键的数字仍从 `character` 进。
 
@@ -126,6 +126,7 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 
 ## Alternatives considered
 
+- **只在鸿蒙切换语言前改发 `Finish`。** 能直接修正已确认的宿主调用点，但公共命令 15 的 14 键规则仍与普通原样提交不同；后续调用者还会取到引擎首选。让两种命令在 runtime 共用已有网格分支，可同时保持高亮映射和 `GridRaw` 选择事实，九键及硬件字母不受影响。
 - **14 键复用 `character` 送组码。** 最强的理由是改动最小：九键就是这样接的，宿主、C ABI、runtime 都不用加入口。但硬件键盘的字母也走 `character`（Android `onKeyDown` 之后的分支），用 `character` 送组码会让物理 q 变成有歧义的 QW 组，而物理 w 仍是确切字母；九键能复用 `character`，是因为拼音里没有数字。另开 `grid_key` 后，组码只能由触屏键面送进来。
 - **另写一个 14 键解码器。** 理由是互不干扰，九键的热路径一行不动。但九宫格的路径搜索、锁定、切分、整句种子、简拼、英文混入、学习都与「字母怎么变成码」无关，只依赖码表；另写一份就是两套要同步维护的解码器，以后的九键改进（如 [九键整句改由数字层统一词网格解码](../../proposed/feature/2026-10-09-nine-key-digit-lattice.md)）也要做两遍。`KeyGrid` 是 Copy 枚举加 match，不引入 trait。[九键双拼](2026-10-10-nine-key-shuangpin.md) 同样需要按方案构造 `SpellingTable`，它可以在 `KeyGrid` 上再加一种网格。
 - **鸿蒙导出时把 `fourteen_key` 写成 `twenty_six_key`。** 理由是旧鸿蒙客户端一定读得懂，不会整份拒收。但上传按 merge 把本机的键覆盖到云端快照上，写 `twenty_six_key` 会把同一账号的其他鸿蒙设备切回 26 键；省略这个键等于保留云端旧值，同样不会被旧版拒收。
@@ -153,6 +154,18 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
   - 主流输入法的 14 键交互细节没有在设备上核实，这里的规格以本仓库九键的行为为基准。
 
 ## Verification
+
+### 原样提交命令的一致性
+
+- 真实 runtime 回归在 14 键输入后高亮第二项，分别执行 `CommitRaw` 与 `CommitRawWithoutLearning`，核对上屏高亮文本并结束组字；同一回归核对两种命令在九键仍上屏 `64`、在 14 键布局的硬件字母组字中仍上屏 `ni`。
+- `facts::fourteen_key_commit_raw_finishes_from_the_highlight` 同时覆盖两种命令，核对 `GridRaw`、实际座位、来源和 `Committed`，且不误记为原文上屏。
+- 修复前，真实引擎回归在 `CommitRawWithoutLearning` 上屏「你」而非高亮的「拟」处失败，事件事实用例也失败；普通原样提交通过。
+- 修复后 5 项 `fourteen_key_` 相关回归通过。`cargo test -p msime-input-runtime -p msime-host-api --locked` 通过：runtime 311 项单测，host-api 647 项单测和 15 项集成测试，host-api 另有 2 项按既有配置忽略。
+- 两个 crate 的 all-targets Clippy（`-D warnings`）、`cargo fmt --all -- --check`、`pnpm run verify-notes` 和 `git diff --check` 通过。
+- 独立只读复审核对鸿蒙公共命令 15、引擎已有中文学习路径、`engine_index` 与 `GridRaw` 事实，以及数字和硬件字母保护，未发现阻断或 Important 问题。
+- 本批 `bash scripts/verify-local.sh --quick` 通过，覆盖 155 项 Windows 可移植测试、仓库契约与笔记门禁、Rust 工作区、Android Rust 目标与 Java 宿主、两种 WASM 配置、macOS 原生宿主和共享 Apple 桥接层构建。Linux 宿主与外壳、Windows 交叉构建、HarmonyOS 真打包因缺少本机前置跳过；Tauri 外壳因缺少约定位置的原生 bundle 跳过。本批没有设备或系统输入框验收。
+
+### 14 键功能验收
 
 - 评审后的修复：runtime 的 `retreating_a_fourteen_key_selection_types_the_codes_back_on_the_grid`、`fourteen_key_commit_raw_finishes_from_the_highlighted_row` 和 host-api 用真实引擎的 `retreating_a_fourteen_key_selection_keeps_composing_on_the_grid`（去掉修复时失败）；iOS 的 `testTheBorrowedDigitPadKeepsItsPunctuationWhileComposing` 和 `testInlinePreeditSkipsTheCodesButMarksALocalMode`（去掉修复时失败），`FourteenKeyKeyboardTests` 12 项与 `NineKeyKeyboardTests` 共 104 项在 iOS 27.0 模拟器上通过；Android 的三栏面板判断改为按布局（`NineKeyPanelPolicy.threeColumn(layout, …)`），`FourteenKeyLayoutSmoke` 用 `FOURTEEN_KEY_LAYOUT` 断言，`FourteenKeyDeviceSmoke` 加了展开三栏面板和借九键数字层两段；共享统计页的 `keyLabel` 与 `softKey` 认识 `Fourteen*`。 Android 在 API 35 模拟器上 `smoke.sh` 全部 16 组通过，API 28 上 `smoke.sh --core` 通过；鸿蒙的 `pressGridKey` 改动跑了 `tests/run.sh` 和 `scripts/test-harmony-*.py`，`hvigorw assembleHap` 这次没有重跑（本机没有暂存的原生库和 `sherpa_onnx.har`）。
 - 共享层：`cargo test -p msime-engine -p msime-client-core -p msime-input-runtime -p msime-host-api` 全部通过，其中 `nine_key::tests::fourteen_key_*`、`fourteen_key_commit_raw_finishes_instead_of_writing_the_codes`、`host::tests::grid_raw_commit_is_not_learned_as_an_english_word` 钉住原样上屏和学词；`msime-desktop` 的 `applying_cloud_quanpin_keeps_a_local_fourteen_key_choice` 与 `shared/backend` 的 `testCloudQuanpinKeepsALocalFourteenKeyChoice` 钉住 iOS 应用云端的规则。`scripts/test-fourteen-key-table.py` 在四处一致时通过，人为改错某一端的一个键、一个键位 id 或引擎的编码表时失败。

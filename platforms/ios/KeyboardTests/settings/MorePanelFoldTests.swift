@@ -249,7 +249,7 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertEqual(heightConstraint.constant, start + preview, accuracy: 0.5)
   }
 
-  /// 调节条开着时按键照常可用，所以按键打开的面板（这里是 123 层的表情键）不会结束调整、也不会丢掉预览的高度；与 Android 一样，只有「取消」「完成」或收起键盘才结束，收起键盘按「取消」处理。
+  /// 调节条开着时按键照常可用，所以按键打开的面板（这里是底行的符号键）不会结束调整、也不会丢掉预览的高度；与 Android 一样，只有「取消」「完成」或收起键盘才结束，收起键盘按「取消」处理。
   func testKeyboardHeightPreviewSurvivesKeyPanelsAndIsCancelledWhenTheKeyboardGoesAway() throws {
     KeyboardLayoutPreference.heightAdjustment = 0
     let controller = makeController(width: 390)
@@ -263,12 +263,14 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertGreaterThan(previewed, start + 0.5)
 
     let hasBar = { self.descendants(controller.view).contains { $0.accessibilityIdentifier == "inlineHeightBar" } }
-    let hasPicker = { self.descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardEmojiPicker" } }
-    try button("layerEmojiKey", in: controller).sendActions(for: .primaryActionTriggered)
+    let hasPicker = { self.descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSymbolPanel" } }
+    let symbols = try button("symbolPanelKey", in: controller)
+    XCTAssertFalse(symbols.isHidden)
+    symbols.sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(hasPicker())
     XCTAssertTrue(hasBar(), "a panel opened from the keys leaves the bar in place")
     XCTAssertEqual(heightConstraint.constant, previewed, accuracy: 0.5, "and keeps the previewed height")
-    try control("closeEmojiPicker", in: controller.view).sendActions(for: .primaryActionTriggered)
+    try control("closeSymbolPanel", in: controller.view).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(hasPicker())
     XCTAssertTrue(hasBar())
     XCTAssertEqual(heightConstraint.constant, previewed, accuracy: 0.5)

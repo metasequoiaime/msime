@@ -111,11 +111,11 @@ export function DictionarySettingsPage() {
             ))}
           </SelectRow>
           <TextInputRow
-            title="编码前缀"
-            label="编码前缀"
+            title="词条或编码"
+            label="词条或编码"
             className={settings.fieldInput}
             value={phraseSearch}
-            placeholder="留空查看全部"
+            placeholder="输入中文词条或编码前缀"
             onChange={setPhraseSearch}
           >
             <ActionButton
@@ -150,6 +150,7 @@ export function DictionarySettingsPage() {
               entries={phrases}
               form={phraseForm}
               busy={phraseBusy}
+              emptyMessage={phrasePage.status}
               listRef={phraseListRef}
               onFormChange={setPhraseForm}
               onSave={() => void savePhrase()}

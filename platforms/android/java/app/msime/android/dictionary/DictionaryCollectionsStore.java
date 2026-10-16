@@ -12,7 +12,7 @@ import org.json.JSONObject;
 /**
  * 词库页的数据入口：命名词库（`msime_client_dictionary_collections`）、内置词库的条数与词条（`msime_client_dictionary`），以及经个人词库队列写入的词条（`msime_client_personal_dictionary_request`）。
  *
- * <p>键盘活着的时候 `msime_client_dictionary` 的编辑会返回 busy，所以这里所有写词条的路径都走队列：命名词库的增删由 client-services 自己分批送进队列，内置词库的新词经 {@link #queueWord} 入队，键盘在下一次会话开始时应用。列表、条数和导出只读，直接问 Engine。
+ * <p>键盘活着的时候 `msime_client_dictionary` 的编辑会返回 busy，所以这里所有写词条的路径都走队列：命名词库的增删由 client-services 自己分批送进队列，内置词库的新词经 {@link #queueWord} 入队，导入后趁空闲立即应用，忙碌时由键盘在后续空闲时继续。列表、条数和导出只读，直接问 Engine。
  *
  * <p>所有方法都读写磁盘或等词库锁，只能在工作线程调用；失败不抛异常，而是一个带可直接展示原因的 {@link Result}。写词条成功后标记「个人词库」同步分类有本机改动（命名词库的元数据不同步，P9）。
  */
@@ -33,12 +33,17 @@ public final class DictionaryCollectionsStore {
     public static final long DEFAULT_WEIGHT = 10000;
     private static final int EXPORT_PAGE = 1000;
 
+    /** 待写入个人词库的条数；键盘会话结束后才会应用，零条时不显示。 */
+    public static String pendingDescription(int pending) {
+        return pending <= 0 ? "" : "，还有 " + NumberPolicy.groupedCount(pending) + "等键盘同步";
+    }
+
     /** 一个命名词库；`sourceType` 是 `user`、`import` 或 `community`，社区词库带 `resourceId`。 */
     public record Collection(String id, String name, String kind, String sourceType, String resourceId,
                              boolean enabled, int entryCount, int pending) {}
 
     /** 一次导入的结果。 */
-    public record ImportReport(int imported, int duplicates, int failed, boolean truncated) {}
+    public record ImportReport(int imported, int duplicates, int failed, boolean truncated, String applicationNotice) {}
 
     /** 集合操作返回的整份视图；`formats` 是 client-services 接受的导入格式，`importReport` 只在导入后非空。 */
     public record View(List<Collection> collections, List<String> formats, ImportReport importReport) {
@@ -470,7 +475,7 @@ public final class DictionaryCollectionsStore {
             JsonPolicy.nonNegativeInteger(report.opt("imported"), 0),
             JsonPolicy.nonNegativeInteger(report.opt("duplicates"), 0),
             JsonPolicy.nonNegativeInteger(report.opt("failed"), 0),
-            JsonPolicy.strictTrue(report.opt("truncated")));
+            JsonPolicy.strictTrue(report.opt("truncated")), "");
         return new View(ListPolicy.copyOrEmpty(collections), ListPolicy.copyOrEmpty(formats), importReport);
     }
 
@@ -507,7 +512,24 @@ public final class DictionaryCollectionsStore {
         JSONObject value = value(response);
         if (value == null) return Result.failed(failureMessage(errorOf(response)));
         if (changesWords) SyncSignals.markDirty(context, SyncSwitch.DICTIONARY);
-        return Result.of(parseView(value));
+        View view = parseView(value);
+        if (view.importReport() != null) {
+            DictionaryImportSynchronization.Outcome outcome = DictionaryImportSynchronization.run(() -> {
+                JSONObject synchronizedWords = value(NativeClient.personalDictionarySync(options));
+                if (synchronizedWords == null) throw new IllegalStateException("dictionary synchronization unavailable");
+                Result<Integer> flushed = flushSent(context);
+                if (!flushed.ok()) throw new IllegalStateException("dictionary collections unavailable");
+                return new DictionaryImportSynchronization.Batch(
+                    JsonPolicy.nonNegativeInteger(synchronizedWords.opt("pending_count"), -1),
+                    flushed.value(),
+                    JsonPolicy.nonNegativeInteger(synchronizedWords.opt("failed_count"), -1));
+            }, System::nanoTime);
+            ImportReport report = view.importReport();
+            view = new View(view.collections(), view.formats(), new ImportReport(
+                report.imported(), report.duplicates(), report.failed(), report.truncated(),
+                DictionaryImportSynchronization.notice(outcome)));
+        }
+        return Result.of(view);
     }
 
     private static JSONObject dictionary(Context context, JSONObject action) throws JSONException {

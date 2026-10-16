@@ -170,6 +170,110 @@ test("卸载后的加载成功不回写列表", async () => {
   expect(result.current.items).toEqual([]);
 });
 
+test("替换客户端后旧添加结果不污染新图库", async () => {
+  const props = options();
+  const pending = deferred<CommunityResource>();
+  props.client.detail.mockReturnValue(pending.promise);
+  const replacement = options();
+  const { result, rerender } = renderHook((value) => useCommunityResourceGallery(value), {
+    initialProps: props,
+    wrapper: ToastProvider,
+  });
+  await waitFor(() => expect(result.current.busy).toBe(false));
+
+  let adding!: Promise<void>;
+  act(() => {
+    adding = result.current.add(resource());
+  });
+  rerender({ ...props, client: replacement.client });
+  await waitFor(() => expect(replacement.client.list).toHaveBeenCalled());
+
+  await act(async () => {
+    pending.resolve({ ...resource(), revision: 9 });
+    await adding;
+  });
+
+  expect(props.client.apply).not.toHaveBeenCalled();
+  expect(replacement.client.apply).not.toHaveBeenCalled();
+  expect(result.current.added.has(resource().id)).toBe(false);
+  expect(screen.getByRole("status").textContent).toBe("");
+
+  await act(async () => result.current.add(resource()));
+  expect(replacement.client.apply).toHaveBeenCalledWith(resource().id, resource().revision);
+  expect(result.current.added.has(resource().id)).toBe(true);
+});
+
+test.each(["search", "append", "scope"])("添加期间 %s 刷新列表仍能完成添加", async (refresh) => {
+  const props = options();
+  const pending = deferred<CommunityResource>();
+  props.client.detail.mockReturnValue(pending.promise);
+  const { result } = renderHook(() => useCommunityResourceGallery(props), {
+    wrapper: ToastProvider,
+  });
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  let adding!: Promise<void>;
+  act(() => {
+    adding = result.current.add(resource());
+  });
+  if (refresh === "scope") {
+    act(() => result.current.onScopeChange("mine"));
+    await waitFor(() => expect(result.current.busy).toBe(false));
+  } else {
+    await act(async () => result.current.load(refresh === "append", "合成查询"));
+  }
+  await act(async () => {
+    pending.resolve(resource());
+    await adding;
+  });
+  expect(props.client.apply).toHaveBeenCalledWith(resource().id, resource().revision);
+  expect(result.current.added.has(resource().id)).toBe(true);
+  expect(result.current.adding.size).toBe(0);
+  expect(screen.getByRole("status").textContent).toContain("已添加");
+});
+
+test.each(["success", "failure"])(
+  "旧导入 %s 不更新新客户端或解除新添加的忙标记",
+  async (outcome) => {
+    const props = options();
+    const previous = deferred<Awaited<ReturnType<CommunityResourceClient["apply"]>>>();
+    props.client.apply.mockReturnValue(previous.promise);
+    const replacement = options();
+    const pending = deferred<CommunityResource>();
+    replacement.client.detail.mockReturnValue(pending.promise);
+    const { result, rerender } = renderHook((value) => useCommunityResourceGallery(value), {
+      initialProps: props,
+      wrapper: ToastProvider,
+    });
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    let oldAdding!: Promise<void>;
+    act(() => {
+      oldAdding = result.current.add(resource());
+    });
+    await waitFor(() => expect(props.client.apply).toHaveBeenCalledOnce());
+    rerender(replacement);
+    expect(result.current.adding.size).toBe(0);
+    let newAdding!: Promise<void>;
+    act(() => {
+      newAdding = result.current.add(resource());
+    });
+    await act(async () => {
+      if (outcome === "success")
+        previous.resolve({ revision: 8, imported: 2, resource_revision: 7 });
+      else previous.reject(new Error("旧合成失败"));
+      await oldAdding;
+    });
+    expect(result.current.adding.has(resource().id)).toBe(true);
+    expect(result.current.added.size).toBe(0);
+    expect(screen.getByRole("status").textContent).toBe("");
+    await act(async () => {
+      pending.resolve(resource());
+      await newAdding;
+    });
+    expect(result.current.adding.size).toBe(0);
+    expect(result.current.added.has(resource().id)).toBe(true);
+  },
+);
+
 test("普通详情直接选择和关闭，发布后先关编辑器再刷新", async () => {
   const props = options();
   const { result } = renderHook(() => useCommunityResourceGallery(props));

@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { privacyUrl } from "../settings/app-resources";
 import { AccountVerificationForm } from "./account-verification-form";
@@ -87,7 +88,7 @@ export function BottomSheet({
             focusedControl.current = null;
         }}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (isComposingKeyEvent(event)) return;
           if (event.key === "Escape") {
             event.stopPropagation();
             close();

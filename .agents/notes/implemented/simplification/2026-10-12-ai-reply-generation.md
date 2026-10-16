@@ -8,7 +8,7 @@ AI 回复模板列表在异步读取社区内容时手写 `let current = true` �
 
 ## Decision
 
-复用 `useAsyncGeneration(community)`，异步列表成功和失败回调都通过同一请求代次判断，再更新列表状态。读取接口、提示文字和依赖变化行为保持不变。
+[公共回复模板预览 hook](2026-10-17-community-reply-templates.md) 复用 `useAsyncActionRunner` 内部的 `useAsyncGeneration(client)`，异步列表成功和失败回调都通过同一请求代次判断，再更新列表状态。客户端变更时清理前一客户端的预览与反馈，重新读取当前列表。添加操作复用 `useAsyncActionRunner` 的同步互斥与代次守卫，过期成功、失败及 finally 不更新当前界面或发出提示；已发出的收藏与写入操作仍可完成。读取接口、五条预览上限和提示文字保持不变。
 
 ## Alternatives considered
 

@@ -69,6 +69,11 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
   if (packet.event_type != FanyImePipeEventType::KeyEvent || mode == "unknown")
     return EditKind::None;
   const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
+  // 分段编辑同样交给 Runtime，包括只剩暂存词段时的撤回。
+  if (composing && is_segment_backspace_key(packet.keycode, modifiers))
+    return EditKind::Erase;
+  if (composing && is_segment_caret_key(packet.keycode, modifiers))
+    return EditKind::Caret;
   if (modifiers & ~1u)
     return EditKind::None;
   const auto key = normalize_digit_key(packet.keycode);

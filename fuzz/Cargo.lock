@@ -232,7 +232,7 @@ dependencies = [
 [[package]]
 name = "chinese-ime-lm"
 version = "0.2.0"
-source = "git+https://github.com/metasequoiaime/chinese-ime-lm?rev=6ce2cbb5b76e189a1ef6ff11eaa0435bfd9983a0#6ce2cbb5b76e189a1ef6ff11eaa0435bfd9983a0"
+source = "git+https://github.com/metasequoiaime/chinese-ime-lm?rev=6acc7839572fb7df221a8e4910467c9dedd72fb8#6acc7839572fb7df221a8e4910467c9dedd72fb8"
 dependencies = [
  "serde",
  "serde_json",
@@ -1386,6 +1386,7 @@ dependencies = [
  "msime-path-trust",
  "rustix",
  "serde",
+ "serde_ignored",
  "serde_json",
  "sha2",
  "tempfile",
@@ -1437,6 +1438,7 @@ dependencies = [
  "msime-client-core",
  "msime-path-trust",
  "msime-script-runtime",
+ "png",
  "pulldown-cmark",
  "reqwest",
  "rustix",
@@ -2383,6 +2385,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.5",
+]
+
+[[package]]
+name = "serde_ignored"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "115dffd5f3853e06e746965a20dcbae6ee747ae30b543d91b0e089668bb07798"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]

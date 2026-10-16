@@ -46,9 +46,9 @@ pub struct DictionaryTablePage {
     pub has_more: bool,
 }
 
-/// Read-only lookup by code prefix: pinyin ignoring separators, spaces and case; `wubi86`; `quick_parases` (an empty query lists every phrase); `english_words`. User rows first, then exact codes, then weight, key, value.
+/// 只读查询：ASCII 按编码前缀，含非 ASCII 字符时按词条字面包含匹配。拼音编码忽略分隔符、空格和大小写；快捷短语允许空查询。个人行优先，再按精确匹配、权重、编码和词条排序。
 ///
-/// A query holding a character no code of the kind can contain, and a generation without the dictionary, answer an empty page. Neither the dictionary nor the journal is ever created or written (J:2051-2188).
+/// 无效编码或缺少目标词库时返回空页；查询不创建或写入词库和 journal。
 pub fn dictionary_table_entries(
     paths: &RuntimePaths,
     kind: PersonalDictionaryKind,
@@ -63,10 +63,16 @@ pub fn dictionary_table_entries(
     {
         return Err(failed(INVALID_LOOKUP));
     }
-    let Some(code) = lookup_code(kind, query) else {
-        return Ok(DictionaryTablePage::default());
+    let word_search = !query.is_ascii();
+    let code = if word_search {
+        query.trim().to_owned()
+    } else {
+        let Some(code) = lookup_code(kind, query) else {
+            return Ok(DictionaryTablePage::default());
+        };
+        code
     };
-    if code.is_empty() && kind != PersonalDictionaryKind::QuickPhrase {
+    if code.is_empty() && (word_search || kind != PersonalDictionaryKind::QuickPhrase) {
         return Ok(DictionaryTablePage::default());
     }
     paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
@@ -97,28 +103,35 @@ pub fn dictionary_table_entries(
             .is_ok_and(|found| found.is_some())
         };
 
-    let tables = lookup_tables(kind, &code);
+    let tables = lookup_tables(kind, &code, word_search);
     let (key_column, value_column) = if english {
         ("word", "display")
     } else {
         ("key", "value")
     };
-    let (matches, exact) = match kind {
-        PersonalDictionaryKind::Pinyin => (
-            "substr(replace(key,'''',''),1,?2)=?1".to_owned(),
-            "replace(key,'''','')=?1".to_owned(),
-        ),
-        PersonalDictionaryKind::QuickPhrase => (
-            "substr(lower(key),1,?2)=?1".to_owned(),
-            "lower(key)=?1".to_owned(),
-        ),
-        // Wubi and English codes are stored lower-case, so the prefix is a range the primary index answers.
-        PersonalDictionaryKind::Wubi
-        | PersonalDictionaryKind::Wubi98
-        | PersonalDictionaryKind::English => (
-            format!("{key_column}>=?1 AND {key_column}<?3"),
-            format!("{key_column}=?1"),
-        ),
+    let (matches, exact) = if word_search {
+        (
+            format!("instr({value_column},?1)>0"),
+            format!("{value_column}=?1"),
+        )
+    } else {
+        match kind {
+            PersonalDictionaryKind::Pinyin => (
+                "substr(replace(key,'''',''),1,?2)=?1".to_owned(),
+                "replace(key,'''','')=?1".to_owned(),
+            ),
+            PersonalDictionaryKind::QuickPhrase => (
+                "substr(lower(key),1,?2)=?1".to_owned(),
+                "lower(key)=?1".to_owned(),
+            ),
+            // 五笔与英文编码按小写存储，前缀范围可以使用主索引。
+            PersonalDictionaryKind::Wubi
+            | PersonalDictionaryKind::Wubi98
+            | PersonalDictionaryKind::English => (
+                format!("{key_column}>=?1 AND {key_column}<?3"),
+                format!("{key_column}=?1"),
+            ),
+        }
     };
     let rows = lookup_rows(
         &tables,
@@ -153,12 +166,16 @@ pub fn dictionary_table_entries(
     sql.push_str(
         " ORDER BY user_row DESC,r.exact DESC,entry_weight DESC,r.key,r.value LIMIT ?5 OFFSET ?6",
     );
-    // The exclusive upper bound of the prefix range: the last byte plus one. Codes are ASCII, so the result is still text.
-    let mut upper = code.clone().into_bytes();
-    if let Some(last) = upper.last_mut() {
-        *last += 1;
-    }
-    let upper = String::from_utf8(upper).expect("codes are ASCII");
+    // 只有 ASCII 编码范围使用排他上界；词条包含查询不改动 UTF-8 字节。
+    let upper = if word_search {
+        String::new()
+    } else {
+        let mut upper = code.clone().into_bytes();
+        if let Some(last) = upper.last_mut() {
+            *last += 1;
+        }
+        String::from_utf8(upper).expect("codes are ASCII")
+    };
     let mut statement = connection
         .prepare(&sql)
         .map_err(|_| failed(DICTIONARY_NOT_READ))?;
@@ -353,11 +370,15 @@ fn bundled_table(kind: PersonalDictionaryKind, key: &str) -> Option<String> {
     }
 }
 
-/// Every table a prefix lookup can inspect: all numbered pinyin tables plus
-/// the overflow bucket, or the single table used by another dictionary kind.
-fn lookup_tables(kind: PersonalDictionaryKind, code: &str) -> Vec<String> {
+/// 编码查询遍历首字母的全部拼音表，词条查询遍历所有首字母；其他种类各用一张表。
+fn lookup_tables(kind: PersonalDictionaryKind, code: &str, word_search: bool) -> Vec<String> {
+    let initials = if !word_search {
+        &code.as_bytes()[..code.len().min(1)]
+    } else {
+        b"abcdefghijklmnopqrstuvwxyz"
+    };
     let capacity = match kind {
-        PersonalDictionaryKind::Pinyin => format::MAXIMUM_NUMBERED_SYLLABLES + 1,
+        PersonalDictionaryKind::Pinyin => (format::MAXIMUM_NUMBERED_SYLLABLES + 1) * initials.len(),
         PersonalDictionaryKind::Wubi
         | PersonalDictionaryKind::Wubi98
         | PersonalDictionaryKind::QuickPhrase
@@ -365,11 +386,12 @@ fn lookup_tables(kind: PersonalDictionaryKind, code: &str) -> Vec<String> {
     };
     let mut tables = Vec::with_capacity(capacity);
     match kind {
-        // Every syllable count of the query's initial, the overflow bucket included, since separators are ignored and the query does not say how many syllables the key has.
         PersonalDictionaryKind::Pinyin => {
-            for syllables in 1..=format::MAXIMUM_NUMBERED_SYLLABLES + 1 {
-                if let Some(table) = format::quanpin_table(syllables, code.as_bytes()[0]) {
-                    tables.push(table);
+            for initial in initials {
+                for syllables in 1..=format::MAXIMUM_NUMBERED_SYLLABLES + 1 {
+                    if let Some(table) = format::quanpin_table(syllables, *initial) {
+                        tables.push(table);
+                    }
                 }
             }
         }
@@ -520,11 +542,11 @@ mod tests {
     fn lookup_tables_reserve_the_bounded_table_count() {
         use PersonalDictionaryKind::*;
 
-        let pinyin = lookup_tables(Pinyin, "ni");
+        let pinyin = lookup_tables(Pinyin, "ni", false);
         assert_eq!(pinyin.len(), format::MAXIMUM_NUMBERED_SYLLABLES + 1);
         assert_eq!(pinyin.capacity(), format::MAXIMUM_NUMBERED_SYLLABLES + 1);
 
-        let wubi = lookup_tables(Wubi, "wqv");
+        let wubi = lookup_tables(Wubi, "wqv", false);
         assert_eq!(wubi.capacity(), 1);
     }
 
@@ -705,8 +727,8 @@ mod tests {
         assert!(fixture.lookup(English, "hel").is_empty());
         fixture.upgrade();
         assert!(fixture.lookup(English, "hel").is_empty());
-        // A code no dictionary of the kind can hold matches nothing rather than failing.
-        assert!(fixture.lookup(Wubi, "你").is_empty());
+        // 中文按词条内容查询，无效 ASCII 编码仍返回空页。
+        assert_eq!(values(&fixture.lookup(Wubi, "你")), ["你好"]);
         assert!(fixture.lookup(Pinyin, "").is_empty());
         assert!(fixture.lookup(Wubi, "a1").is_empty());
     }

@@ -1,3 +1,6 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
+import { exceptionMessage } from "../core/exception-message";
+import { LabeledInputField } from "../core/labeled-input-field";
 import { downloadBlob } from "../core/download-blob";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ActionSheet } from "../core/action-sheet";
@@ -346,8 +349,7 @@ export function HarmonyPhoneDictionary() {
               try {
                 encoded = await readScelFile(file, MAX_SCEL_FILE_BYTES);
               } catch (error) {
-                if (isCurrent())
-                  toast(error instanceof Error ? error.message : "读取文件失败，请重新选择。");
+                if (isCurrent()) toast(exceptionMessage(error, "读取文件失败，请重新选择。"));
                 return;
               }
               if (!isCurrent()) return;
@@ -359,8 +361,7 @@ export function HarmonyPhoneDictionary() {
             try {
               text = await readDictionaryFile(file, MAX_COLLECTION_IMPORT_BYTES);
             } catch (error) {
-              if (isCurrent())
-                toast(error instanceof Error ? error.message : "读取文件失败，请重新选择。");
+              if (isCurrent()) toast(exceptionMessage(error, "读取文件失败，请重新选择。"));
               return;
             }
             if (!isCurrent()) return;
@@ -872,7 +873,7 @@ function FormDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (isComposingKeyEvent(event)) return;
           if (event.key === "Escape" && !submitting) onClose();
           if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
             event.preventDefault();
@@ -919,16 +920,15 @@ function DialogField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="flex flex-col gap-1.5 text-[14px] [color:var(--p-sub)]">
-      {label}
-      <input
-        className={dialog.fieldControl}
-        aria-label={label}
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
+    <LabeledInputField
+      label={label}
+      labelClassName="flex flex-col gap-1.5 text-[14px] [color:var(--p-sub)]"
+      className={dialog.fieldControl}
+      ariaLabel={label}
+      value={value}
+      placeholder={placeholder}
+      onChange={onChange}
+    />
   );
 }
 

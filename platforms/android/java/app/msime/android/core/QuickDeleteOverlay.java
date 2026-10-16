@@ -10,7 +10,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 /**
- * 删除键上滑时在键上方弹出的「快速删除」框（#5585）。位置和待命的判断都在 {@link BackspaceSwipePolicy}，这里只负责把删除键换算到自己的坐标系并画框：没待命时是按键底色加细边，待命时换成强调色，表示松手就会删掉光标前的全部文字。不接收触摸，读屏也不念它，手势仍由删除键自己的触摸监听处理。
+ * 删除键长按或上滑时在键上方弹出的「快速删除」框（#5585、#8321）。位置和待命的判断都在 {@link BackspaceSwipePolicy}，这里只负责把删除键换算到自己的坐标系并画框：没待命时是按键底色加细边，待命时换成强调色，表示松手就会删掉光标前的全部文字。不接收触摸，读屏也不念它，手势仍由删除键自己的触摸监听处理。
  */
 final class QuickDeleteOverlay extends View {
     static final String LABEL = "快速删除";
@@ -21,6 +21,7 @@ final class QuickDeleteOverlay extends View {
     private final int[] keyLocation = new int[2];
     private BackspaceSwipePolicy.Box box;
     private boolean armed;
+    private boolean undo;
 
     QuickDeleteOverlay(MSIMEInputService s) {
         super(s);
@@ -46,14 +47,23 @@ final class QuickDeleteOverlay extends View {
 
     /** 在 `key` 上方显示框；`armed` 为真时画成待命的样子。 */
     void show(View key, boolean armed) {
+        show(key, armed, false);
+    }
+
+    /** 撤回提示复用浮层，下滑待命前只画灰色提示。 */
+    void show(View key, boolean armed, boolean undo) {
         View frame = frame();
         frame.getLocationOnScreen(ownLocation);
         key.getLocationOnScreen(keyLocation);
         float left = keyLocation[0] - ownLocation[0];
         float top = keyLocation[1] - ownLocation[1];
-        box = BackspaceSwipePolicy.box(left, top, left + key.getWidth(), frame.getWidth(),
-            DimensionPolicy.density(getContext()));
+        float density = DimensionPolicy.density(getContext());
+        box = undo
+            ? BackspaceSwipePolicy.undoBox(left, top, left + key.getWidth(), top + key.getHeight(),
+                frame.getWidth(), frame.getHeight(), density)
+            : BackspaceSwipePolicy.box(left, top, left + key.getWidth(), frame.getWidth(), density);
         this.armed = armed;
+        this.undo = undo;
         if (getParent() instanceof ViewGroup parent) parent.bringChildToFront(this);
         ViewPolicy.show(this);
         invalidate();
@@ -77,22 +87,24 @@ final class QuickDeleteOverlay extends View {
         // 和日语九键的 flick 浮层一样先带一层投影：框要看得出压在键盘上面，而不是键盘本身的一部分。
         paint.setShadowLayer(DimensionPolicy.floatPixels(10, density), 0,
             DimensionPolicy.floatPixels(3, density), 0x40000000);
-        canvas.drawRoundRect(current.left(), current.top(), current.right(), current.bottom(),
+        if (!undo || armed) canvas.drawRoundRect(current.left(), current.top(), current.right(), current.bottom(),
             radius, radius, paint);
         paint.clearShadowLayer();
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(BoundsPolicy.bounded(density, 1f, Float.MAX_VALUE));
         paint.setColor(Color.parseColor(skin.hairline()));
-        canvas.drawRoundRect(current.left(), current.top(), current.right(), current.bottom(),
+        if (!undo || armed) canvas.drawRoundRect(current.left(), current.top(), current.right(), current.bottom(),
             radius, radius, paint);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.parseColor(armed ? skin.onAccent() : skin.keyForeground()));
+        paint.setColor(undo && !armed ? Color.GRAY
+            : Color.parseColor(armed ? skin.onAccent() : skin.keyForeground()));
         ViewPolicy.setTextSize(paint, KeyboardTypographyPolicy.keySp(getContext(), 15));
         ViewPolicy.setTypeface(paint, Typeface.DEFAULT_BOLD);
         Paint.FontMetrics metrics = paint.getFontMetrics();
         float baseline = (current.top() + current.bottom()) / 2 - (metrics.ascent + metrics.descent) / 2;
-        float width = paint.measureText(LABEL);
-        canvas.drawText(LABEL, (current.left() + current.right() - width) / 2, baseline, paint);
+        String label = undo ? "下滑撤回" : LABEL;
+        float width = paint.measureText(label);
+        canvas.drawText(label, (current.left() + current.right() - width) / 2, baseline, paint);
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) { return false; }

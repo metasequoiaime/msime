@@ -40,7 +40,7 @@ test("supports a detail-specific back button accessible name", () => {
 
 test("plugin gallery reuses the shared community detail frame", () => {
   const source = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/community/community-plugins.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/community/community-plugin-detail.tsx", {
       eager: true,
       query: "?raw",
       import: "default",

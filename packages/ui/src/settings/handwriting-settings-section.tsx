@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
-import { useLatestRef } from "../core/use-latest-ref";
-import { useDebouncedCallback } from "../core/use-debounced-callback";
+import { useSettledSlider } from "../core/use-settled-slider";
 import { SettingsGroupNote } from "./settings-group-note";
 import * as surface from "../keyboard/panel-surface-style";
 import { GroupList } from "../core/platform-controls";
@@ -21,8 +19,6 @@ import { keyboardThemeId } from "../theme/global-theme";
 const DEFAULT_DELAY_MS = 600;
 const DEFAULT_STROKE_COLOR: HandwritingStrokeColor = "follow_skin";
 const DEFAULT_STROKE_WIDTH = 3;
-/** 滑块需要静止多久才保存其值。 */
-const SLIDER_SAVE_DELAY_MS = 300;
 
 const strokeColorOptions: readonly [HandwritingStrokeColor, string][] = [
   ["follow_skin", "跟随皮肤"],
@@ -30,30 +26,6 @@ const strokeColorOptions: readonly [HandwritingStrokeColor, string][] = [
   ["white", "白色"],
   ["blue", "蓝色"],
 ];
-
-/**
- * 滑块移动期间其值保存在页面上，静止后保存一次。否则拖动的每一步都会单独保存一次键盘设置文件，而一次仍在进行的保存会让下一次保存变成空操作，从而丢掉手指最后停留的值。
- */
-function useSettledSlider(value: number, save: (value: number) => void) {
-  const [moving, setMoving] = useState<number | null>(null);
-  const saveRef = useLatestRef(save);
-  const { schedule: saveLater, cancel: cancelSave } = useDebouncedCallback(
-    (next: number, current: number) => {
-      if (next !== current) saveRef.current(next);
-      setMoving(null);
-    },
-    SLIDER_SAVE_DELAY_MS,
-  );
-  useEffect(() => {
-    if (moving === null) {
-      cancelSave();
-      return;
-    }
-    // 在丢弃本地值的同一个 tick 里保存，这样已保存的值（在等待保存之前就已设置）会直接接替，中间不会闪现旧值。
-    saveLater(moving, value);
-  }, [cancelSave, moving, saveLater, value]);
-  return [moving ?? value, setMoving] as const;
-}
 
 /** HarmonyOS 手机的手写板设置：「书写」（识别延迟）和「笔迹」（墨迹颜色和粗细），隐私说明位于其下方，与 Android 的 `HandwritingPage` 的绘制一致。它们保存在键盘自己的设置文件里，所以改动会在键盘下次显示时生效。 */
 function HarmonyHandwritingPadGroups({

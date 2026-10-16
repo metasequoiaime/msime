@@ -1,6 +1,5 @@
 import type { InputHTMLAttributes, ReactNode } from "react";
-import { ControlledInput } from "../core/controlled-input";
-import { CommunityField } from "./community-field";
+import { LabeledInputField } from "../core/labeled-input-field";
 import * as style from "./community-style";
 
 export interface CommunityInputFieldProps {
@@ -14,7 +13,7 @@ export interface CommunityInputFieldProps {
   onChange: (value: string) => void;
 }
 
-/** Shared styled text input field used by community forms. */
+/** 社区表单共用的带样式文本输入框。 */
 export function CommunityInputField({
   label,
   ariaLabel,
@@ -26,17 +25,17 @@ export function CommunityInputField({
   onChange,
 }: CommunityInputFieldProps) {
   return (
-    <CommunityField label={label}>
-      <ControlledInput
-        className={style.fieldControl}
-        aria-label={ariaLabel}
-        type={type}
-        maxLength={maxLength}
-        value={value}
-        disabled={disabled}
-        placeholder={placeholder}
-        onChange={onChange}
-      />
-    </CommunityField>
+    <LabeledInputField
+      label={label}
+      labelClassName={style.field}
+      className={style.fieldControl}
+      ariaLabel={ariaLabel}
+      type={type}
+      maxLength={maxLength}
+      value={value}
+      disabled={disabled}
+      placeholder={placeholder}
+      onChange={onChange}
+    />
   );
 }

@@ -180,9 +180,10 @@ test("the phone's 26-key heatmap is the HarmonyOS touch keyboard in Chinese 全�
     ["⌫", "Backspace", 1.4],
   ]);
   expect(phoneRow("full", 3)).toEqual([
-    ["符", "SoftSymbol", 1.05],
     ["123", "SoftLayer", 1.25],
+    ["符", "SoftSymbol", 1.05],
     ["空格", "Space", 4],
+    ["，", "Comma", 1],
     ["中", "SoftLanguage", 1.05],
     ["↵", "Enter", 1.9],
   ]);

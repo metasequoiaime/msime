@@ -11,6 +11,6 @@ test("helpcode pack loading reuses the shared owner generation lifecycle", () =>
   const start = source.indexOf("function useHelpcodePacks");
   const hook = source.slice(start);
 
-  expect(hook).toContain("useAsyncGeneration(catalog, inputPageOpen)");
+  expect(hook).toContain("useAsyncGeneration(catalog, inputPageOpen, refreshRevision)");
   expect(hook).not.toContain("let active = true");
 });

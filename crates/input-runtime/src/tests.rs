@@ -3673,6 +3673,41 @@ fn fourteen_key_commit_raw_finishes_from_the_highlighted_row() {
     assert!(raw.commit.is_none(), "{:?}", raw.commit);
 }
 
+#[test]
+fn fourteen_key_raw_commit_variants_use_the_real_highlighted_candidate() {
+    for command in [Command::CommitRaw, Command::CommitRawWithoutLearning] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = ai_answer_runtime(directory.path(), 5);
+        runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+        runtime.dispatch(Action::GridKey(b'n')).unwrap();
+        runtime.dispatch(Action::GridKey(b'i')).unwrap();
+        let highlighted = runtime.dispatch(Action::NextCandidate).unwrap().view;
+        let expected = highlighted.candidates[1].text.clone();
+        assert!(highlighted.candidates[1].highlighted);
+        assert_ne!(expected, highlighted.candidates[0].text);
+
+        let committed = runtime.dispatch(Action::Command(command)).unwrap();
+
+        assert_eq!(
+            committed.commit.as_deref(),
+            Some(expected.as_str()),
+            "{command:?}"
+        );
+        assert!(committed.view.editing_text.is_empty());
+        assert!(committed.view.candidates.is_empty());
+
+        // 九键数字与 14 键布局下的硬件字母仍按原文上屏。
+        runtime.set_key_grid(Some(KeyGrid::NineKey)).unwrap();
+        type_characters(&mut runtime, "64");
+        let digits = runtime.dispatch(Action::Command(command)).unwrap();
+        assert_eq!(digits.commit.as_deref(), Some("64"));
+        runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+        type_characters(&mut runtime, "ni");
+        let letters = runtime.dispatch(Action::Command(command)).unwrap();
+        assert_eq!(letters.commit.as_deref(), Some("ni"));
+    }
+}
+
 /// 九键要求方案能打九键，14 键只给全拼；组字中不能换网格。
 #[test]
 fn key_grid_checks_the_scheme_and_the_composition() {
@@ -3836,6 +3871,36 @@ fn switching_the_language_drops_the_composition_being_spelled() {
     assert!(!spelled.is_empty());
     runtime.set_dedicated_english(true).unwrap();
     assert_eq!(runtime.view().editing_text, spelled);
+}
+
+#[test]
+fn repeated_dedicated_english_preserves_real_grid_candidates() {
+    for grid in [KeyGrid::NineKey, KeyGrid::FourteenKey] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = ai_answer_runtime(directory.path(), 5);
+        runtime.set_key_grid(Some(grid)).unwrap();
+        if grid == KeyGrid::FourteenKey {
+            runtime.dispatch(Action::GridKey(b'n')).unwrap();
+            runtime.dispatch(Action::GridKey(b'i')).unwrap();
+        } else {
+            type_characters(&mut runtime, "64");
+        }
+        let before = runtime.view();
+        assert!(!before.editing_text.is_empty());
+        assert!(!before.nine_key_spellings.is_empty());
+        let expected = before.candidates[0].text.clone();
+
+        runtime.set_dedicated_english(false).unwrap();
+
+        let after = runtime.view();
+        assert_eq!(after.editing_text, before.editing_text, "{grid:?}");
+        assert_eq!(after.nine_key_spellings, before.nine_key_spellings);
+        assert_eq!(texts(&after), texts(&before));
+        let picked = runtime
+            .dispatch(Action::Select(after.candidates[0].id))
+            .unwrap();
+        assert_eq!(picked.commit.as_deref(), Some(expected.as_str()));
+    }
 }
 
 #[test]
@@ -8737,6 +8802,8 @@ mod online_slot_allocations;
 mod parallel_order_allocations;
 
 mod static_evidence;
+
+mod rerank_declined;
 
 mod online_slot_order_equivalence;
 

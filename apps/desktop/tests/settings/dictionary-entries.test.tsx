@@ -8,6 +8,26 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+test("distinguishes an unqueried dictionary from a completed empty result", () => {
+  const props = {
+    kind: "pinyin" as const,
+    entries: [],
+    form: null,
+    busy: false,
+    listRef: { current: null },
+    onFormChange: vi.fn(),
+    onSave: vi.fn(),
+    onCancel: vi.fn(),
+    onEdit: vi.fn(),
+    onRemove: vi.fn(),
+  };
+  const { rerender } = render(<DictionaryEntries {...props} />);
+  expect(screen.getByText("点击查询后查看拼音词条")).toBeTruthy();
+  rerender(<DictionaryEntries {...props} emptyMessage="未找到匹配词条" />);
+  expect(screen.getByText("未找到匹配词条")).toBeTruthy();
+  expect(screen.queryByText("点击查询后查看拼音词条")).toBeNull();
+});
+
 test("marks the dictionary save action busy", () => {
   render(
     <DictionaryEntries

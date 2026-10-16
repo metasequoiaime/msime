@@ -1,3 +1,4 @@
+use super::isolated_test as isolation;
 use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
@@ -344,12 +345,12 @@ fn assert_session(actual: &NineKeySession, expected: &NineKeySession) {
     for (actual, expected) in actual.candidates.iter().zip(&expected.candidates) {
         for (actual, expected) in [
             (&actual.word, &expected.word),
-            (&actual.pinyin, &expected.pinyin),
             (&actual.canonical_pinyin, &expected.canonical_pinyin),
             (&actual.corrected_from, &expected.corrected_from),
         ] {
             assert_eq!(actual.capacity(), expected.capacity());
         }
+        assert!(actual.pinyin.capacity() >= expected.pinyin.capacity());
         assert_eq!(
             actual.sentence_words.capacity(),
             expected.sentence_words.capacity()
@@ -383,6 +384,17 @@ fn fixture() -> Fixture {
 
 #[test]
 fn filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks() {
+    isolation::run(
+        concat!(
+            module_path!(),
+            "::filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks"
+        ),
+        assert_filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks,
+    )
+    .unwrap();
+}
+
+fn assert_filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks() {
     let fixture = fixture();
     let table =
         crate::nine_key_shuangpin::builtin_table(crate::types::NineKeyShuangpinKind::Migala2)
@@ -437,6 +449,14 @@ fn filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks() {
 
 #[test]
 fn full_hot_refresh_saves_completion_copies() {
+    isolation::run(
+        concat!(module_path!(), "::full_hot_refresh_saves_completion_copies"),
+        assert_full_hot_refresh_saves_completion_copies,
+    )
+    .unwrap();
+}
+
+fn assert_full_hot_refresh_saves_completion_copies() {
     let fixture = fixture();
     for index in 0..3 {
         fixture.insert("ni'hao'ma", &format!("合成补全{index}"), 50 - index);

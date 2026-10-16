@@ -7113,11 +7113,13 @@ background = "#F4F8FF"
         // Left-aligned: in from the card's left edge by the same inset its bottom overhangs the card's top edge (the card starts 48pt down, under the band).
         const CGFloat overhang = NSHeight(chrome.bounds) - 48 - NSMinY(decoration.frame);
         assert(overhang > 0 && NSMinX(decoration.frame) == overhang && decoration.frame.size.width == decoration.frame.size.height);
-        // The translation colour is the package's on every row in the mode that declares one; elsewhere the rows keep the number colour.
+        // The translation colour is the package's on every row in the mode that declares one, except the highlighted row, which takes the one derived for the selected fill (SkinTokens::selectedTranslation); elsewhere the rows keep the number colour.
         for (NSView *view in chrome.subviews) {
             if (![view isKindOfClass:MSIMECandidateButton.class] || view.tag < 0) continue;
             MSIMECandidateButton *button = (id)view;
-            if (dark) assert(skin.tokens.translation && [button.translationColor isEqual:SkinColor(*skin.tokens.translation)]);
+            if (dark)
+                assert(skin.tokens.translation && skin.tokens.selectedTranslation &&
+                       [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? *skin.tokens.selectedTranslation : *skin.tokens.translation)]);
             else if (!button.candidateFixed)
                 assert(!skin.tokens.translation && [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? skin.tokens.selectedNumber : skin.tokens.number)]);
         }
@@ -11673,6 +11675,11 @@ int main(int argc, char **argv) {
         assert([MSIMEChineseOutputString(@"汉语", NO) isEqual:@"汉语"]);
         assert([CandidateDisplay(@{@"text": @"汉语", @"annotation": @"(aB)"}, YES) isEqual:@"漢語(aB)"]);
         assert([CandidateDisplay(@{@"text": @"汉语", @"annotation": NSNull.null}, NO) isEqual:@"汉语"]);
+        // 注释一律包在括号里、紧贴候选字：裸的辅助码加括号，已带半角或全角括号的不重复加，首尾空白去掉，空白注释不显示。
+        assert([CandidateDisplay(@{@"text": @"你好", @"annotation": @"wqvb"}, NO) isEqual:@"你好(wqvb)"]);
+        assert([CandidateDisplay(@{@"text": @"你好", @"annotation": @" wqvb wqv "}, NO) isEqual:@"你好(wqvb wqv)"]);
+        assert([CandidateDisplay(@{@"text": @"深圳市", @"annotation": @"（广东省）"}, NO) isEqual:@"深圳市（广东省）"]);
+        assert([CandidateDisplay(@{@"text": @"你好", @"annotation": @"  "}, NO) isEqual:@"你好"]);
         assert(([CandidateDisplay(@{@"text":@"汉语", @"corrected":@YES, @"annotation":@"(aB)", @"source":@2}, YES) isEqual:@"漢語*(aB) ☁️"]));
         for (id corrected in @[@NO, @1, @"true", NSNull.null])
             assert(([CandidateDisplay(@{@"text":@"汉语", @"corrected":corrected}, NO) isEqual:@"汉语"]));

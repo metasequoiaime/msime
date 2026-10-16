@@ -126,11 +126,11 @@ int main() {
     edge_packet.wch = '-';
     require(!word_character_edge(edge_packet, WordCharacterBinding::MinusEqual));
     rejected([&] { word_character_edge(edge_packet, static_cast<WordCharacterBinding>(99)); });
-    ReplyComposer empty_fallback(42, 7);
+    ReplyComposer empty_fallback(42, 7, false);
     require(payload(empty_fallback.stage(result(1, "", "", ""),
         ReplyPath::CandidatePunctuationFallback)).empty());
     confirm(empty_fallback);
-    ReplyComposer auto_commit(42, 7);
+    ReplyComposer auto_commit(42, 7, false);
     auto automatic = result(2, "", "", "合成候选");
     automatic.transition["commit_context"] = {{"scheme", 2}, {"local_mode", "none"}};
     const auto &continued =
@@ -177,7 +177,7 @@ int main() {
             !invalid_continue.worker);
     auto_commit.cancel();
     for (bool fallback : {false, true}) {
-      ReplyComposer prefixed(42, 7);
+      ReplyComposer prefixed(42, 7, false);
       prefixed.stage(result(1, "hao", "hao", "你"), ReplyPath::Selection);
       confirm(prefixed);
       const auto &reply =
@@ -199,7 +199,7 @@ int main() {
     }
     {
       // 整句改字的回车：TIP 已经从自己的宿主会话写出改好的整句，这里不发回复帧，只清前缀并按写进文档的那句计数；还剩组字就是坏的回复。
-      ReplyComposer conversion(42, 7);
+      ReplyComposer conversion(42, 7, false);
       const auto &reply = conversion.stage(result(1, "", "", "我去北京"), ReplyPath::ConversionCommit);
       require(!reply.encoded && reply.next_prefix.empty());
       require(reply.committed_text == "我去北京");
@@ -209,7 +209,7 @@ int main() {
       require(invalid_reply.encoded && !*invalid_reply.encoded);
       conversion.cancel();
     }
-    ReplyComposer composer(42, 7);
+    ReplyComposer composer(42, 7, false);
     auto first = result(1, "haoma", "hao ma", "你");
     require(payload(composer.stage(first, ReplyPath::Selection)) ==
             u"haoma\t你\t你hao ma");

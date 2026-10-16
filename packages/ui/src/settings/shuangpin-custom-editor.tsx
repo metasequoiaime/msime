@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ConfirmRequest } from "../core/confirm";
 import { downloadBlob } from "../core/download-blob";
+import { exceptionMessage } from "../core/exception-message";
 import { ErrorAlert } from "../core/error-alert";
 import { GroupList, PageIntro, Row } from "../core/platform-controls";
 import { select as selectStyle, textInput } from "../core/platform-controls-style";
@@ -29,6 +30,13 @@ import {
   type ShuangpinCustomProfileClient,
   type ShuangpinCustomTablePart,
 } from "./shuangpin-custom-profile";
+
+import {
+  builtinNineKeyShuangpinProfiles,
+  nineKeyShuangpinProblemMessage,
+  nineKeyShuangpinUnits,
+  type BuiltinNineKeyShuangpinProfile,
+} from "./nine-key-shuangpin-profile";
 
 /** 改键之后等这么久再问宿主，连续打几个键只校验最后那张表。 */
 const VALIDATE_DELAY_MS = 150;
@@ -61,8 +69,8 @@ const partGroups: readonly {
   },
 ];
 
-export interface ShuangpinCustomEditorProps {
-  client: ShuangpinCustomProfileClient;
+interface KeyTableEditorProps<Profile extends string> {
+  client: ShuangpinCustomProfileClient<Profile>;
   /** 偏好里存着的表；没有时从空表开始。 */
   saved: ShuangpinCustomProfile | undefined;
   /** 当前方案已经是自定义双拼。不是时，保存会同时切到它。 */
@@ -75,24 +83,92 @@ export interface ShuangpinCustomEditorProps {
   onBack: () => void;
 }
 
+export type ShuangpinCustomEditorProps = KeyTableEditorProps<BuiltinShuangpinProfile>;
+export type NineKeyShuangpinEditorProps = KeyTableEditorProps<BuiltinNineKeyShuangpinProfile>;
+
+interface EditorDefinition<Profile extends string> {
+  title: string;
+  inputMode?: "numeric";
+  intro: string;
+  exportName: string;
+  defaultTemplate: Profile;
+  templates: readonly [Profile, string][];
+  groups: typeof partGroups;
+  units: typeof shuangpinCustomUnits;
+  problemMessage: (problem: ShuangpinCustomProblem) => string;
+}
+
+const letterDefinition: EditorDefinition<BuiltinShuangpinProfile> = {
+  title: "自定义双拼",
+  intro:
+    "自己安排 zh、ch、sh、33 个韵母和 12 个零声母音节的键位。表要能用才能保存，合不合法与输入法实际运行时的判定相同。",
+  exportName: SHUANGPIN_CUSTOM_EXPORT_NAME,
+  defaultTemplate: "xiaohe",
+  templates: builtinShuangpinProfiles,
+  groups: partGroups,
+  units: shuangpinCustomUnits,
+  problemMessage: shuangpinCustomProblemMessage,
+};
+
+const nineKeyDefinition: EditorDefinition<BuiltinNineKeyShuangpinProfile> = {
+  title: "自定义九键双拼",
+  inputMode: "numeric",
+  intro:
+    "安排 23 个声母、33 个韵母和 12 个零声母音节的数字键位。每个音节用两个数字，允许多个音节共用编码。",
+  exportName: "msime-nine-key-shuangpin-custom.json",
+  defaultTemplate: "migala3",
+  templates: builtinNineKeyShuangpinProfiles,
+  groups: [
+    {
+      part: "initials",
+      title: "声母",
+      note: "每个声母使用一个 0–9 的数字，同一数字可以对应多个声母。",
+      maxLength: 1,
+    },
+    {
+      part: "finals",
+      title: "韵母",
+      note: "每个韵母使用一个 0–9 的数字，ü 写作 v。",
+      maxLength: 1,
+    },
+    {
+      part: "zero_initials",
+      title: "零声母",
+      note: "每个零声母音节使用两个 0–9 的数字，可以与其他音节共用编码。",
+      maxLength: 2,
+    },
+  ],
+  units: nineKeyShuangpinUnits,
+  problemMessage: nineKeyShuangpinProblemMessage,
+};
+
+export function ShuangpinCustomEditor(props: ShuangpinCustomEditorProps) {
+  return <KeyTableEditor {...props} definition={letterDefinition} />;
+}
+
+export function NineKeyShuangpinEditor(props: NineKeyShuangpinEditorProps) {
+  return <KeyTableEditor {...props} definition={nineKeyDefinition} />;
+}
+
 /**
  * 自定义双拼的编辑页：从内置方案开始、逐格改键、导入导出 JSON。表合不合法只问宿主（host-api 用 Engine 不留存的检查），与 MCP 保存前的校验结论相同；不合法时不能保存，并写明是哪一格、为什么。Engine 在第一个错误处就停，所以一次只报一处，改好一处再看下一处。
  *
- * 保存只写 `shuangpin_profile: "custom"` 和 `shuangpin_custom_profile`，随设置页的自动保存生效。导入导出只在本机读写文件，表不进账号同步。
+ * 保存把合法表交回所属方案的偏好更新动作，26 键与九键各写自己的字段。导入导出只在本机读写文件，表不进账号同步。
  */
-export function ShuangpinCustomEditor({
+function KeyTableEditor<Profile extends string>({
   client,
+  definition,
   saved,
   active,
   saveExport,
   confirm,
   onSave,
   onBack,
-}: ShuangpinCustomEditorProps) {
+}: KeyTableEditorProps<Profile> & { definition: EditorDefinition<Profile> }) {
   const [draft, setDraft] = useState<Draft>(() => normalizedShuangpinCustomProfile(saved));
   // `undefined` 是还在校验（或校验失败）：这时不能保存，也不能导出。
   const [problem, setProblem] = useState<ShuangpinCustomProblem | null | undefined>(undefined);
-  const [template, setTemplate] = useState<BuiltinShuangpinProfile>("xiaohe");
+  const [template, setTemplate] = useState<Profile>(definition.defaultTemplate);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   // 宿主没能回答这张表能不能用；改下一个键时重新问。
@@ -107,7 +183,7 @@ export function ShuangpinCustomEditor({
   } = useAsyncActionRunner(setError, setNotice, client, saveExport);
   const generation = useAsyncGeneration(client, draft);
   const { schedule: validateLater } = useDebouncedCallback(
-    (validationClient: ShuangpinCustomProfileClient, profile: Draft, current: number) => {
+    (validationClient: ShuangpinCustomProfileClient<Profile>, profile: Draft, current: number) => {
       validationClient
         .validate(profile)
         .then((result) => {
@@ -172,7 +248,7 @@ export function ShuangpinCustomEditor({
           return;
         }
         setDraft(normalizedShuangpinCustomProfile(table));
-        const title = builtinShuangpinProfiles.find(([name]) => name === template)?.[1] ?? "";
+        const title = definition.templates.find(([name]) => name === template)?.[1] ?? "";
         setNotice(`已填入${title}的键位，改动想换的键后保存。`);
       } catch {
         if (isCurrent()) setError("无法读取内置方案的键位，请稍后重试。");
@@ -189,9 +265,7 @@ export function ShuangpinCustomEditor({
         );
       } catch (cause) {
         if (isCurrent())
-          setError(
-            `没有导入：${cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。"}`,
-          );
+          setError(`没有导入：${exceptionMessage(cause, "无法读取所选文件，请重新选择。")}`);
         return;
       }
       if (!isCurrent()) return;
@@ -205,7 +279,7 @@ export function ShuangpinCustomEditor({
       if (!isCurrent()) return;
       // 不合法的表不进草稿，免得把正在编辑的表冲掉，只换来一张存不了的表。
       if (result) {
-        setError(`没有导入：${shuangpinCustomProblemMessage(result)}`);
+        setError(`没有导入：${definition.problemMessage(result)}`);
         return;
       }
       setDraft(normalizedShuangpinCustomProfile(profile));
@@ -219,13 +293,13 @@ export function ShuangpinCustomEditor({
       if (!saveExport) {
         downloadBlob(
           new Blob([contents], { type: "application/json;charset=utf-8" }),
-          SHUANGPIN_CUSTOM_EXPORT_NAME,
+          definition.exportName,
         );
         setNotice("已导出键位表。");
         return;
       }
       try {
-        const path = await saveExport(SHUANGPIN_CUSTOM_EXPORT_NAME, contents);
+        const path = await saveExport(definition.exportName, contents);
         if (!isCurrent()) return;
         setNotice(path === null ? "已取消导出。" : `已导出到 ${path}`);
       } catch (cause) {
@@ -241,7 +315,7 @@ export function ShuangpinCustomEditor({
   const save = () => {
     if (!canSave) return;
     onSave(draft);
-    setNotice(active ? "已保存。" : "已保存，并已选用自定义双拼。");
+    setNotice(active ? "已保存。" : `已保存，并已选用${definition.title}。`);
   };
 
   const leave = async () => {
@@ -277,12 +351,9 @@ export function ShuangpinCustomEditor({
           <span aria-hidden="true">‹ </span>
           输入
         </button>
-        <h2 className={settings.subViewTitle}>自定义双拼</h2>
+        <h2 className={settings.subViewTitle}>{definition.title}</h2>
       </div>
-      <PageIntro>
-        自己安排 zh、ch、sh、33 个韵母和 12
-        个零声母音节的键位。表要能用才能保存，合不合法与输入法实际运行时的判定相同。
-      </PageIntro>
+      <PageIntro>{definition.intro}</PageIntro>
       <GroupList title="起点与文件">
         <Row title="从内置方案开始" description="用它的键位填满整张表，再改动想换的键。">
           <select
@@ -290,9 +361,9 @@ export function ShuangpinCustomEditor({
             aria-label="内置方案"
             value={template}
             disabled={busy}
-            onChange={(event) => setTemplate(event.target.value as BuiltinShuangpinProfile)}
+            onChange={(event) => setTemplate(event.target.value as Profile)}
           >
-            {builtinShuangpinProfiles.map(([name, title]) => (
+            {definition.templates.map(([name, title]) => (
               <option key={name} value={name}>
                 {title}
               </option>
@@ -302,7 +373,7 @@ export function ShuangpinCustomEditor({
         </Row>
         <Row
           title="导入与导出"
-          description="JSON 文件，形状与偏好里的 shuangpin_custom_profile 相同；只在本机读写，不会上传。导入的表要能用才会替换现在的草稿。"
+          description="JSON 键位表，只在本机读写，不会上传。导入的表要能用才会替换现在的草稿。"
         >
           <SettingsManagerActions as="span">
             <ActionButton
@@ -316,7 +387,7 @@ export function ShuangpinCustomEditor({
             ref={fileInput}
             hidden
             type="file"
-            aria-label="选择自定义双拼 JSON 文件"
+            aria-label={`选择${definition.title} JSON 文件`}
             accept=".json,application/json"
             onChange={(event) => {
               importFile(event.currentTarget.files?.[0]);
@@ -325,13 +396,13 @@ export function ShuangpinCustomEditor({
           />
         </Row>
       </GroupList>
-      {partGroups.map(({ part, title, note, maxLength }) => (
+      {definition.groups.map(({ part, title, note, maxLength }) => (
         <GroupList key={part} title={title}>
           <p className={settings.groupNote}>{note}</p>
           <div
             className={`${settings.groupBlock} grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-x-3 gap-y-2`}
           >
-            {shuangpinCustomUnits[part].map((unit) => {
+            {definition.units[part].map((unit) => {
               const invalid = invalidCell === `${part}/${unit}`;
               return (
                 <label key={unit} className="flex min-w-0 items-center justify-between gap-2">
@@ -340,6 +411,7 @@ export function ShuangpinCustomEditor({
                     className={`${textInput} w-12 text-center font-mono${invalid ? " outline-2 outline-danger" : ""}`}
                     aria-label={`${title} ${unit}`}
                     aria-invalid={invalid || undefined}
+                    inputMode={definition.inputMode}
                     autoCapitalize="off"
                     autoCorrect="off"
                     spellCheck={false}
@@ -355,7 +427,7 @@ export function ShuangpinCustomEditor({
       ))}
       <GroupList title="保存">
         <Row
-          title={active ? "保存键位" : "保存并选用自定义双拼"}
+          title={active ? "保存键位" : `保存并选用${definition.title}`}
           description={
             problem === undefined
               ? "正在检查键位…"
@@ -374,7 +446,7 @@ export function ShuangpinCustomEditor({
           />
         </Row>
       </GroupList>
-      {problem && <ErrorAlert>{shuangpinCustomProblemMessage(problem)}</ErrorAlert>}
+      {problem && <ErrorAlert>{definition.problemMessage(problem)}</ErrorAlert>}
       {checkFailed && <ErrorAlert>无法校验键位表，改动任意一个键后会重新校验。</ErrorAlert>}
       {error && <ErrorAlert>{error}</ErrorAlert>}
       {notice && <StatusMessage role="status">{notice}</StatusMessage>}

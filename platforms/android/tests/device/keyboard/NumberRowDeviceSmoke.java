@@ -5,6 +5,7 @@ import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,7 +19,7 @@ public final class NumberRowDeviceSmoke extends DeviceSmoke {
     private static final String NUMBER_ROW_SETTING = "platform.android.number_row";
 
     @Override protected String successDescription() {
-        return "number row above the letters, idle digit commit, declined digit after the composition and no number row in a landscape phone window";
+        return "number row above the letters, idle digit commit, declined digit after the composition, five-row number/symbol pages and no extra row when disabled or in a landscape phone window";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -57,6 +58,42 @@ public final class NumberRowDeviceSmoke extends DeviceSmoke {
             tap(digit("0"));
             await(field("msime-test-plain").and(node -> equalsText("5你好0", node.getText())));
 
+            stage = "numeric pad retains the extra row and height";
+            Rect letterTop = bounds(digit("1"));
+            Rect letterBottom = bounds(key("123"));
+            tap(key("123"));
+            Rect extra = bounds(key("‰"));
+            if (Math.abs(extra.top - letterTop.top) > 2 || Math.abs(extra.height() - letterTop.height()) > 2
+                    || Math.abs(bounds(key("0")).bottom - letterBottom.bottom) > 2)
+                throw new AssertionError("Number pad changed five-row height: " + letterTop + " " + extra);
+            tap(key("‰"));
+            await(field("msime-test-plain").and(node -> equalsText("5你好0‰", node.getText())));
+            stage = "extended symbols retain the digit row";
+            tap(key("#+="));
+            Rect symbolsTop = bounds(digit("1"));
+            if (Math.abs(symbolsTop.top - letterTop.top) > 2
+                    || Math.abs(symbolsTop.height() - letterTop.height()) > 2)
+                throw new AssertionError("Extended symbols changed extra-row geometry");
+            tap(digit("7"));
+            await(field("msime-test-plain").and(node -> equalsText("5你好0‰7", node.getText())));
+            tap(key("123"));
+            await(key("‰"));
+            tap(described("切换到字母键盘"));
+            await(key("q"));
+
+            stage = "English number page adds useful symbols";
+            tap(key("中"));
+            await(key("英"));
+            tap(key("123"));
+            Rect bracket = bounds(key("["));
+            if (Math.abs(bracket.top - letterTop.top) > 2)
+                throw new AssertionError("English number page lost its fifth row");
+            tap(key("["));
+            await(field("msime-test-plain").and(node -> equalsText("5你好0‰7[", node.getText())));
+            tap(key("ABC"));
+            tap(key("英"));
+            await(key("中"));
+
             // 手机横屏时窗口不到 480 dp 高（KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP），不画数字行，免得工具栏或底行被挤出窗口；转回竖屏数字行回来。平板横屏照画，所以只在最短边不到 480 dp 的设备上检查。
             if (getTargetContext().getResources().getConfiguration().smallestScreenWidthDp < 480) {
                 stage = "landscape phone hides the number row";
@@ -76,6 +113,19 @@ public final class NumberRowDeviceSmoke extends DeviceSmoke {
                 tap(field("msime-test-plain"));
                 await(digit("1"));
             }
+            stage = "disabled number row also removes the symbol extra row";
+            publish(localSettings, new JSONObject().put("version", 1)
+                .put("settings", new JSONObject().put(NUMBER_ROW_SETTING, false))
+                .toString().getBytes(StandardCharsets.UTF_8));
+            restartIme();
+            openEditor();
+            awaitStableBounds(key("q"));
+            if (findVisible(digit("1")) != null)
+                throw new AssertionError("Disabled number row remains visible");
+            tap(key("123"));
+            awaitStableBounds(digit("1"));
+            if (findVisible(key("‰")) != null)
+                throw new AssertionError("Disabled number row still adds a symbol row");
         } finally {
             if (userRotation != null) shellDiscard("settings put system user_rotation " + settingValue(userRotation, "0"));
             if (accelerometerRotation != null)
@@ -140,7 +190,12 @@ public final class NumberRowDeviceSmoke extends DeviceSmoke {
     private String shellOutput(String command) throws Exception {
         try (var input = new ParcelFileDescriptor.AutoCloseInputStream(
                 automation.executeShellCommand(command))) {
-            return new String(input.readAllBytes(), StandardCharsets.UTF_8).trim();
+            // InputStream.readAllBytes 在 API 33 才可用；最低版本设备也要执行横屏验收。
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = input.read(buffer)) != -1) output.write(buffer, 0, length);
+            return new String(output.toByteArray(), StandardCharsets.UTF_8).trim();
         }
     }
 

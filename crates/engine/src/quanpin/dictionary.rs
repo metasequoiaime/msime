@@ -52,6 +52,9 @@ use super::series::{
 };
 use super::typo_edges::collect_typo_edges;
 
+#[cfg(test)]
+mod marking_buffer_tests;
+
 pub const CACHE_CAPACITY: usize = 128;
 pub const TYPO_SPAN_CACHE_CAPACITY: usize = 512;
 /// 词网格的跨度查询结果按跨度缓存的条数。九键每按一键要对几十条切分各解一次词网格，这些切分大量共用同样的跨度，下一键又会重复上一键的大部分跨度，所以容量按一次长输入里出现的不同跨度数来定。
@@ -699,7 +702,8 @@ impl QuanpinDictionary {
         let association = self.sentence_association;
         let has_rerankers = !self.rerankers.is_empty();
         let context = &self.rescoring_context;
-        let (resolution_hash, (resolution, pinyin_segmentation, marking_alternatives, slot)) =
+        let pinyin_segmentation = &mut self.pinyin_segmentation;
+        let (resolution_hash, (resolution, marking_alternatives, slot)) =
             project_cached_resolution_with(
                 &mut self.resolution_cache,
                 raw,
@@ -713,7 +717,7 @@ impl QuanpinDictionary {
                 },
                 |resolution| {
                     // 热命中也发布本次标记；高成本读法仍算纠错。
-                    let pinyin_segmentation = resolution.segmentation.clone();
+                    pinyin_segmentation.clone_from(&resolution.segmentation);
                     let alternatives = resolution
                         .alternative_corrected_cuts
                         .iter()
@@ -726,10 +730,9 @@ impl QuanpinDictionary {
                         Cow::Borrowed(_) => None,
                         Cow::Owned(resolution) => Some(resolution),
                     };
-                    (owned, pinyin_segmentation, alternatives, slot)
+                    (owned, alternatives, slot)
                 },
             );
-        self.pinyin_segmentation = pinyin_segmentation;
         self.alternative_segmentations = marking_alternatives;
         self.drop_personal_scored_results();
         if self.series_cache.contains(&slot) {

@@ -145,6 +145,10 @@ fi
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.HelpcodeImportDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Helpcode import acceptance failed" >&2; exit 1; }
+# 导入必须经过安装产品的 Java 入口和 JNI，第六项不能等到下一次收起键盘才出现。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DictionaryImportDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DICTIONARY_IMPORT_PASSED* ]] || { echo "Dictionary import acceptance failed" >&2; exit 1; }
 # 数字默认九宫格涉及常规键面和字面提交，API 28 的核心验收同样覆盖。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NumberPadDeviceSmoke)
 printf '%s\n' "$result"
@@ -203,6 +207,9 @@ for entry in \
     "LongSymbolCellDeviceSmoke|Long symbol cell acceptance failed" \
     "EmailSuffixDeviceSmoke|Email suffix acceptance failed" \
     "NumberRowDeviceSmoke|Number row acceptance failed" \
+    "NumberLayerEntryDeviceSmoke|Number layer entry acceptance failed" \
+    "QuickDeleteUndoDeviceSmoke|Quick delete undo acceptance failed" \
+    "QuickDeletePreviewDeviceSmoke|Quick delete held preview acceptance failed" \
     "EmptyEditorBackspaceDeviceSmoke|Empty editor backspace acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \
     "TextEditRecentClipboardDeviceSmoke|Text edit recent clipboard acceptance failed" \

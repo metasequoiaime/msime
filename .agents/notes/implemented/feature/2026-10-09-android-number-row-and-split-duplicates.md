@@ -2,6 +2,8 @@
 
 Status: implemented
 
+切换数字符号页时缩高的决定由[数字符号页第五排](../../implemented/bug-fix/2026-10-16-number-symbol-extra-row.md)部分取代，其他布局的数字行边界与输入语义不变。
+
 数字层标点入口的决定已由[数字层中英文标点切换](../../implemented/feature/2026-10-14-android-number-layer-punctuation-toggle.md)取代；数字行和分离式键盘的其余决定仍然有效。
 
 ## Problem

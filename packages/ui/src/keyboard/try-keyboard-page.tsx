@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import { SendStopButton } from "../core/send-stop-button";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { ChatClient, ChatMessage } from "../chat/chat-model";
@@ -179,13 +180,7 @@ export function TryKeyboardPage({
 
   const fieldKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // 聊天页的回车是发送；组字中的回车属于输入法，Shift+回车照常换行。
-    if (
-      event.key !== "Enter" ||
-      event.shiftKey ||
-      event.nativeEvent.isComposing ||
-      event.keyCode === 229
-    )
-      return;
+    if (event.key !== "Enter" || event.shiftKey || isComposingKeyEvent(event)) return;
     if (!chat) return;
     event.preventDefault();
     void send();

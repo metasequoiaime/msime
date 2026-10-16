@@ -30,9 +30,10 @@ export function useCustomHelpcodeSchemas(
 export function useHelpcodePacks(
   catalog: PluginClient["catalog"] | undefined,
   inputPageOpen: boolean,
+  refreshRevision = 0,
 ): HelpcodePackOption[] {
   const [packs, setPacks] = useState<HelpcodePackOption[]>([]);
-  const generation = useAsyncGeneration(catalog, inputPageOpen);
+  const generation = useAsyncGeneration(catalog, inputPageOpen, refreshRevision);
   useEffect(() => {
     if (!catalog || !inputPageOpen) {
       setPacks([]);
@@ -51,6 +52,6 @@ export function useHelpcodePacks(
       .catch(() => {
         if (generation.current === current) setPacks([]);
       });
-  }, [catalog, inputPageOpen, generation]);
+  }, [catalog, inputPageOpen, refreshRevision, generation]);
   return packs;
 }

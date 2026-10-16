@@ -115,11 +115,15 @@ public final class KeyHeatmapLayoutSmoke {
         for (int index = 0; index < row.size(); index++) {
             check(row.get(index).weight() == entries.get(index).weight(), "action key " + index + " is as wide as on the keyboard");
         }
-        check(faces(row).equals(List.of("符", "123", "空格", "中", "↵")), "符 | 123 | 空格 | 中 | ↵");
+        boolean comma = KeyboardActionRow.usesCommaSecondaryPeriod(touchLayout);
+        check(faces(row).equals(comma ? List.of("123", "符", "空格", "，", "中", "↵")
+            : List.of("符", "123", "空格", "中", "↵")), "底行键面跟随实际布局");
         List<List<String>> ids = new ArrayList<>(row.size());
         for (Key key : row) ids.add(key.ids());
-        check(ids.equals(List.of(List.of("SoftSymbol"), List.of("SoftLayer"), List.of("Space"), List.of("SoftLanguage"),
-            List.of("Enter"))), "the action row ids");
+        check(ids.equals(comma ? List.of(List.of("SoftLayer"), List.of("SoftSymbol"), List.of("Space"),
+            List.of("Comma"), List.of("SoftLanguage"), List.of("Enter"))
+            : List.of(List.of("SoftSymbol"), List.of("SoftLayer"), List.of("Space"), List.of("SoftLanguage"),
+            List.of("Enter"))), "底行按键统计跟随实际布局");
     }
 
     private static void others() {

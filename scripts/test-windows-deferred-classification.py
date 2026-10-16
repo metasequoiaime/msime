@@ -62,7 +62,7 @@ bool IsJapaneseInputModeToggle(UINT, UINT) { return false; }
 bool IsEnglishInputModeToggle(UINT, UINT) { return false; }
 bool IsGlossColumnShortcut(UINT, UINT) { return false; }
 bool IsTranslationCommitShortcut(UINT, UINT) { return false; }
-KEYSTROKE_FUNCTION SegmentEditFunction(UINT, UINT) { return FUNCTION_NONE; }
+// 生产分段编辑规则
 namespace Global {
 bool g_connected = true;
 std::atomic<int> InputModeScheme{msime::windows::scheme::Quanpin}, InputModeIndicator{'0'};
@@ -77,7 +77,7 @@ bool IsUiLessMode() { return false; }
 }
 struct ITfContext { int refs = 1; void AddRef() { ++refs; } void Release() { --refs; } };
 namespace msime::tsf {
-struct KeyCompositionState { std::wstring rawInput; std::size_t caret = 0; bool unicodeMode = false, urlMode = false; };
+struct KeyCompositionState { std::wstring rawInput; std::size_t caret = 0; bool unicodeMode = false, urlMode = false, phraseActive = false; };
 }
 struct Engine {
     msime::tsf::KeyCompositionState current;
@@ -112,11 +112,11 @@ struct CMetasequoiaIME {
     std::wstring _deferredProjectedRawInput;
     std::size_t _deferredProjectedInputLength = 0, _deferredProjectedCaret = 0;
     bool _deferredProjectedCandidateActive = false, _deferredProjectedUnicodeMode = false,
-         _deferredProjectedUrlMode = false, _deferredProjectedKoreanHanjaListOpen = false;
+         _deferredProjectedPhraseActive = false, _deferredProjectedUrlMode = false, _deferredProjectedKoreanHanjaListOpen = false;
     std::uint64_t _deferredKeyFocusGeneration = 7;
     // 生产队列类型
     std::deque<DeferredKeyDown> _deferredKeyDowns;
-    bool _IsComposing() const { return !_pCompositionProcessorEngine->current.rawInput.empty(); }
+    bool _IsComposing() const { return !_pCompositionProcessorEngine->current.rawInput.empty() || _pCompositionProcessorEngine->current.phraseActive; }
     bool _IsKoreanHanjaListOpen() const { return false; }
     bool disabled = false, ownerCurrent = true;
     int ownerQueries = 0;
@@ -222,6 +222,29 @@ struct Fixture {
     }
 };
 int main() {
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.engine.current.phraseActive = true;
+        f.ime._deferredKeyClassificationPending = false;
+        f.ime._deferredKeyProjectionValid = false;
+        WCHAR wch = 0; UINT code = 0, modifiers = 2; WCHAR original = 0;
+        _KEYSTROKE_STATE state{};
+        check(f.ime._ClassifyDeferredKeyDown(&f.context, VK_BACK, 0, &original, &modifiers, &wch, &code, &state) &&
+              state.Function == FUNCTION_BACKSPACE_SEGMENT, "prefix-only Ctrl+Backspace remains an IME edit");
+        f.ime._EnsureDeferredKeyProjection();
+        modifiers = 0;
+        check(f.ime._ClassifyDeferredKeyDown(&f.context, VK_BACK, 0, &original, &modifiers, &wch, &code, &state) &&
+              state.Function == FUNCTION_BACKSPACE, "prefix-only ordinary Backspace remains an IME edit");
+        WCHAR mark = L'/';
+        _KEYSTROKE_STATE markState{};
+        check(f.ime._ClassifyDeferredKeyDown(&f.context, 0xBF, 0, &mark, &modifiers, &wch, &code, &markState) &&
+              markState.Function == FUNCTION_PUNCTUATION, "slash ends held-only phrase instead of opening a local mode");
+        f.ime._ApplyDeferredKeyProjection(state, 0, VK_BACK);
+        check(f.ime._deferredKeyClassificationPending && !f.ime._deferredKeyProjectionValid,
+              "phrase Backspace waits for Runtime before classifying queued keys");
+    }
+
     struct Case { UINT code; WCHAR wch; KEYSTROKE_FUNCTION continuing; bool applicationKey; };
     const Case cases[] = {
         {'0', L'0', FUNCTION_INPUT, false}, {'A', L'a', FUNCTION_INPUT, false},
@@ -364,7 +387,8 @@ def main() -> int:
     queue_type = between(header, "    struct DeferredKeyDown", "    enum class KeyDownDispatchResult")
     shadow = between(sink, "struct DeferredShadowState", "bool IsRecoverableDeferredPrefix(")
     dispatch_type = between(header, "    enum class KeyDownDispatchResult", "    bool _HasDeferredKeyBarrier")
-    harness = HARNESS.replace("    // 生产派发类型", dispatch_type).replace("// 生产按键类型与虚拟键码", types + vk).replace(
+    segment = between(sink, "KEYSTROKE_FUNCTION SegmentEditFunction(", "\n}\n") + "\n}\n"
+    harness = HARNESS.replace("// 生产分段编辑规则", segment).replace("    // 生产派发类型", dispatch_type).replace("// 生产按键类型与虚拟键码", types + vk).replace(
         "// 生产投影规则", shadow).replace("    // 生产队列类型", queue_type).replace(
         "    // 生产分类声明", declaration)
     body = between(sink, "void CMetasequoiaIME::_EnsureDeferredKeyProjection()", "void CMetasequoiaIME::_ApplyDeferredPreservedKeyProjection(")

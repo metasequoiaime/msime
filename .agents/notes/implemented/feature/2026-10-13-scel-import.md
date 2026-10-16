@@ -71,3 +71,5 @@ Status: implemented
 - [导入报告保留行号最早的失败](../bug-fix/2026-10-12-dictionary-import-failure-order.md)：细胞词库的坏词条按词序进入同一份报告，最早的几处仍按行号排在前面。
 - [导入按已检查行数计上限](../bug-fix/2026-10-09-import-examined-row-limit.md)：iOS 只送前 1001 行依赖解析器每次最多看 1000 行。
 - [iOS 与鸿蒙的全平台设计](2026-10-07-ios-harmony-all-platform-design.md)：命名词库在那里作为单独的一块列出，细胞词库经它的 `import` 动作进来。
+
+- [Android 导入后应用词条](../bug-fix/2026-10-17-android-import-apply-before-success.md)：解析和权重不变，补充集合入队后趁空闲应用以及繁忙提示。

@@ -224,7 +224,7 @@ impl KeyGrid {
     /// 一行候选的全拼（`'` 连接的完整音节）一共占几个组码，不分配。
     fn reading_code_len(self, canonical_pinyin: &str) -> usize {
         match self {
-            Self::NineKeyShuangpin(_) => 2 * canonical_pinyin.split('\'').count(),
+            Self::NineKeyShuangpin(_) => 2 * reading_syllable_count(canonical_pinyin),
             _ => canonical_pinyin
                 .bytes()
                 .filter(u8::is_ascii_lowercase)
@@ -1240,7 +1240,7 @@ impl NineKeySession {
                     canonical
                 };
                 // 多出音节的行是越过本条路径的补全，不参与这条读法。
-                if canonical.matches('\'').count() >= full_len {
+                if reading_syllable_count(canonical) > full_len {
                     return false;
                 }
                 let matched = if fuzzy { pinyin } else { canonical };
@@ -1389,7 +1389,8 @@ impl NineKeySession {
             }
             for mut candidate in rows {
                 // 没有锁定的拼音时 `remaining` 就是全部数字，简拼行一个数字一个音节，吃掉全部数字。
-                candidate.pinyin = self.digits.clone();
+                candidate.pinyin.clear();
+                candidate.pinyin.push_str(&self.digits);
                 push_ranked(
                     &mut candidates,
                     &mut leading,
@@ -1501,8 +1502,7 @@ impl NineKeySession {
                 self.spellings = undo.choices.clone();
             }
         } else {
-            let choices = self.key_choices(remaining);
-            self.spellings.extend(choices);
+            self.append_key_choices(locked_length);
         }
     }
 
@@ -1717,6 +1717,28 @@ impl NineKeySession {
     }
 
     /// 左列末尾的按键选项：下一个数字键上能起头一个音节的字母（大写，和同形的音节 `o`、`a`、`e` 区分开），再是这个数字本身。数字只在没有锁定时给：前面锁定的音节还没上屏。
+    fn append_key_choices(&mut self, locked_length: usize) {
+        let remaining = remaining_digits(&self.digits, locked_length);
+        let Some(&digit) = remaining.as_bytes().first() else {
+            return;
+        };
+        let table = self.grid.spelling_table();
+        let letters = self.grid.letters(digit);
+        let raw_key = self.locked.is_empty() && self.grid.offers_raw_key();
+        self.spellings.reserve(letters.len() + usize::from(raw_key));
+        for letter in letters
+            .bytes()
+            .filter(|&letter| table.starts_syllable(letter))
+        {
+            self.spellings
+                .push(char::from(letter.to_ascii_uppercase()).to_string());
+        }
+        if raw_key {
+            self.spellings.push(char::from(digit).to_string());
+        }
+    }
+
+    #[cfg(test)]
     fn key_choices(&self, remaining: &str) -> Vec<String> {
         let Some(&digit) = remaining.as_bytes().first() else {
             return Vec::new();
@@ -2227,7 +2249,7 @@ fn seeded_paths(
         let tails = if tail.is_empty() {
             vec![Vec::new()]
         } else {
-            table.split_paths(tail, &[], prior)
+            table.split_paths_limited(tail, &[], prior, SEED_TAIL_LIMIT)
         };
         for tail_path in tails.into_iter().take(SEED_TAIL_LIMIT) {
             let mut path: Path = Vec::with_capacity(kept + tail_path.len());
@@ -2378,11 +2400,16 @@ fn comparable_weight(item: &WordItem) -> i64 {
     comparable_weight_for_reading(item, &item.canonical_pinyin)
 }
 
+/// 保留 `split` 的空段语义；ASCII 撇号不会出现在 UTF-8 多字节编码内部。
+fn reading_syllable_count(canonical: &str) -> usize {
+    canonical.bytes().filter(|&byte| byte == b'\'').count() + 1
+}
+
 fn comparable_weight_for_reading(item: &WordItem, canonical: &str) -> i64 {
     if item.source != CandidateSource::Generated || canonical.is_empty() {
         return item.weight;
     }
-    let syllables = canonical.split('\'').count();
+    let syllables = reading_syllable_count(canonical);
     // 每词插入代价已在共享词网格解码中扣除；这里只消去跨切分比较的音节奖励。
     item.weight - (PHRASE_LENGTH_BONUS * 1000.0 * syllables as f64) as i64
 }
@@ -2407,7 +2434,7 @@ fn is_initials_row(item: &WordItem) -> bool {
 fn is_initials_reading(item: &WordItem, digits: usize, canonical: &str) -> bool {
     digits >= 2
         && !item.source.is_generated_or_fallback()
-        && canonical.split('\'').count() == digits
+        && reading_syllable_count(canonical) == digits
         && canonical.bytes().filter(u8::is_ascii_lowercase).count() > digits
 }
 
@@ -2972,6 +2999,17 @@ impl SpellingTable {
     ///
     /// 每个位置只留 48 条，留哪些就决定了哪些读法还能查到。原先在字典序上截断，而 9 键是 wxyz、7 键是 pqrs，于是长串里 xi 开头的路径把 yi、zhe 开头的全部挤掉，`943426943426` 只剩「洗点一点」查不到「一点一点」，`7264685487` 只剩「盘后」查不到「然后」。
     fn split_paths(&self, digits: &str, splits: &[usize], prior: &SyllablePrior) -> Vec<Path> {
+        self.split_paths_limited(digits, splits, prior, PATH_LIMIT)
+    }
+
+    /// 所有中间页仍保留完整搜索宽度，只按消费者上限物化最终路径。
+    fn split_paths_limited(
+        &self,
+        digits: &str,
+        splits: &[usize],
+        prior: &SyllablePrior,
+        output_limit: usize,
+    ) -> Vec<Path> {
         let length = digits.len();
         let mut suffix: Vec<Vec<SpellingPath<'_>>> = vec![Vec::new(); length + 1];
         suffix[length].push(SpellingPath {
@@ -3015,19 +3053,31 @@ impl SpellingTable {
                 }
             }
             // 按码分组访问音节；比较项与原拥有路径相同，只在需要字典序时回溯音节。
-            result.sort_by(|a, b| {
+            let compare = |a: &SpellingPath<'_>, b: &SpellingPath<'_>| {
                 a.length
                     .cmp(&b.length)
                     .then_with(|| b.complete.cmp(&a.complete))
                     .then_with(|| b.score.total_cmp(&a.score))
                     .then_with(|| a.pieces(&suffix).cmp(b.pieces(&suffix)))
-            });
-            result.truncate(PATH_LIMIT);
+            };
+            let keep = if offset == 0 {
+                output_limit.min(PATH_LIMIT)
+            } else {
+                PATH_LIMIT
+            };
+            // 根页没有前驱消费者；同分同读法的路径输出相同，只选择最终采用的前几条。
+            if keep < PATH_LIMIT && result.len() > keep {
+                result.select_nth_unstable_by(keep, compare);
+                result.truncate(keep);
+            }
+            result.sort_by(compare);
+            result.truncate(keep);
             suffix[offset] = result;
         }
         // 后继一定在更大偏移，取出根页不影响回溯；只有最终保留路径才物化字符串。
         std::mem::take(&mut suffix[0])
             .into_iter()
+            .take(output_limit)
             .map(|root| {
                 let mut path = Vec::with_capacity(root.length);
                 path.extend(root.pieces(&suffix).map(str::to_owned));
@@ -3097,15 +3147,22 @@ impl SyllablePrior {
 mod dominated_projection_tests;
 #[cfg(test)]
 mod filter_projection_tests;
+#[cfg(test)]
+mod isolated_test;
 
 #[cfg(test)]
 mod cached_rank_tests;
+#[cfg(test)]
+mod syllable_count_tests;
 
 #[cfg(test)]
 mod initials_code_tests;
 
 #[cfg(test)]
 mod path_chain_tests;
+
+#[cfg(test)]
+mod seed_tail_tests;
 
 #[cfg(test)]
 mod code_prefix_tests;
@@ -4118,6 +4175,27 @@ mod tests {
         assert!(
             allocations <= 149,
             "candidate pinyin normalization allocated {allocations} buffers"
+        );
+    }
+
+    #[test]
+    fn refresh_appends_key_choices_without_a_temporary_vector() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        session.digits = "64".into();
+        session.refresh();
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.refresh());
+        let spellings = session.snapshot().nine_key_spellings;
+        assert!(spellings.ends_with(
+            &["o", "M", "N", "O", "6"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        ));
+        assert!(
+            allocations <= 110,
+            "key choices refresh allocations: {allocations}"
         );
     }
 

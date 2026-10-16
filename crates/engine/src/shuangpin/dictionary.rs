@@ -15,7 +15,7 @@ use crate::helpcode::{
     match_single_helpcode, matches_double_helpcodes, HelpcodeKeymap, SingleHelpcodeMatch,
 };
 use crate::ime::online_batch::replace_online_candidate_batch;
-use crate::lattice::decode::SentenceNgramTables;
+use crate::lattice::decode::{decode_constrained_sentences, SentenceNgramTables};
 use crate::lattice::merge::{merge_lattice_candidates, whole_sentence_insert_position};
 use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
@@ -275,6 +275,48 @@ impl ShuangpinDictionary {
             }
         }
         candidates
+    }
+
+    /// 没有直接匹配的词条时，在词网格解码前按音节位置过滤辅助码。
+    pub(super) fn generate_constrained_sentences(
+        &self,
+        segmentation: &str,
+        raw: &str,
+        accepts: impl Fn(usize, &str) -> bool,
+    ) -> Vec<WordItem> {
+        if !self.sentence_association.word_lattice {
+            return Vec::new();
+        }
+        let segments = split_segments(&convert_seg_shuangpin_to_seg_complete_pinyin(
+            segmentation,
+            self.profile,
+        ));
+        let mut options = self.sentence_tables.options(self.sentence_alternatives);
+        let model = self.personal.model();
+        options.personal = (!model.is_empty()).then_some(&*model);
+        let mut lookup = |span: &[String]| {
+            // 先按辅助码过滤再做搜索，不能用普通查询的每段截断提前丢掉目标字。
+            self.database.query_lattice_span(span, UNLIMITED_ROWS)
+        };
+        let mut paths = decode_constrained_sentences(&segments, &mut lookup, &options, accepts);
+        if options.emit > 0 {
+            paths.truncate(options.emit);
+        }
+        paths
+            .into_iter()
+            .map(|path| {
+                let mut row = WordItem::new(
+                    raw,
+                    path.sentence,
+                    (path.log_prob * 1000.0) as i64,
+                    CandidateSource::Generated,
+                    path.key,
+                );
+                row.sentence_association = true;
+                row.sentence_words = path.words;
+                row
+            })
+            .collect()
     }
 
     /// 整句块（SD:261-269，去掉了 Google 整句和它的重排，overlays.md §1.6.2）：`word_lattice` 开着时放词网格最优句（Generated），每个启用的神经重排器各一行，由合并本身插入。纠错开着时再接一条纠错整句，排在整句块之后。

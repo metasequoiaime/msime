@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "../core/toast";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 import { appendUniqueById, resourceMessage } from "./community-helpers";
 import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import { useCommunityDetailHistory } from "./use-community-detail-history";
@@ -97,18 +98,28 @@ export function useCommunityResourceGallery({
   // 本次会话已添加和正在添加的条目，按 id 记录。没有宿主会报告哪些共享词库或回复模板已在设备上，所以每行初始都是「添加」；再次添加只会导入相同的词条或保留同一个模板，不产生任何变化。
   const [added, setAdded] = useState<ReadonlySet<string>>(() => new Set());
   const [adding, setAdding] = useState<ReadonlySet<string>>(() => new Set());
-  const addingNow = useRef(new Set<string>());
+  const addGeneration = useAsyncGeneration(client);
+  const addingNow = useRef(new Map<string, number>());
+  useEffect(() => {
+    addingNow.current.clear();
+    setAdded(new Set());
+    setAdding(new Set());
+  }, [client]);
   /** 「添加」：与详情页主按钮同一路径，之后弹出 toast。宿主能本地导入时，词库进入本机词库，不能时进入云词库；回复模板保存给「高情商回复」键盘使用。 */
   const add = async (item: CommunityResource) => {
+    const generation = addGeneration.current;
     if (addingNow.current.has(item.id)) return;
-    addingNow.current.add(item.id);
+    addingNow.current.set(item.id, generation);
     setAdding((current) => new Set(current).add(item.id));
+    const current = () => mounted.current && generation === addGeneration.current;
     try {
       if (item.kind === "dictionary") {
         // 列表里的副本可能比服务器将导入的版本旧，所以词条取自重新获取的详情，与详情页的做法相同。
         const latest = await client.detail(item.id);
+        if (!current()) return;
         if (canInstallCommunityDictionary(localDictionary)) {
           const result = await installCommunityDictionaryLocally(localDictionary, latest);
+          if (!current()) return;
           toast(
             result?.kind === "collection"
               ? `已添加「${latest.name}」，可以在「词库」里停用或删除`
@@ -118,21 +129,27 @@ export function useCommunityResourceGallery({
           );
         } else {
           const result = await client.apply(latest.id, latest.revision);
+          if (!current()) return;
           toast(`已添加「${item.name}」，云端词库新增或更新 ${result.imported} 个词条`);
         }
       } else {
-        toast(await addCommunityReply(client, item));
+        const message = await addCommunityReply(client, item);
+        if (!current()) return;
+        toast(message);
       }
+      if (!current()) return;
       setAdded((current) => new Set(current).add(item.id));
     } catch (failure) {
-      toast(resourceMessage(failure));
+      if (current()) toast(resourceMessage(failure));
     } finally {
-      addingNow.current.delete(item.id);
-      setAdding((current) => {
-        const next = new Set(current);
-        next.delete(item.id);
-        return next;
-      });
+      if (addingNow.current.get(item.id) === generation) {
+        addingNow.current.delete(item.id);
+        setAdding((current) => {
+          const next = new Set(current);
+          next.delete(item.id);
+          return next;
+        });
+      }
     }
   };
   const onPublished = async () => {

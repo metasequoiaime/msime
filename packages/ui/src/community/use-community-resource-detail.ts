@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import { resourceMessage } from "./community-helpers";
 import { communityReportedNotice, type CommunityReportReason } from "./community-report-model";
@@ -37,25 +37,38 @@ export function useCommunityResourceDetail({
     generation: clientGeneration,
     run: runAsyncAction,
   } = useAsyncActionRunner(setError, setNotice, client, initial.id);
+  const refreshGeneration = useRef(0);
+  const isCurrentRefresh = useCallback(
+    (generation: number, refresh: number) =>
+      mounted.current &&
+      generation === clientGeneration.current &&
+      refresh === refreshGeneration.current,
+    [clientGeneration, mounted],
+  );
   const renderGeneration = clientGeneration.current;
   const run = (action: (generation: number) => Promise<void>) => {
     const generation = clientGeneration.current;
-    return runAsyncAction(() => action(generation), {
-      formatError: resourceMessage,
-    });
+    return runAsyncAction(
+      () => {
+        // 已接受的用户操作优先，先前后台读取的详情和错误不再回写。
+        refreshGeneration.current++;
+        return action(generation);
+      },
+      { formatError: resourceMessage },
+    );
   };
   useEffect(() => {
     const generation = clientGeneration.current;
+    const refresh = ++refreshGeneration.current;
     void client
       .detail(initial.id)
       .then((value) => {
-        if (mounted.current && generation === clientGeneration.current) setItem(value);
+        if (isCurrentRefresh(generation, refresh)) setItem(value);
       })
       .catch((errorValue) => {
-        if (mounted.current && generation === clientGeneration.current)
-          setError(resourceMessage(errorValue));
+        if (isCurrentRefresh(generation, refresh)) setError(resourceMessage(errorValue));
       });
-  }, [client, initial.id, clientGeneration, mounted]);
+  }, [client, initial.id, clientGeneration, isCurrentRefresh]);
   const save = () =>
     void run(async (generation) => {
       await client.save(item.id, !item.saved);
@@ -127,10 +140,15 @@ export function useCommunityResourceDetail({
     return reported;
   };
   const onPublished = async () => {
-    setEditing(false);
-    const updated = await client.detail(item.id);
     if (!mounted.current || renderGeneration !== clientGeneration.current) return;
-    setItem(updated);
+    setEditing(false);
+    const refresh = ++refreshGeneration.current;
+    try {
+      const updated = await client.detail(item.id);
+      if (isCurrentRefresh(renderGeneration, refresh)) setItem(updated);
+    } catch (failure) {
+      if (isCurrentRefresh(renderGeneration, refresh)) throw failure;
+    }
   };
 
   return {
