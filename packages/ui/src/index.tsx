@@ -2742,8 +2742,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
         showTypingEffects),
     // full 不带版本信息，手写一直都在。
     hasHandwriting: client.host?.edition?.handwriting ?? true,
-    // macOS 和 Linux 桌面的手写页只有一个打开按钮，并进屏幕键盘页；Windows 的共享设置页跟原生设置窗口一样分成两页。
-    handwritingOnScreenKeyboardPage: macosPlatform || linuxPlatform,
+    // 桌面上的手写页只有一个打开按钮（HarmonyOS 2-in-1 是一段说明），并进屏幕键盘页；Windows 的原生设置窗口也并成了一页（`SettingsNavigation.h`）。触屏宿主的手写页另有内容，投影本身就不并。
+    handwritingOnScreenKeyboardPage:
+      macosPlatform || linuxPlatform || windowsPlatform || harmonyPlatform,
     mobileHiddenPageIds,
     mobilePageTitle,
   });
