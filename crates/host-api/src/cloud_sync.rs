@@ -849,8 +849,9 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                         event
                     }
                     Ok(probe) => {
-                        // 第一条新改动是 reset 时再看云端是不是空了：「删除云端数据」会清掉全部历史再写一条 reset；别的设备整份上传快照也写 reset，但云端不空。读不出汇总时按不空处理。从没同步过（没有游标）时也要看：删除以后云端只剩那条 reset，不能当成云端有词。
-                        let reset_and_empty = probe.reset
+                        // 第一条新改动是 reset 时再看云端是不是空了：「删除云端数据」会清掉全部历史再写一条 reset；别的设备整份上传快照也写 reset，但云端不空。从没同步过（没有游标）时不管第一条改动是什么都要看：删除以后云端只剩那条 reset；在云词库面板里加了词又全删掉，改动都不是 reset，词库却是空的。这两种都不能当成云端有词，否则「使用云端」会拿空快照替换本机的词。读不出汇总时按不空处理。
+                        let reset_and_empty = probe.changed
+                            && (probe.reset || cursor.is_none())
                             && matches!(
                                 context.remote(|api, token| api.data_summary(token))?,
                                 Ok(summary) if summary.sections.iter().any(|section| section.id == "dictionary" && section.items == 0)

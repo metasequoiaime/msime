@@ -72,6 +72,7 @@ struct Cloud {
     phrases: AccountPhrases,
     dictionary_revision: i64,
     dictionary_reset: bool,
+    /// 云端词库现在的条数（`data_summary` 报的）；默认有词，模拟云端被清空时设成 0。
     dictionary_items: i64,
     /// 下一次 PUT 常用语之前，另一台设备先写了这一份：这次 PUT 以 409 失败。
     phrases_written_elsewhere: Option<AccountPhrases>,
@@ -97,7 +98,7 @@ impl Default for Cloud {
             },
             dictionary_revision: 0,
             dictionary_reset: false,
-            dictionary_items: 0,
+            dictionary_items: 1,
             phrases_written_elsewhere: None,
             failures: HashMap::new(),
             calls: Vec::new(),
@@ -1378,6 +1379,49 @@ fn an_emptied_dictionary_cloud_never_replaces_local_words() {
         state.sections.dictionary.dirty(),
         "local words are uploaded next round"
     );
+}
+
+#[test]
+fn use_cloud_never_empties_local_words_when_the_cloud_dictionary_is_empty_without_a_reset() {
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    // 新设备首次同步，云端在云词库面板里加过词又全删掉：改动都不是 reset，词库条数为 0。
+    let fixture = Fixture::new();
+    fixture.local.local().words = true;
+    {
+        let mut cloud = fixture.api.cloud();
+        cloud.dictionary_revision = 3;
+        cloud.dictionary_reset = false;
+        cloud.dictionary_items = 0;
+    }
+    fixture.enable();
+    let first = fixture.run(Trigger::Choice, Some(Choice::UseCloud), dictionary, NOW);
+    assert_eq!(first["outcome"], "done", "{first}");
+    assert_eq!(first["sections"]["dictionary"]["outcome"], "synced");
+    assert!(fixture.local.local().replaced.is_empty());
+    assert_eq!(fixture.api.cloud().snapshot_uploads, 1);
+    assert!(fixture.api.calls().contains(&"data_summary"));
+    // 云端有词时照常问、照常按「使用云端」下载。
+    let fixture = Fixture::new();
+    fixture.local.local().words = true;
+    {
+        let mut cloud = fixture.api.cloud();
+        cloud.dictionary_revision = 3;
+        cloud.dictionary_items = 2;
+    }
+    fixture.enable();
+    let asked = fixture.run(Trigger::Enable, None, dictionary, NOW);
+    assert_eq!(asked["outcome"], "needs_choice", "{asked}");
+    let chosen = fixture.run(
+        Trigger::Choice,
+        Some(Choice::UseCloud),
+        dictionary,
+        NOW + 1_000,
+    );
+    assert_eq!(chosen["outcome"], "done", "{chosen}");
+    assert_eq!(fixture.local.local().replaced, [(USER.to_owned(), 3)]);
 }
 
 #[test]
