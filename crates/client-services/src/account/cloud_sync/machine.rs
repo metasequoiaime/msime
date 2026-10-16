@@ -152,6 +152,8 @@ pub enum Event {
     LocalFailed {
         reason: String,
     },
+    /// 只对词库：下载下来要整份替换本机（`WriteLocal{Cloud}`）的云端快照一个词都没有，而本机这一轮读到自己的词。驱动没有替换；这一类改按合并处理（`WriteLocal{MergeIntoLocal}`），两边的词都留着，提交后再标一次待上传，把本机的词传回云端。
+    EmptySnapshot,
 }
 
 /// 本机写什么。
@@ -481,6 +483,15 @@ impl SectionMachine {
                 }
             }
             (Phase::Writing, Some(Event::Written { revision })) => self.commit(revision),
+            // 硬性约束：有词的本机词库不拿一个词都没有的快照整份替换。不管这次下载是「使用云端」、首次同步还是之后云端有改动，也不管云端汇总读没读出来，都改按合并处理。
+            (Phase::Writing, Some(Event::EmptySnapshot))
+                if self.dictionary()
+                    && self.mode == Mode::Download
+                    && self.local.is_some_and(|local| local.has_data) =>
+            {
+                self.mode = Mode::Merge;
+                Step::WriteLocal(WriteTarget::MergeIntoLocal)
+            }
             (_, Some(Event::LocalFailed { reason })) if self.phase != Phase::Finished => {
                 self.done(OutcomeKind::Failed, Some(&reason))
             }

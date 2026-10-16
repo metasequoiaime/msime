@@ -459,7 +459,20 @@ fn a_choice_kept_for_the_dictionary_and_its_backoff_are_recorded_and_cleared() {
     let stall = Stall {
         rounds: 2,
         until_ms: 10_000,
+        present: Some(3),
     };
+    // 旧的状态文件里没有 `present`：读成 `None`；记下的词数原样往返。
+    assert_eq!(
+        serde_json::from_str::<Stall>(r#"{"rounds":2,"until_ms":10000}"#).unwrap(),
+        Stall {
+            present: None,
+            ..stall
+        }
+    );
+    assert_eq!(
+        serde_json::from_str::<Stall>(&serde_json::to_string(&stall).unwrap()).unwrap(),
+        stall
+    );
     let mut progress = RoundProgress {
         consumed_choice: true,
         kept_choice: Some(Choice::UseCloud),
@@ -486,6 +499,7 @@ fn a_choice_kept_for_the_dictionary_and_its_backoff_are_recorded_and_cleared() {
     let far = Stall {
         rounds: 1,
         until_ms: 1_000 + MAX_STALL_MS + 1,
+        present: None,
     };
     let mut rewound = state.sections.dictionary.clone();
     rewound.stall = Some(far);

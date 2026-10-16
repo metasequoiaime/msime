@@ -48,7 +48,7 @@ pub struct SectionState {
     /// 只对词库：首次同步（或云端被清空以后）用户选了、合并却还没做完时留下的选择，下一轮词库接着用，不再问。它只给词库用，不进 `pending_choice`：设置和常用语这时多半已经同步过了，以后它们的云端被清空还要重新问用户。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub choice: Option<Choice>,
-    /// 只对词库：合并一直没做完（词还排着等键盘应用、云端有本机导入不了的词、被别的失败请求挡住，或者键盘还没发布过本机词库版本）时的退避。退避期间回到前台的自动同步跳过词库，不用每次都重新下载整份快照；用户手动同步、打开开关或做选择时不等。
+    /// 只对词库：合并一直没做完（词还排着等键盘应用、云端有本机导入不了的词、被别的失败请求挡住，或者键盘还没发布过本机词库版本），或者本机这一侧读写词库失败（`dictionary_storage`、`dictionary_invalid` 这类）时的退避。退避期间回到前台的自动同步跳过词库，不用每次都重新下载整份快照；用户手动同步、打开开关或做选择时不等。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stall: Option<Stall>,
     /// 最近一轮这一类的结果。
@@ -89,9 +89,12 @@ impl SectionState {
 /// 词库合并的退避：连着几轮没做完，退避到什么时候。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Stall {
-    /// 连着没有进展的轮数；这一轮往导入队列里排了新的词时重新从 1 数起。
+    /// 连着没有进展的轮数；这一轮往导入队列里排了新的词、或者云端快照里已经在本机的词比上次记下的多（键盘应用了排着的词）时重新从 1 数起。重排键盘暂时没应用的请求不算进展。
     pub rounds: u32,
     pub until_ms: u64,
+    /// 最近一次合并时云端快照里已经在本机的词数；下一轮比它多就是有进展。这一轮没有走到合并（本机读写失败、快照交不给激活队列）时沿用上次记下的。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub present: Option<u64>,
 }
 
 /// 基线：设置是 键 → 值的摘要，常用语是正文摘要的集合。

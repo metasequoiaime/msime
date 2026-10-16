@@ -143,8 +143,10 @@ pub(crate) struct DictionaryLocal {
 #[derive(Debug, PartialEq)]
 pub(crate) struct MergeStop {
     pub(crate) reason: String,
-    /// 这一轮往导入队列里排了新的词（或者重排了暂时失败的）：合并在往前走，退避不加长。
+    /// 这一轮往导入队列里排了新的词：合并在往前走，退避不加长。重排键盘因为暂时拿不到词库而没应用的请求不算，那些词上一轮已经排过，键盘一直拿不到词库时每一轮都会重排。
     pub(crate) queued: bool,
+    /// 云端快照里已经在本机的词数；比上一轮多说明键盘应用了排着的词，合并也在往前走。没走到比对这一步（读写失败）时为 `None`。
+    pub(crate) present: Option<usize>,
 }
 
 impl From<String> for MergeStop {
@@ -152,6 +154,7 @@ impl From<String> for MergeStop {
         Self {
             reason,
             queued: false,
+            present: None,
         }
     }
 }
@@ -194,6 +197,8 @@ pub(crate) trait SyncLocal {
     fn cancel_dictionary(&self, account_id: &str) -> Result<(), String>;
     /// 校验下载到的快照（与激活队列用的同一套规则），返回它的修订号。
     fn snapshot_revision(&self, snapshot: &Path) -> Result<i64, String>;
+    /// 下载到的快照里有没有词（`entry` 减去标成删除的 `overlay`，与合并时看到的相同）。
+    fn snapshot_has_words(&self, snapshot: &Path) -> Result<bool, String>;
 }
 
 // ---- 状态展示 ----
@@ -504,8 +509,10 @@ struct DictionaryData {
     probe: Option<AccountDictionaryProbe>,
     /// 这一轮下载后交给激活队列的请求 id。
     enqueued: Option<String>,
-    /// 这一轮合并往导入队列里排了词。
+    /// 这一轮合并往导入队列里排了新的词。
     queued: bool,
+    /// 这一轮合并没做完时，云端快照里已经在本机的词数。
+    present: Option<usize>,
     /// 这一轮读本机时本机词库有没有用户自己的词；还没读到时为 `None`。
     local_words: Option<bool>,
 }
@@ -926,11 +933,19 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                         slot.failure = Some(failure);
                         event
                     }
-                    Ok(_) => match context.local.snapshot_revision(&file) {
+                    // 硬性约束：本机有自己的词时，从不拿一个词都没有的快照整份替换它。首次同步读不出云端汇总时云端按有词处理，「使用云端」走到这里拿到的可能是空快照；之后的下载同样查。不替换，交给状态机改按合并处理，两边的词都留着。
+                    Ok(_) => match context.local.snapshot_revision(&file).and_then(|revision| {
+                        let empty = target == WriteTarget::Cloud
+                            && data.local_words != Some(false)
+                            && !context.local.snapshot_has_words(&file)?;
+                        Ok((revision, empty))
+                    }) {
                         Err(reason) => Event::LocalFailed { reason },
-                        Ok(revision) => {
+                        Ok((_, true)) => Event::EmptySnapshot,
+                        Ok((revision, false)) => {
                             let user = context.user;
                             let queued = std::cell::Cell::new(false);
+                            let present = std::cell::Cell::new(None);
                             let written = context.locally(|| match target {
                                 WriteTarget::MergeIntoLocal => context
                                     .local
@@ -938,6 +953,7 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                                     .map(|()| None)
                                     .map_err(|stop| {
                                         queued.set(stop.queued);
+                                        present.set(stop.present);
                                         stop.reason
                                     }),
                                 _ => context
@@ -946,6 +962,7 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                                     .map(Some),
                             })?;
                             data.queued |= queued.get();
+                            data.present = present.get().or(data.present);
                             match written {
                                 Ok(enqueued) => {
                                     data.enqueued = enqueued;
@@ -1262,6 +1279,7 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                 probe: None,
                 enqueued: None,
                 queued: false,
+                present: None,
                 local_words: None,
             },
         ));
@@ -1331,6 +1349,7 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     // 留给词库的选择改记成「合并」：见下面 `dictionary_unpublished` 那一条。
     let mut keep_as_merge = false;
     let mut dictionary_queued = false;
+    let mut dictionary_present = None;
     let mut dictionary_local_words = None;
     let mut skins_skipped = None;
     if dictionary_stalled {
@@ -1366,6 +1385,7 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     }
     if let Some((slot, data)) = round.dictionary {
         dictionary_queued = data.queued;
+        dictionary_present = data.present;
         dictionary_local_words = data.local_words;
         slots.push((Section::Dictionary, slot));
     }
@@ -1403,9 +1423,12 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
             }
             OutcomeKind::Failed => {
                 failed = true;
-                let stalled = section == Section::Dictionary
+                let merge_unfinished = section == Section::Dictionary
                     && outcome.reason.as_deref().is_some_and(merge_stalled);
-                keep_choice |= stalled && dictionary_needs_choice;
+                keep_choice |= merge_unfinished && dictionary_needs_choice;
+                // 本机这一侧的失败（`dictionary_storage`、`dictionary_invalid` 这类，没有联网失败的详情）也退避：它们多半一直在，词库带着待上传标记时每满 30 秒就会重下一次整份快照。联网失败照旧只看 `Retry-After`。选择只在合并没做完时留下。
+                let stalled =
+                    merge_unfinished || section == Section::Dictionary && slot.failure.is_none();
                 // 键盘还没发布过本机词库版本时本机没有自己的词，「合并」和「使用云端」这一轮都是下载云端快照，用户的选择在这时没有区别。留到以后的那一轮时键盘多半已经打开过、学到了词，留着「使用云端」就会拿云端快照把这些词整份替换掉，所以改记成「合并」。本机这一轮就有词、用户选了「使用云端」时照原样留着。
                 keep_as_merge |= section == Section::Dictionary
                     && outcome.reason.as_deref() == Some(DICTIONARY_UNPUBLISHED)
@@ -1419,15 +1442,20 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                         Some(progress.not_before_ms.map_or(at, |old| old.max(at)));
                 }
                 let mut change = SectionProgress::outcome(outcome.clone());
-                // 合并没做完：退避一阵再自动重试，不在每次回到前台时都重新下载整份快照。这一轮排进了新的词就从头数，没有进展才翻倍。
+                // 合并没做完或本机读写失败：退避一阵再自动重试，不在每次回到前台时都重新下载整份快照。这一轮排进了新的词、或者云端的词在本机的比上次记下的多（键盘应用了排着的词）就从头数，没有进展才翻倍；只重排了键盘暂时没应用的请求不算进展。
                 if stalled {
+                    let present = dictionary_present.map(|count| count as u64);
+                    let before = previous_stall.and_then(|stall| stall.present);
+                    let progressed = dictionary_queued
+                        || matches!((present, before), (Some(now), Some(before)) if now > before);
                     let rounds = match previous_stall {
-                        Some(stall) if !dictionary_queued => stall.rounds.saturating_add(1),
+                        Some(stall) if !progressed => stall.rounds.saturating_add(1),
                         _ => 1,
                     };
                     change.stall = StallChange::Set(Stall {
                         rounds,
                         until_ms: now_ms.saturating_add(policy::stall_ms(rounds)),
+                        present: present.or(before),
                     });
                 }
                 progress.sections.insert(section, change);
@@ -2115,6 +2143,13 @@ impl SyncLocal for HostLocal {
                     .map(|word| (word.identity(), *request))
             })
             .collect();
+        // 云端快照里已经在本机的词：比上一轮多就是键盘应用了排着的词。
+        let present = cloud
+            .iter()
+            .filter_map(stored_identity)
+            .filter(|identity| held.contains(identity))
+            .collect::<HashSet<_>>()
+            .len();
         let mut seen = HashSet::new();
         let mut words: Vec<PersonalWord> = Vec::new();
         let mut retry = Vec::new();
@@ -2152,14 +2187,11 @@ impl SyncLocal for HostLocal {
                 None => words.push(import),
             }
         }
+        // 重排不算排进了新的词：键盘一直拿不到词库时每一轮都会重排同一批，算成进展的话退避每轮都从 5 分钟重新数。
         for id in &retry {
             match store.retry(id) {
-                Ok(()) => {
-                    unfinished = true;
-                    enqueued = true;
-                }
                 // 冲突说明同一个词已经有排着的请求。
-                Err(PersonalDictionaryError::Conflict) => unfinished = true,
+                Ok(()) | Err(PersonalDictionaryError::Conflict) => unfinished = true,
                 Err(_) => return Err("dictionary_storage".to_owned().into()),
             }
         }
@@ -2186,6 +2218,7 @@ impl SyncLocal for HostLocal {
         let stop = |reason: &str| MergeStop {
             reason: reason.to_owned(),
             queued: enqueued,
+            present: Some(present),
         };
         if rejected {
             return Err(stop(MERGE_REJECTED));
@@ -2213,6 +2246,10 @@ impl SyncLocal for HostLocal {
             .ok()
             .and_then(|metadata| metadata.get("cloudRevision").and_then(Value::as_i64))
             .ok_or_else(|| "dictionary_invalid".to_owned())
+    }
+
+    fn snapshot_has_words(&self, snapshot: &Path) -> Result<bool, String> {
+        snapshot_words(snapshot).map(|words| !words.is_empty())
     }
 }
 

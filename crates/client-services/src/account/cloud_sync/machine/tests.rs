@@ -606,6 +606,58 @@ fn dictionary_rules() {
 }
 
 #[test]
+fn an_empty_snapshot_never_replaces_local_words() {
+    // 首次同步选了「使用云端」，云端汇总没读出来、按有词处理：下载到的快照却一个词都没有。不替换本机，改按合并处理，提交后再标一次待上传。
+    let mut chosen = input(Section::Dictionary, None);
+    chosen.choice = Some(Choice::UseCloud);
+    let mut machine = SectionMachine::new(chosen);
+    assert_eq!(machine.next(None), Step::Fetch);
+    assert_eq!(
+        machine.next(Some(Event::Fetched(cloud(4, true)))),
+        Step::ReadLocal
+    );
+    assert_eq!(
+        machine.next(Some(Event::LocalRead(local(true)))),
+        Step::WriteLocal(WriteTarget::Cloud)
+    );
+    assert_eq!(
+        machine.next(Some(Event::EmptySnapshot)),
+        Step::WriteLocal(WriteTarget::MergeIntoLocal)
+    );
+    assert_eq!(machine.mode(), Mode::Merge);
+    let Step::Commit(commit) = machine.next(Some(Event::Written { revision: 4 })) else {
+        panic!("a merge commits");
+    };
+    assert_eq!(commit.mode, Mode::Merge);
+    assert_eq!(commit.cursor, 4);
+    assert!(commit.mark_dirty && !commit.clear_dirty);
+    // 之后云端有改动、本机没改：照样不拿空快照替换本机的词。
+    let mut machine = SectionMachine::new(input(Section::Dictionary, Some(4)));
+    machine.next(None);
+    machine.next(Some(Event::Fetched(cloud(6, true))));
+    assert_eq!(
+        machine.next(Some(Event::LocalRead(local(true)))),
+        Step::WriteLocal(WriteTarget::Cloud)
+    );
+    assert_eq!(
+        machine.next(Some(Event::EmptySnapshot)),
+        Step::WriteLocal(WriteTarget::MergeIntoLocal)
+    );
+    // 本机没有词时驱动不会报这个事件；报了也不改成合并，这一类失败，什么都不写。
+    let mut machine = SectionMachine::new(input(Section::Dictionary, Some(4)));
+    machine.next(None);
+    machine.next(Some(Event::Fetched(cloud(6, true))));
+    machine.next(Some(Event::LocalRead(local(false))));
+    assert_eq!(
+        machine.next(Some(Event::EmptySnapshot)),
+        Step::Done(SectionOutcome::new(
+            OutcomeKind::Failed,
+            Some("unexpected_event")
+        ))
+    );
+}
+
+#[test]
 fn a_downloaded_snapshot_that_never_activated_is_merged_instead_of_uploaded() {
     // 下载过快照、游标已经是它的修订号；本机有改动、云端没变，本来该上传。
     let mut dirty = input(Section::Dictionary, Some(4));
