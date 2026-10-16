@@ -26,8 +26,8 @@ public final class HostDeepLink {
     public static final String ARG_EXTERNAL = "msime_external";
 
     public static final int TAB_SETTINGS = 0;
-    /** 「全部设置」tab；下标保持兼容，AI 对话从设置页进入二级页面。 */
-    public static final int TAB_ALL_SETTINGS = 1;
+    /** 「社区」tab，根页是「皮肤 / 词库」两个分类的社区列表。下标沿用原先的第二格，按旧下标 1 发来的深链落在这里。 */
+    public static final int TAB_COMMUNITY = 1;
     public static final int TAB_STATISTICS = 2;
     public static final int TAB_ACCOUNT = 3;
     /** 没有给 tab 或给了不认识的值。 */

@@ -85,7 +85,7 @@ public enum PageId {
     PRIVACY("PrivacyPage", "隐私", HostDeepLink.TAB_ACCOUNT,
         "本地优先", "联网功能", "本机数据", "剪贴板历史", "匿名使用统计", "用水杉账号翻译候选", "隐私模式",
         "隐私政策"),
-    /** 一类社区作品的完整列表，参数 `kind` 选类型（见 {@link CommunityFragment#ARG_KIND}）；从各功能页的「浏览更多…」进来，本身不进设置搜索，搜索里出现的是那几个功能页。 */
+    /** 一类社区作品的完整列表，参数 `kind` 选类型（见 {@link CommunityFragment#ARG_KIND}）；从各功能页的「浏览更多…」进来，本身不进设置搜索，搜索里出现的是那几个功能页。皮肤和词库不压栈，{@link SettingsNavigator} 把它们切到社区 tab 的对应分类。 */
     COMMUNITY("CommunityFragment", "社区", HostDeepLink.TAB_SETTINGS);
 
     private static final String PACKAGE = "app.msime.android.home.";

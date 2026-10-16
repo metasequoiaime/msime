@@ -37,7 +37,7 @@ import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 /**
- * 宿主主界面的四个入口为设置、全部设置、统计和我的；AI 对话通过设置导航栈打开二级页面。
+ * 宿主主界面：底部四个 tab（设置、社区、统计、我的）共用一个 Fragment 容器，详情页压在同一个容器里。第二格是社区：根页是 {@link CommunityTabPage}（皮肤 / 词库两个分类，各自是完整的社区列表），以 {@link DetailPage#asTabRoot} 承载、没有返回按钮；各处打开社区皮肤或社区词库完整列表的入口都切到这个 tab 并选中对应分类（见 {@link SettingsNavigator}）。AI 对话通过设置导航栈打开二级页面。
  *
  * First-run dictionary preparation is started from here, because this is the launcher and there is
  * nowhere else the user reliably arrives. It never enables or selects the input method on their
@@ -63,7 +63,7 @@ public final class HomeActivity extends AppCompatActivity {
     private static final long INTRO_FADE_MILLIS = 260;
     /** 按 `HostDeepLink.TAB_*` 下标排的底部导航项，顺序与 `res/menu/bottom_tabs.xml` 相同（`tests/home/BottomTabsSmoke.java` 核对）。 */
     private static final int[] TAB_IDS = {
-        R.id.tab_settings, R.id.tab_allsettings, R.id.tab_statistics, R.id.tab_account,
+        R.id.tab_settings, R.id.tab_community, R.id.tab_statistics, R.id.tab_account,
     };
 
     private BottomNavigationView tabs;
@@ -78,6 +78,8 @@ public final class HomeActivity extends AppCompatActivity {
     private boolean onboardingAfterIntro;
     @Nullable private ValueAnimator progress;
     @Nullable private Runnable hideDetailLoading;
+    /** 社区 tab 还没建时要选中的分类，建它的时候交给根页。 */
+    @Nullable private CommunityRequest.Kind communityKind;
     /** 这个 activity 画出来时叠的季节（`AppMode.restore` 用的那份缓存）；没有缓存时是基础主题的秋杉。 */
     private String drawnSeason = "autumn";
     /** 回到前台时读共享偏好、解析应用主题用的工作线程。 */
@@ -99,8 +101,7 @@ public final class HomeActivity extends AppCompatActivity {
             new FragmentManager.FragmentLifecycleCallbacks() {
                 @Override public void onFragmentViewCreated(@NonNull FragmentManager manager,
                         @NonNull Fragment fragment, @NonNull View view, @Nullable Bundle state) {
-                    // 根 Tab 和详情页都在 home_content 中；不能只判断 DetailPage，否则首次打开
-                    // 键盘/对话/统计/我的时全局 loading 会没有对应的关闭回调。
+                    // 根 Tab 和详情页都在 home_content 中；不能只判断 DetailPage，否则首次打开设置/社区/统计/我的时全局 loading 会没有对应的关闭回调。
                     if (fragment.getId() == R.id.home_content) setDetailLoading(false);
                 }
             }, true);
@@ -225,7 +226,7 @@ public final class HomeActivity extends AppCompatActivity {
             return;
         }
         PageId page = PageId.fromName(request.page);
-        int tab = page != null ? page.tab() : request.tab;
+        int tab = page != null ? SettingsNavigator.tab(page, request.args) : request.tab;
         if (tab == HostDeepLink.NO_TAB) return;
         selectTabIndex(tab);
         clearStack();
@@ -462,9 +463,20 @@ public final class HomeActivity extends AppCompatActivity {
         }
     }
 
-    /** 打开某一类社区作品的完整列表。社区 tab 撤掉以后，它是压在设置 tab 上的一页（见 {@link CommunityFragment#browse}）。 */
+    /** 打开某一类社区作品的完整列表：皮肤和词库切到社区 tab，其余压在当前页面上面（见 {@link CommunityFragment#browse}）。 */
     public void openCommunity(CommunityRequest.Kind kind) {
         CommunityFragment.browse(this, kind);
+    }
+
+    /** 切到社区 tab 的根页并选中这一类作品的分类；只由 {@link SettingsNavigator} 调用。先选分类再切 tab：切过去时直接是要的那一类，第一次打开时也不会先把另一类的列表载入一遍。 */
+    void openCommunityTab(CommunityRequest.Kind kind) {
+        if (getSupportFragmentManager().findFragmentByTag(tag(R.id.tab_community)) instanceof CommunityTabPage page) {
+            page.select(kind);
+        } else {
+            communityKind = kind;
+        }
+        selectTabIndex(HostDeepLink.TAB_COMMUNITY);
+        clearStack();
     }
 
     /** 详情页创建时给导航一个统一的即时反馈；内容读盘仍由各页面自己管理。 */
@@ -533,7 +545,12 @@ public final class HomeActivity extends AppCompatActivity {
     }
 
     private Fragment create(int itemId) {
-        if (itemId == R.id.tab_allsettings) return KeyboardFragment.allSettings();
+        if (itemId == R.id.tab_community) {
+            CommunityTabPage page = new CommunityTabPage();
+            if (communityKind != null) page.select(communityKind);
+            communityKind = null;
+            return DetailPage.asTabRoot(page);
+        }
         if (itemId == R.id.tab_statistics) return new StatisticsFragment();
         if (itemId == R.id.tab_account) return new AccountFragment();
         return new KeyboardFragment();

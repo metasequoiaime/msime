@@ -143,7 +143,7 @@ fi
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.HelpcodeImportDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Helpcode import acceptance failed" >&2; exit 1; }
-# 导航必须在原生宿主中验收，包含异步刷新后全部设置不重新出现状态卡。
+# 导航必须在原生宿主中验收：设置列表有「皮肤」一行，底部第二格是没有返回按钮、顶部为「皮肤 / 词库」分类的社区根页，AI 对话从设置压入二级页。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ChatNavigationDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Native chat navigation acceptance failed" >&2; exit 1; }

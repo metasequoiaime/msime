@@ -2,4 +2,7 @@
 <resources>
     <!-- 社区子 Fragment 在旋转和视图恢复时使用同一个容器。 -->
     <item name="skin_community_content" type="id" />
+    <!-- 社区 tab（CommunityTabPage）的皮肤、词库两个分类各自的子列表容器，同样要在重建后保持不变。 -->
+    <item name="community_tab_skins" type="id" />
+    <item name="community_tab_dictionaries" type="id" />
 </resources>
