@@ -2,7 +2,7 @@
 //!
 //! 注册表里每个 store 一个条目，注册时一次建好全部对象，请求路径只查不插：`unregister` 之后不会有调用把会话重新插回去。条目最后一个引用释放时调用宿主的 `release`，那时本模块不持有任何锁。
 //!
-//! Part of the C ABI; see the parent module for what these shims guarantee.
+//! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。
 
 use super::account::Session;
 use super::community::Services;

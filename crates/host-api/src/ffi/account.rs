@@ -365,7 +365,7 @@ mod tests {
 
         fn access_token(request: Value) -> Value {
             let bytes = request.to_string();
-            // SAFETY: the buffer is live for the call, and the returned string is freed below.
+            // SAFETY: 缓冲区在调用期间有效，返回的字符串在下面释放。
             unsafe {
                 let raw = msime_client_account_access_token(bytes.as_ptr(), bytes.len());
                 let text = CStr::from_ptr(raw).to_str().unwrap().to_owned();
@@ -376,7 +376,7 @@ mod tests {
 
         fn cloud_clipboard(request: Value) -> Value {
             let bytes = request.to_string();
-            // SAFETY: as above.
+            // SAFETY: 同上。
             unsafe {
                 let raw = msime_client_account_cloud_clipboard(bytes.as_ptr(), bytes.len());
                 let text = CStr::from_ptr(raw).to_str().unwrap().to_owned();
@@ -387,7 +387,7 @@ mod tests {
 
         fn community(request: Value) -> Value {
             let bytes = request.to_string();
-            // SAFETY: as above.
+            // SAFETY: 同上。
             unsafe {
                 let raw =
                     crate::ffi::community::msime_client_community(bytes.as_ptr(), bytes.len());
