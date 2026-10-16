@@ -13,19 +13,19 @@ std::string wstring_to_string(const std::wstring &wstr);
 std::string to_lower_copy(const std::string &str);
 std::wstring GetCurrentProcessName();
 std::string::size_type count_utf8_chars(const std::string &str);
-// Read default_ime_mode from the shared MSIME-Client PreferencesStore. Returns TRUE for Chinese (also when the store cannot be read), FALSE for English.
+// 从已发布快照读取 default_ime_mode；中文或尚无有效快照时返回 TRUE，英文返回 FALSE。
 BOOL ReadConfiguredDefaultImeModeChinese();
-// 应用例外（共享偏好 app_input_mode_rules）里这个进程基名的起始模式：TRUE 为中文、FALSE 为英文；没有规则或读不到偏好时为空。
+// 从内存快照取 app_input_mode_rules 中这个进程基名的起始模式：TRUE 为中文、FALSE 为英文；没有规则或有效快照时为空。
 std::optional<BOOL> ReadConfiguredAppInputModeChinese(const std::wstring &process);
-// Read the active scheme from shared PreferencesStore. TRUE when Japanese input is active.
+// 从内存快照读取当前方案，日语输入时返回 TRUE。
 BOOL ReadConfiguredJapaneseInputMode();
-// The active scheme id from the shared PreferencesStore ("quanpin" when it names none or the store is unreadable). One read answers both the Japanese and the Korean input mode.
+// 内存快照中的当前方案；尚无有效快照或未指定方案时用 quanpin。
 std::string ReadConfiguredInputScheme();
-// The scheme number the Engine runs for the configured scheme, as host-api's effective_scheme picks it: Cantonese, Zhuyin and Stroke need their dictionary in the `language_dictionaries` directory the prepared HostOptions names, and fall back to `last_chinese_scheme` or quanpin without it.
+// 与 host-api 的 effective_scheme 一致；粤拼、注音和笔画依赖后台探测的词库可用性，缺词库时回退到 last_chinese_scheme 或 quanpin。
 int ReadConfiguredRunningScheme();
-// Read punctuation_lock from shared PreferencesStore. 0 = follow IME (also when the store is unreadable), 1 = always Chinese punctuation, 2 = always English punctuation.
+// 从内存快照读取 punctuation_lock：0 跟随输入法（也用于尚无有效快照），1 固定中文，2 固定英文。
 int ReadConfiguredPunctuationLock();
-// Refresh the in-process lock cache from the shared PreferencesStore.
+// 使用已发布快照更新进程内的标点锁定模式，不读取文件。
 void RefreshPunctuationLockFromConfig();
 
 struct SwitchLanguageHotkeys
@@ -41,7 +41,7 @@ struct SwitchLanguageHotkeys
     // keybindings.toggle_japanese_ctrl_shift_j：中文状态下 Ctrl+Shift+J 在中文方案和日语之间切换，缺省关。
     bool japanese_toggle_ctrl_shift_j = false;
 };
-// Read keybindings.switch_language_* from shared PreferencesStore, or the defaults when it is unreadable.
+// 从内存快照读取 keybindings.switch_language_*；尚无有效快照时使用默认值。
 SwitchLanguageHotkeys ReadConfiguredSwitchLanguageHotkeys();
 
 struct GameCompatibility
@@ -50,6 +50,6 @@ struct GameCompatibility
     std::vector<std::wstring> overlay_processes;
     std::vector<std::wstring> excluded_processes;
 };
-// 读共享偏好里的 game_compatibility。键不存在时就是默认值（开关开、两张表为空），Rust 侧在全是默认值时不写这个键；读取失败时返回 nullopt，调用方按不强制处理，因为这时不知道用户有没有关掉开关或把这个游戏放进「从不显示」。
+// 激活时同步读取最新 game_compatibility；键不存在时用默认值（开关开、两张表为空）。读取失败时返回 nullopt，调用方不强制显示，避免忽略用户排除规则。
 std::optional<GameCompatibility> ReadConfiguredGameCompatibility();
 } // namespace FanyUtils

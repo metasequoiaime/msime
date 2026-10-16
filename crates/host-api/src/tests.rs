@@ -11655,8 +11655,11 @@ fn published_defaults_complete_every_nested_preference_object() {
 #[test]
 #[cfg(not(target_os = "android"))]
 fn personal_dictionary_sync_reads_the_same_options_as_create() {
-    // Both keyboard hosts hand this entry the options they create a session with. Reading them as a request envelope refused every call: Android dropped the error, and HarmonyOS retried by rebuilding its Engine session every two seconds for as long as the keyboard was up.
+    // 两个键盘宿主都传入创建会话时的选项。误按请求信封读取曾拒绝全部调用：Android 丢弃错误，鸿蒙则在键盘打开期间每两秒重建一次 Engine 会话。
     let directory = tempfile::tempdir().unwrap();
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        std::fs::create_dir(directory.path().join(name)).unwrap();
+    }
     let root = directory.path().to_str().unwrap().to_owned();
     let options = json!({
         "api_version": 1,
@@ -15619,6 +15622,108 @@ fn common_phrases_and_collections_forward_to_client_core() {
     assert_eq!(locked["error"], "builtin_locked");
 }
 
+#[test]
+fn imported_cell_words_reach_both_pinyin_keyboards_after_synchronization() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = host_options_with_main_dictionary(directory.path());
+    let words = ["合成甲", "合成乙", "合成丙", "合成丁", "合成戊", "合成己"];
+    for name in ["resources", "dictionaries"] {
+        rusqlite::Connection::open(directory.path().join(name).join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch("CREATE TABLE tbl_3_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);")
+            .unwrap();
+    }
+    let bytes = crate::dictionary::scel_fixture::scel(&[(&["ni", "hao", "ya"], &words)]);
+    let imported = call_android_data(
+        msime_client_dictionary_collections,
+        json!({"options": options, "action": {
+            "operation": "import", "name": "合成词库", "kind": "pinyin", "format": "scel",
+            "bytes_base64": crate::dictionary::scel_fixture::base64(&bytes),
+        }}),
+    );
+    assert_eq!(imported["ok"], true, "{imported}");
+    assert_eq!(imported["value"]["import"]["imported"], words.len());
+    let first = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+    assert_eq!(first["ok"], true, "{first}");
+    assert_eq!(first["value"]["pending_count"], 2, "{first}");
+    let second = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+    assert_eq!(second["ok"], true, "{second}");
+    assert_eq!(second["value"]["pending_count"], 0, "{second}");
+    for (layout, keys) in [("twenty_six_key", "nihaoya"), ("nine_key", "6442692")] {
+        let mut preferences = chinese_preferences();
+        preferences.candidate_page_size = 9;
+        options["preferences"] = serde_json::to_value(preferences).unwrap();
+        options["preferences"]["touch_keyboard_layout"] = json!(layout);
+        let created = call_android_data(msime_client_create, options.clone());
+        assert_eq!(created["ok"], true, "{created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let view = type_letters(handle, keys.as_bytes());
+        let candidates = view["candidates"].as_array().unwrap();
+        for word in words {
+            assert!(
+                candidates.iter().any(|candidate| candidate["text"] == word),
+                "{layout}: {view}"
+            );
+        }
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
+}
+
+#[test]
+fn a_busy_dictionary_sync_preserves_pending_collection_words_for_retry() {
+    use msime_client_services::dictionary::personal::{
+        PersonalDictionaryStore, PersonalWord, PersonalWordKind, PersonalWordRequestStatus,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    for name in ["resources", "dictionaries"] {
+        rusqlite::Connection::open(directory.path().join(name).join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch("CREATE TABLE tbl_3_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);")
+            .unwrap();
+    }
+    let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let words: Vec<_> = ["合成甲", "合成乙", "合成丙", "合成丁", "合成戊", "合成己"]
+        .into_iter()
+        .map(|value| PersonalWord {
+            kind: PersonalWordKind::Pinyin,
+            key: "ni'hao'ya".into(),
+            value: value.into(),
+            weight: 10_000,
+        })
+        .collect();
+    store
+        .enqueue_import(words.clone(), "collections-busy".into())
+        .unwrap();
+    let created = call_android_data(msime_client_create, options.clone());
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let busy = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    assert_eq!(busy["ok"], false, "{busy}");
+    assert_eq!(busy["error"], "dictionary maintenance busy");
+    let state = store.read().unwrap();
+    assert_eq!(state.pending_count(), words.len());
+    assert!(state.requests.iter().all(|request| {
+        request.status == PersonalWordRequestStatus::Pending && request.error.is_none()
+    }));
+    for expected_pending in [2, 0] {
+        let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+        assert_eq!(synced["ok"], true, "{synced}");
+        assert_eq!(synced["value"]["pending_count"], expected_pending);
+    }
+    let state = store.read().unwrap();
+    assert!(
+        state.requests.iter().all(|request| {
+            request.status == PersonalWordRequestStatus::Applied && request.error.is_none()
+        }),
+        "{:?}",
+        state.requests
+    );
+}
+
 /// Android 和鸿蒙手机经命名词库送细胞词库的字节：一个 8 MiB 的文件经 base64 后连同宿主选项仍在 17 MiB 的请求上限之内，导入成一个集合，装满两万条后停下并说明。
 #[test]
 fn a_cell_dictionary_at_its_size_limit_fits_one_collections_request() {
@@ -16380,4 +16485,111 @@ fn mobile_english_correction_request_preserves_raw_and_the_session() {
     assert_eq!(read(msime_client_view(handle))["value"], before);
     assert!(!path.with_extension("db-journal").exists());
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// 繁忙是整批重试条件：设置页尝试应用导入时，不能把仍在等待的词写成永久失败。
+#[test]
+fn personal_dictionary_sync_leaves_busy_imports_pending() {
+    use msime_client_services::dictionary::personal::{
+        PersonalDictionaryStore, PersonalWord, PersonalWordKind,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    store
+        .enqueue_import(
+            vec![PersonalWord {
+                kind: PersonalWordKind::Pinyin,
+                key: "ni'hao".into(),
+                value: "拟蒿".into(),
+                weight: 10_000,
+            }],
+            "collections-busy-regression".into(),
+        )
+        .unwrap();
+    let before = store.read().unwrap();
+    let active = DictionaryAccess::try_session(
+        &directory.path().join("user"),
+        &directory.path().join("dictionaries"),
+    )
+    .unwrap()
+    .unwrap();
+    let refused = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+    assert_eq!(refused["error"], "dictionary maintenance busy", "{refused}");
+    let after = store.read().unwrap();
+    assert_eq!(after.requests, before.requests);
+    assert_eq!(after.pending_count(), 1);
+    drop(active);
+    let applied = call_android_data(msime_client_personal_dictionary_sync, options);
+    assert_eq!(applied["value"]["pending_count"], 0, "{applied}");
+    assert_eq!(applied["value"]["failed_count"], 0, "{applied}");
+}
+
+/// 合成词表超过启动时的一批：第六项只有继续同步后才进入九键候选。
+#[test]
+fn imported_words_past_first_sync_batch_reach_nine_key_candidates() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    let words = [
+        "拟蒿", "泥蒿", "霓蒿", "倪蒿", "呢蒿", "旎蒿", "妮蒿", "逆蒿", "匿蒿",
+    ];
+    let text = words
+        .iter()
+        .enumerate()
+        .map(|(index, word)| {
+            format!(
+                "{word}\tni'hao\t{}\n",
+                if index == 5 { 20_000 } else { 10_000 }
+            )
+        })
+        .collect::<String>();
+    let imported = call_android_data(
+        msime_client_dictionary_collections,
+        json!({
+            "options": options, "action": {"operation": "import", "name": "合成词库",
+            "kind": "pinyin", "format": "standard", "text": text},
+        }),
+    );
+    assert_eq!(imported["value"]["import"]["imported"], 9, "{imported}");
+    let first = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+    assert_eq!(first["value"]["pending_count"], 5, "{first}");
+    let listed = call_android_data(
+        msime_client_dictionary,
+        json!({
+            "options": options, "action": {"operation": "list", "offset": 0, "limit": 100},
+        }),
+    );
+    assert!(!listed["value"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["value"] == words[5]));
+    for remaining in [1, 0] {
+        let synchronized =
+            call_android_data(msime_client_personal_dictionary_sync, options.clone());
+        assert_eq!(
+            synchronized["value"]["pending_count"], remaining,
+            "{synchronized}"
+        );
+        assert_eq!(synchronized["value"]["failed_count"], 0, "{synchronized}");
+    }
+    let bytes = options.to_string();
+    let created = read(unsafe { msime_client_create(bytes.as_ptr(), bytes.len()) });
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(
+        read(msime_client_set_nine_key_mode(handle, true))["ok"],
+        true
+    );
+    let mut typed = Value::Null;
+    for digit in b"64426" {
+        typed = read(msime_client_character(handle, *digit, false));
+    }
+    let found = typed["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|candidate| candidate["text"] == words[5]);
+    read(msime_client_destroy(handle));
+    assert!(found, "合成第六项未进入九键候选");
 }

@@ -258,6 +258,29 @@ pub fn decode_sentences(
     decode_graph(&build_graph(syllables, lookup, options), options, None)
 }
 
+/// 按音节位置约束词边后再解码，保证低频的辅助码匹配字不会在束搜索前被淘汰。
+pub fn decode_constrained_sentences(
+    syllables: &[String],
+    lookup: &mut LatticeLookup<'_>,
+    options: &LatticeOptions<'_>,
+    accepts: impl Fn(usize, &str) -> bool,
+) -> Vec<SentencePath> {
+    let mut unfiltered = options.clone();
+    unfiltered.span_limit = usize::MAX;
+    let mut graph = build_graph(syllables, lookup, &unfiltered);
+    for (start, edges) in graph.iter_mut().enumerate() {
+        let mut counts = vec![0; syllables.len() + 1];
+        edges.retain(|edge| {
+            if !accepts(start, &edge.word) || counts[edge.end] >= options.span_limit {
+                return false;
+            }
+            counts[edge.end] += 1;
+            true
+        });
+    }
+    decode_graph(&graph, options, None)
+}
+
 /// Decode again with the typo edges added at `typo_beam`, and accept the best path only if it uses a typo edge, differs from the literal best and outscores it (WL:490-525). The product reaches `decode_typo_on_graph` through `merge_lattice_candidates`.
 #[cfg(test)]
 pub fn decode_typo_sentence(

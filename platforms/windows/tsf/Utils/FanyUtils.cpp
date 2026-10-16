@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <cstdlib>
-#include <filesystem>
 #include <optional>
 #include <string>
 #include "Define.h"
@@ -8,10 +7,9 @@
 #include "FanyUtils.h"
 #include "Ipc.h"
 #include "../HostOptionsPaths.h"
+#include "../HostConfiguration.h"
 #include "../../common/InputSchemeTraits.h"
 #include "../../common/AppInputModeRules.h"
-#include "../../../common/HostApiString.h"
-#include <msime_client.h>
 #include <nlohmann/json.hpp>
 #include <utf8cpp/utf8.h>
 #include <fmt/xchar.h>
@@ -27,37 +25,11 @@ std::string GetIMEDataDirPath()
 
 namespace
 {
-std::optional<nlohmann::json> ReadSharedPreferences()
+std::shared_ptr<const nlohmann::json> ReadSharedPreferences()
 {
-    const std::string directory = msime::tsf::default_state_directory();
-    if (directory.empty())
-    {
-        return std::nullopt;
-    }
-    auto raw = msime::host_api::own_string(
-        msime_client_load_preferences(reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-    if (!raw)
-    {
-        return std::nullopt;
-    }
-    try
-    {
-        const auto envelope = nlohmann::json::parse(raw.get());
-        if (!envelope.value("ok", false) || !envelope.contains("value") || !envelope["value"].is_object())
-        {
-            return std::nullopt;
-        }
-        const auto &value = envelope["value"];
-        if (!value.contains("preferences") || !value["preferences"].is_object())
-        {
-            return std::nullopt;
-        }
-        return value["preferences"];
-    }
-    catch (...)
-    {
-        return std::nullopt;
-    }
+    const auto configuration = msime::tsf::cached_host_configuration();
+    if (!configuration || !configuration->preferences.is_object()) return {};
+    return {configuration, &configuration->preferences};
 }
 } // namespace
 
@@ -121,30 +93,18 @@ std::string ReadConfiguredInputScheme()
 
 int ReadConfiguredRunningScheme()
 {
-    const std::string configured = ReadConfiguredInputScheme();
+    const auto configuration = msime::tsf::cached_host_configuration();
+    const auto preferences = configuration && configuration->preferences.is_object()
+        ? &configuration->preferences : nullptr;
+    const std::string configured = preferences ? preferences->value("scheme", std::string{"quanpin"}) : "quanpin";
     std::string lastChinese;
-    if (const auto preferences = ReadSharedPreferences())
+    if (preferences)
     {
         const auto last = preferences->find("last_chinese_scheme");
-        if (last != preferences->end() && last->is_string())
-        {
-            lastChinese = last->get<std::string>();
-        }
+        if (last != preferences->end() && last->is_string()) lastChinese = last->get<std::string>();
     }
-    msime::windows::scheme::LanguageDictionaryPresence installed;
-    const auto options = nlohmann::json::parse(msime::tsf::default_host_options_json(), nullptr, false);
-    if (options.is_object())
-    {
-        const auto directory = options.find("language_dictionaries");
-        if (directory != options.end() && directory->is_string())
-        {
-            const auto path = std::filesystem::u8path(directory->get<std::string>());
-            std::error_code ec;
-            installed.cantonese = std::filesystem::is_regular_file(path / "msime-cantonese.db", ec);
-            installed.zhuyin = std::filesystem::is_regular_file(path / "msime-zhuyin.db", ec);
-            installed.stroke = std::filesystem::is_regular_file(path / "msime-stroke.db", ec);
-        }
-    }
+    const auto installed = configuration ? configuration->dictionaries
+                                        : msime::windows::scheme::LanguageDictionaryPresence{};
     return msime::windows::scheme::effective_scheme(configured, lastChinese, installed);
 }
 
@@ -197,7 +157,7 @@ std::vector<std::wstring> ReadProcessList(const nlohmann::json &section, const c
 
 std::optional<GameCompatibility> ReadConfiguredGameCompatibility()
 {
-    const auto preferences = ReadSharedPreferences();
+    const auto preferences = msime::tsf::load_activation_preferences();
     if (!preferences)
     {
         return std::nullopt;

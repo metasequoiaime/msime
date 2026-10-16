@@ -1349,6 +1349,56 @@ INSERT INTO tbl_1_h VALUES('hao','h','好',100);",
 
 // ---- shuangpin candidate assembly ----
 
+#[test]
+fn direct_shuangpin_helpcodes_commit_without_leaving_auxiliary_letters() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_s VALUES('shi','s','实',100);\
+         CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_s VALUES('shi''jian','sj','实践',100);\
+         CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_j VALUES('jian','j','践',100);\
+         CREATE TABLE tbl_1_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_t VALUES('ta','t','他',100),('ta','t','她',90),('ta','t','它',80);\
+         CREATE TABLE tbl_3_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_t VALUES('ta''ta''ta','ttt','他她它',100);",
+    );
+    for (typed, expected) in [
+        ("uibjm", "实践"),
+        ("uibTjm", "实践"),
+        ("tartantab", "他她它"),
+        ("tartantabA", "他她它"),
+    ] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Ziranma;
+            options.helpcode_table = Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+                [("实", "bt"), ("他", "ra"), ("她", "na"), ("它", "ba")]
+                    .map(|(word, code)| (word.to_owned(), code.to_owned()))
+                    .into_iter()
+                    .collect(),
+            )));
+        });
+        type_text(&mut session, typed);
+        let index = index_of(&session, expected);
+        assert_eq!(
+            session.select(index).commit.as_deref(),
+            Some(expected),
+            "{typed}"
+        );
+        assert!(session.snapshot().preedit.is_empty(), "{typed}");
+        if typed == "uibjm" {
+            type_text(&mut session, typed);
+            let prefix = index_of(&session, "实");
+            assert_eq!(session.select(prefix).commit.as_deref(), Some("实"));
+            assert_eq!(session.input.engine.request().raw_input, "jm");
+            let tail = index_of(&session, "践");
+            assert_eq!(session.select(tail).commit.as_deref(), Some("践"));
+            assert!(session.snapshot().preedit.is_empty());
+        }
+    }
+}
+
 /// Microsoft `ni'nni` (golden ri_microsoft_semicolon_editing step 18): every shorter prefix group answers 你 and 拟, and the trailing `i` is also a single helpcode whose answer appends the whole-input series again, so the reference listed each word four times. A word keeps its first seat (decision 2026-09-30).
 #[test]
 fn shuangpin_lists_a_word_once() {

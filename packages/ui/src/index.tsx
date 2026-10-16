@@ -575,6 +575,7 @@ export {
 } from "./core/use-async-action";
 export { useInterval } from "./core/use-interval";
 export { useDebouncedCallback, type DebouncedCallback } from "./core/use-debounced-callback";
+export { useSettledSlider } from "./core/use-settled-slider";
 export {
   subscribeToWindowBlur,
   subscribeToWindowEvent,

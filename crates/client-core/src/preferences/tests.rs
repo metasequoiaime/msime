@@ -4309,6 +4309,8 @@ fn smart_punctuation_migration_runs_once_and_a_later_off_sticks() {
     // 写入方的偏好里没有标记（比如照旧形状拼出来的 JSON），保存时也带上，否则下一次读会把刚关掉的又打开。
     let mut off = serde_json::to_value(&loaded.preferences).unwrap();
     off["smart_punctuation"] = false.into();
+    // Android 等平台的旧值本来就是关；同时改变子开关，确保走真实保存而非无变化快速返回。
+    off["smart_punctuation_repeat"] = (!flipped).into();
     off.as_object_mut()
         .unwrap()
         .remove("smart_punctuation_migrated")
@@ -4326,6 +4328,7 @@ fn smart_punctuation_migration_runs_once_and_a_later_off_sticks() {
     let reloaded = store.load().unwrap();
     assert_eq!(reloaded, saved);
     assert!(!reloaded.preferences.smart_punctuation);
+    assert_eq!(reloaded.preferences.smart_punctuation_repeat, !flipped);
     assert_eq!(reloaded.preferences.smart_punctuation_direct_digit, flipped);
 
     // 恢复默认设置回到默认开，标记仍在。

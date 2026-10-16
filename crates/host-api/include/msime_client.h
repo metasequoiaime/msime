@@ -212,9 +212,9 @@ char *msime_client_dictionary_scel_text(const uint8_t *request, size_t length);
 /* A dictionary file ({kind, format, text}, as the "import" dictionary action) answered as the words the personal dictionary queue accepts, with the import report: {entries:[Entry], applied, failed, truncated, swapped, first_failures}. Invalid rows are counted with their line, repeated words appear once, and at most 128 words are returned. Reads only the packaged main dictionary under resources; changes no dictionary state. Maximum 1,200,000 bytes. */
 char *msime_client_dictionary_import_entries(const uint8_t *request, size_t request_length,
                                              const uint8_t *resources, size_t resources_length);
-/* Android personal-dictionary queue synchronization. The request contains the
- * same HostOptions object as msime_client_create. The caller must have no
- * Engine session using its user_data/dictionaries paths. */
+/* 个人词库队列同步：请求是与 msime_client_create 相同的 HostOptions。
+ * 一次最多应用 4 项，返回 {synchronized,pending_count,failed_count,snapshot_error}。
+ * 整批先取得维护租约；词库仍有活跃会话时返回 dictionary maintenance busy，队列保持原样，稍后重试。 */
 char *msime_client_personal_dictionary_sync(const uint8_t *request, size_t length);
 /* Snapshot lifecycle. Version is a redacted SHA-256 binding the canonical
  * resource/user/cache/dictionary paths and one consistent Engine journal.

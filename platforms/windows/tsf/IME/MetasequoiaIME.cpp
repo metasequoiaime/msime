@@ -25,7 +25,7 @@
 #include "Global/FanyDefines.h"
 #include "Utils/FanyUtils.h"
 #include "../Utils/PerfTimer.h"
-#include "../HostOptionsPaths.h"
+#include "../HostConfiguration.h"
 #include "../ModulePath.h"
 // The TSF sources use the Windows SDK max macro under MSVC; the Engine contract calls std::numeric_limits<...>::max(), which that macro would rewrite.
 #pragma push_macro("max")
@@ -1407,6 +1407,7 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
             [](wchar_t *buffer, unsigned capacity) { return GetModuleFileNameW(nullptr, buffer, capacity); });
         Global::current_process_name = std::wstring(Global::ProcessBaseName(modulePath));
     }
+    msime::tsf::initialize_host_configuration();
     // 游戏声明 UILess 却不画候选时改由水杉画：判定结果决定下面要不要向 Server 报 UILess，必须先算。偏好读取失败时不强制。
     {
         Global::CandidateOverlayDecision decision;
@@ -2637,8 +2638,10 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         {
             pIME->_PollApplicationKeyReplay();
             pIME->_ConsumeCandidateContinuationFailure();
+            msime::tsf::refresh_host_configuration();
+            const auto configuration = msime::tsf::cached_host_configuration();
             auto *engine = pIME->GetCompositionProcessorEngine();
-            if (engine && engine->GetHostEngineAdapter() && engine->GetHostEngineAdapter()->valid())
+            if (configuration && engine && engine->GetHostEngineAdapter() && engine->GetHostEngineAdapter()->valid())
             {
                 auto *host = engine->GetHostEngineAdapter();
                 const auto hostScheme = [host]() -> int {
@@ -2652,7 +2655,8 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
                 // 切换方案会丢弃引擎的组字，但韩文音节、注音转换、越南文词和藏文音节串已经作为文字显示在屏幕上（scheme::CommitsOnBlur）。切换完成后上屏组字显示的内容，否则下一个键会替换掉它。
                 const int composingScheme = pIME->_IsComposing() && pIME->_pContext ? hostScheme() : -1;
                 std::string ignored, error;
-                (void)host->reload_preferences(msime::tsf::default_state_directory(), &ignored, &error);
+                if (!configuration->preferenceSnapshot.empty())
+                    (void)host->update_preferences(configuration->preferenceSnapshot, &ignored, &error);
                 if (msime::windows::scheme::CommitsOnBlur(composingScheme) && hostScheme() != composingScheme &&
                     pIME->_IsComposing() && pIME->_pContext)
                 {
