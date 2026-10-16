@@ -6367,10 +6367,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // 「展开候选」打开时横排候选窗的 ↓ 展开多行网格（#7307）；只有一页、竖排、候选列表开着时 openExpandedCandidates 返回 NO，↓ 照下面的规则移高亮。注音组字时 ↓ 打开候选列表（MSIMECandidateListDownKey）在前面，优先于这里。
     if (_panel.isVisible && event.keyCode == 125 && !(event.modifierFlags & NSEventModifierFlagShift) && [self openExpandedCandidates]) return YES;
     // 拼音普通候选：首选的左键编辑光标，右键先回到拼音末尾，再选择候选。展开网格和已打开的候选列表先由各自的导航处理。
+    // 打开「左 / 右（移动候选项）」时这里不接管：那一条是「编辑优先，光标到了这一端才移高亮」，由共享 runtime 按同一份偏好统一判断，五个宿主的口径才一致。
     if (_panel.isVisible && (event.keyCode == 123 || event.keyCode == 124) &&
         !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand)) &&
         !MSIMECandidateListOpen(_view) && MSIMESchemeTrait(_view, msime::mac::scheme::EditsSentence) &&
-        [_appearance navigationEnabled:@"arrows"]) {
+        [_appearance navigationEnabled:@"arrows"] && ![_appearance navigationEnabled:@"left_right"]) {
         NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
         NSUInteger highlighted = NSNotFound;
         for (NSUInteger index = 0; index < candidates.count; ++index)

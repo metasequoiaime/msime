@@ -2024,7 +2024,14 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
             if (!host->command(command, &raw, &error) ||
                 !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error)) return E_FAIL;
             if (!result.handled) return S_OK;
-            if ((viewed && !before.view.conversion.empty()) || !result.view.conversion.empty())
+            // 光标已经在输入串这一端、引擎动不了它时，共享 runtime 会把这次左右键换成移动候选高亮（偏好 `navigation.left_right`）。
+            // 那种情况下预编辑一个字都没变，只有高亮动了，所以这里也要重画候选窗；下面的 SetSelection 只移动预编辑里的光标。
+            const bool highlightMoved =
+                viewed &&
+                msime::tsf::HighlightedCandidateIndex(before.view) !=
+                    msime::tsf::HighlightedCandidateIndex(result.view);
+            if (highlightMoved || (viewed && !before.view.conversion.empty()) ||
+                !result.view.conversion.empty())
                 return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext,
                                                      FANY_IME_NO_REQUEST_ID);
             // The runtime caret is a byte offset in ASCII editing_text, not a

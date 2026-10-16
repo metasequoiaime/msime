@@ -2,6 +2,7 @@
 #include "../common/InputSchemeTraits.h"
 #include "EngineSessionAdapter.h"
 #include "HostKoreanKey.h"
+#include <optional>
 #include <string>
 
 namespace msime::tsf {
@@ -75,6 +76,14 @@ inline bool HostEditsSentence(const EngineView &view) {
 template<class Host> bool HostView(Host &host, EngineResult *view) {
     std::string raw, error;
     return host.view(&raw, &error) && EngineSessionAdapter::parse_result(raw, view, &error);
+}
+
+// 高亮所在候选在引擎里的下标，没有高亮行时为空。左右键在输入串两端换成移动候选（共享偏好 `navigation.left_right`）时
+// 预编辑一个字都没变，只有高亮动了；TIP 靠这里分辨出这次按键仍需重画候选窗。
+inline std::optional<std::size_t> HighlightedCandidateIndex(const EngineView &view) {
+    for (const auto &candidate : view.candidates)
+        if (candidate.highlighted) return candidate.index;
+    return std::nullopt;
 }
 
 // 宿主会话正在整句改字。
