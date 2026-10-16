@@ -1293,7 +1293,7 @@ impl AccountApi for BackendAccountClient {
     }
 
     fn challenge(&self, provider: &str, target: &str) -> Result<AccountChallenge, AccountError> {
-        validate_provider_target(provider, target)?;
+        validate_challenge_request(provider, target)?;
         #[derive(Serialize)]
         struct Body<'a> {
             provider: &'a str,
@@ -1328,6 +1328,66 @@ impl AccountApi for BackendAccountClient {
             Some(&Body {
                 challenge_id: challenge,
                 credential,
+            }),
+        )?;
+        validate_tokens(&tokens)?;
+        Ok(tokens)
+    }
+
+    fn apple_web_challenge(
+        &self,
+        code_challenge: &str,
+        app: &str,
+    ) -> Result<AccountAppleWebChallenge, AccountError> {
+        if !super::apple_web::valid_base64url_token(code_challenge, 32)
+            || !super::apple_web::valid_apple_web_app(app)
+        {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            code_challenge: &'a str,
+            code_challenge_method: &'static str,
+            app: &'a str,
+            purpose: &'static str,
+        }
+        let challenge = self.json(
+            Method::POST,
+            "/v1/auth/apple/web",
+            None,
+            Some(&Body {
+                code_challenge,
+                code_challenge_method: "S256",
+                app,
+                purpose: "login",
+            }),
+        )?;
+        super::apple_web::validate_apple_web_challenge(&challenge)?;
+        Ok(challenge)
+    }
+
+    fn apple_web_login(
+        &self,
+        grant: &str,
+        code_verifier: &str,
+    ) -> Result<AccountTokens, AccountError> {
+        if !super::apple_web::valid_apple_web_grant(grant)
+            || !super::apple_web::valid_code_verifier(code_verifier)
+        {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            grant: &'a str,
+            code_verifier: &'a str,
+        }
+        let tokens = self.json(
+            Method::POST,
+            "/v1/auth/apple/web/login",
+            None,
+            Some(&Body {
+                grant,
+                code_verifier,
             }),
         )?;
         validate_tokens(&tokens)?;

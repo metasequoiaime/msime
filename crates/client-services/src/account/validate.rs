@@ -555,6 +555,14 @@ pub(super) fn validate_provider_target(provider: &str, target: &str) -> Result<(
     Ok(())
 }
 
+/// `POST /v1/auth/challenges` 的传输检查：在 [`validate_provider_target`] 之外还放行不带回跳地址的 Google，那是 ID token 流程（iOS 的 GoogleSignIn、安卓的 Credential Manager），服务端为它生成 nonce。账号页的 `request_code` 仍按 [`validate_provider_target`] 检查，这一种只能经 [`BackendAccountSession::google_id_token_challenge`] 申请。
+pub(super) fn validate_challenge_request(provider: &str, target: &str) -> Result<(), AccountError> {
+    if provider == "google" && target.is_empty() {
+        return Ok(());
+    }
+    validate_provider_target(provider, target)
+}
+
 pub(super) fn validate_challenge(challenge: &AccountChallenge) -> Result<(), AccountError> {
     if challenge.challenge_id.is_empty()
         || !crate::text::is_bounded_text(&challenge.challenge_id, 256)
@@ -608,7 +616,32 @@ pub(super) fn validate_google_login(challenge: &str, credential: &str) -> Result
     Ok(())
 }
 
-/// The transport check for `/v1/auth/login`. The session has already applied the provider's own rule (six digits, an Apple identity token or a Google authorization code), so the client accepts a credential that satisfies any of them.
+/// 服务端收的凭据最多 12000 字节（msime-cloud `login`）。
+const MAX_ID_TOKEN_BYTES: usize = 12_000;
+
+/// Google 的 ID token 是三段非空 base64url 用 `.` 连起来的 JWT，带着 challenge 的 nonce，服务端验签。别的形状在发出去之前拒绝。
+pub(super) fn validate_google_id_token_login(
+    challenge: &str,
+    credential: &str,
+) -> Result<(), AccountError> {
+    let segments = credential.split('.').collect::<Vec<_>>();
+    if challenge.is_empty()
+        || !crate::text::is_bounded_text(challenge, 256)
+        || credential.len() > MAX_ID_TOKEN_BYTES
+        || segments.len() != 3
+        || segments.iter().any(|segment| {
+            segment.is_empty()
+                || !segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
+    {
+        return Err(AccountError::Invalid);
+    }
+    Ok(())
+}
+
+/// The transport check for `/v1/auth/login`. The session has already applied the provider's own rule (six digits, an Apple identity token, a Google authorization code or a Google ID token), so the client accepts a credential that satisfies any of them.
 pub(super) fn validate_login_request(
     challenge: &str,
     credential: &str,
@@ -616,6 +649,7 @@ pub(super) fn validate_login_request(
     validate_login(challenge, credential)
         .or_else(|_| validate_apple_login(challenge, credential))
         .or_else(|_| validate_google_login(challenge, credential))
+        .or_else(|_| validate_google_id_token_login(challenge, credential))
 }
 
 pub(super) fn validate_display_name(value: &str) -> Result<(), AccountError> {

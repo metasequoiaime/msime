@@ -22,6 +22,24 @@ pub trait AccountApi: Send + Sync + 'static {
         Err(AccountError::Unavailable)
     }
 
+    /// `POST /v1/auth/apple/web`：登记 PKCE 的 `code_challenge`（S256），返回 Apple 的授权链接。`app` 是发起登录的安卓 applicationId，服务端回调时跳回 `<app>://auth/apple`。
+    fn apple_web_challenge(
+        &self,
+        _code_challenge: &str,
+        _app: &str,
+    ) -> Result<AccountAppleWebChallenge, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    /// `POST /v1/auth/apple/web/login`：用回调交回来的一次性 `grant` 和本机的 `code_verifier` 换会话，响应与 `/v1/auth/login` 相同。
+    fn apple_web_login(
+        &self,
+        _grant: &str,
+        _code_verifier: &str,
+    ) -> Result<AccountTokens, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
     /// Removes the user's uploaded avatar; the Google picture, if any, shows again.
     fn delete_avatar(&self, _access_token: &str) -> Result<(), AccountError> {
         Err(AccountError::Unavailable)

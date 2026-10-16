@@ -77,6 +77,33 @@ enum AccountAction {
     },
     GoogleLogin,
     GoogleCancel,
+    /// 宿主自己弹 Apple 登录界面（iOS、macOS 的 `ASAuthorizationAppleIDProvider`）：先要 challenge 和 nonce，再交回 identity token。写成空的结构体变体：内部标签的单元变体不检查多余字段，多带字段的请求会照样联网申请 challenge。
+    AppleChallenge {},
+    AppleLogin {
+        challenge_id: String,
+        identity_token: String,
+    },
+    /// 不带 `target` 是 ID token 流程（iOS 的 GoogleSignIn、安卓的 Credential Manager），返回 nonce；带 `target`（`msime_client_google_loopback` 的 `target` 给的回跳地址）是回环流程（鸿蒙），返回校验过的授权链接。
+    GoogleChallenge {
+        #[serde(default)]
+        target: Option<String>,
+    },
+    GoogleCodeLogin {
+        challenge_id: String,
+        code: String,
+    },
+    GoogleTokenLogin {
+        challenge_id: String,
+        id_token: String,
+    },
+    /// 没有 Apple 原生登录的宿主（安卓）走 Apple 网页登录：`app` 是发起登录的 applicationId。
+    AppleWebStart {
+        app: String,
+    },
+    AppleWebLogin {
+        grant: String,
+        code_verifier: String,
+    },
     Profile,
     Rename {
         display_name: String,
@@ -206,6 +233,17 @@ fn status(
     })
 }
 
+/// Apple 登录和 Google ID token 流程的 challenge：nonce 只交给宿主自己弹的登录界面，账号页的 `request_code` 不返回它。
+fn nonce_challenge(
+    challenge: msime_client_services::account::AccountChallenge,
+) -> Result<Value, AccountError> {
+    Ok(json!({
+        "challengeId": challenge.challenge_id,
+        "expiresIn": challenge.expires_in,
+        "nonce": challenge.nonce,
+    }))
+}
+
 /// 打开系统浏览器去 Google 授权页。链接已经由会话校验过，是指向本次回环监听的 Google 授权链接。
 #[cfg(windows)]
 fn open_browser(url: &str) -> Result<(), AccountError> {
@@ -292,6 +330,45 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
             session.cancel_google_sign_in();
             Ok(Value::Null)
         }
+        AccountAction::AppleChallenge {} => nonce_challenge(session.apple_challenge()?),
+        AccountAction::AppleLogin {
+            challenge_id,
+            identity_token,
+        } => status(Some(session.sign_in_apple(&challenge_id, &identity_token)?)),
+        AccountAction::GoogleChallenge { target: None } => {
+            nonce_challenge(session.google_id_token_challenge()?)
+        }
+        AccountAction::GoogleChallenge {
+            target: Some(target),
+        } => {
+            let challenge = session.google_loopback_challenge(&target)?;
+            Ok(json!({
+                "challengeId": challenge.challenge_id,
+                "expiresIn": challenge.expires_in,
+                "authorizationUrl": challenge.authorization_url,
+            }))
+        }
+        AccountAction::GoogleCodeLogin { challenge_id, code } => {
+            status(Some(session.sign_in_google(&challenge_id, &code)?))
+        }
+        AccountAction::GoogleTokenLogin {
+            challenge_id,
+            id_token,
+        } => status(Some(
+            session.sign_in_google_id_token(&challenge_id, &id_token)?,
+        )),
+        AccountAction::AppleWebStart { app } => {
+            let started = session.apple_web_start(&app)?;
+            Ok(json!({
+                "authorizationUrl": started.authorization_url,
+                "expiresIn": started.expires_in,
+                "codeVerifier": started.code_verifier,
+            }))
+        }
+        AccountAction::AppleWebLogin {
+            grant,
+            code_verifier,
+        } => status(Some(session.sign_in_apple_web(&grant, &code_verifier)?)),
         AccountAction::Profile => value(ProfileResponse::from(session.profile()?)),
         AccountAction::Rename { display_name } => {
             value(ProfileResponse::from(session.rename(&display_name)?))
@@ -729,6 +806,111 @@ mod tests {
             }
             unregister(id);
         }
+
+        #[test]
+        fn host_driven_sign_ins_go_through_the_stores_session() {
+            let store = leaked_store();
+            let id = registered(store, SHARED, 0);
+            for request in host_sign_in_requests() {
+                assert_eq!(
+                    store_action(id, request.clone()),
+                    json!({ "ok": false, "error": "account_invalid" }),
+                    "{request}"
+                );
+            }
+            // 被拒的登录不碰 store 里原有的会话。
+            put(store, 1, session_bytes("synthetic-user", 'a', true));
+            for request in host_sign_in_requests() {
+                store_action(id, request);
+            }
+            assert_eq!(
+                store_action(id, json!({ "operation": "status" }))["value"]["user"]["id"],
+                "synthetic-user"
+            );
+            unregister(id);
+        }
+    }
+
+    /// 宿主自己弹登录界面的几种登录里，在联网之前就该以 account_invalid 拒绝的请求。
+    fn host_sign_in_requests() -> Vec<Value> {
+        let grant = "g".repeat(42) + "A";
+        let verifier = "v".repeat(43);
+        let id_token = "eyJhbGciOiJSUzI1NiJ9.eyJub25jZSI6ImZpeHR1cmUifQ.c2lnbmF0dXJl";
+        vec![
+            json!({ "operation": "apple_challenge", "extra": 1 }),
+            json!({ "operation": "apple_login", "challenge_id": "synthetic", "identity_token": "" }),
+            json!({ "operation": "apple_login", "challenge_id": "", "identity_token": id_token }),
+            json!({ "operation": "apple_login", "challenge_id": "synthetic", "code": "123456" }),
+            json!({ "operation": "google_challenge", "target": "" }),
+            json!({ "operation": "google_challenge", "target": "http://127.0.0.1:80/callback" }),
+            json!({ "operation": "google_challenge", "target": "https://127.0.0.1:53682/callback" }),
+            json!({ "operation": "google_code_login", "challenge_id": "synthetic", "code": "4/0A code" }),
+            json!({ "operation": "google_code_login", "challenge_id": "synthetic", "code": "" }),
+            json!({ "operation": "google_token_login", "challenge_id": "synthetic", "id_token": "4/0Afixture-code" }),
+            json!({ "operation": "google_token_login", "challenge_id": "", "id_token": id_token }),
+            json!({ "operation": "apple_web_start", "app": "App.Msime.Android" }),
+            json!({ "operation": "apple_web_start" }),
+            json!({ "operation": "apple_web_login", "grant": "g".repeat(42) + "h", "code_verifier": verifier }),
+            json!({ "operation": "apple_web_login", "grant": grant, "code_verifier": "short" }),
+        ]
+    }
+
+    /// 合格的请求解析成对应的操作（不执行，执行要联网）；头文件写的字段名与这里一致。
+    #[test]
+    fn host_driven_sign_in_requests_parse_into_their_operations() {
+        let parse = |value: Value| serde_json::from_value::<AccountAction>(value).unwrap();
+        assert!(matches!(
+            parse(json!({ "operation": "apple_challenge" })),
+            AccountAction::AppleChallenge {}
+        ));
+        assert!(matches!(
+            parse(json!({ "operation": "apple_login", "challenge_id": "c", "identity_token": "t" })),
+            AccountAction::AppleLogin { challenge_id, identity_token } if challenge_id == "c" && identity_token == "t"
+        ));
+        assert!(matches!(
+            parse(json!({ "operation": "google_challenge" })),
+            AccountAction::GoogleChallenge { target: None }
+        ));
+        assert!(matches!(
+            parse(json!({ "operation": "google_challenge", "target": "http://127.0.0.1:53682/callback" })),
+            AccountAction::GoogleChallenge { target: Some(target) } if target == "http://127.0.0.1:53682/callback"
+        ));
+        assert!(matches!(
+            parse(json!({ "operation": "google_code_login", "challenge_id": "c", "code": "k" })),
+            AccountAction::GoogleCodeLogin { challenge_id, code } if challenge_id == "c" && code == "k"
+        ));
+        assert!(matches!(
+            parse(json!({ "operation": "google_token_login", "challenge_id": "c", "id_token": "t" })),
+            AccountAction::GoogleTokenLogin { challenge_id, id_token } if challenge_id == "c" && id_token == "t"
+        ));
+        assert!(matches!(
+            parse(json!({ "operation": "apple_web_start", "app": "app.msime.android" })),
+            AccountAction::AppleWebStart { app } if app == "app.msime.android"
+        ));
+        assert!(matches!(
+            parse(json!({ "operation": "apple_web_login", "grant": "g", "code_verifier": "v" })),
+            AccountAction::AppleWebLogin { grant, code_verifier } if grant == "g" && code_verifier == "v"
+        ));
+        // 已有的 google_login 仍是不带参数的 Windows 浏览器流程。
+        assert!(matches!(
+            parse(json!({ "operation": "google_login" })),
+            AccountAction::GoogleLogin
+        ));
+    }
+
+    #[test]
+    fn host_driven_sign_ins_check_their_credentials_before_the_network() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("account");
+        for request in host_sign_in_requests() {
+            assert_eq!(
+                action(&directory, request.clone()),
+                json!({ "ok": false, "error": "account_invalid" }),
+                "{request}"
+            );
+        }
+        // 被拒的登录不写会话文件。
+        assert!(!directory.join(ACCOUNT_SESSION_FILE).exists());
     }
 
     #[test]

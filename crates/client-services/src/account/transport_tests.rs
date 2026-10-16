@@ -644,3 +644,125 @@ fn the_snapshot_download_reports_the_server_code() {
         b"{\"type\":\"header\"}\n"
     );
 }
+
+// ---- 宿主自己弹登录界面的登录 ----
+
+/// `/v1/auth/login` 与 `/v1/auth/apple/web/login` 共用的成功响应。
+fn session_tokens() -> Value {
+    json!({
+        "access_token": token('a'),
+        "refresh_token": token('b'),
+        "token_type": "Bearer",
+        "expires_in": 900,
+        "user": { "id": "fixture-user", "display_name": "Fixture", "created_at": "2026-01-01T00:00:00Z" }
+    })
+}
+
+#[test]
+fn a_google_challenge_without_a_target_asks_for_the_id_token_flow() {
+    let (origin, received) = serve(vec![json_response(
+        "201 Created",
+        json!({ "challenge_id": "c".repeat(64), "expires_in": 300, "nonce": "fixture-nonce" }),
+    )]);
+    let challenge = client(&origin).challenge("google", "").unwrap();
+    assert_eq!(challenge.nonce.as_deref(), Some("fixture-nonce"));
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "POST /v1/auth/challenges HTTP/1.1");
+    assert_eq!(sent.header("authorization"), None);
+    assert_eq!(
+        sent.json(),
+        json!({ "provider": "google", "target": "", "purpose": "login" })
+    );
+    // 其余 provider 的目标仍按原来的规则检查。
+    assert_eq!(
+        client(&origin).challenge("email", "").unwrap_err(),
+        AccountError::Invalid
+    );
+}
+
+#[test]
+fn an_apple_web_sign_in_posts_the_digest_then_the_grant_and_verifier() {
+    let authorization_url = "https://appleid.apple.com/auth/authorize?client_id=app.msime.signin&state=fixture-state&nonce=fixture-nonce";
+    let (origin, received) = serve(vec![
+        json_response(
+            "201 Created",
+            json!({ "authorization_url": authorization_url, "expires_in": 300 }),
+        ),
+        json_response("200 OK", session_tokens()),
+        error_response("400 Bad Request", "invalid_grant", &[]),
+        json_response(
+            "201 Created",
+            json!({ "authorization_url": "https://evil.test/auth/authorize?state=x", "expires_in": 300 }),
+        ),
+    ]);
+    let client = client(&origin);
+    let code_challenge = apple_web::code_challenge(&"v".repeat(43));
+    let challenge = client
+        .apple_web_challenge(&code_challenge, "app.msime.android.wubi")
+        .unwrap();
+    assert_eq!(challenge.authorization_url, authorization_url);
+    assert_eq!(challenge.expires_in, 300);
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "POST /v1/auth/apple/web HTTP/1.1");
+    assert_eq!(sent.header("authorization"), None);
+    assert_eq!(
+        sent.json(),
+        json!({ "code_challenge": code_challenge, "code_challenge_method": "S256", "app": "app.msime.android.wubi", "purpose": "login" })
+    );
+
+    let grant = "g".repeat(42) + "A";
+    let verifier = "v".repeat(43);
+    let tokens = client.apple_web_login(&grant, &verifier).unwrap();
+    assert_eq!(tokens.user.id, "fixture-user");
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "POST /v1/auth/apple/web/login HTTP/1.1");
+    assert_eq!(sent.header("authorization"), None);
+    assert_eq!(
+        sent.json(),
+        json!({ "grant": grant, "code_verifier": verifier })
+    );
+    // 服务端不认这个 grant（不认识、用过或过期）时是 account_invalid，宿主据此保留等待中的流程。
+    assert_eq!(
+        client.apple_web_login(&grant, &verifier).err(),
+        Some(AccountError::Invalid)
+    );
+    received.recv().unwrap();
+    // 不是 Apple 授权页的链接不交给宿主打开。
+    assert_eq!(
+        client
+            .apple_web_challenge(&code_challenge, "app.msime.android")
+            .unwrap_err(),
+        AccountError::Unavailable
+    );
+}
+
+#[test]
+fn apple_web_requests_are_checked_before_they_are_sent() {
+    // 没有假服务器：这些请求都不该发出去。
+    let client = client("http://127.0.0.1:9");
+    let code_challenge = apple_web::code_challenge(&"v".repeat(43));
+    assert_eq!(
+        client
+            .apple_web_challenge("not-a-digest", "app.msime.android")
+            .unwrap_err(),
+        AccountError::Invalid
+    );
+    assert_eq!(
+        client
+            .apple_web_challenge(&code_challenge, "App.Msime")
+            .unwrap_err(),
+        AccountError::Invalid
+    );
+    assert_eq!(
+        client
+            .apple_web_login(&("g".repeat(42) + "h"), &"v".repeat(43))
+            .err(),
+        Some(AccountError::Invalid)
+    );
+    assert_eq!(
+        client
+            .apple_web_login(&("g".repeat(42) + "A"), "short")
+            .err(),
+        Some(AccountError::Invalid)
+    );
+}

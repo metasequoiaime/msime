@@ -623,6 +623,8 @@ fn server_error_code(body: &[u8]) -> Option<String> {
 // 共用的数据类型和上限留在这里，行为按用途拆到各子模块。每个部分都重新导出，所以 `msime_client_services::account::X` 仍能解析到这里还是单个文件时的全部内容。
 mod anonymous;
 mod api;
+/// 安卓的 Apple 网页登录（PKCE 式一次性授权码）。
+mod apple_web;
 mod avatar;
 mod client;
 mod clipboard;
@@ -658,6 +660,7 @@ pub use anonymous::{
     ANONYMOUS_SESSION_FILE,
 };
 pub use api::*;
+pub use apple_web::{AccountAppleWebChallenge, AppleWebSignIn};
 pub use avatar::*;
 pub use client::*;
 pub use clipboard::*;
@@ -672,6 +675,8 @@ pub use translate::*;
 pub use user_data::*;
 pub use validate::*;
 
+#[cfg(test)]
+mod sign_in_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

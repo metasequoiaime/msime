@@ -279,6 +279,82 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.sign_in_google(&challenge.challenge_id, &code)
     }
 
+    /// 申请一个 Apple challenge，给宿主自己弹的 `ASAuthorizationAppleIDRequest` 用：`nonce` 原样放进请求的 `nonce`，`challenge_id` 放进 `state`，拿到的 identity token 交给 [`Self::sign_in_apple`]。
+    pub fn apple_challenge(&self) -> Result<AccountChallenge, AccountError> {
+        self.nonce_challenge("apple")
+    }
+
+    /// 申请一个 Google ID token 流程的 challenge（不带回跳地址），给 iOS 的 GoogleSignIn 和安卓的 Credential Manager 用：`nonce` 原样交给 Google，拿到的 ID token 交给 [`Self::sign_in_google_id_token`]。
+    pub fn google_id_token_challenge(&self) -> Result<AccountChallenge, AccountError> {
+        self.nonce_challenge("google")
+    }
+
+    /// 这两种流程的 identity token 里必须带着服务端生成的 nonce，响应里没有 nonce 时登录不可能成功，按服务端不可用处理。
+    fn nonce_challenge(&self, provider: &str) -> Result<AccountChallenge, AccountError> {
+        let challenge = self.api.challenge(provider, "")?;
+        validate_challenge(&challenge)?;
+        if challenge.nonce.as_deref().is_none_or(str::is_empty) {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(challenge)
+    }
+
+    /// 申请一个 Google 回环流程的 challenge，给自己监听回环端口的宿主（鸿蒙）用。`target` 是 [`google_loopback_target`] 给的回跳地址；授权链接必须是指向这个回跳地址的 Google 授权链接，否则是 [`AccountError::Unavailable`]，不要打开它。浏览器回跳带来的授权码交给 [`Self::sign_in_google`]。
+    pub fn google_loopback_challenge(
+        &self,
+        target: &str,
+    ) -> Result<AccountChallenge, AccountError> {
+        let challenge = self.request_code("google", target)?;
+        validate_challenge(&challenge)?;
+        let url = challenge
+            .authorization_url
+            .as_deref()
+            .ok_or(AccountError::Unavailable)?;
+        google_authorization_state(url, target)?;
+        Ok(challenge)
+    }
+
+    /// 用 Google 的 ID token 完成 [`Self::google_id_token_challenge`] 申请的 challenge。
+    pub fn sign_in_google_id_token(
+        &self,
+        challenge: &str,
+        credential: &str,
+    ) -> Result<AccountUser, AccountError> {
+        validate_google_id_token_login(challenge, credential)?;
+        self.sign_in_validated(challenge, credential, |_| {})
+    }
+
+    /// 开始一次 Apple 网页登录（安卓）：生成 verifier，把它的 S256 摘要交给服务端，返回要在浏览器里打开的 Apple 授权链接和 verifier。`app` 是发起登录的安卓 applicationId。
+    pub fn apple_web_start(&self, app: &str) -> Result<AppleWebSignIn, AccountError> {
+        if !super::apple_web::valid_apple_web_app(app) {
+            return Err(AccountError::Invalid);
+        }
+        let code_verifier = super::apple_web::new_code_verifier()?;
+        let challenge = self
+            .api
+            .apple_web_challenge(&super::apple_web::code_challenge(&code_verifier), app)?;
+        super::apple_web::validate_apple_web_challenge(&challenge)?;
+        Ok(AppleWebSignIn {
+            authorization_url: challenge.authorization_url,
+            expires_in: challenge.expires_in,
+            code_verifier,
+        })
+    }
+
+    /// 用回调交回来的 `grant` 和 [`Self::apple_web_start`] 给的 verifier 换会话并保存。
+    pub fn sign_in_apple_web(
+        &self,
+        grant: &str,
+        code_verifier: &str,
+    ) -> Result<AccountUser, AccountError> {
+        if !super::apple_web::valid_apple_web_grant(grant)
+            || !super::apple_web::valid_code_verifier(code_verifier)
+        {
+            return Err(AccountError::Invalid);
+        }
+        self.sign_in_exchanging(|| self.api.apple_web_login(grant, code_verifier), |_| {})
+    }
+
     fn sign_in_validated<F>(
         &self,
         challenge: &str,
@@ -288,13 +364,22 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     where
         F: FnOnce(&str),
     {
+        self.sign_in_exchanging(|| self.api.login(challenge, credential), cleanup)
+    }
+
+    /// 登录的公共部分：`exchange` 向服务端换来令牌，然后在刷新锁里保存新会话。换令牌之前先推进会话代次，所以期间开始的另一次登录或退出会让这一次以 [`AccountError::Cancelled`] 结束，不会覆盖它。
+    fn sign_in_exchanging<E, F>(&self, exchange: E, cleanup: F) -> Result<AccountUser, AccountError>
+    where
+        E: FnOnce() -> Result<AccountTokens, AccountError>,
+        F: FnOnce(&str),
+    {
         let version = {
             let mut state = self.lock()?;
             let version = Self::next_generation(&mut state)?;
             state.refresh = None;
             version
         };
-        let tokens = self.api.login(challenge, credential)?;
+        let tokens = exchange()?;
         validate_tokens(&tokens)?;
         let value = saved_session(tokens, Some(uuid::Uuid::new_v4()))?;
         let user = value.tokens.user.clone();
