@@ -822,9 +822,9 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.set_rescoring_context("");
     }
 
-    /// Switch the Engine's digit interpretation only after the host finishes composition.
-    /// Move the caret used by Engine prefix decoding. `None` restores end-of-composition behavior.
+    /// 移动引擎前缀解码的光标；`None` 恢复到组字末尾。候选可能随前缀改变，旧候选 ID 必须失效。
     pub fn set_caret(&mut self, caret: Option<usize>) -> Result<(), RuntimeError> {
+        self.advance()?;
         self.engine.set_caret(caret);
         self.refresh()
             .map_err(|error| RuntimeError::Engine(error.to_string()))

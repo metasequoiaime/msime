@@ -8213,6 +8213,78 @@ fn ai_answer_runtime(root: &std::path::Path, page_size: u8) -> Runtime {
     runtime
 }
 
+#[test]
+fn moving_the_caret_invalidates_candidates_from_the_previous_prefix() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = ai_answer_runtime(directory.path(), 5);
+    rusqlite::Connection::open(
+        directory
+            .path()
+            .join("dictionaries")
+            .join(msime_engine::assets::MAIN_DICTIONARY),
+    )
+    .unwrap()
+    .execute_batch(
+        "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_h VALUES('hao','h','好',100);\
+         CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000);",
+    )
+    .unwrap();
+
+    for caret in [Some(2), None] {
+        type_characters(&mut runtime, "nihao");
+        if caret.is_none() {
+            runtime.set_caret(Some(2)).unwrap();
+        }
+        let before = runtime.view();
+        assert_eq!(
+            before.candidates[0].text,
+            if caret.is_some() { "你好" } else { "你" }
+        );
+        let old = before.candidates[0].id;
+
+        runtime.set_caret(caret).unwrap();
+
+        let after = runtime.view();
+        assert_ne!(before.candidates[0].text, after.candidates[0].text);
+        let stale = runtime.dispatch(Action::Select(old));
+        assert!(
+            matches!(stale, Err(RuntimeError::StaleCandidate)),
+            "{stale:?}"
+        );
+        assert_eq!(runtime.view().editing_text, "nihao");
+        let selected = runtime
+            .dispatch(Action::Select(after.candidates[0].id))
+            .unwrap();
+        assert_eq!(
+            selected.commit.as_deref(),
+            Some(after.candidates[0].text.as_str())
+        );
+        assert_eq!(
+            selected.view.editing_text,
+            if caret.is_some() { "hao" } else { "" }
+        );
+        runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    }
+}
+
+#[test]
+fn moving_the_caret_does_not_change_engine_after_generation_exhaustion() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = ai_answer_runtime(directory.path(), 5);
+    type_characters(&mut runtime, "ni");
+    runtime.generation = u64::MAX;
+    let before = runtime.engine.snapshot().unwrap();
+
+    assert!(matches!(
+        runtime.set_caret(Some(1)),
+        Err(RuntimeError::IdentityExhausted)
+    ));
+    assert_eq!(runtime.engine.snapshot().unwrap(), before);
+    assert_eq!(runtime.view().caret_position, 2);
+}
+
 fn apply_ai_answer(runtime: &mut Runtime, words: &[&str]) -> bool {
     let mut query = runtime.online_query().unwrap().unwrap();
     query.ai_assistant =
