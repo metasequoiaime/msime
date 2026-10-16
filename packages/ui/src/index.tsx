@@ -1549,6 +1549,15 @@ export {
   CandidateSkinPublishDialog,
   type CandidateSkinPublishDialogProps,
 } from "./community/candidate-skin-publish-dialog";
+export {
+  CommunityReplyTemplates,
+  type CommunityReplyTemplatesProps,
+} from "./community/community-reply-templates";
+export {
+  useCommunityReplyTemplates,
+  type UseCommunityReplyTemplatesOptions,
+  type CommunityReplyTemplatesState,
+} from "./community/use-community-reply-templates";
 export { CommunityPluginsPage } from "./community/community-plugins";
 export {
   useCommunityPluginGallery,
