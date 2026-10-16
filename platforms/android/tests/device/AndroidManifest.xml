@@ -70,6 +70,7 @@
     <instrumentation android:name="app.msime.android.test.FeedbackInputStabilityDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.ChineseLanguageReturnDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.QuickDeleteUndoDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.QuickDeletePreviewDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.EmptyEditorBackspaceDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.HelpcodeImportDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SymbolPanelLayoutDeviceSmoke" android:targetPackage="app.msime.android" />

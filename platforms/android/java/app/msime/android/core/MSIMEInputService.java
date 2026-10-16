@@ -2790,7 +2790,8 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject result = value(response);
         JSONObject next = result.getJSONObject("view");
         // 偏好改了样式时，引擎在空闲重建后的那次转换里才换样式，键面在这里跟上。
-        boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(next)
+        // 启动快照可能迟于占位键区：实际已经画成目标布局时不能再重建，免得首次退格摘掉正在按住的键。
+        boolean rebuildLayout = imeLetterRows.drawnTouchLayout() != displayedTouchLayout(next)
             || !InputViewValuePolicy.punctuationMarks(view).equals(
                 InputViewValuePolicy.punctuationMarks(next));
         String commit = result.isNull("commit") ? null : result.getString("commit");

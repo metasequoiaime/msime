@@ -10,7 +10,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 /**
- * 删除键上滑时在键上方弹出的「快速删除」框（#5585）。位置和待命的判断都在 {@link BackspaceSwipePolicy}，这里只负责把删除键换算到自己的坐标系并画框：没待命时是按键底色加细边，待命时换成强调色，表示松手就会删掉光标前的全部文字。不接收触摸，读屏也不念它，手势仍由删除键自己的触摸监听处理。
+ * 删除键长按或上滑时在键上方弹出的「快速删除」框（#5585、#8321）。位置和待命的判断都在 {@link BackspaceSwipePolicy}，这里只负责把删除键换算到自己的坐标系并画框：没待命时是按键底色加细边，待命时换成强调色，表示松手就会删掉光标前的全部文字。不接收触摸，读屏也不念它，手势仍由删除键自己的触摸监听处理。
  */
 final class QuickDeleteOverlay extends View {
     static final String LABEL = "快速删除";

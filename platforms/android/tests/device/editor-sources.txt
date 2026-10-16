@@ -153,5 +153,6 @@ platforms/android/tests/device/core/BatchEditorActivity.java
 platforms/android/tests/device/keyboard/BatchCompositionDeviceSmoke.java
 platforms/android/tests/device/settings/ClipboardExportDeviceSmoke.java
 platforms/android/tests/device/keyboard/QuickDeleteUndoDeviceSmoke.java
+platforms/android/tests/device/keyboard/QuickDeletePreviewDeviceSmoke.java
 platforms/android/tests/device/keyboard/QuickDeleteEditorActivity.java
 platforms/android/tests/device/settings/DictionaryImportDeviceSmoke.java

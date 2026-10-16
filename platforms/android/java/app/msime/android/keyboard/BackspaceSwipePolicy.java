@@ -1,7 +1,7 @@
 package app.msime.android;
 
 /**
- * 删除键上滑「快速删除」（#5585）：按住删除键往上滑，离开键的上沿 {@link #REVEAL_DP} dp 后停止连删、在键的上方弹出「快速删除」框；手指滑到框的下沿或更高时框变色，表示已经待命，这时松手删掉光标前的全部文字。待命后往下滑回框外即取消待命，再松手什么也不删；框一旦弹出，就算滑回键上，这一次按压也不会再连删或删除。
+ * 删除键上滑「快速删除」（#5585）：长按会先显示提示，但不改变连删阶段。按住往上滑，离开键的上沿 {@link #REVEAL_DP} dp 后停止连删；手指滑到框的下沿或更高时框变色，表示已经待命，这时松手删掉光标前的全部文字。待命后往下滑回框外即取消待命，再松手什么也不删；进入上滑阶段后，就算滑回键上，这一次按压也不会再连删或删除。
  *
  * <p>坐标都在同一个覆盖层的坐标系里（y 向下增大），单位是像素，`density` 是 dp 到像素的倍数。无 Android 依赖，供 JVM 回归验证。
  */
@@ -14,8 +14,8 @@ public final class BackspaceSwipePolicy {
     public static final float BOX_HEIGHT_DP = 40f;
     /** 键上方空间不够时（九键的删除键在第一排，上面只有工具栏），框至少保留的高度。 */
     public static final float MIN_BOX_HEIGHT_DP = 28f;
-    /** 框的最小宽度，放得下「快速删除」四个字。 */
-    public static final float MIN_BOX_WIDTH_DP = 120f;
+    /** 提示框至少 160 dp 宽，长按时容易辨认，靠边和窄窗口仍限制在键盘内。 */
+    public static final float MIN_BOX_WIDTH_DP = 160f;
     /** 框与覆盖层边缘的最小距离。 */
     public static final float MARGIN_DP = 4f;
     /** 待命线至少比弹出线再高这么多：弹出和待命必须是两步，手指弹出框后还要明确地再往上滑一段才会待命。 */

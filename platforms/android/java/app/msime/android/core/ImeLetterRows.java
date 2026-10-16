@@ -367,7 +367,7 @@ final class ImeLetterRows {
     private boolean backspaceUndoHeld;
 
     /**
-     * 短按删一次，按住连删并逐级加速；上滑框内松手快速删除（#5585）。存在备份时短按改为松手删，长按后下滑框内松手撤回（#8325）。
+     * 短按删一次，按住连删并逐级加速，同时显示上滑快速删除提示（#8321）；上滑框内松手快速删除（#5585）。存在备份时短按改为松手删，长按后下滑框内松手撤回（#8325）。
      */
     void bindBackspaceRepeat(Button button, Runnable action) {
         button.setOnTouchListener((view, event) -> {
@@ -402,6 +402,13 @@ final class ImeLetterRows {
                                 s.main.removeCallbacks(this);
                                 s.backspaceRepeatTask = null;
                                 return;
+                            }
+                            if (repeats == 0 && s.quickDeleteOverlay != null
+                                    && button.getWindowToken() != null
+                                    && BackspaceSwipePolicy.available(s.quickDeleteOverlay.keyTop(button),
+                                        DimensionPolicy.density(s))) {
+                                // 长按先提示可上滑清空；手指仍在键内时保持连删，松手不能直接清空。
+                                s.quickDeleteOverlay.show(button, false);
                             }
                             s.imeKeyFeedback.playFeedback(button);
                             action.run();

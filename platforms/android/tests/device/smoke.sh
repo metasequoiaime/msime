@@ -208,6 +208,7 @@ for entry in \
     "EmailSuffixDeviceSmoke|Email suffix acceptance failed" \
     "NumberRowDeviceSmoke|Number row acceptance failed" \
     "QuickDeleteUndoDeviceSmoke|Quick delete undo acceptance failed" \
+    "QuickDeletePreviewDeviceSmoke|Quick delete held preview acceptance failed" \
     "EmptyEditorBackspaceDeviceSmoke|Empty editor backspace acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \
     "TextEditRecentClipboardDeviceSmoke|Text edit recent clipboard acceptance failed" \
