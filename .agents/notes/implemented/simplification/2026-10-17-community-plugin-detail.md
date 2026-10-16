@@ -10,7 +10,7 @@ Status: implemented
 
 `packages/ui/src/community/community-plugin-detail.tsx` 持有插件详情的展示与回调契约，公开 `CommunityPluginDetail` 和 `CommunityPluginDetailProps`。组件接收插件、详情状态、安装状态和动作回调，继续复用公共详情框架、摘要、安装、评分、下架和举报控件，保留插件类型、授权、包大小、同类型同标识替换提示及插件专用下架文案。
 
-`CommunityPluginsPage` 继续持有客户端、列表筛选、详情状态、安装预检、安装成功通知、评分和下架请求；页面只负责将这些状态接线到详情组件。组件不读取客户端、不启动请求、不持有确认状态。举报能力通过可选 `onReport` 注入，客户端不提供举报时详情入口隐藏。此边界沿用[社区皮肤详情独立复用](2026-10-17-community-skin-detail.md)的展示与图库分层，并继续复用[社区图库状态](2026-10-17-community-skin-gallery.md)和[社区安装操作](2026-10-12-community-install-actions.md)的状态归属。
+[插件图库 hook](2026-10-17-community-plugin-gallery.md) 持有客户端、列表筛选、详情状态、安装预检、安装成功通知、评分和下架请求；`CommunityPluginsPage` 只负责将这些状态接线到详情组件。组件不读取客户端、不启动请求、不持有确认状态。举报能力通过可选 `onReport` 注入，客户端不提供举报时详情入口隐藏。此边界沿用[社区皮肤详情独立复用](2026-10-17-community-skin-detail.md)的展示与图库分层，并继续复用[社区图库状态](2026-10-17-community-skin-gallery.md)和[社区安装操作](2026-10-12-community-install-actions.md)的状态归属。
 
 ## 旧笔记归属
 
@@ -34,4 +34,4 @@ Status: implemented
 
 ## Consequences
 
-其他共享宿主可以直接复用插件详情布局并注入平台动作；详情组件不会自行操作客户端或修改图库状态。页面仍是插件客户端和异步生命周期的唯一 owner，调用方必须提供动作回调。此片不改文件读写、权限、网络协议或原生资源，不声明设备验收。
+其他共享宿主可以直接复用插件详情布局并注入平台动作；详情组件不会自行操作客户端或修改图库状态。插件图库 hook 是插件客户端和异步生命周期的唯一 owner，调用方必须提供动作回调。此片不改文件读写、权限、网络协议或原生资源，不声明设备验收。

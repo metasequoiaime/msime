@@ -1551,6 +1551,11 @@ export {
 } from "./community/candidate-skin-publish-dialog";
 export { CommunityPluginsPage } from "./community/community-plugins";
 export {
+  useCommunityPluginGallery,
+  type UseCommunityPluginGalleryOptions,
+  type CommunityPluginGallery,
+} from "./community/use-community-plugin-gallery";
+export {
   CommunityPluginCard,
   type CommunityPluginCardProps,
 } from "./community/community-plugin-card";
