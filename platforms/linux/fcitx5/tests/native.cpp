@@ -2595,6 +2595,21 @@ int main(int argc, char **argv) {
                                                     fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift}), true);
       engine.keyEvent(entry, narrowRelease);
       require(narrow.accepted() && !state->fullwidthOutput(), "Ctrl+Shift+Space restores halfwidth");
+      // surrounding text 无效时，输入法自己刚上屏的 ASCII 数字仍应作为智能标点前文。
+      // Unicode 模式生成固定的数字，避免把测试依赖到编辑器原有内容。
+      require(ctrlSpace() && state->input_enabled_,
+              "smart punctuation shadow test could not return to Chinese mode");
+      const auto shadowDigit = committedBy(FcitxKey_U, fcitx::KeyStates(fcitx::KeyState::Shift));
+      require(shadowDigit.first, "Unicode mode could not start for smart punctuation shadow");
+      for (const auto sym : {FcitxKey_0, FcitxKey_0, FcitxKey_3, FcitxKey_0})
+        require(committedBy(sym).first, "Unicode digit input was not consumed");
+      require(committedBy(FcitxKey_space) == std::make_pair(true, std::string("0")),
+              "Unicode mode did not commit the synthetic ASCII digit");
+      ic.surroundingText().invalidate();
+      require(committedBy(FcitxKey_period) == std::make_pair(false, std::string{}),
+              "Fcitx5 did not keep an input-method ASCII digit as smart-punctuation context");
+      require(ctrlSpace() && !state->input_enabled_,
+              "smart punctuation shadow test could not restore English mode");
       // Ctrl+. works in English mode too, as Windows does with the IME closed: the chord is eaten, commas become Chinese until the next mode switch, and nothing is saved. A pinned English lock keeps ASCII whatever Ctrl+. says.
       const auto ctrlPeriod = [&] {
         fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_period, fcitx::KeyStates(fcitx::KeyState::Ctrl)));

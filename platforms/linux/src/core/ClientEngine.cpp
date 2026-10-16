@@ -490,6 +490,40 @@ struct State {
   msime::linux_host::JapaneseConversion japanese_conversion;
   msime::linux_host::BackspaceHoldPolicy backspace_hold;
   std::string ai_context;
+  // surrounding text 不可用时，只用本会话由输入法自己上屏的末尾文本判断智能标点；任何交给应用的按键、光标移动或删除都会使它失效。
+  std::string smart_punctuation_shadow;
+  bool smart_punctuation_shadow_valid = false;
+  void remember_smart_punctuation_commit(const std::string &text) {
+    if (!focused || blocked || private_input) {
+      smart_punctuation_shadow.clear();
+      smart_punctuation_shadow_valid = false;
+      return;
+    }
+    smart_punctuation_shadow += text;
+    if (smart_punctuation_shadow.size() > 1024) {
+      size_t cut = smart_punctuation_shadow.size() - 1024;
+      while (cut < smart_punctuation_shadow.size() &&
+             (static_cast<unsigned char>(smart_punctuation_shadow[cut]) & 0xc0) == 0x80)
+        ++cut;
+      smart_punctuation_shadow.erase(0, cut);
+    }
+    smart_punctuation_shadow_valid = true;
+  }
+  void forget_smart_punctuation_shadow() {
+    smart_punctuation_shadow.clear();
+    smart_punctuation_shadow_valid = false;
+  }
+  void erase_smart_punctuation_shadow_last() {
+    if (!smart_punctuation_shadow_valid || smart_punctuation_shadow.empty()) {
+      forget_smart_punctuation_shadow();
+      return;
+    }
+    size_t last = smart_punctuation_shadow.size() - 1;
+    while (last > 0 &&
+           (static_cast<unsigned char>(smart_punctuation_shadow[last]) & 0xc0) == 0x80)
+      --last;
+    smart_punctuation_shadow.erase(last);
+  }
   void remember_commit(const std::string &text) {
     if (!focused || blocked || private_input) {
       ai_context.clear();
@@ -659,6 +693,7 @@ struct State {
     applied_preferences_snapshot = nullptr;
     stop_clipboard_monitor();
     ai_context.clear();
+    forget_smart_punctuation_shadow();
     if (voice_active && !voice_provider_socket.empty())
       msime::host_api::discard_string(msime_client_voice_provider_cancel(
           reinterpret_cast<const uint8_t *>(voice_provider_socket.data()),
@@ -1428,6 +1463,7 @@ void commit_text(
     record_typing_statistics(engine, text,
                              source_override ? *source_override : typing_source(s));
   s.remember_commit(text);
+  s.remember_smart_punctuation_commit(text);
 }
 // 背景音乐只在本输入法获得焦点、没有录音时可以播放。这里只告诉生命周期核心本会话是否激活（msime_client_set_active），变了才说；核心记着哪个会话是音乐的所有者，再按字段属性决定：隐私字段（报成 SECURE）里不放，只带不做拼写检查的普通字段照常放。IBus 的两个输入上下文先进后出时，后获得焦点的那个成为所有者，先失焦的那个关不掉它的音乐。State::close 在会话销毁前告诉核心本会话停用。
 void sync_music(IBusEngine *engine) {
@@ -1796,6 +1832,12 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
       }
     }
   }
+  if (!s.surrounding_valid) {
+    if (!s.smart_punctuation_shadow_valid || s.smart_punctuation_shadow.empty())
+      return false;
+    const auto last = static_cast<unsigned char>(s.smart_punctuation_shadow.back());
+    return smart_punctuation_keeps_ascii_after(s, last);
+  }
   const auto &surrounding = s.surrounding_text;
   // A commit replaces the selection, so inspect the character before its start.
   const auto cursor = surrounding_byte_offset(
@@ -1807,10 +1849,16 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
   return smart_punctuation_keeps_ascii_after(s, value);
 }
 bool smart_punctuation_repeat_matches_document(const State &s) {
-  if (s.surrounding_cursor != s.surrounding_anchor)
+  if (s.surrounding_valid && s.surrounding_cursor != s.surrounding_anchor)
     return false;
   auto previous = msime::linux_host::ascii_mark_text(s.last_smart_punctuation,
                                                      s.fullwidth);
+  if (!s.surrounding_valid) {
+    return s.smart_punctuation_shadow_valid &&
+           s.smart_punctuation_shadow.size() >= previous.size() &&
+           s.smart_punctuation_shadow.compare(
+               s.smart_punctuation_shadow.size() - previous.size(), previous.size(), previous) == 0;
+  }
   const auto cursor = surrounding_byte_offset(s, s.surrounding_cursor);
   return cursor >= previous.size() &&
          s.surrounding_text.compare(cursor - previous.size(), previous.size(),
@@ -1875,6 +1923,7 @@ bool convert_smart_punctuation_space(IBusEngine *engine) {
       --last;
     s.ai_context.erase(last);
   }
+  s.erase_smart_punctuation_shadow_last();
   commit_text(engine, replacement);
   return true;
 }
@@ -4647,6 +4696,8 @@ bool voice_hotkey(const State &s, guint key, guint modifiers) {
 void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
   // Keep platform context available without feeding it into Engine composition.
   auto &s = state(engine);
+  if (text)
+    s.forget_smart_punctuation_shadow();
   s.surrounding_valid = text != nullptr;
   s.surrounding_text = text && ibus_text_get_text(text) ? ibus_text_get_text(text) : "";
   s.surrounding_cursor = cursor;
@@ -4859,6 +4910,7 @@ void focus_out(IBusEngine *engine) {
     s.backspace_hold.reset();
     s.key_repeat.reset();
     s.ai_context.clear();
+    s.forget_smart_punctuation_shadow();
     s.invalidate_providers();
     s.surrounding_text.clear();
     s.surrounding_valid = false;
@@ -6002,6 +6054,7 @@ void reset(IBusEngine *engine) {
     state(engine).character_set_chord_held = false;
     state(engine).japanese_chord_held = false;
     state(engine).ai_context.clear();
+    state(engine).forget_smart_punctuation_shadow();
     state(engine).native_compose.reset();
     state(engine).backspace_hold.reset();
     if (state(engine).voice_active)
@@ -6263,6 +6316,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  if (!release &&
+      (key == IBUS_BackSpace || key == IBUS_Delete || key == IBUS_KP_Delete ||
+       key == IBUS_Left || key == IBUS_KP_Left || key == IBUS_Right ||
+       key == IBUS_KP_Right || key == IBUS_Up || key == IBUS_KP_Up ||
+       key == IBUS_Down || key == IBUS_KP_Down || key == IBUS_Home ||
+       key == IBUS_KP_Home || key == IBUS_End || key == IBUS_KP_End ||
+       key == IBUS_Page_Up || key == IBUS_KP_Page_Up || key == IBUS_Page_Down ||
+       key == IBUS_KP_Page_Down))
+    s.forget_smart_punctuation_shadow();
   // Pressing CapsLock reports the old lock state and releasing it the new one, so every event is checked.
   if (const bool caps_lock = (flags & IBUS_LOCK_MASK) != 0; caps_lock != s.caps_lock) {
     s.caps_lock = caps_lock;
@@ -7219,6 +7281,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
             --last;
           s.ai_context.erase(last);
         }
+        s.erase_smart_punctuation_shadow_last();
         commit_text(engine, replacement);
         s.last_smart_punctuation = 0;
         s.last_smart_punctuation_time = 0;
@@ -7540,6 +7603,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = fullwidth_idle_commit(fullwidth_value);
     }
   });
+  if (!handled)
+    s.forget_smart_punctuation_shadow();
   return handled;
 }
 struct CandidateMenuHintNotice {

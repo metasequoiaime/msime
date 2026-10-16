@@ -3403,6 +3403,19 @@ int main(int argc, char **argv) {
                 !seen.lookup_visible,
             "Unicode candidate was not committed through IBus");
 
+    // surrounding text 无效时，输入法自己刚上屏的 ASCII 数字仍应作为智能标点前文。
+    // Unicode 模式生成固定的数字，避免把测试依赖到编辑器原有内容。
+    invoke("Reset");
+    seen.committed.clear();
+    require(key('u', IBUS_SHIFT_MASK), "Unicode mode could not start for smart punctuation shadow");
+    for (const char character : std::string("0030"))
+      require(key(static_cast<guint>(character)), "Unicode digit input was not consumed");
+    require(key(IBUS_space) && seen.committed == "0",
+            "Unicode mode did not commit the synthetic ASCII digit");
+    IBUS_ENGINE_GET_CLASS(engine)->set_surrounding_text(engine, nullptr, 0, 0);
+    require(key(IBUS_period) && seen.committed == "0.",
+            "IBus did not keep an input-method ASCII digit as smart-punctuation context");
+
     invoke("Reset");
     seen.committed.clear();
     require(key('t', IBUS_SHIFT_MASK), "Date-time mode could not restart");

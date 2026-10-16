@@ -33,7 +33,7 @@ Status: implemented
 - **收益**：数字和字母后面的 `, . :` 在 macOS 上真正按智能标点出字，各方案、各客户端都一样。读不回文档的客户端（Electron、终端）也能连续判断，因为写出的标点进了影子。下一份同类报告可以开诊断日志后直接看判断结果。
 - **代价**：这种标点现在由输入法上屏，不再是应用自己处理的按键。应用收到的是一次文本插入，而不是 `.` 这个按键。iOS 和鸿蒙一直是这样，组字中的智能标点在 macOS 上也一直是这样。
 - **已知上限**：大写锁定 ASCII 标点开着时（`caps_lock_ascii_punctuation`）同样会武装连按手势，和 Linux 一致；两秒内连按同一个键会把它改成中文标点。
-- **其它平台**：根因只在 macOS 宿主，共享 Rust 代码没有改。Windows TSF 在本地 `ResolvePunctuation` 出字并自己上屏，Linux IBus（`ClientEngine.cpp` 自己 `commit_text`）、Fcitx5（把键交回应用）、iOS、鸿蒙都按约定处理 `handled: false`。Linux 两个宿主另有一个缺口：前一个字符只取自 surrounding text，没有 macOS、Windows 那样的影子，不提供 surrounding text 的客户端里数字后的 `.` 仍会是 `。`。这和本问题无关，要单独处理。
+- **其它平台**：根因只在 macOS 宿主，共享 Rust 代码没有改。Windows TSF 在本地 `ResolvePunctuation` 出字并自己上屏，Linux IBus（`ClientEngine.cpp` 自己 `commit_text`）、Fcitx5（把键交回应用）、iOS、鸿蒙都按约定处理 `handled: false`。Linux 的 surrounding text 缺口已由 [Linux 前文影子笔记](2026-10-17-linux-smart-punctuation-shadow.md) 单独修复：两个宿主只在 surrounding text 无效时使用本会话输入法自身提交的末尾文本，并在未知编辑后清空影子。
 
 ## Verification
 
