@@ -1,5 +1,6 @@
+import type { ProviderCredentialStatus } from "../core/provider-credential-contracts";
 import type { ReactNode } from "react";
-import type { AiAssistantPreferences, ProviderCredentialStatus, SettingsClient } from "../index";
+import type { AiAssistantPreferences, SettingsClient } from "../index";
 import type { useProviderCredentials } from "./use-provider-credentials";
 import { AI_PROVIDER_OPTIONS, aiProviderOption } from "./ai-provider-options";
 import { aiProviderUpdate } from "./ai-provider-update";

@@ -1,3 +1,4 @@
+import type { ProviderCredentialClient } from "./core/provider-credential-contracts";
 import type { PreeditPreferences } from "./settings/preedit-preferences";
 import type {
   CandidateFontPreferences,
@@ -2010,62 +2011,13 @@ export type Preferences = PunctuationPreferences &
     /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
     plugins?: PluginPreferences;
   };
-/** What the Linux online provider holds, never the secrets themselves. */
-export type ProviderCredentialStatus = {
-  ai: { provider: string; endpoint: string; model: string }[];
-  /** The AI file exists but the provider refuses it, so no AI provider works until it is repaired. */
-  aiInvalid: boolean;
-  tencent: { region: string } | null;
-  tencentInvalid: boolean;
-  voiceAsr: VoiceProviderCredential[];
-  voicePolish: VoiceProviderCredential[];
-  /** The voice file exists but the provider refuses it, so voice input does not start until it is repaired. */
-  voiceInvalid: boolean;
-};
-/** A stored voice entry; empty `model` / `endpoint` mean the provider's defaults. */
-export type VoiceProviderCredential = {
-  provider: string;
-  model: string;
-  endpoint: string;
-  resourceId: string | null;
-  authMode: string | null;
-};
-export type VoiceCredentialKind = "asr" | "polish";
-export type VoiceCredentialSaveResult = {
-  status: ProviderCredentialStatus;
-  /** Whether the user service manager accepted the voice socket change; the file is saved either way. */
-  serviceUpdated: boolean;
-};
-/**
- * The Linux host's owner-only credential files for the online provider service. A secret passed as undefined keeps the stored one, so an endpoint, model or region can change without pasting the key again.
- */
-export type ProviderCredentialClient = {
-  status(): Promise<ProviderCredentialStatus>;
-  saveAi(credential: {
-    provider: string;
-    endpoint: string;
-    model: string;
-    token?: string;
-  }): Promise<ProviderCredentialStatus>;
-  clearAi(provider: string): Promise<ProviderCredentialStatus>;
-  saveTencent(credential: {
-    secretId?: string;
-    secretKey?: string;
-    region: string;
-  }): Promise<ProviderCredentialStatus>;
-  clearTencent(): Promise<ProviderCredentialStatus>;
-  saveVoice(credential: {
-    kind: VoiceCredentialKind;
-    provider: string;
-    endpoint: string;
-    model: string;
-    token?: string;
-    appKey?: string;
-    resourceId: string;
-    authMode: string;
-  }): Promise<VoiceCredentialSaveResult>;
-  clearVoice(kind: VoiceCredentialKind, provider: string): Promise<VoiceCredentialSaveResult>;
-};
+export type {
+  ProviderCredentialStatus,
+  VoiceProviderCredential,
+  VoiceCredentialKind,
+  VoiceCredentialSaveResult,
+  ProviderCredentialClient,
+} from "./core/provider-credential-contracts";
 export type AiAssistantClient = {
   // `provider` is for the hosts whose provider service holds the credential: it
   // is what that service checks its private configuration against. The hosts that
