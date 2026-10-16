@@ -92,6 +92,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
   // failing to compile.
   PendingReply next;
   next.source = result;
+  next.host_navigation = navigation_for(path);
   next.next_prefix = prefix_;
   next.traditional_output = traditional_output_;
   const auto invalid = [&] {

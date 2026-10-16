@@ -1,3 +1,5 @@
+#include "../../common/GameCompatProfile.h"
+#include "../../common/HostOnlineCandidateSync.h"
 #include "../../common/WubiCandidateSelectionPolicy.h"
 #include "Private.h"
 #include "Globals.h"
@@ -868,7 +870,7 @@ void CMetasequoiaIME::_DispatchServerText(WPARAM wParam, KEYSTROKE_FUNCTION func
         }
         pDocMgrFocus->Release();
     }
-    if (function == FUNCTION_CANDIDATE_CONTINUATION && dispatchResult != S_OK && dispatchResult != TF_S_ASYNC &&
+    if ((function == FUNCTION_CANDIDATE_CONTINUATION || function == FUNCTION_HOST_ONLINE_CANDIDATES) && dispatchResult != S_OK && dispatchResult != TF_S_ASYNC &&
         _IsFocusSessionCurrent(request.focusToken) && _IsCompositionEpochCurrent(request.compositionEpoch))
         MarkNamedpipeSessionDirtyForOwner(this);
 }
@@ -1416,6 +1418,7 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
             decision.excludedProcesses = compatibility->excluded_processes;
         }
         decision.facts = Global::ReadCandidateOverlayFacts(_IsUiLessMode() != FALSE);
+        decision.facts.compatibleProfile = msime::windows::game_profile::enabled();
         Global::ForceOverlayCandidate =
             Global::ShouldForceCandidateOverlay(decision.enabled, decision.facts, Global::current_process_name,
                                                 decision.overlayProcesses, decision.excludedProcesses);
@@ -1753,9 +1756,11 @@ STDAPI CMetasequoiaIME::Deactivate()
 void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
 {
     FanyImeCandidateContinuationPipe::Assembler continuation;
+    msime::windows::HostOnlineAssembler online;
     UINT continuationPipeGeneration = 0;
-    const auto notifyDisconnected = [pIME, &continuation](HANDLE disconnectedPipe, UINT disconnectedGeneration) {
+    const auto notifyDisconnected = [pIME, &continuation, &online](HANDLE disconnectedPipe, UINT disconnectedGeneration) {
         continuation.reset();
+        online.reset();
         if (disconnectedGeneration == 0 ||
             pIME->_workerPipeGeneration.load(std::memory_order_acquire) != disconnectedGeneration)
         {
@@ -1843,13 +1848,41 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
         if (pIME->_workerPipeGeneration.load(std::memory_order_acquire) != workerGeneration)
         {
             continuation.reset();
+            online.reset();
             continue;
         }
         if (continuationPipeGeneration != workerGeneration)
         {
             continuation.reset();
+            online.reset();
             continuationPipeGeneration = workerGeneration;
         }
+        if (buf.msg_type == FanyImeWorkerReplyType::HostOnlineCandidates)
+        {
+            if (continuation.active())
+                pIME->_PostCandidateContinuationFailure(continuation.focus(), continuation.epoch());
+            continuation.reset();
+            const auto focus = pIME->_expectedWorkerFocusToken.load(std::memory_order_acquire);
+            if (!pIME->_workerCommitReady.load(std::memory_order_acquire) || !focus ||
+                pIME->_acknowledgedWorkerFocusToken.load(std::memory_order_acquire) != focus ||
+                pIME->_localSessionResetPending.load(std::memory_order_acquire))
+            {
+                online.reset();
+                continue;
+            }
+            const auto epoch = pIME->_CaptureCompositionEpoch();
+            if (auto completed = online.accept(buf.data, std::size(buf.data), focus, epoch))
+            {
+                const std::wstring payload(completed->text.begin(), completed->text.end());
+                if (!pIME->_PostServerTextDelivery(WM_HostOnlineCandidates, payload.c_str(), completed->focus, completed->epoch))
+                    pIME->_PostCandidateContinuationFailure(completed->focus, completed->epoch);
+            }
+            else if (const auto owner = online.failed_owner())
+                pIME->_PostCandidateContinuationFailure(owner->focus, owner->epoch);
+            continue;
+        }
+        if (online.active()) pIME->_PostCandidateContinuationFailure(online.focus(), online.epoch());
+        online.reset();
         if (buf.msg_type == FanyImeWorkerReplyType::CandidateContinuation)
         {
             const auto focus = pIME->_expectedWorkerFocusToken.load(std::memory_order_acquire);
@@ -2832,6 +2865,9 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
     case WM_ApplyCapsLockEdge:
         pIME->_ApplyCapsLockEdge((GetKeyState(VK_CAPITAL) & 0x0001) != 0);
         break;
+    case WM_HostOnlineCandidates:
+        pIME->_DispatchServerText(wParam, FUNCTION_HOST_ONLINE_CANDIDATES);
+        break;
     case WM_CandidateContinuation:
         pIME->_DispatchServerText(wParam, FUNCTION_CANDIDATE_CONTINUATION);
         break;
@@ -2973,6 +3009,42 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
                 MarkNamedpipeSessionDirtyForOwner(pIME);
             }
             break;
+        }
+
+        if (Global::IsUiLessMode() && receivedData->msg_type >= FanyImeReplyType::NavigationIgnored &&
+            receivedData->msg_type <= FanyImeReplyType::MovePageNext)
+        {
+            auto *engine = pIME->GetCompositionProcessorEngine();
+            auto *host = engine ? engine->GetHostEngineAdapter() : nullptr;
+            if (host && host->valid())
+            {
+                uint32_t command = 0;
+                switch (receivedData->msg_type) {
+                case FanyImeReplyType::MoveSelectionPrevious: command = MSIME_PREVIOUS_CANDIDATE; break;
+                case FanyImeReplyType::MoveSelectionNext: command = MSIME_NEXT_CANDIDATE; break;
+                case FanyImeReplyType::MovePagePrevious: command = MSIME_PREVIOUS_PAGE; break;
+                case FanyImeReplyType::MovePageNext: command = MSIME_NEXT_PAGE; break;
+                }
+                _KEYSTROKE_STATE state{};
+                state.Category = CATEGORY_COMPOSING;
+                state.Function = FUNCTION_HOST_CANDIDATE_NAVIGATION;
+                bool handedOff = false;
+                ITfDocumentMgr *document = nullptr;
+                if (pIME->_pThreadMgr && SUCCEEDED(pIME->_pThreadMgr->GetFocus(&document)) && document)
+                {
+                    ITfContext *context = nullptr;
+                    if (SUCCEEDED(document->GetTop(&context)) && context)
+                    {
+                        pIME->_InvokeKeyHandler(context, command, 0, 0, state, request.requestId, {}, 0,
+                            request.compositionEpoch, request.focusToken, request.deferredReplayToken);
+                        handedOff = true;
+                        context->Release();
+                    }
+                    document->Release();
+                }
+                if (!handedOff) pIME->_RetryDeferredKeyReplay(request.deferredReplayToken);
+                break;
+            }
         }
 
         if (receivedData->msg_type == Global::DataFromServerMsgType::UiLessComposition)

@@ -63,13 +63,13 @@ Windows 原生界面验收入口是 `tests/tools/settings_ui.ps1`：通过真实
 
 | 游戏或宿主 | 已有适配 | 限制与验收范围 |
 | --- | --- | --- |
-| CS2、Dota 2 | 忽略虚假的 UI-less 自绘声明，由水杉显示候选；无效锚点兜底；CS2 的签名 TIP 部署到系统目录 | 独占全屏仍抑制外部候选窗，建议无边框窗口；没有移植来源的登记名称切换 |
-| 三角洲行动等由宿主绘制候选的 UI-less 游戏 | 旧管道路径的翻页、移高亮回复更新宿主页，云候选、AI 候选与静止重排后推送新页，按候选代次拒绝乱序旧页 | 不依赖进程白名单；有效的 TIP 引擎会话仍使用自己的候选，不应用 Server 推送；尚未在真实游戏中验收 |
-| 英雄联盟 | 保留游戏自绘候选；仅为旧管道路径补后台候选更新 | TIP 会话与 Server 异步候选的统一仍未迁移，不能宣称与来源兼容效果相同；游戏内效果尚未验收 |
+| CS2、Dota 2 | 忽略虚假的 UI-less 自绘声明，由水杉显示候选；无效锚点兜底；CS2 的签名 TIP 部署到系统目录 | 设置页可选兼容名称「拼音输入法」让游戏自绘，关闭恢复本版本名称；需要管理员权限和重启游戏，实际全屏效果未验收 |
+| 三角洲行动等由宿主绘制候选的 UI-less 游戏 | 旧管道路径的翻页、移高亮回复更新宿主页，云候选、AI 候选与静止重排后推送新页，按候选代次拒绝乱序旧页 | 有效 TIP 会话接收原始查询绑定的异步操作，刷新自己的候选与身份；旧管道仍使用页面同步；尚未在真实游戏中验收 |
+| 英雄联盟 | 保留游戏自绘候选；本地 TIP 与旧管道均补后台更新，导航在实际拥有候选的会话中执行 | 游戏内显示、选词与加载效果尚未验收，不能据代码适配宣称完整支持 |
 | 我的世界基岩版（`Minecraft.Windows.exe`） | 首键与组字布局的文本锚点统一到游戏所在显示器工作区左上角 | 系统默认组合小框不在本次处理范围；尚未游戏内验收 |
 | 我的世界 Java 版、基岩版等 IMM 宿主 | Caps Lock 等按键消息处理完再读实际锁定状态，更新语言栏并保留单按切换语言 | 合成 TSF/IMM 时序测试覆盖；不等于游戏实测 |
 
-来源为 `msime-windows` [#925](https://github.com/metasequoiaime/msime-windows/pull/925)、[#932](https://github.com/metasequoiaime/msime-windows/pull/932)、[#933](https://github.com/metasequoiaime/msime-windows/pull/933)。Rust 版不使用来源的 HTML 共享内存候选页；同步回复与推送共用 `shared/contracts/uiless_page.h`。固定来源提交、没有直接搬运的部分与验证依据见[移植笔记](../../.agents/notes/implemented/bug-fix/2026-10-16-windows-game-uiless-and-imm.md)。
+来源为 `msime-windows` [#925](https://github.com/metasequoiaime/msime-windows/pull/925)、[#932](https://github.com/metasequoiaime/msime-windows/pull/932)、[#933](https://github.com/metasequoiaime/msime-windows/pull/933)。Rust 版不使用来源的 HTML 共享内存候选页；同步回复与推送共用 `shared/contracts/uiless_page.h`。本地会话、兼容登记名称及其恢复流程见[补齐笔记](../../.agents/notes/implemented/feature/2026-10-16-windows-source2-profile-and-local-online.md)。固定来源提交、没有直接搬运的部分与验证依据见[移植笔记](../../.agents/notes/implemented/bug-fix/2026-10-16-windows-game-uiless-and-imm.md)。
 
 ## 原生界面渲染与皮肤
 

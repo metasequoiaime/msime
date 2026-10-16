@@ -20,6 +20,7 @@ struct CandidateOverlayFacts
     bool sdl2Loaded = false;
     bool sdlWindow = false;
     bool source2Loaded = false;
+    bool compatibleProfile = false;
 };
 
 // 一次激活里的判定材料，留给 BeginUIElement 复判和延迟写的 `[game]` 诊断日志用：诊断日志的开关要等 Server 推来配置帧才打开，晚于 ActivateEx。
@@ -71,6 +72,10 @@ inline bool ShouldForceCandidateOverlay(bool enabled, const CandidateOverlayFact
         return false;
     if (ContainsProcessName(overlay, process))
         return true;
+    // 兼容名称使 Source 2 自绘候选；用户显式覆盖仍优先，其他 SDL 游戏规则不变。
+    if (facts.compatibleProfile && (facts.source2Loaded || IsSameProcessName(process, L"cs2.exe") ||
+                                    IsSameProcessName(process, L"dota2.exe")))
+        return false;
     // 英雄联盟自己画候选，排除它以免被模块规则误判。文件名没有实机核实过。
     constexpr std::wstring_view builtinExcluded[] = {L"league of legends.exe"};
     for (const auto name : builtinExcluded)

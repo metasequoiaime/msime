@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本篇「不提供登记名称兼容」的选择由[可选 Source 2 登记名称与本地异步候选](./2026-10-16-windows-source2-profile-and-local-online.md)部分取代；强制叠加窗与用户规则仍然保留。
+
 ## Problem
 
 Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TSF，等于告诉输入法「候选由我自己画」，实际却什么都不画：SDL2 在 UILess 下对 `ITfUIElementMgr::BeginUIElement` 一律回 `pbShow=FALSE`，自己的 `IME_Present` 只有一行 FIXME；Dota 2 也是这样。TIP 按约定把 UILess 报给 Server（ClientActivated 的 keycode），Server 锁存后抑制候选窗，用户在这些游戏里打中文只能盲选。

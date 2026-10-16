@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本篇最初保留的 TIP 本地异步候选和登记名称缺口由[后续实现](../../implemented/feature/2026-10-16-windows-source2-profile-and-local-online.md)补齐；这里仍描述旧管道页面、基岩版锚点和 IMM 的契约。
+
 ## Problem
 
 msime-windows #925、#932、#933 修复了游戏里的候选页不同步、基岩版位置闪动与 IMM 宿主 Caps Lock 显示反转。本仓已有 CS2/Dota 2 强制候选窗、系统目录部署、线程池加载器引用保护，但 UI-less 翻页回复仍被当作确认丢弃，后台云候选、AI 候选和静止重排也没有通知宿主重新读取。

@@ -53,6 +53,7 @@ HOST_DIFFERENCES = {
 
 # Sources whose `main` takes an argument the build system supplies.
 ARGUMENTS = {
+    "input/host_online_candidates.cpp": ["platforms/windows/tests/input/fixtures/msime-pinyin-online.db"],
     "core/installer_launch.cpp": ["platforms/windows/installer/msime_setup.iss"],
     "input/zhuyin_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-zhuyin.db"],
     "input/stroke_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-stroke.db"],
@@ -73,6 +74,9 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "core/uiless_candidates.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     "core/candidate_continuation_pipe.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     # 两份真实引擎会话通过外部候选选择继续组字。
+    "input/host_online_candidates.cpp": (
+        ["src/ipc/ServerSession.cpp", "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"], True,
+    ),
     "input/candidate_continuation.cpp": (
         ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp",
          "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"],
@@ -156,6 +160,8 @@ COMPANION_FRAMEWORKS = [
     "CoreFoundation",
     "CoreText",
     "CoreGraphics",
+    "CoreAudio",
+    "AudioToolbox",
     "Security",
     "SystemConfiguration",
 ]

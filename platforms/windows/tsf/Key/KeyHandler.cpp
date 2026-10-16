@@ -762,6 +762,25 @@ HRESULT CMetasequoiaIME::_ApplyKeyboardCancellation(TfEditCookie ec, ITfContext 
         });
 }
 
+HRESULT CMetasequoiaIME::_HandleHostCandidateNavigation(TfEditCookie ec, ITfContext *context, uint32_t command)
+{
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!Global::IsUiLessMode() || !host || !host->valid() || !_IsComposing()) return S_FALSE;
+    std::string raw, error;
+    if (command && !host->command(command, &raw, &error)) return E_FAIL;
+    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, context, FANY_IME_NO_REQUEST_ID);
+}
+
+HRESULT CMetasequoiaIME::_HandleHostOnlineCandidates(TfEditCookie ec, ITfContext *context,
+                                                    const std::wstring &payload)
+{
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!Global::IsUiLessMode() || !host || !host->valid() || !_IsComposing()) return S_OK;
+    const std::string encoded(payload.begin(), payload.end());
+    if (!host->apply_online_update(encoded)) return S_OK;
+    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, context, FANY_IME_NO_REQUEST_ID);
+}
+
 bool CMetasequoiaIME::_CancelHostComposition()
 {
     auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
@@ -2047,6 +2066,27 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
             _pCandidateListUIPresenter->_ConsumeUiLessCompositionReply(requestId);
         }
         return S_OK;
+    }
+
+    if (Global::IsUiLessMode())
+    {
+        auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+        if (host && host->valid())
+        {
+            uint32_t command = 0;
+            switch (keyFunction) {
+            case FUNCTION_MOVE_PAGE_UP: command = MSIME_PREVIOUS_PAGE; break;
+            case FUNCTION_MOVE_PAGE_DOWN: command = MSIME_NEXT_PAGE; break;
+            case FUNCTION_MOVE_PAGE_TOP: command = MSIME_FIRST_CANDIDATE; break;
+            case FUNCTION_MOVE_PAGE_BOTTOM: command = MSIME_LAST_CANDIDATE; break;
+            }
+            if (command)
+            {
+                if (_pCandidateListUIPresenter)
+                    _pCandidateListUIPresenter->_ConsumeUiLessCompositionReply(requestId);
+                return _HandleHostCandidateNavigation(ec, pContext, command);
+            }
+        }
     }
 
     if ((keyFunction == FUNCTION_MOVE_PAGE_UP) || (keyFunction == FUNCTION_MOVE_PAGE_DOWN) ||

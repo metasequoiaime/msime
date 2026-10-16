@@ -191,7 +191,7 @@ int main()
     static_assert(FanyImeWorkerReplyType::WubiCandidateSelectionChanged == 32);
     static_assert(FanyImeWorkerReplyType::CandidateContinuation == 33);
     static_assert(FanyImeWorkerReplyType::UiLessCandidatesChanged == 35);
-    static_assert(FanyImeWorkerReplyType::MaxKnown == FanyImeWorkerReplyType::UiLessCandidatesChanged);
+    static_assert(FanyImeWorkerReplyType::MaxKnown == FanyImeWorkerReplyType::HostOnlineCandidates);
     static_assert(FanyImeVoiceControl::Start == 1);
     static_assert(FanyImeVoiceControl::Stop == 2);
     static_assert(FanyImeVoiceControl::Cancel == 3);

@@ -61,6 +61,17 @@ int main()
     require(Force(L"CS2.EXE"), "CS2 is in the built-in table, case-insensitively");
     require(!Force(L"dota2.exe", {}, {}, {L"DOTA2.EXE"}), "the user exclusion wins over the built-in table");
 
+    // 兼容名称只改变自动 Source 2 规则，用户列表与 SDL2 仍保持原来的优先级。
+    auto compatible = Facts(true, true, true, true);
+    compatible.compatibleProfile = true;
+    require(!Force(L"CS2.EXE", compatible), "兼容名称使 CS2 自绘候选");
+    require(!Force(L"dota2.exe", compatible), "兼容名称使 Dota 2 自绘候选");
+    require(!Force(L"deadlock.exe", compatible), "Source 2 模块识别同样交回自绘");
+    require(Force(L"cs2.exe", compatible, {L"CS2.EXE"}), "用户总是显示仍优先");
+    require(!Force(L"cs2.exe", compatible, {L"cs2.exe"}, {L"CS2.EXE"}), "用户排除仍优先");
+    compatible.source2Loaded = false;
+    require(Force(L"terraria.exe", compatible), "兼容名称不改变 SDL2 自动叠加");
+
     // Source 2 模块规则不看 UILess
     require(Force(L"deadlock.exe", Facts(false, false, false, true)), "a loaded Source 2 engine forces the overlay");
     require(!Force(L"deadlock.exe", Facts(true, false, false, true), {}, {L"deadlock.exe"}),

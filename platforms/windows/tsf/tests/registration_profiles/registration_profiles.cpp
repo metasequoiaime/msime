@@ -2,6 +2,11 @@
 #include <cstdlib>
 #include <cwchar>
 #include <iostream>
+#include <string>
+namespace msime::windows::game_profile {
+inline std::wstring selectedName = L"Test IME";
+inline std::wstring registration_name() { return selectedName; }
+}
 
 using HRESULT = std::int32_t;
 using BOOL = bool;
@@ -15,7 +20,6 @@ constexpr unsigned MAX_PATH = 260, STRSAFE_MAX_CCH = 65536;
 constexpr int CLSID_TF_InputProcessorProfiles = 1, CLSCTX_INPROC_SERVER = 2;
 constexpr int IID_ITfInputProcessorProfileMgr = 3, TEXTSERVICE_LANGID = 4;
 constexpr int TEXTSERVICE_ICON_INDEX = 5;
-constexpr WCHAR TEXTSERVICE_DESC[] = L"Test IME";
 namespace Global {
 constexpr int dllInstanceHandle = 1, MetasequoiaIMECLSID = 2, MetasequoiaIMEGuidProfile = 3;
 }
@@ -26,13 +30,15 @@ struct Scenario {
     DWORD path_length = 12;
     int releases = 0, registrations = 0;
     ULONG registered_path_length = 0;
+    std::wstring name;
 } scenario;
 
 struct ITfInputProcessorProfileMgr {
-    HRESULT RegisterProfile(int, int, int, const WCHAR *, ULONG,
+    HRESULT RegisterProfile(int, int, int, const WCHAR *name, ULONG,
                             const WCHAR *path, ULONG path_length, UINT,
                             void *, int, bool, int) {
         ++scenario.registrations;
+        scenario.name = name;
         scenario.registered_path_length = path_length;
         if (path[path_length] != L'\0') std::abort();
         return scenario.registration;
@@ -76,6 +82,12 @@ int main() {
         require(scenario.registrations == 1 && scenario.releases == 1, "registration lifecycle wrong");
         require(scenario.registered_path_length == length, "path length changed");
     }
+    scenario = {};
+    msime::windows::game_profile::selectedName = L"拼音输入法";
+    require(RegisterProfiles() && scenario.name == L"拼音输入法", "upgrade lost compatibility name");
+    msime::windows::game_profile::selectedName = L"Test IME";
+    scenario = {};
+    require(RegisterProfiles() && scenario.name == L"Test IME", "disabled name was not restored");
     scenario = {};
     scenario.create = E_FAIL;
     require(!RegisterProfiles() && scenario.releases == 0 && scenario.registrations == 0,

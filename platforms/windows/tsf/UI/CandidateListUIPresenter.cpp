@@ -1,3 +1,4 @@
+#include "../../common/GameCompatProfile.h"
 #include "FanyDefines.h"
 #include "Globals.h"
 #include "Private.h"
@@ -1572,6 +1573,7 @@ HRESULT CCandidateListUIPresenter::BeginUIElement()
                 auto &decision = Global::GameOverlayDecision;
                 decision.activeFlagsUiLess = true;
                 decision.facts = Global::ReadCandidateOverlayFacts(true);
+                decision.facts.compatibleProfile = msime::windows::game_profile::enabled();
                 Global::ForceOverlayCandidate =
                     Global::ShouldForceCandidateOverlay(decision.enabled, decision.facts, Global::current_process_name,
                                                         decision.overlayProcesses, decision.excludedProcesses);

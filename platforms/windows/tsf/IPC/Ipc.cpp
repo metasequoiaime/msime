@@ -540,6 +540,7 @@ bool WritePipeHello(HANDLE hPipeHandle, UINT pipeRole)
                                    FanyImeProtocol::Capabilities | FanyImeProtocol::CharacterSetShortcut |
                                        FanyImeProtocol::CandidateContinuation |
                                        FanyImeProtocol::UiLessCandidates |
+                      FanyImeProtocol::HostOnlineCandidates |
                                        FanyImeProtocol::KeyboardCompositionCancel |
                                        FanyImeProtocol::GameHostCandidate | FanyImeProtocol::FieldTraits |
                                        FanyImeProtocol::JapaneseToggleShortcut);
