@@ -53,6 +53,7 @@ import type { LocalVoiceModelClient } from "./voice/local-models";
 import type { ResourcePackClient } from "./settings/resource-packs";
 import type { WubiCodeLookup } from "./settings/wubi-code-lookup-section";
 import type { CloudClipboardRelayPreferences } from "./settings/cloud-clipboard-relay-preferences";
+import type { VoiceInputPreferences } from "./settings/voice-input-preferences";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   type DictionaryEntry,
@@ -1875,6 +1876,7 @@ export interface EditionInfo {
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 
 export type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
+export type { VoiceInputPreferences } from "./settings/voice-input-preferences";
 export type { AiAssistantPreferences } from "./settings/ai-assistant-preferences";
 
 export type Preferences = PunctuationPreferences &
@@ -2079,51 +2081,6 @@ export type ApiCredentialTestService =
   | "voice.polish"
   | "ai.assistant";
 export type ApiCredentialTestResult = { ok: boolean; message: string };
-export type VoiceInputPreferences = {
-  enabled: boolean;
-  language: string;
-  capture_backend?: "" | "auto" | "pulse" | "pipewire" | "alsa" | "windows" | "macos" | "harmony";
-  capture_device?: string;
-  asr_provider?: string;
-  asr_endpoint?: string;
-  asr_token?: string;
-  asr_tokens?: Record<string, string>;
-  asr_app_key?: string;
-  doubao_auth_mode?: "api_key" | "legacy";
-  hotkey_ralt?: boolean;
-  hotkey_ctrl_f9?: boolean;
-  hotkey_ctrl_win?: boolean;
-  hotkey_rctrl_ralt?: boolean;
-  hotkey_hold_space_lock?: boolean;
-  sound_enabled?: boolean;
-  start_sound?: boolean;
-  end_sound?: boolean;
-  mute_system_audio?: boolean;
-  polish_enabled?: boolean;
-  polish_text?: boolean;
-  asr_model?: string;
-  /** Absolute path the `local` provider loads: an installed model directory (one holding msime-model.json). */
-  asr_model_path?: string;
-  /** Optional `https://` prefix put in front of every model download URL (a ghproxy-style mirror); empty downloads from the catalog URLs as-is. */
-  asr_model_mirror?: string;
-  asr_resource_id?: string;
-  commit_mode?: "tsf" | "sendinput" | "ctrl_v";
-  polish_provider?: string;
-  polish_endpoint?: string;
-  polish_token?: string;
-  polish_tokens?: Record<string, string>;
-  polish_model?: string;
-  polish_prompt_id?: string;
-  polish_prompt_custom_1?: string;
-  polish_prompt_custom_2?: string;
-  polish_prompt_custom_3?: string;
-  stream_inline_preedit?: boolean;
-  doubao_enable_itn?: boolean;
-  doubao_enable_punc?: boolean;
-  doubao_enable_ddc?: boolean;
-  doubao_boosting_table_id?: string;
-  [key: string]: unknown;
-};
 export type { ProviderPreset, ProviderDefaults } from "./core/provider-preset";
 export {
   AI_PROVIDER_OPTIONS,
