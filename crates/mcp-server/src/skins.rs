@@ -38,8 +38,24 @@ pub struct SkinView {
     pub themes: Vec<String>,
     /// 有限的 schema v2 动效契约。版本 1 皮肤报告为 `none` 预设。
     pub animation: SkinAnimationView,
+    /// 候选窗上方的装饰图，皮肤没有装饰图时省略。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decoration: Option<SkinDecorationView>,
     /// Whether the desktop app has synced this skin to the user's cloud library.
     pub synced: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema, PartialEq)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SkinDecorationView {
+    /// 候选窗在屏幕上时整张装饰图的待机动效：none、float、sway、breathe 或 bounce。
+    pub motion: String,
+    /// 待机动效一个周期的毫秒数。
+    pub motion_period_ms: u16,
+    /// 装饰图的帧数：静态 PNG、JPEG 为 1，APNG 为它的动画帧数。
+    pub frames: u32,
+    /// 装饰图是不是多帧的 APNG（frames 大于 1）。能播帧动画的宿主（目前是 macOS）播放它，其他宿主只画第一帧。
+    pub animated: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema, PartialEq)]
@@ -77,7 +93,7 @@ pub struct CreateSkinRequest {
     pub package_id: String,
     /// The whole `skin.toml`, at most 64 KiB.
     pub manifest: String,
-    /// Each image the manifest references (`preview`, `candidate_window.decoration.image`, `candidate_window.background.image`), keyed by its path relative to the skin folder, in standard base64. PNG or JPEG only, each a complete image that decodes with the codec its extension names, at most 3 images, 1 MiB and 2048 pixels on each side each, 2 MiB and 8,000,000 pixels together, the preview at most 256 KiB.
+    /// Each image the manifest references (`preview`, `candidate_window.decoration.image`, `candidate_window.background.image`), keyed by its path relative to the skin folder, in standard base64. PNG or JPEG only, each a complete image that decodes with the codec its extension names, at most 3 images, 1 MiB and 2048 pixels on each side each, 2 MiB and 8,000,000 pixels together, the preview at most 256 KiB. The decoration image may be an animated PNG (APNG) of at most 120 frames; every frame counts as a whole image toward the 8,000,000 pixels.
     pub images: BTreeMap<String, String>,
     /// Replace an existing skin of this id whole. Without it an existing skin is left alone and the call refused.
     #[serde(default)]
@@ -125,6 +141,15 @@ pub fn list(state_dir: &Path) -> SkinList {
                         selection: package.animation.declared.selection,
                     },
                 },
+                decoration: package
+                    .decoration_image
+                    .is_some()
+                    .then(|| SkinDecorationView {
+                        motion: package.decoration_motion.id().into(),
+                        motion_period_ms: package.decoration_motion_period_ms,
+                        frames: package.decoration_frames,
+                        animated: package.decoration_frames > 1,
+                    }),
             })
             .collect(),
         issues: catalog
@@ -161,8 +186,8 @@ fn explain(code: &str) -> &'static str {
         "candidate_skin_exists" => "a skin with this package_id is already installed; list_candidate_skins shows it. Pass replace: true to replace it whole, or choose another id",
         "candidate_skin_file_path" => "images must hold 1 to 3 entries, each a relative path inside the skin folder other than skin.toml, unique ignoring case",
         "candidate_skin_file_type" => "every image must be a .png, .jpg or .jpeg file",
-        "candidate_skin_too_large" => "too large: the manifest may be 64 KiB, each image 1 MiB and 2048 pixels on each side, all images 2 MiB and 8,000,000 pixels together, and the preview 256 KiB",
-        "candidate_skin_image_invalid" => "an image is not valid standard base64, or its bytes cannot be decoded as the PNG or JPEG its extension names: it may be truncated or corrupted, so generate it again and pass the whole base64",
+        "candidate_skin_too_large" => "too large: the manifest may be 64 KiB, each image 1 MiB and 2048 pixels on each side, all images 2 MiB and 8,000,000 pixels together (each APNG frame counts as a whole image), an APNG at most 120 frames, and the preview 256 KiB",
+        "candidate_skin_image_invalid" => "an image is not valid standard base64, or its bytes (every frame of an APNG) cannot be decoded as the PNG or JPEG its extension names: it may be truncated or corrupted, so generate it again and pass the whole base64",
         "storage" => "the skin folder could not be written",
         _ => "the skin was refused",
     }
@@ -262,6 +287,7 @@ mod tests {
                         selection: false,
                     },
                 },
+                decoration: None,
                 synced: false,
             }]
         );
@@ -317,6 +343,64 @@ mod tests {
                 enter: true,
                 exit: false,
                 selection: false,
+            }
+        );
+    }
+
+    /// 2×2、3 帧、无限循环的 APNG，默认图是第一帧。
+    const APNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACGFjVEwAAAADAAAAAM7tusAAAAAaZmNUTAAAAAAAAAACAAAAAgAAAAAAAAAAAAEACgAA6FTcAAAAABFJREFUeNpj+M/A8B+EGWAMAEfKB/katvGpAAAAGmZjVEwAAAABAAAAAgAAAAIAAAAAAAAAAAABAAoAAHMnNtQAAAASZmRBVAAAAAJ42mNg+A+FMAYAQ84H+cMAaa8AAAAaZmNUTAAAAAMAAAACAAAAAgAAAAAAAAAAAAEACgAAnrHlPQAAABRmZEFUAAAABHjaY2Bg+P8fgqEMAD/SB/mZNdnKAAAAAElFTkSuQmCC";
+
+    #[test]
+    fn the_listing_reports_decoration_motion_and_frames() {
+        let state = tempfile::tempdir().unwrap();
+        for (id, image, motion) in [
+            ("whale", APNG, "motion = 'sway'\nmotion_period_ms = 2400\n"),
+            ("still", PNG, ""),
+        ] {
+            let manifest = format!(
+                "schema_version = 2\nid = '{id}'\nname = 'Whale'\nversion = '1.0'\nbase = 'system'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'whale.png'\ntop_inset_dip = 40\nwidth_dip = 60\n{motion}"
+            );
+            create(
+                state.path(),
+                &CreateSkinRequest {
+                    package_id: id.into(),
+                    manifest,
+                    images: BTreeMap::from([
+                        ("preview.png".into(), PNG.into()),
+                        ("whale.png".into(), image.into()),
+                    ]),
+                    replace: false,
+                },
+            )
+            .unwrap();
+        }
+        let listed = list(state.path());
+        let decoration = |id: &str| {
+            listed
+                .skins
+                .iter()
+                .find(|skin| skin.id == id)
+                .unwrap()
+                .decoration
+                .as_ref()
+                .unwrap()
+        };
+        assert_eq!(
+            decoration("whale"),
+            &SkinDecorationView {
+                motion: "sway".into(),
+                motion_period_ms: 2400,
+                frames: 3,
+                animated: true,
+            }
+        );
+        assert_eq!(
+            decoration("still"),
+            &SkinDecorationView {
+                motion: "none".into(),
+                motion_period_ms: 3000,
+                frames: 1,
+                animated: false,
             }
         );
     }

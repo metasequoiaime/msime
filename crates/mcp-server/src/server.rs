@@ -320,7 +320,7 @@ impl MsimeServer {
 
     #[tool(
         name = "list_candidate_skins",
-        description = "List the candidate-window skins installed as folders in the input method's skin directory: id, schema version, name, version, layouts, colour modes, bounded animation presets (with which of enter, exit and selection the manifest's [animation] table actually writes; the others are filled-in defaults that macOS does not play) and whether the desktop app has synced it to the user's cloud library. Folders that are not a usable skin are listed with the reason.",
+        description = "List the candidate-window skins installed as folders in the input method's skin directory: id, schema version, name, version, layouts, colour modes, bounded animation presets (with which of enter, exit and selection the manifest's [animation] table actually writes; the others are filled-in defaults that macOS does not play), for a skin with a decoration image its idle motion, motion period and frame count (more than 1 for an animated PNG) and whether the desktop app has synced it to the user's cloud library. Folders that are not a usable skin are listed with the reason.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_candidate_skins(&self) -> Result<Json<SkinList>, String> {
@@ -334,7 +334,7 @@ impl MsimeServer {
 
     #[tool(
         name = "create_candidate_skin",
-        description = "Install a candidate-window skin from a skin.toml and its images. Schema version 1 remains supported; version 2 additionally accepts [animation] with enter/exit/selection = none, fade, fade_scale, slide_up, spring or glow, duration_ms 40-600 and stagger_ms 0-80. Write each preset you want explicitly: macOS plays only the presets the [animation] table writes, while Windows and the web engine fill omitted ones with a default. The manifest is TOML: id (equal to package_id); name (at most 80 bytes); version; base, the look drawn under it: a built-in theme (system, shuishan, light, paper, night or ink) or an msime-windows built-in look (fluent, wechat, graphite, willow_green, autumn_osmanthus or microsoft), whose colours fill the ones the manifest leaves out; preview, the path of a PNG or JPEG shown in the skin list; optional author, description and [license] code, assets and source; [supports] layouts (horizontal, vertical) and themes (dark, light); [candidate_window] min_width_dip (0-1000), optional corner_radius_dip (0-32), optional [candidate_window.decoration] top_inset_dip, width_dip, image and align (left, center, right), optional [candidate_window.background] image, fit (cover, contain, stretch) and opacity (0-1); [candidate.dark] and [candidate.light] colours accent, selected, hover, surface, border, text, number and translation as #RRGGBB or #RRGGBBAA, plus show_selected_bar. images must hold exactly the images the manifest references. A stylesheet is not accepted, so the skin can be synced and shared. Refused when the skin exists, unless replace is true.",
+        description = "Install a candidate-window skin from a skin.toml and its images. Schema version 1 remains supported; version 2 additionally accepts [animation] with enter/exit/selection = none, fade, fade_scale, slide_up, spring or glow, duration_ms 40-600 and stagger_ms 0-80. Write each preset you want explicitly: macOS plays only the presets the [animation] table writes, while Windows and the web engine fill omitted ones with a default. The manifest is TOML: id (equal to package_id); name (at most 80 bytes); version; base, the look drawn under it: a built-in theme (system, shuishan, light, paper, night or ink) or an msime-windows built-in look (fluent, wechat, graphite, willow_green, autumn_osmanthus or microsoft), whose colours fill the ones the manifest leaves out; preview, the path of a PNG or JPEG shown in the skin list; optional author, description and [license] code, assets and source; [supports] layouts (horizontal, vertical) and themes (dark, light); [candidate_window] min_width_dip (0-1000), optional corner_radius_dip (0-32), optional [candidate_window.decoration] top_inset_dip, width_dip, image and align (left, center, right), and in schema version 2 motion (none, float, sway, breathe or bounce: a small idle movement of the whole decoration image while the candidate window is on screen) and motion_period_ms (1200-8000, default 3000); the decoration image may be an animated PNG (APNG, at most 120 frames, each frame counted as a whole image toward the pixel limit), which macOS plays with its own frame delays and loop count and other hosts draw as its first frame; both stop when the system asks to reduce motion. Optional [candidate_window.background] image, fit (cover, contain, stretch) and opacity (0-1); [candidate.dark] and [candidate.light] colours accent, selected, hover, surface, border, text, number and translation as #RRGGBB or #RRGGBBAA, plus show_selected_bar. images must hold exactly the images the manifest references. A stylesheet is not accepted, so the skin can be synced and shared. Refused when the skin exists, unless replace is true.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -787,6 +787,30 @@ mod tests {
                 "update_preferences"
             ]
         );
+    }
+
+    #[test]
+    fn skin_tools_describe_decoration_motion_and_animated_png() {
+        let description = |name: &str| {
+            server(true)
+                .tool_router
+                .list_all()
+                .into_iter()
+                .find(|tool| tool.name == name)
+                .and_then(|tool| tool.description)
+                .unwrap()
+                .to_string()
+        };
+        let create = description("create_candidate_skin");
+        for word in [
+            "motion (none, float, sway, breathe or bounce",
+            "motion_period_ms (1200-8000",
+            "animated PNG (APNG, at most 120 frames",
+        ] {
+            assert!(create.contains(word), "{word}");
+        }
+        assert!(description("list_candidate_skins")
+            .contains("idle motion, motion period and frame count"));
     }
 
     #[test]

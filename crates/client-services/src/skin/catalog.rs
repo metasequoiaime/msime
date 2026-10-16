@@ -145,6 +145,12 @@ pub struct SkinSummary {
     pub decoration_image: Option<String>,
     /// Where the decoration sits along the card's top edge.
     pub decoration_align: DecorationAlign,
+    /// 候选窗在屏幕上时整张装饰图的待机动效（`decoration.motion`，只在 schema 2 里可写），缺省 `none`。与 `[animation]` 的显隐动效无关。
+    pub decoration_motion: DecorationMotion,
+    /// 待机动效一个周期的毫秒数（`decoration.motion_period_ms`），限制在 [`DECORATION_MOTION_PERIOD_MS`] 内，缺省 [`DEFAULT_DECORATION_MOTION_PERIOD_MS`]。
+    pub decoration_motion_period_ms: u16,
+    /// 装饰图的帧数：静态 PNG、JPEG 为 1，APNG 为它 `acTL` 声明的动画帧数，没有装饰图时为 0。能播帧动画的宿主据此决定是否播放，其他宿主只画第一帧。
+    pub decoration_frames: u32,
     /// An image drawn over the card surface and under the candidates, clipped to the card's rounded outline.
     pub background: Option<SkinBackground>,
     /// The floating toolbar's own geometry and colours, drawn over what the base theme derives and under `toolbar_stylesheet`.
@@ -253,6 +259,38 @@ pub enum DecorationAlign {
     #[default]
     Right,
 }
+
+/// 装饰图的待机动效。和 [`SkinAnimationPreset`] 一样只接受固定名字，幅度由宿主决定并保持很小（浮动约 ±3 点、摇摆约 ±3°、呼吸放大到 1.03、弹跳一次小跳），不接受任意曲线或 CSS。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecorationMotion {
+    #[default]
+    None,
+    /// 上下缓慢浮动。
+    Float,
+    /// 以图片底边中点为轴左右摇摆。
+    Sway,
+    /// 以图片底边中点为基准轻微放大再收回。
+    Breathe,
+    /// 周期性地轻轻跳一下。
+    Bounce,
+}
+
+impl DecorationMotion {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Float => "float",
+            Self::Sway => "sway",
+            Self::Breathe => "breathe",
+            Self::Bounce => "bounce",
+        }
+    }
+}
+
+/// `decoration.motion_period_ms` 的取值范围。下限避免装饰图抖动着吸引注意力，上限之外的动效慢到看不出来。
+pub const DECORATION_MOTION_PERIOD_MS: std::ops::RangeInclusive<u16> = 1200..=8000;
+pub const DEFAULT_DECORATION_MOTION_PERIOD_MS: u16 = 3000;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -534,6 +572,8 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         Some("center") => DecorationAlign::Center,
         Some(_) => return Err("invalid decoration".into()),
     };
+    let (decoration_motion, decoration_motion_period_ms) =
+        read_decoration_motion(decoration, decorated, schema_version)?;
     let background = match window.get("background") {
         None => None,
         Some(value) => Some(read_background(
@@ -581,7 +621,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
             .clone()
             .filter(|preview| decorated && is_image(preview))
     });
-    let summary = SkinSummary {
+    let mut summary = SkinSummary {
         schema_version: schema_version as u8,
         id,
         name,
@@ -597,6 +637,9 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         decoration_width_dip: width,
         decoration_image,
         decoration_align,
+        decoration_motion,
+        decoration_motion_period_ms,
+        decoration_frames: 0,
         background,
         toolbar,
         toolbar_stylesheet,
@@ -605,7 +648,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         animation,
         license,
     };
-    validate_image_dimensions(&dir, &summary)?;
+    summary.decoration_frames = validate_image_dimensions(&dir, &summary)?;
     Ok(summary)
 }
 
@@ -662,9 +705,30 @@ pub(crate) const MAX_IMAGE_SIDE: u32 = 2048;
 pub(crate) const MAX_PACKAGE_PIXELS: u64 = 8_000_000;
 pub(crate) const IMAGE_DIMENSIONS_TOO_LARGE: &str = "image dimensions exceed limits";
 
-/// 检查清单引用的 PNG/JPEG 尺寸，避免宿主把声明为极大尺寸的压缩图片交给系统解码器。
+/// 一张 APNG 最多的动画帧数。宿主播放时每帧按整张画布解码成位图，帧数和下面按帧累计的像素一起限住一个包能占的内存。
+pub(crate) const MAX_ANIMATION_FRAMES: u32 = 120;
+pub(crate) const ANIMATION_TOO_MANY_FRAMES: &str = "animated image has too many frames";
+
+/// 一张 PNG 解码后有几张整幅画面：普通 PNG 和 JPEG 为 1；APNG 为 `acTL` 声明的动画帧数，默认图（`IDAT`）不属于动画时再加上它。返回 `(动画帧数, 解码画面数)`。只读到第一个 `IDAT` 之前的块，不解压任何像素；读不出的 PNG 按 1 帧处理，与上面读不出尺寸的图一样交给宿主原有的处理。
+pub(crate) fn png_frames(bytes: &[u8]) -> Result<(u32, u32), &'static str> {
+    let Ok(reader) = png::Decoder::new(Cursor::new(bytes)).read_info() else {
+        return Ok((1, 1));
+    };
+    let Some(control) = reader.info().animation_control() else {
+        return Ok((1, 1));
+    };
+    let frames = control.num_frames;
+    if frames > MAX_ANIMATION_FRAMES {
+        return Err(ANIMATION_TOO_MANY_FRAMES);
+    }
+    let frames = frames.max(1);
+    let thumbnail = u32::from(reader.info().frame_control.is_none());
+    Ok((frames, frames + thumbnail))
+}
+
+/// 检查清单引用的 PNG/JPEG 尺寸，避免宿主把声明为极大尺寸的压缩图片交给系统解码器。APNG 的每一帧都按整张画布计入像素合计，帧数不超过 [`MAX_ANIMATION_FRAMES`]，所以一个包解码后的位图总量与静态图同一个上限。返回装饰图的帧数（没有装饰图时为 0）。
 /// 不能解析的旧资源仍由宿主按原有方式处理；社区发布和安装会再做完整解码检查。
-fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<(), String> {
+fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, String> {
     let mut paths = Vec::new();
     for path in [
         summary.decoration_image.as_deref(),
@@ -683,6 +747,7 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<(), St
     }
 
     let mut pixels = 0_u64;
+    let mut decoration_frames = u32::from(summary.decoration_image.is_some());
     for path in paths {
         let input = crate::storage::open_private_file_in(&dir.join(path))
             .map_err(|_| "image is unavailable")?;
@@ -692,11 +757,13 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<(), St
             || "image is too large".to_owned(),
             |_| "image is unavailable".to_owned(),
         )?;
-        let Ok(reader) = image::ImageReader::new(Cursor::new(bytes)).with_guessed_format() else {
+        let Ok(reader) = image::ImageReader::new(Cursor::new(&bytes[..])).with_guessed_format()
+        else {
             continue;
         };
+        let format = reader.format();
         if !matches!(
-            reader.format(),
+            format,
             Some(image::ImageFormat::Png | image::ImageFormat::Jpeg)
         ) {
             continue;
@@ -707,14 +774,61 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<(), St
         if width == 0 || height == 0 || width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE {
             return Err(IMAGE_DIMENSIONS_TOO_LARGE.into());
         }
+        let (frames, images) = if format == Some(image::ImageFormat::Png) {
+            png_frames(&bytes)?
+        } else {
+            (1, 1)
+        };
+        if summary.decoration_image.as_deref() == Some(path) {
+            decoration_frames = frames;
+        }
         pixels = pixels
-            .checked_add(u64::from(width) * u64::from(height))
+            .checked_add(u64::from(width) * u64::from(height) * u64::from(images))
             .ok_or_else(|| IMAGE_DIMENSIONS_TOO_LARGE.to_owned())?;
         if pixels > MAX_PACKAGE_PIXELS {
             return Err(IMAGE_DIMENSIONS_TOO_LARGE.into());
         }
     }
-    Ok(())
+    Ok(decoration_frames)
+}
+
+/// 读 `decoration.motion` 和 `decoration.motion_period_ms`。两者都只在 schema 2 里可写，并且只对有装饰的包有意义；版本 1 保持静态，与 `[animation]` 相同。
+fn read_decoration_motion(
+    decoration: &toml::map::Map<String, Value>,
+    decorated: bool,
+    schema_version: i64,
+) -> Result<(DecorationMotion, u16), String> {
+    let motion = decoration.get("motion");
+    let period = decoration.get("motion_period_ms");
+    if motion.is_none() && period.is_none() {
+        return Ok((DecorationMotion::None, DEFAULT_DECORATION_MOTION_PERIOD_MS));
+    }
+    if schema_version < 2 {
+        return Err("decoration motion requires schema_version 2".into());
+    }
+    let motion = match motion {
+        None => DecorationMotion::None,
+        Some(value) => match value.as_str() {
+            Some("none") => DecorationMotion::None,
+            Some("float") => DecorationMotion::Float,
+            Some("sway") => DecorationMotion::Sway,
+            Some("breathe") => DecorationMotion::Breathe,
+            Some("bounce") => DecorationMotion::Bounce,
+            _ => return Err("invalid decoration motion".into()),
+        },
+    };
+    if !decorated {
+        return Err("invalid decoration motion".into());
+    }
+    let period = match period {
+        None => DEFAULT_DECORATION_MOTION_PERIOD_MS,
+        Some(value) => value
+            .as_integer()
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| DECORATION_MOTION_PERIOD_MS.contains(value))
+            .ok_or("invalid decoration motion_period_ms")?,
+    };
+    Ok((motion, period))
 }
 
 /// A package-relative image that exists inside the package directory.

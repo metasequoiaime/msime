@@ -44,9 +44,10 @@ pub fn make_skin_text(style: Option<String>) -> String {
 1. Call list_candidate_skins and pick a package_id no installed skin uses, unless the user wants to replace one of theirs.
 2. Write skin.toml as create_candidate_skin's description lays out. Give [candidate.light] and [candidate.dark] colours for each mode listed in [supports] themes, and keep text and number readable against surface and selected (a contrast of at least 4.5:1).
 3. Use schema_version = 2 for a lively skin. Add an [animation] table that writes all three presets explicitly, a short enter (fade_scale or slide_up), exit (fade) and selection (spring or glow), with duration_ms around 160-220 and stagger_ms around 10-18; macOS plays only the presets the table writes. The native hosts map these presets to their own compositor; reduced-motion settings still win. Use schema_version = 1 only when the user explicitly asks for a static skin.
-4. Make every image by running code; never write base64 by hand. A short Python script using only the standard library (zlib and struct are enough to write a PNG) runs without installing anything; use Pillow only if it is already installed. Always make the preview, a small picture of the skin in its own colours, around 480x160 and under 256 KiB. Keep background and decoration images to a few hundred pixels; at most 3 images and 2 MiB together. Have the script print each image's base64 and pass it in images, keyed by the path the manifest uses. If you cannot run code, tell the user that making a skin needs an assistant that can, such as Claude Code or Codex, and stop.
-5. If create_candidate_skin refuses the skin, read the reason, fix the manifest or the images, and try again.
-6. Once it is installed, tell the user how to use it: in the MSIME settings, open 主题 and pick the skin under 我的皮肤. If they are signed in, the desktop app also saves it to their cloud library as a private skin, and they can publish it from its card there."
+4. With a decoration image (a character or ornament standing on the card's top edge), you can make it move while the candidate window is shown: set motion in [candidate_window.decoration] to float, sway, breathe or bounce (the host keeps the movement small) and optionally motion_period_ms (1200-8000, default 3000; around 2400-4000 feels calm). For frame animation, make the decoration an animated PNG (APNG): a few to a few dozen small frames (at most 120, each frame counts as a whole image toward the 8,000,000-pixel limit), a frame delay of about 80-200 ms, and a first frame that looks right on its own, because hosts that cannot play frames, and every host when the user asks the system to reduce motion, show only the first frame. Motion and APNG can be combined. Leave motion out, or use a still PNG, when the user wants a calm skin.
+5. Make every image by running code; never write base64 by hand. A short Python script using only the standard library (zlib and struct are enough to write a PNG, and an APNG is the same file with an acTL chunk and one fcTL plus fdAT pair per extra frame) runs without installing anything; use Pillow only if it is already installed. Always make the preview, a small picture of the skin in its own colours, around 480x160 and under 256 KiB. Keep background and decoration images to a few hundred pixels; at most 3 images and 2 MiB together. Have the script print each image's base64 and pass it in images, keyed by the path the manifest uses. If you cannot run code, tell the user that making a skin needs an assistant that can, such as Claude Code or Codex, and stop.
+6. If create_candidate_skin refuses the skin, read the reason, fix the manifest or the images, and try again.
+7. Once it is installed, tell the user how to use it: in the MSIME settings, open 主题 and pick the skin under 我的皮肤. If they are signed in, the desktop app also saves it to their cloud library as a private skin, and they can publish it from its card there."
     )
 }
 
@@ -88,5 +89,23 @@ impl MsimeServer {
             Role::User,
             diagnose_text(args.problem),
         )]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn make_skin_offers_decoration_motion_and_animated_png() {
+        let text = super::make_skin_text(None);
+        for word in [
+            "motion in [candidate_window.decoration]",
+            "float, sway, breathe or bounce",
+            "motion_period_ms (1200-8000",
+            "animated PNG (APNG)",
+            "at most 120",
+            "show only the first frame",
+        ] {
+            assert!(text.contains(word), "{word}");
+        }
     }
 }

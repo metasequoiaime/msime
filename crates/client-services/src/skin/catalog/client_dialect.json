@@ -2038,6 +2038,253 @@
    "reason": "invalid toolbar",
    "template": "sample",
    "append": "[toolbar.light]\nhover = 'a}'\n"
+  },
+  {
+   "name": "styled motion on schema_version 1",
+   "reason": "decoration motion requires schema_version 2",
+   "template": "styled",
+   "replace": [
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'float'\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion_period_ms on schema_version 1",
+   "reason": "decoration motion requires schema_version 2",
+   "template": "styled",
+   "replace": [
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion_period_ms = 3000\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion = 'none'",
+   "reason": null,
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'none'\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion = 'float'",
+   "reason": null,
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'float'\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion = 'sway'",
+   "reason": null,
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'sway'\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion = 'breathe'",
+   "reason": null,
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'breathe'\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion = 'bounce'",
+   "reason": null,
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'bounce'\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion with period 1200",
+   "reason": null,
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'sway'\nmotion_period_ms = 1200\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion with period 8000",
+   "reason": null,
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'breathe'\nmotion_period_ms = 8000\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion = 'spin'",
+   "reason": "invalid decoration motion",
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'spin'\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion = 'Float'",
+   "reason": "invalid decoration motion",
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'Float'\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion = 1",
+   "reason": "invalid decoration motion",
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 1\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion_period_ms = 1199",
+   "reason": "invalid decoration motion_period_ms",
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'float'\nmotion_period_ms = 1199\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion_period_ms = 8001",
+   "reason": "invalid decoration motion_period_ms",
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'float'\nmotion_period_ms = 8001\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion_period_ms = 3000.0",
+   "reason": "invalid decoration motion_period_ms",
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'float'\nmotion_period_ms = 3000.0\n"
+    ]
+   ]
+  },
+  {
+   "name": "styled motion_period_ms = '3000'",
+   "reason": "invalid decoration motion_period_ms",
+   "template": "styled",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "align = 'left'\n",
+     "align = 'left'\nmotion = 'float'\nmotion_period_ms = '3000'\n"
+    ]
+   ]
+  },
+  {
+   "name": "motion without a decoration band",
+   "reason": "invalid decoration motion",
+   "template": "sample",
+   "replace": [
+    [
+     "schema_version = 1",
+     "schema_version = 2"
+    ],
+    [
+     "width_dip = 0\n",
+     "width_dip = 0\nmotion = 'float'\n"
+    ]
+   ]
   }
  ]
 }

@@ -25,6 +25,100 @@ fn encoded_png(width: u32, height: u32) -> Vec<u8> {
     output.into_inner()
 }
 
+/// 一张 `frames` 帧、`width`×`height` 的 APNG，每帧颜色不同，无限循环。
+fn encoded_apng(width: u32, height: u32, frames: u32) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut encoder = png::Encoder::new(&mut output, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_animated(frames, 0).unwrap();
+    encoder.set_frame_delay(1, 10).unwrap();
+    let mut writer = encoder.write_header().unwrap();
+    for frame in 0..frames {
+        let pixel = [(frame * 40 % 256) as u8, 0, 0, 255];
+        writer
+            .write_image_data(&pixel.repeat((width * height) as usize))
+            .unwrap();
+    }
+    writer.finish().unwrap();
+    output
+}
+
+/// 带装饰图的 schema 2 包，装饰图是 `decoration`，`motion` 是写进 `[candidate_window.decoration]` 的额外几行。
+fn decorated_package(root: &Path, decoration: &[u8], motion: &str) {
+    let skin = root.join("whale");
+    fs::create_dir_all(&skin).unwrap();
+    fs::write(skin.join("whale.png"), decoration).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        format!("schema_version = 2\nid = 'whale'\nname = 'Whale'\nversion = '1.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'whale.png'\ntop_inset_dip = 40\nwidth_dip = 60\n{motion}"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn decoration_motion_and_frames_reach_the_hosts() {
+    let root = tempdir().unwrap();
+    decorated_package(
+        root.path(),
+        &encoded_png(6, 4),
+        "motion = 'sway'\nmotion_period_ms = 2400\n",
+    );
+    let package = load(root.path(), "whale").unwrap();
+    assert_eq!(package.decoration_motion, DecorationMotion::Sway);
+    assert_eq!(package.decoration_motion_period_ms, 2400);
+    assert_eq!(package.decoration_frames, 1);
+    let json = serde_json::to_value(&package).unwrap();
+    assert_eq!(json["decorationMotion"], "sway");
+    assert_eq!(json["decorationMotionPeriodMs"], 2400);
+    assert_eq!(json["decorationFrames"], 1);
+
+    // 只写动效不写周期时用默认周期；APNG 报出 acTL 的帧数。
+    let root = tempdir().unwrap();
+    decorated_package(root.path(), &encoded_apng(6, 4, 12), "motion = 'float'\n");
+    let package = load(root.path(), "whale").unwrap();
+    assert_eq!(package.decoration_motion, DecorationMotion::Float);
+    assert_eq!(
+        package.decoration_motion_period_ms,
+        DEFAULT_DECORATION_MOTION_PERIOD_MS
+    );
+    assert_eq!(package.decoration_frames, 12);
+    assert_eq!(png_frames(&encoded_apng(6, 4, 12)), Ok((12, 12)));
+    assert_eq!(png_frames(&encoded_png(6, 4)), Ok((1, 1)));
+}
+
+#[test]
+fn animated_decorations_are_bounded_by_frames_and_decoded_pixels() {
+    let root = tempdir().unwrap();
+    decorated_package(root.path(), &encoded_apng(2, 2, MAX_ANIMATION_FRAMES), "");
+    assert_eq!(
+        load(root.path(), "whale").unwrap().decoration_frames,
+        MAX_ANIMATION_FRAMES
+    );
+
+    let root = tempdir().unwrap();
+    decorated_package(
+        root.path(),
+        &encoded_apng(2, 2, MAX_ANIMATION_FRAMES + 1),
+        "",
+    );
+    assert_eq!(
+        load(root.path(), "whale").unwrap_err(),
+        ANIMATION_TOO_MANY_FRAMES
+    );
+
+    // 每一帧都按整张画布计入包的像素合计：1000×1000 的 9 帧是 900 万像素，超过 800 万；8 帧正好 800 万，照常加载。
+    let root = tempdir().unwrap();
+    decorated_package(root.path(), &encoded_apng(1000, 1000, 9), "");
+    assert_eq!(
+        load(root.path(), "whale").unwrap_err(),
+        IMAGE_DIMENSIONS_TOO_LARGE
+    );
+    let root = tempdir().unwrap();
+    decorated_package(root.path(), &encoded_apng(1000, 1000, 8), "");
+    assert_eq!(load(root.path(), "whale").unwrap().decoration_frames, 8);
+}
+
 #[test]
 fn scan_external_skin_under_non_ascii_directory() {
     let root = tempdir().unwrap();
@@ -571,6 +665,9 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             decoration_width_dip: 0.0,
             decoration_image: None,
             decoration_align: DecorationAlign::Right,
+            decoration_motion: DecorationMotion::None,
+            decoration_motion_period_ms: DEFAULT_DECORATION_MOTION_PERIOD_MS,
+            decoration_frames: 0,
             background: None,
             toolbar: SkinToolbar::default(),
             toolbar_stylesheet: None,
@@ -1322,6 +1419,8 @@ fn defaults_leave_new_keys_to_the_host() {
     assert_eq!(package.corner_radius_dip, None);
     assert_eq!(package.decoration_image, None);
     assert_eq!(package.decoration_align, DecorationAlign::Right);
+    assert_eq!(package.decoration_motion, DecorationMotion::None);
+    assert_eq!(package.decoration_frames, 0);
     assert_eq!(package.background, None);
     assert_eq!(package.toolbar, SkinToolbar::default());
     assert_eq!(package.license, None);

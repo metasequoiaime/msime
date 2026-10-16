@@ -35,6 +35,8 @@ pulldown-cmark = { version = "0.13", default-features = false, features = ["html
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 # `image` 固定用宽松模式解码 JPEG，截断的 JPEG 也能“解码成功”，所以 JPEG 直接用严格模式的 `zune-jpeg` 解码。版本和特性与 `image` 依赖的那份相同，不引入新的 crate。
 zune-jpeg = "0.5.15"
+# 皮肤图片可以是 APNG（装饰图的帧动画）。`image` 不公开 `acTL` 里的帧数，读帧数和逐帧解码校验直接用它底下的 `png`。版本与 `image` 依赖的那份相同，不引入新的 crate。
+png = "0.18.1"
 
 [dev-dependencies]
 msime-client-base = { path = "../client-base", features = ["test-support"] }

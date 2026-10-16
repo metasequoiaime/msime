@@ -525,6 +525,59 @@ fn pack_refuses_a_symlinked_image() {
     assert_eq!(pack(root.path(), "sakura"), Err(PACKAGE));
 }
 
+/// 一张 `frames` 帧、`width`×`height` 的 APNG，默认图就是第一帧。
+fn apng(width: u32, height: u32, frames: u32) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut encoder = png::Encoder::new(&mut output, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_animated(frames, 0).unwrap();
+    let mut writer = encoder.write_header().unwrap();
+    for frame in 0..frames {
+        let pixel = [(frame * 50 % 256) as u8, 90, 160, 255];
+        writer
+            .write_image_data(&pixel.repeat((width * height) as usize))
+            .unwrap();
+    }
+    writer.finish().unwrap();
+    output
+}
+
+#[test]
+fn animated_png_frames_are_each_decoded_and_bounded() {
+    let animated = apng(4, 3, 5);
+    // 每一帧都按整张画布计入像素。
+    assert_eq!(check_image("image/png", &animated), Ok(4 * 3 * 5));
+    // 默认图完好、最后一帧的数据坏了：只解码默认图会放过它。
+    let mut broken = animated.clone();
+    let frame = broken
+        .windows(4)
+        .rposition(|bytes| bytes == b"fdAT")
+        .unwrap();
+    broken[frame + 8] ^= 0xFF;
+    assert_eq!(check_image("image/png", &broken), Err(IMAGE_INVALID));
+    assert_eq!(
+        check_image("image/png", &apng(1, 1, catalog::MAX_ANIMATION_FRAMES + 1)),
+        Err(TOO_LARGE)
+    );
+
+    // 带 APNG 的包照常安装，catalog 读出的帧数与文件一致。
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let mut package = standard_download();
+    package.manifest = package
+        .manifest
+        .replace(DECORATION_IMAGE, "image = 'images/bg.png'\n");
+    package.files.remove(DECORATION);
+    package
+        .files
+        .insert(BACKGROUND.to_owned(), BASE64.encode(apng(8, 8, 6)));
+    assert_eq!(install(&root, &package, false).unwrap(), "sakura");
+    let catalog = catalog::scan(&root);
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    assert_eq!(catalog.packages[0].decoration_frames, 6);
+}
+
 #[test]
 fn install_writes_a_package_the_catalog_lists_without_leftovers() {
     let state = tempfile::tempdir().unwrap();

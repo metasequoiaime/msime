@@ -2991,6 +2991,7 @@ dependencies = [
  "msime-client-core",
  "msime-path-trust",
  "msime-script-runtime",
+ "png 0.18.1",
  "pulldown-cmark",
  "reqwest 0.12.28",
  "rustix",

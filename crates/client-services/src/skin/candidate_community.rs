@@ -3,7 +3,9 @@
 //! A shared package is an installed skin folder reduced to what the backend accepts: `skin.toml`, sent verbatim, plus the PNG or JPEG images its manifest references (the preview, the decoration image and the background image), base64-encoded. [`pack`] builds that payload from a folder under the host's skin root and [`install`] writes a downloaded one back as a folder the catalog lists. Both mirror every rule of the server (`internal/account/community_candidate.go`) the client can check, because the transport only reports an HTTP status and the page can then name the exact problem.
 
 use super::catalog::{self, SkinLicense, SkinSummary};
-pub(crate) use super::catalog::{IMAGE_DIMENSIONS_TOO_LARGE, MAX_IMAGE_SIDE, MAX_PACKAGE_PIXELS};
+pub(crate) use super::catalog::{
+    ANIMATION_TOO_MANY_FRAMES, IMAGE_DIMENSIONS_TOO_LARGE, MAX_IMAGE_SIDE, MAX_PACKAGE_PIXELS,
+};
 use super::category::INCLUDE_CATEGORY;
 use crate::account::{
     request_with_account_session, AccountApi, AccountError, AccountSessionStorage,
@@ -896,12 +898,34 @@ fn check_image(content_type: &str, bytes: &[u8]) -> Result<u64, &'static str> {
     if width == 0 || height == 0 || width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE {
         return Err(TOO_LARGE);
     }
-    if format == image::ImageFormat::Jpeg {
+    let images = if format == image::ImageFormat::Jpeg {
         decode_jpeg_strictly(bytes)?;
+        1
     } else {
+        // APNG 的默认图就是旧宿主和服务端看到的那张，照常完整解码；动画的其余帧另外逐帧解码。
         reader(bytes).decode().map_err(|_| IMAGE_INVALID)?;
+        decode_png_frames(bytes)?
+    };
+    Ok(u64::from(width) * u64::from(height) * u64::from(images))
+}
+
+/// 逐帧完整解码一张 APNG，返回解码出的整幅画面数（普通 PNG 为 1）。帧数超过 [`catalog::MAX_ANIMATION_FRAMES`] 时返回 `candidate_skin_too_large`；任一帧的数据截断或损坏时返回 `candidate_skin_image_invalid`，否则这样的包装上之后只有某些帧画不出来。解码缓冲按整张画布分配一次，受 [`MAX_IMAGE_DECODE_ALLOC`] 限制。
+fn decode_png_frames(bytes: &[u8]) -> Result<u32, &'static str> {
+    let (_, images) = catalog::png_frames(bytes).map_err(|_| TOO_LARGE)?;
+    if images <= 1 {
+        return Ok(1);
     }
-    Ok(u64::from(width) * u64::from(height))
+    let limits = png::Limits {
+        bytes: usize::try_from(MAX_IMAGE_DECODE_ALLOC).unwrap_or(usize::MAX),
+    };
+    let mut reader = png::Decoder::new_with_limits(std::io::Cursor::new(bytes), limits)
+        .read_info()
+        .map_err(|_| IMAGE_INVALID)?;
+    let mut buffer = vec![0; reader.output_buffer_size().ok_or(IMAGE_INVALID)?];
+    for _ in 0..images {
+        reader.next_frame(&mut buffer).map_err(|_| IMAGE_INVALID)?;
+    }
+    Ok(images)
 }
 
 /// 用严格模式的 `zune-jpeg` 完整解码一张 JPEG，失败时返回 `candidate_skin_image_invalid`。
@@ -1028,7 +1052,9 @@ pub fn pack_as(
 ) -> Result<PackedSkin, &'static str> {
     let summary = match catalog::load_package(root, id) {
         Ok(summary) => summary,
-        Err(error) if error == IMAGE_DIMENSIONS_TOO_LARGE => return Err(TOO_LARGE),
+        Err(error) if error == IMAGE_DIMENSIONS_TOO_LARGE || error == ANIMATION_TOO_MANY_FRAMES => {
+            return Err(TOO_LARGE)
+        }
         Err(_) => return Err(PACKAGE),
     };
     if SERVER_BUILTIN_IDS.contains(&id) {
