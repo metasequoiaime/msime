@@ -8,6 +8,8 @@ final class AppNavigation: ObservableObject {
   /// 设置状态卡上的「试用键盘」每点一次加一。对话页出现时发现它变了就把焦点放进输入框，从 AI 设置页进入时不弹键盘。
   @Published var chatFocusRequest = 0
   @Published var settingsChat = false
+  /// 「全部设置」标签页从自己的列表推入的页面。和设置标签页的 `SettingsRouter.settingsPage` 分开：那一个还接收键盘发来的深链接，并驱动 iPad 设置侧栏的选中项，两个标签页共用它时会互相推入页面。放在这里而不放在视图里，是为了在 app 因换主题或换季（`paletteVersion`）重建内容时保住打开的页面。
+  @Published var allSettingsPage: SettingsPage?
   /// 替换它即可把设置导航栈重建回根页面。
   @Published var settingsRoot = UUID()
   /// The keyboard's voice panel sends msime://voice: the keyboard cannot record, so the app opens straight onto the recording screen.
