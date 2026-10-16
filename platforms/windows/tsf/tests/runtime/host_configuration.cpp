@@ -63,6 +63,10 @@ int main() {
   assert(first && first->preferences["scheme"] == "quanpin");
   assert(!first->preferences["game_compatibility"]["candidate_overlay"].get<bool>());
   assert(initialReads == 1 && optionsReads == 1);
+  // 首次激活已经发布了同一份配置，游戏策略读取不得再次打开偏好文件。
+  const auto firstActivation = load_activation_preferences();
+  assert(firstActivation && (*firstActivation)["scheme"] == "quanpin");
+  assert(initialReads == 1);
   refresh_host_configuration();
   {
     std::unique_lock<std::mutex> lock(gate);

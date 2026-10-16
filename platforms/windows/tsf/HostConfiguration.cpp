@@ -2,6 +2,7 @@
 #include "AsyncSnapshotCache.h"
 #include "HostOptionsPaths.h"
 #include "../../common/HostApiString.h"
+#include <atomic>
 #include <filesystem>
 #include <functional>
 #include <msime_client.h>
@@ -10,6 +11,8 @@
 namespace msime::tsf {
 namespace {
 AsyncSnapshotCache<HostConfiguration> configuration;
+// 首次初始化已经同步读过的配置只供紧接着的激活决策消费一次；后续激活仍重新读取最新规则。
+std::atomic<bool> initialSnapshotPending{false};
 
 std::shared_ptr<const nlohmann::json> LoadPreferences(const std::string &directory, bool initial) {
   const auto *bytes = reinterpret_cast<const uint8_t *>(directory.data());
@@ -86,7 +89,11 @@ bool ScheduleRefresh(std::function<void()> run) {
 }
 
 void initialize_host_configuration() {
-  configuration.initialize([](const auto &previous) { return LoadConfiguration(previous, true); });
+  configuration.initialize([](const auto &previous) {
+    auto next = LoadConfiguration(previous, true);
+    initialSnapshotPending.store(true, std::memory_order_release);
+    return next;
+  });
 }
 std::shared_ptr<const HostConfiguration> cached_host_configuration() {
   return configuration.snapshot();
@@ -95,6 +102,12 @@ void refresh_host_configuration() {
   configuration.refresh([](const auto &previous) { return LoadConfiguration(previous, false); }, ScheduleRefresh);
 }
 std::shared_ptr<const nlohmann::json> load_activation_preferences() {
+  if (initialSnapshotPending.exchange(false, std::memory_order_acquire)) {
+    if (const auto snapshot = cached_host_configuration();
+        snapshot && snapshot->preferences.is_object()) {
+      return {snapshot, &snapshot->preferences};
+    }
+  }
   try {
     const auto directory = default_state_directory();
     if (directory.empty()) return {};
