@@ -3631,34 +3631,62 @@ group("the wubi hint shows only the untyped suffix", () => {
 
 group("the letter face and the engine input are decided separately", () => {
   check(
-    LetterKeyFacePolicy.face("a", true, false, false) === "a",
-    "Chinese mode draws lowercase faces, as the design, Android and iOS do",
+    LetterKeyFacePolicy.face("a", true, false, false, false) === "A",
+    "Chinese mode draws uppercase faces, as Sogou, WeChat, Baidu, Doubao, Android and iOS do",
   );
   check(
-    LetterKeyFacePolicy.face("a", true, false, true) === "A",
+    LetterKeyFacePolicy.face("a", true, false, false, true) === "A",
     "a Chinese key that will type uppercase helpcode draws it",
   );
+  // 中文的本地输入模式（英文补全、Unicode、快捷短语等）按字面输入，键面回到小写。
   check(
-    LetterKeyFacePolicy.face("a", true, true, false) === "a",
-    "a local mode keeps the lowercase face",
+    LetterKeyFacePolicy.face("a", true, false, true, false) === "a",
+    "a Chinese local mode draws the lowercase it types",
   );
   check(
-    LetterKeyFacePolicy.face("a", true, true, true) === "a",
-    "a Chinese local mode keeps the lowercase face under Shift",
+    LetterKeyFacePolicy.face("a", true, false, true, true) === "a",
+    "a Chinese local mode stays lowercase under Shift",
   );
   check(
-    LetterKeyFacePolicy.face("a", false, false, false) === "a",
+    LetterKeyFacePolicy.face("a", false, false, false, false) === "a",
     "English unshifted is lowercase",
   );
-  check(LetterKeyFacePolicy.face("a", false, false, true) === "A", "English shifted is uppercase");
-  check(LetterKeyFacePolicy.face("", true, false, false) === "", "an empty face stays empty");
+  check(
+    LetterKeyFacePolicy.face("a", false, false, false, true) === "A",
+    "English shifted is uppercase",
+  );
+  // 越南语、藏文由调用方传 chineseMode = false，键面跟 Shift 走。
+  check(
+    LetterKeyFacePolicy.face("a", false, false, false, false) === "a",
+    "Vietnamese unshifted is lowercase",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", false, false, false, true) === "A",
+    "Vietnamese follows Shift",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, true, false, false) === "a",
+    "Japanese romaji keeps lowercase faces",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, true, false, true) === "A",
+    "Japanese romaji draws the uppercase Shift types",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, true, true, true) === "a",
+    "a Japanese local mode keeps the lowercase face under Shift",
+  );
+  check(
+    LetterKeyFacePolicy.face("", true, false, false, false) === "",
+    "an empty face stays empty",
+  );
   check(
     LetterKeyFacePolicy.accessibilityLabel("a", false, false, true) === "大写 A",
     "a shifted English key announces uppercase",
   );
   check(
     LetterKeyFacePolicy.accessibilityLabel("a", true, false, false) === "字母 A",
-    "a Chinese key announces the letter",
+    "a Chinese uppercase face still announces the letter, not uppercase input",
   );
   check(
     LetterKeyFacePolicy.accessibilityLabel("a", true, false, true) === "大写 A",
