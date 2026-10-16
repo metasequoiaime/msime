@@ -625,8 +625,11 @@ impl PreferencesChange {
         if let Some(value) = self.chinese_punctuation {
             preferences.chinese_punctuation = value;
         }
+        // 与设置页的总开关一样：数字后直出和字母后直出是智能标点真正起作用的两半（`punctuation::route` 要其中之一为真才走 ASCII），所以总开关被改时两半跟着写成同一个值，否则在 macOS 和 Windows 的新配置上只打开总开关什么都不变。
         if let Some(value) = self.smart_punctuation {
             preferences.smart_punctuation = value;
+            preferences.smart_punctuation_direct_digit = value;
+            preferences.smart_punctuation_direct_letter = value;
         }
         if let Some(value) = self.traditional_chinese_output {
             preferences.traditional_chinese_output = value;
@@ -1005,6 +1008,32 @@ mod tests {
         assert_eq!(saved.nine_key_shuangpin_custom_profile, Some(table));
         // 26 键的自定义表不受影响。
         assert_eq!(saved.shuangpin_custom_profile, None);
+    }
+
+    #[test]
+    fn smart_punctuation_writes_both_halves_with_the_master_switch() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
+        let mut revision = before.revision;
+        for enabled in [true, false] {
+            let updated = update(
+                directory.path(),
+                &options,
+                Edition::full(),
+                &PreferencesChange {
+                    smart_punctuation: Some(enabled),
+                    ..change(revision)
+                },
+            )
+            .unwrap();
+            assert_eq!(updated.smart_punctuation, enabled);
+            revision = updated.revision;
+            let stored = PreferencesStore::new(directory.path()).load().unwrap();
+            assert_eq!(stored.preferences.smart_punctuation_direct_digit, enabled);
+            assert_eq!(stored.preferences.smart_punctuation_direct_letter, enabled);
+        }
     }
 
     #[test]

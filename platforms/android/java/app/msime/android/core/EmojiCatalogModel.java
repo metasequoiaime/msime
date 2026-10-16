@@ -43,7 +43,8 @@ public final class EmojiCatalogModel {
         new Category("Activities", "活动", "⚽"),
         new Category("Objects", "物品", "💡"),
         new Category("Symbols", "符号", "🔣"),
-        new Category("Flags", "旗帜", "🏳️")
+        new Category("Flags", "旗帜", "🏳️"),
+        new Category(EmojiCombinationCatalog.GROUP, "组合表情", "💬")
     );
 
     private EmojiCatalogModel() {}

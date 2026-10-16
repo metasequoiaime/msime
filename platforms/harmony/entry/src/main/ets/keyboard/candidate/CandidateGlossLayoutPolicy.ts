@@ -17,8 +17,7 @@ export class CandidateGlossLayoutPolicy {
   }
 
   /**
-   * Harmony merges multiple language answers into one bounded line. Reserve that line from the
-   * setting and usable provider state, rather than growing a candidate when its answer arrives.
+   * 至多预留一行：手机和平板只显示主目标语言这一种候选翻译，2in1 把几种语言的回答合并成有界的一行。按设置和可用的 provider 在回答到达前预留，不等回答到了才把候选撑高。
    */
   static rows(
     offlineEnglish: boolean,

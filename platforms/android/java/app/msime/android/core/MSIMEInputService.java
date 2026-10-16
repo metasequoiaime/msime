@@ -742,6 +742,7 @@ public final class MSIMEInputService extends InputMethodService {
     final ExecutorService emojiWorker = Executors.newSingleThreadExecutor();
     // 只在 `emojiWorker` 线程上使用（表情目录和符号面板的符号目录都在那条线程上读）；`hasGlyph` 会走系统字体回退链，能判断当前设备能否画出某个表情或符号。
     final Paint emojiGlyphPaint = new Paint();
+    private java.util.List<EmojiCatalogModel.Item> emojiCombinationItems;
     final ExecutorService cloudClipboardWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService candidateGlossWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
@@ -2348,15 +2349,11 @@ public final class MSIMEInputService extends InputMethodService {
         userTranslationAppliedGeneration = -1L;
     }
 
+    /** 只取主目标语言：触屏键盘不显示第二种候选翻译（见 {@link CandidateTranslationPolicy#MAX_TARGETS}）。 */
     private java.util.List<String> translationTargetsFrom(JSONObject preferences) {
         String primary = preferences == null ? "en"
             : InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
-        String secondary = "";
-        if (preferences != null) {
-            Object value = preferences.opt("translation_secondary_language");
-            if (value instanceof String) secondary = (String) value;
-        }
-        return CandidateTranslationPolicy.targets(primary, secondary);
+        return CandidateTranslationPolicy.targets(primary);
     }
 
     private void applyWubiCodeHintPreference(JSONObject preferences) {
@@ -5462,12 +5459,24 @@ public final class MSIMEInputService extends InputMethodService {
         emojiWorker.execute(() -> {
             EmojiCatalogModel.Page page = null;
             try {
-                page = EmojiCatalogModel.renderable(decodeEmojiPage(
-                    NativeClient.emojiCatalog(query, resources), offset, category),
-                    emojiGlyphPaint::hasGlyph);
+                if (EmojiCombinationCatalog.GROUP.equals(category.group())) {
+                    if (emojiCombinationItems == null) {
+                        try (java.io.InputStream input = getAssets().open(EmojiCombinationCatalog.ASSET)) {
+                            emojiCombinationItems = EmojiCombinationCatalog.decode(new String(
+                                HttpBodyPolicy.readRequired(input, EmojiCombinationCatalog.MAX_BYTES),
+                                java.nio.charset.StandardCharsets.UTF_8));
+                        }
+                    }
+                    // 组合短语包含多个字形，不能用整串 hasGlyph 的「单字形」判断过滤。
+                    page = EmojiCombinationCatalog.page(emojiCombinationItems, offset, EmojiCatalogModel.PAGE_SIZE);
+                } else {
+                    page = EmojiCatalogModel.renderable(decodeEmojiPage(
+                        NativeClient.emojiCatalog(query, resources), offset, category),
+                        emojiGlyphPaint::hasGlyph);
+                }
             }
-            catch (JSONException | RuntimeException | LinkageError ignored) {
-                // The UI reports a sanitized catalog error; never expose resource paths or rows.
+            catch (java.io.IOException | JSONException | RuntimeException | LinkageError ignored) {
+                // 界面只显示目录加载失败，不暴露资源路径或条目。
             }
             EmojiCatalogModel.Page result = page;
             main.post(() -> {
