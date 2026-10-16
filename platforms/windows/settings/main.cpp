@@ -38,6 +38,7 @@
 #include "ToolbarIcons.h"
 #include "ToolbarLayout.h"
 #include "CommunityPageModel.h"
+#include "CloudClipboardRoute.h"
 #include "GameProcessList.h"
 #include "../common/GameCompatProfile.h"
 #include "LexiconImportModel.h"
@@ -2890,6 +2891,7 @@ private:
     std::wstring error;
     if (fresh.Load(error)) {
       document_ = std::move(fresh);
+      synchronize_cloud_clipboard_configuration();
       loaded_ = true;
       load_error_.clear();
     } else if (!loaded_) {
@@ -3070,6 +3072,7 @@ private:
     if (fresh.Load(error) &&
         (!loaded_ || fresh.revision() != document_.revision())) {
       document_ = std::move(fresh);
+      synchronize_cloud_clipboard_configuration();
       loaded_ = true;
       load_error_.clear();
       changed = true;
@@ -3149,8 +3152,10 @@ private:
   // Every control writes through at once. A refused write (a newer revision elsewhere, or a combination the store rejects) reloads the stored settings and says so.
   bool commit() {
     std::wstring error;
-    if (document_.Save(error))
+    if (document_.Save(error)) {
+      synchronize_cloud_clipboard_configuration();
       return true;
+    }
     notice_ = L"无法保存这项设置：设置可能已在其他窗口中更新，或与其他设置冲突。"
               L"已重新读取当前设置。";
     notice_severity_ = InfoBarSeverity::Error;
@@ -3159,6 +3164,7 @@ private:
     std::wstring reload_error;
     const bool reloaded = fresh.Load(reload_error);
     document_ = std::move(fresh);
+    synchronize_cloud_clipboard_configuration();
     loaded_ = reloaded;
     load_error_ = reloaded ? std::wstring() : reload_error;
     queue_refresh();
@@ -3522,6 +3528,7 @@ private:
       helpcode_packs_stale_ = true;
     // 与共享页一样，每次进入「剪贴板」页都重读历史，并重新查一次能否发到云剪贴板。
     if (id == "clip" && id != current_page_) {
+      cloud_relay_draft_.reset();
       clip_stale_ = true;
       reset_cloud_clipboard();
     }
@@ -3928,6 +3935,7 @@ private:
     InfoBar bar;
     bar.IsOpen(true);
     bar.IsClosable(true);
+    A11y::SetAutomationId(bar, L"settings-notice");
     bar.Severity(notice_severity_);
     bar.Message(hstring(notice_));
     bar.Margin(Thickness{0, 0, 0, 12});
@@ -13258,7 +13266,7 @@ private:
 
   // ---- 剪贴板 ----
 
-  // 共享的「剪贴板」页（packages/ui/src/settings/pages/tools-page.tsx 和 clipboard-history-section.tsx）在 Windows 上画三组：「剪贴板」（历史开关、有历史时的清空历史）、开着历史时的「历史记录」（每条可重新复制、发到云剪贴板、固定和删除），以及打开云剪贴板面板的「云剪贴板」。历史文件与共享应用的相同（偏好目录下的 clipboard_history.json），经 msime_client_desktop_clipboard_history 读写；发到云剪贴板经 msime_client_account_cloud_clipboard 用共享应用登录的账号会话。云剪贴板面板是输入工具，仍由共享应用打开。
+  // 共享的「剪贴板」页（packages/ui/src/settings/pages/tools-page.tsx 和 clipboard-history-section.tsx）在 Windows 上画三组：「剪贴板」（历史开关、有历史时的清空历史）、开着历史时的「历史记录」（每条可重新复制、发到云剪贴板、固定和删除），以及打开云剪贴板面板的「云剪贴板」。历史文件与共享应用的相同（偏好目录下的 clipboard_history.json），经 msime_client_desktop_clipboard_history 读写；发到云剪贴板先读取共享偏好的来源，再经账号或中继 C ABI 请求。云剪贴板面板是输入工具，仍由共享应用打开。
 
   struct ClipboardEntry {
     std::wstring text;
@@ -13266,9 +13274,25 @@ private:
     bool pinned = false;
   };
 
-  // 共享页的 CloudClipboardAvailability：只有账号已登录、服务端也开着云剪贴板时才是 ready，才能发送。
-  // pending：本机还没有获准使用云剪贴板（端到端加密，见 docs/cloud-clipboard-e2e.md），要先在一台已在使用的设备上点「允许」。
-  enum class CloudClipboardState { checking, ready, signed_out, pending, disabled, unavailable };
+  // 账号和中继共用设备批准状态，但中继令牌失效不应提示登录水杉账号。
+  using CloudClipboardState = nav::CloudClipboardState;
+
+  struct CloudClipboardRelayDraft {
+    bool relay = false;
+    std::wstring url;
+    std::wstring token;
+  };
+
+  void synchronize_cloud_clipboard_configuration() {
+    const std::pair<std::wstring, std::wstring> configuration{
+        document_.String(L"cloud_clipboard_relay.url", L""),
+        document_.String(L"cloud_clipboard_relay.token", L"")};
+    if (configuration == cloud_configuration_)
+      return;
+    cloud_configuration_ = configuration;
+    cloud_relay_draft_.reset();
+    reset_cloud_clipboard();
+  }
 
   void redraw_clip() {
     if (!closed_ && current_page_ == "clip")
@@ -13418,29 +13442,42 @@ private:
         [](Response const &) {});
   }
 
-  // One cloud clipboard action over the account session the shared app signed in; blocks on the network, so it runs off the UI thread.
+  // 选路和网络请求都在后台执行；中继密钥目录与共享面板相同，不另建设备身份。
   void cloud_clipboard_request(JsonObject const &action, std::function<void(Response const &)> done) {
     JsonObject request;
     request.SetNamedValue(L"directory",
                           JsonValue::CreateStringValue(hstring(account_directory().wstring())));
     request.SetNamedValue(L"action", action);
+    JsonObject relay_request = JsonObject::Parse(request.Stringify());
+    relay_request.SetNamedValue(L"preferences_directory",
+                               JsonValue::CreateStringValue(hstring(state_directory().wstring())));
     run_host(
-        [body = utf8(request.Stringify())] {
-          return take_response(msime_client_account_cloud_clipboard(
-              reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+        [body = utf8(request.Stringify()), relay_body = utf8(relay_request.Stringify()),
+         preferences = path_utf8(state_directory())] {
+          return nav::cloud_clipboard_request(
+              [&] {
+                return take_response(msime_client_cloud_clipboard_source(
+                    reinterpret_cast<const uint8_t *>(preferences.data()), preferences.size()));
+              },
+              [](Response const &response) -> std::wstring {
+                try {
+                  return JsonObject::Parse(text(response.text)).GetNamedObject(L"value")
+                      .GetNamedString(L"source").c_str();
+                } catch (...) {
+                  return {};
+                }
+              },
+              [&] {
+                return take_response(msime_client_relay_cloud_clipboard(
+                    reinterpret_cast<const uint8_t *>(relay_body.data()), relay_body.size()));
+              },
+              [&] {
+                return take_response(msime_client_account_cloud_clipboard(
+                    reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+              },
+              [] { return Response{"{\"ok\":false,\"error\":\"invalid_cloud_clipboard_source\"}", false}; });
         },
         std::move(done));
-  }
-
-  // 共享页的 cloudClipboardFailure：账号未登录或会话失效算未登录，本机待批准和云剪贴板已关闭各算一种，其他失败算服务不可用。
-  static CloudClipboardState cloud_clipboard_failure(std::wstring const &code) {
-    if (code == L"unauthorized" || code.ends_with(L"_unauthorized"))
-      return CloudClipboardState::signed_out;
-    if (code == L"clipboard_device_pending")
-      return CloudClipboardState::pending;
-    if (code == L"clipboard_sync_disabled")
-      return CloudClipboardState::disabled;
-    return CloudClipboardState::unavailable;
   }
 
   void reset_cloud_clipboard() {
@@ -13451,7 +13488,7 @@ private:
     cloud_sending_ = false;
   }
 
-  // 每次带着历史打开页面时查一次账号和服务端的开关，不轮询。
+  // 每次带着历史打开页面时查一次所选服务和服务端的开关，不轮询。
   void check_cloud_clipboard() {
     reset_cloud_clipboard();
     cloud_checked_ = true;
@@ -13462,7 +13499,7 @@ private:
       if (generation != cloud_generation_)
         return;
       if (!response.ok) {
-        cloud_state_ = cloud_clipboard_failure(response_error(response));
+        cloud_state_ = nav::cloud_clipboard_failure(response_error(response));
       } else {
         cloud_state_ = CloudClipboardState::ready;
         try {
@@ -13507,7 +13544,7 @@ private:
       cloud_sending_ = false;
       if (response.ok) {
         cloud_notice_ = L"已发到云剪贴板";
-      } else if (const auto failure = cloud_clipboard_failure(response_error(response));
+      } else if (const auto failure = nav::cloud_clipboard_failure(response_error(response));
                  failure != CloudClipboardState::unavailable) {
         // 未登录、本机待批准和云剪贴板已关闭都要先由用户处理，在那之前不再允许发送。
         cloud_state_ = failure;
@@ -13527,6 +13564,8 @@ private:
     switch (cloud_state_) {
     case CloudClipboardState::signed_out:
       return L"登录水杉账号后可在设备间同步剪贴板";
+    case CloudClipboardState::relay_unauthorized:
+      return L"中继拒绝了令牌，请检查中继地址和令牌";
     case CloudClipboardState::pending:
       return L"本设备还没有获准使用云剪贴板：请打开云剪贴板查看本设备的核对码，再到一台已在使用云剪贴板的设备上点「允许」";
     case CloudClipboardState::disabled:
@@ -13539,6 +13578,7 @@ private:
   }
 
   void build_clip_page(StackPanel const &page) {
+    synchronize_cloud_clipboard_configuration();
     const bool enabled = clipboard_history_enabled();
     // 与共享页一样，存下的开关是关着的就不留历史：别的窗口或另一台设备经同步关掉它时，这里也不再显示旧条目和「清空历史」。
     if (!enabled) {
@@ -13680,9 +13720,87 @@ private:
       history.Children().Append(list);
     }
 
-    // 云剪贴板 is a panel of its own, as in the shared app on Windows.
+    // 设备批准和列表管理继续使用共享云剪贴板面板。
     auto cloud = add_group(page, L"云剪贴板");
+    build_cloud_clipboard_relay_settings(cloud);
     shell_row(cloud, 0xE753, L"云剪贴板", L"", L"打开云剪贴板", nav::shell_links::cloud_clipboard);
+  }
+
+  void build_cloud_clipboard_relay_settings(StackPanel const &group) {
+    if (!cloud_relay_draft_) {
+      cloud_relay_draft_ = CloudClipboardRelayDraft{
+          !cloud_configuration_.first.empty(), cloud_configuration_.first, cloud_configuration_.second};
+    }
+    auto source = select_control(
+        L"云剪贴板同步方式", {{L"account", L"水杉账号"}, {L"relay", L"自建中继"}},
+        cloud_relay_draft_->relay ? L"relay" : L"account",
+        [this](std::wstring const &value) {
+          cloud_relay_draft_->relay = value == L"relay";
+          queue_refresh();
+        });
+    A11y::SetAutomationId(source, L"cloud-clipboard-source");
+    add_row(group, 0xE753, L"云剪贴板同步方式",
+            L"选择自建中继后只连接该中继，不会在失败时切回水杉账号。", source);
+
+    Button save;
+    save.Content(box_value(L"保存同步方式"));
+    save.IsEnabled(loaded_ && (!cloud_relay_draft_->relay ||
+                              (!cloud_relay_draft_->url.empty() && !cloud_relay_draft_->token.empty())));
+    A11y::SetName(save, L"保存云剪贴板同步方式");
+    A11y::SetAutomationId(save, L"cloud-clipboard-save-source");
+    save.Click([this](Inspectable const &, RoutedEventArgs const &) {
+      if (!cloud_relay_draft_)
+        return;
+      const auto draft = *cloud_relay_draft_;
+      flush_pending();
+      if (draft.relay) {
+        document_.SetString(L"cloud_clipboard_relay.url", draft.url);
+        document_.SetString(L"cloud_clipboard_relay.token", draft.token);
+      } else {
+        document_.Remove(L"cloud_clipboard_relay");
+      }
+      // 地址和令牌成对交给共享 Rust 偏好库校验；编辑中的值不写盘。
+      if (commit()) {
+        cloud_relay_draft_.reset();
+        reset_cloud_clipboard();
+        show_notice(L"已保存云剪贴板同步方式", InfoBarSeverity::Success);
+      }
+    });
+    if (cloud_relay_draft_->relay) {
+      TextBox url;
+      url.Width(240);
+      url.Text(hstring(cloud_relay_draft_->url));
+      url.PlaceholderText(L"https://relay.example.com/msime");
+      url.IsSpellCheckEnabled(false);
+      url.IsTextPredictionEnabled(false);
+      url.IsEnabled(loaded_);
+      A11y::SetName(url, L"中继地址");
+      A11y::SetAutomationId(url, L"cloud-clipboard-relay-url");
+      url.TextChanged([this, weak_save = make_weak(save)](Inspectable const &sender, TextChangedEventArgs const &) {
+        if (cloud_relay_draft_) {
+          cloud_relay_draft_->url = sender.as<TextBox>().Text().c_str();
+          if (auto button = weak_save.get())
+            button.IsEnabled(loaded_ && !cloud_relay_draft_->url.empty() && !cloud_relay_draft_->token.empty());
+        }
+      });
+      add_row(group, 0xE774, L"中继地址", L"使用 HTTPS 地址；仅本机回环地址允许 HTTP。", url);
+      PasswordBox token;
+      token.Width(240);
+      token.Password(hstring(cloud_relay_draft_->token));
+      token.PasswordRevealMode(PasswordRevealMode::Hidden);
+      token.IsEnabled(loaded_);
+      A11y::SetName(token, L"中继令牌");
+      A11y::SetAutomationId(token, L"cloud-clipboard-relay-token");
+      token.PasswordChanged([this, weak_save = make_weak(save)](Inspectable const &sender, RoutedEventArgs const &) {
+        if (cloud_relay_draft_) {
+          cloud_relay_draft_->token = sender.as<PasswordBox>().Password().c_str();
+          if (auto button = weak_save.get())
+            button.IsEnabled(loaded_ && !cloud_relay_draft_->url.empty() && !cloud_relay_draft_->token.empty());
+        }
+      });
+      add_row(group, 0xE72E, L"中继令牌", L"16–256 个可打印 ASCII 字符，不含空格。", token);
+    }
+    add_row(group, 0xE74E, L"保存同步方式", L"地址和令牌只保存在本机，不随设置导出或账号同步。", save);
   }
 
   // ---- 打字统计 ----
@@ -19765,6 +19883,8 @@ private:
   bool cloud_sending_ = false;
   std::wstring cloud_notice_;
   uint64_t cloud_generation_ = 0;
+  std::pair<std::wstring, std::wstring> cloud_configuration_;
+  std::optional<CloudClipboardRelayDraft> cloud_relay_draft_;
 
   // 「打字统计」页：读到的状态、出错说明、选中的日子和标签，跨页面重建保留，每次进入页面时重置（共享页的组件状态）。stats_generation_ 在进入页面时递增，作废上一次留下的请求；stats_request_ 是在途请求的序号，0 表示没有；两个时间点是共享页轮询用的 requestStartedAt 和 lastRequestAt。
   std::optional<StatisticsStatus> stats_;
