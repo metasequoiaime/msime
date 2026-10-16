@@ -191,6 +191,28 @@ impl KeyGrid {
             .collect()
     }
 
+    /// 返回相容组码覆盖的输入长度；按字母分组时只比较共同前缀，不拥有中间编码。
+    fn matching_code_prefix_len(self, pinyin: &str, digits: &str) -> Option<usize> {
+        let Some(keypad) = self.keypad() else {
+            // 双拼后续的非法音节会让整串失效，必须保留完整编码校验。
+            let code = self.encode(pinyin);
+            return (!code.is_empty() && (code.starts_with(digits) || digits.starts_with(&code)))
+                .then_some(code.len().min(digits.len()));
+        };
+        let digits = digits.as_bytes();
+        let mut covered = None;
+        for (index, letter) in pinyin.bytes().filter(u8::is_ascii_lowercase).enumerate() {
+            let Some(&digit) = digits.get(index) else {
+                return Some(index);
+            };
+            if keypad[usize::from(letter - b'a')] != digit {
+                return None;
+            }
+            covered = Some(index + 1);
+        }
+        covered
+    }
+
     /// 一个完整音节（锁定的拼写、左列的音节、整句种子里的音节）占几个组码：按字母归组的键盘一个字母一个，九键双拼总是两个。
     pub(crate) fn syllable_code_len(self, syllable: &str) -> usize {
         match self {
@@ -1215,12 +1237,9 @@ impl NineKeySession {
                 } else {
                     canonical.as_str()
                 };
-                let code = grid.encode(matched);
-                if code.is_empty()
-                    || (!code.starts_with(&self.digits) && !self.digits.starts_with(&code))
-                {
+                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
                     continue;
-                }
+                };
                 if !agrees_with_locked(matched, &locked_key) {
                     continue;
                 }
@@ -1235,9 +1254,7 @@ impl NineKeySession {
                     }
                 }
                 candidate.pinyin.clear();
-                candidate
-                    .pinyin
-                    .push_str(&self.digits[..code.len().min(self.digits.len())]);
+                candidate.pinyin.push_str(&self.digits[..covered]);
                 candidate.canonical_pinyin = canonical;
                 push_ranked(
                     &mut candidates,
@@ -2994,6 +3011,9 @@ mod cached_rank_tests;
 
 #[cfg(test)]
 mod path_chain_tests;
+
+#[cfg(test)]
+mod code_prefix_tests;
 
 #[cfg(test)]
 mod tests {
