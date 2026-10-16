@@ -547,6 +547,14 @@ impl<E: InputEngine> Runtime<E> {
     pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.advance()?;
         self.engine.set_dedicated_english(enabled)?;
+        // 引擎在模式翻转时取消读音，runtime 暂存的词段和撤回记录也属于同一段组字。先清理再刷新，刷新失败也不能留下旧词段；重复设置同一模式则保留。
+        if self.cached.dedicated_english != enabled {
+            self.phrase_selections.clear();
+            if !self.phrase_prefix.is_empty() {
+                self.phrase_prefix.clear();
+                self.bump_composition_epoch();
+            }
+        }
         self.refresh()
     }
 

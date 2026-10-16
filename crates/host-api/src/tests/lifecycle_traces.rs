@@ -115,6 +115,14 @@ fn golden_pinyin_host(root: &std::path::Path) -> u64 {
 
 /// 同 [`golden_pinyin_host`]，用给定的偏好。
 fn golden_pinyin_host_with(root: &std::path::Path, preferences: Preferences) -> u64 {
+    golden_pinyin_host_with_phrase_preedit(root, preferences, false)
+}
+
+fn golden_pinyin_host_with_phrase_preedit(
+    root: &std::path::Path,
+    preferences: Preferences,
+    phrase_preedit: bool,
+) -> u64 {
     let path = |name| {
         let path = root.join(name);
         std::fs::create_dir_all(&path).unwrap();
@@ -137,7 +145,7 @@ fn golden_pinyin_host_with(root: &std::path::Path, preferences: Preferences) -> 
             .execute_batch(fixture)
             .unwrap();
     }
-    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences }).to_string();
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences, "phrase_preedit": phrase_preedit }).to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     assert_eq!(created["ok"], true, "{created}");
     let handle = created["value"]["session"].as_u64().unwrap();
@@ -480,6 +488,132 @@ fn switching_to_dedicated_english_mid_composition_ends_it() {
     // 组字已经没了，再切回来没有任何事件。
     read(msime_client_set_english_mode(handle, false));
     assert_eq!(names(&trace), Vec::<String>::new());
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn switching_to_dedicated_english_discards_held_phrase_progress() {
+    for empty_reading in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let handle =
+            golden_pinyin_host_with_phrase_preedit(dir.path(), chinese_preferences(), true);
+        let trace = record(handle, 0);
+        for &key in b"nihao" {
+            letter(handle, key);
+        }
+        let view = read(msime_client_view(handle))["value"].clone();
+        let seat = view["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|candidate| candidate["text"] == "你")
+            .unwrap_or_else(|| panic!("{view}"));
+        let held = read(msime_client_select(
+            handle,
+            view["generation"].as_u64().unwrap(),
+            seat,
+        ));
+        assert_eq!(held["value"]["commit"], Value::Null, "{held}");
+        assert_eq!(held["value"]["view"]["phrase_prefix"], "你", "{held}");
+        assert_eq!(held["value"]["view"]["editing_text"], "hao", "{held}");
+        let generation = held["value"]["view"]["generation"].as_u64().unwrap();
+        if empty_reading {
+            let kept = read(msime_client_command(handle, 12));
+            assert_eq!(kept["value"]["view"]["phrase_prefix"], "你", "{kept}");
+            assert_eq!(kept["value"]["view"]["editing_text"], "", "{kept}");
+            assert_eq!(kept["value"]["commit"], Value::Null, "{kept}");
+        }
+        trace.borrow_mut().clear();
+
+        let switched = read(msime_client_set_english_mode(handle, true));
+
+        assert_eq!(switched["ok"], true, "{switched}");
+        assert_eq!(switched["value"]["dedicated_english"], true, "{switched}");
+        assert!(
+            switched["value"]["phrase_prefix"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty(),
+            "{switched}"
+        );
+        assert_eq!(switched["value"]["editing_text"], "", "{switched}");
+        assert_eq!(
+            names(&trace),
+            if empty_reading {
+                vec!["end{Other}"]
+            } else {
+                vec!["end{Other}", "hidden{Other}"]
+            }
+        );
+        assert_eq!(
+            read(msime_client_select(handle, generation, 0))["ok"],
+            false
+        );
+        let backspace = read(msime_client_command(handle, 0));
+        assert_eq!(
+            backspace["value"]["view"]["editing_text"], "",
+            "{backspace}"
+        );
+        assert!(
+            backspace["value"]["view"]["phrase_prefix"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty(),
+            "{backspace}"
+        );
+        letter(handle, b'a');
+        let committed = read(msime_client_command(handle, 2));
+        assert_eq!(committed["value"]["commit"], "a", "{committed}");
+        assert!(
+            committed["value"]["view"]["phrase_prefix"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty(),
+            "{committed}"
+        );
+        read(msime_client_destroy(handle));
+    }
+}
+
+#[test]
+fn setting_the_same_language_preserves_held_phrase_retraction() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = golden_pinyin_host_with_phrase_preedit(dir.path(), chinese_preferences(), true);
+    for &key in b"nihao" {
+        letter(handle, key);
+    }
+    let view = read(msime_client_view(handle))["value"].clone();
+    let seat = view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|candidate| candidate["text"] == "你")
+        .unwrap_or_else(|| panic!("{view}"));
+    read(msime_client_select(
+        handle,
+        view["generation"].as_u64().unwrap(),
+        seat,
+    ));
+
+    let unchanged = read(msime_client_set_english_mode(handle, false));
+
+    assert_eq!(unchanged["value"]["phrase_prefix"], "你", "{unchanged}");
+    assert_eq!(unchanged["value"]["editing_text"], "hao", "{unchanged}");
+    let kept = read(msime_client_command(handle, 12));
+    assert_eq!(kept["value"]["view"]["phrase_prefix"], "你", "{kept}");
+    assert_eq!(kept["value"]["view"]["editing_text"], "", "{kept}");
+    let restored = read(msime_client_command(handle, 0));
+    assert!(
+        restored["value"]["view"]["phrase_prefix"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty(),
+        "{restored}"
+    );
+    assert_eq!(
+        restored["value"]["view"]["editing_text"], "ni",
+        "{restored}"
+    );
     read(msime_client_destroy(handle));
 }
 

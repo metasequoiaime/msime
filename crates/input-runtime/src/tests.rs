@@ -3666,6 +3666,41 @@ fn switching_the_language_drops_the_composition_being_spelled() {
 }
 
 #[test]
+fn switching_language_clears_held_phrase_even_if_refresh_fails() {
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words: vec!["海滩".into()],
+            remaining_after_select: Some("paobu".into()),
+            ..Fixture::default()
+        },
+        5,
+    )
+    .unwrap();
+    runtime.set_phrase_preedit(true);
+    runtime.focus(true).unwrap();
+    for value in *b"haitanpaobu" {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap();
+    }
+    let selected = runtime.view().candidates[0].id;
+    let held = runtime.dispatch(Action::Select(selected)).unwrap();
+    assert_eq!(held.view.phrase_prefix, "海滩");
+    assert_eq!(runtime.phrase_selections.len(), 1);
+    runtime.engine.snapshot_fails = true;
+
+    assert!(runtime.set_dedicated_english(true).is_err());
+
+    assert!(runtime.engine.dedicated_english);
+    assert!(runtime.phrase_prefix.is_empty());
+    assert!(runtime.phrase_selections.is_empty());
+}
+
+#[test]
 fn commit_context_precedes_mode_reset_for_every_selection_route() {
     for route in 0..6 {
         let mut runtime = runtime();
