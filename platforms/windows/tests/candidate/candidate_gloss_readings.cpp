@@ -1,4 +1,4 @@
-// 候选释义读音和逐词拆解的显示规则，和 macOS 的 CandidatePronunciation.h 逐条对应。
+// 候选释义读音的显示规则，和 macOS 的 CandidatePronunciation.h 逐条对应。
 #include "CandidateGlossReadings.h"
 #include <cstdio>
 #include <cstdlib>
@@ -36,17 +36,6 @@ int main() {
   require(gloss_line_language("今日", 1, targets) == "ja", "kanji on the japanese target");
   require(gloss_line_language("今日", 0, targets).empty(), "kanji on the english target");
 
-  require(gloss_sentence_candidate("我喜欢你"), "sentence");
-  require(!gloss_sentence_candidate("我"), "single character");
-  require(!gloss_sentence_candidate("我a"), "mixed");
-  require(!gloss_sentence_candidate(""), "empty");
-  std::string long_sentence;
-  for (int index = 0; index < 33; ++index)
-    long_sentence += "字";
-  require(!gloss_sentence_candidate(long_sentence), "too long");
-  long_sentence.resize(32 * 3);
-  require(gloss_sentence_candidate(long_sentence), "32 characters");
-
   // 英文候选读它自己；中文候选读它的英文释义行；没有释义时什么都不问。
   require(gloss_english_texts("hello", {"你好"}, {"en"}) == std::vector<std::string>{"hello"},
           "english candidate");
@@ -79,14 +68,9 @@ int main() {
               std::vector<std::string>{"/həˈləʊ/"},
           "english candidate reading");
 
-  // 画出来的释义：每行后面空两格跟读音，拆解另起最后一行。
-  require(candidate_gloss_display({"hello; hi", "こんにちは"}, readings, "") ==
+  // 画出来的释义：每行后面空两格跟读音。
+  require(candidate_gloss_display({"hello; hi", "こんにちは"}, readings) ==
               "hello; hi  /həˈləʊ/\nこんにちは",
           "display with readings");
-  require(candidate_gloss_display({}, {}, "我 I · 喜欢 to like · 你 you") ==
-              "我 I · 喜欢 to like · 你 you",
-          "breakdown alone");
-  require(candidate_gloss_display({"", "aimer"}, {}, "我 I · 你 you") ==
-              "\naimer\n我 I · 你 you",
-          "empty first line kept");
+  require(candidate_gloss_display({"", "aimer"}, {}) == "\naimer", "empty first line kept");
 }
