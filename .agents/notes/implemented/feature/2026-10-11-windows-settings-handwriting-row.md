@@ -24,6 +24,7 @@ Status: implemented
 
 - 「手写输入」页不再有拉起共享应用的入口；打开手写识别板仍是面板，照旧由 `MSIME.exe` 提供。
 - 托盘或其他启动方用 `handwriting` 路由打开设置时仍落在原生的「手写输入」页（路由别名未变）。
+- 后来「手写输入」页只剩这一行，[精简悬浮工具栏、屏幕键盘和手写输入三页](../simplification/2026-10-16-toolbar-keyboard-handwriting-settings-prune.md)的各平台跟进把它并进了「屏幕键盘」页：`SettingsNavigation.h` 没有 `hand` 页了，`build_hand_page` 由 `build_osk_page` 画在「外观」之前，页名在提供手写的版本里是「屏幕键盘与手写」；`handwriting` 路由打开 `osk`，不提供手写的版本打开默认页。
 
 ## Verification
 
