@@ -106,6 +106,11 @@ struct CachedLatticeSpan {
     rows: Vec<DictRow>,
 }
 
+enum ColdRows {
+    Transfer,
+    Borrow,
+}
+
 /// The reference answered a failed write with `ERROR_CODE` and no message; callers map any failure to their own diagnostic.
 const DICTIONARY_UNAVAILABLE: &str = "Pinyin dictionary is unavailable";
 const ENTRY_REJECTED: &str = "Pinyin does not spell the word one syllable per character";
@@ -280,8 +285,8 @@ impl QuanpinDictionary {
             rows.retain(|row| keep(&row.word, &row.pinyin, &row.canonical_pinyin, row.fuzzy));
             return rows;
         }
-        self.query_exact_projected(raw, segmentation, 0, |rows, primary, alternatives| {
-            let mut result = match rows {
+        let mut result =
+            self.query_exact_projected(raw, segmentation, 0, ColdRows::Borrow, |rows| match rows {
                 Cow::Owned(mut rows) => {
                     rows.retain(|row| {
                         keep(&row.word, &row.pinyin, &row.canonical_pinyin, row.fuzzy)
@@ -289,7 +294,7 @@ impl QuanpinDictionary {
                     rows
                 }
                 Cow::Borrowed(rows) => {
-                    // 保留原热页容器容量，只跳过拒绝行的字段复制。
+                    // 容器预留完整行数，只跳过拒绝行的字段复制。
                     let mut result = Vec::with_capacity(rows.len());
                     result.extend(
                         rows.iter()
@@ -300,10 +305,14 @@ impl QuanpinDictionary {
                     );
                     result
                 }
-            };
-            mark_autocorrect_candidates(&mut result, raw, primary, alternatives);
-            result
-        })
+            });
+        mark_autocorrect_candidates(
+            &mut result,
+            raw,
+            &self.pinyin_segmentation,
+            &self.alternative_segmentations,
+        );
+        result
     }
 
     /// 个人上下文模型的只读视图（与同一份用户日志上的输入会话共用）。九键查一次简拼时取一次，按 `PersonalNgram::word_count` 把用户用过的简拼词排到前面（#6185）；拿着它时不要记录新的使用，记录要写锁。
@@ -648,23 +657,22 @@ impl QuanpinDictionary {
 
     /// QD:320-482.
     fn query_exact(&mut self, raw: &str, segmentation: &str, types: u32) -> Vec<WordItem> {
-        self.query_exact_projected(raw, segmentation, types, |rows, _, _| rows.into_owned())
+        self.query_exact_projected(raw, segmentation, types, ColdRows::Transfer, |rows| {
+            rows.into_owned()
+        })
     }
 
-    /// 投影同步完成；热槽只借用，冷查询移交原页，不让缓存引用逃出本次调用。
-    fn query_exact_projected<R>(
+    /// 同步投影只能筛选、复制或移交原行，不改字段和顺序；冷页全保留时可交换副本与原页。
+    fn query_exact_projected(
         &mut self,
         raw: &str,
         segmentation: &str,
         types: u32,
-        project: impl FnOnce(Cow<'_, [WordItem]>, &str, &[String]) -> R,
-    ) -> R {
+        cold: ColdRows,
+        project: impl FnOnce(Cow<'_, [WordItem]>) -> Vec<WordItem>,
+    ) -> Vec<WordItem> {
         if raw.is_empty() {
-            return project(
-                Cow::Owned(Vec::new()),
-                &self.pinyin_segmentation,
-                &self.alternative_segmentations,
-            );
+            return project(Cow::Owned(Vec::new()));
         }
         self.current_autocorrect_types = types;
         if types & TYPO_EDGE_TYPES != 0 {
@@ -722,11 +730,7 @@ impl QuanpinDictionary {
                 self.reset_cache();
             }
             if let Some(cached) = self.series_cache.get_ref(&slot) {
-                return project(
-                    Cow::Borrowed(cached),
-                    &self.pinyin_segmentation,
-                    &self.alternative_segmentations,
-                );
+                return project(Cow::Borrowed(cached));
             }
         }
 
@@ -783,18 +787,31 @@ impl QuanpinDictionary {
                 );
             }
         }
-        // 至少两音节的结果登记个人计分键；其余槽键只供缓存消费，直接转移。
+        let (cached, projected) = match cold {
+            ColdRows::Transfer => {
+                let cached = result.clone();
+                (cached, project(Cow::Owned(result)))
+            }
+            ColdRows::Borrow => {
+                let projected = project(Cow::Borrowed(&result));
+                if projected.len() == result.len() {
+                    // 全保留时副本可直接入缓存，原页作为输出，省去额外缩容。
+                    (projected, result)
+                } else {
+                    // 外层富余容量不随整页转移而长期留在 FIFO 中。
+                    result.shrink_to_fit();
+                    (result, projected)
+                }
+            }
+        };
+        // 缓存始终取得未筛选、未标记的整页；至少两音节登记个人计分键。
         if segments.len() >= 2 || resolution.corrected.len() >= 2 {
-            self.series_cache.insert(slot.clone(), result.clone());
+            self.series_cache.insert(slot.clone(), cached);
             self.remember_personal_scored_key(slot);
         } else {
-            self.series_cache.insert(slot, result.clone());
+            self.series_cache.insert(slot, cached);
         }
-        project(
-            Cow::Owned(result),
-            &self.pinyin_segmentation,
-            &self.alternative_segmentations,
-        )
+        projected
     }
 
     /// `merge_alternative_segmentations` 的词典查询部分（QD:888-945），升位与合并规则在 `series`。

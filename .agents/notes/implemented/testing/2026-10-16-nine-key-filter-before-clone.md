@@ -39,3 +39,5 @@ Status: implemented
 ## Consequences
 
 筛选先于纠错来源标记，接口只提供允许读取的字段。临时容器容量可不同，输出字段及容量需保持。数字前缀覆盖仍在拥有行之后检查且只算一次，避免重复九键双拼的临时编码申请；本片只提前检查单字限制、音节数、锁定读法和首字母。热页容器仍保留原容量，只有被拒行的字段不再复制；冷页和模糊行仍先拥有。不能由分配节省宣称16ms达标。无文件访问、权限或Android资源改动，不作设备验收结论。实现依据[Rust Cow](https://doc.rust-lang.org/std/borrow/enum.Cow.html)和[Vec retain](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.retain)。
+
+冷页后续由[冷页借用投影](2026-10-16-nine-key-cold-cache-projection.md)扩展：普通无模糊冷页改为同步借用完整局部页，随后转移整页进缓存。该片允许这一路径的输出容量缩减并记录缓存持有量，热页与模糊路径的容量约束保持。
