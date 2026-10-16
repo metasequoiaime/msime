@@ -64,6 +64,7 @@ export {
   type DictionaryFormatOptionsProps,
 } from "./dictionary/dictionary-format-options";
 export { dictionaryErrorMessage } from "./dictionary/dictionary-errors";
+export { PluginNavRow, type PluginNavRowProps } from "./settings/plugin-nav-row";
 
 export {
   type TouchKeyboardScheme,
