@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-在 Engine 增加内置智能 ABC 键位表，复用双拼切分、候选、简拼、提示及自定义表导出。`ShuangpinProfileKind::SmartAbc` 追加 ABI 值 5，保留已有 0–4；共享偏好名字为 `smart_abc`。Linux IBus 属性菜单、Fcitx5 轮换菜单、Windows 原生设置与菜单、macOS 原生设置及共享桌面设置页提供“智能 ABC”。Windows 的工具栏、托盘和键位提示、macOS 的键位提示与云词典校验同步接受这个偏好值。三个桌面宿主的打字来源都写入 `smart_abc`，共享统计存储、双拼成就和两套统计页面同步识别，避免新方案被误记成小鹤或整批拒收。MCP 同步接受这个偏好值。
+在 Engine 增加内置智能 ABC 键位表，复用双拼切分、候选、简拼、提示及自定义表导出。`ShuangpinProfileKind::SmartAbc` 追加 ABI 值 5，保留已有 0–4；共享偏好名字为 `smart_abc`。Linux IBus 属性菜单、Fcitx5 轮换菜单、Windows 原生设置与菜单、macOS 原生设置及共享桌面设置页提供“智能 ABC”。Windows 的工具栏、托盘和键位提示、macOS 的键位提示、云词典校验和共享 Swift 候选请求校验同步接受这个偏好值。三个桌面宿主的打字来源都写入 `smart_abc`，共享统计存储、双拼成就和两套统计页面同步识别，避免新方案被误记成小鹤或整批拒收。MCP 同步接受这个偏好值。
 
 账号服务现有 schema 只收四个旧内置方案，本次不向它写入新取值；本机选中智能 ABC 时，也不让账号中的旧方案覆盖本机选择，沿用自定义方案的兼容规则。Windows 与 macOS 的原生入口只扩展既有方案枚举和展示映射，不改变 `custom` 的编辑边界；macOS AppKit 设置仍为冻结的回退窗口，补的是既有双拼偏好的枚举兼容，正常入口沿用共享 React 设置页。不增加移动端触屏方案或网页引擎入口。
 
@@ -40,11 +40,13 @@ Status: implemented
 - 特色编码回归先在旧实现失败，新增内置表后双拼套件 121 项通过；全量引擎 2157 项与 golden 31 项通过，涵盖声母、零声母和复合韵母、内置与自定义表等价解码。
 - client-core 1475 项、host-api 636 项、MCP 60 项单测及 11 项集成测试通过；新宿主测试使用合成 SQLite 词条，验证 ABI 5、组词中延后切换和切回智能 ABC 后上屏。
 - 共享设置、引导及触屏兼容的 85 项测试通过，类型检查、构建和定向 lint 通过。上述四个 Rust crate 的 `cargo clippy --all-targets -- -D warnings` 通过。
-- 原 PR 的共享设置双拼选项断言包含第五个内置方案；Linux 保存与重新加载由独立设置用例覆盖。
+- 原 PR 的共享设置双拼选项断言包含第五个内置方案；Linux 与 macOS 保存与重新加载由两项独立设置用例覆盖。
 - 完整共享 UI 套件重新运行，651 个文件、3727 项测试全部通过。
 - `cargo test -p msime-client-core -p msime-host-api -p msime-engine` 通过：client-core 380 项、host-api 636 项、engine 2167 项（33 项忽略）及 engine golden 31 项均通过。
+- 桌面补齐后，云词典校验 5 项、统计存储与指标 78 项 Rust 测试通过；Windows 可在 macOS 上执行的 151 项原生测试通过，覆盖名称、键位提示、来源映射和统计展示。共享统计页 30 项测试、前端类型检查与构建、定向 lint 和格式检查通过。Windows WinUI 编译和真实 TSF 编辑器输入仍需 Windows 环境验收，不能由本机 C++ 测试代替。
+- 共享 Swift 候选请求 8 项测试通过，包含智能 ABC 经公开客户端 API 到达合成后端的回归；client-core 与 client-services 的 `cargo clippy --all-targets --locked -- -D warnings` 通过。
 - Linux 原生构建门禁 87 项、IBus 原生 ctest 81 项和完整 IBus D-Bus 共享运行时验收通过；真实 daemon 的智能 ABC 三组编码上屏、切回全拼及崩溃恢复通过。
 - `check-container.sh <固定资源目录>` 完整通过：安装与卸载、词库和剪贴板、GTK3 X11、Qt5/Qt6 X11、GTK Wayland、Qt5/Qt6 Wayland 及 IBus portal 的系统编辑器验收均运行。
 - Fcitx5 完整原生上下文、独立智能 ABC 状态栏选择与保存、AI、真实 daemon 前端、GTK 与 IBus GTK 编辑器共 6 项验收通过。独立用例既检查标签和落盘，也经真实按键上屏「你好」并轮换回小鹤。
 - 系统验收夹具同步现有契约：语音合成回包补齐 `ok: true`；Fcitx5 测试显式开启译文并结束大写串后测快捷模式；IBus 用 Ctrl+左右测试逐字母编辑，临时模式回车保留入口字母。均未修改相应生产行为。
-- 最终 `bash scripts/verify-local.sh --quick`、`pnpm run verify-notes` 和差异检查通过；HarmonyOS 真打包因缺少 staged 依赖明确跳过。
+- 最终 `bash scripts/verify-local.sh --quick`、`pnpm run verify-notes` 和差异检查通过；HarmonyOS 真打包因缺少 staged 依赖明确跳过；本次 Windows 完整交叉编译因其他运行占用依赖锁跳过，pipe-only 的 x86_64 与 i686 交叉编译通过。
