@@ -52,6 +52,7 @@ Linux 设置页「剪贴板」的「云剪贴板同步方式」和 Android「我
 ## 支持的宿主
 
 - Tauri 桌面端（Windows、Linux、macOS）的 `cloud_clipboard_request` 按这个顺序选路：用户显式配置的 provider socket，然后是中继，然后是 macOS 输入法的原生会话、自动发现的 socket，最后是水杉账号。
+- Linux Fcitx5 键盘栏读取列表时也遵循显式 socket、中继、自动发现的 socket 的顺序，选路和中继网络请求均在后台运行；中继出错不转发给其他服务。中继密钥串与 Linux 设置面板共用共享偏好目录。地址、令牌、偏好目录或 socket 变化会清空键盘栏中的旧条目，并丢弃旧请求的结果；设备批准和其他管理操作继续在云剪贴板面板完成。
 - 原生宿主经 C ABI 接入：`msime_client_cloud_clipboard_source` 告诉宿主该走中继还是账号，`msime_client_relay_cloud_clipboard` 在 Rust 里跑完一个动作，比账号路径多出置顶（`pin`）、保留期（`set_retention`）和清空（`clear`）三个动作；自己保存密钥串的宿主改用 `msime_client_relay_cloud_clipboard_exchange`，自己跑驱动，每一步的请求由它发给中继（宿主传入打开时的地址和令牌，它只发这一个请求、原样交回状态码和正文）。格式见 `crates/host-api/include/msime_client.h`。
 - Android 原生宿主经 JNI 接上：「我的 → 云剪贴板」页、键盘剪贴板面板的「云端」（列表、插入、「发到云剪贴板」）都先问 `msime_client_cloud_clipboard_source`，选了中继就只走中继。端到端加密的操作由宿主自己跑驱动（`msime_client_cloud_clipboard_e2e`，与它的水杉账号路径同一个循环），密钥串用 AndroidKeyStore 加密保存，每个请求经 `msime_client_relay_cloud_clipboard_exchange` 由 Rust 发给中继（只发一个请求，不读写密钥串）；开关、置顶、保留、删除和清空经 `msime_client_relay_cloud_clipboard` 直接请求。键盘按偏好快照里的地址和令牌认出中继换过，换过之后旧的条目不再插入、上传不发出。配置了中继时账号页「云剪贴板」那一行不显示条数，也不去问水杉账号。Android 和 iOS 的 Tauri 外壳（Android 的是 `build-client-apk.sh` 的开发合包，不是发布包）只能经水杉账号答云剪贴板，配置了中继时共享设置页的「发到云剪贴板」和共享云剪贴板面板一律拒绝（`relay_unsupported`），不改走账号。
 - 设置页的中继字段目前只在 Linux 和 Android 显示。Windows 的设置窗口是原生 WinUI 页面，macOS 输入法菜单的「云剪贴板…」在未登录时仍退回原生窗口，iOS 和 HarmonyOS 的原生宿主还没有接上这两个 C ABI，这些都在后续的改动里做。

@@ -2882,6 +2882,37 @@ int main(int argc, char **argv) {
       std::ofstream(path) << options.dump();
       state->refreshProviderSockets();
     }
+    {
+      // 中继空间或偏好目录变化后，即使旧请求已经完成，也不能采用旧条目。
+      const auto previousRelay = state->preferences_.value("cloud_clipboard_relay", Json::object());
+      const auto previousDirectory = state->options_path_;
+      for (const auto &relay : {
+               Json{{"url", "https://relay.example.test/one"}, {"token", "synthetic-one"}},
+               Json{{"url", "https://relay.example.test/one"}, {"token", "synthetic-two"}},
+               Json{{"url", "https://relay.example.test/two"}, {"token", "synthetic-two"}}}) {
+        const auto generationBefore = state->cloud_clipboard_generation_;
+        state->cloud_clipboard_items_ = Json::array({Json{{"text", "旧空间合成条目"}}});
+        std::promise<Json> completed;
+        state->cloud_clipboard_job_ = completed.get_future().share();
+        completed.set_value(Json{{"enabled", true}, {"items", state->cloud_clipboard_items_},
+            {"_socket", state->cloud_clipboard_socket_}, {"_directory", state->options_path_},
+            {"_generation", generationBefore}});
+        state->preferences_["cloud_clipboard_relay"] = relay;
+        state->refreshCloudClipboard();
+        require(state->cloud_clipboard_generation_ > generationBefore &&
+                    state->cloud_clipboard_items_.empty() && !state->cloud_clipboard_job_.valid(),
+                "切换中继地址或令牌使旧空间列表和已完成请求失效");
+      }
+      const auto generationBefore = state->cloud_clipboard_generation_;
+      state->cloud_clipboard_items_ = Json::array({Json{{"text", "旧目录合成条目"}}});
+      state->options_path_ = (std::filesystem::path(directory) / "other-preferences").string();
+      state->refreshCloudClipboard();
+      require(state->cloud_clipboard_generation_ > generationBefore && state->cloud_clipboard_items_.empty(),
+              "切换偏好目录使缓存列表失效");
+      state->preferences_["cloud_clipboard_relay"] = previousRelay;
+      state->options_path_ = previousDirectory;
+      state->refreshCloudClipboard();
+    }
     if (ai) {
       require(onlineQuery.value("ai_eligible", false), "AI query eligible");
       require(onlineQuery.at("ai_assistant").value("enabled", false), "AI provider enabled");
