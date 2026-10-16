@@ -1536,6 +1536,10 @@ export {
 } from "./community/candidate-skin-publish-dialog";
 export { CommunityPluginsPage } from "./community/community-plugins";
 export {
+  CommunityPluginDetail,
+  type CommunityPluginDetailProps,
+} from "./community/community-plugin-detail";
+export {
   CommunityPluginPublishDialog,
   type CommunityPluginPublishDialogProps,
 } from "./community/community-plugin-publish-dialog";
