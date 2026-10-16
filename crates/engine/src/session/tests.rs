@@ -4898,6 +4898,24 @@ fn expression_mode_evaluates_what_follows_shift_v() {
 }
 
 #[test]
+fn expression_mode_commits_finite_results_near_the_float_limit() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = generated_modes_session(&fixture);
+    for (input, expected) in [
+        ("(2^1023)*1.9999999999999998", "1.79769313486232e308"),
+        ("(2^1023)*-1.9999999999999998", "-1.79769313486232e308"),
+    ] {
+        assert!(session.character(b'V', true).handled);
+        type_text(&mut session, input);
+        assert_eq!(
+            words(&session),
+            [expected.to_owned(), format!("{input}={expected}")]
+        );
+        assert_eq!(session.select(0).commit.as_deref(), Some(expected));
+    }
+}
+
+#[test]
 fn expression_mode_converts_units_after_a_number() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = generated_modes_session(&fixture);
