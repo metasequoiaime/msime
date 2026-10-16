@@ -1327,6 +1327,15 @@ export {
   type CommunityResourcesPageProps,
 } from "./community/community-resources";
 export {
+  CommunityResourceCard,
+  type CommunityResourceCardProps,
+} from "./community/community-resource-card";
+export {
+  CommunityHarmonyResourceRow,
+  type CommunityHarmonyResourceRowProps,
+  type CommunityResourcePillState,
+} from "./community/community-harmony-resource-row";
+export {
   CommunityResourceDetail,
   type CommunityResourceDetailProps,
 } from "./community/community-resource-detail";

@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 test("resource cards reuse the shared community card author", () => {
   const resources = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/community/community-resources.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/community/community-resource-card.tsx", {
       eager: true,
       query: "?raw",
       import: "default",

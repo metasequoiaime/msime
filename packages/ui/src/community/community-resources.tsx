@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { formatZhNumber } from "../core/format-number";
 import {
   useCommunityResourceGallery,
   type CommunityResourceGalleryOptions,
@@ -9,13 +8,12 @@ import { CommunityResourceDetail } from "./community-resource-detail";
 import { CommunityResourceEditor } from "./community-resource-editor";
 import { CommunitySearchForm } from "./community-search-form";
 import { type CommunitySkinClient } from "./community-skin-model";
-import { boundedGraphemes } from "../core/text";
 import type { Preferences } from "../core/preferences-model";
-import { communityRating, resourceKindTitle } from "./community-helpers";
+import { resourceKindTitle } from "./community-helpers";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
-import { CommunityCardAuthor } from "./community-card-author";
-import { CommunityCard } from "./community-card";
+import { CommunityResourceCard } from "./community-resource-card";
+import { CommunityHarmonyResourceRow } from "./community-harmony-resource-row";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityResourceScopeButtons } from "./community-resource-scope-buttons";
 import { CommunityNotice } from "./community-notice";
@@ -25,10 +23,8 @@ import { ActionButton } from "../core/action-button";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import {
-  communityResourceSubtitle,
   type CommunityResourceKind,
   type CommunityResourceScope,
-  type CommunityResource,
   type CommunityLocalDictionaryClient,
   type CommunityResourceClient,
 } from "./community-resource-model";
@@ -45,85 +41,6 @@ export type {
   CommunityLocalDictionaryClient,
   CommunityResourceClient,
 } from "./community-resource-model";
-
-function ResourceCard({ item, open }: { item: CommunityResource; open: () => void }) {
-  return (
-    <CommunityCard onClick={open} aria-label={`查看${resourceKindTitle(item.kind)} ${item.name}`}>
-      <span className={style.resourceIcon} aria-hidden="true">
-        {item.kind === "dictionary" ? "字" : "话"}
-      </span>
-      <strong className={style.cardTitle}>{item.name}</strong>
-      <CommunityCardAuthor
-        author={item.author}
-        owned={item.owned}
-        removed={item.moderation === "removed"}
-      />
-      <span className={style.resourceDescription}>
-        {item.description || (item.kind === "dictionary" ? "共享词条" : "回复模板")}
-      </span>
-      <span className={style.cardMetrics}>
-        ☆ {communityRating(item.rating_count, item.rating_average)} · {formatZhNumber(item.saves)}{" "}
-        人收藏
-      </span>
-    </CommunityCard>
-  );
-}
-
-/** 行上的胶囊按钮提供什么：添加该条目、添加进行中，或因本次会话已添加而不提供。 */
-type CommunityResourcePillState = "add" | "adding" | "added";
-
-const resourcePillLabels: Record<CommunityResourcePillState, string> = {
-  add: "添加",
-  adding: "添加中",
-  added: "已添加",
-};
-
-/** HarmonyOS 手机上的一行词库或回复模板：色调底块上的首字、名称、元信息行和一个「添加」胶囊按钮。点按胶囊以外的任何地方都会打开详情。 */
-function CommunityHarmonyResourceRow({
-  item,
-  pill,
-  open,
-  add,
-}: {
-  item: CommunityResource;
-  pill: CommunityResourcePillState;
-  open: () => void;
-  add: () => void;
-}) {
-  const subtitle = communityResourceSubtitle(item);
-  return (
-    // 整行是打开详情的指针目标；行内文字是可聚焦的按钮，为键盘和读屏用户做同样的事，该按钮的点击会像轻点一样传到整行。
-    <div className={style.harmonyRow} onClick={open}>
-      <span className={style.harmonyRowTile} aria-hidden="true">
-        {boundedGraphemes(item.name.trim(), 1) || "?"}
-      </span>
-      <button
-        type="button"
-        className={style.harmonyRowText}
-        aria-label={`查看${resourceKindTitle(item.kind)} ${item.name}`}
-      >
-        <span className={style.harmonyRowName}>{item.name}</span>
-        {subtitle && <span className={style.harmonyRowMeta}>{subtitle}</span>}
-        {item.kind === "reply" && item.description && (
-          <span className={style.harmonyRowDescription}>{item.description}</span>
-        )}
-      </button>
-      <button
-        type="button"
-        className={`${style.harmonyRowPill} ${pill === "added" ? style.harmonyPillDone : style.harmonyPillTonal}`}
-        aria-label={`${resourcePillLabels[pill]}${resourceKindTitle(item.kind)} ${item.name}`}
-        disabled={pill !== "add"}
-        onClick={(event) => {
-          // 胶囊按钮作用于本行的条目，不打开其详情。
-          event.stopPropagation();
-          add();
-        }}
-      >
-        {resourcePillLabels[pill]}
-      </button>
-    </div>
-  );
-}
 
 export interface CommunityResourcesPageProps extends CommunityResourceGalleryOptions {
   client: CommunityResourceClient;
@@ -292,7 +209,7 @@ export function CommunityResourcesPage({
       />
       <CommunityGalleryGrid>
         {items.map((item) => (
-          <ResourceCard key={item.id} item={item} open={() => openDetail(item)} />
+          <CommunityResourceCard key={item.id} item={item} open={() => openDetail(item)} />
         ))}
       </CommunityGalleryGrid>
       <CommunityGalleryLoadMore
