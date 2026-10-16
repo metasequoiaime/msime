@@ -1558,7 +1558,7 @@ fn ignored_scheme_key_does_not_clone_preedit_for_change_detection() {
     });
 
     assert!(!result.handled);
-    assert_eq!(allocations, 23);
+    assert_eq!(allocations, 22);
 }
 
 #[test]
@@ -1572,7 +1572,7 @@ fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
     });
 
     assert!(result.handled);
-    assert_eq!(allocations, 126);
+    assert_eq!(allocations, 125);
 }
 
 #[test]
@@ -1585,7 +1585,7 @@ fn backspacing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection()
         crate::ime::personal_rerank::allocations::count(|| session.command(Command::Backspace));
 
     assert!(result.handled);
-    assert_eq!(allocations, 15);
+    assert_eq!(allocations, 14);
 }
 
 #[test]
@@ -1645,7 +1645,7 @@ fn setting_the_caret_does_not_build_editing_text_to_clamp_it() {
     });
 
     assert_eq!(session.snapshot().caret_position, 2);
-    assert_eq!(allocations, 22);
+    assert_eq!(allocations, 21);
 }
 
 #[test]
@@ -1659,7 +1659,7 @@ fn moving_the_caret_does_not_build_the_preedit_twice() {
 
     assert!(result.handled);
     assert_eq!(
-        allocations, 22,
+        allocations, 21,
         "光标移动复用编辑文本长度后的分配次数：{allocations}"
     );
 }
@@ -1675,7 +1675,7 @@ fn typing_at_a_caret_reuses_the_editing_text_length() {
         crate::ime::personal_rerank::allocations::count(|| session.character(b'x', false));
 
     assert!(result.handled);
-    assert_eq!(allocations, 192, "光标处输入的分配次数：{allocations}");
+    assert_eq!(allocations, 191, "光标处输入的分配次数：{allocations}");
 }
 
 #[test]

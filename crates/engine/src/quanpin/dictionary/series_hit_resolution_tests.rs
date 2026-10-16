@@ -2,6 +2,8 @@ use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
 
+// 冻结旧查询逐次复制主标记；预热后已有容量的测量另计一次节省。
+
 fn fixture() -> Fixture {
     let fixture = Fixture::new();
     for (key, word) in [
@@ -81,7 +83,7 @@ fn hot_series_answers_skip_the_unused_owned_resolution() {
             assert_state(&before, &after);
             println!("系列热命中 {raw}/{types}/词网格={word_lattice}：申请 {old_count}→{new_count}，完整解析复制 {copies}，音节复制 {segment_copies}");
             assert_eq!(
-                new_count + copies + segment_copies,
+                new_count + copies + segment_copies + 1,
                 old_count,
                 "热候选只需要解析标记和槽，不构造音节"
             );
@@ -136,9 +138,9 @@ fn cold_resolution_or_missing_series_keeps_original_cost() {
                 0
             };
             assert_eq!(
-                new_count + slot_copy,
+                new_count + slot_copy + usize::from(mode != 0),
                 old_count,
-                "只有重建且未登记的槽键省一次复制"
+                "另计重建的未登记槽键与已复用主标记"
             );
         }
     }
@@ -161,9 +163,9 @@ fn changed_sources_rebuild_a_previously_hot_series_and_keep_owned_output() {
     assert_eq!(actual, expected);
     assert!(actual.iter().any(|item| item.word == "合成外部写入"));
     assert_eq!(
-        new_count + 1,
+        new_count + 2,
         old_count,
-        "单音节版本重建只省未登记槽键的副本"
+        "单音节版本重建省去槽键与已复用主标记副本"
     );
     assert_state(&before, &after);
 
@@ -185,7 +187,7 @@ fn changed_sources_rebuild_a_previously_hot_series_and_keep_owned_output() {
     let (expected, old_count) = count(|| before.legacy_hit_query_exact("nihao", "ni'hao", 0));
     let (mut actual, new_count) = count(|| after.query_exact("nihao", "ni'hao", 0));
     assert_eq!(actual, expected);
-    assert_eq!(new_count, old_count, "个人模型失效后的重建不得增加申请");
+    assert_eq!(new_count + 1, old_count, "个人模型失效仍复用主标记容量");
     assert_state(&before, &after);
     assert_eq!(after.personal_version, after.personal.version());
     actual[0].word.push_str("独立副本");

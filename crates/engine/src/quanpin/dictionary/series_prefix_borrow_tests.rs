@@ -2,6 +2,8 @@ use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
 
+// 冻结旧查询逐次复制主标记；预热后已有容量的测量另计一次节省。
+
 // 冻结 0ded5ef2d213ea733a6f96885d21210424c71050 的旧键构造；较短前缀同步后续追加优化，隔离键拼接预算。
 impl QuanpinDictionary {
     fn legacy_prefix_query_exact(
@@ -231,10 +233,8 @@ fn assert_rows(actual: &Vec<WordItem>, expected: &Vec<WordItem>) {
 
 fn assert_state(before: &QuanpinDictionary, after: &QuanpinDictionary) {
     assert_eq!(after.pinyin_segmentation, before.pinyin_segmentation);
-    assert_eq!(
-        after.pinyin_segmentation.capacity(),
-        before.pinyin_segmentation.capacity()
-    );
+    // 主切分标记复用历史容量，候选与缓存的容量仍逐项对照。
+    assert!(after.pinyin_segmentation.capacity() >= before.pinyin_segmentation.capacity());
     assert_eq!(
         after.alternative_segmentations,
         before.alternative_segmentations
@@ -437,7 +437,7 @@ fn full_exact_dispatch_counts_primary_literal_and_costlier_calls() {
                 }
                 if !lattice {
                     assert_eq!(
-                        new_count + saved,
+                        new_count + saved + usize::from(mode != 0 && !raw.is_empty()),
                         old_count,
                         "完整查询 {raw}/{segmentation}/{types}/缓存={mode}，目标省 {saved}"
                     );
@@ -494,7 +494,7 @@ fn invalidated_hot_series_rebuilds_and_keeps_longer_candidate_order() {
         assert_rows(&actual, &expected);
         assert_state(&before, &after);
         assert!(actual.iter().any(|item| item.word == "合成外部写入"));
-        assert_eq!(new_count + 1, old_count);
+        assert_eq!(new_count + 2, old_count);
         assert_eq!(actual[0].word, "合成双音节");
         let longer = actual
             .iter()

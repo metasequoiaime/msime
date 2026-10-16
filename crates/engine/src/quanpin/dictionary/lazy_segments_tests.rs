@@ -2,6 +2,8 @@ use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
 
+// 冻结旧查询逐次复制主标记；预热后已有容量的测量另计一次节省。
+
 fn fixture() -> Fixture {
     let fixture = Fixture::new();
     for (key, word) in [
@@ -19,10 +21,8 @@ fn fixture() -> Fixture {
 
 fn assert_state(before: &QuanpinDictionary, after: &QuanpinDictionary) {
     assert_eq!(after.pinyin_segmentation, before.pinyin_segmentation);
-    assert_eq!(
-        after.pinyin_segmentation.capacity(),
-        before.pinyin_segmentation.capacity()
-    );
+    // 主切分标记复用历史容量，候选与缓存的容量仍逐项对照。
+    assert!(after.pinyin_segmentation.capacity() >= before.pinyin_segmentation.capacity());
     assert_eq!(
         after.alternative_segmentations,
         before.alternative_segmentations
@@ -90,7 +90,11 @@ fn hot_series_skips_the_unused_segment_list() {
                 assert_eq!(actual.capacity(), expected.capacity());
                 assert_state(&before, &after);
                 println!("系列音节 {raw}/{segmentation}/{types}/词网格={word_lattice}/空切分缓存={empty_segments_cache}：申请 {old_count}→{new_count}，音节成本 {segment_cost}");
-                assert_eq!(new_count + segment_cost, old_count, "热系列不需要构造音节");
+                assert_eq!(
+                    new_count + segment_cost + 1,
+                    old_count,
+                    "热系列省去音节与主标记副本"
+                );
                 if empty_segments_cache && segmentation.is_empty() {
                     assert!(
                         after.segmentation_cache.get_ref_by(raw).is_none(),
@@ -189,9 +193,9 @@ fn misses_resolve_segments_once_and_keep_cold_cost() {
                         0
                     };
                     assert_eq!(
-                        new_count + slot_copy,
+                        new_count + slot_copy + usize::from(mode != 0),
                         old_count,
-                        "音节成本不变，仅重建的未登记槽键省一次复制：{raw}/{mode}"
+                        "音节成本不变，另计未登记槽键与已复用主标记：{raw}/{mode}"
                     );
                 }
             }
@@ -230,9 +234,9 @@ fn database_change_resolves_segments_before_clearing_their_cache() {
                 let slot_copy =
                     super::slot_key_ownership_tests::discarded_slot_copy_cost(&before, raw, "", 0);
                 assert_eq!(
-                    new_count + slot_copy,
+                    new_count + slot_copy + 1,
                     old_count,
-                    "版本变化清空前复用音节，未登记的槽键另省一次复制"
+                    "版本变化清空前复用音节，另计槽键与主标记副本"
                 );
             }
             assert_state(&before, &after);
@@ -273,7 +277,7 @@ fn personal_change_rebuilds_with_the_original_segments_and_owned_output() {
         assert_eq!(actual, expected);
         assert_eq!(actual.capacity(), expected.capacity());
         if !word_lattice {
-            assert_eq!(new_count, old_count);
+            assert_eq!(new_count + 1, old_count);
         }
         assert_state(&before, &after);
         assert_eq!(after.personal_version, after.personal.version());
@@ -337,6 +341,7 @@ fn deferred_segment_memo_keeps_total_cost_lower_when_the_series_later_misses() {
                 assert_eq!(
                     new_hot
                         + new_miss
+                        + 2
                         + warm_segments
                         + super::slot_key_ownership_tests::discarded_slot_copy_cost(
                             &before, raw, "", types
