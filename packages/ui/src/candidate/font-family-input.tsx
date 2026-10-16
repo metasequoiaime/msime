@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import { useEffect, useId, useState } from "react";
 import { validFontFamily } from "./candidate-font-family";
 export function FontFamilyInput({
@@ -73,7 +74,7 @@ export function FontFamilyInput({
           show();
         }}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (isComposingKeyEvent(event)) return;
           if (event.key === "Escape") {
             event.preventDefault();
             setOpen(false);

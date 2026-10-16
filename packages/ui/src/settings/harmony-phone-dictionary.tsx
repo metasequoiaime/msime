@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import { downloadBlob } from "../core/download-blob";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ActionSheet } from "../core/action-sheet";
@@ -872,7 +873,7 @@ function FormDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (isComposingKeyEvent(event)) return;
           if (event.key === "Escape" && !submitting) onClose();
           if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
             event.preventDefault();

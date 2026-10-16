@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "./core/ime-key-event";
 import type { SettingsClient } from "./core/settings-client";
 import type { Preferences, Snapshot } from "./core/preferences-model";
 
@@ -575,6 +576,7 @@ export {
 } from "./core/use-async-action";
 export { useInterval } from "./core/use-interval";
 export { useDebouncedCallback, type DebouncedCallback } from "./core/use-debounced-callback";
+export { isComposingKeyEvent } from "./core/ime-key-event";
 export { useSettledSlider } from "./core/use-settled-slider";
 export {
   subscribeToWindowBlur,
@@ -2956,7 +2958,7 @@ function SettingsShell(props: SettingsPageProps) {
         value={navQuery}
         onChange={(event) => setNavQuery(event.target.value)}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (isComposingKeyEvent(event)) return;
           if (event.key === "Escape") setNavQuery("");
           if (event.key !== "Enter") return;
           const first = shownSidebarGroups[0]?.pages[0];

@@ -1,3 +1,4 @@
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import type {
   KeyboardInputRequest,
   InkStroke,
@@ -615,8 +616,7 @@ function HandwritingCandidateButton({
       !onCopy ||
       disabled ||
       event.defaultPrevented ||
-      event.nativeEvent.isComposing ||
-      event.keyCode === 229 ||
+      isComposingKeyEvent(event) ||
       !event.ctrlKey ||
       event.metaKey ||
       event.altKey ||
@@ -921,13 +921,7 @@ export function HandwritingPanel({
     setNotice("请在左侧书写，松开鼠标后自动识别");
   }
   function editInk(event: import("react").KeyboardEvent<HTMLElement>) {
-    if (
-      event.defaultPrevented ||
-      event.nativeEvent.isComposing ||
-      event.keyCode === 229 ||
-      event.altKey
-    )
-      return;
+    if (event.defaultPrevented || isComposingKeyEvent(event) || event.altKey) return;
     const target = event.target as HTMLElement;
     if (target.closest("input, textarea, select, [contenteditable=true]")) return;
     const key = event.key.toLowerCase();
@@ -943,8 +937,7 @@ export function HandwritingPanel({
   function navigateCandidates(event: import("react").KeyboardEvent<HTMLDivElement>) {
     if (
       event.defaultPrevented ||
-      event.nativeEvent.isComposing ||
-      event.keyCode === 229 ||
+      isComposingKeyEvent(event) ||
       event.ctrlKey ||
       event.metaKey ||
       event.altKey ||
@@ -4245,8 +4238,7 @@ export function EmojiPanel({
   function clipboardItemKey(event: import("react").KeyboardEvent<HTMLButtonElement>, text: string) {
     if (
       event.defaultPrevented ||
-      event.nativeEvent.isComposing ||
-      event.keyCode === 229 ||
+      isComposingKeyEvent(event) ||
       event.altKey ||
       event.metaKey ||
       event.shiftKey ||
