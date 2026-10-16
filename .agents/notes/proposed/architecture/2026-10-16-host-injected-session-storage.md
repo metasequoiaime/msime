@@ -30,6 +30,7 @@ Status: proposed
 - 每次加锁成功后，Rust 在同一线程上用同一个 item 和令牌调用 `unlock` 恰好一次，出错或 panic 时由 Drop guard 保证。
 - 存储回调可能在任意线程上被调用，包括 Rust 自己起的线程；JNI 宿主每次回调先 `GetEnv`，必要时 `AttachCurrentThread` 并在返回前 `DetachCurrentThread`。
 - `release` 只在注册成功后、最后一个引用释放时调用恰好一次；校验失败或 HTTP 客户端建不出来时 Rust 不接管 `context`。注册表每个 store 一个条目，注册时一次建好登录会话、匿名会话和社区服务（共用一个 HTTP 客户端），请求路径只查不插，所以 `unregister` 之后不会有调用把会话重新插回去。
+- 目录模式按账号目录缓存的会话、社区服务和 AI 皮肤服务，以及其他 `BackendAccountClient::new()`（正式服务端、默认 User-Agent）的调用方，共用进程里同一个 reqwest 阻塞客户端：每个阻塞客户端各带一个后台线程和事件循环（macOS 上三个文件描述符），缓存又从不释放，各建一份时目录一多就占满默认 256 的打开文件上限。客户端里只有连接池、不跟随重定向和 30 秒超时，没有 cookie 存储和默认请求头，令牌每个请求单独带，所以共用不会串号；带 `client_agent` 的注入存储和测试连本机回环的客户端各建各的。
 
 ### 各平台怎么接
 
