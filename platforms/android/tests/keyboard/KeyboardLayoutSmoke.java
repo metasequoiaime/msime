@@ -58,6 +58,25 @@ public final class KeyboardLayoutSmoke {
         for (int tall : new int[] {KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP, 552, 0})
             check(KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, tall));
 
+        // #8210：第五排资格只继承源字母页；符号页实际增加可用字符。
+        for (int layout = 0; layout <= 8; layout++) {
+            for (int height : new int[] {0, 416, 480, 760}) {
+                boolean eligible = KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, layout, height);
+                check(KeyboardLayout.drawsSymbolExtraRow(true, KeyboardLayout.Layer.SYMBOLS, layout, height) == eligible);
+                check(!KeyboardLayout.drawsSymbolExtraRow(false, KeyboardLayout.Layer.SYMBOLS, layout, height));
+                check(!KeyboardLayout.drawsSymbolExtraRow(true, KeyboardLayout.Layer.LETTERS, layout, height));
+            }
+        }
+        check(KeyboardLayout.symbolExtraRow(true, false, true).equals(KeyboardLayout.NUMBER_ROW));
+        check(KeyboardLayout.symbolExtraRow(false, false, true).equals(
+            List.of("[", "]", "{", "}", "#", "%", "^", "*", "+", "=")));
+        for (boolean chinese : new boolean[] {true, false}) {
+            List<String> extra = KeyboardLayout.symbolExtraRow(false, true, chinese);
+            check(extra.size() == 10 && new java.util.HashSet<>(extra).size() == 10);
+            check(extra.get(0).equals(chinese ? "（" : "("));
+            check(extra.contains("‰") && extra.contains("²"));
+        }
+
         // 同属 26 键的双拼和直输场景仍是 Shift，不能仅凭布局决定分词动作。
         check(KeyboardLayout.usesQuanpinSeparator(true, true,
             KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, "none"));

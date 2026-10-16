@@ -96,6 +96,78 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertEqual(withRow.height - plain.height, 61, accuracy: 0.5, "the digit row adds a 54pt row and its 7pt gap")
   }
 
+  /// #8210：原字母页的第五排在数字与扩展符号页保留，借用网格不影响源方案。
+  @MainActor
+  func testNumberAndSymbolPagesRetainTheFifthRow() throws {
+    enableAllInputSchemes()
+    let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
+    let previousScheme = InputSchemePreference.scheme
+    defer {
+      KeyboardLayoutPreference.defaults.set(stored, forKey: KeyboardLayoutPreference.tabletFullKeysKey)
+      InputSchemePreference.scheme = previousScheme
+    }
+    KeyboardLayoutPreference.tabletFullKeys = true
+    InputSchemePreference.scheme = .quanpin
+    let controller = tabletController()
+    func layout() throws -> CGFloat {
+      let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      controller.view.frame.size.height = height
+      controller.view.layoutIfNeeded()
+      return height
+    }
+    let height = try layout()
+    let digitHeight = try key("numberRowKey1", in: controller).bounds.height
+    try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try layout(), height, accuracy: 0.5)
+    XCTAssertFalse(try view("symbolExtraRow", in: controller).isHidden)
+    XCTAssertEqual(try key("symbolExtraKey7", in: controller).configuration?.title, "‰")
+    XCTAssertEqual(try key("symbolExtraKey7", in: controller).bounds.height, digitHeight, accuracy: 0.5)
+    try key("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try layout(), height, accuracy: 0.5)
+    XCTAssertEqual(try key("symbolExtraKey0", in: controller).configuration?.title, "1")
+    XCTAssertEqual(try key("symbolExtraKey9", in: controller).configuration?.title, "0")
+    try key("symbolLayerToggle", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try layout(), height, accuracy: 0.5)
+    try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try layout(), height, accuracy: 0.5)
+    try key("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+    try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try layout(), height, accuracy: 0.5)
+    XCTAssertEqual(try key("symbolExtraKey0", in: controller).configuration?.title, "[")
+    XCTAssertEqual(try key("symbolExtraKey9", in: controller).configuration?.title, "=")
+    XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
+  }
+
+  @MainActor
+  func testExtraSymbolRowRequiresTheSourceNumberRow() throws {
+    enableAllInputSchemes()
+    let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
+    let previousScheme = InputSchemePreference.scheme
+    defer {
+      KeyboardLayoutPreference.defaults.set(stored, forKey: KeyboardLayoutPreference.tabletFullKeysKey)
+      InputSchemePreference.scheme = previousScheme
+    }
+    for fullKeys in [true, false] {
+      KeyboardLayoutPreference.tabletFullKeys = fullKeys
+      for scheme in [ChineseInputScheme.quanpin, .nineKey, .fourteenKey, .handwriting] {
+        InputSchemePreference.scheme = scheme
+        let tablet = tabletController()
+        try key("layoutToggleButton", in: tablet).sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(try view("symbolExtraRow", in: tablet).isHidden, !fullKeys || scheme != .quanpin, scheme.rawValue)
+      }
+    }
+    KeyboardLayoutPreference.tabletFullKeys = true
+    InputSchemePreference.scheme = .quanpin
+    for compactPad in [true, false] {
+      let phone = KeyboardViewController()
+      phone.traitOverrides.userInterfaceIdiom = compactPad ? .pad : .phone
+      phone.traitOverrides.horizontalSizeClass = .compact
+      phone.loadViewIfNeeded()
+      try key("layoutToggleButton", in: phone).sendActions(for: .primaryActionTriggered)
+      XCTAssertTrue(try view("symbolExtraRow", in: phone).isHidden)
+    }
+  }
+
   /// 不论操作行上方显示哪几排，第一排键都位于顶栏下方设计稿规定的间隙处。
   @MainActor
   func testTheKeysStartTheDesignGapUnderTheTopRow() throws {
@@ -489,7 +561,7 @@ final class KeyboardFormFactorTests: XCTestCase {
       try key("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
       try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
-      XCTAssertEqual(visibleGaps(in: controller).count, 4, "三行英文符号与底行均保留中缝")
+      XCTAssertEqual(visibleGaps(in: controller).count, 5, "补充行、三行英文符号与底行均保留中缝")
       let five = try frame(titled("5", in: controller), in: controller)
       let six = try frame(titled("6", in: controller), in: controller)
       XCTAssertEqual(six.minX - five.maxX, gap, accuracy: 1)

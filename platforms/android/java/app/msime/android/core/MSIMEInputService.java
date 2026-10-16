@@ -4130,6 +4130,12 @@ public final class MSIMEInputService extends InputMethodService {
             getResources().getConfiguration().screenHeightDp);
     }
 
+    /** 数字、符号页保留源字母数字行占用的一排。 */
+    boolean symbolExtraRowDrawn() {
+        return KeyboardLayout.drawsSymbolExtraRow(numberRowEnabled, keyboardLayer, displayedTouchLayout(view),
+            getResources().getConfiguration().screenHeightDp);
+    }
+
     /** 分词键只服务于已就绪的中文全拼组合，密码框和本地直输保留 Shift。 */
     boolean usesQuanpinSeparator() {
         return KeyboardLayout.usesQuanpinSeparator(selectedScheme == KeyboardScheme.QUANPIN,

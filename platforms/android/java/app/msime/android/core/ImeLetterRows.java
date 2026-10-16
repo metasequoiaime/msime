@@ -68,6 +68,7 @@ final class ImeLetterRows {
     private boolean builtSplit;
     /** 当前键行有没有画数字行；与 {@link MSIMEInputService#numberRowDrawn} 不一致时要重建（{@link #numberRowStale}）。 */
     private boolean builtNumberRow;
+    private boolean builtSymbolExtraRow;
     /** 123 / #+= 层建的时候用的标点：全角中文或半角英文。中文标点开关变了要重建，否则键面和上屏的还是旧的。 */
     private Boolean builtLayerPunctuation;
     /** 当前键行若是 {@link #rebuildKeyRows} 的通用分支在字母层建的，记下按哪个布局建；其他分支建的为 -1。只有这种键行能就地换大小写（{@link #refreshLetterCase}）。 */
@@ -282,7 +283,8 @@ final class ImeLetterRows {
 
     /** 键行是否需要按「数字行」的新状态重建：设置页改了开关、或旋转让窗口高度跨过了 {@link KeyboardLayout#NUMBER_ROW_MIN_WINDOW_HEIGHT_DP} 之后。 */
     boolean numberRowStale() {
-        return s.keyRows != null && builtNumberRow != s.numberRowDrawn();
+        return s.keyRows != null && (builtNumberRow != s.numberRowDrawn()
+            || builtSymbolExtraRow != s.symbolExtraRowDrawn());
     }
 
     /** 正显示着 123 / #+= 层，而中文标点开关和建层时不一样了。 */
@@ -532,8 +534,9 @@ final class ImeLetterRows {
         builtLetterLayout = -1;
         koreanKeyButtons.clear();
         koreanKeyInputs.clear();
-        // 九键、手写、123 层等提前返回的分支都不画数字行；画的时候在下面再记上。
+        // 字母数字行在下方构建时记上；符号补充行独立记录，避免提前返回的网格分支丢失第五排。
         builtNumberRow = false;
+        builtSymbolExtraRow = s.symbolExtraRowDrawn();
         boolean split = s.splitKeyboardDrawn();
         if (split != builtSplit) {
             builtSplit = split;
@@ -565,6 +568,7 @@ final class ImeLetterRows {
         s.japaneseVariantsButton = null;
         fourteenSeparatorKey = null;
         s.keyRows.removeAllViews();
+        if (builtSymbolExtraRow) addSymbolExtraRow();
         if (s.displayedTouchLayout(s.view) == MSIMEInputService.JAPANESE_NINE_KEY_LAYOUT) {
             s.imeLayoutRows.rebuildJapaneseNineKeyRows();
             s.imeStyler.applyKeyboardGeometry();
@@ -860,6 +864,20 @@ final class ImeLetterRows {
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             s.keyId(key, KeyPressIds.forCharacter(input));
             row.addView(key, LayoutPolicy.weightedMatchParentParams(1));
+        }
+        if (builtSplit) splitRow(row);
+    }
+
+    /** 第五排与字母数字行使用同一高度角色，切层时保留行高及高度调整。 */
+    private void addSymbolExtraRow() {
+        builtLayerPunctuation = s.sendsChinesePunctuation();
+        LinearLayout row = LayoutPolicy.row(s);
+        row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 3, 0, true));
+        s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
+        for (String face : KeyboardLayout.symbolExtraRow(moreSymbols, numberPadDrawn(), builtLayerPunctuation)) {
+            KeyboardLayout.LayerKey spec = new KeyboardLayout.LayerKey(face, face,
+                KeyboardLayout.LayerKeyKind.CHARACTER, 1f);
+            row.addView(designLayerKey(spec, false), LayoutPolicy.weightedMatchParentParams(1));
         }
         if (builtSplit) splitRow(row);
     }

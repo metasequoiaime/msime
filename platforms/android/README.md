@@ -45,7 +45,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 ### 数字行
 
-键盘设置「布局」里的「数字行」（本地设置 `platform.android.number_row`，布尔，默认关，只在本机，同步字段表里没有这个键；#6022）打开后，标准 26 键一族和韩文两套式的字母层在字母上方多一行 1–0，所有设备都有；窗口可用高度低于 480 dp（手机横屏，`KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP`）时不画，否则默认高度的键盘再加一行就把工具栏或底行挤出窗口，转回竖屏后自动回来。这一行和第一行字母一样高、按同样的方式分摊键盘高度调整，所以键盘整体高出一行；切到 123 / #+= 层（第一行本来就是数字，这一层不变）、九键、笔画、手写、日文假名网格和注音时没有数字行，键盘高度随之回到原来的样子。数字键经 `type()` 交给 Engine：没有组字时 Engine 不收，宿主上屏这个数字（全角模式下是全角）；组字中当前页有对应候选的 1–9 由 runtime 选词，当前页之外的 1–9 被 runtime 吞掉、什么也不发生；Engine 不收的 `0` 和没有候选时的 1–9 先按首选结束组合再上屏（`DeclinedKeyPolicy`，否则数字会顶掉组字区里的拼音）；英文直输时直接上屏。判定在 `KeyboardLayout.drawsNumberRow`，由 `KeyboardLayoutSmoke` 覆盖；开关变化后下一次渲染发现键行与应画状态不一致时重建键行（`ImeLetterRows.numberRowStale`）。
+键盘设置「布局」里的「数字行」（本地设置 `platform.android.number_row`，布尔，默认关，只在本机，同步字段表里没有这个键；#6022）打开后，标准 26 键一族和韩文两套式的字母层在字母上方多一行 1–0，所有设备都有；窗口可用高度低于 480 dp（手机横屏，`KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP`）时不画，否则默认高度的键盘再加一行就把工具栏或底行挤出窗口，转回竖屏后自动回来。这一行和第一行字母一样高、按同样的方式分摊键盘高度调整，所以键盘整体高出一行；切到 123 / #+= 时保留同高的补充行：数字九宫格补括号、货币和上标，常规 123 补扩展符号，#+= 补 1–0（#8210），切层不缩高。源布局改为九键、笔画、手写、日文假名网格或注音时没有这排，键盘回到原行数。数字键经 `type()` 交给 Engine：没有组字时 Engine 不收，宿主上屏这个数字（全角模式下是全角）；组字中当前页有对应候选的 1–9 由 runtime 选词，当前页之外的 1–9 被 runtime 吞掉、什么也不发生；Engine 不收的 `0` 和没有候选时的 1–9 先按首选结束组合再上屏（`DeclinedKeyPolicy`，否则数字会顶掉组字区里的拼音）；英文直输时直接上屏。判定在 `KeyboardLayout.drawsNumberRow`，由 `KeyboardLayoutSmoke` 覆盖；开关变化后下一次渲染发现键行与应画状态不一致时重建键行（`ImeLetterRows.numberRowStale`）。
 
 ### 浮动键盘
 

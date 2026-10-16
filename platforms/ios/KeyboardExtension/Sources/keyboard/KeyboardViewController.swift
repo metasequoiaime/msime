@@ -186,7 +186,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var letterRowPunctuationKeys: [UIButton] = []
   private var formFactor: KeyboardFormFactor { .resolve(traitCollection) }
   private var letterRowViews: [UIView] = []
-  /// The iPad digit row above the letters and the Tab key before Q; see `KeyboardLayoutPreference.tabletFullKeys`.
+  private var symbolExtraRowView: UIStackView?
+  private var symbolExtraRowKeys: [UIButton] = []
+  /// iPad 字母上方的数字行及 Q 前的 Tab 键，见 `KeyboardLayoutPreference.tabletFullKeys`。
   private var numberRowView: UIStackView?
   private var tabKey: UIButton?
   /// 横屏分离式键盘每一排中间的中缝（见 `KeyboardSplitLayout`）。不分离时隐藏，stack view 不给它宽度也不给它两侧的键距；分离时它是一块普通视图，落在上面的触摸由它接住后丢掉，不会被 `KeyAreaStackView` 当成键距交给旁边的键。
@@ -931,6 +933,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let numberRow = makeNumberRow()
     numberRowView = numberRow
     keyColumn.addArrangedSubview(numberRow)
+    let extraRow = makeSymbolExtraRow()
+    symbolExtraRowView = extraRow
+    keyColumn.addArrangedSubview(extraRow)
     for (index, row) in letterRows.enumerated() {
       let rowView = makeLetterRow(row, includesShift: index == letterRows.count - 1)
       letterRowViews.append(rowView)
@@ -1033,7 +1038,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     root.yieldReceiver = bottomLanguageButton
     installSplitGaps(in: root)
     // 分几步拼出来：写成一个长的 + 表达式时，编译器会在类型推断上超时。
-    var standardRows: [UIView] = [numberRow]
+    var standardRows: [UIView] = [numberRow, extraRow]
     standardRows += letterRowViews
     standardRows += zhuyinRowViews
     standardRows += fourteenKeyRowViews
@@ -1232,7 +1237,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ///
   /// 中缝要有自己的宽度，所以原来 `.fillEqually` 的排改成 `.fill` 再给字符键加上等宽约束，不分离时排出来和原来一样。字符键的中缝位置按 `KeyboardSplitLayout.leftKeyCount` 定，是固定的，不随 `;` 等键的显隐移动；底部那一排的中缝在两个空格键之间。
   private func installSplitGaps(in root: UIStackView) {
-    let rows = ([numberRowView as UIView?].compactMap { $0 } + letterRowViews + symbolRowViews + symbolLayerRowViews).compactMap { $0 as? UIStackView }
+    let rows = ([numberRowView as UIView?, symbolExtraRowView as UIView?].compactMap { $0 } + letterRowViews + symbolRowViews + symbolLayerRowViews).compactMap { $0 as? UIStackView }
     for row in rows {
       let characterKeys = row.arrangedSubviews.filter { ($0 as? KeyboardKeyButton)?.isFunctionKey != true }
       guard !characterKeys.isEmpty else { continue }
@@ -2599,6 +2604,36 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return row
   }
 
+  /// 补充行只在源字母页有数字行时显示，使用相同等高和分体规则。
+  private func makeSymbolExtraRow() -> UIStackView {
+    let row = makeRow()
+    row.accessibilityIdentifier = "symbolExtraRow"
+    row.isHidden = true
+    for column in 0..<10 {
+      let key = makeKey(title: "", accessibilityLabel: "") { [weak self] in
+        guard let self else { return }
+        let face = symbolExtraRowFaces[column]
+        if numberPadShown {
+          countKeyPress(TypingKeyID.character(face))
+          insertNumberPadLiteral(face)
+        } else {
+          typeSymbolLayerFace(face)
+        }
+      }
+      key.accessibilityIdentifier = "symbolExtraKey\(column)"
+      (key as? KeyboardKeyButton)?.showsPressPreview = true
+      applySymbolLayerFont(to: key, size: 18)
+      symbolExtraRowKeys.append(key)
+      row.addArrangedSubview(key)
+    }
+    return row
+  }
+
+  private var symbolExtraRowFaces: [String] {
+    SymbolLayerLayout.extraRow(more: showsMoreSymbols, numberPad: numberPadShown,
+                              chinese: symbolLayerIsChinese && symbolLayerEngineWritesChinesePunctuation)
+  }
+
   /// 设计稿 123 / #+= 层三排按键中的一排。按键只建一次，每次换层时从 `SymbolLayerLayout` 取键面（`updateSymbolLayerFaces`）；点按时读屏幕上的键面，所以按键显示的和写出的不会对不上。第三排在五个标点键两侧放 `#+=` / `123` 切换键和 ⌫，两端各宽 1.4 个键。
   private func makeSymbolLayerRow(_ index: Int) -> UIStackView {
     let row = makeRow()
@@ -2696,7 +2731,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let chinese = symbolLayerIsChinese
     let face = SymbolLayerLayout.characterRows(more: showsMoreSymbols, chinese: chinese,
                                                cornerQuotes: currentCornerQuotes)[row][column]
-    switch SymbolLayerLayout.input(for: face, chinese: chinese, chinesePunctuation: symbolLayerEngineWritesChinesePunctuation) {
+    typeSymbolLayerFace(face)
+  }
+
+  private func typeSymbolLayerFace(_ face: String) {
+    switch SymbolLayerLayout.input(for: face, chinese: symbolLayerIsChinese, chinesePunctuation: symbolLayerEngineWritesChinesePunctuation) {
     case .symbol(let key):
       countKeyPress(TypingKeyID.character(key))
       handleSymbol(key)
@@ -2739,6 +2778,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateSymbolLayerFaces() {
+    for (key, face) in zip(symbolExtraRowKeys, symbolExtraRowFaces) where key.configuration?.title != face {
+      key.configuration?.title = face
+      key.accessibilityLabel = "符号 \(face)"
+    }
     let rows = SymbolLayerLayout.characterRows(more: showsMoreSymbols, chinese: symbolLayerIsChinese,
                                                cornerQuotes: currentCornerQuotes)
     for (keys, faces) in zip(symbolLayerKeys, rows) {
@@ -4869,6 +4912,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 分几步拼出来：写成一个长的 + 表达式时，CI 上的编译器会在类型推断上超时。
     var keyRows: [UIView] = letterRowViews
     if let numberRowView { keyRows.append(numberRowView) }
+    if let symbolExtraRowView { keyRows.append(symbolExtraRowView) }
     keyRows += zhuyinRowViews
     keyRows += fourteenKeyRowViews
     keyRows += symbolRowViews
@@ -5020,6 +5064,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     applyTabletLetterKeys()
     let fullKeys = formFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
     numberRowView?.isHidden = !fullKeys || showsSymbols || nineKeyFrame || writes || kana || dachen || fourteenKey
+    let sourceHandwriting = isChineseMode && inputScheme == .handwriting && !isInLocalMode
+    symbolExtraRowView?.isHidden = !fullKeys || !showsSymbols || nineKey || sourceHandwriting
+      || kana || dachen || strokes || fourteenKey
     tabKey?.isHidden = !fullKeys
     let rowPunctuation = formFactor.showsLetterRowPunctuation
     for key in letterRowPunctuationKeys where key.isHidden == rowPunctuation { key.isHidden = !rowPunctuation }
@@ -5116,7 +5163,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana || nineKeyFrame || symbolLayer }
     symbolLayerRowViews.forEach { $0.isHidden = !symbolLayer }
-    if symbolLayer { updateSymbolLayerFaces() }
+    if symbolLayer || symbolExtraRowView?.isHidden == false { updateSymbolLayerFaces() }
     updateSymbolKeyFaces()
     for (row, height) in standardRowHeights { height.isActive = !row.isHidden }
     // 借用的数字页接替了这些键面原来的 123 层，返回键沿用那一层的读法；原拼音九键的数字层仍印「九键」。
@@ -6719,9 +6766,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       landscape: isLandscape, handwriting: !handwriting.isHidden, numberRow: showsKeyboardNumberRow)
   }
 
-  /// 是否显示第五排按键：iPad 的数字行，或代替它的大千各排。
+  /// 是否显示第五排按键：iPad 数字行、数字符号页补充行或大千各排。
   private var showsKeyboardNumberRow: Bool {
-    numberRowView?.isHidden == false || zhuyinRowViews.first?.isHidden == false
+    numberRowView?.isHidden == false || symbolExtraRowView?.isHidden == false
+      || zhuyinRowViews.first?.isHidden == false
   }
 
   private func updatePreferredKeyboardHeight() {
