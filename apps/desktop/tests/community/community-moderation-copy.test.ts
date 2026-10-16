@@ -10,7 +10,7 @@ test("candidate and shared skin detail pages reuse moderation controls", () => {
   )[0];
   const candidate = Object.values(
     import.meta.glob<string>(
-      "../../../../packages/ui/src/community/community-candidate-skins.tsx",
+      "../../../../packages/ui/src/community/community-candidate-skin-detail.tsx",
       {
         eager: true,
         query: "?raw",

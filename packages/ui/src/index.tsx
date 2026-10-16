@@ -1375,6 +1375,12 @@ export type {
 } from "./community/community-resource-model";
 export { CommunityCandidateSkinsPage } from "./community/community-candidate-skins";
 export {
+  CandidateSkinPreviewImage,
+  CommunityCandidateSkinDetail,
+  type CandidateSkinPreviewLoader,
+  type CommunityCandidateSkinDetailProps,
+} from "./community/community-candidate-skin-detail";
+export {
   candidateSkinCategories,
   candidateSkinCategoryLabels,
   type CandidateSkinCategory,

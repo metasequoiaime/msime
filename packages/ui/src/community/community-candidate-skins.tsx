@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { errorCode } from "../core/error-code";
 import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
@@ -7,7 +7,6 @@ import { CandidateSkinPublishDialog } from "./candidate-skin-publish-dialog";
 import { useCandidateSkinSync } from "./candidate-skin-sync";
 import {
   candidateSkinMessage,
-  communityLicenseLine,
   communityNeedsSignIn,
   communityPublishLoginAction,
 } from "./community-helpers";
@@ -16,18 +15,12 @@ import {
   useCommunityGallery,
   type CommunityGalleryClient,
 } from "./community-gallery";
-import { CommunityDetailSummary } from "./community-detail-summary";
-import { CommunityDetailFrame } from "./community-detail-frame";
 import * as style from "./community-style";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityScopeButtons } from "./community-scope-buttons";
-import { CommunityModerationSection } from "./community-moderation-section";
-import { CommunityReportSection } from "./community-report";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
-import { CommunityMetrics } from "./community-metrics";
-import { CommunityInstallActions } from "./community-install-actions";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityActionNotice } from "./community-action-notice";
@@ -36,14 +29,15 @@ import { CommunityPageShell } from "./community-page-shell";
 import { CommunityNotice } from "./community-notice";
 import { useCommunityInstallState } from "./community-install-state";
 import { communityInstallPreflight } from "./community-install-preflight";
-import { useAsyncGeneration } from "../settings/use-async-generation";
 import { ActionButton } from "../core/action-button";
-import {
-  CommunitySkinCategoryFilter,
-  CommunitySkinCategorySelect,
-} from "./community-skin-category";
+import { CommunitySkinCategoryFilter } from "./community-skin-category";
 import { communitySkinCategoryLabel } from "./community-skin-category-model";
 import { useCommunitySkinCategoryFilter } from "./use-community-skin-category-filter";
+import {
+  CandidateSkinPreviewImage,
+  type CandidateSkinPreviewLoader,
+  CommunityCandidateSkinDetail,
+} from "./community-candidate-skin-detail";
 
 import {
   type CandidateSkinVisibility,
@@ -66,48 +60,7 @@ export {
   type CandidateSkinCommunityClient,
 } from "./community-candidate-skin-model";
 
-type PreviewLoader = (id: string) => Promise<string>;
 const CANDIDATE_SKIN_PREVIEW_CACHE_CAPACITY = 16;
-
-/** The package's preview image, read only once its card or detail view is on the page. */
-function CandidateSkinPreviewImage({
-  id,
-  name,
-  load,
-  className,
-}: {
-  id: string;
-  name: string;
-  load: PreviewLoader;
-  className: string;
-}) {
-  const [url, setUrl] = useState("");
-  const [failed, setFailed] = useState(false);
-  const generation = useAsyncGeneration(id, load);
-  useEffect(() => {
-    const requestGeneration = generation.current;
-    setUrl("");
-    setFailed(false);
-    void load(id)
-      .then((value) => {
-        if (generation.current === requestGeneration) setUrl(value);
-      })
-      .catch(() => {
-        if (generation.current === requestGeneration) setFailed(true);
-      });
-  }, [id, load, generation]);
-  return (
-    <span className={`${className} grid min-h-[96px] place-items-center`}>
-      {url ? (
-        <img className="block max-h-[220px] w-full object-contain" src={url} alt={`${name} 预览`} />
-      ) : (
-        <span className="text-xs [color:var(--p-sub)]">
-          {failed ? "预览图加载失败" : "正在读取预览…"}
-        </span>
-      )}
-    </span>
-  );
-}
 
 function CommunityCandidateSkinCard({
   skin,
@@ -115,7 +68,7 @@ function CommunityCandidateSkinCard({
   open,
 }: {
   skin: CommunityCandidateSkin;
-  load: PreviewLoader;
+  load: CandidateSkinPreviewLoader;
   open: () => void;
 }) {
   return (
@@ -217,7 +170,7 @@ export function CommunityCandidateSkinsPage({
     categoryFilter.change(next, () => requestList(activeSearch, false));
 
   // One read per package per client: a card and its detail view share the image rather than fetching it twice. The cache belongs to the client, so a replaced client never answers with the previous one's image.
-  const loadPreview = useMemo<PreviewLoader>(() => {
+  const loadPreview = useMemo<CandidateSkinPreviewLoader>(() => {
     const cache = new Map<string, Promise<string>>();
     return (id) => {
       const cached = cache.get(id);
@@ -307,98 +260,31 @@ export function CommunityCandidateSkinsPage({
   };
 
   if (selected) {
-    const license = communityLicenseLine(selected.license);
-    const selectedCategory = communitySkinCategoryLabel(selected.category);
     return (
-      <CommunityDetailFrame
-        backDisabled={actionBusy}
-        onBack={closeDetail}
+      <CommunityCandidateSkinDetail
+        skin={selected}
+        load={loadPreview}
+        actionBusy={actionBusy}
+        detailBusy={detailBusy}
+        actionNotice={actionNotice}
         error={error}
         signInRequired={signInRequired}
+        installed={installed}
+        confirmReplace={confirmReplace}
+        confirmUnpublish={confirmUnpublish}
         onLogin={onLogin}
-      >
-        <CandidateSkinPreviewImage
-          id={selected.id}
-          name={selected.name}
-          load={loadPreview}
-          className={style.detailStage}
-        />
-        <CommunityDetailSummary
-          title={selected.name}
-          noteParts={[
-            selectedCategory,
-            selected.author,
-            selected.version && `v${selected.version}`,
-          ]}
-          owned={selected.owned}
-          moderation={selected.moderation}
-          ownedLabel={selected.visibility === "private" ? "私有" : "我的作品"}
-          description={selected.description}
-          metrics={license && <CommunityMetrics>{license}</CommunityMetrics>}
-          downloads={selected.downloads}
-          ratingCount={selected.rating_count}
-          ratingAverage={selected.rating_average}
-          myRating={selected.my_rating}
-          detailBusy={detailBusy}
-          actionNotice={actionNotice}
-          loadingText="正在读取皮肤详情…"
-        />
-        <CommunityInstallActions
-          installed={installed}
-          installedContent={
-            <>
-              <CommunityActionNotice>已安装到外部皮肤。</CommunityActionNotice>
-              {onOpenSkinPage && (
-                <ActionButton
-                  action={onOpenSkinPage}
-                  className={`primary ${style.action}`}
-                  label="去启用"
-                />
-              )}
-            </>
-          }
-          actionBusy={actionBusy}
-          detailBusy={detailBusy}
-          confirmReplace={confirmReplace}
-          replaceAriaLabel="确认替换皮肤"
-          replaceMessage={<>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</>}
-          onInstall={(replace) => void install(replace)}
-          onCancelReplace={() => setConfirmReplace(false)}
-        />
-        {selected.owned && (
-          <ActionButton
-            action={() =>
-              void changeVisibility(selected.visibility === "private" ? "public" : "private")
-            }
-            className={`secondary ${style.action}`}
-            disabled={actionBusy || detailBusy}
-            label={selected.visibility === "private" ? "公开" : "设为私有"}
-          />
-        )}
-        {selected.owned && (
-          <CommunitySkinCategorySelect
-            ariaLabel="修改分类"
-            value={selected.category ?? "other"}
-            disabled={actionBusy || detailBusy}
-            onChange={(next) => void changeOwnCategory(next)}
-          />
-        )}
-        <CommunityModerationSection
-          owned={selected.owned}
-          unpublishable={selected.visibility === "public"}
-          actionBusy={actionBusy}
-          ratingDescription="我的评分（安装后可评，可重新选择）"
-          unpublishMessage={`下架后其他用户无法再下载，下载数和评分会清空；本地皮肤会保留并以私有方式同步。只想不让别人看到，可以改用“设为私有”。确定下架“${selected.name}”吗？`}
-          confirmUnpublish={confirmUnpublish}
-          onRate={(stars) => void rateSelected(stars)}
-          onRequestUnpublish={() => setConfirmUnpublish(true)}
-          onUnpublish={() => void unpublish()}
-          onCancelUnpublish={() => setConfirmUnpublish(false)}
-        />
-        {!selected.owned && client.report && (
-          <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
-        )}
-      </CommunityDetailFrame>
+        onBack={closeDetail}
+        onInstall={(replace) => void install(replace)}
+        onCancelReplace={() => setConfirmReplace(false)}
+        onOpenSkinPage={onOpenSkinPage}
+        onChangeVisibility={(visibility) => void changeVisibility(visibility)}
+        onChangeCategory={(next) => void changeOwnCategory(next)}
+        onRate={(stars) => void rateSelected(stars)}
+        onRequestUnpublish={() => setConfirmUnpublish(true)}
+        onUnpublish={() => void unpublish()}
+        onCancelUnpublish={() => setConfirmUnpublish(false)}
+        onReport={client.report ? reportSelected : undefined}
+      />
     );
   }
 
