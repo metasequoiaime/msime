@@ -7,7 +7,7 @@ int main() {
         NSString *suite = [@"app.msime.test.voice." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         assert(MSIMEVoiceInputEnabled(defaults));
-        assert(MSIMEVoiceCueEnabled(defaults, YES) && MSIMEVoiceCueEnabled(defaults, NO));
+        assert(MSIMEVoiceCuesEnabled(defaults));
         NSDictionary *voice = @{
             @"enabled": @NO, @"hotkey_rctrl_ralt": @YES,
             @"language": @"en-US", @"asr_provider": @"openai",
@@ -23,7 +23,7 @@ int main() {
             @"polish_prompt_custom_2": @"two", @"polish_prompt_custom_3": @"three",
             @"sound_enabled": @NO, @"mute_system_audio": @YES, @"stream_inline_preedit": @NO,
             @"polish_enabled": @YES, @"polish_text": @YES, @"hotkey_ctrl_f9": @NO,
-            @"hotkey_hold_space_lock": @NO, @"hotkey_ralt": @YES, @"hotkey_ctrl_win": @YES
+            @"hotkey_ralt": @YES, @"hotkey_ctrl_win": @YES
         };
         assert(MSIMEApplySharedVoicePreferences(voice, defaults));
         assert(!MSIMEVoiceInputEnabled(defaults));
@@ -93,18 +93,33 @@ int main() {
         assert([MSIMEVoiceTokenForProvider(defaults, @"MSIMEClientVoiceASRTokens",
                                            @"groq", @"legacy") isEqual:@"slot-groq"]);
 
+        // macOS 只读提示音总开关：开始、结束提示音和空格锁定不再搬进本机设置，存下的 false 不再起作用，也不会从本机设置写回共享文档。
         for (NSNumber *master in @[@NO, @YES]) {
             for (NSNumber *start in @[@NO, @YES]) {
                 for (NSNumber *end in @[@NO, @YES]) {
                     MSIMEApplySharedVoicePreferences(@{@"sound_enabled": master, @"start_sound": start, @"end_sound": end}, defaults);
-                    assert(MSIMEVoiceCueEnabled(defaults, YES) == (master.boolValue && start.boolValue));
-                    assert(MSIMEVoiceCueEnabled(defaults, NO) == (master.boolValue && end.boolValue));
+                    assert(MSIMEVoiceCuesEnabled(defaults) == master.boolValue);
                 }
             }
         }
-        MSIMEApplySharedVoicePreferences(@{@"start_sound": @NO, @"end_sound": @NO}, defaults);
-        MSIMEApplySharedVoicePreferences(@{@"start_sound": @"true", @"end_sound": @1}, defaults);
-        assert(!MSIMEVoiceCueEnabled(defaults, YES) && !MSIMEVoiceCueEnabled(defaults, NO));
+        assert(!MSIMEApplySharedVoicePreferences(@{@"start_sound": @NO, @"end_sound": @NO, @"hotkey_hold_space_lock": @NO}, defaults));
+        assert(![defaults objectForKey:@"MSIMEClientVoiceStartSound"] && ![defaults objectForKey:@"MSIMEClientVoiceEndSound"]);
+        assert(![defaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"]);
+        [defaults setBool:NO forKey:@"MSIMEClientVoiceStartSound"];
+        [defaults setBool:NO forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+        NSDictionary *withoutCutKeys = MSIMEVoicePreferencesFromDefaults(defaults);
+        assert(!withoutCutKeys[@"start_sound"] && !withoutCutKeys[@"end_sound"] && !withoutCutKeys[@"hotkey_hold_space_lock"]);
+        [defaults removeObjectForKey:@"MSIMEClientVoiceStartSound"];
+        [defaults removeObjectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+
+        // 别的平台写下的录音后端（比如 Linux 的 pulse）不再让录音被拒绝：连同它的设备一起当作系统默认设备。
+        MSIMEApplySharedVoicePreferences(@{@"capture_backend": @"pulse", @"capture_device": @"alsa_input.fixture"}, defaults);
+        assert(MSIMEVoiceCaptureDeviceUID(defaults) == nil);
+        assert([[defaults stringForKey:@"MSIMEClientVoiceCaptureBackend"] isEqual:@"pulse"]);
+        MSIMEApplySharedVoicePreferences(@{@"capture_backend": @"macos", @"capture_device": @"fixture-uid"}, defaults);
+        assert([MSIMEVoiceCaptureDeviceUID(defaults) isEqual:@"fixture-uid"]);
+        MSIMEApplySharedVoicePreferences(@{@"capture_backend": @"", @"capture_device": @""}, defaults);
+        assert([MSIMEVoiceCaptureDeviceUID(defaults) isEqual:@""]);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
 }

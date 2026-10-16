@@ -4172,13 +4172,13 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     // Windows plays the start cue and only then mutes other audio. The macOS mute is device-wide and would swallow the cue, so it waits for the cue to finish; any restore before then cancels it.
     void (^mute)(void) = nil;
     if (MSIMEVoiceMuteSystemAudioEnabled(defaults)) mute = [_voiceAudioMuter deferredMute];
-    if (MSIMEVoiceCueEnabled(defaults, YES)) [_voiceCuePlayer playStartCueThen:mute];
+    if (MSIMEVoiceCuesEnabled(defaults)) [_voiceCuePlayer playStartCueThen:mute];
     else if (mute) mute();
 }
 - (void)voiceCaptureDidEnd {
     if (!_voiceCueRecording) return;
     _voiceCueRecording = NO;
-    if (MSIMEVoiceCueEnabled(NSUserDefaults.standardUserDefaults, NO)) [_voiceCuePlayer playStopCue];
+    if (MSIMEVoiceCuesEnabled(NSUserDefaults.standardUserDefaults)) [_voiceCuePlayer playStopCue];
 }
 - (NSScreen *)voiceInputScreen {
     if (!_activeClient) return nil;
@@ -4282,7 +4282,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         } error:nil]) return;
         [controller applyDoubaoFinalText:text request:liveRequest];
     } error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(error)]; return NO; }
-    NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
+    NSString *device = MSIMEVoiceCaptureDeviceUID(NSUserDefaults.standardUserDefaults);
     if (![_voiceService startPCMStreaming:^(NSData *pcm, NSError *failure) {
         id<MSIMEStreamingVoiceRequest> liveRequest = weakRequest;
         if (!liveRequest) return;
@@ -4355,7 +4355,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
             controller->_voiceGeneration != controller->_httpVoiceGeneration || !controller->_voiceService.active) return;
         [controller->_voiceOverlay setProcessing:YES];
     };
-    NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
+    NSString *device = MSIMEVoiceCaptureDeviceUID(NSUserDefaults.standardUserDefaults);
     const NSUInteger sampleLimit = request.sampleLimit;
     if (![_voiceService startPCMRecording:^(AVAudioPCMBuffer *buffer) {
         const float level = MSIMEVoiceInputLevel(buffer);
@@ -4629,10 +4629,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         MSIMEInputController *controller = weakSelf;
         if (!controller || !controller->_session) return;
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-        if (!MSIMEVoiceCaptureBackendSupported([defaults objectForKey:@"MSIMEClientVoiceCaptureBackend"])) {
-            [controller reportVoiceFailure:MSIMEVoiceFailureCapture];
-            return;
-        }
+        // 存着别的平台的录音后端时不再拒绝录音：MSIMEVoiceCaptureDeviceUID 把它当作系统默认设备。
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureSession]; return; }
         [controller->_voiceOverlay setListening:YES];
@@ -4668,7 +4665,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         if (![controller->_voiceService startTranscriptionWithLanguage:language textHandler:^(NSString *text, BOOL final) {
             [weakSelf applyLiveVoiceText:text final:final token:token];
         } error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureProvider]; return; }
-        NSString *deviceUID = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
+        NSString *deviceUID = MSIMEVoiceCaptureDeviceUID(NSUserDefaults.standardUserDefaults);
         if (![controller->_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) {
             const float level = MSIMEVoiceInputLevel(buffer);
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -5896,7 +5893,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyRightAlt"] != NO,
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlCommand"] != NO,
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"] != NO,
-        [voiceDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"] == nil || [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyHoldSpace"]
+        // 空格锁定固定为开：空格只在按住录音组合键期间才被拦下，平常打字不受影响。设置页不再给这个开关（`voice_space_lock_switch`），存下的 false 也不再读。
+        true
     }, _voiceService.active) : MSIMEVoiceHoldShortcut::Result{};
     if (voiceShortcut.consumed || voiceShortcut.action != MSIMEVoiceHoldShortcut::Action::None) _modifierTap.reset();
     // MSIME-Windows shows the overlay's cancel and confirm buttons once the hold is locked (ControlCommand::Lock).
