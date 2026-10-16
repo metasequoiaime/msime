@@ -259,6 +259,7 @@ test("按键 draws the HarmonyOS touch keyboard and lists the keys it has no pla
     KeyN: 10,
     Quote: 4,
     SoftSymbol: 2,
+    Comma: 7,
     Space: 6,
     Digit1: 3,
     SoftPunctuation: 5,
@@ -276,7 +277,7 @@ test("按键 draws the HarmonyOS touch keyboard and lists the keys it has no pla
   const names = within(full)
     .getAllByRole("img")
     .map((cap) => cap.getAttribute("aria-label"));
-  // 全拼中文模式：字母印大写，Shift 位是分词，底行 符 | 123 | 空格 | 中 | 回车，没有逗号句号。
+  // 全拼中文模式：字母印大写，Shift 位是分词，底行为 123 | 符 | 空格 | 逗号 | 中 | 回车。
   expect(names.slice(0, 3)).toEqual(["Q，0 次", "W，0 次", "E，0 次"]);
   expect(names.slice(19)).toEqual([
     "分词，4 次",
@@ -288,13 +289,14 @@ test("按键 draws the HarmonyOS touch keyboard and lists the keys it has no pla
     "N，10 次",
     "M，0 次",
     "退格，0 次",
-    "符号，2 次",
     "123，0 次",
+    "符号，2 次",
     "空格，6 次",
+    ",，7 次",
     "中/英，0 次",
     "回车，0 次",
   ]);
-  expect(within(full).queryByText("，")).toBeNull();
+  expect(within(full).getByText("，")).toBeTruthy();
   expect(within(full).getByText("Q")).toBeTruthy();
   const others = screen.getByRole("list", { name: "其他键" });
   expect(
@@ -332,7 +334,7 @@ test("按键 draws the HarmonyOS touch keyboard and lists the keys it has no pla
     within(screen.getByRole("list", { name: "其他键" }))
       .getAllByRole("listitem")
       .map((item) => item.getAttribute("aria-label")),
-  ).toEqual(["N，10 次", "1，3 次", "左 Shift，1 次"]);
+  ).toEqual(["N，10 次", ",，7 次", "1，3 次", "左 Shift，1 次"]);
 });
 
 test("成就 counts unlocked badges and toasts what a tapped badge is for", async () => {
