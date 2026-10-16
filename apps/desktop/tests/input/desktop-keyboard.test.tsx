@@ -335,25 +335,30 @@ test("the macOS keyboard draws the default spacing whatever is stored", async ()
   await waitFor(() => expect(gaps()).toEqual(["3.5px", "9.5px"]));
 });
 
-// macOS 的屏幕键盘与原生面板一样跟随颜色模式（`surface_themes_follow`），存下的屏幕键盘主题不起作用；Windows 照旧按它着色。
-test("the keyboard panel follows the colour mode where the host's surfaces do", async () => {
+// 桌面宿主的屏幕键盘与原生面板一样跟随颜色模式（`surface_themes_follow`），存下的屏幕键盘主题不起作用；宿主报告不跟随时照旧按它着色。
+test.each(["macos", "windows", "linux"])(
+  "the %s keyboard panel follows the colour mode",
+  async (platform) => {
+    render(
+      <DesktopKeyboard
+        client={panel}
+        preferences={{
+          host: testHost({ platform }),
+          load: async () => snapshot(1, "light", "dark"),
+        }}
+      />,
+    );
+    // 面板载入前默认画深色，所以这里用浅色的颜色模式配深色的单独设置，等到的浅色只能来自颜色模式。
+    await waitFor(() => expect(theme()).toBe("light"));
+  },
+);
+
+test("a keyboard panel whose host does not follow the colour mode applies its own theme", async () => {
   render(
     <DesktopKeyboard
       client={panel}
       preferences={{
-        host: testHost({ platform: "macos" }),
-        load: async () => snapshot(1, "light", "dark"),
-      }}
-    />,
-  );
-  // 面板载入前默认画深色，所以这里用浅色的颜色模式配深色的单独设置，等到的浅色只能来自颜色模式。
-  await waitFor(() => expect(theme()).toBe("light"));
-  cleanup();
-  render(
-    <DesktopKeyboard
-      client={panel}
-      preferences={{
-        host: testHost({ platform: "windows" }),
+        host: testHost({ platform: "windows", surface_themes_follow: false }),
         load: async () => snapshot(1, "dark", "light"),
       }}
     />,

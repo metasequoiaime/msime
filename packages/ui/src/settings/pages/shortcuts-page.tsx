@@ -1,6 +1,7 @@
 import { NavigationSection } from "../navigation-section";
 import {
   defaultNavigation,
+  effectiveNavigation,
   pagingPreferencesPatch,
   restorePagingChange,
   type CandidatePagingChange,
@@ -25,6 +26,7 @@ export function ShortcutSettingsPage() {
     showPanelShortcuts,
     showNumberRowSelection,
     showFullwidthChord,
+    showTabPagePagingSwitches,
     fullwidthChord,
     draft,
     setDraft,
@@ -56,7 +58,8 @@ export function ShortcutSettingsPage() {
       windows={windowsPlatform}
       capsLockLanguageSwitch={host?.caps_lock_language_switch ?? false}
       japaneseToggle={offersJapaneseToggle(host)}
-      navigation={navigation}
+      // 速查列出实际生效的翻页键：宿主把 Tab 和 PageUp/PageDown 固定为开时，不管文档里存的值。
+      navigation={effectiveNavigation(navigation, showTabPagePagingSwitches)}
       // iOS 键盘扩展收不到实体键，以词定字靠长按候选，没有可列的键。
       wordCharacter={iosPlatform ? undefined : wordCharacter}
       numberRowSelection={draft.number_row_selection ?? true}
@@ -71,6 +74,7 @@ export function ShortcutSettingsPage() {
             wordCharacter={wordCharacter}
             linux={false}
             harmonyPhone
+            tabPageSwitches={showTabPagePagingSwitches}
             onChange={onPagingChange}
           />
         )

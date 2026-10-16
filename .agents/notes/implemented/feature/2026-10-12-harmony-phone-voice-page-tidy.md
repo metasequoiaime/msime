@@ -26,6 +26,8 @@ Status: implemented
   - 提示音（开始、结束，总开关关着时变灰）；
   - 录音设备。
 - `LinkRow` 新增可选的 `value`，画在 › 前面，并挂在 `aria-describedby` 上。
+- 桌面语音页照同一分法收进「服务配置」子视图，子视图在页面里换上来而不是全屏覆盖，见[精简语音输入设置页](../simplification/2026-10-16-macos-voice-settings-prune.md)。
+- 「服务配置」里的「提示音」组（开始、结束）后来随 `voice_cue_switches` 收起：键盘只看总开关；「录音设备」改成一个「麦克风」下拉。原因见[精简语音输入设置页](../simplification/2026-10-16-macos-voice-settings-prune.md)的「各平台跟进」。
 
 ## Alternatives considered
 

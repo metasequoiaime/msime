@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { preeditControlState } from "../settings/preedit-preferences";
 import {
   decorationImage,

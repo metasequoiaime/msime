@@ -236,6 +236,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-h
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt" "${MSIME_LEGAL_DIRECTORY}/kfcd-chaizi-CC-BY-3.0.txt" COPYONLY)
 # 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Unicode-License-V3.txt" "${MSIME_LEGAL_DIRECTORY}/Unicode-License-V3.txt" COPYONLY)
+# 简繁转换内嵌 OpenCC 词表，Apache-2.0 原文随宿主分发。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/OpenCC-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/OpenCC-Apache-2.0.txt" COPYONLY)
 # The Cantonese and Zhuyin schemes, whose syllables and words come from the dictionaries in language-dictionaries/ (when installed), built from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-cantonese-CC-BY-4.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt" "${MSIME_LEGAL_DIRECTORY}/libchewing-data-LGPL-2.1.txt" COPYONLY)
@@ -986,7 +988,7 @@ target_include_directories(shuangpin-keymap-input-test PRIVATE src)
 target_compile_options(shuangpin-keymap-input-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shuangpin-keymap-input-test PRIVATE apple-client "-framework AppKit")
 add_test(NAME shuangpin-keymap-input COMMAND shuangpin-keymap-input-test)
-add_executable(candidate-panel-test tests/candidate/CandidatePanelTests.mm src/candidate/CandidatePanel.mm src/core/DiagnosticLog.cpp src/candidate/CandidateSkinAppearance.mm src/candidate/CandidateSkin.cpp)
+add_executable(candidate-panel-test tests/candidate/CandidatePanelTests.mm src/candidate/CandidatePanel.mm src/candidate/CandidateMotion.mm src/core/DiagnosticLog.cpp src/candidate/CandidateSkinAppearance.mm src/candidate/CandidateSkin.cpp)
 target_compile_options(candidate-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(candidate-panel-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework QuartzCore")
 add_test(NAME candidate-panel COMMAND candidate-panel-test)
@@ -1268,7 +1270,7 @@ foreach(msime_target IN LISTS MSIME_VOICE_SERVICE_TARGETS)
   endif()
 endforeach()
 
-# InputController.mm draws typing effects through TypingEffectPanel.mm, which animates with Core Animation. Every target compiling the controller next to its HUD panel - the input method and each controller test - takes the panel and QuartzCore, found by source like the loops above so a new controller test cannot miss it.
+# InputController.mm draws typing effects through TypingEffectPanel.mm and candidate skin motion through CandidateMotion.mm, both Core Animation. Every target compiling the controller next to its HUD panel - the input method and each controller test - takes both and QuartzCore, found by source like the loops above so a new controller test cannot miss it.
 get_property(MSIME_TYPING_EFFECT_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(msime_target IN LISTS MSIME_TYPING_EFFECT_TARGETS)
   get_target_property(msime_target_sources ${msime_target} SOURCES)
@@ -1279,7 +1281,7 @@ foreach(msime_target IN LISTS MSIME_TYPING_EFFECT_TARGETS)
      AND NOT "src/core/FloatingToolbarPanel.mm" IN_LIST msime_target_sources)
     continue()
   endif()
-  target_sources(${msime_target} PRIVATE src/input/TypingEffectPanel.mm)
+  target_sources(${msime_target} PRIVATE src/input/TypingEffectPanel.mm src/candidate/CandidateMotion.mm)
   target_link_libraries(${msime_target} PRIVATE "-framework QuartzCore")
 endforeach()
 

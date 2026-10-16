@@ -167,7 +167,15 @@ test("the 2in1 names its form factor in the version line and keeps its download 
   const about = await screen.findByRole("group", { name: "关于" });
 
   expect(await within(about).findByText("版本 1.4.2 · HarmonyOS 2in1")).toBeTruthy();
-  expect(groupTitles(about)).toEqual(["版本与更新", "法律信息", "隐私"]);
+  // 2in1 是桌面形态，「帮助与反馈」并进这一页，接在「版本与更新」后面。
+  expect(groupTitles(about)).toEqual([
+    "版本与更新",
+    "帮助",
+    "提交可复现的问题",
+    "反馈与交流",
+    "法律信息",
+    "隐私",
+  ]);
   expect(within(about).getByRole("button", { name: "其他平台下载" })).toBeTruthy();
 });
 

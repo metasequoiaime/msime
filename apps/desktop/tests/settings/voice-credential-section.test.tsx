@@ -25,9 +25,52 @@ test("uses the bidirectional Doubao endpoint when no endpoint is saved", () => {
   expect((screen.getByRole("combobox", { name: "流式接口" }) as HTMLSelectElement).value).toBe(
     "async",
   );
+  // 预设地址不再另画一行地址输入框：下拉和输入框写的是同一个接口地址。
+  expect(screen.queryByLabelText("识别接口地址")).toBeNull();
   expect(screen.getByLabelText("Doubao API Key")).toBeTruthy();
   expect((screen.getByRole("button", { name: "保存识别凭据" }) as HTMLButtonElement).disabled).toBe(
     true,
+  );
+});
+
+test("Doubao shows the address field only for a custom endpoint", () => {
+  const onChange = vi.fn();
+  const view = (endpoint?: string) => (
+    <VoiceCredentialSection
+      kind="asr"
+      provider="doubao"
+      model=""
+      input={{ token: "", appKey: "", ...(endpoint === undefined ? {} : { endpoint }) }}
+      busy={false}
+      onChange={onChange}
+      onSave={vi.fn()}
+      onClear={vi.fn()}
+    />
+  );
+  const { rerender } = render(view());
+  const stream = screen.getByRole("combobox", { name: "流式接口" }) as HTMLSelectElement;
+  // 选「自定义地址」不写地址，只露出输入框；输入框里还是默认的空地址。
+  fireEvent.change(stream, { target: { value: "custom" } });
+  expect(onChange).not.toHaveBeenCalled();
+  expect(stream.value).toBe("custom");
+  const address = screen.getByLabelText("识别接口地址") as HTMLInputElement;
+  expect(address.value).toBe("");
+  fireEvent.change(address, { target: { value: "wss://asr.example.test/stream" } });
+  expect(onChange).toHaveBeenLastCalledWith({ endpoint: "wss://asr.example.test/stream" });
+  // 打字打出预设地址时输入框也不收起。
+  rerender(view("wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"));
+  expect(screen.getByLabelText("识别接口地址")).toBeTruthy();
+  // 改回预设就收起。
+  fireEvent.change(stream, { target: { value: "nostream" } });
+  expect(screen.queryByLabelText("识别接口地址")).toBeNull();
+  // 存的地址不是预设时一打开就显示输入框，下拉停在「自定义地址」。
+  cleanup();
+  render(view("wss://asr.example.test/stream"));
+  expect((screen.getByRole("combobox", { name: "流式接口" }) as HTMLSelectElement).value).toBe(
+    "custom",
+  );
+  expect((screen.getByLabelText("识别接口地址") as HTMLInputElement).value).toBe(
+    "wss://asr.example.test/stream",
   );
 });
 

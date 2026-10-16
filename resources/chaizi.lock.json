@@ -24,7 +24,10 @@
     }
   ],
   "unihan_lock": "resources/character-glosses.lock.json",
-  "opencc": "crates/client-base/data/opencc/",
   "license_file": "resources/licenses/kfcd-chaizi-CC-BY-3.0.txt",
-  "outputs": ["crates/engine/src/local/chaizi.tsv", "crates/engine/src/local/chaizi-chars.tsv"]
+  "outputs": [
+    "crates/engine/src/local/chaizi.tsv",
+    "crates/engine/src/local/chaizi-chars.tsv"
+  ],
+  "opencc_lock": "resources/opencc.lock.json"
 }

@@ -78,12 +78,14 @@ test("真实保存回执返回同值 AI 副本时，当前润色请求和结果�
       client={{
         load: async () => initial,
         save,
-        host: testHost({ platform: "linux", ai_provider_credentials: true }),
+        // 「AI 润色测试」只在用这份配置润色的触屏宿主上保留（桌面上已经撤掉），所以在 Android 上测。
+        host: testHost({ platform: "android" }),
         aiAssistant: { fetchModels: vi.fn(), test: () => polish.promise },
       }}
     />,
   );
   await settingsFormReady();
+  fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "synthetic-token" } });
   fireEvent.click(screen.getByRole("switch", { name: "启用 AI 辅助" }));
   saveSettingsNow();
   await waitFor(() => expect(save).toHaveBeenCalledOnce());

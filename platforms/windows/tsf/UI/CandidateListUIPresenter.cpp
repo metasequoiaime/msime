@@ -102,9 +102,8 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
             {
                 return hr;
             }
-            // A Hanja clicked in the candidate window was chosen by the Server's session. The host session still holds the syllable with its list open, and would otherwise build the next letter on it. The Server refuses a click on a Zhuyin row, which would commit nothing, so only a commit made this way reaches here.
-            if (hostOwnsComposition &&
-                msime::windows::scheme::AlwaysInlinePreedit(Global::InputModeScheme.load(std::memory_order_relaxed)))
+            // 候选窗里点选的候选是 Server 的会话选的，宿主会话还留着整段原文和候选。不丢掉的话下一个字母接着它组字，Shift 或回车还会把这段已经上屏的拼音再交出来一次（全拼：点「你好」「世界」后按 Shift 多出 nihaoshijie）。韩文汉字也是这样；Server 拒绝点注音的行，那样什么也不上屏，所以只有这样上屏的点选会走到这里。
+            if (hostOwnsComposition)
             {
                 (void)_CancelHostComposition();
             }
@@ -150,6 +149,15 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
             GlobalIme::word_for_creating_word = L"";
             _creatingWordRestoreHistory.clear();
             GlobalIme::pending_create_word_preedit.clear();
+            // 宿主会话拥有组字时，空格在宿主会话里选中同一个高亮候选，和数字键一样（_HandleCandidateWorker）。以前这里只写 Server 回的文字，宿主会话从不前进：每次空格上屏的拼音都留在里面越积越长，Shift 切英文时整串上屏（打 nihao 空格、shijie 空格，再按 Shift 得到「你好世界nihaoshijie」）。
+            if (hostOwnsComposition)
+            {
+                const HRESULT selected = _SelectHighlightedHostCandidate(ec, pContext);
+                if (selected != S_FALSE)
+                {
+                    return selected;
+                }
+            }
             // 空格、数字或回车选中的符号候选恰好是一个左半边时补上右半边，上屏之后再记下这一对并移回光标（见函数末尾）。
             candidatePairedClosing = _CandidateCommitPairedClosing(serverCandidateString);
             if (candidatePairedClosing != 0)
@@ -168,6 +176,11 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
             {
                 return hr;
             }
+            // 候选窗和宿主会话对不上，上屏的是 Server 回的文字；宿主会话里的这段原文就丢掉，不让它在之后的 Shift 或回车时再出现。
+            if (hostOwnsComposition)
+            {
+                (void)_CancelHostComposition();
+            }
         }
         // 空格、数字上屏的是释义（Tab 预选的释义列、Ctrl+Enter 的释义页）：Server 已经取消了组字，回复是要原样上屏的完整文本，不补成对标点。以前这里没有这个分支，回复落到下面直接结束组字，上屏的是组字里原有的文字而不是释义。宿主会话拥有组字时，数字不经过这里，由 _HandleCandidateWorker 先读同一种回复。
         else if (serverMsgType == Global::DataFromServerMsgType::CommitExactText)
@@ -177,6 +190,15 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
         /* 处理造词的逻辑 */
         else if (serverMsgType == Global::DataFromServerMsgType::NeedToCreateWord)
         {
+            // 空格只选中了一段：宿主会话同样选中这一段，组字显示「已选汉字 + 剩下的拼音」。以前宿主会话没有前进，组字又显示成整段拼音（选了「你好」后是「你好nihaoshijie」），Shift 时已选的「你好」也丢了。下面按 Server 回的剩余原文重建按键缓冲的写法只对没有宿主会话的旧处理器有意义。
+            if (hostOwnsComposition)
+            {
+                const HRESULT selected = _SelectHighlightedHostCandidate(ec, pContext);
+                if (selected != S_FALSE)
+                {
+                    return selected;
+                }
+            }
             std::wstring data = serverCandidateString;
             const size_t separator = data.find(L'\t');
             if (separator != std::wstring::npos)
@@ -407,62 +429,72 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
                 return _CommitServerExactText(ec, pContext, exactText);
             }
         }
-        std::string viewRaw, error;
-        msime::tsf::EngineResult view;
-        CCandidateListItem displayed;
-        if (_pCandidateListUIPresenter->_GetSelectedEngineCandidate(&displayed) &&
-            host->view(&viewRaw, &error) &&
-            msime::tsf::EngineSessionAdapter::parse_result(viewRaw, &view, &error) &&
-            displayed.MatchesEngineView(view.view.session, view.view.generation))
-        {
-            std::string raw;
-            if (host->select(displayed._EngineGeneration, displayed._EngineIndex, &raw, &error))
-            {
-                msime::tsf::EngineResult selected;
-                if (msime::tsf::EngineSessionAdapter::parse_result(raw, &selected, &error) &&
-                    selected.has_commit && !selected.commit.empty())
-                {
-                    const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, selected.commit.data(),
-                                                      static_cast<int>(selected.commit.size()), nullptr, 0);
-                    std::wstring commit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
-                    if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, selected.commit.data(),
-                                                   static_cast<int>(selected.commit.size()), commit.data(), n);
-                    // 和空格、回车、点选一样：数字选中的符号候选恰好是一个左半边时补上右半边，上屏之后记下这一对并把光标移回两半之间。
-                    const WCHAR pairedClosing = _CandidateCommitPairedClosing(commit);
-                    const WCHAR pairedOpening = pairedClosing != 0 ? commit.front() : L'\0';
-                    if (pairedClosing != 0)
-                    {
-                        commit.push_back(pairedClosing);
-                    }
-                    CStringRange selectedText;
-                    selectedText.Set(commit.c_str(), commit.size());
-                    hrReturn = _AddCharAndFinalize(ec, pContext, &selectedText);
-                    if (FAILED(hrReturn))
-                    {
-                        _DeleteCandidateList(FALSE, pContext);
-                        return hrReturn;
-                    }
-                    // 选中的词写进组字范围后要结束组字，和空格经 _HandleCandidateFinalize 上屏一样。以前这里只关候选列表，TSF 组字还罩在刚上屏的词上，下一个字母开始的新组字把它整段替换掉：打 pingguo 按 1 得到「苹果」，再按 n 只剩「n」。真机上 WPF 文本框里复现，2026-09-12 的 005d8820b7 引入。
-                    _smartPunctuationShadowChar = commit.back();
-                    _smartPunctuationShadowValid = true;
-                    _HandleCompleteCommitFirst(ec, pContext);
-                    // 移回光标的是合成给应用的左方向键，要在组字结束之后再发，否则它落在还开着的组字里。
-                    _OpenCandidateCommitPair(pairedOpening, pairedClosing);
-                    return hrReturn;
-                }
-                if (selected.handled)
-                    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext,
-                                                         FANY_IME_NO_REQUEST_ID);
-            }
-        }
         // Never turn a stale/failed host selection into a legacy text commit.
-        return S_FALSE;
+        return _SelectHighlightedHostCandidate(ec, pContext);
     }
 
     hrReturn = _HandleCandidateFinalize(ec, pContext, requestId, prefetchedText);
 
 Exit:
     return hrReturn;
+}
+
+//+---------------------------------------------------------------------------
+//
+// _SelectHighlightedHostCandidate
+//
+//----------------------------------------------------------------------------
+
+HRESULT CMetasequoiaIME::_SelectHighlightedHostCandidate(TfEditCookie ec, _In_ ITfContext *pContext)
+{
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!host || !host->valid() || !_pCandidateListUIPresenter) return S_FALSE;
+    std::string viewRaw, error;
+    msime::tsf::EngineResult view;
+    CCandidateListItem displayed;
+    if (!_pCandidateListUIPresenter->_GetSelectedEngineCandidate(&displayed) ||
+        !host->view(&viewRaw, &error) ||
+        !msime::tsf::EngineSessionAdapter::parse_result(viewRaw, &view, &error) ||
+        !displayed.MatchesEngineView(view.view.session, view.view.generation))
+        return S_FALSE;
+    std::string raw;
+    msime::tsf::EngineResult selected;
+    if (!host->select(displayed._EngineGeneration, displayed._EngineIndex, &raw, &error) ||
+        !msime::tsf::EngineSessionAdapter::parse_result(raw, &selected, &error))
+        return S_FALSE;
+    if (selected.has_commit && !selected.commit.empty())
+    {
+        const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, selected.commit.data(),
+                                          static_cast<int>(selected.commit.size()), nullptr, 0);
+        std::wstring commit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
+        if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, selected.commit.data(),
+                                       static_cast<int>(selected.commit.size()), commit.data(), n);
+        // 和空格、回车、点选一样：数字选中的符号候选恰好是一个左半边时补上右半边，上屏之后记下这一对并把光标移回两半之间。
+        const WCHAR pairedClosing = _CandidateCommitPairedClosing(commit);
+        const WCHAR pairedOpening = pairedClosing != 0 ? commit.front() : L'\0';
+        if (pairedClosing != 0)
+        {
+            commit.push_back(pairedClosing);
+        }
+        CStringRange selectedText;
+        selectedText.Set(commit.c_str(), commit.size());
+        const HRESULT hr = _AddCharAndFinalize(ec, pContext, &selectedText);
+        if (FAILED(hr))
+        {
+            _DeleteCandidateList(FALSE, pContext);
+            return hr;
+        }
+        // 选中的词写进组字范围后要结束组字。以前数字选词只关候选列表，TSF 组字还罩在刚上屏的词上，下一个字母开始的新组字把它整段替换掉：打 pingguo 按 1 得到「苹果」，再按 n 只剩「n」。真机上 WPF 文本框里复现，2026-09-12 的 005d8820b7 引入。
+        _smartPunctuationShadowChar = commit.back();
+        _smartPunctuationShadowValid = true;
+        _HandleCompleteCommitFirst(ec, pContext);
+        // 移回光标的是合成给应用的左方向键，要在组字结束之后再发，否则它落在还开着的组字里。
+        _OpenCandidateCommitPair(pairedOpening, pairedClosing);
+        return hr;
+    }
+    if (selected.handled)
+        return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
+    return S_FALSE;
 }
 
 //+---------------------------------------------------------------------------

@@ -711,8 +711,8 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(linux["value"]["platform"], "linux");
     assert_eq!(linux["value"]["restart_input_method"], true);
     assert_eq!(linux["value"]["ime_mode_scope"], true);
-    // Every host reads capabilities through this boundary, so the border colour reaches the Linux page here.
-    assert_eq!(linux["value"]["candidate_border_color"], true);
+    // Every host reads capabilities through this boundary; the Fcitx5 border follows the theme, so the Linux page gets no border picker.
+    assert_eq!(linux["value"]["candidate_border_color"], false);
     assert_eq!(linux["value"]["candidate_selection_appearance"], false);
     // Fcitx5 主题支持圆角和候选字号缩放，桌面面板仍不提供半透明填充。
     assert_eq!(linux["value"]["candidate_corner_radius"], true);
@@ -737,16 +737,22 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(macos["value"]["expand_candidates"], true);
     assert_eq!(windows["value"]["expand_candidates"], false);
     assert_eq!(linux["value"]["expand_candidates"], false);
-    // macOS 的各界面一律跟随颜色模式，编号色和边框色跟随主题，设置页按这三项收起对应的控件。
+    // 桌面宿主的各界面一律跟随颜色模式，编号色和边框色跟随主题，设置页按这三项收起对应的控件。
     assert_eq!(macos["value"]["surface_themes_follow"], true);
     assert_eq!(macos["value"]["candidate_number_color"], false);
     assert_eq!(macos["value"]["candidate_border_color"], false);
-    assert_eq!(windows["value"]["surface_themes_follow"], false);
-    assert_eq!(windows["value"]["candidate_number_color"], true);
+    assert_eq!(windows["value"]["surface_themes_follow"], true);
+    assert_eq!(windows["value"]["candidate_number_color"], false);
+    assert_eq!(windows["value"]["candidate_border_color"], false);
+    assert_eq!(linux["value"]["surface_themes_follow"], true);
+    assert_eq!(linux["value"]["candidate_number_color"], false);
 
     let android = capabilities("android");
     assert_eq!(android["value"]["panel_windows"], false);
     assert_eq!(android["value"]["window_chrome"], false);
+    // Android 的键盘仍读各界面的单独明暗和自定义编号色。
+    assert_eq!(android["value"]["surface_themes_follow"], false);
+    assert_eq!(android["value"]["candidate_number_color"], true);
 
     assert_eq!(capabilities("bsd")["ok"], false);
     assert_eq!(capabilities("")["ok"], false);
@@ -1233,7 +1239,17 @@ fn mixed_input_changes_defer_until_composition_ends() {
         let sessions = sessions.borrow();
         let options = &sessions[&handle].options;
         assert!(!options.mixed_english);
-        assert_eq!(options.english_minimum_prefix, 8);
+        // 三个桌面宿主不读文档里的触发字符数，固定为默认的 5；触屏宿主照文档。
+        let expected_prefix = if cfg!(any(
+            target_os = "android",
+            target_os = "ios",
+            target_env = "ohos"
+        )) {
+            8
+        } else {
+            5
+        };
+        assert_eq!(options.english_minimum_prefix, expected_prefix);
         assert!(options.mixed_emoji && options.mixed_kaomoji);
         assert!(options.mixed_japanese);
         assert!(!options.mixed_symbols);
@@ -1242,6 +1258,32 @@ fn mixed_input_changes_defer_until_composition_ends() {
     assert_eq!(update(handle, 2, &preferences)["ok"], false);
     read(msime_client_destroy(handle));
 }
+/// 不读触发字符数的宿主（macOS、Windows、Linux）一律拿默认的 5，触屏宿主照文档里存的数。
+#[test]
+fn english_minimum_prefix_is_fixed_where_the_host_does_not_read_it() {
+    for platform in [
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(english_minimum_prefix_for(platform, 2), 2, "{platform:?}");
+        assert_eq!(english_minimum_prefix_for(platform, 8), 8, "{platform:?}");
+    }
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+    ] {
+        for stored in 1..=8 {
+            assert_eq!(
+                english_minimum_prefix_for(platform, stored),
+                5,
+                "{platform:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn frequency_changes_wait_for_composition_and_reject_invalid_updates() {
     use msime_client_core::preferences::{FrequencyMode, FrequencyPreferences};
@@ -8235,6 +8277,41 @@ fn an_in_memory_ai_credential_stays_bound_to_its_endpoint() {
 }
 
 #[test]
+fn the_ai_request_sends_the_platforms_candidate_limit() {
+    // 存下的数量是 1。固定数量的平台（macOS、Windows、Linux）不读它：在线查询和请求描述用同一个固定值，`chat_completion_http_request` 才不会因为两边不一致拒绝请求。
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        ..chinese_preferences()
+    };
+    preferences.ai_assistant.enabled = true;
+    preferences.ai_assistant.model = "synthetic-model".into();
+    preferences.ai_assistant.token = "synthetic-private".into();
+    preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
+    preferences.ai_assistant.candidate_limit = 1;
+    let expected = host_ai_candidate_limit(1);
+    let handle = test_host_preferences(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let query = read(msime_client_online_query(handle))["value"].clone();
+    assert_eq!(query["ai_assistant"]["candidate_limit"], expected);
+    let query = query.to_string();
+    let descriptor =
+        read(unsafe { msime_client_ai_request_for_query(handle, query.as_ptr(), query.len()) });
+    assert_eq!(descriptor["ok"], true);
+    let user: Value = serde_json::from_str(
+        descriptor["value"]["body"]["messages"][1]["content"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(user["candidate_limit"], expected);
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn ai_queries_and_delivery_follow_pending_preferences() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = Preferences {
@@ -8332,9 +8409,10 @@ fn ai_queries_and_delivery_follow_pending_preferences() {
                 current["ai_assistant"]["prompt_custom_1"],
                 preferences.ai_assistant.prompt_custom_1
             );
+            // 固定候选数量的平台（macOS、Windows、Linux）不读存下的值，查询里始终是固定值。
             assert_eq!(
                 current["ai_assistant"]["candidate_limit"],
-                preferences.ai_assistant.candidate_limit
+                host_ai_candidate_limit(preferences.ai_assistant.candidate_limit)
             );
         }
         for batch in [false, true] {

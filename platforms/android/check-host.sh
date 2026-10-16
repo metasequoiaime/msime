@@ -560,17 +560,8 @@ if ! rg -q 'if \(length > 1024 \* 1024\)' \
   echo "Android Doubao decoding must bound the Java frame before copying" >&2
   exit 1
 fi
-# Opaque local speech handles are native pointers. Java rejects non-positive values, and JNI keeps
-# the same boundary so a direct native call cannot turn a negative sentinel into an invalid dereference.
-if ! rg -q 'if \(handle <= 0\) return nullptr;' \
-    "$repo_root/platforms/android/native/client_jni.cpp" \
-  || ! rg -q 'if \(handle > 0\) delete speech\(handle\);' \
-    "$repo_root/platforms/android/native/client_jni.cpp" \
-  || ! rg -q 'NativeHandlePolicy\.requirePositive\(handle\)' \
-    "$repo_root/platforms/android/java/app/msime/android/core/NativeClient.java"; then
-  echo "Android local speech handles must reject non-positive values before JNI pointer use" >&2
-  exit 1
-fi
+# 语音句柄的创建、查找与撤销由 LocalSpeechHandleDeviceSmoke 经真实 JNI 验证。
+# 不再用指针转换和符号比较的源码形状充当有效性检查。
 # The Engine decides what a punctuation key produces, so the Chinese/English state has to reach it.
 # A toggle that only changed this keyboard's key faces would show one mark and commit the other.
 if ! rg -q 'setChinesePunctuationRaw' \

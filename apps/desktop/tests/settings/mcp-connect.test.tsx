@@ -96,18 +96,51 @@ async function openDeveloper(extra: Partial<SettingsClient>) {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
+  // 连接命令和配置收在「维护与诊断」下的「连接 AI 助手」子页里，维护页上只有进入它的一行。
+  const entry = screen.queryByRole("button", { name: /连接 AI 助手/ });
+  if (entry) fireEvent.click(entry);
+}
+
+/** 子页里的「连接 AI 助手」一块。子页本身的 fieldset 也叫这个名字，取里面那一个。 */
+async function mcpGroup() {
+  return (await screen.findAllByRole("group", { name: "连接 AI 助手" })).at(-1)!;
 }
 
 test("a host without the server shows no section", async () => {
   await openDeveloper({});
   expect(screen.queryByRole("group", { name: "连接 AI 助手" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /连接 AI 助手/ })).toBeNull();
+});
+
+test("the maintenance page carries one row into the 连接 AI 助手 page instead of the whole block", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: testHost({ platform: "macos" }),
+        mcpServerStatus: async () => status(),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
+  const maintenance = screen.getByRole("group", { name: "维护与诊断" });
+  expect(within(maintenance).queryByRole("switch", { name: "允许修改设置" })).toBeNull();
+  expect(within(maintenance).queryByLabelText("Claude Code 安装命令")).toBeNull();
+  fireEvent.click(within(maintenance).getByRole("button", { name: /连接 AI 助手/ }));
+  const group = await mcpGroup();
+  expect(within(group).getByRole("switch", { name: "允许修改设置" })).toBeTruthy();
+  // 子页点亮「维护与诊断」，并能回到那里。
+  fireEvent.click(screen.getByRole("button", { name: "返回维护与诊断" }));
+  expect(screen.getByRole("group", { name: "维护与诊断" })).toBeTruthy();
 });
 
 test("the entry is shown and copied as the host reports it", async () => {
   readOnly();
   const copyText = vi.fn(async () => {});
   await openDeveloper({ mcpServerStatus: async () => status(), copyText });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   expect(group.textContent).toContain("--allow-write");
   // Without an install callback there is nothing to write into, so there is no tab for it either.
   expect(within(group).queryByRole("radio", { name: "Cursor" })).toBeNull();
@@ -119,7 +152,7 @@ test("the entry is shown and copied as the host reports it", async () => {
 
 test("both permissions are on by default and the commands carry them", async () => {
   await openDeveloper({ mcpServerStatus: async () => status() });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   for (const name of ["允许修改设置", "允许读取词库"])
     expect((within(group).getByRole("switch", { name }) as HTMLInputElement).checked).toBe(true);
   expect(within(group).getByLabelText("Claude Code 安装命令").textContent).toBe(
@@ -147,7 +180,7 @@ test("the install commands are built from the host's paths and follow the permis
   readOnly();
   const copyText = vi.fn(async () => {});
   await openDeveloper({ mcpServerStatus: async () => status(), copyText });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   expect(within(group).getByLabelText("Claude Code 安装命令").textContent).toBe(
     "claude mcp add --scope user msime -- /opt/msime/msime-mcp --options /state/runtime-options.json",
   );
@@ -185,7 +218,7 @@ test("the install commands are built from the host's paths and follow the permis
 test("each assistant tab offers the command that removes an earlier registration", async () => {
   const copyText = vi.fn(async () => {});
   await openDeveloper({ mcpServerStatus: async () => status(), copyText });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   expect(within(group).getByLabelText("Claude Code 移除命令").textContent).toBe(
     "claude mcp remove --scope user msime",
   );
@@ -233,7 +266,7 @@ test("writing adds the entry and a different one is replaced only after confirmi
     return client === "claude_desktop" ? ("replaced" as const) : ("added" as const);
   });
   await openDeveloper({ mcpServerStatus: async () => current, installMcpClient });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
 
   fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
   // 不带权限的条目不需要先确认。
@@ -264,7 +297,7 @@ test("writing adds the entry and a different one is replaced only after confirmi
 test("writing an entry with permissions asks first, and cancelling writes nothing", async () => {
   const installMcpClient = vi.fn(async () => "added" as const);
   await openDeveloper({ mcpServerStatus: async () => status(), installMcpClient });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
 
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
@@ -302,7 +335,7 @@ test("a configured client's switches show its entry, and a change offers to upda
     },
   );
   await openDeveloper({ mcpServerStatus: async () => current, installMcpClient });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   const checked = (name: string) =>
     (within(group).getByRole("switch", { name }) as HTMLInputElement).checked;
   // 其它页按记住的选择（默认两项都开）。
@@ -348,7 +381,7 @@ test("an entry an earlier Nix version wrote is offered as an update that keeps i
     },
   );
   await openDeveloper({ mcpServerStatus: async () => current, installMcpClient });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   const checked = (name: string) =>
     (within(group).getByRole("switch", { name }) as HTMLInputElement).checked;
 
@@ -379,7 +412,7 @@ test("ignores a same-tick duplicate MCP install", async () => {
   const pending = deferred<McpInstallOutcome>();
   const install = vi.fn().mockReturnValue(pending.promise);
   render(<McpConnectSection status={() => Promise.resolve(status())} install={install} />);
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
   const write = within(group).getByRole("button", { name: "写入 Cursor" });
   act(() => {
@@ -399,7 +432,7 @@ test("a write response from a replaced host cannot update the new MCP section", 
   const view = render(
     <McpConnectSection status={() => Promise.resolve(status())} install={oldInstall} />,
   );
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   view.rerender(
@@ -410,7 +443,7 @@ test("a write response from a replaced host cannot update the new MCP section", 
   expect(screen.queryByText("已写入 Cursor 的配置。重新启动 Cursor 后生效。")).toBeNull();
   expect(
     (
-      within(await screen.findByRole("group", { name: "连接 AI 助手" })).getByRole("button", {
+      within(await mcpGroup()).getByRole("button", {
         name: "写入 Cursor",
       }) as HTMLButtonElement
     ).disabled,
@@ -425,7 +458,7 @@ test("旧宿主迟到的条目冲突不能在新 MCP 面板打开替换确认", 
   const view = render(
     <McpConnectSection status={() => Promise.resolve(status())} install={oldInstall} />,
   );
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   expect(oldInstall).toHaveBeenCalledWith("cursor", false, []);
@@ -454,7 +487,7 @@ test("a copy response from a replaced host cannot mark the new MCP section copie
   const view = render(
     <McpConnectSection status={() => Promise.resolve(status())} copyText={oldCopy} />,
   );
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   fireEvent.click(await within(group).findByRole("radio", { name: "其他" }));
   fireEvent.click(within(group).getByRole("button", { name: "复制配置" }));
   expect(oldCopy).toHaveBeenCalledWith(config);
@@ -472,7 +505,7 @@ test("a configuration file that is not JSON is reported and left alone", async (
     throw { code: "mcp_config_invalid" };
   });
   await openDeveloper({ mcpServerStatus: async () => status(), installMcpClient });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   await within(group).findByText("Cursor 的配置文件不是有效的 JSON，已保持原样。请先修正该文件。");
@@ -542,7 +575,7 @@ test("the terminal tab tells an assistant how to run the tools directly, with th
   readOnly();
   const copyText = vi.fn(async () => {});
   await openDeveloper({ mcpServerStatus: async () => status(), copyText });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   fireEvent.click(await within(group).findByRole("radio", { name: "命令行" }));
   const program = "/opt/msime/msime-mcp --options /state/runtime-options.json";
   expect(within(group).getByLabelText("命令行用法").textContent).toBe(
@@ -570,7 +603,7 @@ test("on Windows the terminal instructions pass the arguments through a file", a
     }),
     copyText: vi.fn(async () => {}),
   });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   fireEvent.click(await within(group).findByRole("radio", { name: "命令行" }));
   const usage = within(group).getByLabelText("命令行用法").textContent!;
   expect(usage).toContain(
@@ -589,7 +622,7 @@ test("commands are coloured by program, flag, quoted argument and placeholder", 
   await openDeveloper({
     mcpServerStatus: async () => ({ ...status(), options: "/Library/Application Support/o.json" }),
   });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   const install = within(group).getByLabelText("Claude Code 安装命令");
   expect(coloured(install, "text-syntax-program")).toEqual(["claude", "/opt/msime/msime-mcp"]);
   expect(coloured(install, "text-syntax-flag")).toEqual(["--scope", "--", "--options"]);
@@ -610,7 +643,7 @@ test("the configuration is coloured when it is laid out as the host's pretty pri
   const pretty = JSON.stringify(JSON.parse(config), null, 2);
   const copyText = vi.fn(async () => {});
   await openDeveloper({ mcpServerStatus: async () => ({ ...status(), config: pretty }), copyText });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   fireEvent.click(await within(group).findByRole("radio", { name: "其他" }));
   const block = within(group).getByLabelText("MCP 配置");
   expect(block.textContent).toBe(pretty);
@@ -632,7 +665,7 @@ test("the configuration is coloured when it is laid out as the host's pretty pri
 test("a configuration laid out differently is shown as written, uncoloured", async () => {
   readOnly();
   await openDeveloper({ mcpServerStatus: async () => status() });
-  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  const group = await mcpGroup();
   fireEvent.click(await within(group).findByRole("radio", { name: "其他" }));
   const block = within(group).getByLabelText("MCP 配置");
   expect(block.textContent).toBe(config);

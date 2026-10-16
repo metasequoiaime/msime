@@ -118,6 +118,7 @@ import { AiEndpointPolicy } from './settings/AiEndpointPolicy';
 import { SmartPunctuationSpacePolicy, SmartPunctuationSpaceSnapshot, SpaceConvertDecision }
   from './input/SmartPunctuationSpacePolicy';
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
+import { PunctuationLockPolicy } from './input/PunctuationLockPolicy';
 import { PairedPunctuationPolicy, PairedPunctuationCompletion } from
   './input/PairedPunctuationPolicy';
 import { ChineseSymbolFaces, PunctuationMarksView } from './input/ChineseSymbolFaces';
@@ -836,9 +837,7 @@ interface PreparedPreferences {
   /** Named first so Latin comes from it and Han falls through; absent means one family answers. */
   candidate_english_font?: string | null;
   candidate_fallback_fonts: string[];
-  // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the app mode it falls back
-  // to, and only if both defer does the system decide. A global theme with a fixed appearance
-  // overrides all of them.
+  // 屏幕键盘自己的明暗（'follow'、'dark' 或 'light'）。各界面一律跟随颜色模式（`HostCapabilities::surface_themes_follow`）之后，宿主不再读它和下面五项各界面的明暗，字段留着，偏好文档照旧解析。
   screen_keyboard_theme: string;
   /** 'follow', 'dark' or 'light' for the floating toolbar; it falls back to the app mode. */
   toolbar_theme?: string;
@@ -1432,12 +1431,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.customDesign = design === undefined ? null : CustomKeyboardSkin.from(design);
     this.themeLight = this.resolveTheme(preferences, false);
     this.themeDark = this.resolveTheme(preferences, true);
-    const keyboardDark: boolean = this.themeDarkFor(preferences.screen_keyboard_theme, preferences.theme);
+    // 键盘、工具栏与各个面板一律跟随颜色模式（`HostCapabilities::surface_themes_follow`），存下的各界面单独明暗不再读；只有候选窗口仍按 `candidate_theme` 单独设明暗。
+    const keyboardDark: boolean = this.themeDarkFor('follow', preferences.theme);
     const candidateDark: boolean = this.themeDarkFor(preferences.candidate_theme, preferences.theme);
     const candidateTheme: ResolvedTheme | null = candidateDark ? this.themeDark : this.themeLight;
     const candidateColors: CandidateColors = GlobalTheme.candidateColors(
       candidateTheme === null ? null : candidateTheme.candidate, candidateDark);
-    const toolbarDark: boolean = this.themeDarkFor(preferences.toolbar_theme ?? 'follow', preferences.theme);
+    const toolbarDark: boolean = this.themeDarkFor('follow', preferences.theme);
     const toolbarTheme: ResolvedTheme | null = toolbarDark ? this.themeDark : this.themeLight;
     // `candidate_skin` is the one signal that a package was drawn in this layout and mode; the package catalog is only read for what the theme does not carry.
     const packageId: string | null = candidateTheme === null ? null : candidateTheme.candidate_skin;
@@ -1497,12 +1497,13 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidateDark: candidateDark,
       candidateSelectedBar: preferences.candidate_selected_bar ?? candidateColors.showSelectedBar,
       pairedPunctuation: preferences.paired_punctuation !== false,
-      keyboardTheme: preferences.screen_keyboard_theme,
-      toolbarTheme: preferences.toolbar_theme ?? 'follow',
-      voiceTheme: preferences.voice_theme ?? 'follow',
-      emojiTheme: preferences.emoji_theme ?? 'follow',
-      handwritingTheme: preferences.handwriting_theme ?? 'follow',
-      menuTheme: preferences.menu_theme ?? 'follow',
+      // 各界面跟随颜色模式，见上面的 `keyboardDark`。
+      keyboardTheme: 'follow',
+      toolbarTheme: 'follow',
+      voiceTheme: 'follow',
+      emojiTheme: 'follow',
+      handwritingTheme: 'follow',
+      menuTheme: 'follow',
       appMode: preferences.theme,
       scheme: preferences.scheme,
       shuangpinProfile: preferences.shuangpin_profile,
@@ -1522,8 +1523,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         minusEqual: preferences.navigation?.minus_equal ?? true,
         commaPeriod: preferences.navigation?.comma_period ?? true,
         brackets: preferences.navigation?.brackets ?? false,
-        tab: preferences.navigation?.tab ?? true,
-        pageUpDown: preferences.navigation?.page_up_down ?? true,
+        // Tab 和 PageUp/PageDown 两组翻页键固定开启，不读存着的值：组字时关掉的绑定被 HardwareKeyRouter 判为 IGNORED 吃掉，并不会还给应用，关掉只让键失效。韩文汉字 / 注音列表原本会把关掉的键交还应用，固定开启后在列表里也翻页。设置页也不再给这两组的开关（HostCapabilities.tab_page_paging_switches）。
+        tab: true,
+        pageUpDown: true,
         mouseWheel: preferences.navigation?.mouse_wheel ?? false,
         arrows: preferences.navigation?.arrows ?? true
       },
@@ -1580,7 +1582,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     const request: ResolveThemeRequest = {
       // 固定明暗的主题在另一种明暗下按跟随系统解析，见 `GlobalTheme.fitsMode`。两种明暗于是不再一致，`fixedAppearance` 也就不再把各界面钉在那种明暗上。
       global_theme: GlobalTheme.effectiveId(this.themeCatalog, preferences.global_theme, dark),
-      custom_theme: preferences.custom_theme,
+      // 编号色和边框色跟随主题，存下的这两个槽位不交给解析器，见 `GlobalTheme.hostDrawnCustomTheme`。
+      custom_theme: GlobalTheme.hostDrawnCustomTheme(preferences.custom_theme),
       dark: dark,
       layout: preferences.candidate_layout === 'horizontal' ? 'horizontal' : 'vertical',
       skins_directory: `${this.stateDirectory}/skins`
@@ -2034,7 +2037,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardSkin.resolveDark(surfaceTheme, this.appearance.appMode, this.appearance.dark)));
   }
 
-  /** The 2in1 candidate context menu's colours. Menus derive from the candidate palette rather than the keyboard's, in the mode `menu_theme` picks the way `surfaceSkin` resolves the keyboard-side surfaces. */
+  /** 2in1 候选右键菜单的颜色。菜单从候选调色板派生而不是键盘的，明暗跟随颜色模式（`appearance.menuTheme` 固定为 `follow`），与 `surfaceSkin` 解析键盘一侧各界面的方式相同。 */
   menuColors(): CandidateColors {
     const dark: boolean = GlobalTheme.surfaceDark(this.fixedAppearance(),
       KeyboardSkin.resolveDark(this.appearance.menuTheme, this.appearance.appMode, this.appearance.dark));
@@ -2347,6 +2350,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.punctuationLock === 'chinese';
   }
 
+  /** 切换中文标点有没有作用：固定标点锁定时没有（`PunctuationLockPolicy.toggles`），功能面板据此把「中文标点」磁贴置灰，而不是让它点了又弹回。 */
+  punctuationToggles(): boolean {
+    return PunctuationLockPolicy.toggles(this.punctuationLock);
+  }
+
   /**
    * Ctrl+Shift+E, as `IsEnglishModeToggleKey` → `SetEnglishInputMode` + `ClearState` on Windows.
    *
@@ -2419,9 +2427,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.wordCharacter;
   }
 
-  /** Whether punctuation keys write Chinese punctuation, which the touch strip and the function panel show as a switch. */
+  /** Whether punctuation keys write Chinese punctuation, which the touch strip and the function panel show as a switch. 固定标点锁定时显示锁定值，与真正出标点的共享层一致（`PunctuationLockPolicy`）。 */
   usesChinesePunctuation(): boolean {
-    return this.chinesePunctuation;
+    return PunctuationLockPolicy.effectiveChinese(this.chinesePunctuation, this.punctuationLock);
   }
 
   /**
@@ -2430,8 +2438,13 @@ export class KeyboardSession implements HardwareKeyTarget {
    * Written as a preference rather than as a live session mode because that is how this host has always changed it: the same value drives the toolbar face and the settings page, and two mechanisms for one switch is how they come to disagree.
    *
    * The switch moves only once the store has taken the write: the reload that follows skips this session's own revision, so a refused write that still flipped the flag would write punctuation the settings page says is off. Returns the state now in effect.
+   *
+   * 固定标点锁定时什么都不做，返回锁定值：这时共享层不看这个开关，写它只会借账号同步改掉用户其他设备的起始标点。Windows TIP 和 fcitx5 在锁定时同样不理会切换。
    */
   togglePunctuation(): boolean {
+    if (!PunctuationLockPolicy.toggles(this.punctuationLock)) {
+      return this.usesChinesePunctuation();
+    }
     if (!this.writePreference('chinese_punctuation', !this.chinesePunctuation)) {
       return this.chinesePunctuation;
     }
@@ -2608,8 +2621,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       tibetan: !this.englishMode && this.schemeName === 'tibetan',
       stroke: !this.englishMode && this.schemeName === 'stroke',
       capsLock: this.capsLock,
-      // Korean and Vietnamese write ASCII punctuation whatever the switch says (`uses_chinese_punctuation`), and the face reports what is written.
-      chinesePunctuation: this.chinesePunctuation && !this.writesAsciiPunctuation(),
+      // Korean and Vietnamese write ASCII punctuation whatever the switch says (`uses_chinese_punctuation`), and the face reports what is written. 固定标点锁定时按锁定值显示（usesChinesePunctuation）。
+      chinesePunctuation: this.usesChinesePunctuation() && !this.writesAsciiPunctuation(),
       fullWidth: this.fullWidth, traditional: this.traditional
     };
     this.onToolbar(state, FloatingToolbarLayout.buttons(this.toolbarComponents()),
@@ -2745,7 +2758,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.onPanelKey(key);
   }
 
-  /** Tell whichever window is drawing the mode badge what to put on it, at the floating toolbar's size and in the toolbar theme's palette (toolbar_theme, then theme, then the system), as the macOS badge wears them. */
+  /** 告诉正在画模式角标的窗口要画什么：按悬浮工具栏的尺寸，用工具栏的调色板，明暗跟随颜色模式（`theme`，再是系统），与 macOS 的角标一致。 */
   setModeBadge(english: boolean): void {
     if (this.onModeBadge !== undefined) {
       this.onModeBadge(english, this.toolbarFontSize(), this.toolbarScale(), this.toolbarSkin);
@@ -6229,13 +6242,17 @@ export class KeyboardSession implements HardwareKeyTarget {
     return true;
   }
 
-  /** The five switches as the policy reads them; an older document keeps the shared defaults. */
+  /**
+   * The five switches as the policy reads them; an older document keeps the shared defaults.
+   *
+   * 空格锁定固定为开，不读存下的 `hotkey_hold_space_lock`：空格只在按住录音组合键期间才被拦下，平常打字不受影响。设置页不再给这个开关（`voice_space_lock_switch` 为 false），与 macOS、Windows、Linux 一致。
+   */
   private static hotkeyBindings(voice: VoiceInputConfiguration): VoiceHotkeyBindings {
     return {
       ralt: voice.hotkey_ralt ?? DEFAULT_VOICE_HOTKEY_BINDINGS.ralt,
       ctrlWin: voice.hotkey_ctrl_win ?? DEFAULT_VOICE_HOTKEY_BINDINGS.ctrlWin,
       rctrlRalt: voice.hotkey_rctrl_ralt ?? DEFAULT_VOICE_HOTKEY_BINDINGS.rctrlRalt,
-      holdSpaceLock: voice.hotkey_hold_space_lock ?? DEFAULT_VOICE_HOTKEY_BINDINGS.holdSpaceLock,
+      holdSpaceLock: DEFAULT_VOICE_HOTKEY_BINDINGS.holdSpaceLock,
       ctrlF9: voice.hotkey_ctrl_f9 ?? DEFAULT_VOICE_HOTKEY_BINDINGS.ctrlF9
     };
   }

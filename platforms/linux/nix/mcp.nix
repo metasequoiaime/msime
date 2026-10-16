@@ -7,6 +7,8 @@
   version,
   craneLib,
   cargoSources,
+  openccInputs,
+  python3,
   pkg-config,
   alsa-lib,
 }:
@@ -26,7 +28,9 @@ let
     cargoExtraArgs = "--locked -p msime-mcp-server --bin msime-mcp";
     # Rust 单测由 verify-local.sh 负责。
     doCheck = false;
-    nativeBuildInputs = [ pkg-config ];
+    nativeBuildInputs = [ pkg-config python3 ];
+    env.MSIME_OPENCC_SOURCE_DIR = "${openccInputs}";
+    env.MSIME_OPENCC_OFFLINE = "1";
     # 经 msime-host-api 链进来的 cpal 要 ALSA。
     buildInputs = [ alsa-lib ];
   };
@@ -37,7 +41,7 @@ craneLib.buildPackage (
   // {
     inherit cargoArtifacts;
     # build.rs 按 platforms/linux/version.txt 报告版本，源码里没有它，与发布脚本一样显式给出。
-    env.MSIME_VERSION = version;
+    env = commonArgs.env // { MSIME_VERSION = version; };
     installPhaseCommand = ''
       install -Dm755 target/release/msime-mcp -t $out/bin
     '';

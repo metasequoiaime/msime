@@ -6,6 +6,10 @@ export type VoiceHotkeyKey =
   | "hotkey_ctrl_win"
   | "hotkey_hold_space_lock";
 
+/** 三个按住录音的组合键，按设置页列出的先后。同一时刻宿主只认一个按住的组合键，所以设置页把它们合成一个选择。 */
+export const VOICE_HOLD_KEYS = ["hotkey_ralt", "hotkey_rctrl_ralt", "hotkey_ctrl_win"] as const;
+export type VoiceHoldKey = (typeof VOICE_HOLD_KEYS)[number];
+
 export function hotkeyOptions(platform: VoiceHotkeyPlatform): [VoiceHotkeyKey, string][] {
   const macos = platform === "macos";
   // HarmonyOS answers an attached keyboard with the Windows hold, lock and toggle semantics (VoiceHotkeyPolicy), so it takes the Windows labels.
@@ -36,6 +40,62 @@ export function hotkeyOptions(platform: VoiceHotkeyPlatform): [VoiceHotkeyKey, s
         : "空格锁定语音",
     ],
   ];
+}
+
+/** 合并后的那一行：标题，以及每个组合键在下拉里的名字（不再带「按住」「录音」，标题已经说了）。 */
+export function holdChoice(platform: VoiceHotkeyPlatform): {
+  title: string;
+  labels: Record<VoiceHoldKey, string>;
+} {
+  if (platform === "macos")
+    return {
+      title: "按住录音",
+      labels: {
+        hotkey_ralt: "右 Option",
+        hotkey_rctrl_ralt: "右 Control+右 Option",
+        hotkey_ctrl_win: "Control+Command",
+      },
+    };
+  if (platform === "other")
+    return {
+      title: "切换语音",
+      labels: {
+        hotkey_ralt: "右 Alt",
+        hotkey_rctrl_ralt: "Ctrl+右 Alt",
+        hotkey_ctrl_win: "Ctrl+Win",
+      },
+    };
+  return {
+    title: "长按录音",
+    labels: {
+      hotkey_ralt: "右 Alt",
+      hotkey_rctrl_ralt: "右 Ctrl+右 Alt",
+      hotkey_ctrl_win: "Ctrl+Win",
+    },
+  };
+}
+
+/** 存储里缺某个组合键时宿主用的出厂值，与 client-core 的 `VoiceInputPreferences::default()` 一致：只有右 Alt / 右 Option 默认打开。 */
+const HOLD_DEFAULTS: Record<VoiceHoldKey, boolean> = {
+  hotkey_ralt: true,
+  hotkey_rctrl_ralt: false,
+  hotkey_ctrl_win: false,
+};
+
+/** 当前选中的组合键：存储里打开的第一个（缺的键按 `HOLD_DEFAULTS` 算）；三个都关时为 null，即「不使用」。以前可以同时打开几个，这样的配置在用户改动之前照旧显示第一个，不改写存储。 */
+export function selectedHoldKey(
+  values: Partial<Record<VoiceHotkeyKey, boolean>>,
+): VoiceHoldKey | null {
+  return VOICE_HOLD_KEYS.find((key) => values[key] ?? HOLD_DEFAULTS[key]) ?? null;
+}
+
+/** 选中 `key`（null 为「不使用」）时要写入的值：三个一起写，选中的那个为开，其余为关。 */
+export function holdKeyPatch(key: VoiceHoldKey | null): Record<VoiceHoldKey, boolean> {
+  return {
+    hotkey_ralt: key === "hotkey_ralt",
+    hotkey_rctrl_ralt: key === "hotkey_rctrl_ralt",
+    hotkey_ctrl_win: key === "hotkey_ctrl_win",
+  };
 }
 
 export function description(platform: VoiceHotkeyPlatform): string {

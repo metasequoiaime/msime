@@ -1,5 +1,5 @@
 import { deepEqual } from "../core/deep-equal";
-import type { Preferences, Snapshot } from "../index";
+import type { Preferences, Snapshot } from "../core/preferences-model";
 
 export interface SettingsDirtyOptions {
   draft?: Preferences;

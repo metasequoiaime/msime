@@ -20,7 +20,7 @@ test("expression page reuses the translation service selector", () => {
   )[0];
 
   expect(candidate).toContain(
-    'TranslationServiceSelectorSection,\n  type TranslationProvider,\n} from "./translation-service-selector-section";',
+    'TranslationServiceSelectorSection,\n  type TranslationOfflineFallback,\n  type TranslationProvider,\n} from "./translation-service-selector-section";',
   );
   expect(candidate).toContain("<TranslationServiceSelectorSection");
   expect(page).toContain("<TranslationSettingsContent");

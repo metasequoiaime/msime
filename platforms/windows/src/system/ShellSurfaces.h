@@ -45,7 +45,7 @@ shell_surface_request(TrayMenuCommand command) {
     return ShellSurfaceRequest{{}, "skin"};
   case TrayMenuCommand::OpenDictionary:
     return ShellSurfaceRequest{{}, "dictionary"};
-  // 设置窗口把 help 和 feedback 都落到「帮助与反馈」页（SettingsNavigation.h 的 route_aliases）。
+  // 设置窗口把 help 和 feedback 都落到「关于」页：帮助与反馈和共享桌面侧栏一样并进了「关于」（SettingsNavigation.h 的 route_aliases）。
   case TrayMenuCommand::OpenHelp:
     return ShellSurfaceRequest{{}, "help"};
   case TrayMenuCommand::OpenFeedback:

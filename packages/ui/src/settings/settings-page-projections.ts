@@ -1,5 +1,10 @@
 import { mobilePrimaryPageIds, type MobilePrimaryPageId } from "./settings-navigation-helpers";
-import { pages, settingsNavGroups, type SettingsPageId } from "./settings-page-registry";
+import {
+  desktopMergedPages,
+  pages,
+  settingsNavGroups,
+  type SettingsPageId,
+} from "./settings-page-registry";
 import { mobileGroupTitle } from "./mobile-tab-helpers";
 
 export interface SettingsPageProjectionOptions {
@@ -18,8 +23,12 @@ export interface SettingsPageProjectionOptions {
   hasHandwriting: boolean;
   /** 「手写输入」并进「屏幕键盘」页，那一页改叫「屏幕键盘与手写」。macOS、Linux、Windows 和 HarmonyOS 2-in-1 上手写页只有一个打开按钮或一段说明，单占一个侧栏入口不值得，Windows 原生设置窗口的 `SettingsNavigation.h` 也同样并成一页；触屏宿主的手写页另有内容，不并。本版本不提供手写时没有可并的页。 */
   handwritingOnScreenKeyboardPage?: boolean;
+  /** 「连接 AI 助手」子页：宿主能报告本机 MCP 服务的状态（`mcpServerStatus`，三个桌面宿主）。 */
+  hasMcp: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   mobilePageTitle: (id: SettingsPageId, title: string) => string;
+  /** 桌面宿主按平台改写页名（`desktopPageTitle`）；缺省时用注册表里的名字。 */
+  desktopPageTitle?: (id: SettingsPageId, title: string) => string;
 }
 
 export interface SettingsPageItem {
@@ -68,8 +77,10 @@ export function settingsPageProjections({
   hasPlugins,
   hasHandwriting,
   handwritingOnScreenKeyboardPage: combineHandwriting = false,
+  hasMcp,
   mobileHiddenPageIds,
   mobilePageTitle,
+  desktopPageTitle = (_id, title) => title,
 }: SettingsPageProjectionOptions): SettingsPageProjections {
   const handwritingOnScreenKeyboardPage = combineHandwriting && hasHandwriting && !mobilePlatform;
   const availablePages = pages
@@ -86,6 +97,7 @@ export function settingsPageProjections({
         (item.id !== "developer" || showDeveloperPage) &&
         (item.id !== "plugins" || hasPlugins) &&
         (item.id !== "handwriting" || (hasHandwriting && !handwritingOnScreenKeyboardPage)) &&
+        (item.id !== "mcp" || hasMcp) &&
         (item.id !== "more" || mobilePlatform) &&
         // 「隐私」页是触屏「我的」里那一行打开的；桌面的隐私设置在「关于」里。
         (item.id !== "privacy" || mobilePlatform) &&
@@ -98,7 +110,7 @@ export function settingsPageProjections({
         ? mobilePageTitle(item.id, item.title)
         : handwritingOnScreenKeyboardPage && item.id === "screen-keyboard"
           ? screenKeyboardAndHandwritingTitle
-          : item.title,
+          : desktopPageTitle(item.id, item.title),
     }));
 
   const mobileListedPage = (id: SettingsPageId): boolean =>
@@ -106,8 +118,12 @@ export function settingsPageProjections({
     !mobilePrimaryPageIds.includes(id as MobilePrimaryPageId) &&
     !mobileHiddenPageIds.includes(id);
 
+  // 桌面侧栏不列出并进别的页的页面（`desktopMergedPages`）；它们仍在 `availablePages` 里，路由打开时显示承载页。
   const sidebarPages = availablePages.filter(
-    (item) => item.id !== "more" && !(mobilePlatform && mobileHiddenPageIds.includes(item.id)),
+    (item) =>
+      item.id !== "more" &&
+      !(mobilePlatform && mobileHiddenPageIds.includes(item.id)) &&
+      (mobilePlatform || desktopMergedPages[item.id] === undefined),
   );
   const byId = new Map(sidebarPages.map((item) => [item.id, item]));
   const groups = settingsNavGroups

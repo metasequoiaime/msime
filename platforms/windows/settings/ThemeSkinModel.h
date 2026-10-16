@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-// 「主题」页皮肤包卡片和候选颜色取色器的规则，照共享设置的 `packages/ui/src/theme/global-theme.ts`（skinSlot、applyCandidateSkin、removeCandidateSkin、customThemeBase、candidateSkinFor、skinDrawsIn）、`settings/theme-selection-updates.ts`（updateCandidateColor）、`settings/pages/skin-page.tsx`（使用中的皮肤、卡片停在哪一款、两种明暗各用哪款的说明）、`skin/external-skins.tsx`（ExternalSkinCard 的明暗、能否选用和文案）和 `settings/candidate-colors-section.tsx`（七个取色器、它们的默认色和「跟随主题」按钮）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「主题」页皮肤包卡片和候选颜色取色器的规则，照共享设置的 `packages/ui/src/theme/global-theme.ts`（skinSlot、applyCandidateSkin、removeCandidateSkin、customThemeBase、candidateSkinFor、skinDrawsIn）、`settings/theme-selection-updates.ts`（updateCandidateColor）、`settings/pages/skin-page.tsx`（使用中的皮肤、卡片停在哪一款、两种明暗各用哪款的说明）、`skin/external-skins.tsx`（ExternalSkinCard 的明暗、能否选用和文案）和 `settings/candidate-colors-section.tsx`（五个取色器、它们的默认色和「跟随主题」按钮；编号色和边框色跟随主题，不给取色器）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::skins {
 
 // 以某个 base 为底的皮肤包放在哪个槽位：固定明暗的内置主题给出它自己的明暗，`system` 两个槽位都放（skinSlot 的 null）。
@@ -237,7 +237,7 @@ inline std::optional<std::wstring> candidate_text_color(std::wstring_view value)
   return color;
 }
 
-// 自定义主题的一个取色器：颜色槽（`custom_theme.candidate_colors` 的键）、标题、「跟随主题」按钮的读屏名（空时就叫「跟随主题」），以及按钮有没有按下状态（表面色和边框色的没有，点它总是清掉那一项），没设颜色时色块显示的浅色和深色默认色。
+// 自定义主题的一个取色器：颜色槽（`custom_theme.candidate_colors` 的键）、标题、「跟随主题」按钮的读屏名（空时就叫「跟随主题」），以及按钮有没有按下状态（表面色的没有，点它总是清掉那一项），没设颜色时色块显示的浅色和深色默认色。
 struct ColorSlot {
   std::wstring_view key;
   std::wstring_view title;
@@ -247,15 +247,13 @@ struct ColorSlot {
   std::wstring_view dark;
 };
 
-// 先是背景，然后是写在背景上的内容，再是一行可能处于的各种状态，最后是边框。Windows 的候选窗口七种颜色都画，所以七个都列出来。
+// 先是背景，然后是写在背景上的内容，再是一行可能处于的各种状态。编号色和边框色跟随主题（HostCapabilities 的 candidate_number_color、candidate_border_color 在 Windows 为假，Server 的 candidate_theme_values 也不读存下的值），所以只列五个，与共享页一致。
 inline constexpr ColorSlot color_slots[] = {
     {L"surface", L"候选表面色", L"候选表面色跟随主题", false, L"#ffffff", L"#202020"},
     {L"text", L"候选文字颜色", L"", true, L"#1a1a1a", L"#e9e8e8"},
-    {L"number", L"候选编号颜色", L"候选编号颜色跟随主题", true, L"#5f6368", L"#bdc1c6"},
     {L"accent", L"候选强调色", L"候选强调色跟随主题", true, L"#1a73e8", L"#8ab4f8"},
     {L"selected", L"候选选中色", L"候选选中色跟随主题", true, L"#e8e8e8", L"#3e3e3e"},
     {L"hover", L"候选悬停色", L"候选悬停色跟随主题", true, L"#ececec", L"#414141"},
-    {L"border", L"候选边框色", L"候选边框色跟随主题", false, L"#dedede", L"#303030"},
 };
 
 // 设一个候选颜色或交还给主题时，除了那一项还要改什么：选了颜色就选上自定义主题；原来不是自定义主题时，把当时的主题留作底，并清掉两个槽位的皮肤包。交还给主题时别的都不动。

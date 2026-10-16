@@ -83,7 +83,7 @@ test("macOS names the no-service choice offline translation and says where gloss
       available
       provider="none"
       showAccountProvider={false}
-      offlineFallback
+      offlineFallback="system"
       onChange={vi.fn()}
     />,
   );
@@ -91,4 +91,24 @@ test("macOS names the no-service choice offline translation and says where gloss
   const offline = screen.getByRole("option", { name: "离线翻译（不联网）" }) as HTMLOptionElement;
   expect(offline.value).toBe("none");
   expect(screen.getByText(/随输入法打包的离线词库/)).toBeTruthy();
+});
+
+test("hosts with only offline dictionaries name the no-service choice 不使用在线服务", () => {
+  // Windows、Linux、HarmonyOS 没有系统翻译，「关闭」又不对：host-api 仍把装好的离线词库语言放进查询。
+  render(
+    <TranslationServiceSelectorSection
+      grouped
+      available
+      provider="none"
+      showAccountProvider={false}
+      offlineFallback="dictionary"
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("option", { name: "关闭" })).toBeNull();
+  expect(screen.queryByRole("option", { name: "离线翻译（不联网）" })).toBeNull();
+  const none = screen.getByRole("option", { name: "不使用在线服务" }) as HTMLOptionElement;
+  expect(none.value).toBe("none");
+  expect(screen.getByText(/离线词库查得到的释义/)).toBeTruthy();
+  expect(screen.queryByText(/macOS 26/)).toBeNull();
 });

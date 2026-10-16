@@ -2,7 +2,8 @@ import { type Dispatch, type RefObject, type SetStateAction } from "react";
 import { deepEqual } from "../core/deep-equal";
 import { errorMessage } from "../core/error-message";
 import { useAsyncActionRunner } from "../core/use-async-action";
-import type { Preferences, PreferencesRecovery, SettingsClient, Snapshot } from "../index";
+import type { PreferencesRecovery, SettingsClient } from "../core/settings-client";
+import type { Preferences, Snapshot } from "../core/preferences-model";
 
 export interface PreferenceRecoveryConfirmOptions {
   title: string;

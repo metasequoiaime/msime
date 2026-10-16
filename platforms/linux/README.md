@@ -388,6 +388,8 @@ Fcitx5 现在也走同一条路径：它此前只在状态栏带着智能标点�
 
 Fcitx5 的「重复标点回切中文」同样从只有开关变为真的生效：智能标点把某个标点保留为 ASCII 后，两秒内再按同一个键会通过 `deleteSurroundingText` 换成中文标点，该按键被消费、不再交给 Engine。与 Windows/IBus 一致，退格删掉那个 ASCII 标点后重新按同一个键会走中文路径——Fcitx5 的这个判断在共享 Rust 路由里做，因此实现方式是不再把前一个字符交给路由，让它按「前面不是 ASCII 字母数字」处理。上屏识别用共享的 `ascii_mark_from_text`，按 Engine 实际输出的宽度匹配，宿主不另留一份按键清单；没有组合时路由把保留的 ASCII 标点交还编辑器，没有上屏可供识别，宿主在调用路由前按同样的条件（跟随锁定、中文与智能标点开启、前一个字符是 ASCII 字母或数字、无组合）判定并记下这个键。
 
+IBus 属性菜单和 Fcitx5 状态栏切换「智能标点」时，与设置页一样连同「数字后直出」「字母后直出」一起写成同一个值（`src/core/SmartPunctuationChoice.h`），Fcitx5 的三个键在同一次保存里落盘。只写总开关的话，设置页关过一次之后两半已是假，从菜单再打开的只是一个不起作用的总开关。
+
 Fcitx5 下 `Ctrl+Shift+Alt+R`、状态菜单「重载输入法服务」和设置页「重启」按钮都会重置水杉插件：结束所有输入上下文的组合、关闭 Engine 会话并重新读取 `runtime-options.json`，当前焦点立即获得新会话；不重启 Fcitx5 进程，其他输入法不受影响。快捷键和菜单只在输入上下文仍有焦点、不是受限或隐私字段时生效，重置在插件内直接完成，不启动任何外部程序；快捷键的重复按下和对应抬键在一次手势内由插件吞掉，不会把 `R` 泄漏给编辑器。设置页按钮经 `gdbus` 调用 Fcitx5 controller 的 `ReloadAddonConfig`（参数 `msime`）触发同一重置；`fcitx5-remote -r` 发送的 `ReloadConfig` 只重载 Fcitx5 的全局配置、不会传到插件，所以不用它。重置不会换到升级后的新程序，那仍需 `fcitx5 -r` 或重新登录。
 
 候选快照同时携带 Engine 的来源编号，并与候选顺序绑定；GTK/Qt 或其他 Linux panel 可以据此区分词库、英文、Emoji、颜文字及在线候选，不需要从显示文本反推来源。来源只用于展示和交互提示，不改变候选身份、分页或提交文本。
@@ -410,7 +412,7 @@ IBus 属性菜单中的“显示译文”（候选翻译开关）在配置绝对
 
 “翻译目标语言”菜单可选择英语、法语、日语、西班牙语、俄语、德语或韩语；配置绝对共享偏好目录时按 revision 持久化，保存成功后使旧语言请求失效并按当前候选重新请求，未配置目录时只覆盖当前会话。
 
-语音输入通过可选的 `voice_provider_socket` 顶层绝对 Unix socket 接入，也可用 `MSIME_VOICE_PROVIDER_SOCKET` 作为环境回退。IBus 属性中的“语音输入”首次点击启动录音，再次点击结束录音并等待识别结果上屏，与 Windows 托盘语音操作一致；识别和润色期间该属性不可重复操作，Esc 仍可取消当前语音代次。IBus 的语音输入与 Windows 一样不随中英文模式停用：英文模式下语音快捷键（包括本来会交给应用的单独 RAlt）、“语音输入”属性和 Esc 取消照常工作，录音途中无论用快捷键还是属性菜单切换中英文都不会取消录音。英文模式下通常没有 Engine 会话，这时录音代次由宿主自己编号（最高位置 1，与 Engine 代次不会相撞），识别结果不经 Engine 确认代次，直接按 provider 原文上屏，与 Windows 英文模式下语音不经过组字一致；繁体输出和全角设置仍照常套用，与中文模式上屏的文字相同。用户管理的 socket 服务收到 `{"version":1,"kind":"voice","query":{"language":"zh-cn","generation":1,"stream":true,"options":{"sound_enabled":true,"start_sound":true,"end_sound":true,"mute_system_audio":false,"polish_enabled":false,"stream_inline_preedit":true,"doubao_boosting_table_id":""}}}` 后负责 PipeWire/ALSA 录音、提示音、静音、ASR 凭据、网络和结果润色，并按行返回 `{"text":"中间结果","type":"partial","generation":1}` 以及最终的 `{"text":"识别结果","type":"final","generation":1}`；每个事件都必须带 `type` 和与请求相同的 `generation`，缺少任一项或 `generation` 不匹配的事件会被丢弃。取消时输入法另发 `{"version":1,"kind":"voice_cancel","query":{"generation":1}}`，provider 应停止对应录音并忽略后续结果；按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 松开时则发送 `{"version":1,"kind":"voice_stop","query":{"generation":1}}`，provider 应停止录音并让原连接返回最终结果，Ctrl+F9 和再次点击 IBus“语音输入”属性也使用该完成路径。豆包流式识别且 `preferences.voice_input.stream_inline_preedit` 开启时，中间文本更新 IBus 预编辑；关闭该选项或使用其他识别服务时只在辅助区域显示实时转写并提交最终文本。Linux 上语音结果只经 IBus（或 Fcitx5）提交这一条路径，设置页不提供「结果提交策略」，偏好里存着的 `commit_mode` 在这里不起作用；设置应用里的独立语音面板同样把文本交给当前的输入法宿主，不按它改用粘贴。`options` 只包含非敏感行为配置（包括有长度上限的润色提示词和 Doubao boosting table ID），输入法不会转发 token、app key 或其他凭据；provider 可以忽略不支持的字段。结果回到 GLib 主线程后再次校验会话和代次；最终文本为空但已有有效中间转写时，输入法保留该转写提交，只有没有任何可提交文本的空结果、过期结果和取消结果才不会上屏。若 Engine 应用结果失败，宿主也会把同一有界文本直接提交到 IBus。每条响应文本最多 4096 字节，服务调用最长等待 730 秒（包含录音及识别），每 100ms 检查取消，整行响应最多 16 KiB。`preferences.voice_input.enabled` 和 `preferences.voice_input.language` 控制属性是否可用及识别语言。独立入口 `msime-linux-voice /absolute/provider.sock` 从标准输入读取同一查询 JSON 并输出受界限的 JSON 响应；加上 `--stream` 参数时按行输出 `partial`/`final` 事件，供 GTK/Qt 面板或其他 Linux 宿主复用，不在输入法进程内保存凭据或原始音频。
+语音输入通过可选的 `voice_provider_socket` 顶层绝对 Unix socket 接入，也可用 `MSIME_VOICE_PROVIDER_SOCKET` 作为环境回退。IBus 属性中的“语音输入”首次点击启动录音，再次点击结束录音并等待识别结果上屏，与 Windows 托盘语音操作一致；识别和润色期间该属性不可重复操作，Esc 仍可取消当前语音代次。IBus 的语音输入与 Windows 一样不随中英文模式停用：英文模式下语音快捷键（包括本来会交给应用的单独 RAlt）、“语音输入”属性和 Esc 取消照常工作，录音途中无论用快捷键还是属性菜单切换中英文都不会取消录音。英文模式下通常没有 Engine 会话，这时录音代次由宿主自己编号（最高位置 1，与 Engine 代次不会相撞），识别结果不经 Engine 确认代次，直接按 provider 原文上屏，与 Windows 英文模式下语音不经过组字一致；繁体输出和全角设置仍照常套用，与中文模式上屏的文字相同。用户管理的 socket 服务收到 `{"version":1,"kind":"voice","query":{"language":"zh-cn","generation":1,"stream":true,"options":{"sound_enabled":true,"mute_system_audio":false,"polish_enabled":false,"stream_inline_preedit":true,"doubao_boosting_table_id":""}}}` 后负责 PipeWire/ALSA 录音、提示音、静音、ASR 凭据、网络和结果润色，并按行返回 `{"text":"中间结果","type":"partial","generation":1}` 以及最终的 `{"text":"识别结果","type":"final","generation":1}`；每个事件都必须带 `type` 和与请求相同的 `generation`，缺少任一项或 `generation` 不匹配的事件会被丢弃。取消时输入法另发 `{"version":1,"kind":"voice_cancel","query":{"generation":1}}`，provider 应停止对应录音并忽略后续结果；按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 松开时则发送 `{"version":1,"kind":"voice_stop","query":{"generation":1}}`，provider 应停止录音并让原连接返回最终结果，Ctrl+F9 和再次点击 IBus“语音输入”属性也使用该完成路径。豆包流式识别且 `preferences.voice_input.stream_inline_preedit` 开启时，中间文本更新 IBus 预编辑；关闭该选项或使用其他识别服务时只在辅助区域显示实时转写并提交最终文本。Linux 上语音结果只经 IBus（或 Fcitx5）提交这一条路径，设置页不提供「结果提交策略」，偏好里存着的 `commit_mode` 在这里不起作用；设置应用里的独立语音面板同样把文本交给当前的输入法宿主，不按它改用粘贴。`options` 只包含非敏感行为配置（包括有长度上限的润色提示词和 Doubao boosting table ID），输入法不会转发 token、app key 或其他凭据；provider 可以忽略不支持的字段。结果回到 GLib 主线程后再次校验会话和代次；最终文本为空但已有有效中间转写时，输入法保留该转写提交，只有没有任何可提交文本的空结果、过期结果和取消结果才不会上屏。若 Engine 应用结果失败，宿主也会把同一有界文本直接提交到 IBus。每条响应文本最多 4096 字节，服务调用最长等待 730 秒（包含录音及识别），每 100ms 检查取消，整行响应最多 16 KiB。`preferences.voice_input.enabled` 和 `preferences.voice_input.language` 控制属性是否可用及识别语言。独立入口 `msime-linux-voice /absolute/provider.sock` 从标准输入读取同一查询 JSON 并输出受界限的 JSON 响应；加上 `--stream` 参数时按行输出 `partial`/`final` 事件，供 GTK/Qt 面板或其他 Linux 宿主复用，不在输入法进程内保存凭据或原始音频。
 
 语音波形展示通过 `WaveOverlaySurface` 注入宿主。Wayland 且系统提供 `wayland-client`、`wayland-scanner` 和 `xdg-shell` 协议文件时，宿主优先使用 `wlr-layer-shell` 底部居中的 overlay layer；不支持该协议的 compositor 会回退到 IBus 辅助栏。X11 且同时提供 `x11`、`xfixes`、`xrandr` 开发模块时使用不抢焦点的原生浮层，按前台窗口所在显示器（取不到时用指针所在或主显示器，经 XRandR 枚举）的工作区底部居中定位，尺寸按 `Xft.dpi`/`GDK_SCALE` 缩放，每次显示时重新计算；没有 XRandR 时回退到 EWMH 工作区或 root 屏幕尺寸并保留多屏负坐标；录音阶段浮层两侧的取消、结束按钮仅接收按钮区域输入，其余区域保持输入透明，连接失败也会回退到 IBus。Wayland 后端继续不请求键盘焦点，仅在浮层两侧动作按钮区域接收鼠标输入；没有可用指针设备时仍可通过 IBus 菜单完成动作。可用 `MSIME_WAVE_OVERLAY_BACKEND=wayland`、`x11` 或 `ibus` 请求指定后端。Wayland 后端使用固定尺寸双缓冲共享内存，不请求键盘焦点，也不占用工作区 exclusive zone；检测到 `pangocairo` 时会在同一缓冲区绘制状态和实时转写文字，否则保留波形与转写长度指示。
 
@@ -422,9 +424,9 @@ Fcitx5 宿主复用同一套 X11/Wayland 原生浮层和取消、结束按钮；
 
 两个宿主向 provider 转发的语音选项由共享的 `src/voice/VoiceProviderOptions.h` 生成，不再各维护一份：Fcitx5 以前那份漏掉了提示词，选了自定义润色方案的用户在这里得到的其实是默认的整理提示词。内置方案只以 `polish_prompt_id` 发送方案名，provider 使用该方案的内置提示词；自定义方案另以 `polish_prompt_custom_1`、`polish_prompt_custom_2` 或 `polish_prompt_custom_3` 发送所选槽位的内容，槽位为空时 provider 使用默认的整理提示词。超过 8 KiB 的提示词直接拒绝，不截断，以免被截断的指令改变润色的意思。
 
-Fcitx5 每 5 秒通过 freedesktop Settings portal 读取 `org.freedesktop.appearance/color-scheme`，因此 `voice_theme=follow` 且全局主题为 `system` 时，已显示的语音浮层会跟随系统明暗变化；portal 不可用时保留上一次主题，不阻塞输入。
+Fcitx5 每 5 秒通过 freedesktop Settings portal 读取 `org.freedesktop.appearance/color-scheme`，语音浮层跟随颜色模式（存下的 `voice_theme` 不再读取），因此全局颜色模式为 `system` 时，已显示的语音浮层会跟随系统明暗变化；portal 不可用时保留上一次主题，不阻塞输入。
 
-Fcitx5 切换中英文时，以及焦点移到另一个输入框时（共享偏好 `input_mode_hud`，默认开启），除面板自带的文字提示外还显示约 1 秒带产品 logo 的「中」/「英」徽章；从别的输入法切到水杉时由 Fcitx5 自己弹输入法名，不再叠加这个提示。IBus 下同一偏好在切换中英文和焦点移到新输入框时，于辅助区域显示约 1.2 秒「中」/「英」，IBus 协商客户端身份时重放的同一次焦点不会再显示一遍；密码框和私密输入中都不显示。焦点不在任何输入框时（切换窗口、落在文件列表上），开着全局引擎的 IBus 把引擎挂到它自己的 `fake` 上下文上，这时没有输入框可提示，焦点进入和切换中英文都不显示。Wayland 下经 `wlr-layer-shell` 固定在屏幕右下角；X11 下（没有 layer-shell 的 Wayland 会话如 GNOME 经 Xwayland 也走这里）是不抢焦点、点击穿透的原生窗口，每次显示时按语音浮层的同一套规则选显示器（前台窗口所在，取不到时用指针所在或主显示器，经 XRandR 枚举），放在该显示器工作区的右下角以避开面板，尺寸、图标和边距按 `Xft.dpi`/`GDK_SCALE` 缩放。徽章有自己的固定大小，不读共享偏好里的悬浮工具栏大小（Linux 不画悬浮工具栏，设置页也不给这一项）。徽章深浅与候选面板一致：`candidate_theme` 为浅色或深色时照用，为「跟随颜色模式」时取颜色模式，颜色模式为「跟随系统」时跟随上述 portal 报告的系统明暗。
+Fcitx5 切换中英文时，以及焦点移到另一个输入框时（共享偏好 `input_mode_hud`，默认开启），除面板自带的文字提示外还显示约 1 秒带产品 logo 的「中」/「英」徽章；从别的输入法切到水杉时由 Fcitx5 自己弹输入法名，不再叠加这个提示。IBus 下同一偏好在切换中英文和焦点移到新输入框时，于辅助区域显示约 1.2 秒「中」/「英」，IBus 协商客户端身份时重放的同一次焦点不会再显示一遍；密码框和私密输入中都不显示。焦点不在任何输入框时（切换窗口、落在文件列表上），开着全局引擎的 IBus 把引擎挂到它自己的 `fake` 上下文上，这时没有输入框可提示，焦点进入和切换中英文都不显示。Wayland 下经 `wlr-layer-shell` 固定在屏幕右下角；X11 下（没有 layer-shell 的 Wayland 会话如 GNOME 经 Xwayland 也走这里）是不抢焦点、点击穿透的原生窗口，每次显示时按语音浮层的同一套规则选显示器（前台窗口所在，取不到时用指针所在或主显示器，经 XRandR 枚举），放在该显示器工作区的右下角以避开面板，尺寸、图标和边距按 `Xft.dpi`/`GDK_SCALE` 缩放。徽章有自己的固定大小，不读共享偏好里的悬浮工具栏大小（Linux 不画悬浮工具栏，设置页也不给这一项）。徽章深浅跟随颜色模式（`theme`），颜色模式为「跟随系统」时跟随上述 portal 报告的系统明暗；存下的 `toolbar_theme` 和 `candidate_theme` 都不读，固定明暗的全局主题（水杉是深色，纸白是浅色）照样决定明暗。
 
 同一个 socket 也承载候选翻译请求。候选视图更新后，宿主发送一行 JSON：
 
@@ -462,9 +464,9 @@ IBus 和 Fcitx5 宿主还提供一条比上述工具更直接的提交路径，�
 
 `key` 请求与 Windows 屏幕键盘的 `SendInput` 一样先交给输入法：按下、松开各送一次，只有按下没被输入法消费时，才把这一对事件转发给编辑器，编辑器因此不会只收到半次按键；松开事件总会交给输入法，退格长按和已消费的快捷键都靠它收尾。这个顺序集中在 `PanelInputChannel.h` 的 `deliver_panel_key_stroke`，IBus 调引擎自己的按键处理，Fcitx5 构造 `fcitx::KeyEvent` 交给 `InputContext::keyEvent`，走该输入上下文当前的输入法。因此中文模式下屏幕键盘打出的字母起拼音组合，数字键、空格、退格作用于已有的组合串（包括物理键盘起的组合）；要打英文先切到英文模式。面板请求不带 CapsLock 状态，宿主沿用最近一次真实按键报告的锁定位，锁定时字母按物理键的规则变大写（同时按 Shift 则小写）并直接交给编辑器，不开始组字。`text` 请求（手写、Emoji、语音）仍原样上屏，不经过组字。
 
-桌面手写和语音面板支持 `preferences.handwriting_theme` 与 `preferences.voice_theme`，取值为 `follow`、`dark` 或 `light`；`follow` 继承全局主题。设置保存后，已打开的面板通过偏好变更事件立即更新外观。
+桌面手写和语音面板跟随颜色模式（`HostCapabilities::surface_themes_follow`），存下的 `preferences.handwriting_theme` 与 `preferences.voice_theme` 不再读取，Fcitx5 的模式角标同样不读 `toolbar_theme`。设置保存后，已打开的面板通过偏好变更事件立即更新外观。
 
-桌面 Emoji 面板（包括颜文字、符号和剪贴板页）支持 `preferences.emoji_theme`，同样取值为 `follow`、`dark` 或 `light`；设置保存后已打开的面板实时同步主题。
+桌面 Emoji 面板（包括颜文字、符号和剪贴板页）同样跟随颜色模式，存下的 `preferences.emoji_theme` 不再读取；设置保存后已打开的面板实时同步主题。
 
 屏幕键盘和手写面板在 X11 上读取活动窗口矩形，在 Sway 上读取 focused container 的 `rect`，首次创建时定位到输入窗口下方并水平居中；窗口矩形不可用时回退到屏幕默认位置。通用 Wayland 的 `wtype` 注入不提供窗口几何查询，因此保留 compositor 默认位置，不伪造坐标。
 
@@ -502,7 +504,7 @@ IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到
 
 候选行保留 Engine 的来源身份：本地词库和用户词库不额外标记，云候选显示 `云`，AI 候选显示 `AI`。来源标签只用于 IBus panel 展示，不进入提交文本、候选索引或异步结果校验。
 
-候选颜色来自共享层解析的全局主题（ABI 3 的 `msime_client_resolve_theme`）：宿主以 `global_theme`、`custom_theme`、候选明暗和当前候选布局请求 ResolvedTheme，自定义主题在所绘明暗下的槽位引用已安装的外部皮肤时（深色取 `candidate_skin_dark`，没设时取 `candidate_skin`；浅色取 `candidate_skin`），再带上运行配置里该皮肤的目录条目；共享层拒绝该条目时宿主去掉它重新解析，仍失败才退回原生 token。解析出的 surface、正文、序号、accent 与选中行颜色映射为 IBus 候选文字、编号标签前景、固定候选的 accent 前景和行背景属性，以及 Fcitx5 classicui 主题；主题未给出的槽位（`system` 主题全部如此）使用 Linux 原生 token：浅色白底、深色 `#303030` 底，选中行 `#3584E4` 实色填充、白色正文。accent 颜色只在 IBus 生效，序号颜色在 IBus 和带 `CandidateLabelColor` 的 Fcitx5 版本上生效；边框、圆角与阴影只由 Fcitx5 classicui 主题绘制，IBus 的候选属性无法描边，两个宿主都没有 hover 状态，也不读取 `show_selected_bar`；设置页按 `candidate_border_color` 能力位在 Linux 显示边框颜色，而 hover 等选中外观随 `candidate_selection_appearance` 隐藏；能力位按平台给出，说的是 Fcitx5，IBus 宿主则在下面的面板状态文件里报告 `ibus_panel`，外观与主题页据此说明圆角、边框颜色和皮肤的装饰图在 IBus 下不会生效。候选字体族、回退字体和字号由宿主写进桌面 panel 自己读取的那一个字体描述：IBus 写 `org.freedesktop.ibus.panel` 的 `custom-font` 并打开 `use-custom-font`（与 ibus-setup 写的是同一对键），Fcitx5 通过 classicui 插件自己的配置写 `Font`，立即生效并保存在 `classicui.conf`。描述按 Pango 格式把主字体和回退字体依次列出、去重。字号在 IBus 上以像素写出。Fcitx5 5.1.18 起换算成磅（像素乘 3/4，例如 14px 写成 `10.5`）：这些版本的 classicui 画候选序号时把描述里的字号乘上主题的 `LabelTextSizeFactor` 再按磅设回去，写像素会让序号比候选大三分之一。5.1.22 起 classicui 在 X11 上按 DPI 整窗缩放、字体 DPI 固定为 96，Wayland 上除非设了 `ForceWaylandDPI` 也是 96，换算前后候选大小相同；5.1.18 到 5.1.21 的 X11 以 `Xft.dpi`（没有时取不低于 96 的屏幕 DPI）作字体 DPI，DPI 不是 96 时候选文字随之放大，与 5.1.22 起整窗缩放后的大小一致。更早的版本序号与候选共用同一个描述，本来就一样大，仍写像素。这个字体归整个桌面所有，所以设置从未改过、仍是默认值时宿主不写，之后用户每次修改都会写一次，回到默认值也算一次修改；例外是升级：偏好仍是默认值，而 `classicui.conf` 里的 `Font` 正是旧版本按像素写下的同一个字体时，宿主按磅重写一次。第一次写入之前宿主记下被替换的原值，卸载时只要这一项仍是水杉写入的值就恢复原值，用户之后自己改过的保持不变（见「卸载 CMake 安装」）。GNOME Shell 自带的候选弹窗跟随 Shell 主题、Plasma 的 kimpanel 跟随桌面字体，这两种面板上宿主不写任何东西：IBus 宿主在 GNOME Shell 会话（`XDG_CURRENT_DESKTOP` 含 `GNOME` 且会话总线上存在 `org.gnome.Shell`）中不写 `use-custom-font`。当前绘制候选的面板是否忽略这些设置由宿主写进会话运行目录的 `$XDG_RUNTIME_DIR/msime-client/candidate-panel.json`（`{"host":"ibus"|"fcitx5","limit":"gnome_shell"|"fcitx_theme"|"kimpanel"|"ibus_panel"|null}`，仅在内容变化时原子替换），设置页的外观与皮肤页据此提示哪些设置不会生效（IBus 宿主在 GNOME Shell 以外总是报告 `ibus_panel`，它的面板只接收字体和颜色，从不报告 `null`）；文件以最后写入的宿主为准。预编辑由应用自己绘制，因此 Linux 不提供单独的预编辑字号，设置页按 `candidate_preedit_font` 能力位隐藏它；英文字体同理不提供。
+候选颜色来自共享层解析的全局主题（ABI 3 的 `msime_client_resolve_theme`）：宿主以 `global_theme`、`custom_theme`、候选明暗和当前候选布局请求 ResolvedTheme，自定义主题在所绘明暗下的槽位引用已安装的外部皮肤时（深色取 `candidate_skin_dark`，没设时取 `candidate_skin`；浅色取 `candidate_skin`），再带上运行配置里该皮肤的目录条目；共享层拒绝该条目时宿主去掉它重新解析，仍失败才退回原生 token。解析出的 surface、正文、序号、accent 与选中行颜色映射为 IBus 候选文字、编号标签前景、固定候选的 accent 前景和行背景属性，以及 Fcitx5 classicui 主题；主题未给出的槽位（`system` 主题全部如此）使用 Linux 原生 token：浅色白底、深色 `#303030` 底，选中行 `#3584E4` 实色填充、白色正文。accent 颜色只在 IBus 生效，序号颜色在 IBus 和带 `CandidateLabelColor` 的 Fcitx5 版本上生效；边框、圆角与阴影只由 Fcitx5 classicui 主题绘制，IBus 的候选属性无法描边，两个宿主都没有 hover 状态，也不读取 `show_selected_bar`；编号色和边框色跟随主题：`candidate_number_color` 与 `candidate_border_color` 在 Linux 为假，设置页不给这两个取色器，宿主请求解析时也去掉自定义主题里存下的这两个槽位，编号色由文字颜色推出，边框取主题和皮肤的发丝线，`system` 底和留空边框槽位的自定义主题画 Linux 原生的发丝线（`CandidateColors.h`）；hover 等选中外观随 `candidate_selection_appearance` 隐藏；圆角能力位按平台给出，说的是 Fcitx5，IBus 宿主则在下面的面板状态文件里报告 `ibus_panel`，外观与主题页据此说明圆角和皮肤的装饰图在 IBus 下不会生效。候选字体族、回退字体和字号由宿主写进桌面 panel 自己读取的那一个字体描述：IBus 写 `org.freedesktop.ibus.panel` 的 `custom-font` 并打开 `use-custom-font`（与 ibus-setup 写的是同一对键），Fcitx5 通过 classicui 插件自己的配置写 `Font`，立即生效并保存在 `classicui.conf`。描述按 Pango 格式把主字体和回退字体依次列出、去重。字号在 IBus 上以像素写出。Fcitx5 5.1.18 起换算成磅（像素乘 3/4，例如 14px 写成 `10.5`）：这些版本的 classicui 画候选序号时把描述里的字号乘上主题的 `LabelTextSizeFactor` 再按磅设回去，写像素会让序号比候选大三分之一。5.1.22 起 classicui 在 X11 上按 DPI 整窗缩放、字体 DPI 固定为 96，Wayland 上除非设了 `ForceWaylandDPI` 也是 96，换算前后候选大小相同；5.1.18 到 5.1.21 的 X11 以 `Xft.dpi`（没有时取不低于 96 的屏幕 DPI）作字体 DPI，DPI 不是 96 时候选文字随之放大，与 5.1.22 起整窗缩放后的大小一致。更早的版本序号与候选共用同一个描述，本来就一样大，仍写像素。这个字体归整个桌面所有，所以设置从未改过、仍是默认值时宿主不写，之后用户每次修改都会写一次，回到默认值也算一次修改；例外是升级：偏好仍是默认值，而 `classicui.conf` 里的 `Font` 正是旧版本按像素写下的同一个字体时，宿主按磅重写一次。第一次写入之前宿主记下被替换的原值，卸载时只要这一项仍是水杉写入的值就恢复原值，用户之后自己改过的保持不变（见「卸载 CMake 安装」）。GNOME Shell 自带的候选弹窗跟随 Shell 主题、Plasma 的 kimpanel 跟随桌面字体，这两种面板上宿主不写任何东西：IBus 宿主在 GNOME Shell 会话（`XDG_CURRENT_DESKTOP` 含 `GNOME` 且会话总线上存在 `org.gnome.Shell`）中不写 `use-custom-font`。当前绘制候选的面板是否忽略这些设置由宿主写进会话运行目录的 `$XDG_RUNTIME_DIR/msime-client/candidate-panel.json`（`{"host":"ibus"|"fcitx5","limit":"gnome_shell"|"fcitx_theme"|"kimpanel"|"ibus_panel"|null}`，仅在内容变化时原子替换），设置页的外观与皮肤页据此提示哪些设置不会生效（IBus 宿主在 GNOME Shell 以外总是报告 `ibus_panel`，它的面板只接收字体和颜色，从不报告 `null`）；文件以最后写入的宿主为准。预编辑由应用自己绘制，因此 Linux 不提供单独的预编辑字号，设置页按 `candidate_preedit_font` 能力位隐藏它；英文字体同理不提供。
 
 中英混输默认在预编辑达到 5 个字母后显示英文候选，Emoji 与颜文字混输默认关闭；符号混输（打出符号的名称出符号，如 `zhengfu` → ±，`mixed_input.symbols`）默认开启，共享文档只在关掉时写这个键，两个前端读到缺键都按开显示。旧宿主选项缺少这些字段时使用相同默认值。用户仍可在设置中选择 1–8 个字符并分别切换符号/Emoji/颜文字，显式配置优先于默认值。
 
@@ -524,7 +526,7 @@ Fcitx5 的候选表由 classicui 插件按主题绘制，宿主把同一份 Reso
 
 Windows 的 `clipboard_history` 依赖独立剪贴板监听器和候选历史 UI；IBus Engine API 不提供剪贴板事件。Linux IBus 宿主只读取用户明确配置的历史文件，并通过属性菜单提供最近条目、删除和清空操作，不读取系统剪贴板，也不在输入线程监听剪贴板。Linux 桌面面板的剪贴板同步仍由独立 Tauri 服务承载。独立工具的 `get INDEX` 操作会将已存储条目写到标准输出，`remove-index INDEX` 按历史位置删除单个条目，供桌面服务或 compositor 显式接管粘贴和删除动作；它不会写入或读取系统剪贴板。
 
-`candidate_theme` 是 Windows 候选窗口的整体深浅主题覆盖。IBus Engine 只提交 lookup table 内容与文本属性，候选 panel 的边框、间距和主题切换由桌面环境控制；Linux 保留共享设置，但不伪造 panel 主题覆盖。显式文字、编号和表面色按 IBus 属性传递。
+`candidate_theme` 是 Windows 候选窗口的整体深浅主题覆盖。IBus Engine 只提交 lookup table 内容与文本属性，候选 panel 的边框、间距和主题切换由桌面环境控制；Linux 保留共享设置，但不伪造 panel 主题覆盖。显式文字和表面色按 IBus 属性传递，编号色由文字颜色推出后同样传递。
 
 个人词典维护使用共享 Host API 的独立 `msime-linux-dictionary` 原生入口，不由 IBus 输入线程执行。它从标准输入读取一个不超过 65536 字节的 JSON 请求并输出 JSON 响应；请求格式和 `list`/`edit` 操作见 `msime_client.h`。`list` 不带词库类型和编码前缀时只列出用户自己添加的词；指定类型并给出编码前缀（快捷短语不需要前缀）时，同时按前缀查到随输入法附带的内置词条，用户词排在前面，每条带 `source`（`user` 或 `bundled`）。内置词条只能调整权重或删除：`edit` 的替换项必须保持类型、编码和词不变，否则返回 `bundled dictionary entry is read-only`；改动与 Windows 一样记入用户词库日志，词库升级重放后仍然生效。拼音词库的 `export` 除用户词外还带出对内置词学到或设置过的权重，并与 Windows 一样略去单字；五笔、英文和快捷短语只导出用户词。调用方必须在编辑前停止使用相关词典的会话，API 负责共享访问锁、请求幂等和 Engine 原子写入；错误输出不包含词条内容。该入口不替代桌面设置页，便于 GTK/Qt 前端复用同一契约。
 
@@ -729,7 +731,7 @@ msime-linux-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
 
 服务只接受同一用户连接，同时最多处理四个请求；云候选与 AI 并行请求，AI 失败时仍可返回云候选。HTTP 响应最多 64 KiB，拒绝 HTTP 重定向以保持凭据与端点绑定。AI 沿用 Windows 的 JSON 请求、上下文、candidate_limit 和 DeepSeek thinking 禁用设置；所选提示词槽位为空（含空白）时，system 消息使用与 Windows 默认 `[ai_assistant].prompt` 相同的内置联想提示词，与 client-providers 的 `DEFAULT_CANDIDATE_PROMPT` 一致，因此默认配置和手动清空过提示词的配置都能得到可解析的候选。按配置最多保留 10 条有效且不重复的模型候选，再由 Engine 批量缓存和排序。成功的 AI 结果按 provider、endpoint、model、候选数量、提示词摘要、近期上下文摘要和拼音分段保存在有界进程内缓存中，可跨候选 generation 复用；缓存键不包含凭据、上下文或提示词原文、会话或原始输入，空响应和失败不会缓存。候选翻译同样按单项缓存，最多 4096 项；成功结果在当前 provider scope 下持续复用，直到配置 scope 变化或容量淘汰，失败项使用 8 分钟负缓存且在 TTL 内不会重复请求，独立候选不会互相抑制。服务不打印输入或网络错误正文，退出时仅删除自己创建的 socket。该入口同时实现候选翻译；语音由独立的随包 voice provider 提供；账号同步服务仍按各自契约接入。
 
-设置页的「获取模型列表」和「AI 润色测试」也接进了同一个 provider。这两个按钮此前在 Linux 上不可用：持有 token 的宿主是自己发 HTTP 去取的，而这个平台按设计把 token 留在 provider 的所有者专用配置文件里，外壳手上没有可用于鉴权的东西。现在 provider 增加 `ai_models` 与 `ai_test` 两种请求：设置页只给出 provider 名、接口地址、模型、提示词和待润色文字，provider 先核对这些与私有配置中的 provider/接口地址（润色再加模型）一致，再用自己的 token 发请求；不一致就什么都不发。模型名最多 128 个、每个 256 字节，去重并保序；润色结果最多 16 KiB。新增能力位 `ai_provider_credentials` 表示「凭据归宿主的 provider」，设置页据此不显示 API Token 输入框，也不再因为没有 token 而禁用这两个按钮——此前模型列表那一段是按平台名藏掉的。
+设置页的「获取模型列表」也接进了同一个 provider。这个按钮此前在 Linux 上不可用：持有 token 的宿主是自己发 HTTP 去取的，而这个平台按设计把 token 留在 provider 的所有者专用配置文件里，外壳手上没有可用于鉴权的东西。现在 provider 有 `ai_models` 与 `ai_test` 两种请求：请求只给出 provider 名、接口地址、模型、提示词和待润色文字，provider 先核对这些与私有配置中的 provider/接口地址（润色再加模型）一致，再用自己的 token 发请求；不一致就什么都不发。模型名最多 128 个、每个 256 字节，去重并保序；润色结果最多 16 KiB。设置页现在只用 `ai_models`：桌面上的 AI 辅助页撤掉了「AI 润色测试」（这份配置在桌面上只给拼音联想用，测出的结果和用户实际得到的没有关系），`ai_test` 请求和 Tauri 的 `ai_test` 命令仍然保留。新增能力位 `ai_provider_credentials` 表示「凭据归宿主的 provider」，设置页据此不显示 API Token 输入框，也不再因为没有 token 而禁用「获取模型列表」——此前模型列表那一段是按平台名藏掉的。Linux 的 AI 候选数量固定为 3（client-core 的 `HostPlatform::fixed_ai_candidate_limit`），fcitx5 和 IBus 转发的在线查询已经带着这个值，provider 照它请求。IBus 转发前会把读到的偏好快照和在线查询的 AI 配置逐键比较、不一致就不问 AI（防推迟应用的偏好改动带着旧设置发请求），候选数量不在比较之列：快照里是文档存的原值，查询里是固定值，存的不是 3 时一比就永远不等（`scripts/test-linux-ibus-ai-candidate-limit.py` 钉住这一点）。
 
 共享设置页可对当前腾讯翻译、NiuTrans、自定义翻译、AI 辅助、语音识别和语音润色选项执行“测试配置”。Linux Tauri 只把服务名和当前非敏感选项发送到已有 provider socket；AI、腾讯和语音 token 仍由 provider 从所有者专用配置文件读取，不返回 WebView。NiuTrans 与自定义翻译继续沿用本来就会进入候选翻译请求的设置字段。provider 使用固定的合成文本或静音 WAV 发出最小请求，并只返回有界的成功/失败文案，不转发服务端正文、URL、凭据或异常细节。测试不会保存草稿，也不采集真实输入；provider 不可用时设置页明确提示先启动服务。
 
@@ -760,7 +762,7 @@ msime-linux-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
 
 润色保留 Windows 的精炼整理、忠实校对、中翻英、口语整理及三个自定义提示词选择，并沿用 `<asr_text>` 包装和 provider thinking 设置。批量识别没有录音中的实时转写；启用润色时可先返回原始转写的 partial，再返回整理后的 final。Doubao 实时识别使用下述 WSS 配置。
 
-提示音尊重 `sound_enabled`、`start_sound`、`end_sound`，通过 `paplay` 或 `aplay` 播放短提示音。`mute_system_audio` 在支持 JSON 输出的 `pactl` 上暂时静音最多 32 个现有播放流，结束或取消后恢复被本服务改变的流；已有静音、已消失或被替换的流不会强制改写。缺少这些可选工具时继续录音。单次仅占用一个麦克风，最多四条语音任务等待网络，控制请求另留容量；会话按连接进程及 generation 区分。客户端断开录音连接或服务收到终止信号时停止采集并恢复播放流。原始音频、转写和凭据均不写入磁盘或日志。
+提示音尊重 `sound_enabled`，通过 `paplay` 或 `aplay` 播放短提示音。输入法宿主和桌面语音面板只转发总开关 `sound_enabled`，不再转发开始、结束提示音各自的开关；provider 仍接受 `start_sound`、`end_sound`（缺省都为开），供自行接入的客户端使用。`mute_system_audio` 在支持 JSON 输出的 `pactl` 上暂时静音最多 32 个现有播放流，结束或取消后恢复被本服务改变的流；已有静音、已消失或被替换的流不会强制改写。缺少这些可选工具时继续录音。单次仅占用一个麦克风，最多四条语音任务等待网络，控制请求另留容量；会话按连接进程及 generation 区分。客户端断开录音连接或服务收到终止信号时停止采集并恢复播放流。原始音频、转写和凭据均不写入磁盘或日志。
 
 ### Doubao 实时识别
 
@@ -866,7 +868,7 @@ Linux 桌面未显式设置 `MSIME_CLIENT_STATE_DIR` 时，优先使用 runtime-
 
 ### 按次录音选择设备
 
-Linux 设置页的“语音输入 → 录音设备”可选择 PulseAudio、PipeWire、ALSA 或自动选择，并填写对应的设备名称。配置保存为 `preferences.voice_input.capture_backend` 和 `capture_device`；桌面语音面板与 IBus 在下一次请求中传递这两个字段，provider 为每次录音单独构造采集命令，不修改正在录制的会话。
+Linux 设置页的“语音输入 → 录音设备”可选择 PulseAudio、PipeWire、ALSA 或自动选择，并填写对应的设备名称。配置保存为 `preferences.voice_input.capture_backend` 和 `capture_device`；桌面语音面板与 IBus 在下一次请求中传递这两个字段，provider 为每次录音单独构造采集命令，不修改正在录制的会话。从其他平台带来的后端（如 `macos`、`windows`、`harmony`）provider 不认识，宿主连同设备一起不转发，provider 改用自己的录音设置照常录音。
 
 后端和设备都留空时沿用服务 `--capture` / `--capture-device`；明确选择后端而设备留空时使用该后端的系统默认设备。只填写设备则沿用服务后端。选择不存在的后端工具或非法设备会返回失败，不悄悄切换到其他麦克风。设备字段最多 128 个字符、512 UTF-8 字节，禁止控制字符；设备通过独立命令参数传递。无需重启 provider，原始音频及设备配置不会写入日志。
 
@@ -920,7 +922,7 @@ IBus 快捷键录音通过 `msime_client_voice_provider_stream_feedback` 接收�
 
 ### 随包录音提示音
 
-Linux 安装包包含 Windows 固定提交中的开始、结束录音提示音，离线转换为 16 kHz 单声道 PCM，通过已有 PulseAudio、PipeWire 或 ALSA 播放工具输出，不增加运行时 MP3 解码依赖。`sound_enabled`、`start_sound`、`end_sound` 开关继续分别控制播放。音频来源见 `data/voice/SOURCE.md`；安装路径随自定义前缀定位。单独复制服务脚本而未带音频资源时仍使用短音回退。
+Linux 安装包包含 Windows 固定提交中的开始、结束录音提示音，离线转换为 16 kHz 单声道 PCM，通过已有 PulseAudio、PipeWire 或 ALSA 播放工具输出，不增加运行时 MP3 解码依赖。是否播放只看输入法转发的总开关 `sound_enabled`。音频来源见 `data/voice/SOURCE.md`；安装路径随自定义前缀定位。单独复制服务脚本而未带音频资源时仍使用短音回退。
 
 ### 语音服务默认模型
 
@@ -990,7 +992,7 @@ IBus 桌面工具和桌面启动器提供「本地剪贴板」入口，`msime-li
 
 IBus「剪贴板历史」菜单内可直接打开完整历史面板，即使历史关闭也能进入主动开启界面；关闭或当前输入不可用时，刷新、条目提交及清空仍禁用，菜单不展示缓存条目。菜单预览将换行和制表符压成空格，提交与删除仍使用完整原文。
 
-IBus 的空格锁定仅在录音期间仍按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 快捷键且启用 `hotkey_hold_space_lock` 时生效。菜单或 Ctrl+F9 启动的录音、松开快捷键后的锁定录音，以及识别和润色阶段，都不会把普通空格作为锁定操作吞掉；这些空格继续走编辑器/Engine 的常规输入路径。
+IBus 的空格锁定仅在录音期间仍按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 快捷键时生效；它固定为开，不再读 `hotkey_hold_space_lock`。菜单或 Ctrl+F9 启动的录音、松开快捷键后的锁定录音，以及识别和润色阶段，都不会把普通空格作为锁定操作吞掉；这些空格继续走编辑器/Engine 的常规输入路径。
 
 IBus 已消费的语音快捷键和锁定空格会保留按键记录直到抬键，停止录音、取消或服务提前返回结果不会清除该记录；期间自动重复的按下事件继续被消费，避免重新启动录音或向编辑器泄漏半个按键周期。失焦、宿主重置和会话关闭时清除记录，避免在新的输入上下文沿用旧按键状态。
 

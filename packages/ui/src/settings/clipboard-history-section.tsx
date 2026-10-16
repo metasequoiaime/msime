@@ -43,6 +43,8 @@ export interface ClipboardHistorySectionProps {
   cloudRequest?: CloudClipboardRequest;
   /** 云剪贴板现在走哪条路，例如已保存的自建中继地址和令牌；它一变（同一页上保存或改回了中继）就重新查一次可用状态，不沿用另一条路的结果。 */
   cloudRoute?: string;
+  /** 「剪贴板」组里一直显示的一句说明，例如 macOS 上云剪贴板要从输入法菜单打开。 */
+  note?: ReactNode;
   children?: ReactNode;
 }
 
@@ -58,6 +60,7 @@ export function ClipboardHistorySection({
   onError,
   cloudRequest,
   cloudRoute,
+  note,
   children,
 }: ClipboardHistorySectionProps) {
   const [entries, setEntries] = useState<ClipboardHistoryEntry[]>([]);
@@ -177,6 +180,36 @@ export function ClipboardHistorySection({
       .catch(() => undefined);
   }, [client, historyGeneration, ios, page, historyEnabled, persistedHistoryEnabled, revision]);
 
+  // 「从系统剪贴板同步」按钮已经撤掉：打开剪贴板历史并保存之后自动记一次。后台每 750 ms 采样一次剪贴板，但开关关着时 change count 照样往前走，刚打开时剪贴板里已有的那一条不会被记下，按钮原来只补这一条。只在保存的值从关变成开的那一次同步，进入页面或者本来就开着时不同步。Windows 原生设置页的同步按钮走同一个 `sync_clipboard_history`，不受影响。
+  const persistedBefore = useRef(persistedHistoryEnabled);
+  useEffect(() => {
+    const turnedOn = !persistedBefore.current && persistedHistoryEnabled;
+    persistedBefore.current = persistedHistoryEnabled;
+    const sync = client?.sync;
+    if (ios || !turnedOn || !historyEnabled || !sync || historyActionBusy.current) return;
+    historyActionBusy.current = true;
+    setHistoryBusy(true);
+    const currentGeneration = historyActionGeneration.current;
+    void sync()
+      .then((next) => {
+        if (currentGeneration !== historyActionGeneration.current) return;
+        historyRead.current++;
+        setEntries(next);
+        setClearArmed(false);
+      })
+      .catch(() => {
+        if (currentGeneration === historyActionGeneration.current) onError("无法同步剪贴板历史");
+      })
+      .finally(() => {
+        if (currentGeneration === historyActionGeneration.current) {
+          historyActionBusy.current = false;
+          setHistoryBusy(false);
+        }
+      });
+    // 只跟着保存的开关走；onError 每次渲染都是新函数，不该触发同步。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, ios, historyEnabled, persistedHistoryEnabled]);
+
   const mutate = async (action: () => Promise<void>, failure: string) => {
     if (historyActionBusy.current) return;
     historyActionBusy.current = true;
@@ -222,6 +255,7 @@ export function ClipboardHistorySection({
   return (
     <>
       <GroupList title="剪贴板">
+        {note && <SettingsGroupNote>{note}</SettingsGroupNote>}
         {ios ? (
           <Row title="剪贴板历史" description={clipboardDescription} />
         ) : (
@@ -234,51 +268,20 @@ export function ClipboardHistorySection({
             onChange={toggle}
           />
         )}
-        {((!ios && client?.sync) || (client && entries.length > 0)) && (
+        {client && entries.length > 0 && (
           <SettingsManagerBlock>
             <SettingsManagerActions>
-              {!ios && client?.sync && (
-                <ActionButton
-                  action={() => {
-                    if (historyActionBusy.current) return;
-                    historyActionBusy.current = true;
-                    setHistoryBusy(true);
-                    const currentGeneration = historyActionGeneration.current;
-                    void client.sync!()
-                      .then((next) => {
-                        if (currentGeneration !== historyActionGeneration.current) return;
-                        historyRead.current++;
-                        setEntries(next);
-                        setClearArmed(false);
-                      })
-                      .catch(() => {
-                        if (currentGeneration === historyActionGeneration.current)
-                          onError("无法同步剪贴板历史");
-                      })
-                      .finally(() => {
-                        if (currentGeneration === historyActionGeneration.current) {
-                          historyActionBusy.current = false;
-                          setHistoryBusy(false);
-                        }
-                      });
-                  }}
-                  disabled={!historyEnabled || !persistedHistoryEnabled || historyBusy}
-                  label="从系统剪贴板同步"
-                />
-              )}
-              {client && entries.length > 0 && (
-                <ActionButton
-                  action={() => {
-                    if (!clearArmed) {
-                      setClearArmed(true);
-                      return;
-                    }
-                    void mutate(() => client.clear(), "无法清空剪贴板历史，请稍后重试。");
-                  }}
-                  disabled={!historyEnabled || historyBusy}
-                  label={clearArmed ? "确认清空" : "清空历史"}
-                />
-              )}
+              <ActionButton
+                action={() => {
+                  if (!clearArmed) {
+                    setClearArmed(true);
+                    return;
+                  }
+                  void mutate(() => client.clear(), "无法清空剪贴板历史，请稍后重试。");
+                }}
+                disabled={!historyEnabled || historyBusy}
+                label={clearArmed ? "确认清空" : "清空历史"}
+              />
             </SettingsManagerActions>
           </SettingsManagerBlock>
         )}

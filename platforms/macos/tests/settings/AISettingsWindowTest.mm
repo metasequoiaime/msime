@@ -22,7 +22,11 @@ int main() {
         [window showWindow:nil];
         NSButton *enabled = [window valueForKey:@"enabled"];
         NSPopUpButton *provider = [window valueForKey:@"provider"];
-        NSTextField *model = [window valueForKey:@"model"], *endpoint = [window valueForKey:@"endpoint"], *limit = [window valueForKey:@"limit"];
+        NSTextField *model = [window valueForKey:@"model"], *endpoint = [window valueForKey:@"endpoint"];
+        // 窗口里没有「候选数量」：macOS 固定给 3 个 AI 候选，这个窗口不读也不写 candidate_limit。
+        BOOL hasLimitField = YES;
+        @try { (void)[window valueForKey:@"limit"]; } @catch (NSException *exception) { (void)exception; hasLimitField = NO; }
+        assert(!hasLimitField);
         NSNotification *endEditing = [NSNotification notificationWithName:NSControlTextDidEndEditingNotification object:model];
         // There is nothing to press: no 保存 or 重新加载 button.
         NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:window.window.contentView];
@@ -37,8 +41,6 @@ int main() {
         NSDictionary *stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert([stored[@"preferences"][@"ai_assistant"][@"model"] isEqual:@"synthetic-model"]);
         // Invalid values are reported and not written.
-        limit.stringValue = @"11"; [window controlTextDidEndEditing:endEditing]; assert(saves == 1);
-        limit.stringValue = @"5";
         enabled.state = NSControlStateValueOn; endpoint.stringValue = @"file:///synthetic"; [window commit:enabled]; assert(saves == 1);
         // 远程 HTTP 与伪装成 localhost 的远程域名不能保存。
         for (NSString *invalid in @[@"http://remote.invalid/v1", @"http://localhost.example/v1", @"http://192.0.2.1/v1", @"http://[2001:db8::1]/v1", @"http://user:synthetic@localhost/v1", @"http://@:localhost/v1", @"http://localhost/v1#fragment"]) {
@@ -50,7 +52,10 @@ int main() {
         // Another writer saved in between: the edit is merged onto its revision and keeps its change.
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         NSMutableDictionary *other = [stored mutableCopy], *otherPreferences = [stored[@"preferences"] mutableCopy];
-        otherPreferences[@"candidate_page_size"] = @7; other[@"preferences"] = otherPreferences;
+        otherPreferences[@"candidate_page_size"] = @7;
+        // 另一个写入者（比如别的平台同步过来的文档）存了候选数量 5：这个窗口保存时原样保留，不写回 3，也不删掉。
+        NSMutableDictionary *otherAI = [otherPreferences[@"ai_assistant"] mutableCopy]; otherAI[@"candidate_limit"] = @5; otherPreferences[@"ai_assistant"] = otherAI;
+        other[@"preferences"] = otherPreferences;
         assert([MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[stored[@"revision"] unsignedLongLongValue] snapshot:other error:&error]);
         endpoint.stringValue = @"https://synthetic.invalid/v1"; [window controlTextDidEndEditing:endEditing]; assert(saves == 2);
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];

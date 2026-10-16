@@ -2732,6 +2732,7 @@ fn restart_input_method_blocking() -> Result<(), HostActionError> {
     }
 }
 
+/// 设置页「修复输入源」的第一步：和启动检查一样按版本决定，没装时安装、随附的更新时替换，从不降级；与启动检查不同的是版本相同也重装一遍，因为版本号读得出来不代表 bundle 完好。已装的可能比设置应用随附的新（Sparkle 更新了输入法、`scripts/install.sh` 装了更新的构建、新版之后又打开了旧 DMG 里的应用），强制重装会把用户悄悄退回旧版本。
 #[cfg(target_os = "macos")]
 #[tauri::command]
 async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionError> {
@@ -2739,14 +2740,27 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
         code: "unavailable",
     })?;
     tauri::async_runtime::spawn_blocking(move || {
-        macos_input_source::install(Some(&resource_directory)).map_err(|_| HostActionError {
-            code: "unavailable",
-        })
+        repair_install_result(macos_input_source::repair(&resource_directory))
     })
     .await
     .map_err(|_| HostActionError {
         code: "unavailable",
     })?
+}
+
+/// 「修复输入源」只在真正装坏时报失败：不是打包运行、没有随附的输入源（`SourceUnavailable`）时没有可装的，bundle 已经留在原处只等登记（`RegistrationPending`）时下一步的重新登记正好接上，这两种都让修复接着去重新登记。
+#[cfg(target_os = "macos")]
+fn repair_install_result(
+    result: Result<macos_input_source::RefreshOutcome, macos_input_source::InstallError>,
+) -> Result<(), HostActionError> {
+    match result {
+        Ok(_)
+        | Err(macos_input_source::InstallError::SourceUnavailable)
+        | Err(macos_input_source::InstallError::RegistrationPending) => Ok(()),
+        Err(_) => Err(HostActionError {
+            code: "unavailable",
+        }),
+    }
 }
 
 /// What the start-time install/refresh of the input method did, for the settings page to tell the user.

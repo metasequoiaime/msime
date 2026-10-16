@@ -95,6 +95,10 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
+# Compose 可在批量结束时才执行写入，核心验收覆盖延迟组字和中英往返。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.BatchCompositionDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Deferred batch composition acceptance failed" >&2; exit 1; }
 # 菜单复制使用真实系统剪贴板与组字会话，最低 API 的核心验收也必须覆盖。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CopyDeviceInfoDeviceSmoke)
 printf '%s\n' "$result"
@@ -147,6 +151,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ToolbarEditorDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Toolbar editor entry acceptance failed" >&2; exit 1; }
+# 本地语音句柄经过真实 JNI；不加载模型或录音，最低 API 的核心验收也执行。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.LocalSpeechHandleDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_LOCAL_SPEECH_HANDLES_PASSED* ]] || { echo "Local speech handle acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"
@@ -179,6 +187,7 @@ for entry in \
     "NineKeyEnglishDeviceSmoke|Nine-key English acceptance failed" \
     "EnglishCorrectionDeviceSmoke|Mobile English correction acceptance failed" \
     "NineKeyPanelDeviceSmoke|Nine-key panel acceptance failed" \
+    "QuanpinSeparatorDeviceSmoke|Quanpin separator acceptance failed" \
     "FourteenKeyDeviceSmoke|Fourteen-key acceptance failed" \
     "NineKeyShuangpinDeviceSmoke|Nine-key shuangpin acceptance failed" \
     "ChineseHelpcodeDeviceSmoke|Chinese helpcode acceptance failed" \

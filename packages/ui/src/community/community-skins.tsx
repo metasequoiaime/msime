@@ -45,7 +45,7 @@ import { useToast } from "../core/toast";
 import { deepEqual } from "../core/deep-equal";
 import { boundedGraphemes } from "../core/text";
 import { updateCustomKeyboard } from "../settings/theme-selection-updates";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";

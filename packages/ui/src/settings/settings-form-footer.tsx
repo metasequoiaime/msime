@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { validCandidateFonts } from "../candidate/candidate-font-family";
 import { SettingsActionsFooter, type SettingsActionsFooterProps } from "./settings-actions-footer";
 import { ErrorAlert } from "../core/error-alert";

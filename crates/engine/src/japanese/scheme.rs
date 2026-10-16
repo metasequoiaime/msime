@@ -233,7 +233,20 @@ mod tests {
         assert_eq!(scheme.preedit(), "");
     }
 
-    // test_input_session.cpp:729-759: the variant key modifies the last kana instead of inserting one.
+    #[test]
+    fn kana_variant_cycling_preserves_sokuon_before_n_in_the_prefix() {
+        for (input, before, after) in [
+            ("xtsunaha", "っなは", "っなば"),
+            ("xtsunnka", "っんか", "っんが"),
+        ] {
+            let mut scheme = typed(input);
+            assert_eq!(reading(&scheme), before);
+            assert!(scheme.cycle_last_kana_variant());
+            assert_eq!(reading(&scheme), after);
+        }
+    }
+
+    // test_input_session.cpp:729-759：变体键替换最后一个假名，而不是插入新假名。
     #[test]
     fn kana_variant_cycling() {
         let mut scheme = typed("ka");

@@ -36,7 +36,7 @@ bool launchable(const ShellTarget &target) {
 } // namespace
 int main() {
   try {
-    // 侧栏：17 个互不重复的页面，分在 6 个非空组里，按组的顺序排列。
+    // 侧栏：16 个互不重复的页面，分在 6 个非空组里，按组的顺序排列。
     std::set<std::string_view> ids;
     std::set<std::size_t> groups;
     std::size_t previous_group = 0;
@@ -47,14 +47,14 @@ int main() {
       previous_group = page.group;
       groups.insert(page.group);
     }
-    require(ids.size() == 17);
+    require(ids.size() == 16);
     require(groups.size() == page_group_count);
-    // 分组和顺序与 `packages/ui/src/settings/settings-page-registry.ts` 里的 `settingsNavGroups` 相同（打字、外观、更多输入方式、工具、账号、支持），这样原生窗口和共享设置 UI 以同样的方式列出同样的页面。
-    const std::array<std::pair<std::string_view, std::size_t>, 17> sidebar{{
+    // 分组和顺序与共享设置 UI 的桌面侧栏相同：`packages/ui/src/settings/settings-page-registry.ts` 里的 `settingsNavGroups`（打字、外观、更多输入方式、工具、账号、支持）去掉 `desktopMergedPages` 并进「关于」的「帮助与反馈」，这样原生窗口和共享设置 UI 以同样的方式列出同样的页面。
+    const std::array<std::pair<std::string_view, std::size_t>, 16> sidebar{{
         {"typing", 0},  {"expression", 0}, {"shortcuts", 0}, {"lexicon", 0},
         {"themes", 1},  {"candidate", 1},  {"toolbar", 1},   {"osk", 2},
         {"voice", 2},   {"clip", 3},       {"stats", 3},     {"plugins", 3},
-        {"ai", 3},      {"account", 4},    {"dev", 5},       {"feedback", 5},
+        {"ai", 3},      {"account", 4},    {"dev", 5},
         {"about", 5}}};
     require(sidebar.size() == pages.size());
     for (std::size_t i = 0; i < pages.size(); ++i)
@@ -86,7 +86,7 @@ int main() {
     require(find_page("hand") == nullptr);
     // MCP stays in this window's developer page and the core pages stay native.
     for (auto id : {"themes", "candidate", "typing", "expression", "shortcuts", "lexicon",
-                    "clip", "stats", "plugins", "ai", "account", "dev", "feedback", "about"})
+                    "clip", "stats", "plugins", "ai", "account", "dev", "about"})
       require(find_page(id)->host == PageHost::Native);
     // 本窗口不再打开共享应用的任何设置页：留下的都是输入工具的面板。
     for (const auto &target : shell_links::all) {
@@ -129,7 +129,10 @@ int main() {
     require(page_for_route("chat") == "ai");
     require(page_for_route("community") == "themes");
     require(page_for_route("tools") == "clip");
-    require(page_for_route("help") == "feedback");
+    // 帮助与反馈并进了「关于」（共享页的 `desktopMergedPages`），托盘和工具栏菜单的「帮助」「反馈」都打开它；本窗口没有 feedback 页。
+    require(page_for_route("help") == "about");
+    require(page_for_route("feedback") == "about");
+    require(find_page("feedback") == nullptr);
     require(page_for_route("expression") == "expression");
     require(page_for_route("developer") == "dev");
     require(page_for_route("plugins") == "plugins");

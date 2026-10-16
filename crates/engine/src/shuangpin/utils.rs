@@ -13,6 +13,50 @@ fn source_by_code(mapping: &[(&'static str, &'static str)], code: &str) -> Optio
         .map(|(source, _)| *source)
 }
 
+/// 将已规范化、用撇号分隔的全拼转为两键分段；任何音节不可编码时整次失败。
+pub(crate) fn encode_pinyin(pinyin: &str, profile: &ShuangpinProfile) -> Option<String> {
+    let mut codes = Vec::new();
+    for syllable in pinyin.split('\'') {
+        if !accepted_syllables().contains(syllable) {
+            return None;
+        }
+        let code = if let Some((_, code)) = profile
+            .zero_initials
+            .iter()
+            .find(|(unit, _)| *unit == syllable)
+        {
+            code.to_string()
+        } else {
+            let initial_len = if ["zh", "ch", "sh"]
+                .iter()
+                .any(|initial| syllable.starts_with(initial))
+            {
+                2
+            } else {
+                1
+            };
+            let (initial, final_unit) = syllable.split_at(initial_len);
+            let initial_key = profile
+                .initials
+                .iter()
+                .find(|(unit, _)| *unit == initial)
+                .map_or(initial, |(_, key)| *key);
+            let final_key = profile
+                .finals
+                .iter()
+                .find(|(unit, _)| *unit == final_unit)?
+                .1;
+            format!("{initial_key}{final_key}")
+        };
+        // 必须能按同一方案解回原读音，不能将方案里的歧义或缺口当成成功。
+        if cvt_single_sp_to_pinyin(&code, profile) != syllable {
+            return None;
+        }
+        codes.push(code);
+    }
+    Some(codes.join("'"))
+}
+
 /// A one-key piece read as an initial: `u` is `sh` in xiaohe, any other letter is itself.
 pub(crate) fn initial_for_key<'a>(key: &'a str, profile: &ShuangpinProfile) -> &'a str {
     source_by_code(profile.initials, key).unwrap_or(key)
@@ -234,6 +278,34 @@ mod tests {
 
     fn xiaohe() -> &'static ShuangpinProfile {
         profile(ShuangpinProfileKind::Xiaohe).unwrap()
+    }
+
+    #[test]
+    fn encoded_readings_round_trip_under_every_builtin_profile() {
+        for kind in ALL {
+            let source = profile(kind).unwrap();
+            for first in b'a'..=b'z' {
+                for &second in b"abcdefghijklmnopqrstuvwxyz;" {
+                    let pair = [first, second];
+                    let reading =
+                        cvt_single_sp_to_pinyin(std::str::from_utf8(&pair).unwrap(), source);
+                    if !reading.is_empty() {
+                        let code = encode_pinyin(&reading, source).unwrap();
+                        assert_eq!(cvt_single_sp_to_pinyin(&code, source), reading, "{kind:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn encoding_handles_whole_words_zero_initials_and_semicolon() {
+        assert_eq!(encode_pinyin("ni'hao", xiaohe()).as_deref(), Some("ni'hc"));
+        let microsoft = profile(ShuangpinProfileKind::Microsoft).unwrap();
+        assert_eq!(encode_pinyin("a'ming", microsoft).as_deref(), Some("oa'm;"));
+        for reading in ["", "ni''hao", "'ni", "ni'", "NI", "ni'bad", "汉字"] {
+            assert_eq!(encode_pinyin(reading, xiaohe()), None);
+        }
     }
 
     #[test]

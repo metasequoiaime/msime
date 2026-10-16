@@ -51,6 +51,7 @@
 #include "VoiceControllerListener.h"
 #include "VoiceHotkey.h"
 #include "VoiceInputSession.h"
+#include "VoiceSessionPolicy.h"
 #include "WatchdogPolicy.h"
 #include "Telemetry.h"
 #include "TelemetryConsent.h"
@@ -820,17 +821,6 @@ void start_watchdog(const std::filesystem::path &directory) {
     CloseHandle(process.hProcess);
   }
 }
-// preferences.plugins.effect_intensity, how bright the candidate card's typing flash is. Only the hosts read it, so this is where an out-of-range or mistyped value falls back: clamped to 0-100, and anything not a number is the default 50.
-unsigned typing_effect_intensity(const nlohmann::json &preferences) {
-  const auto plugins = preferences.value("plugins", nlohmann::json::object());
-  if (!plugins.is_object())
-    return 50u;
-  const auto found = plugins.find("effect_intensity");
-  if (found == plugins.end() || !found->is_number())
-    return 50u;
-  const double value = found->get<double>();
-  return static_cast<unsigned>(value <= 0.0 ? 0.0 : (value >= 100.0 ? 100.0 : value));
-}
 // 诊断日志里前台呈现方式的名字。
 const char *foreground_presentation_name(
     msime::windows::ForegroundPresentation value) {
@@ -1002,13 +992,7 @@ int wmain(int argc, wchar_t **argv) {
     // registers later is not left holding compiled defaults. A revision is
     // used instead of a bool so an older send cannot clear a newer update.
     auto tsf_config_revision = std::make_shared<msime::windows::RevisionFence>();
-    // The toolbar resolves light/dark from its own preference, independently
-    // of the candidate card: toolbar_theme is honoured on macOS and in the
-    // settings preview but was ignored by the Windows surface, which simply
-    // took the card's palette.
-    // The tray and candidate context menus. Windows draws its own menus, so
-    // this override only ever mattered here, and it was the one surface theme
-    // the client did not have.
+    // 工具栏、托盘菜单、语音浮层一律跟随颜色模式（HostCapabilities::surface_themes_follow），不读存下的 toolbar_theme、menu_theme、voice_theme；三个原子量照旧由偏好发布更新，只是都由全局的 `theme` 算出。
     // Cross-application CN/EN authority, when the user asked for one state to
     // follow them between applications.
     auto mode_scope_global = std::make_shared<std::atomic<bool>>(
@@ -1020,25 +1004,14 @@ int wmain(int argc, wchar_t **argv) {
         ReadAppInputModeRules(prepared.at("value").at("preferences"));
     auto input_mode_hud_enabled = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences").value("input_mode_hud", true));
-    auto menu_theme = std::make_shared<std::atomic<SurfaceThemeMode>>([&] {
+    // "follow" 取全局的 `theme`，它的 "system" 再交给 Windows 的应用模式。
+    const auto followed_surface_theme = [&] {
       const auto &stored = prepared.at("value").at("preferences");
-      const auto theme = stored.value("menu_theme", std::string("follow"));
-      const auto global = stored.value("theme", std::string("dark"));
-      return surface_theme_mode(theme, global);
-    }());
-    auto toolbar_theme = std::make_shared<std::atomic<SurfaceThemeMode>>([&] {
-      const auto &stored = prepared.at("value").at("preferences");
-      const auto theme = stored.value("toolbar_theme", std::string("follow"));
-      // "follow" defers to the global theme, and that in turn to Windows.
-      const auto global = stored.value("theme", std::string("dark"));
-      return surface_theme_mode(theme, global);
-    }());
-    auto voice_theme = std::make_shared<std::atomic<SurfaceThemeMode>>([&] {
-      const auto &stored = prepared.at("value").at("preferences");
-      const auto theme = stored.value("voice_theme", std::string("follow"));
-      return surface_theme_mode(
-          theme, stored.value("theme", std::string("dark")));
-    }());
+      return surface_theme_mode("follow", stored.value("theme", std::string("dark")));
+    };
+    auto menu_theme = std::make_shared<std::atomic<SurfaceThemeMode>>(followed_surface_theme());
+    auto toolbar_theme = std::make_shared<std::atomic<SurfaceThemeMode>>(followed_surface_theme());
+    auto voice_theme = std::make_shared<std::atomic<SurfaceThemeMode>>(followed_surface_theme());
     auto toolbar_enabled = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("floating_toolbar", nlohmann::json::object())
@@ -1050,9 +1023,6 @@ int wmain(int argc, wchar_t **argv) {
     // 「输入时显示双拼键位提示」（共享偏好 `shuangpin_keymap_hint`，没选过时文档里没有这一项，按关处理），同样经原子量发布，改了设置不用重启 Server。
     auto shuangpin_keymap_enabled = std::make_shared<std::atomic<bool>>(
         shuangpin_keymap_preference(prepared.at("value").at("preferences")));
-    // The typing flash's strength, published the same way. The effect itself comes with each key from the input thread.
-    auto effect_intensity = std::make_shared<std::atomic<unsigned>>(
-        typing_effect_intensity(prepared.at("value").at("preferences")));
     // 按键音或打字特效开着没有：Aux 管道的 KeySound 只在开着时回 "OK"，同样经原子量发布。
     auto typing_feedback = std::make_shared<std::atomic<bool>>(
         typing_feedback_wanted(prepared.at("value").at("preferences")));
@@ -1146,7 +1116,7 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, voice_host_options, traditional_output,
-         toolbar_enabled, follow_cursor, shuangpin_keymap_enabled, effect_intensity, typing_feedback, candidate_mouse_wheel, voice_theme, candidate_fonts, candidate_style,
+         toolbar_enabled, follow_cursor, shuangpin_keymap_enabled, typing_feedback, candidate_mouse_wheel, voice_theme, candidate_fonts, candidate_style,
          toolbar_theme, menu_theme, mode_scope_global, app_mode_rules,
          input_mode_hud_enabled, tsf_config, candidate_layout,
          tsf_config_mutex, tray_preferences, tray_preferences_mutex,
@@ -1182,26 +1152,11 @@ int wmain(int argc, wchar_t **argv) {
           }
           input_mode_hud_enabled->store(preferences.value("input_mode_hud", true),
                                         std::memory_order_release);
-          {
-            const auto theme =
-                preferences.value("menu_theme", std::string("follow"));
-            const auto global = preferences.value("theme", std::string("dark"));
-            menu_theme->store(surface_theme_mode(theme, global),
-                              std::memory_order_release);
-          }
-          {
-            const auto theme =
-                preferences.value("toolbar_theme", std::string("follow"));
-            const auto global = preferences.value("theme", std::string("dark"));
-            toolbar_theme->store(surface_theme_mode(theme, global),
-                                 std::memory_order_release);
-          }
-          // 语音面板主题: follow / dark / light. The overlay has had the setter
-          // all along, but nothing read the preference, so it was always dark.
-          // The overlay is built later, so publish through a flag the loop
-          // applies.
-          const auto voice_surface_theme =
-              preferences.value("voice_theme", std::string("follow"));
+          // 工具栏、托盘菜单和语音浮层跟随颜色模式，只看全局的 `theme`（见上面三个原子量的说明）。语音浮层在后面才建，所以经原子量交给循环去套用。
+          const auto surface_mode =
+              surface_theme_mode("follow", preferences.value("theme", std::string("dark")));
+          menu_theme->store(surface_mode, std::memory_order_release);
+          toolbar_theme->store(surface_mode, std::memory_order_release);
           // Publish the TSF-local settings; the loop pushes them to the
           // focused TIP, since the server is constructed after this handler.
           {
@@ -1216,11 +1171,7 @@ int wmain(int argc, wchar_t **argv) {
             std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
             *tray_preferences = std::move(menu);
           }
-          voice_theme->store(
-              surface_theme_mode(
-                  voice_surface_theme,
-                  preferences.value("theme", std::string("dark"))),
-              std::memory_order_release);
+          voice_theme->store(surface_mode, std::memory_order_release);
           // The settings page owns this too; without reconciling it here the
           // toolbar only followed the preference across a restart.
           const auto toolbar_preferences =
@@ -1232,8 +1183,6 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           shuangpin_keymap_enabled->store(shuangpin_keymap_preference(preferences),
                                           std::memory_order_release);
-          effect_intensity->store(typing_effect_intensity(preferences),
-                                  std::memory_order_release);
           typing_feedback->store(typing_feedback_wanted(preferences),
                                  std::memory_order_release);
           candidate_mouse_wheel->store(
@@ -1244,15 +1193,14 @@ int wmain(int argc, wchar_t **argv) {
           VoiceInputConfig next;
           next.capture = voice_capture_selection(input);
           next.enabled = input.value("enabled", true);
-          next.start_sound = input.value("start_sound", true);
-          next.end_sound = input.value("end_sound", true);
+          // 开始、结束提示音只跟总开关 sound_enabled：设置页不再给这两个开关（`voice_cue_switches` 为 false），存下的值不再读，start_sound、end_sound 保持默认的 true。
           next.sound_enabled = input.value("sound_enabled", true);
           next.mute_system_audio = input.value("mute_system_audio", false);
           next.hotkey_ralt = input.value("hotkey_ralt", true);
           next.hotkey_ctrl_f9 = input.value("hotkey_ctrl_f9", true);
           next.hotkey_ctrl_win = input.value("hotkey_ctrl_win", false);
           next.hotkey_rctrl_ralt = input.value("hotkey_rctrl_ralt", false);
-          next.hotkey_hold_space_lock = input.value("hotkey_hold_space_lock", true);
+          // 空格锁定固定为开（hotkey_hold_space_lock 保持默认的 true）：空格只在按住录音组合键期间才被拦下，平常打字不受影响，设置页也不再给这个开关（`voice_space_lock_switch`）。
           next.stream_inline_preedit = input.value("stream_inline_preedit", true);
           next.commit_mode = input.value("commit_mode", std::string{"tsf"});
           next.endpoint = input.value("asr_endpoint", std::string{});
@@ -1266,7 +1214,7 @@ int wmain(int argc, wchar_t **argv) {
                                       next.asr_provider);
           next.app_key = input.value("asr_app_key", std::string{});
           next.doubao_auth_mode = input.value("doubao_auth_mode", std::string{});
-          next.resource_id = input.value("asr_resource_id", std::string{});
+          next.resource_id = doubao_resource_id(input.value("asr_resource_id", std::string{}));
           next.enable_itn = input.value("doubao_enable_itn", true);
           next.enable_punc = input.value("doubao_enable_punc", true);
           next.enable_ddc = input.value("doubao_enable_ddc", false);
@@ -1553,7 +1501,6 @@ int wmain(int argc, wchar_t **argv) {
       candidate_skin_applied = theme.candidate_skin;
     }
     candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
-    candidates.set_effect_intensity(effect_intensity->load(std::memory_order_acquire));
     // The toolbar and the menus draw the card's theme in their own light/dark mode, with the card's layout deciding whether a package is drawn.
     auto surface_palette = [&](bool dark) {
       return candidate_theme_palette(
@@ -2337,8 +2284,6 @@ int wmain(int argc, wchar_t **argv) {
       }
       candidates.set_follow_cursor(
           follow_cursor->load(std::memory_order_acquire));
-      candidates.set_effect_intensity(
-          effect_intensity->load(std::memory_order_acquire));
       if (typing_overlay && typing_overlay->failed() && !typing_overlay_failure_reported) {
         typing_overlay_failure_reported = true;
         notice(component_failure("Typing effect overlay", typing_overlay->failure_site()) +

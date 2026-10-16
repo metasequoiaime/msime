@@ -15,15 +15,20 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-const CJK_COMPATIBILITY_IDEOGRAPHS: &str =
-    include_str!("../data/opencc/CJK_Compatibility_Ideographs.txt");
-const ST_PHRASES: &str = include_str!("../data/opencc/STPhrases.txt");
-const ST_PHRASES_REGIONAL: &str =
-    include_str!("../data/opencc/STPhrases_GeneratedFromRegionalPhrases.txt");
-const ST_CHARACTERS: &str = include_str!("../data/opencc/STCharacters.txt");
-const TW_PHRASES: &str = include_str!("../data/opencc/TWPhrases.txt");
-const TW_VARIANTS_PHRASES: &str = include_str!("../data/opencc/TWVariantsPhrases.txt");
-const TW_VARIANTS: &str = include_str!("../data/opencc/TWVariants.txt");
+const CJK_COMPATIBILITY_IDEOGRAPHS: &str = include_str!(concat!(
+    env!("MSIME_OPENCC_DIR"),
+    "/CJK_Compatibility_Ideographs.txt"
+));
+const ST_PHRASES: &str = include_str!(concat!(env!("MSIME_OPENCC_DIR"), "/STPhrases.txt"));
+const ST_PHRASES_REGIONAL: &str = include_str!(concat!(
+    env!("MSIME_OPENCC_DIR"),
+    "/STPhrases_GeneratedFromRegionalPhrases.txt"
+));
+const ST_CHARACTERS: &str = include_str!(concat!(env!("MSIME_OPENCC_DIR"), "/STCharacters.txt"));
+const TW_PHRASES: &str = include_str!(concat!(env!("MSIME_OPENCC_DIR"), "/TWPhrases.txt"));
+const TW_VARIANTS_PHRASES: &str =
+    include_str!(concat!(env!("MSIME_OPENCC_DIR"), "/TWVariantsPhrases.txt"));
+const TW_VARIANTS: &str = include_str!(concat!(env!("MSIME_OPENCC_DIR"), "/TWVariants.txt"));
 
 /// 繁体输出用哪套 OpenCC 配置；偏好里存成配置名。
 #[derive(

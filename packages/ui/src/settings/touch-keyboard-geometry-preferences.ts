@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { defaultTouchKeyboardGeometry } from "./touch-keyboard-geometry-defaults";
 
 export type TouchKeyboardGeometryPreferencesSource = Pick<

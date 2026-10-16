@@ -1,9 +1,7 @@
-import { useId } from "react";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { ActionButton } from "../core/action-button";
 import { deepEqual } from "../core/deep-equal";
 import { FluentIcon } from "../core/fluent-icons";
-import * as controls from "../core/platform-controls-style";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import type {
   SavedTouchKeyboardSkin,
@@ -22,6 +20,15 @@ import {
   type ThemeCatalogEntry,
 } from "../theme/global-theme";
 
+/** HarmonyOS 手机皮肤页顶部的分类，与 Android 皮肤页（`SkinsPage`）的「内置 / 我的 / 社区」一致：内置是目录里的主题和皮肤包，我的是 AI 设计入口、我的皮肤和皮肤库里的设计，社区直接是完整的社区皮肤图库。 */
+export const skinGridTabs = [
+  { id: "builtin", title: "内置" },
+  { id: "mine", title: "我的" },
+  { id: "community", title: "社区" },
+] as const;
+
+export type SkinGridTab = (typeof skinGridTabs)[number]["id"];
+
 /** 我的皮肤卡片：键盘编辑器的设计，仅在有编辑器的宿主上出现。 */
 export type SkinGridCustomDesign = {
   design: TouchKeyboardSkinDesign;
@@ -33,6 +40,8 @@ export type SkinGridCustomDesign = {
 };
 
 export interface SkinGridProps {
+  /** 画哪个分类的卡片；选中状态仍按全部卡片判断，所以两个分类里同时最多选中同样的那几张。 */
+  section: Exclude<SkinGridTab, "community">;
   /** 本宿主提供的主题（`offeredThemeCatalog`），按目录顺序排成卡片。 */
   themes: ThemeCatalogEntry[];
   globalTheme: GlobalTheme;
@@ -41,26 +50,24 @@ export interface SkinGridProps {
   packages: ExternalSkin[];
   /** 在有键盘皮肤编辑器（`customTouchKeyboardSkins`）的宿主上提供；它的卡片取代目录里的自定义。 */
   customDesign?: SkinGridCustomDesign;
-  /** 本机皮肤库里的设计：在「社区」里获取的皮肤和命名保存的设计，排在我的皮肤之后，与 Android 皮肤页的「我的设计」一致。 */
+  /** 本机皮肤库里的设计：在「社区」里获取的皮肤和命名保存的设计，排在我的皮肤之后，与 Android 皮肤页「我的」里的设计一致。 */
   savedDesigns?: SavedTouchKeyboardSkin[];
   /** 选中皮肤库里的一个设计：把它设为自定义主题的键盘。 */
   onSelectSavedDesign?: (design: TouchKeyboardSkinDesign) => void;
-  /** 社区里的皮肤，排在皮肤库的设计之后；已经获取过的（皮肤库里有同一 id 或同一设计）不再重复列出。与 Android 键盘皮肤面板列出社区目录一致，不用先去「社区」获取。 */
-  communitySkins?: SavedTouchKeyboardSkin[];
-  /** 选中一款社区皮肤：获取（存进皮肤库）并换上。获取失败时返回 false，这次点击就不计入换装统计。 */
-  onSelectCommunitySkin?: (skin: SavedTouchKeyboardSkin) => Promise<boolean>;
   /** 键盘绘制所用的浅色或深色模式，供跟随模式的皮肤使用。 */
   keyboardTheme: "dark" | "light";
   /** 把卡片的选择应用到偏好设置草稿，与主题轮播的切换做的更新相同。 */
   onApply: (patch: Partial<Preferences>) => void;
   /** 告知点击的卡片应用了哪个皮肤，用于换装达人徽章：主题 id，我的皮肤或自定义主题为 `custom`，或者皮肤包 id，与 Android 皮肤页记录的 id 相同。 */
   onApplied?: (id: string) => void;
-  /** 打开 AI 皮肤抽卡；只有提供它时才绘制虚线的 AI 卡片。 */
+  /** 打开 AI 皮肤抽卡；只有提供它时才在「我的」最前面绘制虚线的 AI 卡片。 */
   onOpenAi?: () => void;
 }
 
 type Card = {
   key: string;
+  /** 卡片所在的分类：目录里的主题和皮肤包在「内置」，我的皮肤和皮肤库的设计在「我的」。 */
+  section: SkinGridProps["section"];
   title: string;
   selected: boolean;
   theme: "dark" | "light";
@@ -68,8 +75,7 @@ type Card = {
   design?: TouchKeyboardSkinDesign;
   /** 换装达人徽章把这张卡片计为什么。 */
   statisticsId: string;
-  /** 返回 false（或解析为 false）表示没有换上，例如社区皮肤获取失败。 */
-  select: () => void | boolean | Promise<boolean>;
+  select: () => void;
   /** 再点一次已在使用的卡片时做什么；没有时什么也不改。皮肤包卡片把它从所在的槽位取下，我的皮肤卡片打开编辑器。 */
   deselect?: () => void;
   /** 再点一次是打开别处（编辑器），标题后画一个 ›。 */
@@ -113,7 +119,7 @@ function Check() {
   );
 }
 
-/** 按顺序排列的卡片：目录里的主题、我的皮肤，然后是外部皮肤包。皮肤包分浅色、深色两个槽位，所以最多同时选中两张皮肤包卡片；没有皮肤包在使用时，最多选中一张：自定义主题正在绘制其设计时的我的皮肤，否则是选中的主题。在有编辑器的宿主上，既没有皮肤包也没有设计的自定义主题没有自己的卡片。 */
+/** 按顺序排列的卡片：目录里的主题、我的皮肤、皮肤库的设计，然后是外部皮肤包；各自的 `section` 决定落在「内置」还是「我的」。皮肤包分浅色、深色两个槽位，所以最多同时选中两张皮肤包卡片；没有皮肤包在使用时，最多选中一张：自定义主题正在绘制其设计时的我的皮肤，否则是选中的主题。在有编辑器的宿主上，既没有皮肤包也没有设计的自定义主题没有自己的卡片。 */
 function skinGridCards({
   themes,
   globalTheme,
@@ -122,8 +128,6 @@ function skinGridCards({
   customDesign,
   savedDesigns = [],
   onSelectSavedDesign,
-  communitySkins = [],
-  onSelectCommunitySkin,
   keyboardTheme,
   onApply,
 }: SkinGridProps): Card[] {
@@ -173,6 +177,7 @@ function skinGridCards({
       if (customDesign) continue;
       cards.push({
         key: `theme:${id}`,
+        section: "builtin",
         title: entry.title,
         selected: globalTheme === "custom" && !packageInUse,
         ...customKeyboard(customTheme?.base),
@@ -188,6 +193,7 @@ function skinGridCards({
     }
     cards.push({
       key: `theme:${id}`,
+      section: "builtin",
       title: entry.title,
       selected: effectiveTheme === id,
       theme: entry.appearance ?? keyboardTheme,
@@ -199,6 +205,7 @@ function skinGridCards({
   if (customDesign)
     cards.push({
       key: "design",
+      section: "mine",
       title: "我的皮肤",
       selected: designInUse,
       theme: keyboardTheme,
@@ -213,6 +220,7 @@ function skinGridCards({
     for (const item of savedDesigns)
       cards.push({
         key: `saved:${item.id}`,
+        section: "mine",
         title: item.name,
         selected: item === savedInUse,
         theme: keyboardTheme,
@@ -221,30 +229,11 @@ function skinGridCards({
         statisticsId: "custom",
         select: () => onSelectSavedDesign(item.design),
       });
-  if (onSelectCommunitySkin) {
-    const savedIds = new Set(savedDesigns.map((item) => item.id.toLowerCase()));
-    for (const skin of communitySkins) {
-      if (
-        savedIds.has(skin.id.toLowerCase()) ||
-        savedDesigns.some((item) => deepEqual(item.design, skin.design))
-      )
-        continue;
-      cards.push({
-        key: `community:${skin.id}`,
-        title: skin.name,
-        selected: false,
-        theme: keyboardTheme,
-        skin: "custom",
-        design: skin.design,
-        statisticsId: "custom",
-        select: () => onSelectCommunitySkin(skin),
-      });
-    }
-  }
   // 社区和本机的皮肤包是用户自己装的，两种明暗下都列出，不按 base 的明暗过滤；只有目录里的内置主题按明暗提供。
   for (const skin of packages) {
     cards.push({
       key: `package:${skin.id}`,
+      section: "builtin",
       title: skin.name,
       selected: skinsInUse.includes(skin.id),
       ...customKeyboard(skin.base),
@@ -265,77 +254,66 @@ function skinGridCards({
   return cards;
 }
 
-/** HarmonyOS 手机的皮肤网格：两列键盘缩略图，点击即应用，最后是一张进入 AI 皮肤抽卡的虚线卡片。 */
+/** HarmonyOS 手机皮肤页一个分类里的皮肤网格：两列键盘缩略图，点击即应用。「我的」最前面是一张进入 AI 皮肤抽卡的虚线卡片，与 Android 皮肤页一致；分类名由所在的标签页给出，网格不再另画标题。 */
 export function SkinGrid(props: SkinGridProps) {
-  const cards = skinGridCards(props);
-  const titleId = useId();
+  const cards = skinGridCards(props).filter((card) => card.section === props.section);
   return (
-    <section className={controls.group} aria-labelledby={titleId}>
-      <h3 id={titleId} className={controls.groupTitle} data-group-title="">
-        皮肤
-      </h3>
-      <div className={grid} data-skin-grid="">
-        {cards.map((card) => (
-          <ActionButton
-            key={card.key}
-            // 点击已在使用的卡片不改变任何东西，所以不触碰草稿；皮肤包卡片例外，再点一次把它从槽位取下。
-            action={
-              card.selected
-                ? (card.deselect ?? (() => undefined))
-                : () => {
-                    const applied = card.select();
-                    // 社区皮肤要先获取，等它换上了才计数；其余卡片当场就换上了。
-                    if (applied instanceof Promise)
-                      void applied.then((ok) => {
-                        if (ok) props.onApplied?.(card.statisticsId);
-                      });
-                    else if (applied !== false) props.onApplied?.(card.statisticsId);
-                  }
-            }
-            className={cardButton}
-            ariaPressed={card.selected}
-            label={
-              <>
-                <span className={skinGridFrame(card.selected)} data-skin-frame="">
-                  <ScreenKeyboardPreview
-                    theme={card.theme}
-                    skin={card.skin}
-                    customDesign={card.design}
-                    thumbnail
-                  />
-                </span>
-                <span className={caption(card.selected)}>
-                  {card.selected && <Check />}
-                  <span className="min-w-0 truncate">{card.title}</span>
-                  {card.selected && card.opens && (
-                    <span aria-hidden="true" className="opacity-60">
-                      ›
-                    </span>
-                  )}
-                </span>
-              </>
-            }
-          />
-        ))}
-        {props.onOpenAi && (
-          <ActionButton
-            action={props.onOpenAi}
-            className={cardButton}
-            ariaLabel="AI 设计皮肤，描述一句话生成"
-            label={
-              <>
-                <span className={aiTile} data-skin-ai-tile="">
-                  <FluentIcon name="sparkle" size={26} />
-                  <span className="text-[13px] font-semibold">描述一句话生成</span>
-                </span>
-                <span className="text-[15px] leading-tight whitespace-nowrap [color:var(--p-accent-text)]">
-                  AI 设计皮肤
-                </span>
-              </>
-            }
-          />
-        )}
-      </div>
-    </section>
+    <div className={grid} data-skin-grid={props.section}>
+      {props.section === "mine" && props.onOpenAi && (
+        <ActionButton
+          action={props.onOpenAi}
+          className={cardButton}
+          ariaLabel="AI 设计皮肤，描述一句话生成"
+          label={
+            <>
+              <span className={aiTile} data-skin-ai-tile="">
+                <FluentIcon name="sparkle" size={26} />
+                <span className="text-[13px] font-semibold">描述一句话生成</span>
+              </span>
+              <span className="text-[15px] leading-tight whitespace-nowrap [color:var(--p-accent-text)]">
+                AI 设计皮肤
+              </span>
+            </>
+          }
+        />
+      )}
+      {cards.map((card) => (
+        <ActionButton
+          key={card.key}
+          // 点击已在使用的卡片不改变任何东西，所以不触碰草稿；皮肤包卡片例外，再点一次把它从槽位取下。
+          action={
+            card.selected
+              ? (card.deselect ?? (() => undefined))
+              : () => {
+                  card.select();
+                  props.onApplied?.(card.statisticsId);
+                }
+          }
+          className={cardButton}
+          ariaPressed={card.selected}
+          label={
+            <>
+              <span className={skinGridFrame(card.selected)} data-skin-frame="">
+                <ScreenKeyboardPreview
+                  theme={card.theme}
+                  skin={card.skin}
+                  customDesign={card.design}
+                  thumbnail
+                />
+              </span>
+              <span className={caption(card.selected)}>
+                {card.selected && <Check />}
+                <span className="min-w-0 truncate">{card.title}</span>
+                {card.selected && card.opens && (
+                  <span aria-hidden="true" className="opacity-60">
+                    ›
+                  </span>
+                )}
+              </span>
+            </>
+          }
+        />
+      ))}
+    </div>
   );
 }

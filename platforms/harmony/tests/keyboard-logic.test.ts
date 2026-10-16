@@ -1514,6 +1514,39 @@ group(
   },
 );
 
+group("an empty Doubao address or resource ID takes the defaults the settings page shows", () => {
+  const doubao = { ...DEFAULT_VOICE_INPUT_CONFIGURATION, asr_provider: "doubao" };
+  // 设置页的「流式接口」把空地址显示成「双向流式」，「检查」按钮（共享的 `asrServiceCredentialTestConfig`）把空资源 ID 回退成 seedasr；键盘录音必须一样，两边对空地址、空资源 ID 的结论要相同。
+  const blank = { ...doubao, asr_endpoint: " ", asr_resource_id: "" };
+  check(
+    DoubaoCredentialPolicy.endpoint(blank) ===
+      "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+    "an empty address is the bidirectional streaming endpoint",
+  );
+  check(
+    DoubaoCredentialPolicy.resourceId(blank) === "volc.seedasr.sauc.duration",
+    "an empty resource ID is the seedasr duration resource",
+  );
+  check(
+    DoubaoHeaderPolicy.validValue(DoubaoCredentialPolicy.resourceId(blank), 256),
+    "and the fallback is a valid handshake header",
+  );
+  const set = {
+    ...doubao,
+    asr_endpoint: " wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream ",
+    asr_resource_id: " volc.bigasr.sauc.duration ",
+  };
+  check(
+    DoubaoCredentialPolicy.endpoint(set) ===
+      "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
+    "a chosen address is kept, trimmed",
+  );
+  check(
+    DoubaoCredentialPolicy.resourceId(set) === "volc.bigasr.sauc.duration",
+    "a chosen resource ID is kept, trimmed",
+  );
+});
+
 group("keeps desktop-only chrome off touch devices", () => {
   check(KeyboardFormFactorPolicy.isDesktop("2in1"), "a 2-in-1 gets the desktop candidate window");
   check(!KeyboardFormFactorPolicy.isDesktop("phone"), "a phone keeps the touch keyboard");
@@ -4214,6 +4247,49 @@ group("a theme with a fixed mode is offered and drawn only in that mode", () => 
   );
 });
 
+// 编号色和边框色跟随主题（HostCapabilities 的 candidate_number_color、candidate_border_color 在 HarmonyOS 为假）：解析请求里的自定义主题去掉存下的这两个槽位，其余原样带上，原文档不变。
+group("the resolve request drops the number and border colours the host does not draw", () => {
+  const stored = {
+    base: "paper",
+    candidate_skin: "sakura",
+    candidate_skin_dark: "dusk",
+    candidate_colors: {
+      text: "#102030",
+      number: "#123456",
+      accent: "#203040",
+      selected: "#304050",
+      hover: "#405060",
+      surface: "#506070",
+      border: "#654321",
+    },
+  };
+  const drawn = GlobalTheme.hostDrawnCustomTheme(stored);
+  check(
+    JSON.stringify(drawn?.candidate_colors) ===
+      JSON.stringify({
+        text: "#102030",
+        accent: "#203040",
+        selected: "#304050",
+        hover: "#405060",
+        surface: "#506070",
+      }),
+    `only the drawn slots reach the resolver: ${JSON.stringify(drawn?.candidate_colors)}`,
+  );
+  check(
+    drawn?.base === "paper" &&
+      drawn.candidate_skin === "sakura" &&
+      drawn.candidate_skin_dark === "dusk",
+    "the base and both skin slots are kept",
+  );
+  check(stored.candidate_colors.number === "#123456", "the stored document is left alone");
+  check(GlobalTheme.hostDrawnCustomTheme(undefined) === undefined, "no custom theme stays absent");
+  const plain = { base: "night" };
+  check(
+    GlobalTheme.hostDrawnCustomTheme(plain) === plain,
+    "a theme without colours passes through",
+  );
+});
+
 group("maps safe external toolbar CSS to ArkUI values", () => {
   const base = GlobalTheme.candidateColors(null, true);
   const toolbar = ToolbarSkinPolicy.fromCss(
@@ -6464,6 +6540,10 @@ group("a capture device choice is only read when it names this host", () => {
     "a windows endpoint id is not reinterpreted as a harmony device",
   );
   check(VoiceCaptureDevicePolicy.selects("pulse") === false, "nor is a pulse source name");
+  // 设置页的「麦克风」下拉不分大小写，这里也一样，免得页面显示选中的设备而键盘悄悄用系统默认设备。
+  check(VoiceCaptureDevicePolicy.selects("Harmony") === true, "the backend name ignores case");
+  check(VoiceCaptureDevicePolicy.selects(" AUTO ") === true, "including auto");
+  check(VoiceCaptureDevicePolicy.selects("Windows") === false, "a foreign backend stays foreign");
 });
 
 group("a capture device id survives a restart", () => {
@@ -7906,16 +7986,23 @@ group("each voice shortcut obeys its own switch", () => {
   );
 });
 
-group("the recording tones follow their own switches under one master", () => {
+group("the recording tones follow the master switch alone", () => {
   const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   check(
     VoiceRecordingBehaviourPolicy.playsStartTone(base) === true,
     "both tones are on by default",
   );
   check(VoiceRecordingBehaviourPolicy.playsEndTone(base) === true, "including the closing one");
-  const noStart: VoiceInputConfiguration = { ...base, start_sound: false };
-  check(VoiceRecordingBehaviourPolicy.playsStartTone(noStart) === false, "one can be turned off");
-  check(VoiceRecordingBehaviourPolicy.playsEndTone(noStart) === true, "without taking the other");
+  // 设置页不再给开始、结束提示音的开关，存下的 false 不再读。
+  const noStart: VoiceInputConfiguration = { ...base, start_sound: false, end_sound: false };
+  check(
+    VoiceRecordingBehaviourPolicy.playsStartTone(noStart) === true,
+    "a stored start switch no longer silences the opening tone",
+  );
+  check(
+    VoiceRecordingBehaviourPolicy.playsEndTone(noStart) === true,
+    "nor does a stored end switch silence the closing one",
+  );
   const silent: VoiceInputConfiguration = { ...base, sound_enabled: false };
   check(
     VoiceRecordingBehaviourPolicy.playsStartTone(silent) === false,
@@ -12769,6 +12856,70 @@ group("local preference documents require an object", () => {
   check(
     !validLocalPreferenceDocument({ revision: 3.5, preferences: {} }),
     "a fractional local revision is rejected with its document",
+  );
+});
+
+// 两半不上云。云端的智能标点和本机不同时，等于别的设备替用户切了一次总开关，两半跟着写；相同时本机单独调过的一半不动。与 client-services 的 apply_input_settings 相同。
+group("a changed smart punctuation from the account writes both halves", () => {
+  const schema = fullPreferenceSchema();
+  // 别的设备上先关掉（设置页把两半一起写成假），再在另一台打开：同步过来时两半要跟着打开，否则看着开着却不起作用。
+  const applied = applyAccountPreferences(
+    {
+      smart_punctuation: false,
+      smart_punctuation_direct_digit: false,
+      smart_punctuation_direct_letter: false,
+    },
+    { revision: 2, settings: { "input.smart_punctuation": true } },
+    schema,
+    syncFeedback,
+  );
+  check(applied.preferences.smart_punctuation === true, "the master switch is applied");
+  check(
+    applied.preferences.smart_punctuation_direct_digit === true &&
+      applied.preferences.smart_punctuation_direct_letter === true,
+    "both halves follow a changed master switch",
+  );
+  const off = applyAccountPreferences(
+    {},
+    { revision: 3, settings: { "input.smart_punctuation": false } },
+    schema,
+    syncFeedback,
+  );
+  check(
+    off.preferences.smart_punctuation === false &&
+      off.preferences.smart_punctuation_direct_digit === false &&
+      off.preferences.smart_punctuation_direct_letter === false,
+    "turning it off elsewhere turns both halves off, reading a missing local switch as on",
+  );
+});
+
+group("an unchanged smart punctuation from the account leaves a tuned half alone", () => {
+  const applied = applyAccountPreferences(
+    {
+      smart_punctuation: true,
+      smart_punctuation_direct_digit: true,
+      smart_punctuation_direct_letter: false,
+    },
+    { revision: 2, settings: { "input.smart_punctuation": true } },
+    fullPreferenceSchema(),
+    syncFeedback,
+  );
+  check(applied.preferences.smart_punctuation === true, "the master switch stays on");
+  check(
+    applied.preferences.smart_punctuation_direct_digit === true &&
+      applied.preferences.smart_punctuation_direct_letter === false,
+    "the halves tuned on this device are kept",
+  );
+  const absent = applyAccountPreferences(
+    { smart_punctuation_direct_letter: false },
+    { revision: 3, settings: {} },
+    fullPreferenceSchema(),
+    syncFeedback,
+  );
+  check(
+    absent.preferences.smart_punctuation_direct_letter === false &&
+      absent.preferences.smart_punctuation_direct_digit === undefined,
+    "a cloud document without the switch touches neither half",
   );
 });
 
@@ -18177,17 +18328,19 @@ group("typing effects decode host-api's answer and draw what it asks", () => {
   });
   check(
     power.style === TypingEffectStyle.POWER_MODE &&
-      power.intensity === 80 &&
       power.comboCounter &&
       power.tierSound &&
       TypingEffectPolicy.active(power),
     "the shared preference keys are read",
   );
   check(
-    TypingEffectPolicy.settings({ effect_style: "confetti", effect_intensity: 150 }).style ===
-      TypingEffectStyle.OFF &&
+    power.intensity === 50 &&
       TypingEffectPolicy.settings({ effect_intensity: 150 }).intensity === 50,
-    "an unknown style is off and an out-of-range intensity takes the default",
+    "the stored intensity is not read: HarmonyOS fixes it at the default, as HostPlatform::fixed_effect_intensity says",
+  );
+  check(
+    TypingEffectPolicy.settings({ effect_style: "confetti" }).style === TypingEffectStyle.OFF,
+    "an unknown style is off",
   );
   check(
     TypingEffectPolicy.active(TypingEffectPolicy.settings({ combo_counter: true })),
@@ -18345,7 +18498,7 @@ group("an effect pack's parameters replace the preference values once host-api r
     duration_ms: 99999,
   });
   check(
-    odd.intensity === 40 && odd.flashMillis === 1500 && odd.color === undefined,
+    odd.intensity === 50 && odd.flashMillis === 1500 && odd.color === undefined,
     "out-of-range values are clamped or ignored rather than drawn",
   );
   check(
@@ -20042,3 +20195,33 @@ group("the punctuation styles travel with the account settings", () => {
   check(unknown.preferences.quote_style === "corner", "an unknown style skips only its key");
   check(unknown.preferences.learning === false, "and the rest still applies");
 });
+
+// 同样的字母页只有中文全拼触屏显示分词，英文、本地模式与 2in1 仍能切换大小写。
+{
+  check(
+    KeyboardScheme.usesQuanpinSeparator(KeyboardScheme.QUANPIN, true, false, false, "none"),
+    "全拼触屏显示分词",
+  );
+  for (const scheme of [
+    KeyboardScheme.QUANPIN_NINE_KEY,
+    KeyboardScheme.XIAOHE,
+    KeyboardScheme.WUBI,
+  ]) {
+    check(
+      !KeyboardScheme.usesQuanpinSeparator(scheme, true, false, false, "none"),
+      "其他方案保留原键",
+    );
+  }
+  for (const [touch, english, symbols, local] of [
+    [false, false, false, "none"],
+    [true, true, false, "none"],
+    [true, false, true, "none"],
+    [true, false, false, "calculator"],
+  ] as [boolean, boolean, boolean, string][]) {
+    check(
+      !KeyboardScheme.usesQuanpinSeparator(KeyboardScheme.QUANPIN, touch, english, symbols, local),
+      "非中文全拼字母页不显示分词",
+    );
+  }
+  check(KeyIdPolicy.character("'") === "Quote", "分词统计属于 Quote");
+}

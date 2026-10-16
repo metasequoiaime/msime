@@ -280,7 +280,7 @@ export function ScreenKeyboardSettingsPage() {
       />
       {/* 桌面宿主（macOS、Linux、Windows、HarmonyOS 2-in-1）上「手写输入」并进这一页（见 `settingsPageProjections`）：手写那一组紧跟在屏幕键盘之后。 */}
       {handwritingOnScreenKeyboardPage && <HandwritingSettingsContent />}
-      {/* 键盘自己的明暗覆盖与其他按界面的覆盖一起放在「主题 › 高级」下（dc.html）；这一行只是指向那里。全局主题、「我的皮肤」和它的编辑器也都在「主题」页。各界面一律跟随颜色模式的宿主（`surfaceThemesFollow`，目前是 macOS）没有「高级」组，键盘跟随「主题」页的颜色模式和主题，描述照实说。HarmonyOS 手机的皮肤页只有网格、没有「高级」，这一行指向的东西不存在，所以不画。 */}
+      {/* 键盘自己的明暗覆盖与其他按界面的覆盖一起放在「主题 › 高级」下（dc.html）；这一行只是指向那里。全局主题、「我的皮肤」和它的编辑器也都在「主题」页。各界面一律跟随颜色模式的宿主（`surfaceThemesFollow`，macOS、Windows、Linux 和 HarmonyOS）没有「高级」组，键盘跟随「主题」页的颜色模式和主题，描述照实说。HarmonyOS 手机的皮肤页只有网格、没有「高级」，这一行指向的东西不存在，所以不画。 */}
       {!harmonyPhone && (
         <GroupList title="外观">
           <LinkRow

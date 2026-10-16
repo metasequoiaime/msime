@@ -468,6 +468,12 @@ if(BUILD_TESTING)
   target_include_directories(linux-helpcode-pack-test PRIVATE src)
   target_link_libraries(linux-helpcode-pack-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-helpcode-pack COMMAND linux-helpcode-pack-test)
+  # 托盘和状态栏菜单切换智能标点时连同两半一起写，与设置页同一约定。
+  add_executable(linux-smart-punctuation-choice-test tests/core/smart_punctuation_choice.cpp)
+  target_compile_options(linux-smart-punctuation-choice-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-smart-punctuation-choice-test PRIVATE src)
+  target_link_libraries(linux-smart-punctuation-choice-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-smart-punctuation-choice COMMAND linux-smart-punctuation-choice-test)
   add_executable(linux-phrase-preedit-test tests/core/phrase_preedit.cpp)
   target_compile_options(linux-phrase-preedit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-phrase-preedit-test PRIVATE src)
@@ -1101,7 +1107,7 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ewts-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke-LGPL-3.0.txt"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/client-base/data/opencc/LICENSE")
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/OpenCC-Apache-2.0.txt")
 # `copyright` is the name Debian policy requires for the package license.
 set(MSIME_NOTICE_NAMES
   copyright

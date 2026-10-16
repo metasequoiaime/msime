@@ -41,7 +41,7 @@ New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $outputPath = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $state = Join-Path ([IO.Path]::GetTempPath()) ('msime-settings-ui-' + [Guid]::NewGuid())
 $oldState = $env:MSIME_CLIENT_STATE_DIR
-$pages = @('typing', 'expression', 'shortcuts', 'lexicon', 'themes', 'candidate', 'toolbar', 'osk', 'voice', 'clip', 'stats', 'plugins', 'ai', 'account', 'dev', 'feedback', 'about')
+$pages = @('typing', 'expression', 'shortcuts', 'lexicon', 'themes', 'candidate', 'toolbar', 'osk', 'voice', 'clip', 'stats', 'plugins', 'ai', 'account', 'dev', 'about')
 $process = $null
 function Find-ById($parent, [string]$id) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id)
@@ -79,7 +79,13 @@ function Assert-SelectedAccent($element) {
     }
 }
 function Open-Page($window, [string]$page) {
-    $item = Find-ById $window $page
+    # 下拉框等弹出层刚关闭时，UIA 树要稍晚才把侧栏交回来；等待导航项而非固定延时。
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $item = Find-ById $window $page
+        if ($item) { break }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
     if (-not $item) { throw "Missing native page: $page" }
     $item.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()
     $item = Find-ById $window $page
@@ -93,24 +99,29 @@ function Open-Page($window, [string]$page) {
     if (-not $title) { throw "Page did not change to $page" }
     if (Find-ById $content 'settings-load-error') { throw 'Synthetic preferences were rejected by the real host' }
 }
-function Select-CandidateTab($window, [string]$tab) {
-    # 页面重绘和弹出层关闭后，UIA 树可能稍晚恢复；等待目标而非固定延时。
+function Set-CandidateMore($window, [bool]$expanded) {
+    # 候选窗口页是一列，进阶各行收在「更多选项」里。页面重绘后 UIA 树可能稍晚恢复；等待目标而非固定延时。
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
-        $button = Find-ById $window "candidate-tab-$tab"
-        if ($button -and $button.Current.IsEnabled) { break }
+        $fold = Find-ById $window 'candidate-more'
+        if ($fold -and $fold.Current.IsEnabled) { break }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $deadline)
-    if (-not $button -or -not $button.Current.IsEnabled) { throw "Missing or disabled candidate tab: $tab" }
-    $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (-not $fold) { throw 'Missing candidate 更多选项 fold' }
+    $pattern = $fold.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+    $wanted = if ($expanded) { [System.Windows.Automation.ExpandCollapseState]::Expanded } else { [System.Windows.Automation.ExpandCollapseState]::Collapsed }
+    if ($pattern.Current.ExpandCollapseState -ne $wanted) {
+        if ($expanded) { $pattern.Expand() } else { $pattern.Collapse() }
+    }
+    # 主流程的行一直在；折叠区里的行只在展开时出现在 UIA 树里。
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
-        $button = Find-ById $window "candidate-tab-$tab"
-    } while ((-not $button -or $button.Current.ItemStatus -ne '已选择') -and [DateTime]::UtcNow -lt $deadline)
-    if (-not $button -or $button.Current.ItemStatus -ne '已选择') { throw "Candidate tab did not change: $tab" }
-    $label = @{layout = '候选项排列方式'; font = '主字体'; style = '不透明度'; preedit = '行内预编辑'}[$tab]
-    if (-not (Find-ByName (Find-ById $window 'settings-content') $label)) { throw "Candidate tab content is missing: $tab" }
+        $content = Find-ById $window 'settings-content'
+        $inside = Find-ByName $content '行内预编辑'
+    } while (([bool]$inside -ne $expanded) -and [DateTime]::UtcNow -lt $deadline)
+    if ([bool]$inside -ne $expanded) { throw "Candidate 更多选项 did not change to expanded=$expanded" }
+    if (-not (Find-ByName $content '候选项排列方式')) { throw 'Candidate main rows are missing' }
 }
 function Select-ComboChoice($window, [string]$id, [string]$label) {
     $combo = Find-ById $window $id
@@ -154,7 +165,6 @@ try {
     if (-not $defaults.ok) { throw 'Default preferences could not be loaded' }
     foreach ($theme in @('light', 'dark')) {
         $preferences = $defaults.value
-        $preferences.settings_theme = $theme
         $preferences.theme = $theme
         $preferences.scheme = 'quanpin'
         $preferences.default_ime_mode = 'chinese'
@@ -211,6 +221,13 @@ try {
                         if (-not (Find-ByName $content $name)) { throw "Screen keyboard page is missing: $name" }
                     }
                 }
+                if ($page -eq 'about') {
+                    # 反馈并进关于后仍须能生成报告；不能只删除旧导航的验收。
+                    foreach ($name in @('反馈类型', '反馈描述', '复制报告', '查看 Issues')) {
+                        if (-not (Find-ByName $content $name)) { throw "About page is missing merged feedback content: $name" }
+                    }
+                    if (Find-ById $window 'feedback') { throw 'Merged feedback page is still in the sidebar' }
+                }
                 if ($page -eq 'toolbar') {
                     # 缩放和图标尺寸合成一个「工具栏大小」。
                     if (-not (Find-ByName $content '工具栏大小')) { throw 'Toolbar size select is missing' }
@@ -221,12 +238,11 @@ try {
                 Save-Window $window "$theme-$width-$page.png"
                 Write-Host "$theme $width $page rendered"
                 if ($page -eq 'candidate') {
-                    foreach ($tab in @('layout', 'font', 'style', 'preedit')) {
-                        Select-CandidateTab $window $tab
-                        Start-Sleep -Milliseconds 350
-                        Save-Window $window "$theme-$width-candidate-tab-$tab.png"
-                    }
-                    Select-CandidateTab $window 'layout'
+                    # 整页截过一张收起的，再展开「更多选项」截一张，然后收起，下一个宽度照样从收起开始。
+                    Set-CandidateMore $window $true
+                    Start-Sleep -Milliseconds 350
+                    Save-Window $window "$theme-$width-candidate-more.png"
+                    Set-CandidateMore $window $false
                 }
             }
         }
@@ -264,9 +280,9 @@ try {
                 Open-Page $window 'typing'
             }
         }
-        # 搜索必须打开所属页内标签，不能只打开候选窗口后留下不可见的目标。
+        # 搜索必须让目标可见：主字体在预设下本来收起，搜索落到它时要画出来；折叠区里的行要把「更多选项」展开。
         Open-Page $window 'candidate'
-        Select-CandidateTab $window 'layout'
+        Set-CandidateMore $window $false
         $search = Find-ById $window 'settings-search'
         if (-not $search) { throw 'Settings search is missing' }
         $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
@@ -279,13 +295,22 @@ try {
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         do {
             Start-Sleep -Milliseconds 200
-            $font = Find-ById $window 'candidate-tab-font'
-        } while ((-not $font -or $font.Current.ItemStatus -ne '已选择') -and [DateTime]::UtcNow -lt $deadline)
-        if (-not $font -or $font.Current.ItemStatus -ne '已选择') { throw 'Font search did not select the font tab' }
-        if (-not (Find-ByName (Find-ById $window 'settings-content') '主字体')) { throw 'Font search target is missing' }
+            $font = Find-ByName (Find-ById $window 'settings-content') '主字体'
+        } while (-not $font -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $font) { throw 'Font search target is missing' }
         Start-Sleep -Milliseconds 350
         Save-Window $window "$theme-search-candidate-font.png"
-        # 与 macOS 一样，示例与预览明暗在切标签后保留，但不写入真实设置。
+        $input.SetFocus()
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('行内预编辑')
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $inline = Find-ByName (Find-ById $window 'settings-content') '行内预编辑'
+        } while (-not $inline -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $inline) { throw 'Search did not open the 更多选项 fold holding its target' }
+        Set-CandidateMore $window $false
+        # 与 macOS 一样，示例与预览明暗在离开再回到本页后保留，但不写入真实设置。
         $preferencesBeforePreview = [IO.File]::ReadAllText((Join-Path $state 'preferences.json'))
         $sample = Find-ById $window 'candidate-preview-sample'
         if (-not $sample) { throw 'Candidate preview sample input is missing' }
@@ -299,12 +324,17 @@ try {
         if (-not $first -or $first.Current.Name -ne '杉树🌲' -or -not $third -or $third.Current.Name -ne '杉树🌲') { throw 'Candidate preview did not cycle the custom sample' }
         $appearance = if ($theme -eq 'light') { '预览深色' } else { '预览浅色' }
         Select-ComboChoice $window 'candidate-preview-appearance' $appearance
-        Select-CandidateTab $window 'layout'
-        $sample = Find-ById $window 'candidate-preview-sample'
-        if ($sample.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne '杉树🌲 Alpha') { throw 'Candidate tab switch lost the preview sample' }
+        Open-Page $window 'typing'
+        Open-Page $window 'candidate'
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $sample = Find-ById $window 'candidate-preview-sample'
+        } while (-not $sample -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $sample -or $sample.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne '杉树🌲 Alpha') { throw 'Leaving the candidate page lost the preview sample' }
         $combo = Find-ById $window 'candidate-preview-appearance'
         $selected = @($combo.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern).Current.GetSelection())
-        if ($selected.Count -ne 1 -or $selected[0].Current.Name -ne $appearance) { throw 'Candidate tab switch lost the preview appearance' }
+        if ($selected.Count -ne 1 -or $selected[0].Current.Name -ne $appearance) { throw 'Leaving the candidate page lost the preview appearance' }
         Start-Sleep -Milliseconds 350
         Save-Window $window "$theme-candidate-custom-preview.png"
         $sample.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('   ')

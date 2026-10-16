@@ -19,14 +19,17 @@ final class SettingsRouter: ObservableObject {
     "typing": .input,
   ]
 
+  /// `<scheme>://settings/<page>` 指名的设置页；不是设置链接、没带页面或页面名认不出时返回 nil。
+  static func settingsPage(in url: URL) -> SettingsPage? {
+    guard url.host == "settings", let name = url.pathComponents.first(where: { $0 != "/" })?.lowercased() else { return nil }
+    return SettingsPage(rawValue: name) ?? settingsAliases[name]
+  }
+
   /// 路由一个链接并返回它所属的 tab；本应用不认识的 host 返回 nil。`voice` 返回设置 tab，调用方继续为它弹出录音面板。
   func handle(_ url: URL) -> AppNavigation.Tab? {
     switch url.host {
     case "settings":
-      if let name = url.pathComponents.first(where: { $0 != "/" })?.lowercased(),
-         let page = SettingsPage(rawValue: name) ?? Self.settingsAliases[name] {
-        settingsPage = page
-      }
+      if let page = Self.settingsPage(in: url) { settingsPage = page }
       return .settings
     case "feedback":
       accountRoute = .feedback

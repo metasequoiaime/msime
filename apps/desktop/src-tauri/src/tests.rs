@@ -359,7 +359,7 @@ fn candidate_panel_status_reader_rejects_oversized_documents() {
     assert!(super::read_candidate_panel_status(&path).is_none());
 }
 
-/// IBus 宿主在 GNOME Shell 以外的会话里写 `ibus_panel`：设置页读到它，才会说明圆角、边框颜色和皮肤装饰图在 IBus 面板上不生效，「关于」页照样认出输入法框架。
+/// IBus 宿主在 GNOME Shell 以外的会话里写 `ibus_panel`：设置页读到它，才会说明圆角和皮肤装饰图在 IBus 面板上不生效，「关于」页照样认出输入法框架。
 #[test]
 fn candidate_panel_status_reader_reports_the_ibus_panel_limit() {
     use msime_client_core::host_surface::{environment, CandidatePanelLimit};
@@ -782,6 +782,61 @@ fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
     assert!(options.get("doubao_auth_mode").is_none());
 }
 
+/// 设置页只给提示音总开关，开始、结束提示音不再交给语音服务；服务没收到这两项时按缺省都播放。
+#[cfg(unix)]
+#[test]
+fn voice_provider_options_forward_only_the_cue_master_switch() {
+    let document = serde_json::json!({
+        "preferences": {"voice_input": {
+            "sound_enabled": true,
+            "start_sound": false,
+            "end_sound": false
+        }}
+    });
+    let options = crate::voice::voice_provider_options(&document).unwrap();
+    assert_eq!(options.get("sound_enabled"), Some(&serde_json::json!(true)));
+    assert!(options.get("start_sound").is_none());
+    assert!(options.get("end_sound").is_none());
+}
+
+/// 别的平台写下的录音后端语音服务会拒绝录音，所以连同设备一起不转发，服务改用自己的录音设置；它认识的后端照常转发。
+#[cfg(unix)]
+#[test]
+fn voice_provider_options_drop_a_foreign_capture_backend_with_its_device() {
+    for foreign in ["macos", "windows", "harmony", "Pulse"] {
+        let document = serde_json::json!({
+            "preferences": {"voice_input": {
+                "capture_backend": foreign,
+                "capture_device": "uid-usb"
+            }}
+        });
+        let options = crate::voice::voice_provider_options(&document).unwrap();
+        assert!(options.get("capture_backend").is_none(), "{foreign}");
+        assert!(options.get("capture_device").is_none(), "{foreign}");
+    }
+    for supported in ["", "auto", "pulse", "pipewire", "alsa"] {
+        let document = serde_json::json!({
+            "preferences": {"voice_input": {
+                "capture_backend": supported,
+                "capture_device": "alsa_input.synthetic"
+            }}
+        });
+        let options = crate::voice::voice_provider_options(&document).unwrap();
+        assert_eq!(
+            options
+                .get("capture_backend")
+                .and_then(|value| value.as_str()),
+            Some(supported)
+        );
+        assert_eq!(
+            options
+                .get("capture_device")
+                .and_then(|value| value.as_str()),
+            Some("alsa_input.synthetic")
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn voice_provider_options_bound_strings_by_utf8_bytes() {
@@ -992,6 +1047,23 @@ fn macos_restart_targets_the_input_method_bundle() {
             "--reregister-input-source",
         ]
     );
+}
+
+// 「修复输入源」的安装一步：没有可装的、或者 bundle 已留在原处只等登记时都不算失败，修复接着去重新登记；真正装坏才报失败。
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_repair_install_fails_only_when_the_install_breaks() {
+    use super::macos_input_source::{InstallError, Refresh, RefreshOutcome};
+    let up_to_date = RefreshOutcome {
+        refresh: Refresh::UpToDate,
+        bundled: None,
+        installed: None,
+    };
+    assert!(super::repair_install_result(Ok(up_to_date)).is_ok());
+    assert!(super::repair_install_result(Err(InstallError::SourceUnavailable)).is_ok());
+    assert!(super::repair_install_result(Err(InstallError::RegistrationPending)).is_ok());
+    assert!(super::repair_install_result(Err(InstallError::Registration)).is_err());
+    assert!(super::repair_install_result(Err(InstallError::InvalidBundle)).is_err());
 }
 
 #[test]

@@ -12,7 +12,10 @@ import type { CredentialStatusMessageValue } from "./credential-status-message-m
 import type { ProviderCredentialInput } from "./provider-credential-input";
 import { providerCredentialErrorMessage } from "./credential-utils";
 import { useAsyncGeneration } from "./use-async-generation";
-import type { ApiCredentialTestResult, ApiCredentialTestService } from "../index";
+import type {
+  ApiCredentialTestResult,
+  ApiCredentialTestService,
+} from "../core/api-credential-test";
 
 export type { ProviderCredentialInput } from "./provider-credential-input";
 

@@ -625,7 +625,14 @@ export function applyAccountPreferences(
   const chinesePunctuation = reader.boolean("input.chinese_punctuation");
   if (chinesePunctuation !== null) preferences.chinese_punctuation = chinesePunctuation;
   const smartPunctuation = reader.boolean("input.smart_punctuation");
-  if (smartPunctuation !== null) preferences.smart_punctuation = smartPunctuation;
+  if (smartPunctuation !== null) {
+    // 两半（数字后直出、字母后直出）不上云，却是智能标点真正起作用的部分。云端值和本机不同时等于别的设备替用户切了一次总开关，两半跟着写成同一个值，与设置页的 smartPunctuationPatch、client-services 的 apply_input_settings 相同；值相同就不动，本机单独调过的一半不会每次同步都被冲掉。
+    if (flag(member(local, "smart_punctuation"), true) !== smartPunctuation) {
+      preferences.smart_punctuation_direct_digit = smartPunctuation;
+      preferences.smart_punctuation_direct_letter = smartPunctuation;
+    }
+    preferences.smart_punctuation = smartPunctuation;
+  }
   const pairedPunctuation = reader.boolean("input.paired_punctuation");
   if (pairedPunctuation !== null) preferences.paired_punctuation = pairedPunctuation;
   // 不认得的样式（更新的版本加的）只跳过这个键，与 client-services 的设置同步一致。

@@ -16,7 +16,7 @@ import { useHarmonyWelcomeSystemBars } from "../settings/use-settings-theme";
 import { subscribeToWindowEvent } from "../core/window-focus";
 import { useMobilePopState } from "../settings/use-mobile-pop-state";
 import { logo } from "../settings/app-resources";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import * as onboarding from "./onboarding-style";
 
 /** 首次设置选用的触屏键盘。全拼 26 键和 9 键由用户在「选择输入方式」一步里选，HarmonyOS 还可以选双拼（小鹤）和五笔；不提供全拼的版本跳过这一步，直接用版本默认方案的键盘（五笔版是五笔）。 */

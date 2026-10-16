@@ -87,7 +87,9 @@ test("a macOS capability offers every scheme", async () => {
   expect(radio("新式 hoà").checked).toBe(true);
   expect(radio("藏文").disabled).toBe(false);
   fireEvent.click(radio("藏文"));
-  expect(radio("威利转写").checked).toBe(true);
+  // 藏文只有一个方案，是一行说明，不是只有一项的选择器。
+  expect(screen.getByText(/^威利转写：/).closest("[hidden]")).toBeNull();
+  expect(screen.queryByRole("radio", { name: "威利转写" })).toBeNull();
   expect(screen.queryByRole("radio", { name: "Telex" })).toBeNull();
 });
 

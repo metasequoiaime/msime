@@ -1,5 +1,5 @@
-import { GroupList, Row } from "../core/platform-controls";
-import type { KeySoundMode, PluginPreferences } from "./plugin-preferences";
+import { GroupList, MoreOptions, Row } from "../core/platform-controls";
+import { musicPackToSelect, type KeySoundMode, type PluginPreferences } from "./plugin-preferences";
 import {
   effectStyleOptions,
   packLabel,
@@ -32,6 +32,10 @@ export interface PluginSoundEffectsViewProps {
   effectPacks: boolean;
   /** 宿主把每种样式都画成候选卡片闪一下，越强的样式闪得越亮，不画火花（HarmonyOS）。 */
   effectFlashOnly?: boolean;
+  /** 宿主按 `plugins.effect_intensity` 画效果，所以给出「效果强度」；固定强度的宿主（macOS、Windows、鸿蒙，`HostCapabilities.fixed_effect_intensity`）不给。 */
+  effectIntensity?: boolean;
+  /** 打字统计是否打开（`typing-statistics.json` 的 `enabled`）。成就按打字统计计数，关着时「成就音效」不能打开；不知道时（还没读到，或宿主没有打字统计）按打开处理。 */
+  statisticsEnabled?: boolean;
   onChange: (preferences: PluginPreferences) => void;
   onBack: () => void;
 }
@@ -48,6 +52,8 @@ export function PluginSoundEffectsView({
   effectStyles,
   effectPacks,
   effectFlashOnly = false,
+  effectIntensity = true,
+  statisticsEnabled,
   onChange,
   onBack,
 }: PluginSoundEffectsViewProps) {
@@ -66,6 +72,12 @@ export function PluginSoundEffectsView({
       : `${id}（未找到）`;
   };
   const choose = hasClient ? "在「我的插件」里打开一个包即可更换。" : "这台设备只能使用内置的包。";
+  // 宿主只在开关打开并且选了音乐包时播放；还没选包时，打开开关顺手选一个随带的音乐包，而不是打开一个听不到声音的开关。一个音乐包都没有时开关不能打开。
+  const musicPack = preferences.music.pack || musicPackToSelect(packages, listed);
+  // 成就按打字统计计数，统计关着时打开它什么也不会响。已经打开的仍然可以关掉，不把用户锁在一个改不回来的状态里。
+  const achievementsBlocked = statisticsEnabled === false && !achievements.enabled;
+  // 升档音由 host-api 在连击升档时从音效包播放，不画任何样式的宿主（Linux）也会响，所以只看宿主有没有打字效果（连击计数）。
+  const tierSound = typingEffects;
   return (
     <>
       <PluginViewHeader title="声音与效果" onBack={onBack} />
@@ -109,12 +121,29 @@ export function PluginSoundEffectsView({
             checked={commit_sound.enabled}
             onChange={(enabled) => onChange({ ...preferences, commit_sound: { enabled } })}
           />
-          <SwitchRow
-            title="成就音效"
-            description="上屏字数累计达到 100、1000、1 万等里程碑时播放一段短音。按打字统计计数，需要打开打字统计。"
-            checked={achievements.enabled}
-            onChange={(enabled) => onChange({ ...preferences, achievements: { enabled } })}
-          />
+          {/* 成就音效和升档音都是默认关闭的小玩法，收进「更多音效」，主列表只留常用的几项。 */}
+          <MoreOptions title="更多音效">
+            <SwitchRow
+              title="成就音效"
+              description={
+                achievementsBlocked
+                  ? "上屏字数累计达到 100、1000、1 万等里程碑时播放一段短音。按打字统计计数，请先在「打字统计」页打开记录。"
+                  : "上屏字数累计达到 100、1000、1 万等里程碑时播放一段短音。按打字统计计数，需要打开打字统计。"
+              }
+              checked={achievements.enabled}
+              disabled={achievementsBlocked}
+              onChange={(enabled) => onChange({ ...preferences, achievements: { enabled } })}
+            />
+            {tierSound && (
+              <SwitchRow
+                title="升档音"
+                description="连击达到 10、25、50、100 时播放音效包的上屏音，每升一档音调更高，音量随音效音量。需要打开「打字效果」里的连击计数。"
+                checked={preferences.combo_tier_sound}
+                disabled={!preferences.combo_counter}
+                onChange={(combo_tier_sound) => onChange({ ...preferences, combo_tier_sound })}
+              />
+            )}
+          </MoreOptions>
         </GroupList>
       )}
       {typingEffects && (
@@ -145,14 +174,16 @@ export function PluginSoundEffectsView({
                 disabled={effectPackSelected}
                 onChange={(effect_style) => onChange({ ...preferences, effect_style })}
               />
-              <SliderRow
-                title="效果强度"
-                description="效果的大小和持续时间。"
-                value={preferences.effect_intensity}
-                valueText={`${preferences.effect_intensity}%`}
-                disabled={effectPackSelected || preferences.effect_style === "off"}
-                onChange={(effect_intensity) => onChange({ ...preferences, effect_intensity })}
-              />
+              {effectIntensity && (
+                <SliderRow
+                  title="效果强度"
+                  description="效果的大小和持续时间。"
+                  value={preferences.effect_intensity}
+                  valueText={`${preferences.effect_intensity}%`}
+                  disabled={effectPackSelected || preferences.effect_style === "off"}
+                  onChange={(effect_intensity) => onChange({ ...preferences, effect_intensity })}
+                />
+              )}
             </>
           )}
           <SwitchRow
@@ -161,15 +192,6 @@ export function PluginSoundEffectsView({
             checked={preferences.combo_counter}
             onChange={(combo_counter) => onChange({ ...preferences, combo_counter })}
           />
-          {effectStyles && (
-            <SwitchRow
-              title="升档音"
-              description="连击达到 10、25、50、100 时播放音效包的上屏音，每升一档音调更高，音量随音效音量。"
-              checked={preferences.combo_tier_sound}
-              disabled={!preferences.combo_counter}
-              onChange={(combo_tier_sound) => onChange({ ...preferences, combo_tier_sound })}
-            />
-          )}
         </GroupList>
       )}
       {music && (
@@ -178,8 +200,16 @@ export function PluginSoundEffectsView({
             title="背景音乐"
             description="默认关闭。只在输入法处于活动状态时播放，切换到其他输入法时暂停。"
             checked={preferences.music.enabled}
+            disabled={!preferences.music.enabled && !musicPack}
             onChange={(enabled) =>
-              onChange({ ...preferences, music: { ...preferences.music, enabled } })
+              onChange({
+                ...preferences,
+                music: {
+                  ...preferences.music,
+                  enabled,
+                  pack: enabled ? musicPack : preferences.music.pack,
+                },
+              })
             }
           />
           <SummaryRow

@@ -604,7 +604,8 @@ export function ScriptPluginDetailView({
           </SettingsManagerBlock>
         )}
       </GroupList>
-      {state === "enabled" && (
+      {/* 只有一个脚本在运行时两个按钮都不能按，顺序也无从谈起，所以至少两个在运行时才显示；排在第 8 个之后不会运行时仍要说明。 */}
+      {state === "enabled" && (running.length >= 2 || position < 0) && (
         <GroupList title="执行顺序">
           <SettingsManagerBlock>
             <SettingsManagerNote>

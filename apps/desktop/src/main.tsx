@@ -703,14 +703,16 @@ function DesktopSettings() {
               host.platform === "ios",
             // A file manager is only reachable on the desktop hosts; iOS and Android get the same
             // page without the button rather than one that fails when pressed.
+            // macOS 也不给「打开数据目录」：统计文件就在偏好目录里，和「维护与诊断 › 在 Finder 中显示」打开的是同一个文件夹（Tauri 的 `open_typing_statistics_directory` 与 `open_diagnostic_log_directory` 在 macOS 上都指向 `preferences_directory`）。Linux 和 Windows 上统计页这一个按钮是唯一入口，照旧保留。
             ...(host.typing_statistics
               ? {
-                  typingStatistics: isMobileHost(host.platform)
-                    ? typingStatistics
-                    : {
-                        ...typingStatistics,
-                        openDirectory: () => invoke<void>("open_typing_statistics_directory"),
-                      },
+                  typingStatistics:
+                    isMobileHost(host.platform) || host.platform === "macos"
+                      ? typingStatistics
+                      : {
+                          ...typingStatistics,
+                          openDirectory: () => invoke<void>("open_typing_statistics_directory"),
+                        },
                 }
               : {}),
             ...(host.platform === "macos" ||

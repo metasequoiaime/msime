@@ -2369,8 +2369,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let row = makeRow()
     if includesShift {
       let button = makeIconKey(Self.shiftIcon, accessibilityLabel: "大写") { [weak self] in
-        self?.countKeyPress(TypingKeyID.shift)
-        self?.toggleLetterCase()
+        self?.handleLetterShift(keyID: TypingKeyID.shift)
       }
       button.accessibilityIdentifier = "shiftButton"
       shiftButton = button
@@ -2428,8 +2427,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       // iPad 键盘在 ，。 之后的第二个 ⇧，手机在这个位置是 ⌫。两个 Shift 是同一个键。
       let rightShift = makeIconKey(Self.shiftIcon, accessibilityLabel: "大写") { [weak self] in
-        self?.countKeyPress(TypingKeyID.shiftRight)
-        self?.toggleLetterCase()
+        self?.handleLetterShift(keyID: TypingKeyID.shiftRight)
       }
       rightShift.accessibilityIdentifier = "rightShiftButton"
       rightShift.isHidden = true
@@ -3454,6 +3452,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateAutomaticCapitalization()
   }
 
+  /// 仅替换中文全拼字母页，密码框、本地模式和其他方案保留大小写。
+  private var usesQuanpinSeparator: Bool {
+    inputScheme == .quanpin && isChineseMode && !showsSymbols && !isInLocalMode
+      && !isCredentialField && !session.initializationFailed
+  }
+
+  private func handleLetterShift(keyID: String) {
+    if usesQuanpinSeparator {
+      countKeyPress(TypingKeyID.character("'"))
+      if hasComposition { handleCharacter("'") }
+      else { playInputClick() }
+      return
+    }
+    countKeyPress(keyID)
+    toggleLetterCase()
+  }
+
   private func toggleLetterCase() {
     // 韩语的 Shift 是布局自己的 Shift：选出 ㅃ ㅉ ㄸ ㄲ ㅆ ㅒ ㅖ，而不是切到英文。越南语和藏文的 Shift 与英文一样给出大写字母。
     if isChineseMode && !helpcodeCompositionEligible && !typesKorean && !typesCasedLetters {
@@ -3573,8 +3588,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.accessibilityValue = hint
     }
 
-    // iPad 键盘第三排两端各有一个 ⇧，两者显示同样的状态。
+    // iPad 键盘第三排两端各有一个 ⇧，全拼分词时两个位置都就地更新。
     for button in [shiftButton, rightShiftButton].compactMap({ $0 }) {
+      if usesQuanpinSeparator {
+        button.accessibilityLabel = "拼音分词"
+        button.accessibilityValue = nil
+        button.accessibilityHint = "分隔当前组合中的拼音音节"
+        continue
+      }
       switch letterCaseState {
       case .lowercase:
         button.accessibilityLabel = korean ? "双辅音" : isChineseMode && !casedLetters ? "切换到英文大写" : "大写"
@@ -3595,10 +3616,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 设计稿的 ⇧ 及其带下划线的大写锁定样式，画法与 Android 的 `styleShiftKey` 一致：关闭时用功能键底色、图标为按键颜色；打开时（单次或锁定）用字母键底色、图标为强调色。皮肤处理会给所有功能键套上关闭时的颜色；它调用的 `updateSchemeButton` 再经 `updateLetterCaseControls` 重新设置这两个键的样式。
   private func styleShiftKeys() {
     let skin = KeyboardTheme.current
-    let on = letterCaseState != .lowercase
+    let separator = usesQuanpinSeparator
+    let on = !separator && letterCaseState != .lowercase
     for button in [shiftButton, rightShiftButton].compactMap({ $0 }) {
       guard var configuration = button.configuration else { continue }
-      configuration.image = letterCaseState == .capsLock ? Self.capsLockIcon : Self.shiftIcon
+      configuration.image = separator ? nil : (letterCaseState == .capsLock ? Self.capsLockIcon : Self.shiftIcon)
+      configuration.title = separator ? "分词" : nil
+      configuration.titleTextAttributesTransformer = Self.functionLabelTransformer
       configuration.background.backgroundColor = on ? skin.keyBackground : skin.functionKeyBackground
       configuration.baseForegroundColor = on ? skin.accent : skin.keyForeground
       button.configuration = configuration

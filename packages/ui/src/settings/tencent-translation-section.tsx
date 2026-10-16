@@ -7,6 +7,16 @@ import { SettingsGroupBlock } from "./settings-group-block";
 import { SettingsRowStack } from "./settings-row-stack";
 import { MoreOptions } from "../core/platform-controls";
 import { tencentCredentialIssue } from "./translation-validation";
+import type { TranslationOfflineFallback } from "./translation-service-selector-section";
+
+/** 缺凭据时的警告，按 `TranslationOfflineFallback` 照实说：macOS 仍有离线翻译，Windows 和 HarmonyOS 只是不请求在线翻译（离线词库照样有释义），其余宿主沿用原来的说法。 */
+const missingCredentialsWarning: Record<TranslationOfflineFallback | "none", string> = {
+  system:
+    "未填写腾讯云凭据，填好之前候选仍用离线翻译。请填入 SecretId 与 SecretKey，或在上面的翻译服务中改选其他服务。",
+  dictionary:
+    "未填写腾讯云凭据，填好之前不会请求在线翻译。请填入 SecretId 与 SecretKey，或在上面的翻译服务中改选其他服务。",
+  none: "未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与 SecretKey，或在上面的翻译服务中改选其他服务。",
+};
 
 export interface TencentTranslationSectionProps {
   available: boolean;
@@ -15,8 +25,8 @@ export interface TencentTranslationSectionProps {
   region: string;
   credentialIssue?: string;
   showMissingCredentialsWarning?: boolean;
-  /** 见 `TranslationServiceSelectorSectionProps.offlineFallback`：缺凭据时宿主改用离线翻译，警告照实说，而不是说没有结果。 */
-  offlineFallback?: boolean;
+  /** 见 `TranslationServiceSelectorSectionProps.offlineFallback`：缺凭据时 host-api 不把腾讯云放进查询，宿主照样出离线释义，警告照实说，而不是说没有结果。 */
+  offlineFallback?: TranslationOfflineFallback;
   /** 把「地域」收进「更多选项」；外层已经整体折叠（HarmonyOS 手机的「翻译服务」）时传 false，免得两层「更多选项」套在一起。 */
   foldRegion?: boolean;
   onSecretIdChange: (value: string) => void;
@@ -33,7 +43,7 @@ export function TencentTranslationSection({
   region,
   credentialIssue,
   showMissingCredentialsWarning = false,
-  offlineFallback = false,
+  offlineFallback,
   foldRegion = true,
   onSecretIdChange,
   onSecretKeyChange,
@@ -90,11 +100,7 @@ export function TencentTranslationSection({
       )}
       {available && !credentialIssue && showMissingCredentialsWarning && (
         <SettingsGroupBlock>
-          <SettingsWarning>
-            {offlineFallback
-              ? "未填写腾讯云凭据，填好之前候选仍用离线翻译。请填入 SecretId 与 SecretKey，或在上面的翻译服务中改选其他服务。"
-              : "未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与 SecretKey，或在上面的翻译服务中改选其他服务。"}
-          </SettingsWarning>
+          <SettingsWarning>{missingCredentialsWarning[offlineFallback ?? "none"]}</SettingsWarning>
         </SettingsGroupBlock>
       )}
     </SettingsRowStack>

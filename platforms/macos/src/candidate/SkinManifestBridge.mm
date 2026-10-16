@@ -100,13 +100,22 @@ SkinAnimationPreset AnimationPreset(NSString *value)
     return SkinAnimationPreset::none;
 }
 
+// 清单写了这个预设才播放：省略 [animation] 或其中某个预设时，共享解析器补上的活泼默认组合在 macOS 上一律按 none 处理，见 .agents/notes/implemented/feature/2026-10-16-macos-candidate-declared-motion.md。没有 declared 的旧库同样不播放。
+SkinAnimationPreset DeclaredAnimationPreset(NSDictionary *object, NSDictionary *declared, NSString *key)
+{
+    NSNumber *written = [declared isKindOfClass:NSDictionary.class] ? declared[key] : nil;
+    if (![written isKindOfClass:NSNumber.class] || !written.boolValue) return SkinAnimationPreset::none;
+    return AnimationPreset(object[key]);
+}
+
 SkinAnimation AnimationFromJSON(NSDictionary *object)
 {
     SkinAnimation animation;
     if (![object isKindOfClass:NSDictionary.class]) return animation;
-    animation.enter = AnimationPreset(object[@"enter"]);
-    animation.exit = AnimationPreset(object[@"exit"]);
-    animation.selection = AnimationPreset(object[@"selection"]);
+    NSDictionary *declared = object[@"declared"];
+    animation.enter = DeclaredAnimationPreset(object, declared, @"enter");
+    animation.exit = DeclaredAnimationPreset(object, declared, @"exit");
+    animation.selection = DeclaredAnimationPreset(object, declared, @"selection");
     const double duration = NumberField(object, @"durationMs");
     const double stagger = NumberField(object, @"staggerMs");
     if (duration >= 40.0 && duration <= 600.0) animation.durationMs = duration;

@@ -1,6 +1,6 @@
 //! The desktop clipboard history the 剪贴板 settings page manages: `clipboard_history.json` in the preferences directory, kept by [`ClipboardHistoryStore`] and captured only while the `clipboard_history` preference is on.
 //!
-//! The Tauri settings shell (Windows, macOS, Linux) and the native Windows settings window (through `msime_client_desktop_clipboard_history`) both answer 从系统剪贴板同步 through [`capture_clipboard`], so the rule that a disabled history never reads the clipboard is written once; on Windows both read the clipboard through [`windows_clipboard_text`]. The mobile history (`msime_client_mobile_clipboard_history`) is a different file under the App Group and is not touched here.
+//! Tauri 设置外壳（Windows、macOS、Linux）的共享剪贴板页在历史开关保存为开启后调用一次 `sync_clipboard_history`；Windows 原生设置窗口经 `msime_client_desktop_clipboard_history` 在同样的时机发送 `sync`。两者都通过 [`capture_clipboard`] 采集，统一保证历史关闭时不读剪贴板；Windows 上都经 [`windows_clipboard_text`] 读取。移动端历史（`msime_client_mobile_clipboard_history`）是 App Group 下的另一个文件，这里不处理。
 
 use msime_client_core::clipboard::{ClipboardHistoryEntry, ClipboardHistoryStore};
 use msime_client_core::preferences::PreferencesStore;

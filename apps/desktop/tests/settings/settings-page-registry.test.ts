@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
 import {
+  desktopMergedPages,
+  desktopPage,
   pages,
   settingsNavGroups,
   subPageParents,
@@ -31,6 +33,7 @@ test("keeps the current settings route registry in navigation order", () => {
     "vocabulary",
     "help",
     "usage-reporting",
+    "mcp",
     "privacy",
     "try-keyboard",
     "more",
@@ -53,7 +56,12 @@ test("keeps navigation groups and nested route ownership aligned", () => {
     "usage-reporting": "about",
     privacy: "account",
     "try-keyboard": "home",
+    mcp: "developer",
   });
+  // 桌面上并进别的页、只留作路由别名的页面。
+  expect(desktopMergedPages).toEqual({ feedback: "about" });
+  expect(desktopPage("feedback")).toBe("about");
+  expect(desktopPage("help")).toBe("help");
 });
 
 test("lists every navigation page exactly once, and only pages the registry knows", () => {

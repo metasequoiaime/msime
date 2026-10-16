@@ -1801,14 +1801,8 @@ export function TypingStatisticsPage({
               ))}
             </SelectSettingField>
           )}
+          {/* 桌面没有「刷新统计」：页面每 5 秒自动重读一次，窗口回到前台时也会重读。手机的溢出菜单仍保留它。 */}
           <div className="flex flex-wrap gap-[9px]">
-            <ActionButton
-              action={() => void update(() => client.load(), true)}
-              ariaBusy={busy}
-              className="secondary m-0"
-              disabled={busy}
-              label={busy ? "处理中…" : "刷新统计"}
-            />
             {client.openDirectory && (
               <ActionButton
                 action={async () => {

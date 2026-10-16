@@ -21,4 +21,23 @@ int main() {
   assert(!msime::windows::navigation_action(packet, tab_bindings, false));
   packet.modifiers_down = 4;
   assert(!msime::windows::navigation_action(packet, tab_bindings, false));
+
+  // 共享偏好里存着关的 Tab 和 PageUp/PageDown 不起作用，两组固定开启；其余键组照文档。
+  const auto stored = msime::windows::preference_navigation(nlohmann::json{
+      {"navigation",
+       {{"minus_equal", false},
+        {"comma_period", true},
+        {"brackets", false},
+        {"tab", false},
+        {"page_up_down", false},
+        {"arrows", false}}}});
+  assert(stored.tab && stored.page_up_down);
+  assert(!stored.minus_equal && stored.comma_period && !stored.brackets && !stored.arrows);
+  packet.modifiers_down = 0;
+  packet.keycode = 0x21;
+  assert(msime::windows::navigation_action(packet, stored, false)->reply ==
+         msime::windows::NavigationReply::PreviousPage);
+  packet.keycode = 0x09;
+  assert(msime::windows::navigation_action(packet, stored, false)->reply ==
+         msime::windows::NavigationReply::NextPage);
 }

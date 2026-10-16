@@ -26,11 +26,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "packages/ui/src/index.tsx"
+CLIENT_SOURCE = ROOT / "packages/ui/src/core/settings-client.ts"
 
 
 def main() -> int:
     text = SOURCE.read_text(encoding="utf-8")
-    optional = set(re.findall(r"^\s{2}(\w+)\?:\s*\(", text, re.M))
+    # 宿主接口迁出入口后仍纳入能力集合；入口本身的可选回调继续检查。
+    contracts = CLIENT_SOURCE.read_text(encoding="utf-8")
+    optional = set(re.findall(r"^\s{2}(\w+)\?:\s*\(", text + "\n" + contracts, re.M))
     if not optional:
         print("no optional client callbacks found; the interface shape changed", file=sys.stderr)
         return 1

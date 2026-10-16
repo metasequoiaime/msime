@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import {
+  openVoiceServiceConfig,
+  settingsFormReady,
+  saveSettingsNow,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -24,10 +28,12 @@ const snapshot: Snapshot = {
   },
 };
 
+// Windows 只有一种录音方式（`voice_capture_backends` 为 false）：录音后端、刷新按钮、可用设备和手填设备名合成一个「麦克风」下拉，子视图打开时自动读取列表。
 test("Windows saves endpoint identity across duplicate labels and enumeration reorder", async () => {
   const a = { backend: "windows" as const, id: "wasapi:0061", label: "Synthetic microphone" };
   const b = { ...a, id: "wasapi:0062" };
-  const read = vi.fn().mockResolvedValueOnce([a, b]).mockResolvedValueOnce([b, a]);
+  // 两个同名设备，而且列举顺序和上次不同：选中项按端点标识找，不按位置或名字。
+  const read = vi.fn().mockResolvedValue([b, a]);
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...snapshot,
     revision: 3,
@@ -46,27 +52,22 @@ test("Windows saves endpoint identity across duplicate labels and enumeration re
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
-  selectSettingsTab("录音设备");
-  const backend = await screen.findByLabelText("录音后端");
-  expect(within(backend).queryByRole("option", { name: "PulseAudio" })).toBeNull();
-  expect(within(backend).queryByRole("option", { name: "CoreAudio" })).toBeNull();
-  expect(screen.getByText(/保存其端点标识而非设备序号/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "刷新设备" }));
-  await waitFor(() =>
-    expect((screen.getByLabelText("可用录音设备") as HTMLSelectElement).value).toBe("0"),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "刷新设备" }));
-  await waitFor(() =>
-    expect((screen.getByLabelText("可用录音设备") as HTMLSelectElement).value).toBe("1"),
-  );
-  fireEvent.change(screen.getByLabelText("可用录音设备"), { target: { value: "0" } });
-  expect((screen.getByLabelText("麦克风设备") as HTMLInputElement).value).toBe(b.id);
+  openVoiceServiceConfig();
+  expect(screen.queryByLabelText("录音后端")).toBeNull();
+  expect(screen.queryByRole("button", { name: "刷新设备" })).toBeNull();
+  expect(screen.queryByLabelText("麦克风设备")).toBeNull();
+  const microphone = (await screen.findByRole("combobox", { name: "麦克风" })) as HTMLSelectElement;
+  await waitFor(() => expect(microphone.value).toBe("1"));
+  expect(read).toHaveBeenCalledOnce();
+  expect(screen.getByText(/拔掉后无法录音/)).toBeTruthy();
+  fireEvent.change(microphone, { target: { value: "0" } });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save.mock.calls[0][1].voice_input).toMatchObject({
     capture_backend: "windows",
     capture_device: b.id,
   });
+  expect(within(microphone).getAllByRole("option")).toHaveLength(3);
 });
 
 test("missing or legacy Windows devices are retained until the user chooses a default", async () => {
@@ -77,11 +78,16 @@ test("missing or legacy Windows devices are retained until the user chooses a de
       voice_input: { ...snapshot.preferences.voice_input!, capture_device: "0" },
     },
   };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...previous,
+    revision: 3,
+    preferences,
+  }));
   render(
     <SettingsPage
       client={{
         load: async () => previous,
-        save: vi.fn(),
+        save,
         host: testHost({ platform: "windows", voice_capture_devices: true }),
         listVoiceCaptureDevices: async () => [],
       }}
@@ -89,10 +95,19 @@ test("missing or legacy Windows devices are retained until the user chooses a de
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
-  selectSettingsTab("录音设备");
-  fireEvent.click(await screen.findByRole("button", { name: "刷新设备" }));
-  await screen.findByText(/未发现设备/);
-  expect((screen.getByLabelText("麦克风设备") as HTMLInputElement).value).toBe("0");
-  fireEvent.change(screen.getByLabelText("录音后端"), { target: { value: "auto" } });
-  expect((screen.getByLabelText("麦克风设备") as HTMLInputElement).value).toBe("");
+  openVoiceServiceConfig();
+  const microphone = (await screen.findByRole("combobox", { name: "麦克风" })) as HTMLSelectElement;
+  // 旧版存下的设备序号不在列表里：照实标成未连接，打开页面时不改写。
+  await waitFor(() =>
+    expect(within(microphone).getByRole("option", { name: "已选的麦克风（未连接）" })).toBeTruthy(),
+  );
+  expect(microphone.value).toBe("stored");
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(microphone, { target: { value: "" } });
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save.mock.calls[0][1].voice_input).toMatchObject({
+    capture_backend: "",
+    capture_device: "",
+  });
 });

@@ -69,6 +69,7 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
             // limit disagrees with its config, and the query document's copy
             // can lag the pending preferences this call is meant to follow.
             let mut config = preferences.ai_assistant.clone();
+            config.candidate_limit = host_ai_candidate_limit(config.candidate_limit);
             if let Some(credential) = &session.ai_credential {
                 if credential.endpoint == config.endpoint {
                     if let Some(origin) =

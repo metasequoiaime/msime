@@ -41,12 +41,18 @@ int main() {
             Require((panel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary) != 0, "panel cannot appear beside a full-screen window");
             Require(!panel.configured && panel.intensity == 50 && !panel.isVisible && !panel.emitting, "panel not idle before use");
 
+            // 强度在 macOS 上固定为 50：文档里存的旧强度（包括越界的值）一律不读。
             [panel applyPreferences:@{@"plugins" : @{@"effect_style" : @"sparks", @"effect_intensity" : @80}}];
-            Require(panel.configured && panel.intensity == 80, "preferences not applied");
+            Require(panel.configured && panel.intensity == 50, "a stored intensity was honoured");
+            // 特效包换上的强度：没有 plugins 的文档不动它，带 plugins 的文档把它放回固定的 50。
+            [panel applySettings:@{@"intensity" : @70}];
+            Require(panel.intensity == 70, "a pack intensity was not applied");
             [panel applyPreferences:@{@"theme" : @"dark"}];
-            Require(panel.configured && panel.intensity == 80, "a document without plugins reset the effect");
+            Require(panel.configured && panel.intensity == 70, "a document without plugins reset the effect");
+            [panel applyPreferences:@{@"plugins" : @{@"effect_style" : @"sparks"}}];
+            Require(panel.configured && panel.intensity == 50, "a plugins document did not return to the fixed intensity");
             [panel applyPreferences:@{@"plugins" : @{@"effect_style" : @"lasers", @"combo_counter" : @YES, @"effect_intensity" : @400}}];
-            Require(panel.configured && panel.intensity == 100, "unknown style or out-of-range intensity not bounded");
+            Require(panel.configured && panel.intensity == 50, "unknown style not bounded or a stored intensity was honoured");
             [panel applyPreferences:@{@"plugins" : @{@"effect_style" : @"sparks", @"combo_counter" : @YES}}];
 
             const NSRect caret = NSMakeRect(600, 400, 2, 20);

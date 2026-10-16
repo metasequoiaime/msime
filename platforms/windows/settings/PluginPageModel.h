@@ -157,6 +157,28 @@ struct Preferences {
 
 inline constexpr std::wstring_view default_sound_pack = L"default";
 inline constexpr std::wstring_view default_melody_pack = L"twinkle";
+// `client-core::plugins::BUILTIN_MUSIC_PACKS`：安装包随带的音乐包，按这个顺序挑默认的那一个。
+inline constexpr std::array<std::wstring_view, 2> builtin_music_packs{L"msime-music-lofi",
+                                                                      L"msime-music-ambient"};
+
+// 打开「背景音乐」开关时还没选音乐包，就替用户选的那个包（`musicPackToSelect`）：宿主只在开关打开并且选了包时播放，只打开开关什么也听不到。优先安装包随带的音乐包（按 `builtin_music_packs` 的顺序），其次目录里的第一个音乐包；目录还没读到（`listed` 为假）时选随带的第一个。目录读到了却一个音乐包都没有时为空，这时开关不能打开。
+inline std::wstring music_pack_to_select(std::vector<Package> const &packages, bool listed) {
+  if (!listed)
+    return std::wstring(builtin_music_packs[0]);
+  for (auto const id : builtin_music_packs)
+    for (auto const &pack : packages)
+      if (pack.kind == L"music" && pack.id == id && pack.builtin)
+        return pack.id;
+  for (auto const &pack : packages)
+    if (pack.kind == L"music")
+      return pack.id;
+  return {};
+}
+
+// 「成就音效」不能打开：成就按打字统计计数，统计关着时打开它什么也不会响。已经打开的仍然可以关掉，不把用户锁在改不回来的状态里；还不知道统计开没开（没读到）时按打开处理。
+inline bool achievements_blocked(std::optional<bool> statistics_enabled, bool achievements_enabled) {
+  return statistics_enabled.has_value() && !*statistics_enabled && !achievements_enabled;
+}
 inline constexpr std::size_t max_command_tables = 16;
 inline constexpr std::size_t max_phrase_tables = 16;
 
@@ -1043,7 +1065,12 @@ inline std::wstring script_status(Package const &pack, ScriptGrantState state,
                 : std::wstring(L"已启用。");
 }
 
-// 详情「执行顺序」的说明（只在启用时显示）。`position` 为 -1 时排在第 8 个之后。
+// 详情是否给出「执行顺序」一组（启用时）：只有一个脚本在运行时两个按钮都不能按，顺序也无从谈起，所以至少两个在运行时才给；排在第 8 个之后（`position` 为 -1）不会运行时仍要说明。
+inline bool script_order_shown(std::ptrdiff_t position, std::size_t count) {
+  return count >= 2 || position < 0;
+}
+
+// 详情「执行顺序」的说明（只在 `script_order_shown` 时显示）。`position` 为 -1 时排在第 8 个之后。
 inline std::wstring script_order_note(std::ptrdiff_t position, std::size_t count) {
   if (position < 0)
     return L"同时启用的脚本插件超过 8 个，这个插件排在第 8 个之后，不会运行。";

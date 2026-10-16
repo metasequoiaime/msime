@@ -13,7 +13,8 @@ import { errorMessage } from "../core/error-message";
 import { trackAsyncSubscription } from "../core/async-subscription";
 import { subscribeToDocumentVisibilityChange } from "../core/window-focus";
 import { validCandidateFonts } from "../candidate/candidate-font-family";
-import type { Preferences, SettingsClient, Snapshot } from "../index";
+import type { SettingsClient } from "../core/settings-client";
+import type { Preferences, Snapshot } from "../core/preferences-model";
 import {
   applyPreferenceChanges,
   preferenceChanges,

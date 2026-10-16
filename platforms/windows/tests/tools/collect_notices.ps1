@@ -18,7 +18,7 @@ try {
         'resources/licenses/libchewing-data-LGPL-2.1.txt', 'resources/licenses/rime-stroke-LGPL-3.0.txt',
         'resources/licenses/vi-MIT.txt', 'resources/licenses/ewts-MIT.txt',
         'platforms/windows/third_party/miniaudio/LICENSE', 'shared/voice/third_party/cppcodec/LICENSE',
-        'crates/client-base/data/opencc/LICENSE', 'plugins/script/LICENSE', 'plugins/phrase_table/LICENSE')
+        'resources/licenses/OpenCC-Apache-2.0.txt', 'plugins/script/LICENSE', 'plugins/phrase_table/LICENSE')
     foreach ($relative in $repositoryNotices) {
         $path = Join-Path $root $relative
         New-Item -ItemType Directory -Force (Split-Path -Parent $path) | Out-Null

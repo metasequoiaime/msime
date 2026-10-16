@@ -157,6 +157,18 @@ export class DoubaoCredentialPolicy {
     return flat.length > 0 ? flat : (config.asr_tokens?.doubao ?? "").trim();
   }
 
+  /** 豆包接口地址：留空时用默认的双向流式地址。设置页把空地址显示成「双向流式」预设，Windows 的 `resolved_asr_endpoint` 和 HTTP 服务商的 `HttpAsrConfigurationPolicy` 也这样回退，这里不能把空地址当成没配置。 */
+  static endpoint(config: VoiceInputConfiguration): string {
+    const value: string = config.asr_endpoint.trim();
+    return value.length > 0 ? value : DEFAULT_VOICE_INPUT_CONFIGURATION.asr_endpoint;
+  }
+
+  /** 豆包资源 ID：留空时用 `volc.seedasr.sauc.duration`，与 client-providers 的录音解析和 macOS、Windows 宿主一致；设置页「检查」按钮（共享的 `asrServiceCredentialTestConfig`）也按这个值回退，两边对空资源 ID 的结论相同。 */
+  static resourceId(config: VoiceInputConfiguration): string {
+    const value: string = config.asr_resource_id.trim();
+    return value.length > 0 ? value : DEFAULT_VOICE_INPUT_CONFIGURATION.asr_resource_id;
+  }
+
   /** 选了豆包，并且至少填过一项凭据。 */
   static attempted(config: VoiceInputConfiguration): boolean {
     return (

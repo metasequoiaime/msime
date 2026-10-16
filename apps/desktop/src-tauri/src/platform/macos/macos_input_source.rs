@@ -550,11 +550,6 @@ fn registry_probe_exit_code(executable: &Path, timeout: std::time::Duration) -> 
     }
 }
 
-pub(crate) fn install(resource_directory: Option<&Path>) -> Result<(), InstallError> {
-    let _guard = install_lock();
-    install_unlocked(resource_directory)
-}
-
 fn install_unlocked(resource_directory: Option<&Path>) -> Result<(), InstallError> {
     let source = find_source(
         resource_directory,
@@ -861,6 +856,32 @@ fn ensure_current_with<F>(
 where
     F: FnOnce() -> Result<(), InstallError>,
 {
+    refresh_with(source, target, defer_first_install, false, install_source)
+}
+
+/// The settings page's repair against explicit paths, with the installation step injected so tests never register anything.
+fn repair_with<F>(
+    source: &Path,
+    target: &Path,
+    install_source: F,
+) -> Result<RefreshOutcome, InstallError>
+where
+    F: FnOnce() -> Result<(), InstallError>,
+{
+    refresh_with(source, target, false, true, install_source)
+}
+
+/// The start-time check and the repair share everything but what an installed copy of the same version means: current to the check, possibly damaged to the repair.
+fn refresh_with<F>(
+    source: &Path,
+    target: &Path,
+    defer_first_install: bool,
+    replace_same_version: bool,
+    install_source: F,
+) -> Result<RefreshOutcome, InstallError>
+where
+    F: FnOnce() -> Result<(), InstallError>,
+{
     validate_bundle(source)?;
     match fs::symlink_metadata(target) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -872,7 +893,12 @@ where
     }
     let bundled = bundle_version(source);
     let installed = bundle_version(target);
-    let refresh = refresh_decision(bundled.as_ref(), installed.as_ref(), target.exists());
+    let refresh = match refresh_decision(bundled.as_ref(), installed.as_ref(), target.exists()) {
+        Refresh::UpToDate if replace_same_version && bundled.is_some() && bundled == installed => {
+            Refresh::Update
+        }
+        refresh => refresh,
+    };
     if refresh == Refresh::UpToDate {
         return Ok(RefreshOutcome {
             refresh,
@@ -911,6 +937,19 @@ pub(crate) fn ensure_current(
     let source = resource_directory.join(input_source_bundle_name());
     let target = installed_bundle_path()?;
     ensure_current_with(&source, &target, defer_first_install, || {
+        install_unlocked(Some(resource_directory))
+    })
+}
+
+/// The settings page's 「修复输入源」: like `ensure_current` it installs a missing copy, replaces an older one and never downgrades, but it also reinstalls a copy of the same version. A readable version says nothing about the rest of the bundle - a cleaner tool or a partial copy can leave the Info.plist intact and the executable, framework or signature broken - and the old 「安装 / 更新」 button this replaces overwrote such a copy.
+pub(crate) fn repair(resource_directory: &Path) -> Result<RefreshOutcome, InstallError> {
+    if !is_packaged_resource_directory(resource_directory) {
+        return Err(InstallError::SourceUnavailable);
+    }
+    let _guard = install_lock();
+    let source = resource_directory.join(input_source_bundle_name());
+    let target = installed_bundle_path()?;
+    repair_with(&source, &target, || {
         install_unlocked(Some(resource_directory))
     })
 }
@@ -1408,6 +1447,40 @@ mod tests {
         assert_eq!(outcome.bundled, Some(version("0.50.0", "11")));
         assert_eq!(outcome.installed, Some(version("0.50.0", "11")));
         assert_eq!(fs::read(&executable).unwrap(), b"newer");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn repair_reinstalls_the_same_version_but_never_downgrades() {
+        let root = tempdir().unwrap();
+        let destination = root.path().join("Library/Input Methods");
+        let target = destination.join(input_source_bundle_name());
+        let executable = target.join(format!("Contents/MacOS/{}", input_source_executable()));
+
+        let first_root = tempdir().unwrap();
+        let first = versioned_fixture(first_root.path(), "0.50.0", "10", b"first");
+        let outcome = repair_with(&first, &target, || {
+            install_bundle_at(&first, &destination).map(|_| ())
+        })
+        .unwrap();
+        assert_eq!(outcome.refresh, Refresh::Install);
+
+        // An installed copy of the same version may be damaged beyond its Info.plist.
+        let same_root = tempdir().unwrap();
+        let same = versioned_fixture(same_root.path(), "0.50.0", "10", b"same");
+        let outcome = repair_with(&same, &target, || {
+            install_bundle_at(&same, &destination).map(|_| ())
+        })
+        .unwrap();
+        assert_eq!(outcome.refresh, Refresh::Update);
+        assert_eq!(fs::read(&executable).unwrap(), b"same");
+
+        let older_root = tempdir().unwrap();
+        let older = versioned_fixture(older_root.path(), "0.50.0", "9", b"older");
+        let outcome =
+            repair_with(&older, &target, || panic!("a repair must not downgrade")).unwrap();
+        assert_eq!(outcome.refresh, Refresh::UpToDate);
+        assert_eq!(fs::read(&executable).unwrap(), b"same");
     }
 
     #[test]

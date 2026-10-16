@@ -474,6 +474,8 @@ struct KeyboardView {
   @State traditional: boolean = false;
   /** Chinese punctuation, mirrored from the session so the strip's pill and the panel's tile redraw when it flips. */
   @State chinesePunctuation: boolean = true;
+  /** 固定标点锁定了中文或英文标点：这时切换不起作用，功能面板的「中文标点」磁贴置灰。 */
+  @State punctuationLocked: boolean = false;
   /** View 的 `punctuation_marks`：引号与方头括号样式，符号键和 123 层的键面跟着它画。 */
   @State cornerQuotes: boolean = false;
   @State hollowBrackets: boolean = false;
@@ -1245,7 +1247,9 @@ struct KeyboardView {
     const automatic: boolean = this.letterCase.isAutomatic();
     const shifted: boolean = KeyboardSession.shared.entersHelpcode(held)
       || (this.english && held);
-    KeyboardSession.shared.press(letter.charCodeAt(0), shifted);
+    // 英文组合按实际字符保留大小写，Shift 标志本身不会把小写 ASCII 改为大写。
+    const input: string = this.english && held ? letter.toUpperCase() : letter;
+    KeyboardSession.shared.press(input.charCodeAt(0), shifted);
     // A one-shot Shift is spent by the letter that follows it; Caps Lock is not. Neither is an
     // automatic Shift: it is not spent but recomputed from the text, which the change this press
     // just caused has already done. Clearing it here would give a capitals-only field one capital.
@@ -2745,6 +2749,7 @@ struct KeyboardView {
     this.feedback = KeyboardSession.shared.feedbackSettings();
     this.traditional = KeyboardSession.shared.usesTraditional();
     this.chinesePunctuation = KeyboardSession.shared.usesChinesePunctuation();
+    this.punctuationLocked = !KeyboardSession.shared.punctuationToggles();
     this.fullWidth = KeyboardSession.shared.isFullWidth();
     this.translations = KeyboardSession.shared.showsCandidateTranslations();
     this.fuzzyPinyin = KeyboardSession.shared.usesFuzzyPinyin();
@@ -4707,6 +4712,24 @@ struct KeyboardView {
     KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
   }
 
+  private usesQuanpinSeparator(): boolean {
+    return KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
+      this.english, this.symbols, this.localMode);
+  }
+
+  private tapLetterShift(): void {
+    if (this.usesQuanpinSeparator()) {
+      KeyboardSession.shared.recordKey(KeyIdPolicy.character("'"));
+      if (KeyboardSession.shared.composing()) {
+        KeyboardSession.shared.press("'".charCodeAt(0), false);
+      }
+      return;
+    }
+    KeyboardSession.shared.recordKey(KeyIdPolicy.SHIFT);
+    this.letterCase.toggle(Date.now());
+    this.caseMode = this.letterCase.mode();
+  }
+
   /** 第三行左端键：组字中送分词符 '，空闲时打开符号面板（Android `ImeLayoutRows.symbolKey`）。 */
   private tapFourteenKeySeparator(): void {
     // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、iOS 的 14 键相同。
@@ -5175,7 +5198,7 @@ struct KeyboardView {
     this.confirmingClear = false;
   }
 
-  /** On a 2in1 the candidate management strip is the candidate context menu Windows draws in `menu_theme`; the other strips, and every strip on a phone, belong to the keyboard. */
+  /** 2in1 上候选管理条就是 Windows 画的那种候选右键菜单，明暗跟随颜色模式；其他条，以及手机上的每一条，都属于键盘。 */
   private overlayIsMenu(): boolean {
     return KeyboardFormFactor.isDesktop() && this.managing >= 0 && !this.punctuation && !this.brackets
       && this.expandedGloss < 0;
@@ -7514,9 +7537,12 @@ struct KeyboardView {
     }
   }
 
-  /** 磁贴当前是否可用：繁体输出对日文没有意义，手写需要带中文方案的版本，语音和 AI 润色需要各自的服务商，强度需要开启振动。 */
+  /** 磁贴当前是否可用：固定标点锁定时中文标点切换不起作用，繁体输出对日文没有意义，手写需要带中文方案的版本，语音和 AI 润色需要各自的服务商，强度需要开启振动。 */
   private functionTileEnabled(id: string): boolean {
     switch (id) {
+      case FunctionPanelPolicy.CHINESE_PUNCTUATION:
+        // 锁定时 `togglePunctuation` 什么都不做，磁贴照常可点只会点了又弹回；置灰与 Windows 托盘在锁定时禁用「中文标点」相同，读屏也会报不可用。
+        return !this.punctuationLocked;
       case FunctionPanelPolicy.TRADITIONAL:
         return !this.japanese;
       case FunctionPanelPolicy.HANDWRITING:
@@ -9172,21 +9198,18 @@ struct KeyboardView {
           if (!this.symbols) {
             // 触屏上开启的 Shift 用字母键的填充色加强调色箭头，与设计稿一致；2in1 屏幕键盘仍用操作色填充。
             this.fixedKey({
-              face: this.caseMode === LetterCaseMode.CAPS_LOCK ? '⇪' : '⇧',
-              label: this.letterCase.accessibilityLabel(this.english),
-              size: KeyboardMetrics.KEY_FONT_SIZE,
+              face: this.usesQuanpinSeparator() ? '分词'
+                : (this.caseMode === LetterCaseMode.CAPS_LOCK ? '⇪' : '⇧'),
+              label: this.usesQuanpinSeparator() ? '拼音分词' : this.letterCase.accessibilityLabel(this.english),
+              size: this.usesQuanpinSeparator() ? 14 : KeyboardMetrics.KEY_FONT_SIZE,
               emphasized: !this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE,
-              special: !(this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE),
+              special: this.usesQuanpinSeparator() || !(this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE),
               width: KeyboardMetrics.MODIFIER_WIDTH_VP,
               share: this.touchDesign() ? LETTER_EDGE_SHARE : 0,
-              icon: !this.touchDesign() ? ''
+              icon: !this.touchDesign() || this.usesQuanpinSeparator() ? ''
                 : (this.caseMode === LetterCaseMode.CAPS_LOCK ? KeyboardIconPaths.CAPS_LOCK : KeyboardIconPaths.SHIFT),
-              accentIcon: this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE,
-              action: () => {
-                KeyboardSession.shared.recordKey(KeyIdPolicy.SHIFT);
-                this.letterCase.toggle(Date.now());
-                this.caseMode = this.letterCase.mode();
-              }
+              accentIcon: !this.usesQuanpinSeparator() && this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE,
+              action: () => this.tapLetterShift()
             });
           }
           ForEach(this.symbols ? SYMBOL_ROWS[2] : LETTER_ROWS[2], (key: string) => {

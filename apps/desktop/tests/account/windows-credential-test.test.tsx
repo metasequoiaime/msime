@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { selectSettingsTab, settingsFormReady } from "../support/settings-form";
+import { openVoiceServiceConfig, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -73,7 +73,7 @@ test.each(["windows", "macos"])(
       (screen.getByRole("button", { name: "测试 AI 辅助配置" }) as HTMLButtonElement).disabled,
     ).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
-    selectSettingsTab("润色");
+    openVoiceServiceConfig();
     fireEvent.click(screen.getByRole("button", { name: "测试语音润色配置" }));
     await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(2));
     expect(probe).toHaveBeenLastCalledWith("voice.polish", {

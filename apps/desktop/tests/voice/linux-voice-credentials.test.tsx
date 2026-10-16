@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { selectSettingsTab, settingsFormReady } from "../support/settings-form";
+import { openVoiceServiceConfig, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
@@ -103,6 +103,10 @@ async function openVoice(credentials: ProviderCredentialClient) {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  // 凭据和润色都收在「服务配置」子视图里。Linux 的密钥由语音服务保管，这一行不写填没填。
+  const row = screen.getByRole("button", { name: "服务配置" });
+  expect(row.getAttribute("aria-describedby")).toBeNull();
+  openVoiceServiceConfig();
 }
 
 test("Linux saves the Doubao recognition credential bound to the current voice settings", async () => {
@@ -150,7 +154,6 @@ test("Linux polishing credential names the provider and model selected above", a
   });
   await openVoice(credentials);
   // 语音页在润色关闭时只留开关，凭据随润色一起展开。
-  selectSettingsTab("润色");
   fireEvent.click(await screen.findByRole("switch", { name: "启用文本润色" }));
   const group = await screen.findByRole("group", { name: "语音润色凭据" });
   await waitFor(() => expect(group.textContent).toContain("不一致"));
@@ -176,10 +179,11 @@ test("Linux offers the Doubao streaming interfaces in the credential it saves", 
   const stream = screen.getByLabelText("流式接口") as HTMLSelectElement;
   // No stored address means the provider default, the bidirectional endpoint.
   expect(stream.value).toBe("async");
+  // 预设不再另画一行地址输入框：下拉和输入框写的是同一个接口地址。
+  expect(screen.queryByLabelText("识别接口地址")).toBeNull();
   fireEvent.change(stream, { target: { value: "nostream" } });
-  expect((screen.getByLabelText("识别接口地址") as HTMLInputElement).value).toBe(
-    "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
-  );
+  expect(stream.value).toBe("nostream");
+  expect(screen.queryByLabelText("识别接口地址")).toBeNull();
   fireEvent.change(screen.getByLabelText("识别 API Token"), { target: { value: "access" } });
   fireEvent.change(screen.getByLabelText("Doubao App Key"), { target: { value: "app-1" } });
   fireEvent.click(screen.getByRole("button", { name: "保存识别凭据" }));

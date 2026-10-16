@@ -16,6 +16,7 @@ platforms/android/tests/device/keyboard/PairedPunctuationDeviceSmoke.java
 platforms/android/tests/device/keyboard/LetterHintPunctuationDeviceSmoke.java
 platforms/android/tests/device/keyboard/SuperscriptShortcutDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseHelpcodeDeviceSmoke.java
+platforms/android/tests/device/keyboard/QuanpinSeparatorDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseHelpcodeOffDeviceSmoke.java
 platforms/android/tests/device/keyboard/MicrosoftShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmailSuffixDeviceSmoke.java
@@ -145,3 +146,7 @@ platforms/android/tests/device/keyboard/EmojiCombinationDeviceSmoke.java
 
 platforms/android/tests/device/keyboard/CompositionBatchDeviceSmoke.java
 platforms/android/tests/device/keyboard/ToolbarEditorDeviceSmoke.java
+platforms/android/tests/device/voice/LocalSpeechHandleDeviceSmoke.java
+
+platforms/android/tests/device/core/BatchEditorActivity.java
+platforms/android/tests/device/keyboard/BatchCompositionDeviceSmoke.java

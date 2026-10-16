@@ -61,6 +61,7 @@
 #endif
 #include "../src/core/BackspaceHoldPolicy.h"
 #include "../src/core/SmartPunctuationSpace.h"
+#include "../src/core/SmartPunctuationChoice.h"
 #include "../src/core/SpellingSymbols.h"
 #include "../src/core/LocalModeSwitches.h"
 #include "../src/system/KeySound.h"
@@ -207,6 +208,8 @@ struct PendingPreferenceSave {
   bool theme_choice = false;
   // The value is a 辅助码方案 status-bar choice for `section` (quanpin_helpcode or shuangpin_helpcode): besides `section.schema` it clears that scheme's helpcode pack, as the settings page does, or the pack would keep overriding the schema just chosen (core/HelpcodePack.h).
   bool helpcode_schema_choice = false;
+  // The value is the 智能标点 menu toggle: smart_punctuation is written together with smart_punctuation_direct_digit and smart_punctuation_direct_letter in one save (core/SmartPunctuationChoice.h), not as three jobs that could each land on a different revision.
+  bool smart_punctuation_choice = false;
 };
 
 // ABI buffers and errors never escape into diagnostics or the panel.
@@ -250,6 +253,8 @@ Json savePreference(const PendingPreferenceSave &request) {
     msime::linux_host::apply_helpcode_schema_choice(
         snapshot["preferences"], request.section == "shuangpin_helpcode" ? "shuangpin" : "quanpin",
         request.value.get<std::string>());
+  else if (request.smart_punctuation_choice)
+    msime::linux_host::apply_smart_punctuation_choice(snapshot["preferences"], request.value.get<bool>());
   else if (request.section.empty()) snapshot["preferences"][request.key] = request.value;
   else snapshot["preferences"][request.section][request.key] = request.value;
   const auto encoded = snapshot.dump();
@@ -421,11 +426,10 @@ msime::linux_host::CandidateTheme resolveCandidateTheme(const Json &preferences,
   return resolveThemeInMode(preferences, msime::linux_host::candidate_dark_theme(preferences, system_dark), catalog);
 }
 
-// The voice overlay's theme: its mode from voice_theme by the rule it has always used (VoiceAction.h), its colours from the resolved theme as the floating toolbar takes them, so the bar MSIME draws matches the candidate window's theme rather than fixed greys. A fixed-appearance theme overrides the mode, as it does for the panel.
+// 语音浮层的主题：明暗跟随颜色模式（各界面一律跟随，存下的 voice_theme 不再读），按 VoiceAction.h 一直用的规则解析；颜色取解析出的主题，与悬浮工具栏取法相同，所以 MSIME 画的浮层与候选窗是同一套主题而不是固定的灰色。固定明暗的主题照样盖过它，与候选窗相同。
 msime::linux_host::CandidateTheme resolveVoiceOverlayTheme(const Json &preferences, bool system_dark,
                                                            const Json &catalog) {
-  const bool dark = !msime_voice_overlay_light_theme(preferences.value("voice_theme", "follow"),
-                                                     preferences.value("theme", "dark"), system_dark);
+  const bool dark = !msime_voice_overlay_light_theme("follow", preferences.value("theme", "dark"), system_dark);
   return resolveThemeInMode(preferences, dark, catalog);
 }
 
@@ -1033,7 +1037,10 @@ public:
     auto snapshot = preferences_snapshot_;
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
-    snapshot["preferences"][key] = enabled;
+    // 智能标点总开关连同数字后、字母后直出一起写，与设置页相同；否则设置页关过一次之后，这里打开的只是一个不起作用的总开关。
+    const bool smart_choice = std::string_view(key) == "smart_punctuation";
+    if (smart_choice) msime::linux_host::apply_smart_punctuation_choice(snapshot["preferences"], enabled);
+    else snapshot["preferences"][key] = enabled;
     const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
@@ -1043,7 +1050,8 @@ public:
     smart_punctuation_ = preferences_.value("smart_punctuation", true);
     smart_punctuation_repeat_ = preferences_.value("smart_punctuation_repeat", true);
     preferences_snapshot_ = std::move(snapshot);
-    saveBooleanPreference(key, enabled);
+    if (smart_choice) saveSmartPunctuationChoice(enabled);
+    else saveBooleanPreference(key, enabled);
     render();
     return true;
   }
@@ -1242,6 +1250,12 @@ public:
   void saveNestedNumberPreference(const char *object, const char *key, uint8_t value) {
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
     startPreferenceSave({options_path_, object, key, value});
+  }
+  void saveSmartPunctuationChoice(bool enabled) {
+    if (options_path_.empty() || private_) return;
+    PendingPreferenceSave request{options_path_, {}, "smart_punctuation", enabled};
+    request.smart_punctuation_choice = true;
+    startPreferenceSave(std::move(request));
   }
   void saveHelpcodeSchemaChoice(const char *section, const std::string &schema) {
     if (options_path_.empty() || private_) return;
@@ -1852,8 +1866,6 @@ public:
     voice_hotkey_ralt_ = voicePreferences.value("hotkey_ralt", true);
     voice_hotkey_ctrl_win_ = voicePreferences.value("hotkey_ctrl_win", false);
     voice_hotkey_rctrl_ralt_ = voicePreferences.value("hotkey_rctrl_ralt", false);
-    voice_hotkey_hold_space_lock_ =
-        voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
     voice_language_ = voicePreferences.value("language", std::string("zh-cn"));
     loadVoiceOptions();
     syncVoiceOverlayTheme();
@@ -1994,8 +2006,6 @@ public:
             voice_hotkey_ralt_ = voicePreferences.value("hotkey_ralt", voice_hotkey_ralt_);
             voice_hotkey_ctrl_win_ = voicePreferences.value("hotkey_ctrl_win", voice_hotkey_ctrl_win_);
             voice_hotkey_rctrl_ralt_ = voicePreferences.value("hotkey_rctrl_ralt", voice_hotkey_rctrl_ralt_);
-            voice_hotkey_hold_space_lock_ =
-                voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
             voice_language_ = voicePreferences.value("language", voice_language_);
             loadVoiceOptions();
             syncVoiceOverlayTheme();
@@ -3846,6 +3856,7 @@ public:
   bool voice_hotkey_ralt_ = true;
   bool voice_hotkey_ctrl_win_ = false;
   bool voice_hotkey_rctrl_ralt_ = false;
+  // 空格锁定固定为开，不读存下的 `hotkey_hold_space_lock`：空格只在按住录音组合键期间才被拦下，平常打字不受影响，设置页也不再给这个开关（`voice_space_lock_switch`）。
   bool voice_hotkey_hold_space_lock_ = true;
   bool voice_ralt_held_ = false;
   bool voice_f9_held_ = false;
@@ -7146,9 +7157,9 @@ void FcitxState::maintenance(int operation) {
   }
 }
 
-// The badge's theme, by the macOS badge's rule: its mode is toolbar_theme when that names one, otherwise the global mode, whose "system" (跟随系统) default follows the desktop. A global theme with a fixed appearance (水杉 is dark, 纸白 light) decides it either way, and the colours are that theme's palette as the floating toolbar takes it.
+// 模式角标的主题：与 macOS 的角标一样跟随颜色模式，"system"（跟随系统，也是默认值）看桌面明暗，存下的 toolbar_theme 不再读。固定明暗的全局主题（水杉是深色，纸白是浅色）照样决定明暗，颜色取那个主题的调色板，与悬浮工具栏取法相同。
 msime::linux_host::CandidateTheme fcitx_mode_badge_theme(const Json &preferences, bool system_dark, const Json &catalog) {
-  const bool dark = msime::linux_host::surface_dark_theme(preferences, "toolbar_theme", system_dark);
+  const bool dark = msime::linux_host::surface_dark_theme(preferences, system_dark);
   return resolveThemeInMode(preferences, dark, catalog);
 }
 

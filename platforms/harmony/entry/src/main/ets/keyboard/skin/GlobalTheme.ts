@@ -247,6 +247,36 @@ export class GlobalTheme {
     return light.appearance;
   }
 
+  /** 交给解析器的自定义主题：去掉存下的编号色和边框色。HarmonyOS 的编号色和边框色跟随主题和皮肤（`HostCapabilities` 的 `candidate_number_color`、`candidate_border_color` 为假），选了文字颜色时编号色由它推出，边框取主题的发丝线；其余槽位原样带上。只给解析请求用，不改偏好文档。 */
+  static hostDrawnCustomTheme(
+    custom: CustomThemeDocument | undefined,
+  ): CustomThemeDocument | undefined {
+    if (
+      custom === undefined ||
+      custom === null ||
+      custom.candidate_colors === undefined ||
+      custom.candidate_colors === null
+    ) {
+      return custom;
+    }
+    const colors: CustomCandidateColors = custom.candidate_colors;
+    const drawn: CustomCandidateColors = {
+      text: colors.text,
+      accent: colors.accent,
+      selected: colors.selected,
+      hover: colors.hover,
+      surface: colors.surface,
+    };
+    const theme: CustomThemeDocument = {
+      base: custom.base,
+      candidate_skin: custom.candidate_skin,
+      candidate_skin_dark: custom.candidate_skin_dark,
+      candidate_colors: drawn,
+      keyboard: custom.keyboard,
+    };
+    return theme;
+  }
+
   /** A non-null appearance fixes the mode for every surface; otherwise the surface's own mode rule decides. */
   static surfaceDark(appearance: string | null, fallbackDark: boolean): boolean {
     if (appearance === "dark") {

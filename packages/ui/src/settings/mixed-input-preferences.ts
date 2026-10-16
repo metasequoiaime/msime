@@ -16,6 +16,14 @@ export const defaultMixedInput: MixedInputPreferences = {
   kaomoji: false,
 };
 
+/** Windows 和 macOS 上 emoji 混输默认开，与 client-core 的 `source_mixed_emoji_default` 一致。 */
+const sourceEmojiMixedInput: MixedInputPreferences = { ...defaultMixedInput, emoji: true };
+
+/** 文档里还没有 `mixed_input` 时按宿主平台取的缺省：Windows 和 macOS 的 emoji 混输开（Rust 按编译目标取 `cfg!(any(windows, target_os = "macos"))`），其他平台和没有宿主时关。 */
+export function mixedInputDefaultsFor(platform?: string | null): MixedInputPreferences {
+  return platform === "macos" || platform === "windows" ? sourceEmojiMixedInput : defaultMixedInput;
+}
+
 /** 仅投影控件状态，不补写偏好或改变英文触发字符数。 */
 export function mixedInputControlState(preferences: MixedInputPreferences) {
   return {

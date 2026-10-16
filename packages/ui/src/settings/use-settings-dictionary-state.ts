@@ -1,4 +1,4 @@
-import type { SettingsClient } from "../index";
+import type { SettingsClient } from "../core/settings-client";
 import { createDictionaryPanelActions } from "./dictionary-panel-actions";
 import { useDictionaryManager } from "./use-dictionary-manager";
 

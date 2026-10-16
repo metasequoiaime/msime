@@ -311,7 +311,8 @@ test("the HarmonyOS phone 输入 page shows the design's groups and folds the re
   expect(within(page).getByRole("switch", { name: "显示英文释义" })).toBeTruthy();
   // 中英文设置和其余设置仍可在更多下找到；整句联想和翻页键在那里属于其他页面。
   const more = topGroups(page).at(-1) as HTMLElement;
-  expect(within(more).getByRole("switch", { name: "以词定字" })).toBeTruthy();
+  // 以词定字和它的键组合成了一个「关闭 / [ ] / - =」选择。
+  expect(within(more).getByText("以词定字")).toBeTruthy();
   expect(within(more).getByText("拼音方案调频")).toBeTruthy();
   expect(within(page).queryByRole("switch", { name: "本地整句联想" })).toBeNull();
   expect(within(page).queryByRole("radiogroup", { name: "中文输出" })).toBeNull();

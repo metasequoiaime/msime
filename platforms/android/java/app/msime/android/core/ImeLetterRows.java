@@ -66,6 +66,7 @@ final class ImeLetterRows {
 
     /** 14 键第 3 行左端的分词键；键面随组字状态在「符」和「分词」之间换（{@link #updateFourteenKeySeparator}）。不在 14 键字母层时为 null。 */
     private Button fourteenSeparatorKey;
+    private Button shiftSource;
 
     /** 偏好里的一个布尔触控开关。 */
     private boolean touchPreference(String key) {
@@ -76,6 +77,7 @@ final class ImeLetterRows {
     void ensureIconKeys() {
         if (s.shiftButton != null && !(s.shiftButton instanceof KeyboardIconKey)) {
             Button original = s.shiftButton;
+            shiftSource = original;
             KeyboardIconKey key = iconKey(original, KeyboardIconKey.Kind.SHIFT,
                 original.getText(), original.getContentDescription(), "ShiftLeft");
             s.shiftButton = key;
@@ -86,6 +88,18 @@ final class ImeLetterRows {
                 "⌫", "删除", "Backspace");
             bindBackspaceRepeat(key, s::deleteFromHandwriting);
             s.deleteButton = key;
+        }
+    }
+
+    /** 原按钮执行点击并计数，替身负责绘制；两个身份必须随分词状态一起恢复。 */
+    void updateShiftKeyIdentity(boolean separator) {
+        String id = separator ? "Quote" : "ShiftLeft";
+        if (shiftSource != null) s.keyId(shiftSource, id);
+        if (s.shiftButton != null) s.keyId(s.shiftButton, id);
+        if (s.shiftButton instanceof KeyboardIconKey key) {
+            key.setDrawsText(separator);
+            KeyboardTypographyPolicy.setKeyTextSize(key,
+                separator ? 14 : KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
         }
     }
 

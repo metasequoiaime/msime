@@ -1,10 +1,11 @@
 /**
- * 检查 `KeyboardSession.ets` 和 `EntryAbility.ets` 所依据规则的纯 TypeScript 部分：键盘可以直接打开哪些设置页，以及常用语何时补入初始条目。
+ * 检查 `KeyboardSession.ets` 和 `EntryAbility.ets` 所依据规则的纯 TypeScript 部分：键盘可以直接打开哪些设置页，常用语何时补入初始条目，以及固定标点怎样压过中文标点开关。
  *
  * 会话和 ability 是 ArkTS，只由 `hvigorw` 编译，所以这里检查的是它们从旁边纯 TypeScript 文件里取用的部分，而不是这两个文件本身。
  */
 import { CommonPhraseStarters } from "../entry/src/main/ets/keyboard/CommonPhraseStarters";
 import { SettingsPageLink } from "../entry/src/main/ets/keyboard/SettingsPageLink";
+import { PunctuationLockPolicy } from "../entry/src/main/ets/keyboard/input/PunctuationLockPolicy";
 
 let failures = 0;
 let checks = 0;
@@ -95,6 +96,30 @@ group("the marker records the starters that were added", () => {
     CommonPhraseStarters.marker(["马上到", "已处理，请查收"]) === "马上到\n已处理，请查收",
     "one starter per line",
   );
+});
+
+// 工具栏标点按钮、功能面板开关显示的是实际输出的标点：锁定时是锁定值，不是开关（KeyboardSession 的 usesChinesePunctuation、refreshToolbar）。
+group("a pinned punctuation lock is what the toolbar face and the switch show", () => {
+  check(PunctuationLockPolicy.effectiveChinese(true, "follow"), "following shows the switch (on)");
+  check(
+    !PunctuationLockPolicy.effectiveChinese(false, "follow"),
+    "following shows the switch (off)",
+  );
+  check(
+    !PunctuationLockPolicy.effectiveChinese(true, "english"),
+    "始终英文标点 shows English even with the switch on",
+  );
+  check(
+    PunctuationLockPolicy.effectiveChinese(false, "chinese"),
+    "始终中文标点 shows Chinese even with the switch off",
+  );
+});
+
+// 锁定时工具栏和 Ctrl+. 的切换什么都不做，也就不写会上云的 chinese_punctuation（KeyboardSession 的 togglePunctuation），与 Windows TIP、fcitx5 相同。
+group("the punctuation toggle does nothing while the lock pins it", () => {
+  check(PunctuationLockPolicy.toggles("follow"), "following toggles");
+  check(!PunctuationLockPolicy.toggles("chinese"), "a Chinese lock does not");
+  check(!PunctuationLockPolicy.toggles("english"), "an English lock does not");
 });
 
 console.log("");

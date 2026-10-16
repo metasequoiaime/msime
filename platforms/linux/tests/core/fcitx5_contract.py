@@ -501,10 +501,10 @@ assert source.index("if (!toggleInputMode()) return false;") < source.index(
 # refocusing would put the default back over the mode the user chose.
 assert "ime_mode_chosen_" in source
 assert 'preferences_.value("default_ime_mode", "chinese")' in source
-assert (
-    'voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_)'
-    in source
-)
+# 空格锁定固定为开：设置页不再给开关（`voice_space_lock_switch` 为 false），宿主也不读存下的值。
+assert '"hotkey_hold_space_lock"' not in source
+assert '"hotkey_hold_space_lock"' not in ibus_source
+assert "bool voice_hotkey_hold_space_lock_ = true;" in source
 assert 'voice_options_.value("asr_provider", std::string{"doubao"})' in source
 assert "fcitx_system_dark_theme()" in source
 # The portal read is a blocking D-Bus round trip: it runs once per addon on a worker, never from each context's loop tick.

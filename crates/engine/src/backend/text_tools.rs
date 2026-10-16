@@ -11,6 +11,8 @@ use crate::japanese::decoder::JapaneseDictionary;
 use crate::japanese::provider::JapaneseProvider;
 use crate::japanese::romaji::convert_romaji;
 use crate::japanese::scheme::JapaneseRomajiScheme;
+use crate::shuangpin::{profile::profile, utils::encode_pinyin};
+use crate::types::{SchemeType, ShuangpinProfileKind};
 use crate::{
     assets, validate_personal_dictionary_entry, PersonalDictionaryEntry, PersonalDictionaryKind,
 };
@@ -37,9 +39,23 @@ pub(super) fn helpcode(request: &Request, roots: Roots) -> Outcome {
     }))
 }
 
-/// `{"code": "chong'qing'yin'hang", "word": "重庆银行"}`. The reading is the dictionary's own key for the word when it has one, otherwise each character's most frequent reading; it is then checked as a personal pinyin entry, so the code the server stores is one a client accepts.
+/// 默认返回词组全拼；显式双拼方案时额外返回完整按键码、两键分段和原全拼。读音优先取词库中的词组，否则逐字取高频读音；编码成功不证明词组被收录。
 pub(super) fn annotate(request: &Request, roots: Roots) -> Outcome {
-    scheme(request)?;
+    let selected_scheme = scheme(request)?;
+    if !matches!(selected_scheme, SchemeType::Quanpin | SchemeType::Shuangpin) {
+        return Err(BackendError::InvalidRequest);
+    }
+    let selected_profile = if selected_scheme == SchemeType::Shuangpin {
+        let name = request.string_or("profile", "xiaohe")?;
+        Some((
+            name,
+            ShuangpinProfileKind::from_name(name)
+                .and_then(profile)
+                .ok_or(BackendError::InvalidRequest)?,
+        ))
+    } else {
+        None
+    };
     roots.require_resources()?;
     let dictionary = roots.resource(assets::MAIN_DICTIONARY);
     if !dictionary.is_file() {
@@ -57,6 +73,14 @@ pub(super) fn annotate(request: &Request, roots: Roots) -> Outcome {
         weight: 10,
     })
     .map_err(|_| BackendError::InvalidDictionaryEntry)?;
+    if let Some((name, selected_profile)) = selected_profile {
+        let segmented_code =
+            encode_pinyin(&validated.key, selected_profile).ok_or(BackendError::InvalidRequest)?;
+        return Ok(
+            json!({"code": segmented_code.replace('\'', ""), "segmented_code": segmented_code,
+            "pinyin": validated.key, "word": text, "scheme": "shuangpin", "profile": name}),
+        );
+    }
     Ok(json!({ "code": validated.key, "word": text }))
 }
 

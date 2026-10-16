@@ -215,17 +215,17 @@ void modeBadgeTheme() {
   const auto dark = [](const Json &preferences, bool system_dark) {
     return fcitx_mode_badge_theme(preferences, system_dark, Json()).dark;
   };
-  // toolbar_theme "follow" defers to the global mode, whose "system" follows the desktop, so a light desktop gets a light badge.
-  require(!dark(Json{{"toolbar_theme", "follow"}, {"theme", "system"}}, false), "follow on a light desktop gives a light badge");
-  require(dark(Json{{"toolbar_theme", "follow"}, {"theme", "system"}}, true), "follow on a dark desktop gives a dark badge");
-  require(dark(Json{{"toolbar_theme", "follow"}, {"theme", "dark"}}, false), "follow defers to a dark global theme");
-  // An explicit toolbar mode wins over the global mode and over the candidate mode.
-  require(!dark(Json{{"toolbar_theme", "light"}, {"theme", "dark"}, {"candidate_theme", "dark"}}, true),
-          "an explicit light toolbar theme wins");
-  require(dark(Json{{"toolbar_theme", "dark"}, {"theme", "light"}, {"candidate_theme", "light"}}, false),
-          "an explicit dark toolbar theme wins");
+  // 角标跟随颜色模式：全局的 "system" 跟随桌面，浅色桌面得到浅色角标。
+  require(!dark(Json{{"theme", "system"}}, false), "system on a light desktop gives a light badge");
+  require(dark(Json{{"theme", "system"}}, true), "system on a dark desktop gives a dark badge");
+  require(dark(Json{{"theme", "dark"}}, false), "the badge follows a dark colour mode");
+  // 存下的 toolbar_theme 不再起作用（各界面一律跟随颜色模式），候选窗的明暗也不参与。
+  require(dark(Json{{"toolbar_theme", "light"}, {"theme", "dark"}, {"candidate_theme", "light"}}, false),
+          "a stored light toolbar theme is ignored");
+  require(!dark(Json{{"toolbar_theme", "dark"}, {"theme", "light"}, {"candidate_theme", "dark"}}, true),
+          "a stored dark toolbar theme is ignored");
   require(!dark(Json{{"toolbar_theme", "follow"}, {"theme", "system"}, {"candidate_theme", "dark"}}, false),
-          "the candidate mode does not colour the badge when toolbar_theme is present");
+          "the candidate mode does not colour the badge");
   // A global theme with a fixed appearance draws the panel in it, so the badge follows it too.
   require(dark(Json{{"global_theme", "ink"}, {"toolbar_theme", "light"}}, false), "a dark global theme gives a dark badge");
   require(!dark(Json{{"global_theme", "paper"}, {"toolbar_theme", "dark"}}, true), "a light global theme gives a light badge");
@@ -240,6 +240,11 @@ void modeBadgeTheme() {
   // The voice overlay resolves the same theme in its own mode.
   const auto voice = resolveVoiceOverlayTheme(Json{{"global_theme", "ink"}, {"voice_theme", "light"}}, false, Json());
   require(voice.dark, "a fixed-appearance theme overrides the voice overlay's mode too");
+  // 语音浮层同样跟随颜色模式，存下的 voice_theme 被忽略。
+  require(!resolveVoiceOverlayTheme(Json{{"voice_theme", "dark"}, {"theme", "light"}}, true, Json()).dark,
+          "a stored dark voice theme is ignored");
+  require(resolveVoiceOverlayTheme(Json{{"voice_theme", "light"}, {"theme", "dark"}}, false, Json()).dark,
+          "a stored light voice theme is ignored");
 }
 // classicui's options belong to every input method, so the first takeover records what it replaced for msime-linux-setup --unregister, and a later write keeps that value while the option still holds MSIME's. Runs against a scratch XDG_STATE_HOME before the resource fixture; the fixture instance does not load classicui, so this drives the recording step the addon's writes go through.
 void classicuiTakeoverRecord() {
@@ -1085,6 +1090,7 @@ int main(int argc, char **argv) {
     options["preferences"]["learning"] = false;
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["clipboard_history"] = true;
+    // 存着关掉的空格锁定：宿主不再读它，下面检查锁定照旧打开。
     options["preferences"]["voice_input"]["hotkey_hold_space_lock"] = false;
     // A stored commit strategy, which the Linux settings page does not offer and the hosts ignore: the streaming preedit below must still appear.
     options["preferences"]["voice_input"]["commit_mode"] = "ctrl_v";
@@ -1376,8 +1382,8 @@ int main(int argc, char **argv) {
       }
       require(state->session_ != 0, ("focus must unpack transition view: " + reason).c_str());
     }
-    require(!state->voice_hotkey_hold_space_lock_,
-            "initial voice context reads the hold-to-lock preference");
+    require(state->voice_hotkey_hold_space_lock_,
+            "a stored false no longer turns off the hold-to-lock space lock");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
     // 标准双拼方案的独立验收也在完整上下文套件中运行，避免通用测试的其它失败掩盖新增入口。
     {
@@ -2089,9 +2095,34 @@ int main(int argc, char **argv) {
     engine.smart_punctuation_action_.activate(&ic);
     require(!state->preferences_.value("smart_punctuation", true),
             "smart punctuation status action toggles live mode");
+    // 与设置页相同，总开关连同数字后、字母后直出一起写；否则设置页关过一次之后，这里打开的只是一个不起作用的总开关。
+    require(!state->preferences_.value("smart_punctuation_direct_digit", true) &&
+                !state->preferences_.value("smart_punctuation_direct_letter", true),
+            "turning smart punctuation off from the status bar turns both halves off");
     engine.smart_punctuation_action_.activate(&ic);
     require(state->preferences_.value("smart_punctuation", false),
             "smart punctuation status action restores live mode");
+    require(state->preferences_.value("smart_punctuation_direct_digit", false) &&
+                state->preferences_.value("smart_punctuation_direct_letter", false),
+            "turning smart punctuation on from the status bar turns both halves on");
+    {
+      // 三个键在同一次保存里落盘。
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      Json saved;
+      auto halvesOn = [&] {
+        const auto stored = saved.value("preferences", Json::object());
+        return stored.value("smart_punctuation", false) &&
+               stored.value("smart_punctuation_direct_digit", false) &&
+               stored.value("smart_punctuation_direct_letter", false);
+      };
+      while (std::chrono::steady_clock::now() < deadline) {
+        saved = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        if (halvesOn()) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+      require(halvesOn(), "the status bar persists smart punctuation with both halves");
+    }
     require(engine.smart_punctuation_repeat_action_.isChecked(&ic),
             "smart punctuation repeat status action reflects preference");
     engine.smart_punctuation_repeat_action_.activate(&ic);
