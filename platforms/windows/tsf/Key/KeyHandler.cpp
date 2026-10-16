@@ -1442,7 +1442,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
                 _pCandidateListUIPresenter->_ApplyUiLessPayload(uiLessPage);
             }
             PerfTimer clearListTimer;
-            if (!gotUiLessComposition)
+            if (!gotUiLessComposition || !uiLessPage.hasPage)
             {
                 _pCandidateListUIPresenter->_ClearList();
             }
@@ -1470,6 +1470,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
     {
         if (gotUiLessComposition)
         {
+            if (!uiLessPage.hasPage)
+                _pCandidateListUIPresenter->_ClearList();
             _pCandidateListUIPresenter->_ApplyUiLessPayload(uiLessPage);
             _pCandidateListUIPresenter->_NotifyUiLessHost();
         }

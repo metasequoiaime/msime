@@ -26,6 +26,8 @@ int main() {
           parsed.generation == 42);
   const auto legacy = FanyImeUiLessPage::Parse(L"ni\t你,拟\t1");
   require(legacy.hasPage && legacy.selection == 1 && legacy.generation == 0);
+  const auto preeditOnly = FanyImeUiLessPage::Parse(L"ni");
+  require(!preeditOnly.hasPage && preeditOnly.preedit == L"ni");
   require(FanyImeUiLessPage::Parse(L"ni\t你,拟").hasPage);
   for (const auto malformed :
        {L"ni\t你\t-1\t42", L"ni\t你\t0\t-1", L"ni\t你\t0\t18446744073709551616",
