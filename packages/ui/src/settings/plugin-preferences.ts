@@ -60,7 +60,7 @@ export type PluginPreferences = {
 export const DEFAULT_SOUND_PACK = "default";
 /** `client-core::preferences::DEFAULT_MELODY_PACK`。 */
 export const DEFAULT_MELODY_PACK = "twinkle";
-/** `client-core::plugins::BUILTIN_MUSIC_PACKS`：安装包随带的音乐包，按这个顺序挑默认的那一个。 */
+/** `client-services::plugins::BUILTIN_MUSIC_PACKS`：安装包随带的音乐包，按这个顺序挑默认的那一个。 */
 export const BUILTIN_MUSIC_PACKS = ["msime-music-lofi", "msime-music-ambient"] as const;
 /** `PluginPreferences::MAX_COMMAND_TABLES`. */
 export const MAX_COMMAND_TABLES = 16;

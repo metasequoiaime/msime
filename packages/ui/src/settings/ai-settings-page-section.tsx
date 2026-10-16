@@ -58,7 +58,7 @@ export interface AiSettingsPageSectionProps {
   onPromptCustom1Change: (value: string) => void;
   onPromptCustom2Change: (value: string) => void;
   onPromptCustom3Change: (value: string) => void;
-  /** 「AI 润色测试」：只有用这份配置润色的触屏宿主（iOS、Android）传入，桌面上它测的润色提示词和用户实际用到的联想无关。 */
+  /** 「AI 润色测试」：只有用这份配置润色的宿主（iOS、Android、HarmonyOS 手机与 2-in-1）传入，macOS、Windows、Linux 上它测的润色提示词和用户实际用到的联想无关。 */
   testTools: ReactNode;
   /** 最后一组之后的内容：设置页在这里放进入「AI 对话」的入口。 */
   trailing: ReactNode;

@@ -203,7 +203,7 @@ export function AiSettingsContent({
       onPromptCustom1Change={(prompt_custom_1) => updateAi({ prompt_custom_1 })}
       onPromptCustom2Change={(prompt_custom_2) => updateAi({ prompt_custom_2 })}
       onPromptCustom3Change={(prompt_custom_3) => updateAi({ prompt_custom_3 })}
-      // 「AI 润色测试」用的是润色提示词。桌面上这份配置只给拼音联想用，测出来的结果和用户实际得到的没有关系，凭据和接口通不通已经由「测试 AI 辅助配置」回答，所以只在用它润色的 iOS 和 Android 上保留。
+      // 「AI 润色测试」用的是润色提示词。桌面上这份配置只给拼音联想用，测出来的结果和用户实际得到的没有关系，凭据和接口通不通已经由「测试 AI 辅助配置」回答，所以只在用它润色的 iOS、Android 和 HarmonyOS（手机与 2-in-1 的键盘都用它润色，见 `KeyboardSession.ets`）上保留。
       testTools={
         client.aiAssistant && !(macosPlatform || windowsPlatform || linuxPlatform) ? (
           <AiTestToolsSection
