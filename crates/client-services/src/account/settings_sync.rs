@@ -46,6 +46,8 @@ pub(super) struct TouchHostKeys {
     /// 应用全局主题时按它判断这个宿主提供不提供（iOS 才有的 `native` 在 Android 和鸿蒙上都只跳过这个键）。
     pub(super) platform: HostPlatform,
     pub(super) keyboard_layout: &'static str,
+    /// 本机是 14 键时导不导出触屏布局。不导出时云端保留它原来记的布局，应用云端文档（包括上传之后把合并结果写回本机）时也就不能拿那个旧布局盖掉本机的 14 键。
+    pub(super) uploads_fourteen_key: bool,
     pub(super) global_theme: &'static str,
     pub(super) custom_theme_base: &'static str,
     pub(super) custom_keyboard_skin: &'static str,
@@ -66,6 +68,7 @@ pub(super) struct TouchHostKeys {
 const ANDROID_KEYS: TouchHostKeys = TouchHostKeys {
     platform: HostPlatform::Android,
     keyboard_layout: "platform.android.keyboard_layout",
+    uploads_fourteen_key: true,
     global_theme: GLOBAL_THEME,
     custom_theme_base: CUSTOM_THEME_BASE,
     custom_keyboard_skin: CUSTOM_KEYBOARD_SKIN,
@@ -464,11 +467,15 @@ pub(super) fn insert_touch_settings(
     feedback: Option<&HostKeyboardFeedback>,
     keys: &TouchHostKeys,
 ) -> Result<(), AccountError> {
-    insert_string(
-        settings,
-        keys.keyboard_layout,
-        keyboard_layout(preferences.touch_keyboard_layout),
-    );
+    if keys.uploads_fourteen_key
+        || preferences.touch_keyboard_layout != TouchKeyboardLayout::FourteenKey
+    {
+        insert_string(
+            settings,
+            keys.keyboard_layout,
+            keyboard_layout(preferences.touch_keyboard_layout),
+        );
+    }
     insert_theme_settings(settings, preferences, keys)?;
     insert_string(settings, keys.theme, theme_mode(preferences.theme));
     insert_integer(
@@ -831,6 +838,10 @@ fn validate_cloud_document(
 fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     // 本机不提供的方案（较新设备上的粤拼、注音、越南文或笔画）保留本机的方案，文档里其他的键照常应用。
     applier.set_string("input.schema", |preferences, value| {
+        // 本机选着账号装不下的方案（粤拼、注音、越南文、藏文、笔画）时不导出这个键，账号里留着的是上次的方案；合并上传后再应用回来、或者下载别的设备的设置时，都不能拿它盖掉本机的方案，否则用户刚切过去的方案会被触发这一轮同步的那次上传自己改回去。
+        if account_input_schema(preferences.scheme).is_none() {
+            return Some(());
+        }
         preferences.scheme = match value {
             "quanpin" => InputScheme::Quanpin,
             "shuangpin" => InputScheme::Shuangpin,
@@ -1063,6 +1074,12 @@ pub(super) fn apply_touch_settings(
 
     apply_input_settings(&mut applier)?;
     applier.set_string(keys.keyboard_layout, |preferences, value| {
+        // 道理同 `input.schema`：本机的 14 键没有导出（见 `uploads_fourteen_key`），云端这个值是本机切到 14 键之前的，不应用。
+        if !keys.uploads_fourteen_key
+            && preferences.touch_keyboard_layout == TouchKeyboardLayout::FourteenKey
+        {
+            return Some(());
+        }
         preferences.touch_keyboard_layout = match value {
             "twenty_six_key" => TouchKeyboardLayout::TwentySixKey,
             "nine_key" => TouchKeyboardLayout::NineKey,

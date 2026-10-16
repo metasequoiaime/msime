@@ -1826,6 +1826,89 @@ fn the_harmony_mapping_uses_its_own_namespace_over_shared_preferences() {
     );
 }
 
+/// 鸿蒙同步过一次以后切到账号装不下的方案（粤拼）或 14 键：这两项都不导出，云端留着上次的全拼和 26 键。这一轮上传之后状态机会把合并结果写回本机，写回时不能拿云端的旧值把用户刚做的改动改回去，否则每一轮同步都会撤销一次。
+#[test]
+fn a_harmony_upload_keeps_the_scheme_and_layout_it_left_out() {
+    use msime_client_core::preferences::{InputScheme, TouchKeyboardLayout};
+    for name in ["cantonese", "fourteen_key"] {
+        let fixture = Fixture::new();
+        fixture.api.cloud().schema = vec![
+            ("input.schema", "string"),
+            ("platform.harmony.keyboard_layout", "string"),
+        ];
+        let directory = tempfile::tempdir().unwrap();
+        let local = host_local(
+            directory.path(),
+            HostInputs {
+                harmony: true,
+                ..HostInputs::default()
+            },
+        );
+        let settings_only = || RunRequest {
+            trigger: Trigger::Manual,
+            choice: None,
+            capabilities: Capabilities {
+                settings: true,
+                ..Capabilities::default()
+            },
+            settings_locked: false,
+            excluded_phrase_texts: Vec::new(),
+        };
+        fixture.enable();
+        let first = run(
+            &fixture.session,
+            &fixture.store,
+            &local,
+            settings_only(),
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(
+            first["sections"]["settings"]["outcome"], "synced",
+            "{name}: {first}"
+        );
+        let previous = fixture.api.cloud().preferences.settings.clone();
+        assert_eq!(previous["input.schema"], string("quanpin"), "{name}");
+        assert_eq!(
+            previous["platform.harmony.keyboard_layout"],
+            string("twenty_six_key"),
+            "{name}"
+        );
+
+        let store = PreferencesStore::new(directory.path());
+        let snapshot = store.load().unwrap();
+        let mut changed = snapshot.preferences.clone();
+        if name == "cantonese" {
+            changed.scheme = InputScheme::Cantonese;
+        } else {
+            changed.touch_keyboard_layout = TouchKeyboardLayout::FourteenKey;
+        }
+        store.save(snapshot.revision, changed.clone()).unwrap();
+        store_mark(&fixture, Section::Settings);
+        let second = run(
+            &fixture.session,
+            &fixture.store,
+            &local,
+            settings_only(),
+            NOW + 600_000,
+        )
+        .unwrap();
+        assert_eq!(
+            second["sections"]["settings"]["outcome"], "synced",
+            "{name}: {second}"
+        );
+        let saved = store.load().unwrap().preferences;
+        assert_eq!(
+            (saved.scheme, saved.touch_keyboard_layout),
+            (changed.scheme, changed.touch_keyboard_layout),
+            "{name}"
+        );
+        assert!(saved == changed, "{name}");
+        // 没导出的键在云端还是原来的值。
+        assert_eq!(fixture.api.cloud().preferences.settings, previous, "{name}");
+    }
+}
+
 #[test]
 fn the_ios_mapping_defers_shared_preferences_until_the_keyboard_settings_are_saved() {
     let directory = tempfile::tempdir().unwrap();

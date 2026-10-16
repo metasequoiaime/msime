@@ -15,7 +15,7 @@ use super::{
     AccountPreferences,
 };
 use crate::host_surface::HostPlatform;
-use crate::preferences::{Preferences, TouchKeyboardLayout};
+use crate::preferences::Preferences;
 use crate::skin::theme::GlobalTheme;
 use std::collections::BTreeMap;
 
@@ -35,6 +35,8 @@ const HARMONY_GLOBAL_THEME: &str = "platform.harmony.global_theme";
 const HARMONY_KEYS: TouchHostKeys = TouchHostKeys {
     platform: HostPlatform::Harmony,
     keyboard_layout: HARMONY_KEYBOARD_LAYOUT,
+    // 14 键先不上传：已经发出去的鸿蒙版本读到 `fourteen_key` 会拒收整份文档。上传是把本机的键盖在云端文档上，省略这个键等于保留云端原值；写成 26 键则会把同账号的其他鸿蒙设备切回 26 键。本机是 14 键时应用也跳过这个键。
+    uploads_fourteen_key: false,
     global_theme: HARMONY_GLOBAL_THEME,
     custom_theme_base: "platform.harmony.custom_theme_base",
     custom_keyboard_skin: "platform.harmony.custom_keyboard_skin",
@@ -69,11 +71,8 @@ pub fn export_harmony_settings(
 ) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
+    // 本机是 14 键时不导出触屏布局，见 `HARMONY_KEYS.uploads_fourteen_key`。
     insert_touch_settings(&mut settings, preferences, feedback, &HARMONY_KEYS)?;
-    // 14 键先不上传：已经发出去的鸿蒙版本读到 `fourteen_key` 会拒收整份文档。上传是把本机的键盖在云端文档上，省略这个键等于保留云端原值；写成 26 键则会把同账号的其他鸿蒙设备切回 26 键。
-    if preferences.touch_keyboard_layout == TouchKeyboardLayout::FourteenKey {
-        settings.remove(HARMONY_KEYBOARD_LAYOUT);
-    }
     // 鸿蒙不提供的全局主题（只在 iOS 的 `native`）在鸿蒙上按 `system` 绘制，也按 `system` 上传：已经发出去的鸿蒙版本只认七个主题 id，收到别的会拒收整份文档。
     if !preferences
         .global_theme

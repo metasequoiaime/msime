@@ -342,6 +342,70 @@ fn settings_sync_round_trips_the_fourteen_key_layout() {
     }
 }
 
+/// 本机选着账号装不下的方案时不导出 `input.schema`，账号里留着上次的方案。把合并结果应用回来（上传之后写回本机）、或者应用别的设备上传的文档时，Android 和桌面都保留本机的方案，文档里其余的键照常应用。
+#[test]
+fn settings_sync_keeps_a_scheme_the_account_cannot_hold() {
+    for scheme in [
+        InputScheme::Cantonese,
+        InputScheme::Zhuyin,
+        InputScheme::Vietnamese,
+        InputScheme::Tibetan,
+        InputScheme::Stroke,
+    ] {
+        let local = Preferences {
+            scheme,
+            ..Preferences::default()
+        };
+        let exported = export_android_settings(&local, None).unwrap();
+        assert!(!exported.contains_key("input.schema"), "{scheme:?}");
+        let mut cloud = document(BTreeMap::from([(
+            "input.schema".into(),
+            AccountPreferenceValue::String("quanpin".into()),
+        )]));
+        cloud.settings.insert(
+            "input.learning".into(),
+            AccountPreferenceValue::Boolean(!local.learning),
+        );
+        let merged =
+            crate::account::merge_account_preferences(&cloud, &exported, &full_schema()).unwrap();
+        assert_eq!(
+            merged.settings["input.schema"],
+            AccountPreferenceValue::String("quanpin".into()),
+            "{scheme:?}"
+        );
+        let applied = apply(&local, merged.settings, &full_schema());
+        assert_eq!(applied.preferences.scheme, scheme, "{scheme:?}");
+        assert!(applied.skipped.is_empty(), "{scheme:?}");
+
+        // 别的设备上传的文档：方案保留，学习开关照常应用。
+        let applied = apply_desktop_settings(&local, &cloud, &full_schema()).unwrap();
+        assert_eq!(applied.preferences.scheme, scheme, "{scheme:?}");
+        assert_eq!(applied.preferences.learning, !local.learning, "{scheme:?}");
+        assert!(applied.skipped.is_empty(), "{scheme:?}");
+    }
+}
+
+/// Android 上传 14 键，所以本机是 14 键时云端的布局照常应用；跳过 14 键只是鸿蒙的规则。
+#[test]
+fn settings_sync_android_applies_the_cloud_layout_over_fourteen_key() {
+    let local = Preferences {
+        touch_keyboard_layout: TouchKeyboardLayout::FourteenKey,
+        ..Preferences::default()
+    };
+    let applied = apply(
+        &local,
+        BTreeMap::from([(
+            "platform.android.keyboard_layout".into(),
+            AccountPreferenceValue::String("nine_key".into()),
+        )]),
+        &full_schema(),
+    );
+    assert_eq!(
+        applied.preferences.touch_keyboard_layout,
+        TouchKeyboardLayout::NineKey
+    );
+}
+
 #[test]
 fn settings_sync_frequency_round_trips_and_unsupported_fields_are_ignored() {
     let expected = FrequencyPreferences {

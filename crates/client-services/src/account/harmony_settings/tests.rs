@@ -7,7 +7,7 @@ use crate::edition::{
 };
 use crate::preferences::{
     BracketStyle, FrequencyMode, InputScheme, NumberKeypadOrder, QuoteStyle, ShuangpinProfile,
-    TouchKeyboardSkinDesign, TwentySixKeyNumberLayout, WubiProfile,
+    TouchKeyboardLayout, TouchKeyboardSkinDesign, TwentySixKeyNumberLayout, WubiProfile,
 };
 
 fn schema_for(fields: &[(&str, &str)]) -> AccountPreferenceSchema {
@@ -246,6 +246,11 @@ fn a_fourteen_key_layout_is_left_out_so_the_cloud_keeps_its_own() {
     )
     .unwrap();
     assert_eq!(merged.settings[HARMONY_KEYBOARD_LAYOUT], string("nine_key"));
+    // 上传之后合并结果写回本机：云端的九键是本机切到 14 键之前的，本机仍是 14 键。
+    let written_back =
+        apply_harmony_settings(&local, &merged, &full_schema(), Some(feedback())).unwrap();
+    assert_eq!(written_back.preferences, local);
+    assert!(written_back.skipped.is_empty());
     // 应用方向照常认 14 键。
     let applied = apply(
         &Preferences {
@@ -896,6 +901,15 @@ fn schemes_the_account_cannot_hold_leave_its_scheme_alone() {
             string("wubi"),
             "{scheme:?}"
         );
+        // 上传之后合并结果写回本机：本机的方案不被云端留着的五笔盖掉。
+        let local = Preferences {
+            scheme,
+            ..Preferences::default()
+        };
+        let written_back =
+            apply_harmony_settings(&local, &merged, &full_schema(), Some(feedback())).unwrap();
+        assert_eq!(written_back.preferences, local, "{scheme:?}");
+        assert!(written_back.skipped.is_empty(), "{scheme:?}");
     }
 }
 

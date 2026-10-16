@@ -51,7 +51,7 @@ pub fn local_account_preferences(
         "japanese" => Some(("japanese", None, "twenty_six_key")),
         "japaneseNineKey" => Some(("japanese", None, "nine_key")),
         "korean" => Some(("korean", None, "twenty_six_key")),
-        "cantonese" | "zhuyin" | "vietnamese" | "tibetan" | "stroke" => None,
+        scheme if UNSYNCED_NATIVE_SCHEMES.contains(&scheme) => None,
         _ => return Err(AccountError::Storage),
     };
     if let Some((schema, profile, _)) = scheme {
@@ -165,6 +165,10 @@ fn integer_setting(
         Some(_) => Err(AccountError::Invalid),
     }
 }
+
+/// 账号的 `input.schema` 装不下的 iOS 键盘方案：导出时不写方案、九键开关和触屏布局，应用时本机是其中之一就保留本机的方案（见 `requested_native`）。
+const UNSYNCED_NATIVE_SCHEMES: [&str; 5] =
+    ["cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"];
 
 /// iOS 的触屏布局键，取值与 Android 的 `platform.android.keyboard_layout` 相同。服务端只限它是不超过 32 字节的字符串，以后可能多出别的取值，所以下载时不认识的取值当作没有这一项。
 const IOS_KEYBOARD_LAYOUT: &str = "platform.ios.keyboard_layout";
@@ -339,7 +343,14 @@ impl IosPreferencePlan {
         let keeps_fourteen_key = !self.has_keyboard_layout
             && self.input_scheme.as_deref() == Some("quanpin")
             && current.input_scheme == "fourteenKey";
-        if let Some(value) = self.input_scheme.as_ref().filter(|_| !keeps_fourteen_key) {
+        // 本机是账号装不下的方案时没有导出方案，云端留着的是上次的方案：合并上传后写回本机、或者下载别的设备的设置时都不拿它盖掉本机的方案，否则用户刚切过去的粤拼会被这一轮自己的上传改回全拼。
+        let keeps_unsynced_scheme =
+            UNSYNCED_NATIVE_SCHEMES.contains(&current.input_scheme.as_str());
+        if let Some(value) = self
+            .input_scheme
+            .as_ref()
+            .filter(|_| !keeps_fourteen_key && !keeps_unsynced_scheme)
+        {
             requested.input_scheme.clone_from(value);
         }
         if let Some(value) = self.traditional_chinese_output {
@@ -554,7 +565,9 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
 
 #[cfg(test)]
 mod tests {
-    use super::{local_account_preferences, IosPreferencePlan};
+    use super::{
+        local_account_preferences, IosPreferencePlan, IOS_KEYBOARD_LAYOUT, UNSYNCED_NATIVE_SCHEMES,
+    };
     use crate::account::{AccountError, AccountPreferenceValue, AccountPreferences};
     use crate::skin::theme::GlobalTheme;
     use msime_client_core::ios_keyboard::IosKeyboardPreferences;
@@ -1147,6 +1160,40 @@ mod tests {
         plan.apply_shared(&native, &mut preferences).unwrap();
         assert_eq!(preferences.scheme, InputScheme::Shuangpin);
         assert_eq!(preferences.shuangpin_profile, ShuangpinProfile::Microsoft);
+    }
+
+    /// 本机是账号装不下的方案时没有导出方案，云端留着的是上次的方案和布局。上传之后把合并结果写回本机、或者应用别的设备的文档时，本机的方案不变，其余的键照常应用。
+    #[test]
+    fn a_local_scheme_the_account_cannot_hold_is_kept_when_the_cloud_applies() {
+        for scheme in UNSYNCED_NATIVE_SCHEMES {
+            let mut native = native();
+            native.input_scheme = scheme.into();
+            native.traditional_chinese_output = false;
+            let exported =
+                local_account_preferences(&native, &Preferences::default(), None).unwrap();
+            assert!(!exported.contains_key("input.schema"), "{scheme}");
+            let cloud = AccountPreferences {
+                revision: 4,
+                settings: BTreeMap::from([
+                    (
+                        "input.schema".into(),
+                        AccountPreferenceValue::String("quanpin".into()),
+                    ),
+                    (
+                        IOS_KEYBOARD_LAYOUT.into(),
+                        AccountPreferenceValue::String("nine_key".into()),
+                    ),
+                    (
+                        "input.character_set".into(),
+                        AccountPreferenceValue::String("traditional".into()),
+                    ),
+                ]),
+            };
+            let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+            let requested = plan.requested_native(&native).unwrap();
+            assert_eq!(requested.input_scheme, scheme, "{scheme}");
+            assert!(requested.traditional_chinese_output, "{scheme}");
+        }
     }
 
     #[test]
