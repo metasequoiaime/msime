@@ -107,7 +107,7 @@ public final class FourteenKeyLayoutSmoke {
         check(!KeyboardLayout.carriesLetterCase(fourteen), "no Shift");
         check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, fourteen, 760), "no number row");
         check(!SplitKeyboardPolicy.drawn(true, 800, true, fourteen), "never split");
-        // 底行是 123 ， 空格 。 中 回车：第三行左端已经有 符，所以不像 26 键那样换成 符 | 123 | 空格 | 中 | 回车。
+        // 14 键底行保留独立逗号句号，第三行左端已有符号入口；26 键的逗号在空格右边、长按输入句号。
         check(KeyboardActionRow.designEntries(fourteen, false).stream().map(KeyboardActionRow.DesignEntry::slot).toList()
                 .equals(List.of(KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.COMMA,
                     KeyboardActionRow.DesignSlot.SPACE, KeyboardActionRow.DesignSlot.PERIOD,

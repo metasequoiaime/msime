@@ -320,7 +320,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let numberPadSidebar = UIStackView()
   private var quickPunctuationButton: UIButton!
   private var quickPunctuationWidth: NSLayoutConstraint?
-  /// 手机 26 键底行空格键右边的 。；， 是 `quickPunctuationButton`。
+  /// 14 键和手写等底行的独立句号；手机 26 键通过逗号长按输入句号。
   private var periodKey: UIButton!
   /// 分离式键盘底行的中缝，留着引用是为了重排这一行时它仍紧挨空格键。
   private var actionSplitGap: UIView?
@@ -2835,7 +2835,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     let punctuation = makeKey(title: ",", accessibilityLabel: "常用标点") { [weak self] in
       guard let self else { return }
-      // The key itself is counted, wherever it sits: it types the first quick mark of the mode, which is not always a comma, but the heatmap shows the key that went down, as Android and Harmony do.
+      // 统计实际按下的标点键；键面和输出仍由当前方案及标点模式决定。
       countKeyPress(TypingKeyID.quickPunctuation)
       // 手机 26 键底行上这个键是设计稿的 ，：发逗号键，由 Engine 的标点路由选出标点，与符号行一样。日语画的是 、，发的也是 、（经 `KeyboardPunctuationContext` 换成 `\` 键）：Engine 的日语方案走中文标点表，逗号键写出的是 ，，与键面不符。
       handleSymbol(phoneBottomRowShown ? (writesJapaneseComma ? "、" : ",") : quickPunctuationSymbols[0])
@@ -2861,7 +2861,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let splitSpaceWidth = splitSpace.widthAnchor.constraint(equalTo: space.widthAnchor)
     splitSpaceWidth.priority = .init(999)
     splitSpaceWidth.isActive = true
-    // 手机 26 键底行空格键旁边的 。；其他底行上隐藏。
+    // 14 键和手写等底行的独立句号，26 键字母层隐藏。
     let period = makeKey(title: "。", accessibilityLabel: "符号 。") { [weak self] in
       self?.countKeyPress(TypingKeyID.character("."))
       self?.handleSymbol(".")
@@ -5023,6 +5023,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       face.key.configuration?.title = title
       face.key.accessibilityLabel = "符号 \(title)"
     }
+    if let key = quickPunctuationButton as? KeyboardKeyButton, key.cornerHint != nil {
+      key.cornerHint = periodKey.configuration?.title ?? "."
+    }
     // 藏文方案下 `=` 键显示它实际发出的 `+`。
     if let key = tibetanPlusKey {
       let title = Self.symbolRowKey("=", tibetan: typesTibetan)
@@ -5101,7 +5104,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let style: ActionRowStyle = symbolLayer ? .symbolLayer : nineKeyFrame ? .nineKey : tabletRow ? .tablet : phoneRow ? .phone : .standard
       phoneBottomRowShown = style == .phone
       nineKeyHeight.isActive = nineKeyFrame
-      arrangeActionRow(style)
+      arrangeActionRow(style, commaSecondary: style == .phone && letterRowsShown)
       NSLayoutConstraint.deactivate(standardActionWidths + nineKeyActionWidths + phoneActionWidths + layerActionWidths
         + tabletActionWidths + phoneExpandedSpaceWidths + nineKeyExpandedSpaceWidths
         + tabletExpandedSpaceWidths + tabletSplitExpandedSpaceWidths)
@@ -5120,7 +5123,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       let layout = KeyboardLayoutPreference.geometry
       // 符：#+= 层的符号键、假名标点菜单、字母行上的可选键，以及拼音网格和笔画键底行最左边的键，九键上打开符号面板只走它（网格的 @# 键把常用标点放进候选条）。
-      // 手机 26 键底行最左边也有 符（与九键、搜狗一致）；14 键第三排自带 符，手写不画字母行，都不加。
+      // 手机 26 键在 123 之后放 符，空格右边放逗号；14 键第三排自带 符，手写不画字母行，都不加。
       let phoneLetterSymbols = style == .phone && letterRowsShown
       nineKeySymbolsButton.isHidden = !(kana || (symbolLayer ? showsMoreSymbols
         : nineKeyFrame ? !showsSymbols : !showsSymbols && (layout.showsFullKeyboardSymbols || phoneLetterSymbols)))
@@ -5136,26 +5139,35 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       bottomLanguageButton?.isHidden = style == .symbolLayer || hidesLanguage
       bottomLanguageWidth?.isActive = style == .standard && !hidesLanguage
       // iPad 的 26 键从第三排字母输入 ，。，所以它的底行没有自己的 ，。
-      // 手机 26 键底行与九键一样不放 ， 和 。（符 | 123 | space | 中 | return）；14 键和手写的底行仍带它们。
-      quickPunctuationButton.isHidden = nineKeyFrame || showsSymbols || kana || style == .tablet || phoneLetterSymbols
+      // 手机 26 键独立逗号，长按输入句号；14 键和手写保留两个标点键。
+      quickPunctuationButton.isHidden = nineKeyFrame || showsSymbols || kana || style == .tablet
       quickPunctuationWidth?.isActive = !quickPunctuationButton.isHidden && style == .standard
       periodKey.isHidden = style != .phone || showsSymbols || phoneLetterSymbols
       let punctuation = quickPunctuationSymbols
       if phoneRow {
-        // ， 与旁边的 。 一样从下面的标点键面取键面；长按仍弹出快捷标点。
+        // 手机底行按当前标点模式更新键面。
         quickPunctuationButton.accessibilityValue = nil
       } else {
         quickPunctuationButton.configuration?.title = punctuation[0]
         quickPunctuationButton.accessibilityLabel = "常用标点"
         quickPunctuationButton.accessibilityValue = punctuation[0]
       }
-      // A long press opens this menu without firing the tap action, so the choice counts the press of the key once, never the mark it types.
-      quickPunctuationButton.menu = UIMenu(children: punctuation.map { symbol in
+      // 26 键复用角标的长按取消机制，松手只输入句号；其他布局继续长按打开常用标点。
+      quickPunctuationButton.menu = phoneLetterSymbols ? nil : UIMenu(children: punctuation.map { symbol in
         UIAction(title: symbol) { [weak self] _ in
           self?.countKeyPress(TypingKeyID.quickPunctuation)
           self?.handleSymbol(symbol)
         }
       })
+      if let key = quickPunctuationButton as? KeyboardKeyButton {
+        key.cornerHint = phoneLetterSymbols ? (periodKey.configuration?.title ?? ".") : nil
+        key.swipesCornerHint = false
+        key.onCornerHint = phoneLetterSymbols ? { [weak self] _ in
+          self?.countKeyPress(TypingKeyID.quickPunctuation)
+          self?.handleSymbol(".")
+        } : nil
+        key.accessibilityHint = phoneLetterSymbols ? "轻点输入逗号，长按输入句号" : "轻点输入，长按选择常用标点"
+      }
       // 底行的 ⌫ 是大千符号行唯一的 ⌫；123 / #+= 层和九键外框在各自的行里带 ⌫。
       actionDeleteButton.isHidden = !showsSymbols || kana || symbolLayer || nineKeyFrame
       symbolDeleteWidth?.isActive = !actionDeleteButton.isHidden && style == .standard
@@ -5243,7 +5255,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 屏幕上当前界面画哪种底行。
   private enum ActionRowStyle {
-    /// 手机底行：26 键是 符 | 123 | space | 中 | return（与九键一样）；14 键和手写是 123 | ， | space | 。 | 中 | return。中/英 紧挨回车左边。
+    /// 手机底行：26 键是 123 | 符 | space | ， | 中 | return，逗号长按输入句号；14 键和手写保留独立逗号句号。中/英 紧挨回车左边。
     case phone
     /// 九键外框：符 | 123 | space | 中 | return，中/英 紧挨回车左边；网格的数字层没有 符，0 排在空格右边。
     case nineKey
@@ -5256,7 +5268,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 按布局画出的顺序排列底行的键。按键是重新插入而不是从行里移除，所以它们的宽度约束一直保持安装；每种顺序都列出全部按键，隐藏的放在最后。
-  private func arrangeActionRow(_ style: ActionRowStyle) {
+  private func arrangeActionRow(_ style: ActionRowStyle, commaSecondary: Bool) {
     guard let toggle = layoutToggleButton, let language = bottomLanguageButton, let gap = actionSplitGap,
           let space = spaceButton, let splitSpace = splitSpaceButton, let enter = enterButton else { return }
     let symbols: UIView = nineKeySymbolsButton, globe: UIView = actionGlobeButton, delete: UIView = actionDeleteButton
@@ -5266,7 +5278,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let order: [UIView]
     switch style {
     case .phone:
-      order = [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, enter, emoji, zero, tabletLayer, dismiss]
+      order = commaSecondary
+        ? [toggle, globe, symbols, space, gap, splitSpace, comma, language, enter, delete, period, emoji, zero, tabletLayer, dismiss]
+        : [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, enter, emoji, zero, tabletLayer, dismiss]
     case .nineKey:
       order = [symbols, toggle, globe, space, gap, splitSpace, zero, language, enter, delete, comma, period, emoji, tabletLayer, dismiss]
     case .symbolLayer:

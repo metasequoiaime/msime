@@ -4219,20 +4219,21 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean quickPunctuationVisible() {
-        int layout = displayedTouchLayout(view);
+        int layout = imeLetterRows.drawnTouchLayout();
         return keyboardLayer == KeyboardLayout.Layer.LETTERS
             && layout != QUANPIN_NINE_KEY_LAYOUT && layout != JAPANESE_NINE_KEY_LAYOUT
             && layout != KeyboardLayout.STROKE_LAYOUT
-            && layout != KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT
-            && selectedScheme != KeyboardScheme.QUANPIN_NINE_KEY
-            && selectedScheme != KeyboardScheme.NINE_KEY_SHUANGPIN
-            && selectedScheme != KeyboardScheme.JAPANESE_NINE_KEY
-            && selectedScheme != KeyboardScheme.ZHUYIN_NINE_KEY;
+            && layout != KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
     }
 
     private void insertQuickPunctuation() {
         java.util.List<QuickPunctuationPolicy.Entry> entries = quickPunctuationEntries();
         if (!entries.isEmpty()) type(entries.get(0).input());
+    }
+
+    private boolean commaSecondaryPeriod() {
+        return keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && KeyboardActionRow.usesCommaSecondaryPeriod(imeLetterRows.drawnTouchLayout());
     }
 
     private void showQuickPunctuationMenu() {
@@ -4258,7 +4259,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 与句号键一样按墨迹居中放大画：全角「，」原样居中时只剩键底一个小点。
         CenteredGlyphSpan.apply(quickPunctuationButton, face, 1.3f);
         quickPunctuationButton.setContentDescription("常用标点：" + face
-            + "；长按选择常用标点");
+            + (commaSecondaryPeriod() ? "；长按输入句号" : "；长按选择常用标点"));
     }
 
     private void updateSymbolKeyFaces() {
@@ -8105,7 +8106,11 @@ public final class MSIMEInputService extends InputMethodService {
         symbolPanelButton.setContentDescription("打开符号面板");
         quickPunctuationButton = keyId(button(controls, ",", this::insertQuickPunctuation), "Comma");
         quickPunctuationButton.setOnLongClickListener(ignored -> {
-            showQuickPunctuationMenu();
+            if (commaSecondaryPeriod()) {
+                imeKeyFeedback.playFeedback(quickPunctuationButton);
+                countKey(quickPunctuationButton);
+                type('.');
+            } else showQuickPunctuationMenu();
             return true;
         });
         deleteButton = keyId(button(controls, "⌫", this::deleteFromHandwriting), "Backspace");

@@ -27,9 +27,8 @@ public final class KeyboardActionRowSmoke {
         check(nineKey.get(nineKey.size() - 2).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
                 && nineKey.get(nineKey.size() - 1).slot() == KeyboardActionRow.DesignSlot.RETURN,
             "中/英 sits right before return on the nine-key row too");
-        // 拼音九键和笔画键盘的九键外框，以及 26 键一族（标准 26 键、韩文键面）：符 | 123 |（地球）| 空格 | 中 | ↵，符 与 中/英 同宽，没有逗号句号。
-        for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
-                KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
+        // 拼音九键和笔画外框保留原五键底行，不增加独立标点。
+        for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT}) {
             check(designSlots(layout, false, false).equals(List.of(KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
                     KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.SPACE,
                     KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DesignSlot.RETURN)),
@@ -54,6 +53,21 @@ public final class KeyboardActionRowSmoke {
                     && KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT == KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT,
                 "符 takes the same share as 中/英");
         }
+        // 26 键保留逗号、移到空格右侧，符号入口占旧逗号位置；地球键仍紧跟数字入口。
+        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
+            for (boolean globe : new boolean[] {false, true}) {
+                List<KeyboardActionRow.DesignSlot> expected = new java.util.ArrayList<>(List.of(
+                    KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
+                    KeyboardActionRow.DesignSlot.SPACE, KeyboardActionRow.DesignSlot.COMMA,
+                    KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DesignSlot.RETURN));
+                if (globe) expected.add(1, KeyboardActionRow.DesignSlot.GLOBE);
+                check(designSlots(layout, globe, false).equals(expected), "26 键底行保留独立逗号");
+                check(KeyboardActionRow.usesCommaSecondaryPeriod(layout), "26 键长按逗号输入句号");
+            }
+        }
+        check(!KeyboardActionRow.usesCommaSecondaryPeriod(KeyboardLayout.FOURTEEN_KEY_LAYOUT)
+            && !KeyboardActionRow.usesCommaSecondaryPeriod(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT),
+            "其他布局不改长按动作");
         // 14 键第三行左端已经有 符；它和手写、大千注音的底行不带 符，仍有逗号句号。
         for (int layout : new int[] {KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT,
                 KeyboardLayout.HANDWRITING_LAYOUT}) {

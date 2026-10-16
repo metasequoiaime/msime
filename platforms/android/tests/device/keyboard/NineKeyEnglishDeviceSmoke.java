@@ -94,6 +94,14 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             await(described("符号面板"));
             tap(described("关闭符号面板"));
             await(key("@#"));
+
+            // 九键切到独立英文后画 26 键，逗号的可见性必须跟随实际键面。
+            stage = "nine-key switches to English comma";
+            tap(described("切换到英文输入"));
+            await(key("q"));
+            tap(describedPrefix("常用标点："));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().toString().equalsIgnoreCase("ok11、,")));
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());

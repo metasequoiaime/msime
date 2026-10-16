@@ -381,6 +381,6 @@ final class TypingStatisticsTests: XCTestCase {
     // 九键侧栏标点在九键热力图上有自己的位置，所以不列在其他键里；26 键热力图上没有它，就列出来。句点只在九键数字层的右列，两块都不画。
     let sides = TypingKeyHeatmap(counts: ["Period": 3, TypingKeyID.punctuation: 2, "Comma": 1])
     XCTAssertEqual(sides.others(nineKey: true).map(\.id), ["Period", "Comma"])
-    XCTAssertEqual(sides.others(nineKey: false).map(\.id), ["Period", "SoftPunctuation", "Comma"])
+    XCTAssertEqual(sides.others(nineKey: false).map(\.id), ["Period", "SoftPunctuation"])
   }
 }

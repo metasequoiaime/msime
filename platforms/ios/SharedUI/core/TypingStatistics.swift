@@ -495,7 +495,7 @@ struct TypingKeyHeatmap: Equatable {
     row.map { Cell("Key\($0)", String($0)) }
   }
 
-  /// 手机竖屏、默认设置下的中文全拼 26 键（`KeyboardViewController.makeLetterRow` 和 `makeActionRow`）：中文字母键面是大写；第三排左端在全拼里是「分词」（`usesQuanpinSeparator`），按下记 `'` 键，右端是 ⌫；底行是 符 | 123 | 空格 | 中 | 回车，没有 ， 和 。。iPhone 自带地球键时键盘不画自己的地球键（`needsInputModeSwitchKey`），这里也不画。
+  /// 手机竖屏默认中文全拼 26 键：字母键面大写，第三排左端为「分词」（记 `'`），右端为 ⌫；底行为 123 | 符 | 空格 | ， | 中 | 回车，逗号长按输入句号。iPhone 自带地球键时不画自己的地球键。
   ///
   /// 宽度照键盘的约束：前两排字母等宽，第二排两侧各缩进本行宽度的 5%（`keyboardMiddleRowInset`）；第三排的分词键和 ⌫ 在键盘上固定 44pt，iPhone 17 竖屏时约是同排字母键的 1.2 倍；底行是 `phoneActionWidths` 的权重，空格为 4。
   static let keyboardRows: [[Cell]] = [
@@ -503,8 +503,9 @@ struct TypingKeyHeatmap: Equatable {
     letters("ASDFGHJKL"),
     [Cell(TypingKeyID.pinyinSeparator, "分词", width: 1.2)] + letters("ZXCVBNM") + [Cell(TypingKeyID.backspace, "删除", width: 1.2)],
     [
-      Cell(TypingKeyID.symbol, "符", width: 1.05), Cell(TypingKeyID.layer, "123", width: 1.25),
-      Cell(TypingKeyID.space, "空格", width: 4), Cell(TypingKeyID.language, "中", width: 1.05),
+      Cell(TypingKeyID.layer, "123", width: 1.25), Cell(TypingKeyID.symbol, "符", width: 1.05),
+      Cell(TypingKeyID.space, "空格", width: 4), Cell(TypingKeyID.quickPunctuation, "，"),
+      Cell(TypingKeyID.language, "中", width: 1.05),
       Cell(TypingKeyID.enter, "换行", width: 1.9),
     ],
   ]
