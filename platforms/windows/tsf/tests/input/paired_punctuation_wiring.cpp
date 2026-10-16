@@ -43,19 +43,19 @@ int main(int argc, char **argv) {
     expect(presenter, "_CandidateCommitPairedClosing(serverCandidateString)", true, "a selected opening mark is paired");
     expect(presenter, "_OpenCandidateCommitPair(committed.front(), pairedClosing)", true, "a clicked pair is tracked and the caret moved");
     expect(presenter, "_OpenCandidateCommitPair(candidatePairedOpening, candidatePairedClosing)", true, "a selected pair is tracked and the caret moved");
-    // 宿主会话拥有组字时数字选词不经过 _HandleCandidateFinalize，而是在 _HandleCandidateWorker 里向宿主会话选词，那条路也要补全。
+    // 宿主会话拥有组字时，数字和空格都经过 _SelectHighlightedHostCandidate 选词，这条共享路径也要补全。
     expect(presenter, "_CandidateCommitPairedClosing(commit)", true, "a digit-selected opening mark from the host session is paired");
     expect(presenter, "_OpenCandidateCommitPair(pairedOpening, pairedClosing)", true, "a digit-selected pair is tracked and the caret moved");
     // 数字选词上屏后必须结束组字，不只是在补成对标点时：组字留着的话，下一个字母开始的新组字会把刚上屏的词整段替换掉。
     {
-        const auto commit = presenter.find("hrReturn = _AddCharAndFinalize(ec, pContext, &selectedText);");
+        const auto commit = presenter.find("_AddCharAndFinalize(ec, pContext, &selectedText);");
         const auto complete = commit == std::string::npos ? commit : presenter.find("_HandleCompleteCommitFirst(ec, pContext);", commit);
         const auto pair = commit == std::string::npos ? commit : presenter.find("_OpenCandidateCommitPair(pairedOpening, pairedClosing);", commit);
         if (commit == std::string::npos || complete == std::string::npos || pair == std::string::npos || complete > pair) {
             std::fprintf(stderr, "FAIL: a digit selection from the host session ends the composition before tracking a pair\n");
             ++failures;
         }
-        expect(presenter, "if (SUCCEEDED(hrReturn) && pairedClosing != 0)", false, "the digit selection does not end the composition only when a pair is completed");
+        expect(presenter, "&& pairedClosing != 0)", false, "the digit selection does not end the composition only when a pair is completed");
     }
     const std::string composition = read(root + "/Composition/Composition.cpp");
     expect(composition, "_QueuePairedPunctuationCaretMove(-1)", true, "the candidate pair moves the caret through the focus token");
