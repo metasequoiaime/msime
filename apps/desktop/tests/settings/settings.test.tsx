@@ -1902,8 +1902,12 @@ test("paging defaults match Windows and individual edits persist", async () => {
   ]) {
     expect((screen.getByRole("checkbox", { name }) as HTMLInputElement).checked).toBe(true);
   }
+  // 左右键移动候选是后加的可选开关：文档里没有这个键，控件按关闭显示，勾上才写进偏好。
+  const leftRight = screen.getByRole("checkbox", { name: "左 / 右（移动候选项）" }) as HTMLInputElement;
+  expect(leftRight.checked).toBe(false);
   fireEvent.click(brackets);
   fireEvent.click(screen.getByRole("checkbox", { name: "Shift+Tab / Tab" }));
+  fireEvent.click(leftRight);
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
@@ -1916,6 +1920,7 @@ test("paging defaults match Windows and individual edits persist", async () => {
       tab: false,
       page_up_down: true,
       arrows: true,
+      left_right: true,
     },
   });
 });

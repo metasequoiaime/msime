@@ -11441,12 +11441,13 @@ private:
                            }));
 
     // Tab 和 PageUp/PageDown 两组固定开启，不再列出（NavigationPolicy.h 的 preference_navigation，HostCapabilities.tab_page_paging_switches）：关掉只会让它们在组字时被吃掉，并不交还应用。
-    const std::array<std::pair<const wchar_t *, const wchar_t *>, 5> paging_keys{{
+    const std::array<std::pair<const wchar_t *, const wchar_t *>, 6> paging_keys{{
         {L"minus_equal", L"- / ="},
         {L"comma_period", L", / ."},
         {L"brackets", L"[ / ]"},
         {L"mouse_wheel", L"鼠标滚轮（候选面板支持时翻页）"},
         {L"arrows", L"上 / 下（移动候选项）"},
+        {L"left_right", L"左 / 右（移动候选项）"},
     }};
     std::vector<Check> paging_checks;
     for (const auto &[id, label] : paging_keys) {

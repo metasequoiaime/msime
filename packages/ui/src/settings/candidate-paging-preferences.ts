@@ -11,6 +11,8 @@ export type NavigationPreferences = {
   page_up_down: boolean;
   mouse_wheel?: boolean;
   arrows: boolean;
+  /** 左右键在输入串两端时移动候选项；未设置即关闭，与 `arrows` 各自独立。和 `mouse_wheel` 一样是可选键，不在默认对象里补写。 */
+  left_right?: boolean;
 };
 
 export const defaultWordCharacter: WordCharacterPreferences = { enabled: true, keys: "brackets" };

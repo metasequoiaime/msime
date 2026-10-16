@@ -138,6 +138,10 @@ function CandidateShortcutReference({
         <ShortcutRow title={mobile ? "候选栏翻页" : "候选窗口翻页"} chord="鼠标滚轮" />
       )}
       {navigation.arrows && <ShortcutRow title="移动候选项" chord="↑ / ↓" />}
+      {/* 打开左右键移动候选时，左右键先编辑输入串，光标到了这一端才移高亮，所以两行标题都要写清是什么时候发生的。 */}
+      {navigation.left_right && (
+        <ShortcutRow title="移动候选项（输入串两端）" chord="← / →" />
+      )}
       {wordCharacter?.enabled && (
         <ShortcutRow
           title="以词定字（上屏首字 / 末字）"

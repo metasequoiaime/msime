@@ -32,11 +32,11 @@ test.each([
   expect(next.navigation).not.toHaveProperty("mouse_wheel");
 });
 
-test("只有主动修改滚轮时才在翻页偏好中加入可选字段", () => {
+test.each(["mouse_wheel", "left_right"] as const)("只有主动修改 %s 时才在翻页偏好中加入可选字段", (key) => {
   const wordCharacter = { enabled: false, keys: "brackets" as const };
-  const next = pagingShortcutChange(defaultNavigation, wordCharacter, "mouse_wheel", true);
-  expect(next.navigation.mouse_wheel).toBe(true);
-  expect(defaultNavigation).not.toHaveProperty("mouse_wheel");
+  const next = pagingShortcutChange(defaultNavigation, wordCharacter, key, true);
+  expect(next.navigation[key]).toBe(true);
+  expect(defaultNavigation).not.toHaveProperty(key);
   expect(next.wordCharacter).toBe(wordCharacter);
 });
 

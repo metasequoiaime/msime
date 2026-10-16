@@ -13,6 +13,7 @@ const navigationOptions: readonly NavigationOption[] = [
   ["page_up_down", "PageUp / PageDown"],
   ["mouse_wheel", "鼠标滚轮（候选窗口支持时翻页）"],
   ["arrows", "上 / 下（移动候选项）"],
+  ["left_right", "左 / 右（移动候选项）"],
 ];
 
 /** HarmonyOS 手机的翻页键，按设计的顺序和标签。手机没有鼠标滚轮，所以不提供该选项；已保存的值保持不变。 */
@@ -21,6 +22,7 @@ const harmonyPhoneNavigationOptions: readonly NavigationOption[] = [
   ["comma_period", "，/ 。"],
   ["brackets", "[ / ]"],
   ["arrows", "↑ / ↓"],
+  ["left_right", "← / →"],
   ["tab", "Shift+Tab / Tab"],
   // 两列网格里放不下「PageUp / PageDown」，用键帽上常印的缩写，免得折成两行。
   ["page_up_down", "PgUp / PgDn"],

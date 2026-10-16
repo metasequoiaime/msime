@@ -53,7 +53,7 @@ test("the HarmonyOS phone's paging keys use the design's labels in a two-column 
       wordCharacter={wordCharacter}
       linux={false}
       harmonyPhone
-      // HarmonyOS 把 Tab 和 PageUp/PageDown 固定为开（HostCapabilities.tab_page_paging_switches 为假），网格里只剩四项。
+      // HarmonyOS 把 Tab 和 PageUp/PageDown 固定为开（HostCapabilities.tab_page_paging_switches 为假），网格里只剩五项。
       tabPageSwitches={false}
       onChange={onChange}
     />,
@@ -69,12 +69,15 @@ test("the HarmonyOS phone's paging keys use the design's labels in a two-column 
     "，/ 。",
     "[ / ]",
     "↑ / ↓",
+    "← / →",
   ]);
   expect(
     screen.getByText("Shift+Tab / Tab 和 PageUp / PageDown 在候选栏显示时始终翻页"),
   ).toBeTruthy();
   expect(screen.queryByText(/鼠标滚轮/)).toBeNull();
   expect(screen.getByRole("checkbox", { name: "↑ / ↓" })).toHaveProperty("checked", true);
+  // 左右键移动候选是后加的可选开关：文档里没有它时按关闭显示。
+  expect(screen.getByRole("checkbox", { name: "← / →" })).toHaveProperty("checked", false);
 
   // 打开以词定字正在使用的那对按键时，仍会把它让出去，与「输入」页一致。
   fireEvent.click(screen.getByRole("checkbox", { name: "[ / ]" }));
