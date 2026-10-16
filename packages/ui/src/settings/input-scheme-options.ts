@@ -1,4 +1,6 @@
-import type { ChineseScheme, EditionInfo, HostCapabilities, InputScheme } from "../index";
+import type { EditionInfo, HostCapabilities } from "../core/host-capabilities";
+import type { ChineseScheme, InputScheme } from "../core/input-scheme";
+
 import type { VietnamesePreferences } from "./vietnamese-preferences";
 
 export type ChineseInputScheme = ChineseScheme;

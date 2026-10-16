@@ -1,4 +1,5 @@
-import type { InputScheme, Preferences } from "../index";
+import type { InputScheme } from "../core/input-scheme";
+import type { Preferences } from "../index";
 import { isChineseScheme } from "./input-scheme-options";
 
 export type TouchKeyboardScheme =

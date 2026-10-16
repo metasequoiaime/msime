@@ -14,15 +14,17 @@ constexpr std::size_t MaxFrames = (MaxPayloadChars + ChunkChars - 1) / ChunkChar
 
 // ASCII JSON 在固定 UTF-16 包里逐字符传输，不截断，也不依赖宿主 wchar_t 的宽度。
 inline std::optional<std::vector<FanyImeNamedpipeDataToTsfWorkerThread>>
-Encode(std::string_view payload, uint16_t transaction) {
-    if (!transaction || payload.empty() || payload.size() > MaxPayloadChars ||
+Encode(std::string_view payload, uint16_t transaction,
+       uint32_t type = FanyImeWorkerReplyType::CandidateContinuation,
+       std::size_t limit = MaxPayloadChars) {
+    if (!transaction || payload.empty() || payload.size() > limit ||
         std::any_of(payload.begin(), payload.end(), [](unsigned char c) { return c == 0 || c > 0x7f; }))
         return std::nullopt;
     const auto count = (payload.size() + ChunkChars - 1) / ChunkChars;
     std::vector<FanyImeNamedpipeDataToTsfWorkerThread> frames(count);
     for (std::size_t index = 0; index < count; ++index) {
         auto &frame = frames[index];
-        frame.msg_type = FanyImeWorkerReplyType::CandidateContinuation;
+        frame.msg_type = type;
         frame.data[0] = static_cast<FanyImeWireChar>(transaction);
         frame.data[1] = static_cast<FanyImeWireChar>(index + 1);
         frame.data[2] = static_cast<FanyImeWireChar>(count);
@@ -38,7 +40,8 @@ struct Owner { uint64_t focus; uint64_t epoch; };
 
 struct Completed { std::string text; uint64_t focus; uint64_t epoch; };
 
-class Assembler {
+template<std::size_t Limit = MaxPayloadChars>
+class BasicAssembler {
 public:
     uint64_t focus() const { return focus_; }
     uint64_t epoch() const { return epoch_; }
@@ -54,7 +57,7 @@ public:
         const auto transaction = static_cast<uint16_t>(data[0]);
         const auto index = static_cast<uint16_t>(data[1]);
         const auto count = static_cast<uint16_t>(data[2]);
-        if (!transaction || !count || count > MaxFrames || !index || index > count) {
+        if (!transaction || !count || count > (Limit + ChunkChars - 1) / ChunkChars || !index || index > count) {
             reject(); return std::nullopt;
         }
         if (index == 1 && next_ != 0) { reject(); return std::nullopt; }
@@ -71,7 +74,7 @@ public:
         }
         const auto length = end - HeaderChars;
         if (end == size || length == 0 || (index != count && length != ChunkChars) ||
-            text_.size() + length > MaxPayloadChars) { reject(); return std::nullopt; }
+            text_.size() + length > Limit) { reject(); return std::nullopt; }
         for (std::size_t n = HeaderChars; n < end; ++n) text_.push_back(static_cast<char>(data[n]));
         ++next_;
         if (index != count) return std::nullopt;
@@ -90,4 +93,5 @@ private:
     std::size_t next_ = 0, count_ = 0;
     uint64_t focus_ = 0, epoch_ = 0;
 };
+using Assembler = BasicAssembler<>;
 } // namespace FanyImeCandidateContinuationPipe

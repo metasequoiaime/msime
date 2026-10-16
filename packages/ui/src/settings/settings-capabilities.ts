@@ -1,4 +1,4 @@
-import type { HostCapabilities } from "../index";
+import type { HostCapabilities } from "../core/host-capabilities";
 
 export interface SettingsCapabilitiesInput {
   host?: HostCapabilities;

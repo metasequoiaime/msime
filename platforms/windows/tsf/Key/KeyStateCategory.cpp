@@ -100,6 +100,12 @@ HRESULT CKeyStateCategory::KeyStateHandler(KEYSTROKE_FUNCTION function, KeyHandl
         return _pTextService->_HandleKoreanHanjaKey(dto.ec, dto.pContext, dto.code, dto.wch, dto.requestId,
                                                        dto.deferredReplayToken);
 
+    case FUNCTION_HOST_CANDIDATE_NAVIGATION:
+        return _pTextService->_HandleHostCandidateNavigation(dto.ec, dto.pContext, dto.code);
+
+    case FUNCTION_HOST_ONLINE_CANDIDATES:
+        return _pTextService->_HandleHostOnlineCandidates(dto.ec, dto.pContext, dto.prefetchedText);
+
     case FUNCTION_CANDIDATE_CONTINUATION:
         return _pTextService->_HandleCandidateContinuation(dto.ec, dto.pContext, dto.prefetchedText);
 

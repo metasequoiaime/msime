@@ -39,6 +39,7 @@
 #include "ToolbarLayout.h"
 #include "CommunityPageModel.h"
 #include "GameProcessList.h"
+#include "../common/GameCompatProfile.h"
 #include "LexiconImportModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
@@ -10394,6 +10395,17 @@ private:
           L"显示」；游戏自带的候选被替换时，加进「从不显示」。对已打开的游戏，"
           L"切换一次输入法后生效。独占全屏下不显示，请把游戏改为无边框窗口。",
           L"game_compatibility.candidate_overlay", true);
+      const bool gameProfile = msime::windows::game_profile::enabled();
+      add_row(games, 0xE7FC, L"CS2 / Dota 2 原生候选兼容",
+              L"将本版本的系统登记名称改为「拼音输入法」，让游戏自行绘制候选。"
+              L"Windows 输入法列表也会显示这个名称，需要管理员授权并重启游戏；"
+              L"关闭后恢复本版本名称。用户「总是显示」列表仍优先。",
+              button_control(gameProfile ? L"恢复产品名称" : L"启用兼容名称", [this, gameProfile] {
+                const auto error = msime::windows::game_profile::apply(GetActiveWindow(), !gameProfile);
+                if (!error.empty()) show_notice(error);
+                else show_notice(L"登记名称已更新，请重启游戏并重新切换输入法。");
+                render_page(true);
+              }));
       game_process_row(
           games, 0xE890, L"总是显示候选窗口的程序",
           L"候选窗口不出现或跑到左上角的游戏。填程序文件名，例如 game.exe。",
@@ -19718,7 +19730,9 @@ private:
 
 } // namespace
 
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
+  const int gameProfileResult = msime::windows::game_profile::run_if_requested(command);
+  if (gameProfileResult >= 0) return gameProfileResult;
   init_apartment(apartment_type::single_threaded);
   Application::Start([](auto &&) { make<App>(); });
   return 0;

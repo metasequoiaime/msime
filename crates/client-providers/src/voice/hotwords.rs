@@ -93,7 +93,7 @@ pub fn hotwords_from_entries<'a>(
     hotwords
 }
 
-/// Replace every run of Chinese characters that sounds like a hotword (fuzzy initials zh/z, ch/c, sh/s, n/l and finals an/ang, en/eng, in/ing treated alike) but is written differently with that hotword. Longer hotwords win, replacements never overlap, and text already spelled as a hotword is left alone.
+/// 按拼音替换汉字热词，合并 zh/z、ch/c、sh/s、n/l 及 an/ang、en/eng、in/ing 模糊读音。长词优先且替换不重叠；同长度中已有的正确词形优先于拼音匹配，其余按热词顺序选取。
 pub fn correct(text: &str, hotwords: &[Hotword]) -> String {
     let mut prepared: Vec<(Vec<char>, Vec<String>)> = Vec::with_capacity(hotwords.len());
     prepared.extend(hotwords.iter().filter_map(|hotword| {
@@ -135,8 +135,13 @@ pub fn correct(text: &str, hotwords: &[Hotword]) -> String {
                         .is_some_and(|options| options.contains(key))
                 });
                 if matches {
-                    // Written exactly as the hotword or not, the window is consumed so a shorter hotword cannot rewrite part of it.
-                    output.extend(word.iter());
+                    // 同长度的正确词形优先，避免靠前的同音或模糊热词覆盖已识别正确的词。
+                    let replacement = prepared
+                        .iter()
+                        .find(|(candidate, _)| candidate.as_slice() == &characters[index..end])
+                        .map_or(word, |(candidate, _)| candidate);
+                    // 消耗整个窗口，避免较短热词再次改写其中一部分。
+                    output.extend(replacement.iter());
                     index = end;
                     continue 'outer;
                 }
@@ -297,6 +302,31 @@ mod tests {
             hotword("明天科技", "ming tian ke ji"),
         ];
         assert_eq!(correct("明天科技和天科", &hotwords), "明天科技和田可");
+    }
+
+    #[test]
+    fn an_exact_hotword_survives_an_earlier_homophone() {
+        let hotwords = [hotword("明天", "ming tian"), hotword("名天", "ming tian")];
+        assert_eq!(correct("名天和明天", &hotwords), "名天和明天");
+        assert_eq!(correct("铭天", &hotwords), "明天");
+        let reversed = [hotwords[1].clone(), hotwords[0].clone()];
+        assert_eq!(correct("名天和明天", &reversed), "名天和明天");
+        assert_eq!(correct("铭天", &reversed), "名天");
+    }
+
+    #[test]
+    fn a_longer_match_still_wins_over_a_shorter_exact_hotword() {
+        let hotwords = [
+            hotword("名天", "ming tian"),
+            hotword("明天科技", "ming tian ke ji"),
+        ];
+        assert_eq!(correct("名天科技", &hotwords), "明天科技");
+    }
+
+    #[test]
+    fn an_exact_hotword_survives_an_earlier_fuzzy_match() {
+        let hotwords = [hotword("张三", "zhang san"), hotword("赞散", "zan san")];
+        assert_eq!(correct("赞散和张三", &hotwords), "赞散和张三");
     }
 
     #[test]

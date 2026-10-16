@@ -1,4 +1,5 @@
 #include "SessionPump.h"
+#include "ipc_negotiation.h"
 #include "UiSelectionDelivery.h"
 #include "CandidatePresentation.h"
 #include "PreviewDispatcher.h"
@@ -72,6 +73,33 @@ public:
 };
 } // namespace
 void session_pump_tests(const std::string &options) {
+  // 真实 pump 的主通道：协商后的本地 UI-less 只收到导航意图；旧宿主仍收到候选页。
+  for (bool capable : {false, true}) for (bool serverPage : {false, true}) {
+    for (auto key : {0x28u, 0x22u}) {
+      FocusGate gate;
+      InputQueue queue(gate, 2, 8, options);
+      FixtureTransport transport;
+      transport.ticket.capabilities = capable ? FanyImeProtocol::HostOnlineCandidates : 0;
+      transport.packets.back().keycode = key;
+      for (size_t n = 1; n < transport.packets.size(); ++n)
+        transport.packets[n].modifiers_down |= FanyImePipeFlags::UiLess |
+            (serverPage ? FanyImePipeFlags::ServerUiLessCandidates : 0);
+      SessionPump pump(transport, queue, gate,
+        [](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &packet) {
+          NavigationBindings bindings; bindings.arrows = true; bindings.page_up_down = true;
+          return state.configured_key(lease, packet, TsfPreeditStyle::Local, bindings);
+        }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+      require(pump.run(transport.ticket) == PumpResult::Disconnected);
+      const auto &last = transport.writes.back();
+      require(last.first == FanyImePipeRole::ToTsf && last.second.size() >= 4);
+      const uint32_t opcode = last.second[0] | (uint32_t(last.second[1]) << 8) |
+          (uint32_t(last.second[2]) << 16) | (uint32_t(last.second[3]) << 24);
+      require(opcode == (capable && !serverPage ?
+          (key == 0x28 ? FanyImeReplyType::MoveSelectionNext : FanyImeReplyType::MovePageNext) :
+          FanyImeReplyType::UiLessComposition));
+      queue.stop();
+    }
+  }
   for (bool throws : {false, true}) {
     for (bool partial : {false, true}) {
       for (size_t failure = 0; failure <= (partial ? 2u : 1u); ++failure) {

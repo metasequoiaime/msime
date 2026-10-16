@@ -52,6 +52,9 @@ const DWORD WM_CommitCandidateAndContinue = WM_USER + 29;
 const DWORD WM_ReplayKoreanSyllableKey = WM_USER + 30;
 const DWORD WM_CandidateContinuation = WM_USER + 31;
 const DWORD WM_CandidateContinuationFailed = WM_USER + 32;
+const DWORD WM_ApplyCapsLockEdge = WM_USER + 33;
+const DWORD WM_ApplyUiLessCandidates = WM_USER + 34;
+const DWORD WM_HostOnlineCandidates = WM_USER + 35;
 constexpr ULONG_PTR SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO = 0x4D535050u;
 // Marker for caret movement synthesized by paired punctuation. Key sinks and
 // the bare-Shift hook must pass these events through to the host.
@@ -222,6 +225,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _QueueKoreanHanjaTap(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam);
     // 单按 Caps Lock 切换中英文：按下时布防（lockWasOn 是按下前的大写锁定状态），松开时认定为轻点就先撤回大写锁定，撤回成功再排入和单按 Shift 相同的切换，返回 true。
     void _ArmCapsLockTap(bool lockWasOn);
+    void _QueueCapsLockEdge();
+    void _ApplyCapsLockEdge(bool enabled);
     bool _QueueCapsLockTap(_In_ ITfContext *pContext, WPARAM wParam);
     // 向宿主会话发 MSIME_CANCEL；第一次只关闭了韩文或注音的列表、只把越南文词或藏文音节串重新显示为原文、或只退出了整句改字时再发一次，所以组字无论如何都会被丢弃。没有宿主会话时返回 true。
     bool _CancelHostComposition();
@@ -239,6 +244,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleInsertText(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleCommitCandidateAndContinue(TfEditCookie ec, _In_ ITfContext *pContext,
                                                const std::wstring &payload);
+    HRESULT _HandleHostCandidateNavigation(TfEditCookie, ITfContext *, uint32_t);
+    HRESULT _HandleHostOnlineCandidates(TfEditCookie, ITfContext *, const std::wstring &);
     HRESULT _HandleCandidateContinuation(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleUpdateVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleCommitVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
@@ -351,7 +358,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
         return (_dwActivateFlags & TF_TMF_UIELEMENTENABLEDONLY) ? TRUE : FALSE;
     }
 
-    CCompositionProcessorEngine *GetCompositionProcessorEngine()
+    CCompositionProcessorEngine *GetCompositionProcessorEngine() const
     {
         return (_pCompositionProcessorEngine);
     };

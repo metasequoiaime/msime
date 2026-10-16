@@ -305,11 +305,12 @@ int main() {
     stale.activation_epoch = 8;
     rejected([&] { composer.stage(stale, ReplyPath::Selection); });
     auto page = result(7, "nihao", "ni hao");
+    page.transition["view"]["generation"] = 42;
     page.transition["view"]["candidates"] =
         Json::array({{{"text", "你好"}, {"highlighted", false}},
                      {{"text", "拟好"}, {"highlighted", true}}});
     require(payload(composer.stage(page, ReplyPath::Composition, true)) ==
-            u"ni hao\t你好,拟好\t1");
+            u"ni hao\t你好,拟好\t1\t42");
     confirm(composer);
     auto too_long = result(8, "", "", std::string(200, 'x'));
     const auto &failed = composer.stage(too_long, ReplyPath::Selection);

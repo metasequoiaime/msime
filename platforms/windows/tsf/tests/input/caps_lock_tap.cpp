@@ -70,9 +70,8 @@ void policy() {
 
 void wiring(const std::string &root) {
     const std::string sink = read(root + "/Key/KeyEventSink.cpp");
-    expect(sink, "const bool lockWasOn = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;", true,
-           "the press reads the lock state from before the press");
-    expect(sink, "_ArmCapsLockTap(lockWasOn);", true, "the first Caps Lock press arms the tap");
+    expect(sink, "_QueueCapsLockEdge();", true, "第一次按下排队读取真实大写状态");
+    expect(sink, "_ArmCapsLockTap(!enabled);", true, "从切换后的真实状态还原轻点前状态");
     // 「按 SHIFT 键关闭 Caps Lock」时注入的 Caps Lock 关不掉大写锁定，SendInput 却报告成功，所以那里不布防。
     expect(sink, "_IsKeyboardDisabled() && !CapsLockOffNeedsShift();", true,
            "the tap is not armed when only Shift can turn Caps Lock off");

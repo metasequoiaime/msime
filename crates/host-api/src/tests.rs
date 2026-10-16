@@ -12443,6 +12443,24 @@ fn voice_hotword_correction_rewrites_homophones() {
 }
 
 #[test]
+fn voice_hotword_correction_preserves_an_exact_dictionary_word() {
+    let request = json!({
+        "text": "名天和铭天",
+        "hotwords": [
+            {"text": "明天", "pinyin": "ming tian"},
+            {"text": "名天", "pinyin": "ming tian"}
+        ]
+    })
+    .to_string();
+    let corrected =
+        read(unsafe { msime_client_voice_hotword_correct(request.as_ptr(), request.len()) });
+    assert_eq!(
+        corrected,
+        json!({"ok": true, "value": {"text": "名天和明天"}})
+    );
+}
+
+#[test]
 fn voice_hotword_correction_rejects_unbounded_work() {
     let hotwords = (0..1_001)
         .map(|_| json!({"text": "明天", "pinyin": "ming tian"}))

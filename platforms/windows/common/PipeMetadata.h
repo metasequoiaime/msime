@@ -13,6 +13,7 @@ inline constexpr std::uint32_t GameHost = 0x10000000u;
 
 inline constexpr std::uint32_t key_modifiers(std::uint32_t value) {
   return value &
-         ~(FanyImePipeFlags::UiLess | CandidateActive | AutoRepeat | GameHost);
+         ~(FanyImePipeFlags::UiLess | FanyImePipeFlags::ServerUiLessCandidates |
+           CandidateActive | AutoRepeat | GameHost);
 }
 } // namespace msime::windows::PipeMetadata

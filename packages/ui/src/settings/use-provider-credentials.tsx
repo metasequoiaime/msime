@@ -1,3 +1,9 @@
+import type {
+  ProviderCredentialClient,
+  ProviderCredentialStatus,
+  VoiceCredentialKind,
+  VoiceCredentialSaveResult,
+} from "../core/provider-credential-contracts";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { CredentialTestSection } from "./credential-test-section";
@@ -6,14 +12,7 @@ import type { CredentialStatusMessageValue } from "./credential-status-message-m
 import type { ProviderCredentialInput } from "./provider-credential-input";
 import { providerCredentialErrorMessage } from "./credential-utils";
 import { useAsyncGeneration } from "./use-async-generation";
-import type {
-  ApiCredentialTestResult,
-  ApiCredentialTestService,
-  ProviderCredentialClient,
-  ProviderCredentialStatus,
-  VoiceCredentialKind,
-  VoiceCredentialSaveResult,
-} from "../index";
+import type { ApiCredentialTestResult, ApiCredentialTestService } from "../index";
 
 export type { ProviderCredentialInput } from "./provider-credential-input";
 

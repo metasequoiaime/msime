@@ -255,6 +255,7 @@ for exe in /bin-win/windows-*.exe /bin-win/tsf/msime-tsf-*.exe /bin-win/msimeui-
   [ "$name" = windows-installer-launch ] && argument="$MSIME_INSTALLER"
   [ "$name" = windows-stroke-keys ] && argument="$MSIME_STROKE_FIXTURE"
   [ "$name" = windows-zhuyin-keys ] && argument="$MSIME_ZHUYIN_FIXTURE"
+  [ "$name" = windows-host-online-candidates ] && argument="Z:\\fixtures\\msime-pinyin-online.db"
   [ "$name" = msime-tsf-paired-punctuation-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   [ "$name" = msime-tsf-smart-punctuation-focus-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   [ "$name" = msime-tsf-japanese-conversion-wiring-test ] && argument="$MSIME_TSF_SOURCE"

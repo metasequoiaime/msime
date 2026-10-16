@@ -1,4 +1,5 @@
-import type { HostCapabilities } from "../index";
+import type { HostCapabilities } from "../core/host-capabilities";
+
 import { GroupList, Row } from "../core/platform-controls";
 import { useTemporaryFlag } from "../core/use-temporary-flag";
 import { ActionButton } from "./action-button";

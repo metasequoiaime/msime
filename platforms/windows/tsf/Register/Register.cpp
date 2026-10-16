@@ -9,6 +9,7 @@
 #include "Private.h"
 #include "Globals.h"
 #include "RegKey.h"
+#include "../../common/GameCompatProfile.h"
 
 static const WCHAR RegInfo_Prefix_CLSID[] = L"CLSID\\";
 static const WCHAR RegInfo_Key_InProSvr32[] = L"InProcServer32";
@@ -37,6 +38,7 @@ BOOL RegisterProfiles()
 {
     HRESULT hr = S_FALSE;
     size_t lenOfDesc = 0;
+    const auto profileName = msime::windows::game_profile::registration_name();
 
     ITfInputProcessorProfileMgr *pITfInputProcessorProfileMgr = nullptr;
     hr = CoCreateInstance(CLSID_TF_InputProcessorProfiles, NULL, CLSCTX_INPROC_SERVER, IID_ITfInputProcessorProfileMgr,
@@ -56,13 +58,13 @@ BOOL RegisterProfiles()
     }
     achIconFile[cchA] = '\0';
 
-    hr = StringCchLength(TEXTSERVICE_DESC, STRSAFE_MAX_CCH, &lenOfDesc);
+    hr = StringCchLength(profileName.c_str(), STRSAFE_MAX_CCH, &lenOfDesc);
     if (hr != S_OK)
     {
         goto Exit;
     }
     hr = pITfInputProcessorProfileMgr->RegisterProfile(
-        Global::MetasequoiaIMECLSID, TEXTSERVICE_LANGID, Global::MetasequoiaIMEGuidProfile, TEXTSERVICE_DESC,
+        Global::MetasequoiaIMECLSID, TEXTSERVICE_LANGID, Global::MetasequoiaIMEGuidProfile, profileName.c_str(),
         static_cast<ULONG>(lenOfDesc), achIconFile, cchA, (UINT)TEXTSERVICE_ICON_INDEX, NULL, 0, TRUE, 0);
 
     if (FAILED(hr))

@@ -20,6 +20,7 @@ struct CandidateOverlayFacts
     bool sdl2Loaded = false;
     bool sdlWindow = false;
     bool source2Loaded = false;
+    bool compatibleProfile = false;
 };
 
 // 一次激活里的判定材料，留给 BeginUIElement 复判和延迟写的 `[game]` 诊断日志用：诊断日志的开关要等 Server 推来配置帧才打开，晚于 ActivateEx。
@@ -44,6 +45,12 @@ inline bool IsSameProcessName(std::wstring_view left, std::wstring_view right)
                                 static_cast<int>(right.size()), TRUE) == CSTR_EQUAL;
 }
 
+// 基岩版在首键与组字后给出的 extent 分别落在右下角和系统组合窗，不能作为聊天框位置。
+inline bool IsCandidatePinnedTopLeftProcess(std::wstring_view process)
+{
+    return IsSameProcessName(process, L"Minecraft.Windows.exe");
+}
+
 inline bool ContainsProcessName(const std::vector<std::wstring> &names, std::wstring_view process)
 {
     for (const auto &name : names)
@@ -65,6 +72,10 @@ inline bool ShouldForceCandidateOverlay(bool enabled, const CandidateOverlayFact
         return false;
     if (ContainsProcessName(overlay, process))
         return true;
+    // 兼容名称使 Source 2 自绘候选；用户显式覆盖仍优先，其他 SDL 游戏规则不变。
+    if (facts.compatibleProfile && (facts.source2Loaded || IsSameProcessName(process, L"cs2.exe") ||
+                                    IsSameProcessName(process, L"dota2.exe")))
+        return false;
     // 英雄联盟自己画候选，排除它以免被模块规则误判。文件名没有实机核实过。
     constexpr std::wstring_view builtinExcluded[] = {L"league of legends.exe"};
     for (const auto name : builtinExcluded)

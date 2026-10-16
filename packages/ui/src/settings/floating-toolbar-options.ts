@@ -1,4 +1,5 @@
-import type { HostCapabilities } from "../index";
+import type { HostCapabilities } from "../core/host-capabilities";
+
 import type { FloatingToolbarPreferences } from "./floating-toolbar-preferences";
 
 type FloatingToolbarOptionKey = keyof Pick<

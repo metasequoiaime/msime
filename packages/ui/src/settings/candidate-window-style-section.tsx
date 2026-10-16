@@ -1,5 +1,6 @@
+import type { HostPlatform } from "../core/host-capabilities";
 import type { ReactNode } from "react";
-import type { HostPlatform, Preferences } from "../index";
+import type { Preferences } from "../index";
 import type {
   CandidateFontPreferences,
   CandidateWindowStylePreferences,

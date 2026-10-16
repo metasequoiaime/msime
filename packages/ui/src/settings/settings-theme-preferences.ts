@@ -1,3 +1,4 @@
+import type { HostPlatform } from "../core/host-capabilities";
 import {
   offeredGlobalTheme,
   type CustomCandidateColors,
@@ -8,7 +9,7 @@ import {
   defaultTouchKeyboardSkinDesign,
   type TouchKeyboardSkinDesign,
 } from "../keyboard/touch-keyboard-skin-design";
-import type { HostPlatform, Preferences } from "../index";
+import type { Preferences } from "../index";
 import type { SurfaceTheme, ThemeMode } from "./theme-preferences";
 
 export interface SettingsThemePreferences {

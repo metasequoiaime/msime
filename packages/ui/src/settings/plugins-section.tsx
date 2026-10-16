@@ -1,5 +1,6 @@
+import type { InputScheme } from "../core/input-scheme";
 import { useEffect, useRef, useState } from "react";
-import type { InputScheme } from "../index";
+
 import { useAsyncActionRunner } from "../core/use-async-action";
 import type { ConfirmRequest } from "../core/confirm";
 import * as settings from "./settings-style";
