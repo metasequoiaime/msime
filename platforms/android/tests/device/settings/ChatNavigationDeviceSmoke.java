@@ -37,6 +37,9 @@ public final class ChatNavigationDeviceSmoke extends DeviceSmoke {
         automation.setServiceInfo(info);
         stage = "native all-settings tab";
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity");
+        // 首次安装可能仍有原生引导页，先按真实用户路径跳过它。
+        if (visible(id("onboarding_skip"))) tap(id("onboarding_skip"));
+        await(id("tab_allsettings"));
         tap(id("tab_allsettings"));
         await(id("keyboard_title").and(node -> equalsText("全部设置", node.getText())));
         SystemClock.sleep(800);
