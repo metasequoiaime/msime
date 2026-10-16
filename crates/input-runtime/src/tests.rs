@@ -1088,6 +1088,140 @@ impl InputEngine for Fixture {
     }
 }
 
+fn wubi_shortcut_runtime(count: usize) -> Runtime<Fixture> {
+    let mut runtime = Runtime::new(
+        Fixture {
+            scheme: 2,
+            local_mode: "none".into(),
+            words: (0..count).map(|i| format!("合成候选{i}")).collect(),
+            ..Fixture::default()
+        },
+        3,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    runtime.set_wubi_candidate_selection(
+        msime_client_core::preferences::WubiCandidateSelectionPreferences {
+            enabled: true,
+            ..Default::default()
+        },
+    );
+    if count > 0 {
+        runtime
+            .dispatch(Action::Character {
+                value: b'a',
+                shift: false,
+            })
+            .unwrap();
+    }
+    runtime
+}
+
+#[test]
+fn wubi_candidate_shortcuts_select_current_page_on_all_character_routes() {
+    for route in 0..3 {
+        for (key, slot) in [(b';', 1), (b'\'', 2)] {
+            let mut runtime = wubi_shortcut_runtime(6);
+            runtime.dispatch(Action::NextPage).unwrap();
+            let action = match route {
+                0 => Action::Character {
+                    value: key,
+                    shift: false,
+                },
+                1 => Action::Punctuation(key),
+                _ => Action::PunctuationAscii(key),
+            };
+            let transition = runtime.dispatch(action).unwrap();
+            assert_eq!(transition.commit, Some(format!("合成候选{}", 3 + slot)));
+            assert!(transition.view.editing_text.is_empty());
+            assert!(runtime.facts().selection.is_some());
+        }
+    }
+}
+
+#[test]
+fn wubi_candidate_shortcuts_follow_the_presented_order_and_visible_page_size() {
+    let mut runtime = wubi_shortcut_runtime(3);
+    runtime.cached.candidates.rotate_right(1);
+    runtime.engine_order = vec![2, 0, 1];
+    let result = runtime.dispatch(Action::Punctuation(b';')).unwrap();
+    assert_eq!(result.commit.as_deref(), Some("合成候选0"));
+    let mut runtime = wubi_shortcut_runtime(3);
+    runtime.page_size = 1;
+    let result = runtime.dispatch(Action::PunctuationAscii(b';')).unwrap();
+    assert!(result.commit.as_deref().unwrap().ends_with(';'));
+}
+
+#[test]
+fn wubi_candidate_shortcuts_keep_punctuation_when_disabled_or_target_is_missing() {
+    for count in [0, 1, 2, 3, 4] {
+        for key in *b";'" {
+            let mut enabled = wubi_shortcut_runtime(count);
+            let mut plain = wubi_shortcut_runtime(count);
+            plain.set_wubi_candidate_selection(Default::default());
+            if count > 3 {
+                enabled.dispatch(Action::NextPage).unwrap();
+                plain.dispatch(Action::NextPage).unwrap();
+            }
+            let slot = if key == b';' { 1 } else { 2 };
+            let on_page = if count > 3 { count - 3 } else { count };
+            if slot < on_page {
+                continue;
+            }
+            let original = plain.dispatch(Action::PunctuationAscii(key)).unwrap();
+            let actual = enabled.dispatch(Action::PunctuationAscii(key)).unwrap();
+            assert_eq!(actual.handled, original.handled);
+            assert_eq!(actual.commit, original.commit);
+            assert_eq!(actual.view.editing_text, original.view.editing_text);
+            if count == 0 {
+                assert!(!actual.handled);
+            } else {
+                assert!(actual
+                    .commit
+                    .as_deref()
+                    .is_some_and(|text| text.ends_with(char::from(key))));
+            }
+        }
+    }
+}
+
+#[test]
+fn wubi_candidate_shortcuts_respect_scheme_mode_focus_and_live_custom_keys() {
+    for excluded in 0..4 {
+        let mut runtime = wubi_shortcut_runtime(3);
+        match excluded {
+            0 => runtime.cached.scheme = 0,
+            1 => runtime.cached.dedicated_english = true,
+            2 => runtime.cached.local_mode = "url".into(),
+            _ => {
+                runtime.focus(false).unwrap();
+            }
+        }
+        let result = runtime.dispatch(Action::PunctuationAscii(b';')).unwrap();
+        assert_ne!(result.commit.as_deref(), Some("合成候选1"));
+    }
+    let mut runtime = wubi_shortcut_runtime(3);
+    runtime.set_wubi_candidate_selection(
+        msime_client_core::preferences::WubiCandidateSelectionPreferences {
+            enabled: true,
+            second_key: "/".into(),
+            third_key: "?".into(),
+        },
+    );
+    assert_eq!(runtime.wubi_candidate_selection().slot(b';'), None);
+    assert_eq!(
+        runtime
+            .dispatch(Action::Character {
+                value: b'?',
+                shift: true
+            })
+            .unwrap()
+            .commit
+            .as_deref(),
+        Some("合成候选2")
+    );
+}
+
 #[test]
 fn unique_complete_wubi_code_auto_commits_unless_a_phrase_is_being_built() {
     let create = |fixture| {
@@ -5025,7 +5159,7 @@ fn slash_and_at_open_their_modes_only_with_nothing_composed() {
     for value in *b"ab" {
         character(&mut runtime, value);
     }
-    assert!(runtime.view().spelling_symbols.is_empty());
+    assert!(!runtime.view().spelling_symbols.contains('/'));
     let finished = runtime.dispatch(Action::Punctuation(b'/')).unwrap();
     let commit = finished.commit.unwrap();
     assert!(commit.ends_with('/'), "{commit:?}");
@@ -7621,7 +7755,7 @@ fn url_mode_opens_on_the_punctuation_route() {
     let directory = tempfile::tempdir().unwrap();
     let mut runtime = url_runtime(directory.path(), 0);
     type_characters(&mut runtime, "www");
-    assert_eq!(runtime.view().spelling_symbols, ".");
+    assert_eq!(runtime.view().spelling_symbols, ".@");
     let opened = runtime.dispatch(Action::Punctuation(b'.')).unwrap();
     assert!(opened.handled && opened.commit.is_none(), "{opened:?}");
     assert_eq!(opened.view.local_mode, "url");
@@ -7743,7 +7877,7 @@ fn url_backspace_past_the_trigger_returns_to_the_composition() {
     assert!(back.handled && back.commit.is_none());
     assert_eq!(back.view.local_mode, "none");
     assert_eq!(back.view.editing_text, "www");
-    assert_eq!(back.view.spelling_symbols, ".");
+    assert_eq!(back.view.spelling_symbols, ".@");
 }
 
 // 空格上屏网址本身，不在末尾带空格；Esc 丢弃网址不上屏，回到没有本地模式的状态。
@@ -7767,6 +7901,66 @@ fn url_space_commits_the_url_alone_and_escape_discards_it() {
     assert!(escape.commit.is_none(), "{escape:?}");
     assert_eq!(escape.view.local_mode, "none");
     assert!(escape.view.editing_text.is_empty());
+}
+
+// 邮箱后缀显示着时，数字仍是网址的一部分而不是选候选；空格上屏的是打的网址，点选后缀才上屏整个邮箱。
+#[test]
+fn url_email_suffixes_leave_digits_and_space_to_the_address() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 0);
+    type_characters(&mut runtime, "abc");
+    assert_eq!(runtime.view().spelling_symbols, "@");
+    let at = runtime.dispatch(Action::Punctuation(b'@')).unwrap();
+    assert!(at.handled && at.commit.is_none(), "{at:?}");
+    assert_eq!(at.view.local_mode, "url");
+    assert_eq!(texts(&at.view)[..3], ["abc@", "abc@qq.com", "abc@163.com"]);
+    let digit = character(&mut runtime, b'1');
+    assert!(digit.handled && digit.commit.is_none(), "{digit:?}");
+    assert_eq!(
+        texts(&digit.view),
+        [
+            "abc@1",
+            "abc@163.com",
+            "abc@126.com",
+            "abc@139.com",
+            "abc@189.cn"
+        ]
+    );
+    let space = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert_eq!(space.commit.as_deref(), Some("abc@1"));
+
+    type_characters(&mut runtime, "abc");
+    runtime.dispatch(Action::Punctuation(b'@')).unwrap();
+    let id = runtime.view().candidates[1].id;
+    let picked = runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(picked.commit.as_deref(), Some("abc@qq.com"));
+    assert_eq!(picked.view.local_mode, "none");
+}
+
+// 选中组字里的 `https://` 不上屏，以它进入网址模式；选中补全了顶级域名的行同样不上屏。
+#[test]
+fn url_completions_picked_through_the_runtime_keep_composing() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 0);
+    type_characters(&mut runtime, "htt");
+    let view = runtime.view();
+    let at = texts(&view)
+        .iter()
+        .position(|text| text == "https://")
+        .unwrap();
+    let picked = runtime
+        .dispatch(Action::Select(view.candidates[at].id))
+        .unwrap();
+    assert!(picked.handled && picked.commit.is_none(), "{picked:?}");
+    assert_eq!(picked.view.local_mode, "url");
+    assert_eq!(picked.view.editing_text, "https://");
+    type_characters(&mut runtime, "example");
+    let id = runtime.view().candidates[1].id;
+    let tld = runtime.dispatch(Action::Select(id)).unwrap();
+    assert!(tld.handled && tld.commit.is_none(), "{tld:?}");
+    assert_eq!(tld.view.editing_text, "https://example.com");
+    let committed = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert_eq!(committed.commit.as_deref(), Some("https://example.com"));
 }
 
 /// 整句改字：左右键在整句的汉字之间移动，选中的候选替换光标处那一段，确认后上屏改好的整句。

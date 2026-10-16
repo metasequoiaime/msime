@@ -77,8 +77,9 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             tap(described("候选面板 删除"));
             await(described(PANEL));
             await(inPanel(described("选择拼音 ba")));
-            // 删掉的是数字：读音从 ning'224 变成 ning'22（显示为 ning'ba）。拼音栏现在也列出以这两个数字开头的更长音节（ba、bai、ban…），所以不能再用「bai 消失」来判断。
-            await(imeTextContains("ning'ba"));
+            // 删掉的是数字：读音从 ning'224 变成 ning'22（显示为 ning'ba）。拼音栏现在也列出以这两个数字开头的更长音节（ba、bai、ban…），所以不能再用「bai 消失」来判断。读音写在输入框里，候选栏不再画它。
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().toString().contains("ning'ba")));
 
             stage = "single-character filter";
             tap(inPanel(described("只显示单字")));

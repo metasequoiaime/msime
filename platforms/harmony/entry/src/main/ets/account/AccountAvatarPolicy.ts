@@ -1,5 +1,5 @@
 /**
- * 账号头像的下载规则，照 client-core 的 `account/avatar.rs`（桌面的 `account_avatar` 用它）写成，鸿蒙的请求走系统 HTTPS 栈，规则在这里各写一份。
+ * 账号头像的下载规则，照 client-services 的 `account/avatar.rs`（桌面的 `account_avatar` 用它）写成，鸿蒙的请求走系统 HTTPS 栈，规则在这里各写一份。
  *
  * 设置页的内容安全策略只放行 `data:` 图片，所以头像由宿主下载、校验后转成 `data:` 地址交给页面。只下载服务端给出的、指向头像存储桶或 Google 头像主机的 HTTPS 地址，不跟随重定向，只接受大小上限内、文件头确实是 PNG、JPEG 或 WebP 的内容。
  */

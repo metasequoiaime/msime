@@ -1,8 +1,11 @@
 package app.msime.android.home;
 
+import app.msime.android.KeyboardBottomBarPolicy;
+
 import app.msime.android.DimensionPolicy;
 
 import app.msime.android.ThemeColorPolicy;
+import app.msime.android.ToolbarOrderPolicy;
 import app.msime.android.KeyboardSpacingPolicy;
 import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardTypographyPolicy;
@@ -49,13 +52,6 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
 
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
     private static final String[] ANIMATION_LABELS = {"弹起", "涟漪", "发光", "浮起", "无"};
-    /** 可开关的六个工具栏按钮：存储键与行名。共享偏好的写 `touch_toolbar` 的成员名，本地设置的写完整键名。 */
-    private static final String[][] TOOLBAR_BUTTONS = {
-        {"emoji", "表情"}, {AndroidLocalSettings.TOOLBAR_PHRASE, "常用语"}, {"clipboard", "剪贴板"}, {"skin", "皮肤"},
-        {AndroidLocalSettings.TOOLBAR_SCHEME, "输入方式"}, {AndroidLocalSettings.TOOLBAR_FLOATING, "浮动键盘"},
-        {AndroidLocalSettings.TOOLBAR_TEXT_EDIT, "文本编辑"},
-    };
-
     private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local,
                          KeyboardFeedbackStore.Settings feedback, KeyboardSkin skin) {}
 
@@ -119,10 +115,10 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
                 NineKeySidebarPolicy.summary(digitSidebar, 4),
                 () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
         }
-        // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为开，与键盘和 client-core 一致。
+        // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为关，与键盘和 client-core 一致。
         if (KeyboardScheme.XIAOHE.offeredBy(edition)) {
             layout.toggle("双拼键位提示", "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
-                preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, true),
+                preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, false),
                 checked -> savePreference(ShuangpinKeyHintPolicy.PREFERENCE_KEY, checked));
         }
         int height = KeyboardHeightPolicy.heightAdjustmentToPercent(
@@ -154,9 +150,13 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.toggle("键盘底栏", "仅在全面屏手势导航下生效：键盘下方加一条栏，左边切换输入法、右边剪贴板，中间左右滑动移动光标，同时把按键抬离屏幕底边",
             settings.bool(AndroidLocalSettings.BOTTOM_BAR),
             checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_BAR, checked));
-        layout.toggle("底部留白", "键盘下方多留一段空白，把回车、空格等最下一行的键抬离屏幕底边，减少误触；键盘底栏出现时不再另加",
+        layout.toggle("底部留白", "在键区下方保留指定高度，不改变按键大小；键盘底栏的高度计入留白，避免重复叠加",
             settings.bool(AndroidLocalSettings.BOTTOM_PADDING),
             checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_PADDING, checked));
+        layout.slider("底部留白高度", KeyboardBottomBarPolicy.MIN_PADDING_DP,
+            KeyboardBottomBarPolicy.MAX_PADDING_DP, 1,
+            settings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT), value -> value + " dp",
+            value -> saveLocalSetting(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, value));
 
         GroupCard feedback = GroupCard.add(sectionColumn(target, "反馈"), "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();
@@ -174,7 +174,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
             checked -> saveLocalSetting(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
-        GroupCard.Row directionRow = gestures.nav("滑动方向", null,
+        GroupCard.Row directionRow = gestures.nav("滑动方向", "选择在字母键上滑动输入角标符号的方向；关闭滑动输入符号后不生效",
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
         directionRow.setEnabled(swipeSymbols);
         // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。
@@ -184,10 +184,11 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
             nineKeySwipeRow[0] = gestures.nav("九键滑动输入数字", "拼音九键上沿选定方向滑动输入键上的数字，往反方向滑动弹出数字和字母",
                 nineKeySwipeLabel(nineKeySwipe), () -> pickNineKeySwipe(nineKeySwipe, nineKeySwipeRow[0]));
             // 九键单独的判定距离（#6208）：键高，快速连打时手指往上带一下就会被当成上滑；26 键的「滑动输入符号」阈值不受影响。
-            GroupCard.Row distanceRow = gestures.slider("九键滑动距离", NineKeySwipePolicy.MIN_THRESHOLD_DP,
-                NineKeySwipePolicy.MAX_THRESHOLD_DP, NineKeySwipePolicy.THRESHOLD_STEP_DP,
-                settings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE), value -> value + " dp",
-                value -> saveLocalSetting(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value));
+            GroupCard.Row distanceRow = gestures.slider("九键滑动距离",
+                "手指移动超过这个距离才会触发；距离越大越不容易把快速连打误判成滑动",
+                NineKeySwipePolicy.MIN_THRESHOLD_DP, NineKeySwipePolicy.MAX_THRESHOLD_DP,
+                NineKeySwipePolicy.THRESHOLD_STEP_DP, settings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE),
+                value -> value + " dp", value -> saveLocalSetting(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value));
             distanceRow.setEnabled(!NineKeySwipePolicy.OFF.equals(nineKeySwipe));
         }
         gestures.toggle("滑行输入", "在 26 键上连续滑过拼音的字母，抬手出词；在键上稍作停留可确认经过的键",
@@ -204,9 +205,11 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         GroupCard bar = GroupCard.add(sectionColumn(target, "工具栏"), "键盘工具栏");
         bar.addView(toolbarPreview(requireContext(), toolbar, settings, state.skin()));
         bar.nav("显示方式", null, hidden ? "隐藏" : "输入时显示", () -> pickToolbarMode(hidden));
-        for (String[] button : TOOLBAR_BUTTONS) {
-            String member = button[0];
-            GroupCard.Row row = bar.toggle(button[1], null, toolbarButton(toolbar, settings, member),
+        bar.nav("按钮顺序", "调整工具按钮的排列；品牌和收起键保留在两端", null,
+            hidden ? null : () -> new ToolbarOrderSheet(this, settings, this::reload).show());
+        for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
+            String member = button.preferenceKey;
+            GroupCard.Row row = bar.toggle(button.label, null, toolbarButton(toolbar, settings, member),
                 checked -> saveToolbar(member, checked));
             row.setEnabled(!hidden);
         }
@@ -223,6 +226,10 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));
 
+    }
+
+    private static java.util.List<ToolbarOrderPolicy.Item> toolbarOrder(AndroidLocalSettings.Snapshot settings) {
+        return ToolbarOrderPolicy.ordered(settings.text(AndroidLocalSettings.TOOLBAR_ORDER));
     }
 
     /** 一个工具栏按钮开着没有：本地设置的看本地设置，其余看 `touch_toolbar`（缺键为开）。 */
@@ -249,8 +256,8 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
             plate.addView(note);
         } else {
             addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)));
-            for (String[] button : TOOLBAR_BUTTONS) {
-                if (toolbarButton(toolbar, settings, button[0])) addChip(context, plate, button[1], icon);
+            for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
+                if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon);
             }
         }
         strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, 44));

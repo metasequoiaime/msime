@@ -8,12 +8,12 @@
 // the workspace adds later.
 #![allow(unsafe_code)]
 
-use msime_client_core::ai::AiSuggestionRequest;
-use msime_client_core::dictionary::access::DictionaryAccess;
 use msime_client_core::edition::Edition;
 use msime_client_core::host_surface::{
     offered_input_schemes, HostCapabilities, HostPlatform, SurfaceRoute,
 };
+use msime_client_providers::ai::AiSuggestionRequest;
+use msime_client_services::dictionary::access::DictionaryAccess;
 pub mod clipboard_history;
 pub mod cloud_clipboard;
 pub mod cloud_dictionary;
@@ -28,15 +28,15 @@ use msime_client_core::preferences::{
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
 };
-use msime_client_core::resource_packs::{self, ResourcePack};
 use msime_client_core::resources::{ResourceSet, ResourceStore, VerifiedMarker};
-use msime_client_core::typing_statistics::{
-    CommitEfficiency, TypingSource, TypingStatisticsStore, RANKS,
-};
-use msime_client_core::voice::doubao_frame::{
+use msime_client_providers::resource_packs::{self, ResourcePack};
+use msime_client_providers::voice::doubao_frame::{
     audio_frame, decode_error_code, decode_json_frame, start_frame,
 };
-use msime_client_core::voice::VoiceSessionState;
+use msime_client_providers::voice::VoiceSessionState;
+use msime_client_services::typing_statistics::{
+    CommitEfficiency, TypingSource, TypingStatisticsStore, RANKS,
+};
 use msime_engine::host::{
     check_nine_key_shuangpin_table, check_shuangpin_custom_profile,
     nine_key_shuangpin_builtin_table, nine_key_shuangpin_table_key_hints,
@@ -985,6 +985,8 @@ impl HostSession {
         // 宿主状态，不是 Engine 状态：跟着最新请求的偏好走，不必等这次偏好重建 Engine，也不必等组字结束。
         self.runtime
             .set_wubi_auto_commit_unique(requested_preferences.wubi_auto_commit_unique);
+        self.runtime
+            .set_wubi_candidate_selection(requested_preferences.wubi_candidate_selection.clone());
         self.sound.update(key_sound::SoundSettings::new(
             &requested_preferences.plugins,
             &self.plugin_roots,
@@ -1006,6 +1008,7 @@ fn profile_code(profile: ShuangpinProfile) -> u8 {
         ShuangpinProfile::Ziranma => 1,
         ShuangpinProfile::Shoudao => 2,
         ShuangpinProfile::Microsoft => 3,
+        ShuangpinProfile::SmartAbc => 5,
         ShuangpinProfile::Custom => 4,
     }
 }
@@ -2467,11 +2470,11 @@ pub fn local_emoji_catalog_slice(
         .map_err(|_| "local emoji catalog unavailable")
 }
 
-pub use msime_client_core::plugins::symbol_set::PluginSymbolGroup;
+pub use msime_client_services::plugins::symbol_set::PluginSymbolGroup;
 
 /// 插件目录 `root` 下已安装的符号集的全部组，供宿主追加到内置符号目录之后：`symbols` 组放在以 `pack_name` 为上级分类的分组下，`kaomoji` 组放在颜文字的 All 之后。读几个小清单：不要在按键路径上调用。
 pub fn plugin_symbol_groups(root: &std::path::Path) -> Vec<PluginSymbolGroup> {
-    msime_client_core::plugins::symbol_set::plugin_symbol_groups(root)
+    msime_client_services::plugins::symbol_set::plugin_symbol_groups(root)
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2596,6 +2599,7 @@ fn dispatch_call(handle: u64, action: Action, host: Option<lifecycle::InputClass
         with_session(handle, |session| {
             // 大写锁定改道先于其余处理，后面看到的都是改道后的动作。
             let action = session.caps_lock_punctuation(action);
+            let action = session.runtime.candidate_shortcut(action);
             let currency_punctuation = matches!(
                 action,
                 Action::Character { value: b'$', .. } | Action::Punctuation(b'$')
@@ -2704,9 +2708,9 @@ fn ai_seat_ready(
     if AI_CREDENTIALS_IN_PROVIDER {
         return true;
     }
-    msime_client_core::ai::endpoint::validate(&ai.endpoint).is_ok()
+    msime_client_providers::ai::endpoint::validate(&ai.endpoint).is_ok()
         && (credential.is_some_and(|credential| credential.endpoint == ai.endpoint)
-            || msime_client_core::ai::credential_for_endpoint(ai).is_some())
+            || msime_client_providers::ai::credential_for_endpoint(ai).is_some())
 }
 
 /// 一个会话在两次写统计之间最多记下多少次上屏。正常情况下 `SELECTION_BATCH` 次选词就会写一次，这只是兜底。

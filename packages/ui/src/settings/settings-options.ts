@@ -1,4 +1,5 @@
-import type { HostCapabilities } from "../index";
+import type { HostCapabilities } from "../core/host-capabilities";
+
 import type { ThemeCatalogEntry } from "../theme/global-theme";
 export { logo } from "./app-resources";
 export {

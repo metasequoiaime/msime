@@ -42,7 +42,7 @@ int main() {
     auto frames = tsf_config_frames(config);
     // Every setting the TIP consumes gets a frame; it kept compiled defaults
     // because the Server encoded none of them.
-    require(frames.size() == 12);
+    require(frames.size() == 13);
     for (const auto &frame : frames)
       require(frame.size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
 
@@ -59,7 +59,8 @@ int main() {
         FanyImeWorkerReplyType::LocalModeTriggersChanged,
         FanyImeWorkerReplyType::DedicatedEnglishChanged,
         FanyImeWorkerReplyType::SecondThirdCandidateChanged,
-        FanyImeWorkerReplyType::PunctuationMarksChanged};
+        FanyImeWorkerReplyType::PunctuationMarksChanged,
+        FanyImeWorkerReplyType::WubiCandidateSelectionChanged};
     for (size_t i = 0; i < frames.size(); ++i)
       require(frame_type(frames[i]) == expected[i]);
 
@@ -175,6 +176,13 @@ int main() {
       apply_local_mode_switches(reused, scheme::Korean, true, true, true);
       require(!reused.expression_mode && !reused.command_mode && !reused.mention_mode);
     }
+    require(frame_text(tsf_config_frames(TsfLocalConfig{})[12]) == L"0;'");
+    config.wubi_candidate_selection = true;
+    config.wubi_second_key = L'/';
+    config.wubi_third_key = L'?';
+    require(frame_text(tsf_config_frames(config)[12]) == L"1/?");
+    config.wubi_candidate_selection = false;
+
     // The TIP drops every type above MaxKnown, so the new type has to be inside it.
     require(FanyImeWorkerReplyType::LocalModeTriggersChanged <=
             FanyImeWorkerReplyType::MaxKnown);
@@ -207,7 +215,8 @@ int main() {
       require(marks("", "", true) == L"q0b0");
       require(marks("semantic", "round", true) == L"q0b0");
     }
-    require(FanyImeWorkerReplyType::PunctuationMarksChanged == FanyImeWorkerReplyType::MaxKnown);
+    require(FanyImeWorkerReplyType::WubiCandidateSelectionChanged <
+            FanyImeWorkerReplyType::MaxKnown);
 
     // Caps Lock travels on its own frame rather than in the configuration set:
     // the Server owns the indicator because the TIP only sampled GetKeyState at

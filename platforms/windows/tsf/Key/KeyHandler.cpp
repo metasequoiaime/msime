@@ -16,6 +16,13 @@
 #include "FanyDefines.h"
 #include "../Utils/PerfTimer.h"
 #include "../HostRawCommit.h"
+#pragma push_macro("max")
+#undef max
+#pragma push_macro("min")
+#undef min
+#include "../HostCandidateContinuation.h"
+#pragma pop_macro("min")
+#pragma pop_macro("max")
 #include "../HostCharacterResult.h"
 #include "../HostComposition.h"
 #include "../HostKoreanKey.h"
@@ -23,6 +30,7 @@
 #include "../../../../shared/input/CompositionDisplay.h"
 #include <limits>
 #include <algorithm>
+#include <atomic>
 
 namespace
 {
@@ -311,7 +319,7 @@ HRESULT CMetasequoiaIME::_HandleConversionKey(TfEditCookie ec, _In_ ITfContext *
 }
 
 HRESULT CMetasequoiaIME::_HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
-                                               bool replayKey)
+                                               uint64_t replayToken)
 {
     std::wstring text;
     bool keyText = msime::tsf::is_host_text_key(wch);
@@ -353,9 +361,10 @@ HRESULT CMetasequoiaIME::_HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext 
         _smartPunctuationShadowValid = true;
     }
     _HandleCompleteCommitFirst(ec, pContext);
-    // A caret or editing key goes on to the application without reaching the Server, whose own session still holds the syllable. The routed clear a terminated composition sends keeps the two in step; keys with text reach the Server and end the syllable there themselves.
+    // 方向或编辑键由应用处理，Server 通过组字终止时的 clear 同步；带文本的键会自行结束 Server 中的音节。
     if (code != 0 && !msime::tsf::is_host_text_key(wch) && Global::g_connected) SendHideCandidateWndEventToUIProcess();
-    if (replayKey && code != 0 && !msime::tsf::is_host_text_key(wch)) _QueueKoreanSyllableKeyReplay(code);
+    if (replayToken != 0 && !msime::tsf::is_host_text_key(wch))
+        _QueueKoreanSyllableKeyReplay(code, pContext, replayToken);
     return S_OK;
 }
 
@@ -395,7 +404,7 @@ bool CMetasequoiaIME::_IsKoreanHanjaListOpen() const
 }
 
 HRESULT CMetasequoiaIME::_HandleKoreanHanjaKey(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
-                                               uint64_t requestId)
+                                               uint64_t requestId, uint64_t replayToken)
 {
     auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
     if (!host || !host->valid()) return S_OK;
@@ -409,13 +418,13 @@ HRESULT CMetasequoiaIME::_HandleKoreanHanjaKey(TfEditCookie ec, _In_ ITfContext 
     const bool trigger = msime::windows::opens_candidate_list(scheme, code, listOpen);
     if (!trigger && !listOpen)
     {
-        // A key queued behind the one that closed the list, or classified before the list opened: it does what it does with no list. It was eaten, so a caret or editing key is replayed to the application after the composition.
+        // 列表在排队期间关闭后按无列表规则处理；已经吞下的方向或编辑键携带原槽令牌，上屏后再交给应用。
         switch (msime::tsf::host_composed_key_action(scheme, code, wch, true, false, current.view.spelling_symbols))
         {
         case msime::tsf::KoreanKeyAction::CommitWithText:
             return _HandleSyllableCommit(ec, pContext, code, wch);
         case msime::tsf::KoreanKeyAction::CommitAndPass:
-            return _HandleSyllableCommit(ec, pContext, code, wch, true);
+            return _HandleSyllableCommit(ec, pContext, code, wch, replayToken);
         default:
             break;
         }
@@ -470,46 +479,203 @@ HRESULT CMetasequoiaIME::_HandleKoreanHanjaKey(TfEditCookie ec, _In_ ITfContext 
     return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
 }
 
-void CMetasequoiaIME::_QueueKoreanSyllableKeyReplay(UINT virtualKey)
+namespace
 {
-    if (_msgWndHandle == nullptr || !msime::tsf::is_korean_caret_or_edit_key(virtualKey))
+UINT NextApplicationKeyReplayMarker()
+{
+    // DLL 禁用了函数内静态量的动态初始化保护；原子量采用常量初始化，所有 TIP 实例共用且永不回绕。
+    static std::atomic<UINT> nonce{0};
+    UINT current = nonce.load(std::memory_order_relaxed);
+    while (current < APPLICATION_KEY_REPLAY_NONCE_MASK)
     {
-        return;
+        if (nonce.compare_exchange_weak(current, current + 1, std::memory_order_relaxed))
+            return APPLICATION_KEY_REPLAY_PREFIX | (current + 1);
     }
-    const uint64_t focusToken = _CaptureFocusSessionToken();
-    if (focusToken == 0)
+    return 0;
+}
+constexpr ULONGLONG kApplicationKeyReplayWaitMs = 2000;
+} // namespace
+
+bool CMetasequoiaIME::_IsDeferredKeyOwnerCurrent(ITfContext *context, uint64_t focusGeneration,
+                                                   HWND foregroundWindow) const
+{
+    const auto localCurrent = [this, context, focusGeneration, foregroundWindow]() {
+        return context && _pThreadMgr && focusGeneration == _deferredKeyFocusGeneration &&
+               !_localSessionResetPending.load(std::memory_order_acquire) && foregroundWindow &&
+               GetForegroundWindow() == foregroundWindow;
+    };
+    if (!localCurrent()) return false;
+    // 离线没有 worker Ready 令牌，仍须核验真实线程焦点与顶层 context；document focus 本身不代表前台。
+    ITfThreadMgr *threadMgr = _pThreadMgr;
+    threadMgr->AddRef();
+    BOOL threadFocused = FALSE;
+    ITfDocumentMgr *documentMgr = nullptr;
+    ITfContext *topContext = nullptr;
+    bool matches = false;
+    if (SUCCEEDED(threadMgr->IsThreadFocus(&threadFocused)) && threadFocused &&
+        SUCCEEDED(threadMgr->GetFocus(&documentMgr)) && documentMgr &&
+        SUCCEEDED(documentMgr->GetTop(&topContext)) && topContext)
+        matches = topContext == context;
+    matches = matches && SUCCEEDED(threadMgr->IsThreadFocus(&threadFocused)) && threadFocused;
+    if (topContext) topContext->Release();
+    if (documentMgr) documentMgr->Release();
+    // 释放引用也可能重入；最后再次核验本地身份。
+    threadMgr->Release();
+    return matches && _pThreadMgr == threadMgr && localCurrent();
+}
+
+bool CMetasequoiaIME::_IsDeferredApplicationTextCurrent(uint64_t replayToken, uint64_t focusGeneration,
+                                                           ITfContext *context, HWND foregroundWindow,
+                                                           uint64_t focusToken)
+{
+    if (!_IsDeferredKeyReplayCurrent(replayToken, focusGeneration, context)) return false;
+    const bool enabled = !_IsKeyboardDisabled();
+    const bool ready = _serverUnavailableFallbackActive || _IsFocusSessionCurrent(focusToken, context);
+    const bool ownerCurrent = _IsDeferredKeyOwnerCurrent(context, focusGeneration, foregroundWindow);
+    // COM 查询可能清掉或替换槽，最后只读本地身份与在线 Ready 令牌。
+    return enabled && ready && ownerCurrent && !_localSessionResetPending.load(std::memory_order_acquire) &&
+        GetForegroundWindow() == foregroundWindow &&
+        _IsDeferredKeyReplayCurrent(replayToken, focusGeneration, context) &&
+        (_serverUnavailableFallbackActive || _IsFocusSessionCurrent(focusToken));
+}
+
+bool CMetasequoiaIME::_HasPendingApplicationKeyReplay() const
+{
+    return _applicationKeyReplay.marker != 0 &&
+           !(_applicationKeyReplay.downObserved && _applicationKeyReplay.upSent);
+}
+
+void CMetasequoiaIME::_ClearApplicationKeyReplay()
+{
+    const auto cancelled = _applicationKeyReplay;
+    _applicationKeyReplay = {};
+    if (cancelled.context) cancelled.context->Release();
+    if (cancelled.downSent && !cancelled.upSent)
     {
-        return;
-    }
-    // Posted rather than sent from inside the edit session, so the key reaches the application after the document holds the committed syllable.
-    _koreanKeyReplayFocusToken = focusToken;
-    if (!PostMessage(_msgWndHandle, WM_ReplayKoreanSyllableKey, static_cast<WPARAM>(virtualKey), 0))
-    {
-        _koreanKeyReplayFocusToken = 0;
+        // 取消后只补抬起，不能把按下发送到新的焦点。系统拒绝注入时只能尽力释放。
+        INPUT release = {};
+        release.type = INPUT_KEYBOARD;
+        release.ki.wVk = static_cast<WORD>(cancelled.virtualKey);
+        release.ki.dwFlags = KEYEVENTF_KEYUP;
+        if (cancelled.virtualKey != VK_TAB && cancelled.virtualKey != VK_RETURN &&
+            cancelled.virtualKey != VK_BACK && cancelled.virtualKey != VK_ESCAPE)
+            release.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+        release.ki.dwExtraInfo = cancelled.marker;
+        (void)SendInput(1, &release, sizeof(INPUT));
     }
 }
 
-void CMetasequoiaIME::_RunKoreanSyllableKeyReplay(UINT virtualKey)
+bool CMetasequoiaIME::_QueueKoreanSyllableKeyReplay(UINT virtualKey, ITfContext *context, uint64_t replayToken)
 {
-    // A focus change since the commit means the key would land in another editor, so it is dropped.
-    if (_koreanKeyReplayFocusToken == 0 || !_IsFocusSessionCurrent(_koreanKeyReplayFocusToken) ||
-        !msime::tsf::is_korean_caret_or_edit_key(virtualKey))
+    if (!_msgWndHandle || !(msime::tsf::is_korean_caret_or_edit_key(virtualKey) || virtualKey == VK_BACK || virtualKey == VK_ESCAPE) ||
+        !_IsDeferredKeyReplayCurrent(replayToken, _deferredKeyFocusGeneration, context) ||
+        _HasPendingApplicationKeyReplay())
+        return false;
+    const uint64_t focusToken = _CaptureFocusSessionToken();
+    if (!focusToken && !_serverUnavailableFallbackActive) return false;
+    const UINT marker = NextApplicationKeyReplayMarker();
+    if (!marker) return false;
+    _ClearApplicationKeyReplay();
+    context->AddRef();
+    _applicationKeyReplay.context = context;
+    _applicationKeyReplay.marker = marker;
+    _applicationKeyReplay.virtualKey = virtualKey;
+    _applicationKeyReplay.focusToken = focusToken;
+    _applicationKeyReplay.focusGeneration = _deferredKeyFocusGeneration;
+    _applicationKeyReplay.foregroundWindow = _deferredKeyInFlight.foregroundWindow
+        ? _deferredKeyInFlight.foregroundWindow : GetForegroundWindow();
+    _applicationKeyReplay.deadline = GetTickCount64() + kApplicationKeyReplayWaitMs;
+    // 投递失败仍保留屏障，由已有 UI 定时器尝试发送；这里不能同步进入应用按键处理。
+    (void)PostMessage(_msgWndHandle, WM_ReplayKoreanSyllableKey, static_cast<WPARAM>(marker), 0);
+    return true;
+}
+
+void CMetasequoiaIME::_RunKoreanSyllableKeyReplay(UINT marker)
+{
+    if (!marker || marker != _applicationKeyReplay.marker || !_HasPendingApplicationKeyReplay()) return;
+    ITfContext *context = _applicationKeyReplay.context;
+    context->AddRef();
+    const auto captured = _applicationKeyReplay;
+    const bool ready = _serverUnavailableFallbackActive || _IsFocusSessionCurrent(captured.focusToken, context);
+    const bool ownerCurrent = _IsDeferredKeyOwnerCurrent(context, captured.focusGeneration, captured.foregroundWindow);
+    context->Release();
+    // 查询焦点可能重入 COM，再次检查槽身份。
+    if (marker != _applicationKeyReplay.marker) return;
+    if (!ready || !ownerCurrent || _localSessionResetPending.load(std::memory_order_acquire) ||
+        GetForegroundWindow() != captured.foregroundWindow ||
+        (!_serverUnavailableFallbackActive && !_IsFocusSessionCurrent(captured.focusToken)) ||
+        _applicationKeyReplay.focusGeneration != _deferredKeyFocusGeneration ||
+        GetTickCount64() >= _applicationKeyReplay.deadline)
     {
+        _ClearApplicationKeyReplay();
+        _ScheduleDeferredKeyDownDrain(false);
         return;
     }
+    if (_applicationKeyReplay.downSent && _applicationKeyReplay.upSent) return;
     INPUT inputs[2] = {};
     inputs[0].type = INPUT_KEYBOARD;
-    inputs[0].ki.wVk = static_cast<WORD>(virtualKey);
-    // Navigation and editing keys other than Tab and Enter live on the extended block; without the flag some applications read them as keypad keys.
-    if (virtualKey != VK_TAB && virtualKey != VK_RETURN)
-    {
+    inputs[0].ki.wVk = static_cast<WORD>(_applicationKeyReplay.virtualKey);
+    if (_applicationKeyReplay.virtualKey != VK_TAB && _applicationKeyReplay.virtualKey != VK_RETURN &&
+        _applicationKeyReplay.virtualKey != VK_BACK && _applicationKeyReplay.virtualKey != VK_ESCAPE)
         inputs[0].ki.dwFlags = KEYEVENTF_EXTENDEDKEY;
-    }
-    inputs[0].ki.dwExtraInfo = KOREAN_SYLLABLE_SENDINPUT_EXTRA_INFO;
+    inputs[0].ki.dwExtraInfo = marker;
     inputs[1] = inputs[0];
     inputs[1].ki.dwFlags |= KEYEVENTF_KEYUP;
-    (void)SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
-    _InvalidateSmartPunctuationShadow();
+    // 部分发送后只能补抬起，不能让已经进入输入流的方向键再移动一次。
+    const bool releaseOnly = _applicationKeyReplay.downSent;
+    const UINT sent = SendInput(releaseOnly ? 1u : 2u, releaseOnly ? &inputs[1] : inputs, sizeof(INPUT));
+    if (marker != _applicationKeyReplay.marker)
+    {
+        if (!releaseOnly && sent == 1) (void)SendInput(1, &inputs[1], sizeof(INPUT));
+        return;
+    }
+    if (releaseOnly)
+        _applicationKeyReplay.upSent = sent == 1;
+    else
+    {
+        _applicationKeyReplay.downSent = sent > 0;
+        _applicationKeyReplay.upSent = sent == 2;
+    }
+    if (sent) _InvalidateSmartPunctuationShadow();
+    if (!_HasPendingApplicationKeyReplay()) _ScheduleDeferredKeyDownDrain(false);
+}
+
+bool CMetasequoiaIME::_ObserveApplicationKeyReplay(ITfContext *context, UINT virtualKey, ULONG_PTR marker)
+{
+    if (marker != _applicationKeyReplay.marker || virtualKey != _applicationKeyReplay.virtualKey ||
+        context != _applicationKeyReplay.context || !_applicationKeyReplay.downSent ||
+        _applicationKeyReplay.focusGeneration != _deferredKeyFocusGeneration)
+        return false;
+    if (!_applicationKeyReplay.downObserved && GetTickCount64() >= _applicationKeyReplay.deadline)
+    {
+        _ClearApplicationKeyReplay();
+        _ScheduleDeferredKeyDownDrain(false);
+        return false;
+    }
+    context->AddRef();
+    const auto captured = _applicationKeyReplay;
+    const bool ready = _serverUnavailableFallbackActive || _IsFocusSessionCurrent(captured.focusToken, context);
+    const bool ownerCurrent = _IsDeferredKeyOwnerCurrent(context, captured.focusGeneration, captured.foregroundWindow);
+    context->Release();
+    if (!ready || !ownerCurrent || _localSessionResetPending.load(std::memory_order_acquire) ||
+        GetForegroundWindow() != captured.foregroundWindow ||
+        (!_serverUnavailableFallbackActive && !_IsFocusSessionCurrent(captured.focusToken)) ||
+        marker != _applicationKeyReplay.marker ||
+        _applicationKeyReplay.focusGeneration != _deferredKeyFocusGeneration) return false;
+    // Test 是查询而非应用处理完成；只能投递后续 drain，让当前按下先返回给应用。已确认身份保留到下次回放或 clear，兼容重复 probe。
+    if (!_applicationKeyReplay.downObserved)
+    {
+        _applicationKeyReplay.downObserved = true;
+        if (!_HasPendingApplicationKeyReplay()) _ScheduleDeferredKeyDownDrain(false);
+    }
+    return true;
+}
+
+void CMetasequoiaIME::_PollApplicationKeyReplay()
+{
+    if (_HasPendingApplicationKeyReplay())
+        _RunKoreanSyllableKeyReplay(_applicationKeyReplay.marker);
+    if (!_HasPendingApplicationKeyReplay()) _ScheduleDeferredKeyDownDrain(false);
 }
 
 //+---------------------------------------------------------------------------
@@ -594,6 +760,25 @@ HRESULT CMetasequoiaIME::_ApplyKeyboardCancellation(TfEditCookie ec, ITfContext 
             // before cleaning its presenter. Never clean a re-entrant new one.
             return _IsCompositionCurrent(composition) ? OnCompositionTerminated(ec, composition) : S_OK;
         });
+}
+
+HRESULT CMetasequoiaIME::_HandleHostCandidateNavigation(TfEditCookie ec, ITfContext *context, uint32_t command)
+{
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!Global::IsUiLessMode() || !host || !host->valid() || !_IsComposing()) return S_FALSE;
+    std::string raw, error;
+    if (command && !host->command(command, &raw, &error)) return E_FAIL;
+    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, context, FANY_IME_NO_REQUEST_ID);
+}
+
+HRESULT CMetasequoiaIME::_HandleHostOnlineCandidates(TfEditCookie ec, ITfContext *context,
+                                                    const std::wstring &payload)
+{
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!Global::IsUiLessMode() || !host || !host->valid() || !_IsComposing()) return S_OK;
+    const std::string encoded(payload.begin(), payload.end());
+    if (!host->apply_online_update(encoded)) return S_OK;
+    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, context, FANY_IME_NO_REQUEST_ID);
 }
 
 bool CMetasequoiaIME::_CancelHostComposition()
@@ -770,6 +955,26 @@ HRESULT CMetasequoiaIME::_HandleCommitCandidateAndContinue(TfEditCookie ec, _In_
         engine->AddVirtualKey(value);
     }
     return _HandleCompositionInputWorker(engine, ec, pContext, FANY_IME_NO_REQUEST_ID);
+}
+
+HRESULT CMetasequoiaIME::_HandleCandidateContinuation(TfEditCookie ec, _In_ ITfContext *pContext,
+                                                        const std::wstring &text)
+{
+    std::string payload;
+    for (const auto ch : text)
+    {
+        if (ch <= 0 || ch > 0x7f)
+        {
+            return S_FALSE;
+        }
+        payload.push_back(static_cast<char>(ch));
+    }
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!host || !msime::tsf::ContinueHostCandidate(*host, payload))
+    {
+        return S_FALSE;
+    }
+    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
 }
 
 HRESULT CMetasequoiaIME::_HandleUpdateVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext,
@@ -1081,8 +1286,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
     }
 
     std::wstring uiLessPreedit;
-    std::wstring uiLessCandidatePage;
-    int uiLessSelection = 0;
+    FanyImeUiLessPage::Payload uiLessPage;
     bool gotUiLessComposition = false;
 
     /* 一般来说，readingStrings 数组中只有一个元素，这个元素就是当前输入的拼音 */
@@ -1102,26 +1306,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
         }
         if (receivedData->msg_type == Global::DataFromServerMsgType::UiLessComposition)
         {
-            const std::wstring payload(receivedData->candidate_string);
-            const size_t firstTab = payload.find(L'\t');
-            if (firstTab == std::wstring::npos)
-            {
-                uiLessPreedit = payload;
-            }
-            else
-            {
-                uiLessPreedit = payload.substr(0, firstTab);
-                const size_t secondTab = payload.find(L'\t', firstTab + 1);
-                if (secondTab == std::wstring::npos)
-                {
-                    uiLessCandidatePage = payload.substr(firstTab + 1);
-                }
-                else
-                {
-                    uiLessCandidatePage = payload.substr(firstTab + 1, secondTab - firstTab - 1);
-                    uiLessSelection = _wtoi(payload.c_str() + secondTab + 1);
-                }
-            }
+            uiLessPage = FanyImeUiLessPage::Parse(receivedData->candidate_string);
+            uiLessPreedit = uiLessPage.preedit;
             gotUiLessComposition = true;
         }
         else if (receivedData->msg_type == Global::DataFromServerMsgType::Preedit)
@@ -1272,17 +1458,17 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
         {
             if (gotUiLessComposition && _pCandidateListUIPresenter)
             {
-                _pCandidateListUIPresenter->_ApplyUiLessCandidatePage(uiLessCandidatePage, uiLessSelection);
+                _pCandidateListUIPresenter->_ApplyUiLessPayload(uiLessPage);
             }
             PerfTimer clearListTimer;
-            if (!gotUiLessComposition)
+            if (!gotUiLessComposition || !uiLessPage.hasPage)
             {
                 _pCandidateListUIPresenter->_ClearList();
             }
             clearListElapsedMs = clearListTimer.ElapsedMs();
             PerfTimer setTextTimer;
             _pCandidateListUIPresenter->_SetText(&candidateList, TRUE);
-            for (UINT i = 0; i < candidateList.Count(); ++i)
+            for (UINT i = 0; !Global::IsUiLessMode() && i < candidateList.Count(); ++i)
             {
                 if (const auto *item = candidateList.GetAt(i); item && item->_EngineHighlighted)
                 {
@@ -1303,7 +1489,9 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
     {
         if (gotUiLessComposition)
         {
-            _pCandidateListUIPresenter->_ApplyUiLessCandidatePage(uiLessCandidatePage, uiLessSelection);
+            if (!uiLessPage.hasPage)
+                _pCandidateListUIPresenter->_ClearList();
+            _pCandidateListUIPresenter->_ApplyUiLessPayload(uiLessPage);
             _pCandidateListUIPresenter->_NotifyUiLessHost();
         }
         else
@@ -1878,6 +2066,27 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
             _pCandidateListUIPresenter->_ConsumeUiLessCompositionReply(requestId);
         }
         return S_OK;
+    }
+
+    if (Global::IsUiLessMode())
+    {
+        auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+        if (host && host->valid())
+        {
+            uint32_t command = 0;
+            switch (keyFunction) {
+            case FUNCTION_MOVE_PAGE_UP: command = MSIME_PREVIOUS_PAGE; break;
+            case FUNCTION_MOVE_PAGE_DOWN: command = MSIME_NEXT_PAGE; break;
+            case FUNCTION_MOVE_PAGE_TOP: command = MSIME_FIRST_CANDIDATE; break;
+            case FUNCTION_MOVE_PAGE_BOTTOM: command = MSIME_LAST_CANDIDATE; break;
+            }
+            if (command)
+            {
+                if (_pCandidateListUIPresenter)
+                    _pCandidateListUIPresenter->_ConsumeUiLessCompositionReply(requestId);
+                return _HandleHostCandidateNavigation(ec, pContext, command);
+            }
+        }
     }
 
     if ((keyFunction == FUNCTION_MOVE_PAGE_UP) || (keyFunction == FUNCTION_MOVE_PAGE_DOWN) ||

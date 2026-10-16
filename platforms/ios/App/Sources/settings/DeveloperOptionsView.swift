@@ -227,7 +227,6 @@ private enum DeveloperDiagnostics {
       (TouchToolbarLocalPreference.defaults, TouchToolbarLocalPreference.keys),
       (ImeModeMemoryPreference.defaults, [ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey]),
       (EnglishSuggestionsPreference.defaults, [EnglishSuggestionsPreference.enabledKey]),
-      (InlinePreeditPreference.defaults, [InlinePreeditPreference.styleKey, InlinePreeditPreference.key]),
       (CloudCandidatePreference.defaults, [CloudCandidatePreference.key]),
       (CandidatePageSizePreference.defaults, [CandidatePageSizePreference.key]),
       (CandidatePalette.defaults, [CandidatePalette.followsDesktopKey]),

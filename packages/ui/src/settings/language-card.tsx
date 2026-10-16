@@ -41,6 +41,8 @@ function schemeName(scheme: TouchKeyboardScheme, wubiProfile: Preferences["wubi_
       return "全拼";
     case "nine_key":
       return "全拼 9 键";
+    case "nine_key_shuangpin":
+      return "九键双拼";
     case "fourteen_key":
       return "全拼 14 键";
     case "wubi":
@@ -151,7 +153,12 @@ export function LanguageCard({
       return options;
     }
     for (const scheme of schemes) {
-      if (scheme === "quanpin" || scheme === "fourteen_key" || scheme === "nine_key")
+      if (
+        scheme === "quanpin" ||
+        scheme === "fourteen_key" ||
+        scheme === "nine_key" ||
+        scheme === "nine_key_shuangpin"
+      )
         options.push(plain(scheme));
     }
     const shuangpin = schemes.filter(isShuangpin);

@@ -92,7 +92,7 @@ struct PersonalDictionaryImport: Codable, Sendable {
   /// 共享解析器一次收的文本上限（client-core `cloud::dictionary::MAX_IMPORT_BYTES`）。超过它的文本整份被拒绝，不是只读前一部分。
   static let parsedTextBytes = 65_536
 
-  /// 转出的文本可能比原文件长，而共享解析器一次只看 1000 行（client-core `import::MAX_ENTRIES`）、只收 `parsedTextBytes` 字节的文本：只送开头 `limit` 行，并且不超过 `parsedTextBytes`。多送一行（1001），解析器才知道后面还有，报告「文件过长」；先到字节上限时由 `scel` 补上这个报告。
+  /// 转出的文本可能比原文件长，而共享解析器一次只看 1000 行（client-services `import::MAX_ENTRIES`）、只收 `parsedTextBytes` 字节的文本：只送开头 `limit` 行，并且不超过 `parsedTextBytes`。多送一行（1001），解析器才知道后面还有，报告「文件过长」；先到字节上限时由 `scel` 补上这个报告。
   static func leadingRows(_ text: String, limit: Int = 1001) -> String {
     var kept = ""
     var bytes = 0

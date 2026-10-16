@@ -97,6 +97,9 @@ struct TsfLocalConfig {
   bool dedicated_english = false;
   // 组字时 ';' 和 '\'' 选第二、第三个候选，TIP 据此把这两个键归为数字选词（SecondThirdCandidatePolicy.h）。
   bool second_third_candidate = false;
+  bool wubi_candidate_selection = false;
+  wchar_t wubi_second_key = L';';
+  wchar_t wubi_third_key = L'\'';
   // 中文标点下 '\'' 出「」、'"' 出『』（直角引号），'[' ']' 出〖〗（空心括号）。由 apply_punctuation_marks 从偏好算出。
   bool corner_quotes = false;
   bool hollow_brackets = false;
@@ -125,7 +128,9 @@ voice_composition_bytes(uint32_t message, std::wstring_view text,
 struct UiSelectionFrames {
   std::optional<ReplyBytes> before_trigger;
   std::vector<uint8_t> worker;
+  std::vector<std::vector<uint8_t>> worker_prefix{};
 };
+std::optional<UiSelectionFrames> ui_continued_selection(std::string_view payload, uint16_t transaction);
 std::optional<UiSelectionFrames> ui_complete_selection(std::string_view text);
 std::optional<UiSelectionFrames>
 ui_partial_selection(std::string_view raw, std::string_view selected_prefix,
@@ -140,5 +145,9 @@ EncodedReply partial_selection(uint64_t request, std::string_view remaining_raw,
                                std::string_view display_preedit);
 EncodedReply uiless_reply(uint64_t request, std::string_view display_preedit,
                           const std::vector<std::string> &page,
-                          size_t highlighted);
+                          size_t highlighted, uint64_t generation = 0);
+std::optional<std::vector<uint8_t>>
+uiless_candidates_bytes(std::string_view display_preedit,
+                        const std::vector<std::string> &page,
+                        size_t highlighted, uint64_t generation);
 } // namespace msime::windows

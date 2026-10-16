@@ -297,3 +297,66 @@ test("macOS standalone keyboard does not expose an unauthenticated voice panel",
   await waitFor(() => expect(screen.getByRole("main", { name: "屏幕键盘" })).toBeTruthy());
   expect(screen.queryByRole("button", { name: "打开语音输入" })).toBeNull();
 });
+
+// macOS 不提供间距滑块：面板固定用默认间距，存下的旧值不再生效。
+test("the macOS keyboard draws the default spacing whatever is stored", async () => {
+  const value = snapshot(1, "dark");
+  value.preferences.touch_key_spacing_tenths = 35;
+  value.preferences.touch_row_spacing_tenths = 95;
+  const gaps = () => {
+    const grid = screen
+      .getByRole("main", { name: "屏幕键盘" })
+      .querySelector<HTMLDivElement>("[data-keyboard-layout-grid]");
+    return [
+      grid?.style.getPropertyValue("--keyboard-key-gap"),
+      grid?.style.getPropertyValue("--keyboard-row-gap"),
+    ];
+  };
+  const load = vi.fn(async () => value);
+  const view = render(
+    <DesktopKeyboard
+      client={panel}
+      preferences={{ host: testHost({ platform: "macos" }), load }}
+    />,
+  );
+  await waitFor(() => expect(load).toHaveBeenCalledOnce());
+  await act(async () => {});
+  expect(gaps()).toEqual(["6px", "7px"]);
+  view.unmount();
+
+  // 同样的存储在 Linux 上照旧生效。
+  const linuxLoad = vi.fn(async () => value);
+  render(
+    <DesktopKeyboard
+      client={panel}
+      preferences={{ host: testHost({ platform: "linux" }), load: linuxLoad }}
+    />,
+  );
+  await waitFor(() => expect(gaps()).toEqual(["3.5px", "9.5px"]));
+});
+
+// macOS 的屏幕键盘与原生面板一样跟随颜色模式（`surface_themes_follow`），存下的屏幕键盘主题不起作用；Windows 照旧按它着色。
+test("the keyboard panel follows the colour mode where the host's surfaces do", async () => {
+  render(
+    <DesktopKeyboard
+      client={panel}
+      preferences={{
+        host: testHost({ platform: "macos" }),
+        load: async () => snapshot(1, "light", "dark"),
+      }}
+    />,
+  );
+  // 面板载入前默认画深色，所以这里用浅色的颜色模式配深色的单独设置，等到的浅色只能来自颜色模式。
+  await waitFor(() => expect(theme()).toBe("light"));
+  cleanup();
+  render(
+    <DesktopKeyboard
+      client={panel}
+      preferences={{
+        host: testHost({ platform: "windows" }),
+        load: async () => snapshot(1, "dark", "light"),
+      }}
+    />,
+  );
+  await waitFor(() => expect(theme()).toBe("light"));
+});

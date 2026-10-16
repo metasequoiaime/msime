@@ -22,6 +22,8 @@ final class CompositionBoundaryTests: XCTestCase {
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .wubi, boundary: boundary), .commitRaw)
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .nineKey, boundary: boundary), .finishComposition,
                      "nine-key raw keys are digits")
+      XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .nineKeyShuangpin, boundary: boundary), .finishComposition,
+                     "九键双拼原码是数字，切换模式和回车不能把组码直接提交")
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .japanese, boundary: boundary), .finishComposition,
                      "Japanese confirms the kana")
     }

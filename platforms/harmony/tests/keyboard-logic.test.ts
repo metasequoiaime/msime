@@ -97,6 +97,15 @@ import {
   DIRECTION_DOWN,
 } from "../entry/src/main/ets/keyboard/input/JapaneseNineKeyLayout";
 import { JapaneseNineKeyActions } from "../entry/src/main/ets/keyboard/input/JapaneseNineKeyActions";
+import {
+  nineKeyShuangpinCompactHint,
+  nineKeyShuangpinDescription,
+  nineKeyShuangpinLabel,
+  nineKeyShuangpinProblemMessage,
+  nineKeyShuangpinProfileTitle,
+  normalizedNineKeyShuangpinProfile,
+  validNineKeyShuangpinKey,
+} from "../entry/src/main/ets/keyboard/input/NineKeyShuangpinKeypad";
 import { ChineseHelpcodePolicy } from "../entry/src/main/ets/keyboard/input/ChineseHelpcodePolicy";
 import { WubiCodeHintPolicy } from "../entry/src/main/ets/keyboard/input/WubiCodeHintPolicy";
 import { LetterKeyFacePolicy } from "../entry/src/main/ets/keyboard/input/LetterKeyFacePolicy";
@@ -222,6 +231,7 @@ import { AppThemeStore } from "../entry/src/main/ets/keyboard/skin/AppThemeStore
 import {
   FunctionPanelItem,
   FunctionPanelPolicy,
+  PickerGrid,
 } from "../entry/src/main/ets/keyboard/FunctionPanelPolicy";
 import { KeyboardIconPaths } from "../entry/src/main/ets/keyboard/KeyboardIconPaths";
 import { OneHandedMode, OneHandedPolicy } from "../entry/src/main/ets/keyboard/OneHandedPolicy";
@@ -1255,6 +1265,59 @@ group("merges translation rows without unbounded display growth", () => {
   check(entries[0].translation === "hello / greeting", "oversized glosses are ignored");
 });
 
+group("touch keyboards request only the primary translation language", () => {
+  // 手机上只显示一种候选翻译：偏好里配了第二种语言，共享查询会照样带上它，触屏键盘不请求它、不查它的离线词典，候选栏也只预留一行。
+  const query: TranslationQuery = {
+    generation: 4,
+    target_language: "ja",
+    target_languages: ["ja", "en"],
+    candidates: [{ text: "你好", source: 0 }],
+    english_gloss: true,
+    offline_gloss_languages: ["ja", "de"],
+  };
+  TranslationPolicy.keepPrimaryOnly(query);
+  check(
+    TranslationPolicy.targets(query).join(",") === "ja",
+    "the secondary language is not requested",
+  );
+  check(
+    TranslationPolicy.offlineTargets(query).join(",") === "ja",
+    "only the primary language's offline dictionary is read",
+  );
+  check(!query.english_gloss, "an English secondary language draws no offline English gloss");
+  const english: TranslationQuery = {
+    generation: 5,
+    target_language: "en",
+    target_languages: ["en", "fr"],
+    candidates: [{ text: "你好", source: 0 }],
+    english_gloss: true,
+    offline_gloss_languages: ["fr"],
+  };
+  TranslationPolicy.keepPrimaryOnly(english);
+  check(
+    TranslationPolicy.targets(english).join(",") === "en" &&
+      english.english_gloss &&
+      TranslationPolicy.offlineTargets(english).length === 0,
+    "an English primary keeps its offline gloss and drops the secondary dictionary",
+  );
+  const providers = {
+    customEnabled: true,
+    customEndpoint: "https://translate.example/api",
+    niuTransEnabled: false,
+    niuTransAppId: "",
+    niuTransApiKey: "",
+    tencentEnabled: false,
+    tencentSecretId: "",
+    tencentSecretKey: "",
+  };
+  check(
+    CandidateGlossLayoutPolicy.rows(true, TranslationPolicy.targets(query), true, providers, [
+      "ja",
+    ]) === 1,
+    "a configured secondary language reserves no second gloss row",
+  );
+});
+
 group("offline dictionaries fill only what the user's own translator left", () => {
   const query: TranslationQuery = {
     generation: 3,
@@ -2246,6 +2309,10 @@ group("preference ids resolve to their scheme", () => {
     KeyboardScheme.fromPreferenceId("nine_key") === KeyboardScheme.QUANPIN_NINE_KEY,
     "nine_key is the quanpin nine-key scheme, not a layout flag",
   );
+  check(
+    KeyboardScheme.fromPreferenceId("nine_key_shuangpin") === KeyboardScheme.NINE_KEY_SHUANGPIN,
+    "nine_key_shuangpin resolves to the nine-key shuangpin scheme",
+  );
   check(KeyboardScheme.fromPreferenceId("unknown") === null, "an unknown id resolves to nothing");
   check(KeyboardScheme.fromPreferenceId(null) === null, "a null id resolves to nothing");
 });
@@ -2258,6 +2325,11 @@ group("engine preferences map back to the right scheme", () => {
   check(
     KeyboardScheme.fromPreferences("quanpin", null, "nine_key") === KeyboardScheme.QUANPIN_NINE_KEY,
     "quanpin plus nine_key is the nine-key scheme",
+  );
+  check(
+    KeyboardScheme.fromPreferences("quanpin", null, "nine_key_shuangpin") ===
+      KeyboardScheme.NINE_KEY_SHUANGPIN,
+    "quanpin plus nine_key_shuangpin is the nine-key shuangpin scheme",
   );
   check(
     KeyboardScheme.fromPreferences("japanese", null, "nine_key") ===
@@ -2288,6 +2360,32 @@ group("engine preferences map back to the right scheme", () => {
   );
 });
 
+group("nine-key shuangpin keypad labels and validation follow the host contract", () => {
+  const face = { key: "2", initials: ["b", "p"], finals: ["a", "ai"], zeroInitial: true };
+  check(nineKeyShuangpinLabel(face) === "零 b p\na ai", "face label includes initials and finals");
+  check(nineKeyShuangpinCompactHint(face) === "零 b p", "compact hint uses initials");
+  check(
+    nineKeyShuangpinDescription(face) === "2，声母 b p 和零声母，韵母 a ai",
+    "screen reader description includes both parts",
+  );
+  check(normalizedNineKeyShuangpinProfile("unknown") === "migala3", "unknown profile defaults");
+  check(nineKeyShuangpinProfileTitle("gushi2_low") === "辜氏 2 低重码", "profile title resolves");
+  check(
+    validNineKeyShuangpinKey("initials", "2") && !validNineKeyShuangpinKey("initials", "20"),
+    "initial keys are one digit",
+  );
+  check(
+    validNineKeyShuangpinKey("zero_initials", "20") &&
+      !validNineKeyShuangpinKey("zero_initials", "2"),
+    "zero initials are two digits",
+  );
+  check(
+    nineKeyShuangpinProblemMessage("invalid_key", "zero_initials", "a", "2") ===
+      "零声母「a」的键「2」不对：零声母要两位数字",
+    "invalid key has a useful message",
+  );
+});
+
 group("enabled schemes keep the fixed order and never resolve to nothing", () => {
   const enabled = KeyboardScheme.enabledFromPreferenceIds(["wubi", "quanpin", "xiaohe"]);
   check(enabled.length === 3, "three known ids yield three schemes");
@@ -2304,7 +2402,7 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
   );
   check(
     KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
-      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 6,
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 7,
     "a null list means every scheme but the six the user turns on",
   );
 });
@@ -2355,7 +2453,7 @@ group("输入方式面板里双拼只留用户设置的那一种（#6450）", ()
   check(
     KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(
       KeyboardScheme.HANDWRITING,
-    ) < 7,
+    ) < 8,
     "手写回到第一页的八格之内（英文占第三格）",
   );
   check(
@@ -2847,7 +2945,7 @@ group("全拼 14 键的键表与引擎的组码表是同一张", () => {
 group("全拼 14 键是追加在最后的一张卡，只给全拼，默认不启用", () => {
   const fourteen: SchemeDefinition = KeyboardScheme.QUANPIN_FOURTEEN_KEY;
   check(
-    KeyboardScheme.SCHEMES[16] === fourteen && KeyboardScheme.SCHEMES.length === 17,
+    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 18,
     "按 append-only 排在笔画之后",
   );
   check(
@@ -2917,8 +3015,10 @@ group("14 键的网格与键面", () => {
   check(
     KeyboardScheme.keyGrid("fourteen_key", "quanpin", false) === KeyGrid.FOURTEEN_KEY &&
       KeyboardScheme.keyGrid("nine_key", "quanpin", false) === KeyGrid.NINE_KEY &&
+      KeyboardScheme.keyGrid("nine_key_shuangpin", "quanpin", false) ===
+        KeyGrid.NINE_KEY_SHUANGPIN &&
       KeyboardScheme.keyGrid("twenty_six_key", "quanpin", false) === KeyGrid.NONE,
-    "全拼的 14 键、九键各开各的网格，26 键不开",
+    "全拼的 14 键、九键和九键双拼各开各的网格，26 键不开",
   );
   check(
     KeyboardScheme.keyGrid("fourteen_key", "quanpin", true) === KeyGrid.NONE &&
@@ -2931,8 +3031,11 @@ group("14 键的网格与键面", () => {
     "日语九键和其他方案不开引擎网格",
   );
   check(
-    KeyGrid.NONE === 0 && KeyGrid.NINE_KEY === 1 && KeyGrid.FOURTEEN_KEY === 2,
-    "取值与 msime_client_set_key_grid 的 0、1、2 相同",
+    KeyGrid.NONE === 0 &&
+      KeyGrid.NINE_KEY === 1 &&
+      KeyGrid.FOURTEEN_KEY === 2 &&
+      KeyGrid.NINE_KEY_SHUANGPIN === 3,
+    "取值与 msime_client_set_key_grid 的 0、1、2、3 相同",
   );
   check(KeyboardScheme.usesFourteenKeyFace(true, false, "none"), "14 键布局画 14 键键面");
   check(
@@ -3075,6 +3178,37 @@ group("九键外框底行：符 | 123 | 空格 | 中 | 回车，数字层把 符
     letters[letters.length - 2].kind === NineKeyActionKind.LANGUAGE &&
       digits[digits.length - 2].kind === NineKeyActionKind.LANGUAGE,
     "中/英 两层都紧挨回车",
+  );
+});
+
+group("26 键底行与九键一样：符 | 123 | 空格 | 中 | 回车；14 键和大千注音保留逗号句号", () => {
+  const leads = (
+    scheme: string,
+    english: boolean,
+    fourteenKey: boolean,
+    symbols: boolean,
+  ): boolean =>
+    KeyboardScheme.designRowLeadsWithSymbolPanel(
+      SchemeCompositionPolicy.selectedRulesScheme(scheme, english, "none"),
+      KeyboardScheme.usesFourteenKeyFace(fourteenKey, english, "none"),
+      symbols,
+    );
+  for (const scheme of ["quanpin", "shuangpin", "wubi", "korean", "vietnamese", "tibetan"]) {
+    check(leads(scheme, false, false, false), `${scheme} 的 26 键字母层以 符 打头`);
+    check(leads(scheme, true, false, false), `${scheme} 切到英文仍以 符 打头`);
+    check(!leads(scheme, false, false, true), `${scheme} 的符号行不带 符`);
+  }
+  check(!leads("quanpin", false, true, false), "14 键第三行已有 符，底行保留逗号句号");
+  check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行以 符 打头");
+  check(!leads("zhuyin", false, false, false), "大千注音保留逗号句号");
+  check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行以 符 打头");
+  check(
+    KeyboardScheme.designRowLeadsWithSymbolPanel(
+      SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
+      false,
+      false,
+    ),
+    "本地模式画 26 键，底行以 符 打头",
   );
 });
 
@@ -3550,34 +3684,62 @@ group("the wubi hint shows only the untyped suffix", () => {
 
 group("the letter face and the engine input are decided separately", () => {
   check(
-    LetterKeyFacePolicy.face("a", true, false, false) === "a",
-    "Chinese mode draws lowercase faces, as the design, Android and iOS do",
+    LetterKeyFacePolicy.face("a", true, false, false, false) === "A",
+    "Chinese mode draws uppercase faces, as Sogou, WeChat, Baidu, Doubao, Android and iOS do",
   );
   check(
-    LetterKeyFacePolicy.face("a", true, false, true) === "A",
+    LetterKeyFacePolicy.face("a", true, false, false, true) === "A",
     "a Chinese key that will type uppercase helpcode draws it",
   );
+  // 中文的本地输入模式（英文补全、Unicode、快捷短语等）按字面输入，键面回到小写。
   check(
-    LetterKeyFacePolicy.face("a", true, true, false) === "a",
-    "a local mode keeps the lowercase face",
+    LetterKeyFacePolicy.face("a", true, false, true, false) === "a",
+    "a Chinese local mode draws the lowercase it types",
   );
   check(
-    LetterKeyFacePolicy.face("a", true, true, true) === "a",
-    "a Chinese local mode keeps the lowercase face under Shift",
+    LetterKeyFacePolicy.face("a", true, false, true, true) === "a",
+    "a Chinese local mode stays lowercase under Shift",
   );
   check(
-    LetterKeyFacePolicy.face("a", false, false, false) === "a",
+    LetterKeyFacePolicy.face("a", false, false, false, false) === "a",
     "English unshifted is lowercase",
   );
-  check(LetterKeyFacePolicy.face("a", false, false, true) === "A", "English shifted is uppercase");
-  check(LetterKeyFacePolicy.face("", true, false, false) === "", "an empty face stays empty");
+  check(
+    LetterKeyFacePolicy.face("a", false, false, false, true) === "A",
+    "English shifted is uppercase",
+  );
+  // 越南语、藏文由调用方传 chineseMode = false，键面跟 Shift 走。
+  check(
+    LetterKeyFacePolicy.face("a", false, false, false, false) === "a",
+    "Vietnamese unshifted is lowercase",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", false, false, false, true) === "A",
+    "Vietnamese follows Shift",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, true, false, false) === "a",
+    "Japanese romaji keeps lowercase faces",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, true, false, true) === "A",
+    "Japanese romaji draws the uppercase Shift types",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, true, true, true) === "a",
+    "a Japanese local mode keeps the lowercase face under Shift",
+  );
+  check(
+    LetterKeyFacePolicy.face("", true, false, false, false) === "",
+    "an empty face stays empty",
+  );
   check(
     LetterKeyFacePolicy.accessibilityLabel("a", false, false, true) === "大写 A",
     "a shifted English key announces uppercase",
   );
   check(
     LetterKeyFacePolicy.accessibilityLabel("a", true, false, false) === "字母 A",
-    "a Chinese key announces the letter",
+    "a Chinese uppercase face still announces the letter, not uppercase input",
   );
   check(
     LetterKeyFacePolicy.accessibilityLabel("a", true, false, true) === "大写 A",
@@ -6600,6 +6762,7 @@ group("the word being completed is read backwards from the caret", () => {
     "with nothing before it the word is all of it",
   );
   check(EnglishSuggestionPolicy.currentWord("hello ") === "", "a space ends the word");
+  check(EnglishSuggestionPolicy.currentWord("say you're") === "you're", "撇号保留在整词内");
   check(EnglishSuggestionPolicy.currentWord("say,hel") === "hel", "so does punctuation");
   check(
     EnglishSuggestionPolicy.currentWord("\uff48\uff45\uff4c") === "hel",
@@ -6631,6 +6794,9 @@ group("a prefix is only queried when it could mean something", () => {
   );
   check(EnglishSuggestionPolicy.suggestible("") === false, "and none matches nothing");
   check(EnglishSuggestionPolicy.suggestible("he1") === false, "a digit is not part of a word");
+  check(EnglishSuggestionPolicy.suggestible("i", true), "手机可查询单字母固有大小写");
+  check(EnglishSuggestionPolicy.suggestible("you're", true), "手机允许完整的撇号形式");
+  check(!EnglishSuggestionPolicy.suggestible("you're"), "旧补全仍只接受字母前缀");
 });
 
 group("accepting a completion replaces exactly what was typed", () => {
@@ -9227,6 +9393,67 @@ group("the function panel follows the design's order, then the Harmony extras", 
   const ids = FunctionPanelPolicy.items().map((item: FunctionPanelItem) => item.id);
   check(new Set(ids).size === ids.length, "every id is unique");
 });
+
+group(
+  "the function panel and the scheme picker page three rows in portrait and two in phone landscape",
+  () => {
+    // 视图的键区：四行键高加高度调整，再加三份行距（KeyboardView.surfaceHeight）。
+    const keyArea = (adjustment: number, rowSpacingTenths: number): number =>
+      KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS +
+      KeyboardGeometry.heightAdjustment(adjustment) +
+      KeyboardMetrics.touchRowGapsVp(KeyboardGeometry.rowSpacing(rowSpacingTenths));
+    // KeyboardView 的磁贴网格：每行至少 52vp，上方留白 10、页点 14、下方留白 4。
+    const row: number = 52;
+    const chrome: number = 10 + 14 + 4;
+    const same = (grid: PickerGrid, rows: number, rowsGap: number): boolean =>
+      grid.rows === rows && grid.rowsGap === rowsGap;
+    const minimum: number = keyArea(
+      KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_VP,
+      KeyboardGeometry.MIN_ROW_SPACING_TENTHS,
+    );
+    const standard: number = keyArea(0, KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS);
+    const tallest: number = keyArea(
+      KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP,
+      KeyboardGeometry.MAX_ROW_SPACING_TENTHS,
+    );
+    check(
+      minimum === 176 && standard === 197 && tallest === 254,
+      "the key area spans 176–254vp, 197 by default",
+    );
+    check(
+      same(FunctionPanelPolicy.pickerGrid(false, tallest, row, chrome), 3, 12),
+      "a tall key area shows three rows 12vp apart, as on iOS",
+    );
+    const portrait: PickerGrid = FunctionPanelPolicy.pickerGrid(false, standard, row, chrome);
+    check(same(portrait, 3, 6), "the default key area narrows the gap to keep three rows");
+    check(
+      3 * row + 2 * portrait.rowsGap + chrome <= standard,
+      "three rows fit the default key area",
+    );
+    check(
+      same(FunctionPanelPolicy.pickerGrid(true, tallest, row, chrome), 2, 16),
+      "phone landscape stays two rows 16vp apart however tall the keys are",
+    );
+    // 最矮的键区连行距 0 也放不下三行，退回两行；两行放得下。
+    check(3 * row + chrome > minimum, "three rows overflow the minimum key area");
+    const short: PickerGrid = FunctionPanelPolicy.pickerGrid(false, minimum, row, chrome);
+    check(same(short, 2, 16), "the minimum key area falls back to two rows");
+    check(2 * row + short.rowsGap + chrome <= minimum, "two rows fit the minimum key area");
+    check(
+      same(FunctionPanelPolicy.pickerGrid(false, 3 * row + chrome + 7, row, chrome), 2, 16),
+      "a gap under 4vp drops to two rows instead",
+    );
+    check(
+      KeyboardFormFactorPolicy.phoneLandscape(800, 360),
+      "a phone on its side is phone landscape",
+    );
+    check(!KeyboardFormFactorPolicy.phoneLandscape(360, 800), "an upright phone is not");
+    check(
+      !KeyboardFormFactorPolicy.phoneLandscape(1280, 800),
+      "a tablet on its side keeps three rows",
+    );
+  },
+);
 
 /** 具有此 id 的磁贴，查找方式与视图按 id 查找相同。 */
 function panelItem(id: string): FunctionPanelItem | null {
@@ -12648,8 +12875,8 @@ group("the 26-key digit layer choice travels with the account", () => {
 
 group("the shuangpin key hint switch travels with the account", () => {
   check(
-    localAccountPreferences({}, syncFeedback)["platform.harmony.shuangpin_key_hints"] === true,
-    "a document from before the switch uploads the hints as shown",
+    localAccountPreferences({}, syncFeedback)["platform.harmony.shuangpin_key_hints"] === false,
+    "a document from before the switch uploads the hints as hidden",
   );
   check(
     localAccountPreferences({ touch_shuangpin_key_hints: false }, syncFeedback)[
@@ -15175,8 +15402,8 @@ group("candidate snapshots keep generation identities exact", () => {
   }
 });
 
-group("「候选栏预编辑：不显示」 hides the spelling on the phone line", () => {
-  // Windows candidate_window_preedit_style = "empty" is preeditVisible=false. The phone showed the spelling whatever the setting said; Android honours it through the same policy.
+group("the composition line hides the spelling when it is not to be drawn", () => {
+  // 2in1 的「候选窗口预编辑：不显示」即 Windows candidate_window_preedit_style = "empty"（preeditVisible=false）；手机在拼写写进输入框时走同一条规则。
   const shown = CandidatePreeditStylePolicy.visible(true, "", "nihao", "none");
   check(shown.text === "nihao" && shown.caret, "pinyin shows the spelling and its caret");
   const hidden = CandidatePreeditStylePolicy.visible(false, "", "nihao", "none");
@@ -15553,7 +15780,7 @@ group("AI model catalogs keep each provider's protocol and path", () => {
   );
 });
 
-// 与 crates/client-core/src/ai/endpoint.rs 跑同一组用例；这里的判断和 Rust 不一致时，鸿蒙宿主会放行或拒绝与其他平台不同的地址。
+// 与 crates/client-providers/src/ai/endpoint.rs 跑同一组用例；这里的判断和 Rust 不一致时，鸿蒙宿主会放行或拒绝与其他平台不同的地址。
 declare const __dirname: string;
 declare function require(name: "fs"): { readFileSync(path: string, encoding: "utf8"): string };
 interface AiEndpointContractCase {
@@ -15843,8 +16070,8 @@ group("the 2in1 draws the composition inline as tsf_preedit_style says", () => {
     "empty leaves the document alone",
   );
   check(
-    InlinePreeditPolicy.text("raw", false, true, "nihao", "ni'hao", "") === "",
-    "a phone keeps the spelling above its keys",
+    InlinePreeditPolicy.text("raw", false, true, "nihao", "ni'hao", "") === "ni'hao",
+    "a phone writes the segmented spelling into the field whatever the desktop style says",
   );
   check(
     InlinePreeditPolicy.text("raw", true, false, "nihao", "ni'hao", "") === "",
@@ -15867,6 +16094,138 @@ group("the 2in1 draws the composition inline as tsf_preedit_style says", () => {
     "an editor that keeps preview text out of its content is read as is",
   );
   check(InlinePreeditPolicy.beforePreview("好a", "") === "好a", "no preview, nothing removed");
+});
+
+group(
+  "a phone always writes the composition into the field and the strip leaves the reading out",
+  () => {
+    // 产品决定：与 Apple 键盘、Gboard 一样，组字总以拼音分词写进输入框，候选栏不画读音，候选从行首开始不再左右移动；没有开关。
+    for (const style of ["raw", "pinyin", "empty"]) {
+      check(
+        InlinePreeditPolicy.text(style, false, true, "nihao", "ni'hao", "") === "ni'hao",
+        `the phone ignores the desktop style ${style}`,
+      );
+    }
+    check(
+      InlinePreeditPolicy.text("raw", false, true, "nihao", "", "") === "nihao",
+      "without a segmented spelling the phone falls back to the letters",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", false, true, "hao", "hao", "你") === "你hao",
+      "a held phrase piece leads the spelling on a phone too",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", false, true, "", "", "海滩") === "海滩",
+      "a held phrase piece alone stays in the field",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", false, false, "nihao", "ni'hao", "") === "",
+      "an editor that takes no preview text gets none",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", false, true, "", "", "") === "",
+      "no composition, no preview on a phone",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", false, true, "shi", "shi", "", false, true) === "",
+      "14 键和日语读音（stripOnly）不写进输入框",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", true, true, "nihao", "ni'hao", "", false, true) === "nihao",
+      "stripOnly only concerns the phone; a 2in1 still follows its style",
+    );
+
+    check(
+      SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.QUANPIN, true),
+      "全拼 14 键的组码留在候选栏上",
+    );
+    check(
+      !SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.QUANPIN, false),
+      "全拼 26 键和九键写进输入框",
+    );
+    check(
+      SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.JAPANESE, false),
+      "日语的假名读音保持原来的做法，留在候选栏上",
+    );
+    check(
+      !SchemeCompositionPolicy.keepsReadingOnStrip(-1, true),
+      "英文和本地模式在 14 键下画 26 键，组字照常写进输入框",
+    );
+    check(
+      !SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.SHUANGPIN, true) &&
+        !SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.WUBI, false) &&
+        !SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.STROKE, false),
+      "其他方案都写进输入框",
+    );
+
+    check(
+      InlinePreeditPolicy.hidesStripReading(false, "ni'hao", false),
+      "the strip leaves the reading out while the field shows it",
+    );
+    check(
+      !InlinePreeditPolicy.hidesStripReading(false, "", false),
+      "with nothing in the field (an editor without preview text, 14 键, Japanese) the strip still draws it",
+    );
+    check(
+      !InlinePreeditPolicy.hidesStripReading(false, "한", true),
+      "a composition that is the text itself keeps its place on the strip as before",
+    );
+    check(
+      !InlinePreeditPolicy.hidesStripReading(true, "nihao", false),
+      "a 2in1 candidate window follows its own preedit setting",
+    );
+    const hidden = CandidatePreeditStylePolicy.visible(
+      !InlinePreeditPolicy.hidesStripReading(false, "ni'hao", false),
+      "",
+      "nihao",
+      "none",
+    );
+    check(hidden.text === "" && !hidden.caret, "so the phone line draws no spelling and no caret");
+  },
+);
+
+group("nine-key writes its pinyin reading into the field, never the digits", () => {
+  // iOS 真机上九键打 nihao，输入框里出现的是 64426：写进去的是 preedit 的数字。这里写的必须是 nine_key_reading。
+  const reading: string = SchemeCompositionPolicy.reading(
+    SchemeTraits.QUANPIN,
+    "64426",
+    "64'426",
+    "ni'hao",
+  );
+  const spelling: string = SchemeCompositionPolicy.fieldSpelling(
+    SchemeTraits.QUANPIN,
+    "64426",
+    "64'426",
+    "ni'hao",
+  );
+  check(spelling === "ni'hao", "the segmented form for nine-key is the Engine's reading");
+  const preview: string = InlinePreeditPolicy.text(
+    "raw",
+    false,
+    true,
+    reading,
+    spelling,
+    "",
+    false,
+    SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.QUANPIN, false),
+  );
+  check(preview === "ni'hao", "the nine-key preview text is the reading");
+  check(!/[0-9]/.test(preview), "the nine-key preview text contains no digits");
+  check(
+    InlinePreeditPolicy.text("pinyin", false, true, reading, spelling, "你") === "你ni'hao",
+    "a held phrase piece leads the nine-key reading",
+  );
+  check(
+    SchemeCompositionPolicy.fieldSpelling(SchemeTraits.QUANPIN, "64426", "ni'426", "") === "ni'426",
+    "only when the Engine has no reading does the field fall back to its preedit",
+  );
+  check(
+    SchemeCompositionPolicy.fieldSpelling(SchemeTraits.QUANPIN, "nihao", "ni'hao", "") ===
+      "ni'hao" &&
+      SchemeCompositionPolicy.fieldSpelling(SchemeTraits.STROKE, "hs", "一丨", "") === "一丨" &&
+      SchemeCompositionPolicy.fieldSpelling(-1, "hello", "hello", "") === "hello",
+    "every other composition writes its preedit",
+  );
 });
 
 console.log("Korean Dubeolsik");
@@ -15958,7 +16317,7 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[10] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 17,
+    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 18,
     "appended after the first ten, as the shared seventeen-entry picker has it",
   );
   check(
@@ -18290,11 +18649,11 @@ group(
   "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
   () => {
     check(
-      KeyboardScheme.SCHEMES.length === 17 &&
-        KeyboardScheme.SCHEMES[10] === KeyboardScheme.KOREAN &&
-        KeyboardScheme.SCHEMES[11] === KeyboardScheme.CANTONESE &&
-        KeyboardScheme.SCHEMES[12] === KeyboardScheme.ZHUYIN &&
-        KeyboardScheme.SCHEMES[13] === KeyboardScheme.VIETNAMESE,
+      KeyboardScheme.SCHEMES.length === 18 &&
+        KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN &&
+        KeyboardScheme.SCHEMES[12] === KeyboardScheme.CANTONESE &&
+        KeyboardScheme.SCHEMES[13] === KeyboardScheme.ZHUYIN &&
+        KeyboardScheme.SCHEMES[14] === KeyboardScheme.VIETNAMESE,
       "appended after Korean, in the shared picker's order",
     );
     check(
@@ -18462,9 +18821,9 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
 
 group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
-    KeyboardScheme.SCHEMES.length === 17 &&
-      KeyboardScheme.SCHEMES[14] === KeyboardScheme.TIBETAN &&
-      KeyboardScheme.SCHEMES[15] === KeyboardScheme.STROKE,
+    KeyboardScheme.SCHEMES.length === 18 &&
+      KeyboardScheme.SCHEMES[15] === KeyboardScheme.TIBETAN &&
+      KeyboardScheme.SCHEMES[16] === KeyboardScheme.STROKE,
     "appended after Tibetan, as the shared TouchKeyboardScheme::ALL appends it",
   );
   const stroke: SchemeDefinition = KeyboardScheme.STROKE;
@@ -18638,8 +18997,8 @@ group("a Stroke composition draws its glyphs at the Engine's caret", () => {
   check(
     InlinePreeditPolicy.text("raw", true, true, reading, "一丨", "") === "一丨" &&
       InlinePreeditPolicy.text("pinyin", true, true, reading, "一丨", "") === "一丨" &&
-      InlinePreeditPolicy.text("raw", false, true, reading, "一丨", "") === "",
-    "a 2in1 previews the glyphs in either style when handed the drawn reading; a phone keeps them on the strip",
+      InlinePreeditPolicy.text("raw", false, true, reading, "一丨", "") === "一丨",
+    "the glyphs are previewed in either style and on a phone too, never the typed letters",
   );
 });
 
@@ -18982,7 +19341,7 @@ group("藏文是第九个方案：按 EWTS 威利转写组字，不是中文方�
     "切换方案时提交藏文，而不是威利原文",
   );
   check(
-    KeyboardScheme.SCHEMES[14] === KeyboardScheme.TIBETAN &&
+    KeyboardScheme.SCHEMES[15] === KeyboardScheme.TIBETAN &&
       KeyboardScheme.TIBETAN.preferenceId === "tibetan" &&
       KeyboardScheme.TIBETAN.engineScheme === "tibetan" &&
       KeyboardScheme.TIBETAN.touchKeyboardLayout === "twenty_six_key" &&

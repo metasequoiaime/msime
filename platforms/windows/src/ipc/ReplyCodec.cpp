@@ -1,4 +1,5 @@
 #include "ReplyCodec.h"
+#include "candidate_continuation_pipe.h"
 #include <algorithm>
 #include <charconv>
 
@@ -295,6 +296,9 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
   frames.push_back(worker_text_frame(
       FanyImeWorkerReplyType::PunctuationMarksChanged,
       std::wstring{L'q', config.corner_quotes ? L'1' : L'0', L'b', config.hollow_brackets ? L'1' : L'0'}));
+  frames.push_back(worker_text_frame(
+      FanyImeWorkerReplyType::WubiCandidateSelectionChanged,
+      std::wstring{config.wubi_candidate_selection ? L'1' : L'0', config.wubi_second_key, config.wubi_third_key}));
   return frames;
 }
 
@@ -409,9 +413,27 @@ UiSelectionFrames ui_rejected_selection() {
   reply.packet.msg_type = FanyImeReplyType::OutofRange;
   return triggered_selection(reply);
 }
+std::optional<UiSelectionFrames> ui_continued_selection(std::string_view payload, uint16_t transaction) {
+  const auto frames = FanyImeCandidateContinuationPipe::Encode(payload, transaction);
+  if (!frames) return std::nullopt;
+  UiSelectionFrames result;
+  for (const auto &frame : *frames) {
+    std::vector<uint8_t> bytes(sizeof(frame), 0);
+    for (size_t n = 0; n < 4; ++n) bytes[n] = static_cast<uint8_t>(frame.msg_type >> (8 * n));
+    for (size_t n = 0; n < FanyImePipeLimits::CandidateTextCapacity; ++n) {
+      const auto unit = static_cast<uint16_t>(frame.data[n]);
+      bytes[4 + 2 * n] = static_cast<uint8_t>(unit);
+      bytes[5 + 2 * n] = static_cast<uint8_t>(unit >> 8);
+    }
+    result.worker_prefix.push_back(std::move(bytes));
+  }
+  result.worker = std::move(result.worker_prefix.back());
+  result.worker_prefix.pop_back();
+  return result;
+}
 EncodedReply uiless_reply(uint64_t request, std::string_view display,
                           const std::vector<std::string> &page,
-                          size_t highlighted) {
+                          size_t highlighted, uint64_t generation) {
   if (contains_delimiter(display) || page.size() > 9 ||
       (page.empty() ? highlighted != 0 : highlighted >= page.size()))
     return failed(ReplyError::InvalidFields);
@@ -436,6 +458,20 @@ EncodedReply uiless_reply(uint64_t request, std::string_view display,
   }
   payload += '\t';
   payload += std::to_string(highlighted);
+  if (generation) {
+    payload += '\t';
+    payload += std::to_string(generation);
+  }
   return text_reply(request, FanyImeReplyType::UiLessComposition, payload);
+}
+std::optional<std::vector<uint8_t>>
+uiless_candidates_bytes(std::string_view display,
+                        const std::vector<std::string> &page,
+                        size_t highlighted, uint64_t generation) {
+  const auto encoded = uiless_reply(1, display, page, highlighted, generation);
+  if (!encoded)
+    return std::nullopt;
+  return worker_from_text(FanyImeWorkerReplyType::UiLessCandidatesChanged,
+                          encoded);
 }
 } // namespace msime::windows

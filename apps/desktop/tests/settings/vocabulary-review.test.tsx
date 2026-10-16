@@ -69,9 +69,76 @@ test("a replaced vocabulary client ignores its older load response", async () =>
   await waitFor(() => expect(old.load).toHaveBeenCalled());
   view.rerender(<VocabularyReviewPage client={next} />);
   await screen.findByText("new-card");
-  resolveOld(status({ queue: [{ word: "old-card", phonetic: "", meaning: "old" }] }));
-  await Promise.resolve();
+  fireEvent.click(screen.getByRole("button", { name: "显示 new-card 的释义" }));
+  await act(async () => {
+    resolveOld(status({ queue: [{ word: "old-card", phonetic: "", meaning: "old" }] }));
+  });
   expect(screen.queryByText("old-card")).toBeNull();
+  expect(screen.getByRole("button", { name: "new-card 的释义" })).toBeTruthy();
+});
+
+test("a replaced vocabulary client hides a previously revealed card", async () => {
+  const previous = client();
+  const next = client({
+    load: vi.fn(async () =>
+      status({ queue: [{ word: "new-card", phonetic: "", meaning: "new meaning" }] }),
+    ),
+  });
+  const view = render(<VocabularyReviewPage client={previous} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "显示 ubiquitous 的释义" }));
+  expect(screen.getByText("adj. 无处不在的")).toBeTruthy();
+
+  view.rerender(<VocabularyReviewPage client={next} />);
+  await screen.findByText("new-card");
+  expect(screen.getByText("点击查看释义")).toBeTruthy();
+  expect(screen.queryByText("new meaning")).toBeNull();
+});
+
+test("changing wordbooks hides the next card even when it has the same headword", async () => {
+  let finish!: (value: VocabularyReviewStatus) => void;
+  const setSettings = vi.fn(
+    () => new Promise<VocabularyReviewStatus>((resolve) => (finish = resolve)),
+  );
+  render(<VocabularyReviewPage client={client({ setSettings })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "显示 ubiquitous 的释义" }));
+  expect(screen.getByText("adj. 无处不在的")).toBeTruthy();
+
+  fireEvent.change(screen.getByLabelText("词书"), { target: { value: "user-list" } });
+  expect(setSettings).toHaveBeenCalledOnce();
+  await act(async () => {
+    finish(status({ settings: { wordbook: "user-list", newPerDay: 20, sessionLimit: 200 } }));
+  });
+  expect((screen.getByLabelText("词书") as HTMLSelectElement).value).toBe("user-list");
+  expect(screen.queryByText("adj. 无处不在的")).toBeNull();
+  expect(screen.getByRole("button", { name: "显示 ubiquitous 的释义" })).toBeTruthy();
+});
+
+test("revealing while an answer is pending does not reveal the returned queue", async () => {
+  let finish!: (value: VocabularyReviewStatus) => void;
+  const answer = vi.fn(() => new Promise<VocabularyReviewStatus>((resolve) => (finish = resolve)));
+  render(<VocabularyReviewPage client={client({ answer })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "认识" }));
+  expect(answer).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "显示 ubiquitous 的释义" }));
+  expect(screen.getByText("adj. 无处不在的")).toBeTruthy();
+
+  await act(async () => {
+    finish(status({ queue: [{ word: "ephemeral", phonetic: "", meaning: "adj. 短暂的" }] }));
+  });
+  expect(screen.getByRole("button", { name: "显示 ephemeral 的释义" })).toBeTruthy();
+  expect(screen.queryByText("adj. 短暂的")).toBeNull();
+});
+
+test("a failed settings update keeps the current card revealed", async () => {
+  const setSettings = vi.fn().mockRejectedValue(new Error("synthetic settings failure"));
+  render(<VocabularyReviewPage client={client({ setSettings })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "显示 ubiquitous 的释义" }));
+
+  fireEvent.change(screen.getByLabelText("词书"), { target: { value: "user-list" } });
+  await screen.findByText("无法读取或保存背单词进度，请稍后重试。已有的进度不会被自动清空。");
+  expect(screen.getByText("adj. 无处不在的")).toBeTruthy();
+  expect((screen.getByLabelText("词书") as HTMLSelectElement).value).toBe("cet-4");
 });
 
 test("tapping the card reveals the meaning", async () => {

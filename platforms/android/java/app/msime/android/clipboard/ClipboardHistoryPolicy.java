@@ -7,7 +7,7 @@ package app.msime.android;
  * drifted apart in three ways. It counted UTF-16 code units where the shared store counts graphemes,
  * so six thousand emoji were refused here and accepted there. It had no control-character check at
  * all, so text the shared store refuses passed this and then failed remotely. And the remote refusal
- * was collapsed to a boolean at the call site, so both of those arrived at the user as 「50 条历史均
+ * was collapsed to a boolean at the call site, so both of those arrived at the user as 「200 条历史均
  * 已固定」, which is a third thing that was not true.
  *
  * <p>So the bounds are gone. {@code crates/client-core/src/clipboard.rs} owns them - trimmed
@@ -17,7 +17,7 @@ package app.msime.android;
  * the system clipboard held any text to offer it in the first place.
  */
 public final class ClipboardHistoryPolicy {
-    public static final int LIMIT = 50;
+    public static final int LIMIT = 200;
 
     /**
      * Why one save was refused.

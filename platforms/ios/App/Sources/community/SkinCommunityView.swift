@@ -146,7 +146,7 @@ struct SkinCommunityView: View {
       signedIn = state
       startLoad()
     }
-    .onChange(of: signedIn) { _ in startLoad() }
+    .onChange(of: signedIn) { startLoad() }
     .sheet(isPresented: $showPublish) { CommunityPublishView { startLoad() } }
     .sheet(isPresented: $showAccount, onDismiss: {
       let id = accountGeneration.begin()
@@ -471,7 +471,7 @@ struct CommunityPublishView: View {
               .foregroundStyle(.secondary)
           } else {
             Picker("我的皮肤", selection: $selected) { ForEach(library) { Text($0.name).tag($0.id) } }
-              .onChange(of: selected) { id in name = library.first { $0.id == id }?.name ?? ""; publicationID = UUID().uuidString.lowercased() }
+              .onChange(of: selected) { _, id in name = library.first { $0.id == id }?.name ?? ""; publicationID = UUID().uuidString.lowercased() }
             if let design { CommunityDesignPreview(design: design) }
           }
           if selectedSkinID == nil {
@@ -488,8 +488,8 @@ struct CommunityPublishView: View {
           Text("选择已保存的设计")
         }
         Section("发布信息") {
-          TextField("皮肤名称（最多 32 字）", text: $name).onChange(of: name) { name = String($0.prefix(32)); publicationID = UUID().uuidString.lowercased() }
-          TextField("设计说明（最多 280 字）", text: $description).onChange(of: description) { description = String($0.prefix(280)); publicationID = UUID().uuidString.lowercased() }
+          TextField("皮肤名称（最多 32 字）", text: $name).onChange(of: name) { _, newValue in name = String(newValue.prefix(32)); publicationID = UUID().uuidString.lowercased() }
+          TextField("设计说明（最多 280 字）", text: $description).onChange(of: description) { _, value in description = String(value.prefix(280)); publicationID = UUID().uuidString.lowercased() }
           // 分类不计入请求摘要，修改分类不需要换新的发布 id。
           Picker("分类", selection: $category) {
             ForEach(CommunitySkinCategory.allCases) { Text($0.label).tag($0) }

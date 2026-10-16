@@ -654,6 +654,29 @@ test("Cantonese, Zhuyin and Stroke count as Chinese mode and Vietnamese has its 
   expect(screen.getByLabelText(/^越南语模式 4 字符/)).not.toBeNull();
 });
 
+test("Smart ABC has its own scheme slice and counts as Chinese mode", async () => {
+  const sources = { smart_abc: 5, shuangpin: 3 };
+  const statistics: TypingStatistics = {
+    enabled: true,
+    total: 8,
+    days: { [key(0)]: 8 },
+    detail: { characters: { han: 8 }, sources },
+    dailyDetails: { [key(0)]: { characters: { han: 8 }, sources } },
+  };
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status(statistics)),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
+  render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "方案" }));
+  expect(screen.getByLabelText(/^智能 ABC 双拼 5 字符/)).not.toBeNull();
+  expect(screen.getByLabelText(/^小鹤双拼 3 字符/)).not.toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "模式" }));
+  expect(screen.getByLabelText(/^中文模式 8 字符/)).not.toBeNull();
+});
+
 test("Quanpin 14-key has its own scheme slice and counts as Chinese mode", async () => {
   const sources = { quanpin: 2, fourteenKey: 5, nineKey: 1 };
   const statistics: TypingStatistics = {

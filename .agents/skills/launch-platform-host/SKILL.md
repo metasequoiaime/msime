@@ -9,7 +9,7 @@ description: Build, launch and verify a 水杉输入法 platform host — macOS,
 
 所以「跑一下看看」永远从 `platforms/<os>` 开始，`pnpm tauri dev` 不是答案。
 
-共享 React 设置页（打字统计、词库、背单词……）确实由 Tauri 层渲染，但它是**原生宿主按需拉起的公共组件**：要看某个共享设置页，先把宿主编出来，再让宿主打开它。
+共享 React 设置页（打字统计、词库、背单词……）是**原生宿主按需拉起的公共组件**，而且只在三个平台上是设置界面：macOS 与 Linux 由宿主拉起 Tauri 设置应用，HarmonyOS 由 `pages/Settings.ets` 用 ArkWeb 加载、不经过 Tauri。Windows、iOS 与 Android 发布包的设置是原生界面，在那里看不到这些页面（归属见 [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md#设置界面按平台归属)）。要看某个共享设置页，先把这三个平台之一的宿主编出来，再让宿主打开它。
 
 ## 先确认前置条件，不要假设没有
 
@@ -70,7 +70,7 @@ bash platforms/macos/stage-resources.sh target/resources/<上一步返回的目�
 mkdir -p target/macos && find target/macos-isolated -maxdepth 1 -name "*.app" -exec cp -R {} target/macos/ \;
 ```
 
-开发构建照旧暂存全部资源（含日文词典，和 `target/language-dictionaries` 里有的粤拼、注音、笔画词库），它们是按需下载之外的内置兜底，所以开发包里这几个方案装好就能用。发布包只带核心词库，日文词典、粤拼/注音/笔画词库和手写模型由设置应用下载到 `~/Library/Application Support/app.msime.macos/resource-packs/<id>/`。要在本机测试下载流程，暂存时改用 `MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh <目录>`（不准备 `target/language-dictionaries`），并先删掉 `resource-packs/` 下已装的资源包；`cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- <绝对路径的 state_root> [japanese|language-dictionaries|handwriting]` 用 App 同一个安装器直接装资源包。
+开发构建照旧暂存全部资源（含日文词典，和 `target/language-dictionaries` 里有的粤拼、注音、笔画词库），它们是按需下载之外的内置兜底，所以开发包里这几个方案装好就能用。发布包只带核心词库，日文词典、粤拼/注音/笔画词库和手写模型由设置应用下载到 `~/Library/Application Support/app.msime.macos/resource-packs/<id>/`。要在本机测试下载流程，暂存时改用 `MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh <目录>`（不准备 `target/language-dictionaries`），并先删掉 `resource-packs/` 下已装的资源包；`cargo run --quiet --locked -p msime-client-providers --example install_resource_pack -- <绝对路径的 state_root> [japanese|language-dictionaries|handwriting]` 用 App 同一个安装器直接装资源包。
 
 ## iOS
 

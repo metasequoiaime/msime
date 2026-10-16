@@ -108,7 +108,7 @@ enum KeyboardSplitLayout {
   static func splitsLayout(scheme: ChineseInputScheme, chinese: Bool, localMode: Bool) -> Bool {
     guard chinese, !localMode else { return true }
     switch scheme {
-    case .nineKey, .fourteenKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting: return false
+    case .nineKey, .nineKeyShuangpin, .fourteenKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting: return false
     default: return true
     }
   }

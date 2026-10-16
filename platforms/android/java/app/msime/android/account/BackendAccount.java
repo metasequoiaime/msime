@@ -34,7 +34,7 @@ public final class BackendAccount {
     /** Fixed hexadecimal length of account challenge and clipboard identifiers. */
     public static final int HEX_ID_LENGTH = 64;
     private static final String SESSION_STORE = "msime_account_session_v2";
-    /** Matches client-core's account JSON response ceiling. 云剪贴板的整页密文走 {@link #httpExchange}，上限是 {@link CloudClipboardE2e#MAX_RESPONSE_BYTES}。 */
+    /** 与 client-services 的账号 JSON 响应上限一致。云剪贴板的整页密文走 {@link #httpExchange}，上限是 {@link CloudClipboardE2e#MAX_RESPONSE_BYTES}。 */
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
     /** 一条 AI 回复的 UTF-8 字节上限，流式与非流式相同。 */
     public static final int MAX_CHAT_REPLY_BYTES = 16 * 1024;
@@ -888,7 +888,7 @@ public final class BackendAccount {
             status, code);
     }
 
-    /** Whether a clipboard search fits client-core's 1024-byte text contract. */
+    /** 剪贴板搜索是否符合 client-services 的 1024 字节文本契约。 */
     static boolean validClipboardSearch(String search) {
         return search != null && TextPolicy.utf8Length(search) <= 1024
             && !TextPolicy.hasControl(search) && TextPolicy.validUnicode(search);

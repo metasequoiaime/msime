@@ -29,7 +29,7 @@ gh pr list --base main --state open                                 # 同一时�
 - **补丁号（0.2.1 → 0.2.2）**：只有修复。
 
 ```sh
-git log --format='%s' <os>-v<上一版>..origin/develop -- platforms/<os> shared crates/client-core crates/host-api \
+git log --format='%s' <os>-v<上一版>..origin/develop -- platforms/<os> shared 'crates/client-*' crates/host-api \
   | sed -E 's/ \(#[0-9]+\)$//' | awk '{split($1,a,/[(:!]/); c[a[1]]++} END{for(k in c) print c[k], k}' | sort -rn
 git log --format='%h %s' <os>-v<上一版>..origin/develop -- platforms/<os> | grep -E '^[0-9a-f]+ feat'
 ```

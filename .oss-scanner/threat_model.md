@@ -7,14 +7,14 @@ MSIME is a cross-platform Chinese input method. Its native hosts (`platforms/<os
 Treat these as untrusted:
 
 - **Keystrokes and editor context** delivered by the OS input framework (IBus, Fcitx5, TSF, IMK, Android/iOS/HarmonyOS keyboards), including surrounding text and application names reported by arbitrary client applications.
-- **Files the user imports or downloads**: dictionary packs and user word lists, skins/themes, extension packs (sound, music, command table, effect; `.zip` or folders — see `crates/client-core` `plugins` and `crates/pack-tool`), snapshots and backups.
+- **Files the user imports or downloads**: dictionary packs and user word lists, skins/themes, extension packs (sound, music, command table, effect; `.zip` or folders — see `crates/client-services` `plugins` and `crates/pack-tool`), snapshots and backups.
 - **Network responses**: cloud candidates, translation, voice/AI endpoints, account sync, cloud clipboard, resource and update downloads (list in `PRIVACY.md`). Assume a hostile or compromised server.
 - **Cross-process messages**: the Windows TSF DLL ↔ Server IPC (`shared/contracts/`), Android JNI, HarmonyOS NAPI, and MCP stdio input to `crates/mcp-server`.
 - **Paths and environment** on multi-user systems (`crates/path-trust`).
 
 ## Components that matter most / least
 
-- Most: `crates/host-api` (C ABI and FFI bounds), `crates/input-runtime`, `crates/engine`, `crates/client-core` (resource install, archive extraction, config parsing), the Linux hosts under `platforms/linux`, and IPC/protocol parsing in `shared/contracts` and `platforms/windows`.
+- Most: `crates/host-api` (C ABI and FFI bounds), `crates/input-runtime`, `crates/engine`, `crates/client-core` (resource install, config parsing), `crates/client-services` (plugin, skin and dictionary imports, archive extraction), `crates/client-providers` (resource pack and voice model downloads, archive extraction), `crates/client-base` (private storage and file locks), the Linux hosts under `platforms/linux`, and IPC/protocol parsing in `shared/contracts` and `platforms/windows`.
 - In scope but lower: `crates/mcp-server`, `crates/pack-tool`, `crates/dict-builder` (developer/author tooling that still parses untrusted files).
 - Out of scope: vendored third-party code (e.g. `platforms/windows/third_party/`), `.agents/`, docs, and build/release scripts under `scripts/` and `.github/`.
 

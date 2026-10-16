@@ -41,10 +41,8 @@ enum CandidateTranslationPreference {
     set { defaults.set(newValue, forKey: onlineKey) }
   }
   static var primary: CandidateTranslationLanguage { language(at: primaryIndex) }
-  static var secondary: CandidateTranslationLanguage? {
-    let index = secondaryIndex
-    return languages.indices.contains(index) ? languages[index] : nil
-  }
+  /// 手机键盘只显示一种候选翻译：第二种语言会让每个候选下再多一行，候选栏太高，所以触屏键盘不取它，行高、翻译请求和离线释义都只按首选语言。共享文档里的 `translation_secondary_language`（`secondaryIndex`）照样同步、原样保留，桌面端仍用它。
+  static var secondary: CandidateTranslationLanguage? { nil }
   /// `offline` is the codes whose offline gloss dictionary is installed (see `offlineGlossLanguages`); English always comes from the bundled msime-english.db.
   static func needsNetwork(_ language: CandidateTranslationLanguage, offline: Set<String> = []) -> Bool {
     language.code != "EN" && !offline.contains(language.code)

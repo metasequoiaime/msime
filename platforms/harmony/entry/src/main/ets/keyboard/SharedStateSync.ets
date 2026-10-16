@@ -1,3 +1,4 @@
+import { NativeCleanup } from './NativeCleanup';
 /**
  * 设置应用和键盘各自在什么时候发布、导入共享沙箱里的状态，以及几条要经原生存储写入、不能直接覆盖文件的条目怎么处理。文件层面的复制在 `SharedStateMirror`，规则在 `SharedStateMirrorPolicy`。
  */
@@ -62,12 +63,17 @@ export class SharedStateSync {
 
   /** 设置应用一侧：发布设置应用管的那些条目。改完设置之后和窗口退到后台时调用。 */
   static settingsPublish(mirror: SharedStateMirror, stateDirectory: string): void {
-    if (!fs.accessSync(`${stateDirectory}/${STATISTICS_SWITCH_FILE}`)) {
-      SharedStateSync.writeStatisticsSwitch(stateDirectory, false);
-    }
-    const published: string[] = mirror.publish('settings', SETTINGS_ENTRIES, [], Date.now());
-    if (published.length > 0) {
-      KeyboardLog.info(`shared state published for the keyboard: ${published.join(', ')}`);
+    try {
+      if (!fs.accessSync(`${stateDirectory}/${STATISTICS_SWITCH_FILE}`)) {
+        SharedStateSync.writeStatisticsSwitch(stateDirectory, false);
+      }
+      const published: string[] = mirror.publish('settings', SETTINGS_ENTRIES, [], Date.now());
+      if (published.length > 0) {
+        KeyboardLog.info(`shared state published for the keyboard: ${published.join(', ')}`);
+      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.SharedStateSync.settingsPublish failed');
+      throw error as Error;
     }
   }
 
@@ -199,7 +205,7 @@ export class SharedStateSync {
   }
 
   /**
-   * 设置应用一侧：把键盘的统计合并进自己的统计文件。持有统计存储的锁（与 client-core 的 `typing-statistics.lock` 是同一把 flock）再写，免得与工作线程上的 `summary`、`record_skin` 互相覆盖；锁被占着时下次再试。
+   * 设置应用一侧：把键盘的统计合并进自己的统计文件。持有统计存储的锁（与 client-services 的 `typing-statistics.lock` 是同一把 flock）再写，免得与工作线程上的 `summary`、`record_skin` 互相覆盖；锁被占着时下次再试。
    */
   private static adoptKeyboardStatistics(stateDirectory: string, keyboardText: string): boolean {
     let lock: fs.File | null = null;
@@ -222,7 +228,7 @@ export class SharedStateSync {
         } catch {
           // 没拿到锁时没有可解的锁。
         }
-        fs.closeSync(lock);
+        NativeCleanup.close(lock);
       }
     }
   }
@@ -252,22 +258,27 @@ export class SharedStateSync {
   }
 
   private static writeText(path: string, text: string): void {
-    const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
     try {
-      const handle: fs.File = fs.openSync(staging,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
       try {
-        fs.writeSync(handle.fd, text);
+        const handle: fs.File = fs.openSync(staging,
+          fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+        try {
+          fs.writeSync(handle.fd, text);
+        } finally {
+          fs.closeSync(handle);
+        }
+        fs.renameSync(staging, path);
       } finally {
-        fs.closeSync(handle);
+        try {
+          if (fs.accessSync(staging)) fs.unlinkSync(staging);
+        } catch {
+          // 只会留下这个唯一命名的暂存文件。
+        }
       }
-      fs.renameSync(staging, path);
-    } finally {
-      try {
-        if (fs.accessSync(staging)) fs.unlinkSync(staging);
-      } catch {
-        // 只会留下这个唯一命名的暂存文件。
-      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.SharedStateSync.writeText failed');
+      throw error as Error;
     }
   }
 }

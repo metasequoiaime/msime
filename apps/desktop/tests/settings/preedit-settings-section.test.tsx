@@ -63,8 +63,6 @@ test("desktop preedit selectors report each changed preference", () => {
       preferences={preferences}
       mobile={false}
       showShuangpinPreedit
-      inlinePreedit={undefined}
-      inlinePreeditBusy={false}
       onChange={onChange}
     />,
   );
@@ -81,23 +79,20 @@ test("desktop preedit selectors report each changed preference", () => {
   expect(onChange).toHaveBeenCalledWith({ candidate_preedit_style: "empty" });
 });
 
-test("touch preedit uses the host feedback switch", () => {
-  const onInlinePreeditChange = vi.fn();
+// 触屏键盘固定把拼写写进输入框、候选栏不画它，所以只剩双拼预编辑。
+test("touch preedit offers only the shuangpin choice", () => {
   render(
     <PreeditSettingsSection
       preferences={preferences}
       mobile
-      showShuangpinPreedit={false}
-      inlinePreedit={false}
-      inlinePreeditBusy
+      showShuangpinPreedit
       onChange={vi.fn()}
-      onInlinePreeditChange={onInlinePreeditChange}
     />,
   );
 
-  const inline = screen.getByLabelText("行内预编辑") as HTMLInputElement;
-  expect(inline.type).toBe("checkbox");
-  expect(inline.disabled).toBe(true);
-  expect(screen.getByLabelText("候选栏预编辑")).toBeTruthy();
-  expect(screen.queryByLabelText("双拼预编辑")).toBeNull();
+  expect(
+    [...document.querySelectorAll("[data-row-title]")].map((title) => title.textContent),
+  ).toEqual(["双拼预编辑"]);
+  expect(screen.queryByLabelText("行内预编辑")).toBeNull();
+  expect(screen.queryByLabelText("候选栏预编辑")).toBeNull();
 });

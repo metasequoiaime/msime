@@ -21,3 +21,5 @@ Status: implemented
 ## Consequences
 
 64 行以内的去重时间复杂度为平方级，但候选页规模受控；大合并继续走哈希表路径。
+
+[替代合并行流](2026-10-16-quanpin-alternative-row-stream.md)消除热主候选的临时页，保留本文的小页门槛、稳定去重与大列表复杂度边界。

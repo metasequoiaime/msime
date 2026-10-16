@@ -50,9 +50,43 @@ public final class DiagnosticsBundleDeviceSmoke extends Instrumentation {
             var event = eventLog.getDeclaredMethod("event", eventKind);
             event.setAccessible(true);
             String[] localKinds = {"input_failure_runtime_rejected", "input_failure_invalid_response",
-                "input_failure_editor_rejected", "input_failure_jni_link"};
+                "input_failure_editor_rejected", "input_failure_jni_link",
+                "voice_engine_local", "voice_local_model_check", "voice_local_runtime_check",
+                "voice_local_recorder_open", "voice_local_native_start", "voice_local_capture_start",
+                "voice_local_capture_read_failure", "voice_failure_model", "voice_failure_runtime_missing",
+                "voice_failure_permission", "voice_failure_null_pointer"};
             try {
+                stage = "real local model refusal";
+                Class<?> localRecognizer = loader.loadClass("app.msime.android.LocalAsrRecognizer");
+                Object local = localRecognizer.getConstructor().newInstance();
+                java.util.List<String> observed = new java.util.ArrayList<>();
+                java.util.function.Consumer<Object> sink = kind -> {
+                    try {
+                        observed.add((String) eventKind.getMethod("wire").invoke(kind));
+                        event.invoke(log, kind);
+                    } catch (ReflectiveOperationException error) {
+                        throw new AssertionError("fixed voice event recording", error);
+                    }
+                };
+                localRecognizer.getMethod("diagnostics", java.util.function.Consumer.class).invoke(local, sink);
+                try {
+                    localRecognizer.getMethod("recognize", String.class, Path.class, String.class,
+                        String.class, String[].class, String[].class,
+                        loader.loadClass("app.msime.android.LocalAsrRecognizer$Listener"))
+                        .invoke(local, root.resolve("synthetic-missing-model").toString(), root, "zh-CN",
+                            "", null, null, null);
+                    throw new AssertionError("missing model must refuse");
+                } catch (java.lang.reflect.InvocationTargetException expected) {
+                    Object failure = expected.getCause();
+                    Object kind = failure.getClass().getMethod("diagnosticKind").invoke(failure);
+                    check(eventKind.getMethod("wire").invoke(kind).equals("voice_failure_model"),
+                        "real model refusal classification");
+                    sink.accept(kind);
+                }
+                check(observed.equals(java.util.Arrays.asList("voice_local_model_check", "voice_failure_model")),
+                    "real model refusal stage order");
                 for (String kind : localKinds) {
+                    if (observed.contains(kind)) continue;
                     Object value = eventKind.getMethod("fromWire", String.class).invoke(null, kind);
                     check(value != null, "installed local failure kind");
                     event.invoke(log, value);
@@ -73,7 +107,7 @@ public final class DiagnosticsBundleDeviceSmoke extends Instrumentation {
             JSONObject envelope = new JSONObject(nativeResponse);
             check(envelope.getBoolean("ok"), "native bundle generation");
             JSONObject counts = envelope.getJSONObject("value").getJSONObject("counts");
-            check(counts.getJSONObject("input_events").getInt("kept") == 5
+            check(counts.getJSONObject("input_events").getInt("kept") == localKinds.length + 1
                 && counts.getJSONObject("input_events").getInt("dropped") == 1, "native privacy filter");
             stage = "local failure ZIP retention";
             try (var zip = new java.util.zip.ZipFile(archive.toFile())) {
@@ -87,7 +121,7 @@ public final class DiagnosticsBundleDeviceSmoke extends Instrumentation {
                 }
                 for (String kind : localKinds) check(rows.contains(kind), "local failure survives native export");
                 check(!rows.contains("synthetic-private-marker"), "local export rejects private fields");
-                check(rows.split("\n").length == 5, "native export has five fixed events");
+                check(rows.split("\n").length == localKinds.length + 1, "native export has all fixed events");
             }
             stage = "native bundle upload sections";
             JSONObject body = readBody(loader, archive, true, true, true, false);

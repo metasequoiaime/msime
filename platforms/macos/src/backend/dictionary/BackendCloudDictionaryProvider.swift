@@ -108,7 +108,7 @@ final class BackendCloudDictionaryProvider: NSObject {
         guard let kind = request["kind"] as? String, ["pinyin", "jianpin", "wubi", "wubi98", "quick", "english"].contains(kind) else { throw BackendAccountClient.Failure(status: 400) }
         let query = BackendAccountClient.CandidateQuery(text: try text(request["text"], limit: 256), kind: kind,
           scheme: try text(request["scheme"], limit: 64), profile: try text(request["profile"], limit: 64), limit: Int(try number(request["limit"], minimum: 1, maximum: 100)))
-        guard ["pinyin", "shuangpin"].contains(query.scheme), ["xiaohe", "ziranma", "microsoft", "shoudao"].contains(query.profile) else { throw BackendAccountClient.Failure(status: 400) }
+        guard ["pinyin", "shuangpin"].contains(query.scheme), ["xiaohe", "ziranma", "microsoft", "shoudao", "smart_abc"].contains(query.profile) else { throw BackendAccountClient.Failure(status: 400) }
         if operation == "candidates" { self = .candidates(query); return }
         guard kind != "quick" else { throw BackendAccountClient.Failure(status: 400) }
         // The shared UI sends canonical pinyin as code for mutation, not the display abbreviation.

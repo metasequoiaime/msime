@@ -28,14 +28,14 @@ import org.json.JSONObject;
 /**
  * 无编码常用语的唯一读写入口：设置里的常用语页、键盘的「常用语」面板和云同步都经过这里，不各自拼请求。
  *
- * <p>数据存在偏好目录下的 `CommonPhrases.json`，由 client-core 加文件锁原子读写（`msime_client_common_phrases`），设置进程和 `:ime` 进程共用同一份。每次操作都返回整份列表，调用方直接重画。每次写成功后经 {@link SyncSignals#markDirty} 标记「常用语」分类有本机改动，同步关闭时那一步什么也不做。
+ * <p>数据存在偏好目录下的 `CommonPhrases.json`，由 client-services 加文件锁原子读写（`msime_client_common_phrases`），设置进程和 `:ime` 进程共用同一份。每次操作都返回整份列表，调用方直接重画。每次写成功后经 {@link SyncSignals#markDirty} 标记「常用语」分类有本机改动，同步关闭时那一步什么也不做。
  *
  * <p>所有方法都会读写磁盘并等文件锁，只能在工作线程调用。失败不抛异常，而是一个带可直接展示原因的 {@link Result}。
  */
 public final class CommonPhrasesStore {
-    /** 自己添加的常用语最多条数，与 client-core 的上限一致。 */
+    /** 自己添加的常用语最多条数，与 client-services 的上限一致。 */
     public static final int MAX_OWN_PHRASES = 200;
-    /** 每条常用语最多的 UTF-16 单元数，与 client-core 的上限一致。 */
+    /** 每条常用语最多的 UTF-16 单元数，与 client-services 的上限一致。 */
     public static final int MAX_PHRASE_UNITS = 1000;
 
     /** 一条常用语；`pack` 为空串表示用户自己添加的，否则是它所属社区短语包的 id。 */
@@ -89,7 +89,7 @@ public final class CommonPhrasesStore {
      *
      * <p>同步已经打开时不放示例，只写一个空标记：这台设备的常用语来自云端，示例混进去只会让人以为是别处同步来的。放示例不标记「常用语有本机改动」，因为它们本来就不参与同步。
      *
-     * <p>设置进程和 `:ime` 进程可能同时第一次读：重复的文字会被 client-core 拒收，所以不会预置出两份；标记文件按并集写入，两边各自放进去的都记得住。
+     * <p>设置进程和 `:ime` 进程可能同时第一次读：重复的文字会被 client-services 拒收，所以不会预置出两份；标记文件按并集写入，两边各自放进去的都记得住。
      */
     public static Result load(Context context) {
         Result result = perform(context, action("load"), false);
@@ -131,7 +131,7 @@ public final class CommonPhrasesStore {
         }
     }
 
-    /** 放一条示例：和 {@link #add} 一样交给 client-core，但不标记同步改动、也不认领。 */
+    /** 放一条示例：和 {@link #add} 一样交给 client-services，但不标记同步改动、也不认领。 */
     private static Result seed(Context context, String text) {
         try {
             return perform(context, action("add").put("text", text), false);
@@ -289,7 +289,7 @@ public final class CommonPhrasesStore {
     /**
      * 安装一个社区短语包。
      *
-     * @param resource 社区条目的原始 JSON（`CommunityCatalog.Item#raw`），原样交给 client-core 校验
+     * @param resource 社区条目的原始 JSON（`CommunityCatalog.Item#raw`），原样交给 client-services 校验
      */
     public static Result installPack(Context context, JSONObject resource) {
         try {
@@ -309,14 +309,14 @@ public final class CommonPhrasesStore {
     }
 
     /**
-     * 常用语正文能否保存，与 client-core 的 `valid_phrase_text` 一致：不全是空白，1–1000 个 UTF-16 单元，除换行以外不含控制字符。界面用它决定确认按钮是否可点，最终仍以 client-core 的校验为准。
+     * 常用语正文能否保存，与 client-services 的 `valid_phrase_text` 一致：不全是空白，1–1000 个 UTF-16 单元，除换行以外不含控制字符。界面用它决定确认按钮是否可点，最终仍以 client-services 的校验为准。
      */
     public static boolean validText(String text) {
         if (text == null || text.isBlank() || text.length() > MAX_PHRASE_UNITS) return false;
         return !TextPolicy.hasControlExceptNewline(text);
     }
 
-    /** 把 client-core 的错误码换成可直接展示的话；不认识的码一律按通用失败处理，不把内部信息漏给用户。 */
+    /** 把 client-services 的错误码换成可直接展示的话；不认识的码一律按通用失败处理，不把内部信息漏给用户。 */
     public static String failureMessage(String code) {
         if (code == null) code = "";
         switch (code) {

@@ -23,3 +23,5 @@ Status: implemented
 ## Consequences
 
 单位查询的结果缓冲按实际模式上界分配：质量 `2jin` 为 3 行、温度 `100c` 为 2 行、长度 `1m` 为 7 行；超过上界时仍由 `Vec` 正常增长，候选内容和顺序不变。
+
+带符号数值的解析边界见[单位换算符号规则](../bug-fix/2026-10-16-signed-unit-conversion.md)，本篇的分配约束继续适用。

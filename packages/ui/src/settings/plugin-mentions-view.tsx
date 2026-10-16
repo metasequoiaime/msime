@@ -1,5 +1,6 @@
+import type { InputScheme } from "../core/input-scheme";
 import type { Dispatch, SetStateAction } from "react";
-import type { InputScheme } from "../index";
+
 import { GroupList } from "../core/platform-controls";
 import { schemeTableModeNote } from "./plugin-catalog-helpers";
 import { PluginViewHeader } from "./plugin-view-header";
@@ -12,7 +13,7 @@ import { SettingsPhraseForm } from "./settings-phrase-form";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsWarning } from "./settings-warning";
 
-/** `client-core::plugins::mentions::MAX_ENTRIES`. */
+/** `client-services::plugins::mentions::MAX_ENTRIES`. */
 export const MAX_MENTIONS = 1000;
 /** `mentions::MAX_TEXT_UTF16`: the Windows candidate pipe's text field. */
 const MAX_MENTION_TEXT_UTF16 = 199;

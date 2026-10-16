@@ -1174,8 +1174,6 @@ static NSImage *MSIMECandidateLogoImage() {
     // Otherwise the next repeat falls through to the client and starts
     // deleting document text even though the user never released the key.
     BOOL _backspaceHoldArmed;
-    // 连续按住 Shift 输入大写时，前一个入口字母已经交给应用；下一枚大写字母不能再次打开快捷模式。
-    BOOL _uppercasePassthroughPending;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
     // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
@@ -1284,11 +1282,6 @@ static NSImage *MSIMECandidateLogoImage() {
     NSMutableDictionary<NSString *, NSString *> *_englishPronunciations;
     NSMutableSet<NSString *> *_pronunciationPending;
     NSMutableDictionary<NSString *, NSString *> *_romajiCache;
-    // Sentences no dictionary has whole: their word-by-word breakdown from the shared tables (text -> line, "" for
-    // none). Keyed by text, it outlives a composition; the pending set keeps a text from being asked twice while an
-    // answer is on its way.
-    NSMutableDictionary<NSString *, NSString *> *_breakdowns;
-    NSMutableSet<NSString *> *_breakdownPending;
     MSIMECustomTranslationBatch *_customBatch;
     NSMutableArray<MSIMECustomTranslationBatch *> *_customBatches;
     // Batches whose page went away while a paid request was in flight. They are held here until that request lands, so its answer still reaches the cache and the glossary (Windows' cloud worker caches before its staleness check, cloud_translation.cpp); a batch deallocated early would cancel it.
@@ -3550,14 +3543,14 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSDictionary *view = [_session setCharacterWidthFull:_appearance.runtimeFullWidthInput error:nil];
     if (view) [self apply:@{@"view":view}];
 }
-// The menus take the global theme's mode as the toolbar does (THEME_CONTRACT §6): a theme that fixes its own mode fixes theirs over menu_theme and the interface theme, which still decide for `system` and a custom theme over it. NSMenu has no palette of its own to recolour, so the mode is what a theme can reach.
+// 菜单和工具栏一样取全局主题的明暗（THEME_CONTRACT §6）：固定明暗的主题盖过颜色模式，`system` 和以它为底的自定义主题仍由颜色模式决定。NSMenu 没有可以重新着色的调色板，主题能影响的只有明暗。macOS 的菜单没有单独的明暗设置，所以钉住的是交给 ApplyMetasequoiaMenuTheme 的 `theme`。
 - (NSDictionary *)resolvedMenuThemePreferences {
     NSDictionary *preferences = _menuThemePreferences ?: @{};
     if (!_appearance) return preferences;
     const auto fixed = [_appearance fixedThemeMode];
     if (!fixed) return preferences;
     NSMutableDictionary *pinned = [preferences mutableCopy];
-    pinned[@"menu_theme"] = *fixed ? @"dark" : @"light";
+    pinned[@"theme"] = *fixed ? @"dark" : @"light";
     return pinned;
 }
 // 「输入方案」子菜单：输入法菜单和悬浮工具栏的切换输入方案按钮用的是同一份。`currentTitle` 带回正在用的方案的名字，没有打勾的项时为 nil。
@@ -5387,11 +5380,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if ([shared respondsToSelector:@selector(applyHandwritingPreferences:)])
         [shared performSelector:@selector(applyHandwritingPreferences:) withObject:preferences];
     [[MSIMEScreenKeyboardPanel sharedPanel] applyThemePreferences:preferences];
-    // The global theme arrives with the rest of the document, so the toolbar takes the palette resolved from it here as well as on activation. A theme with a mode of its own fixes the toolbar's mode as it fixes the candidate window's.
+    // 全局主题随文档其余部分一起到达，所以工具栏除了在激活时，在这里也取由它解析出的调色板。自带明暗的主题像钉住候选窗一样钉住工具栏的明暗。工具栏和中英文提示在 macOS 上没有单独的明暗设置，只看 `theme`，所以钉住的就是它。
     NSDictionary *toolbarThemePreferences = preferences;
     if (const auto fixed = [_appearance fixedThemeMode]) {
         NSMutableDictionary *pinned = [preferences mutableCopy];
-        pinned[@"toolbar_theme"] = *fixed ? @"dark" : @"light";
+        pinned[@"theme"] = *fixed ? @"dark" : @"light";
         toolbarThemePreferences = pinned;
     }
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
@@ -5923,13 +5916,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         return YES;
     }
     if (event.type != NSEventTypeKeyDown) return NO;
-    const NSEventModifierFlags competingForUppercase = NSEventModifierFlagControl | NSEventModifierFlagOption |
-        NSEventModifierFlagCommand;
-    const BOOL plainUppercaseKey = event.characters.length == 1 &&
-        [[NSCharacterSet uppercaseLetterCharacterSet] characterIsMember:[event.characters characterAtIndex:0]] &&
-        (event.modifierFlags & NSEventModifierFlagShift) &&
-        !(event.modifierFlags & competingForUppercase);
-    if (!plainUppercaseKey) _uppercasePassthroughPending = NO;
     [_appearance lockActiveInputMode];
     if (event.keyCode == 51) {
         const BOOL compositionActive = [_view[@"editing_text"] length] || [_view[@"candidates"] count] ||
@@ -6454,14 +6440,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     else if (event.characters.length == 1 && [event.characters characterAtIndex:0] <= 127) {
         const BOOL shift = (event.modifierFlags & NSEventModifierFlagShift) != 0;
         unichar typed = [event.characters characterAtIndex:0];
-        if (_uppercasePassthroughPending && plainUppercaseKey &&
-            ![_view[@"editing_text"] length] && ![_view[@"candidates"] count]) {
-            NSString *text = event.characters;
-            [(id<MSIMETextClient>)sender insertText:text replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
-            MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], text,
-                                        MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), _appearance.englishMode));
-            return YES;
-        }
         if (MSIMESchemeTrait(_view, msime::mac::scheme::FoldsLetterCase)) typed = (unichar)msime::mac::KoreanKeyLetter((char)typed, shift);
         _punctuationKeyInFlight = MSIMEASCIIPunctuation(typed) ? typed : 0;
         transition = [_session typeASCII:(uint8_t)typed shift:shift error:nil];
@@ -6482,8 +6460,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (!finished) return NO;
         [self apply:finished];
     }
-    if (plainUppercaseKey && ![_view[@"editing_text"] length] && ![_view[@"candidates"] count])
-        _uppercasePassthroughPending = YES;
     // A scheme that does not widen (`widens_full_width`: Korean, Vietnamese) writes half-width digits and punctuation whatever the width switch says, as host-api does for the Engine's own commits.
     if (!(MSIMESchemeRulesApply(_view) && !msime::mac::scheme::WidensFullWidth(MSIMEViewScheme(_view))) && _appearance.runtimeFullWidthInput && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
         ![_view[@"editing_text"] length] && event.characters.length == 1 &&
@@ -6733,76 +6709,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self synchronizeCustomTranslations];
     [self synchronizeAITranslations];
     [self synchronizePronunciation];
-    [self synchronizeGlossBreakdowns];
     if (!nested) [self invalidateServiceSnapshots];
-}
-
-// A candidate is a sentence to break down when it is 2 to 32 Han characters, the shared rule of
-// msime_client_gloss_breakdown_request.
-static BOOL MSIMESentenceCandidateText(NSString *text) {
-    if (![text isKindOfClass:NSString.class]) return NO;
-    NSUInteger count = 0;
-    BOOL han = YES;
-    for (NSUInteger index = 0; index < text.length && han;) {
-        const NSRange range = [text rangeOfComposedCharacterSequenceAtIndex:index];
-        UTF32Char character = 0;
-        [text getBytes:&character maxLength:sizeof(character) usedLength:NULL encoding:NSUTF32LittleEndianStringEncoding
-               options:0 range:range remainingRange:NULL];
-        han = (character >= 0x3400 && character <= 0x4DBF) || (character >= 0x4E00 && character <= 0x9FFF) ||
-              (character >= 0xF900 && character <= 0xFAFF) || (character >= 0x20000 && character <= 0x2FA1F);
-        ++count;
-        index = NSMaxRange(range);
-    }
-    return han && count >= 2 && count <= 32;
-}
-
-// The word-by-word line under `candidate`, or empty while glosses are off or it has none.
-- (NSString *)breakdownForCandidate:(NSDictionary *)candidate {
-    if (!_glossRequest || ![candidate[@"text"] isKindOfClass:NSString.class]) return @"";
-    return _breakdowns[candidate[@"text"]] ?: @"";
-}
-
-// Asks the shared tables for the breakdown of every sentence on the page not yet known, then redraws. Answers are
-// keyed by text and cached, an empty string meaning the tables have none.
-- (void)synchronizeGlossBreakdowns {
-    NSDictionary *request = [self currentGlossRequest];
-    if (!request) return;
-    NSString *resources = [_session.hostOptions[@"resources"] copy];
-    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) return;
-    if (!_breakdowns || _breakdowns.count > 4096) _breakdowns = [NSMutableDictionary dictionary];
-    if (!_breakdownPending) _breakdownPending = [NSMutableSet set];
-    NSMutableOrderedSet<NSString *> *sentences = [NSMutableOrderedSet orderedSet];
-    for (NSDictionary *candidate in request[@"candidates"])
-        if (MSIMESentenceCandidateText(candidate[@"text"])) [sentences addObject:candidate[@"text"]];
-    NSMutableArray<NSString *> *missing = [NSMutableArray array];
-    for (NSString *text in sentences)
-        if (!_breakdowns[text] && ![_breakdownPending containsObject:text]) [missing addObject:text];
-    if (!missing.count) return;
-    [_breakdownPending addObjectsFromArray:missing];
-    if (!_pronunciationQueue) {
-        _pronunciationQueue = [NSOperationQueue new];
-        _pronunciationQueue.maxConcurrentOperationCount = 1;
-        _pronunciationQueue.qualityOfService = NSQualityOfServiceUtility;
-    }
-    NSDictionary *ask = @{@"generation": [self serviceSnapshotQuery][@"generation"] ?: @0, @"texts": [missing copy]};
-    NSArray<NSString *> *asked = [missing copy];
-    __weak MSIMEInputController *weakSelf = self;
-    [_pronunciationQueue addOperationWithBlock:^{
-        NSDictionary *result = [MSIMEClientSession glossBreakdownRequest:ask resources:resources error:nil];
-        NSMutableDictionary<NSString *, NSString *> *answered = [NSMutableDictionary dictionary];
-        for (NSDictionary *entry in [result[@"breakdowns"] isKindOfClass:NSArray.class] ? result[@"breakdowns"] : @[])
-            if ([entry[@"text"] isKindOfClass:NSString.class] && [entry[@"breakdown"] isKindOfClass:NSString.class])
-                answered[entry[@"text"]] = entry[@"breakdown"];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            MSIMEInputController *current = weakSelf;
-            if (!current) return;
-            for (NSString *text in asked) {
-                current->_breakdowns[text] = answered[text] ?: @"";
-                [current->_breakdownPending removeObject:text];
-            }
-            if (current->_activeClient && answered.count) [current renderCandidates];
-        });
-    }];
 }
 
 // How the gloss lines of `candidate` are read, "\n"-joined parallel to them; empty while the switch is off or nothing is known.
@@ -6926,9 +6833,8 @@ static BOOL MSIMESentenceCandidateText(NSString *text) {
         [scriptAnnotations addObject:scriptAnnotation];
         // 按画出来的样子量：读音和插件注释都算进释义行，行的宽高才和按钮画的释义行一致。
         NSString *pronunciation = [self pronunciationForCandidate:candidate];
-        NSString *breakdown = [self breakdownForCandidate:candidate];
-        [translations addObject:MSIMECandidateGlossWithScriptAnnotation(pronunciation.length || breakdown.length
-            ? MSIMECandidateGlossRun(reading, MSIMECandidateGlossDisplay(CandidateTranslation(candidate), pronunciation, breakdown, nil, nil))
+        [translations addObject:MSIMECandidateGlossWithScriptAnnotation(pronunciation.length
+            ? MSIMECandidateGlossRun(reading, MSIMECandidateGlossDisplay(CandidateTranslation(candidate), pronunciation, nil, nil))
             : gloss, scriptAnnotation)];
         NSString *tip = MSIMECandidateGlossWithScriptAnnotation(gloss, scriptAnnotation);
         [tooltips addObject:tip.length ? [NSString stringWithFormat:@"%@\n%@", hanjaReadings ? text : display, tip] : display];
@@ -7140,13 +7046,12 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     button.glossReading = geometry.readings[slot];
     button.scriptAnnotation = scriptAnnotation;
     button.pronunciation = [self pronunciationForCandidate:candidate];
-    button.breakdown = [self breakdownForCandidate:candidate];
     button.armedGlossColumn = _armedGlossColumn;
     button.translationFont = glossFont;
     button.itemLayout = row.item;
     button.hasItemLayout = YES;
     button.contentLeft = geometry.contentLeft;
-    button.translationBelow = MSIMECandidateGlossRun(button.glossReading, button.translation).length || button.breakdown.length || scriptAnnotation.length ? row.item.translation.below : !vertical;
+    button.translationBelow = MSIMECandidateGlossRun(button.glossReading, button.translation).length || scriptAnnotation.length ? row.item.translation.below : !vertical;
     button.toolTip = geometry.tooltips[slot];
     button.bordered = NO;
     button.candidateHighlighted = MSIMEStrictBoolean(candidate[@"highlighted"]);

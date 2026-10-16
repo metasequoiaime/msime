@@ -590,7 +590,7 @@ impl Default for SchemeSet {
     }
 }
 
-/// Double-pinyin keyboard profile. The ordinal is the host ABI value (`EngineOptions::shuangpin_profile`).
+/// 双拼键位方案，序号是宿主 ABI 值（`EngineOptions::shuangpin_profile`），新增方案只追加。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
 pub enum ShuangpinProfileKind {
@@ -601,6 +601,7 @@ pub enum ShuangpinProfileKind {
     Microsoft = 3,
     /// 用户自定义的键位，表在 [`ShuangpinCustomTable`] 里（`EngineOptions::shuangpin_custom_profile`、`SessionOptions::shuangpin_custom_profile`），没有内置的表。
     Custom = 4,
+    SmartAbc = 5,
 }
 
 impl ShuangpinProfileKind {
@@ -611,6 +612,7 @@ impl ShuangpinProfileKind {
             2 => Self::Shoudao,
             3 => Self::Microsoft,
             4 => Self::Custom,
+            5 => Self::SmartAbc,
             _ => return None,
         })
     }
@@ -623,6 +625,7 @@ impl ShuangpinProfileKind {
             "shoudao" => Self::Shoudao,
             "microsoft" => Self::Microsoft,
             "custom" => Self::Custom,
+            "smart_abc" => Self::SmartAbc,
             _ => return None,
         })
     }
@@ -634,6 +637,7 @@ impl ShuangpinProfileKind {
             Self::Shoudao => "shoudao",
             Self::Microsoft => "microsoft",
             Self::Custom => "custom",
+            Self::SmartAbc => "smart_abc",
         }
     }
 }
@@ -1153,6 +1157,14 @@ impl LocalInputMode {
     /// Whether the mode's rows are text the engine generated rather than words the user spelled. Their commits are never learned and never counted as typing.
     pub fn generates_text(self) -> bool {
         matches!(self, Self::Expression | Self::Command | Self::Mention)
+    }
+
+    /// 去掉临时模式预编辑开头的入口字母（`Y`、`R`）。它是模式标记、不是用户打的字，所以进词库的词不能带它；回车原样上屏时它算文本（#7616），那一处不走这里。
+    pub fn without_entry_marker(self, text: &str) -> &str {
+        match self {
+            Self::TemporaryEnglish | Self::TemporaryJapanese => text.get(1..).unwrap_or_default(),
+            _ => text,
+        }
     }
 
     /// 候选注释由 Engine 自己给出、不补辅助码的模式：V、`/`、`@` 的行不是按拼音拼出来的，辅助码说明不了它们；拆字的行注释的是字的读音，用户正是不会读这个字才来查，辅助码夹在读音里只会添乱。和 `generates_text` 分开，是因为拆字上屏的字是用户挑出来的，照常计入打字统计。

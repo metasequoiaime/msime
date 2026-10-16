@@ -26,7 +26,7 @@ struct PrivacySettingsView: View {
 
         DesignGroup(title: "本机数据", radius: MetasequoiaTheme.tabCardRadius) {
           NavigationLink { ClipboardHistorySettingsView() } label: {
-            DesignNavRowLabel(title: "剪贴板历史", subtitle: "只保存在本机，最多 50 条")
+            DesignNavRowLabel(title: "剪贴板历史", subtitle: "只保存在本机，最多 200 条")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("privacyClipboardHistoryLink")

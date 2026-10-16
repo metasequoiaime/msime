@@ -1,12 +1,9 @@
 import { SettingsServiceRow } from "./settings-service-row";
 import { ActionButton } from "./action-button";
 
-export interface CredentialTestState {
-  signature: string;
-  busy: boolean;
-  ok?: boolean;
-  message: string;
-}
+import type { CredentialTestState } from "./credential-test-state";
+
+export type { CredentialTestState } from "./credential-test-state";
 
 export interface CredentialTestSectionProps {
   label: string;

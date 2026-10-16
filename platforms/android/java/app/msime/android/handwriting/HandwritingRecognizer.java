@@ -57,10 +57,10 @@ public interface HandwritingRecognizer extends AutoCloseable {
         return TextPolicy.tailCodePoints(text, MAX_PRE_CONTEXT);
     }
 
-    /** Reads and bounds the editor context shared by touch and stylus handwriting. */
+    /** 读取并限制触摸与手写笔共用的编辑器上文；连接断开时没有上文。 */
     static String preContext(InputConnection connection) {
         if (connection == null) return "";
-        CharSequence before = connection.getTextBeforeCursor(MAX_PRE_CONTEXT, 0);
+        CharSequence before = InputConnectionGuard.textBeforeCursor(connection, MAX_PRE_CONTEXT);
         return clipPreContext(before == null ? "" : before.toString());
     }
 

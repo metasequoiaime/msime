@@ -86,7 +86,10 @@ enum KEYSTROKE_FUNCTION
     // Korean: the Hanja key, or a key the open Hanja list takes (KoreanHanjaKey.h). Decided against the host session when the key runs, so a list key queued behind the key that opened or closed the list still does the right thing.
     FUNCTION_KOREAN_HANJA_KEY,
     // Ctrl+Shift+J：在中文方案和日语方案之间切换。和 FUNCTION_TOGGLE_CHARACTER_SET 一样只发给 Server、不读回复、不改组字。
-    FUNCTION_TOGGLE_JAPANESE
+    FUNCTION_TOGGLE_JAPANESE,
+    FUNCTION_CANDIDATE_CONTINUATION,
+    FUNCTION_HOST_ONLINE_CANDIDATES,
+    FUNCTION_HOST_CANDIDATE_NAVIGATION
 };
 
 static_assert(FUNCTION_MOVE_UP == 16 && FUNCTION_MOVE_PAGE_BOTTOM == 21,

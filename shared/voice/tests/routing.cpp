@@ -41,7 +41,7 @@ int main() {
                default_asr_endpoint(provider));
         assert(transcription_language(provider, "zh-CN") == "zh");
     }
-    // 阿里云百炼（#6017）：整句识别走 Chat Completions 带音频输入，请求格式与 client-core 相同。
+    // 阿里云百炼（#6017）：整句识别走 Chat Completions 带音频输入，请求格式与 client-providers 相同。
     assert(default_asr_endpoint("bailian") ==
            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions");
     assert(default_asr_model("bailian") == "qwen3-asr-flash");

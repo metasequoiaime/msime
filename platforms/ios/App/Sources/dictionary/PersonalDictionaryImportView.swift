@@ -45,7 +45,7 @@ struct PersonalDictionaryImportView: View {
           }
           .pickerStyle(.segmented)
           .accessibilityIdentifier("personalDictionaryImportSource")
-          .onChange(of: source) { _ in clearPreview() }
+          .onChange(of: source) { clearPreview() }
         }
         .designRow()
         if source == .json {
@@ -68,12 +68,12 @@ struct PersonalDictionaryImportView: View {
             .accessibilityIdentifier("personalDictionaryFileKind")
             // 细胞词库只有拼音，选了它类型就锁在拼音上。
             .disabled(fileFormat == "scel")
-            .onChange(of: fileKind) { _ in clearPreview() }
+            .onChange(of: fileKind) { clearPreview() }
             Picker("文件格式", selection: $fileFormat) {
               ForEach(PersonalDictionaryImport.fileFormats, id: \.format) { Text($0.title).tag($0.format) }
             }
             .accessibilityIdentifier("personalDictionaryFileFormat")
-            .onChange(of: fileFormat) { format in
+            .onChange(of: fileFormat) { _, format in
               if format == "scel" { fileKind = .pinyin }
               clearPreview()
             }

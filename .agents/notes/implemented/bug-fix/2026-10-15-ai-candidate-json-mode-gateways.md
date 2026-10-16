@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-AI 候选请求（`crates/client-core/src/ai.rs` 的 `chat_completion_body`，Linux 是 `msime-linux-online-provider` 的 `ai`）带 `response_format: {"type": "json_object"}`，只在 system 提示里要求输出 JSON，user 消息是不含 "json" 一词的请求对象。回答由 `parse_chat_completion_response` 按严格 JSON 解析正文。两种常见配置因此拿不到任何 AI 候选，AI 座位上的「…」等完只会换成「—」：
+AI 候选请求（`crates/client-providers/src/ai.rs` 的 `chat_completion_body`，Linux 是 `msime-linux-online-provider` 的 `ai`）带 `response_format: {"type": "json_object"}`，只在 system 提示里要求输出 JSON，user 消息是不含 "json" 一词的请求对象。回答由 `parse_chat_completion_response` 按严格 JSON 解析正文。两种常见配置因此拿不到任何 AI 候选，AI 座位上的「…」等完只会换成「—」：
 
 - 把 Chat Completions 转成 Responses API 的网关（实测 EveryAPI 上的 `gpt-6-luna`）把 system 消息放进 `instructions`，JSON 模式的 "json" 检查只看 input，于是每次请求都是 HTTP 400 `Response input messages must contain the word 'json'`。用同一请求体连发 3 次，3 次都是 400。
 - 不支持 `response_format` 的模型（实测 EveryAPI 上的 `claude-haiku-4-5`）照常回答，但把 JSON 包在 ```` ```json ```` 代码块里，严格解析失败，回答被当成无效。

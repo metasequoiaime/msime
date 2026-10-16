@@ -1,15 +1,15 @@
 import { TextPolicy } from "../keyboard/TextPolicy";
 /**
- * Notices from the MSIME service, shown as a dismissible card above the settings page.
+ * 来自水杉服务的公告，以可关闭的卡片形式显示在设置页上方。
  *
- * client-core fetches the feed (`msime_client_notices`, at most once a minute), drops the ones the user dismissed and renders each Markdown body to HTML with raw HTML escaped and only http, https and mailto links kept. What is left for this host is reading that answer, wrapping the HTML in a page that can load nothing and run nothing, and deciding which link taps leave the application.
+ * client-services 负责拉取公告列表（`msime_client_notices`，至多每分钟一次），去掉用户已关闭的公告，并把每条 Markdown 正文渲染成 HTML：原始 HTML 一律转义，只保留 http、https 和 mailto 链接。留给本宿主的只有读取这份应答、把 HTML 包进一个什么都不能加载也什么都不能执行的页面，以及决定点哪些链接会离开应用。
  */
 
 /** One notice as the settings page shows it. */
 export interface NoticeItem {
   id: string;
   title: string;
-  /** The body rendered by client-core; safe to display, still never given scripts or network access. */
+  /** 由 client-services 渲染的正文；可以安全显示，但仍然从不给它脚本或网络权限。 */
   html: string;
 }
 
@@ -35,7 +35,7 @@ function validText(value: unknown, maximum: number): value is string {
   );
 }
 
-/** Keep the host-side id contract identical to client-core so dismissals can be persisted. */
+/** 宿主侧的 id 约定与 client-services 保持一致，这样关闭记录才能持久化。 */
 function validId(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -113,9 +113,9 @@ export class NoticePolicy {
   }
 
   /**
-   * The link to open in the system browser or mail application when the user taps it in a notice, or null for a navigation the card keeps (its own page) or refuses.
+   * 用户在公告里点击链接时要交给系统浏览器或邮件应用打开的地址；对于卡片自己保留（它自己的页面）或拒绝的跳转，返回 null。
    *
-   * Only the schemes client-core leaves in a body: anything else in a link was not written by the notice and is not followed.
+   * 只认 client-services 在正文里保留的那几种 scheme：链接里出现的其他 scheme 都不是公告作者写的，不予跟随。
    */
   static externalLink(url: string): string | null {
     const lower: string = url.toLowerCase();

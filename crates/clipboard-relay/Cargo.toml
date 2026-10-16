@@ -28,6 +28,7 @@ time = { workspace = true, features = ["formatting"] }
 [dev-dependencies]
 # 端到端测试用真正的客户端驱动连这个中继。
 msime-client-core = { path = "../client-core" }
+msime-client-services = { path = "../client-services" }
 tempfile.workspace = true
 
 [lints]

@@ -174,6 +174,24 @@ test("the 普通话 sheet offers 全拼 14 键 between 26 键 and 9 键 when the
   expect(languageRow("普通话").textContent).toContain("全拼 14 键");
 });
 
+test("the 普通话 sheet labels and selects 九键双拼 when the host has it", () => {
+  const preferences = renderCard(["quanpin"], undefined, [...available, "nine_key_shuangpin"]);
+
+  fireEvent.click(languageRow("普通话"));
+  expect(within(sheet()).getByRole("button", { name: "九键双拼" })).toBeTruthy();
+  fireEvent.click(within(sheet()).getByRole("button", { name: "九键双拼" }));
+
+  expect(preferences()).toMatchObject({
+    scheme: "quanpin",
+    touch_keyboard_layout: "nine_key_shuangpin",
+    touch_keyboard_schemes: {
+      enabled: ["quanpin", "nine_key_shuangpin"],
+      selected: "nine_key_shuangpin",
+    },
+  });
+  expect(languageRow("普通话").textContent).toContain("九键双拼");
+});
+
 test("a 五笔 profile picked in its submenu sets the profile and switches to 五笔", () => {
   const preferences = renderCard(["quanpin"]);
 

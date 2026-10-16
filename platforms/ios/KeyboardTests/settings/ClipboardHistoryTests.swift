@@ -18,8 +18,8 @@ final class ClipboardHistoryTests: XCTestCase {
     let store = try temporaryStore()
     try store.add("  保留空格\n")
     try store.setPinned(true, text: "  保留空格\n")
-    for number in 0..<60 { try store.add("记录 \(number)") }
-    XCTAssertEqual(try store.load().count, 50)
+    for number in 0..<210 { try store.add("记录 \(number)") }
+    XCTAssertEqual(try store.load().count, ClipboardHistoryStore.limit)
     XCTAssertEqual(try store.load().first?.text, "  保留空格\n")
     XCTAssertEqual(try store.load().first?.pinned, true)
     XCTAssertFalse(try store.load().contains { $0.text == "记录 0" })

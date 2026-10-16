@@ -336,7 +336,7 @@ pub(crate) async fn copy_text_impl(
                     code: "unavailable",
                 })?;
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(target_os = "ios")]
     {
@@ -370,7 +370,7 @@ pub(crate) async fn copy_text_impl(
                     code: "unavailable",
                 })?;
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {

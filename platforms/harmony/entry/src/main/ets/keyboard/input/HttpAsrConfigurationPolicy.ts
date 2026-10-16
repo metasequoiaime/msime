@@ -19,7 +19,7 @@ export class HttpAsrConfigurationPolicy {
   }
 
   /**
-   * 整句上传的请求格式，取值与 client-core 的 `asr_request_format` 相同；不是整句上传的 provider 为空串。本宿主的语音设置不经过共享层的 `MobileVoiceProviderConfiguration`，所以在这里留一份同样的对应，识别器和凭据测试只按格式挑请求构造。
+   * 整句上传的请求格式，取值与 client-providers 的 `asr_request_format` 相同；不是整句上传的 provider 为空串。本宿主的语音设置不经过共享层的 `MobileVoiceProviderConfiguration`，所以在这里留一份同样的对应，识别器和凭据测试只按格式挑请求构造。
    */
   static requestFormat(provider: string): string {
     if (["openai", "siliconflow", "groq", "everyapi", "mistral"].includes(provider)) {

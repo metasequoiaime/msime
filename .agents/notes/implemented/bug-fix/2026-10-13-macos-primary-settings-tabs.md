@@ -10,6 +10,10 @@ macOS 输入法菜单的 `showAppearance:` 先调用 `MSIMEOpenDesktopSettings`�
 
 共享桌面候选设置页用布局、字体与大小、窗口样式、预编辑四个标签，位于共用预览的下方。预览共用，分区保持挂载，仅隐藏未选中的分区，保留修改与返回页面时的选择。方向键、Home、End 同步焦点和当前面板。桌面预览不再按竖排最大九项放不可见占位，而是随当前排列与数量伸缩，避免横排也占整页高度。手机布局和原有预留策略保持。
 
+## 后续取代
+
+[macOS 主题页与候选窗口页精简](../simplification/2026-10-16-macos-appearance-settings-prune.md) 取代本篇「共享桌面候选设置页用四个标签」的决定：共享页改成一列，进阶项收进一个「更多选项」。本篇关于入口判断、预览随样例伸缩、横竖切换时的预览生命周期和外部皮肤预览 logo 的部分仍然成立。
+
 ## 历史审计
 
 [原生候选设置标签](../../implemented/feature/2026-10-13-macos-candidate-settings-tabs.md) 部分重叠：备用窗口的实现仍保留，本篇取代其“改共享页面不能完成请求”的入口判断。输入法的原生宿主是安装和验收对象，共享组件由它正常拉起。[候选预览 token](../../implemented/bug-fix/2026-10-11-macos-candidate-preview-native-tokens.md) 与入口无关，保持预览组件原有行为。[展开候选](../../implemented/feature/2026-10-12-macos-expanded-candidate-grid.md) 部分重叠，只改变桌面设置所在分区。

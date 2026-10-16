@@ -37,11 +37,15 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 
 **设置界面。** 新能力位 `app_input_mode_rules`（macOS、Windows）控制共享设置页「中英文」组里的规则表（`app-input-mode-rules-section.tsx`）：每条规则一行，显示应用名称、标识退到说明里，可以改模式、可以移除；末尾的「添加应用…」由宿主弹出系统的选应用对话框（`SettingsClient.pickApplication`，Tauri 命令 `pick_application`），新规则从中文开始。用户不知道也不该去查 Bundle ID 或进程名，所以标识从所选应用读出：macOS 的面板只接受应用程序包、默认打开 /Applications，Bundle ID 和名称由 `crates/host-macos/native/file_picker.mm` 读；Windows 选一个 `.exe`，取文件名。已有规则的名称在 macOS 上按 Bundle ID 向 LaunchServices 查（`applicationNames`，命令 `application_names`），没装的应用照旧显示标识。宿主不提供对话框时才退回手填标识，Windows 上粘贴完整路径时只取文件名。WinUI 设置的同一组有同样的规则表，写入前的校验在 `settings/AppInputModeRuleList.h`。两处校验和偏好库一致，另外要求 Windows 上以 `.exe` 结尾。
 
+`app-input-mode-rules.ts` 持有 `AppInputModeRule` 与 `PickedApplication`，入口偏好、`SettingsClient.pickApplication` 和规则组件直接引用同一份模型，规则校验模块不再从总入口反向导入类型。包入口保留 `AppInputModeRule` 导出并公开 `PickedApplication`；规则组件保留旧的 `PickedApplication` 转导出。选择取消仍返回 null，名称回退、宿主命令和名称查询契约保持不变。
+
 共享规则表的应用名称查询使用 `useAsyncGeneration(applicationNames, unnamedKey)`，查询函数更换、待查标识批次变化与卸载作废旧成功和失败回包。已解析的名称、查不到时的标识回退以及选应用时直接记下的名称仍保存在页面缓存中；规则模式变化不触发名称重查。公共 hook 替代局部布尔守卫与 cleanup。名称查询与选应用动作各自保留请求归属和触发时机。
 
 **MCP 也能读写这两项。** `crates/mcp-server/src/preferences.rs` 的 `get_preferences` 显示 `app_input_mode_rules`（模式沿用 `default_ime_mode` 的 `chinese`/`english`）和 `shuangpin_keymap_hint`（从没设置过时为 null，macOS 这时仍读本机旧设置）；`update_preferences` 可以整张替换规则表（`{}` 清空）、开关键位提示。规则表的合法性由存储层的同一条校验判定，不合法时整次更新被拒、原表不变，不在 MCP 里另写一份规则。
 
 ## Alternatives considered
+
+- **入口内联应用选择结果，组件单独声明类型。** 两边都能就地看见字段，少一个模型导入；但同一份结果会有两个类型来源，规则校验还需从总入口取得模式类型。两种类型集中到既有规则模型中，保留兼容导出即可避免这两项依赖。
 
 - **名称查询保留局部布尔守卫。** 守卫直接写在请求旁，易于理解，也能隔离旧回包。公共 `useAsyncGeneration` 已承担相同 owner 与卸载契约，继续手写会重复维护 cleanup；因此复用已有 hook，保留页面自己的缓存和显示逻辑。
 
@@ -71,6 +75,7 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 - MCP：`cargo test -p msime-mcp-server` 的 `app_input_mode_rules_and_the_keymap_hint_are_set_and_invalid_rules_refused` 覆盖设置、只差大小写的重复被拒且原表不变、清空；`the_mirrors_serialize_as_the_store_does` 钉住模式值与存储一致。
 - 共享设置页：`apps/desktop/tests/settings/app-input-mode-rules.test.tsx` 覆盖规范化、校验、Windows 上编辑并保存规则表、切换提示与 Alt+Shift+H 开关。规范化和去重复用[公共 ASCII 小写转换](../simplification/2026-10-16-ui-ascii-lowercase.md)，非 ASCII 字母的大小写仍可区分。
 - 名称查询复用公共代次后，同一套行为测试覆盖查询函数更换、待查标识批次变化、旧成功和失败、StrictMode 重放以及缺失或失败时缓存标识回退。15 项测试在抽取前后均通过，验证现有交互和缓存行为保持一致。
+- 应用选择结果和规则模式类型归入公共模型后，应用规则 16 项测试、桌面构建与类型检查、Harmony 类型检查通过；偏好字段门禁核对 34 个共享类型一致。类型由真实编译检查，运行时回归继续覆盖选应用、取消、名称缓存、旧回包和手填回退。
 - macOS：`tests/settings/PreferenceSnapshotMergeTest.mm` 覆盖整表替换；`tests/input/ShortcutTest.mm` 的 `TestApplicationInputModeRulesFollowSharedDocument` 覆盖迁移、回退、载入后要求发布、未发布旧规则的合并、发布过滤、收不下的旧规则留在本机生效和清空；`TestApplicationInputModeRuleEditsKeepDocumentTable` 覆盖原生窗口改规则时两边分开改、还没载入文档时不写规则表、按应用查规则不分大小写。
 - Windows 宿主：`tests/input/mode_authority.cpp`（规则、让位、推送落地、`user_changed`）、`tests/input/app_input_mode_rules.cpp`、`tests/ui/input_mode_hud_layout.cpp`（含读屏播报文案）、`tests/ui/app_input_mode_rule_list.cpp` 和 `tsf/tests/input/fullwidth_chord_policy.cpp`。
 

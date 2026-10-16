@@ -19,7 +19,9 @@ test("punctuation controls use existing defaults and send focused preference pat
     />,
   );
 
-  expect((screen.getByRole("switch", { name: "中文标点" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("combobox", { name: /^标点/ }) as HTMLSelectElement).value).toBe(
+    "chinese",
+  );
   expect(
     (screen.getByRole("switch", { name: /^成对标点自动补全/ }) as HTMLInputElement).checked,
   ).toBe(true);
@@ -27,15 +29,123 @@ test("punctuation controls use existing defaults and send focused preference pat
     false,
   );
   expect(screen.queryByRole("switch", { name: "全角输入" })).toBeNull();
+  expect(screen.queryByRole("switch", { name: "中文标点" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: /^固定标点/ })).toBeNull();
 
+  // 智能标点关着时，它的四个细分开关在「更多选项」里、变灰，值不动。
+  for (const name of [/^重复标点转中文/, /^中文标点后按空格转换/, /^数字后直出/, /^字母后直出/]) {
+    const row = screen.getByRole("switch", { name }) as HTMLInputElement;
+    expect(row.disabled).toBe(true);
+    expect(row.closest("details")?.textContent).toContain("更多选项");
+  }
+
+  // 用户切换总开关时，数字后直出和字母后直出跟着写成同一个值。
   fireEvent.click(screen.getByRole("switch", { name: /^智能标点/ }));
-  expect(onChange).toHaveBeenLastCalledWith({ smart_punctuation: true });
-  fireEvent.click(screen.getByRole("switch", { name: /^字母后直出/ }));
-  expect(onChange).toHaveBeenLastCalledWith({ smart_punctuation_direct_letter: true });
-  fireEvent.change(screen.getByRole("combobox", { name: "固定标点" }), {
-    target: { value: "english" },
+  expect(onChange).toHaveBeenLastCalledWith({
+    smart_punctuation: true,
+    smart_punctuation_direct_digit: true,
+    smart_punctuation_direct_letter: true,
   });
-  expect(onChange).toHaveBeenLastCalledWith({ punctuation_lock: "english" });
+});
+
+test("smart punctuation refinements unlock with the master switch and keep their own patches", () => {
+  const onChange = vi.fn();
+  render(
+    <PunctuationSection
+      preferences={{
+        chinese_punctuation: true,
+        smart_punctuation: true,
+        smart_punctuation_direct_digit: true,
+        smart_punctuation_direct_letter: false,
+      }}
+      showCharacterWidth={false}
+      onChange={onChange}
+    />,
+  );
+  // 打开页面不改写已存的细分值，单独关掉的字母后直出仍显示为关。
+  expect(onChange).not.toHaveBeenCalled();
+  const letter = screen.getByRole("switch", { name: /^字母后直出/ }) as HTMLInputElement;
+  expect(letter.disabled).toBe(false);
+  expect(letter.checked).toBe(false);
+  expect((screen.getByRole("switch", { name: /^数字后直出/ }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  fireEvent.click(letter);
+  expect(onChange).toHaveBeenLastCalledWith({ smart_punctuation_direct_letter: true });
+  fireEvent.click(screen.getByRole("switch", { name: /^智能标点/ }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    smart_punctuation: false,
+    smart_punctuation_direct_digit: false,
+    smart_punctuation_direct_letter: false,
+  });
+});
+
+test("smart punctuation says it does nothing while both direct halves are off, without rewriting them", () => {
+  const onChange = vi.fn();
+  const section = (direct_digit: boolean) => (
+    <PunctuationSection
+      preferences={{
+        chinese_punctuation: true,
+        smart_punctuation: true,
+        smart_punctuation_direct_digit: direct_digit,
+        smart_punctuation_direct_letter: false,
+      }}
+      showCharacterWidth={false}
+      onChange={onChange}
+    />
+  );
+  // 只写过总开关的旧文档：总开关开、两半都关，说明里的承诺不成立，按已存的值提示一句。
+  const { rerender } = render(section(false));
+  expect(screen.getByText(/这一条暂不生效/)).toBeTruthy();
+  expect(onChange).not.toHaveBeenCalled();
+  rerender(section(true));
+  expect(screen.queryByText(/这一条暂不生效/)).toBeNull();
+});
+
+test("标点 reads its value from chinese_punctuation and punctuation_lock and writes only what each choice needs", () => {
+  const onChange = vi.fn();
+  const mode = () => screen.getByRole("combobox", { name: /^标点/ }) as HTMLSelectElement;
+  const { rerender } = render(
+    <PunctuationSection
+      preferences={{ chinese_punctuation: false }}
+      showCharacterWidth={false}
+      onChange={onChange}
+    />,
+  );
+  expect(Array.from(mode().options).map((option) => option.value)).toEqual([
+    "chinese",
+    "english",
+    "always_chinese",
+    "always_english",
+  ]);
+  expect(mode().value).toBe("english");
+  // 锁定优先：锁定时宿主不看 chinese_punctuation，矛盾的旧组合按锁定显示，打开页面不改写。
+  for (const [preferences, value] of [
+    [{ chinese_punctuation: false, punctuation_lock: "chinese" }, "always_chinese"],
+    [{ chinese_punctuation: true, punctuation_lock: "english" }, "always_english"],
+    [{ chinese_punctuation: true, punctuation_lock: "follow" }, "chinese"],
+  ] as const) {
+    rerender(
+      <PunctuationSection
+        preferences={preferences}
+        showCharacterWidth={false}
+        onChange={onChange}
+      />,
+    );
+    expect(mode().value).toBe(value);
+  }
+  expect(onChange).not.toHaveBeenCalled();
+
+  for (const [value, patch] of [
+    ["chinese", { chinese_punctuation: true, punctuation_lock: "follow" }],
+    ["english", { chinese_punctuation: false, punctuation_lock: "follow" }],
+    // 「始终」只写不上云的锁定，起始标点会同步到其他设备，不顺带改写它。
+    ["always_chinese", { punctuation_lock: "chinese" }],
+    ["always_english", { punctuation_lock: "english" }],
+  ] as const) {
+    fireEvent.change(mode(), { target: { value } });
+    expect(onChange).toHaveBeenLastCalledWith(patch);
+  }
 });
 
 test("fullwidth control appears only when the host supports it", () => {
@@ -77,11 +187,14 @@ test("caps lock punctuation switch appears only on a host that reports caps lock
     name: /^大写锁定时使用英文标点/,
   }) as HTMLInputElement;
   expect(capsLock.checked).toBe(false);
+  // 它不依赖智能标点，所以收在「更多选项」里但不变灰。
+  expect(capsLock.disabled).toBe(false);
+  expect(capsLock.closest("details")?.textContent).toContain("更多选项");
   fireEvent.click(capsLock);
   expect(onChange).toHaveBeenLastCalledWith({ caps_lock_ascii_punctuation: true });
 });
 
-test("quote and bracket styles follow 中文标点, show their defaults and send their stored values", () => {
+test("quote and bracket styles follow 标点, show their defaults and send their stored values", () => {
   const onChange = vi.fn();
   const { rerender } = render(
     <PunctuationSection
@@ -101,14 +214,13 @@ test("quote and bracket styles follow 中文标点, show their defaults and send
     "corner",
     "corner_when_traditional",
   ]);
-  // 两行紧跟在「中文标点」之后，排在智能标点那几行前面。
+  // 引号样式紧跟在「标点」选择之后、排在智能标点前面；方头括号样式收进「更多选项」。
   const controls = Array.from(document.querySelectorAll("input, select"));
-  const chinese = controls.indexOf(screen.getByRole("switch", { name: "中文标点" }));
-  expect(controls.indexOf(quotes())).toBe(chinese + 1);
-  expect(controls.indexOf(brackets())).toBe(chinese + 2);
-  expect(controls.indexOf(screen.getByRole("switch", { name: /^智能标点/ }))).toBeGreaterThan(
-    chinese + 2,
-  );
+  const mode = controls.indexOf(screen.getByRole("combobox", { name: /^标点/ }));
+  expect(controls.indexOf(quotes())).toBe(mode + 1);
+  expect(controls.indexOf(screen.getByRole("switch", { name: /^智能标点/ }))).toBe(mode + 2);
+  expect(quotes().closest("details")).toBeNull();
+  expect(brackets().closest("details")?.textContent).toContain("更多选项");
 
   fireEvent.change(quotes(), { target: { value: "corner" } });
   expect(onChange).toHaveBeenLastCalledWith({ quote_style: "corner" });
@@ -141,4 +253,26 @@ test("the HarmonyOS phone section keeps both styles under 更多选项", () => {
   expect(brackets.closest("details")).toBe(quotes.closest("details"));
   fireEvent.change(quotes, { target: { value: "corner" } });
   expect(onChange).toHaveBeenLastCalledWith({ quote_style: "corner" });
+});
+
+test("the HarmonyOS phone section greys out smart punctuation refinements and writes both halves with the master", () => {
+  const onChange = vi.fn();
+  render(
+    <PhonePunctuationSection
+      preferences={{ chinese_punctuation: true, smart_punctuation: false }}
+      onChange={onChange}
+    />,
+  );
+  expect(
+    (screen.getByRole("switch", { name: /^重复标点转中文/ }) as HTMLInputElement).disabled,
+  ).toBe(true);
+  // 手机仍按设计稿保留「使用英文标点」开关和「更多选项」里的「固定标点」，不换成桌面的「标点」选择。
+  expect(screen.getByRole("switch", { name: "使用英文标点" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "固定标点" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("switch", { name: /^智能标点/ }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    smart_punctuation: true,
+    smart_punctuation_direct_digit: true,
+    smart_punctuation_direct_letter: true,
+  });
 });

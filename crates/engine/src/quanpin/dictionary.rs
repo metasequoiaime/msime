@@ -45,7 +45,7 @@ use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
 use super::series::{
-    append_unique_words, fold_reading, mark_autocorrect_candidates,
+    append_unique_words, fold_reading, mark_autocorrect_candidates, merge_alternative_rows,
     merge_alternative_segmentations, resolve_series_query, series_cache_key, SeriesResolution,
     ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT, AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES,
     LONGER_PHRASE_LIMIT, MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
@@ -734,7 +734,7 @@ impl QuanpinDictionary {
         result
     }
 
-    /// The database half of `merge_alternative_segmentations` (QD:888-945); `series` has the promotion and union rule.
+    /// `merge_alternative_segmentations` 的词典查询部分（QD:888-945），升位与合并规则在 `series`。
     fn merge_alternatives(
         &mut self,
         raw: &str,
@@ -750,7 +750,16 @@ impl QuanpinDictionary {
         if rows.is_empty() {
             return result;
         }
-        let primary_full = self.query_single_path(raw, primary_segmentation, primary_segments);
+        let cache_key = path_cache_key(raw, primary_segmentation);
+        let primary_full = if let Some(primary_full) = self.cache.get_ref_by(cache_key) {
+            Cow::Borrowed(primary_full.as_slice())
+        } else {
+            Cow::Owned(self.query_single_path_miss(
+                cache_key,
+                primary_segmentation,
+                primary_segments,
+            ))
+        };
         let alternative_full = rows
             .into_iter()
             .map(|row| {
@@ -763,7 +772,12 @@ impl QuanpinDictionary {
                 )
             })
             .collect();
-        merge_alternative_segmentations(result, primary_full, alternative_full)
+        match primary_full {
+            Cow::Borrowed(rows) => {
+                merge_alternative_rows(result, rows.iter().cloned(), alternative_full)
+            }
+            Cow::Owned(rows) => merge_alternative_segmentations(result, rows, alternative_full),
+        }
     }
 
     fn append_query_rows(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
@@ -795,6 +809,10 @@ impl QuanpinDictionary {
                     .map_or("", |(prefix, _)| prefix);
             }
             let partial = &segments[..count];
+            if count < segments.len() {
+                self.append_single_path(&mut result, raw, partial_segmentation, partial);
+                continue;
+            }
             let mut rows = self.query_single_path(raw, partial_segmentation, partial);
             if count == segments.len() {
                 // 同长度表里常常只剩冷僻同音词：ping'guo 只有 苹果 1143881、评过 1180、平果 169、平锅 1，而 苹果电脑 21495、苹果公司 19725 在 tbl_4_p，同长度查询看不到，第二位就落到冷僻同音词上。所以更长的补全词按权重并入这一组，权重出自同一语料，跨表可比。`pinyin` 仍是键入的切分（上屏只消耗已键入的音节），`canonical_pinyin` 保留完整读音供持久化。
@@ -952,6 +970,38 @@ impl QuanpinDictionary {
         if let Some(cached) = self.cache.get_ref_by(cache_key) {
             return cached.clone();
         }
+        self.query_single_path_miss(cache_key, segmentation, segments)
+    }
+
+    /// 较短热前缀直接克隆到最终结果，避免建立随后立即搬走的中间候选页。
+    fn append_single_path(
+        &mut self,
+        result: &mut Vec<WordItem>,
+        raw: &str,
+        segmentation: &str,
+        segments: &[String],
+    ) {
+        if result.is_empty() && result.capacity() == 0 {
+            *result = self.query_single_path(raw, segmentation, segments);
+            return;
+        }
+        let cache_key = path_cache_key(raw, segmentation);
+        if let Some(rows) = self.cache.get_ref_by(cache_key) {
+            result.reserve(rows.len());
+            result.extend(rows.iter().cloned());
+            return;
+        }
+        let rows = self.query_single_path_miss(cache_key, segmentation, segments);
+        Self::append_query_rows(result, rows);
+    }
+
+    /// 冷页仍保存紧凑副本并交出原查询结果；两个入口共用同一次未命中处理。
+    fn query_single_path_miss(
+        &mut self,
+        cache_key: &str,
+        segmentation: &str,
+        segments: &[String],
+    ) -> Vec<WordItem> {
         let result = self.query_database(segments, segmentation);
         self.cache.insert(cache_key.to_owned(), result.clone());
         result
@@ -1604,3 +1654,10 @@ mod fuzzy_typed_borrow_tests;
 #[cfg(test)]
 #[path = "dictionary/fuzzy_input_borrow_tests.rs"]
 mod fuzzy_input_borrow_tests;
+
+#[cfg(test)]
+#[path = "dictionary/prefix_row_stream_tests.rs"]
+mod prefix_row_stream_tests;
+
+#[cfg(test)]
+mod alternative_row_stream_tests;

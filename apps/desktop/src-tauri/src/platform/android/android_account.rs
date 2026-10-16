@@ -18,14 +18,6 @@ use crate::shared::account_dto::{
     providers_response_without_apple, ChallengeResponse, ChatModelsResponse, ChatResponse,
     PreferenceSchemaResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
-use msime_client_core::account::settings_sync::{
-    apply_android_settings, export_android_settings, needs_host_feedback, HostKeyboardFeedback,
-};
-use msime_client_core::account::{
-    merge_account_preferences, AccountChatMessage, AccountError, AccountPreferenceSchema,
-    AccountPreferenceValue, AccountPreferences, AccountSessionStorage, BackendAccountClient,
-    BackendAccountSession, SavedAccountSession,
-};
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use msime_client_core::cloud::snapshot_validation::{
     has_keys as snapshot_has_keys, parse_strict_object, required_integer as snapshot_integer,
@@ -35,11 +27,18 @@ use msime_client_core::edition::{
     filter_downloaded_account_settings, filter_uploaded_account_settings,
 };
 use msime_client_core::preferences::{Preferences, PreferencesSnapshot, PreferencesStore};
+use msime_client_services::account::settings_sync::{
+    apply_android_settings, export_android_settings, needs_host_feedback, HostKeyboardFeedback,
+};
+use msime_client_services::account::{
+    merge_account_preferences, AccountChatMessage, AccountError, AccountPreferenceSchema,
+    AccountPreferenceValue, AccountPreferences, AccountSessionStorage, BackendAccountClient,
+    BackendAccountSession, SavedAccountSession,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -218,16 +217,30 @@ pub fn init() -> TauriPlugin<Wry> {
         .build()
 }
 
+/// 单份快照的跨记录唯一性与条目关联索引，所有记录共用同一实例。
+#[derive(Default)]
+struct SnapshotRecordIndex {
+    entry_keys: HashMap<(String, String, String), i64>,
+    entry_ids: HashSet<String>,
+    overlays: HashMap<(String, String, String), (bool, bool, i64)>,
+    positions: HashSet<(String, String, String)>,
+    position_slots: HashSet<(String, i64)>,
+    selections: HashSet<(String, String, String)>,
+}
+
 fn inspect_snapshot_record(
     map: &serde_json::Map<String, Value>,
     revision: i64,
-    entry_keys: &mut HashMap<(String, String, String), i64>,
-    entry_ids: &mut HashSet<String>,
-    overlays: &mut HashMap<(String, String, String), (bool, bool, i64)>,
-    positions: &mut HashSet<(String, String, String)>,
-    position_slots: &mut HashSet<(String, i64)>,
-    selections: &mut HashSet<(String, String, String)>,
+    index: &mut SnapshotRecordIndex,
 ) -> Result<u8, AccountError> {
+    let SnapshotRecordIndex {
+        entry_keys,
+        entry_ids,
+        overlays,
+        positions,
+        position_slots,
+        selections,
+    } = index;
     let kind = map
         .get("type")
         .and_then(Value::as_str)
@@ -385,12 +398,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
     let mut digest = Sha256::new();
     let mut file_digest = Sha256::new();
     let mut checksum = None;
-    let mut entry_keys = HashMap::new();
-    let mut entry_ids = HashSet::new();
-    let mut overlays = HashMap::new();
-    let mut positions = HashSet::new();
-    let mut position_slots = HashSet::new();
-    let mut selections = HashSet::new();
+    let mut index = SnapshotRecordIndex::default();
     loop {
         line.clear();
         let complete = loop {
@@ -456,23 +464,14 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
                 // footer was written by the Server only verifies if we do too.
                 records = records.checked_add(1).ok_or(AccountError::Unavailable)?;
                 digest.update(&line);
-                digest.update([b'\n']);
+                digest.update(b"\n");
             }
             "entry" | "overlay" | "position" | "selection" => {
                 let snapshot_revision = revision.ok_or(AccountError::Invalid)?;
                 if checksum.is_some() {
                     return Err(AccountError::Invalid);
                 }
-                let next = inspect_snapshot_record(
-                    &map,
-                    snapshot_revision,
-                    &mut entry_keys,
-                    &mut entry_ids,
-                    &mut overlays,
-                    &mut positions,
-                    &mut position_slots,
-                    &mut selections,
-                )?;
+                let next = inspect_snapshot_record(&map, snapshot_revision, &mut index)?;
                 if next < category {
                     return Err(AccountError::Invalid);
                 }
@@ -485,7 +484,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
                     return Err(AccountError::Invalid);
                 }
                 digest.update(&line);
-                digest.update([b'\n']);
+                digest.update(b"\n");
             }
             "footer" => {
                 if revision.is_none()
@@ -521,17 +520,17 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
     }
     let revision = revision.ok_or(AccountError::Invalid)?;
     let sha256 = checksum.ok_or(AccountError::Invalid)?;
-    for (identity, entry_weight) in &entry_keys {
-        let Some((deleted, user_inserted, weight)) = overlays.get(identity) else {
+    for (identity, entry_weight) in &index.entry_keys {
+        let Some((deleted, user_inserted, weight)) = index.overlays.get(identity) else {
             return Err(AccountError::Invalid);
         };
         if *deleted || !*user_inserted || *weight != *entry_weight {
             return Err(AccountError::Invalid);
         }
     }
-    for (identity, (deleted, user_inserted, weight)) in &overlays {
+    for (identity, (deleted, user_inserted, weight)) in &index.overlays {
         if !*deleted && *user_inserted {
-            let Some(entry_weight) = entry_keys.get(identity) else {
+            let Some(entry_weight) = index.entry_keys.get(identity) else {
                 return Err(AccountError::Invalid);
             };
             if *entry_weight != *weight {
@@ -770,11 +769,11 @@ async fn dictionary_snapshot_restore(
                 }
                 session
                     .restore_dictionary_snapshot(text.as_bytes(), revision)
-                    .and_then(|result| {
-                        Ok(serde_json::json!({
+                    .map(|result| {
+                        serde_json::json!({
                             "revision": result.revision,
                             "reset": result.reset,
-                        }))
+                        })
                     })
             });
         let _ = remove_snapshot_file(&path);

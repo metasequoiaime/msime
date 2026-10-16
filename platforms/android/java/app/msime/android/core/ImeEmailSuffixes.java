@@ -1,5 +1,6 @@
 package app.msime.android;
 
+import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import java.util.ArrayList;
@@ -28,7 +29,7 @@ final class ImeEmailSuffixes {
     void refresh() {
         EmailSuffixPolicy.Match next = null;
         if (s.connection != null && EditorPolicy.emailAddress(s.editorInputType) && !s.hasEngineComposition()) {
-            CharSequence before = s.connection.getTextBeforeCursor(EmailSuffixPolicy.MAX_CONTEXT, 0);
+            CharSequence before = InputConnectionGuard.textBeforeCursor(s.connection, EmailSuffixPolicy.MAX_CONTEXT);
             next = EmailSuffixPolicy.match(before);
         }
         if (java.util.Objects.equals(next, match)) return;
@@ -75,16 +76,17 @@ final class ImeEmailSuffixes {
         EmailSuffixPolicy.Match shown = match;
         if (shown == null || slot < 0 || slot >= shown.suffixes().size() || s.connection == null) return;
         String suffix = shown.suffixes().get(slot);
-        CharSequence before = s.connection.getTextBeforeCursor(EmailSuffixPolicy.MAX_CONTEXT, 0);
+        CharSequence before = InputConnectionGuard.textBeforeCursor(s.connection, EmailSuffixPolicy.MAX_CONTEXT);
         EmailSuffixPolicy.Replacement replacement = EmailSuffixPolicy.replacement(
             EmailSuffixPolicy.match(before), suffix);
         if (replacement != null) {
-            s.connection.beginBatchEdit();
+            InputConnection target = s.connection;
+            if (!InputConnectionGuard.beginBatchEdit(target)) return;
             try {
                 if (replacement.deleteCount() == 0 || s.deleteBeforeCursor(replacement.deleteCount()))
                     s.commitText(replacement.insert());
             } finally {
-                s.connection.endBatchEdit();
+                InputConnectionGuard.endBatchEdit(target);
             }
         }
         // 补全后上文以完整后缀结尾，不再匹配；编辑器随后的选区回报也会再匹配一次。

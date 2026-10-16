@@ -16,7 +16,7 @@ Status: implemented
 
 ## 正常入口的后续修复
 
-[正常候选设置入口显示顶部四标签](../bug-fix/2026-10-13-macos-primary-settings-tabs.md) 取代本篇对共享页面的入口判断：`showAppearance:` 正常打开共享设置页，AppKit 是启动失败时的备用窗口。本篇的原生标签、搜索与生命周期决定仍适用于备用窗口；实际正常页面的四标签由后续修复实现。
+[正常候选设置入口显示顶部四标签](../bug-fix/2026-10-13-macos-primary-settings-tabs.md) 取代本篇对共享页面的入口判断：`showAppearance:` 正常打开共享设置页，AppKit 是启动失败时的备用窗口。本篇的原生标签、搜索与生命周期决定仍适用于备用窗口；实际正常页面的四标签由后续修复实现。AppKit 备用窗口按[设置界面按平台归属](../architecture/2026-10-15-settings-ui-ownership-by-platform.md)冻结为最小回退，不加新功能，本篇已落地的标签保留。
 
 ## 历史审计
 

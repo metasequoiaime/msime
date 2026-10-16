@@ -11,7 +11,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 九键双拼（#6572）的设备验收：键面印着米旮旯 3 每个数字键上的声母和韵母（2 键是 b c 和零声母、a ai iang，0 键是 u ü ei）；6 4 4 7 是 ni'hao，打出「你好」，组字不写进输入框；0 是组码（5 0 是 lu）；最后一行的分词键把 8 和 4 切成两个声母，按简拼出「中国」；换成米旮旯 2 后键面跟着换（零声母在 6 键，0 键不再是组码）。
+ * 九键双拼（#6572）的设备验收：键面印着米旮旯 3 每个数字键上的声母和韵母（2 键是 b c 和零声母、a ai iang，0 键是 u ü ei）；6 4 4 7 是 ni'hao，打出「你好」，输入框里写拼音读音而不是数字；0 是组码（5 0 是 lu）；最后一行的分词键把 8 和 4 切成两个声母，按简拼出「中国」；换成米旮旯 2 后键面跟着换（零声母在 6 键，0 键不再是组码）。
  */
 public final class NineKeyShuangpinDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
@@ -54,11 +54,12 @@ public final class NineKeyShuangpinDeviceSmoke extends DeviceSmoke {
             await(describedPrefix("按键 8，声母 t sh zh"));
             await(described("按键 符号"));
 
-            // 你好：ni 是 6 4，hao 是 4 7。组字是数字，不写进输入框。
+            // 你好：ni 是 6 4，hao 是 4 7。按下的是数字，输入框里写的是引擎给的拼音读音，没有数字。
             stage = "nihao in two digits per syllable";
             for (String digit : new String[] {"6", "4", "4", "7"}) tap(describedPrefix("按键 " + digit + "，"));
             await(described("按键 分词，在这里断开音节"));
-            await(field("msime-test-plain").and(NineKeyShuangpinDeviceSmoke::emptyField));
+            await(field("msime-test-plain").and(node -> !emptyField(node)
+                && !node.getText().toString().matches(".*[0-9].*")));
             stage = "nihao commit";
             tap(candidate("你好"));
             await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));

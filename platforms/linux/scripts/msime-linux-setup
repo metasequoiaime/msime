@@ -348,7 +348,7 @@ def staged_resources(resources: Path, lock: dict) -> Path:
 QUIESCE_LEASE = ".msime-dictionary-quiesce"
 QUIESCE_LEASE_SECONDS = 20
 QUIESCE_RENEW_SECONDS = 5
-# Every input session holds this lock shared on the user directory (crates/client-core/src/dictionary/access.rs), so holding it exclusively proves the sessions are gone and keeps new ones from opening.
+# 每个输入会话都以共享方式持有用户目录上的这把锁（见 `crates/client-services/src/dictionary/access.rs`），所以能以独占方式拿到它，就证明会话都已退出，同时也能阻止新会话打开。
 ACCESS_LOCK = ".msime-dictionary-access.lock"
 # Long enough for the IBus host's one-second lease check to come round twice, the same budget the settings window gives it.
 QUIESCE_BUDGET = 2.5

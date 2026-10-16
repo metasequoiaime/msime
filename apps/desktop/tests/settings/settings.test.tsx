@@ -36,6 +36,7 @@ import {
   themeEntry,
 } from "@msime/ui";
 import { describeInstallerTrust } from "../../../../packages/ui/src/settings/update-manifest";
+import { defaultFloatingToolbar } from "../../../../packages/ui/src/settings/floating-toolbar-defaults";
 import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
@@ -377,13 +378,16 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
     within(group)
       .getAllByRole("button")
       .map((button) => button.textContent?.replace("✓", "")),
-  ).toEqual([...touchSchemeLabels, "全拼 14 键"]);
+  ).toEqual([...touchSchemeLabels, "全拼 14 键", "九键双拼"]);
   // 高情商回复是键盘工具栏上的工具，不是输入方案。
   expect(within(group).queryByText("高情商回复")).toBeNull();
-  expect(within(group).getAllByRole("switch")).toHaveLength(12);
-  // 全拼 14 键排在最后，默认不启用。
+  expect(within(group).getAllByRole("switch")).toHaveLength(13);
+  // 全拼 14 键与九键双拼追加在原有列表后，默认不启用。
   expect(
     (screen.getByRole("switch", { name: "显示输入方案 全拼 14 键" }) as HTMLInputElement).checked,
+  ).toBe(false);
+  expect(
+    (screen.getByRole("switch", { name: "显示输入方案 九键双拼" }) as HTMLInputElement).checked,
   ).toBe(false);
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
@@ -427,8 +431,9 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke lis
     "笔画",
     "注音 9 键",
     "全拼 14 键",
+    "九键双拼",
   ]);
-  expect(within(group).getAllByRole("switch")).toHaveLength(18);
+  expect(within(group).getAllByRole("switch")).toHaveLength(19);
   for (const label of [
     "粤拼 26 键",
     "大千注音",
@@ -471,7 +476,7 @@ test("offline candidate gloss is host-enabled, defaults off and persists", async
     <SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   const toggle = screen.getByRole("switch", { name: "显示英文释义" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   expect(screen.getByText(/释义来自随键盘打包的离线词库，不联网/)).toBeDefined();
@@ -485,7 +490,7 @@ test("offline candidate gloss is host-enabled, defaults off and persists", async
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   expect(screen.queryByRole("switch", { name: "显示英文释义" })).toBeNull();
 });
 
@@ -506,7 +511,7 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   const toggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
@@ -519,13 +524,14 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
   });
   enabled.unmount();
 
-  // With every gloss source off there is nothing to read, so the switch is disabled but keeps its value.
+  // With every gloss source off there is nothing to read, so the row is not shown at all; the stored value stays as it was.
   const glossless = {
     ...initial,
     preferences: {
       ...initial.preferences,
       candidate_translations: false,
       candidate_english_gloss: false,
+      candidate_pronunciation: true,
     },
   };
   const disabled = render(
@@ -539,9 +545,15 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
-  expect((screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement).disabled).toBe(
-    true,
+  selectSettingsTab("候选释义");
+  expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
+  // 打开任一释义来源后，它作为释义的子行出现在目标语言之后，已存的值原样显示。
+  fireEvent.click(screen.getByRole("switch", { name: "显示英文释义" }));
+  const reading = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
+  expect(reading.checked).toBe(true);
+  const controls = Array.from(document.querySelectorAll("input, select"));
+  expect(controls.indexOf(reading)).toBe(
+    controls.indexOf(screen.getByRole("combobox", { name: "候选词翻译目标语言" })) + 1,
   );
   disabled.unmount();
 
@@ -551,7 +563,7 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
 });
 
@@ -568,7 +580,7 @@ test("Windows describes candidate pronunciation for English and Japanese glosses
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   expect(screen.getByRole("switch", { name: "显示读音" })).toBeDefined();
   expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
 });
@@ -610,7 +622,7 @@ test("Linux can expose the shared offline candidate gloss setting", async () => 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   expect(screen.getByRole("switch", { name: "显示英文释义" })).toBeTruthy();
 });
 
@@ -1547,14 +1559,18 @@ test("input parity controls persist cloud, translation and punctuation settings"
   fireEvent.click(await screen.findByRole("switch", { name: /^云候选/ }));
   // 翻译和标点都在「标点与翻译」页；两个页面编辑的是同一份草稿。
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选翻译");
+  selectSettingsTab("候选释义");
   fireEvent.click(screen.getByRole("switch", { name: /候选词翻译/ }));
   fireEvent.change(screen.getByLabelText("候选词翻译目标语言"), { target: { value: "ja" } });
   selectSettingsTab("标点");
   // Anchored too: 重复标点转中文 names 智能标点 in its description, because the reference's wording
   // for it states the precondition rather than leaving the pair's relationship to be guessed.
+  // 用户切换智能标点总开关时，数字后直出和字母后直出跟着写成同一个值。
   fireEvent.click(screen.getByRole("switch", { name: /^智能标点/ }));
-  fireEvent.change(screen.getByLabelText("固定标点"), { target: { value: "english" } });
+  // 「标点」选择合并了中文标点开关和固定标点；选「始终英文标点」只写锁定，会上云的起始标点保持原值。
+  fireEvent.change(screen.getByRole("combobox", { name: /^标点/ }), {
+    target: { value: "always_english" },
+  });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
@@ -1563,11 +1579,17 @@ test("input parity controls persist cloud, translation and punctuation settings"
     candidate_translations: false,
     translation_target_language: "ja",
     smart_punctuation: true,
+    smart_punctuation_direct_digit: true,
+    smart_punctuation_direct_letter: true,
     punctuation_lock: "english",
   });
 });
 
-test("Android candidate translations persist an optional second language", async () => {
+test("Android 只编辑首选译文语言并保留共享的第二语言", async () => {
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: { ...initial.preferences, translation_secondary_language: "ko" },
+  };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
     revision: 8,
@@ -1576,24 +1598,24 @@ test("Android candidate translations persist an optional second language", async
   render(
     <SettingsPage
       client={{
-        load: async () => initial,
+        load: async () => snapshot,
         save,
         host: testHost({ platform: "android" }),
       }}
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "表达" }));
-  const secondary = screen.getByRole("combobox", {
-    name: "候选词翻译第二种语言",
-  }) as HTMLSelectElement;
-  expect(secondary.value).toBe("");
-  fireEvent.change(secondary, { target: { value: "ja" } });
+  expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "候选词翻译目标语言" }), {
+    target: { value: "ja" },
+  });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save).toHaveBeenCalledWith(
     7,
     expect.objectContaining({
-      translation_secondary_language: "ja",
+      translation_target_language: "ja",
+      translation_secondary_language: "ko",
     }),
   );
 });
@@ -1614,7 +1636,7 @@ test("macOS candidate translations expose the shared second language", async () 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选翻译");
+  selectSettingsTab("候选释义");
   const secondary = screen.getByRole("combobox", {
     name: "候选词翻译第二种语言",
   }) as HTMLSelectElement;
@@ -1640,7 +1662,7 @@ test("macOS candidate translations expose the shared second language", async () 
   );
 });
 
-test("mobile translation languages stay editable for offline English glosses", async () => {
+test("手机离线释义开启时可编辑首选译文语言", async () => {
   const snapshot: Snapshot = {
     ...initial,
     preferences: {
@@ -1661,19 +1683,14 @@ test("mobile translation languages stay editable for offline English glosses", a
   );
   fireEvent.click(await screen.findByRole("button", { name: "表达" }));
   const primary = screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement;
-  const secondary = screen.getByRole("combobox", {
-    name: "候选词翻译第二种语言",
-  }) as HTMLSelectElement;
+  expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
   expect([...primary.options].map((option) => option.value)).not.toContain("ru");
-  expect([...secondary.options].map((option) => option.value)).not.toContain("ru");
   expect(primary.disabled).toBe(false);
-  expect(secondary.disabled).toBe(false);
   fireEvent.click(screen.getByRole("switch", { name: "显示英文释义" }));
   expect(primary.disabled).toBe(true);
-  expect(secondary.disabled).toBe(true);
 });
 
-test("mobile preserves legacy Russian gloss values without leaking them to new pages", async () => {
+test("手机保留已存俄语释义但不污染新页面选项", async () => {
   const legacy: Snapshot = {
     ...initial,
     preferences: {
@@ -1693,10 +1710,7 @@ test("mobile preserves legacy Russian gloss values without leaking them to new p
     (screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement)
       .selectedOptions[0].textContent,
   ).toContain("已保存");
-  expect(
-    (screen.getByRole("combobox", { name: "候选词翻译第二种语言" }) as HTMLSelectElement)
-      .selectedOptions[0].textContent,
-  ).toContain("已保存");
+  expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
   first.unmount();
   render(<SettingsPage client={{ ...client, load: async () => initial }} />);
   fireEvent.click(await screen.findByRole("button", { name: "表达" }));
@@ -3789,7 +3803,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
     within(primary)
       .getAllByRole("button")
       .map((button) => button.textContent),
-  ).toEqual(["设置", "对话", "统计", "我的"]);
+  ).toEqual(["设置", "全部设置", "统计", "我的"]);
   // 标签栏只有这四项。其余页面都是「设置」标签根页上的一行，「社区」和「AI 对话」不在其中。
   const home = screen.getByRole("region", { name: "首页" });
   const secondaryLabels = [...home.querySelectorAll("[data-row-title]")].map(
@@ -4068,14 +4082,14 @@ test("the shuangpin key hint switch appears only on touch hosts and saves into t
     { name: "双拼键位提示" },
     { timeout: 3000 },
   )) as HTMLInputElement;
-  // 文档里没有这个键时按开，和以前的键盘一样画提示。
-  expect(hints.checked).toBe(true);
+  // 文档里没有这个键时按关，新安装的键盘默认不画提示。
+  expect(hints.checked).toBe(false);
   fireEvent.click(hints);
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    touch_shuangpin_key_hints: false,
+    touch_shuangpin_key_hints: true,
   });
 });
 
@@ -4202,7 +4216,8 @@ test("the iOS skin page hands the candidate strip to the desktop candidate skin"
   );
 });
 
-test("iOS offers 行内预编辑 as its own keyboard switch instead of the shared preedit style", async () => {
+// 触屏键盘固定把拼写以拼音分词写进输入框、候选栏不画它：iOS 不再提供「行内预编辑」开关，也没有「候选栏预编辑」。
+test("iOS offers neither 行内预编辑 nor 候选栏预编辑", async () => {
   const load = vi.fn().mockResolvedValue({
     soundEnabled: true,
     hapticsEnabled: false,
@@ -4221,18 +4236,10 @@ test("iOS offers 行内预编辑 as its own keyboard switch instead of the share
     mobileKeyboardFeedback: { load, save: saveFeedback },
   };
   render(<SettingsPage initialPage="appearance" client={client} />);
-  const inline = (await screen.findByLabelText("行内预编辑", undefined, {
-    timeout: 3000,
-  })) as HTMLInputElement;
-  expect(inline.type).toBe("checkbox");
-  expect(inline.checked).toBe(false);
-  expect(screen.queryByRole("option", { name: "原始按键" })).toBeNull();
-  fireEvent.click(inline);
-  await waitFor(() =>
-    expect(saveFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ inlinePreedit: true, candidatePaletteFollowsDesktop: false }),
-    ),
-  );
+  await settingsFormReady();
+  expect(screen.queryByLabelText("行内预编辑")).toBeNull();
+  expect(screen.queryByLabelText("候选栏预编辑")).toBeNull();
+  expect(saveFeedback).not.toHaveBeenCalled();
   expect(save).not.toHaveBeenCalled();
 });
 
@@ -4441,7 +4448,6 @@ test("macOS exposes the shuangpin preedit presentation and persists the expanded
   };
   render(<SettingsPage initialPage="appearance" client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
   const preedit = (await screen.findByRole("combobox", {
     name: "双拼预编辑",
   })) as HTMLSelectElement;
@@ -4462,6 +4468,8 @@ test("font family controls validate drafts and save Unicode without touching the
     preferences,
   }));
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
+  // 主字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByLabelText("自定义…"));
   const primary = await screen.findByLabelText("主字体");
   expect((primary as HTMLInputElement).value).toBe("Noto Sans SC");
   // An empty family holds the automatic save back, and submitting the form does not force one.
@@ -4509,6 +4517,8 @@ test("the candidate window page has no fallback font editor and keeps the stored
       }}
     />,
   );
+  // 主字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByLabelText("自定义…"));
   const primary = await screen.findByLabelText("主字体");
   expect(screen.queryByRole("button", { name: "添加补充字体" })).toBeNull();
   expect(screen.queryByLabelText(/^补充字体/)).toBeNull();
@@ -4539,6 +4549,8 @@ test("on Windows the main font leads the fallback chain", async () => {
       }}
     />,
   );
+  // 主字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByLabelText("自定义…"));
   const primary = await screen.findByLabelText("主字体");
   for (const typed of ["L", "LX", "LXGW WenKai"])
     fireEvent.change(primary, { target: { value: typed } });
@@ -5613,7 +5625,6 @@ test("complete candidate and preedit font sizes load, preview independently and 
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
   render(<SettingsPage initialPage="appearance" client={{ load: async () => saved, save }} />);
-  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   const size = (await screen.findByLabelText("字号")) as HTMLSelectElement;
   const preedit = screen.getByLabelText("预编辑字号") as HTMLSelectElement;
   expect(size.value).toBe("19");
@@ -5664,11 +5675,9 @@ test("appearance preview follows drafts and skin selection before they are saved
     }),
   );
   fireEvent.change(screen.getByLabelText("每页候选项数量"), { target: { value: "9" } });
-  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   // 水杉 logo 在首行拼音之前。
   expect(preview.querySelector(".pinyin > .candidate-brand + .text")).not.toBeNull();
-  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
   fireEvent.change(screen.getByLabelText("候选窗口预编辑"), { target: { value: "empty" } });
   // 隐藏拼音后，首行仍为 logo 保留。
   expect(
@@ -5828,6 +5837,102 @@ test("touch keyboard geometry mirrors Apple defaults and persists height and spa
   });
 });
 
+// macOS 的键盘窗口高度固定，间距也固定成默认值：屏幕键盘页没有尺寸组，预览画键盘实际的样子，手写并进这一页。
+test("macOS shows the screen keyboard without size controls and previews the fixed geometry", async () => {
+  const save = vi.fn();
+  render(
+    <SettingsPage
+      client={{
+        load: async () => ({
+          ...initial,
+          preferences: {
+            ...initial.preferences,
+            touch_keyboard_height_adjustment: 24,
+            touch_key_spacing_tenths: 35,
+            touch_row_spacing_tenths: 95,
+          },
+        }),
+        save,
+        host: testHost({ platform: "macos" }),
+        openScreenKeyboard: vi.fn(),
+        openHandwriting: vi.fn(),
+        loadDefaultPreferences: vi.fn().mockResolvedValue(initial.preferences),
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘与手写" }));
+  const page = await screen.findByRole("group", { name: "屏幕键盘与手写" });
+  for (const slider of ["键盘高度", "按键间距", "行间距"])
+    expect(within(page).queryByRole("slider", { name: slider })).toBeNull();
+  expect(within(page).queryByText("尺寸")).toBeNull();
+  expect(within(page).queryByRole("button", { name: "恢复屏幕键盘默认设置" })).toBeNull();
+  expect(within(page).queryByLabelText("拖动预览调整键盘间距")).toBeNull();
+  const preview = within(page).getByRole("img", { name: "屏幕键盘完整布局预览" });
+  expect(preview.getAttribute("data-key-spacing")).toBe("6.0");
+  expect(preview.getAttribute("data-row-spacing")).toBe("7.0");
+  expect(preview.getAttribute("data-keyboard-height")).toBe("400");
+  expect(within(page).getByText("打开屏幕键盘")).toBeTruthy();
+  expect(within(page).getByText("macOS 手写识别板")).toBeTruthy();
+  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
+  // 这一页没有偏好，页脚不给全局的「恢复默认设置」。
+  expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
+  expect(save).not.toHaveBeenCalled();
+});
+
+// Linux 的键盘窗口高度固定，间距照旧可调；「恢复默认」只说这一页看得到的几项。
+test("Linux keeps the spacing sliders but drops the height that its keyboard window ignores", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: testHost({ platform: "linux" }),
+        openScreenKeyboard: vi.fn(),
+        openHandwriting: vi.fn(),
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘与手写" }));
+  const page = await screen.findByRole("group", { name: "屏幕键盘与手写" });
+  expect(within(page).queryByRole("slider", { name: "键盘高度" })).toBeNull();
+  expect(within(page).getByRole("slider", { name: "按键间距" })).toBeTruthy();
+  expect(within(page).getByRole("slider", { name: "行间距" })).toBeTruthy();
+  expect(within(page).getByLabelText("拖动预览调整键盘间距")).toBeTruthy();
+  expect(within(page).getByText("间距和顶部语音入口回到默认")).toBeTruthy();
+  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
+  fireEvent.click(within(page).getByRole("button", { name: "恢复屏幕键盘默认设置" }));
+  const dialog = await screen.findByRole("alertdialog");
+  expect(within(dialog).getByText("间距和顶部语音入口都会回到默认。")).toBeTruthy();
+  await answerConfirm("cancel");
+});
+
+// Windows 的共享设置页与原生设置窗口一样分成「屏幕键盘」和「手写输入」两页，高度和间距都在。
+test("Windows keeps the screen keyboard and handwriting pages apart with every size control", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: testHost({ platform: "windows" }),
+        openScreenKeyboard: vi.fn(),
+        openHandwriting: vi.fn(),
+      }}
+    />,
+  );
+  await settingsReady();
+  expect(screen.getByRole("button", { name: "手写输入" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "屏幕键盘与手写" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
+  const page = await screen.findByRole("group", { name: "屏幕键盘" });
+  for (const slider of ["键盘高度", "按键间距", "行间距"])
+    expect(within(page).getByRole("slider", { name: slider })).toBeTruthy();
+  expect(within(page).queryByText("打开手写识别板")).toBeNull();
+  // Windows 不是 touch_toolbar_components 的宿主，说明不再提工具栏按钮。
+  expect(within(page).getByText("高度、间距和顶部语音入口回到默认")).toBeTruthy();
+});
+
 test("skin preview switches are independent, reversible and do not change saved selection", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
@@ -5950,23 +6055,25 @@ test("floating toolbar settings use Windows defaults and persist independently",
     name: "在桌面显示悬浮工具栏",
   })) as HTMLInputElement;
   expect(enabled.checked).toBe(true);
-  expect((screen.getByLabelText("工具栏缩放") as HTMLSelectElement).value).toBe("100");
-  expect((screen.getByLabelText("图标尺寸") as HTMLSelectElement).value).toBe("24");
-  expect((screen.getByRole("checkbox", { name: "英文输入模式" }) as HTMLInputElement).checked).toBe(
+  expect((screen.getByLabelText("工具栏大小") as HTMLSelectElement).value).toBe("100");
+  // 中/英按钮的开关叫「中英文切换」，没有另一行锁定的「始终显示」。
+  expect(screen.getAllByRole("checkbox", { name: "中英文切换" })).toHaveLength(1);
+  expect((screen.getByRole("checkbox", { name: "中英文切换" }) as HTMLInputElement).checked).toBe(
     true,
   );
+  expect(screen.queryByText("始终显示")).toBeNull();
   expect((screen.getByRole("checkbox", { name: "全角 / 半角" }) as HTMLInputElement).checked).toBe(
     true,
   );
   expect((screen.getByRole("checkbox", { name: "屏幕键盘" }) as HTMLInputElement).checked).toBe(
     false,
   );
-  fireEvent.change(screen.getByLabelText("工具栏缩放"), { target: { value: "125" } });
-  fireEvent.change(screen.getByLabelText("图标尺寸"), { target: { value: "28" } });
+  // 175% 一档写成 150% 缩放加 28 的图标，和以前两个下拉都拉满时一样大。
+  fireEvent.change(screen.getByLabelText("工具栏大小"), { target: { value: "175" } });
   fireEvent.click(screen.getByRole("switch", { name: "在桌面显示悬浮工具栏" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "全角 / 半角" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "屏幕键盘" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "英文输入模式" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "中英文切换" }));
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
@@ -5986,9 +6093,43 @@ test("floating toolbar settings use Windows defaults and persist independently",
       screen_keyboard: true,
       voice: false,
       settings: true,
-      scale_percent: 125,
+      scale_percent: 150,
       font_size: 28,
     },
+  });
+});
+
+test("the toolbar size shows a combination set elsewhere as custom without rewriting it", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  const stored = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      floating_toolbar: {
+        ...defaultFloatingToolbar,
+        scale_percent: 125 as const,
+        font_size: 18 as const,
+      },
+    },
+  };
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(stored), save }} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  // Windows 原生设置页仍然分开调缩放和图标；凑不成一档时照实显示，打开页面不改写。
+  const size = (await screen.findByLabelText("工具栏大小")) as HTMLSelectElement;
+  expect(size.value).toBe("custom");
+  expect(size.selectedOptions[0]?.textContent).toBe("自定义（缩放 125%，图标 18）");
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(size, { target: { value: "125" } });
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...stored.preferences,
+    floating_toolbar: { ...stored.preferences.floating_toolbar, scale_percent: 125, font_size: 24 },
   });
 });
 
@@ -6715,7 +6856,8 @@ const referenceSections: {
       "候选项排列方式",
       "每页候选项数量",
       "跟随光标",
-      "主字体",
+      // 来源的「字体」：这里是「候选字体」预设加「自定义…」，主字体框只在选了「自定义…」或字体不是预设时出现。
+      "候选字体",
       "字号",
       "预编辑字号",
       "候选窗口预编辑",
@@ -6759,12 +6901,11 @@ const referenceSections: {
     button: "标点与翻译",
     titles: [
       "候选词翻译",
-      // 中文标点 is the reference's 始终使用英文标点 with the opposite polarity on the same `chinese_punctuation` preference, so the reference's wording would mislabel the toggle.
-      "中文标点",
+      // 参考窗口的「始终使用英文标点」开关（这里的 `chinese_punctuation`，极性相反）和「固定标点」选择描述的是同一个决定，锁定时宿主根本不看前者，所以这里合成一个「标点」选择，两个参考设置的每种有效组合都还能选到（见下面 referenceOptions 里的这一项）。
+      "标点",
       "智能标点",
       "重复标点转中文",
       "成对标点自动补全",
-      "固定标点",
     ],
   },
   {
@@ -6790,7 +6931,8 @@ const referenceSections: {
   {
     page: "floating-toolbar",
     button: "悬浮工具栏",
-    titles: ["在桌面显示悬浮工具栏", "按钮", "工具栏缩放", "图标尺寸"],
+    // 参考窗口的「工具栏缩放」和「图标尺寸」相乘才是工具栏的大小，这里合成一个「工具栏大小」，选一档同时写两个值。
+    titles: ["在桌面显示悬浮工具栏", "按钮", "工具栏大小"],
   },
   {
     page: "screen-keyboard",
@@ -6976,13 +7118,22 @@ const macosHostCapabilities = testHost({
   candidate_font_controls: true,
   candidate_row_colors: true,
   candidate_selection_appearance: true,
-  candidate_border_color: true,
+  // 边框色和编号色在 macOS 固定跟随主题，宿主不读用户选的值。
+  candidate_border_color: false,
+  candidate_number_color: false,
   candidate_follow_cursor: true,
   input_mode_hud: true,
   voice_commit_mode: true,
   shuangpin_preedit: true,
   candidate_english_font: true,
+  // 设置窗口、工具栏、菜单和各面板一律跟随颜色模式。
+  surface_themes_follow: true,
 });
+
+const macosMergedPages: Record<string, string> = {
+  屏幕键盘: "屏幕键盘与手写",
+  手写输入: "屏幕键盘与手写",
+};
 
 const macosAbsentSections: Record<string, string> = {
   // The Windows font row carries this note; macOS applies the family without a restart, and its
@@ -7001,6 +7152,13 @@ const macosAbsentSections: Record<string, string> = {
   // preference events it actually records.
   "Server 端日志": "macOS names this 输入法日志, having no Server process",
   基本功能: "macOS answers the same questions as help cards",
+  // macOS 的这些界面一律跟随颜色模式（`surface_themes_follow`），主题页只留「候选窗口主题」。
+  设置界面主题: "macOS draws the settings window in the colour mode",
+  悬浮工具栏主题: "macOS draws the toolbar and the mode badge in the colour mode",
+  菜单主题: "macOS draws its menus in the colour mode",
+  表情面板主题: "macOS draws the emoji panel in the colour mode",
+  手写识别板主题: "macOS draws the handwriting panel in the colour mode",
+  语音输入弹出条主题: "macOS draws the voice overlay in the colour mode",
 };
 
 test.each(referenceSections)(
@@ -7026,11 +7184,13 @@ test.each(referenceSections)(
     );
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
-    fireEvent.click(screen.getByRole("button", { name: button }));
+    // macOS 把「屏幕键盘」和「手写输入」并成一页「屏幕键盘与手写」，两张表项都在那一页上找。
+    const pageName = macosMergedPages[button] ?? button;
+    fireEvent.click(screen.getByRole("button", { name: pageName }));
     if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
     const page = group
       ? await screen.findByRole("region", { name: group })
-      : await screen.findByRole("group", { name: button });
+      : await screen.findByRole("group", { name: pageName });
     const present = sectionTitles(page);
     const wanted = titles.filter((title) => !(title in macosAbsentSections));
     expect(wanted.filter((title) => !present.includes(title))).toEqual([]);
@@ -7187,7 +7347,7 @@ const referenceOptions: {
     page: "input",
     button: "输入",
     control: "双拼方案",
-    options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼"],
+    options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼", "智能 ABC 双拼"],
   },
   {
     page: "input",
@@ -7226,16 +7386,11 @@ const referenceOptions: {
     options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"],
   },
   {
+    // 参考窗口的「工具栏缩放」（75–150%）和「图标尺寸」（16–28）合成这一个大小；175% 是 150% 缩放加 28 的图标，最大尺寸和参考窗口相同。
     page: "floating-toolbar",
     button: "悬浮工具栏",
-    control: "工具栏缩放",
-    options: ["75%", "100%", "125%", "150%"],
-  },
-  {
-    page: "floating-toolbar",
-    button: "悬浮工具栏",
-    control: "图标尺寸",
-    options: ["16", "18", "20", "22", "24", "26", "28"],
+    control: "工具栏大小",
+    options: ["75%", "100%", "125%", "150%", "175%"],
   },
   {
     // The four built-in prompts, named as the reference names them in the same table the prompts
@@ -7248,10 +7403,11 @@ const referenceOptions: {
     options: ["精炼整理", "忠实校对", "中翻英", "口语整理", "自定义一", "自定义二", "自定义三"],
   },
   {
+    // 参考窗口「固定标点」的三项加上「始终使用英文标点」开关合成的选择：跟随中英文状态时的起始标点拆成中文标点、英文标点两项，两种锁定各一项。
     page: "expression",
     button: "标点与翻译",
-    control: "固定标点",
-    options: ["跟随中英文状态", "始终使用中文标点", "始终使用英文标点"],
+    control: "标点",
+    options: ["中文标点", "英文标点", "始终中文标点（英文模式也用）", "始终英文标点"],
   },
   {
     page: "input",
@@ -7290,7 +7446,12 @@ const optionHosts: [string, HostCapabilities][] = [
 
 test.each(
   referenceOptions.flatMap((entry) =>
-    optionHosts.map(([platform, host]) => ({ ...entry, platform, host })),
+    optionHosts
+      .map(([platform, host]) => ({ ...entry, platform, host }))
+      // macOS 不给的那几行在上面的小节表里按 `macosAbsentSections` 核对过不出现。
+      .filter(
+        ({ control, host }) => !(host.surface_themes_follow && control in macosAbsentSections),
+      ),
   ),
 )(
   "$control offers the reference window's choices on $platform",
@@ -7311,14 +7472,6 @@ test.each(
     );
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: button }));
-    if (button === "候选窗口") {
-      const tab = ["字号", "预编辑字号"].includes(control)
-        ? "字体与大小"
-        : ["行内预编辑", "候选窗口预编辑"].includes(control)
-          ? "预编辑"
-          : "布局";
-      fireEvent.click(screen.getByRole("tab", { name: tab }));
-    }
     if (button === "输入") {
       selectSettingsTab(
         ["默认中英文", "中英文状态"].includes(control)
@@ -7418,20 +7571,16 @@ test.each(optionHosts)(
     await settingsReady();
     const appearance = screen.getByRole("group", { name: "候选窗口" });
     const present = sectionTitles(appearance);
-    // 先是候选的排列，然后是绘制大小、外围的窗口，最后是预编辑。该页不再沿用参考窗口的顺序，颜色和明暗只在「主题」页，「窗口样式」链接到那里。
+    // 一列：先是排列、每页数量、字体和字号，其余收在一个「更多选项」里，从布局到绘制大小、外围的窗口，最后是预编辑。不再分标签，颜色和明暗只在侧栏的「主题」页，本页没有跳转行。
     const expected = [
-      "布局",
+      "布局与字体",
       "候选项排列方式",
       "每页候选项数量",
+      "候选字体",
+      "字号",
       platform === "macos" ? "显示页码和翻页按钮" : "显示页码",
       "跟随光标",
-      "字体与大小",
-      "候选字体",
-      "主字体",
-      "字号",
       "预编辑字号",
-      "窗口样式",
-      "预编辑",
       "候选窗口预编辑",
       "双拼预编辑",
       "行内预编辑",
@@ -7441,10 +7590,8 @@ test.each(optionHosts)(
     // 每项偏好只有一个入口：主题和颜色选择器不在这里重复。
     expect(within(appearance).queryByRole("combobox", { name: "主题" })).toBeNull();
     expect(appearance.querySelector('input[type="color"]')).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "窗口样式" }));
-    const link = within(appearance).getByRole("button", { name: "皮肤、颜色与明暗" });
-    fireEvent.click(link);
-    expect(screen.getByRole("group", { name: "主题" }).hidden).toBe(false);
+    expect(within(appearance).queryByRole("button", { name: "皮肤、颜色与明暗" })).toBeNull();
+    expect(within(appearance).queryByRole("tablist")).toBeNull();
   },
 );
 
@@ -7697,13 +7844,14 @@ test("macOS sidebar uses the same six groups", async () => {
   expect(groups).toEqual([
     ["输入", "标点与翻译", "快捷键", "词库"],
     ["主题", "候选窗口", "悬浮工具栏"],
-    ["屏幕键盘", "语音输入", "手写输入"],
+    // 手写页在 macOS 上只有一个打开按钮，并进屏幕键盘页。
+    ["屏幕键盘与手写", "语音输入"],
     ["剪贴板", "AI 辅助"],
     ["维护与诊断", "帮助与反馈", "关于"],
   ]);
 });
 
-// 宿主提供哪个发布、哪个安装包由 Rust 决定（`crates/client-core/src/update_check.rs`）；这里覆盖的是关于页向宿主问什么、拿到答复后怎么做。
+// 宿主提供哪个发布、哪个安装包由 Rust 决定（`crates/client-services/src/update_check.rs`）；这里覆盖的是关于页向宿主问什么、拿到答复后怎么做。
 const releasesPage = "https://github.com/metasequoiaime/msime/releases";
 
 function hostRelease(
@@ -7993,7 +8141,9 @@ test("macOS opens handwriting for copying while input-session panels use the nat
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "手写输入" }));
+  // 手写在 macOS 上并进「屏幕键盘与手写」页。
+  expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘与手写" }));
   expect(await screen.findByText("macOS 手写识别板")).toBeDefined();
   expect(screen.getByText(/从这里打开可识别并复制文字/)).toBeDefined();
   expect(screen.getByText(/从输入法悬浮工具栏或菜单打开手写板/)).toBeDefined();
@@ -9370,7 +9520,7 @@ test("a host that fixes the candidate page size and layout does not offer them",
       )}
     />,
   );
-  await screen.findByLabelText("候选栏预编辑", undefined, { timeout: 3000 });
+  await settingsFormReady();
   expect(screen.queryByLabelText("每页候选项数量")).toBeNull();
   expect(screen.queryByLabelText("候选项排列方式")).toBeNull();
   unmount();

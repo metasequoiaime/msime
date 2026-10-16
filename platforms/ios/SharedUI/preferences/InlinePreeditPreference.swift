@@ -1,19 +1,9 @@
 import Foundation
 
-/// 行内预编辑: whether the keyboard also writes the composition into the text field as marked text, the way Apple's own Chinese keyboards and the Android host do, instead of showing it only on the candidate strip, and in which form.
-///
-/// Windows offers the same choice as `tsf_preedit_style`: 原始按键 writes the keys as typed, 拼音分词 the segmented pinyin. Off by default. Korean marks its syllable inline whatever this says (see `InlineCompositionPolicy.markedText`), since the syllable is the text being written. The shared `tsf_preedit_style` cannot carry it: every document holds its default `raw`, so honouring that would move every existing iPhone and iPad user to inline text at once, and third-party apps differ in how well they draw a keyboard extension's marked text. The choice lives in the App Group because the keyboard reads it on every keystroke.
+/// 行内预编辑：键盘把正在拼写的内容写进输入框（marked text）的几种形式，与 Apple 自带中文键盘和 Android 宿主一样。键盘固定用「拼音分词」，候选栏因此不再画读音，候选从行首开始、不随拼写变长左右移动；不再提供开关。`raw` 与 `off` 对应 Windows `tsf_preedit_style` 的另外两种形式，留给 `InlineCompositionPolicy` 的规则与测试使用。韩语无论哪种形式都标记它的音节（见 `InlineCompositionPolicy.markedText`）。
 enum InlinePreeditPreference {
   enum Style: String, CaseIterable {
     case off, raw, pinyin
-
-    var title: String {
-      switch self {
-      case .off: "不显示"
-      case .raw: "原始按键"
-      case .pinyin: "拼音分词"
-      }
-    }
 
     /// The marked text for a composition. `raw` falls back to the segmented spelling when the Engine reports no ASCII keys, as a local mode or the Japanese reading does; Japanese always shows its kana, which is what was typed.
     func text(phrasePrefix: String, preedit: String, editingText: String, japaneseReading: String?) -> String {
@@ -27,22 +17,4 @@ enum InlinePreeditPreference {
       }
     }
   }
-
-  static let styleKey = "keyboard.inline_preedit_style"
-  /// The switch that came before the style. A stored `true` reads as 拼音分词, which is what it wrote into the field.
-  static let key = "keyboard.inline_preedit"
-
-  static var defaults: UserDefaults {
-    InputSchemePreference.appGroupDefaults
-  }
-
-  static var style: Style {
-    get {
-      if let stored = defaults.string(forKey: styleKey), let style = Style(rawValue: stored) { return style }
-      return defaults.bool(forKey: key) ? .pinyin : .off
-    }
-    set { defaults.set(newValue.rawValue, forKey: styleKey) }
-  }
-
-  static var isEnabled: Bool { style != .off }
 }

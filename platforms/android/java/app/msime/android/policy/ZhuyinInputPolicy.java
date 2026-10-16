@@ -47,7 +47,7 @@ public final class ZhuyinInputPolicy {
             || (spellingSymbols != null && spellingSymbols.contains(key));
     }
 
-    /** Whether the editor field shows no composing text for a nine-key view: the quanpin nine-key editing_text is the digits pressed, which mean nothing in the field, so only the keyboard's own preedit shows them. The Zhuyin nine-key view marks its reading (the conversion followed by the pending digits) like Dachen. */
+    /** 网格键盘的组字不能照 editing_text 写进输入框：全拼九键的 editing_text 是按下的数字，在输入框里没有意义，宿主改写引擎给的拼音读音（14 键则不写）。注音 9 键像大千一样标记它的 reading（转换结果加未完成的数字）。 */
     public static boolean hidesNineKeyComposing(boolean nineKey, boolean zhuyin) {
         return nineKey && !zhuyin;
     }

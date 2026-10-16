@@ -142,6 +142,9 @@ impl InputSession {
         self.insert_cached_plugin_rows();
         // After the positions, so the synthetic row is never moved.
         self.add_local_fallback_candidate();
+        if self.local_mode == LocalInputMode::Url {
+            self.add_url_completions();
+        }
         result.diagnostic
     }
 
@@ -587,6 +590,8 @@ impl InputSession {
         if self.local_mode == LocalInputMode::None {
             keep_expressive_rows_off_the_lead(&mut mixed);
         }
+        // 放在最后：网址补全不参与固定位置，也不被挪开。
+        self.insert_url_scheme_completions(&mut mixed);
         mixed
     }
 

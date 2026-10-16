@@ -1,10 +1,11 @@
+import type { HostPlatform } from "../core/host-capabilities";
 /**
- * The global theme contract, as the settings page sees it. The authoritative table is `crates/client-core/src/skin/theme.rs`; `theme-catalog.json` is its serialized `catalog()`, checked against it by the Rust test `web_catalog_copy_matches_the_catalog`, so the page can draw the picker and its previews synchronously on every host, including hosts whose bridge has no theme call.
+ * 设置页看到的全局主题契约。权威的主题表在 `crates/client-core/src/theme.rs`；`theme-catalog.json` 是 `crates/client-services/src/skin/theme.rs` 的 `catalog()` 序列化出的副本，由 Rust 测试 `web_catalog_copy_matches_the_catalog` 核对两者一致，所以设置页在每个宿主上都能同步画出主题选择器和预览，包括桥接层没有主题调用的宿主。
  *
  * Every colour is `#RRGGBB` or `#RRGGBBAA` (uppercase, alpha last). A `null` slot means "the host's own platform token", never "transparent".
  */
 import type { CSSProperties } from "react";
-import type { HostPlatform } from "../index";
+
 import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
 import { candidateTextColor } from "../candidate/candidate-text-color";
 import { relativeLuminance } from "../core/color";
@@ -297,7 +298,7 @@ function withAlpha(color: string, alpha: string): string {
   return `${color.slice(0, 7)}${alpha}`;
 }
 
-/** 按 `ai::readable_text` 的相对亮度阈值选择黑白文字；`background` 为 `#RRGGBB` 或 `#RRGGBBAA`，忽略 alpha。 */
+/** 按 `theme::readable_text` 的相对亮度阈值选择黑白文字；`background` 为 `#RRGGBB` 或 `#RRGGBBAA`，忽略 alpha。 */
 function readableText(background: string): string {
   const luminance = relativeLuminance(parseInt(background.slice(1, 7), 16));
   return luminance > 0.179 ? "#000000" : "#FFFFFF";

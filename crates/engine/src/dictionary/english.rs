@@ -1,5 +1,7 @@
 //! `msime-english.db` (schemes-lang.md §4, data-formats.md §5): prefix completion, the en↔zh gloss tables, the custom translations sidecar and the learned-gloss store. English weights exceed `i32` in the shipped data.
 
+mod correction;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Read;
@@ -36,6 +38,7 @@ const READ_BUSY_TIMEOUT: Duration = Duration::ZERO;
 
 pub struct EnglishDictionary {
     connection: Option<Connection>,
+    correction_cache: RefCell<correction::CorrectionCache>,
     translations: CustomTranslations,
     gloss_cache: Option<PathBuf>,
     /// The learned-gloss store, opened on the first lookup that reaches it and retried while the file does not exist yet: nothing may have been learned when the dictionary opens (english_dictionary.cpp:363-386).
@@ -67,6 +70,7 @@ impl EnglishDictionary {
         };
         Self {
             connection: open_prefix_connection(database),
+            correction_cache: RefCell::default(),
             translations,
             gloss_cache,
             gloss_cache_connection: RefCell::new(None),

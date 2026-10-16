@@ -1,10 +1,10 @@
-//! Moving the Linux data directory with the input hosts held off it.
+//! 搬移 Linux 数据目录，期间让输入宿主不碰它。
 //!
-//! The lease and `QuiescedHosts`, which keeps it up across the requests of one settings-page action, are shared with macOS and the MCP server (`msime_client_core::dictionary::quiesce`; `is_lease_file` is re-exported here). What stays Linux-only is the long hold: moving the data directory keeps the IBus and Fcitx5 hosts off the user directory for the whole copy, with the lease up and the exclusive dictionary lock held together (`hold_hosts_off`).
+//! 租约和 `QuiescedHosts`（它让租约在一次设置页操作的多个请求之间一直挂着）与 macOS 和 MCP 服务端共用（`msime_client_services::dictionary::quiesce`；`is_lease_file` 在这里重新导出）。只属于 Linux 的是长时间让出：搬移数据目录时，IBus 和 Fcitx5 宿主在整个拷贝期间都不碰用户目录，租约挂着，独占词库锁也同时持有（`hold_hosts_off`）。
 
-use msime_client_core::dictionary::access::DictionaryAccess;
-pub(crate) use msime_client_core::dictionary::quiesce::is_lease_file;
-use msime_client_core::dictionary::quiesce::{Lease, RETRY_BUDGET, RETRY_INTERVAL};
+use msime_client_services::dictionary::access::DictionaryAccess;
+pub(crate) use msime_client_services::dictionary::quiesce::is_lease_file;
+use msime_client_services::dictionary::quiesce::{Lease, RETRY_BUDGET, RETRY_INTERVAL};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -22,7 +22,7 @@ pub(crate) struct HostsHeldOff<Access = DictionaryAccess> {
     _lease: Lease,
 }
 
-/// Keep both hosts off `user_data` for as long as the returned guard lives, for work that replaces the directory rather than editing through the Engine, such as moving the data root. Unlike `msime_client_core::dictionary::quiesce::QuiescedHosts` the lease goes up first and stays up until the guard is dropped. A host that is not running holds no lock, so it cannot keep this busy. `Ok(None)` when `user_data` does not exist: no session can be open on it.
+/// 在返回的守卫存活期间让两个宿主都不碰 `user_data`，用于替换整个目录而不是经 Engine 编辑的工作，比如搬移数据根目录。与 `msime_client_services::dictionary::quiesce::QuiescedHosts` 不同，这里先挂上租约，并一直挂到守卫被丢弃。没有运行的宿主不持有锁，所以不会让这里一直忙。`user_data` 不存在时返回 `Ok(None)`：不可能有会话开在它上面。
 pub(crate) fn hold_hosts_off(
     user_data: &Path,
     dictionaries: &Path,
@@ -65,7 +65,7 @@ fn hold_with<Access>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use msime_client_core::dictionary::quiesce::LEASE_NAME;
+    use msime_client_services::dictionary::quiesce::LEASE_NAME;
 
     fn lease_expiry(directory: &Path) -> Option<u128> {
         std::fs::read_to_string(directory.join(LEASE_NAME))

@@ -1,9 +1,7 @@
 import { ActionButton } from "./action-button";
+import type { ProviderPreset } from "../core/provider-preset";
 
-export interface ProviderPreset {
-  models?: readonly string[];
-  documentation?: string;
-}
+export type { ProviderPreset } from "../core/provider-preset";
 
 export interface ProviderPresetSectionProps {
   label: string;

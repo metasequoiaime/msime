@@ -99,10 +99,17 @@ public final class InputDialog {
                 DimensionPolicy.screenWidthPixels(context) - DimensionPolicy.pixels(context, 48)),
                 ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setDimAmount(0.35f);
-            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
-                | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            configureFloatingInput(window);
         }
         refresh();
+    }
+
+    // 浮动对话框仍由 WindowManager 缩小可用区域；edge-to-edge 的 Insets 方案面向铺满窗口的布局。
+    // 保留这一处兼容常量，避免 Android 9 上输入框或确认按钮被软键盘遮住。
+    @SuppressWarnings("deprecation")
+    private static void configureFloatingInput(Window window) {
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+            | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
     }
 
     /**

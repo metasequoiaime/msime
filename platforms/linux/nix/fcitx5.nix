@@ -89,7 +89,7 @@ stdenv.mkDerivation (finalAttrs: {
       (root + "/crates/host-api/include")
       # 契约测试拿 Fcitx5 插件与这两处 Rust 定义对照；只列文件，免得 Rust 改动都触发重编。
       (root + "/crates/engine/src/types.rs")
-      (root + "/crates/client-core/src/ai.rs")
+      (root + "/crates/client-providers/src/ai.rs")
       (lib.fileset.difference (root + "/resources") (
         lib.fileset.unions [
           (root + "/resources/eval")

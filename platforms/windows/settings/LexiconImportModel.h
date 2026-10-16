@@ -29,7 +29,7 @@ inline constexpr std::array<Format, 5> formats{{
 
 // 文本文件的上限，与共享页的 `MAX_DICTIONARY_FILE_BYTES` 相同；`msime_client_settings_dictionary` 再把它分批送给 Server。
 inline constexpr std::uint64_t max_text_file_bytes = 32ull * 1024 * 1024;
-// 细胞词库的上限，与 client-core 的 `scel::MAX_SCEL_BYTES` 相同。
+// 细胞词库的上限，与 client-services 的 `scel::MAX_SCEL_BYTES` 相同。
 inline constexpr std::uint64_t max_scel_file_bytes = 8ull * 1024 * 1024;
 
 // 这一类词库能选的格式，按下拉框里的顺序。

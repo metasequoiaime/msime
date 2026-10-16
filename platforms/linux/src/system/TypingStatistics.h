@@ -41,6 +41,7 @@ enum class TypingSource {
   Reply,
   Voice,
   Unknown,
+  SmartAbc,
 };
 
 constexpr std::string_view typing_source_id(TypingSource source) {
@@ -57,6 +58,8 @@ constexpr std::string_view typing_source_id(TypingSource source) {
     return "microsoft";
   case TypingSource::Shoudao:
     return "shoudao";
+  case TypingSource::SmartAbc:
+    return "smart_abc";
   case TypingSource::Wubi:
     return "wubi";
   case TypingSource::Japanese:
@@ -112,6 +115,8 @@ resolve_typing_source(int scheme, bool nine_key, bool dedicated_english,
       return TypingSource::Microsoft;
     if (shuangpin_profile == "shoudao")
       return TypingSource::Shoudao;
+    if (shuangpin_profile == "smart_abc")
+      return TypingSource::SmartAbc;
     return TypingSource::Shuangpin;
   case 2:
     return TypingSource::Wubi;
@@ -220,7 +225,7 @@ private:
   bool read_ = false;
 };
 
-// The key heatmap's id for an evdev key code (linux/input-event-codes.h): the W3C KeyboardEvent.code name, one of KEY_IDS in crates/client-core/src/typing_statistics.rs. IBus hands engines the evdev code itself; Fcitx5's raw key code is the XKB code, which is the evdev code plus 8. A key outside that list (PrintScreen, ScrollLock, Pause, F13 and up, media keys, and the JIS 半角/全角, katakana and hiragana codes, which XKB does not use for the keys on a JIS keyboard) answers empty and is not counted, because the store rejects a whole batch for one unknown id.
+// The key heatmap's id for an evdev key code (linux/input-event-codes.h): the W3C KeyboardEvent.code name, one of KEY_IDS in crates/client-services/src/typing_statistics.rs. IBus hands engines the evdev code itself; Fcitx5's raw key code is the XKB code, which is the evdev code plus 8. A key outside that list (PrintScreen, ScrollLock, Pause, F13 and up, media keys, and the JIS 半角/全角, katakana and hiragana codes, which XKB does not use for the keys on a JIS keyboard) answers empty and is not counted, because the store rejects a whole batch for one unknown id.
 constexpr std::string_view evdev_key_id(uint32_t code) {
   switch (code) {
   case 1: return "Escape";

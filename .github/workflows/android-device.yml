@@ -1,5 +1,5 @@
 name: Android device
-# 在真正的 Android 模拟器上跑：client-core 单测整套，再装 APK 走首次启动、词库准备和输入验收。ci-platforms.yml 在动到 Android 或共享代码的 develop、main 推送上调用它（PR 上不跑），release-android.yml 在发布前调用它，失败就不发。
+# 在真正的 Android 模拟器上跑：client-base、client-core、client-providers 和 client-services 单测整套，再装 APK 走首次启动、词库准备和输入验收。ci-platforms.yml 在动到 Android 或共享代码的 develop、main 推送上调用它（PR 上不跑），release-android.yml 在发布前调用它，失败就不发。
 #
 # 为什么要有这一步：编译、lint 和 JVM 测试全绿的 0.3.0 在设备上「词库准备失败」（私有目录从 / 起逐级以只读打开，Android 不给应用读 /data）、匿名账号写不进（SELinux 禁止应用建硬链接），Android 9 一打开就崩溃（开屏光晕的径向渐变带主题属性）。这三类问题只有在 Android 上运行才看得见。
 #
@@ -68,11 +68,8 @@ jobs:
           timeout 600 "$adb" -s "$serial" wait-for-device
           timeout 600 bash -c "until [ \"\$('$adb' -s $serial shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')\" = 1 ]; do sleep 5; done"
           "$adb" -s "$serial" shell getprop ro.build.version.sdk
-      - name: Run the client-core unit tests on the AVD
-        run: |
-          set -euo pipefail
-          tests=$(bash platforms/android/tests/device/build-core-test.sh x86_64 | tail -1)
-          MSIME_ANDROID_TEST_SERIAL="$SERIAL" bash platforms/android/tests/device/run-core-test.sh "$tests"
+      - name: Run the client-base, client-core, client-providers and client-services unit tests on the AVD
+        run: MSIME_ANDROID_TEST_SERIAL="$SERIAL" bash platforms/android/tests/device/build-core-test.sh x86_64
       - name: Build the APK
         # API 35 的完整验收会切换到注音九键，测试包必须具备锁定的语言词库；缺失时产品会正常回退到拼音。
         env:
@@ -94,7 +91,7 @@ jobs:
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
           "$adb" -s "$SERIAL" logcat -d > target/android/logcat.txt 2>&1 || true
           "$adb" -s "$SERIAL" logcat -d -b crash > target/android/crash.txt 2>&1 || true
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: android-device-api${{ matrix.api }}-logs

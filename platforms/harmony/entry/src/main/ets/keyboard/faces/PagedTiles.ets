@@ -13,7 +13,7 @@ const DOTS_GAP_VP: number = 8;
  * 功能块由调用方负责：`tile` 是绘制第 `index` 个功能块的 builder。请以箭头函数传入，使其中的 `this` 仍指向调用方，功能块才能继续响应调用方的状态，例如 `tile: (index: number): void => { this.functionTile(index) }`。改变 `resetToken` 会回到第一页，常驻挂载的面板就是靠它在每次重新打开时回到第一页。
  *
  * 三个键盘面板这样使用它：
- * - 功能面板（功能）：`rowHeight` 52，使用默认间距（行间 16、列间 4），每格一个 `PanelTile`。
+ * - 功能面板（功能）：`rowHeight` 至少 52，每页行数（`pageSize`）和行间距由 `FunctionPanelPolicy.pickerGrid` 给出（手机竖屏和平板三行、行间 12，手机横屏两行、行间 16），列间 4，每格一个 `PanelTile`。
  * - 方案选择（输入方式）：与功能面板相同，每格是带 9/26 下标的 `PanelTile` 字形框。
  * - 皮肤选择（皮肤）：每格一个 `MiniKeyboardPreview`，`topPadding` 4，`rowsGap` 2，`columnsGap` 至少 6。设计稿的间距是行间 6、缩略图之间 10，但每个预览在缩略图四周各留了 4vp 给选中环，所以网格的行间距小 4，列间距小 8（列间距按屏宽撑开，通常大于这个值）。
  */

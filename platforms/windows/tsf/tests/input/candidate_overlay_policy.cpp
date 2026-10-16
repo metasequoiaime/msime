@@ -35,6 +35,9 @@ bool Force(std::wstring_view process, const Global::CandidateOverlayFacts &facts
 
 int main()
 {
+    require(Global::IsCandidatePinnedTopLeftProcess(L"MINECRAFT.Windows.EXE"), "基岩版固定锚点不区分大小写");
+    require(!Global::IsCandidatePinnedTopLeftProcess(L"javaw.exe"), "Java 版不套用基岩版定位");
+    require(!Global::IsCandidatePinnedTopLeftProcess(L"notepad.exe"), "普通宿主仍用文本位置");
     require(Global::ProcessBaseName(L"C:\\Games\\dota 2 beta\\game\\bin\\win64\\dota2.exe") == L"dota2.exe",
             "the basename follows the last backslash");
     require(Global::ProcessBaseName(L"D:/Games/Terraria/Terraria.exe") == L"Terraria.exe",
@@ -57,6 +60,17 @@ int main()
     require(Force(L"dota2.exe"), "Dota 2 is in the built-in table");
     require(Force(L"CS2.EXE"), "CS2 is in the built-in table, case-insensitively");
     require(!Force(L"dota2.exe", {}, {}, {L"DOTA2.EXE"}), "the user exclusion wins over the built-in table");
+
+    // 兼容名称只改变自动 Source 2 规则，用户列表与 SDL2 仍保持原来的优先级。
+    auto compatible = Facts(true, true, true, true);
+    compatible.compatibleProfile = true;
+    require(!Force(L"CS2.EXE", compatible), "兼容名称使 CS2 自绘候选");
+    require(!Force(L"dota2.exe", compatible), "兼容名称使 Dota 2 自绘候选");
+    require(!Force(L"deadlock.exe", compatible), "Source 2 模块识别同样交回自绘");
+    require(Force(L"cs2.exe", compatible, {L"CS2.EXE"}), "用户总是显示仍优先");
+    require(!Force(L"cs2.exe", compatible, {L"cs2.exe"}, {L"CS2.EXE"}), "用户排除仍优先");
+    compatible.source2Loaded = false;
+    require(Force(L"terraria.exe", compatible), "兼容名称不改变 SDL2 自动叠加");
 
     // Source 2 模块规则不看 UILess
     require(Force(L"deadlock.exe", Facts(false, false, false, true)), "a loaded Source 2 engine forces the overlay");

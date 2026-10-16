@@ -1,6 +1,6 @@
 import XCTest
 
-/// 现场拼出的最小搜狗细胞词库，内容都是自造的词。每组是（读音的音节, 同音的词）；拼音表由出现过的音节按首次出现的顺序组成，音节写成 `?` 时用一个不在表里的序号。布局见 client-core 的 `dictionary::scel`。
+/// 现场拼出的最小搜狗细胞词库，内容都是自造的词。每组是（读音的音节, 同音的词）；拼音表由出现过的音节按首次出现的顺序组成，音节写成 `?` 时用一个不在表里的序号。布局见 client-services 的 `dictionary::scel`。
 private func scel(_ groups: [([String], [String])]) -> Data {
   var table: [String] = []
   for (reading, _) in groups {

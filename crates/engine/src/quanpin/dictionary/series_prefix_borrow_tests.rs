@@ -2,7 +2,7 @@ use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
 
-// 固定 0ded5ef2d213ea733a6f96885d21210424c71050 的完整查询，仅改名、转接旧系列方法并移除注释。
+// 冻结 0ded5ef2d213ea733a6f96885d21210424c71050 的旧键构造；较短前缀同步后续追加优化，隔离键拼接预算。
 impl QuanpinDictionary {
     fn legacy_prefix_query_exact(
         &mut self,
@@ -144,6 +144,10 @@ impl QuanpinDictionary {
                 truncate_last_segment(&mut partial_segmentation);
             }
             let partial = &segments[..count];
+            if count < segments.len() {
+                self.append_single_path(&mut result, raw, &partial_segmentation, partial);
+                continue;
+            }
             let mut rows = self.query_single_path(raw, &partial_segmentation, partial);
             if count == segments.len() {
                 let exact_rows = rows

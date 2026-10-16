@@ -178,9 +178,12 @@ test("the HarmonyOS phone 候选栏 page has only the 候选栏 group, with the 
   expect(within(candidate).getByRole("slider", { name: "候选字号" })).toHaveProperty("value", "18");
   const more = candidate.querySelector("details");
   expect(more).not.toBeNull();
-  for (const title of ["候选字体", "预编辑字号", "候选栏预编辑"]) {
+  for (const title of ["候选字体", "预编辑字号"]) {
     expect(screen.getByText(title).closest("details")).toBe(more);
   }
+  // 触屏键盘把拼写写进输入框、候选栏不画它，没有「候选栏预编辑」和「行内预编辑」。
+  expect(screen.queryByText("候选栏预编辑")).toBeNull();
+  expect(screen.queryByText("行内预编辑")).toBeNull();
 });
 
 // ---- 外接键盘快捷键 ----

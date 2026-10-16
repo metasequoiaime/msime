@@ -18,6 +18,8 @@ inline std::wstring toolbar_scheme_title(std::string_view scheme,
       return L"首道双拼";
     if (shuangpin_profile == "microsoft")
       return L"微软双拼";
+    if (shuangpin_profile == "smart_abc")
+      return L"智能 ABC 双拼";
     if (shuangpin_profile == "custom")
       return L"自定义双拼";
     return L"小鹤双拼";

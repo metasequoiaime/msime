@@ -14,13 +14,13 @@ use crate::platform::account_helpers::{
 use crate::platform::cloud_dictionary::{
     self, snapshot_command_error, snapshot_response_without_account,
 };
-use msime_client_core::account::{
+use msime_client_core::cloud::dictionary::DictionaryKind;
+use msime_client_core::uuid::Uuid;
+use msime_client_services::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountSession,
 };
-use msime_client_core::cloud::dictionary::DictionaryKind;
-use msime_client_core::dictionary::access::DictionaryAccess;
-use msime_client_core::dictionary::quiesce::{QuiescedHosts, BUSY};
-use msime_client_core::uuid::Uuid;
+use msime_client_services::dictionary::access::DictionaryAccess;
+use msime_client_services::dictionary::quiesce::{QuiescedHosts, BUSY};
 use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -595,13 +595,13 @@ fn discard_stale_previews<A: AccountApi, S: AccountSessionStorage>(
 #[cfg(test)]
 mod tests {
     use super::{process_due, request, state_paths, CloudDictionaryState};
-    use msime_client_core::account::{
+    use msime_client_core::cloud::dictionary::DictionaryKind;
+    use msime_client_services::account::{
         AccountApi, AccountChallenge, AccountDictionaryCatalogPage, AccountDictionaryEntry,
         AccountDictionaryPage, AccountDictionarySnapshotRestore, AccountError, AccountProfile,
         AccountSessionStorage, AccountTokens, AccountUser, BackendAccountSession,
         SavedAccountSession,
     };
-    use msime_client_core::cloud::dictionary::DictionaryKind;
     use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
     use serde_json::{json, Value};
     use sha2::{Digest, Sha256};

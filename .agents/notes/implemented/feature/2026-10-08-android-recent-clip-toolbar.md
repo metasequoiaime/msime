@@ -13,7 +13,7 @@ Status: implemented
 - 来源有两个：复制监听（`clipboardWatcher`，读不到复制时刻时按现在算），和弹出键盘时的补看（`onStartInputView` 的刷新任务，先只读 `getPrimaryClipDescription()` 的复制时刻，过了 60 秒或读不到时刻就不读内容）。过期由 `main.postDelayed` 安排一次重画。
 - 跟着剪贴板历史开关走：历史关着时不显示，也不为它读系统剪贴板（连复制时刻都不读）；历史开着时听本地设置 `platform.android.clipboard_suggestion`（默认开，只在本机）。判断只有一处，`RecentClipboardSuggestion.enabled(clipboardHistoryEnabled, clipboardSuggestionEnabled)`，服务经 `recentClipEnabled()` 在补看读剪贴板之前和 `render` 里都问它。它本身不往历史里写任何东西。
 - 键盘进程冷启动时，`clipboardHistoryEnabled` 在实时偏好到来前是字段初始值（关），弹出键盘时的补看因此会跳过；实时偏好把开关由关变开时（`reloadPreferences`、`loadAppearanceWithoutSession`）再补看一次（`offerRecentClipOnHistoryEnabled`），键盘进程不在时复制的那一条仍能出现。
-- 其余不显示的情况：隐私模式、密码类和不许个性化学习的输入框（`ImePrivacyGate`）；系统标为敏感的内容（`EXTRA_IS_SENSITIVE`，补看读到后直接丢弃）；工具栏被设为隐藏、有工具栏面板开着、正在组词。
+- 其余不显示的情况：隐私模式、密码类和不许个性化学习的输入框（`ImePrivacyGate`）；系统标为敏感的内容（`EXTRA_IS_SENSITIVE`，补看读到后直接丢弃）；工具栏被设为隐藏、有工具栏面板开着、正在组词。文本编辑面板的可见性和返回键是这个面板规则的特例，由 [文本编辑中实时显示最近复制](2026-10-15-android-recent-copy-in-text-edit.md) 接管。
 - 复制的是图片时（#6781），同一个状态和同一套开关、过期规则也管它，只在当前输入框收得下图片时显示，见 [一键发送刚复制的图片](2026-10-11-android-recent-clip-image-send.md)。
 - 设置入口在「键盘」页的「剪贴板」一节：「工具栏显示最近复制」，说明里写明需先在「隐私」里打开剪贴板历史；历史关着时这一行置灰（`GroupCard.Row.setEnabled`，与本页「滑动方向」跟随「滑动输入符号」、工具栏按钮跟随「显示方式」同一做法），开关的值保留。
 

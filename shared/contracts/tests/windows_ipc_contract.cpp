@@ -188,7 +188,10 @@ int main()
     // 新帧只能追加在最后：旧 TIP 丢掉大于它所知 MaxKnown 的类型，已有类型的编号不能动。
     static_assert(FanyImeWorkerReplyType::SecondThirdCandidateChanged == 30);
     static_assert(FanyImeWorkerReplyType::PunctuationMarksChanged == 31);
-    static_assert(FanyImeWorkerReplyType::MaxKnown == FanyImeWorkerReplyType::PunctuationMarksChanged);
+    static_assert(FanyImeWorkerReplyType::WubiCandidateSelectionChanged == 32);
+    static_assert(FanyImeWorkerReplyType::CandidateContinuation == 33);
+    static_assert(FanyImeWorkerReplyType::UiLessCandidatesChanged == 35);
+    static_assert(FanyImeWorkerReplyType::MaxKnown == FanyImeWorkerReplyType::HostOnlineCandidates);
     static_assert(FanyImeVoiceControl::Start == 1);
     static_assert(FanyImeVoiceControl::Stop == 2);
     static_assert(FanyImeVoiceControl::Cancel == 3);

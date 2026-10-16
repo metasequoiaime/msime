@@ -121,7 +121,7 @@ public final class SyncMergePolicy {
     /**
      * 本机要变成的常用语正文清单与要删掉的本机 id：`target` 是合并或云端的结果，`local` 是本机现有的（id → 正文）。
      *
-     * <p>本机 id 由 client-core 生成，和云端 id 不通用，所以按正文对齐：`target` 里有、本机没有的正文要新增；本机有、`target` 里没有的要删掉（只有「使用云端」和下载才会走到删除）。
+     * <p>本机 id 由 client-services 生成，和云端 id 不通用，所以按正文对齐：`target` 里有、本机没有的正文要新增；本机有、`target` 里没有的要删掉（只有「使用云端」和下载才会走到删除）。
      */
     public record LocalPlan(List<String> add, List<String> remove) {}
 
@@ -185,7 +185,7 @@ public final class SyncMergePolicy {
 
     // ---- 个人词库 ----
 
-    /** 个人词库队列一次导入最多的词条数，与 client-core 的 `MAX_QUEUED_IMPORT` 一致。 */
+    /** 个人词库队列一次导入最多的词条数，与 client-services 的 `MAX_QUEUED_IMPORT` 一致。 */
     public static final int PERSONAL_IMPORT_BATCH = 128;
 
     /** 云端快照里的一个用户词：`kind` 已换成个人词库导入文件的写法。 */

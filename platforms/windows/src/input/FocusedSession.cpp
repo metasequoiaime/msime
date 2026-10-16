@@ -1,4 +1,5 @@
 #include "FocusedSession.h"
+#include "ipc_negotiation.h"
 #include "../../../common/HostApiString.h"
 #include "FloatingToolbarVisibilityPolicy.h"
 #include "InputSchemeTraits.h"
@@ -298,7 +299,8 @@ FocusedSession::select_candidate(const FocusLease &lease, uint64_t session,
     // 指针点选开启新的一轮：先报 MSIME_KEY_POINTER，不出声、不画。
     (void)session_.key(MSIME_KEY_POINTER);
     result = composer_->select_candidate(session_, session, generation, index,
-                                         translation_page);
+                                         translation_page,
+        (lease.transport.capabilities & FanyImeProtocol::CandidateContinuation) != 0);
     publish_commit_feedback(result);
     attach_online_query(lease, result);
   });

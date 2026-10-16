@@ -58,7 +58,7 @@ public final class LocalBackupPolicySmoke {
         check(!types.containsKey("weird"), "values of other types are not declared");
         Map<String, Object> many = new LinkedHashMap<>();
         for (int index = 0; index < 513; index++) many.put("key." + index, true);
-        check(LocalBackupPolicy.fieldTypes(many) == null, "more fields than client-core accepts");
+        check(LocalBackupPolicy.fieldTypes(many) == null, "more fields than client-services accepts");
 
         equal(LocalBackupPolicy.summary(new Restored(true, 2, 5, 120, 0, 0, 0, List.of())),
             "已恢复设置、2 个自定义皮肤、5 条常用语；120 个词会在键盘空闲时陆续写入词库。", "full restore");

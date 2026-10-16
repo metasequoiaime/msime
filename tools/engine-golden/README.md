@@ -114,4 +114,6 @@ Since #5667 / #5907 the mixed emoji and kaomoji rows no longer take the priority
 
 #7583 的共享词网格为每个多字词扣一份插入代价；15 个脚本场景的 Generated 权重因此按每词 20,000 更新。`pick_pair_ineligible` 的重复音节同分路径由 `好 / 好好` 变为 `好好 / 好`，对应的个人二元、三元分词记录随同更新；候选文字、上屏、失败诊断及其余场景保持原断言。完整词条已成为词网格最优路径时，双拼只保留词库行；展示整句备选时其他读法仍跟在完整词条后面。
 
+#7616 之后本地模式下回车（`CommitRaw`）原样上屏屏幕上的预编辑，两个临时模式的入口字母也在内：只有入口字母时上屏它本身（以前上屏空串），有内容时上屏 `Rka` / `Yhe`（以前去掉入口字母记 `ka` / `he`）。`temp_japanese_enter` 与 `temp_english_enter_and_learning` 只在这一处与参考不同；学进词库的词没有变（临时日文仍是带 `r` 前缀的 `rkk`，临时英文仍是 `he`），入口字母在写词库前照旧去掉。
+
 #8043 修复本地模式静默吞键：`local_date_time_incomplete`、`local_emoji_edges`、`local_quick_phrase`、`local_quick_phrase_edges`、`local_super_jianpin_queries`、`local_unicode_edges` 和 `personal_dictionary_entries` 中不被模式接受的字符改为先提交所见原文（含入口字母），再以未处理结果交还当前键。对应步骤及随后空组字的取消／退格期望据此更新，其他步骤保留固定参考断言；临时英文、临时日文和网址的独立拒绝分支保持原有行为。

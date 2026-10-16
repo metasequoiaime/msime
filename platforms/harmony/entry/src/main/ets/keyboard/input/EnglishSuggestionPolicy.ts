@@ -62,18 +62,13 @@ export class EnglishSuggestionPolicy {
     return letters.join("");
   }
 
-  /**
-   * Whether a prefix is worth a dictionary query.
-   *
-   * One letter matches most of the dictionary and would suggest nothing useful while costing a
-   * query on every keystroke, which is the same threshold Android uses.
-   */
-  static suggestible(prefix: string): boolean {
-    if (prefix.length < MIN_PREFIX_LENGTH || prefix.length > MAX_WORD_LENGTH) {
+  /** 旧补全至少两字母；手机纠错允许单字母和撇号，以便恢复 `I` 和缩写形式。 */
+  static suggestible(prefix: string, correction: boolean = false): boolean {
+    if (prefix.length < (correction ? 1 : MIN_PREFIX_LENGTH) || prefix.length > MAX_WORD_LENGTH) {
       return false;
     }
     for (const character of prefix) {
-      if (!EnglishSuggestionPolicy.isAsciiLetter(character)) {
+      if (!EnglishSuggestionPolicy.isAsciiLetter(character) && !(correction && character === "'")) {
         return false;
       }
     }
@@ -147,6 +142,7 @@ export class EnglishSuggestionPolicy {
   }
 
   private static normalize(character: string): string {
+    if (character === "'") return character;
     if (EnglishSuggestionPolicy.isAsciiLetter(character)) {
       return character;
     }

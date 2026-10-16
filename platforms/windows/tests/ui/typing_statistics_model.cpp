@@ -168,6 +168,12 @@ int main() {
   check(legend_slices(character_slices(Breakdown{})).size() == 7, "an empty unknown is not in the legend");
   const auto languages = language_slices(whole);
   check(languages[0].count == 1000 && languages[9].count == 100 && languages[10].count == 200, "language modes");
+  Breakdown smart_abc;
+  smart_abc.sources["smart_abc"] = 12;
+  const auto smart_abc_sources = ranked_slices(source_slices(smart_abc));
+  check(smart_abc_sources.size() == 1 && smart_abc_sources[0].title == L"智能 ABC 双拼" &&
+            smart_abc_sources[0].count == 12, "Smart ABC source counts");
+  check(language_slices(smart_abc)[0].count == 12, "Smart ABC counts as Chinese");
   const auto ranked = ranked_slices(source_slices(whole));
   check(ranked.size() == 3 && ranked[0].id == "quanpin" && ranked[1].id == "unknown" && ranked[2].id == "voice",
         "the ranking is by count");

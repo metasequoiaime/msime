@@ -37,9 +37,9 @@ public final class KeyHeatmapView extends View {
             k("KeyH"), k("KeyJ"), k("KeyK"), k("KeyL"), new Key(null, .5f, "")),
         List.of(new Key("ShiftLeft", 1.5f, "⇧"), k("KeyZ"), k("KeyX"), k("KeyC"), k("KeyV"),
             k("KeyB"), k("KeyN"), k("KeyM"), new Key("Backspace", 1.5f, "⌫")),
-        List.of(new Key("SoftLayer", 1.25f, "123"), new Key("Comma", 1f, "，"),
-            new Key("Space", 4.25f, "空格"), new Key("Period", 1f, "。"), new Key("SoftLanguage", 1f, "中"),
-            new Key("Enter", 1.5f, "↵")));
+        // 底行与触屏 26 键一致：符 | 123 | 空格 | 中 | 回车，没有逗号和句号键。
+        List.of(new Key("SoftSymbol", 1f, "符"), new Key("SoftLayer", 1.25f, "123"),
+            new Key("Space", 4.25f, "空格"), new Key("SoftLanguage", 1f, "中"), new Key("Enter", 1.5f, "↵")));
 
     private static final List<List<Key>> NINE = List.of(
         List.of(new Key("Comma", 1f, "，"), new Key("Nine1", 1.4f, "@#"), new Key("Nine2", 1.4f, "ABC"),

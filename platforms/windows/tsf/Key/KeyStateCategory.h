@@ -45,6 +45,7 @@ typedef struct KeyHandlerEditSessionDTO
     WCHAR wch;
     KEYSTROKE_FUNCTION arrowKey;
     uint64_t requestId;
+    uint64_t deferredReplayToken = 0;
     std::wstring prefetchedText;
 } KeyHandlerEditSessionDTO;
 

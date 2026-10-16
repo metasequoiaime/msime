@@ -70,10 +70,10 @@ class IOSProjectConfigTests(unittest.TestCase):
         # through this shell, reads the same answer. What this pins is unchanged: the Doubao
         # authentication headers come from the shared policy rather than a copy in a host.
         self.assertIn(
-            "use msime_client_core::voice::provider::{", rust_voice
+            "use msime_client_providers::voice::provider::{", rust_voice
         )
         shared_voice = (
-            TAURI_ROOT.parents[2] / "crates/client-core/src/voice/provider.rs"
+            TAURI_ROOT.parents[2] / "crates/client-providers/src/voice/provider.rs"
         ).read_text()
         self.assertIn("crate::credential::doubao_auth::headers(", shared_voice)
         self.assertIn('#[cfg(not(target_os = "ios"))]', rust_entry)

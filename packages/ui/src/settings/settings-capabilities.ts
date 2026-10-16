@@ -1,4 +1,4 @@
-import type { HostCapabilities } from "../index";
+import type { HostCapabilities } from "../core/host-capabilities";
 
 export interface SettingsCapabilitiesInput {
   host?: HostCapabilities;
@@ -38,6 +38,9 @@ export function settingsCapabilities({
   const showFloatingToolbar = host ? host.floating_toolbar : true;
   const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
   const showToolbarComponents = host ? host.floating_toolbar_components : true;
+  // 屏幕键盘的高度和间距：没有宿主（网页预览）或宿主没报这两项时照旧给出。
+  const showTouchKeyboardHeight = host?.touch_keyboard_height !== false;
+  const showTouchKeyboardSpacing = host?.touch_keyboard_spacing !== false;
   const showCandidateFontControls = host ? host.candidate_font_controls : true;
   const showCandidatePreeditFont =
     showCandidateFontControls && (host ? host.candidate_preedit_font : true);
@@ -55,6 +58,10 @@ export function settingsCapabilities({
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateBorderColor = host ? host.candidate_border_color : true;
+  // 缺省（宿主还没报告这一项）按读取处理，与加这一项之前一样给出取色器。
+  const showCandidateNumberColor = host ? host.candidate_number_color !== false : true;
+  // 宿主让各界面一律跟随颜色模式时，主题页只留候选窗口的单独明暗，设置窗口和各面板也不再读其余几项。
+  const surfaceThemesFollow = host?.surface_themes_follow === true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
   const showCandidateWindowScale = host ? host.candidate_window_scale : true;
   const showCandidateWindowOpacity = host ? host.candidate_window_opacity : true;
@@ -99,6 +106,8 @@ export function settingsCapabilities({
     showFloatingToolbar,
     showToolbarAppearance,
     showToolbarComponents,
+    showTouchKeyboardHeight,
+    showTouchKeyboardSpacing,
     showCandidateFontControls,
     showCandidatePreeditFont,
     showCandidateEnglishFont,
@@ -114,6 +123,8 @@ export function settingsCapabilities({
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
+    showCandidateNumberColor,
+    surfaceThemesFollow,
     showCandidateFollowCursor,
     showCandidateWindowScale,
     showCandidateWindowOpacity,

@@ -51,12 +51,9 @@ struct VocabularyReviewStatus: Equatable {
   var needsWordbook: Bool { wordbook.isEmpty || !wordbooks.contains { $0.id == wordbook } }
 }
 
-/// 背单词 storage, through the shared entry point.
+/// 背单词的存储，经由共享入口。
 ///
-/// Every rule — the intervals, the ease, what a lapse costs, how the queue is ordered — belongs to
-/// `client-core::vocabulary`. Hand-rolling any of it in Swift would give this host a second
-/// scheduler that quietly disagrees with the five others, which is what the shared layer exists to
-/// prevent. This type only moves JSON across the boundary.
+/// 每一条规则（间隔、难易系数、一次遗忘的代价、队列怎样排序）都属于 `client-services::vocabulary`。在 Swift 里手写其中任何一条，都会让这个宿主多出第二个排期器，悄悄地和其他五个宿主不一致，而共享层存在正是为了防止这种情况。这个类型只负责把 JSON 搬过边界。
 struct VocabularyReviewStore {
   static let maximumImportBytes = 8 * 1024 * 1024
 

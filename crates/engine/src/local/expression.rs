@@ -201,9 +201,13 @@ pub(super) fn format_number(value: f64) -> Option<String> {
     let rounded: f64 = if value.fract() == 0.0 && value.abs() < EXACT_INTEGER_LIMIT {
         value
     } else {
-        format!("{value:.precision$e}", precision = SIGNIFICANT_DIGITS - 1)
-            .parse()
-            .ok()?
+        let text = format!("{value:.precision$e}", precision = SIGNIFICANT_DIGITS - 1);
+        let rounded: f64 = text.parse().ok()?;
+        // 有限极值的十进制舍入可能超过 f64 范围，直接保留文本，避免显示成无穷值。
+        if !rounded.is_finite() {
+            return Some(text);
+        }
+        rounded
     };
     // Adding zero turns -0 into 0, so 1-1 and -0 both read 0.
     let rounded = rounded + 0.0;
@@ -491,6 +495,28 @@ mod tests {
         assert_eq!(words("-(2^2)")[0], "-4");
         assert_eq!(words("2^-2")[0], "0.25");
         assert_eq!(words("-2*3")[0], "-6");
+    }
+
+    #[test]
+    fn finite_limits_remain_decimal_results_after_rounding() {
+        assert_eq!(
+            format_number(f64::MAX).as_deref(),
+            Some("1.79769313486232e308")
+        );
+        assert_eq!(
+            format_number(-f64::MAX).as_deref(),
+            Some("-1.79769313486232e308")
+        );
+        for (code, expected) in [
+            ("(2^1023)*1.9999999999999998", "1.79769313486232e308"),
+            ("(2^1023)*-1.9999999999999998", "-1.79769313486232e308"),
+        ] {
+            assert_eq!(
+                words(code),
+                [expected.to_owned(), format!("{code}={expected}")]
+            );
+        }
+        assert!(words("(2^1023)*2").is_empty());
     }
 
     #[test]

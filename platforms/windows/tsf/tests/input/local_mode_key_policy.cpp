@@ -60,9 +60,13 @@ int main() {
     check(opens(L"http", L':'), "http colon opens the URL mode");
     check(opens(L"https", L':'), "https colon opens the URL mode");
     check(opens(L"ftp", L'.') && opens(L"ftp", L':'), "ftp opens on dot and colon");
-    check(!opens(L"www", L':') && !opens(L"http", L'.') && !opens(L"www", L'@'), "only the trigger's own key opens it");
+    check(!opens(L"www", L':') && !opens(L"http", L'.'), "only the trigger's own key opens it");
     for (const wchar_t *other : {L"ww", L"wwww", L"Www", L"WWW", L"w'ww", L"ni", L"httpss", L"mailto"})
         check(!opens(other, L'.') && !opens(other, L':'), "only the exact lowercase trigger words open it");
+    // 邮箱：由 ASCII 字母、数字组成的缓冲按 `@` 进入，触发词也一样；带撇号的拼音不算。
+    for (const wchar_t *local : {L"zhangsan", L"ZhangSan", L"abc123", L"www", L"ni"})
+        check(opens(local, L'@'), "an ASCII letter or digit buffer opens it on @");
+    check(!opens(L"xi'an", L'@') && !opens(L"zhangsan", L'#'), "only a plain local part and @ open it");
     const std::wstring www = L"www";
     check(!OpensUrlMode(www.c_str(), www.size(), 2, L'.', true, false), "not with the caret inside the trigger");
     check(!OpensUrlMode(www.c_str(), www.size(), www.size(), L'.', false, false), "not in a scheme that does not detect URLs");
@@ -73,7 +77,7 @@ int main() {
     // 删掉一个字符后：只有删掉的恰好是触发键（剩下的正好是触发词）或缓冲删空时才退出网址模式，光标处的编辑不会因为缓冲开头变了就退出。
     const auto staysAfter = [](const wchar_t *remaining, wchar_t removed) {
         const std::wstring raw = remaining;
-        return UrlModeAfterDeletion(true, raw.c_str(), raw.size(), removed);
+        return UrlModeAfterDeletion(true, raw.c_str(), raw.size(), removed, true);
     };
     check(!staysAfter(L"www", L'.'), "deleting the dot after www leaves the URL mode");
     check(!staysAfter(L"http", L':') && !staysAfter(L"https", L':'), "deleting the colon after http or https leaves it");
@@ -85,8 +89,11 @@ int main() {
     check(staysAfter(L"www", L':'), "a removed character that is not the trigger's key keeps it");
     check(staysAfter(L"https", L'.'), "https with a removed dot keeps it");
     check(staysAfter(L"http", L's'), "the TIP keys Wubi as quanpin, so http with a removed s keeps it");
-    check(!UrlModeAfterDeletion(false, L"www.a", 5, L'b'), "deleting never enters the URL mode");
-    check(!UrlModeAfterDeletion(true, nullptr, 3, L'.'), "no buffer is no URL");
+    check(!staysAfter(L"zhangsan", L'@'), "deleting the @ after a local part leaves it");
+    check(UrlModeAfterDeletion(true, L"abcdef", 6, L'@', false), "deleting an @ in the middle keeps it");
+    check(UrlModeAfterDeletion(true, L"www", 3, L'.', false), "deleting a dot in the middle keeps it");
+    check(!UrlModeAfterDeletion(false, L"www.a", 5, L'b', true), "deleting never enters the URL mode");
+    check(!UrlModeAfterDeletion(true, nullptr, 3, L'.', true), "no buffer is no URL");
 
     // 网址的数字和符号是输入，包括 Shift 打出的符号和在别处翻页的键。
     for (wchar_t symbol : std::wstring(L"0123456789-._~:/?#[]@!$&'()*+,;=%^"))

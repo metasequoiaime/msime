@@ -9,7 +9,7 @@ public final class ShuangpinKeyHintPolicy {
     private static final int MAX_HINT_LENGTH = 128;
     private static final String OK_TRUE = "\"ok\"\\s*:\\s*true";
 
-    /** 共享偏好里控制提示的开关，缺省为开；关掉后双拼也不画提示，其余条件与它无关。 */
+    /** 共享偏好里控制提示的开关，缺省为关；打开后双拼才画提示，其余条件与它无关。 */
     public static final String PREFERENCE_KEY = "touch_shuangpin_key_hints";
 
     private ShuangpinKeyHintPolicy() { }

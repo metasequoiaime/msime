@@ -1,6 +1,7 @@
 {
  "name": "temp_english_enter_and_learning",
  "source": "tests/src/test_temporary_input_session.cpp:86-95; case :143-166",
+ "note": "#7616 之后回车原样上屏所见预编辑，临时英文的入口字母 `Y` 算文本：参考实现在这里记的是去掉入口字母的 `he`。学进词库的词仍是 `he`，只有上屏文本变了。",
  "covers": [
   "temporary english",
   "learning"

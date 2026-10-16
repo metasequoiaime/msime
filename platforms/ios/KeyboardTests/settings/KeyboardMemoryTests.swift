@@ -4,17 +4,14 @@ import XCTest
 /// 键盘在内存上的两件事（#6685）：诊断日志各行带上的内存读数，以及内存警告不能让候选条和引擎的候选列表对不上、又要在组字结束后补清引擎缓存。
 @MainActor
 final class KeyboardMemoryTests: XCTestCase {
-  private var savedInlineStyle: Any?
   private var savedScheme: ChineseInputScheme?
 
   override func setUp() {
     super.setUp()
-    savedInlineStyle = InlinePreeditPreference.defaults.object(forKey: InlinePreeditPreference.styleKey)
     savedScheme = InputSchemePreference.scheme
   }
 
   override func tearDown() {
-    InlinePreeditPreference.defaults.set(savedInlineStyle, forKey: InlinePreeditPreference.styleKey)
     if let savedScheme { InputSchemePreference.scheme = savedScheme }
     super.tearDown()
   }
@@ -32,7 +29,8 @@ final class KeyboardMemoryTests: XCTestCase {
   private func preedit(_ controller: KeyboardViewController) throws -> String? {
     let button = try XCTUnwrap(
       descendants(controller.view).first { $0.accessibilityIdentifier == "preeditButton" } as? UIButton)
-    return button.configuration?.title
+    // 拼写写进输入框，候选栏不画它；读屏值仍是完整的组字。
+    return button.accessibilityValue
   }
 
   /// 打开共享的诊断日志跑 `body`，返回这期间写下的各行；结束后恢复原来的开关并删掉日志。
@@ -76,7 +74,6 @@ final class KeyboardMemoryTests: XCTestCase {
 
   private func composingKeyboard() -> KeyboardViewController {
     enableAllInputSchemes()
-    InlinePreeditPreference.style = .off
     InputSchemePreference.scheme = .quanpin
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()

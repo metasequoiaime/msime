@@ -43,7 +43,7 @@ private struct CommunityReportSheet: View {
         }
         Section {
           TextField("补充说明（选填）", text: $detail, axis: .vertical).lineLimit(3...6)
-            .onChange(of: detail) { if $0.unicodeScalars.count > 1_000 { detail = String(String.UnicodeScalarView($0.unicodeScalars.prefix(1_000))) } }
+            .onChange(of: detail) { _, value in if value.unicodeScalars.count > 1_000 { detail = String(String.UnicodeScalarView(value.unicodeScalars.prefix(1_000))) } }
         } footer: {
           Text("举报会发送作品编号、原因和你填写的说明，由管理员核实处理。")
         }

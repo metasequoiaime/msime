@@ -29,3 +29,5 @@ ctest --test-dir target/tsf-exports-x64 --output-on-failure
 ```
 
 Use a separate directory and `i686-w64-mingw32-g++` for x86. Tests inspect PE exports and reject a DLL missing the COM symbols; they never load or register the fixture. An MSVC build uses `dumpbin`. These checks cover the export surface alone; the complete TIP is built by `../build-cross.sh` or `../Build-Client.ps1` and registered by the installer.
+
+UI-less 宿主使用有效本地引擎时，异步云/AI 结果和静止重排通过可选 `HostOnlineCandidates` 操作回送给原始按键请求；TIP 使用该按键成功执行后保存的本地查询应用结果，候选保持本地身份。导航回复在本地执行对应引擎命令。新旧能力组合、查询代次及可选 Source 2 登记名称的恢复流程见[决策笔记](../../../.agents/notes/implemented/feature/2026-10-16-windows-source2-profile-and-local-online.md)。

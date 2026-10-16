@@ -5,11 +5,11 @@
 use crate::platform::account_helpers::call_session;
 use crate::platform::desktop::desktop_account::AccountState;
 use crate::shared::account_dto::PreferenceSchemaResponse;
-use msime_client_core::account::settings_sync::{
+use msime_client_core::preferences::PreferencesStore;
+use msime_client_services::account::settings_sync::{
     prepare_desktop_settings_apply, upload_desktop_settings,
 };
-use msime_client_core::account::AccountPreferences;
-use msime_client_core::preferences::PreferencesStore;
+use msime_client_services::account::AccountPreferences;
 use std::sync::Arc;
 use tauri::State;
 
@@ -30,7 +30,7 @@ pub async fn account_preferences_load(
     call_session(&state.session, |session| session.preferences()).await
 }
 
-/// 本机的 `input.*` 设置合并进账号文档上传，其他平台的设置原样保留。字段表里没有的键不上传；一个都没有时报告服务不可用。逻辑在 client-core（[`upload_desktop_settings`]），原生设置窗口也用它。
+/// 本机的 `input.*` 设置合并进账号文档上传，其他平台的设置原样保留。字段表里没有的键不上传；一个都没有时报告服务不可用。逻辑在 client-services（[`upload_desktop_settings`]），原生设置窗口也用它。
 #[tauri::command]
 pub async fn account_preferences_upload(
     app: tauri::AppHandle,
@@ -45,7 +45,7 @@ pub async fn account_preferences_upload(
     .await
 }
 
-/// 把页面刚下载的账号设置应用到本机。`user_id` 是页面下载时的账号，期间退出或换号就取消。应用的逻辑在 client-core（[`prepare_desktop_settings_apply`]），原生设置窗口也用它。
+/// 把页面刚下载的账号设置应用到本机。`user_id` 是页面下载时的账号，期间退出或换号就取消。应用的逻辑在 client-services（[`prepare_desktop_settings_apply`]），原生设置窗口也用它。
 #[tauri::command]
 pub async fn account_preferences_apply(
     app: tauri::AppHandle,

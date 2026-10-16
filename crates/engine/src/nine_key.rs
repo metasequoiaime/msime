@@ -58,6 +58,8 @@ const SEEDED_PATH_LIMIT: usize = 24;
 const SMALL_QUERY_KEY_BATCH: usize = 64;
 // 少量九宫格候选直接扫描已保留词，避免排序后为一次去重分配哈希表。
 const SMALL_CANDIDATE_DEDUP: usize = 64;
+// 短列表保留直接排序，避免额外创建缓存键数组。
+const SMALL_CANDIDATE_SORT: usize = 32;
 
 /// The digit printed beside each of `a..=z` (NK:37).
 const KEYPAD: &[u8; 26] = b"22233344455566677778889999";
@@ -187,6 +189,28 @@ impl KeyGrid {
             .filter(u8::is_ascii_lowercase)
             .map(|letter| char::from(keypad[usize::from(letter - b'a')]))
             .collect()
+    }
+
+    /// 返回相容组码覆盖的输入长度；按字母分组时只比较共同前缀，不拥有中间编码。
+    fn matching_code_prefix_len(self, pinyin: &str, digits: &str) -> Option<usize> {
+        let Some(keypad) = self.keypad() else {
+            // 双拼后续的非法音节会让整串失效，必须保留完整编码校验。
+            let code = self.encode(pinyin);
+            return (!code.is_empty() && (code.starts_with(digits) || digits.starts_with(&code)))
+                .then_some(code.len().min(digits.len()));
+        };
+        let digits = digits.as_bytes();
+        let mut covered = None;
+        for (index, letter) in pinyin.bytes().filter(u8::is_ascii_lowercase).enumerate() {
+            let Some(&digit) = digits.get(index) else {
+                return Some(index);
+            };
+            if keypad[usize::from(letter - b'a')] != digit {
+                return None;
+            }
+            covered = Some(index + 1);
+        }
+        covered
     }
 
     /// 一个完整音节（锁定的拼写、左列的音节、整句种子里的音节）占几个组码：按字母归组的键盘一个字母一个，九键双拼总是两个。
@@ -1213,12 +1237,9 @@ impl NineKeySession {
                 } else {
                     canonical.as_str()
                 };
-                let code = grid.encode(matched);
-                if code.is_empty()
-                    || (!code.starts_with(&self.digits) && !self.digits.starts_with(&code))
-                {
+                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
                     continue;
-                }
+                };
                 if !agrees_with_locked(matched, &locked_key) {
                     continue;
                 }
@@ -1233,9 +1254,7 @@ impl NineKeySession {
                     }
                 }
                 candidate.pinyin.clear();
-                candidate
-                    .pinyin
-                    .push_str(&self.digits[..code.len().min(self.digits.len())]);
+                candidate.pinyin.push_str(&self.digits[..covered]);
                 candidate.canonical_pinyin = canonical;
                 push_ranked(
                     &mut candidates,
@@ -2259,6 +2278,8 @@ type RankKey = (Reverse<usize>, bool, bool, bool, bool, Reverse<i64>);
 /// 简拼行（`is_initials_row`）在同样覆盖的词典行里的位置由 `initials_lead` 决定：用户在每个数字之间都打了切分时排在前面，否则先排在音节行之后、整句行之前，去重后再由 `interleave_initials` 按权重插进音节行里。
 /// `grid` 只用来算全拼占几个组码：九键双拼一个音节两位，不是一个字母一位。
 fn rank_key(item: &WordItem, prefer_exact: bool, initials_lead: bool, grid: KeyGrid) -> RankKey {
+    #[cfg(all(test, debug_assertions))]
+    cached_rank_tests::KEY_EVALUATIONS.with(|count| count.set(count.get() + 1));
     let completion =
         prefer_exact && grid.reading_code_len(&item.canonical_pinyin) > item.pinyin.len();
     let initials = is_initials_row(item);
@@ -2437,7 +2458,7 @@ fn push_ranked(
     candidates.push(candidate);
 }
 
-/// Stable sort by `rank_key`, dedup by word, capped (NK:283-307). 截断前再把用户用过的简拼行往前挪（`boost_used_initials`）。
+/// 按 `rank_key` 稳定排序、按词去重，简拼交错和个人调频后再截断（NK:283-307）。
 fn rank_candidates(
     candidates: &mut Vec<WordItem>,
     prefer_exact: bool,
@@ -2445,7 +2466,11 @@ fn rank_candidates(
     boost: Option<&InitialsBoost>,
     grid: KeyGrid,
 ) {
-    candidates.sort_by_key(|item| rank_key(item, prefer_exact, initials_lead, grid));
+    if candidates.len() <= SMALL_CANDIDATE_SORT {
+        candidates.sort_by_key(|item| rank_key(item, prefer_exact, initials_lead, grid));
+    } else {
+        candidates.sort_by_cached_key(|item| rank_key(item, prefer_exact, initials_lead, grid));
+    }
     retain_unique_words(candidates);
     if !initials_lead {
         interleave_initials(candidates);
@@ -2712,6 +2737,35 @@ pub(crate) struct SpellingTable {
     longest_code: usize,
 }
 
+/// 中间路径只借用音节；后继索引指向已经定序、不会再改变的后页。
+#[derive(Clone, Copy)]
+struct SpellingPath<'a> {
+    score: f64,
+    complete: bool,
+    piece: &'a str,
+    next: (usize, usize),
+    length: usize,
+}
+
+impl<'a> SpellingPath<'a> {
+    fn pieces<'s>(self, suffix: &'s [Vec<Self>]) -> impl Iterator<Item = &'a str> + 's
+    where
+        'a: 's,
+    {
+        let mut first = (self.length != 0).then_some(self.piece);
+        let mut next = (self.length > 1).then_some(self.next);
+        std::iter::from_fn(move || {
+            if let Some(piece) = first.take() {
+                return Some(piece);
+            }
+            let (column, row) = next?;
+            let node = &suffix[column][row];
+            next = (node.length > 1).then_some(node.next);
+            Some(node.piece)
+        })
+    }
+}
+
 impl SpellingTable {
     fn build(grid: KeyGrid, syllables: &[&str]) -> Self {
         let prefix_capacity = syllables.iter().map(|syllable| syllable.len()).sum();
@@ -2832,9 +2886,14 @@ impl SpellingTable {
     /// 每个位置只留 48 条，留哪些就决定了哪些读法还能查到。原先在字典序上截断，而 9 键是 wxyz、7 键是 pqrs，于是长串里 xi 开头的路径把 yi、zhe 开头的全部挤掉，`943426943426` 只剩「洗点一点」查不到「一点一点」，`7264685487` 只剩「盘后」查不到「然后」。
     fn split_paths(&self, digits: &str, splits: &[usize], prior: &SyllablePrior) -> Vec<Path> {
         let length = digits.len();
-        // (频度之和, 最后一个片段是不是完整音节, 路径)
-        let mut suffix: Vec<Vec<(f64, bool, Path)>> = vec![Vec::new(); length + 1];
-        suffix[length].push((0.0, false, Vec::new()));
+        let mut suffix: Vec<Vec<SpellingPath<'_>>> = vec![Vec::new(); length + 1];
+        suffix[length].push(SpellingPath {
+            score: 0.0,
+            complete: false,
+            piece: "",
+            next: (length, 0),
+            length: 0,
+        });
         for offset in (0..length).rev() {
             let mut result = Vec::new();
             for end in offset + 1..=length.min(offset + self.longest_code) {
@@ -2850,37 +2909,43 @@ impl SpellingTable {
                         continue;
                     }
                     let score = prior.score(piece);
-                    for (tail_score, tail_complete, tail) in &suffix[end] {
-                        let mut path = Vec::with_capacity(tail.len() + 1);
-                        path.push(piece.clone());
-                        path.extend(tail.iter().cloned());
+                    for (row, tail) in suffix[end].iter().enumerate() {
                         if result.is_empty() {
                             result.reserve_exact(PATH_LIMIT);
                         }
-                        let last_complete = if tail.is_empty() {
-                            *complete
-                        } else {
-                            *tail_complete
-                        };
-                        result.push((score + tail_score, last_complete, path));
+                        result.push(SpellingPath {
+                            score: score + tail.score,
+                            complete: if tail.length == 0 {
+                                *complete
+                            } else {
+                                tail.complete
+                            },
+                            piece,
+                            next: (end, row),
+                            length: tail.length + 1,
+                        });
                     }
                 }
             }
-            // Pieces are visited grouped by code rather than in list order; the order below is total on distinct paths, so the kept 48 are the same either way.
-            result.sort_by(|(a_score, a_complete, a), (b_score, b_complete, b)| {
-                a.len()
-                    .cmp(&b.len())
-                    .then_with(|| b_complete.cmp(a_complete))
-                    .then_with(|| b_score.total_cmp(a_score))
-                    .then_with(|| a.cmp(b))
+            // 按码分组访问音节；比较项与原拥有路径相同，只在需要字典序时回溯音节。
+            result.sort_by(|a, b| {
+                a.length
+                    .cmp(&b.length)
+                    .then_with(|| b.complete.cmp(&a.complete))
+                    .then_with(|| b.score.total_cmp(&a.score))
+                    .then_with(|| a.pieces(&suffix).cmp(b.pieces(&suffix)))
             });
             result.truncate(PATH_LIMIT);
             suffix[offset] = result;
         }
-        suffix
-            .swap_remove(0)
+        // 后继一定在更大偏移，取出根页不影响回溯；只有最终保留路径才物化字符串。
+        std::mem::take(&mut suffix[0])
             .into_iter()
-            .map(|(_, _, path)| path)
+            .map(|root| {
+                let mut path = Vec::with_capacity(root.length);
+                path.extend(root.pieces(&suffix).map(str::to_owned));
+                path
+            })
             .collect()
     }
 }
@@ -2940,6 +3005,15 @@ impl SyllablePrior {
         self.syllables.get(syllable).copied().unwrap_or(0.0)
     }
 }
+
+#[cfg(test)]
+mod cached_rank_tests;
+
+#[cfg(test)]
+mod path_chain_tests;
+
+#[cfg(test)]
+mod code_prefix_tests;
 
 #[cfg(test)]
 mod tests {

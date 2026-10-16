@@ -51,7 +51,6 @@ public final class SymbolPanelModelSmoke {
             // 空串不是一个符号。
         }
 
-        check(SymbolPanelModel.closesAfterInsert(false) && !SymbolPanelModel.closesAfterInsert(true), "lock");
         System.out.println("SymbolPanelModelSmoke: PASS");
     }
 

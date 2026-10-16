@@ -1,4 +1,4 @@
-//! 原生设置窗口的账号操作：与 Tauri 桌面端的十四个账号命令（`desktop_account.rs`）和 Windows 的四个设置同步命令（`windows_settings_sync.rs`）一一对应，用同一个 [`BackendAccountSession`] 和同一份本用户会话文件（[`FileAccountSessionStorage`]，`account-session.json`），返回的也是同样的脱敏形状（[`msime_client_core::account::page`]）。令牌只在本进程里，不出现在响应中。
+//! 原生设置窗口的账号操作：与 Tauri 桌面端的十四个账号命令（`desktop_account.rs`）和 Windows 的四个设置同步命令（`windows_settings_sync.rs`）一一对应，用同一个 [`BackendAccountSession`] 和同一份本用户会话文件（[`FileAccountSessionStorage`]，`account-session.json`），返回的也是同样的脱敏形状（[`msime_client_services::account::page`]）。令牌只在本进程里，不出现在响应中。
 //!
 //! 每个会话目录在进程里只有一个会话对象，这样进行中的 Google 登录可以被另一次调用里的 `google_cancel` 结束；会话文件本身每次访问都重新读，共享应用、输入法和这里同时登录、刷新或退出时以文件为准，刷新时共用 `account-refresh.lock`。
 //!
@@ -6,18 +6,18 @@
 
 use super::with_bounded_bytes;
 use crate::*;
-use msime_client_core::account::page::{
+use msime_client_core::preferences::PreferencesError;
+use msime_client_services::account::page::{
     providers_response, ChallengeResponse, PreferenceSchemaResponse, ProfileResponse,
     StatusResponse,
 };
-use msime_client_core::account::settings_sync::{
+use msime_client_services::account::settings_sync::{
     prepare_desktop_settings_apply, upload_desktop_settings,
 };
-use msime_client_core::account::{
+use msime_client_services::account::{
     adopt_legacy_account_session, AccountError, AccountPreferences, AccountSessionFileLayout,
     BackendAccountClient, BackendAccountSession, FileAccountSessionStorage,
 };
-use msime_client_core::preferences::PreferencesError;
 
 /// 请求的上限：应用云端设置时请求里带着整份云端设置文档（其中可能有 Android 的自定义键盘皮肤库，最多 768 KiB），与 Android 的设置同步导出一样给 4 MiB；目录各最多 16 KiB。
 const MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
@@ -107,7 +107,9 @@ fn value<T: Serialize>(value: T) -> Result<Value, AccountError> {
     serde_json::to_value(value).map_err(|_| AccountError::Unavailable)
 }
 
-fn status(user: Option<msime_client_core::account::AccountUser>) -> Result<Value, AccountError> {
+fn status(
+    user: Option<msime_client_services::account::AccountUser>,
+) -> Result<Value, AccountError> {
     value(StatusResponse {
         user: user.map(Into::into),
     })
@@ -136,7 +138,7 @@ fn preferences_error(error: PreferencesError) -> String {
     .to_owned()
 }
 
-/// 设置同步的应用：client-core 算出应用后的偏好和读到时的修订号，再按这个修订号写回，与共享应用的 `account_preferences_apply` 相同；关掉剪贴板历史时与 `msime_client_save_preferences` 一样清掉已存的历史。返回保存后的偏好快照，宿主用它重画页面。
+/// 设置同步的应用：client-services 算出应用后的偏好和读到时的修订号，再按这个修订号写回，与共享应用的 `account_preferences_apply` 相同；关掉剪贴板历史时与 `msime_client_save_preferences` 一样清掉已存的历史。返回保存后的偏好快照，宿主用它重画页面。
 fn apply_preferences(
     session: &Session,
     directory: &str,
@@ -262,7 +264,7 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use msime_client_core::account::{
+    use msime_client_services::account::{
         AccountSessionStorage, AccountTokens, AccountUser, SavedAccountSession,
         ACCOUNT_SESSION_FILE,
     };

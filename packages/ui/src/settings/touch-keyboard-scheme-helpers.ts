@@ -1,9 +1,11 @@
-import type { InputScheme, Preferences } from "../index";
+import type { InputScheme } from "../core/input-scheme";
+import type { Preferences } from "../index";
 import { isChineseScheme } from "./input-scheme-options";
 
 export type TouchKeyboardScheme =
   | "quanpin"
   | "nine_key"
+  | "nine_key_shuangpin"
   | "xiaohe"
   | "ziranma"
   | "microsoft"
@@ -32,6 +34,7 @@ export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): Inp
       return null;
     case "quanpin":
     case "nine_key":
+    case "nine_key_shuangpin":
     case "fourteen_key":
       return "quanpin";
     case "xiaohe":
@@ -84,12 +87,16 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
     return touchKeyboardSchemeOptionTitle(
       preferences.scheme === "japanese" ? "japanese_nine_key" : "nine_key",
     );
+  if (preferences.touch_keyboard_layout === "nine_key_shuangpin")
+    return touchKeyboardSchemeOptionTitle("nine_key_shuangpin");
   if (preferences.scheme === "japanese") return touchKeyboardSchemeOptionTitle("japanese");
   if (preferences.scheme === "wubi") return wubiProfileTitle(preferences.wubi_profile);
   if (preferences.scheme === "shuangpin")
     return preferences.shuangpin_profile === "custom"
       ? "自定义双拼"
-      : `${preferences.shuangpin_profile} 双拼`;
+      : preferences.shuangpin_profile === "smart_abc"
+        ? "智能 ABC 双拼"
+        : `${preferences.shuangpin_profile} 双拼`;
   return "全拼 26 键";
 }
 
@@ -112,6 +119,7 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["stroke", "笔画"],
   ["zhuyin_nine_key", "注音 9 键"],
   ["fourteen_key", "全拼 14 键"],
+  ["nine_key_shuangpin", "九键双拼"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
@@ -124,6 +132,7 @@ export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboa
     scheme !== "tibetan" &&
     scheme !== "stroke" &&
     scheme !== "zhuyin_nine_key" &&
+    scheme !== "nine_key_shuangpin" &&
     scheme !== "fourteen_key",
 );
 
@@ -160,6 +169,8 @@ export function inferredTouchKeyboardScheme(
     inferred = "handwriting";
   else if (preferences.touch_keyboard_layout === "nine_key" && scheme !== "korean")
     inferred = scheme === "japanese" ? "japanese_nine_key" : "nine_key";
+  else if (preferences.touch_keyboard_layout === "nine_key_shuangpin" && scheme === "quanpin")
+    inferred = "nine_key_shuangpin";
   else if (preferences.touch_keyboard_layout === "fourteen_key" && scheme === "quanpin")
     inferred = "fourteen_key";
   return enabled.includes(inferred) ? inferred : (enabled[0] ?? "quanpin");
@@ -172,8 +183,11 @@ function touchSchemeOf(
 ): TouchKeyboardScheme {
   switch (scheme) {
     case "shuangpin":
-      // 自定义双拼没有自己的触屏键盘，用小鹤的键面，与 Android 的 `KeyboardScheme.fromPreferences` 一致。
-      return preferences.shuangpin_profile === "custom" ? "xiaohe" : preferences.shuangpin_profile;
+      // 自定义和智能 ABC 没有独立的触屏键面，回退小鹤；保留文档里的双拼偏好。
+      return preferences.shuangpin_profile === "custom" ||
+        preferences.shuangpin_profile === "smart_abc"
+        ? "xiaohe"
+        : preferences.shuangpin_profile;
     case "quanpin":
     case "wubi":
     case "japanese":
@@ -215,6 +229,14 @@ export function selectTouchKeyboardScheme(
         ? handwritingScheme
         : rememberedChineseScheme(preferences),
       touch_keyboard_layout: "handwriting",
+      touch_keyboard_schemes,
+    };
+  if (selected === "nine_key_shuangpin")
+    return {
+      ...preferences,
+      scheme: "quanpin",
+      last_chinese_scheme: "quanpin",
+      touch_keyboard_layout: "nine_key_shuangpin",
       touch_keyboard_schemes,
     };
   if (["xiaohe", "ziranma", "microsoft", "shoudao"].includes(selected))
@@ -355,6 +377,7 @@ export const touchKeyboardLanguages: readonly TouchKeyboardLanguage[] = [
       "quanpin",
       "fourteen_key",
       "nine_key",
+      "nine_key_shuangpin",
       "xiaohe",
       "ziranma",
       "microsoft",

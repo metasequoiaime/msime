@@ -10,6 +10,8 @@ Status: implemented
 
 ## Decision
 
+本篇的长度回退机制保留；读回与选区回声的批量时序由[批量编辑后读回](2026-10-16-android-composition-batch-readback.md)部分取代。
+
 每次成功调用 `setComposingText` 后，宿主同步读取光标前最多一段与组字同长的文字，检查它是否以完整组字文本结尾。若编辑器只留下组字前缀，先结束组字标记，再用 `deleteSurroundingText` 删除读回的实际前缀长度，把这次 Engine 组字标记为「编辑器隐藏」：后续拼音仍由键盘自己的预编辑和候选栏显示，直到候选提交或组字结束。提交候选时重新允许 `commitText`，所以最终汉字按编辑器的字符上限计算。
 
 检查和前缀长度推断集中在无 Android 依赖的 `CompositionTextPolicy`，未知编辑器上下文时保守保留原有内联行为。`LengthFilter` 截短时可能同时丢掉 composing span，因此单独调用 `setComposingText("", 1)` 会留下已经变成普通文字的前缀。隐藏状态由当前编辑器会话持有，不能放在每次 `apply` 都重新创建的 `Sink` 里；提交、结束组字与进入新输入框时清除。`SelectionEchoTracker` 按零长度替换记录清空后的实际光标位置，避免异步 `onUpdateSelection` 把这次正常回声当成用户移光标。

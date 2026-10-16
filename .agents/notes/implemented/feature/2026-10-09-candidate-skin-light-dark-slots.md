@@ -46,7 +46,7 @@ Status: implemented
 
 ## Verification
 
-- `crates/client-core/src/skin/theme/tests.rs`：`a_package_is_drawn_only_in_the_mode_of_its_base`、`the_dark_slot_is_used_in_dark_mode`、`a_skin_base_left_from_another_mode_follows_the_host`，以及 `web_custom_theme_mirror_cases_match_resolve` 写出的两条新用例（深色包在浅色模式不画、浅色包在深色模式不画）。
+- `crates/client-services/src/skin/theme/tests.rs`：`a_package_is_drawn_only_in_the_mode_of_its_base`、`the_dark_slot_is_used_in_dark_mode`、`a_skin_base_left_from_another_mode_follows_the_host`，以及 `web_custom_theme_mirror_cases_match_resolve` 写出的两条新用例（深色包在浅色模式不画、浅色包在深色模式不画）。
 - `apps/desktop/tests/candidate/candidate-skin-slots.test.ts` 覆盖槽位归属、按模式取槽位、应用与取消的规则和旧深色皮肤的保留；`custom-theme-parity.test.ts` 让设置页镜像跑同一份用例。
 - 固定明暗的判断：`platforms/harmony/tests/keyboard-logic.test.ts` 的「两种明暗的解析一致时主题才固定明暗」，iOS `CandidatePaletteTests.testTheKeyboardFollowsTheModeWhenTheSlotsHoldSkinsOfDifferentModes`，macOS `ExternalSkinTest` 的 `FixedThemeMode` 用例。
 - 取下最后一款皮肤时底回到 `system`：`candidate-skin-slots.test.ts`、iOS `testRemovingTheLastSkinDoesNotLeaveItsBaseFixingBothModes`、macOS `ExternalSkinTest`。

@@ -1423,6 +1423,8 @@ begin
   else if CurUninstallStep = usPostUninstall then
   begin
     { Both TSF DLLs have been unregistered by now. DllUnregisterServer removes the language profile but, like the SampleIME code it came from, never calls ITfInputProcessorProfiles::Unregister, so the TIP key and its category entries stay behind; remove them from both registry views. }
+    { 只在卸载清掉本版本的兼容名称记录，升级重新注册时保留。 }
+    RegDeleteValue(HKLM64, '{#MyEditionRegistryKey}', 'GameCompatProfileName');
     RegDeleteKeyIncludingSubkeys(HKLM64, '{#MyTipKey}');
     RegDeleteKeyIncludingSubkeys(HKLM32, '{#MyTipKey}');
     TryDeleteTree(ExpandConstant(

@@ -142,8 +142,8 @@ export function usePreviewBackground(
 ) {
   const background = skin.background ?? null;
   const image = useSkinImage(readImage, skin.id, background?.image ?? null, revision);
-  const [decodeFailed, setDecodeFailed] = useState(false);
-  useEffect(() => setDecodeFailed(false), [image]);
+  const [failedImage, setFailedImage] = useState<ReturnType<typeof useSkinImage>>();
+  const decodeFailed = image !== undefined && failedImage === image;
   const drawn =
     background && image?.url && !decodeFailed
       ? {
@@ -155,7 +155,7 @@ export function usePreviewBackground(
   return {
     drawn,
     failed: Boolean(image?.failed || decodeFailed),
-    onError: () => setDecodeFailed(true),
+    onError: () => setFailedImage(image),
   };
 }
 
@@ -167,13 +167,13 @@ export function useSkinPreviewAssets(
   revision: number,
 ) {
   const image = useSkinImage(readImage, skin.id, decoration, revision);
-  const [decodeFailed, setDecodeFailed] = useState(false);
-  useEffect(() => setDecodeFailed(false), [image]);
+  const [failedImage, setFailedImage] = useState<ReturnType<typeof useSkinImage>>();
+  const decodeFailed = image !== undefined && failedImage === image;
   const background = usePreviewBackground(readImage, skin, revision);
   return {
     image,
     decodeFailed,
-    onImageError: () => setDecodeFailed(true),
+    onImageError: () => setFailedImage(image),
     background,
   };
 }

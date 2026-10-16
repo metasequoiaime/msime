@@ -80,7 +80,19 @@ struct InputSettingsView: View {
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
-        DesignGroup(title: "语言与方案", footer: footer(.languages)) { languageCard }
+        DesignGroup(title: "语言与方案", footer: footer(.languages)) {
+          languageCard
+          if ChineseInputScheme.nineKeyShuangpin.isOfferedByEdition {
+            DesignDivider(leading: 16)
+            NavigationLink(destination: NineKeyShuangpinSettingsView()) {
+              HStack {
+                Text("九键双拼方案与自定义")
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+              }.padding(16)
+            }.accessibilityIdentifier("nineKeyShuangpinSettingsLink")
+          }
+        }
         chineseGroup
         helpcodeGroup
         translationGroup
@@ -429,14 +441,6 @@ struct InputSettingsView: View {
                       options: languages.indices.map { DesignOption(title: languages[$0].title, value: $0) },
                       selection: habit(\.primaryLanguage), sheetTitle: "翻译目标语言",
                       identifier: "candidateTranslationPrimaryPicker")
-        .disabled(!glossOn).opacity(glossOn ? 1 : 0.5)
-      DesignDivider()
-      DesignSelectRow(title: "第二种语言",
-                      options: [DesignOption(title: "不显示", value: -1)]
-                        + languages.indices.filter { $0 != habits.primaryLanguage }
-                          .map { DesignOption(title: languages[$0].title, value: $0) },
-                      selection: habit(\.secondaryLanguage), sheetTitle: "第二种语言",
-                      identifier: "candidateTranslationSecondaryPicker")
         .disabled(!glossOn).opacity(glossOn ? 1 : 0.5)
       DesignDivider()
       navRow("翻译服务", subtitle: "联网翻译需要在这里选择服务", identifier: "translationProviderLink") {

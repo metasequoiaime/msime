@@ -154,8 +154,6 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic, copy) NSString *translation;
 // How each gloss line is read, "\n"-joined parallel to translation. Drawn after its line and never part of what a gloss column commits.
 @property(nonatomic, copy) NSString *pronunciation;
-// A sentence's word-by-word English ("我 I · 喜欢 to like · 你 you"), drawn on its own line after the gloss lines; never a column.
-@property(nonatomic, copy) NSString *breakdown;
 @property(nonatomic, strong) NSFont *translationFont;
 @property(nonatomic, copy) NSColor *translationColor;
 @property(nonatomic) BOOL translationBelow;
@@ -297,8 +295,8 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     NSMutableArray<NSValue *> *readingRanges = [NSMutableArray array];
     NSMutableArray<NSNumber *> *glossLineStarts = [NSMutableArray array];
     // What is measured and drawn; self.translation stays the committable gloss.
-    NSString *glossDisplay = self.translation.length || self.breakdown.length
-        ? MSIMECandidateGlossDisplay(self.translation, self.pronunciation, self.breakdown, readingRanges, glossLineStarts)
+    NSString *glossDisplay = self.translation.length
+        ? MSIMECandidateGlossDisplay(self.translation, self.pronunciation, readingRanges, glossLineStarts)
         : @"";
     NSString *scriptAnnotation = self.scriptAnnotation ?: @"";
     NSString *translation = MSIMECandidateGlossWithScriptAnnotation(MSIMECandidateGlossRun(glossReading, glossDisplay), scriptAnnotation);

@@ -144,6 +144,8 @@ inline std::string tray_menu_shuangpin_label(const std::string &profile) {
     return "双拼（微软）";
   if (profile == "shoudao")
     return "双拼（首道）";
+  if (profile == "smart_abc")
+    return "双拼（智能 ABC）";
   return "双拼";
 }
 // 五笔一行标出存储的码表版本，与工具栏的「五笔 86」「五笔 98」一致；不认识的版本只写方案名，不猜一个错的。

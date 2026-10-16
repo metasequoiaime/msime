@@ -1,6 +1,6 @@
-use msime_client_core::account::AccountError;
+use msime_client_services::account::AccountError;
 #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
-use msime_client_core::account::{AccountApi, AccountSessionStorage, BackendAccountSession};
+use msime_client_services::account::{AccountApi, AccountSessionStorage, BackendAccountSession};
 #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
 use std::path::Path;
 use std::sync::Arc;
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn snapshot_preview_published_after_logout_is_rejected() {
-        use msime_client_core::account::{
+        use msime_client_services::account::{
             AccountError, AccountSessionStorage, AccountTokens, AccountUser, BackendAccountClient,
             BackendAccountSession, SavedAccountSession,
         };

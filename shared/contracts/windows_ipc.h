@@ -156,6 +156,8 @@ constexpr std::uint32_t Observe(bool keyboardDisabled, bool secureMode, bool ele
 namespace FanyImePipeFlags
 {
 constexpr std::uint32_t UiLess = 0x80000000u;
+// 仅在协商到 UiLessCandidates 后设置：TIP 没有有效的本地引擎会话，请 Server 推送候选页。
+constexpr std::uint32_t ServerUiLessCandidates = 0x08000000u;
 } // namespace FanyImePipeFlags
 
 namespace FanyImePipeRole
@@ -329,7 +331,15 @@ constexpr std::uint32_t DedicatedEnglishChanged = 29;
 constexpr std::uint32_t SecondThirdCandidateChanged = 30;
 // 引号与方头括号样式（偏好 `quote_style`、`bracket_style`，Server 已按繁体输出开关解析 `corner_when_traditional`）。载荷 "q<0|1>b<0|1>"：q1 时 TIP 的 '\'' 出「」、'"' 出『』，b1 时 '[' ']' 出〖〗。旧版 TIP 丢弃这个帧，照旧出弯引号和实心括号。
 constexpr std::uint32_t PunctuationMarksChanged = 31;
-constexpr std::uint32_t MaxKnown = PunctuationMarksChanged;
+// 五笔快捷选词：载荷为开关 0/1 和两个 ASCII 标点。TIP 作为字符交给共享会话，候选不足时由原标点路径处理。
+constexpr std::uint32_t WubiCandidateSelectionChanged = 32;
+// 已协商的无上屏候选选择，按 candidate_continuation_pipe.h 分帧传输。
+constexpr std::uint32_t CandidateContinuation = 33;
+// UI-less 宿主的后台候选页更新，载荷见 uiless_page.h。35 沿用来源仓库，34 留空。
+constexpr std::uint32_t UiLessCandidatesChanged = 35;
+// 有效 TIP 会话的异步候选操作，沿用分帧传输，不传 Server 候选身份。
+constexpr std::uint32_t HostOnlineCandidates = 36;
+constexpr std::uint32_t MaxKnown = HostOnlineCandidates;
 // Source compatibility for the Server's historical spellings.
 constexpr std::uint32_t SwitchToEn = SwitchToEnglish;
 constexpr std::uint32_t SwitchToCn = SwitchToChinese;

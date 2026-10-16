@@ -1,4 +1,4 @@
-//! `msime-pack validate` against real pack folders: the report lines, the exit status, and that the rules are client-core's.
+//! 用真实的包目录测试 `msime-pack validate`：报告行、退出状态，以及所用的规则就是 client-services 的规则。
 
 use std::ffi::OsString;
 use std::fs;
@@ -164,11 +164,11 @@ fn the_binary_reports_and_exits_the_same_way() {
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("error "));
 }
 
-/// client-core 与社区后端共用的 fixture 包：`valid/` 下的每个都报 ok，`invalid/` 下的每个都报 plugin_invalid，退出码随之而定。
+/// client-services 与社区后端共用的 fixture 包：`valid/` 下的每个都报 ok，`invalid/` 下的每个都报 plugin_invalid，退出码随之而定。
 #[test]
 fn the_shared_fixture_packs_validate_as_their_folder_says() {
-    let fixtures =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../client-core/tests/fixtures/plugin-packs");
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../client-services/tests/fixtures/plugin-packs");
     for (group, expected_status) in [("valid", EXIT_OK), ("invalid", EXIT_INVALID)] {
         let mut packs: Vec<PathBuf> = fs::read_dir(fixtures.join(group))
             .unwrap()

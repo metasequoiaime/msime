@@ -78,7 +78,7 @@ export function VoiceAsrProviderSettingsSection({
           />
         </>
       )}
-      {/* 只有豆包的识别请求读资源 ID（client-core 的 voice provider、Windows 的 VoiceSessionPolicy 和 Linux 语音服务都只在豆包分支读它），换成别的服务时这一行没有作用，所以不显示。 */}
+      {/* 只有豆包的识别请求读资源 ID（client-providers 的 voice provider、Windows 的 VoiceSessionPolicy 和 Linux 语音服务都只在豆包分支读它），换成别的服务时这一行没有作用，所以不显示。 */}
       {serviceVoice && isDoubao && (
         <DoubaoResourceIdSection
           value={voiceInput.asr_resource_id ?? ""}

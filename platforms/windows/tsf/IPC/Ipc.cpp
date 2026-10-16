@@ -17,6 +17,7 @@
 #include "Globals.h"
 #include "FanyDefines.h"
 #include "MetasequoiaIME.h"
+#include "CompositionProcessorEngine.h"
 #include <fmt/xchar.h>
 #include "../Utils/PerfTimer.h"
 
@@ -537,6 +538,9 @@ bool WritePipeHello(HANDLE hPipeHandle, UINT pipeRole)
         const auto hello =
             FanyImeProtocol::Hello(GetPipeClientId(), NextProtocolId(nextRequestId),
                                    FanyImeProtocol::Capabilities | FanyImeProtocol::CharacterSetShortcut |
+                                       FanyImeProtocol::CandidateContinuation |
+                                       FanyImeProtocol::UiLessCandidates |
+                      FanyImeProtocol::HostOnlineCandidates |
                                        FanyImeProtocol::KeyboardCompositionCancel |
                                        FanyImeProtocol::GameHostCandidate | FanyImeProtocol::FieldTraits |
                                        FanyImeProtocol::JapaneseToggleShortcut);
@@ -1230,6 +1234,17 @@ bool SendToNamedpipe(bool *deliveryAmbiguous = nullptr)
         // result channel has already disappeared.
         RequestNamedpipeReconnect();
         return false;
+    }
+
+    // 只有旧管道路径请求 Server 页面；有效的 TIP 会话要保留自己的候选身份。
+    if ((packet.modifiers_down & FanyImePipeFlags::UiLess) &&
+        (negotiatedServerCapabilities & FanyImeProtocol::UiLessCandidates))
+    {
+        const auto *service = static_cast<const CMetasequoiaIME *>(boundFocusStateOwner);
+        auto *engine = service ? service->GetCompositionProcessorEngine() : nullptr;
+        auto *host = engine ? engine->GetHostEngineAdapter() : nullptr;
+        if (!host || !host->valid())
+            packet.modifiers_down |= FanyImePipeFlags::ServerUiLessCandidates;
     }
 
     // 强制叠加的游戏会话。放在最终的重连和确认检查之后：Main 管道在 EnsureNamedpipeFocusSessionActivated 里才打开并协商，放在前面的话，首次按键和 Server 重启后的第一次按键都拿不到协商结果。

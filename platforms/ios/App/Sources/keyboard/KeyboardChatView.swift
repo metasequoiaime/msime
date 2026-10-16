@@ -162,15 +162,15 @@ struct KeyboardTryoutView: View {
             Color.clear.frame(height: 1).id("bottom")
           }.padding(16)
         }.background(Color(uiColor: .systemGroupedBackground))
-          .onChange(of: chat.messages.count) { _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
-          .onChange(of: chat.sending) { _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+          .onChange(of: chat.messages.count) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+          .onChange(of: chat.sending) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
       }
       Divider()
       HStack(spacing: 10) {
         TextField("输入消息，试试键盘", text: $draft).focused($focused)
           .padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
           .accessibilityIdentifier("keyboardTryoutField")
-          .onChange(of: draft) { if $0.count > 2000 { draft = String($0.prefix(2000)) } }
+          .onChange(of: draft) { _, newValue in if newValue.count > 2000 { draft = String(newValue.prefix(2000)) } }
         if chat.sending {
           Button { chat.cancel() } label: { Image(systemName: "stop.circle.fill").font(.title) }
             .accessibilityLabel("停止回复")

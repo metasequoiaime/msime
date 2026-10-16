@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { FloatingToolbarPreferences, Preferences } from "../index";
+import type { Preferences } from "../index";
+import type { FloatingToolbarPreferences } from "./floating-toolbar-preferences";
 import { floatingToolbarPreferences } from "./floating-toolbar-preferences";
 
 export interface CreateFloatingToolbarSettingsActionsOptions {

@@ -4,7 +4,7 @@
 
 use crate::*;
 use msime_client_core::is_bounded_text;
-use msime_client_core::voice::local_models::InstallProgress;
+use msime_client_providers::voice::local_models::InstallProgress;
 use std::ffi::CStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 

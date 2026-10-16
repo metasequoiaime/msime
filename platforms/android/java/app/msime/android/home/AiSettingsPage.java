@@ -91,6 +91,8 @@ public final class AiSettingsPage extends ReloadingDetailPage {
         service.nav("凭据", !origin.isEmpty() ? "只用于 " + origin
                 : problem != null ? "公网端点必须用 https，凭据不会明文发出" : "先填写端点", hasToken ? "已设置" : "未设置",
             origin.isEmpty() ? null : () -> editToken(origin));
+        service.nav("AI 对话", "在独立页面里对话，同时可以试用键盘", null,
+            () -> ((HomeActivity) requireActivity()).openChatSecondary(false));
 
         GroupCard polish = GroupCard.add(sectionColumn(target, "润色"), "润色");
         polish.nav("润色提示词", null, prompt.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(prompt), () -> editText("润色提示词",

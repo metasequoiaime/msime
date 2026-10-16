@@ -8,7 +8,8 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
 
-const MAX_ENTRIES: usize = 50;
+/// 共享存储保留的本机移动端剪贴板历史条数上限。
+pub const MAX_ENTRIES: usize = 200;
 /// Keep the decoder's allocation bounded before deduplication and the visible-entry limit. The plain string arrays the Windows server writes may contain duplicates, so this is larger than `MAX_ENTRIES` while still rejecting an unbounded JSON array of tiny strings.
 const MAX_INPUT_ENTRIES: usize = MAX_ENTRIES * 100;
 pub const MAX_TEXT_UTF16_UNITS: usize = 4000;
@@ -606,15 +607,15 @@ mod tests {
     fn load_deduplicates_before_applying_entry_limit() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("history.json");
-        let mut values = vec!["synthetic-first".to_string(); 55];
-        values.extend((0..60).map(|i| format!("synthetic-{i}")));
+        let mut values = vec!["synthetic-first".to_string(); 205];
+        values.extend((0..250).map(|i| format!("synthetic-{i}")));
         fs::write(&path, serde_json::to_vec(&values).unwrap()).unwrap();
         let mut store = ClipboardHistoryStore::open(&path);
         store.load().unwrap();
         assert_eq!(store.entries().len(), MAX_ENTRIES);
         assert_eq!(store.entries.capacity(), MAX_ENTRIES);
         assert_eq!(store.entries()[0].text, "synthetic-first");
-        assert_eq!(store.entries()[49].text, "synthetic-48");
+        assert_eq!(store.entries()[199].text, "synthetic-198");
     }
 
     #[test]

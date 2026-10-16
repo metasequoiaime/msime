@@ -150,6 +150,7 @@ export function VocabularyReviewPage({
       if (!mounted.current || generation.current !== current || requestRef.current !== request)
         return;
       setStatus(next);
+      setRevealed(false);
     } catch {
       if (mounted.current && generation.current === current && requestRef.current === request)
         setError("无法读取或保存背单词进度，请稍后重试。已有的进度不会被自动清空。");

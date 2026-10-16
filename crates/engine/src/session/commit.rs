@@ -47,6 +47,11 @@ impl InputSession {
         if self.candidates()[index].source == CandidateSource::AiPending {
             return KeyResult::handled();
         }
+        // 网址补全（组字里的 `https://`、网址模式里补全了顶级域名的行）不上屏：以它为预编辑进入网址模式，接着打网址。
+        if let Some(text) = self.url_continuation(index) {
+            self.enter_url_mode(text);
+            return KeyResult::handled();
+        }
         self.commit(index)
     }
 
@@ -98,6 +103,8 @@ impl InputSession {
 
     /// Commit segment by segment until nothing is composing. An open Korean Hanja list is closed first, so finishing (punctuation, leaving the client, a host's finish key) commits the Hangul: only an explicit choice commits a Hanja.
     pub(super) fn finish_composition(&mut self, first_index: usize) -> KeyResult {
+        // 上屏/结束组字同样结束大写串：宿主结束键（`Action::Finish`、失焦、macOS 的 Cmd+A）与字面标点路由都从这里过，不经过 `handle_command`（#7616）。
+        self.end_uppercase_run();
         self.close_korean_hanja();
         let mut result = KeyResult::unhandled();
         // 高亮停在 AI 占位行上时，按没有高亮处理：上屏首选，不上屏占位文字。
@@ -118,6 +125,19 @@ impl InputSession {
         } else {
             first_index
         };
+        // 组字里的网址补全只在明确选中时进入网址模式；结束组字（标点、失焦）时高亮停在补全上，上屏的是补全之外的第一行，没有这样的行就上屏原文。
+        if self.local_mode == LocalInputMode::None
+            && self
+                .candidates()
+                .get(index)
+                .is_some_and(|item| self.is_url_completion(item))
+        {
+            index = self
+                .candidates()
+                .iter()
+                .position(|item| !self.is_url_completion(item))
+                .unwrap_or(usize::MAX);
+        }
         // 改字时上屏的是改好的整句，不是光标处的候选。
         if self.conversion.is_some() {
             result = self.commit_conversion();

@@ -1,6 +1,6 @@
 //! Local message-pipe adapter. One worker owns its handles and drains cancelled
 //! overlapped I/O before releasing buffers; no recognition text is logged.
-use msime_client_core::voice::controller::{self as protocol, Error, Transport, Update};
+use msime_client_providers::voice::controller::{self as protocol, Error, Transport, Update};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::*;

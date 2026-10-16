@@ -1,4 +1,5 @@
 import type { VoiceInputPreferences } from "../index";
+import type { ProviderDefaults } from "../core/provider-preset";
 import { utf8ByteLength } from "../core/text";
 import type { DoubaoAuthMode } from "./doubao-auth-mode-section";
 import {
@@ -15,7 +16,7 @@ function serviceCredentialTestConfig(
   endpoint: string | undefined,
   model: string | undefined,
   token: string | undefined,
-  defaults: Record<string, { endpoint: string; model: string }>,
+  defaults: Record<string, Pick<ProviderDefaults, "endpoint" | "model">>,
 ): Record<string, unknown> {
   return {
     provider,

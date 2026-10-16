@@ -34,7 +34,7 @@ HEADERS = (
 ANDROID = ROOT / "platforms/android/java/app/msime/android/policy/InputSchemeTraits.java"
 HARMONY = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/SchemeTraits.ts"
 OPTIONS = ROOT / "packages/ui/src/settings/input-scheme-options.ts"
-UI_TYPES = ROOT / "packages/ui/src/index.tsx"
+UI_TYPES = ROOT / "packages/ui/src/core/input-scheme.ts"
 PREFERENCES = ROOT / "crates/client-core/src/preferences.rs"
 
 # Host-only header functions that are an engine predicate under another name.

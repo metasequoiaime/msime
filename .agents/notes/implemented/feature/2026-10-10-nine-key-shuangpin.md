@@ -6,7 +6,7 @@ Status: implemented
 
 #6572 的主要诉求是在九宫格上打双拼：每个音节固定两个数字，第一个数字表示声母所在的组，第二个表示韵母所在的组，方案点名了米旮旯 2、米旮旯 3、辜氏 2 和辜氏 2 低重码，并希望能自定义这种数字键位。原来的九宫格（`NineKeySession`）只会全拼 T9：每个字母按电话键盘换成数字（`KEYPAD`），一个音节有几个字母就占几个数字；26 键双拼（`ShuangpinEngine`）则假定一个两键编码只解出一个音节（`cvt_single_sp_to_pinyin` 的前提，自定义表的校验也守着这一点）。九键双拼两条都不满足：编码定长两位，但八到十个数字键装 23 个声母、33 个韵母，一个两位编码必然对应好几个音节。
 
-[自定义双拼方案](2026-10-10-custom-shuangpin-profile.md) 先把用户自定义 26 键表这一层做了；本篇记录九键双拼怎么接到九宫格上、内置哪几个方案、用户表的形状和校验，以及 Android 宿主怎么画它；iOS 和鸿蒙的登记是之后的工作。
+[自定义双拼方案](2026-10-10-custom-shuangpin-profile.md) 先把用户自定义 26 键表这一层做了；本篇记录九键双拼怎么接到九宫格上、内置哪几个方案、用户表的形状和校验，以及 Android 宿主怎么画它；[iOS 宿主](2026-10-16-ios-nine-key-shuangpin.md)补齐原生入口与键面，鸿蒙随后复用同一套网格和 NAPI 接口接入。
 
 ## Decision
 
@@ -98,8 +98,9 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
   - 进程为用过的每一张不同的合法表常驻一份表和拼写表（几十 KB），不能回收。
   - `View.nine_key` 在九键双拼下为假，宿主判断「数字是组码」要看 `View.key_grid`。
   - 降级：选了九键双拼后装回旧版，偏好严格解析整份读不出来（`touch_keyboard_layout` 和 `touch_keyboard_schemes` 有新值）。与 14 键相同，照现有的严格解析接受这个代价。
-  - iOS、鸿蒙和桌面的共享设置页都还选不到九键双拼，React 的 `Preferences` 只认识这两个字段，没有编辑入口。
+  - 鸿蒙和桌面的共享设置页还选不到九键双拼，iOS 由[原生宿主设置页](2026-10-16-ios-nine-key-shuangpin.md)提供，React 的 `Preferences` 只认识这两个字段，没有编辑入口。
   - Android 的四行网格挤在三行九键的高度里，键比拼音九键扁，数字主标签为 22sp，单行简短提示为 11sp；触摸键面不再铺完整韵母表，初学者需要查看设置中的映射。
+  - HarmonyOS 复用已有九键外框和底行，数字键直接把 1–9、0 交给 `character()`，不提供电话字母长按；当前设置页可选九键双拼并使用默认米旮旯 3，完整自定义表编辑器仍由后续设置页工作补齐。
 
 ## Verification
 
@@ -108,3 +109,4 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
 - `scripts/test-preferences-field-parity.py` 通过。
 - 评测和延迟见上文；全拼九宫格在本分支上的 `convert_eval --grid nine` 两份结果与 develop 逐字节相同。
 - Android（本机 macOS arm64，Android SDK 的 API 35 和 API 28 arm64 模拟器，均为本次起的专用 AVD）：`check-host.sh` 通过（224 个 JVM 冒烟，含新增的 `NineKeyShuangpinKeypadSmoke` 和扩充的 `KeyboardSchemeSmoke`，`client_jni.cpp` 的 NDK 编译）；`build-apk.sh` 打出 full 版 APK；`lintFullRelease` 通过。API 35 上 `build-core-test.sh` + `run-core-test.sh` 1338 项通过，`smoke.sh emulator-5580` 的默认套件全部通过，其中新增的 `NineKeyShuangpinDeviceSmoke`（米旮旯 3 键面、6 4 4 7 出你好、5 0 出路、分词键切出 8'4 的中国、换成米旮旯 2 后键面跟着换）通过；`CaretCandidatesDeviceSmoke` 第一次在整套里失败、单独重跑通过，与九键双拼无关的实体键盘用例。`--settings`、`--statistics` 两组要 Tauri 合包（`build-client-apk.sh`），这次没有跑。API 28 上 `run-core-test.sh` 1338 项通过，`smoke.sh emulator-5566 --core` 通过。手工用 `adb` 在两台模拟器上点设置页「输入 › 普通话 › 九键双拼」选表、在九宫格上打 6 4 4 7 出你好（API 35 米旮旯 3、API 28 辜氏 2 低重码），在「九键双拼」页改一格、导出 JSON、导入一份把 iong 写成 x 的表（显示「韵母「iong」的键「x」不对」且不能保存）、再导入合法的表保存，键盘立即换成自定义表的键面。
+- HarmonyOS：`bash platforms/harmony/tests/run.sh` 通过（4135 assertions）；本机没有 OpenHarmony NDK，`platforms/harmony/build-native.sh` 未能执行，尚未宣称 HAP 编译或设备验收。

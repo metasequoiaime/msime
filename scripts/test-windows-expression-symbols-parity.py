@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """让 Windows TIP 里 V 模式符号、网址模式符号和网址触发词的拷贝与 Engine 保持一致。
 
-V 模式（算式）和网址模式各自当作输入的数字和符号由 Engine 决定（crates/engine/src/local/expression.rs 与 url.rs 的 SPELLING_SYMBOLS），经 View.spelling_symbols 发布，Windows Server 从那里读取；进入网址模式的触发词和触发键（url.rs 的 TRIGGERS）也由 Engine 决定。TSF DLL 读不到这些：它要在 Server 回答之前判断一个键是组字输入还是选词、翻页，所以 platforms/windows/tsf/Global/LocalModeKeyPolicy.h 自己保留一份拷贝。只改一边就会让两边分歧：TIP 会把 Engine 没收下的符号放进键击缓冲，把 Engine 当作输入的数字当成选词发出，或者在 Engine 没有进入网址模式时就按网址分类，用户看到的组字与最终上屏的不再一致。
+V 模式（算式）和网址模式各自当作输入的数字和符号由 Engine 决定（crates/engine/src/local/expression.rs 与 url.rs 的 SPELLING_SYMBOLS），经 View.spelling_symbols 发布，Windows Server 从那里读取；进入网址模式的触发词和触发键（url.rs 的 TRIGGERS），以及把字母数字组字转成邮箱的键（url.rs 的 EMAIL_KEY）也由 Engine 决定。TSF DLL 读不到这些：它要在 Server 回答之前判断一个键是组字输入还是选词、翻页，所以 platforms/windows/tsf/Global/LocalModeKeyPolicy.h 自己保留一份拷贝。只改一边就会让两边分歧：TIP 会把 Engine 没收下的符号放进键击缓冲，把 Engine 当作输入的数字当成选词发出，或者在 Engine 没有进入网址模式时就按网址分类，用户看到的组字与最终上屏的不再一致。
 """
 
 from __future__ import annotations
@@ -57,7 +57,16 @@ def check_url() -> int:
     if not engine_pairs or engine_pairs != tip_pairs:
         print(f"URL triggers differ: Engine {engine_pairs!r}, Windows TIP {tip_pairs!r}", file=sys.stderr)
         return 1
-    print(f"Windows TIP spells the Engine's URL symbols {engine.group(1)} and triggers {engine_pairs}")
+    # 由 ASCII 字母、数字组成的组字按这个键进入网址模式写邮箱，两边的键必须相同。
+    engine_email = re.search(r"const EMAIL_KEY: char = '(.)';", engine_text)
+    tip_email = re.search(r"inline constexpr wchar_t UrlEmailKey = L'(.)';", tip_text)
+    if not engine_email or not tip_email:
+        print("URL EMAIL_KEY or UrlEmailKey not found", file=sys.stderr)
+        return 1
+    if engine_email.group(1) != tip_email.group(1):
+        print(f"URL email keys differ: Engine {engine_email.group(1)!r}, Windows TIP {tip_email.group(1)!r}", file=sys.stderr)
+        return 1
+    print(f"Windows TIP spells the Engine's URL symbols {engine.group(1)}, triggers {engine_pairs} and email key {engine_email.group(1)}")
     return 0
 
 

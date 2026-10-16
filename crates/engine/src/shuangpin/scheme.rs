@@ -213,6 +213,7 @@ mod tests {
             ShuangpinProfileKind::Ziranma,
             ShuangpinProfileKind::Shoudao,
             ShuangpinProfileKind::Microsoft,
+            ShuangpinProfileKind::SmartAbc,
         ]
         .map(|kind| profile(kind).unwrap())
         .to_vec();
@@ -278,6 +279,7 @@ mod tests {
             ShuangpinProfileKind::Ziranma,
             ShuangpinProfileKind::Shoudao,
             ShuangpinProfileKind::Microsoft,
+            ShuangpinProfileKind::SmartAbc,
         ] {
             let mut typed = scheme(kind);
             type_text(&mut typed, "b;");
@@ -327,6 +329,7 @@ mod tests {
             ShuangpinProfileKind::Ziranma,
             ShuangpinProfileKind::Shoudao,
             ShuangpinProfileKind::Microsoft,
+            ShuangpinProfileKind::SmartAbc,
         ] {
             let mut typed = scheme(kind);
             typed.set_raw_input("ni'hcAB", "Ni'HcAB");

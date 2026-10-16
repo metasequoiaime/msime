@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """鸿蒙设置页「测试自定义翻译配置」与共享层保持一致的守卫。
 
-连接测试里不碰网络和 NAPI 的部分在 `CustomTranslationProbePolicy.ts`，由 platforms/harmony/tests/custom-translation-probe.test.ts 在 node 下逐条跑；那组测试只在鸿蒙 CI 作业里运行。这里不需要任何工具链，每次推送都按文本核对三件事：DeepL 失败提示逐字等于 crates/client-core/src/credential/translation.rs 的 `deepl_failure_message`（Tauri 设置页显示的就是那一份），两边探测的是同一个请求，以及 Settings.ets 的连接测试仍然走共享描述器、共享解析和这个策略模块，而不是自己拼请求或另写一份文案。
+连接测试里不碰网络和 NAPI 的部分在 `CustomTranslationProbePolicy.ts`，由 platforms/harmony/tests/custom-translation-probe.test.ts 在 node 下逐条跑；那组测试只在鸿蒙 CI 作业里运行。这里不需要任何工具链，每次推送都按文本核对三件事：DeepL 失败提示逐字等于 crates/client-providers/src/credential/translation.rs 的 `deepl_failure_message`（Tauri 设置页显示的就是那一份），两边探测的是同一个请求，以及 Settings.ets 的连接测试仍然走共享描述器、共享解析和这个策略模块，而不是自己拼请求或另写一份文案。
 """
 
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RUST_PROBE = ROOT / "crates/client-core/src/credential/translation.rs"
+RUST_PROBE = ROOT / "crates/client-providers/src/credential/translation.rs"
 RUST_BUILDER = ROOT / "crates/client-core/src/translation.rs"
 SETTINGS = ROOT / "platforms/harmony/entry/src/main/ets/pages/Settings.ets"
 POLICY = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/settings/CustomTranslationProbePolicy.ts"
@@ -35,7 +35,7 @@ def rust_messages(source: str) -> dict[str, str]:
 
 def harmony_messages(source: str) -> dict[str, str]:
     body = block(source, "static failureMessage(deepl: boolean, status: number): string {", "\n  }\n")
-    messages = {code: text for code, text in re.findall(r'if \(status === (\d{3})\) return "([^"]+)";', body)}
+    messages = {code: text for code, text in re.findall(r'if \(status === (\d{3})\)\s+return "([^"]+)";', body)}
     returns = re.findall(r'^    return "([^"]+)";$', body, re.MULTILINE)
     if returns:
         messages["other"] = returns[-1]

@@ -1,3 +1,4 @@
+import { NativeCleanup } from '../keyboard/NativeCleanup';
 import bundleManager from '@ohos.bundle.bundleManager';
 import hiAppEvent from '@ohos.hiviewdfx.hiAppEvent';
 import process from '@ohos.process';
@@ -8,11 +9,11 @@ import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { CrashDestination, CrashReport, TelemetryPolicy } from './TelemetryPolicy';
 
 /**
- * Anonymous usage reporting (the `usage_reporting` preference, on by default).
+ * 匿名使用情况报告（`usage_reporting` 偏好，默认开启）。
  *
- * The queue, the random install id, the daily `active` and the session bookkeeping live in client-core under `files/state/telemetry`, which the settings application and the keyboard extension share; client-core locks it across the two processes. A session is one keyboard process: the keyboard begins it when the extension is created and ends it when the extension is destroyed normally. The settings application only sends what is queued.
+ * 队列、随机安装 id、每日的 `active` 和会话记账都在 client-services 里，位于 `files/state/telemetry`，设置应用和键盘扩展共用这个目录；client-services 在两个进程之间为它加锁。一个会话就是一个键盘进程：键盘在扩展创建时开始会话，在扩展正常销毁时结束会话。设置应用只发送已经排队的内容。
  *
- * Crashes are HarmonyOS's own reports. HiAppEvent hands a watcher the previous run's `APP_CRASH` on the next start, JavaScript and native alike, so this installs no handler and changes nothing about how a crash ends the process. A crash of the keyboard process that is reported before this keyboard begins its own session is written as that unfinished session's crash record, which makes it a `session_crash`; anything else is a standalone record. Records are sent as `crash` events on the next start.
+ * 崩溃用的是 HarmonyOS 自己的报告。HiAppEvent 在下次启动时把上一次运行的 `APP_CRASH` 交给监听者，JavaScript 和原生崩溃都一样，所以这里不安装任何处理函数，也不改变崩溃结束进程的方式。键盘进程的崩溃如果在这个键盘开始自己的会话之前报告，就写成那个未结束会话的崩溃记录，成为 `session_crash`；其他的都是独立记录。记录在下次启动时作为 `crash` 事件发送。
  */
 
 const PLATFORM: string = 'harmony';
@@ -217,7 +218,7 @@ export class HarmonyTelemetry {
     const destination: CrashDestination =
       TelemetryPolicy.destination(report, HarmonyTelemetry.previousKeyboardPid, HarmonyTelemetry.began);
     if (destination === CrashDestination.Session) {
-      // The marker on disk is still the crashed session's, so client-core writes the record under that session's id.
+      // 磁盘上的标记仍属于崩溃的那个会话，所以 client-services 用那个会话的 id 写这条记录。
       const request: CrashRecordRequest = {
         directory: HarmonyTelemetry.directory, message: report.message, stack: report.stack
       };
@@ -275,7 +276,7 @@ export class HarmonyTelemetry {
       const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
       const count: number = fs.readSync(handle.fd, buffer);
       if (count !== stat.size) return null;
-      const text: string = util.TextDecoder.create('utf-8').decode(
+      const text: string = util.TextDecoder.create('utf-8').decodeToString(
         new Uint8Array(buffer, 0, count));
       return TelemetryPolicy.rememberedPid(text);
     } catch (error) {
@@ -289,7 +290,7 @@ export class HarmonyTelemetry {
       }
       return null;
     } finally {
-      if (handle !== null) fs.closeSync(handle);
+      if (handle !== null) NativeCleanup.close(handle);
     }
   }
 
@@ -307,28 +308,33 @@ export class HarmonyTelemetry {
   }
 
   private static atomicWrite(path: string, text: string, replaceExisting: boolean): boolean {
-    const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
-    let renamed: boolean = false;
     try {
-      const file: fs.File = fs.openSync(staging,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
+      let renamed: boolean = false;
       try {
-        fs.writeSync(file.fd, text);
-      } finally {
-        fs.closeSync(file);
-      }
-      if (!replaceExisting && fs.accessSync(path)) return false;
-      fs.renameSync(staging, path);
-      renamed = true;
-      return true;
-    } finally {
-      if (!renamed) {
+        const file: fs.File = fs.openSync(staging,
+          fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
         try {
-          if (fs.accessSync(staging)) fs.unlinkSync(staging);
-        } catch {
-          // A failed telemetry write leaves at most its uniquely named staging file.
+          fs.writeSync(file.fd, text);
+        } finally {
+          fs.closeSync(file);
+        }
+        if (!replaceExisting && fs.accessSync(path)) return false;
+        fs.renameSync(staging, path);
+        renamed = true;
+        return true;
+      } finally {
+        if (!renamed) {
+          try {
+            if (fs.accessSync(staging)) fs.unlinkSync(staging);
+          } catch {
+            // 遥测写入失败时，最多留下以唯一名称创建的暂存文件。
+          }
         }
       }
+    } catch (error) {
+      KeyboardLog.error('telemetry.Telemetry.atomicWrite failed');
+      throw error as Error;
     }
   }
 

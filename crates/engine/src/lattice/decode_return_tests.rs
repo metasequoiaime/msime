@@ -6,7 +6,7 @@ use super::*;
 #[path = "decode_return_legacy_tests.rs"]
 mod legacy;
 
-// 旧布局预算继续隔离完整物化的成本；当前产品的提前停止由下方独立精确预算验证。
+// 旧布局预算继续隔离完整物化的成本；当前产品的回溯收益由下方累计精确预算验证。
 pub(super) fn full_materialization_decode(
     graph: &Graph,
     options: &LatticeOptions<'_>,
@@ -56,8 +56,15 @@ fn unused_small_beam_paths_are_not_materialized() {
         } else {
             0
         };
-        // 出边借用另省一次指针缓冲申请，仍分别核对完整物化和出边存储的预算。
-        let saved = materialization_saved + 1;
+        // 回溯共享一页引用，省去每条路径的键指针页；首条路径的页数不变。
+        let visited = if width <= SMALL_SENTENCE_PATHS {
+            nbest.min(width)
+        } else {
+            width
+        };
+        let trace_saved = visited.saturating_sub(1);
+        // 出边借用另省一次指针缓冲申请，各项节省仍独立计算。
+        let saved = materialization_saved + trace_saved + 1;
         assert_eq!(
             before.allocations - after.allocations,
             saved,
@@ -88,8 +95,11 @@ fn duplicates_keep_the_first_path_without_joining_unused_keys() {
     assert_paths(&new, &old);
     assert_eq!(new.len(), 4);
     assert_eq!(new[0].key, "k0");
-    // 28 次无用读音拼接，另加一次出边指针缓冲申请。
-    assert_eq!(before.allocations - after.allocations, 28 + 1);
+    // 原先省28次读音拼接及1次出边缓冲；借用回溯另省28组两个向量和词串、4条输出的键页，扣去1页共享引用。
+    assert_eq!(
+        before.allocations - after.allocations,
+        28 + 1 + 28 * 3 + 4 - 1
+    );
     assert_eq!(after.remaining_bytes, before.remaining_bytes);
 }
 

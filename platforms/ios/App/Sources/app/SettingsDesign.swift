@@ -213,7 +213,7 @@ struct SettingsSearchPill: View {
 /// 宿主 app 无法判断键盘是否已添加、是否已获得完全访问权限 —— iOS 对这两者都没有公开 API，而由键盘写入的标记在用户撤销权限后仍会保留 —— 所以每一步都显示中性的序号标记，而不是设计稿的 ✓ / ! 状态，两个 去开启 链接也始终显示。
 struct KeyboardStatusCard: View {
   let scheme: ChineseInputScheme
-  /// 试用键盘 的行为。试用页就是「对话」标签页，所以手机和 iPad 都是切到那个标签页（`AppNavigation.openChat`），不再在设置里另外推入一份。
+  /// 试用键盘 的行为。试用页是设置导航栈里的 AI 对话二级页，手机和 iPad 都由 `AppNavigation.openChat` 压入。
   let tryout: () -> Void
 
   init(scheme: ChineseInputScheme, tryout: @escaping () -> Void) {

@@ -6,7 +6,7 @@ macOS 的同类文档是 [macos-parity.md](macos-parity.md)，方法一致：先
 
 ## 范围与基线
 
-迁移的目标是 MSIME-Apple 的 iOS 完整功能，而不是能编译的子集。公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态仍归 C++ Engine；平台特性按 iOS 自身的机制适配，不照搬来源的实现形态。
+迁移的目标是 MSIME-Apple 的 iOS 完整功能，而不是能编译的子集。公共业务放共享层；设置与管理界面是 `platforms/ios/App` 的原生 SwiftUI 页面，iOS 的 App 里没有 WebView，共享 React 设置页和 Tauri 页不会到达用户（归属见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)）；输入算法与组合状态归 Rust 引擎 `crates/engine`；平台特性按 iOS 自身的机制适配，不照搬来源的实现形态。
 
 比对在固定对象上进行，便于复核：
 
@@ -19,7 +19,7 @@ macOS 的同类文档是 [macos-parity.md](macos-parity.md)，方法一致：先
 
 | 轴 | 规模 | 方法 | 未命中的去向 |
 | --- | --- | --- | --- |
-| 源文件名 | 192 | 来源 `platforms/ios` 与 `shared` 下的 Swift/ObjC/C++ 文件按文件名在目标检索 | 集中在 `shared/apple-bridge/` 与 `shared/backend/`：前者是 ObjC 桥接层，由 `crates/host-api` 的 C ABI 取代；后者是 Swift 后端客户端，由 `crates/client-core` 取代 |
+| 源文件名 | 192 | 来源 `platforms/ios` 与 `shared` 下的 Swift/ObjC/C++ 文件按文件名在目标检索 | 集中在 `shared/apple-bridge/` 与 `shared/backend/`：前者是 ObjC 桥接层，由 `crates/host-api` 的 C ABI 取代；后者是 Swift 后端客户端，由 `crates/client-services` 与 `crates/client-core` 取代 |
 | 中文文案 | 1666 | 抽取来源全部源文件的中文字面量，逐条精确检索 | 测试断言文案、措辞差异、Tauri 页以不同表述覆盖、落在注释里的引号 |
 | 符号 | 584 | ObjC 方法、C/C++ 函数与 Swift 函数名，按原名与 snake_case 改名两种形式检索 | 61 个在被 C ABI 取代的 ObjC 桥接层（`InputSessionAdapter`、`MetasequoiaInputSessionBridge`、`CandidateTranslation`、`MSIMEBackendClient`）；其余是改名或重构等价物 |
 | 可达控件标识 | 254 | 抽取来源全部 `accessibilityIdentifier` 字面量逐个检索 | 2 个：`emojiCategory-` 在目标用连字符，自定义皮肤重置由 Tauri 页覆盖 |
@@ -30,6 +30,8 @@ macOS 的同类文档是 [macos-parity.md](macos-parity.md)，方法一致：先
 | iOS 偏好同步字段 | 8 | 字段逐个对照 | 全部对上，目标为超集（多出三个调频字段） |
 
 上表是迁移时的基线。之后目标按全平台设计稿改版，加了来源没有的功能，不在上表的比对范围内：App 跟随四季的应用主题（Rust `msime_client_resolve_app_theme`，选择存在 App Group 的 `general.app_theme`，暂不随设置同步（Android 会同步），键盘「跟随系统」皮肤与品牌标也跟着季节换色），以及键盘的功能菜单——品牌键打开的分页网格，取代来源的分组「更多」面板。
+
+> 2026-10-15 补注：上表把三处未命中记为「由 Tauri 页覆盖」。按 2026-10-15 定下的设置界面归属（见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)），发布的 iOS App 是原生 SwiftUI，App、`SharedUI` 和键盘扩展里都没有 WebView，不含 Tauri 页，这三处覆盖在产品里都不成立。「可达控件标识」一轴的自定义皮肤重置，原生对应物是 `platforms/ios/App/Sources/community/CustomSkinEditorView.swift` 的「重置我的皮肤」按钮；「设置面控件文案」一轴的 `从相册选一张`，原生对应物是同一文件的「选择照片」按钮，照片经 `SkinPhotoPicker` 读入，不是 webview 的 file input；「中文文案」一轴归为「Tauri 页以不同表述覆盖」的未命中，是比对时按共享页面归的类，这些文案各自有没有原生实现，没有逐条回验。
 
 ## 存在性比对看不见什么
 

@@ -16,7 +16,7 @@ iOS 的做法用不了：它用 GoogleSignIn SDK 拿 ID token（见 [iOS 通过 
 - 经 `/v1/auth/challenges` 申请 challenge，`target` 是回环地址；用 `openLink` 把后端生成的授权链接交给系统浏览器。
 - 浏览器跳回本机端口后，把授权码经 `/v1/auth/login` 交给后端，由后端用它保管的 PKCE 和 client secret 换 token。
 
-判定只有一份：把 `crates/client-core/src/account/google.rs` 里与 socket 无关的部分拆成公开函数，桌面端改调它们，行为不变：
+判定只有一份：把 `crates/client-services/src/account/google.rs` 里与 socket 无关的部分拆成公开函数，桌面端改调它们，行为不变：
 - `google_loopback_target`：生成回跳地址；
 - `google_loopback_plan`：校验回跳地址和授权链接，算出等待时长；
 - `google_loopback_reply`：判定一次回环请求是不是回跳，并给出写回浏览器的完整 HTTP 回应。

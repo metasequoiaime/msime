@@ -1,3 +1,4 @@
+#include "../../common/GameCompatProfile.h"
 #include "FanyDefines.h"
 #include "Globals.h"
 #include "Private.h"
@@ -597,6 +598,7 @@ CCandidateListUIPresenter::CCandidateListUIPresenter(_In_ CMetasequoiaIME *pText
     _candidateWindowVisible = FALSE;
     _asyncCleanupPending = FALSE;
     _lastUiLessCandidatePage.clear();
+    _lastUiLessGeneration = 0;
 }
 
 //+---------------------------------------------------------------------------
@@ -1069,6 +1071,7 @@ void CCandidateListUIPresenter::_EndCandidateList()
     _candidateState.Clear();
     _candidateWindowVisible = FALSE;
     _lastUiLessCandidatePage.clear();
+    _lastUiLessGeneration = 0;
     double clearStateElapsedMs = clearStateTimer.ElapsedMs();
 
     PerfTimer endLayoutTimer;
@@ -1127,12 +1130,7 @@ void CCandidateListUIPresenter::_SetText(_In_ CMetasequoiaImeArray<CCandidateLis
     }
     if (!_isShowMode)
     {
-        // The synchronous UiLessComposition pipe payload was already applied via _ApplyUiLessCandidatePage.
-        if (_candidateState.GetCount() == 0 && pCandidateList != nullptr && pCandidateList->Count() != 0)
-        {
-            AddCandidateToCandidateListUI(pCandidateList, isAddFindKeyCode);
-            SetPageIndexWithScrollInfo(pCandidateList);
-        }
+        // 候选页只接受 Server 的回复或推送；本地占位列表不是游戏可绘制的候选。
         _NotifyUiLessHost();
         return;
     }
@@ -1204,6 +1202,7 @@ void CCandidateListUIPresenter::SetPageIndexWithScrollInfo(       //
 void CCandidateListUIPresenter::_ClearList()
 {
     _candidateState.Clear();
+    _lastUiLessCandidatePage.clear();
 }
 
 //+---------------------------------------------------------------------------
@@ -1574,6 +1573,7 @@ HRESULT CCandidateListUIPresenter::BeginUIElement()
                 auto &decision = Global::GameOverlayDecision;
                 decision.activeFlagsUiLess = true;
                 decision.facts = Global::ReadCandidateOverlayFacts(true);
+                decision.facts.compatibleProfile = msime::windows::game_profile::enabled();
                 Global::ForceOverlayCandidate =
                     Global::ShouldForceCandidateOverlay(decision.enabled, decision.facts, Global::current_process_name,
                                                         decision.overlayProcesses, decision.excludedProcesses);
@@ -1777,29 +1777,23 @@ bool CCandidateListUIPresenter::_ConsumeUiLessCompositionReply(uint64_t requestI
         return false;
     }
 
-    const std::wstring payload(receivedData->candidate_string);
-    std::wstring page;
-    int selection = 0;
-    const size_t firstTab = payload.find(L'\t');
-    if (firstTab == std::wstring::npos)
-    {
-        page = payload;
-    }
-    else
-    {
-        const size_t secondTab = payload.find(L'\t', firstTab + 1);
-        if (secondTab == std::wstring::npos)
-        {
-            page = payload.substr(firstTab + 1);
-        }
-        else
-        {
-            page = payload.substr(firstTab + 1, secondTab - firstTab - 1);
-            selection = _wtoi(payload.c_str() + secondTab + 1);
-        }
-    }
-    _ApplyUiLessCandidatePage(page, selection);
-    _NotifyUiLessHost();
+    if (_ApplyUiLessPayload(FanyImeUiLessPage::Parse(receivedData->candidate_string)))
+        _NotifyUiLessHost();
+    return true;
+}
+
+bool CCandidateListUIPresenter::_ApplyUiLessPayload(const FanyImeUiLessPage::Payload &payload)
+{
+    // 有效的 TIP 会话用自己的候选身份选词，Server 的列表不能覆盖它；这里只更新旧管道路径。
+    auto *engine = _pTextService ? _pTextService->GetCompositionProcessorEngine() : nullptr;
+    auto *host = engine ? engine->GetHostEngineAdapter() : nullptr;
+    if (host && host->valid())
+        return false;
+    if (!payload.hasPage || !FanyImeUiLessPage::IsCurrent(payload.generation, _lastUiLessGeneration))
+        return false;
+    if (payload.generation)
+        _lastUiLessGeneration = payload.generation;
+    _ApplyUiLessCandidatePage(payload.page, payload.selection);
     return true;
 }
 

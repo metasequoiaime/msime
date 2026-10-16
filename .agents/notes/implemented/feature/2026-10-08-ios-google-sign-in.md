@@ -28,7 +28,7 @@ Info.plist 里同时写 `GIDClientID`（iOS 类型的 OAuth client）和 `GIDSer
 
 ## Alternatives considered
 
-- **复用桌面端的回环流程（`crates/client-core/src/account/google.rs`）** — 不用引入任何 SDK，PKCE 和 client secret 都已经放在后端。但 iOS 切到 Safari 后，App 里的回环监听很快会被挂起；后端也只接受 `http://127.0.0.1:<port>/callback` 形式的回调地址。要让它在 iOS 上可靠工作，得在后端加一条 https 或自定义 scheme 的回调路径，改动比接一个 SDK 大。
+- **复用桌面端的回环流程（`crates/client-services/src/account/google.rs`）** — 不用引入任何 SDK，PKCE 和 client secret 都已经放在后端。但 iOS 切到 Safari 后，App 里的回环监听很快会被挂起；后端也只接受 `http://127.0.0.1:<port>/callback` 形式的回调地址。要让它在 iOS 上可靠工作，得在后端加一条 https 或自定义 scheme 的回调路径，改动比接一个 SDK 大。
 - **自己用 `ASWebAuthenticationSession` 拼 OAuth 授权码加 PKCE 请求** — 可以少一组依赖（AppAuth、GTMAppAuth、AppCheckCore 等）。但这等于手写一份 OAuth 客户端：iOS 客户端的回调、授权码换 token、ID token 的提取都要自己维护，而 GoogleSignIn 正是 Google 为此维护的那一份。仓库约定优先用成熟的 SDK。
 - **用 Swift Package Manager 引入 GoogleSignIn** — 模拟器构建也能带上这颗按钮，代码里不需要 `#if canImport`。但 iOS 现有的第三方依赖全部走 CocoaPods，`Podfile.lock` 把整棵依赖树都锁住了，发布构建也一直用 workspace。XcodeGen 生成的工程里 SPM 的传递依赖只按版本范围解析，CI 生成到 `build/ios` 的工程也拿不到提交进仓库的 `Package.resolved`。同一个 App 里两套包管理器并存，也会让 `GTMSessionFetcher` 这类共同依赖出现两份来源。
 

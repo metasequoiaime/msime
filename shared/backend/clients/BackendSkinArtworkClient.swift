@@ -31,12 +31,14 @@ extension BackendAccountClient {
       throw Failure(status: 0)
     }
     let path = "/v1/skins/jobs/" + job.id
-    // Cancellation must also release the upstream job. A detached cleanup is
-    // bounded and awaited, so parent cancellation cannot skip the DELETE.
+    // 父任务取消后仍等待有时限的清理，确保服务端作业收到 DELETE。
     func release() async {
-      await Task.detached { [self] in
-        _ = try? await request("DELETE", path, token: credential.token, timeout: 5)
-      }.value
+      await withCheckedContinuation { (completion: CheckedContinuation<Void, Never>) in
+        Task.detached { [self] in
+          _ = try? await request("DELETE", path, token: credential.token, timeout: 5)
+          completion.resume()
+        }
+      }
     }
     do {
       let deadline = ProcessInfo.processInfo.systemUptime + 200

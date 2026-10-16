@@ -1,4 +1,4 @@
-// External skin manifests are validated by the shared client-core loader over the host C ABI, the one the settings page and the other hosts use. Windows parses skin.toml with toml++ (server/src/skin/candidate_skin_catalog.cpp), so the loader has to be a full TOML 1.0 parser too; a hand-written subset here would draw Fluent for packages the settings page lists as valid.
+// 外部皮肤清单经宿主 C ABI 由共享的 client-services 加载器校验，设置页和其他宿主用的也是它。Windows 用 toml++ 解析 skin.toml（server/src/skin/candidate_skin_catalog.cpp），所以这个加载器也必须是完整的 TOML 1.0 解析器；在这里手写一个子集，会让设置页列为有效的包被画成 Fluent。
 #include "CandidateSkin.h"
 
 #import <Foundation/Foundation.h>

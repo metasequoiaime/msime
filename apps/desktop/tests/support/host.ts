@@ -36,9 +36,13 @@ export function testHost(
     candidate_page_number: false,
     app_logo: macos || platform === "windows",
     expand_candidates: macos,
+    // macOS 的各界面一律跟随颜色模式，只有候选窗口仍能单独设明暗。
+    surface_themes_follow: macos,
     candidate_row_colors: false,
     candidate_selection_appearance: candidateSelectionAppearance,
-    candidate_border_color: candidateSelectionAppearance,
+    // macOS 的编号色和边框色固定跟随主题，宿主不读这两个槽位（host_surface.rs）。
+    candidate_border_color: candidateSelectionAppearance && !macos,
+    candidate_number_color: !macos,
     candidate_window_scale: false,
     candidate_window_opacity: false,
     candidate_corner_radius: false,
@@ -51,6 +55,9 @@ export function testHost(
     helpcode_shift_entry: android || harmony,
     skin_directory_import: false,
     touch_toolbar_components: false,
+    // 与 client-core 一致：macOS 和 Linux 的键盘窗口高度固定，macOS 的间距固定成默认值。
+    touch_keyboard_height: !macos && !linux,
+    touch_keyboard_spacing: !macos,
     shuangpin_preedit: macos,
     shuangpin_keymap_hint: macos || platform === "windows",
     maintenance_shortcuts: false,

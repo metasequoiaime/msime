@@ -1,8 +1,17 @@
 #include "EngineSessionAdapter.h"
+#include "../common/HostOnlineCandidateSync.h"
 #include "../../common/HostApiString.h"
 #include <nlohmann/json.hpp>
 namespace msime::tsf {
 using json = nlohmann::json;
+EngineSessionAdapter::EngineSessionAdapter() = default;
+void EngineSessionAdapter::capture_online_request(uint64_t request) {
+  if (!online_) online_ = std::make_unique<msime::windows::HostOnlineCandidateSync>();
+  online_->capture(*this, request);
+}
+bool EngineSessionAdapter::apply_online_update(const std::string &payload) {
+  return online_ && online_->apply(*this, payload);
+}
 EngineSessionAdapter::~EngineSessionAdapter() { destroy(); }
 bool EngineSessionAdapter::response(char *raw, std::string *out,
                                     std::string *error) const {
@@ -32,6 +41,7 @@ bool EngineSessionAdapter::create(const std::string &options, std::string *error
   } catch (...) { if (error) *error = "Engine response has no valid session"; return false; }
 }
 void EngineSessionAdapter::destroy() noexcept {
+  online_.reset();
   if (session_) {
     auto response = msime::host_api::own_string(msime_client_destroy(session_));
     session_ = 0;
@@ -115,4 +125,23 @@ bool EngineSessionAdapter::reload_preferences(const std::string &directory,
     return update_preferences(snapshot, out, error);
   } catch (...) { if (error) *error = "Invalid preferences response"; return false; }
 }
+bool EngineSessionAdapter::online_query(std::string *out, std::string *error) const {
+  return session_ && response(msime_client_online_query(session_), out, error);
+}
+bool EngineSessionAdapter::apply_cloud(const std::string &query, const std::string &body, std::string *out, std::string *error) {
+  return session_ && response(msime_client_apply_cloud_response(session_, reinterpret_cast<const uint8_t *>(query.data()),
+      query.size(), reinterpret_cast<const uint8_t *>(body.data()), body.size()), out, error);
+}
+bool EngineSessionAdapter::apply_ai(const std::string &query, const std::string &candidates, std::string *out, std::string *error) {
+  return session_ && response(msime_client_apply_online_candidates(session_, reinterpret_cast<const uint8_t *>(query.data()),
+      query.size(), reinterpret_cast<const uint8_t *>(candidates.data()), candidates.size(), 1), out, error);
+}
+bool EngineSessionAdapter::resolve_ai(const std::string &query, std::string *out, std::string *error) {
+  return session_ && response(msime_client_resolve_online_candidates(session_, reinterpret_cast<const uint8_t *>(query.data()),
+      query.size(), 1), out, error);
+}
+bool EngineSessionAdapter::rerank_settled(std::string *out, std::string *error) {
+  return session_ && response(msime_client_rerank_settled(session_), out, error);
+}
+
 }
