@@ -17,6 +17,7 @@ import {
 } from "../sentence-association-section";
 import { MobileEnglishSuggestionsRow } from "../mobile-keyboard-feedback-section";
 import { HelpcodeSettingsGroup } from "./helpcode-page";
+import { useHelpcodeImport } from "../use-helpcode-import";
 import { createUtilitiesSettingsActions } from "../utilities-settings-actions";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { createHelpcodeSettingsActions } from "../helpcode-settings-actions";
@@ -51,6 +52,7 @@ export function InputSettingsPage() {
     showHelpcodeShiftEntry,
     customHelpcodeSchemas,
     helpcodePacks,
+    refreshHelpcodePacks,
     translationProvider,
     draft,
     setDraft,
@@ -101,6 +103,7 @@ export function InputSettingsPage() {
   const { onLocalModesChange } = createUtilitiesSettingsActions({ setDraft });
   const { onPreferencesChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
   const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({ setDraft });
+  const helpcodeImport = useHelpcodeImport(client.plugins, setDraft, refreshHelpcodePacks);
   const navigation = draft.navigation ?? defaultNavigation;
   // 升级后补齐已保存偏好需要的资源包由宿主在启动时完成，这里挂载时不自动下载，只在用户选用方案、打开桌面神经联想或点「下载」时下载。提供哪些资源包由宿主的列表决定：日文和语言词库只有 macOS 列出。
   const resourcePacks = useResourcePacks(client.resourcePacks, {
@@ -134,6 +137,9 @@ export function InputSettingsPage() {
       value={draft}
       customSchemas={customHelpcodeSchemas}
       packs={helpcodePacks}
+      onImport={helpcodeImport.importTable}
+      importBusy={helpcodeImport.busy}
+      importStatus={helpcodeImport.status}
       mobile={mobilePlatform}
       showShiftEntry={showHelpcodeShiftEntry}
       // 当前方案所属那一族的辅助码，选法与 Android 的 `pickHelpcode` 一致：双拼 方案用 双拼，其他用 全拼。鸿蒙手机和桌面只摆出这一族，iOS 和 Android 照旧两族直列。

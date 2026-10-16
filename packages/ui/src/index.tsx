@@ -43,7 +43,7 @@ import {
   settingsThemePreferences,
 } from "./settings/settings-theme-preferences";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 export type {
   DictionaryEntry,
   DictionaryPageFormat,
@@ -1917,7 +1917,16 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     fallbackVersion: fallbackAppVersion,
   });
   const customHelpcodeSchemas = useCustomHelpcodeSchemas(client.listHelpcodeSchemas);
-  const helpcodePacks = useHelpcodePacks(client.plugins?.catalog, page === "input");
+  const [helpcodeCatalogRevision, setHelpcodeCatalogRevision] = useState(0);
+  const refreshHelpcodePacks = useCallback(
+    () => setHelpcodeCatalogRevision((value) => value + 1),
+    [],
+  );
+  const helpcodePacks = useHelpcodePacks(
+    client.plugins?.catalog,
+    page === "input",
+    helpcodeCatalogRevision,
+  );
   const {
     value: mobileKeyboardFeedback,
     busy: mobileKeyboardFeedbackBusy,
@@ -2410,6 +2419,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showHelpcode,
     customHelpcodeSchemas,
     helpcodePacks,
+    refreshHelpcodePacks,
     showShuangpinPreedit,
     showCharacterWidth,
     showVoiceCommitMode,

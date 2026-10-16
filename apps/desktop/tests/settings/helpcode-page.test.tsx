@@ -171,3 +171,8 @@ test("desktop shows the active family's three rows and folds the other family", 
   }
   expect(fold?.contains(screen.getByRole("combobox", { name: "全拼辅助码方案" }))).toBe(true);
 });
+
+test("没有导入能力的宿主不显示空操作入口", () => {
+  render(<HelpcodeSettingsPage value={{}} mobile showShiftEntry={false} onChange={vi.fn()} />);
+  expect(screen.queryByText("导入辅助码表")).toBeNull();
+});

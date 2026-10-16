@@ -931,6 +931,10 @@ function pluginClient(native: NativeBridge): PluginClient {
       unwrapPlugin<PluginPackage | null>(
         await bridgeRequest(native, "plugin_import", JSON.stringify({ source }), 30 * 60 * 1000),
       ),
+    importHelpcodeTable: async () =>
+      unwrapPlugin<PluginPackage | null>(
+        await bridgeRequest(native, "helpcode_import", "{}", 30 * 60 * 1000),
+      ),
     remove: async (kind, id) => {
       call<null>({ operation: "remove", kind, id });
     },

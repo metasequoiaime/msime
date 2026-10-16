@@ -370,6 +370,18 @@ interface PluginImportCall {
   action: PluginImportAction;
 }
 
+/** 单表导入复用 Rust 插件边界，页面不能指定状态目录。 */
+interface HelpcodeImportAction {
+  operation: string;
+  file_name: string;
+  text: string;
+}
+
+interface HelpcodeImportCall {
+  state_root: string;
+  action: HelpcodeImportAction;
+}
+
 interface TypingStatisticsDocument {
   enabled: boolean;
   total: number;
@@ -1179,6 +1191,8 @@ class SettingsBridge {
         KeyboardLog.error(`local voice model request failed: ${describeError(error)}`);
         deliver(LocalVoiceModelPolicy.refusal('local_model_failed'));
       });
+    } else if (kind === 'helpcode_import') {
+      this.importHelpcodeTable().then(deliver).catch(failed);
     } else if (kind === 'plugin_import') {
       this.importPlugin(payload).then(deliver).catch((error: Object): void => {
         KeyboardLog.error(`plugin import failed: ${describeError(error)}`);
@@ -1481,6 +1495,59 @@ class SettingsBridge {
   /** The built-in sound packs this bundle ships, where the keyboard's players read them too. */
   private soundPacks(): string {
     return this.context === undefined ? '' : `${this.context.resourceDir}/sound-packs`;
+  }
+
+  /** 原始字节有界读取、严格 UTF-8 解码；码表格式与原子安装仍由共享 Rust 负责。 */
+  private async importHelpcodeTable(): Promise<string> {
+    const context: common.UIAbilityContext | undefined = this.context;
+    if (context === undefined) return JSON.stringify({ ok: false, error: 'storage' });
+    let handle: fs.File | null = null;
+    try {
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.maxSelectNumber = 1;
+      options.fileSuffixFilters = ['辅助码表|.txt'];
+      const picked: string[] = await new picker.DocumentViewPicker(context).select(options);
+      if (picked.length === 0) return JSON.stringify({ ok: true, value: null });
+      const expected: fs.Stat = fs.lstatSync(picked[0]);
+      if (expected.isSymbolicLink() || !expected.isFile()) {
+        return JSON.stringify({ ok: false, error: 'plugin_invalid', detail: '辅助码表不是普通文件' });
+      }
+      handle = fs.openSync(picked[0], fs.OpenMode.READ_ONLY);
+      const stat: fs.Stat = fs.statSync(handle.fd);
+      const maximum: number = 1024 * 1024;
+      if (!stat.isFile() || stat.ino !== expected.ino || stat.size < 1 || stat.size > maximum) {
+        return JSON.stringify({ ok: false, error: 'plugin_invalid', detail: '辅助码表为空、超过 1 MiB 或文件已变化' });
+      }
+      // 多读一个字节识别读取期间增长；分段读取避免把合法短读误认为完整文件。
+      const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
+      let count: number = 0;
+      while (count < buffer.byteLength) {
+        const chunk: ArrayBuffer = new ArrayBuffer(buffer.byteLength - count);
+        const read: number = fs.readSync(handle.fd, chunk);
+        if (read === 0) break;
+        new Uint8Array(buffer).set(new Uint8Array(chunk, 0, read), count);
+        count += read;
+      }
+      if (count !== stat.size) {
+        return JSON.stringify({ ok: false, error: 'plugin_invalid', detail: '读取辅助码表期间文件大小发生变化' });
+      }
+      let text: string;
+      try {
+        text = util.TextDecoder.create('utf-8', { fatal: true }).decodeToString(new Uint8Array(buffer, 0, count));
+      } catch {
+        return JSON.stringify({ ok: false, error: 'plugin_invalid', detail: '辅助码表必须是 UTF-8 文本' });
+      }
+      const action: HelpcodeImportAction = {
+        operation: 'import_helpcode_table', file_name: new fileUri.FileUri(picked[0]).name, text: text
+      };
+      const call: HelpcodeImportCall = { state_root: this.stateDirectory, action: action };
+      return await client.pluginsAsync(JSON.stringify(call));
+    } catch {
+      // 不记录文档 URI、文件名或码表正文。
+      return JSON.stringify({ ok: false, error: 'storage' });
+    } finally {
+      if (handle !== null) NativeCleanup.close(handle);
+    }
   }
 
   /**
