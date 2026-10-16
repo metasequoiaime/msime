@@ -1,6 +1,6 @@
 import type { Preferences } from "../index";
-
-export type CloudClipboardRelayPreferences = NonNullable<Preferences["cloud_clipboard_relay"]>;
+import type { CloudClipboardRelayPreferences } from "./cloud-clipboard-relay-preferences";
+export type { CloudClipboardRelayPreferences } from "./cloud-clipboard-relay-preferences";
 
 const MAX_URL_BYTES = 2048;
 const MIN_TOKEN_CHARS = 16;

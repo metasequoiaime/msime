@@ -52,6 +52,7 @@ import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import type { ResourcePackClient } from "./settings/resource-packs";
 import type { WubiCodeLookup } from "./settings/wubi-code-lookup-section";
+import type { CloudClipboardRelayPreferences } from "./settings/cloud-clipboard-relay-preferences";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   type DictionaryEntry,
@@ -1891,7 +1892,7 @@ export type Preferences = PunctuationPreferences &
     local_modes?: LocalModePreferences;
     clipboard_history?: boolean;
     /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/clipboard_relay.rs`。 */
-    cloud_clipboard_relay?: { url: string; token: string };
+    cloud_clipboard_relay?: CloudClipboardRelayPreferences;
     cloud_candidates?: boolean;
     candidate_translations?: boolean;
     candidate_english_gloss?: boolean;
