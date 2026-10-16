@@ -21,18 +21,16 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
     case invalidResponse
   }
 
-  /// 换了一代之后，是不是只有 AI 座位上那一行变了：「…」换成「—」或换成 AI 候选，同一批多出来的 AI 候选接在末尾，组字和其余每一行都没动。展开的候选网格据此留着、原地换上新的一代，而不是在用户看着它时收起（#6888）。
+  /// 换了一代之后，是不是只有 AI 行变了：AI 回答到达时第一条插在第一页最后一格，原来那一格和后面的行各往后挪一格，同一批多出来的 AI 候选接在末尾；组字和其余各行的先后都没动。展开的候选网格据此留着、原地换上新的一代，而不是在用户看着它时收起（#6888）。AI 行是来源 3，以及共享内核已经不再产出的占位行来源 12。
   func onlyTheAISeatChanged(since previous: CandidatePanelSnapshot) -> Bool {
-    guard preedit == previous.preedit, entries.count >= previous.entries.count,
-          previous.entries.contains(where: { $0.source == CandidateMarker.aiPendingSource }) else { return false }
-    for (old, new) in zip(previous.entries, entries) {
-      if old.source == CandidateMarker.aiPendingSource {
-        guard new.source == CandidateMarker.aiPendingSource || new.source == CandidateMarker.aiSource else { return false }
-      } else if old.text != new.text || old.source != new.source {
-        return false
-      }
-    }
-    return entries.dropFirst(previous.entries.count).allSatisfy { $0.source == CandidateMarker.aiSource }
+    guard preedit == previous.preedit,
+          entries.contains(where: { $0.source == CandidateMarker.aiSource }) else { return false }
+    return entries.lazy.filter { !Self.isAIRow($0) }
+      .elementsEqual(previous.entries.lazy.filter { !Self.isAIRow($0) }) { $0.text == $1.text && $0.source == $1.source }
+  }
+
+  private static func isAIRow(_ entry: Entry) -> Bool {
+    entry.source == CandidateMarker.aiSource || entry.source == CandidateMarker.aiPendingSource
   }
 
   static func decode(_ value: [String: Any]) throws -> CandidatePanelSnapshot {

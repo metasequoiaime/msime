@@ -4588,7 +4588,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     snapshot.entries.map { CandidateMarker.markers(source: $0.source, fixedPosition: $0.fixedPosition) }
   }
 
-  /// 网格里哪些格子是 AI 座位上的占位行，和候选条一样画成次要色（#6888）。
+  /// 网格里哪些格子是来源 12 的 AI 占位行，和候选条一样画成次要色（#6888）。共享内核已经不再产出这种行，这里留着，旧数据里出现时仍画淡。
   private func candidatePanelAIPlaceholders(_ snapshot: CandidatePanelSnapshot) -> Set<Int> {
     Set(snapshot.entries.indices.filter { snapshot.entries[$0].source == CandidateMarker.aiPendingSource })
   }
@@ -6061,7 +6061,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
     guard snapshot.generation == current.generation else {
-      // AI 回答到达或没有结果时也会换一代，但只有 AI 座位那一行变了：面板留着、原地换上新的一代（「…」换成「—」或回答），不跳回开头。原来这里一换代就收起普通的候选网格，用户刚展开完整列表，AI 的结果一到它就没了（#6888）。
+      // AI 回答到达时也会换一代，但只有 AI 行变了（第一条插在第一页最后一格，多出来的接在末尾）：面板留着、原地换上新的一代，不跳回开头。原来这里一换代就收起普通的候选网格，用户刚展开完整列表，AI 的结果一到它就没了（#6888）。
       if hasComposition, snapshot.onlyTheAISeatChanged(since: current) {
         candidatePanelSnapshot = snapshot
         panel.reload(candidates: snapshot.entries.map(\.text), annotations: candidatePanelAnnotations(snapshot),
@@ -6365,7 +6365,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configuration.baseForegroundColor = pinned || selected
       ? candidatePalette?.accent ?? skin.accent
       : candidatePalette?.text ?? skin.keyForeground
-    // AI 座位上的占位行画成次要色，和真候选区分开（#6888）。
+    // 来源 12 的 AI 占位行画成次要色，和真候选区分开（#6888）；共享内核已经不再产出它，画法留着。
     if aiPlaceholder { configuration.baseForegroundColor = annotationColor }
     // The 훈음 is drawn whole, like an inline hint was, so the chip widens to it rather than cutting it to the gloss column; the glosses under it fit that width.
     var readingWidth: CGFloat = 0

@@ -1053,7 +1053,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
-  /// AI 回答为空、失败或被拒时调用（`source` 只认 1）：AI 座位上的占位行换成「—」，留到组字变化为止。Returns `{applied, view}`.
+  /// AI 回答为空、失败或被拒时调用（`source` 只认 1）。共享内核已经不放 AI 占位行，这个调用不改候选列表，总是答 `applied:false`；保留它只为宿主和 C ABI 不变。Returns `{applied, view}`.
   func resolveOnlineCandidates(query: Data, source: UInt8) throws -> [String: Any] {
     guard handle != 0 else { throw InputBridgeFailure.unavailable }
     guard !query.isEmpty, query.count <= 16_384, source <= 1 else {

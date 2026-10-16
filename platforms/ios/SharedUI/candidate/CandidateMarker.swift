@@ -10,7 +10,7 @@ struct CandidateMarker: Equatable {
   /// Engine `CandidateSource` values, shared by every host through the runtime's view.
   static let cloudSource = 2
   static let aiSource = 3
-  /// AI 座位上的占位行（「…」等待中，「—」没有结果）：不是候选，画成次要色，不加标记（#6888）。
+  /// AI 占位行（「…」等待中，「—」没有结果）：不是候选，画成次要色，不加标记（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里留着，旧的库或数据里出现时仍按占位行画。
   static let aiPendingSource = 12
 
   /// 读屏念的占位行：「…」是还在等 AI 回答，「—」是 AI 没有给出结果。候选条和展开的候选网格共用（#6888）。

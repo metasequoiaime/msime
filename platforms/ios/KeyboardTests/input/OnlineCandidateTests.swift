@@ -346,15 +346,15 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertNotEqual(OnlineCandidateProvider.signature(query), OnlineCandidateProvider.signature(aiIneligible))
   }
 
-  /// 只有云候选失败才重试；AI 没有结果时占位行已经换成「—」，同一组字不再问（#6888）。
+  /// 只有云候选失败才重试；AI 没有结果时同一组字不再问（#6888）。
   func testOnlyACloudFailureIsRetried() {
     XCTAssertTrue(OnlineCandidateProvider.shouldRetryAfterFetch(cloudRequested: true, cloudApplied: false))
     XCTAssertFalse(OnlineCandidateProvider.shouldRetryAfterFetch(cloudRequested: true, cloudApplied: true))
     XCTAssertFalse(OnlineCandidateProvider.shouldRetryAfterFetch(cloudRequested: false, cloudApplied: false))
   }
 
-  /// AI 回答为空：AI 座位上的「…」换成「—」，之后同一组字的重画不再向 AI 发请求，组字变了才再问（#6888）。
-  func testAnEmptyAIAnswerResolvesTheSeatAndIsNotAskedAgain() throws {
+  /// AI 回答为空：共享内核不再在回答前放占位行，空回答也不改候选列表（resolve 答 applied:false），之后同一组字的重画不再向 AI 发请求，组字变了才再问（#6888）。
+  func testAnEmptyAIAnswerChangesNothingAndIsNotAskedAgain() throws {
     CloudCandidatePreference.enabled = false
     _ = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
@@ -365,36 +365,50 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertTrue(bridge.setAICredential("synthetic-token"))
     let transport = CountingTransport(body: Data(#"{"choices":[{"message":{"content":"{\"candidates\":[]}"}}]}"#.utf8))
     let provider = OnlineCandidateProvider(session: bridge, transport: transport)
+    let allTexts = { () throws -> [String] in
+      let rows = try XCTUnwrap(bridge.allCandidates()["candidates"] as? [[String: Any]])
+      return rows.compactMap { $0["text"] as? String }
+    }
+    let settle = { (calls: Int) in
+      let deadline = Date().addingTimeInterval(5)
+      while transport.callCount < calls, Date() < deadline {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+      }
+      // 回答到达后还要在主线程上解析、交给 Host API。
+      RunLoop.main.run(until: Date().addingTimeInterval(OnlineCandidateProvider.quietInterval + 0.2))
+    }
 
     _ = bridge.cancel()
     var typed: MetasequoiaInputSnapshot?
     for letter in "nihao" { typed = bridge.handleCharacter(String(letter)) }
     let waiting = try XCTUnwrap(typed)
-    let seat = try XCTUnwrap(waiting.candidates.firstIndex(of: "…"), "an AI seat is reserved before the answer: \(waiting.candidates)")
-    XCTAssertEqual(waiting.candidateSources[seat], CandidateMarker.aiPendingSource)
-    let resolved = expectation(description: "placeholder resolved")
-    var candidates: [String] = []
-    provider.onApplied = { candidates = $0.candidates; resolved.fulfill() }
+    XCTAssertFalse(waiting.candidateSources.contains(CandidateMarker.aiPendingSource),
+                   "no AI placeholder before the answer: \(waiting.candidates)")
+    XCTAssertFalse(waiting.candidates.contains("…"))
+    let before = try allTexts()
+    var applied = 0
+    provider.onApplied = { _ in applied += 1 }
     provider.refresh(allowed: true)
-    wait(for: [resolved], timeout: 5)
-    XCTAssertTrue(candidates.contains("—"), "\(candidates)")
-    XCTAssertFalse(candidates.contains("…"))
+    settle(1)
     XCTAssertEqual(transport.callCount, 1)
+    XCTAssertEqual(applied, 0, "an empty answer renders nothing")
+    XCTAssertEqual(try allTexts(), before)
+    let document = try XCTUnwrap(bridge.onlineQuery())
+    XCTAssertEqual(try bridge.resolveOnlineCandidates(query: document, source: 1)["applied"] as? Bool, false)
+    XCTAssertEqual(try allTexts(), before)
 
     // 键盘之后的每次重画都会调 refresh：同一组字不再发请求。
-    provider.onApplied = nil
     for _ in 0..<3 {
       provider.refresh(allowed: true)
       RunLoop.main.run(until: Date().addingTimeInterval(OnlineCandidateProvider.quietInterval + 0.2))
     }
     XCTAssertEqual(transport.callCount, 1)
 
-    let askedAgain = expectation(description: "a new composition asks again")
-    provider.onApplied = { _ in askedAgain.fulfill() }
     type(bridge, "zhongguo")
     provider.refresh(allowed: true)
-    wait(for: [askedAgain], timeout: 5)
+    settle(2)
     XCTAssertEqual(transport.callCount, 2)
+    XCTAssertEqual(applied, 0)
     provider.cancel()
   }
 
