@@ -367,7 +367,7 @@ describe("macOS points at undownloaded Apple translation languages", () => {
       />,
     );
     await settingsFormReady();
-    selectSettingsTab("候选翻译");
+    selectSettingsTab("候选释义");
     // Let the host's answer land, so a hidden hint means hidden and not merely not yet shown.
     await waitFor(() => expect(downloadableLanguages).toHaveBeenCalled());
     await act(async () => {});

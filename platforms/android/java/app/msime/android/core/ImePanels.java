@@ -124,19 +124,39 @@ final class ImePanels {
     void renderEmojiGrid() {
         if (s.emojiGrid == null) return;
         s.emojiGrid.removeAllViews();
-        // 每行固定八等分，网格可见区放三行；不足一行时格子保持原宽，不会被拉满整行。
+        // 普通 Emoji 每行八格；组合与含组合的最近页用宽格，长短语按实测文字宽度跨格。
+        android.graphics.Paint layoutPaint = new android.graphics.Paint();
+        boolean combinations = s.emojiItems.stream().anyMatch(item ->
+            EmojiCombinationCatalog.GROUP.equals(item.group()) || !layoutPaint.hasGlyph(item.text()));
+        int columns = combinations ? 3 : EmojiCatalogModel.COLUMNS;
+        s.emojiGridScroll.setContentDescription(combinations
+            ? "表情网格；组合表情自动适配宽度" : "表情网格；每行八个");
         int visible = s.emojiGridScroll == null ? 0 : s.emojiGridScroll.getHeight();
+        int width = s.emojiGridScroll.getWidth();
+        if (width <= 0) width = s.getResources().getDisplayMetrics().widthPixels - s.pixels(12);
         int rowHeight = visible > 0
             ? BoundsPolicy.atLeast(s.pixels(40), visible / 3) : s.pixels(48);
         LinearLayout row = null;
+        int used = 0;
         for (EmojiCatalogModel.Item item : s.emojiItems) {
-            if (row == null || row.getChildCount() == EmojiCatalogModel.COLUMNS) {
-                row = LayoutPolicy.row(s);
-                row.setWeightSum(EmojiCatalogModel.COLUMNS);
-                s.emojiGrid.addView(row, LayoutPolicy.matchWidthHeightPx(rowHeight));
-            }
             Button cell = emojiCell(item);
-            row.addView(cell, LayoutPolicy.weightedMatchParentParams(1));
+            float textWidth = cell.getPaint().measureText(item.text());
+            int span = combinations ? Math.min(columns,
+                Math.max(1, (int) Math.ceil((textWidth + s.pixels(8)) * columns / width))) : 1;
+            if (row == null || used + span > columns) {
+                row = LayoutPolicy.row(s);
+                row.setWeightSum(columns);
+                s.emojiGrid.addView(row, LayoutPolicy.matchWidthHeightPx(rowHeight));
+                used = 0;
+            }
+            if (combinations) {
+                float available = (float) width * span / columns - s.pixels(8);
+                if (textWidth > available)
+                    cell.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                        cell.getTextSize() * available / textWidth);
+            }
+            row.addView(cell, LayoutPolicy.weightedMatchParentParams(span));
+            used += span;
         }
         renderEmojiStatus();
         s.imeStyler.applySkin();
@@ -2334,7 +2354,8 @@ final class ImePanels {
         // 第一次排布出真实高度后按三行重排格子高度。
         s.emojiGridScroll.addOnLayoutChangeListener((view, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (bottom - top != oldBottom - oldTop && s.emojiPickerVisible()) view.post(this::renderEmojiGrid);
+            if ((bottom - top != oldBottom - oldTop || right - left != oldRight - oldLeft)
+                    && s.emojiPickerVisible()) view.post(this::renderEmojiGrid);
         });
         s.emojiPanel.addView(s.emojiGridScroll, LayoutPolicy.weightedWidthParams(1));
         LinearLayout bar = LayoutPolicy.row(s);

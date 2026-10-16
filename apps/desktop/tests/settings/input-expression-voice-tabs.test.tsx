@@ -75,7 +75,7 @@ test("标点与翻译按功能拆分，方向键与 Home、End 同步焦点和�
     within(tabs)
       .getAllByRole("tab")
       .map((tab) => tab.textContent),
-  ).toEqual(["标点", "候选与释义", "候选翻译", "翻译服务"]);
+  ).toEqual(["标点", "候选释义", "翻译服务"]);
   const first = within(tabs).getByRole("tab", { name: "标点" });
   first.focus();
   fireEvent.keyDown(first, { key: "ArrowLeft" });
@@ -90,8 +90,10 @@ test("标点与翻译按功能拆分，方向键与 Home、End 同步焦点和�
   expect(document.activeElement).toBe(last);
   fireEvent.keyDown(last, { key: "Home" });
   fireEvent.keyDown(first, { key: "ArrowRight" });
-  expect(screen.getByRole("tabpanel", { name: "候选与释义" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "显示英文释义" })).toBeTruthy();
+  // 「显示英文释义」和「候选词翻译」画的是同一行释义，合在「候选释义」一个标签里。
+  const gloss = screen.getByRole("tabpanel", { name: "候选释义" });
+  expect(within(gloss).getByRole("switch", { name: "显示英文释义" })).toBeTruthy();
+  expect(within(gloss).getByRole("switch", { name: /^候选词翻译/ })).toBeTruthy();
 });
 
 test("语音能力过滤标签，润色切换保留未保存的输入框", async () => {

@@ -284,6 +284,10 @@ test("分页浏览后会淘汰过旧的候选皮肤预览", async () => {
     target: { value: "reset" },
   });
   fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+  // 皮肤 1 已在旧列表中，等旧卡片消失后才能发起下一次搜索。
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "查看候选窗口皮肤 合成皮肤 0" })).toBeNull(),
+  );
   await screen.findByRole("button", { name: "查看候选窗口皮肤 合成皮肤 1" });
   fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗口皮肤" }), {
     target: { value: "first" },
@@ -291,7 +295,9 @@ test("分页浏览后会淘汰过旧的候选皮肤预览", async () => {
   fireEvent.click(screen.getByRole("button", { name: "搜索" }));
   await screen.findByRole("button", { name: "查看候选窗口皮肤 合成皮肤 0" });
 
-  expect(preview.mock.calls.filter(([id]) => id === skins[0].id)).toHaveLength(2);
+  await waitFor(() =>
+    expect(preview.mock.calls.filter(([id]) => id === skins[0].id)).toHaveLength(2),
+  );
 });
 
 test("一键安装 installs, reports it, and 去启用 opens the theme page", async () => {

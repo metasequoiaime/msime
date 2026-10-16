@@ -476,7 +476,7 @@ test("offline candidate gloss is host-enabled, defaults off and persists", async
     <SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   const toggle = screen.getByRole("switch", { name: "显示英文释义" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   expect(screen.getByText(/释义来自随键盘打包的离线词库，不联网/)).toBeDefined();
@@ -490,7 +490,7 @@ test("offline candidate gloss is host-enabled, defaults off and persists", async
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   expect(screen.queryByRole("switch", { name: "显示英文释义" })).toBeNull();
 });
 
@@ -511,7 +511,7 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   const toggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
@@ -524,13 +524,14 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
   });
   enabled.unmount();
 
-  // With every gloss source off there is nothing to read, so the switch is disabled but keeps its value.
+  // With every gloss source off there is nothing to read, so the row is not shown at all; the stored value stays as it was.
   const glossless = {
     ...initial,
     preferences: {
       ...initial.preferences,
       candidate_translations: false,
       candidate_english_gloss: false,
+      candidate_pronunciation: true,
     },
   };
   const disabled = render(
@@ -544,9 +545,15 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
-  expect((screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement).disabled).toBe(
-    true,
+  selectSettingsTab("候选释义");
+  expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
+  // 打开任一释义来源后，它作为释义的子行出现在目标语言之后，已存的值原样显示。
+  fireEvent.click(screen.getByRole("switch", { name: "显示英文释义" }));
+  const reading = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
+  expect(reading.checked).toBe(true);
+  const controls = Array.from(document.querySelectorAll("input, select"));
+  expect(controls.indexOf(reading)).toBe(
+    controls.indexOf(screen.getByRole("combobox", { name: "候选词翻译目标语言" })) + 1,
   );
   disabled.unmount();
 
@@ -556,7 +563,7 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
 });
 
@@ -573,7 +580,7 @@ test("Windows describes candidate pronunciation for English and Japanese glosses
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   expect(screen.getByRole("switch", { name: "显示读音" })).toBeDefined();
   expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
 });
@@ -615,7 +622,7 @@ test("Linux can expose the shared offline candidate gloss setting", async () => 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选与释义");
+  selectSettingsTab("候选释义");
   expect(screen.getByRole("switch", { name: "显示英文释义" })).toBeTruthy();
 });
 
@@ -1552,14 +1559,18 @@ test("input parity controls persist cloud, translation and punctuation settings"
   fireEvent.click(await screen.findByRole("switch", { name: /^云候选/ }));
   // 翻译和标点都在「标点与翻译」页；两个页面编辑的是同一份草稿。
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选翻译");
+  selectSettingsTab("候选释义");
   fireEvent.click(screen.getByRole("switch", { name: /候选词翻译/ }));
   fireEvent.change(screen.getByLabelText("候选词翻译目标语言"), { target: { value: "ja" } });
   selectSettingsTab("标点");
   // Anchored too: 重复标点转中文 names 智能标点 in its description, because the reference's wording
   // for it states the precondition rather than leaving the pair's relationship to be guessed.
+  // 用户切换智能标点总开关时，数字后直出和字母后直出跟着写成同一个值。
   fireEvent.click(screen.getByRole("switch", { name: /^智能标点/ }));
-  fireEvent.change(screen.getByLabelText("固定标点"), { target: { value: "english" } });
+  // 「标点」选择合并了中文标点开关和固定标点；选「始终英文标点」只写锁定，会上云的起始标点保持原值。
+  fireEvent.change(screen.getByRole("combobox", { name: /^标点/ }), {
+    target: { value: "always_english" },
+  });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
@@ -1568,6 +1579,8 @@ test("input parity controls persist cloud, translation and punctuation settings"
     candidate_translations: false,
     translation_target_language: "ja",
     smart_punctuation: true,
+    smart_punctuation_direct_digit: true,
+    smart_punctuation_direct_letter: true,
     punctuation_lock: "english",
   });
 });
@@ -1619,7 +1632,7 @@ test("macOS candidate translations expose the shared second language", async () 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选翻译");
+  selectSettingsTab("候选释义");
   const secondary = screen.getByRole("combobox", {
     name: "候选词翻译第二种语言",
   }) as HTMLSelectElement;
@@ -6889,12 +6902,11 @@ const referenceSections: {
     button: "标点与翻译",
     titles: [
       "候选词翻译",
-      // 中文标点 is the reference's 始终使用英文标点 with the opposite polarity on the same `chinese_punctuation` preference, so the reference's wording would mislabel the toggle.
-      "中文标点",
+      // 参考窗口的「始终使用英文标点」开关（这里的 `chinese_punctuation`，极性相反）和「固定标点」选择描述的是同一个决定，锁定时宿主根本不看前者，所以这里合成一个「标点」选择，两个参考设置的每种有效组合都还能选到（见下面 referenceOptions 里的这一项）。
+      "标点",
       "智能标点",
       "重复标点转中文",
       "成对标点自动补全",
-      "固定标点",
     ],
   },
   {
@@ -7381,10 +7393,11 @@ const referenceOptions: {
     options: ["精炼整理", "忠实校对", "中翻英", "口语整理", "自定义一", "自定义二", "自定义三"],
   },
   {
+    // 参考窗口「固定标点」的三项加上「始终使用英文标点」开关合成的选择：跟随中英文状态时的起始标点拆成中文标点、英文标点两项，两种锁定各一项。
     page: "expression",
     button: "标点与翻译",
-    control: "固定标点",
-    options: ["跟随中英文状态", "始终使用中文标点", "始终使用英文标点"],
+    control: "标点",
+    options: ["中文标点", "英文标点", "始终中文标点（英文模式也用）", "始终英文标点"],
   },
   {
     page: "input",

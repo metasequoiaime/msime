@@ -106,7 +106,7 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   expect(screen.getByRole("group", { name: "面板快捷键" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: "数字键选词" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选翻译");
+  selectSettingsTab("候选释义");
   expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
 
   cleanup();
@@ -142,7 +142,7 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   expect(within(phoneSettings).queryByRole("button", { name: "外接键盘快捷键" })).toBeNull();
   // 手机把候选翻译放在 输入 页的 翻译 分组里。
   fireEvent.click(within(phoneSettings).getByRole("button", { name: "输入" }));
-  selectSettingsTab("候选翻译");
+  selectSettingsTab("候选释义");
   expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
 });
 

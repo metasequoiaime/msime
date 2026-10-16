@@ -1,15 +1,20 @@
-import type {
-  PunctuationPreferences as SharedPunctuationPreferences,
-  QuoteStyle,
-  BracketStyle,
+import {
+  punctuationControlState,
+  punctuationMode,
+  punctuationModePatch,
+  smartPunctuationPatch,
+  type PunctuationMode,
+  type PunctuationPreferences as SharedPunctuationPreferences,
+  type QuoteStyle,
+  type BracketStyle,
 } from "./punctuation-preferences";
-import { punctuationControlState } from "./punctuation-preferences";
 import {
   smartPunctuation,
   smartPunctuationRefinements,
   capsLockPunctuation,
-  punctuationSwitches,
+  pairedPunctuation,
   punctuationLockOptions,
+  punctuationModeOptions,
   quoteStyleOptions,
   bracketStyleOptions,
   type PunctuationSwitch,
@@ -24,7 +29,7 @@ export interface PunctuationPreferences extends SharedPunctuationPreferences {}
 
 export interface PunctuationSectionProps {
   preferences: PunctuationPreferences;
-  /** Draws the 全角输入 row after 中文标点. The settings form keeps that row with the other output settings on the 输入 page, so its 标点 group leaves this off and renders `CharacterWidthRow` there instead. */
+  /** 在「标点」和「引号样式」之后画出「全角输入」一行。设置表单把这一行和其他输出设置一起放在输入页，所以这里的「标点」分组不开它，改在输入页渲染 `CharacterWidthRow`。 */
   showCharacterWidth: boolean;
   /** 显示「大写锁定时使用英文标点」一行；只有向会话报告大写锁定的宿主（`HostCapabilities.caps_lock_punctuation`）才用得上。 */
   showCapsLockPunctuation?: boolean;
@@ -46,45 +51,96 @@ export function CharacterWidthRow({
   );
 }
 
-/** Shared punctuation controls: the rows of the 标点 group. */
+/** 桌面和 Android、iOS 共用的「标点」分组。主流程只留四行：「标点」选择（合并了「中文标点」开关和「固定标点」）、引号样式、智能标点、成对标点；方头括号样式、智能标点的四个细分开关和大写锁定标点收进「更多选项」。细分开关只在智能标点打开时才起作用（数字后、字母后直出见 `punctuation::route`，重复和空格转换见 macOS `InputController` 的智能标点分支），所以总开关关着时它们变灰，值保留不动。 */
 export function PunctuationSection({
   preferences,
   showCharacterWidth,
   showCapsLockPunctuation = false,
   onChange,
 }: PunctuationSectionProps) {
+  const smartEnabled = punctuationControlState(preferences).smart_punctuation;
   return (
     <>
-      <SwitchRow
-        title="中文标点"
-        description="默认使用中文标点符号"
-        checked={preferences.chinese_punctuation}
-        onChange={(chinese_punctuation) => onChange({ chinese_punctuation })}
-      />
+      <PunctuationModeRow preferences={preferences} onChange={onChange} />
       <QuoteStyleRow preferences={preferences} onChange={onChange} />
-      <BracketStyleRow preferences={preferences} onChange={onChange} />
       {showCharacterWidth && <CharacterWidthRow preferences={preferences} onChange={onChange} />}
-      {punctuationSwitches.map(([key, label, description]) => (
-        <PunctuationSwitchRow
-          key={key}
-          preference={key}
-          title={label}
-          description={description}
-          preferences={preferences}
-          onChange={onChange}
-        />
-      ))}
-      {showCapsLockPunctuation && (
-        <PunctuationSwitchRow
-          preference={capsLockPunctuation[0]}
-          title={capsLockPunctuation[1]}
-          description={capsLockPunctuation[2]}
-          preferences={preferences}
-          onChange={onChange}
-        />
-      )}
-      <PunctuationLockRow preferences={preferences} onChange={onChange} />
+      <SmartPunctuationRow preferences={preferences} onChange={onChange} />
+      <PunctuationSwitchRow
+        preference={pairedPunctuation[0]}
+        title={pairedPunctuation[1]}
+        description={pairedPunctuation[2]}
+        preferences={preferences}
+        onChange={onChange}
+      />
+      <MoreOptions>
+        <BracketStyleRow preferences={preferences} onChange={onChange} />
+        {smartPunctuationRefinements.map(([key, label, description]) => (
+          <PunctuationSwitchRow
+            key={key}
+            preference={key}
+            title={label}
+            description={description}
+            disabled={!smartEnabled}
+            preferences={preferences}
+            onChange={onChange}
+          />
+        ))}
+        {showCapsLockPunctuation && (
+          <PunctuationSwitchRow
+            preference={capsLockPunctuation[0]}
+            title={capsLockPunctuation[1]}
+            description={capsLockPunctuation[2]}
+            preferences={preferences}
+            onChange={onChange}
+          />
+        )}
+      </MoreOptions>
     </>
+  );
+}
+
+/** 「标点」选择：显示值每次从 `chinese_punctuation` 和 `punctuation_lock` 推出，打开页面不改写文档；只有用户选了一项才把两个键一起写入。 */
+function PunctuationModeRow({
+  preferences,
+  onChange,
+}: Pick<PunctuationSectionProps, "preferences" | "onChange">) {
+  return (
+    <SelectRow
+      title="标点"
+      description="中文模式下使用的标点。选中文标点或英文标点时，可用快捷键或工具栏临时切换，切到英文模式时用英文标点；选「始终」时不能临时切换"
+      value={punctuationMode(preferences)}
+      onChange={(event) => onChange(punctuationModePatch(event.target.value as PunctuationMode))}
+    >
+      {punctuationModeOptions.map(({ value, label }) => (
+        <option key={value} value={value}>
+          {label}
+        </option>
+      ))}
+    </SelectRow>
+  );
+}
+
+/** 「智能标点」总开关：用户切换时连同数字后直出、字母后直出一起写（见 `smartPunctuationPatch`）。以前只写总开关的版本留下了「总开关开、两半都关」的文档，这时说明里那句承诺并不成立；这里只按已存的值多显示一句提示，不改写存储。 */
+function SmartPunctuationRow({
+  preferences,
+  onChange,
+}: Pick<PunctuationSectionProps, "preferences" | "onChange">) {
+  const state = punctuationControlState(preferences);
+  const inert =
+    state.smart_punctuation &&
+    !state.smart_punctuation_direct_digit &&
+    !state.smart_punctuation_direct_letter;
+  return (
+    <SwitchRow
+      title={smartPunctuation[1]}
+      description={
+        inert
+          ? `${smartPunctuation[2]}。数字后直出和字母后直出都已关闭，这一条暂不生效，可在「更多选项」里打开，或关掉再打开智能标点`
+          : smartPunctuation[2]
+      }
+      checked={state.smart_punctuation}
+      onChange={(checked) => onChange(smartPunctuationPatch(checked))}
+    />
   );
 }
 
@@ -92,18 +148,21 @@ function PunctuationSwitchRow({
   preference,
   title,
   description,
+  disabled,
   preferences,
   onChange,
 }: {
   preference: PunctuationSwitch;
   title: string;
   description?: string;
+  disabled?: boolean;
 } & Pick<PunctuationSectionProps, "preferences" | "onChange">) {
   return (
     <SwitchRow
       title={title}
       description={description}
       checked={punctuationControlState(preferences)[preference]}
+      disabled={disabled}
       onChange={(checked) => onChange({ [preference]: checked })}
     />
   );
@@ -135,7 +194,7 @@ function PunctuationLockRow({
   );
 }
 
-/** 引号样式：只在中文标点下起作用，所以紧跟在「中文标点」之后。直角引号按键对应，说明里写出键位。 */
+/** 引号样式：只在中文标点下起作用，所以紧跟在「标点」选择之后。直角引号按键对应，说明里写出键位。 */
 export function QuoteStyleRow({
   preferences,
   onChange,
@@ -182,7 +241,7 @@ export function PhonePunctuationSection({
   preferences,
   onChange,
 }: Pick<PunctuationSectionProps, "preferences" | "onChange">) {
-  const [smartKey, smartTitle, smartDescription] = smartPunctuation;
+  const smartEnabled = punctuationControlState(preferences).smart_punctuation;
   return (
     <>
       <SwitchRow
@@ -196,13 +255,7 @@ export function PhonePunctuationSection({
         preferences={preferences}
         onChange={onChange}
       />
-      <PunctuationSwitchRow
-        preference={smartKey}
-        title={smartTitle}
-        description={smartDescription}
-        preferences={preferences}
-        onChange={onChange}
-      />
+      <SmartPunctuationRow preferences={preferences} onChange={onChange} />
       <MoreOptions>
         <QuoteStyleRow preferences={preferences} onChange={onChange} />
         <BracketStyleRow preferences={preferences} onChange={onChange} />
@@ -212,6 +265,7 @@ export function PhonePunctuationSection({
             preference={key}
             title={label}
             description={description}
+            disabled={!smartEnabled}
             preferences={preferences}
             onChange={onChange}
           />

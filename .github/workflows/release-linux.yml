@@ -45,7 +45,7 @@ jobs:
           rustup toolchain install
           rustup target add wasm32-unknown-unknown
           bash scripts/build-official-plugins.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: official-plugin-packs-linux
           path: target/plugin-packs/
@@ -71,7 +71,7 @@ jobs:
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
           case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
       # The arm64 runner image carries fewer preinstalled tools than the x64 one, so Node is set up explicitly on both.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: 24}
       # The desktop binary embeds the web frontend at compile time; package-container.sh has no Node toolchain and requires this output.
       - name: Build desktop frontend
@@ -87,7 +87,7 @@ jobs:
         run: python3 scripts/fetch_language_dictionaries.py
       # Builds the Release host library and desktop binary, configures the native hosts for /usr with packaging on, runs the same ctest suite the pull-request gate runs (on the Release build, where the tests keep their assertions), then produces the .deb, the .tar.gz and SHA256SUMS. 每个有 Linux 段的版本各出一个包（full 是 msime-linux，其他版本是装在 /opt 下的 msime-linux-<id>），共用同一次构建的宿主库和桌面二进制。
       # 官方插件包（official-plugins 作业构建、核对过哈希的那一份），package-container.sh 把它装进 share/<client>/plugin-packs；MSIME_REQUIRE_OFFICIAL_PLUGINS=1 让缺了它的包打不出来。
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: official-plugin-packs-linux
           path: target/plugin-packs
@@ -134,7 +134,7 @@ jobs:
           done
           # 几个版本一起装进同一个 Debian 容器、再逐个卸载：dpkg 不报文件冲突，卸载一个版本不带走另一个版本的文件。
           bash platforms/linux/tests/tools/check-deb-coexistence.sh "${edition_debs[@]}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-linux-deb-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package/dist/
@@ -160,7 +160,7 @@ jobs:
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: 24}
       - name: Build desktop frontend
         run: |
@@ -173,7 +173,7 @@ jobs:
       - name: Fetch the locked language dictionaries
         run: python3 scripts/fetch_language_dictionaries.py
       # 官方插件包（official-plugins 作业构建、核对过哈希的那一份），package-container.sh 把它装进 share/<client>/plugin-packs；MSIME_REQUIRE_OFFICIAL_PLUGINS=1 让缺了它的包打不出来。
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: official-plugin-packs-linux
           path: target/plugin-packs
@@ -198,7 +198,7 @@ jobs:
             edition_rpms+=("${rpm[0]}")
           done
           bash platforms/linux/tests/tools/check-rpm-install.sh "${edition_rpms[@]}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-linux-rpm-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package-rpm/dist/
@@ -231,7 +231,7 @@ jobs:
         run: |
           corepack enable
           bash platforms/linux/packaging/make-source-tarballs.sh "$VERSION" target/distro-sources
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-linux-sources-${{ steps.version.outputs.value }}
           path: target/distro-sources/
@@ -245,7 +245,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
       # 只取要发布的产物：两个架构各自的 msime-linux-deb/rpm/legacy-deb-ARCH-VERSION 与 msime-linux-sources-VERSION。
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: msime-linux-*-${{ needs.deb.outputs.version }}
           path: dist
@@ -280,7 +280,7 @@ jobs:
       - name: Render package manager definitions
         env: {VERSION: "${{ needs.deb.outputs.version }}"}
         run: bash platforms/linux/packaging/render-definitions.sh "$VERSION" target/package-definitions
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-package-definitions-linux-${{ needs.deb.outputs.version }}
           path: target/package-definitions/

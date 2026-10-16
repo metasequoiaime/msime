@@ -18,6 +18,9 @@ export interface TencentTranslationSettingsSectionProps {
   region: string;
   credentialIssue?: string;
   showMissingCredentialsWarning?: boolean;
+  offlineFallback?: boolean;
+  /** 见 `TencentTranslationSectionProps.foldRegion`；Linux 的凭据表单不受影响。 */
+  foldRegion?: boolean;
   status?: LinuxTencentCredentialStatus;
   input: LinuxTencentCredentialInput;
   busy: boolean;
@@ -43,6 +46,8 @@ export function TencentTranslationSettingsSection({
   region,
   credentialIssue,
   showMissingCredentialsWarning = false,
+  offlineFallback = false,
+  foldRegion = true,
   status,
   input,
   busy,
@@ -77,6 +82,8 @@ export function TencentTranslationSettingsSection({
       region={region}
       credentialIssue={credentialIssue}
       showMissingCredentialsWarning={showMissingCredentialsWarning}
+      offlineFallback={offlineFallback}
+      foldRegion={foldRegion}
       onSecretIdChange={onSecretIdChange}
       onSecretKeyChange={onSecretKeyChange}
       onRegionChange={onRegionChange}

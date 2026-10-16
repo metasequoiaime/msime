@@ -7,6 +7,7 @@ import type {
 import type { PunctuationPreferences } from "./settings/punctuation-preferences";
 import type { KeybindingPreferences } from "./settings/keybinding-preferences";
 import type { WubiPreferences } from "./settings/wubi-preferences";
+import type { VietnamesePreferences } from "./settings/vietnamese-preferences";
 import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
 import type { TraditionalChineseVariant } from "./settings/chinese-output-preferences";
 import type {
@@ -1722,11 +1723,6 @@ export type InputScheme =
   | "stroke";
 /** 对应 `client-core::preferences::ChineseScheme`：选日文、韩文、越南文或藏文后要回到的中文方案。 */
 export type ChineseScheme = "quanpin" | "shuangpin" | "wubi" | "cantonese" | "zhuyin" | "stroke";
-/** Mirrors `client-core::preferences::VietnamesePreferences`. Absent from a document left at its defaults: Telex with modern tone placement. */
-export type VietnamesePreferences = {
-  input_method?: "telex" | "vni";
-  tone_style?: "modern" | "classic";
-};
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
   platform: HostPlatform;
@@ -1884,6 +1880,7 @@ export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 export type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
 export type { VoiceInputPreferences } from "./settings/voice-input-preferences";
 export type { AiAssistantPreferences } from "./settings/ai-assistant-preferences";
+export type { VietnamesePreferences } from "./settings/vietnamese-preferences";
 
 export type Preferences = PunctuationPreferences &
   PreeditPreferences &

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { tencentSecretConfigured } from "./credential-utils";
 import {
   defaultCustomTranslation,
@@ -44,17 +45,18 @@ export function useTranslationSettings({
   const customTranslation = preferences?.custom_translation ?? defaultCustomTranslation;
   const tencentTranslation = preferences?.tencent_tmt ?? defaultTencentTranslation;
   const niutrans = preferences?.niutrans ?? defaultNiuTrans;
+  const tencentConfigured =
+    tencentSecretConfigured(tencentTranslation.secret_id) &&
+    tencentSecretConfigured(tencentTranslation.secret_key);
+  // 用户这次在下拉框里选了腾讯云。腾讯云默认就是 `enabled: true`，选它不会改文档，只能靠这个窗口内的状态把它和「从没选过」分开。
+  const [tencentChosen, setTencentChosen] = useState(false);
   // Mirrors `selected_translation_services` in crates/host-api/src/ffi/providers.rs: Tencent's default `enabled: true` without usable secrets is not a user choice, so it does not shadow the account.
-  const translationProvider =
+  const storedProvider =
     (macos || linux || windows) &&
     preferences?.translation_account &&
     !niutrans.enabled &&
     !customTranslation.enabled &&
-    !(
-      tencentTranslation.enabled &&
-      tencentSecretConfigured(tencentTranslation.secret_id) &&
-      tencentSecretConfigured(tencentTranslation.secret_key)
-    )
+    !(tencentTranslation.enabled && tencentConfigured)
       ? "account"
       : niutrans.enabled
         ? "niutrans"
@@ -63,15 +65,15 @@ export function useTranslationSettings({
           : tencentTranslation.enabled
             ? "tencent"
             : "none";
+  // macOS 上没有可用密钥的腾讯云不会被请求，宿主改用离线翻译（`InputController` 的 `currentOnDeviceGlossRequest` 只看共享查询里有没有服务配置，而 host-api 只在两个密钥都可用时才放进腾讯云），所以新装时默认的 `enabled: true` 显示成「离线翻译」，与实际一致；用户本次选了腾讯云才显示腾讯云，让凭据输入框出现。Windows、Linux 的显示不变：Linux 的密钥在 provider 自己的文件里，偏好里的空密钥不代表没配置。
+  const translationProvider =
+    macos && storedProvider === "tencent" && !tencentConfigured && !tencentChosen
+      ? "none"
+      : storedProvider;
   const onDeviceTranslationInUse =
     macos &&
     candidateTranslations &&
-    (translationProvider === "none" ||
-      (translationProvider === "tencent" &&
-        !(
-          tencentSecretConfigured(tencentTranslation.secret_id) &&
-          tencentSecretConfigured(tencentTranslation.secret_key)
-        )));
+    (translationProvider === "none" || (translationProvider === "tencent" && !tencentConfigured));
   const onDeviceMissingLanguages = onDeviceTranslationInUse
     ? translationLanguages.filter(
         ([code]) =>
@@ -83,6 +85,7 @@ export function useTranslationSettings({
     provider: "none" | "custom" | "tencent" | "niutrans" | "account",
   ) => {
     if (!preferences) return;
+    setTencentChosen(provider === "tencent");
     onChange({
       ...preferences,
       custom_translation: { ...customTranslation, enabled: provider === "custom" },
