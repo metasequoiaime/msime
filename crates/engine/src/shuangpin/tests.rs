@@ -895,6 +895,7 @@ fn direct_helpcode_accepts_mobile_sentence_examples() {
             ("uibT", "实"),
             ("uibjm", "实践"),
             ("uibTjm", "实践"),
+            ("Uibjm", "实践"),
             ("tartantab", "他她它"),
             ("tartantabA", "他她它"),
         ] {
