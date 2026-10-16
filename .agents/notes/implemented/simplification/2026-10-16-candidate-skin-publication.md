@@ -10,6 +10,8 @@ Status: implemented
 
 `use-candidate-skin-publication.ts` 持有发布状态及动作，客户端只要求 `packPreview`、`addPreview`、`addLicense`、`publish`。目录读取、图片读取、打开目录和成功回调仍由调用方注入。对话框保留 DOM、文案、IME 事件和能力存在与否的显示条件，包入口补充导出 props 类型。
 
+词库与回复模板的独立发布状态见[资源发布](../../implemented/simplification/2026-10-16-community-resource-publication.md)，它们各自持有内容与版本契约。
+
 公开与私有预检、保留手工名称、分类变更重建重试 ID、授权不改变 ID、目录与预检 owner、补预览图和授权的独立操作代次、同步防重复及回调顺序保持。素材授权选项在状态模块导出，界面与默认值共用同一份列表；分类变更动作迁入 hook。
 
 ## 旧笔记归属

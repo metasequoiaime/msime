@@ -12,11 +12,14 @@ test("community skin and resource publishing reuse shared field validation", () 
     ),
   )[0];
   const resources = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/community/community-resources.tsx", {
-      eager: true,
-      query: "?raw",
-      import: "default",
-    }),
+    import.meta.glob<string>(
+      "../../../../packages/ui/src/community/use-community-resource-publication.ts",
+      {
+        eager: true,
+        query: "?raw",
+        import: "default",
+      },
+    ),
   )[0];
 
   for (const consumer of [skins, resources]) {

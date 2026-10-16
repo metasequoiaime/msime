@@ -1322,6 +1322,10 @@ export {
   type CommunityDestinationView,
 } from "./community/community-destination";
 export { CommunityHomePage, CommunityResourcesPage } from "./community/community-resources";
+export {
+  CommunityResourceEditor,
+  type CommunityResourceEditorProps,
+} from "./community/community-resource-editor";
 export type {
   CommunityLocalDictionaryClient,
   CommunityResource,

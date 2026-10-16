@@ -21,9 +21,17 @@ test("community resources page reuses the shared client lifecycle hook", () => {
   expect(detail).not.toContain("runCommunityAction(");
   expect(detail).not.toContain("const [busy, setBusy] = useState(false)");
 
-  const editorStart = source.indexOf("function ResourceEditor");
-  const editorEnd = source.indexOf("function ResourceDetail", editorStart);
-  const editor = source.slice(editorStart, editorEnd);
+  const editor = Object.values(
+    import.meta.glob<string>(
+      "../../../../packages/ui/src/community/use-community-resource-publication.ts",
+      {
+        eager: true,
+        query: "?raw",
+        import: "default",
+      },
+    ),
+  )[0];
+  expect(source).toContain("<CommunityResourceEditor");
   expect(editor).toContain("useAsyncActionRunner(");
   expect(editor).not.toContain("useCommunityClientLifecycle(");
   expect(editor).not.toContain("runCommunityAction(");

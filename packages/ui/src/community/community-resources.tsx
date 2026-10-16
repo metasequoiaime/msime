@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAsyncActionRunner } from "../core/use-async-action";
-import { randomUuid } from "../core/random-id";
 import { formatZhNumber } from "../core/format-number";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { CommunitySkinsPage } from "./community-skins";
+import { CommunityResourceEditor } from "./community-resource-editor";
 import { CommunitySearchForm } from "./community-search-form";
 import { type CommunitySkinClient } from "./community-skin-model";
 import { useToast } from "../core/toast";
@@ -21,17 +21,11 @@ import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
 import { CommunityMetrics } from "./community-metrics";
 import { CommunityGalleryHeader } from "./community-gallery-header";
-import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailHeader } from "./community-detail-header";
 import { CommunityRatingMetrics } from "./community-rating-metrics";
 import { CommunityReportSection } from "./community-report";
 import { communityReportedNotice, type CommunityReportReason } from "./community-report-model";
 import { CommunityResourceScopeButtons } from "./community-resource-scope-buttons";
-import { CommunityInputField } from "./community-input-field";
-import { CommunitySelectField } from "./community-select-field";
-import { CommunityTextareaField } from "./community-textarea-field";
-import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
-import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunityNotice } from "./community-notice";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
@@ -41,7 +35,6 @@ import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
-import { communityPublishFields } from "./community-publish-validation";
 import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import { useCommunityDetailHistory } from "./use-community-detail-history";
 import {
@@ -53,7 +46,6 @@ import {
   communityResourceSubtitle,
   type CommunityResourceKind,
   type CommunityResourceScope,
-  type CommunitySharedWord,
   type CommunityResource,
   type CommunityLocalDictionaryClient,
   type CommunityResourceClient,
@@ -92,199 +84,6 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         人收藏
       </span>
     </CommunityCard>
-  );
-}
-
-function ResourceEditor({
-  client,
-  kind,
-  existing,
-  close,
-  onPublished,
-}: {
-  client: CommunityResourceClient;
-  kind: CommunityResourceKind;
-  existing?: CommunityResource;
-  close: () => void;
-  onPublished: () => Promise<void>;
-}) {
-  const [id] = useState(existing?.id ?? randomUuid());
-  const [name, setName] = useState(existing?.name ?? "");
-  const [description, setDescription] = useState(existing?.description ?? "");
-  const [prompt, setPrompt] = useState(existing?.content.prompt ?? "");
-  const [entries, setEntries] = useState<CommunitySharedWord[]>(existing?.content.entries ?? []);
-  const [entryKind, setEntryKind] = useState<CommunitySharedWord["kind"]>("pinyin");
-  const [code, setCode] = useState("");
-  const [word, setWord] = useState("");
-  const [weight, setWeight] = useState("100000");
-  const [agreed, setAgreed] = useState(false);
-  const [error, setError] = useState("");
-  const {
-    busy,
-    running: actionRunning,
-    run: runAsyncAction,
-  } = useAsyncActionRunner(setError, undefined, client);
-  const addEntry = () => {
-    const value = { kind: entryKind, code: code.trim(), word, weight: Number(weight) };
-    if (
-      !value.code ||
-      !value.word ||
-      !Number.isSafeInteger(value.weight) ||
-      value.weight < 0 ||
-      entries.some(
-        (item) => item.kind === value.kind && item.code === value.code && item.word === value.word,
-      ) ||
-      entries.length >= 128
-    ) {
-      setError("词条不能为空、不能重复，权重必须为非负整数，且最多 128 条。");
-      return;
-    }
-    setEntries((current) => [...current, value]);
-    setCode("");
-    setWord("");
-    setError("");
-  };
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (busy || actionRunning.current) return;
-    const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
-      communityPublishFields(name, description);
-    const valid =
-      nameValid &&
-      descriptionValid &&
-      (kind === "reply"
-        ? prompt.trim().length > 0 && [...prompt].length <= 2000
-        : entries.length > 0) &&
-      (existing || agreed);
-    if (!valid) {
-      setError(
-        existing ? "请填写有效的作品信息。" : "请填写有效内容并确认拥有公开发布所需的权利。",
-      );
-      return;
-    }
-    await runAsyncAction(
-      async (isCurrent) => {
-        await client.publish(
-          id,
-          kind,
-          normalizedName,
-          normalizedDescription,
-          kind === "reply" ? { prompt } : { entries },
-          existing?.revision ?? 0,
-        );
-        if (!isCurrent()) return;
-        await onPublished();
-      },
-      { formatError: resourceMessage },
-    );
-  };
-  return (
-    <CommunityDialogFrame
-      title={existing ? "更新作品" : `发布${resourceKindTitle(kind)}`}
-      titleClassName={style.dialogTitle}
-      ariaLabel={existing ? "更新社区作品" : `发布${resourceKindTitle(kind)}`}
-      busy={busy}
-      onClose={close}
-      error={error}
-      onSubmit={(event) => void submit(event)}
-    >
-      <CommunityPublicationMetadataFields
-        name={name}
-        description={description}
-        agreed={agreed}
-        busy={busy}
-        nameLabel="作品名称"
-        nameAriaLabel="社区作品名称"
-        descriptionLabel="作品说明"
-        descriptionAriaLabel="社区作品说明"
-        descriptionRows={3}
-        showAgreement={!existing}
-        agreementText="我拥有发布所用内容的权利，并同意其他用户查看和使用"
-        onNameChange={setName}
-        onDescriptionChange={setDescription}
-        onAgreedChange={setAgreed}
-      />
-      {kind === "reply" ? (
-        <CommunityTextareaField
-          label="回复提示词"
-          ariaLabel="社区回复提示词"
-          maxLength={2000}
-          rows={8}
-          value={prompt}
-          disabled={busy}
-          onChange={setPrompt}
-        />
-      ) : (
-        <>
-          <div className={style.entryForm}>
-            <CommunitySelectField
-              label="类型"
-              ariaLabel="社区词条类型"
-              value={entryKind}
-              disabled={busy}
-              onChange={(value) => setEntryKind(value as CommunitySharedWord["kind"])}
-            >
-              <option value="pinyin">拼音</option>
-              <option value="wubi">五笔</option>
-              <option value="quick">快捷短语</option>
-              <option value="english">英文</option>
-            </CommunitySelectField>
-            <CommunityInputField
-              label="编码"
-              ariaLabel="社区词条编码"
-              value={code}
-              disabled={busy}
-              onChange={setCode}
-            />
-            <CommunityInputField
-              label="词语"
-              ariaLabel="社区词条文字"
-              value={word}
-              disabled={busy}
-              onChange={setWord}
-            />
-            <CommunityInputField
-              label="权重"
-              ariaLabel="社区词条权重"
-              type="number"
-              value={weight}
-              disabled={busy}
-              onChange={setWeight}
-            />
-            <ActionButton
-              action={addEntry}
-              className="secondary"
-              disabled={busy}
-              label="添加词条"
-            />
-          </div>
-          <div className={style.entryList} aria-label={`待发布词条 ${entries.length}/128`}>
-            {entries.map((item, index) => (
-              <div key={`${item.kind}-${item.code}-${item.word}-${index}`}>
-                <span>
-                  {item.word} · <code>{item.code}</code> · {item.weight}
-                </span>
-                <ActionButton
-                  action={() => setEntries(entries.filter((_, current) => current !== index))}
-                  className="secondary"
-                  disabled={busy}
-                  label="移除"
-                />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-      <CommunityPublicationWarning>
-        发布内容会公开展示。请勿包含 API
-        Key、私人聊天内容或其他个人资料；发布后可在“我的作品”中下架。
-      </CommunityPublicationWarning>
-      <CommunityDialogActions busy={busy} onClose={close}>
-        <button type="submit" className="primary" disabled={busy}>
-          {busy ? "正在发布…" : existing ? "发布新版本" : "公开发布"}
-        </button>
-      </CommunityDialogActions>
-    </CommunityDialogFrame>
   );
 }
 
@@ -503,11 +302,11 @@ function ResourceDetail({
         <CommunityReportSection actionBusy={busy} onReport={report} />
       )}
       {editing && (
-        <ResourceEditor
+        <CommunityResourceEditor
           client={client}
           kind={item.kind}
           existing={item}
-          close={() => setEditing(false)}
+          onClose={() => setEditing(false)}
           onPublished={async () => {
             setEditing(false);
             const updated = await client.detail(item.id);
@@ -774,10 +573,10 @@ export function CommunityResourcesPage({
           onLoadMore={() => void load(true)}
         />
         {editing && (
-          <ResourceEditor
+          <CommunityResourceEditor
             client={client}
             kind={kind}
-            close={() => setEditing(false)}
+            onClose={() => setEditing(false)}
             onPublished={async () => {
               setEditing(false);
               await load();
@@ -836,10 +635,10 @@ export function CommunityResourcesPage({
         onLoadMore={() => void load(true)}
       />
       {editing && (
-        <ResourceEditor
+        <CommunityResourceEditor
           client={client}
           kind={kind}
-          close={() => setEditing(false)}
+          onClose={() => setEditing(false)}
           onPublished={async () => {
             setEditing(false);
             await load();

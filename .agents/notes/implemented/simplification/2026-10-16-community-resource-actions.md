@@ -10,7 +10,7 @@ Status: implemented
 
 `community-resource-model.ts` 持有资源类型、范围和副标题函数；`community-resource-actions.ts` 持有本机安装能力判断、词库安装与回复模板添加。详情和图库行共用安装操作，操作返回命名词库或导入条数的结构化结果，各入口继续生成原有提示。回复模板保留收藏、读取最新详情、可选存入键盘的顺序及原返回文字。旧页面与范围组件兼容转导出原有名字，内部消费者直接引用模型或操作。
 
-保留类型分组顺序、TSV 列顺序、`quick` 到 `quick_phrase` 的映射、请求标识生成方式、宿主方法接收者和失败即停止的行为。调用方继续拥有详情刷新、异步代次、忙碌状态、toast 和已添加标记，不扩大共享操作的生命周期职责。
+保留类型分组顺序、TSV 列顺序、`quick` 到 `quick_phrase` 的映射、请求标识生成方式、宿主方法接收者和失败即停止的行为。编辑和发布状态由[资源发布](../../implemented/simplification/2026-10-16-community-resource-publication.md)独立持有。调用方继续拥有详情刷新、异步代次、忙碌状态、toast 和已添加标记，不扩大共享操作的生命周期职责。
 
 ## Historical audit
 
