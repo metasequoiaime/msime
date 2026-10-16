@@ -106,7 +106,9 @@ import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
 import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
 import { SymbolPanelCategory, SymbolPanelPolicy } from './input/SymbolPanelPolicy';
 import { BackspaceHoldAction, BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
-import { FunctionPanelItem, FunctionPanelPolicy } from './FunctionPanelPolicy';
+import { FunctionPanelItem, FunctionPanelPolicy, PickerGrid } from './FunctionPanelPolicy';
+import { KeyboardFormFactorPolicy } from './KeyboardFormFactorPolicy';
+import display from '@ohos.display';
 import { KeyboardIconPaths } from './KeyboardIconPaths';
 import { BrandTile } from './faces/BrandTile';
 import { HeightBar } from './faces/HeightBar';
@@ -299,9 +301,8 @@ const SKIN_TOP_PADDING_VP: number = 4;
 const SKIN_ROWS_GAP_VP: number = 2;
 const SKIN_MIN_COLUMNS_GAP_VP: number = 6;
 const PANEL_DOTS_ROOM_VP: number = 14;
-// 功能面板和方案选择的磁贴网格：上方 10vp、行间 16vp，每行至少 52vp（设计稿和 Android 的 `FunctionPanelView`）；面板比这高时两行平分多出来的高度，而不是在底下空着一块。
+// 功能面板和方案选择的磁贴网格：上方 10vp，每行至少 52vp（设计稿和 Android 的 `FunctionPanelView`），行数和行距见 `FunctionPanelPolicy.pickerGrid`；面板比这高时各行平分多出来的高度，而不是在底下空着一块。
 const TILE_TOP_PADDING_VP: number = 10;
-const TILE_ROWS_GAP_VP: number = 16;
 const TILE_MIN_ROW_VP: number = 52;
 const PANEL_BOTTOM_PADDING_VP: number = 4;
 const PANEL_SIDE_PADDING_VP: number = 4;
@@ -629,6 +630,9 @@ struct KeyboardView {
   @State phraseState: string = PHRASE_LIST_LOADING;
   /** 每次从标志打开功能面板时递增，让 `PagedTiles` 回到第一页。 */
   @State panelResetToken: number = 0;
+  /** 手机横屏（`KeyboardFormFactorPolicy.phoneLandscape`）：功能面板和方案选择只排两行。转屏时随屏幕变化重读，开着的面板跟着按新行数重排。 */
+  @State phoneLandscape: boolean = false;
+  private readonly displayChanged: (id: number) => void = (_id: number): void => this.readOrientation();
   /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
   @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
 
@@ -711,6 +715,8 @@ struct KeyboardView {
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
   aboutToAppear(): void {
+    this.readOrientation();
+    display.on('change', this.displayChanged);
     this.english = KeyboardSession.shared.isEnglish();
     this.clipboardEnabled = KeyboardSession.shared.clipboardHistoryAllowed();
     KeyboardSession.shared.onClipboardHistoryChanged = (enabled: boolean): void => {
@@ -931,6 +937,7 @@ struct KeyboardView {
   }
 
   aboutToDisappear(): void {
+    display.off('change', this.displayChanged);
     KeyboardSession.shared.onChanged = undefined;
     KeyboardSession.shared.onClipboardHistoryChanged = undefined;
     KeyboardSession.shared.onVoiceInputChanged = undefined;
@@ -6680,12 +6687,30 @@ struct KeyboardView {
     return entries;
   }
 
+  /** 按屏幕此刻的宽高（转屏后两者互换）判断是不是手机横屏。 */
+  private readOrientation(): void {
+    const screen: display.Display = display.getDefaultDisplaySync();
+    this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
+      screen.height / screen.densityPixels);
+  }
+
+  /** 功能面板和方案选择的行数和行距（`FunctionPanelPolicy.pickerGrid`）；是否放得下按有圆点算。 */
+  private tileGrid(): PickerGrid {
+    return FunctionPanelPolicy.pickerGrid(this.phoneLandscape, this.surfaceHeight(), TILE_MIN_ROW_VP,
+      TILE_TOP_PADDING_VP + PANEL_DOTS_ROOM_VP + PANEL_BOTTOM_PADDING_VP);
+  }
+
+  private tilePageSize(): number {
+    return FunctionPanelPolicy.COLUMNS * this.tileGrid().rows;
+  }
+
   /** 皮肤选择器的行高：两行预览，多于一页时再加圆点，在按键让出的高度内。 */
-  /** 功能面板和方案选择每行的高度：两行填满面板去掉上下留白、行距和圆点后的高度，至少 `TILE_MIN_ROW_VP`。磁贴在行内居中。 */
+  /** 功能面板和方案选择每行的高度：各行填满面板去掉上下留白、行距和圆点后的高度，至少 `TILE_MIN_ROW_VP`。磁贴在行内居中。 */
   private tileRowHeight(count: number): number {
-    const dots: number = count > FunctionPanelPolicy.PAGE_SIZE ? PANEL_DOTS_ROOM_VP : 0;
-    return Math.max(TILE_MIN_ROW_VP, Math.floor((this.surfaceHeight() - TILE_TOP_PADDING_VP - TILE_ROWS_GAP_VP
-      - dots - PANEL_BOTTOM_PADDING_VP) / 2));
+    const grid: PickerGrid = this.tileGrid();
+    const dots: number = count > this.tilePageSize() ? PANEL_DOTS_ROOM_VP : 0;
+    return Math.max(TILE_MIN_ROW_VP, Math.floor((this.surfaceHeight() - TILE_TOP_PADDING_VP
+      - (grid.rows - 1) * grid.rowsGap - dots - PANEL_BOTTOM_PADDING_VP) / grid.rows));
   }
 
   private skinRowHeight(pageCount: number): number {
@@ -6722,9 +6747,9 @@ struct KeyboardView {
       if (this.surface === SURFACE_SCHEME) {
         PagedTiles({
           count: this.schemePickerEntries().length,
-          pageSize: FunctionPanelPolicy.PAGE_SIZE,
+          pageSize: this.tilePageSize(),
           rowHeight: this.tileRowHeight(this.schemePickerEntries().length),
-          rowsGap: TILE_ROWS_GAP_VP,
+          rowsGap: this.tileGrid().rowsGap,
           topPadding: TILE_TOP_PADDING_VP,
           accent: this.skin.toggleForeground,
           hair: this.skin.hair,
@@ -7669,9 +7694,9 @@ struct KeyboardView {
       } else {
         PagedTiles({
           count: FunctionPanelPolicy.items().length,
-          pageSize: FunctionPanelPolicy.PAGE_SIZE,
+          pageSize: this.tilePageSize(),
           rowHeight: this.tileRowHeight(FunctionPanelPolicy.items().length),
-          rowsGap: TILE_ROWS_GAP_VP,
+          rowsGap: this.tileGrid().rowsGap,
           topPadding: TILE_TOP_PADDING_VP,
           resetToken: this.panelResetToken,
           accent: this.skin.toggleForeground,
