@@ -202,9 +202,7 @@ struct SettingsSearchPill: View {
         .accessibilityLabel("清除搜索")
       }
     }
-    .padding(.horizontal, 14)
-    .frame(minHeight: 40)
-    .background(MetasequoiaTheme.segBg, in: Capsule())
+    .designSearchFieldBackground()
   }
 }
 

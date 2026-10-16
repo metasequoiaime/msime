@@ -151,7 +151,7 @@ struct AISkinDesignView: View {
     .designCanvasBackground()
     .navigationTitle("AI 设计皮肤")
     .navigationBarTitleDisplayMode(.inline)
-    .safeAreaInset(edge: .bottom, spacing: 0) { actionBar }
+    .designActionBar { actionBar }
     .onAppear {
       currentTheme = KeyboardTheme.resolve(document: MetasequoiaInputSessionBridge.loadSharedPreferences())
     }
@@ -323,8 +323,9 @@ struct AISkinDesignView: View {
 
   private var actionBar: some View {
     let hasPrompt = !model.trimmedPrompt.isEmpty
+    let glass = Self.glassBar
     return VStack(spacing: 0) {
-      DesignDivider(leading: 0)
+      if !glass { DesignDivider(leading: 0) }
       HStack(spacing: 10) {
         if model.proposals.isEmpty {
           actionButton("✦ 生成皮肤", fill: hasPrompt ? MetasequoiaTheme.accent : MetasequoiaTheme.segBg,
@@ -334,7 +335,8 @@ struct AISkinDesignView: View {
           .disabled(!hasPrompt || model.busy)
           .opacity(model.busy ? 0.45 : 1)
         } else {
-          actionButton("✦ 重新生成", fill: MetasequoiaTheme.accentSoft, text: MetasequoiaTheme.accent, identifier: "regenerateAISkinDesign") {
+          actionButton("✦ 重新生成", fill: MetasequoiaTheme.accentSoft, text: MetasequoiaTheme.accent, prominent: false,
+                       identifier: "regenerateAISkinDesign") {
             generate()
           }
           .disabled(!hasPrompt || model.busy)
@@ -350,11 +352,40 @@ struct AISkinDesignView: View {
       .padding(.top, 10)
       .padding(.bottom, 10)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea(edges: .bottom))
+    .background(glass ? .clear : MetasequoiaTheme.canvas, ignoresSafeAreaEdges: .bottom)
   }
 
-  private func actionButton(_ title: String, fill: Color, text: Color, identifier: String,
-                            action: @escaping () -> Void) -> some View {
+  /// iOS 26 起底栏浮在页面上，不画分隔线和底色。
+  private static var glassBar: Bool {
+    if #available(iOS 26, *) { return true }
+    return false
+  }
+
+  /// 底栏按钮。iOS 26 起是浮在页面上的玻璃胶囊：强调色填充的按钮用 `glassProminent`，浅色的「重新生成」用 `glass` 配强调色文字，禁用时由系统变灰；更早的系统沿用设计稿的圆角色块。
+  @ViewBuilder private func actionButton(_ title: String, fill: Color, text: Color, prominent: Bool = true,
+                                         identifier: String, action: @escaping () -> Void) -> some View {
+    if #available(iOS 26, *) {
+      let label = Text(title)
+        .font(.system(size: 17, weight: .semibold))
+        .lineLimit(1).minimumScaleFactor(0.8)
+        .frame(maxWidth: .infinity)
+        .frame(height: 36)
+      Group {
+        if !prominent {
+          Button(action: action) { label.foregroundStyle(MetasequoiaTheme.accent) }.buttonStyle(.glass)
+        } else {
+          Button(action: action) { label }.buttonStyle(.glassProminent)
+        }
+      }
+      .buttonBorderShape(.capsule).controlSize(.large).tint(MetasequoiaTheme.accent)
+      .accessibilityIdentifier(identifier)
+    } else {
+      legacyActionButton(title, fill: fill, text: text, identifier: identifier, action: action)
+    }
+  }
+
+  private func legacyActionButton(_ title: String, fill: Color, text: Color, identifier: String,
+                                  action: @escaping () -> Void) -> some View {
     Button(action: action) {
       Text(title)
         .font(.system(size: 17, weight: .semibold))

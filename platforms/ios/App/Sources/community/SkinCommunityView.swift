@@ -409,7 +409,7 @@ struct CommunitySkinDetail: View {
         }
         if busy { ProgressView() }
       }.padding()
-    }.navigationTitle("皮肤详情").navigationBarTitleDisplayMode(.inline)
+    }.designCanvasBackground().navigationTitle("皮肤详情").navigationBarTitleDisplayMode(.inline)
       .task {
         request.appear()
         run { id in

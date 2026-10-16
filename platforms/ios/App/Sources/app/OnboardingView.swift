@@ -684,7 +684,7 @@ struct OnboardingView: View {
       .padding(.horizontal, 22)
       .padding(.vertical, 30)
     }
-    .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+    .designCanvasBackground()
     .tint(MetasequoiaTheme.accent)
     .navigationTitle("启用指南")
     .navigationBarTitleDisplayMode(.inline)

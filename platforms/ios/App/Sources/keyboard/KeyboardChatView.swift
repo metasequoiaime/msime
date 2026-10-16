@@ -116,76 +116,45 @@ struct KeyboardTryoutView: View {
   @FocusState private var focused: Bool
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: 8) {
-        Image("EveryAPI").resizable().scaledToFit().frame(width: 22, height: 22)
-        Text("EveryAPI").font(.subheadline.weight(.semibold))
-        Spacer()
-        if chat.loadingAccount { ProgressView() }
-        else if chat.loginNeeded || chat.accountID == nil {
-          Button(chat.loginNeeded ? "登录使用 AI" : "重新连接") {
-            if chat.loginNeeded { showAccount = true }
-            else { Task { await chat.loadAccount() } }
-          }.font(.caption).accessibilityIdentifier("keyboardChatAccountButton")
-        }
-      }.padding(.horizontal, 16).padding(.vertical, 10)
-      Divider()
-      ScrollViewReader { proxy in
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 16) {
-            if chat.messages.isEmpty {
-              VStack(alignment: .leading, spacing: 12) {
-                Label("边聊天，边试键盘", systemImage: "keyboard").font(.title3.bold())
-                Text("长按地球键切换到水杉输入法。试试你的皮肤、输入方案和模糊音，再发一条消息给 AI。").foregroundStyle(.secondary)
-                Text("发送后，本次对话会经水杉后端交由 EveryAPI 处理。").font(.footnote).foregroundStyle(.secondary)
-              }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+    ScrollViewReader { proxy in
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 16) {
+          if chat.messages.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+              Label("边聊天，边试键盘", systemImage: "keyboard").font(.title3.bold())
+              Text("长按地球键切换到水杉输入法。试试你的皮肤、输入方案和模糊音，再发一条消息给 AI。").foregroundStyle(.secondary)
+              Text("发送后，本次对话会经水杉后端交由 EveryAPI 处理。").font(.footnote).foregroundStyle(.secondary)
+            }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+              .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+          }
+          ForEach(chat.messages) { message in
+            HStack {
+              if message.role == "user" { Spacer(minLength: 36) }
+              Text(message.text).textSelection(.enabled).padding(13)
+                .foregroundStyle(message.role == "user" ? MetasequoiaTheme.onAccent : Color.primary)
+                .background(message.role == "user" ? MetasequoiaTheme.accent : MetasequoiaTheme.surface,
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+              if message.role != "user" { Spacer(minLength: 36) }
+            }.id(message.id)
+          }
+          if chat.sending { HStack { ProgressView(); Text("正在回复…").font(.footnote).foregroundStyle(.secondary) } }
+          if let error = chat.error {
+            VStack(alignment: .leading, spacing: 8) {
+              Text(error).font(.footnote).foregroundStyle(.secondary)
+              if chat.messages.last?.role == "user" && !chat.loginNeeded { Button("重试") { chat.retry() } }
             }
-            ForEach(chat.messages) { message in
-              HStack {
-                if message.role == "user" { Spacer(minLength: 36) }
-                Text(message.text).textSelection(.enabled).padding(13)
-                  .foregroundStyle(message.role == "user" ? MetasequoiaTheme.onAccent : Color.primary)
-                  .background(message.role == "user" ? MetasequoiaTheme.accent : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                if message.role != "user" { Spacer(minLength: 36) }
-              }.id(message.id)
-            }
-            if chat.sending { HStack { ProgressView(); Text("正在回复…").font(.footnote).foregroundStyle(.secondary) } }
-            if let error = chat.error {
-              VStack(alignment: .leading, spacing: 8) {
-                Text(error).font(.footnote).foregroundStyle(.secondary)
-                if chat.messages.last?.role == "user" && !chat.loginNeeded { Button("重试") { chat.retry() } }
-              }
-            } else if !chat.sending && chat.messages.last?.role == "user" {
-              Button("重新发送") { chat.retry() }
-            }
-            Color.clear.frame(height: 1).id("bottom")
-          }.padding(16)
-        }.background(Color(uiColor: .systemGroupedBackground))
-          .onChange(of: chat.messages.count) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
-          .onChange(of: chat.sending) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+          } else if !chat.sending && chat.messages.last?.role == "user" {
+            Button("重新发送") { chat.retry() }
+          }
+          Color.clear.frame(height: 1).id("bottom")
+        }.padding(16)
       }
-      Divider()
-      HStack(spacing: 10) {
-        TextField("输入消息，试试键盘", text: $draft).focused($focused)
-          .padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
-          .accessibilityIdentifier("keyboardTryoutField")
-          .onChange(of: draft) { _, newValue in if newValue.count > 2000 { draft = String(newValue.prefix(2000)) } }
-        if chat.sending {
-          Button { chat.cancel() } label: { Image(systemName: "stop.circle.fill").font(.title) }
-            .accessibilityLabel("停止回复")
-        } else {
-          Button {
-            if chat.loginNeeded { showAccount = true; return }
-            let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return }
-            chat.send(text); draft = ""
-          } label: { Image(systemName: "arrow.up.circle.fill").font(.title) }
-          .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!chat.loginNeeded && chat.accountID == nil))
-          .accessibilityLabel("发送消息").accessibilityIdentifier("keyboardChatSend")
-        }
-      }.padding(12)
-    }.navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+      .onChange(of: chat.messages.count) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+      .onChange(of: chat.sending) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+    }
+    .designCanvasBackground()
+    .chatBars(header: { header }, composer: { composer })
+    .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .navigationBarTrailing) {
           if focused { Button("收起键盘") { focused = false }.accessibilityIdentifier("dismissKeyboardButton") }
@@ -213,5 +182,89 @@ struct KeyboardTryoutView: View {
       .confirmationDialog("开始新对话？当前消息将被清空。", isPresented: $clearConfirmation, titleVisibility: .visible) {
         Button("新对话", role: .destructive) { chat.clear() }
       }
+  }
+
+  /// 服务商和登录入口。
+  private var header: some View {
+    HStack(spacing: 8) {
+      Image("EveryAPI").resizable().scaledToFit().frame(width: 22, height: 22)
+      Text("EveryAPI").font(.subheadline.weight(.semibold))
+      Spacer()
+      if chat.loadingAccount { ProgressView() }
+      else if chat.loginNeeded || chat.accountID == nil {
+        Button(chat.loginNeeded ? "登录使用 AI" : "重新连接") {
+          if chat.loginNeeded { showAccount = true }
+          else { Task { await chat.loadAccount() } }
+        }.font(.caption).accessibilityIdentifier("keyboardChatAccountButton")
+      }
+    }.padding(.horizontal, 16).padding(.vertical, 10)
+  }
+
+  private var sendDisabled: Bool {
+    draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!chat.loginNeeded && chat.accountID == nil)
+  }
+
+  private func send() {
+    if chat.loginNeeded { showAccount = true; return }
+    let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else { return }
+    chat.send(text); draft = ""
+  }
+
+  /// 输入栏。iOS 26 起是浮在对话上的玻璃胶囊输入框加一枚强调色玻璃圆按钮，与系统「信息」的输入栏同一种做法；更早的系统沿用圆角输入框和图标按钮。
+  @ViewBuilder private var composer: some View {
+    if #available(iOS 26, *) {
+      HStack(spacing: 10) {
+        field.padding(.horizontal, 16).frame(minHeight: 44)
+          .glassEffect(.regular.interactive(), in: Capsule())
+        Group {
+          if chat.sending {
+            Button { chat.cancel() } label: { Image(systemName: "stop.fill").font(.system(size: 15, weight: .semibold)).frame(width: 30, height: 30) }
+              .accessibilityLabel("停止回复")
+          } else {
+            Button(action: send) { Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).frame(width: 30, height: 30) }
+              .disabled(sendDisabled)
+              .accessibilityLabel("发送消息").accessibilityIdentifier("keyboardChatSend")
+          }
+        }
+        .buttonStyle(.glassProminent).buttonBorderShape(.circle).tint(MetasequoiaTheme.accent)
+      }.padding(.horizontal, 16).padding(.vertical, 8)
+    } else {
+      HStack(spacing: 10) {
+        field.padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        if chat.sending {
+          Button { chat.cancel() } label: { Image(systemName: "stop.circle.fill").font(.title) }
+            .accessibilityLabel("停止回复")
+        } else {
+          Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title) }
+            .disabled(sendDisabled)
+            .accessibilityLabel("发送消息").accessibilityIdentifier("keyboardChatSend")
+        }
+      }.padding(12)
+    }
+  }
+
+  private var field: some View {
+    TextField("输入消息，试试键盘", text: $draft).focused($focused)
+      .accessibilityIdentifier("keyboardTryoutField")
+      .onChange(of: draft) { _, newValue in if newValue.count > 2000 { draft = String(newValue.prefix(2000)) } }
+  }
+}
+
+private extension View {
+  /// 对话页上下两条栏。iOS 26 起放进 `safeAreaBar`，对话滚到栏下面时与导航栏一样按滚动边缘效果渐隐，不画分隔线和实色底；更早的系统用分隔线隔开，垫页面色。
+  @ViewBuilder func chatBars<Header: View, Composer: View>(@ViewBuilder header: () -> Header,
+                                                          @ViewBuilder composer: () -> Composer) -> some View {
+    if #available(iOS 26, *) {
+      safeAreaBar(edge: .top, spacing: 0) { header() }
+        .safeAreaBar(edge: .bottom, spacing: 0) { composer() }
+    } else {
+      safeAreaInset(edge: .top, spacing: 0) {
+        VStack(spacing: 0) { header(); Divider() }.background(MetasequoiaTheme.canvas, ignoresSafeAreaEdges: [])
+      }
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        VStack(spacing: 0) { Divider(); composer() }.background(MetasequoiaTheme.canvas)
+      }
+    }
   }
 }

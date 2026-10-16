@@ -28,8 +28,7 @@ struct CommunitySearchField: View {
         Button { text = ""; submit() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
           .accessibilityLabel("清除搜索")
       }
-    }.padding(.horizontal, 13).frame(height: 44)
-      .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+    }.designSearchFieldBackground()
   }
 }
 struct CommunityAuthorLabel: View {

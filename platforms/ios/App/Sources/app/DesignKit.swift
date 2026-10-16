@@ -989,6 +989,26 @@ extension View {
   }
 }
 
+extension View {
+  /// 页面底部固定的操作栏（AI 设计皮肤的「生成皮肤」等）。iOS 26 起放进 `safeAreaBar`，按钮浮在内容上，滚到下面的内容按滚动边缘效果渐隐；更早的系统放在安全区内边距里，由操作栏自己画分隔线和底色。
+  @ViewBuilder func designActionBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+    if #available(iOS 26, *) {
+      safeAreaBar(edge: .bottom, spacing: 0) { bar() }
+    } else {
+      safeAreaInset(edge: .bottom, spacing: 0) { bar() }
+    }
+  }
+
+  /// 搜索框的外形，设置首页和社区列表共用：44pt 高的胶囊。iOS 26 起是可交互的玻璃胶囊，与分段控件、标签栏同一种材质；更早的系统填设计稿的分段底色。
+  @ViewBuilder func designSearchFieldBackground() -> some View {
+    if #available(iOS 26, *) {
+      padding(.horizontal, 14).frame(minHeight: 44).glassEffect(.regular.interactive(), in: Capsule())
+    } else {
+      padding(.horizontal, 14).frame(minHeight: 44).background(MetasequoiaTheme.segBg, in: Capsule())
+    }
+  }
+}
+
 // MARK: - List 与 Form 页面
 
 extension View {

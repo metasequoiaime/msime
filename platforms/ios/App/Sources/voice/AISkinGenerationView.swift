@@ -44,7 +44,7 @@ struct AISkinGenerationView: View {
                   .disabled(saved[proposal.id] != nil).accessibilityIdentifier("saveAISkin_" + proposal.name)
                 Button("发布到社区") { if let value = save(proposal) { publishing = value } }.accessibilityIdentifier("publishAISkin_" + proposal.name)
               }.buttonStyle(.bordered)
-            }.padding().background(Color(uiColor:.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius:16))
+            }.padding().background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius:16))
           }
         }.padding()
       }.navigationTitle("AI 皮肤抽卡").navigationBarTitleDisplayMode(.inline)
