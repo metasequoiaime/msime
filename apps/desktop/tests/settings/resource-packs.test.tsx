@@ -249,7 +249,7 @@ test("a host that bundles the dictionaries never downloads them", async () => {
   });
   expect(packs.client.install).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "下载日文词库" })).toBeNull();
-  expect(screen.queryByText("临时日语词库")).toBeNull();
+  expect(screen.queryByText(/临时日语需要它/)).toBeNull();
 });
 
 test("a host without a resource pack service never asks for one", async () => {
@@ -484,7 +484,7 @@ test("an installed Japanese dictionary leaves no row behind", async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
   expect(screen.queryByRole("button", { name: "下载日文词库" })).toBeNull();
-  expect(screen.queryByText("临时日语词库")).toBeNull();
+  expect(screen.queryByText(/临时日语需要它/)).toBeNull();
 });
 
 test("the macOS handwriting panel downloads its model once and recognises the waiting ink after", async () => {

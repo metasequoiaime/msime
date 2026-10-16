@@ -103,7 +103,10 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   expect(screen.getByRole("button", { name: "悬浮工具栏" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(screen.getByRole("group", { name: "输入模式切换快捷键" })).toBeTruthy();
-  expect(screen.getByRole("group", { name: "面板快捷键" })).toBeTruthy();
+  // 2-in-1 不是鸿蒙手机：面板快捷键并进「按键速查」。
+  expect(
+    within(screen.getByRole("region", { name: "按键速查" })).getByText("打开屏幕键盘"),
+  ).toBeTruthy();
   expect(screen.getByRole("switch", { name: "数字键选词" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   selectSettingsTab("候选翻译");

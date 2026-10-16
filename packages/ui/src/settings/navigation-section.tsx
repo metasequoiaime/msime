@@ -19,6 +19,8 @@ export interface NavigationSectionProps {
   linux: boolean;
   /** HarmonyOS 手机的「外接键盘快捷键」页以「外接键盘翻页键」承载翻页键：用设计的标签，没有鼠标滚轮，直接在「翻页」组里排成两列网格，legend 只给读屏。 */
   harmonyPhone?: boolean;
+  /** 宿主读 Tab 和 PageUp/PageDown 两组翻页键（`HostCapabilities.tab_page_paging_switches`）。为假时（macOS）两组固定开启，不列出它们的复选框。缺省为真。 */
+  tabPageSwitches?: boolean;
   onChange: (next: CandidatePagingChange) => void;
 }
 
@@ -28,13 +30,22 @@ export function NavigationSection({
   wordCharacter,
   linux,
   harmonyPhone = false,
+  tabPageSwitches = true,
   onChange,
 }: NavigationSectionProps) {
+  const items = navigationShortcutItems(navigation, harmonyPhone).filter(
+    ({ value }) => tabPageSwitches || (value !== "tab" && value !== "page_up_down"),
+  );
   const checks = (
     <Checks
       legend={harmonyPhone ? "外接键盘翻页键" : "翻页方式"}
       layout={harmonyPhone ? "grid" : "list"}
-      items={navigationShortcutItems(navigation, harmonyPhone)}
+      description={
+        tabPageSwitches
+          ? undefined
+          : "Shift+Tab / Tab 和 PageUp / PageDown 在候选窗口显示时始终翻页"
+      }
+      items={items}
       onChange={(key, enabled) =>
         onChange(pagingShortcutChange(navigation, wordCharacter, key, enabled))
       }

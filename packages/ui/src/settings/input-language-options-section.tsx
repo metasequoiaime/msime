@@ -3,7 +3,7 @@ import { GroupList } from "../core/platform-controls";
 import { CandidateEnglishGlossSection } from "./candidate-english-gloss-section";
 import { CandidatePronunciationSection } from "./candidate-pronunciation-section";
 import { EnglishSuggestionsSection } from "./english-suggestions-section";
-import { MixedInputSection } from "./mixed-input-section";
+import { MixedInputMoreRows, MixedInputSection } from "./mixed-input-section";
 import type { MixedInputPreferences } from "./mixed-input-preferences";
 
 export interface InputLanguageOptionsSectionProps {
@@ -12,6 +12,8 @@ export interface InputLanguageOptionsSectionProps {
   mixedInput?: MixedInputPreferences;
   /** 本版本带临时日文，决定是否列出日文混输开关；见 `MixedInputSectionProps.temporaryJapanese`。缺省为 true。 */
   temporaryJapanese?: boolean;
+  /** 是否画「触发字符数」一行；宿主固定这个值（如 macOS）时传 false，与输入页同一个能力位 `showMixedInputMinimumPrefix`。缺省为 true。 */
+  showMixedInputMinimumPrefix?: boolean;
   includeCandidateControls?: boolean;
   showCandidateEnglishGloss?: boolean;
   candidateEnglishGloss?: boolean;
@@ -35,6 +37,7 @@ export function InputLanguageOptionsSection({
   includeMixed = false,
   mixedInput,
   temporaryJapanese = true,
+  showMixedInputMinimumPrefix = true,
   includeCandidateControls = false,
   showCandidateEnglishGloss = false,
   candidateEnglishGloss,
@@ -53,11 +56,18 @@ export function InputLanguageOptionsSection({
   const content = (
     <>
       {includeMixed && mixedInput && onMixedInputChange && (
-        <MixedInputSection
-          preferences={mixedInput}
-          temporaryJapanese={temporaryJapanese}
-          onChange={onMixedInputChange}
-        />
+        <>
+          <MixedInputSection
+            preferences={mixedInput}
+            showMinimumPrefix={showMixedInputMinimumPrefix}
+            onChange={onMixedInputChange}
+          />
+          <MixedInputMoreRows
+            preferences={mixedInput}
+            temporaryJapanese={temporaryJapanese}
+            onChange={onMixedInputChange}
+          />
+        </>
       )}
       {betweenMixedAndCandidates}
       {includeCandidateControls && showCandidateEnglishGloss && onCandidateEnglishGlossChange && (

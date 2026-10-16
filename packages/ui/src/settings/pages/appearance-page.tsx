@@ -69,6 +69,7 @@ export function AppearanceSettingsPage() {
     showExpandCandidates ||
     showCandidateFollowCursor;
   const surfaceName = mobilePlatform ? "候选栏" : "候选窗口";
+  const shuangpinPreeditHere = Boolean(client.touchKeyboardSchemes) && showShuangpinPreedit;
   if (harmonyPlatform && mobilePlatform) {
     return (
       <SettingsPageFieldset disabled={busy} hidden={page !== "appearance"} ariaLabel={surfaceName}>
@@ -270,15 +271,15 @@ export function AppearanceSettingsPage() {
           />
         </CandidateWindowStyleSection>,
       )}
-      {/* 触屏键盘只剩「双拼预编辑」一行，不显示双拼时整组不出现。 */}
-      {(!mobilePlatform || showShuangpinPreedit) &&
+      {/* 触屏键盘只剩「双拼预编辑」一行，不显示双拼时整组不出现。没有触屏方案的宿主，双拼预编辑在「输入 › 方案」的双拼详情里，只在双拼方案下出现，这里不再画；有触屏方案的宿主（含鸿蒙二合一）的方案组不画双拼各行，仍在这里设置。判断与输入页用同一个条件 `client.touchKeyboardSchemes`，保证这一行恰好出现在一个页面上。 */}
+      {(!mobilePlatform || shuangpinPreeditHere) &&
         panel(
           "preedit",
           <GroupList title="预编辑">
             <PreeditSettingsSection
               preferences={draft}
               mobile={mobilePlatform}
-              showShuangpinPreedit={showShuangpinPreedit}
+              showShuangpinPreedit={shuangpinPreeditHere}
               onChange={appearanceActions.onPreferencesChange}
             />
           </GroupList>,
