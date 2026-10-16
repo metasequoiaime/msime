@@ -1448,6 +1448,91 @@ fn wubi_auto_commit_unique_reaches_the_runtime_without_waiting_for_the_engine() 
 }
 
 #[test]
+fn backspace_selection_preference_reaches_real_sessions_and_live_updates() {
+    for initial in [false, true] {
+        for live_change in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = |name| {
+                let path = directory.path().join(name);
+                std::fs::create_dir_all(&path).unwrap();
+                path
+            };
+            let resources = path("resources");
+            let dictionaries = path("dictionaries");
+            let fixture = "CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                INSERT INTO tbl_1_w VALUES('wo','w','我',100);
+                CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                INSERT INTO tbl_1_s VALUES('shi','s','是',100);
+                CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";
+            for root in [&resources, &dictionaries] {
+                rusqlite::Connection::open(root.join("msime-pinyin.db"))
+                    .unwrap()
+                    .execute_batch(fixture)
+                    .unwrap();
+            }
+            let mut preferences = Preferences {
+                backspace_reverts_selection: initial,
+                candidate_page_size: 9,
+                ..chinese_preferences()
+            };
+            let options = json!({ "api_version": 1, "resources": resources,
+                "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries,
+                "preferences": preferences, "phrase_preedit": true })
+            .to_string();
+            let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+            assert_eq!(created["ok"], true, "{created}");
+            let handle = created["value"]["session"].as_u64().unwrap();
+            read(msime_client_focus(handle, true));
+            let view = type_letters(handle, b"woshi");
+            let index = view["candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .position(|candidate| candidate["text"] == "我")
+                .expect("synthetic partial candidate");
+            let generation = view["generation"].as_u64().unwrap();
+            let held = read(msime_client_select(handle, generation, index));
+            assert_eq!(held["value"]["view"]["phrase_prefix"], "我", "{held}");
+            assert_eq!(held["value"]["view"]["editing_text"], "shi", "{held}");
+            if live_change {
+                preferences.backspace_reverts_selection = !initial;
+                assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+            }
+            for expected in ["sh", "s"] {
+                let edited = read(msime_client_command(handle, 0));
+                assert_eq!(edited["value"]["view"]["phrase_prefix"], "我", "{edited}");
+                assert_eq!(
+                    edited["value"]["view"]["editing_text"], expected,
+                    "{edited}"
+                );
+                assert!(edited["value"]["commit"].is_null(), "{edited}");
+            }
+            let ended = read(msime_client_command(handle, 0));
+            if preferences.backspace_reverts_selection {
+                assert_eq!(ended["value"]["view"]["editing_text"], "wo", "{ended}");
+                assert!(ended["value"]["commit"].is_null(), "{ended}");
+            } else {
+                assert_eq!(ended["value"]["commit"], "我", "{ended}");
+                assert_eq!(ended["value"]["view"]["editing_text"], "", "{ended}");
+                let next = read(msime_client_command(handle, 0));
+                assert_eq!(next["value"]["handled"], false, "{next}");
+                assert!(next["value"]["commit"].is_null(), "{next}");
+            }
+            assert_eq!(
+                ended["value"]["view"]["phrase_prefix"]
+                    .as_str()
+                    .unwrap_or_default(),
+                "",
+                "{ended}"
+            );
+            read(msime_client_destroy(handle));
+        }
+    }
+}
+
+#[test]
 fn wubi_candidate_selection_updates_while_engine_preferences_are_deferred() {
     let root = tempfile::tempdir().unwrap();
     let handle = test_host(root.path());

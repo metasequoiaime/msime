@@ -409,6 +409,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "wubi_mixed_pinyin",
     "wubi_auto_commit_unique",
     "wubi_candidate_selection",
+    // 退格回退已选词段由 Runtime 立即应用，不等待组字结束。
+    "backspace_reverts_selection",
     // Laid over the document by `hostOverrides` from the iOS switch, so a change to that switch reaches the live session too.
     "cloud_candidates",
     // Laid over the document from the iOS page size, like cloud candidates; the session applies it once idle, so an open composition keeps its page.

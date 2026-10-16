@@ -4,6 +4,42 @@
 
 use super::*;
 
+#[test]
+fn backspace_selection_preference_keeps_legacy_default_and_persists_disabled() {
+    let defaults = Preferences::default();
+    assert!(defaults.backspace_reverts_selection);
+    let legacy = serde_json::to_value(&defaults).unwrap();
+    assert!(legacy.get("backspace_reverts_selection").is_none());
+    assert!(
+        serde_json::from_value::<Preferences>(legacy.clone())
+            .unwrap()
+            .backspace_reverts_selection
+    );
+    let mut malformed = legacy;
+    malformed["backspace_reverts_selection"] = "false".into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let disabled = Preferences {
+        backspace_reverts_selection: false,
+        ..defaults
+    };
+    let saved = store.save(0, disabled).unwrap();
+    assert!(!saved.preferences.backspace_reverts_selection);
+    assert!(
+        !store
+            .load()
+            .unwrap()
+            .preferences
+            .backspace_reverts_selection
+    );
+    assert_eq!(
+        serde_json::to_value(&saved.preferences).unwrap()["backspace_reverts_selection"],
+        false
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn stale_sweep_does_not_follow_a_replaced_directory() {

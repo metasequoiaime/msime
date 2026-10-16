@@ -1097,6 +1097,9 @@ pub struct Preferences {
         skip_serializing_if = "WubiCandidateSelectionPreferences::is_default"
     )]
     pub wubi_candidate_selection: WubiCandidateSelectionPreferences,
+    /// 普通退格在剩余拼写即将删空时，是否撤回最近一次选词；默认保持原行为。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub backspace_reverts_selection: bool,
     #[serde(default)]
     pub frequency: FrequencyPreferences,
     #[serde(default)]
@@ -2346,6 +2349,7 @@ impl Default for Preferences {
             word_character: WordCharacterPreferences::default(),
             second_third_candidate: SecondThirdCandidatePreferences::default(),
             wubi_candidate_selection: WubiCandidateSelectionPreferences::default(),
+            backspace_reverts_selection: true,
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),

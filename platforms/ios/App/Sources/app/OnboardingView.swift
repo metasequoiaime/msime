@@ -56,6 +56,7 @@ struct InputSettingsView: View {
   @State private var startsInEnglish = false
   @State private var remembersImeMode = false
   @State private var wubiAutoCommitUnique = true
+  @State private var backspaceRevertsSelection = true
   @State private var wubiMixedPinyin = MSIMEAppEdition.wubiMixedPinyinDefault
   @State private var wubiCodeHint = true
   /// 用户导入的辅助码表（#7176），列在「辅助码方案」的内置方案之后。
@@ -462,6 +463,17 @@ struct InputSettingsView: View {
 
   private var moreGroup: some View {
     DesignGroup(title: "更多", footer: footer(.more)) {
+      DesignToggleRow(title: "退格键回退已选候选词",
+                      subtitle: "关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字",
+                      isOn: Binding(get: { backspaceRevertsSelection }, set: { enabled in
+                        backspaceRevertsSelection = enabled
+                        record(MetasequoiaInputSessionBridge.updateSharedPreferences {
+                          $0["backspace_reverts_selection"] = enabled
+                        }, .more)
+                        reloadPreferences()
+                      }))
+        .accessibilityIdentifier("backspaceRevertsSelection")
+      DesignDivider()
       if enabledSchemes.contains(.wubi) {
         DesignToggleRow(title: "五笔拼音混输", subtitle: "五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选",
                         isOn: Binding(get: { wubiMixedPinyin }, set: { enabled in
@@ -551,6 +563,7 @@ struct InputSettingsView: View {
     if let document { WubiProfilePreference.mirror(document) }
     wubiProfile = WubiProfilePreference.profile
     wubiAutoCommitUnique = document?["wubi_auto_commit_unique"] as? Bool ?? true
+    backspaceRevertsSelection = document?["backspace_reverts_selection"] as? Bool ?? true
     wubiMixedPinyin = WubiMixedPinyinPreference.isEnabled(in: document)
     wubiCodeHint = WubiCodeHintPreference.isEnabled(in: document)
     fuzzy = FuzzyPinyinPreference.settings(in: document) ?? .pristine

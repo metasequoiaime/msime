@@ -307,6 +307,10 @@ public final class TypingPage extends ReloadingDetailPage {
         chinese.toggle(single.title(), single.description(),
             preferences.optBoolean(single.key(), single.enabledByDefault()),
             checked -> savePreferences(values -> values.put(single.key(), checked)));
+        InputFeatureToggle backspace = InputFeatureToggle.BACKSPACE_REVERTS_SELECTION;
+        chinese.toggle(backspace.title(), backspace.description(),
+            preferences.optBoolean(backspace.key(), backspace.enabledByDefault()),
+            on -> savePreferences(values -> values.put(backspace.key(), on)));
         InputFeatureToggle cloud = InputFeatureToggle.CLOUD_CANDIDATES;
         chinese.toggle(cloud.title(), cloud.description(), preferences.optBoolean(cloud.key(), cloud.enabledByDefault()),
             checked -> savePreferences(values -> values.put(cloud.key(), checked)));

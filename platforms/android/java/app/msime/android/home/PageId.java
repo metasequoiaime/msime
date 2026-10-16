@@ -34,7 +34,7 @@ public enum PageId {
     TYPING("TypingPage", "输入", HostDeepLink.TAB_SETTINGS,
         "语言与方案", "普通话", "粤语", "英语", "日语", "韩语", "越南语", "藏语", "添加语言", "中文", "中文字符集", "简体", "繁体", "中英文之间加空格",
         "拼音纠错", "模糊音", "只出单字", "云候选", "辅助码", "启用辅助码", "辅助码方案", "辅助码模式", "在候选栏中显示双拼辅助码", "在候选栏中显示全拼辅助码", "翻译", "候选词翻译",
-        "离线英文释义", "翻译目标语言", "五笔"),
+        "离线英文释义", "翻译目标语言", "五笔", "退格键回退已选候选词"),
     TRANSLATION_SERVICE("TranslationServicePage", "翻译服务", HostDeepLink.TAB_SETTINGS,
         "不使用", "水杉账号", "小牛翻译", "腾讯云机器翻译", "自定义", "DeepLX", "DeepL", "接口地址", "API Key", "App ID",
         "SecretId", "SecretKey", "地域", "测试连接"),
