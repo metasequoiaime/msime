@@ -71,7 +71,8 @@ static inline msime::mac::CandidateLayoutMetrics MSIMECandidateLayoutMetrics(NSF
     msime::mac::CandidateLayoutMetrics metrics;
     metrics.candidateRow = candidateRow;
     metrics.chrome = chrome;
-    metrics.annotationGap = 4.0 * scale;
+    // 注释包在括号里紧贴候选字（「你好(wqvb)」），括号本身就是分隔，不再留空隙。
+    metrics.annotationGap = 0.0;
     metrics.annotationLine = MSIMECandidateTextHeight(@"", font);
     metrics.translationGap = font.pointSize * 0.65;
     metrics.translationLine = MSIMECandidateGlossHeight(@"X", glossFont, scale);

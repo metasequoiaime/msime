@@ -11547,6 +11547,11 @@ int main(int argc, char **argv) {
         assert([MSIMEChineseOutputString(@"汉语", NO) isEqual:@"汉语"]);
         assert([CandidateDisplay(@{@"text": @"汉语", @"annotation": @"(aB)"}, YES) isEqual:@"漢語(aB)"]);
         assert([CandidateDisplay(@{@"text": @"汉语", @"annotation": NSNull.null}, NO) isEqual:@"汉语"]);
+        // 注释一律包在括号里、紧贴候选字：裸的辅助码加括号，已带半角或全角括号的不重复加，首尾空白去掉，空白注释不显示。
+        assert([CandidateDisplay(@{@"text": @"你好", @"annotation": @"wqvb"}, NO) isEqual:@"你好(wqvb)"]);
+        assert([CandidateDisplay(@{@"text": @"你好", @"annotation": @" wqvb wqv "}, NO) isEqual:@"你好(wqvb wqv)"]);
+        assert([CandidateDisplay(@{@"text": @"深圳市", @"annotation": @"（广东省）"}, NO) isEqual:@"深圳市（广东省）"]);
+        assert([CandidateDisplay(@{@"text": @"你好", @"annotation": @"  "}, NO) isEqual:@"你好"]);
         assert(([CandidateDisplay(@{@"text":@"汉语", @"corrected":@YES, @"annotation":@"(aB)", @"source":@2}, YES) isEqual:@"漢語*(aB) ☁️"]));
         for (id corrected in @[@NO, @1, @"true", NSNull.null])
             assert(([CandidateDisplay(@{@"text":@"汉语", @"corrected":corrected}, NO) isEqual:@"汉语"]));
