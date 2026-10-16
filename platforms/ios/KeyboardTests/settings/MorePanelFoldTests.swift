@@ -249,7 +249,7 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertEqual(heightConstraint.constant, start + preview, accuracy: 0.5)
   }
 
-  /// 调节条开着时按键照常可用，所以按键打开的面板（这里是数字页的符号键）不会结束调整、也不会丢掉预览的高度；与 Android 一样，只有「取消」「完成」或收起键盘才结束，收起键盘按「取消」处理。
+  /// 调节条开着时按键照常可用，所以按键打开的面板（这里是底行的符号键）不会结束调整、也不会丢掉预览的高度；与 Android 一样，只有「取消」「完成」或收起键盘才结束，收起键盘按「取消」处理。
   func testKeyboardHeightPreviewSurvivesKeyPanelsAndIsCancelledWhenTheKeyboardGoesAway() throws {
     KeyboardLayoutPreference.heightAdjustment = 0
     let controller = makeController(width: 390)

@@ -925,7 +925,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   /// 同一个已打开的数字页跟随顶部入口设置变化，表情和符号互斥且真实动作可达。
-  func testNumberLayerKeepsEmojiFallbackWhenToolbarEntryIsUnavailable() throws {
+  func testNumberLayerKeepsEmojiFallbackWhenToolbarEntryIsUnavailable() async throws {
     let previous = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
     let previousScheme = InputSchemePreference.scheme
     let previousHidden = TouchToolbarLocalPreference.hidden
@@ -944,35 +944,36 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     let emoji = try button("layerEmojiKey", in: controller)
     let symbols = try button("symbolPanelKey", in: controller)
-    func reload(emojiExpected: Bool) {
+    func reload(emojiExpected: Bool) async throws {
       controller.viewWillAppear(false)
       let deadline = Date().addingTimeInterval(15)
       while emoji.isHidden == emojiExpected && Date() < deadline {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        // 让出主线程，允许后台偏好读取的主队列回调更新键面。
+        try await Task.sleep(for: .milliseconds(50))
       }
       controller.view.layoutIfNeeded()
       XCTAssertEqual(!emoji.isHidden, emojiExpected)
       XCTAssertEqual(symbols.isHidden, emojiExpected)
       XCTAssertGreaterThan((emojiExpected ? emoji : symbols).bounds.width, 20)
     }
-    reload(emojiExpected: false)
+    try await reload(emojiExpected: false)
     XCTAssertEqual(symbols.configuration?.title, "符号")
     symbols.sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
     try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "closeSymbolPanel" } as? UIControl)
       .sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": false] })
-    reload(emojiExpected: true)
+    try await reload(emojiExpected: true)
     emoji.sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardEmojiPicker" })
     try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "closeEmojiPicker" } as? UIControl)
       .sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": true] })
-    reload(emojiExpected: false)
+    try await reload(emojiExpected: false)
     TouchToolbarLocalPreference.hidden = true
-    reload(emojiExpected: true)
+    try await reload(emojiExpected: true)
     TouchToolbarLocalPreference.hidden = false
-    reload(emojiExpected: false)
+    try await reload(emojiExpected: false)
     controller.viewDidDisappear(false)
   }
 
