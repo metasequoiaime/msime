@@ -293,7 +293,7 @@ static BOOL MSIMEStrictUnsignedIntegerValue(id value, NSUInteger *result) {
     return YES;
 }
 
-// 视图里的 `source` 是 Engine 的 CandidateSource（AiSuggestion = 3），不是 apply 接口的来源编号（0 云、1 AI）；按 1 判断会把用户词库的词当成 AI 候选，候选里有用户词时就跳过 AI 缓存（#6888）。AI 座位上的占位行（12）不算 AI 候选，缓存的回答照样替换它。
+// 视图里的 `source` 是 Engine 的 CandidateSource（AiSuggestion = 3），不是 apply 接口的来源编号（0 云、1 AI）；按 1 判断会把用户词库的词当成 AI 候选，候选里有用户词时就跳过 AI 缓存（#6888）。旧的 AI 占位行（12）也不算 AI 候选。
 static BOOL MSIMEViewContainsAICandidate(NSDictionary *view) {
     for (NSDictionary *candidate in view[@"candidates"])
         if ([candidate isKindOfClass:NSDictionary.class] &&
@@ -301,7 +301,7 @@ static BOOL MSIMEViewContainsAICandidate(NSDictionary *view) {
     return NO;
 }
 
-// Engine CandidateSource::AiPending：AI 座位上的占位行。
+// Engine CandidateSource::AiPending：AI 占位行。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），画法留着，旧的库或数据里出现时仍按占位行画。
 static BOOL MSIMECandidateIsAIPlaceholder(NSDictionary *candidate) {
     return [candidate isKindOfClass:NSDictionary.class] && MSIMEStrictInteger(candidate[@"source"], -1) == 12;
 }
@@ -2181,7 +2181,7 @@ static NSImage *MSIMECandidateLogoImage() {
         // poison this query identity. A later render may observe corrected
         // settings and should be allowed to construct a fresh request.
         _aiQuery = nil;
-        // 这次发不出请求：AI 座位上的占位行不能一直等下去，换成「—」（#6888）。已经换过时 applied 为 NO，不会再触发渲染。
+        // 这次发不出请求：告诉 Host API 没有回答（#6888）。共享内核已经不放 AI 占位行，它答 applied:NO、不改候选列表。
         NSDictionary *resolved = [_session resolveOnlineCandidatesForSource:1 query:online error:nil];
         if (MSIMEStrictBoolean(resolved[@"applied"])) [self apply:resolved];
         return;
@@ -2236,19 +2236,20 @@ static NSImage *MSIMECandidateLogoImage() {
                     ? @{ @"online": [postOnline copy], @"config": [postConfig copy] } : nil;
                 [current apply:transition];
             } else {
-                // 回答为空、失败或被拒：AI 座位上的占位行换成「—」，留到组字变化为止，后面的候选不挪位（#6888）。同一组字不再重发：查询身份留着，组字一变它就不相等了。
+                // 回答为空、失败或被拒：告诉 Host API 这次没有回答（#6888）。共享内核已经不放 AI 占位行，它答 applied:NO、不改候选列表。
                 NSDictionary *resolved = [session resolveOnlineCandidatesForSource:1 query:query[@"online"] error:nil];
                 if (MSIMEStrictBoolean(resolved[@"applied"])) {
                     [current apply:resolved];
-                } else {
-                    // 没有占位行可换（AI 座位没开）时照旧：等本地候选重建后的下一次渲染再试。
+                } else if (texts.count) {
+                    // 有回答却被拒：等本地候选重建后的下一次渲染再试。
                     current->_aiQuery = nil;
                 }
+                // 回答为空或失败：同一组字不再重发，查询身份留着，组字一变它就不相等了。
             }
         }];
         [owner->_aiBatch start];
     }];
-    // 输入法进入事件跟踪模式时仍启动请求，避免 AI 占位行一直等待一个未发出的请求。
+    // 输入法进入事件跟踪模式时仍启动请求，避免 AI 回答一直等一个未发出的请求。
     [NSRunLoop.mainRunLoop addTimer:_aiTimer forMode:NSRunLoopCommonModes];
 }
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
@@ -7066,7 +7067,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     NSString *scriptAnnotation = geometry.scriptAnnotations[slot];
     if (scriptAnnotation.length)
         button.accessibilityLabel = [NSString stringWithFormat:@"%@，插件注释：%@", button.accessibilityLabel, scriptAnnotation];
-    // AI 座位上的占位行画的是「…」（等回答）或「—」（没有回答），读屏读它的意思，不读标点；说法和 iOS、Android 的一样。
+    // AI 占位行画的是「…」（等回答）或「—」（没有回答），读屏读它的意思，不读标点；说法和 iOS、Android 的一样。共享内核已经不再产出这种行，这里留着。
     if (MSIMECandidateIsAIPlaceholder(candidate)) {
         NSString *state = [candidate[@"text"] isEqual:@"…"] ? @"AI 候选等待中" : @"AI 候选没有结果";
         button.accessibilityLabel = number.length ? [NSString stringWithFormat:@"%@  %@", number, state] : state;

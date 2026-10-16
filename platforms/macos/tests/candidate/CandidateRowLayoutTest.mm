@@ -525,7 +525,7 @@ int main(void)
         bitmap = [wideScripted bitmapImageRepForCachingDisplayInRect:wideScripted.bounds];
         [wideScripted cacheDisplayInRect:wideScripted.bounds toBitmapImageRep:bitmap];
 
-        // 读屏：高亮的那一行报告自己被选中，别的行和翻页按钮都不报告；每画一页就请求朗读高亮的那一行。AI 座位上的占位行读成它的意思，不读省略号或破折号。
+        // 读屏：高亮的那一行报告自己被选中，别的行和翻页按钮都不报告；每画一页就请求朗读高亮的那一行。AI 占位行（来源 12，共享内核已经不再产出）读成它的意思，不读省略号或破折号。
         appearance.vertical = NO;
         NSDictionary *accessibleBase = @{@"focused": @YES, @"editing_text": @"ceshi", @"page": @0, @"page_count": @2};
         NSArray<NSDictionary *> *(^accessibleRows)(NSUInteger, NSString *) = ^NSArray<NSDictionary *> *(NSUInteger highlighted, NSString *placeholder) {

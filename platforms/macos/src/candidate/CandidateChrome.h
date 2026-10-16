@@ -150,7 +150,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic, strong) NSFont *numberFont;
 @property(nonatomic) BOOL candidateHighlighted;
 @property(nonatomic) BOOL candidateFixed;
-// AI 座位上的占位行（Engine 候选来源 12）：等回答时是「…」，回答为空或失败后是「—」，画成次要色，选它什么都不上屏。
+// AI 占位行（Engine 候选来源 12）：等回答时是「…」，回答为空或失败后是「—」，画成次要色，选它什么都不上屏。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
 @property(nonatomic) BOOL candidatePending;
 @property(nonatomic, copy) NSString *translation;
 // How each gloss line is read, "\n"-joined parallel to translation. Drawn after its line and never part of what a gloss column commits.

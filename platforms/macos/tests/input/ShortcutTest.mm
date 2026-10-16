@@ -7910,9 +7910,8 @@ static void TestEmptyGlossDoesNotApplyAStaleServiceGeneration() {
 @property(nonatomic) NSUInteger descriptorRequests;
 @property(nonatomic) BOOL rejectNextAI;
 @property(nonatomic, copy) NSString *authToken;
-// resolveOnlineCandidatesForSource: 被调用的次数；resolveApplies 时像 Host API 一样把 AI 座位换成「—」并回 applied。
+// resolveOnlineCandidatesForSource: 被调用的次数。共享内核已经不放 AI 占位行，Host API 对它总是答 applied:NO，这里也一样。
 @property(nonatomic) NSUInteger resolutions;
-@property(nonatomic) BOOL resolveApplies;
 @end
 @implementation AIShortcutSession
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return self.query; }
@@ -7955,10 +7954,7 @@ static void TestEmptyGlossDoesNotApplyAStaleServiceGeneration() {
     (void)error;
     assert(source == 1 && [query isEqual:self.query]);
     ++self.resolutions;
-    if (!self.resolveApplies) return @{ @"applied": @NO, @"view": @{} };
-    self.resolveApplies = NO;
-    return @{ @"applied": @YES, @"view": @{ @"focused": @YES, @"editing_text": @"synthetic",
-        @"candidates": @[@{ @"text": @"本地", @"source": @0 }, @{ @"text": @"—", @"source": @12 }] } };
+    return @{ @"applied": @NO, @"view": @{} };
 }
 @end
 @interface AIShortcutController : CloudShortcutController
@@ -8002,7 +7998,7 @@ static void TestAiCandidateScheduling() {
     [controller cancelAITranslations];
 }
 
-// 输入法在事件跟踪模式中停留时也要启动 AI 请求，不能让已显示的占位行一直等待。
+// 输入法在事件跟踪模式中停留时也要启动 AI 请求，不能让 AI 回答一直等一个未发出的请求。
 static void TestAiCandidateTimerFiresWhileTracking() {
     AIShortcutController *controller = [AIShortcutController alloc];
     controller.aiBatches = [NSMutableArray array];
@@ -8011,7 +8007,6 @@ static void TestAiCandidateTimerFiresWhileTracking() {
         @"query_text": @"nihao", @"cache_key": @"nihao-tracking", @"pinyin_segments": @[@"ni", @"hao"],
         @"ai_context": @"", @"cloud_eligible": @NO, @"ai_eligible": @YES, @"cloud_candidates": @YES,
         @"ai_assistant": @{ @"enabled": @YES, @"candidate_limit": @3 }, @"session_id": @1 };
-    session.resolveApplies = YES;
     [controller setValue:session forKey:@"session"];
     [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
     [controller synchronizeAITranslations];
@@ -8025,8 +8020,7 @@ static void TestAiCandidateTimerFiresWhileTracking() {
     assert(controller.aiBatches.count == 1 && controller.aiBatches[0].started);
     assert([controller valueForKey:@"aiTimer"] == nil);
     controller.aiBatches[0].reply(@[]);
-    NSDictionary *view = [controller valueForKey:@"view"];
-    assert(session.resolutions == 1 && [view[@"candidates"][1][@"text"] isEqual:@"—"]);
+    assert(session.resolutions == 1);
     [controller synchronizeAITranslations];
     assert([controller valueForKey:@"aiTimer"] == nil && controller.aiBatches.count == 1);
     [controller cancelAITranslations];
@@ -8099,8 +8093,8 @@ static void TestAiCandidateRetryAfterRejectedResponse() {
     [controller cancelAITranslations];
 }
 
-// #6888：回答为空时宿主调用 resolve，AI 座位上的占位行换成「—」；同一组字不再重发请求，组字变了才再问。
-static void TestAiPlaceholderResolvesAfterAnEmptyAnswer() {
+// #6888：回答为空时宿主照旧调用 resolve，Host API 答 applied:NO，候选不变；同一组字不再重发请求，组字变了才再问。
+static void TestAnEmptyAiAnswerIsNotAskedAgain() {
     AIShortcutController *controller = [AIShortcutController alloc];
     controller.aiBatches = [NSMutableArray array];
     AIShortcutSession *session = [AIShortcutSession new];
@@ -8108,16 +8102,16 @@ static void TestAiPlaceholderResolvesAfterAnEmptyAnswer() {
         @"query_text": @"nihao", @"cache_key": @"nihao-empty", @"pinyin_segments": @[@"ni", @"hao"],
         @"ai_context": @"", @"cloud_eligible": @NO, @"ai_eligible": @YES, @"cloud_candidates": @YES,
         @"ai_assistant": @{ @"enabled": @YES, @"candidate_limit": @3 }, @"session_id": @1 };
-    session.resolveApplies = YES;
     [controller setValue:session forKey:@"session"];
     [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    NSDictionary *local = @{ @"candidates": @[@{ @"text": @"你好", @"source": @0 }, @{ @"text": @"倪好", @"source": @0 }] };
+    [controller setValue:local forKey:@"view"];
     [controller synchronizeAITranslations];
     [(NSTimer *)[controller valueForKey:@"aiTimer"] fire];
     assert(controller.aiBatches.count == 1);
     controller.aiBatches[0].reply(@[]);
     assert(session.applications == 0 && session.resolutions == 1);
-    NSDictionary *view = [controller valueForKey:@"view"];
-    assert([view[@"candidates"][1][@"text"] isEqual:@"—"] && [view[@"candidates"][1][@"source"] isEqual:@12]);
+    assert([[controller valueForKey:@"view"] isEqual:local]);
     // 同一组字：查询身份还在，不再发请求。
     assert([controller valueForKey:@"aiQuery"] != nil);
     [controller synchronizeAITranslations];
@@ -8151,7 +8145,7 @@ static void TestAiCacheIgnoresUserDictionaryRows() {
     next[@"generation"] = @([next[@"generation"] unsignedLongLongValue] + 1);
     session.query = next;
     [controller setValue:@{ @"candidates": @[@{ @"text": @"用户词", @"source": @1 },
-        @{ @"text": @"…", @"source": @12 }] } forKey:@"view"];
+        @{ @"text": @"本地", @"source": @0 }] } forKey:@"view"];
     [controller synchronizeAITranslations];
     assert(session.applications == 2 && session.descriptorRequests == 2);
     // 已经坐着 AI 候选时不再重放缓存。
@@ -10057,7 +10051,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestAiCandidateTimerFiresWhileTracking(); }
         @autoreleasepool { TestAiCandidatesIgnoreGlossSwitch(); }
         @autoreleasepool { TestAiCandidateRetryAfterRejectedResponse(); }
-        @autoreleasepool { TestAiPlaceholderResolvesAfterAnEmptyAnswer(); }
+        @autoreleasepool { TestAnEmptyAiAnswerIsNotAskedAgain(); }
         @autoreleasepool { TestAiCacheIgnoresUserDictionaryRows(); }
         @autoreleasepool { TestAiCandidateCacheAcrossGenerations(); }
         @autoreleasepool { TestAiCandidateCacheDoesNotSurviveCredentialRotation(); }
