@@ -3673,6 +3673,41 @@ fn fourteen_key_commit_raw_finishes_from_the_highlighted_row() {
     assert!(raw.commit.is_none(), "{:?}", raw.commit);
 }
 
+#[test]
+fn fourteen_key_raw_commit_variants_use_the_real_highlighted_candidate() {
+    for command in [Command::CommitRaw, Command::CommitRawWithoutLearning] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = ai_answer_runtime(directory.path(), 5);
+        runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+        runtime.dispatch(Action::GridKey(b'n')).unwrap();
+        runtime.dispatch(Action::GridKey(b'i')).unwrap();
+        let highlighted = runtime.dispatch(Action::NextCandidate).unwrap().view;
+        let expected = highlighted.candidates[1].text.clone();
+        assert!(highlighted.candidates[1].highlighted);
+        assert_ne!(expected, highlighted.candidates[0].text);
+
+        let committed = runtime.dispatch(Action::Command(command)).unwrap();
+
+        assert_eq!(
+            committed.commit.as_deref(),
+            Some(expected.as_str()),
+            "{command:?}"
+        );
+        assert!(committed.view.editing_text.is_empty());
+        assert!(committed.view.candidates.is_empty());
+
+        // 九键数字与 14 键布局下的硬件字母仍按原文上屏。
+        runtime.set_key_grid(Some(KeyGrid::NineKey)).unwrap();
+        type_characters(&mut runtime, "64");
+        let digits = runtime.dispatch(Action::Command(command)).unwrap();
+        assert_eq!(digits.commit.as_deref(), Some("64"));
+        runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+        type_characters(&mut runtime, "ni");
+        let letters = runtime.dispatch(Action::Command(command)).unwrap();
+        assert_eq!(letters.commit.as_deref(), Some("ni"));
+    }
+}
+
 /// 九键要求方案能打九键，14 键只给全拼；组字中不能换网格。
 #[test]
 fn key_grid_checks_the_scheme_and_the_composition() {
