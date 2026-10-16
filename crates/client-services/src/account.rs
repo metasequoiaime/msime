@@ -301,6 +301,14 @@ pub struct AccountDictionaryChangePage {
     pub has_more: bool,
 }
 
+/// 云同步探测云端词库的结果（`GET /v1/users/me/dictionary/changes?after=&limit=1`）：`changed` 表示自 `after` 以来有改动，`revision` 是这一页的 `next`（没有改动时等于 `after`），`reset` 表示第一条改动是 `reset`。服务端的整份快照上传和「删除云端数据」都写这样一条，后者还会清掉此前的全部改动。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccountDictionaryProbe {
+    pub changed: bool,
+    pub revision: i64,
+    pub reset: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AccountDictionaryImportResult {
     pub imported: usize,
@@ -618,6 +626,8 @@ mod api;
 mod avatar;
 mod client;
 mod clipboard;
+/// 多分类自动云同步的纯决策、状态文件和单轮状态机。
+pub mod cloud_sync;
 /// 「我的设备」：列出和撤销登录会话。
 mod devices;
 /// App 内反馈。

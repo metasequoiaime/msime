@@ -828,6 +828,20 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.authenticated_detailed(|api, token| api.data_delete(sections, token))
     }
 
+    /// 以指定的那一次登录发一个请求：`user_id` 和 `generation` 是调用方先前从 [`Self::with_current_identity`] 读到的。会话换了账号、退出后重新登录（代次变了）时是 `account_cancelled`，不会用别的登录去发；401 时带着被拒的令牌刷新一次，在同一次登录里重试。给云同步这种「读、合并、写」要横跨好几个请求的调用方用，每一步都落在开始那一轮的登录上。
+    pub fn authenticated_as<T, F>(
+        &self,
+        user_id: &str,
+        generation: u64,
+        operation: F,
+    ) -> Result<T, AccountFailure>
+    where
+        F: Fn(&A, &str) -> Result<T, AccountFailure>,
+    {
+        self.authenticated_with_user_at(Some((user_id, generation)), operation)
+            .map(|(_, result, _)| result)
+    }
+
     pub fn preference_schema(&self) -> Result<AccountPreferenceSchema, AccountError> {
         let schema = self.authenticated(|api, token| api.preference_schema(token))?;
         validate_preference_schema(&schema)?;

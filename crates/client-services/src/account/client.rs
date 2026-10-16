@@ -582,6 +582,52 @@ impl BackendAccountClient {
         Ok(page)
     }
 
+    /// 云同步的词库探测：只取自 `after` 以来的第一条改动。翻页的 `next` 不能后退，有改动时必须前进，没有改动时必须停在 `after`，与 Android `SyncApi.dictionaryChangedSince` 的检查相同；不合规的响应是 `account_unavailable`。
+    pub fn dictionary_probe(
+        &self,
+        after: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryProbe, AccountFailure> {
+        #[derive(Deserialize)]
+        struct Change {
+            revision: i64,
+            #[serde(default)]
+            reset: bool,
+        }
+        #[derive(Deserialize)]
+        struct Page {
+            changes: Vec<Change>,
+            next: i64,
+        }
+        if after < 0 || !crate::text::is_lower_hex(access_token, 64) {
+            return Err(AccountError::Invalid.into());
+        }
+        let page = self.json_detailed::<Page, ()>(
+            Method::GET,
+            &format!("/v1/users/me/dictionary/changes?after={after}&limit=1"),
+            Some(access_token),
+            None,
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        let first = page.changes.first();
+        let valid = match first {
+            Some(change) => {
+                page.changes.len() == 1 && change.revision > after && page.next == change.revision
+            }
+            None => page.next == after,
+        };
+        if !valid {
+            return Err(AccountError::Unavailable.into());
+        }
+        Ok(AccountDictionaryProbe {
+            changed: first.is_some(),
+            revision: page.next,
+            reset: first.is_some_and(|change| change.reset),
+        })
+    }
+
     pub fn dictionary_snapshot(&self, access_token: &str) -> Result<Vec<u8>, AccountError> {
         self.request_with_limit_timeout_accept(
             Method::GET,
@@ -600,12 +646,22 @@ impl BackendAccountClient {
         destination: &Path,
         access_token: &str,
     ) -> Result<u64, AccountError> {
+        self.snapshot_to_file_with(destination, access_token, error_from_response)
+    }
+
+    /// [`Self::dictionary_snapshot_to_file`] 的实现：非 2xx 的响应交给 `failed` 读成错误，两种错误类型（[`AccountError`] 和云同步用的 [`AccountFailure`]）共用同一段下载和落盘代码。
+    fn snapshot_to_file_with<E: From<AccountError>>(
+        &self,
+        destination: &Path,
+        access_token: &str,
+        failed: impl FnOnce(Response) -> E,
+    ) -> Result<u64, E> {
         if !destination.is_absolute() || !crate::text::is_lower_hex(access_token, 64) {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
         }
         let parent = destination.parent().ok_or(AccountError::Invalid)?;
         if !parent.is_absolute() {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
         }
         crate::storage::reject_symlink(parent).map_err(|_| AccountError::Invalid)?;
         let url = self
@@ -621,13 +677,13 @@ impl BackendAccountClient {
             .send()
             .map_err(|_| AccountError::Unavailable)?;
         if !response.status().is_success() {
-            return Err(error_from_response(response));
+            return Err(failed(response));
         }
         if response
             .content_length()
             .is_some_and(|length| length > MAX_DICTIONARY_SNAPSHOT_BYTES as u64)
         {
-            return Err(AccountError::Unavailable);
+            return Err(AccountError::Unavailable.into());
         }
         #[cfg(unix)]
         {
@@ -668,7 +724,7 @@ impl BackendAccountClient {
             )
             .map_err(|_| AccountError::Unavailable)?;
             if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
-                return Err(AccountError::Unavailable);
+                return Err(AccountError::Unavailable.into());
             }
             temporary
                 .as_file_mut()
@@ -722,6 +778,31 @@ impl BackendAccountClient {
         revision: i64,
         access_token: &str,
     ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        let response = self.send_snapshot_file(snapshot, revision, access_token)?;
+        Self::decode_snapshot_restore(response, revision)
+    }
+
+    /// 与 [`Self::restore_dictionary_snapshot_file`] 相同，失败时是带状态码、服务端错误码和 `Retry-After` 的 [`AccountFailure`]：云同步要分清 409 `revision_conflict`、429 限流和 503 `snapshot_restore_busy`。
+    pub fn restore_dictionary_snapshot_file_detailed(
+        &self,
+        snapshot: &Path,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountFailure> {
+        let response = self.send_snapshot_file(snapshot, revision, access_token)?;
+        if !response.status().is_success() {
+            return Err(failure_from_response(response));
+        }
+        Self::decode_snapshot_restore(response, revision).map_err(Into::into)
+    }
+
+    /// 校验快照文件并把它作为请求体流式发出去，返回原样的响应。
+    fn send_snapshot_file(
+        &self,
+        snapshot: &Path,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<Response, AccountError> {
         if revision < 0 || !snapshot.is_absolute() || !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
@@ -746,8 +827,7 @@ impl BackendAccountClient {
                 "/v1/users/me/dictionary/snapshot?revision={revision}"
             ))
             .map_err(|_| AccountError::Invalid)?;
-        let response = self
-            .client
+        self.client
             .put(url)
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::CONTENT_TYPE, "application/x-ndjson")
@@ -755,8 +835,7 @@ impl BackendAccountClient {
             .timeout(Duration::from_secs(600))
             .body(reqwest::blocking::Body::sized(file, bytes))
             .send()
-            .map_err(|_| AccountError::Unavailable)?;
-        Self::decode_snapshot_restore(response, revision)
+            .map_err(|_| AccountError::Unavailable)
     }
 
     fn decode_snapshot_restore(
@@ -1737,5 +1816,92 @@ impl AccountApi for BackendAccountClient {
 
     fn diagnostics_delete(&self, access_token: &str) -> Result<(), AccountFailure> {
         self.diagnostics_delete(access_token)
+    }
+
+    fn preference_schema_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountPreferenceSchema, AccountFailure> {
+        if !crate::text::is_lower_hex(access_token, 64) {
+            return Err(AccountError::Invalid.into());
+        }
+        let schema = self.json_detailed::<AccountPreferenceSchema, ()>(
+            Method::GET,
+            "/v1/users/me/preferences/schema",
+            Some(access_token),
+            None,
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_preference_schema(&schema)?;
+        Ok(schema)
+    }
+
+    fn preferences_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountPreferences, AccountFailure> {
+        if !crate::text::is_lower_hex(access_token, 64) {
+            return Err(AccountError::Invalid.into());
+        }
+        let preferences = self.json_detailed::<AccountPreferences, ()>(
+            Method::GET,
+            "/v1/users/me/preferences",
+            Some(access_token),
+            None,
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_account_preferences(&preferences)?;
+        Ok(preferences)
+    }
+
+    fn put_preferences_detailed(
+        &self,
+        preferences: &AccountPreferences,
+        access_token: &str,
+    ) -> Result<AccountPreferences, AccountFailure> {
+        if !crate::text::is_lower_hex(access_token, 64) {
+            return Err(AccountError::Invalid.into());
+        }
+        validate_account_preferences(preferences)?;
+        let updated = self.json_detailed::<AccountPreferences, _>(
+            Method::PUT,
+            "/v1/users/me/preferences",
+            Some(access_token),
+            Some(preferences),
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_account_preferences(&updated)?;
+        Ok(updated)
+    }
+
+    fn dictionary_probe(
+        &self,
+        after: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionaryProbe, AccountFailure> {
+        self.dictionary_probe(after, access_token)
+    }
+
+    fn dictionary_snapshot_download(
+        &self,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<u64, AccountFailure> {
+        self.snapshot_to_file_with(destination, access_token, failure_from_response)
+    }
+
+    fn dictionary_snapshot_upload(
+        &self,
+        snapshot: &Path,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountFailure> {
+        self.restore_dictionary_snapshot_file_detailed(snapshot, revision, access_token)
     }
 }

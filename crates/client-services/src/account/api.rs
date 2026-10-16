@@ -345,6 +345,63 @@ pub trait AccountApi: Send + Sync + 'static {
     fn diagnostics_delete(&self, _access_token: &str) -> Result<(), AccountFailure> {
         Err(AccountError::Unavailable.into())
     }
+
+    // 以下几项给云同步（`cloud_sync`）用：与上面同名的接口相同，失败时带着状态码、服务端错误码和 `Retry-After`，同步据此区分 409 `revision_conflict` 和别的 409，并尊重限流。默认实现转调不带细节的那个，只实现了旧接口的假后端照样能用。
+
+    /// 与 [`Self::preference_schema`] 相同，失败时是 [`AccountFailure`]。
+    fn preference_schema_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountPreferenceSchema, AccountFailure> {
+        self.preference_schema(access_token).map_err(Into::into)
+    }
+
+    /// 与 [`Self::preferences`] 相同，失败时是 [`AccountFailure`]。
+    fn preferences_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountPreferences, AccountFailure> {
+        self.preferences(access_token).map_err(Into::into)
+    }
+
+    /// 与 [`Self::put_preferences`] 相同，失败时是 [`AccountFailure`]。
+    fn put_preferences_detailed(
+        &self,
+        preferences: &AccountPreferences,
+        access_token: &str,
+    ) -> Result<AccountPreferences, AccountFailure> {
+        self.put_preferences(preferences, access_token)
+            .map_err(Into::into)
+    }
+
+    /// `GET /v1/users/me/dictionary/changes?after=&limit=1`：云端词库自 `after` 以来有没有改动，以及第一条改动是不是 `reset`（整份替换或清空）。
+    fn dictionary_probe(
+        &self,
+        _after: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionaryProbe, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// 与 [`Self::dictionary_snapshot_to_file`] 相同，失败时是 [`AccountFailure`]。
+    fn dictionary_snapshot_download(
+        &self,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<u64, AccountFailure> {
+        self.dictionary_snapshot_to_file(destination, access_token)
+            .map_err(Into::into)
+    }
+
+    /// `PUT /v1/users/me/dictionary/snapshot?revision=N`，正文从 `snapshot`（宿主私有的绝对路径）流式读出；按 `revision` 比较并交换。
+    fn dictionary_snapshot_upload(
+        &self,
+        _snapshot: &Path,
+        _revision: i64,
+        _access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
 }
 
 pub trait AccountSessionStorage: Send + Sync + 'static {

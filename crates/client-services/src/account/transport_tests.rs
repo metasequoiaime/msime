@@ -482,3 +482,165 @@ fn failure_codes_follow_the_documented_order() {
     assert_eq!(AccountError::Forbidden.code(), "account_unauthorized");
     assert_eq!(AccountError::NotFound.code(), "account_unavailable");
 }
+
+// ---- 云同步用的带细节的接口 ----
+
+#[test]
+fn sync_preference_requests_keep_the_conflict_code_and_retry_after() {
+    let (origin, received) = serve(vec![
+        json_response(
+            "200 OK",
+            json!({
+                "fields": { "input.schema": { "type": "string" } },
+                "maximum_bytes": 1_048_576,
+                "update_mode": "replace",
+                "revision_required": true,
+            }),
+        ),
+        json_response(
+            "200 OK",
+            json!({ "revision": 4, "settings": { "input.schema": "wubi" } }),
+        ),
+        error_response("409 Conflict", "revision_conflict", &[]),
+        error_response(
+            "429 Too Many Requests",
+            "rate_limit_exceeded",
+            &[("Retry-After", "60")],
+        ),
+    ]);
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    let schema = client.preference_schema_detailed(&token('a')).unwrap();
+    assert!(schema.fields.contains_key("input.schema"));
+    assert_eq!(
+        received.recv().unwrap().line(),
+        "GET /v1/users/me/preferences/schema HTTP/1.1"
+    );
+    let cloud = client.preferences_detailed(&token('a')).unwrap();
+    assert_eq!(cloud.revision, 4);
+    received.recv().unwrap();
+    let conflict = client
+        .put_preferences_detailed(&cloud, &token('a'))
+        .unwrap_err();
+    assert_eq!(conflict.status, Some(409));
+    assert_eq!(conflict.server_code.as_deref(), Some("revision_conflict"));
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "PUT /v1/users/me/preferences HTTP/1.1");
+    assert_eq!(sent.json()["revision"], 4);
+    let limited = client
+        .put_preferences_detailed(&cloud, &token('a'))
+        .unwrap_err();
+    assert_eq!(limited.retry_after_seconds, Some(60));
+    assert_eq!(limited.code(), "account_rate_limited");
+}
+
+#[test]
+fn the_dictionary_probe_reads_one_change_and_checks_the_cursor() {
+    let (origin, received) = serve(vec![
+        json_response(
+            "200 OK",
+            json!({ "changes": [{ "revision": 8, "reset": true, "previous": null, "replacement": null }], "next": 8, "has_more": false }),
+        ),
+        json_response(
+            "200 OK",
+            json!({ "changes": [], "next": 5, "has_more": false }),
+        ),
+        // 没有改动却往前跳的 next 不合规。
+        json_response(
+            "200 OK",
+            json!({ "changes": [], "next": 6, "has_more": false }),
+        ),
+    ]);
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    let probe = client.dictionary_probe(5, &token('a')).unwrap();
+    assert_eq!(
+        probe,
+        AccountDictionaryProbe {
+            changed: true,
+            revision: 8,
+            reset: true,
+        }
+    );
+    assert_eq!(
+        received.recv().unwrap().line(),
+        "GET /v1/users/me/dictionary/changes?after=5&limit=1 HTTP/1.1"
+    );
+    let unchanged = client.dictionary_probe(5, &token('a')).unwrap();
+    assert!(!unchanged.changed && !unchanged.reset);
+    assert_eq!(unchanged.revision, 5);
+    assert_eq!(
+        client.dictionary_probe(5, &token('a')).unwrap_err().code(),
+        "account_unavailable"
+    );
+    assert_eq!(
+        client.dictionary_probe(-1, &token('a')).unwrap_err().code(),
+        "account_invalid"
+    );
+}
+
+#[test]
+fn the_snapshot_upload_reports_the_server_code() {
+    let (origin, received) = serve(vec![
+        error_response("409 Conflict", "revision_conflict", &[]),
+        error_response(
+            "503 Service Unavailable",
+            "snapshot_restore_busy",
+            &[("Retry-After", "5")],
+        ),
+        json_response("200 OK", json!({ "revision": 10, "reset": true })),
+    ]);
+    let directory = tempfile::tempdir().unwrap();
+    let snapshot = directory.path().join("upload.ndjson");
+    std::fs::write(&snapshot, b"{\"type\":\"header\"}\n").unwrap();
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    let conflict = client
+        .dictionary_snapshot_upload(&snapshot, 9, &token('a'))
+        .unwrap_err();
+    assert_eq!(conflict.server_code.as_deref(), Some("revision_conflict"));
+    assert_eq!(
+        received.recv().unwrap().line(),
+        "PUT /v1/users/me/dictionary/snapshot?revision=9 HTTP/1.1"
+    );
+    let busy = client
+        .dictionary_snapshot_upload(&snapshot, 9, &token('a'))
+        .unwrap_err();
+    assert_eq!(busy.retry_after_seconds, Some(5));
+    received.recv().unwrap();
+    let restored = client
+        .dictionary_snapshot_upload(&snapshot, 9, &token('a'))
+        .unwrap();
+    assert_eq!(restored.revision, 10);
+    // 正文就是快照文件本身，流式发出。
+    assert_eq!(received.recv().unwrap().body, b"{\"type\":\"header\"}\n");
+}
+
+#[test]
+fn the_snapshot_download_reports_the_server_code() {
+    let (origin, _received) = serve(vec![
+        error_response(
+            "429 Too Many Requests",
+            "rate_limit_exceeded",
+            &[("Retry-After", "30")],
+        ),
+        http(
+            "200 OK",
+            &[("Content-Type", "application/x-ndjson")],
+            b"{\"type\":\"header\"}\n",
+        ),
+    ]);
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("download.ndjson");
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    let limited = client
+        .dictionary_snapshot_download(&destination, &token('a'))
+        .unwrap_err();
+    assert_eq!(limited.retry_after_seconds, Some(30));
+    assert_eq!(limited.status, Some(429));
+    let bytes = client
+        .dictionary_snapshot_download(&destination, &token('a'))
+        .unwrap();
+    assert_eq!(bytes, 18);
+    assert_eq!(
+        std::fs::read(&destination).unwrap(),
+        b"{\"type\":\"header\"}\n"
+    );
+}
