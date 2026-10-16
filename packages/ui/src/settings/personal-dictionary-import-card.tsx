@@ -1,4 +1,5 @@
 import { downloadBlob } from "../core/download-blob";
+import { exceptionMessage } from "../core/exception-message";
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
@@ -59,8 +60,7 @@ export function PersonalDictionaryImportCard({
         setEntries(parsed);
       },
       {
-        formatError: (cause) =>
-          cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。",
+        formatError: (cause) => exceptionMessage(cause, "无法读取所选文件，请重新选择。"),
       },
     );
   };
@@ -80,7 +80,7 @@ export function PersonalDictionaryImportCard({
         setFileName("");
       },
       {
-        formatError: (cause) => (cause instanceof Error ? cause.message : "导入失败，请稍后重试。"),
+        formatError: (cause) => exceptionMessage(cause, "导入失败，请稍后重试。"),
       },
     );
   };

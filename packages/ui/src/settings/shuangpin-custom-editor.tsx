@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ConfirmRequest } from "../core/confirm";
 import { downloadBlob } from "../core/download-blob";
+import { exceptionMessage } from "../core/exception-message";
 import { ErrorAlert } from "../core/error-alert";
 import { GroupList, PageIntro, Row } from "../core/platform-controls";
 import { select as selectStyle, textInput } from "../core/platform-controls-style";
@@ -189,9 +190,7 @@ export function ShuangpinCustomEditor({
         );
       } catch (cause) {
         if (isCurrent())
-          setError(
-            `没有导入：${cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。"}`,
-          );
+          setError(`没有导入：${exceptionMessage(cause, "无法读取所选文件，请重新选择。")}`);
         return;
       }
       if (!isCurrent()) return;

@@ -1,4 +1,5 @@
 import { isComposingKeyEvent } from "../core/ime-key-event";
+import { exceptionMessage } from "../core/exception-message";
 import { LabeledInputField } from "../core/labeled-input-field";
 import { downloadBlob } from "../core/download-blob";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -348,8 +349,7 @@ export function HarmonyPhoneDictionary() {
               try {
                 encoded = await readScelFile(file, MAX_SCEL_FILE_BYTES);
               } catch (error) {
-                if (isCurrent())
-                  toast(error instanceof Error ? error.message : "读取文件失败，请重新选择。");
+                if (isCurrent()) toast(exceptionMessage(error, "读取文件失败，请重新选择。"));
                 return;
               }
               if (!isCurrent()) return;
@@ -361,8 +361,7 @@ export function HarmonyPhoneDictionary() {
             try {
               text = await readDictionaryFile(file, MAX_COLLECTION_IMPORT_BYTES);
             } catch (error) {
-              if (isCurrent())
-                toast(error instanceof Error ? error.message : "读取文件失败，请重新选择。");
+              if (isCurrent()) toast(exceptionMessage(error, "读取文件失败，请重新选择。"));
               return;
             }
             if (!isCurrent()) return;

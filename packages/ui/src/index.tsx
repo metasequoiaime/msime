@@ -577,6 +577,7 @@ export {
 export { useInterval } from "./core/use-interval";
 export { useDebouncedCallback, type DebouncedCallback } from "./core/use-debounced-callback";
 export { isComposingKeyEvent } from "./core/ime-key-event";
+export { exceptionMessage } from "./core/exception-message";
 export { useSettledSlider } from "./core/use-settled-slider";
 export {
   subscribeToWindowBlur,
