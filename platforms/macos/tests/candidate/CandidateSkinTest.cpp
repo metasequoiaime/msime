@@ -1,6 +1,8 @@
 #include "../../src/candidate/CandidateSkin.h"
+#include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdio>
 #include <string>
 #include <string_view>
 
@@ -17,6 +19,19 @@ static bool SameColor(Rgba left, Rgba right) {
     return std::abs(left.r - right.r) < 0.00001f && std::abs(left.g - right.g) < 0.00001f &&
            std::abs(left.b - right.b) < 0.00001f && std::abs(left.a - right.a) < 0.00001f;
 }
+// WCAG 对比度：前景按它的不透明度叠到不透明的底色上，再和底色比。
+static double Linear(double channel) {
+    return channel <= 0.04045 ? channel / 12.92 : std::pow((channel + 0.055) / 1.055, 2.4);
+}
+static double Luminance(double r, double g, double b) {
+    return 0.2126 * Linear(r) + 0.7152 * Linear(g) + 0.0722 * Linear(b);
+}
+static double ContrastOn(Rgba foreground, Rgba fill) {
+    const double a = foreground.a;
+    const double over = Luminance(foreground.r * a + fill.r * (1 - a), foreground.g * a + fill.g * (1 - a), foreground.b * a + fill.b * (1 - a));
+    const double under = Luminance(fill.r, fill.g, fill.b);
+    return (std::max(over, under) + 0.05) / (std::min(over, under) + 0.05);
+}
 static bool SameTokens(const msime::mac::SkinTokens &left, const msime::mac::SkinTokens &right) {
     return SameColor(left.surface, right.surface) && SameColor(left.border, right.border) &&
            SameColor(left.text, right.text) && SameColor(left.number, right.number) &&
@@ -26,6 +41,38 @@ static bool SameTokens(const msime::mac::SkinTokens &left, const msime::mac::Ski
            left.showSelectedBar == right.showSelectedBar;
 }
 int main() {
+    // 选中行的释义色：不透明的选中底色上按底色挑白或近黑、0.82 不透明度，和底色的对比度至少 3:1（释义和读音同色，读音不再减淡）；半透明底色上就是皮肤的释义色；皮肤没有释义色时没有它，指定了就不推导。
+    {
+        struct Case { unsigned selected, translation, text; bool unreadable; };
+        for (const Case &c : {Case{0x4D6BFE, 0x2F5BD3, 0xFFFFFF, true}, Case{0x23262F, 0x6B7180, 0xE6E8EE, false}, Case{0xF2C94C, 0xB8860B, 0x1D1D1F, true}}) {
+            msime::mac::SkinTokens tokens = NativeCandidateTokens(false);
+            char hex[8];
+            std::snprintf(hex, sizeof hex, "#%06X", c.selected);
+            tokens.selected = *msime::mac::ParseCssColor(hex);
+            std::snprintf(hex, sizeof hex, "#%06X", c.translation);
+            tokens.translation = msime::mac::ParseCssColor(hex);
+            std::snprintf(hex, sizeof hex, "#%06X", c.text);
+            tokens.text = *msime::mac::ParseCssColor(hex);
+            msime::mac::DeriveSelectedForegrounds(tokens, true, true);
+            assert(tokens.selectedTranslation && std::abs(tokens.selectedTranslation->a - 0.82f) < 0.00001f);
+            assert(ContrastOn(*tokens.selectedTranslation, tokens.selected) >= 3.0);
+            // 蓝底蓝字、黄底金字时皮肤自己的释义色读不清，这正是要换色的原因。
+            if (c.unreadable) assert(ContrastOn(*tokens.translation, tokens.selected) < 3.0);
+        }
+        msime::mac::SkinTokens translucent = NativeCandidateTokens(false);
+        translucent.selected = *msime::mac::ParseCssColor("#2F5BD329");
+        translucent.translation = msime::mac::ParseCssColor("#2F5BD3");
+        msime::mac::DeriveSelectedForegrounds(translucent, true, true);
+        assert(translucent.selectedTranslation && SameColor(*translucent.selectedTranslation, *translucent.translation));
+        msime::mac::SkinTokens plain = NativeCandidateTokens(false);
+        msime::mac::DeriveSelectedForegrounds(plain, true, true);
+        assert(!plain.translation && !plain.selectedTranslation);
+        msime::mac::SkinTokens given = NativeCandidateTokens(false);
+        given.translation = msime::mac::ParseCssColor("#2F5BD3");
+        given.selectedTranslation = msime::mac::ParseCssColor("#FFEE00");
+        msime::mac::DeriveSelectedForegrounds(given, true, true, false);
+        CheckColor(*given.selectedTranslation, 0xFFEE00);
+    }
     msime::mac::SetDefaultSkinsRoot("/synthetic/movable-state/skins");
     assert(msime::mac::DefaultSkinsRoot() == "/synthetic/movable-state/skins");
     msime::mac::SetDefaultSkinsRoot({});

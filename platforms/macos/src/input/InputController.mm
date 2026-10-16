@@ -7487,6 +7487,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
                                       row.width, row.height);
             button.toolTip = pageGeometry.tooltips[index];
             button.translation = CandidateTranslation(candidate);
+            // 读音跟着新的释义重算，和上面排版量的是同一份；留着旧的会把上一条释义的读音画在新释义下面。
+            button.pronunciation = [self pronunciationForCandidate:candidate];
             button.glossReading = pageGeometry.readings[index];
             button.armedGlossColumn = _armedGlossColumn;
             button.translationFont = glossFont;
@@ -7689,7 +7691,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             button.titleColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
         // The translation is the theme's secondary colour, which always equals the number colour: the design draws a plain row's gloss in cSub (dc.html L2150, L2183), the theme's kb.sub or the platform's sub, and on the selected fill in candSelTr (dc.html L1533), the selected number's colour. A fixed-position row keeps the Windows renderer's rule instead, where the translation is a child of the candidate text and takes its fixed-position colour at reduced opacity.
         // A package's own translation colour is its secondary colour, drawn on every row as Windows does.
-        if (tokens.translation) button.translationColor = SkinColor(*tokens.translation);
+        // 选中行换成按选中底色推导的释义色（SkinTokens::selectedTranslation），释义和它下面的读音才不会和不透明的选中底色同色。
+        if (tokens.translation)
+            button.translationColor = SkinColor(button.candidateHighlighted && tokens.selectedTranslation ? *tokens.selectedTranslation : *tokens.translation);
         else if (button.candidateFixed) button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
         else button.translationColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);

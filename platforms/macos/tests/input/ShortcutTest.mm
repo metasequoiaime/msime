@@ -6987,11 +6987,13 @@ background = "#F4F8FF"
         // Left-aligned: in from the card's left edge by the same inset its bottom overhangs the card's top edge (the card starts 48pt down, under the band).
         const CGFloat overhang = NSHeight(chrome.bounds) - 48 - NSMinY(decoration.frame);
         assert(overhang > 0 && NSMinX(decoration.frame) == overhang && decoration.frame.size.width == decoration.frame.size.height);
-        // The translation colour is the package's on every row in the mode that declares one; elsewhere the rows keep the number colour.
+        // The translation colour is the package's on every row in the mode that declares one, except the highlighted row, which takes the one derived for the selected fill (SkinTokens::selectedTranslation); elsewhere the rows keep the number colour.
         for (NSView *view in chrome.subviews) {
             if (![view isKindOfClass:MSIMECandidateButton.class] || view.tag < 0) continue;
             MSIMECandidateButton *button = (id)view;
-            if (dark) assert(skin.tokens.translation && [button.translationColor isEqual:SkinColor(*skin.tokens.translation)]);
+            if (dark)
+                assert(skin.tokens.translation && skin.tokens.selectedTranslation &&
+                       [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? *skin.tokens.selectedTranslation : *skin.tokens.translation)]);
             else if (!button.candidateFixed)
                 assert(!skin.tokens.translation && [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? skin.tokens.selectedNumber : skin.tokens.number)]);
         }
