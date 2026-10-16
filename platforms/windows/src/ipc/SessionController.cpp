@@ -69,7 +69,7 @@ SessionController::SessionController(
                                 : state.apply_ai_candidates(
                                       result.lease, result.query,
                                       candidates.dump());
-                // 回答为空、失败或被拒：AI 座位上的占位行换成「—」，后面的候选不挪位（#6888）。
+                // 回答为空、失败或被拒：告诉 Host API 这次没有回答，视图没变就不重画（#6888）。
                 if (!view)
                   view = state.resolve_ai_candidates(result.lease, result.query);
                 push_host_candidates(result.lease, 1, result.query, candidates);

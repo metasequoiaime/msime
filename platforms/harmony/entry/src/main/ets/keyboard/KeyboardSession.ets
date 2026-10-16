@@ -4118,7 +4118,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private onlineEpoch: number = 0;
   private readonly onlineRequests: Set<http.HttpRequest> = new Set<http.HttpRequest>();
   private onlineSignature: string = '';
-  /** 问过 AI 却没有结果、占位行已换成「—」的那次请求的签名：同一组字不再向 AI 发请求，只在本地把占位行再换成「—」；组字一变就清掉（#6888）。 */
+  /** 问过 AI 却没有结果的那次请求的签名：同一组字不再向 AI 发请求；组字一变就清掉（#6888）。 */
   private aiResolvedSignature: string = '';
   private translationTimer: number = -1;
   private translationEpoch: number = 0;
@@ -4417,10 +4417,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (epoch !== this.onlineEpoch || handle !== this.handle) return;
     const assistant = aiQuery.ai_assistant;
     if (assistant?.enabled === true && aiQuery.ai_eligible) {
-      // 这个组字问过 AI 而没有结果（云候选失败触发的重试走到这里）：不再发请求，只把占位行换成「—」。
+      // 这个组字问过 AI 而没有结果（云候选失败触发的重试走到这里）：不再发请求。
       const aiApplied: boolean = requestSignature !== this.aiResolvedSignature
         && await this.fetchAi(handle, aiDocument, assistant.candidate_limit, epoch);
-      // 向 AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：AI 座位上的占位行换成「—」，后面的候选不挪位；同一组字不再问，所以不为 AI 释放签名，只有云候选失败才重试（#6888）。
+      // 向 AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：告诉 Host API 这次没有回答；同一组字不再问，所以不为 AI 释放签名，只有云候选失败才重试（#6888）。
       if (!aiApplied) {
         this.resolveAiSeat(handle, aiDocument, epoch);
         if (epoch === this.onlineEpoch && handle === this.handle) this.aiResolvedSignature = requestSignature;
@@ -4474,7 +4474,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  /** AI 座位上的占位行换成「—」；座位已经换过或没开时 Host API 答 applied:false，什么都不画。 */
+  /** 告诉 Host API 这次 AI 没有回答。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变；万一答了 applied:true 才重画。 */
   private resolveAiSeat(handle: number, queryDocument: string, epoch: number): void {
     if (epoch !== this.onlineEpoch || handle !== this.handle) return;
     try {

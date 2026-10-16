@@ -63,7 +63,7 @@ inline bool script_annotation_text_allowed(std::string_view text) {
   return true;
 }
 
-// 候选行上脚本插件的注释，即视图里候选的 `script_annotation`（只有授权过的脚本插件给这一行加了注释时才出现）；没有、不是字符串、为空或不合规时返回空串。它和引擎的 `annotation` 是两回事：引擎注释按辅助码开关和本地模式决定画不画，韩文汉字列表还把它当训音读，插件注释不走那条路，两个宿主都在行尾另画一段，不替换引擎注释。AI 座位的占位行（来源 12）不是候选，不画。
+// 候选行上脚本插件的注释，即视图里候选的 `script_annotation`（只有授权过的脚本插件给这一行加了注释时才出现）；没有、不是字符串、为空或不合规时返回空串。它和引擎的 `annotation` 是两回事：引擎注释按辅助码开关和本地模式决定画不画，韩文汉字列表还把它当训音读，插件注释不走那条路，两个宿主都在行尾另画一段，不替换引擎注释。AI 占位行（来源 12，共享内核已经不再产出）不是候选，不画。
 inline std::string candidate_script_annotation(const nlohmann::json &candidate) {
   if (!candidate.is_object()) return {};
   const auto source = candidate.find("source");

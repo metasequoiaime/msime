@@ -37,7 +37,7 @@ struct PresentationCandidate {
   std::string gloss{};
   // 释义每一行的读音，按 "\n" 分行，和 translation 的各行（U+2028 分行）逐行对应；只用于显示，从不上屏。由翻译工作线程算好、CandidateMailbox 按候选文字和释义挂上来，见 CandidateReading。
   std::string pronunciation{};
-  // AI 座位上的占位行（Engine 候选来源 12）：等回答时是「…」，回答为空或失败后是「—」。画成次要色，选它什么都不上屏（#6888）。
+  // AI 占位行（Engine 候选来源 12）：等回答时是「…」，回答为空或失败后是「—」。画成次要色，选它什么都不上屏（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
   bool pending = false;
   // 授权的脚本插件给这一行加的注释（view 候选的 script_annotation，没有插件注释时为空）。和引擎的 annotation 分开放、分开画：跟在注释那一段后面，换成次要色，从不替换引擎的注释，见 candidate_annotation_run。
   std::string script_annotation{};

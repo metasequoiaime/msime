@@ -214,7 +214,7 @@ int main() {
               "the first request is accepted");
       require(harness.wait_for_results(1), "the empty answer is delivered");
       require(harness.fetches() == 1, "the first request reached the provider");
-      // 空回答照样交给 owner，好把 AI 座位上的占位行换成「—」（#6888）。
+      // 空回答照样交给 owner，好告诉 Host API 这次没有回答（#6888）。
       require(harness.results[0].candidates.empty(),
               "an empty answer arrives as no candidates");
       {
@@ -336,7 +336,7 @@ int main() {
       require(harness.wait_for_results(1), "the failure is delivered");
       require(harness.worker.failed(), "the failure is recorded");
       require(harness.results[0].candidates.empty(),
-              "as no candidates, so the owner resolves the AI seat");
+              "as no candidates, so the owner tells the Host API");
       {
         std::lock_guard lock(harness.recorder.mutex);
         harness.recorder.throwing = false;

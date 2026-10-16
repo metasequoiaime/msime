@@ -26,7 +26,7 @@ public:
     FocusLease lease;
     // The query this answers, so a stale reply can be recognised.
     std::string query;
-    // 空表示这次发问没有拿到可用的回答（失败、被拒或模型没给词），owner 据此把 AI 座位上的占位行换成「—」。
+    // 空表示这次发问没有拿到可用的回答（失败、被拒或模型没给词），owner 据此告诉 Host API 这次没有回答。
     std::vector<std::string> candidates;
   };
   using Completed = std::function<void(Result)>;

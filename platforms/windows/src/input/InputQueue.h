@@ -63,7 +63,7 @@ public:
   std::optional<nlohmann::json>
   apply_ai_candidates(const FocusLease &lease, const std::string &query,
                       const std::string &candidates);
-  /// AI 回答为空、失败或被拒时把 AI 座位上的占位行换成「—」。
+  /// AI 回答为空、失败或被拒时告诉 Host API；共享内核已经不放 AI 占位行，视图不变。
   std::optional<nlohmann::json>
   resolve_ai_candidates(const FocusLease &lease, const std::string &query);
   /// Re-rank with the settled model; nothing when the order held or no model

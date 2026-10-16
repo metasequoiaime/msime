@@ -511,7 +511,7 @@ ServerSession::resolve_ai_candidates(uint64_t epoch, const std::string &query) {
       return std::nullopt;
     return value.at("view");
   } catch (...) {
-    // 占位行换不了就留着「…」，不因此停下输入。
+    // 这一步只是告诉 Host API 没有回答，失败了也不因此停下输入。
     return std::nullopt;
   }
 }

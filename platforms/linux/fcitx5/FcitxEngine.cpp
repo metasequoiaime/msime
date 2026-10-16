@@ -1635,7 +1635,7 @@ public:
       slot.query.clear();
     }
   }
-  // AI 座位上的占位行（Engine 候选来源 12）换成「—」，留到组字变化为止（#6888）。座位已经换过或没开时 Host API 答 applied:false，什么都不画。
+  // 告诉 Host API 这次 AI 没有回答（#6888）。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变；答 applied:false 时什么都不画。
   void resolveAiSeat(const std::string &query) {
     if (!session_ || query.empty()) return;
     try {
@@ -1646,7 +1646,7 @@ public:
       render();
     } catch (...) {}
   }
-  // 不会向 AI 发问的状态下，当前组字的 AI 座位直接换成「—」；同一个查询只问一次。
+  // 不会向 AI 发问的状态下，直接告诉 Host API 当前组字没有 AI 回答；同一个查询只说一次。
   void resolveAiSeatWithoutProvider() {
     try {
       const auto query = response(msime_client_online_query(session_));
@@ -2129,7 +2129,7 @@ public:
             applied = reply.value("applied", false);
             render();
           }
-          // AI 的网络请求落空（失败、空回答、被拒）：AI 座位上的占位行换成「—」，后面的候选不挪位（#6888）。
+          // AI 的网络请求落空（失败、空回答、被拒）：告诉 Host API 这次没有回答（#6888）。
           if (source == 1 && !slot.cache_only && !applied) resolveAiSeat(slot.query);
         }
       }
@@ -3799,10 +3799,10 @@ public:
     std::shared_future<Json> job;
     std::string query;
     uint64_t epoch = 0;
-    // 只查缓存的 AI 探测：它落空只是还没到网络请求，不能把 AI 座位换成「—」。
+    // 只查缓存的 AI 探测：它落空只是还没到网络请求，不算 AI 没有回答。
     bool cache_only = false;
   } online_slots_[2];
-  // 不会向 AI 发问时（没有在线服务、私密输入框）最近一次把 AI 座位换成「—」的查询，避免每个定时周期都再问一遍。
+  // 不会向 AI 发问时（没有在线服务、私密输入框）最近一次告诉 Host API 没有 AI 回答的查询，避免每个定时周期都再说一遍。
   std::string ai_resolved_query_;
   uint64_t online_epoch_ = 0;
   std::chrono::steady_clock::time_point online_due_{};
@@ -3935,7 +3935,7 @@ public:
 // `variant` 是繁体变体的编号，只在 `traditional` 为真时用到。
 fcitx::Text candidateRowText(const Json &candidate, bool traditional, bool annotations,
                              const std::string &hanjaGloss, uint32_t variant) {
-  // Engine 候选来源 12 是 AI 座位上的占位行（「…」或「—」）：Fcitx5 的文本格式没有颜色，用斜体表示它是次要的，并标明不上屏（#6888）。
+  // Engine 候选来源 12 是 AI 占位行（「…」或「—」）：Fcitx5 的文本格式没有颜色，用斜体表示它是次要的，并标明不上屏（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
   if (msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 12)
     return fcitx::Text(candidate.at("text").get<std::string>(),
                        fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic,

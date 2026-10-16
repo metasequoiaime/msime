@@ -21,7 +21,7 @@ inline constexpr unsigned candidate_source_user_database = 1;
 inline constexpr unsigned candidate_source_cloud_suggestion = 2;
 inline constexpr unsigned candidate_source_ai_suggestion = 3;
 inline constexpr unsigned candidate_source_english_dictionary = 4;
-// AI 座位上的占位行，不是候选，不给任何右键动作（#6888）。
+// AI 占位行，不是候选，不给任何右键动作（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
 inline constexpr unsigned candidate_source_ai_pending = 12;
 
 // Japanese candidates are display-only whatever their source: the Host API

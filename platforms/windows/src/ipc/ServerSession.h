@@ -93,7 +93,7 @@ public:
   std::optional<nlohmann::json> apply_ai_candidates(uint64_t epoch,
                                                     const std::string &query,
                                                     const std::string &candidates);
-  /// AI 回答为空、失败或被拒：AI 座位上的占位行换成「—」；视图没变时为空。
+  /// AI 回答为空、失败或被拒时告诉 Host API。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变；视图没变时为空。
   std::optional<nlohmann::json> resolve_ai_candidates(uint64_t epoch,
                                                       const std::string &query);
   std::optional<std::string> translation_query(uint64_t epoch);

@@ -928,7 +928,7 @@ static napi_value ApplyOnlineCandidates(napi_env env, napi_callback_info info) {
         static_cast<uint8_t>(source)));
 }
 
-// AI 回答为空、失败或被拒：AI 座位上的占位行换成「—」（#6888）。
+// AI 回答为空、失败或被拒时调用。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变（#6888）。
 static napi_value ResolveOnlineCandidates(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     uint64_t handle = 0;

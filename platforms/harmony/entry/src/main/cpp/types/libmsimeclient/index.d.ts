@@ -179,7 +179,7 @@ export const applyOnlineCandidates: (
   candidates: string,
   source: number,
 ) => string;
-/** `msime_client_resolve_online_candidates`：AI 回答为空、失败或被拒时调用（source 只认 1），AI 座位上的占位行换成「—」。应答 `{ok, value: {applied, view}}`。 */
+/** `msime_client_resolve_online_candidates`：AI 回答为空、失败或被拒时调用（source 只认 1）。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变。应答 `{ok, value: {applied, view}}`。 */
 export const resolveOnlineCandidates: (handle: number, query: string, source: number) => string;
 export const personalDictionarySync: (options: string) => string;
 /**

@@ -70,7 +70,7 @@ std::optional<uint8_t> ai_limit(const std::string &query) {
   }
 }
 
-// 这次查询有没有向 AI 发问：查询符合条件且 AI 开着。只有发问了的查询，空回答才要交给 owner 去把占位行换成「—」（#6888）。
+// 这次查询有没有向 AI 发问：查询符合条件且 AI 开着。只有发问了的查询，空回答才要交给 owner，由它告诉 Host API 这次没有回答（#6888）。
 bool ai_requested(const std::string &query) {
   try {
     const auto parsed = nlohmann::json::parse(query, nullptr, false);
@@ -373,7 +373,7 @@ void AiCandidateWorker::run() {
     }
     if (is_cancelled())
       continue;
-    // 空回答（失败、被拒、模型没给词）也交给 owner：它把 AI 座位上的占位行换成「—」，后面的候选不挪位（#6888）。没向 AI 发问的查询什么都不交。
+    // 空回答（失败、被拒、模型没给词）也交给 owner：它告诉 Host API 这次没有回答（#6888）。没向 AI 发问的查询什么都不交。
     if (candidates.empty() && !ai_requested(request.query))
       continue;
     try {

@@ -2248,7 +2248,7 @@ bool online_request_is_stale(IBusEngine *engine, const std::string &encoded) {
     return false;
   }
 }
-// AI 座位上的占位行（Engine 候选来源 12）：这次组字不会向 AI 发问，或发问落空（失败、空回答、被拒）时换成「—」，留到组字变化为止，后面的候选不挪位（#6888）。座位已经换过或没开时 Host API 答 applied:false，什么都不画。
+// 这次组字不会向 AI 发问，或发问落空（失败、空回答、被拒）时告诉 Host API（#6888）。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变；答 applied:false 时什么都不画。
 void resolve_ai_seat(IBusEngine *engine, const std::string &query) {
   auto &s = state(engine);
   if (!s.session || query.empty())
@@ -2262,7 +2262,7 @@ void resolve_ai_seat(IBusEngine *engine, const std::string &query) {
     render(engine, s.view);
   } catch (...) {}
 }
-// 不会向 AI 发问的状态（没有在线服务、私密输入框）下，把当前组字的 AI 座位直接换成「—」。
+// 不会向 AI 发问的状态（没有在线服务、私密输入框）下，直接告诉 Host API 当前组字没有 AI 回答。
 void resolve_ai_seat_without_provider(IBusEngine *engine) {
   auto &s = state(engine);
   if (!s.session || !s.focused || s.blocked || !s.input_enabled)
@@ -2509,7 +2509,7 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
     online_schedule(engine);
     return;
   }
-  // 网络请求（不是只查缓存的探测）落空：除了留着下次重试，还要把 AI 座位上的占位行换成「—」。
+  // 网络请求（不是只查缓存的探测）落空：除了留着下次重试，还告诉 Host API 这次没有回答。
   const auto empty_ai = [&] {
     retry_empty_ai();
     if (request->source == 1 && !request->ai_cache_only)
@@ -3927,7 +3927,7 @@ void render(IBusEngine *engine, const Json &view) {
         gloss += " · " + translation;
     }
     std::string tail;
-    // Engine 候选来源 12 是 AI 座位上的占位行，下面画成次要色。
+    // Engine 候选来源 12 是 AI 占位行，下面画成次要色。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
     const bool ai_placeholder = candidate.value("source", 0) == 12;
     switch (candidate.value("source", 0)) {
     case 2: tail += "  云"; break;

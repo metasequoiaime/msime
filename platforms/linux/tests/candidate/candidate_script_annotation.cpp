@@ -17,7 +17,7 @@ int main() {
   assert(candidate_script_annotation(Json{{"text", "你"}, {"script_annotation", 7}}).empty());
   assert(candidate_script_annotation(Json{{"text", "你"}, {"script_annotation", nullptr}}).empty());
   assert(candidate_script_annotation(Json::array()).empty());
-  // AI 座位的占位行不画；云和 AI 的真实行照画。
+  // AI 占位行（来源 12，共享内核已经不再产出）不画；云和 AI 的真实行照画。
   assert(candidate_script_annotation(Json{{"text", "…"}, {"source", 12}, {"script_annotation", "注"}}).empty());
   assert(candidate_script_annotation(Json{{"text", "云"}, {"source", 2}, {"script_annotation", "注"}}) == "注");
 
