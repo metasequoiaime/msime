@@ -1514,6 +1514,39 @@ group(
   },
 );
 
+group("an empty Doubao address or resource ID takes the defaults the settings page shows", () => {
+  const doubao = { ...DEFAULT_VOICE_INPUT_CONFIGURATION, asr_provider: "doubao" };
+  // 设置页的「流式接口」把空地址显示成「双向流式」，「检查」按钮（共享的 `asrServiceCredentialTestConfig`）把空资源 ID 回退成 seedasr；键盘录音必须一样，两边对空地址、空资源 ID 的结论要相同。
+  const blank = { ...doubao, asr_endpoint: " ", asr_resource_id: "" };
+  check(
+    DoubaoCredentialPolicy.endpoint(blank) ===
+      "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+    "an empty address is the bidirectional streaming endpoint",
+  );
+  check(
+    DoubaoCredentialPolicy.resourceId(blank) === "volc.seedasr.sauc.duration",
+    "an empty resource ID is the seedasr duration resource",
+  );
+  check(
+    DoubaoHeaderPolicy.validValue(DoubaoCredentialPolicy.resourceId(blank), 256),
+    "and the fallback is a valid handshake header",
+  );
+  const set = {
+    ...doubao,
+    asr_endpoint: " wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream ",
+    asr_resource_id: " volc.bigasr.sauc.duration ",
+  };
+  check(
+    DoubaoCredentialPolicy.endpoint(set) ===
+      "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
+    "a chosen address is kept, trimmed",
+  );
+  check(
+    DoubaoCredentialPolicy.resourceId(set) === "volc.bigasr.sauc.duration",
+    "a chosen resource ID is kept, trimmed",
+  );
+});
+
 group("keeps desktop-only chrome off touch devices", () => {
   check(KeyboardFormFactorPolicy.isDesktop("2in1"), "a 2-in-1 gets the desktop candidate window");
   check(!KeyboardFormFactorPolicy.isDesktop("phone"), "a phone keeps the touch keyboard");
@@ -6464,6 +6497,10 @@ group("a capture device choice is only read when it names this host", () => {
     "a windows endpoint id is not reinterpreted as a harmony device",
   );
   check(VoiceCaptureDevicePolicy.selects("pulse") === false, "nor is a pulse source name");
+  // 设置页的「麦克风」下拉不分大小写，这里也一样，免得页面显示选中的设备而键盘悄悄用系统默认设备。
+  check(VoiceCaptureDevicePolicy.selects("Harmony") === true, "the backend name ignores case");
+  check(VoiceCaptureDevicePolicy.selects(" AUTO ") === true, "including auto");
+  check(VoiceCaptureDevicePolicy.selects("Windows") === false, "a foreign backend stays foreign");
 });
 
 group("a capture device id survives a restart", () => {
@@ -7906,16 +7943,23 @@ group("each voice shortcut obeys its own switch", () => {
   );
 });
 
-group("the recording tones follow their own switches under one master", () => {
+group("the recording tones follow the master switch alone", () => {
   const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   check(
     VoiceRecordingBehaviourPolicy.playsStartTone(base) === true,
     "both tones are on by default",
   );
   check(VoiceRecordingBehaviourPolicy.playsEndTone(base) === true, "including the closing one");
-  const noStart: VoiceInputConfiguration = { ...base, start_sound: false };
-  check(VoiceRecordingBehaviourPolicy.playsStartTone(noStart) === false, "one can be turned off");
-  check(VoiceRecordingBehaviourPolicy.playsEndTone(noStart) === true, "without taking the other");
+  // 设置页不再给开始、结束提示音的开关，存下的 false 不再读。
+  const noStart: VoiceInputConfiguration = { ...base, start_sound: false, end_sound: false };
+  check(
+    VoiceRecordingBehaviourPolicy.playsStartTone(noStart) === true,
+    "a stored start switch no longer silences the opening tone",
+  );
+  check(
+    VoiceRecordingBehaviourPolicy.playsEndTone(noStart) === true,
+    "nor does a stored end switch silence the closing one",
+  );
   const silent: VoiceInputConfiguration = { ...base, sound_enabled: false };
   check(
     VoiceRecordingBehaviourPolicy.playsStartTone(silent) === false,

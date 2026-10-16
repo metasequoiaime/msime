@@ -16,7 +16,7 @@
 const MAX_ID_LENGTH: number = 256;
 const MAX_LABEL_LENGTH: number = 128;
 
-export const HARMONY_CAPTURE_BACKEND: string = 'harmony';
+export const HARMONY_CAPTURE_BACKEND: string = "harmony";
 
 export interface VoiceCaptureDevice {
   readonly backend: string;
@@ -25,10 +25,10 @@ export interface VoiceCaptureDevice {
 }
 
 export class VoiceCaptureDevicePolicy {
-  /** Whether a stored backend names this host's enumeration at all. */
+  /** Whether a stored backend names this host's enumeration at all. 不分大小写，与设置页的「麦克风」下拉一致：存着 `Harmony` 时页面显示选中的设备，这里也照它录音。 */
   static selects(backend: string | null): boolean {
-    const value: string = (backend ?? '').trim();
-    return value.length === 0 || value === 'auto' || value === HARMONY_CAPTURE_BACKEND;
+    const value: string = (backend ?? "").trim().toLowerCase();
+    return value.length === 0 || value === "auto" || value === HARMONY_CAPTURE_BACKEND;
   }
 
   /**
@@ -39,16 +39,16 @@ export class VoiceCaptureDevicePolicy {
    */
   static stableId(deviceType: number, address: string | null): string {
     if (!Number.isInteger(deviceType) || deviceType < 0) {
-      return '';
+      return "";
     }
-    const suffix: string = VoiceCaptureDevicePolicy.printable(address ?? '');
+    const suffix: string = VoiceCaptureDevicePolicy.printable(address ?? "");
     const id: string = `${deviceType}:${suffix}`;
-    return id.length > MAX_ID_LENGTH ? '' : id;
+    return id.length > MAX_ID_LENGTH ? "" : id;
   }
 
   /** The most specific name the descriptor offers, bounded, with the type as the last resort. */
   static label(displayName: string | null, name: string | null, deviceType: number): string {
-    const candidates: string[] = [displayName ?? '', name ?? ''];
+    const candidates: string[] = [displayName ?? "", name ?? ""];
     for (const candidate of candidates) {
       const printable: string = VoiceCaptureDevicePolicy.printable(candidate).trim();
       if (printable.length > 0) {
@@ -64,7 +64,7 @@ export class VoiceCaptureDevicePolicy {
         ) {
           end -= 1;
         }
-        return printable.substring(0, end) + '…';
+        return printable.substring(0, end) + "…";
       }
     }
     return `录音设备 ${Number.isInteger(deviceType) ? deviceType : 0}`;
@@ -78,12 +78,15 @@ export class VoiceCaptureDevicePolicy {
    * reason this does not fail: a keyboard that refuses to record because a headset was unplugged is
    * worse than one that records from the built-in microphone.
    */
-  static match(devices: VoiceCaptureDevice[], backend: string | null,
-               deviceId: string | null): VoiceCaptureDevice | null {
+  static match(
+    devices: VoiceCaptureDevice[],
+    backend: string | null,
+    deviceId: string | null,
+  ): VoiceCaptureDevice | null {
     if (!VoiceCaptureDevicePolicy.selects(backend)) {
       return null;
     }
-    const wanted: string = (deviceId ?? '').trim();
+    const wanted: string = (deviceId ?? "").trim();
     if (wanted.length === 0) {
       return null;
     }
@@ -96,7 +99,7 @@ export class VoiceCaptureDevicePolicy {
   }
 
   private static printable(value: string): string {
-    let result: string = '';
+    let result: string = "";
     for (const character of value) {
       const code: number = character.charCodeAt(0);
       if (code >= 0x20 && code !== 0x7f) {

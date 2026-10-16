@@ -133,7 +133,8 @@ export class HarmonyDoubaoRecognizer {
       if (this.isCurrent(token, socket)) void this.fail('豆包语音识别超时。', token);
     }, SESSION_TIMEOUT_MS);
     try {
-      const connected: boolean = await socket.connect(config.asr_endpoint, this.headers(config));
+      const connected: boolean = await socket.connect(DoubaoCredentialPolicy.endpoint(config),
+        this.headers(config));
       if (!connected || !this.isCurrent(token, socket) || this.settled) throw new Error('connect failed');
       if (this.stopping) {
         await this.complete(token, socket);
@@ -401,7 +402,7 @@ export class HarmonyDoubaoRecognizer {
   private headers(config: VoiceInputConfiguration): webSocket.WebSocketRequestOptions {
     const requestId: string = util.generateRandomUUID(false);
     const token: string = DoubaoCredentialPolicy.token(config);
-    const resourceId: string = config.asr_resource_id.trim();
+    const resourceId: string = DoubaoCredentialPolicy.resourceId(config);
     const appKey: string = config.asr_app_key.trim();
     if (config.doubao_auth_mode === 'legacy') {
       return { header: { 'x-api-resource-id': resourceId, 'x-api-request-id': requestId,
@@ -412,11 +413,11 @@ export class HarmonyDoubaoRecognizer {
   }
 
   private validConfig(config: VoiceInputConfiguration): boolean {
-    return TextPolicy.validAuthority(config.asr_endpoint, ['wss://'])
+    return TextPolicy.validAuthority(DoubaoCredentialPolicy.endpoint(config), ['wss://'])
       && DoubaoHeaderPolicy.validConfiguration(
         config.doubao_auth_mode,
         DoubaoCredentialPolicy.token(config),
-        config.asr_resource_id,
+        DoubaoCredentialPolicy.resourceId(config),
         config.asr_app_key,
       );
   }
