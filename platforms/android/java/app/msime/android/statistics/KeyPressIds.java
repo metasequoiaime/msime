@@ -1,9 +1,6 @@
 package app.msime.android;
 
 import android.view.KeyEvent;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -234,48 +231,11 @@ public final class KeyPressIds {
         };
     }
 
-    /**
-     * The soft 26-key keyboard the statistics page draws: the letter rows, then the case and delete keys around the last of them, then the bottom row. Mirrors the faces KeyboardPreview draws for the 26-key layout.
-     */
-    public static final List<List<String>> SOFT_ROWS = List.of(
-        List.of("KeyQ", "KeyW", "KeyE", "KeyR", "KeyT", "KeyY", "KeyU", "KeyI", "KeyO", "KeyP"),
-        List.of("KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK", "KeyL"),
-        List.of("ShiftLeft", "KeyZ", "KeyX", "KeyC", "KeyV", "KeyB", "KeyN", "KeyM", "Backspace"),
-        List.of("SoftSymbol", "SoftLayer", "Comma", "Space", "SoftLanguage", "Enter"));
-
-    /** The nine-key grid: three rows of three, then the punctuation column's key and 0 under them. */
-    public static final List<List<String>> NINE_ROWS = List.of(
-        List.of("Nine1", "Nine2", "Nine3"),
-        List.of("Nine4", "Nine5", "Nine6"),
-        List.of("Nine7", "Nine8", "Nine9"),
-        List.of("SoftPunctuation", "Nine0"));
-
     /** Whether any nine-key cell was pressed, which is when the page draws the grid at all. */
     public static boolean hasNineKey(Map<String, Long> counts) {
         for (Map.Entry<String, Long> entry : counts.entrySet()) {
             if (entry.getKey().startsWith("Nine") && entry.getValue() > 0) return true;
         }
         return false;
-    }
-
-    /**
-     * The pressed keys that have no drawn position, most pressed first, for the 其他键 list.
-     *
-     * @param nineGrid whether the nine-key grid is drawn, so its cells are not listed twice
-     */
-    public static List<String> others(Map<String, Long> counts, boolean nineGrid) {
-        int drawnCapacity = 0;
-        for (List<String> row : SOFT_ROWS) drawnCapacity += row.size();
-        if (nineGrid) for (List<String> row : NINE_ROWS) drawnCapacity += row.size();
-        Set<String> drawn = new LinkedHashSet<>(drawnCapacity);
-        for (List<String> row : SOFT_ROWS) drawn.addAll(row);
-        if (nineGrid) for (List<String> row : NINE_ROWS) drawn.addAll(row);
-        List<String> result = new ArrayList<>(counts.size());
-        for (Map.Entry<String, Long> entry : counts.entrySet()) {
-            if (entry.getValue() > 0 && !drawn.contains(entry.getKey())) result.add(entry.getKey());
-        }
-        result.sort(Comparator.comparingLong((String id) -> counts.get(id)).reversed()
-            .thenComparingInt(KEY_IDS::indexOf));
-        return List.copyOf(result);
     }
 }

@@ -1,4 +1,5 @@
 import android.view.KeyEvent;
+import app.msime.android.KeyHeatmapLayout;
 import app.msime.android.KeyPressBatch;
 import app.msime.android.KeyPressIds;
 import java.util.HashSet;
@@ -119,19 +120,17 @@ public final class KeyPressCountingSmoke {
     }
 
     private static void layout() {
-        for (List<String> row : KeyPressIds.SOFT_ROWS) {
-            for (String id : row) check(KeyPressIds.isKnown(id), "a drawn soft key is whitelisted: " + id);
-        }
-        for (List<String> row : KeyPressIds.NINE_ROWS) {
-            for (String id : row) check(KeyPressIds.isKnown(id), "a drawn nine-key cell is whitelisted: " + id);
-        }
+        for (String id : KeyHeatmapLayout.ids(KeyHeatmapLayout.SOFT))
+            check(KeyPressIds.isKnown(id), "a drawn soft key is whitelisted: " + id);
+        for (String id : KeyHeatmapLayout.ids(KeyHeatmapLayout.NINE))
+            check(KeyPressIds.isKnown(id), "a drawn nine-key cell is whitelisted: " + id);
         Map<String, Long> counts = Map.of("KeyA", 5L, "Tab", 2L, "F1", 7L, "Nine2", 3L, "Escape", 0L);
         check(KeyPressIds.hasNineKey(counts) && !KeyPressIds.hasNineKey(Map.of("KeyA", 1L)),
             "the grid is drawn only when a nine-key cell was pressed");
-        check(KeyPressIds.others(counts, true).equals(List.of("F1", "Tab")),
+        check(KeyHeatmapLayout.others(counts, true).equals(List.of("F1", "KeyA", "Tab")),
             "keys with no drawn position are listed, most pressed first, unpressed left out");
-        check(KeyPressIds.others(counts, false).equals(List.of("F1", "Nine2", "Tab")),
-            "without the grid its cells are listed instead of lost");
+        check(KeyHeatmapLayout.others(counts, false).equals(List.of("F1", "Nine2", "Tab")),
+            "on the 26-key board the grid cells are listed instead of lost");
     }
 
     private static void check(boolean condition, String message) {

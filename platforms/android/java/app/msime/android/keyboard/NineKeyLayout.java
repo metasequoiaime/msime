@@ -41,6 +41,11 @@ public final class NineKeyLayout {
             new Key(9, "WXYZ", '9', "9 WXYZ")));
     private static final List<String> PUNCTUATION = List.of("，", "。", "？", "！");
 
+    /** 九键外框里左侧符号栏和右侧 ⌫ 列各占的宽度份额；统计页的热力图按同一个份额画（{@link KeyHeatmapLayout}）。 */
+    public static final float SIDE_COLUMN_WEIGHT = 0.9f;
+    /** 九键外框中间 3×3 网格整体的宽度份额，三列均分。 */
+    public static final float GRID_WEIGHT = 3f;
+
     private NineKeyLayout() {}
 
     public static List<List<Key>> rows() { return ROWS; }
