@@ -14,16 +14,26 @@ REFERENCE_CONFIG = "installer/default_config/config.default.toml"
 
 core_source = CORE_PREFERENCES.read_text(encoding="utf-8")
 mixed_input_default = re.search(
-    r"impl Default for MixedInputPreferences\s*\{.*?minimum_prefix:\s*(\d+)",
+    r"impl Default for MixedInputPreferences\s*\{.*?minimum_prefix:\s*(\w+)",
     core_source,
     re.DOTALL,
 )
 assert mixed_input_default, "MixedInputPreferences default was not found"
+# 缺省值可以直接写数字，也可以引用常量（`DEFAULT_MIXED_INPUT_MINIMUM_PREFIX`，macOS 固定用它）；引用常量时从常量的定义里取数。
+minimum_prefix_token = mixed_input_default.group(1)
+if not minimum_prefix_token.isdigit():
+    minimum_prefix_constant = re.search(
+        rf"const {re.escape(minimum_prefix_token)}:\s*u8\s*=\s*(\d+);", core_source
+    )
+    assert minimum_prefix_constant, (
+        f"MixedInputPreferences default minimum_prefix constant {minimum_prefix_token} was not found"
+    )
+    minimum_prefix_token = minimum_prefix_constant.group(1)
 
 with WINDOWS_DEFAULTS.open("rb") as config_file:
     windows_defaults = tomllib.load(config_file)
 
-shared_minimum_prefix = int(mixed_input_default.group(1))
+shared_minimum_prefix = int(minimum_prefix_token)
 windows_minimum_prefix = windows_defaults["general"]["cn_en_mixed_input_min_chars"]
 assert windows_minimum_prefix == shared_minimum_prefix, (
     "Windows cn_en_mixed_input_min_chars must match the shared default "
