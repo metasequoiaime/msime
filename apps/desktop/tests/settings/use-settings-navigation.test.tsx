@@ -64,3 +64,59 @@ test("system back also clears a pending login return page", () => {
   expect(result.current.page).toBe("community");
   expect(result.current.accountLoginReturnPage).toBeNull();
 });
+
+// 「手写输入」并进屏幕键盘页的桌面宿主上，handwriting 这个旧 id 从路由、导航调用和启动页都打开屏幕键盘页，而不是落到默认页。
+test("an aliased page id opens the page that now carries it", () => {
+  const aliases: Partial<Record<SettingsPageId, SettingsPageId>> = {
+    handwriting: "screen-keyboard",
+  };
+  const { result, rerender } = renderHook(
+    ({
+      initialPage,
+      route,
+    }: {
+      initialPage: SettingsPageId;
+      route?: { page: string; nonce: number };
+    }) => {
+      const [page, setPage] = useState<SettingsPageId>(initialPage);
+      const mobileLastPageByTab = useRef({
+        home: "home" as SettingsPageId,
+        chat: "chat" as SettingsPageId,
+        "typing-statistics": "typing-statistics" as SettingsPageId,
+        account: "account" as SettingsPageId,
+      });
+      const navigation = useSettingsNavigation({
+        mobilePlatform: false,
+        mobileHiddenPageIds: [],
+        availablePages: (["input", "screen-keyboard", "voice"] as SettingsPageId[]).map((id) => ({
+          id,
+        })),
+        pageAliases: aliases,
+        page,
+        setPage,
+        mobileLastPageByTab,
+        route,
+        hasHomePage: false,
+        setCommunityDestination: () => {},
+        setAccountLoginReturnPage: () => {},
+        accountLoginReturnPage: null,
+      });
+      return { page, ...navigation };
+    },
+    {
+      initialProps: {
+        initialPage: "handwriting" as SettingsPageId,
+        route: undefined as { page: string; nonce: number } | undefined,
+      },
+    },
+  );
+  expect(result.current.page).toBe("screen-keyboard");
+
+  act(() => result.current.selectPage("voice"));
+  act(() => result.current.selectPage("handwriting"));
+  expect(result.current.page).toBe("screen-keyboard");
+
+  act(() => result.current.selectPage("voice"));
+  rerender({ initialPage: "handwriting", route: { page: "handwriting", nonce: 1 } });
+  expect(result.current.page).toBe("screen-keyboard");
+});

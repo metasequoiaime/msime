@@ -14,6 +14,7 @@ Status: implemented
 - 键和动作在无 Android 依赖的 `TextEditPanelModel`：4 × 4，左边 ← → 各占三行、中间 ↑ 选择 ↓，下排 移到开头 / 移到结尾 / 退格，右列 全选 / 复制 / 剪切 / 粘贴。视图用嵌套的 LinearLayout 按权重搭出同样的形状。
 - 打开前由 Engine 完成组字，之后所有动作直接作用于编辑器，不经过 Engine：
   - 方向键发 DPAD 按键事件；「选择」开着时先发左 Shift 按下、再发带 Shift meta 的方向键、最后松开 Shift。EditText 的 `ArrowKeyMovementMethod.isSelecting` 只看文字缓冲里 MetaKeyKeyListener 记下的 Shift，不看事件的 meta；WebView 看事件的 meta，所以两样都给。事件的设备是 `VIRTUAL_KEYBOARD`，它的修饰键是 chorded，Shift 松开即清除，不会留下粘滞的 Shift。
+  - #8175 的选择状态直接复用面板的 `selecting`：开启时键面和无障碍动作读作「取消选择」，关闭时恢复「选择」及原有「选择模式」描述。剪切、粘贴、退格和重新打开面板仍按已有规则关闭选择模式，标签随同刷新，不另存一份状态。
   - 移到开头 / 结尾是 Ctrl+Home / Ctrl+End，到整篇文档两端（issue 说的是文本的头部和尾部，不是当前行）。
   - 全选、复制、剪切、粘贴走 `performContextMenuAction`。编辑器不支持时只有粘贴退回到直接上屏剪贴板文字。
   - 退格发 `KEYCODE_DEL`（有选区时删选区），复用删除键的连发与上滑快速删除。方向键按住连发，节奏同删除键。剪切、粘贴、退格之后关闭「选择」。
@@ -30,4 +31,10 @@ Status: implemented
 
 - **收益**：方向移动、选区、剪贴板操作和跳到首尾在一个面板里完成；键位、按键码、修饰键、菜单动作由 `TextEditPanelModelSmoke` 验证，`check-host.sh` 守住面板与其他工具栏面板一起关闭和计数。
 - **代价与已知上限**：完全依赖编辑器对 DPAD、Shift、Ctrl+Home/End 和上下文菜单动作的处理，自定义输入框（游戏引擎、部分跨平台框架）可能不响应；不支持的编辑器里复制、剪切静默无效。入口原先只在功能面板里；#6351 之后工具栏上可以打开一个「文本编辑」按钮，见 [2026-10-09-android-toolbar-text-edit](2026-10-09-android-toolbar-text-edit.md)。
-- **未验证**：没有在真机或模拟器上验收，选区延伸在 EditText 与 WebView 上的实际表现、面板在九键/单手/分离式键盘下的布局都只按源码推断。
+- **验证边界**：EditText 的选择状态和选区延伸已在下述模拟器验收；WebView、自定义编辑器和九键/单手/分离式键盘下的布局仍未在这一轮验收。
+
+## Verification
+
+- #8175：`check-host.sh` 通过；Gradle 原生宿主 `assembleFullRelease` 通过。Java 改动重新编译，测试包复用 #8094 已验收的原生库和 staged 词库，不把这轮表述为 Rust 原生库重建。
+- `TextEditRecentClipboardDeviceSmoke` 在 API 28、API 35 专用模拟器通过：开启后键面及无障碍描述为「取消选择」，方向键延伸 EditText 选区；关闭后恢复「选择」，下一次方向键只移动光标。原有复制、剪切、粘贴、顶部预览和返回键验收同时通过。
+- `bash scripts/verify-local.sh --quick`、`pnpm run verify-notes` 与差异检查通过。

@@ -5,6 +5,8 @@ import { SecretSettingRow } from "./secret-setting-row";
 import { TextInputRow } from "./text-input-row";
 import { SettingsGroupBlock } from "./settings-group-block";
 import { SettingsRowStack } from "./settings-row-stack";
+import { MoreOptions } from "../core/platform-controls";
+import { tencentCredentialIssue } from "./translation-validation";
 
 export interface TencentTranslationSectionProps {
   available: boolean;
@@ -13,6 +15,10 @@ export interface TencentTranslationSectionProps {
   region: string;
   credentialIssue?: string;
   showMissingCredentialsWarning?: boolean;
+  /** 见 `TranslationServiceSelectorSectionProps.offlineFallback`：缺凭据时宿主改用离线翻译，警告照实说，而不是说没有结果。 */
+  offlineFallback?: boolean;
+  /** 把「地域」收进「更多选项」；外层已经整体折叠（HarmonyOS 手机的「翻译服务」）时传 false，免得两层「更多选项」套在一起。 */
+  foldRegion?: boolean;
   onSecretIdChange: (value: string) => void;
   onSecretKeyChange: (value: string) => void;
   onRegionChange: (value: string) => void;
@@ -27,11 +33,26 @@ export function TencentTranslationSection({
   region,
   credentialIssue,
   showMissingCredentialsWarning = false,
+  offlineFallback = false,
+  foldRegion = true,
   onSecretIdChange,
   onSecretKeyChange,
   onRegionChange,
   children,
 }: TencentTranslationSectionProps) {
+  const regionRow = (
+    <TextInputRow
+      title="地域"
+      label="腾讯云地域"
+      type="text"
+      autoComplete="off"
+      spellCheck={false}
+      value={region}
+      disabled={!available}
+      onChange={onRegionChange}
+      placeholder="ap-guangzhou"
+    />
+  );
   return (
     <SettingsRowStack role="group" aria-label="腾讯云机器翻译">
       <SettingsGroupNote>需要填入你自己的腾讯云 API 凭据。</SettingsGroupNote>
@@ -53,17 +74,14 @@ export function TencentTranslationSection({
         disabled={!available}
         onChange={onSecretKeyChange}
       />
-      <TextInputRow
-        title="地域"
-        label="腾讯云地域"
-        type="text"
-        autoComplete="off"
-        spellCheck={false}
-        value={region}
-        disabled={!available}
-        onChange={onRegionChange}
-        placeholder="ap-guangzhou"
-      />
+      {/* 请求一律发往就近接入的 tmt.tencentcloudapi.com，地域只进请求头，留空也按广州处理，所以平时用不着改，收进「更多选项」；需要境外数据驻留的人仍能填。值本身不合规时展开，让错误旁边就是要改的那一格。 */}
+      {foldRegion ? (
+        <MoreOptions defaultOpen={tencentCredentialIssue("", "", region) !== ""}>
+          {regionRow}
+        </MoreOptions>
+      ) : (
+        regionRow
+      )}
       {children && <SettingsGroupBlock>{children}</SettingsGroupBlock>}
       {available && credentialIssue && (
         <SettingsGroupBlock>
@@ -73,8 +91,9 @@ export function TencentTranslationSection({
       {available && !credentialIssue && showMissingCredentialsWarning && (
         <SettingsGroupBlock>
           <SettingsWarning>
-            未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与
-            SecretKey，或在上面的翻译服务中改选其他服务。
+            {offlineFallback
+              ? "未填写腾讯云凭据，填好之前候选仍用离线翻译。请填入 SecretId 与 SecretKey，或在上面的翻译服务中改选其他服务。"
+              : "未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与 SecretKey，或在上面的翻译服务中改选其他服务。"}
           </SettingsWarning>
         </SettingsGroupBlock>
       )}

@@ -2,6 +2,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { GroupList, MoreOptions } from "../../core/platform-controls";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
+import { CandidatePronunciationSection } from "../candidate-pronunciation-section";
 import { EnglishSuggestionsSection } from "../english-suggestions-section";
 import { PhonePunctuationSection, PunctuationSection } from "../punctuation-section";
 import { SentenceAssociationLevelRow } from "../sentence-association-section";
@@ -97,6 +98,16 @@ export function ExpressionSettingsPage() {
     "标点与翻译设置分类",
     !mobilePlatform,
   );
+  // 「显示读音」是释义的子行，画在目标语言之后：没有任何释义来源打开时没有东西可读，这一行不出现，已存的值不动。
+  const glossCandidate = {
+    ...translation.candidate,
+    beforeMore: client.candidatePronunciation && candidateGlossLanguagesEnabled && (
+      <CandidatePronunciationSection
+        value={draft.candidate_pronunciation ?? false}
+        onChange={(candidate_pronunciation) => onPreferencesChange({ candidate_pronunciation })}
+      />
+    ),
+  };
   const harmonyPhone = harmonyPlatform && mobilePlatform;
   const ariaLabel = mobilePlatform ? "表达" : "标点与翻译";
   if (harmonyPhone) {
@@ -132,7 +143,12 @@ export function ExpressionSettingsPage() {
                 showAccountProvider={translation.candidate.showAccountProvider ?? false}
                 onChange={setTranslationProvider}
               />
-              <TranslationProviderSettingsSection {...providers} grouped={false} />
+              {/* 这一组已经整体收在「更多选项」里，腾讯云地域不再套第二层。 */}
+              <TranslationProviderSettingsSection
+                {...providers}
+                grouped={false}
+                foldRegion={false}
+              />
             </MoreOptions>
           </GroupList>
         )}
@@ -153,34 +169,34 @@ export function ExpressionSettingsPage() {
           />
         </GroupList>,
       )}
-      {panel(
-        "language",
-        <InputLanguageOptionsSection
-          grouped
-          includeCandidateControls
-          showCandidateEnglishGloss={client.candidateEnglishGloss}
-          candidateEnglishGloss={candidateEnglishGloss}
-          onCandidateEnglishGlossChange={(candidate_english_gloss) =>
-            onPreferencesChange({ candidate_english_gloss })
-          }
-          showCandidatePronunciation={client.candidatePronunciation}
-          candidatePronunciation={draft.candidate_pronunciation ?? false}
-          candidatePronunciationDisabled={!candidateGlossLanguagesEnabled}
-          onCandidatePronunciationChange={(candidate_pronunciation) =>
-            onPreferencesChange({ candidate_pronunciation })
-          }
-          showEnglishSuggestions={showEnglishSuggestions}
-          englishSuggestions={englishSuggestions}
-          onEnglishSuggestionsChange={(english_suggestions) =>
-            onPreferencesChange({ english_suggestions })
-          }
-        />,
-      )}
       <TranslationSettingsContent
-        candidate={translation.candidate}
+        candidate={glossCandidate}
         providers={translation.providers}
         serviceInOwnGroup={!mobilePlatform}
-        renderGroup={panel}
+        renderGroup={(tab, children) =>
+          tab === "translation"
+            ? panel(
+                "gloss",
+                <>
+                  <InputLanguageOptionsSection
+                    grouped
+                    includeCandidateControls
+                    showCandidateEnglishGloss={client.candidateEnglishGloss}
+                    candidateEnglishGloss={candidateEnglishGloss}
+                    onCandidateEnglishGlossChange={(candidate_english_gloss) =>
+                      onPreferencesChange({ candidate_english_gloss })
+                    }
+                    showEnglishSuggestions={showEnglishSuggestions}
+                    englishSuggestions={englishSuggestions}
+                    onEnglishSuggestionsChange={(english_suggestions) =>
+                      onPreferencesChange({ english_suggestions })
+                    }
+                  />
+                  {children}
+                </>,
+              )
+            : panel(tab, children)
+        }
       />
       {mobilePlatform && <MobileInputAiNotice onOpenAi={() => selectPage("ai")} />}
     </SettingsPageFieldset>

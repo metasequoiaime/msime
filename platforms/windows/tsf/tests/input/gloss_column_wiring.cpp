@@ -60,8 +60,8 @@ int main(int argc, char **argv) {
            true, "Alt/Ctrl+digit is taken while incremental candidates are open");
     expect(sink, "_candidateMode == CANDIDATE_ORIGINAL &&\n            !_serverUnavailableFallbackActive", false,
            "the gloss shortcut no longer waits for the wildcard candidate list");
-    // 排队路径：看投影里的组字，不只看 CANDIDATE_ORIGINAL。
-    expect(sink, "_deferredKeyProjectionValid ? (_deferredProjectedInputLength > 0 || _deferredProjectedCandidateActive)\n                                    : (_candidateMode != CANDIDATE_NONE);",
+    // 排队初次分类看投影，执行时重分类看真实候选状态，不只认 CANDIDATE_ORIGINAL。
+    expect(sink, "useProjection ? (_deferredProjectedInputLength > 0 || _deferredProjectedCandidateActive)\n                                    : (_candidateMode != CANDIDATE_NONE);",
            true, "a queued gloss shortcut sees the projected composition");
     expect_before(sink, "projectedCandidateListOpen &&", "IsGlossColumnShortcut(*classifiedCode, capturedModifiers)",
                   "a queued Alt/Ctrl+digit is gated on the projected candidate list");

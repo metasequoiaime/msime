@@ -22,3 +22,5 @@ Status: implemented
 ## Verification
 
 `cargo test -p msime-client-core --lib helpcode --locked --quiet`：12 passed。`cargo fmt --all`、`cargo clippy -p msime-client-core --lib --locked -- -D warnings` 和 `git diff --check` 均通过。
+
+目录与加载的扩展名解析、同主干选择规则见[扩展名一致性修复](2026-10-16-custom-helpcode-extension.md)；显示元数据继续使用本篇的目录句柄读取。

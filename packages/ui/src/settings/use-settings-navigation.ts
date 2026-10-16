@@ -19,6 +19,8 @@ export interface SettingsNavigationOptions {
   mobilePlatform: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   availablePages: readonly { id: SettingsPageId }[];
+  /** 并进别的页的页 id 指向现在承载它的页（见 `settingsPageProjections`）；打开旧 id 时打开承载页。 */
+  pageAliases?: Partial<Record<SettingsPageId, SettingsPageId>>;
   page: SettingsPageId;
   setPage: Dispatch<SetStateAction<SettingsPageId>>;
   mobileLastPageByTab: MutableRefObject<Record<MobilePrimaryPageId, SettingsPageId>>;
@@ -29,11 +31,14 @@ export interface SettingsNavigationOptions {
   accountLoginReturnPage: SettingsPageId | null;
 }
 
+const noPageAliases: Partial<Record<SettingsPageId, SettingsPageId>> = {};
+
 /** Owns mobile settings history, tab memory, and route-driven page selection. */
 export function useSettingsNavigation({
   mobilePlatform,
   mobileHiddenPageIds,
   availablePages,
+  pageAliases = noPageAliases,
   page,
   setPage,
   mobileLastPageByTab,
@@ -47,7 +52,8 @@ export function useSettingsNavigation({
   const handledRoute = useRef(route?.nonce);
 
   /** 打开 `next`。在移动端它是一条新的 WebView 历史记录，因此系统返回手势可以返回；`replace` 则用它替换当前记录，用于从背后没有设置记录的页面向上返回。 */
-  const selectPage = (next: SettingsPageId, replace = false) => {
+  const selectPage = (requested: SettingsPageId, replace = false) => {
+    const next = pageAliases[requested] ?? requested;
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
     if (next === page) return;
     if (page === "account" && next !== "account") setAccountLoginReturnPage(null);
@@ -71,7 +77,13 @@ export function useSettingsNavigation({
     if (!route || route.nonce === handledRoute.current) return;
     handledRoute.current = route.nonce;
     // A route to a page this host does not offer opens 输入 rather than an empty page.
-    selectPage(requestedPage(route.page, availablePages, "input"));
+    selectPage(
+      requestedPage(
+        pageAliases[route.page as SettingsPageId] ?? route.page,
+        availablePages,
+        "input",
+      ),
+    );
     // Route nonces intentionally provide the effect's identity; the page callback reads current state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.nonce]);
@@ -127,11 +139,25 @@ export function useSettingsNavigation({
   };
 
   useEffect(() => {
+    // 启动时请求的页（`initialPage`）或记住的页已经并进别的页时，打开承载它的页。
+    const alias = pageAliases[page];
+    if (alias) {
+      setPage(alias);
+      return;
+    }
     const pageAvailable =
       availablePages.some((item) => item.id === page) &&
       (!mobilePlatform || !mobileHiddenPageIds.includes(page));
     if (!pageAvailable) setPage(mobilePlatform && hasHomePage ? "home" : "input");
-  }, [availablePages, hasHomePage, mobileHiddenPageIds, mobilePlatform, page, setPage]);
+  }, [
+    availablePages,
+    hasHomePage,
+    mobileHiddenPageIds,
+    mobilePlatform,
+    page,
+    pageAliases,
+    setPage,
+  ]);
 
   return {
     mobileActiveTab,

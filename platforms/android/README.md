@@ -95,7 +95,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 硬件键盘快捷键消费共享 `keybindings`：Shift+Space、Ctrl+Alt+Space 和单击 Shift/Ctrl 可切换中英，Ctrl+Shift+F 切换简繁，Alt+Shift+H 切换全角输入；每个开关都按偏好即时生效。修饰键单击只有在 600 ms 内且期间没有按下其他键时才触发，组合键优先于普通编辑器快捷键；不匹配或关闭的快捷键继续交给 Android/编辑器。触屏键盘的 Shift 和“简/繁”按钮仍走各自原生路径。
 
-键值与键面是两件事：`KeyboardLayout.rows(layer)` 只给键值，字母恒为小写，因为这是交给 Engine 的形式，Engine 只能用小写字母起拼音组合；键面由 `LetterKeyFacePolicy` 单独决定，中文 26 键按 Apple 一律画大写。两者曾被合并处理，导致中文态把 `N` 发给 Engine、被拒后当字面上屏，26 键中文输入整体失效。
+键值与键面是两件事：`KeyboardLayout.rows(layer)` 只给键值，字母恒为小写，因为这是交给 Engine 的形式，Engine 只能用小写字母起拼音组合；键面由 `LetterKeyFacePolicy` 单独决定，中文模式下中文方案（全拼、双拼、五笔、粤拼等）的 26 键与 iOS、HarmonyOS 一样一律画大写；英文模式和日语罗马字平时画小写、Shift 或大写锁定时画大写，越南语、藏文的键面跟 Shift 走，读屏只在下一键真的输入大写时读「大写」。两者曾被合并处理，导致中文态把 `N` 发给 Engine、被拒后当字面上屏，26 键中文输入整体失效。
 
 软键盘的主按键区按 Apple 键盘的基础层次拆成字母层和符号层；字母层支持可见的 Shift 状态，符号层保留标点、括号和数字，两个层次均通过无障碍描述暴露当前按键。层次排列由无 Android 依赖的 `KeyboardLayout` 提供，便于在主机测试中验证布局不被宿主生命周期改变。
 
@@ -146,6 +146,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 无障碍增减键盘高度每一步都会保存：拖动在松手时 commit，而无障碍调整没有松手这一刻，只预览会被下一次偏好应用覆盖回原值。
 
 功能面板「键盘高度」与设置页的「键盘高度」滑块按 75%–160% 调整（百分比按四行设计键高 4 × 46 = 184 dp 换算，1% 是 1.84 dp），值以 dp 调整量（−46…110）存在本地设置 `platform.android.keyboard_height_adjustment`，不进共享偏好（共享的 `touch_keyboard_height_adjustment` 仍是 −12…48，只在本地没写过时沿用）。130%（55 dp）以内在任何窗口里照画；更高的部分最多占当前窗口高度（`Configuration.screenHeightDp`）的 14%，竖屏手机能用满 160%，键盘到屏幕一半以上，横屏手机止于 130%，旋转回来自动恢复，存着的值不变（`KeyboardGeometry.windowHeightAdjustment`）。内联高度条的说明在百分比后面显示键盘此刻实际画出来的像素高度，拖动时随布局刷新。键区四行一样高（#6354、#6472，与 iOS、HarmonyOS 相同）：字母行、九键 / 笔画 / 手写这类三行高的键块的每一行和底行（功能行，以及 123 / #+= 层自带的底行）都是 52 dp 加一份行距（`KeyboardGeometry.KEY_ROW_HEIGHT_DP`），默认行距下键区 236 dp，键帽都是 52 dp。高度调整由四行均分：底行分到 `floorDiv(调整量, 4)`（`KeyboardGeometry.bottomRowAdjustment`），上面三行或三行高的键块分其余部分（`keyRowsAdjustment`），日语、注音九键连底行一起占四行的整块拿整份，各布局总高一致；数字行按第一行字母的份额另加一行。原来字母行是 56 dp、底栏是 46 dp 且不加行距、不分摊调整（键帽 39 dp 对 56 dp），#6488 加过的「加高底行」开关随之移除，本机或备份里留着的 `platform.android.tall_bottom_row` 读取时丢掉。
+
+功能面板和输入方式面板每页四列，行数与 iOS、HarmonyOS 同一条规则（`PagedTileGrid.pickerGrid`）：手机竖屏和平板三行、行距 12 dp，手机横屏（`smallestScreenWidthDp` < 600）两行、行距 16 dp，转屏时开着的面板按新配置重排（`onConfigurationChanged`）。安卓的键区横竖屏一样高，默认 236 dp，最矮（75%、行距 4 dp）178 dp（`KeyboardHeightPolicy.keyAreaHeightDp`）；三行磁贴连同面板留白和页点在行距 12 下放不进当前键区时先把行距收小，收到 4 dp 还放不下就退回两行，不裁掉磁贴，所以键盘调得很矮时这两个面板是两行。
 
 键盘工具栏的“设置”面板以远端默认分支固定来源 `MSIME-Apple@3d300cdc62fe0d09565b30bd3e4165571fb91562` 复刻透明实时调整层：键盘保持可见，键盘区域左右拖动按 Apple 的主轴锁定规则调整按键间距，上下拖动调整行间距，顶部工具条拖动把手调整高度；Android 额外保留顶部语音入口开关。高度在平台默认键区基础上支持 -12–+48 dp，并以整数写入共享 `touch_keyboard_height_adjustment`；增量由键区四行均分（三行字母或九键这类三行高的键块，加底行），手写把键块分到的那份用于书写与工具区。间距支持 3.0–6.0 dp 和 4.0–10.0 dp，并以 0.1 dp 精度写入共享 `touch_key_spacing_tenths` / `touch_row_spacing_tenths`。拖动时直接更新已有 View 的高度或 margin，不重建按键树、Engine 或丢失当前组词与手写笔迹；松手、无障碍增减及切换语音入口后通过共享 revision CAS 保存，冲突或写入失败会把间距和语音入口恢复到最近一次已接受快照。键盘高度只存在 Android 本地设置里，先于共享文档单独写入（`KeyboardHeightSave`），共享文档冲突或写入失败不会连带丢掉刚调好的高度；只调高度时不写共享文档。功能面板「键盘高度」打开的内联高度条只在点「取消」时放弃预览：点「完成」或不点就收起键盘都按当前高度保存，调整期间同步或设置页写来的新快照不覆盖预览。
 

@@ -795,6 +795,10 @@ impl QuanpinDictionary {
                     .map_or("", |(prefix, _)| prefix);
             }
             let partial = &segments[..count];
+            if count < segments.len() {
+                self.append_single_path(&mut result, raw, partial_segmentation, partial);
+                continue;
+            }
             let mut rows = self.query_single_path(raw, partial_segmentation, partial);
             if count == segments.len() {
                 // 同长度表里常常只剩冷僻同音词：ping'guo 只有 苹果 1143881、评过 1180、平果 169、平锅 1，而 苹果电脑 21495、苹果公司 19725 在 tbl_4_p，同长度查询看不到，第二位就落到冷僻同音词上。所以更长的补全词按权重并入这一组，权重出自同一语料，跨表可比。`pinyin` 仍是键入的切分（上屏只消耗已键入的音节），`canonical_pinyin` 保留完整读音供持久化。
@@ -952,6 +956,38 @@ impl QuanpinDictionary {
         if let Some(cached) = self.cache.get_ref_by(cache_key) {
             return cached.clone();
         }
+        self.query_single_path_miss(cache_key, segmentation, segments)
+    }
+
+    /// 较短热前缀直接克隆到最终结果，避免建立随后立即搬走的中间候选页。
+    fn append_single_path(
+        &mut self,
+        result: &mut Vec<WordItem>,
+        raw: &str,
+        segmentation: &str,
+        segments: &[String],
+    ) {
+        if result.is_empty() && result.capacity() == 0 {
+            *result = self.query_single_path(raw, segmentation, segments);
+            return;
+        }
+        let cache_key = path_cache_key(raw, segmentation);
+        if let Some(rows) = self.cache.get_ref_by(cache_key) {
+            result.reserve(rows.len());
+            result.extend(rows.iter().cloned());
+            return;
+        }
+        let rows = self.query_single_path_miss(cache_key, segmentation, segments);
+        Self::append_query_rows(result, rows);
+    }
+
+    /// 冷页仍保存紧凑副本并交出原查询结果；两个入口共用同一次未命中处理。
+    fn query_single_path_miss(
+        &mut self,
+        cache_key: &str,
+        segmentation: &str,
+        segments: &[String],
+    ) -> Vec<WordItem> {
         let result = self.query_database(segments, segmentation);
         self.cache.insert(cache_key.to_owned(), result.clone());
         result
@@ -1604,3 +1640,7 @@ mod fuzzy_typed_borrow_tests;
 #[cfg(test)]
 #[path = "dictionary/fuzzy_input_borrow_tests.rs"]
 mod fuzzy_input_borrow_tests;
+
+#[cfg(test)]
+#[path = "dictionary/prefix_row_stream_tests.rs"]
+mod prefix_row_stream_tests;

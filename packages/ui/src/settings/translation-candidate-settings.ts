@@ -81,6 +81,8 @@ export function createCandidateTranslationSettings({
     showTranslationService: !android,
     translationProvider,
     showAccountProvider: macos || linux || windows,
+    // 只有 macOS 在不选在线服务时还会用系统本机翻译补齐释义（`InputController` 的 `currentOnDeviceGlossRequest`），所以只在 macOS 上把「关闭」改叫「离线翻译」；其他宿主沿用原来的叫法，等各自核对过再改。
+    offlineFallback: macos,
     onTranslationProviderChange: setTranslationProvider,
   };
 }

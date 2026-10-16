@@ -63,3 +63,32 @@ test("grouped selector keeps the settings row layout", () => {
   });
   expect(onChange).toHaveBeenCalledWith("tencent");
 });
+
+test("macOS names the no-service choice offline translation and says where glosses come from", () => {
+  const { rerender } = render(
+    <TranslationServiceSelectorSection
+      grouped
+      available
+      provider="none"
+      showAccountProvider={false}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("option", { name: "关闭" })).toBeTruthy();
+  expect(screen.queryByText(/随输入法打包的离线词库/)).toBeNull();
+
+  rerender(
+    <TranslationServiceSelectorSection
+      grouped
+      available
+      provider="none"
+      showAccountProvider={false}
+      offlineFallback
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("option", { name: "关闭" })).toBeNull();
+  const offline = screen.getByRole("option", { name: "离线翻译（不联网）" }) as HTMLOptionElement;
+  expect(offline.value).toBe("none");
+  expect(screen.getByText(/随输入法打包的离线词库/)).toBeTruthy();
+});

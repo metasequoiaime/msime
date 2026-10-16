@@ -226,7 +226,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     // 向宿主会话发 MSIME_CANCEL；第一次只关闭了韩文或注音的列表、只把越南文词或藏文音节串重新显示为原文、或只退出了整句改字时再发一次，所以组字无论如何都会被丢弃。没有宿主会话时返回 true。
     bool _CancelHostComposition();
     // 音节已经上屏，应用键使用独立屏障；不能因为导航发送失败而重试原音节。
-    void _QueueKoreanSyllableKeyReplay(UINT virtualKey, ITfContext *context, uint64_t replayToken);
+    bool _QueueKoreanSyllableKeyReplay(UINT virtualKey, ITfContext *context, uint64_t replayToken);
     void _RunKoreanSyllableKeyReplay(UINT marker);
     bool _HasPendingApplicationKeyReplay() const;
     bool _ObserveApplicationKeyReplay(ITfContext *context, UINT virtualKey, ULONG_PTR marker);
@@ -373,6 +373,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _CompleteLocalSessionReset(UINT resetToken);
     bool _IsDeferredKeyReplayCurrent(uint64_t replayToken, uint64_t focusGeneration,
                                      _In_opt_ ITfContext *expectedContext) const;
+    bool _IsDeferredApplicationTextCurrent(uint64_t replayToken, uint64_t focusGeneration, ITfContext *context,
+                                            HWND foregroundWindow, uint64_t focusToken);
     void _CompleteDeferredKeyReplay(uint64_t replayToken);
     void _RetryDeferredKeyReplay(uint64_t replayToken);
 
@@ -449,7 +451,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
         {
             KeyDown,
             PreservedKey,
-            ApplicationText
+            ApplicationText,
+            ApplicationKey
         };
 
         Kind kind = Kind::KeyDown;
@@ -464,6 +467,11 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
         ULONGLONG queuedAtMs = 0;
         UINT replayAttempts = 0;
         bool preservedApplied = false;
+        // 选择结果未定时只捕获原始键，轮到执行时再读取组字状态分类。
+        bool needsClassification = false;
+        bool capsLockOn = false;
+        bool windowsKeyDown = false;
+        HWND foregroundWindow = nullptr;
     };
     enum class KeyDownDispatchResult
     {
@@ -481,12 +489,14 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam,
                                   _In_opt_ const WCHAR *translatedWch, _In_opt_ const UINT *modifiersDown,
                                   _Out_ WCHAR *classifiedWch, _Out_ UINT *classifiedCode,
-                                  _Out_ _KEYSTROKE_STATE *keyState);
+                                  _Out_ _KEYSTROKE_STATE *keyState, _In_opt_ const DeferredKeyDown *replayedKey = nullptr);
     bool _QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam, WCHAR translatedWch,
                                UINT modifiersDown, const _KEYSTROKE_STATE &keyState);
     bool _QueueDeferredPreservedKey(_In_ ITfContext *pContext, REFGUID preservedKey);
     void _ClearDeferredKeyDowns();
     void _ScheduleDeferredKeyDownDrain(bool allowSyncFallback = true);
+    bool _ResolveDeferredKeyClassification(uint64_t replayToken);
+    bool _IsDeferredKeyOwnerCurrent(ITfContext *context, uint64_t focusGeneration, HWND foregroundWindow) const;
     void _DrainOneDeferredKeyDown();
     void _TryLeaveServerUnavailableFallback();
     void _WakeServerIfNeeded();
@@ -725,6 +735,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
         uint64_t focusToken = 0;
         uint64_t focusGeneration = 0;
         ULONGLONG deadline = 0;
+        HWND foregroundWindow = nullptr;
         bool downSent = false;
         bool upSent = false;
         bool downObserved = false;
@@ -789,6 +800,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     uint64_t _deferredKeyReplayToken;
     uint64_t _nextDeferredKeyReplayToken;
     bool _deferredKeyProjectionValid;
+    bool _deferredKeyClassificationPending = false;
     bool _deferredProjectedImeOpen;
     bool _deferredProjectedPunctuationOpen;
     bool _deferredProjectedDoubleSingleByteOpen;

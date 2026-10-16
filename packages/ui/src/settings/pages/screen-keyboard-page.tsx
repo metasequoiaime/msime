@@ -13,6 +13,9 @@ import { SettingsPreviewBlock } from "../settings-preview-block";
 import { SelectRow } from "../select-row";
 import type { TouchKeyboardScheme } from "../touch-keyboard-scheme-helpers";
 import { supportedInputSchemes } from "../input-scheme-options";
+import { defaultTouchKeyboardGeometry } from "../touch-keyboard-geometry-defaults";
+import { HandwritingSettingsContent } from "./handwriting-page";
+import { screenKeyboardAndHandwritingTitle } from "../settings-page-projections";
 
 type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "nine_key";
 
@@ -111,11 +114,40 @@ export function ScreenKeyboardSettingsPage() {
     touchKeySpacingTenths,
     touchRowSpacingTenths,
     touchKeyboardHeightAdjustment,
+    showTouchKeyboardHeight,
+    showTouchKeyboardSpacing,
+    handwritingOnScreenKeyboardPage,
   } = useSettingsForm();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   const harmonyPhone = harmonyPlatform && mobilePlatform;
-  // 在预览上拖动调的是同一个间距。
-  const draggablePreview = (
+  // 宿主不按存下的高度或间距画键盘时（macOS），预览画键盘实际的样子：默认高度和默认间距，不画存下的值。
+  const previewKeySpacingTenths = showTouchKeyboardSpacing
+    ? touchKeySpacingTenths
+    : defaultTouchKeyboardGeometry.keySpacingTenths;
+  const previewRowSpacingTenths = showTouchKeyboardSpacing
+    ? touchRowSpacingTenths
+    : defaultTouchKeyboardGeometry.rowSpacingTenths;
+  const previewHeightAdjustment = showTouchKeyboardHeight
+    ? touchKeyboardHeightAdjustment
+    : defaultTouchKeyboardGeometry.heightAdjustment;
+  const preview = (
+    <ScreenKeyboardPreview
+      theme={keyboardPreviewTheme}
+      skin={keyboardThemeId(globalTheme, draft.custom_theme)}
+      customDesign={customTouchKeyboardSkin}
+      keySpacingTenths={previewKeySpacingTenths}
+      rowSpacingTenths={previewRowSpacingTenths}
+      heightAdjustment={previewHeightAdjustment}
+      phone={harmonyPhone}
+      touchRows={
+        harmonyPhone
+          ? harmonyTouchKeyboardRows[harmonyTouchLayout(selectedTouchKeyboardScheme)]
+          : undefined
+      }
+    />
+  );
+  // 在预览上拖动调的是同一个间距；间距不可调的宿主上预览只是静态的样子。
+  const draggablePreview = showTouchKeyboardSpacing ? (
     <div
       aria-label="拖动预览调整键盘间距"
       onPointerDown={beginTouchGeometryDrag}
@@ -124,21 +156,10 @@ export function ScreenKeyboardSettingsPage() {
       onPointerCancel={endTouchGeometryDrag}
       style={{ touchAction: "none" }}
     >
-      <ScreenKeyboardPreview
-        theme={keyboardPreviewTheme}
-        skin={keyboardThemeId(globalTheme, draft.custom_theme)}
-        customDesign={customTouchKeyboardSkin}
-        keySpacingTenths={touchKeySpacingTenths}
-        rowSpacingTenths={touchRowSpacingTenths}
-        heightAdjustment={touchKeyboardHeightAdjustment}
-        phone={harmonyPhone}
-        touchRows={
-          harmonyPhone
-            ? harmonyTouchKeyboardRows[harmonyTouchLayout(selectedTouchKeyboardScheme)]
-            : undefined
-        }
-      />
+      {preview}
     </div>
+  ) : (
+    preview
   );
   // HarmonyOS 手机上预览是「尺寸」卡片的第一行，下面就是它调的滑块，底下一行说明可以直接拖。
   const phonePreview = (
@@ -162,7 +183,11 @@ export function ScreenKeyboardSettingsPage() {
     </GroupList>
   );
   return (
-    <SettingsPageFieldset disabled={busy} hidden={page !== "screen-keyboard"} ariaLabel="屏幕键盘">
+    <SettingsPageFieldset
+      disabled={busy}
+      hidden={page !== "screen-keyboard"}
+      ariaLabel={handwritingOnScreenKeyboardPage ? screenKeyboardAndHandwritingTitle : "屏幕键盘"}
+    >
       {!harmonyPhone && keyboardPreview}
       <TouchKeyboardGeometrySection
         layoutRows={
@@ -177,6 +202,8 @@ export function ScreenKeyboardSettingsPage() {
         heightAdjustment={touchKeyboardHeightAdjustment}
         keySpacingTenths={touchKeySpacingTenths}
         rowSpacingTenths={touchRowSpacingTenths}
+        showHeight={showTouchKeyboardHeight}
+        showSpacing={showTouchKeyboardSpacing}
         touchVoiceShortcut={draft.touch_voice_shortcut ?? false}
         // HarmonyOS 键盘的工具栏已经没有语音按钮（语音在功能面板里），那里也没有任何地方读取 `touch_voice_shortcut`，所以这个开关不会起作用。
         voiceShortcutKind={
@@ -237,7 +264,7 @@ export function ScreenKeyboardSettingsPage() {
             void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, swipeSymbolsDirection });
           }
         }}
-        onReset={() => void resetTouchKeyboardSettings()}
+        onReset={(subjects) => void resetTouchKeyboardSettings(subjects)}
       />
       <MobileKeyboardFeedbackSettings
         mobile={mobilePlatform}
@@ -250,6 +277,8 @@ export function ScreenKeyboardSettingsPage() {
         onChange={(value) => void saveMobileKeyboardFeedback(value)}
         onPreview={() => void previewMobileKeyboardHaptics()}
       />
+      {/* macOS 和 Linux 桌面上「手写输入」并进这一页（见 `settingsPageProjections`）：手写那一组紧跟在屏幕键盘之后。 */}
+      {handwritingOnScreenKeyboardPage && <HandwritingSettingsContent />}
       {/* 键盘自己的明暗覆盖与其他按界面的覆盖一起放在「主题 › 高级」下（dc.html）；这一行只是指向那里。全局主题、「我的皮肤」和它的编辑器也都在「主题」页。HarmonyOS 手机的皮肤页只有网格、没有「高级」，这一行指向的东西不存在，所以不画。 */}
       {!harmonyPhone && (
         <GroupList title="外观">

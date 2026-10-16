@@ -14,6 +14,7 @@ HARNESS = r'''
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <functional>
 #include <utility>
 #include <vector>
 #include <string>
@@ -35,11 +36,19 @@ using DWORD = unsigned long;
 using ULONG_PTR = std::uintptr_t;
 using LPARAM = std::intptr_t;
 using BOOL = int;
+using HRESULT = int;
+using ULONG = unsigned long;
+using TfEditCookie = int;
+#define STDMETHODIMP int
+constexpr int S_FALSE = 1, E_FAIL = -2, TF_DEFAULT_SELECTION = 0, TF_ANCHOR_END = 1;
+using HWND = void *;
+using GUID = int;
+bool SUCCEEDED(int value) { return value >= 0; }
 constexpr BOOL TRUE = 1, FALSE = 0;
 ULONG_PTR messageExtraInfo = 0;
 ULONG_PTR GetMessageExtraInfo() { return messageExtraInfo; }
 using ULONGLONG = std::uint64_t;
-constexpr UINT VK_TAB = 9, VK_RETURN = 13, INPUT_KEYBOARD = 1;
+constexpr UINT VK_TAB = 9, VK_RETURN = 13, VK_BACK = 8, VK_ESCAPE = 27, INPUT_KEYBOARD = 1;
 constexpr DWORD KEYEVENTF_EXTENDEDKEY = 1, KEYEVENTF_KEYUP = 2;
 // 生产标记规则
 constexpr UINT WM_ReplayKoreanSyllableKey = 30, WM_DrainDeferredKeyDown = 18;
@@ -50,6 +59,8 @@ struct Message { UINT message; WPARAM arg; };
 std::deque<Message> posted;
 std::deque<INPUT> input;
 void *testWindow = reinterpret_cast<void *>(1);
+HWND foregroundWindow = testWindow;
+HWND GetForegroundWindow() { return foregroundWindow; }
 bool postFails = false;
 int syncCalls = 0;
 ULONGLONG now = 1;
@@ -81,10 +92,54 @@ SHORT VkKeyScanW(WCHAR value) {
     if (value >= L'A' && value <= L'Z') return static_cast<SHORT>(0x100 | value);
     return -1;
 }
-struct ITfContext {
+std::wstring appliedText;
+struct TestRange {
     int refs = 1;
     void AddRef() { ++refs; }
     void Release() { --refs; }
+    int SetText(int, int, const WCHAR *text, int length) { appliedText.append(text, length); return S_OK; }
+    void Collapse(int, int) {}
+};
+struct TF_SELECTION { TestRange *range = nullptr; };
+struct ITfContext {
+    int refs = 1, setSelectionResult = 0;
+    TestRange range;
+    std::function<void()> onGetSelection;
+    void AddRef() { ++refs; }
+    void Release() { --refs; }
+    int GetSelection(int, int, int, TF_SELECTION *selection, ULONG *fetched) {
+        if (onGetSelection) onGetSelection();
+        selection->range = &range; range.AddRef(); *fetched = 1; return S_OK;
+    }
+    int SetSelection(int, int, TF_SELECTION *) { return setSelectionResult; }
+};
+struct ITfDocumentMgr {
+    ITfContext *top = nullptr;
+    int refs = 1, result = 0;
+    std::function<void()> onGetTop;
+    void AddRef() { ++refs; }
+    void Release() { --refs; }
+    int GetTop(ITfContext **value) {
+        if (onGetTop) onGetTop();
+        *value = result >= 0 ? top : nullptr;
+        if (*value) (*value)->AddRef();
+        return result;
+    }
+};
+struct ITfThreadMgr {
+    ITfDocumentMgr *document = nullptr;
+    bool focused = true;
+    int refs = 1, focusResult = 0, threadResult = 0;
+    std::function<void()> onGetFocus;
+    void AddRef() { ++refs; }
+    void Release() { --refs; }
+    int IsThreadFocus(BOOL *value) { *value = focused; return threadResult; }
+    int GetFocus(ITfDocumentMgr **value) {
+        if (onGetFocus) onGetFocus();
+        *value = focusResult >= 0 ? document : nullptr;
+        if (*value) (*value)->AddRef();
+        return focusResult;
+    }
 };
 struct CStringRange {
     std::wstring text;
@@ -104,18 +159,7 @@ struct Engine {
     PreservedKeyAction GetPreservedKeyAction(int) const { return PreservedKeyAction::None; }
 };
 using KeyState = _KEYSTROKE_STATE;
-struct DeferredKeyDown {
-    enum class Kind { KeyDown, PreservedKey, ApplicationText };
-    Kind kind{};
-    ITfContext *context = nullptr;
-    WPARAM wParam = 0;
-    WCHAR translatedWch = 0;
-    unsigned modifiersDown = 0;
-    KeyState keyState{};
-    std::uint64_t focusGeneration = 0;
-    int preservedKey = 0;
-    unsigned replayAttempts = 0;
-};
+// 生产队列类型
 namespace msime::tsf { bool is_korean_caret_or_edit_key(UINT code) { return code == VK_LEFT; } }
 using CCompositionProcessorEngine = Engine;
 template<typename... Args> void DebugTsfIssue47(Args...) {}
@@ -129,6 +173,7 @@ struct CMetasequoiaIME {
     DeferredKeyDown _deferredKeyInFlight;
     bool _hasDeferredKeyInFlight = false;
     std::uint64_t _deferredKeyReplayToken = 0;
+    bool _deferredKeyClassificationPending = false;
     bool _deferredKeyProjectionValid = false;
     std::size_t _deferredProjectedInputLength = 0, _deferredProjectedCaret = 0;
     std::wstring _deferredProjectedRawInput;
@@ -142,7 +187,8 @@ struct CMetasequoiaIME {
     ITfContext *_pContext = nullptr;
     void _EnsureDeferredKeyProjection() { _deferredKeyProjectionValid = true; }
     void _ArmDeferredRecoveryForTransport(ITfContext *);
-    void _RetryDeferredKeyReplay(std::uint64_t);
+    int retries = 0;
+    void _RetryDeferredKeyReplay(std::uint64_t) { ++retries; }
     void *_msgWndHandle = testWindow;
     void _ClearDeferredKeyDowns() { std::abort(); }
     bool _deferredKeyDrainPosted = false;
@@ -151,12 +197,20 @@ struct CMetasequoiaIME {
     bool _ObserveApplicationKeyReplay(ITfContext *, UINT, ULONG_PTR);
     void _ClearApplicationKeyReplay();
     void _PollApplicationKeyReplay();
-    void _QueueKoreanSyllableKeyReplay(UINT, ITfContext *, uint64_t);
+    bool _QueueKoreanSyllableKeyReplay(UINT, ITfContext *, uint64_t);
     void _RunKoreanSyllableKeyReplay(UINT);
     bool _IsDeferredKeyReplayCurrent(uint64_t, uint64_t, ITfContext * = nullptr) const;
+    bool _IsDeferredApplicationTextCurrent(uint64_t, uint64_t, ITfContext *, HWND, uint64_t);
+    bool _IsDeferredKeyOwnerCurrent(ITfContext *, uint64_t, HWND) const;
+    ITfThreadMgr *_pThreadMgr = nullptr;
+    std::atomic<bool> _localSessionResetPending{false};
+    bool _serverUnavailableFallbackActive = false, disabled = false;
+    bool _IsServerUnavailableFallbackActive() const { return _serverUnavailableFallbackActive; }
+    bool _IsKeyboardDisabled() const { return disabled; }
+    uint64_t focusToken = 11;
     bool focusCurrent = true, clearDuringFocusQuery = false;
-    uint64_t _CaptureFocusSessionToken() const { return 11; }
-    bool _IsFocusSessionCurrent(uint64_t token, ITfContext *) {
+    uint64_t _CaptureFocusSessionToken() const { return focusToken; }
+    bool _IsFocusSessionCurrent(uint64_t token, ITfContext * = nullptr) {
         if (clearDuringFocusQuery) { clearDuringFocusQuery = false; _ClearApplicationKeyReplay(); }
         return focusCurrent && token == 11;
     }
@@ -164,6 +218,14 @@ struct CMetasequoiaIME {
     int ProbeDown(ITfContext *, WPARAM, LPARAM, BOOL *);
     void _InvalidateSmartPunctuationShadow() {}
 };
+struct CEditSessionBase {
+    CMetasequoiaIME *_pTextService;
+    ITfContext *_pContext;
+    CEditSessionBase(CMetasequoiaIME *service, ITfContext *context) : _pTextService(service), _pContext(context) { context->AddRef(); }
+    virtual ~CEditSessionBase() { _pContext->Release(); }
+    virtual int DoEditSession(int) = 0;
+};
+// 生产应用插字会话
 void MarkNamedpipeSessionDirtyForOwner(CMetasequoiaIME *) {}
 '''
 
@@ -174,16 +236,20 @@ void check(bool condition, const char *message) {
     if (!condition) { ++failures; std::fprintf(stderr, "FAIL: %s\n", message); }
 }
 void reset() {
-    posted.clear(); input.clear(); sendResults.clear(); postFails = false;
-    sentDowns = sentUps = syncCalls = 0; now = 1;
+    posted.clear(); input.clear(); sendResults.clear(); appliedText.clear(); postFails = false;
+    sentDowns = sentUps = syncCalls = 0; now = 1; foregroundWindow = testWindow;
 }
 struct Fixture {
     Engine engine;
     ITfContext context;
+    ITfDocumentMgr document;
+    ITfThreadMgr threadMgr;
     CMetasequoiaIME ime;
     Fixture() {
         reset(); ime._pCompositionProcessorEngine = &engine;
+        document.top = &context; threadMgr.document = &document; ime._pThreadMgr = &threadMgr;
         DeferredKeyDown tail;
+        tail.foregroundWindow = foregroundWindow;
         tail.context = &context; tail.translatedWch = L'x';
         tail.focusGeneration = ime._deferredKeyFocusGeneration;
         context.AddRef(); ime._deferredKeyDowns.push_back(tail);
@@ -210,6 +276,7 @@ struct Fixture {
         for (auto &key : ime._deferredKeyDowns) key.context->Release();
         for (auto &key : ime._deferredAppliedPrefix) key.context->Release();
         check(context.refs == 1, "all replay and queue context references released");
+        check(document.refs == 1 && threadMgr.refs == 1 && context.range.refs == 1, "all COM owner and range references released");
     }
 };
 int main() {
@@ -319,6 +386,66 @@ int main() {
         now += 2000;
         check(!f.probe(0, marker) && !f.ime._HasPendingApplicationKeyReplay(), "late first probe expires without timer");
     }
+
+    for (UINT key : {VK_BACK, VK_ESCAPE}) {
+        Fixture f;
+        check(f.ime._QueueKoreanSyllableKeyReplay(key, &f.context, 42), "Backspace and Escape use application replay");
+        const UINT marker = f.ime._applicationKeyReplay.marker;
+        f.complete(); f.run(marker);
+        check(input.size() == 2 && !(input.front().ki.dwFlags & KEYEVENTF_EXTENDEDKEY), "Backspace and Escape are not extended keys");
+        check(f.ime._ObserveApplicationKeyReplay(&f.context, key, marker), "editing replay acknowledged by exact virtual key");
+    }
+    {
+        Fixture f; f.ime._serverUnavailableFallbackActive = true; f.ime.focusCurrent = false; f.ime.focusToken = 0;
+        const UINT marker = f.queue(); f.complete(); f.run(marker);
+        check(marker && sentDowns == 1 && f.probe(0, marker), "offline replay uses real local owner without worker Ready");
+    }
+    for (int invalid = 0; invalid != 10; ++invalid) {
+        Fixture f; f.ime._serverUnavailableFallbackActive = true;
+        const UINT marker = f.queue(); f.complete();
+        ITfContext other;
+        if (invalid == 0) f.threadMgr.focused = false;
+        if (invalid == 1) f.threadMgr.document = nullptr;
+        if (invalid == 2) f.document.top = &other;
+        if (invalid == 3) foregroundWindow = reinterpret_cast<void *>(2);
+        if (invalid == 4) f.ime._localSessionResetPending = true;
+        if (invalid == 5) f.threadMgr.threadResult = -1;
+        if (invalid == 6) f.threadMgr.focusResult = -1;
+        if (invalid == 7) f.document.result = -1;
+        if (invalid == 8) f.document.onGetTop = [&] { ++f.ime._deferredKeyFocusGeneration; };
+        if (invalid == 9) f.document.onGetTop = [&] { foregroundWindow = reinterpret_cast<void *>(2); };
+        f.run(marker);
+        check(sentDowns == 0 && !f.ime._HasPendingApplicationKeyReplay(), "offline never bypasses thread/context/window/reset owner checks");
+    }
+    {
+        Fixture f; const UINT marker = f.queue(); f.complete();
+        f.threadMgr.onGetFocus = [&] { f.threadMgr.focused = false; f.threadMgr.onGetFocus = nullptr; };
+        f.run(marker);
+        check(sentDowns == 0, "COM top-context query cannot invalidate earlier thread focus check");
+    }
+    {
+        Fixture f; const UINT marker = f.queue(); f.complete(); f.run(marker);
+        f.threadMgr.focused = false;
+        check(!f.probe(0, marker), "ack rejects lost real thread focus even if worker token remains Ready");
+    }
+    for (int invalid = 0; invalid != 8; ++invalid) {
+        Fixture f; f.ime._serverUnavailableFallbackActive = true; f.ime.focusCurrent = false;
+        CDeferredApplicationTextEditSession edit(&f.ime, &f.context, L'.', 0, 7, 42, testWindow);
+        if (invalid == 1) f.ime.disabled = true;
+        if (invalid == 2) f.threadMgr.focused = false;
+        if (invalid == 3) foregroundWindow = reinterpret_cast<void *>(2);
+        if (invalid == 4) f.context.onGetSelection = [&] { ++f.ime._deferredKeyFocusGeneration; };
+        if (invalid == 5) f.context.onGetSelection = [&] { f.threadMgr.focused = false; };
+        if (invalid == 6) f.context.onGetSelection = [&] { ++f.ime._deferredKeyReplayToken; };
+        if (invalid == 7) f.context.setSelectionResult = E_FAIL;
+        edit.DoEditSession(1);
+        if (invalid == 0 || invalid == 7) {
+            check(appliedText == L"." && f.ime.retries == 0 && !f.ime._hasDeferredKeyInFlight,
+                  "offline application text completes once even when caret placement fails");
+            edit.DoEditSession(1);
+            check(appliedText == L".", "late duplicate edit session cannot insert twice");
+        } else check(appliedText.empty() && f.ime.retries == 1, "async application text rejects disabled or stale owner before SetText");
+    }
     UINT lastMarker = NextApplicationKeyReplayMarker();
     bool increasing = true;
     for (UINT marker = NextApplicationKeyReplayMarker(); marker; marker = NextApplicationKeyReplayMarker()) {
@@ -351,7 +478,9 @@ def main() -> int:
     header = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIME.h").read_text()
     marker_rules = method(header, "constexpr UINT APPLICATION_KEY_REPLAY_PREFIX", "// 单按 Caps Lock")
     replay_state = method(header, "    struct ApplicationKeyReplay", "    int _pendingPairedCaretDelta")
-    harness = HARNESS.replace("// 生产标记规则", marker_rules).replace("    // 生产回放状态", replay_state).replace("// 生产按键类型", types).replace("// 生产前缀规则", method(
+    ime_source = (ROOT / "platforms/windows/tsf/IME/MetasequoiaIME.cpp").read_text()
+    application_text_session = method(ime_source, "class CDeferredApplicationTextEditSession", "\n} // namespace")
+    harness = HARNESS.replace("// 生产应用插字会话", application_text_session).replace("// 生产队列类型", method(header, "    struct DeferredKeyDown", "    enum class KeyDownDispatchResult")).replace("// 生产标记规则", marker_rules).replace("    // 生产回放状态", replay_state).replace("// 生产按键类型", types).replace("// 生产前缀规则", method(
         sink, "bool IsRecoverableDeferredPrefix(", "\nUINT CaptureIpcModifiers("))
     body = method(sink, "bool CMetasequoiaIME::_RefreshDeferredRecoveryPrefix(",
                   "\nvoid CMetasequoiaIME::_ArmDeferredRecoveryForTransport(")

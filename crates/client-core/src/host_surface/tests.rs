@@ -811,6 +811,31 @@ fn only_macos_offers_the_candidate_padding() {
     }
 }
 
+/// 「键盘高度」只给真正按它改变键盘高度的宿主：macOS 和 Linux 的键盘窗口高度固定。间距只在 macOS 上固定成默认值，其余宿主照旧可调。
+#[test]
+fn touch_keyboard_geometry_is_offered_where_the_keyboard_applies_it() {
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Harmony,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        let capabilities = HostCapabilities::for_platform(platform);
+        assert_eq!(
+            capabilities.touch_keyboard_height,
+            !matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
+            "{platform:?}"
+        );
+        assert_eq!(
+            capabilities.touch_keyboard_spacing,
+            platform != HostPlatform::Macos,
+            "{platform:?}"
+        );
+    }
+}
+
 #[test]
 fn full_offers_every_compiled_scheme_and_leaves_the_capabilities_alone() {
     let full = Edition::full();

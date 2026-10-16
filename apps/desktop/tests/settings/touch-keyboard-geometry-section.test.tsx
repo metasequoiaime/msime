@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
   defaultTouchKeyboardGeometry,
+  touchKeyboardResetSubjects,
   TouchKeyboardGeometrySection,
   type TouchToolbarPreferences,
 } from "@msime/ui";
@@ -170,7 +171,71 @@ test("drops the voice switch, and the empty toolbar group, where the keyboard dr
 
   expect(screen.queryByLabelText("顶部语音入口")).toBeNull();
   expect(screen.queryByText("工具栏")).toBeNull();
-  expect(screen.getByText("高度、间距和工具栏按钮回到默认")).toBeTruthy();
+  // 没有「工具栏」组时说明不再提工具栏按钮。
+  expect(screen.getByText("高度和间距回到默认")).toBeTruthy();
+});
+
+test("the reset names only what the page shows and hands the same words to the confirmation", () => {
+  const onReset = vi.fn();
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      showHeight={false}
+      voiceShortcutKind="start-voice"
+      toolbarComponents={false}
+      onReset={onReset}
+    />,
+  );
+  // Linux：高度不起作用、没有工具栏按钮，只剩间距和顶部语音入口。
+  expect(screen.queryByLabelText("键盘高度")).toBeNull();
+  expect(screen.getByLabelText("按键间距")).toBeTruthy();
+  expect(screen.getByText("间距和顶部语音入口回到默认")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "恢复屏幕键盘默认设置" }));
+  expect(onReset).toHaveBeenCalledWith("间距和顶部语音入口");
+});
+
+test("a host that applies neither height nor spacing gets no size group at all", () => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      showHeight={false}
+      showSpacing={false}
+      voiceShortcutKind="hidden"
+      toolbarComponents={false}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      glideTyping={undefined}
+      swipeSymbols={undefined}
+    />,
+  );
+  // macOS：键盘窗口高度固定、间距固定成默认值，尺寸组连同「恢复默认」一起不画。
+  expect(screen.queryByText("尺寸")).toBeNull();
+  expect(screen.queryByLabelText("键盘高度")).toBeNull();
+  expect(screen.queryByLabelText("按键间距")).toBeNull();
+  expect(screen.queryByLabelText("行间距")).toBeNull();
+  expect(screen.queryByRole("button", { name: "恢复屏幕键盘默认设置" })).toBeNull();
+});
+
+test("touchKeyboardResetSubjects joins what is shown", () => {
+  expect(
+    touchKeyboardResetSubjects({ height: true, spacing: true, voiceShortcut: true, toolbar: true }),
+  ).toBe("高度、间距、顶部语音入口和工具栏按钮");
+  expect(
+    touchKeyboardResetSubjects({
+      height: true,
+      spacing: true,
+      voiceShortcut: true,
+      toolbar: false,
+    }),
+  ).toBe("高度、间距和顶部语音入口");
+  expect(
+    touchKeyboardResetSubjects({
+      height: false,
+      spacing: true,
+      voiceShortcut: false,
+      toolbar: false,
+    }),
+  ).toBe("间距");
 });
 
 test("disables the tablet switch while saving", () => {
