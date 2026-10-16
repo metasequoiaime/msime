@@ -163,15 +163,15 @@ int main() {
   assert(request.at("custom_theme") == with_package.at("custom_theme"));
   assert(request.at("package") == catalog.at("packages").at(0));
   // 编号色和边框色跟随主题：请求里的自定义主题去掉这两个槽位，其余颜色原样带上；选择指纹仍看存下的整个 custom_theme。
-  const Json picked = {{"global_theme", "custom"},
-                       {"custom_theme",
-                        {{"base", "system"},
-                         {"candidate_colors", {{"text", "#102030"}, {"hover", "#405060"}, {"number", "#123456"}, {"border", "#654321"}}}}}};
-  const auto picked_request = host::candidate_theme_request(picked, false, catalog);
-  assert(picked_request.at("custom_theme").at("candidate_colors") ==
+  const Json stored_colors = {{"global_theme", "custom"},
+                              {"custom_theme",
+                               {{"base", "system"},
+                                {"candidate_colors", {{"text", "#102030"}, {"hover", "#405060"}, {"number", "#123456"}, {"border", "#654321"}}}}}};
+  const auto trimmed_request = host::candidate_theme_request(stored_colors, false, catalog);
+  assert(trimmed_request.at("custom_theme").at("candidate_colors") ==
          Json::parse(R"({"text":"#102030","hover":"#405060"})"));
-  assert(picked_request.at("custom_theme").at("base") == "system");
-  assert(host::candidate_theme_selection(picked).at("custom_theme") == picked.at("custom_theme"));
+  assert(trimmed_request.at("custom_theme").at("base") == "system");
+  assert(host::candidate_theme_selection(stored_colors).at("custom_theme") == stored_colors.at("custom_theme"));
   // Not while another theme is selected, and not for a package the catalogue does not list.
   auto elsewhere = with_package;
   elsewhere["global_theme"] = "ink";
