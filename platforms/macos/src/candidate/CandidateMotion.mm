@@ -1,14 +1,17 @@
 #import "CandidateMotion.h"
 
+#import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #if !__has_feature(objc_arc)
 #error "CandidateMotion.mm must be compiled with -fobjc-arc"
 #endif
 
+using msime::mac::DecorationMotion;
 using msime::mac::SkinAnimation;
 using msime::mac::SkinAnimationPreset;
 
@@ -28,6 +31,16 @@ NSString *const kRowRevealKey = @"msime-candidate-row-reveal";
 NSString *const kExitOpacityKey = @"msime-candidate-exit-opacity";
 NSString *const kExitTransformKey = @"msime-candidate-exit-transform";
 NSString *const kSelectionKey = @"msime-candidate-selection";
+NSString *const kDecorationMotionKey = @"msime-decoration-motion";
+NSString *const kDecorationFramesKey = @"msime-decoration-frames";
+
+// 装饰图待机动效的幅度上限。实际幅度还按图片大小收小，保证最大位移不超过 kDecorationMotionMargin，见 DecorationMotionAnimation。
+constexpr CGFloat kFloatDistance = 3.0;
+constexpr CGFloat kSwayRadians = 3.0 * M_PI / 180.0;
+constexpr CGFloat kBreatheScale = 1.03;
+constexpr CGFloat kBounceHeight = 4.0;
+// 与共享加载器的 MAX_ANIMATION_FRAMES 一致；加载器已经拒绝了更多帧的包，这里只是不信任文件。
+constexpr size_t kMaxDecorationFrames = 120;
 
 // 与共享契约一致的 40–600ms。
 CFTimeInterval MotionSeconds(double milliseconds)
@@ -94,12 +107,257 @@ NSValue *TransformValue(CATransform3D transform)
     return [NSValue valueWithCATransform3D:transform];
 }
 
+// 以图片底边中点为轴缩放 scale、旋转 angle 弧度，再在屏幕方向上抬起 lift 点。轴心和抬起的方向都看父图层是否翻转，与 CenteredTransform 相同。
+CATransform3D BottomCenterTransform(CALayer *layer, CGFloat scale, CGFloat angle, CGFloat lift)
+{
+    const CGRect bounds = layer.bounds;
+    const BOOL flipped = layer.superlayer.contentsAreFlipped;
+    const CGFloat anchorX = CGRectGetMinX(bounds) + layer.anchorPoint.x * CGRectGetWidth(bounds);
+    const CGFloat anchorY = CGRectGetMinY(bounds) + layer.anchorPoint.y * CGRectGetHeight(bounds);
+    const CGFloat pivotX = CGRectGetMidX(bounds) - anchorX;
+    const CGFloat pivotY = (flipped ? CGRectGetMaxY(bounds) : CGRectGetMinY(bounds)) - anchorY;
+    CATransform3D transform = CATransform3DRotate(CATransform3DMakeScale(scale, scale, 1.0), angle, 0.0, 0.0, 1.0);
+    transform = CATransform3DConcat(CATransform3DMakeTranslation(-pivotX, -pivotY, 0.0), transform);
+    return CATransform3DConcat(transform, CATransform3DMakeTranslation(pivotX, pivotY + (flipped ? -lift : lift), 0.0));
+}
+
+// 一个周期的待机动效，从原位开始、回到原位，无限重复。幅度按图片大小收小：图片四周只留了 kDecorationMotionMargin 点，摇摆时顶角的横移约为 高×角度、上抬约为 半宽×角度，呼吸时顶边上抬 高×(倍数−1)、两侧外扩 半宽×(倍数−1)，都不超过它。
+CAKeyframeAnimation *DecorationMotionAnimation(CALayer *layer, DecorationMotion motion, CFTimeInterval period)
+{
+    const CGFloat margin = msime::mac::kDecorationMotionMargin;
+    const CGFloat width = MAX(1.0, CGRectGetWidth(layer.bounds));
+    const CGFloat height = MAX(1.0, CGRectGetHeight(layer.bounds));
+    NSArray<NSValue *> *values = nil;
+    NSArray<NSNumber *> *times = @[ @0.0, @0.25, @0.5, @0.75, @1.0 ];
+    CAMediaTimingFunction *smooth = Curve(kCAMediaTimingFunctionEaseInEaseOut);
+    NSArray<CAMediaTimingFunction *> *curves = @[ smooth, smooth, smooth, smooth ];
+    switch (motion)
+    {
+    case DecorationMotion::none:
+        return nil;
+    case DecorationMotion::floating:
+    {
+        const CGFloat distance = MIN(kFloatDistance, margin);
+        values = @[
+            TransformValue(CATransform3DIdentity), TransformValue(BottomCenterTransform(layer, 1.0, 0.0, distance)),
+            TransformValue(CATransform3DIdentity), TransformValue(BottomCenterTransform(layer, 1.0, 0.0, -distance)),
+            TransformValue(CATransform3DIdentity)
+        ];
+        break;
+    }
+    case DecorationMotion::sway:
+    {
+        const CGFloat angle = MIN(kSwayRadians, margin / MAX(height, width / 2.0));
+        values = @[
+            TransformValue(CATransform3DIdentity), TransformValue(BottomCenterTransform(layer, 1.0, angle, 0.0)),
+            TransformValue(CATransform3DIdentity), TransformValue(BottomCenterTransform(layer, 1.0, -angle, 0.0)),
+            TransformValue(CATransform3DIdentity)
+        ];
+        break;
+    }
+    case DecorationMotion::breathe:
+    {
+        const CGFloat scale = 1.0 + MIN(kBreatheScale - 1.0, MIN(margin / height, 2.0 * margin / width));
+        values = @[
+            TransformValue(CATransform3DIdentity), TransformValue(BottomCenterTransform(layer, scale, 0.0, 0.0)),
+            TransformValue(CATransform3DIdentity)
+        ];
+        times = @[ @0.0, @0.5, @1.0 ];
+        curves = @[ smooth, smooth ];
+        break;
+    }
+    case DecorationMotion::bounce:
+    {
+        // 大半个周期站着不动，然后起跳、落下：上升减速、下落加速，像受重力。
+        const CGFloat hop = MIN(kBounceHeight, margin);
+        values = @[
+            TransformValue(CATransform3DIdentity), TransformValue(CATransform3DIdentity),
+            TransformValue(BottomCenterTransform(layer, 1.0, 0.0, hop)), TransformValue(CATransform3DIdentity),
+            TransformValue(CATransform3DIdentity)
+        ];
+        times = @[ @0.0, @0.6, @0.75, @0.9, @1.0 ];
+        curves = @[
+            Curve(kCAMediaTimingFunctionLinear), Curve(kCAMediaTimingFunctionEaseOut), Curve(kCAMediaTimingFunctionEaseIn),
+            Curve(kCAMediaTimingFunctionLinear)
+        ];
+        break;
+    }
+    }
+    CAKeyframeAnimation *animation = [CAKeyframeAnimation animationWithKeyPath:@"transform"];
+    animation.values = values;
+    animation.keyTimes = times;
+    animation.timingFunctions = curves;
+    animation.duration = period;
+    animation.repeatCount = HUGE_VALF;
+    return animation;
+}
+
 // 只有 fade_scale 和 slide_up 逐行错峰，与 Web 候选栏相同。
 bool StaggersRows(SkinAnimationPreset preset)
 {
     return preset == SkinAnimationPreset::fade_scale || preset == SkinAnimationPreset::slide_up;
 }
 } // namespace
+
+@implementation MSIMEDecorationFrames
+{
+    NSArray *_images;
+    NSArray<NSNumber *> *_keyTimes;
+    CFTimeInterval _duration;
+    NSUInteger _loopCount;
+}
+
++ (instancetype)framesWithContentsOfFile:(NSString *)path
+{
+    if (path.length == 0) return nil;
+    CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], nullptr);
+    if (source == nullptr) return nil;
+    MSIMEDecorationFrames *frames = [[MSIMEDecorationFrames alloc] initWithSource:source];
+    CFRelease(source);
+    return frames;
+}
+
+- (instancetype)initWithSource:(CGImageSourceRef)source
+{
+    const size_t count = std::min(CGImageSourceGetCount(source), kMaxDecorationFrames);
+    if (count < 2) return nil;
+    self = [super init];
+    if (self == nil) return nil;
+    NSDictionary *container = CFBridgingRelease(CGImageSourceCopyProperties(source, nullptr));
+    NSNumber *loops = container[(__bridge NSString *)kCGImagePropertyPNGDictionary][(__bridge NSString *)kCGImagePropertyAPNGLoopCount];
+    _loopCount = [loops isKindOfClass:NSNumber.class] ? loops.unsignedIntegerValue : 0;
+    // 先解码好：播放时 Core Animation 直接用这些位图，不在打字的那一帧里解码。
+    NSDictionary *decode = @{(__bridge NSString *)kCGImageSourceShouldCacheImmediately : @YES};
+    NSMutableArray *images = [NSMutableArray arrayWithCapacity:count];
+    std::vector<CFTimeInterval> delays;
+    delays.reserve(count);
+    for (size_t index = 0; index < count; ++index)
+    {
+        CGImageRef image = CGImageSourceCreateImageAtIndex(source, index, (__bridge CFDictionaryRef)decode);
+        if (image == nullptr) return nil;
+        [images addObject:CFBridgingRelease(image)];
+        NSDictionary *properties = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, index, nullptr));
+        NSNumber *delay = properties[(__bridge NSString *)kCGImagePropertyPNGDictionary][(__bridge NSString *)kCGImagePropertyAPNGDelayTime];
+        // ImageIO 给的是按浏览器规则修正过的帧时长；读不到或为 0 时按 0.1 秒，与浏览器相同。
+        const double seconds = [delay isKindOfClass:NSNumber.class] ? delay.doubleValue : 0.0;
+        delays.push_back(seconds > 0.0 && std::isfinite(seconds) ? seconds : 0.1);
+    }
+    CFTimeInterval total = 0.0;
+    for (const CFTimeInterval delay : delays) total += delay;
+    NSMutableArray<NSNumber *> *keyTimes = [NSMutableArray arrayWithCapacity:count + 1];
+    CFTimeInterval elapsed = 0.0;
+    for (const CFTimeInterval delay : delays)
+    {
+        [keyTimes addObject:@(elapsed / total)];
+        elapsed += delay;
+    }
+    [keyTimes addObject:@1.0];
+    _images = images;
+    _keyTimes = keyTimes;
+    _duration = total;
+    return self;
+}
+
+- (NSArray *)images
+{
+    return _images;
+}
+
+- (NSArray<NSNumber *> *)keyTimes
+{
+    return _keyTimes;
+}
+
+- (CFTimeInterval)duration
+{
+    return _duration;
+}
+
+- (NSUInteger)loopCount
+{
+    return _loopCount;
+}
+@end
+
+@implementation MSIMECandidateDecorationView
+
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self)
+    {
+        self.wantsLayer = YES;
+        self.layerContentsRedrawPolicy = NSViewLayerContentsRedrawOnSetNeedsDisplay;
+    }
+    return self;
+}
+
+- (BOOL)wantsUpdateLayer
+{
+    return YES;
+}
+
+- (BOOL)isOpaque
+{
+    return NO;
+}
+
+// 装饰图压在卡片顶边和首行上，点击要落到下面的候选和卡片。
+- (NSView *)hitTest:(NSPoint)point
+{
+    (void)point;
+    return nil;
+}
+
+- (void)setImage:(NSImage *)image
+{
+    _image = image;
+    [self applyContents];
+}
+
+- (void)setFrames:(MSIMEDecorationFrames *)frames
+{
+    _frames = frames;
+    [self applyContents];
+}
+
+- (void)viewDidChangeBackingProperties
+{
+    [super viewDidChangeBackingProperties];
+    [self applyContents];
+}
+
+- (void)updateLayer
+{
+    [self applyContents];
+}
+
+// 图层内容的模型值：APNG 是第一帧，静态图按屏幕倍率取最合适的那一份。动画撤掉后显示的就是它。
+- (void)applyContents
+{
+    CALayer *layer = self.layer;
+    if (layer == nil) return;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    layer.contentsGravity = kCAGravityResize;
+    if (_frames.images.count > 0)
+    {
+        layer.contents = _frames.images.firstObject;
+    }
+    else if (_image != nil)
+    {
+        const CGFloat backing = self.window.backingScaleFactor > 0.0 ? self.window.backingScaleFactor : NSScreen.mainScreen.backingScaleFactor;
+        const CGFloat scale = [_image recommendedLayerContentsScale:backing];
+        layer.contentsScale = scale;
+        layer.contents = [_image layerContentsForContentsScale:scale];
+    }
+    else
+    {
+        layer.contents = nil;
+    }
+    [CATransaction commit];
+}
+@end
 
 @interface MSIMECandidateExitWindow : NSPanel
 @end
@@ -134,6 +392,13 @@ bool StaggersRows(SkinAnimationPreset preset)
     CALayer *_selectionLayer;
     __weak NSView<MSIMECandidateSelectionFillHost> *_selectionRow;
     uint64_t _selectionToken;
+    // 正在动的装饰图和它的动效。InputController 每次重排都换一个新的装饰视图，新视图接着 _decorationAnchor 这条时间线。
+    __weak MSIMECandidateDecorationView *_decoration;
+    DecorationMotion _decorationMotion;
+    CFTimeInterval _decorationPeriod;
+    CFTimeInterval _decorationAnchor;
+    // 屏幕睡眠、锁屏或切走用户时为 YES，装饰图不动。
+    BOOL _screensAsleep;
 }
 
 - (instancetype)init
@@ -143,10 +408,24 @@ bool StaggersRows(SkinAnimationPreset preset)
     {
         _lastHide = -INFINITY;
         _reduceMotion = NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
-        [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self
-                                                           selector:@selector(accessibilityDisplayOptionsDidChange:)
-                                                               name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
-                                                             object:nil];
+        NSNotificationCenter *workspace = NSWorkspace.sharedWorkspace.notificationCenter;
+        [workspace addObserver:self
+                      selector:@selector(accessibilityDisplayOptionsDidChange:)
+                          name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                        object:nil];
+        // 屏幕睡了、锁屏或切到别的用户时装饰图停下，醒来后候选窗还在就接着动。
+        for (NSString *name in @[ NSWorkspaceScreensDidSleepNotification, NSWorkspaceSessionDidResignActiveNotification ])
+            [workspace addObserver:self selector:@selector(screensDidSleep:) name:name object:nil];
+        for (NSString *name in @[ NSWorkspaceScreensDidWakeNotification, NSWorkspaceSessionDidBecomeActiveNotification ])
+            [workspace addObserver:self selector:@selector(screensDidWake:) name:name object:nil];
+        [NSDistributedNotificationCenter.defaultCenter addObserver:self
+                                                          selector:@selector(screensDidSleep:)
+                                                              name:@"com.apple.screenIsLocked"
+                                                            object:nil];
+        [NSDistributedNotificationCenter.defaultCenter addObserver:self
+                                                          selector:@selector(screensDidWake:)
+                                                              name:@"com.apple.screenIsUnlocked"
+                                                            object:nil];
     }
     return self;
 }
@@ -154,7 +433,22 @@ bool StaggersRows(SkinAnimationPreset preset)
 - (void)dealloc
 {
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
+    [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
     [_exitWindow orderOut:nil];
+}
+
+- (void)screensDidSleep:(NSNotification *)notification
+{
+    (void)notification;
+    _screensAsleep = YES;
+    [self stopDecoration];
+}
+
+- (void)screensDidWake:(NSNotification *)notification
+{
+    (void)notification;
+    _screensAsleep = NO;
+    [self attachDecoration];
 }
 
 - (void)accessibilityDisplayOptionsDidChange:(NSNotification *)notification
@@ -166,7 +460,10 @@ bool StaggersRows(SkinAnimationPreset preset)
 - (void)setReduceMotion:(BOOL)reduceMotion
 {
     _reduceMotion = reduceMotion;
-    if (reduceMotion) [self stop];
+    if (reduceMotion)
+        [self stop];
+    else
+        [self attachDecoration];
 }
 
 - (BOOL)exiting
@@ -200,6 +497,8 @@ bool StaggersRows(SkinAnimationPreset preset)
     const CFTimeInterval now = CACurrentMediaTime();
     NSView *content = panel.contentView;
     if (!wasVisible) [self endEnter];
+    // 停下来之后再出现，装饰图从原位开始动；同一段连续输入里收起又出现，接着原来的相位，不在每个词开头跳回原位。
+    if (!wasVisible && (_decorationAnchor <= 0.0 || now - _lastHide >= kTypingBurstInterval)) _decorationAnchor = now;
     // 正在退场时重新显示、或者刚收起又出现（同一段连续输入），都直接以完整不透明度显示。
     const BOOL enter = !wasVisible && [self allowsMotion:animation] && animation.enter != SkinAnimationPreset::none && !_exiting &&
                        now - _lastHide >= kTypingBurstInterval && content.layer != nil;
@@ -386,6 +685,8 @@ bool StaggersRows(SkinAnimationPreset preset)
                         : animation.durationMs <= 0.0              ? @"hide=no_duration"
                         : animation.exit == SkinAnimationPreset::none ? @"hide=exit_none"
                                                                    : @"hide=no_layer";
+        // 候选窗不在屏幕上时装饰图不动。有退场时装饰图跟着卡片在退场窗里淡出，退场结束整张卡片随退场窗的内容一起放掉。
+        [self stopDecoration];
         [panel orderOut:nil];
         return;
     }
@@ -564,5 +865,81 @@ bool StaggersRows(SkinAnimationPreset preset)
     [self endSelection];
     [self endEnter];
     [self finishExit];
+    [self stopDecoration];
+}
+
+- (void)animateDecoration:(MSIMECandidateDecorationView *)decoration
+                   motion:(DecorationMotion)motion
+                 periodMs:(double)periodMs
+{
+    MSIMECandidateDecorationView *previous = _decoration;
+    if (previous != decoration) [self stopDecoration];
+    _decoration = decoration;
+    _decorationMotion = motion;
+    _decorationPeriod = std::clamp(periodMs, 1200.0, 8000.0) / 1000.0;
+    [self attachDecoration];
+}
+
+// 按当前状态给装饰图挂上或撤掉动画。两种动画都从 _decorationAnchor 开始计时，重挂时动画对象换了，时间线不变，所以装饰图不会跳。
+- (void)attachDecoration
+{
+    MSIMECandidateDecorationView *decoration = _decoration;
+    CALayer *layer = decoration.layer;
+    if (layer == nil) return;
+    MSIMEDecorationFrames *frames = decoration.frames;
+    const BOOL animated = frames.images.count > 1 && frames.duration > 0.0;
+    if (!decoration.window.isVisible || _reduceMotion || _screensAsleep || (_decorationMotion == DecorationMotion::none && !animated))
+    {
+        [self stopDecoration];
+        return;
+    }
+    if (_decorationAnchor <= 0.0) _decorationAnchor = CACurrentMediaTime();
+    const CFTimeInterval begin = [layer convertTime:_decorationAnchor fromLayer:nil];
+    if (CAKeyframeAnimation *motion = DecorationMotionAnimation(layer, _decorationMotion, _decorationPeriod))
+    {
+        motion.beginTime = begin;
+        [layer addAnimation:motion forKey:kDecorationMotionKey];
+    }
+    else
+    {
+        [layer removeAnimationForKey:kDecorationMotionKey];
+    }
+    if (animated)
+    {
+        // 逐帧切换图层内容，帧时长和循环次数照文件；有限循环播完后停在最后一帧，与浏览器相同。
+        CAKeyframeAnimation *playback = [CAKeyframeAnimation animationWithKeyPath:@"contents"];
+        playback.values = frames.images;
+        playback.keyTimes = frames.keyTimes;
+        playback.calculationMode = kCAAnimationDiscrete;
+        playback.duration = frames.duration;
+        playback.repeatCount = frames.loopCount == 0 ? HUGE_VALF : static_cast<float>(frames.loopCount);
+        playback.beginTime = begin;
+        playback.fillMode = kCAFillModeForwards;
+        playback.removedOnCompletion = NO;
+        [layer addAnimation:playback forKey:kDecorationFramesKey];
+    }
+    else
+    {
+        [layer removeAnimationForKey:kDecorationFramesKey];
+    }
+}
+
+- (void)stopDecoration
+{
+    CALayer *layer = _decoration.layer;
+    [layer removeAnimationForKey:kDecorationMotionKey];
+    [layer removeAnimationForKey:kDecorationFramesKey];
+}
+
+- (MSIMECandidateDecorationView *)animatedDecoration
+{
+    MSIMECandidateDecorationView *decoration = _decoration;
+    CALayer *layer = decoration.layer;
+    return [layer animationForKey:kDecorationMotionKey] != nil || [layer animationForKey:kDecorationFramesKey] != nil ? decoration : nil;
+}
+
+- (CFTimeInterval)decorationAnchor
+{
+    return _decorationAnchor;
 }
 @end

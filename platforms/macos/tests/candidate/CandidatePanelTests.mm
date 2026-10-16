@@ -2,6 +2,8 @@
 #import "../../src/candidate/CandidateMotion.h"
 #import "../../src/candidate/CandidateSkinAppearance.h"
 #import "../../src/candidate/CandidateTypography.h"
+#import <ImageIO/ImageIO.h>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -44,6 +46,44 @@ static void RequireInstant(MetasequoiaCandidatePanel *panel, MSIMECandidateMotio
     Require(motion.selectionLayer == nil, message);
     [panel hide];
     Require(!panel.isVisible && !motion.exiting, message);
+}
+
+// 写一张 width×height、frames 帧、每帧 delay 秒的 APNG，各帧颜色不同；loops 为 0 时无限循环。
+static void WriteApng(const std::filesystem::path &path, size_t width, size_t height, size_t frames, double delay, unsigned loops)
+{
+    NSURL *url = [NSURL fileURLWithPath:@(path.c_str())];
+    CGImageDestinationRef destination = CGImageDestinationCreateWithURL((__bridge CFURLRef)url, CFSTR("public.png"), frames, nullptr);
+    Require(destination != nullptr, "Failed to create the APNG fixture.");
+    CGImageDestinationSetProperties(destination, (__bridge CFDictionaryRef) @{
+        (__bridge NSString *)kCGImagePropertyPNGDictionary : @{(__bridge NSString *)kCGImagePropertyAPNGLoopCount : @(loops)}
+    });
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    for (size_t index = 0; index < frames; ++index)
+    {
+        CGContextRef context = CGBitmapContextCreate(nullptr, width, height, 8, 0, space, kCGImageAlphaPremultipliedLast);
+        CGContextSetRGBFillColor(context, (index % 3) == 0, (index % 3) == 1, (index % 3) == 2, 1.0);
+        CGContextFillRect(context, CGRectMake(0, 0, width, height));
+        CGImageRef image = CGBitmapContextCreateImage(context);
+        CGImageDestinationAddImage(destination, image, (__bridge CFDictionaryRef) @{
+            (__bridge NSString *)kCGImagePropertyPNGDictionary : @{(__bridge NSString *)kCGImagePropertyAPNGDelayTime : @(delay)}
+        });
+        CGImageRelease(image);
+        CGContextRelease(context);
+    }
+    CGColorSpaceRelease(space);
+    Require(CGImageDestinationFinalize(destination), "Failed to write the APNG fixture.");
+    CFRelease(destination);
+}
+
+static CAKeyframeAnimation *DecorationAnimation(NSView *decoration, NSString *key)
+{
+    return (CAKeyframeAnimation *)[decoration.layer animationForKey:key];
+}
+
+// 装饰图动画从哪个时刻起算（CACurrentMediaTime 的时刻）。
+static CFTimeInterval DecorationBegin(NSView *decoration, NSString *key)
+{
+    return [decoration.layer convertTime:DecorationAnimation(decoration, key).beginTime toLayer:nil];
 }
 
 @interface CandidatePanelTestDelegate : NSObject <MetasequoiaCandidatePanelDelegate>
@@ -336,6 +376,132 @@ min_width_dip = 240
         [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientCustomCandidateSkin"];
         MetasequoiaSetStoredGlobalTheme(@"system");
         RequireInstant(panel, motion, "默认主题的候选窗应即时显隐。");
+
+        // 装饰图的待机动效和 APNG 帧动画：候选窗在屏幕上时才动，收起、减弱动态效果和屏幕睡眠时停下，重排时相位接着走。
+        const std::filesystem::path whaleRoot = fixtureRoot.parent_path() / "whale-card";
+        std::filesystem::create_directories(whaleRoot);
+        WriteApng(whaleRoot / "whale.png", 64, 48, 4, 0.1, 0);
+        {
+            std::ofstream whale(whaleRoot / "skin.toml");
+            whale << R"toml(schema_version = 2
+id = "whale-card"
+name = "Whale Card"
+version = "1"
+base = "system"
+[supports]
+layouts = ["vertical"]
+themes = ["light", "dark"]
+[candidate_window]
+min_width_dip = 200
+[candidate_window.decoration]
+image = "whale.png"
+top_inset_dip = 40
+width_dip = 60
+motion = "float"
+motion_period_ms = 2000
+)toml";
+            Require(static_cast<bool>(whale), "Failed to write the decoration motion fixture.");
+        }
+        [NSUserDefaults.standardUserDefaults setObject:@"whale-card" forKey:@"MSIMEClientCustomCandidateSkin"];
+        MetasequoiaSetStoredGlobalTheme(@"custom");
+        const auto whaleSkin = MetasequoiaResolveStoredTheme(NO, YES);
+        Require(whaleSkin.candidateSkin == "whale-card" && whaleSkin.decorationMotion == metasequoia::mac::DecorationMotion::floating &&
+                    whaleSkin.decorationMotionPeriodMs == 2000.0 && !whaleSkin.decorationPath.empty(),
+                "清单的 decoration.motion 没有传到 macOS。");
+        motion.reduceMotion = NO;
+        [panel hide];
+        Spin(0.5);
+        Require(motion.animatedDecoration == nil, "候选窗不在屏幕上时装饰图不应该动。");
+        [panel setCandidateData:[candidates subarrayWithRange:NSMakeRange(0, 3)]];
+        [panel show:kIMKLocateCandidatesBelowHint];
+        MSIMECandidateDecorationView *decoration = motion.animatedDecoration;
+        Require(decoration != nil && decoration.window == panel.window && decoration.frames.images.count == 4,
+                "候选窗显示时装饰图没有动起来。");
+        CAKeyframeAnimation *idle = DecorationAnimation(decoration, @"msime-decoration-motion");
+        CAKeyframeAnimation *playback = DecorationAnimation(decoration, @"msime-decoration-frames");
+        Require(idle != nil && idle.repeatCount == HUGE_VALF && std::fabs(idle.duration - 2.0) < 1e-6,
+                "float 待机动效应按清单的周期无限循环。");
+        Require(playback != nil && playback.values.count == 4 && [playback.calculationMode isEqual:kCAAnimationDiscrete] &&
+                    std::fabs(playback.duration - 0.4) < 0.01 && playback.repeatCount == HUGE_VALF,
+                "APNG 装饰图应按文件的帧时长逐帧无限播放。");
+        // 浮动的最高点不越过窗口顶边：装饰图顶边离窗口顶边留着余量，浮动幅度不超过它。
+        const CGFloat windowTop = NSHeight(panel.window.contentView.bounds);
+        Require(NSMaxY(decoration.frame) <= windowTop - metasequoia::mac::kDecorationMotionMargin + 0.5,
+                "有待机动效的装饰图没有给动效留出余量，会被窗口顶边裁掉。");
+        CGFloat highest = 0.0;
+        for (NSValue *value in idle.values)
+        {
+            const CATransform3D transform = value.CATransform3DValue;
+            highest = MAX(highest, transform.m42);
+        }
+        Require(highest > 1.0 && highest <= metasequoia::mac::kDecorationMotionMargin + 0.01, "float 的幅度应在余量之内、又看得出来。");
+        const CFTimeInterval anchor = motion.decorationAnchor;
+        Require(std::fabs(DecorationBegin(decoration, @"msime-decoration-motion") - anchor) < 1e-3 &&
+                    std::fabs(DecorationBegin(decoration, @"msime-decoration-frames") - anchor) < 1e-3,
+                "装饰图的两种动画应从同一时刻起算。");
+        // 面板还在屏幕上时重排：动画重新挂上，但仍从同一时刻起算，打字时装饰图不会跳回原位。
+        Spin(0.3);
+        [panel setCandidateData:[candidates subarrayWithRange:NSMakeRange(0, 4)]];
+        [panel show:kIMKLocateCandidatesBelowHint];
+        Require(motion.animatedDecoration == decoration && motion.decorationAnchor == anchor &&
+                    std::fabs(DecorationBegin(decoration, @"msime-decoration-motion") - anchor) < 1e-3,
+                "重排后装饰图的待机动效从头开始了。");
+        // 收起时立即停下；同一段连续输入里再出现，接着原来的相位。
+        [panel hide];
+        Require(motion.animatedDecoration == nil && DecorationAnimation(decoration, @"msime-decoration-motion") == nil &&
+                    DecorationAnimation(decoration, @"msime-decoration-frames") == nil,
+                "候选窗收起后装饰图的动画还挂着。");
+        [panel show:kIMKLocateCandidatesBelowHint];
+        Require(motion.animatedDecoration != nil && motion.decorationAnchor == anchor, "连续输入中重新出现时装饰图的相位不该重来。");
+        // 停下来之后再出现：从原位重新开始。
+        [panel hide];
+        Spin(0.5);
+        [panel show:kIMKLocateCandidatesBelowHint];
+        Require(motion.animatedDecoration != nil && motion.decorationAnchor > anchor, "停顿后重新出现时装饰图应从原位开始。");
+        // 减弱动态效果：不动，APNG 停在第一帧。
+        decoration = motion.animatedDecoration;
+        motion.reduceMotion = YES;
+        Require(motion.animatedDecoration == nil && decoration.layer.contents == decoration.frames.images.firstObject,
+                "减弱动态效果时装饰图仍在动，或者没有停在第一帧。");
+        [panel show:kIMKLocateCandidatesBelowHint];
+        Require(motion.animatedDecoration == nil, "减弱动态效果时重排又让装饰图动了起来。");
+        motion.reduceMotion = NO;
+        Require(motion.animatedDecoration == decoration, "关掉减弱动态效果后装饰图没有接着动。");
+        // 屏幕睡眠时停下，醒来接着动。
+        [NSWorkspace.sharedWorkspace.notificationCenter postNotificationName:NSWorkspaceScreensDidSleepNotification
+                                                                      object:NSWorkspace.sharedWorkspace];
+        Require(motion.animatedDecoration == nil, "屏幕睡眠时装饰图还在动。");
+        [NSWorkspace.sharedWorkspace.notificationCenter postNotificationName:NSWorkspaceScreensDidWakeNotification
+                                                                      object:NSWorkspace.sharedWorkspace];
+        Require(motion.animatedDecoration == decoration, "屏幕醒来后装饰图没有接着动。");
+        [panel hide];
+        // 帧数超过上限的包由共享加载器拒绝，原因说清楚是帧数。
+        const std::filesystem::path framesRoot = fixtureRoot.parent_path() / "too-many-frames";
+        std::filesystem::create_directories(framesRoot);
+        WriteApng(framesRoot / "whale.png", 2, 2, 121, 0.05, 0);
+        {
+            std::ofstream frames(framesRoot / "skin.toml");
+            frames << R"toml(schema_version = 2
+id = "too-many-frames"
+name = "Too Many Frames"
+version = "1"
+base = "system"
+[supports]
+layouts = ["vertical"]
+themes = ["light"]
+[candidate_window]
+[candidate_window.decoration]
+image = "whale.png"
+top_inset_dip = 40
+width_dip = 60
+)toml";
+        }
+        std::string framesError;
+        Require(!metasequoia::mac::LoadSkinPackage(fixtureRoot.parent_path(), "too-many-frames", &framesError) &&
+                    framesError.find("120") != std::string::npos,
+                "帧数超过上限的 APNG 包没有被共享加载器以帧数为由拒绝。");
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientCustomCandidateSkin"];
+        MetasequoiaSetStoredGlobalTheme(@"system");
         if (savedHome.empty()) unsetenv("HOME");
         else setenv("HOME", savedHome.c_str(), 1);
         std::filesystem::remove_all(temporary);

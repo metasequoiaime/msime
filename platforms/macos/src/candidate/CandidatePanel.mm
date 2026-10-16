@@ -189,12 +189,13 @@
 {
     NSPanel *_window;
     MetasequoiaCandidateChromeView *_chrome;
-    NSImageView *_decorationView;
+    MSIMECandidateDecorationView *_decorationView;
     NSArray<NSAttributedString *> *_data;
     NSFont *_font;
     NSInteger _selected;
     metasequoia::mac::ResolvedSkin _skin;
     NSImage *_decorationImage;
+    MSIMEDecorationFrames *_decorationFrames;
     CGFloat _tallestVerticalHeight;
     MSIMECandidateMotion *_motion;
 }
@@ -250,10 +251,8 @@
     _chrome.appearanceTarget = self;
     _chrome.appearanceAction = @selector(reloadSkin);
     _window.contentView = _chrome;
-    _decorationView = [[NSImageView alloc] initWithFrame:NSZeroRect];
-    _decorationView.imageScaling = NSImageScaleProportionallyUpOrDown;
-    _decorationView.imageAlignment = NSImageAlignTopRight;
-    _decorationView.wantsLayer = YES;
+    _decorationView = [[MSIMECandidateDecorationView alloc] initWithFrame:NSZeroRect];
+    _decorationView.identifier = @"candidate-decoration";
 }
 - (NSPanel *)window
 {
@@ -264,9 +263,11 @@
     _skin = MetasequoiaResolveStoredTheme(MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance),
                                           _panelType == kIMKSingleColumnScrollingCandidatePanel);
     _decorationImage = nil;
+    _decorationFrames = nil;
     if (_skin.decorationTopDip > 0.0 && !_skin.decorationPath.empty())
     {
         _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_skin.decorationPath.c_str())];
+        _decorationFrames = [MSIMEDecorationFrames framesWithContentsOfFile:@(_skin.decorationPath.c_str())];
     }
     [self layoutCandidates];
 }
@@ -379,17 +380,21 @@
     _chrome.cornerRadius = _skin.tokens.radius;
     _chrome.lineWidth = _skin.tokens.borderWidth;
     _chrome.needsDisplay = YES;
-    if (decorationHeight > 0.0 && _decorationImage != nil)
+    const double decorationMargin =
+        _skin.decorationMotion != msime::mac::DecorationMotion::none ? msime::mac::kDecorationMotionMargin : 0.0;
+    const auto placed = decorationHeight > 0.0 && _decorationImage != nil
+                            ? msime::mac::DecorationPlacement(_skin.decorationAlign, size.width, inset, decorationHeight,
+                                                              _skin.decorationWidthDip > 0.0 ? _skin.decorationWidthDip
+                                                                                             : MIN(size.width, _decorationImage.size.width),
+                                                              _decorationImage.size.width, _decorationImage.size.height,
+                                                              decorationMargin)
+                            : std::nullopt;
+    if (placed)
     {
-        const CGFloat decorationWidth =
-            _skin.decorationWidthDip > 0.0 ? _skin.decorationWidthDip : MIN(size.width, _decorationImage.size.width);
+        // 与产品路径 InputController 的摆法相同：底边压进卡片顶边一个内边距，有待机动效时四周留出余量。
         _decorationView.image = _decorationImage;
-        _decorationView.imageAlignment = _skin.decorationAlign == msime::mac::DecorationAlign::left     ? NSImageAlignTopLeft
-                                         : _skin.decorationAlign == msime::mac::DecorationAlign::center ? NSImageAlignTop
-                                                                                                        : NSImageAlignTopRight;
-        _decorationView.frame =
-            NSMakeRect(msime::mac::DecorationLeft(_skin.decorationAlign, size.width, inset, decorationWidth),
-                       size.height - decorationHeight, decorationWidth, decorationHeight);
+        _decorationView.frames = _decorationFrames;
+        _decorationView.frame = NSMakeRect(placed->x, size.height - placed->top - placed->height, placed->width, placed->height);
         [_chrome addSubview:_decorationView];
     }
     CGFloat x = inset;
@@ -446,6 +451,16 @@
             [_chrome addSubview:button];
         }
     }
+    // 面板已经在屏幕上时重排（换了候选、翻页）不经过 show:，装饰图在这里接着动。
+    if (_window.isVisible)
+        [self animateDecoration];
+}
+// 装饰图的待机动效和 APNG 帧动画，只在面板可见时挂上；这一页没画装饰图时撤掉。
+- (void)animateDecoration
+{
+    [_motion animateDecoration:_decorationView.superview != nil ? _decorationView : nil
+                        motion:_skin.decorationMotion
+                      periodMs:_skin.decorationMotionPeriodMs];
 }
 - (void)selectFromMouse:(NSButton *)button
 {
@@ -497,6 +512,7 @@
         if ([view isKindOfClass:MetasequoiaCandidateButton.class] && view.tag >= 0)
             [rows addObject:view];
     [_motion showPanel:_window animation:_skin.animation rows:rows];
+    [self animateDecoration];
     msime_macos_diagnostic_writef("candidate-position hint=%ld rows=%lu vertical=%d size=(%.0f,%.0f) origin=(%.0f,%.0f) flipped=%d",
         (long)hint, (unsigned long)_data.count, vertical ? 1 : 0, size.width, size.height, x, y, y >= NSMaxY(caret) ? 1 : 0);
 }

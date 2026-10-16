@@ -209,6 +209,16 @@ std::optional<SkinPackage> PackageFromJSON(id value)
     package.decorationAlign = align == "left"     ? DecorationAlign::left
                               : align == "center" ? DecorationAlign::center
                                                   : DecorationAlign::right;
+    const std::string motion = StringField(object, @"decorationMotion");
+    package.decorationMotion = motion == "float"     ? DecorationMotion::floating
+                               : motion == "sway"    ? DecorationMotion::sway
+                               : motion == "breathe" ? DecorationMotion::breathe
+                               : motion == "bounce"  ? DecorationMotion::bounce
+                                                     : DecorationMotion::none;
+    const double period = NumberField(object, @"decorationMotionPeriodMs");
+    if (period >= 1200.0 && period <= 8000.0) package.decorationMotionPeriodMs = period;
+    const double frames = NumberField(object, @"decorationFrames");
+    package.decorationFrames = frames >= 0.0 && frames <= 1000.0 ? static_cast<unsigned>(frames) : 0;
     NSDictionary *background = object[@"background"];
     if ([background isKindOfClass:NSDictionary.class] && !StringField(background, @"image").empty())
     {
@@ -321,6 +331,22 @@ std::string LocalizedReason(const std::string &reason)
     if (reason == "invalid decoration")
     {
         return "decoration 尺寸、图片或对齐方式无效";
+    }
+    if (reason == "decoration motion requires schema_version 2")
+    {
+        return "decoration.motion 需要 schema_version 2";
+    }
+    if (reason == "invalid decoration motion" || reason == "invalid decoration motion_period_ms")
+    {
+        return "decoration.motion 须为 none、float、sway、breathe 或 bounce，motion_period_ms 在 1200–8000 之间，且包要有装饰";
+    }
+    if (reason == "animated image has too many frames")
+    {
+        return "APNG 动画帧数超过 120";
+    }
+    if (reason == "image dimensions exceed limits")
+    {
+        return "图片尺寸超出限制：每边最多 2048 像素，全部图片（APNG 每一帧都算一张）合计最多 800 万像素";
     }
     for (std::string_view key : {"image ", "align "})
     {
@@ -659,6 +685,8 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                 resolved.decorationTopDip = package->decorationTopDip;
                 resolved.decorationWidthDip = package->decorationWidthDip;
                 resolved.decorationAlign = package->decorationAlign;
+                resolved.decorationMotion = package->decorationMotion;
+                resolved.decorationMotionPeriodMs = package->decorationMotionPeriodMs;
                 resolved.minWidthDip = package->minWidthDip;
                 if (package->cornerRadiusDip)
                 {

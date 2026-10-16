@@ -653,6 +653,11 @@ static CGFloat MSIMECandidateScale(MSIMEAppearancePreferences *appearance) {
     return appearance.candidateScalePercent / 100.0;
 }
 
+// 装饰图有待机动效时四周留出的余量，让它动起来不碰到窗口边缘被裁掉；没有动效时照原样摆放。
+static double MSIMEDecorationMotionMargin(const msime::mac::ResolvedSkin &skin) {
+    return skin.decorationMotion != msime::mac::DecorationMotion::none ? msime::mac::kDecorationMotionMargin : 0.0;
+}
+
 // The reading in the candidate window's top row is set semibold (dc.html L1325) at the size the user picked for it. A resolved family is named by its face (Menlo-Regular), which pins the weight, so the face is swapped for the family and the fallback cascade is kept; a family whose nearest heavier face is bold draws bold, and one with no heavier face keeps its regular one.
 static NSFont *MSIMECandidatePreeditFont(MSIMEAppearancePreferences *appearance) {
     const CGFloat size = appearance.preeditFontSize * MSIMECandidateScale(appearance);
@@ -1189,6 +1194,12 @@ static NSImage *MSIMECandidateLogoImage() {
     NSString *_animatedHighlightContext;
     // 候选窗的进场、退场和选中动效，第一次显示候选窗时创建。
     MSIMECandidateMotion *_candidateMotion;
+    // 上一次排版时皮肤包装饰图的待机动效和周期，显示候选窗时交给 _candidateMotion。
+    msime::mac::DecorationMotion _renderedDecorationMotion;
+    double _renderedDecorationPeriodMs;
+    // APNG 装饰图解码好的各帧，跟着 _appearance 读好的那张装饰图走：它换了（换皮肤、换明暗槽位）才重新解码，打字时不再读文件。
+    NSImage *_decorationFramesSource;
+    MSIMEDecorationFrames *_decorationFrames;
     BOOL _rerenderingForCandidateSkin;
     CGFloat _tallestVerticalCandidateHeight;
     NSInteger _armedGlossColumn;
@@ -7004,12 +7015,25 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 - (void)showCandidatePanel {
     if (!_candidateMotion) _candidateMotion = [MSIMECandidateMotion new];
     NSMutableArray<NSView *> *rows = [NSMutableArray array];
-    for (NSView *subview in _panel.contentView.subviews)
+    MSIMECandidateDecorationView *decoration = nil;
+    for (NSView *subview in _panel.contentView.subviews) {
         if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.tag >= 0) [rows addObject:subview];
+        if ([subview isKindOfClass:MSIMECandidateDecorationView.class]) decoration = (MSIMECandidateDecorationView *)subview;
+    }
     const BOOL wasVisible = _panel.isVisible;
     [_candidateMotion showPanel:_panel animation:_renderedCandidateAnimation rows:rows];
     // 打字时每个键都重新显示一次，只记从隐藏到显示的那一次。
     if (!wasVisible) [self logCandidateMotion];
+    // 每次排版都换了新的装饰视图，动画重新挂上，相位接着上一帧。
+    [_candidateMotion animateDecoration:decoration motion:_renderedDecorationMotion periodMs:_renderedDecorationPeriodMs];
+}
+
+- (MSIMEDecorationFrames *)decorationFramesForImage:(NSImage *)image path:(const std::string &)path {
+    if (image != _decorationFramesSource) {
+        _decorationFramesSource = image;
+        _decorationFrames = image && !path.empty() ? [MSIMEDecorationFrames framesWithContentsOfFile:@(path.c_str())] : nil;
+    }
+    return _decorationFrames;
 }
 
 // 高亮在同一个输入串的同一页里换了格位时（方向键、Tab、网格里移动），按皮肤的选中预设装饰新高亮行；高亮本身已经随这一帧同步画好。打字或翻页时 Engine 把高亮放回第一格，那不是选中，不播，与 CandidatePanel 只在 selectCandidateWithIdentifier: 时装饰一致。
@@ -7170,6 +7194,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     _skinShowsSelectedBar = tokens.showSelectedBar;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;
+    _renderedDecorationMotion = skin.decorationMotion;
+    _renderedDecorationPeriodMs = skin.decorationMotionPeriodMs;
     _renderedCandidateAccent = SkinColor(tokens.accent);
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
@@ -7291,12 +7317,12 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     content.cardTopInset = decorationHeight;
     const NSSize decorationSize = decorationImage.size;
     if (const auto placed = msime::mac::DecorationPlacement(skin.decorationAlign, width, inset, decorationHeight, skin.decorationWidthDip,
-                                                            decorationSize.width, decorationSize.height)) {
-        NSImageView *decoration = [[NSImageView alloc] initWithFrame:NSMakeRect(placed->x, height - placed->top - placed->height, placed->width, placed->height)];
+                                                            decorationSize.width, decorationSize.height,
+                                                            MSIMEDecorationMotionMargin(skin))) {
+        MSIMECandidateDecorationView *decoration = [[MSIMECandidateDecorationView alloc] initWithFrame:NSMakeRect(placed->x, height - placed->top - placed->height, placed->width, placed->height)];
         decoration.identifier = @"candidate-decoration";
         decoration.image = decorationImage;
-        decoration.imageScaling = NSImageScaleAxesIndependently;
-        decoration.wantsLayer = YES;
+        decoration.frames = [self decorationFramesForImage:decorationImage path:skin.decorationPath];
         [content addSubview:decoration];
     }
     _panel.contentView = content;
@@ -7367,6 +7393,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     _skinShowsSelectedBar = geometry.showSelectedBar;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;
+    _renderedDecorationMotion = skin.decorationMotion;
+    _renderedDecorationPeriodMs = skin.decorationMotionPeriodMs;
     _renderedCandidateAccent = SkinColor(geometry.accent);
     // 装饰图取这种明暗画的那个包的，两个槽位可以是两个包。
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
@@ -7548,13 +7576,13 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     content.cardTopInset = decorationHeight;
     const NSSize decorationSize = decorationImage.size;
     if (const auto placed = msime::mac::DecorationPlacement(skin.decorationAlign, width, inset, decorationHeight, skin.decorationWidthDip,
-                                                            decorationSize.width, decorationSize.height)) {
+                                                            decorationSize.width, decorationSize.height,
+                                                            MSIMEDecorationMotionMargin(skin))) {
         // Added last so it sits over the card's top edge and the top row, which is what the overlap is for. It takes no clicks.
-        NSImageView *decoration = [[NSImageView alloc] initWithFrame:NSMakeRect(placed->x, height - placed->top - placed->height, placed->width, placed->height)];
+        MSIMECandidateDecorationView *decoration = [[MSIMECandidateDecorationView alloc] initWithFrame:NSMakeRect(placed->x, height - placed->top - placed->height, placed->width, placed->height)];
         decoration.identifier = @"candidate-decoration";
         decoration.image = decorationImage;
-        decoration.imageScaling = NSImageScaleAxesIndependently;
-        decoration.wantsLayer = YES;
+        decoration.frames = [self decorationFramesForImage:decorationImage path:skin.decorationPath];
         [content addSubview:decoration];
     }
     _panel.contentView = content;

@@ -3,6 +3,7 @@
 //
 // It stands apart from shortcut-test, which imports the same controller, so a failure elsewhere in that suite cannot hide the layout assertions.
 #import "../../src/input/InputController.mm"
+#import <ImageIO/ImageIO.h>
 
 #include <cassert>
 #include <filesystem>
@@ -213,6 +214,140 @@ stagger_ms = 20
     assert(motion.selectionLayer == nil);
     [controller hideCandidatePanel:"empty"];
     assert(!panel.isVisible && !motion.exiting);
+    [motion stop];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    std::filesystem::remove_all(root);
+}
+
+// 写一张 width×height、frames 帧、每帧 delay 秒、无限循环的 APNG，各帧颜色不同。
+static void WriteApng(const std::filesystem::path &path, size_t width, size_t height, size_t frames, double delay)
+{
+    CGImageDestinationRef destination =
+        CGImageDestinationCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:@(path.c_str())], CFSTR("public.png"), frames, nullptr);
+    assert(destination != nullptr);
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    for (size_t index = 0; index < frames; ++index)
+    {
+        CGContextRef context = CGBitmapContextCreate(nullptr, width, height, 8, 0, space, kCGImageAlphaPremultipliedLast);
+        CGContextSetRGBFillColor(context, index % 2, 0.4, (index + 1) % 2, 1.0);
+        CGContextFillRect(context, CGRectMake(0, 0, width, height));
+        CGImageRef image = CGBitmapContextCreateImage(context);
+        CGImageDestinationAddImage(destination, image, (__bridge CFDictionaryRef) @{
+            (__bridge NSString *)kCGImagePropertyPNGDictionary : @{(__bridge NSString *)kCGImagePropertyAPNGDelayTime : @(delay)}
+        });
+        CGImageRelease(image);
+        CGContextRelease(context);
+    }
+    CGColorSpaceRelease(space);
+    assert(CGImageDestinationFinalize(destination));
+    CFRelease(destination);
+}
+
+static MSIMECandidateDecorationView *DecorationView(NSView *content)
+{
+    for (NSView *view in content.subviews)
+        if ([view isKindOfClass:MSIMECandidateDecorationView.class]) return (MSIMECandidateDecorationView *)view;
+    return nil;
+}
+
+// 产品路径的装饰图待机动效和 APNG 帧动画：每次排版都换新的内容视图和装饰视图，动画跟着挂到新视图上，从同一时刻起算，所以打字时装饰图不会每个键都跳回原位；旧视图上的动画撤掉；收起和减弱动态效果时不动。
+static void TestDecorationMotion(RowLayoutClient *client)
+{
+    char temporary[] = "/tmp/msime-decoration-motion-XXXXXX";
+    assert(mkdtemp(temporary));
+    const std::filesystem::path root(temporary);
+    std::filesystem::create_directory(root / "whale");
+    WriteApng(root / "whale" / "whale.png", 60, 80, 6, 0.12);
+    {
+        std::ofstream manifest(root / "whale" / "skin.toml");
+        manifest << R"toml(schema_version = 2
+id = "whale"
+name = "Whale"
+version = "1"
+base = "system"
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["light", "dark"]
+[candidate_window]
+min_width_dip = 240
+[candidate_window.decoration]
+image = "whale.png"
+top_inset_dip = 48
+width_dip = 60
+motion = "sway"
+motion_period_ms = 2400
+)toml";
+        assert(manifest.good());
+    }
+    NSString *suite = [@"app.msime.test.decoration." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    [defaults setObject:@"custom" forKey:@"MSIMEClientGlobalTheme"];
+    [defaults setObject:@"whale" forKey:@"MSIMEClientCustomCandidateSkin"];
+    MSIMEAppearancePreferences *appearance =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+    appearance.vertical = YES;
+    const auto skin = [appearance candidateWindowSkinForDark:NO];
+    assert(skin.decorationMotion == msime::mac::DecorationMotion::sway && skin.decorationMotionPeriodMs == 2400.0);
+    MSIMEInputController *controller = [[MSIMEInputController alloc] init];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    MSIMECandidateMotion *motion = [MSIMECandidateMotion new];
+    motion.reduceMotion = NO;
+    [controller setValue:motion forKey:@"candidateMotion"];
+
+    [controller setValue:MotionView(@"ce", 5, 0) forKey:@"view"];
+    [controller renderCandidates];
+    NSPanel *panel = [controller valueForKey:@"panel"];
+    MSIMECandidateDecorationView *first = DecorationView(panel.contentView);
+    assert(panel.isVisible && first != nil && motion.animatedDecoration == first && first.frames.images.count == 6);
+    CAKeyframeAnimation *sway = (id)[first.layer animationForKey:@"msime-decoration-motion"];
+    CAKeyframeAnimation *frames = (id)[first.layer animationForKey:@"msime-decoration-frames"];
+    assert(sway != nil && std::abs(sway.duration - 2.4) < 1e-6 && sway.repeatCount == HUGE_VALF);
+    assert(frames != nil && frames.values.count == 6 && std::abs(frames.duration - 0.72) < 0.01);
+    // 摇摆以底边中点为轴：最大角度时底边中点不动，顶边横移不超过留出的余量。
+    const CATransform3D tilted = [sway.values[1] CATransform3DValue];
+    const CGRect bounds = first.layer.bounds;
+    const CGPoint anchor = CGPointMake(CGRectGetMinX(bounds) + first.layer.anchorPoint.x * CGRectGetWidth(bounds),
+                                       CGRectGetMinY(bounds) + first.layer.anchorPoint.y * CGRectGetHeight(bounds));
+    const CGPoint bottom = CGPointApplyAffineTransform(CGPointMake(CGRectGetMidX(bounds) - anchor.x, CGRectGetMinY(bounds) - anchor.y),
+                                                       CATransform3DGetAffineTransform(tilted));
+    assert(std::abs(bottom.x - (CGRectGetMidX(bounds) - anchor.x)) < 0.01 && std::abs(bottom.y - (CGRectGetMinY(bounds) - anchor.y)) < 0.01);
+    const CGPoint top = CGPointApplyAffineTransform(CGPointMake(CGRectGetMidX(bounds) - anchor.x, CGRectGetMaxY(bounds) - anchor.y),
+                                                    CATransform3DGetAffineTransform(tilted));
+    const CGFloat shift = std::abs(top.x - (CGRectGetMidX(bounds) - anchor.x));
+    assert(shift > 1.0 && shift <= msime::mac::kDecorationMotionMargin + 0.01);
+    // 装饰图四周留着余量，最大摇摆时也不越过窗口左右边和顶边。
+    assert(NSMinX(first.frame) >= msime::mac::kDecorationMotionMargin - 0.01 &&
+           NSMaxX(first.frame) <= NSWidth(panel.contentView.bounds) - msime::mac::kDecorationMotionMargin + 0.01 &&
+           NSMaxY(first.frame) <= NSHeight(panel.contentView.bounds) - msime::mac::kDecorationMotionMargin + 0.01);
+    const CFTimeInterval begin = [first.layer convertTime:sway.beginTime toLayer:nil];
+    assert(std::abs(begin - motion.decorationAnchor) < 1e-3);
+
+    // 打字：整页重排换了新的装饰视图，动画挂到新视图上、从同一时刻起算，旧视图上的撤掉。
+    Spin(0.2);
+    [controller setValue:MotionView(@"ces", 5, 0) forKey:@"view"];
+    [controller renderCandidates];
+    MSIMECandidateDecorationView *second = DecorationView(panel.contentView);
+    assert(second != nil && second != first && motion.animatedDecoration == second);
+    assert([first.layer animationForKey:@"msime-decoration-motion"] == nil);
+    CAKeyframeAnimation *continued = (id)[second.layer animationForKey:@"msime-decoration-motion"];
+    CAKeyframeAnimation *continuedFrames = (id)[second.layer animationForKey:@"msime-decoration-frames"];
+    assert(std::abs([second.layer convertTime:continued.beginTime toLayer:nil] - begin) < 1e-3);
+    assert(std::abs([second.layer convertTime:continuedFrames.beginTime toLayer:nil] - begin) < 1e-3);
+
+    // 收起后不动。
+    [controller hideCandidatePanel:"empty"];
+    assert(!panel.isVisible && motion.animatedDecoration == nil && [second.layer animationForKey:@"msime-decoration-motion"] == nil);
+
+    // 减弱动态效果时不动，APNG 停在第一帧。
+    motion.reduceMotion = YES;
+    Spin(0.5);
+    [controller setValue:MotionView(@"ce", 5, 0) forKey:@"view"];
+    [controller renderCandidates];
+    MSIMECandidateDecorationView *still = DecorationView(panel.contentView);
+    assert(panel.isVisible && still != nil && motion.animatedDecoration == nil && still.layer.animationKeys.count == 0 &&
+           still.layer.contents == still.frames.images.firstObject);
+    [controller hideCandidatePanel:"focus_out"];
     [motion stop];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     std::filesystem::remove_all(root);
@@ -648,6 +783,7 @@ int main(void)
         assert([controller renderExpandedCandidates]);
         assert([CandidateButton(panel.contentView, -3).identifier isEqual:@"candidate-collapse"]);
         TestDeclaredMotion(client);
+        TestDecorationMotion(client);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     return 0;

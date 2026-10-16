@@ -134,6 +134,19 @@ struct SkinToolbar
     SkinToolbarColors light;
 };
 
+// 装饰图的待机动效（清单 `decoration.motion`）：候选窗在屏幕上时整张装饰图的小幅循环动作，与显隐动效无关。`float` 是关键字，所以浮动叫 floating。
+enum class DecorationMotion
+{
+    none,
+    floating,
+    sway,
+    breathe,
+    bounce,
+};
+
+// 有待机动效的装饰图在窗口顶边和左右两边至少留出的点数。各动效的最大位移都不超过它（见 CandidateMotion.mm），候选窗内容视图裁掉越界部分时装饰图不会被切掉。
+constexpr double kDecorationMotionMargin = 4.0;
+
 enum class SkinAnimationPreset
 {
     none,
@@ -190,19 +203,36 @@ struct DecorationRect
 };
 
 // The decoration as every host draws it: the window is `band` taller than the card and that band is transparent; the image is `width` wide at its own aspect ratio, its bottom `pad` below the card's top edge so it sits over the edge, and it is drawn after the card. An image too tall for the band and the overlap is scaled down whole rather than squashed. None for an empty band, width or image.
+// `margin` 是待机动效要的余量（有动效时传 kDecorationMotionMargin）：图片顶边离窗口顶边、左右两边离窗口边缘都至少这么远，放不下就整张等比缩小，底边仍压在卡片顶边上的同一位置。
 inline std::optional<DecorationRect> DecorationPlacement(DecorationAlign align, double cardWidth, double pad, double band,
-                                                         double width, double imageWidth, double imageHeight)
+                                                         double width, double imageWidth, double imageHeight,
+                                                         double margin = 0.0)
 {
     if (!(band > 0.0) || !(width > 0.0) || !(imageWidth > 0.0) || !(imageHeight > 0.0))
         return std::nullopt;
     const double room = band + pad;
+    const bool moving = margin > 0.0;
+    const double tallest = moving ? room - margin : room;
+    const double widest = cardWidth - 2.0 * margin;
+    if (!(tallest > 0.0) || (moving && !(widest > 0.0)))
+        return std::nullopt;
     double height = width * imageHeight / imageWidth;
-    if (height > room)
+    if (height > tallest)
     {
-        width *= room / height;
-        height = room;
+        width *= tallest / height;
+        height = tallest;
     }
-    return DecorationRect{DecorationLeft(align, cardWidth, pad, width), room - height, width, height};
+    if (moving && width > widest)
+    {
+        height *= widest / width;
+        width = widest;
+    }
+    double left = DecorationLeft(align, cardWidth, pad, width);
+    if (moving && left < margin)
+        left = margin;
+    if (moving && left + width > cardWidth - margin)
+        left = cardWidth - margin - width;
+    return DecorationRect{left, room - height, width, height};
 }
 
 struct SkinRect
@@ -274,6 +304,11 @@ struct SkinPackage
     // The image drawn in the decoration band, package-relative: the manifest's `decoration.image`, or else an image preview. Empty unless decorated.
     std::string decorationImage;
     DecorationAlign decorationAlign = DecorationAlign::right;
+    DecorationMotion decorationMotion = DecorationMotion::none;
+    // 1200–8000，共享加载器已经校验过。
+    double decorationMotionPeriodMs = 3000.0;
+    // 装饰图的帧数：没有装饰图为 0，静态图为 1，APNG 为它的动画帧数。
+    unsigned decorationFrames = 0;
     std::optional<SkinBackground> background;
     SkinToolbar toolbar;
     SkinAnimation animation;
@@ -345,6 +380,8 @@ struct ResolvedSkin
     double decorationTopDip = 0.0;
     double decorationWidthDip = 0.0;
     DecorationAlign decorationAlign = DecorationAlign::right;
+    DecorationMotion decorationMotion = DecorationMotion::none;
+    double decorationMotionPeriodMs = 3000.0;
     // Absolute path of the drawn package's background image, empty for none.
     std::string backgroundPath;
     BackgroundFit backgroundFit = BackgroundFit::cover;
