@@ -3338,9 +3338,11 @@ public:
     uint32_t preceding = 0;
     std::optional<size_t> surroundingLength;
     const auto &surrounding = ic_.surroundingText();
-    if (!privateInput() && ic_.capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText) &&
-        surrounding.isValid() && surrounding.cursor() > 0 &&
-        surrounding.cursor() == surrounding.anchor()) {
+    const bool surroundingPublished =
+        !privateInput() &&
+        ic_.capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText) &&
+        surrounding.isValid();
+    if (surroundingPublished && surrounding.cursor() == surrounding.anchor()) {
       const auto &text = surrounding.text();
       const auto length = fcitx::utf8::lengthValidated(text);
       if (length != fcitx::utf8::INVALID_LENGTH) {
@@ -3350,7 +3352,8 @@ public:
               fcitx::utf8::nextNChar(text.begin(), surrounding.cursor() - 1), text.end());
       }
     }
-    if (!surroundingLength) {
+    // 有效 surrounding 即使光标在文档开头、位于选择中或光标位置越界，也代表宿主文档的权威状态；只有宿主没有发布可用 surrounding 时才回退本会话影子。
+    if (!surroundingPublished) {
       if (const auto shadow = smartPunctuationShadowLast())
         preceding = *shadow;
     }
@@ -6656,6 +6659,8 @@ public:
       return PanelInputDelivery::Restricted;
     if (request.kind == msime::linux_host::PanelInputRequest::Kind::Text) {
       ic->commitString(request.text);
+      if (!request.text.empty())
+        ic->propertyFor(&factory_)->rememberSmartPunctuationCommit(request.text);
       return PanelInputDelivery::Delivered;
     }
     auto sym = fcitx::Key::keySymFromString(request.key);
@@ -6789,7 +6794,7 @@ public:
         state->keyDown(event);
         if (state->key(event)) event.filterAndAccept();
         else {
-          state->forgetSmartPunctuationShadow();
+          if (!event.isRelease()) state->forgetSmartPunctuationShadow();
           state->countPassthroughKey(event);
         }
         state->keySettled(comboBefore);

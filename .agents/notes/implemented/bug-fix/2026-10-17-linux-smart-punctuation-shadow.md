@@ -10,7 +10,7 @@ IBus 与 Fcitx5 在客户端不提供 surrounding text，或客户端暂时把�
 
 两个 Linux 宿主各自维护一个最多 1024 字节的 UTF-8 末尾影子，只记录当前焦点会话由输入法自己提交的文本。surrounding text 有效时仍以文档字符为准；只有 surrounding text 无效且影子仍有效时，才用影子的最后一个 Unicode 字符判断 `smart_punctuation_direct_digit` 和 `smart_punctuation_direct_letter`。
 
-影子在失焦、会话重置、有效 surrounding 更新、应用接管按键、光标移动和删除时清空；输入法提交文本后重新记录末尾。输入法替换自己刚提交的标点时先从影子删除末尾字符，再记录替换文本。这样不会把未知文档内容或已经移动后的旧 caret 位置当成可确认的 ASCII 前文。
+影子在失焦、会话重置、应用接管按键、光标移动和删除时清空；IBus 收到有效 surrounding 更新时也清空，Fcitx5 则让有效 surrounding 优先于旧影子。输入法提交文本后重新记录末尾。输入法替换自己刚提交的标点时先从影子删除末尾字符，再记录替换文本。有效 surrounding 的文档起点、选择状态和越界光标也都优先代表宿主状态，不回退旧影子；只有真正无效或未发布 surrounding 时才使用影子。面板直接提交的文本同样记入影子。应用接管按键时只在按下事件清空，释放事件不影响刚由输入法提交的文本。这样不会把未知文档内容或已经移动后的旧 caret 位置当成可确认的 ASCII 前文。
 
 IBus 在无 surrounding text 的情况下也用影子核对重复智能标点；Fcitx5 保持原有约定，把可以保留 ASCII 的标点交给应用。
 
@@ -28,5 +28,5 @@ IBus 在无 surrounding text 的情况下也用影子核对重复智能标点；
 
 ## Verification
 
-- `platforms/linux/tests/runtime/engine_smoke.cpp` 和 `platforms/linux/fcitx5/tests/native.cpp` 都覆盖：输入法生成 ASCII 数字、使 surrounding text 无效、随后输入句号。
+- `platforms/linux/tests/runtime/engine_smoke.cpp` 和 `platforms/linux/fcitx5/tests/native.cpp` 都覆盖：输入法生成 ASCII 数字、发送真实 Space release、使 surrounding text 无效、随后输入句号；Fcitx5 还覆盖有效空文档起点和面板 ASCII 文本。
 - `git diff --check` 已通过。Linux 容器验收未能在本机启动，因为 Docker daemon 不可用；提交前由 Linux CI 编译并运行 IBus/Fcitx5 原生测试。

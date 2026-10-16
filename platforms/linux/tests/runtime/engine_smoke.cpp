@@ -3412,6 +3412,8 @@ int main(int argc, char **argv) {
       require(key(static_cast<guint>(character)), "Unicode digit input was not consumed");
     require(key(IBUS_space) && seen.committed == "0",
             "Unicode mode did not commit the synthetic ASCII digit");
+    require(!key(IBUS_space, IBUS_RELEASE_MASK),
+            "Unicode Space release was unexpectedly consumed");
     IBUS_ENGINE_GET_CLASS(engine)->set_surrounding_text(engine, nullptr, 0, 0);
     require(key(IBUS_period) && seen.committed == "0.",
             "IBus did not keep an input-method ASCII digit as smart-punctuation context");
@@ -4419,6 +4421,14 @@ int main(int argc, char **argv) {
       require(wait_until([&] { return seen.committed == before + "好"; }) &&
                   seen.forwarded.size() == 2,
               "Panel text did not commit as it is");
+      before = seen.committed;
+      require(panel({{"op", "text"}, {"text", "0"}}),
+              "Panel ASCII text was refused");
+      require(wait_until([&] { return seen.committed == before + "0"; }),
+              "Panel ASCII text did not commit");
+      IBUS_ENGINE_GET_CLASS(engine)->set_surrounding_text(engine, nullptr, 0, 0);
+      require(!key(IBUS_period) && seen.committed == before + "0",
+              "Panel ASCII text did not provide smart-punctuation shadow context");
       // Under CapsLock a physical letter arrives uppercase with the lock and goes to the editor; the screen keyboard's lowercase letter has to do the same rather than start a composition.
       require(!key('N', IBUS_LOCK_MASK) && !key('N', IBUS_LOCK_MASK | IBUS_RELEASE_MASK) &&
                   !seen.preedit_visible,

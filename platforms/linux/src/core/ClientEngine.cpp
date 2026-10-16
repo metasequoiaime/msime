@@ -4719,8 +4719,9 @@ msime::linux_host::PanelInputDelivery panel_input_deliver(
   if (!engine || !state(engine).focused) return PanelInputDelivery::NoFocus;
   if (state(engine).blocked) return PanelInputDelivery::Restricted;
   if (request.kind == PanelInputRequest::Kind::Text) {
-    // Committed directly rather than through commit_text: the panel records its own typing statistics, as it does for every other route.
+    // 面板自行记录打字统计，但文本仍要经过同一影子前文记录，以便 surrounding 不可用时智能标点保持一致。
     ibus_engine_commit_text(engine, ibus_text_new_from_string(request.text.c_str()));
+    if (!request.text.empty()) state(engine).remember_smart_punctuation_commit(request.text);
     return PanelInputDelivery::Delivered;
   }
   auto keyval = ibus_keyval_from_name(request.key.c_str());
@@ -7603,7 +7604,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = fullwidth_idle_commit(fullwidth_value);
     }
   });
-  if (!handled)
+  if (!handled && !release)
     s.forget_smart_punctuation_shadow();
   return handled;
 }

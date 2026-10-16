@@ -2603,9 +2603,30 @@ int main(int argc, char **argv) {
       require(shadowDigit.first, "Unicode mode could not start for smart punctuation shadow");
       for (const auto sym : {FcitxKey_0, FcitxKey_0, FcitxKey_3, FcitxKey_0})
         require(committedBy(sym).first, "Unicode digit input was not consumed");
-      require(committedBy(FcitxKey_space) == std::make_pair(true, std::string("0")),
+      const auto unicodeSpace = committedBy(FcitxKey_space);
+      require(unicodeSpace == std::make_pair(true, std::string("0")),
               "Unicode mode did not commit the synthetic ASCII digit");
+      fcitx::KeyEvent unicodeSpaceRelease(&ic, fcitx::Key(FcitxKey_space), true);
+      engine.keyEvent(entry, unicodeSpaceRelease);
+      require(!unicodeSpaceRelease.accepted(),
+              "Unicode Space release was unexpectedly consumed");
+      // Valid empty surrounding at the document start is authoritative and must not fall back to the old shadow digit.
+      ic.surroundingText().setText("", 0, 0);
+      require(committedBy(FcitxKey_period) == std::make_pair(true, std::string("。")),
+              "Fcitx5 fell back to the shadow after receiving empty surrounding text");
+      // Rebuild the shadow after the Chinese mark above; the next press verifies that a genuinely unavailable document still uses it after a real release.
       ic.surroundingText().invalidate();
+      require(committedBy(FcitxKey_U, fcitx::KeyStates(fcitx::KeyState::Shift)).first,
+              "Unicode mode could not restart for the released-key shadow check");
+      for (const auto sym : {FcitxKey_0, FcitxKey_0, FcitxKey_3, FcitxKey_0})
+        require(committedBy(sym).first, "Unicode digit input was not consumed after restart");
+      const auto unicodeSpaceAgain = committedBy(FcitxKey_space);
+      require(unicodeSpaceAgain == std::make_pair(true, std::string("0")),
+              "Unicode mode did not commit the second synthetic ASCII digit");
+      fcitx::KeyEvent unicodeSpaceAgainRelease(&ic, fcitx::Key(FcitxKey_space), true);
+      engine.keyEvent(entry, unicodeSpaceAgainRelease);
+      require(!unicodeSpaceAgainRelease.accepted(),
+              "second Unicode Space release was unexpectedly consumed");
       require(committedBy(FcitxKey_period) == std::make_pair(false, std::string{}),
               "Fcitx5 did not keep an input-method ASCII digit as smart-punctuation context");
       require(ctrlSpace() && !state->input_enabled_,
@@ -3481,6 +3502,16 @@ int main(int argc, char **argv) {
       require(engine.deliverPanelInput(panelText) == PanelInputDelivery::Delivered &&
                   ic.committed == beforePanelText + "好" && ic.forwarded.size() == 2,
               "panel text commits as it is");
+      panelText.text = "0";
+      const auto beforePanelDigit = ic.committed;
+      require(engine.deliverPanelInput(panelText) == PanelInputDelivery::Delivered &&
+                  ic.committed == beforePanelDigit + "0",
+              "panel ASCII text commits as it is");
+      ic.surroundingText().invalidate();
+      fcitx::KeyEvent panelPeriod(&ic, fcitx::Key(FcitxKey_period));
+      engine.keyEvent(entry, panelPeriod);
+      require(!panelPeriod.accepted() && ic.committed == beforePanelDigit + "0",
+              "panel ASCII text did not provide smart-punctuation shadow context");
     }
     // Real translation socket: no HTTP, credentials, or user input in this fixture.
     const auto translationPath = std::string(directory) + "/translation.sock";
