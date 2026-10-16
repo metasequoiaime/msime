@@ -148,6 +148,8 @@ for entry in \
     "ToolbarEdgesDeviceSmoke|Toolbar fixed edges acceptance failed" \
     "ToolbarScrollDeviceSmoke|Toolbar swipe acceptance failed" \
     "EmojiPickerDeviceSmoke|Emoji picker acceptance failed" \
+    "EmojiCombinationLayoutDeviceSmoke|Combination emoji layout acceptance failed" \
+    "EmojiCombinationDeviceSmoke|Combination emoji input acceptance failed" \
     "PairedPunctuationDeviceSmoke|Paired punctuation acceptance failed" \
     "LetterHintPunctuationDeviceSmoke|Letter hint punctuation acceptance failed" \
     "SuperscriptShortcutDeviceSmoke|Superscript shortcut acceptance failed" \

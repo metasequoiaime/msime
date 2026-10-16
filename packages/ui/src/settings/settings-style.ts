@@ -131,7 +131,6 @@ export const toolbarPreview = (enabled: boolean) =>
 export const toolbarHandle = "text-[1.1em] leading-none text-accent";
 export const toolbarRequired = "border-r border-white/20 pr-[5px]";
 export const toolbarItem = "rounded-[5px] bg-white/12 px-[5px] py-[3px] text-[0.7em]";
-export const toolbarRequiredLabel = "ml-auto text-xs text-muted";
 
 // ---- shortcuts ----
 

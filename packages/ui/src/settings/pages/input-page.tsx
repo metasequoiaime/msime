@@ -235,7 +235,7 @@ export function InputSettingsPage() {
               candidateGlossLanguagesEnabled={candidateGlossLanguagesEnabled}
               visibleLanguages={visibleTranslationLanguages}
               visibleSecondaryLanguages={visibleSecondaryLanguages}
-              showSecondaryLanguage
+              showSecondaryLanguage={false}
               showAccountTranslation={false}
               accountTranslation={false}
               onEnabledChange={(candidate_translations) =>

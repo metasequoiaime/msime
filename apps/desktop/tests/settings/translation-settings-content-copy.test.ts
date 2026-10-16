@@ -16,6 +16,9 @@ test("expression page uses the shared translation settings composition", () => {
   expect(page).not.toContain("<CandidateTranslationSettingsSection");
   // 唯一的直接使用方是 HarmonyOS 手机页面，它用同一套共享绑定把所选服务的各行折叠到「更多选项」下。
   expect(page.match(/<TranslationProviderSettingsSection/g)).toHaveLength(1);
-  expect(page).toContain("<TranslationProviderSettingsSection {...providers} grouped={false} />");
+  // 外层已经整体折叠，腾讯云地域不再套第二层「更多选项」。
+  expect(page).toMatch(
+    /<TranslationProviderSettingsSection\s+\{\.\.\.providers\}\s+grouped=\{false\}\s+foldRegion=\{false\}\s*\/>/,
+  );
   expect(page).not.toContain("candidate={{");
 });

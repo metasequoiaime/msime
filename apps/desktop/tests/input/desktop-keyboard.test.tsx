@@ -297,3 +297,40 @@ test("macOS standalone keyboard does not expose an unauthenticated voice panel",
   await waitFor(() => expect(screen.getByRole("main", { name: "屏幕键盘" })).toBeTruthy());
   expect(screen.queryByRole("button", { name: "打开语音输入" })).toBeNull();
 });
+
+// macOS 不提供间距滑块：面板固定用默认间距，存下的旧值不再生效。
+test("the macOS keyboard draws the default spacing whatever is stored", async () => {
+  const value = snapshot(1, "dark");
+  value.preferences.touch_key_spacing_tenths = 35;
+  value.preferences.touch_row_spacing_tenths = 95;
+  const gaps = () => {
+    const grid = screen
+      .getByRole("main", { name: "屏幕键盘" })
+      .querySelector<HTMLDivElement>("[data-keyboard-layout-grid]");
+    return [
+      grid?.style.getPropertyValue("--keyboard-key-gap"),
+      grid?.style.getPropertyValue("--keyboard-row-gap"),
+    ];
+  };
+  const load = vi.fn(async () => value);
+  const view = render(
+    <DesktopKeyboard
+      client={panel}
+      preferences={{ host: testHost({ platform: "macos" }), load }}
+    />,
+  );
+  await waitFor(() => expect(load).toHaveBeenCalledOnce());
+  await act(async () => {});
+  expect(gaps()).toEqual(["6px", "7px"]);
+  view.unmount();
+
+  // 同样的存储在 Linux 上照旧生效。
+  const linuxLoad = vi.fn(async () => value);
+  render(
+    <DesktopKeyboard
+      client={panel}
+      preferences={{ host: testHost({ platform: "linux" }), load: linuxLoad }}
+    />,
+  );
+  await waitFor(() => expect(gaps()).toEqual(["3.5px", "9.5px"]));
+});

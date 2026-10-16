@@ -23,6 +23,8 @@ export interface CandidateTranslationSettingsOptions {
   linux: boolean;
   /** Windows 的候选窗把每种目标语言的释义画成一行，所以也显示「第二种候选语言」；Server 的翻译线程会问水杉账号，所以翻译服务里也列出「水杉账号」。 */
   windows?: boolean;
+  /** 触屏键盘（iOS、Android、HarmonyOS 手机）只显示一种候选翻译：第二种语言让每个候选下多一行，候选栏太高，所以不给「第二种候选语言」。 */
+  mobile?: boolean;
   translationAccount: boolean;
   onPreferencesChange: (patch: Partial<Preferences>) => void;
   onDeviceMissingLanguages: readonly (readonly [string, string])[];
@@ -42,11 +44,11 @@ export function createCandidateTranslationSettings({
   visibleTranslationLanguages,
   visibleSecondaryLanguages,
   android,
-  ios,
   macos,
   harmony,
   linux,
   windows = false,
+  mobile = false,
   translationAccount,
   onPreferencesChange,
   onDeviceMissingLanguages,
@@ -63,7 +65,7 @@ export function createCandidateTranslationSettings({
     candidateGlossLanguagesEnabled,
     visibleLanguages: visibleTranslationLanguages,
     visibleSecondaryLanguages,
-    showSecondaryLanguage: android || ios || macos || harmony || windows,
+    showSecondaryLanguage: !mobile && (macos || harmony || windows),
     showAccountTranslation: android,
     accountTranslation: translationAccount,
     onEnabledChange: (enabled) => onPreferencesChange({ candidate_translations: enabled }),
@@ -81,6 +83,8 @@ export function createCandidateTranslationSettings({
     showTranslationService: !android,
     translationProvider,
     showAccountProvider: macos || linux || windows,
+    // 只有 macOS 在不选在线服务时还会用系统本机翻译补齐释义（`InputController` 的 `currentOnDeviceGlossRequest`），所以只在 macOS 上把「关闭」改叫「离线翻译」；其他宿主沿用原来的叫法，等各自核对过再改。
+    offlineFallback: macos,
     onTranslationProviderChange: setTranslationProvider,
   };
 }

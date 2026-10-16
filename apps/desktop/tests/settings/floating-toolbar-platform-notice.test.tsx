@@ -13,7 +13,7 @@ test("explains that Linux presents the toolbar as an input method menu", () => {
 
   expect(
     screen.getByText(
-      "Linux 不显示悬浮工具栏窗口，工具栏以输入法菜单里的「工具栏」子菜单呈现，缩放和图标尺寸不适用；下方的按钮选择和显示开关仍然生效。GNOME 桌面下的 IBus 只在输入源菜单列出输入模式和设置，没有这个子菜单。",
+      "Linux 不显示悬浮工具栏窗口，工具栏以输入法菜单里的「工具栏」子菜单呈现，工具栏大小不适用；下方的按钮选择和显示开关仍然生效。GNOME 桌面下的 IBus 只在输入源菜单列出输入模式和设置，没有这个子菜单。",
     ),
   ).toBeTruthy();
 });
@@ -23,7 +23,7 @@ test("names only the display switch on a host without the button checks", () => 
 
   expect(
     screen.getByText(
-      "Linux 不显示悬浮工具栏窗口，工具栏以输入法菜单里的「工具栏」子菜单呈现，缩放和图标尺寸不适用；下方的显示开关仍然生效。GNOME 桌面下的 IBus 只在输入源菜单列出输入模式和设置，没有这个子菜单。",
+      "Linux 不显示悬浮工具栏窗口，工具栏以输入法菜单里的「工具栏」子菜单呈现，工具栏大小不适用；下方的显示开关仍然生效。GNOME 桌面下的 IBus 只在输入源菜单列出输入模式和设置，没有这个子菜单。",
     ),
   ).toBeTruthy();
 });

@@ -30,9 +30,9 @@ export interface CandidateTranslationOptionsSectionProps {
   onTargetLanguageChange: (language: TranslationLanguage) => void;
   onSecondaryLanguageChange: (language: TranslationSecondaryLanguage) => void;
   onAccountTranslationChange: (enabled: boolean) => void;
-  /** `phone` 是 HarmonyOS 手机的「翻译」组：开关注明它显示哪种语言，目标行是普通的「翻译目标语言」选项，`beforeMore` 紧随其后，第二语言和账号相关的行收进「更多选项」折叠区。 */
+  /** `phone` 是 HarmonyOS 手机的「翻译」组：开关注明它显示哪种语言，目标行是普通的「翻译目标语言」选项，`beforeMore` 紧随其后，第二语言和账号相关的行收进「更多选项」折叠区。`default` 布局只把第二种语言收进「更多选项」；账号开关留在外面，因为在 Android 上它是唯一的在线翻译来源。 */
   layout?: "default" | "phone";
-  /** `phone` 布局中绘制在目标语言之后、折叠区之前的行（离线释义开关）。 */
+  /** 绘制在目标语言之后、折叠区之前的行：`phone` 布局放离线释义开关，桌面「候选释义」标签放「显示读音」。 */
   beforeMore?: ReactNode;
 }
 
@@ -128,8 +128,9 @@ export function CandidateTranslationOptionsSection({
     <>
       {enabledRow}
       {targetRow}
-      {secondaryRow}
+      {beforeMore}
       {accountRow}
+      {secondaryRow && <MoreOptions>{secondaryRow}</MoreOptions>}
     </>
   );
 }
