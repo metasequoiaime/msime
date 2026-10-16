@@ -83,6 +83,7 @@ export function ExpressionSettingsPage() {
     android: androidPlatform,
     ios: iosPlatform,
     harmony: harmonyPlatform,
+    mobile: mobilePlatform,
     translationAccount: draft.translation_account ?? false,
     translationTargetLanguage,
     translationSecondaryLanguage: draft.translation_secondary_language,

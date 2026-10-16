@@ -301,7 +301,8 @@ public class DeviceSmoke extends Instrumentation {
     }
     protected static boolean equalsText(String expected, CharSequence actual) { return actual != null && expected.contentEquals(actual); }
     protected AccessibilityNodeInfo find(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
-        if (node == null) return null;
+        // 旧系统会保留已经变化的文本、可见性与子树；断言前从进程重新读取。
+        if (node == null || Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
         if (node.isVisibleToUser() && match.test(node)) return node;
         for (int index = 0; index < node.getChildCount(); index++) {
             AccessibilityNodeInfo found = find(node.getChild(index), match);
@@ -312,7 +313,7 @@ public class DeviceSmoke extends Instrumentation {
     /** Matches anywhere in the tree, including nodes scrolled outside the visible area. */
     protected AccessibilityNodeInfo findAny(AccessibilityNodeInfo node,
                                            Predicate<AccessibilityNodeInfo> match) {
-        if (node == null) return null;
+        if (node == null || Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
         if (match.test(node)) return node;
         for (int index = 0; index < node.getChildCount(); index++) {
             AccessibilityNodeInfo found = findAny(node.getChild(index), match);

@@ -83,6 +83,18 @@ export class TranslationPolicy {
     return result;
   }
 
+  /** 手机和平板的触屏键盘只显示一种候选翻译，否则每个候选下多一行、候选栏太高（iOS、Android 相同）。共享查询照偏好带上第二种语言：`target_languages` 里的其余项、它已安装的离线词典，以及第二种语言是英语时打开的 `english_gloss`；这里把它们都去掉，只留主目标语言 `target_language`。2in1 的候选窗与桌面相同，不经过这里。 */
+  static keepPrimaryOnly(query: TranslationQuery): void {
+    const primary: string = query.target_language;
+    query.target_languages = [primary];
+    query.english_gloss = query.english_gloss && primary === "en";
+    if (query.offline_gloss_languages !== undefined) {
+      query.offline_gloss_languages = query.offline_gloss_languages.filter(
+        (language: string): boolean => language === primary,
+      );
+    }
+  }
+
   /** The targets answered from an installed offline dictionary, in target order. English keeps its own gloss path. */
   static offlineTargets(query: TranslationQuery): string[] {
     const installed: string[] = query.offline_gloss_languages ?? [];
@@ -127,7 +139,8 @@ export class TranslationPolicy {
       target_languages: TranslationPolicy.targets(query),
       offline_gloss_languages: TranslationPolicy.offlineTargets(query),
       candidates: query.candidates.map((candidate: TranslationCandidate): object => ({
-        text: candidate.text, source: candidate.source,
+        text: candidate.text,
+        source: candidate.source,
       })),
       english_gloss: query.english_gloss,
       provider: TranslationPolicy.provider(query),
@@ -153,19 +166,24 @@ export class TranslationPolicy {
   }
 
   /** 判断失败请求是否仍可释放当前签名，让同一候选页在下一次刷新时重试。 */
-  static shouldReleaseAfterFailure(requestSignature: string, currentSignature: string,
-    requestEpoch: number, currentEpoch: number, requestHandle: number,
-    currentHandle: number): boolean {
-    return requestEpoch === currentEpoch && requestHandle === currentHandle
-      && requestSignature.length > 0 && requestSignature === currentSignature;
+  static shouldReleaseAfterFailure(
+    requestSignature: string,
+    currentSignature: string,
+    requestEpoch: number,
+    currentEpoch: number,
+    requestHandle: number,
+    currentHandle: number,
+  ): boolean {
+    return (
+      requestEpoch === currentEpoch &&
+      requestHandle === currentHandle &&
+      requestSignature.length > 0 &&
+      requestSignature === currentSignature
+    );
   }
 
   /** A replaced or vanished query must invalidate any timer or request for the old candidate page. */
-  static hasActiveWork(
-    signature: string,
-    timerActive: boolean,
-    requestCount: number,
-  ): boolean {
+  static hasActiveWork(signature: string, timerActive: boolean, requestCount: number): boolean {
     return signature.length > 0 || timerActive || requestCount > 0;
   }
 
@@ -175,8 +193,11 @@ export class TranslationPolicy {
   }
 
   /** 在线 provider 未完成时，即使离线词典有可应用条目，也必须允许相同候选页重试。 */
-  static shouldReleaseAfterProviderFailure(provider: string, providerComplete: boolean,
-    hasEntries: boolean): boolean {
+  static shouldReleaseAfterProviderFailure(
+    provider: string,
+    providerComplete: boolean,
+    hasEntries: boolean,
+  ): boolean {
     return provider.length > 0 && !providerComplete && hasEntries;
   }
 
@@ -184,16 +205,18 @@ export class TranslationPolicy {
     const provider: string = TranslationPolicy.provider(query);
     if (provider === "custom") {
       return `custom:${query.custom_translation?.endpoint ?? ""}:${TranslationPolicy.credentialFingerprint(
-        query.custom_translation?.api_key ?? "")}`;
+        query.custom_translation?.api_key ?? "",
+      )}`;
     }
     if (provider === "niutrans") {
       return `niutrans:${query.niutrans?.app_id ?? ""}:${TranslationPolicy.credentialFingerprint(
-        query.niutrans?.apikey ?? "")}`;
+        query.niutrans?.apikey ?? "",
+      )}`;
     }
     if (provider === "tencent") {
       return `tencent:${query.tencent_tmt?.region ?? ""}:${TranslationPolicy.credentialFingerprint(
-        query.tencent_tmt?.secret_id ?? "")}:${TranslationPolicy.credentialFingerprint(
-        query.tencent_tmt?.secret_key ?? "")}`;
+        query.tencent_tmt?.secret_id ?? "",
+      )}:${TranslationPolicy.credentialFingerprint(query.tencent_tmt?.secret_key ?? "")}`;
     }
     return provider;
   }
@@ -213,7 +236,8 @@ export class TranslationPolicy {
     return JSON.stringify({
       target_language: target,
       candidates: candidates.map((candidate: TranslationCandidate): Object => ({
-        text: candidate.text, source: candidate.source,
+        text: candidate.text,
+        source: candidate.source,
       })),
     });
   }

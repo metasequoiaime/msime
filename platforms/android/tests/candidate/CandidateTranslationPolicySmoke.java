@@ -9,14 +9,16 @@ import java.util.Set;
 
 public final class CandidateTranslationPolicySmoke {
     public static void main(String[] args) throws Exception {
-        check(CandidateTranslationPolicy.targets("ja", "de").equals(List.of("ja", "de")),
-            "primary and secondary languages preserved");
-        check(CandidateTranslationPolicy.targets("invalid", "ja").equals(List.of("en", "ja")),
+        check(CandidateTranslationPolicy.targets(" JA ").equals(List.of("ja")),
+            "the primary language is the only target");
+        check(CandidateTranslationPolicy.targets("invalid").equals(List.of("en"))
+                && CandidateTranslationPolicy.targets(null).equals(List.of("en")),
             "invalid primary falls back to English");
-        check(CandidateTranslationPolicy.targets("en", "en").equals(List.of("en")),
-            "duplicate secondary is not requested twice");
-        check(CandidateTranslationPolicy.targets("en", null).equals(List.of("en")),
-            "missing secondary preserves legacy behavior");
+        // 手机上只显示一种候选翻译：偏好里配了第二种语言，键盘也只请求主语言、只预留一行释义（MSIMEInputService 不读 translation_secondary_language，由 check-host.sh 守住）。
+        check(CandidateTranslationPolicy.targets("ja").equals(List.of("ja"))
+                && CandidateTranslationPolicy.glossLines(CandidateTranslationPolicy.targets("ja"),
+                    true, true, Set.of("ja", "de")) == 1,
+            "a configured secondary language adds no request and no gloss row");
         check(CandidateTranslationPolicy.joinGlosses(List.of("hello", "こんにちは"))
                 .equals("hello\nこんにちは"), "two glosses stay on separate rows");
         check(CandidateTranslationPolicy.insertionGlosses(" hello \nこんにちは\nhello")

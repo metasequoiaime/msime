@@ -34,7 +34,8 @@ test("builds candidate translation bindings for preference changes and provider 
   settings.onAccountTranslationChange(true);
 
   expect(settings.grouped).toBe(true);
-  expect(settings.showSecondaryLanguage).toBe(true);
+  // 触屏键盘只显示一种候选翻译，Android 不给第二种语言。
+  expect(settings.showSecondaryLanguage).toBe(false);
   expect(settings.showAccountTranslation).toBe(true);
   expect(updates).toEqual([
     { candidate_translations: false },
