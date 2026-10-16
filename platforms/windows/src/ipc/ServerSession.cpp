@@ -3,6 +3,7 @@
 #include "CandidateCompletionPolicy.h"
 #include "EditPolicy.h"
 #include "InputSchemeTraits.h"
+#include "../../common/PhrasePreeditOptions.h"
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
 #include "LifecyclePolicy.h"
@@ -64,8 +65,9 @@ ServerSession::ServerSession(uint64_t client_id, const std::string &options)
   preferences_ = document.value("preferences", nlohmann::json::object());
   traditional_output_ = document.value("preferences", nlohmann::json::object())
                             .value("traditional_chinese_output", false);
+  const auto prepared = phrase_preedit_options(options);
   auto created = response(msime_client_create(
-      reinterpret_cast<const uint8_t *>(options.data()), options.size()));
+      reinterpret_cast<const uint8_t *>(prepared.data()), prepared.size()));
   session_ = created.at("session").get<uint64_t>();
   // 选择加入生命周期核心：按键音、上屏音、打字特效和背景音乐从此由核心驱动，旧的 key_sound、commit_sound、music_set_active 对这个会话变成空操作。宿主 DLL 和 Server 同版本发布（上面的 ABI 检查），所以 FEEDBACK 总会被接受。
   (void)msime_client_set_lifecycle(session_, lifecycle_flags());
@@ -258,7 +260,8 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
         session_, static_cast<uint8_t>(action.value), action.shift));
   } else {
     if ((action.value == MSIME_BACKSPACE_SEGMENT || action.value == MSIME_MOVE_LEFT_SEGMENT ||
-         action.value == MSIME_MOVE_RIGHT_SEGMENT) && current.at("editing_text").get<std::string>().empty()) {
+         action.value == MSIME_MOVE_RIGHT_SEGMENT) && current.at("editing_text").get<std::string>().empty() &&
+        current.value("phrase_prefix", std::string{}).empty()) {
       result = {{"handled", false}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", current}};
       return {client_, epoch_, packet.request_id, false, std::move(result)};
     }

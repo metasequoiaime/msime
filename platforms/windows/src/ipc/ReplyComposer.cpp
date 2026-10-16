@@ -62,8 +62,8 @@ bool traditional_projection(const ServerSession &session) {
 // The view's scheme, as the scheme traits take it.
 int view_scheme(const nlohmann::json &view) { return static_cast<int>(view.value("scheme", 0u)); }
 } // namespace
-ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch)
-    : client_(client), epoch_(epoch) {
+ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch, bool runtime_phrase)
+    : client_(client), epoch_(epoch), runtime_phrase_(runtime_phrase) {
   if (!client || !epoch)
     throw std::invalid_argument("Invalid reply activation");
 }
@@ -82,6 +82,8 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
     throw std::logic_error("Reply changed host session");
   const auto raw = view.at("editing_text").get<std::string>();
   const auto display = view.at("preedit").get<std::string>();
+  const auto display_prefix = runtime_phrase_ ? view.value("phrase_prefix", std::string{}) : prefix_;
+  const auto commit_prefix = runtime_phrase_ ? std::string{} : prefix_;
   const auto &commit = result.transition.at("commit");
   const auto delta =
       commit.is_null() ? std::string{} : commit.get<std::string>();
@@ -93,7 +95,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
   PendingReply next;
   next.source = result;
   next.host_navigation = navigation_for(path);
-  next.next_prefix = prefix_;
+  next.next_prefix = display_prefix;
   next.traditional_output = traditional_output_;
   const auto invalid = [&] {
     next.encoded = EncodedReply{ReplyError::InvalidFields, {}};
@@ -115,7 +117,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
   case ReplyPath::LocalCommit:
     // Legacy Enter inserts the prefix plus its local raw buffer. This is a
     // completion acknowledgement, not a second text insertion frame.
-    if (!raw.empty() || !local_text || *local_text != prefix_ + delta)
+    if (!raw.empty() || !local_text || *local_text != commit_prefix + delta)
       next.encoded = EncodedReply{ReplyError::InvalidFields, {}};
     else {
       next.next_prefix.clear();
@@ -129,10 +131,12 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       invalid();
       break;
     }
-    if (delta.empty())
-      next.encoded = ignored_reply(result.request_id);
-    else {
-      const auto total = prefix_ + output_delta;
+    if (delta.empty()) {
+      next.encoded = runtime_phrase_ && !display_prefix.empty() && !raw.empty()
+          ? partial_selection(result.request_id, raw, display_prefix, display_prefix + display)
+          : ignored_reply(result.request_id);
+    } else {
+      const auto total = commit_prefix + output_delta;
       if (!raw.empty()) {
         next.encoded =
             partial_selection(result.request_id, raw, total, total + display);
@@ -156,9 +160,9 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
         invalid();
         break;
       }
-      next.encoded = exact_commit(result.request_id, prefix_ + output_delta);
+      next.encoded = exact_commit(result.request_id, commit_prefix + output_delta);
       next.next_prefix.clear();
-      next.committed_text = prefix_ + output_delta;
+      next.committed_text = commit_prefix + output_delta;
     }
     break;
   case ReplyPath::CandidatePunctuationFallback:
@@ -167,9 +171,9 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       break;
     }
     next.encoded = candidate_commit(result.request_id,
-                                    prefix_ + output_delta);
+                                    commit_prefix + output_delta);
     next.next_prefix.clear();
-    next.committed_text = prefix_ + output_delta;
+    next.committed_text = commit_prefix + output_delta;
     break;
   case ReplyPath::IgnoredNavigation:
   case ReplyPath::PreviousCandidate:
@@ -185,14 +189,14 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       const auto navigation = navigation_for(path);
       next.encoded = navigation
                          ? navigation_reply(result.request_id, *navigation)
-                         : preedit_reply(result.request_id, prefix_ + display);
+                         : preedit_reply(result.request_id, display_prefix + display);
     } else {
-      next.encoded = uiless_composition(result.request_id, prefix_ + display, view);
+      next.encoded = uiless_composition(result.request_id, display_prefix + display, view);
     }
     break;
   case ReplyPath::SyllableCommit:
-    // No selected prefix exists in Korean, and the commit is already in the document by the time this reply is read: the TIP's host session produced the same syllable for the same key. Only the composition after it is encoded.
-    if (!prefix_.empty()) {
+    // TIP 已从自己的 Runtime 上屏（音节完成或退格删空前缀）；这里只投影后续组字，避免重复插入。
+    if (!commit_prefix.empty()) {
       invalid();
       break;
     }
@@ -225,7 +229,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       invalid();
       break;
     }
-    const auto total = prefix_ + output_delta;
+    const auto total = commit_prefix + output_delta;
     next.worker = commit_candidate_and_continue_bytes(continue_consumed, total);
     if (!next.worker) {
       invalid();
@@ -496,7 +500,8 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
     return std::nullopt;
   const auto kind =
       edit_kind(packet, before.at("local_mode").get<std::string>(),
-                !before.at("editing_text").get<std::string>().empty(),
+                (!before.at("editing_text").get<std::string>().empty() ||
+                 !before.value("phrase_prefix", std::string{}).empty()),
                 before.value("microsoft_shuangpin", false),
                 before.at("editing_text").get<std::string>(),
                 before.at("caret_position").get<size_t>(),
@@ -511,6 +516,7 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                              PipeMetadata::key_modifiers(packet.modifiers_down) == 0;
   if (kind == EditKind::None && !tibetan_space)
     return std::nullopt;
+  const CommitObserveOnly observe(session, runtime_phrase_ && kind == EditKind::Erase);
   auto result = session.key(packet, epoch);
   const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
   const bool erased_all =
@@ -530,7 +536,8 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
   // 开始新音节的韩文字母带着已完成的音节作为上屏，完成的越南文词之后打的键上屏它，超出转换长度的注音音节上屏第一个词，藏文的空格和 `/` 带音节点或垂符上屏整串音节，空闲的 `/` 直接上屏垂符。TIP 从自己的宿主会话写出这些文字（scheme::AlwaysInlinePreedit），所以这里只计数。
   const bool tip_commit =
       !result.transition.at("commit").is_null() &&
-      scheme::AlwaysInlinePreedit(view_scheme(result.transition.at("view")));
+      (scheme::AlwaysInlinePreedit(view_scheme(result.transition.at("view"))) ||
+       (runtime_phrase_ && kind == EditKind::Erase));
   return stage(result,
                auto_wubi_commit ? ReplyPath::AutoCommitAndContinue
                : tip_commit     ? ReplyPath::SyllableCommit
@@ -658,7 +665,7 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
   const auto raw = next_view.at("editing_text").get<std::string>();
   PendingReply next;
   next.source = {client_, epoch_, 0, true, std::move(transition)};
-  next.next_prefix = prefix_;
+  next.next_prefix = runtime_phrase_ ? next_view.value("phrase_prefix", std::string{}) : prefix_;
   next.traditional_output = traditional_output_;
   if (delta.empty()) {
     if (continuation_supported && next.source.transition.value("handled", false)) {
@@ -670,11 +677,11 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
     }
   }
   else if (raw.empty()) {
-    next.ui_selection = ui_complete_selection(prefix_ + output_delta);
+    next.ui_selection = ui_complete_selection((runtime_phrase_ ? std::string{} : prefix_) + output_delta);
     next.next_prefix.clear();
-    next.committed_text = prefix_ + output_delta;
+    next.committed_text = (runtime_phrase_ ? std::string{} : prefix_) + output_delta;
   } else {
-    next.next_prefix = prefix_ + output_delta;
+    next.next_prefix = (runtime_phrase_ ? std::string{} : prefix_) + output_delta;
     const auto &raw_after = next.source.transition.at("view").at("editing_text").get<std::string>();
     if (raw_after.size() < raw_before.size() &&
         raw_before.compare(raw_before.size() - raw_after.size(),
@@ -891,7 +898,7 @@ PendingReply ReplyComposer::translation_page_reply(
 std::optional<PendingReply> ReplyComposer::restore_segment(
     ServerSession &session, const FanyImeNamedpipeData &packet,
     uint64_t epoch) {
-  if (packet.keycode != 0x08 ||
+  if (runtime_phrase_ || packet.keycode != 0x08 ||
       PipeMetadata::key_modifiers(packet.modifiers_down) != 2u ||
       (packet.modifiers_down & PipeMetadata::CandidateActive) != 0 ||
       prefix_.empty() || segment_restore_history_.empty())

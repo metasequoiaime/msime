@@ -31,7 +31,7 @@ RawCommitStatus CommitHostRaw(Host &host, Insert insert, Cleanup cleanup, std::s
     if (!host.command(MSIME_COMMIT_RAW, &raw, error) ||
         !EngineSessionAdapter::parse_result(raw, &result, error)) return RawCommitStatus::Failed;
     if (!result.handled && !result.has_commit &&
-        (!result.view.editing_text.empty() || !result.view.preedit.empty())) return RawCommitStatus::Unhandled;
+        (!result.view.phrase_prefix.empty() || !result.view.editing_text.empty() || !result.view.preedit.empty())) return RawCommitStatus::Unhandled;
     if (result.has_commit && !result.commit.empty() && !insert(result.commit)) return RawCommitStatus::Failed;
     cleanup();
     return RawCommitStatus::Completed;

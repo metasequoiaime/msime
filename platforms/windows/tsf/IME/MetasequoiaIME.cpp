@@ -503,6 +503,7 @@ CMetasequoiaIME::CMetasequoiaIME()
     _deferredProjectedCandidateActive = false;
     _deferredProjectedUnicodeMode = false;
     _deferredProjectedUrlMode = false;
+    _deferredProjectedPhraseActive = false;
     _deferredProjectedKoreanHanjaListOpen = false;
     _deferredKeyFocusGeneration = 1;
     _deferredKeyDrainPosted = false;

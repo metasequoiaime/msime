@@ -61,8 +61,12 @@ int main() {
     REQUIRE(edit_kind(key(0x27, '\0'), "none", true) == EditKind::Caret);
     REQUIRE(edit_kind(key(0x08, '\b'), "none", false) == EditKind::None);
     REQUIRE(edit_kind(key(0x25, '\0'), "none", false) == EditKind::None);
-    // With a modifier they are shortcuts, not edits.
-    REQUIRE(edit_kind(key(0x25, '\0', control), "none", true) == EditKind::None);
+    // Ctrl 分段编辑仍属于组字，其余修饰键组合交给应用。
+    REQUIRE(edit_kind(key(0x25, '\0', control), "none", true) == EditKind::Caret);
+    REQUIRE(edit_kind(key(0x27, '\0', control), "none", true) == EditKind::Caret);
+    REQUIRE(edit_kind(key(0x08, '\b', control), "none", true) == EditKind::Erase);
+    REQUIRE(edit_kind(key(0x08, '\b', control), "none", false) == EditKind::None);
+    REQUIRE(edit_kind(key(0x25, '\0', control | shift), "none", true) == EditKind::None);
 
     // The apostrophe is the manual syllable separator, and only while composing
     // in the ordinary mode.

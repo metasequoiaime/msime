@@ -13,7 +13,7 @@ Status: implemented
 - `Ctrl+Backspace`、组字光标中间的编辑、九键内部的拼写锁定、整句改字、取消与提交沿用原规则。
 - 共享 React 设置（macOS/Linux/HarmonyOS）和 Android/iOS 原生设置提供同名开关；iOS 把键加入活会话的设置合并名单。
 
-Windows 当前 `EngineSessionAdapter` 和 `ServerSession` 使用准备好的 options（`phrase_preedit: None`），没有启用 Runtime 的暂存词段；TIP 仍保留自己的 `_creatingWordRestoreHistory` 和旧造词分支。这份改动不在 Windows 原生页提供无效开关，也不把这次需求扩成 TSF 组字所有权迁移；PR 使用 `Refs #7572`，Windows 的一致行为与真实编辑器验收保留为后续缺口。
+Windows 的 `EngineSessionAdapter` 和 `ServerSession` 也启用 Runtime 暂存，原生输入设置提供同名开关。两进程的状态所有权、回复投影与验证边界见 [Windows 暂存接入](../architecture/2026-10-17-windows-shared-phrase-preedit.md)。
 
 ## Historical note audit
 
@@ -35,6 +35,6 @@ Windows 当前 `EngineSessionAdapter` 和 `ServerSession` 使用准备好的 opt
 
 ## Consequences
 
-收益是所有启用共享暂存词段的宿主遵循同一删除规则，不需要重复学习已选文字。代价是关闭开关后，剩余拼写删空就结束组字并上屏已选词段，不能再用退格恢复它的原拼写。Windows 仍有独立状态路径，尚未接入本开关；界面入口本身不证明实机可用，必须分开记录共享逻辑、编译和设备验证。
+收益是所有启用共享暂存词段的宿主遵循同一删除规则，不需要重复学习已选文字。代价是关闭开关后，剩余拼写删空就结束组字并上屏已选词段，不能再用退格恢复它的原拼写。Windows 的接入见上述后续笔记；界面入口本身不证明实机可用，必须分开记录共享逻辑、编译和设备验证。
 
 相关能力 setter 的无变化调用规则见[词段暂存幂等性](../../implemented/bug-fix/2026-10-16-phrase-preedit-idempotence.md)。

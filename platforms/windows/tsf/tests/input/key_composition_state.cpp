@@ -62,6 +62,12 @@ int main() {
         check(!Global::OpensUrlMode(state.rawInput.c_str(), state.rawInput.size(), state.caret, L'.', true, false),
               "caret inside the host prefix does not open URL mode");
     }
+    {
+        Host host{true, true, R"({"ok":true,"value":{"view":{"editing_text":"","preedit":"","phrase_prefix":"合成词","caret_position":0}}})"};
+        const auto state = ReadKeyCompositionState(&host, {}, toWide);
+        check(state.phraseActive && state.rawInput.empty() && state.caret == 0,
+              "prefix-only composition stays active without invented spelling");
+    }
     const KeyCompositionState stale{L"U123", 99, true, true};
     // 删除触发键、取消和提交后，旧模式不能污染新视图。
     for (const auto &text : {std::string("www"), std::string{}}) {

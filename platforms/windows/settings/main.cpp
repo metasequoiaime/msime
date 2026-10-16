@@ -11440,6 +11440,10 @@ private:
                              }, false);
                            }));
 
+    bool_row(word, 0xE8AB, L"退格键回退已选候选词",
+             L"开启时，剩余拼写删到末尾会恢复最近一次选词的拼音；关闭时保留已选词，删空剩余拼写后上屏。",
+             L"backspace_reverts_selection", true);
+
     // Tab 和 PageUp/PageDown 两组固定开启，不再列出（NavigationPolicy.h 的 preference_navigation，HostCapabilities.tab_page_paging_switches）：关掉只会让它们在组字时被吃掉，并不交还应用。
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 5> paging_keys{{
         {L"minus_equal", L"- / ="},
