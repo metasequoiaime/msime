@@ -913,6 +913,82 @@ fn schemes_the_account_cannot_hold_leave_its_scheme_alone() {
     }
 }
 
+/// 账号还没有收录的双拼方案（智能 ABC、自定义表）不上传 `input.shuangpin_schema`，账号里留着上次的内置方案；合并上传后写回本机、或者下载别的设备的设置时都不拿它盖掉本机的方案，与 Android 相同。鸿蒙 TS 按缺省值 `xiaohe` 上传、应用时照写（差异第 88 条）。
+#[test]
+fn shuangpin_profiles_the_account_cannot_hold_stay_on_the_device() {
+    for profile in [ShuangpinProfile::SmartAbc, ShuangpinProfile::Custom] {
+        let local = Preferences {
+            scheme: InputScheme::Shuangpin,
+            shuangpin_profile: profile,
+            ..Preferences::default()
+        };
+        let values = exported(&local);
+        assert!(
+            !values.contains_key("input.shuangpin_schema"),
+            "{profile:?}"
+        );
+        let merged = merge_account_preferences(
+            &cloud(&[("input.shuangpin_schema", string("microsoft"))]),
+            &values,
+            &full_schema(),
+        )
+        .unwrap();
+        assert_eq!(
+            merged.settings["input.shuangpin_schema"],
+            string("microsoft"),
+            "{profile:?}"
+        );
+        let written_back =
+            apply_harmony_settings(&local, &merged, &full_schema(), Some(feedback())).unwrap();
+        assert_eq!(written_back.preferences, local, "{profile:?}");
+        assert!(written_back.skipped.is_empty(), "{profile:?}");
+    }
+}
+
+/// 数字后、字母后直出两半不上云，智能标点要其中之一为真才起作用：别的设备打开或关掉了智能标点时，两半跟着写成同一个值，与 Android 的 `apply_input_settings`、鸿蒙 TS 的 `applyAccountPreferences` 相同。
+#[test]
+fn a_smart_punctuation_change_from_another_device_writes_both_halves() {
+    for enabled in [true, false] {
+        let local = Preferences {
+            smart_punctuation: !enabled,
+            smart_punctuation_direct_digit: !enabled,
+            smart_punctuation_direct_letter: !enabled,
+            ..Preferences::default()
+        };
+        let applied = apply(
+            &local,
+            &[(
+                "input.smart_punctuation",
+                AccountPreferenceValue::Boolean(enabled),
+            )],
+            &full_schema(),
+        );
+        assert_eq!(applied.preferences.smart_punctuation, enabled);
+        assert_eq!(applied.preferences.smart_punctuation_direct_digit, enabled);
+        assert_eq!(applied.preferences.smart_punctuation_direct_letter, enabled);
+        assert!(applied.skipped.is_empty());
+    }
+}
+
+/// 云端的智能标点和本机相同时（包括这台设备自己上传后合并结果写回本机），本机单独调过的一半保持原样。
+#[test]
+fn an_unchanged_smart_punctuation_leaves_the_halves_alone() {
+    let local = Preferences {
+        smart_punctuation: true,
+        smart_punctuation_direct_digit: true,
+        smart_punctuation_direct_letter: false,
+        ..Preferences::default()
+    };
+    let document = AccountPreferences {
+        revision: 1,
+        settings: exported(&local),
+    };
+    let applied =
+        apply_harmony_settings(&local, &document, &full_schema(), Some(feedback())).unwrap();
+    assert_eq!(applied.preferences, local);
+    assert!(applied.skipped.is_empty());
+}
+
 #[test]
 fn the_punctuation_styles_travel() {
     let values = exported(&Preferences {
@@ -947,6 +1023,9 @@ fn every_exported_key_round_trips() {
         learning: false,
         chinese_punctuation: false,
         smart_punctuation: !Preferences::default().smart_punctuation,
+        // 智能标点的值和本机不同，应用时两半跟着写成同一个值。
+        smart_punctuation_direct_digit: !Preferences::default().smart_punctuation,
+        smart_punctuation_direct_letter: !Preferences::default().smart_punctuation,
         paired_punctuation: !Preferences::default().paired_punctuation,
         quote_style: QuoteStyle::CornerWhenTraditional,
         bracket_style: BracketStyle::Hollow,
