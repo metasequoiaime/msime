@@ -2832,6 +2832,20 @@ group("the digit layer re-labels the grid instead of handing over ten across", (
       "letters, extended symbols, English, local modes and independent languages keep their layouts",
     );
   }
+  // Android KeyboardActionRow.layerTitle(layout, true, true) and iOS numberPadReturnTitle print the same faces.
+  check(
+    NineKeyLayout.numberPadReturnTitle(false, false) === "拼音",
+    "a borrowed pad from the 26-key family or handwriting returns to 拼音",
+  );
+  check(
+    NineKeyLayout.numberPadReturnTitle(false, true) === "14键",
+    "a borrowed pad from the 14-key face returns to 14键",
+  );
+  check(
+    NineKeyLayout.numberPadReturnTitle(true, false) === "笔" &&
+      NineKeyLayout.numberPadReturnTitle(true, true) === "笔",
+    "a borrowed pad from the stroke keypad returns to 笔, which wins as it does in typingFace",
+  );
   check(
     NineKeyLayout.digitPunctuation().every(
       (symbol: string) => !NineKeyLayout.punctuation().includes(symbol),

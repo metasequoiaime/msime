@@ -1,3 +1,5 @@
+import { NumberSymbolLayout } from "./NumberSymbolLayout";
+
 /**
  * Display labels and Engine inputs for the quanpin nine-key grid, ported from
  * platforms/android/java/app/msime/android/NineKeyLayout.java.
@@ -78,6 +80,24 @@ export class NineKeyLayout {
     independentLanguage: boolean,
   ): boolean {
     return symbols && !more && !english && localMode === "none" && !independentLanguage;
+  }
+
+  /**
+   * 从其他中文键面借用数字页时，底行返回键的键面，与 Android `KeyboardActionRow.layerTitle(layout, true, true)` 和 iOS `numberPadReturnTitle` 一致：14 键和笔画印各自的短名，26 键一族和手写印中文字母页的「拼音」（`NumberSymbolLayout.lettersKeyTitle`）。原拼音九键不走这里，它的数字层仍印「九键」。
+   *
+   * 两个参数与 `KeyboardView.typingFace` 的分支同序：笔画键盘先于 14 键判断。
+   *
+   * @param stroke 借出数字页的是笔画键盘
+   * @param fourteenKey 借出数字页的是 14 键键面
+   */
+  static numberPadReturnTitle(stroke: boolean, fourteenKey: boolean): string {
+    if (stroke) {
+      return "笔";
+    }
+    if (fourteenKey) {
+      return "14键";
+    }
+    return NumberSymbolLayout.lettersKeyTitle(true);
   }
 
   static readonly SYMBOL_PANEL_WEIGHT: number = 1.05;

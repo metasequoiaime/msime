@@ -4427,7 +4427,7 @@ struct KeyboardView {
   }
 
   /**
-   * 触屏九键外框（拼音九键和笔画键盘）的底行，键序和份额见 `NineKeyLayout.actionRow`：符 | 123 | space | 中 | return，中/英键紧挨回车，与字母键面的底行一致。标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`；数字层的网格只有 1-9，所以那里 符 让给空格右边的 0。
+   * 触屏九键外框（拼音九键和笔画键盘）的底行，键序和份额见 `NineKeyLayout.actionRow`：符 | 123 | space | 中 | return，中/英键紧挨回车，与字母键面的底行一致。标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`；其他中文键面借用这个数字页时，该键按原键面印「拼音」、「14键」或「笔」（`NineKeyLayout.numberPadReturnTitle`），与 Android 和 iOS 相同。数字层的网格只有 1-9，所以那里 符 让给空格右边的 0。
    */
   @Builder
   nineKeyActionRow() {
@@ -4451,7 +4451,9 @@ struct KeyboardView {
       // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
       Column() {
         this.fixedKey({
-          face: this.symbols ? (this.nineKey ? '九键' : '返回') : '123',
+          face: this.symbols
+            ? (this.nineKey ? '九键' : NineKeyLayout.numberPadReturnTitle(this.strokeFace(), this.drawsFourteenKey()))
+            : '123',
           label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
           size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
           fontWeight: FUNCTION_LABEL_WEIGHT,

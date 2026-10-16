@@ -2672,6 +2672,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       && !scheme.isJapanese && !scheme.writesAsciiPunctuation && !scheme.isZhuyin
   }
 
+  /// 从其他中文键面借用数字页时返回键的键面，与 Android `KeyboardActionRow.layerTitle(_:_:_:)` 和 HarmonyOS `NineKeyLayout.numberPadReturnTitle` 一致：14 键和笔画印各自的短名，26 键一族和手写印中文字母页的「拼音」（`SymbolLayerLayout.lettersTitle`）。原拼音九键不走这里，它的数字层仍印「九键」。不是 private：测试会固定它。
+  static func numberPadReturnTitle(_ scheme: ChineseInputScheme) -> String {
+    switch scheme {
+    case .fourteenKey: return "14键"
+    case .stroke: return "笔"
+    default: return SymbolLayerLayout.lettersTitle(chinese: true)
+    }
+  }
+
   private var numberPadShown: Bool {
     Self.drawsNumberPad(symbols: showsSymbols, moreSymbols: showsMoreSymbols,
                         scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
@@ -5102,13 +5111,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if symbolLayer { updateSymbolLayerFaces() }
     updateSymbolKeyFaces()
     for (row, height) in standardRowHeights { height.isActive = !row.isHidden }
+    // 借用的数字页接替了这些键面原来的 123 层，返回键沿用那一层的读法；原拼音九键的数字层仍印「九键」。
+    let borrowedNumberPad = numberPad && !nineKey
     if var configuration = layoutToggleButton?.configuration {
       configuration.title = symbolLayer ? SymbolLayerLayout.lettersTitle(chinese: symbolLayerIsChinese)
+        : borrowedNumberPad ? Self.numberPadReturnTitle(inputScheme)
         : showsSymbols ? (kana ? "あいう" : (nineKey ? "九键" : "ABC")) : "123"
       layoutToggleButton?.configuration = configuration
     }
-    layoutToggleButton?.accessibilityLabel =
-      symbolLayer ? (strokes ? "切换到笔画" : "切换到字母键盘") : showsSymbols ? "切换到字母" : "切换到数字和符号"
+    layoutToggleButton?.accessibilityLabel = symbolLayer || borrowedNumberPad
+      ? (strokes ? "切换到笔画" : "切换到字母键盘") : showsSymbols ? "切换到字母" : "切换到数字和符号"
     // The kana layout keeps this key on its own Japanese punctuation menu rather than the symbol
     // panel, which carries no kana marks. Everywhere else the key opens the panel, so the menu has
     // to be taken back off or a stale one would keep answering the tap.

@@ -224,7 +224,7 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(height.constant, twentySix)
   }
 
-  /// 英文模式画 26 键，切回中文仍是 14 键；123 打开数字九宫格，返回后仍是 14 键。
+  /// 英文模式画 26 键，切回中文仍是 14 键；123 打开数字九宫格，返回键印「14键」，返回后仍是 14 键。
   func testEnglishAndTheSymbolLayerReturnToTheFourteenKeys() throws {
     let controller = makeController(width: 390)
     let qw = try button("fourteenKeyQW", in: controller)
@@ -242,7 +242,9 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(shown(qw))
     XCTAssertTrue(shown(try button("nineKey1", in: controller)))
     XCTAssertEqual(try button("nineKey1", in: controller).configuration?.title, "1")
-    XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
+    // 与 Android 一样，借用的数字页上返回键印 14 键自己的短名。
+    XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "14键")
+    XCTAssertEqual(try button("layoutToggleButton", in: controller).accessibilityLabel, "切换到字母键盘")
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertTrue(shown(qw))

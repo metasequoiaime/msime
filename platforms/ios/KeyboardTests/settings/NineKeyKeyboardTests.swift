@@ -2208,7 +2208,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             if !symbols { XCTAssertGreaterThan(stroke.bounds.height, reference) }
             XCTAssertTrue(shown(try button("nineKeyDelete", in: controller)))
             if !symbols { XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "重输") }
-            XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, symbols ? "ABC" : "123")
+            XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, symbols ? "笔" : "123")
           }
           if symbols && ![.nineKey, .nineKeyShuangpin, .japaneseNineKey, .zhuyin].contains(scheme)
               && !KeyboardViewController.drawsNumberPad(symbols: true, moreSymbols: false, scheme: scheme,
@@ -3659,9 +3659,17 @@ final class NineKeyKeyboardTests: XCTestCase {
     // CI 只暂存核心词库；可下载词库缺失时方案会回落全拼，只验收实际可用的入口。
     var schemes: [ChineseInputScheme] = [.quanpin, .shuangpin, .fourteenKey, .handwriting]
     if InputSchemePreference.installedLanguageSchemes?.contains(.stroke) != false { schemes.append(.stroke) }
+    // 返回键与 Android 一样：26 键一族和手写印「拼音」，14 键和笔画印各自的短名。
+    let returnTitles: [ChineseInputScheme: String] = [
+      .quanpin: "拼音", .shuangpin: "拼音", .handwriting: "拼音", .fourteenKey: "14键", .stroke: "笔",
+    ]
     for scheme in schemes {
       for tablet in [false, true] {
         let controller = try layer(after: scheme, tablet: tablet)
+        XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, returnTitles[scheme],
+                       "\(scheme) tablet=\(tablet)")
+        XCTAssertEqual(try button("layoutToggleButton", in: controller).accessibilityLabel,
+                       scheme == .stroke ? "切换到笔画" : "切换到字母键盘")
         XCTAssertFalse(shown(try view("symbolLayerRow0", in: controller)))
         XCTAssertTrue(shown(try view("nineKeySidebar", in: controller)))
         for digit in 1...9 {
@@ -3689,7 +3697,19 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     let nineKey = try layer(after: .nineKey)
     XCTAssertEqual(try button("layoutToggleButton", in: nineKey).configuration?.title, "九键")
+    XCTAssertEqual(try button("layoutToggleButton", in: nineKey).accessibilityLabel, "切换到字母")
     XCTAssertEqual(try button("nineKey2", in: nineKey).configuration?.title, "2")
+  }
+
+  /// 借用数字页的返回键键面按原键面取，与 Android `KeyboardActionRow.layerTitle` 相同；词库没装时上面的界面用例跳过笔画，这里按方案直接固定。
+  func testBorrowedNumberPadReturnTitleFollowsTheLayout() {
+    XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.fourteenKey), "14键")
+    XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.stroke), "笔")
+    for scheme in ChineseInputScheme.allCases where ![.fourteenKey, .stroke].contains(scheme) {
+      XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(scheme), SymbolLayerLayout.lettersTitle(chinese: true),
+                     "\(scheme)")
+    }
+    XCTAssertEqual(SymbolLayerLayout.lettersTitle(chinese: true), "拼音")
   }
 
   private func shown(_ view: UIView) -> Bool {

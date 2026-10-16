@@ -54,8 +54,16 @@ HarmonyOS：纯逻辑套件通过；用 OpenHarmony NDK 重新构建 Rust、C++�
 
 develop 上的[Android 九键数字层把 0 移到底行中间](2026-10-16-android-nine-key-numeric-bottom-row.md)先合入，本篇原先在 Android 数字页右列放的 0 随之撤掉：借用的数字页与拼音九键数字层同一排布，右列是删除、小数点和带语音手势的原空格键，底行是 `九键/返回 | 符 |（地球）| 0 | 中/英 | 回车`。底行 0 是一个常驻按键，键位标识每次排布底行时按当前键面重登：从其他中文键面借用时记 `Digit0`，原拼音九键才记 `Nine0`，否则借用页的 0 会被算进拼音九键，正是本篇要避免的统计混淆。借用页同样清空空格上的方案短名。iOS、HarmonyOS 的 0 本来就在九键数字层底行，借用网格同样可打 0，不随 Android 改位置。
 
-合并时补上三处 Android 行为。日文罗马字也画 26 键，原判定只排除英文、越南语和藏文，按 123 会误入中文数字网格；改为只有中文方案（`InputSchemeTraits.isChinese`，视图尚未给出方案时沿用中文默认）才借用，与 iOS 的 `!scheme.isJapanese` 一致，HarmonyOS 的同一问题见下一段。借用页上点中/英时触屏布局不变，原有的重建条件都不成立，数字网格会配上英文底行；键行现在记下建成时是否为数字页，渲染时状态不一致就重建。借用页的返回键原先在 26 键和手写上印「ABC」，改为与 123 层一致的中文字母页名「拼音」；14 键、笔画、注音九键仍印各自短名。iOS 的借用页返回键仍印「ABC」，本次未改。
+合并时补上三处 Android 行为。日文罗马字也画 26 键，原判定只排除英文、越南语和藏文，按 123 会误入中文数字网格；改为只有中文方案（`InputSchemeTraits.isChinese`，视图尚未给出方案时沿用中文默认）才借用，与 iOS 的 `!scheme.isJapanese` 一致，HarmonyOS 的同一问题见下一段。借用页上点中/英时触屏布局不变，原有的重建条件都不成立，数字网格会配上英文底行；键行现在记下建成时是否为数字页，渲染时状态不一致就重建。借用页的返回键原先在 26 键和手写上印「ABC」，改为与 123 层一致的中文字母页名「拼音」；14 键、笔画、注音九键仍印各自短名。iOS 和 HarmonyOS 合并时仍各印「ABC」和「返回」，随后已按同一规则统一，见下文「三端借用页返回键统一」。
 
 复查时 HarmonyOS 有两处同类问题，一并修正。其一，独立语言判定用的 `this.japanese` 只在假名网格（日语 9 键）时为真，日语 26 键罗马字按 123 同样误入中文数字网格；改为按键盘自己的方案 `scheme.engineScheme === 'japanese'` 判定。其二，`gridActionRow` 收窄后与 `typingFace` 的九键分支条件不一致：英文九键（`selectEnglish(true)`）的 123 页仍画九键数字网格，但不算借用页，底行退回设计稿那一排，没有 0；现在两处用同一条件（九键网格画着、且不是触屏的扩展符号页），英文九键数字页恢复带 0 的九键底行。HarmonyOS 每次渲染都从状态重算，所以 Android 那种借用页没重建的问题在这里不存在，但语言判定并不因此自动一致。
 
 合并后的验证：`check-host.sh` 的 JVM 冒烟与设备源文件编译通过；`NumberPadDeviceSmoke` 增加 `Digit0`/`Nine0` 的精确增量检查，但本轮没有在模拟器上重新运行，上文的设备验收结果是合并前的版本。
+
+## 三端借用页返回键统一
+
+合入后三端借用页的返回键各不相同：Android 印「拼音」或原键面短名，iOS 一律印「ABC」，HarmonyOS 一律印「返回」。维护者决定三端都按 Android 的规则，这也是本篇之前 develop 上 123 层的读法：26 键一族（全拼、双拼、五笔、粤拼等）和手写印中文字母页名「拼音」，14 键印「14键」，笔画印「笔」；Android 的注音九键印「注」，iOS 和 HarmonyOS 的注音不借用数字页。原拼音九键自己的数字层仍印「九键」，英文、独立语言、本地工具和非借用的符号页的返回键都不变。
+
+键面由各端可测的纯函数给出：Android 是 `KeyboardActionRow.layerTitle(layout, symbols, chineseNumberPad)`，iOS 是 `KeyboardViewController.numberPadReturnTitle(_:)`（按方案，14 键和笔画之外都取 `SymbolLayerLayout.lettersTitle(chinese: true)`），HarmonyOS 是 `NineKeyLayout.numberPadReturnTitle(stroke, fourteenKey)`（笔画先于 14 键判断，与 `typingFace` 的分支同序，其余取 `NumberSymbolLayout.lettersKeyTitle(true)`）。读屏名称沿用各端已有的写法：iOS 借用页改用它接替的 123 层的「切换到字母键盘」，笔画为「切换到笔画」，原拼音九键数字层仍是「切换到字母」；HarmonyOS 九键外框底行的这个键仍是「切换到所选输入方案」；Android 仍是 `layerDescription` 的「切换到字母键盘」。
+
+只统一键面文字，不另起一套「返回」键：HarmonyOS 的「返回」本身意思没错，但三端同一个键印三种字，且看不出回到哪个键面；iOS 的「ABC」在中文键面上还会被读成英文入口。iOS 的 `FourteenKeyKeyboardTests` 和 `NineKeyKeyboardTests` 原先固定的「ABC」改为「14键」「笔」，跨键面数字页用例逐个方案检查键面和读屏名称，另有纯函数用例遍历全部方案；HarmonyOS 的 `keyboard-logic` 检查 `numberPadReturnTitle` 的三种结果。
