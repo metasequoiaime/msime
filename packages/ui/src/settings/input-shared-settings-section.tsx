@@ -9,7 +9,7 @@ import type { FrequencyPreferences } from "./frequency-preferences";
 import { ImeModeScopeSection } from "./ime-mode-scope-section";
 import { InputModeHudSection } from "./input-mode-hud-section";
 import { LearningSection } from "./learning-section";
-import { MixedInputSection } from "./mixed-input-section";
+import { MixedInputMoreRows, MixedInputSection } from "./mixed-input-section";
 import type { MixedInputPreferences } from "./mixed-input-preferences";
 import { SingleCharacterOnlySection } from "./single-character-only-section";
 import { SwitchRow } from "./switch-row";
@@ -34,20 +34,25 @@ export interface InputSharedSettingsSectionProps {
   /** macOS 菜单栏的输入模式状态项开关，跟在中英文切换提示之后。 */
   showInputModeStatusItem?: boolean;
   showModeScope: boolean;
-  /** 中英混输、符号混输、emoji 和颜文字混输，放在「候选与联想」组的云候选之后。 */
+  /** 中英混输和 emoji 混输放在「候选与联想」组的云候选之后，符号、颜文字和日文混输收进组末的「更多选项」。 */
   mixedInput?: MixedInputPreferences;
   onMixedInputChange?: (mixedInput: MixedInputPreferences) => void;
-  /** 本版本带临时日文，决定是否列出日文混输开关；见 `MixedInputSectionProps.temporaryJapanese`。缺省为 true。 */
+  /** 宿主读中英混输的触发字符数（`HostCapabilities.mixed_input_minimum_prefix`），给出「触发字符数」一行。缺省为 true。 */
+  showMixedInputMinimumPrefix?: boolean;
+  /** 本版本带临时日文，决定是否列出日文混输开关；见 `MixedInputMoreRowsProps.temporaryJapanese`。缺省为 true。 */
   temporaryJapanese?: boolean;
   /** 放在「候选与联想」组的「学习选词习惯」之前。 */
   beforeLearning?: ReactNode;
-  /** 「候选与联想」组末尾的行。 */
+  /** 「候选与联想」组里学习开关之后的行。 */
   afterLearning?: ReactNode;
+  /** 页面另给的少有人改的候选行（本地整句联想），和符号、颜文字、日文混输、只出单字一起收进「候选与联想」组末的「更多选项」。 */
+  candidatesMore?: ReactNode;
   /** 「中英文」组末尾的行。 */
   modeExtra?: ReactNode;
   /** 「选词与翻页」组里以词定字之后的翻页设置，两者互斥，所以放在同一组里同屏可见。 */
   paging?: ReactNode;
-  outputExtra?: ReactNode;
+  /** 「输出」组里少有人改的行（全角输入的起始状态），收进组末的「更多选项」。 */
+  outputMore?: ReactNode;
   beforeFrequency?: ReactNode;
   afterFrequency?: ReactNode;
   /** 鸿蒙手机的「输入」页只把主要分组留在视野内：这里的每个分组都放进末尾「更多」分组的同一个「更多选项」折叠中，「中文输出」单选不放，因为该页以「中文字符集」提供它。 */
@@ -70,12 +75,14 @@ export function InputSharedSettingsSection({
   showModeScope,
   mixedInput,
   onMixedInputChange,
+  showMixedInputMinimumPrefix = true,
   temporaryJapanese = true,
   beforeLearning,
   afterLearning,
+  candidatesMore,
   modeExtra,
   paging,
-  outputExtra,
+  outputMore,
   beforeFrequency,
   afterFrequency,
   foldIntoMore = false,
@@ -117,7 +124,25 @@ export function InputSharedSettingsSection({
     />
   );
 
-  // 输入页按「基础 → 进阶」排列：先是每个人都会碰到的中英文和选词翻页，再是候选来源（云候选、中英混输与符号、emoji、颜文字混输、只出单字、整句联想和学习）和输出形式，进阶的快捷模式、模糊音、辅助码由页面经 beforeFrequency 放在调频之前。
+  // 少有人改的行收进所在组末的「更多选项」。鸿蒙手机已经把整页收在一个「更多选项」里，那里不再套一层，这些行也留在原来的位置上：混输各行和只出单字在学习开关之前，全角输入在「输出」组最前。
+  const candidatesMoreRows = (
+    <>
+      {mixedInput && onMixedInputChange && (
+        <MixedInputMoreRows
+          preferences={mixedInput}
+          temporaryJapanese={temporaryJapanese}
+          onChange={onMixedInputChange}
+        />
+      )}
+      <SingleCharacterOnlySection
+        value={preferences.single_character_only}
+        onChange={(single_character_only) => onPreferencesChange({ single_character_only })}
+      />
+      {candidatesMore}
+    </>
+  );
+
+  // 输入页按「基础 → 进阶」排列：先是每个人都会碰到的中英文和选词翻页，再是候选来源（云候选、中英混输、emoji、神经联想和学习，其余收进「更多选项」）和输出形式，进阶的快捷模式、模糊音、辅助码由页面经 beforeFrequency 放在调频之前。
   const groups = (
     <>
       {renderGroup(
@@ -142,7 +167,7 @@ export function InputSharedSettingsSection({
           {showInputModeStatusItem && (
             <SwitchRow
               title="菜单栏显示中/英状态"
-              description="在菜单栏常驻显示当前模式：中文时是所用方案（中、双、五、日等），英文时是「英」。不需要把「英」加成系统输入源，关掉切换提示后也能随时看到。改动在回到输入框后生效。中英文按应用记忆时，切到没有输入框的应用后，这里显示的仍是上一个应用的状态。"
+              description="在菜单栏常驻显示当前模式：中文时是所用方案（中、双、五等），英文时是「英」。"
               checked={preferences.input_mode_status_item ?? false}
               onChange={(input_mode_status_item) => onPreferencesChange({ input_mode_status_item })}
             />
@@ -165,28 +190,27 @@ export function InputSharedSettingsSection({
           {mixedInput && onMixedInputChange && (
             <MixedInputSection
               preferences={mixedInput}
-              temporaryJapanese={temporaryJapanese}
+              showMinimumPrefix={showMixedInputMinimumPrefix}
               onChange={onMixedInputChange}
             />
           )}
-          <SingleCharacterOnlySection
-            value={preferences.single_character_only}
-            onChange={(single_character_only) => onPreferencesChange({ single_character_only })}
-          />
+          {foldIntoMore && candidatesMoreRows}
           {beforeLearning}
           {learningRow}
           {afterLearning}
+          {!foldIntoMore && <MoreOptions>{candidatesMoreRows}</MoreOptions>}
         </GroupList>,
       )}
       {renderGroup(
         "output",
         <GroupList title="输出">
-          {outputExtra}
+          {foldIntoMore && outputMore}
           {!foldIntoMore && traditionalOutputRow}
           <ChineseEnglishSpacingSection
             value={preferences.chinese_english_spacing}
             onChange={(chinese_english_spacing) => onPreferencesChange({ chinese_english_spacing })}
           />
+          {!foldIntoMore && outputMore && <MoreOptions>{outputMore}</MoreOptions>}
         </GroupList>,
       )}
       {renderGroup(
@@ -195,6 +219,7 @@ export function InputSharedSettingsSection({
           {beforeFrequency}
           <FrequencySection
             preferences={frequency}
+            learning={preferences.learning}
             onChange={(nextFrequency) => onPreferencesChange({ frequency: nextFrequency })}
           />
           {afterFrequency}

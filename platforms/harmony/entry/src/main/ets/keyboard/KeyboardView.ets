@@ -1247,7 +1247,9 @@ struct KeyboardView {
     const automatic: boolean = this.letterCase.isAutomatic();
     const shifted: boolean = KeyboardSession.shared.entersHelpcode(held)
       || (this.english && held);
-    KeyboardSession.shared.press(letter.charCodeAt(0), shifted);
+    // 英文组合按实际字符保留大小写，Shift 标志本身不会把小写 ASCII 改为大写。
+    const input: string = this.english && held ? letter.toUpperCase() : letter;
+    KeyboardSession.shared.press(input.charCodeAt(0), shifted);
     // A one-shot Shift is spent by the letter that follows it; Caps Lock is not. Neither is an
     // automatic Shift: it is not spent but recomputed from the text, which the change this press
     // just caused has already done. Clearing it here would give a capitals-only field one capital.
@@ -4708,6 +4710,24 @@ struct KeyboardView {
   private tapFourteenKey(key: FourteenKey): void {
     KeyboardSession.shared.recordKey(KeyIdPolicy.fourteenKey(key.letters));
     KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
+  }
+
+  private usesQuanpinSeparator(): boolean {
+    return KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
+      this.english, this.symbols, this.localMode);
+  }
+
+  private tapLetterShift(): void {
+    if (this.usesQuanpinSeparator()) {
+      KeyboardSession.shared.recordKey(KeyIdPolicy.character("'"));
+      if (KeyboardSession.shared.composing()) {
+        KeyboardSession.shared.press("'".charCodeAt(0), false);
+      }
+      return;
+    }
+    KeyboardSession.shared.recordKey(KeyIdPolicy.SHIFT);
+    this.letterCase.toggle(Date.now());
+    this.caseMode = this.letterCase.mode();
   }
 
   /** 第三行左端键：组字中送分词符 '，空闲时打开符号面板（Android `ImeLayoutRows.symbolKey`）。 */
@@ -9178,21 +9198,18 @@ struct KeyboardView {
           if (!this.symbols) {
             // 触屏上开启的 Shift 用字母键的填充色加强调色箭头，与设计稿一致；2in1 屏幕键盘仍用操作色填充。
             this.fixedKey({
-              face: this.caseMode === LetterCaseMode.CAPS_LOCK ? '⇪' : '⇧',
-              label: this.letterCase.accessibilityLabel(this.english),
-              size: KeyboardMetrics.KEY_FONT_SIZE,
+              face: this.usesQuanpinSeparator() ? '分词'
+                : (this.caseMode === LetterCaseMode.CAPS_LOCK ? '⇪' : '⇧'),
+              label: this.usesQuanpinSeparator() ? '拼音分词' : this.letterCase.accessibilityLabel(this.english),
+              size: this.usesQuanpinSeparator() ? 14 : KeyboardMetrics.KEY_FONT_SIZE,
               emphasized: !this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE,
-              special: !(this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE),
+              special: this.usesQuanpinSeparator() || !(this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE),
               width: KeyboardMetrics.MODIFIER_WIDTH_VP,
               share: this.touchDesign() ? LETTER_EDGE_SHARE : 0,
-              icon: !this.touchDesign() ? ''
+              icon: !this.touchDesign() || this.usesQuanpinSeparator() ? ''
                 : (this.caseMode === LetterCaseMode.CAPS_LOCK ? KeyboardIconPaths.CAPS_LOCK : KeyboardIconPaths.SHIFT),
-              accentIcon: this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE,
-              action: () => {
-                KeyboardSession.shared.recordKey(KeyIdPolicy.SHIFT);
-                this.letterCase.toggle(Date.now());
-                this.caseMode = this.letterCase.mode();
-              }
+              accentIcon: !this.usesQuanpinSeparator() && this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE,
+              action: () => this.tapLetterShift()
             });
           }
           ForEach(this.symbols ? SYMBOL_ROWS[2] : LETTER_ROWS[2], (key: string) => {

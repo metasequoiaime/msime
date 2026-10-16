@@ -15,3 +15,9 @@ export function selectSettingsTab(title: string): void {
   const tab = screen.queryByRole("tab", { name: title });
   if (tab) fireEvent.click(tab);
 }
+
+/** 桌面语音页把密钥、接口地址、润色、提示音细分和录音设备收在「服务配置」子视图里，测试先点进去。 */
+export function openVoiceServiceConfig(): HTMLElement {
+  fireEvent.click(screen.getByRole("button", { name: "服务配置" }));
+  return screen.getByRole("region", { name: "服务配置" });
+}

@@ -19,10 +19,13 @@ Status: implemented
 
 没有配置这些 secrets 的仓库（fork）照旧退回 ad-hoc，`package-release.sh` 打印未公证的警告；这时 `README.txt` 的说法不成立，但 fork 不会发布这个仓库的 nightly。
 
+`notarytool` 获批后，票据装订交给 `platforms/macos/scripts/staple-ticket.sh`：仅当 `stapler` 返回 68 且同时报告 `NSURLErrorDomain Code=-1005` 连接中断时，在 15、30 秒后重试同一个 DMG，最多三次。Nightly `38806414451` 已出现这一下载断线，先前单次装订会丢弃已经完成构建和公证的整轮产物。重试不重复提交公证；其他错误及最终失败保留原退出码，打包仍然失败。
+
 ## Alternatives considered
 
 - **保持 ad-hoc，只把 README 写准确** — 最强的理由是 nightly 不需要公证的等待时间，也不让日常定时任务碰长期凭据。否定：写准确之后的内容就是「macOS 包普通用户装不上」，等于明说这个下载没有用；而凭据暴露面的理由在 iOS nightly 和 develop beta 面前不成立。
 - **给可复用 workflow 加一个独立的 `sign` 输入，nightly 显式传 `sign: true`** — 最强的理由是签名与发布两个意图都显式写在调用方。否定：没有哪个调用方想要「有证书却不签」的包；多一个输入只是把 secrets 是否存在这件事重复声明一遍，`publish: false` 的手动构建（用来验证一个分支能不能打包）也应该产出能装的包，这正是 nightly 接入前的行为。
+- **对全部装订错误重试**：实现简单，也能覆盖尚未观察到的服务波动，但会重复执行签名或票据错误等无法靠等待解决的操作。只重试日志已证实的退出码与连接中断组合，其余错误立即返回。
 
 ## Consequences
 
@@ -33,3 +36,4 @@ Status: implemented
 
 - `actionlint .github/workflows/release-macos.yml .github/workflows/nightly.yml` 通过；`python3 scripts/test-nightly-packaging.py` 通过。
 - 落地后第一次 nightly 的 macOS 任务日志里应出现 `notarytool submit` 与 `stapler staple`，且没有 `warning: not notarized`；下载其中一个 DMG 运行 `xcrun stapler validate` 应通过。
+- `test-macos-stapler-retry.py` 用合成 `xcrun` 与 `sleep` 检查成功、断线后恢复、重试耗尽和永久错误，核对同一 DMG 参数、等待间隔及最终退出码；不访问 Apple 服务或读取签名凭据。完整签名打包和服务恢复仍需实际 nightly 运行验证。

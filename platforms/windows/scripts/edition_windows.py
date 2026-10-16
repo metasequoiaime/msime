@@ -238,6 +238,8 @@ def inno_text(table: dict) -> str:
             # 不在数据目录里的本用户数据：%LOCALAPPDATA% 下的用户目录（account 子目录存登录会话和匿名账号的密钥）与 Tauri 设置应用自己的目录。卸载时选了删除数据就一并删掉。
             ("MyEditionUserDataDir", windows["user_data_directory"]),
             ("MyEditionTauriIdentifier", windows["tauri_identifier"]),
+            # 命名管道、事件和互斥量的版本后缀（MSIME_EDITION_NAME_SUFFIX）。安装器拿它占住 TSF 的 Server 启动互斥量，安装和卸载期间已装的 TIP 才不会把刚停掉的 Server 重新拉起来。
+            ("MyEditionNameSuffix", windows["name_suffix"]),
             # 别的版本和 msime-windows（排在最后）的 HKLM 键和安装目录名（默认数据目录是 %LOCALAPPDATA% 下的同名目录），两个列表按同一顺序以 | 分隔。几个版本可以和 msime-windows 同时安装，安装器拿它们找出别人已登记或将来会用的数据目录：本版本的数据目录不能和它们互相嵌套，否则外层的产品卸载或更换数据目录时会递归删掉里层产品还在用的目录。
             ("MyOtherEditionRegistryKeys", "|".join(other["registry_key"] for other in others)),
             ("MyOtherEditionInstallDirs", "|".join(other["install_dir"] for other in others)),

@@ -48,6 +48,7 @@
 #include "AiSettings.h"
 #include "AppInputModeRuleList.h"
 #include "FeedbackReport.h"
+#include "FloatingToolbarSizeModel.h"
 #include "CandidateFontPresets.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsNavigation.h"
@@ -384,7 +385,7 @@ Response settings_dictionary_call(std::string const &options, std::string const 
 
 // The dictionaries the page manages, in the shared page's order and words.
 constexpr std::array<std::pair<std::wstring_view, std::wstring_view>, 5> lexicon_kinds{{
-    {L"pinyin", L"全拼"},
+    {L"pinyin", L"拼音"},
     {L"wubi", L"86 五笔"},
     {L"wubi98", L"98 五笔"},
     {L"english", L"英文"},
@@ -957,7 +958,8 @@ struct PageLabel {
   const wchar_t *summary;
 };
 
-constexpr std::array<PageLabel, 18> page_labels{{
+// 「手写输入」并进了「屏幕键盘」页（见 `SettingsNavigation.h`），提供手写的版本里那一页叫「屏幕键盘与手写」，与共享设置 UI 的 `screenKeyboardAndHandwritingTitle` 相同。
+constexpr std::array<PageLabel, 17> page_labels{{
     {"typing", L"输入方案", 0xE765, L"选择输入方式；专属选项随当前方案变化。"},
     {"expression", L"输入习惯", 0xE8C1, L"调整标点、混输、输出和选词习惯。"},
     {"shortcuts", L"按键", 0xEDA7, L"设置中英文切换、选词和翻页使用的按键。"},
@@ -965,9 +967,10 @@ constexpr std::array<PageLabel, 18> page_labels{{
     {"themes", L"皮肤", 0xE790, L"选择候选窗口皮肤，搭配自己的字体和配色。"},
     {"candidate", L"候选窗口", 0xE8FD, L"调整候选的排列、文字和显示位置。"},
     {"toolbar", L"状态栏", 0xE7F4, L"选择悬浮工具栏显示的内容和交互方式。"},
-    {"osk", L"屏幕键盘", 0xE92E, L"设置屏幕键盘的布局、按键和外观。"},
+    {"osk", MSIME_EDITION_HANDWRITING ? L"屏幕键盘与手写" : L"屏幕键盘", 0xE92E,
+     MSIME_EDITION_HANDWRITING ? L"设置屏幕键盘的布局、按键和外观，打开手写识别板。"
+                               : L"设置屏幕键盘的布局、按键和外观。"},
     {"voice", L"语音输入", 0xE720, L"选择识别方式，配置语音转写和文本整理。"},
-    {"hand", L"手写输入", 0xE929, L"设置手写识别和候选展示。"},
     {"clip", L"剪贴板", 0xE77F, L"管理剪贴板记录和跨设备发送。"},
     {"stats", L"打字统计", 0xE9D2, L"查看输入量、速度和使用趋势。"},
     {"plugins", L"插件", 0xEA86, L"管理输入扩展，浏览和安装社区插件。"},
@@ -3446,8 +3449,6 @@ private:
     // 每组以标题开头；`SettingsNavigation.h` 的页面按组排序，所以组一变就该插入标题。
     std::optional<std::size_t> group;
     for (const auto &page : nav::pages) {
-      if (!nav::page_offered(page.id, MSIME_EDITION_HANDWRITING != 0))
-        continue;
       if (page.group != group) {
         group = page.group;
         NavigationViewItemHeader header;
@@ -3563,8 +3564,6 @@ private:
     indexing_ = true;
     const auto saved_page = current_page_;
     for (const auto &page : nav::pages) {
-      if (!nav::page_offered(page.id, MSIME_EDITION_HANDWRITING != 0))
-        continue;
       current_page_ = std::string(page.id);
       StackPanel scratch;
       build_page(page.id, scratch);
@@ -3958,6 +3957,28 @@ private:
     card.Background(brush(palette_.card));
     card.CornerRadius(CornerRadius{10, 10, 10, 10});
     return card;
+  }
+
+  // 组末的「更多选项」折叠区，对应共享页的 MoreOptions，写法与本地识别模型、AI 辅助两处的 Expander 相同：展开与否记在 `open` 这个成员里，跨页面重建保留；`focused` 为真（搜索落到折叠区里的某一行）时直接展开。返回放行的面板。
+  StackPanel add_more_options(StackPanel const &group, bool &open, bool focused) {
+    Expander more;
+    more.Header(box_value(L"更多选项"));
+    more.HorizontalAlignment(HorizontalAlignment::Stretch);
+    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    more.IsExpanded(open || focused);
+    // `open` 是窗口自己的成员，与这些控件同寿。
+    bool *const state = &open;
+    more.Expanding([state](Expander const &, ExpanderExpandingEventArgs const &) {
+      *state = true;
+    });
+    more.Collapsed([state](Expander const &, ExpanderCollapsedEventArgs const &) {
+      *state = false;
+    });
+    StackPanel rows;
+    rows.Spacing(4);
+    more.Content(rows);
+    group.Children().Append(more);
+    return rows;
   }
 
   // 行内不重复画图标；标签和控件分别贴住卡片两边，窄窗口将控件放在下一行。
@@ -4677,8 +4698,6 @@ private:
       build_osk_page(page);
     else if (id == "voice")
       build_voice_page(page);
-    else if (id == "hand")
-      build_hand_page(page);
     else if (id == "clip")
       build_clip_page(page);
     else if (id == "stats")
@@ -10451,25 +10470,6 @@ private:
       select_row(
           preedit, 0xE70F, L"候选窗口预编辑", L"", L"candidate_preedit_style",
           {{L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}}, L"pinyin", true);
-      // 与共享设置「候选窗口」页的「双拼预编辑」相同：偏好是布尔值
-      // shuangpin_preedit_uses_raw，这里按原始按键 /
-      // 拼音分词两项给出，缺省是原始按键。
-      add_row(
-          preedit, 0xE8AB, L"双拼预编辑",
-          L"仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。",
-          select_control(L"双拼预编辑",
-                         {{L"raw", L"原始按键"}, {L"pinyin", L"拼音分词"}},
-                         document_.Boolean(L"shuangpin_preedit_uses_raw", true)
-                             ? L"raw"
-                             : L"pinyin",
-                         [this](std::wstring const &value) {
-                           change(
-                               [&](PreferencesDocument &doc) {
-                                 doc.SetBoolean(L"shuangpin_preedit_uses_raw",
-                                                value == L"raw");
-                               },
-                               false);
-                         }));
       select_row(preedit, 0xE8D2, L"行内预编辑", L"", L"tsf_preedit_style",
                  {{L"raw", L"原始按键"},
                   {L"pinyin", L"拼音分词"},
@@ -10961,15 +10961,41 @@ private:
     }
     add_row(general, 0xE71D, L"工具栏按钮", L"按工具栏中的顺序选择要显示的功能",
             nullptr, checks_panel(std::move(checks)));
+    // 缩放和图标尺寸相乘才是工具栏的大小，和共享页一样只给一个「工具栏大小」，选一档同时写两个值（见 FloatingToolbarSizeModel.h）。
     auto appearance = add_group(page, L"尺寸");
-    number_select_row(appearance, 0xE740, L"工具栏缩放",
-                      L"相对系统 DPI 的额外缩放，不改变系统显示缩放",
-                      L"floating_toolbar.scale_percent", {75, 100, 125, 150},
-                      100, L"%");
-    number_select_row(appearance, 0xE8E9, L"图标尺寸",
-                      L"图标基准大小（像素），再乘以上方缩放",
-                      L"floating_toolbar.font_size",
-                      {16, 18, 20, 22, 24, 26, 28}, 24, L"");
+    add_row(appearance, 0xE740, L"工具栏大小", L"按钮和图标一起放大或缩小，不改变系统显示缩放",
+            toolbar_size_control());
+  }
+
+  // 「工具栏大小」的下拉框，照共享页 floating-toolbar-page.tsx 的 SelectRow：存下的两个值凑不成任何一档时（以前分开调过），最前面多一项灰着的「自定义（缩放 X%，图标 Y）」并选着它，不改写存储；选一档后重画页面，这一项随之消失。
+  FrameworkElement toolbar_size_control() {
+    const int scale = static_cast<int>(
+        std::lround(document_.Number(L"floating_toolbar.scale_percent", 100)));
+    const int font = static_cast<int>(
+        std::lround(document_.Number(L"floating_toolbar.font_size", 24)));
+    const auto current = nav::toolbar_size::size_for(scale, font);
+    std::vector<Option> options;
+    if (!current)
+      options.push_back({L"custom",
+                         L"自定义（缩放 " + std::to_wstring(scale) + L"%，图标 " +
+                             std::to_wstring(font) + L"）",
+                         false});
+    for (const auto &size : nav::toolbar_size::sizes)
+      options.push_back({std::to_wstring(size.percent), std::to_wstring(size.percent) + L"%"});
+    return select_control(
+        L"工具栏大小", std::move(options),
+        current ? std::to_wstring(current->percent) : std::wstring(L"custom"),
+        [this](std::wstring const &value) {
+          for (const auto &size : nav::toolbar_size::sizes) {
+            if (std::to_wstring(size.percent) != value)
+              continue;
+            change([&](PreferencesDocument &doc) {
+              doc.SetNumber(L"floating_toolbar.scale_percent", size.scale_percent);
+              doc.SetNumber(L"floating_toolbar.font_size", size.font_size);
+            }, true);
+            return;
+          }
+        });
   }
 
   // ---- 输入 ----
@@ -11206,6 +11232,23 @@ private:
       bool_row(scheme_options_group, 0xE765, L"输入时显示双拼键位提示",
                L"双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。",
                L"shuangpin_keymap_hint", false);
+      // 与共享设置「输入 › 方案」双拼详情里的「双拼预编辑」相同，只在双拼方案下出现：偏好是布尔值 shuangpin_preedit_uses_raw，这里按原始按键 / 拼音分词两项给出，缺省是原始按键。
+      add_row(
+          scheme_options_group, 0xE8AB, L"双拼预编辑",
+          L"保留原始双拼按键，或显示展开后的拼音分词。",
+          select_control(L"双拼预编辑",
+                         {{L"raw", L"原始按键"}, {L"pinyin", L"拼音分词"}},
+                         document_.Boolean(L"shuangpin_preedit_uses_raw", true)
+                             ? L"raw"
+                             : L"pinyin",
+                         [this](std::wstring const &value) {
+                           change(
+                               [&](PreferencesDocument &doc) {
+                                 doc.SetBoolean(L"shuangpin_preedit_uses_raw",
+                                                value == L"raw");
+                               },
+                               false);
+                         }));
     }
     if (scheme == L"vietnamese") {
       segment_row(scheme_options_group, 0xE8AB, L"越南语输入法", L"Telex 用字母打声调和变音，VNI 用数字键",
@@ -11251,22 +11294,26 @@ private:
     auto word = add_group(page, L"选词与翻页");
     const bool word_enabled = document_.Boolean(L"word_character.enabled", false);
     const auto word_keys = document_.String(L"word_character.keys", L"brackets");
+    const auto word_current = word_enabled ? word_keys : std::wstring(L"off");
+    // 同一键组不能同时用于以词定字和翻页：与共享页的 wordCharacterChoiceChange 相同，已用于翻页的键组不能选（当前选中的除外），选键组时不去关掉另一项设置。
+    std::vector<Option> word_options{Option{L"off", L"关闭"}};
+    for (Option option : std::vector<Option>{{L"brackets", L"[ / ]"}, {L"minus_equal", L"- / ="}}) {
+      option.enabled = option.value == word_current ||
+                       !document_.Boolean(L"navigation." + option.value, false);
+      word_options.push_back(std::move(option));
+    }
     add_row(word, 0xE8C1, L"以词定字",
-            L"开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字",
-            select_control(L"以词定字",
-                           {{L"off", L"关闭"}, {L"brackets", L"[ / ]"},
-                            {L"minus_equal", L"- / ="}},
-                           word_enabled ? word_keys : L"off",
+            L"按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字；已用于翻页的键组不能选",
+            select_control(L"以词定字", std::move(word_options), word_current,
                            [this](std::wstring const &value) {
                              change([&](PreferencesDocument &doc) {
+                               // 选「关闭」只关开关，记着的键组不动。
                                if (value == L"off") {
                                  doc.SetBoolean(L"word_character.enabled", false);
                                  return;
                                }
-                               // 同一键组不能同时用于以词定字和翻页。
                                doc.SetString(L"word_character.keys", value);
                                doc.SetBoolean(L"word_character.enabled", true);
-                               doc.SetBoolean(L"navigation." + value, false);
                              }, true);
                            }));
     const bool second_third_enabled = document_.Boolean(L"second_third_candidate.enabled", false);
@@ -11283,12 +11330,11 @@ private:
                              }, false);
                            }));
 
-    const std::array<std::pair<const wchar_t *, const wchar_t *>, 7> paging_keys{{
+    // Tab 和 PageUp/PageDown 两组固定开启，不再列出（NavigationPolicy.h 的 preference_navigation，HostCapabilities.tab_page_paging_switches）：关掉只会让它们在组字时被吃掉，并不交还应用。
+    const std::array<std::pair<const wchar_t *, const wchar_t *>, 5> paging_keys{{
         {L"minus_equal", L"- / ="},
         {L"comma_period", L", / ."},
         {L"brackets", L"[ / ]"},
-        {L"tab", L"Shift+Tab / Tab"},
-        {L"page_up_down", L"PageUp / PageDown"},
         {L"mouse_wheel", L"鼠标滚轮（候选面板支持时翻页）"},
         {L"arrows", L"上 / 下（移动候选项）"},
     }};
@@ -11301,14 +11347,17 @@ private:
            [this, key, pair, word_enabled, word_keys](bool on) {
              // 把以词定字占用的键组改为翻页时，同一次保存关闭以词定字。
              const bool conflict = on && word_enabled && pair == word_keys;
+             // 以词定字的两个键组跟着翻页勾选变成可选或不可选，改它们时重画这一页。
+             const bool word_group = pair == L"brackets" || pair == L"minus_equal";
              change([&](PreferencesDocument &doc) {
                doc.SetBoolean(key, on);
                if (conflict)
                  doc.SetBoolean(L"word_character.enabled", false);
-             }, conflict);
+             }, word_group);
            }});
     }
-    add_row(word, 0xE8AB, L"翻页方式", L"选择用于翻页的按键", nullptr,
+    add_row(word, 0xE8AB, L"翻页方式",
+            L"选择用于翻页的按键；Shift+Tab / Tab 和 PageUp / PageDown 在候选窗口显示时始终翻页", nullptr,
             checks_panel(std::move(paging_checks), 190));
 
   }
@@ -11317,25 +11366,37 @@ private:
     auto candidates = add_group(page, L"候选与联想");
     bool_row(candidates, 0xE753, L"云候选", L"向在线服务请求额外候选",
              L"cloud_candidates", false);
+    // 触发字符数固定为默认的 5，不再给出（HostCapabilities.mixed_input_minimum_prefix）：调低会让常见简拼被英文词抢走首选。
     bool_row(candidates, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词",
              L"mixed_input.english", true, true);
-    slider_row(candidates, 0xE8CB, L"触发字符数", L"预编辑字母达到该长度后才出现英文候选项",
-               L"mixed_input.minimum_prefix", 1, 8, 5);
-    // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
-    bool_row(candidates, 0xE8EF, L"符号混输",
-             L"打出符号的名称时在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现",
-             L"mixed_input.symbols", true);
+    // Windows 的 emoji 混输默认开（client-core 的 source_mixed_emoji_default），回退值与它一致；平时由出厂偏好兜底，读不到出厂偏好时才用到这里。
     bool_row(candidates, 0xE76E, L"emoji 混输",
              L"中文输入时在候选项中加入匹配的 emoji，紧跟在它描绘的那个词后面（如「美国」后面是 🇺🇸），对不上候选词的排在末尾",
-             L"mixed_input.emoji", false);
-    bool_row(candidates, 0xE76E, L"颜文字混输",
+             L"mixed_input.emoji", true);
+    // 学习选词习惯决定下面「拼音方案调频」组画不画，改它时重画这一页。
+    bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
+             true, true);
+    // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
+    auto candidates_more = add_more_options(
+        candidates, candidates_more_open_,
+        focus_row_ == L"符号混输" || focus_row_ == L"颜文字混输");
+    // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
+    bool_row(candidates_more, 0xE8EF, L"符号混输",
+             L"打出符号的名称时在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现",
+             L"mixed_input.symbols", true);
+    bool_row(candidates_more, 0xE76E, L"颜文字混输",
              L"中文输入时在候选项中加入匹配的颜文字，紧跟在它描绘的那个词后面、排在同一个词的 emoji 之后，对不上候选词的排在末尾",
              L"mixed_input.kaomoji", false);
-    bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
-             true);
 
     auto output = add_group(page, L"输出");
-    add_row(output, 0xE8E9, L"全角输入",
+    bool_row(output, 0xE8C1, L"繁体输出", L"将提交的简体中文转换为繁体中文",
+             L"traditional_chinese_output", false);
+    bool_row(output, 0xE8D2, L"中英文之间加空格",
+             L"一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」。两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加",
+             L"chinese_english_spacing", false);
+    // 全角输入只是会话开始时的状态，工具栏和快捷键随时可切，收进「更多选项」。
+    auto output_more = add_more_options(output, output_more_open_, focus_row_ == L"全角输入");
+    add_row(output_more, 0xE8E9, L"全角输入",
             L"将英文字符和空格提交为全角形式，会话开始时生效；工具栏、键盘的更多工具或快捷键可临时切换",
             toggle_control(L"全角输入",
                            document_.String(L"character_width", L"halfwidth") ==
@@ -11346,11 +11407,6 @@ private:
                                              on ? L"fullwidth" : L"halfwidth");
                              }, false);
                            }));
-    bool_row(output, 0xE8C1, L"繁体输出", L"将提交的简体中文转换为繁体中文",
-             L"traditional_chinese_output", false);
-    bool_row(output, 0xE8D2, L"中英文之间加空格",
-             L"一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」。两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加",
-             L"chinese_english_spacing", false);
 
     struct LocalMode {
       const wchar_t *id;
@@ -11375,6 +11431,8 @@ private:
     }};
     std::vector<Check> checks;
     checks.reserve(modes.size());
+    // 搜索落到某个模式的勾选（checks_panel 逐个登记）或这一行时展开「逐个模式」的折叠区。
+    bool modes_focused = focus_row_ == L"快捷模式";
     for (const auto &[id, label, default_on] : modes) {
       // 不带临时日语的版本（版本表 features.temporary_japanese，host-api 也始终把它关掉）不列出这个开关。
       if constexpr (!MSIME_EDITION_TEMPORARY_JAPANESE) {
@@ -11382,6 +11440,7 @@ private:
           continue;
       }
       const std::wstring key = std::wstring(L"local_modes.") + id;
+      modes_focused = modes_focused || focus_row_ == label;
       checks.push_back({label, document_.Boolean(key, default_on), [this, key](bool on) {
                           change([&](PreferencesDocument &doc) {
                             doc.SetBoolean(key, on);
@@ -11389,11 +11448,14 @@ private:
                         }});
     }
     auto local = add_group(page, L"快捷模式");
-    // 总开关：关掉后没有输入时 Shift+字母照常打出大写字母，下面各模式的勾选保留原值；/ 和 @ 不经过它。
+    // 总开关：关掉后没有输入时 Shift+字母照常打出大写字母，「逐个模式」里各模式的勾选保留原值；/ 和 @ 不经过它。
     bool_row(local, 0xE8D3, L"Shift+字母进入快捷模式",
-             L"关掉后 Shift+字母照常打出大写字母，下面各模式的开关保留，/ 和 @ 不受影响",
+             L"没有输入时按 Shift 加各模式的字母进入该模式。关掉后 Shift+字母照常打出大写字母，「逐个模式」里的开关保留，/ 和 @ 不受影响",
              L"local_modes.shift_letter_entry", true);
-    add_row(local, 0xE945, L"快捷模式", L"用引导字母进入对应的输入模式；V、/、@ 只在拼音方案下没有输入时进入，/ 和 @ 还需中文标点", nullptr,
+    // 与共享页一样，各模式的开关收进紧跟其后的「逐个模式」组的「更多选项」。
+    auto modes_group = add_group(page, L"逐个模式");
+    auto modes_more = add_more_options(modes_group, local_modes_more_open_, modes_focused);
+    add_row(modes_more, 0xE945, L"快捷模式", L"用引导字母进入对应的输入模式；V、/、@ 只在拼音方案下没有输入时进入，/ 和 @ 还需中文标点", nullptr,
             checks_panel(std::move(checks), 250));
 
     auto correction = add_group(page, L"纠错与模糊音");
@@ -11401,15 +11463,21 @@ private:
              L"quanpin.autocorrect_transposition", true);
     fuzzy_row(correction);
 
-    auto frequency = add_group(page, L"拼音方案调频");
-    select_row(frequency, 0xE8CB, L"调频方式", L"", L"frequency.mode",
-               {{L"disabled", L"关闭"}, {L"pin", L"一次置顶"}, {L"halve", L"折半调频"},
-                {L"linear", L"线性调频"}, {L"promote", L"一次置前"}},
-               L"promote");
-    number_select_row(frequency, 0xE8EF, L"触发频次(第几次上屏触发)", L"",
-                      L"frequency.trigger_count", {1, 2, 3, 4, 5, 6}, 1, L"");
-    number_select_row(frequency, 0xE8EF, L"线性调频步长", L"",
-                      L"frequency.linear_step", {1, 2, 3, 4, 5, 6}, 1, L"");
+    // 与共享页的 FrequencySection 相同，只按条件显示，不改存着的值（这几项会上云）：学习选词习惯关闭时整组不画；调频方式为「关闭」时不画触发频次；步长只有线性调频读。
+    if (document_.Boolean(L"learning", true)) {
+      const auto frequency_mode = document_.String(L"frequency.mode", L"promote");
+      auto frequency = add_group(page, L"拼音方案调频");
+      select_row(frequency, 0xE8CB, L"调频方式", L"", L"frequency.mode",
+                 {{L"disabled", L"关闭"}, {L"pin", L"一次置顶"}, {L"halve", L"折半调频"},
+                  {L"linear", L"线性调频"}, {L"promote", L"一次置前"}},
+                 L"promote", true);
+      if (frequency_mode != L"disabled")
+        number_select_row(frequency, 0xE8EF, L"触发频次(第几次上屏触发)", L"",
+                          L"frequency.trigger_count", {1, 2, 3, 4, 5, 6}, 1, L"");
+      if (frequency_mode == L"linear")
+        number_select_row(frequency, 0xE8EF, L"线性调频步长", L"",
+                          L"frequency.linear_step", {1, 2, 3, 4, 5, 6}, 1, L"");
+    }
   }
 
   // 选择日语、韩语、越南语或藏语时记住被替换的中文方案，切回时回到它；选择中文方案（包括粤拼、注音和笔画）时记住这个方案。在这几种语言之间切换保留记住的方案，因为它们都不是存储接受的中文方案。规则与托盘相同（server_main.cpp 的 store_input_scheme）。
@@ -16538,7 +16606,7 @@ private:
 
   // ---- 屏幕键盘、语音、手写 ----
 
-  // 共享的「屏幕键盘」页（packages/ui/src/settings/pages/screen-keyboard-page.tsx 和 touch-keyboard-geometry-section.tsx）在 Windows 上画四组：「屏幕键盘」（打开面板和可拖动的预览）、「尺寸」（高度、两种间距和恢复默认）、「工具栏」，以及指向「主题」的「外观」。Windows 不是 `touch_toolbar_components` 的宿主，「工具栏」里只有顶部语音入口；「布局」「手势」两组和触屏反馈只在手机上画，这里也不画。面板本身是输入工具，仍由共享应用打开。
+  // 共享的「屏幕键盘」页（packages/ui/src/settings/pages/screen-keyboard-page.tsx 和 touch-keyboard-geometry-section.tsx）在 Windows 上画四组：「屏幕键盘」（打开面板和可拖动的预览）、「尺寸」（高度、两种间距和恢复默认）、「工具栏」，以及指向「主题」的「外观」；提供手写的版本在「工具栏」和「外观」之间多一组「手写识别板」，即并进来的「手写输入」页（build_hand_page），与共享页 `handwritingOnScreenKeyboardPage` 的顺序相同。Windows 不是 `touch_toolbar_components` 的宿主，「工具栏」里只有顶部语音入口；「布局」「手势」两组和触屏反馈只在手机上画，这里也不画。Windows 有触屏的二合一设备，面板也写明「使用鼠标或触控方式」，所以高度和间距都留着（macOS 没有触屏，那里去掉了间距）。面板本身是输入工具，仍由共享应用打开。
   void build_osk_page(StackPanel const &page) {
     if (!indexing_) {
       osk_drag_.reset();
@@ -16582,14 +16650,17 @@ private:
       osk_key_slider_ = key_slider.Children().GetAt(0).as<Slider>();
       osk_row_slider_ = row_slider.Children().GetAt(0).as<Slider>();
     }
-    // 恢复默认也管下面的「工具栏」组，所以和共享页一样放在它重置的第一组末尾。
+    // 恢复默认也管下面「工具栏」组的顶部语音入口，所以和共享页一样放在它重置的第一组末尾；说明只列这一页看得到的几项，与共享页的 `touchKeyboardResetSubjects` 给 Windows 的相同。
     auto reset = button_control(L"恢复默认", [this] { reset_screen_keyboard(); }, loaded_);
     A11y::SetName(reset, L"恢复屏幕键盘默认设置");
-    add_row(size, 0xE777, L"恢复默认", L"高度、间距、顶部语音入口和工具栏按钮回到默认", reset);
+    add_row(size, 0xE777, L"恢复默认", L"高度、间距和顶部语音入口回到默认", reset);
 
     auto toolbar = add_group(page, L"工具栏");
     bool_row(toolbar, 0xE720, L"顶部语音入口", L"在键盘顶部显示一个语音按钮，点按开始语音输入",
              L"touch_voice_shortcut", false);
+
+    if constexpr (MSIME_EDITION_HANDWRITING != 0)
+      build_hand_page(page);
 
     // 共享页把键盘的明暗覆盖放在「主题」页的「高级」组，这个窗口的同一组叫「界面主题」，所以说明换成这个组名，按钮直接落到「屏幕键盘主题」那一行。
     auto look = add_group(page, L"外观");
@@ -16700,12 +16771,12 @@ private:
       slider.Value(value);
   }
 
-  // 共享页的 `resetTouchKeyboardSettings`（use-touch-keyboard-settings-reset.ts）：确认后把五项从文档里删掉而不是写入当前默认值，宿主以后改默认值时也跟着变。Windows 的键盘有顶部语音入口，确认文案因此提到它。
+  // 共享页的 `resetTouchKeyboardSettings`（use-touch-keyboard-settings-reset.ts）：确认后把五项从文档里删掉而不是写入当前默认值，宿主以后改默认值时也跟着变。确认文案照 `touchKeyboardResetSubjects` 只说这一页看得到的高度、间距和顶部语音入口；`touch_toolbar` 照样删掉，与共享页删的键相同，只是 Windows 页面上没有工具栏按钮的开关，不在文案里提它。
   fire_and_forget reset_screen_keyboard() {
     auto strong = get_strong();
     if (!loaded_)
       co_return;
-    if (!co_await confirm(L"恢复屏幕键盘默认值", L"高度、间距、顶部语音入口和工具栏按钮都会回到默认。",
+    if (!co_await confirm(L"恢复屏幕键盘默认值", L"高度、间距和顶部语音入口都会回到默认。",
                           L"恢复"))
       co_return;
     flush_pending();
@@ -18410,7 +18481,7 @@ private:
     return files;
   }
 
-  // 共享的「手写输入」页在 Windows 上只有「手写识别板」一组：打开面板的一行和一张静态预览，没有可调的项（手写面板主题在「主题」页），所以这里只留打开面板的一行，文案与 handwriting-settings-section.tsx 相同。
+  // 共享的「手写输入」在 Windows 上只有「手写识别板」一组：打开面板的一行和一张静态预览，没有可调的项（手写面板主题在「主题」页），所以这里只留打开面板的一行，文案与 handwriting-settings-section.tsx 相同。它不再单独成页，由 build_osk_page 画在「屏幕键盘与手写」页的「外观」之前。
   void build_hand_page(StackPanel const &page) {
     auto group = add_group(page, L"手写识别板");
     shell_row(group, 0xE929, L"打开手写识别板", L"使用鼠标或触控方式手写输入，自动识别候选汉字",
@@ -19592,6 +19663,10 @@ private:
   uint64_t local_models_generation_ = 0;
   bool local_models_stale_ = true;
   bool local_more_open_ = false;
+  // 「输入」页「候选与联想」「输出」「逐个模式」三处「更多选项」是否展开，跨页面重建保留。
+  bool candidates_more_open_ = false;
+  bool output_more_open_ = false;
+  bool local_modes_more_open_ = false;
 
   // 「AI 辅助」页（共享页 useAiAssistant 的状态，跨页面重建保留）：已获取的模型和获取的提示，待润色文字、测试结果和状态，两个请求是否在进行。ai_generation_ 在每次改 AI 设置时递增，作废进行中的请求；两个请求各自的序号作废同一种的更早请求。「更多选项」是否展开在第一次画这一页时按接口地址能不能用决定。随输入就地更新的控件每次绘制时重建。
   std::optional<std::vector<std::wstring>> ai_models_;

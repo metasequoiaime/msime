@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MixedInputSection, type MixedInputPreferences } from "@msime/ui";
+import {
+  InputLanguageOptionsSection,
+  MixedInputMoreRows,
+  MixedInputSection,
+  type MixedInputPreferences,
+} from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -25,6 +30,45 @@ test("mixed input preserves the threshold while toggling independent switches", 
 
   fireEvent.click(screen.getByRole("switch", { name: /^emoji 混输/ }));
   expect(onChange).toHaveBeenLastCalledWith({ ...preferences, emoji: true });
+  // 符号、颜文字和日文混输不在这几行里，由页面收进「更多选项」。
+  expect(screen.queryByRole("switch", { name: /^颜文字混输/ })).toBeNull();
+  expect(screen.queryByRole("switch", { name: /^符号混输/ })).toBeNull();
+});
+
+test("a host that fixes the threshold gets no 触发字符数 row", () => {
+  render(
+    <MixedInputSection preferences={preferences} showMinimumPrefix={false} onChange={vi.fn()} />,
+  );
+  expect(screen.queryByRole("combobox", { name: "触发字符数" })).toBeNull();
+  expect(screen.getByRole("switch", { name: /^中英混输/ })).toBeTruthy();
+  expect(screen.getByRole("switch", { name: /^emoji 混输/ })).toBeTruthy();
+});
+
+// 多语言区块也能画混输几行，固定触发字符数的宿主在那里同样不能把这一行带回来。
+test("the language options section carries the 触发字符数 gate through", () => {
+  const view = render(
+    <InputLanguageOptionsSection
+      includeMixed
+      mixedInput={preferences}
+      showMixedInputMinimumPrefix={false}
+      onMixedInputChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("combobox", { name: "触发字符数" })).toBeNull();
+  expect(screen.getByRole("switch", { name: /^中英混输/ })).toBeTruthy();
+  view.rerender(
+    <InputLanguageOptionsSection
+      includeMixed
+      mixedInput={preferences}
+      onMixedInputChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("combobox", { name: "触发字符数" })).toBeTruthy();
+});
+
+test("the folded rows toggle kaomoji on their own", () => {
+  const onChange = vi.fn();
+  render(<MixedInputMoreRows preferences={preferences} onChange={onChange} />);
   fireEvent.click(screen.getByRole("switch", { name: /^颜文字混输/ }));
   expect(onChange).toHaveBeenLastCalledWith({ ...preferences, kaomoji: true });
 });
@@ -46,7 +90,7 @@ test("disabling English mixed input disables its threshold without changing its 
 
 test("Japanese mixed input is off when the document predates it and toggles on its own", () => {
   const onChange = vi.fn();
-  const view = render(<MixedInputSection preferences={preferences} onChange={onChange} />);
+  const view = render(<MixedInputMoreRows preferences={preferences} onChange={onChange} />);
 
   const japanese = screen.getByRole("switch", { name: /^日文混输（实验）/ }) as HTMLInputElement;
   expect(japanese.checked).toBe(false);
@@ -54,7 +98,7 @@ test("Japanese mixed input is off when the document predates it and toggles on i
   expect(onChange).toHaveBeenLastCalledWith({ ...preferences, japanese: true });
 
   view.rerender(
-    <MixedInputSection preferences={{ ...preferences, japanese: true }} onChange={onChange} />,
+    <MixedInputMoreRows preferences={{ ...preferences, japanese: true }} onChange={onChange} />,
   );
   expect(
     (screen.getByRole("switch", { name: /^日文混输（实验）/ }) as HTMLInputElement).checked,
@@ -65,7 +109,7 @@ test("Japanese mixed input is off when the document predates it and toggles on i
 
 test("symbol mixed input is on when the document predates it and writes false only when turned off", () => {
   const onChange = vi.fn();
-  const view = render(<MixedInputSection preferences={preferences} onChange={onChange} />);
+  const view = render(<MixedInputMoreRows preferences={preferences} onChange={onChange} />);
 
   const symbols = screen.getByRole("switch", { name: /^符号混输/ }) as HTMLInputElement;
   expect(symbols.checked).toBe(true);
@@ -73,7 +117,7 @@ test("symbol mixed input is on when the document predates it and writes false on
   expect(onChange).toHaveBeenLastCalledWith({ ...preferences, symbols: false });
 
   view.rerender(
-    <MixedInputSection preferences={{ ...preferences, symbols: false }} onChange={onChange} />,
+    <MixedInputMoreRows preferences={{ ...preferences, symbols: false }} onChange={onChange} />,
   );
   const off = screen.getByRole("switch", { name: /^符号混输/ }) as HTMLInputElement;
   expect(off.checked).toBe(false);
@@ -83,7 +127,7 @@ test("symbol mixed input is on when the document predates it and writes false on
 
 test("an edition without temporary Japanese does not list Japanese mixed input", () => {
   render(
-    <MixedInputSection
+    <MixedInputMoreRows
       preferences={{ ...preferences, japanese: true }}
       temporaryJapanese={false}
       onChange={vi.fn()}

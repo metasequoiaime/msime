@@ -64,6 +64,10 @@ export function testHost(
     fullwidth_chord: macos,
     voice_provider_settings: !android,
     voice_stream_preedit: !android,
+    // macOS 把空格锁定固定为开、只读提示音总开关、只经 CoreAudio 录音，与 `HostCapabilities::for_platform` 一致。
+    voice_space_lock_switch: !macos,
+    voice_cue_switches: !macos,
+    voice_capture_backends: !macos,
     character_width: !mobile,
     ai_provider_credentials: linux,
     voice_commit_mode: !android && !linux,

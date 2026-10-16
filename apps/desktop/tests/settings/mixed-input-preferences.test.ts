@@ -4,6 +4,7 @@ import { defaultMixedInput as legacyDefault } from "../../../../packages/ui/src/
 import {
   defaultMixedInput,
   mixedInputControlState,
+  mixedInputDefaultsFor,
 } from "../../../../packages/ui/src/settings/mixed-input-preferences";
 
 test("默认对象保留旧文档的四项且所有入口共用同一引用", () => {
@@ -16,6 +17,20 @@ test("默认对象保留旧文档的四项且所有入口共用同一引用", ()
   expect(publicDefault).toBe(defaultMixedInput);
   expect(legacyDefault).toBe(defaultMixedInput);
   expect(settingsInputPreferences().mixedInput).toBe(defaultMixedInput);
+});
+
+test("文档缺 mixed_input 时 emoji 混输按宿主平台取缺省，与 client-core 一致", () => {
+  // Rust 的 `source_mixed_emoji_default` 在 Windows 和 macOS 上为开。
+  for (const platform of ["macos", "windows"]) {
+    expect(mixedInputDefaultsFor(platform)).toEqual({ ...defaultMixedInput, emoji: true });
+    expect(settingsInputPreferences(undefined, platform).mixedInput.emoji).toBe(true);
+  }
+  for (const platform of ["linux", "android", "ios", "harmony", undefined, null]) {
+    expect(mixedInputDefaultsFor(platform)).toBe(defaultMixedInput);
+  }
+  // 文档里有值时照文档，不看平台。
+  const stored = { ...defaultMixedInput, emoji: false };
+  expect(settingsInputPreferences({ mixed_input: stored }, "macos").mixedInput).toBe(stored);
 });
 
 test("读取旧文档时符号开、日文关，不补写可选键", () => {

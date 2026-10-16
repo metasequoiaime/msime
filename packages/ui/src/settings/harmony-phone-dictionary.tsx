@@ -9,8 +9,11 @@ import { useToast } from "../core/toast";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import { useDebouncedCallback } from "../core/use-debounced-callback";
 import * as dialog from "../community/community-style";
-import type { CommunityResource, CommunityResourceClient } from "../community/community-resources";
-import { communityResourceSubtitle } from "../community/community-resources";
+import type {
+  CommunityResource,
+  CommunityResourceClient,
+} from "../community/community-resource-model";
+import { communityResourceSubtitle } from "../community/community-resource-model";
 import {
   binaryCollectionFormat,
   collectionFailureMessage,
@@ -34,7 +37,7 @@ import {
   readScelFile,
   type DictionaryEntry,
 } from "../dictionary/dictionary-file";
-import type { DictionaryClient } from "../index";
+import type { DictionaryClient } from "../dictionary/dictionary-contracts";
 import { pushMobileSettingsState } from "./mobile-navigation";
 import { useMobilePopState } from "./use-mobile-pop-state";
 import { useSettingsForm } from "./settings-form-context";

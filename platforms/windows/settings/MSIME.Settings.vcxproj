@@ -15,6 +15,8 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <WindowsAppSdkUndockedRegFreeWinRTInitialize>true</WindowsAppSdkUndockedRegFreeWinRTInitialize>
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <!-- Visual Studio 2022 的 MSBuild 经 ImportAfter 引入旧的 Microsoft.NuGet.targets，它的 ResolveNuGetPackageAssets 按 project.json 时代的托管目标框架去 project.assets.json 里找目标；本工程没有 TargetFrameworkMoniker，找不到 native,Version=v0.0，构建以「序列不包含任何元素」失败。原生 PackageReference 的头文件、库和 WinRT 元数据由 obj\*.nuget.g.targets 导入的各包自带 targets 处理，不需要这一步。Visual Studio 2026（CI 用的）不再引入该文件，这里关掉也不影响它。 -->
+    <ResolveNuGetPackages>false</ResolveNuGetPackages>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">

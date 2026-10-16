@@ -598,6 +598,14 @@ fn schema_v2_uses_bounded_lively_animation_presets() {
     assert_eq!(package.animation.enter, SkinAnimationPreset::Spring);
     assert_eq!(package.animation.selection, SkinAnimationPreset::Glow);
     assert_eq!(package.animation.duration_ms, 240);
+    assert_eq!(
+        package.animation.declared,
+        SkinAnimationDeclared {
+            enter: true,
+            exit: true,
+            selection: true,
+        }
+    );
 }
 
 #[test]
@@ -616,6 +624,44 @@ fn schema_v2_animation_table_keeps_lively_defaults_when_fields_are_omitted() {
     assert_eq!(package.animation.selection, SkinAnimationPreset::Spring);
     assert_eq!(package.animation.duration_ms, 200);
     assert_eq!(package.animation.stagger_ms, 14);
+    // 补齐的默认预设不算清单写了的：macOS 只播放写了的预设。
+    assert_eq!(package.animation.declared, SkinAnimationDeclared::NONE);
+}
+
+#[test]
+fn schema_v2_animation_reports_which_presets_the_manifest_declares() {
+    let root = tempdir().unwrap();
+    for (id, animation) in [
+        ("motion_implicit", ""),
+        ("motion_enter", "[animation]\nenter = 'slide_up'\n"),
+    ] {
+        let skin = root.path().join(id);
+        fs::create_dir(&skin).unwrap();
+        fs::write(
+            skin.join("skin.toml"),
+            format!("schema_version = 2\nid = '{id}'\nname = 'Motion'\nversion = '2.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{animation}"),
+        )
+        .unwrap();
+    }
+    let implicit = load(root.path(), "motion_implicit").unwrap();
+    assert_eq!(implicit.animation, SkinAnimation::lively());
+    assert_eq!(implicit.animation.declared, SkinAnimationDeclared::NONE);
+    let enter = load(root.path(), "motion_enter").unwrap();
+    assert_eq!(enter.animation.enter, SkinAnimationPreset::SlideUp);
+    assert_eq!(enter.animation.selection, SkinAnimationPreset::Spring);
+    assert_eq!(
+        enter.animation.declared,
+        SkinAnimationDeclared {
+            enter: true,
+            exit: false,
+            selection: false,
+        }
+    );
+    // 宿主读的是序列化后的 JSON，标记必须随它一起出去。
+    assert_eq!(
+        serde_json::to_value(&enter.animation).unwrap()["declared"],
+        serde_json::json!({"enter": true, "exit": false, "selection": false})
+    );
 }
 
 #[test]

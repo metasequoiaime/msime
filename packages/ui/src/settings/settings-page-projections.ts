@@ -16,7 +16,7 @@ export interface SettingsPageProjectionOptions {
   hasPlugins: boolean;
   /** 「手写输入」页：手写识别器只认汉字，不提供手写的版本（`EditionInfo.handwriting` 为 false）没有这一页。 */
   hasHandwriting: boolean;
-  /** 「手写输入」并进「屏幕键盘」页，那一页改叫「屏幕键盘与手写」。macOS 和 Linux 桌面上手写页只有一个打开按钮，单占一个侧栏入口不值得；Windows 的共享设置页仍与原生设置窗口的 `SettingsNavigation.h` 一样分成两页，触屏宿主的手写页另有内容，都不并。本版本不提供手写时没有可并的页。 */
+  /** 「手写输入」并进「屏幕键盘」页，那一页改叫「屏幕键盘与手写」。macOS、Linux、Windows 和 HarmonyOS 2-in-1 上手写页只有一个打开按钮或一段说明，单占一个侧栏入口不值得，Windows 原生设置窗口的 `SettingsNavigation.h` 也同样并成一页；触屏宿主的手写页另有内容，不并。本版本不提供手写时没有可并的页。 */
   handwritingOnScreenKeyboardPage?: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   mobilePageTitle: (id: SettingsPageId, title: string) => string;

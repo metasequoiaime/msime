@@ -5,14 +5,14 @@
          ∪ 这些字在 Unihan 里的 kTraditionalVariant
          ∪ 这些字作为 OpenCC STCharacters.txt 的键时的全部单字值。
 
-并入繁体形是因为注音方案按词库直接输出繁体，粤语方案的词库也以繁体为主；不并入的话，們、這、發、乾 都会被当成生僻字。Unihan 来自 resources/character-glosses.lock.json 锁定的 Unihan-17.0.0.zip（校验 sha256），OpenCC 来自仓库里 vendored 的 crates/client-base/data/opencc/STCharacters.txt。
+并入繁体形是因为注音方案按词库直接输出繁体，粤语方案的词库也以繁体为主；不并入的话，們、這、發、乾 都会被当成生僻字。Unihan 来自 resources/character-glosses.lock.json 锁定的 Unihan-17.0.0.zip（校验 sha256），OpenCC 来自 resources/opencc.lock.json 固定的 msime-dictionary 源数据。
 
 输出两个文件，都提交进仓库：
 
 - plugins/script/data/common-chars.bin：小端二进制，格式见下面的 encode()，插件用 include_bytes! 编进模块。
 - plugins/script/data/common-chars-NOTICE.txt：来源、版本、摘要和条目数，插件包的 NOTICE.txt 按它写。
 
-结果只取决于锁定的 zip 和仓库里的 OpenCC 文件：集合排序后编码，没有时间戳，同样的输入总是逐字节相同的输出。
+结果只取决于锁定的 zip 和 OpenCC 输入：集合排序后编码，没有时间戳，同样的输入总是逐字节相同的输出。
 
 --check 重新生成后和仓库里的两个文件逐字节比较，不写文件。zip 不在缓存里时 --check 打印 skip 并以 0 退出（契约检查和 CI 不联网），设了 MSIME_FETCH=1 才下载。
 
@@ -30,10 +30,10 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.dont_write_bytecode = True  # 导入 scripts/ 下的脚本时不留下 __pycache__
 from fetch_wordbooks import digest, fetch  # noqa: E402  （按锁下载并校验）
+from fetch_opencc import ensure_opencc, read_lock as read_opencc_lock  # noqa: E402
 
 LOCK = ROOT / "resources/character-glosses.lock.json"
-OPENCC = ROOT / "crates/client-base/data/opencc/STCharacters.txt"
-OPENCC_COMMIT = "26753884f1984add422f3b0249ccee8613deaff6"
+OPENCC_COMMIT = read_opencc_lock()["upstream"]["commit"]
 CACHE = ROOT / "target/script-plugins/cache"
 DATA = ROOT / "plugins/script/data"
 BINARY = DATA / "common-chars.bin"
@@ -70,16 +70,17 @@ def read_unihan(zip_path: Path) -> tuple[set[int], dict[int, list[int]]]:
 
 
 def read_opencc() -> dict[int, list[int]]:
+    source = ensure_opencc(offline=True) / "STCharacters.txt"
     table: dict[int, list[int]] = {}
-    for line in OPENCC.read_text(encoding="utf-8").splitlines():
+    for line in source.read_text(encoding="utf-8").splitlines():
         if not line or line.startswith("#"):
             continue
         key, values = line.split("\t", 1)
         if len(key) != 1:
-            raise SystemExit(f"{OPENCC.name}: 键 {key!r} 不是单字")
+            raise SystemExit(f"{source.name}: 键 {key!r} 不是单字")
         items = values.split()
         if any(len(item) != 1 for item in items):
-            raise SystemExit(f"{OPENCC.name}: {key} 的值 {values!r} 含多字")
+            raise SystemExit(f"{source.name}: {key} 的值 {values!r} 含多字")
         table[ord(key)] = [ord(item) for item in items]
     return table
 
@@ -185,6 +186,13 @@ def main(argv=None) -> int:
     source = source_zip(arguments, lock)
     if source is None:
         print(f"skip: {CACHE.relative_to(ROOT)}/{lock['artifact']['name']} 不在缓存里（设 MSIME_FETCH=1 下载后再检查）")
+        return 0
+    try:
+        ensure_opencc(offline=arguments.check and os.environ.get("MSIME_FETCH") != "1")
+    except FileNotFoundError:
+        if not arguments.check or os.environ.get("MSIME_FETCH") == "1":
+            raise
+        print("skip: 固定的 OpenCC 输入不在缓存里（运行 scripts/fetch_opencc.py 准备）")
         return 0
 
     tgh, traditional = read_unihan(source)

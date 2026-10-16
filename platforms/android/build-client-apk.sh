@@ -127,7 +127,8 @@ if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ]; then
     fi
   done
 fi
-ANDROID_HOME="$android_sdk" NDK_HOME="$android_ndk" TAURI_ANDROID_DIR="$tauri_android_dir" \
+# MSIME_PLATFORM_BUILD=1 passes apps/desktop/scripts/require-platform-build.mjs, which refuses a Tauri build no platform script asked for.
+MSIME_PLATFORM_BUILD=1 ANDROID_HOME="$android_sdk" NDK_HOME="$android_ndk" TAURI_ANDROID_DIR="$tauri_android_dir" \
   ORG_GRADLE_PROJECT_msimeEdition="$edition" pnpm --filter @msime/desktop tauri android build --apk --target "$tauri_target" --ci
 unsigned="$repo_root/apps/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected Tauri APK not produced" >&2; exit 1; }

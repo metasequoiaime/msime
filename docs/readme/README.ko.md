@@ -88,10 +88,9 @@ cargo clippy -p msime-client-base -p msime-client-core -p msime-client-providers
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop test
 pnpm build
-pnpm tauri dev
 ```
 
-데스크톱 빌드에는 [Tauri 플랫폼 의존성](https://tauri.app/start/prerequisites/)이 필요합니다. `pnpm tauri build --debug --no-bundle`은 패키징하지 않은 개발용 바이너리를 빌드합니다. 사용자용 설치 패키지는 각 플랫폼 고유의 패키징 체인이 만듭니다 — macOS의 CMake bundle, Windows의 `platforms/windows/installer/msime_setup.iss`, Linux의 CPack(`-DMSIME_ENABLE_PACKAGING=ON`), Android의 `platforms/android/build-apk.sh`, HarmonyOS의 `hvigorw assembleHap`, iOS의 Xcode 프로젝트. 일반 브라우저에서는 로컬 설정에 접근할 수 없다는 안내만 표시하며, 저장 성공을 흉내 내지 않습니다.
+데스크톱 빌드에는 [Tauri 플랫폼 의존성](https://tauri.app/start/prerequisites/)이 필요합니다. `pnpm tauri build`나 `pnpm tauri dev`를 직접 실행하지 마십시오. Tauri 프로젝트는 네이티브 호스트가 실행하는 공용 컴포넌트일 뿐이며 `apps/desktop/scripts/require-platform-build.mjs`가 오류로 거부합니다. 빌드 진입점은 각 플랫폼의 `platforms/<os>`입니다. 사용자용 설치 패키지는 각 플랫폼 고유의 패키징 체인이 만듭니다 — macOS의 CMake bundle, Windows의 `platforms/windows/installer/msime_setup.iss`, Linux의 CPack(`-DMSIME_ENABLE_PACKAGING=ON`), Android의 `platforms/android/build-apk.sh`, HarmonyOS의 `hvigorw assembleHap`, iOS의 Xcode 프로젝트. 일반 브라우저에서는 로컬 설정에 접근할 수 없다는 안내만 표시하며, 저장 성공을 흉내 내지 않습니다.
 
 데스크톱 설정의 앱 식별자와 기본 앱 데이터 디렉터리는 플랫폼별로 이름이 정해집니다: macOS는 `app.msime.macos`, Windows는 `app.msime.windows`, Linux는 `app.msime.linux`입니다. 환경설정은 그 안의 `preferences.json`에 저장됩니다. 절대 경로 환경 변수 `MSIME_CLIENT_STATE_DIR`로 격리된 개발 디렉터리를 지정할 수도 있습니다. macOS 네이티브 호스트는 같은 설정을 읽고 현재 단어 조합이 끝난 뒤 업데이트를 적용합니다. 여러 설정 창이 동시에 저장하면 revision으로 충돌을 감지하며, 사용자는 명시적으로 다시 읽은 뒤 덮어쓸지 결정해야 합니다.
 

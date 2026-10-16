@@ -3,7 +3,7 @@ import { HandwritingSettingsSection } from "../handwriting-settings-section";
 import { handwritingSdkPrivacyUrl } from "../handwriting-platform-notice";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 
-/** 「手写输入」的内容：只有宿主所在平台的那一组。单独成页时放在「手写输入」页里，macOS 和 Linux 桌面上放在「屏幕键盘与手写」页里。 */
+/** 「手写输入」的内容：只有宿主所在平台的那一组。单独成页时（触屏宿主）放在「手写输入」页里，桌面宿主上放在「屏幕键盘与手写」页里。 */
 export function HandwritingSettingsContent() {
   const {
     client,

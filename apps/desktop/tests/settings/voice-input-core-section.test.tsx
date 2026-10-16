@@ -100,3 +100,23 @@ test("offers the Windows system recognizer on Windows only", () => {
   expect(screen.queryByRole("option", { name: "Windows 系统识别" })).toBeNull();
   expect(screen.getByRole("option", { name: "系统识别（当前平台不可用）" })).toBeTruthy();
 });
+
+// 豆包的识别请求不读识别语言，宿主选豆包时可以不画这一行；额外的行接在同一组里。
+test("can leave the language out and carry extra rows", () => {
+  render(
+    <VoiceInputCoreSection
+      {...base}
+      hideLanguage
+      serviceRow={<button type="button">服务配置</button>}
+      onEnabledChange={vi.fn()}
+      onProviderChange={vi.fn()}
+      onLanguageChange={vi.fn()}
+    >
+      <p>extra row</p>
+    </VoiceInputCoreSection>,
+  );
+  expect(screen.queryByLabelText("识别语言")).toBeNull();
+  const group = screen.getByRole("region", { name: "识别" });
+  expect(group.textContent).toContain("服务配置");
+  expect(group.textContent).toContain("extra row");
+});

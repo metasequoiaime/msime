@@ -92,7 +92,7 @@ export function dictionaryExportName(kind: LocalDictionaryKind): string {
 export function dictionaryKindLabel(kind: string): string {
   return (
     {
-      pinyin: "全拼",
+      pinyin: "拼音",
       wubi: "86 五笔",
       wubi98: "98 五笔",
       english: "英文",

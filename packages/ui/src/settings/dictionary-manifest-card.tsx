@@ -4,10 +4,8 @@ import { GroupList } from "../core/platform-controls";
 import { SummaryRow } from "./summary-row";
 import { useAsyncGeneration } from "./use-async-generation";
 
-export interface DictionaryManifest {
-  profile: string;
-  sourceCommit: string;
-}
+import type { DictionaryManifest } from "../dictionary/dictionary-contracts";
+export type { DictionaryManifest } from "../dictionary/dictionary-contracts";
 
 export interface DictionaryManifestCardProps {
   read: () => Promise<DictionaryManifest>;

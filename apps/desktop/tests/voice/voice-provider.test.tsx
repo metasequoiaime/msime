@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import {
+  openVoiceServiceConfig,
+  settingsFormReady,
+  saveSettingsNow,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
@@ -68,11 +72,14 @@ test("macOS system recognition is configurable without cloud ASR fields", async 
   expect((screen.getByRole("combobox", { name: "识别语言" }) as HTMLInputElement).value).toBe(
     "zh-CN",
   );
-  selectSettingsTab("录音与结果");
+  // 结果提交策略和润色都收在「服务配置」子视图里；系统识别没有密钥要填，这一行不写状态。
+  expect(
+    screen.getByRole("button", { name: "服务配置" }).getAttribute("aria-describedby"),
+  ).toBeNull();
+  openVoiceServiceConfig();
   fireEvent.change(screen.getByRole("combobox", { name: "结果提交策略" }), {
     target: { value: "ctrl_v" },
   });
-  selectSettingsTab("润色");
   expect(screen.getByRole("switch", { name: "启用文本润色" })).toBeTruthy();
 
   saveSettingsNow();

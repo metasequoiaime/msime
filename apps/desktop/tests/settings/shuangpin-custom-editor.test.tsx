@@ -507,7 +507,6 @@ test("the 自定义双拼 option follows the host's ability to edit it", () => {
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={onShuangpinProfileChange}
     />,
@@ -522,7 +521,6 @@ test("the 自定义双拼 option follows the host's ability to edit it", () => {
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="custom"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={onShuangpinProfileChange}
     />,
@@ -538,7 +536,6 @@ test("the 自定义双拼 option follows the host's ability to edit it", () => {
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={onShuangpinProfileChange}
       onEditCustomShuangpin={onEditCustomShuangpin}
@@ -552,7 +549,6 @@ test("the 自定义双拼 option follows the host's ability to edit it", () => {
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="custom"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={onShuangpinProfileChange}
       onEditCustomShuangpin={onEditCustomShuangpin}

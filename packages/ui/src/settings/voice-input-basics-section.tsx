@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { VoiceInputPreferences } from "../index";
 import { asrProviderUpdate } from "../voice/voice-providers";
 import { VoiceInputCoreSection } from "./voice-input-core-section";
@@ -13,6 +14,10 @@ export interface VoiceInputBasicsSectionProps extends VoiceInputIntroSectionProp
   harmonyUnsupportedAsr: boolean;
   voiceInput: VoiceInputPreferences;
   updateVoice: (patch: Partial<VoiceInputPreferences>) => void;
+  /** 见 {@link VoiceInputCoreSection} 的同名属性。 */
+  hideLanguage?: boolean;
+  serviceRow?: ReactNode;
+  coreRows?: ReactNode;
 }
 
 /** Shared voice introduction and recognition enablement/provider controls. */
@@ -34,6 +39,9 @@ export function VoiceInputBasicsSection({
   voiceInput,
   updateVoice,
   onOpenVoice,
+  hideLanguage,
+  serviceRow,
+  coreRows,
 }: VoiceInputBasicsSectionProps) {
   return (
     <>
@@ -74,7 +82,11 @@ export function VoiceInputBasicsSection({
           })
         }
         onLanguageChange={(language) => updateVoice({ language })}
-      />
+        hideLanguage={hideLanguage}
+        serviceRow={serviceRow}
+      >
+        {coreRows}
+      </VoiceInputCoreSection>
     </>
   );
 }

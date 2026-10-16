@@ -41,6 +41,8 @@ cp resources/licenses/vi-MIT.txt resources/licenses/ewts-MIT.txt "$licenses_stag
 cp resources/licenses/kfcd-chaizi-CC-BY-3.0.txt "$licenses_staged/"
 # 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
 cp resources/licenses/Unicode-License-V3.txt "$licenses_staged/"
+# 简繁转换内嵌的 OpenCC 词表许可证随 HAP 分发。
+cp resources/licenses/OpenCC-Apache-2.0.txt "$licenses_staged/"
 echo "Licences staged for the HAP: $licenses_staged"
 
 # 内置音效包，由 scripts/generate_sound_packs.py 合成。放在 engine 目录旁边而不是里面，因为放进去会被上面的锁文件校验拒绝；resfile 会把它们解压到 context.resourceDir/sound-packs，也就是键盘告诉 client-services 的内置包根目录。

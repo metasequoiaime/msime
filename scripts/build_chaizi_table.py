@@ -30,11 +30,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.dont_write_bytecode = True  # 导入 scripts/ 下的脚本时不留下 __pycache__
 from fetch_wordbooks import digest, fetch  # noqa: E402  （按锁下载并校验长度和 sha256）
+from fetch_opencc import ensure_opencc  # noqa: E402
 
 LOCK = ROOT / "resources/chaizi.lock.json"
 GENERATOR = "scripts/build_chaizi_table.py"
 DEFAULT_CACHE = ROOT / "target/chaizi-cache"
-OPENCC = ROOT / "crates/client-base/data/opencc"
 KEYS_TABLE = ROOT / "crates/engine/src/local/chaizi.tsv"
 CHARS_TABLE = ROOT / "crates/engine/src/local/chaizi-chars.tsv"
 
@@ -106,7 +106,7 @@ def is_compatibility(character: str) -> bool:
 def read_opencc(name: str) -> dict[str, str]:
     """OpenCC 词典：键到第一个值，重复键取先出现的一行，与 client-base 的 `Table::parse` 相同。"""
     table: dict[str, str] = {}
-    for line in read_lines(OPENCC / name):
+    for line in read_lines(ensure_opencc(offline=True) / name):
         if not line or line.startswith("#") or "\t" not in line:
             continue
         key, values = line.split("\t", 1)
@@ -352,6 +352,13 @@ def main(argv=None) -> int:
         print(f"skip: {cache} 里没有锁定的拆字表或 Unihan zip（设 MSIME_FETCH=1 下载后再检查）")
         return 0
     _, unihan_zip = found
+    try:
+        ensure_opencc(offline=arguments.check and os.environ.get("MSIME_FETCH") != "1")
+    except FileNotFoundError:
+        if not arguments.check or os.environ.get("MSIME_FETCH") == "1":
+            raise
+        print("skip: 固定的 OpenCC 输入不在缓存里（运行 scripts/fetch_opencc.py 准备）")
+        return 0
     conversion = Conversion()
     union, union_stats = read_decompositions(cache, conversion)
     unihan = read_unihan(unihan_zip)

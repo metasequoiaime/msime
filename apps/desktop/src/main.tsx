@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { createRoot } from "react-dom/client";
+import { createMobileSettingsHistoryState } from "../../../packages/ui/src/settings/mobile-history-state";
 import { trackAsyncSubscription } from "../../../packages/ui/src/core/async-subscription";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -550,11 +551,7 @@ function DesktopSettings() {
   const navigateMobilePanel = (next: NonNullable<typeof mobilePanel>, replace = false) => {
     if (typeof window !== "undefined") {
       const current = window.history.state;
-      const state = {
-        ...(current && typeof current === "object" ? current : {}),
-        msimeSettings: true,
-        panel: next,
-      };
+      const state = createMobileSettingsHistoryState(current, { panel: next });
       if (replace) window.history.replaceState(state, "");
       else window.history.pushState(state, "");
     }

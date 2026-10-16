@@ -225,9 +225,13 @@ static NSString *SharedSetting(NSString *key, NSString *fallback)
     value.polishPromptCustom1 = SharedSetting(@"polishPromptCustom1", @"");
     value.polishPromptCustom2 = SharedSetting(@"polishPromptCustom2", @"");
     value.polishPromptCustom3 = SharedSetting(@"polishPromptCustom3", @"");
+    // 存着别的平台的录音后端时，宿主录音用系统默认设备（MSIMEVoiceCaptureDeviceUID），窗口照实显示「自动」。
     id sharedCaptureDevice = [defaults objectForKey:@"MSIMEClientVoiceCaptureDevice"];
-    value.captureDevice = [sharedCaptureDevice isKindOfClass:NSString.class]
-        ? sharedCaptureDevice : StringSetting(saved, @"captureDevice", @"");
+    if (!MSIMEVoiceCaptureBackendSupported([defaults objectForKey:@"MSIMEClientVoiceCaptureBackend"]))
+        value.captureDevice = @"";
+    else
+        value.captureDevice = [sharedCaptureDevice isKindOfClass:NSString.class]
+            ? sharedCaptureDevice : StringSetting(saved, @"captureDevice", @"");
     value.tokenSlots = MSIMEValidVoiceTokenSlots([defaults objectForKey:@"MSIMEClientVoiceASRTokens"]) ?: @{};
     const BOOL serviceProvider = MSIMEVoiceASRProviderUsesService(rawProvider);
     NSString *sharedToken = serviceProvider
@@ -324,7 +328,7 @@ static NSString *SharedSetting(NSString *key, NSString *fallback)
                                               forKey:@"voiceInput"];
     // What the input method actually reads on the next recording. Driven by the shared key table so a
     // field added to this window cannot be saved into the private dictionary alone.
-    NSDictionary *values = @{
+    NSMutableDictionary *values = [@{
         @"provider" : self.provider,
         @"endpoint" : self.endpoint,
         @"model" : self.model,
@@ -338,7 +342,14 @@ static NSString *SharedSetting(NSString *key, NSString *fallback)
         @"polishPromptCustom2" : self.polishPromptCustom2 ?: @"",
         @"polishPromptCustom3" : self.polishPromptCustom3 ?: @"",
         @"captureDevice" : self.captureDevice ?: @""
-    };
+    } mutableCopy];
+    BOOL writeCaptureDevice = YES;
+    NSString *captureBackend = MSIMEVoiceProviderCaptureBackendForSaving(
+        [defaults objectForKey:@"MSIMEClientVoiceCaptureBackend"], self.captureDevice, &writeCaptureDevice);
+    if (captureBackend)
+        [defaults setObject:captureBackend forKey:@"MSIMEClientVoiceCaptureBackend"];
+    if (!writeCaptureDevice)
+        [values removeObjectForKey:@"captureDevice"];
     NSDictionary<NSString *, NSString *> *sharedKeys = MSIMEVoiceProviderSharedKeys();
     for (NSString *field in values)
         [defaults setObject:values[field] forKey:sharedKeys[field]];

@@ -417,8 +417,14 @@ test("the 2-in-1 keeps the desktop voice page", async () => {
   });
   await settingsFormReady();
   expect(screen.getByText("HarmonyOS 输入法语音")).toBeTruthy();
-  expect(screen.queryByText("自动添加标点")).toBeNull();
+  // 桌面语音页和手机一样把豆包的标点开关放在「识别」组里，密钥和接口收进「服务配置」子视图。
+  expect(screen.getByRole("switch", { name: "自动添加标点" })).toBeTruthy();
+  expect(screen.queryByRole("textbox", { name: "Doubao API Key" })).toBeNull();
+  // 豆包没填凭据时 HarmonyOS 改用系统识别，识别语言照旧有用，所以 2in1 上不随豆包隐藏；状态也按键盘的同一套判断写。
   expect((screen.getByLabelText("识别语言") as HTMLInputElement).tagName).toBe("INPUT");
+  expect(screen.getByRole("button", { name: "服务配置" }).textContent).toContain(
+    "未填写，暂用系统识别",
+  );
 });
 
 // ---- 手写输入 ----
@@ -485,11 +491,15 @@ test("a keyboard without pad settings leaves the handwriting page as instruction
   ).not.toBeNull();
 });
 
-test("the 2-in-1 handwriting page draws no pad settings", async () => {
+// 2-in-1 的手写只是一段说明，并进「屏幕键盘与手写」页；旧的 handwriting 路由落到合并后的页。
+test("the 2-in-1 handwriting instructions sit on the merged screen keyboard page", async () => {
   renderSettings({ page: "handwriting", mobile: false, feedback: padFeedback });
   await settingsFormReady();
-  expect(screen.queryByRole("slider", { name: "识别等待时间" })).toBeNull();
-  expect(screen.getByText(/2-in-1 候选窗口不绘制键面/)).toBeTruthy();
+  const page = screen.getByRole("group", { name: "屏幕键盘与手写" });
+  expect(screen.queryByRole("group", { name: "手写输入" })).toBeNull();
+  expect(within(page).queryByRole("slider", { name: "识别等待时间" })).toBeNull();
+  expect(within(page).getByText(/2-in-1 候选窗口不绘制键面/)).toBeTruthy();
+  expect(groupTitles(page).slice(-2)).toEqual(["HarmonyOS 键盘手写", "外观"]);
 });
 
 // ---- 键盘 ----
@@ -599,7 +609,7 @@ test("a scheme with one keyboard says where to change it", async () => {
 test("the 2-in-1 keyboard page keeps the preview above 尺寸", async () => {
   renderSettings({ page: "screen-keyboard", mobile: false });
   await settingsFormReady();
-  const page = screen.getByRole("group", { name: "屏幕键盘" });
+  const page = screen.getByRole("group", { name: "屏幕键盘与手写" });
   expect(groupTitles(page).slice(0, 2)).toEqual(["屏幕键盘", "尺寸"]);
   expect(within(page).queryByText("中文键盘")).toBeNull();
 });

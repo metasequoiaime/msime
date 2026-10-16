@@ -1233,7 +1233,17 @@ fn mixed_input_changes_defer_until_composition_ends() {
         let sessions = sessions.borrow();
         let options = &sessions[&handle].options;
         assert!(!options.mixed_english);
-        assert_eq!(options.english_minimum_prefix, 8);
+        // 三个桌面宿主不读文档里的触发字符数，固定为默认的 5；触屏宿主照文档。
+        let expected_prefix = if cfg!(any(
+            target_os = "android",
+            target_os = "ios",
+            target_env = "ohos"
+        )) {
+            8
+        } else {
+            5
+        };
+        assert_eq!(options.english_minimum_prefix, expected_prefix);
         assert!(options.mixed_emoji && options.mixed_kaomoji);
         assert!(options.mixed_japanese);
         assert!(!options.mixed_symbols);
@@ -1242,6 +1252,32 @@ fn mixed_input_changes_defer_until_composition_ends() {
     assert_eq!(update(handle, 2, &preferences)["ok"], false);
     read(msime_client_destroy(handle));
 }
+/// 不读触发字符数的宿主（macOS、Windows、Linux）一律拿默认的 5，触屏宿主照文档里存的数。
+#[test]
+fn english_minimum_prefix_is_fixed_where_the_host_does_not_read_it() {
+    for platform in [
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(english_minimum_prefix_for(platform, 2), 2, "{platform:?}");
+        assert_eq!(english_minimum_prefix_for(platform, 8), 8, "{platform:?}");
+    }
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+    ] {
+        for stored in 1..=8 {
+            assert_eq!(
+                english_minimum_prefix_for(platform, stored),
+                5,
+                "{platform:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn frequency_changes_wait_for_composition_and_reject_invalid_updates() {
     use msime_client_core::preferences::{FrequencyMode, FrequencyPreferences};
@@ -15941,6 +15977,13 @@ fn mobile_english_correction_request_preserves_raw_and_the_session() {
         "language",
         "omg",
         "thx",
+        "IM",
+        "I'M",
+        "I'VE",
+        "ENGLISH",
+        "CHINESE",
+        "eNglish",
+        "yOuRe",
         "you're",
         "i''m",
         "abcdefghijklmnopqrstuvwxyzabcdefg",

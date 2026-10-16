@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
@@ -157,7 +157,10 @@ test("shortcut groups follow declared capabilities, not the platform name", asyn
   });
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  expect(screen.getByRole("group", { name: "面板快捷键" })).toBeTruthy();
+  // 面板快捷键是一行只读参考，收在「按键速查」里。
+  expect(
+    within(screen.getByRole("region", { name: "按键速查" })).getByText("打开屏幕键盘"),
+  ).toBeTruthy();
   expect(screen.getByText("Ctrl+Shift+Super+K", { selector: "kbd" })).toBeTruthy();
   expect(screen.getByRole("group", { name: "输入模式切换快捷键" })).toBeTruthy();
   capable.unmount();
@@ -173,7 +176,7 @@ test("shortcut groups follow declared capabilities, not the platform name", asyn
   mount({ host: capabilities({ platform: "linux" }) });
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  expect(screen.queryByRole("group", { name: "面板快捷键" })).toBeNull();
+  expect(screen.queryByText("打开屏幕键盘")).toBeNull();
   expect(screen.queryByRole("group", { name: "输入模式切换快捷键" })).toBeNull();
 });
 
@@ -591,6 +594,8 @@ test("the shuangpin preedit choice reaches every host that draws the composition
       client={{
         load: async () => initial,
         save: vi.fn(),
+        // 有触屏方案的宿主在候选栏页设置双拼预编辑；真实的鸿蒙宿主总是带着它。
+        touchKeyboardSchemes: true,
         host: capabilities({ platform: "harmony", shuangpin_preedit: true }),
       }}
     />,

@@ -1,5 +1,8 @@
 package app.msime.android.test;
 
+import android.os.SystemClock;
+import android.view.KeyEvent;
+
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -38,9 +41,12 @@ public final class ChineseHelpcodeOffDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
 
             stage = "shift letter after the composition";
-            tap(key("⇧"));
-            await(key("O"));
-            tap(key("O"));
+            // 全拼触屏显示分词，键盘 Shift 修饰仍必须保留原大写字母。
+            long time = SystemClock.uptimeMillis();
+            KeyEvent letter = new KeyEvent(time, time, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_O,
+                0, KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON);
+            sendKeySync(letter);
+            sendKeySync(KeyEvent.changeAction(letter, KeyEvent.ACTION_UP));
             // 引擎在拼音组字中接收大写字母（#7146），O 以大写并入组字、不上屏；引擎一旦拒收而宿主不处理，O 就会丢，输入框停在 nihao。
             await(field("msime-test-plain").and(node -> equalsText("nihaoO", node.getText())));
             await(key("o"));

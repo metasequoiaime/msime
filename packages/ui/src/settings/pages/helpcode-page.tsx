@@ -52,7 +52,7 @@ export interface HelpcodeSettingsPageProps {
   customSchemas?: readonly CustomHelpcodeSchema[];
   /** 已安装的辅助码表插件；选中后替换该方案的辅助码方案。没有插件目录的宿主为空。 */
   packs?: readonly HelpcodePackOption[];
-  /** HarmonyOS 手机的紧凑形式，类似 Android 的 `TypingPage`：分组只显示这一族（当前方案所用的那一族）的 辅助码方案，两族的其他控件都移进 更多选项 折叠区。 */
+  /** 当前方案所用的那一族。HarmonyOS 手机（`mobile`）用紧凑形式，类似 Android 的 `TypingPage`：分组只显示这一族的 辅助码方案，两族的其他控件都移进 更多选项 折叠区。桌面显示这一族的三行，另一族的三行收进 更多选项：另一族的设置对当前方案不起作用。 */
   activeFamily?: HelpcodeKey;
   onChange: (patch: HelpcodeSettings) => void;
 }
@@ -189,6 +189,29 @@ export function HelpcodeSettingsGroup({
       再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语、韩语、粤拼、注音、笔画、越南语、藏文和快捷模式不使用辅助码。
     </SettingsGroupNote>
   );
+
+  if (activeFamily && !mobile) {
+    const activeLabel = activeFamily === "shuangpin_helpcode" ? "双拼" : "全拼";
+    return (
+      <GroupList title="辅助码">
+        {shiftNote}
+        {enabledRow(activeFamily, activeLabel)}
+        {schemaRow(activeFamily, activeLabel, `${activeLabel}辅助码方案`)}
+        {displayRow(activeFamily, activeLabel)}
+        <MoreOptions>
+          {families
+            .filter(([key]) => key !== activeFamily)
+            .map(([key, label]) => (
+              <Fragment key={key}>
+                {enabledRow(key, label)}
+                {schemaRow(key, label, `${label}辅助码方案`)}
+                {displayRow(key, label)}
+              </Fragment>
+            ))}
+        </MoreOptions>
+      </GroupList>
+    );
+  }
 
   if (activeFamily) {
     const activeLabel = activeFamily === "shuangpin_helpcode" ? "双拼" : "全拼";

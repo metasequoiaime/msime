@@ -18,6 +18,9 @@ export function VoiceSettingsPage() {
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
     showVoiceCaptureDevices,
+    showVoiceSpaceLockSwitch,
+    showVoiceCueSwitches,
+    showVoiceCaptureBackends,
     captureBackendOptions,
     showVoiceHotkeys,
     draft,
@@ -86,6 +89,9 @@ export function VoiceSettingsPage() {
       showVoiceStreamPreedit={showVoiceStreamPreedit}
       showVoiceCommitMode={showVoiceCommitMode}
       showVoiceCaptureDevices={showVoiceCaptureDevices}
+      showVoiceSpaceLockSwitch={showVoiceSpaceLockSwitch}
+      showVoiceCueSwitches={showVoiceCueSwitches}
+      showVoiceCaptureBackends={showVoiceCaptureBackends}
       captureBackendOptions={captureBackendOptions}
     />
   );

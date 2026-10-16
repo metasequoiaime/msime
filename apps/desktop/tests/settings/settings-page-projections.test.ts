@@ -232,7 +232,7 @@ test("a touch host offers the 试用键盘 sub-page only when it has no chat", (
   expect(project().availablePages.map((page) => page.id)).not.toContain("try-keyboard");
 });
 
-// macOS 和 Linux 桌面上手写页只有一个打开按钮，并进屏幕键盘页：侧栏少一项，屏幕键盘页改叫「屏幕键盘与手写」，旧的 handwriting id 指向它。
+// 桌面宿主上手写页只有一个打开按钮或一段说明，并进屏幕键盘页：侧栏少一项，屏幕键盘页改叫「屏幕键盘与手写」，旧的 handwriting id 指向它。
 test("folds 手写输入 into the screen keyboard page where the host asks for it", () => {
   const merged = project({ handwritingOnScreenKeyboardPage: true });
   expect(merged.handwritingOnScreenKeyboardPage).toBe(true);

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { GroupList } from "../core/platform-controls";
 import { ASR_PROVIDER_OPTIONS } from "../voice/voice-provider-options";
 import {
@@ -29,11 +30,17 @@ export interface VoiceInputCoreSectionProps {
   onEnabledChange: (enabled: boolean) => void;
   onProviderChange: (provider: string) => void;
   onLanguageChange: (language: string) => void;
+  /** 不画识别语言：当前服务的识别请求不读它（macOS 和 Windows 上的豆包）。值照旧保存、照旧上云。 */
+  hideLanguage?: boolean;
+  /** 紧跟在识别服务选择后面的行，例如桌面的「服务配置 ›」。 */
+  serviceRow?: ReactNode;
+  /** 识别语言后面、同一组里的行，例如桌面的自动添加标点和边说边显示。 */
+  children?: ReactNode;
 }
 
 export type VoiceInputServiceRowsProps = Omit<
   VoiceInputCoreSectionProps,
-  "language" | "systemVoice" | "onLanguageChange"
+  "language" | "systemVoice" | "onLanguageChange" | "hideLanguage" | "serviceRow" | "children"
 >;
 
 /** 语音输入总开关和识别服务选择，不带分组：大多数宿主上由识别分组容纳它们，HarmonyOS 手机上由识别服务分组容纳。 */
@@ -142,26 +149,33 @@ export function VoiceInputCoreSection({
   language,
   systemVoice,
   onLanguageChange,
+  hideLanguage = false,
+  serviceRow,
+  children,
   ...serviceRows
 }: VoiceInputCoreSectionProps) {
   return (
     <GroupList title="识别">
       <VoiceInputServiceRows {...serviceRows} />
-      <TextInputRow
-        title="识别语言"
-        description={
-          systemVoice ? "选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定" : undefined
-        }
-        label="识别语言"
-        maxLength={64}
-        list="settings-voice-language-options"
-        value={language}
-        onChange={onLanguageChange}
-      >
-        <datalist id="settings-voice-language-options">
-          <VoiceLanguageOptions systemVoice={systemVoice} />
-        </datalist>
-      </TextInputRow>
+      {serviceRow}
+      {!hideLanguage && (
+        <TextInputRow
+          title="识别语言"
+          description={
+            systemVoice ? "选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定" : undefined
+          }
+          label="识别语言"
+          maxLength={64}
+          list="settings-voice-language-options"
+          value={language}
+          onChange={onLanguageChange}
+        >
+          <datalist id="settings-voice-language-options">
+            <VoiceLanguageOptions systemVoice={systemVoice} />
+          </datalist>
+        </TextInputRow>
+      )}
+      {children}
     </GroupList>
   );
 }

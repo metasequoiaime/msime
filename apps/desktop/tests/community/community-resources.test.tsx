@@ -364,6 +364,29 @@ test("dictionary details can import the preview into the local dictionary withou
   expect(apply).not.toHaveBeenCalled();
 });
 
+test("词库详情优先安装命名词库并保留详情提示", async () => {
+  const item = base("dictionary");
+  const installCollection = vi.fn().mockResolvedValue(undefined);
+  const localImport = vi.fn();
+  render(
+    <CommunityResourcesPage
+      client={client({
+        list: vi.fn().mockResolvedValue({ items: [item], has_more: false }),
+        detail: vi.fn().mockResolvedValue(item),
+      })}
+      kind="dictionary"
+      localDictionary={{ import: localImport, installCollection }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "查看词库 开发词包" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导入这版词库到本机" }));
+  expect(
+    await screen.findByText("已添加为词库「开发词包」，可以在「词库」里停用或删除。"),
+  ).toBeTruthy();
+  expect(installCollection).toHaveBeenCalledExactlyOnceWith(item);
+  expect(localImport).not.toHaveBeenCalled();
+});
+
 test("dictionary local import preserves each entry kind", async () => {
   const item = {
     ...base("dictionary"),

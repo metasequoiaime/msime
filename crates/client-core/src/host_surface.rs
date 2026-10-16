@@ -51,6 +51,14 @@ impl HostPlatform {
         }
     }
 
+    /// 这个宿主是否读偏好里的中英混输触发字符数，见 `HostCapabilities::mixed_input_minimum_prefix`。只有触屏宿主（Android、iOS、HarmonyOS）读：九键、十四键上触发字符数是按键次数，在玻璃上多打几个字母的代价更大，Android 也是应用户要求才加的这一项。三个桌面宿主（macOS、Windows、Linux）不读，固定用 [`crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX`]。
+    pub fn reads_mixed_input_minimum_prefix(self) -> bool {
+        matches!(
+            self,
+            HostPlatform::Android | HostPlatform::Ios | HostPlatform::Harmony
+        )
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             HostPlatform::Windows => "windows",
@@ -255,6 +263,12 @@ pub struct HostCapabilities {
     /// somewhere to put one. A host without that surface would be offering a switch whose only
     /// effect is on a display it does not have.
     pub voice_stream_preedit: bool,
+    /// 宿主读 `voice_input.hotkey_hold_space_lock`，设置页才给出「长按录音时按空格锁定」开关。macOS 把它固定为开：空格只在按住录音组合键期间才被拦下，平常打字不受影响，宿主不再读存下的 false。
+    pub voice_space_lock_switch: bool,
+    /// 宿主分别读开始、结束提示音（`voice_input.start_sound`、`end_sound`），设置页才在总开关之外给出这两个开关。macOS 只读总开关 `sound_enabled`。
+    pub voice_cue_switches: bool,
+    /// 宿主有不止一种录音后端可选，设置页才给出「录音后端」和手填的设备名。macOS 只经 CoreAudio 录音，`""`、`auto`、`macos` 效果相同，设置页只给一个「麦克风」下拉，第一项是系统默认设备。
+    pub voice_capture_backends: bool,
     /// The host shows read-only English word completions while typing directly
     /// in English, governed by the shared `english_suggestions` preference. iOS
     /// offers the same surface but keeps its switch in the native App Group
@@ -334,6 +348,17 @@ pub struct HostCapabilities {
     pub shift_letter_entry_switch: bool,
     /// 宿主实现了「Ctrl+Shift+J 在中文和日语之间切换」（`KeybindingPreferences::toggle_japanese_ctrl_shift_j`）：实体键盘在中文状态按下时，从中文方案切到日语方案，或从日语等外语方案回到 `last_chinese_scheme`。设置页还要看本版本是否同时提供中文方案和日语，才显示这个开关。
     pub japanese_toggle_shortcut: bool,
+    /// 宿主读 `navigation.tab` 和 `navigation.page_up_down`，设置页给出「Shift+Tab / Tab」和「PageUp / PageDown」两组翻页键的开关。只在关掉确实把键还给应用的宿主上为真：
+    ///
+    /// - macOS 不读，两组固定开启：候选窗显示时，关掉的 Tab 和 PageUp/PageDown 照样被输入法占着（`InputController.mm` 返回已处理），关掉只让它们什么也不做。候选窗没显示时 Tab 一律交给应用；关掉的 PageUp/PageDown 原本也直接交给应用（先结束失焦上屏的组字），固定开启后先作为翻页命令交给会话，会话不处理才交给应用。
+    /// - Windows 不读，两组固定开启（`NavigationPolicy.h` 的 `preference_navigation`）：候选窗显示或组字时 TIP 总把这几个键交给 Server，关掉的绑定由 `navigation_action` 回答 `NavigationReply::Ignored`，键被吃掉，不会还给应用。
+    /// - HarmonyOS 不读，两组固定开启（`KeyboardSession.ets`）：组字时关掉的绑定被 `HardwareKeyRouter` 判为 `IGNORED` 并消费掉，同样只是让键失效。
+    /// - Linux 照旧读：fcitx5 对关掉的绑定结束组字并把键还给应用（`FcitxEngine.cpp`），开关有实际作用。Android 和 iOS 也照旧读。
+    ///
+    /// 这两项不进账号同步，固定下来不会让别的设备同步来的值在固定的宿主上看不见却生效。
+    pub tab_page_paging_switches: bool,
+    /// 宿主读 `mixed_input.minimum_prefix`，设置页给出「触发字符数」。三个桌面宿主不读，固定为默认的 5（[`HostPlatform::reads_mixed_input_minimum_prefix`]）：调低会让常见简拼被英文词抢走首选，不喜欢英文候选的人有「中英混输」开关。这一项不进账号同步。
+    pub mixed_input_minimum_prefix: bool,
     /// The operating system release, as the machine reports it, for the feedback
     /// page to attach. Not a platform assumption like the flags above -- the host
     /// fills it in after `for_platform`, the way `system_fonts` is filled in --
@@ -684,6 +709,10 @@ impl HostCapabilities {
             ),
             voice_provider_settings: true,
             voice_stream_preedit: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
+            // 这三项只有 macOS 收掉（见各字段说明）；其他宿主照旧读存下的值，Windows 的对齐另行跟进。
+            voice_space_lock_switch: platform != HostPlatform::Macos,
+            voice_cue_switches: platform != HostPlatform::Macos,
+            voice_capture_backends: platform != HostPlatform::Macos,
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
             helpcode_shift_entry: matches!(
@@ -739,6 +768,12 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Linux
             ),
+            // macOS（`AppearancePreferences.mm` 的 `-navigationEnabled:`）、Windows（`NavigationPolicy.h` 的 `preference_navigation`）和 HarmonyOS（`KeyboardSession.ets`）把 Tab 和 PageUp/PageDown 两组翻页键固定为开，其余宿主照旧读偏好。
+            tab_page_paging_switches: !matches!(
+                platform,
+                HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Harmony
+            ),
+            mixed_input_minimum_prefix: platform.reads_mixed_input_minimum_prefix(),
             os_version: None,
             arch: None,
             kernel_version: None,

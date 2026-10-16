@@ -31,7 +31,7 @@ crates/engine                  输入算法与组合状态（纯 Rust）
 | macOS | 共享 React 设置页 | 输入法菜单的设置项以 `--route=settings:<类别>` 拉起 Tauri 设置应用 `app.msime.macos`（`platforms/macos/src/core/DesktopSettingsLauncher.h`） |
 | Linux | 共享 React 设置页 | IBus 与 Fcitx5 的「设置…」以 `--route=settings` 调用 `msime-linux-settings`，关于、帮助、反馈和词库四项以 `--route=settings:<类别>` 调用（`platforms/linux/src/core/ClientEngine.cpp`、`platforms/linux/fcitx5/FcitxEngine.cpp`），由它启动 Tauri 外壳（`platforms/linux/data/msime-linux-settings.in`）；没有原生设置界面 |
 | HarmonyOS | 共享 React 设置页 | `pages/Settings.ets` 用 ArkWeb 加载 `stage-settings.sh` 打包的 `rawfile/settings/index.html`，ArkTS 一侧只做原生桥，不画设置表单 |
-| Windows | 原生 WinUI 3 | `msime-client-settings.exe`（`platforms/windows/settings/`）原生绘制全部 18 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`）；React 设置页仍随 Tauri 的 `MSIME.exe` 安装，直接运行 `MSIME.exe` 能看到，但没有设置入口指向它 |
+| Windows | 原生 WinUI 3 | `msime-client-settings.exe`（`platforms/windows/settings/`）原生绘制全部 17 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`）；React 设置页仍随 Tauri 的 `MSIME.exe` 安装，直接运行 `MSIME.exe` 能看到，但没有设置入口指向它 |
 | iOS | 原生 SwiftUI | `platforms/ios/App/Sources/`；App、`SharedUI` 和键盘扩展里都没有 WebView |
 | Android | 原生 Java | 发布的 APK（`platforms/android/build-apk.sh`）的设置 App 各页在 `java/app/msime/android/home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面，不含 Tauri/React；带 React 设置的 Tauri 合包（`build-client-apk.sh`）只用于开发验证，不发布 |
 
@@ -58,6 +58,8 @@ Tauri 在三个桌面平台上还承载共享面板：表情与符号、手写�
 平台仍要用到的非引擎文件已随仓库提交：Windows 与各宿主共用的 IPC 契约头文件在 `shared/contracts/`，辅助码表在 `resources/helpcodes/`，Windows 提示音用的 miniaudio 在 `platforms/windows/third_party/miniaudio/`。
 
 引入新的上游代码、字体、图标、模型或服务 SDK 时，同时提交来源提交、许可证文本、通知位置和分发限制。
+
+OpenCC 七份简繁转换表归 `msime-dictionary/sources/opencc/`，由 `resources/opencc.lock.json` 固定词库仓提交、OpenCC 上游提交及逐文件 SHA-256 与大小。`client-base/build.rs` 在构建主机用 Python 3.10+ 调用 `scripts/fetch_opencc.py` 准备输入，之后仍由 `include_str!` 内嵌。首次构建需要网络；后续复用逐文件校验的 `target/opencc/<commit>/`。离线构建可先运行 `python3 scripts/fetch_opencc.py` 准备缓存，再设置 `MSIME_OPENCC_OFFLINE=1`；也可用 `MSIME_OPENCC_SOURCE_DIR=/path/to/msime-dictionary/sources/opencc` 指定离线检出，字节必须与锁一致。`MSIME_PYTHON` 可指定解释器。运行时转换不读外部文件、不访问网络；许可证仍随各平台打包。
 
 ## 验证
 

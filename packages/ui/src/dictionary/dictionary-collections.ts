@@ -1,4 +1,4 @@
-import type { CommunityResource } from "../community/community-resources";
+import type { CommunityResource } from "../community/community-resource-model";
 import { formatZhNumber } from "../core/format-number";
 
 /**

@@ -77,10 +77,6 @@ static BOOL KnownLocalMode(NSString *mode) {
 static BOOL LocalModeBoolean(id value) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID();
 }
-static BOOL ValidMixedPrefix(id value) {
-    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
-           !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value integerValue] >= 1 && [value integerValue] <= 8;
-}
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const FontFamilyKey = @"MSIMEClientCandidateFontFamily";
 static NSString *const CandidateEnglishFontKey = @"MSIMEClientCandidateEnglishFont";
@@ -173,10 +169,10 @@ static NSString *const CandidatePreeditKey = @"MSIMEClientCandidatePreeditStyle"
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 static NSString *const NavigationKey = @"MSIMEClientNavigation";
 static NSString *const WordCharacterKey = @"MSIMEClientWordCharacter";
+// 这里只列用户能改的翻页键。Tab / Shift-Tab 和 Page Up / Page Down 在 macOS 上固定开启（见 -navigationEnabled:），不画复选框，也不再读写共享文档里的 `navigation.tab`、`navigation.page_up_down`。
 static NSArray<NSArray<NSString *> *> *NavigationControls() {
     return @[@[@"minus_equal", @"减号/等号翻页"], @[@"comma_period", @"逗号/句号翻页"],
-             @[@"brackets", @"方括号翻页"], @[@"tab", @"Tab / Shift-Tab 翻页"],
-             @[@"page_up_down", @"Page Up / Page Down 翻页"], @[@"mouse_wheel", @"鼠标滚轮翻页"],
+             @[@"brackets", @"方括号翻页"], @[@"mouse_wheel", @"鼠标滚轮翻页"],
              @[@"arrows", @"方向键选择候选"]];
 }
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
@@ -340,7 +336,6 @@ static NSString *const VoiceSoundKey = @"MSIMEClientVoiceSoundEnabled";
 static NSString *const VoiceMuteSystemAudioKey = @"MSIMEClientVoiceMuteSystemAudio";
 static NSString *const VoiceStreamInlinePreeditKey = @"MSIMEClientVoiceStreamInlinePreedit";
 static NSString *const VoiceHotkeyCtrlF9Key = @"MSIMEClientVoiceHotkeyCtrlF9";
-static NSString *const VoiceHotkeyHoldSpaceKey = @"MSIMEClientVoiceHotkeyHoldSpace";
 static NSString *const VoiceHotkeyRightAltKey = @"MSIMEClientVoiceHotkeyRightAlt";
 static NSString *const VoiceHotkeyCtrlCommandKey = @"MSIMEClientVoiceHotkeyCtrlCommand";
 static NSString *const VoiceHotkeyCtrlOptionKey = @"MSIMEClientVoiceHotkeyCtrlOption";
@@ -496,7 +491,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             FullWidthKey : ^id(MSIMEAppearancePreferences *p) { return @(p.fullWidthInput); },
             TraditionalKey : ^id(MSIMEAppearancePreferences *p) { return @(p.traditionalOutput); },
             MixedInputKey : ^id(MSIMEAppearancePreferences *p) {
-                return @[@(p.mixedEnglishInput), @(p.mixedEnglishMinimumPrefix), @(p.mixedEmojiInput), @(p.mixedKaomojiInput), @(p.mixedSymbolInput)];
+                return @[@(p.mixedEnglishInput), @(p.mixedEmojiInput), @(p.mixedKaomojiInput), @(p.mixedSymbolInput)];
             },
             TranspositionKey : ^id(MSIMEAppearancePreferences *p) { return @(p.autocorrectTransposition); },
             NeighborKey : ^id(MSIMEAppearancePreferences *p) { return @(p.autocorrectNeighbor); },
@@ -558,7 +553,6 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             VoiceMuteSystemAudioKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceMuteSystemAudio); },
             VoiceStreamInlinePreeditKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceStreamInlinePreedit); },
             VoiceHotkeyCtrlF9Key : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyCtrlF9); },
-            VoiceHotkeyHoldSpaceKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyHoldSpace); },
             VoiceHotkeyRightAltKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyRightAlt); },
             VoiceHotkeyCtrlCommandKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyCtrlCommand); },
             VoiceHotkeyCtrlOptionKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyCtrlOption); },
@@ -1027,7 +1021,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSPopUpButton *_punctuationLockButton;
     NSMutableDictionary *_sharedMixedInput;
     NSSwitch *_mixedEnglishToggle;
-    NSPopUpButton *_mixedEnglishPrefixButton;
     NSSwitch *_mixedEmojiToggle;
     NSSwitch *_mixedKaomojiToggle;
     NSSwitch *_mixedSymbolToggle;
@@ -1174,7 +1167,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSSwitch *_voiceHotkeyRightAltToggle;
     NSSwitch *_voiceHotkeyCtrlCommandToggle;
     NSSwitch *_voiceHotkeyCtrlOptionToggle;
-    NSSwitch *_voiceHotkeyHoldSpaceToggle;
     NSSwitch *_wubiMixedPinyinToggle;
     NSSwitch *_toolbarToggle;
     NSSwitch *_transpositionToggle;
@@ -1421,12 +1413,14 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"smart_punctuation_space_convert"] = @(self.smartPunctuationSpaceConvert);
     merged[@"paired_punctuation"] = @(self.pairedPunctuation);
     merged[@"punctuation_lock"] = self.punctuationLock;
+    // 不从本机写 `minimum_prefix`：macOS 把触发字符数固定为 5（host-api 不读文档里的值），写回本机存过的旧值只会把它一直留在文档里。但下面整个对象替换掉传入文档的 `mixed_input`，而 client-core 的 `MixedInputPreferences.minimum_prefix` 是必填字段，所以传入文档里原有的值要原样带过来，否则合并出的完整文档读不回来；传入的是空字典时（InputController 再用 MSIMEMergePreferenceSnapshot 按键合并到磁盘上的文档）就不带这个键，磁盘上的值保持不动。
     NSMutableDictionary *mixedInput = [@{
         @"english": @(self.mixedEnglishInput),
-        @"minimum_prefix": @(self.mixedEnglishMinimumPrefix),
         @"emoji": @(self.mixedEmojiInput),
         @"kaomoji": @(self.mixedKaomojiInput)
     } mutableCopy];
+    id storedMinimumPrefix = [merged[@"mixed_input"] isKindOfClass:NSDictionary.class] ? merged[@"mixed_input"][@"minimum_prefix"] : nil;
+    if (storedMinimumPrefix) mixedInput[@"minimum_prefix"] = storedMinimumPrefix;
     // 整个对象重写，所以符号混输必须带上，否则在共享页关掉后，这里改一次别的混输开关就会把它冲回默认的开。与 client-core 相同，只在关掉时写这个键。
     if (!self.mixedSymbolInput) mixedInput[@"symbols"] = @NO;
     merged[@"mixed_input"] = mixedInput;
@@ -2032,7 +2026,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if ([mixedInput isKindOfClass:NSDictionary.class]) {
         NSMutableDictionary *values = [_sharedMixedInput mutableCopy] ?: [NSMutableDictionary dictionary];
         if (LocalModeBoolean(mixedInput[@"english"])) values[@"english"] = mixedInput[@"english"];
-        if (ValidMixedPrefix(mixedInput[@"minimum_prefix"])) values[@"minimum_prefix"] = mixedInput[@"minimum_prefix"];
         if (LocalModeBoolean(mixedInput[@"emoji"])) values[@"emoji"] = mixedInput[@"emoji"];
         if (LocalModeBoolean(mixedInput[@"kaomoji"])) values[@"kaomoji"] = mixedInput[@"kaomoji"];
         // 共享文档开着时不写 `symbols`，缺键就是开；字符串、null 这类非法值忽略。
@@ -2376,11 +2369,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 }
 - (BOOL)mixedEnglishInput { id value = [self mixedInputValues][@"english"]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
 - (void)setMixedEnglishInput:(BOOL)value { [self setMixedInputValue:@(value) forKey:@"english"]; }
-- (NSInteger)mixedEnglishMinimumPrefix { id value = [self mixedInputValues][@"minimum_prefix"]; return ValidMixedPrefix(value) ? [value integerValue] : 5; }
-- (void)setMixedEnglishMinimumPrefix:(NSInteger)value {
-    if (value < 1 || value > 8) value = 5;
-    [self setMixedInputValue:@(value) forKey:@"minimum_prefix"];
-}
 // Falls back to on, matching `source_mixed_emoji_default` in client-core and the source's `emoji_mixed_input = true`.
 - (BOOL)mixedEmojiInput { id value = [self mixedInputValues][@"emoji"]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
 - (void)setMixedEmojiInput:(BOOL)value { [self setMixedInputValue:@(value) forKey:@"emoji"]; }
@@ -2511,13 +2499,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 }
 - (void)setVoiceHotkeyCtrlF9:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyCtrlF9Key];
-    [self preferencesChanged];
-}
-- (BOOL)voiceHotkeyHoldSpace {
-    return [_defaults objectForKey:VoiceHotkeyHoldSpaceKey] == nil || [_defaults boolForKey:VoiceHotkeyHoldSpaceKey];
-}
-- (void)setVoiceHotkeyHoldSpace:(BOOL)value {
-    [_defaults setBool:value forKey:VoiceHotkeyHoldSpaceKey];
     [self preferencesChanged];
 }
 // The three modifier holds are off unless they were asked for, which is what MSIMEVoiceHoldShortcut is handed in InputController: a modifier combination that starts recording on its own is not something to turn on for a user who never asked for it.
@@ -2852,9 +2833,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 }
 /// Which key group the paging preset names, read back out of the navigation dictionary rather than out of a second stored number of its own.
 ///
-/// The preset and the seven paging checkboxes are one setting written two ways, and they used to be two settings: the preset wrote MSIMEClientCandidatePageShortcut and the checkboxes wrote MSIMEClientNavigation, the input method routed keys by the dictionary alone, and the menu went on showing a group the user had since unchecked. The dictionary is what the input method reads, so the dictionary is what the menu now reports.
+/// The preset and the paging checkboxes are one setting written two ways, and they used to be two settings: the preset wrote MSIMEClientCandidatePageShortcut and the checkboxes wrote MSIMEClientNavigation, the input method routed keys by the dictionary alone, and the menu went on showing a group the user had since unchecked. The dictionary is what the input method reads, so the dictionary is what the menu now reports.
 ///
-/// All three groups are asked, including the one the third preset names. Answering 2 for everything that was neither bracket nor minus/equal made the menu claim 「Page Up / Page Down」 for a user who had just unticked exactly that box — and 2 is the preset whose setter turns it back on, so the menu was offering to undo the change it was already misreporting. The checkboxes can reach states no preset names — 逗号/句号翻页 alone is one — and -1 is this getter saying so rather than picking the nearest of three.
+/// 三组都要问，包括第三个预设对应的 Page Up / Page Down。macOS 上 Page Up / Page Down 固定开启（-navigationEnabled: 对 `page_up_down` 总是返回 YES，也没有它的复选框），所以方括号和减号/等号都没开时这里返回 2，包括只开了逗号/句号翻页的情况；-1 已经走不到，只为 storedPageShortcutForCurrentBindings 这类调用方仍处理它而保留。
 - (NSInteger)pageShortcut {
     if ([self navigationEnabled:@"brackets"]) return 1;
     if ([self navigationEnabled:@"minus_equal"]) return 0;
@@ -2870,11 +2851,13 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     return value == 1 || value == 2 ? value : 0;
 }
 - (BOOL)navigationEnabled:(NSString *)key {
+    // Tab / Shift-Tab 和 Page Up / Page Down 固定开启，不读存着的值：候选窗显示时这几个键总归由输入法处理（关掉的也返回已处理），关掉只会让它们什么也不做，并不会还给应用。候选窗没显示时 Tab 一律交给应用；关掉的 Page Up / Page Down 原本直接交给应用，固定开启后先作为翻页命令交给会话，会话不处理才交给应用。设置页也不再给这两组的开关（HostCapabilities.tab_page_paging_switches）。
+    if ([key isEqual:@"tab"] || [key isEqual:@"page_up_down"]) return YES;
     id value = _sharedNavigation[key] ?: [_defaults dictionaryForKey:NavigationKey][key];
     if (LocalModeBoolean(value)) return [value boolValue];
     if ([key isEqual:@"minus_equal"]) return [self storedPageShortcut] == 0;
     if ([key isEqual:@"brackets"]) return [self storedPageShortcut] == 1;
-    return [@[@"comma_period", @"tab", @"page_up_down", @"arrows"] containsObject:key];
+    return [@[@"comma_period", @"arrows"] containsObject:key];
 }
 - (NSDictionary *)wordCharacterOptions {
     NSDictionary *value = _sharedWordCharacter ?: [_defaults dictionaryForKey:WordCharacterKey];
@@ -3054,21 +3037,14 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [_defaults setInteger:value forKey:PageShortcutKey];
     [self preferencesChanged];
 }
-/// The preset writes the same dictionary the checkboxes write, because there is nothing else to
-/// write it to: choosing 「[ / ]」 is choosing the bracket checkbox and unchoosing the minus/equal one.
-///
-/// It used to set page_up_down to YES as well, whichever group had been picked — so picking 「- / =」
-/// turned Page Up and Page Down back on under a user who had just unchecked them, and the checkbox
-/// and the menu disagreed about a key that had only one setting. The third preset is the only one
-/// that says anything about that group, and all it can say is to turn it on.
+/// 预设写的就是复选框写的那份字典，没有别处可写：选「[ / ]」就是勾上方括号、取消减号/等号。第三个预设「Page Up / Page Down」只是两组都不选：Page Up / Page Down 在 macOS 上固定开启（-navigationEnabled:），预设不再写 `page_up_down`。
 - (void)applyNavigationPreset:(NSInteger)value {
     NSMutableDictionary *navigation = [[_defaults dictionaryForKey:NavigationKey] mutableCopy] ?: [NSMutableDictionary dictionary];
     navigation[@"minus_equal"] = @(value == 0);
     navigation[@"brackets"] = @(value == 1);
-    if (value == 2) navigation[@"page_up_down"] = @YES;
     [_defaults setObject:navigation forKey:NavigationKey];
     if (!_sharedNavigation) _sharedNavigation = [NSMutableDictionary dictionary];
-    for (NSString *key in @[@"minus_equal", @"brackets", @"page_up_down"])
+    for (NSString *key in @[@"minus_equal", @"brackets"])
         if (navigation[key] != nil) _sharedNavigation[key] = navigation[key];
 }
 - (void)refreshControls {
@@ -3122,7 +3098,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _voiceHotkeyRightAltToggle.state = self.voiceHotkeyRightAlt ? NSControlStateValueOn : NSControlStateValueOff;
     _voiceHotkeyCtrlCommandToggle.state = self.voiceHotkeyCtrlCommand ? NSControlStateValueOn : NSControlStateValueOff;
     _voiceHotkeyCtrlOptionToggle.state = self.voiceHotkeyCtrlOption ? NSControlStateValueOn : NSControlStateValueOff;
-    _voiceHotkeyHoldSpaceToggle.state = self.voiceHotkeyHoldSpace ? NSControlStateValueOn : NSControlStateValueOff;
     _traditionalOutputToggle.state = self.traditionalOutput ? NSControlStateValueOn : NSControlStateValueOff;
     _keymapToggle.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiToggle.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
@@ -3135,7 +3110,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSDictionary *punctuationLockIndexes = @{@"follow": @0, @"chinese": @1, @"english": @2};
     [_punctuationLockButton selectItemAtIndex:[punctuationLockIndexes[self.punctuationLock] integerValue]];
     _mixedEnglishToggle.state = self.mixedEnglishInput ? NSControlStateValueOn : NSControlStateValueOff;
-    [_mixedEnglishPrefixButton selectItemAtIndex:self.mixedEnglishMinimumPrefix - 1];
     _mixedEmojiToggle.state = self.mixedEmojiInput ? NSControlStateValueOn : NSControlStateValueOff;
     _mixedKaomojiToggle.state = self.mixedKaomojiInput ? NSControlStateValueOn : NSControlStateValueOff;
     _mixedSymbolToggle.state = self.mixedSymbolInput ? NSControlStateValueOn : NSControlStateValueOff;
@@ -3286,7 +3260,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         // Both places the space conversion is read — InputController.mm, where a space after a
         // just-committed mark is rewritten — ask for 智能标点 first, so it does nothing without it.
         @[ @(self.smartPunctuation), @[_smartPunctuationSpaceToggle] ],
-        @[ @(self.mixedEnglishInput), @[_mixedEnglishPrefixButton] ],
         @[ @(learning), @[_frequencyModeButton, _frequencyTriggerButton] ],
         // The step is read only by the linear mode — host-api passes frequency_linear_step to the engine whatever the mode is (crates/host-api/src/lib.rs) and the engine then ignores it — so it is live only where it does something.
         @[ @(learning && [self.frequencyAdjustmentMode isEqual:@"linear"]), @[_frequencyStepButton] ],
@@ -3303,9 +3276,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         @[ @(voice), @[_voiceLanguageButton, _voiceSoundToggle, _voiceMuteSystemAudioToggle,
                        _voiceStreamInlinePreeditToggle, _voiceHotkeyCtrlF9Toggle, _voiceHotkeyRightAltToggle,
                        _voiceHotkeyCtrlCommandToggle, _voiceHotkeyCtrlOptionToggle] ],
-        // The space lock is read by MSIMEVoiceHoldShortcut only while one of the three modifier holds is down; Control + F9 is a press handled by its own monitor and never reaches it.
-        @[ @(voice && (self.voiceHotkeyRightAlt || self.voiceHotkeyCtrlCommand || self.voiceHotkeyCtrlOption)),
-           @[_voiceHotkeyHoldSpaceToggle] ],
         // 以词定字 cannot be turned on for a key group that paging holds. The popup beneath it stays
         // live even so — it is the way off the contested group, and greying it out would leave the
         // pair with no way out at all.
@@ -3656,8 +3626,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         MSIMESettingSwitch(self, @selector(voiceHotkeyCtrlCommandChanged:), @"按住 Control + Command 说话");
     _voiceHotkeyCtrlOptionToggle =
         MSIMESettingSwitch(self, @selector(voiceHotkeyCtrlOptionChanged:), @"按住右 Control + Option 说话");
-    _voiceHotkeyHoldSpaceToggle =
-        MSIMESettingSwitch(self, @selector(voiceHotkeyHoldSpaceChanged:), @"按住说话时按空格锁定录音");
     _traditionalOutputToggle = MSIMESettingSwitch(self, @selector(traditionalOutputChanged:), @"简繁输入");
     _keymapToggle = MSIMESettingSwitch(self, @selector(keymapChanged:), @"输入时显示双拼键位提示");
     _wubiToggle = MSIMESettingSwitch(self, @selector(wubiChanged:), @"五笔四码唯一候选自动上屏");
@@ -3674,14 +3642,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _punctuationLockButton.target = self;
     _punctuationLockButton.action = @selector(punctuationLockChanged:);
     _mixedEnglishToggle = MSIMESettingSwitch(self, @selector(mixedEnglishChanged:), @"中英混输");
-    _mixedEnglishPrefixButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    NSMutableArray<NSString *> *mixedPrefixes = [NSMutableArray array];
-    for (NSInteger prefix = 1; prefix <= 8; ++prefix)
-        [mixedPrefixes addObject:[NSString stringWithFormat:@"%ld 个字符", (long)prefix]];
-    [_mixedEnglishPrefixButton addItemsWithTitles:mixedPrefixes];
-    _mixedEnglishPrefixButton.accessibilityLabel = @"中英混输触发字符数";
-    _mixedEnglishPrefixButton.target = self;
-    _mixedEnglishPrefixButton.action = @selector(mixedEnglishPrefixChanged:);
     _mixedEmojiToggle = MSIMESettingSwitch(self, @selector(mixedEmojiChanged:), @"Emoji 混输");
     _mixedKaomojiToggle = MSIMESettingSwitch(self, @selector(mixedKaomojiChanged:), @"颜文字混输");
     _mixedSymbolToggle = MSIMESettingSwitch(self, @selector(mixedSymbolChanged:), @"符号混输");
@@ -3907,7 +3867,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     punctuationCard.accessibilityLabel = @"标点与字符卡片";
     NSBox *mixedCard = MSIMECardWithViews(@[
         [self settingRow:@"中英混输" detail:@"在中文组词中允许英文候选。" control:_mixedEnglishToggle],
-        [self settingRow:@"中英混输触发长度" control:_mixedEnglishPrefixButton],
         [self settingRow:@"符号混输" detail:@"打出符号名称时在候选中提供对应符号，如 zhengfu → ±。" control:_mixedSymbolToggle aka:@[@"特殊符号"]],
         [self settingRow:@"Emoji 混输" detail:@"在中文组词中提供 Emoji 候选。" control:_mixedEmojiToggle aka:@[@"表情"]],
         [self settingRow:@"颜文字混输" detail:@"在中文组词中提供颜文字候选。" control:_mixedKaomojiToggle],
@@ -4306,11 +4265,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                      aka:@[@"听写"]],
         [self settingRow:@"按住右 Option 说话" control:_voiceHotkeyRightAltToggle aka:@[@"听写"]],
         [self settingRow:@"按住 Control + Command 说话" control:_voiceHotkeyCtrlCommandToggle aka:@[@"听写"]],
+        // 按住说话时按空格锁定录音在 macOS 上固定为开（InputController 不再读存下的值），这里不再给开关。
         [self settingRow:@"按住右 Control + Option 说话" control:_voiceHotkeyCtrlOptionToggle aka:@[@"听写"]],
-        [self settingRow:@"按住说话时按空格锁定录音"
-                  detail:@"锁定后松开按键录音继续，再按一次结束键才停止。"
-                 control:_voiceHotkeyHoldSpaceToggle
-                     aka:@[@"听写"]],
     ], 0.0);
     switchingCard.accessibilityLabel = @"输入状态切换卡片";
     // Switching between Chinese and English is what this page is opened for; the paging matrix is
@@ -4326,7 +4282,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                        keys:@[InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey, CapsLockTapShortcutKey,
                               ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthShortcutKey,
                               VoiceHotkeyCtrlF9Key, VoiceHotkeyRightAltKey, VoiceHotkeyCtrlCommandKey,
-                              VoiceHotkeyCtrlOptionKey, VoiceHotkeyHoldSpaceKey]],
+                              VoiceHotkeyCtrlOptionKey]],
         switchingCard,
         [self sectionHeader:@"候选翻页与选字" keys:@[PageShortcutKey, NavigationKey, WordCharacterKey]],
         pagingCard,
@@ -4986,7 +4942,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)voiceHotkeyRightAltChanged:(NSSwitch *)sender { self.voiceHotkeyRightAlt = sender.state == NSControlStateValueOn; }
 - (void)voiceHotkeyCtrlCommandChanged:(NSSwitch *)sender { self.voiceHotkeyCtrlCommand = sender.state == NSControlStateValueOn; }
 - (void)voiceHotkeyCtrlOptionChanged:(NSSwitch *)sender { self.voiceHotkeyCtrlOption = sender.state == NSControlStateValueOn; }
-- (void)voiceHotkeyHoldSpaceChanged:(NSSwitch *)sender { self.voiceHotkeyHoldSpace = sender.state == NSControlStateValueOn; }
 - (void)traditionalOutputChanged:(NSSwitch *)sender { self.traditionalOutput = sender.state == NSControlStateValueOn; }
 - (void)keymapChanged:(NSSwitch *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
 - (void)wubiChanged:(NSSwitch *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
@@ -5003,7 +4958,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)pairedPunctuationChanged:(NSSwitch *)sender { self.pairedPunctuation = sender.state == NSControlStateValueOn; }
 - (void)punctuationLockChanged:(NSPopUpButton *)sender { self.punctuationLock = @[@"follow", @"chinese", @"english"][sender.indexOfSelectedItem]; }
 - (void)mixedEnglishChanged:(NSSwitch *)sender { self.mixedEnglishInput = sender.state == NSControlStateValueOn; }
-- (void)mixedEnglishPrefixChanged:(NSPopUpButton *)sender { self.mixedEnglishMinimumPrefix = sender.indexOfSelectedItem + 1; }
 - (void)mixedEmojiChanged:(NSSwitch *)sender { self.mixedEmojiInput = sender.state == NSControlStateValueOn; }
 - (void)mixedKaomojiChanged:(NSSwitch *)sender { self.mixedKaomojiInput = sender.state == NSControlStateValueOn; }
 - (void)mixedSymbolChanged:(NSSwitch *)sender { self.mixedSymbolInput = sender.state == NSControlStateValueOn; }

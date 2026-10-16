@@ -714,6 +714,27 @@ fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
     }
 }
 
+/// macOS 把空格锁定固定为开、只读提示音总开关、只经 CoreAudio 录音，所以只有它不给这三组控件；其他宿主照旧读存下的值。
+#[test]
+fn macos_alone_fixes_space_lock_cue_split_and_capture_backend() {
+    let macos = HostCapabilities::for_platform(HostPlatform::Macos);
+    assert!(!macos.voice_space_lock_switch);
+    assert!(!macos.voice_cue_switches);
+    assert!(!macos.voice_capture_backends);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        let capabilities = HostCapabilities::for_platform(platform);
+        assert!(capabilities.voice_space_lock_switch);
+        assert!(capabilities.voice_cue_switches);
+        assert!(capabilities.voice_capture_backends);
+    }
+}
+
 /// Only the hosts that wire them claim sound packs, the `/` and `@` modes, music and typing effects.
 #[test]
 fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
@@ -804,6 +825,36 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Harmony), (false, true, true));
     assert_eq!(flags(HostPlatform::Android), (false, false, false));
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
+}
+
+/// macOS、Windows 和 HarmonyOS 把 Tab、PageUp/PageDown 两组翻页键固定为开（关掉只让键失效，不会还给应用），Linux 和 Android、iOS 照旧读偏好并显示开关。三个桌面宿主把中英混输的触发字符数固定为默认值，触屏宿主照旧读。
+#[test]
+fn hosts_fix_the_tab_page_paging_keys_and_the_mixed_input_prefix() {
+    // (宿主, 读 Tab/PageUp 开关, 读触发字符数)
+    for (platform, reads_paging, reads_prefix) in [
+        (HostPlatform::Windows, false, false),
+        (HostPlatform::Macos, false, false),
+        (HostPlatform::Linux, true, false),
+        (HostPlatform::Harmony, false, true),
+        (HostPlatform::Android, true, true),
+        (HostPlatform::Ios, true, true),
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert_eq!(host.tab_page_paging_switches, reads_paging, "{platform:?}");
+        assert_eq!(
+            host.mixed_input_minimum_prefix, reads_prefix,
+            "{platform:?}"
+        );
+        assert_eq!(
+            platform.reads_mixed_input_minimum_prefix(),
+            reads_prefix,
+            "{platform:?}"
+        );
+    }
+    assert_eq!(
+        crate::preferences::MixedInputPreferences::default().minimum_prefix,
+        crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX
+    );
 }
 
 /// 卡片内边距目前只有 macOS 候选窗读，其他宿主不显示这个滑块（#7316）。

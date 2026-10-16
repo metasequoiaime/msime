@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
-import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import {
+  openVoiceServiceConfig,
+  settingsFormReady,
+  saveSettingsNow,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
 import { testHost } from "../support/host";
+import { desktopVoiceServiceStatus } from "../../../../packages/ui/src/settings/voice-settings-content";
 
 afterEach(() => {
   cleanup();
@@ -31,7 +36,11 @@ test("voice settings content owns the shared recognition result section", () => 
     'import { VoiceRecognitionResultSection } from "./voice-recognition-result-section";',
   );
   expect(voiceContent).toContain("<VoiceRecognitionResultSection");
-  expect(voiceContent).not.toContain("<VoiceStreamPreeditSection");
+  // 桌面把边说边显示放在主页面的「识别」组里，用的是同一个共享开关，不另写一份。
+  expect(voiceContent).toContain(
+    'import { VoiceStreamPreeditSection } from "./voice-stream-preedit-section";',
+  );
+  expect(voiceContent).not.toContain('title="流式预编辑"');
 });
 
 test("voice settings content owns the shared ASR provider section", () => {
@@ -105,6 +114,7 @@ async function openVoice(platform: string) {
 
 test("a pasted recognition token can be revealed to check it", async () => {
   await openVoice("windows");
+  openVoiceServiceConfig();
   const token = await screen.findByLabelText("识别 API Token");
   // Before this the field was a bare <input type=password>: a truncated or
   // mistyped paste could not be checked, even though SecretInput already
@@ -120,8 +130,8 @@ test("a pasted recognition token can be revealed to check it", async () => {
 test("the Doubao app key and polish token get the same toggle", async () => {
   await openVoice("windows");
   // 润色关闭时语音页把令牌连同整组收起，先打开润色。
+  openVoiceServiceConfig();
   expect(screen.getByRole("button", { name: "显示Doubao App Key" })).toBeTruthy();
-  selectSettingsTab("润色");
   fireEvent.click(screen.getByRole("switch", { name: "启用文本润色" }));
   expect(screen.getByRole("button", { name: "显示润色 API Token" })).toBeTruthy();
 });
@@ -258,8 +268,8 @@ test("iOS handwriting points to the keyboard extension instead of a desktop pane
   expect(openSystemKeyboardSettings).toHaveBeenCalledOnce();
 });
 
-// 语音页先把识别服务配好（检查按钮在配置组末尾），再是快捷键、录音行为和识别结果，润色是可选的另一项服务，录音设备放在最后。
-test("the voice page sets up the service before the shortcuts and the rest", async () => {
+// 语音页主页面只留常用的几项：识别、快捷键、录音行为。识别服务的配置（检查按钮在配置组末尾）、识别结果、润色、提示音细分和录音设备收在「服务配置」子视图里，照鸿蒙手机的整理方案。
+test("the voice page keeps the common rows and folds the service into its own view", async () => {
   render(
     <SettingsPage
       client={{
@@ -274,26 +284,32 @@ test("the voice page sets up the service before the shortcuts and the rest", asy
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   const page = await screen.findByRole("group", { name: "语音输入" });
-  const groups = [...page.querySelectorAll("[data-group-title]")].map(
-    (node) => node.textContent ?? "",
-  );
-  const expected = [
-    "识别",
-    "识别服务配置",
-    "语音快捷键",
-    "录音行为",
-    "识别结果",
-    "文本润色",
-    "录音设备",
-  ];
-  expect(groups.filter((title) => expected.includes(title))).toEqual(expected);
-  // 豆包的识别选项和资源 ID 在配置组里，检查按钮是这一组的最后一项。
-  const service = screen.getByRole("region", { name: "识别服务配置" });
-  expect(within(service).getByLabelText("数字格式化")).toBeTruthy();
-  expect(within(service).getByLabelText("Doubao 资源 ID")).toBeTruthy();
+  const titles = (root: Element) =>
+    [...root.querySelectorAll("[data-group-title]")].map((node) => node.textContent ?? "");
+  const config = page.querySelector('[aria-label="服务配置"][role="region"]')!;
+  expect(config.hasAttribute("hidden")).toBe(true);
+  const main = [...page.querySelectorAll("[data-group-title]")]
+    .filter((node) => !config.contains(node))
+    .map((node) => node.textContent ?? "");
+  expect(main).toEqual(["语音面板", "识别", "语音快捷键", "录音行为"]);
+  expect(screen.queryByRole("textbox", { name: "Doubao 资源 ID" })).toBeNull();
+  // 「服务配置」一行写着凭据填没填：旧版鉴权填了令牌、没填 App ID。
+  const row = screen.getByRole("button", { name: "服务配置" });
+  expect(row.textContent).toContain("未填写完整");
+
+  const view = openVoiceServiceConfig();
+  expect(titles(view)).toEqual(["识别服务", "识别结果", "文本润色", "提示音", "录音设备"]);
+  expect(screen.queryByRole("switch", { name: "启用语音输入" })).toBeNull();
+  // 豆包的识别选项和资源 ID 收在「更多选项」里，检查按钮是这一组的最后一项。
+  const service = within(view).getByRole("region", { name: "识别服务" });
+  expect(within(service).getByLabelText("数字格式化").closest("details")).toBeTruthy();
+  expect(within(service).getByLabelText("Doubao 资源 ID").closest("details")).toBeTruthy();
+  expect(within(service).getByLabelText("豆包鉴权方式").closest("details")).toBeNull();
   const test = within(service).getByRole("button", { name: "测试豆包识别配置" });
   const controls = [...service.querySelectorAll("input, select, button")];
   expect(controls.at(-1)).toBe(test);
+  fireEvent.click(within(view).getByRole("button", { name: "返回" }));
+  expect(screen.getByRole("switch", { name: "启用语音输入" })).toBeTruthy();
 });
 
 test("文本润色 shows only its switch until polishing is turned on", async () => {
@@ -309,7 +325,7 @@ test("文本润色 shows only its switch until polishing is turned on", async ()
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
-  selectSettingsTab("润色");
+  openVoiceServiceConfig();
   const polish = screen.getByRole("region", { name: "文本润色" });
   expect(within(polish).getByRole("switch", { name: "启用文本润色" })).toBeTruthy();
   expect(within(polish).queryByLabelText("文本润色服务提供商")).toBeNull();
@@ -340,7 +356,9 @@ test("the Doubao resource ID is only offered for Doubao", async () => {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
-  await screen.findByRole("region", { name: "识别服务配置" });
+  await screen.findByRole("button", { name: "服务配置" });
+  openVoiceServiceConfig();
+  expect(screen.getByRole("region", { name: "识别服务" })).toBeTruthy();
   expect(screen.queryByLabelText("Doubao 资源 ID")).toBeNull();
 });
 
@@ -366,4 +384,106 @@ test("macOS 手写页能打开识别复制面板，且不重置无关偏好", as
   expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "打开" }));
   await waitFor(() => expect(openHandwriting).toHaveBeenCalledOnce());
+});
+
+// macOS 宿主把空格锁定固定为开、只读提示音总开关、只经 CoreAudio 录音；豆包的识别请求不读识别语言和识别模型。这些行在 macOS 的语音页上都不画，值照旧保存。
+test("macOS drops the rows its host fixes or does not read", async () => {
+  const listVoiceCaptureDevices = vi
+    .fn()
+    .mockResolvedValue([{ backend: "macos", id: "uid-usb", label: "Synthetic USB microphone" }]);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: host("macos"),
+        listVoiceCaptureDevices,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  await screen.findByRole("combobox", { name: "识别服务" });
+  // 豆包：不画识别语言，标点开关和边说边显示在「识别」组里。
+  expect(screen.queryByLabelText("识别语言")).toBeNull();
+  expect(screen.getByRole("switch", { name: "自动添加标点" })).toBeTruthy();
+  expect(screen.getByRole("switch", { name: "边说边显示" })).toBeTruthy();
+  // 三个按住录音的组合键是一个选择，空格锁定不再是开关，Ctrl+F9 收在更多选项里。
+  expect(screen.getByRole("combobox", { name: "按住录音" })).toBeTruthy();
+  expect(screen.queryByLabelText("空格锁定语音")).toBeNull();
+  expect(screen.queryByRole("switch", { name: "按住右 Option 录音" })).toBeNull();
+  // 设备列表只在子视图打开时读取。
+  expect(listVoiceCaptureDevices).not.toHaveBeenCalled();
+
+  const view = openVoiceServiceConfig();
+  expect(within(view).queryByLabelText("开始录音提示音")).toBeNull();
+  expect(within(view).queryByLabelText("识别模型")).toBeNull();
+  expect(within(view).queryByLabelText("录音后端")).toBeNull();
+  const microphone = within(view).getByRole("combobox", { name: "麦克风" });
+  await waitFor(() =>
+    expect(
+      within(microphone).getByRole("option", { name: "Synthetic USB microphone" }),
+    ).toBeTruthy(),
+  );
+  expect(within(microphone).getByRole("option", { name: "系统默认设备" })).toBeTruthy();
+  expect(listVoiceCaptureDevices).toHaveBeenCalledOnce();
+});
+
+// 换成整句上传的服务时，识别语言回来，识别模型收在「更多选项」里。
+test("an HTTP provider shows the language and folds the model away", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => ({
+          ...snapshot,
+          preferences: {
+            ...snapshot.preferences,
+            voice_input: { enabled: true, language: "zh-CN", asr_provider: "openai" },
+          },
+        }),
+        save: vi.fn(),
+        host: host("macos"),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  expect(await screen.findByLabelText("识别语言")).toBeTruthy();
+  expect(screen.queryByRole("switch", { name: "自动添加标点" })).toBeNull();
+  expect(screen.getByRole("button", { name: "服务配置" }).textContent).toContain("未填写");
+  const view = openVoiceServiceConfig();
+  expect(within(view).getByLabelText("识别模型").closest("details")).toBeTruthy();
+  expect(within(view).getByLabelText("识别接口地址").closest("details")).toBeTruthy();
+  expect(within(view).getByLabelText("识别 API Token").closest("details")).toBeNull();
+});
+
+test("the desktop service status says what the recorder will find", () => {
+  const status = (
+    voice: Record<string, unknown>,
+    options: Partial<Parameters<typeof desktopVoiceServiceStatus>[1]> = {},
+  ) =>
+    desktopVoiceServiceStatus(voice as never, {
+      serviceVoice: true,
+      localVoice: false,
+      linux: false,
+      harmony: false,
+      ...options,
+    });
+  // macOS 和 Windows 的豆包没填密钥时拒绝录音，不改用系统识别。
+  expect(status({ asr_provider: "doubao" })).toBe("未填写");
+  expect(status({ asr_provider: "doubao", asr_tokens: { doubao: "k" } })).toBe("已填写");
+  expect(status({ asr_provider: "doubao", doubao_auth_mode: "legacy", asr_token: "k" })).toBe(
+    "未填写完整",
+  );
+  expect(status({ asr_provider: "doubao", doubao_auth_mode: "legacy", asr_app_key: "a" })).toBe(
+    "未填写完整",
+  );
+  expect(status({ asr_provider: "doubao" }, { harmony: true })).toBe("未填写，暂用系统识别");
+  expect(status({ asr_provider: "groq", asr_token: " k " })).toBe("已填写");
+  expect(status({ asr_provider: "groq" })).toBe("未填写");
+  expect(status({ asr_provider: "local" }, { serviceVoice: false, localVoice: true })).toBe(
+    "未选模型",
+  );
+  expect(status({ asr_provider: "system" }, { serviceVoice: false })).toBeUndefined();
+  expect(status({ asr_provider: "doubao" }, { linux: true })).toBeUndefined();
 });

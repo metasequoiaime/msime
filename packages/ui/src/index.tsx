@@ -59,16 +59,10 @@ import {
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import type { ResourcePackClient } from "./settings/resource-packs";
-import type { WubiCodeLookup } from "./settings/wubi-code-lookup-section";
 import type { CloudClipboardRelayPreferences } from "./settings/cloud-clipboard-relay-preferences";
 import type { VoiceInputPreferences } from "./settings/voice-input-preferences";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import {
-  type DictionaryEntry,
-  type LocalDictionaryFormat,
-  type LocalDictionaryKind,
-  type ScelText,
-} from "./dictionary/dictionary-file";
+import type { DictionaryClient, DictionaryManifest } from "./dictionary/dictionary-contracts";
 export type {
   DictionaryEntry,
   DictionaryPageFormat,
@@ -484,6 +478,8 @@ import { DeveloperSettingsPage } from "./settings/pages/developer-page";
 import { DictionarySettingsPage } from "./settings/pages/dictionary-page";
 import { AppearanceSettingsPage } from "./settings/pages/appearance-page";
 import { SkinSettingsPage } from "./settings/pages/skin-page";
+import { skinGridTabs } from "./settings/skin-grid";
+import { useSettingsTabs } from "./settings/use-settings-tabs";
 import { FloatingToolbarSettingsPage } from "./settings/pages/floating-toolbar-page";
 import { ScreenKeyboardSettingsPage } from "./settings/pages/screen-keyboard-page";
 import { ShortcutSettingsPage } from "./settings/pages/shortcuts-page";
@@ -517,9 +513,12 @@ import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
 import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
 import { logo } from "./settings/settings-options";
-import type { CommunitySkinClient } from "./community/community-skins";
+import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
-import type { CommunityResource, CommunityResourceClient } from "./community/community-resources";
+import type {
+  CommunityResource,
+  CommunityResourceClient,
+} from "./community/community-resource-model";
 import type { CandidateSkinCommunityClient } from "./community/community-candidate-skins";
 import { CommunityPluginsPage, type CommunityPluginClient } from "./community/community-plugins";
 import * as communityStyle from "./community/community-style";
@@ -752,7 +751,9 @@ export { PunctuationSection, type PunctuationPreferences } from "./settings/punc
 export { punctuationControlState } from "./settings/punctuation-preferences";
 export {
   MixedInputSection,
+  MixedInputMoreRows,
   defaultMixedInput,
+  mixedInputDefaultsFor,
   type MixedInputPreferences,
 } from "./settings/mixed-input-section";
 export {
@@ -979,10 +980,7 @@ export { wubiControlState } from "./settings/wubi-preferences";
 export {
   WubiCodeLookupSection,
   WUBI_CODE_LOOKUP_MAX_LENGTH,
-  type WubiCodeLookup,
-  type WubiCodeLookupClient,
   type WubiCodeLookupSectionProps,
-  type WubiTextCodes,
 } from "./settings/wubi-code-lookup-section";
 export {
   InputModeSection,
@@ -1189,6 +1187,8 @@ export {
 export {
   VoiceRecordingBehaviorSection,
   type VoiceRecordingBehaviorSectionProps,
+  VoiceCueSwitchesSection,
+  type VoiceCueSwitchesSectionProps,
 } from "./settings/voice-recording-behavior-section";
 export {
   VoiceModelMirrorRow,
@@ -1388,19 +1388,18 @@ export {
   type CommunityDestinationScope,
   type CommunityDestinationView,
 } from "./community/community-destination";
-export {
-  CommunityHomePage,
-  CommunityResourcesPage,
-  type CommunityLocalDictionaryClient,
-  type CommunityResource,
-  type CommunityResourceApplication,
-  type CommunityResourceClient,
-  type CommunityResourceContent,
-  type CommunityResourceKind,
-  type CommunityResourcePage,
-  type CommunityResourceScope,
-  type CommunitySharedWord,
-} from "./community/community-resources";
+export { CommunityHomePage, CommunityResourcesPage } from "./community/community-resources";
+export type {
+  CommunityLocalDictionaryClient,
+  CommunityResource,
+  CommunityResourceApplication,
+  CommunityResourceClient,
+  CommunityResourceContent,
+  CommunityResourceKind,
+  CommunityResourcePage,
+  CommunityResourceScope,
+  CommunitySharedWord,
+} from "./community/community-resource-model";
 export {
   CommunityCandidateSkinsPage,
   candidateSkinCategories,
@@ -1900,68 +1899,15 @@ export type Snapshot = {
   preferences: Preferences;
   candidate_skin_catalog?: ExternalSkinCatalog;
 };
-export type DictionaryFailure = { request_id: string; label: string; error: string };
-/** 对应 `client-services::dictionary::import` 的导入响应。 */
-export interface DictionaryImportResult {
-  applied: number;
-  /** Rows examined and skipped. */
-  failed: number;
-  /** Rows beyond the per-file cap were not examined. */
-  truncated?: boolean;
-  /** The file was read with its two columns the other way round from the format chosen. */
-  swapped?: boolean;
-  first_failures?: { line: number; issue: string }[];
-}
-/** What the packaged dictionary is: the specification it was built to, and where it came from. */
-export type DictionaryManifest = { profile: string; sourceCommit: string };
-
-export interface DictionaryClient {
-  list(
-    offset: number,
-    limit: number,
-    kind?: LocalDictionaryKind,
-    query?: string,
-  ): Promise<{
-    entries: DictionaryEntry[];
-    has_more: boolean;
-    pending_count?: number;
-    failed_requests?: DictionaryFailure[];
-    snapshot_error?: string | null;
-    page_offset?: number;
-    requested_page_offset?: number;
-  }>;
-  edit(
-    previous: DictionaryEntry | null,
-    replacement: DictionaryEntry | null,
-    request_id: string,
-  ): Promise<void>;
-  import?(
-    kind: LocalDictionaryKind,
-    format: LocalDictionaryFormat,
-    text: string,
-    request_id: string,
-  ): Promise<DictionaryImportResult>;
-  /** 页面为 `import` 读取的文件字节上限。只有把一次导入整份作为一个请求发给宿主、不分批的客户端才设它（`UNBATCHED_DICTIONARY_FILE_BYTES`）；页面据此只送细胞词库转出文本的开头（`leadingImportRows`）。 */
-  maxImportFileBytes?: number;
-  /** 把搜狗细胞词库（`.scel` 的 base64）转成标准 TSV 文本；页面再以 `standard` 交给 `import`。宿主提供它时，拼音词库的文件格式里多一项细胞词库。 */
-  scelText?(bytesBase64: string): Promise<ScelText>;
-  importPersonal?(
-    text: string,
-    request_id: string,
-  ): Promise<{ queued: boolean; pending_count: number }>;
-  export?(
-    kind: LocalDictionaryKind,
-    format: Exclude<LocalDictionaryFormat, "rime" | "hans">,
-    offset: number,
-    limit: number,
-  ): Promise<{ text: string; has_more: boolean }>;
-  retry?(request_id: string): Promise<void>;
-  dismissFailure?(request_id: string): Promise<void>;
-  /** 一种词库的词条总数，含内置词条；手机「词库」页的「拼音词库」行显示它。 */
-  count?(kind: LocalDictionaryKind): Promise<number>;
-  /** 五笔查码（词库请求 `wubi_codes`，只读）：`text` 里每个汉字和整段词的 86、98 五笔编码。宿主提供它时，五笔的设置下面出现「五笔查码」。 */
-  wubiCodes?(text: string): Promise<WubiCodeLookup>;
-}
+export type {
+  DictionaryClient,
+  DictionaryFailure,
+  DictionaryImportResult,
+  DictionaryManifest,
+  WubiTextCodes,
+  WubiCodeLookup,
+  WubiCodeLookupClient,
+} from "./dictionary/dictionary-contracts";
 export { dictionaryKindKeyHint } from "./settings/pages/dictionary-page";
 export type {
   DictionaryCollection,
@@ -2260,6 +2206,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
+    showVoiceSpaceLockSwitch,
+    showVoiceCueSwitches,
+    showVoiceCaptureBackends,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
@@ -2274,6 +2223,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showInputModeStatusItem,
     showVoiceCaptureDevices,
     showFullwidthChord,
+    showTabPagePagingSwitches,
+    showMixedInputMinimumPrefix,
     clientHostedPlatform,
     desktopPanels,
     showVoiceHotkeys,
@@ -2577,7 +2528,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     candidateEnglishGloss,
     englishSuggestions,
     inputModeHUD,
-  } = settingsInputPreferences(draft);
+  } = settingsInputPreferences(draft, client.host?.platform);
   const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? {
     enabled: defaultTouchKeyboardSchemes,
   };
@@ -2743,12 +2694,13 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
         showTypingEffects),
     // full 不带版本信息，手写一直都在。
     hasHandwriting: client.host?.edition?.handwriting ?? true,
-    // macOS 和 Linux 桌面的手写页只有一个打开按钮，并进屏幕键盘页；Windows 的共享设置页跟原生设置窗口一样分成两页。
-    handwritingOnScreenKeyboardPage: macosPlatform || linuxPlatform,
+    // 桌面上的手写页只有一个打开按钮（HarmonyOS 2-in-1 是一段说明），并进屏幕键盘页；Windows 的原生设置窗口也并成了一页（`SettingsNavigation.h`）。触屏宿主的手写页另有内容，投影本身就不并。
+    handwritingOnScreenKeyboardPage:
+      macosPlatform || linuxPlatform || windowsPlatform || harmonyPlatform,
     mobileHiddenPageIds,
     mobilePageTitle,
   });
-  // 子页面在导航里点亮它的上级页面，并提供回到上级的入口。触屏宿主上「AI 对话」是底部的「对话」标签页，不再是「AI 辅助」的子页面，标签页的根页面没有上级。
+  // 子页面在导航里点亮它的上级页面，并提供回到上级的入口；标签页的根页面没有上级。触屏宿主上「AI 对话」同样是「AI 辅助」的子页面。
   const navigationPage: SettingsPageId =
     mobilePlatform && mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
       ? page
@@ -2832,6 +2784,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
+    showVoiceSpaceLockSwitch,
+    showVoiceCueSwitches,
+    showVoiceCaptureBackends,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
@@ -2846,6 +2801,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showInputModeStatusItem,
     showVoiceCaptureDevices,
     showFullwidthChord,
+    showTabPagePagingSwitches,
+    showMixedInputMinimumPrefix,
     fullwidthChord,
     clientHostedPlatform,
     platformLicenseUrl,
@@ -3166,7 +3123,7 @@ function SettingsShell(props: SettingsPageProps) {
   } = model;
   // 对话页第一次打开后就一直挂着（见下方渲染处），切走只隐藏。
   const [chatMounted, setChatMounted] = useState(page === "chat");
-  // 首页「试用键盘」切到对话页时加一，对话页随即聚焦输入框、弹出键盘；点底部标签进来不加，不弹键盘。
+  // 首页「试用键盘」打开对话页时加一，对话页随即聚焦输入框、弹出键盘；从「AI 辅助」进入不加，不弹键盘。
   const [chatFocusRequest, setChatFocusRequest] = useState(0);
   useEffect(() => {
     if (page === "chat") setChatMounted(true);
@@ -3179,7 +3136,7 @@ function SettingsShell(props: SettingsPageProps) {
   const pushedPage = harmonyPhone && !tabRootPage;
   // 「试用键盘」是一页对话：对话区在页面内滚动，输入栏贴着内容区底部，和 Android 的试用页一样不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。
   const fillsContent = mobilePlatform && page === "try-keyboard";
-  // 触屏上的「对话」标签同样是一页对话，内容区撑满、输入栏贴底，但它是标签页，底部标签栏照常显示。
+  // 触屏上的 AI 对话同样是一页对话，内容区撑满、输入栏贴底，但它是「AI 辅助」的二级页，底部标签栏照常显示。
   const contentFills = fillsContent || (mobilePlatform && page === "chat");
   const pageColumnRef = useRef<HTMLDivElement>(null);
   const launchPage = useRef(page);
@@ -3205,6 +3162,14 @@ function SettingsShell(props: SettingsPageProps) {
   const recordCommunitySkin = (id: string) => {
     void client.typingStatistics?.recordSkin?.(id);
   };
+  // HarmonyOS 手机的皮肤页与 Android 皮肤页一样在顶部分「内置 / 我的 / 社区」。「社区」是完整的社区皮肤图库，自带搜索和发布表单，所以和桌面的「社区皮肤」一样画在设置表单之外，标签的选择也就放在这里；前两个分类的网格由皮肤页自己画。没有社区服务的宿主不给「社区」。
+  const skinTabs = useSettingsTabs(
+    skinGridTabs.filter((tab) => tab.id !== "community" || Boolean(client.communitySkins)),
+    "皮肤分类",
+    harmonyPlatform && mobilePlatform,
+  );
+  const phoneSkinCommunityShown =
+    page === "skin" && Boolean(client.communitySkins) && skinTabs.selected === "community";
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
     recoverPreferences,
@@ -3246,10 +3211,11 @@ function SettingsShell(props: SettingsPageProps) {
   const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "输入";
   // A community gallery stands in for the page's own settings, so the form's page-level actions do not apply while it is shown.
   const skinCommunityShown =
-    page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community";
+    (page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community") ||
+    phoneSkinCommunityShown;
   const pluginCommunityShown =
     page === "plugins" && Boolean(client.communityPlugins) && pluginView === "community";
-  // 子页面（「词库」下的「背单词」、「帮助与反馈」下的「帮助」，桌面上还有「AI 辅助」下的「AI 对话」）在返回时写出父页面的名字。
+  // 子页面（「词库」下的「背单词」、「帮助与反馈」下的「帮助」、「AI 辅助」下的「AI 对话」）在返回时写出父页面的名字。
   const parentPage =
     navigationPage !== page ? availablePages.find((item) => item.id === navigationPage) : undefined;
   // HarmonyOS 手机和边缘滑动一样，沿导航推入的 WebView 历史返回。设置打开时所在的页面身后没有设置的历史条目（最多只有宿主自己的，比如引导页的），所以从那里按钮改为向上，以替换当前条目的方式去到上级页面或所在标签页的根页面：如果推入新条目，刚离开的页面会留在上级页面后面，系统返回手势会回到它。此后上级页面占据最底部的条目，所以它自己的返回按钮也同样向上。
@@ -3274,7 +3240,7 @@ function SettingsShell(props: SettingsPageProps) {
     macShell || settingsPlatform === "hm2" || ipadShell || (winShell && !titlebarShown);
   const sidebarBrandShown = !mobilePlatform && !titlebarShown;
   const navNeedle = navQuery.trim().toLocaleLowerCase();
-  // iPad 的标签栏已有对话、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
+  // iPad 的标签栏已有全部设置、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
   const shownSidebarGroups = navNeedle
     ? sidebarGroups
         .map((group) => ({
@@ -3706,7 +3672,29 @@ function SettingsShell(props: SettingsPageProps) {
                   </button>
                 </div>
               )}
-              {skinCommunityShown && (
+              {page === "skin" && skinTabs.tabList}
+              {phoneSkinCommunityShown && client.communitySkins && (
+                <div className="mt-6">
+                  {skinTabs.panel(
+                    "community",
+                    <CommunitySkinsPage
+                      client={client.communitySkins}
+                      theme={keyboardPreviewTheme}
+                      localSkinLibrary={client.customSkinLibrary}
+                      mobile
+                      onLogin={openAccountLogin}
+                      look="harmony"
+                      preferences={draft}
+                      // 「使用」和网格里的卡片一样先进入草稿，再由表单的自动保存写入。
+                      onApplyPreferences={setDraft}
+                      onSkinApplied={recordCommunitySkin}
+                      // 详情的历史记录留在皮肤页上，返回先关详情、再离开这一页。
+                      historyPage="skin"
+                    />,
+                  )}
+                </div>
+              )}
+              {skinCommunityShown && client.communityCandidateSkins && (
                 <div className="mt-4">
                   <CommunityPage
                     candidateSkins={client.communityCandidateSkins}
@@ -3755,7 +3743,7 @@ function SettingsShell(props: SettingsPageProps) {
               {draft && isSettingsFormPage(page) && (
                 <SettingsFormFrame showReload={false} busy={busy}>
                   <SettingsFormContext.Provider value={{ ...model, draft }}>
-                    <SkinSettingsPage hidden={skinCommunityShown} />
+                    <SkinSettingsPage hidden={skinCommunityShown} tabs={skinTabs} />
                     <AppearanceSettingsPage />
                     <FloatingToolbarSettingsPage />
                     <InputSettingsPage />

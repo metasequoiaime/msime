@@ -103,7 +103,10 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   expect(screen.getByRole("button", { name: "悬浮工具栏" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(screen.getByRole("group", { name: "输入模式切换快捷键" })).toBeTruthy();
-  expect(screen.getByRole("group", { name: "面板快捷键" })).toBeTruthy();
+  // 2-in-1 不是鸿蒙手机：面板快捷键并进「按键速查」。
+  expect(
+    within(screen.getByRole("region", { name: "按键速查" })).getByText("打开屏幕键盘"),
+  ).toBeTruthy();
   expect(screen.getByRole("switch", { name: "数字键选词" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   selectSettingsTab("候选释义");
@@ -380,7 +383,8 @@ test("a touch host calls the keyboard pages by their touch names", async () => {
   cleanup();
   renderSettings("windows", {}, "screen-keyboard");
   await settingsFormReady();
-  expect(screen.getByRole("heading", { level: 1, name: "屏幕键盘" })).toBeTruthy();
+  // 桌面上手写并进了这一页，标题随之是「屏幕键盘与手写」。
+  expect(screen.getByRole("heading", { level: 1, name: "屏幕键盘与手写" })).toBeTruthy();
 });
 
 // 每个标签页只在对应页面存在时出现，每个页面又取决于它背后的客户端能力。社区客户端在，但触屏宿主已没有「社区」标签页。

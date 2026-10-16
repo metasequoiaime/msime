@@ -5,6 +5,8 @@
   version,
   craneLib,
   cargoSources,
+  openccInputs,
+  python3,
   pkg-config,
   alsa-lib,
 }:
@@ -26,7 +28,9 @@ let
     cargoExtraArgs = "--locked -p msime-host-api";
     # Rust 单测由 verify-local.sh 负责；这里的验证是 fcitx5.nix 里链接产物后跑的 ctest。
     doCheck = false;
-    nativeBuildInputs = [ pkg-config ];
+    nativeBuildInputs = [ pkg-config python3 ];
+    env.MSIME_OPENCC_SOURCE_DIR = "${openccInputs}";
+    env.MSIME_OPENCC_OFFLINE = "1";
     # cpal 在 Linux 上经 ALSA 采集麦克风。
     buildInputs = [ alsa-lib ];
   };

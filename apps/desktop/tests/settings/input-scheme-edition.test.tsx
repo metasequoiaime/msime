@@ -237,8 +237,8 @@ test("a touch host offers 手写 only in an edition with a Chinese scheme", asyn
   expect(screen.getByRole("switch", { name: "显示输入方案 手写" })).toBeTruthy();
 });
 
-// 手写只认汉字：没有中文方案的版本（`EditionInfo.handwriting` 为 false）设置导航里没有「手写输入」页，中文的版本照旧有。
-test("the settings navigation lists 手写输入 only in an edition with handwriting", async () => {
+// 手写只认汉字：没有中文方案的版本（`EditionInfo.handwriting` 为 false）设置导航里没有手写，屏幕键盘页保留原名；中文的版本在桌面上把手写并进「屏幕键盘与手写」。
+test("the settings navigation offers handwriting only in an edition with handwriting", async () => {
   const japaneseEdition: EditionInfo = {
     id: "japanese",
     input_schemes: ["japanese"],
@@ -261,9 +261,14 @@ test("the settings navigation lists 手写输入 only in an edition with handwri
     "japanese",
   );
   expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
+  // 没有手写可并，屏幕键盘页保留原名。
+  expect(screen.getByRole("button", { name: "屏幕键盘" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "屏幕键盘与手写" })).toBeNull();
   expect(screen.getByRole("button", { name: "语音输入" })).toBeTruthy();
   cleanup();
 
   await open(wubiHost, "wubi");
-  expect(screen.getByRole("button", { name: "手写输入" })).toBeTruthy();
+  // 桌面上手写并进屏幕键盘页，页名随之改为「屏幕键盘与手写」。
+  expect(screen.getByRole("button", { name: "屏幕键盘与手写" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
 });

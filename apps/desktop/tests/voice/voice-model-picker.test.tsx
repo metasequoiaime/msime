@@ -41,6 +41,8 @@ async function openVoice(client: Record<string, unknown>) {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  // 本地模型目录收在「服务配置」子视图里。
+  fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
   return screen.findByLabelText("本地模型目录");
 }
 

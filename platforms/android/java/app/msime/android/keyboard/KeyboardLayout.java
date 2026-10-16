@@ -56,6 +56,13 @@ public final class KeyboardLayout {
             && (windowHeightDp <= 0 || windowHeightDp >= NUMBER_ROW_MIN_WINDOW_HEIGHT_DP);
     }
 
+    /** 只替换中文全拼字母页的 Shift；直输状态由宿主作为 chinese=false 排除。 */
+    public static boolean usesQuanpinSeparator(boolean quanpin, boolean chinese,
+            Layer layer, int touchLayout, String localMode) {
+        return quanpin && chinese && layer == Layer.LETTERS
+            && touchLayout == STANDARD_TOUCH_LAYOUT && "none".equals(localMode);
+    }
+
     /** Resolves the host surface from the Engine view without conflating Japanese nine-key. */
     public static int resolveTouchLayout(boolean handwriting, boolean nineKey, int scheme,
                                          String touchLayout) {
