@@ -3737,8 +3737,9 @@ fn date_time_mode_still_rejects_non_lowercase_insertions() {
         let result = session.character(value, false);
 
         assert!(!result.handled, "{result:?}");
-        assert!(result.commit.is_none(), "{result:?}");
-        assert_eq!(session.snapshot(), before);
+        assert_eq!(result.commit.as_deref(), Some(before.preedit.as_str()));
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+        assert!(session.snapshot().editing_text.is_empty());
     }
 }
 
@@ -3926,6 +3927,47 @@ fn rejected_local_mode_characters_commit_raw_and_return_the_key() {
 }
 
 #[test]
+fn caret_rejected_local_characters_commit_raw_and_return_the_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (entry, spelling, rejected) in [
+        (b'U', "0041", b'g'),
+        (b'T', "rq", b'A'),
+        (b'K', "ab", b'A'),
+        (b'E', "xiao", b'1'),
+        (b'M', "xiao", b'1'),
+        (b'J', "nh", b'1'),
+        (b'C', "huo", b'1'),
+        (b'V', "1", b'Z'),
+        (b'/', "uuid", b'A'),
+        (b'@', "user", b'A'),
+    ] {
+        let mut session = fixture.session_with(|options| {
+            options.local_modes.chaizi = true;
+            options.local_modes.expression = true;
+            options.local_modes.command = true;
+            options.local_modes.mention = true;
+        });
+        assert!(session.character(entry, entry.is_ascii_uppercase()).handled);
+        type_text(&mut session, spelling);
+        session.command(Command::MoveHome);
+        let raw = session.snapshot().editing_text;
+        assert_eq!(raw, format!("{}{spelling}", entry as char));
+
+        let result = session.character(rejected, rejected.is_ascii_uppercase());
+        assert!(
+            !result.handled,
+            "{} rejected {}",
+            entry as char, rejected as char
+        );
+        assert_eq!(result.commit.as_deref(), Some(raw.as_str()));
+        let snapshot = session.snapshot();
+        assert_eq!(snapshot.local_mode, LocalInputMode::None);
+        assert!(snapshot.preedit.is_empty());
+        assert!(snapshot.candidates.is_empty());
+    }
+}
+
+#[test]
 fn accepted_local_mode_characters_keep_spelling_until_enter() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     for (entry, spelling) in [(b'U', "+4e2d"), (b'T', "rq"), (b'K', "ab")] {
@@ -3961,16 +4003,18 @@ fn a_full_local_mode_commits_its_text_instead_of_swallowing_the_next_key() {
 #[test]
 fn temporary_local_modes_keep_their_composition_when_returning_a_key() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
-    for entry in *b"YR" {
+    for (entry, caret) in [(b'Y', None), (b'R', None), (b'Y', Some(1)), (b'R', Some(1))] {
         let mut session = fixture.session();
         assert!(session.character(entry, true).handled);
         type_text(&mut session, "ka");
+        session.set_caret(caret);
         let before = session.snapshot();
         let result = session.character(b'0', false);
         assert!(!result.handled);
         assert!(result.commit.is_none());
         assert_eq!(session.input.preedit(), before.preedit);
         assert_eq!(session.snapshot().local_mode, before.local_mode);
+        assert_eq!(session.snapshot().caret_position, before.caret_position);
     }
 }
 
@@ -4160,7 +4204,13 @@ fn chaizi_inserts_letters_and_separators_at_the_caret() {
     session.command(Command::MoveHome);
     assert_eq!(session.snapshot().caret_position, 1);
     // 入口字母之后不能插 `'`。
-    assert!(!session.character(b'\'', false).handled);
+    let rejected = session.character(b'\'', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some("Chuohuo"));
+    assert!(session.snapshot().editing_text.is_empty());
+    session.character(b'C', true);
+    type_text(&mut session, "huohuo");
+    session.command(Command::MoveHome);
     session.command(Command::MoveRight);
     session.command(Command::MoveRight);
     session.command(Command::MoveRight);
@@ -4268,7 +4318,12 @@ fn chaizi_takes_the_microsoft_shuangpin_ing_key() {
     session.character(b'C', true);
     type_text(&mut session, "sj'q");
     session.command(Command::MoveLeft);
-    assert!(!session.character(b';', false).handled);
+    let rejected = session.character(b';', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some("Csj'q"));
+    assert!(session.snapshot().editing_text.is_empty());
+    session.character(b'C', true);
+    type_text(&mut session, "sj'q");
     session.command(Command::MoveEnd);
     assert!(session.character(b';', false).handled);
     assert_eq!(session.snapshot().editing_text, "Csj'q;");
@@ -5215,10 +5270,15 @@ fn expression_mode_inserts_a_unit_separator_at_the_caret() {
             assert_eq!(session.snapshot().caret_position, caret + 1);
             assert_eq!(words(&session), expected);
             assert!(!session.takes_local_separator());
-            let before = session.snapshot();
-            assert!(!session.character(b'\'', false).handled);
-            assert_eq!(session.snapshot(), before);
             assert_eq!(session.select(2).commit.as_deref(), Some(expected[2]));
+
+            session.character(b'V', true);
+            type_text(&mut session, &raw[1..]);
+            session.set_caret(Some(caret + 1));
+            let rejected = session.character(b'\'', false);
+            assert!(!rejected.handled);
+            assert_eq!(rejected.commit.as_deref(), Some(raw));
+            assert!(session.snapshot().editing_text.is_empty());
         }
     }
 }
@@ -5236,7 +5296,9 @@ fn expression_mode_does_not_accept_a_unit_letter_before_the_number_at_the_caret(
         let result = session.character(b'k', false);
 
         assert!(!result.handled, "{result:?}");
-        assert_eq!(session.snapshot(), before);
+        assert_eq!(result.commit.as_deref(), Some(before.preedit.as_str()));
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+        assert!(session.snapshot().editing_text.is_empty());
         assert!(!session.takes_local_separator());
         session.command(Command::Cancel);
     }
@@ -5245,19 +5307,20 @@ fn expression_mode_does_not_accept_a_unit_letter_before_the_number_at_the_caret(
 #[test]
 fn expression_mode_limits_unit_insertions_at_the_caret() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
-    let mut session = generated_modes_session(&fixture);
-    session.character(b'V', true);
-    type_text(&mut session, "3g");
-    while session.snapshot().preedit.len() < crate::local::GENERATED_MODE_INPUT_LIMIT {
-        assert!(session.character(b'g', false).handled);
-    }
-    session.set_caret(Some(3));
-    let before = session.snapshot();
     for value in *b"k'" {
+        let mut session = generated_modes_session(&fixture);
+        session.character(b'V', true);
+        type_text(&mut session, "3g");
+        while session.snapshot().preedit.len() < crate::local::GENERATED_MODE_INPUT_LIMIT {
+            assert!(session.character(b'g', false).handled);
+        }
+        session.set_caret(Some(3));
+        let before = session.snapshot();
         let result = session.character(value, false);
         assert!(!result.handled);
-        assert!(result.commit.is_none());
-        assert_eq!(session.snapshot(), before);
+        assert_eq!(result.commit.as_deref(), Some(before.preedit.as_str()));
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+        assert!(session.snapshot().editing_text.is_empty());
     }
 }
 
@@ -5654,8 +5717,10 @@ fn translate_command_checks_the_caret_before_accepting_a_separator() {
         session.set_caret(Some(caret));
         assert!(!session.takes_local_separator(), "{text} at {caret}");
         let before = session.snapshot();
-        assert!(!session.character(b'\'', false).handled);
-        assert_eq!(session.snapshot(), before);
+        let rejected = session.character(b'\'', false);
+        assert!(!rejected.handled);
+        assert_eq!(rejected.commit.as_deref(), Some(before.preedit.as_str()));
+        assert!(session.snapshot().editing_text.is_empty());
     }
 }
 
@@ -5684,8 +5749,10 @@ fn translate_command_preserves_separator_insertion_limits() {
         }
         session.set_caret(Some(8));
         let before = session.snapshot();
-        assert!(!session.character(b'\'', false).handled);
-        assert_eq!(session.snapshot(), before);
+        let rejected = session.character(b'\'', false);
+        assert!(!rejected.handled);
+        assert_eq!(rejected.commit.as_deref(), Some(before.preedit.as_str()));
+        assert!(session.snapshot().editing_text.is_empty());
     }
 
     for (entry, text, caret) in [(b'@', "fyhello", 4), (b'/', "sighello", 5)] {
@@ -5695,8 +5762,10 @@ fn translate_command_preserves_separator_insertion_limits() {
         session.set_caret(Some(caret));
         assert!(!session.takes_local_separator());
         let before = session.snapshot();
-        assert!(!session.character(b'\'', false).handled);
-        assert_eq!(session.snapshot(), before);
+        let rejected = session.character(b'\'', false);
+        assert!(!rejected.handled);
+        assert_eq!(rejected.commit.as_deref(), Some(before.preedit.as_str()));
+        assert!(session.snapshot().editing_text.is_empty());
     }
 }
 

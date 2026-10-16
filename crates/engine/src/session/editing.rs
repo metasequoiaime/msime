@@ -207,6 +207,18 @@ impl InputSession {
             if self.dedicated_english {
                 return KeyResult::handled();
             }
+            if !matches!(
+                self.local_mode,
+                LocalInputMode::None
+                    | LocalInputMode::TemporaryEnglish
+                    | LocalInputMode::TemporaryJapanese
+                    | LocalInputMode::Url
+            ) {
+                // 普通快捷模式与末尾输入一致：先上屏原文，再交还拒绝键，避免被 runtime 当成选词。
+                let mut result = self.commit_raw();
+                result.handled = false;
+                return result;
+            }
             return KeyResult::unhandled();
         }
         let bytes = text.as_bytes();

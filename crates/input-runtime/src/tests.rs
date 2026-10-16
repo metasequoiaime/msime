@@ -4474,6 +4474,49 @@ fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host(
 }
 
 #[test]
+fn caret_rejected_local_keys_keep_the_commit_and_pass_the_key_to_the_host() {
+    for (entry, spelling, rejected) in [(b'E', "ab", b'1'), (b'U', "0041", b'g')] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+            .dispatch(Action::Character {
+                value: entry,
+                shift: true,
+            })
+            .unwrap();
+        for value in spelling.bytes() {
+            runtime
+                .dispatch(Action::Character {
+                    value,
+                    shift: false,
+                })
+                .unwrap();
+        }
+        runtime
+            .dispatch(Action::Command(Command::MoveHome))
+            .unwrap();
+
+        let transition = runtime
+            .dispatch(Action::Character {
+                value: rejected,
+                shift: false,
+            })
+            .unwrap();
+        assert!(!transition.handled);
+        assert_eq!(
+            transition.commit,
+            Some(format!("{}{spelling}", entry as char))
+        );
+        assert_eq!(transition.view.local_mode, "none");
+        assert!(transition.view.editing_text.is_empty());
+        assert!(transition.view.candidates.is_empty());
+    }
+}
+
+#[test]
 fn local_mode_punctuation_action_still_commits_the_prefix_with_chinese_punctuation() {
     let directory = tempfile::tempdir().unwrap();
     let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();

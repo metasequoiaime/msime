@@ -1917,7 +1917,7 @@ impl InputSession {
         }
     }
 
-    fn commit_raw(&mut self) -> KeyResult {
+    pub(super) fn commit_raw(&mut self) -> KeyResult {
         // 笔画的预编辑是字形，Enter 上屏的是键入的字母串（与粤拼一致）。
         let mut raw = if self.stroke_rules_apply() {
             self.engine.request().raw_input.clone()
