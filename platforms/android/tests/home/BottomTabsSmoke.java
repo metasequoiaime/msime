@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 /**
  * 底部导航的四格、`HomeActivity.TAB_IDS` 和 `HostDeepLink.TAB_*` 下标三处要对得上：0 设置、1 全部设置、2 统计、3 我的。
  *
- * <p>菜单和 `TAB_IDS` 引用了 `R`，进不了 check-host 只有 android.jar 的 JVM 编译，所以像 SettingsSearchIndexSmoke 那样直接读源码。第二格先后是「社区」、空位和「对话」，每次都要同时改这三处，漏一处时深链会切到别的 tab，或者底部那一格点了没有页面。
+ * <p>菜单和 `TAB_IDS` 引用了 `R`，进不了 check-host 只有 android.jar 的 JVM 编译，所以像 SettingsSearchIndexSmoke 那样直接读源码。更换入口时要同时改这三处，漏一处时深链会切到别的 tab，或者底部那一格点了没有页面。
  */
 public final class BottomTabsSmoke {
     private static final String MENU = "platforms/android/res/menu/bottom_tabs.xml";
