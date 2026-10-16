@@ -41,6 +41,7 @@ NOT_APPLICABLE = {
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
     "game_compatibility": "Windows TSF only: whether the TIP skips ITfUIElementMgr for games that declare UI-less and draw nothing; macOS has no UI-less host contract",
+    "smart_punctuation_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document, after turning the old macOS default (smart punctuation off) on; the host reads the migrated values through msime_client_load_preferences",
     "second_third_candidate": "';' and '\\'' picking the second and third candidate are routed only by the Windows TIP and Server so far (.agents/notes/implemented/feature/2026-10-09-second-third-candidate-keys.md); the shared page does not show the switch, so no macOS user can turn on something the host ignores",
 }
 

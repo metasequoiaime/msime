@@ -3693,12 +3693,13 @@ static void TestSmartPunctuationPreferences() {
     NSString *suite = [@"msime.smart-punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-    // The source ships the whole smart-punctuation family off, and a fresh macOS profile follows it.
-    assert(!appearance.smartPunctuation && !appearance.smartPunctuationRepeatToChinese);
-    assert([[appearance sharedPreferencesByMerging:@{}][@"smart_punctuation"] isEqual:@NO]);
+    // 智能标点和重复标点转中文默认开：全新的 macOS 配置不用先找到开关，数字后的句点就是英文句点。
+    assert(appearance.smartPunctuation && appearance.smartPunctuationRepeatToChinese);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"smart_punctuation"] isEqual:@YES]);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"smart_punctuation_repeat"] isEqual:@YES]);
     NSButton *smartButton = (id)PreferenceControl(appearance, @selector(smartPunctuationChanged:));
     NSButton *smartRepeatButton = (id)PreferenceControl(appearance, @selector(smartPunctuationRepeatChanged:));
-    assert(smartButton.state == NSControlStateValueOff && smartRepeatButton.state == NSControlStateValueOff);
+    assert(smartButton.state == NSControlStateValueOn && smartRepeatButton.state == NSControlStateValueOn);
     smartButton.state = NSControlStateValueOn;
     [NSApp sendAction:smartButton.action to:smartButton.target from:smartButton];
     smartRepeatButton.state = NSControlStateValueOn;
@@ -3720,8 +3721,12 @@ static void TestSmartPunctuationPreferences() {
     assert(!appearance.smartPunctuation && !appearance.smartPunctuationRepeatToChinese);
     [appearance applySharedInputPreferences:@{@"smart_punctuation": @1, @"smart_punctuation_repeat": @"true"}];
     assert(!appearance.smartPunctuation && !appearance.smartPunctuationRepeatToChinese);
-    appearance.smartPunctuation = YES;
-    appearance.smartPunctuationRepeatToChinese = YES;
+    // 回到什么都没存过的状态（setter 清掉共享值，再删掉本机值）：下面的控制器路径按默认值走，不另外打开。
+    appearance.smartPunctuation = NO;
+    appearance.smartPunctuationRepeatToChinese = NO;
+    [defaults removeObjectForKey:@"MSIMEClientSmartPunctuation"];
+    [defaults removeObjectForKey:@"MSIMEClientSmartPunctuationRepeatToChinese"];
+    assert(appearance.smartPunctuation && appearance.smartPunctuationRepeatToChinese);
 
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -3744,6 +3749,22 @@ static void TestSmartPunctuationPreferences() {
         @"view": @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]}};
     assert([controller handleEvent:period client:client]);
     assert([client.document isEqual:@"a。"] && [client.committed isEqual:@"。"]);
+
+    // 数字后同样按默认值走：没有组字时前文取自客户端，`0.10` 后的句点交给带前文的标点入口（由 client-core 的 route 判成 ASCII），不会变成「0.10。」。
+    ModeController *digitController = [ModeController alloc];
+    ShortcutSession *digitSession = [ShortcutSession new];
+    ShortcutClient *digitClient = [ShortcutClient new];
+    digitClient.document = @"0.10";
+    digitClient.selection = NSMakeRange(4, 0);
+    [digitController setValue:appearance forKey:@"appearance"];
+    [digitController setValue:digitSession forKey:@"session"];
+    [digitController setValue:digitClient forKey:@"activeClient"];
+    [digitController setValue:@{@"focused": @YES, @"editing_text": @"", @"candidates": @[]} forKey:@"view"];
+    digitSession.contextualPunctuationTransition = @{@"handled": @YES, @"commit": @".",
+        @"view": @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]}};
+    assert([digitController handleEvent:period client:digitClient]);
+    assert(digitSession.contextualPunctuationCalls == 1 && digitSession.lastContextualPunctuation == '.' && digitSession.lastPrecedingScalar == '0');
+    assert([digitClient.document isEqual:@"0.10."]);
 
     ModeController *composingController = [ModeController alloc];
     ShortcutSession *composingSession = [ShortcutSession new];
