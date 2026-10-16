@@ -5,6 +5,7 @@ import UIKit
 struct SettingsView: View {
   var navigationTitle: String = "设置"
   var showsStatusCard = true
+  var handlesExternalRoutes = true
   @Environment(\.scenePhase) private var scenePhase
   @EnvironmentObject private var router: SettingsRouter
   @EnvironmentObject private var navigation: AppNavigation
@@ -52,8 +53,8 @@ struct SettingsView: View {
     }
     .navigationTitle(navigationTitle)
     .navigationBarTitleDisplayMode(.large)
-    .navigationDestination(item: Binding(get: { navigation.tab == .settings ? router.settingsPage : nil },
-      set: { if navigation.tab == .settings { router.settingsPage = $0 } })) { $0.destination }
+    .navigationDestination(item: Binding(get: { handlesExternalRoutes && navigation.tab == .settings ? router.settingsPage : nil },
+      set: { if handlesExternalRoutes && navigation.tab == .settings { router.settingsPage = $0 } })) { $0.destination }
     .onAppear { refresh() }
     .onChange(of: scenePhase) { _, phase in if phase == .active { refresh(); Task { await loadNotices() } } }
     .task { await loadNotices() }

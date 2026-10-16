@@ -209,7 +209,7 @@ private struct MainTabView: View {
     TabView(selection: Binding(get: { navigation.tab }, set: { navigation.select($0, router: router) })) {
       settingsTab.id(navigation.settingsRoot)
         .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(AppNavigation.Tab.settings)
-      NavigationStack { SettingsView(navigationTitle: "全部设置", showsStatusCard: false) }
+      NavigationStack { SettingsView(navigationTitle: "全部设置", showsStatusCard: false, handlesExternalRoutes: false) }
         .tabItem { Label("全部设置", systemImage: "square.grid.2x2.fill") }.tag(AppNavigation.Tab.allSettings)
       NavigationStack { TypingStatisticsView() }
         .tabItem { Label("统计", systemImage: "chart.bar.fill") }.tag(AppNavigation.Tab.statistics)
