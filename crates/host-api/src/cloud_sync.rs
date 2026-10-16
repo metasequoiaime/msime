@@ -1155,9 +1155,11 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
         .update(|state| {
             state.reconcile(user.as_deref());
             let choice = request.choice.or(state.pending_choice);
-            // 词库合并在退避里：回到前台时这一轮不碰词库，它的待上传标记也不把节流缩到 30 秒。
-            let dictionary_stalled =
-                capabilities.dictionary && !forced && state.sections.dictionary.stalled(now_ms);
+            // 词库合并在退避里：回到前台时这一轮不碰词库，它的待上传标记也不把节流缩到 30 秒。另一轮在跑时用户做的选择（`pending_choice`）这一轮就用掉，词库这时跳过就把它给词库的那一份丢了，下一轮又要问，所以记着它时词库这一轮不等退避；它不让这一轮跳过节流，用掉以后照常退避。
+            let dictionary_stalled = capabilities.dictionary
+                && !forced
+                && state.pending_choice.is_none()
+                && state.sections.dictionary.stalled(now_ms);
             let gated: Vec<Section> = participating
                 .iter()
                 .copied()

@@ -2000,6 +2000,70 @@ fn an_active_trigger_after_an_unfinished_merge_is_throttled_and_backs_off() {
 }
 
 #[test]
+fn a_choice_made_while_busy_reaches_a_dictionary_in_its_merge_backoff() {
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    let fixture = Fixture::new();
+    fixture.local.local().words = true;
+    fixture.api.cloud().dictionary_revision = 3;
+    fixture.enable();
+    let first = fixture.run(Trigger::Choice, Some(Choice::Merge), dictionary, NOW);
+    assert_eq!(first["outcome"], "done", "{first}");
+    // 词库还在早先一次没做完的合并的退避里，这时云端被清空了：手动同步问用户。
+    fixture
+        .store
+        .update(|state| {
+            state.sections.dictionary.stall = Some(Stall {
+                rounds: 4,
+                until_ms: NOW + policy::MAX_STALL_MS,
+            });
+        })
+        .unwrap();
+    {
+        let mut cloud = fixture.api.cloud();
+        cloud.dictionary_revision = 5;
+        cloud.dictionary_reset = true;
+        cloud.dictionary_items = 0;
+    }
+    let asked = fixture.run(Trigger::Manual, None, dictionary, NOW + 60_000);
+    assert_eq!(asked["reason"], "cloud_cleared", "{asked}");
+    let merged_before = fixture.local.local().merged;
+    // 用户选的时候另一个进程恰好在跑一轮：选择记成 pending_choice。
+    let lease = fixture
+        .store
+        .update(|state| state.begin_run(USER, NOW + 61_000, None))
+        .unwrap();
+    let busy = fixture.run(
+        Trigger::Choice,
+        Some(Choice::Merge),
+        dictionary,
+        NOW + 62_000,
+    );
+    assert_eq!(busy["reason"], "busy", "{busy}");
+    fixture
+        .store
+        .update(|state| state.release(&lease.id))
+        .unwrap();
+    // 下一次回到前台：退避还没到期，词库照样用上这个选择，不丢掉、不再问。
+    let resumed = fixture.run(
+        Trigger::Active,
+        None,
+        dictionary,
+        NOW + 62_000 + policy::THROTTLE_MS,
+    );
+    assert_eq!(
+        resumed["sections"]["dictionary"]["outcome"], "synced",
+        "{resumed}"
+    );
+    assert_eq!(fixture.local.local().merged, merged_before + 1);
+    let state = fixture.state();
+    assert_eq!(state.pending_choice, None);
+    assert!(!state.sections.dictionary.cleared);
+}
+
+#[test]
 fn a_choice_kept_for_the_dictionary_is_not_applied_to_a_cleared_phrase_cloud() {
     let capabilities = Capabilities {
         phrases: true,
