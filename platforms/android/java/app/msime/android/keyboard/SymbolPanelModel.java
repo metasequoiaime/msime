@@ -58,7 +58,13 @@ public final class SymbolPanelModel {
         public boolean remembers() { return !kaomoji(); }
     }
 
-    // 「常用」不再是写死的一份表，而是用户在面板里实际点过的符号（#5671），所以这里只有固定的分类。原先写在「常用」里的中文标点和全角符号挪到「中文」最前面，免得它们从面板里消失。
+    /** 「常用」用来补位的默认常用标点，与 iOS、鸿蒙「常用」的默认内容是同一份、同一顺序，正好六行。 */
+    static final List<String> DEFAULT_COMMON = List.of(
+        "，", "。", "？", "！", "、", "；", "：", "…", "—", "·",
+        "“", "”", "‘", "’", "（", "）", "《", "》", "【", "】",
+        "～", "￥", "＆", "＃", "＠", "％", "＋", "－", "＝", "／");
+
+    // 「常用」是用户在面板里实际点过的符号（#5671），后面用 DEFAULT_COMMON 补满，所以这里只有固定的分类。中文标点和全角符号仍留在「中文」最前面。
     private static final List<Category> FIXED_CATEGORIES = List.of(
         new Category("中文", List.of(
             "，", "。", "？", "！", "、", "；", "：", "…", "—", "·",
@@ -136,18 +142,30 @@ public final class SymbolPanelModel {
         return Math.min(category.columns(), Math.max(2, measured));
     }
 
-    /** 底栏的全部分类：第一个是「常用」，内容就是 `recents`（最近点的在前），然后是写死的分类，最后是 Engine 目录里的分类。 */
+    /** 底栏的全部分类：第一个是「常用」（{@link #commonSymbols}），然后是写死的分类，最后是 Engine 目录里的分类。 */
     public static List<Category> categories(List<String> recents) {
         ArrayList<Category> values = new ArrayList<>(FIXED_CATEGORIES.size() + 1);
-        values.add(new Category(RECENTS_TITLE, normalizeRecents(recents)));
+        values.add(new Category(RECENTS_TITLE, commonSymbols(recents)));
         values.addAll(FIXED_CATEGORIES);
         values.addAll(CATALOG_CATEGORIES);
         return List.copyOf(values);
     }
 
-    /** 打开面板时先显示哪一类：有使用记录就是「常用」，还没有就是「中文」，不让第一屏是空的。 */
+    /**
+     * 「常用」的内容：最近点过的在前，后面用 {@link #DEFAULT_COMMON} 补到 {@link #RECENTS_LIMIT} 个，去掉重复。只放点过的符号时，刚开始用的人打开面板只看到一两个符号，一整屏几乎是空的。
+     */
+    public static List<String> commonSymbols(List<String> recents) {
+        java.util.LinkedHashSet<String> values = new java.util.LinkedHashSet<>(normalizeRecents(recents));
+        for (String symbol : DEFAULT_COMMON) {
+            if (values.size() >= RECENTS_LIMIT) break;
+            values.add(symbol);
+        }
+        return List.copyOf(values);
+    }
+
+    /** 打开面板时先显示哪一类：「常用」总是补满的，所以总是它。 */
     public static int initialCategory(List<String> recents) {
-        return normalizeRecents(recents).isEmpty() ? 1 : 0;
+        return 0;
     }
 
     /** 读回存储的记录：丢掉空串、超长条目和重复项，最多保留 {@link #RECENTS_LIMIT} 个。 */

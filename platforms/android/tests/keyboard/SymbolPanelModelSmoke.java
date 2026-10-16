@@ -7,8 +7,11 @@ public final class SymbolPanelModelSmoke {
     public static void main(String[] args) {
         List<SymbolPanelModel.Category> empty = SymbolPanelModel.categories(List.of());
         check(empty.size() == 5 + 13, "five fixed categories, kaomoji and twelve symbol parents: " + empty.size());
-        check(empty.get(0).title().equals("常用") && empty.get(0).symbols().isEmpty(),
-            "常用 starts empty instead of a hard-coded list");
+        check(empty.get(0).title().equals("常用") && empty.get(0).symbols().equals(List.of(
+                "，", "。", "？", "！", "、", "；", "：", "…", "—", "·",
+                "“", "”", "‘", "’", "（", "）", "《", "》", "【", "】",
+                "～", "￥", "＆", "＃", "＠", "％", "＋", "－", "＝", "／")),
+            "常用 without history is the same thirty marks as iOS and HarmonyOS, never an empty page");
         check(empty.get(4).symbols().get(20).equals("http://"), "network shortcuts");
         // 原先只在「常用」里的中文标点挪到了「中文」，没有从面板里消失。
         for (String mark : List.of("，", "。", "？", "！", "、", "“", "”", "（", "）", "《", "》", "【", "】", "＠", "／"))
@@ -19,7 +22,7 @@ public final class SymbolPanelModelSmoke {
         catalogCategories(empty);
         networkSuffixes(empty.get(4));
 
-        check(SymbolPanelModel.initialCategory(List.of()) == 1, "no history opens on 中文");
+        check(SymbolPanelModel.initialCategory(List.of()) == 0, "no history still opens on the filled 常用");
         check(SymbolPanelModel.initialCategory(List.of("＞")) == 0, "history opens on 常用");
 
         // 点过的符号排到最前，重复点不会出现两次。
@@ -27,7 +30,11 @@ public final class SymbolPanelModelSmoke {
         recents = SymbolPanelModel.recordRecent(recents, "。");
         recents = SymbolPanelModel.recordRecent(recents, "＞");
         check(recents.equals(List.of("＞", "。")), "most recent first, deduplicated: " + recents);
-        check(SymbolPanelModel.categories(recents).get(0).symbols().equals(recents), "常用 shows the history");
+        List<String> common = SymbolPanelModel.categories(recents).get(0).symbols();
+        check(common.subList(0, 2).equals(recents), "常用 leads with the history: " + common);
+        check(common.size() == SymbolPanelModel.RECENTS_LIMIT && common.indexOf("。") == 1
+                && common.size() == new java.util.HashSet<>(common).size(),
+            "常用 is filled to six rows with the default marks, without repeating 。: " + common);
 
         // 上限 30，最旧的被挤掉。
         List<String> full = new ArrayList<>();
