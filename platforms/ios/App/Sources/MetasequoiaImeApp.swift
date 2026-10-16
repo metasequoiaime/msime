@@ -298,6 +298,11 @@ private struct MainTabView: View {
       if GIDSignIn.sharedInstance.handle(url) { return }
       #endif
       guard url.scheme == MSIMEAppEdition.urlScheme else { return }
+      // 链接指名了设置页时先把设置栈重建回根页面：切走标签页时那条栈原样保留，同一页面已经开着时写入相同的值不会触发导航，用户会停在上次在那里打开的更深一层页面，而不是链接要的页面。
+      if SettingsRouter.settingsPage(in: url) != nil {
+        navigation.settingsRoot = UUID()
+        navigation.settingsChat = false
+      }
       navigation.tab = router.handle(url) ?? .settings
       if url.host == "voice" { navigation.recordsVoice = true }
     }

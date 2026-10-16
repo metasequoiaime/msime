@@ -675,6 +675,37 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["全部设置"].waitForExistence(timeout: 5))
   }
 
+  /// 键盘发来的深链接指名的页面正开在切走了的设置标签页里、上面还压着更深一层的页面时，落点是链接要的那一页，而不是保留下来的更深一层页面。
+  @MainActor
+  func testSettingsDeepLinkLandsOnTheNamedPageOverAKeptStack() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    let settingsTab = app.tabBars.buttons["设置"]
+    XCTAssertTrue(settingsTab.waitForExistence(timeout: 10))
+    settingsTab.tap()
+    tapRevealed("expressionSettingsLink", in: app)
+    XCTAssertTrue(app.navigationBars["表达"].waitForExistence(timeout: 5))
+    tapRevealed("punctuationSettingsLink", in: app)
+    XCTAssertTrue(app.navigationBars["标点"].waitForExistence(timeout: 5))
+    let allSettingsTab = app.tabBars.buttons["全部设置"]
+    allSettingsTab.tap()
+    tapRevealed("inputSettingsLink", in: app)
+    XCTAssertTrue(app.navigationBars["输入"].waitForExistence(timeout: 5))
+    app.tabBars.buttons["统计"].tap()
+    XCTAssertFalse(app.navigationBars["标点"].exists)
+
+    // 经系统打开链接，与键盘的做法一样，交给正在运行的应用；`XCUIApplication.open` 会重新启动应用，测不到保留下来的栈。
+    XCUIDevice.shared.system.open(URL(string: "msime://settings/ai")!)
+    XCTAssertTrue(app.navigationBars["表达"].waitForExistence(timeout: 5), "深链接没有落到 表达 页: \(visible(app))")
+    XCTAssertFalse(app.navigationBars["标点"].exists, "深链接落在了保留下来的 标点 页: \(visible(app))")
+    XCTAssertTrue(settingsTab.isSelected)
+    // 应用没有被重新启动：另一个标签页的栈还在，深链接只重建了设置这一条栈。
+    allSettingsTab.tap()
+    XCTAssertTrue(app.navigationBars["输入"].waitForExistence(timeout: 5), "全部设置 的栈在深链接后丢了: \(visible(app))")
+  }
+
   @MainActor
   func testSkinPageTabsTakeCommunitySkinIntoMine() {
     let app = XCUIApplication()
