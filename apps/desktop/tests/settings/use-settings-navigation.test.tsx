@@ -15,7 +15,7 @@ function useNavigationProbe(initialPage: SettingsPageId) {
   const [accountLoginReturnPage, setAccountLoginReturnPage] = useState<SettingsPageId | null>(null);
   const mobileLastPageByTab = useRef({
     home: "home" as SettingsPageId,
-    chat: "chat" as SettingsPageId,
+    more: "more" as SettingsPageId,
     "typing-statistics": "typing-statistics" as SettingsPageId,
     account: "account" as SettingsPageId,
   });

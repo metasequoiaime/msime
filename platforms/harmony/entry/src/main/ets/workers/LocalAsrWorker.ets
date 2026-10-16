@@ -94,7 +94,7 @@ const textReaderApi: LocalAsrTextReaderApi = {
   },
   read: (fd: number, buffer: ArrayBuffer): number => fs.readSync(fd, buffer),
   close: (file: LocalAsrTextFile): void => fs.closeSync(file.fd),
-  decode: (bytes: Uint8Array): string => util.TextDecoder.create('utf-8').decode(bytes),
+  decode: (bytes: Uint8Array): string => util.TextDecoder.create('utf-8').decodeToString(bytes),
 };
 
 function readText(path: string, maximumBytes: number): string {

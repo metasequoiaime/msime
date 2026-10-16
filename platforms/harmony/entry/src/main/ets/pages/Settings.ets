@@ -566,7 +566,7 @@ interface DoubaoStartRequest {
 @Component
 struct Settings {
   private controller: web_webview.WebviewController = new web_webview.WebviewController();
-  private context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+  private context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
   private bridge: SettingsBridge = new SettingsBridge();
   // Notices from the MSIME service that the user has not dismissed, newest first; the card shows the first.
   @State notices: NoticeItem[] = [];
@@ -2668,7 +2668,7 @@ class SettingsBridge {
           start.request.corpus = { boosting_table_id: boostingTableId } as DoubaoCorpus;
         }
         const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
-        const startPayload: ArrayBuffer = encoder.encode(JSON.stringify(start)).buffer as ArrayBuffer;
+        const startPayload: ArrayBuffer = encoder.encodeInto(JSON.stringify(start)).buffer as ArrayBuffer;
         const audioPayload: ArrayBuffer = new Uint8Array(32000).buffer as ArrayBuffer;
         const startFrame: ArrayBuffer = client.doubaoEncodeFrame(1, 1, 1, startPayload);
         const finalFrame: ArrayBuffer = client.doubaoEncodeFrame(2, 3, -2, audioPayload);
@@ -2688,8 +2688,8 @@ class SettingsBridge {
   private silentMultipart(boundary: string, model: string): ArrayBuffer {
     const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
     const wav: Uint8Array = this.silentWav();
-    const prefix: Uint8Array = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
-    const modelPart: Uint8Array = encoder.encode(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
+    const prefix: Uint8Array = encoder.encodeInto(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
+    const modelPart: Uint8Array = encoder.encodeInto(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
     const output: ArrayBuffer = new ArrayBuffer(prefix.length + wav.length + modelPart.length);
     const bytes: Uint8Array = new Uint8Array(output);
     bytes.set(prefix, 0);
@@ -2718,7 +2718,7 @@ class SettingsBridge {
 
   private writeAscii(bytes: Uint8Array, offset: number, value: string): void {
     const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
-    bytes.set(encoder.encode(value), offset);
+    bytes.set(encoder.encodeInto(value), offset);
   }
 
   private writeU16(bytes: Uint8Array, offset: number, value: number): void {
@@ -3263,7 +3263,7 @@ class SettingsBridge {
       if (count !== stat.size) {
         return null;
       }
-      return util.TextDecoder.create('utf-8').decode(new Uint8Array(buffer, 0, count));
+      return util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer, 0, count));
     } catch {
       // 从未写过的文件是常见情况，不是错误。
       return null;

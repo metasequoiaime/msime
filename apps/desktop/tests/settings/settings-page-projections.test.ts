@@ -91,7 +91,7 @@ test("projects mobile pages into tabs, grouped settings, and sidebar sections", 
   // 原来「社区」的第二格换成了 AI 对话。
   expect(mobile.mobilePrimaryPages.map((page) => page.id)).toEqual([
     "home",
-    "chat",
+    "more",
     "typing-statistics",
     "account",
   ]);
@@ -100,7 +100,15 @@ test("projects mobile pages into tabs, grouped settings, and sidebar sections", 
   const listed = mobile.mobileSecondaryGroups.flatMap((group) =>
     group.pages.map((page) => page.id),
   );
-  for (const id of ["home", "chat", "community", "typing-statistics", "account", "shortcuts"]) {
+  for (const id of [
+    "home",
+    "more",
+    "chat",
+    "community",
+    "typing-statistics",
+    "account",
+    "shortcuts",
+  ]) {
     expect(listed).not.toContain(id);
   }
   expect(listed).not.toContain("floating-toolbar");
@@ -127,6 +135,7 @@ test("a touch host without a chat client has no 对话 tab", () => {
   const mobile = project({ mobilePlatform: true, hasChat: false });
   expect(mobile.mobilePrimaryPages.map((page) => page.id)).toEqual([
     "home",
+    "more",
     "typing-statistics",
     "account",
   ]);
@@ -137,7 +146,7 @@ test("keeps the tab pages out of the iPad sidebar", () => {
   const ipad = project({ mobilePlatform: true });
   const sidebar = ipad.sidebarGroups.flatMap((group) => group.pages.map((page) => page.id));
   expect(sidebar[0]).toBe("home");
-  for (const id of ["chat", "community", "typing-statistics", "account"]) {
+  for (const id of ["more", "chat", "community", "typing-statistics", "account"]) {
     expect(sidebar).not.toContain(id);
   }
 });

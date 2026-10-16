@@ -290,11 +290,11 @@ export class HarmonyHttpAsrRecognizer {
     if (transcriptionLanguage.length > 0) {
       fields += `\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${transcriptionLanguage}`;
     }
-    const head: Uint8Array = encoder.encode(
+    const head: Uint8Array = encoder.encodeInto(
       fields
       + `\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="speech.wav"\r\n`
       + 'Content-Type: audio/wav\r\n\r\n');
-    const tail: Uint8Array = encoder.encode(`\r\n--${boundary}--\r\n`);
+    const tail: Uint8Array = encoder.encodeInto(`\r\n--${boundary}--\r\n`);
     const audio: Uint8Array = new Uint8Array(wav);
     const result: Uint8Array = new Uint8Array(head.length + audio.length + tail.length);
     result.set(head, 0);

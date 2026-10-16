@@ -405,6 +405,12 @@ struct ServiceSettingsView: View {
           Button(busy ? "正在处理…" : "发送并润色") { send() }
             .disabled(busy || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
+        Section {
+          NavigationLink("AI 对话") { KeyboardTryoutView(title: "AI 对话") }
+            .accessibilityIdentifier("aiChatLink")
+        } footer: {
+          Text("在独立页面里对话，同时可以试用键盘。")
+        }
         CommunityReplyTemplatesSection()
       } else {
         Section {

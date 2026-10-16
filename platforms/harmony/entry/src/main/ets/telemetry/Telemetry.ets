@@ -275,7 +275,7 @@ export class HarmonyTelemetry {
       const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
       const count: number = fs.readSync(handle.fd, buffer);
       if (count !== stat.size) return null;
-      const text: string = util.TextDecoder.create('utf-8').decode(
+      const text: string = util.TextDecoder.create('utf-8').decodeToString(
         new Uint8Array(buffer, 0, count));
       return TelemetryPolicy.rememberedPid(text);
     } catch (error) {

@@ -32,7 +32,16 @@ struct TabletSettingsView: View {
     } detail: {
       // A fresh stack per section, so switching sections never leaves a page from the previous one on top.
       NavigationStack {
-        detail(selection ?? .page(.input))
+        if navigation.settingsChat {
+          KeyboardTryoutView(title: "AI 对话", focusRequest: navigation.chatFocusRequest)
+            .toolbar {
+              ToolbarItem(placement: .cancellationAction) {
+                Button("返回") { navigation.settingsChat = false }
+              }
+            }
+        } else {
+          detail(selection ?? .page(.input))
+        }
           .frame(maxWidth: 720)
           .frame(maxWidth: .infinity)
           .designCanvasBackground()

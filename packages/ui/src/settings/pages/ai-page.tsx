@@ -78,12 +78,10 @@ export function AiSettingsPage() {
       trailing={
         <>
           <AiReplyTemplates />
-          {!mobilePlatform && (
-            <SubPageEntries
-              title="AI 对话"
-              pages={[{ id: "chat", description: "与 AI 对话，结果可以直接用于输入" }]}
-            />
-          )}
+          <SubPageEntries
+            title="AI 对话"
+            pages={[{ id: "chat", description: "与 AI 对话，结果可以直接用于输入" }]}
+          />
         </>
       }
     />

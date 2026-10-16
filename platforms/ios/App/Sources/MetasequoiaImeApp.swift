@@ -209,8 +209,8 @@ private struct MainTabView: View {
     TabView(selection: Binding(get: { navigation.tab }, set: { navigation.select($0, router: router) })) {
       settingsTab.id(navigation.settingsRoot)
         .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(AppNavigation.Tab.settings)
-      NavigationStack { KeyboardTryoutView(title: "对话", focusRequest: navigation.chatFocusRequest) }
-        .tabItem { Label("对话", systemImage: "bubble.left.and.bubble.right.fill") }.tag(AppNavigation.Tab.chat)
+      NavigationStack { SettingsView(navigationTitle: "全部设置", showsStatusCard: false) }
+        .tabItem { Label("全部设置", systemImage: "square.grid.2x2.fill") }.tag(AppNavigation.Tab.allSettings)
       NavigationStack { TypingStatisticsView() }
         .tabItem { Label("统计", systemImage: "chart.bar.fill") }.tag(AppNavigation.Tab.statistics)
       NavigationStack { AccountSettingsView() }
@@ -242,7 +242,14 @@ private struct MainTabView: View {
   // Both idiom and width class: a Max-size iPhone turned sideways is regular width but stays a phone, and an iPad in a narrow Split View or Slide Over pane gets the phone's stack.
   @ViewBuilder private var settingsTab: some View {
     if UIDevice.current.userInterfaceIdiom == .pad && widthClass == .regular { TabletSettingsView() }
-    else { NavigationStack { SettingsView() } }
+    else {
+      NavigationStack {
+        SettingsView()
+          .navigationDestination(isPresented: $navigation.settingsChat) {
+            KeyboardTryoutView(title: "AI 对话", focusRequest: navigation.chatFocusRequest)
+          }
+      }
+    }
   }
 }
 

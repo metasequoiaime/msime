@@ -4,23 +4,19 @@ import type { FluentIconName } from "../core/fluent-icons";
  * The 设置 tab draws a gear, not the app. Its page icon is the settings glyph
  * used by the shared settings shell.
  */
-import { settingsIcon, settingsIcons } from "./app-resources";
+import { settingsIcon } from "./app-resources";
 
 const settingsTabIcon = settingsIcon;
 
-/** 「对话」标签页画对话气泡。`chat` 页在页面注册表里的图标是问号（它原本只从「AI 辅助」里的一行进入，用不到图标），放在标签栏上会被看成「帮助」。 */
-const chatTabIcon = settingsIcons.feedback;
-
 export function mobileTabIcon(id: string, icon: string): string {
   if (id === "home") return settingsTabIcon;
-  if (id === "chat") return chatTabIcon;
   return icon;
 }
 
-/** HarmonyOS 手机为每个底部标签页绘制的 Fluent 图标；id 不是这四个标签页之一时为 undefined。「对话」不在设计稿里，用同一套图标里的 `chat` 气泡。 */
+/** HarmonyOS 手机为每个底部标签页绘制的 Fluent 图标。 */
 export function harmonyTabIcon(id: string): FluentIconName | undefined {
   if (id === "home") return "settings";
-  if (id === "chat") return "chat";
+  if (id === "more") return "grid";
   if (id === "typing-statistics") return "data_bar_vertical";
   if (id === "account") return "person";
   return undefined;
@@ -28,6 +24,7 @@ export function harmonyTabIcon(id: string): FluentIconName | undefined {
 
 const mobilePrimaryTitles: Record<string, string> = {
   home: "设置",
+  more: "全部设置",
   "typing-statistics": "统计",
   account: "我的",
 };
@@ -35,7 +32,6 @@ const mobilePrimaryTitles: Record<string, string> = {
 /** What a mobile tab is called, which is not always what its page is called. */
 export function mobileTabTitle(id: string, title: string): string {
   if (mobilePrimaryTitles[id]) return mobilePrimaryTitles[id];
-  if (id === "chat") return "对话";
   return title;
 }
 

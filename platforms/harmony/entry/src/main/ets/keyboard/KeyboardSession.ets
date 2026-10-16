@@ -5536,7 +5536,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
       const count: number = fs.readSync(handle.fd, buffer);
       if (count !== stat.size) return null;
-      return util.TextDecoder.create('utf-8').decode(new Uint8Array(buffer, 0, count));
+      return util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer, 0, count));
     } catch {
       return null;
     } finally {

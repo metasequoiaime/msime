@@ -154,7 +154,7 @@ export class HarmonyDoubaoRecognizer {
         start.request.corpus = { boosting_table_id: config.doubao_boosting_table_id };
       }
       const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
-      const payload: ArrayBuffer = encoder.encode(JSON.stringify(start)).buffer as ArrayBuffer;
+      const payload: ArrayBuffer = encoder.encodeInto(JSON.stringify(start)).buffer as ArrayBuffer;
       const frame: ArrayBuffer = client.doubaoEncodeFrame(1, 1, 1, payload);
       if (!await socket.send(frame)) throw new Error('start frame rejected');
       this.connected = true;

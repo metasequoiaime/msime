@@ -3,10 +3,11 @@ import SwiftUI
 
 // 每个标签页各有自己的导航栈。原来「社区」那一格是「对话」，打开 App 里与 AI 对话、同时试用键盘的页面（`KeyboardTryoutView`）；社区作品列在各自的功能页里，完整列表从那一页的「浏览更多…」推入同一条栈。
 final class AppNavigation: ObservableObject {
-  enum Tab: Hashable { case settings, chat, statistics, account }
+  enum Tab: Hashable { case settings, allSettings, statistics, account }
   @Published var tab: Tab = .settings
   /// 设置状态卡上的「试用键盘」每点一次加一。对话页出现时发现它变了就把焦点放进输入框，直接点标签栏进来则不弹键盘。
   @Published var chatFocusRequest = 0
+  @Published var settingsChat = false
   /// 替换它即可把设置导航栈重建回根页面。
   @Published var settingsRoot = UUID()
   /// The keyboard's voice panel sends msime://voice: the keyboard cannot record, so the app opens straight onto the recording screen.
@@ -17,7 +18,8 @@ final class AppNavigation: ObservableObject {
   /// 切到「对话」并把焦点放进输入框，供状态卡上的「试用键盘」使用：试用键盘的页面就是对话页，不再另外推入一份。
   func openChat() {
     chatFocusRequest += 1
-    tab = .chat
+    settingsChat = true
+    tab = .settings
   }
 
   /// 点了标签栏的某一项。设置正显示时再点它就回到根页面，与 Android 标签栏重选时弹出该标签的页面一样；切换标签则各自保留导航栈，与 iOS 惯例一致。
@@ -25,6 +27,7 @@ final class AppNavigation: ObservableObject {
     if next == tab && next == .settings {
       router.settingsPage = nil
       settingsRoot = UUID()
+      settingsChat = false
     }
     tab = next
   }
