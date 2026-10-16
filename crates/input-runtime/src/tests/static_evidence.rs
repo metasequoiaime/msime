@@ -220,3 +220,122 @@ fn successive_reranks_keep_static_evidence_on_its_engine_row() {
         Some("乙".into())
     );
 }
+
+#[test]
+fn static_rerank_large_lists_do_not_allocate_a_full_text_projection() {
+    for compared in [2, 9] {
+        for interleaved in [false, true] {
+            let mut prefix = Vec::new();
+            let mut scores = Vec::new();
+            for index in 0..compared {
+                if interleaved && index > 0 {
+                    prefix.push(OrderRow {
+                        source: 3,
+                        ..row("乙")
+                    });
+                    scores.push(None);
+                }
+                prefix.push(row(if index == 0 { "甲" } else { "乙" }));
+                scores.push(evidence(
+                    if index + 1 == compared { -1000 } else { -40000 },
+                    1,
+                ));
+            }
+            let expected = Some(prefix.len() - 1);
+            for warmed in [false, true] {
+                let run = |count| {
+                    let mut rows = prefix.clone();
+                    let mut scores = scores.clone();
+                    rows.resize(
+                        count,
+                        OrderRow {
+                            source: 3,
+                            ..row("乙")
+                        },
+                    );
+                    scores.resize(count, None);
+                    let scored = ScoredOrderRows::new(&rows, &scores);
+                    let mut model = model();
+                    if warmed {
+                        assert_eq!(rerank_pick(&mut model, "甲", 0, false, &scored), expected);
+                    }
+                    let (picked, count, bytes) = allocations::count_bytes(|| {
+                        rerank_pick(&mut model, "甲", 0, false, &scored)
+                    });
+                    assert_eq!(picked, expected);
+                    (count, bytes)
+                };
+                let baseline = run(prefix.len());
+                for count in [128, 129, 1024] {
+                    assert_eq!(run(count), baseline, "compared={compared} interleaved={interleaved} warmed={warmed} rows={count}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn large_static_rerank_lists_preserve_fallback_and_key_rules() {
+    for count in [2, 128, 129, 1024] {
+        for mode in 0..7 {
+            let mut rows = vec![
+                OrderRow {
+                    source: 3,
+                    ..row("乙")
+                };
+                count
+            ];
+            rows[0] = row("甲");
+            rows[1] = row("乙");
+            let mut scores = vec![None; count];
+            scores[0] = evidence(-1000, 1);
+            scores[1] = evidence(-40000, 1);
+            let mut scheme = 0;
+            let expected = match mode {
+                0 => {
+                    scores[1] = None;
+                    Some(1)
+                }
+                1 => {
+                    scores[1] = evidence(-40000, 0);
+                    Some(1)
+                }
+                2 => {
+                    scores.pop();
+                    Some(1)
+                }
+                3 => {
+                    rows[0].source = 0;
+                    None
+                }
+                4 => {
+                    rows[0].source = 0;
+                    rows[1].corrected = true;
+                    scores[1] = evidence(-1000, 1);
+                    scores[0] = evidence(-40000, 1);
+                    Some(1)
+                }
+                5 => {
+                    scheme = 1;
+                    rows[1].corrected = true;
+                    None
+                }
+                _ => {
+                    rows[0].answers_key = false;
+                    None
+                }
+            };
+            assert_eq!(
+                rerank_pick(
+                    &mut model(),
+                    "甲",
+                    scheme,
+                    false,
+                    &ScoredOrderRows::new(&rows, &scores)
+                ),
+                expected,
+                "rows={count} mode={mode}"
+            );
+        }
+    }
+}
