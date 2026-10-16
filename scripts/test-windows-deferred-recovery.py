@@ -91,6 +91,7 @@ struct CMetasequoiaIME {
     DeferredKeyDown _deferredKeyInFlight;
     bool _hasDeferredKeyInFlight = false;
     std::uint64_t _deferredKeyReplayToken = 0;
+    bool _deferredKeyClassificationPending = false;
     bool _deferredKeyProjectionValid = false;
     std::size_t _deferredProjectedInputLength = 0, _deferredProjectedCaret = 0;
     std::wstring _deferredProjectedRawInput;

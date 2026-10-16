@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 功能菜单：四列三行，常用操作在前、其他工具在后，过滤顶部已有的入口；条目见 {@link FunctionPanelModel}。本地输入与「AI 回复与润色」各有一个子页。
+ * 功能菜单：四列，手机竖屏和平板三行、手机横屏两行（{@link MSIMEInputService#pickerGrid}），常用操作在前、其他工具在后，过滤顶部已有的入口；条目见 {@link FunctionPanelModel}。本地输入与「AI 回复与润色」各有一个子页。
  *
  * <p>旧面板「开启态卡片渲染成深色块」的根因：开启的 TILE 卡片底色是 accentSoft（自定义皮肤里是 accent 加 0x24 透明度），经 `KeyboardSkinKeyDrawable` 绘制时选中卡片按 action 处理，`paint.setAlpha(opacity)` 把颜色自带的 0x24 透明度覆盖成 255，底色变成实心 accent，而文字 accentText 也是 accent，于是成了一块看不见字的深色块。面板条目不画底色（FunctionPanelView 挡掉样式通道给的键帽），开启态用强调色和勾标表示。
  */
@@ -59,6 +59,8 @@ final class ImeFunctionPanel {
             renderedItemIds = List.of();
         }
         FunctionPanelView panel = s.functionPanel;
+        panel.setPickerGrid(s.pickerGrid(FunctionPanelView.ITEM_HEIGHT_DP,
+            FunctionPanelView.CHROME_DP + MSIMEInputService.MORE_TOOLS_BOTTOM_PADDING_DP));
         java.util.Set<FunctionPanelModel.Id> hiddenItems = java.util.EnumSet.noneOf(FunctionPanelModel.Id.class);
         if (!s.toolbarHidden) {
             if (s.toolbarEmoji) hiddenItems.add(FunctionPanelModel.Id.EMOJI);

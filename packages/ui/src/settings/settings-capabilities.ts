@@ -38,6 +38,9 @@ export function settingsCapabilities({
   const showFloatingToolbar = host ? host.floating_toolbar : true;
   const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
   const showToolbarComponents = host ? host.floating_toolbar_components : true;
+  // 屏幕键盘的高度和间距：没有宿主（网页预览）或宿主没报这两项时照旧给出。
+  const showTouchKeyboardHeight = host?.touch_keyboard_height !== false;
+  const showTouchKeyboardSpacing = host?.touch_keyboard_spacing !== false;
   const showCandidateFontControls = host ? host.candidate_font_controls : true;
   const showCandidatePreeditFont =
     showCandidateFontControls && (host ? host.candidate_preedit_font : true);
@@ -99,6 +102,8 @@ export function settingsCapabilities({
     showFloatingToolbar,
     showToolbarAppearance,
     showToolbarComponents,
+    showTouchKeyboardHeight,
+    showTouchKeyboardSpacing,
     showCandidateFontControls,
     showCandidatePreeditFont,
     showCandidateEnglishFont,

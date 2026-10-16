@@ -36,6 +36,7 @@ import {
   themeEntry,
 } from "@msime/ui";
 import { describeInstallerTrust } from "../../../../packages/ui/src/settings/update-manifest";
+import { defaultFloatingToolbar } from "../../../../packages/ui/src/settings/floating-toolbar-defaults";
 import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
@@ -5825,6 +5826,102 @@ test("touch keyboard geometry mirrors Apple defaults and persists height and spa
   });
 });
 
+// macOS 的键盘窗口高度固定，间距也固定成默认值：屏幕键盘页没有尺寸组，预览画键盘实际的样子，手写并进这一页。
+test("macOS shows the screen keyboard without size controls and previews the fixed geometry", async () => {
+  const save = vi.fn();
+  render(
+    <SettingsPage
+      client={{
+        load: async () => ({
+          ...initial,
+          preferences: {
+            ...initial.preferences,
+            touch_keyboard_height_adjustment: 24,
+            touch_key_spacing_tenths: 35,
+            touch_row_spacing_tenths: 95,
+          },
+        }),
+        save,
+        host: testHost({ platform: "macos" }),
+        openScreenKeyboard: vi.fn(),
+        openHandwriting: vi.fn(),
+        loadDefaultPreferences: vi.fn().mockResolvedValue(initial.preferences),
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘与手写" }));
+  const page = await screen.findByRole("group", { name: "屏幕键盘与手写" });
+  for (const slider of ["键盘高度", "按键间距", "行间距"])
+    expect(within(page).queryByRole("slider", { name: slider })).toBeNull();
+  expect(within(page).queryByText("尺寸")).toBeNull();
+  expect(within(page).queryByRole("button", { name: "恢复屏幕键盘默认设置" })).toBeNull();
+  expect(within(page).queryByLabelText("拖动预览调整键盘间距")).toBeNull();
+  const preview = within(page).getByRole("img", { name: "屏幕键盘完整布局预览" });
+  expect(preview.getAttribute("data-key-spacing")).toBe("6.0");
+  expect(preview.getAttribute("data-row-spacing")).toBe("7.0");
+  expect(preview.getAttribute("data-keyboard-height")).toBe("400");
+  expect(within(page).getByText("打开屏幕键盘")).toBeTruthy();
+  expect(within(page).getByText("macOS 手写识别板")).toBeTruthy();
+  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
+  // 这一页没有偏好，页脚不给全局的「恢复默认设置」。
+  expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
+  expect(save).not.toHaveBeenCalled();
+});
+
+// Linux 的键盘窗口高度固定，间距照旧可调；「恢复默认」只说这一页看得到的几项。
+test("Linux keeps the spacing sliders but drops the height that its keyboard window ignores", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: testHost({ platform: "linux" }),
+        openScreenKeyboard: vi.fn(),
+        openHandwriting: vi.fn(),
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘与手写" }));
+  const page = await screen.findByRole("group", { name: "屏幕键盘与手写" });
+  expect(within(page).queryByRole("slider", { name: "键盘高度" })).toBeNull();
+  expect(within(page).getByRole("slider", { name: "按键间距" })).toBeTruthy();
+  expect(within(page).getByRole("slider", { name: "行间距" })).toBeTruthy();
+  expect(within(page).getByLabelText("拖动预览调整键盘间距")).toBeTruthy();
+  expect(within(page).getByText("间距和顶部语音入口回到默认")).toBeTruthy();
+  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
+  fireEvent.click(within(page).getByRole("button", { name: "恢复屏幕键盘默认设置" }));
+  const dialog = await screen.findByRole("alertdialog");
+  expect(within(dialog).getByText("间距和顶部语音入口都会回到默认。")).toBeTruthy();
+  await answerConfirm("cancel");
+});
+
+// Windows 的共享设置页与原生设置窗口一样分成「屏幕键盘」和「手写输入」两页，高度和间距都在。
+test("Windows keeps the screen keyboard and handwriting pages apart with every size control", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: testHost({ platform: "windows" }),
+        openScreenKeyboard: vi.fn(),
+        openHandwriting: vi.fn(),
+      }}
+    />,
+  );
+  await settingsReady();
+  expect(screen.getByRole("button", { name: "手写输入" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "屏幕键盘与手写" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
+  const page = await screen.findByRole("group", { name: "屏幕键盘" });
+  for (const slider of ["键盘高度", "按键间距", "行间距"])
+    expect(within(page).getByRole("slider", { name: slider })).toBeTruthy();
+  expect(within(page).queryByText("打开手写识别板")).toBeNull();
+  // Windows 不是 touch_toolbar_components 的宿主，说明不再提工具栏按钮。
+  expect(within(page).getByText("高度、间距和顶部语音入口回到默认")).toBeTruthy();
+});
+
 test("skin preview switches are independent, reversible and do not change saved selection", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
@@ -5947,23 +6044,25 @@ test("floating toolbar settings use Windows defaults and persist independently",
     name: "在桌面显示悬浮工具栏",
   })) as HTMLInputElement;
   expect(enabled.checked).toBe(true);
-  expect((screen.getByLabelText("工具栏缩放") as HTMLSelectElement).value).toBe("100");
-  expect((screen.getByLabelText("图标尺寸") as HTMLSelectElement).value).toBe("24");
-  expect((screen.getByRole("checkbox", { name: "英文输入模式" }) as HTMLInputElement).checked).toBe(
+  expect((screen.getByLabelText("工具栏大小") as HTMLSelectElement).value).toBe("100");
+  // 中/英按钮的开关叫「中英文切换」，没有另一行锁定的「始终显示」。
+  expect(screen.getAllByRole("checkbox", { name: "中英文切换" })).toHaveLength(1);
+  expect((screen.getByRole("checkbox", { name: "中英文切换" }) as HTMLInputElement).checked).toBe(
     true,
   );
+  expect(screen.queryByText("始终显示")).toBeNull();
   expect((screen.getByRole("checkbox", { name: "全角 / 半角" }) as HTMLInputElement).checked).toBe(
     true,
   );
   expect((screen.getByRole("checkbox", { name: "屏幕键盘" }) as HTMLInputElement).checked).toBe(
     false,
   );
-  fireEvent.change(screen.getByLabelText("工具栏缩放"), { target: { value: "125" } });
-  fireEvent.change(screen.getByLabelText("图标尺寸"), { target: { value: "28" } });
+  // 175% 一档写成 150% 缩放加 28 的图标，和以前两个下拉都拉满时一样大。
+  fireEvent.change(screen.getByLabelText("工具栏大小"), { target: { value: "175" } });
   fireEvent.click(screen.getByRole("switch", { name: "在桌面显示悬浮工具栏" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "全角 / 半角" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "屏幕键盘" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "英文输入模式" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "中英文切换" }));
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
@@ -5983,9 +6082,43 @@ test("floating toolbar settings use Windows defaults and persist independently",
       screen_keyboard: true,
       voice: false,
       settings: true,
-      scale_percent: 125,
+      scale_percent: 150,
       font_size: 28,
     },
+  });
+});
+
+test("the toolbar size shows a combination set elsewhere as custom without rewriting it", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  const stored = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      floating_toolbar: {
+        ...defaultFloatingToolbar,
+        scale_percent: 125 as const,
+        font_size: 18 as const,
+      },
+    },
+  };
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(stored), save }} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  // Windows 原生设置页仍然分开调缩放和图标；凑不成一档时照实显示，打开页面不改写。
+  const size = (await screen.findByLabelText("工具栏大小")) as HTMLSelectElement;
+  expect(size.value).toBe("custom");
+  expect(size.selectedOptions[0]?.textContent).toBe("自定义（缩放 125%，图标 18）");
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(size, { target: { value: "125" } });
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...stored.preferences,
+    floating_toolbar: { ...stored.preferences.floating_toolbar, scale_percent: 125, font_size: 24 },
   });
 });
 
@@ -6787,7 +6920,8 @@ const referenceSections: {
   {
     page: "floating-toolbar",
     button: "悬浮工具栏",
-    titles: ["在桌面显示悬浮工具栏", "按钮", "工具栏缩放", "图标尺寸"],
+    // 参考窗口的「工具栏缩放」和「图标尺寸」相乘才是工具栏的大小，这里合成一个「工具栏大小」，选一档同时写两个值。
+    titles: ["在桌面显示悬浮工具栏", "按钮", "工具栏大小"],
   },
   {
     page: "screen-keyboard",
@@ -6981,6 +7115,11 @@ const macosHostCapabilities = testHost({
   candidate_english_font: true,
 });
 
+const macosMergedPages: Record<string, string> = {
+  屏幕键盘: "屏幕键盘与手写",
+  手写输入: "屏幕键盘与手写",
+};
+
 const macosAbsentSections: Record<string, string> = {
   // The Windows font row carries this note; macOS applies the family without a restart, and its
   // font controls are the shared three (main, supplementary, English) rather than Windows' pair.
@@ -7023,11 +7162,13 @@ test.each(referenceSections)(
     );
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
-    fireEvent.click(screen.getByRole("button", { name: button }));
+    // macOS 把「屏幕键盘」和「手写输入」并成一页「屏幕键盘与手写」，两张表项都在那一页上找。
+    const pageName = macosMergedPages[button] ?? button;
+    fireEvent.click(screen.getByRole("button", { name: pageName }));
     if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
     const page = group
       ? await screen.findByRole("region", { name: group })
-      : await screen.findByRole("group", { name: button });
+      : await screen.findByRole("group", { name: pageName });
     const present = sectionTitles(page);
     const wanted = titles.filter((title) => !(title in macosAbsentSections));
     expect(wanted.filter((title) => !present.includes(title))).toEqual([]);
@@ -7223,16 +7364,11 @@ const referenceOptions: {
     options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"],
   },
   {
+    // 参考窗口的「工具栏缩放」（75–150%）和「图标尺寸」（16–28）合成这一个大小；175% 是 150% 缩放加 28 的图标，最大尺寸和参考窗口相同。
     page: "floating-toolbar",
     button: "悬浮工具栏",
-    control: "工具栏缩放",
-    options: ["75%", "100%", "125%", "150%"],
-  },
-  {
-    page: "floating-toolbar",
-    button: "悬浮工具栏",
-    control: "图标尺寸",
-    options: ["16", "18", "20", "22", "24", "26", "28"],
+    control: "工具栏大小",
+    options: ["75%", "100%", "125%", "150%", "175%"],
   },
   {
     // The four built-in prompts, named as the reference names them in the same table the prompts
@@ -7694,7 +7830,8 @@ test("macOS sidebar uses the same six groups", async () => {
   expect(groups).toEqual([
     ["输入", "标点与翻译", "快捷键", "词库"],
     ["主题", "候选窗口", "悬浮工具栏"],
-    ["屏幕键盘", "语音输入", "手写输入"],
+    // 手写页在 macOS 上只有一个打开按钮，并进屏幕键盘页。
+    ["屏幕键盘与手写", "语音输入"],
     ["剪贴板", "AI 辅助"],
     ["维护与诊断", "帮助与反馈", "关于"],
   ]);
@@ -7990,7 +8127,9 @@ test("macOS opens handwriting for copying while input-session panels use the nat
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "手写输入" }));
+  // 手写在 macOS 上并进「屏幕键盘与手写」页。
+  expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘与手写" }));
   expect(await screen.findByText("macOS 手写识别板")).toBeDefined();
   expect(screen.getByText(/从这里打开可识别并复制文字/)).toBeDefined();
   expect(screen.getByText(/从输入法悬浮工具栏或菜单打开手写板/)).toBeDefined();

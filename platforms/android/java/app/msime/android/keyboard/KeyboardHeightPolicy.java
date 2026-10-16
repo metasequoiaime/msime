@@ -55,6 +55,13 @@ public final class KeyboardHeightPolicy {
             BoundsPolicy.atLeast(windowLimit, LEGACY_MAX_DESIGN_HEIGHT_ADJUSTMENT_DP));
     }
 
+    /** 键区（三行键加底行，各布局同高）在这个调整量、窗口高度（`Configuration.screenHeightDp`）和行距下的高度（dp）。从工具栏打开的面板盖在这一块上，横竖屏相同。 */
+    public static float keyAreaHeightDp(int adjustment, int windowHeightDp, int rowSpacingTenths) {
+        return KeyboardGeometry.KEY_ROW_HEIGHT_DP * KEYBOARD_ROW_COUNT
+            + windowHeightAdjustment(adjustment, windowHeightDp)
+            + KEYBOARD_ROW_COUNT * KeyboardSpacingPolicy.rowSpacing(rowSpacingTenths) / 10f;
+    }
+
     public static int designKeyHeight(int percent) {
         int clamped = BoundsPolicy.bounded(percent, MIN_HEIGHT_PERCENT, MAX_HEIGHT_PERCENT);
         return (KeyboardGeometry.DESIGN_KEY_HEIGHT_DP * clamped + 50) / 100;

@@ -5,7 +5,9 @@ import app.msime.android.KeyPressAnimator;
 import app.msime.android.KeyboardIconKey;
 import app.msime.android.KeyboardIconPaths;
 import app.msime.android.KeyboardKeyPreview;
+import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardPagerDots;
+import app.msime.android.KeyboardSpacingPolicy;
 import app.msime.android.OneHandGutterView;
 import app.msime.android.PagedTileGrid;
 import app.msime.android.SpaceKeyFace;
@@ -37,6 +39,38 @@ public final class ms_w2_kb_ViewLogicSmoke {
         check(PagedTileGrid.settlePage(0, 160f, 300f, 0f, 1000f, 3) == 1, "slow release rounds to nearest page");
         check(PagedTileGrid.settlePage(1, 100f, 300f, 0f, 1000f, 3) == 0, "slow release rounds back");
         check(PagedTileGrid.settlePage(1, 100f, 0f, 0f, 1000f, 3) == 1, "unmeasured grid keeps its page");
+
+        // 输入方式和功能面板的行数和行距，与 iOS 的 pickerRows / pickerRowGap 同一条规则：手机竖屏和平板三行、行距 12 dp，手机横屏两行、行距 16 dp。
+        float minimumKeyArea = KeyboardHeightPolicy.keyAreaHeightDp(KeyboardHeightPolicy.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP,
+            800, KeyboardSpacingPolicy.MIN_ROW_SPACING_TENTHS);
+        float defaultKeyArea = KeyboardHeightPolicy.keyAreaHeightDp(KeyboardHeightPolicy.DEFAULT_HEIGHT_ADJUSTMENT_DP,
+            800, KeyboardSpacingPolicy.DEFAULT_ROW_SPACING_TENTHS);
+        check(near(minimumKeyArea, 178f) && near(defaultKeyArea, 236f), "key area spans 178–236 dp from 75% / 4 dp to default");
+        // 横屏手机的窗口只有约 360 dp 高，键区高度与竖屏相同。
+        check(near(KeyboardHeightPolicy.keyAreaHeightDp(0, 360, -1), defaultKeyArea), "landscape key area matches portrait");
+        // 网格以外的高度：功能面板 = 自身内边距 10 + 4、页点 8 + 6，外面容器底部 10；输入方式面板 = 内边距 14 + 6、页点格 10 和上下各 6（ImePanels）。
+        check(FunctionPanelView.CHROME_DP == 28f, "function panel chrome");
+        float[][] panels = {{FunctionPanelView.ITEM_HEIGHT_DP, FunctionPanelView.CHROME_DP + 10f}, {56f, 42f}};
+        for (float[] panel : panels) {
+            float row = panel[0];
+            float chrome = panel[1];
+            PagedTileGrid.PickerGrid portrait = PagedTileGrid.pickerGrid(false, defaultKeyArea, row, chrome);
+            check(portrait.equals(new PagedTileGrid.PickerGrid(3, 12f)), "default height shows three rows 12 dp apart");
+            check(3 * row + 2 * portrait.rowGap() + chrome <= defaultKeyArea, "three rows fit the default key area");
+            check(PagedTileGrid.pickerGrid(true, defaultKeyArea, row, chrome).equals(new PagedTileGrid.PickerGrid(2, 16f)),
+                "phone landscape stays two rows 16 dp apart");
+            check(PagedTileGrid.pickerGrid(false, 400f, row, chrome).rowGap() == 12f, "a tall key area keeps the 12 dp gap");
+            // 键区稍矮时先收小行距，仍是三行。
+            PagedTileGrid.PickerGrid tight = PagedTileGrid.pickerGrid(false, 3 * row + chrome + 10f, row, chrome);
+            check(tight.equals(new PagedTileGrid.PickerGrid(3, 5f)), "a short key area narrows the gap before dropping a row");
+            // 最矮的键区连行距 0 也放不下三行，退回两行；两行在最矮时放得下。
+            check(3 * row + chrome > minimumKeyArea, "three rows overflow the minimum key area");
+            PagedTileGrid.PickerGrid minimum = PagedTileGrid.pickerGrid(false, minimumKeyArea, row, chrome);
+            check(minimum.equals(new PagedTileGrid.PickerGrid(2, 16f)), "minimum height falls back to two rows");
+            check(2 * row + minimum.rowGap() + chrome <= minimumKeyArea, "two rows fit the minimum key area");
+        }
+        check(PagedTileGrid.pageCount(23, PagedTileGrid.perPage(4, 3)) == 2
+            && PagedTileGrid.pageCount(23, PagedTileGrid.perPage(4, 2)) == 3, "function tools paginate by rows");
 
         // 页点：活动点宽 16 dp。
         check(KeyboardPagerDots.ACTIVE_DP == 16f, "active dot is 16dp wide");

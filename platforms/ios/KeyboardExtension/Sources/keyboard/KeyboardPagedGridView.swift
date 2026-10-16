@@ -48,7 +48,7 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
     // 图块像按键一样在按下时高亮；从图块上开始的横向拖动仍能翻页，因为滚动视图可以取消它的触摸（见 `KeyboardPagingScrollView`）。
     scrollView.delaysContentTouches = false
     scrollView.canCancelContentTouches = true
-    // 面板只有两行高，系统的边缘渐隐会把两边的图块冲淡。
+    // 面板只有两三行高，系统的边缘渐隐会把两边的图块冲淡。
     scrollView.disableEdgeEffects()
     scrollView.onAccessibilityScroll = { [weak self] direction in self?.accessibilityTurnPage(direction) ?? false }
     addSubview(scrollView)
@@ -59,6 +59,14 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
   var tilesPerPage: Int { columns * rows }
+
+  /// 输入方式和功能面板每页的行数：手机竖屏和 iPad 三行；手机横屏的按键区只有约 165pt（34pt 的按键四排），放不下三行，仍是两行。
+  static func pickerRows(formFactor: KeyboardFormFactor, landscape: Bool) -> Int {
+    formFactor == .phone && landscape ? 2 : 3
+  }
+
+  /// 面板的行间隔：三行时 12pt，手机竖屏在最矮的键盘（按键区约 210pt）里也放得下三行 52pt 的格子、页码圆点和上下边距；两行仍是 16pt。
+  static func pickerRowGap(rows: Int) -> CGFloat { rows >= 3 ? 12 : 16 }
 
   /// 至少一页，没有图块时也是。
   var pageCount: Int { max(1, (tiles.count + tilesPerPage - 1) / tilesPerPage) }

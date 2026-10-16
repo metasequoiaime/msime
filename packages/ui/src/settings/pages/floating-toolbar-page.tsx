@@ -1,8 +1,6 @@
-import * as settings from "../settings-style";
 import { themeEntry, customCandidateStyle, themeCandidateStyle } from "../../theme/global-theme";
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import { SkinPreviewSurface } from "../../skin/skin-preview-surface";
-import type { FloatingToolbarPreferences } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
 import { Checks, GroupList, LinkRow } from "../../core/platform-controls";
 import { FloatingToolbarPlatformNotice } from "../floating-toolbar-platform-notice";
@@ -14,8 +12,8 @@ import { SettingsGroupBlock } from "../settings-group-block";
 import { SettingsPreviewBlock } from "../settings-preview-block";
 import {
   floatingToolbarButtonOptions,
-  floatingToolbarFontSizes,
-  floatingToolbarScales,
+  floatingToolbarSize,
+  floatingToolbarSizes,
 } from "../floating-toolbar-options";
 
 /** The 悬浮工具栏 page of the settings form. */
@@ -41,6 +39,8 @@ export function FloatingToolbarSettingsPage() {
   const menuToolbar = linuxPlatform;
   // GNOME Shell 下 IBus 只发布输入模式和设置两项，没有「工具栏」子菜单（ClientEngine.cpp 的 publish_mode）。判据和页首说明同一个，开关与按钮组的描述不能再指向那个不存在的子菜单。
   const gnomeShell = menuToolbar && host?.candidate_panel_limit === "gnome_shell";
+  // 缩放和图标尺寸单独调过、凑不成任何一档时显示「自定义」，打开页面不改写存下的值。
+  const toolbarSize = floatingToolbarSize(floatingToolbar);
   return (
     <SettingsPageFieldset
       disabled={busy}
@@ -103,68 +103,39 @@ export function FloatingToolbarSettingsPage() {
                     ? "勾选要显示在「工具栏」子菜单里的按钮"
                     : "勾选要显示在悬浮工具栏上的按钮"
               }
-              items={floatingToolbarButtonOptions(floatingToolbar, host).map((item) =>
-                item.value === "mode_switch"
-                  ? {
-                      ...item,
-                      // The mode switch is the toolbar's reason to exist, so its box is drawn checked and cannot be cleared.
-                      label: (
-                        <>
-                          中英文切换
-                          <span className={settings.toolbarRequiredLabel}>始终显示</span>
-                        </>
-                      ),
-                    }
-                  : item,
-              )}
-              onChange={(key, checked) => {
-                if (key !== "mode_switch") onToolbarChange({ [key]: checked });
-              }}
+              items={floatingToolbarButtonOptions(floatingToolbar, host)}
+              onChange={(key, checked) => onToolbarChange({ [key]: checked })}
             />
           </SettingsGroupBlock>
         </GroupList>
       )}
       {!menuToolbar && (
         <GroupList title="尺寸">
+          {/* 缩放和图标尺寸相乘才是工具栏的大小，页面只给一个「工具栏大小」，选一档同时写两个值（见 `floatingToolbarSizes`）。 */}
           {showToolbarAppearance && (
-            <>
-              <SelectRow
-                title="工具栏缩放"
-                description="相对系统 DPI 的额外缩放，不改变系统显示缩放"
-                value={floatingToolbar.scale_percent}
-                onChange={(event) =>
-                  onToolbarChange({
-                    scale_percent: Number(
-                      event.target.value,
-                    ) as FloatingToolbarPreferences["scale_percent"],
-                  })
-                }
-              >
-                {floatingToolbarScales.map((value) => (
-                  <option key={value} value={value}>
-                    {value}%
-                  </option>
-                ))}
-              </SelectRow>
-              <SelectRow
-                title="图标尺寸"
-                description="图标基准大小（像素），再乘以上方缩放"
-                value={floatingToolbar.font_size}
-                onChange={(event) =>
-                  onToolbarChange({
-                    font_size: Number(
-                      event.target.value,
-                    ) as FloatingToolbarPreferences["font_size"],
-                  })
-                }
-              >
-                {floatingToolbarFontSizes.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </SelectRow>
-            </>
+            <SelectRow
+              title="工具栏大小"
+              description="按钮和图标一起放大或缩小，不改变系统显示缩放"
+              value={toolbarSize ? String(toolbarSize.percent) : "custom"}
+              onChange={(event) => {
+                const size = floatingToolbarSizes.find(
+                  (item) => String(item.percent) === event.target.value,
+                );
+                if (size)
+                  onToolbarChange({ scale_percent: size.scale_percent, font_size: size.font_size });
+              }}
+            >
+              {!toolbarSize && (
+                <option value="custom" disabled>
+                  {`自定义（缩放 ${floatingToolbar.scale_percent}%，图标 ${floatingToolbar.font_size}）`}
+                </option>
+              )}
+              {floatingToolbarSizes.map((size) => (
+                <option key={size.percent} value={size.percent}>
+                  {size.percent}%
+                </option>
+              ))}
+            </SelectRow>
           )}
           {/* Linux 宿主不读 toolbar_theme，「主题」页没有工具栏一行可指，所以这条链接和整个「尺寸」组一起只在非 Linux 宿主上出现。 */}
           <LinkRow

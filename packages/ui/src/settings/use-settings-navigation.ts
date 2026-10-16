@@ -20,6 +20,8 @@ export interface SettingsNavigationOptions {
   mobilePlatform: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   availablePages: readonly { id: SettingsPageId }[];
+  /** 合并到其他页的旧 id 映射到当前承载页。 */
+  pageAliases?: Partial<Record<SettingsPageId, SettingsPageId>>;
   page: SettingsPageId;
   setPage: Dispatch<SetStateAction<SettingsPageId>>;
   mobileLastPageByTab: MutableRefObject<Record<MobilePrimaryPageId, SettingsPageId>>;
@@ -30,11 +32,14 @@ export interface SettingsNavigationOptions {
   accountLoginReturnPage: SettingsPageId | null;
 }
 
-/** Owns mobile settings history, tab memory, and route-driven page selection. */
+const noPageAliases: Partial<Record<SettingsPageId, SettingsPageId>> = {};
+
+/** 管理移动设置页的历史记录、标签记忆与外部路由。 */
 export function useSettingsNavigation({
   mobilePlatform,
   mobileHiddenPageIds,
   availablePages,
+  pageAliases = noPageAliases,
   page,
   setPage,
   mobileLastPageByTab,
@@ -51,7 +56,12 @@ export function useSettingsNavigation({
   const handledRoute = useRef(route?.nonce);
 
   /** 打开 `next`。在移动端它是一条新的 WebView 历史记录，因此系统返回手势可以返回；`replace` 则用它替换当前记录，用于从背后没有设置记录的页面向上返回。 */
-  const selectPage = (next: SettingsPageId, replace = false, sourceTab?: MobilePrimaryPageId) => {
+  const selectPage = (
+    requested: SettingsPageId,
+    replace = false,
+    sourceTab?: MobilePrimaryPageId,
+  ) => {
+    const next = pageAliases[requested] ?? requested;
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
     const owner =
       sourceTab ??
@@ -84,7 +94,11 @@ export function useSettingsNavigation({
     if (!route || route.nonce === handledRoute.current) return;
     handledRoute.current = route.nonce;
     // 宿主未提供的路由回到输入页，并恢复该页默认的标签归属。
-    const next = requestedPage(route.page, availablePages, "input");
+    const next = requestedPage(
+      pageAliases[route.page as SettingsPageId] ?? route.page,
+      availablePages,
+      "input",
+    );
     selectPage(next, false, mobileTabForPage(next));
     // Route nonces intentionally provide the effect's identity; the page callback reads current state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,6 +172,12 @@ export function useSettingsNavigation({
   };
 
   useEffect(() => {
+    // 已合并的旧页面仍属于打开它的标签，不能在别名重定向时跳到其他标签。
+    const alias = pageAliases[page];
+    if (alias) {
+      setPage(alias);
+      return;
+    }
     const pageAvailable =
       availablePages.some((item) => item.id === page) &&
       (!mobilePlatform || !mobileHiddenPageIds.includes(page));
@@ -166,7 +186,15 @@ export function useSettingsNavigation({
       setMobileActiveTab(mobileTabForPage(fallback));
       setPage(fallback);
     }
-  }, [availablePages, hasHomePage, mobileHiddenPageIds, mobilePlatform, page, setPage]);
+  }, [
+    availablePages,
+    hasHomePage,
+    mobileHiddenPageIds,
+    mobilePlatform,
+    page,
+    pageAliases,
+    setPage,
+  ]);
 
   return {
     mobileActiveTab,

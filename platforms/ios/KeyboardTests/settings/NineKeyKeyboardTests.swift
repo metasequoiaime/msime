@@ -1169,12 +1169,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(panel.currentPage, 0)
       XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "closeMorePicker" }, "the toolbar row is the menu's only header")
 
-      // 手机上每页 4 × 2 个 52pt 图块，每页一个圆点，当前页圆点宽 16pt。
+      // 手机竖屏每页 4 × 3 个 52pt 图块，每页一个圆点，当前页圆点宽 16pt。
       let tiles = descendants(panel).compactMap { $0 as? KeyboardFunctionTileView }
       for tile in tiles { XCTAssertEqual(tile.bounds.height, 52, accuracy: 0.5, tile.tool.title) }
       let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
-      XCTAssertEqual(tiles.filter { page(of: $0, in: scroll) == 0 }.count, 8)
-      XCTAssertEqual(panel.pageCount, (tiles.count + 7) / 8)
+      XCTAssertEqual(tiles.filter { page(of: $0, in: scroll) == 0 }.count, min(12, tiles.count))
+      XCTAssertEqual(panel.pageCount, (tiles.count + 11) / 12)
       let dots = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagerDotsView }.first)
       XCTAssertEqual(dots.count, panel.pageCount)
       XCTAssertEqual(dots.subviews[dots.active].bounds.width, KeyboardPagerDotsView.activeWidth)
@@ -1187,12 +1187,11 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(try tile("moreCard-振动", in: controller).accessibilityLabel, "按键振动")
       }
 
-      // 拨动开关后菜单保持打开，停在原来那一页。
+      // 拨动开关后菜单保持打开，停在原来那一页：停在第 2 页时拨动一个开关（每页 12 个时隐私模式在第 1 页），面板就地重画，不跳回第 1 页。
       let grid = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagedGridView }.first)
       grid.scrollToPage(1, animated: false)
       XCTAssertEqual(panel.currentPage, 1)
       let privacy = try tile("moreCard-隐私模式", in: controller)
-      XCTAssertEqual(page(of: privacy, in: scroll), 1)
       XCTAssertEqual(privacy.accessibilityValue, "已关闭")
       privacy.sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(KeyboardPrivacyPreference.incognito)
@@ -1821,8 +1820,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(space.superview?.alpha, 0, "the keys are hidden under the panel", file: file, line: line)
   }
 
-  func testLetterFacesAreLowercaseUntilShiftUppercasesThem() throws {
-    // 设计稿在所有模式下都画小写键面；只有下一键会输入大写字母时键面才变成大写。无论哪种情况，引擎收到的都是小写输入。
+  func testLetterFacesAreUppercaseForChineseAndLowercaseUntilShiftOtherwise() throws {
+    // 中文方案的键面画大写（与主流拼音键盘一致）；日语罗马字和英文画小写，只有下一键会输入大写字母时键面才变成大写。无论哪种情况，引擎收到的都是小写输入。
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     for scheme in [ChineseInputScheme.quanpin, .japanese] {
@@ -1835,7 +1834,8 @@ final class NineKeyKeyboardTests: XCTestCase {
 
       let a = try XCTUnwrap(
         descendants(controller.view).first { $0.accessibilityLabel == "字母 A" } as? UIButton)
-      XCTAssertEqual(a.configuration?.title, "a", "\(scheme) draws lowercase letter faces")
+      let chineseFace = scheme == .quanpin ? "A" : "a"
+      XCTAssertEqual(a.configuration?.title, chineseFace, "\(scheme) letter faces")
       XCTAssertEqual(a.accessibilityLabel, "字母 A", "The pinyin face is not an uppercase keystroke")
       // 设计稿在手机上用固定的 22pt 键面字号，不用 Dynamic Type 样式。
       let transformer = try XCTUnwrap(a.configuration?.titleTextAttributesTransformer)
@@ -1846,7 +1846,7 @@ final class NineKeyKeyboardTests: XCTestCase {
 
       a.sendActions(for: .primaryActionTriggered)
       XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidate-1" })
-      XCTAssertEqual(a.configuration?.title, "a", "composing keeps lowercase faces")
+      XCTAssertEqual(a.configuration?.title, chineseFace, "composing keeps the faces")
 
       try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
