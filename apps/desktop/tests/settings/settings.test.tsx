@@ -7184,7 +7184,7 @@ const referenceOptions: {
     page: "input",
     button: "输入",
     control: "双拼方案",
-    options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼"],
+    options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼", "智能 ABC 双拼"],
   },
   {
     page: "input",
