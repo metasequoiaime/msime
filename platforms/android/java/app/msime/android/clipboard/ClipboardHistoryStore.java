@@ -16,13 +16,13 @@ import org.json.JSONObject;
  * so the keyboard and the settings page were showing two different histories: text copied here
  * never appeared there, and deleting an entry there left it on the keyboard.
  *
- * <p>Nothing about the history is decided here now. Ordering, the fifty-entry limit, eviction, the
- * pinned-entries-cannot-be-evicted rule and the on-disk format all belong to the shared store; this
- * class turns its answers into the model this keyboard draws.
+ * <p>历史记录的排序、所选容量、淘汰规则、固定项不可淘汰规则和磁盘格式都由共享存储决定；此类只把
+ * 共享存储的结果转换成键盘绘制所需的模型。
  */
 public final class ClipboardHistoryStore {
     private static final String TAG = "MSIMEClipboard";
     private final String directory;
+    private int limit = ClipboardHistoryPolicy.DEFAULT_LIMIT;
 
     /**
      * @param directory the host's own data directory; the shared store keeps its file beneath it
@@ -35,6 +35,10 @@ public final class ClipboardHistoryStore {
         return entries(request("load", null, false));
     }
 
+    public int limit() {
+        return limit;
+    }
+
     /**
      * Add one entry.
      *
@@ -43,13 +47,14 @@ public final class ClipboardHistoryStore {
      * source that imports androidx, and being excluded from that compile is worse than a
      * contract stated in prose. The
      * reason used to be discarded, so a refusal for a control character or an over-long text
-     * reached the user as 「200 条历史均已固定」 - the one refusal it could not have been.
+     * 结果曾被显示成所选容量的记录全部固定。
      */
     public String add(String text) {
         if (!ClipboardHistoryPolicy.hasText(text)) {
             throw new IllegalArgumentException("Clipboard has no usable text");
         }
         JSONObject response = request("capture", text, false);
+        updateLimit(response);
         if (response != null && JsonPolicy.strictTrue(response.opt("captured"))) return null;
         String reason = response == null ? "" : JsonPolicy.strictStringOrEmpty(response.opt("reason"));
         return reason;
@@ -144,8 +149,9 @@ public final class ClipboardHistoryStore {
         }
     }
 
-    private static List<ClipboardHistory.Item> entries(JSONObject value) {
-        List<ClipboardHistory.Item> items = new ArrayList<>(ClipboardHistoryPolicy.LIMIT);
+    private List<ClipboardHistory.Item> entries(JSONObject value) {
+        updateLimit(value);
+        List<ClipboardHistory.Item> items = new ArrayList<>(limit);
         JSONArray entries = value == null ? null : value.optJSONArray("entries");
         if (entries == null) return items;
         for (int index = 0; index < entries.length(); index++) {
@@ -161,6 +167,12 @@ public final class ClipboardHistoryStore {
                 ClipboardHistoryPolicy.timestampValue(entry.opt("timestampMs")), pinned));
         }
         return items;
+    }
+
+    private void updateLimit(JSONObject value) {
+        if (value == null) return;
+        int reported = NumberPolicy.strictInt(value.opt("limit"), ClipboardHistoryPolicy.DEFAULT_LIMIT);
+        if (ClipboardHistoryPolicy.isSupportedLimit(reported)) limit = reported;
     }
 
 }

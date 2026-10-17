@@ -8,8 +8,12 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
 
-/// 共享存储保留的本机移动端剪贴板历史条数上限。
-pub const MAX_ENTRIES: usize = 200;
+/// 用户可选的本机剪贴板历史容量档位。
+pub const CLIPBOARD_HISTORY_LIMITS: [usize; 5] = [50, 100, 200, 500, 1000];
+/// 新安装或旧偏好没有容量字段时的默认值。
+pub const DEFAULT_CLIPBOARD_HISTORY_LIMIT: usize = 50;
+/// 共享存储允许的绝对上限；宿主必须用偏好里的档位打开存储。
+pub const MAX_ENTRIES: usize = 1000;
 /// Keep the decoder's allocation bounded before deduplication and the visible-entry limit. The plain string arrays the Windows server writes may contain duplicates, so this is larger than `MAX_ENTRIES` while still rejecting an unbounded JSON array of tiny strings.
 const MAX_INPUT_ENTRIES: usize = MAX_ENTRIES * 100;
 pub const MAX_TEXT_UTF16_UNITS: usize = 4000;
@@ -67,15 +71,29 @@ pub enum ReplaceOutcome {
 #[derive(Debug, Clone)]
 pub struct ClipboardHistoryStore {
     path: PathBuf,
+    limit: usize,
     entries: Vec<ClipboardHistoryEntry>,
 }
 
 impl ClipboardHistoryStore {
     pub fn open(path: impl Into<PathBuf>) -> Self {
+        Self::open_with_limit(path, DEFAULT_CLIPBOARD_HISTORY_LIMIT)
+    }
+
+    pub fn open_with_limit(path: impl Into<PathBuf>, limit: usize) -> Self {
         Self {
             path: path.into(),
+            limit: normalize_limit(limit),
             entries: Vec::new(),
         }
+    }
+
+    pub fn limit(&self) -> usize {
+        self.limit
+    }
+
+    pub fn set_limit(&mut self, limit: usize) {
+        self.limit = normalize_limit(limit);
     }
 
     pub fn load(&mut self) -> std::io::Result<()> {
@@ -124,10 +142,10 @@ impl ClipboardHistoryStore {
                         .any(|entry: &ClipboardHistoryEntry| entry.text == value.text)
                     {
                         if entries.is_empty() {
-                            entries.reserve_exact(MAX_ENTRIES);
+                            entries.reserve_exact(self.limit);
                         }
                         entries.push(value);
-                        if entries.len() == MAX_ENTRIES {
+                        if entries.len() == self.limit {
                             break;
                         }
                     }
@@ -179,7 +197,7 @@ impl ClipboardHistoryStore {
 
     fn push_validated(&mut self, text: String) -> std::io::Result<bool> {
         let _lock = self.lock_writer()?;
-        let mut latest = Self::open(&self.path);
+        let mut latest = Self::open_with_limit(&self.path, self.limit);
         latest.load()?;
         let mut next = latest.entries;
         let timestamp_ms = next_timestamp(&next);
@@ -188,7 +206,7 @@ impl ClipboardHistoryStore {
             entry.timestamp_ms = timestamp_ms;
             next.push(entry);
         } else {
-            if next.len() == MAX_ENTRIES {
+            if next.len() == self.limit {
                 let Some(index) = next.iter().rposition(|entry| !entry.pinned) else {
                     self.entries = next;
                     return Ok(false);
@@ -230,7 +248,7 @@ impl ClipboardHistoryStore {
     /// Remove by content, not by a stale host's row index.
     pub fn remove(&mut self, text: &str) -> std::io::Result<bool> {
         let _lock = self.lock_writer()?;
-        let mut latest = Self::open(&self.path);
+        let mut latest = Self::open_with_limit(&self.path, self.limit);
         latest.load()?;
         let old_length = latest.entries.len();
         latest.entries.retain(|entry| entry.text != text);
@@ -245,7 +263,7 @@ impl ClipboardHistoryStore {
     /// Pin or unpin by content so stale hosts never act on a shifted row index.
     pub fn set_pinned(&mut self, text: &str, pinned: bool) -> std::io::Result<bool> {
         let _lock = self.lock_writer()?;
-        let mut latest = Self::open(&self.path);
+        let mut latest = Self::open_with_limit(&self.path, self.limit);
         latest.load()?;
         let Some(entry) = latest.entries.iter_mut().find(|entry| entry.text == text) else {
             self.entries = latest.entries;
@@ -268,7 +286,7 @@ impl ClipboardHistoryStore {
             return Ok(ReplaceOutcome::Invalid);
         }
         let _lock = self.lock_writer()?;
-        let mut latest = Self::open(&self.path);
+        let mut latest = Self::open_with_limit(&self.path, self.limit);
         latest.load()?;
         let mut next = latest.entries;
         let Some(index) = next.iter().position(|entry| entry.text == text) else {
@@ -358,6 +376,14 @@ fn sort_entries(entries: &mut [ClipboardHistoryEntry]) {
             .cmp(&left.pinned)
             .then_with(|| right.timestamp_ms.cmp(&left.timestamp_ms))
     });
+}
+
+fn normalize_limit(limit: usize) -> usize {
+    CLIPBOARD_HISTORY_LIMITS
+        .iter()
+        .copied()
+        .find(|candidate| *candidate == limit)
+        .unwrap_or(DEFAULT_CLIPBOARD_HISTORY_LIMIT)
 }
 
 fn next_timestamp(entries: &[ClipboardHistoryEntry]) -> u64 {
@@ -623,12 +649,35 @@ mod tests {
         let mut values = vec!["synthetic-first".to_string(); 205];
         values.extend((0..250).map(|i| format!("synthetic-{i}")));
         fs::write(&path, serde_json::to_vec(&values).unwrap()).unwrap();
-        let mut store = ClipboardHistoryStore::open(&path);
+        let mut store = ClipboardHistoryStore::open_with_limit(&path, 200);
         store.load().unwrap();
-        assert_eq!(store.entries().len(), MAX_ENTRIES);
-        assert_eq!(store.entries.capacity(), MAX_ENTRIES);
+        assert_eq!(store.entries().len(), 200);
+        assert_eq!(store.entries.capacity(), 200);
         assert_eq!(store.entries()[0].text, "synthetic-first");
         assert_eq!(store.entries()[199].text, "synthetic-198");
+    }
+
+    #[test]
+    fn configurable_limit_keeps_pinned_entries_when_reducing_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let mut wide = ClipboardHistoryStore::open_with_limit(&path, 100);
+        for index in 0..100 {
+            wide.push(format!("synthetic-{index}")).unwrap();
+        }
+        wide.set_pinned("synthetic-0", true).unwrap();
+        let mut narrow = ClipboardHistoryStore::open_with_limit(&path, 50);
+        narrow.load().unwrap();
+        assert_eq!(narrow.entries().len(), 50);
+        assert!(narrow
+            .entries()
+            .iter()
+            .any(|entry| entry.text == "synthetic-0"));
+        assert_eq!(narrow.limit(), 50);
+        assert_eq!(
+            ClipboardHistoryStore::open_with_limit(&path, 75).limit(),
+            50
+        );
     }
 
     #[test]
@@ -806,7 +855,7 @@ mod tests {
     fn full_pinned_history_rejects_new_text_and_evicts_oldest_unpinned() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("history.json");
-        let pinned: Vec<_> = (0..MAX_ENTRIES)
+        let pinned: Vec<_> = (0..200)
             .map(|index| ClipboardHistoryEntry {
                 text: format!("synthetic pinned {index}"),
                 timestamp_ms: index as u64,
@@ -814,16 +863,16 @@ mod tests {
             })
             .collect();
         fs::write(&path, serde_json::to_vec(&pinned).unwrap()).unwrap();
-        let mut store = ClipboardHistoryStore::open(&path);
+        let mut store = ClipboardHistoryStore::open_with_limit(&path, 200);
         assert!(!store.push("synthetic rejected".into()).unwrap());
-        assert_eq!(store.entries().len(), MAX_ENTRIES);
+        assert_eq!(store.entries().len(), 200);
         assert!(!fs::read_to_string(&path)
             .unwrap()
             .contains("synthetic rejected"));
 
         assert!(store.set_pinned("synthetic pinned 0", false).unwrap());
         assert!(store.push("synthetic accepted".into()).unwrap());
-        assert_eq!(store.entries().len(), MAX_ENTRIES);
+        assert_eq!(store.entries().len(), 200);
         assert_eq!(store.entries().last().unwrap().text, "synthetic accepted");
         assert!(!texts(&store).contains(&"synthetic pinned 0"));
     }

@@ -12,17 +12,25 @@ import { useClipboardHistory } from "./use-clipboard-history";
 import { useClipboardHistoryCloud } from "./use-clipboard-history-cloud";
 import type { ClipboardHistoryClient } from "./clipboard-history-model";
 import { formatDateTime } from "../core/format-date";
+import {
+  clipboardHistoryLimit,
+  clipboardHistoryLimits,
+  defaultClipboardHistoryLimit,
+} from "./clipboard-history-preferences";
+import { SelectRow } from "./select-row";
 
 export type { ClipboardHistoryClient, ClipboardHistoryEntry } from "./clipboard-history-model";
 
 export interface ClipboardHistorySectionProps {
   client?: ClipboardHistoryClient;
   historyEnabled: boolean;
+  historyLimit?: number;
   persistedHistoryEnabled: boolean;
   revision?: number;
   page?: string;
   ios: boolean;
   onToggle: (enabled: boolean) => void;
+  onLimitChange?: (limit: number) => void;
   onError: (message: string) => void;
   /** 页面可见且宿主支持云剪贴板时提供；用户选择某条记录后才发送。 */
   cloudRequest?: CloudClipboardRequest;
@@ -37,11 +45,13 @@ export interface ClipboardHistorySectionProps {
 export function ClipboardHistorySection({
   client,
   historyEnabled,
+  historyLimit = defaultClipboardHistoryLimit,
   persistedHistoryEnabled,
   revision,
   page,
   ios,
   onToggle,
+  onLimitChange,
   onError,
   cloudRequest,
   cloudRoute,
@@ -85,6 +95,19 @@ export function ClipboardHistorySection({
             onChange={toggle}
           />
         )}
+        <SelectRow
+          title="历史记录上限"
+          description="达到上限后，最旧的未固定记录会被新记录替换。"
+          value={String(clipboardHistoryLimit({ clipboard_history_limit: historyLimit }))}
+          disabled={historyBusy}
+          onChange={(event) => onLimitChange?.(Number(event.currentTarget.value))}
+        >
+          {clipboardHistoryLimits.map((limit) => (
+            <option key={limit} value={limit}>
+              {limit} 条
+            </option>
+          ))}
+        </SelectRow>
         {client && entries.length > 0 && (
           <SettingsManagerBlock>
             <SettingsManagerActions>

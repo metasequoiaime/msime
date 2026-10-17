@@ -10,19 +10,30 @@ struct ClipboardHistorySettingsView: View {
   @State private var query = ""
   @State private var message: String?
   @State private var confirmsClear = false
+  @State private var historyLimit = 50
 
   private var visible: [ClipboardHistoryItem] { ClipboardHistoryItem.matching(items, query: query) }
 
   var body: some View {
     Form {
       Section {
+        Picker("历史记录上限", selection: $historyLimit) {
+          ForEach([50, 100, 200, 500, 1000], id: \.self) { limit in
+            Text("\(limit) 条").tag(limit)
+          }
+        }
+        .onChange(of: historyLimit) { _, value in
+          guard MetasequoiaInputSessionBridge.updateSharedPreferences({ $0["clipboard_history_limit"] = value }) else {
+            return
+          }
+        }
         PasteButton(payloadType: String.self) { strings in
           let text = strings.first ?? ""
           DispatchQueue.main.async { perform("已保存") { try store.add(text) } }
         }
         .accessibilityIdentifier("clipboardHistorySavePaste")
       } footer: {
-        Text("键盘工具面板里的“剪贴板历史”保存的内容也在这里。记录只保存在本机，最多 200 条，固定的不会被新记录挤掉。")
+        Text("键盘工具面板里的“剪贴板历史”保存的内容也在这里。记录只保存在本机，固定的不会被新记录挤掉。")
       }
       .designRow()
 
@@ -56,7 +67,7 @@ struct ClipboardHistorySettingsView: View {
             .accessibilityIdentifier("clipboardHistoryClear")
         }
       } header: {
-        SettingsGroupHeader(title: query.isEmpty ? "\(items.count)/\(ClipboardHistoryStore.limit) 条" : "\(visible.count) 条匹配")
+        SettingsGroupHeader(title: query.isEmpty ? "\(items.count)/\(historyLimit) 条" : "\(visible.count) 条匹配")
       } footer: {
         if let message { Text(message) } else { Text(sizeClass == .regular ? "点一条复制到系统剪贴板，右键或长按可固定、删除。" : "点一条复制到系统剪贴板，右滑固定，左滑删除。") }
       }
@@ -101,6 +112,11 @@ struct ClipboardHistorySettingsView: View {
   }
 
   private func reload() {
-    do { items = try store.load() } catch { message = error.localizedDescription }
+    do {
+      let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
+      let stored = preferences?["clipboard_history_limit"] as? Int ?? 50
+      historyLimit = [50, 100, 200, 500, 1000].contains(stored) ? stored : 50
+      items = try store.load()
+    } catch { message = error.localizedDescription }
   }
 }

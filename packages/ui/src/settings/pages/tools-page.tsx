@@ -6,6 +6,7 @@ import { OpenPanelRow } from "../open-panel-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { CloudClipboardRelaySection } from "../cloud-clipboard-relay-section";
 import { withCloudClipboardRelay } from "../cloud-clipboard-relay";
+import { clipboardHistoryLimit } from "../clipboard-history-preferences";
 
 /** 设置表单的「剪贴板」页（路由 id 为 `tools`）：本设备上保存的剪贴板历史和云剪贴板，宿主支持时还有云剪贴板的同步方式（水杉账号或自建中继）。云词库在「词库」页。 */
 export function ToolsSettingsPage() {
@@ -31,11 +32,17 @@ export function ToolsSettingsPage() {
       <ClipboardHistorySection
         client={client.clipboard}
         historyEnabled={clipboardHistory}
+        historyLimit={clipboardHistoryLimit(draft)}
         persistedHistoryEnabled={snapshot?.preferences.clipboard_history ?? false}
         revision={snapshot?.revision}
         page={page}
         ios={iosPlatform}
         onToggle={toggleClipboardHistory}
+        onLimitChange={(limit) =>
+          setDraft((current) =>
+            current ? { ...current, clipboard_history_limit: limit } : current,
+          )
+        }
         onError={setError}
         cloudRequest={page === "tools" ? client.cloudClipboardRequest : undefined}
         cloudRoute={cloudRoute}

@@ -1070,6 +1070,8 @@ int wmain(int argc, wchar_t **argv) {
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
     clipboard_history.set_enabled(
         prepared.at("value").at("preferences").value("clipboard_history", false));
+    clipboard_history.set_limit(
+        prepared.at("value").at("preferences").value("clipboard_history_limit", 50u));
     auto voice_config = std::make_shared<VoiceInputConfig>();
     auto voice_config_mutex = std::make_shared<std::mutex>();
     // Local recognition reads the user's dictionary words through these options. Listing the dictionary needs only the paths, which do not change while the Server runs, so the startup document serves every later preference snapshot.
@@ -1142,6 +1144,8 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           clipboard_history.set_enabled(
               preferences.value("clipboard_history", false));
+          clipboard_history.set_limit(
+              preferences.value("clipboard_history_limit", 50u));
           mode_scope_global->store(
               preferences.value("ime_mode_scope", std::string("app")) ==
                   "global",

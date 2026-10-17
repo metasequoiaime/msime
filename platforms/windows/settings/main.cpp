@@ -13474,6 +13474,14 @@ private:
 
   bool clipboard_history_enabled() const { return document_.Boolean(L"clipboard_history", false); }
 
+  size_t clipboard_history_limit() const {
+    const auto value = document_.Number(L"clipboard_history_limit", 50);
+    for (const auto limit : {50.0, 100.0, 200.0, 500.0, 1000.0})
+      if (value == limit)
+        return static_cast<size_t>(limit);
+    return 50;
+  }
+
   static JsonObject clipboard_action(wchar_t const *operation) {
     JsonObject action;
     action.SetNamedValue(L"operation", JsonValue::CreateStringValue(operation));
@@ -13792,6 +13800,23 @@ private:
             toggle_control(L"剪贴板历史", enabled,
                            [this](bool on) { toggle_clipboard_history(on); }, !clip_busy_),
             actions_row);
+    const auto history_limit = clipboard_history_limit();
+    std::vector<Option> limit_options;
+    for (const auto limit : {50, 100, 200, 500, 1000})
+      limit_options.push_back({std::to_wstring(limit), std::to_wstring(limit) + L" 条", true});
+    add_row(group, 0xE8AB, L"历史记录上限",
+            L"达到上限后，最旧的未固定记录会被新记录替换。",
+            select_control(L"历史记录上限", std::move(limit_options),
+                           std::to_wstring(history_limit), [this](std::wstring const &value) {
+                             try {
+                               const auto limit = std::stoul(value);
+                               change([limit](PreferencesDocument &doc) {
+                                 doc.SetNumber(L"clipboard_history_limit", static_cast<double>(limit));
+                               }, true);
+                             } catch (...) {
+                               show_notice(L"历史记录上限无效");
+                             }
+                           }, true));
 
     if (enabled) {
       auto history = add_group(page, L"历史记录");

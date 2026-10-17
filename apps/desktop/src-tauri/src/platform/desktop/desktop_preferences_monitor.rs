@@ -159,6 +159,9 @@ impl Monitor {
         history: &Mutex<ClipboardHistoryStore>,
     ) {
         let Ok(snapshot) = store.load() else { return };
+        if let Ok(mut history) = history.lock() {
+            history.set_limit(snapshot.preferences.clipboard_history_limit);
+        }
         let entries = if snapshot.preferences.clipboard_history {
             history
                 .lock()

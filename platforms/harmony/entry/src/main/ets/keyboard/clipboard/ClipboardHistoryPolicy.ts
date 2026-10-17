@@ -197,7 +197,9 @@ function extendedGraphemeCount(text: string): number {
 }
 
 export class ClipboardHistoryPolicy {
-  static readonly LIMIT: number = 200;
+  static readonly DEFAULT_LIMIT: number = 50;
+  static readonly LIMITS: number[] = [50, 100, 200, 500, 1000];
+  static readonly LIMIT: number = 1000;
   static readonly MAX_CHARS: number = MAX_CHARS;
   static readonly MAX_BYTES: number = MAX_BYTES;
 

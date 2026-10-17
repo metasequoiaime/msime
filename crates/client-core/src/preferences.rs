@@ -1123,6 +1123,9 @@ pub struct Preferences {
     pub game_compatibility: GameCompatibilityPreferences,
     #[serde(default)]
     pub clipboard_history: bool,
+    /// 本机剪贴板历史最多保留的条数；这是本机隐私和存储选择，不随设置文件导出。
+    #[serde(default = "default_clipboard_history_limit")]
+    pub clipboard_history_limit: usize,
     /// 云剪贴板改走用户自建的中继（协议见 `docs/cloud-clipboard-relay.md`）：地址为空表示不用中继，走水杉账号。配置了中继时云剪贴板只经中继，不再碰账号。令牌和语音、翻译服务的凭据一样明文存在这份文档里，列在 [`Preferences::credential_slots`]，不进设置文件导出（`settings_document::LOCAL_SECTIONS`）和账号设置同步。没配置时不写进文档，没有这个键的旧版本照样能读。
     #[serde(
         default,
@@ -2201,6 +2204,10 @@ fn disabled_by_default() -> bool {
     false
 }
 
+fn default_clipboard_history_limit() -> usize {
+    crate::clipboard::DEFAULT_CLIPBOARD_HISTORY_LIMIT
+}
+
 /// 智能标点在所有平台上默认开：中文模式下打 `0.10.1` 得到的是 `0.10.1`，不是 `0。10。1`。同一个默认也给重复标点转中文、数字后直出和字母后直出；空格转换不跟着开（见 `smart_punctuation_space_convert`）。
 ///
 /// 以前 Windows 和 macOS 默认关，照的是来源产品的安装模板（`platforms/windows/installer/config.default.toml` 五个开关全是 `false`），理由是它会改写一个用户已经看见落下去的字符，句末是数字时（「共计 100。」）句号也会变成 `.`。现在默认开，靠的是重复标点转中文这条退路：输出 ASCII 之后两秒内再按同一个键，就换回中文标点，「100。」只多按一下；而数字后的 `.` 被改成「。」时，默认关的一侧没有对应的退路。用户能找到的开关不该是这种基本行为的前提。决定和取舍见 `.agents/notes/implemented/feature/2026-10-16-smart-punctuation-default-on.md`。
@@ -2421,6 +2428,7 @@ impl Default for Preferences {
             plugins: PluginPreferences::default(),
             game_compatibility: GameCompatibilityPreferences::default(),
             clipboard_history: false,
+            clipboard_history_limit: default_clipboard_history_limit(),
             cloud_clipboard_relay: CloudClipboardRelayPreferences::default(),
             // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
             cloud_candidates: false,
@@ -2965,6 +2973,9 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        if !crate::clipboard::CLIPBOARD_HISTORY_LIMITS.contains(&self.clipboard_history_limit) {
+            return Err(PreferencesError::InvalidClipboardHistoryLimit);
+        }
         if !self.wubi_candidate_selection.validate() {
             return Err(PreferencesError::InvalidWubiCandidateSelection);
         }
@@ -3216,6 +3227,8 @@ pub enum PreferencesError {
     InvalidAppInputModeRules,
     #[error("cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters")]
     InvalidCloudClipboardRelay,
+    #[error("clipboard history limit must be one of 50, 100, 200, 500 or 1000")]
+    InvalidClipboardHistoryLimit,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
@@ -3423,8 +3436,10 @@ impl PreferencesStore {
         if !self.read_locked()?.preferences.clipboard_history {
             return Ok(false);
         }
-        let mut history = crate::clipboard::ClipboardHistoryStore::open(
+        let limit = self.read_locked()?.preferences.clipboard_history_limit;
+        let mut history = crate::clipboard::ClipboardHistoryStore::open_with_limit(
             self.directory.join("clipboard_history.json"),
+            limit,
         );
         Ok(history.push(text)?)
     }

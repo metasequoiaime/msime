@@ -6746,7 +6746,7 @@ public final class MSIMEInputService extends InputMethodService {
             PrimaryClip clip = readPrimaryClip();
             if (clip == null) {
                 if (announce) notice(ClipboardHistoryPolicy.message(
-                    ClipboardHistoryPolicy.Rejection.EMPTY));
+                    ClipboardHistoryPolicy.Rejection.EMPTY, clipboardHistory.limit()));
                 return;
             }
             if (clip.sensitive()) return;
@@ -6759,7 +6759,7 @@ public final class MSIMEInputService extends InputMethodService {
             rememberHandledClip(identity);
             if (reason != null) {
                 if (announce) notice(ClipboardHistoryPolicy.message(
-                    ClipboardHistoryPolicy.rejectionFor(reason)));
+                    ClipboardHistoryPolicy.rejectionFor(reason), clipboardHistory.limit()));
                 return;
             }
             if (imePanels.clipboardPanelOpen()) imePanels.renderClipboardHistory();

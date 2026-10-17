@@ -19,6 +19,7 @@ enum ClipboardCapturePrompt {
 final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDelegate {
   private let store: ClipboardHistoryStore
   private var items: [ClipboardHistoryItem] = []
+  private var historyLimit = 50
   private let table = UITableView(frame: .zero, style: .plain)
   private let status = UILabel()
   private let onInsert: (String) -> Void
@@ -296,6 +297,9 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
 
   private func reload() {
     do {
+      let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
+      let stored = preferences?["clipboard_history_limit"] as? Int ?? 50
+      historyLimit = [50, 100, 200, 500, 1000].contains(stored) ? stored : 50
       items = try store.load()
       localStatus()
       if searchQuery != nil { showSearch() } else if !showsCloud { table.reloadData() }
@@ -304,7 +308,7 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
   private func localStatus() {
     guard !showsCloud else { return }
     if let notice = cloud?.notice { status.text = notice; return }
-    status.text = items.isEmpty ? "暂无历史。保存后点按插入；记录仅保存在本机。" : "\(items.count)/\(ClipboardHistoryStore.limit) 条 · 点按插入 · 右侧菜单可固定或删除"
+    status.text = items.isEmpty ? "暂无历史。保存后点按插入；记录仅保存在本机。" : "\(items.count)/\(historyLimit) 条 · 点按插入 · 右侧菜单可固定或删除"
   }
 
   /// Switch between the local history and the 云端 list. The capture button, search and clear belong to the local history and fold away on the cloud side, where refresh takes their place.

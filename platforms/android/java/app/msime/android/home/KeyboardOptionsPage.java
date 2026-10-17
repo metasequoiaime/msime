@@ -1,6 +1,7 @@
 package app.msime.android.home;
 
 import app.msime.android.ClipboardExport;
+import app.msime.android.ClipboardHistoryPolicy;
 
 import app.msime.android.KeyboardBottomBarPolicy;
 
@@ -242,6 +243,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));
+        int historyLimit = ClipboardHistoryPolicy.limit(preferences);
+        clipboard.nav("历史记录上限", "达到上限后，最旧的未固定记录会被新记录替换",
+            historyLimit + " 条", () -> pickClipboardLimit(historyLimit));
 
     }
 
@@ -387,6 +391,15 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         for (String value : new String[] {ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS}) {
             sheet.option(clipboardColumnsLabel(value), value.equals(selected),
                 () -> saveLocalSetting(AndroidLocalSettings.CLIPBOARD_COLUMNS, value));
+        }
+        sheet.show();
+    }
+
+    private void pickClipboardLimit(int selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "历史记录上限", null);
+        for (int limit : ClipboardHistoryPolicy.LIMITS) {
+            sheet.option(limit + " 条", limit == selected,
+                () -> savePreference("clipboard_history_limit", limit));
         }
         sheet.show();
     }

@@ -1421,10 +1421,12 @@ final class ImePanels {
                 ? CloudClipboardPanelPolicy.cloudCount(s.cloudClipboardStatus, s.cloudClipboardItems.size())
                 : items == null ? null : items.size();
             TextView counter = ViewPolicy.centeredText(s,
-                CloudClipboardPanelPolicy.countLabel(s.clipboardTab, count), 12);
+                CloudClipboardPanelPolicy.countLabel(s.clipboardTab, count,
+                    s.clipboardHistory.limit()), 12);
             KeyboardTypographyPolicy.setKeyTextSize(counter, 12);
             ViewPolicy.setMaxLinesEllipsized(counter, 1);
-            String description = CloudClipboardPanelPolicy.countDescription(s.clipboardTab, count);
+            String description = CloudClipboardPanelPolicy.countDescription(s.clipboardTab, count,
+                s.clipboardHistory.limit());
             if (description.isEmpty()) ViewPolicy.hideFromAccessibility(counter);
             else counter.setContentDescription(description);
             header.addView(counter, LayoutPolicy.weightedMatchParentParams(1));

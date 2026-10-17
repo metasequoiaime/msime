@@ -100,10 +100,15 @@ pub(crate) fn start_linux_clipboard_monitor(
         .spawn(move || {
             let mut last_text = None;
             loop {
-                let enabled = preferences
-                    .load()
-                    .map(|snapshot| snapshot.preferences.clipboard_history)
-                    .unwrap_or(false);
+                let snapshot = preferences.load().ok();
+                let enabled = snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.preferences.clipboard_history);
+                if let Some(snapshot) = snapshot {
+                    if let Ok(mut store) = history.lock() {
+                        store.set_limit(snapshot.preferences.clipboard_history_limit);
+                    }
+                }
                 if !enabled {
                     last_text = None;
                 } else if let Ok(Some(text)) = linux_clipboard_text() {
@@ -149,6 +154,14 @@ pub(crate) fn list_clipboard_history_blocking(
     let mut history = state.0.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
+    let limit = store
+        .load()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .preferences
+        .clipboard_history_limit;
+    history.set_limit(limit);
     history.load().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
@@ -273,6 +286,14 @@ pub(crate) fn sync_clipboard_history_blocking(
     let mut history = state.0.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
+    let limit = store
+        .load()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .preferences
+        .clipboard_history_limit;
+    history.set_limit(limit);
     history.load().map_err(|_| HostActionError {
         code: "unavailable",
     })?;

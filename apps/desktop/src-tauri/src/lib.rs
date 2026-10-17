@@ -5109,8 +5109,15 @@ pub fn run() {
                     }
                 }
             };
-            let mut clipboard =
-                ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
+            let preferences = Arc::new(PreferencesStore::new(&directory));
+            let clipboard_limit = preferences
+                .load()
+                .map(|snapshot| snapshot.preferences.clipboard_history_limit)
+                .unwrap_or(msime_client_core::clipboard::DEFAULT_CLIPBOARD_HISTORY_LIMIT);
+            let mut clipboard = ClipboardHistoryStore::open_with_limit(
+                directory.join("clipboard_history.json"),
+                clipboard_limit,
+            );
             let _ = clipboard.load();
             // After `directory`, not beside the other hosts' account setup
             // above: the Linux session store lives in the shared state
@@ -5118,7 +5125,6 @@ pub fn run() {
             // resolved.
             #[cfg(target_os = "linux")]
             linux_account::setup(app.handle(), &directory)?;
-            let preferences = Arc::new(PreferencesStore::new(&directory));
             let keyboard_skin_trials =
                 KeyboardSkinTrialStore::new(&directory, Arc::clone(&preferences));
             #[cfg(target_os = "android")]

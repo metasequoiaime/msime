@@ -10,6 +10,13 @@ use msime_client_core::is_bounded_text;
 /// an arbitrarily large converted string.
 const MAX_TRADITIONAL_CONVERSION_BYTES: usize = 1 << 20;
 
+fn clipboard_history_limit(directory: &std::path::Path) -> usize {
+    msime_client_core::preferences::PreferencesStore::new(directory)
+        .load()
+        .map(|snapshot| snapshot.preferences.clipboard_history_limit)
+        .unwrap_or(msime_client_core::clipboard::DEFAULT_CLIPBOARD_HISTORY_LIMIT)
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_abi_version() -> u32 {
     3
@@ -1771,16 +1778,17 @@ pub unsafe extern "C" fn msime_client_load_clipboard_history(
         if !path.is_absolute() {
             return Err("history directory must be absolute".into());
         }
-        let enabled = PreferencesStore::new(path)
+        let preferences = PreferencesStore::new(path)
             .load()
             .map_err(|_| "history preferences unavailable")?
-            .preferences
-            .clipboard_history;
+            .preferences;
+        let enabled = preferences.clipboard_history;
         if !enabled {
             return Ok(serde_json::json!({"enabled": false, "entries": []}));
         }
-        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open(
+        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open_with_limit(
             path.join("clipboard_history.json"),
+            preferences.clipboard_history_limit,
         );
         history
             .load()
@@ -1833,19 +1841,24 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
             return Err("invalid mobile clipboard directory".into());
         }
         let path = root.join("MSIME").join("clipboard_history.json");
-        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open(path);
+        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open_with_limit(
+            path,
+            clipboard_history_limit(root),
+        );
         match request.action {
             MobileClipboardAction::ExportText => {
                 history
                     .load()
                     .map_err(|_| "mobile clipboard history unavailable")?;
-                Ok(json!({"text": history.export_text(), "count": history.entries().len()}))
+                Ok(
+                    json!({"text": history.export_text(), "count": history.entries().len(), "limit": history.limit()}),
+                )
             }
             MobileClipboardAction::Load => {
                 history
                     .load()
                     .map_err(|_| "mobile clipboard history unavailable")?;
-                Ok(json!({"entries": history.entries()}))
+                Ok(json!({"entries": history.entries(), "limit": history.limit()}))
             }
             MobileClipboardAction::Capture { text } => {
                 if !msime_client_core::clipboard::mobile_text_is_valid(&text) {
@@ -1857,6 +1870,7 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                 Ok(json!({
                     "captured": captured,
                     "reason": (!captured).then_some("full"),
+                    "limit": history.limit(),
                     "entries": history.entries()
                 }))
             }
@@ -1871,6 +1885,7 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                     .map_err(|_| "mobile clipboard pin update failed")?;
                 Ok(json!({
                     "updated": updated,
+                    "limit": history.limit(),
                     "entries": history.entries()
                 }))
             }
@@ -1885,6 +1900,7 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                     .map_err(|_| "mobile clipboard removal failed")?;
                 Ok(json!({
                     "removed": removed,
+                    "limit": history.limit(),
                     "entries": history.entries()
                 }))
             }
@@ -1910,6 +1926,7 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                     "replaced": reason.is_none(),
                     "merged": outcome == ReplaceOutcome::Merged,
                     "reason": reason,
+                    "limit": history.limit(),
                     "entries": history.entries()
                 }))
             }
@@ -1917,7 +1934,7 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                 history
                     .clear()
                     .map_err(|_| "mobile clipboard clear failed")?;
-                Ok(json!({"cleared": true, "entries": []}))
+                Ok(json!({"cleared": true, "limit": history.limit(), "entries": []}))
             }
         }
     })
@@ -1997,8 +2014,9 @@ pub unsafe extern "C" fn msime_client_remove_clipboard_history(
         {
             return Err("clipboard history disabled".into());
         }
-        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open(
+        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open_with_limit(
             path.join("clipboard_history.json"),
+            clipboard_history_limit(path),
         );
         let removed = history
             .remove(&removal.text)
@@ -2062,7 +2080,9 @@ pub unsafe extern "C" fn msime_client_desktop_clipboard_history(
             }
         };
         let preferences = PreferencesStore::new(directory);
-        let mut history = ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
+        let limit = clipboard_history_limit(directory);
+        let mut history =
+            ClipboardHistoryStore::open_with_limit(directory.join("clipboard_history.json"), limit);
         match &request.action {
             DesktopClipboardAction::List => {}
             DesktopClipboardAction::Sync => {

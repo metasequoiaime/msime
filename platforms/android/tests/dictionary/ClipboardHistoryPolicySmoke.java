@@ -33,11 +33,13 @@ public final class ClipboardHistoryPolicySmoke {
             == ClipboardHistoryPolicy.Rejection.TOO_LONG,
             "a reason this host does not know must not be guessed as FULL");
 
-        check(ClipboardHistoryPolicy.LIMIT == 200, "the two-hundred-entry limit is the shared store's");
+        check(ClipboardHistoryPolicy.DEFAULT_LIMIT == 50, "the default limit is fifty entries");
+        check(ClipboardHistoryPolicy.LIMITS.length == 5
+            && ClipboardHistoryPolicy.LIMITS[4] == 1000, "all supported limits are exposed");
         for (ClipboardHistoryPolicy.Rejection rejection : ClipboardHistoryPolicy.Rejection.values())
             check(!ClipboardHistoryPolicy.message(rejection).isEmpty(), "each refusal is worded");
         check(ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.FULL)
-            .contains(String.valueOf(ClipboardHistoryPolicy.LIMIT)), "FULL names the limit");
+            .contains(String.valueOf(ClipboardHistoryPolicy.DEFAULT_LIMIT)), "FULL names the default limit");
         check(!ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.EMPTY)
             .equals(ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.TOO_LONG)),
             "the two refusals ask for different things");

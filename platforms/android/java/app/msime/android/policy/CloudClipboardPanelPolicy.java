@@ -155,7 +155,14 @@ public final class CloudClipboardPanelPolicy {
     /** 这一分段的条数上限：本机历史由共享存储限定（{@link ClipboardHistoryPolicy#LIMIT}），云端由服务端限定（{@link CloudClipboardApi#MAX_ITEMS}）。 */
     public static int limit(Tab tab) {
         if (tab == null) throw new IllegalArgumentException("No clipboard tab");
-        return tab == Tab.CLOUD ? CloudClipboardApi.MAX_ITEMS : ClipboardHistoryPolicy.LIMIT;
+        return tab == Tab.CLOUD ? CloudClipboardApi.MAX_ITEMS : ClipboardHistoryPolicy.DEFAULT_LIMIT;
+    }
+
+    public static int limit(Tab tab, int localLimit) {
+        if (tab == null) throw new IllegalArgumentException("No clipboard tab");
+        return tab == Tab.CLOUD ? CloudClipboardApi.MAX_ITEMS
+            : ClipboardHistoryPolicy.isSupportedLimit(localLimit)
+                ? localLimit : ClipboardHistoryPolicy.DEFAULT_LIMIT;
     }
 
     /**
@@ -166,10 +173,20 @@ public final class CloudClipboardPanelPolicy {
         return count + "/" + limit(tab);
     }
 
+    public static String countLabel(Tab tab, Integer count, int localLimit) {
+        if (count == null) return "";
+        return count + "/" + limit(tab, localLimit);
+    }
+
     /** 同一个计数给读屏的说法，例如「本机已存 10 条，最多 50 条」；不显示时为空串。 */
     public static String countDescription(Tab tab, Integer count) {
         if (count == null) return "";
         return (tab == Tab.CLOUD ? TAB_CLOUD : TAB_LOCAL) + "已存 " + count + " 条，最多 " + limit(tab) + " 条";
+    }
+
+    public static String countDescription(Tab tab, Integer count, int localLimit) {
+        if (count == null) return "";
+        return (tab == Tab.CLOUD ? TAB_CLOUD : TAB_LOCAL) + "已存 " + count + " 条，最多 " + limit(tab, localLimit) + " 条";
     }
 
     /** The status line drawn above the cloud list. */

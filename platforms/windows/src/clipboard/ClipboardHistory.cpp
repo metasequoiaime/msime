@@ -135,7 +135,7 @@ private:
   HANDLE handle_ = nullptr;
 #endif
 };
-std::vector<std::string> read_store(const std::filesystem::path &path) {
+std::vector<std::string> read_store(const std::filesystem::path &path, size_t limit) {
 #ifdef _WIN32
   HANDLE input = CreateFileW(
       path.c_str(), GENERIC_READ,
@@ -164,7 +164,7 @@ std::vector<std::string> read_store(const std::filesystem::path &path) {
   const bool read = read_store_payload(input, payload);
 #endif
   if (!read) return {};
-  try { const auto value = nlohmann::json::parse(payload); if (!value.is_array()) return {}; std::vector<std::string> result; result.reserve(ClipboardHistory::max_items); for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < ClipboardHistory::max_items) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
+  try { const auto value = nlohmann::json::parse(payload); if (!value.is_array()) return {}; std::vector<std::string> result; result.reserve(limit); for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < limit) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
 }
 bool write_store(const std::filesystem::path &path, const std::vector<std::string> &items) {
   if (!store_parent_is_safe(path) || !store_leaf_is_safe(path)) return false;
@@ -291,27 +291,31 @@ std::wstring bounded_clipboard_text(const wchar_t *text, size_t bytes) {
 }
 #endif
 ClipboardHistory::ClipboardHistory(std::filesystem::path store) : store_(std::move(store)) {}
+void ClipboardHistory::set_limit(size_t limit) {
+  if (limit == 50 || limit == 100 || limit == 200 || limit == 500 || limit == 1000)
+    limit_.store(limit);
+}
 std::vector<std::string> ClipboardHistory::load() const {
   if (!enabled_) return {};
-  StoreLock lock(store_); return lock ? read_store(store_) : std::vector<std::string>{};
+  StoreLock lock(store_); return lock ? read_store(store_, limit()) : std::vector<std::string>{};
 }
 bool ClipboardHistory::add(std::string text) {
   if (!enabled_) return false;
   text = normalize_clipboard_text(std::move(text));
   if (text.empty()) return false;
   StoreLock lock(store_); if (!lock) return false;
-  auto items = read_store(store_);
+  auto items = read_store(store_, limit());
   if (!items.empty() && items.front() == text) return false;
   items.erase(std::remove(items.begin(), items.end(), text), items.end());
   items.insert(items.begin(), std::move(text));
-  if (items.size() > max_items) items.resize(max_items);
+  if (items.size() > limit()) items.resize(limit());
   return write_store(store_, items);
 }
 bool ClipboardHistory::remove(const std::string &text) {
   const auto normalized = normalize_clipboard_text(text);
   if (normalized.empty()) return false;
   StoreLock lock(store_); if (!lock) return false;
-  auto items = read_store(store_); const auto before = items.size();
+  auto items = read_store(store_, limit()); const auto before = items.size();
   items.erase(std::remove(items.begin(), items.end(), normalized), items.end());
   if (items.size() == before) return false;
   return write_store(store_, items);

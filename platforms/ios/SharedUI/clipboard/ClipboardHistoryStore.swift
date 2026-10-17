@@ -24,7 +24,8 @@ struct ClipboardHistoryItem: Equatable, Identifiable {
 }
 
 struct ClipboardHistoryStore {
-  static let limit = 200
+  static let limit = 50
+  static let maxLimit = 1000
   let root: URL
   let file: URL
 
@@ -36,7 +37,7 @@ struct ClipboardHistoryStore {
 
   func load() throws -> [ClipboardHistoryItem] {
     let value = try call(["operation": "load"])
-    guard let rows = value["entries"] as? [[String: Any]], rows.count <= Self.limit else {
+    guard let rows = value["entries"] as? [[String: Any]], rows.count <= Self.maxLimit else {
       throw Failure.invalidFile
     }
     return try rows.map { row in
@@ -120,7 +121,7 @@ struct ClipboardHistoryStore {
       switch self {
       case .empty: "剪贴板中没有可保存的文本，或尚未允许粘贴。"
       case .invalidText: "剪贴板文本过长或包含不能保存的字符，请缩短或修改后重试。"
-      case .full: "200 条历史均已固定，请先取消固定或删除一条。"
+      case .full: "历史记录已满且全部固定，请先取消固定或删除一条。"
       case .invalidFile: "历史记录无法读取；原文件已保留。"
       case .stale: "记录已在其他窗口中更改，请重试。"
       }

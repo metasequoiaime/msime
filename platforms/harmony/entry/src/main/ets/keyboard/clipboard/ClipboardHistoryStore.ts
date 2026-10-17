@@ -11,9 +11,9 @@
  */
 import { ClipboardHistoryPolicy } from "./ClipboardHistoryPolicy";
 
-// 200 条记录可能都包含共享存储允许的 40,000 字节文本；JSON 转义会进一步放大文件，解析
-// 上限必须高于 Rust 存储按最坏情况计算出的边界。
-export const MAX_FILE_BYTES: number = 64 * 1024 * 1024;
+// 1000 条记录可能都包含共享存储允许的 40,000 字节文本；JSON 转义会进一步放大文件，解析
+// 上限必须覆盖 Rust 存储按最坏情况计算出的边界。
+export const MAX_FILE_BYTES: number = 256 * 1024 * 1024;
 
 export interface ClipboardHistoryItem {
   readonly text: string;
@@ -25,7 +25,7 @@ export interface ClipboardHistoryItem {
 export enum ClipboardFailure {
   EMPTY = "剪贴板中没有可保存的文本。",
   TOO_LONG = "单条最多保存 10,000 字，请缩短后重试。",
-  FULL = "200 条历史均已固定，请先取消固定或删除一条。",
+  FULL = "历史记录已满且全部固定，请先取消固定或删除一条。",
   INVALID_FILE = "历史记录无法读取；原文件已保留。",
   STALE = "记录已在其他窗口中更改，请重试。",
 }

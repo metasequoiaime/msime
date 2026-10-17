@@ -12,7 +12,7 @@
 namespace msime::windows {
 class ClipboardHistory final {
 public:
-  static constexpr size_t max_items = 50;
+  static constexpr size_t max_items = 1000;
   static constexpr size_t max_chars = 4000;
   explicit ClipboardHistory(std::filesystem::path store);
   std::vector<std::string> load() const;
@@ -23,9 +23,12 @@ public:
   // deletion under the preferences/history locks; this is only a local gate.
   void set_enabled(bool enabled) { enabled_.store(enabled); }
   bool enabled() const { return enabled_.load(); }
+  void set_limit(size_t limit);
+  size_t limit() const { return limit_.load(); }
 private:
   std::filesystem::path store_;
   std::atomic<bool> enabled_{true};
+  std::atomic<size_t> limit_{50};
 };
 std::string normalize_clipboard_text(std::string text);
 
