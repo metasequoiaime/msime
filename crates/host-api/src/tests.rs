@@ -291,6 +291,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         plugin_commands: Vec::new(),
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
+        quick_phrase_candidates: false,
         helpcode_table: None,
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,

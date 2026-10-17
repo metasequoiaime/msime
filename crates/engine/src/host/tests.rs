@@ -67,6 +67,7 @@ fn options(root: &Path) -> EngineOptions {
         plugin_commands: Vec::new(),
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
+        quick_phrase_candidates: false,
         helpcode_table: None,
         sentence_association: SentenceAssociationOptions {
             word_lattice: true,

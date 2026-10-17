@@ -2057,9 +2057,10 @@ static void TestSessionOptions() {
         @"preferences":@{@"scheme":@"quanpin"}};
     NSDictionary *requested = MSIMESessionOptions(file, nil);
     assert([requested[@"phrase_preedit"] isEqual:@YES]);
+    assert([requested[@"quick_phrase_candidates"] isEqual:@YES]);
     // Everything the file carried is passed through untouched, including nested objects.
     for (NSString *key in file) assert([requested[key] isEqual:file[key]]);
-    assert(requested.count == file.count + 1);
+    assert(requested.count == file.count + 2);
     // The caller's dictionary is not modified: prepareSession reads preferences_directory back out
     // of the result, and the options file dictionary is handed around elsewhere.
     assert(!file[@"phrase_preedit"]);
@@ -2068,11 +2069,12 @@ static void TestSessionOptions() {
     // the field, and a stale file predates the behaviour entirely.
     NSDictionary *stale = MSIMESessionOptions(@{@"api_version":@1, @"phrase_preedit":@NO}, nil);
     assert([stale[@"phrase_preedit"] isEqual:@YES]);
+    assert([stale[@"quick_phrase_candidates"] isEqual:@YES]);
 
     // The built-in sound packs live in the bundle, while resources is EngineResources in Application Support, so the host library cannot find them beside it: the bundle's directory is named, unless the options file names one itself.
     NSDictionary *sounds = MSIMESessionOptions(file, @"/synthetic/bundle/Contents/Resources/sound-packs");
     assert([sounds[@"sound_packs"] isEqual:@"/synthetic/bundle/Contents/Resources/sound-packs"]);
-    assert(sounds.count == file.count + 2 && !file[@"sound_packs"]);
+    assert(sounds.count == file.count + 3 && !file[@"sound_packs"]);
     NSDictionary *named = MSIMESessionOptions(@{@"api_version":@1, @"sound_packs":@"/configured/sound-packs"}, @"/synthetic/sound-packs");
     assert([named[@"sound_packs"] isEqual:@"/configured/sound-packs"]);
 

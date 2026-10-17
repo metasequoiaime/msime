@@ -58,6 +58,7 @@ pub(super) struct InputSession {
     pub journal_path: PathBuf,
     pub engine: ImeSession,
     pub queries: CandidateQueries,
+    pub quick_phrase_candidates: bool,
     pub clock: Clock,
     pub profile: &'static ShuangpinProfile,
     pub caret: Option<usize>,
@@ -140,6 +141,7 @@ impl InputSession {
         );
         let mut session = Self {
             queries: CandidateQueries::new(&paths, profile),
+            quick_phrase_candidates: options.quick_phrase_candidates,
             engine,
             clock: Clock::default(),
             profile,

@@ -438,6 +438,7 @@ export function InputSettingsPage() {
               translationService={translationProvider !== "none"}
               temporaryJapanese={temporaryJapanese}
               shiftLetterEntrySwitch={host?.shift_letter_entry_switch ?? false}
+              quickPhraseCandidates={host?.quick_phrase_candidates ?? false}
               // 临时日语只是一个快捷模式，不为它自动下载 60 多 MB 的词库，由用户手动下载；下载行跟在 R 模式那一行后面，不再单占一组。当前方案是日文时方案组里已有同一行，这里不再重复。
               temporaryJapaneseExtra={
                 temporaryJapanese &&
