@@ -14,6 +14,7 @@ import { desktopDownloadUrl, fallbackAppVersion } from "./settings/app-resources
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
 import { useSettingsPageRouting } from "./settings/use-settings-page-routing";
+import { useSettingsShellState } from "./settings/use-settings-shell-state";
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
 import {
@@ -43,7 +44,7 @@ import {
   settingsThemePreferences,
 } from "./settings/settings-theme-preferences";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 export type {
   DictionaryEntry,
   DictionaryPageFormat,
@@ -241,6 +242,7 @@ export {
   type NoticesClient,
 } from "./settings/notice-banner";
 export { settingsPageEnvironment } from "./settings/settings-page-environment";
+export { useSettingsShellState, type SettingsShellView } from "./settings/use-settings-shell-state";
 export {
   settingsPlatformPresentation,
   type SettingsPlatformPresentationOptions,
@@ -2921,14 +2923,6 @@ export function SettingsPage(props: SettingsPageProps) {
 function SettingsShell(props: SettingsPageProps) {
   const { onReplayOnboarding } = props;
   const model = useSettingsPageModel(props);
-  // The 插件 page shows either the installed packs (a page of the settings form) or the community gallery, which has its own search form and so is drawn outside the settings one.
-  const [pluginView, setPluginView] = useState<"mine" | "community">("mine");
-  // 主题 does the same on desktop: the installed candidate-window skins with the theme settings, or the community gallery of them.
-  const [skinView, setSkinView] = useState<"mine" | "community">("mine");
-  // Filters the sidebar by page name; the model does not need it, since it never leaves the shell.
-  const [navQuery, setNavQuery] = useState("");
-  // The phone page that has scrolled its large title away, which brings in the compact bar. Keyed by page so that arriving on another page, which opens at its top, never inherits the bar.
-  const [titleCollapsedOn, setTitleCollapsedOn] = useState<string | null>(null);
   const {
     client,
     confirmation,
@@ -2990,13 +2984,22 @@ function SettingsShell(props: SettingsPageProps) {
     communityTabs,
     currentAppVersion,
   } = model;
-  // 对话页第一次打开后就一直挂着（见下方渲染处），切走只隐藏。
-  const [chatMounted, setChatMounted] = useState(page === "chat");
+  const {
+    pluginView,
+    setPluginView,
+    skinView,
+    setSkinView,
+    navQuery,
+    setNavQuery,
+    titleCollapsedOn,
+    setTitleCollapsedOn,
+    chatMounted,
+    chatFocusRequest,
+    setChatFocusRequest,
+    pageColumnRef,
+    launchPage,
+  } = useSettingsShellState(page);
   // 首页「试用键盘」打开对话页时加一，对话页随即聚焦输入框、弹出键盘；从「AI 辅助」进入不加，不弹键盘。
-  const [chatFocusRequest, setChatFocusRequest] = useState(0);
-  useEffect(() => {
-    if (page === "chat") setChatMounted(true);
-  }, [page]);
   // 任一种 HarmonyOS 外观（手机或 2-in-1）：两者都用应用主题着色，并带有设计稿的 toast。
   const harmonyLook = settingsPlatform === "harmony" || settingsPlatform === "hm2";
   // HarmonyOS 手机外观：推入标签页的每个页面都带返回按钮并会滑入，另外三个标签页使用更紧凑的标签页列表。
@@ -3007,8 +3010,6 @@ function SettingsShell(props: SettingsPageProps) {
   const fillsContent = mobilePlatform && page === "try-keyboard";
   // 触屏上的 AI 对话同样是一页对话，内容区撑满、输入栏贴底。它是「AI 辅助」的二级页，原来照常显示底部标签栏，键盘弹起时标签栏夹在输入栏和键盘之间；现在和试用页一样不带标签栏，输入栏自己让出手势区（`touchComposer`）。
   const contentFills = fillsContent || (mobilePlatform && page === "chat");
-  const pageColumnRef = useRef<HTMLDivElement>(null);
-  const launchPage = useRef(page);
   // 从一个推入页面再推入的页面（反馈 到 帮助）会保留内容列的动画类，所以要重启动画，而不是让它停在已结束的状态。用重启动画而不是按页面给内容列设 key，能让表单页面像在其他宿主上一样保持挂载、保留状态。
   useLayoutEffect(() => {
     const column = pageColumnRef.current;
