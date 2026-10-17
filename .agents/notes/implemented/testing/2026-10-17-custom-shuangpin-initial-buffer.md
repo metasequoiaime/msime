@@ -22,8 +22,8 @@ Status: implemented
 
 ## Verification
 
-TDD 回归固定小鹤表：旧实现分配 449 个缓冲，新实现 411 个，阈值为 420；先以旧代码验证红灯，再以新代码验证绿灯。随后运行 `shuangpin::custom::tests`（14 项）和 `cargo clippy -p msime-engine --all-targets -- -D warnings`。
+TDD 回归固定小鹤表：旧实现分配 449 个缓冲，首键缓冲复用后为 411 个；进一步用可复制的首键/韵母描述替代已发现读法后降为 6 个（剩余为校验集合本身），阈值为 10；先以旧代码验证红灯，再以新代码验证绿灯。随后运行 `shuangpin::custom::tests`（14 项）和 `cargo clippy -p msime-engine --all-targets -- -D warnings`。
 
 ## Consequences
 
-自定义双拼表校验减少首键构造的堆分配；错误信息和所有合法表判定继续由原有路径产生。该优化只覆盖校验热路径，已生成并缓存的 `ShuangpinProfile`、双拼解码和宿主接口均不变。
+自定义双拼表校验减少首键构造和已发现读法的堆分配；错误信息和所有合法表判定继续由原有路径产生。该优化只覆盖校验热路径，已生成并缓存的 `ShuangpinProfile`、双拼解码和宿主接口均不变。
