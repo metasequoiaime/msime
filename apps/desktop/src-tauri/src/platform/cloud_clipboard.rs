@@ -54,7 +54,7 @@ pub(crate) async fn cloud_clipboard_request<A: AccountApi, S: AccountSessionStor
 ) -> Result<Value, crate::CommandError> {
     let session = Arc::clone(session);
     tauri::async_runtime::spawn_blocking(move || {
-        msime_host_api::cloud_clipboard::account_request(&session, &action)
+        msime_host_api::cloud_clipboard::account_request(&session, &action, None)
     })
     .await
     .map_err(|_| crate::CommandError {

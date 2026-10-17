@@ -2048,6 +2048,16 @@ impl AccountApi for BackendAccountClient {
         self.export_dictionary(kind, format, access_token)
     }
 
+    fn export_dictionary_to_file(
+        &self,
+        kind: DictionaryKind,
+        format: &str,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<u64, AccountError> {
+        self.export_dictionary_to_file(kind, format, destination, access_token)
+    }
+
     fn dictionary_changes(
         &self,
         after: i64,

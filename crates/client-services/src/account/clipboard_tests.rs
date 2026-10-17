@@ -283,19 +283,40 @@ fn clipboard_code(result: Result<impl std::fmt::Debug, AccountClipboardError>) -
 }
 
 #[test]
+fn a_device_registers_under_the_name_the_host_gives() {
+    let server = server();
+    let (named, _) = device(&server);
+    let (unnamed, _) = device(&server);
+    named.clipboard("", Some("HUAWEI Mate 70")).unwrap();
+    unnamed.clipboard_devices(None).unwrap();
+    let names: Vec<String> = server
+        .lock()
+        .unwrap()
+        .devices
+        .iter()
+        .map(|device| device.name.clone())
+        .collect();
+    // 没给名称时与以前相同，用计算机名或平台名。
+    assert_eq!(
+        names,
+        ["HUAWEI Mate 70".to_owned(), cloud_clipboard_device_name()]
+    );
+}
+
+#[test]
 fn two_devices_go_from_first_use_through_approval_to_removal() {
     let server = server();
     let (first, first_storage) = device(&server);
     let (second, second_storage) = device(&server);
 
     // 第一台设备第一次打开：登记、建钥，随后能上传和读回自己写的条目。
-    let page = first.clipboard("").unwrap();
+    let page = first.clipboard("", None).unwrap();
     assert_eq!(page.e2e.status, AccountClipboardE2eStatus::Ready);
     assert!(page.items.is_empty());
-    let added = first.add_clipboard("合成文本 one").unwrap();
+    let added = first.add_clipboard("合成文本 one", None).unwrap();
     assert_eq!(added.text, "合成文本 one");
-    first.add_clipboard("合成文本 two").unwrap();
-    let page = first.clipboard("one").unwrap();
+    first.add_clipboard("合成文本 two", None).unwrap();
+    let page = first.clipboard("one", None).unwrap();
     assert_eq!(page.retention_days, 7);
     assert_eq!(
         page.items
@@ -307,46 +328,46 @@ fn two_devices_go_from_first_use_through_approval_to_removal() {
     assert!(first_storage.keystore.lock().unwrap().is_some());
 
     // 第二台设备：登记后等待批准，读不到条目，上传被拒绝。
-    let pending = second.clipboard("").unwrap();
+    let pending = second.clipboard("", None).unwrap();
     assert_eq!(pending.e2e.status, AccountClipboardE2eStatus::Pending);
     assert!(pending.items.is_empty());
     assert_eq!(
-        clipboard_code(second.add_clipboard("合成文本 three")),
+        clipboard_code(second.add_clipboard("合成文本 three", None)),
         "clipboard_device_pending"
     );
     let second_code = pending.e2e.code.clone();
 
     // 第一台设备看到待批准的设备和同一个核对码，批准它。
-    assert_eq!(first.clipboard("").unwrap().e2e.pending_devices, 1);
-    let devices = first.clipboard_devices().unwrap();
+    assert_eq!(first.clipboard("", None).unwrap().e2e.pending_devices, 1);
+    let devices = first.clipboard_devices(None).unwrap();
     let waiting = devices.devices.iter().find(|d| !d.approved).unwrap();
     assert_eq!(waiting.code, second_code);
     assert!(!waiting.current);
     let second_id = waiting.device_id.clone();
-    let approved = first.approve_clipboard_device(&second_id).unwrap();
+    let approved = first.approve_clipboard_device(&second_id, None).unwrap();
     assert!(approved.devices.iter().all(|d| d.approved));
 
-    let page = second.clipboard("").unwrap();
+    let page = second.clipboard("", None).unwrap();
     assert_eq!(page.e2e.status, AccountClipboardE2eStatus::Ready);
     assert_eq!(page.items.len(), 2);
 
     // 移除第二台设备：换钥、清空条目，第二台设备回到待批准。
-    let removed = first.remove_clipboard_device(&second_id).unwrap();
+    let removed = first.remove_clipboard_device(&second_id, None).unwrap();
     assert_eq!(removed.devices.len(), 1);
-    assert!(first.clipboard("").unwrap().items.is_empty());
+    assert!(first.clipboard("", None).unwrap().items.is_empty());
     assert_eq!(
-        second.clipboard("").unwrap().e2e.status,
+        second.clipboard("", None).unwrap().e2e.status,
         AccountClipboardE2eStatus::Pending
     );
     // 拒绝它这次重新登记。
-    let rejected = first.reject_clipboard_device(&second_id).unwrap();
+    let rejected = first.reject_clipboard_device(&second_id, None).unwrap();
     assert_eq!(rejected.devices.len(), 1);
 
     // 第二台设备重置云剪贴板后自己持有新密钥，第一台反过来需要批准。
-    let reset = second.reset_clipboard().unwrap();
+    let reset = second.reset_clipboard(None).unwrap();
     assert_eq!(reset.status, AccountClipboardE2eStatus::Ready);
     assert_eq!(
-        first.clipboard("").unwrap().e2e.status,
+        first.clipboard("", None).unwrap().e2e.status,
         AccountClipboardE2eStatus::Pending
     );
     assert!(second_storage.saves.lock().unwrap().len() >= 2);
@@ -356,7 +377,7 @@ fn two_devices_go_from_first_use_through_approval_to_removal() {
 fn every_request_carries_the_access_token_and_an_expired_one_is_refreshed_once() {
     let server = server();
     let (session, _) = device(&server);
-    session.clipboard("").unwrap();
+    session.clipboard("", None).unwrap();
     assert!(server
         .lock()
         .unwrap()
@@ -366,7 +387,7 @@ fn every_request_carries_the_access_token_and_an_expired_one_is_refreshed_once()
 
     server.lock().unwrap().log.clear();
     server.lock().unwrap().rejected_token = Some(token(b'a'));
-    let page = session.clipboard("").unwrap();
+    let page = session.clipboard("", None).unwrap();
     assert_eq!(page.e2e.status, AccountClipboardE2eStatus::Ready);
     let log = server.lock().unwrap().log.clone();
     assert_eq!(log[0].2, token(b'a'));
@@ -379,7 +400,7 @@ fn every_request_carries_the_access_token_and_an_expired_one_is_refreshed_once()
 fn the_keystore_is_saved_before_the_next_request_is_sent() {
     let server = server();
     let (session, storage) = device(&server);
-    session.clipboard("").unwrap();
+    session.clipboard("", None).unwrap();
     let saves = storage.saves.lock().unwrap().clone();
     // 第一次保存的是新生成的设备身份，最后一次带上了刚建好的剪贴板密钥。
     assert_eq!(saves.len(), 2);
@@ -388,7 +409,7 @@ fn the_keystore_is_saved_before_the_next_request_is_sent() {
     assert!(saves[1].starts_with(&saves[0]));
 
     // 已保存的密钥串原样沿用：同一台设备不会再登记一次。
-    session.clipboard("").unwrap();
+    session.clipboard("", None).unwrap();
     assert_eq!(server.lock().unwrap().devices.len(), 1);
     assert_eq!(storage.saves.lock().unwrap().len(), 2);
 }
@@ -398,15 +419,15 @@ fn a_disabled_clipboard_lists_nothing_and_refuses_changes() {
     let server = server();
     server.lock().unwrap().enabled = false;
     let (session, _) = device(&server);
-    let page = session.clipboard("").unwrap();
+    let page = session.clipboard("", None).unwrap();
     assert!(!page.enabled);
     assert_eq!(page.e2e.status, AccountClipboardE2eStatus::Disabled);
     assert_eq!(
-        clipboard_code(session.add_clipboard("合成文本")),
+        clipboard_code(session.add_clipboard("合成文本", None)),
         "clipboard_sync_disabled"
     );
     assert_eq!(
-        clipboard_code(session.reset_clipboard()),
+        clipboard_code(session.reset_clipboard(None)),
         "clipboard_sync_disabled"
     );
 }
@@ -422,15 +443,17 @@ fn invalid_arguments_and_a_signed_out_session_fail_without_requests() {
         storage.clone(),
     );
     assert_eq!(
-        clipboard_code(signed_out.clipboard("")),
+        clipboard_code(signed_out.clipboard("", None)),
         "account_unauthorized"
     );
     let (session, _) = device(&server);
     for result in [
-        session.approve_clipboard_device("ABC").map(|_| ()),
-        session.remove_clipboard_device(&"g".repeat(32)).map(|_| ()),
-        session.add_clipboard(" ").map(|_| ()),
-        session.clipboard("bad\u{7}").map(|_| ()),
+        session.approve_clipboard_device("ABC", None).map(|_| ()),
+        session
+            .remove_clipboard_device(&"g".repeat(32), None)
+            .map(|_| ()),
+        session.add_clipboard(" ", None).map(|_| ()),
+        session.clipboard("bad\u{7}", None).map(|_| ()),
     ] {
         assert_eq!(clipboard_code(result), "account_invalid");
     }

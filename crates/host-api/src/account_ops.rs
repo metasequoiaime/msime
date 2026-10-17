@@ -1,8 +1,8 @@
-//! `msime_client_account` 在 #8201 新增的操作（流式对话是单独的 `msime_client_account_chat_stream`，见 [`chat_stream`]）：对话、注销账号、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接和语音贡献，以及鸿蒙设置应用与键盘之间的会话镜像（`session_adopt`，只在目录模式，规则在 client-services 的 `BackendAccountSession::adopt_session`）。请求形状、返回值和错误码见头文件；规则和传输都在 client-services，这里只按操作把它们接起来。
+//! `msime_client_account` 在 #8201 新增的操作（流式对话是单独的 `msime_client_account_chat_stream`，见 [`chat_stream`]）：对话、注销账号、释义、常用语、设置文档的上传（`preferences_put`）、我的设备、云端数据、反馈、诊断上传、发送下载链接和语音贡献，以及鸿蒙设置应用与键盘之间的会话镜像（`session_adopt`，只在目录模式，规则在 client-services 的 `BackendAccountSession::adopt_session`）。请求形状、返回值和错误码见头文件；规则和传输都在 client-services，这里只按操作把它们接起来。
 //!
 //! 写成对 [`AccountApi`] 和 [`AccountSessionStorage`] 泛型的函数，测试用假的后端驱动；C 导出（`super::ffi::account`）把按目录或注入存储建好的两个会话交进来。
 //!
-//! 令牌从哪个会话来：注销账号、常用语、我的设备、云端数据和发送下载链接只用登录账号；对话、模型目录、释义、反馈和诊断上传登录账号优先、没有登录时用本机匿名账号；语音贡献和删除语音样本（`voice_delete`）只用本机匿名账号（#8201 的决定 12），注销账号成功后、删除云端数据的 `voice` 分区时也尽力删掉匿名账号名下的样本，云端数据汇总把匿名账号的语音样本合进 `voice` 分区；查看、换令牌和删除诊断快照绑定到上传时返回的 `user_id`，登录会话和匿名会话都不是它时是 `account_identity_changed`，不会退回另一个账号。
+//! 令牌从哪个会话来：注销账号、常用语、设置文档的上传、我的设备、云端数据和发送下载链接只用登录账号；对话、模型目录、释义、反馈和诊断上传登录账号优先、没有登录时用本机匿名账号；语音贡献和删除语音样本（`voice_delete`）只用本机匿名账号（#8201 的决定 12），注销账号成功后、删除云端数据的 `voice` 分区时也尽力删掉匿名账号名下的样本，云端数据汇总把匿名账号的语音样本合进 `voice` 分区；查看、换令牌和删除诊断快照绑定到上传时返回的 `user_id`，登录会话和匿名会话都不是它时是 `account_identity_changed`，不会退回另一个账号。
 
 use base64::Engine as _;
 use msime_client_services::account::page::{ChatModelsResponse, ChatResponse};
@@ -11,9 +11,10 @@ use msime_client_services::account::{
     prepare_voice_contribution, read_published_session, translate_request_body,
     valid_data_sections, with_shared_access_token, AccountApi, AccountChatMessage,
     AccountDataSummary, AccountError, AccountFailure, AccountFeedbackInput, AccountPhrase,
-    AccountPhrases, AccountSessionStorage, AccountTranslateRequest, AccountVoiceContributionInput,
-    AnonymousIdentitySource, BackendAccountSession, ChatStreamCancel, SessionAdoptSource,
-    DEFAULT_TRANSLATE_TIMEOUT_MS, MAX_VOICE_CONTRIBUTION_AUDIO_BYTES, TRANSLATE_TIMEOUT_MS,
+    AccountPhrases, AccountPreferenceValue, AccountPreferences, AccountSessionStorage,
+    AccountTranslateRequest, AccountVoiceContributionInput, AnonymousIdentitySource,
+    BackendAccountSession, ChatStreamCancel, SessionAdoptSource, DEFAULT_TRANSLATE_TIMEOUT_MS,
+    MAX_VOICE_CONTRIBUTION_AUDIO_BYTES, TRANSLATE_TIMEOUT_MS,
 };
 use msime_client_services::diagnostics::upload::{
     prepare_upload, valid_diagnostic_label, DIAGNOSTIC_TTLS,
@@ -60,6 +61,13 @@ pub(crate) enum Operation {
     PhrasesSave {
         revision: i64,
         phrases: Vec<AccountPhrase>,
+    },
+    /// 整份替换云端的设置文档（#8201 的 P4），按 `revision` 比较并交换，见 [`BackendAccountSession::put_preferences_checked`]。`document` 是文档的 `settings`，`revision` 是读到它时云端的修订号（导出入口给的 `merged.revision`）；给了 `user_id` 时只写这个账号。
+    PreferencesPut {
+        document: BTreeMap<String, AccountPreferenceValue>,
+        revision: i64,
+        #[serde(default)]
+        user_id: Option<String>,
     },
     SessionsList,
     SessionRevoke {
@@ -494,6 +502,20 @@ where
         Operation::PhrasesLoad => value(account.phrases()?),
         Operation::PhrasesSave { revision, phrases } => {
             value(account.put_phrases(&AccountPhrases { revision, phrases })?)
+        }
+        Operation::PreferencesPut {
+            document,
+            revision,
+            user_id,
+        } => {
+            let user_id = user_id.as_deref().map(bound_user).transpose()?;
+            value(account.put_preferences_checked(
+                &AccountPreferences {
+                    revision,
+                    settings: document,
+                },
+                user_id,
+            )?)
         }
         Operation::SessionsList => value(account.devices()?),
         Operation::SessionRevoke { id } => Ok(json!({ "signed_out": account.revoke_device(&id)? })),

@@ -2184,6 +2184,11 @@ pub unsafe extern "C" fn msime_client_desktop_clipboard_history(
     })
 }
 
+/// 宿主给的云剪贴板设备名称：账号路径和中继路径同一条规则。没给、只有空白或超过 256 字节（含控制字符）时是 `None`，调用方改用计算机名或平台名；驱动登记前还会再清理一遍。
+fn host_device_name(name: Option<String>) -> Option<String> {
+    name.filter(|name| !name.trim().is_empty() && is_bounded_text(name, 256))
+}
+
 /// One cloud clipboard action over the signed-in account session stored in `directory`, for a settings window that holds no session of its own. Blocks on the network; see the header.
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.
@@ -2208,6 +2213,9 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
             directory: Option<String>,
             #[serde(default)]
             session_store: Option<u64>,
+            /// 端到端加密登记本机时给其他设备看的名称（#8201 的 P6，例如鸿蒙的 marketName），规则与中继路径相同，见 [`host_device_name`]。
+            #[serde(default)]
+            device_name: Option<String>,
             action: Value,
         }
         // SAFETY: guaranteed by the documented caller contract.
@@ -2225,6 +2233,7 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
             }
         }
         crate::cloud_clipboard::validate_account_request(&request.action).map_err(|_| INVALID)?;
+        let device_name = host_device_name(request.device_name);
         match source {
             super::session_store::Source::Directory(directory) => {
                 let client =
@@ -2233,12 +2242,18 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
                     client,
                     FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
                 );
-                crate::cloud_clipboard::account_request(&session, &request.action)
+                crate::cloud_clipboard::account_request(
+                    &session,
+                    &request.action,
+                    device_name.as_deref(),
+                )
             }
             // 注入的存储用注册时建好的会话对象，不每次新建。
-            super::session_store::Source::Store(entry) => {
-                crate::cloud_clipboard::account_request(&entry.account, &request.action)
-            }
+            super::session_store::Source::Store(entry) => crate::cloud_clipboard::account_request(
+                &entry.account,
+                &request.action,
+                device_name.as_deref(),
+            ),
         }
         .map_err(str::to_owned)
     })
@@ -2279,10 +2294,7 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
         ))
         .map_err(str::to_owned)?
         .ok_or("relay_not_configured")?;
-        // 宿主没给名称或给的不能用时，与账号路径一样取计算机名或平台名；驱动登记前还会再清理一遍。
-        let device_name = request
-            .device_name
-            .filter(|name| !name.trim().is_empty() && is_bounded_text(name, 256))
+        let device_name = host_device_name(request.device_name)
             .unwrap_or_else(msime_client_services::account::cloud_clipboard_device_name);
         crate::cloud_clipboard::relay_request(
             config,
@@ -2577,3 +2589,6 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
         serde_json::to_value(status).map_err(|_| "vocabulary review response failed".to_owned())
     })
 }
+
+#[cfg(test)]
+mod cloud_clipboard_tests;

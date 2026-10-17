@@ -57,7 +57,7 @@ fn saved(access: char, refresh: char, user_id: &str) -> SavedAccountSession {
     }
 }
 
-/// 假的后端：每次调用记下 `<操作> <令牌首字符>`。令牌 `a`（登录账号）和 `1`（匿名账号）在 `stale` 里时以 401 拒绝；刷新令牌 `b` 换成 `c`/`d`，`2` 换成 `3`/`4`。`failures` 里有的操作返回那个失败，`token_failures` 里有的令牌做任何操作都返回那个失败。`data_summary` 对匿名账号的令牌只回语音样本。匿名账号重新登录时换来令牌 `5`；`data_delete` 对 `recent_login` 里的令牌回 403 `recent_login_required`。`during_request` 在对话和模型目录的请求进行中调用一次。
+/// 假的后端：每次调用记下 `<操作> <令牌首字符>`。令牌 `a`（登录账号）和 `1`（匿名账号）在 `stale` 里时以 401 拒绝；刷新令牌 `b` 换成 `c`/`d`，`2` 换成 `3`/`4`。`failures` 里有的操作返回那个失败，`token_failures` 里有的令牌做任何操作都返回那个失败。`data_summary` 对匿名账号的令牌只回语音样本。匿名账号重新登录时换来令牌 `5`；`data_delete` 对 `recent_login` 里的令牌回 403 `recent_login_required`。`during_request` 在对话、模型目录和设置文档上传的请求进行中调用一次。
 #[derive(Clone, Default)]
 struct FakeApi {
     calls: Arc<Mutex<Vec<String>>>,
@@ -67,6 +67,8 @@ struct FakeApi {
     current_device: Arc<Mutex<Option<String>>>,
     recent_login: Arc<Mutex<Vec<String>>>,
     during_request: Arc<Mutex<Option<Interruption>>>,
+    /// 云端设置文档的修订号，`put_preferences_detailed` 照服务端的规则比较并交换。
+    preferences_revision: Arc<Mutex<i64>>,
 }
 
 /// 请求进行中要做的一件事，例如让会话退出登录。
@@ -234,6 +236,28 @@ impl AccountApi for FakeApi {
         Ok(AccountPhrases {
             revision: phrases.revision + 1,
             phrases: phrases.phrases.clone(),
+        })
+    }
+    /// 与 msime-cloud 的 `PutPreferences` 相同：修订号与云端相同时写入并加 1，否则 409 `revision_conflict`。
+    fn put_preferences_detailed(
+        &self,
+        preferences: &msime_client_services::account::AccountPreferences,
+        access_token: &str,
+    ) -> Result<msime_client_services::account::AccountPreferences, AccountFailure> {
+        self.call("put_preferences", access_token)?;
+        self.interrupt();
+        let mut revision = self.preferences_revision.lock().unwrap();
+        if preferences.revision != *revision {
+            return Err(AccountFailure::from_http_response(
+                409,
+                br#"{"error":{"code":"revision_conflict","message":"revision conflict"}}"#,
+                None,
+            ));
+        }
+        *revision += 1;
+        Ok(msime_client_services::account::AccountPreferences {
+            revision: *revision,
+            settings: preferences.settings.clone(),
         })
     }
     fn devices(&self, access_token: &str) -> Result<AccountDevices, AccountFailure> {
@@ -1815,3 +1839,6 @@ fn qq_links_list_redeem_and_delete_with_the_signed_in_account() {
     );
     assert!(anonymous_only.api.calls().is_empty());
 }
+
+#[path = "preferences_put_tests.rs"]
+mod preferences_put;

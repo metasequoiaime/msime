@@ -258,6 +258,17 @@ pub trait AccountApi: Send + Sync + 'static {
         Err(AccountError::Unavailable)
     }
 
+    /// 与 [`Self::export_dictionary`] 相同，正文直接写进 `destination`，返回写入的字节数（#8201 的 P7）。
+    fn export_dictionary_to_file(
+        &self,
+        _kind: DictionaryKind,
+        _format: &str,
+        _destination: &Path,
+        _access_token: &str,
+    ) -> Result<u64, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
     fn dictionary_changes(
         &self,
         _after: i64,

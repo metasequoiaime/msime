@@ -235,6 +235,9 @@ pub mod session_store;
 pub mod translation;
 pub mod voice;
 
+#[cfg(test)]
+mod preference_schema_tests;
+
 // Every export has always been reachable at the crate root; the domain split
 // below is for readers, not for callers, so each module is flattened back out.
 pub use android_data::*;

@@ -148,10 +148,11 @@ pub fn cleanup_stale_snapshot_previews(directory: &Path) -> io::Result<()> {
     })
 }
 
-/// 删掉上次运行被打断时留下的导出、恢复中转文件（`export-*.ndjson`、`restore-*.ndjson`）和原子写入没来得及换入的临时文件（Windows 上的 `.tmp*`，Unix 上的 `.msime-private-*`）。导出的中转文件是用户整份云词库的明文，不能一直留着。
+/// 删掉上次运行被打断时留下的导出、恢复中转文件（`export-*.ndjson`、`restore-*.ndjson`、单个云词库导出的 `export-*.tsv`）和原子写入没来得及换入的临时文件（Windows 上的 `.tmp*`，Unix 上的 `.msime-private-*`）。导出的中转文件是用户云词库的明文，不能一直留着。
 pub fn cleanup_stale_scratch_files(directory: &Path) -> io::Result<()> {
     remove_entries(directory, |name, _| {
         ((name.starts_with("export-") || name.starts_with("restore-")) && name.ends_with(".ndjson"))
+            || (name.starts_with("export-") && name.ends_with(".tsv"))
             || name.starts_with(".tmp")
             || name.starts_with(".msime-private-")
     })

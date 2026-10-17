@@ -1,6 +1,6 @@
 //! 云词库面板的 C 入口：账号云词库的列表、目录、增删改、导入导出、候选调频和固定排位，以及完整快照（下载预览、应用到本机、备份与恢复）。分发与 Windows 设置应用相同（[`crate::cloud_dictionary::account`]、[`crate::cloud_dictionary::full_backup`]），会话与 `msime_client_account` 是同一个对象。
 //!
-//! 整份快照可能有 512 MiB，放不进一次响应，所以 C 上的备份与恢复走宿主给的文件路径（`snapshot_export_file`、`snapshot_restore_preview_file`、`snapshot_restore_file`），文本版的三条报 `snapshot_unavailable`。
+//! 整份快照可能有 512 MiB，放不进一次响应，所以 C 上的备份与恢复走宿主给的文件路径（`snapshot_export_file`、`snapshot_restore_preview_file`、`snapshot_restore_file`），文本版的三条报 `snapshot_unavailable`。单个云词库的导出最多 384 MiB，除了文本版的 `export`，也可以用 `export_file` 写进宿主给的路径，中转同样经 `snapshot_directory`。
 //!
 //! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。
 
@@ -44,12 +44,19 @@ enum Action {
     Shared(CloudDictionaryRequest),
 }
 
-/// 只有 C 有的三条：快照经宿主给的文件路径进出，不放进请求和响应。
+/// 只有 C 有的四条：快照和单个云词库的导出经宿主给的文件路径进出，不放进请求和响应。
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum FileSnapshotAction {
     #[serde(rename = "snapshot_export_file")]
     Export { path: String },
+    /// 一个云词库按 `format` 导出到 `path`（#8201 的 P7），与文本版的 `export` 相同的请求，正文不进响应。
+    #[serde(rename = "export_file")]
+    DictionaryExport {
+        kind: String,
+        format: String,
+        path: String,
+    },
     #[serde(rename = "snapshot_restore_preview_file")]
     RestorePreview { path: String },
     #[serde(rename = "snapshot_restore_file")]
@@ -85,6 +92,14 @@ fn absolute(value: &str, invalid: &'static str) -> Result<PathBuf, String> {
 fn validate_file_action(action: &FileSnapshotAction) -> Result<(), String> {
     let path = match action {
         FileSnapshotAction::Export { path } | FileSnapshotAction::RestorePreview { path } => path,
+        FileSnapshotAction::DictionaryExport { kind, format, path } => {
+            crate::cloud_dictionary::validate_cloud_request(&CloudDictionaryRequest::Export {
+                kind: kind.clone(),
+                format: format.clone(),
+            })
+            .map_err(|_| INVALID.to_owned())?;
+            path
+        }
         FileSnapshotAction::Restore {
             path,
             expected_sha256,
@@ -169,6 +184,17 @@ fn run(call: CloudDictionaryCall) -> Result<Value, String> {
         Action::File(FileSnapshotAction::Export { path }) => {
             full_backup::export_to_file(session.as_ref(), &state, Path::new(&path))
         }
+        Action::File(FileSnapshotAction::DictionaryExport { kind, format, path }) => {
+            dictionary_account::dictionary_kind(&kind).and_then(|kind| {
+                full_backup::dictionary_export_to_file(
+                    session.as_ref(),
+                    &state,
+                    kind,
+                    &format,
+                    Path::new(&path),
+                )
+            })
+        }
         Action::File(FileSnapshotAction::RestorePreview { path }) => {
             full_backup::restore_preview_from_file(session.as_ref(), &state, Path::new(&path))
         }
@@ -206,6 +232,9 @@ pub unsafe extern "C" fn msime_client_cloud_dictionary(
         run(call)
     })
 }
+
+#[cfg(test)]
+mod export_file_tests;
 
 #[cfg(test)]
 mod tests {

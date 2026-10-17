@@ -446,19 +446,23 @@ fn export<A: AccountApi, S: AccountSessionStorage>(
     result.map_err(|error| error.code())
 }
 
+/// 宿主选的保存位置能不能用：绝对路径、有文件名，上级目录已经存在、是目录、不经过符号链接。
+fn valid_export_destination(destination: &Path) -> bool {
+    destination.is_absolute()
+        && destination.file_name().is_some()
+        && destination.parent().is_some_and(|parent| {
+            msime_path_trust::reject_symlinked_components(parent).is_ok() && parent.is_dir()
+        })
+}
+
 /// 把完整云端备份保存到宿主给的 `destination`（绝对路径，宿主自己选的保存位置），返回 `{path, filename, snapshot}`。先下载到临时目录里的 `export-<token>.ndjson` 并校验，通过以后才复制过去换入 `destination`；未登录、令牌过期、联网失败、校验不过或复制失败时，`destination` 上原有的文件原样保留。默认文件名是固定的，覆盖上一份备份是最常见的用法，所以绝不能在失败时删掉目标。整份快照可能有 512 MiB，C ABI 用它代替把文本放进响应的 `snapshot_export`。
 pub fn export_to_file<A: AccountApi, S: AccountSessionStorage>(
     session: &BackendAccountSession<A, S>,
     state: &CloudDictionaryState,
     destination: &Path,
 ) -> Result<Value, &'static str> {
-    // 保存位置不可用（上级目录不存在、不是目录或经过符号链接）时在下载之前就拒绝，不白下载一整份快照。
-    let valid_destination = destination.is_absolute()
-        && destination.file_name().is_some()
-        && destination.parent().is_some_and(|parent| {
-            msime_path_trust::reject_symlinked_components(parent).is_ok() && parent.is_dir()
-        });
-    if !valid_destination {
+    // 保存位置不可用时在下载之前就拒绝，不白下载一整份快照。
+    if !valid_export_destination(destination) {
         return Err(AccountError::Invalid.code());
     }
     let token = Uuid::new_v4();
@@ -473,6 +477,37 @@ pub fn export_to_file<A: AccountApi, S: AccountSessionStorage>(
                 "path": destination,
                 "filename": EXPORT_FILENAME,
                 "snapshot": public_metadata(metadata),
+            }))
+        });
+    let _ = remove_snapshot_file(&path);
+    result.map_err(|error| error.code())
+}
+
+/// 把一个云词库按 `format`（`standard` 或 `windows`）导出到宿主选的 `destination`（#8201 的 P7），返回 `{path, filename, bytes}`：`filename` 是与文本版 `export` 相同的建议文件名，`bytes` 是写入的字节数。预检、中转和清理与 [`export_to_file`] 相同：保存位置不能用时在下载之前就是 `account_invalid`；正文边下载边写进临时目录里的 `export-<token>.tsv`（不放进内存，最多 384 MiB，要求与文本版相同：非空、UTF-8、不含 NUL），通过以后才复制过去换入 `destination`；未登录、联网失败、正文不合格或复制失败时，`destination` 上原有的文件原样保留，中转文件总会删掉。
+pub fn dictionary_export_to_file<A: AccountApi, S: AccountSessionStorage>(
+    session: &BackendAccountSession<A, S>,
+    state: &CloudDictionaryState,
+    kind: DictionaryKind,
+    format: &str,
+    destination: &Path,
+) -> Result<Value, &'static str> {
+    if !valid_export_destination(destination) {
+        return Err(AccountError::Invalid.code());
+    }
+    let token = Uuid::new_v4();
+    prepare_snapshot_directory(&state.directory).map_err(|_| AccountError::Unavailable.code())?;
+    let path = state.directory.join(format!("export-{token}.tsv"));
+    let result = session
+        .export_dictionary_to_file(kind, format, &path)
+        .and_then(|bytes| {
+            copy_snapshot_file(&path, destination).map_err(|_| AccountError::Unavailable)?;
+            Ok(json!({
+                "path": destination,
+                "filename": format!(
+                    "dictionary-{}.tsv",
+                    msime_client_core::cloud::dictionary::kind_path(kind)
+                ),
+                "bytes": bytes,
             }))
         });
     let _ = remove_snapshot_file(&path);

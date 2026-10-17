@@ -146,84 +146,123 @@ pub(crate) fn validate_devices(value: &AccountClipboardDevices) -> Result<(), Ac
 
 impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     /// 解密后的云端条目，`search` 由驱动在本机解密后匹配。本机还在等待批准时 `e2e.status` 为 `pending`、条目为空。
-    pub fn clipboard(&self, search: &str) -> Result<AccountClipboardPage, AccountClipboardError> {
+    ///
+    /// 这个方法和下面经端到端加密驱动的几个（上传、设备状态、批准、拒绝、移除、重置）都收 `device_name`：本机还没登记时用它登记，显示在其他设备的批准提示里；`None` 时用 [`cloud_clipboard_device_name`]。
+    pub fn clipboard(
+        &self,
+        search: &str,
+        device_name: Option<&str>,
+    ) -> Result<AccountClipboardPage, AccountClipboardError> {
         validate_clipboard_search(search)?;
-        let page: AccountClipboardPage = decode(self.clipboard_e2e(Operation::List {
-            search: search.to_owned(),
-        })?)?;
+        let page: AccountClipboardPage = decode(self.clipboard_e2e(
+            Operation::List {
+                search: search.to_owned(),
+            },
+            device_name,
+        )?)?;
         validate_clipboard_page(&page)?;
         Ok(page)
     }
 
     /// 在本机加密后上传一条。本机还没有获准时失败，错误码为 `clipboard_device_pending`。
-    pub fn add_clipboard(&self, text: &str) -> Result<AccountClipboardItem, AccountClipboardError> {
+    pub fn add_clipboard(
+        &self,
+        text: &str,
+        device_name: Option<&str>,
+    ) -> Result<AccountClipboardItem, AccountClipboardError> {
         validate_clipboard_text(text)?;
-        let item: AccountClipboardItem = decode(self.clipboard_e2e(Operation::Add {
-            text: text.to_owned(),
-        })?)?;
+        let item: AccountClipboardItem = decode(self.clipboard_e2e(
+            Operation::Add {
+                text: text.to_owned(),
+            },
+            device_name,
+        )?)?;
         validate_clipboard_item(&item)?;
         Ok(item)
     }
 
     /// 本机状态、核对码和账号下登记的全部设备。
-    pub fn clipboard_devices(&self) -> Result<AccountClipboardDevices, AccountClipboardError> {
-        self.clipboard_device_operation(Operation::Status)
+    pub fn clipboard_devices(
+        &self,
+        device_name: Option<&str>,
+    ) -> Result<AccountClipboardDevices, AccountClipboardError> {
+        self.clipboard_device_operation(Operation::Status, device_name)
     }
 
     /// 把当前剪贴板密钥交给一台待批准的设备。
     pub fn approve_clipboard_device(
         &self,
         device_id: &str,
+        device_name: Option<&str>,
     ) -> Result<AccountClipboardDevices, AccountClipboardError> {
         validate_device_id(device_id)?;
-        self.clipboard_device_operation(Operation::Approve {
-            device_id: device_id.to_owned(),
-        })
+        self.clipboard_device_operation(
+            Operation::Approve {
+                device_id: device_id.to_owned(),
+            },
+            device_name,
+        )
     }
 
     /// 删除一台待批准设备的登记。
     pub fn reject_clipboard_device(
         &self,
         device_id: &str,
+        device_name: Option<&str>,
     ) -> Result<AccountClipboardDevices, AccountClipboardError> {
         validate_device_id(device_id)?;
-        self.clipboard_device_operation(Operation::Reject {
-            device_id: device_id.to_owned(),
-        })
+        self.clipboard_device_operation(
+            Operation::Reject {
+                device_id: device_id.to_owned(),
+            },
+            device_name,
+        )
     }
 
     /// 移除一台设备并换钥：云端条目清空，其他设备都要在本机上重新批准。
     pub fn remove_clipboard_device(
         &self,
         device_id: &str,
+        device_name: Option<&str>,
     ) -> Result<AccountClipboardDevices, AccountClipboardError> {
         validate_device_id(device_id)?;
-        self.clipboard_device_operation(Operation::Remove {
-            device_id: device_id.to_owned(),
-        })
+        self.clipboard_device_operation(
+            Operation::Remove {
+                device_id: device_id.to_owned(),
+            },
+            device_name,
+        )
     }
 
     /// 重置云剪贴板：换一把只给本机的新密钥，云端条目清空，其他设备都要重新批准。
-    pub fn reset_clipboard(&self) -> Result<AccountClipboardDevices, AccountClipboardError> {
-        self.clipboard_device_operation(Operation::Reset)
+    pub fn reset_clipboard(
+        &self,
+        device_name: Option<&str>,
+    ) -> Result<AccountClipboardDevices, AccountClipboardError> {
+        self.clipboard_device_operation(Operation::Reset, device_name)
     }
 
     fn clipboard_device_operation(
         &self,
         operation: Operation,
+        device_name: Option<&str>,
     ) -> Result<AccountClipboardDevices, AccountClipboardError> {
-        let devices: AccountClipboardDevices = decode(self.clipboard_e2e(operation)?)?;
+        let devices: AccountClipboardDevices = decode(self.clipboard_e2e(operation, device_name)?)?;
         validate_devices(&devices)?;
         Ok(devices)
     }
 
     /// 用当前登录的账号跑完一个驱动操作。每个请求带上访问令牌；令牌过期（401）时刷新一次再发同一个请求，其他状态码连同正文原样交给驱动。驱动交回的密钥串在发出下一个请求之前保存，保存和读取都在登录代次不变时进行，退出登录后不会再写回一份密钥串。
-    fn clipboard_e2e(&self, operation: Operation) -> Result<Value, AccountClipboardError> {
+    fn clipboard_e2e(
+        &self,
+        operation: Operation,
+        device_name: Option<&str>,
+    ) -> Result<Value, AccountClipboardError> {
         let (user_id, mut token, generation) = self.credentials_with_generation(None, None)?;
         let keystore = self.with_generation(generation, Some(&user_id), || {
             self.storage.load_clipboard_keystore()
         })?;
-        let device_name = cloud_clipboard_device_name();
+        let device_name = device_name.map_or_else(cloud_clipboard_device_name, str::to_owned);
         let result = clipboard_e2e::run(
             operation,
             keystore.as_deref(),
