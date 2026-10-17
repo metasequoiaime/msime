@@ -44,6 +44,7 @@ int main() {
                            {"learning", true},
                            {"candidate_page_size", 5},
                            {"chinese_punctuation", true},
+                           {"ai_assistant", {{"enabled", true}}},
                            {"candidate_translations", true}}}};
   for (const char *name : {"resources", "user_data", "cache", "dictionaries"}) {
     const auto directory = root / name;
