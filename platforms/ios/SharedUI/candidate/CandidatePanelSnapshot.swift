@@ -40,7 +40,7 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
           let candidates = value["candidates"] as? [[String: Any]],
           candidates.count <= 4096 else { throw Failure.invalidResponse }
     var seen = Set<UInt64>()
-    let entries = try candidates.map { candidate -> Entry in
+    let entries = try candidates.compactMap { candidate -> Entry? in
       guard let text = candidate["text"] as? String,
             CandidateGlossModel.isBounded(text),
             let identity = candidate["id"] as? [String: Any],
@@ -63,6 +63,7 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
       }
       let source = try optionalInteger(candidate["source"])
       let fixedPosition = try optionalInteger(candidate["fixed_position"])
+      if !CandidateMarker.isVisible(source: source) { return nil }
       return Entry(text: text, code: code, translation: translation, annotation: annotation,
                    source: source, fixedPosition: fixedPosition, index: index)
     }

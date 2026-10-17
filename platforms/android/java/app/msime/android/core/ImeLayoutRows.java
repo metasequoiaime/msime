@@ -48,8 +48,15 @@ final class ImeLayoutRows {
 
     /** 服务销毁时调用：作废还没回来的手写拼音并停掉它的线程。 */
     void shutdown() {
-        pinyinGeneration++;
+        resetForInput();
         pinyinWorker.shutdownNow();
+    }
+
+    /** 输入目标或键盘视图结束时调用：不让旧输入框的停笔任务和提示写回新面板。 */
+    void resetForInput() {
+        cancelPendingInk();
+        cancelHandwritingNotice();
+        pinyinGeneration++;
     }
 
     /** 读本地设置里的手写细项；没写过的取默认值。 */

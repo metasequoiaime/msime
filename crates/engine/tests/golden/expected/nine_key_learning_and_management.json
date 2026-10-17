@@ -160,6 +160,22 @@
        0
       ]
      ]
+    },
+    "fixed_candidate_positions": {
+     "columns": [
+      "context_key",
+      "entry_key",
+      "value",
+      "position"
+     ],
+     "rows": [
+      [
+       "nine-key:64:",
+       "mi",
+       "米",
+       1
+      ]
+     ]
     }
    }
   },
@@ -243,7 +259,8 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 550,
-      "answers_key": true
+      "answers_key": true,
+      "fixed_position": 1
      },
      {
       "word": "你",
@@ -324,7 +341,8 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 1500,
-      "answers_key": true
+      "answers_key": true,
+      "fixed_position": 1
      },
      {
       "word": "米",
@@ -405,7 +423,8 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 1500,
-      "answers_key": true
+      "answers_key": true,
+      "fixed_position": 1
      },
      {
       "word": "米",
@@ -484,7 +503,8 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 1500,
-      "answers_key": true
+      "answers_key": true,
+      "fixed_position": 1
      },
      {
       "word": "米",
@@ -563,7 +583,8 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 1500,
-      "answers_key": true
+      "answers_key": true,
+      "fixed_position": 1
      },
      {
       "word": "米",
@@ -642,7 +663,8 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 1500,
-      "answers_key": true
+      "answers_key": true,
+      "fixed_position": 1
      },
      {
       "word": "米",
@@ -721,7 +743,8 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 1500,
-      "answers_key": true
+      "answers_key": true,
+      "fixed_position": 1
      },
      {
       "word": "米",

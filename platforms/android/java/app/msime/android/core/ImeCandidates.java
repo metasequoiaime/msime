@@ -183,6 +183,7 @@ final class ImeCandidates {
     Button expandedCandidateButton(JSONObject candidate) {
         JSONObject id = candidate.optJSONObject("id");
         Button button = candidateButton();
+        int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = s.candidatePanelSnapshot == null ? ""
@@ -194,8 +195,7 @@ final class ImeCandidates {
         s.configureCandidateTextLayout(button, labelLines);
         KeyboardTypographyPolicy.setKeyTextSize(button, 17);
         ViewPolicy.setSelected(button, highlighted);
-        // 在线占位行（AI 来源 12 或云来源 15）和候选条一样画淡，免得在完整候选列表里像真候选（#6888）。
-        int source = InputViewValuePolicy.integer(candidate, "source", -1);
+        // AI 占位行画淡，云占位行由 ImeCandidateGrid 直接隐藏，免得内部标记进入手机候选面板（#6888）。
         boolean placeholder = AiPendingCandidatePolicy.isPlaceholder(source)
             || AiPendingCandidatePolicy.isCloudPending(source);
         button.setAlpha(AiPendingCandidatePolicy.alpha(source));

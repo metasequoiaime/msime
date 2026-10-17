@@ -41,6 +41,24 @@ fn warm_empty_hits_save_all_lookup_key_allocations() {
 }
 
 #[test]
+fn warm_nonempty_hits_borrow_cached_rows_without_cloning() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("ni'hao", "甲乙", 100)
+        .insert("ni'hao", "丙丁", 99);
+    let database = PinyinDatabase::open(&fixture.database());
+    let span = ["ni", "hao"].map(str::to_owned);
+    let mut cache = FifoCache::new(2);
+    let expected = cached_lattice_span(&database, &mut cache, &span, 32);
+    assert_eq!(expected.len(), 2);
+
+    ensure_cached_lattice_span(&database, &mut cache, &span, 32);
+    let (length, allocations) = count(|| cached_lattice_span_ref(&cache, &span, 32).unwrap().len());
+    assert_eq!(length, expected.len());
+    assert_eq!(allocations, 0, "非空缓存命中复制了 DictRow 行页");
+}
+
+#[test]
 fn cold_and_warm_queries_keep_rows_and_limits() {
     let fixture = Fixture::new();
     fixture
@@ -187,6 +205,47 @@ fn reads_keep_fifo_age_and_clear_drops_every_entry() {
     cache.clear();
     assert!(!cache.contains(&hao_hash));
     assert!(!cache.contains(&ma_hash));
+}
+
+#[test]
+fn warming_keeps_an_earlier_hit_until_all_current_spans_are_loaded() {
+    let fixture = Fixture::new();
+    let database = PinyinDatabase::open(&fixture.database().with_file_name("absent.db"));
+    let first = ["ni".to_owned()];
+    let syllables = ["ni".to_owned(), "hao".to_owned()];
+    let first_hash = lattice_span_cache_hash(32, &first);
+    let mut cache = FifoCache::new(3);
+    cache.insert(
+        first_hash,
+        CachedLatticeSpan {
+            span_limit: 32,
+            span: "'ni".to_owned(),
+            rows: vec![],
+        },
+    );
+    cache.insert(
+        0x1111,
+        CachedLatticeSpan {
+            span_limit: 32,
+            span: "'old-one".to_owned(),
+            rows: vec![],
+        },
+    );
+    cache.insert(
+        0x2222,
+        CachedLatticeSpan {
+            span_limit: 32,
+            span: "'old-two".to_owned(),
+            rows: vec![],
+        },
+    );
+
+    warm_lattice_span_cache(&database, &mut cache, &syllables, 32, 2);
+
+    assert!(
+        cached_lattice_span_ref(&cache, &first, 32).is_some(),
+        "a hit from this warm batch must not be evicted by later cold spans"
+    );
 }
 
 #[test]
