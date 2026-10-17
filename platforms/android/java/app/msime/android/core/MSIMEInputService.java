@@ -4628,6 +4628,15 @@ public final class MSIMEInputService extends InputMethodService {
             && (!letterCompositionActive() || koreanHanjaListOpen() || tibetanSchemeActive());
     }
 
+    /** 文本编辑面板里的数字快捷键与普通「123」键一致，但总是进入数字层并关闭编辑面板。 */
+    void showNumberKeyboardFromTextEdit() {
+        keyboardLayer = KeyboardLayout.Layer.SYMBOLS;
+        imeTextEditPanel.close();
+        imeLetterRows.rebuildKeyRows();
+        render();
+        imeCalculator.refresh();
+    }
+
     void updateReturnKey() {
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE

@@ -19,6 +19,11 @@ public final class TextEditPanelModelSmoke {
                 grid[row][key.column()] = key.action();
             }
         }
+        for (Key shortcut : TextEditPanelModel.shortcuts()) {
+            check(seen.add(shortcut.action()), "one scrollable shortcut per action: " + shortcut.action());
+            check(!shortcut.label().isEmpty() && !shortcut.description().isEmpty(),
+                "labelled shortcut: " + shortcut.action());
+        }
         check(seen.equals(EnumSet.allOf(Action.class)), "every action has a key");
         for (Action[] row : grid) for (Action cell : row) check(cell != null, "the grid is fully covered");
         check(TextEditPanelModel.key(Action.LEFT).rowSpan() == 3 && TextEditPanelModel.key(Action.RIGHT).rowSpan() == 3,
@@ -63,11 +68,21 @@ public final class TextEditPanelModelSmoke {
         check(TextEditPanelModel.contextMenuAction(Action.LEFT) == 0
             && TextEditPanelModel.contextMenuAction(Action.SELECT) == 0, "other keys are not menu actions");
 
+        check(TextEditPanelModel.shortcuts().size() == 3
+            && TextEditPanelModel.key(Action.NUMBER_PAD).label().equals("数字键盘")
+            && TextEditPanelModel.key(Action.SPACE).label().equals("空格")
+            && TextEditPanelModel.key(Action.RETURN).label().equals("换行"),
+            "scrollable editor shortcuts");
+        check(TextEditPanelModel.keyCode(Action.SPACE) == KeyEvent.KEYCODE_SPACE
+            && TextEditPanelModel.keyCode(Action.RETURN) == KeyEvent.KEYCODE_ENTER
+            && TextEditPanelModel.keyCode(Action.NUMBER_PAD) == KeyEvent.KEYCODE_UNKNOWN,
+            "editor shortcut key codes");
+
         check(TextEditPanelModel.endsSelecting(Action.CUT) && TextEditPanelModel.endsSelecting(Action.PASTE)
             && TextEditPanelModel.endsSelecting(Action.DELETE), "cut, paste and delete end selecting");
         check(!TextEditPanelModel.endsSelecting(Action.COPY) && !TextEditPanelModel.endsSelecting(Action.LEFT)
             && !TextEditPanelModel.endsSelecting(Action.SELECT_ALL), "copy and moves keep selecting");
-        System.out.println("Android text edit panel: 4x4 layout, key events and clipboard actions passed");
+        System.out.println("Android text edit panel: 4x4 layout, scrollable shortcuts, key events and clipboard actions passed");
     }
 
     private static void check(boolean condition, String message) {

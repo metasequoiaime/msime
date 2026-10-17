@@ -4,7 +4,7 @@ import android.view.KeyEvent;
 import java.util.List;
 
 /**
- * 文本编辑面板（#5625，从功能面板「文本编辑」打开）：方向键、选择、全选、复制、剪切、粘贴、跳到文档开头和结尾、删除。按 Gboard 的编辑面板排成 4 × 4：左边三列是方向键（←、→ 各占三行，中间一列 ↑ 选择 ↓）和底下一行的 开头 / 结尾 / 删除，右边一列是 全选 / 复制 / 剪切 / 粘贴。
+ * 文本编辑面板（#5625，从功能面板「文本编辑」打开）：方向键、选择、全选、复制、剪切、粘贴、跳到文档开头和结尾、删除。按 Gboard 的编辑面板排成 4 × 4：左边三列是方向键（←、→ 各占三行，中间一列 ↑ 选择 ↓）和底下一行的 开头 / 结尾 / 删除，右边一列是 全选 / 复制 / 剪切 / 粘贴；右列下方还可滚动到数字键盘、空格和换行快捷键。
  *
  * <p>只描述键、位置和每个键交给编辑器的是什么：方向和开头结尾是按键事件（「选择」开着时带 Shift，延伸选区；开头结尾带 Ctrl，到整篇文档的两端），全选、复制、剪切、粘贴是 InputConnection 的上下文菜单动作，删除是退格键事件（有选区时删选区）。无 Android 依赖（只用按键码和资源 id 常量），由 JVM 回归验证。
  */
@@ -14,7 +14,8 @@ public final class TextEditPanelModel {
 
     /** 键的动作，IME 按它接线。 */
     public enum Action {
-        LEFT, UP, SELECT, DOWN, RIGHT, SELECT_ALL, COPY, CUT, PASTE, DOCUMENT_START, DOCUMENT_END, DELETE
+        LEFT, UP, SELECT, DOWN, RIGHT, SELECT_ALL, COPY, CUT, PASTE, DOCUMENT_START, DOCUMENT_END, DELETE,
+        NUMBER_PAD, SPACE, RETURN
     }
 
     /**
@@ -44,13 +45,22 @@ public final class TextEditPanelModel {
         new Key(Action.DOCUMENT_END, "⇥", "移到结尾", 3, 1, 1, false),
         new Key(Action.DELETE, "⌫", "退格", 3, 2, 1, true));
 
+    private static final List<Key> SHORTCUTS = List.of(
+        new Key(Action.NUMBER_PAD, "数字键盘", "打开数字键盘", 0, 0, 1, false),
+        new Key(Action.SPACE, "空格", "插入空格", 1, 0, 1, false),
+        new Key(Action.RETURN, "换行", "插入换行", 2, 0, 1, false));
+
     private TextEditPanelModel() { }
 
     /** 全部键，按行再按列排。 */
     public static List<Key> keys() { return KEYS; }
 
+    /** 右侧可滚动的快捷键；它们不占左侧的 4 × 4 编辑网格。 */
+    public static List<Key> shortcuts() { return SHORTCUTS; }
+
     public static Key key(Action action) {
         for (Key key : KEYS) if (key.action() == action) return key;
+        for (Key key : SHORTCUTS) if (key.action() == action) return key;
         throw new IllegalArgumentException("Unknown text edit action " + action);
     }
 
@@ -64,6 +74,8 @@ public final class TextEditPanelModel {
             case DOCUMENT_START -> KeyEvent.KEYCODE_MOVE_HOME;
             case DOCUMENT_END -> KeyEvent.KEYCODE_MOVE_END;
             case DELETE -> KeyEvent.KEYCODE_DEL;
+            case SPACE -> KeyEvent.KEYCODE_SPACE;
+            case RETURN -> KeyEvent.KEYCODE_ENTER;
             default -> KeyEvent.KEYCODE_UNKNOWN;
         };
     }

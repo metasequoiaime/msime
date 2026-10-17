@@ -13,6 +13,7 @@ import android.view.View;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import java.util.EnumMap;
 import java.util.Map;
 
@@ -64,9 +65,34 @@ final class ImeTextEditPanel {
         clipboard.addView(key(TextEditPanelModel.Action.COPY), cell(false));
         clipboard.addView(key(TextEditPanelModel.Action.CUT), cell(false));
         clipboard.addView(key(TextEditPanelModel.Action.PASTE), cell(false));
-        panel.addView(clipboard, LayoutPolicy.weightedMatchParentParams(1));
+        for (TextEditPanelModel.Key shortcut : TextEditPanelModel.shortcuts())
+            clipboard.addView(key(shortcut.action()), cell(false));
+        ScrollView scroll = new ScrollView(s);
+        scroll.setContentDescription("文本编辑快捷操作");
+        scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scroll.addView(clipboard, LayoutPolicy.matchParentParams());
+        // 右列保持四行可见，新增的三个快捷键通过上下滑动访问；按键高度跟随当前键盘高度调整。
+        scroll.addOnLayoutChangeListener((view, xLeft, yTop, xRight, yBottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> resizeShortcutRows(clipboard, yBottom - yTop));
+        panel.addView(scroll, LayoutPolicy.weightedMatchParentParams(1));
         ViewPolicy.hide(panel);
         return panel;
+    }
+
+    private void resizeShortcutRows(LinearLayout column, int viewportHeight) {
+        int height = viewportHeight / 4;
+        if (height <= 0) return;
+        for (int index = 0; index < column.getChildCount(); index++) {
+            View child = column.getChildAt(index);
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) child.getLayoutParams();
+            if (params.height == height && params.weight == 0) continue;
+            params.width = LinearLayout.LayoutParams.MATCH_PARENT;
+            params.height = height;
+            params.weight = 0;
+            child.setLayoutParams(params);
+        }
     }
 
     /** 一格的布局参数：`horizontal` 为真时在横排里按宽度均分，否则在竖排里按高度均分，四周留出键距。 */
@@ -195,6 +221,16 @@ final class ImeTextEditPanel {
         s.selectionEcho.invalidate();
         if (action == TextEditPanelModel.Action.SELECT) {
             selecting = !selecting;
+        } else if (action == TextEditPanelModel.Action.NUMBER_PAD) {
+            selecting = false;
+            s.showNumberKeyboardFromTextEdit();
+            return;
+        } else if (action == TextEditPanelModel.Action.SPACE) {
+            InputConnectionGuard.commitText(target, " ", 1);
+            selecting = false;
+        } else if (action == TextEditPanelModel.Action.RETURN) {
+            InputConnectionGuard.commitText(target, "\n", 1);
+            selecting = false;
         } else {
             int menu = TextEditPanelModel.contextMenuAction(action);
             if (menu != 0) {
