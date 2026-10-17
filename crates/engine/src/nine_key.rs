@@ -1607,7 +1607,8 @@ impl NineKeySession {
                 None => groups.push((letters, vec![reading])),
             }
         }
-        let others = self.paths.resource(assets::OTHER_DICTIONARY);
+        let others = (self.expressive.emoji_candidates || self.expressive.kaomoji_candidates)
+            .then(|| self.paths.resource(assets::OTHER_DICTIONARY));
         let mut emoji = Vec::new();
         let mut kaomoji = Vec::new();
         let mut symbols: Vec<SymbolRow> = Vec::new();
@@ -1615,13 +1616,17 @@ impl NineKeySession {
             let accept = |key: &str| splits_into_syllables_at(key, letters);
             // 与 26 键相同，资源打不开或查询失败时只是没有这些行，不报诊断。
             if self.expressive.emoji_candidates {
-                append_unique_rows(&mut emoji, query_emoji_readings(readings, &others, &accept));
+                if let Some(others) = others.as_deref() {
+                    append_unique_rows(&mut emoji, query_emoji_readings(readings, others, &accept));
+                }
             }
             if self.expressive.kaomoji_candidates {
-                append_unique_rows(
-                    &mut kaomoji,
-                    query_kaomoji_readings(readings, &others, &accept),
-                );
+                if let Some(others) = others.as_deref() {
+                    append_unique_rows(
+                        &mut kaomoji,
+                        query_kaomoji_readings(readings, others, &accept),
+                    );
+                }
             }
             if self.expressive.symbol_candidates {
                 for row in query_symbol_readings(readings, &accept) {
@@ -6250,6 +6255,25 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert_ne!(sources(&session)[0], CandidateSource::Emoji, "{listed:?}");
         assert_eq!(listed[2], "大于", "{listed:?}");
         assert!(listed.contains(&">".to_owned()) && listed.contains(&"＞".to_owned()));
+    }
+
+    #[test]
+    fn symbols_only_does_not_allocate_an_unused_other_dictionary_path() {
+        let fixture = fixture_with(SYMBOL_MAIN_FIXTURE);
+        let mut session = open_expressive(&fixture, EnglishInputOptions::default(), SYMBOLS_ONLY);
+        session.digits = "9436438".into();
+        let alternatives = spelling_table().paths("9436438");
+        assert!(!session
+            .expressive_readings(&alternatives, &[], &[])
+            .is_empty());
+        let candidates = session.candidates.clone();
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            session.expressive_candidates(&alternatives, &candidates)
+        });
+        assert!(
+            allocations <= 1150,
+            "symbols-only expressive path allocated an unused resource path: {allocations}"
+        );
     }
 
     #[test]
