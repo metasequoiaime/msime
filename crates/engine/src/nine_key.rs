@@ -300,6 +300,8 @@ pub struct NineKeySession {
     /// 用户用 `'` 切开音节的数字位置，升序，都在已锁定的部分之后。和锁定的拼写不同，切分只定下一个音节在哪里结束，两边数字的各种读法都还保留：`94'26` 可以是 xi'an，也可以是 yi'an，但不会是 xian。
     splits: Vec<usize>,
     spellings: Vec<String>,
+    /// 拼写匹配的排序索引，刷新时复用，避免每次为借用的音节引用重新申请临时向量。
+    spelling_match_indices: Vec<usize>,
     /// `SessionSnapshot::nine_key_reading`，随候选一起重建。
     reading: String,
     candidates: Vec<WordItem>,
@@ -407,6 +409,7 @@ impl NineKeySession {
             locked: Vec::new(),
             splits: Vec::new(),
             spellings: Vec::new(),
+            spelling_match_indices: Vec::new(),
             reading: String::new(),
             candidates: Vec::new(),
             // 两个缓冲一开始就留够容量，按键时轮换着用，不再分配。
@@ -1180,6 +1183,7 @@ impl NineKeySession {
                 splits.first().copied(),
                 prior,
                 &mut self.spellings,
+                &mut self.spelling_match_indices,
             );
             self.spellings.retain(|syllable| starts_right(syllable));
             let mut alternatives = table.split_paths(remaining, splits, prior);
@@ -3008,7 +3012,15 @@ impl SpellingTable {
         prior: &SyllablePrior,
     ) -> Vec<String> {
         let mut spellings = Vec::new();
-        self.spellings_for_into(remaining, locked_length, split, prior, &mut spellings);
+        let mut matches = Vec::new();
+        self.spellings_for_into(
+            remaining,
+            locked_length,
+            split,
+            prior,
+            &mut spellings,
+            &mut matches,
+        );
         spellings
     }
 
@@ -3019,24 +3031,33 @@ impl SpellingTable {
         split: Option<usize>,
         prior: &SyllablePrior,
         destination: &mut Vec<String>,
+        matches: &mut Vec<usize>,
     ) {
         destination.clear();
+        matches.clear();
         if remaining.is_empty() {
             return;
         }
-        let mut matches: Vec<&(String, String)> = self
-            .syllables
-            .iter()
-            .filter(|(_, code)| match split {
-                Some(split) => code.len() <= split && remaining.starts_with(code.as_str()),
-                None => {
-                    locked_length + remaining.len().max(code.len()) <= DIGIT_LIMIT
-                        && (remaining.starts_with(code.as_str()) || code.starts_with(remaining))
-                }
-            })
-            .collect();
+        matches.extend(
+            self.syllables
+                .iter()
+                .enumerate()
+                .filter_map(|(index, (_, code))| {
+                    let matches = match split {
+                        Some(split) => code.len() <= split && remaining.starts_with(code.as_str()),
+                        None => {
+                            locked_length + remaining.len().max(code.len()) <= DIGIT_LIMIT
+                                && (remaining.starts_with(code.as_str())
+                                    || code.starts_with(remaining))
+                        }
+                    };
+                    matches.then_some(index)
+                }),
+        );
         let covered = |code: &str| code.len().min(remaining.len());
-        matches.sort_by(|(a, a_code), (b, b_code)| {
+        matches.sort_by(|&a, &b| {
+            let (a, a_code) = &self.syllables[a];
+            let (b, b_code) = &self.syllables[b];
             covered(b_code)
                 .cmp(&covered(a_code))
                 .then_with(|| {
@@ -3049,7 +3070,7 @@ impl SpellingTable {
                 .then_with(|| prior.syllable_score(b).total_cmp(&prior.syllable_score(a)))
                 .then_with(|| a.cmp(b))
         });
-        destination.extend(matches.into_iter().map(|(text, _)| text.clone()));
+        destination.extend(matches.iter().map(|&index| self.syllables[index].0.clone()));
     }
 
     /// Syllable paths spelling `digits`, built from the end. A piece may end a path early only if it is a complete syllable; each offset keeps the 48 best by fewer syllables, complete last syllable, then lexicographic (NK:122-156). 不带频度，测试用。
@@ -3255,6 +3276,23 @@ mod tests {
 
     fn spelling_table() -> &'static SpellingTable {
         KeyGrid::NineKey.spelling_table()
+    }
+
+    #[test]
+    fn spelling_match_indices_reuse_storage() {
+        let table = spelling_table();
+        let prior = SyllablePrior::default();
+        let mut destination = Vec::with_capacity(128);
+        let mut matches = Vec::new();
+        table.spellings_for_into("64", 0, None, &prior, &mut destination, &mut matches);
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            table.spellings_for_into("64", 0, None, &prior, &mut destination, &mut matches);
+        });
+        assert!(
+            allocations <= destination.len() + 1,
+            "拼写匹配刷新不应重新申请索引工作区：{allocations} 次分配，{} 个读音",
+            destination.len()
+        );
     }
 
     fn fitting_syllables(prefix: &str, digits: &str) -> (usize, usize, bool) {
