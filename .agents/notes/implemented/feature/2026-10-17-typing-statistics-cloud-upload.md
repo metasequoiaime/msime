@@ -18,6 +18,11 @@ Status: implemented
 
 接入范围是三个桌面宿主的 Tauri 设置应用（`apps/desktop/src-tauri/src/platform/desktop/desktop_typing_upload.rs`）。页面通过 `TypingStatisticsClient.cloudUpload` 和 `AccountClient.qqLinks` 两个可选能力判断显示与否，宿主不提供时不显示。
 
+原生宿主经 C ABI 复用同一份 Rust 逻辑，按宿主怎么联网分成两种形状：
+
+- 用 Rust 账号会话的宿主（Windows 原生设置）走 `msime_client_account` 的新操作 `typing_upload_status`、`typing_upload_set`、`typing_upload`、`qq_links`、`qq_link_redeem`、`qq_link_delete`（`crates/host-api/src/account_ops.rs`），语义与 Tauri 命令逐条相同。每次调用都新建统计目录的 store，它自带的操作锁管不到别的调用，所以上传和关闭后的删除改用一把进程级的锁串行化。Windows 原生设置的「打字统计」页和「账号与同步」页各画了开关和卡片，设置窗口打开和进入统计页时各补传一次。
+- 自己发 HTTP 的宿主（Android、iOS、鸿蒙）走 `msime_client_typing_statistics` 的 `upload_status`、`set_upload_enabled`、`upload_request`、`upload_succeeded`：Rust 交回要发的请求（或者不发的原因 `disabled`、`not_due`、`nothing`），宿主带登录令牌发出去，成功后再告诉 Rust 记下时间。为此 `upload_if_due` 拆成 `prepare_upload` 和 `record_upload` 两步，前者不记任何东西，后者只在开关还开着、设备标识没变时记。QQ 绑定在这些宿主上直接调服务端的三个接口，没有要放进 Rust 的状态。
+
 ## Alternatives considered
 
 - **App 出码、在群里发给机器人**：最接近「扫码登录」的习惯，用户也不用在设置里找输入框。问题是群聊公开，码一发出来，别人就能抢先发给机器人，把自己的 QQ 绑到受害者的账号上，读到受害者的打字数据。反过来由机器人出码，看到码的人最多只能把别人的 QQ 绑到自己的账号上，读到的仍是自己的数据。
@@ -29,11 +34,14 @@ Status: implemented
 
 收益：群助手可以读到打开了上传的用户的打字数据，统计页的说明也随开关改写，不再在上传开着时声称「只保存在本机」。
 
-代价：这是一条新的、带账号令牌的上传路径，PRIVACY.md 已经加了「打字统计上传」一节。上传只在设置应用打开时发生，长期不开设置应用的用户，群助手看到的数据会停在最后一次上传。Windows 原生 WinUI 设置、Android、iOS/macOS 原生和鸿蒙都还没有这个开关和绑定卡片；这些宿主的用户只能在 Tauri 设置应用里操作，或者暂时用不了。统计模型的分层见 [打字统计契约](../../implemented/architecture/2026-10-15-typing-statistics-model.md)，这里只在模型上加了 `cloudUpload` 这个可选能力。
+代价：这是一条新的、带账号令牌的上传路径，PRIVACY.md 已经加了「打字统计上传」一节。上传只在设置应用打开时发生，长期不开设置应用的用户，群助手看到的数据会停在最后一次上传。Windows 原生设置已经接上；Android、iOS/macOS 原生和鸿蒙的 C ABI 已经有了，但界面和发送还没接，这些宿主的用户暂时用不了。两步形状把串行化交给了宿主：`upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 要放在同一个串行队列里，否则关闭时的删除可能先于还在路上的上传到达服务端，`record_upload` 只能保证本地状态不被写回。统计模型的分层见 [打字统计契约](../../implemented/architecture/2026-10-15-typing-statistics-model.md)，这里只在模型上加了 `cloudUpload` 这个可选能力。
 
 ## Verification
 
 - `cargo test -p msime-client-services`：覆盖构建（7 天上限、60 天窗口、键名过滤和 32 个上限、24 桶校验）、状态（默认关闭、节流、发送失败不记时间、发送中被关掉不写回、坏文件读成关闭）、绑定码和编号的形状、列表解析，以及两个错误码的映射。
 - `cargo clippy -p msime-desktop --all-targets -D warnings`：在 macOS 上跑，用空的资源目录占位，构建脚本只检查这些目录存在。
 - vitest 覆盖开关的打开、关闭、删除失败和未登录时禁用，覆盖说明文字随开关改写，也覆盖绑定卡片的空格处理、绑定与解绑和错误文案。
+- `cargo test -p msime-client-services typing_statistics::upload`：两步上传只为准备时的设备记时间，准备本身不记，关闭后不写回。
+- `cargo test -p msime-host-api`：`account_ops` 的打开即上传、十分钟节流、`force`、关闭先本地后删除且删除失败仍关闭、未登录时不退回匿名账号、请求不合法时不联网，QQ 绑定的列表、绑定码清洗、服务端错误码透传；`msime_client_typing_statistics` 的 `upload_request` 各种跳过原因和 `upload_succeeded` 只认同一设备。
+- Windows 原生设置的两个模型头（`AccountPageModel.h`、`TypingStatisticsModel.h`）的单测在 macOS 上用 clang 编译跑过；`main.cpp` 没有在本机编译，靠 PR 的 Windows CI。
 - 没有在真实账号上连通线上服务端验证。
