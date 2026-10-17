@@ -735,6 +735,19 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         check(calls.get() == 0, "unbounded expiry does not use token or refresh");
     }
 
+    private static void malformedQqLinksAreRejected() throws Exception {
+        CloudApi cloud = new CloudApi((method, path, headers, body) ->
+            new CloudApi.Exchange(200, "application/json", null, new byte[] {'{', '}'}),
+            ignored -> ACCESS, ignored -> "");
+        boolean rejected = false;
+        try {
+            new TypingUploadApi(cloud).links();
+        } catch (CloudApi.Failure failure) {
+            rejected = failure.status == 200 && "invalid_response".equals(failure.code);
+        }
+        check(rejected, "malformed QQ link list must not be treated as empty");
+    }
+
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         start();
@@ -788,6 +801,8 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
             candidateTranslationKeepsResponseBound();
             unauthorizedRefreshClearsSession();
             unboundedPersistedExpiryIsRejected();
+            stage = "malformed QQ links";
+            malformedQqLinksAreRejected();
             result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: account refresh, login lineage, chat stream, community and translation\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
