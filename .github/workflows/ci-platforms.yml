@@ -62,9 +62,9 @@ jobs:
           android=false; linux=false; harmonyos=false; windows=false; web=false
           while IFS= read -r path; do
             [[ -z "$path" ]] && continue
-            # 共享设置界面的测试只看界面代码和它的依赖清单，不看 Rust 和平台目录。
+            # 共享设置界面的测试只看界面代码和它的依赖清单，不看 Tauri 原生宿主、Rust 和平台目录。
             case "$path" in
-              packages/*|apps/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.nvmrc|.github/workflows/ci-platforms.yml)
+              packages/ui/*|apps/desktop/src/*|apps/desktop/tests/*|apps/desktop/index.html|apps/desktop/package.json|apps/desktop/tsconfig.json|apps/desktop/vite.config.ts|apps/desktop/app-icon.svg|apps/harmony/src/*|apps/harmony/index.html|apps/harmony/package.json|apps/harmony/tsconfig.json|apps/harmony/vite.config.ts|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.nvmrc|.github/workflows/ci-platforms.yml)
                 ui=true ;;
             esac
             # 脚本插件合集：插件本身、它们引用的 SDK 与模板、运行它们的沙箱和 msime-pack、几个脚本，以及插件包逐字节复制的 Unicode 许可证和常用字集生成器读的 Unihan 锁。plugins/ 和 docs/ 不在下面任何一条里，没有这一条时只改插件的 PR 什么都不跑；那两个 resources/ 文件在下面只触发 web 或什么都不触发，改了它们包就过期了。
