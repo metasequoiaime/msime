@@ -1274,6 +1274,23 @@ export {
 } from "./settings/settings-textarea-field";
 export { SettingsInputField, type SettingsInputFieldProps } from "./settings/settings-input-field";
 export {
+  aiCredentialEditorModel,
+  type AiCredentialEditorModel,
+  type AiCredentialEditorModelOptions,
+  type AiCredentialSaveInput,
+} from "./settings/ai-credential-model";
+export type {
+  AiCredentialPreferences,
+  AiCredentialTestPreferences,
+} from "./settings/ai-credential-preferences";
+export { aiCredentialSaveConfig } from "./settings/ai-credential-save-config";
+export {
+  aiProviderCredentialTestConfig,
+  aiServiceCredentialTestConfig,
+  aiCredentialTestDisabled,
+  aiServiceCredentialTestDisabled,
+} from "./settings/ai-credential-test-config";
+export {
   AiCredentialSection,
   type AiCredentialSectionProps,
   type AiCredentialStored,

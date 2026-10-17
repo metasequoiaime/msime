@@ -3,26 +3,21 @@ import { CredentialActions } from "./credential-actions";
 import { SecretSettingField } from "./secret-setting-field";
 import { SettingsManagerBlock } from "./settings-manager-block";
 
-export interface AiCredentialStored {
-  endpoint: string;
-  model: string;
-}
+import {
+  aiCredentialEditorModel,
+  type AiCredentialEditorModelOptions,
+} from "./ai-credential-model";
 
-export interface AiCredentialSectionProps {
-  endpoint: string;
-  model: string;
-  origin: string | null;
-  token: string;
-  stored?: AiCredentialStored;
-  invalid: boolean;
-  busy: boolean;
+export type { AiCredentialStored } from "./ai-credential-model";
+
+export interface AiCredentialSectionProps extends AiCredentialEditorModelOptions {
   message?: CredentialStatusMessageValue;
   onTokenChange: (token: string) => void;
   onSave: () => void;
   onClear: () => void;
 }
 
-/** Linux provider credentials for the shared AI assistant settings. */
+/** Linux AI 辅助服务的用户凭据编辑界面。 */
 export function AiCredentialSection({
   endpoint,
   model,
@@ -36,29 +31,22 @@ export function AiCredentialSection({
   onSave,
   onClear,
 }: AiCredentialSectionProps) {
-  const matchesStored = stored?.endpoint === endpoint && stored.model === model;
+  const { description, tokenDisabled, saveDisabled, clearDisabled, hasStoredCredential } =
+    aiCredentialEditorModel({ endpoint, model, origin, token, stored, invalid, busy });
   return (
     <SettingsManagerBlock role="group" aria-label="AI 凭据">
       <SecretSettingField
         label="API Token"
         inputLabel="AI API Token"
         value={token}
-        description={
-          invalid
-            ? "现有 ai-provider.json 无效，provider 服务不会发出任何 AI 请求；请修复或删除该文件"
-            : !stored
-              ? "尚未保存；保存后只写入用户配置目录的 ai-provider.json，由 provider 服务读取"
-              : matchesStored
-                ? "已保存，留空则保留原凭据"
-                : `已保存的凭据绑定 ${stored.endpoint}（${stored.model}），与上方设置不一致；保存后改为绑定当前接口和模型`
-        }
-        disabled={!origin}
+        description={description}
+        disabled={tokenDisabled}
         onChange={onTokenChange}
       />
       <CredentialActions
-        saveDisabled={busy || !origin || !model.trim() || (!token.trim() && !stored)}
-        clearDisabled={busy}
-        hasStoredCredential={Boolean(stored)}
+        saveDisabled={saveDisabled}
+        clearDisabled={clearDisabled}
+        hasStoredCredential={hasStoredCredential}
         message={message}
         onSave={onSave}
         onClear={onClear}

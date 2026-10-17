@@ -52,3 +52,32 @@ test("disables token input without a valid origin and exposes clear", () => {
   fireEvent.click(screen.getByRole("button", { name: "清除凭据" }));
   expect(onClear).toHaveBeenCalledOnce();
 });
+
+test("已有凭据留空可保存，忙碌时仍可输入但不能保存或清除", () => {
+  const onTokenChange = vi.fn();
+  const onSave = vi.fn();
+  const onClear = vi.fn();
+  const props = {
+    endpoint: "https://ai.example.test/v1",
+    model: "synthetic-model",
+    origin: "https://ai.example.test:443",
+    token: " ",
+    stored: { endpoint: "https://ai.example.test/v1", model: "synthetic-model" },
+    invalid: false,
+    onTokenChange,
+    onSave,
+    onClear,
+  };
+  const view = render(<AiCredentialSection {...props} busy={false} />);
+  expect(screen.getByText("已保存，留空则保留原凭据")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "保存凭据" }));
+  expect(onSave).toHaveBeenCalledOnce();
+  view.rerender(<AiCredentialSection {...props} busy />);
+  fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "synthetic-token" } });
+  expect(onTokenChange).toHaveBeenCalledExactlyOnceWith("synthetic-token");
+  expect((screen.getByLabelText("AI API Token") as HTMLInputElement).disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "保存凭据" }));
+  fireEvent.click(screen.getByRole("button", { name: "清除凭据" }));
+  expect(onSave).toHaveBeenCalledOnce();
+  expect(onClear).not.toHaveBeenCalled();
+});

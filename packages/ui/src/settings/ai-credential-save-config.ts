@@ -1,10 +1,11 @@
 import type { AiCredentialPreferences } from "./ai-credential-preferences";
+import type { AiCredentialSaveInput } from "./ai-credential-model";
 
-/** Builds the Linux provider credential payload while preserving stored tokens on blank input. */
+/** 构造 Linux provider 凭据保存内容；空白密钥省略，非空值保持原文。 */
 export function aiCredentialSaveConfig(
   ai: AiCredentialPreferences,
   token: string,
-): AiCredentialPreferences & { token?: string } {
+): AiCredentialSaveInput {
   const { provider, endpoint, model } = ai;
   return {
     provider,

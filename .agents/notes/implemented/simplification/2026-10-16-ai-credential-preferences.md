@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-在无 React 依赖的 `ai-credential-preferences.ts` 定义并导出 `AiCredentialPreferences`，两个配置构造模块直接引用它。保留构造结果与请求字段不变，并用类型测试验证投影与原偏好字段一致。
+在无 React 依赖的 `ai-credential-preferences.ts` 定义并导出 `AiCredentialPreferences`，两个配置构造模块直接引用它，投影直接依赖独立的 `ai-assistant-preferences.ts`。保留构造结果与请求字段不变，并用类型测试验证投影与原偏好字段一致。
 
 ## Existing notes audit
 
@@ -22,5 +22,5 @@ Status: implemented
 ## Consequences
 
 - 两个 AI 凭据配置模块共用无 React 的 `AiCredentialPreferences`，保存和测试函数的输出字段与运行逻辑不变；测试禁用条件另共用 `AiCredentialTestPreferences` 的最小投影。
-- 原函数路径和调用方式保持；类型测试覆盖两个投影与 `AiAssistantPreferences` 的结构一致。
+- 原函数路径和调用方式保持，偏好投影与配置函数也从包入口公开；展示模型和宿主保存参数的归属见[AI 凭据编辑公共模型](2026-10-17-ai-credential-editor.md)。类型测试覆盖两个投影与 `AiAssistantPreferences` 的结构一致。
 - 配置测试、类型检查、构建、lint、笔记检查和 quick 门禁验证迁移。
