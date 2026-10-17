@@ -138,6 +138,14 @@ const MAX_COMMUNITY_SEARCH = 128;
 
 // 应用内反馈（`POST /v1/feedback`），长度上限和字段名沿用 Android 的 `FeedbackApi`，服务端与之共用。
 const FEEDBACK_PATH = "/v1/feedback";
+/** 打字统计「上传到云端」：请求体由本机统计存储（Rust 的 `upload_request`）生成，这里只限大小，服务端另有每份 64 KiB 的上限。 */
+const TYPING_STATISTICS_PATH = "/v1/users/me/typing-statistics";
+const MAX_TYPING_UPLOAD_BYTES = 64 * 1024;
+/** 「绑定 QQ 群助手」：服务端的绑定编号是 1–19 位数字，一个账号最多 10 条，绑定码是 8 位数字。 */
+const QQ_LINKS_PATH = "/v1/users/me/qq-links";
+const QQ_LINK_ID = /^[1-9][0-9]{0,18}$/;
+const QQ_LINK_CODE = /^[0-9]{8}$/;
+const MAX_QQ_LINKS = 10;
 /** Google 回跳地址的形状：只在 127.0.0.1 的非特权端口上，路径固定（client-services `google_loopback_target`）。端口范围的细节由后端和 `msime_client_google_loopback` 再查一次。 */
 const GOOGLE_LOOPBACK_TARGET = /^http:\/\/127\.0\.0\.1:[1-9]\d{3,4}\/callback$/;
 const FEEDBACK_TYPES: readonly string[] = ["bug", "suggestion", "dictionary"];
@@ -244,6 +252,23 @@ function detailId(path: string, prefix: string): string {
 }
 
 /** The service's error code, from `{"error":{"code":...}}`. */
+type QqLink = { id: string; created_at: string };
+
+/** 服务端回的一条 QQ 绑定：只取编号和绑定时间，其他字段不往页面传。 */
+function qqLink(value: unknown): QqLink | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const link = value as Action;
+  if (typeof link.id !== "string" || !QQ_LINK_ID.test(link.id)) return null;
+  if (
+    typeof link.created_at !== "string" ||
+    link.created_at.length > 64 ||
+    Number.isNaN(Date.parse(link.created_at))
+  ) {
+    return null;
+  }
+  return { id: link.id, created_at: link.created_at };
+}
+
 function errorCode(body: string): string | undefined {
   const parsed = parseJson(body);
   const value = parsed === null ? undefined : parsed.error;
@@ -1104,6 +1129,12 @@ export class AccountCloudBridge {
           return await this.communityResource(action);
         case "feedback":
           return await this.feedback(action);
+        case "qq_links":
+          return await this.qqLinks();
+        case "qq_link_redeem":
+          return await this.qqLinkRedeem(action);
+        case "qq_link_delete":
+          return await this.qqLinkDelete(action);
         default:
           return error("account_invalid");
       }
@@ -1584,6 +1615,87 @@ export class AccountCloudBridge {
     if (result.response === undefined) return error(result.error ?? "account_unavailable");
     const status: number = result.response.status;
     return status >= 200 && status < 300 ? success({}) : error(mapStatus(status));
+  }
+
+  /**
+   * 「绑定 QQ 群助手」：列出本人的绑定，新的在前。回答只有编号和绑定时间，与桌面 `account_qq_links` 的形状相同。
+   */
+  private async qqLinks(): Promise<string> {
+    const result = await this.authenticatedJson("GET", QQ_LINKS_PATH);
+    if (result.value === undefined) return error(result.error ?? "account_unavailable");
+    const links: unknown = result.value.links;
+    if (!Array.isArray(links) || links.length > MAX_QQ_LINKS) return error("account_unavailable");
+    const parsed: QqLink[] = [];
+    for (const item of links) {
+      const link = qqLink(item);
+      if (link === null) return error("account_unavailable");
+      parsed.push(link);
+    }
+    return success({ links: parsed });
+  }
+
+  /**
+   * 用群友在 QQ 群里 @机器人 发 /bind 拿到的 8 位绑定码绑定。前后的空白和中间的空格、连字符先去掉，不是 8 位数字时不联网。码不存在、过期或用过是 `account_qq_link_code_not_found`，账号已经绑了 10 个群友是 `account_qq_link_limit`，与桌面的错误码相同，页面据此写说法。
+   */
+  private async qqLinkRedeem(action: Action): Promise<string> {
+    const code = typeof action.code === "string" ? action.code.replace(/[\s-]/g, "") : "";
+    if (!QQ_LINK_CODE.test(code)) return error("account_invalid");
+    const result = await this.authorizedResponse("POST", QQ_LINKS_PATH, { code });
+    if (result.response === undefined) return error(result.error ?? "account_unavailable");
+    const response: AccountTransportResponse = result.response;
+    const refusal = errorCode(response.body);
+    if (response.status === 404 && refusal === "qq_link_code_not_found") {
+      return error("account_qq_link_code_not_found");
+    }
+    if (response.status === 409 && refusal === "qq_link_limit") return error("account_qq_link_limit");
+    if (response.status < 200 || response.status >= 300) return error(mapStatus(response.status));
+    const link = qqLink(parseJson(response.body));
+    return link === null ? error("account_unavailable") : success(link);
+  }
+
+  /** 解除本人的一条绑定；别人的或不存在的是 `account_not_found`，与桌面相同。 */
+  private async qqLinkDelete(action: Action): Promise<string> {
+    if (typeof action.id !== "string" || !QQ_LINK_ID.test(action.id)) return error("account_invalid");
+    const result = await this.authorizedResponse("DELETE", `${QQ_LINKS_PATH}/${action.id}`);
+    if (result.response === undefined) return error(result.error ?? "account_unavailable");
+    const status: number = result.response.status;
+    if (status === 404) return error("account_not_found");
+    return status >= 200 && status < 300 ? success(null) : error(mapStatus(status));
+  }
+
+  /**
+   * 打字统计「上传到云端」：把本机统计存储交回的请求体发出去，服务端回 204 时成功。只用登录账号，不退回匿名账号：没登录时是 `account_unauthorized`。调用方（设置页的串行队列）在成功后告诉存储记下上传时间。
+   */
+  async typingStatisticsUpload(body: unknown): Promise<string> {
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      utf8Length(JSON.stringify(body)) > MAX_TYPING_UPLOAD_BYTES
+    ) {
+      return error("account_invalid");
+    }
+    return await this.typingStatisticsRequest("PUT", body as Record<string, unknown>);
+  }
+
+  /** 关掉上传后删除云端的打字统计；没有数据时服务端也回 204。 */
+  async typingStatisticsDelete(): Promise<string> {
+    return await this.typingStatisticsRequest("DELETE");
+  }
+
+  private async typingStatisticsRequest(
+    method: string,
+    body?: Record<string, unknown>,
+  ): Promise<string> {
+    try {
+      const result = await this.authorizedResponse(method, TYPING_STATISTICS_PATH, body);
+      if (result.response === undefined) return error(result.error ?? "account_unavailable");
+      const status: number = result.response.status;
+      return status >= 200 && status < 300 ? success({}) : error(mapStatus(status));
+    } catch (cause) {
+      // 与 handle 相同：传输层抛出的不是 Error 时是断网一类的失败。
+      return error(cause instanceof Error ? cause.message : "account_network");
+    }
   }
 
   /**

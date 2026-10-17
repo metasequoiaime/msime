@@ -1546,6 +1546,12 @@ export function TypingStatisticsPage({
         ) : (
           <StatusMessage role="status">正在读取打字统计…</StatusMessage>
         )}
+        {/* 鸿蒙外观的图表下面没有设置区，「上传到云端」单独占一张卡片，排在最后。 */}
+        {client.cloudUpload && (
+          <section className={`${card} px-4 pt-4`} aria-label="上传到云端">
+            <TypingStatisticsUpload client={client.cloudUpload} onEnabledChange={setUploadEnabled} />
+          </section>
+        )}
       </div>
     );
   }
@@ -1768,8 +1774,15 @@ export function TypingStatisticsPage({
       {contentTab === "ranks" && <CandidateRanks selections={statistics.selections} />}
       {mobile ? (
         <section className="section m-0 pt-0.5">
+          {client.cloudUpload && (
+            <TypingStatisticsUpload client={client.cloudUpload} onEnabledChange={setUploadEnabled} />
+          )}
           <p className={`${privacy} mt-0`}>
-            字数仅统计水杉键盘成功提交的字符，含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留。
+            字数仅统计水杉键盘成功提交的字符，含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。
+            {uploadEnabled
+              ? "日期、分类和数量保存在本机，不保存输入内容；已打开「上传到云端」，最近 7 天的每日计数和候选位次会上传到你的水杉账号，按键热力图不上传。"
+              : "仅在本机保存日期、分类和数量，不保存输入内容。"}
+            每日明细默认永久保留。
           </p>
         </section>
       ) : (

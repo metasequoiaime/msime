@@ -522,6 +522,21 @@ export class HarmonyAccountCloudBridge {
     return new HarmonyAiSkins(this.bridge);
   }
 
+  /** 本机是否登录了水杉账号：没登录时「上传到云端」打不开，自动上传什么也不发。 */
+  signedIn(): boolean {
+    return this.bridge.currentUserId() !== null;
+  }
+
+  /** 打字统计「上传到云端」：发出本机统计存储交回的请求体，回答是账号桥接的 `{ok}` 信封。 */
+  typingStatisticsUpload(body: Object): Promise<string> {
+    return this.bridge.typingStatisticsUpload(body);
+  }
+
+  /** 关掉上传后删除云端的打字统计。 */
+  typingStatisticsDelete(): Promise<string> {
+    return this.bridge.typingStatisticsDelete();
+  }
+
   /**
    * The settings sync, which is the only account surface that writes to the device.
    *

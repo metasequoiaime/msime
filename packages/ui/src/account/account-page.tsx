@@ -1703,6 +1703,8 @@ function AccountDetailsPage({
           {user && client.settingsSync && (
             <SettingsSyncCard client={client.settingsSync} userId={user.id} />
           )}
+          {/* 「绑定 QQ 群助手」在手机上同样要有：/bind 拿到的码可能就在手机的 QQ 里。 */}
+          {user && client.qqLinks && <QqLinkCard client={client.qqLinks} userId={user.id} />}
           {(onOpenLocalDesigns || (user && (openPublishedSkins || onOpenCommunity))) && (
             <GroupList title="我的内容">
               {onOpenLocalDesigns && (

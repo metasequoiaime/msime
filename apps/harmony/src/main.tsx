@@ -31,6 +31,8 @@ import {
   settingsThemePreferences,
   useSettingsTheme,
   type AccountClient,
+  type AccountQqLink,
+  type QqLinksClient,
   type AccountPreferences,
   type AiSkinClient,
   type AiSkinProposal,
@@ -54,6 +56,7 @@ import {
   type UpdateCheckResult,
   type StatisticsRetention,
   type TypingStatisticsClient,
+  type TypingStatisticsUploadClient,
   type VocabularyReviewClient,
   type VocabularyReviewStatus,
   type TypingStatisticsStatus,
@@ -699,6 +702,39 @@ function accountClient(native: NativeBridge): AccountClient {
       await request({ operation: "clear_expired" });
     },
     settingsSync: settingsSyncClient(native),
+    qqLinks: qqLinksClient(native),
+  };
+}
+
+/**
+ * 「绑定 QQ 群助手」：群友在 QQ 群里 @机器人 发 /bind 拿到 8 位绑定码，在账号页输入。请求由宿主的账号桥接带登录账号发出，回答是服务端的 snake_case，这里换成页面的写法，与桌面的 `qqLinks` 相同。
+ */
+function qqLinksClient(native: NativeBridge): QqLinksClient {
+  type QqLinkDto = { id: string; created_at: string };
+  const qqLink = (link: QqLinkDto): AccountQqLink => ({ id: link.id, createdAt: link.created_at });
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    bridgeRequest(native, "account", JSON.stringify(action)).then(unwrap<T>);
+  return {
+    list: async () =>
+      (await request<{ links: QqLinkDto[] }>({ operation: "qq_links" })).links.map(qqLink),
+    redeem: async (code) => qqLink(await request<QqLinkDto>({ operation: "qq_link_redeem", code })),
+    remove: async (id) => {
+      await request({ operation: "qq_link_delete", id });
+    },
+  };
+}
+
+/**
+ * 打字统计「上传到云端」。构建请求、十分钟的节流和状态文件都在宿主的 Rust 统计存储里，宿主还负责带登录账号发出请求；页面只开关和触发，与桌面的 `typingStatisticsUpload` 相同。
+ */
+function typingStatisticsUploadClient(native: NativeBridge): TypingStatisticsUploadClient {
+  type UploadStatus = Awaited<ReturnType<TypingStatisticsUploadClient["status"]>>;
+  const request = async (action: Record<string, unknown>): Promise<UploadStatus> =>
+    unwrap<UploadStatus>(await bridgeRequest(native, "typing_upload", JSON.stringify(action)));
+  return {
+    status: () => request({ operation: "status" }),
+    setEnabled: (enabled) => request({ operation: "set_enabled", enabled }),
+    sync: () => request({ operation: "sync" }),
   };
 }
 
@@ -1172,6 +1208,7 @@ function makeClient(
     }
   };
   const typingStatistics: TypingStatisticsClient = {
+    cloudUpload: typingStatisticsUploadClient(native),
     load: async () =>
       unwrap<TypingStatisticsStatus>(
         native.typingStatistics(JSON.stringify({ operation: "load" })),
@@ -1618,6 +1655,18 @@ function HarmonySettings({
       ),
     [native],
   );
+  // 设置应用打开和回到前台时各补传一次打字统计；没打开上传、没登录或十分钟内传过时宿主什么也不发，失败也不打扰用户。
+  useEffect(() => {
+    const upload = client.typingStatistics?.cloudUpload;
+    if (!upload) return;
+    const sync = () => void upload.sync().catch(() => undefined);
+    sync();
+    const visible = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+    document.addEventListener("visibilitychange", visible);
+    return () => document.removeEventListener("visibilitychange", visible);
+  }, [client]);
   const cloudClipboard = useMemo(
     () => cloudClipboardClient(native, () => setCloudClipboardOpen(false)),
     [native],

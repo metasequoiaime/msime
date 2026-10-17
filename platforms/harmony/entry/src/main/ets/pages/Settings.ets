@@ -212,6 +212,70 @@ interface TypingStatisticsSkinRequest {
   action: TypingStatisticsSkinAction;
 }
 
+/** 「上传到云端」页面发来的请求：`status`、`set_enabled` 或 `sync`。 */
+interface TypingUploadAction {
+  operation: string;
+  enabled?: boolean;
+}
+
+/** `msime_client_typing_statistics` 的上传动作：`upload_status`、`set_upload_enabled`、`upload_request`、`upload_succeeded`。 */
+interface TypingUploadNativeAction {
+  operation: string;
+  enabled?: boolean;
+  day?: string;
+  platform?: string;
+  force?: boolean;
+  device?: string;
+}
+
+interface TypingUploadNativeRequest {
+  directory: string;
+  action: TypingUploadNativeAction;
+}
+
+interface TypingUploadState {
+  enabled: boolean;
+  lastUploadMs: number | null;
+}
+
+interface TypingUploadStateReply {
+  ok: boolean;
+  value?: TypingUploadState;
+  error?: string;
+}
+
+/** `upload_request` 的回答：要发时有 `device` 和 `body`，不发时只有 `skip`。 */
+interface TypingUploadPrepared {
+  skip?: string;
+  device?: string;
+  body?: Object;
+}
+
+interface TypingUploadPreparedReply {
+  ok: boolean;
+  value?: TypingUploadPrepared;
+  error?: string;
+}
+
+/** 账号桥接的信封，这里只读成败和错误码。 */
+interface AccountEnvelope {
+  ok: boolean;
+  error?: string;
+}
+
+/** 回给页面的状态，与桌面 `typing_statistics_upload_status` 的形状相同。 */
+interface TypingUploadPageStatus {
+  enabled: boolean;
+  lastUploadMs: number | null;
+  signedIn: boolean;
+}
+
+interface TypingUploadPageReply {
+  ok: boolean;
+  value?: TypingUploadPageStatus;
+  error?: string;
+}
+
 /** The installed family names, or a refusal the page can report rather than an empty list. */
 interface FontFamilyReply {
   ok: boolean;
@@ -904,6 +968,8 @@ class SettingsBridge {
   private webview: web_webview.WebviewController | undefined = undefined;
   private context: common.UIAbilityContext | undefined = undefined;
   private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
+  /** 「上传到云端」的串行队列，见 `typingUpload`。 */
+  private typingUploadQueue: Promise<string> = Promise.resolve('');
   private aiSkins: HarmonyAiSkins | undefined = undefined;
   private cloudDownloadRequest: number = 0;
   // 「从文件导入」从打开选择器到安装结束的模型 id。复制进缓存的那段时间原生安装还没登记，原生取消找不到它，所以取消先记在 voiceImportsCancelled 里，由导入流程在复制每个文件前和开始安装前检查。
@@ -1178,6 +1244,8 @@ class SettingsBridge {
       });
     } else if (kind === 'typing_statistics') {
       this.typingStatisticsOnWorker(payload).then(deliver).catch(failed);
+    } else if (kind === 'typing_upload') {
+      this.typingUpload(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {
       this.cloudDictionarySnapshot(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_models') {
@@ -2261,6 +2329,102 @@ class SettingsBridge {
     }
     const request: TypingStatisticsSummaryRequest = { directory: this.stateDirectory, action: summary };
     return await client.typingStatisticsAsync(JSON.stringify(request));
+  }
+
+  /**
+   * 打字统计「上传到云端」。构建请求、十分钟的节流、设备标识和上次上传的时间都在 Rust 的统计存储里（`msime_client_typing_statistics` 的 `upload_*` 动作），这里只负责带登录账号把请求发出去。取请求、发送、记成功和关掉后的删除排在同一个串行队列里，免得关掉上传后的删除和还在路上的上传交错。
+   */
+  private typingUpload(document: string): Promise<string> {
+    const run: () => Promise<string> = (): Promise<string> => this.typingUploadNow(document);
+    const next: Promise<string> = this.typingUploadQueue.then(run, run);
+    this.typingUploadQueue = next;
+    return next;
+  }
+
+  private async typingUploadNow(document: string): Promise<string> {
+    const bridge: HarmonyAccountCloudBridge | undefined = this.accountBridge;
+    if (bridge === undefined) return JSON.stringify({ ok: false, error: 'account_unavailable' } as AccountEnvelope);
+    let action: TypingUploadAction;
+    try {
+      action = JSON.parse(document) as TypingUploadAction;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'account_invalid' } as AccountEnvelope);
+    }
+    if (action.operation === 'set_enabled') {
+      if (typeof action.enabled !== 'boolean') {
+        return JSON.stringify({ ok: false, error: 'account_invalid' } as AccountEnvelope);
+      }
+      return action.enabled ? await this.enableTypingUpload(bridge) : await this.disableTypingUpload(bridge);
+    }
+    if (action.operation === 'sync') {
+      // 没登录时不发也不报错，开关保持原样，登录后下一次照常上传。
+      if (bridge.signedIn()) {
+        const failure: string | null = await this.sendTypingUpload(bridge, false);
+        if (failure !== null) return JSON.stringify({ ok: false, error: failure } as AccountEnvelope);
+      }
+      return await this.typingUploadStatus(bridge);
+    }
+    if (action.operation === 'status') return await this.typingUploadStatus(bridge);
+    return JSON.stringify({ ok: false, error: 'account_invalid' } as AccountEnvelope);
+  }
+
+  /** 打开上传：要求已登录；在本地打开后立刻上传一次。上传失败时开关保持打开、回那次上传的错误码，下一次自动上传再试。 */
+  private async enableTypingUpload(bridge: HarmonyAccountCloudBridge): Promise<string> {
+    if (!bridge.signedIn()) return JSON.stringify({ ok: false, error: 'account_unauthorized' } as AccountEnvelope);
+    const state: TypingUploadStateReply = await this.typingUploadNative({ operation: 'set_upload_enabled', enabled: true });
+    if (state.ok !== true) return JSON.stringify({ ok: false, error: 'storage' } as AccountEnvelope);
+    const failure: string | null = await this.sendTypingUpload(bridge, true);
+    if (failure !== null) return JSON.stringify({ ok: false, error: failure } as AccountEnvelope);
+    return await this.typingUploadStatus(bridge);
+  }
+
+  /** 关闭上传：先在本地关掉，再删除云端副本。删除失败时开关仍是关的，回删除的错误码，页面据此提示云端副本没删掉。 */
+  private async disableTypingUpload(bridge: HarmonyAccountCloudBridge): Promise<string> {
+    const state: TypingUploadStateReply = await this.typingUploadNative({ operation: 'set_upload_enabled', enabled: false });
+    if (state.ok !== true) return JSON.stringify({ ok: false, error: 'storage' } as AccountEnvelope);
+    const reply: AccountEnvelope = JSON.parse(await bridge.typingStatisticsDelete()) as AccountEnvelope;
+    if (reply.ok !== true) {
+      return JSON.stringify({ ok: false, error: reply.error ?? 'account_unavailable' } as AccountEnvelope);
+    }
+    return await this.typingUploadStatus(bridge);
+  }
+
+  /** 发一次上传：存储说不用发（没打开、不到十分钟、没有字数）时什么也不做。成功返回 null，失败返回错误码；发送失败不用告诉存储，下一次照样交回请求。 */
+  private async sendTypingUpload(bridge: HarmonyAccountCloudBridge, force: boolean): Promise<string | null> {
+    const prepared: TypingUploadPreparedReply = JSON.parse(await client.typingStatisticsAsync(JSON.stringify({
+      directory: this.stateDirectory,
+      action: { operation: 'upload_request', day: TypingStatisticsPolicy.day(new Date()), platform: 'harmony', force: force }
+    } as TypingUploadNativeRequest))) as TypingUploadPreparedReply;
+    if (prepared.ok !== true || prepared.value === undefined) return 'storage';
+    const value: TypingUploadPrepared = prepared.value;
+    if (typeof value.skip === 'string') return null;
+    if (typeof value.device !== 'string' || value.body === undefined) return 'storage';
+    const sent: AccountEnvelope = JSON.parse(await bridge.typingStatisticsUpload(value.body)) as AccountEnvelope;
+    if (sent.ok !== true) return sent.error ?? 'account_unavailable';
+    const recorded: TypingUploadStateReply = await this.typingUploadNative({ operation: 'upload_succeeded', device: value.device });
+    return recorded.ok === true ? null : 'storage';
+  }
+
+  private async typingUploadStatus(bridge: HarmonyAccountCloudBridge): Promise<string> {
+    const state: TypingUploadStateReply = await this.typingUploadNative({ operation: 'upload_status' });
+    if (state.ok !== true || state.value === undefined) {
+      return JSON.stringify({ ok: false, error: 'storage' } as AccountEnvelope);
+    }
+    const status: TypingUploadPageStatus = {
+      enabled: state.value.enabled === true,
+      lastUploadMs: typeof state.value.lastUploadMs === 'number' ? state.value.lastUploadMs : null,
+      signedIn: bridge.signedIn()
+    };
+    return JSON.stringify({ ok: true, value: status } as TypingUploadPageReply);
+  }
+
+  private async typingUploadNative(action: TypingUploadNativeAction): Promise<TypingUploadStateReply> {
+    const request: TypingUploadNativeRequest = { directory: this.stateDirectory, action: action };
+    try {
+      return JSON.parse(await client.typingStatisticsAsync(JSON.stringify(request))) as TypingUploadStateReply;
+    } catch {
+      return { ok: false, error: 'storage' };
+    }
   }
 
   /** 记下应用了某个皮肤，供「换装达人」徽章使用。皮肤 id 的形式由存储决定；这里只限制大小。 */
