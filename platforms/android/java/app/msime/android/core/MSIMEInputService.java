@@ -5648,6 +5648,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeReplyKeyboard() {
+        imePanels.invalidateReplyTemplateReads();
         replyOpen = false;
         replyModel.resetResults();
         clearReplyRequestReferences();
@@ -5709,6 +5710,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 收起面板但保留已生成的回复，再次打开时仍能看到；与插入回复后的收起相同。还在生成的请求随收起取消，免得结果在面板关着时到达。 */
     private void hideReplyKeyboard() {
+        imePanels.invalidateReplyTemplateReads();
         if (replyModel.busy()) invalidateReplyContext("面板已收起，请重新选择回复方式");
         replyOpen = false;
         setReplyKeyboardVisible(false);

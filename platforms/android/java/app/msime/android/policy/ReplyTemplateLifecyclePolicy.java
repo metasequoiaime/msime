@@ -8,4 +8,8 @@ public final class ReplyTemplateLifecyclePolicy {
                                   boolean replyOpen, boolean panelVisible) {
         return expectedGeneration == currentGeneration && replyOpen && panelVisible;
     }
+
+    public static int advance(int generation) {
+        return generation == Integer.MAX_VALUE ? 0 : generation + 1;
+    }
 }
