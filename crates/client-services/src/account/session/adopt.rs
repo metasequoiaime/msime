@@ -4,6 +4,7 @@
 //!
 //! - 同一个 `user.id`：`expires_at` 更晚的胜，两个方向都一样，相同时本地不动。`expires_at` 是拿到令牌的时刻加服务端给的固定时长（msime-cloud 的访问令牌 15 分钟），两个沙箱用的是同一台设备的时钟，所以后签发的会话一定过期得更晚：同一个会话族里刷新过的那份胜过刷新前的（用过的刷新令牌不会被留下或换回来，否则下一次刷新被服务端当成重放、超过 30 秒宽限时整个会话族被吊销），同一个账号重新登录的那份胜过上一次登录留下的。
 //! - 不同的 `user.id`（换号）：设置应用发布的（`from: settings`）直接替换本地，键盘发布的（`from: keyboard`）一律不用，设置应用里的换号不会被键盘的旧副本撤销。
+//! - 本地没有会话（没有或读不了）：登录会话与换号相同；匿名会话两个方向都采用。用户没打开过设置应用就先启用了键盘时，键盘已经注册了本机的匿名账号，设置应用第一次启动时接过来用，不再注册第二个、多用掉一次每个 IP 每天 5 次的注册额度。
 //! - 发布方没有会话：登录会话在 `from: settings` 时在锁里清掉本地（与 `forget` 相同），`from: keyboard` 时不动；匿名会话一律不动，匿名账号没有退出登录，清掉只会逼着重新注册、白白用掉每个 IP 每天 5 次的注册额度。
 //!
 //! 以前按 `session_id` 判断「是不是同一次登录」，只在同一次登录内部比 `expires_at`。升级窗口里两边的 `session_id` 来历各不相同（ArkTS 写的扁平登录会话没有，Rust 注册的匿名会话是 v4、旧桥接写回时又丢了，各沙箱第一次认证前各自补上），为了认出同一个会话族叠了好几层特例，仍有漏网的组合会把用过的刷新令牌换回来。只比 `expires_at` 对这些组合一视同仁。
@@ -35,17 +36,8 @@ pub enum SessionAdoptOutcome {
 impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     /// 登录会话（`account-session.json`）用：按模块说明的规则决定是否采用 `published`（`None` 是发布方没有这份会话），整个过程持有存储的刷新锁，与刷新、登录、退出互斥。`from: Settings` 且 `published` 是 `None` 时清掉本地会话（与 [`Self::forget`] 相同，不联网）。
     ///
-    /// 本地没有会话或读不了时，`Settings` 发布的直接替换，`Keyboard` 发布的不用。`published` 不合法时是 [`AccountError::Storage`]，本地不动。采用的会话与原来的不是同一次登录（`user.id` 或 `session_id` 不同）时推进会话代次，进行中的操作和刷新不会再把旧会话写回来。
+    /// 本地没有会话或读不了时，`Settings` 发布的直接替换，`Keyboard` 发布的不用（匿名会话两个方向都用，见 [`Self::adopt_anonymous_session`]）。`published` 不合法时是 [`AccountError::Storage`]，本地不动。采用的会话与原来的不是同一次登录（`user.id` 或 `session_id` 不同）时推进会话代次，进行中的操作和刷新不会再把旧会话写回来。
     pub fn adopt_session(
-        &self,
-        published: Option<SavedAccountSession>,
-        from: SessionAdoptSource,
-    ) -> Result<SessionAdoptOutcome, AccountError> {
-        self.adopt_with(published, from, true)
-    }
-
-    /// 匿名会话（`anonymous-session.json`）用：与 [`Self::adopt_session`] 相同，只是发布方没有会话时一律不动、不清本地（匿名账号没有退出登录，见模块说明）。
-    pub fn adopt_anonymous_session(
         &self,
         published: Option<SavedAccountSession>,
         from: SessionAdoptSource,
@@ -53,11 +45,20 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.adopt_with(published, from, false)
     }
 
+    /// 匿名会话（`anonymous-session.json`）用：与 [`Self::adopt_session`] 相同，只有两处不同：发布方没有会话时一律不动、不清本地（匿名账号没有退出登录）；本地没有会话或读不了时 `Keyboard` 发布的也采用（键盘先于设置应用启用时用键盘注册的那个匿名账号），见模块说明。
+    pub fn adopt_anonymous_session(
+        &self,
+        published: Option<SavedAccountSession>,
+        from: SessionAdoptSource,
+    ) -> Result<SessionAdoptOutcome, AccountError> {
+        self.adopt_with(published, from, true)
+    }
+
     fn adopt_with(
         &self,
         published: Option<SavedAccountSession>,
         from: SessionAdoptSource,
-        clear_when_absent: bool,
+        anonymous: bool,
     ) -> Result<SessionAdoptOutcome, AccountError> {
         if let Some(published) = &published {
             validate_saved_session(published)?;
@@ -67,7 +68,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             let mut state = self.lock()?;
             let local = self.stored();
             let Some(published) = published else {
-                if !(clear_when_absent && from == SessionAdoptSource::Settings) {
+                if anonymous || from == SessionAdoptSource::Keyboard {
                     return Ok(SessionAdoptOutcome::Unchanged);
                 }
                 let had_session = !matches!(local, Ok(None)) || state.saved.is_some();
@@ -88,7 +89,9 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 Ok(Some(local)) if local.tokens.user.id == published.tokens.user.id => {
                     published.expires_at_unix_ms > local.expires_at_unix_ms
                 }
-                // 换号，或者本地没有会话、读不了：只认设置应用发布的。
+                // 本地没有匿名会话（没有或读不了）：两个方向都采用。键盘先于设置应用启用时，设置应用接过键盘注册的匿名账号，不再注册第二个。
+                Ok(None) | Err(_) if anonymous => true,
+                // 换号，或者本地没有登录会话、读不了：只认设置应用发布的。
                 _ => from == SessionAdoptSource::Settings,
             };
             if !adopt {

@@ -159,6 +159,81 @@ fn a_missing_publisher_clears_only_the_account_session_and_only_from_settings() 
     assert_eq!(anonymous_local(), Some("c".repeat(64)));
 }
 
+/// 用户没打开过设置应用、先启用了键盘：键盘注册了匿名账号 K 并发布，设置应用第一次启动时本地还没有匿名会话（或者读不了），采用 K，不再注册第二个匿名账号。登录会话没有这条：键盘发布的登录会话在本地没有时仍不用，设置应用里退出登录以后不会被键盘的旧副本登回去。
+#[test]
+fn the_settings_app_takes_the_anonymous_account_the_keyboard_registered_first() {
+    let root = tempfile::tempdir().unwrap();
+    let settings = root.path().join("settings");
+    let anonymous_storage = || LockedAnonymousSessionStorage::new(&settings);
+    let anonymous = || BackendAccountSession::new(NoNetwork, anonymous_storage());
+    let anonymous_local = || {
+        anonymous_storage()
+            .load()
+            .unwrap()
+            .map(|saved| (saved.tokens.user.id, saved.tokens.refresh_token))
+    };
+    let registered_by_keyboard = saved("msime-keyboard00000000", Some(1), 60, 'b');
+
+    // 本地没有匿名会话。
+    assert_eq!(
+        anonymous().adopt_anonymous_session(
+            Some(registered_by_keyboard.clone()),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(anonymous_local(), has("msime-keyboard00000000", 'b'));
+    assert_eq!(
+        anonymous().status().unwrap().unwrap().id,
+        "msime-keyboard00000000"
+    );
+
+    // 本地的匿名会话读不了（内容坏了）：同样采用。
+    private_file(&settings.join(ANONYMOUS_SESSION_FILE), b"not a session");
+    assert!(matches!(
+        anonymous_storage().load(),
+        Err(AccountError::Storage)
+    ));
+    assert_eq!(
+        anonymous().adopt_anonymous_session(
+            Some(registered_by_keyboard.clone()),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(anonymous_local(), has("msime-keyboard00000000", 'b'));
+
+    // 设置应用已经有自己的匿名账号时，键盘发布的另一个匿名账号不用，规则与换号相同。
+    anonymous_storage()
+        .save(&saved("msime-settings00000000", Some(2), 30, 'c'))
+        .unwrap();
+    assert_eq!(
+        anonymous().adopt_anonymous_session(
+            Some(registered_by_keyboard.clone()),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(anonymous_local(), has("msime-settings00000000", 'c'));
+
+    // 登录会话不变：本地没有、读不了时键盘发布的都不用。
+    let signed_in = saved("person-a", Some(3), 60, 'd');
+    assert_eq!(
+        session(&settings).adopt_session(Some(signed_in.clone()), SessionAdoptSource::Keyboard),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(local(&settings), None);
+    private_file(&settings.join(ACCOUNT_SESSION_FILE), b"not a session");
+    assert_eq!(
+        session(&settings).adopt_session(Some(signed_in), SessionAdoptSource::Keyboard),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(
+        std::fs::read(settings.join(ACCOUNT_SESSION_FILE)).unwrap(),
+        b"not a session"
+    );
+}
+
 #[test]
 fn a_switched_account_is_not_rolled_back_by_the_keyboard() {
     let root = tempfile::tempdir().unwrap();

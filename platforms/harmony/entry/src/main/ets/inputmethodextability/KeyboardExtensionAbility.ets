@@ -887,7 +887,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         KeyboardSession.shared.useSharedSandbox(mirror, fullMode);
         SharedStateSync.keyboardSync(mirror, state, fullMode());
       }
-      // 覆盖从未打开应用就启用键盘的场景；应用首次启动也会注册账号，由先运行的一方完成。
+      // 覆盖从未打开应用就启用键盘的场景。完整体验模式下键盘获得焦点或编辑结束时发布这个匿名会话，设置应用第一次启动时本地还没有匿名会话，由 session_adopt 采用它，不再注册第二个；键盘发布之前就打开了设置应用、或者键盘在基础访问模式下时，设置应用仍会注册自己的那个。
       HarmonyAccountIdentity.ensureAnonymous(state);
       // 每个键盘进程只启动一个用量上报会话；在下方提前返回之前创建，让没有面板的进程也能上报。
       HarmonyTelemetry.keyboardStarted(state);

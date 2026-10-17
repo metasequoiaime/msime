@@ -203,6 +203,45 @@ fn the_anonymous_item_goes_to_the_anonymous_session_and_keeps_the_identity() {
     assert!(keyboard.join(ANONYMOUS_ACCOUNT_FILE).exists());
 }
 
+/// 键盘先于设置应用启用：设置应用第一次启动、本地还没有匿名会话时采用键盘注册的那个匿名账号，不再自己注册一个；登录会话照旧不用键盘发布的。
+#[test]
+fn the_settings_app_takes_the_keyboards_anonymous_session_when_it_has_none() {
+    let root = tempfile::tempdir().unwrap();
+    let published = root.path().join("group").join("keyboard").join("state");
+    let settings = root.path().join("settings").join("state");
+    AnonymousSessionStorage::new(&published)
+        .save(&saved("msime-keyboard00000000", 'b'))
+        .unwrap();
+    account_storage(&published)
+        .save(&saved("person-a", 'c'))
+        .unwrap();
+
+    assert_eq!(
+        adopt(
+            &settings,
+            json!({ "operation": "session_adopt", "path": published.join(ANONYMOUS_SESSION_FILE), "item": "anonymous", "from": "keyboard" })
+        ),
+        json!({ "ok": true, "value": { "outcome": "adopted" } })
+    );
+    let adopted = AnonymousSessionStorage::new(&settings)
+        .load()
+        .unwrap()
+        .unwrap();
+    assert_eq!(adopted.tokens.user.id, "msime-keyboard00000000");
+    assert_eq!(adopted.tokens.refresh_token, "b".repeat(64));
+    // 身份文件不动：session_adopt 只写会话。
+    assert!(!settings.join(ANONYMOUS_ACCOUNT_FILE).exists());
+
+    assert_eq!(
+        adopt(
+            &settings,
+            json!({ "operation": "session_adopt", "path": published.join(ACCOUNT_SESSION_FILE), "item": "account", "from": "keyboard" })
+        ),
+        json!({ "ok": true, "value": { "outcome": "unchanged" } })
+    );
+    assert!(!settings.join(ACCOUNT_SESSION_FILE).exists());
+}
+
 #[test]
 fn both_items_take_the_later_copy_whatever_the_login_id() {
     let root = tempfile::tempdir().unwrap();
