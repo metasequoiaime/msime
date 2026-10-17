@@ -109,3 +109,42 @@ test("keeps 地域 under 更多选项, opens it only for an invalid region, and 
   );
   expect(fold().open).toBe(true);
 });
+
+test("已存凭据允许部分更新，空地域覆盖旧地域且忙碌时不能写入", () => {
+  const onSave = vi.fn();
+  const onClear = vi.fn();
+  const props = {
+    available: true,
+    status: { tencent: { region: "ap-shanghai" }, tencentInvalid: false },
+    input: { secretId: " synthetic-id ", secretKey: " ", region: "" },
+    onInputChange: vi.fn(),
+    onSave,
+    onClear,
+  };
+  const view = render(<LinuxTencentCredentialsSection {...props} busy={false} />);
+  fireEvent.click(screen.getByRole("button", { name: "保存凭据" }));
+  expect(onSave).toHaveBeenCalledExactlyOnceWith({ secretId: " synthetic-id ", region: "" });
+  view.rerender(<LinuxTencentCredentialsSection {...props} busy />);
+  fireEvent.click(screen.getByRole("button", { name: "保存凭据" }));
+  fireEvent.click(screen.getByRole("button", { name: "清除凭据" }));
+  expect(onSave).toHaveBeenCalledOnce();
+  expect(onClear).not.toHaveBeenCalled();
+});
+
+test("凭据能力不可用时只显示说明，不展示输入和附加测试控件", () => {
+  render(
+    <LinuxTencentCredentialsSection
+      available={false}
+      input={{ secretId: "", secretKey: "" }}
+      busy={false}
+      onInputChange={vi.fn()}
+      onSave={vi.fn()}
+      onClear={vi.fn()}
+    >
+      <button>合成测试入口</button>
+    </LinuxTencentCredentialsSection>,
+  );
+  expect(screen.getByText(/设置页不保存不会生效的/)).toBeTruthy();
+  expect(screen.queryByLabelText("腾讯云 SecretId")).toBeNull();
+  expect(screen.queryByRole("button")).toBeNull();
+});

@@ -1312,6 +1312,15 @@ export {
   type EndpointSettingFieldProps,
 } from "./settings/endpoint-setting-field";
 export {
+  tencentCredentialEditorModel,
+  tencentCredentialSavePayload,
+  type TencentCredentialStatus,
+  type TencentCredentialSaveInput,
+  type TencentCredentialSaveOptions,
+  type TencentCredentialEditorModel,
+  type TencentCredentialEditorModelOptions,
+} from "./settings/tencent-credential-model";
+export {
   LinuxTencentCredentialsSection,
   type LinuxTencentCredentialsSectionProps,
   type LinuxTencentCredentialInput,

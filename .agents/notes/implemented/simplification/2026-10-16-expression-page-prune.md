@@ -71,7 +71,7 @@ macOS 之后，Windows、Linux、HarmonyOS 逐项按同一个标准跟进：控�
 Linux 画的是共享 React 页，标点合并、细分开关折叠和变灰、候选释义标签、智能标点写两半都随 macOS 那次生效了。宿主侧核对过理由：fcitx5 的 `toggleChinesePunctuation` 在锁定时直接返回，锁定经 host-api 的 `engine_chinese_punctuation` 生效，四个细分开关在 fcitx5 和 IBus 都有读取方。
 
 - 托盘和状态栏切换智能标点原来只写总开关。设置页关过一次之后两半已是假，从这里再打开的就是不起作用的总开关。新增两个宿主共用的 `core/SmartPunctuationChoice.h`：fcitx5 的状态栏切换把三个键放进同一次保存（`PendingPreferenceSave` 的 `smart_punctuation_choice`，不拆成三个各自读写修订号的任务），IBus 的 `save_menu_preference` 同样写两半。IBus 没有偏好目录时只设会话覆盖，那里没有文档要保持一致，所以不动。
-- `LinuxTencentCredentialsSection` 的地域收进「更多选项」：Linux provider 同样只请求 `tmt.tencentcloudapi.com`，地域只进 `X-TC-Region`，留空按广州处理（`msime-linux-online-provider`）。地域仍在表单输入里，「保存」照样带上它。
+- `LinuxTencentCredentialsSection` 的地域收进「更多选项」：Linux provider 同样只请求 `tmt.tencentcloudapi.com`，地域只进 `X-TC-Region`，留空按广州处理（`msime-linux-online-provider`）。地域仍在表单输入里，「保存」照样带上它。编辑输入、地域回退和保存组装由[腾讯云凭据公共纯模型](2026-10-17-tencent-credential-editor.md)承接。
 - 翻译服务的 `none` 叫「不使用在线服务」：fcitx5 和 IBus 同样消费 `offline_gloss_languages`，也没有系统翻译。
 - 未配置腾讯云的显示不改：Linux 的密钥在 tencent-provider.json，偏好里的空密钥不代表没配置，host-api 也正靠 `enabled: true` 把查询交给 provider。
 - 显示读音、第二种语言、大写锁定标点本来就不在 Linux 上显示。

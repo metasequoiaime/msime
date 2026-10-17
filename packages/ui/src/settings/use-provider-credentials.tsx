@@ -10,6 +10,7 @@ import { CredentialTestSection } from "./credential-test-section";
 import type { CredentialTestState } from "./credential-test-state";
 import type { CredentialStatusMessageValue } from "./credential-status-message-model";
 import type { ProviderCredentialInput } from "./provider-credential-input";
+import type { TencentCredentialInput } from "./tencent-credential-model";
 import { providerCredentialErrorMessage } from "./credential-utils";
 import { useAsyncGeneration } from "./use-async-generation";
 import type {
@@ -18,6 +19,7 @@ import type {
 } from "../core/api-credential-test";
 
 export type { ProviderCredentialInput } from "./provider-credential-input";
+export type { TencentCredentialInput } from "./tencent-credential-model";
 
 export interface ProviderCredentialsHost {
   providerCredentials?: ProviderCredentialClient;
@@ -25,12 +27,6 @@ export interface ProviderCredentialsHost {
     service: ApiCredentialTestService,
     config: Record<string, unknown>,
   ) => Promise<ApiCredentialTestResult>;
-}
-
-export interface TencentCredentialInput {
-  secretId: string;
-  secretKey: string;
-  region?: string;
 }
 
 export type ProviderCredentialBusy = "ai" | "tencent" | VoiceCredentialKind;
