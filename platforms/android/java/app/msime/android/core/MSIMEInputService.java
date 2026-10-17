@@ -9267,6 +9267,22 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    /** 从键盘功能面板直接打开官网；成功后收起输入法，回到系统浏览器。 */
+    void openWebsite() {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://msime.app/"))
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            closeMoreTools();
+            startActivity(intent);
+            requestHideSelf(0);
+        } catch (ActivityNotFoundException unavailable) {
+            notice("没有可以打开官网的应用");
+        } catch (RuntimeException unavailable) {
+            notice("无法打开官网");
+        }
+    }
+
     // A disabled card swallows the press, and the 工具 section draws no state text, so without
     // this 剪贴板历史 and AI 润色 looked exactly like the cards that work and did nothing when
     // pressed. A screen reader was told "不可用"; nobody else was.
