@@ -91,6 +91,9 @@ fn a_link_request_that_cannot_be_sent_is_refused_before_the_network() {
         json!({ "operation": "apple_challenge", "purpose": "link" }),
         json!({ "operation": "apple_login", "challenge_id": "e".repeat(64), "identity_token": "token", "purpose": "link" }),
         json!({ "operation": "google_code_login", "challenge_id": "e".repeat(64), "code": "4/0Acode", "purpose": "link" }),
+        // google_login 带了 purpose 也不会打开浏览器做一次普通登录，google_cancel 同样不收多余字段。
+        json!({ "operation": "google_login", "purpose": "link" }),
+        json!({ "operation": "google_cancel", "purpose": "link" }),
     ] {
         assert_eq!(
             call(json!({ "session_store": id, "action": action.clone() })),

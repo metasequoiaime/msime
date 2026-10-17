@@ -44,6 +44,8 @@ msime-script-runtime = { path = "../script-runtime" }
 
 [dev-dependencies]
 msime-path-trust = { path = "../path-trust", features = ["test-support"] }
+# 账号测试把目录模式的客户端连到本机假服务端，核对发出去的 User-Agent（`ffi::account::client_agent_tests`）。
+msime-client-services = { path = "../client-services", features = ["test-support"] }
 rusqlite.workspace = true
 
 # 脚本插件的测试用 WAT 写模块（`test-support` 打开 wasmi 的 `wat` 特性），仓库不提交 `.wasm`。

@@ -45,6 +45,12 @@ static ANONYMOUS_SESSIONS: OnceLock<Mutex<HashMap<SessionKey, Arc<Session>>>> = 
 /// 目录模式里宿主自报的每个 User-Agent 一个 HTTP 客户端，整个进程共用：客户端里只有连接池和超时，没有账号状态（见 [`BackendAccountClient::new`] 共用的那一个），各建一份时每个都多占一个后台线程和几个文件描述符。
 static AGENT_CLIENTS: OnceLock<Mutex<HashMap<String, BackendAccountClient>>> = OnceLock::new();
 
+#[cfg(test)]
+thread_local! {
+    /// 测试里本线程上 [`directory_client`] 改连的本机假服务端（`http://127.0.0.1:<端口>`），每次都新建、不进 [`AGENT_CLIENTS`]。按线程设，并行跑的其他测试仍连不到它；`msime_client_account` 在调用线程上完成，所以经 C 入口的请求也走它。
+    static TEST_ORIGIN: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AccountRequest {
@@ -89,8 +95,9 @@ enum AccountAction {
         #[serde(default)]
         purpose: Purpose,
     },
-    GoogleLogin,
-    GoogleCancel,
+    /// Windows 的浏览器登录和它的取消。写成空的结构体变体，理由与 `AppleChallenge {}` 相同：多带 `purpose` 之类字段的请求是 `account_invalid`，不会照样打开浏览器做一次普通登录。
+    GoogleLogin {},
+    GoogleCancel {},
     /// 宿主自己弹 Apple 登录界面（iOS、macOS 的 `ASAuthorizationAppleIDProvider`）：先要 challenge 和 nonce，再交回 identity token。写成空的结构体变体：内部标签的单元变体不检查多余字段，多带字段的请求会照样联网申请 challenge。
     AppleChallenge {},
     AppleLogin {
@@ -173,6 +180,13 @@ pub(super) fn checked_agent(agent: Option<&str>) -> Result<Option<&str>, Account
 
 /// 目录模式的 HTTP 客户端：没有 `agent` 时是进程共用的默认客户端（`MSIME/Android`），有时是这个 User-Agent 的那一个，第一次用到时建立。
 fn directory_client(agent: Option<&str>) -> Result<BackendAccountClient, AccountError> {
+    #[cfg(test)]
+    if let Some(origin) = TEST_ORIGIN.with_borrow(Clone::clone) {
+        return BackendAccountClient::loopback_with_agent(
+            &origin,
+            agent.unwrap_or("MSIME/Android"),
+        );
+    }
     let Some(agent) = agent else {
         return BackendAccountClient::new();
     };
@@ -468,10 +482,10 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
             code,
             purpose: Purpose::Login,
         } => status(Some(session.sign_in(&challenge_id, &code)?)),
-        AccountAction::GoogleLogin => {
+        AccountAction::GoogleLogin {} => {
             status(Some(session.sign_in_google_with_browser(open_browser)?))
         }
-        AccountAction::GoogleCancel => {
+        AccountAction::GoogleCancel {} => {
             session.cancel_google_sign_in();
             Ok(Value::Null)
         }
@@ -1166,7 +1180,11 @@ mod tests {
         // 已有的 google_login 仍是不带参数的 Windows 浏览器流程。
         assert!(matches!(
             parse(json!({ "operation": "google_login" })),
-            AccountAction::GoogleLogin
+            AccountAction::GoogleLogin {}
+        ));
+        assert!(matches!(
+            parse(json!({ "operation": "google_cancel" })),
+            AccountAction::GoogleCancel {}
         ));
     }
 

@@ -1,4 +1,4 @@
-//! 目录模式的 `client_agent`（#8201 的决定 1）：带 `directory` 的请求可以自报 User-Agent，校验与注入存储的 `client_agent` 相同；不带时与以前相同。发出去的 User-Agent 由 client-services 的 `with_user_agent` 测试核对，这里核对请求的形状和会话对象怎么按 `client_agent` 分开。
+//! 目录模式的 `client_agent`（#8201 的决定 1）：带 `directory` 的请求可以自报 User-Agent，校验与注入存储的 `client_agent` 相同；不带时与以前相同。这里核对请求的形状、会话对象怎么按 `client_agent` 分开，以及登录、绑定、匿名账号的注册和退回匿名账号的请求在线上真的带着它（本线程的 [`TEST_ORIGIN`] 把目录模式的客户端连到本机假服务端）；`with_user_agent` 本身由 client-services 的测试核对。
 
 use super::super::chat_stream::msime_client_account_chat_stream;
 use super::super::session_store::tests::{leaked_store, registered, unregister};
@@ -7,6 +7,10 @@ use msime_client_services::account::{
     AccountSessionStorage, AccountTokens, AccountUser, AnonymousSessionStorage, SavedAccountSession,
 };
 use std::ffi::CStr;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const AGENT: &str = "msime-windows/1.4.0 (Surface Pro; Windows 11; edition=full)";
@@ -203,4 +207,160 @@ fn a_client_agent_must_have_the_shape_the_server_reads_and_needs_a_directory() {
         json!({ "ok": true, "value": { "user": null } })
     );
     unregister(id);
+}
+
+/// 本机回环上的假服务端：每个请求记下路径和 User-Agent，一律回 503 并关掉连接。只读请求头和 `Content-Length` 那么长的请求体，读满才回，免得关连接时还有没读的数据、对端看到的是连接被重置。
+struct FakeServer {
+    origin: String,
+    seen: mpsc::Receiver<(String, String)>,
+    thread: thread::JoinHandle<()>,
+}
+
+impl FakeServer {
+    fn start() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let (sender, seen) = mpsc::channel();
+        let thread = thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 4096];
+                let head = loop {
+                    if let Some(end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                        break end + 4;
+                    }
+                    let read = stream.read(&mut buffer).unwrap();
+                    if read == 0 {
+                        // 测试连上来什么都不发就关掉：结束。
+                        return;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                };
+                let text = String::from_utf8(request[..head].to_vec()).unwrap();
+                let header = |wanted: &str| {
+                    text.lines().find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case(wanted)
+                            .then(|| value.trim().to_owned())
+                    })
+                };
+                let length: usize =
+                    header("content-length").map_or(0, |value| value.parse().unwrap());
+                while request.len() < head + length {
+                    let read = stream.read(&mut buffer).unwrap();
+                    assert_ne!(read, 0);
+                    request.extend_from_slice(&buffer[..read]);
+                }
+                let path = text.split(' ').nth(1).unwrap().to_owned();
+                sender
+                    .send((path, header("user-agent").unwrap_or_default()))
+                    .unwrap();
+                stream
+                    .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .unwrap();
+            }
+        });
+        Self {
+            origin,
+            seen,
+            thread,
+        }
+    }
+
+    /// 停下服务端，交出它收到的每个请求的（路径，User-Agent）。
+    fn finish(self) -> Vec<(String, String)> {
+        drop(TcpStream::connect(self.origin.trim_start_matches("http://")).unwrap());
+        self.thread.join().unwrap();
+        self.seen.try_iter().collect()
+    }
+}
+
+/// 在本线程上把目录模式的客户端连到 `origin`，离开作用域时恢复。
+struct LoopbackOrigin;
+
+impl LoopbackOrigin {
+    fn set(origin: &str) -> Self {
+        TEST_ORIGIN.with_borrow_mut(|slot| *slot = Some(origin.to_owned()));
+        Self
+    }
+}
+
+impl Drop for LoopbackOrigin {
+    fn drop(&mut self) {
+        TEST_ORIGIN.with_borrow_mut(|slot| *slot = None);
+    }
+}
+
+#[test]
+fn directory_requests_go_out_with_the_host_agent() {
+    let server = FakeServer::start();
+    let loopback = LoopbackOrigin::set(&server.origin);
+    let root = tempfile::tempdir().unwrap();
+    let failed = |request: Value| {
+        let response = call(request.clone());
+        assert_eq!(response["ok"], false, "{request}");
+    };
+
+    // 登录：申请验证码和交回验证码。
+    let signing_in = root.path().join("sign-in");
+    failed(json!({
+        "directory": signing_in,
+        "client_agent": AGENT,
+        "action": { "operation": "request_code", "provider": "email", "target": "person@example.test" },
+    }));
+    failed(json!({
+        "directory": signing_in,
+        "client_agent": AGENT,
+        "action": { "operation": "login", "challenge_id": "c".repeat(64), "code": "123456" },
+    }));
+
+    // 绑定：已登录的目录完成 purpose:"link"。
+    let linking = root.path().join("link");
+    std::fs::create_dir(&linking).unwrap();
+    FileAccountSessionStorage::new(&linking, AccountSessionFileLayout::Native)
+        .save(&saved("synthetic-user"))
+        .unwrap();
+    failed(json!({
+        "directory": linking,
+        "client_agent": AGENT,
+        "action": { "operation": "login", "challenge_id": "c".repeat(64), "code": "123456", "purpose": "link" },
+    }));
+
+    // 匿名账号的注册。
+    failed(json!({
+        "directory": root.path().join("anonymous"),
+        "client_agent": AGENT,
+        "action": { "operation": "ensure_anonymous" },
+    }));
+
+    // 没有登录、退回匿名账号的新操作。
+    let fallback = root.path().join("fallback");
+    std::fs::create_dir(&fallback).unwrap();
+    AnonymousSessionStorage::new(&fallback)
+        .save(&saved("synthetic-anonymous"))
+        .unwrap();
+    failed(json!({
+        "directory": fallback,
+        "client_agent": AGENT,
+        "action": { "operation": "chat_models" },
+    }));
+
+    drop(loopback);
+    let seen = server.finish();
+    let paths: Vec<&str> = seen.iter().map(|(path, _)| path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "/v1/auth/challenges",
+            "/v1/auth/login",
+            "/v1/auth/login",
+            // 匿名账号的注册也从申请 challenge 开始。
+            "/v1/auth/challenges",
+            "/v1/models",
+        ]
+    );
+    for (path, agent) in &seen {
+        assert_eq!(agent, AGENT, "{path}");
+    }
 }

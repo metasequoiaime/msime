@@ -125,8 +125,9 @@ impl BackendAccountClient {
         Self::with_origin(origin, true)
     }
 
-    #[cfg(test)]
-    pub(crate) fn loopback_with_agent(origin: &str, agent: &str) -> Result<Self, AccountError> {
+    /// 测试用：连 `http://127.0.0.1:<端口>` 上的假服务端，以 `agent` 作 User-Agent（不校验形状，默认的 `MSIME/Android` 也可以）。其他 crate 的测试经 `test-support` 特性用它。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn loopback_with_agent(origin: &str, agent: &str) -> Result<Self, AccountError> {
         Self::with_origin_and_agent(origin, true, agent)
     }
 
