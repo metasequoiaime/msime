@@ -34,12 +34,9 @@ import { settingsInputPreferences } from "./settings/settings-input-preferences"
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
 import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
-import {
-  hostDrawnCustomTheme,
-  settingsThemePreferences,
-} from "./settings/settings-theme-preferences";
+import { useSettingsThemePreviews } from "./settings/use-settings-theme-previews";
 
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 export type {
   DictionaryEntry,
   DictionaryPageFormat,
@@ -178,6 +175,12 @@ export {
   useSettingsNavigation,
   type SettingsNavigationOptions,
 } from "./settings/use-settings-navigation";
+export {
+  useSettingsThemePreviews,
+  type SettingsThemePreviews,
+  type SettingsThemePreviewSource,
+  type UseSettingsThemePreviewsOptions,
+} from "./settings/use-settings-theme-previews";
 export { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
 export { useUpdateCheck, type UseUpdateCheckOptions } from "./settings/use-update-check";
 export type {
@@ -389,14 +392,12 @@ export {
   type WindowResizeBounds,
   type WindowResizePoint,
 } from "./settings/window-resize";
-import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 export {
   settingsCapabilities,
   type SettingsCapabilitiesInput,
 } from "./settings/settings-capabilities";
 import { useAiAssistant } from "./settings/use-ai-assistant";
 export { useAiAssistant, type UseAiAssistantOptions } from "./settings/use-ai-assistant";
-import { type GlobalTheme } from "./theme/global-theme";
 export {
   candidatePaletteStyle,
   customCandidateStyle,
@@ -2203,9 +2204,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   } = useDictionaryManager({ client, confirm });
   const mounted = useMountedRef();
   const windowMaximized = useWindowState({ client, setError });
-  const [skinPreviewThemes, setSkinPreviewThemes] = useState<
-    Partial<Record<GlobalTheme, "light" | "dark">>
-  >({});
   const [showTouchSkinEditor, setShowTouchSkinEditor] = useState(false);
   const {
     onPointerDown: beginTouchGeometryDrag,
@@ -2438,14 +2436,26 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   });
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const floatingToolbar = floatingToolbarPreferences(draft);
-  const { themeMode, settingsTheme, globalTheme, customColors, customTouchKeyboardSkin } =
-    settingsThemePreferences(draft, host?.platform, surfaceThemesFollow);
-  // 预览画的自定义主题只含宿主会读的槽位：桌面宿主不读编号色和边框色，存下的旧值不能在预览里画出来。只给预览用，不写回草稿。
-  const previewCustomTheme = hostDrawnCustomTheme(
-    draft?.custom_theme,
+  const {
+    themeMode,
+    settingsTheme,
+    globalTheme,
+    customColors,
+    customTouchKeyboardSkin,
+    skinPreviewThemes,
+    setSkinPreviewThemes,
+    candidatePreviewTheme,
+    toolbarPreviewTheme,
+    keyboardPreviewTheme,
+    previewCustomTheme,
+    customKeyboardSelected,
+  } = useSettingsThemePreviews({
+    draft,
+    platform: host?.platform,
+    surfaceThemesFollow,
     showCandidateNumberColor,
     showCandidateBorderColor,
-  );
+  });
   const dark = useSettingsTheme(themeMode, settingsTheme);
   // 两种 HarmonyOS 外观都用用户的应用主题（水杉四季或某个固定季节）着色；每种外观取哪些 token 由 `appThemeStyle` 决定。
   const resolvedAppTheme = useResolvedAppTheme(
@@ -2457,20 +2467,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     resolvedAppTheme,
     dark,
   );
-  const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
-  // 各界面一律跟随颜色模式的宿主不读工具栏和屏幕键盘的单独明暗，预览也照颜色模式画。
-  const toolbarPreviewTheme = useCandidatePreviewTheme(
-    themeMode,
-    surfaceThemesFollow ? undefined : draft?.toolbar_theme,
-  );
-  const keyboardPreviewTheme = useCandidatePreviewTheme(
-    themeMode,
-    surfaceThemesFollow ? undefined : draft?.screen_keyboard_theme,
-  );
-  // A picker colour is part of the custom theme, so choosing one selects that theme; clearing one leaves the selection alone. Choosing one while another theme is selected customizes that theme: it becomes the custom theme's base, and a package, whose own base would replace it, is dropped.
-  // A custom theme without a keyboard design draws its base's keyboard, so the custom keyboard card is selected only when the theme carries one.
-  const customKeyboardSelected = globalTheme === "custom" && Boolean(draft?.custom_theme?.keyboard);
-  useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
   const {
     keySpacingTenths: touchKeySpacingTenths,
     rowSpacingTenths: touchRowSpacingTenths,
