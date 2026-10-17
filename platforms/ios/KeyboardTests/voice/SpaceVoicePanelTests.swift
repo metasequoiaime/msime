@@ -43,7 +43,7 @@ final class SpaceVoicePanelTests: XCTestCase {
                                                          composing: true, localMode: false), "a hold while spelling stays a space")
     XCTAssertFalse(KeyboardViewController.armsSpaceVoice(enabled: true, fullAccess: true, handwritingInk: false,
                                                          composing: false, localMode: true))
-    // 测试宿主没有完全访问权限：慢一点的空格不能被长按吞掉。
+    // 测试宿主没有完全访问权限：语音开关仍开着时，慢一点的空格不能被长按吞掉。
     let controller = makeController()
     let space = try XCTUnwrap(spaceKeys(in: controller).first)
     let hold = try XCTUnwrap(space.gestureRecognizers?.first { $0.name == "spaceVoiceHold" })
@@ -51,7 +51,7 @@ final class SpaceVoicePanelTests: XCTestCase {
     XCTAssertFalse(controller.gestureRecognizerShouldBegin(hold))
   }
 
-  /// 「长按空格语音输入」关掉后，空格键的 VoiceOver 提示和操作里都没有语音。
+  /// 「长按空格语音输入」关掉后，长按改为移动光标，VoiceOver 提示和操作里都没有语音。
   func testTheSpaceVoiceSwitchReachesTheSpaceBar() throws {
     let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.spaceVoiceKey)
     addTeardownBlock {
@@ -62,7 +62,9 @@ final class SpaceVoicePanelTests: XCTestCase {
     let controller = makeController()
     let space = try XCTUnwrap(spaceKeys(in: controller).first)
     XCTAssertEqual(space.accessibilityCustomActions?.map(\.name), ["光标左移", "光标右移"])
-    XCTAssertFalse(space.accessibilityHint?.contains("语音") ?? true)
+    XCTAssertTrue(space.accessibilityHint?.contains("长按移动光标") ?? false)
+    let hold = try XCTUnwrap(space.gestureRecognizers?.first { $0.name == "spaceVoiceHold" })
+    XCTAssertTrue(controller.gestureRecognizerShouldBegin(hold))
     KeyboardLayoutPreference.spaceVoice = true
     controller.viewWillAppear(false)
     XCTAssertEqual(space.accessibilityCustomActions?.map(\.name), ["光标左移", "光标右移", "语音输入"])
