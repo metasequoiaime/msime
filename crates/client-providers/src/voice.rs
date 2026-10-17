@@ -3,11 +3,13 @@
 //! [`controller`] drives one recognition session over an injected transport;
 //! [`doubao_frame`] is the bounded decoder for one provider's wire format.
 //! [`local_models`] installs the on-device models the `local` provider runs, and [`hotwords`] turns the user dictionary into their hotword list.
+//! [`numbers`] 把不自带 ITN 的模型写出的汉字数字改成数字。
 
 pub mod controller;
 pub mod doubao_frame;
 pub mod hotwords;
 pub mod local_models;
+pub mod numbers;
 pub mod provider;
 
 /// Whether a host supplied voice operation identifier fits the shared wire contract.

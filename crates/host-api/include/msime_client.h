@@ -518,6 +518,8 @@ typedef void (*msime_client_voice_local_model_progress_callback)(const uint8_t *
                                                                  void *context);
 char *msime_client_voice_hotwords(const uint8_t *request, size_t length);
 char *msime_client_voice_hotword_correct(const uint8_t *request, size_t length);
+/* voice_normalize_numbers: {text, kind} -> {text}. 本地模型最终文本里汉字写的数字改成数字（二零零二年 → 2002年，百分之五十七 → 57%），一个、十分有趣这类词不动。只改写不自带 ITN 的 kind（online_transducer、offline_transducer），其他 kind 原样返回，宿主对每个本地模型的最终文本都可以调用；只用于最终文本，不用于中间结果。Pure. text 上限 10000 个 Unicode 标量，kind 上限 64 字节，请求 <=1048576 字节。 */
+char *msime_client_voice_normalize_numbers(const uint8_t *request, size_t length);
 char *msime_client_voice_local_models(const uint8_t *request, size_t length);
 char *msime_client_voice_local_model_install(
     const uint8_t *request, size_t length,

@@ -12963,6 +12963,47 @@ fn voice_hotword_correction_rewrites_homophones() {
 }
 
 #[test]
+fn voice_number_normalization_follows_the_model_kind() {
+    let call = |text: &str, kind: &str| {
+        let request = json!({ "text": text, "kind": kind }).to_string();
+        read(unsafe { msime_client_voice_normalize_numbers(request.as_ptr(), request.len()) })
+    };
+    assert_eq!(
+        call(
+            "二零零二年收窄了百分之五十七，一夜之间",
+            "offline_transducer"
+        ),
+        json!({"ok": true, "value": {"text": "2002年收窄了57%，一夜之间"}})
+    );
+    assert_eq!(
+        call("下午三点十分出发", "online_transducer"),
+        json!({"ok": true, "value": {"text": "下午3点10分出发"}})
+    );
+    // 自带 ITN 的模型不再改写，汉字留给它自己决定。
+    assert_eq!(
+        call("二零零二年", "offline_sense_voice"),
+        json!({"ok": true, "value": {"text": "二零零二年"}})
+    );
+    let missing_kind = b"{\"text\": \"x\"}";
+    assert_eq!(
+        read(unsafe {
+            msime_client_voice_normalize_numbers(missing_kind.as_ptr(), missing_kind.len())
+        })["ok"],
+        false
+    );
+    let too_long = json!({ "text": "一".repeat(10_001), "kind": "offline_transducer" }).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_voice_normalize_numbers(too_long.as_ptr(), too_long.len()) })
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_voice_normalize_numbers(std::ptr::null(), 4) })["ok"],
+        false
+    );
+}
+
+#[test]
 fn voice_hotword_correction_preserves_an_exact_dictionary_word() {
     let request = json!({
         "text": "名天和铭天",

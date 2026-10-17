@@ -38,7 +38,7 @@ struct LocalAsrOptions {
   std::string model_dir;
   // Host language tag ("zh-CN", "en", "auto", ...). Models that cannot take a hint ignore it.
   std::string language;
-  // 让识别偏向的词。Transducer 和 FunASR-nano 模型原生支持它们；其他模型忽略它们，由宿主事后修正文本（client-providers 的 `voice::hotwords`）。
+  // 让识别偏向的词。Transducer（流式与离线）和 FunASR-nano 模型原生支持它们；其他模型忽略它们，由宿主事后修正文本（client-providers 的 `voice::hotwords`）。
   std::vector<std::string> hotwords;
   // 0 picks from the hardware.
   int threads = 0;
@@ -55,6 +55,8 @@ public:
   LocalAsrSession &operator=(const LocalAsrSession &) = delete;
 
   void accept(const float *samples, std::size_t count);
+  // 经过 Silero VAD 的整段模型：VAD 此刻是否判定在说话（处在一段语音之中）。这类模型只在一段说完后才出文字，宿主按「多久没有新文字」判断说完会在用户连续说话时提前结束录音，应改看这里。流式模型没有 VAD，始终为 false，它的文字本身随说话更新。
+  bool speech_detected() const;
   // Flushes the remaining audio and returns the whole transcript. The session is spent afterwards.
   std::string finish();
 
@@ -75,5 +77,9 @@ std::size_t release_local_models();
 
 // Joins what the models print into what a person would type: no space before or after CJK punctuation, and runs of single capital letters that a BPE model spells out ("P R", "C I") closed up. Exposed for tests.
 std::string tidy_local_transcript(std::string_view text);
+
+// 按模型的 token 表整理 transducer 的原生热词（每行一个，交给 sherpa-onnx），并在 `modeling_unit` 里给出编码它们实际要用的建模单位：token 表里的汉字都写成独立的词（`▁写`）时为 `bpe`，热词的汉字之间隔空格；否则沿用清单的 `manifest_unit`。编码不了的词整个丢掉，不连累其他词。Exposed for tests.
+std::string transducer_hotword_lines(const std::vector<std::string> &words, const std::vector<std::string> &tokens,
+                                     const std::string &manifest_unit, std::string &modeling_unit);
 
 } // namespace msime::voice

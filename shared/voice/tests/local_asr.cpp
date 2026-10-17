@@ -20,6 +20,38 @@ int main() {
     assert(tidy_local_transcript("A B C") == "ABC");
     assert(tidy_local_transcript("最后 deploy 到 staging 环境 。") == "最后 deploy 到 staging 环境。");
     assert(tidy_local_transcript("").empty());
+    assert(tidy_local_transcript("昨天是 monday.Today is 礼拜二。The day after tomorrow 是星期三.") ==
+           "昨天是 monday. Today is 礼拜二。The day after tomorrow 是星期三。");
+    assert(tidy_local_transcript("真的吗?好的!那就这样,走吧") == "真的吗？好的！那就这样，走吧");
+    assert(tidy_local_transcript("版本 3.5 和 U.S. 还有 e.g. 不变") == "版本 3.5 和 U.S. 还有 e.g. 不变");
+    assert(tidy_local_transcript("Done.Next step") == "Done. Next step");
+    // 只有汉字后面的半角标点换成全角；其他非 ASCII 字母后面照旧。
+    assert(tidy_local_transcript("我们去 café.") == "我们去 café.");
+    assert(tidy_local_transcript("𠮷野家.") == "𠮷野家。");
+
+    // X-ASR 的 token 表：汉字只以带词首标记的独立词出现。热词按 bpe 编码，字间隔空格；token 表里没有的字让整个词作废。
+    {
+        const std::vector<std::string> xasr = {"<blk>", "▁写", "▁上", "▁去", "▁现", "▁在", "▁时", "▁the", "▁，"};
+        std::string unit;
+        assert(transducer_hotword_lines({"写上去", "现在时", "GitHub 写", "写A", "鹅", "C++"}, xasr, "cjkchar+bpe", unit) ==
+               "写 上 去\n现 在 时\nGitHub 写\n写 A\n");
+        assert(unit == "bpe");
+    }
+    // 有不带前缀的汉字 token 时照清单编码：汉字连写，要求 token 表里有这个字本身。
+    {
+        const std::vector<std::string> chars = {"<blk>", "写", "上", "去", "▁写"};
+        std::string unit;
+        assert(transducer_hotword_lines({"写上去", "现在"}, chars, "cjkchar+bpe", unit) == "写上去\n");
+        assert(unit == "cjkchar+bpe");
+    }
+    // 只有英文的词首 token（▁the）不算汉字写成独立的词。
+    {
+        std::string unit;
+        assert(transducer_hotword_lines({"hello"}, {"▁the", "▁and"}, "bpe", unit) == "hello\n");
+        assert(unit == "bpe");
+        transducer_hotword_lines({}, {"▁the"}, "cjkchar+bpe", unit);
+        assert(unit == "cjkchar+bpe");
+    }
 
     const auto root = fs::temp_directory_path() / "msime-local-asr-test";
     fs::remove_all(root);
