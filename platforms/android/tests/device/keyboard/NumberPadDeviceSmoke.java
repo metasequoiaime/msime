@@ -37,9 +37,15 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             // 直接数字布局只验几何和字面输入，先关闭统计，避免这轮异步刷盘污染后面的方案增量断言。
             publish(statistics, "{\"enabled\":false,\"days\":{}}".getBytes(StandardCharsets.UTF_8));
             restartIme();
-            stage = "direct number editor grid";
+            // 同一个输入法服务先停在普通文本框的 #+= 页，再进入数字框，验证编辑器切换不会泄漏符号页状态。
+            stage = "direct number editor resets stale symbols";
+            openEditor();
+            tap(key("123"));
+            tap(key("#+="));
+            await(key("123"));
             openNumberEditor();
             assertGrid();
+            stage = "direct number editor grid";
             typeLiteral("1203");
             await(field("msime-test-number").and(node -> equalsText("1203", node.getText())));
             // 直接数字输入的布局验收不与后续方案统计共用异步文件；清掉这轮合成按键后再建立数字页基线。

@@ -10,7 +10,7 @@ Status: implemented
 
 Android 把 `TYPE_CLASS_NUMBER` 和 `TYPE_CLASS_PHONE` 识别为直接数字输入。输入会话开始时把键层设为数字层，键行复用现有数字九宫格、左侧符号栏、删除/小数点/空格侧列以及底行 `0`，不创建 Engine 会话。数字密码沿用同一布局，但仍由既有隐私策略排除统计和云功能。用户可以用现有层切换键回到字母键盘，满足应用需要时的回退路径。
 
-数字输入的判定放在 `EditorPolicy`，键区只通过 `MSIMEInputService#directNumberPad` 读取；这样数字键盘的入口不会复制到渲染代码，也不会改变中文输入框点击 `123` 的既有方案判定。数字页的 `#+=`、符号、删除、空格手势和 `0` 仍沿用现有组件。
+数字输入的判定放在 `EditorPolicy`，键区只通过 `MSIMEInputService#directNumberPad` 读取；这样数字键盘的入口不会复制到渲染代码，也不会改变中文输入框点击 `123` 的既有方案判定。数字页的 `#+=`、符号、删除、空格手势和 `0` 仍沿用现有组件。每次重建数字输入框的键行时同时清除 `ImeLetterRows#moreSymbols`，避免同一个输入法服务从普通文本框切换过来后把旧的 `#+=` 页带进数字框。
 
 ## Alternatives considered
 
@@ -24,4 +24,4 @@ Android 把 `TYPE_CLASS_NUMBER` 和 `TYPE_CLASS_PHONE` 识别为直接数字输�
 
 ## Verification
 
-`EditorSmoke` 覆盖普通数字、数字密码、电话输入和文本输入的分类边界；设备测试编辑器增加合成数字输入框，`NumberPadDeviceSmoke` 在 API 28 专用模拟器上检查它首次弹出的三列九宫格并输入 `1203`。`platforms/android/check-host.sh` 的 241 项 Android JVM 冒烟、`scripts/verify-local.sh --quick`、`pnpm run verify-notes` 和 API 28 `smoke.sh emulator-5566 --core` 均通过；后者还覆盖现有数字页全拼、双拼、14 键、九键、笔画和注音九键回归。
+`EditorSmoke` 覆盖普通数字、数字密码、电话输入和文本输入的分类边界；设备测试编辑器增加合成数字输入框，`NumberPadDeviceSmoke` 在 API 28 专用模拟器上先让普通文本框停在 `#+=` 页，再切换数字框，检查三列九宫格并输入 `1203`。`platforms/android/check-host.sh` 的 242 项 Android JVM 冒烟和 Gradle Java/Lint 构建通过；API 28 上单独运行 `NumberPadDeviceSmoke` 通过。完整 `smoke.sh emulator-5566 --core` 在无关的剪贴板导出取消选择阶段失败。

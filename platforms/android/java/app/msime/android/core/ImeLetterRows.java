@@ -595,7 +595,8 @@ final class ImeLetterRows {
         hideKeyPreview();
         secondRowLeadingIndent = null;
         secondRowTrailingIndent = null;
-        if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS) moreSymbols = false;
+        // 数字输入框沿用同一个输入法服务实例时，不能继承上一个文本框停留的 #+= 页。
+        if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS || s.directNumberPad()) moreSymbols = false;
         builtNumberPad = numberPadDrawn();
         s.imeLayoutRows.hideJapaneseFlickPreview();
         s.deactivateHandwriting();
