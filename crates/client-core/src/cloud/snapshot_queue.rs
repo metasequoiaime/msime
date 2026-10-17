@@ -14,6 +14,8 @@ use std::{
 use thiserror::Error;
 use uuid::Uuid;
 
+mod android_v1;
+
 const MAXIMUM_SNAPSHOT_BYTES: u64 = 512 * 1024 * 1024;
 const MAXIMUM_STATE_BYTES: u64 = 65_536;
 const STATE_NAME: &str = "state.json";
@@ -205,17 +207,29 @@ impl DictionarySnapshotQueue {
         }
     }
 
+    /// 读出队列状态。还没有 `state.json` 时读 Android 旧版的 `state.bin`（只读，转换只在持锁时做，见 [`Self::import_android_v1_at`]），两份都没有是空状态。
     fn read_from(
         directory: &crate::file_lock::PrivateDirectory,
     ) -> Result<SnapshotQueueState, SnapshotQueueError> {
+        if let Some(state) = Self::read_json(directory)? {
+            return Ok(state);
+        }
+        if let Some(state) = android_v1::read(directory)? {
+            return Ok(state);
+        }
+        // 转换先写好 state.json 才删 state.bin。不持锁的读者两次都没读到时可能正好夹在另一个进程的转换中间，再读一次 state.json。
+        Ok(Self::read_json(directory)?.unwrap_or(SnapshotQueueState {
+            version: 1,
+            ..SnapshotQueueState::default()
+        }))
+    }
+
+    fn read_json(
+        directory: &crate::file_lock::PrivateDirectory,
+    ) -> Result<Option<SnapshotQueueState>, SnapshotQueueError> {
         let file = match crate::file_lock::open_private_file_at(directory, OsStr::new(STATE_NAME)) {
             Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(SnapshotQueueState {
-                    version: 1,
-                    ..SnapshotQueueState::default()
-                });
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
                 return Err(SnapshotQueueError::Invalid);
             }
@@ -236,7 +250,41 @@ impl DictionarySnapshotQueue {
         let state: SnapshotQueueState =
             serde_json::from_slice(&bytes).map_err(|_| SnapshotQueueError::Invalid)?;
         state.validate()?;
-        Ok(state)
+        Ok(Some(state))
+    }
+
+    /// 在已经持有 `state.lock` 的目录里把 Android 旧版的 `state.bin` 就地转成 `state.json`，返回这一次是否转换了。快照文件两边同名（`<id>.ndjson`），原样留着，不复制。
+    ///
+    /// 顺序是先原子地写好 `state.json`、对目录 fsync，再删 `state.bin`：中途崩溃或断电时要么只有 `state.bin`（下一次重新转换），要么两份都在（下一次只补删 `state.bin`），队列不会丢。已经有 `state.json` 时一律以它为准，不再读 `state.bin`。`state.bin` 读不懂时是 `Invalid`，两份文件都不动，与 `state.json` 读不懂时相同。
+    fn import_android_v1_at(
+        directory: &crate::file_lock::PrivateDirectory,
+    ) -> Result<bool, SnapshotQueueError> {
+        match crate::file_lock::open_private_file_at(directory, OsStr::new(STATE_NAME)) {
+            Ok(_) => return remove_android_v1_state(directory).map(|()| false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+                return Err(SnapshotQueueError::Invalid);
+            }
+            Err(_) => return Err(SnapshotQueueError::Unavailable),
+        }
+        let Some(state) = android_v1::read(directory)? else {
+            return Ok(false);
+        };
+        Self::write_to(directory, &state)?;
+        directory
+            .sync_all()
+            .map_err(|_| SnapshotQueueError::Unavailable)?;
+        remove_android_v1_state(directory)?;
+        Ok(true)
+    }
+
+    /// Android 旧版队列（Java 写的 `state.bin`）就地转成 `state.json`，在 `state.lock` 的 flock 里做，要等正在持锁的激活做完。返回这一次是否转换了：目录不存在、没有 `state.bin`、或者已经转换过时是 `false`，什么也不改，也不创建目录。其余会改状态的操作持锁时也先做同样的转换，所以 `:ime` 进程先跑起来也不会把旧队列当成空的覆盖掉。
+    pub fn import_android_v1(&self) -> Result<bool, SnapshotQueueError> {
+        if self.existing_root()?.is_none() {
+            return Ok(false);
+        }
+        let lock = self.lock_wait()?;
+        Self::import_android_v1_at(&lock.directory)
     }
 
     fn write_to(
@@ -260,10 +308,28 @@ impl DictionarySnapshotQueue {
         ) -> Result<T, SnapshotQueueError>,
     ) -> Result<T, SnapshotQueueError> {
         let lock = self.lock(STATE_LOCK_NAME)?;
+        Self::import_android_v1_at(&lock.directory)?;
         let mut state = Self::read_from(&lock.directory)?;
         let result = action(&lock, &mut state)?;
         Self::write_to(&lock.directory, &state)?;
         Ok(result)
+    }
+
+    /// 等着拿到 `state.lock`，不像 [`Self::lock`] 那样在别人持锁时报 `Busy`。
+    fn lock_wait(&self) -> Result<SnapshotQueueLock, SnapshotQueueError> {
+        let root = self.root()?;
+        let directory = crate::file_lock::open_private_directory(&root)
+            .map_err(|_| SnapshotQueueError::Unavailable)?;
+        let file =
+            crate::file_lock::open_private_lock_file_at(&directory, OsStr::new(STATE_LOCK_NAME))
+                .map_err(|_| SnapshotQueueError::Unavailable)?;
+        let file = crate::file_lock::ScopedFileLock::exclusive(file)
+            .map_err(|_| SnapshotQueueError::Unavailable)?;
+        Ok(SnapshotQueueLock {
+            directory,
+            root,
+            _file: file,
+        })
     }
 
     fn update_wait<T>(
@@ -273,19 +339,8 @@ impl DictionarySnapshotQueue {
             &mut SnapshotQueueState,
         ) -> Result<T, SnapshotQueueError>,
     ) -> Result<T, SnapshotQueueError> {
-        let root = self.root()?;
-        let directory = crate::file_lock::open_private_directory(&root)
-            .map_err(|_| SnapshotQueueError::Unavailable)?;
-        let file =
-            crate::file_lock::open_private_lock_file_at(&directory, OsStr::new(STATE_LOCK_NAME))
-                .map_err(|_| SnapshotQueueError::Unavailable)?;
-        let file = crate::file_lock::ScopedFileLock::exclusive(file)
-            .map_err(|_| SnapshotQueueError::Unavailable)?;
-        let lock = SnapshotQueueLock {
-            directory,
-            root,
-            _file: file,
-        };
+        let lock = self.lock_wait()?;
+        Self::import_android_v1_at(&lock.directory)?;
         let mut state = Self::read_from(&lock.directory)?;
         let result = action(&lock, &mut state)?;
         Self::write_to(&lock.directory, &state)?;
@@ -676,6 +731,16 @@ fn delete_snapshot_at(
     id: Uuid,
 ) -> Result<(), SnapshotQueueError> {
     match crate::file_lock::remove_private_file_at(directory, OsStr::new(&format!("{id}.ndjson"))) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(SnapshotQueueError::Unavailable),
+    }
+}
+
+fn remove_android_v1_state(
+    directory: &crate::file_lock::PrivateDirectory,
+) -> Result<(), SnapshotQueueError> {
+    match crate::file_lock::remove_private_file_at(directory, OsStr::new(android_v1::STATE_NAME)) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(_) => Err(SnapshotQueueError::Unavailable),

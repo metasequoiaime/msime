@@ -86,6 +86,18 @@ impl PrivateDirectory {
     pub fn metadata(&self) -> io::Result<std::fs::Metadata> {
         crate::storage::private_directory_metadata(&self.directory)
     }
+
+    /// 让这个目录里已经做完的新建、改名和删除落盘：Unix 上对目录本身 fsync；其他平台没有对目录的同步调用，什么也不做。
+    pub fn sync_all(&self) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            self.directory.sync_all()
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(())
+        }
+    }
 }
 
 pub fn open_private_directory_at(

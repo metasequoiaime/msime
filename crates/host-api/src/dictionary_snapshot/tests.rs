@@ -1678,3 +1678,47 @@ fn a_snapshot_is_inspected_without_side_effects() {
         .request(serde_json::json!({"operation": "inspect_snapshot", "source": backup}))
         .is_err());
 }
+
+#[test]
+fn snapshot_queue_imports_the_android_v1_state_once() {
+    // Java `DataOutputStream` 写的 state.bin：魔数、版本 1、有本机版本（writeUTF）、没有请求。
+    let version = format!("local-v1:legacy:{}", "a".repeat(64));
+    let mut legacy = b"MSQ1".to_vec();
+    legacy.extend_from_slice(&1u32.to_be_bytes());
+    legacy.push(1);
+    legacy.extend_from_slice(&(version.len() as u16).to_be_bytes());
+    legacy.extend_from_slice(version.as_bytes());
+    legacy.push(0);
+    let parent = tempfile::tempdir().unwrap();
+    let directory = parent.path().join("dictionary-snapshots");
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::write(directory.join("state.bin"), &legacy).unwrap();
+    let request = serde_json::json!({"operation": "import_android_v1", "directory": directory});
+    let request = serde_json::to_vec(&request).unwrap();
+
+    let first = super::snapshot_queue_json(&request).unwrap();
+    assert_eq!(first["imported"], true);
+    assert_eq!(first["state"]["localVersion"], version.as_str());
+    assert!(first["state"]["request"].is_null());
+    assert!(!directory.join("state.bin").exists());
+    assert!(directory.join("state.json").exists());
+
+    let second = super::snapshot_queue_json(&request).unwrap();
+    assert_eq!(second["imported"], false);
+    assert_eq!(second["state"], first["state"]);
+
+    let missing = parent.path().join("missing");
+    let request = serde_json::json!({"operation": "import_android_v1", "directory": missing});
+    let response = super::snapshot_queue_json(&serde_json::to_vec(&request).unwrap()).unwrap();
+    assert_eq!(response["imported"], false);
+    assert!(!missing.exists());
+
+    std::fs::remove_file(directory.join("state.json")).unwrap();
+    std::fs::write(directory.join("state.bin"), &legacy[..legacy.len() - 1]).unwrap();
+    let request = serde_json::json!({"operation": "import_android_v1", "directory": directory});
+    assert_eq!(
+        super::snapshot_queue_json(&serde_json::to_vec(&request).unwrap()).unwrap_err(),
+        "snapshot_invalid"
+    );
+    assert!(directory.join("state.bin").exists());
+}

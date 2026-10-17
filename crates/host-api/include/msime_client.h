@@ -316,6 +316,7 @@ char *msime_client_snapshot_inspect(const uint8_t *path, size_t length);
 char *msime_client_snapshot_restore(const uint8_t *request, size_t request_length,
                                     const uint8_t *path, size_t path_length);
 /* Crash-safe queue state, enqueue, cancellation and idle processing. */
+/* {operation:"import_android_v1", directory} → {imported, state}：把 Android 旧版 Java 队列（DictionarySnapshotQueue.java）的 state.bin 就地转成本队列的 state.json，在 state.lock 的 flock 里做（等正在持锁的激活做完），快照文件两边同名（<id>.ndjson），原样留着、不复制。先原子地写好 state.json、对目录 fsync，再删 state.bin，中途中断时下一次接着做，队列不丢。目录不存在（不会创建）、没有 state.bin、或者已经有 state.json（只补删留下的 state.bin）时 imported 为 false，什么也不改；state 是转换以后的队列状态，形状同其他操作。state.bin 读不懂（截断、魔数或版本不对、字段不合法）是 snapshot_invalid，两份文件都不动。其余会改队列的操作持锁时也先做同样的转换，还没转换时只读的读取直接解码 state.bin，所以 Android 的主进程和 :ime 谁先用到队列都不会把旧队列当成空的。 */
 char *msime_client_snapshot_queue(const uint8_t *request, size_t length);
 char *msime_client_snapshot_prepare(const uint8_t *request, size_t length,
                                      msime_client_snapshot_next next, void *context);

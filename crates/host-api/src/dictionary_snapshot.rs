@@ -101,6 +101,8 @@ enum SnapshotQueueAction {
         options: HostOptions,
         account_id: Option<String>,
     },
+    /// Android 旧版 Java 队列的 `state.bin` 就地转成 `state.json`（迁移计划 P13）。
+    ImportAndroidV1 { directory: String },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -1884,6 +1886,13 @@ fn run_snapshot_queue(action: SnapshotQueueAction) -> Result<Value, String> {
             options,
             account_id,
         ),
+        SnapshotQueueAction::ImportAndroidV1 { directory } => {
+            let queue = snapshot_queue(&directory)?;
+            let imported = queue.import_android_v1().map_err(snapshot_queue_error)?;
+            let state = serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
+                .map_err(|_| "snapshot_unavailable".to_owned())?;
+            Ok(json!({"imported": imported, "state": state}))
+        }
     }
 }
 
