@@ -46,6 +46,20 @@ enum AISkinService {
     return plans.map { .init(name: $0.name, description: $0.description, design: $0.design, artworkPrompt: $0.artworkPrompt) }
   }
 
+  /// 发给模型的描述。Rust 的 compose 拒收一切控制字符、按 Unicode 标量数限 500 个，而描述来自多行输入框：去掉首尾空白，内部的换行和制表符连同两侧空白折成一个空格；折完仍超过 500 个 Unicode 标量（emoji 常常一个字形占好几个）或含其他控制字符时为 nil，好在联网之前就提示，而不是白发一次模型目录请求再报「无法生成」。
+  static func requestPrompt(_ text: String) -> String? {
+    let folded = text.components(separatedBy: CharacterSet.newlines.union(CharacterSet(charactersIn: "\t")))
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+      .joined(separator: " ")
+    guard (1...maximumPromptScalars).contains(folded.unicodeScalars.count),
+          !folded.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else { return nil }
+    return folded
+  }
+
+  /// 与 Rust compose 的上限相同，按 Unicode 标量（Rust 的 char）计。
+  static let maximumPromptScalars = 500
+
   /// 调 `msime_client_ai_skin_plan`，成功时把 value 解成 `type`；被拒绝或读不懂时为 nil。
   private static func plan<Value: Decodable>(_ request: [String: Any], as type: Value.Type) -> Value? {
     guard let value = ClientRequestEnvelope.call(msimeClientAISkinPlan, request),
@@ -56,8 +70,9 @@ enum AISkinService {
   static func generate(_ prompt: String, client: BackendAccountClient = BackendAccountClient(),
                        account: BackendAccountSession = .shared,
                        progress: @MainActor @Sendable (Int) -> Void = { _ in }) async throws -> [AISkinProposal] {
-    let prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard (1...500).contains(prompt.count) else { throw ServiceFailure(message: "无法生成抽卡灵感，请重试。") }
+    guard let prompt = requestPrompt(prompt) else {
+      throw ServiceFailure(message: "描述太长或含有无法识别的字符，请删减后再试。")
+    }
     let identity = try await account.credentials()
     let catalog = try await client.chatModels(session: account, matchingUserID: identity.userID,
                                               matchingSessionID: identity.sessionID)

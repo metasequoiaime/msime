@@ -42,6 +42,23 @@ final class AISkinServiceTests: XCTestCase {
     XCTAssertThrowsError(try AISkinService.messages(prompt: String(repeating: "景", count: 501), model: "synthetic-model"))
     XCTAssertThrowsError(try AISkinService.messages(prompt: "竹林", model: ""))
   }
+  /// 多行输入框里的换行和制表符折成一个空格再交给 Rust（Rust 拒收一切控制字符）；500 个字的上限按 Unicode 标量计，与 Rust 相同，超出的在联网之前就拒绝。
+  func testMultilinePromptIsFoldedBeforeRust() throws {
+    XCTAssertThrowsError(try AISkinService.messages(prompt: "竹林里的熊猫\n茶会", model: "synthetic-model"))
+    let folded = try XCTUnwrap(AISkinService.requestPrompt("  竹林里的熊猫 \r\n\n  茶会\t夜色\n"))
+    XCTAssertEqual(folded, "竹林里的熊猫 茶会 夜色")
+    XCTAssertEqual(try AISkinService.messages(prompt: folded, model: "synthetic-model")[1].content, folded)
+    XCTAssertNil(AISkinService.requestPrompt(" \n\t "))
+    XCTAssertNil(AISkinService.requestPrompt("竹林\u{0007}茶会"))
+    // 一个家庭 emoji 是一个字形、七个 Unicode 标量：100 个就是 700 个标量，字形数没超 500，Rust 也会拒绝。
+    let family = String(repeating: "👨‍👩‍👧‍👦", count: 100)
+    XCTAssertLessThanOrEqual(family.count, 500)
+    XCTAssertNil(AISkinService.requestPrompt(family))
+    XCTAssertThrowsError(try AISkinService.messages(prompt: family, model: "synthetic-model"))
+    let limit = String(repeating: "景", count: AISkinService.maximumPromptScalars)
+    XCTAssertEqual(AISkinService.requestPrompt(limit), limit)
+    XCTAssertNoThrow(try AISkinService.messages(prompt: limit, model: "synthetic-model"))
+  }
   func testInvalidOrDuplicateDesignNeverBecomesASkin() throws {
     for text in ["```json\n{}\n```", "{}", try response { $0.removeLast() },
                  try response { $0[0]["background"] = "https://example.com/image.png" },
