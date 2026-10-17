@@ -5,7 +5,7 @@ import { HarmonyHttpAsrRecognizer } from './HarmonyHttpAsrRecognizer';
 import { HarmonyVoicePolisher } from './HarmonyVoicePolisher';
 import { DoubaoCredentialPolicy, VoiceInputConfiguration } from './VoiceInputConfiguration';
 import { HttpAsrConfigurationPolicy } from './HttpAsrConfigurationPolicy';
-import { HarmonyLocalAsrRecognizer } from './HarmonyLocalAsrRecognizer';
+import { HarmonyLocalAsrRecognizer, LocalAsrSpeechHandler } from './HarmonyLocalAsrRecognizer';
 import { HarmonyPcmCapture } from './HarmonyPcmCapture';
 import { LocalAsrPolicy, PcmFrameSlicer, SpeechSentenceAccumulator } from './LocalAsrPolicy';
 import { KeyboardLog, describeError } from '../KeyboardLog';
@@ -36,10 +36,11 @@ export class HarmonyVoiceRecognizer {
   private finalDelivered: boolean = false;
 
   /**
-   * `hotwordOptions` are the prepared host options, used by the `local` provider to read the user's own words as hotwords; null skips them.
+   * `hotwordOptions` are the prepared host options, used by the `local` provider to read the user's own words as hotwords; null skips them. `onSpeech` 只有 `local` 提供方中经过 VAD 的整段模型会调用，报告此刻是否听到说话。
    */
   async start(language: string, config: VoiceInputConfiguration, onResult: VoiceResultHandler,
-    onError: VoiceErrorHandler, hotwordOptions: Object | null = null): Promise<void> {
+    onError: VoiceErrorHandler, hotwordOptions: Object | null = null,
+    onSpeech: LocalAsrSpeechHandler | undefined = undefined): Promise<void> {
     try {
       // 一项凭据都没填的豆包（出厂配置）照旧交给系统识别；填过的按豆包走，缺项直接报出来。
       const doubaoProvider: boolean = DoubaoCredentialPolicy.attempted(config);
@@ -84,7 +85,7 @@ export class HarmonyVoiceRecognizer {
         return;
       }
       if (localProvider) {
-        await this.local.start(config, hotwordOptions, deliver, onError);
+        await this.local.start(config, hotwordOptions, deliver, onError, onSpeech);
         return;
       }
       this.generation = (this.generation + 1) % 1000000000;
