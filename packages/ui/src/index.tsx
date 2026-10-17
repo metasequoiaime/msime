@@ -1329,6 +1329,12 @@ export {
 export { TextSettingField, type TextSettingFieldProps } from "./settings/text-setting-field";
 export { SelectSettingField, type SelectSettingFieldProps } from "./settings/select-setting-field";
 export { ModelPickerRows, type ModelPickerRowsProps } from "./settings/model-picker-rows";
+export { modelPickerModel, type ModelPickerModel } from "./settings/model-picker-model";
+export {
+  useModelPickerRows,
+  type ModelPickerRowsState,
+  type UseModelPickerRowsOptions,
+} from "./settings/use-model-picker-rows";
 export {
   EndpointSettingField,
   type EndpointSettingFieldProps,

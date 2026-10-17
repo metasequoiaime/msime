@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { SelectRow } from "./select-row";
 import { TextInputRow } from "./text-input-row";
+import { useModelPickerRows } from "./use-model-picker-rows";
 
 /** 「自定义…」的选项值：已知模型里的空名字都滤掉了，所以空值不会和哪个模型撞上。 */
 const CUSTOM = "";
@@ -29,11 +30,7 @@ export function ModelPickerRows({
   model,
   onChange,
 }: ModelPickerRowsProps) {
-  const known = [...new Set(models.filter((entry) => entry.length > 0))];
-  const listKey = known.join("\n");
-  const [requested, setRequested] = useState({ listKey, custom: false });
-  const custom = (requested.listKey === listKey && requested.custom) || !known.includes(model);
-  const requestCustom = (value: boolean) => setRequested({ listKey, custom: value });
+  const { known, custom, select, edit } = useModelPickerRows({ models, model, onChange });
   if (known.length === 0)
     return (
       <TextInputRow
@@ -52,9 +49,7 @@ export function ModelPickerRows({
         aria-label={label}
         value={custom ? CUSTOM : model}
         onChange={(event) => {
-          const value = event.target.value;
-          requestCustom(value === CUSTOM);
-          if (value !== CUSTOM) onChange(value);
+          select(event.target.value);
         }}
       >
         {known.map((entry) => (
@@ -70,8 +65,7 @@ export function ModelPickerRows({
           label={`${label}（自定义）`}
           value={model}
           onChange={(value) => {
-            requestCustom(true);
-            onChange(value);
+            edit(value);
           }}
         />
       )}
