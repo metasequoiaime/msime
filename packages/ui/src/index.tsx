@@ -607,6 +607,7 @@ export { isComposingKeyEvent } from "./core/ime-key-event";
 export { exceptionMessage } from "./core/exception-message";
 export { useSettledSlider } from "./core/use-settled-slider";
 export { useFullScreenScrollToTop } from "./core/use-full-screen-scroll-to-top";
+export { focusAndRevealNearest } from "./core/focus-and-reveal-nearest";
 export {
   subscribeToWindowBlur,
   subscribeToWindowEvent,
