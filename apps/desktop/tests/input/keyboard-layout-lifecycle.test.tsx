@@ -66,3 +66,23 @@ test("invalid saved layout falls back to the host layout", () => {
   render(<KeyboardPanel client={client} layout="nine_key" />);
   expect(currentLayout()).toBe("nine_key");
 });
+
+test("nine-key shuangpin shows host key faces while sending digits", async () => {
+  const sendKey = vi.fn().mockResolvedValue(undefined);
+  render(
+    <KeyboardPanel
+      client={{ close: async () => {}, sendKey }}
+      layout="nine_key_shuangpin"
+      nineKeyShuangpinKeys={[{ key: "1", initials: ["b"], finals: ["a"], zero_initial: false }]}
+    />,
+  );
+  const one = screen.getByRole("button", { name: "1b · a" });
+  expect(one.textContent).toContain("b");
+  expect(one.textContent).toContain("a");
+  fireEvent.click(one);
+  await vi.waitFor(() =>
+    expect(sendKey).toHaveBeenCalledWith(
+      expect.objectContaining({ virtual_key: 0x31, shift: false }),
+    ),
+  );
+});

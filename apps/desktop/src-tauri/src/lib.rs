@@ -75,7 +75,8 @@ use msime_client_core::panels::{
     HandwritingRecognitionRequest, HandwritingRecognitionResult, KeyboardInputRequest,
 };
 use msime_client_core::preferences::{
-    Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
+    NineKeyShuangpinProfile, Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
+    ShuangpinCustomProfile,
 };
 use msime_client_services::skin::custom_library::{
     CustomSkinLibraryAction, CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
@@ -1085,6 +1086,15 @@ fn builtin_shuangpin_table(
     name: msime_client_core::preferences::ShuangpinProfile,
 ) -> Option<msime_client_core::preferences::ShuangpinCustomProfile> {
     msime_host_api::builtin_shuangpin_custom_profile(name)
+}
+
+/// 屏幕键盘读取当前九键双拼键面；计算复用 host-api，不在共享 UI 里复制词法表。
+#[tauri::command]
+fn nine_key_shuangpin_layout(
+    profile: NineKeyShuangpinProfile,
+    table: ShuangpinCustomProfile,
+) -> msime_host_api::NineKeyShuangpinLayout {
+    msime_host_api::nine_key_shuangpin_layout(profile, &table)
 }
 
 #[derive(Clone)]
@@ -5527,6 +5537,7 @@ pub fn run() {
             resolve_theme,
             validate_shuangpin_custom_profile,
             builtin_shuangpin_table,
+            nine_key_shuangpin_layout,
             read_skin_image,
             read_skin_font,
             read_skin_stylesheet,

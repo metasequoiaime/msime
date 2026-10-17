@@ -7,13 +7,17 @@ import {
   type SurfaceTheme,
   type TouchKeyboardSkinDesign,
   keyboardThemeId,
+  type NineKeyShuangpinKeyFace,
 } from "@msime/ui";
 import { useCandidatePreviewTheme } from "../../../../packages/ui/src/candidate/candidate-preview-theme";
 import { touchKeyboardGeometryPreferences } from "../../../../packages/ui/src/settings/touch-keyboard-geometry-preferences";
 import { defaultTouchKeyboardGeometry } from "../../../../packages/ui/src/settings/touch-keyboard-geometry-defaults";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-type ThemeClient = Pick<SettingsClient, "load" | "onPreferencesChanged" | "host">;
+type ThemeClient = Pick<
+  SettingsClient,
+  "load" | "onPreferencesChanged" | "host" | "nineKeyShuangpinLayout"
+>;
 
 /** 面板窗口读到的宿主能力：客户端已经知道的那份，否则是外壳报告的那份。键盘面板要用其中的平台和 `touch_keyboard_spacing`，各面板还要用 `surface_themes_follow` 决定读不读自己的单独明暗。 */
 type PanelHost = {
@@ -81,12 +85,33 @@ export function DesktopKeyboard({
   const { host: panelHost, resolved: hostResolved } = panelHostState;
   const platform = panelHost?.platform;
   const snapshot = usePreferencesSnapshot(preferences, true);
+  const [nineKeyShuangpinKeys, setNineKeyShuangpinKeys] = useState<
+    readonly NineKeyShuangpinKeyFace[]
+  >([]);
+  useEffect(() => {
+    if (snapshot?.preferences.touch_keyboard_layout !== "nine_key_shuangpin") return;
+    const profile = snapshot.preferences.nine_key_shuangpin_profile ?? "migala3";
+    const table = snapshot.preferences.nine_key_shuangpin_custom_profile;
+    const reader = preferences.nineKeyShuangpinLayout;
+    if (!reader) return;
+    let active = true;
+    void reader({ profile, table }).then((value) => {
+      if (active) setNineKeyShuangpinKeys(value?.keys ?? []);
+    });
+    return () => {
+      active = false;
+    };
+  }, [preferences, snapshot?.preferences]);
   const theme = useCandidatePreviewTheme(
     snapshot?.preferences.theme,
     panelSurfaceTheme(panelHostState, snapshot?.preferences.screen_keyboard_theme),
   );
   const layout =
-    snapshot?.preferences.touch_keyboard_layout === "nine_key" ? "nine_key" : "twenty_six_key";
+    snapshot?.preferences.touch_keyboard_layout === "nine_key_shuangpin"
+      ? "nine_key_shuangpin"
+      : snapshot?.preferences.touch_keyboard_layout === "nine_key"
+        ? "nine_key"
+        : "twenty_six_key";
   // 宿主声明间距不可调（macOS）时，面板固定用默认间距，不读存下的值：设置页在那里不给间距滑块，存下的旧值不能继续生效。宿主能力还没读到时也先按默认间距画，否则偏好先到的话 macOS 上会先画出存下的旧间距、再跳回默认。
   const { keySpacingTenths, rowSpacingTenths } = touchKeyboardGeometryPreferences(
     !hostResolved || panelHost?.touch_keyboard_spacing === false
@@ -115,6 +140,7 @@ export function DesktopKeyboard({
       platform={platform}
       theme={theme}
       layout={layout}
+      nineKeyShuangpinKeys={nineKeyShuangpinKeys}
       keySpacingTenths={keySpacingTenths}
       rowSpacingTenths={rowSpacingTenths}
       voiceShortcut={voiceShortcut}

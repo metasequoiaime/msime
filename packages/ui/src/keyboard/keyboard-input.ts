@@ -1,6 +1,7 @@
 export type Modifier = "Shift" | "Caps Lock" | "Ctrl" | "Alt" | "Win";
 export type KeyboardKey = {
   label: string;
+  hint?: string;
   shifted?: string;
   virtualKey: number;
   modifier?: Modifier;

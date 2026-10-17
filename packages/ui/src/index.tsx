@@ -1029,6 +1029,7 @@ export {
 } from "./settings/shuangpin-custom-editor";
 export type {
   NineKeyShuangpinLayout,
+  NineKeyShuangpinKeyFace,
   NineKeyShuangpinLayoutReader,
 } from "./settings/nine-key-shuangpin-profile";
 export {

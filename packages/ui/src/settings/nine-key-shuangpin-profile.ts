@@ -13,6 +13,15 @@ export interface NineKeyShuangpinLayout {
   effective: NineKeyShuangpinProfile;
   table: ShuangpinCustomProfile;
   problem: ShuangpinCustomProblem | null;
+  /** 按电话键盘 1 到 9、0 的顺序给屏幕键盘显示的键面。 */
+  keys?: readonly NineKeyShuangpinKeyFace[];
+}
+
+export interface NineKeyShuangpinKeyFace {
+  key: string;
+  initials: readonly string[];
+  finals: readonly string[];
+  zero_initial: boolean;
 }
 
 export type NineKeyShuangpinLayoutReader = (request: {

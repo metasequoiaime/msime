@@ -1,4 +1,5 @@
 import { key, modifier, type KeyboardKey } from "./keyboard-input";
+import type { NineKeyShuangpinKeyFace } from "../settings/nine-key-shuangpin-profile";
 
 export const keyboardRows: KeyboardKey[][] = [
   [
@@ -97,3 +98,24 @@ export const nineKeyRows: KeyboardKey[][] = [
   [key("Backspace", 0x08), key("0", 0x30), key("Enter", 0x0d)],
   [key("Space", 0x20, " ")],
 ];
+
+/** 把引擎返回的九键双拼键面叠到数字键上；实际发送仍是数字虚拟键。 */
+export function nineKeyShuangpinRows(keys: readonly NineKeyShuangpinKeyFace[]): KeyboardKey[][] {
+  const byKey = new Map(keys.map((item) => [item.key, item]));
+  const face = (keyName: string): KeyboardKey => {
+    const item = byKey.get(keyName);
+    const hint = item
+      ? [item.initials.join(" "), item.finals.join(" "), item.zero_initial ? "零声母" : ""]
+          .filter(Boolean)
+          .join(" · ")
+      : undefined;
+    return { label: keyName, hint, virtualKey: keyName.charCodeAt(0) };
+  };
+  return [
+    [face("1"), face("2"), face("3")],
+    [face("4"), face("5"), face("6")],
+    [face("7"), face("8"), face("9")],
+    [key("Backspace", 0x08), face("0"), key("Enter", 0x0d)],
+    [key("Space", 0x20, " ")],
+  ];
+}

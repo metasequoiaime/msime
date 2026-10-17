@@ -90,6 +90,8 @@ export const keyboardNotice =
 export const keyboardBody = "min-h-0 flex-1 px-[7px] pt-0 pb-[7px]";
 export const keyboardLayout = "flex h-full flex-col gap-[var(--keyboard-row-gap,4px)]";
 export const keyboardRow = "flex min-h-0 flex-1 gap-[var(--keyboard-key-gap,4px)]";
+export const keyboardKeyHint =
+  "block max-w-full overflow-hidden text-[9px]/[1.1] text-[var(--kb-heading)] opacity-80 whitespace-nowrap";
 /*
  * A key. `--kb-current-fill` is the indirection that lets an action key swap its own fill without
  * restating every other declaration, and the three materials layer on the same base.

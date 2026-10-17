@@ -295,6 +295,11 @@ const client: SettingsClient = {
   validateShuangpinCustomProfile: (profile) =>
     invoke("validate_shuangpin_custom_profile", { profile }),
   builtinShuangpinTable: (name) => invoke("builtin_shuangpin_table", { name }),
+  nineKeyShuangpinLayout: (request) =>
+    invoke("nine_key_shuangpin_layout", {
+      profile: request.profile,
+      table: request.table ?? {},
+    }),
   readSkinToolbarCss: (id, relative) =>
     relative
       ? invoke("read_skin_stylesheet", { id, relative })

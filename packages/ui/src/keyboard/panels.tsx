@@ -82,7 +82,8 @@ import {
 } from "./keyboard-input";
 import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import { keyboardDeliveryNotice, MACOS_KEYBOARD_GUIDANCE } from "./keyboard-delivery-notice";
-import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
+import { keyboardRows, nineKeyRows, nineKeyShuangpinRows } from "./panel-keyboard-layouts";
+import type { NineKeyShuangpinKeyFace } from "../settings/nine-key-shuangpin-profile";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import { CloudDictionaryEntryCard } from "./cloud-dictionary-entry-card";
 import { CloudDictionaryItem } from "./cloud-dictionary-item";
@@ -180,6 +181,7 @@ export function KeyboardPanel({
   platform,
   theme = "dark",
   layout = "twenty_six_key",
+  nineKeyShuangpinKeys,
   keySpacingTenths,
   rowSpacingTenths,
   voiceShortcut = false,
@@ -189,19 +191,29 @@ export function KeyboardPanel({
   client: PanelClient;
   platform?: string;
   theme?: "dark" | "light";
-  layout?: "twenty_six_key" | "nine_key";
+  layout?: "twenty_six_key" | "nine_key" | "nine_key_shuangpin";
+  nineKeyShuangpinKeys?: readonly NineKeyShuangpinKeyFace[];
   keySpacingTenths?: number;
   rowSpacingTenths?: number;
   voiceShortcut?: boolean;
   skin?: GlobalTheme;
   customDesign?: TouchKeyboardSkinDesign;
 }) {
-  const [activeLayout, setActiveLayout] = useState<"twenty_six_key" | "nine_key">(() => {
+  const [activeLayout, setActiveLayout] = useState<
+    "twenty_six_key" | "nine_key" | "nine_key_shuangpin"
+  >(() => {
     const saved = readOptionalStorage("msime.keyboard.layout");
-    return saved === "nine_key" || saved === "twenty_six_key" ? saved : layout;
+    return saved === "nine_key" || saved === "twenty_six_key" || saved === "nine_key_shuangpin"
+      ? saved
+      : layout;
   });
   function switchLayout() {
-    const next = activeLayout === "nine_key" ? "twenty_six_key" : "nine_key";
+    const next =
+      activeLayout === "twenty_six_key"
+        ? layout === "nine_key_shuangpin"
+          ? "nine_key_shuangpin"
+          : "nine_key"
+        : "twenty_six_key";
     setActiveLayout(next);
     writeOptionalStorage("msime.keyboard.layout", next);
   }
@@ -212,7 +224,12 @@ export function KeyboardPanel({
     previousHostLayout.current = layout;
     setActiveLayout(layout);
   }, [layout]);
-  const sourceRows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
+  const sourceRows =
+    activeLayout === "nine_key_shuangpin"
+      ? nineKeyShuangpinRows(nineKeyShuangpinKeys ?? [])
+      : activeLayout === "nine_key"
+        ? nineKeyRows
+        : keyboardRows;
   const rows =
     platform === "macos"
       ? sourceRows.map((row) => {
@@ -306,9 +323,12 @@ export function KeyboardPanel({
       if (!button) return;
       const letter = item.label.length === 1 && /[a-z]/i.test(item.label);
       const shifted = modifiers.has("Shift") && item.label.length === 1;
-      button.textContent = shifted
+      const face = shifted
         ? item.shifted || (letter ? item.label.toUpperCase() : item.label)
         : item.label;
+      const label = button.querySelector<HTMLElement>("[data-key-label]");
+      if (label) label.textContent = face;
+      else button.textContent = face;
       if (item.modifier)
         button.setAttribute("aria-pressed", modifiers.has(item.modifier) ? "true" : "false");
     });
@@ -510,7 +530,7 @@ export function KeyboardPanel({
           {notice}
         </span>
         <button type="button" aria-label="切换键盘布局" onClick={switchLayout}>
-          {activeLayout === "nine_key" ? "全键" : "九宫格"}
+          {activeLayout === "twenty_six_key" ? "九宫格" : "全键"}
         </button>
         {voiceShortcut && client.openVoice && (
           <button
@@ -541,7 +561,7 @@ export function KeyboardPanel({
                     key={`${keyToRender.label}-${keyIndex}`}
                     style={{
                       flexGrow:
-                        activeLayout === "nine_key"
+                        activeLayout === "nine_key" || activeLayout === "nine_key_shuangpin"
                           ? 1
                           : keyboardKeyWeight(
                               keyToRender.label,
@@ -576,7 +596,10 @@ export function KeyboardPanel({
                         );
                     }}
                   >
-                    {label}
+                    <span data-key-label="">{label}</span>
+                    {keyToRender.hint && (
+                      <span className={surface.keyboardKeyHint}>{keyToRender.hint}</span>
+                    )}
                   </button>
                 );
               })}
