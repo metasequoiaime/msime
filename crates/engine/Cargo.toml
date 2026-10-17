@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 msime-path-trust = { path = "../path-trust" }
-chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "c0206beca56519e306e2706fbab0a0f4f4be9607" }
+chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "44318ef29da18b7eea33ffe297b79f0d65a7a07e" }
 chinese-number = { version = "0.8", default-features = false, features = ["std", "number-to-chinese"] }
 # 藏文方案的 EWTS（扩展威利转写）到 Unicode 藏文的转换。MIT OR Apache-2.0，无依赖。
 ewts = "0.1.3"
