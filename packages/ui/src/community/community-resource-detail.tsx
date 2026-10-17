@@ -154,6 +154,7 @@ export function CommunityResourceDetail({
           client={client}
           kind={item.kind}
           existing={item}
+          localDictionary={localDictionary}
           onClose={closeEditor}
           onPublished={onPublished}
         />

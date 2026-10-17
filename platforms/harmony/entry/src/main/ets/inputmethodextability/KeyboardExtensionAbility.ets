@@ -10,6 +10,7 @@ import display from '@ohos.display';
 import window from '@ohos.window';
 import ConfigurationConstant from '@ohos.app.ability.ConfigurationConstant';
 import { KeyboardMetrics } from '../keyboard/KeyboardMetrics';
+import { TouchToolbarPolicy } from '../keyboard/TouchToolbarPolicy';
 import { KeyboardGeometry } from '../keyboard/KeyboardGeometry';
 import { KeyboardFormFactor } from '../keyboard/KeyboardFormFactor';
 import { HardwareKeyRouter, HardwareKey, HardwareKeyAction, HardwareKeyDecision }
@@ -963,9 +964,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
             settings.candidateShowPreedit, settings.candidateDecorationTopVp,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
             settings.candidatePreeditFontSize)
+          // 刚创建时还没有组字也没有面板，工具条画不画只看工具栏设置，视图之后按同一条规则（`TouchToolbarPolicy`）改高度。
           : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
-            settings.candidatePreeditFontSize);
+            settings.candidatePreeditFontSize, false, !TouchToolbarPolicy.rowHidden(settings.toolbarTools));
         // 软键盘占满屏幕宽度，候选窗口只按内容取宽，避免在桌面上遮住候选所对应的文本。
         const widthPx: number = desktop
           ? Math.round(KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * screen.densityPixels)

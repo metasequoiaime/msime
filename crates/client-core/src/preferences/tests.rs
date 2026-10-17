@@ -5011,6 +5011,44 @@ fn touch_toolbar_keeps_the_original_buttons_by_default_and_round_trips_partial_d
 }
 
 #[test]
+fn harmony_toolbar_defaults_to_every_tool_shown_and_stays_out_of_default_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let defaults = HarmonyToolbarPreferences::default();
+    // 默认就是没有这组设置时的鸿蒙键盘：五个工具全在，整行照常显示。
+    assert!(defaults.emoji && defaults.phrase && defaults.clipboard);
+    assert!(defaults.skin && defaults.scheme && !defaults.hidden);
+    let document = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(document.get("harmony_toolbar").is_none());
+
+    // 只写了几项的对象，其余按默认读。
+    let partial: HarmonyToolbarPreferences =
+        serde_json::from_value(serde_json::json!({"clipboard": false, "hidden": true})).unwrap();
+    assert!(!partial.clipboard && partial.hidden);
+    assert!(partial.emoji && partial.phrase && partial.skin && partial.scheme);
+
+    let edited = Preferences {
+        harmony_toolbar: HarmonyToolbarPreferences {
+            phrase: false,
+            hidden: true,
+            ..HarmonyToolbarPreferences::default()
+        },
+        ..Preferences::default()
+    };
+    assert_eq!(
+        serde_json::to_value(&edited).unwrap()["harmony_toolbar"],
+        serde_json::json!({
+            "emoji": true, "phrase": false, "clipboard": true,
+            "skin": true, "scheme": true, "hidden": true
+        })
+    );
+    let saved = store.save(0, edited).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    assert!(!saved.preferences.harmony_toolbar.phrase);
+    assert!(saved.preferences.harmony_toolbar.hidden);
+}
+
+#[test]
 fn saving_unchanged_preferences_keeps_the_revision_and_the_file() {
     let directory = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(directory.path());

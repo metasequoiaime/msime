@@ -268,8 +268,15 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         ViewPolicy.setImportantForAccessibility(plate,
             View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         int icon = ColorPolicy.parse(skin.toolbarIcon(), ThemeColorPolicy.subText(context));
+        boolean anyButton = false;
+        for (ToolbarOrderPolicy.Item button : ToolbarOrderPolicy.DEFAULT_ORDER)
+            anyButton |= toolbarButton(toolbar, settings, button.preferenceKey);
         if (settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN)) {
             TextView note = ViewPolicy.styledLabel(context, "工具栏已隐藏，只显示候选条", 13, 400, icon);
+            plate.addView(note);
+        } else if (!anyButton) {
+            // 键盘在工具按钮全关时不画这一行（MSIMEInputService.toolbarRowHidden），预览跟着说明。
+            TextView note = ViewPolicy.styledLabel(context, "没有打开的工具按钮，工具栏不显示，只显示候选条", 13, 400, icon);
             plate.addView(note);
         } else {
             addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)));

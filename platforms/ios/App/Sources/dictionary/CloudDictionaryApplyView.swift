@@ -77,12 +77,10 @@ struct CloudDictionaryApplyView: View {
     .task {
       await ViewRequestTask.poll(every: .seconds(2)) { refresh() }
     }
-    .onAppear { request.appear() }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $pending)
+    .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
       preview = nil; expectedVersion = nil; probe = ""
-    }
+    })
     .alert("替换本机词库？", isPresented: $confirming) {
       Button("取消", role: .cancel) { }
       Button("确认替换", role: .destructive) { enqueue() }

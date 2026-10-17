@@ -413,8 +413,11 @@ fn capabilities_describe_each_host() {
             other.touch_toolbar_components,
             platform == HostPlatform::Android
         );
+        // 只有 HarmonyOS 的键盘按 `harmony_toolbar` 选工具和显示方式。
+        assert_eq!(other.touch_toolbar_tools, platform == HostPlatform::Harmony);
     }
     assert!(ios.touch_toolbar_components);
+    assert!(!ios.touch_toolbar_tools);
     // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
     // panel shortcut row is real there now.
     assert!(windows.panel_shortcuts);

@@ -259,6 +259,16 @@ test("Harmony uses the mobile account flow instead of desktop account controls",
   expect(window.history.state).toMatchObject({ accountSubpage: "profile" });
 });
 
+test("mobile account restores a subpage already represented by history", async () => {
+  window.history.replaceState(
+    { msimeSettings: true, page: "account", accountSubpage: "download" },
+    "",
+  );
+  harmonyMe({ client: account(), desktopDownloadUrl: "https://msime.app/download/" });
+
+  expect(await screen.findByRole("heading", { name: "其他平台下载" })).not.toBeNull();
+});
+
 test("Harmony 2-in-1 uses desktop account controls even though its platform is Harmony", async () => {
   window.history.replaceState({ msimeSettings: true, page: "account" }, "");
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });

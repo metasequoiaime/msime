@@ -72,6 +72,7 @@ export function TouchKeyboardGeometrySection({
   voiceShortcutKind = "start-voice",
   toolbarComponents,
   toolbar,
+  harmonyToolbar,
   tabletFullKeys,
   tabletSplitKeyboard,
   glideTyping,
@@ -84,6 +85,7 @@ export function TouchKeyboardGeometrySection({
   onRowSpacingChange,
   onTouchVoiceShortcutChange,
   onToolbarChange,
+  onHarmonyToolbarChange,
   onTabletFullKeysChange,
   onTabletSplitKeyboardChange,
   onGlideTypingChange,
@@ -114,7 +116,7 @@ export function TouchKeyboardGeometrySection({
     height: showHeight,
     spacing: showSpacing,
     voiceShortcut: showVoiceShortcut,
-    toolbar: toolbarComponents,
+    toolbar: toolbarComponents || harmonyToolbar !== undefined,
   });
   const resetDescription = `${resetSubjects}回到默认`;
 
@@ -227,6 +229,8 @@ export function TouchKeyboardGeometrySection({
         toolbar={toolbar}
         onTouchVoiceShortcutChange={onTouchVoiceShortcutChange}
         onToolbarChange={onToolbarChange}
+        harmonyToolbar={harmonyToolbar}
+        onHarmonyToolbarChange={onHarmonyToolbarChange}
       />
       {(tabletFullKeys !== undefined ||
         tabletSplitKeyboard !== undefined ||

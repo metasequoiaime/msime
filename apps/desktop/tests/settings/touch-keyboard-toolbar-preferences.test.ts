@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
 import {
+  harmonyToolbarOptions,
+  harmonyToolbarPreferences,
   touchToolbarPreferences,
   touchToolbarOptions,
   type TouchToolbarPreferences,
@@ -50,4 +52,32 @@ test("每次解析返回新对象，不把显示缺省值写回输入", () => {
   expect(first).toEqual({ ...defaults, emoji: false });
   expect(second).not.toBe(first);
   expect(source).toEqual({ emoji: false });
+});
+
+test("鸿蒙工具栏缺省五个工具全在、不隐藏，缺键按缺省补齐且不改输入", () => {
+  expect(harmonyToolbarPreferences()).toEqual({
+    emoji: true,
+    phrase: true,
+    clipboard: true,
+    skin: true,
+    scheme: true,
+    hidden: false,
+  });
+  expect(harmonyToolbarOptions.map(([key]) => key)).toEqual([
+    "emoji",
+    "phrase",
+    "clipboard",
+    "skin",
+    "scheme",
+  ]);
+  const source = Object.freeze({ skin: false, hidden: true });
+  expect(harmonyToolbarPreferences(source)).toEqual({
+    emoji: true,
+    phrase: true,
+    clipboard: true,
+    skin: false,
+    scheme: true,
+    hidden: true,
+  });
+  expect(source).toEqual({ skin: false, hidden: true });
 });

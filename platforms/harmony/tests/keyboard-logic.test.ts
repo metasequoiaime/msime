@@ -1368,7 +1368,10 @@ group("offline dictionaries fill only what the user's own translator left", () =
 });
 
 group("a silence timer waits while the VAD still hears speech", () => {
-  check(VoiceRecognitionPolicy.silenceStops(false), "silence ends a dictation nobody is speaking in");
+  check(
+    VoiceRecognitionPolicy.silenceStops(false),
+    "silence ends a dictation nobody is speaking in",
+  );
   check(
     !VoiceRecognitionPolicy.silenceStops(true),
     "a long VAD segment without new text does not end the dictation mid-sentence",
@@ -1624,6 +1627,10 @@ group("projects the same form factor into every settings capability", () => {
   check(
     !phone.candidateWindowOpacity && !phone.candidateCornerRadius,
     "phone settings hide the candidate card opacity and radius the strip ignores",
+  );
+  check(
+    phone.touchToolbarTools && !desktop.touchToolbarTools,
+    "only the phone keyboard has the toolbar row whose tools and display mode the page offers",
   );
   check(
     desktop.candidateWindowOpacity && desktop.candidateCornerRadius,
@@ -17599,7 +17606,9 @@ group("LocalAsrPolicy", () => {
     "at most 200 transducer hotwords",
   );
   // X-ASR 的 token 表：每个汉字只以词首片段 `▁字` 出现，没有一个不带前缀的汉字。
-  const spelled = LocalAsrPolicy.tokenSet("<blk> 0\n\u2581写 1\n\u2581上 2\n\u2581去 3\n\u2581现 4\n\u2581在 5\n\u2581时 6\n\u2581the 7\ns 8\n");
+  const spelled = LocalAsrPolicy.tokenSet(
+    "<blk> 0\n\u2581写 1\n\u2581上 2\n\u2581去 3\n\u2581现 4\n\u2581在 5\n\u2581时 6\n\u2581the 7\ns 8\n",
+  );
   check(
     LocalAsrPolicy.cjkSpelledAsWords(spelled),
     "a token table with only word-initial Chinese characters spells Chinese as words",
@@ -17621,8 +17630,11 @@ group("LocalAsrPolicy", () => {
     "word-initial English pieces of three letters do not make a table spelled as Chinese words",
   );
   check(
-    LocalAsrPolicy.transducerHotwords(["写上去", "现在时", "写字", "AI 写/the", "C++"], spelled, true) ===
-      "写 上 去\n现 在 时\nAI 写 the\n",
+    LocalAsrPolicy.transducerHotwords(
+      ["写上去", "现在时", "写字", "AI 写/the", "C++"],
+      spelled,
+      true,
+    ) === "写 上 去\n现 在 时\nAI 写 the\n",
     "spelled-as-words hotwords put each Chinese character apart and drop words with unknown characters",
   );
   const spelledPlan = LocalAsrPolicy.plan(
@@ -17718,8 +17730,9 @@ group("LocalAsrPolicy", () => {
   );
   // 以下几条与 shared/voice/tests/local_asr.cpp 逐条相同。
   check(
-    LocalAsrPolicy.tidyTranscript("昨天是 monday.Today is 礼拜二。The day after tomorrow 是星期三.") ===
-      "昨天是 monday. Today is 礼拜二。The day after tomorrow 是星期三。",
+    LocalAsrPolicy.tidyTranscript(
+      "昨天是 monday.Today is 礼拜二。The day after tomorrow 是星期三.",
+    ) === "昨天是 monday. Today is 礼拜二。The day after tomorrow 是星期三。",
     "a sentence mark after Chinese turns full width and English sentences get their space",
   );
   check(
@@ -17727,14 +17740,25 @@ group("LocalAsrPolicy", () => {
     "question, exclamation and comma after Chinese turn full width",
   );
   check(
-    LocalAsrPolicy.tidyTranscript("版本 3.5 和 U.S. 还有 e.g. 不变") === "版本 3.5 和 U.S. 还有 e.g. 不变",
+    LocalAsrPolicy.tidyTranscript("版本 3.5 和 U.S. 还有 e.g. 不变") ===
+      "版本 3.5 和 U.S. 还有 e.g. 不变",
     "decimals, initialisms and abbreviations keep their periods",
   );
-  check(LocalAsrPolicy.tidyTranscript("Done.Next step") === "Done. Next step", "a run-on English sentence is split");
-  check(LocalAsrPolicy.tidyTranscript("我们去 café.") === "我们去 café.", "only a Chinese character before a mark makes it full width");
-  check(LocalAsrPolicy.tidyTranscript("𠮷野家.") === "𠮷野家。", "an ideograph beyond the BMP counts as Chinese");
   check(
-    LocalAsrPolicy.tidyTranscript("好。.") === "好。." && LocalAsrPolicy.tidyTranscript("ok,Next") === "ok,Next",
+    LocalAsrPolicy.tidyTranscript("Done.Next step") === "Done. Next step",
+    "a run-on English sentence is split",
+  );
+  check(
+    LocalAsrPolicy.tidyTranscript("我们去 café.") === "我们去 café.",
+    "only a Chinese character before a mark makes it full width",
+  );
+  check(
+    LocalAsrPolicy.tidyTranscript("𠮷野家.") === "𠮷野家。",
+    "an ideograph beyond the BMP counts as Chinese",
+  );
+  check(
+    LocalAsrPolicy.tidyTranscript("好。.") === "好。." &&
+      LocalAsrPolicy.tidyTranscript("ok,Next") === "ok,Next",
     "a mark after CJK punctuation and a comma between English words are left alone",
   );
   check(
@@ -17830,7 +17854,10 @@ group("SpaceVoiceGesture", () => {
 
   gesture.down(0, 100, 500, height, true);
   gesture.tick(SPACE_LONG_PRESS_MS);
-  check(gesture.cancel() === SpaceGestureOutcome.VOICE_CANCEL, "a cancelled touch cancels the dictation");
+  check(
+    gesture.cancel() === SpaceGestureOutcome.VOICE_CANCEL,
+    "a cancelled touch cancels the dictation",
+  );
   check(gesture.state() === SpaceGestureState.IDLE, "the gesture is idle afterwards");
 
   gesture.down(0, 100, 500, height, true);
@@ -17838,13 +17865,22 @@ group("SpaceVoiceGesture", () => {
     gesture.move(100, 100 + SPACE_DRAG_THRESHOLD_VP + 1, 500),
     "a horizontal drag past the threshold moves the cursor",
   );
-  check(!gesture.tick(SPACE_LONG_PRESS_MS * 2), "once dragging, a long press no longer starts voice");
+  check(
+    !gesture.tick(SPACE_LONG_PRESS_MS * 2),
+    "once dragging, a long press no longer starts voice",
+  );
   check(gesture.up() === SpaceGestureOutcome.CURSOR, "the drag ends as a cursor move");
 
   gesture.down(0, 100, 500, height, true);
-  check(!gesture.move(100, 100 + SPACE_DRAG_THRESHOLD_VP, 500), "within the threshold it is still a press");
+  check(
+    !gesture.move(100, 100 + SPACE_DRAG_THRESHOLD_VP, 500),
+    "within the threshold it is still a press",
+  );
   gesture.move(SPACE_LONG_PRESS_MS, 100, 500);
-  check(gesture.state() === SpaceGestureState.VOICE, "a move after the long-press time enters voice first");
+  check(
+    gesture.state() === SpaceGestureState.VOICE,
+    "a move after the long-press time enters voice first",
+  );
   check(gesture.cancel() === SpaceGestureOutcome.VOICE_CANCEL, "and a cancel then drops it");
 
   gesture.down(0, 100, 500, height, false);
@@ -17860,15 +17896,33 @@ group("SpaceVoiceGesture", () => {
 
   gesture.down(0, 100, 500, height, true);
   gesture.move(100, 100, 500 - height * 0.25 - 1);
-  check(gesture.tick(SPACE_LONG_PRESS_MS), "the timer starts voice after the finger already slid up");
-  check(gesture.cancelling(), "a finger already in the cancel zone when voice starts shows release-to-cancel");
-  check(gesture.up() === SpaceGestureOutcome.VOICE_CANCEL, "and letting go there without moving again cancels");
+  check(
+    gesture.tick(SPACE_LONG_PRESS_MS),
+    "the timer starts voice after the finger already slid up",
+  );
+  check(
+    gesture.cancelling(),
+    "a finger already in the cancel zone when voice starts shows release-to-cancel",
+  );
+  check(
+    gesture.up() === SpaceGestureOutcome.VOICE_CANCEL,
+    "and letting go there without moving again cancels",
+  );
 
-  check(SpaceVoiceGesture.armed(true, true, false, false, "none"), "an idle touch keyboard arms voice");
-  check(!SpaceVoiceGesture.armed(false, true, false, false, "none"), "2in1 does not arm space voice");
+  check(
+    SpaceVoiceGesture.armed(true, true, false, false, "none"),
+    "an idle touch keyboard arms voice",
+  );
+  check(
+    !SpaceVoiceGesture.armed(false, true, false, false, "none"),
+    "2in1 does not arm space voice",
+  );
   check(!SpaceVoiceGesture.armed(true, false, false, false, "none"), "voice input turned off");
   check(!SpaceVoiceGesture.armed(true, true, true, false, "none"), "already recording");
-  check(!SpaceVoiceGesture.armed(true, true, false, true, "none"), "composing keeps space for the candidate");
+  check(
+    !SpaceVoiceGesture.armed(true, true, false, true, "none"),
+    "composing keeps space for the candidate",
+  );
   check(!SpaceVoiceGesture.armed(true, true, false, false, "u_mode"), "a local mode keeps space");
 });
 

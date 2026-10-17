@@ -54,11 +54,12 @@ def daemon_environment(root, addon):
 
 
 def check_ibus_frontend(bus, control):
-    """经过真实 IBus 兼容前端，覆盖有无客户端预编辑及上下文重建。"""
+    """经过真实 IBus 兼容前端，覆盖有无客户端预编辑、玲珑报告的 0x52 能力及上下文重建。"""
     service = "org.freedesktop.IBus"
     wait(lambda: bus.name_has_owner(service))
     frontend = dbus.Interface(bus.get_object(service, "/org/freedesktop/IBus"), service)
-    for capabilities in (1 | 8 | 16 | 32, 1 | 8 | 16, 8 | 16 | 32):
+    # Fcitx5 的 DebugInfo 按十六进制打印能力；玲珑报告的 cap:52 是 0x52，包含预编辑、格式化预编辑和周边文本。
+    for capabilities in (1 | 8 | 16 | 32, 1 | 8 | 16, 8 | 16 | 32, 0x52):
         path = frontend.CreateInputContext("msime-synthetic-ibus-editor")
         proxy = bus.get_object(service, path)
         context = dbus.Interface(proxy, "org.freedesktop.IBus.InputContext")

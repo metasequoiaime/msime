@@ -1,7 +1,12 @@
 import { Checks, GroupList } from "../core/platform-controls";
 import { SettingsGroupBlock } from "./settings-group-block";
+import { SettingsGroupNote } from "./settings-group-note";
+import { SelectRow } from "./select-row";
 import { SwitchRow } from "./switch-row";
 import {
+  harmonyToolbarOptions,
+  harmonyToolbarPreferences,
+  type HarmonyToolbarPreferences,
   touchToolbarOptions,
   touchToolbarPreferences,
   type TouchToolbarPreferences,
@@ -15,6 +20,9 @@ export interface TouchKeyboardToolbarSectionProps {
   toolbar?: Partial<TouchToolbarPreferences>;
   onTouchVoiceShortcutChange: (enabled: boolean) => void;
   onToolbarChange: (value: TouchToolbarPreferences) => void;
+  /** 宿主报告 `touch_toolbar_tools` 时（HarmonyOS 手机）给出 `harmony_toolbar` 的当前值，没存过时给空对象；不给时不画显示方式和工具开关。 */
+  harmonyToolbar?: Partial<HarmonyToolbarPreferences>;
+  onHarmonyToolbarChange?: (value: HarmonyToolbarPreferences) => void;
 }
 
 /** 触屏键盘顶部语音入口和工具栏按钮设置，不支持的宿主不显示空分组。 */
@@ -25,10 +33,17 @@ export function TouchKeyboardToolbarSection({
   toolbar,
   onTouchVoiceShortcutChange,
   onToolbarChange,
+  harmonyToolbar,
+  onHarmonyToolbarChange,
 }: TouchKeyboardToolbarSectionProps) {
   const showVoiceShortcut = voiceShortcutKind !== "hidden";
-  if (!showVoiceShortcut && !toolbarComponents) return null;
+  if (!showVoiceShortcut && !toolbarComponents && !harmonyToolbar) return null;
   const toolbarValues = touchToolbarPreferences(toolbar);
+  const harmonyValues = harmonyToolbar && harmonyToolbarPreferences(harmonyToolbar);
+  // 与鸿蒙键盘的 `TouchToolbarPolicy.rowHidden` 同一条规则：选了「隐藏」或五个工具全关时，空闲时整行不显示。
+  const harmonyRowHidden =
+    harmonyValues !== undefined &&
+    (harmonyValues.hidden || harmonyToolbarOptions.every(([key]) => !harmonyValues[key]));
   return (
     <GroupList title="工具栏">
       {showVoiceShortcut && (
@@ -62,6 +77,41 @@ export function TouchKeyboardToolbarSection({
             onChange={(key, checked) => onToolbarChange({ ...toolbarValues, [key]: checked })}
           />
         </SettingsGroupBlock>
+      )}
+      {harmonyValues && (
+        <>
+          <SelectRow
+            title="显示方式"
+            aria-label="工具栏显示方式"
+            value={harmonyValues.hidden ? "hidden" : "typing"}
+            onChange={(event) =>
+              onHarmonyToolbarChange?.({
+                ...harmonyValues,
+                hidden: event.target.value === "hidden",
+              })
+            }
+          >
+            <option value="typing">输入时显示</option>
+            <option value="hidden">隐藏</option>
+          </SelectRow>
+          {harmonyToolbarOptions.map(([key, label]) => (
+            <SwitchRow
+              key={key}
+              title={label}
+              aria-label={`工具栏：${label}`}
+              checked={harmonyValues[key]}
+              disabled={harmonyValues.hidden}
+              onChange={(checked) => onHarmonyToolbarChange?.({ ...harmonyValues, [key]: checked })}
+            />
+          ))}
+          {harmonyRowHidden && (
+            <SettingsGroupNote>
+              {harmonyValues.hidden
+                ? "工具栏已隐藏：键盘变矮，打字时照常显示候选栏。"
+                : "没有打开的工具，工具栏不显示：键盘变矮，打字时照常显示候选栏。"}
+            </SettingsGroupNote>
+          )}
+        </>
       )}
     </GroupList>
   );

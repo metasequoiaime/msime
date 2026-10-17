@@ -70,6 +70,8 @@ function renderSettings({
           platform: "harmony",
           mobile_settings: mobile,
           panel_windows: !mobile,
+          // 鸿蒙的设置桥只在手机上报告工具栏的显示方式和工具开关（`SettingsFormFactorCapabilities`）。
+          touch_toolbar_tools: mobile,
           voice_capture_devices: devices,
           ...(voiceHotkeys === undefined ? {} : { voice_hotkeys: voiceHotkeys }),
         }),
@@ -617,6 +619,47 @@ test("a scheme with one keyboard says where to change it", async () => {
   const row = shownValue("中文键盘") as HTMLButtonElement;
   expect(row.disabled).toBe(true);
   expect(row.textContent).toContain("当前方案只有一种键盘，在「输入」里换方案");
+});
+
+test("the phone keyboard page edits which toolbar tools are shown and whether the row is hidden", async () => {
+  const { save } = renderSettings({
+    page: "screen-keyboard",
+    feedback: padFeedback,
+    preferences: { harmony_toolbar: { clipboard: false } },
+  });
+  await settingsFormReady();
+  const page = screen.getByRole("group", { name: "屏幕键盘" });
+  const toolbar = within(page).getByRole("region", { name: "工具栏" });
+  const switches = ["表情", "常用语", "剪贴板", "皮肤", "输入方式"].map(
+    (label) =>
+      within(toolbar).getByRole("switch", { name: `工具栏：${label}` }) as HTMLInputElement,
+  );
+  expect(switches.map((item) => item.checked)).toEqual([true, true, false, true, true]);
+  expect(shownValue("显示方式").textContent).toContain("输入时显示");
+  // 「恢复默认」也把工具栏设置恢复，说明里因此列出它。
+  expect(within(page).getByRole("button", { name: "恢复屏幕键盘默认设置" })).toBeTruthy();
+
+  fireEvent.click(switches[1]);
+  fireEvent.click(within(openSheet("显示方式")).getByRole("button", { name: "隐藏" }));
+  expect(shownValue("显示方式").textContent).toContain("隐藏");
+  expect(within(toolbar).getByText(/工具栏已隐藏/)).toBeTruthy();
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  expect(save.mock.calls.at(-1)?.[1].harmony_toolbar).toEqual({
+    emoji: true,
+    phrase: false,
+    clipboard: false,
+    skin: true,
+    scheme: true,
+    hidden: true,
+  });
+});
+
+test("the 2-in-1 keyboard page has no toolbar tools, as its keyboard has no toolbar row", async () => {
+  renderSettings({ page: "screen-keyboard", mobile: false });
+  await settingsFormReady();
+  const page = screen.getByRole("group", { name: "屏幕键盘与手写" });
+  expect(within(page).queryByRole("switch", { name: "工具栏：表情" })).toBeNull();
 });
 
 test("the 2-in-1 keyboard page keeps the preview above 尺寸", async () => {

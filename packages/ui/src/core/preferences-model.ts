@@ -34,7 +34,10 @@ import type { FrequencyPreferences } from "../settings/frequency-preferences";
 import type { AiAssistantPreferences } from "../settings/ai-assistant-preferences";
 import type { LocalModePreferences } from "../settings/local-mode-preferences";
 import type { ThemeMode, ThemePreferences } from "../settings/theme-preferences";
-import type { TouchToolbarPreferences } from "../settings/touch-keyboard-toolbar-preferences";
+import type {
+  HarmonyToolbarPreferences,
+  TouchToolbarPreferences,
+} from "../settings/touch-keyboard-toolbar-preferences";
 
 export type Preferences = PunctuationPreferences &
   PreeditPreferences &
@@ -97,6 +100,8 @@ export type Preferences = PunctuationPreferences &
     /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为关。 */
     touch_shuangpin_key_hints?: boolean;
     touch_toolbar?: Partial<TouchToolbarPreferences>;
+    /** HarmonyOS 手机键盘的工具栏工具和显示方式；等于缺省时 client-core 不写进文档。 */
+    harmony_toolbar?: Partial<HarmonyToolbarPreferences>;
     default_ime_mode?: "chinese" | "english";
     ime_mode_scope?: "app" | "global";
     /** 应用例外：键是应用标识（macOS 的 bundle id、Windows 的进程基名），值是切到该应用时的起始模式。没有规则时文档里没有这个键。 */

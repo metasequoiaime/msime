@@ -1,4 +1,5 @@
 import { isComposingKeyEvent } from "../core/ime-key-event";
+import { focusAndRevealNearest } from "../core/focus-and-reveal-nearest";
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 
 // Use rendered positions so navigation follows both responsive grids and
@@ -46,9 +47,8 @@ export function useEmojiNavigation(onEscape: () => void, viewKey?: string) {
       );
       if (search) {
         event.preventDefault();
-        search.focus({ preventScroll: true });
+        focusAndRevealNearest(search);
         search.select();
-        search.scrollIntoView({ block: "nearest", inline: "nearest" });
       }
       return;
     }
@@ -116,8 +116,7 @@ export function useEmojiNavigation(onEscape: () => void, viewKey?: string) {
         next = direction < 0 ? 0 : items.length - 1;
       }
     }
-    items[next].focus({ preventScroll: true });
-    items[next].scrollIntoView({ block: "nearest", inline: "nearest" });
+    focusAndRevealNearest(items[next]);
   }
 
   return { ref: panelRef, onKeyDown };

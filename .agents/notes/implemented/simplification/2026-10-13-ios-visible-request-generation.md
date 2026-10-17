@@ -45,4 +45,6 @@ AI 皮肤抽卡页的生成任务也复用该工具。进度回调、结果和�
 
 常用语和辅助码设置页也把重复的可见性、生命周期 UUID 与待处理任务 UUID 交给共享代次工具。两页仍自行取消任务；常用语专有的读取与写入互斥继续由 `CommonPhrasesRequestState` 处理。
 
+后续的生命周期胶水收敛见[页面请求生命周期修饰符](2026-10-17-ios-view-request-lifecycle-modifier.md)：它只封装 SwiftUI 的出现、离开失效和 pending 任务取消，不接管页面自己的业务清理。
+
 `MSIMEKeyboardTests` 显式列出辅助码页及其 `ViewRequestGeneration` 依赖；App 的目录自动收集不能替代测试目标的源码列表。辅助码生命周期契约检查同时核对两项来源，防止共享守卫重构后测试目标漏编依赖。XcodeGen 从 `project.yml` 重新生成测试工程进行编译与模拟器验收。

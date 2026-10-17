@@ -23,6 +23,8 @@ export struct BrandTile {
   @Require @Prop strokePath: string;
   @Require @Prop spokenLabel: string;
   @Require onTap: () => void;
+  /** 长按：工具栏用它打开设置里的工具栏开关。长按被识别后不再触发 `onTap`。 */
+  @Require onHold: () => void;
 
   build() {
     Stack() {
@@ -71,5 +73,6 @@ export struct BrandTile {
     .accessibilityText(this.spokenLabel)
     .accessibilitySelected(this.active)
     .onClick(() => this.onTap())
+    .gesture(LongPressGesture().onAction(() => this.onHold()))
   }
 }

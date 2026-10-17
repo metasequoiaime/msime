@@ -652,7 +652,7 @@ test("a HarmonyOS phone titles the 设置, 统计 and 我的 roots", async () =>
   expect(untitled.parentElement?.className).toContain("max-phone:sr-only");
 });
 
-// 对话是有标题和返回按钮的二级页。
+// 对话是有标题和返回按钮的二级页，不带底部标签栏。
 test("AI chat keeps a secondary title and way back", async () => {
   const chat = {
     models: vi.fn().mockResolvedValue({ data: [], defaultModel: "" }),
@@ -664,11 +664,7 @@ test("AI chat keeps a secondary title and way back", async () => {
   const title = await screen.findByRole("heading", { level: 1, name: "AI 对话" });
   expect(title.parentElement?.className).not.toContain("max-phone:sr-only");
   expect(screen.getByRole("button", { name: "返回" })).toBeTruthy();
-  expect(
-    within(screen.getByRole("navigation", { name: "主要功能" }))
-      .getByRole("button", { name: "设置" })
-      .getAttribute("aria-current"),
-  ).toBe("page");
+  expect(screen.queryByRole("navigation", { name: "主要功能" })).toBeNull();
 });
 
 // 设计稿把手机页面叫作 皮肤、表达、开发者选项 和 反馈，桌面侧栏则叫 主题、标点与翻译、维护与诊断 和 帮助与反馈。皮肤在「设置」的列表里；底部第二格是「社区」，不是皮肤。

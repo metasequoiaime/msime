@@ -2636,6 +2636,86 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(try button("dismissShortcut", in: controller).isHidden)
   }
 
+  /// 可选按钮全部关掉时只剩品牌键和收起键，这一行按显示方式「隐藏」处理：空闲时顶栏收起，组字时候选行照常出现；重新打开任何一个按钮，工具栏行就回来。与 Android 的 `toolbarRowHidden` 一致。
+  func testToolbarWithEveryOptionalButtonOffCollapsesLikeHidden() throws {
+    let defaults = TouchToolbarLocalPreference.defaults
+    let keys = TouchToolbarLocalPreference.keys
+    let saved = keys.map { defaults.object(forKey: $0) }
+    let previousDocument = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
+    let previousVoice = KeyboardLayoutPreference.voiceShortcutEnabled
+    let previousScheme = InputSchemePreference.scheme
+    defer {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previousDocument }
+      KeyboardLayoutPreference.voiceShortcutEnabled = previousVoice
+      InputSchemePreference.scheme = previousScheme
+      for (key, value) in zip(keys, saved) {
+        if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+      }
+    }
+    InputSchemePreference.scheme = .quanpin
+    keys.forEach(defaults.removeObject(forKey:))
+    TouchToolbarLocalPreference.phrases = false
+    TouchToolbarLocalPreference.scheme = false
+    KeyboardLayoutPreference.voiceShortcutEnabled = false
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences {
+      $0["touch_toolbar"] = Dictionary(uniqueKeysWithValues: TouchToolbarPreference.options.map { ($0.name, false) })
+      $0["touch_voice_shortcut"] = false
+    })
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: UUID())
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    let strip = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidateStrip" })
+    let toolbar = try XCTUnwrap(descendants(strip).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
+    let rowHeight = KeyboardViewController.topRowHeight(
+      glossLines: KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: false))
+    XCTAssertEqual(toolbar.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
+                   ["moreShortcut", "dismissShortcut"])
+    XCTAssertTrue(toolbar.isHidden, "a bar with only the brand and dismiss keys is not shown")
+    XCTAssertEqual(strip.frame.height, 0, accuracy: 0.5)
+
+    for letter in "ni" {
+      let key = try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityLabel == "字母 \(String(letter).uppercased())"
+      } as? UIButton)
+      key.sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(strip.frame.height, rowHeight, accuracy: 0.5, "the candidate row still appears while composing")
+    XCTAssertFalse(try button("candidate-1", in: controller).isHidden)
+    try button("candidate-1", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(strip.frame.height, 0, accuracy: 0.5)
+
+    TouchToolbarLocalPreference.phrases = true
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(toolbar.isHidden, "one optional button brings the row back")
+    XCTAssertEqual(strip.frame.height, rowHeight, accuracy: 0.5)
+    XCTAssertEqual(toolbar.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
+                   ["moreShortcut", "phrasesShortcut", "dismissShortcut"])
+  }
+
+  /// 工具栏上每个按钮（含品牌键和收起键）都挂着 0.5 秒的长按，打开 App 的「键盘工具栏」页；VoiceOver 用户经同名的自定义操作到达同一处。
+  func testLongPressOnAnyToolbarButtonOpensTheToolbarEditor() throws {
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
+    XCTAssertEqual(toolbar.arrangedSubviews.count, 13)
+    for item in toolbar.arrangedSubviews {
+      let id = item.accessibilityIdentifier ?? "\(item)"
+      let hold = try XCTUnwrap(item.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }
+        .first { $0.name == "toolbarEditorHold" }, id)
+      XCTAssertEqual(hold.minimumPressDuration, 0.5, id)
+      XCTAssertTrue(hold.cancelsTouchesInView, "the hold must not also fire the tap: \(id)")
+      XCTAssertEqual(item.accessibilityCustomActions?.map(\.name), ["编辑工具栏"], id)
+    }
+  }
+
   func testKeyboardStillConvertsAfterBeingPutAwayAndShownAgain() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }

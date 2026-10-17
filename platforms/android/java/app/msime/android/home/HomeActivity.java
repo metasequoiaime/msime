@@ -132,7 +132,10 @@ public final class HomeActivity extends AppCompatActivity {
             }
         };
         getOnBackPressedDispatcher().addCallback(this, back);
-        getSupportFragmentManager().addOnBackStackChangedListener(this::updateBack);
+        getSupportFragmentManager().addOnBackStackChangedListener(() -> {
+            updateBack();
+            updateTabsVisibility();
+        });
 
         // 第一次打开：先放开屏，放完（或被轻点跳过）再走引导——这台设备还没见过它，而它讲的正是「键盘怎么用起来」。
         // A rotation is not an arrival and plays nothing; if it lands mid-splash, the handover to onboarding that the splash owed is paid here instead.
@@ -161,6 +164,7 @@ public final class HomeActivity extends AppCompatActivity {
         // 进程恢复时 FragmentManager 已经把 tab 页和回退栈原样还原（包括谁被藏起来），有栈时再 show 会把栈底的 tab 页叠到详情页上面。
         if (getSupportFragmentManager().getBackStackEntryCount() == 0) show(selected);
         updateBack();
+        updateTabsVisibility();
 
         // The shipped dictionary is prepared on first run without the user having to find a button
         // for it: a keyboard that cannot reach the Engine is not a state worth making someone opt
@@ -447,6 +451,13 @@ public final class HomeActivity extends AppCompatActivity {
         if (back == null) return;
         // back 是 OnBackPressedCallback，不是 View，ViewPolicy.setEnabled 管不了它。
         back.setEnabled(getSupportFragmentManager().getBackStackEntryCount() > 0 || selected != FIRST_TAB);
+    }
+
+    /** AI 对话压在栈顶时收起底部导航：它是二级页，返回走页面顶部；导航留着的话，键盘弹起时会夹在输入栏和键盘之间。弹出对话页后导航回来。 */
+    private void updateTabsVisibility() {
+        if (tabs == null) return;
+        ViewPolicy.setVisible(tabs,
+            !(SettingsNavigator.visibleIn(getSupportFragmentManager()) instanceof ChatFragment));
     }
 
     /**

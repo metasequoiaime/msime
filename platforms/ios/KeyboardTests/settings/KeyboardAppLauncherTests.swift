@@ -72,6 +72,13 @@ final class KeyboardAppLauncherTests: XCTestCase {
     XCTAssertEqual(KeyboardAppLauncher.phrasesURL.pathComponents.last, "phrases")
   }
 
+  /// 长按工具栏按钮打开应用的「键盘工具栏」页（`SettingsPage.toolbar`），与 Android 长按打开「编辑工具栏」一致。
+  func testToolbarHoldOpensTheToolbarPage() {
+    XCTAssertEqual(KeyboardAppLauncher.toolbarSettingsURL.absoluteString, "msime://settings/toolbar")
+    XCTAssertEqual(KeyboardAppLauncher.toolbarSettingsURL.host, "settings")
+    XCTAssertEqual(KeyboardAppLauncher.toolbarSettingsURL.pathComponents.last, "toolbar")
+  }
+
   /// 每个目的地都经由同一条响应链打开。
   func testEveryMenuDestinationOpensThroughTheChain() {
     let application = OpeningResponder()

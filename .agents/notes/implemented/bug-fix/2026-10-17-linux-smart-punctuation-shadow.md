@@ -28,5 +28,5 @@ IBus 在无 surrounding text 的情况下也用影子核对重复智能标点；
 
 ## Verification
 
-- `platforms/linux/tests/runtime/engine_smoke.cpp` 和 `platforms/linux/fcitx5/tests/native.cpp` 都覆盖：输入法生成 ASCII 数字、发送真实 Space release、使 surrounding text 无效、随后输入句号；Fcitx5 还覆盖有效空文档起点和面板 ASCII 文本。
+- `platforms/linux/tests/runtime/engine_smoke.cpp` 和 `platforms/linux/fcitx5/tests/native.cpp` 都覆盖：输入法生成 ASCII 数字、发送真实 Space release、使 surrounding text 无效、随后输入句号；Fcitx5 还覆盖有效空文档起点和面板 ASCII 文本；有效空文档起点在退出 Unicode 输入前发布，避免退出按键先清掉影子而让断言失去针对性。
 - `git diff --check` 已通过。Linux 容器验收未能在本机启动，因为 Docker daemon 不可用；提交前由 Linux CI 编译并运行 IBus/Fcitx5 原生测试。

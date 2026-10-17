@@ -34,6 +34,7 @@ import {
   type DictionaryCollectionsView,
 } from "../dictionary/dictionary-collections";
 import { dictionaryExportName, dictionaryExportPayload } from "../dictionary/dictionary-export";
+import { SCEL_PERSONAL_USE_NOTICE } from "../dictionary/dictionary-messages";
 import {
   MAX_SCEL_FILE_BYTES,
   readDictionaryFile,
@@ -357,7 +358,8 @@ export function HarmonyPhoneDictionary() {
               }
               if (!isCurrent()) return;
               const next = await run(() => importBytes(name, format, encoded));
-              if (next) toast(collectionImportMessage(name, next.import));
+              if (next)
+                toast(`${collectionImportMessage(name, next.import)}。${SCEL_PERSONAL_USE_NOTICE}`);
               return;
             }
             let text: string;

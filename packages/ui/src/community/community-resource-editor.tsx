@@ -8,6 +8,7 @@ import { CommunityPublicationMetadataFields } from "./community-publication-meta
 import { CommunityPublicationWarning } from "./community-publication-warning";
 import * as style from "./community-style";
 import {
+  COMMUNITY_DICTIONARY_SOURCE_NOTE,
   useCommunityResourcePublication,
   type CommunityResourcePublicationOptions,
 } from "./use-community-resource-publication";
@@ -20,6 +21,7 @@ export function CommunityResourceEditor({
   client,
   kind,
   existing,
+  localDictionary,
   onClose,
   onPublished,
 }: CommunityResourceEditorProps) {
@@ -46,7 +48,7 @@ export function CommunityResourceEditor({
     addEntry,
     removeEntry,
     submit,
-  } = useCommunityResourcePublication({ client, kind, existing, onPublished });
+  } = useCommunityResourcePublication({ client, kind, existing, localDictionary, onPublished });
   return (
     <CommunityDialogFrame
       title={existing ? "更新作品" : `发布${resourceKindTitle(kind)}`}
@@ -151,6 +153,11 @@ export function CommunityResourceEditor({
         发布内容会公开展示。请勿包含 API
         Key、私人聊天内容或其他个人资料；发布后可在“我的作品”中下架。
       </CommunityPublicationWarning>
+      {kind === "dictionary" && (
+        <CommunityPublicationWarning>
+          {COMMUNITY_DICTIONARY_SOURCE_NOTE}
+        </CommunityPublicationWarning>
+      )}
       <CommunityDialogActions busy={busy} onClose={onClose}>
         <button type="submit" className="primary" disabled={busy}>
           {busy ? "正在发布…" : existing ? "发布新版本" : "公开发布"}

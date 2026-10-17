@@ -31,17 +31,18 @@ function check(condition: boolean, message: string): void {
 
 console.log("KeyboardSession settings links and common phrases");
 
-// 皮肤选择器的「更多皮肤」打开「皮肤」页：键盘读不到设置应用下载的社区皮肤，那一页能用全部皮肤。
+// 皮肤选择器的「更多皮肤」打开「皮肤」页：键盘读不到设置应用下载的社区皮肤，那一页能用全部皮肤。长按工具栏按钮打开「屏幕键盘」页，工具栏的显示方式和工具开关在那里。
 group(
-  "the function panel's 词库, 反馈, 关于 and the skin picker's 更多皮肤 open their settings pages",
+  "the function panel's 词库, 反馈, 关于, the skin picker's 更多皮肤 and a held toolbar button open their settings pages",
   () => {
     check(
-      SettingsPageLink.PAGES.length === 4 &&
+      SettingsPageLink.PAGES.length === 5 &&
         SettingsPageLink.accepts("dictionary") &&
         SettingsPageLink.accepts("feedback") &&
         SettingsPageLink.accepts("about") &&
-        SettingsPageLink.accepts("skin"),
-      "exactly the four packages/ui page ids",
+        SettingsPageLink.accepts("skin") &&
+        SettingsPageLink.accepts("screen-keyboard"),
+      "exactly the five packages/ui page ids",
     );
     check(!SettingsPageLink.accepts("account"), "another real page is not linked");
     check(!SettingsPageLink.accepts(""), "nor is an empty id");

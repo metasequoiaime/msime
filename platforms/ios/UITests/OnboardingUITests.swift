@@ -479,9 +479,9 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
     reachSettingsLink("keyboardTryoutLink", in: app)
     settingsEntry("keyboardTryoutLink", in: app).tap()
-    // 试用键盘打开 AI 对话二级页，仍属于设置标签。
+    // 试用键盘打开 AI 对话二级页；二级对话页不带底部标签栏，返回走导航栏。
     XCTAssertTrue(app.navigationBars["AI 对话"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
+    XCTAssertFalse(app.tabBars.buttons["设置"].isHittable)
     XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
     reachSettingsLink("inputSettingsLink", in: app)
     settingsEntry("inputSettingsLink", in: app).tap()
@@ -643,7 +643,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
     let dismissKeyboard = app.buttons["dismissKeyboardButton"]
     if dismissKeyboard.waitForExistence(timeout: 5) && dismissKeyboard.isHittable { dismissKeyboard.tap() }
-    XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
+    XCTAssertFalse(app.tabBars.buttons["设置"].isHittable)
     app.navigationBars.buttons.matching(identifier: "设置").firstMatch.tap()
     XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].exists)
@@ -818,10 +818,10 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertFalse(app.buttons["aboutSettingsLink"].exists)
     app.buttons["accountLoginClose"].tap()
     XCTAssertTrue(app.navigationBars["AI 对话"].waitForExistence(timeout: 5))
-    // 「试用键盘」把焦点放进了输入框，弹出的键盘盖住标签栏，先收起它再点「设置」。
+    // 「试用键盘」把焦点放进了输入框，先收起键盘；对话页不带底部标签栏，用导航栏返回「设置」。
     let dismissKeyboard = app.buttons["dismissKeyboardButton"]
     if dismissKeyboard.waitForExistence(timeout: 2) { dismissKeyboard.tap() }
-    app.tabBars.buttons["设置"].tap()
+    app.navigationBars.buttons.matching(identifier: "设置").firstMatch.tap()
     XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].exists)
   }

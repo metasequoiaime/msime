@@ -132,7 +132,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var toolbarPhrases = true
   private var toolbarScheme = true
   private var toolbarHidden = false
-  /// 显示方式为「隐藏」且顶栏上没有内容：顶栏不占空间，它下面的间距也一并去掉（`renderCandidateStrip`）。
+  /// 工具栏上除品牌键和收起键之外还有没有显示的按钮，由 `updateShortcutButtons` 算出；一个都没有时空闲工具栏行按显示方式「隐藏」处理（`toolbarRowHidden`）。
+  private var toolbarHasTools = true
+  /// 工具栏行空闲时不显示且顶栏上没有内容：顶栏不占空间，它下面的间距也一并去掉（`renderCandidateStrip`）。
   private var topRowCollapsed = false
   /// 按键行当前按哪种单手模式布局（`applyOneHanded`）；第一次布局之前为 nil。
   private var appliedOneHanded: KeyboardOneHandedMode?
@@ -1861,6 +1863,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ]
     for button in shortcuts {
       shortcutBar.addArrangedSubview(button)
+      // 长按任何一个按钮（含品牌键和收起键）打开 App 的「键盘工具栏」设置页，在那里选择显示哪些按钮，与 Android 的 `bindEditor` 一致。长按会取消这次触摸，所以不会再触发按钮自己的点按动作。
+      let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleToolbarEditorHold(_:)))
+      hold.name = "toolbarEditorHold"
+      hold.minimumPressDuration = Self.nineKeyHoldDuration
+      hold.cancelsTouchesInView = true
+      button.addGestureRecognizer(hold)
+      button.accessibilityCustomActions = [
+        UIAccessibilityCustomAction(name: "编辑工具栏") { [weak self] _ in
+          self?.openApp(KeyboardAppLauncher.toolbarSettingsURL)
+          return true
+        }
+      ]
     }
     container.addSubview(shortcutBar)
     // 与候选行相同：顶栏收起时由隐藏的工具栏让步。
@@ -1980,9 +1994,31 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     characterSetShortcut.isHidden = !pinned.characterSet
     fullwidthShortcut.isHidden = !pinned.fullwidth
     punctuationShortcut.isHidden = !pinned.punctuation
+    let hasTools = optionalShortcuts.contains { !$0.isHidden }
+    if hasTools != toolbarHasTools {
+      toolbarHasTools = hasTools
+      // 顶栏建好之后，最后一个可选按钮被关掉或重新打开一个时，空闲工具栏行跟着消失或出现；建顶栏时由之后的 `renderCandidateStrip` 读它。
+      if topRowHeightConstraint != nil { renderCandidateStrip() }
+    }
     updateToolbarActiveState()
     updateMorePickerPage()
   }
+
+  /// 长按工具栏按钮（见 `installShortcutBar`）：响一下按键反馈，再打开 App 的「键盘工具栏」设置页，对应 Android 的 `ImeToolbar.openEditor`。
+  @objc private func handleToolbarEditorHold(_ gesture: UILongPressGestureRecognizer) {
+    guard gesture.state == .began else { return }
+    playInputClick()
+    openApp(KeyboardAppLauncher.toolbarSettingsURL)
+  }
+
+  /// 工具栏上可以在「键盘工具栏」设置里打开或关掉的按钮，即品牌键和收起键之外的全部按钮。
+  private var optionalShortcuts: [UIButton] {
+    [emojiShortcut, phrasesShortcut, clipboardShortcut, skinShortcut, schemeButton,
+     aiShortcut, characterSetShortcut, fullwidthShortcut, punctuationShortcut, replyShortcut, scriptShortcut]
+  }
+
+  /// 空闲时不显示工具栏这一行：显示方式为「隐藏」，或者可选按钮一个都没打开，只剩品牌键和收起键，与 Android 的 `toolbarRowHidden` 一致。组字时候选行照常出现。
+  private var toolbarRowHidden: Bool { toolbarHidden || !toolbarHasTools }
 
   /// 工具栏里高亮的按钮：面板已打开的那个图标，以及任何面板、候选网格或回复面板盖住按键时的品牌键。
   private func updateToolbarActiveState() {
@@ -5970,9 +6006,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateHanjaButton()
     let showsCandidates = isInLocalMode || !visiblePreedit.isEmpty || !visibleCandidates.isEmpty || visibleDiagnostic != nil
     // 内联高度调节条占据工具栏的位置；下面的按键照常可用，所以打字时候选仍会盖在两者之上显示。
-    shortcutBar.isHidden = showsCandidates || inlineHeightBar != nil || toolbarHidden
-    // 显示方式「隐藏」：与 Android 隐藏空闲时的工具栏区域一样，有内容可显示之前顶栏不存在，按键上移占据它的位置。
-    setTopRowCollapsed(toolbarHidden && !showsCandidates && inlineHeightBar == nil)
+    shortcutBar.isHidden = showsCandidates || inlineHeightBar != nil || toolbarRowHidden
+    // 显示方式「隐藏」或可选按钮全部关掉：与 Android 隐藏空闲时的工具栏区域一样，有内容可显示之前顶栏不存在，按键上移占据它的位置。
+    setTopRowCollapsed(toolbarRowHidden && !showsCandidates && inlineHeightBar == nil)
     inlineHeightBar?.isHidden = showsCandidates
     readingRow.isHidden = !showsCandidates
     candidateContent?.isHidden = !showsCandidates

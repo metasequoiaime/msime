@@ -561,9 +561,15 @@ function splashSeen(native: NativeBridge): boolean {
 }
 
 /**
- * 键盘直接打开的页面：功能面板的「词库」「反馈」「关于」和皮肤选择器的「更多皮肤」。与 `EntryAbility` 从 Want 中接受的列表（`SettingsPageLink.PAGES`）相同，scripts/test-harmony-settings-links.py 核对两份一致；其他值都不是本页承诺过的链接，而改为打开「输入」（未知页面 id 就会解析到它）比停在原处更让人摸不着头脑。
+ * 键盘直接打开的页面：功能面板的「词库」「反馈」「关于」、皮肤选择器的「更多皮肤」，以及长按工具栏按钮打开的「屏幕键盘」（工具栏的显示方式和工具开关在这一页）。与 `EntryAbility` 从 Want 中接受的列表（`SettingsPageLink.PAGES`）相同，scripts/test-harmony-settings-links.py 核对两份一致；其他值都不是本页承诺过的链接，而改为打开「输入」（未知页面 id 就会解析到它）比停在原处更让人摸不着头脑。
  */
-const LINKED_PAGES: readonly string[] = ["dictionary", "feedback", "about", "skin"];
+const LINKED_PAGES: readonly string[] = [
+  "dictionary",
+  "feedback",
+  "about",
+  "skin",
+  "screen-keyboard",
+];
 
 function linkedPage(value: unknown): string | undefined {
   return typeof value === "string" && LINKED_PAGES.includes(value) ? value : undefined;
@@ -1152,6 +1158,7 @@ function makeClient(
     importBytes: (name, format, bytes_base64) =>
       collectionsReply({ operation: "import", name, kind: "pinyin", format, bytes_base64 }),
     installCommunity: (resource) => collectionsReply({ operation: "install_community", resource }),
+    thirdPartyMatches: (entries) => collectionsReply({ operation: "third_party_matches", entries }),
   };
   const userWordCount = (): number | undefined => {
     try {

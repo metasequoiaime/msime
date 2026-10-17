@@ -2010,6 +2010,7 @@ class SettingsBridge {
       value['typing_effects'] = projection.typingEffects;
       value['wordbook_packs'] = projection.wordbookPacks;
       value['symbol_set_packs'] = projection.symbolSetPacks;
+      value['touch_toolbar_tools'] = projection.touchToolbarTools;
       value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {
         value['os_version'] = release;

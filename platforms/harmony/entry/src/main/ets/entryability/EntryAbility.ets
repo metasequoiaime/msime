@@ -31,7 +31,7 @@ export default class EntryAbility extends UIAbility {
   /**
    * 键盘请求的设置页面，没有则为 null。
    *
-   * 键盘工具栏通过在 want 里传 `page` 直接打开 词库、反馈 和 关于。只接受 `SettingsPageLink.PAGES` 中的页面：want 里的其他内容可能是别的应用发来的，不应让页面被引到一个没人打算开放的路由。
+   * 键盘通过在 want 里传 `page` 直接打开词库、反馈、关于、皮肤和屏幕键盘（长按工具栏按钮）。只接受 `SettingsPageLink.PAGES` 中的页面：want 里的其他内容可能是别的应用发来的，不应让页面被引到一个没人打算开放的路由。
    */
   private static linkedPage(want: Want): string | null {
     const parameters: Record<string, Object> | undefined = want.parameters;

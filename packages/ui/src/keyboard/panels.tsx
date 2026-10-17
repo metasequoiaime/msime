@@ -1,4 +1,5 @@
 import { isComposingKeyEvent } from "../core/ime-key-event";
+import { focusAndRevealNearest } from "../core/focus-and-reveal-nearest";
 import type {
   KeyboardInputRequest,
   InkStroke,
@@ -972,8 +973,7 @@ export function HandwritingPanel({
                   : 4);
     event.preventDefault();
     const target = buttons[clamp(next, 0, buttons.length - 1)];
-    target.focus({ preventScroll: true });
-    target.scrollIntoView({ block: "nearest", inline: "nearest" });
+    focusAndRevealNearest(target);
   }
   async function chooseCandidate(candidate: string, copyOnly = false) {
     if (

@@ -1034,3 +1034,81 @@ fn finished_scope_releases_inherited_lock() {
         &store.directory.join("index.json.lock"),
     );
 }
+
+#[test]
+fn third_party_matches_find_words_from_scel_collections_only() {
+    use crate::dictionary::scel::tests::ScelBuilder;
+    let fixture = Fixture::new();
+    // 细胞词库里有「测试 ce'shi」「实例 shi'li」「事例 shi'li」。
+    scel_import(
+        &fixture,
+        "scel",
+        None,
+        Some(base64(&ScelBuilder::sample().build())),
+    )
+    .unwrap();
+    // 用户自己导入的文本词库不算第三方词库。
+    fixture
+        .store
+        .perform(
+            serde_json::from_value(serde_json::json!({
+                "operation": "import", "name": "自己的", "kind": "pinyin", "format": "standard",
+                "text": "你好\tni'hao\n"
+            }))
+            .unwrap(),
+            None,
+        )
+        .unwrap();
+    let before = fixture.store.load().unwrap();
+    let word = |kind: &str, key: &str, value: &str| serde_json::json!({"kind": kind, "key": key, "value": value, "weight": 100000});
+    let action = serde_json::json!({
+        "operation": "third_party_matches",
+        "entries": [
+            // 音节之间换成空格、大小写不同也认得出。
+            word("pinyin", "shi li", "实例"),
+            word("pinyin", "CeShi", "测试"),
+            // 同音不同字、用户自己词库里的词、种类不同的词都不算。
+            word("pinyin", "shi'li", "史立"),
+            word("pinyin", "ni'hao", "你好"),
+            word("quickPhrase", "shili", "实例"),
+        ]
+    });
+    let view = fixture
+        .store
+        .perform(serde_json::from_value(action).unwrap(), None)
+        .unwrap();
+    assert_eq!(view.third_party_matches, Some(vec![0, 1]));
+    // 只读：集合和待发送队列都没变。
+    assert_eq!(view.collections, before.collections);
+    assert_eq!(view.outbox_pending, before.outbox_pending);
+    assert_eq!(fixture.store.load().unwrap().third_party_matches, None);
+
+    // 一次最多核对一份社区词库的词条数。
+    let too_many: Vec<_> = (0..=MAX_THIRD_PARTY_CANDIDATES)
+        .map(|index| word("pinyin", "ce'shi", &format!("词{index}")))
+        .collect();
+    let action = serde_json::json!({"operation": "third_party_matches", "entries": too_many});
+    assert_eq!(
+        fixture
+            .store
+            .perform(serde_json::from_value(action).unwrap(), None)
+            .unwrap_err()
+            .code(),
+        "collections_invalid"
+    );
+}
+
+#[test]
+fn third_party_matches_without_collections_is_empty() {
+    let fixture = Fixture::new();
+    let view = fixture
+        .store
+        .third_party_matches(&[PersonalWord {
+            kind: PersonalWordKind::Pinyin,
+            key: "ce'shi".into(),
+            value: "测试".into(),
+            weight: 1,
+        }])
+        .unwrap();
+    assert_eq!(view.third_party_matches, Some(Vec::new()));
+}

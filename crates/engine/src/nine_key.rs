@@ -905,7 +905,11 @@ impl NineKeySession {
                 diagnostic = result.diagnostic;
             }
             if let Some(text) = result.commit {
-                commit.push_str(&text);
+                if commit.is_empty() {
+                    commit = text;
+                } else {
+                    commit.push_str(&text);
+                }
             }
             index = 0;
         }
@@ -924,8 +928,8 @@ impl NineKeySession {
                 if !self.grid.offers_raw_key() && !self.candidates.is_empty() {
                     return self.finish(0);
                 }
-                let raw = self.digits.clone();
-                self.command(Command::Cancel);
+                let raw = std::mem::take(&mut self.digits);
+                self.clear_composition();
                 return KeyResult::committed(raw);
             }
             Command::Cancel => self.clear_composition(),
@@ -1093,7 +1097,9 @@ impl NineKeySession {
             if let Some(initial) = self.initial {
                 // 选了首字母的那一位显示成字母。
                 let at = locked_preedit_length + usize::from(!self.locked.is_empty());
-                preedit.replace_range(at..=at, &char::from(initial.letter).to_string());
+                let mut initial_text = [0; 4];
+                let initial_text = char::from(initial.letter).encode_utf8(&mut initial_text);
+                preedit.replace_range(at..=at, initial_text);
             }
         }
         SessionSnapshot {
@@ -1471,7 +1477,7 @@ impl NineKeySession {
         }
         positions::apply_fixed_positions(
             &self.paths.user(assets::USER_JOURNAL),
-            &self.ranking_context(),
+            &format!("nine-key:{}:{locked_key}", self.digits),
             &mut candidates,
             false,
             None,
@@ -1665,14 +1671,15 @@ impl NineKeySession {
         boundaries: &'a [usize],
         candidates: &[WordItem],
     ) -> Vec<(String, Cow<'a, [usize]>)> {
-        let locked = self.locked.concat();
         let mut readings: Vec<(String, usize)> = Vec::new();
         for (path_index, path) in alternatives.iter().enumerate() {
             if !self.reading_fits(path) {
                 continue;
             }
             let mut reading = String::with_capacity(self.digits.len());
-            reading.push_str(&locked);
+            for spelling in &self.locked {
+                reading.push_str(spelling);
+            }
             path.iter().for_each(|piece| reading.push_str(piece));
             if !readings.iter().any(|(known, _)| *known == reading) {
                 readings.push((reading, path_index));
@@ -4026,8 +4033,8 @@ mod tests {
         let (_, allocations) =
             crate::ime::personal_rerank::allocations::count(|| session.snapshot());
         assert!(
-            allocations <= 4,
-            "snapshot rebuilt the locked prefix for an initial: {allocations}"
+            allocations <= 3,
+            "snapshot allocated a temporary initial string: {allocations}"
         );
     }
 
@@ -4311,6 +4318,39 @@ mod tests {
         session.refresh();
         assert_eq!(session.spellings.as_ptr(), pointer);
         assert_eq!(session.spellings.capacity(), capacity);
+    }
+
+    #[test]
+    fn locked_refresh_reuses_the_existing_ranking_context_prefix() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "64426");
+        assert!(
+            session
+                .choose_spelling(spelling_index(&session, "ni"))
+                .handled
+        );
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.refresh());
+        assert!(
+            allocations <= 106,
+            "locked refresh rebuilt the ranking context prefix: {allocations}"
+        );
+    }
+
+    #[test]
+    fn finish_reuses_the_first_commit_buffer() {
+        let fixture = fixture_with(INITIALS_FIXTURE);
+        let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut session, "963443842662");
+        assert!(session.select(index_of(&session, "我滴")).handled);
+
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.finish(0));
+        assert!(
+            allocations <= 32,
+            "九键结束组字复制了首段提交文本：{allocations} 次分配"
+        );
     }
 
     #[test]
@@ -6298,6 +6338,28 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         );
     }
 
+    #[test]
+    fn expressive_readings_do_not_allocate_a_separate_locked_prefix() {
+        let fixture = expressive_fixture();
+        let mut session =
+            open_expressive(&fixture, EnglishInputOptions::default(), BOTH_EXPRESSIVE);
+        type_digits(&mut session, "634486");
+        assert!(
+            session
+                .choose_spelling(spelling_index(&session, "mei"))
+                .handled
+        );
+        let alternatives = session.grid.spelling_table().paths("486");
+        let candidates = session.candidates.clone();
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            session.expressive_readings(&alternatives, &[], &candidates)
+        });
+        assert!(
+            allocations <= 15,
+            "locked expressive readings allocated {allocations} buffers"
+        );
+    }
+
     // ---- 打拼音出符号 ----
 
     /// 正负（zheng'fu）排在 政府 后面；派（pai）是单音节名称，前面另有三个 pai 的字。
@@ -6766,6 +6828,22 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         let longer = item("Xian", "xian", 1, CandidateSource::EnglishDictionary);
         assert_eq!(fourteen.reading_for(Some(&longer)), "xi");
         assert_eq!(nine.reading_for(None), "");
+    }
+
+    #[test]
+    fn commit_raw_moves_the_digit_buffer_into_the_result() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "64426");
+
+        let (result, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.command(Command::CommitRaw));
+        assert_eq!(result.commit.as_deref(), Some("64426"));
+        assert!(!session.active());
+        assert_eq!(
+            allocations, 0,
+            "九键原样上屏复制了数字缓冲：{allocations} 次分配"
+        );
     }
 
     #[test]
