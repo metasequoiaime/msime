@@ -64,32 +64,72 @@ pub(crate) fn initial_for_key<'a>(key: &'a str, profile: &ShuangpinProfile) -> &
 
 /// One two-key code (or a zero-initial code) to its syllable, "" when it is not accepted (:64-105).
 pub fn cvt_single_sp_to_pinyin(code: &str, profile: &ShuangpinProfile) -> String {
+    if let Some(decoded) = decode_single_sp_to_pinyin(code, profile) {
+        let mut result = String::with_capacity(decoded.len());
+        append_decoded_syllable(&mut result, decoded);
+        result
+    } else {
+        String::new()
+    }
+}
+
+enum DecodedSyllable<'a> {
+    Whole(&'static str),
+    Parts(&'a str, &'static str),
+}
+
+impl DecodedSyllable<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Whole(syllable) => syllable.len(),
+            Self::Parts(initial, final_unit) => initial.len() + final_unit.len(),
+        }
+    }
+}
+
+fn decode_single_sp_to_pinyin<'a>(
+    code: &'a str,
+    profile: &ShuangpinProfile,
+) -> Option<DecodedSyllable<'a>> {
     // The zero-initial table is consulted before the length check, as the reference does.
     if let Some(syllable) = source_by_code(profile.zero_initials, code) {
-        return syllable.to_string();
+        return Some(DecodedSyllable::Whole(syllable));
     }
     if code.len() != 2 || !code.is_char_boundary(1) {
-        return String::new();
+        return None;
     }
     let initial = initial_for_key(&code[..1], profile);
     let final_key = &code[1..];
     let accepted = accepted_syllables();
     // No two-key code decodes to two accepted syllables in any profile (schemes-lang.md §1.3), so the last match the reference kept is the only match.
-    let mut result = String::new();
+    let mut decoded = None;
     for (final_unit, _) in profile.finals.iter().filter(|(_, key)| *key == final_key) {
         let normalized = if *final_unit == "v" && matches!(initial, "j" | "q" | "x" | "y") {
             "u"
         } else {
             final_unit
         };
-        let mut syllable = String::with_capacity(initial.len() + normalized.len());
-        syllable.push_str(initial);
-        syllable.push_str(normalized);
-        if accepted.contains(syllable.as_str()) {
-            result = syllable;
+        let mut syllable = [0; 6];
+        let length = initial.len() + normalized.len();
+        syllable[..initial.len()].copy_from_slice(initial.as_bytes());
+        syllable[initial.len()..length].copy_from_slice(normalized.as_bytes());
+        if std::str::from_utf8(&syllable[..length])
+            .is_ok_and(|syllable| accepted.contains(syllable))
+        {
+            decoded = Some(DecodedSyllable::Parts(initial, normalized));
         }
     }
-    result
+    decoded
+}
+
+fn append_decoded_syllable(result: &mut String, decoded: DecodedSyllable<'_>) {
+    match decoded {
+        DecodedSyllable::Whole(syllable) => result.push_str(syllable),
+        DecodedSyllable::Parts(initial, final_unit) => {
+            result.push_str(initial);
+            result.push_str(final_unit);
+        }
+    }
 }
 
 pub fn is_accepted_syllable_code(code: &str, profile: &ShuangpinProfile) -> bool {
@@ -219,7 +259,9 @@ pub fn convert_seg_shuangpin_to_seg_complete_pinyin(
             }
             // An unaccepted pair leaves an empty syllable between two `'`, as the reference did.
             2 => {
-                result.push_str(&cvt_single_sp_to_pinyin(piece, profile));
+                if let Some(decoded) = decode_single_sp_to_pinyin(piece, profile) {
+                    append_decoded_syllable(&mut result, decoded);
+                }
                 result.push('\'');
             }
             _ => {}
@@ -510,6 +552,17 @@ mod tests {
             convert_seg_shuangpin_to_seg_complete_pinyin("ni'''hc'k", xiaohe()),
             "ni'hao'k"
         );
+    }
+
+    #[test]
+    fn converting_segmentations_does_not_allocate_each_decoded_syllable() {
+        let _ = accepted_syllables();
+        let (converted, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            convert_seg_shuangpin_to_seg_complete_pinyin("ni'hc'vs", xiaohe())
+        });
+
+        assert_eq!(converted, "ni'hao'zhong");
+        assert_eq!(allocations, 1);
     }
 
     #[test]

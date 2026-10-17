@@ -177,16 +177,16 @@ mod tests {
         assert_eq!(request, expected);
         assert_eq!(request.raw_segmentation, "Ni'Hc");
         assert_eq!(request.raw_segmentation.as_ptr(), pointer);
-        assert_eq!(allocations, 5);
+        assert_eq!(allocations, 3);
     }
 
     #[test]
     fn request_normalization_reuses_the_converted_segmentation() {
         for (kind, raw, expected, budget) in [
-            (ShuangpinProfileKind::Xiaohe, "NiHc", "nihao", 5),
-            (ShuangpinProfileKind::Xiaohe, "Ni'Hc", "nihao", 6),
+            (ShuangpinProfileKind::Xiaohe, "NiHc", "nihao", 3),
+            (ShuangpinProfileKind::Xiaohe, "Ni'Hc", "nihao", 4),
             (ShuangpinProfileKind::Xiaohe, "n", "n", 3),
-            (ShuangpinProfileKind::Microsoft, "J;gK", "jinggao", 5),
+            (ShuangpinProfileKind::Microsoft, "J;gK", "jinggao", 3),
         ] {
             let mut typed = scheme(kind);
             type_text(&mut typed, raw);

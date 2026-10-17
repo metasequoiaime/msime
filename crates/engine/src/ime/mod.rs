@@ -1239,7 +1239,7 @@ mod tests {
         assert_eq!(request, expected);
         assert_eq!(request.raw_segmentation, "ni'hc'AB");
         assert_eq!(request.raw_segmentation.as_ptr(), pointer);
-        assert_eq!(allocations, 10);
+        assert_eq!(allocations, 8);
     }
 
     #[test]
