@@ -18,11 +18,10 @@ inline std::string account_gloss_cache_scope(std::string_view user_id) {
          (user_id.empty() ? std::string("anonymous") : std::string(user_id));
 }
 
-// 水杉账号的候选释义接口，和 macOS 的 BackendChatClient.translate、Linux provider 的 anonymous_translation 是同一个：一次最多 32 个中文词、一种目标语言，源语言固定是中文。
-inline constexpr std::string_view account_gloss_url = "https://api.msime.app/v1/translate";
+// 水杉账号的候选释义接口，和 macOS 的 BackendChatClient.translate、Linux provider 的 anonymous_translation 是同一个：一次最多 32 个中文词、一种目标语言，源语言固定是中文。路径、请求体和对回复的解读都由 Rust 给出（msime_client_account_gloss），这里只有服务的来源。
+inline constexpr std::string_view account_gloss_origin = "https://api.msime.app";
 inline constexpr size_t account_gloss_maximum_words = 32;
 inline constexpr size_t account_gloss_maximum_word_bytes = 2048;
-inline constexpr size_t account_gloss_maximum_value_bytes = 4096;
 // 取不到任何会话时补注册本机匿名账号（macOS 的 BackendAnonymousAccount.ensureSignedIn），失败后隔多久再试。注册最多阻塞约一分钟，它跑在分离的线程上（Server 退出时不等它），但翻译线程平时要等它的结果，离线时不能每一页都试一次。
 inline constexpr auto account_registration_retry = std::chrono::minutes(10);
 
@@ -69,30 +68,15 @@ inline std::optional<std::string> account_gloss_target(std::string_view language
   return target;
 }
 
-// 校验一次回复的 data 并换成每个词的释义，和 macOS BackendChatClient.translate 的判据相同：条数必须和问的词一样多，每条不超过 4096 字节，不含换行、回车和制表符以外的控制字符，任何一条不合格整批作废（返回空），这一页的词留到下次再问。共享会话收释义时（msime_client_apply_translations 的 is_bounded_text）拒收一切 char::is_control，一条不合格就把整页连同本机词典的释义一起拒掉，所以这里另外拒收 DEL 和 C1 控制字符（U+0080 到 U+009F），macOS 放行的制表符换成空格（format_translation_gloss 也是这样折的）再缓存和交给会话。释义和词本身一样或只有空白时等于没有释义，换成空字符串；空字符串表示账号对这个词没有释义，调用方据此记一条否定缓存。
+// Rust 解读过的回复（msime_client_account_gloss 的 parse，每项是释义或 null）换成每个词的释义：条数必须和问的词一样多，否则整批作废（返回空），这一页的词留到下次再问。null 换成空字符串，表示账号对这个词没有释义，调用方据此记一条否定缓存。规范化（制表符和换行折成空格、去首尾空白、与原文相同或含控制字符的置 null、超过 4096 字节的置 null）都在 Rust，一条坏值不再让整批作废。
 inline std::optional<std::vector<std::string>> account_gloss_values(
-    const std::vector<std::string> &words, std::vector<std::string> values) {
-  if (values.size() != words.size())
+    const std::vector<std::string> &words, std::vector<std::optional<std::string>> translations) {
+  if (translations.size() != words.size())
     return std::nullopt;
-  for (size_t index = 0; index < values.size(); ++index) {
-    auto &value = values[index];
-    if (value.size() > account_gloss_maximum_value_bytes)
-      return std::nullopt;
-    for (size_t offset = 0; offset < value.size(); ++offset) {
-      const auto ch = static_cast<unsigned char>(value[offset]);
-      // UTF-8 里 C1 控制字符是 0xC2 后跟 0x80 到 0x9F。
-      const bool c1 = ch == 0xC2 && offset + 1 < value.size() &&
-                      static_cast<unsigned char>(value[offset + 1]) <= 0x9F &&
-                      static_cast<unsigned char>(value[offset + 1]) >= 0x80;
-      if ((ch < 0x20 && ch != '\t') || ch == 0x7f || c1)
-        return std::nullopt;
-      if (ch == '\t')
-        value[offset] = ' ';
-    }
-    // 只有空白的释义和词本身一样，等于没有。
-    if (value == words[index] || value.find_first_not_of(' ') == std::string::npos)
-      value.clear();
-  }
+  std::vector<std::string> values;
+  values.reserve(translations.size());
+  for (auto &translation : translations)
+    values.push_back(translation ? std::move(*translation) : std::string{});
   return values;
 }
 } // namespace msime::windows

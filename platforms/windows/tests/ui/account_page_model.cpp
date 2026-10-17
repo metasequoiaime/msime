@@ -57,6 +57,11 @@ int main() {
   check(error_message(L"account_unauthorized") == L"登录已失效，请重新登录。", "unauthorized");
   check(error_message(L"account_conflict") == L"云端设置已被其他设备更新，请刷新后重新确认。",
         "conflict");
+  // 断网和「注销需要最近登录」各有说法（共享页 accountMessage 相同），不再落到「暂不可用」。
+  check(error_message(L"account_network") == L"网络连接失败，请检查网络后重试。", "network");
+  check(error_message(L"account_recent_login_required") ==
+            L"需要重新登录后再注销：请先退出登录，重新登录后再试。",
+        "recent login required");
   check(error_message(L"conflict") == L"账号服务暂不可用，请稍后再试。" &&
             error_message(L"") == L"账号服务暂不可用，请稍后再试。",
         "unknown codes");

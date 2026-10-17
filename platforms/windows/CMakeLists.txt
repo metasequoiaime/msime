@@ -1192,7 +1192,8 @@ add_test(NAME windows-candidate-translation-merge COMMAND windows-candidate-tran
 set_tests_properties(windows-candidate-translation-merge PROPERTIES TIMEOUT 10)
 # 「水杉账号」候选释义发哪些词、回复怎么校验，和 macOS BackendCandidateGloss 一致。
 add_executable(windows-account-gloss-policy tests/candidate/account_gloss_policy.cpp)
-target_include_directories(windows-account-gloss-policy PRIVATE src/candidate)
+target_include_directories(windows-account-gloss-policy PRIVATE src/candidate ../../crates/host-api/include)
+target_link_libraries(windows-account-gloss-policy PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
 if(MSVC)
   target_compile_options(windows-account-gloss-policy PRIVATE /W4 /WX /utf-8)
 else()

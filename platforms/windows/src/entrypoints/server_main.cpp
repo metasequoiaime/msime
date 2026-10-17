@@ -21,6 +21,7 @@
 #include "ToolbarTooltips.h"
 #include "SystemPanels.h"
 #include "FocusedSession.h"
+#include "ClientAgent.h"
 #include "InputSchemeTraits.h"
 #include "FullscreenForeground.h"
 #include "HostApiDiagnosticLine.h"
@@ -219,6 +220,27 @@ std::filesystem::path anonymous_account_directory() {
 #else
   return {};
 #endif
+}
+// 本机自报的 User-Agent（#8201 的 P11）：Rust 拼出，注册匿名账号时带上，服务端「我的设备」据此显示 windows、版本号和设备。拼不出时为空，注册照旧不带它。
+std::string windows_client_agent() {
+  const auto device = msime::windows::windows_device_model();
+  const auto system = msime::windows::windows_system_description();
+  const auto request =
+      nlohmann::json{{"platform", "windows"},
+                     {"version", MSIME_WINDOWS_VERSION},
+                     {"device", device.empty() ? nlohmann::json(nullptr) : nlohmann::json(device)},
+                     {"system", system.empty() ? nlohmann::json(nullptr) : nlohmann::json(system)},
+                     {"edition", MSIME_EDITION_ID}}
+          .dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+  const auto raw = msime::host_api::own_string(msime_client_client_agent(
+      reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+  if (!raw)
+    return {};
+  const auto document = nlohmann::json::parse(raw.get(), nullptr, false);
+  if (!document.is_object() || !document.value("ok", false) || !document.contains("value") ||
+      !document.at("value").is_string())
+    return {};
+  return document.at("value").get<std::string>();
 }
 // 使用统计的目录：msime::telemetry::default_directory() 是 %LOCALAPPDATA%\MSIME，本版本换成同级的用户目录（版本表 platforms.windows.user_data_directory），各版本的安装 id 和事件队列互不相干。full 的目录名就是 MSIME，结果与 default_directory() 相同。
 std::filesystem::path edition_telemetry_directory() {
@@ -963,15 +985,18 @@ int wmain(int argc, wchar_t **argv) {
     // The user's anonymous MSIME account is registered on the first run after install, as on every other platform; once anonymous-session.json exists this is a file read. It runs off the main thread for the same reason as the telemetry event, and a failure (offline, rate limited) is simply retried on the next start.
     if (const auto account = anonymous_account_directory(); production && !account.empty()) {
       // 选了「水杉账号」时候选释义用这个目录里的会话：设置应用登录的账号优先，没有登录时用这里注册的匿名账号。
-      {
-        const auto directory = account.u8string();
-        msime::windows::TranslationWorker::set_account_directory(
-            std::string(directory.begin(), directory.end()));
-      }
-      std::thread([directory = account.u8string()] {
+      const auto utf8_directory = account.u8string();
+      const std::string directory(utf8_directory.begin(), utf8_directory.end());
+      const auto agent = windows_client_agent();
+      msime::windows::TranslationWorker::set_account_directory(directory, agent);
+      std::thread([directory, agent] {
+        auto request = nlohmann::json{{"directory", directory}};
+        if (!agent.empty())
+          request["client_agent"] = agent;
+        const auto body = request.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
         auto result = msime::host_api::own_string(
-            msime_client_ensure_anonymous_account(
-                reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+            msime_client_ensure_anonymous_account_with_agent(
+                reinterpret_cast<const uint8_t *>(body.data()), body.size()));
       }).detach();
     }
     diagnostic_log.server(std::string(production ? "Production" : "Preview") +

@@ -353,6 +353,16 @@ std::string account_directory() {
   return account_directory_storage();
 }
 
+std::string &account_client_agent_storage() {
+  static std::string agent;
+  return agent;
+}
+
+std::string account_client_agent() {
+  std::lock_guard lock(account_directory_mutex());
+  return account_client_agent_storage();
+}
+
 struct AccountAccessToken {
   std::string token;
   std::string user_id;
@@ -404,8 +414,14 @@ std::optional<AccountAccessToken> account_access_token(const std::string &direct
       return std::nullopt;
     last_registration = now;
   }
-  msime::host_api::discard_string(msime_client_ensure_anonymous_account(
-      reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+  // 补注册也带上本机的 User-Agent（server_main 的 windows_client_agent），与启动时那次相同。
+  auto registration = nlohmann::json{{"directory", directory}};
+  if (const auto agent = account_client_agent(); !agent.empty())
+    registration["client_agent"] = agent;
+  const auto registration_body =
+      registration.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+  msime::host_api::discard_string(msime_client_ensure_anonymous_account_with_agent(
+      reinterpret_cast<const uint8_t *>(registration_body.data()), registration_body.size()));
   request.erase("rejected_token");
   return ask();
 }
@@ -498,14 +514,25 @@ std::optional<std::string> account_glosses(
   if (words.empty() || cancelled())
     return cancelled() ? std::nullopt : std::optional<std::string>(output.dump());
   auto token = std::move(account);
-  const nlohmann::json body{{"texts", words}, {"source_lang", "ZH"}, {"target_lang", *target}};
+  // 请求体和下面对回复的解读都在 Rust（msime_client_account_gloss 的 sans-IO 一半），这里只管 curl：bearer、10 秒超时和 Server 退出时的中止。
+  const auto plan_request = nlohmann::json{{"operation", "request"},
+                                           {"texts", words},
+                                           {"source_lang", "zh"},
+                                           {"target_lang", *target}}
+                                .dump();
+  const auto plan = host_value(msime_client_account_gloss(
+      reinterpret_cast<const uint8_t *>(plan_request.data()), plan_request.size()));
+  if (!plan || !plan->is_object() || !plan->contains("path") || !plan->at("path").is_string() ||
+      !plan->contains("body") || !plan->at("body").is_string())
+    return cancelled() ? std::nullopt : std::optional<std::string>(output.dump());
+  const auto url = std::string(account_gloss_origin) + plan->at("path").get<std::string>();
   long status = 0;
   std::optional<std::string> response;
   for (int attempt = 0; attempt < 2 && token; ++attempt) {
     const nlohmann::json descriptor{
-        {"url", std::string(account_gloss_url)},
+        {"url", url},
         {"headers", {{"Authorization", "Bearer " + token->token}, {"Content-Type", "application/json"}}},
-        {"body", body}};
+        {"body_utf8", plan->at("body")}};
     response = http_request(descriptor, stopping, HttpEndpointPolicy::HttpsOnly,
                             kAccountTranslationTimeoutMs, &status);
     // 服务端以 401 拒绝了这个令牌（过期、被吊销）：带上它再取一次，共享层会强制刷新，刷新不了时退回匿名账号。
@@ -515,27 +542,29 @@ std::optional<std::string> account_glosses(
   }
   if (!response || stopping())
     return cancelled() ? std::nullopt : std::optional<std::string>(output.dump());
+  // 只有 2xx 才有回复正文（http_request 对其余状态码返回空）。Rust 逐项规范化：坏的一项、与原文相同或超过 4096 字节的一项是 null，其余照常；null 记作账号对这个词没有释义。
   std::optional<std::vector<std::string>> values;
-  try {
-    const auto document = nlohmann::json::parse(*response);
-    const auto code = document.is_object() ? document.value("code", nlohmann::json(nullptr))
-                                           : nlohmann::json(nullptr);
-    const bool ok = (code.is_number_integer() && code.get<int64_t>() == 200) ||
-                    (code.is_string() && code.get<std::string>() == "200");
-    if (ok && document.contains("data") && document.at("data").is_array()) {
-      std::vector<std::string> data;
-      bool strings = true;
-      for (const auto &value : document.at("data")) {
-        if (!value.is_string()) {
-          strings = false;
-          break;
-        }
-        data.push_back(value.get<std::string>());
-      }
-      if (strings)
-        values = account_gloss_values(words, std::move(data));
+  const auto parse_request = nlohmann::json{{"operation", "parse"},
+                                            {"texts", words},
+                                            {"status", status},
+                                            {"body", *response}}
+                                 .dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+  const auto parsed = host_value(msime_client_account_gloss(
+      reinterpret_cast<const uint8_t *>(parse_request.data()), parse_request.size()));
+  if (parsed && parsed->is_object() && parsed->contains("translations") &&
+      parsed->at("translations").is_array()) {
+    std::vector<std::optional<std::string>> translations;
+    bool shaped = true;
+    for (const auto &item : parsed->at("translations")) {
+      if (item.is_string())
+        translations.emplace_back(item.get<std::string>());
+      else if (item.is_null())
+        translations.emplace_back();
+      else
+        shaped = false;
     }
-  } catch (...) {
+    if (shaped)
+      values = account_gloss_values(words, std::move(translations));
   }
   if (!values)
     return cancelled() ? std::nullopt : std::optional<std::string>(output.dump());
@@ -721,9 +750,10 @@ TranslationWorker::TranslationWorker(Completed completed, Translator translator)
 
 TranslationWorker::~TranslationWorker() { stop(); }
 
-void TranslationWorker::set_account_directory(std::string directory) {
+void TranslationWorker::set_account_directory(std::string directory, std::string client_agent) {
   std::lock_guard lock(account_directory_mutex());
   account_directory_storage() = std::move(directory);
+  account_client_agent_storage() = std::move(client_agent);
 }
 
 bool TranslationWorker::submit(const FocusLease &lease, std::string query) {

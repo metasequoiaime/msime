@@ -35,6 +35,8 @@ TIP 的 `_HandleCandidateFinalize`（空格、候选列表里的回车，以及�
 
 ### 「水杉账号」候选释义
 
+2026-10-17 起请求体和回复的解读改由 `msime_client_account_gloss` 给出，下面写的 C++ 校验规则（换行、控制字符或超长一条让整页作废）已经换成 Rust 的逐项规范化，见 [Windows 账号释义改用 msime_client_account_gloss](../architecture/2026-10-17-windows-account-gloss-sans-io.md)。
+
 `TranslationWorker` 在查询带 `translation_account: true` 时走 `account_glosses`，不走翻译计划：
 
 - 本机英文释义先答，账号只问共享层标了 `online_gloss` 的中文候选里本机没答上、也不在缓存里的词，一页一个 POST，`{"texts", "source_lang": "ZH", "target_lang": 大写代码}`，最多 32 个词（`account_gloss_words`、`account_gloss_target`）。两种目标语言时上层本来就按语言各调一次，所以是两个请求，和 macOS 相同。非英文目标装了离线词典时，词典答上的候选先从查询里去掉，账号只补词典留下的空（macOS `synchronizeAccountGloss` 的顺序）；用户自己的服务仍排在词典前面，整页都问。

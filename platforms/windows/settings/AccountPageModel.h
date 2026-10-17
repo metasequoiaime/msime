@@ -117,6 +117,10 @@ inline std::wstring error_message(std::wstring_view code) {
     return L"无法安全读取登录状态，请检查设备安全设置。";
   if (code == L"account_cancelled")
     return L"操作已取消，请重试。";
+  if (code == L"account_network")
+    return L"网络连接失败，请检查网络后重试。";
+  if (code == L"account_recent_login_required")
+    return L"需要重新登录后再注销：请先退出登录，重新登录后再试。";
   return L"账号服务暂不可用，请稍后再试。";
 }
 

@@ -1,7 +1,12 @@
-// 「水杉账号」候选释义的规则：哪些词发给账号、目标语言怎么写、回复怎么校验。和 macOS BackendCandidateGloss / BackendChatClient.translate 一致。
+// 「水杉账号」候选释义的规则：哪些词发给账号、目标语言怎么写，以及 Rust 解读过的回复怎么换成每个词的释义。请求体和回复的解读经 msime_client_account_gloss，这里核对 Windows 用它的方式。
 #include "AccountGlossPolicy.h"
+#include "msime_client.h"
+#include "../../../common/HostApiString.h"
+
+#include <nlohmann/json.hpp>
 
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -48,26 +53,46 @@ int main() {
     REQUIRE(!account_gloss_target("en\r\nX"));
     REQUIRE(!account_gloss_target("abcdefghijklmnopq"));
 
+    // Rust 解读回复：一条坏值只让那一条为空，带换行的译文折成一行，与原文相同的等于没有。原来 Windows 自己解读时，一条带换行或控制字符的译文会让整页作废。
+    const Words words{"你好", "世界", "水杉"};
+    const auto parsed = [&](const nlohmann::json &data) {
+      const auto request = nlohmann::json{{"operation", "parse"},
+                                          {"texts", words},
+                                          {"status", 200},
+                                          {"body", nlohmann::json{{"code", 200}, {"data", data}}.dump()}}
+                               .dump();
+      const auto raw = msime::host_api::own_string(msime_client_account_gloss(
+          reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+      REQUIRE(raw != nullptr);
+      const auto document = nlohmann::json::parse(raw.get());
+      std::optional<std::vector<std::string>> values;
+      if (!document.value("ok", false))
+        return values;
+      std::vector<std::optional<std::string>> translations;
+      for (const auto &item : document.at("value").at("translations"))
+        translations.push_back(item.is_null() ? std::nullopt : std::optional<std::string>(item.get<std::string>()));
+      return account_gloss_values(words, std::move(translations));
+    };
+    REQUIRE(parsed(nlohmann::json::array({"hello", "a\nb", std::string("x\x01" "y")})) == (Words{"hello", "a b", ""}));
+    REQUIRE(parsed(nlohmann::json::array({"hello", "世界", std::string(4097, 'a')})) == (Words{"hello", "", ""}));
+    // 条数和问的词对不上时整个回复不可用。
+    REQUIRE(!parsed(nlohmann::json::array({"hello"})));
     // 回复条数必须和问的词一样多。
-    const Words words{"你好", "世界"};
-    REQUIRE(!account_gloss_values(words, {"hello"}));
-    // 和词本身一样的释义等于没有，换成空；空表示账号对这个词没有释义。
-    const auto values = account_gloss_values(words, {"hello", "世界"});
-    REQUIRE(values && *values == (Words{"hello", ""}));
-    // 制表符可以有，换成空格再交给会话：共享会话收释义时拒收一切控制字符，一条带制表符的释义会让整页释义都被拒掉。只有空白的释义等于没有。
-    const auto tabbed = account_gloss_values(words, {"to like\tto love", "\t"});
-    REQUIRE(tabbed && *tabbed == (Words{"to like to love", ""}));
-    // 换行、回车、其他控制字符（含 DEL 和 U+0080 到 U+009F 的 C1 控制字符）和超长的释义让整批作废。
-    REQUIRE(!account_gloss_values(words, {std::string("a\x7f" "b"), ""}));
-    REQUIRE(!account_gloss_values(words, {std::string("a\xC2\x85" "b"), ""}));
-    REQUIRE(!account_gloss_values(words, {std::string("a\xC2\x9F" "b"), ""}));
-    // U+00A0（0xC2 0xA0）和 U+00E9 不是控制字符，照收。
-    REQUIRE(account_gloss_values(words, {std::string("caf\xC3\xA9\xC2\xA0" "x"), ""}).has_value());
-    REQUIRE(!account_gloss_values(words, {"a\nb", ""}));
-    REQUIRE(!account_gloss_values(words, {"a\rb", ""}));
-    REQUIRE(!account_gloss_values(words, {std::string("a\x01" "b"), ""}));
-    REQUIRE(!account_gloss_values(words, {std::string(4097, 'a'), ""}));
-    REQUIRE(account_gloss_values(words, {std::string(4096, 'a'), ""}).has_value());
+    REQUIRE(!account_gloss_values(words, {std::string("hello")}));
+    REQUIRE(account_gloss_values(words, {std::string("hello"), std::nullopt, std::string("tree")}) ==
+            (Words{"hello", "", "tree"}));
+    // 请求体也由 Rust 给出：路径固定，target_lang 写成大写。
+    const auto plan_request = nlohmann::json{{"operation", "request"},
+                                             {"texts", words},
+                                             {"source_lang", "zh"},
+                                             {"target_lang", "en"}}
+                                  .dump();
+    const auto plan = msime::host_api::own_string(msime_client_account_gloss(
+        reinterpret_cast<const uint8_t *>(plan_request.data()), plan_request.size()));
+    REQUIRE(plan != nullptr);
+    const auto value = nlohmann::json::parse(plan.get()).at("value");
+    REQUIRE(value.at("path") == "/v1/translate");
+    REQUIRE(nlohmann::json::parse(value.at("body").get<std::string>()).at("target_lang") == "EN");
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

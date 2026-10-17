@@ -59,6 +59,7 @@
 #include "TranslationServiceSettings.h"
 #include "TypingStatisticsModel.h"
 #include "VoiceSettings.h"
+#include "ClientAgent.h"
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
 #include "../../../shared/contracts/msime_edition.h"
@@ -4775,6 +4776,31 @@ private:
 
   enum class AccountChannel { none, email, phone };
 
+  // 本机自报的 User-Agent（#8201 的 P11），由 Rust 拼出：登录、绑定和匿名账号的注册都以它发出，服务端「我的设备」据此显示 windows、版本号和设备。整个进程拼一次，所有账号请求带同一个（msime_client_account 按 directory 和 client_agent 各有一个会话对象）；拼不出时为空，请求照旧不带它。
+  static std::wstring const &account_client_agent() {
+    static const std::wstring agent = [] {
+      const auto device = msime::windows::windows_device_model();
+      const auto system = msime::windows::windows_system_description();
+      JsonObject request;
+      request.SetNamedValue(L"platform", JsonValue::CreateStringValue(L"windows"));
+      request.SetNamedValue(L"version", JsonValue::CreateStringValue(hstring(app_version)));
+      request.SetNamedValue(L"device", device.empty() ? JsonValue::CreateNullValue()
+                                                      : JsonValue::CreateStringValue(text(device)));
+      request.SetNamedValue(L"system", system.empty() ? JsonValue::CreateNullValue()
+                                                      : JsonValue::CreateStringValue(text(system)));
+      request.SetNamedValue(L"edition", JsonValue::CreateStringValue(text(MSIME_EDITION_ID)));
+      const auto body = utf8(request.Stringify());
+      const auto response = take_response(msime_client_client_agent(
+          reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+      if (!response.ok)
+        return std::wstring{};
+      const auto value = account_value(response);
+      return value.ValueType() == JsonValueType::String ? std::wstring(value.GetString().c_str())
+                                                        : std::wstring{};
+    }();
+    return agent;
+  }
+
   // One msime_client_account request: the account directory the shared app signs in to, and the directory older versions kept the session in.
   static std::string account_body(JsonObject const &action) {
     JsonObject request;
@@ -4783,6 +4809,8 @@ private:
     if (const auto legacy = legacy_account_directory(); !legacy.empty())
       request.SetNamedValue(L"legacy_directory",
                             JsonValue::CreateStringValue(hstring(legacy.wstring())));
+    if (const auto &agent = account_client_agent(); !agent.empty())
+      request.SetNamedValue(L"client_agent", JsonValue::CreateStringValue(hstring(agent)));
     request.SetNamedValue(L"action", JsonValue::Parse(action.Stringify()));
     return utf8(request.Stringify());
   }
@@ -5201,7 +5229,8 @@ private:
     if (which == am::Confirmation::logout_all)
       sign_out_account(true);
     else
-      end_account_session(account_action(L"delete"), L"账号已注销。");
+      // account_delete 与旧的 delete 相同，只是失败时带细节：不是 10 分钟内登录的会话是 account_recent_login_required，本机登录留着，提示先退出再重新登录。
+      end_account_session(account_action(L"account_delete"), L"账号已注销。");
   }
 
   void rename_account() {
