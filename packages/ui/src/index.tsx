@@ -13,14 +13,13 @@ import { useSettingsWindowInteractions } from "./settings/use-settings-window-in
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
 import { useSettingsPageRouting } from "./settings/use-settings-page-routing";
 import { useSettingsShellState } from "./settings/use-settings-shell-state";
+import { useSettingsShellNavigation } from "./settings/use-settings-shell-navigation";
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
-import { SettingsNavigationSearch } from "./settings/settings-navigation-search";
 import { settingsShellPlatformPresentation } from "./settings/settings-shell-platform-presentation";
 import { SettingsShellToasts } from "./settings/settings-shell-toasts";
 import {
   mobilePrimaryPageIds,
-  mobileTabForPage,
   type MobilePrimaryPageId,
 } from "./settings/settings-navigation-helpers";
 import {
@@ -246,6 +245,10 @@ export {
 } from "./settings/notice-banner";
 export { settingsPageEnvironment } from "./settings/settings-page-environment";
 export { useSettingsShellState, type SettingsShellView } from "./settings/use-settings-shell-state";
+export {
+  useSettingsShellNavigation,
+  type UseSettingsShellNavigationOptions,
+} from "./settings/use-settings-shell-navigation";
 export {
   settingsPlatformPresentation,
   type SettingsPlatformPresentationOptions,
@@ -3064,37 +3067,16 @@ function SettingsShell(props: SettingsPageProps) {
     phoneSkinCommunityShown;
   const pluginCommunityShown =
     page === "plugins" && Boolean(client.communityPlugins) && pluginView === "community";
-  // 子页面（「词库」下的「背单词」、「帮助与反馈」下的「帮助」、「AI 辅助」下的「AI 对话」）在返回时写出父页面的名字。
-  const parentPage =
-    navigationPage !== page ? availablePages.find((item) => item.id === navigationPage) : undefined;
-  // HarmonyOS 手机和边缘滑动一样，沿导航推入的 WebView 历史返回。设置打开时所在的页面身后没有设置的历史条目（最多只有宿主自己的，比如引导页的），所以从那里按钮改为向上，以替换当前条目的方式去到上级页面或所在标签页的根页面：如果推入新条目，刚离开的页面会留在上级页面后面，系统返回手势会回到它。此后上级页面占据最底部的条目，所以它自己的返回按钮也同样向上。
-  const goBack = () => {
-    if (page !== launchPage.current) {
-      window.history.back();
-      return;
-    }
-    const up = parentPage?.id ?? mobileTabForPage(page);
-    launchPage.current = up;
-    selectPage(up, true);
-  };
-  const navNeedle = navQuery.trim().toLocaleLowerCase();
-  // iPad 的标签栏已有社区、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
-  const shownSidebarGroups = navNeedle
-    ? sidebarGroups
-        .map((group) => ({
-          ...group,
-          pages: group.pages.filter((item) => item.title.toLocaleLowerCase().includes(navNeedle)),
-        }))
-        .filter((group) => group.pages.length > 0)
-    : sidebarGroups;
-  const navSearchField = (
-    <SettingsNavigationSearch
-      groups={shownSidebarGroups}
-      value={navQuery}
-      onChange={setNavQuery}
-      onSelectPage={selectPage}
-    />
-  );
+  const { parentPage, goBack, shownSidebarGroups, navSearchField } = useSettingsShellNavigation({
+    page,
+    navigationPage,
+    launchPage,
+    availablePages,
+    sidebarGroups,
+    navQuery,
+    setNavQuery,
+    selectPage,
+  });
   return (
     <div
       className={settings.shell}
