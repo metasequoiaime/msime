@@ -5119,6 +5119,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString 
     // This host draws view.phrase_prefix, so a phrase being assembled out of several selections
     // stays in the composition instead of arriving in the document one piece at a time.
     requested[@"phrase_preedit"] = @YES;
+    // macOS 让快捷短语编码参与普通候选；其他宿主仍保留显式 K 模式入口。这是临时宿主能力，不写入偏好。
+    requested[@"quick_phrase_candidates"] = @YES;
     // An options file that names a directory itself keeps it.
     if (soundPacks.length && !requested[@"sound_packs"]) requested[@"sound_packs"] = soundPacks;
     return requested;
@@ -6318,6 +6320,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             [self renderCandidates];
             return YES;
         }
+        // 打开展开候选后，Tab 直接进入多行网格；网格里的 Tab 仍由
+        // handleExpandedCandidateEvent: 滚过可见的几行。偏好关闭或只有一页时，Tab 保持翻页。
+        if (!(event.modifierFlags & NSEventModifierFlagShift) &&
+            _appearance.expandCandidates && [self openExpandedCandidates]) return YES;
         if ([_appearance navigationEnabled:@"tab"]) {
             [self apply:[_session command:(event.modifierFlags & NSEventModifierFlagShift) ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
             return YES;

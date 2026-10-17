@@ -11,7 +11,7 @@ text = SOURCE.read_text(encoding="utf-8")
 if "constexpr jsize kVoiceRequestLimit = 1 * 1024 * 1024;" not in text:
     raise SystemExit("Android voice request limit is missing")
 
-for method in ("voiceHotwordsRaw", "voiceHotwordCorrectRaw"):
+for method in ("voiceHotwordsRaw", "voiceHotwordCorrectRaw", "voiceNormalizeNumbersRaw"):
     marker = f"Java_app_msime_android_NativeClient_{method}"
     start = text.find(marker)
     if start < 0:

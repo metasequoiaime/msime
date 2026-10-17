@@ -64,6 +64,12 @@ import {
   NineKeyPanelBackspace, NineKeyPanelMode, NineKeyPanelPolicy, NineKeyStroke
 } from './input/NineKeyPanelPolicy';
 import { SpaceCursorMovement } from './input/SpaceCursorMovement';
+import {
+  SPACE_LONG_PRESS_MS,
+  SpaceGestureOutcome,
+  SpaceGestureState,
+  SpaceVoiceGesture
+} from './input/SpaceVoiceGesture';
 import { GlideArming, GlideKeyRect, GlidePoint, GlideTypingPolicy } from './input/GlideTypingPolicy';
 import { LetterHintTable } from './input/LetterHintTable';
 import { HintKeyRect, LetterHintGesture } from './input/LetterHintGesture';
@@ -448,6 +454,8 @@ const CLIPBOARD_HISTORY_OFF: string = '剪贴板历史未开启';
 struct KeyboardView {
   @State candidates: CandidateEntry[] = [];
   @State editing: string = '';
+  /** 按住空格说话时空格键上的提示：「松开结束」或「松开取消」；不在按住说话时为空串。 */
+  @State spaceVoiceHint: string = '';
   @State editingCaret: number = 0;
   /** The candidate page on screen, from zero, and how many there are, for the 2in1 page indicator. */
   @State candidatePage: number = 0;
@@ -645,6 +653,12 @@ struct KeyboardView {
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
   private settings: KeyboardPreferences = KeyboardSession.shared.preferences();
   private readonly cursorDrag: SpaceCursorMovement = new SpaceCursorMovement();
+  /** 空格键的长按语音、拖动移光标与普通空格之间的判定。 */
+  private readonly spaceGesture: SpaceVoiceGesture = new SpaceVoiceGesture();
+  private spaceLongPressTimer: number = -1;
+  private spaceDownAt: number = 0;
+  /** 这次空格长按是否真的开始了录音；`startVoice` 可能因为语音会话不可用而没有开始。 */
+  private spaceVoiceHeld: boolean = false;
   // A held Delete repeats, and letting go has to stop it, so the timer outlives the callback.
   private backspaceTimer: number = -1;
   private backspaceRepeated: boolean = false;
@@ -670,6 +684,8 @@ struct KeyboardView {
   /** 当前录音的服务商是否边听边流式返回文字（`VoiceRecordingBehaviourPolicy.streamsPartialResults`）。只有这种录音才使用触屏聆听界面，点一下即取消，说话停顿即停止；上传式服务商仍用审阅界面及其「停止录音」。在 `voiceBusy` 之前设置，这样为忙碌状态绘制的界面读到的是新值。 */
   private voiceStreams: boolean = true;
   private voiceSilenceTimer: number = -1;
+  /** 经过 VAD 的本地整段模型此刻是否听到说话；其他识别器从不报，始终为 false。 */
+  private voiceSpeaking: boolean = false;
   private voiceDoneTimer: number = -1;
   private replyGeneration: number = 0;
   private polishGeneration: number = 0;
@@ -965,6 +981,9 @@ struct KeyboardView {
       this.diagnosticTimer = -1;
     }
     this.cursorDrag.cancel();
+    this.cancelSpaceLongPress();
+    this.spaceGesture.cancel();
+    this.spaceVoiceHeld = false;
     this.glideReset();
     this.dropLetterGestures();
     this.handwritingRecognition.changed();
@@ -5199,6 +5218,8 @@ struct KeyboardView {
    * events so a slow drag still moves, and abandons the gesture outright on an implausible jump
    * rather than clamping it, because a jump that large means the gesture was already lost. A drag
    * that moved the cursor must not also type a space, which is what dragged tracks.
+   *
+   * 触屏上按住 `SPACE_LONG_PRESS_MS` 不动即按住说话，与拖动移光标的先后判定在 `SpaceVoiceGesture`：松手结束录音，上滑进入「松开取消」后松手放弃。
    */
   @Builder
   spaceKey(design: boolean, share: number) {
@@ -5214,7 +5235,7 @@ struct KeyboardView {
               color: this.skin.secondary
             })
           }
-          Text(this.spaceLabel())
+          Text(this.spaceVoiceHint.length > 0 ? this.spaceVoiceHint : this.spaceLabel())
             .fontSize(SPACE_LABEL_FONT_SIZE)
             .fontColor(this.skin.secondary)
             .maxLines(1)
@@ -5225,9 +5246,9 @@ struct KeyboardView {
         .justifyContent(FlexAlign.Center)
         .padding({ left: 4, right: 4 })
       } else {
-        Text(this.japanese
+        Text(this.spaceVoiceHint.length > 0 ? this.spaceVoiceHint : (this.japanese
           ? JapaneseNineKeyActions.spaceTitle(this.editing.length > 0)
-          : (this.english ? 'space' : '空格'))
+          : (this.english ? 'space' : '空格')))
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
           .fontColor(this.skin.secondary)
           .textAlign(TextAlign.Center)
@@ -5257,7 +5278,33 @@ struct KeyboardView {
       if (event.type === TouchType.Down) {
         this.cursorDrag.begin(position, this);
         this.dragged = false;
+        const armed: boolean = SpaceVoiceGesture.armed(this.touchDesign(), this.voiceEnabled, this.voiceBusy,
+          this.editing.length > 0, this.localMode);
+        this.spaceDownAt = Date.now();
+        this.spaceGesture.down(this.spaceDownAt, position, event.touches[0].windowY, this.surfaceHeight(), armed);
+        this.cancelSpaceLongPress();
+        if (armed) {
+          this.spaceLongPressTimer = setTimeout((): void => {
+            this.spaceLongPressTimer = -1;
+            // 计时器不会早于设定时长触发，取较大者只是防止两次读钟的毫秒取整让判定差一毫秒而错过。
+            if (this.spaceGesture.tick(Math.max(Date.now(), this.spaceDownAt + SPACE_LONG_PRESS_MS))) {
+              this.startSpaceVoice();
+            }
+          }, SPACE_LONG_PRESS_MS);
+        }
       } else if (event.type === TouchType.Move) {
+        const before: SpaceGestureState = this.spaceGesture.state();
+        this.spaceGesture.move(Date.now(), position, event.touches[0].windowY);
+        if (this.spaceGesture.state() === SpaceGestureState.VOICE) {
+          if (before !== SpaceGestureState.VOICE) {
+            this.startSpaceVoice();
+          }
+          this.showSpaceVoiceHint();
+          return;
+        }
+        if (this.spaceGesture.state() === SpaceGestureState.CURSOR) {
+          this.cancelSpaceLongPress();
+        }
         const steps: number = this.cursorDrag.advance(position, this, CURSOR_STEP_VP);
         for (let step: number = 0; step < Math.abs(steps); step++) {
           if (steps < 0) {
@@ -5268,12 +5315,58 @@ struct KeyboardView {
           this.dragged = true;
         }
       } else {
+        this.cancelSpaceLongPress();
         this.cursorDrag.cancel();
-        if (!this.dragged && event.type === TouchType.Up) {
+        const outcome: SpaceGestureOutcome = event.type === TouchType.Up
+          ? this.spaceGesture.up() : this.spaceGesture.cancel();
+        if (outcome === SpaceGestureOutcome.VOICE_FINISH || outcome === SpaceGestureOutcome.VOICE_CANCEL) {
+          this.endSpaceVoice(outcome === SpaceGestureOutcome.VOICE_FINISH);
+        } else if (!this.dragged && event.type === TouchType.Up) {
           this.activateSpace();
         }
       }
     })
+  }
+
+  private cancelSpaceLongPress(): void {
+    if (this.spaceLongPressTimer >= 0) {
+      clearTimeout(this.spaceLongPressTimer);
+      this.spaceLongPressTimer = -1;
+    }
+  }
+
+  /** 空格长按进入语音：手指还按着，录音按「按住」处理，说话停顿不会结束它，松手才结束。 */
+  private startSpaceVoice(): void {
+    this.cancelSpaceLongPress();
+    this.cursorDrag.cancel();
+    this.startVoice(true);
+    this.spaceVoiceHeld = this.voiceBusy;
+    this.showSpaceVoiceHint();
+  }
+
+  private showSpaceVoiceHint(): void {
+    this.spaceVoiceHint = this.spaceGesture.cancelling() ? '松开取消' : '松开结束';
+  }
+
+  /**
+   * 按住空格说话的手指离开：`finish` 为 true 时结束录音并打开语音界面看结果（流式识别器的结果在那里直接上屏，与从工具栏开始的录音相同）；为 false 时放弃这次录音。录音没能开始时，结束仍打开语音界面，让用户看到原因。按住期间不切换界面，是为了让空格键一直在，松手事件才送得到这里。
+   */
+  private endSpaceVoice(finish: boolean): void {
+    const held: boolean = this.spaceVoiceHeld;
+    this.spaceVoiceHeld = false;
+    this.spaceVoiceHint = '';
+    // 与 Android 一样，长按语音那一下仍按空格键计数。
+    KeyboardSession.shared.recordKey(KeyIdPolicy.SPACE);
+    if (!finish) {
+      if (held) {
+        this.cancelVoice();
+      }
+      return;
+    }
+    this.show(SURFACE_VOICE);
+    if (held) {
+      this.stopVoice();
+    }
   }
 
   private clearClipboard(): void {
@@ -6269,6 +6362,7 @@ struct KeyboardView {
     }
     this.clearVoiceDone();
     this.cancelVoiceSilence();
+    this.voiceSpeaking = false;
     this.voiceHeldByKey = fromHotkey;
     const voiceConfiguration = KeyboardSession.shared.voiceInputConfiguration();
     this.voiceStreams = VoiceRecordingBehaviourPolicy.streamsPartialResults(voiceConfiguration);
@@ -6317,7 +6411,9 @@ struct KeyboardView {
       this.cancelVoiceSilence();
       KeyboardSession.shared.setVoiceRecording(false);
       this.voiceNotice = message;
-      }, KeyboardSession.shared.voiceHotwordOptions()).catch((error: Object): void => {
+      }, KeyboardSession.shared.voiceHotwordOptions(), (speaking: boolean): void => {
+      this.voiceSpeechChanged(speaking);
+      }).catch((error: Object): void => {
       KeyboardSession.shared.voiceCancel();
       this.voiceGeneration = 0;
       this.voiceBusy = false;
@@ -6372,7 +6468,7 @@ struct KeyboardView {
   }
 
   /**
-   * 听到文字后，停顿 `VOICE_SILENCE_STOP_MS` 即结束录音并给出结果，即 Android 的静音停止：触屏聆听界面没有停止按钮，因为点击任意位置即取消。由快捷键按住的录音在松开按键时结束。
+   * 听到文字后，停顿 `VOICE_SILENCE_STOP_MS` 即结束录音并给出结果，即 Android 的静音停止：触屏聆听界面没有停止按钮，因为点击任意位置即取消。由快捷键或空格键按住的录音在松开按键时结束。到点时 VAD 还听到说话就顺延（`VoiceRecognitionPolicy.silenceStops`）。
    */
   private armVoiceSilence(): void {
     if (!this.touchDesign() || this.voiceHeldByKey || !this.voiceBusy || this.voiceFinishing) {
@@ -6381,8 +6477,22 @@ struct KeyboardView {
     this.cancelVoiceSilence();
     this.voiceSilenceTimer = setTimeout((): void => {
       this.voiceSilenceTimer = -1;
+      if (!VoiceRecognitionPolicy.silenceStops(this.voiceSpeaking)) {
+        this.armVoiceSilence();
+        return;
+      }
       this.stopVoice();
     }, VOICE_SILENCE_STOP_MS);
+  }
+
+  /**
+   * 经过 VAD 的本地整段模型报告说话状态变化。这类模型只在一段说完后才出文字，连续说话超过 `VOICE_SILENCE_STOP_MS` 时没有新文字可以续上静音计时，所以已经开始的计时在每次变化时从头再计：开始说话时推迟，说完时从这一刻起再等一个完整的停顿。还没听到文字时计时尚未开始，这里不启动它。
+   */
+  private voiceSpeechChanged(speaking: boolean): void {
+    this.voiceSpeaking = speaking;
+    if (this.voiceSilenceTimer >= 0) {
+      this.armVoiceSilence();
+    }
   }
 
   private cancelVoiceSilence(): void {

@@ -62,6 +62,19 @@ export interface SettingsSyncClient {
   apply(userId: string, preferences: AccountPreferences): Promise<void>;
 }
 
+/** 一条 QQ 群助手绑定。服务端只存群和成员标识的摘要，所以只有编号和绑定时间。 */
+export type AccountQqLink = {
+  id: string;
+  createdAt: string;
+};
+
+/** 「绑定 QQ 群助手」：群友在 QQ 群里 @机器人 发 /bind 拿到 8 位绑定码，在这里输入。 */
+export interface QqLinksClient {
+  list(): Promise<AccountQqLink[]>;
+  redeem(code: string): Promise<AccountQqLink>;
+  remove(id: string): Promise<void>;
+}
+
 export interface AccountClient {
   status(): Promise<{ user?: AccountUser | null }>;
   providers(): Promise<AccountProviders>;
@@ -85,6 +98,7 @@ export interface AccountClient {
   deleteAccount(): Promise<void>;
   clearExpired(): Promise<void>;
   settingsSync?: SettingsSyncClient;
+  qqLinks?: QqLinksClient;
   appIcon?: AppIconClient;
 }
 

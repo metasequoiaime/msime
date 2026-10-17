@@ -76,6 +76,12 @@ impl InputSession {
             clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
+            if self.quick_phrase_candidates {
+                self.queries.append_quick_phrase_candidates(
+                    self.engine.request().raw_input.as_str(),
+                    &mut decoded,
+                );
+            }
         }
         self.personal_reranked = false;
         // 日文整段转换只算一次：个人上下文重排生效时下面要混排两张表。

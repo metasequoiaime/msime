@@ -16,6 +16,8 @@ private func msimeClientVoiceLocalModelRemove(_ request: UnsafePointer<LocalSpee
 private func msimeClientVoiceHotwords(_ request: UnsafePointer<LocalSpeechByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_voice_hotword_correct")
 private func msimeClientVoiceHotwordCorrect(_ request: UnsafePointer<LocalSpeechByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_voice_normalize_numbers")
+private func msimeClientVoiceNormalizeNumbers(_ request: UnsafePointer<LocalSpeechByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_prepare_host")
 private func msimeClientVoicePrepareHost(_ request: UnsafePointer<LocalSpeechByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_string_free")
@@ -107,6 +109,15 @@ enum LocalSpeechModelStore {
           let corrected = value["text"] as? String
     else { return text }
     return corrected
+  }
+
+  /// 本地模型最终文本里汉字写的数字改成数字（二零零二年 → 2002年）。只有不自带 ITN 的 kind（流式与离线 transducer）会被改写，其他 kind 由共享层原样返回；调用失败时保留原文。只用于最终文本，不用于中间结果。
+  static func normalizeNumbers(_ text: String, kind: String) -> String {
+    guard !text.isEmpty,
+          let value = try? call(msimeClientVoiceNormalizeNumbers, ["text": text, "kind": kind]) as? [String: Any],
+          let normalized = value["text"] as? String
+    else { return text }
+    return normalized
   }
 
   /// The message a host error is shown as. Errors are `local_model_<kind>`, some followed by `: <detail>`.

@@ -431,6 +431,11 @@ public final class NativeClient {
         return TextPolicy.utf8(voiceHotwordCorrectRaw(utf8(request)));
     }
 
+    /** 本地模型最终文本里汉字写的数字改成数字：`{"text","kind"}` in, `{"text"}` out。只改写不自带 ITN 的 kind，其他 kind 原样返回；只用于最终文本。Pure. */
+    public static String voiceNormalizeNumbers(String request) {
+        return TextPolicy.utf8(voiceNormalizeNumbersRaw(utf8(request)));
+    }
+
     /** Whether the sherpa-onnx runtime loads: the one packaged in the APK, or the one named by {@link #localSpeechRuntime}. Loads it on the first call, so call on a worker. */
     public static boolean localSpeechAvailable() {
         return localSpeechAvailableRaw();
@@ -575,6 +580,12 @@ public final class NativeClient {
         NativeHandlePolicy.requirePositive(handle);
         byte[] partial = localSpeechAcceptRaw(handle, pcm, count);
         return partial == null ? null : TextPolicy.utf8(partial);
+    }
+
+    /** 经过 VAD 的整段模型此刻是否判定在说话；流式模型始终为 false。在送音频的那个工作线程上调用。 */
+    public static boolean localSpeechSpeaking(long handle) {
+        NativeHandlePolicy.requirePositive(handle);
+        return localSpeechSpeakingRaw(handle);
     }
 
     /** Flush and return the whole transcript. Throws IllegalStateException once cancelled or on failure. */
@@ -913,6 +924,7 @@ public final class NativeClient {
     private static native byte[] updatePreferencesRaw(long session, byte[] snapshot);
     private static native byte[] voiceHotwordsRaw(byte[] request);
     private static native byte[] voiceHotwordCorrectRaw(byte[] request);
+    private static native byte[] voiceNormalizeNumbersRaw(byte[] request);
     private static native boolean localSpeechAvailableRaw();
     private static native void localSpeechRuntimeRaw(byte[] path);
     private static native byte[] resourcePacksRaw(byte[] request);
@@ -938,6 +950,7 @@ public final class NativeClient {
     private static native byte[] localSpeechStartRaw(long handle, byte[] model, byte[] language,
                                                      byte[] hotwords, int threads);
     private static native byte[] localSpeechAcceptRaw(long handle, short[] pcm, int count);
+    private static native boolean localSpeechSpeakingRaw(long handle);
     private static native byte[] localSpeechFinishRaw(long handle);
     private static native void localSpeechCancelRaw(long handle);
     private static native void localSpeechDestroyRaw(long handle);

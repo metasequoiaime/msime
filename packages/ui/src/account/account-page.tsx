@@ -34,6 +34,7 @@ import { AccountVerificationForm } from "./account-verification-form";
 import { AccountStatusMessages } from "./account-status-messages";
 import { AccountIdentityDetails, AccountIdentityRows } from "./account-identity-details";
 import { AppThemeRow } from "./app-theme-row";
+import { QqLinkCard } from "./qq-link-card";
 import { BottomSheet, LoginSheet } from "./login-sheet";
 import { MeSubpageHeader, MobileDownloadPage, otherPlatformCount } from "./mobile-download-page";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
@@ -1594,6 +1595,7 @@ function AccountDetailsPage({
       {user && !mobile && client.settingsSync && (
         <SettingsSyncCard client={client.settingsSync} userId={user.id} />
       )}
+      {user && !mobile && client.qqLinks && <QqLinkCard client={client.qqLinks} userId={user.id} />}
       {/* 桌面的云词库入口只在「词库」页：那里不登录也看得到，这里不再放第二个。macOS 不在设置里打开云剪贴板（要输入法提供输入会话），这一组在 macOS 上因此整组不出现。 */}
       {user && !mobile && onOpenCloudClipboard && (
         <GroupList title="云端">

@@ -39,6 +39,12 @@ public final class CandidateNavigationPolicySmoke {
             "Tab pages forward");
         check(CandidateNavigationPolicy.commandFor(KeyEvent.KEYCODE_TAB, true, all, false) == PREVIOUS_PAGE,
             "Shift+Tab pages back");
+        check(CandidateNavigationPolicy.shouldOpenCandidatePanel(KeyEvent.KEYCODE_TAB, false, all, false),
+            "unshifted Tab opens the expanded candidate panel before paging");
+        check(!CandidateNavigationPolicy.shouldOpenCandidatePanel(KeyEvent.KEYCODE_TAB, true, all, false),
+            "Shift+Tab remains the reverse paging shortcut");
+        check(!CandidateNavigationPolicy.shouldOpenCandidatePanel(KeyEvent.KEYCODE_TAB, false, all, true),
+            "an open panel is not reopened by Tab");
         // Arrows move the highlight rather than the page, which is a different pair of commands.
         check(command(KeyEvent.KEYCODE_DPAD_UP, all) == PREVIOUS_CANDIDATE
                 && command(KeyEvent.KEYCODE_DPAD_DOWN, all) == NEXT_CANDIDATE,

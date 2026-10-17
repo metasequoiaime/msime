@@ -69,6 +69,13 @@ export class VoiceRecognitionPolicy {
     return touch && recording && leavingVoiceSurface;
   }
 
+  /**
+   * 静音计时到点时能否结束录音。经过 VAD 的整段本地模型只在一段说完后才出文字，用户连续说上超过 `VOICE_SILENCE_STOP_MS` 的一段时没有新文字，只看文字会在说话中途截断录音；VAD 此刻还听到说话就顺延，等说完再从头计时。没有 VAD 的识别器从不报说话，行为不变。
+   */
+  static silenceStops(speaking: boolean): boolean {
+    return !speaking;
+  }
+
   static result(value: string): string {
     if (!TextPolicy.validUnicode(value)) return "";
     let text: string = value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");

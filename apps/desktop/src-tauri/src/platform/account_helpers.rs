@@ -169,6 +169,28 @@ where
         .map_err(account_command_error)
 }
 
+/// [`call_session`] 给返回 [`AccountFailure`] 的新接口用：错误码取 `AccountFailure::code`，页面能分出「不存在」「被限流」和接口自己的码（例如 `account_qq_link_code_not_found`）。
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+pub(crate) async fn call_session_detailed<S, T, F>(
+    session: &Arc<S>,
+    operation: F,
+) -> Result<T, crate::CommandError>
+where
+    S: Send + Sync + 'static,
+    T: Send + 'static,
+    F: FnOnce(&S) -> Result<T, msime_client_services::account::AccountFailure> + Send + 'static,
+{
+    let session = Arc::clone(session);
+    tauri::async_runtime::spawn_blocking(move || operation(&session))
+        .await
+        .map_err(|_| crate::CommandError {
+            code: "account_unavailable",
+        })?
+        .map_err(|failure| crate::CommandError {
+            code: failure.code(),
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

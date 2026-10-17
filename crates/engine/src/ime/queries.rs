@@ -119,6 +119,23 @@ impl CandidateQueries {
         self.quick_phrase_table = usable_quick_phrase_table(table);
     }
 
+    /// 把普通组字的编码匹配到快捷短语时追加到候选末尾；普通候选的顺序和来源保持不变。
+    pub fn append_quick_phrase_candidates(&self, prefix: &str, candidates: &mut Vec<WordItem>) {
+        if prefix.is_empty() || !prefix.bytes().all(|byte| byte.is_ascii_lowercase()) {
+            return;
+        }
+        let database = query_quick_phrases(prefix, &self.paths.dictionary(assets::MAIN_DICTIONARY));
+        let merged = merge_quick_phrases(prefix, database, &self.quick_phrase_table);
+        for candidate in merged.candidates {
+            if !candidates
+                .iter()
+                .any(|existing| existing.word == candidate.word)
+            {
+                candidates.push(candidate);
+            }
+        }
+    }
+
     /// Keeps the entries `@` mode can use and drops the rest.
     pub fn set_mentions(&mut self, entries: &[MentionEntry]) {
         self.mentions = usable_mentions(entries);

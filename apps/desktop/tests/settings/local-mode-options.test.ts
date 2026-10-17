@@ -46,6 +46,14 @@ test("宿主能力筛选日语、触发模式和从属地名并保持顺序", ()
   expect(localModeRowsFor(base).map(([key]) => key)).toContain("temporary_japanese");
 });
 
+test("macOS 说明普通输入可直接调用快捷短语", () => {
+  expect(
+    localModeRowsFor({ ...base, quickPhraseCandidates: true }).find(
+      ([key]) => key === "quick_phrase",
+    )?.[2],
+  ).toBe("中文模式下直接输入编码即可调用快捷短语，也可以按 Shift+K 后输入编码");
+});
+
 test("iOS 使用触屏入口文案，翻译提示只在明确未配置服务时追加", () => {
   const iosRows = localModeRowsFor({ ...base, ios: true, triggers: true });
   expect(iosRows.find(([key]) => key === "quick_phrase")?.[2]).toBe(

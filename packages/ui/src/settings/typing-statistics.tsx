@@ -56,6 +56,7 @@ import { subscribeToWindowResume } from "../core/window-focus";
 import { subscribeToInterval } from "../core/use-interval";
 import { MobileStatistics, statisticsCardClass, type StatisticsLook } from "./mobile-statistics";
 import { StatisticsNote } from "./statistics-note";
+import { TypingStatisticsUpload } from "./typing-statistics-upload";
 import type { TypingSummary } from "./typing-summary";
 export type { TypingBreakdown } from "./typing-speed";
 export type { TypingSummary } from "./typing-summary";
@@ -1112,6 +1113,8 @@ export function TypingStatisticsPage({
   >("keys");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
+  // 「上传到云端」打开时，页面上「只保存在本机」的说明要改写。
+  const [uploadEnabled, setUploadEnabled] = useState(false);
   const requestRef = useRef<Promise<TypingStatisticsStatus> | null>(null);
   const requestStartedAtRef = useRef(0);
   const lastRequestAtRef = useRef(0);
@@ -1558,7 +1561,9 @@ export function TypingStatisticsPage({
             输入统计已关闭
           </h2>
           <p className="mt-2 mb-0 leading-relaxed text-secondary">
-            开启后这里会显示输入字数、速度、时段分布与按键热力图。统计只保存在本机，不记录输入内容，也不联网。
+            {uploadEnabled
+              ? "开启后这里会显示输入字数、速度、时段分布与按键热力图。统计不记录输入内容；已打开「上传到云端」，每日计数会上传到你的水杉账号。"
+              : "开启后这里会显示输入字数、速度、时段分布与按键热力图。统计只保存在本机，不记录输入内容，也不联网。"}
           </p>
           <ActionButton
             action={() => void update(() => client.setEnabled(true))}
@@ -1779,6 +1784,12 @@ export function TypingStatisticsPage({
             disabled={busy}
             onChange={(enabled) => void update(() => client.setEnabled(enabled))}
           />
+          {client.cloudUpload && (
+            <TypingStatisticsUpload
+              client={client.cloudUpload}
+              onEnabledChange={setUploadEnabled}
+            />
+          )}
           {client.setRetention && (
             <SelectSettingField
               label="自动清理"
@@ -1830,7 +1841,11 @@ export function TypingStatisticsPage({
             />
           </div>
           <p className={privacy}>
-            字数统计水杉键盘提交的字符，以及英文模式和放行给应用的字母、数字与符号（按按键时估计），含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。
+            字数统计水杉键盘提交的字符，以及英文模式和放行给应用的字母、数字与符号（按按键时估计），含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。
+            {uploadEnabled
+              ? "日期、分类和数量保存在本机，不保存输入内容；已打开「上传到云端」，最近 7 天的每日计数和候选位次会上传到你的水杉账号，按键热力图不上传。"
+              : "仅在本机保存日期、分类和数量，不保存输入内容。"}
+            每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。
           </p>
         </section>
       )}

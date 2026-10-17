@@ -7771,6 +7771,27 @@ INSERT INTO quick_parases VALUES('dh','电话',10);",
     assert_eq!(words(&session), ["电话"]);
 }
 
+/// macOS 的普通组字把编码匹配的快捷短语追加到原有候选之后，选中后直接上屏。
+#[test]
+fn macos_quick_phrase_candidates_join_regular_composition() {
+    let fixture = Fixture::new(
+        "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('dh','电话',20);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+    });
+    type_text(&mut session, "dh");
+    assert!(words(&session).contains(&"电话".to_owned()));
+    let phrase = session
+        .snapshot()
+        .candidates
+        .iter()
+        .position(|item| item.word == "电话")
+        .expect("quick phrase candidate");
+    assert_eq!(session.select(phrase).commit.as_deref(), Some("电话"));
+}
+
 /// 宿主给的辅助码表替换 schema 对应的表，也可以在会话中途换掉。
 #[test]
 fn a_host_helpcode_table_replaces_the_schema_table() {

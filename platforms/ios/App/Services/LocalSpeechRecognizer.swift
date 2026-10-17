@@ -31,8 +31,9 @@ enum LocalSpeechRecognizer {
     try Task.checkCancellation()
     let text = try await LocalSpeechEngine.shared.run { try session.finish() }
     try Task.checkCancellation()
-    guard manifest.hotwords == "pinyin" else { return text }
-    return LocalSpeechModelStore.correct(text, hotwords: hotwords)
+    let corrected = manifest.hotwords == "pinyin" ? LocalSpeechModelStore.correct(text, hotwords: hotwords) : text
+    // 不自带 ITN 的模型（transducer）把最终文本里的汉字数字改写成数字；放在拼音热词修正之后，修正按汉字的拼音匹配，先改成数字会让它认不出来。
+    return LocalSpeechModelStore.normalizeNumbers(corrected, kind: manifest.kind.rawValue)
   }
 
   static func floats(pcm16 data: Data) -> [Float] {
@@ -56,15 +57,18 @@ private final class LoadedLocalRecognizer {
   let vadModel: String
   let tokens: Set<String>
   let nativeHotwords: Bool
+  /// token 表里的汉字是独立的词，热词按 `bpe` 编码、字间隔空格（`LocalSpeechText.cjkSpelledAsWords`）。
+  let spacedCJK: Bool
 
   init(kind: LocalSpeechModelManifest.Kind, online: OpaquePointer?, offline: OpaquePointer?, vadModel: String,
-       tokens: Set<String>, nativeHotwords: Bool) {
+       tokens: Set<String>, nativeHotwords: Bool, spacedCJK: Bool) {
     self.kind = kind
     self.online = online
     self.offline = offline
     self.vadModel = vadModel
     self.tokens = tokens
     self.nativeHotwords = nativeHotwords
+    self.spacedCJK = spacedCJK
   }
 
   deinit {
@@ -141,6 +145,7 @@ final class LocalSpeechEngine: @unchecked Sendable {
       let tokens = try model.file("tokens")
       let bpeVocab = try model.optionalFile("bpe_vocab")
       let native = model.hotwords == "native" && bpeVocab != nil && !model.modelingUnit.isEmpty
+      let hotwordTokens = native ? Self.hotwordTokens(model) : HotwordTokens(tokens: [], spacedCJK: false, modelingUnit: "")
       var config = SherpaOnnxOnlineRecognizerConfig()
       config.feat_config.sample_rate = LocalSpeechRecognizer.sampleRate
       config.feat_config.feature_dim = 80
@@ -150,8 +155,9 @@ final class LocalSpeechEngine: @unchecked Sendable {
       config.model_config.tokens = strings.add(tokens)
       config.model_config.num_threads = key.threads
       config.model_config.provider = strings.add("cpu")
+      if !model.modelType.isEmpty { config.model_config.model_type = strings.add(model.modelType) }
       if native, let bpeVocab {
-        config.model_config.modeling_unit = strings.add(model.modelingUnit)
+        config.model_config.modeling_unit = strings.add(hotwordTokens.modelingUnit)
         config.model_config.bpe_vocab = strings.add(bpeVocab)
       }
       // Per-stream hotwords are only honoured by modified beam search.
@@ -165,9 +171,8 @@ final class LocalSpeechEngine: @unchecked Sendable {
       guard let online = SherpaOnnxCreateOnlineRecognizer(&config) else {
         throw ServiceFailure(message: "无法加载本地语音模型，请删除后重新下载。")
       }
-      let tokenSet = native ? LocalSpeechText.tokenSet((try? model.textFile("tokens", maximumBytes: LocalSpeechModelManifest.maximumTokensBytes)) ?? "") : []
-      return LoadedLocalRecognizer(kind: model.kind, online: online, offline: nil, vadModel: "", tokens: tokenSet,
-                                   nativeHotwords: native)
+      return LoadedLocalRecognizer(kind: model.kind, online: online, offline: nil, vadModel: "", tokens: hotwordTokens.tokens,
+                                   nativeHotwords: native, spacedCJK: hotwordTokens.spacedCJK)
     }
     let vadModel = try model.file("vad")
     var config = SherpaOnnxOfflineRecognizerConfig()
@@ -176,7 +181,27 @@ final class LocalSpeechEngine: @unchecked Sendable {
     config.model_config.num_threads = key.threads
     config.model_config.provider = strings.add("cpu")
     config.decoding_method = strings.add("greedy_search")
-    if model.kind == .offlineSenseVoice {
+    if !model.modelType.isEmpty { config.model_config.model_type = strings.add(model.modelType) }
+    var native = model.kind == .offlineFunAsrNano
+    var hotwordTokens = HotwordTokens(tokens: [], spacedCJK: false, modelingUnit: "")
+    if model.kind == .offlineTransducer {
+      let tokens = try model.file("tokens")
+      let bpeVocab = try model.optionalFile("bpe_vocab")
+      native = model.hotwords == "native" && bpeVocab != nil && !model.modelingUnit.isEmpty
+      if native { hotwordTokens = Self.hotwordTokens(model) }
+      config.model_config.transducer.encoder = strings.add(try model.file("encoder"))
+      config.model_config.transducer.decoder = strings.add(try model.file("decoder"))
+      config.model_config.transducer.joiner = strings.add(try model.file("joiner"))
+      config.model_config.tokens = strings.add(tokens)
+      if native, let bpeVocab {
+        config.model_config.modeling_unit = strings.add(hotwordTokens.modelingUnit)
+        config.model_config.bpe_vocab = strings.add(bpeVocab)
+      }
+      // 整段解码时 encoder 只跑一遍，beam 的代价只落在 decoder/joiner 上，所以不论有没有热词都用宽 beam（与 shared/voice/LocalAsr.cpp 一致，依据见那里的注释）。
+      config.decoding_method = strings.add("modified_beam_search")
+      config.max_active_paths = 16
+      config.hotwords_score = 2.0
+    } else if model.kind == .offlineSenseVoice {
       config.model_config.tokens = strings.add(try model.file("tokens"))
       config.model_config.sense_voice.model = strings.add(try model.file("model"))
       config.model_config.sense_voice.language = strings.add(key.language)
@@ -192,8 +217,21 @@ final class LocalSpeechEngine: @unchecked Sendable {
     guard let offline = SherpaOnnxCreateOfflineRecognizer(&config) else {
       throw ServiceFailure(message: "无法加载本地语音模型，请删除后重新下载。")
     }
-    return LoadedLocalRecognizer(kind: model.kind, online: nil, offline: offline, vadModel: vadModel, tokens: [],
-                                 nativeHotwords: model.kind == .offlineFunAsrNano)
+    return LoadedLocalRecognizer(kind: model.kind, online: nil, offline: offline, vadModel: vadModel, tokens: hotwordTokens.tokens,
+                                 nativeHotwords: native, spacedCJK: hotwordTokens.spacedCJK)
+  }
+
+  /// 原生热词要用的 token 表与实际的建模单位，与 shared/voice/LocalAsr.cpp 的 `use_hotword_tokens` 一致：汉字写成独立的词时一律按 `bpe` 编码，不管清单写的是什么。
+  private struct HotwordTokens {
+    let tokens: Set<String>
+    let spacedCJK: Bool
+    let modelingUnit: String
+  }
+
+  private static func hotwordTokens(_ model: LocalSpeechModelManifest) -> HotwordTokens {
+    let tokens = LocalSpeechText.tokenSet((try? model.textFile("tokens", maximumBytes: LocalSpeechModelManifest.maximumTokensBytes)) ?? "")
+    let spaced = LocalSpeechText.cjkSpelledAsWords(tokens)
+    return HotwordTokens(tokens: tokens, spacedCJK: spaced, modelingUnit: spaced ? "bpe" : model.modelingUnit)
   }
 }
 
@@ -203,6 +241,8 @@ private final class LocalSpeechSession {
   private let recognizer: LoadedLocalRecognizer
   private var onlineStream: OpaquePointer?
   private var vad: OpaquePointer?
+  /// 离线 transducer 每段新建一个流，热词随流传入，所以在会话开始时整理一次。
+  private var segmentHotwords = ""
   private var segments: [String] = []
   private var current = ""
   private var finished = false
@@ -210,11 +250,14 @@ private final class LocalSpeechSession {
   init(recognizer: LoadedLocalRecognizer, hotwords: [String]) throws {
     self.recognizer = recognizer
     if let online = recognizer.online {
-      let words = recognizer.nativeHotwords ? LocalSpeechText.transducerHotwords(hotwords, tokens: recognizer.tokens) : ""
+      let words = recognizer.nativeHotwords ? LocalSpeechText.transducerHotwords(hotwords, tokens: recognizer.tokens, spacedCJK: recognizer.spacedCJK) : ""
       onlineStream = words.isEmpty ? SherpaOnnxCreateOnlineStream(online)
         : SherpaOnnxCreateOnlineStreamWithHotwords(online, words)
       guard onlineStream != nil else { throw ServiceFailure(message: "本地语音识别失败，请重试。") }
       return
+    }
+    if recognizer.kind == .offlineTransducer && recognizer.nativeHotwords {
+      segmentHotwords = LocalSpeechText.transducerHotwords(hotwords, tokens: recognizer.tokens, spacedCJK: recognizer.spacedCJK)
     }
     let strings = CStrings()
     var config = SherpaOnnxVadModelConfig()
@@ -266,8 +309,8 @@ private final class LocalSpeechSession {
     guard !finished else { throw ServiceFailure(message: "本地语音识别已结束。") }
     finished = true
     if let onlineStream {
-      // Trailing silence lets the last chunk through the encoder's look-ahead before input ends.
-      let tail = [Float](repeating: 0, count: Int(LocalSpeechRecognizer.sampleRate) * 6 / 10)
+      // 尾部补静音，让最后一块音频越过 encoder 的前瞻再结束输入。X-ASR 480 ms 流式模型补 0.6 秒时句末会丢掉最后一两个字（「是星期三」只出「是星期」），补到 1.2 秒才完整，与 shared/voice/LocalAsr.cpp 一致。
+      let tail = [Float](repeating: 0, count: Int(LocalSpeechRecognizer.sampleRate) * 12 / 10)
       SherpaOnnxOnlineStreamAcceptWaveform(onlineStream, LocalSpeechRecognizer.sampleRate, tail, Int32(tail.count))
       SherpaOnnxOnlineStreamInputFinished(onlineStream)
       decodeOnline()
@@ -314,7 +357,10 @@ private final class LocalSpeechSession {
   }
 
   private func decodeSegment(_ samples: UnsafePointer<Float>, count: Int32) throws {
-    guard let offline = recognizer.offline, let stream = SherpaOnnxCreateOfflineStream(offline) else {
+    guard let offline = recognizer.offline,
+          let stream = segmentHotwords.isEmpty ? SherpaOnnxCreateOfflineStream(offline)
+            : SherpaOnnxCreateOfflineStreamWithHotwords(offline, segmentHotwords)
+    else {
       throw ServiceFailure(message: "本地语音识别失败，请重试。")
     }
     defer { SherpaOnnxDestroyOfflineStream(stream) }

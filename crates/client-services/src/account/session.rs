@@ -921,6 +921,44 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.authenticated_detailed(|api, token| api.download_link(platform, token))
     }
 
+    /// 上传打字统计的最近几天，`upload` 由 [`crate::typing_statistics::upload::build_upload`] 构建。只用这个会话的账号；没有登录是 `account_unauthorized`。
+    pub fn put_typing_statistics(
+        &self,
+        upload: &crate::typing_statistics::upload::TypingStatisticsUpload,
+    ) -> Result<(), AccountFailure> {
+        self.authenticated_detailed(|api, token| api.put_typing_statistics(upload, token))
+    }
+
+    /// 清空本人全部设备在云端的打字统计。
+    pub fn delete_typing_statistics(&self) -> Result<(), AccountFailure> {
+        self.authenticated_detailed(|api, token| api.delete_typing_statistics(token))
+    }
+
+    /// 本人绑定的 QQ 群友。
+    pub fn qq_links(&self) -> Result<AccountQqLinks, AccountFailure> {
+        self.authenticated_detailed(|api, token| api.qq_links(token))
+    }
+
+    /// 用机器人给的绑定码绑定一个 QQ 群友；码前后的空白和中间的空格、连字符先去掉，其余不是 8 位数字时在本地拒绝。
+    pub fn redeem_qq_link(&self, code: &str) -> Result<AccountQqLink, AccountFailure> {
+        let code: String = code
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != '-')
+            .collect();
+        if !valid_qq_link_code(&code) {
+            return Err(AccountError::Invalid.into());
+        }
+        self.authenticated_detailed(|api, token| api.redeem_qq_link(&code, token))
+    }
+
+    /// 解除一条绑定。
+    pub fn delete_qq_link(&self, id: &str) -> Result<(), AccountFailure> {
+        if !valid_qq_link_id(id) {
+            return Err(AccountError::Invalid.into());
+        }
+        self.authenticated_detailed(|api, token| api.delete_qq_link(id, token))
+    }
+
     /// 以指定的那一次登录发一个请求：`user_id` 和 `generation` 是调用方先前从 [`Self::with_current_identity`] 读到的。会话换了账号、退出后重新登录（代次变了）时是 `account_cancelled`，不会用别的登录去发；401 时带着被拒的令牌刷新一次，在同一次登录里重试。给云同步这种「读、合并、写」要横跨好几个请求的调用方用，每一步都落在开始那一轮的登录上。
     pub fn authenticated_as<T, F>(
         &self,

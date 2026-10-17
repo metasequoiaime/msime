@@ -320,14 +320,15 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 
 ### 模型（`resources/local-asr-models.json`）
 
-模型目录由设置页的模型管理下载：`client-providers::voice::local_models` 只接受 HTTPS，逐字节校验长度与 SHA-256，只保留目录清单 `files` 里列出的文件（`test_wavs`、`test_onnx.py`、`bpe.model` 不解包），最后写入 `msime-model.json`。三份归档都是 sherpa-onnx 项目转换成 ONNX 后在 `asr-models` 发布里公开提供的版本，下表的许可证取自目录里各条目的 `license` 字段：
+模型目录由设置页的模型管理下载：`client-providers::voice::local_models` 只接受 HTTPS，逐字节校验长度与 SHA-256，只保留目录清单 `files` 里列出的文件（`test_wavs`、`test_onnx.py`、`bpe.model` 不解包），最后写入 `msime-model.json`。四份归档都是 sherpa-onnx 项目转换成 ONNX 后在 `asr-models` 发布里公开提供的版本，下表的许可证取自目录里各条目的 `license` 字段：
 
 | 目录 id | 模型 | 许可证 | 来源 | 说明 |
 | --- | --- | --- | --- | --- |
 | `x-asr-zh-en-streaming`（默认） | X-ASR 中英流式 zipformer transducer，int8 | Apache-2.0 | [Gilgamesh-J/X-ASR](https://github.com/Gilgamesh-J/X-ASR) | 原生支持热词。热词需要的 `bpe.vocab` 上游归档里没有，仓库自带一份 `resources/voice-models/x-asr-zh-en-bpe.vocab`（69,594 字节，SHA-256 记在目录的 `extra` 里），编译进 `client-providers`，安装时写入模型目录；它是该模型的派生数据，适用同一许可证 |
+| `x-asr-zh-en-offline` | X-ASR 中英离线（非流式）zipformer transducer，int8 | Apache-2.0 | [Gilgamesh-J/X-ASR](https://github.com/Gilgamesh-J/X-ASR) | 与流式版同一模型的整句导出，`tokens.txt` 与流式版逐字节相同，因此共用同一份 `bpe.vocab` 做原生热词；另带 `silero_vad.onnx` 分段 |
 | `sense-voice-small` | SenseVoice-Small，int8 | **FunASR Model License v1.1**（`LicenseRef-FunASR-Model-License-1.1`），不是 OSI 开源许可证 | [FunAudioLLM/SenseVoice](https://github.com/FunAudioLLM/SenseVoice)，条款全文见 [FunASR MODEL_LICENSE](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE) | 阿里巴巴通义实验室。条款要求保留模型名称和署名，目录条目的 `notice` 原样记录了这段署名，设置页在模型旁显示它。**不随 MSIME 分发**，只在用户点下载时从上游取得 |
 | `fun-asr-nano`（仅桌面） | Fun-ASR-Nano-2512，int8 | Apache-2.0 | [FunAudioLLM/Fun-ASR](https://github.com/FunAudioLLM/Fun-ASR) | 阿里巴巴通义实验室。解码器是 Qwen3-0.6B，同为 Apache-2.0 |
-| `silero_vad.onnx`（后两个模型的附加文件） | Silero VAD | MIT | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | 整句模型用它切分语音段。从 sherpa-onnx 的 `asr-models` 发布下载，SHA-256 固定在目录的 `extra` 里 |
+| `silero_vad.onnx`（离线 X-ASR、SenseVoice 与 Fun-ASR-Nano 的附加文件） | Silero VAD | MIT | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | 整句模型用它切分语音段。从 sherpa-onnx 的 `asr-models` 发布下载，SHA-256 固定在目录的 `extra` 里 |
 
 用户可以在设置里配置下载镜像（`asr_model_mirror`）；镜像只改变从哪里取文件，校验用的 SHA-256 不变，所以镜像无法替换内容。
 

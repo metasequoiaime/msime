@@ -36,9 +36,61 @@
         "bpe_vocab": "bpe.vocab"
       },
       "hotwords": "native",
-      "modeling_unit": "cjkchar+bpe",
+      "modeling_unit": "bpe",
+      "model_type": "zipformer2",
       "installed_size": 169000000,
       "memory": "约 0.5 GB",
+      "license": {
+        "spdx": "Apache-2.0",
+        "source": "https://github.com/Gilgamesh-J/X-ASR",
+        "notice": "X-ASR, Apache License 2.0. Converted to ONNX by the k2-fsa/sherpa-onnx project."
+      }
+    },
+    {
+      "id": "x-asr-zh-en-offline",
+      "title": "中英整句",
+      "description": "每说完一段整段识别，比中英流式更准，自带标点，中英夹杂。说话时不逐字出字。支持用户词库热词。",
+      "kind": "offline_transducer",
+      "default": false,
+      "streaming": false,
+      "languages": [
+        "zh",
+        "en"
+      ],
+      "archive": {
+        "name": "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03.tar.bz2",
+        "sha256": "5d02c36d7b44e886b7c8f0d8e051f8713acab96c264bb6ef9e718be39a6a2224",
+        "size": 136396739,
+        "root": "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03"
+      },
+      "extra": [
+        {
+          "name": "bpe.vocab",
+          "resource": "x-asr-zh-en-bpe.vocab",
+          "sha256": "28fc94d67aae53d8c58010fcfb16fc8c2f8dd263e03f3490c98210e354e8f914",
+          "size": 69594
+        },
+        {
+          "name": "silero_vad.onnx",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+          "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+          "size": 643854
+        }
+      ],
+      "files": {
+        "encoder": "encoder-epoch-99-avg-1.int8.onnx",
+        "decoder": "decoder-epoch-99-avg-1.onnx",
+        "joiner": "joiner-epoch-99-avg-1.int8.onnx",
+        "tokens": "tokens.txt",
+        "bpe_vocab": "bpe.vocab",
+        "vad": "silero_vad.onnx"
+      },
+      "hotwords": "native",
+      "modeling_unit": "bpe",
+      "model_type": "transducer",
+      "installed_size": 176000000,
+      "memory": "约 0.6 GB",
       "license": {
         "spdx": "Apache-2.0",
         "source": "https://github.com/Gilgamesh-J/X-ASR",

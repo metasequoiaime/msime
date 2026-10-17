@@ -538,6 +538,39 @@ pub unsafe extern "C" fn msime_client_voice_hotword_correct(
     })
 }
 
+/// 本地模型的最终文本里，把汉字写的数字改成数字（二零零二年 → 2002年）。
+///
+/// 请求 `{"text": "...", "kind": "<msime-model.json 的 kind>"}`，响应 `{"text": "..."}`。只有不自带 ITN 的模型（`voice::numbers::applies_to_kind`）会被改写，其他 kind 原样返回，所以宿主对每个本地模型的最终文本都可以调用它。纯函数；文本上限与 `msime_client_voice_hotword_correct` 相同。
+///
+/// # Safety
+/// `request` 必须指向 `length` 个可读字节；null 会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_normalize_numbers(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        #[derive(Deserialize)]
+        struct NumbersRequest {
+            text: String,
+            kind: String,
+        }
+        let request: NumbersRequest =
+            local_voice_request(request, length, LOCAL_VOICE_REQUEST_LIMIT)?;
+        if !is_bounded_chars_without_nul(&request.text, MAX_VOICE_CORRECTION_TEXT_CHARS)
+            || !is_bounded_text(&request.kind, 64)
+        {
+            return Err("invalid voice number normalization request".into());
+        }
+        let text = if msime_client_providers::voice::numbers::applies_to_kind(&request.kind) {
+            msime_client_providers::voice::numbers::convert(&request.text)
+        } else {
+            request.text
+        };
+        Ok(json!({ "text": text }))
+    })
+}
+
 /// The on-device model catalog with what is installed under a root.
 ///
 /// Request `{"root": "<absolute dir>"}`; response `{"models": [LocalModelStatus], "default": "<id>"}`. A model's `path` is what `voice_input.asr_model_path` is set to when the user picks it.

@@ -27,6 +27,8 @@ import org.json.JSONObject;
  * <p>The recognizer is the shared one every desktop host uses (`shared/voice/LocalAsr`), compiled into this host's JNI library; the runtime is the pinned sherpa-onnx `.aar`'s native libraries, packaged beside it or, where the package leaves them out, taken from the downloaded voice-runtime resource pack. This class owns the microphone and the two threads between it and that recognizer: capture reads the microphone into a queue so a slow decode never drops audio, and the calling worker loads the model, decodes, reports partial text and finishes.
  *
  * <p>Hotwords come from the user's own pinyin dictionary through the shared host API. A model that biases natively gets them at session start; one whose manifest says `"hotwords": "pinyin"` gets the final transcript corrected by the shared pinyin matcher instead.
+ *
+ * <p>最终文本最后经共享层 `msime_client_voice_normalize_numbers` 按清单的 `kind` 把汉字数字改成数字（只改写不自带 ITN 的 transducer 模型），中间结果不改。
  */
 public final class LocalAsrRecognizer {
     /** Roughly 100 ms of 16 kHz mono audio per read. */
@@ -38,6 +40,9 @@ public final class LocalAsrRecognizer {
     /** What the caller shows while the user speaks. Called on the recognizing worker. */
     public interface Listener {
         void onPartial(String text);
+
+        /** 经过 VAD 的整段模型（SenseVoice、离线 X-ASR 等）开始或停止判定在说话时调用一次。这类模型一段说完才出文字，调用方按「多久没有新文字」判断说完时，要在说话期间推迟，否则用户接着说下去会被截断。流式模型不报。 */
+        default void onSpeech(boolean speaking) { }
     }
 
     /** Why a recognition did not produce text. The caller maps these onto its own messages. */
@@ -167,8 +172,10 @@ public final class LocalAsrRecognizer {
                             Listener listener) throws Refused {
         diagnostic(DiagnosticEventKind.VOICE_LOCAL_MODEL_CHECK);
         if (!LocalAsrPolicy.installed(modelDirectory, trustedRoot)) throw new Refused(Failure.MODEL);
-        String hotwordMode = hotwordMode(modelDirectory, trustedRoot);
-        if (hotwordMode == null) throw new Refused(Failure.MODEL);
+        JSONObject manifest = manifest(modelDirectory, trustedRoot);
+        if (manifest == null) throw new Refused(Failure.MODEL);
+        String hotwordMode = manifestString(manifest, "hotwords");
+        String kind = manifestString(manifest, "kind");
         JSONArray hotwords = supplied(hotwordTexts, hotwordPinyin);
         if (hotwords.length() == 0) hotwords = hotwords(hostOptions);
         diagnostic(DiagnosticEventKind.VOICE_LOCAL_RUNTIME_CHECK);
@@ -202,6 +209,7 @@ public final class LocalAsrRecognizer {
             if (LocalAsrPolicy.correctsByPinyin(hotwordMode) && hotwords.length() > 0) {
                 text = corrected(text, hotwords);
             }
+            text = numbersNormalized(text, kind);
             text = TextPolicy.trimmed(text);
             if (text.isEmpty()) throw new Refused(Failure.EMPTY);
             return text;
@@ -256,6 +264,7 @@ public final class LocalAsrRecognizer {
     private String decode(long session, Thread capture, BlockingQueue<short[]> audio,
                           Listener listener) {
         String last = "";
+        boolean speaking = false;
         while (!cancelled.get()) {
             short[] chunk;
             try {
@@ -274,6 +283,11 @@ public final class LocalAsrRecognizer {
             if (partial != null && !partial.equals(last)) {
                 last = partial;
                 if (listener != null) listener.onPartial(partial);
+            }
+            boolean now = NativeClient.localSpeechSpeaking(session);
+            if (now != speaking) {
+                speaking = now;
+                if (listener != null) listener.onSpeech(now);
             }
         }
         return LocalAsrPolicy.transcript(NativeClient.localSpeechFinish(session));
@@ -350,16 +364,20 @@ public final class LocalAsrRecognizer {
         }
     }
 
-    /** The manifest's hotword mode ("native", "pinyin" or ""), or null when it is not a manifest. */
-    private static String hotwordMode(String modelDirectory, Path trustedRoot) {
+    /** 已安装模型的清单；读不出来或不是 JSON 对象时为 null。 */
+    private static JSONObject manifest(String modelDirectory, Path trustedRoot) {
         try {
             byte[] bytes = LocalAsrPolicy.readManifest(modelDirectory, trustedRoot);
-            JSONObject manifest = new JSONObject(TextPolicy.utf8(bytes));
-            if (manifest.isNull("hotwords")) return "";
-            return JsonPolicy.strictStringOrEmpty(manifest.opt("hotwords"));
+            return new JSONObject(TextPolicy.utf8(bytes));
         } catch (IOException | JSONException error) {
             return null;
         }
+    }
+
+    /** 清单里的一个字符串字段（`hotwords` 是 "native"、"pinyin" 或 ""，`kind` 是模型类型）；缺失、null 或不是字符串时为空串。 */
+    private static String manifestString(JSONObject manifest, String key) {
+        if (manifest.isNull(key)) return "";
+        return JsonPolicy.strictStringOrEmpty(manifest.opt(key));
     }
 
     /**
@@ -420,6 +438,21 @@ public final class LocalAsrRecognizer {
             String corrected = LocalAsrPolicy.transcript(value.opt("text"));
             return corrected.isEmpty() ? text : corrected;
         } catch (JSONException | RuntimeException error) {
+            return text;
+        }
+    }
+
+    /** 共享层按模型 kind 把最终文本里的汉字数字改成数字；kind 不需要改写时共享层原样返回。调用失败时退回未改写的文本，数字写法不值得让一次识别失败。 */
+    private static String numbersNormalized(String text, String kind) {
+        if (kind.isEmpty() || text.isEmpty()) return text;
+        try {
+            JSONObject request = new JSONObject().put("text", text).put("kind", kind);
+            JSONObject response = new JSONObject(NativeClient.voiceNormalizeNumbers(request.toString()));
+            JSONObject value = JsonPolicy.objectValue(response);
+            if (value == null || value.isNull("text")) return text;
+            String normalized = LocalAsrPolicy.transcript(value.opt("text"));
+            return normalized.isEmpty() ? text : normalized;
+        } catch (JSONException | RuntimeException | LinkageError error) {
             return text;
         }
     }

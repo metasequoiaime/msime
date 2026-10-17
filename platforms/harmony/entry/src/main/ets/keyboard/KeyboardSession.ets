@@ -1212,6 +1212,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private modeBadge: boolean = true;
   private resourceDirectory: string = '';
   private stateDirectory: string = '';
+  /** 扩展上下文的 `tempDir`，见 `useVoiceContext`。 */
+  private voiceScratchDirectory: string = '';
   // 共享沙箱里与设置应用交换状态的镜像，没有共享目录时为 null；`sharedFullMode` 报告键盘此刻是否处于完整体验模式，只有那时键盘才能写共享目录。
   private sharedMirror: SharedStateMirror | null = null;
   private sharedFullMode: () => boolean = (): boolean => false;
@@ -2894,6 +2896,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const configuration: VoiceInputConfiguration =
       JSON.parse(JSON.stringify(this.voiceInput)) as VoiceInputConfiguration;
     configuration.local_model_root = root.length > 0 ? `${root}/voice-models` : '';
+    configuration.local_model_scratch = this.voiceScratchDirectory;
     return configuration;
   }
 
@@ -6442,9 +6445,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     });
   }
 
-  /** The extension's context, which is what turns a packaged tone into something playable. */
+  /** 扩展的上下文：靠它把打包的提示音变成能播放的声音。它的临时目录同时用来放离线 transducer 加载时读的热词文件。 */
   useVoiceContext(context: common.Context): void {
     this.voiceBehaviour.use(context);
+    this.voiceScratchDirectory = context.tempDir;
   }
 
   /** The extension's context, which says where the built-in sound packs are and where rendered notes may go. */

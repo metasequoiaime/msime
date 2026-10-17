@@ -21,6 +21,13 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertEqual(LocalSpeechText.tidy("A B C"), "ABC")
     XCTAssertEqual(LocalSpeechText.tidy("最后 deploy 到 staging 环境 。"), "最后 deploy 到 staging 环境。")
     XCTAssertEqual(LocalSpeechText.tidy(""), "")
+    XCTAssertEqual(LocalSpeechText.tidy("我们去 café."), "我们去 café.")
+    XCTAssertEqual(LocalSpeechText.tidy("𠮷野家."), "𠮷野家。")
+    XCTAssertEqual(LocalSpeechText.tidy("昨天是 monday.Today is 礼拜二。The day after tomorrow 是星期三."),
+                   "昨天是 monday. Today is 礼拜二。The day after tomorrow 是星期三。")
+    XCTAssertEqual(LocalSpeechText.tidy("真的吗?好的!那就这样,走吧"), "真的吗？好的！那就这样，走吧")
+    XCTAssertEqual(LocalSpeechText.tidy("版本 3.5 和 U.S. 还有 e.g. 不变"), "版本 3.5 和 U.S. 还有 e.g. 不变")
+    XCTAssertEqual(LocalSpeechText.tidy("Done.Next step"), "Done. Next step")
   }
 
   func testSegmentsJoinWithASpaceOnlyBetweenLatinWords() {
@@ -34,10 +41,28 @@ final class LocalSpeechModelTests: XCTestCase {
   func testTransducerHotwordsDropWordsTheModelCannotSpell() {
     let tokens = LocalSpeechText.tokenSet("<blk> 0\n水 1\n杉 2\n输 3\n入 4\n法 5\n")
     XCTAssertEqual(tokens, ["<blk>", "水", "杉", "输", "入", "法"])
-    let words = LocalSpeechText.transducerHotwords(["水杉", "输入法", "鹅", "Open AI", "C++", "rock'n-roll", "a/b", "  "], tokens: tokens)
+    XCTAssertFalse(LocalSpeechText.cjkSpelledAsWords(tokens))
+    let words = LocalSpeechText.transducerHotwords(["水杉", "输入法", "鹅", "Open AI", "C++", "rock'n-roll", "a/b", "  "], tokens: tokens,
+                                                   spacedCJK: false)
     XCTAssertEqual(words, "水杉\n输入法\nOpen AI\nrock'n-roll\na b\n")
     let many = (0..<250).map { _ in "水杉" }
-    XCTAssertEqual(LocalSpeechText.transducerHotwords(many, tokens: tokens).split(separator: "\n").count, 200)
+    XCTAssertEqual(LocalSpeechText.transducerHotwords(many, tokens: tokens, spacedCJK: false).split(separator: "\n").count, 200)
+  }
+
+  // X-ASR 的 token 表里每个汉字都是带 `▁` 的独立的词，与 shared/voice/LocalAsr.cpp 的 cjk_spelled_as_words 和 transducer_hotwords 的 spaced_cjk 分支一致。
+  func testHotwordsForTokensThatSpellEveryHanziAsAWord() {
+    let tokens = LocalSpeechText.tokenSet("<blk> 0\n<sos/eos> 1\n▁, 2\n▁写 3\n▁上 4\n▁去 5\n▁现 6\n▁在 7\n▁时 8\n▁fr 9\nequ 10\n")
+    XCTAssertTrue(LocalSpeechText.cjkSpelledAsWords(tokens))
+    XCTAssertFalse(LocalSpeechText.cjkSpelledAsWords(tokens.union(["写"])), "one bare hanzi token means the model spells hanzi as characters")
+    XCTAssertFalse(LocalSpeechText.cjkSpelledAsWords(["<blk>", "▁fr", "equ", "▁a"]), "no hanzi at all")
+    XCTAssertFalse(LocalSpeechText.cjkSpelledAsWords(["<blk>", "▁the", "▁and"]), "English pieces as long as `▁` plus a hanzi are not hanzi")
+    XCTAssertFalse(LocalSpeechText.cjkSpelledAsWords(["<blk>", "▁，", "▁。"]), "`▁` plus CJK punctuation is not a hanzi")
+    XCTAssertFalse(LocalSpeechText.cjkSpelledAsWords([]))
+    let words = LocalSpeechText.transducerHotwords(["写上去", "现在时", "Open AI", "写A", "Open 写", "写 上", "鹅", "现在鹅", "  "],
+                                                   tokens: tokens, spacedCJK: true)
+    XCTAssertEqual(words, "写 上 去\n现 在 时\nOpen AI\n写 A\nOpen 写\n写 上\n")
+    XCTAssertEqual(LocalSpeechText.transducerHotwords(["写上去"], tokens: tokens, spacedCJK: false), "",
+                   "spelled as characters, the hanzi are not in the token set")
   }
 
   func testFunAsrHotwordsAreCommaSeparatedAndCapped() {
@@ -68,6 +93,21 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertThrowsError(try manifest.file("vad"), "a named file that is missing on disk")
     XCTAssertThrowsError(try manifest.file("encoder"), "a role the manifest does not name")
     XCTAssertNil(try manifest.optionalFile("bpe_vocab"))
+
+    XCTAssertEqual(manifest.modelType, "", "no model_type leaves sherpa to probe the encoder")
+
+    let offline = try makeModel(id: "x-asr-zh-en-offline", manifest: [
+      "kind": "offline_transducer", "hotwords": "native", "modeling_unit": "cjkchar+bpe", "model_type": "transducer",
+      "files": ["encoder": "encoder.onnx", "decoder": "decoder.onnx", "joiner": "joiner.onnx", "tokens": "tokens.txt",
+                "bpe_vocab": "bpe.vocab", "vad": "silero_vad.onnx"],
+    ], files: ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt", "bpe.vocab", "silero_vad.onnx"])
+    let transducer = try LocalSpeechModelManifest(directory: offline)
+    XCTAssertEqual(transducer.kind, .offlineTransducer)
+    XCTAssertEqual(transducer.kind.rawValue, "offline_transducer")
+    XCTAssertEqual(transducer.modelType, "transducer")
+    XCTAssertEqual(transducer.modelingUnit, "cjkchar+bpe")
+    XCTAssertEqual(transducer.hotwords, "native")
+    XCTAssertEqual(try transducer.optionalFile("bpe_vocab"), offline.appendingPathComponent("bpe.vocab").path)
 
     let unknown = try makeModel(id: "whisper", manifest: ["kind": "offline_whisper", "files": [:]], files: [])
     XCTAssertThrowsError(try LocalSpeechModelManifest(directory: unknown))
@@ -198,6 +238,10 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertTrue(catalog.models.contains { $0.id == catalog.default })
     XCTAssertFalse(catalog.models.contains(where: \.installed))
     XCTAssertTrue(catalog.models.contains { !$0.desktopOnly }, "the phone has at least one model it can run")
+    let offline = try XCTUnwrap(catalog.models.first { $0.id == "x-asr-zh-en-offline" }, "the offline X-ASR transducer is listed")
+    XCTAssertFalse(offline.desktopOnly)
+    XCTAssertFalse(offline.streaming)
+    XCTAssertEqual(offline.hotwords, "native")
     for model in catalog.models {
       XCTAssertFalse(model.title.isEmpty)
       XCTAssertGreaterThan(model.archiveSize, 0)
@@ -211,6 +255,18 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertTrue(LocalSpeechModelStore.message(for: "local_model_something_new").contains("local_model_something_new"))
     XCTAssertEqual(LocalSpeechModelStore.correct("你好", hotwords: []), "你好")
     XCTAssertEqual(LocalSpeechModelStore.hotwords(resources: scratch.appendingPathComponent("missing"), stateRoot: scratch), [])
+  }
+
+  /// 走真实的 host-api：transducer 不自带 ITN，最终文本里的汉字数字改成数字；自己会写数字的模型原样保留。
+  func testNumberNormalizationOnlyRewritesTransducerTranscripts() {
+    XCTAssertEqual(LocalSpeechModelStore.normalizeNumbers("二零零二年收窄了百分之五十七，一夜之间", kind: "offline_transducer"),
+                   "2002年收窄了57%，一夜之间")
+    XCTAssertEqual(LocalSpeechModelStore.normalizeNumbers("下午三点十分出发", kind: "online_transducer"), "下午3点10分出发")
+    XCTAssertEqual(LocalSpeechModelStore.normalizeNumbers("二零零二年", kind: "offline_sense_voice"), "二零零二年")
+    XCTAssertEqual(LocalSpeechModelStore.normalizeNumbers("", kind: "offline_transducer"), "")
+    // 共享层拒绝的请求（文本超长）保留原文。
+    let tooLong = String(repeating: "一", count: 10_001)
+    XCTAssertEqual(LocalSpeechModelStore.normalizeNumbers(tooLong, kind: "offline_transducer"), tooLong)
   }
 
   func testMirrorRejectsCredentialsQueriesAndFragments() {
