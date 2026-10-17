@@ -7108,7 +7108,7 @@ public final class MSIMEInputService extends InputMethodService {
                 return true;
             }
             if (!candidateManagementEnabled()) return false;
-            JSONObject candidate = visibleCandidate(action);
+            JSONObject candidate = visibleCandidate(visibleCandidateSlot(action));
             JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
             if (id == null || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE)
                     != session) return false;
@@ -7523,7 +7523,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean selectHardwareCandidate(int slot) {
-        JSONObject candidate = visibleCandidate(slot);
+        int actualSlot = visibleCandidateSlot(slot);
+        JSONObject candidate = visibleCandidate(actualSlot);
         JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
         if (id == null || session == 0
                 || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
@@ -7539,7 +7540,24 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    private void updateCandidateButton(Button button, JSONObject candidate, int slot) {
+    /** 把硬件数字键和候选条显示序号映射到未显示云占位行之前的引擎槽位。 */
+    private int visibleCandidateSlot(int visibleSlot) {
+        if (visibleSlot < 0 || view == null) return -1;
+        JSONArray entries = view.optJSONArray("candidates");
+        if (entries == null) return -1;
+        int visible = 0;
+        for (int slot = 0; slot < entries.length(); slot++) {
+            JSONObject candidate = entries.optJSONObject(slot);
+            if (candidate == null || !AiPendingCandidatePolicy.isVisible(
+                    InputViewValuePolicy.integer(candidate, "source", -1))) continue;
+            if (visible == visibleSlot) return slot;
+            visible++;
+        }
+        return -1;
+    }
+
+    private void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {
+        int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = InputViewValuePolicy.textOr(view, "preedit", "");
@@ -7551,19 +7569,18 @@ public final class MSIMEInputService extends InputMethodService {
         // session/generation/index identity for accessibility and hardware number-row selection.
         // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9，每页十个时第十个标 0（#5584、#6679）。
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
-            dedicatedEnglish, slot);
+            dedicatedEnglish, visibleSlot);
         button.setText(candidateLabel(number, text, annotation, highlighted));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
         KeyboardTypographyPolicy.setKeyTextSize(button, candidateFontSize);
         ViewPolicy.setSelected(button, highlighted);
-        // 在线占位行（AI 来源 12 或云来源 15）画淡一些，和真候选区分开；按钮会复用，其他候选恢复不透明。读屏念它的状态，不提示长按管理（#6888）。
-        int source = InputViewValuePolicy.integer(candidate, "source", -1);
+        // AI 占位行画淡一些，和真候选区分开；云占位行在候选条循环中直接隐藏。按钮会复用，其他候选恢复不透明。读屏念它的状态，不提示长按管理（#6888）。
         button.setAlpha(AiPendingCandidatePolicy.alpha(source));
         // render() attaches the button and applies the complete skin tree once below.
         // Avoid creating its candidate drawables before that pass.
-        String description = AiPendingCandidatePolicy.description(source, "候选 " + (slot + 1) + "：", text,
+        String description = AiPendingCandidatePolicy.description(source, "候选 " + (visibleSlot + 1) + "：", text,
             candidateAccessibilitySuffix(candidate, typed));
         JSONObject id = candidate.optJSONObject("id");
         button.setContentDescription(id != null && candidateManagementEnabled()
@@ -9619,14 +9636,20 @@ public final class MSIMEInputService extends InputMethodService {
         } else if (englishSuggestionsActive()) {
             renderEnglishSuggestions(activeCandidates);
         } else if (entries != null) {
+            int visibleSlot = 0;
             for (int slot = 0; slot < entries.length(); slot++) {
                 JSONObject candidate = entries.optJSONObject(slot);
                 if (candidate == null) continue;
                 while (candidateButtons.size() <= slot)
                     candidateButtons.add(imeCandidates.makeCandidateButton(candidateButtons.size()));
                 Button candidateView = candidateButtons.get(slot);
+                int source = InputViewValuePolicy.integer(candidate, "source", -1);
+                if (!AiPendingCandidatePolicy.isVisible(source)) {
+                    ViewPolicy.hide(candidateView);
+                    continue;
+                }
                 ViewPolicy.show(candidateView);
-                updateCandidateButton(candidateView, candidate, slot);
+                updateCandidateButton(candidateView, candidate, slot, visibleSlot++);
                 activeCandidates.addView(candidateView, new LinearLayout.LayoutParams(
                     candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
                         : LinearLayout.LayoutParams.MATCH_PARENT,

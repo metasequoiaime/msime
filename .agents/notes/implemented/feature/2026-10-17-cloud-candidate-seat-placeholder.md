@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-共享 Engine 在允许云候选的组字中预留一个 `CandidateSource::CloudPending` 行，显示文本为云图标并固定在云候选席位。云回包仍由在线批处理写入 `CloudSuggestion`，它替换同一席位；没有结果时占位保留到组字结束。关闭云候选时立即移除占位。Runtime、插件锁定规则和各宿主候选呈现都把该来源当作在线占位行处理，禁止学习、改字和候选管理。
+共享 Engine 在允许云候选的组字中预留一个 `CandidateSource::CloudPending` 行，固定在云候选席位。云回包仍由在线批处理写入 `CloudSuggestion`，它替换同一席位；没有结果时占位保留到组字结束。关闭云候选时立即移除占位。Android 隐藏该内部占位行，等真实云候选返回后再显示，避免把 `☁`、加载符号或云字样放进手机候选栏；Runtime、插件锁定规则和各宿主候选呈现都把该来源当作在线占位行处理，禁止学习、改字和候选管理。
 
 ## Alternatives considered
 
@@ -18,6 +18,6 @@ Status: implemented
 
 ## Consequences
 
-用户在云请求期间看到稳定的云图标位置；回包只更新该位置，其他本地候选保持原位。占位行会增加一个候选席位并参与页数计算，云请求失败时仍会占位到组字变化。来源值追加为 15，保留已有候选来源的 ABI 数字。
+Android 在云请求期间不显示占位行，真实云候选返回后才出现在候选栏；Android 同时把硬件数字键和无占位行的显示序号重新映射，避免出现跳号。共享占位行仍会增加一个候选席位并参与页数计算，云请求失败时仍会占位到组字变化。来源值追加为 15，保留已有候选来源的 ABI 数字。
 
 验证包括 `cargo test -p msime-engine --lib session::tests::cloud_answer_replaces_its_fixed_pending_seat`、`cargo test -p msime-input-runtime --lib --no-default-features`（318 项）和 `cargo check -p msime-host-api --lib`。
