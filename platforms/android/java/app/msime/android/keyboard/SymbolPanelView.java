@@ -49,7 +49,7 @@ public final class SymbolPanelView extends LinearLayout {
             int width = getMeasuredWidth();
             if (width <= 0 || width == measuredGridWidth) return;
             measuredGridWidth = width;
-            SymbolPanelModel.Category category = SymbolPanelModel.categories(recents).get(selected);
+            SymbolPanelModel.Category category = orderedCategories().get(selected);
             if (!category.fromCatalog() && !category.symbols().isEmpty()) {
                 // 测量期间按新宽度重排并再次测量，确保本轮布局拿到每个键的尺寸。
                 // 若等布局完成后才替换子视图，新键没有经过测量，首次打开就会整片空白。
@@ -69,6 +69,7 @@ public final class SymbolPanelView extends LinearLayout {
     };
     private final List<Button> categoryButtons =
         new java.util.ArrayList<>(SymbolPanelModel.categories(List.of()).size());
+    private List<SymbolCategoryOrderPolicy.Item> categoryOrder = SymbolCategoryOrderPolicy.DEFAULT_ORDER;
     private List<String> recents = List.of();
     private int selected;
     /** 当前显示的目录分类读到哪了；换分类或重新打开时 `catalogGeneration` 加一，之前发出去的读页结果作废。 */
@@ -80,8 +81,32 @@ public final class SymbolPanelView extends LinearLayout {
 
     /** 每次打开时，有使用记录先显示「常用」，否则显示「中文」。 */
     public void resetForPresentation(List<String> recents) {
+        resetForPresentation(recents, categoryOrder);
+    }
+
+    /** 每次打开时同时应用本机分类顺序；「常用」移动后仍按身份选中它。 */
+    public void resetForPresentation(List<String> recents,
+            List<SymbolCategoryOrderPolicy.Item> order) {
         this.recents = SymbolPanelModel.normalizeRecents(recents);
-        select(SymbolPanelModel.initialCategory(this.recents));
+        setCategoryOrder(order);
+        select(SymbolPanelModel.initialCategory(this.recents, categoryOrder));
+    }
+
+    /** 设置页保存后无需重启输入法，下一次打开面板即可看到新顺序。 */
+    public void setCategoryOrder(List<SymbolCategoryOrderPolicy.Item> order) {
+        List<SymbolCategoryOrderPolicy.Item> normalized = order == null
+            ? SymbolCategoryOrderPolicy.DEFAULT_ORDER : List.copyOf(order);
+        if (categoryOrder.equals(normalized)) return;
+        String selectedId = null;
+        List<SymbolPanelModel.Category> before = orderedCategories();
+        if (selected >= 0 && selected < before.size()) selectedId = before.get(selected).id();
+        categoryOrder = normalized;
+        rebuildCategoryButtons();
+        List<SymbolPanelModel.Category> after = orderedCategories();
+        int next = 0;
+        if (selectedId != null) for (int index = 0; index < after.size(); index++)
+            if (selectedId.equals(after.get(index).id())) { next = index; break; }
+        selected = next;
     }
 
     /** 记录变了只换数据，不重排正在看的网格，避免连续输入时格子挪动；下次点「常用」或重新打开时才按新顺序显示。 */
@@ -130,7 +155,18 @@ public final class SymbolPanelView extends LinearLayout {
         bottom.addView(bottomDelete, footerKeyParams(48));
         addView(bottom, LayoutPolicy.matchWidthHeightPx(DimensionPolicy.pixels(getContext(), 48)));
 
-        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories(recents);
+        rebuildCategoryButtons();
+        select(SymbolPanelModel.initialCategory(recents, categoryOrder));
+    }
+
+    private List<SymbolPanelModel.Category> orderedCategories() {
+        return SymbolPanelModel.categories(recents, categoryOrder);
+    }
+
+    private void rebuildCategoryButtons() {
+        categories.removeAllViews();
+        categoryButtons.clear();
+        List<SymbolPanelModel.Category> values = orderedCategories();
         for (int index = 0; index < values.size(); index++) {
             final int category = index;
             Button button = buttons.create(values.get(index).title(),
@@ -141,10 +177,9 @@ public final class SymbolPanelView extends LinearLayout {
             if (button instanceof KeyboardPressButton key) key.setKeyboardRole(KeyboardKeyRole.PLAIN);
             listener.restyle(button);
             categoryButtons.add(button);
-            button.setMinWidth(DimensionPolicy.pixels(context, 56));
+            button.setMinWidth(DimensionPolicy.pixels(getContext(), 56));
             categories.addView(button, footerKeyParams(LayoutParams.WRAP_CONTENT));
         }
-        select(SymbolPanelModel.initialCategory(recents));
     }
 
     /** 返回用无键帽图标，底栏只保留固定删除与可滚动分类。 */
@@ -172,7 +207,7 @@ public final class SymbolPanelView extends LinearLayout {
     }
 
     private void select(int category) {
-        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories(recents);
+        List<SymbolPanelModel.Category> values = orderedCategories();
         if (category < 0 || category >= values.size()) return;
         selected = category;
         for (int index = 0; index < categoryButtons.size(); index++) {
@@ -340,7 +375,7 @@ public final class SymbolPanelView extends LinearLayout {
 
     /** 当前是目录分类、还没读完、也没有正在读时，读下一页。 */
     private void loadNextCatalogPage() {
-        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories(recents);
+        List<SymbolPanelModel.Category> values = orderedCategories();
         if (selected < 0 || selected >= values.size()) return;
         SymbolPanelModel.Category category = values.get(selected);
         if (!category.fromCatalog() || catalogLoading || catalogComplete) return;

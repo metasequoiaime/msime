@@ -30,21 +30,24 @@ public final class SymbolPanelModel {
     /** 一个分类：写死在这里的（`catalog` 为空，`symbols` 就是全部内容），或者打开时从 Engine 目录分页读的（`symbols` 为空）。 */
     public static final class Category {
         private final String title;
+        private final String id;
         private final List<String> symbols;
         private final String catalog;
         private final String parent;
 
-        private Category(String title, List<String> symbols) {
-            this(title, symbols, "", "");
+        private Category(String id, String title, List<String> symbols) {
+            this(id, title, symbols, "", "");
         }
 
-        private Category(String title, List<String> symbols, String catalog, String parent) {
+        private Category(String id, String title, List<String> symbols, String catalog, String parent) {
+            this.id = id;
             this.title = title;
             this.symbols = List.copyOf(symbols);
             this.catalog = catalog;
             this.parent = parent;
         }
 
+        public String id() { return id; }
         public String title() { return title; }
         public List<String> symbols() { return symbols; }
         /** 空串表示写死的分类；否则是 {@link #KAOMOJI_CATALOG} 或 {@link #SYMBOLS_CATALOG}。 */
@@ -66,7 +69,7 @@ public final class SymbolPanelModel {
 
     // 「常用」是用户在面板里实际点过的符号（#5671），后面用 DEFAULT_COMMON 补满，所以这里只有固定的分类。中文标点和全角符号仍留在「中文」最前面。
     private static final List<Category> FIXED_CATEGORIES = List.of(
-        new Category("中文", List.of(
+        new Category("chinese", "中文", List.of(
             "，", "。", "？", "！", "、", "；", "：", "…", "—", "·",
             "“", "”", "‘", "’", "（", "）", "《", "》", "【", "】",
             "～", "＆", "＃", "＠", "％", "＋", "－", "＝", "／",
@@ -75,36 +78,36 @@ public final class SymbolPanelModel {
             "￥", "〇", "※", "°", "℃", "±", "×", "÷", "≈", "≠",
             "≤", "≥", "√", "∞", "∵", "∴", "→", "←", "↑", "↓",
             "★", "☆", "●", "○", "■", "□", "◆", "◇", "▲", "△")),
-        new Category("英文", List.of(
+        new Category("english", "英文", List.of(
             ",", ".", "?", "!", ";", ":", "'", "\"", "(", ")",
             "[", "]", "{", "}", "<", ">", "/", "\\", "|", "-",
             "_", "+", "=", "*", "&", "^", "%", "$", "#", "@",
             "~", "`", "·", "…", "–", "—", "§", "¶", "†", "‡")),
-        new Category("数字", List.of(
+        new Category("numbers", "数字", List.of(
             "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
             "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩",
             "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
             "Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ",
             "½", "⅓", "¼", "‰", "′", "″", "㎡", "㎏", "㎝", "№")),
-        new Category("网络", network()));
+        new Category("network", "网络", network()));
 
     /**
      * 写死的分类之后，是 Engine 目录里的颜文字和各类符号（#5667「文本符号过少」）。数据随词库 `msime-others.db` 发布，与 iOS 键盘和桌面面板读的是同一份；上级分类的中文名与 iOS 的 `KeyboardEmojiCatalog.symbolParentTitles` 相同，顺序按目录里的顺序。
      */
     private static final List<Category> CATALOG_CATEGORIES = List.of(
-        new Category("颜文字", List.of(), KAOMOJI_CATALOG, ""),
-        new Category("形状", List.of(), SYMBOLS_CATALOG, "Stars and shapes"),
-        new Category("箭头", List.of(), SYMBOLS_CATALOG, "Arrows and lines"),
-        new Category("标点", List.of(), SYMBOLS_CATALOG, "Punctuation"),
-        new Category("数学", List.of(), SYMBOLS_CATALOG, "Math"),
-        new Category("货币", List.of(), SYMBOLS_CATALOG, "Currency"),
-        new Category("爱心", List.of(), SYMBOLS_CATALOG, "Hearts"),
-        new Category("字母", List.of(), SYMBOLS_CATALOG, "Letters"),
-        new Category("游戏", List.of(), SYMBOLS_CATALOG, "Games"),
-        new Category("文化", List.of(), SYMBOLS_CATALOG, "Culture"),
-        new Category("自然", List.of(), SYMBOLS_CATALOG, "Animals and nature"),
-        new Category("人物", List.of(), SYMBOLS_CATALOG, "People and activity"),
-        new Category("更多", List.of(), SYMBOLS_CATALOG, "More"));
+        new Category("kaomoji", "颜文字", List.of(), KAOMOJI_CATALOG, ""),
+        new Category("shapes", "形状", List.of(), SYMBOLS_CATALOG, "Stars and shapes"),
+        new Category("arrows", "箭头", List.of(), SYMBOLS_CATALOG, "Arrows and lines"),
+        new Category("punctuation", "标点", List.of(), SYMBOLS_CATALOG, "Punctuation"),
+        new Category("math", "数学", List.of(), SYMBOLS_CATALOG, "Math"),
+        new Category("currency", "货币", List.of(), SYMBOLS_CATALOG, "Currency"),
+        new Category("hearts", "爱心", List.of(), SYMBOLS_CATALOG, "Hearts"),
+        new Category("letters", "字母", List.of(), SYMBOLS_CATALOG, "Letters"),
+        new Category("games", "游戏", List.of(), SYMBOLS_CATALOG, "Games"),
+        new Category("culture", "文化", List.of(), SYMBOLS_CATALOG, "Culture"),
+        new Category("nature", "自然", List.of(), SYMBOLS_CATALOG, "Animals and nature"),
+        new Category("people", "人物", List.of(), SYMBOLS_CATALOG, "People and activity"),
+        new Category("more", "更多", List.of(), SYMBOLS_CATALOG, "More"));
 
     private SymbolPanelModel() { }
 
@@ -145,9 +148,27 @@ public final class SymbolPanelModel {
     /** 底栏的全部分类：第一个是「常用」（{@link #commonSymbols}），然后是写死的分类，最后是 Engine 目录里的分类。 */
     public static List<Category> categories(List<String> recents) {
         ArrayList<Category> values = new ArrayList<>(FIXED_CATEGORIES.size() + 1);
-        values.add(new Category(RECENTS_TITLE, commonSymbols(recents)));
+        values.add(new Category("recents", RECENTS_TITLE, commonSymbols(recents)));
         values.addAll(FIXED_CATEGORIES);
         values.addAll(CATALOG_CATEGORIES);
+        return List.copyOf(values);
+    }
+
+    /** 按本机设置排列分类；设置中缺少的分类（例如后续版本新增的分类）追加到默认顺序末尾。 */
+    public static List<Category> categories(List<String> recents,
+            List<SymbolCategoryOrderPolicy.Item> order) {
+        List<Category> defaults = categories(recents);
+        if (order == null || order.equals(SymbolCategoryOrderPolicy.DEFAULT_ORDER)) return defaults;
+        ArrayList<Category> values = new ArrayList<>(defaults.size());
+        for (SymbolCategoryOrderPolicy.Item item : order) {
+            for (Category category : defaults) {
+                if (category.id().equals(item.id) && !values.contains(category)) {
+                    values.add(category);
+                    break;
+                }
+            }
+        }
+        for (Category category : defaults) if (!values.contains(category)) values.add(category);
         return List.copyOf(values);
     }
 
@@ -165,6 +186,15 @@ public final class SymbolPanelModel {
 
     /** 打开面板时先显示哪一类：「常用」总是补满的，所以总是它。 */
     public static int initialCategory(List<String> recents) {
+        return 0;
+    }
+
+    /** 「常用」移动后仍按稳定 ID 找到它，而不是假设它位于索引 0。 */
+    public static int initialCategory(List<String> recents,
+            List<SymbolCategoryOrderPolicy.Item> order) {
+        List<Category> values = categories(recents, order);
+        for (int index = 0; index < values.size(); index++)
+            if ("recents".equals(values.get(index).id())) return index;
         return 0;
     }
 

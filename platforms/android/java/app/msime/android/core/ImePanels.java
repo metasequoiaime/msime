@@ -236,7 +236,8 @@ final class ImePanels {
         s.closeVoiceResult();
         s.closeAiPolish();
         s.closeReplyKeyboard();
-        s.symbolPanel.resetForPresentation(loadSymbolRecents());
+        s.symbolPanel.resetForPresentation(loadSymbolRecents(),
+            SymbolCategoryOrderPolicy.ordered(s.localSettings.text(AndroidLocalSettings.SYMBOL_CATEGORY_ORDER)));
         // 面板原先没有底色，网格空着时直接透出底下的字母键；铺上键盘底图。
         s.imeStyler.applySkinBackground(s.symbolPanel);
         ViewPolicy.show(s.symbolPanel);

@@ -19,6 +19,8 @@ public final class SymbolPanelModelSmoke {
         for (SymbolPanelModel.Category category : empty)
             check(category.symbols().size() == new java.util.HashSet<>(category.symbols()).size(),
                 category.title() + " has no duplicates");
+        check(empty.get(0).id().equals("recents") && empty.get(1).id().equals("chinese")
+            && empty.get(17).id().equals("more"), "categories expose stable IDs");
         catalogCategories(empty);
         networkSuffixes(empty.get(4));
 
