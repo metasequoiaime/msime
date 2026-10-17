@@ -46,6 +46,7 @@ import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { DictionaryFormatOptions } from "../dictionary/dictionary-format-options";
 import { usePanelDrag } from "./use-panel-drag";
 import { usePanelAction } from "./use-panel-action";
+import { cloudDictionaryErrorMessage } from "./cloud-dictionary-errors";
 import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
 import {
   useEffect,
@@ -2158,7 +2159,10 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     weight: number;
   } | null>(null);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
-  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
+  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(
+    setNotice,
+    cloudDictionaryErrorMessage,
+  );
   const searchRef = useLatestRef(search);
 
   async function load(
@@ -2413,7 +2417,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     revisionRef: requestRevision,
     run,
     invalidate,
-  } = usePanelAction(setNotice);
+  } = usePanelAction(setNotice, cloudDictionaryErrorMessage);
   const [snapshotBusy, setSnapshotBusy] = useState(false);
   const [restorePreview, setRestorePreview] = useState<{
     text: string;
@@ -2837,7 +2841,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     run: runAction,
     invalidate,
     isCurrent,
-  } = usePanelAction(setNotice);
+  } = usePanelAction(setNotice, cloudDictionaryErrorMessage);
   const lifecycleRevision = useAsyncGeneration(client);
 
   async function refreshStatus() {
@@ -3067,7 +3071,10 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     weight: number;
   } | null>(null);
   const [notice, setNotice] = useState("查询基础词库与当前账号的完整目录");
-  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
+  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(
+    setNotice,
+    cloudDictionaryErrorMessage,
+  );
 
   useEffect(() => {
     invalidate();
@@ -3358,7 +3365,10 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   const [context, setContext] = useState("");
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState("仅在点击查询时发送编码；修改只保存到当前账号");
-  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
+  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(
+    setNotice,
+    cloudDictionaryErrorMessage,
+  );
   const textRef = useLatestRef(text);
 
   useEffect(() => {

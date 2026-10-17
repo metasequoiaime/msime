@@ -3307,7 +3307,7 @@ function SettingsShell(props: SettingsPageProps) {
                   onOpenCommunity={client.communityResources ? openCommunity : undefined}
                   communityHasSkins={Boolean(client.communitySkins)}
                   onOpenCloudDictionary={
-                    client.openCloudDictionary
+                    client.openCloudDictionary && !macosPlatform
                       ? () => {
                           void client.openCloudDictionary!().catch(() =>
                             setError("无法打开云词库，请重试。"),

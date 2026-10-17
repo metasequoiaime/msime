@@ -59,7 +59,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
         @"selectChineseMode:", @"selectEnglishMode:", @"toggleDedicatedEnglishMode:", @"",
         @"toggleTraditionalOutput:", @"toggleFullWidthInput:", @"toggleChinesePunctuation:", @"toggleCandidateTranslations:", @"",
         @"*", @"*", @"",
-        @"toggleFloatingToolbar:", @"showEmoji:", @"showCloudClipboard:", @"showScreenKeyboard:", @"showHandwriting:",
+        @"toggleFloatingToolbar:", @"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showScreenKeyboard:", @"showHandwriting:",
         @"showVoicePanel", @"", @"showAppearance:", @"showAbout:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
@@ -6723,17 +6723,17 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     CheckMenu(menu, controller);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
-    assert(menu.numberOfItems == 21);
+    assert(menu.numberOfItems == 22);
     assert([[menu itemAtIndex:12].title isEqual:@"悬浮工具栏"]);
-    NSArray<NSString *> *toolTitles = @[@"水杉表情面板…", @"云剪贴板…", @"水杉屏幕键盘…", @"手写输入…", @"开始/结束语音输入"];
-    NSArray<NSString *> *toolActions = @[@"showEmoji:", @"showCloudClipboard:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
+    NSArray<NSString *> *toolTitles = @[@"水杉表情面板…", @"云剪贴板…", @"云词库…", @"水杉屏幕键盘…", @"手写输入…", @"开始/结束语音输入"];
+    NSArray<NSString *> *toolActions = @[@"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
     for (NSUInteger index = 0; index < toolTitles.count; ++index) {
         NSMenuItem *tool = [menu itemAtIndex:13 + index];
         assert([tool.title isEqual:toolTitles[index]] && tool.action == NSSelectorFromString(toolActions[index]));
     }
-    assert([menu itemAtIndex:18].separatorItem);
-    assert([[menu itemAtIndex:19].title isEqual:@"水杉输入法设置…"] && [menu itemAtIndex:19].action == @selector(showAppearance:));
-    assert([[menu itemAtIndex:20].title isEqual:@"关于水杉输入法…"] && [menu itemAtIndex:20].action == @selector(showAbout:));
+    assert([menu itemAtIndex:19].separatorItem);
+    assert([[menu itemAtIndex:20].title isEqual:@"水杉输入法设置…"] && [menu itemAtIndex:20].action == @selector(showAppearance:));
+    assert([[menu itemAtIndex:21].title isEqual:@"关于水杉输入法…"] && [menu itemAtIndex:21].action == @selector(showAbout:));
     // Simplified output is the off state of the one 繁体输出 toggle.
     const BOOL traditionalOutput = appearance.traditionalOutput;
     appearance.traditionalOutput = NO;

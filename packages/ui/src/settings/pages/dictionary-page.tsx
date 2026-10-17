@@ -299,7 +299,7 @@ export function DictionarySettingsPage() {
               )}
             </GroupList>
           )}
-          {client.openCloudDictionary && (
+          {client.openCloudDictionary && client.host?.platform !== "macos" && (
             <GroupList title="云词库">
               <OpenPanelRow
                 title="云词库"

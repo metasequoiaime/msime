@@ -1,6 +1,6 @@
-//! Windows 设置应用的云词库。
+//! 桌面设置应用经共享账号会话访问云词库。
 //!
-//! Windows 没有 Linux 那样的 provider socket，也没有 macOS 输入法交给面板的原生会话，所以云词库面板的每个请求都由设置应用用自己登录的账号会话完成：列表、目录、增删改、导入导出、候选调频和固定排位走与 iOS、Android 共用的 [`cloud_dictionary::account_request`]，完整快照（下载预览、应用到本机、备份与恢复）在 host-api 的 [`msime_host_api::cloud_dictionary::full_backup`]，与 `msime_client_cloud_dictionary` 共用；这里只把它放到阻塞线程上跑，再把错误码包成 [`crate::CommandError`]。
+//! Windows 的面板和 macOS 缺少原生会话或 provider 的面板由设置应用用共享账号会话完成请求：列表、目录、增删改、导入导出、候选调频和固定排位走与 iOS、Android 共用的 [`cloud_dictionary::account_request`]，完整快照（下载预览、应用到本机、备份与恢复）在 host-api 的 [`msime_host_api::cloud_dictionary::full_backup`]，与 `msime_client_cloud_dictionary` 共用；这里只把它放到阻塞线程上跑，再把错误码包成 [`crate::CommandError`]。
 
 use crate::platform::cloud_dictionary::{self, snapshot_command_error};
 use msime_client_services::account::{AccountApi, AccountSessionStorage, BackendAccountSession};

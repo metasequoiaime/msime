@@ -10265,3 +10265,22 @@ test("the Android AI page still offers the candidate count", async () => {
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(within(page).getByRole("region", { name: "联想" }).textContent).toContain("候选数量");
 });
+
+test("macOS 从输入法菜单进入云词库，设置页不提供重复入口", async () => {
+  const openCloudDictionary = vi.fn();
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        openCloudDictionary,
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  expect(screen.queryByRole("button", { name: "打开云词库" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "云词库" })).toBeNull();
+  expect(openCloudDictionary).not.toHaveBeenCalled();
+});

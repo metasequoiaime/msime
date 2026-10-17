@@ -42,7 +42,7 @@ use panel_input::{send_panel_key_windows, send_panel_text_windows, windows_panel
 use platform::android::android_account;
 #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
 use platform::community_resources;
-#[cfg(windows)]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use platform::desktop::desktop_cloud_dictionary;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 use platform::desktop::{
@@ -2283,48 +2283,44 @@ async fn cloud_dictionary_request(
         .map_err(|_| CommandError { code: "invalid" })?;
     msime_host_api::cloud_dictionary::validate_cloud_request(&request)
         .map_err(|_| CommandError { code: "invalid" })?;
-    // Windows 没有 provider socket，也没有输入法交来的原生会话：面板的每个请求都由设置应用用自己登录的账号会话完成，完整快照的「应用到本机」也在本进程里做（见 desktop_cloud_dictionary）。
-    #[cfg(not(unix))]
-    {
-        let _ = action;
-        let document = options.snapshot()?;
-        let account = app.state::<desktop_account::AccountState>();
-        let snapshots = app.state::<desktop_cloud_dictionary::CloudDictionaryState>();
-        desktop_cloud_dictionary::request(&account.session, snapshots.inner(), document, request)
-            .await
-    }
     #[cfg(unix)]
     {
-        let _ = request;
-        let options = options.inner().clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            let document = options.snapshot()?;
+        let provider_options = options.inner().clone();
+        #[cfg(target_os = "macos")]
+        let provider_app = app.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            let document = provider_options.snapshot()?;
             let configured = document
                 .get("cloud_dictionary_provider_socket")
                 .and_then(Value::as_str)
-                .map(str::to_owned);
-            let configured = configured.or_else(|| {
-                std::env::var_os("MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET")
-                    .and_then(|value| value.into_string().ok())
-            });
+                .map(str::to_owned)
+                .or_else(|| {
+                    std::env::var_os("MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET")
+                        .and_then(|value| value.into_string().ok())
+                });
             #[cfg(target_os = "macos")]
             if configured.is_none() {
-                if let Some(result) = app
+                if let Some(result) = provider_app
                     .state::<macos_cloud_dictionary::DictionaryState>()
                     .request(window.label(), &action)
                 {
-                    return result;
+                    return result.map(Some);
                 }
             }
             let path = configured
                 .map(PathBuf::from)
-                .or_else(|| discover_session_provider("cloud-dictionary.sock"))
-                .filter(|path| path.is_absolute())
-                .ok_or(CommandError {
+                .or_else(|| discover_session_provider("cloud-dictionary.sock"));
+            let Some(path) = path else {
+                return Ok(None);
+            };
+            if !path.is_absolute() {
+                return Err(CommandError {
                     code: "unavailable",
-                })?;
+                });
+            }
             UnixSocketProvider::new(path)
                 .cloud_dictionary(action)
+                .map(Some)
                 .ok_or(CommandError {
                     code: "unavailable",
                 })
@@ -2332,7 +2328,26 @@ async fn cloud_dictionary_request(
         .await
         .map_err(|_| CommandError {
             code: "unavailable",
-        })?
+        })??;
+        if let Some(result) = result {
+            return Ok(result);
+        }
+    }
+    // macOS 的设置进程没有原生会话时，复用输入法也读写的账号文件与刷新锁；已有 provider 的失败不重发。
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let document = options.snapshot()?;
+        let account = app.state::<desktop_account::AccountState>();
+        let snapshots = app.state::<desktop_cloud_dictionary::CloudDictionaryState>();
+        desktop_cloud_dictionary::request(&account.session, snapshots.inner(), document, request)
+            .await
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = request;
+        Err(CommandError {
+            code: "unavailable",
+        })
     }
 }
 

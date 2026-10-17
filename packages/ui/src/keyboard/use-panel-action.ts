@@ -12,8 +12,11 @@ export interface PanelActionState {
   isCurrent: (revision: number) => boolean;
 }
 
-/** Serializes panel actions and makes late async results harmless after a client is replaced. */
-export function usePanelAction(onFailure: (message: string) => void): PanelActionState {
+/** 串行执行面板动作，并丢弃客户端替换后的迟到结果。 */
+export function usePanelAction(
+  onFailure: (message: string) => void,
+  formatFailure?: (error: unknown, fallback: string) => string,
+): PanelActionState {
   const noop = useCallback(() => {}, []);
   const {
     busy,
@@ -34,11 +37,11 @@ export function usePanelAction(onFailure: (message: string) => void): PanelActio
       if (!mounted.current || busyRef.current) return undefined;
       const revision = ++revisionRef.current;
       return runAsyncAction(() => action(revision), {
-        formatError: () => failure,
-        onError: () => onFailure(failure),
+        formatError: (error) => formatFailure?.(error, failure) ?? failure,
+        onError: (error) => onFailure(formatFailure?.(error, failure) ?? failure),
       });
     },
-    [busyRef, mounted, onFailure, revisionRef, runAsyncAction],
+    [busyRef, mounted, onFailure, formatFailure, revisionRef, runAsyncAction],
   );
 
   return { busy, busyRef, revisionRef, run, invalidate, isCurrent };
