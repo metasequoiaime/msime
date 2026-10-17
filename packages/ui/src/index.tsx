@@ -14,6 +14,7 @@ import { useSettingsNavigation } from "./settings/use-settings-navigation";
 import { useSettingsPageRouting } from "./settings/use-settings-page-routing";
 import { useSettingsShellState } from "./settings/use-settings-shell-state";
 import { useSettingsShellNavigation } from "./settings/use-settings-shell-navigation";
+import { useSettingsCommunityViews } from "./settings/use-settings-community-views";
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
 import { settingsShellPlatformPresentation } from "./settings/settings-shell-platform-presentation";
@@ -250,6 +251,10 @@ export {
   type UseSettingsShellNavigationOptions,
 } from "./settings/use-settings-shell-navigation";
 export {
+  useSettingsCommunityViews,
+  type UseSettingsCommunityViewsOptions,
+} from "./settings/use-settings-community-views";
+export {
   settingsPlatformPresentation,
   type SettingsPlatformPresentationOptions,
 } from "./settings/settings-platform-presentation";
@@ -476,8 +481,6 @@ import { DeveloperSettingsPage, McpSettingsPage } from "./settings/pages/develop
 import { DictionarySettingsPage } from "./settings/pages/dictionary-page";
 import { AppearanceSettingsPage } from "./settings/pages/appearance-page";
 import { SkinSettingsPage } from "./settings/pages/skin-page";
-import { skinGridTabs } from "./settings/skin-grid";
-import { useSettingsTabs } from "./settings/use-settings-tabs";
 import { useCommunityGalleryNavigation } from "./settings/use-community-gallery-navigation";
 import { FloatingToolbarSettingsPage } from "./settings/pages/floating-toolbar-page";
 import { ScreenKeyboardSettingsPage } from "./settings/pages/screen-keyboard-page";
@@ -3024,14 +3027,17 @@ function SettingsShell(props: SettingsPageProps) {
   const recordCommunitySkin = (id: string) => {
     void client.typingStatistics?.recordSkin?.(id);
   };
-  // HarmonyOS 手机的皮肤页与 Android 皮肤页一样在顶部分「内置 / 我的 / 社区」。「社区」是完整的社区皮肤图库，自带搜索和发布表单，所以和桌面的「社区皮肤」一样画在设置表单之外，标签的选择也就放在这里；前两个分类的网格由皮肤页自己画。没有社区服务的宿主不给「社区」。
-  const skinTabs = useSettingsTabs(
-    skinGridTabs.filter((tab) => tab.id !== "community" || Boolean(client.communitySkins)),
-    "皮肤分类",
-    harmonyPlatform && mobilePlatform,
-  );
-  const phoneSkinCommunityShown =
-    page === "skin" && Boolean(client.communitySkins) && skinTabs.selected === "community";
+  const { skinTabs, phoneSkinCommunityShown, skinCommunityShown, pluginCommunityShown } =
+    useSettingsCommunityViews({
+      page,
+      mobile: mobilePlatform,
+      harmony: harmonyPlatform,
+      skinView,
+      pluginView,
+      hasCommunitySkins: Boolean(client.communitySkins),
+      hasCommunityCandidateSkins: Boolean(client.communityCandidateSkins),
+      hasCommunityPlugins: Boolean(client.communityPlugins),
+    });
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
     recoverPreferences,
@@ -3061,12 +3067,6 @@ function SettingsShell(props: SettingsPageProps) {
       macShell,
       onError: setError,
     });
-  // A community gallery stands in for the page's own settings, so the form's page-level actions do not apply while it is shown.
-  const skinCommunityShown =
-    (page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community") ||
-    phoneSkinCommunityShown;
-  const pluginCommunityShown =
-    page === "plugins" && Boolean(client.communityPlugins) && pluginView === "community";
   const { parentPage, goBack, shownSidebarGroups, navSearchField } = useSettingsShellNavigation({
     page,
     navigationPage,
