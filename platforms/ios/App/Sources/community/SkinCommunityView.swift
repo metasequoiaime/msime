@@ -59,7 +59,6 @@ struct SkinCommunityView: View {
       }.communityPageContent(regular: regular)
     }
     .background(MetasequoiaTheme.canvas)
-    .onAppear { request.appear(); library = CustomSkinLibrary.designs; refreshActiveDesign() }
     .onChange(of: globalTheme) { refreshActiveDesign() }
   }
 
@@ -145,7 +144,6 @@ struct SkinCommunityView: View {
       catch { }
     }
     .task {
-      request.appear()
       let state = (try? await api.signedIn()) ?? false
       guard request.isVisible, !Task.isCancelled else { return }
       signedIn = state
@@ -164,8 +162,10 @@ struct SkinCommunityView: View {
         if signedIn { showPublish = true }
       }
     }) { AccountLoginSheet() }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $pending)
+    .trackViewRequest(request: $request, pending: $pending, onAppear: {
+      library = CustomSkinLibrary.designs
+      refreshActiveDesign()
+    }, onDisappear: {
       accountTask?.cancel()
       accountTask = nil
       accountGeneration.invalidate()
@@ -174,7 +174,7 @@ struct SkinCommunityView: View {
       takeTasks.removeAll()
       taking.removeAll()
       busy = false
-    }
+    })
     .alert("皮肤社区", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
       Button("好", role: .cancel) {}
     } message: { Text(message ?? "") }
