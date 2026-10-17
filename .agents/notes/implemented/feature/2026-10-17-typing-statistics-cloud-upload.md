@@ -23,6 +23,7 @@ Status: implemented
 - 用 Rust 账号会话的宿主（Windows 原生设置）走 `msime_client_account` 的新操作 `typing_upload_status`、`typing_upload_set`、`typing_upload`、`qq_links`、`qq_link_redeem`、`qq_link_delete`（`crates/host-api/src/account_ops.rs`），语义与 Tauri 命令逐条相同。每次调用都新建统计目录的 store，它自带的操作锁管不到别的调用，所以上传和关闭后的删除改用一把进程级的锁串行化。Windows 原生设置的「打字统计」页和「账号与同步」页各画了开关和卡片，设置窗口打开和进入统计页时各补传一次。
 - 自己发 HTTP 的宿主（Android、iOS、鸿蒙）走 `msime_client_typing_statistics` 的 `upload_status`、`set_upload_enabled`、`upload_request`、`upload_succeeded`：Rust 交回要发的请求（或者不发的原因 `disabled`、`not_due`、`nothing`），宿主带登录令牌发出去，成功后再告诉 Rust 记下时间。为此 `upload_if_due` 拆成 `prepare_upload` 和 `record_upload` 两步，前者不记任何东西，后者只在开关还开着、设备标识没变时记。QQ 绑定在这些宿主上直接调服务端的三个接口，没有要放进 Rust 的状态。
 - Android（`platforms/android`）：`home/TypingUpload` 把 `upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 放在一个单线程执行器上，`HomeActivity.onResume` 和打开打字统计页时各补传一次，节流仍由 Rust 判断；只有真实账号（`SyncSwitch.validLoginKind`）上传和绑定，匿名账号什么都不发。请求由 `account/TypingUploadApi` 带账号令牌发出，错误说法与共享设置页一致。打字统计页「概览」末尾加「云端」组的「上传到云端」开关，打开时页脚改写「只保存在本机」；「我的 → 同步」加「绑定 QQ 群助手」，进 `QqLinksPage` 输入绑定码、列出和解绑。
+- iOS 原生 App（`platforms/ios`）：`App/Sources/settings/TypingUpload` 是一个 actor，所有入口经一条依次等待的任务链串行（actor 在 `await` 处可以重入，只靠 actor 挡不住关闭后的删除和还在路上的上传交错）；应用回到前台（`MetasequoiaImeApp` 的 `scenePhase == .active`）和打开统计页时各补传一次，节流仍由 Rust 判断。只有 `BackendAccountSession.shared` 上的真实账号上传和绑定，匿名账号的会话是另一个，不碰它。`TypingStatisticsStore` 加了 `uploadStatus`、`setUploadEnabled`、`uploadRequest`、`uploadSucceeded` 四个调用；请求和 QQ 绑定由 `shared/backend/clients/BackendTypingUploadClient.swift` 带账号令牌发出，错误说法与共享设置页、Android 一致。统计页「概览」末尾加「云端」组的「上传到云端」开关，打开时页脚和「关于统计」里「只保存在本机」的说法随之改写；「我的 → 同步」加「绑定 QQ 群助手」，进 `QQLinksView` 输入绑定码、列出和解绑，没登录时这一行是灰的。键盘扩展不上传：它没有完全访问权限时连不上网，而且上传要的是真实账号的令牌。
 
 ## Alternatives considered
 
@@ -35,7 +36,7 @@ Status: implemented
 
 收益：群助手可以读到打开了上传的用户的打字数据，统计页的说明也随开关改写，不再在上传开着时声称「只保存在本机」。
 
-代价：这是一条新的、带账号令牌的上传路径，PRIVACY.md 已经加了「打字统计上传」一节。上传只在设置应用打开时发生，长期不开设置应用的用户，群助手看到的数据会停在最后一次上传。Windows 原生设置和 Android 已经接上；iOS/macOS 原生和鸿蒙的 C ABI 已经有了，但界面和发送还没接，这些宿主的用户暂时用不了。Android 只在应用回到前台和打开统计页时上传，键盘进程不上传，长期只用键盘、不开应用的用户同样停在最后一次上传。两步形状把串行化交给了宿主：`upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 要放在同一个串行队列里，否则关闭时的删除可能先于还在路上的上传到达服务端，`record_upload` 只能保证本地状态不被写回。统计模型的分层见 [打字统计契约](../../implemented/architecture/2026-10-15-typing-statistics-model.md)，这里只在模型上加了 `cloudUpload` 这个可选能力。
+代价：这是一条新的、带账号令牌的上传路径，PRIVACY.md 已经加了「打字统计上传」一节。上传只在设置应用打开时发生，长期不开设置应用的用户，群助手看到的数据会停在最后一次上传。Windows 原生设置、Android 和 iOS 已经接上；macOS 原生和鸿蒙的 C ABI 已经有了，但界面和发送还没接，这些宿主的用户暂时用不了。Android 只在应用回到前台和打开统计页时上传，键盘进程不上传，长期只用键盘、不开应用的用户同样停在最后一次上传。两步形状把串行化交给了宿主：`upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 要放在同一个串行队列里，否则关闭时的删除可能先于还在路上的上传到达服务端，`record_upload` 只能保证本地状态不被写回。统计模型的分层见 [打字统计契约](../../implemented/architecture/2026-10-15-typing-statistics-model.md)，这里只在模型上加了 `cloudUpload` 这个可选能力。
 
 ## Verification
 
@@ -45,4 +46,5 @@ Status: implemented
 - `cargo test -p msime-client-services typing_statistics::upload`：两步上传只为准备时的设备记时间，准备本身不记，关闭后不写回。
 - `cargo test -p msime-host-api`：`account_ops` 的打开即上传、十分钟节流、`force`、关闭先本地后删除且删除失败仍关闭、未登录时不退回匿名账号、请求不合法时不联网，QQ 绑定的列表、绑定码清洗、服务端错误码透传；`msime_client_typing_statistics` 的 `upload_request` 各种跳过原因和 `upload_succeeded` 只认同一设备。
 - Windows 原生设置的两个模型头（`AccountPageModel.h`、`TypingStatisticsModel.h`）的单测在 macOS 上用 clang 编译跑过；`main.cpp` 没有在本机编译，靠 PR 的 Windows CI。
+- iOS：`swift test --package-path shared/backend --filter BackendTypingUploadTests` 覆盖只发往唯一路径、空请求体不发、绑定码清洗后才联网、列表解析和各种错误说法；`KeyboardTests/settings/TypingStatisticsTests.testUploadRequestsComeFromTheSharedStore` 用真的共享层覆盖没打开不发、没字数不发、请求体带 `ios`、成功后十分钟内不发而 `force` 照发、关闭后不发，由 PR 的 iOS Simulator CI 运行；App 的 Swift 源码在本机按 iOS 17 模拟器 SDK 做过类型检查，没有在模拟器上运行。
 - 没有在真实账号上连通线上服务端验证。
