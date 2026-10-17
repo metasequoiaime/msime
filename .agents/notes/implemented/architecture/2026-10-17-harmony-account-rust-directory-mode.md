@@ -38,6 +38,7 @@ Status: implemented
 
 ## Verification
 
-- `platforms/harmony/tests/account-requests.test.ts`：名单放行与拒绝、反馈重建、各入口的请求形状、设置同步的三步、`session_adopt` 的请求与回答、指纹跳过与只报一次、认证请求等在采用之后、采用失败不堵队列；改回旧行为（反馈原样转交、不按名单放行、会话按文件复制、队列不串行、每次都采用）时对应的检查失败。
+- `platforms/harmony/tests/account-requests.test.ts`：名单放行与拒绝、反馈重建、各入口的请求形状、设置同步的三步、`session_adopt` 的请求与回答、指纹跳过与只报一次、认证请求等在采用之后、采用失败不堵队列。它只导入 .ts 里的纯函数：把这些函数改回旧行为（反馈原样转交、不按名单放行、`adoptedByRust` 不认会话、`SerialGate.settled` 不等、`AdoptionTracker.due` 每次都采用）时对应的检查失败，改动 .ets 里的调用点它看不见。
+- `scripts/test-harmony-session-adoption-order.py`：盯 .ets 的调用点。`AccountSessionAdoption.ets` 以外每个 `client.account`、`accountThread`、`community`、`cloudDictionary`、`cloudDictionarySnapshot`、`accountCloudClipboard`、`aiSkinGenerate`、`ensureAnonymousAccountWithAgent` 调用（现在 13 处）都排在同一方法里、包住它的代码块里的 `await AccountSessionAdoption.settled()` 之后，私有方法则要求本文件里它的每个调用点都满足；两个 ability 的 `onCreate` 先 `adoptOnStart`（方向 `keyboard`、`settings`）再 `ensureAnonymous`；`Settings.syncShared`、`KeyboardSession.syncSharedState` 回到前台时各排一次采用；`sessionDecision` 交给 `adoptedByRust`，两个 `beforeFile` 都落到它；`libmsimeclient.so` 只能以 `client` 导入。在临时副本上逐一删掉 13 行 `settled()`、把 `sessionDecision` 或设置应用的 `beforeFile` 改回 `'copy'`、删掉或调换两个 `adoptOnStart`、改错采用方向、删掉两处前台采用、把 `settled()` 挪进分支、换个导入名，24 种改法都让它失败。它是文本检查，不认识动态调用；HAP 仍然没有打包。
 - `bash scripts/run-checks.sh`；`rbuild sh -c 'MSIME_OHOS_NDK=... bash platforms/harmony/build-native.sh arm64-v8a'`。
 - 设备上要过的流程见 #8201 迁移计划第 3 节：覆盖安装后仍是登录状态、两个沙箱之间登出和换号都跟上、云剪贴板升级后不出现「等待批准」、hilog 里没有 `session adopt ... account_storage`。
