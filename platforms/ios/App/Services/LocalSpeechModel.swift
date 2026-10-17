@@ -5,6 +5,7 @@ import Darwin
 struct LocalSpeechModelManifest: Equatable {
   enum Kind: String {
     case onlineTransducer = "online_transducer"
+    case offlineTransducer = "offline_transducer"
     case offlineSenseVoice = "offline_sense_voice"
     case offlineFunAsrNano = "offline_funasr_nano"
   }
@@ -21,6 +22,8 @@ struct LocalSpeechModelManifest: Equatable {
   let modelingUnit: String
   /// `native` hands the words to the recognizer; `pinyin` corrects the final text through the shared hotword matcher.
   let hotwords: String
+  /// 清单写明的 sherpa-onnx 模型类型。留空时 sherpa 为了读 encoder 元数据里的类型，会先多建一个完整的推理会话再丢掉，冷加载因此多读一遍 encoder；写了不认识的值只会退回这种探测。
+  let modelType: String
 
   init(directory: URL) throws {
     let url = directory.appendingPathComponent(Self.fileName)
@@ -47,6 +50,7 @@ struct LocalSpeechModelManifest: Equatable {
     self.files = names
     modelingUnit = object["modeling_unit"] as? String ?? ""
     hotwords = object["hotwords"] as? String ?? ""
+    modelType = object["model_type"] as? String ?? ""
   }
 
   /// The absolute path of a file the manifest names, which must exist.
@@ -116,8 +120,25 @@ enum LocalSpeechText {
     return tokens
   }
 
-  /// sherpa-onnx drops every hotword of a stream when a single one fails to encode, so a word with a character the model has no token for is left out here rather than taking the others with it. ASCII goes through the BPE model, which can spell anything. At most 200 words, one per line.
-  static func transducerHotwords(_ words: [String], tokens: Set<String>) -> String {
+  /// SentencePiece 的词首标记。X-ASR 训练时汉字之间都隔着空格，于是它的 token 表里每个汉字都是带这个前缀的独立的词（`▁写`），一个不带前缀的汉字都没有。
+  static let wordStart = "\u{2581}"
+
+  /// token 表里的汉字是否都写成独立的词：没有一个不带前缀的汉字 token（3 字节 UTF-8、首字节 0xE4–0xE9），却有 `▁` 加一个汉字（同样按首字节 0xE4–0xE9 认，`▁the` 这类英文片段不算）的 token。是的话，热词要按 `bpe` 编码、字与字之间隔空格；按清单原来写的 `cjkchar+bpe` 编码时，sherpa-onnx 找不到不带前缀的汉字，每个中文热词都编码失败。旧安装的清单仍写着 `cjkchar+bpe`，所以以 token 表为准，不重装也能用上热词。与 shared/voice/LocalAsr.cpp 的 `cjk_spelled_as_words` 一致。
+  static func cjkSpelledAsWords(_ tokens: Set<String>) -> Bool {
+    let prefix = Array(wordStart.utf8)
+    var spelled = false
+    for token in tokens {
+      let bytes = Array(token.utf8)
+      if bytes.count == 3 && (0xE4...0xE9).contains(bytes[0]) { return false }
+      if !spelled && bytes.count == prefix.count + 3 && bytes.starts(with: prefix) && (0xE4...0xE9).contains(bytes[prefix.count]) {
+        spelled = true
+      }
+    }
+    return spelled
+  }
+
+  /// sherpa-onnx drops every hotword of a stream when a single one fails to encode, so a word with a character the model has no token for is left out here rather than taking the others with it. ASCII goes through the BPE model, which can spell anything. At most 200 words, one per line. `spacedCJK`（见 `cjkSpelledAsWords`）时每个非 ASCII 字自成一个词、前后隔空格，要求 token 表里有 `▁` 加这个字。
+  static func transducerHotwords(_ words: [String], tokens: Set<String>, spacedCJK: Bool) -> String {
     var joined = ""
     var kept = 0
     for word in words {
@@ -137,6 +158,17 @@ enum LocalSpeechText {
             usable = false
             break
           }
+        } else if spacedCJK {
+          guard tokens.contains(wordStart + String(scalar)) else {
+            usable = false
+            break
+          }
+          // 每个非 ASCII 字自成一个词，前后都隔开。
+          if !previousSpace { clean += " " }
+          clean.unicodeScalars.append(scalar)
+          clean += " "
+          previousSpace = true
+          continue
         } else if !tokens.contains(String(scalar)) {
           usable = false
           break
@@ -177,8 +209,9 @@ enum LocalSpeechText {
   }
 
   private static let cjkPunctuation: Set<Unicode.Scalar> = ["，", "。", "？", "！", "、", "：", "；", "“", "”", "‘", "’", "（", "）", "《", "》", "…"]
+  private static let fullWidthMarks: [Unicode.Scalar: Unicode.Scalar] = [".": "。", "?": "？", "!": "！", ",": "，"]
 
-  /// Removes spaces next to CJK punctuation, inside initialisms spelled as single capitals ("A I" → "AI"), and leading, repeated or trailing ones.
+  /// Removes spaces next to CJK punctuation, inside initialisms spelled as single capitals ("A I" → "AI"), and leading, repeated or trailing ones. 紧跟在中文（非中文标点的非 ASCII 字符）后面的半角 `.?!,` 换成全角；小写字母与大写字母之间的 `.?!` 后补一个空格。
   static func tidy(_ text: String) -> String {
     let characters = Array(text.unicodeScalars)
     func singleCapital(_ index: Int) -> Bool {
@@ -187,6 +220,9 @@ enum LocalSpeechText {
       let leftOK = index == 0 || characters[index - 1] == " " || !characters[index - 1].isASCII
       let rightOK = index + 1 >= characters.count || characters[index + 1] == " " || !characters[index + 1].isASCII
       return leftOK && rightOK
+    }
+    func isIdeograph(_ value: UInt32) -> Bool {
+      (0x3400...0x9FFF).contains(value) || (0xF900...0xFAFF).contains(value) || (0x20000...0x3FFFF).contains(value)
     }
     var out = String.UnicodeScalarView()
     for (index, character) in characters.enumerated() {
@@ -198,6 +234,22 @@ enum LocalSpeechText {
         let repeated = out.last == " "
         if afterMark || beforeMark || insideInitialism || leading || repeated { continue }
       }
+      // X-ASR 离线模型在中文后面也会打半角句末标点（「是星期三.」），在英文句子之间不留空格（「monday.Today」）。
+      if let fullWidth = fullWidthMarks[character] {
+        // 只认汉字（CJK 统一表意文字、扩展区与兼容区），café. 之类不变。
+        let afterCJK = index > 0 && isIdeograph(characters[index - 1].value)
+        if afterCJK {
+          out.append(fullWidth)
+          continue
+        }
+        let betweenSentences = character != "," && index > 0 && isLowercase(characters[index - 1])
+          && index + 1 < characters.count && isUppercase(characters[index + 1])
+        if betweenSentences {
+          out.append(character)
+          out.append(" ")
+          continue
+        }
+      }
       out.append(character)
     }
     while out.last == " " { out.removeLast() }
@@ -205,6 +257,8 @@ enum LocalSpeechText {
   }
 
   private static func isSpace(_ byte: UInt8) -> Bool { byte == 0x20 || (0x09...0x0D).contains(byte) }
+  private static func isLowercase(_ scalar: Unicode.Scalar) -> Bool { (0x61...0x7A).contains(scalar.value) }
+  private static func isUppercase(_ scalar: Unicode.Scalar) -> Bool { (0x41...0x5A).contains(scalar.value) }
   private static func isAlphanumeric(_ byte: UInt8) -> Bool {
     (0x30...0x39).contains(byte) || (0x41...0x5A).contains(byte) || (0x61...0x7A).contains(byte)
   }
