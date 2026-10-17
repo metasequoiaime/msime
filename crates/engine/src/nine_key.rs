@@ -1702,13 +1702,19 @@ impl NineKeySession {
             return (path.iter().map(String::len).sum::<usize>() == remaining.len())
                 .then_some(Cow::Borrowed(boundaries));
         };
-        // (数字位置, 字母位置)，每个音节的结尾一对。
-        let mut ends: Vec<(usize, usize)> = Vec::with_capacity(self.locked.len() + path.len());
+        // 边界按数字位置升序；走到每个音节末尾时直接记录对应的字母位置。
+        let mut letters_at_boundaries = Vec::with_capacity(boundaries.len());
+        let mut next_boundary = 0;
         let (mut digit, mut letter) = (0, 0);
         for spelling in &self.locked {
             digit += self.grid.syllable_code_len(spelling);
             letter += spelling.len();
-            ends.push((digit, letter));
+            while next_boundary < boundaries.len() && boundaries[next_boundary] <= digit {
+                if boundaries[next_boundary] == digit {
+                    letters_at_boundaries.push(letter);
+                }
+                next_boundary += 1;
+            }
         }
         let mut offset = 0;
         for piece in path {
@@ -1716,20 +1722,14 @@ impl NineKeySession {
             offset += length;
             digit += length;
             letter += piece.len();
-            ends.push((digit, letter));
+            while next_boundary < boundaries.len() && boundaries[next_boundary] <= digit {
+                if boundaries[next_boundary] == digit {
+                    letters_at_boundaries.push(letter);
+                }
+                next_boundary += 1;
+            }
         }
-        (offset == remaining.len()).then(|| {
-            Cow::Owned(
-                boundaries
-                    .iter()
-                    .filter_map(|boundary| {
-                        ends.iter()
-                            .find(|(end, _)| end == boundary)
-                            .map(|(_, letter)| *letter)
-                    })
-                    .collect(),
-            )
-        })
+        (offset == remaining.len()).then_some(Cow::Owned(letters_at_boundaries))
     }
 
     /// 左列末尾的按键选项：下一个数字键上能起头一个音节的字母（大写，和同形的音节 `o`、`a`、`e` 区分开），再是这个数字本身。数字只在没有锁定时给：前面锁定的音节还没上屏。
@@ -6190,6 +6190,23 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert_eq!(readings[0], "xiang");
         // 只拼了开头一个音节的路径不算读法。
         assert!(readings.iter().all(|reading| reading.len() == 5));
+    }
+
+    #[test]
+    fn shuangpin_readings_do_not_allocate_an_intermediate_boundary_table() {
+        let fixture = fixture_with(SHUANGPIN_FIXTURE);
+        let mut session = shuangpin_session(&fixture.paths, NineKeyShuangpinKind::Migala3);
+        session.digits = "6447".into();
+        let alternatives = session.grid.spelling_table().paths("6447");
+        let candidates = session.candidates.clone();
+        let boundaries = [2, 4];
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            session.expressive_readings(&alternatives, &boundaries, &candidates)
+        });
+        assert!(
+            allocations <= 100,
+            "shuangpin readings allocated an intermediate boundary table: {allocations}"
+        );
     }
 
     #[test]
