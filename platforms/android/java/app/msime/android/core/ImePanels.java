@@ -359,7 +359,8 @@ final class ImePanels {
             try { templates = library == null ? java.util.List.of() : library.read(); }
             catch (java.io.IOException error) {
                 s.main.post(() -> {
-                    if (generation == replyMenuReadGeneration) {
+                    if (ReplyTemplateLifecyclePolicy.accepts(generation, replyMenuReadGeneration,
+                            s.replyOpen, ViewPolicy.isVisible(s.replyKeyboard))) {
                         s.replyModel.showStatus("回复模板无法读取，请重试");
                         renderReplyKeyboard();
                     }
@@ -367,7 +368,9 @@ final class ImePanels {
                 return;
             }
             s.main.post(() -> {
-                if (generation == replyMenuReadGeneration) showReplyTemplatesLoaded(templates);
+                if (ReplyTemplateLifecyclePolicy.accepts(generation, replyMenuReadGeneration,
+                        s.replyOpen, ViewPolicy.isVisible(s.replyKeyboard)))
+                    showReplyTemplatesLoaded(templates);
             });
         });
     }
