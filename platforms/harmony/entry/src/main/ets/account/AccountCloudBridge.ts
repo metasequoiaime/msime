@@ -1647,7 +1647,8 @@ export class AccountCloudBridge {
     if (response.status === 404 && refusal === "qq_link_code_not_found") {
       return error("account_qq_link_code_not_found");
     }
-    if (response.status === 409 && refusal === "qq_link_limit") return error("account_qq_link_limit");
+    if (response.status === 409 && refusal === "qq_link_limit")
+      return error("account_qq_link_limit");
     if (response.status < 200 || response.status >= 300) return error(mapStatus(response.status));
     const link = qqLink(parseJson(response.body));
     return link === null ? error("account_unavailable") : success(link);
@@ -1655,7 +1656,8 @@ export class AccountCloudBridge {
 
   /** 解除本人的一条绑定；别人的或不存在的是 `account_not_found`，与桌面相同。 */
   private async qqLinkDelete(action: Action): Promise<string> {
-    if (typeof action.id !== "string" || !QQ_LINK_ID.test(action.id)) return error("account_invalid");
+    if (typeof action.id !== "string" || !QQ_LINK_ID.test(action.id))
+      return error("account_invalid");
     const result = await this.authorizedResponse("DELETE", `${QQ_LINKS_PATH}/${action.id}`);
     if (result.response === undefined) return error(result.error ?? "account_unavailable");
     const status: number = result.response.status;
@@ -1693,8 +1695,8 @@ export class AccountCloudBridge {
       const status: number = result.response.status;
       return status >= 200 && status < 300 ? success({}) : error(mapStatus(status));
     } catch (cause) {
-      // 与 handle 相同：传输层抛出的不是 Error 时是断网一类的失败。
-      return error(cause instanceof Error ? cause.message : "account_network");
+      // 传输层的异常文本不是账号协议，统一按网络失败交给页面。
+      return error("account_network");
     }
   }
 

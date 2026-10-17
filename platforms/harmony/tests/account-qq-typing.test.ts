@@ -41,7 +41,7 @@ function session(): string {
 }
 
 function harness(
-  respond: (call: Call) => AccountTransportResponse,
+  respond: (call: Call) => AccountTransportResponse | Promise<AccountTransportResponse>,
   signedIn = true,
 ): { bridge: AccountCloudBridge; calls: Call[]; handle(action: Json): Promise<Json> } {
   const calls: Call[] = [];
@@ -59,7 +59,7 @@ function harness(
     request: async (method, path, token, body) => {
       const call: Call = { method, path, token, body };
       calls.push(call);
-      return respond(call);
+      return await respond(call);
     },
   };
   const bridge = new AccountCloudBridge(transport, store);
@@ -219,6 +219,21 @@ async function main(): Promise<void> {
       );
     },
   );
+
+  await group("transport failures use the stable network error code", async () => {
+    const broken = harness(async () => {
+      throw new Error("synthetic transport failure");
+    });
+    const body = {
+      device: "dev",
+      platform: "harmony",
+      days: [{ day: "2026-10-17", characters: 3, active_seconds: 1 }],
+    };
+    const upload = JSON.parse(await broken.bridge.typingStatisticsUpload(body)) as Json;
+    check(upload.error === "account_network", "upload transport failures use account_network");
+    const deletion = JSON.parse(await broken.bridge.typingStatisticsDelete()) as Json;
+    check(deletion.error === "account_network", "delete transport failures use account_network");
+  });
 
   console.log("");
   if (failures > 0) throw new Error(`${failures} group(s) failed`);
