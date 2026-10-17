@@ -334,7 +334,7 @@ impl InputSession {
             return Cow::Borrowed(&request.raw_input);
         }
         let context: Cow<'_, str> = if request.normalized_input.is_empty() {
-            Cow::Owned(self.pinyin_segmentation())
+            self.pinyin_segmentation()
         } else {
             Cow::Borrowed(&request.normalized_input)
         };

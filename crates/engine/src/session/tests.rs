@@ -2126,6 +2126,31 @@ fn position_context_borrows_normalized_pinyin() {
 }
 
 #[test]
+fn pinyin_segmentation_borrows_explicit_segmentation_when_normalized_input_is_empty() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "n'");
+
+    assert!(matches!(
+        session.input.pinyin_segmentation(),
+        std::borrow::Cow::Borrowed(_)
+    ));
+}
+
+#[test]
+fn complete_pinyin_check_reuses_segmentation_storage() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "ni");
+
+    let (complete, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.is_all_complete_pure_pinyin()
+    });
+    assert!(complete);
+    assert_eq!(allocations, 0, "完整拼音判定不应复制已有切分");
+}
+
+#[test]
 fn pinyin_ranking_context_borrows_normalized_segmentation() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();

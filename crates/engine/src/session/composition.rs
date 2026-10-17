@@ -555,12 +555,12 @@ impl InputSession {
     }
 
     /// The segmentation the dictionary was queried with.
-    pub(super) fn pinyin_segmentation(&self) -> String {
+    pub(super) fn pinyin_segmentation(&self) -> Cow<'_, str> {
         let request = self.engine.request();
         if request.normalized_segmentation.is_empty() {
-            request.segmentation.clone()
+            Cow::Borrowed(&request.segmentation)
         } else {
-            request.normalized_segmentation.clone()
+            Cow::Borrowed(&request.normalized_segmentation)
         }
     }
 
@@ -585,9 +585,7 @@ impl InputSession {
                 request,
             ),
             SchemeType::Quanpin => build_quanpin_autocorrect_display(request),
-            SchemeType::Shuangpin => {
-                with_trailing_separator(Cow::Owned(self.pinyin_segmentation()), request)
-            }
+            SchemeType::Shuangpin => with_trailing_separator(self.pinyin_segmentation(), request),
         }
     }
 
@@ -618,7 +616,7 @@ impl InputSession {
             }
             SchemeType::Quanpin => {
                 let segmentation = self.pinyin_segmentation();
-                !segmentation.is_empty() && is_complete_pinyin_input(&segmentation)
+                !segmentation.is_empty() && is_complete_pinyin_input(segmentation.as_ref())
             }
         }
     }

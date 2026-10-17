@@ -254,7 +254,7 @@ impl InputSession {
                 && online
                 && self.is_all_complete_pure_pinyin()
             {
-                Cow::Owned(self.pinyin_segmentation())
+                self.pinyin_segmentation()
             } else {
                 Cow::Borrowed(&selected.canonical_pinyin)
             };
