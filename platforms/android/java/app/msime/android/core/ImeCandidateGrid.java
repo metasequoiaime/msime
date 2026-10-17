@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import app.msime.android.core.InputViewValuePolicy;
+
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -84,6 +86,8 @@ final class ImeCandidateGrid {
         while (built < target) {
             JSONObject candidate = entries.optJSONObject(built++);
             if (candidate == null) continue;
+            if (!AiPendingCandidatePolicy.isVisible(
+                    InputViewValuePolicy.integer(candidate, "source", -1))) continue;
             Button button = s.imeCandidates.expandedCandidateButton(candidate);
             list.addView(button, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, s.pixels(44)));

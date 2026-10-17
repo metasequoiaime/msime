@@ -28,10 +28,11 @@ public final class MoreToolsLayoutSmoke {
         check("⚙".equals(MoreToolsLayout.icon("应用设置")), "client app entry icon");
         check("⌨".equals(MoreToolsLayout.icon("未知工具")), "fallback icon");
         check(MoreToolsLayout.PAGE_COLUMNS == 4 && MoreToolsLayout.PAGE_ROWS == 3, "4×3 pages");
-        check(MoreToolsLayout.pageCount() == 2, "function menu has two pages");
+        check(MoreToolsLayout.pageCount() == 3, "function menu has three pages");
         check("✦".equals(MoreToolsLayout.icon("AI 回复与润色")), "merged AI tile icon");
         check("≈".equals(MoreToolsLayout.icon("模糊音")) && "繁".equals(MoreToolsLayout.icon("繁体")),
             "page one icons");
+        check("吆".equals(MoreToolsLayout.icon("宣传")), "promotion icon");
         for (app.msime.android.FunctionPanelModel.Item item : app.msime.android.FunctionPanelModel.items())
             check(!"⌨".equals(MoreToolsLayout.icon(item)), "every P25 tile has its own icon: " + item.label());
         check(MoreToolsLayout.CARD_HEIGHT_DP == 48 && MoreToolsLayout.HEADER_HEIGHT_DP == 44,

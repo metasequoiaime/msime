@@ -415,6 +415,12 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
         [menu addItem:item];
     }
     [menu addItem:[NSMenuItem separatorItem]];
+    NSMenuItem *promotion = [[NSMenuItem alloc] initWithTitle:@"宣传水杉输入法"
+                                                       action:@selector(insertPromotion:)
+                                                keyEquivalent:@""];
+    promotion.target = target;
+    promotion.enabled = YES;
+    [menu addItem:promotion];
     NSMenuItem *website = [[NSMenuItem alloc] initWithTitle:@"访问 msime.app"
                                                      action:@selector(openWebsite:)
                                               keyEquivalent:@""];
@@ -1116,6 +1122,13 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     (void)sender;
     MSIMELogToolbarAction("openWebsite", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestOpenWebsite:self];
+}
+
+- (void)insertPromotion:(id)sender
+{
+    (void)sender;
+    MSIMELogToolbarAction("insertPromotion", self.toolbarDelegate != nil, sender);
+    [self.toolbarDelegate floatingToolbarDidRequestPromotion:self];
 }
 
 - (void)openHelp:(id)sender

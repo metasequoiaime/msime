@@ -20,7 +20,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private static final String PREVIEW = "粘贴最近复制的内容：" + TEXT;
 
     @Override protected String successDescription() {
-        return "selection mode label, selection extension, copy/cut preview, paste, stable bounds, return and disabled suggestions";
+        return "selection mode, scrollable editor shortcuts, copy/cut preview, paste, stable bounds, return and disabled suggestions";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -47,6 +47,27 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             publish(local, settings.toString().getBytes(StandardCharsets.UTF_8));
             stage = "prepare editor before opening panel";
             openPanel();
+            // API 28 的 UiAutomation 看不到面板内部节点；API 30+ 验证右列滚动快捷键及其真实编辑结果。
+            if (Build.VERSION.SDK_INT >= 30) {
+                stage = "scroll editor shortcuts";
+                AccessibilityNodeInfo shortcuts = await(described("文本编辑快捷操作"));
+                Rect shortcutBounds = bounds(shortcuts);
+                int centerX = shortcutBounds.centerX();
+                shellDiscard("input swipe " + centerX + " " + (shortcutBounds.bottom - 12)
+                    + " " + centerX + " " + (shortcutBounds.top + 12) + " 350");
+                await(described("打开数字键盘"));
+                stage = "editor space shortcut";
+                click("插入空格");
+                await(field("msime-test-plain").and(node -> equalsText(TEXT + " ", node.getText())));
+                stage = "editor return shortcut";
+                click("插入换行");
+                await(field("msime-test-plain").and(node -> equalsText(TEXT + " \n", node.getText())));
+                stage = "editor number shortcut";
+                click("打开数字键盘");
+                await(key("ABC"));
+                click("ABC");
+                openPanel();
+            }
             Rect before = bounds(awaitStableBounds(described("文本编辑面板")));
             stage = "selection label follows selection mode";
             click("选择模式");

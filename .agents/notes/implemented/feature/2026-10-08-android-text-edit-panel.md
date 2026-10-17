@@ -12,6 +12,7 @@ Status: implemented
 
 - 功能面板第 3 页加一格「文本编辑」（`FunctionPanelModel.Id.TEXT_EDIT`，Lucide text-cursor-input 图标，经 `generate_keyboard_icons.py` 生成），点开 `ImeTextEditPanel`。面板是又一个工具栏面板：加入 `closeToolbarPanels`、`anyToolbarPanelOpen`、`alignOverlaysBelowTopRow` 和皮肤底色，打开功能面板时先关掉它（它后加入外框，否则会盖住功能面板）。只要有输入连接就可用，不要求引擎会话。
 - 键和动作在无 Android 依赖的 `TextEditPanelModel`：4 × 4，左边 ← → 各占三行、中间 ↑ 选择 ↓，下排 移到开头 / 移到结尾 / 退格，右列 全选 / 复制 / 剪切 / 粘贴。视图用嵌套的 LinearLayout 按权重搭出同样的形状。
+- #8487 在右列增加可上下滚动的快捷键：数字键盘、空格和换行。原有四个剪贴板动作保持在首屏；数字键盘复用普通 `123` 层但总是进入数字层，空格与换行直接向当前 `InputConnection` 提交字面字符，不经过 Engine。
 - 打开前由 Engine 完成组字，之后所有动作直接作用于编辑器，不经过 Engine：
   - 方向键发 DPAD 按键事件；「选择」开着时先发左 Shift 按下、再发带 Shift meta 的方向键、最后松开 Shift。EditText 的 `ArrowKeyMovementMethod.isSelecting` 只看文字缓冲里 MetaKeyKeyListener 记下的 Shift，不看事件的 meta；WebView 看事件的 meta，所以两样都给。事件的设备是 `VIRTUAL_KEYBOARD`，它的修饰键是 chorded，Shift 松开即清除，不会留下粘滞的 Shift。
   - #8175 的选择状态直接复用面板的 `selecting`：开启时键面和无障碍动作读作「取消选择」，关闭时恢复「选择」及原有「选择模式」描述。剪切、粘贴、退格和重新打开面板仍按已有规则关闭选择模式，标签随同刷新，不另存一份状态。
@@ -26,15 +27,19 @@ Status: implemented
 - **全选后自动复制** — issue 原文提到「点击全选后会自动复制」，但同一句接着说「然后点击复制/剪切即可」，Gboard 也不这样做；自动复制会悄悄覆盖剪贴板，还会把整篇文字记进剪贴板历史，所以全选只选中。
 - **在工具栏上放一个常驻按钮** — 少点一次；但工具栏按钮的开关要新增一项 Android 本地设置，并在 `crates/client-core` 的本机设置同步清单、设置页里各加一处，这次只放进功能面板（#6351 后来加上了，见 [2026-10-09-android-toolbar-text-edit](2026-10-09-android-toolbar-text-edit.md)）。
 - **GridLayout 按模型的行列跨度直接排** — 视图与模型一一对应；但 GridLayout 的权重与跨行单元格的组合在不同版本上表现不一，无法在没有真机的情况下核对，嵌套 LinearLayout 的权重行为是确定的。
+- **把三个快捷键挤进 4 × 4 首屏** — 会缩小已有剪贴板按钮，且用户仍看不到更多操作；右列改为四行视口加滚动内容，保持原有编辑键的尺寸和位置。
+- **让空格和换行复用普通键盘的 `space()` / `enter()`** — 这会重新进入 Engine 或触发编辑器 action；文本编辑面板的需求是直接编辑文档，所以改用 `commitText` 提交字面空格和换行。
 
 ## Consequences
 
 - **收益**：方向移动、选区、剪贴板操作和跳到首尾在一个面板里完成；键位、按键码、修饰键、菜单动作由 `TextEditPanelModelSmoke` 验证，`check-host.sh` 守住面板与其他工具栏面板一起关闭和计数。
+- **收益**：右列向上或向下滑动即可访问数字键盘、空格和换行，不必先退出文本编辑面板切换键区。
 - **代价与已知上限**：完全依赖编辑器对 DPAD、Shift、Ctrl+Home/End 和上下文菜单动作的处理，自定义输入框（游戏引擎、部分跨平台框架）可能不响应；不支持的编辑器里复制、剪切静默无效。入口原先只在功能面板里；#6351 之后工具栏上可以打开一个「文本编辑」按钮，见 [2026-10-09-android-toolbar-text-edit](2026-10-09-android-toolbar-text-edit.md)。
 - **验证边界**：EditText 的选择状态和选区延伸已在下述模拟器验收；WebView、自定义编辑器和九键/单手/分离式键盘下的布局仍未在这一轮验收。
 
 ## Verification
 
 - #8175：`check-host.sh` 通过；Gradle 原生宿主 `assembleFullRelease` 通过。Java 改动重新编译，测试包复用 #8094 已验收的原生库和 staged 词库，不把这轮表述为 Rust 原生库重建。
+- #8487：`check-host.sh` 通过（242 个 Android JVM smoke、150 个设备测试源编译），`TextEditPanelModelSmoke` 覆盖三项滚动快捷键、直接按键码和原有 4 × 4 网格。
 - `TextEditRecentClipboardDeviceSmoke` 在 API 28、API 35 专用模拟器通过：开启后键面及无障碍描述为「取消选择」，方向键延伸 EditText 选区；关闭后恢复「选择」，下一次方向键只移动光标。原有复制、剪切、粘贴、顶部预览和返回键验收同时通过。
 - `bash scripts/verify-local.sh --quick`、`pnpm run verify-notes` 与差异检查通过。

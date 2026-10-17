@@ -46,6 +46,13 @@ final class ImePanels {
         this.s = s;
     }
 
+    void invalidateReplyTemplateReads() {
+        ReplyTemplateLifecyclePolicy.Generations next =
+            ReplyTemplateLifecyclePolicy.advanceOnPanelClose(replyReadGeneration, replyMenuReadGeneration);
+        replyReadGeneration = next.replyRead();
+        replyMenuReadGeneration = next.menuRead();
+    }
+
     void showLocalInputMenu() {
         if (s.preedit == null || !s.supportsLocalTools() || s.view == null
                 || !InputViewValuePolicy.editingText(s.view).isEmpty()
@@ -232,7 +239,8 @@ final class ImePanels {
         s.closeVoiceResult();
         s.closeAiPolish();
         s.closeReplyKeyboard();
-        s.symbolPanel.resetForPresentation(loadSymbolRecents());
+        s.symbolPanel.resetForPresentation(loadSymbolRecents(),
+            SymbolCategoryOrderPolicy.ordered(s.localSettings.text(AndroidLocalSettings.SYMBOL_CATEGORY_ORDER)));
         // 面板原先没有底色，网格空着时直接透出底下的字母键；铺上键盘底图。
         s.imeStyler.applySkinBackground(s.symbolPanel);
         ViewPolicy.show(s.symbolPanel);
@@ -284,7 +292,7 @@ final class ImePanels {
             renderReplyKeyboard();
             return;
         }
-        int generation = ++replyReadGeneration;
+        int generation = replyReadGeneration = ReplyTemplateLifecyclePolicy.advance(replyReadGeneration);
         if (style != null && style.startsWith("community:")) {
             final CommunityReplyLibrary library = s.communityReplyLibrary;
             s.preferencesWorker.execute(() -> {
@@ -292,7 +300,8 @@ final class ImePanels {
                 try { templates = library == null ? java.util.List.of() : library.read(); }
                 catch (java.io.IOException error) {
                     s.main.post(() -> {
-                        if (generation == replyReadGeneration) {
+                        if (ReplyTemplateLifecyclePolicy.accepts(generation, replyReadGeneration,
+                                s.replyOpen, ViewPolicy.isVisible(s.replyKeyboard))) {
                             s.replyModel.showStatus("回复模板无法读取，请重试");
                             renderReplyKeyboard();
                         }
@@ -300,7 +309,9 @@ final class ImePanels {
                     return;
                 }
                 s.main.post(() -> {
-                    if (generation == replyReadGeneration) generateReplyLoaded(style, templates);
+                    if (ReplyTemplateLifecyclePolicy.accepts(generation, replyReadGeneration,
+                            s.replyOpen, ViewPolicy.isVisible(s.replyKeyboard)))
+                        generateReplyLoaded(style, templates);
                 });
             });
             return;
@@ -359,7 +370,8 @@ final class ImePanels {
             try { templates = library == null ? java.util.List.of() : library.read(); }
             catch (java.io.IOException error) {
                 s.main.post(() -> {
-                    if (generation == replyMenuReadGeneration) {
+                    if (ReplyTemplateLifecyclePolicy.accepts(generation, replyMenuReadGeneration,
+                            s.replyOpen, ViewPolicy.isVisible(s.replyKeyboard))) {
                         s.replyModel.showStatus("回复模板无法读取，请重试");
                         renderReplyKeyboard();
                     }
@@ -367,7 +379,9 @@ final class ImePanels {
                 return;
             }
             s.main.post(() -> {
-                if (generation == replyMenuReadGeneration) showReplyTemplatesLoaded(templates);
+                if (ReplyTemplateLifecyclePolicy.accepts(generation, replyMenuReadGeneration,
+                        s.replyOpen, ViewPolicy.isVisible(s.replyKeyboard)))
+                    showReplyTemplatesLoaded(templates);
             });
         });
     }
@@ -1525,7 +1539,7 @@ final class ImePanels {
      * <p>原来是 `PopupMenu`：弹出菜单是可获得焦点的窗口，打开时编辑器的窗口失去焦点，在 Via 这类用系统 WebView 的浏览器里键盘随即被收起（#5653）。画在面板里的按钮不会碰窗口焦点。
      */
     private void renderClipboardItemActions(ClipboardHistory.Item item, boolean cloudAllowed) {
-        // 操作分两行：一行放不下「添加到常用语」「发到云剪贴板」两个长按钮和其余几个短按钮，挤在一行时每个按钮都被截成省略号。阅读顺序是 固定、删除、编辑、分词、添加到常用语、发到云剪贴板、收起。
+        // 操作分两行：一行放不下「添加到常用语」「发到云剪贴板」两个长按钮和其余几个短按钮，挤在一行时每个按钮都被截成省略号。阅读顺序是 固定、删除、编辑、分词、分享、添加到常用语、发到云剪贴板、收起。
         LinearLayout row = addClipboardItemActionRow();
         clipboardItemAction(row, item.pinned() ? "取消固定" : "固定", () -> {
             clipboardActionText = null;
@@ -1541,6 +1555,9 @@ final class ImePanels {
             s.editClipboardItem(item);
         });
         clipboardItemAction(row, "分词", () -> startClipboardSegmentation(item.text()));
+        Button share = clipboardItemAction(row, ClipboardSharePolicy.ACTION,
+            () -> s.shareClipboardText(item.text()));
+        share.setContentDescription("分享这条剪贴板记录");
         LinearLayout more = addClipboardItemActionRow();
         clipboardItemAction(more, CommonPhrasesPanelPolicy.ADD_FROM_CLIPBOARD, () -> {
             clipboardActionText = null;

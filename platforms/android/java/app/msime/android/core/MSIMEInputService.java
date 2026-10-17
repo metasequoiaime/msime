@@ -6,6 +6,7 @@ import app.msime.android.LayoutPolicy;
 import android.inputmethodservice.InputMethodService;
 import app.msime.android.core.Telemetry;
 import app.msime.android.core.InputViewValuePolicy;
+import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Context;
@@ -4628,6 +4629,15 @@ public final class MSIMEInputService extends InputMethodService {
             && (!letterCompositionActive() || koreanHanjaListOpen() || tibetanSchemeActive());
     }
 
+    /** 文本编辑面板里的数字快捷键与普通「123」键一致，但总是进入数字层并关闭编辑面板。 */
+    void showNumberKeyboardFromTextEdit() {
+        keyboardLayer = KeyboardLayout.Layer.SYMBOLS;
+        imeTextEditPanel.close();
+        imeLetterRows.rebuildKeyRows();
+        render();
+        imeCalculator.refresh();
+    }
+
     void updateReturnKey() {
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE
@@ -5648,6 +5658,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeReplyKeyboard() {
+        imePanels.invalidateReplyTemplateReads();
         replyOpen = false;
         replyModel.resetResults();
         clearReplyRequestReferences();
@@ -5709,6 +5720,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 收起面板但保留已生成的回复，再次打开时仍能看到；与插入回复后的收起相同。还在生成的请求随收起取消，免得结果在面板关着时到达。 */
     private void hideReplyKeyboard() {
+        imePanels.invalidateReplyTemplateReads();
         if (replyModel.busy()) invalidateReplyContext("面板已收起，请重新选择回复方式");
         replyOpen = false;
         setReplyKeyboardVisible(false);
@@ -7031,6 +7043,28 @@ public final class MSIMEInputService extends InputMethodService {
         });
     }
 
+    /** 从键盘长按操作行分享用户明确选中的一条本机记录。 */
+    void shareClipboardText(String text) {
+        if (!ClipboardSharePolicy.canShare(text)) {
+            notice("这条记录没有可分享的文本");
+            return;
+        }
+        Intent send = new Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, text);
+        Intent chooser = Intent.createChooser(send, ClipboardSharePolicy.CHOOSER_TITLE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(chooser);
+            closeClipboardHistory();
+            requestHideSelf(0);
+        } catch (ActivityNotFoundException unavailable) {
+            notice("没有可用的分享应用");
+        } catch (RuntimeException unavailable) {
+            notice("无法打开分享面板");
+        }
+    }
+
     /** 编辑页、剪贴板历史页做完之后要不要回到原来的应用：当前输入框属于别的应用才要；在水杉自己的输入框里打开时留在应用里（{@link ClipboardHistoryPolicy#RETURN_TO_CALLER_ARG}）。 */
     private void putReturnToCaller(android.os.Bundle args) {
         EditorInfo info = getCurrentInputEditorInfo();
@@ -7108,7 +7142,7 @@ public final class MSIMEInputService extends InputMethodService {
                 return true;
             }
             if (!candidateManagementEnabled()) return false;
-            JSONObject candidate = visibleCandidate(action);
+            JSONObject candidate = visibleCandidate(visibleCandidateSlot(action));
             JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
             if (id == null || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE)
                     != session) return false;
@@ -7523,7 +7557,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean selectHardwareCandidate(int slot) {
-        JSONObject candidate = visibleCandidate(slot);
+        int actualSlot = visibleCandidateSlot(slot);
+        JSONObject candidate = visibleCandidate(actualSlot);
         JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
         if (id == null || session == 0
                 || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
@@ -7539,7 +7574,24 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    private void updateCandidateButton(Button button, JSONObject candidate, int slot) {
+    /** 把硬件数字键和候选条显示序号映射到未显示云占位行之前的引擎槽位。 */
+    private int visibleCandidateSlot(int visibleSlot) {
+        if (visibleSlot < 0 || view == null) return -1;
+        JSONArray entries = view.optJSONArray("candidates");
+        if (entries == null) return -1;
+        int visible = 0;
+        for (int slot = 0; slot < entries.length(); slot++) {
+            JSONObject candidate = entries.optJSONObject(slot);
+            if (candidate == null || !AiPendingCandidatePolicy.isVisible(
+                    InputViewValuePolicy.integer(candidate, "source", -1))) continue;
+            if (visible == visibleSlot) return slot;
+            visible++;
+        }
+        return -1;
+    }
+
+    private void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {
+        int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = InputViewValuePolicy.textOr(view, "preedit", "");
@@ -7551,19 +7603,18 @@ public final class MSIMEInputService extends InputMethodService {
         // session/generation/index identity for accessibility and hardware number-row selection.
         // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9，每页十个时第十个标 0（#5584、#6679）。
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
-            dedicatedEnglish, slot);
+            dedicatedEnglish, visibleSlot);
         button.setText(candidateLabel(number, text, annotation, highlighted));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
         KeyboardTypographyPolicy.setKeyTextSize(button, candidateFontSize);
         ViewPolicy.setSelected(button, highlighted);
-        // 在线占位行（AI 来源 12 或云来源 15）画淡一些，和真候选区分开；按钮会复用，其他候选恢复不透明。读屏念它的状态，不提示长按管理（#6888）。
-        int source = InputViewValuePolicy.integer(candidate, "source", -1);
+        // AI 占位行画淡一些，和真候选区分开；云占位行在候选条循环中直接隐藏。按钮会复用，其他候选恢复不透明。读屏念它的状态，不提示长按管理（#6888）。
         button.setAlpha(AiPendingCandidatePolicy.alpha(source));
         // render() attaches the button and applies the complete skin tree once below.
         // Avoid creating its candidate drawables before that pass.
-        String description = AiPendingCandidatePolicy.description(source, "候选 " + (slot + 1) + "：", text,
+        String description = AiPendingCandidatePolicy.description(source, "候选 " + (visibleSlot + 1) + "：", text,
             candidateAccessibilitySuffix(candidate, typed));
         JSONObject id = candidate.optJSONObject("id");
         button.setContentDescription(id != null && candidateManagementEnabled()
@@ -7616,6 +7667,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void deactivateHandwriting() {
+        imeLayoutRows.resetForInput();
         if (handwritingRecognitionTask != null) main.removeCallbacks(handwritingRecognitionTask);
         if (handwritingAvailabilityTask != null) main.removeCallbacks(handwritingAvailabilityTask);
         handwritingRecognitionTask = null;
@@ -9619,14 +9671,20 @@ public final class MSIMEInputService extends InputMethodService {
         } else if (englishSuggestionsActive()) {
             renderEnglishSuggestions(activeCandidates);
         } else if (entries != null) {
+            int visibleSlot = 0;
             for (int slot = 0; slot < entries.length(); slot++) {
                 JSONObject candidate = entries.optJSONObject(slot);
                 if (candidate == null) continue;
                 while (candidateButtons.size() <= slot)
                     candidateButtons.add(imeCandidates.makeCandidateButton(candidateButtons.size()));
                 Button candidateView = candidateButtons.get(slot);
+                int source = InputViewValuePolicy.integer(candidate, "source", -1);
+                if (!AiPendingCandidatePolicy.isVisible(source)) {
+                    ViewPolicy.hide(candidateView);
+                    continue;
+                }
                 ViewPolicy.show(candidateView);
-                updateCandidateButton(candidateView, candidate, slot);
+                updateCandidateButton(candidateView, candidate, slot, visibleSlot++);
                 activeCandidates.addView(candidateView, new LinearLayout.LayoutParams(
                     candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
                         : LinearLayout.LayoutParams.MATCH_PARENT,

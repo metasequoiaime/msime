@@ -5625,6 +5625,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     (void)toolbar;
     [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]];
 }
+- (void)floatingToolbarDidRequestPromotion:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    if (!_activeClient) return;
+    if (_session && [_view[@"editing_text"] length]) [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
+    NSString *text = @"水杉输入法\n一款博采众长的输入法，目前正在广纳言路，茁壮成长中\n官网：https://msime.app/\nGit 项目：https://github.com/metasequoiaime/msime";
+    @try { [_activeClient insertText:text replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+        MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], text, msime::mac::TypingSource::Local);
+    } @catch (NSException *) { }
+}
 - (void)floatingToolbarDidRequestHide:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;
     _appearance.floatingToolbarEnabled = NO;

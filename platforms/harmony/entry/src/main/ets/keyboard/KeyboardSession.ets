@@ -4004,7 +4004,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return;
     }
-    this.apply(client.select(this.handle, this.generation, index));
+    const actualIndex: number = this.engineCandidateIndex(index);
+    if (actualIndex < 0) return;
+    this.apply(client.select(this.handle, this.generation, actualIndex));
   }
 
   /** Commit the first or last Han scalar of the highlighted candidate. */
@@ -4170,6 +4172,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   // only place it is visible: the editor sees a committed string, not a composition.
   private editingCaret: number = 0;
   private currentCandidates: Candidate[] = [];
+  /** 候选条隐藏内部占位行后，显示序号对应的 Engine 索引。 */
+  private visibleCandidateIndices: number[] = [];
+  /** 展开面板隐藏内部占位行后，显示序号对应的 Engine 全量列表索引。 */
+  private expandedCandidateIndices: number[] = [];
   private translationPage: string[] | null = null;
   private translationHighlight: number = 0;
   private lastView: EngineView | undefined = undefined;
@@ -4187,6 +4193,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.generation = view.generation;
     this.currentCandidates = view.candidates.slice();
+    this.visibleCandidateIndices = CandidatePresentationPolicy.visibleIndices(
+      view.candidates.map((candidate: Candidate): number => candidate.source));
     // Special sources are filtered before the existing candidate.translation ?? null, this.candidateGlossEnabled presentation path consumes them.
     this.lastView = view;
     this.syncPreview();
@@ -4214,7 +4222,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     // Korean's only candidates are the Hanja of the composing syllable, and their annotation is the 훈음 (msime_client.h).
     const hanja: boolean = KoreanCompositionPolicy.active(view.scheme, view.dedicated_english, view.local_mode);
     const entries: CandidateEntry[] = [];
-    for (const candidate of view.candidates) {
+    for (let index: number = 0; index < view.candidates.length; index++) {
+      const candidate: Candidate = view.candidates[index];
+      if (!CandidatePresentationPolicy.isVisible(candidate.source)) {
+        continue;
+      }
       entries.push({
         text: this.asTraditional(candidate.text),
         highlighted: candidate.highlighted,
@@ -4285,24 +4297,30 @@ export class KeyboardSession implements HardwareKeyTarget {
     const view: EngineView | undefined = this.lastView;
     if (view === undefined || this.onChanged === undefined) return;
     const hanja: boolean = KoreanCompositionPolicy.active(view.scheme, view.dedicated_english, view.local_mode);
-    const entries: CandidateEntry[] = view.candidates.map((candidate: Candidate): CandidateEntry => ({
-      text: this.asTraditional(candidate.text), highlighted: candidate.highlighted,
-      badge: CandidatePresentationPolicy.badge(candidate.source),
-      fixedPosition: candidate.fixed_position, source: candidate.source,
-      translation: TranslationPolicy.sourceGetsNoGloss(candidate.source)
-        ? null : candidate.translation ?? null,
-      hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
-        view.local_mode, view.answered_by_pinyin_fallback),
-      annotation: CandidateGlossPolicy.annotation(
-        CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
-        TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
-        this.candidateGlossEnabled),
-      annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
-        CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
-        TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
-        this.candidateGlossEnabled),
-      hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
-    }));
+    const entries: CandidateEntry[] = [];
+    for (const candidate of view.candidates) {
+      if (!CandidatePresentationPolicy.isVisible(candidate.source)) {
+        continue;
+      }
+      entries.push({
+        text: this.asTraditional(candidate.text), highlighted: candidate.highlighted,
+        badge: CandidatePresentationPolicy.badge(candidate.source),
+        fixedPosition: candidate.fixed_position, source: candidate.source,
+        translation: TranslationPolicy.sourceGetsNoGloss(candidate.source)
+          ? null : candidate.translation ?? null,
+        hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
+          view.local_mode, view.answered_by_pinyin_fallback),
+        annotation: CandidateGlossPolicy.annotation(
+          CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
+          TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
+          this.candidateGlossEnabled),
+        annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
+          CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
+          TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
+          this.candidateGlossEnabled),
+        hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
+      });
+    }
     const reading: string = KeyboardSession.drawnReading(view);
     this.onChanged({
       candidates: entries, editing: (view.phrase_prefix ?? '') + reading,
@@ -6725,6 +6743,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * operations index the page rather than this list, so the source does not offer them here either.
    */
   allCandidates(): ExpandedCandidate[] {
+    this.expandedCandidateIndices = [];
     if (this.handle === 0) {
       return [];
     }
@@ -6746,7 +6765,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       // The snapshot carries no scheme; the list being the Hanja one is read from the view it expands.
       const hanja: boolean = this.candidateListOpen() && this.lastView?.scheme === SchemeTraits.KOREAN;
       const entries: ExpandedCandidate[] = [];
-      for (const candidate of response.value.candidates) {
+      for (let index: number = 0; index < response.value.candidates.length; index++) {
+        const candidate: Candidate = response.value.candidates[index];
+        if (!CandidatePresentationPolicy.isVisible(candidate.source)) {
+          continue;
+        }
+        this.expandedCandidateIndices.push(index);
         entries.push({
           text: this.asTraditional(candidate.text),
           annotation: CandidateGlossPolicy.annotation(
@@ -6771,11 +6795,18 @@ export class KeyboardSession implements HardwareKeyTarget {
    * The candidate-management operations behind a long press: promote it, pin it to the front, let go
    * of a pinned position, or take the entry out of the dictionary altogether.
    */
+  private engineCandidateIndex(index: number): number {
+    return index >= 0 && index < this.visibleCandidateIndices.length
+      ? this.visibleCandidateIndices[index] : -1;
+  }
+
   promoteCandidate(index: number): void {
     if (this.handle === 0) {
       return;
     }
-    this.apply(client.pinCandidate(this.handle, this.generation, index));
+    const actualIndex: number = this.engineCandidateIndex(index);
+    if (actualIndex < 0) return;
+    this.apply(client.pinCandidate(this.handle, this.generation, actualIndex));
   }
 
   /** Position 1 is the front of the list, which is what 固定到首位 means. */
@@ -6791,7 +6822,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     // ever builds slots 1 to 5, so this throws for nobody; it is here because this is the last point
     // before the slot becomes an argument to the Engine, and a session method is callable by
     // anything in the host.
-    this.apply(client.fixCandidatePosition(this.handle, this.generation, index,
+    const actualIndex: number = this.engineCandidateIndex(index);
+    if (actualIndex < 0) return;
+    this.apply(client.fixCandidatePosition(this.handle, this.generation, actualIndex,
       CandidateManagementAction.validatePosition(position)));
   }
 
@@ -6799,14 +6832,18 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return;
     }
-    this.apply(client.clearCandidatePosition(this.handle, this.generation, index));
+    const actualIndex: number = this.engineCandidateIndex(index);
+    if (actualIndex < 0) return;
+    this.apply(client.clearCandidatePosition(this.handle, this.generation, actualIndex));
   }
 
   removeCandidate(index: number): void {
     if (this.handle === 0) {
       return;
     }
-    this.apply(client.removeCandidate(this.handle, this.generation, index));
+    const actualIndex: number = this.engineCandidateIndex(index);
+    if (actualIndex < 0) return;
+    this.apply(client.removeCandidate(this.handle, this.generation, actualIndex));
   }
 
   /**
@@ -6833,16 +6870,17 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   removeManagedCandidate(index: number): boolean {
     const view: EngineView | undefined = this.lastView;
-    if (this.handle === 0 || view === undefined || index < 0
-        || index >= view.candidates.length) {
+    const actualIndex: number = this.engineCandidateIndex(index);
+    if (this.handle === 0 || view === undefined || actualIndex < 0
+        || actualIndex >= view.candidates.length) {
       return false;
     }
-    const candidate: Candidate = view.candidates[index];
+    const candidate: Candidate = view.candidates[actualIndex];
     if (!CandidateManagementAction.candidateActionsAvailable(
         KeyboardScheme.engineSchemeName(view.scheme), candidate.source)) {
       return false;
     }
-    this.apply(client.removeCandidate(this.handle, this.generation, index));
+    this.apply(client.removeCandidate(this.handle, this.generation, actualIndex));
     return true;
   }
 
@@ -6851,7 +6889,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return;
     }
-    this.apply(client.selectAnyCandidate(this.handle, this.generation, index));
+    const actualIndex: number = this.expandedCandidateIndices[index] ?? -1;
+    if (actualIndex < 0) return;
+    this.apply(client.selectAnyCandidate(this.handle, this.generation, actualIndex));
   }
 
   /** Commit to one reading of the digits typed so far. */

@@ -112,6 +112,7 @@ import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
 import { SymbolPanelCategory, SymbolPanelPolicy } from './input/SymbolPanelPolicy';
 import { BackspaceHoldAction, BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
 import { FunctionPanelItem, FunctionPanelPolicy, PickerGrid } from './FunctionPanelPolicy';
+import { PROMOTION_TEXT } from './PromotionText';
 import { KeyboardFormFactorPolicy } from './KeyboardFormFactorPolicy';
 import display from '@ohos.display';
 import { KeyboardIconPaths } from './KeyboardIconPaths';
@@ -7866,6 +7867,10 @@ struct KeyboardView {
       case FunctionPanelPolicy.ABOUT:
         this.show(SURFACE_NONE);
         KeyboardSession.shared.openSettings('about');
+        break;
+      case FunctionPanelPolicy.PROMOTION:
+        this.show(SURFACE_NONE);
+        KeyboardSession.shared.commitPhrase(PROMOTION_TEXT);
         break;
       case FunctionPanelPolicy.TRANSLATION:
         this.toggleTranslations();

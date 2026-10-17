@@ -8,7 +8,7 @@ HarmonyOS 手机的「设置」根页面在「输入 / 表达 / 词库」这一�
 
 ## Decision
 
-- `index.tsx` 的 `mobileHiddenPageIds` 无条件包含 `shortcuts`：所有手机宿主（`mobilePlatform`）都不提供快捷键页，根页面、「全部设置」列表和侧栏里都没有它，`selectPage` 也不会去。以前它只在宿主一个快捷键都不路由（`mode_switch_shortcuts`、`panel_shortcuts`、`maintenance_shortcuts`/`panel_windows` 都为假）时隐藏。
+- `settings-page-model-visibility.ts` 的 `mobileHiddenPageIds` 无条件包含 `shortcuts`：所有手机宿主（`mobilePlatform`）都不提供快捷键页，根页面、「全部设置」列表和侧栏里都没有它，`selectPage` 也不会去。以前它只在宿主一个快捷键都不路由（`mode_switch_shortcuts`、`panel_shortcuts`、`maintenance_shortcuts`/`panel_windows` 都为假）时隐藏。
 - `keyboard/root-settings-list.tsx` 的 `rootGroupLayout` 去掉 `shortcuts`，`settings/mobile-tab-helpers.ts` 的 `mobilePageTitle` 去掉它的手机标题「外接键盘快捷键」。
 - 桌面和 HarmonyOS 2-in-1（不是 `mobilePlatform`）的「快捷键」页不变。宿主读取快捷键的代码不变，手机上接实体键盘时按默认值和已保存的值处理这些按键。
 

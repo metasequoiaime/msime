@@ -1,3 +1,4 @@
+import type { DictionaryCollectionsClient } from "../dictionary/dictionary-collections";
 import type {
   CommunityLocalDictionaryClient,
   CommunityResource,
@@ -8,6 +9,34 @@ import type {
 export type CommunityDictionaryInstallResult =
   | { kind: "collection" }
   | { kind: "entries"; applied: number };
+
+/** 把设置宿主的命名词库能力适配为社区图库需要的本机词库客户端。 */
+export function createCommunityLocalDictionary(
+  dictionary: CommunityLocalDictionaryClient | undefined,
+  collections: DictionaryCollectionsClient | undefined,
+): CommunityLocalDictionaryClient | undefined {
+  if (!collections) return dictionary;
+  const thirdPartyMatches = collections.thirdPartyMatches;
+  return {
+    ...dictionary,
+    installCollection: async (resource) => {
+      await collections.installCommunity(resource);
+    },
+    ...(thirdPartyMatches && {
+      thirdPartyMatches: async (entries) =>
+        (
+          await thirdPartyMatches(
+            entries.map((entry) => ({
+              kind: entry.kind === "quick" ? ("quickPhrase" as const) : entry.kind,
+              key: entry.code,
+              value: entry.word,
+              weight: entry.weight,
+            })),
+          )
+        ).third_party_matches ?? [],
+    }),
+  };
+}
 
 /** 宿主能否把共享词库装成命名词库或导入本机词库。 */
 export function canInstallCommunityDictionary(

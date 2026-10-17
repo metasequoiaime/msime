@@ -22,6 +22,7 @@ let package = Package(
         "content/BackendDictionaryClient.swift",
         "clients/BackendPreferencesClient.swift",
         "clients/BackendPhrasesClient.swift",
+        "clients/BackendTypingUploadClient.swift",
         "clients/BackendSnapshotClient.swift",
         "clients/BackendSkinArtworkClient.swift",
         "storage/IOSPreferencePlan.swift",

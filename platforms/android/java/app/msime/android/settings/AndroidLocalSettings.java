@@ -94,6 +94,8 @@ public final class AndroidLocalSettings {
     public static final String TOOLBAR_FLOATING = "platform.android.toolbar_floating";
     /** 可选工具按钮的稳定 ID 排列，只在本机保存。 */
     public static final String TOOLBAR_ORDER = "platform.android.toolbar_order";
+    /** 符号面板分类的稳定 ID 排列，只在本机保存。 */
+    public static final String SYMBOL_CATEGORY_ORDER = "platform.android.symbol_category_order";
     /** 工具栏上的「文本编辑」按钮（#6351），点按开关文本编辑面板，默认不显示；同步字段表里没有这个键，先只在本机。 */
     public static final String TOOLBAR_TEXT_EDIT = "platform.android.toolbar_text_edit";
     /** 手势导航下垫在键区下面的底栏（{@link KeyboardBottomBarPolicy}），默认开。是否出现还取决于导航栏的高度，换一台设备时意义不同，同步字段表里也没有这个键，只在本机。 */
@@ -223,6 +225,8 @@ public final class AndroidLocalSettings {
         bool(TOOLBAR_TEXT_EDIT, false, false);
         text(TOOLBAR_ORDER, ToolbarOrderPolicy.format(ToolbarOrderPolicy.DEFAULT_ORDER), false,
             ToolbarOrderPolicy::normalize);
+        text(SYMBOL_CATEGORY_ORDER, SymbolCategoryOrderPolicy.format(SymbolCategoryOrderPolicy.DEFAULT_ORDER), false,
+            SymbolCategoryOrderPolicy::normalize);
         bool(BOTTOM_BAR, true, false);
         bool(BOTTOM_PADDING, false, false);
         integer(BOTTOM_PADDING_HEIGHT, KeyboardBottomBarPolicy.DEFAULT_PADDING_DP, false,
