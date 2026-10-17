@@ -1502,6 +1502,132 @@ impl AccountApi for BackendAccountClient {
         Ok(tokens)
     }
 
+    fn link_challenge(
+        &self,
+        provider: &str,
+        target: &str,
+        access_token: &str,
+    ) -> Result<AccountChallenge, AccountFailure> {
+        validate_challenge_request(provider, target)?;
+        #[derive(Serialize)]
+        struct Body<'a> {
+            provider: &'a str,
+            target: &'a str,
+            purpose: &'static str,
+        }
+        let challenge = self.json_detailed(
+            Method::POST,
+            "/v1/auth/challenges",
+            Some(access_token),
+            Some(&Body {
+                provider,
+                target,
+                purpose: "link",
+            }),
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_challenge(&challenge)?;
+        Ok(challenge)
+    }
+
+    fn link_login(
+        &self,
+        challenge: &str,
+        credential: &str,
+        access_token: &str,
+    ) -> Result<AccountTokens, AccountFailure> {
+        validate_login_request(challenge, credential)?;
+        #[derive(Serialize)]
+        struct Body<'a> {
+            challenge_id: &'a str,
+            credential: &'a str,
+        }
+        let tokens = self.json_detailed(
+            Method::POST,
+            "/v1/auth/login",
+            Some(access_token),
+            Some(&Body {
+                challenge_id: challenge,
+                credential,
+            }),
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_tokens(&tokens)?;
+        Ok(tokens)
+    }
+
+    fn apple_web_link_challenge(
+        &self,
+        code_challenge: &str,
+        app: &str,
+        access_token: &str,
+    ) -> Result<AccountAppleWebChallenge, AccountFailure> {
+        if !super::apple_web::valid_base64url_token(code_challenge, 32)
+            || !super::apple_web::valid_apple_web_app(app)
+        {
+            return Err(AccountError::Invalid.into());
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            code_challenge: &'a str,
+            code_challenge_method: &'static str,
+            app: &'a str,
+            purpose: &'static str,
+        }
+        let challenge = self.json_detailed(
+            Method::POST,
+            "/v1/auth/apple/web",
+            Some(access_token),
+            Some(&Body {
+                code_challenge,
+                code_challenge_method: "S256",
+                app,
+                purpose: "link",
+            }),
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        super::apple_web::validate_apple_web_challenge(&challenge)?;
+        Ok(challenge)
+    }
+
+    fn apple_web_link_login(
+        &self,
+        grant: &str,
+        code_verifier: &str,
+        access_token: &str,
+    ) -> Result<AccountTokens, AccountFailure> {
+        if !super::apple_web::valid_apple_web_grant(grant)
+            || !super::apple_web::valid_code_verifier(code_verifier)
+        {
+            return Err(AccountError::Invalid.into());
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            grant: &'a str,
+            code_verifier: &'a str,
+        }
+        let tokens = self.json_detailed(
+            Method::POST,
+            "/v1/auth/apple/web/login",
+            Some(access_token),
+            Some(&Body {
+                grant,
+                code_verifier,
+            }),
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_tokens(&tokens)?;
+        Ok(tokens)
+    }
+
     fn refresh(&self, refresh_token: &str) -> Result<AccountTokens, AccountError> {
         if !crate::text::is_lower_hex(refresh_token, 64) {
             return Err(AccountError::Invalid);

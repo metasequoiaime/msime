@@ -438,6 +438,46 @@ pub trait AccountApi: Send + Sync + 'static {
         self.delete_account(access_token).map_err(Into::into)
     }
 
+    /// `POST /v1/auth/challenges {provider,target,purpose:"link"}`，带着登录账号的令牌：给已登录的账号添加一种登录方式。服务端要求令牌所在的会话是 10 分钟内登录的，否则 403 `recent_login_required`。
+    fn link_challenge(
+        &self,
+        _provider: &str,
+        _target: &str,
+        _access_token: &str,
+    ) -> Result<AccountChallenge, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/auth/login`，带着发起 [`Self::link_challenge`] 的那个账号的令牌：服务端把这个登录方式绑到该账号上（已经绑在别的账号上时是 409 `identity_already_linked`），并为它签发一个新会话，响应与登录相同。
+    fn link_login(
+        &self,
+        _challenge: &str,
+        _credential: &str,
+        _access_token: &str,
+    ) -> Result<AccountTokens, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// 与 [`Self::apple_web_challenge`] 相同，只是 `purpose:"link"`、带着登录账号的令牌，要求同 [`Self::link_challenge`]。
+    fn apple_web_link_challenge(
+        &self,
+        _code_challenge: &str,
+        _app: &str,
+        _access_token: &str,
+    ) -> Result<AccountAppleWebChallenge, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// 与 [`Self::apple_web_login`] 相同，只是带着发起 [`Self::apple_web_link_challenge`] 的那个账号的令牌，结果同 [`Self::link_login`]。
+    fn apple_web_link_login(
+        &self,
+        _grant: &str,
+        _code_verifier: &str,
+        _access_token: &str,
+    ) -> Result<AccountTokens, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
     /// 与 [`Self::preference_schema`] 相同，失败时是 [`AccountFailure`]。
     fn preference_schema_detailed(
         &self,

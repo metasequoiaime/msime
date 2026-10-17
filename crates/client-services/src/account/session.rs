@@ -355,6 +355,121 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.sign_in_exchanging(|| self.api.apple_web_login(grant, code_verifier), |_| {})
     }
 
+    /// 给已登录的账号添加邮箱登录（`purpose:"link"`，Android 的「添加登录方式」）：请服务端给 `target` 发验证码，验证码交给 [`Self::link_email`]。只能是 `email`。要用登录账号的令牌，没有登录时是 `account_unauthorized`，不联网；会话不是 10 分钟内登录的是 `account_recent_login_required`，宿主让用户重新登录同一个账号后再来。令牌被拒时与其他操作一样刷新一次、在同一个账号里重试。
+    pub fn link_request_code(
+        &self,
+        provider: &str,
+        target: &str,
+    ) -> Result<AccountChallenge, AccountFailure> {
+        if provider != "email" {
+            return Err(AccountError::Invalid.into());
+        }
+        validate_provider_target(provider, target)?;
+        let challenge =
+            self.authenticated_detailed(|api, token| api.link_challenge(provider, target, token))?;
+        validate_challenge(&challenge)?;
+        Ok(challenge)
+    }
+
+    /// 给已登录的账号添加 Google 登录：与 [`Self::google_id_token_challenge`] 相同的 ID token 流程，只是 `purpose:"link"`，要求同 [`Self::link_request_code`]。拿到的 ID token 交给 [`Self::link_google_id_token`]。
+    pub fn link_google_id_token_challenge(&self) -> Result<AccountChallenge, AccountFailure> {
+        let challenge =
+            self.authenticated_detailed(|api, token| api.link_challenge("google", "", token))?;
+        validate_challenge(&challenge)?;
+        if challenge.nonce.as_deref().is_none_or(str::is_empty) {
+            return Err(AccountError::Unavailable.into());
+        }
+        Ok(challenge)
+    }
+
+    /// 给已登录的账号添加 Apple 登录（网页流程）：与 [`Self::apple_web_start`] 相同，只是 `purpose:"link"`，要求同 [`Self::link_request_code`]。回调的 `grant` 交给 [`Self::link_apple_web`]。
+    pub fn link_apple_web_start(&self, app: &str) -> Result<AppleWebSignIn, AccountFailure> {
+        if !super::apple_web::valid_apple_web_app(app) {
+            return Err(AccountError::Invalid.into());
+        }
+        let code_verifier = super::apple_web::new_code_verifier()?;
+        let code_challenge = super::apple_web::code_challenge(&code_verifier);
+        let challenge = self.authenticated_detailed(|api, token| {
+            api.apple_web_link_challenge(&code_challenge, app, token)
+        })?;
+        super::apple_web::validate_apple_web_challenge(&challenge)?;
+        Ok(AppleWebSignIn {
+            authorization_url: challenge.authorization_url,
+            expires_in: challenge.expires_in,
+            code_verifier,
+        })
+    }
+
+    /// 用邮件里的 6 位验证码完成 [`Self::link_request_code`] 的绑定。
+    pub fn link_email(&self, challenge: &str, code: &str) -> Result<AccountUser, AccountFailure> {
+        validate_login(challenge, code)?;
+        self.link_exchanging(|api, token| api.link_login(challenge, code, token))
+    }
+
+    /// 用 Google 的 ID token 完成 [`Self::link_google_id_token_challenge`] 的绑定。
+    pub fn link_google_id_token(
+        &self,
+        challenge: &str,
+        id_token: &str,
+    ) -> Result<AccountUser, AccountFailure> {
+        validate_google_id_token_login(challenge, id_token)?;
+        self.link_exchanging(|api, token| api.link_login(challenge, id_token, token))
+    }
+
+    /// 用回调交回来的 `grant` 和 [`Self::link_apple_web_start`] 给的 verifier 完成绑定。
+    pub fn link_apple_web(
+        &self,
+        grant: &str,
+        code_verifier: &str,
+    ) -> Result<AccountUser, AccountFailure> {
+        if !super::apple_web::valid_apple_web_grant(grant)
+            || !super::apple_web::valid_code_verifier(code_verifier)
+        {
+            return Err(AccountError::Invalid.into());
+        }
+        self.link_exchanging(|api, token| api.apple_web_link_login(grant, code_verifier, token))
+    }
+
+    /// 绑定的完成一步：用登录账号的令牌（快过期时先刷新）把凭据交给服务端。服务端把登录方式绑到这个账号上，并为同一个账号签发一个新会话（10 分钟内登录的那种），这里用它替换本地会话，与 Android 的 `keepSession` 相同；旧会话在服务端留到自己过期。
+    ///
+    /// 服务端以 401 拒绝时不刷新重试：验证码不对和令牌失效都是 401 `invalid_credentials`，分不开，重试会白白耗掉 challenge 的一次尝试。期间本地退出、换了账号或重新登录（会话代次变了）时是 `account_cancelled`，新会话丢掉、不写入，绑定在服务端已经生效。
+    fn link_exchanging<E>(&self, exchange: E) -> Result<AccountUser, AccountFailure>
+    where
+        E: FnOnce(&A, &str) -> Result<AccountTokens, AccountFailure>,
+    {
+        let (user_id, token, generation) = self.credentials_with_generation(None, None)?;
+        let tokens = exchange(&self.api, &token)?;
+        validate_tokens(&tokens)?;
+        // 服务端保证绑定得到的是发起绑定的那个账号；不是的话不能把它当成本机的登录。
+        if tokens.user.id != user_id {
+            return Err(AccountError::Unavailable.into());
+        }
+        let value = saved_session(tokens, Some(uuid::Uuid::new_v4()))?;
+        let user = value.tokens.user.clone();
+        self.storage
+            .with_refresh_lock(|| {
+                let mut state = self.lock()?;
+                self.load_locked(&mut state)?;
+                if state.generation != generation
+                    || state
+                        .saved
+                        .as_ref()
+                        .map(|saved| saved.tokens.user.id.as_str())
+                        != Some(user_id.as_str())
+                {
+                    return Err(AccountError::Cancelled);
+                }
+                // 换了一个会话（新的登录 ID），与登录相同地推进代次：拿着旧会话令牌的进行中的操作和刷新不会再把旧会话写回来。
+                Self::next_generation(&mut state)?;
+                state.refresh = None;
+                self.storage.save(&value)?;
+                state.saved = Some(value);
+                state.loaded = true;
+                Ok(user)
+            })
+            .map_err(Into::into)
+    }
+
     fn sign_in_validated<F>(
         &self,
         challenge: &str,

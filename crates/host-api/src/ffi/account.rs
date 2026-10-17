@@ -71,10 +71,14 @@ enum AccountAction {
     RequestCode {
         provider: String,
         target: String,
+        #[serde(default)]
+        purpose: Purpose,
     },
     Login {
         challenge_id: String,
         code: String,
+        #[serde(default)]
+        purpose: Purpose,
     },
     GoogleLogin,
     GoogleCancel,
@@ -88,6 +92,8 @@ enum AccountAction {
     GoogleChallenge {
         #[serde(default)]
         target: Option<String>,
+        #[serde(default)]
+        purpose: Purpose,
     },
     GoogleCodeLogin {
         challenge_id: String,
@@ -96,14 +102,20 @@ enum AccountAction {
     GoogleTokenLogin {
         challenge_id: String,
         id_token: String,
+        #[serde(default)]
+        purpose: Purpose,
     },
     /// 没有 Apple 原生登录的宿主（安卓）走 Apple 网页登录：`app` 是发起登录的 applicationId。
     AppleWebStart {
         app: String,
+        #[serde(default)]
+        purpose: Purpose,
     },
     AppleWebLogin {
         grant: String,
         code_verifier: String,
+        #[serde(default)]
+        purpose: Purpose,
     },
     Profile,
     Rename {
@@ -131,6 +143,15 @@ enum AccountAction {
     },
     /// 本机匿名账号还没有会话时注册它，与 `msime_client_ensure_anonymous_account` 相同，但失败时返回账号错误码。
     EnsureAnonymous,
+}
+
+/// 邮箱、Google ID token 和 Apple 网页登录这几个操作的用途：缺省是登录；`link` 是给已登录的账号添加这种登录方式（#8201 的决定 9，Android 的「添加登录方式」），申请和完成两步都要带。
+#[derive(Clone, Copy, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum Purpose {
+    #[default]
+    Login,
+    Link,
 }
 
 /// 目录对应的会话对象，第一次用到时建立；建立前先接管旧目录里的会话，与共享应用启动时做的一样。社区操作（`msime_client_community`）经同一个对象认证。
@@ -293,8 +314,75 @@ fn apply_preferences(
     serde_json::to_value(saved).map_err(|_| "storage".to_owned())
 }
 
-/// 一次操作。设置同步的上传和应用要读写宿主给的偏好目录，在这里处理；其余都只经会话，见 [`run_account`]。
-fn run(session: &Session, action: AccountAction) -> Result<Value, String> {
+fn apple_web_started(started: msime_client_services::account::AppleWebSignIn) -> Value {
+    json!({
+        "authorizationUrl": started.authorization_url,
+        "expiresIn": started.expires_in,
+        "codeVerifier": started.code_verifier,
+    })
+}
+
+/// 给已登录账号添加登录方式的一步：失败时按 #8201 新操作的规则带细节（需要最近登录是 `account_recent_login_required`，断网是 `account_network`，限流带 `retry_after_seconds`）。
+fn link(
+    operation: impl FnOnce() -> Result<Value, msime_client_services::account::AccountFailure>,
+) -> Result<Value, Failure> {
+    operation().map_err(Failure::from)
+}
+
+/// 一次操作。`purpose:"link"` 的几步（给已登录账号添加登录方式）只用登录会话，在这里处理；其余见 [`run_other`]。
+fn run(session: &Session, action: AccountAction) -> Result<Value, Failure> {
+    match action {
+        AccountAction::RequestCode {
+            provider,
+            target,
+            purpose: Purpose::Link,
+        } => link(|| {
+            Ok(value(ChallengeResponse::from(
+                session.link_request_code(&provider, &target)?,
+            ))?)
+        }),
+        AccountAction::Login {
+            challenge_id,
+            code,
+            purpose: Purpose::Link,
+        } => link(|| Ok(status(Some(session.link_email(&challenge_id, &code)?))?)),
+        // 绑定只走 ID token 流程（Android 的 Credential Manager），回环流程不能绑定。
+        AccountAction::GoogleChallenge {
+            target: Some(_),
+            purpose: Purpose::Link,
+        } => Err(AccountError::Invalid.code().to_owned().into()),
+        AccountAction::GoogleChallenge {
+            target: None,
+            purpose: Purpose::Link,
+        } => link(|| Ok(nonce_challenge(session.link_google_id_token_challenge()?)?)),
+        AccountAction::GoogleTokenLogin {
+            challenge_id,
+            id_token,
+            purpose: Purpose::Link,
+        } => link(|| {
+            Ok(status(Some(
+                session.link_google_id_token(&challenge_id, &id_token)?,
+            ))?)
+        }),
+        AccountAction::AppleWebStart {
+            app,
+            purpose: Purpose::Link,
+        } => link(|| Ok(apple_web_started(session.link_apple_web_start(&app)?))),
+        AccountAction::AppleWebLogin {
+            grant,
+            code_verifier,
+            purpose: Purpose::Link,
+        } => link(|| {
+            Ok(status(Some(
+                session.link_apple_web(&grant, &code_verifier)?,
+            ))?)
+        }),
+        action => run_other(session, action).map_err(Failure::from),
+    }
+}
+
+/// 不是绑定的操作。设置同步的上传和应用要读写宿主给的偏好目录，在这里处理；其余都只经会话，见 [`run_account`]。
+fn run_other(session: &Session, action: AccountAction) -> Result<Value, String> {
     let code = |error: AccountError| error.code().to_owned();
     match action {
         AccountAction::PreferencesApply {
@@ -318,12 +406,18 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
     match action {
         AccountAction::Status => status(session.status()?),
         AccountAction::Providers => value(providers_response(session.providers()?)),
-        AccountAction::RequestCode { provider, target } => value(ChallengeResponse::from(
+        AccountAction::RequestCode {
+            provider,
+            target,
+            purpose: Purpose::Login,
+        } => value(ChallengeResponse::from(
             session.request_code(&provider, &target)?,
         )),
-        AccountAction::Login { challenge_id, code } => {
-            status(Some(session.sign_in(&challenge_id, &code)?))
-        }
+        AccountAction::Login {
+            challenge_id,
+            code,
+            purpose: Purpose::Login,
+        } => status(Some(session.sign_in(&challenge_id, &code)?)),
         AccountAction::GoogleLogin => {
             status(Some(session.sign_in_google_with_browser(open_browser)?))
         }
@@ -336,11 +430,13 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
             challenge_id,
             identity_token,
         } => status(Some(session.sign_in_apple(&challenge_id, &identity_token)?)),
-        AccountAction::GoogleChallenge { target: None } => {
-            nonce_challenge(session.google_id_token_challenge()?)
-        }
+        AccountAction::GoogleChallenge {
+            target: None,
+            purpose: Purpose::Login,
+        } => nonce_challenge(session.google_id_token_challenge()?),
         AccountAction::GoogleChallenge {
             target: Some(target),
+            purpose: Purpose::Login,
         } => {
             let challenge = session.google_loopback_challenge(&target)?;
             Ok(json!({
@@ -355,20 +451,18 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
         AccountAction::GoogleTokenLogin {
             challenge_id,
             id_token,
+            purpose: Purpose::Login,
         } => status(Some(
             session.sign_in_google_id_token(&challenge_id, &id_token)?,
         )),
-        AccountAction::AppleWebStart { app } => {
-            let started = session.apple_web_start(&app)?;
-            Ok(json!({
-                "authorizationUrl": started.authorization_url,
-                "expiresIn": started.expires_in,
-                "codeVerifier": started.code_verifier,
-            }))
-        }
+        AccountAction::AppleWebStart {
+            app,
+            purpose: Purpose::Login,
+        } => Ok(apple_web_started(session.apple_web_start(&app)?)),
         AccountAction::AppleWebLogin {
             grant,
             code_verifier,
+            purpose: Purpose::Login,
         } => status(Some(session.sign_in_apple_web(&grant, &code_verifier)?)),
         AccountAction::Profile => value(ProfileResponse::from(session.profile()?)),
         AccountAction::Rename { display_name } => {
@@ -387,10 +481,34 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
             value(PreferenceSchemaResponse::from(session.preference_schema()?))
         }
         AccountAction::PreferencesLoad => value(session.preferences()?),
-        // 要写本机偏好、错误码不全是账号错误码的两项由 run 处理，要看会话来源的 ensure_anonymous 由导出函数处理，都不会到这里。
+        // 要写本机偏好、错误码不全是账号错误码的两项由 run_other 处理，绑定登录方式的几步由 run 处理，要看会话来源的 ensure_anonymous 由导出函数处理，都不会到这里。
         AccountAction::PreferencesUpload { .. }
         | AccountAction::PreferencesApply { .. }
-        | AccountAction::EnsureAnonymous => Err(AccountError::Invalid),
+        | AccountAction::EnsureAnonymous
+        | AccountAction::RequestCode {
+            purpose: Purpose::Link,
+            ..
+        }
+        | AccountAction::Login {
+            purpose: Purpose::Link,
+            ..
+        }
+        | AccountAction::GoogleChallenge {
+            purpose: Purpose::Link,
+            ..
+        }
+        | AccountAction::GoogleTokenLogin {
+            purpose: Purpose::Link,
+            ..
+        }
+        | AccountAction::AppleWebStart {
+            purpose: Purpose::Link,
+            ..
+        }
+        | AccountAction::AppleWebLogin {
+            purpose: Purpose::Link,
+            ..
+        } => Err(AccountError::Invalid),
     }
 }
 
@@ -444,7 +562,7 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                 }
                 let session = session_for(directory, legacy).map_err(code)?;
                 match request.action {
-                    Action::Account(action) => run(&session, action).map_err(Failure::from),
+                    Action::Account(action) => run(&session, action),
                     Action::Extended(operation) => crate::account_ops::run(
                         &session,
                         || anonymous_session_for(directory),
@@ -460,7 +578,7 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                         .map(|()| Value::Bool(true))
                         .map_err(code)
                 }
-                Action::Account(action) => run(&entry.account, action).map_err(Failure::from),
+                Action::Account(action) => run(&entry.account, action),
                 Action::Extended(operation) => crate::account_ops::run(
                     &entry.account,
                     || Ok(Arc::clone(&entry.anonymous)),
@@ -472,6 +590,9 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
         }
     })
 }
+
+#[cfg(test)]
+mod link_tests;
 
 #[cfg(test)]
 mod tests {
@@ -959,11 +1080,14 @@ mod tests {
         ));
         assert!(matches!(
             parse(json!({ "operation": "google_challenge" })),
-            AccountAction::GoogleChallenge { target: None }
+            AccountAction::GoogleChallenge {
+                target: None,
+                purpose: Purpose::Login
+            }
         ));
         assert!(matches!(
             parse(json!({ "operation": "google_challenge", "target": "http://127.0.0.1:53682/callback" })),
-            AccountAction::GoogleChallenge { target: Some(target) } if target == "http://127.0.0.1:53682/callback"
+            AccountAction::GoogleChallenge { target: Some(target), purpose: Purpose::Login } if target == "http://127.0.0.1:53682/callback"
         ));
         assert!(matches!(
             parse(json!({ "operation": "google_code_login", "challenge_id": "c", "code": "k" })),
@@ -971,15 +1095,15 @@ mod tests {
         ));
         assert!(matches!(
             parse(json!({ "operation": "google_token_login", "challenge_id": "c", "id_token": "t" })),
-            AccountAction::GoogleTokenLogin { challenge_id, id_token } if challenge_id == "c" && id_token == "t"
+            AccountAction::GoogleTokenLogin { challenge_id, id_token, purpose: Purpose::Login } if challenge_id == "c" && id_token == "t"
         ));
         assert!(matches!(
             parse(json!({ "operation": "apple_web_start", "app": "app.msime.android" })),
-            AccountAction::AppleWebStart { app } if app == "app.msime.android"
+            AccountAction::AppleWebStart { app, purpose: Purpose::Login } if app == "app.msime.android"
         ));
         assert!(matches!(
             parse(json!({ "operation": "apple_web_login", "grant": "g", "code_verifier": "v" })),
-            AccountAction::AppleWebLogin { grant, code_verifier } if grant == "g" && code_verifier == "v"
+            AccountAction::AppleWebLogin { grant, code_verifier, purpose: Purpose::Login } if grant == "g" && code_verifier == "v"
         ));
         // 已有的 google_login 仍是不带参数的 Windows 浏览器流程。
         assert!(matches!(

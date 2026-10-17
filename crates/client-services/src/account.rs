@@ -717,6 +717,8 @@ pub use validate::*;
 pub use voice_contribution::*;
 
 #[cfg(test)]
+mod link_tests;
+#[cfg(test)]
 mod sign_in_tests;
 #[cfg(test)]
 mod tests;

@@ -62,6 +62,7 @@ Status: proposed
 - 服务端响应的结构体不拒绝未知字段。AI 皮肤的 `RawSkinJob` 曾带 `deny_unknown_fields`，msime-cloud 在 2026-10-01 给 202 响应加了 `expires_at` 以后每次创建插画任务都解析失败；回放当前形状的本地测试抓不到服务端以后再加的字段。
 - AI 皮肤生成的进度回调在调用线程上依次调用：出图线程只经通道报告完成。与头文件里其他进度回调的约定一致，JNI 和 NAPI 胶水可以直接用调用线程的 env；出图线程遇到 401 时仍可能在 Rust 的线程上调用存储回调，按上面的「任意线程」处理。
 - 对话的流式与取消（决定 15）是单独的 `msime_client_account_chat_stream`，因为 `msime_client_account` 没有回调参数；请求、预检和令牌来源与 `chat` 相同，宿主给 `request_id`，`msime_client_account_chat_cancel` 按 id 从任何线程或回调里取消，与 AI 皮肤的生成和取消是同一种形状。增量回调与进度回调一样在调用线程上依次调用。请求和读取在 Rust 自己的一个后台线程上做，读到的字节经有界通道交给调用线程解析：reqwest 的阻塞客户端不能从别的线程打断一次读取，所以取消让调用线程立刻不再等，连接由后台线程在服务端下一次发数据时（最晚到 125 秒的总时限）断开。开始输出以后的失败按服务端契约分两种：上游失败事件是 `account_unavailable`，没等到 `[DONE]` 的断开是 `account_network`，已经交出的增量不收回。换号核对只在回答完整以后做一次，与 `chat` 相同。
+- 给已登录账号添加登录方式（决定 9）是已有登录操作上的 `purpose:"link"`，不是另开一组操作：邮箱、Google ID token 和 Apple 网页登录的申请和完成两步都带它，Rust 不记哪个 challenge 是绑定，与 Apple 网页登录的 verifier 一样由宿主保存。两步都只用登录会话并带着它的令牌，never 用匿名账号；完成时服务端为同一个账号签发一个新会话，Rust 在刷新锁里核对会话代次和账号都没变以后用它替换本地会话（新的登录 ID，推进代次，与 Android 的 `keepSession` 相同），宿主紧接着做要求最近登录的操作时用的就是它。完成一步遇到 401 不刷新重试：验证码不对和令牌失效同是 401 `invalid_credentials`，重试会多耗一次 challenge 尝试。两步的失败都走 `AccountFailure`，否则分不出 `account_recent_login_required`；不带 `purpose` 的登录仍是原来的 `AccountError` 码。
 
 ## Related notes
 
@@ -81,6 +82,8 @@ Status: proposed
 - **流式对话逐段核对给出令牌的账号（Android 每段增量前都做）** — 最强的理由：用户中途退出登录时，已经换了账号的页面上不会再冒出旧账号的回答。否掉：每段增量都要读一次会话存储，注入模式下就是一次宿主回调；页面退出登录时自己会取消对话，回答完整时的核对仍会报 `account_cancelled`。
 - **AI 皮肤的进度回调留在出图线程上** — 最强的理由：不用多一条通道，Tauri 现在就是这样 emit 事件的。否掉：C 宿主的进度回调一律在调用线程上，JNI 胶水要缓存 `JavaVM` 并 attach/detach，NAPI 没法从别的线程直接调 JS；三个线程并发回调还要宿主自己串行化。
 
+- **绑定成功后保留原来的本地会话，丢掉服务端签发的新会话** — 最强的理由：本地会话不换，进行中的操作和别的进程都不受影响，代次也不用推进。否掉：新会话是刚建立的，宿主紧接着注销账号或删除云端数据时就不用再登录一次；丢掉的那个会在服务端留 30 天，「我的设备」里多出一条。Android 也换成新会话。
+- **绑定另开一组操作（`link_request_code`、`link_login` 等）** — 最强的理由：新操作天然只有 `AccountFailure` 一种错误形状，不用在同一个操作上按 `purpose` 的取值分出两种码。否掉：请求和响应与登录完全相同，只差一个用途，与服务端和 Android 的接口形状一致；宿主的登录面板只多传一个字段，不用为绑定再写一遍分发。
 - **Rust 自己读写钥匙串和 KeyStore** — 最强的理由：宿主一行回调都不用写，没有跨线程回调和 JNI attach 的麻烦，存储逻辑也只有一份。否掉：要引入 `security-framework`、`keyring` 一类第三方 crate，仓库负责人已定不加；钥匙串的 access group、App Group 的 entitlement 和 AndroidKeyStore 的密钥别名都是各宿主自己的配置，Android 上还得从 Rust 反向调 Java，复杂度只是换了个地方。
 - **所有平台都改用目录模式（明文 JSON 文件）** — 最强的理由：`FileAccountSessionStorage` 已经存在、已有测试和跨进程锁，不需要任何新 ABI。否掉：iOS 和 Android 的令牌会从钥匙串、KeyStore 加密存储落到明文文件，平台现有的安全保证变弱。鸿蒙例外：它的会话本来就在 ArkTS 管的文件里，C 回调在 Rust 线程上触发、没法直接调 ArkTS，改用 threadsafe function 阻塞等结果又会在调用方是 JS 线程上的同步 napi 函数时死锁，所以鸿蒙走目录模式。
 - **sans-IO：Rust 只给出「读这一项」「写这一项」的指令，由宿主执行** — 最强的理由：没有任意线程上的回调，JNI 和 NAPI 胶水最简单，`msime_client_account_gloss` 这类按键路径的接口就是这么做的。否掉：刷新要在一把锁里完成「重读、发请求、再读一次核对、保存」，sans-IO 会把这段时序和锁顺序推回每个平台，正是要消除的那几份重复实现。
@@ -96,6 +99,7 @@ Status: proposed
 - `cargo test -p msime-client-services` 覆盖：两种布局的读写、清除登录会话时连密钥串一起删、超长或解不开的文档是 `Storage`、置 SHARED 时在同一线程上成对加解锁（含 panic）、同一线程嵌套加锁被拒、匿名身份「已存在」时重读并采用先发布的那份、`shared_access_token_in` 带 `expected_user_id` 时不退回另一个账号、`client_agent` 的形状校验与发出的 User-Agent。
 - `cargo test -p msime-host-api` 覆盖：`msime_client_session_store` 在 64 位目标上是 80 字节、各字段偏移与头文件一致；非法描述符不接管 `context`、不调用 `release`；`release` 等最后一个进行中的调用结束才调用且只调用一次；四个入口在注入模式下的 status、forget、取令牌、缓存与每次重读、补登录 ID 时持宿主锁、`directory`/`session_store` 恰好一个的校验。
 - 新接口：client-services 的测试覆盖 `AccountFailure::code()` 的映射顺序与 `Retry-After`、释义的整包预检与逐项置空、常用语按服务端规则的校验、「我的设备」保留 `web` 和空串、反馈的截图尺寸只读头部、诊断上传按服务端规则重建（事件种类、崩溃时间、配置快照的层数和条目、2 MiB 先截最旧的事件），以及用 loopback 假服务器回放服务端真实的 202 `{id,state,expires_at}` 和 failed `{id,state,artwork:null,reason}`（修复前这条测试失败）；host-api 的测试用假后端覆盖三类令牌来源、401 只在同一账号内重试一次、撤销当前会话改走退出、绑定账号对不上时是 `account_identity_changed`，C 层覆盖不联网的校验与 `retry_after_seconds` 的形状。断网与 503 分开、`chat`/`chat_models`/AI 皮肤的 `retry_after_seconds`、`account_delete` 的 `account_recent_login_required`（且只在成功后清本地会话）由 client-services 的 loopback 假服务器测试（挂断连接、429、503、403）和 host-api 的假后端测试覆盖，同一组测试同时核对已有的 `chat`、`chat_models`、`delete`、`generate` 给出的码不变。流式对话：client-services 的解析器测试逐字节喂入（UTF-8 字符、CRLF 和 `data:` 前缀被拆开），loopback 假服务器分段写出 SSE，覆盖增量在调用线程上按序交出、请求带 `stream: true` 和 `Accept: text/event-stream`、流开始前的 429 和 503 `server_busy` 带 `retry_after_seconds`、上游失败事件和没等到 `[DONE]` 的断开（已交出的增量留着）、等响应头时和两段增量之间从别的线程取消立刻返回且服务端下次写数据时连接被断开、回调里取消不再交出下一段、旧后端 400 `invalid_chat_request` 退回非流式；host-api 的假后端测试覆盖令牌来源、401 重试不交出增量、回调里取消和回答期间换号是 `account_cancelled`，C 层覆盖请求校验、`account_busy` 与按 id 取消。
+- 绑定登录方式：client-services 的 loopback 假服务器测试核对六步都带登录账号的令牌和 `purpose:"link"`、完成后本地会话换成服务端签发的新会话（文件存储和注入存储都在刷新锁里写入）、403 `recent_login_required`、409 `identity_already_linked`、401 不重试、令牌快过期时先刷新、申请时 401 刷新一次重试、完成请求进行中别的进程刷新照常写入而换号或重新登录时不写入；host-api 的 C 层测试核对没有登录会话时（只有匿名会话也一样）是 `account_unauthorized`，以及不合法的用途、provider 和凭据在联网之前就是 `account_invalid`。
 - 带 `directory` 的现有测试全部照旧通过；`shared/backend` 的 `swift test` 和 `platforms/macos/scripts/test_backend_account_swift.sh` 通过。
 - 第二阶段：iOS、macOS、Android 改调注入接口后，Swift 和 Java 里的会话刷新、匿名注册和账号接口实现删除；HarmonyOS 与 Linux 改用目录模式。
 
