@@ -600,6 +600,7 @@ export { useDebouncedCallback, type DebouncedCallback } from "./core/use-debounc
 export { isComposingKeyEvent } from "./core/ime-key-event";
 export { exceptionMessage } from "./core/exception-message";
 export { useSettledSlider } from "./core/use-settled-slider";
+export { useFullScreenScrollToTop } from "./core/use-full-screen-scroll-to-top";
 export {
   subscribeToWindowBlur,
   subscribeToWindowEvent,

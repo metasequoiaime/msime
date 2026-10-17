@@ -1,4 +1,3 @@
-import { useLayoutEffect, useRef } from "react";
 import { CommunityResourcesPage } from "../community/community-resources";
 import type {
   CommunityLocalDictionaryClient,
@@ -11,6 +10,7 @@ import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
 import type { Preferences } from "../core/preferences-model";
 import { SettingsPageHeader } from "./settings-page-header";
 import { communityGalleryPage, type CommunityGalleryView } from "./use-community-gallery-subview";
+import { useFullScreenScrollToTop } from "../core/use-full-screen-scroll-to-top";
 
 const titles = {
   skin: "社区皮肤",
@@ -52,11 +52,8 @@ export function CommunityGallerySubview({
 }) {
   const title = titles[view.category];
   const historyPage = communityGalleryPage(view.category);
-  const column = useRef<HTMLElement>(null);
   // 和 AI 皮肤抽卡的全屏视图一样，打开时让标题和返回按钮出现在屏幕顶部，而不是停在功能页原来的滚动位置。
-  useLayoutEffect(() => {
-    column.current?.scrollIntoView?.({ block: "start" });
-  }, []);
+  const column = useFullScreenScrollToTop<HTMLElement>();
   const gallery =
     view.category === "skin"
       ? skins && (

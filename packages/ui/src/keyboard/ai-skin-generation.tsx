@@ -1,8 +1,8 @@
-import { useLayoutEffect, useRef } from "react";
 import { ControlledCheckbox } from "../core/controlled-checkbox";
 import { StatusMessage } from "../core/status-message";
 import { ActionButton } from "../core/action-button";
 import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
+import { useFullScreenScrollToTop } from "../core/use-full-screen-scroll-to-top";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import type { TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 import { useAiSkinGeneration, type UseAiSkinGenerationOptions } from "./use-ai-skin-generation";
@@ -56,11 +56,8 @@ export function AiSkinGeneration({
     setPublishCategory,
     closePublish,
   } = useAiSkinGeneration({ client, library, communitySkins });
-  const surface = useRef<HTMLElement>(null);
   // 全屏视图叠在皮肤页上，共用外壳的滚动容器：不滚回顶部的话，它会停在皮肤页原来的滚动位置，标题和返回按钮都在屏幕外。
-  useLayoutEffect(() => {
-    if (fullScreen) surface.current?.scrollIntoView?.({ block: "start" });
-  }, [fullScreen]);
+  const surface = useFullScreenScrollToTop<HTMLElement>(fullScreen);
   return (
     <div className={fullScreen ? fullScreenSurface : community.backdrop}>
       <section
