@@ -1,6 +1,7 @@
 #include "AccountGlossPolicy.h"
 #include "CandidateTranslationPolicy.h"
 #include "TranslationWorker.h"
+#include "AiEndpointPolicy.h"
 #include "CandidateHttpPolicy.h"
 #include "JapaneseReader.h"
 #include "TranslationDisplay.h"
@@ -22,6 +23,10 @@
 #include <vector>
 
 namespace msime::windows {
+bool ai_translation_url_allowed(std::string_view url) {
+  return !ai_endpoint_protocol(url).empty();
+}
+
 namespace {
 constexpr auto kDebounce = std::chrono::milliseconds(500);
 constexpr size_t kMaximumQueryBytes = 65536;
@@ -29,11 +34,18 @@ constexpr size_t kMaximumResponseBytes = 1024 * 1024;
 constexpr long kCustomTranslationTimeoutMs = 2500;
 constexpr long kTencentTranslationTimeoutMs = 2000;
 constexpr long kNiuTransTranslationTimeoutMs = 2500;
+constexpr long kAiTranslationTimeoutMs = 8000;
 // 账号释义由服务端的模型回答，比机器翻译接口慢；macOS 等 30 秒，这里只有一个翻译线程，等太久会让后面的页都排着，所以取 10 秒。
 constexpr long kAccountTranslationTimeoutMs = 10000;
 constexpr auto kTranslationBatchBudget = std::chrono::seconds(6);
 constexpr auto kNegativeTranslationTtl = std::chrono::minutes(8);
 constexpr size_t kMaximumTranslationCacheEntries = 4096;
+
+enum class HttpEndpointPolicy {
+  HttpsOnly,
+  LoopbackHttp,
+  Ai,
+};
 
 struct HttpResponse {
   std::string body;
@@ -101,7 +113,8 @@ std::optional<nlohmann::json> query_document(const std::string &query) {
 
 std::optional<std::string> http_request(const nlohmann::json &descriptor,
                                         const std::function<bool()> &cancelled,
-                                        bool allow_http, long timeout_ms,
+                                        HttpEndpointPolicy policy,
+                                        long timeout_ms,
                                         long *status_out = nullptr) {
   if (status_out)
     *status_out = 0;
@@ -109,7 +122,10 @@ std::optional<std::string> http_request(const nlohmann::json &descriptor,
     if (!descriptor.is_object() || !descriptor.at("url").is_string())
       return std::nullopt;
     const auto url = descriptor.at("url").get<std::string>();
-    if (!valid_candidate_url(url, allow_http))
+    const bool ai_endpoint = policy == HttpEndpointPolicy::Ai;
+    if (ai_endpoint ? !ai_translation_url_allowed(url)
+                    : !valid_candidate_url(
+                          url, policy == HttpEndpointPolicy::LoopbackHttp))
       return std::nullopt;
     const auto headers = descriptor.value("headers", nlohmann::json::object());
     if (!headers.is_object())
@@ -138,7 +154,11 @@ std::optional<std::string> http_request(const nlohmann::json &descriptor,
     HttpResponse response{{}, cancelled};
     curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR,
-                     allow_http ? "http,https" : "https");
+                     ai_endpoint || policy == HttpEndpointPolicy::LoopbackHttp
+                         ? "http,https"
+                         : "https");
+    if (ai_endpoint && ai_endpoint_connects_directly(url))
+      curl_easy_setopt(curl.get(), CURLOPT_NOPROXY, "*");
     curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 2500L);
     curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, timeout_ms);
@@ -196,7 +216,8 @@ custom_translation(const nlohmann::json &config, const nlohmann::json &item,
   // The source Windows client permits an explicitly configured HTTP custom
   // translator (useful for a local service).  Keep cloud providers HTTPS-only.
   auto body =
-      http_request(*descriptor, cancelled, true, kCustomTranslationTimeoutMs);
+      http_request(*descriptor, cancelled, HttpEndpointPolicy::LoopbackHttp,
+                   kCustomTranslationTimeoutMs);
   if (!body || cancelled())
     return std::nullopt;
   auto parsed = host_value(msime_client_parse_custom_translation_response(
@@ -227,7 +248,8 @@ void append_tencent_group(const nlohmann::json &config,
   if (!descriptor || descriptor->is_null())
     return;
   auto body =
-      http_request(*descriptor, cancelled, false, kTencentTranslationTimeoutMs);
+      http_request(*descriptor, cancelled, HttpEndpointPolicy::HttpsOnly,
+                   kTencentTranslationTimeoutMs);
   if (!body || cancelled())
     return;
   auto parsed = host_value(msime_client_parse_tencent_translation_response(
@@ -269,7 +291,7 @@ void append_niutrans_item(const nlohmann::json &config,
       reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()));
   if (!descriptor || descriptor->is_null() || cancelled())
     return;
-  auto body = http_request(*descriptor, cancelled, false,
+  auto body = http_request(*descriptor, cancelled, HttpEndpointPolicy::HttpsOnly,
                            kNiuTransTranslationTimeoutMs);
   if (!body || cancelled())
     return;
@@ -300,7 +322,8 @@ void append_ai_item(const nlohmann::json &config, const nlohmann::json &item,
       reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()));
   if (!descriptor || descriptor->is_null() || cancelled())
     return;
-  auto body = http_request(*descriptor, cancelled, false, kNiuTransTranslationTimeoutMs);
+  auto body = http_request(*descriptor, cancelled, HttpEndpointPolicy::Ai,
+                           kAiTranslationTimeoutMs);
   if (!body || cancelled())
     return;
   auto parsed = host_value(msime_client_parse_ai_translation_response(
@@ -483,7 +506,8 @@ std::optional<std::string> account_glosses(
         {"url", std::string(account_gloss_url)},
         {"headers", {{"Authorization", "Bearer " + token->token}, {"Content-Type", "application/json"}}},
         {"body", body}};
-    response = http_request(descriptor, stopping, false, kAccountTranslationTimeoutMs, &status);
+    response = http_request(descriptor, stopping, HttpEndpointPolicy::HttpsOnly,
+                            kAccountTranslationTimeoutMs, &status);
     // 服务端以 401 拒绝了这个令牌（过期、被吊销）：带上它再取一次，共享层会强制刷新，刷新不了时退回匿名账号。
     if (response || status != 401 || stopping())
       break;

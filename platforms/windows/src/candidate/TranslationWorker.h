@@ -10,10 +10,14 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 
 namespace msime::windows {
+// AI 翻译沿用共享 AI 端点策略：HTTPS 不限主机，HTTP 只允许本机或局域网。
+bool ai_translation_url_allowed(std::string_view url);
+
 class TranslationWorker final {
 public:
   struct Result {

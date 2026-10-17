@@ -116,6 +116,12 @@ int main() {
             "remote HTTP is refused");
     require(!valid_candidate_url("http://localhost.example/api", true),
             "lookalike loopback host is refused");
+    require(ai_translation_url_allowed("http://127.0.0.1:8080/api"),
+            "AI translation accepts loopback HTTP");
+    require(ai_translation_url_allowed("http://192.168.1.20:8080/api"),
+            "AI translation accepts private-network HTTP");
+    require(!ai_translation_url_allowed("http://remote.example/api"),
+            "AI translation refuses public HTTP");
     require(valid_candidate_header_name("Authorization"),
             "a token header name is accepted");
     require(valid_candidate_header_value("Bearer synthetic"),
