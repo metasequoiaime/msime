@@ -197,6 +197,13 @@ fn saved_anonymous_identity(
     }
 }
 
+/// 本机是否保存着匿名账号的身份，只读，不像 [`anonymous_identity`] 那样新生成一份。已有但不合法时是 [`AccountError::Storage`]。给云端数据汇总分辨「本机没有匿名账号」和「有匿名账号、只是眼下没有会话」：服务端的会话 30 天后一律过期，刷新被拒以后本地的匿名会话就清掉了，身份还在，名下的语音样本（保存 180 天）也还在。
+pub fn has_saved_anonymous_identity(
+    source: AnonymousIdentitySource<'_>,
+) -> Result<bool, AccountError> {
+    saved_anonymous_identity(source).map(|identity| identity.is_some())
+}
+
 /// 删除本机匿名账号名下的语音样本（`DELETE /v1/users/me/data` 的 `voice` 分区），给「删除云端数据」用：语音贡献只用匿名账号（#8201 的决定 12），登录账号的 `data_delete` 删不到它们。
 ///
 /// 服务端对这个路由要求会话在 10 分钟内建立，匿名账号也一样，而匿名会话通常早就建立了：先用现有会话试一次，服务端回 403 `recent_login_required`（或令牌已被吊销）时用 `identity` 里保存的身份重新登录同一个匿名账号，换一个新会话再删。新会话替换存储里的旧会话；重新登录计入服务端按地址每天的匿名登录限额，超了是 `account_rate_limited`。本机从来没有匿名身份时没有样本可删，直接成功。会阻塞网络。

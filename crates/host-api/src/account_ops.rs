@@ -7,13 +7,13 @@
 use base64::Engine as _;
 use msime_client_services::account::page::{ChatModelsResponse, ChatResponse};
 use msime_client_services::account::{
-    delete_anonymous_voice_samples, prepare_chat, prepare_feedback, prepare_voice_contribution,
-    translate_request_body, valid_data_sections, with_shared_access_token, AccountApi,
-    AccountChatMessage, AccountDataSummary, AccountError, AccountFailure, AccountFeedbackInput,
-    AccountPhrase, AccountPhrases, AccountSessionStorage, AccountTranslateRequest,
-    AccountVoiceContributionInput, AnonymousIdentitySource, BackendAccountSession,
-    ChatStreamCancel, DEFAULT_TRANSLATE_TIMEOUT_MS, MAX_VOICE_CONTRIBUTION_AUDIO_BYTES,
-    TRANSLATE_TIMEOUT_MS,
+    delete_anonymous_voice_samples, has_saved_anonymous_identity, prepare_chat, prepare_feedback,
+    prepare_voice_contribution, translate_request_body, valid_data_sections,
+    with_shared_access_token, AccountApi, AccountChatMessage, AccountDataSummary, AccountError,
+    AccountFailure, AccountFeedbackInput, AccountPhrase, AccountPhrases, AccountSessionStorage,
+    AccountTranslateRequest, AccountVoiceContributionInput, AnonymousIdentitySource,
+    BackendAccountSession, ChatStreamCancel, DEFAULT_TRANSLATE_TIMEOUT_MS,
+    MAX_VOICE_CONTRIBUTION_AUDIO_BYTES, TRANSLATE_TIMEOUT_MS,
 };
 use msime_client_services::diagnostics::upload::{
     prepare_upload, valid_diagnostic_label, DIAGNOSTIC_TTLS,
@@ -248,10 +248,11 @@ fn merge_anonymous_voice(summary: &mut AccountDataSummary, anonymous: &AccountDa
     }
 }
 
-/// 云端数据汇总（#8201 的决定 12 后续 4）：登录账号的汇总，加上本机匿名账号的语音样本（语音贡献只用匿名账号）。匿名这一次另发一个 `GET /v1/users/me/data`，它失败不让汇总失败；`anonymous_voice` 说明合进来没有：`included` 是合进了 `voice` 分区，`none` 是本机没有匿名会话、没有可合的，`unknown` 是这一次没有成功（读不了匿名会话或请求失败），`voice` 只是登录账号的。
+/// 云端数据汇总（#8201 的决定 12 后续 4）：登录账号的汇总，加上本机匿名账号的语音样本（语音贡献只用匿名账号）。匿名这一次另发一个 `GET /v1/users/me/data`，它失败不让汇总失败；`anonymous_voice` 说明合进来没有：`included` 是合进了 `voice` 分区，`none` 是本机既没有匿名会话也没有匿名身份、没有可合的，`unknown` 是这一次没有成功（读不了匿名会话或身份、请求失败，或者身份还在而会话已经过期清掉，这时名下可能还有样本，汇总不为此重新登录），`voice` 只是登录账号的。
 fn data_summary<A, S1, S2>(
     account: &BackendAccountSession<A, S1>,
     anonymous: impl FnOnce() -> Result<Arc<BackendAccountSession<A, S2>>, AccountError>,
+    identity: AnonymousIdentitySource<'_>,
 ) -> Result<Value, OperationFailure>
 where
     A: AccountApi,
@@ -264,7 +265,11 @@ where
         Ok((anonymous, signed_in))
     }) {
         Err(_) => "unknown",
-        Ok((_, false)) => "none",
+        // 没有会话不等于没有样本：身份还在时是会话过期被清掉了，名下的样本还在，只是这次取不到。
+        Ok((_, false)) => match has_saved_anonymous_identity(identity) {
+            Ok(false) => "none",
+            Ok(true) | Err(_) => "unknown",
+        },
         Ok((anonymous, true)) => match anonymous.data_summary() {
             Ok(theirs) => {
                 merge_anonymous_voice(&mut summary, &theirs);
@@ -369,7 +374,7 @@ where
         }
         Operation::SessionsList => value(account.devices()?),
         Operation::SessionRevoke { id } => Ok(json!({ "signed_out": account.revoke_device(&id)? })),
-        Operation::DataSummary => data_summary(account, anonymous),
+        Operation::DataSummary => data_summary(account, anonymous, identity),
         Operation::DataExport { destination } => {
             value(account.data_export(absolute_path(&destination)?)?)
         }

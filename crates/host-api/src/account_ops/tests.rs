@@ -1392,10 +1392,25 @@ fn the_data_summary_counts_the_anonymous_voice_samples_or_says_it_could_not() {
         value
     };
 
-    // 本机没有匿名会话：没有可合的，只发一次请求。
-    let fixture = Fixture::new(Some(saved('a', 'b', ACCOUNT_USER)), None);
+    // 本机既没有匿名会话也没有匿名身份：没有可合的，只发一次请求。
+    let fixture = Fixture {
+        identity: IdentityStore(None),
+        ..Fixture::new(Some(saved('a', 'b', ACCOUNT_USER)), None)
+    };
     assert_eq!(fixture.run(summary.clone()).unwrap(), with("none"));
     assert_eq!(fixture.api.calls(), ["data_summary a"]);
+
+    // 身份还在、会话已经没了（服务端的会话 30 天后过期，刷新被拒时本地清掉）：名下可能还有样本，不能说没有；汇总不为此重新登录，标成 unknown。
+    let fixture = Fixture::new(Some(saved('a', 'b', ACCOUNT_USER)), None);
+    assert_eq!(fixture.run(summary.clone()).unwrap(), with("unknown"));
+    assert_eq!(fixture.api.calls(), ["data_summary a"]);
+
+    // 身份读不出来也是 unknown。
+    let fixture = Fixture {
+        identity: IdentityStore(Some(b"not json".to_vec())),
+        ..Fixture::new(Some(saved('a', 'b', ACCOUNT_USER)), None)
+    };
+    assert_eq!(fixture.run(summary.clone()).unwrap(), with("unknown"));
 
     // 匿名那一次失败：汇总照样成功，标成 unknown，voice 只是登录账号的。
     let fixture = Fixture::signed_in();
@@ -1411,9 +1426,11 @@ fn the_data_summary_counts_the_anonymous_voice_samples_or_says_it_could_not() {
     // 读不了匿名会话也是 unknown。
     let fixture = Fixture::signed_in();
     assert_eq!(
-        data_summary(&fixture.account, || Err::<Arc<Session>, _>(
-            AccountError::Storage
-        ))
+        data_summary(
+            &fixture.account,
+            || Err::<Arc<Session>, _>(AccountError::Storage),
+            AnonymousIdentitySource::Store(&fixture.identity),
+        )
         .unwrap(),
         with("unknown")
     );

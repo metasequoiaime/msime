@@ -704,10 +704,10 @@ mod voice_contribution;
 
 pub use anonymous::{
     delete_anonymous_voice_samples, ensure_anonymous_account, ensure_anonymous_account_in,
-    ensure_anonymous_account_with, shared_access_token, shared_access_token_in,
-    with_shared_access_token, AnonymousIdentitySource, AnonymousSessionStorage,
-    LockedAnonymousSessionStorage, SharedAccessToken, ANONYMOUS_ACCOUNT_FILE,
-    ANONYMOUS_SESSION_FILE,
+    ensure_anonymous_account_with, has_saved_anonymous_identity, shared_access_token,
+    shared_access_token_in, with_shared_access_token, AnonymousIdentitySource,
+    AnonymousSessionStorage, LockedAnonymousSessionStorage, SharedAccessToken,
+    ANONYMOUS_ACCOUNT_FILE, ANONYMOUS_SESSION_FILE,
 };
 pub use api::*;
 pub use apple_web::{AccountAppleWebChallenge, AppleWebSignIn};
