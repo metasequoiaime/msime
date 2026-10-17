@@ -217,6 +217,19 @@ int main() {
   check(day_heat_level(0, 10) == 0 && day_heat_level(3, 10) == 2, "day levels");
   check(retention_value("90d") == "90d" && retention_value("7d") == "forever", "retention");
 
+  // 「上传到云端」的说明和失败时的说法与 typing-statistics-upload.tsx 相同。
+  check(upload_description(false, false).find(L"登录水杉账号后") == 0 &&
+            upload_description(true, false).find(L"/stats") != std::wstring_view::npos,
+        "upload description");
+  check(upload_error_message(L"account_unauthorized", true).find(L"登录") != std::wstring::npos &&
+            upload_error_message(L"account_storage", false) == upload_error_message(L"storage", true) &&
+            upload_error_message(L"account_network", true).find(L"稍后会自动再试") != std::wstring::npos &&
+            upload_error_message(L"account_network", false).find(L"没有删掉") != std::wstring::npos,
+        "upload errors");
+  check(disabled_notice(true).find(L"上传到云端") != std::wstring_view::npos &&
+            disabled_notice(false).find(L"不联网") != std::wstring_view::npos,
+        "local-only notice follows the upload switch");
+
   if (failures == 0)
     std::puts("typing statistics model: ok");
   return failures == 0 ? 0 : 1;

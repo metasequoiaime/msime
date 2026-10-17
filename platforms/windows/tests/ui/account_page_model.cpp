@@ -101,6 +101,15 @@ int main() {
             sync_applied == L"已应用云端设置。",
         "settings sync copy");
 
+  // 「绑定 QQ 群助手」：去掉空白和连字符后正好 8 位数字才能绑定；失败的说法与 qqLinkMessage 相同。
+  check(qq_link_digits(L" 1234-5678　") == L"12345678" && eight_digits(L"12345678"), "bind code digits");
+  check(!eight_digits(L"1234567") && !eight_digits(L"123456789") && !eight_digits(L"1234567a"),
+        "bad bind codes");
+  check(qq_link_message(L"account_qq_link_code_not_found").find(L"/bind") != std::wstring::npos &&
+            qq_link_message(L"account_qq_link_limit").find(L"10 个") != std::wstring::npos &&
+            qq_link_message(L"account_unauthorized") == error_message(L"account_unauthorized"),
+        "bind messages");
+
   if (failures == 0)
     std::puts("account_page_model: ok");
   return failures == 0 ? 0 : 1;

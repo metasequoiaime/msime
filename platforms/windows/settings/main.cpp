@@ -2871,6 +2871,8 @@ struct MainWindow : WindowT<MainWindow> {
               .as<Windows::Foundation::IReference<int32_t>>());
     }
     build_shell(0.0);
+    // 设置窗口打开时补传一次打字统计（没打开上传、没登录或离上次不到十分钟时不发请求）。
+    sync_typing_upload();
     Activated({this, &MainWindow::on_activated});
     Closed([this](Inspectable const &, WindowEventArgs const &) {
       // A save refused while closing has no window left to report in; the stored settings stay as they were.
@@ -4898,6 +4900,15 @@ private:
     account_providers_linked_.clear();
     account_name_.clear();
     reset_settings_sync();
+    reset_qq_links();
+  }
+
+  void reset_qq_links() {
+    qq_links_.reset();
+    qq_links_requested_ = false;
+    qq_link_code_.clear();
+    qq_link_busy_ = false;
+    qq_link_message_.clear();
   }
 
   void enter_account_page() {
@@ -4920,6 +4931,7 @@ private:
     account_google_ = false;
     account_avatar_requested_.clear();
     reset_settings_sync();
+    reset_qq_links();
   }
 
   void leave_account_page() {
@@ -5594,6 +5606,144 @@ private:
     mark_search_target(L"设置同步", body);
   }
 
+  // ---- 绑定 QQ 群助手 ----
+  // 共享账号页的 QqLinkCard（`packages/ui/src/account/qq-link-card.tsx`）：输入机器人给的绑定码，列出已有的绑定，可以解绑。经 msime_client_account 的 qq_links、qq_link_redeem、qq_link_delete，只用登录账号；离开账号页或换了账号时 account_generation_ 变了，旧的回答作废。文案和错误说法在 AccountPageModel.h。
+
+  void load_qq_links() {
+    qq_links_requested_ = true;
+    account_request(account_action(L"qq_links"), [this](Response const &response) {
+      const auto value = account_value(response);
+      if (response.ok && value.ValueType() == JsonValueType::Object) {
+        std::vector<std::pair<std::wstring, std::wstring>> links;
+        const auto list = value.GetObject().GetNamedValue(L"links", JsonValue::CreateNullValue());
+        if (list.ValueType() == JsonValueType::Array)
+          for (auto const &item : list.GetArray()) {
+            if (item.ValueType() != JsonValueType::Object)
+              continue;
+            const auto link = item.GetObject();
+            auto id = named_string(link, L"id");
+            if (!id.empty())
+              links.emplace_back(std::move(id), named_string(link, L"created_at"));
+          }
+        qq_links_ = std::move(links);
+      } else if (!response.ok) {
+        qq_link_message_ = am::error_message(account_failure(response));
+      }
+      redraw_account();
+    });
+  }
+
+  void redeem_qq_link() {
+    const auto digits = am::qq_link_digits(qq_link_code_);
+    if (qq_link_busy_ || !am::eight_digits(digits))
+      return;
+    qq_link_busy_ = true;
+    qq_link_message_.clear();
+    auto action = account_action(L"qq_link_redeem");
+    action.SetNamedValue(L"code", JsonValue::CreateStringValue(hstring(digits)));
+    account_request(action, [this](Response const &response) {
+      qq_link_busy_ = false;
+      if (!response.ok) {
+        // 绑定码的几种失败各有说法，不交给通用的账号错误。
+        qq_link_message_ = am::qq_link_message(account_failure(response));
+        redraw_account();
+        return;
+      }
+      qq_link_code_.clear();
+      qq_link_message_ = std::wstring(am::qq_link_bound);
+      load_qq_links();
+    });
+    redraw_account();
+  }
+
+  void remove_qq_link(std::wstring const &id) {
+    if (qq_link_busy_)
+      return;
+    qq_link_busy_ = true;
+    qq_link_message_.clear();
+    auto action = account_action(L"qq_link_delete");
+    action.SetNamedValue(L"id", JsonValue::CreateStringValue(hstring(id)));
+    account_request(action, [this](Response const &response) {
+      qq_link_busy_ = false;
+      if (!response.ok) {
+        qq_link_message_ = am::error_message(account_failure(response));
+        redraw_account();
+        return;
+      }
+      qq_link_message_ = std::wstring(am::qq_link_removed);
+      load_qq_links();
+    });
+    redraw_account();
+  }
+
+  // 绑定时间：服务端给的 RFC 3339 换成本地时间，读不懂时原样写。
+  static std::wstring qq_link_time(std::wstring const &created_at) {
+    if (const auto milliseconds = am::parse_iso_time(created_at); milliseconds && *milliseconds > 0)
+      if (auto text = statistics_written_text(static_cast<uint64_t>(*milliseconds)); !text.empty())
+        return text;
+    return created_at;
+  }
+
+  void build_qq_link_card(StackPanel const &page) {
+    if (!qq_links_requested_)
+      load_qq_links();
+    auto group = add_group(page, L"绑定 QQ 群助手");
+    record(L"绑定 QQ 群助手", std::wstring(am::qq_link_note));
+    StackPanel body;
+    body.Spacing(12);
+    body.Padding(Thickness{0, 8, 0, 8});
+    body.Children().Append(make_text(am::qq_link_note, 13, palette_.sub));
+
+    TextBox code;
+    code.Width(160);
+    code.FontSize(13);
+    code.MaxLength(10);
+    code.PlaceholderText(L"8 位数字");
+    code.Text(hstring(qq_link_code_));
+    code.IsEnabled(!qq_link_busy_);
+    A11y::SetName(code, L"绑定码");
+    {
+      Input::InputScope scope;
+      Input::InputScopeName name;
+      name.NameValue(Input::InputScopeNameValue::Number);
+      scope.Names().Append(name);
+      code.InputScope(scope);
+    }
+    auto bind = button_control(L"绑定", [this] { redeem_qq_link(); },
+                               !qq_link_busy_ && am::eight_digits(am::qq_link_digits(qq_link_code_)))
+                    .as<Button>();
+    make_primary(bind);
+    code.TextChanged([this, bind](Inspectable const &sender, TextChangedEventArgs const &) {
+      // 只记下输入、改按钮能不能点，不重画页面，输入框的焦点留着。
+      qq_link_code_ = std::wstring(sender.as<TextBox>().Text().c_str());
+      bind.IsEnabled(!qq_link_busy_ && am::eight_digits(am::qq_link_digits(qq_link_code_)));
+    });
+    code.KeyDown([this](Inspectable const &, Input::KeyRoutedEventArgs const &args) {
+      if (args.Key() == Windows::System::VirtualKey::Enter) {
+        args.Handled(true);
+        redeem_qq_link();
+      }
+    });
+    StackPanel field;
+    field.Orientation(Orientation::Horizontal);
+    field.Spacing(8);
+    field.Children().Append(code);
+    field.Children().Append(bind);
+    add_row(body, 0, L"绑定码", L"在 QQ 群里 @机器人 发 /bind 拿到，10 分钟内有效", field);
+
+    if (qq_links_)
+      for (auto const &[id, created_at] : *qq_links_)
+        add_row(body, 0, L"绑定于 " + qq_link_time(created_at), L"",
+                button_control(L"解绑", [this, id = id] { remove_qq_link(id); }, !qq_link_busy_));
+    if (qq_link_busy_)
+      body.Children().Append(make_text(L"正在处理…", 12, palette_.sub));
+    if (!qq_link_message_.empty())
+      body.Children().Append(make_text(qq_link_message_, 12, palette_.text));
+    A11y::SetName(body, L"绑定 QQ 群助手");
+    group.Children().Append(body);
+    mark_search_target(L"绑定 QQ 群助手", body);
+  }
+
   // ---- 页面 ----
 
   InfoBar account_message(std::wstring const &message, InfoBarSeverity severity) {
@@ -5627,6 +5777,7 @@ private:
       record(L"手机号登录", L"我们会发送一个 6 位验证码完成登录");
       record(L"编辑资料", L"社区昵称");
       record(L"设置同步", std::wstring(am::sync_description));
+      record(L"绑定 QQ 群助手", std::wstring(am::qq_link_note));
       record(L"云剪贴板", L"");
       record(L"退出登录", L"");
       record(L"退出所有设备", L"");
@@ -5657,6 +5808,7 @@ private:
       load_account_avatar();
       build_account_profile_card(page);
       build_settings_sync(page);
+      build_qq_link_card(page);
       build_account_cloud(page);
       build_account_content(page);
       build_account_actions(page);
@@ -13849,6 +14001,98 @@ private:
     stats_tab_ = L"keys";
     stats_calendar_offset_ = 0;
     stats_details_offset_ = 0;
+    stats_upload_.reset();
+    stats_upload_busy_ = false;
+    stats_upload_message_.clear();
+    // 与共享页挂上时一样补传一次：离上次不到十分钟时 Rust 不发请求。
+    sync_typing_upload();
+  }
+
+  // ---- 打字统计的「上传到云端」 ----
+  // 经 msime_client_account 的 typing_upload_*（与账号页同一份会话），平台是 windows，日期是本地日期。离开页面再回来时 stats_generation_ 变了，旧的回答作废。
+
+  JsonObject typing_upload_action(wchar_t const *operation) {
+    auto action = account_action(operation);
+    action.SetNamedValue(L"statistics_directory",
+                         JsonValue::CreateStringValue(hstring(state_directory().wstring())));
+    if (std::wstring_view(operation) != L"typing_upload_status") {
+      action.SetNamedValue(L"day", JsonValue::CreateStringValue(hstring(local_day())));
+      action.SetNamedValue(L"platform", JsonValue::CreateStringValue(L"windows"));
+    }
+    return action;
+  }
+
+  static std::optional<typing::UploadStatus> typing_upload_status(Response const &response) {
+    if (!response.ok)
+      return std::nullopt;
+    const auto value = account_value(response);
+    if (value.ValueType() != JsonValueType::Object)
+      return std::nullopt;
+    const auto object = value.GetObject();
+    typing::UploadStatus status;
+    status.enabled = object.GetNamedBoolean(L"enabled", false);
+    status.signed_in = object.GetNamedBoolean(L"signed_in", false);
+    const auto last = object.GetNamedValue(L"last_upload_ms", JsonValue::CreateNullValue());
+    if (last.ValueType() == JsonValueType::Number && last.GetNumber() > 0)
+      status.last_upload_ms = static_cast<uint64_t>(last.GetNumber());
+    return status;
+  }
+
+  void typing_upload_request(JsonObject const &action, std::function<void(Response const &)> done) {
+    if (account_directory().empty()) {
+      done(Response{"{\"ok\":false,\"error\":\"account_storage\"}", false});
+      return;
+    }
+    const auto generation = stats_generation_;
+    run_host([body = account_body(action)] { return account_call(body); },
+             [this, generation, done = std::move(done)](Response const &response) {
+               if (generation == stats_generation_)
+                 done(response);
+             });
+  }
+
+  void read_typing_upload() {
+    typing_upload_request(typing_upload_action(L"typing_upload_status"),
+                          [this](Response const &response) {
+                            if (auto status = typing_upload_status(response)) {
+                              stats_upload_ = status;
+                              redraw_stats();
+                            }
+                          });
+  }
+
+  // 打开了上传、已登录、离上次超过十分钟时上传最近几天；失败不打扰用户，只读出开关状态。
+  void sync_typing_upload() {
+    typing_upload_request(typing_upload_action(L"typing_upload"), [this](Response const &response) {
+      if (auto status = typing_upload_status(response)) {
+        stats_upload_ = status;
+        redraw_stats();
+      } else {
+        read_typing_upload();
+      }
+    });
+  }
+
+  // 打开时要求已登录并立刻上传；关闭时删除云端副本。失败时开关在 Rust 那边可能已经变了（打开后上传失败、关闭后删除失败），重新读一次。
+  void set_typing_upload(bool enabled) {
+    if (stats_upload_busy_)
+      return;
+    stats_upload_busy_ = true;
+    stats_upload_message_.clear();
+    auto action = typing_upload_action(L"typing_upload_set");
+    action.SetNamedValue(L"enabled", JsonValue::CreateBooleanValue(enabled));
+    typing_upload_request(action, [this, enabled](Response const &response) {
+      stats_upload_busy_ = false;
+      if (auto status = typing_upload_status(response)) {
+        stats_upload_ = status;
+        stats_upload_message_ = std::wstring(typing::upload_done_message(enabled));
+      } else {
+        stats_upload_message_ = typing::upload_error_message(account_failure(response), enabled);
+        read_typing_upload();
+      }
+      redraw_stats();
+    });
+    redraw_stats();
   }
 
   static JsonObject statistics_action(wchar_t const *operation) {
@@ -15031,6 +15275,7 @@ private:
     if (indexing_) {
       // 统计要从工作线程读回来才画得出，搜索索引里先登记页面底部的两项设置。
       record(L"记录打字统计", L"关闭后，新提交不会增加统计。");
+      record(L"上传到云端", std::wstring(typing::upload_description(true, false)));
       record(L"自动清理", L"按保留策略删除超期的每日记录并从累计中扣除，跨天后首次记录时执行。");
       return;
     }
@@ -15064,9 +15309,8 @@ private:
       page.Children().Append(stats_error_bar());
     if (!statistics.enabled) {
       auto body = stats_section(page, L"输入统计已关闭");
-      body.Children().Append(make_text(
-          L"开启后这里会显示输入字数、速度、时段分布与按键热力图。统计只保存在本机，不记录输入内容，也不联网。",
-          14, palette_.sub));
+      body.Children().Append(
+          make_text(typing::disabled_notice(stats_upload_ && stats_upload_->enabled), 14, palette_.sub));
       auto enable = button_control(stats_busy_ ? L"处理中…" : L"启用输入统计",
                                    [this] { set_statistics_enabled(true); }, !stats_busy_);
       enable.Margin(Thickness{0, 12, 0, 0});
@@ -15117,6 +15361,27 @@ private:
     add_row(group, 0xE9D2, L"记录打字统计", L"关闭后，新提交不会增加统计。",
             toggle_control(L"记录打字统计", statistics.enabled,
                            [this](bool on) { set_statistics_enabled(on); }, !stats_busy_, false));
+    {
+      // 「上传到云端」：没读到状态时不可点；已经打开的开关在退出登录后仍能关掉。
+      const bool upload_on = stats_upload_ && stats_upload_->enabled;
+      const bool signed_in = stats_upload_ && stats_upload_->signed_in;
+      StackPanel below;
+      below.Spacing(4);
+      if (upload_on && stats_upload_->last_upload_ms)
+        below.Children().Append(make_text(
+            L"上次上传：" + statistics_written_text(*stats_upload_->last_upload_ms), 12, palette_.sub));
+      if (stats_upload_busy_)
+        below.Children().Append(make_text(L"处理中…", 12, palette_.sub));
+      if (!stats_upload_message_.empty())
+        below.Children().Append(make_text(stats_upload_message_, 12, palette_.text));
+      FrameworkElement below_row{nullptr};
+      if (below.Children().Size() > 0)
+        below_row = below;
+      add_row(group, 0xE753, L"上传到云端", std::wstring(typing::upload_description(signed_in, upload_on)),
+              toggle_control(L"上传到云端", upload_on, [this](bool on) { set_typing_upload(on); },
+                             !stats_upload_busy_ && stats_upload_ && (signed_in || upload_on), false),
+              below_row);
+    }
     std::vector<Option> retention;
     for (auto const &choice : typing::retention_choices)
       retention.push_back({typing::widen(choice.value), choice.label});
@@ -15139,7 +15404,11 @@ private:
     buttons.Children().Append(clear);
     actions.Children().Append(buttons);
     auto privacy = make_text(
-        L"字数统计水杉键盘提交的字符，以及英文模式和放行给应用的字母、数字与符号（按按键时估计），含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。",
+        L"字数统计水杉键盘提交的字符，以及英文模式和放行给应用的字母、数字与符号（按按键时估计），含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。" +
+            std::wstring(stats_upload_ && stats_upload_->enabled
+                             ? L"日期、分类和数量保存在本机，不保存输入内容；已打开「上传到云端」，最近 7 天的每日计数和候选位次会上传到你的水杉账号，按键热力图不上传。"
+                             : L"仅在本机保存日期、分类和数量，不保存输入内容。") +
+            L"每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。",
         12, palette_.sub);
     privacy.Margin(Thickness{0, 16, 0, 0});
     actions.Children().Append(privacy);
@@ -19843,6 +20112,12 @@ private:
   bool account_loading_ = true;
   bool account_busy_ = false;
   uint64_t account_generation_ = 0;
+  // 「绑定 QQ 群助手」卡片：已有的绑定（还没读到时为空）、输入框里的绑定码、进行中的操作和操作后的说明，进入账号页时清掉；qq_links_requested_ 记下这次进入已经读过。
+  std::optional<std::vector<std::pair<std::wstring, std::wstring>>> qq_links_;
+  bool qq_links_requested_ = false;
+  std::wstring qq_link_code_;
+  bool qq_link_busy_ = false;
+  std::wstring qq_link_message_;
   std::optional<Response> account_pending_status_;
   std::optional<Response> account_pending_providers_;
   std::optional<AccountUser> account_user_;
@@ -19930,6 +20205,10 @@ private:
   std::chrono::steady_clock::time_point stats_request_started_{};
   std::chrono::steady_clock::time_point stats_last_request_{};
   Microsoft::UI::Dispatching::DispatcherQueueTimer stats_timer_{nullptr};
+  // 「上传到云端」：读到的状态（还没读到时为空）、进行中的开关操作和操作后的说明，进入页面时清掉。窗口打开时也补传一次，那时的回答同样写进来。
+  std::optional<typing::UploadStatus> stats_upload_;
+  bool stats_upload_busy_ = false;
+  std::wstring stats_upload_message_;
 
   // 「插件」页：读到的目录和它的状态、打开的视图（包和缺失的选择按类型和 id 记，每次绘制时到目录里找）、打开它的那一行和关上后焦点要落的地方、名单的草稿和已存的样子，跨页面重建保留。plugins_generation_ 在进入页面时递增，作废上一次留下的请求；plugins_busy_ 是进行中的导入、删除或保存。plugin_sound_titles_ 是搜索索引里「声音与效果」视图的标题。名单的提示和保存按钮是该视图当前的那一组。
   pg::Catalog plugin_catalog_;

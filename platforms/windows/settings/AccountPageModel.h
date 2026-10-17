@@ -290,4 +290,41 @@ constexpr std::wstring_view sync_upload_confirmation =
 constexpr std::wstring_view sync_apply_confirmation =
     L"将替换本机对应设置，不会下载词库或开启数据上传。";
 
+// 「绑定 QQ 群助手」卡片（`qq-link-card.tsx`）。绑定码输入框的值去掉空白和连字符（`code.replace(/[\s-]/g, "")`），正好 8 位数字时才能点「绑定」。
+inline std::wstring qq_link_digits(std::wstring_view value) {
+  std::wstring digits;
+  for (const wchar_t c : value)
+    if (!js_space(c) && c != L'-')
+      digits.push_back(c);
+  return digits;
+}
+
+inline bool eight_digits(std::wstring_view code) {
+  if (code.size() != 8)
+    return false;
+  for (const wchar_t c : code)
+    if (c < L'0' || c > L'9')
+      return false;
+  return true;
+}
+
+// qqLinkMessage：绑定失败的几种各有说法，其余按账号错误码。
+inline std::wstring qq_link_message(std::wstring_view code) {
+  if (code == L"account_invalid")
+    return L"绑定码是 8 位数字，请检查后重试。";
+  if (code == L"account_qq_link_code_not_found")
+    return L"绑定码不对或已过期（10 分钟内有效，只能用一次）。请在 QQ 群里重新发 /bind 拿一个新的。";
+  if (code == L"account_qq_link_limit")
+    return L"这个账号已经绑定了 10 个 QQ 群友，先解绑一个再试。";
+  if (code == L"account_rate_limited")
+    return L"尝试次数太多，请一小时后再试。";
+  return error_message(code);
+}
+
+constexpr std::wstring_view qq_link_note =
+    L"在水杉输入法的 QQ 群里 @机器人 发 /bind，把收到的 8 位绑定码填在这里。绑定后发 /stats "
+    L"能看到你的打字数据（先在「打字统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。";
+constexpr std::wstring_view qq_link_bound = L"已绑定。在 QQ 群里 @机器人 发 /stats 就能看到你的打字数据。";
+constexpr std::wstring_view qq_link_removed = L"已解绑。";
+
 } // namespace msime::settings::account
