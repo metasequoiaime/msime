@@ -385,6 +385,77 @@ pub(super) fn build_graph(
     graph
 }
 
+/// 与 `build_graph` 相同，但查询行只读借用调用方缓存；图边仍取得自己的字段所有权。
+pub(super) fn build_graph_borrowed<'rows>(
+    syllables: &[String],
+    lookup: &mut impl FnMut(&[String]) -> &'rows [LatticeLexeme],
+    options: &LatticeOptions<'_>,
+) -> Graph {
+    let n = syllables.len();
+    let max_len = options.max_phrase_syllables.max(1);
+    let mut graph: Graph = (0..n).map(|_| Vec::new()).collect();
+    struct CachedSpan {
+        column: usize,
+        edges: std::ops::Range<usize>,
+        reserve: usize,
+    }
+    let span_capacity = (0..n)
+        .map(|start| n.min(start.saturating_add(max_len)) - start)
+        .sum();
+    let mut span_cache: HashMap<&[String], CachedSpan> = HashMap::with_capacity(span_capacity);
+    for start in 0..n {
+        let (earlier, remaining) = graph.split_at_mut(start);
+        let edges = &mut remaining[0];
+        for end in start + 1..=n.min(start + max_len) {
+            let span = &syllables[start..end];
+            match span_cache.entry(span) {
+                std::collections::hash_map::Entry::Occupied(entry) => {
+                    let cached = entry.get();
+                    edges.reserve(cached.reserve);
+                    for edge in &earlier[cached.column][cached.edges.clone()] {
+                        edges.push(Edge {
+                            end,
+                            word: edge.word.clone(),
+                            key: edge.key.clone(),
+                            log_prob: edge.log_prob,
+                            typo: false,
+                        });
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let rows = lookup(span);
+                    let reserve = rows.len().min(options.span_limit);
+                    edges.reserve(reserve);
+                    let begin = edges.len();
+                    let mut span_key = None;
+                    for row in rows.iter().take(options.span_limit) {
+                        if row.value.is_empty() {
+                            continue;
+                        }
+                        edges.push(Edge {
+                            end,
+                            word: row.value.clone(),
+                            key: if row.key.is_empty() {
+                                span_key.get_or_insert_with(|| span.join("'")).clone()
+                            } else {
+                                row.key.clone()
+                            },
+                            log_prob: edge_log_prob(row.weight, end - start, options),
+                            typo: false,
+                        });
+                    }
+                    entry.insert(CachedSpan {
+                        column: start,
+                        edges: begin..edges.len(),
+                        reserve,
+                    });
+                }
+            }
+        }
+    }
+    graph
+}
+
 struct BeamColumn<'g> {
     hyps: Vec<Hyp<'g>>,
     streamed: bool,
