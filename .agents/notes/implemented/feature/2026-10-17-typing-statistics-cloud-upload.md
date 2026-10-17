@@ -23,6 +23,8 @@ Status: implemented
 - 用 Rust 账号会话的宿主（Windows 原生设置）走 `msime_client_account` 的新操作 `typing_upload_status`、`typing_upload_set`、`typing_upload`、`qq_links`、`qq_link_redeem`、`qq_link_delete`（`crates/host-api/src/account_ops.rs`），语义与 Tauri 命令逐条相同。每次调用都新建统计目录的 store，它自带的操作锁管不到别的调用，所以上传和关闭后的删除改用一把进程级的锁串行化。Windows 原生设置的「打字统计」页和「账号与同步」页各画了开关和卡片，设置窗口打开和进入统计页时各补传一次。
 - 自己发 HTTP 的宿主（Android、iOS、鸿蒙）走 `msime_client_typing_statistics` 的 `upload_status`、`set_upload_enabled`、`upload_request`、`upload_succeeded`：Rust 交回要发的请求（或者不发的原因 `disabled`、`not_due`、`nothing`），宿主带登录令牌发出去，成功后再告诉 Rust 记下时间。为此 `upload_if_due` 拆成 `prepare_upload` 和 `record_upload` 两步，前者不记任何东西，后者只在开关还开着、设备标识没变时记。QQ 绑定在这些宿主上直接调服务端的三个接口，没有要放进 Rust 的状态。
 
+鸿蒙：设置页是共享界面，`apps/harmony/src/main.tsx` 给 `typingStatistics` 接上 `cloudUpload`、给账号接上 `qqLinks`。上传经新的桥接请求 `typing_upload`（`status`、`set_enabled`、`sync`）到 `Settings.ets`，它用一条 Promise 链把 `upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 串起来，语义与桌面的 Tauri 命令相同：打开要求已登录、打开即上传、上传失败开关仍开着；关闭先本地后删除、删除失败开关仍关着；没登录时 `sync` 什么也不发。发送和删除在 `AccountCloudBridge.typingStatisticsUpload` / `typingStatisticsDelete` 里，只用登录账号、不退回匿名账号，请求体只限 64 KiB、不改内容。QQ 绑定是账号桥接的三个新操作 `qq_links`、`qq_link_redeem`、`qq_link_delete`，回答只取编号和绑定时间，服务端的 `qq_link_code_not_found`、`qq_link_limit` 换成与桌面相同的 `account_qq_link_code_not_found`、`account_qq_link_limit`。补传时机是设置应用打开和页面回到前台（`visibilitychange`），节流仍在 Rust 里。共享界面原来只在桌面布局里画绑定卡片、只在桌面布局的统计页画开关；鸿蒙手机的「我」页、其他手机布局的账号页、鸿蒙外观的统计页（图表下面没有设置区，单独一张卡片）和手机布局的统计页都补上了，底部「统计只保存在本机」的说明随开关改写。
+
 ## Alternatives considered
 
 - **App 出码、在群里发给机器人**：最接近「扫码登录」的习惯，用户也不用在设置里找输入框。问题是群聊公开，码一发出来，别人就能抢先发给机器人，把自己的 QQ 绑到受害者的账号上，读到受害者的打字数据。反过来由机器人出码，看到码的人最多只能把别人的 QQ 绑到自己的账号上，读到的仍是自己的数据。
@@ -34,7 +36,7 @@ Status: implemented
 
 收益：群助手可以读到打开了上传的用户的打字数据，统计页的说明也随开关改写，不再在上传开着时声称「只保存在本机」。
 
-代价：这是一条新的、带账号令牌的上传路径，PRIVACY.md 已经加了「打字统计上传」一节。上传只在设置应用打开时发生，长期不开设置应用的用户，群助手看到的数据会停在最后一次上传。Windows 原生设置已经接上；Android、iOS/macOS 原生和鸿蒙的 C ABI 已经有了，但界面和发送还没接，这些宿主的用户暂时用不了。两步形状把串行化交给了宿主：`upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 要放在同一个串行队列里，否则关闭时的删除可能先于还在路上的上传到达服务端，`record_upload` 只能保证本地状态不被写回。统计模型的分层见 [打字统计契约](../../implemented/architecture/2026-10-15-typing-statistics-model.md)，这里只在模型上加了 `cloudUpload` 这个可选能力。
+代价：这是一条新的、带账号令牌的上传路径，PRIVACY.md 已经加了「打字统计上传」一节。上传只在设置应用打开时发生，长期不开设置应用的用户，群助手看到的数据会停在最后一次上传。Windows 原生设置已经接上；鸿蒙已经接上；Android、iOS/macOS 原生的 C ABI 已经有了，但界面和发送还没接，这些宿主的用户暂时用不了。两步形状把串行化交给了宿主：`upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 要放在同一个串行队列里，否则关闭时的删除可能先于还在路上的上传到达服务端，`record_upload` 只能保证本地状态不被写回。统计模型的分层见 [打字统计契约](../../implemented/architecture/2026-10-15-typing-statistics-model.md)，这里只在模型上加了 `cloudUpload` 这个可选能力。
 
 ## Verification
 
@@ -45,3 +47,4 @@ Status: implemented
 - `cargo test -p msime-host-api`：`account_ops` 的打开即上传、十分钟节流、`force`、关闭先本地后删除且删除失败仍关闭、未登录时不退回匿名账号、请求不合法时不联网，QQ 绑定的列表、绑定码清洗、服务端错误码透传；`msime_client_typing_statistics` 的 `upload_request` 各种跳过原因和 `upload_succeeded` 只认同一设备。
 - Windows 原生设置的两个模型头（`AccountPageModel.h`、`TypingStatisticsModel.h`）的单测在 macOS 上用 clang 编译跑过；`main.cpp` 没有在本机编译，靠 PR 的 Windows CI。
 - 没有在真实账号上连通线上服务端验证。
+- 鸿蒙：`platforms/harmony/tests/account-qq-typing.test.ts` 用假传输层覆盖绑定列表只取两个字段、坏行整份拒绝、绑定码清洗和不合法时不联网、拒绝码映射、解绑编号校验，以及上传原样发出、超限本地拒绝、未登录不发、关闭即删除；vitest 覆盖鸿蒙手机和 2in1 账号页的绑定卡片、鸿蒙外观统计页的开关和说明改写。`Settings.ets` 的串行队列没有单测，HAP 没有在本机构建，靠 PR 的 HarmonyOS CI 和后续真机验证。

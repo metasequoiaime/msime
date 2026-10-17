@@ -407,3 +407,32 @@ test("a look without a summary-capable client keeps the existing page", async ()
   expect(screen.queryByRole("tab", { name: "概览" })).toBeNull();
   expect(screen.queryByText(footer)).toBeNull();
 });
+
+// 鸿蒙外观的图表下面没有设置区，「上传到云端」单独占一张卡片；打开后底部的隐私说明不再说只保存在本机。
+test("the HarmonyOS look offers 上传到云端 when the host can upload and rewrites the footer", async () => {
+  let current = { enabled: false, signedIn: true, lastUploadMs: null as number | null };
+  const cloudUpload = {
+    status: vi.fn(async () => current),
+    sync: vi.fn(async () => current),
+    setEnabled: vi.fn(async (enabled: boolean) => {
+      current = { ...current, enabled, lastUploadMs: enabled ? 1 : null };
+      return current;
+    }),
+  };
+  renderPage(client({ cloudUpload }));
+
+  const toggle = (await screen.findByLabelText("上传到云端")) as HTMLInputElement;
+  await waitFor(() => expect(toggle.disabled).toBe(false));
+  expect(cloudUpload.sync).toHaveBeenCalledTimes(1);
+  expect(await screen.findByText(footer)).toBeTruthy();
+  fireEvent.click(toggle);
+  await waitFor(() => expect(cloudUpload.setEnabled).toHaveBeenCalledWith(true));
+  expect(await screen.findByText("统计不包含输入内容，每日计数会上传到你的水杉账号")).toBeTruthy();
+  expect(screen.queryByText(footer)).toBeNull();
+});
+
+test("the HarmonyOS look has no upload card when the host cannot upload", async () => {
+  renderPage(client());
+  expect(await screen.findByText(footer)).toBeTruthy();
+  expect(screen.queryByLabelText("上传到云端")).toBeNull();
+});

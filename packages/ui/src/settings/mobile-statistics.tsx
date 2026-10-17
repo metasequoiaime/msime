@@ -673,12 +673,14 @@ function KeysPanel({
 
 // ---- 页面 ----
 
-/** 每个子标签页底部的那一行隐私说明。 */
-function StatisticsFooter() {
+/** 每个子标签页底部的那一行隐私说明。打开了「上传到云端」时不能再说只保存在本机。 */
+function StatisticsFooter({ uploading }: { uploading: boolean }) {
   return (
     <p className={`m-0 flex items-center justify-center gap-1.5 text-[12px] ${subText}`}>
       <FluentIcon name="shield_lock" size={13} />
-      统计只保存在本机，不包含输入内容
+      {uploading
+        ? "统计不包含输入内容，每日计数会上传到你的水杉账号"
+        : "统计只保存在本机，不包含输入内容"}
     </p>
   );
 }
@@ -692,10 +694,13 @@ export function MobileStatistics({
   look,
   summary,
   dailyKeys,
+  uploading = false,
 }: {
   look: StatisticsLook;
   summary: TypingSummary;
   dailyKeys: DailyKeyCounts | undefined;
+  /** 打开了「上传到云端」：底部的隐私说明随之改写。 */
+  uploading?: boolean;
 }) {
   const [tab, setTab] = useState<StatisticsTab>("overview");
   const id = useId();
@@ -746,7 +751,7 @@ export function MobileStatistics({
           <StatisticsBadges achievements={summary.achievements} card={card} />
         )}
       </div>
-      <StatisticsFooter />
+      <StatisticsFooter uploading={uploading} />
     </>
   );
 }

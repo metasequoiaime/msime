@@ -1260,6 +1260,8 @@ function AccountDetailsPage({
             )}
           </MeGroup>
         )}
+        {/* 「绑定 QQ 群助手」：/bind 拿到的码多半就在这台手机的 QQ 里。 */}
+        {user && client.qqLinks && <QqLinkCard client={client.qqLinks} userId={user.id} />}
         {(appTheme || onOpenPage || onOpenUrl) && (
           <MeGroup title="通用">
             {appTheme && <AppThemeRow client={appTheme} disabled={busy} />}

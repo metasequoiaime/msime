@@ -1725,3 +1725,30 @@ test("Harmony 我的 has no manual 同步 rows even with a settings sync client"
   expect(screen.queryByRole("button", { name: "上传本机设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "下载并应用云端设置" })).toBeNull();
 });
+
+// 「绑定 QQ 群助手」对所有平台都开放：鸿蒙手机走手机账号页，2in1 走桌面账号页，两边都要有这张卡片；宿主没提供 qqLinks 时不出现。
+test("the QQ bind card appears on the HarmonyOS phone and 2-in-1 account pages", async () => {
+  const qqLinks = {
+    list: vi.fn().mockResolvedValue([]),
+    redeem: vi.fn(),
+    remove: vi.fn(),
+  };
+  const withLinks = account({ status: vi.fn().mockResolvedValue({ user }), qqLinks });
+  const phone = render(<AccountPage client={withLinks} platform="harmony" />);
+  expect(await screen.findByRole("heading", { name: "绑定 QQ 群助手" })).toBeTruthy();
+  await waitFor(() => expect(qqLinks.list).toHaveBeenCalled());
+  phone.unmount();
+
+  const tablet = render(<AccountPage client={withLinks} platform="harmony" mobile={false} />);
+  expect(await screen.findByRole("heading", { name: "绑定 QQ 群助手" })).toBeTruthy();
+  tablet.unmount();
+
+  render(
+    <AccountPage
+      client={account({ status: vi.fn().mockResolvedValue({ user }) })}
+      platform="harmony"
+    />,
+  );
+  await screen.findByRole("button", { name: "编辑个人资料" });
+  expect(screen.queryByRole("heading", { name: "绑定 QQ 群助手" })).toBeNull();
+});

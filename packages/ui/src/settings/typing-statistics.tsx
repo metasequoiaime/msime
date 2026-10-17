@@ -1540,7 +1540,12 @@ export function TypingStatisticsPage({
           </section>
         )}
         {summary ? (
-          <MobileStatistics look={summaryLook} summary={summary} dailyKeys={statistics.dailyKeys} />
+          <MobileStatistics
+            look={summaryLook}
+            summary={summary}
+            dailyKeys={statistics.dailyKeys}
+            uploading={uploadEnabled}
+          />
         ) : summaryFailed ? (
           <ErrorAlert>统计暂时读不到，可以在右上角菜单里刷新。</ErrorAlert>
         ) : (
@@ -1548,8 +1553,11 @@ export function TypingStatisticsPage({
         )}
         {/* 鸿蒙外观的图表下面没有设置区，「上传到云端」单独占一张卡片，排在最后。 */}
         {client.cloudUpload && (
-          <section className={`${card} px-4 pt-4`} aria-label="上传到云端">
-            <TypingStatisticsUpload client={client.cloudUpload} onEnabledChange={setUploadEnabled} />
+          <section className={`${card} px-4 pt-4`}>
+            <TypingStatisticsUpload
+              client={client.cloudUpload}
+              onEnabledChange={setUploadEnabled}
+            />
           </section>
         )}
       </div>
@@ -1775,7 +1783,10 @@ export function TypingStatisticsPage({
       {mobile ? (
         <section className="section m-0 pt-0.5">
           {client.cloudUpload && (
-            <TypingStatisticsUpload client={client.cloudUpload} onEnabledChange={setUploadEnabled} />
+            <TypingStatisticsUpload
+              client={client.cloudUpload}
+              onEnabledChange={setUploadEnabled}
+            />
           )}
           <p className={`${privacy} mt-0`}>
             字数仅统计水杉键盘成功提交的字符，含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。
