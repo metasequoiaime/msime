@@ -2,10 +2,9 @@ import type {
   ProviderCredentialStatus,
   VoiceCredentialKind,
 } from "../core/provider-credential-contracts";
-import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useEffect, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
-import { pushMobileSettingsState } from "./mobile-navigation";
-import { useMobilePopState } from "./use-mobile-pop-state";
+import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
 import * as settings from "./settings-style";
 import { SettingsPageHeader } from "./settings-page-header";
 import { SettingsGroupBlock } from "./settings-group-block";
@@ -175,19 +174,26 @@ export function VoiceSettingsContent({
   captureBackendOptions,
 }: VoiceSettingsContentProps) {
   // 「服务配置」子视图开着没有。HarmonyOS 手机上和「浏览更多」图库一样压一条历史记录，系统返回手势先关它；桌面在页面里换成子视图，点返回关上。离开语音页时它随之关上。
-  const [serviceOpen, setServiceOpen] = useState(false);
-  useMobilePopState(mobilePlatform, (event) => {
-    const state = event.state as Record<string, unknown> | null;
-    setServiceOpen(state?.voiceService === true);
+  const {
+    value: serviceSubview,
+    open: openServiceSubview,
+    close: closeServiceSubview,
+    reset: resetServiceSubview,
+  } = useMobileSettingsSubview<boolean>({
+    mobile: mobilePlatform,
+    stateKey: "voiceService",
+    decode: (state) => (state?.voiceService === true ? true : null),
+    encode: () => ({ voiceService: true }),
+    isActiveState: (state) => state?.voiceService === true,
   });
+  const serviceOpen = serviceSubview === true;
   useEffect(() => {
-    if (hidden) setServiceOpen(false);
-  }, [hidden]);
+    if (hidden) resetServiceSubview();
+  }, [hidden, resetServiceSubview]);
   const openPhoneService = () => {
-    pushMobileSettingsState({ voiceService: true });
-    setServiceOpen(true);
+    openServiceSubview(true);
   };
-  const closePhoneService = () => window.history.back();
+  const closePhoneService = () => closeServiceSubview();
   const polishEnabled = isVoicePolishEnabled(voiceInput);
   const asrProviderSettingsSection = (foldAdvanced: boolean, advanced?: ReactNode) => (
     <VoiceAsrProviderSettingsSection
@@ -565,7 +571,7 @@ export function VoiceSettingsContent({
   const main = basics({
     hideLanguage,
     serviceRow: serviceGroups && (
-      <LinkRow title="服务配置" value={serviceStatus} onClick={() => setServiceOpen(true)} />
+      <LinkRow title="服务配置" value={serviceStatus} onClick={openPhoneService} />
     ),
     coreRows: (
       <>
@@ -598,7 +604,7 @@ export function VoiceSettingsContent({
       </div>
       <div role="region" aria-label="服务配置" hidden={!serviceOpen}>
         <div className="flex flex-col gap-6">
-          <SettingsPageHeader title="服务配置" onBack={() => setServiceOpen(false)} level={2} />
+          <SettingsPageHeader title="服务配置" onBack={closePhoneService} level={2} />
           {providerConfigVisible && (
             <GroupList title="识别服务">
               {asrProviderSettingsSection(

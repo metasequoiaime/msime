@@ -1650,6 +1650,12 @@ export {
 } from "./community/use-community-detail-history";
 export { useMobilePopState, type MobilePopStateHandler } from "./settings/use-mobile-pop-state";
 export {
+  useMobileSettingsSubview,
+  type MobileSettingsHistoryState,
+  type MobileSettingsSubviewState,
+  type UseMobileSettingsSubviewOptions,
+} from "./settings/use-mobile-settings-subview";
+export {
   CommunityRightsAgreement,
   type CommunityRightsAgreementProps,
 } from "./community/community-rights-agreement";

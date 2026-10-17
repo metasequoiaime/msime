@@ -41,8 +41,7 @@ import {
   type DictionaryEntry,
 } from "../dictionary/dictionary-file";
 import type { DictionaryClient } from "../dictionary/dictionary-contracts";
-import { pushMobileSettingsState } from "./mobile-navigation";
-import { useMobilePopState } from "./use-mobile-pop-state";
+import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
 import { useSettingsForm } from "./settings-form-context";
 import { useAsyncGeneration } from "./use-async-generation";
 import { SwitchRow } from "./switch-row";
@@ -78,7 +77,21 @@ export function HarmonyPhoneDictionary() {
   const [view, setView] = useState<DictionaryCollectionsView | null>(null);
   const [loadFailure, setLoadFailure] = useState("");
   const [builtinCount, setBuiltinCount] = useState<number | null>(null);
-  const [detail, setDetail] = useState<string | null>(null);
+  const {
+    value: detail,
+    open: openDictionaryDetail,
+    close: closeDictionaryDetail,
+  } = useMobileSettingsSubview<string>({
+    mobile: true,
+    stateKey: "dictionaryDetail",
+    decode: (state, currentDetail) =>
+      typeof state?.dictionaryDetail === "string" &&
+      (currentDetail === null || state.dictionaryDetail === currentDetail)
+        ? state.dictionaryDetail
+        : null,
+    encode: (id) => ({ page: "dictionary", dictionaryDetail: id }),
+    isActiveState: (state) => Boolean(state?.dictionaryDetail),
+  });
   const [creating, setCreating] = useState(false);
   const [addingDictionary, setAddingDictionary] = useState(false);
   const reportFailure = useCallback(
@@ -154,21 +167,11 @@ export function HarmonyPhoneDictionary() {
   };
 
   const openDetail = (id: string) => {
-    if (typeof window !== "undefined") {
-      pushMobileSettingsState({ page: "dictionary", dictionaryDetail: id });
-    }
-    setDetail(id);
+    openDictionaryDetail(id);
   };
   const closeDetail = () => {
-    if (typeof window !== "undefined" && window.history.state?.dictionaryDetail) {
-      window.history.back();
-      return;
-    }
-    setDetail(null);
+    closeDictionaryDetail();
   };
-  useMobilePopState(true, (event) => {
-    if (detail && event.state?.dictionaryDetail !== detail) setDetail(null);
-  });
 
   if (detail === BUILTIN && dictionary) {
     return (
