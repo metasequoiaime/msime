@@ -47,7 +47,10 @@ final class ImePanels {
     }
 
     void invalidateReplyTemplateReads() {
-        replyReadGeneration = ReplyTemplateLifecyclePolicy.advance(replyReadGeneration);
+        ReplyTemplateLifecyclePolicy.Generations next =
+            ReplyTemplateLifecyclePolicy.advanceOnPanelClose(replyReadGeneration, replyMenuReadGeneration);
+        replyReadGeneration = next.replyRead();
+        replyMenuReadGeneration = next.menuRead();
     }
 
     void showLocalInputMenu() {
