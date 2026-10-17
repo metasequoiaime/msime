@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""The online provider asks only the translation service the user selected.
+"""在线 provider 只问用户选中的那个翻译服务，「水杉账号」的释义经 Rust 的 msime_client_account translate。
 
-A valid Tencent credential file stays on disk after the user picks another service or 关闭, so every case here keeps one in place: a query that is not explicitly for Tencent must still send nothing to Tencent. `fetch` is the provider's only network egress, so recording it proves which services were contacted; no network is used.
+用户改选别的服务或关闭以后，有效的腾讯凭据文件仍留在磁盘上，所以这里每个用例都放着一份：不是明确选了腾讯的查询，一样不能发给腾讯。第三方服务都经 provider 自己的 `fetch` 出网，记下它就知道问了谁；「水杉账号」由 Rust 发请求，换成假的 RustAccountApi 或假的 `_call`。不联网。
 """
 import importlib.machinery
 import importlib.util
@@ -31,8 +31,6 @@ def respond(url, timeout, body=None, token=None, extra_headers=None):
         return {"Response": {"TargetTextList": ["synthetic tencent"]}}
     if url == NIUTRANS:
         return {"tgtText": "synthetic niutrans"}
-    if url == "https://api.msime.app/v1/translate":
-        return {"code": 200, "data": ["synthetic account"]}
     return {"data": "synthetic custom"}
 
 
@@ -112,22 +110,32 @@ class TranslationProviderSelection(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual(urls, [])
 
-    def test_explicit_account_selection_uses_the_account_endpoint(self):
+    def test_explicit_account_selection_asks_rust_and_sends_nothing_itself(self):
+        # 请求、会话和规范化都在 Rust 的 msime_client_account translate 里，provider 自己的 fetch 一次也不用。
         account = mock.Mock()
         account.directory = Path("/synthetic/account")
-        account.ensure_anonymous.return_value = True
-        account.access_token.return_value = "a" * 64
-        account.prepare_translation.return_value = json.dumps(
-            {"texts": ["测试"], "source_lang": "ZH", "target_lang": "EN"})
-        account.parse_translation.return_value = {"translations": ["synthetic account"]}
+        account.translate.return_value = ["synthetic account"]
         self.server.rust_account = account
+        before = provider.time.monotonic()
         result, urls = self.contacted({"provider": "none", "translation_account": True})
         self.assertEqual(result, [{"text": "测试", "translation": "synthetic account"}])
-        self.assertEqual(urls, ["https://api.msime.app/v1/translate"])
-        account.ensure_anonymous.assert_called_once_with()
-        account.access_token.assert_called_once_with()
-        account.prepare_translation.assert_called_once_with(["测试"], "zh", "en")
-        account.parse_translation.assert_called_once()
+        self.assertEqual(urls, [])
+        texts, source, target, deadline = account.translate.call_args.args
+        self.assertEqual((texts, source, target), (["测试"], "zh", "en"))
+        # 交给 Rust 的是这一次 translations 的总期限（6 秒），每次请求的超时由 RustAccountApi 从里面算。
+        self.assertGreater(deadline, before + 5)
+        self.assertLessEqual(deadline, provider.time.monotonic() + 6)
+
+    def test_failed_account_translation_is_negatively_cached(self):
+        account = mock.Mock()
+        account.directory = Path("/synthetic/account")
+        account.translate.return_value = None
+        self.server.rust_account = account
+        result, urls = self.contacted({"provider": "none", "translation_account": True})
+        self.assertEqual((result, urls), ([], []))
+        result, urls = self.contacted({"provider": "none", "translation_account": True})
+        self.assertEqual((result, urls), ([], []))
+        account.translate.assert_called_once()
 
     def test_ai_selection_reaches_the_ai_translation(self):
         # 原来 options 在赋值之前就被读，选了 AI 的候选翻译每次都抛 UnboundLocalError。
@@ -141,64 +149,106 @@ class TranslationProviderSelection(unittest.TestCase):
         self.assertIs(translate.call_args.args[2], assistant)
 
 
-class HostLibraryAndClientAgent(unittest.TestCase):
-    def test_the_installed_library_path_is_tried_first(self):
-        paths = SimpleNamespace(HOST_LIBRARY="../lib64/msime-client/libmsime_host_api.so",
-                                VERSION="1.4.0", EDITION="wubi")
-        tried = []
+AGENT = "msime-linux/1.4.0 (unknown; Synthetic 1; edition=full)"
 
-        def refuse(path):
-            tried.append(str(path))
-            raise OSError("synthetic missing library")
 
-        with mock.patch.dict(sys.modules, {"msime_voice_paths": paths}), \
-                mock.patch.dict(provider.os.environ, {"MSIME_HOST_LIBRARY": "/synthetic/configured.so"}), \
-                mock.patch.object(provider.ctypes, "CDLL", side_effect=refuse):
-            self.assertIsNone(provider.RustAccountApi("/synthetic/account")._load())
-        installed = Path(provider.__file__).resolve().parent / "../lib64/msime-client/libmsime_host_api.so"
-        self.assertEqual(tried[:2], [str(installed), "/synthetic/configured.so"])
+class AccountTranslation(unittest.TestCase):
+    """RustAccountApi.translate：经 msime_client_account 的 translate 问，会话都不可用时才补注册匿名账号，10 分钟内只补一次。"""
 
-    def test_registration_reports_the_linux_client_agent(self):
-        api = provider.RustAccountApi("/synthetic/account")
-        calls = []
+    def setUp(self):
+        self.api = provider.RustAccountApi("/synthetic/account")
+        self.calls = []
+        # 每次 msime_client_account 依次取一个回复，用完以后都是最后一个。
+        self.translate_replies = []
+        self.registration = {"ok": True, "value": True}
 
-        def call(name, payload):
-            calls.append((name, payload))
-            if name == "msime_client_client_agent":
-                return {"ok": True, "value": "msime-linux/1.4.0 (unknown; Synthetic 1; edition=wubi)"}
-            return {"ok": True, "value": True}
+    def call(self, name, payload):
+        self.calls.append((name, payload))
+        if name == "msime_client_client_agent":
+            return {"ok": True, "value": AGENT}
+        if name == "msime_client_ensure_anonymous_account_with_agent":
+            return self.registration
+        if name == "msime_client_account":
+            return self.translate_replies.pop(0) if len(self.translate_replies) > 1 else self.translate_replies[0]
+        raise AssertionError(name)
 
-        paths = SimpleNamespace(HOST_LIBRARY="x", VERSION="1.4.0", EDITION="wubi")
-        with mock.patch.dict(sys.modules, {"msime_voice_paths": paths}), \
-                mock.patch.object(provider, "linux_system", return_value="Synthetic 1"), \
-                mock.patch.object(api, "_call", side_effect=call):
-            self.assertTrue(api.ensure_anonymous())
-            self.assertTrue(api.ensure_anonymous())
-        self.assertEqual(calls[0], ("msime_client_client_agent", {
-            "platform": "linux", "version": "1.4.0", "device": None, "system": "Synthetic 1", "edition": "wubi"}))
-        registration = {"directory": "/synthetic/account",
-                        "client_agent": "msime-linux/1.4.0 (unknown; Synthetic 1; edition=wubi)"}
-        # 拼一次就记住，之后每次惰性注册都带同一个 User-Agent。
-        self.assertEqual(calls[1:], [("msime_client_ensure_anonymous_account_with_agent", registration)] * 2)
+    def translate(self, texts=("水杉",), budget=6.0):
+        with mock.patch.object(self.api, "_call", side_effect=self.call):
+            return self.api.translate(list(texts), "zh", "en", provider.time.monotonic() + budget)
 
-    def test_registration_without_an_agent_still_registers(self):
-        api = provider.RustAccountApi("/synthetic/account")
-        responses = {"msime_client_client_agent": {"ok": False, "error": "account_invalid"},
-                     "msime_client_ensure_anonymous_account_with_agent": {"ok": True, "value": True}}
-        with mock.patch.object(api, "_call", side_effect=lambda name, payload: responses[name]) as call:
-            self.assertTrue(api.ensure_anonymous())
-        self.assertEqual(call.call_args_list[-1].args,
-                         ("msime_client_ensure_anonymous_account_with_agent", {"directory": "/synthetic/account"}))
+    def names(self):
+        return [name for name, _ in self.calls if name != "msime_client_client_agent"]
 
-    def test_system_comes_from_os_release(self):
-        with tempfile.TemporaryDirectory() as directory:
-            release = Path(directory) / "os-release"
-            release.write_text('NAME="Synthetic Linux"\nVERSION_ID=24.04\nID=synthetic\n')
-            real_open = open
-            with mock.patch("builtins.open", side_effect=lambda path, *args, **kwargs: real_open(
-                    release if path == "/etc/os-release" else path, *args, **kwargs)):
-                self.assertEqual(provider.linux_system(), "Synthetic Linux 24.04")
+    @staticmethod
+    def ok(*values):
+        return {"ok": True, "value": {"translations": list(values)}}
 
+    def test_the_request_is_msime_client_account_translate(self):
+        self.translate_replies = [self.ok("sequoia", None)]
+        self.assertEqual(self.translate(("水杉", "测试")), ["sequoia", None])
+        self.assertEqual(self.names(), ["msime_client_account"])
+        self.assertEqual(self.calls[-1][1], {
+            "directory": "/synthetic/account", "client_agent": AGENT,
+            "action": {"operation": "translate", "texts": ["水杉", "测试"], "source_lang": "zh",
+                       "target_lang": "en", "timeout_ms": 2500}})
+
+    def test_timeout_follows_the_remaining_budget_within_rust_limits(self):
+        self.translate_replies = [self.ok("sequoia")]
+        self.translate(budget=1.7)
+        self.assertTrue(1600 <= self.calls[-1][1]["action"]["timeout_ms"] <= 1700, self.calls[-1])
+        # Rust 不收不到 1000 的 timeout_ms，期限只剩一点时按 1 秒问。
+        self.translate(budget=0.2)
+        self.assertEqual(self.calls[-1][1]["action"]["timeout_ms"], 1000)
+        self.calls.clear()
+        self.assertIsNone(self.translate(budget=-0.1))
+        self.assertEqual(self.names(), [])
+
+    def test_a_usable_session_needs_no_registration(self):
+        # 原来每次释义之前都先注册匿名账号，注册失败时已经登录的用户也拿不到释义。
+        self.registration = {"ok": False, "error": "account_unavailable"}
+        self.translate_replies = [self.ok("sequoia")]
+        self.assertEqual(self.translate(), ["sequoia"])
+        self.assertEqual(self.names(), ["msime_client_account"])
+
+    def test_unauthorized_registers_once_and_retries(self):
+        unauthorized = {"ok": False, "error": "account_unauthorized"}
+        self.translate_replies = [unauthorized, self.ok("sequoia")]
+        self.assertEqual(self.translate(), ["sequoia"])
+        self.assertEqual(self.names(), ["msime_client_account", "msime_client_ensure_anonymous_account_with_agent",
+                                        "msime_client_account"])
+        self.assertEqual(self.calls[2][1], {"directory": "/synthetic/account", "client_agent": AGENT})
+        # 10 分钟之内再遇到 account_unauthorized 不再注册。
+        self.calls.clear()
+        self.translate_replies = [unauthorized]
+        self.assertIsNone(self.translate())
+        self.assertEqual(self.names(), ["msime_client_account"])
+        # 过了 ANONYMOUS_REGISTRATION_RETRY 才再补一次。
+        self.calls.clear()
+        self.api._registered_at = provider.time.monotonic() - provider.ANONYMOUS_REGISTRATION_RETRY - 1
+        self.translate_replies = [unauthorized, self.ok("sequoia")]
+        self.assertEqual(self.translate(), ["sequoia"])
+        self.assertEqual(self.names(), ["msime_client_account", "msime_client_ensure_anonymous_account_with_agent",
+                                        "msime_client_account"])
+
+    def test_a_failed_registration_is_not_retried_for_ten_minutes(self):
+        self.registration = {"ok": False, "error": "account_network"}
+        self.translate_replies = [{"ok": False, "error": "account_unauthorized"}]
+        self.assertIsNone(self.translate())
+        self.assertIsNone(self.translate())
+        self.assertEqual(self.names(), ["msime_client_account", "msime_client_ensure_anonymous_account_with_agent",
+                                        "msime_client_account"])
+
+    def test_other_failures_do_not_register(self):
+        for error in ("account_network", "account_unavailable", "account_rate_limited"):
+            with self.subTest(error=error):
+                self.calls.clear()
+                self.translate_replies = [{"ok": False, "error": error}]
+                self.assertIsNone(self.translate())
+                self.assertEqual(self.names(), ["msime_client_account"])
+
+    def test_a_reply_of_the_wrong_length_is_a_failure(self):
+        self.translate_replies = [self.ok("sequoia", "extra")]
+        self.assertIsNone(self.translate())
 
 if __name__ == "__main__":
     unittest.main()

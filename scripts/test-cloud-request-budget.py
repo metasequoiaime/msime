@@ -94,11 +94,13 @@ def linux_ai_budget(failures: list[str]) -> bool:
         failures.append("the Linux HTTP worker max timeout no longer follows the AI request budget")
     if "not 0 < timeout <= HTTP_WORKER_MAX_TIMEOUT" not in provider:
         failures.append("the Linux HTTP worker no longer validates requests against its declared max timeout")
+    # 「水杉账号」释义整条经 msime_client_account 的 translate（会话、令牌、请求和逐项规范化都在 Rust），provider 不再自己取令牌、发 /v1/translate。
     if any(symbol not in provider for symbol in (
-            "msime_client_ensure_anonymous_account",
-            "msime_client_account_access_token",
-            "msime_client_account_gloss")):
-        failures.append("the Linux online provider no longer routes account registration, tokens and translation through host-api")
+            '"msime_client_ensure_anonymous_account_with_agent"',
+            '"msime_client_account"')):
+        failures.append("the Linux online provider no longer routes account registration and translation through host-api")
+    if "msime_client_account_access_token" in provider or "msime_client_account_gloss" in provider:
+        failures.append("the Linux online provider takes account tokens again instead of letting msime_client_account translate send the request")
     if "/v1/auth/" in provider or "anonymous-account.json" in provider or "anonymous-session.json" in provider:
         failures.append("the Linux online provider still duplicates Rust account authentication or storage")
     if not re.search(r"fetch\(config\[\"endpoint\"\], AI_REQUEST_TIMEOUT,[^)]*connect_timeout=AI_CONNECT_TIMEOUT\)", provider):

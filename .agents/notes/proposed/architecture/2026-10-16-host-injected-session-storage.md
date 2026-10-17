@@ -54,9 +54,9 @@ Status: proposed
 
 ### 当前落地切片（Linux）
 
-Linux 的在线 provider 已把匿名账号注册、令牌读取与翻译响应解析切到 `host-api`。Python 进程经 `ctypes` 调用 `msime_client_ensure_anonymous_account` 和 `msime_client_account_access_token`，因此身份文件、刷新锁、登录账号优先和令牌轮换只由 Rust 实现；翻译请求仍由 provider 的 HTTP worker 发出，但收到的响应经 `msime_client_account_gloss` 按 client-services 的逐项规则解析。provider 不再实现或调用 `/v1/auth/challenges`、`/v1/auth/login`、`/v1/auth/refresh`，也不再直接读写匿名账号文件。库路径优先取 `MSIME_HOST_LIBRARY`，安装包按 `<prefix>/lib/<client-directory>/libmsime_host_api*.so` 查找，便于各 Linux edition 共用同一套脚本。
+Linux 的在线 provider 已把匿名账号注册和账号释义整条切到 `host-api`。Python 进程经 `ctypes` 调用 `msime_client_ensure_anonymous_account_with_agent` 和 `msime_client_account` 的 `translate`，因此身份文件、刷新锁、登录账号优先、令牌轮换、`/v1/translate` 请求和逐项规范化只由 Rust 实现，provider 只在 `account_unauthorized` 时补注册一次匿名账号（见 [Linux provider 的「水杉账号」释义改调 msime_client_account 的 translate](../../implemented/architecture/2026-10-18-linux-account-translation-through-rust.md)）。provider 不再实现或调用 `/v1/auth/challenges`、`/v1/auth/login`、`/v1/auth/refresh`，也不再直接读写匿名账号文件。库路径先取安装时 CMake 写进 `msime_voice_paths.py` 的 `HOST_LIBRARY`，再取 `MSIME_HOST_LIBRARY`，最后按 `<prefix>/lib/<client-directory>/libmsime_host_api*.so` 和源码树查找，便于各 Linux edition 和 rpm、Gentoo 的 `lib64` 共用同一套脚本。
 
-这一步保留了 provider 的 HTTP worker 和候选、AI、第三方翻译路径；它们没有账号会话语义，暂不随账号迁移。测试用假的 Rust bridge 检查 provider 只走 Rust 账号契约，Rust 本身的账号和 `account_gloss` 测试继续覆盖实际校验与存储规则。
+provider 的 HTTP worker 只剩候选、AI 和第三方翻译路径；它们没有账号会话语义，不随账号迁移。测试用假的 Rust bridge 检查 provider 只走 Rust 账号契约，Rust 本身的账号和 `translate` 测试继续覆盖实际校验与存储规则。
 
 ### 新接口的错误形状与校验
 

@@ -27,8 +27,8 @@ Rust 刷新匿名令牌时在账号目录里建 `account-refresh.lock`，而首�
 ## Consequences
 
 - **收益**：deb、rpm、Gentoo 上账号释义和匿名注册都能用；新注册的匿名账号在「我的设备」里显示 linux 和版本号；AI 候选翻译能发出请求。
-- **代价与已知上限**：已经注册过的匿名账号不重新注册，`client_agent` 只对新注册生效；刷新令牌（`msime_client_account_access_token`）仍是默认 User-Agent。`linux_system` 只读 os-release，不报内核或桌面。
+- **代价与已知上限**：已经注册过的匿名账号不重新注册，`client_agent` 只对新注册生效。账号释义改走 `msime_client_account` 的 `translate` 以后（见 [Linux provider 的「水杉账号」释义改调 msime_client_account 的 translate](../architecture/2026-10-18-linux-account-translation-through-rust.md)），释义请求和其中的令牌刷新也带同一个 `client_agent`。`linux_system` 只读 os-release，不报内核或桌面。
 
 ## Verification
 
-`platforms/linux/tests/dictionary/translation_provider_selection.py`（安装路径排第一、注册带 client_agent 且只拼一次、拼不出时照旧注册、os-release 读法、AI 选择走到 `ai_translation`）和 `platforms/linux/tests/core/setup_resolution.py`（有锁文件的目录仍算安装包留下的状态）。
+`platforms/linux/tests/provider/host_library_contract.py`（安装路径排第一、注册带 client_agent 且只拼一次、拼不出时照旧注册、os-release 读法）、`platforms/linux/tests/dictionary/translation_provider_selection.py`（AI 选择走到 `ai_translation`）和 `platforms/linux/tests/core/setup_resolution.py`（有锁文件的目录仍算安装包留下的状态）。

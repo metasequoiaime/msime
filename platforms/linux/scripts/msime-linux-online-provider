@@ -30,12 +30,22 @@ import urllib.request
 from msime_provider_runtime import open_server
 
 
-class RustAccountApi:
-    """通过共享 Rust 账号和翻译契约访问 host-api。
+# provider 用到的 host-api 入口，都是 char *f(const uint8_t *request, size_t length)；少一个就当作没有可用的库。host_library_contract.py 逐个核对它们在 msime_client.h 里的声明。
+HOST_LIBRARY_SYMBOLS = (
+    "msime_client_ensure_anonymous_account_with_agent",
+    "msime_client_client_agent",
+    "msime_client_account",
+)
+# 「水杉账号」释义每次请求的超时，交给 msime_client_account 的 translate 作 timeout_ms：上限是原来 Python 发 /v1/translate 时的 2.5 秒，下限是 Rust 接受的最小值 1 秒。
+ACCOUNT_TRANSLATE_TIMEOUT_MS = (1000, 2500)
+# 两次补注册匿名账号之间至少隔这么久（秒），与 Windows 的 account_registration_retry 相同：注册计入服务端每个出口地址每天 5 次的匿名登录额度，注册失败时不能每页候选都再试一次。
+ANONYMOUS_REGISTRATION_RETRY = 600.0
 
-    Linux 仍由 Python 负责 provider 的传输，但账号身份、令牌轮换和响应
-    校验归 host-api 所有。库延迟加载，源码树测试没有可选的宿主库时也能
-    启动 provider。
+
+class RustAccountApi:
+    """经 host-api 的账号契约做账号相关的事。
+
+    账号身份、会话选择（登录的优先，没有登录时用本机匿名账号）、令牌刷新、/v1/translate 请求和响应的逐项规范化都在 Rust 里；Python 只管什么时候问、问哪几个词，以及会话都不可用时补注册匿名账号。库延迟加载，源码树测试没有可选的宿主库时也能启动 provider。
     """
 
     def __init__(self, directory):
@@ -46,6 +56,9 @@ class RustAccountApi:
         self._lock = threading.Lock()
         # None 是还没拼过，空串是拼不出。
         self._client_agent = None
+        # 上一次补注册的 time.monotonic()；None 是这个进程还没补注册过。
+        self._registration_lock = threading.Lock()
+        self._registered_at = None
 
     def _load(self):
         with self._lock:
@@ -81,10 +94,7 @@ class RustAccountApi:
                 except (OSError, TypeError):
                     continue
                 try:
-                    for name in ("msime_client_ensure_anonymous_account_with_agent",
-                                 "msime_client_client_agent",
-                                 "msime_client_account_access_token",
-                                 "msime_client_account_gloss"):
+                    for name in HOST_LIBRARY_SYMBOLS:
                         function = getattr(library, name)
                         function.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
                         function.restype = ctypes.c_void_p
@@ -128,30 +138,42 @@ class RustAccountApi:
         response = self._call("msime_client_ensure_anonymous_account_with_agent", payload)
         return isinstance(response, dict) and response.get("ok") is True and response.get("value") is True
 
-    def access_token(self, rejected_token=None):
-        payload = {"directory": str(self.directory)}
-        if isinstance(rejected_token, str) and rejected_token:
-            payload["rejected_token"] = rejected_token
-        response = self._call("msime_client_account_access_token", payload)
-        value = response.get("value") if isinstance(response, dict) and response.get("ok") is True else None
-        token = value.get("access_token") if isinstance(value, dict) else None
-        return token if isinstance(token, str) and token else None
+    def translate(self, texts, source, target, deadline):
+        """「水杉账号」释义：返回与 texts 等长的列表（没有释义的一项是 None），整批失败或 deadline（time.monotonic()）已过时返回 None。
 
-    def prepare_translation(self, texts, source, target):
-        response = self._call("msime_client_account_gloss", {
-            "operation": "request", "texts": texts,
-            "source_lang": source, "target_lang": target,
-        })
+        经 msime_client_account 的 translate，登录的账号优先，没有登录时用本机匿名账号，服务端以 401 拒绝令牌时 Rust 刷新一次、在同一个账号里重试。两种会话都不可用（account_unauthorized：安装后的注册没成功、文件被删、匿名会话被服务端吊销后已被 Rust 清掉）时补注册匿名账号再问一次，ANONYMOUS_REGISTRATION_RETRY 之内只补一次。
+        """
+        response = self._account_translate(texts, source, target, deadline)
+        if (isinstance(response, dict) and response.get("error") == "account_unauthorized" and
+                self._may_register() and self.ensure_anonymous()):
+            response = self._account_translate(texts, source, target, deadline)
         value = response.get("value") if isinstance(response, dict) and response.get("ok") is True else None
-        body = value.get("body") if isinstance(value, dict) else None
-        return body if isinstance(body, str) else None
+        values = value.get("translations") if isinstance(value, dict) else None
+        if not isinstance(values, list) or len(values) != len(texts):
+            return None
+        return [item if isinstance(item, str) and item else None for item in values]
 
-    def parse_translation(self, texts, status, body, retry_after=None):
-        payload = {"operation": "parse", "texts": texts, "status": status, "body": body}
-        if retry_after is not None:
-            payload["retry_after"] = retry_after
-        response = self._call("msime_client_account_gloss", payload)
-        return response.get("value") if isinstance(response, dict) and response.get("ok") is True else None
+    def _account_translate(self, texts, source, target, deadline):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        low, high = ACCOUNT_TRANSLATE_TIMEOUT_MS
+        payload = {"directory": str(self.directory), "action": {
+            "operation": "translate", "texts": texts, "source_lang": source, "target_lang": target,
+            "timeout_ms": max(low, min(high, int(remaining * 1000)))}}
+        # 与注册时同一个 User-Agent：头文件要求同一个宿主的各次调用都带同一个 client_agent。
+        agent = self.client_agent()
+        if agent is not None:
+            payload["client_agent"] = agent
+        return self._call("msime_client_account", payload)
+
+    def _may_register(self):
+        with self._registration_lock:
+            now = time.monotonic()
+            if self._registered_at is not None and now < self._registered_at + ANONYMOUS_REGISTRATION_RETRY:
+                return False
+            self._registered_at = now
+            return True
 
 
 def installed_host_library():
@@ -218,7 +240,6 @@ http_stopping = threading.Event()
 MAX_AI_CACHE_ENTRIES = 4096
 MAX_TRANSLATION_CACHE_ENTRIES = 4096
 NEGATIVE_TRANSLATION_CACHE_TTL = 480
-ANONYMOUS_ACCOUNT_ORIGIN = "https://api.msime.app"
 CLOUD_REQUEST_TIMEOUT = 2.0
 # AI 推理与 Windows、client-providers 保持 8 秒总预算和 2.5 秒连接预算。
 AI_REQUEST_TIMEOUT = 8.0
@@ -621,34 +642,11 @@ def ai_translation(text, target, options, path):
     return translation_gloss(value)
 
 
-def anonymous_translation(texts, source, target, server):
+def account_translation(texts, source, target, server, deadline):
+    """「水杉账号」的一组释义，与 texts 等长；请求、会话和逐项规范化都在 Rust（RustAccountApi.translate）。"""
     rust_account = getattr(server, "rust_account", None)
-    if rust_account is not None:
-        # Registration and token refresh are Rust-owned. The provider only
-        # sends the already selected translation request and asks Rust to
-        # apply the same per-item response rules as every other platform.
-        if not rust_account.ensure_anonymous():
-            return [None] * len(texts)
-        token = rust_account.access_token()
-        if not token:
-            return [None] * len(texts)
-        body = rust_account.prepare_translation(texts, source, target)
-        if not body:
-            return [None] * len(texts)
-        try:
-            request = json.loads(body)
-        except (TypeError, ValueError):
-            return [None] * len(texts)
-        result = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/translate", 2.5,
-                        request, token)
-        if not isinstance(result, dict):
-            return [None] * len(texts)
-        parsed = rust_account.parse_translation(texts, 200, json.dumps(result, ensure_ascii=False))
-        values = parsed.get("translations") if isinstance(parsed, dict) else None
-        if not isinstance(values, list):
-            return [None] * len(texts)
-        return [value if isinstance(value, str) and value else None for value in values[:len(texts)]] + [None] * max(0, len(texts) - len(values))
-    return [None] * len(texts)
+    values = rust_account.translate(texts, source, target, deadline) if rust_account is not None else None
+    return values if isinstance(values, list) and len(values) == len(texts) else [None] * len(texts)
 
 
 # DeepL 官方 API 的两个主机，与 crates/client-core/src/translation.rs 的 custom_translation_request 一致：Free 密钥（以 :fx 结尾）走 api-free.deepl.com，其余走 api.deepl.com。
@@ -919,9 +917,7 @@ def translations(query, server):
             groups.setdefault(direction, []).append(text)
     for (source, destination), pending in groups.items():
         if selected == "account":
-            remaining = min(2.5, deadline - time.monotonic())
-            values = anonymous_translation(pending, source, destination, server) if remaining > 0 else None
-            values = values or [None] * len(pending)
+            values = account_translation(pending, source, destination, server, deadline)
         elif selected == "niutrans":
             values = []
             for text in pending:

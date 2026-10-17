@@ -12,6 +12,7 @@ platforms/linux/tests/dictionary/tencent_credential_normalization.py
 platforms/linux/tests/dictionary/custom_translation_config.py
 platforms/linux/tests/dictionary/custom_translation_contract.py
 platforms/linux/tests/dictionary/translation_provider_selection.py
+platforms/linux/tests/provider/host_library_contract.py
 platforms/linux/tests/voice/doubao_auth_mode.py
 platforms/linux/tests/voice/provider_polish_prompt.py
 platforms/linux/tests/provider/credential_test_contract.py
