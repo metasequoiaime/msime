@@ -106,4 +106,11 @@ test("a collection's subtitle carries its count, community origin and pending ch
   expect(collectionSubtitle({ ...collection, source: { type: "user" }, pending: 128 })).toBe(
     "4,812 条 · 128 条待同步",
   );
+  // 搜狗细胞词库导入的词库标明只在本机用；别的文本导入不标。
+  expect(collectionSubtitle({ ...collection, source: { type: "import", format: "scel" } })).toBe(
+    "4,812 条 · 搜狗细胞词库 · 仅本机",
+  );
+  expect(collectionSubtitle({ ...collection, source: { type: "import", format: "txt" } })).toBe(
+    "4,812 条",
+  );
 });
