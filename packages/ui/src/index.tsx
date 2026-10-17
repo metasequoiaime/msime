@@ -32,6 +32,10 @@ import {
 } from "./settings/settings-page-registry";
 import { settingsPageProjections } from "./settings/settings-page-projections";
 import {
+  mobileHiddenPageIds,
+  settingsPageModelVisibility,
+} from "./settings/settings-page-model-visibility";
+import {
   canReloadSettingsPage,
   canRestoreDefaultsOnPage,
   isSettingsFormPage,
@@ -2480,27 +2484,18 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
         client.host?.edition?.id,
       )
     : null;
-  // Helper codes are per-host rather than per-form-factor. The Android keyboard sends them: Shift during a quanpin or shuangpin composition passes the next letter to the Engine as a helper code, and the Engine reads the schema and the candidate-row hint from these very preferences. Hiding the group left that shipping feature with no way to pick a schema or turn it off. The iOS keyboard extension marks a helper code the same way, and HarmonyOS ships the same input (its ChineseHelpcodePolicy is the Android one, ported), so on a mobile host the group follows the host's `helpcode_shift_entry`.
-  // 只有五笔的版本里辅助码没有用处（五笔不用辅助码），不显示这一组；模糊音照常显示，五笔混拼查全拼时会用到。
-  const showHelpcode =
-    (!mobilePlatform || showHelpcodeShiftEntry) && editionUsesHelpcode(client.host?.edition);
-  // 维护与诊断页收纳输入法服务（重启，macOS 上是修复输入源）、诊断日志、数据目录、本地 MCP 服务的入口和 macOS 的卸载；这些一样都没有的宿主不显示这一页。
-  const showDeveloperPage =
-    Boolean(client.mcpServerStatus) ||
-    Boolean(showRestartInputMethod) ||
-    !client.host ||
-    linuxPlatform ||
-    windowsPlatform ||
-    macosPlatform;
-  // 手机上不提供实体键盘快捷键页和桌面悬浮工具栏。HarmonyOS 在 2-in-1 上把这些控件放在输入法面板里，手机的面板仍是触屏键盘，设置里不能把电脑按键的说明带进手机的列表。
-  //
-  // 快捷键页以前只在宿主一个快捷键都不路由时隐藏，好让接了实体键盘的手机用户改得到宿主读取的开关（Android 曾因按平台隐藏而改不到）。现在手机上一律不提供：接实体键盘的手机用户很少，这一页对其余用户是噪音；宿主照旧按默认值处理这些按键。
-  const mobileHiddenPageIds: readonly SettingsPageId[] = [
-    "shortcuts",
-    "floating-toolbar",
-    // Sound packs, music and the / and @ modes all belong to a physical keyboard and a desktop candidate window; a phone keeps its own keyboard feedback settings.
-    "plugins",
-  ];
+  const { showHelpcode, showDeveloperPage, untitledOnPhone } = settingsPageModelVisibility({
+    mobilePlatform,
+    settingsPlatform,
+    hasHost: Boolean(client.host),
+    linuxPlatform,
+    windowsPlatform,
+    macosPlatform,
+    showRestartInputMethod: Boolean(showRestartInputMethod),
+    hasMcpServerStatus: Boolean(client.mcpServerStatus),
+    showHelpcodeShiftEntry,
+    editionUsesHelpcode: editionUsesHelpcode(client.host?.edition),
+  });
   const {
     availablePages,
     sidebarGroups,
@@ -2560,9 +2555,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       setAccountLoginReturnPage,
       accountLoginReturnPage,
     });
-  // HarmonyOS 手机设计稿给每个页面都加大标题（包括 设置、统计、我的）；其他触屏宿主的三个标签页一打开就是已经表明自身名称的内容。
-  const untitledOnPhone: readonly SettingsPageId[] =
-    settingsPlatform === "harmony" ? [] : ["home", "typing-statistics", "account"];
   // 设计稿里从一个页面内部打开另一个页面的行，例如「词库」上的「背单词」。
   const pageEntry = (id: SettingsPageId) => availablePages.find((item) => item.id === id);
   const {
