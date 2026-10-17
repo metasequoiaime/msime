@@ -219,8 +219,86 @@ fn within_one_sign_in_the_later_expiry_wins_in_both_directions() {
     assert_eq!(local(&keyboard), has("person-a", '9'));
 }
 
+/// 换上指定的登录 ID：`legacy_session_id` 派生的（升级前那次登录的后代）或随机的 v4（Rust 里的新登录）。
+fn with_id(mut session: SavedAccountSession, id: uuid::Uuid) -> SavedAccountSession {
+    session.session_id = Some(id);
+    session
+}
+
 #[test]
-fn sides_without_a_login_id_differ_unless_they_share_a_refresh_token() {
+fn a_session_without_a_login_id_matches_the_same_user_from_before_the_upgrade() {
+    let root = tempfile::tempdir().unwrap();
+    let (settings, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
+    // 升级前键盘已经把 `b` 轮换成 `c`，设置应用还没导入：两边都没有登录 ID，刷新令牌不同。
+    storage(&settings)
+        .save(&saved("person-a", None, 60, 'b'))
+        .unwrap();
+    storage(&keyboard)
+        .save(&saved("person-a", None, 180, 'c'))
+        .unwrap();
+
+    // 设置应用发布的是用过的 `b`：键盘留着更新的 `c`，不被换回去。
+    assert_eq!(
+        session(&keyboard).adopt_session(
+            Some(storage(&settings).load().unwrap().unwrap()),
+            SessionAdoptSource::Settings
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(local(&keyboard), has("person-a", 'c'));
+    // 设置应用采用键盘的 `c`，写进文件的是由 `c` 派生的登录 ID。
+    assert_eq!(
+        session(&settings).adopt_session(
+            Some(storage(&keyboard).load().unwrap().unwrap()),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(local(&settings), has("person-a", 'c'));
+    let derived = legacy_session_id(&"c".repeat(64));
+    assert_eq!(
+        storage(&settings).load().unwrap().unwrap().session_id,
+        Some(derived)
+    );
+}
+
+#[test]
+fn a_migrated_keyboard_session_still_matches_a_settings_copy_without_a_login_id() {
+    let root = tempfile::tempdir().unwrap();
+    let (settings, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
+    storage(&settings)
+        .save(&saved("person-a", None, 60, 'b'))
+        .unwrap();
+    // 键盘已经被 Rust 用过：补上了由 `c` 派生的登录 ID，又刷新成 `d`。
+    let keyboard_id = legacy_session_id(&"c".repeat(64));
+    storage(&keyboard)
+        .save(&with_id(saved("person-a", None, 180, 'd'), keyboard_id))
+        .unwrap();
+
+    assert_eq!(
+        session(&keyboard).adopt_session(
+            Some(storage(&settings).load().unwrap().unwrap()),
+            SessionAdoptSource::Settings
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(local(&keyboard), has("person-a", 'd'));
+    assert_eq!(
+        session(&settings).adopt_session(
+            Some(storage(&keyboard).load().unwrap().unwrap()),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(local(&settings), has("person-a", 'd'));
+    assert_eq!(
+        storage(&settings).load().unwrap().unwrap().session_id,
+        Some(keyboard_id)
+    );
+}
+
+#[test]
+fn a_new_sign_in_is_not_mistaken_for_the_session_from_before_the_upgrade() {
     let root = tempfile::tempdir().unwrap();
     let (settings, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
     storage(&settings)
@@ -230,31 +308,56 @@ fn sides_without_a_login_id_differ_unless_they_share_a_refresh_token() {
         .save(&saved("person-a", None, 180, 'c'))
         .unwrap();
 
-    // 两边都没有登录 ID、刷新令牌也不同（补出的登录 ID 就不同）：键盘的副本再新也不采用；有登录 ID 的一方也不会与按别的刷新令牌补出的 ID 相同。
+    // 键盘发布的是 Rust 里新的一次登录（随机 ID），设置应用不采用，再新也一样。
     assert_eq!(
         session(&settings).adopt_session(
-            Some(storage(&keyboard).load().unwrap().unwrap()),
-            SessionAdoptSource::Keyboard
-        ),
-        Ok(SessionAdoptOutcome::Unchanged)
-    );
-    assert_eq!(
-        session(&settings).adopt_session(
-            Some(saved("person-a", Some(1), 180, 'c')),
+            Some(with_id(
+                saved("person-a", None, 240, 'e'),
+                uuid::Uuid::new_v4()
+            )),
             SessionAdoptSource::Keyboard
         ),
         Ok(SessionAdoptOutcome::Unchanged)
     );
     assert_eq!(local(&settings), has("person-a", 'b'));
-    // 设置应用的副本即使更旧也替换键盘的。
+    // 设置应用里重新登录了同一个账号：键盘直接换成它，即使本地的旧会话过期得更晚。
     assert_eq!(
         session(&keyboard).adopt_session(
-            Some(storage(&settings).load().unwrap().unwrap()),
+            Some(with_id(
+                saved("person-a", None, 30, 'f'),
+                uuid::Uuid::new_v4()
+            )),
             SessionAdoptSource::Settings
         ),
         Ok(SessionAdoptOutcome::Adopted)
     );
-    assert_eq!(local(&keyboard), has("person-a", 'b'));
+    assert_eq!(local(&keyboard), has("person-a", 'f'));
+    // 两边都已经有登录 ID（各自由不同的令牌派生）时只认相同的 ID。
+    storage(&settings)
+        .save(&with_id(
+            saved("person-a", None, 60, 'b'),
+            legacy_session_id(&"b".repeat(64)),
+        ))
+        .unwrap();
+    assert_eq!(
+        session(&settings).adopt_session(
+            Some(with_id(
+                saved("person-a", None, 240, 'c'),
+                legacy_session_id(&"c".repeat(64))
+            )),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    // 另一个账号不论有没有登录 ID 都不算。
+    assert_eq!(
+        session(&settings).adopt_session(
+            Some(saved("person-b", None, 240, 'c')),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(local(&settings), has("person-a", 'b'));
 }
 
 #[test]
@@ -354,28 +457,40 @@ fn private_file(path: &Path, contents: &[u8]) {
     }
 }
 
-/// 升级后两个沙箱里是同一份没有 `session_id` 的旧会话，访问令牌已经过期（升级时多数用户的状态）。键盘先刷新，之后两边互相导入：谁都不能回到用过的刷新令牌 `b`，否则下一次刷新被服务端当成重放、整个会话被吊销。`file` 是会话文件名，`open` 按目录建出这份会话的存储。
+/// 升级后两个沙箱里各有一份没有 `session_id` 的旧会话，访问令牌已经过期（升级时多数用户的状态）。`keyboard_rotated` 时旧版键盘在升级前已经把 `b` 轮换成 `c`、设置应用还没导入，`b` 已经用过；否则两边都是 `b`。键盘先刷新，之后两边互相导入：谁都不能回到用过的刷新令牌，否则下一次刷新被服务端当成重放、整个会话被吊销。`file` 是会话文件名，`legacy` 按刷新令牌的字符写出旧文件的内容，`open` 按目录建出这份会话的存储。
 fn assert_one_refresh_survives_the_upgrade<S: AccountSessionStorage>(
     file: &str,
-    contents: &[u8],
+    legacy: impl Fn(char) -> Vec<u8>,
     open: impl Fn(&Path) -> S,
+    keyboard_rotated: bool,
 ) {
     let root = tempfile::tempdir().unwrap();
     let (settings, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
-    for directory in [&settings, &keyboard] {
+    let api = RotatingApi::default();
+    let token = |refresh: char| refresh.to_string().repeat(64);
+    let next = |refresh: char| char::from(refresh as u8 + 1);
+    let keyboard_token = if keyboard_rotated {
+        api.presented.lock().unwrap().push(token('b'));
+        'c'
+    } else {
+        'b'
+    };
+    for (directory, refresh) in [(&settings, 'b'), (&keyboard, keyboard_token)] {
         storage(directory).create_directory().unwrap();
-        private_file(&directory.join(file), contents);
+        private_file(&directory.join(file), &legacy(refresh));
     }
+    let mut spent = api.presented.lock().unwrap().clone();
     let refreshed = |directory: &Path| {
         let saved = open(directory).load().unwrap().unwrap();
         (saved.tokens.refresh_token, saved.session_id)
     };
-    let api = RotatingApi::default();
     let keyboard_session = BackendAccountSession::new(api.clone(), open(&keyboard));
     keyboard_session.credentials(None, None).unwrap();
-    assert_eq!(*api.presented.lock().unwrap(), ["b".repeat(64)]);
-    let (token, login_id) = refreshed(&keyboard);
-    assert_eq!(token, "c".repeat(64));
+    spent.push(token(keyboard_token));
+    assert_eq!(*api.presented.lock().unwrap(), spent);
+    let first = next(keyboard_token);
+    let (current, login_id) = refreshed(&keyboard);
+    assert_eq!(current, token(first));
     assert!(login_id.is_some());
 
     // 设置应用还没被 Rust 写过，发布的仍是旧会话：键盘留着自己刷新过的那份。
@@ -386,9 +501,9 @@ fn assert_one_refresh_survives_the_upgrade<S: AccountSessionStorage>(
         ),
         Ok(SessionAdoptOutcome::Unchanged)
     );
-    assert_eq!(refreshed(&keyboard), ("c".repeat(64), login_id));
+    assert_eq!(refreshed(&keyboard), (token(first), login_id));
 
-    // 设置应用本地也还是旧会话：采用键盘刷新过的那份，下一次刷新交出的是 `c`。
+    // 设置应用本地也还是旧会话：采用键盘刷新过的那份，下一次刷新交出的是它。
     let settings_session = BackendAccountSession::new(api.clone(), open(&settings));
     assert_eq!(
         settings_session.adopt_session(
@@ -397,14 +512,14 @@ fn assert_one_refresh_survives_the_upgrade<S: AccountSessionStorage>(
         ),
         Ok(SessionAdoptOutcome::Adopted)
     );
-    assert_eq!(refreshed(&settings), ("c".repeat(64), login_id));
-    let access = "c".repeat(64);
-    settings_session.credentials(Some(&access), None).unwrap();
-    assert_eq!(
-        *api.presented.lock().unwrap(),
-        ["b".repeat(64), "c".repeat(64)]
-    );
-    assert_eq!(refreshed(&settings), ("d".repeat(64), login_id));
+    assert_eq!(refreshed(&settings), (token(first), login_id));
+    settings_session
+        .credentials(Some(&token(first)), None)
+        .unwrap();
+    spent.push(token(first));
+    assert_eq!(*api.presented.lock().unwrap(), spent);
+    let second = next(first);
+    assert_eq!(refreshed(&settings), (token(second), login_id));
 
     // 键盘再导入设置应用刷新后的那份，仍是同一次登录、新者胜。
     assert_eq!(
@@ -414,31 +529,55 @@ fn assert_one_refresh_survives_the_upgrade<S: AccountSessionStorage>(
         ),
         Ok(SessionAdoptOutcome::Adopted)
     );
-    assert_eq!(refreshed(&keyboard), ("d".repeat(64), login_id));
+    assert_eq!(refreshed(&keyboard), (token(second), login_id));
+}
+
+/// ArkTS 桥接存的扁平登录会话，一小时前过期。
+fn flat_session(refresh: char) -> Vec<u8> {
+    format!(
+        r#"{{"access_token":"{}","refresh_token":"{}","token_type":"Bearer","expires_at":{},"user":{{"id":"person-a","display_name":"","created_at":"2026-01-01T00:00:00Z"}}}}"#,
+        "a".repeat(64),
+        refresh.to_string().repeat(64),
+        now_ms() - 3_600_000
+    )
+    .into_bytes()
+}
+
+/// ArkTS 存的匿名会话是 Native 布局，但同样没有 `session_id`，一小时前过期。
+fn anonymous_session(refresh: char) -> Vec<u8> {
+    let mut expired = saved("person-a", None, 60, refresh);
+    expired.expires_at_unix_ms = now_ms() - 3_600_000;
+    let native = serde_json::to_vec(&expired).unwrap();
+    assert!(!String::from_utf8_lossy(&native).contains("session_id"));
+    native
 }
 
 #[test]
 fn an_upgraded_flat_session_refreshed_in_one_sandbox_is_not_rolled_back_by_the_other() {
-    // ArkTS 桥接存的扁平登录会话，一小时前过期。
-    let flat = format!(
-        r#"{{"access_token":"{}","refresh_token":"{}","token_type":"Bearer","expires_at":{},"user":{{"id":"person-a","display_name":"","created_at":"2026-01-01T00:00:00Z"}}}}"#,
-        "a".repeat(64),
-        "b".repeat(64),
-        now_ms() - 3_600_000
-    );
-    assert_one_refresh_survives_the_upgrade(ACCOUNT_SESSION_FILE, flat.as_bytes(), storage);
+    assert_one_refresh_survives_the_upgrade(ACCOUNT_SESSION_FILE, flat_session, storage, false);
 }
 
 #[test]
 fn an_upgraded_anonymous_session_refreshed_in_one_sandbox_is_not_rolled_back_by_the_other() {
-    // ArkTS 存的匿名会话是 Native 布局，但同样没有 `session_id`。
-    let mut expired = saved("person-a", None, 60, 'b');
-    expired.expires_at_unix_ms = now_ms() - 3_600_000;
-    let native = serde_json::to_vec(&expired).unwrap();
-    assert!(!String::from_utf8_lossy(&native).contains("session_id"));
     assert_one_refresh_survives_the_upgrade(
         ANONYMOUS_SESSION_FILE,
-        &native,
+        anonymous_session,
         LockedAnonymousSessionStorage::new,
+        false,
+    );
+}
+
+#[test]
+fn an_upgraded_flat_session_the_keyboard_rotated_before_the_upgrade_survives() {
+    assert_one_refresh_survives_the_upgrade(ACCOUNT_SESSION_FILE, flat_session, storage, true);
+}
+
+#[test]
+fn an_upgraded_anonymous_session_the_keyboard_rotated_before_the_upgrade_survives() {
+    assert_one_refresh_survives_the_upgrade(
+        ANONYMOUS_SESSION_FILE,
+        anonymous_session,
+        LockedAnonymousSessionStorage::new,
+        true,
     );
 }

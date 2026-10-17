@@ -1,8 +1,8 @@
 //! 采用另一个沙箱发布的会话（#8201 的 P3，`msime_client_account` 的 `session_adopt`）。鸿蒙的设置应用和键盘各有一个沙箱、各存一份会话，靠共享目录互相镜像；镜像以前在 ArkTS 里直接覆盖文件，退出登录、换号和刷新都可能被另一边的旧副本盖回去。这里在本目录的 `account-refresh.lock` 里决定要不要用发布的那一份，与本进程和同目录其他进程的刷新互斥。
 //!
-//! 规则只看「是不是同一次登录」：同一个 `user.id` 且两边都有、并且相同的 `session_id`。只有同一次登录内部才按 `expires_at` 新者胜，刷新会推后它；不是同一次登录时，设置应用发布的为准（换号、新登录），键盘发布的一律不用（设置应用里的退出和换号不会被键盘的旧副本撤销）。
+//! 规则只看「是不是同一次登录」：同一个 `user.id`，并且两边都有、相同的 `session_id`。只有同一次登录内部才按 `expires_at` 新者胜，刷新会推后它；不是同一次登录时，设置应用发布的为准（换号、新登录），键盘发布的一律不用（设置应用里的退出和换号不会被键盘的旧副本撤销）。
 //!
-//! 比较之前，两边还没有 `session_id` 的旧会话（ArkTS 写的扁平登录会话和匿名会话都没有）先按 `ensure_session_id` 的同一规则补上，由刷新令牌派生（`legacy_session_id`）。升级后两个沙箱是同一份旧会话，一边刷新过（ID 是刷新前那枚令牌派生的），另一边还没被 Rust 写过，补出来的 ID 相同，才会按新者胜采用刷新后的那份；否则会换回已经用过的刷新令牌，下一次刷新被服务端当成重放、整个会话被吊销。
+//! 升级窗口是例外。ArkTS 写的扁平登录会话和匿名会话都没有 `session_id`，Rust 第一次用它时按刷新令牌补上派生的 ID（`legacy_session_id`，UUID v8），随后的刷新不改 ID；Rust 自己登录、注册匿名会话给的是随机的 UUID v4。所以一边磁盘上还没有 `session_id`（这个沙箱的会话还没被 Rust 补过 ID，只可能是升级前那次登录），另一边也没有、或者是派生的 ID 时，两份都是升级前那次登录的后代，同一个 `user.id` 就算同一次登录，两个方向都按新者胜。不能要求两边的刷新令牌相同：旧版里键盘会刷新并发布会话，设置应用只在回到前台时导入，访问令牌 15 分钟就过期，升级时设置应用手里往往是键盘早已轮换掉的令牌，键盘手里是新的（多半还已经被 Rust 补上了由它派生的 ID）。这时若不算同一次登录，设置应用会留着用过的令牌、键盘会被换回它，下一次刷新被服务端当成重放（宽限只有 30 秒），整个会话被吊销、两个沙箱一起登出。两边都已经有 `session_id` 时只认相同的 ID。
 
 use super::*;
 
@@ -36,9 +36,20 @@ fn with_login_id(mut session: SavedAccountSession) -> SavedAccountSession {
     session
 }
 
-/// 两份会话是不是同一次登录。`session_id` 一方没有时不算；调用方先用 [`with_login_id`] 给旧会话补上。
+/// 升级前那次登录的后代：磁盘上还没有 `session_id`，或者是 [`legacy_session_id`] 派生的（UUID v8）。
+fn from_before_the_upgrade(session: &SavedAccountSession) -> bool {
+    session
+        .session_id
+        .is_none_or(|id| id.get_version() == Some(uuid::Version::Custom))
+}
+
+/// 两份会话（按磁盘上的原样，不补 ID）是不是同一次登录：同一个 `user.id`，两边都有 `session_id` 时要相同；有一边还没有时，另一边也须是升级前那次登录的后代（见模块说明）。
 fn same_sign_in(a: &SavedAccountSession, b: &SavedAccountSession) -> bool {
-    a.tokens.user.id == b.tokens.user.id && a.session_id.is_some() && a.session_id == b.session_id
+    a.tokens.user.id == b.tokens.user.id
+        && match (a.session_id, b.session_id) {
+            (Some(a), Some(b)) => a == b,
+            _ => from_before_the_upgrade(a) && from_before_the_upgrade(b),
+        }
 }
 
 impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
@@ -47,7 +58,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     /// - `Settings`：`published` 是 `None` 时清掉本地会话（与 [`Self::forget`] 相同，不联网）；本地是同一次登录时按 `expires_at` 新者胜；其余情况（换号、新登录、本地没有或读不了）直接替换。
     /// - `Keyboard`：只在本地是同一次登录、并且 `published` 的 `expires_at` 更晚时采用；其余情况一律不动。
     ///
-    /// 两边没有 `session_id` 的旧会话先按刷新令牌补上再比较（见模块说明），采用时写进文件的也是补上 ID 的那份。`published` 不合法时是 [`AccountError::Storage`]，本地不动。登录换了（包括清掉）时推进会话代次，进行中的操作和刷新不会再把旧会话写回来。
+    /// 一边还没有 `session_id` 时怎样算同一次登录见模块说明；采用没有 `session_id` 的会话时，写进文件的是按刷新令牌补上 ID 的那份。`published` 不合法时是 [`AccountError::Storage`]，本地不动。登录换了（包括清掉）时推进会话代次，进行中的操作和刷新不会再把旧会话写回来。
     pub fn adopt_session(
         &self,
         published: Option<SavedAccountSession>,
@@ -56,11 +67,10 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         if let Some(published) = &published {
             validate_saved_session(published)?;
         }
-        let published = published.map(with_login_id);
         // 与登录、刷新的加锁顺序相同：先存储的锁，再会话的互斥锁。
         self.storage.with_refresh_lock(|| {
             let mut state = self.lock()?;
-            let local = self.stored().map(|local| local.map(with_login_id));
+            let local = self.stored();
             let same = |published: &SavedAccountSession| {
                 matches!(&local, Ok(Some(local)) if same_sign_in(local, published))
             };
@@ -94,9 +104,10 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             let Some(published) = published.filter(|_| adopt) else {
                 return Ok(SessionAdoptOutcome::Unchanged);
             };
+            let changed = !matches!(&state.saved, Some(previous) if same_sign_in(previous, &published));
+            let published = with_login_id(published);
             self.storage.save(&published)?;
-            let previous = state.saved.clone().map(with_login_id);
-            if state.loaded && !same_login_option(previous.as_ref(), Some(&published)) {
+            if state.loaded && changed {
                 state.generation = state.generation.saturating_add(1);
                 state.refresh = None;
             }
