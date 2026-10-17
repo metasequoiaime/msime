@@ -2534,10 +2534,10 @@ fn a_legacy_android_snapshot_that_never_activated_is_merged_instead_of_uploaded(
     let request = queue.enqueue(&file, USER, 4, &published, &sha256).unwrap();
     {
         let lease = queue.acquire_worker_lease().unwrap();
-        assert!(queue.claim(&lease, USER).unwrap().is_some());
+        assert!(queue.claim(&lease, Some(USER)).unwrap().is_some());
         let typed = local_version(None, &"1".repeat(64)).unwrap();
         let applied = queue
-            .complete(request, &lease, &typed, false, USER, || {
+            .complete(request, &lease, &typed, false, Some(USER), || {
                 unreachable!("a conflicting request is not applied")
             })
             .unwrap();
@@ -3359,9 +3359,9 @@ fn a_downloaded_snapshot_is_reported_waiting_activated_or_lost() {
     let typed = local_version(None, &"1".repeat(64)).unwrap();
     {
         let lease = queue.acquire_worker_lease().unwrap();
-        assert!(queue.claim(&lease, USER).unwrap().is_some());
+        assert!(queue.claim(&lease, Some(USER)).unwrap().is_some());
         let applied = queue
-            .complete(first, &lease, &typed, false, USER, || {
+            .complete(first, &lease, &typed, false, Some(USER), || {
                 unreachable!("a conflicting request is not applied")
             })
             .unwrap();
@@ -3377,16 +3377,11 @@ fn a_downloaded_snapshot_is_reported_waiting_activated_or_lost() {
     let activated = local_version(Some(&second_id), &"2".repeat(64)).unwrap();
     {
         let lease = queue.acquire_worker_lease().unwrap();
-        assert!(queue.claim(&lease, USER).unwrap().is_some());
+        assert!(queue.claim(&lease, Some(USER)).unwrap().is_some());
         let applied = queue
-            .complete(
-                second,
-                &lease,
-                &typed,
-                false,
-                USER,
-                || Ok(activated.clone()),
-            )
+            .complete(second, &lease, &typed, false, Some(USER), || {
+                Ok(activated.clone())
+            })
             .unwrap();
         assert!(applied);
     }

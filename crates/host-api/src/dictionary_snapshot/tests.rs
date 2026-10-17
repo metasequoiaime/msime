@@ -1722,3 +1722,72 @@ fn snapshot_queue_imports_the_android_v1_state_once() {
     );
     assert!(directory.join("state.bin").exists());
 }
+
+/// Android 原来的 Java 队列排的本地备份恢复请求（账号是 `local-backup`），与 client-core 的 `android_v1` 用例里的 `LOCAL_BACKUP` 是同一份 JDK 21 上生成的 `state.bin`，期望的本机版本是 `local-v1:legacy:aaa…`。
+const LOCAL_BACKUP_STATE_BIN: &str = "4d535131000000010100506c6f63616c2d76313a6c65676163793a6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616101802478538ffb4db6a49c509d2c2a4c8e000c6c6f63616c2d6261636b757000506c6f63616c2d76313a6c65676163793a61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161004061373936386162383465303366306635366563663736626465373465363462363434323565613163346431346437323564346537646138656464346334623562000000000000000000";
+const LOCAL_BACKUP_ID: &str = "80247853-8ffb-4db6-a49c-509d2c2a4c8e";
+
+/// 一台空词库的设备上，队列目录里是 Java 留下的本地备份恢复请求，带着 `process` 的 `account_id`（不给是不知道当前账号是谁）处理一次。本机版本与请求期望的不同，所以请求被认领以后以 `conflict` 结束；没被认领时还是 `queued`，按别的账号取消时是 `cancelled`。
+fn process_a_local_backup_request(account_id: Option<&str>) -> serde_json::Value {
+    use msime_client_core::preferences::Preferences;
+    use std::fs;
+
+    let root = tempfile::tempdir().unwrap();
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        fs::create_dir(root.path().join(name)).unwrap();
+    }
+    let queue = root.path().join("dictionary-snapshots");
+    fs::create_dir(&queue).unwrap();
+    let private = |path: std::path::PathBuf, bytes: &[u8]| {
+        fs::write(&path, bytes).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+    };
+    private(
+        queue.join("state.bin"),
+        &hex::decode(LOCAL_BACKUP_STATE_BIN).unwrap(),
+    );
+    let snapshot = queue.join(format!("{LOCAL_BACKUP_ID}.ndjson"));
+    private(snapshot.clone(), b"synthetic snapshot\n");
+    let mut request = serde_json::json!({
+        "operation": "process",
+        "directory": queue,
+        "staging_root": root.path().join("staging"),
+        "options": {
+            "api_version": 1,
+            "resources": root.path().join("resources"),
+            "user_data": root.path().join("user"),
+            "cache": root.path().join("cache"),
+            "dictionaries": root.path().join("dictionaries"),
+            "preferences": Preferences::default(),
+        },
+    });
+    if let Some(account_id) = account_id {
+        request["account_id"] = serde_json::json!(account_id);
+    }
+    let state = super::snapshot_queue_json(&serde_json::to_vec(&request).unwrap()).unwrap();
+    assert_eq!(state["request"]["id"], LOCAL_BACKUP_ID);
+    assert_eq!(state["request"]["accountId"], "local-backup");
+    assert!(!queue.join("state.bin").exists());
+    assert!(!snapshot.exists(), "{state}");
+    state
+}
+
+#[test]
+fn a_local_backup_request_is_processed_without_an_account() {
+    assert_eq!(
+        process_a_local_backup_request(None)["request"]["status"],
+        "conflict"
+    );
+}
+
+#[test]
+fn a_local_backup_request_is_not_cancelled_for_the_signed_in_account() {
+    assert_eq!(
+        process_a_local_backup_request(Some("someone"))["request"]["status"],
+        "conflict"
+    );
+}

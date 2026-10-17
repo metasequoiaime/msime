@@ -1741,11 +1741,8 @@ fn snapshot_queue_process(
     queue
         .publish_local_version(&current)
         .map_err(snapshot_queue_error)?;
-    // 键盘这次读不到共享的会话文件（读取失败或未登录），不知道当前账号是谁。请求留到下一次空闲时再处理，不在未知账号下应用。
-    let Some(account_id) = account_id else {
-        return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
-            .map_err(|_| "snapshot_unavailable".to_owned());
-    };
+    // 键盘这次读不到共享的会话文件（读取失败或未登录）时不知道当前账号是谁：属于账号的请求 claim 原样留着，下一次空闲时再处理，不在未知账号下应用；本地备份恢复的请求（`LOCAL_RESTORE_OWNER`）不属于任何账号，照样处理，与 Android 原来的 Java 队列相同。
+    let account_id = account_id.as_deref();
     let lease = match queue.acquire_worker_lease() {
         Ok(lease) => lease,
         Err(SnapshotQueueError::Busy) => {
@@ -1755,7 +1752,7 @@ fn snapshot_queue_process(
         Err(error) => return Err(snapshot_queue_error(error)),
     };
     let Some(request) = queue
-        .claim(&lease, &account_id)
+        .claim(&lease, account_id)
         .map_err(snapshot_queue_error)?
     else {
         return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
@@ -1763,7 +1760,7 @@ fn snapshot_queue_process(
     };
     if request.expected_local_version != current {
         let _ = queue
-            .complete(request.id, &lease, &current, false, &account_id, || {
+            .complete(request.id, &lease, &current, false, account_id, || {
                 Err(SnapshotQueueError::Conflict)
             })
             .map_err(snapshot_queue_error)?;
@@ -1806,7 +1803,7 @@ fn snapshot_queue_process(
             let latest = durable_local_version(&engine_options).map_err(str::to_owned)?;
             if latest != current {
                 let _ = queue
-                    .complete(request.id, &lease, &latest, false, &account_id, || {
+                    .complete(request.id, &lease, &latest, false, account_id, || {
                         Err(SnapshotQueueError::Conflict)
                     })
                     .map_err(snapshot_queue_error)?;
@@ -1825,7 +1822,7 @@ fn snapshot_queue_process(
         .and_then(Value::as_u64)
         .ok_or_else(|| "snapshot_unavailable".to_owned())?;
     let mut consumed = false;
-    let completion = queue.complete(request.id, &lease, &current, false, &account_id, || {
+    let completion = queue.complete(request.id, &lease, &current, false, account_id, || {
         activate(handle, &raw_expected).map_err(|_| SnapshotQueueError::Unavailable)?;
         consumed = true;
         durable_local_version(&engine_options).map_err(|_| SnapshotQueueError::Unavailable)

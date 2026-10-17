@@ -6,7 +6,7 @@
 
 use super::super::{
     DictionarySnapshotQueue, SnapshotQueueError, SnapshotQueueState, SnapshotRequest,
-    SnapshotRequestStatus, STATE_NAME as JSON_STATE_NAME,
+    SnapshotRequestStatus, LOCAL_RESTORE_OWNER, STATE_NAME as JSON_STATE_NAME,
 };
 use super::STATE_NAME;
 use std::fs;
@@ -188,7 +188,10 @@ fn converted_request_is_processed_by_the_rust_worker() {
     assert!(queue.file_path(id).unwrap().exists());
 
     let lease = queue.acquire_worker_lease().unwrap();
-    let claimed = queue.claim(&lease, "fixture-账号-𝄞").unwrap().unwrap();
+    let claimed = queue
+        .claim(&lease, Some("fixture-账号-𝄞"))
+        .unwrap()
+        .unwrap();
     assert_eq!(claimed.id, id);
     let next = format!("local-v1:{id}:{}", "c".repeat(64));
     assert!(queue
@@ -197,7 +200,7 @@ fn converted_request_is_processed_by_the_rust_worker() {
             &lease,
             &legacy_version(),
             false,
-            "fixture-账号-𝄞",
+            Some("fixture-账号-𝄞"),
             || { Ok(next.clone()) }
         )
         .unwrap());
@@ -419,4 +422,110 @@ fn import_waits_for_a_held_state_lock_instead_of_reporting_busy() {
     drop(held);
     assert!(importer.join().unwrap().unwrap());
     assert_eq!(queue.read().unwrap(), preparing_state());
+}
+
+/// Java 排的本地备份恢复请求（`LOCAL_BACKUP`，账号是 `LOCAL_RESTORE_OWNER`）转换以后原样保留，Rust 的 worker 不知道当前账号是谁时也照样认领并激活，与 Java 的 `owned` 相同。`import_first` 为假时不先调 `import_android_v1`，由认领时的就地转换接上。
+fn assert_local_backup_is_applied_without_an_account(import_first: bool) {
+    let (_parent, queue) = java_queue(LOCAL_BACKUP, Some(LOCAL_BACKUP_ID));
+    let id = Uuid::parse_str(LOCAL_BACKUP_ID).unwrap();
+    let queued = state(
+        Some(legacy_version()),
+        Some(request(
+            LOCAL_BACKUP_ID,
+            LOCAL_RESTORE_OWNER,
+            0,
+            SnapshotRequestStatus::Queued,
+        )),
+    );
+    if import_first {
+        assert!(queue.import_android_v1().unwrap());
+        assert_eq!(queue.read().unwrap(), queued);
+    }
+
+    let lease = queue.acquire_worker_lease().unwrap();
+    let claimed = queue.claim(&lease, None).unwrap().unwrap();
+    assert_eq!(claimed.id, id);
+    assert_eq!(claimed.status, SnapshotRequestStatus::Preparing);
+    let next = format!("local-v1:{id}:{}", "c".repeat(64));
+    assert!(queue
+        .complete(id, &lease, &legacy_version(), false, None, || Ok(
+            next.clone()
+        ))
+        .unwrap());
+    let applied = queue.read().unwrap();
+    assert_eq!(applied.local_version.as_deref(), Some(next.as_str()));
+    assert_eq!(
+        applied.request.unwrap().status,
+        SnapshotRequestStatus::Applied
+    );
+    assert!(!queue.file_path(id).unwrap().exists());
+}
+
+#[test]
+fn a_converted_local_backup_request_is_applied_without_an_account() {
+    assert_local_backup_is_applied_without_an_account(true);
+}
+
+#[test]
+fn a_local_backup_request_left_by_java_is_applied_without_an_account() {
+    assert_local_backup_is_applied_without_an_account(false);
+}
+
+#[test]
+fn a_local_backup_request_is_never_cancelled_for_an_account_mismatch() {
+    let (_parent, queue) = java_queue(LOCAL_BACKUP, Some(LOCAL_BACKUP_ID));
+    let id = Uuid::parse_str(LOCAL_BACKUP_ID).unwrap();
+    // 退出登录只取消该账号自己的请求，碰不到它。
+    queue.cancel("fixture").unwrap();
+    assert_eq!(
+        queue.read().unwrap().request.unwrap().status,
+        SnapshotRequestStatus::Queued
+    );
+    assert!(queue.file_path(id).unwrap().exists());
+
+    // 登录了某个账号、未登录（空字符串）、认领和激活之间换了账号，都不当成别的账号的请求。
+    let lease = queue.acquire_worker_lease().unwrap();
+    assert_eq!(
+        queue.claim(&lease, Some("someone")).unwrap().unwrap().id,
+        id
+    );
+    assert_eq!(queue.claim(&lease, Some("")).unwrap().unwrap().id, id);
+    let next = format!("local-v1:{id}:{}", "d".repeat(64));
+    assert!(queue
+        .complete(
+            id,
+            &lease,
+            &legacy_version(),
+            false,
+            Some("someone-else"),
+            || Ok(next.clone())
+        )
+        .unwrap());
+    assert_eq!(
+        queue.read().unwrap().request.unwrap().status,
+        SnapshotRequestStatus::Applied
+    );
+}
+
+#[test]
+fn an_account_request_waits_while_the_account_is_unknown() {
+    let (_parent, queue) = java_queue(PREPARING, Some(PREPARING_ID));
+    let id = Uuid::parse_str(PREPARING_ID).unwrap();
+    let lease = queue.acquire_worker_lease().unwrap();
+    // 不知道当前账号是谁：不认领、不取消，快照留着。
+    assert!(queue.claim(&lease, None).unwrap().is_none());
+    assert_eq!(queue.read().unwrap(), preparing_state());
+    assert!(queue.file_path(id).unwrap().exists());
+    // 认领之后、激活之前又不知道了：不激活，请求和快照原样留着。
+    assert!(queue
+        .claim(&lease, Some("fixture-账号-𝄞"))
+        .unwrap()
+        .is_some());
+    assert!(!queue
+        .complete(id, &lease, &legacy_version(), false, None, || {
+            panic!("an unknown account must not activate an account's request")
+        })
+        .unwrap());
+    assert_eq!(queue.read().unwrap(), preparing_state());
+    assert!(queue.file_path(id).unwrap().exists());
 }
