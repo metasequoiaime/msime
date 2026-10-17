@@ -45,6 +45,17 @@ int main()
             ++failures;
         }
     }
+    // 规则在 Rust：原来这里的 C++ 副本只在主机部分查反斜杠，查询串里的反斜杠照样放行；Rust 整个地址都不收。
+    if (check_ai_endpoint("https://api.example.com/v1?q=a\\b") != AiEndpointCheck::Invalid) {
+        std::cerr << "ai endpoint policy: a backslash anywhere must be refused, as Rust does\n";
+        ++failures;
+    }
+    // Rust 解析前去掉首尾空格，curl 不会；原文不以协议开头的地址不交给 curl。
+    if (check_ai_endpoint(" https://api.example.com/v1") != AiEndpointCheck::Allowed ||
+        !ai_endpoint_protocol(" https://api.example.com/v1").empty()) {
+        std::cerr << "ai endpoint protocol: a leading space must not reach curl\n";
+        ++failures;
+    }
     if (ai_endpoint_protocol("http://192.168.1.20:1234/v1") != "http" ||
         ai_endpoint_protocol("HTTPS://api.example.com/v1") != "https") {
         std::cerr << "ai endpoint protocol mismatch\n";

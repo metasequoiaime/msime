@@ -1,6 +1,6 @@
 import XCTest
 
-/// 与 `crates/client-providers/src/ai/endpoint.rs` 跑同一组用例（`shared/contracts/ai-endpoint/cases.json`）。两边结论不一致时，设置页会放行键盘拒绝的地址，或者把 Token 存在键盘找不到的来源键下。
+/// 经 `msime_client_ai_endpoint_check` 跑各平台共用的用例（`shared/contracts/ai-endpoint/cases.json`）：规则在 Rust，这里核对 C 接口的回答被正确读出，设置页和键盘因此用同一个结论、同一个来源键。
 final class AIEndpointPolicyTests: XCTestCase {
   func testSharedContractCases() throws {
     let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "cases", withExtension: "json"))
@@ -20,10 +20,12 @@ final class AIEndpointPolicyTests: XCTestCase {
     }
   }
 
-  /// 带前导零的点分写法在系统解析里按八进制处理（`010.0.0.1` 是 8.0.0.1），不能当成 10/8 放行。
+  /// 带前导零的点分写法在系统解析里按八进制处理（`010.0.0.1` 是 8.0.0.1），不能当成 10/8 放行。Rust 只收按规范写法书写的明文主机，这类写法是不合规，而不是公网明文（原来的 Swift 副本把它们当成公网域名）。
   func testLeadingZeroIPv4IsNotTreatedAsPrivate() {
-    XCTAssertEqual(AIEndpointPolicy.problem("http://010.0.0.1/v1"), .cleartextPublicHost)
-    XCTAssertEqual(AIEndpointPolicy.problem("http://0x7f000001/v1"), .cleartextPublicHost)
+    XCTAssertEqual(AIEndpointPolicy.problem("http://010.0.0.1/v1"), .invalid)
+    XCTAssertEqual(AIEndpointPolicy.problem("http://0x7f000001/v1"), .invalid)
+    XCTAssertEqual(AIEndpointPolicy.problem(""), .invalid)
+    XCTAssertNil(AIEndpointPolicy.origin(""))
   }
 
   /// 明文地址的主机不收百分号编码和空方括号：`URLComponents.host` 是解码后的，`evil.com%00.local` 解码后以 `.local` 结尾。

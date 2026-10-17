@@ -17,7 +17,9 @@ public final class CandidateTranslationRouteSmoke {
         }
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        // AI 接口地址的结论来自 Rust，JVM 里没有 JNI，按核对过的表作答。
+        app.msime.android.AiEndpointContract.install();
         Row[] rows = {
             // 共享偏好的默认值：候选翻译开着、腾讯默认启用但没有凭据，所以什么都不发。
             new Row("default preferences", true, false, false, "", "", false, "", "",

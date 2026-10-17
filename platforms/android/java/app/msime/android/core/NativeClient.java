@@ -549,6 +549,11 @@ public final class NativeClient {
         return TextPolicy.utf8(translationEndpointIssueRaw(utf8(endpoint)));
     }
 
+    /** AI 辅助接口地址的检查：value 是 {@code {origin, problem, hint}}，origin 是 {@code ai_assistant.tokens} 里存 Token 的来源键（不能用时为 null），problem 是 null、{@code invalid} 或 {@code cleartext_public}，hint 是设置页写在地址下面的说明。不做 I/O，规则只在 Rust。 */
+    public static String aiEndpointCheck(String endpoint) {
+        return TextPolicy.utf8(aiEndpointCheckRaw(utf8(endpoint)));
+    }
+
     /** 翻译服务设置页的「测试连接」：请求 {@code {service, config}}，service 是 translation.custom、translation.niutrans 或 translation.tencent，config 是表单里的值；value 是 {@code {ok, message}}，message 不含凭据和服务的回复。阻塞到约 15 秒，只在工作线程上调用。请求带着凭据，不得写进日志。 */
     public static String testApiCredential(String requestJson) {
         return TextPolicy.utf8(testApiCredentialRaw(utf8(requestJson)));
@@ -941,6 +946,7 @@ public final class NativeClient {
     private static native boolean customTranslationReplyFailedRaw(byte[] body);
     private static native boolean niutransTranslationReplyFailedRaw(byte[] body);
     private static native byte[] translationEndpointIssueRaw(byte[] endpoint);
+    private static native byte[] aiEndpointCheckRaw(byte[] endpoint);
     private static native byte[] testApiCredentialRaw(byte[] request);
     private static native byte[] voiceLocalModelsRaw(byte[] request);
     private static native byte[] voiceLocalModelInstallRaw(byte[] request, LocalModelProgress listener);

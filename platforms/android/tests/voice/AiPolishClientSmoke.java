@@ -9,6 +9,8 @@ public final class AiPolishClientSmoke {
     static void check(boolean value) { if (!value) throw new AssertionError(); }
 
     public static void main(String[] arguments) throws Exception {
+        // AI 接口地址的结论来自 Rust，JVM 里没有 JNI，按核对过的表作答。
+        app.msime.android.AiEndpointContract.install();
         AiPolishConfiguration config = new AiPolishConfiguration(
             "https://Fixture.Invalid/v1/chat/completions", "fixture-model", "保留原意", "fixture-key");
         check(config.credentialOrigin().equals("https://fixture.invalid:443"));

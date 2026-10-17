@@ -16089,27 +16089,36 @@ group("AI model catalogs keep each provider's protocol and path", () => {
     "rejects lookalike loopback hosts",
   );
   check(
-    AiModelCatalogPolicy.modelsUrl("https://api.everyapi.ai/v1/chat/completions") ===
-      "https://api.everyapi.ai/v1/models",
+    AiModelCatalogPolicy.modelsUrl(
+      "https://api.everyapi.ai/v1/chat/completions",
+      contractAllowed,
+    ) === "https://api.everyapi.ai/v1/models",
     "an OpenAI-compatible chat endpoint keeps its version prefix",
   );
   check(
     AiModelCatalogPolicy.modelsUrl(
       "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      contractAllowed,
     ) === "https://generativelanguage.googleapis.com/v1beta/openai/models",
     "Gemini does not get rewritten to a different API version",
   );
   check(
-    AiModelCatalogPolicy.modelsUrl("https://user:secret@example.test/v1/chat/completions") === null,
+    AiModelCatalogPolicy.modelsUrl(
+      "https://user:secret@example.test/v1/chat/completions",
+      contractAllowed,
+    ) === null,
     "embedded credentials are rejected",
   );
   check(
-    AiModelCatalogPolicy.modelsUrl("http://example.test/v1/chat/completions") === null,
+    AiModelCatalogPolicy.modelsUrl("http://example.test/v1/chat/completions", contractAllowed) ===
+      null,
     "catalog credentials are never sent over HTTP",
   );
   check(
-    AiModelCatalogPolicy.modelsUrl("http://192.168.1.20:1234/v1/chat/completions") ===
-      "http://192.168.1.20:1234/v1/models",
+    AiModelCatalogPolicy.modelsUrl(
+      "http://192.168.1.20:1234/v1/chat/completions",
+      contractAllowed,
+    ) === "http://192.168.1.20:1234/v1/models",
     "a local network model server such as LM Studio may use HTTP",
   );
   const anthropic = "https://api.anthropic.com/v1/models";
@@ -16137,7 +16146,7 @@ group("AI model catalogs keep each provider's protocol and path", () => {
   );
 });
 
-// 与 crates/client-providers/src/ai/endpoint.rs 跑同一组用例；这里的判断和 Rust 不一致时，鸿蒙宿主会放行或拒绝与其他平台不同的地址。
+// AI 接口地址的规则只在 Rust，鸿蒙经 NAPI 的 aiEndpointCheck 询问；node 里没有 NAPI，这里核对读回答的那一步，以及依赖结论的调用方按 Rust 的结论作答。结论按 shared/contracts/ai-endpoint/cases.json（Rust 逐条跑同一份）和几条一眼可知的地址给出，表里没有的地址直接失败。
 declare const __dirname: string;
 declare function require(name: "fs"): { readFileSync(path: string, encoding: "utf8"): string };
 interface AiEndpointContractCase {
@@ -16146,16 +16155,68 @@ interface AiEndpointContractCase {
   origin: string | null;
 }
 
-group("AI endpoints allow HTTP only for local network hosts", () => {
+// 每次现读：前面的分组在这段代码之前就会调用 contractAllowed，模块级的缓存变量那时还没有初始化。
+function aiEndpointContract(): Map<string, AiEndpointContractCase> {
   const contract = JSON.parse(
     require("fs").readFileSync(
       `${__dirname}/../../../shared/contracts/ai-endpoint/cases.json`,
       "utf8",
     ),
   ) as { cases: AiEndpointContractCase[] };
-  check(contract.cases.length > 40, "the shared contract is present");
-  for (const item of contract.cases) {
-    const actual = AiEndpointPolicy.check(item.endpoint);
+  const answers = new Map<string, AiEndpointContractCase>();
+  for (const item of contract.cases) answers.set(item.endpoint, item);
+  for (const item of [
+    {
+      endpoint: "https://api.everyapi.ai/v1/chat/completions",
+      result: "allowed",
+      origin: "https://api.everyapi.ai:443",
+    },
+    {
+      endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      result: "allowed",
+      origin: "https://generativelanguage.googleapis.com:443",
+    },
+    {
+      endpoint: "https://user:secret@example.test/v1/chat/completions",
+      result: "invalid",
+      origin: null,
+    },
+    {
+      endpoint: "http://example.test/v1/chat/completions",
+      result: "cleartext_public",
+      origin: null,
+    },
+    {
+      endpoint: "http://192.168.1.20:1234/v1/chat/completions",
+      result: "allowed",
+      origin: "http://192.168.1.20:1234",
+    },
+  ]) {
+    answers.set(item.endpoint, item);
+  }
+  return answers;
+}
+
+/** Rust 对这个地址的回答，按 msime_client_ai_endpoint_check 的信封写出。 */
+function rustReply(item: AiEndpointContractCase): string {
+  const problem: string | null = item.result === "allowed" ? null : item.result;
+  return JSON.stringify({
+    ok: true,
+    value: { origin: item.origin, problem, hint: problem === null ? "" : "说明" },
+  });
+}
+
+function contractAllowed(endpoint: string): boolean {
+  const item: AiEndpointContractCase | undefined = aiEndpointContract().get(endpoint);
+  if (item === undefined) throw new Error(`no checked answer for AI endpoint ${endpoint}`);
+  return AiEndpointPolicy.parse(rustReply(item)).result === "allowed";
+}
+
+group("AI endpoint answers from Rust are read as given", () => {
+  const answers = aiEndpointContract();
+  check(answers.size > 40, "the shared contract is present");
+  for (const item of answers.values()) {
+    const actual = AiEndpointPolicy.parse(rustReply(item));
     check(
       actual.result === item.result,
       `${JSON.stringify(item.endpoint)} is ${item.result}, got ${actual.result}`,
@@ -16165,31 +16226,19 @@ group("AI endpoints allow HTTP only for local network hosts", () => {
       `${JSON.stringify(item.endpoint)} keys its token as ${item.origin}, got ${actual.origin}`,
     );
   }
-  // 非规范的数字主机交给 curl 时可能被解析成别的地址（`010.0.0.1` 可能是八进制的 8.0.0.1），一律按无效拒绝。
-  for (const endpoint of [
-    "http://010.0.0.1/v1",
-    "http://10.1/v1",
-    "http://0x7f000001/v1",
-    "http://192.168.1.5./v1",
-    "http://256.1.1.1/v1",
+  // C 接口拒绝请求（例如超过 64 KiB）、回答读不懂或缺字段时一律按不合规处理，不发请求。
+  for (const reply of [
+    '{"ok":false,"error":"invalid endpoint"}',
+    "not json",
+    "null",
+    '{"ok":true,"value":null}',
+    '{"ok":true,"value":{"origin":"https://api.example.com:443"}}',
+    '{"ok":true,"value":{"origin":null,"problem":null,"hint":""}}',
+    '{"ok":true,"value":{"origin":null,"problem":"unexpected","hint":""}}',
   ]) {
-    check(
-      AiEndpointPolicy.check(endpoint).result === "invalid",
-      `${endpoint} is refused rather than guessed`,
-    );
+    const actual = AiEndpointPolicy.parse(reply);
+    check(actual.result === "invalid" && actual.origin === null, `${reply} is refused`);
   }
-  check(
-    AiEndpointPolicy.check("http://[FE80:0:0::1]:1234/v1").origin === "http://[fe80::1]:1234",
-    "IPv6 origins use the canonical text",
-  );
-  check(
-    AiEndpointPolicy.check("http://[::ffff:192.168.1.2]/v1").result === "cleartext_public",
-    "IPv4-mapped addresses are not treated as local, as in Rust",
-  );
-  check(
-    AiEndpointPolicy.check("http://localhost:/v1").origin === "http://localhost:80",
-    "an empty port means the default",
-  );
   check(AiEndpointPolicy.CLEARTEXT_HINT.includes("https"), "the refusal names the alternative");
 });
 

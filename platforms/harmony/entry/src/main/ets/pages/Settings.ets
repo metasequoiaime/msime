@@ -52,7 +52,7 @@ import { VocabularyAction, VocabularyReviewRequest } from '../keyboard/settings/
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
 import { HTTP_ASR_CHAT_AUDIO, HttpAsrConfigurationPolicy } from '../keyboard/input/HttpAsrConfigurationPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
-import { AiEndpointPolicy } from '../keyboard/settings/AiEndpointPolicy';
+import { AiEndpoint } from '../keyboard/settings/AiEndpoint';
 import {
   CustomTranslationProbeDescriptor,
   CustomTranslationProbePolicy,
@@ -2473,7 +2473,8 @@ class SettingsBridge {
     } catch {
       return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
     }
-    const endpoint: string | null = AiModelCatalogPolicy.modelsUrl(request.endpoint);
+    const endpoint: string | null = AiModelCatalogPolicy.modelsUrl(request.endpoint,
+      (value: string): boolean => AiEndpoint.allowed(value));
     const token: string = request.token.trim();
     if (endpoint === null || token.length === 0 || utf8Length(token) > 16 * 1024
       || TextPolicy.hasControl(token)) {
@@ -3055,10 +3056,10 @@ class SettingsBridge {
       && !TextPolicy.characters(value).every((character: string): boolean => character === '*');
   }
 
-  /** AI 接口地址：https 不限主机，http 只能指向本机或局域网（AiEndpointPolicy）。 */
+  /** AI 接口地址：https 不限主机，http 只能指向本机或局域网（Rust 的规则，见 AiEndpoint）。 */
   private validAiEndpoint(value: string): string | null {
     const endpoint: string = value.trim();
-    if (!AiEndpointPolicy.allowed(endpoint)) return null;
+    if (!AiEndpoint.allowed(endpoint)) return null;
     return endpoint;
   }
 

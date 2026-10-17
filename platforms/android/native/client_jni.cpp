@@ -977,6 +977,7 @@ constexpr jsize kCustomTranslationRequestLimit = 16384;
 constexpr jsize kTranslationRequestLimit = 65536;
 constexpr jsize kTranslationResponseLimit = 1 * 1024 * 1024;
 constexpr jsize kTranslationSettingsLimit = 65536;
+constexpr jsize kAiEndpointCheckLimit = 65536;
 // 腾讯一批最多的词数，与共享层的每页候选上限相同。
 constexpr jint kTencentBatchLimit = 10;
 
@@ -1167,6 +1168,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_translationEndp
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_testApiCredentialRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kTranslationSettingsLimit, msime_client_test_api_credential);
+}
+// AI 辅助接口地址的规则在 Rust：{origin, problem, hint}，不做 I/O，上限与头文件写明的 64 KiB 一致。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiEndpointCheckRaw(JNIEnv *env, jclass, jbyteArray endpoint) {
+    return bounded_request(env, endpoint, kAiEndpointCheckLimit, msime_client_ai_endpoint_check);
 }
 // 按需下载的资源包（msime_client.h 里 msime_client_resource_pack_* 一节）。列出只读几个文件属性；安装和收编阻塞，只在主进程的工作线程上调用。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePacksRaw(JNIEnv *env, jclass, jbyteArray request) {

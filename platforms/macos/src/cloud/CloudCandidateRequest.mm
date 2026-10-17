@@ -134,7 +134,7 @@ static BOOL MSIMEIsAllowedDescriptorURL(NSURL *url) {
     NSURL *url = [NSURL URLWithString:address];
     NSDictionary *headers = descriptor[@"headers"];
     // AI 描述符按 AIEndpointPolicy.h 检查：https 不限主机，http 只能指向本机或局域网（如 LM Studio）；翻译描述符仍用上面只放行回环地址的规则。
-    if (MSIMEAIEndpointCheck(address, nil) != MSIMEAIEndpointProblemNone || !url.host.length || ![headers isKindOfClass:NSDictionary.class] ||
+    if (MSIMEAIEndpointCheck(address) != MSIMEAIEndpointProblemNone || !url.host.length || ![headers isKindOfClass:NSDictionary.class] ||
         headers.count != 2 || ![headers[@"Content-Type"] isEqual:@"application/json"] ||
         ![headers[@"Authorization"] isKindOfClass:NSString.class] || ![headers[@"Authorization"] hasPrefix:@"Bearer "]) return self;
     for (NSString *name in headers) {

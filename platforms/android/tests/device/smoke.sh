@@ -186,6 +186,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.VoicePolishReplyDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Voice polish reply acceptance failed" >&2; exit 1; }
+# AI 接口地址的规则在 Rust，经真实 JNI 读回结论和来源键；不联网，最低 API 的核心验收也执行。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.AiEndpointCheckDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_AI_ENDPOINT_CHECK_PASSED* ]] || { echo "AI endpoint check acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"

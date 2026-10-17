@@ -1132,8 +1132,8 @@ set_tests_properties(windows-paired-punctuation-balance PROPERTIES TIMEOUT 30)
 add_library(msime-windows-pump STATIC src/ipc/SessionPump.cpp src/ipc/SessionWorkers.cpp src/ipc/SessionController.cpp src/system/PreferenceMonitor.cpp
             src/candidate/CloudCandidateWorker.cpp src/candidate/TranslationWorker.cpp
             src/candidate/AiCandidateWorker.cpp src/candidate/JapaneseReader.cpp)
-# AiEndpointPolicy.h 用 inet_pton 判断局域网地址；动态链接的 vcpkg curl 不会把 ws2_32 传下来，要自己链接。JapaneseReader.cpp 经 COM 用微软日语输入法的 IFELanguage，要 ole32。
-target_link_libraries(msime-windows-pump PUBLIC msime-windows-input CURL::libcurl ws2_32 ole32)
+# JapaneseReader.cpp 经 COM 用微软日语输入法的 IFELanguage，要 ole32。
+target_link_libraries(msime-windows-pump PUBLIC msime-windows-input CURL::libcurl ole32)
 add_executable(windows-dedicated-english-controller tests/input/dedicated_english_controller.cpp)
 target_link_libraries(windows-dedicated-english-controller PRIVATE msime-windows-pump)
 if(MSVC)
@@ -1226,15 +1226,15 @@ else()
 endif()
 add_test(NAME windows-ai-candidate-worker COMMAND windows-ai-candidate-worker)
 set_tests_properties(windows-ai-candidate-worker PROPERTIES TIMEOUT 60)
-# AI 接口地址策略逐条跑各平台共用的 shared/contracts/ai-endpoint/cases.json。用例在配置时转成字节数组编进测试，Wine 容器里不挂仓库也能跑；改用例会触发重新配置。
+# AI 接口地址策略经 msime_client_ai_endpoint_check 逐条跑各平台共用的 shared/contracts/ai-endpoint/cases.json。用例在配置时转成字节数组编进测试，Wine 容器里不挂仓库也能跑；改用例会触发重新配置。
 set(MSIME_AI_ENDPOINT_CASES "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/contracts/ai-endpoint/cases.json")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${MSIME_AI_ENDPOINT_CASES}")
 file(READ "${MSIME_AI_ENDPOINT_CASES}" msime_ai_endpoint_cases_hex HEX)
 string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," msime_ai_endpoint_cases_bytes "${msime_ai_endpoint_cases_hex}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/ai_endpoint_cases.inc" "${msime_ai_endpoint_cases_bytes}\n")
 add_executable(windows-ai-endpoint-policy tests/candidate/ai_endpoint_policy.cpp)
-target_include_directories(windows-ai-endpoint-policy PRIVATE src/candidate "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(windows-ai-endpoint-policy PRIVATE nlohmann_json::nlohmann_json ws2_32)
+target_include_directories(windows-ai-endpoint-policy PRIVATE src/candidate ../../crates/host-api/include "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(windows-ai-endpoint-policy PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
 if(MSVC)
   target_compile_options(windows-ai-endpoint-policy PRIVATE /W4 /WX /utf-8)
 else()

@@ -269,6 +269,8 @@ TEXT_ENTRY(SnapshotVersion, msime_client_snapshot_version)
 TEXT_ENTRY(SnapshotInspect, msime_client_snapshot_inspect)
 TEXT_ENTRY(SnapshotQueue, msime_client_snapshot_queue)
 TEXT_ENTRY(CloudRequestUrl, msime_client_cloud_request_url)
+// AI 辅助接口地址的规则只在 Rust：纯函数、不做 I/O，设置页和键盘都在主线程上同步调用。
+TEXT_ENTRY(AiEndpointCheck, msime_client_ai_endpoint_check)
 TEXT_ENTRY(KeySoundPack, msime_client_key_sound_pack)
 TEXT_ENTRY(MusicPack, msime_client_music_pack)
 TEXT_ENTRY(Plugins, msime_client_plugins)
@@ -1524,6 +1526,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("parseAiTranslationResponse", ParseAiTranslationResponse),
         ENTRY("onlineQuery", OnlineQuery),
         ENTRY("cloudRequestUrl", CloudRequestUrl),
+        ENTRY("aiEndpointCheck", AiEndpointCheck),
         ENTRY("keySoundPack", KeySoundPack),
         ENTRY("musicPack", MusicPack),
         ENTRY("plugins", Plugins),

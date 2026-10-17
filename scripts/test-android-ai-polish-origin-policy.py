@@ -16,8 +16,9 @@ def main() -> int:
         errors.append(f"{SOURCE}: 不应保留 credentialOrigin URI 转发重载")
     if "credentialOrigin(this.endpoint)" in source or "credentialOrigin(validatedEndpoint(endpoint))" in source:
         errors.append(f"{SOURCE}: 不应调用私有 credentialOrigin 转发重载")
-    if source.count("AiEndpointPolicy.origin(") < 2:
-        errors.append(f"{SOURCE}: AI 润色配置应直接复用 AiEndpointPolicy.origin")
+    # 来源键由 Rust 算出（msime_client_ai_endpoint_check），经 AiEndpointPolicy.credentialOrigin 读回。
+    if source.count("AiEndpointPolicy.credentialOrigin(") < 2:
+        errors.append(f"{SOURCE}: AI 润色配置应直接复用 AiEndpointPolicy.credentialOrigin")
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

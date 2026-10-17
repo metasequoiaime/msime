@@ -171,6 +171,8 @@ export const parseAiTranslationResponse: (body: string) => string;
 export const translationQuery: (handle: number) => string;
 export const onlineQuery: (handle: number) => string;
 export const cloudRequestUrl: (query: string) => string;
+/** AI 辅助接口地址的检查，规则在 Rust：成功时 value 是 `{origin,problem,hint}`，origin 是 `ai_assistant.tokens` 里存 Token 的来源键（不能用时为 null），problem 是 null、`invalid` 或 `cleartext_public`。不做 I/O。 */
+export const aiEndpointCheck: (endpoint: string) => string;
 export const aiRequestForQuery: (handle: number, query: string) => string;
 export const aiHttpRequest: (request: string) => string;
 export const parseAiResponse: (body: string, limit: number) => string;

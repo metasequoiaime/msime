@@ -844,7 +844,7 @@ add_test(NAME ai-settings-snapshot COMMAND ai-settings-snapshot-test)
 # AI 接口地址策略逐条跑 shared/contracts/ai-endpoint/cases.json，与 client-providers 的权威实现对照。
 add_executable(ai-endpoint-policy-test tests/settings/AIEndpointPolicyTest.mm)
 target_compile_options(ai-endpoint-policy-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
-target_link_libraries(ai-endpoint-policy-test PRIVATE "-framework Foundation")
+target_link_libraries(ai-endpoint-policy-test PRIVATE apple-client "-framework Foundation")
 add_test(NAME ai-endpoint-policy COMMAND ai-endpoint-policy-test)
 add_executable(ai-settings-window-test tests/settings/AISettingsWindowTest.mm src/core/AISettingsWindow.mm)
 target_compile_options(ai-settings-window-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)

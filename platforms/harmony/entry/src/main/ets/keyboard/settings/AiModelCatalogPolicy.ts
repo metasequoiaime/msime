@@ -1,4 +1,3 @@
-import { AiEndpointPolicy } from "./AiEndpointPolicy";
 import { TextPolicy } from "../TextPolicy";
 
 /** One model row returned by an OpenAI-compatible or Anthropic catalog. */
@@ -18,10 +17,10 @@ export interface AiCatalogPage {
 
 /** Provider-specific model-catalog rules shared by the request loop and logic tests. */
 export class AiModelCatalogPolicy {
-  static modelsUrl(endpoint: string): string | null {
+  /** `allowed` 是 Rust 的地址检查（`AiEndpoint.allowed`）：https 不限主机，http 只能指向本机或局域网。 */
+  static modelsUrl(endpoint: string, allowed: (endpoint: string) => boolean): string | null {
     const trimmed: string = endpoint.trim();
-    // https 不限主机，http 只能指向本机或局域网，见 AiEndpointPolicy。
-    if (!AiEndpointPolicy.allowed(trimmed)) {
+    if (!allowed(trimmed)) {
       return null;
     }
     const queryIndex: number = trimmed.indexOf("?");

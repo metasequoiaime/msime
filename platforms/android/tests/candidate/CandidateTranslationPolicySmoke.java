@@ -9,6 +9,8 @@ import java.util.Set;
 
 public final class CandidateTranslationPolicySmoke {
     public static void main(String[] args) throws Exception {
+        // AI 接口地址的结论来自 Rust，JVM 里没有 JNI，按核对过的表作答。
+        app.msime.android.AiEndpointContract.install();
         check(CandidateTranslationPolicy.targets(" JA ").equals(List.of("ja")),
             "the primary language is the only target");
         check(CandidateTranslationPolicy.targets("invalid").equals(List.of("en"))

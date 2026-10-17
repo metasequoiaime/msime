@@ -22,7 +22,7 @@ public final class AiPolishConfiguration {
         this.model = bounded(model, 512, "模型名称无效");
         this.prompt = bounded(prompt, 16 * 1024, "提示词无效");
         this.token = boundedOptional(token, 4096, "API Token 无效");
-        this.credentialOrigin = AiEndpointPolicy.origin(this.endpoint);
+        this.credentialOrigin = AiEndpointPolicy.credentialOrigin(endpoint);
     }
 
     public URI endpoint() { return endpoint; }
@@ -50,7 +50,8 @@ public final class AiPolishConfiguration {
     }
 
     public static String credentialOrigin(String endpoint) {
-        return AiEndpointPolicy.origin(validatedEndpoint(endpoint));
+        validatedEndpoint(endpoint);
+        return AiEndpointPolicy.credentialOrigin(endpoint);
     }
 
     public static boolean acceptableText(String text) {
@@ -62,7 +63,9 @@ public final class AiPolishConfiguration {
     private static URI validatedEndpoint(String value) {
         switch (AiEndpointPolicy.check(value)) {
             case ALLOWED:
-                return AiEndpointPolicy.uri(value);
+                URI uri = AiEndpointPolicy.uri(value);
+                if (uri == null) throw new IllegalArgumentException("AI 接口地址无效");
+                return uri;
             case CLEARTEXT_PUBLIC:
                 throw new IllegalArgumentException(AiEndpointPolicy.CLEARTEXT_REASON);
             default:

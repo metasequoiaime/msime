@@ -21,6 +21,8 @@ Status: implemented
 
 ### 各宿主
 
+2026-10-17 起 Android、iOS、macOS、Windows 和 HarmonyOS 不再各写一份，改问 `msime_client_ai_endpoint_check`，见[各宿主的 AI 接口地址策略改问 Rust](../architecture/2026-10-17-ai-endpoint-check-via-c-abi.md)；下面这几条里的文件名和调用方仍然成立，判断本身已经在 Rust。设置页和 Linux provider 仍是各自的一份。
+
 - Android：`platforms/android/java/app/msime/android/voice/AiEndpointPolicy.java`，`AiPolishConfiguration`、`AiPolishHttpTransport`、`AiPolishModelCatalog`、AI 候选的 `OnlineCandidatePolicy.validAiURL` 和设置页 `AiSettingsPage` 都经它判断。targetSdk 28 起系统默认拒绝明文，而 network-security-config 只能按域名放行、写不出地址段，所以 `res/xml/network_security_config.xml` 用 `base-config cleartextTrafficPermitted="true"` 整体放开，不改信任锚；边界在应用层，其他网络路径（云候选、账号、同步、社区、更新、语音识别、翻译）各自只接受 https。
 - iOS：`platforms/ios/SharedUI/core/AIEndpointPolicy.swift`（App 与键盘扩展共用），`CustomService` 只在 AI 类型上放行局域网 http（语音仍只收 https/wss），键盘的 AI 面板、AI 候选请求（`OnlineCandidateRequest.allowsLocalHTTP`，云候选和翻译不放行）和钥匙串里 Token 的来源键都经它判断。Tauri 插件编不进 SharedUI，`crates/tauri-mobile-platform/ios/Sources/AIEndpointPolicy.swift` 是同样的一份。iOS 10 起 ATS 本来就不拦 IP 字面量、不带点的主机名和 `.local`，App 与键盘扩展的 Info.plist 仍显式写上 `NSAllowsLocalNetworking`（只覆盖本地，不放开任何公网域名），并补上 `NSLocalNetworkUsageDescription`：iOS 14 起连局域网要经过本地网络授权，回环不需要。
 - macOS：`platforms/macos/src/core/AIEndpointPolicy.h`，AI 联想设置窗口和执行 AI 描述符的 `CloudCandidateRequest` 用它；翻译描述符仍只放行回环。`Info.plist.in` 同样写上 `NSAllowsLocalNetworking` 和中英文的 `NSLocalNetworkUsageDescription`（macOS 15 起有本地网络授权）。

@@ -49,7 +49,7 @@
     if (!edits.count) return;
     // 规则见 AIEndpointPolicy.h：https 不限主机，http 只能指向本机或局域网；公网 http 要说清楚为什么不行。
     if ([form[@"enabled"] boolValue]) {
-        MSIMEAIEndpointProblem problem = MSIMEAIEndpointCheck(form[@"endpoint"], nil);
+        MSIMEAIEndpointProblem problem = MSIMEAIEndpointCheck(form[@"endpoint"]);
         if (problem == MSIMEAIEndpointProblemCleartextPublicHost) { _status.stringValue = [MSIMEAIEndpointCleartextMessage stringByAppendingString:@"修改尚未保存。"]; return; }
         if (problem != MSIMEAIEndpointProblemNone) { _status.stringValue = @"启用 AI 时请输入有效的接口地址（https，或本机、局域网的 http）；修改尚未保存。"; return; }
     }
