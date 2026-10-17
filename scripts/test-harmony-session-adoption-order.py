@@ -3,12 +3,13 @@
 
 服务端每次刷新都轮换刷新令牌，拿用过的那枚再刷新会撤销整个会话族。设置应用和键盘各有各的 `files/state`，另一边刷新过的会话要先经 Rust 的 `session_adopt` 采用过来，本沙箱才能发认证请求。`platforms/harmony/tests/account-requests.test.ts` 只测得到 `AccountSessionAdoptionPolicy.ts` 里的纯函数（`SerialGate`、`AdoptionTracker`、`adoptedByRust`）；把这些规则接到调用点的是 .ets 文件，那里改回去 tsc、node 测试都看不见，HAP 也没人在这里打包。这个检查盯住调用点：
 
-1. 每个认证请求（`client.account`、`accountThread`、`community`、`cloudDictionary`、`cloudDictionarySnapshot`、`accountCloudClipboard`、`aiSkinGenerate`、`ensureAnonymousAccountWithAgent`）在 `AccountSessionAdoption.ets` 以外的调用，都排在同一个方法里、包住它的代码块里的 `await AccountSessionAdoption.settled()` 之后；调用在私有方法里时，改为要求本文件里这个私有方法的每个调用点都满足同一条（递归）。
-2. 两个 ability 的 `onCreate` 先 `AccountSessionAdoption.adoptOnStart`、再 `HarmonyAccountIdentity.ensureAnonymous`，采用方向分别是 `keyboard`（设置应用）和 `settings`（键盘）；`settled()` 只等此刻已经排进来的采用，顺序反了匿名注册就不等。
-3. 回到前台时两边都再排一次采用：`Settings.syncShared` 采用键盘的，`KeyboardSession.syncSharedState` 采用设置应用的。
-4. 会话不按文件复制导入：`SharedStateSync.sessionDecision` 交给 `SharedStateMirrorPolicy.adoptedByRust`，两个 `beforeFile` 都落到它。
+1. 每个认证请求（`client.account`、`accountThread`、`community`、`cloudDictionary`、`cloudDictionarySnapshot`、`accountCloudClipboard`、`aiSkinGenerate`、`ensureAnonymousAccountWithAgent`）在 `AccountSessionAdoption.ets` 以外的调用，都排在同一个方法里、包住它的代码块里的 `await AccountSessionAdoption.beforeRequest()` 之后；调用在私有方法里时，改为要求本文件里这个私有方法的每个调用点都满足同一条（递归）。
+2. `beforeRequest()` 每次都再排一次进程启动时登记的采用（`AdoptionGate.beforeRequest`），而不是只等已经排进来的：回到前台时网页在 `visibilitychange` 里发的请求可能早于窗口的 ACTIVE 事件，只等已排进来的就会漏掉前台那次采用。`AccountSessionAdoption.ets` 里的 `gate` 必须是 `AdoptionGate`，`adoptOnStart` 经 `gate.register` 登记，`beforeRequest` 原样转给 `gate.beforeRequest()`；`AdoptionGate` 本身的语义由 `account-requests.test.ts` 测。
+3. 两个 ability 的 `onCreate` 先 `AccountSessionAdoption.adoptOnStart`、再 `HarmonyAccountIdentity.ensureAnonymous`，采用方向分别是 `keyboard`（设置应用）和 `settings`（键盘）；没有登记过的 `beforeRequest()` 只等已经排进来的采用，顺序反了匿名注册就不等。
+4. 回到前台时两边都再排一次采用：`Settings.syncShared` 采用键盘的，`KeyboardSession.syncSharedState` 采用设置应用的。它让本地显示的账号状态尽早跟上，认证请求的顺序不靠它。
+5. 会话不按文件复制导入：`SharedStateSync.sessionDecision` 交给 `SharedStateMirrorPolicy.adoptedByRust`，两个 `beforeFile` 都落到它。
 
-文本检查不是编译器：它不认识动态调用和别名，所以第 5 条要求所有 `libmsimeclient.so` 的导入都叫 `client`，不能换个名字绕过第 1 条。
+文本检查不是编译器：它不认识动态调用和别名，所以第 6 条要求所有 `libmsimeclient.so` 的导入都叫 `client`，不能换个名字绕过第 1 条。
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ AUTHENTICATED = (
     "ensureAnonymousAccountWithAgent",
 )
 CALL = re.compile(r"\bclient\.(" + "|".join(AUTHENTICATED) + r")\s*\(")
-SETTLED = re.compile(r"\bawait\s+AccountSessionAdoption\.settled\s*\(\s*\)")
+SETTLED = re.compile(r"\bawait\s+AccountSessionAdoption\.beforeRequest\s*\(\s*\)")
 IMPORT = re.compile(r"^\s*import\s+(.+?)\s+from\s+['\"]libmsimeclient\.so['\"]", re.M)
 METHOD = re.compile(
     r"^(?:@\w+(?:\([^)]*\))?\s+)*"
@@ -201,7 +202,7 @@ def covered(source: Source, position: int, visiting: set[tuple[str, int]]) -> st
             return None
     name = method.method()
     if "private" not in method.header.split():
-        return f"{name}() does not await AccountSessionAdoption.settled() before it and is not private"
+        return f"{name}() does not await AccountSessionAdoption.beforeRequest() before it and is not private"
     key = (name, method.start)
     if key in visiting:
         return f"{name}() is reached recursively"
@@ -308,6 +309,24 @@ def check_foreground(source: Source, method: str, publisher: str, problems: list
         problems.append(f"{source.relative}: nothing calls {method}() any more")
 
 
+def check_adoption_wiring(source: Source, problems: list[str]) -> None:
+    """`beforeRequest()` 必须每次都再排一次登记过的采用：只等已经排进来的，回到前台时比 ACTIVE 事件先到的请求就不等前台那次采用。"""
+    if re.search(r"\bprivate\s+static\s+readonly\s+gate\s*:\s*AdoptionGate\s*=\s*new\s+AdoptionGate\s*\(\s*\)\s*;", source.code) is None:
+        problems.append(f"{source.relative}: the adoption queue must be an AdoptionGate")
+    found = method_body(source, "beforeRequest")
+    if found is None:
+        problems.append(f"{source.relative}: beforeRequest() not found")
+    elif collapse(found[1]) != "return AccountSessionAdoption.gate.beforeRequest();":
+        problems.append(
+            f"{source.relative}: beforeRequest() must queue the registered adoption via gate.beforeRequest() (got `{collapse(found[1])}`)"
+        )
+    start = method_body(source, "adoptOnStart")
+    if start is None:
+        problems.append(f"{source.relative}: adoptOnStart() not found")
+    elif re.search(r"\bAccountSessionAdoption\.gate\.register\s*\(", start[1]) is None:
+        problems.append(f"{source.relative}: adoptOnStart() must register the adoption so every request re-runs it")
+
+
 def check_import_decision(source: Source, problems: list[str]) -> None:
     found = method_body(source, "sessionDecision")
     if found is None:
@@ -340,6 +359,7 @@ def main() -> int:
 
     count = check_calls(sources, problems)
     check_imports(sources, problems)
+    check_adoption_wiring(by_name[ADOPTION_FILE], problems)
     check_start(by_name["entryability/EntryAbility.ets"], "keyboard", problems)
     check_start(by_name["inputmethodextability/KeyboardExtensionAbility.ets"], "settings", problems)
     check_foreground(by_name["pages/Settings.ets"], "syncShared", "keyboard", problems)
@@ -350,7 +370,7 @@ def main() -> int:
         for problem in problems:
             print(f"harmony session adoption order: {problem}")
         return 1
-    print(f"harmony session adoption order: {count} authenticated calls wait for the adoption; both sandboxes queue it at start and on foreground")
+    print(f"harmony session adoption order: {count} authenticated calls queue and wait for their own adoption; both sandboxes register it at start and queue it on foreground")
     return 0
 
 

@@ -38,7 +38,7 @@ export class CloudClipboardClient {
   /** 没有登录时只读本地会话文件，不联网。 */
   async list(): Promise<CloudClipboardBoundListing | null> {
     if (this.stateDirectory.length === 0) return { state: CloudClipboardState.FAILED, items: [], binding: null };
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     const before: string | null = this.userId();
     if (before === null) return { state: CloudClipboardState.SIGNED_OUT, items: [], binding: null };
     const action: ListAction = { operation: 'list', search: '' };
@@ -55,7 +55,7 @@ export class CloudClipboardClient {
   async add(text: string, expectedBinding: string): Promise<CloudClipboardSendOutcome> {
     if (!CloudClipboardPolicy.validText(text)) return CloudClipboardSendOutcome.INVALID;
     if (this.stateDirectory.length === 0 || expectedBinding.length === 0) return CloudClipboardSendOutcome.FAILED;
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     const current: string | null = this.userId();
     if (current === null) return CloudClipboardSendOutcome.SIGNED_OUT;
     if (current !== expectedBinding) return CloudClipboardSendOutcome.FAILED;

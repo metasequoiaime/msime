@@ -180,7 +180,7 @@ export class HarmonyAccountCloudBridge {
       plan = accountRequest(this.directory, HarmonyAccountIdentity.clientAgent(), action);
       if (plan.refusal.length > 0) return plan.refusal;
     }
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     const accountId: string | null = this.currentUserId();
     if (SESSION_CHANGING_OPERATIONS.includes(operation)) {
       this.clearRestorePreview();
@@ -209,7 +209,7 @@ export class HarmonyAccountCloudBridge {
     const request: string | null =
       hostAccountRequest(this.directory, HarmonyAccountIdentity.clientAgent(), action);
     if (request === null) return HarmonyAccountCloudBridge.failure('account_invalid');
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     return await client.account(request);
   }
 
@@ -217,7 +217,7 @@ export class HarmonyAccountCloudBridge {
   async community(action: string): Promise<string> {
     const plan: RequestPlan = communityRequest(this.directory, this.directory, action);
     if (plan.refusal.length > 0) return plan.refusal;
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     return await client.community(plan.request);
   }
 
@@ -226,7 +226,7 @@ export class HarmonyAccountCloudBridge {
     const plan: RequestPlan =
       cloudClipboardRequest(this.directory, HarmonyAccountIdentity.deviceName(), action);
     if (plan.refusal.length > 0) return plan.refusal;
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     return await client.accountCloudClipboard(plan.request);
   }
 
@@ -235,7 +235,7 @@ export class HarmonyAccountCloudBridge {
     const plan: RequestPlan = aiSkinRequest(this.directory, action);
     if (plan.refusal.length > 0) return plan.refusal;
     if (plan.operation === 'cancel') return client.aiSkinCancel(plan.request);
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     return await client.aiSkinGenerate(plan.request, progress);
   }
 
@@ -244,7 +244,7 @@ export class HarmonyAccountCloudBridge {
     const plan: RequestPlan = typingUploadRequest(this.directory, HarmonyAccountIdentity.clientAgent(),
       this.directory, TypingStatisticsPolicy.day(new Date()), action);
     if (plan.refusal.length > 0) return plan.refusal;
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     return typingUploadReply(await client.account(plan.request));
   }
 
@@ -255,7 +255,7 @@ export class HarmonyAccountCloudBridge {
     }
     const plan: RequestPlan = cloudDictionaryRequest(this.directory, action);
     if (plan.refusal.length > 0) return plan.refusal;
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     return await client.cloudDictionary(plan.request);
   }
 
@@ -269,7 +269,7 @@ export class HarmonyAccountCloudBridge {
     } catch {
       return HarmonyAccountCloudBridge.failure('account_invalid');
     }
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     if (action.operation === 'preferences_schema' || action.operation === 'preferences_load') {
       const plain: PlainAction = { operation: action.operation };
       return await this.accountAction(JSON.stringify(plain));
@@ -366,7 +366,7 @@ export class HarmonyAccountCloudBridge {
       const reply: EmptyReply = { ok: true, value: {} as EmptyValue };
       return JSON.stringify(reply);
     }
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     switch (operation) {
       case 'snapshot_status':
       case 'snapshot_preview':
@@ -506,7 +506,7 @@ export class HarmonyAccountCloudBridge {
     const staging: string | null = this.privateFile(stateRoot, 'dictionary-exports', '.tsv');
     if (staging === null) return HarmonyAccountCloudBridge.failure('account_storage');
     try {
-      await AccountSessionAdoption.settled();
+      await AccountSessionAdoption.beforeRequest();
       const exportAction: DictionaryExportFileAction =
         { operation: 'export_file', kind: kind, format: format, path: staging };
       const reply: string = await this.fileRequest(JSON.stringify(exportAction), stateRoot);

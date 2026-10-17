@@ -26,6 +26,7 @@ import {
 } from "../entry/src/main/ets/account/HarmonyAccountRequests";
 import {
   ADOPTED_SESSIONS,
+  AdoptionGate,
   AdoptionTracker,
   SerialGate,
   adoptionFailureMessage,
@@ -549,6 +550,67 @@ async function main(): Promise<void> {
     release();
     await request;
     check(order.join(",") === "adopted,request", "adoption first, then the request");
+  });
+
+  await group("every authenticated request queues an adoption of its own", async () => {
+    // 回到前台时网页的请求可能比窗口的 ACTIVE 事件先到：启动时的采用早就做完，前台的那次还没排进来。请求不能只等已经排进来的，否则它拿着键盘已经轮换掉的刷新令牌去刷新。
+    const gate = new AdoptionGate();
+    const order: string[] = [];
+    let published = "start";
+    gate.register(async () => {
+      order.push(`adopted:${published}`);
+    });
+    await gate.beforeRequest();
+    order.length = 0;
+    published = "rotated-by-keyboard";
+    await gate.beforeRequest().then(() => {
+      order.push("request");
+    });
+    check(
+      order.join(",") === "adopted:rotated-by-keyboard,request",
+      `the request adopts what the keyboard published since the last lifecycle event first (got ${order.join(",")})`,
+    );
+  });
+
+  await group("a request waits for the start adoption still pending", async () => {
+    const gate = new AdoptionGate();
+    const order: string[] = [];
+    let release: () => void = () => undefined;
+    let starts = 0;
+    gate.register(() => {
+      starts += 1;
+      if (starts > 1) {
+        order.push("adopted-again");
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        release = () => {
+          order.push("adopted");
+          resolve();
+        };
+      });
+    });
+    const request = gate.beforeRequest().then(() => {
+      order.push("request");
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    check(order.length === 0, "the request does not start while the start adoption is pending");
+    release();
+    await request;
+    check(
+      order.join(",") === "adopted,adopted-again,request",
+      "start adoption, the request's own, then the request",
+    );
+  });
+
+  await group("before registration a request only waits for what is queued", async () => {
+    const gate = new AdoptionGate();
+    let ran = 0;
+    await gate.run(async () => {
+      ran += 1;
+    });
+    await gate.beforeRequest();
+    check(ran === 1, "nothing registered, nothing re-run");
   });
 
   await group("a failed adoption does not block the queue", async () => {

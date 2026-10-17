@@ -3144,7 +3144,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     const fullMode: boolean = this.sharedFullMode();
     const imported: string[] = SharedStateSync.keyboardSync(this.sharedMirror, this.stateDirectory, fullMode);
-    // 设置应用发布的会话由 Rust 在锁里决定要不要采用；云剪贴板这类认证请求先等它做完。基础访问模式下键盘不交换会话。
+    // 设置应用发布的会话由 Rust 在锁里决定要不要采用；这里排一次让本地状态尽早跟上，云剪贴板这类认证请求自己经 `beforeRequest` 再排一次。基础访问模式下键盘不交换会话。
     if (fullMode) {
       AccountSessionAdoption.adopt(this.sharedMirror, this.stateDirectory, 'settings');
     }

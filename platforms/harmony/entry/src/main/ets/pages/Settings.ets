@@ -926,7 +926,7 @@ class SettingsBridge {
 
 
   /**
-   * 设置窗口回到前台：先把自己的改动发布给键盘，再导入键盘在完整体验模式下发布的改动（键盘里改的偏好、打字统计）。导入的偏好由随后的 `refreshPreferencesIfChanged` 交给页面。键盘刷新过的账号会话由 Rust 在锁里决定要不要采用，本进程的认证请求排在这次采用后面（迁移差异 M2）。
+   * 设置窗口回到前台：先把自己的改动发布给键盘，再导入键盘在完整体验模式下发布的改动（键盘里改的偏好、打字统计）。导入的偏好由随后的 `refreshPreferencesIfChanged` 交给页面。键盘刷新过的账号会话由 Rust 在锁里决定要不要采用，这里排一次是为了让页面读到的账号状态尽早跟上；认证请求的顺序不靠它（网页回到可见时发的请求可能早于这个 ACTIVE 事件），每个请求自己经 `AccountSessionAdoption.beforeRequest` 再排一次（迁移差异 M2）。
    */
   syncShared(): void {
     if (this.sharedMirror === null) {

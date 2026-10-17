@@ -46,7 +46,7 @@ export class HarmonyAccountIdentity {
    * 本机匿名账号还没有可用的会话时注册它；已有会话时只读一次文件、不联网。先等本进程的会话镜像做完：另一边已经注册过的匿名账号要先采用过来，不然这里会再注册一个，用掉每个出口地址每天 5 次的额度。失败只记日志，下一次启动再试。
    */
   static async ensureAnonymous(directory: string): Promise<void> {
-    await AccountSessionAdoption.settled();
+    await AccountSessionAdoption.beforeRequest();
     try {
       const reply: string = await client.ensureAnonymousAccountWithAgent(
         anonymousAccountRequest(directory, HarmonyAccountIdentity.clientAgent()));

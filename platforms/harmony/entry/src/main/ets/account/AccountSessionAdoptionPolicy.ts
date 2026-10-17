@@ -1,7 +1,7 @@
 /**
  * 设置应用和键盘两个沙箱之间的会话镜像（#8201 第 2 步，迁移差异 M2、M5）：各自的 `files/state` 里是各自的会话文件，另一边经共享沙箱发布的那一份由 Rust 的 `session_adopt` 在本沙箱的 `account-refresh.lock` 里按 `user.id` 和 `expires_at` 决定要不要采用，宿主不再整份覆盖。
  *
- * 顺序是这里的要点：服务端每次刷新都轮换刷新令牌，拿用过的那枚再刷新超过 30 秒宽限就是重放，整个会话族被撤销。所以每个沙箱在回到前台、发任何认证请求之前，都要先采用另一边发布的会话；`SerialGate` 把采用排成一条队，认证请求先等队里已有的采用做完。
+ * 顺序是这里的要点：服务端每次刷新都轮换刷新令牌，拿用过的那枚再刷新超过 30 秒宽限就是重放，整个会话族被撤销。所以每个沙箱在发任何认证请求之前，都要先采用另一边发布的会话；`AdoptionGate` 把采用排成一条队，每个认证请求自己排一次采用、等它做完再发。
  *
  * 这里只有规则：拼请求、读回答、决定哪一份发布物值得再采用一次、失败时怎么写日志。NAPI 调用和文件路径在 `AccountSessionAdoption.ets`。
  */
@@ -113,7 +113,7 @@ export class AdoptionTracker {
 }
 
 /**
- * 一条只进不退的异步队列：`run` 把任务排在已有任务之后，任务的失败不传给后面的任务；`settled` 给出「此刻已经排进来的任务都做完」的 promise，认证请求先等它。
+ * 一条只进不退的异步队列：`run` 把任务排在已有任务之后，任务的失败不传给后面的任务；`settled` 给出「此刻已经排进来的任务都做完」的 promise。
  */
 export class SerialGate {
   private tail: Promise<void> = Promise.resolve();
@@ -126,5 +126,32 @@ export class SerialGate {
 
   settled(): Promise<void> {
     return this.tail;
+  }
+}
+
+/**
+ * 本进程的采用队列。进程启动时 `register` 登记本进程怎么采用另一边的会话并立即排一次；之后每个认证请求的 `beforeRequest` 都再排一次、等它做完，而不是只等此刻已经排进来的。
+ *
+ * 原来只在启动和回到前台的生命周期事件里排采用，认证请求只等已经排进来的那些。设置页的网页在 `visibilitychange` 时就发认证请求（打字统计补传），它和 ArkTS 窗口的 ACTIVE 事件谁先到没有任何保证；请求先到时它不等前台采用，拿键盘已经轮换掉的刷新令牌去刷新，超过服务端 30 秒宽限就是重放，两个沙箱一起登出。2in1 上设置窗口一直可见、只是换焦点时连生命周期事件都没有。每个请求自己排一次就与事件顺序无关；发布物没变时 `AdoptionTracker` 按指纹跳过，只多读一次清单文件，不调 Rust、不拿锁。
+ */
+export class AdoptionGate {
+  private readonly gate: SerialGate = new SerialGate();
+  private adoption: (() => Promise<void>) | null = null;
+
+  /** 登记本进程的采用并立即排一次。 */
+  register(adoption: () => Promise<void>): void {
+    this.adoption = adoption;
+    this.gate.run(adoption);
+  }
+
+  /** 生命周期事件里额外排的采用（回到前台、键盘获得焦点），让本地状态尽早跟上；认证请求的顺序不靠它。 */
+  run(task: () => Promise<void>): Promise<void> {
+    return this.gate.run(task);
+  }
+
+  /** 认证请求之前：再排一次登记过的采用，等它和排在它前面的都做完。还没有登记时（两个 ability 在 `onCreate` 里就登记，正常不会出现）只等已经排进来的。 */
+  beforeRequest(): Promise<void> {
+    const adoption: (() => Promise<void>) | null = this.adoption;
+    return adoption === null ? this.gate.settled() : this.gate.run(adoption);
   }
 }
