@@ -77,3 +77,21 @@ test("closes locally when there is no matching history entry", () => {
 
   expect(result.current.value).toBeNull();
 });
+
+test("starts with the subview already represented by the current history entry", () => {
+  const { result } = renderHook(() =>
+    useMobileSettingsSubview<string>({
+      mobile: true,
+      stateKey: "dictionaryDetail",
+      initialValue: "work",
+      decode: (state, currentValue) =>
+        typeof state?.dictionaryDetail === "string" &&
+        (currentValue === null || state.dictionaryDetail === currentValue)
+          ? state.dictionaryDetail
+          : null,
+      encode: (value) => ({ page: "dictionary", dictionaryDetail: value }),
+    }),
+  );
+
+  expect(result.current.value).toBe("work");
+});
