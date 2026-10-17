@@ -547,6 +547,17 @@ interface CustomTranslationRequest {
   target_language: string;
 }
 
+interface AiTranslationRequestInput {
+  text: string;
+  source_language: string;
+  target_language: string;
+}
+
+interface AiTranslationRequest {
+  config: AiTranslationConfig;
+  input: AiTranslationRequestInput;
+}
+
 interface TranslationGlossSaveRequest {
   target_language: string;
   translations: TranslationEntry[];
@@ -4932,9 +4943,13 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private async fetchAiTranslation(config: AiTranslationConfig, item: TranslationPlanItem,
     epoch: number, handle: number): Promise<TranslationProviderResult> {
-    const request = {
+    const request: AiTranslationRequest = {
       config: config,
-      input: { text: item.key, source_language: item.source_language, target_language: item.target_language }
+      input: {
+        text: item.key,
+        source_language: item.source_language,
+        target_language: item.target_language
+      }
     };
     const descriptor: TranslationHttpDescriptor | null = this.translationDescriptor(
       client.aiTranslationHttpRequest(JSON.stringify(request)));
