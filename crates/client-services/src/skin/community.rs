@@ -4,8 +4,8 @@
 
 use super::category::{SkinCategory, INCLUDE_CATEGORY};
 use crate::account::{
-    request_with_account_session, AccountApi, AccountError, AccountSessionStorage,
-    BackendAccountClient, BackendAccountSession,
+    request_with_account_session, with_shared_access_token, AccountApi, AccountError,
+    AccountFailure, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
 use crate::cloud::dictionary::percent_encode;
 use crate::community::write_actions::{delete_community_item, rate_community_item};
@@ -288,6 +288,23 @@ where
         })
     }
 
+    /// 与 [`Self::download`] 相同，只是没有登录时用本机匿名账号 `anonymous` 下载（#8201 的决定 13，服务端的 `communityDownload` 收匿名账号）：登录账号优先，取令牌和 401 后的重试与释义相同（[`with_shared_access_token`]）。两个会话都没有时仍是 [`AccountError::Unauthorized`]。下载次数记在下载所用的账号上。
+    pub fn download_with_anonymous<S2: AccountSessionStorage>(
+        &self,
+        anonymous: &BackendAccountSession<A, S2>,
+        id: Uuid,
+    ) -> Result<TouchKeyboardSkinDesign, AccountError> {
+        if id.is_nil() {
+            return Err(AccountError::Invalid);
+        }
+        with_shared_access_token(&self.session, anonymous, None, |api, token| {
+            api.download_community_skin(id, token)
+                .map_err(AccountFailure::from)
+        })
+        .map(|(design, _)| design)
+        .map_err(|failure| failure.error)
+    }
+
     pub fn rate(&self, id: Uuid, stars: u8) -> Result<(), AccountError> {
         if id.is_nil() || !(1..=5).contains(&stars) {
             return Err(AccountError::Invalid);
@@ -389,6 +406,9 @@ fn validate_skin(skin: &CommunitySkin) -> Result<(), AccountError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod anonymous_tests;
 
 #[cfg(test)]
 mod tests {

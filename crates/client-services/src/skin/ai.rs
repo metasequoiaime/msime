@@ -419,12 +419,39 @@ fn validate_artwork(artwork: &AiSkinArtwork) -> Result<Vec<u8>, AiSkinError> {
 pub struct BackendAiSkinService<A: AccountApi, S: AccountSessionStorage> {
     api: A,
     session: Arc<BackendAccountSession<A, S>>,
+    /// 本机匿名账号的会话。为 `Some` 时没有登录也能生成（#8201 的决定 16），为 `None` 时只用登录账号。
+    anonymous: Option<Arc<BackendAccountSession<A, S>>>,
 }
 
 impl<A: AccountApi, S: AccountSessionStorage> BackendAiSkinService<A, S> {
+    /// 只用登录账号的服务，Tauri 的 `ai_skin_generate` 用它。
     pub fn new(api: A, session: Arc<BackendAccountSession<A, S>>) -> Self {
-        Self { api, session }
+        Self {
+            api,
+            session,
+            anonymous: None,
+        }
     }
+
+    /// 登录账号优先、没有登录时用本机匿名账号 `anonymous` 的服务，与释义的取令牌方式相同；C 的 `msime_client_ai_skin_generate`、`msime_client_ai_skin_job` 用它。一次生成从头到尾留在开始时选中的那个账号上：插画任务归创建它的账号，换了账号就读不到。
+    pub fn with_anonymous(
+        api: A,
+        session: Arc<BackendAccountSession<A, S>>,
+        anonymous: Arc<BackendAccountSession<A, S>>,
+    ) -> Self {
+        Self {
+            api,
+            session,
+            anonymous: Some(anonymous),
+        }
+    }
+}
+
+/// 一次生成或任务请求所用的那一次登录：哪个会话、哪个账号、会话代次。
+struct Login<'a, A: AccountApi, S: AccountSessionStorage> {
+    session: &'a BackendAccountSession<A, S>,
+    user_id: String,
+    generation: u64,
 }
 
 impl<A, S> BackendAiSkinService<A, S>
@@ -454,16 +481,12 @@ where
             return Err(AiSkinFailure::InvalidResponse);
         }
         check_cancelled(cancelled)?;
-        let (user_id, token, generation) = self
-            .session
-            .credentials_with_generation(None, None)
-            .map_err(Self::account_error)?;
-        let catalog = self.request_authenticated(&user_id, generation, token, |api, token| {
-            api.ai_models(token)
-        })?;
+        let (login, token) = self.login()?;
+        let catalog =
+            self.request_authenticated(&login, token, |api, token| api.ai_models(token))?;
         check_cancelled(cancelled)?;
-        let token = self.credentials_for_generation(&user_id, generation)?;
-        let response = self.request_authenticated(&user_id, generation, token, |api, token| {
+        let token = self.credentials_for_generation(&login)?;
+        let response = self.request_authenticated(&login, token, |api, token| {
             api.ai_chat(
                 &[
                     AiChatMessage {
@@ -481,16 +504,15 @@ where
         })?;
         let plans = plan_ai_skins(&response)?;
         check_cancelled(cancelled)?;
-        let user_id_ref = user_id.as_str();
+        let login_ref = &login;
         let mut results = thread::scope(|scope| {
             // 出图线程只经通道报告完成，进度回调在调用 `generate` 的线程上依次调用，与 C 接口其他进度回调的约定相同：JNI 和 NAPI 胶水可以直接用调用线程的 env，回调也不会并发。
             let (finished, completions) = mpsc::channel::<()>();
             let mut handles = Vec::with_capacity(3);
             for (index, plan) in plans.into_iter().enumerate() {
-                let user_id = user_id_ref;
                 let finished = finished.clone();
                 handles.push(scope.spawn(move || {
-                    let result = self.illustrate(user_id, generation, &plan, cancelled);
+                    let result = self.illustrate(login_ref, &plan, cancelled);
                     if result.is_ok() {
                         let _ = finished.send(());
                     }
@@ -528,11 +550,11 @@ where
         results.sort_by_key(|(index, _)| *index);
         let mut ordered = Vec::with_capacity(results.len());
         ordered.extend(results.into_iter().map(|(_, result)| result));
-        self.ensure_identity(&user_id, generation)?;
+        self.ensure_identity(&login)?;
         Ok(ordered)
     }
 
-    /// 新建一个插画任务（`POST /v1/skins/jobs`），立即返回 `running` 的任务；只用登录账号。提示词去掉首尾空白后 1–1200 个码点、不含 NUL，否则是 [`AiSkinFailure::InvalidResponse`]（`ai_skin_invalid`）。
+    /// 新建一个插画任务（`POST /v1/skins/jobs`），立即返回 `running` 的任务。提示词去掉首尾空白后 1–1200 个码点、不含 NUL，否则是 [`AiSkinFailure::InvalidResponse`]（`ai_skin_invalid`）。
     pub fn create_artwork_job(&self, prompt: &str) -> Result<AiSkinJob, AiSkinFailure> {
         let prompt = job_prompt(prompt)?;
         self.job_request(|api, token| api.create_skin_artwork(prompt, token))
@@ -554,56 +576,75 @@ where
         self.job_request(|api, token| api.delete_skin_artwork(id, token))
     }
 
-    /// 用登录账号的令牌做一次任务请求：401 时刷新一次、在同一个账号里重试，结束时核对账号和会话代次没有变。
+    /// 这次请求用哪一次登录：登录账号的；没有登录（或登录的会话已被服务端吊销并清掉）而有匿名会话时用匿名账号的。
+    fn login(&self) -> Result<(Login<'_, A, S>, String), AiSkinFailure> {
+        let (session, credentials) = match (
+            self.session.credentials_with_generation(None, None),
+            &self.anonymous,
+        ) {
+            (Err(AccountError::Unauthorized), Some(anonymous)) => (
+                &**anonymous,
+                anonymous.credentials_with_generation(None, None),
+            ),
+            (credentials, _) => (&*self.session, credentials),
+        };
+        let (user_id, token, generation) = credentials.map_err(Self::account_error)?;
+        Ok((
+            Login {
+                session,
+                user_id,
+                generation,
+            },
+            token,
+        ))
+    }
+
+    /// 用选中账号的令牌做一次任务请求：401 时刷新一次、在同一个账号里重试，结束时核对账号和会话代次没有变。
     fn job_request<T>(
         &self,
         operation: impl Fn(&A, &str) -> Result<T, AccountFailure>,
     ) -> Result<T, AiSkinFailure> {
-        let (user_id, token, generation) = self
-            .session
-            .credentials_with_generation(None, None)
-            .map_err(Self::account_error)?;
-        self.request_authenticated(&user_id, generation, token, operation)
+        let (login, token) = self.login()?;
+        self.request_authenticated(&login, token, operation)
     }
 
     fn request_authenticated<T>(
         &self,
-        user_id: &str,
-        generation: u64,
+        login: &Login<'_, A, S>,
         token: String,
         operation: impl Fn(&A, &str) -> Result<T, AccountFailure>,
     ) -> Result<T, AiSkinFailure> {
         let result = match operation(&self.api, &token) {
             Err(failure) if failure.is_unauthorized() => {
-                let replacement = self.replacement_token(user_id, generation, &token)?;
+                let replacement = self.replacement_token(login, &token)?;
                 operation(&self.api, &replacement)
             }
             result => result,
         }?;
-        self.ensure_identity(user_id, generation)?;
+        self.ensure_identity(login)?;
         Ok(result)
     }
 
     /// 服务端以 401 拒绝了 `rejected` 以后，同一个账号、同一次登录刷新出来的令牌；换了登录是 [`AiSkinFailure::Cancelled`]。
     fn replacement_token(
         &self,
-        user_id: &str,
-        generation: u64,
+        login: &Login<'_, A, S>,
         rejected: &str,
     ) -> Result<String, AiSkinFailure> {
-        let (_, replacement, replacement_generation) = self
+        let (_, replacement, replacement_generation) = login
             .session
-            .credentials_with_generation(Some(rejected), Some(user_id))
+            .credentials_with_generation(Some(rejected), Some(&login.user_id))
             .map_err(Self::account_error)?;
-        if replacement_generation != generation {
+        if replacement_generation != login.generation {
             return Err(AiSkinFailure::Cancelled);
         }
         Ok(replacement)
     }
 
-    fn ensure_identity(&self, user_id: &str, generation: u64) -> Result<(), AiSkinFailure> {
-        self.session
-            .with_generation(generation, Some(user_id), || Ok(()))
+    fn ensure_identity(&self, login: &Login<'_, A, S>) -> Result<(), AiSkinFailure> {
+        login
+            .session
+            .with_generation(login.generation, Some(&login.user_id), || Ok(()))
             .map_err(Self::account_error)
     }
 
@@ -615,16 +656,12 @@ where
         }
     }
 
-    fn credentials_for_generation(
-        &self,
-        user_id: &str,
-        generation: u64,
-    ) -> Result<String, AiSkinFailure> {
-        let (_, token, current_generation) = self
+    fn credentials_for_generation(&self, login: &Login<'_, A, S>) -> Result<String, AiSkinFailure> {
+        let (_, token, current_generation) = login
             .session
-            .credentials_with_generation(None, Some(user_id))
+            .credentials_with_generation(None, Some(&login.user_id))
             .map_err(Self::account_error)?;
-        if current_generation != generation {
+        if current_generation != login.generation {
             return Err(AiSkinFailure::Cancelled);
         }
         Ok(token)
@@ -632,26 +669,25 @@ where
 
     fn illustrate(
         &self,
-        user_id: &str,
-        generation: u64,
+        login: &Login<'_, A, S>,
         plan: &AiSkinPlan,
         cancelled: &AtomicBool,
     ) -> Result<AiSkinProposal, AiSkinFailure> {
         check_cancelled(cancelled)?;
-        let token = self.credentials_for_generation(user_id, generation)?;
+        let token = self.credentials_for_generation(login)?;
         let job = match self.api.create_skin_artwork(&plan.artwork_prompt, &token) {
             Err(failure) if failure.is_unauthorized() => {
-                let replacement = self.replacement_token(user_id, generation, &token)?;
+                let replacement = self.replacement_token(login, &token)?;
                 self.api
                     .create_skin_artwork(&plan.artwork_prompt, &replacement)?
             }
             result => result?,
         };
         let id = job.id;
-        let result = self.poll_artwork(user_id, generation, &id, cancelled);
+        let result = self.poll_artwork(login, &id, cancelled);
         // Completed and failed jobs are both released; cancellation must not
         // leave an upstream task billable after this call returns.
-        self.cleanup_job(user_id, generation, &id);
+        self.cleanup_job(login, &id);
         let artwork = result?;
         Ok(AiSkinProposal {
             name: plan.name.clone(),
@@ -664,8 +700,7 @@ where
 
     fn poll_artwork(
         &self,
-        user_id: &str,
-        generation: u64,
+        login: &Login<'_, A, S>,
         id: &str,
         cancelled: &AtomicBool,
     ) -> Result<AiSkinArtwork, AiSkinFailure> {
@@ -675,10 +710,10 @@ where
             if Instant::now() >= deadline {
                 return Err(AccountError::Unavailable.into());
             }
-            let token = self.credentials_for_generation(user_id, generation)?;
+            let token = self.credentials_for_generation(login)?;
             let job = match self.api.get_skin_artwork(id, &token) {
                 Err(failure) if failure.is_unauthorized() => {
-                    let replacement = self.replacement_token(user_id, generation, &token)?;
+                    let replacement = self.replacement_token(login, &token)?;
                     self.api.get_skin_artwork(id, &replacement)?
                 }
                 result => result?,
@@ -701,8 +736,8 @@ where
         }
     }
 
-    fn cleanup_job(&self, user_id: &str, generation: u64, id: &str) {
-        let Ok(token) = self.credentials_for_generation(user_id, generation) else {
+    fn cleanup_job(&self, login: &Login<'_, A, S>, id: &str) {
+        let Ok(token) = self.credentials_for_generation(login) else {
             return;
         };
         let _ = self.api.delete_skin_artwork(id, &token);
@@ -928,6 +963,9 @@ fn has_readable_text(design: &TouchKeyboardSkinDesign) -> bool {
 }
 
 #[cfg(test)]
+mod anonymous_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::account::{
@@ -939,7 +977,7 @@ mod tests {
     use std::time::SystemTime;
 
     #[derive(Clone, Default)]
-    struct MemoryStorage(Arc<Mutex<Option<SavedAccountSession>>>);
+    pub(super) struct MemoryStorage(pub(super) Arc<Mutex<Option<SavedAccountSession>>>);
 
     impl AccountSessionStorage for MemoryStorage {
         fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
@@ -1002,7 +1040,7 @@ mod tests {
         }
     }
 
-    fn artwork() -> AiSkinArtwork {
+    pub(super) fn artwork() -> AiSkinArtwork {
         AiSkinArtwork {
             b64_json: BASE64.encode(b"\x89PNG\r\n\x1A\nfixture"),
             mime_type: "image/png".into(),
@@ -1011,7 +1049,7 @@ mod tests {
         }
     }
 
-    fn job(id: &str, state: &str, artwork: Option<AiSkinArtwork>) -> AiSkinJob {
+    pub(super) fn job(id: &str, state: &str, artwork: Option<AiSkinArtwork>) -> AiSkinJob {
         AiSkinJob {
             id: id.into(),
             state: state.into(),
@@ -1069,7 +1107,7 @@ mod tests {
         }
     }
 
-    fn token(byte: u8) -> String {
+    pub(super) fn token(byte: u8) -> String {
         std::iter::repeat_n(char::from(byte), 64).collect()
     }
 
@@ -1097,7 +1135,7 @@ mod tests {
         });
     }
 
-    fn response() -> String {
+    pub(super) fn response() -> String {
         let designs = [
             ("rounded", "flat", "#FFFFFF", "#17251D", "#185C47"),
             ("capsule", "raised", "#303E4F", "#EFF5FC", "#CEE0F3"),
@@ -1182,10 +1220,9 @@ mod tests {
         installed(&storage);
         let session = Arc::new(BackendAccountSession::new(FakeApi::default(), storage));
         let service = BackendAiSkinService::new(FakeApi::default(), Arc::clone(&session));
-        let (_, token, generation) = session
-            .credentials_with_generation(None, Some("fixture-user"))
-            .unwrap();
-        let result = service.request_authenticated("fixture-user", generation, token, |_, _| {
+        let (login, token) = service.login().unwrap();
+        assert_eq!(login.user_id, "fixture-user");
+        let result = service.request_authenticated(&login, token, |_, _| {
             session.forget().unwrap();
             // The replacement session has the same user id, which the old check accepted.
             session.sign_in("synthetic-challenge", "123456").unwrap();

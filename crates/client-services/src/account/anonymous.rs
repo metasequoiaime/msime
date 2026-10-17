@@ -73,6 +73,10 @@ impl AnonymousSessionStorage {
 
 impl AccountSessionStorage for AnonymousSessionStorage {
     fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
+        // 目录还没建出来时没有会话，与登录会话的文件存储一样，而不是读不了。
+        if directory_missing(&self.directory) {
+            return Ok(None);
+        }
         read_private_json(&self.directory.join(ANONYMOUS_SESSION_FILE))
     }
 
@@ -160,6 +164,64 @@ fn stored_anonymous_identity(
             .filter(AnonymousIdentity::is_valid)
             .ok_or(AccountError::Storage),
     }
+}
+
+/// 本机匿名账号的身份存在哪里，与匿名会话的位置对应：目录模式是 `directory` 里的 `anonymous-account.json`，注入模式是宿主的 [`SessionStoreItem::AnonymousIdentity`] 项。
+#[derive(Clone, Copy)]
+pub enum AnonymousIdentitySource<'a> {
+    Directory(&'a Path),
+    Store(&'a dyn SessionStoreBackend),
+}
+
+/// 只读本机保存的身份，不存在时为 `None`，不像 [`anonymous_identity`] 那样新生成一份。已有但不合法时是 [`AccountError::Storage`]。
+fn saved_anonymous_identity(
+    source: AnonymousIdentitySource<'_>,
+) -> Result<Option<AnonymousIdentity>, AccountError> {
+    let saved = match source {
+        AnonymousIdentitySource::Directory(directory) if directory_missing(directory) => None,
+        AnonymousIdentitySource::Directory(directory) => {
+            read_private_json::<AnonymousIdentity>(&directory.join(ANONYMOUS_ACCOUNT_FILE))?
+        }
+        AnonymousIdentitySource::Store(backend) => {
+            let item = SessionStoreItem::AnonymousIdentity;
+            backend
+                .read(item, item.capacity())?
+                .map(|bytes| serde_json::from_slice(&bytes).map_err(|_| AccountError::Storage))
+                .transpose()?
+        }
+    };
+    match saved {
+        Some(identity) if !identity.is_valid() => Err(AccountError::Storage),
+        saved => Ok(saved),
+    }
+}
+
+/// 删除本机匿名账号名下的语音样本（`DELETE /v1/users/me/data` 的 `voice` 分区），给「删除云端数据」用：语音贡献只用匿名账号（#8201 的决定 12），登录账号的 `data_delete` 删不到它们。
+///
+/// 服务端对这个路由要求会话在 10 分钟内建立，匿名账号也一样，而匿名会话通常早就建立了：先用现有会话试一次，服务端回 403 `recent_login_required`（或令牌已被吊销）时用 `identity` 里保存的身份重新登录同一个匿名账号，换一个新会话再删。新会话替换存储里的旧会话；重新登录计入服务端按地址每天的匿名登录限额，超了是 `account_rate_limited`。本机从来没有匿名身份时没有样本可删，直接成功。会阻塞网络。
+pub fn delete_anonymous_voice_samples<A: AccountApi, S: AccountSessionStorage>(
+    anonymous: &BackendAccountSession<A, S>,
+    identity: AnonymousIdentitySource<'_>,
+) -> Result<(), AccountFailure> {
+    let sections = [String::from("voice")];
+    let mut stale = None;
+    if anonymous.status()?.is_some() {
+        match anonymous.data_delete(&sections) {
+            Err(failure)
+                if failure.is_unauthorized()
+                    || failure.code() == "account_recent_login_required" =>
+            {
+                stale = Some(failure);
+            }
+            result => return result,
+        }
+    }
+    // 有会话却没有身份时换不了新会话，交回刚才的失败，不当作删掉了。
+    let Some(identity) = saved_anonymous_identity(identity)? else {
+        return stale.map_or(Ok(()), Err);
+    };
+    anonymous.sign_in_anonymous(&identity.subject, &identity.secret)?;
+    anonymous.data_delete(&sections)
 }
 
 /// 输入法进程调用账号服务时用的令牌，以及它属于哪个账号。
@@ -349,6 +411,14 @@ fn anonymous_identity(directory: &Path) -> Result<AnonymousIdentity, AccountErro
         .ok_or(AccountError::Storage)
 }
 
+/// 账号目录本身还不存在（还没有任何进程注册或登录过）。其他读不了的情况仍交给 [`read_private_json`] 报 `Storage`。
+fn directory_missing(directory: &Path) -> bool {
+    matches!(
+        std::fs::symlink_metadata(directory),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    )
+}
+
 fn prepare_directory(directory: &Path) -> Result<(), AccountError> {
     crate::storage::create_directory_and_check(directory).map_err(|_| AccountError::Storage)?;
     let metadata = std::fs::symlink_metadata(directory).map_err(|_| AccountError::Storage)?;
@@ -487,6 +557,9 @@ fn write_private(
             .map_err(|_| AccountError::Storage)
     }
 }
+
+#[cfg(test)]
+mod voice_tests;
 
 #[cfg(test)]
 mod tests {

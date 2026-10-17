@@ -2,7 +2,7 @@
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
-use super::account::{session_for, Session};
+use super::account::{anonymous_session_for, session_for, Session};
 use super::plugins::plugin_response;
 use super::session_store::{session_source, SessionStorage, Source};
 use super::with_bounded_bytes;
@@ -307,9 +307,10 @@ fn catalog_response(root: &Path) -> Result<Value, PluginFailure> {
     Ok(response)
 }
 
-/// 一次操作。皮肤根目录、插件根目录和状态根目录只在用到的操作里要求。
+/// 一次操作。皮肤根目录、插件根目录和状态根目录只在用到的操作里要求。`anonymous` 给出本机匿名账号的会话，只有键盘皮肤的下载、安装和举报会调用它：这三项登录账号优先、没有登录时用匿名账号（#8201 的决定 13）。
 fn run(
     services: &Services,
+    anonymous: impl FnOnce() -> Result<Arc<Session>, AccountError>,
     skins: Option<&Path>,
     plugins: Option<&Path>,
     state_root: Option<&Path>,
@@ -545,7 +546,11 @@ fn run(
             let report =
                 CommunityReport::from_labels(kind, &item, &reason, detail.as_deref().unwrap_or(""))
                     .map_err(account)?;
-            services.report.report(&report).map_err(account)?;
+            let anonymous = anonymous().map_err(account)?;
+            services
+                .report
+                .report_with_anonymous(&anonymous, &report)
+                .map_err(account)?;
             Ok(Value::Null)
         }
         CommunityAction::KeyboardSkinList {
@@ -562,12 +567,21 @@ fn run(
             value(keyboard.detail(id(&item)?).map_err(account)?)
         }
         CommunityAction::KeyboardSkinDownload { id: item } => {
-            value(keyboard.download(id(&item)?).map_err(account)?)
+            let item = id(&item)?;
+            let anonymous = anonymous().map_err(account)?;
+            value(
+                keyboard
+                    .download_with_anonymous(&anonymous, item)
+                    .map_err(account)?,
+            )
         }
         CommunityAction::KeyboardSkinInstall { id: item, name } => {
             let item = id(&item)?;
             let root = state_root.ok_or_else(invalid)?;
-            let design = keyboard.download(item).map_err(account)?;
+            let anonymous = anonymous().map_err(account)?;
+            let design = keyboard
+                .download_with_anonymous(&anonymous, item)
+                .map_err(account)?;
             super::host::install_downloaded_keyboard_skin(root, item, &name, design)
                 .map_err(PluginFailure::code)
         }
@@ -638,19 +652,28 @@ pub unsafe extern "C" fn msime_client_community(request: *const u8, length: usiz
         let state_root = optional_directory(request.state_root.as_deref())?;
         // `<state_root>/plugins`, the root `msime_client_plugins` lists and imports into.
         let plugins = PluginRoots::new(request.state_root.as_deref(), None, None, "").installed;
-        let services = match source {
-            Source::Store(entry) => Arc::clone(&entry.community),
+        match source {
+            Source::Store(entry) => run(
+                &entry.community,
+                || Ok(Arc::clone(&entry.anonymous)),
+                skins,
+                plugins.as_deref(),
+                state_root,
+                request.action,
+            ),
             Source::Directory(_) => {
-                services_for(directory.ok_or_else(invalid)?, legacy).map_err(account)?
+                let directory = directory.ok_or_else(invalid)?;
+                let services = services_for(directory, legacy).map_err(account)?;
+                run(
+                    &services,
+                    || anonymous_session_for(directory),
+                    skins,
+                    plugins.as_deref(),
+                    state_root,
+                    request.action,
+                )
             }
-        };
-        run(
-            &services,
-            skins,
-            plugins.as_deref(),
-            state_root,
-            request.action,
-        )
+        }
     })
 }
 

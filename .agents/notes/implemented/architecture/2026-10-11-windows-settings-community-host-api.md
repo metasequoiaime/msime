@@ -11,7 +11,7 @@ Status: implemented
 ## Decision
 
 - 这些判断搬进 client-core，Tauri 改调共享实现：`AccountError::community_code`；`candidate_community::pack_preview` 与 `CandidateSkinPackPreview`、`CandidateSkinPreview::data_url`；`candidate_sync::state_path` 与 `install_downloaded`（安装加 `record_install`）；`plugins::community::pack_preview` 与 `CommunityPluginPackPreview`、服务上的 `publish_installed` 和 `install_publication`；`CommunityReport::from_labels`（`msime_client_community_moderation` 的 `report` 也改用它）；`CommunityResourceScope::from_name`。
-- 新导出 `msime_client_community`：请求 `{directory, legacy_directory?, skins_directory?, state_root?, action:{operation, ...}}`，二十九个操作与上面的 Tauri 命令一一对应（`candidate_skin_*`、`plugin_*`、`resource_*`、`report`），参数同名改成 snake_case，返回与 Tauri 相同的 JSON。装包、补图、补许可后返回重新扫描的 `{directory, packages, issues}`，与 Tauri 的 `SkinCatalogResponse` 相同。
+- 新导出 `msime_client_community`：请求 `{directory, legacy_directory?, skins_directory?, state_root?, action:{operation, ...}}`，二十九个操作与上面的 Tauri 命令一一对应（`candidate_skin_*`、`plugin_*`、`resource_*`、`report`），参数同名改成 snake_case，返回与 Tauri 相同的 JSON。例外是 #8201 的决定 13（2026-10-17）：`report` 没有登录时用同一账号目录里的匿名会话（`report_with_anonymous`），两个都没有时仍是 `community_unauthorized`，Tauri 的 `community_report` 仍只认登录账号。装包、补图、补许可后返回重新扫描的 `{directory, packages, issues}`，与 Tauri 的 `SkinCatalogResponse` 相同。
 - 服务经 `msime_client_account` 里同一个会话对象认证（`session_for` 改成模块内可见），每个账号目录一组服务，放在静态表里，与 `desktop_account::manage` 建的四个服务相同。
 - 错误沿用插件页的失败记录（`plugin_response`）：`error` 是码，插件规则失败时另有 `detail`；账号失败是 `community_*`，皮肤包规则失败是 `candidate_skin_*` 或 `storage`，与共享页认的码相同。
 - 补预览图的图片用标准 base64 传（Tauri 是字节数组），C++ 那边编码方便；为此 host-api 加了 client-core 已在用的 `base64 = "0.23"`。

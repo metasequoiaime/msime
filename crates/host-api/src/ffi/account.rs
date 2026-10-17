@@ -4,7 +4,7 @@
 //!
 //! 请求带 `session_store` 而不带 `directory` 时，会话在宿主注入的存储里（[`super::session_store`]），会话对象是注册时建好的那一个。
 //!
-//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接、语音贡献）在 [`crate::account_ops`]；它们失败时还可能带 `retry_after_seconds`。登录账号优先、退回匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录一个会话对象，刷新时与登录会话共用 `account-refresh.lock`），注入时用该 store 的匿名会话。
+//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接、语音贡献）在 [`crate::account_ops`]；它们失败时还可能带 `retry_after_seconds`。用到匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录一个会话对象，刷新时与登录会话共用 `account-refresh.lock`）和 `anonymous-account.json` 里的身份，注入时用该 store 的匿名会话和 `ANONYMOUS_IDENTITY` 项。
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
@@ -21,8 +21,9 @@ use msime_client_services::account::settings_sync::{
 };
 use msime_client_services::account::{
     adopt_legacy_account_session, ensure_anonymous_account, ensure_anonymous_account_in,
-    AccountError, AccountPreferences, AccountSessionFileLayout, BackendAccountClient,
-    BackendAccountSession, FileAccountSessionStorage, LockedAnonymousSessionStorage,
+    AccountError, AccountPreferences, AccountSessionFileLayout, AnonymousIdentitySource,
+    BackendAccountClient, BackendAccountSession, FileAccountSessionStorage,
+    LockedAnonymousSessionStorage,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -447,6 +448,7 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                     Action::Extended(operation) => crate::account_ops::run(
                         &session,
                         || anonymous_session_for(directory),
+                        AnonymousIdentitySource::Directory(directory),
                         operation,
                     )
                     .map_err(Failure::from),
@@ -462,6 +464,7 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                 Action::Extended(operation) => crate::account_ops::run(
                     &entry.account,
                     || Ok(Arc::clone(&entry.anonymous)),
+                    AnonymousIdentitySource::Store(entry.backend.as_ref()),
                     operation,
                 )
                 .map_err(Failure::from),
@@ -854,6 +857,43 @@ mod tests {
                     "{operation}"
                 );
             }
+            unregister(id);
+        }
+
+        #[test]
+        fn signed_out_community_and_ai_skin_requests_read_the_stores_anonymous_session() {
+            let store = leaked_store();
+            let id = registered(store, SHARED, 0);
+            // store 里只有一份解不开的匿名会话：要是只看登录会话，下面几项会以未登录结束；它们读了匿名会话，在发请求之前就以存储错误结束。
+            put(store, 3, b"not a session".to_vec());
+            let item = "10000000-0000-4000-8000-000000000001";
+            for action in [
+                json!({ "operation": "keyboard_skin_download", "id": item }),
+                json!({ "operation": "report", "kind": "skins", "id": item, "reason": "其他" }),
+            ] {
+                assert_eq!(
+                    community(json!({ "session_store": id, "action": action })),
+                    json!({ "ok": false, "error": "community_storage" }),
+                    "{action}"
+                );
+            }
+            // 只认登录账号的社区操作不看匿名会话。
+            assert_eq!(
+                community(
+                    json!({ "session_store": id, "action": { "operation": "keyboard_skin_rate", "id": item, "stars": 5 } })
+                ),
+                json!({ "ok": false, "error": "community_unauthorized" })
+            );
+            let request = json!({ "session_store": id, "action": { "operation": "create", "prompt": "合成插画" } }).to_string();
+            // SAFETY: 缓冲区在调用期间有效，返回的字符串在下面释放。
+            let job = unsafe {
+                let raw =
+                    crate::ffi::ai_skin::msime_client_ai_skin_job(request.as_ptr(), request.len());
+                let text = CStr::from_ptr(raw).to_str().unwrap().to_owned();
+                msime_client_string_free(raw);
+                serde_json::from_str::<Value>(&text).unwrap()
+            };
+            assert_eq!(job, json!({ "ok": false, "error": "account_storage" }));
             unregister(id);
         }
 

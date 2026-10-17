@@ -3,8 +3,8 @@
 //! Reporting needs a signed-in session; the device's anonymous account counts. The reason is one of a fixed list ([`CommunityReportReason`]) sent as its Chinese label, with an optional free-text detail. Reporting the same item again is accepted without a second record.
 
 use crate::account::{
-    request_with_account_session, AccountApi, AccountError, AccountSessionStorage,
-    BackendAccountClient, BackendAccountSession,
+    request_with_account_session, with_shared_access_token, AccountApi, AccountError,
+    AccountFailure, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
 use crate::community::valid_text;
 use reqwest::Method;
@@ -185,7 +185,25 @@ where
             api.report_community_item(report, token.ok_or(AccountError::Unauthorized)?)
         })
     }
+
+    /// 与 [`Self::report`] 相同，只是没有登录时用本机匿名账号 `anonymous` 举报（#8201 的决定 13，服务端的 `CommunityReport` 收匿名账号）：登录账号优先，取令牌和 401 后的重试与释义相同（[`with_shared_access_token`]）。两个会话都没有时仍是 `Unauthorized`，错误码与 [`Self::report`] 相同。每小时 30 次的限额按举报所用的账号计。
+    pub fn report_with_anonymous<S2: AccountSessionStorage>(
+        &self,
+        anonymous: &BackendAccountSession<A, S2>,
+        report: &CommunityReport,
+    ) -> Result<(), AccountError> {
+        report.validate()?;
+        with_shared_access_token(&self.session, anonymous, None, |api, token| {
+            api.report_community_item(report, token)
+                .map_err(AccountFailure::from)
+        })
+        .map(|((), _)| ())
+        .map_err(|failure| failure.error)
+    }
 }
+
+#[cfg(test)]
+mod anonymous_tests;
 
 #[cfg(test)]
 mod tests {

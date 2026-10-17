@@ -57,7 +57,8 @@ Status: proposed
 - 新增的账号操作（`chat`、`chat_models`、`account_delete`、`translate`、`phrases_*`、`sessions_list`、`session_revoke`、`data_*`、`feedback`、`diagnostics_*`）和 AI 皮肤的两个 C 入口（`msime_client_ai_skin_generate`、`msime_client_ai_skin_job`）返回 client-services 的 `AccountFailure`：在 `AccountError` 之外带着 HTTP 状态码、服务端错误码、`Retry-After` 的整数秒和请求有没有拿到响应（`network_failure`）。`AccountError` 一个变体都不加，已有操作的错误码不变：它在 Tauri 的社区命令等处被穷举匹配，把 403 `recent_login_required` 从 `Forbidden` 里分出来会改掉现有 `delete` 返回的 `account_unauthorized`。所以注销账号另开一个 `account_delete`，已有的 `delete` 不动；`chat`、`chat_models` 这两个新操作和 AI 皮肤改走带细节的路径（AccountApi 的 `*_detailed`、`AiSkinApi` 直接返回 `AccountFailure`、`BackendAiSkinService::generate_detailed` 给出 `AiSkinFailure`），Tauri 用的 `chat`、`chat_models` 和 `generate` 把同一次失败收窄回 `AccountError`，码与以前完全相同。新码 `account_recent_login_required`、`account_too_large`、`account_not_found`、`account_identity_changed`、`account_network` 和 C 响应里的 `retry_after_seconds` 只出现在新操作上。
 - 断网与服务不可用分开（`account_network`，鸿蒙账号桥原来的码）：请求发出去以后没拿到响应（连不上、DNS 或 TLS 失败、超时、连接在响应头之前断开）时 `network_failure` 为真，`error` 仍是 `Unavailable`，所以经 `error` 取码的已有接口和云同步（按 `status` 为空判断「网络不可用」、`code` 只取服务端的码）都不变；服务端回了 5xx 时照旧是 `account_unavailable`。令牌要先刷新、而刷新请求本身没拿到响应时仍是 `account_unavailable`：刷新走的是只有 `AccountError` 的旧路径，要分开就得给 `AccountError` 加变体。
 - 请求按 msime-cloud `origin/main` 的规则在本地完整校验，并对序列化后的请求体做整包预检：走 64 KiB `decode` 的接口超限时服务端回的是 400 `invalid_json`，分不出是哪条规则，所以 `translate`、`chat`、`msime_client_account_gloss` 在本地先报 `account_too_large`。诊断上传对服务端的每条拒绝规则做截断或替换而不只是检查，因为服务端只要有一处不合规就拒绝整份。
-- 令牌来源：只认登录账号的、登录优先退回匿名账号的、绑定到上传时 `user_id` 的三类，后者对不上时报错，never 退回另一个账号（否则匿名上传后再登录，删除会删到登录账号那份、匿名那份连同 MCP 令牌还活 7 天）。
+- 令牌来源分四类：只认登录账号的；登录优先退回匿名账号的（释义、反馈、诊断上传，以及按 #8201 的决定 13、16 加进来的对话、模型目录、社区键盘皮肤的下载和安装、举报、AI 皮肤生成与任务，都经 `with_shared_access_token` 或同样的选法，两个会话都没有时错误码与以前相同）；只认匿名账号的（语音贡献，决定 12：样本不挂在实名账号下）；绑定到上传时 `user_id` 的，对不上时报错，never 退回另一个账号（否则匿名上传后再登录，删除会删到登录账号那份、匿名那份连同 MCP 令牌还活 7 天）。AI 皮肤的一次生成从头到尾留在开始时选中的账号上，因为插画任务归创建它的账号。
+- 删除云端数据的 `voice` 分区同时删匿名账号名下的语音样本，先于登录账号的分区：服务端对 `DELETE /v1/users/me/data` 一律要求 10 分钟内建立的会话（`principal(w, r, true)`，匿名账号也一样），而匿名会话通常早就建立了，所以 Rust 先用现有会话试，403 `recent_login_required` 或令牌失效时用保存的匿名身份重新登录同一个账号再删。重新登录计入服务端按地址每天的匿名登录限额（默认 5 次）。匿名这一步重做没有副作用，放在前面，它失败时登录账号的分区还没动。
 - 服务端响应的结构体不拒绝未知字段。AI 皮肤的 `RawSkinJob` 曾带 `deny_unknown_fields`，msime-cloud 在 2026-10-01 给 202 响应加了 `expires_at` 以后每次创建插画任务都解析失败；回放当前形状的本地测试抓不到服务端以后再加的字段。
 - AI 皮肤生成的进度回调在调用线程上依次调用：出图线程只经通道报告完成。与头文件里其他进度回调的约定一致，JNI 和 NAPI 胶水可以直接用调用线程的 env；出图线程遇到 401 时仍可能在 Rust 的线程上调用存储回调，按上面的「任意线程」处理。
 
@@ -83,6 +84,8 @@ Status: proposed
 - **一个进程级的全局默认存储（init 一次，之后所有请求都用它）** — 最强的理由：请求形状不变，平台迁移时少改字段。否掉：全局默认会悄悄改变现有带 `directory` 的调用；同一个进程（例如测试或 Windows 的设置程序）也可能同时需要两种存储。
 - **锁回调不带 item，每个 store 一把锁** — 最强的理由：接口更小，宿主只管一个锁文件。否掉：macOS 上登录会话和匿名会话的锁本来就在两个容器里（Application Support 的 `account-refresh.lock` 与 App Group 的 `backend-account-refresh.lock`），Tauri 设置应用和 Swift 都已在用；只有一把锁就得让其中一方改锁文件，共存期间两边对不上。
 - **只靠宿主的锁排斥本进程里的并发** — 最强的理由：Rust 里少一层 `Mutex`。否掉：Java 的 `FileChannel.lock` 同进程重复加锁会抛 `OverlappingFileLockException`，fcntl 同进程第二个 fd 直接成功；Rust 自己再套一把进程内锁，宿主就只需要保证跨进程。
+- **删匿名语音样本时每次都先重新登录匿名账号** — 最强的理由：少一次注定被拒的请求（匿名会话几乎总是超过 10 分钟）。否掉：重新登录计入按地址每天 5 次的匿名登录限额，用户刚因为登录账号要求最近登录而重试时，上一次换来的匿名会话还新鲜，先试一次就不用再耗一次额度。
+- **先删登录账号的分区、再删匿名账号的语音样本** — 最强的理由：匿名那一步失败不会挡住用户最关心的实名数据。否掉：词库删除写一条 reset、偏好和常用语推进 revision，重做一遍会让其他设备再整份重载一次；匿名那一步重做没有副作用，放在前面时任何一步失败后的重试都是干净的。
 - **平台行为以各平台现状为准** — 最强的理由：迁移不会改变任何用户可见行为。否掉：仓库负责人已定以 Rust 为准，否则 Rust 实现得为每个平台各留一套分支，等于把重复实现搬进 Rust。
 
 ## Acceptance criteria

@@ -2,15 +2,16 @@
 //!
 //! 写成对 [`AccountApi`] 和 [`AccountSessionStorage`] 泛型的函数，测试用假的后端驱动；C 导出（`super::ffi::account`）把按目录或注入存储建好的两个会话交进来。
 //!
-//! 令牌从哪个会话来：对话、注销账号、常用语、我的设备、云端数据和发送下载链接只用登录账号；释义、反馈、诊断上传和语音贡献登录账号优先、没有登录时用本机匿名账号；查看、换令牌和删除诊断快照绑定到上传时返回的 `user_id`，登录会话和匿名会话都不是它时是 `account_identity_changed`，不会退回另一个账号。
+//! 令牌从哪个会话来：注销账号、常用语、我的设备、云端数据和发送下载链接只用登录账号；对话、模型目录、释义、反馈和诊断上传登录账号优先、没有登录时用本机匿名账号；语音贡献只用本机匿名账号（#8201 的决定 12），删除云端数据的 `voice` 分区时也删掉匿名账号名下的样本；查看、换令牌和删除诊断快照绑定到上传时返回的 `user_id`，登录会话和匿名会话都不是它时是 `account_identity_changed`，不会退回另一个账号。
 
 use base64::Engine as _;
 use msime_client_services::account::page::{ChatModelsResponse, ChatResponse};
 use msime_client_services::account::{
-    prepare_feedback, prepare_voice_contribution, translate_request_body, with_shared_access_token,
-    AccountApi, AccountChatMessage, AccountError, AccountFailure, AccountFeedbackInput,
-    AccountPhrase, AccountPhrases, AccountSessionStorage, AccountTranslateRequest,
-    AccountVoiceContributionInput, BackendAccountSession, DEFAULT_TRANSLATE_TIMEOUT_MS,
+    delete_anonymous_voice_samples, prepare_chat, prepare_feedback, prepare_voice_contribution,
+    translate_request_body, valid_data_sections, with_shared_access_token, AccountApi,
+    AccountChatMessage, AccountError, AccountFailure, AccountFeedbackInput, AccountPhrase,
+    AccountPhrases, AccountSessionStorage, AccountTranslateRequest, AccountVoiceContributionInput,
+    AnonymousIdentitySource, BackendAccountSession, DEFAULT_TRANSLATE_TIMEOUT_MS,
     MAX_VOICE_CONTRIBUTION_AUDIO_BYTES, TRANSLATE_TIMEOUT_MS,
 };
 use msime_client_services::diagnostics::upload::{
@@ -163,10 +164,34 @@ fn bound_user(user_id: &str) -> Result<&str, OperationFailure> {
     Ok(user_id)
 }
 
-/// 执行一次新操作。`account` 是登录会话；`anonymous` 给出本机匿名账号的会话，只有登录账号优先、退回匿名的操作和绑定账号的诊断操作才会用到它。
+/// 登录账号优先、没有登录时用匿名账号做一次请求（与释义相同的 [`with_shared_access_token`]），回来以后核对给出令牌的那个会话仍是同一个账号：期间退出或换了号是 `account_cancelled`，回答不交给已经换了账号的页面。
+fn preferred_account_request<A, S1, S2, T>(
+    account: &BackendAccountSession<A, S1>,
+    anonymous: &BackendAccountSession<A, S2>,
+    operation: impl Fn(&A, &str) -> Result<T, AccountFailure>,
+) -> Result<T, OperationFailure>
+where
+    A: AccountApi,
+    S1: AccountSessionStorage,
+    S2: AccountSessionStorage,
+{
+    let (result, token) = with_shared_access_token(account, anonymous, None, operation)?;
+    let current = if token.anonymous {
+        anonymous.status()?
+    } else {
+        account.status()?
+    };
+    if current.is_none_or(|user| user.id != token.user_id) {
+        return Err(AccountError::Cancelled.into());
+    }
+    Ok(result)
+}
+
+/// 执行一次新操作。`account` 是登录会话；`anonymous` 给出本机匿名账号的会话，只有用得到匿名账号的操作（登录账号优先、退回匿名的，只用匿名账号的语音贡献，绑定账号的诊断操作，删除云端数据的 `voice` 分区）才会调用它；`identity` 是匿名账号的身份存在哪里，只在删除匿名账号的语音样本、匿名会话要重新登录时读。
 pub(crate) fn run<A, S1, S2>(
     account: &BackendAccountSession<A, S1>,
     anonymous: impl FnOnce() -> Result<Arc<BackendAccountSession<A, S2>>, AccountError>,
+    identity: AnonymousIdentitySource<'_>,
     operation: Operation,
 ) -> Result<Value, OperationFailure>
 where
@@ -175,10 +200,24 @@ where
     S2: AccountSessionStorage,
 {
     match operation {
-        Operation::Chat { messages, model } => value(ChatResponse {
-            content: account.chat_checked(&messages, &model)?,
-        }),
-        Operation::ChatModels => value(ChatModelsResponse::from(account.chat_models_detailed()?)),
+        Operation::Chat { messages, model } => {
+            // 不合法和太大的请求在取令牌之前就结束。
+            prepare_chat(&messages, &model)?;
+            let anonymous = anonymous()?;
+            value(ChatResponse {
+                content: preferred_account_request(account, &anonymous, |api, token| {
+                    api.chat_detailed(&messages, &model, token)
+                })?,
+            })
+        }
+        Operation::ChatModels => {
+            let anonymous = anonymous()?;
+            value(ChatModelsResponse::from(preferred_account_request(
+                account,
+                &anonymous,
+                |api, token| api.chat_models_detailed(token),
+            )?))
+        }
         Operation::AccountDelete => {
             account.delete_account_detailed()?;
             Ok(Value::Null)
@@ -218,6 +257,16 @@ where
             value(account.data_export(absolute_path(&destination)?)?)
         }
         Operation::DataDelete { sections } => {
+            if !valid_data_sections(&sections) {
+                return Err(invalid());
+            }
+            if sections.iter().any(|section| section == "voice") {
+                // 语音贡献只用匿名账号，登录账号的 voice 分区删不到它们，所以同时删匿名账号名下的样本。删除云端数据仍要登录，没有登录时与以前一样在这里结束，不碰匿名账号。匿名这一步放在前面：它重做没有副作用，它失败时登录账号的分区还没动，重试不会把已经删掉的分区（例如词库的 reset）再删一遍。
+                if account.status()?.is_none() {
+                    return Err(AccountError::Unauthorized.into());
+                }
+                delete_anonymous_voice_samples(&*anonymous()?, identity)?;
+            }
             account.data_delete(&sections)?;
             Ok(Value::Null)
         }
@@ -344,11 +393,8 @@ where
                 app_version,
                 audio,
             })?;
-            let anonymous = anonymous()?;
-            let (receipt, _) =
-                with_shared_access_token(account, &anonymous, None, |api, token| {
-                    api.voice_contribution(&contribution, token)
-                })?;
+            // 只用本机匿名账号（#8201 的决定 12），登录了也一样，样本不挂在实名账号下；没有匿名会话时是 account_unauthorized。
+            let receipt = anonymous()?.voice_contribution(&contribution)?;
             Ok(json!({ "id": receipt.id, "duration_ms": contribution.duration_ms() }))
         }
     }

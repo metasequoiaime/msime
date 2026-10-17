@@ -858,10 +858,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         messages: &[AccountChatMessage],
         model: &str,
     ) -> Result<String, AccountFailure> {
-        validate_chat_request(messages, model)?;
-        if super::client::chat_request_body(messages, model)?.len() > MAX_CHAT_REQUEST_BYTES {
-            return Err(AccountFailure::too_large());
-        }
+        prepare_chat(messages, model)?;
         self.authenticated_detailed(|api, token| api.chat_detailed(messages, model, token))
     }
 
@@ -924,6 +921,14 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             return Err(AccountError::Invalid.into());
         }
         self.authenticated_detailed(|api, token| api.data_delete(sections, token))
+    }
+
+    /// 用这个会话的账号上传一段语音贡献。语音贡献只用本机匿名账号（#8201 的决定 12），`msime_client_account` 在匿名会话上调用它。
+    pub fn voice_contribution(
+        &self,
+        contribution: &AccountVoiceContribution,
+    ) -> Result<AccountVoiceContributionReceipt, AccountFailure> {
+        self.authenticated_detailed(|api, token| api.voice_contribution(contribution, token))
     }
 
     /// 把 `platform`（[`DOWNLOAD_LINK_PLATFORMS`] 之一）的下载链接发到这个账号已验证的邮箱。只用这个会话的账号；没有已验证邮箱是 `account_no_verified_email`。

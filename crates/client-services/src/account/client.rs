@@ -1343,6 +1343,15 @@ pub(super) fn chat_request_body(
     serde_json::to_vec(&ChatBody::new(messages, model)).map_err(|_| AccountError::Invalid)
 }
 
+/// 对话请求在取令牌之前的检查，与 [`BackendAccountSession::chat_checked`] 相同：不合法是 `account_invalid`，序列化后的请求体超过服务端 64 KiB 的整包上限是 `account_too_large`。
+pub fn prepare_chat(messages: &[AccountChatMessage], model: &str) -> Result<(), AccountFailure> {
+    validate_chat_request(messages, model)?;
+    if chat_request_body(messages, model)?.len() > MAX_CHAT_REQUEST_BYTES {
+        return Err(AccountFailure::too_large());
+    }
+    Ok(())
+}
+
 impl AccountApi for BackendAccountClient {
     fn providers(&self) -> Result<std::collections::HashMap<String, bool>, AccountError> {
         #[derive(Deserialize)]

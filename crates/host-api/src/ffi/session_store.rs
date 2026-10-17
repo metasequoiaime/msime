@@ -328,9 +328,10 @@ fn register(store: SessionStoreV1) -> Result<Value, String> {
         client.clone(),
         storage(HostSessionSlot::Anonymous),
     ));
-    let ai_skin = Arc::new(super::ai_skin::AiSkinService::new(
+    let ai_skin = Arc::new(super::ai_skin::AiSkinService::with_anonymous(
         client.clone(),
         Arc::clone(&account),
+        Arc::clone(&anonymous),
     ));
     let community = Arc::new(Services::new(client, Arc::clone(&account)));
     stores().insert(

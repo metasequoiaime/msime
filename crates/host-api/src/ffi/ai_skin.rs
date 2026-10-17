@@ -1,10 +1,10 @@
-//! AI 键盘皮肤：`msime_client_ai_skin_generate` 走完整条生成（模型目录、对话出三套设计、三张插画），`msime_client_ai_skin_cancel` 取消进行中的生成，`msime_client_ai_skin_job` 给自己轮询的宿主新建、读取和删除单个插画任务。规则、校验和清理都在 client-services 的 [`BackendAiSkinService`]，与 Tauri 移动端的 `ai_skin_generate` 相同；只用登录账号。
+//! AI 键盘皮肤：`msime_client_ai_skin_generate` 走完整条生成（模型目录、对话出三套设计、三张插画），`msime_client_ai_skin_cancel` 取消进行中的生成，`msime_client_ai_skin_job` 给自己轮询的宿主新建、读取和删除单个插画任务。规则、校验和清理都在 client-services 的 [`BackendAiSkinService`]，与 Tauri 移动端的 `ai_skin_generate` 相同；登录账号优先、没有登录时用本机匿名账号（#8201 的决定 16），Tauri 那边仍只用登录账号。
 //!
-//! 会话按 `directory` 或 `session_store` 选，与 `msime_client_account` 相同：按目录时每个目录一个服务对象，经同一个账号会话对象认证；注入时用注册时建好的那一个。取消登记表是进程级的一张，按宿主给的请求 id 登记。
+//! 会话按 `directory` 或 `session_store` 选，与 `msime_client_account` 相同：按目录时每个目录一个服务对象，经同一个账号会话对象和同一目录的匿名会话对象认证；注入时用注册时建好的那一个。取消登记表是进程级的一张，按宿主给的请求 id 登记。
 //!
 //! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。
 
-use super::account::{account_failure_response, session_for, Failure};
+use super::account::{account_failure_response, anonymous_session_for, session_for, Failure};
 use super::session_store::{session_source, SessionStorage, Source};
 use super::with_bounded_bytes;
 use crate::*;
@@ -62,9 +62,11 @@ fn service(
                 return Ok(Arc::clone(existing));
             }
             let session = session_for(directory, legacy).map_err(account)?;
-            let created = Arc::new(BackendAiSkinService::new(
+            let anonymous = anonymous_session_for(directory).map_err(account)?;
+            let created = Arc::new(BackendAiSkinService::with_anonymous(
                 BackendAccountClient::new().map_err(account)?,
                 session,
+                anonymous,
             ));
             services.insert(directory.to_path_buf(), Arc::clone(&created));
             Ok(created)
@@ -330,6 +332,35 @@ mod tests {
                 json!({ "directory": directory, "action": { "operation": "create", "prompt": "合成插画" } })
             ),
             unauthorized
+        );
+    }
+
+    #[test]
+    fn signed_out_requests_read_the_directorys_anonymous_session() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("account");
+        // 只有一份解不开的匿名会话：要是只看登录会话，这里会是 account_unauthorized；读了同一目录的匿名会话，在发请求之前就以 account_storage 结束。
+        std::fs::create_dir_all(&directory).unwrap();
+        let session = directory.join("anonymous-session.json");
+        std::fs::write(&session, b"not a session").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+            std::fs::set_permissions(&session, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let storage = json!({ "ok": false, "error": "account_storage" });
+        assert_eq!(
+            generate(
+                json!({ "directory": directory, "request_id": "synthetic-anonymous", "prompt": "合成的提示词" })
+            ),
+            storage
+        );
+        assert_eq!(
+            job(
+                json!({ "directory": directory, "action": { "operation": "create", "prompt": "合成插画" } })
+            ),
+            storage
         );
     }
 

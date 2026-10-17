@@ -261,6 +261,42 @@ fn keyboard_skins_check_requests_and_the_account_before_the_network() {
 }
 
 #[test]
+fn signed_out_keyboard_skin_downloads_and_reports_read_the_anonymous_session() {
+    let root = Root::new();
+    // 账号目录里只有一份解不开的匿名会话：要是只看登录会话，这三项会以 community_unauthorized 结束；它们读了同一目录的匿名会话，在发请求之前就以 community_storage 结束。
+    write_private_file(&root.account(), "anonymous-session.json", b"not a session");
+    for action in [
+        json!({ "operation": "keyboard_skin_download", "id": ITEM }),
+        json!({ "operation": "keyboard_skin_install", "id": ITEM, "name": "合成皮肤" }),
+        json!({ "operation": "report", "kind": "skins", "id": ITEM, "reason": "其他" }),
+    ] {
+        assert_eq!(
+            root.call(action.clone()),
+            failure("community_storage"),
+            "{action}"
+        );
+    }
+    // 只认登录账号的操作不看匿名会话。
+    assert_eq!(
+        root.call(json!({ "operation": "keyboard_skin_rate", "id": ITEM, "stars": 5 })),
+        failure("community_unauthorized")
+    );
+}
+
+/// 按会话文件的要求写一个只有属主可读写的文件，目录也收紧到 0700。
+fn write_private_file(directory: &Path, name: &str, bytes: &[u8]) {
+    std::fs::create_dir_all(directory).unwrap();
+    let path = directory.join(name);
+    std::fs::write(&path, bytes).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+}
+
+#[test]
 fn only_a_keyboard_skin_publish_may_exceed_four_mebibytes() {
     let root = Root::new();
     // 用 JSON 末尾的空白把请求撑大，内容本身合法。
