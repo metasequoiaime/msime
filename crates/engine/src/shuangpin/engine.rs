@@ -112,16 +112,19 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
 }
 
 fn direct_helpcode_matches(word: &str, path: &[DirectSpelling], keymap: &HelpcodeKeymap) -> bool {
-    let characters: Vec<char> = word.chars().collect();
+    let mut characters = word.chars();
+    let mut next_index = 0;
     for (index, spelling) in path.iter().enumerate() {
         let Some(first) = spelling.first else {
             continue;
         };
-        let Some(character) = characters.get(index) else {
+        let Some(character) = characters.nth(index - next_index) else {
             return false;
         };
-        let character = character.to_string();
-        let Some(code) = keymap.code(&character) else {
+        next_index = index + 1;
+        let mut encoded = [0; 4];
+        let character = character.encode_utf8(&mut encoded);
+        let Some(code) = keymap.code(character) else {
             return false;
         };
         if code.as_bytes().first().copied() != Some(first as u8) {
@@ -548,6 +551,29 @@ mod tests {
         assert!(super::direct_helpcode_paths("ui'bjm", profile).is_empty());
         let ambiguous = "ta".repeat(80);
         assert!(super::direct_helpcode_paths(&ambiguous, profile).len() <= 64);
+    }
+
+    #[test]
+    fn direct_helpcode_matching_reuses_character_storage() {
+        use std::collections::HashMap;
+
+        let keymap = crate::helpcode::HelpcodeKeymap::from_codes(HashMap::from([
+            ("你".to_owned(), "a".to_owned()),
+            ("好".to_owned(), "b".to_owned()),
+        ]));
+        let path = [super::DirectSpelling {
+            code: "ni".to_owned(),
+            first: Some('a'),
+            second: None,
+            end: 3,
+        }];
+
+        let (matched, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            super::direct_helpcode_matches("你好", &path, &keymap)
+        });
+
+        assert!(matched);
+        assert_eq!(allocations, 0);
     }
 
     use super::{
