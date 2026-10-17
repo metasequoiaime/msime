@@ -1665,14 +1665,15 @@ impl NineKeySession {
         boundaries: &'a [usize],
         candidates: &[WordItem],
     ) -> Vec<(String, Cow<'a, [usize]>)> {
-        let locked = self.locked.concat();
         let mut readings: Vec<(String, usize)> = Vec::new();
         for (path_index, path) in alternatives.iter().enumerate() {
             if !self.reading_fits(path) {
                 continue;
             }
             let mut reading = String::with_capacity(self.digits.len());
-            reading.push_str(&locked);
+            for spelling in &self.locked {
+                reading.push_str(spelling);
+            }
             path.iter().for_each(|piece| reading.push_str(piece));
             if !readings.iter().any(|(known, _)| *known == reading) {
                 readings.push((reading, path_index));
@@ -6295,6 +6296,28 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert!(
             allocations <= 84,
             "ordinary readings copied shared boundaries: {allocations}"
+        );
+    }
+
+    #[test]
+    fn expressive_readings_do_not_allocate_a_separate_locked_prefix() {
+        let fixture = expressive_fixture();
+        let mut session =
+            open_expressive(&fixture, EnglishInputOptions::default(), BOTH_EXPRESSIVE);
+        type_digits(&mut session, "634486");
+        assert!(
+            session
+                .choose_spelling(spelling_index(&session, "mei"))
+                .handled
+        );
+        let alternatives = session.grid.spelling_table().paths("486");
+        let candidates = session.candidates.clone();
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            session.expressive_readings(&alternatives, &[], &candidates)
+        });
+        assert!(
+            allocations <= 15,
+            "locked expressive readings allocated {allocations} buffers"
         );
     }
 
