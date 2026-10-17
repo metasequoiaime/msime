@@ -93,12 +93,14 @@ export function localModeRowsFor({
   triggers,
   mentions,
   ios,
+  quickPhraseCandidates = false,
   translationService,
 }: {
   temporaryJapanese: boolean;
   triggers: boolean;
   mentions: boolean;
   ios: boolean;
+  quickPhraseCandidates?: boolean;
   translationService?: boolean;
 }): readonly LocalModeRow[] {
   const modes = temporaryJapanese
@@ -114,10 +116,12 @@ export function localModeRowsFor({
   return rows.map(([key, label, description]) => [
     key,
     label,
-    key === "command" && translationService === false
-      ? `${description}。${commandTranslationNotice}`
-      : ios
-        ? (iosLocalModeDescriptions[key] ?? description)
-        : description,
+    key === "quick_phrase" && quickPhraseCandidates
+      ? "中文模式下直接输入编码即可调用快捷短语，也可以按 Shift+K 后输入编码"
+      : key === "command" && translationService === false
+        ? `${description}。${commandTranslationNotice}`
+        : ios
+          ? (iosLocalModeDescriptions[key] ?? description)
+          : description,
   ]);
 }

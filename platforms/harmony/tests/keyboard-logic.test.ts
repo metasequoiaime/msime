@@ -8,10 +8,21 @@
  */
 import { HitOffset, KeyboardGeometry } from "../entry/src/main/ets/keyboard/KeyboardGeometry";
 import {
+  LOCAL_ASR_SAMPLE_RATE,
+  LOCAL_ONLINE_TAIL_SAMPLES,
   LocalAsrPolicy,
+  OFFLINE_TRANSDUCER_MAX_ACTIVE_PATHS,
   PcmFrameSlicer,
   SpeechSentenceAccumulator,
+  TRANSDUCER_HOTWORDS_SCORE,
 } from "../entry/src/main/ets/keyboard/input/LocalAsrPolicy";
+import {
+  SPACE_DRAG_THRESHOLD_VP,
+  SPACE_LONG_PRESS_MS,
+  SpaceGestureOutcome,
+  SpaceGestureState,
+  SpaceVoiceGesture,
+} from "../entry/src/main/ets/keyboard/input/SpaceVoiceGesture";
 import {
   LocalAsrPathTrust,
   PathTrustStat,
@@ -1353,6 +1364,14 @@ group("offline dictionaries fill only what the user's own translator left", () =
       answered[0].translation === "salut" &&
       answered[1].translation === "monde",
     "the online answer stays and the dictionary fills the unanswered candidate",
+  );
+});
+
+group("a silence timer waits while the VAD still hears speech", () => {
+  check(VoiceRecognitionPolicy.silenceStops(false), "silence ends a dictation nobody is speaking in");
+  check(
+    !VoiceRecognitionPolicy.silenceStops(true),
+    "a long VAD segment without new text does not end the dictation mid-sentence",
   );
 });
 
@@ -17567,7 +17586,7 @@ group("LocalAsrPolicy", () => {
     "the first column of tokens.txt is the token",
   );
   check(
-    LocalAsrPolicy.transducerHotwords(["你好", "你们", "AI/ML  x", "C++"], tokens) ===
+    LocalAsrPolicy.transducerHotwords(["你好", "你们", "AI/ML  x", "C++"], tokens, false) ===
       "你好\nAI ML x\n",
     "words with unknown tokens or punctuation are left out",
   );
@@ -17575,8 +17594,58 @@ group("LocalAsrPolicy", () => {
     LocalAsrPolicy.transducerHotwords(
       Array.from({ length: 250 }, () => "你好"),
       tokens,
+      false,
     ).split("\n").length === 201,
     "at most 200 transducer hotwords",
+  );
+  // X-ASR 的 token 表：每个汉字只以词首片段 `▁字` 出现，没有一个不带前缀的汉字。
+  const spelled = LocalAsrPolicy.tokenSet("<blk> 0\n\u2581写 1\n\u2581上 2\n\u2581去 3\n\u2581现 4\n\u2581在 5\n\u2581时 6\n\u2581the 7\ns 8\n");
+  check(
+    LocalAsrPolicy.cjkSpelledAsWords(spelled),
+    "a token table with only word-initial Chinese characters spells Chinese as words",
+  );
+  check(
+    !LocalAsrPolicy.cjkSpelledAsWords(tokens),
+    "a table with bare Chinese characters keeps the manifest's modeling unit",
+  );
+  check(
+    !LocalAsrPolicy.cjkSpelledAsWords(LocalAsrPolicy.tokenSet("\u2581写 1\n写 2\n")),
+    "one bare Chinese character is enough to keep the manifest's modeling unit",
+  );
+  check(
+    !LocalAsrPolicy.cjkSpelledAsWords(LocalAsrPolicy.tokenSet("<blk> 0\na 1\n\u2581ab 2\n")),
+    "a table without any word-initial three-byte piece is not spelled as words",
+  );
+  check(
+    !LocalAsrPolicy.cjkSpelledAsWords(LocalAsrPolicy.tokenSet("<blk> 0\n▁the 1\n▁and 2\n")),
+    "word-initial English pieces of three letters do not make a table spelled as Chinese words",
+  );
+  check(
+    LocalAsrPolicy.transducerHotwords(["写上去", "现在时", "写字", "AI 写/the", "C++"], spelled, true) ===
+      "写 上 去\n现 在 时\nAI 写 the\n",
+    "spelled-as-words hotwords put each Chinese character apart and drop words with unknown characters",
+  );
+  const spelledPlan = LocalAsrPolicy.plan(
+    "/m",
+    JSON.stringify({
+      kind: "offline_transducer",
+      hotwords: "native",
+      modeling_unit: "cjkchar+bpe",
+      files: {
+        encoder: "e.onnx",
+        decoder: "d.onnx",
+        joiner: "j.onnx",
+        tokens: "tokens.txt",
+        bpe_vocab: "bpe.vocab",
+        vad: "v.onnx",
+      },
+    }),
+  );
+  check(
+    spelledPlan !== null &&
+      LocalAsrPolicy.hotwordModelingUnit(spelledPlan, true) === "bpe" &&
+      LocalAsrPolicy.hotwordModelingUnit(spelledPlan, false) === "cjkchar+bpe",
+    "an old manifest saying cjkchar+bpe is overridden to bpe when the tokens spell Chinese as words",
   );
   check(
     LocalAsrPolicy.funAsrHotwords(["甲乙", "", "a,b", "丙丁"]) === "甲乙,丙丁",
@@ -17647,6 +17716,160 @@ group("LocalAsrPolicy", () => {
     LocalAsrPolicy.tidyTranscript(" 你好 ， 世界  A I 模型 ") === "你好，世界 AI 模型",
     "spaces around CJK marks, inside initialisms and at the ends go",
   );
+  // 以下几条与 shared/voice/tests/local_asr.cpp 逐条相同。
+  check(
+    LocalAsrPolicy.tidyTranscript("昨天是 monday.Today is 礼拜二。The day after tomorrow 是星期三.") ===
+      "昨天是 monday. Today is 礼拜二。The day after tomorrow 是星期三。",
+    "a sentence mark after Chinese turns full width and English sentences get their space",
+  );
+  check(
+    LocalAsrPolicy.tidyTranscript("真的吗?好的!那就这样,走吧") === "真的吗？好的！那就这样，走吧",
+    "question, exclamation and comma after Chinese turn full width",
+  );
+  check(
+    LocalAsrPolicy.tidyTranscript("版本 3.5 和 U.S. 还有 e.g. 不变") === "版本 3.5 和 U.S. 还有 e.g. 不变",
+    "decimals, initialisms and abbreviations keep their periods",
+  );
+  check(LocalAsrPolicy.tidyTranscript("Done.Next step") === "Done. Next step", "a run-on English sentence is split");
+  check(LocalAsrPolicy.tidyTranscript("我们去 café.") === "我们去 café.", "only a Chinese character before a mark makes it full width");
+  check(LocalAsrPolicy.tidyTranscript("𠮷野家.") === "𠮷野家。", "an ideograph beyond the BMP counts as Chinese");
+  check(
+    LocalAsrPolicy.tidyTranscript("好。.") === "好。." && LocalAsrPolicy.tidyTranscript("ok,Next") === "ok,Next",
+    "a mark after CJK punctuation and a comma between English words are left alone",
+  );
+  check(
+    LOCAL_ONLINE_TAIL_SAMPLES === LOCAL_ASR_SAMPLE_RATE * 1.2,
+    "a streaming model is finished with 1.2 seconds of trailing silence",
+  );
+  const offline = LocalAsrPolicy.plan(
+    "/m",
+    JSON.stringify({
+      kind: "offline_transducer",
+      hotwords: "native",
+      modeling_unit: "cjkchar+bpe",
+      model_type: "transducer",
+      files: {
+        encoder: "e.onnx",
+        decoder: "d.onnx",
+        joiner: "j.onnx",
+        tokens: "tokens.txt",
+        bpe_vocab: "bpe.vocab",
+        vad: "silero_vad.onnx",
+      },
+    }),
+  );
+  check(
+    offline !== null && offline.modelType === "transducer" && offline.vad === "/m/silero_vad.onnx",
+    "an offline transducer plan carries its model type and VAD",
+  );
+  check(
+    offline !== null &&
+      LocalAsrPolicy.transducerNativeHotwords(offline) &&
+      !LocalAsrPolicy.correctsWithPinyin(offline),
+    "the offline transducer takes the user's words natively, not through pinyin correction",
+  );
+  check(
+    offline !== null && LocalAsrPolicy.requiredFiles(offline).length === 5,
+    "the offline transducer needs encoder, decoder, joiner, tokens and VAD",
+  );
+  check(
+    LocalAsrPolicy.plan(
+      "/m",
+      JSON.stringify({
+        kind: "offline_transducer",
+        files: { encoder: "e.onnx", decoder: "d.onnx", joiner: "j.onnx", tokens: "tokens.txt" },
+      }),
+    ) === null,
+    "an offline transducer without its VAD is incomplete",
+  );
+  check(
+    transducer !== null && transducer.modelType === "",
+    "a manifest without model_type leaves it to sherpa",
+  );
+  check(
+    OFFLINE_TRANSDUCER_MAX_ACTIVE_PATHS === 16 && TRANSDUCER_HOTWORDS_SCORE === 2.0,
+    "the offline transducer decodes with beam 16 and hotword score 2.0 as LocalAsr.cpp does",
+  );
+  check(
+    LocalAsrPolicy.hotwordsFile("/data/temp/") === "/data/temp/local-asr-hotwords.txt" &&
+      LocalAsrPolicy.hotwordsFile("") === "" &&
+      LocalAsrPolicy.hotwordsFile("temp") === "" &&
+      LocalAsrPolicy.hotwordsFile("/data/../temp") === "" &&
+      LocalAsrPolicy.hotwordsFile("/") === "",
+    "the hotwords file goes only into an absolute scratch directory",
+  );
+});
+
+group("SpaceVoiceGesture", () => {
+  const height = 240;
+  const gesture = new SpaceVoiceGesture();
+  gesture.down(0, 100, 500, height, true);
+  check(gesture.up() === SpaceGestureOutcome.SPACE, "a short tap is a space");
+
+  gesture.down(0, 100, 500, height, true);
+  check(!gesture.tick(SPACE_LONG_PRESS_MS - 1), "not yet a long press");
+  check(gesture.tick(SPACE_LONG_PRESS_MS), "holding still for the long-press time starts voice");
+  check(!gesture.tick(SPACE_LONG_PRESS_MS + 10), "voice is entered only once");
+  gesture.move(SPACE_LONG_PRESS_MS + 20, 160, 500);
+  check(
+    gesture.state() === SpaceGestureState.VOICE && !gesture.cancelling(),
+    "sliding sideways while recording neither moves the cursor nor cancels",
+  );
+  check(gesture.up() === SpaceGestureOutcome.VOICE_FINISH, "letting go finishes the dictation");
+
+  gesture.down(0, 100, 500, height, true);
+  gesture.tick(SPACE_LONG_PRESS_MS);
+  gesture.move(SPACE_LONG_PRESS_MS + 10, 100, 500 - height * 0.25);
+  check(!gesture.cancelling(), "exactly a quarter of the keyboard up is not yet the cancel zone");
+  gesture.move(SPACE_LONG_PRESS_MS + 20, 100, 500 - height * 0.25 - 1);
+  check(gesture.cancelling(), "past a quarter of the keyboard height shows release-to-cancel");
+  gesture.move(SPACE_LONG_PRESS_MS + 30, 100, 480);
+  check(!gesture.cancelling(), "sliding back down restores release-to-finish");
+  gesture.move(SPACE_LONG_PRESS_MS + 40, 100, 300);
+  check(gesture.up() === SpaceGestureOutcome.VOICE_CANCEL, "letting go in the cancel zone cancels");
+
+  gesture.down(0, 100, 500, height, true);
+  gesture.tick(SPACE_LONG_PRESS_MS);
+  check(gesture.cancel() === SpaceGestureOutcome.VOICE_CANCEL, "a cancelled touch cancels the dictation");
+  check(gesture.state() === SpaceGestureState.IDLE, "the gesture is idle afterwards");
+
+  gesture.down(0, 100, 500, height, true);
+  check(
+    gesture.move(100, 100 + SPACE_DRAG_THRESHOLD_VP + 1, 500),
+    "a horizontal drag past the threshold moves the cursor",
+  );
+  check(!gesture.tick(SPACE_LONG_PRESS_MS * 2), "once dragging, a long press no longer starts voice");
+  check(gesture.up() === SpaceGestureOutcome.CURSOR, "the drag ends as a cursor move");
+
+  gesture.down(0, 100, 500, height, true);
+  check(!gesture.move(100, 100 + SPACE_DRAG_THRESHOLD_VP, 500), "within the threshold it is still a press");
+  gesture.move(SPACE_LONG_PRESS_MS, 100, 500);
+  check(gesture.state() === SpaceGestureState.VOICE, "a move after the long-press time enters voice first");
+  check(gesture.cancel() === SpaceGestureOutcome.VOICE_CANCEL, "and a cancel then drops it");
+
+  gesture.down(0, 100, 500, height, false);
+  check(!gesture.tick(SPACE_LONG_PRESS_MS * 4), "an unarmed press never starts voice");
+  check(gesture.up() === SpaceGestureOutcome.SPACE, "a slow unarmed press is still a space");
+  check(gesture.cancel() === SpaceGestureOutcome.NONE, "cancelling an idle gesture does nothing");
+
+  gesture.down(0, 100, 500, height, true);
+  check(
+    gesture.up() === SpaceGestureOutcome.SPACE,
+    "letting go before the long-press timer ran types a space rather than an empty dictation",
+  );
+
+  gesture.down(0, 100, 500, height, true);
+  gesture.move(100, 100, 500 - height * 0.25 - 1);
+  check(gesture.tick(SPACE_LONG_PRESS_MS), "the timer starts voice after the finger already slid up");
+  check(gesture.cancelling(), "a finger already in the cancel zone when voice starts shows release-to-cancel");
+  check(gesture.up() === SpaceGestureOutcome.VOICE_CANCEL, "and letting go there without moving again cancels");
+
+  check(SpaceVoiceGesture.armed(true, true, false, false, "none"), "an idle touch keyboard arms voice");
+  check(!SpaceVoiceGesture.armed(false, true, false, false, "none"), "2in1 does not arm space voice");
+  check(!SpaceVoiceGesture.armed(true, false, false, false, "none"), "voice input turned off");
+  check(!SpaceVoiceGesture.armed(true, true, true, false, "none"), "already recording");
+  check(!SpaceVoiceGesture.armed(true, true, false, true, "none"), "composing keeps space for the candidate");
+  check(!SpaceVoiceGesture.armed(true, true, false, false, "u_mode"), "a local mode keeps space");
 });
 
 group("LocalAsrTextReader", () => {

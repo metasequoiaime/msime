@@ -303,6 +303,20 @@ final class TranslationProviderTests: XCTestCase {
     XCTAssertEqual(body["target_lang"] as? String, "EN")
   }
 
+  func testAITranslationUsesTheEndpointScopedCredentialForEveryProvider() async throws {
+    let transport = RecordingTransport { _ in
+      Data(#"{"choices":[{"message":{"content":"{\"translation\":\"hello\"}"}}]}"#.utf8)
+    }
+    let client = TranslationProviderClient(transport: transport, now: fixedDate)
+    let route = TranslationRoute.ai(provider: "openai",
+                                    endpoint: "https://api.openai.com/v1/chat/completions",
+                                    model: "synthetic-model", token: "synthetic-token")
+    let glosses = await client.translate(words: ["你好"], target: "EN", route: route)
+    XCTAssertEqual(glosses, ["hello"])
+    let request = try XCTUnwrap(transport.requests.first)
+    XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-token")
+  }
+
   func testPlainHTTPAndFailuresYieldNoGloss() async {
     let transport = RecordingTransport { _ in Data(#"{"Response":{"Error":{"Code":"AuthFailure"}}}"#.utf8) }
     let client = TranslationProviderClient(transport: transport, now: fixedDate)

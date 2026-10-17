@@ -41,7 +41,7 @@ export interface HostCapabilities {
   app_logo?: boolean;
   /** 宿主按 `traditional_chinese_variant` 选 OpenCC 的 s2t、s2tw 或 s2twp 做繁体转换（目前只有 Linux）；没有时设置页只给简体和繁体。 */
   traditional_chinese_variants?: boolean;
-  /** 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格（目前只有 macOS）。 */
+  /** 宿主按 `expand_candidates` 让横排候选窗按 Tab、↓ 展开成多行候选网格（目前只有 macOS）。 */
   expand_candidates?: boolean;
   /** 宿主画的各个界面一律跟随颜色模式，不读 `settings_theme` 等各界面的单独明暗，只有候选窗口仍读 `candidate_theme`（macOS、Windows、Linux 和 HarmonyOS；Android 和 iOS 不是）。 */
   surface_themes_follow?: boolean;
@@ -132,6 +132,8 @@ export interface HostCapabilities {
   caps_lock_language_switch?: boolean;
   /** 快捷模式只从实体键盘的 Shift+字母进入，「Shift+字母进入快捷模式」总开关在这里有意义（三个桌面宿主）。 */
   shift_letter_entry_switch?: boolean;
+  /** 宿主把快捷短语编码追加到普通候选，目前只有 macOS。 */
+  quick_phrase_candidates?: boolean;
   /** 宿主处理 Ctrl+Shift+J 在中文和日语之间切换（Windows 和 Linux）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
   japanese_toggle_shortcut?: boolean;
   /** 宿主读 `navigation.tab` 和 `navigation.page_up_down`，设置页给出这两组翻页键的开关。macOS、Windows 和 HarmonyOS 为假：关掉只会让键在组字时被吃掉，两组固定开启。缺省（早于这一项的宿主）按读处理。 */

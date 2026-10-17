@@ -78,6 +78,8 @@ pub struct SessionOptions {
     pub mention_entries: Vec<MentionEntry>,
     /// K 模式在数据库行之后追加的宿主短语；`Session::set_quick_phrase_table` 可以实时替换。
     pub quick_phrase_table: Vec<QuickPhraseEntry>,
+    /// 普通候选是否追加编码匹配的快捷短语。仅 macOS 桌面宿主打开；其他宿主保留独立 K 模式。
+    pub quick_phrase_candidates: bool,
     /// 宿主会把候选转成繁体输出：拆字（`C`）行按转换后的字形去重，免得一屏出现两个相同的繁体字。
     pub chaizi_traditional_output: bool,
 }
@@ -124,6 +126,7 @@ impl SessionOptions {
             plugin_commands: Vec::new(),
             mention_entries: Vec::new(),
             quick_phrase_table: Vec::new(),
+            quick_phrase_candidates: false,
             chaizi_traditional_output: false,
         }
     }

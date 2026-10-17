@@ -54,6 +54,14 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
             Field layout = type.getDeclaredField("touchLayoutHint");
             layout.setAccessible(true);
             layout.setInt(service, 0);
+            // apply() 先比较已画键面和传入的 view。真实输入法在 onCreateInputView
+            // 里创建这个辅助对象；测试夹具也创建同一个轻量对象，让拒写继续走到
+            // EditorBridge，而不是在夹具里先因 NullPointerException 失败。
+            Field rows = type.getDeclaredField("imeLetterRows");
+            rows.setAccessible(true);
+            var rowsConstructor = rows.getType().getDeclaredConstructor(type);
+            rowsConstructor.setAccessible(true);
+            rows.set(service, rowsConstructor.newInstance(service));
             int[] writes = new int[3];
             InputConnection connection = (InputConnection) Proxy.newProxyInstance(
                 InputConnection.class.getClassLoader(), new Class<?>[] {InputConnection.class},

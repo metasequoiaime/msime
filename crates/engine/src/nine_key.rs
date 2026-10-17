@@ -1158,7 +1158,6 @@ impl NineKeySession {
         let initial = self.initial.map(|initial| initial.letter);
         let starts_right =
             |piece: &str| initial.is_none_or(|letter| piece.as_bytes().first() == Some(&letter));
-        let mut syllables = Vec::new();
         let dictionary_options = self.dictionary_options();
         let alternatives = if remaining.is_empty() {
             vec![Vec::new()]
@@ -1169,9 +1168,14 @@ impl NineKeySession {
             let prior = self
                 .prior
                 .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
-            syllables =
-                table.spellings_for(remaining, locked_length, splits.first().copied(), prior);
-            syllables.retain(|syllable| starts_right(syllable));
+            table.spellings_for_into(
+                remaining,
+                locked_length,
+                splits.first().copied(),
+                prior,
+                &mut self.spellings,
+            );
+            self.spellings.retain(|syllable| starts_right(syllable));
             let mut alternatives = table.split_paths(remaining, splits, prior);
             alternatives.retain(|path| path.first().is_none_or(|piece| starts_right(piece)));
             // 种子只在用户没锁定拼写、没打切分、没选首字母时用：那些情况下切分已经被用户限定，种子未必守得住这些限定。
@@ -1189,14 +1193,13 @@ impl NineKeySession {
             }
             // Even an unfinished or invalid tail must still offer the leading syllable for partial selection.
             alternatives.extend(
-                syllables
+                self.spellings
                     .iter()
                     .filter(|spelling| grid.syllable_code_len(spelling) <= remaining.len())
                     .map(|spelling| vec![spelling.clone()]),
             );
             alternatives
         };
-        self.spellings = syllables;
 
         let mut locked_key = String::new();
         append_path_key(&mut locked_key, "", &self.locked);
@@ -2989,6 +2992,7 @@ impl SpellingTable {
     /// 有切分时，只有在切分处或之前结束的音节才算。
     ///
     /// 覆盖数字一样多时，已打两位以上的数字先按编码长度排（正好拼完的音节在前，要补键少的在前），编码一样长的按 `prior` 给的单字频度排，频度相同才按字典序；只打了一位数字时不比编码长度，直接按频度排。原先同组只按字典序，`74` 的左列是 pi、qi、ri、si，最常用的 qi 排不到前面，要补键的 sha、shai 也排在 shi、shu 前面（#6654）。
+    #[cfg(test)]
     fn spellings_for(
         &self,
         remaining: &str,
@@ -2996,8 +3000,22 @@ impl SpellingTable {
         split: Option<usize>,
         prior: &SyllablePrior,
     ) -> Vec<String> {
+        let mut spellings = Vec::new();
+        self.spellings_for_into(remaining, locked_length, split, prior, &mut spellings);
+        spellings
+    }
+
+    fn spellings_for_into(
+        &self,
+        remaining: &str,
+        locked_length: usize,
+        split: Option<usize>,
+        prior: &SyllablePrior,
+        destination: &mut Vec<String>,
+    ) {
+        destination.clear();
         if remaining.is_empty() {
-            return Vec::new();
+            return;
         }
         let mut matches: Vec<&(String, String)> = self
             .syllables
@@ -3024,7 +3042,7 @@ impl SpellingTable {
                 .then_with(|| prior.syllable_score(b).total_cmp(&prior.syllable_score(a)))
                 .then_with(|| a.cmp(b))
         });
-        matches.into_iter().map(|(text, _)| text.clone()).collect()
+        destination.extend(matches.into_iter().map(|(text, _)| text.clone()));
     }
 
     /// Syllable paths spelling `digits`, built from the end. A piece may end a path early only if it is a complete syllable; each offset keeps the 48 best by fewer syllables, complete last syllable, then lexicographic (NK:122-156). 不带频度，测试用。
@@ -4279,6 +4297,20 @@ mod tests {
         session.refresh();
         assert_eq!(session.candidates.as_ptr(), pointer);
         assert_eq!(session.candidates.capacity(), capacity);
+    }
+
+    #[test]
+    fn refresh_reuses_spelling_vector_storage() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        session.digits = "64426".into();
+        session.refresh();
+        let pointer = session.spellings.as_ptr();
+        let capacity = session.spellings.capacity();
+        assert!(capacity > 0);
+        session.refresh();
+        assert_eq!(session.spellings.as_ptr(), pointer);
+        assert_eq!(session.spellings.capacity(), capacity);
     }
 
     #[test]

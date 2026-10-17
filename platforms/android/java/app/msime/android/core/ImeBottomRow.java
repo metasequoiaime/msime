@@ -148,12 +148,19 @@ final class ImeBottomRow {
 
     /**
      * 空格键手势：{@link SpaceGesturePolicy} 仲裁长按 450 ms 打开语音（`touch_space_voice`）与水平拖动移动光标（`touch_space_cursor`），先满足的一方胜出；纵向滑走作废这次按压；两者都没发生时松手就是普通空格。
+     *
+     * <p>长按在键区里开始的语音是按住说话：松手结束录音并出结果，按住期间停顿不自动结束；手指向上滑过键盘高度的 {@link VoiceHoldPolicy#CANCEL_ZONE_FRACTION} 进入取消区，聆听面板显示「松开取消」，在那里松手或触摸被系统取消都丢掉这次录音。
      */
     void bindSpaceCursor(Button button) {
         final float[] origin = new float[2];
         final boolean[] dragging = new boolean[1];
         final boolean[] cancelled = new boolean[1];
         final boolean[] voiced = new boolean[1];
+        // 这次按压开始的语音是按住说话（键区里真的开始了一次新的聆听）。
+        final boolean[] holding = new boolean[1];
+        // 按住说话时手指此刻在取消区。
+        final boolean[] cancelZone = new boolean[1];
+        final long[] voiceBefore = new long[1];
         final int touchSlop = ViewConfiguration.get(s).getScaledTouchSlop();
         final SpacePress press = new SpacePress();
         final Runnable startVoice = () -> {
@@ -162,7 +169,14 @@ final class ImeBottomRow {
             cancelled[0] = true;
             button.setPressed(false);
             s.imeKeyFeedback.playFeedback(button);
+            voiceBefore[0] = s.imeVoiceEntry.generation();
             s.startVoiceRecognition();
+        };
+        // 手指还按着时开始的语音改成按住说话；松手那一刻才补判出的长按仍按点按开始，否则刚开始就被这次松手结束。
+        final Runnable holdVoice = () -> {
+            if (voiced[0]) return;
+            startVoice.run();
+            holding[0] = s.imeVoiceEntry.hold(voiceBefore[0]);
         };
         button.setOnTouchListener((ignored, event) -> {
             switch (event.getActionMasked()) {
@@ -172,6 +186,8 @@ final class ImeBottomRow {
                     dragging[0] = false;
                     cancelled[0] = false;
                     voiced[0] = false;
+                    holding[0] = false;
+                    cancelZone[0] = false;
                     button.setPressed(true);
                     button.getParent().requestDisallowInterceptTouchEvent(true);
                     // 组字中或关了长按语音时不武装长按：这次按压保持普通空格与拖动移光标，与 develop 一致；否则慢一点的空格会被吞掉、停顿后的拖动也移不了光标。
@@ -184,14 +200,24 @@ final class ImeBottomRow {
                             press.longPress = null;
                             press.gesture.tick(SystemClock.uptimeMillis());
                             if (press.gesture.state() == SpaceGesturePolicy.State.VOICE
-                                    && s.voiceInsertionReady()) startVoice.run();
+                                    && s.voiceInsertionReady()) holdVoice.run();
                         };
                         s.main.postDelayed(press.longPress, SpaceGesturePolicy.LONG_PRESS_MS);
                     }
                     return true;
                 }
                 case MotionEvent.ACTION_MOVE -> {
-                    if (voiced[0]) return true;
+                    if (voiced[0]) {
+                        if (holding[0]) {
+                            boolean zone = VoiceHoldPolicy.inCancelZone(origin[1], event.getY(),
+                                s.keyboardRoot == null ? 0f : s.keyboardRoot.getHeight());
+                            if (zone != cancelZone[0]) {
+                                cancelZone[0] = zone;
+                                s.imeVoiceEntry.holdCancelZone(zone);
+                            }
+                        }
+                        return true;
+                    }
                     if (!dragging[0] && !cancelled[0]) {
                         float horizontal = event.getX() - origin[0];
                         float vertical = event.getY() - origin[1];
@@ -201,7 +227,7 @@ final class ImeBottomRow {
                         if (state == SpaceGesturePolicy.State.VOICE) {
                             // VOICE is only reachable when long-press voice was on at ACTION_DOWN.
                             press.cancelLongPress();
-                            if (s.voiceInsertionReady()) startVoice.run();
+                            if (s.voiceInsertionReady()) holdVoice.run();
                             return true;
                         }
                         if (state == SpaceGesturePolicy.State.PRESSED) {
@@ -259,6 +285,10 @@ final class ImeBottomRow {
                     }
                     if (voiced[0]) {
                         s.countKey(button);
+                        if (holding[0]) {
+                            holding[0] = false;
+                            s.imeVoiceEntry.releaseHold(cancelZone[0]);
+                        }
                         return true;
                     }
                     if (dragging[0] || cancelled[0]) {
@@ -275,6 +305,10 @@ final class ImeBottomRow {
                     dragging[0] = false;
                     cancelled[0] = true;
                     resetSpaceCursor();
+                    if (holding[0]) {
+                        holding[0] = false;
+                        s.imeVoiceEntry.releaseHold(true);
+                    }
                     return true;
                 }
                 default -> { return true; }

@@ -372,6 +372,37 @@ test("the AI tile opens AI 皮肤抽卡 as a full-screen view the back gesture c
   }
 });
 
+test("the AI view closes locally when its history entry is gone", async () => {
+  const previous = window.history.state;
+  window.history.replaceState(null, "");
+  const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
+  try {
+    render(
+      <SettingsPage
+        initialPage="skin"
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: testHost({ platform: "harmony" }),
+          ...skinClients(),
+        }}
+      />,
+    );
+    await settingsFormReady();
+    fireEvent.click(skinTab("我的"));
+    fireEvent.click(screen.getByRole("button", { name: /AI 设计皮肤/ }));
+    const view = screen.getByRole("dialog", { name: "AI 皮肤抽卡" });
+    window.history.replaceState({ page: "skin" }, "");
+
+    fireEvent.click(within(view).getByRole("button", { name: "返回" }));
+
+    expect(back).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "AI 皮肤抽卡" })).toBeNull();
+  } finally {
+    window.history.replaceState(previous, "");
+  }
+});
+
 test("tapping the chosen 我的皮肤 card again opens the editor as a full-screen view", async () => {
   const previous = window.history.state;
   window.history.replaceState(null, "");

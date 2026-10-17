@@ -20,12 +20,16 @@ import {
   LOCAL_MODEL_MANIFEST,
   LOCAL_MODEL_OFFLINE_FUNASR_NANO,
   LOCAL_MODEL_OFFLINE_SENSE_VOICE,
+  LOCAL_MODEL_OFFLINE_TRANSDUCER,
   LOCAL_MODEL_ONLINE_TRANSDUCER,
+  LOCAL_ONLINE_TAIL_SAMPLES,
   LOCAL_VAD_WINDOW,
   LocalAsrPolicy,
   LocalAsrReply,
   LocalAsrRequest,
-  LocalModelPlan
+  LocalModelPlan,
+  OFFLINE_TRANSDUCER_MAX_ACTIVE_PATHS,
+  TRANSDUCER_HOTWORDS_SCORE
 } from '../keyboard/input/LocalAsrPolicy';
 import { LocalAsrPathTrust, PathTrustStat } from '../keyboard/input/LocalAsrPathTrust';
 import { LocalAsrTextFile, LocalAsrTextReader, LocalAsrTextReaderApi } from '../keyboard/input/LocalAsrTextReader';
@@ -57,6 +61,8 @@ class Session {
   segments: string[] = [];
   current: string = '';
   lastPartial: string = '';
+  /** 上一次告诉主线程的 VAD 说话状态。 */
+  speaking: boolean = false;
 
   constructor(id: number, model: LoadedModel) {
     this.id = id;
@@ -64,11 +70,21 @@ class Session {
   }
 }
 
+/**
+ * 补上原生层读取、HAR 却拼错了的 `hotwordsFile`。HAR 的 `OfflineRecognizerConfig` 只有 `hotwordsFfile`，原生的 `GetOfflineRecognizerConfig` 按名字读 `hotwordsFile`，所以离线识别器的热词文件只能经这个子类上的同名字段传进去。原因见 `LocalAsrPolicy.hotwordsFile`。
+ */
+class OfflineHotwordsRecognizerConfig extends OfflineRecognizerConfig {
+  public hotwordsFile: string = '';
+}
+
 let loaded: LoadedModel | undefined = undefined;
 let session: Session | undefined = undefined;
 
-function reply(type: string, id: number, text: string, correct: boolean): void {
-  const message: LocalAsrReply = { type: type, id: id, text: text, correct: correct };
+function reply(type: string, id: number, text: string, correct: boolean, kind: string = '',
+  speaking: boolean = false): void {
+  const message: LocalAsrReply = {
+    type: type, id: id, text: text, correct: correct, kind: kind, speaking: speaking
+  };
   try {
     workerPort.postMessage(message);
   } catch {
@@ -158,15 +174,25 @@ function readPlan(directory: string, root: string): LocalModelPlan {
   return plan;
 }
 
-function transducerHotwords(plan: LocalModelPlan, words: string[]): string {
-  if (!LocalAsrPolicy.transducerNativeHotwords(plan) || words.length === 0) return '';
-  return LocalAsrPolicy.transducerHotwords(
-    words,
-    LocalAsrPolicy.tokenSet(readText(plan.tokens, LocalAsrPolicy.textFileLimit('tokens'))),
-  );
+/** 原生热词串与编码它们要用的建模单位，与 `LocalAsr.cpp` 的 `use_hotword_tokens` 相同：token 表决定汉字按独立的词拼写（`bpe`）还是照清单。 */
+class TransducerHotwords {
+  text: string = '';
+  modelingUnit: string = '';
 }
 
-function createOnline(plan: LocalModelPlan, hotwords: string, threads: number): OnlineRecognizer {
+function transducerHotwords(plan: LocalModelPlan, words: string[]): TransducerHotwords {
+  const result: TransducerHotwords = new TransducerHotwords();
+  result.modelingUnit = plan.modelingUnit;
+  if (!LocalAsrPolicy.transducerNativeHotwords(plan)) return result;
+  const tokens: Set<string> =
+    LocalAsrPolicy.tokenSet(readText(plan.tokens, LocalAsrPolicy.textFileLimit('tokens')));
+  const spaced: boolean = LocalAsrPolicy.cjkSpelledAsWords(tokens);
+  result.modelingUnit = LocalAsrPolicy.hotwordModelingUnit(plan, spaced);
+  result.text = words.length === 0 ? '' : LocalAsrPolicy.transducerHotwords(words, tokens, spaced);
+  return result;
+}
+
+function createOnline(plan: LocalModelPlan, hotwords: string, modelingUnit: string, threads: number): OnlineRecognizer {
   const config: OnlineRecognizerConfig = new OnlineRecognizerConfig();
   config.featConfig.sampleRate = LOCAL_ASR_SAMPLE_RATE;
   config.featConfig.featureDim = 80;
@@ -176,15 +202,16 @@ function createOnline(plan: LocalModelPlan, hotwords: string, threads: number): 
   config.modelConfig.tokens = plan.tokens;
   config.modelConfig.numThreads = threads;
   config.modelConfig.provider = 'cpu';
+  if (plan.modelType.length > 0) config.modelConfig.modelType = plan.modelType;
   const native: boolean = LocalAsrPolicy.transducerNativeHotwords(plan);
   if (native) {
-    config.modelConfig.modelingUnit = plan.modelingUnit;
+    config.modelConfig.modelingUnit = modelingUnit;
     config.modelConfig.bpeVocab = plan.bpeVocab;
   }
   // The HAR's streaming binding has no per-stream hotwords, so they are baked into the recognizer and a dictionary edit costs one reload. Hotwords are only honoured by modified beam search.
   config.decodingMethod = native ? 'modified_beam_search' : 'greedy_search';
   config.maxActivePaths = 4;
-  config.hotwordsScore = 2.0;
+  config.hotwordsScore = TRANSDUCER_HOTWORDS_SCORE;
   if (hotwords.length > 0) {
     config.hotwordsBuf = hotwords;
     // The C API reads hotwords_buf_size bytes, so this is the UTF-8 length rather than the UTF-16 one.
@@ -197,14 +224,70 @@ function createOnline(plan: LocalModelPlan, hotwords: string, threads: number): 
   return new OnlineRecognizer(config);
 }
 
-function createOffline(plan: LocalModelPlan, language: string, hotwords: string, threads: number): OfflineRecognizer {
-  const config: OfflineRecognizerConfig = new OfflineRecognizerConfig();
+function removeHotwordsFile(path: string): void {
+  try {
+    if (fs.accessSync(path)) fs.unlinkSync(path);
+  } catch (error) {
+    KeyboardLog.warn('local ASR hotwords file was not removed');
+  }
+}
+
+/** 热词写进临时文件后的路径；没有热词、没有临时目录或写不进去时为空串，此时不带热词加载——热词出了问题只少了偏向，不能让这次听写失败。 */
+function writeHotwordsFile(hotwords: string, scratch: string): string {
+  const path: string = hotwords.length > 0 ? LocalAsrPolicy.hotwordsFile(scratch) : '';
+  if (path.length === 0) return '';
+  try {
+    const file: fs.File = fs.openSync(path,
+      fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.WRITE_ONLY | fs.OpenMode.NOFOLLOW);
+    try {
+      fs.writeSync(file.fd, hotwords);
+    } finally {
+      fs.closeSync(file);
+    }
+    return path;
+  } catch (error) {
+    KeyboardLog.warn('local ASR hotwords file could not be written; loading without hotwords');
+    removeHotwordsFile(path);
+    return '';
+  }
+}
+
+/** 把热词写进临时文件，交给 `create` 加载识别器；sherpa 在加载时就把文件读完，所以加载完无论成败都删掉它。 */
+function withHotwordsFile(hotwords: string, scratch: string,
+  create: (path: string) => OfflineRecognizer): OfflineRecognizer {
+  const path: string = writeHotwordsFile(hotwords, scratch);
+  if (path.length === 0) return create('');
+  try {
+    return create(path);
+  } finally {
+    removeHotwordsFile(path);
+  }
+}
+
+function createOffline(plan: LocalModelPlan, language: string, hotwords: string, modelingUnit: string,
+  threads: number, hotwordsFile: string): OfflineRecognizer {
+  const config: OfflineHotwordsRecognizerConfig = new OfflineHotwordsRecognizerConfig();
   config.featConfig.sampleRate = LOCAL_ASR_SAMPLE_RATE;
   config.featConfig.featureDim = 80;
   config.modelConfig.numThreads = threads;
   config.modelConfig.provider = 'cpu';
   config.decodingMethod = 'greedy_search';
-  if (plan.kind === LOCAL_MODEL_OFFLINE_SENSE_VOICE) {
+  if (plan.modelType.length > 0) config.modelConfig.modelType = plan.modelType;
+  if (plan.kind === LOCAL_MODEL_OFFLINE_TRANSDUCER) {
+    config.modelConfig.transducer.encoder = plan.encoder;
+    config.modelConfig.transducer.decoder = plan.decoder;
+    config.modelConfig.transducer.joiner = plan.joiner;
+    config.modelConfig.tokens = plan.tokens;
+    if (LocalAsrPolicy.transducerNativeHotwords(plan)) {
+      config.modelConfig.modelingUnit = modelingUnit;
+      config.modelConfig.bpeVocab = plan.bpeVocab;
+    }
+    // 与 `LocalAsr.cpp` 相同：不论有没有热词都用宽 beam，整段解码时 encoder 只跑一遍，beam 的代价只落在 decoder/joiner 上。
+    config.decodingMethod = 'modified_beam_search';
+    config.maxActivePaths = OFFLINE_TRANSDUCER_MAX_ACTIVE_PATHS;
+    config.hotwordsScore = TRANSDUCER_HOTWORDS_SCORE;
+    config.hotwordsFile = hotwordsFile;
+  } else if (plan.kind === LOCAL_MODEL_OFFLINE_SENSE_VOICE) {
     config.modelConfig.tokens = plan.tokens;
     config.modelConfig.senseVoice.model = plan.model;
     config.modelConfig.senseVoice.language = language;
@@ -225,23 +308,29 @@ function acquire(request: LocalAsrRequest): LoadedModel {
   const plan: LocalModelPlan = readPlan(request.directory, request.root);
   const threads: number = LocalAsrPolicy.threads(request.threads);
   let hotwords: string = '';
+  let modelingUnit: string = plan.modelingUnit;
   let language: string = '';
-  if (plan.kind === LOCAL_MODEL_ONLINE_TRANSDUCER) {
-    hotwords = transducerHotwords(plan, request.hotwords);
+  if (plan.kind === LOCAL_MODEL_ONLINE_TRANSDUCER || plan.kind === LOCAL_MODEL_OFFLINE_TRANSDUCER) {
+    const transducer: TransducerHotwords = transducerHotwords(plan, request.hotwords);
+    hotwords = transducer.text;
+    modelingUnit = transducer.modelingUnit;
   } else if (plan.kind === LOCAL_MODEL_OFFLINE_SENSE_VOICE) {
     language = LocalAsrPolicy.senseVoiceLanguage(request.language);
   } else if (plan.kind === LOCAL_MODEL_OFFLINE_FUNASR_NANO) {
     hotwords = LocalAsrPolicy.funAsrHotwords(request.hotwords);
   }
-  const key: string = JSON.stringify([plan.directory, plan.kind, language, hotwords, threads]);
+  const key: string = JSON.stringify([plan.directory, plan.kind, language, hotwords, modelingUnit, threads]);
   if (loaded !== undefined && loaded.key === key) return loaded;
   loaded = undefined;
   const model: LoadedModel = new LoadedModel(plan);
   model.key = key;
   if (plan.kind === LOCAL_MODEL_ONLINE_TRANSDUCER) {
-    model.online = createOnline(plan, hotwords, threads);
+    model.online = createOnline(plan, hotwords, modelingUnit, threads);
+  } else if (plan.kind === LOCAL_MODEL_OFFLINE_TRANSDUCER) {
+    model.offline = withHotwordsFile(hotwords, request.scratch, (path: string): OfflineRecognizer =>
+      createOffline(plan, language, hotwords, modelingUnit, threads, path));
   } else {
-    model.offline = createOffline(plan, language, hotwords, threads);
+    model.offline = createOffline(plan, language, hotwords, modelingUnit, threads, '');
   }
   loaded = model;
   return model;
@@ -320,6 +409,12 @@ function accept(request: LocalAsrRequest): void {
       vad.acceptWaveform(samples.subarray(at, Math.min(at + LOCAL_VAD_WINDOW, samples.length)));
       drainVad(current);
     }
+    // 整段模型只在一段说完后才出文字，主线程按「多久没有新文字」判断说完会在用户连续说话时提前结束录音，所以把 VAD 的说话状态告诉它（`LocalAsrSession::speech_detected`）。只在变化时发送。
+    const speaking: boolean = vad.isDetected();
+    if (speaking !== current.speaking) {
+      current.speaking = speaking;
+      reply('speech', current.id, '', false, '', speaking);
+    }
   }
   report(current);
 }
@@ -329,8 +424,8 @@ function finish(request: LocalAsrRequest): void {
   if (current === undefined || current.id !== request.id) return;
   session = undefined;
   if (current.onlineStream !== undefined) {
-    // Trailing silence lets the last words through the encoder's look-ahead before input ends.
-    const tail: Float32Array = new Float32Array(Math.floor(LOCAL_ASR_SAMPLE_RATE * 6 / 10));
+    // 尾部补静音，让最后几个字越过 encoder 的前瞻再结束输入；时长的来由见 `LOCAL_ONLINE_TAIL_SAMPLES`。
+    const tail: Float32Array = new Float32Array(LOCAL_ONLINE_TAIL_SAMPLES);
     current.onlineStream.acceptWaveform({ samples: tail, sampleRate: LOCAL_ASR_SAMPLE_RATE });
     current.onlineStream.inputFinished();
     decodeOnline(current);
@@ -338,7 +433,8 @@ function finish(request: LocalAsrRequest): void {
     (current.vad as Vad).flush();
     drainVad(current);
   }
-  reply('final', current.id, transcript(current), LocalAsrPolicy.correctsWithPinyin(current.model.plan));
+  reply('final', current.id, transcript(current), LocalAsrPolicy.correctsWithPinyin(current.model.plan),
+    current.model.plan.kind);
 }
 
 function describe(error: Object): string {

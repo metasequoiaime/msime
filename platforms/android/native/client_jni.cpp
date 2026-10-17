@@ -1040,6 +1040,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceHotwordsRa
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceHotwordCorrectRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kVoiceRequestLimit, msime_client_voice_hotword_correct);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceNormalizeNumbersRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kVoiceRequestLimit, msime_client_voice_normalize_numbers);
+}
 // 应用主题目录与当季颜色：纯计算。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_appThemeCatalogRaw(JNIEnv *env, jclass) {
     return response(env, msime_client_app_theme_catalog());
@@ -1334,6 +1337,12 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechAcce
     if (!state->partial_changed) return nullptr;
     state->partial_changed = false;
     return bytes_of(env, state->partial);
+}
+// 经过 VAD 的整段模型此刻是否判定在说话；流式模型、未开始或已撤销的句柄一律为 false。只在送音频的那个工作线程上调用，与 accept 不并发。
+JNIEXPORT jboolean JNICALL Java_app_msime_android_NativeClient_localSpeechSpeakingRaw(JNIEnv *, jclass, jlong handle) {
+    auto state = speech(handle);
+    if (!state || !state->session) return JNI_FALSE;
+    return state->session->speech_detected() ? JNI_TRUE : JNI_FALSE;
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechFinishRaw(JNIEnv *env, jclass, jlong handle) {
     auto state = speech(handle);

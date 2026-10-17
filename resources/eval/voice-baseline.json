@@ -1,0 +1,61 @@
+{
+  "scoring": "voice_eval.py MER：汉字按字，拉丁字母与数字按词，不计标点和大小写",
+  "runs": [
+    {
+      "model": "x-asr-zh-en-offline",
+      "kind": "offline_transducer",
+      "sets": {
+        "ascend-set": {
+          "utterances": 1315,
+          "audio_seconds": 3303.0,
+          "units": 11572,
+          "errors": 1575,
+          "mer": 13.61,
+          "errors_numbers": 1576,
+          "units_numbers": 11548,
+          "mer_numbers": 13.65,
+          "finish_seconds_median": 0.12
+        },
+        "fleurs-set": {
+          "utterances": 945,
+          "audio_seconds": 11065.2,
+          "units": 33716,
+          "errors": 2349,
+          "mer": 6.97,
+          "errors_numbers": 1701,
+          "units_numbers": 33692,
+          "mer_numbers": 5.05,
+          "finish_seconds_median": 0.452
+        }
+      }
+    },
+    {
+      "model": "x-asr-zh-en-streaming",
+      "kind": "online_transducer",
+      "sets": {
+        "ascend-set": {
+          "utterances": 1315,
+          "audio_seconds": 3303.0,
+          "units": 11572,
+          "errors": 1614,
+          "mer": 13.95,
+          "errors_numbers": 1617,
+          "units_numbers": 11548,
+          "mer_numbers": 14.0,
+          "finish_seconds_median": 0.114
+        },
+        "fleurs-set": {
+          "utterances": 945,
+          "audio_seconds": 11065.2,
+          "units": 33716,
+          "errors": 2421,
+          "mer": 7.18,
+          "errors_numbers": 1770,
+          "units_numbers": 33692,
+          "mer_numbers": 5.25,
+          "finish_seconds_median": 0.781
+        }
+      }
+    }
+  ]
+}

@@ -1563,6 +1563,9 @@ struct HostOptions {
     /// the field would otherwise show nothing for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     phrase_preedit: Option<bool>,
+    /// macOS 把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    quick_phrase_candidates: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     clipboard_history_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1720,6 +1723,7 @@ impl HostOptions {
             plugin_commands: Vec::new(),
             mention_entries: Vec::new(),
             quick_phrase_table: Vec::new(),
+            quick_phrase_candidates: false,
             helpcode_table: None,
             sentence_association: engine_sentence_association(
                 &self.preferences.sentence_association,
@@ -2087,6 +2091,7 @@ fn prepare_shipped_host_configuration(
                 .to_owned(),
         ),
         phrase_preedit: None,
+        quick_phrase_candidates: None,
         clipboard_history_path: None,
         online_provider_socket: None,
         translation_provider_socket: None,

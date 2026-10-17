@@ -7,6 +7,8 @@ import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 
 export type LocalAsrResultHandler = (text: string, final: boolean) => void;
 export type LocalAsrErrorHandler = (message: string) => void;
+/** 经过 VAD 的整段模型：是否正在听到说话，只在变化时调用。 */
+export type LocalAsrSpeechHandler = (speaking: boolean) => void;
 
 const WORKER_SCRIPT: string = 'entry/ets/workers/LocalAsrWorker.ets';
 const MAX_DURATION_MS: number = 120000;
@@ -44,10 +46,15 @@ interface CorrectResponse {
   error?: string;
 }
 
+interface NormalizeNumbersRequest {
+  text: string;
+  kind: string;
+}
+
 /**
- * On-device dictation through sherpa-onnx: the microphone is captured here, the model runs in `workers/LocalAsrWorker.ets`, and nothing leaves the device.
+ * 经 sherpa-onnx 的设备端听写：麦克风在这里采集，模型在 `workers/LocalAsrWorker.ets` 里运行，什么都不离开设备。
  *
- * The model directory comes from `voice_input.asr_model_path`, which the shared settings page sets when the user picks an installed model. The user's own pinyin words are fetched from the host API at session start; a model that takes hotwords natively gets them at load, and one whose manifest says `pinyin` has its final text corrected through `msime_client_voice_hotword_correct`.
+ * 模型目录来自 `voice_input.asr_model_path`，用户在共享设置页选中已安装的模型时写入。会话开始时从宿主接口取用户自己的拼音词：原生吃热词的模型在加载时拿到它们，清单写 `pinyin` 的模型的最终文本经 `msime_client_voice_hotword_correct` 纠正。最终文本随后经 `msime_client_voice_normalize_numbers` 按模型 kind 把汉字数字改写成数字（只改写不自带 ITN 的 transducer），中间结果不改写。
  */
 export class HarmonyLocalAsrRecognizer {
   private readonly capture: HarmonyPcmCapture = new HarmonyPcmCapture();
@@ -60,6 +67,7 @@ export class HarmonyLocalAsrRecognizer {
   private hotwords: LocalHotword[] = [];
   private resultHandler: LocalAsrResultHandler | undefined = undefined;
   private errorHandler: LocalAsrErrorHandler | undefined = undefined;
+  private speechHandler: LocalAsrSpeechHandler | undefined = undefined;
   private timeoutHandle: number | undefined = undefined;
   private idleHandle: number | undefined = undefined;
 
@@ -68,10 +76,10 @@ export class HarmonyLocalAsrRecognizer {
   }
 
   /**
-   * Starts one dictation. `hotwordOptions` are the prepared host options the dictionary calls take; null skips hotwords rather than failing the session.
+   * 开始一次听写。`hotwordOptions` 是词库调用要用的已准备好的宿主选项，为 null 时跳过热词而不是让会话失败。`onSpeech` 收到 VAD 说话状态的变化，只有经过 VAD 的整段模型会报。
    */
   async start(config: VoiceInputConfiguration, hotwordOptions: Object | null, onResult: LocalAsrResultHandler,
-    onError: LocalAsrErrorHandler): Promise<void> {
+    onError: LocalAsrErrorHandler, onSpeech: LocalAsrSpeechHandler | undefined = undefined): Promise<void> {
     try {
       if (this.active) throw new Error('语音识别正在进行');
       const directory: string = LocalAsrPolicy.modelUnderRoot(
@@ -85,6 +93,7 @@ export class HarmonyLocalAsrRecognizer {
       this.hotwords = [];
       this.resultHandler = onResult;
       this.errorHandler = onError;
+      this.speechHandler = onSpeech;
       this.clearIdle();
       const recognizer: worker.ThreadWorker = this.ensureWorker();
       this.hotwords = await this.fetchHotwords(hotwordOptions);
@@ -92,7 +101,8 @@ export class HarmonyLocalAsrRecognizer {
       const request: LocalAsrRequest = {
         type: 'start', id: id, directory: directory, root: config.local_model_root ?? '',
         language: config.language ?? '',
-        hotwords: this.hotwords.map((word: LocalHotword): string => word.text), threads: 0, pcm: null
+        hotwords: this.hotwords.map((word: LocalHotword): string => word.text), threads: 0, pcm: null,
+        scratch: config.local_model_scratch ?? ''
       };
       recognizer.postMessage(request);
       this.requestPosted = true;
@@ -153,7 +163,8 @@ export class HarmonyLocalAsrRecognizer {
     try {
       if (this.worker === undefined) return;
       const request: LocalAsrRequest = {
-        type: 'finish', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: null
+        type: 'finish', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: null,
+        scratch: ''
       };
       this.worker.postMessage(request);
     } catch (error) {
@@ -183,7 +194,8 @@ export class HarmonyLocalAsrRecognizer {
       // 采集器可能复用缓冲区，先复制再把副本转移给工作线程，避免再次复制。
       const copy: ArrayBuffer = data.slice(0);
       const request: LocalAsrRequest = {
-        type: 'audio', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: copy
+        type: 'audio', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: copy,
+        scratch: ''
       };
       this.worker.postMessage(request, [copy]);
     } catch (error) {
@@ -201,8 +213,14 @@ export class HarmonyLocalAsrRecognizer {
       if (handler !== undefined && !this.finishing) handler(reply.text, false);
       return;
     }
+    if (reply.type === 'speech') {
+      const speech: LocalAsrSpeechHandler | undefined = this.speechHandler;
+      if (speech !== undefined && !this.finishing) speech(reply.speaking === true);
+      return;
+    }
     if (reply.type === 'final') {
-      const text: string = reply.correct ? this.correct(reply.text) : reply.text;
+      const corrected: string = reply.correct ? this.correct(reply.text) : reply.text;
+      const text: string = this.normalizeNumbers(corrected, reply.kind);
       const handler: LocalAsrResultHandler | undefined = this.resultHandler;
       this.settle();
       if (handler !== undefined) handler(text, true);
@@ -231,6 +249,7 @@ export class HarmonyLocalAsrRecognizer {
     this.hotwords = [];
     this.resultHandler = undefined;
     this.errorHandler = undefined;
+    this.speechHandler = undefined;
     this.scheduleIdle();
   }
 
@@ -262,6 +281,20 @@ export class HarmonyLocalAsrRecognizer {
       return response.ok === true ? LocalAsrPolicy.correctedText(response.value, text) : text;
     } catch (error) {
       KeyboardLog.warn(`voice hotword correction unavailable: ${describeError(error)}`);
+      return text;
+    }
+  }
+
+  /** 汉字数字改写成数字；kind 不需要改写时原生层原样返回，任何失败都保留原文。 */
+  private normalizeNumbers(text: string, kind: string): string {
+    if (text.length === 0 || kind.length === 0) return text;
+    try {
+      const request: NormalizeNumbersRequest = { text: text, kind: kind };
+      const response: CorrectResponse =
+        JSON.parse(client.voiceNormalizeNumbers(JSON.stringify(request))) as CorrectResponse;
+      return response.ok === true ? LocalAsrPolicy.correctedText(response.value, text) : text;
+    } catch (error) {
+      KeyboardLog.warn(`voice number normalization unavailable: ${describeError(error)}`);
       return text;
     }
   }

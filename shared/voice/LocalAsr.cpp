@@ -148,6 +148,7 @@ nlohmann::json read_manifest(const fs::path &directory) {
   X(SherpaOnnxCreateOfflineRecognizer)                                                            \
   X(SherpaOnnxDestroyOfflineRecognizer)                                                           \
   X(SherpaOnnxCreateOfflineStream)                                                                \
+  X(SherpaOnnxCreateOfflineStreamWithHotwords)                                                    \
   X(SherpaOnnxDestroyOfflineStream)                                                               \
   X(SherpaOnnxAcceptWaveformOffline)                                                              \
   X(SherpaOnnxDecodeOfflineStream)                                                                \
@@ -157,6 +158,7 @@ nlohmann::json read_manifest(const fs::path &directory) {
   X(SherpaOnnxDestroyVoiceActivityDetector)                                                       \
   X(SherpaOnnxVoiceActivityDetectorAcceptWaveform)                                                \
   X(SherpaOnnxVoiceActivityDetectorEmpty)                                                         \
+  X(SherpaOnnxVoiceActivityDetectorDetected)                                                      \
   X(SherpaOnnxVoiceActivityDetectorPop)                                                           \
   X(SherpaOnnxVoiceActivityDetectorFront)                                                         \
   X(SherpaOnnxDestroySpeechSegment)                                                               \
@@ -315,7 +317,7 @@ const SherpaApi &require_runtime() {
 
 // ---- model manifest ----
 
-enum class ModelKind { OnlineTransducer, OfflineSenseVoice, OfflineFunAsrNano };
+enum class ModelKind { OnlineTransducer, OfflineTransducer, OfflineSenseVoice, OfflineFunAsrNano };
 
 bool model_path_inside(const fs::path &directory, const fs::path &candidate) {
   std::error_code error;
@@ -404,6 +406,8 @@ struct ModelDescription {
   std::map<std::string, std::string> files;
   std::string modeling_unit;
   std::string hotwords;
+  // 清单写明的 sherpa-onnx 模型类型。留空时 sherpa 为了读 encoder 元数据里的类型，会先多建一个完整的推理会话再丢掉，冷加载因此多读一遍 encoder；写了不认识的值只会退回这种探测。
+  std::string model_type;
 
   std::string file(const std::string &key) const {
     const auto found = files.find(key);
@@ -431,6 +435,8 @@ ModelDescription read_model(const std::string &directory) {
     const auto kind = manifest.at("kind").get<std::string>();
     if (kind == "online_transducer")
       model.kind = ModelKind::OnlineTransducer;
+    else if (kind == "offline_transducer")
+      model.kind = ModelKind::OfflineTransducer;
     else if (kind == "offline_sense_voice")
       model.kind = ModelKind::OfflineSenseVoice;
     else if (kind == "offline_funasr_nano")
@@ -441,6 +447,7 @@ ModelDescription read_model(const std::string &directory) {
       model.files[key] = value.get<std::string>();
     model.modeling_unit = manifest.value("modeling_unit", std::string());
     model.hotwords = manifest.value("hotwords", std::string());
+    model.model_type = manifest.value("model_type", std::string());
   } catch (const nlohmann::json::exception &) {
     throw VoiceError("Local speech model manifest is malformed");
   }
@@ -546,8 +553,24 @@ std::vector<std::string> utf8_characters(std::string_view text) {
   return characters;
 }
 
+// SentencePiece 的词首标记。X-ASR 训练时汉字之间都隔着空格，于是它的 token 表里每个汉字都是带这个前缀的独立的词（`▁写`），一个不带前缀的汉字都没有。
+constexpr std::string_view kWordStart = "\xE2\x96\x81";
+
+// token 表里的汉字是否都写成独立的词。是的话，热词要按 `bpe` 编码、字与字之间隔空格；按清单原来写的 `cjkchar+bpe` 编码时，sherpa-onnx 找不到不带前缀的汉字，每个中文热词都编码失败。旧安装的清单仍写着 `cjkchar+bpe`，所以以 token 表为准，不重装也能用上热词。
+bool cjk_spelled_as_words(const std::set<std::string> &tokens) {
+  bool spelled = false;
+  for (const auto &token : tokens) {
+    if (token.size() == 3 && static_cast<unsigned char>(token[0]) >= 0xE4 && static_cast<unsigned char>(token[0]) <= 0xE9)
+      return false;
+    if (!spelled && token.size() == kWordStart.size() + 3 && token.compare(0, kWordStart.size(), kWordStart) == 0 &&
+        static_cast<unsigned char>(token[kWordStart.size()]) >= 0xE4 && static_cast<unsigned char>(token[kWordStart.size()]) <= 0xE9)
+      spelled = true;
+  }
+  return spelled;
+}
+
 // sherpa-onnx drops every hotword of a stream when a single one fails to encode, so a word with a character the model has no token for is left out here rather than taking the others with it. ASCII goes through the BPE model, which can spell anything.
-std::string transducer_hotwords(const std::vector<std::string> &words, const std::set<std::string> &tokens) {
+std::string transducer_hotwords(const std::vector<std::string> &words, const std::set<std::string> &tokens, bool spaced_cjk) {
   std::string joined;
   std::size_t kept = 0;
   for (const auto &word : words) {
@@ -569,6 +592,18 @@ std::string transducer_hotwords(const std::vector<std::string> &words, const std
           usable = false;
           break;
         }
+      } else if (spaced_cjk) {
+        if (!tokens.count(std::string(kWordStart) + character)) {
+          usable = false;
+          break;
+        }
+        // 每个非 ASCII 字自成一个词，前后都隔开。
+        if (!previous_space)
+          clean += ' ';
+        clean += character;
+        clean += ' ';
+        previous_space = true;
+        continue;
       } else if (!tokens.count(character)) {
         usable = false;
         break;
@@ -614,6 +649,9 @@ struct LoadedRecognizer {
   std::string vad_model;
   std::set<std::string> tokens;
   bool native_hotwords = false;
+  // token 表里的汉字是独立的词，热词按 `bpe` 编码、字间隔空格（cjk_spelled_as_words）。
+  bool spaced_cjk = false;
+  std::string modeling_unit;
   // Atomic: a session's destructor stamps it without cache_mutex, which acquire() may hold through a model load.
   std::atomic<std::chrono::steady_clock::rep> last_used_ticks{std::chrono::steady_clock::now().time_since_epoch().count()};
 
@@ -631,6 +669,13 @@ using RecognizerCache = std::map<std::tuple<std::string, std::string, std::strin
 // Deliberately never destroyed. At exit the runtime library's own statics (ONNX Runtime's thread pools and mutexes) may already be gone, and destroying a recognizer after that aborts the process on a dead mutex; the OS reclaims the memory either way.
 RecognizerCache &cache = *new RecognizerCache();
 
+// 原生热词要用的 token 表与实际的建模单位。
+void use_hotword_tokens(LoadedRecognizer &loaded, const ModelDescription &model, const std::string &tokens_path) {
+  loaded.tokens = read_token_set(tokens_path);
+  loaded.spaced_cjk = cjk_spelled_as_words(loaded.tokens);
+  loaded.modeling_unit = loaded.spaced_cjk ? "bpe" : model.modeling_unit;
+}
+
 std::shared_ptr<LoadedRecognizer> create_recognizer(const SherpaApi &api, const ModelDescription &model,
                                                     const LocalAsrOptions &options, const std::string &nano_hotwords) {
   auto loaded = std::make_shared<LoadedRecognizer>();
@@ -644,6 +689,8 @@ std::shared_ptr<LoadedRecognizer> create_recognizer(const SherpaApi &api, const 
     const auto tokens = model.file("tokens");
     const auto bpe_vocab = model.optional_file("bpe_vocab");
     loaded->native_hotwords = model.hotwords == "native" && !bpe_vocab.empty() && !model.modeling_unit.empty();
+    if (loaded->native_hotwords)
+      use_hotword_tokens(*loaded, model, tokens);
     SherpaOnnxOnlineRecognizerConfig config{};
     config.feat_config.sample_rate = kSampleRate;
     config.feat_config.feature_dim = 80;
@@ -653,8 +700,10 @@ std::shared_ptr<LoadedRecognizer> create_recognizer(const SherpaApi &api, const 
     config.model_config.tokens = tokens.c_str();
     config.model_config.num_threads = threads;
     config.model_config.provider = "cpu";
+    if (!model.model_type.empty())
+      config.model_config.model_type = model.model_type.c_str();
     if (loaded->native_hotwords) {
-      config.model_config.modeling_unit = model.modeling_unit.c_str();
+      config.model_config.modeling_unit = loaded->modeling_unit.c_str();
       config.model_config.bpe_vocab = bpe_vocab.c_str();
     }
     // Per-stream hotwords are only honoured by modified beam search.
@@ -668,8 +717,6 @@ std::shared_ptr<LoadedRecognizer> create_recognizer(const SherpaApi &api, const 
     loaded->online = api.SherpaOnnxCreateOnlineRecognizer(&config);
     if (!loaded->online)
       throw VoiceError("Local speech model could not be loaded");
-    if (loaded->native_hotwords)
-      loaded->tokens = read_token_set(tokens);
     return loaded;
   }
   loaded->vad_model = model.file("vad");
@@ -679,8 +726,32 @@ std::shared_ptr<LoadedRecognizer> create_recognizer(const SherpaApi &api, const 
   config.model_config.num_threads = threads;
   config.model_config.provider = "cpu";
   config.decoding_method = "greedy_search";
+  if (!model.model_type.empty())
+    config.model_config.model_type = model.model_type.c_str();
   std::string tokens, sense_voice, language, adaptor, llm, embedding, tokenizer;
-  if (model.kind == ModelKind::OfflineSenseVoice) {
+  std::string encoder, decoder, joiner, bpe_vocab;
+  if (model.kind == ModelKind::OfflineTransducer) {
+    encoder = model.file("encoder");
+    decoder = model.file("decoder");
+    joiner = model.file("joiner");
+    tokens = model.file("tokens");
+    bpe_vocab = model.optional_file("bpe_vocab");
+    loaded->native_hotwords = model.hotwords == "native" && !bpe_vocab.empty() && !model.modeling_unit.empty();
+    if (loaded->native_hotwords)
+      use_hotword_tokens(*loaded, model, tokens);
+    config.model_config.transducer.encoder = encoder.c_str();
+    config.model_config.transducer.decoder = decoder.c_str();
+    config.model_config.transducer.joiner = joiner.c_str();
+    config.model_config.tokens = tokens.c_str();
+    if (loaded->native_hotwords) {
+      config.model_config.modeling_unit = loaded->modeling_unit.c_str();
+      config.model_config.bpe_vocab = bpe_vocab.c_str();
+    }
+    // 整段解码时 encoder 只跑一遍，beam 的代价只落在 decoder/joiner 上，所以不论有没有热词都用宽 beam。
+    config.decoding_method = "modified_beam_search";
+    config.max_active_paths = 16;
+    config.hotwords_score = 2.0f;
+  } else if (model.kind == ModelKind::OfflineSenseVoice) {
     tokens = model.file("tokens");
     sense_voice = model.file("model");
     language = sense_voice_language(options.language);
@@ -747,6 +818,17 @@ bool is_cjk_punctuation(std::string_view character) {
   return marks.count(character) > 0;
 }
 
+// 汉字（CJK 统一表意文字及其扩展区、兼容区）。
+bool is_cjk_ideograph(std::string_view character) {
+  if (character.size() < 3)
+    return false;
+  const auto byte = [&](std::size_t i) { return static_cast<char32_t>(static_cast<unsigned char>(character[i])); };
+  const char32_t code = character.size() == 3
+                            ? ((byte(0) & 0x0F) << 12) | ((byte(1) & 0x3F) << 6) | (byte(2) & 0x3F)
+                            : ((byte(0) & 0x07) << 18) | ((byte(1) & 0x3F) << 12) | ((byte(2) & 0x3F) << 6) | (byte(3) & 0x3F);
+  return (code >= 0x3400 && code <= 0x9FFF) || (code >= 0xF900 && code <= 0xFAFF) || (code >= 0x20000 && code <= 0x3FFFF);
+}
+
 bool is_single_capital(const std::vector<std::string> &characters, std::size_t index) {
   if (index >= characters.size() || characters[index].size() != 1)
     return false;
@@ -781,6 +863,8 @@ struct LocalAsrSession::Impl {
   std::shared_ptr<std::atomic_bool> cancelled;
   const SherpaOnnxOnlineStream *online_stream = nullptr;
   const SherpaOnnxVoiceActivityDetector *vad = nullptr;
+  // 离线 transducer 每段新建一个流，热词随流传入，所以在会话开始时整理一次。
+  std::string segment_hotwords;
   std::vector<std::string> segments;
   std::string current;
   std::string last_partial;
@@ -835,7 +919,9 @@ struct LocalAsrSession::Impl {
   void decode_segment(const float *samples, int32_t count) {
     check_cancelled();
     const auto &api = *recognizer->api;
-    const auto *stream = api.SherpaOnnxCreateOfflineStream(recognizer->offline);
+    const auto *stream = segment_hotwords.empty()
+                             ? api.SherpaOnnxCreateOfflineStream(recognizer->offline)
+                             : api.SherpaOnnxCreateOfflineStreamWithHotwords(recognizer->offline, segment_hotwords.c_str());
     if (!stream)
       throw VoiceError("Local speech recognition failed");
     api.SherpaOnnxAcceptWaveformOffline(stream, kSampleRate, samples, count);
@@ -880,7 +966,7 @@ LocalAsrSession::LocalAsrSession(const LocalAsrOptions &options, PartialCallback
   impl_->recognizer = acquire(api, model, options);
   auto &recognizer = *impl_->recognizer;
   if (recognizer.kind == ModelKind::OnlineTransducer) {
-    const auto hotwords = recognizer.native_hotwords ? transducer_hotwords(options.hotwords, recognizer.tokens) : std::string();
+    const auto hotwords = recognizer.native_hotwords ? transducer_hotwords(options.hotwords, recognizer.tokens, recognizer.spaced_cjk) : std::string();
     impl_->online_stream = hotwords.empty()
                                ? api.SherpaOnnxCreateOnlineStream(recognizer.online)
                                : api.SherpaOnnxCreateOnlineStreamWithHotwords(recognizer.online, hotwords.c_str());
@@ -888,6 +974,8 @@ LocalAsrSession::LocalAsrSession(const LocalAsrOptions &options, PartialCallback
       throw VoiceError("Local speech recognition failed");
     return;
   }
+  if (recognizer.kind == ModelKind::OfflineTransducer && recognizer.native_hotwords)
+    impl_->segment_hotwords = transducer_hotwords(options.hotwords, recognizer.tokens, recognizer.spaced_cjk);
   SherpaOnnxVadModelConfig vad{};
   vad.silero_vad.model = recognizer.vad_model.c_str();
   vad.silero_vad.threshold = 0.5f;
@@ -905,6 +993,10 @@ LocalAsrSession::LocalAsrSession(const LocalAsrOptions &options, PartialCallback
 }
 
 LocalAsrSession::~LocalAsrSession() = default;
+
+bool LocalAsrSession::speech_detected() const {
+  return impl_->vad && impl_->recognizer->api->SherpaOnnxVoiceActivityDetectorDetected(impl_->vad) != 0;
+}
 
 void LocalAsrSession::accept(const float *samples, std::size_t count) {
   if (impl_->finished)
@@ -938,8 +1030,8 @@ std::string LocalAsrSession::finish() {
   impl_->check_cancelled();
   const auto &api = *impl_->recognizer->api;
   if (impl_->online_stream) {
-    // Trailing silence lets the last chunk through the encoder's look-ahead before input ends.
-    const std::vector<float> tail(kSampleRate * 6 / 10, 0.0f);
+    // 尾部补静音，让最后一块音频越过 encoder 的前瞻再结束输入。X-ASR 480 ms 流式模型补 0.6 秒时，sherpa-onnx 自带的 test_wavs 四条里有两条丢掉最后一两个字（「是星期三」只出「是星期」），补到 1.2 秒四条都完整；松手即结束的按住说话没有句末停顿，更依赖这一段。
+    const std::vector<float> tail(kSampleRate * 12 / 10, 0.0f);
     api.SherpaOnnxOnlineStreamAcceptWaveform(impl_->online_stream, kSampleRate, tail.data(), static_cast<int32_t>(tail.size()));
     api.SherpaOnnxOnlineStreamInputFinished(impl_->online_stream);
     impl_->decode_online();
@@ -1038,11 +1130,35 @@ std::string tidy_local_transcript(std::string_view text) {
       if (after_mark || before_mark || inside_initialism || leading || repeated)
         continue;
     }
+    // X-ASR 离线模型在中文后面也会打半角句末标点（「是星期三.」），在英文句子之间不留空格（「monday.Today」）。
+    if (character.size() == 1 && (character == "." || character == "?" || character == "!" || character == ",")) {
+      const bool after_cjk = i > 0 && is_cjk_ideograph(characters[i - 1]);
+      if (after_cjk) {
+        out += character == "." ? "。" : character == "?" ? "？" : character == "!" ? "！" : "，";
+        continue;
+      }
+      const bool between_sentences = i > 0 && characters[i - 1].size() == 1 && std::islower(static_cast<unsigned char>(characters[i - 1][0])) &&
+                                     i + 1 < characters.size() && characters[i + 1].size() == 1 &&
+                                     std::isupper(static_cast<unsigned char>(characters[i + 1][0])) && character != ",";
+      if (between_sentences) {
+        out += character;
+        out += ' ';
+        continue;
+      }
+    }
     out += character;
   }
   while (!out.empty() && out.back() == ' ')
     out.pop_back();
   return out;
+}
+
+std::string transducer_hotword_lines(const std::vector<std::string> &words, const std::vector<std::string> &tokens,
+                                     const std::string &manifest_unit, std::string &modeling_unit) {
+  const std::set<std::string> token_set(tokens.begin(), tokens.end());
+  const bool spaced = cjk_spelled_as_words(token_set);
+  modeling_unit = spaced ? "bpe" : manifest_unit;
+  return transducer_hotwords(words, token_set, spaced);
 }
 
 } // namespace msime::voice

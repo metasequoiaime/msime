@@ -55,6 +55,17 @@ public final class CandidateNavigationPolicy {
     private CandidateNavigationPolicy() {}
 
     /**
+     * 判断未按 Shift 的 Tab 是否应先尝试打开展开候选面板，再翻页。
+     *
+     * <p>调用方仍需检查当前组字是否有足够候选来打开面板；打不开时继续走普通 Tab 翻页。
+     */
+    public static boolean shouldOpenCandidatePanel(int keyCode, boolean shift, Bindings bindings,
+                                                   boolean panelOpen) {
+        return !panelOpen && keyCode == KeyEvent.KEYCODE_TAB && !shift
+            && bindings != null && bindings.tab();
+    }
+
+    /**
      * The shared command this key asks for, or {@link #NONE}.
      *
      * <p>Only meaningful while something is being composed; the caller checks that. Shift matters

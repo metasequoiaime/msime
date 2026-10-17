@@ -51,6 +51,7 @@ import { SkinGrid, type SkinGridTab } from "../skin-grid";
 import { mobilePageTitle } from "../mobile-tab-helpers";
 import { pushMobileSettingsState } from "../mobile-navigation";
 import { useMobilePopState } from "../use-mobile-pop-state";
+import { useMobileSettingsSubview } from "../use-mobile-settings-subview";
 import { useAsyncGeneration } from "../use-async-generation";
 
 /** 设置表单的「主题」页（路由 id `skin`，手机上叫「皮肤」）：全局主题、自定义主题的组成，以及各界面的单独设置。`hidden` 让它在桌面外壳以「社区皮肤」标签页顶替时保持挂载。鸿蒙手机上主题按顶部的「内置 / 我的 / 社区」分成键盘缩略图网格，点按即应用；标签栏和「社区」的完整图库由设置外壳画在表单之外，这里只画前两个分类的网格（`tabs`）。 */
@@ -162,7 +163,20 @@ export function SkinSettingsPage({
   const pageName = mobilePlatform ? mobilePageTitle("skin", "主题") : "主题";
   // 从网格的 AI 图块打开的「AI 皮肤抽卡」是 WebView 返回栈上单独的一个视图，所以系统返回手势能关掉它。
   const { aiSkins, customSkinLibrary } = client;
-  const [aiOpen, setAiOpen] = useState(false);
+  const {
+    value: aiSubview,
+    open: openAiSubview,
+    close: closeAi,
+  } = useMobileSettingsSubview<"ai">({
+    mobile: phoneGrid,
+    stateKey: "skinSubpage",
+    decode: (state, current) =>
+      state?.skinSubpage === "ai" && (current === null || state.skinSubpage === current)
+        ? "ai"
+        : null,
+    encode: (value) => ({ page: "skin", skinSubpage: value }),
+  });
+  const aiOpen = aiSubview === "ai";
   // 「我的」里列出皮肤库的设计（在社区获取的皮肤也存在这里）。每次回到网格都重读：从「社区」分类或别的标签页回来，或从编辑器、AI 抽卡、社区图库这几个子视图返回，刚获取或刚保存的皮肤就能出现。
   const [savedDesigns, setSavedDesigns] = useState<SavedTouchKeyboardSkin[]>([]);
   const galleryOpen = communityGallery?.category === "skin";
@@ -183,14 +197,9 @@ export function SkinSettingsPage({
   }, [gridVisible, customSkinLibrary, savedDesignsGeneration]);
   // 鸿蒙手机上「设计我的皮肤」同样是返回栈上的一个视图，不在这页里就地展开。从「我的 → 我的设计」进来时没有这一条记录，编辑器直接打开；返回离开这页时记录里没有它，编辑器随之关上，下次进来不会再自己打开。
   useMobilePopState(phoneGrid, (event) => {
-    setAiOpen(event.state?.skinSubpage === "ai");
     setShowTouchSkinEditor(event.state?.skinSubpage === "editor");
   });
-  const openAi = () => {
-    pushMobileSettingsState({ page: "skin", skinSubpage: "ai" });
-    setAiOpen(true);
-  };
-  const closeAi = () => window.history.back();
+  const openAi = () => openAiSubview("ai");
   const openEditor = () => {
     pushMobileSettingsState({ page: "skin", skinSubpage: "editor" });
     setShowTouchSkinEditor(true);
