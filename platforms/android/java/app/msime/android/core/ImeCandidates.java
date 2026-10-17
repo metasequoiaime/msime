@@ -168,6 +168,18 @@ final class ImeCandidates {
         // feedback without changing the existing scroll-versus-select boundary.
         Button button = candidateButton();
         ViewPolicy.bindClick(button, () -> s.selectVisibleCandidate(button, slot));
+        // 按下期间 MSIMEInputService 不重画候选条（见 candidateRenderDeferred），松开时补上那一帧。返回 false
+        // 让这次触摸照常交给按钮自己，点击、长按和滚动取消都不受影响。
+        button.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if ((action == android.view.MotionEvent.ACTION_UP
+                    || action == android.view.MotionEvent.ACTION_CANCEL)
+                    && s.candidateRenderDeferred) {
+                s.candidateRenderDeferred = false;
+                view.post(s::render);
+            }
+            return false;
+        });
         button.setOnLongClickListener(ignored -> {
             JSONObject current = s.visibleCandidate(slot);
             JSONObject id = current == null ? null : current.optJSONObject("id");

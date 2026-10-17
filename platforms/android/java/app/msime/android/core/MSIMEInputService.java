@@ -149,6 +149,12 @@ public final class MSIMEInputService extends InputMethodService {
     private HorizontalScrollView horizontalCandidateScroll;
     private ScrollView verticalCandidateScroll;
     private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
+    /**
+     * 候选条上有手指按着，这一帧的候选内容推迟到松开之后再画。
+     *
+     * <p>候选条每次 render 都 `removeAllViews` 再逐个挂回去，候选对象本身是复用的，但摘下来的那一瞬间框架就把这次按压变成 CANCEL，点击不再发出，用户看到的是「候选偶尔点不上」。候选内容又几乎每帧都在变（组字的异步回包、译文角标），所以这个窗口并不罕见。松手时 {@link ImeCandidates} 在按钮的触摸监听里补一次 render，画面只晚这一下按压。
+     */
+    boolean candidateRenderDeferred;
     private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>(32);
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
@@ -9710,6 +9716,13 @@ public final class MSIMEInputService extends InputMethodService {
             else ViewPolicy.setInvisible(verticalCandidateScroll);
         }
         LinearLayout activeCandidates = candidateHorizontal ? candidates : verticalCandidates;
+        // 手指按在某个候选上时不重画候选条，见 candidateRenderDeferred。这一帧剩下的东西（页码、展开键、
+        // 皮肤）也一起跳过；松手后补的那次 render 会把它们一起补上。
+        if (candidateStripHeld(activeCandidates)) {
+            candidateRenderDeferred = true;
+            return;
+        }
+        candidateRenderDeferred = false;
         candidates.removeAllViews();
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
         if (expandCandidates != null) ViewPolicy.hide(expandCandidates);
@@ -9773,6 +9786,14 @@ public final class MSIMEInputService extends InputMethodService {
             imeFunctionPanel.renderMoreTools();
         imeStyler.applySkin();
         imeToolbar.styleTopRow();
+    }
+
+    /** 候选条里是否有一个候选正被手指按着（按下状态由框架在 ACTION_DOWN 时置上，滑走后清掉）。 */
+    private static boolean candidateStripHeld(android.view.ViewGroup group) {
+        if (group == null) return false;
+        for (int index = 0; index < group.getChildCount(); index++)
+            if (group.getChildAt(index).isPressed()) return true;
+        return false;
     }
 
     /**
