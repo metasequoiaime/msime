@@ -18,9 +18,9 @@ class CommunityReplySectionLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var pending: Task<Void, Never>?", self.section)
         self.assertIn("@State private var addTasks: [String: Task<Void, Never>]", self.section)
         self.assertIn("@State private var request = ViewRequestGeneration()", self.section)
-        self.assertIn(".onAppear { request.appear()", self.section)
-        self.assertIn(".onDisappear", self.section)
-        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.section)
+        self.assertIn(".trackViewRequest(request: $request, pending: $pending, onDisappear: {", self.section)
+        self.assertNotIn("request.appear()", self.section)
+        self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.section)
         self.assertIn("addTasks.values.forEach { $0.cancel() }", self.section)
         self.assertIn("adding.removeAll()", self.section)
 

@@ -113,7 +113,6 @@ struct CommunityResourcesView: View {
       }
     }) { AccountLoginSheet() }
     .task {
-      request.appear()
       let state = (try? await SkinCommunityAPI.shared.signedIn()) ?? false
       guard request.isVisible, !Task.isCancelled else { return }
       signedIn = state
@@ -121,11 +120,11 @@ struct CommunityResourcesView: View {
     }
     .refreshable { await refreshInstalled(); await load() }
     // 每次回到列表都重读：详情页里导入词库、添加或移除回复模板后，返回时胶囊按钮跟着变。
-    .onAppear { request.appear(); Task { await refreshInstalled() } }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $pending)
+    .trackViewRequest(request: $request, pending: $pending, onAppear: {
+      Task { await refreshInstalled() }
+    }, onDisappear: {
       busy = false
-    }
+    })
     .confirmationDialog("导入这版词库到本机？", isPresented: Binding(get: { confirmingImport != nil }, set: { if !$0 { confirmingImport = nil } }),
                         titleVisibility: .visible, presenting: confirmingImport) { item in
       Button("导入 \(item.content.entries?.count ?? 0) 条词条") { add(item) }
@@ -314,17 +313,14 @@ struct CommunityReplyTemplatesSection: View {
       NavigationLink { CommunityResourcesView(kind: .reply) } label: { Text("浏览更多回复模板") }
         .accessibilityIdentifier("replyCommunityLink")
         .task {
-          request.appear()
           startLoad()
         }
-        .onAppear { request.appear() }
-        .onDisappear {
-          ViewRequestTask.disappear(request: $request, pending: $pending)
+        .trackViewRequest(request: $request, pending: $pending, onDisappear: {
           addGeneration.invalidate()
           addTasks.values.forEach { $0.cancel() }
           addTasks.removeAll()
           adding.removeAll()
-        }
+        })
         .alert("社区回复模板", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
           Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
