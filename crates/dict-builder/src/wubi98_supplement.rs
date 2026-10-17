@@ -1,6 +1,6 @@
 //! `wubi98-supplement`：生成 msime-dictionary 的 `sources/wubi/wubi98-supplement.txt`，即 98 五笔码表（`sources/wubi/wubi98.txt` 与 `sources/wubi/wubi98-fcitx.txt`）缺少的多字词，编码按词组规则由这两张表自己的单字编码推出。
 //!
-//! 一个词在两张 98 表的任何编码下都没有，全部由基本区汉字组成（不含 CJK 扩展 A 和 BMP 以外的字，与 86 表构建时去掉的范围相同，见 `msime::outside_basic_cjk`），并且满足以下其一时收录：86 五笔极点码表（`sources/wubi/wubi86-jidian.txt`）里它是两字及以上的词；或 `sources/pinyin/rime-ice.txt` 里它是权重不低于 `wubi86_supplement::MIN_PINYIN_WEIGHT` 的二字词。极点码表是人工整理的词表，所以两字及以上的词都从中收录；rime-ice 只收超过阈值的二字词，理由与 86 补充表相同。9999 这类人工填写的权重不与词频区分。
+//! 两张 98 表在任何编码下都没有的基本区汉字词，来自 86 极点码表、权重不低于 `wubi86_supplement::MIN_PINYIN_WEIGHT` 的 rime-ice 主表和补充表，或人工维护的 custom/words.txt、区划补充表。门槛与 86 版共用，拼音来源不限字数，人工词条与区划名称不设权重门槛。
 //!
 //! 98 版的词组规则与 86 版相同：取每个字的全码（两张表里该字单独出现时最长的编码），二字词各取前两码；三字词取前两字的首码和第三字的前两码；更长的词取第一、二、三字和末字的首码。表里没有单独编码的字，或几个全码在所需码位上不一致的字，含它的词不收。在两张 98 表自己的 76,150 个词上，这套规则还原了全部编码。
 //!
@@ -21,6 +21,9 @@ pub const WUBI98: &str = wubi86_supplement::WUBI98;
 pub const WUBI98_FCITX: &str = wubi86_supplement::WUBI98_FCITX;
 pub const JIDIAN: &str = wubi86_supplement::JIDIAN;
 pub const BASE: &str = wubi86_supplement::BASE;
+pub const PINYIN_SUPPLEMENT: &str = wubi86_supplement::PINYIN_SUPPLEMENT;
+pub const PLACES: &str = wubi86_supplement::PLACES;
+pub const CUSTOM: &str = wubi86_supplement::CUSTOM;
 
 pub struct Inputs<'a> {
     /// `sources/wubi/wubi98.txt`，已从 UTF-16LE 解码。
@@ -28,6 +31,9 @@ pub struct Inputs<'a> {
     pub wubi98_fcitx: &'a str,
     pub jidian: &'a str,
     pub base: &'a str,
+    pub pinyin_supplement: &'a str,
+    pub places: &'a str,
+    pub custom: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +70,12 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .filter(|(_, value, _)| value.chars().count() >= 2)
         .map(|(_, value, _)| *value)
         .collect();
-    let frequency = frequencies(inputs.base);
+    let frequency = frequencies([
+        inputs.base,
+        inputs.pinyin_supplement,
+        inputs.places,
+        inputs.custom,
+    ]);
 
     let jidian: BTreeSet<&str> = text::universal_lines(text::without_bom(inputs.jidian))
         .into_iter()
@@ -75,7 +86,11 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     if jidian.is_empty() {
         bail!("{JIDIAN} has no words");
     }
-    let pinyin = pinyin_words(&frequency, MIN_PINYIN_WEIGHT);
+    let pinyin = pinyin_words(
+        &frequency,
+        MIN_PINYIN_WEIGHT,
+        &[inputs.places, inputs.custom],
+    );
 
     let mut outside_basic_cjk = 0;
     let candidates: BTreeSet<&str> = jidian
@@ -116,6 +131,8 @@ pub struct Provenance<'a> {
     pub inputs: &'a [(&'a str, &'a str)],
     /// 运行生成器的 msime 提交；构建器有未提交改动时带 `-dirty` 后缀。
     pub generator_commit: &'a str,
+    /// 已校验的上游仓库与提交。
+    pub upstreams: &'a str,
 }
 
 pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
@@ -128,9 +145,14 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# 98 五笔词组补充表，由 msime 仓库提交 {} 的 crates/dict-builder/src/wubi98_supplement.rs 以 `msime-dict-build wubi98-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out sources/wubi/wubi98-supplement.txt` 生成；不要手工编辑。", provenance.generator_commit);
     let _ = writeln!(out, "# 输入：{inputs}。");
-    let _ = writeln!(out, "# 收录：{WUBI98} 和 {WUBI98_FCITX} 在任何编码下都没有、且全部由基本区汉字组成（不含 CJK 扩展 A 和 BMP 以外的字）的词，满足其一即收：在 86 五笔的 {JIDIAN} 里是两字及以上的词；或在 {BASE} 里是权重不低于 {MIN_PINYIN_WEIGHT} 的二字词（9999 这类人工填写的权重不与词频区分）。");
+    let _ = writeln!(
+        out,
+        "# 上游：{}；jidian 与区划表的来源、提交和许可另见 NOTICE.md 及输入文件头。",
+        provenance.upstreams
+    );
+    let _ = writeln!(out, "# 收录：{WUBI98} 和 {WUBI98_FCITX} 在任何编码下都没有、且全部由基本区汉字组成（不含 CJK 扩展 A 和 BMP 以外的字）的词，满足其一即收：在 86 五笔的 {JIDIAN} 里是两字及以上的词；或在 {BASE} 里是权重不低于 {MIN_PINYIN_WEIGHT} 的两字及以上词，或 {PINYIN_SUPPLEMENT} 里达到同一门槛的词，或 {PLACES}、{CUSTOM} 的人工维护词（后两者不设权重门槛；9999 这类人工填写的权重不与词频区分）。");
     let _ = writeln!(out, "# 编码：按 98 版词组规则，取 {WUBI98} 和 {WUBI98_FCITX} 里单字的全码（该字单独出现时最长的编码）：二字词各取前两码；三字词取前两字的首码和第三字的前两码；四字及以上取第一、二、三字和末字的首码。单字表里没有、或几个全码在所需码位上不一致的字，含它的词不收。");
-    let _ = writeln!(out, "# 去重与权重：对照集合是 {WUBI98} 和 {WUBI98_FCITX} 的全部两字及以上词条，已有的词不论编码一律不收。原有行的权重按构建的规则算出（主表按编码内先后给 10 的倍数，{WUBI98_FCITX} 的行给 1）。同一编码下补充词排在原有行之后：最高权重取 {SUPPLEMENT_CEILING} 与该编码原有最低权重减 1 中较小者，几个补充词按 {BASE} 的权重从高到低（没有的排最后，再按词）依次减 1，最低为 0；构建的 wubi98 阶段在两张 98 表之后并入本文件，同权重时原有行在前。");
+    let _ = writeln!(out, "# 去重与权重：对照集合是 {WUBI98} 和 {WUBI98_FCITX} 的全部两字及以上词条，已有的词不论编码一律不收。原有行的权重按构建的规则算出（主表按编码内先后给 10 的倍数，{WUBI98_FCITX} 的行给 1）。同一编码下补充词排在原有行之后：最高权重取 {SUPPLEMENT_CEILING} 与该编码原有最低权重减 1 中较小者，几个补充词按 {BASE}、{PINYIN_SUPPLEMENT}、{PLACES}、{CUSTOM} 中同词最大权重从高到低（没有的排最后，再按词）依次减 1，最低为 0；构建的 wubi98 阶段在两张 98 表之后并入本文件，同权重时原有行在前。");
     for entry in &supplement.entries {
         let _ = writeln!(out, "{}\t{}\t{}", entry.word, entry.code, entry.weight);
     }
@@ -160,7 +182,7 @@ pub fn report(supplement: &Supplement) -> Vec<String> {
         .join(" ");
     vec![
         format!(
-            "{} words under {} codes: {} from {JIDIAN}, {} from {BASE} at weight {MIN_PINYIN_WEIGHT} or above, {} from both",
+            "{} words under {} codes: {} from {JIDIAN}, {} from pinyin inputs (rime-ice weight >= {MIN_PINYIN_WEIGHT}, curated words at any weight), {} from both",
             supplement.entries.len(),
             codes.len(),
             count(|entry| entry.from_jidian),
@@ -195,6 +217,9 @@ mod tests {
             wubi98_fcitx: fcitx,
             jidian,
             base,
+            pinyin_supplement: "",
+            places: "",
+            custom: "",
         })
         .unwrap()
     }
@@ -239,12 +264,16 @@ mod tests {
     }
 
     #[test]
-    fn pinyin_words_need_two_characters_and_the_threshold() {
-        let base = "工人\tgong'ren\t5000\n日工\tri'gong\t4999\n工人民\tgong'ren'min\t90000\n";
+    fn pinyin_words_include_longer_words_at_the_threshold() {
+        let base = "工人\tgong'ren\t100\n日工\tri'gong\t99\n工人民\tgong'ren'min\t100\n";
         let supplement = build_with(WUBI98_FIXTURE, "", "日日\tjjjj\t10\r\n", base);
         assert_eq!(
             rows(&supplement),
-            [("工人", "aaww", 9), ("日日", "jjjj", 9)]
+            [
+                ("工人", "aaww", 9),
+                ("工人民", "awna", 9),
+                ("日日", "jjjj", 9)
+            ]
         );
         assert!(supplement.entries[0].from_pinyin && !supplement.entries[0].from_jidian);
     }
@@ -256,6 +285,29 @@ mod tests {
         let supplement = build_with(&wubi98, "", "日𠂇\tjjjj\t10\r\n", "");
         assert!(supplement.entries.is_empty());
         assert_eq!(supplement.outside_basic_cjk, 1);
+    }
+
+    #[test]
+    fn supplementary_and_manual_inputs_reach_the_version_specific_generator() {
+        let supplement = build(&Inputs {
+            wubi98: WUBI98_FIXTURE,
+            wubi98_fcitx: "",
+            jidian: "日日\tjjjj\t10\n",
+            base: "",
+            pinyin_supplement: "工人\tgong'ren\t100\n",
+            places: "工人日\tgong'ren'ri\t1\n",
+            custom: "工人民\tgong'ren'min\t1\n工人\tgong'ren\t100\n",
+        })
+        .unwrap();
+        assert_eq!(
+            rows(&supplement),
+            [
+                ("工人", "aaww", 9),
+                ("工人日", "awjj", 9),
+                ("工人民", "awna", 9),
+                ("日日", "jjjj", 9)
+            ]
+        );
     }
 
     #[test]
@@ -287,6 +339,7 @@ mod tests {
             &Provenance {
                 inputs: &[(WUBI98, "0")],
                 generator_commit: "0123456789abcdef0123456789abcdef01234567",
+                upstreams: "fixture",
             },
         );
         assert!(rendered
