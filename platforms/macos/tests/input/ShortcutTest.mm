@@ -7442,7 +7442,7 @@ static void TestAiCandidateEngineDelivery() {
     NSArray *parsed = [MSIMEClientSession parseAIResponse:response limit:3 error:&bridgeError];
     assert(!bridgeError && parsed.count == 2);
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
-    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"learning":@NO,
+    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"learning":@NO, @"cloud_candidates":@NO,
         @"candidate_page_size":@5, @"chinese_punctuation":@YES, @"default_ime_mode":@"chinese",
         @"ai_assistant":@{@"enabled":@YES, @"provider":@"openai", @"endpoint":@"https://synthetic.invalid/chat",
             @"model":@"synthetic", @"tokens":@{@"https://synthetic.invalid:443":@"synthetic-private"},
@@ -7467,8 +7467,12 @@ static void TestAiCandidateEngineDelivery() {
     NSDictionary *applied = [session applyOnlineCandidates:parsed source:1 query:query error:&error];
     assert(!error && [applied[@"applied"] boolValue]);
     NSArray *candidates = applied[@"view"][@"candidates"];
-    assert(candidates.count >= 2 && [candidates[0][@"text"] isEqual:@"合成候选甲"] && [candidates[1][@"text"] isEqual:@"合成候选乙"]);
-    assert([candidates[0][@"source"] isEqual:@3] && [candidates[1][@"source"] isEqual:@3]);
+    NSPredicate *isAI = [NSPredicate predicateWithBlock:^BOOL(NSDictionary *candidate, NSDictionary *_) {
+        return [candidate[@"source"] isEqual:@3];
+    }];
+    NSArray *aiCandidates = [candidates filteredArrayUsingPredicate:isAI];
+    assert(aiCandidates.count == 2 && [aiCandidates[0][@"text"] isEqual:@"合成候选甲"]
+        && [aiCandidates[1][@"text"] isEqual:@"合成候选乙"]);
     assert([applied[@"view"][@"editing_text"] isEqual:@"nihaoshijie"]);
     [session typeASCII:'a' shift:NO error:&error];
     applied = [session applyOnlineCandidates:@[@"过期候选"] source:1 query:query error:&error];
@@ -7517,17 +7521,10 @@ static void TestCloudCandidateEngineDelivery() {
     controller.requests.lastObject.reply([@"[\"SUCCESS\", [[\"nihao\", [\"云端测试候选\"]]]]" dataUsingEncoding:NSUTF8StringEncoding]);
     NSDictionary *view = [session viewWithError:&error];
     assert(!error && [view[@"editing_text"] isEqual:@"nihao"]);
-    // A cloud suggestion is merged into an existing candidate page and never manufactures one. This
-    // session is built on empty resource directories, so the Engine offers nothing locally and the
-    // suggestion is refused - which is the documented contract, matching Windows: a callback arriving
-    // after the local page was cleared must not rebuild a page out of stale provider state.
-    //
-    // What this test is for is the controller's plumbing above: that typing schedules a request rather
-    // than sending one per keystroke, that firing the timer sends exactly one, and that a reply is
-    // accepted without error. The merge itself needs a real dictionary to have a page to merge into, and
-    // is covered at the layer that has one - crates/host-api/src/tests.rs drives the same "nihao" query
-    // against a host with resources and asserts the candidate reaches the view.
-    assert([view[@"candidates"] isKindOfClass:NSArray.class] && [view[@"candidates"] count] == 0);
+    // 云候选在本地没有词时也保留固定席位；回包不能让候选栏从无到有或改变本地候选的编号。
+    NSArray *candidates = view[@"candidates"];
+    assert([candidates isKindOfClass:NSArray.class] && candidates.count == 1);
+    assert([candidates[0][@"text"] isEqual:@"云端测试候选"] && [candidates[0][@"source"] isEqual:@2]);
     assert(client.committed == nil && [controller valueForKey:@"cloudTimer"] == nil);
     [controller cancelCloudCandidates];
     assert([session closeWithError:&error] && !error);

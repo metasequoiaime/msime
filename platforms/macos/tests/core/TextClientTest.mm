@@ -236,8 +236,11 @@ static void TestEngineMaintenance() {
     identifier = MaintenanceCandidate(session);
     result = [session fixGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] position:2 error:&error];
     assert(result && !error && [result[@"handled"] boolValue]);
-    assert([result[@"view"][@"candidates"][1][@"text"] isEqual:@"拟好"]);
-    assert([result[@"view"][@"candidates"][1][@"fixed_position"] isEqual:@2]);
+    NSDictionary *fixedCandidate = nil;
+    for (NSDictionary *candidate in result[@"view"][@"candidates"])
+        if ([candidate[@"text"] isEqual:@"拟好"]) fixedCandidate = candidate;
+    assert(fixedCandidate && [fixedCandidate[@"text"] isEqual:@"拟好"]);
+    assert([fixedCandidate[@"fixed_position"] isEqual:@2]);
     identifier = MaintenanceCandidate(session);
     result = [session clearPositionGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:&error];
     assert(result && !error && [result[@"handled"] boolValue]);
