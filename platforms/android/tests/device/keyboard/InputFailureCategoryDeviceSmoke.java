@@ -27,7 +27,21 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
             AtomicReference<Object> created = new AtomicReference<>();
             AtomicReference<Exception> creationError = new AtomicReference<>();
             runOnMainSync(() -> {
-                try { created.set(type.getConstructor().newInstance()); }
+                try {
+                    Object instance = type.getConstructor().newInstance();
+                    // 与 ToolbarEdgesDeviceSmoke 等设备冒烟同一套建法：服务里的协作对象和键区只在
+                    // onCreate / onCreateInputView 里建出来，跳过这两步就有一半字段是 null。文本编辑
+                    // 面板的「数字键盘」动作走到 showNumberKeyboardFromTextEdit，它要 render()，而
+                    // render() 从 ImeBottomBar 一路用到键区，缺一个就 NullPointerException（#8496 让
+                    // 这个动作进了本套件的遍历）。
+                    Method attach = android.content.ContextWrapper.class.getDeclaredMethod(
+                        "attachBaseContext", android.content.Context.class);
+                    attach.setAccessible(true);
+                    attach.invoke(instance, getTargetContext());
+                    type.getMethod("onCreate").invoke(instance);
+                    type.getMethod("onCreateInputView").invoke(instance);
+                    created.set(instance);
+                }
                 catch (Exception error) { creationError.set(error); }
             });
             if (creationError.get() != null) throw creationError.get();
@@ -50,18 +64,10 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
                 checkCategory(loader, failure(value, service, response), "invalid_response");
             }
             stage = "editor rejection category";
-            // 隔离对象只测试写入路径，固定布局提示，避免读取用户的 SharedPreferences。
+            // 固定布局提示，让拒写这一路按确定的键面比较。
             Field layout = type.getDeclaredField("touchLayoutHint");
             layout.setAccessible(true);
             layout.setInt(service, 0);
-            // apply() 先比较已画键面和传入的 view。真实输入法在 onCreateInputView
-            // 里创建这个辅助对象；测试夹具也创建同一个轻量对象，让拒写继续走到
-            // EditorBridge，而不是在夹具里先因 NullPointerException 失败。
-            Field rows = type.getDeclaredField("imeLetterRows");
-            rows.setAccessible(true);
-            var rowsConstructor = rows.getType().getDeclaredConstructor(type);
-            rowsConstructor.setAccessible(true);
-            rows.set(service, rowsConstructor.newInstance(service));
             int[] writes = new int[3];
             InputConnection connection = (InputConnection) Proxy.newProxyInstance(
                 InputConnection.class.getClassLoader(), new Class<?>[] {InputConnection.class},
