@@ -289,6 +289,10 @@ public final class LexiconPage extends ReloadingDetailPage {
         });
     }
 
+    /** 与共享设置页 `SCEL_PERSONAL_USE_NOTICE` 相同。 */
+    static final String SCEL_PERSONAL_USE_NOTICE =
+        "搜狗细胞词库的整理成果属于原作者，导入的词只供你在本机使用，不能发布到社区。";
+
     private static String importFrom(Context context, Uri uri, String chosen) {
         String displayName = displayName(context, uri);
         byte[] bytes;
@@ -304,14 +308,16 @@ public final class LexiconPage extends ReloadingDetailPage {
             DictionaryCollectionsStore.importFile(context, format, name, bytes);
         if (!result.ok()) return result.failure();
         DictionaryCollectionsStore.ImportReport report = result.value().importReport();
-        if (report == null) return "已导入「" + name + "」";
+        // 细胞词库导入后说明只供本机使用：第三方词库的整理成果属于原作者，社区发布会拦下这些词（.agents/notes/implemented/feature/2026-10-17-scel-community-publish-guard.md）。
+        String personalUse = "scel".equals(format) ? "。" + SCEL_PERSONAL_USE_NOTICE : "";
+        if (report == null) return "已导入「" + name + "」" + personalUse;
         StringBuilder message = new StringBuilder("已导入「").append(name).append("」，")
             .append(NumberPolicy.groupedCount(report.imported()));
         if (report.duplicates() > 0) message.append("，跳过重复 ").append(report.duplicates()).append(" 条");
         if (report.failed() > 0) message.append("，").append(report.failed()).append(" 行无法识别");
         if (report.truncated()) message.append("，词库已满");
         if (!report.applicationNotice().isEmpty()) message.append("；").append(report.applicationNotice());
-        return message.toString();
+        return message.append(personalUse).toString();
     }
 
     /** 读完整个文件；超过导入上限时返回 null，不把超大文件整个读进内存。 */
