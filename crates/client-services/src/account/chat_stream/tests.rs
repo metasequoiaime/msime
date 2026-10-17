@@ -46,7 +46,7 @@ enum Step {
     Sleep(u64),
     /// 停下来，等测试放行（或测试结束、发送端被丢掉，最多 5 秒）。
     Wait(Receiver<()>),
-    /// 看客户端有没有断开连接：5 秒内读到 EOF 或连接被重置时报 true。
+    /// 看客户端有没有断开连接：5 秒内读到 EOF、连接被重置或连接已经失效到设不了读超时时报 true。
     ReportClosed(Sender<bool>),
 }
 
@@ -73,17 +73,21 @@ fn serve(scripts: Vec<Vec<Step>>) -> (String, Receiver<Received>) {
                         let _ = release.recv_timeout(Duration::from_secs(5));
                     }
                     Step::ReportClosed(report) => {
-                        stream
-                            .set_read_timeout(Some(Duration::from_secs(5)))
-                            .unwrap();
-                        let mut byte = [0_u8; 1];
-                        let closed = match stream.read(&mut byte) {
-                            Ok(0) => true,
-                            Ok(_) => false,
-                            Err(error) => !matches!(
-                                error.kind(),
-                                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                            ),
+                        // 客户端断开后前面的写会收到 RST，macOS 上对已被重置的连接设读超时会返回 EINVAL，这本身就说明连接已经断了，不能当成假服务器自己出错。
+                        let closed = match stream.set_read_timeout(Some(Duration::from_secs(5))) {
+                            Err(_) => true,
+                            Ok(()) => {
+                                let mut byte = [0_u8; 1];
+                                match stream.read(&mut byte) {
+                                    Ok(0) => true,
+                                    Ok(_) => false,
+                                    Err(error) => !matches!(
+                                        error.kind(),
+                                        std::io::ErrorKind::WouldBlock
+                                            | std::io::ErrorKind::TimedOut
+                                    ),
+                                }
+                            }
                         };
                         let _ = report.send(closed);
                     }
