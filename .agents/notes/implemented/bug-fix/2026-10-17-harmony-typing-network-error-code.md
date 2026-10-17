@@ -2,6 +2,8 @@
 
 Status: implemented
 
+#8201 第 2 步删掉了这里说的 ArkTS 账号传输和桥接，账号请求改由 Rust 发出、错误码由 Rust 给，见[鸿蒙账号与云端业务整体切到 Rust 目录模式](../architecture/2026-10-17-harmony-account-rust-directory-mode.md)。下面是当时的记录。
+
 ## Problem
 
 HarmonyOS 的打字统计上传和删除调用 `AccountCloudBridge.typingStatisticsRequest`。账号桥接的正常 HTTP 响应会转换为稳定的 `account_*` 错误码，但传输层抛出异常时原实现把 `Error.message` 直接塞进响应的 `error` 字段。页面和共享账号契约只识别稳定错误码，因此超时、连接断开等异常会显示成平台或库的内部文本，并且无法按 `account_network` 处理。

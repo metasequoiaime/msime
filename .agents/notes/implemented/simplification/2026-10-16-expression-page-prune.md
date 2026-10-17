@@ -79,7 +79,7 @@ Linux 画的是共享 React 页，标点合并、细分开关折叠和变灰、�
 ### HarmonyOS
 
 - 手机和平板保持设计稿的 `PhonePunctuationSection`（「使用英文标点」开关，「更多选项」里的「固定标点」），这是 macOS 那次有意保留的布局，`expression-harmony` 测试钉住；翻译相关的控件在手机上本来就收在「更多选项」里，也没有标签可合。2in1 走桌面分支，已经是合并后的选择和标签。
-- 账号同步：HarmonyOS 用自己的 `AccountPreferencePlan.ts`，不走 client-services，所以 macOS 那次在 `apply_input_settings` 里修的陷阱在这里还在：别的设备先关后开智能标点，同步过来就是「总开关开、两半都关」。现在云端值和本机不同时两半跟着写，相同时不动，与 Rust 那边同一条规则。
+- 账号同步：HarmonyOS 用自己的 `AccountPreferencePlan.ts`（#8201 以后是 client-services 的 `account::harmony_settings`），不走 client-services，所以 macOS 那次在 `apply_input_settings` 里修的陷阱在这里还在：别的设备先关后开智能标点，同步过来就是「总开关开、两半都关」。现在云端值和本机不同时两半跟着写，相同时不动，与 Rust 那边同一条规则。
 - 固定标点：`KeyboardSession` 的工具栏标点按钮和功能面板开关原来只看 `chinesePunctuation`，锁定英文时仍可能显示中文；工具栏和 Ctrl+. 的切换在锁定时还会改写上云的 `chinese_punctuation`。现在两处都按 `PunctuationLockPolicy` 显示锁定值，锁定时切换什么都不做，与 Windows TIP、fcitx5 相同。功能面板的「中文标点」磁贴在锁定时置灰（`KeyboardView` 的 `functionTileEnabled`），不让它点了又弹回，与 Windows 托盘在锁定时禁用「中文标点」相同。这是 macOS `runtimeChinesePunctuation` 那处修正在 HarmonyOS 上的同类问题。
 - 未配置的默认腾讯云同样显示成 `none`：HarmonyOS 的密钥存在偏好里（它画 `TencentTranslationSection`），`TranslationPolicy.provider` 只认 host-api 放进查询的腾讯云。`none` 的叫法和缺凭据警告同 Windows，手机「更多选项」里的选择器也用同一个叫法。
 - 键盘上没有智能标点开关，不需要托盘那一类修正；也没有 MCP。

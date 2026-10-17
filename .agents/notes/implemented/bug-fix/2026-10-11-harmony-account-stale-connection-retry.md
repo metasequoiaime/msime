@@ -2,6 +2,8 @@
 
 Status: implemented
 
+#8201 第 2 步删掉了这里说的 ArkTS 账号传输和桥接，账号请求改由 Rust 发出、错误码由 Rust 给，见[鸿蒙账号与云端业务整体切到 Rust 目录模式](../architecture/2026-10-17-harmony-account-rust-directory-mode.md)。下面是当时的记录。
+
 ## Problem
 
 已登录的「我的」页顶上出现「账号服务暂不可用，请稍后再试。」，资料却照常显示。模拟器落盘的 hilog（`/data/log/hilog/`）里，那一刻 App 有一个 GET 失败：curl 56（接收失败，鸿蒙报 `errCode:2300056`），`connect` 和 `tls` 都是 0，36 毫秒就结束；紧接着的几个请求换了新连接（源端口变了），全部 200。

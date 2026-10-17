@@ -29,7 +29,7 @@ find "$ref"/platforms/ios/App "$ref"/platforms/ios/SharedUI "$ref"/platforms/ios
 | `DictionarySessionLease.mm/.h` | `crates/client-services/src/dictionary/access.rs` 的 `DictionaryAccess` |
 | `DictionarySnapshotBridge.mm/.h` | `crates/host-api/src/dictionary_snapshot.rs` |
 | `PersonalDictionaryBridge.mm/.h` | `crates/client-services/src/dictionary/personal.rs` + `msime_client_personal_dictionary_request`（#3411） |
-| `MSIMEBackendClient.m/.h` | `crates/client-services/src/account`；鸿蒙的传输在 `AccountCloudBridge.ts` |
+| `MSIMEBackendClient.m/.h` | `crates/client-services/src/account`；鸿蒙经 NAPI 走目录模式的 `msime_client_account`（`HarmonyAccountCloudBridge.ets`） |
 | `ShuangpinKeymap.cpp/.h` | `msime_client_shuangpin_key_hints`，由 `ShuangpinKeyHintPolicy.ts` 消费 |
 
 ## `shared/backend`（14）——由 `crates/client-services` 与 `crates/client-core` 取代
@@ -38,19 +38,19 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-servic
 
 | 来源 | 去处 |
 | --- | --- |
-| `BackendAccountClient.swift` | `crates/client-services/src/account/client.rs`；ArkTS 侧 `AccountCloudBridge.ts` |
+| `BackendAccountClient.swift` | `crates/client-services/src/account/client.rs`；ArkTS 侧只剩薄桥 `HarmonyAccountCloudBridge.ets` |
 | `BackendAccountSession.swift` | `crates/client-services/src/account/session.rs`；ArkTS 侧同上的会话与 generation |
 | `BackendAnonymousAccount.swift` | `crates/client-services/src/account/anonymous.rs`，经 N-API `ensureAnonymousAccount` 在应用或键盘首次启动时注册到 `files/state`；鸿蒙默认离线，无需登录即可输入 |
 | `BackendCandidateClient.swift` | `crates/client-core/src/cloud`；`OnlineCandidatePolicy.ts` |
-| `BackendChatClient.swift` | `AccountCloudBridge.chat`（#3327） |
-| `BackendClipboardClient.swift` | `AccountCloudBridge.clipboard` + `CloudClipboardPanel` |
-| `BackendCommunityResourceClient.swift` | `AccountCloudBridge.communityResource`（#3338） |
-| `BackendDictionaryClient.swift` | `AccountCloudBridge.dictionary` + 云词库面板 |
-| `BackendLocalStore.swift` | `FileSessionStore`（`HarmonyAccountCloudBridge.ets`） |
-| `BackendPreferencesClient.swift` | `AccountPreferencePlan.ts` + `preferencesSync`（#3331） |
-| `BackendSkinArtworkClient.swift` | `HarmonyAiSkins.ets` + `msime_client_ai_skin_plan`（#3341） |
-| `BackendSnapshotClient.swift` | `HarmonyAccountCloudBridge.snapshot` |
-| `IOSPreferencePlan.swift` | `AccountPreferencePlan.ts`，键名用 `platform.harmony.*`（#3331） |
+| `BackendChatClient.swift` | `msime_client_account` 的 `chat`、`chat_models`（#3327、#8201） |
+| `BackendClipboardClient.swift` | `msime_client_account_cloud_clipboard` + `CloudClipboardPanel` |
+| `BackendCommunityResourceClient.swift` | `msime_client_community` 的 `resource_*`（#3338、#8201） |
+| `BackendDictionaryClient.swift` | `msime_client_cloud_dictionary` + 云词库面板 |
+| `BackendLocalStore.swift` | Rust 目录模式的 `files/state/account-session.json`，两个沙箱之间经 `session_adopt`（`AccountSessionAdoption.ets`） |
+| `BackendPreferencesClient.swift` | `msime_client_account_harmony_settings_*` + `preferencesSync`（#3331、#8201） |
+| `BackendSkinArtworkClient.swift` | `msime_client_ai_skin_generate`（#3341、#8201） |
+| `BackendSnapshotClient.swift` | `HarmonyAccountCloudBridge.snapshot` + `msime_client_cloud_dictionary` 的 `snapshot_*_file` |
+| `IOSPreferencePlan.swift` | client-services 的 `account::harmony_settings`，键名用 `platform.harmony.*`（#3331、#8201） |
 | `Package.swift` | SwiftPM 清单，无对应物 |
 
 ## `shared/backend-ui`（6）——共享 React 面板
@@ -67,8 +67,8 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-servic
 
 | 来源 | 去处 |
 | --- | --- |
-| `AISkinService.swift` | `crates/client-services/src/skin/ai.rs` + `HarmonyAiSkins.ets`（#3341） |
-| `SkinCommunityAPI.swift` | `crates/client-services/src/skin/community.rs` + `AccountCloudBridge.community`（#3336） |
+| `AISkinService.swift` | `crates/client-services/src/skin/ai.rs`，经 `msime_client_ai_skin_generate`（#3341、#8201） |
+| `SkinCommunityAPI.swift` | `crates/client-services/src/skin/community.rs`，经 `msime_client_community` 的 `keyboard_skin_*`（#3336、#8201） |
 | `CloudDictionaryTransfer.swift` | 云词库面板与 `cloudDictionarySnapshot` |
 | `CommunityPreviewFixtures.swift` | `packages/ui/src/community`（未登录时的离线预览数据） |
 | `CustomService.swift` | 共享 `ai_assistant` / `voice_input` 偏好；鸿蒙不另存一份服务配置 |
@@ -90,7 +90,7 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-servic
 | `KeyboardChatView.swift` | `packages/ui/src/chat/chat-page.tsx`（#3327） |
 | `SkinCommunityView.swift`、`CommunitySkinTrialView.swift`、`CommunityGalleryStyle.swift` | `packages/ui/src/community/community-skins.tsx`（#3336） |
 | `CommunityResourcesView.swift` | `packages/ui/src/community/community-resources.tsx`（#3338） |
-| `AISkinGenerationView.swift`、`SkinGenerationView.swift`、`SkinGenerationModel.swift` | AI 皮肤页 + `AiSkinRunPolicy.ts`（#3341） |
+| `AISkinGenerationView.swift`、`SkinGenerationView.swift`、`SkinGenerationModel.swift` | AI 皮肤页 + `msime_client_ai_skin_generate`（#3341、#8201） |
 | `CustomSkinEditorView.swift` | `packages/ui/src/keyboard/touch-keyboard-skin-editor.tsx` + `customSkinLibrary`（#3334） |
 | `KeyboardSkinPreview.swift`、`KeyboardPreviewCanvas.swift` | `packages/ui/src/keyboard/screen-keyboard-preview.tsx` |
 | `CloudClipboardView.swift` | `CloudClipboardPanel` |

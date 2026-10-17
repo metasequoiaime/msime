@@ -257,7 +257,6 @@ TEXT_ENTRY(NineKeyShuangpinLayout, msime_client_nine_key_shuangpin_layout)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
 TEXT_ENTRY(KeyboardSkinTrial, msime_client_keyboard_skin_trial)
-TEXT_ENTRY(AiSkinPlan, msime_client_ai_skin_plan)
 TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
 TEXT_ENTRY(MobileClipboardHistory, msime_client_mobile_clipboard_history)
@@ -286,8 +285,6 @@ TEXT_ENTRY(NoticeDismiss, msime_client_notice_dismiss)
 TEXT_ENTRY(ClientAgent, msime_client_client_agent)
 // 取消一次 AI 皮肤生成：立即返回，可以在任意线程上调用。
 TEXT_ENTRY(AiSkinCancel, msime_client_ai_skin_cancel)
-// 云剪贴板端到端加密的 sans-IO 驱动：每一步只做本机密码学运算、不碰网络和磁盘，五十条以内的解密在毫秒级，所以和其他文本入口一样同步调用。
-TEXT_ENTRY(CloudClipboardE2e, msime_client_cloud_clipboard_e2e)
 
 struct SnapshotRestoreWork {
     napi_async_work work = nullptr;
@@ -840,54 +837,6 @@ static napi_value PluginsAsync(napi_env env, napi_callback_info info) {
         napi_delete_async_work(env, work->work);
         delete work;
         return invalid(env, "Unable to queue plugin worker");
-    }
-    return promise;
-}
-
-// Community skin designs can carry several megabytes of validated image data and are written to
-// both the trial and library stores. Keep the import and its file locks off the ArkTS thread.
-struct CommunitySkinInstallWork {
-    napi_async_work work = nullptr;
-    napi_deferred deferred = nullptr;
-    std::string request;
-    char *result = nullptr;
-};
-
-static void executeCommunitySkinInstall(napi_env, void *data) {
-    auto *work = static_cast<CommunitySkinInstallWork *>(data);
-    work->result = msime_client_community_skin_install(
-        reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size());
-}
-
-static void completeCommunitySkinInstall(napi_env env, napi_status status, void *data) {
-    auto *work = static_cast<CommunitySkinInstallWork *>(data);
-    settleVoicePromise(env, status, work->deferred, work->result,
-        "Community skin install worker failed");
-    napi_delete_async_work(env, work->work);
-    delete work;
-}
-
-static napi_value CommunitySkinInstall(napi_env env, napi_callback_info info) {
-    std::vector<napi_value> argv;
-    auto *work = new CommunitySkinInstallWork();
-    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], work->request)) {
-        delete work;
-        return invalid(env, "Expected a community skin install request");
-    }
-    napi_value promise = nullptr;
-    napi_value resource = nullptr;
-    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
-            || napi_create_string_utf8(env, "MSIME community skin install", NAPI_AUTO_LENGTH,
-                &resource) != napi_ok
-            || napi_create_async_work(env, nullptr, resource, executeCommunitySkinInstall,
-                completeCommunitySkinInstall, work, &work->work) != napi_ok) {
-        delete work;
-        return invalid(env, "Unable to create community skin install worker");
-    }
-    if (napi_queue_async_work(env, work->work) != napi_ok) {
-        napi_delete_async_work(env, work->work);
-        delete work;
-        return invalid(env, "Unable to queue community skin install worker");
     }
     return promise;
 }
@@ -1711,10 +1660,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),
         ENTRY("skinImport", SkinImport),
         ENTRY("customSkinLibrary", CustomSkinLibrary),
-        ENTRY("communitySkinInstall", CommunitySkinInstall),
         ENTRY("keyboardSkinTrial", KeyboardSkinTrial),
         ENTRY("communityResourceLibrary", CommunityResourceLibrary),
-        ENTRY("aiSkinPlan", AiSkinPlan),
         ENTRY("dictionary", Dictionary),
         ENTRY("savePreferences", SavePreferences),
         ENTRY("updatePreferences", UpdatePreferences),
@@ -1769,7 +1716,6 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("notices", Notices),
         ENTRY("updateCheck", UpdateCheck),
         ENTRY("noticeDismiss", NoticeDismiss),
-        ENTRY("cloudClipboardE2e", CloudClipboardE2e),
         ENTRY("keySoundRenderNotes", KeySoundRenderNotes),
         ENTRY("aiRequestForQuery", AiRequestForQuery),
         ENTRY("aiHttpRequest", AiHttpRequest),

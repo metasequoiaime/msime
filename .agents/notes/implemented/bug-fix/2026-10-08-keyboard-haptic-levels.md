@@ -21,7 +21,7 @@ Status: implemented
   - HarmonyOS 用 `usage: 'touch'` 加 `haptic.clock.timer`，不带强度。
   - iOS 没有公开接口读系统的键盘触感设置，「跟随系统」是不带强度参数的 `.light` 冲击，即系统默认的那一下。
 - 三档本身不带 Android 的 `USAGE_TOUCH` 用途：带上它，关掉系统触感反馈的用户在三档下就完全不振了。三档是给想自己定强度的人用的，跟系统走的是「跟随系统」。
-- 取值 `system` 在所有校验处都接受：client-core 的 `valid_haptic_strength`、`crates/tauri-mobile-platform`、`apps/desktop/src-tauri` 的 `valid_mobile_haptic_strength`、HarmonyOS 的 `AccountPreferencePlan`、iOS 的 `IOSPreferencePlan`。默认值仍是 `medium`，不认识的值仍按 `medium`。
+- 取值 `system` 在所有校验处都接受：client-core 的 `valid_haptic_strength`、`crates/tauri-mobile-platform`、`apps/desktop/src-tauri` 的 `valid_mobile_haptic_strength`、HarmonyOS 的 `AccountPreferencePlan`（#8201 以后是 client-services 的 `account::harmony_settings`）、iOS 的 `IOSPreferencePlan`。默认值仍是 `medium`，不认识的值仍按 `medium`。
 - iOS 暂不上传 `system`（`IOSCloudSettings`），选了「跟随系统」时云端保留原来的强度。原因是更早版本的 `IOSPreferencePlan` 遇到不认识的档位会拒绝整份文档，同一账号下还没升级的设备就会同步失败。Android 和 HarmonyOS 的旧版本遇到不认识的档位只跳过这一项，所以照常上传。
 
 ## Alternatives considered

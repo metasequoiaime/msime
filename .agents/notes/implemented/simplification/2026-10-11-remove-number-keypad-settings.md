@@ -22,7 +22,7 @@ Status: implemented
   - 计算器顺序：Android `NineKeyLayout.rows(digits, calculator)` 的第二个参数，iOS 位置到数字的映射，HarmonyOS `NineKeyLayout.digits(order)` 的参数和 `CALCULATOR_DIGIT_ROWS`。
   - iOS `SharedUI` 里的 `NumberKeypadOrder`、`TwentySixKeyNumberLayout` 镜像和 App Group 写入；Android 皮肤片段 `SKIN_HINT_KEYS` 里的这两个键。
   - Android「九键数字键盘左侧符号」回到只在本版本有拼音九键时显示（它曾因 26 键可选九宫格而多出一个显示条件）。
-- 偏好字段保留：client-core 的 `touch_number_keypad_order`、`touch_twenty_six_key_number_layout` 及其解析、默认值、账号同步（`platform.*.number_keypad_order`、`platform.*.twenty_six_key_number_layout`），HarmonyOS 的 `AccountPreferencePlan` 都不动。旧文档、旧版本同步上来的值照常读写，只是没有键盘再读它们。`platforms/macos/tests/settings/preference_coverage.py` 里两项的「不适用」理由仍然成立，不改。
+- 偏好字段保留：client-core 的 `touch_number_keypad_order`、`touch_twenty_six_key_number_layout` 及其解析、默认值、账号同步（`platform.*.number_keypad_order`、`platform.*.twenty_six_key_number_layout`），HarmonyOS 的 `AccountPreferencePlan`（#8201 以后是 client-services 的 `account::harmony_settings`）都不动。旧文档、旧版本同步上来的值照常读写，只是没有键盘再读它们。`platforms/macos/tests/settings/preference_coverage.py` 里两项的「不适用」理由仍然成立，不改。
 
 ## Alternatives considered
 

@@ -1,8 +1,3 @@
-import {
-  AccountCloudBridge,
-  AccountSessionStore,
-  AccountTransport,
-} from "../entry/src/main/ets/account/AccountCloudBridge";
 import { GoogleLoopbackRequestHead } from "../entry/src/main/ets/account/GoogleLoopbackRequestHead";
 
 let failures = 0;
@@ -33,49 +28,6 @@ function bytes(text: string): Uint8Array {
   return value;
 }
 
-type Call = { method: string; path: string; body?: Record<string, unknown> };
-
-function bridge(): { bridge: AccountCloudBridge; calls: Call[]; stored: () => string | null } {
-  let stored: string | null = null;
-  const store: AccountSessionStore = {
-    load: () => stored,
-    save: (value) => {
-      stored = value;
-    },
-    clear: () => {
-      stored = null;
-    },
-  };
-  const calls: Call[] = [];
-  const transport: AccountTransport = {
-    request: async (method, path, _token, body) => {
-      calls.push({ method, path, body });
-      if (path === "/v1/auth/challenges")
-        return {
-          status: 200,
-          body: JSON.stringify({
-            challenge_id: "challenge",
-            expires_in: 600,
-            authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?state=s",
-          }),
-        };
-      if (path === "/v1/auth/login")
-        return {
-          status: 200,
-          body: JSON.stringify({
-            access_token: "a".repeat(64),
-            refresh_token: "b".repeat(64),
-            token_type: "Bearer",
-            expires_in: 3600,
-            user: { id: "u1", display_name: "Test", created_at: "2026-01-01" },
-          }),
-        };
-      return { status: 404, body: "{}" };
-    },
-  };
-  return { bridge: new AccountCloudBridge(transport, store), calls, stored: () => stored };
-}
-
 async function main(): Promise<void> {
   console.log("GoogleLoopbackRequestHead");
 
@@ -102,86 +54,6 @@ async function main(): Promise<void> {
       "a non-ASCII byte stops it",
     );
     check(foreign.head() === null, "and reports no head");
-  });
-
-  console.log("AccountCloudBridge Google sign-in");
-
-  await group("a Google challenge carries only a loopback callback target", async () => {
-    const { bridge: account, calls } = bridge();
-    const accepted = JSON.parse(
-      await account.handle(
-        JSON.stringify({
-          operation: "request_code",
-          provider: "google",
-          target: "http://127.0.0.1:53682/callback",
-        }),
-      ),
-    );
-    check(accepted.ok === true, "the loopback target is sent");
-    check(
-      accepted.value.authorization_url.startsWith("https://accounts.google.com/"),
-      "the authorization URL reaches the host",
-    );
-    check(
-      JSON.stringify(calls[0].body) ===
-        '{"provider":"google","target":"http://127.0.0.1:53682/callback","purpose":"login"}',
-      "the challenge asks for a login",
-    );
-    for (const target of [
-      "http://192.168.1.2:53682/callback",
-      "https://127.0.0.1:53682/callback",
-      "http://127.0.0.1:80/callback",
-      "http://127.0.0.1:53682/other",
-      "user@example.com",
-    ]) {
-      const refused = JSON.parse(
-        await account.handle(
-          JSON.stringify({ operation: "request_code", provider: "google", target }),
-        ),
-      );
-      check(refused.error === "account_invalid", `${target} is refused locally`);
-    }
-    check(calls.length === 1, "a refused target never reaches the backend");
-  });
-
-  await group("google_login posts the authorization code and keeps the session", async () => {
-    const { bridge: account, calls, stored } = bridge();
-    const reply = JSON.parse(
-      await account.handle(
-        JSON.stringify({
-          operation: "google_login",
-          challenge_id: "challenge",
-          code: "4/0Afixture",
-        }),
-      ),
-    );
-    check(reply.ok === true && reply.value.user.id === "u1", "the sign-in returns the user");
-    check(stored() !== null, "the session is saved");
-    check(
-      calls[0].path === "/v1/auth/login" &&
-        JSON.stringify(calls[0].body) === '{"challenge_id":"challenge","credential":"4/0Afixture"}',
-      "the code is the login credential, as on the desktop",
-    );
-    for (const code of ["", "has space", "\u0000", "中", "c".repeat(2049)]) {
-      const refused = JSON.parse(
-        await account.handle(
-          JSON.stringify({ operation: "google_login", challenge_id: "challenge", code }),
-        ),
-      );
-      check(refused.error === "account_invalid", `${JSON.stringify(code).slice(0, 20)} is refused`);
-    }
-    check(calls.length === 1, "a refused code never reaches the backend");
-    // 六位数字验证码的 login 不接受授权码，反过来也一样。
-    const mixed = JSON.parse(
-      await account.handle(
-        JSON.stringify({
-          operation: "login",
-          challenge_id: "challenge",
-          credential: "4/0Afixture",
-        }),
-      ),
-    );
-    check(mixed.error === "account_invalid", "the code login keeps its six-digit rule");
   });
 
   console.log("");

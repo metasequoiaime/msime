@@ -79,7 +79,7 @@ Status: implemented
   - `COMMIT_OBSERVE_ONLY` 的那些派发（韩文、注音、越南文、藏文、整句改字和没有候选时的本地回车），文字由 TIP 从自己的会话写进文档，host-api 加的空格不会落下；其中只有注音和整句改字是中文。
 - **HarmonyOS**：API 12 及以上输入法扩展用独立沙箱，设置页写的 `preferences.json` 键盘看不到（[鸿蒙输入法共享沙箱](../../implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md)），共享设置页上的开关在真机上不会传到键盘，和其他设置一样等那篇提案落地。
 - **跨版本**：`Preferences` 带 `deny_unknown_fields`，打开开关后键写进文档，更旧的输入法、设置应用或 `msime-mcp` 读这份文档会整份失败。默认关加 `skip_serializing_if` 把影响限制在主动打开的用户身上。
-- **没有接入**：账号设置同步（`settings_sync.rs` 和鸿蒙的 `AccountPreferencePlan.ts`，要等服务端字段表收录这个键）、MCP 的 `update_preferences` 和 `crates/engine-wasm`。
+- **没有接入**：账号设置同步（`settings_sync.rs` 和鸿蒙的 `AccountPreferencePlan.ts`（#8201 以后是 client-services 的 `account::harmony_settings`），要等服务端字段表收录这个键）、MCP 的 `update_preferences` 和 `crates/engine-wasm`。
 - **打字统计不受影响**：字数由宿主拿上屏文本记，`typing_statistics.rs` 跳过纯空白的字素，插入的空格不计数。
 
 ## Verification

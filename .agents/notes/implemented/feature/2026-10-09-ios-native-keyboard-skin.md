@@ -19,7 +19,7 @@ Status: implemented
 - **其他宿主收到 `native` 时**，各条入口的实际行为不一样，分开写：
   - 本地偏好文档：照常接受（serde 认识它），`resolve` 给出与 `system` 相同的空调色板。共享设置页的 `settingsThemePreferences` 把宿主不提供的主题读成 `system`，选择器标「跟随系统」为选中。Android、鸿蒙的原生选择器没有这层换算：Android `SkinsPage` 用 id 相等标选中，目录里没有 `native`，就没有一张卡被选中，`KeyboardSkin` 按「命名皮肤」画工具栏激活色。所以不能让 `native` 进到这两个宿主的本地偏好里，下面两条同步入口都把它挡在外面。
   - Android 云同步（`settings_sync`）：`platform.android.global_theme` 先按 `GlobalTheme::is_offered_on(Android)` 过滤，`native` 和不认识的 id 一样只跳过这一个键、记进 `skipped`，本机主题不变；`custom_theme_base` 本来就按 `is_base()` 过滤，`native` 同样被跳过。加 `Native` 之前 `from_id("native")` 是 `None`，过滤后的行为与那时一致。
-  - 鸿蒙云同步（`AccountPreferencePlan.ts`）：`GLOBAL_THEMES` 不含 `native`，收到它会以 `account_invalid` 拒收整份文档，这是鸿蒙对所有不认识主题 id 的既有处理，本次没有改 ArkTS。
+  - 鸿蒙云同步（`AccountPreferencePlan.ts`，#8201 以后是 client-services 的 `account::harmony_settings`）：`GLOBAL_THEMES` 不含 `native`，收到它会以 `account_invalid` 拒收整份文档，这是鸿蒙对所有不认识主题 id 的既有处理，本次没有改 ArkTS。
   - 这些情况正常使用时都碰不到：同步键按平台分开，`platform.ios.global_theme` 只有 iOS 读写，iOS 也不写 Android、鸿蒙的键。只有别的客户端写错，或有人直接改云端文档时才会出现。
 - **iOS 渲染**（`KeyboardTheme`、`SystemKeyboardTokens`）：`native` 不填季节配色，`drawsNativeBackground` 为真，背景透明，露出 `KeyboardInputView`（`UIInputView` 的 `.keyboard` 样式）自带的系统键盘底板——iOS 26 起这块底板就是系统的 Liquid Glass，更早的系统是系统模糊材质。按键：
   - iOS 26 起照系统键盘画：字母键和功能键同色（浅色 `#FFFFFF`、深色 `#464646`），没有底边阴影，iPhone 圆角 6pt。这些值是在 iOS 27 模拟器上对系统键盘截图量出来的；同一张图上浅色底板 `#E2E3E8`、深色 `#222223`，只给没有系统底板的预览用。iPad 没有量，圆角按经典取值的比例取 8pt。

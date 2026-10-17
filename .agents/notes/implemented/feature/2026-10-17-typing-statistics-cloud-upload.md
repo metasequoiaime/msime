@@ -53,4 +53,4 @@ Status: implemented
 - iOS：`swift test --package-path shared/backend --filter BackendTypingUploadTests` 覆盖只发往唯一路径、空请求体不发、绑定码清洗后才联网、列表解析和各种错误说法；`KeyboardTests/settings/TypingStatisticsTests.testUploadRequestsComeFromTheSharedStore` 用真的共享层覆盖没打开不发、没字数不发、请求体带 `ios`、成功后十分钟内不发而 `force` 照发、关闭后不发，由 PR 的 iOS Simulator CI 运行；App 的 Swift 源码在本机按 iOS 17 模拟器 SDK 做过类型检查，没有在模拟器上运行。
 - 没有在真实账号上连通线上服务端验证。
 
-- 鸿蒙：`platforms/harmony/tests/account-qq-typing.test.ts` 用假传输层覆盖绑定列表只取两个字段、坏行整份拒绝、绑定码清洗和不合法时不联网、拒绝码映射、解绑编号校验，以及上传原样发出、超限本地拒绝、未登录不发、关闭即删除；vitest 覆盖鸿蒙手机和 2in1 账号页的绑定卡片、鸿蒙外观统计页的开关和说明改写。本机 `hvigorw assembleHap`（先 `ohpm install`）ArkTS 编译通过，没带原生库、没上设备；`Settings.ets` 的串行队列没有单测，真机和真实账号还没验证。
+- 鸿蒙（#8201 第 2 步以后这个测试连同 ArkTS 账号桥接一起删掉，绑定与上传改由 Rust 的 `qq_*`、`typing_upload_*` 发出）：`platforms/harmony/tests/account-qq-typing.test.ts` 用假传输层覆盖绑定列表只取两个字段、坏行整份拒绝、绑定码清洗和不合法时不联网、拒绝码映射、解绑编号校验，以及上传原样发出、超限本地拒绝、未登录不发、关闭即删除；vitest 覆盖鸿蒙手机和 2in1 账号页的绑定卡片、鸿蒙外观统计页的开关和说明改写。本机 `hvigorw assembleHap`（先 `ohpm install`）ArkTS 编译通过，没带原生库、没上设备；`Settings.ets` 的串行队列没有单测，真机和真实账号还没验证。

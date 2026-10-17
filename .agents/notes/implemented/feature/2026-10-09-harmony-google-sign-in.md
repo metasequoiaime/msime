@@ -23,7 +23,7 @@ iOS 的做法用不了：它用 GoogleSignIn SDK 拿 ID token（见 [iOS 通过 
 
 这几个函数经新的 C ABI `msime_client_google_loopback`（`operation` 为 `target`、`plan`、`reply`）和 NAPI `googleLoopback` 交给 ArkTS。`account/HarmonyGoogleSignIn.ets` 只做 socket、浏览器和后台保活；请求头的拼接与截断放在可测的 `GoogleLoopbackRequestHead.ts`。
 
-`AccountCloudBridge` 的 `request_code` 放行 `google`，但只接受回环形状的 `target`；新增 `google_login`，授权码按 client-core `validate_google_login` 同样的规则校验，与验证码登录共用后半段的会话保存。
+#8201 以后申请 challenge 和提交授权码改由 Rust `msime_client_account` 的 `google_challenge {target}` 和 `google_code_login` 完成（只接受回环形状的 `target`，授权码按 `validate_google_login` 校验），会话由 Rust 存，见[鸿蒙账号与云端业务整体切到 Rust 目录模式](../architecture/2026-10-17-harmony-account-rust-directory-mode.md)。
 
 用户在浏览器里登录时设置应用在后台，所以等待期间申请延迟挂起（`requestSuspendDelay`），结束时撤销。页面那一侧，鸿蒙登录面板（`login-sheet.tsx`）在宿主提供 `googleLogin` 时显示「使用 Google 登录」、等待状态和「取消 Google 登录」，关闭面板也会取消。Google 登录的请求超时放宽到 6 分钟，默认的 30 秒会在用户还在浏览器里时就报超时。共享等待状态由 hook 在账号客户端更换时清理，旧请求的收尾不能覆盖新请求，见[等待状态的客户端边界](../bug-fix/2026-10-14-google-login-client-waiting.md)。
 

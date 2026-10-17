@@ -61,7 +61,7 @@ Status: implemented
 - Android：表达页标点卡片里的两行 `nav` 加 `OptionSheet`。
 
 **账号同步。**
-- 客户端：`input.quote_style`、`input.bracket_style` 由 `settings_sync.rs` 和鸿蒙的 `AccountPreferencePlan.ts` 导出与应用，不认识的取值只跳过该键。
+- 客户端：`input.quote_style`、`input.bracket_style` 由 `settings_sync.rs` 和鸿蒙的 `AccountPreferencePlan.ts`（#8201 以后是 client-services 的 `account::harmony_settings`） 导出与应用，不认识的取值只跳过该键。
 - iOS 不同步任何标点键，这次也不加。
 - 服务端：字段表在 msime-cloud 的 `internal/account/preferences_fields.json`，需要那边单独加两个 `"type": "string"` 字段。没加之前，客户端上传前会把这两个键过滤掉，不报错，只是不同步。
 

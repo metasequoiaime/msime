@@ -5,15 +5,12 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ACCOUNT = ROOT / "platforms/harmony/entry/src/main/ets/account/HarmonyAccountTransport.ets"
 SESSION = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
 STAGED = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/StagedResources.ets"
 TELEMETRY = ROOT / "platforms/harmony/entry/src/main/ets/telemetry/Telemetry.ets"
 
 
 def main() -> int:
-    account = ACCOUNT.read_text(encoding="utf-8")
-    account_region = account[account.index("  load(): string | null {") : account.index("\n  save(value: string): void", account.index("  load(): string | null {"))]
     session = SESSION.read_text(encoding="utf-8")
     staged = STAGED.read_text(encoding="utf-8")
     staged_region = staged[staged.index("  private static readMarker(") : staged.index("\n  /** Remove a staged tree", staged.index("  private static readMarker("))]
@@ -35,8 +32,6 @@ def main() -> int:
     missing = [token for token in required_helper if token not in helper]
     if not helper:
         missing.append("readPrivateText helper")
-    if "fs.readTextSync(this.file)" in account_region:
-        missing.append("account descriptor read")
     for label, region in (("staged marker", staged_region), ("telemetry marker", telemetry_region)):
         for token in ("fs.openSync", "fs.statSync(handle.fd)", "fs.readSync", "NativeCleanup.close(handle)"):
             if token not in region:
@@ -44,13 +39,7 @@ def main() -> int:
         for token in ("fs.lstatSync", "stat.ino !== expected.ino"):
             if token not in region:
                 missing.append(f"{label}: {token}")
-    for token in ("fs.lstatSync(this.file)", "stat.ino !== expected.ino"):
-        if token not in account_region:
-            missing.append(f"account reader: {token}")
-    exclusive_region = account[account.index("  async exclusive<T>") : account.index("\n  load(): string | null", account.index("  async exclusive<T>"))]
-    for token in ("fs.statSync(lock.fd)", "opened.ino !== pathStat.ino"):
-        if token not in exclusive_region:
-            missing.append(f"account lock: {token}")
+    # 账号会话和它的锁文件改由 Rust 读写（#8201 第 2 步），ArkTS 不再读会话文件，这里不再守它。
     if "fs.readTextSync(marker)" in staged_region:
         missing.append("staged marker path read")
     if "fs.readTextSync(path)" in telemetry_region:
