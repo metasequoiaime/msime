@@ -149,7 +149,7 @@ final class ImeBottomRow {
     /**
      * 空格键手势：{@link SpaceGesturePolicy} 仲裁长按 450 ms 打开语音（`touch_space_voice`）与水平拖动移动光标（`touch_space_cursor`），先满足的一方胜出；纵向滑走作废这次按压；两者都没发生时松手就是普通空格。
      *
-     * <p>长按在键区里开始的语音是按住说话：松手结束录音并出结果，按住期间停顿不自动结束；手指向上滑过键盘高度的 {@link VoiceHoldPolicy#CANCEL_ZONE_FRACTION} 进入取消区，聆听面板显示「松开取消」，在那里松手或触摸被系统取消都丢掉这次录音。
+     * <p>长按在键区里开始的语音是按住说话：松手结束录音并出结果，按住期间停顿不自动结束；手指向上滑过键盘高度的 {@link VoiceHoldPolicy#CANCEL_ZONE_FRACTION} 进入取消区，聆听面板显示「松开取消」，在那里松手丢掉这次录音。按住说话期间触摸被系统取消（键区要重建、键盘要被收起）就按进了取消区处理，下一次松手丢掉这次录音：键区重建之后不会再收到这次按压的 ACTION_UP，等下去只会让录音一直跑到时长上限。
      */
     void bindSpaceCursor(Button button) {
         final float[] origin = new float[2];
@@ -280,7 +280,7 @@ final class ImeBottomRow {
                             && outcome == SpaceGesturePolicy.Outcome.VOICE
                             && touchPreference(AndroidLocalSettings.SPACE_VOICE)
                             && s.voiceInsertionReady()) {
-                        // 计时回调还没来得及跑就松手了：仍按长按处理。
+                        // 计时回调还没来得及跑就松手了：仍按长按处理。手指这时已经抬起，不进入按住说话，这次聆听照原样在停顿后结束。
                         startVoice.run();
                     }
                     if (voiced[0]) {
@@ -305,9 +305,10 @@ final class ImeBottomRow {
                     dragging[0] = false;
                     cancelled[0] = true;
                     resetSpaceCursor();
-                    if (holding[0]) {
-                        holding[0] = false;
-                        s.imeVoiceEntry.releaseHold(true);
+                    // 按住说话时触摸被系统取消（键区要重建、键盘要被收起、应用切走）还不是松手，只按进了取消区处理：之后那次 ACTION_UP 的手势状态已经作废，结束与取消都在那时按这里记下的取消区判定。
+                    if (holding[0] && !cancelZone[0]) {
+                        cancelZone[0] = true;
+                        s.imeVoiceEntry.holdCancelZone(true);
                     }
                     return true;
                 }
