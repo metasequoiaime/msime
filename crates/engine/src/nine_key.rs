@@ -1097,7 +1097,9 @@ impl NineKeySession {
             if let Some(initial) = self.initial {
                 // 选了首字母的那一位显示成字母。
                 let at = locked_preedit_length + usize::from(!self.locked.is_empty());
-                preedit.replace_range(at..=at, &char::from(initial.letter).to_string());
+                let mut initial_text = [0; 4];
+                let initial_text = char::from(initial.letter).encode_utf8(&mut initial_text);
+                preedit.replace_range(at..=at, initial_text);
             }
         }
         SessionSnapshot {
@@ -4031,8 +4033,8 @@ mod tests {
         let (_, allocations) =
             crate::ime::personal_rerank::allocations::count(|| session.snapshot());
         assert!(
-            allocations <= 4,
-            "snapshot rebuilt the locked prefix for an initial: {allocations}"
+            allocations <= 3,
+            "snapshot allocated a temporary initial string: {allocations}"
         );
     }
 
