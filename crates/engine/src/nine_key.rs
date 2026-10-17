@@ -1121,8 +1121,26 @@ impl NineKeySession {
 
     pub fn snapshot(&self) -> SessionSnapshot {
         let locked_length = self.locked_length();
-        let mut preedit = self.locked.join("'");
-        let locked_preedit_length = preedit.len();
+        let locked_preedit_length = self
+            .locked
+            .iter()
+            .map(String::len)
+            .sum::<usize>()
+            .saturating_add(self.locked.len().saturating_sub(1));
+        let mut preedit = String::with_capacity(
+            locked_preedit_length
+                .saturating_add(self.digits.len().saturating_sub(locked_length))
+                .saturating_add(self.splits.len())
+                .saturating_add(usize::from(
+                    self.active() && locked_length < self.digits.len() && !self.locked.is_empty(),
+                )),
+        );
+        for (index, spelling) in self.locked.iter().enumerate() {
+            if index != 0 {
+                preedit.push('\'');
+            }
+            preedit.push_str(spelling);
+        }
         if self.active() && locked_length < self.digits.len() {
             if !preedit.is_empty() {
                 preedit.push('\'');
@@ -4138,8 +4156,8 @@ mod tests {
         let (_, allocations) =
             crate::ime::personal_rerank::allocations::count(|| session.snapshot());
         assert!(
-            allocations <= 3,
-            "snapshot allocated a temporary initial string: {allocations}"
+            allocations <= 2,
+            "九键快照预编辑缓冲扩容产生了 {allocations} 次分配"
         );
     }
 
