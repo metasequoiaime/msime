@@ -846,6 +846,11 @@ if ! rg -q 'private volatile long engineStartGeneration;' "$account_service" \
   echo "Android engine startup must abandon stale generations before and after background work (#7728)" >&2
   exit 1
 fi
+# 引擎启动是后台工作，不能把内部的「准备中」画成状态行；状态行出现会临时增加候选头高度，首帧九键随后又跳回去（#8473）。
+if rg -n 'message = "共享运行时准备中"' "$account_service"; then
+  echo "Android engine startup must not expose its transient preparation state in the keyboard" >&2
+  exit 1
+fi
 # 候选条的配色和字号同理（#5933）：副本是出厂的薄荷设计，按它重算会让每个新输入框的候选条先铺一层薄荷底、字号回到出厂的 18/15，实时偏好到了才换回来。只有实时偏好重算候选条外观，冷启动的第一帧按皮肤片段算，片段里要记着候选条用到的字段；按片段着色之前要先读本地设置，否则应用主题种子按默认值缓存。
 if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^    }$/p' "$account_service" \
     | rg_q_stdin '^\s*if \(live\) applyCandidateAppearance\(preferences\);' \

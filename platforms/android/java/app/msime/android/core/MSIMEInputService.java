@@ -1457,12 +1457,12 @@ public final class MSIMEInputService extends InputMethodService {
         refreshLocalSettings();
         preferencesNotice = "";
         statisticsFailureReported = false;
-        message = "直接输入";
         // 外观和引擎是两件事。皮肤、方案角标和键高来自同一份偏好，但它们该跟着用户走，而不是跟着
         // 这个输入框用不用引擎走：密码框和数字框不走引擎，TYPE_NULL 的自定义聊天框仍要走引擎，
         // 否则九键和 26 键会落入「直接输入」而无法组字。
         boolean engineWanted = info != null && connection != null
             && EditorPolicy.useEngine(info.inputType);
+        message = EngineStartupStatusPolicy.initialMessage(engineWanted);
         String statisticsPreferences = "";
         try {
             JSONObject options = new JSONObject(
@@ -1492,7 +1492,6 @@ public final class MSIMEInputService extends InputMethodService {
                 runtimeOptionsBase = options.toString();
                 if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);
                 runtimeOptionsForSnapshot = options.toString();
-                message = "共享运行时准备中";
                 scheduleEngineStartup(runtimeOptionsForSnapshot, startGeneration);
             }
         } catch (Exception | LinkageError error) {
@@ -9117,7 +9116,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject options = new JSONObject(runtimeOptionsBase);
             if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);
             runtimeOptionsForSnapshot = options.toString();
-            message = "共享运行时准备中";
+            message = EngineStartupStatusPolicy.restartingMessage();
             scheduleEngineStartup(runtimeOptionsForSnapshot, startGeneration);
         } catch (JSONException error) {
             message = "共享运行时未就绪：仅直接输入";

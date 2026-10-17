@@ -38,7 +38,7 @@ Status: implemented
 
 双拼用户换应用、换页面时第一帧就带着提示和下边距，会话到达时提示字符串相同，`setHintText` 不再改边距，没有重新布局。在设置里把双拼换成别的方案后，第一个输入框会先按旧方案画提示，会话到达后去掉，反方向跳一次；这和 `touchLayoutHint` 的取舍相同。
 
-这次只去掉了提示造成的那一跳。会话到达时还有别的变化（`updateSymbolKeyFaces` 换 ，。 键面、读音行的「共享运行时准备中」清掉），主线程上的 `NativeClient.create`、`readRuntimeOptions` 和每次 `onStartInput` 的整组 `rebuildKeyRows` 也都还在；用户说的「卡顿」如果有一部分是真正的掉帧，这里只解决了一部分。设置里隐藏提示的开关不在这次范围内。
+这次只去掉了提示造成的那一跳。会话到达时还有别的变化（`updateSymbolKeyFaces` 换 ，。 键面，以及主线程上的 `NativeClient.create`、`readRuntimeOptions` 和每次 `onStartInput` 的整组 `rebuildKeyRows`）；用户说的「卡顿」如果有一部分是真正的掉帧，这里只解决了一部分。准备状态行的首帧高度问题由[隐藏引擎启动状态](2026-10-17-android-hide-engine-startup-status.md)处理，设置里隐藏双拼提示的开关仍不在本次范围内。
 
 ## Verification
 
