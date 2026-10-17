@@ -6996,13 +6996,17 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * 长按操作行里的「编辑」（#5971）：打开应用里的编辑页，在那里改这一条的文字，确认后经共享存储的 `replace` 写回，条目留在原位。键盘里没有可输入的文本框，增删改放在应用里，和常用语（#5673）一样；面板里也不能弹对话框（#5605、#5653）。
      *
-     * <p>交给编辑页的只是认出这一条的键（{@link ClipboardHistoryPolicy#editKey}），不是文字本身。打开之前把系统剪贴板当前那一条记为已处理：原文多半还在系统剪贴板里，不记的话改完回来一打开面板，补读又把原文记了回来，编辑等于没生效。
+     * <p>交给编辑页的只是安装级令牌，不是文字本身。打开之前把系统剪贴板当前那一条记为已处理：原文多半还在系统剪贴板里，不记的话改完回来一打开面板，补读又把原文记了回来，编辑等于没生效。
      */
     void editClipboardItem(ClipboardHistory.Item item) {
         forgetCurrentClip();
+        String key = ClipboardEditKey.editKey(this, item.timestamp(), item.text());
+        if (key == null) {
+            notice("剪贴板编辑暂时不可用");
+            return;
+        }
         android.os.Bundle args = new android.os.Bundle();
-        args.putString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG,
-            ClipboardHistoryPolicy.editKey(item.timestamp(), item.text()));
+        args.putString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG, key);
         putReturnToCaller(args);
         closeClipboardHistory();
         openHostPage(ClipboardHistoryPolicy.EDIT_PAGE, args);

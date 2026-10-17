@@ -39,8 +39,9 @@ public class ClipboardEditLifecycleDeviceSmoke extends DeviceSmoke {
         managerClass = Class.forName("androidx.fragment.app.FragmentManager");
         hostRun = Class.forName("app.msime.android.home.HostTask").getMethod(
             "run", fragmentClass, Function.class, Consumer.class);
-        String key = (String) Class.forName("app.msime.android.ClipboardHistoryPolicy").getMethod(
-            "editKey", long.class, String.class).invoke(null, 1700000000002L, ClipboardEditDeviceSmoke.ORIGINAL);
+        String key = (String) Class.forName("app.msime.android.ClipboardEditKey").getMethod(
+            "editKey", Context.class, long.class, String.class).invoke(null, getTargetContext(),
+                1700000000002L, ClipboardEditDeviceSmoke.ORIGINAL);
         Bundle args = new Bundle();
         args.putString("entry", key);
         Intent intent = new Intent().setClassName(getTargetContext(), "app.msime.android.home.HomeActivity")

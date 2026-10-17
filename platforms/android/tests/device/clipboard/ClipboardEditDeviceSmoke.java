@@ -1,7 +1,9 @@
 package app.msime.android.test;
 
 import android.content.ClipData;
+import android.content.Context;
 import android.content.ClipboardManager;
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -70,6 +72,21 @@ public final class ClipboardEditDeviceSmoke extends DeviceSmoke {
             await(editor().and(node -> equalsText(SHORT, node.getText())));
             click(hostText("取消"));
             await(field("msime-test-plain"));
+            stage = "guessed legacy edit token is rejected";
+            Context host = getContext().createPackageContext(product, Context.CONTEXT_IGNORE_SECURITY);
+            Intent guessed = new Intent().setClassName(host, product + ".home.HomeActivity")
+                .putExtra("msime_open_page", "CLIPBOARD_EDIT")
+                .putExtra("msime_page_args", guessedEntry(1700000000002L, ORIGINAL))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            getContext().startActivity(guessed);
+            SystemClock.sleep(2000);
+            for (AccessibilityWindowInfo window : automation.getWindows()) {
+                AccessibilityNodeInfo root = window.getRoot();
+                if (find(root, editor()) != null || find(root, node -> equalsText(product, node.getPackageName())
+                        && equalsText(ORIGINAL, node.getText())) != null) {
+                    throw new AssertionError("Guessed clipboard edit token exposed the original text");
+                }
+            }
         } finally {
             // 恢复系统剪贴板时让本测试 UID 位于前台，不读取或输出原剪贴板文字。
             openEditor();
@@ -92,6 +109,12 @@ public final class ClipboardEditDeviceSmoke extends DeviceSmoke {
         stage = "clipboard edit action";
         click(hostText("编辑"));
         stage = "clipboard editor prefilled";
+    }
+
+    private static Bundle guessedEntry(long timestamp, String text) {
+        Bundle args = new Bundle();
+        args.putString("entry", timestamp + ":" + Integer.toHexString(text.hashCode()) + ":" + text.length());
+        return args;
     }
 
     private Predicate<AccessibilityNodeInfo> card(String prefix) {

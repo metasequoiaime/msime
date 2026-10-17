@@ -85,7 +85,7 @@ public final class ClipboardHistoryPolicy {
 
     /** 键盘打开应用里的编辑页时用的页面名（`PageId` 的枚举名）；键盘进程不能引用 `home/` 的类，所以写成字符串。 */
     public static final String EDIT_PAGE = "CLIPBOARD_EDIT";
-    /** 编辑页参数里那一条的键：值是 {@link #editKey}，不是文字本身。 */
+    /** 编辑页参数里那一条的令牌，不是文字本身。 */
     public static final String EDIT_ENTRY_ARG = "entry";
     /**
      * boolean 参数：编辑页、剪贴板历史页（#5973）做完之后回到原来的应用（`moveTaskToBack`）。
@@ -97,16 +97,6 @@ public final class ClipboardHistoryPolicy {
     /** 键盘打开编辑页或剪贴板历史页时要不要带 {@link #RETURN_TO_CALLER_ARG}：当前输入框属于别的应用才带。读不到输入框的包名时照样带，和这个参数出现之前的做法一样。 */
     public static boolean returnsToCaller(String editorPackage, String ownPackage) {
         return editorPackage == null || !editorPackage.equals(ownPackage);
-    }
-
-    /**
-     * 键盘交给编辑页、用来认出要编辑哪一条的键：时间戳加文字的散列和长度。
-     *
-     * <p>不直接传文字：深链参数的字符串最长 256 个字符（{@link HostDeepLink#MAX_STRING_ARG}），剪贴板记录可以长得多；文字也不该进 Intent。编辑页按这个键在共享存储里找到那一条再显示。宿主的入口是 exported 的，别的应用也能发来这个参数，但它猜不出某一条的键，猜错了编辑页只会说这条已经不在了，保存仍要用户自己点。
-     */
-    public static String editKey(long timestamp, String text) {
-        if (text == null) throw new IllegalArgumentException("No clipboard text");
-        return BoundsPolicy.nonNegative(timestamp) + ":" + Integer.toHexString(text.hashCode()) + ":" + text.length();
     }
 
     /** What to tell the user, naming the action that would let the save succeed. */

@@ -20,6 +20,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.ViewModel;
 import androidx.lifecycle.ViewModelProvider;
 import app.msime.android.ClipboardHistory;
+import app.msime.android.ClipboardEditKey;
 import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.ClipboardHistoryRetentionPolicy;
 import app.msime.android.ClipboardHistoryStore;
@@ -205,20 +206,26 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
     }
 
     /**
-     * 交给编辑页的和键盘一样是认出这一条的键，不是文字；编辑页保存后弹回这一页，{@link #onBecameVisible} 重读。
+     * 交给编辑页的和键盘一样是认出这一条的安装级令牌，不是文字；编辑页保存后弹回这一页，{@link #onBecameVisible} 重读。
      *
-     * <p>键按共享存储里现在的那一条算（{@link ClipboardSearchPolicy#currentEditKey}），不按列表上显示的：在这一页点按复制之后，键盘会把那一条重新记一遍、换上新的时间戳，列表要等这一页下次显示才重读。读不出或那一条已经不在时退回列表上的键，编辑页自己说读取失败或这一条已经不在了。
+     * <p>令牌按共享存储里现在的那一条算，不按列表上显示的：在这一页点按复制之后，键盘会把那一条重新记一遍、换上新的时间戳，列表要等这一页下次显示才重读。读不出或密钥不可用时不打开编辑页。
      */
     private void edit(ClipboardHistory.Item item) {
         if (busy) return;
         busy = true;
         String text = item.text();
-        String shownKey = ClipboardHistoryPolicy.editKey(item.timestamp(), text);
-        HostTask.run(this, context -> ClipboardSearchPolicy.currentEditKey(
-                new ClipboardHistoryStore(context.getFilesDir()).load(), text), key -> {
+        HostTask.run(this, context -> {
+            ClipboardHistory.Item current = ClipboardSearchPolicy.currentEditItem(
+                new ClipboardHistoryStore(context.getFilesDir()).load(), text);
+            return current == null ? null : ClipboardEditKey.editKey(context, current.timestamp(), current.text());
+        }, (String key) -> {
             busy = false;
+            if (key == null) {
+                MsToast.show(requireContext(), "剪贴板编辑暂时不可用");
+                return;
+            }
             Bundle args = new Bundle();
-            args.putString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG, key == null ? shownKey : key);
+            args.putString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG, key);
             SettingsNavigator.open(requireContext(), PageId.CLIPBOARD_EDIT, args);
         });
     }

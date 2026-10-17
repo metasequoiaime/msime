@@ -18,6 +18,7 @@ import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 import androidx.lifecycle.ViewModelProvider;
 import app.msime.android.ClipboardHistory;
+import app.msime.android.ClipboardEditKey;
 import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.ClipboardHistoryStore;
 import app.msime.android.HostDeepLink;
@@ -27,7 +28,7 @@ import app.msime.android.ViewPolicy;
 /**
  * 编辑一条剪贴板历史（#5971）：键盘剪贴板面板里长按一条、点「编辑」打开这一页，应用里的剪贴板历史页（{@link ClipboardSearchPage}，#5973）也从行尾「编辑」打开它。上面是预填原文的多行输入框，可以用系统的选择手柄精确地删掉多余的字；下面是「取消」「保存」。
  *
- * <p>键盘里没有可输入的文本框，增删改放在应用里，和常用语（#5673）一样。键盘只传来认出这一条的键（{@link ClipboardHistoryPolicy#EDIT_ENTRY_ARG}，值是 {@link ClipboardHistoryPolicy#editKey}），这一页在共享存储里找到那一条再显示；文字本身不经过 Intent。深链参数都带外部标记，这个键只用来选择显示哪一条，写回要用户自己点「保存」。
+ * <p>键盘里没有可输入的文本框，增删改放在应用里，和常用语（#5673）一样。键盘只传来认出这一条的安装级令牌（{@link ClipboardHistoryPolicy#EDIT_ENTRY_ARG}，由 {@link ClipboardEditKey} 生成），这一页在共享存储里找到那一条再显示；文字本身不经过 Intent。深链参数都带外部标记，写回要用户自己点「保存」。
  *
  * <p>保存经 {@link ClipboardHistoryStore#replace}：条目留在原位，时间戳和固定状态不变；改成已有的文字时两条合并成一条；那一条已经被删掉或清空时说出来，不悄悄失败。保存或取消后，从键盘打开的回到原来的应用，接着就能在键盘里插入改好的那条；从剪贴板历史页打开的弹回那一页。
  */
@@ -98,7 +99,8 @@ public final class ClipboardEditPage extends ColumnDetailPage {
     /** 在共享存储里按键找那一条；找不到时为空串。读不出来时抛异常，由 {@link HostTask} 交回 null。 */
     private static String find(Context context, String key) {
         for (ClipboardHistory.Item item : new ClipboardHistoryStore(context.getFilesDir()).load()) {
-            if (key.equals(ClipboardHistoryPolicy.editKey(item.timestamp(), item.text()))) return item.text();
+            String current = ClipboardEditKey.editKey(context, item.timestamp(), item.text());
+            if (current != null && key.equals(current)) return item.text();
         }
         return "";
     }

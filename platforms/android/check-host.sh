@@ -669,11 +669,11 @@ if ! rg -q 'ClipboardSwipePolicy\.claims\(' <<< "$swipe_body" \
   echo "Android clipboard swipe must claim only through ClipboardSwipePolicy, keep the panel from scrolling and cancel the card's own press (#5962)" >&2
   exit 1
 fi
-# 「编辑」打开应用里的编辑页，不在键盘里弹对话框或放文本框（#5971）。打开之前要把系统剪贴板当前那一条记为已处理，否则改完回来一打开面板，补读又把原文记回来；交给编辑页的是认出这一条的键，不是文字。编辑页的 PageId 名必须和键盘这边写死的页面名一致。
+# 「编辑」打开应用里的编辑页，不在键盘里弹对话框或放文本框（#5971）。打开之前要把系统剪贴板当前那一条记为已处理，否则改完回来一打开面板，补读又把原文记回来；交给编辑页的是 AndroidKeyStore 令牌，不是文字。编辑页的 PageId 名必须和键盘这边写死的页面名一致。
 edit_body=$(rg -A 12 'void editClipboardItem\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
 if ! rg -q 'forgetCurrentClip\(\);' <<< "$edit_body" \
-  || ! rg -q 'ClipboardHistoryPolicy\.editKey\(' <<< "$edit_body" \
+  || ! rg -q 'ClipboardEditKey\.editKey\(' <<< "$edit_body" \
   || ! rg -q 'openHostPage\(ClipboardHistoryPolicy\.EDIT_PAGE, args\)' <<< "$edit_body" \
   || rg -q 'new (AlertDialog|PopupMenu|EditText)' <<< "$edit_body" \
   || ! rg -q 'public static final String EDIT_PAGE = "CLIPBOARD_EDIT";' \
