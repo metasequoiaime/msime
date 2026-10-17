@@ -302,7 +302,6 @@ pub fn whole_sentence_insert_position(candidates: &[WordItem], syllables: &[Stri
     if syllables.is_empty() {
         return 0;
     }
-    let typed_key = syllables.join("'");
     let n = syllables.len();
     candidates
         .iter()
@@ -311,7 +310,9 @@ pub fn whole_sentence_insert_position(candidates: &[WordItem], syllables: &[Stri
                 && if item.canonical_pinyin.is_empty() {
                     covers_all_syllables(item, n)
                 } else {
-                    item.canonical_pinyin == typed_key
+                    item.canonical_pinyin
+                        .split('\'')
+                        .eq(syllables.iter().map(|syllable| syllable.as_str()))
                 }
         })
         .count()
@@ -529,6 +530,18 @@ mod tests {
 
         assert!(found);
         assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn whole_sentence_insert_position_compares_syllables_without_allocating() {
+        let candidates = [dictionary_row("nihao", "你好", 1, "ni'hao")];
+        let syllables = syllables("ni'hao");
+        let (position, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            whole_sentence_insert_position(&candidates, &syllables)
+        });
+
+        assert_eq!(position, 1);
+        assert_eq!(allocations, 0, "整句插入位置拼接了临时读音键");
     }
 
     #[test]
