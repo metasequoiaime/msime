@@ -14,7 +14,7 @@ import {
   requestedPage,
   type MobilePrimaryPageId,
 } from "./settings-navigation-helpers";
-import type { SettingsPageId } from "./settings-page-registry";
+import { desktopPage, subPageParents, type SettingsPageId } from "./settings-page-registry";
 import { useMobilePopState } from "./use-mobile-pop-state";
 
 export interface SettingsNavigationOptions {
@@ -193,8 +193,17 @@ export function useSettingsNavigation({
     setPage,
   ]);
 
+  // 根标签页在移动端保持自身；子页和桌面合并页都高亮承载它们的页面。
+  const navigationPage: SettingsPageId =
+    mobilePlatform && mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
+      ? page
+      : mobilePlatform
+        ? (subPageParents[page] ?? page)
+        : desktopPage(subPageParents[page] ?? page);
+
   return {
     mobileActiveTab,
+    navigationPage,
     selectPage,
     selectMobileTab,
     openAccountLogin,

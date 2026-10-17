@@ -19,17 +19,7 @@ import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
 import { settingsShellPlatformPresentation } from "./settings/settings-shell-platform-presentation";
 import { SettingsShellToasts } from "./settings/settings-shell-toasts";
-import {
-  mobilePrimaryPageIds,
-  type MobilePrimaryPageId,
-} from "./settings/settings-navigation-helpers";
-import {
-  desktopPage,
-  desktopPageTitle,
-  pages,
-  subPageParents,
-  type SettingsPageId,
-} from "./settings/settings-page-registry";
+import { desktopPageTitle, pages, type SettingsPageId } from "./settings/settings-page-registry";
 import { settingsPageProjections } from "./settings/settings-page-projections";
 import {
   mobileHiddenPageIds,
@@ -2541,29 +2531,27 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     mobilePageTitle,
     desktopPageTitle: (id, title) => desktopPageTitle(id, title, client.host?.platform),
   });
-  // 子页面在导航里点亮它的上级页面，并提供回到上级的入口。触屏宿主上「AI 对话」和桌面一样是「AI 辅助」的子页面；底部标签页（设置、社区、统计、我的）的根页面没有上级。
-  // 桌面上子页的上级如果并进了别的页（「帮助」的上级「帮助与反馈」在「关于」里），点亮的是承载它的那一页。
-  const navigationPage: SettingsPageId =
-    mobilePlatform && mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
-      ? page
-      : mobilePlatform
-        ? (subPageParents[page] ?? page)
-        : desktopPage(subPageParents[page] ?? page);
-  const { mobileActiveTab, selectPage, selectMobileTab, openAccountLogin, finishAccountLogin } =
-    useSettingsNavigation({
-      mobilePlatform,
-      mobileHiddenPageIds,
-      availablePages,
-      pageAliases,
-      page,
-      setPage,
-      mobileLastPageByTab,
-      route,
-      hasHomePage,
-      setCommunityDestination,
-      setAccountLoginReturnPage,
-      accountLoginReturnPage,
-    });
+  const {
+    mobileActiveTab,
+    navigationPage,
+    selectPage,
+    selectMobileTab,
+    openAccountLogin,
+    finishAccountLogin,
+  } = useSettingsNavigation({
+    mobilePlatform,
+    mobileHiddenPageIds,
+    availablePages,
+    pageAliases,
+    page,
+    setPage,
+    mobileLastPageByTab,
+    route,
+    hasHomePage,
+    setCommunityDestination,
+    setAccountLoginReturnPage,
+    accountLoginReturnPage,
+  });
   // 设计稿里从一个页面内部打开另一个页面的行，例如「词库」上的「背单词」。
   const pageEntry = (id: SettingsPageId) => availablePages.find((item) => item.id === id);
   const {

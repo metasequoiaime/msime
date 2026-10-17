@@ -57,6 +57,51 @@ test("leaving the account tab clears the pending login return page", () => {
   expect(result.current.page).toBe("account");
 });
 
+test("mobile root pages keep their own navigation page", () => {
+  const { result } = renderHook(() => useNavigationProbe("community"));
+
+  expect(result.current.navigationPage).toBe("community");
+});
+
+test("mobile nested pages use their owning parent navigation page", () => {
+  const { result } = renderHook(() =>
+    useNavigationProbe("community", undefined, ["community", "ai", "chat"]),
+  );
+
+  act(() => result.current.selectPage("chat"));
+
+  expect(result.current.navigationPage).toBe("ai");
+});
+
+test("desktop merged pages use their carrying page navigation page", () => {
+  const { result } = renderHook(() => {
+    const [page, setPage] = useState<SettingsPageId>("about");
+    const mobileLastPageByTab = useRef({
+      home: "home" as SettingsPageId,
+      community: "community" as SettingsPageId,
+      "typing-statistics": "typing-statistics" as SettingsPageId,
+      account: "account" as SettingsPageId,
+    });
+    const navigation = useSettingsNavigation({
+      mobilePlatform: false,
+      mobileHiddenPageIds: [],
+      availablePages: (["about", "feedback"] as SettingsPageId[]).map((id) => ({ id })),
+      page,
+      setPage,
+      mobileLastPageByTab,
+      hasHomePage: false,
+      setCommunityDestination: () => {},
+      setAccountLoginReturnPage: () => {},
+      accountLoginReturnPage: null,
+    });
+    return { page, ...navigation };
+  });
+
+  act(() => result.current.selectPage("feedback"));
+
+  expect(result.current.navigationPage).toBe("about");
+});
+
 test("system back also clears a pending login return page", () => {
   const { result } = renderHook(() => useNavigationProbe("community"));
 
