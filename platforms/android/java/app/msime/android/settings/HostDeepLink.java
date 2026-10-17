@@ -75,10 +75,10 @@ public final class HostDeepLink {
 
     private static Intent base(Context context) {
         Intent intent = new Intent();
-        // 经当前图标别名进入宿主；只取组件，深链参数和任务栈标记仍由这里控制。
-        Intent launcher = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
-        if (launcher != null && launcher.getComponent() != null) intent.setComponent(launcher.getComponent());
-        else intent.setClassName(context, HOME_ACTIVITY);
+        // 直接指定始终启用的真实宿主。输入法进程经包管理器查询 launcher alias 时，Android 11 的部分
+        // 定制系统会返回一个已被图标切换流程禁用的 alias；startActivity 不一定抛异常，却不会把宿主带到前台。
+        // 图标别名只负责桌面入口，目标 Activity 始终启用（见 AndroidManifest.xml），深链不应依赖当前图标。
+        intent.setClassName(context, HOME_ACTIVITY);
         intent.addFlags(FLAGS);
         return intent;
     }
