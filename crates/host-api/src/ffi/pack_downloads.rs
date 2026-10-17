@@ -15,10 +15,22 @@ const MAX_SOURCES: usize = 8;
 /// 不联网安装时一次最多交来的本地文件数，与本地语音模型的导入相同。
 const MAX_IMPORT_FILES: usize = 16;
 
+type ResourcePackTasks = Mutex<HashMap<String, Arc<AtomicBool>>>;
+
 /// 本进程里正在安装或收编的资源包和它们的取消标记。同一个资源包同时只允许一个：两次安装会互相清掉对方的暂存目录。
-fn resource_pack_tasks() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
-    static TASKS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+#[cfg(not(test))]
+fn resource_pack_tasks() -> &'static ResourcePackTasks {
+    static TASKS: OnceLock<ResourcePackTasks> = OnceLock::new();
     TASKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 测试里每个线程一张登记表：并行跑的测试各占各的资源包、各发各的「全部取消」，不会撞上别的测试正在登记的同一个资源包。每个测试的登记、安装和取消都在它自己的线程上，所以看到的仍是一张完整的表；每个线程泄漏一张空表，只在测试里。
+#[cfg(test)]
+fn resource_pack_tasks() -> &'static ResourcePackTasks {
+    thread_local! {
+        static TASKS: &'static ResourcePackTasks = Box::leak(Box::new(Mutex::new(HashMap::new())));
+    }
+    TASKS.with(|tasks| *tasks)
 }
 
 /// 在登记表里占住 `pack`，结束时（包括出错和 panic）自动释放。
@@ -384,7 +396,7 @@ mod tests {
     #[test]
     fn one_task_per_pack_and_cancel_reaches_the_running_one() {
         let state = tempfile::tempdir().unwrap();
-        // 各个测试并行运行、共用登记表，这里只用别的测试不碰的两个资源包。
+        // 登记表在测试里按线程分开（见 resource_pack_tasks），别的测试同时登记 voice-runtime 或发「全部取消」都碰不到这里。
         let running = Task::register(ResourcePack::VoiceRuntime).unwrap();
         let other = Task::register(ResourcePack::Handwriting).unwrap();
         let busy = install(&json!({ "state_root": state.path(), "pack": "voice-runtime" }));
@@ -451,3 +463,6 @@ mod tests {
         assert_eq!(progress_phase("done"), c"done");
     }
 }
+
+#[cfg(test)]
+mod registry_tests;
