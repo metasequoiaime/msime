@@ -2,6 +2,7 @@
 //!
 //! The digits stay the composition: a chosen spelling only rewrites its span of digits and is remembered in `locked`, and every candidate's `pinyin` is the run of digits it consumes, so selection advances the same way whichever reading produced the row.
 
+use std::borrow::Cow;
 use std::cmp::{Ordering, Reverse};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -1602,9 +1603,12 @@ impl NineKeySession {
         // 边界是数字位置，读法是字母：按字母归组的键盘一个数字一个字母，所有读法共用一组边界；九键双拼的边界落在每条读法的不同字母位置上，按读法换算，边界相同的读法一起查。
         let mut groups: Vec<(Vec<usize>, Vec<String>)> = Vec::new();
         for (reading, letters) in self.expressive_readings(alternatives, &boundaries, candidates) {
-            match groups.iter_mut().find(|(known, _)| *known == letters) {
+            match groups
+                .iter_mut()
+                .find(|(known, _)| known.as_slice() == letters.as_ref())
+            {
                 Some((_, readings)) => readings.push(reading),
-                None => groups.push((letters, vec![reading])),
+                None => groups.push((letters.into_owned(), vec![reading])),
             }
         }
         let others = (self.expressive.emoji_candidates || self.expressive.kaomoji_candidates)
@@ -1651,14 +1655,14 @@ impl NineKeySession {
     }
 
     /// 见 `expressive_candidates`。每种读法带着 `boundaries`（数字位置）在它里面的字母位置。
-    fn expressive_readings(
+    fn expressive_readings<'a>(
         &self,
         alternatives: &[Path],
-        boundaries: &[usize],
+        boundaries: &'a [usize],
         candidates: &[WordItem],
-    ) -> Vec<(String, Vec<usize>)> {
+    ) -> Vec<(String, Cow<'a, [usize]>)> {
         let locked = self.locked.concat();
-        let mut readings: Vec<(String, Vec<usize>)> = Vec::new();
+        let mut readings: Vec<(String, Cow<'a, [usize]>)> = Vec::new();
         for path in alternatives {
             let Some(letters) = self.reading_boundaries(path, boundaries) else {
                 continue;
@@ -1687,11 +1691,15 @@ impl NineKeySession {
     }
 
     /// 切分路径正好拼满未锁定的数字时，`boundaries`（数字位置，含锁定拼写的结尾）在「锁定拼写加这条路径」的字母里落在哪些位置；没拼满（只拼了开头一个音节、供部分选择用的路径）时为 `None`。按字母归组的键盘一个数字一个字母，位置不变。
-    fn reading_boundaries(&self, path: &Path, boundaries: &[usize]) -> Option<Vec<usize>> {
+    fn reading_boundaries<'a>(
+        &self,
+        path: &Path,
+        boundaries: &'a [usize],
+    ) -> Option<Cow<'a, [usize]>> {
         let remaining = remaining_digits(&self.digits, self.locked_length());
         let KeyGrid::NineKeyShuangpin(table) = self.grid else {
             return (path.iter().map(String::len).sum::<usize>() == remaining.len())
-                .then(|| boundaries.to_vec());
+                .then_some(Cow::Borrowed(boundaries));
         };
         // (数字位置, 字母位置)，每个音节的结尾一对。
         let mut ends: Vec<(usize, usize)> = Vec::with_capacity(self.locked.len() + path.len());
@@ -1710,14 +1718,16 @@ impl NineKeySession {
             ends.push((digit, letter));
         }
         (offset == remaining.len()).then(|| {
-            boundaries
-                .iter()
-                .filter_map(|boundary| {
-                    ends.iter()
-                        .find(|(end, _)| end == boundary)
-                        .map(|(_, letter)| *letter)
-                })
-                .collect()
+            Cow::Owned(
+                boundaries
+                    .iter()
+                    .filter_map(|boundary| {
+                        ends.iter()
+                            .find(|(end, _)| end == boundary)
+                            .map(|(_, letter)| *letter)
+                    })
+                    .collect(),
+            )
         })
     }
 
@@ -6161,6 +6171,24 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert_eq!(readings[0], "xiang");
         // 只拼了开头一个音节的路径不算读法。
         assert!(readings.iter().all(|reading| reading.len() == 5));
+    }
+
+    #[test]
+    fn ordinary_nine_key_readings_borrow_shared_boundaries() {
+        let fixture = expressive_fixture();
+        let mut session =
+            open_expressive(&fixture, EnglishInputOptions::default(), BOTH_EXPRESSIVE);
+        session.digits = "634486".into();
+        let alternatives = spelling_table().paths("634486");
+        let candidates = session.candidates.clone();
+        let boundaries = [3, 6];
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            session.expressive_readings(&alternatives, &boundaries, &candidates)
+        });
+        assert!(
+            allocations <= 84,
+            "ordinary readings copied shared boundaries: {allocations}"
+        );
     }
 
     // ---- 打拼音出符号 ----
