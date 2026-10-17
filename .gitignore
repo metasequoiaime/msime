@@ -69,3 +69,8 @@ tasks/
 /platforms/android/gradle-app/.gradle/
 /platforms/android/gradle-app/build/
 /platforms/android/gradle-app/app/build/
+
+# The WinUI settings project's NuGet restore output. `Build-Client.ps1` sends compilation to an
+# explicit IntDir, but restore always writes project.assets.json and the generated targets next to
+# the vcxproj, so building on Windows leaves this directory in the checkout.
+/platforms/windows/settings/obj/

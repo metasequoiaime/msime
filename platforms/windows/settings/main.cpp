@@ -3451,6 +3451,9 @@ private:
     put(L"NavigationViewItemBackgroundSelectedPressed", palette_.accent);
     // 行高 28 包含模板上下各 2 DIP 的边距；内部仍用默认 36 会裁掉文字。
     resources.Insert(box_value(L"NavigationViewItemOnLeftMinHeight"), box_value(24.0));
+    // 分组标题的模板把文字放进写死 40 DIP 高的 InnerHeaderGrid 里垂直居中，标题本身压到 24 就从中间截断，下半截不见（「工具」看着像「丁目」）。上下各 -8 DIP 把那 40 收进 24 里，文字整个落在其中；左右保持模板默认的 16。
+    resources.Insert(box_value(L"NavigationViewItemInnerHeaderMargin"),
+                     box_value(Thickness{16, -8, 16, -8}));
     put(L"NavigationViewItemSeparatorForeground", palette_.divider);
 
     view.PaneHeader(make_search_field());
@@ -3462,10 +3465,9 @@ private:
         group = page.group;
         NavigationViewItemHeader header;
         header.Content(box_value(hstring(group_titles[page.group])));
-        header.FontSize(11);
+        // 这里设不了字号和左右边距：模板里 HeaderText 的 NavigationViewItemHeaderTextStyle 是 StaticResource，在 generic.xaml 内就解析完了，页面资源覆盖不到，字号固定 14 DIP；模板根也不读 Padding，水平边距走上面那条 NavigationViewItemInnerHeaderMargin。Foreground 是本控件上的本地值，优先于模板样式，照常生效。
         header.MinHeight(24);
         header.Height(24);
-        header.Padding(Thickness{12, 0, 12, 0});
         header.Foreground(brush(palette_.sub));
         view.MenuItems().Append(header);
       }
@@ -19218,14 +19220,13 @@ private:
     auto mcp = add_group(page, L"连接 AI 助手");
     record(L"连接 AI 助手", L"MCP msime-mcp Claude Desktop Cursor");
     if (!indexing_) {
-      auto card = make_card();
+      // `add_group` 返回的就是卡片里的行面板，它已经带了卡片和 12 DIP 内边距：这里再套一张 `make_card` 和一份内边距，内容会比同页其他组的标签向右错开一整个缩进。直接放进行面板，和上面几组对齐。
       StackPanel content;
       content.Spacing(10);
-      content.Padding(Thickness{25, 20, 25, 20});
+      content.Padding(Thickness{0, 4, 0, 4});
       append_mcp_section(content);
-      card.Child(content);
-      mark_search_target(L"连接 AI 助手", card);
-      mcp.Children().Append(card);
+      mark_search_target(L"连接 AI 助手", content);
+      mcp.Children().Append(content);
     }
   }
 
@@ -19529,12 +19530,14 @@ private:
                       hstring description) {
     auto heading_text = TextBlock();
     heading_text.Text(heading);
-    heading_text.FontSize(14);
+    // 13/11 DIP 是卡片内标签和说明的尺寸（`add_row`、README 的「组内使用细分隔线、13 DIP 标签和 11 DIP 说明」）；这里原来用 14 DIP，比组标题还大，卡片内外对不上。
+    heading_text.FontSize(13);
     heading_text.FontWeight(Windows::UI::Text::FontWeight{600});
     heading_text.Foreground(brush(palette_.text));
     panel.Children().Append(heading_text);
     auto description_text = TextBlock();
     description_text.Text(description);
+    description_text.FontSize(11);
     description_text.TextWrapping(TextWrapping::Wrap);
     description_text.IsTextSelectionEnabled(true);
     description_text.Foreground(brush(palette_.sub));
@@ -19582,12 +19585,18 @@ private:
     }
     const auto snippet = config.GetString();
     auto code = TextBox();
+    // AcceptsReturn 必须早于 Text：TextBox 默认是单行，单行状态下写入带换行的文本会被截到第一个换行符——`config_snippet` 的 pretty JSON 第一行正好只有「{」，于是框里就只剩这一个字符，之后再打开多行也找不回来。
+    code.AcceptsReturn(true);
     code.Text(snippet);
     code.IsReadOnly(true);
-    code.AcceptsReturn(true);
     code.TextWrapping(TextWrapping::NoWrap);
     code.FontFamily(Media::FontFamily(L"Consolas"));
     code.Header(box_value(L"MCP 配置"));
+    // 多行 TextBox 的期望高度仍然只有一行，`AcceptsReturn` 不改变这一点：不给高度时整段配置只露出开头的「{」。给够常见片段的高度，更长的在框内滚动；不换行，所以横向也要滚动条。
+    code.MinHeight(188);
+    code.MaxHeight(280);
+    ScrollViewer::SetVerticalScrollBarVisibility(code, ScrollBarVisibility::Auto);
+    ScrollViewer::SetHorizontalScrollBarVisibility(code, ScrollBarVisibility::Auto);
     panel.Children().Append(code);
     append_text(panel,
                 L"要让助手修改快捷短语和设置、为你制作候选窗口皮肤，在 args 中加入 "
@@ -19597,6 +19606,10 @@ private:
                 L"手时开启。");
     auto copy = Button();
     copy.Content(box_value(L"复制配置"));
+    // 与 `button_control` 的按钮同尺寸；这里不用它，因为点击后要拿 sender 改自己的文案。
+    copy.Height(32);
+    copy.Padding(Thickness{16, 0, 16, 0});
+    copy.HorizontalAlignment(HorizontalAlignment::Left);
     copy.Click([snippet](Inspectable const &sender, RoutedEventArgs const &) {
       Windows::ApplicationModel::DataTransfer::DataPackage package;
       package.SetText(snippet);
@@ -19610,17 +19623,13 @@ private:
         const std::wstring id(client.GetNamedString(L"id", L"").c_str());
         const auto name = mcp_client_name(id);
         const bool configured = client.GetNamedBoolean(L"configured", false);
-        append_section(
-            panel, hstring(name),
-            hstring(std::wstring(client.GetNamedString(L"path", L"").c_str()) +
-                    (configured ? L"（已连接）" : L"")));
-        auto write = Button();
-        write.Content(box_value(hstring(L"写入 " + name)));
-        write.IsEnabled(!configured && !mcp_busy_);
-        write.Click([this, id](Inspectable const &, RoutedEventArgs const &) {
-          write_mcp_client(id);
-        });
-        panel.Children().Append(write);
+        // 每个助手一行，形状和本页其他组一样：左边名称与配置文件路径，右边写入按钮，窄窗口时按钮落到标签下面。原来是「小标题 + 路径 + 下面一个按钮」堆三遍，和同一页的行对不齐。
+        add_row(panel, 0, name,
+                std::wstring(client.GetNamedString(L"path", L"").c_str()) +
+                    (configured ? L"（已连接）" : L""),
+                button_control(
+                    L"写入 " + name, [this, id] { write_mcp_client(id); },
+                    !configured && !mcp_busy_));
       }
     }
     append_mcp_result(panel);
