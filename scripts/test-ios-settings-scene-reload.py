@@ -59,10 +59,12 @@ class SettingsSceneReloadContract(unittest.TestCase):
     def test_tablet_settings_reads_scheme_once_before_routing_on_appear(self):
         path = ROOT / "platforms/ios/App/Sources/keyboard/TabletSettingsView.swift"
         source = path.read_text()
-        self.assertNotIn(".reloadOnAppearAndActive", source)
-        self.assertIn("@Environment(\\.scenePhase)", source)
-        self.assertIn(".onAppear {\n      scheme = InputSchemePreference.scheme\n      show(router.settingsPage)\n    }", source)
-        self.assertIn(".onChange(of: scenePhase)", source)
+        self.assertIn(
+            ".reloadOnAppearAndActive {\n      scheme = InputSchemePreference.scheme\n      show(router.settingsPage)\n    }",
+            source,
+        )
+        self.assertNotIn("@Environment(\\.scenePhase)", source)
+        self.assertNotIn(".onChange(of: scenePhase)", source)
 
     def test_skin_settings_uses_shared_reload_modifier(self):
         path = ROOT / "platforms/ios/App/Sources/settings/FeatureSettingsViews.swift"
