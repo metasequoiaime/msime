@@ -48,6 +48,7 @@ use platform::desktop::desktop_cloud_dictionary;
 use platform::desktop::{
     desktop_account, desktop_candidate_skin_community, desktop_community_report,
     desktop_plugin_community, desktop_plugins, desktop_preferences_monitor, desktop_resource_packs,
+    desktop_typing_upload,
 };
 #[cfg(target_os = "ios")]
 use platform::ios::ios_account;
@@ -564,7 +565,7 @@ impl DictionaryHostOptions {
 }
 
 struct SkinDirectoryState(PathBuf);
-struct TypingStatisticsState(TypingStatisticsStore);
+pub(crate) struct TypingStatisticsState(pub(crate) TypingStatisticsStore);
 /// The shared preferences directory, where the input method writes `diagnostic.log` when its diagnostic switch is on.
 struct DiagnosticLogState(PathBuf);
 
@@ -5481,6 +5482,18 @@ pub fn run() {
             set_typing_statistics_retention,
             reset_typing_statistics,
             open_typing_statistics_directory,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_typing_upload::typing_statistics_upload_status,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_typing_upload::set_typing_statistics_upload,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_typing_upload::upload_typing_statistics,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_typing_upload::account_qq_links,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_typing_upload::account_qq_link_redeem,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_typing_upload::account_qq_link_delete,
             open_diagnostic_log_directory,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_plugins::plugin_catalog,
