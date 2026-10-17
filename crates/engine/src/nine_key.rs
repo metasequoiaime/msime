@@ -1663,16 +1663,16 @@ impl NineKeySession {
         candidates: &[WordItem],
     ) -> Vec<(String, Cow<'a, [usize]>)> {
         let locked = self.locked.concat();
-        let mut readings: Vec<(String, Cow<'a, [usize]>)> = Vec::new();
-        for path in alternatives {
-            let Some(letters) = self.reading_boundaries(path, boundaries) else {
+        let mut readings: Vec<(String, usize)> = Vec::new();
+        for (path_index, path) in alternatives.iter().enumerate() {
+            if !self.reading_fits(path) {
                 continue;
-            };
+            }
             let mut reading = String::with_capacity(self.digits.len());
             reading.push_str(&locked);
             path.iter().for_each(|piece| reading.push_str(piece));
             if !readings.iter().any(|(known, _)| *known == reading) {
-                readings.push((reading, letters));
+                readings.push((reading, path_index));
             }
         }
         let support = |reading: &String| {
@@ -1689,6 +1689,28 @@ impl NineKeySession {
         readings.sort_by_cached_key(|(reading, _)| support(reading));
         readings.truncate(EXPRESSIVE_READING_LIMIT);
         readings
+            .into_iter()
+            .filter_map(|(reading, path_index)| {
+                self.reading_boundaries(&alternatives[path_index], boundaries)
+                    .map(|letters| (reading, letters))
+            })
+            .collect()
+    }
+
+    /// 只验证切分路径是否拼满输入，延后双拼边界向量的物化，避免为排序后丢弃的读法分配存储。
+    fn reading_fits(&self, path: &Path) -> bool {
+        let remaining = remaining_digits(&self.digits, self.locked_length());
+        let KeyGrid::NineKeyShuangpin(table) = self.grid else {
+            return path.iter().map(String::len).sum::<usize>() == remaining.len();
+        };
+        let mut offset = 0;
+        for piece in path {
+            let Some(length) = table.piece_code_len(piece, &remaining[offset..]) else {
+                return false;
+            };
+            offset += length;
+        }
+        offset == remaining.len()
     }
 
     /// 切分路径正好拼满未锁定的数字时，`boundaries`（数字位置，含锁定拼写的结尾）在「锁定拼写加这条路径」的字母里落在哪些位置；没拼满（只拼了开头一个音节、供部分选择用的路径）时为 `None`。按字母归组的键盘一个数字一个字母，位置不变。
@@ -6206,6 +6228,23 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert!(
             allocations <= 100,
             "shuangpin readings allocated an intermediate boundary table: {allocations}"
+        );
+    }
+
+    #[test]
+    fn shuangpin_readings_materialize_boundaries_only_for_retained_readings() {
+        let fixture = fixture_with(SHUANGPIN_FIXTURE);
+        let mut session = shuangpin_session(&fixture.paths, NineKeyShuangpinKind::Migala3);
+        session.digits = "94264".into();
+        let alternatives = session.grid.spelling_table().paths("94264");
+        let candidates = session.candidates.clone();
+        let boundaries = [2, 4];
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            session.expressive_readings(&alternatives, &boundaries, &candidates)
+        });
+        assert!(
+            allocations <= 100,
+            "discarded shuangpin readings still materialized boundaries: {allocations}"
         );
     }
 
