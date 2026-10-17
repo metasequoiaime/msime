@@ -9,7 +9,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONException;
 
 /** 从安装产品调用响应解析与编辑器写入，验证失败分类，不读取真实编辑器内容。 */
@@ -19,33 +18,41 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
     @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
 
     @Override public void onStart() {
+        // 整个测试体在主线程上跑，和 ToolbarEdgesDeviceSmoke 等设备冒烟一致：服务里的协作对象和键区
+        // 只在 onCreate / onCreateInputView 里建出来，而 render() 会改真实按钮的 selected / activated，
+        // 那会驱动主题里的 StateListAnimator，在 instrumentation 线程上抛「Animators may only be run on
+        // Looper threads」。文本编辑面板的「数字键盘」动作正是从 render() 进来的（#8496 让它进了本套件
+        // 的动作遍历）。
+        Throwable[] failure = new Throwable[1];
+        runOnMainSync(() -> {
+            try {
+                runStages();
+            } catch (Exception | AssertionError error) {
+                failure[0] = error;
+            }
+        });
         Bundle result = new Bundle();
+        Throwable error = failure[0];
+        result.putString("stream", error == null
+            ? "MSIME_DEVICE_SMOKE_PASSED: installed response and editor failure categories, private exception exclusion\n"
+            : "MSIME_DEVICE_SMOKE_FAILED: " + stage + " ("
+                + error.getClass().getSimpleName() + ")" + causeChain(error) + "\n");
+        finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
+    }
+
+    /** 各个阶段本身；必须在主线程上跑的原因见 {@link #onStart()} 的注释。 */
+    private void runStages() throws Exception {
         Object service = null;
         try {
             ClassLoader loader = getTargetContext().getClassLoader();
             Class<?> type = loader.loadClass("app.msime.android.MSIMEInputService");
-            AtomicReference<Object> created = new AtomicReference<>();
-            AtomicReference<Exception> creationError = new AtomicReference<>();
-            runOnMainSync(() -> {
-                try {
-                    Object instance = type.getConstructor().newInstance();
-                    // 与 ToolbarEdgesDeviceSmoke 等设备冒烟同一套建法：服务里的协作对象和键区只在
-                    // onCreate / onCreateInputView 里建出来，跳过这两步就有一半字段是 null。文本编辑
-                    // 面板的「数字键盘」动作走到 showNumberKeyboardFromTextEdit，它要 render()，而
-                    // render() 从 ImeBottomBar 一路用到键区，缺一个就 NullPointerException（#8496 让
-                    // 这个动作进了本套件的遍历）。
-                    Method attach = android.content.ContextWrapper.class.getDeclaredMethod(
-                        "attachBaseContext", android.content.Context.class);
-                    attach.setAccessible(true);
-                    attach.invoke(instance, getTargetContext());
-                    type.getMethod("onCreate").invoke(instance);
-                    type.getMethod("onCreateInputView").invoke(instance);
-                    created.set(instance);
-                }
-                catch (Exception error) { creationError.set(error); }
-            });
-            if (creationError.get() != null) throw creationError.get();
-            service = created.get();
+            service = type.getConstructor().newInstance();
+            Method attach = android.content.ContextWrapper.class.getDeclaredMethod(
+                "attachBaseContext", android.content.Context.class);
+            attach.setAccessible(true);
+            attach.invoke(service, getTargetContext());
+            type.getMethod("onCreate").invoke(service);
+            type.getMethod("onCreateInputView").invoke(service);
             stage = "automatic recovery policy";
             Class<?> recovery = loader.loadClass("app.msime.android.InputFailureRecoveryPolicy");
             Method shouldRetry = method(recovery, "shouldRetry", int.class, boolean.class,
@@ -162,12 +169,6 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
                 private static final long serialVersionUID = 1L;
                 @Override public String getMessage() { throw new AssertionError("Linkage text read"); }
             }, "jni_link");
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: installed response and editor failure categories, private exception exclusion\n");
-            finish(Activity.RESULT_OK, result);
-        } catch (Exception | AssertionError error) {
-            result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: " + stage + " ("
-                + error.getClass().getSimpleName() + ")" + causeChain(error) + "\n");
-            finish(Activity.RESULT_CANCELED, result);
         } finally {
             if (service != null) {
                 for (Field field : service.getClass().getDeclaredFields()) {
