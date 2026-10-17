@@ -6,7 +6,7 @@ Status: implemented
 
 一位 macOS 用户在五笔下打版本号 `0.10.1`，智能标点开着，屏幕上却是 `0。10。1`。偏好已经生效（诊断日志有 `preferences_applied`），会话里的 `smart_punctuation`、`smart_punctuation_direct_digit` 也都是开的。
 
-用真会话从 `handleEvent:client:` 一路打进去，全拼和五笔、读得回文档和读不回文档的客户端全部复现，所以这不是五笔或某个应用的问题。共享判断本身是对的：`msime_client_punctuation_with_context` 在前一个字符是数字时选 ASCII 路线（`crates/client-core/src/punctuation.rs` 的 `route`），没有组字时 `Runtime::punctuation_ascii`（`crates/input-runtime/src/runtime.rs`）不出字，回 `handled: false`，意思是「键交回宿主，字面标点由宿主出」。[大写锁定那篇](../feature/2026-10-09-caps-lock-ascii-punctuation.md)把这条约定写过一遍。
+用真会话从 `handleEvent:client:` 一路打进去，全拼、双拼和五笔、读得回文档和读不回文档的客户端全部复现，所以这不是五笔或某个应用的问题。共享判断本身是对的：`msime_client_punctuation_with_context` 在前一个字符是数字时选 ASCII 路线（`crates/client-core/src/punctuation.rs` 的 `route`），没有组字时 `Runtime::punctuation_ascii`（`crates/input-runtime/src/runtime.rs`）不出字，回 `handled: false`，意思是「键交回宿主，字面标点由宿主出」。[大写锁定那篇](../feature/2026-10-09-caps-lock-ascii-punctuation.md)把这条约定写过一遍。
 
 `platforms/macos/src/input/InputController.mm` 的 `handleSmartPunctuation:client:` 把这个 `handled: false` 当成「这个键不归我」返回 NO。`handleKeyEvent:client:` 于是接着往下走，到了 `typeASCII:shift:`（`msime_client_character`）这条不看前文的普通标点路线，Engine 照中文标点开关写出 `。`。这个分支从 2026-09-16 移植智能标点起就在，一直没被测到：`SmartPunctuationShadowTest` 和 `SmartPunctuationSpaceTest` 的假会话在 ASCII 路线上回 `handled: true` 并带着字面标点，和真会话的回答不一样。
 
@@ -37,6 +37,6 @@ Status: implemented
 
 ## Verification
 
-- `platforms/macos/tests/input/ShortcutTest.mm` 的 `TestSmartPunctuationVersionNumberThroughRealSession` 用真会话和用户的偏好（五笔 86、五笔拼音混输、唯一自动上屏、数字键选词、智能标点和三个子开关全开）从 `handleEvent:client:` 打键，控制器不收的键由测试替应用写进文档。全拼和五笔、读得回和读不回文档的客户端都断言 `0.10.1` 得到 `0.10.1`；单独一个 `.` 仍是 `。`；中文标点关着时 `0..` 得到 `0..`，不武装；读得回文档时 `0..` 得到 `0。`，连按手势还在。它还打开诊断日志，断言三行判断记录的内容。
-- 修复之前同一个测试在全拼和五笔、两种客户端上都得到 `0。10。1`，读得回文档时 `0..` 得到 `0。。`。
+- `platforms/macos/tests/input/ShortcutTest.mm` 的 `TestSmartPunctuationVersionNumberThroughRealSession` 用真会话和用户的偏好（五笔 86、五笔拼音混输、唯一自动上屏、数字键选词、智能标点和三个子开关全开）从 `handleEvent:client:` 打键，控制器不收的键由测试替应用写进文档。全拼、双拼和五笔、读得回和读不回文档的客户端都断言 `0.10.1` 得到 `0.10.1`；单独一个 `.` 仍是 `。`；中文标点关着时 `0..` 得到 `0..`，不武装；读得回文档时 `0..` 得到 `0。`，连按手势还在。它还打开诊断日志，断言三行判断记录的内容。
+- 修复之前同一个测试在全拼、双拼和五笔、两种客户端上都得到 `0。10。1`，读得回文档时 `0..` 得到 `0。。`。
 - `shortcut-test`（含 `--translations`）、`smart-punctuation-space-test`、`smart-punctuation-shadow-test` 全部通过。

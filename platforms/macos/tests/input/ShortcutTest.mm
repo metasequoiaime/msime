@@ -5632,7 +5632,7 @@ static void AssertTypedThroughRealSession(NSString *scheme, ShortcutClient *clie
 
 // 没有组字时智能标点判为 ASCII，Engine 把键交回宿主；宿主要自己写出字面标点，不能再把键交给后面的普通标点路线，否则 Engine 照常写成中文标点。读不回文档的客户端靠影子判断，结果一样。
 static void TestSmartPunctuationVersionNumberThroughRealSession() {
-    for (NSString *scheme in @[@"quanpin", @"wubi"]) {
+    for (NSString *scheme in @[@"quanpin", @"shuangpin", @"wubi"]) {
         for (Class type in @[ShortcutClient.class, UnreadableShortcutClient.class]) {
             AssertTypedThroughRealSession(scheme, [type new], @"0.10.1", YES, @"0.10.1");
             // 前面没有数字或字母的句号仍是中文句号。
