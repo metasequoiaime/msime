@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """校验 iOS 设置同步页共用请求代次并隔离离页旧任务。"""
 from pathlib import Path
-import re
 import unittest
 
 
@@ -15,11 +14,9 @@ class IOSSettingsSyncViewLifecycleContract(unittest.TestCase):
     def test_disappear_invalidates_pending_operation(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("@State private var request = ViewRequestGeneration()", source)
-        disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
-        self.assertIsNotNone(disappear, "settings sync view must invalidate work when it disappears")
-        body = disappear.group("body")
-        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", body)
-        self.assertIn("busy = false", body)
+        self.assertIn(".trackViewRequest(request: $request, pending: $pending, onDisappear: {", source)
+        self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $pending)", source)
+        self.assertIn("busy = false", source)
         task = TASK.read_text(encoding="utf-8")
         self.assertIn("request.wrappedValue.disappear()", task)
         self.assertIn("pending.wrappedValue?.cancel()", task)

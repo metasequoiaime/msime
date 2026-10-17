@@ -47,12 +47,11 @@ struct SettingsSyncView: View {
     .settingsStatus(busy: busy, message: message)
     .disabled(busy)
     .navigationTitle("设置同步")
-    .task { request.appear(); startLoad() }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $pending)
+    .task { startLoad() }
+    .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
       cloud = nil; schema = nil; loadedUserID = nil; loadedSessionID = nil
-    }
+    })
     .alert("上传本机设置？", isPresented: $uploading) {
       Button("取消", role: .cancel) { }
       Button("上传") { startUpload() }
