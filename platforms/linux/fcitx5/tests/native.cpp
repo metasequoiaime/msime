@@ -2603,6 +2603,9 @@ int main(int argc, char **argv) {
       require(shadowDigit.first, "Unicode mode could not start for smart punctuation shadow");
       for (const auto sym : {FcitxKey_0, FcitxKey_0, FcitxKey_3, FcitxKey_0})
         require(committedBy(sym).first, "Unicode digit input was not consumed");
+      // Publish an authoritative empty document before leaving Unicode mode; the key below commits the
+      // synthetic digit through the normal input-method path and must not make the test lose its shadow.
+      ic.surroundingText().setText("", 0, 0);
       const auto unicodeSpace = committedBy(FcitxKey_space);
       require(unicodeSpace == std::make_pair(true, std::string("0")),
               "Unicode mode did not commit the synthetic ASCII digit");
@@ -2611,7 +2614,6 @@ int main(int argc, char **argv) {
       require(!unicodeSpaceRelease.accepted(),
               "Unicode Space release was unexpectedly consumed");
       // Valid empty surrounding at the document start is authoritative and must not fall back to the old shadow digit.
-      ic.surroundingText().setText("", 0, 0);
       require(committedBy(FcitxKey_period) == std::make_pair(true, std::string("。")),
               "Fcitx5 fell back to the shadow after receiving empty surrounding text");
       // Rebuild the shadow after the Chinese mark above; the next press verifies that a genuinely unavailable document still uses it after a real release.
