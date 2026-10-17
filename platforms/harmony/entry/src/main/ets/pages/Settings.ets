@@ -2371,7 +2371,8 @@ class SettingsBridge {
   /** 打开上传：要求已登录；在本地打开后立刻上传一次。上传失败时开关保持打开、回那次上传的错误码，下一次自动上传再试。 */
   private async enableTypingUpload(bridge: HarmonyAccountCloudBridge): Promise<string> {
     if (!bridge.signedIn()) return JSON.stringify({ ok: false, error: 'account_unauthorized' } as AccountEnvelope);
-    const state: TypingUploadStateReply = await this.typingUploadNative({ operation: 'set_upload_enabled', enabled: true });
+    const state: TypingUploadStateReply =
+      await this.typingUploadNative({ operation: 'set_upload_enabled', enabled: true });
     if (state.ok !== true) return JSON.stringify({ ok: false, error: 'storage' } as AccountEnvelope);
     const failure: string | null = await this.sendTypingUpload(bridge, true);
     if (failure !== null) return JSON.stringify({ ok: false, error: failure } as AccountEnvelope);
@@ -2380,7 +2381,8 @@ class SettingsBridge {
 
   /** 关闭上传：先在本地关掉，再删除云端副本。删除失败时开关仍是关的，回删除的错误码，页面据此提示云端副本没删掉。 */
   private async disableTypingUpload(bridge: HarmonyAccountCloudBridge): Promise<string> {
-    const state: TypingUploadStateReply = await this.typingUploadNative({ operation: 'set_upload_enabled', enabled: false });
+    const state: TypingUploadStateReply =
+      await this.typingUploadNative({ operation: 'set_upload_enabled', enabled: false });
     if (state.ok !== true) return JSON.stringify({ ok: false, error: 'storage' } as AccountEnvelope);
     const reply: AccountEnvelope = JSON.parse(await bridge.typingStatisticsDelete()) as AccountEnvelope;
     if (reply.ok !== true) {
@@ -2393,7 +2395,9 @@ class SettingsBridge {
   private async sendTypingUpload(bridge: HarmonyAccountCloudBridge, force: boolean): Promise<string | null> {
     const prepared: TypingUploadPreparedReply = JSON.parse(await client.typingStatisticsAsync(JSON.stringify({
       directory: this.stateDirectory,
-      action: { operation: 'upload_request', day: TypingStatisticsPolicy.day(new Date()), platform: 'harmony', force: force }
+      action: {
+        operation: 'upload_request', day: TypingStatisticsPolicy.day(new Date()), platform: 'harmony', force: force
+      }
     } as TypingUploadNativeRequest))) as TypingUploadPreparedReply;
     if (prepared.ok !== true || prepared.value === undefined) return 'storage';
     const value: TypingUploadPrepared = prepared.value;
@@ -2401,7 +2405,8 @@ class SettingsBridge {
     if (typeof value.device !== 'string' || value.body === undefined) return 'storage';
     const sent: AccountEnvelope = JSON.parse(await bridge.typingStatisticsUpload(value.body)) as AccountEnvelope;
     if (sent.ok !== true) return sent.error ?? 'account_unavailable';
-    const recorded: TypingUploadStateReply = await this.typingUploadNative({ operation: 'upload_succeeded', device: value.device });
+    const recorded: TypingUploadStateReply =
+      await this.typingUploadNative({ operation: 'upload_succeeded', device: value.device });
     return recorded.ok === true ? null : 'storage';
   }
 
