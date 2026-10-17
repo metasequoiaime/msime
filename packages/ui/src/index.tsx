@@ -3,7 +3,6 @@ import type { Preferences, Snapshot } from "./core/preferences-model";
 
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
-import { ToastProvider } from "./core/toast";
 import { appThemeStyle, seasonAttr } from "./core/app-theme-style";
 import { SetupWarningStrip } from "./keyboard/setup-status-card";
 import { KeyboardSwitchGuideHost } from "./keyboard/keyboard-switch-guide";
@@ -18,6 +17,7 @@ import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
 import { SettingsNavigationSearch } from "./settings/settings-navigation-search";
 import { settingsShellPlatformPresentation } from "./settings/settings-shell-platform-presentation";
+import { SettingsShellToasts } from "./settings/settings-shell-toasts";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
@@ -49,7 +49,7 @@ import {
   settingsThemePreferences,
 } from "./settings/settings-theme-preferences";
 
-import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 export type {
   DictionaryEntry,
   DictionaryPageFormat,
@@ -2899,11 +2899,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   };
 }
 
-/** 设计稿的 toast 只属于 HarmonyOS 外观。其他平台的 `useToast` 保持它在 provider 之外时的空操作，不会多出第二个常驻的状态区域。 */
-function ShellToasts({ enabled, children }: { enabled: boolean; children: ReactNode }) {
-  return enabled ? <ToastProvider>{children}</ToastProvider> : children;
-}
-
 /** What `SettingsPage` computes for its shell and page components. */
 export type SettingsPageModel = ReturnType<typeof useSettingsPageModel>;
 
@@ -3134,7 +3129,7 @@ function SettingsShell(props: SettingsPageProps) {
       data-mobile={mobilePlatform ? "" : undefined}
       onPointerDownCapture={onWindowPointerDownCapture}
     >
-      <ShellToasts enabled={harmonyLook}>
+      <SettingsShellToasts enabled={harmonyLook}>
         {confirmation}
         <KeyboardSwitchGuideHost setup={client.home?.setup} />
         {titlebarShown && (
@@ -3690,7 +3685,7 @@ function SettingsShell(props: SettingsPageProps) {
             </div>
           </main>
         </div>
-      </ShellToasts>
+      </SettingsShellToasts>
     </div>
   );
 }
