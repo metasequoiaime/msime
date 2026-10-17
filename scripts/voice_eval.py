@@ -20,7 +20,7 @@ FLEURS（CC-BY-4.0）的普通话测试集在 https://huggingface.co/datasets/go
 
     python3 scripts/voice_eval.py score <model>.jsonl [...] [--host-library target/debug/libmsime_host_api.dylib] [--json result.json]
 
-给了 `--host-library` 时，另外给出识别结果经过宿主同样调用的 `msime_client_voice_normalize_numbers`（按模型清单的 kind，只改写不自带 ITN 的模型）之后的分数；参考文本里的数字多是阿拉伯数字，这一项看规整对准确率的影响。识别结果存在文件里，改数字规则或打分规则后只需重新打分，不必重新识别。
+给了 `--host-library` 时，另外给出参考文本和识别结果都经过宿主同样调用的 `msime_client_voice_normalize_numbers`（按模型清单的 kind，只改写不自带 ITN 的模型）之后的分数。各测试集写数字的习惯不同（FLEURS 写阿拉伯数字，ASCEND 写汉字），原样打分会把写法差异算成识别错误；两边都规整后，这一项只看听对没有，适合跨测试集、跨模型比较。识别结果存在文件里，改数字规则或打分规则后只需重新打分，不必重新识别。
 
 基线记在 resources/eval/voice-baseline.json，换模型、改解码参数或热词分数前后各跑一次比较。
 """
@@ -287,9 +287,11 @@ def summarize(rows, numbers):
         }
         if numbers:
             normalize = Numbers(numbers, kind)
-            errors_numbers, _ = score((row["reference"], normalize(row["hypothesis"])) for row in items)
+            # 参考文本也过同一个规整：各测试集写数字的习惯不同（FLEURS 写阿拉伯数字，ASCEND 写汉字），两边都规整后比较的只是听对没有。
+            errors_numbers, units_numbers = score((normalize(row["reference"]), normalize(row["hypothesis"])) for row in items)
             result["errors_numbers"] = errors_numbers
-            result["mer_numbers"] = round(100 * errors_numbers / units, 2) if units else None
+            result["units_numbers"] = units_numbers
+            result["mer_numbers"] = round(100 * errors_numbers / units_numbers, 2) if units_numbers else None
         finish = sorted(row["finish_seconds"] for row in items)
         # 松手到出最终结果的时间，在跑评测的这台机器上；只适合同机前后比较。
         result["finish_seconds_median"] = finish[len(finish) // 2]

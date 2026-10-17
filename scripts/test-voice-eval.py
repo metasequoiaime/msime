@@ -29,6 +29,14 @@ assert voice_eval.score([("今天天气很好。", "今天天气很好")]) == (0
 assert voice_eval.score([("Today is Monday", "today is monday.")]) == (0, 3)
 assert voice_eval.score([("代码写好了", "代马写好了"), ("push the branch", "push a branch")]) == (2, 8)
 
+# 汇总按模型、测试集分组，MER 与错误数、单位数一致。
+rows = [
+    {"model": "m", "kind": "offline_transducer", "set": "a", "id": "1", "seconds": 1.0, "finish_seconds": 0.2, "reference": "代码写好了", "hypothesis": "代马写好了"},
+    {"model": "m", "kind": "offline_transducer", "set": "a", "id": "2", "seconds": 2.0, "finish_seconds": 0.4, "reference": "push the branch", "hypothesis": "push a branch"},
+]
+summary = voice_eval.summarize(rows, None)
+assert summary == [{"model": "m", "kind": "offline_transducer", "sets": {"a": {"utterances": 2, "audio_seconds": 3.0, "units": 8, "errors": 2, "mer": 25.0, "finish_seconds_median": 0.4}}}], summary
+
 baseline = ROOT / "resources/eval/voice-baseline.json"
 if baseline.exists():
     document = json.loads(baseline.read_text(encoding="utf-8"))
@@ -36,5 +44,7 @@ if baseline.exists():
         for name, result in run["sets"].items():
             assert result["errors"] <= result["units"] * 2, (run["model"], name)
             assert abs(result["mer"] - round(100 * result["errors"] / result["units"], 2)) < 0.005, (run["model"], name)
+            if "mer_numbers" in result:
+                assert abs(result["mer_numbers"] - round(100 * result["errors_numbers"] / result["units_numbers"], 2)) < 0.005, (run["model"], name)
 
 print("voice eval scoring: ok")
