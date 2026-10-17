@@ -1151,8 +1151,7 @@ final class ImePanels {
         s.closeLayoutSettings();
         s.closeVoiceResult();
         s.closeAiPolish();
-        s.clipboardTab = CloudClipboardPanelPolicy.initialTab(
-            s.clipboardTab, s.clipboardHistoryEnabled, cloudAllowed);
+        s.clipboardTab = CloudClipboardPanelPolicy.initialTab(s.clipboardTab, cloudAllowed);
         clipboardClearPending = false;
         clipboardActionText = null;
         clipboardSwipedText = null;
@@ -1459,7 +1458,15 @@ final class ImePanels {
         if (cloud) {
             renderCloudClipboard(notes);
         } else if (!s.clipboardHistoryEnabled) {
-            notes.add(clipboardNote("剪贴板历史未开启，可在设置中开启"));
+            // 原来只有一句「可在设置中开启」，用户在键盘里看到的是一个空面板，以为剪贴板调不出来。开关就放在这里，和设置「隐私」里的「剪贴板历史」是同一项；默认仍是关，记录复制内容要用户自己点开。
+            notes.add(clipboardNote("剪贴板历史未开启\n开启后复制的文字会记在这里，只保存在本机"));
+            KeyboardPressButton enable = phraseButton(KeyboardKeyRole.RETURN, "开启剪贴板历史",
+                "开启剪贴板历史", s::enableClipboardHistory);
+            ViewPolicy.setEnabled(enable, !s.panelPreferenceSaving);
+            LayoutPolicy.setHorizontalPaddingDp(enable, s, 24);
+            LinearLayout.LayoutParams params = LayoutPolicy.wrapParams();
+            params.gravity = Gravity.CENTER_HORIZONTAL;
+            s.clipboardPanel.addView(enable, params);
         } else if (items == null) {
             notes.add(clipboardNote("历史记录无法读取，请清空后重试"));
         } else {

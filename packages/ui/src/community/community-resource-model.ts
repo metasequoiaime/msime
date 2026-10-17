@@ -43,6 +43,8 @@ export type CommunityLocalDictionaryClient = {
   ): Promise<{ applied: number }>;
   /** 宿主有命名词库时，把共享词库装成一个独立的词库（之后可以在「词库」里停用或删除），代替逐条导入本机词库。 */
   installCollection?(resource: CommunityResource): Promise<void>;
+  /** 宿主有命名词库时，发布词库前核对：`entries` 里哪些来自用户导入的搜狗细胞词库，回答它们的下标。这些词不能发布到社区。 */
+  thirdPartyMatches?(entries: CommunitySharedWord[]): Promise<number[]>;
 };
 
 export interface CommunityResourceClient {

@@ -156,6 +156,7 @@ export function CommunityResourcesPage({
           <CommunityResourceEditor
             client={client}
             kind={kind}
+            localDictionary={localDictionary}
             onClose={closeEditor}
             onPublished={onPublished}
           />
@@ -215,6 +216,7 @@ export function CommunityResourcesPage({
         <CommunityResourceEditor
           client={client}
           kind={kind}
+          localDictionary={localDictionary}
           onClose={closeEditor}
           onPublished={onPublished}
         />

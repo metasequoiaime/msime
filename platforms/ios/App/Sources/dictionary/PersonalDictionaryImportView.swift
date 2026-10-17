@@ -81,7 +81,7 @@ struct PersonalDictionaryImportView: View {
               .accessibilityIdentifier("choosePersonalDictionaryDictionaryFile")
           } footer: {
             Text(fileFormat == "scel"
-                 ? "搜狗细胞词库只取词和拼音，权重统一为默认值，只能导入拼音词库。无法导入的词会被跳过并在预览里按词序说明，每次最多导入 128 条，文件不超过 1 MB。"
+                 ? "搜狗细胞词库只取词和拼音，权重统一为默认值，只能导入拼音词库。无法导入的词会被跳过并在预览里按词序说明，每次最多导入 128 条，文件不超过 1 MB。细胞词库的整理成果属于原作者，导入的词只供你在本机使用，不能发布到社区。"
                  : "与电脑版设置页导入的是同一种文件：每行一条，用 Tab 分隔词、编码和可选的权重。标准格式词在前，Windows 格式编码在前；两列放反时会按文件本身的顺序读取。Rime 格式读取 userdb 导出或 dict.yaml 的词条部分。无法导入的行会被跳过并在预览里说明，每次最多导入 128 条，文件不超过 1 MB，需要 UTF-8 编码。")
           }
           .designRow()

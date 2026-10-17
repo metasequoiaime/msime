@@ -93,7 +93,11 @@ public abstract class DetailPage extends HomeTabFragment {
 
     @Override public void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
-        section = state == null ? initialSection() : state.getString("detail-section", initialSection());
+        Bundle args = getArguments();
+        // 深链带来的分类（HostDeepLink.ARG_SECTION）优先于 initialSection。
+        String requested = args == null ? null : args.getString(HostDeepLink.ARG_SECTION);
+        String first = requested != null && sectionTitles().contains(requested) ? requested : initialSection();
+        section = state == null ? first : state.getString("detail-section", first);
         if (!sectionTitles().contains(section) && !sectionTitles().isEmpty()) section = sectionTitles().get(0);
     }
 

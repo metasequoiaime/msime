@@ -607,6 +607,9 @@ struct CommunityResourceEditor: View {
               } catch { message = error.localizedDescription }
             }.disabled(code.isEmpty || word.isEmpty)
             Button("从词库 JSON 文件选择") { importing = true }
+            // iOS 把细胞词库导入个人词库时不记来源，没法像共享设置页那样逐条核对，只能写明规则。
+            Text("只发布你自己整理的词条。从搜狗细胞词库等第三方词库导入的词不能发布：它们的整理成果属于原作者，公开分享可能侵犯原作者的权利。")
+              .font(.caption).foregroundStyle(.secondary)
           }
           Section("待发布预览 · \(words.count)/128") {
             ForEach(words) { entry in
