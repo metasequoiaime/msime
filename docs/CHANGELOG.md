@@ -114,7 +114,7 @@
 #### 本地语音识别
 
 - 语音服务 `local` 改为基于 sherpa-onnx 的设备端识别，六个平台共用同一份模型目录与设置页。运行时 sherpa-onnx v1.13.8 按平台由 `resources/voice-runtime.lock.json` 固定 SHA-256，`scripts/fetch_voice_runtime.py` 校验后取回，宿主在首次识别时动态加载，缺少运行时的包照常启动、只把本地识别标为不可用。
-- 模型目录 `resources/local-asr-models.json` 提供四个模型：默认的中英流式 X-ASR（边说边出字，自带标点），同一模型的离线导出「中英整句」（`x-asr-zh-en-offline`，`offline_transducer`：经 Silero VAD 分段、每段 beam 16 解码，说话时不逐字出字，X-ASR 官方表上 WenetSpeech net/meeting 的 CER 比 480 ms 流式版低约两成），支持中英日韩粤的 SenseVoice-Small，以及仅桌面提供、约 1 GB 的 Fun-ASR-Nano。模型不随包分发，在设置页按需下载，逐文件校验长度与 SHA-256，完整就位后才写入 `msime-model.json`，下载可取消，也可配置 HTTPS 镜像（`voice_input.asr_model_mirror`）。
+- 模型目录 `resources/local-asr-models.json` 提供四个模型：默认的中英流式 X-ASR（边说边出字，自带标点），同一模型的离线导出「中英整句」（`x-asr-zh-en-offline`，`offline_transducer`：经 Silero VAD 分段、每段 beam 16 解码，说话时不逐字出字；本仓库评测上混合错误率 FLEURS 6.97% 对流式 7.18%，ASCEND 13.61% 对 13.95%），支持中英日韩粤的 SenseVoice-Small，以及仅桌面提供、约 1 GB 的 Fun-ASR-Nano。模型不随包分发，在设置页按需下载，逐文件校验长度与 SHA-256，完整就位后才写入 `msime-model.json`，下载可取消，也可配置 HTTPS 镜像（`voice_input.asr_model_mirror`）。
 - 用户词库里自己添加的拼音词条作为热词：X-ASR 与 Fun-ASR-Nano 原生使用，SenseVoice 在识别后按拼音做近音替换（`client-providers::voice::hotwords`，含 zh/z、n/l、an/ang 等模糊对）。
 - `voice_input.asr_model_path` 接受已安装的模型目录，Unix、Windows 盘符、UNC 等绝对路径写法在任何系统上都能通过校验，同一份偏好文件跨平台读取不再被拒。
 - 宿主接口新增 `msime_client_voice_hotwords`、`msime_client_voice_hotword_correct`、`msime_client_voice_local_models`、`msime_client_voice_local_model_install`、`msime_client_voice_local_model_cancel` 与 `msime_client_voice_local_model_remove`。
@@ -130,7 +130,7 @@
 - Android 与 HarmonyOS 的触屏录音不再在用户还在说话时自行结束：经 VAD 分段的模型只在一段说完后才出文字，原来「1.5 秒没有新文字就结束」会截断连续说话超过 1.5 秒的后半句，现在改看 VAD 是否在说话。
 - 不自带反向文本规整的模型（两个 X-ASR）在最终文本里把汉字数字改写成数字（二零零二年 → 2002年、百分之五十七 → 57%、下午三点十分 → 下午3点10分），一个、十分有趣、三四线这类词不动；宿主接口新增 `msime_client_voice_normalize_numbers`。规则在 `client-providers::voice::numbers`，宁可少改：只在百分数、年份、完整日期、时刻、带单位的小数、带位的整数和三位以上数字串这些确定是数的场合改写。
 - Android 与 HarmonyOS 支持按住空格说话：长按空格开始录音，松手结束并出结果，上滑到「松开取消」后松手取消。iOS 键盘扩展不能录音，长按空格仍是打开语音面板、转交主应用识别。
-- `scripts/voice_eval.py` 用公开测试集（FLEURS 普通话、ASCEND 中英混说）按混合错误率评测已安装的本地模型，基线记在 `resources/eval/voice-baseline.json`。
+- `scripts/voice_eval.py` 用公开测试集（FLEURS 普通话、ASCEND 中英混说）按混合错误率评测已安装的本地模型，基线记在 `resources/eval/voice-baseline.json`：数字规整让 FLEURS 上默认流式模型的混合错误率从 7.18% 降到 5.16%。
 
 #### 账号、云服务与联网行为
 
