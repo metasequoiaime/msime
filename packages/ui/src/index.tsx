@@ -1,4 +1,3 @@
-import { isComposingKeyEvent } from "./core/ime-key-event";
 import type { SettingsClient } from "./core/settings-client";
 import type { Preferences, Snapshot } from "./core/preferences-model";
 
@@ -14,8 +13,11 @@ import { desktopDownloadUrl, fallbackAppVersion } from "./settings/app-resources
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
 import { useSettingsPageRouting } from "./settings/use-settings-page-routing";
+import { useSettingsShellState } from "./settings/use-settings-shell-state";
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
+import { SettingsNavigationSearch } from "./settings/settings-navigation-search";
+import { settingsShellPlatformPresentation } from "./settings/settings-shell-platform-presentation";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
@@ -43,7 +45,7 @@ import {
   settingsThemePreferences,
 } from "./settings/settings-theme-preferences";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 export type {
   DictionaryEntry,
   DictionaryPageFormat,
@@ -241,6 +243,7 @@ export {
   type NoticesClient,
 } from "./settings/notice-banner";
 export { settingsPageEnvironment } from "./settings/settings-page-environment";
+export { useSettingsShellState, type SettingsShellView } from "./settings/use-settings-shell-state";
 export {
   settingsPlatformPresentation,
   type SettingsPlatformPresentationOptions,
@@ -252,6 +255,10 @@ export {
   type SettingsPageTitleItem,
 } from "./settings/settings-page-view-model";
 export { SettingsPageStatus, type SettingsPageStatusProps } from "./settings/settings-page-status";
+export {
+  SettingsNavigationSearch,
+  type SettingsNavigationSearchProps,
+} from "./settings/settings-navigation-search";
 export { SettingsFormFooter, type SettingsFormFooterProps } from "./settings/settings-form-footer";
 export { FeedbackChannels, type FeedbackChannelsProps } from "./settings/feedback-channels";
 export {
@@ -481,7 +488,7 @@ import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-he
 import { logo } from "./settings/settings-options";
 import { CommunitySkinsPage } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
-import type { CommunityResource, CommunitySharedWord } from "./community/community-resource-model";
+import { createCommunityLocalDictionary } from "./community/community-resource-actions";
 import { CommunityResourcesPage } from "./community/community-resources";
 import { CommunityPluginsPage } from "./community/community-plugins";
 import * as communityStyle from "./community/community-style";
@@ -1509,6 +1516,7 @@ export {
   CommunityResourceEditor,
   type CommunityResourceEditorProps,
 } from "./community/community-resource-editor";
+export { createCommunityLocalDictionary } from "./community/community-resource-actions";
 export type {
   CommunityLocalDictionaryClient,
   CommunityResource,
@@ -2921,14 +2929,6 @@ export function SettingsPage(props: SettingsPageProps) {
 function SettingsShell(props: SettingsPageProps) {
   const { onReplayOnboarding } = props;
   const model = useSettingsPageModel(props);
-  // The 插件 page shows either the installed packs (a page of the settings form) or the community gallery, which has its own search form and so is drawn outside the settings one.
-  const [pluginView, setPluginView] = useState<"mine" | "community">("mine");
-  // 主题 does the same on desktop: the installed candidate-window skins with the theme settings, or the community gallery of them.
-  const [skinView, setSkinView] = useState<"mine" | "community">("mine");
-  // Filters the sidebar by page name; the model does not need it, since it never leaves the shell.
-  const [navQuery, setNavQuery] = useState("");
-  // The phone page that has scrolled its large title away, which brings in the compact bar. Keyed by page so that arriving on another page, which opens at its top, never inherits the bar.
-  const [titleCollapsedOn, setTitleCollapsedOn] = useState<string | null>(null);
   const {
     client,
     confirmation,
@@ -2990,25 +2990,49 @@ function SettingsShell(props: SettingsPageProps) {
     communityTabs,
     currentAppVersion,
   } = model;
-  // 对话页第一次打开后就一直挂着（见下方渲染处），切走只隐藏。
-  const [chatMounted, setChatMounted] = useState(page === "chat");
-  // 首页「试用键盘」打开对话页时加一，对话页随即聚焦输入框、弹出键盘；从「AI 辅助」进入不加，不弹键盘。
-  const [chatFocusRequest, setChatFocusRequest] = useState(0);
-  useEffect(() => {
-    if (page === "chat") setChatMounted(true);
-  }, [page]);
-  // 任一种 HarmonyOS 外观（手机或 2-in-1）：两者都用应用主题着色，并带有设计稿的 toast。
-  const harmonyLook = settingsPlatform === "harmony" || settingsPlatform === "hm2";
-  // HarmonyOS 手机外观：推入标签页的每个页面都带返回按钮并会滑入，另外三个标签页使用更紧凑的标签页列表。
-  const harmonyPhone = settingsPlatform === "harmony" && mobilePlatform;
-  const tabRootPage = mobilePrimaryPageIds.includes(page as MobilePrimaryPageId);
-  const pushedPage = harmonyPhone && !tabRootPage;
-  // 「试用键盘」是一页对话：对话区在页面内滚动，输入栏贴着内容区底部，和 Android 的试用页一样不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。
-  const fillsContent = mobilePlatform && page === "try-keyboard";
-  // 触屏上的 AI 对话同样是一页对话，内容区撑满、输入栏贴底。它是「AI 辅助」的二级页，原来照常显示底部标签栏，键盘弹起时标签栏夹在输入栏和键盘之间；现在和试用页一样不带标签栏，输入栏自己让出手势区（`touchComposer`）。
-  const contentFills = fillsContent || (mobilePlatform && page === "chat");
-  const pageColumnRef = useRef<HTMLDivElement>(null);
-  const launchPage = useRef(page);
+  const {
+    pluginView,
+    setPluginView,
+    skinView,
+    setSkinView,
+    navQuery,
+    setNavQuery,
+    titleCollapsedOn,
+    setTitleCollapsedOn,
+    chatMounted,
+    chatFocusRequest,
+    setChatFocusRequest,
+    pageColumnRef,
+    launchPage,
+  } = useSettingsShellState(page);
+  const shellPresentation = settingsShellPlatformPresentation({
+    settingsPlatform,
+    mobilePlatform,
+    mobileActiveTab,
+    page,
+    hasWindowControl: Boolean(client.windowControl),
+    hasWindowDrag: Boolean(client.beginWindowDrag),
+    availablePages,
+    untitledOnPhone,
+  });
+  const {
+    harmonyLook,
+    harmonyThemePlatform,
+    harmonyPhone,
+    tabRootPage,
+    pushedPage,
+    contentFills,
+    macShell,
+    linuxShell,
+    ipadShell,
+    ipadSidebarShown,
+    titlebarShown,
+    pageTitle,
+    collapsingTitle,
+    searchInTitlebar,
+    searchInSidebar,
+    sidebarBrandShown,
+  } = shellPresentation;
   // 从一个推入页面再推入的页面（反馈 到 帮助）会保留内容列的动画类，所以要重启动画，而不是让它停在已结束的状态。用重启动画而不是按页面给内容列设 key，能让表单页面像在其他宿主上一样保持挂载、保留状态。
   useLayoutEffect(() => {
     const column = pageColumnRef.current;
@@ -3020,28 +3044,10 @@ function SettingsShell(props: SettingsPageProps) {
   }, [page, pushedPage]);
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   // 社区图库「添加」词库的去处：宿主有命名词库时装成一个独立的词库，否则导入本机词库。「社区」页和功能页里的图库共用。宿主能核对第三方词库时，发布词库前用它拦下来自搜狗细胞词库的词。
-  const thirdPartyCheck = client.dictionaryCollections?.thirdPartyMatches;
-  const communityLocalDictionary = client.dictionaryCollections
-    ? {
-        ...client.dictionary,
-        installCollection: async (resource: CommunityResource) => {
-          await client.dictionaryCollections?.installCommunity(resource);
-        },
-        ...(thirdPartyCheck && {
-          thirdPartyMatches: async (entries: CommunitySharedWord[]) =>
-            (
-              await thirdPartyCheck(
-                entries.map((entry) => ({
-                  kind: entry.kind === "quick" ? ("quickPhrase" as const) : entry.kind,
-                  key: entry.code,
-                  value: entry.word,
-                  weight: entry.weight,
-                })),
-              )
-            ).third_party_matches ?? [],
-        }),
-      }
-    : client.dictionary;
+  const communityLocalDictionary = createCommunityLocalDictionary(
+    client.dictionary,
+    client.dictionaryCollections,
+  );
   const recordCommunitySkin = (id: string) => {
     void client.typingStatistics?.recordSkin?.(id);
   };
@@ -3073,10 +3079,6 @@ function SettingsShell(props: SettingsPageProps) {
     openHandwriting: client.openHandwriting,
     restoreDefaults,
   });
-  const winShell = settingsPlatform === "win";
-  const macShell = settingsPlatform === "mac";
-  const linuxShell = settingsPlatform === "linux";
-  const ipadShell = settingsPlatform === "ipad";
   const { onWindowPointerDownCapture, windowDragHandlers, keepPointer } =
     useSettingsWindowInteractions({
       windowControl: client.windowControl,
@@ -3086,12 +3088,6 @@ function SettingsShell(props: SettingsPageProps) {
       macShell,
       onError: setError,
     });
-  // An iPad shows the settings split only on the 设置 tab; the other three tabs take the whole width.
-  const ipadSidebarShown = mobileActiveTab === "home";
-  // macOS keeps its native traffic lights over the page (an overlay title bar), and a phone's frame belongs to the OS, so only the platforms that draw their own caption get one. The host still exposes the window commands on mobile because the same Tauri app binary backs both, so the presence of a command is not the question -- the platform is.
-  const titlebarShown =
-    !mobilePlatform && !macShell && Boolean(client.windowControl || client.beginWindowDrag);
-  const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "输入";
   // A community gallery stands in for the page's own settings, so the form's page-level actions do not apply while it is shown.
   const skinCommunityShown =
     (page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community") ||
@@ -3111,17 +3107,6 @@ function SettingsShell(props: SettingsPageProps) {
     launchPage.current = up;
     selectPage(up, true);
   };
-  // A phone collapses the large title into a compact bar on the 设置 tab's pages, the way the design does; the other tabs and the untitled pages have no large title to collapse.
-  const collapsingTitle =
-    mobilePlatform &&
-    mobileActiveTab === "home" &&
-    !untitledOnPhone.includes(page) &&
-    !fillsContent;
-  // The design searches in the Windows caption and at the top of the macOS and HarmonyOS 2-in-1 sidebars; GNOME has none. A Windows window without a caption (a browser preview) keeps the search in the sidebar so the filter is still reachable.
-  const searchInTitlebar = winShell && titlebarShown;
-  const searchInSidebar =
-    macShell || settingsPlatform === "hm2" || ipadShell || (winShell && !titlebarShown);
-  const sidebarBrandShown = !mobilePlatform && !titlebarShown;
   const navNeedle = navQuery.trim().toLocaleLowerCase();
   // iPad 的标签栏已有社区、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
   const shownSidebarGroups = navNeedle
@@ -3133,35 +3118,12 @@ function SettingsShell(props: SettingsPageProps) {
         .filter((group) => group.pages.length > 0)
     : sidebarGroups;
   const navSearchField = (
-    <>
-      <svg
-        className={settings.searchGlyph}
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        aria-hidden="true"
-      >
-        <circle cx="7" cy="7" r="5" />
-        <path d="m11 11 3.5 3.5" />
-      </svg>
-      <input
-        type="search"
-        className={settings.searchInput}
-        aria-label="搜索设置"
-        placeholder="搜索"
-        value={navQuery}
-        onChange={(event) => setNavQuery(event.target.value)}
-        onKeyDown={(event) => {
-          if (isComposingKeyEvent(event)) return;
-          if (event.key === "Escape") setNavQuery("");
-          if (event.key !== "Enter") return;
-          const first = shownSidebarGroups[0]?.pages[0];
-          if (first) selectPage(first.id);
-        }}
-      />
-    </>
+    <SettingsNavigationSearch
+      groups={shownSidebarGroups}
+      value={navQuery}
+      onChange={setNavQuery}
+      onSelectPage={selectPage}
+    />
   );
   return (
     <div
@@ -3170,7 +3132,11 @@ function SettingsShell(props: SettingsPageProps) {
       // The platform's accent and the `--p-*` tokens the platform primitives read hang off this attribute.
       data-platform={settingsPlatform}
       // HarmonyOS 应用主题以内联方式在同一个元素上为 token 表重新着色，优先级高于 `[data-platform]` 规则；没有解析出主题时这里为空，沿用 token 表自己的颜色。
-      style={harmonyLook ? appThemeStyle(resolvedAppTheme, dark, settingsPlatform) : undefined}
+      style={
+        harmonyThemePlatform
+          ? appThemeStyle(resolvedAppTheme, dark, harmonyThemePlatform)
+          : undefined
+      }
       data-season={seasonAttr(resolvedAppTheme)}
       // Marks the phone navigation. It no longer carries a palette: the `[data-platform]` rules in styles.css cover the phone hosts too.
       data-mobile={mobilePlatform ? "" : undefined}

@@ -46,6 +46,13 @@ final class ImePanels {
         this.s = s;
     }
 
+    void invalidateReplyTemplateReads() {
+        ReplyTemplateLifecyclePolicy.Generations next =
+            ReplyTemplateLifecyclePolicy.advanceOnPanelClose(replyReadGeneration, replyMenuReadGeneration);
+        replyReadGeneration = next.replyRead();
+        replyMenuReadGeneration = next.menuRead();
+    }
+
     void showLocalInputMenu() {
         if (s.preedit == null || !s.supportsLocalTools() || s.view == null
                 || !InputViewValuePolicy.editingText(s.view).isEmpty()
@@ -284,7 +291,7 @@ final class ImePanels {
             renderReplyKeyboard();
             return;
         }
-        int generation = ++replyReadGeneration;
+        int generation = replyReadGeneration = ReplyTemplateLifecyclePolicy.advance(replyReadGeneration);
         if (style != null && style.startsWith("community:")) {
             final CommunityReplyLibrary library = s.communityReplyLibrary;
             s.preferencesWorker.execute(() -> {
@@ -292,7 +299,8 @@ final class ImePanels {
                 try { templates = library == null ? java.util.List.of() : library.read(); }
                 catch (java.io.IOException error) {
                     s.main.post(() -> {
-                        if (generation == replyReadGeneration) {
+                        if (ReplyTemplateLifecyclePolicy.accepts(generation, replyReadGeneration,
+                                s.replyOpen, ViewPolicy.isVisible(s.replyKeyboard))) {
                             s.replyModel.showStatus("回复模板无法读取，请重试");
                             renderReplyKeyboard();
                         }
@@ -300,7 +308,9 @@ final class ImePanels {
                     return;
                 }
                 s.main.post(() -> {
-                    if (generation == replyReadGeneration) generateReplyLoaded(style, templates);
+                    if (ReplyTemplateLifecyclePolicy.accepts(generation, replyReadGeneration,
+                            s.replyOpen, ViewPolicy.isVisible(s.replyKeyboard)))
+                        generateReplyLoaded(style, templates);
                 });
             });
             return;
@@ -359,7 +369,8 @@ final class ImePanels {
             try { templates = library == null ? java.util.List.of() : library.read(); }
             catch (java.io.IOException error) {
                 s.main.post(() -> {
-                    if (generation == replyMenuReadGeneration) {
+                    if (ReplyTemplateLifecyclePolicy.accepts(generation, replyMenuReadGeneration,
+                            s.replyOpen, ViewPolicy.isVisible(s.replyKeyboard))) {
                         s.replyModel.showStatus("回复模板无法读取，请重试");
                         renderReplyKeyboard();
                     }
@@ -367,7 +378,9 @@ final class ImePanels {
                 return;
             }
             s.main.post(() -> {
-                if (generation == replyMenuReadGeneration) showReplyTemplatesLoaded(templates);
+                if (ReplyTemplateLifecyclePolicy.accepts(generation, replyMenuReadGeneration,
+                        s.replyOpen, ViewPolicy.isVisible(s.replyKeyboard)))
+                    showReplyTemplatesLoaded(templates);
             });
         });
     }

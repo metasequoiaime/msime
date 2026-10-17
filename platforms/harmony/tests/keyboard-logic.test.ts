@@ -4843,12 +4843,19 @@ group("keeps Engine candidate selection independent from row order", () => {
 
 group("keeps candidate source badges bounded to known Engine sources", () => {
   check(CandidatePresentationPolicy.badge(2) === " ☁️", "cloud candidates get a cloud badge");
-  check(CandidatePresentationPolicy.badge(15) === "", "cloud placeholders use their cloud glyph");
+  check(CandidatePresentationPolicy.badge(15) === "", "cloud placeholders carry no badge");
   check(CandidatePresentationPolicy.badge(3) === " 🤖", "AI candidates get a robot badge");
   check(CandidatePresentationPolicy.badge(0) === "", "local candidates stay unbadged");
   check(CandidatePresentationPolicy.badge(12) === "", "the AI placeholder carries no badge");
   check(CandidatePresentationPolicy.aiPlaceholder(12), "source 12 is the AI placeholder");
   check(!CandidatePresentationPolicy.aiPlaceholder(3), "a real AI candidate is not a placeholder");
+  check(!CandidatePresentationPolicy.isVisible(15), "cloud pending rows stay out of the keyboard");
+  check(CandidatePresentationPolicy.isVisible(2), "answered cloud candidates remain visible");
+  check(
+    JSON.stringify(CandidatePresentationPolicy.visibleIndices([15, 0, 2, 15, 3])) ===
+      JSON.stringify([1, 2, 4]),
+    "visible positions map back to Engine indexes",
+  );
 });
 
 group("offers all fixed candidate slots and checks the active one", () => {

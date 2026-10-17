@@ -83,6 +83,8 @@ public enum PageId {
         "导出备份", "从备份恢复", "导入数据", "导出数据", "本地备份", "换手机"),
     DEVICES("DevicesPage", "我的设备", HostDeepLink.TAB_ACCOUNT,
         "设备"),
+    QQ_LINKS("QqLinksPage", "绑定 QQ 群助手", HostDeepLink.TAB_ACCOUNT,
+        "QQ", "绑定码", "解绑", "/stats", "群助手"),
     PRIVACY("PrivacyPage", "隐私", HostDeepLink.TAB_ACCOUNT,
         "本地优先", "联网功能", "本机数据", "剪贴板历史", "匿名使用统计", "用水杉账号翻译候选", "隐私模式",
         "隐私政策"),

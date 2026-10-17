@@ -16,7 +16,9 @@ use crate::dictionary::DictRow;
 use crate::error::{EngineError, Result};
 use crate::ime::online_batch::replace_online_candidate_batch;
 use crate::lattice::decode::{decode_pinned, BigramMemo, PinnedSpan, SentenceNgramTables};
-use crate::lattice::merge::{merge_lattice_candidates, whole_sentence_insert_position};
+use crate::lattice::merge::{
+    merge_lattice_candidates, merge_lattice_candidates_borrowed, whole_sentence_insert_position,
+};
 use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
 };
@@ -983,10 +985,7 @@ impl QuanpinDictionary {
         let span_limit = options.span_limit;
         let database = &self.database;
         let span_cache = &mut self.typo_span_cache;
-        let lattice_spans = &mut self.lattice_span_cache;
         let profile = &*self.typo_profile;
-        let mut lookup =
-            |span: &[String]| cached_lattice_span(database, lattice_spans, span, span_limit);
         let mut typo_edges = |literal_best: &SentencePath| {
             collect_typo_edges(database, span_cache, profile, segments, literal_best, types)
         };
@@ -995,16 +994,45 @@ impl QuanpinDictionary {
         } else {
             None
         };
-        let typo = merge_lattice_candidates(
-            result,
-            segments,
-            &mut lookup,
-            typed,
-            &options,
-            typo_source,
-            &mut self.rerankers,
-            &self.rescoring_context,
-        );
+        let span_count = lattice_span_count(segments.len(), options.max_phrase_syllables);
+        let typo = if span_count <= LATTICE_SPAN_CACHE_CAPACITY {
+            warm_lattice_span_cache(
+                database,
+                &mut self.lattice_span_cache,
+                segments,
+                span_limit,
+                options.max_phrase_syllables,
+            );
+            let lattice_spans = &self.lattice_span_cache;
+            let mut lookup = |span: &[String]| {
+                cached_lattice_span_ref(lattice_spans, span, span_limit)
+                    .expect("warmed lattice span cache entry")
+            };
+            merge_lattice_candidates_borrowed(
+                result,
+                segments,
+                &mut lookup,
+                typed,
+                &options,
+                typo_source,
+                &mut self.rerankers,
+                &self.rescoring_context,
+            )
+        } else {
+            let lattice_spans = &mut self.lattice_span_cache;
+            let mut lookup =
+                |span: &[String]| cached_lattice_span(database, lattice_spans, span, span_limit);
+            merge_lattice_candidates(
+                result,
+                segments,
+                &mut lookup,
+                typed,
+                &options,
+                typo_source,
+                &mut self.rerankers,
+                &self.rescoring_context,
+            )
+        };
 
         // A sentence that reads one or more syllables as a typo of another. It leads only when it beats the literal sentence by the lead margin per typo; otherwise it follows the whole-sentence rows, so a correction is offered without displacing what was typed.
         let Some(typo) = typo else {
@@ -1342,6 +1370,71 @@ fn cached_lattice_span(
         },
     );
     rows
+}
+
+fn ensure_cached_lattice_span(
+    database: &PinyinDatabase,
+    cache: &mut FifoCache<u64, CachedLatticeSpan>,
+    span: &[String],
+    span_limit: usize,
+) {
+    let hash = lattice_span_cache_hash(span_limit, span);
+    if let Some(cached) = cache.get_ref(&hash) {
+        if lattice_span_cache_key_matches(cached, span_limit, span) {
+            // 预热批次可能命中上一轮缓存；把命中项移到队尾，避免后续冷跨度插入时把本轮早先命中的项驱逐，导致借用查询找不到刚预热的行。
+            let cached = cache
+                .remove(&hash)
+                .expect("lattice span cache hit disappeared");
+            cache.insert(hash, cached);
+            return;
+        }
+    }
+    let rows = database.query_lattice_span(span, span_limit);
+    let mut key = String::with_capacity(span.iter().map(|syllable| syllable.len() + 1).sum());
+    for syllable in span {
+        key.push('\'');
+        key.push_str(syllable);
+    }
+    cache.insert(
+        hash,
+        CachedLatticeSpan {
+            span_limit,
+            span: key,
+            rows,
+        },
+    );
+}
+
+fn cached_lattice_span_ref<'a>(
+    cache: &'a FifoCache<u64, CachedLatticeSpan>,
+    span: &[String],
+    span_limit: usize,
+) -> Option<&'a [DictRow]> {
+    let hash = lattice_span_cache_hash(span_limit, span);
+    let cached = cache.get_ref(&hash)?;
+    lattice_span_cache_key_matches(cached, span_limit, span).then_some(cached.rows.as_slice())
+}
+
+fn warm_lattice_span_cache(
+    database: &PinyinDatabase,
+    cache: &mut FifoCache<u64, CachedLatticeSpan>,
+    syllables: &[String],
+    span_limit: usize,
+    max_phrase_syllables: usize,
+) {
+    let max_len = max_phrase_syllables.max(1);
+    for start in 0..syllables.len() {
+        for end in start + 1..=syllables.len().min(start + max_len) {
+            ensure_cached_lattice_span(database, cache, &syllables[start..end], span_limit);
+        }
+    }
+}
+
+fn lattice_span_count(syllable_count: usize, max_phrase_syllables: usize) -> usize {
+    let max_len = max_phrase_syllables.max(1);
+    (0..syllable_count)
+        .map(|start| syllable_count.min(start.saturating_add(max_len)) - start)
+        .sum()
 }
 
 fn lattice_span_cache_hash(span_limit: usize, span: &[String]) -> u64 {

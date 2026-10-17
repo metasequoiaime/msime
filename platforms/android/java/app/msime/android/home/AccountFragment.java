@@ -281,6 +281,11 @@ public final class AccountFragment extends HomeTabFragment {
         String devices = !signedIn ? "—" : online == null || online.devices() < 0 ? null : online.devices() + " 台";
         row(group, R.drawable.ic_ms_devices, "我的设备", null, devices,
             signedIn ? () -> SettingsNavigator.open(context, PageId.DEVICES, null) : null);
+        // 绑定后在 QQ 群里发 /stats 看打字数据；只有真实账号能绑定。
+        LinearLayout qq = row(group, R.drawable.ic_ms_link, "绑定 QQ 群助手",
+            real ? "在群里发 /stats 查看打字数据" : "登录后可用", null,
+            real ? () -> SettingsNavigator.open(context, PageId.QQ_LINKS, null) : null);
+        if (!real) ViewPolicy.setEnabledWithAlpha(qq, false, 0.38f);
     }
 
     private void setSync(boolean enabled) {

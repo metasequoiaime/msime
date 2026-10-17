@@ -380,6 +380,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidateAnnotations: [String] = []
   private var visibleCandidateSources: [Int] = []
   private var visibleCandidateFixedPositions: [Int] = []
+  /// 候选条隐藏云占位行后，显示序号对应的 Engine 当前页索引。
+  private var visibleCandidateEngineIndices: [Int] = []
   private var visibleCandidatePageCount = 0
   private var appliedCandidateColumnWidth: CGFloat = 0
   private var visibleCandidatesAnsweredByPinyinFallback = false
@@ -5657,7 +5659,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if inputScheme.isJapanese && hasComposition {
       let index = japaneseConversionIndex
       japaneseConversionIndex = nil
-      render(index.map { session.selectCandidate(at: UInt($0)) } ?? session.commitReading())
+      render(index.flatMap { visibleCandidateEngineIndices.indices.contains($0) ?
+        session.selectCandidate(at: UInt(visibleCandidateEngineIndices[$0])) : nil }
+        ?? session.commitReading())
       return
     }
     let snapshot = endComposition(at: .returnKey)
@@ -5939,15 +5943,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         drawsKeysAsGlyphs: isChineseMode && inputScheme.drawsKeysAsGlyphs, phrasePrefix: snapshot.phrasePrefix, preedit: shownPreedit,
         editingText: snapshot.editingText, japaneseReading: japaneseReading)
       : "")
+    let visibleIndices = CandidateMarker.visibleIndices(sources: snapshot.candidateSources)
+    func visibleValues<T>(_ values: [T]) -> [T] {
+      visibleIndices.compactMap { values.indices.contains($0) ? values[$0] : nil }
+    }
     updateCandidateStrip(
                          preedit: composing,
-                         candidates: snapshot.candidates,
-                         candidateCodes: snapshot.candidateCodes,
-                         candidateGlosses: snapshot.candidateGlosses,
-                         candidateAnnotations: snapshot.candidateAnnotations,
-                         candidateSources: snapshot.candidateSources,
-                         candidateFixedPositions: snapshot.candidateFixedPositions,
+                         candidates: visibleValues(snapshot.candidates),
+                         candidateCodes: visibleValues(snapshot.candidateCodes),
+                         candidateGlosses: visibleValues(snapshot.candidateGlosses),
+                         candidateAnnotations: visibleValues(snapshot.candidateAnnotations),
+                         candidateSources: visibleValues(snapshot.candidateSources),
+                         candidateFixedPositions: visibleValues(snapshot.candidateFixedPositions),
                          candidatePageCount: snapshot.candidatePageCount,
+                         candidateEngineIndices: visibleIndices,
                          answeredByPinyinFallback: snapshot.answeredByPinyinFallback)
     // The Hanja list opens and closes while the syllable keeps composing, and Return chooses a Hanja only while it is open.
     if !inputScheme.isJapanese && koreanHanjaListOpen != wasKoreanHanjaListOpen { updateReturnKey() }
@@ -5983,6 +5992,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                     candidateCodes: [String] = [], candidateGlosses: [String] = [],
                                     candidateAnnotations: [String] = [], candidateSources: [Int] = [],
                                     candidateFixedPositions: [Int] = [], candidatePageCount: Int = 0,
+                                    candidateEngineIndices: [Int]? = nil,
                                     answeredByPinyinFallback: Bool = false) {
     // 光标前打到 `xxx@` 时邮箱后缀占候选条，排在英文建议之前，与 Android 一样；它们不是 Engine 的候选，不带编码、释义和来源。
     let emailSuffixes = emailSuffixesForStrip(preedit: preedit)
@@ -5999,6 +6009,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     visibleCandidateAnnotations = showsEmailSuffixes ? [] : candidateAnnotations
     visibleCandidateSources = showsEmailSuffixes ? [] : candidateSources
     visibleCandidateFixedPositions = showsEmailSuffixes ? [] : candidateFixedPositions
+    if showsEmailSuffixes || candidates.isEmpty {
+      visibleCandidateEngineIndices = []
+    } else if let candidateEngineIndices, candidateEngineIndices.count == candidates.count {
+      visibleCandidateEngineIndices = candidateEngineIndices
+    } else if candidateSources.isEmpty && visibleCandidateEngineIndices.count == candidates.count {
+      // 光标变化只重算邮箱后缀，保留当前 Engine 候选的索引映射。
+    } else {
+      visibleCandidateEngineIndices = Array(candidates.indices)
+    }
     visibleCandidatePageCount = showsEmailSuffixes ? 0 : candidatePageCount
     visibleCandidatesAnsweredByPinyinFallback = showsEmailSuffixes ? false : answeredByPinyinFallback
     requestCandidateTranslations()
@@ -6492,7 +6511,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       useEnglishSuggestion(at: index)
       return
     }
-    render(session.selectCandidate(at: UInt(index)))
+    guard visibleCandidateEngineIndices.indices.contains(index) else { return }
+    render(session.selectCandidate(at: UInt(visibleCandidateEngineIndices[index])))
   }
 
   private func candidateColumnWidth() -> CGFloat {
@@ -6700,12 +6720,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       guard let self, candidateRevision == revision,
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
-      return session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
+      guard visibleCandidateEngineIndices.indices.contains(index) else { return nil }
+      return session.editCandidate(at: UInt(visibleCandidateEngineIndices[index]), expectedWord: candidate, action: operation)
     }
     let edges = wordCharacterMenuElements(candidate: candidate) { [weak self] last in
       guard let self, candidateRevision == revision,
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
-      return session.selectCandidateEdge(at: UInt(index), last: last)
+      guard visibleCandidateEngineIndices.indices.contains(index) else { return nil }
+      return session.selectCandidateEdge(at: UInt(visibleCandidateEngineIndices[index]), last: last)
     }
     return edges + glosses + management
   }
