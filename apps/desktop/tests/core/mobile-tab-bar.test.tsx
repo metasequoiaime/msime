@@ -218,23 +218,24 @@ test("each phone tab remembers where the user left it", async () => {
   );
 });
 
-// AI 对话属于打开它的设置栈，返回保留来源。
+// AI 对话属于打开它的设置栈，返回保留来源；二级对话页不带底部标签栏，返回后标签栏回来。
 test("AI chat opens as a secondary page from AI settings", async () => {
   mount("ai");
   await settingsFormReady();
   fireEvent.click(await screen.findByRole("button", { name: /^AI 对话/ }));
   expect(await screen.findByRole("region", { name: "AI 对话" })).toBeTruthy();
   expect(window.history.state?.page).toBe("chat");
+  expect(screen.queryByRole("navigation", { name: "主要功能" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "返回" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "AI 辅助" })).toBeTruthy();
   const bar = screen.getByRole("navigation", { name: "主要功能" });
   expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
     "page",
   );
-  fireEvent.click(screen.getByRole("button", { name: "返回" }));
-  expect(await screen.findByRole("heading", { level: 1, name: "AI 辅助" })).toBeTruthy();
 });
 
-// 二级聊天切换标签后保留草稿，聚焦与失焦都保留底部导航。
-test("secondary chat preserves its draft and navigation while typing", async () => {
+// 二级聊天返回后再进来保留草稿，聚焦与失焦都不显示底部标签栏。
+test("secondary chat preserves its draft without the tab bar while typing", async () => {
   mount("ai");
   await settingsFormReady();
   fireEvent.click(await screen.findByRole("button", { name: /^AI 对话/ }));
@@ -242,18 +243,18 @@ test("secondary chat preserves its draft and navigation while typing", async () 
   expect(document.activeElement).not.toBe(composer);
   fireEvent.change(composer, { target: { value: "合成草稿" } });
   fireEvent.focus(composer);
-  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  expect(screen.queryByRole("navigation", { name: "主要功能" })).toBeNull();
   fireEvent.blur(composer);
-  expect(screen.getByRole("navigation", { name: "主要功能" })).toBeTruthy();
-  fireEvent.click(within(bar).getByRole("button", { name: "统计" }));
-  expect(await screen.findByRole("heading", { level: 1, name: "统计" })).toBeTruthy();
-  fireEvent.click(within(bar).getByRole("button", { name: "设置" }));
-  expect((screen.getByRole("textbox", { name: "聊天消息" }) as HTMLTextAreaElement).value).toBe(
-    "合成草稿",
-  );
+  expect(screen.queryByRole("navigation", { name: "主要功能" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "返回" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "AI 辅助" })).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: /^AI 对话/ }));
+  expect(
+    ((await screen.findByRole("textbox", { name: "聊天消息" })) as HTMLTextAreaElement).value,
+  ).toBe("合成草稿");
 });
 
-test("试用键盘 opens secondary chat with the keyboard and tabs visible", async () => {
+test("试用键盘 opens secondary chat with the keyboard and no tab bar", async () => {
   mount();
   await settingsFormReady();
   fireEvent.click(
@@ -264,11 +265,11 @@ test("试用键盘 opens secondary chat with the keyboard and tabs visible", asy
   expect(await screen.findByRole("region", { name: "AI 对话" })).toBeTruthy();
   const composer = screen.getByRole("textbox", { name: "聊天消息" });
   expect(document.activeElement).toBe(composer);
-  expect(screen.getByRole("navigation", { name: "主要功能" })).toBeTruthy();
+  expect(screen.queryByRole("navigation", { name: "主要功能" })).toBeNull();
   expect(screen.getByRole("button", { name: "返回" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "收起键盘" }));
   expect(document.activeElement).not.toBe(composer);
-  expect(screen.getByRole("navigation", { name: "主要功能" })).toBeTruthy();
+  expect(screen.queryByRole("navigation", { name: "主要功能" })).toBeNull();
 });
 
 // 设置没补完时打出来的不是水杉，对话顶栏带用户去补完；都好了就不占位置。
