@@ -1,7 +1,16 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import {
   SettingsPage,
   type AccountClient,
@@ -10,11 +19,33 @@ import {
   type CommunitySkinClient,
   type Snapshot,
 } from "@msime/ui";
+import { useCommunityGallerySubview } from "../../../../packages/ui/src/settings/use-community-gallery-subview";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   window.history.replaceState({}, "");
+});
+
+test("desktop callers do not create a mobile gallery history entry", () => {
+  window.history.replaceState({ page: "skin" }, "");
+  const selectPage = vi.fn();
+  const { result } = renderHook(() =>
+    useCommunityGallerySubview({
+      mobile: false,
+      page: "skin",
+      selectPage,
+      hasSkins: true,
+    }),
+  );
+
+  act(() => {
+    result.current.openCommunityGallery({ category: "skin", scope: "", initialMine: false });
+  });
+
+  expect(window.history.state).toEqual({ page: "skin" });
+  expect(result.current.communityGallery).toBeNull();
+  expect(selectPage).toHaveBeenCalledWith("skin");
 });
 
 const initial: Snapshot = {

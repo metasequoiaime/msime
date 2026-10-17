@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import type {
   CommunityDestinationCategory,
   CommunityDestinationView,
 } from "../community/community-destination";
-import { pushMobileSettingsState } from "./mobile-navigation";
 import type { SettingsPageId } from "./settings-page-registry";
-import { useMobilePopState } from "./use-mobile-pop-state";
+import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
 
 /** 触屏宿主上一个打开着的完整社区图库：哪一类（皮肤、词库、回复模板），以及打开时的范围。 */
 export type CommunityGalleryView = CommunityDestinationView;
@@ -50,17 +49,30 @@ export function useCommunityGallerySubview({
   selectPage,
   hasSkins,
 }: CommunityGallerySubviewOptions) {
-  const [gallery, setGallery] = useState<CommunityGalleryView | null>(null);
-  useMobilePopState(mobile, (event) => {
-    const state = event.state as Record<string, unknown> | null;
-    const view = galleryView(state?.communityGallery);
-    setGallery(view && state?.page === communityGalleryPage(view.category) ? view : null);
+  const {
+    value: gallery,
+    open: openGallery,
+    close: closeGallery,
+    reset: resetGallery,
+  } = useMobileSettingsSubview<CommunityGalleryView>({
+    mobile,
+    stateKey: "communityGallery",
+    decode: (state) => {
+      const view = galleryView(state?.communityGallery);
+      return view && state?.page === communityGalleryPage(view.category) ? view : null;
+    },
+    encode: (view) => ({ page: communityGalleryPage(view.category), communityGallery: view }),
+    isActiveState: (state) => Boolean(state?.communityGallery),
   });
+  // 页面切换时图库随之关闭；不会影响浏览器历史记录，返回手势仍按当前记录恢复。
+  const previousPage = useRef(page);
   useEffect(() => {
-    setGallery((current) =>
-      current && communityGalleryPage(current.category) === page ? current : null,
-    );
-  }, [page]);
+    if (previousPage.current === page) return;
+    previousPage.current = page;
+    if (gallery && communityGalleryPage(gallery.category) !== page) resetGallery();
+  }, [gallery, page, resetGallery]);
+
+  const visibleGallery = mobile ? gallery : null;
 
   const openCommunityGallery = (requested: CommunityGalleryView) => {
     const view: CommunityGalleryView =
@@ -69,21 +81,13 @@ export function useCommunityGallerySubview({
         : requested;
     const host = communityGalleryPage(view.category);
     selectPage(host);
-    if (typeof window !== "undefined")
-      pushMobileSettingsState({ page: host, communityGallery: view });
-    setGallery(view);
+    openGallery(view);
   };
 
-  const closeCommunityGallery = () => {
-    if (typeof window !== "undefined" && window.history.state?.communityGallery) {
-      window.history.back();
-      return;
-    }
-    setGallery(null);
-  };
+  const closeCommunityGallery = () => closeGallery();
 
   return {
-    communityGallery: mobile ? gallery : null,
+    communityGallery: visibleGallery,
     openCommunityGallery,
     closeCommunityGallery,
   } as const;
