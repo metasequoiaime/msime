@@ -17,6 +17,7 @@
 @property(nonatomic) NSUInteger settingsRequests;
 @property(nonatomic) NSUInteger updateRequests;
 @property(nonatomic) NSUInteger websiteRequests;
+@property(nonatomic) NSUInteger promotionRequests;
 @property(nonatomic) NSUInteger hideRequests;
 @property(nonatomic) NSUInteger inputSchemeMenuRequests;
 @end
@@ -34,6 +35,7 @@
 - (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_settingsRequests; }
 - (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_updateRequests; }
 - (void)floatingToolbarDidRequestOpenWebsite:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_websiteRequests; }
+- (void)floatingToolbarDidRequestPromotion:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_promotionRequests; }
 - (void)floatingToolbarDidRequestHide:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_hideRequests; }
 - (NSMenu *)floatingToolbarInputSchemeMenu:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;

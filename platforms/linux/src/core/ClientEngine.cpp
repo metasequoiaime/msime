@@ -6383,6 +6383,20 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   if (key == IBUS_Control_R) s.right_ctrl_down = !release;
   if (key == IBUS_Control_L) s.left_ctrl_down = !release;
   if (ctrl_key) s.ctrl_down = s.right_ctrl_down || s.left_ctrl_down;
+  // Ctrl+Shift+P 插入固定的产品介绍，不改动用户常用语。
+  const bool promotion_shortcut = !release && (key == 'p' || key == 'P') &&
+      (flags & IBUS_CONTROL_MASK) != 0 && (flags & IBUS_SHIFT_MASK) != 0 &&
+      (flags & (IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK | IBUS_META_MASK | IBUS_HYPER_MASK)) == 0;
+  const guint promotion_stroke = keycode != 0 ? keycode : 0x80000000u | static_cast<guint>('p');
+  if (promotion_shortcut) {
+    s.host_shortcut_strokes.insert(promotion_stroke);
+    guarded(engine, "process_key", [&] {
+      if (s.session && !s.view.at("editing_text").get<std::string>().empty())
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      commit_text(engine, "水杉输入法\n一款博采众长的输入法，目前正在广纳言路，茁壮成长中\n官网：https://msime.app/\nGit 项目：https://github.com/metasequoiaime/msime", msime::linux_host::TypingSource::Local);
+    });
+    return TRUE;
+  }
 
   const guint chord_modifiers = flags &
       (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |

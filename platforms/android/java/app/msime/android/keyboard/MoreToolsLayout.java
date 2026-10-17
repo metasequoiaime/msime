@@ -83,6 +83,7 @@ public final class MoreToolsLayout {
             case "隐私模式", "无痕输入" -> "⛉";
             case "反馈" -> "✉";
             case "关于" -> "ⓘ";
+            case "宣传" -> "吆";
             case "文本编辑" -> "⇄";
             default -> "⌨";
         };

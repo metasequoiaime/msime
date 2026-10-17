@@ -2173,6 +2173,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.countKeyPress(TypingKeyID.emoji)
         self?.showEmojiPicker()
       },
+      KeyboardTool(id: "promotion", title: "宣传", face: .glyph("吆")) { [weak self] in
+        guard let self else { return }
+        closeKeyboardPicker()
+        if hasComposition { render(session.finishComposition()) }
+        insertOwnText(PromotionText.text, source: .local)
+      },
       KeyboardTool(id: "clipboardHistory", title: "剪贴板历史", face: .icon(.clipboardHistory)) { [weak self] in
         self?.showClipboardHistory()
       },
