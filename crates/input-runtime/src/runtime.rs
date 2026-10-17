@@ -92,6 +92,8 @@ pub struct Runtime<E: InputEngine = Session> {
     /// 在线候选座位整理的排列与固定英文临时缓冲，跨次刷新保留容量。
     pub(crate) online_order_scratch: Vec<usize>,
     pub(crate) online_fixed_english_scratch: Vec<usize>,
+    /// 落定重排重放插件操作时的座位顺序比较缓冲，跨次调用保留容量。
+    pub(crate) settled_order_scratch: Vec<usize>,
     pub(crate) snapshot_valid: bool,
     pub(crate) character_width: CharacterWidth,
     pub(crate) punctuation_marks: PunctuationMarks,
@@ -557,6 +559,31 @@ impl<E: InputEngine> Runtime<E> {
         });
     }
 
+    /// 把当前候选座位对应的引擎下标写入可复用缓冲；引擎未建立排列时按座位顺序生成。
+    pub(crate) fn copy_seat_order(&self, out: &mut Vec<usize>) {
+        out.clear();
+        if self.engine_order.len() == self.cached.candidates.len() {
+            out.extend_from_slice(&self.engine_order);
+        } else {
+            out.extend(0..self.cached.candidates.len());
+        }
+    }
+
+    /// 比较候选座位对应的引擎下标，不为一次落定重排临时建立排列向量。
+    pub(crate) fn seat_order_matches(&self, expected: &[usize]) -> bool {
+        if expected.len() != self.cached.candidates.len() {
+            return false;
+        }
+        if self.engine_order.len() == expected.len() {
+            expected == self.engine_order
+        } else {
+            expected
+                .iter()
+                .enumerate()
+                .all(|(seat, &index)| seat == index)
+        }
+    }
+
     pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.advance()?;
         self.engine.set_dedicated_english(enabled)?;
@@ -761,6 +788,7 @@ impl<E: InputEngine> Runtime<E> {
             engine_order: Vec::new(),
             online_order_scratch: Vec::new(),
             online_fixed_english_scratch: Vec::new(),
+            settled_order_scratch: Vec::new(),
             cached,
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
@@ -845,14 +873,19 @@ impl<E: InputEngine> Runtime<E> {
             return false;
         }
         // 脚本插件的操作只按候选身份重放，不运行脚本：停顿的时机不能透露给脚本。是否挪动按重放之后的座位比较。
-        let replayed = self.has_candidate_ops().then(|| self.seat_order());
+        let replayed = self.has_candidate_ops();
+        if replayed {
+            let mut order = std::mem::take(&mut self.settled_order_scratch);
+            self.copy_seat_order(&mut order);
+            self.settled_order_scratch = order;
+        }
         std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
         // The same passes the fast path runs after its rerank, so the seats they fix stay fixed.
         let mut moved = self.order_presentation();
         std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
-        if let Some(before) = replayed {
+        if replayed {
             let marks_changed = self.transform_candidates();
-            moved = marks_changed || self.seat_order() != before;
+            moved = marks_changed || !self.seat_order_matches(&self.settled_order_scratch);
         }
         if moved {
             self.snapshot_valid = true;

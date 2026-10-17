@@ -389,13 +389,11 @@ mod desktop {
         }
 
         /// 每个座位上的引擎下标，`engine_order` 为空时就是座位本身。
+        #[cfg(test)]
         pub(crate) fn seat_order(&self) -> Vec<usize> {
-            let count = self.cached.candidates.len();
-            if self.engine_order.len() == count {
-                self.engine_order.clone()
-            } else {
-                (0..count).collect()
-            }
+            let mut order = Vec::new();
+            self.copy_seat_order(&mut order);
+            order
         }
 
         /// 当前列表能不能做插件变换：没有暂停、有候选、平行数组等长、不在整句改字、方案的候选列表没打开。
@@ -726,6 +724,7 @@ mod inert {
             false
         }
 
+        #[cfg(test)]
         pub(crate) fn seat_order(&self) -> Vec<usize> {
             Vec::new()
         }

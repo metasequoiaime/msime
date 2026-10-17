@@ -4,7 +4,7 @@
 
 use super::super::runtime::empty_result;
 use super::super::*;
-use super::{favouring_model, LATTICE_SOURCE};
+use super::{allocations, favouring_model, LATTICE_SOURCE};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -617,6 +617,25 @@ fn side_channel_calls_replay_by_identity_without_running_the_transform() {
     harness.key(b'a');
     assert_eq!(harness.calls(), 2);
     assert!(harness.shown().contains(&"丙".to_owned()));
+}
+
+#[test]
+fn settled_rerank_reuses_the_replayed_seat_order_buffer() {
+    let mut harness = Harness::new(
+        TransformEngine::new(&["甲", "乙", "丙", "丁"]),
+        vec![ops(&[], &[3], &[])],
+    );
+    let model = favouring_model(&['甲', '乙', '丙', '丁'], &['丁']);
+    harness
+        .runtime
+        .set_settled_reranker(Some(Reranker::new(std::sync::Arc::new(model))));
+    harness.key(b'a');
+    let _ = harness.runtime.rerank_settled();
+    let (_, allocations) = allocations::count(|| harness.runtime.rerank_settled());
+    assert_eq!(
+        allocations, 0,
+        "settled rerank seat order allocations: {allocations}"
+    );
 }
 
 #[test]
