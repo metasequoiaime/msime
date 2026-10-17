@@ -142,6 +142,12 @@ pub fn chat_translation_http_request(
         return Ok(None);
     }
     request.validate()?;
+    if !AI_PROVIDERS.contains(&config.provider.as_str())
+        || config.model.is_empty()
+        || !crate::text::is_bounded_text(&config.model, 256)
+    {
+        return Err(AiError::InvalidConfiguration);
+    }
     let token = credential_for_endpoint(config).ok_or(AiError::InvalidConfiguration)?;
     let user = serde_json::json!({
         "source_language": request.source_language,
@@ -586,6 +592,33 @@ mod tests {
         assert_eq!(
             parse_chat_translation_response(&body).as_deref(),
             Some("a synthetic translation")
+        );
+    }
+
+    #[test]
+    fn translation_descriptor_rejects_invalid_provider_and_model() {
+        let mut config = crate::preferences::Preferences::default().ai_assistant;
+        config.enabled = true;
+        config.endpoint = "https://synthetic.invalid/v1/chat/completions".into();
+        config.tokens.insert(
+            "https://synthetic.invalid:443".into(),
+            "synthetic-token".into(),
+        );
+        let request = AiTranslationRequest {
+            text: "合成文本".into(),
+            source_language: "zh".into(),
+            target_language: "en".into(),
+        };
+        config.provider = "unknown".into();
+        assert_eq!(
+            chat_translation_http_request(&config, &request),
+            Err(AiError::InvalidConfiguration)
+        );
+        config.provider = "openai".into();
+        config.model.clear();
+        assert_eq!(
+            chat_translation_http_request(&config, &request),
+            Err(AiError::InvalidConfiguration)
         );
     }
 
