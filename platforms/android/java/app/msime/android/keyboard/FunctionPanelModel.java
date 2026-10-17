@@ -20,7 +20,7 @@ public final class FunctionPanelModel {
         KEYBOARD_HEIGHT, SETTINGS,
         KEY_SOUND, VIBRATION, ONE_HAND, PRIVACY, FEEDBACK, ABOUT, AI_ASSIST, LOCAL_INPUT,
         VOICE_RESULT, VIBRATION_STRENGTH, EMOJI, CLIPBOARD, FLOATING, TEXT_EDIT, COPY_DEVICE_INFO,
-        TOOLBAR_EDITOR
+        PROMOTION, TOOLBAR_EDITOR
     }
 
     /**
@@ -55,6 +55,7 @@ public final class FunctionPanelModel {
         action(Id.FEEDBACK, "反馈"),
         action(Id.ABOUT, "关于"),
         action(Id.COPY_DEVICE_INFO, "复制设备信息"),
+        action(Id.PROMOTION, "宣传"),
         action(Id.EMOJI, "表情"),
         action(Id.CLIPBOARD, "剪贴板历史"),
         action(Id.TOOLBAR_EDITOR, "编辑工具栏"));

@@ -118,6 +118,7 @@ def main() -> None:
         )
         check(not re.search(r"^\s*(?:if\s+)?file\s", code, re.MULTILINE), f"arch/{name}/PKGBUILD runs file(1), which crashes under fakeroot; use _msime_is_elf")
         check("_msime_is_elf" in code, f"arch/{name}/PKGBUILD does not define _msime_is_elf")
+        check("WEBKIT_DISABLE_DMABUF_RENDERER" in code, f"arch/{name}/PKGBUILD does not backport the WebKit DMA-BUF startup workaround")
 
     # 许可证：PKGBUILD 与 RPM 规格文件描述的是同一批文件，元数据不能一边写全、一边只写项目自己的 GPL。
     spec = (PACKAGING / "rpm" / "msime.spec").read_text(encoding="utf-8")

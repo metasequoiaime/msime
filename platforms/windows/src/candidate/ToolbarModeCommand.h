@@ -88,6 +88,7 @@ tray_menu_mode_command(TrayMenuCommand command, std::optional<bool> chinese,
   case TrayMenuCommand::OpenSystemEmoji:
   case TrayMenuCommand::CheckForUpdates:
   case TrayMenuCommand::OpenWebsite:
+  case TrayMenuCommand::OpenPromotion:
   case TrayMenuCommand::OpenHelp:
   case TrayMenuCommand::OpenFeedback:
   case TrayMenuCommand::HideFloatingToolbar:

@@ -208,6 +208,47 @@ fn reads_keep_fifo_age_and_clear_drops_every_entry() {
 }
 
 #[test]
+fn warming_keeps_an_earlier_hit_until_all_current_spans_are_loaded() {
+    let fixture = Fixture::new();
+    let database = PinyinDatabase::open(&fixture.database().with_file_name("absent.db"));
+    let first = ["ni".to_owned()];
+    let syllables = ["ni".to_owned(), "hao".to_owned()];
+    let first_hash = lattice_span_cache_hash(32, &first);
+    let mut cache = FifoCache::new(3);
+    cache.insert(
+        first_hash,
+        CachedLatticeSpan {
+            span_limit: 32,
+            span: "'ni".to_owned(),
+            rows: vec![],
+        },
+    );
+    cache.insert(
+        0x1111,
+        CachedLatticeSpan {
+            span_limit: 32,
+            span: "'old-one".to_owned(),
+            rows: vec![],
+        },
+    );
+    cache.insert(
+        0x2222,
+        CachedLatticeSpan {
+            span_limit: 32,
+            span: "'old-two".to_owned(),
+            rows: vec![],
+        },
+    );
+
+    warm_lattice_span_cache(&database, &mut cache, &syllables, 32, 2);
+
+    assert!(
+        cached_lattice_span_ref(&cache, &first, 32).is_some(),
+        "a hit from this warm batch must not be evicted by later cold spans"
+    );
+}
+
+#[test]
 fn cold_cache_measurement_includes_creation_and_drop() {
     let fixture = Fixture::new();
     fixture

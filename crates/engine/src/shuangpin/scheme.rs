@@ -1,7 +1,8 @@
 //! 双拼的按键处理（`R/schemes/shuangpin_scheme.cpp`，schemes-lang.md §1.8）。方案用得到 `;` 键时（微软双拼把 ing 放在 `;` 上，自定义方案可以把韵母或零声母编码的第二个键放在 `;` 上，见 `ShuangpinProfile::uses_semicolon_key`），自上一个 `'` 以来的片段长度为奇数时把 `;` 当作按键接受。
 
 use super::query::{
-    apply_segmentation_cases_into, effective_input_length, segment_input, to_quanpin_segmentation,
+    apply_segmentation_cases_into, effective_input_length, segment_input,
+    to_quanpin_segmentation_into,
 };
 use super::ShuangpinProfile;
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
@@ -102,10 +103,11 @@ impl ShuangpinScheme {
                 &request.raw_input_with_cases,
                 &mut request.raw_segmentation,
             );
-            let normalized_segmentation = to_quanpin_segmentation(&segmentation, profile);
-            request
-                .normalized_segmentation
-                .clone_from(&normalized_segmentation);
+            to_quanpin_segmentation_into(
+                &segmentation,
+                profile,
+                &mut request.normalized_segmentation,
+            );
             request
                 .segmentation
                 .clone_from(&request.normalized_segmentation);
@@ -177,16 +179,16 @@ mod tests {
         assert_eq!(request, expected);
         assert_eq!(request.raw_segmentation, "Ni'Hc");
         assert_eq!(request.raw_segmentation.as_ptr(), pointer);
-        assert_eq!(allocations, 3);
+        assert_eq!(allocations, 2);
     }
 
     #[test]
     fn request_normalization_reuses_the_converted_segmentation() {
         for (kind, raw, expected, budget) in [
-            (ShuangpinProfileKind::Xiaohe, "NiHc", "nihao", 3),
-            (ShuangpinProfileKind::Xiaohe, "Ni'Hc", "nihao", 4),
-            (ShuangpinProfileKind::Xiaohe, "n", "n", 3),
-            (ShuangpinProfileKind::Microsoft, "J;gK", "jinggao", 3),
+            (ShuangpinProfileKind::Xiaohe, "NiHc", "nihao", 2),
+            (ShuangpinProfileKind::Xiaohe, "Ni'Hc", "nihao", 3),
+            (ShuangpinProfileKind::Xiaohe, "n", "n", 2),
+            (ShuangpinProfileKind::Microsoft, "J;gK", "jinggao", 2),
         ] {
             let mut typed = scheme(kind);
             type_text(&mut typed, raw);
@@ -201,6 +203,23 @@ mod tests {
             assert_eq!(request.normalized_input.as_ptr(), pointer);
             assert_eq!(allocations, budget, "{kind:?}, raw={raw}");
         }
+    }
+
+    #[test]
+    fn request_normalization_does_not_allocate_a_temporary_segmentation() {
+        let mut typed = scheme(ShuangpinProfileKind::Xiaohe);
+        type_text(&mut typed, "NiHc");
+        let mut request = typed.build_request();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            typed.build_request_into(&mut request);
+        });
+
+        assert_eq!(request.normalized_segmentation, "ni'hao");
+        assert_eq!(
+            allocations, 2,
+            "规范切分写入已有缓冲仍申请了 {allocations} 次"
+        );
     }
 
     #[test]

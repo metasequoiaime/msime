@@ -96,6 +96,11 @@ package() {
     cp -a "$pkgdir/usr/lib64/." "$pkgdir/usr/lib/"
     rm -rf "$pkgdir/usr/lib64"
   fi
+  # linux-v0.11.0 的启动器只禁用了 WebKit 合成；Arch 的新版 WebKitGTK 在 NVIDIA + Wayland 下还会因 DMA-BUF 的显式同步协议错误退出。新版本的 RPM 已带完整的 NVIDIA 判断，这个兼容补丁只在旧启动器没有该变量时插入第二个规避。
+  local settings_launcher="$pkgdir/usr/bin/msime-linux-settings"
+  if ! grep -q 'WEBKIT_DISABLE_DMABUF_RENDERER' "$settings_launcher"; then
+    sed -i '/^export WEBKIT_DISABLE_COMPOSITING_MODE=/a export WEBKIT_DISABLE_DMABUF_RENDERER=${WEBKIT_DISABLE_DMABUF_RENDERER:-1}' "$settings_launcher"
+  fi
   # rpmbuild 生成的 build-id 链接归 Fedora 的调试信息机制所有，Arch 上没有意义。
   rm -rf "$pkgdir/usr/lib/.build-id"
   # 相对 RUNPATH（$ORIGIN/../lib64/msime-client）和 msime_voice_paths.py 里的相对路径在装好的系统上能经 /usr/lib64 链接解析，但 $pkgdir 里没有这个链接，下面的核对就做不了；直接改成 lib，不再依赖那个链接。

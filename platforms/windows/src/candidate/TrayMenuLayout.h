@@ -234,6 +234,7 @@ toolbar_utility_menu_items(const TrayMenuCapabilities &capabilities) {
   row(TrayMenuCommand::OpenSettings, "打开设置…", capabilities.settings);
   row(TrayMenuCommand::CheckForUpdates, "检查更新…", capabilities.settings);
   separator();
+  row(TrayMenuCommand::OpenPromotion, "宣传水杉输入法", true);
   row(TrayMenuCommand::OpenWebsite, "访问 msime.app", true);
   row(TrayMenuCommand::OpenHelp, "使用帮助…", capabilities.settings);
   row(TrayMenuCommand::OpenAbout, "关于" + capabilities.product_name + "…",

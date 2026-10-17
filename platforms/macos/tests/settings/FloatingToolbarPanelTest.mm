@@ -17,6 +17,7 @@
 @property(nonatomic) NSUInteger settingsRequests;
 @property(nonatomic) NSUInteger updateRequests;
 @property(nonatomic) NSUInteger websiteRequests;
+@property(nonatomic) NSUInteger promotionRequests;
 @property(nonatomic) NSUInteger hideRequests;
 @property(nonatomic) NSUInteger inputSchemeMenuRequests;
 @end
@@ -34,6 +35,7 @@
 - (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_settingsRequests; }
 - (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_updateRequests; }
 - (void)floatingToolbarDidRequestOpenWebsite:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_websiteRequests; }
+- (void)floatingToolbarDidRequestPromotion:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_promotionRequests; }
 - (void)floatingToolbarDidRequestHide:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_hideRequests; }
 - (NSMenu *)floatingToolbarInputSchemeMenu:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;
@@ -517,28 +519,30 @@ int main() {
         // The gear opens settings on click; the utility menu is only its right-click menu.
         SendButton(settings);
         assert(delegate.settingsRequests == 1);
-        assert(settings.menu.numberOfItems == 10 && [settings.menu itemAtIndex:1].action == @selector(openSettings:));
+        assert(settings.menu.numberOfItems == 11 && [settings.menu itemAtIndex:1].action == @selector(openSettings:));
         assert([settings.accessibilityLabel isEqualToString:@"打开水杉输入法设置"]);
-        for (NSString *selectorName in @[@"openCharacterPalette:", @"openSettings:", @"checkForUpdates:",
+        for (NSString *selectorName in @[@"openCharacterPalette:", @"openSettings:", @"checkForUpdates:", @"insertPromotion:",
                                          @"openWebsite:", @"dismissFloatingToolbar:"]) {
             [NSApp sendAction:NSSelectorFromString(selectorName) to:panel from:nil];
         }
         assert(delegate.inputModeToggles == 1 && delegate.punctuationToggles == 1 &&
                delegate.fullWidthToggles == 1 && delegate.traditionalToggles == 1 &&
                delegate.characterPaletteRequests == 1 && delegate.settingsRequests == 2 &&
+               delegate.promotionRequests == 1 &&
                delegate.updateRequests == 1 && delegate.websiteRequests == 1 && delegate.hideRequests == 1);
 
         NSMenu *menu = CreateMSIMEFloatingToolbarUtilityMenu(panel);
         [menu update];
-        assert(menu.numberOfItems == 10);
+        assert(menu.numberOfItems == 11);
         assert([menu itemAtIndex:0].action == @selector(openCharacterPalette:) &&
                [menu itemAtIndex:1].action == @selector(openSettings:) &&
                [menu itemAtIndex:2].action == @selector(checkForUpdates:) &&
-               [menu itemAtIndex:4].action == @selector(openWebsite:) &&
-               [menu itemAtIndex:5].action == @selector(openHelp:) &&
-               [menu itemAtIndex:6].action == @selector(openAbout:) &&
-               [menu itemAtIndex:7].action == @selector(openFeedback:) &&
-               [menu itemAtIndex:9].action == @selector(dismissFloatingToolbar:));
+               [menu itemAtIndex:4].action == @selector(insertPromotion:) &&
+               [menu itemAtIndex:5].action == @selector(openWebsite:) &&
+               [menu itemAtIndex:6].action == @selector(openHelp:) &&
+               [menu itemAtIndex:7].action == @selector(openAbout:) &&
+               [menu itemAtIndex:8].action == @selector(openFeedback:) &&
+               [menu itemAtIndex:10].action == @selector(dismissFloatingToolbar:));
         for (NSMenuItem *item in menu.itemArray) {
             if (!item.isSeparatorItem) assert(item.enabled && item.target == panel);
         }

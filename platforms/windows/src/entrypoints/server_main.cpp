@@ -27,6 +27,7 @@
 #include "SoundPackRoot.h"
 #include "PluginPackRoot.h"
 #include "MaintenanceHotkey.h"
+#include "NativeTextInput.h"
 #include "ModeAuthority.h"
 #include "AppInputModeRules.h"
 #include "InputModeHudWindow.h"
@@ -1723,6 +1724,10 @@ int wmain(int argc, wchar_t **argv) {
             return open_system_emoji_panel();
           if (command == TrayMenuCommand::OpenWebsite)
             return open_web_page(toolbar_website_url);
+          if (command == TrayMenuCommand::OpenPromotion) {
+            constexpr wchar_t text[] = L"水杉输入法\n一款博采众长的输入法，目前正在广纳言路，茁壮成长中\n官网：https://msime.app/\nGit 项目：https://github.com/metasequoiaime/msime";
+            return msimeui::NativeTextInputTarget::Capture().Insert(text);
+          }
           // 繁体输出和工具栏的简繁按钮、Ctrl+Shift+F 走同一个工作线程，翻转存储的 traditional_chinese_output。
           if (command == TrayMenuCommand::ToggleTraditionalOutput)
             return character_set_clicks.submit(CharacterSetClick{});

@@ -12,7 +12,7 @@ Status: implemented
 
 词网格合并在建图前按当前图的跨度范围补齐 `lattice_span_cache`，随后通过只读缓存视图建图。`build_graph_borrowed` 从缓存切片借用 `DictRow`，仍为每条图边取得自己的 `word`、`key` 和隐式跨度键所有权；重复跨度的本地图边复制、查询顺序、边顺序、评分和输出字段不变。转换入口 `conversion_rows` 与 `decode_pinned` 继续返回拥有型 `Vec<DictRow>`，不改变已有接口和容量契约。
 
-预热范围与图构造使用相同的 `max_phrase_syllables` 和列区间，保证缓存命中后建图不再查询数据库。跨度总数不超过 `LATTICE_SPAN_CACHE_CAPACITY` 时采用借用路径；更长输入回退原有逐次拥有型查询，避免预热整批跨度后因 FIFO 淘汰而重复查询。缓存键碰撞、上限核对、FIFO 读取不提升年龄和字典失效仍由原缓存逻辑负责。
+预热范围与图构造使用相同的 `max_phrase_syllables` 和列区间，保证缓存命中后建图不再查询数据库。跨度总数不超过 `LATTICE_SPAN_CACHE_CAPACITY` 时采用借用路径；更长输入回退原有逐次拥有型查询，避免预热整批跨度后因 FIFO 淘汰而重复查询。预热命中本轮跨度时把该条目移到 FIFO 队尾，保证旧缓存和新跨度混合时本轮所有跨度都能留到建图；普通读取仍不提升年龄。缓存键碰撞、上限核对和字典失效仍由原缓存逻辑负责。
 
 ## Alternatives considered
 
@@ -23,8 +23,8 @@ Status: implemented
 
 ## Consequences
 
-缓存热命中的词网格建图不再复制整页 `DictRow` 字符串，只保留图边最终需要的字段复制；冷路径仍只把数据库行存入缓存一次，拥有型转换和纠错入口保持原字段与容量。借用路径在建图前多做一轮同范围缓存检查，缓存容量足够时不增加 SQL 查询；超容量输入不使用该路径。新增的 `build_graph_borrowed` 与合并包装扩大了内部实现，但没有公开 API、落盘格式、线程边界或 Android 文件访问变化。
+缓存热命中的词网格建图不再复制整页 `DictRow` 字符串，只保留图边最终需要的字段复制；冷路径仍只把数据库行存入缓存一次，拥有型转换和纠错入口保持原字段与容量。借用路径在建图前多做一轮同范围缓存检查，缓存容量足够时不增加 SQL 查询；预热期间刷新命中年龄避免借用查找因 FIFO 淘汰而崩溃；超容量输入不使用该路径。新增的 `build_graph_borrowed` 与合并包装扩大了内部实现，但没有公开 API、落盘格式、线程边界或 Android 文件访问变化。
 
 ## Verification
 
-先在旧实现上加入非空缓存命中回归，测试因 `cached_lattice_span_borrowed` 入口不存在而失败；实现后该测试通过，命中切片分配为 0。随后通过了跨度缓存 7 项、`quanpin::dictionary` 123 项（3 项既有忽略）、lattice merge 28 项和 Clippy `-D warnings`。全量引擎、golden、runtime、格式、差异、笔记校验及 quick 门禁作为本切片最终门禁；不把局部分配减少外推为九键 16 ms 端到端预算达标。
+先在旧实现上加入非空缓存命中回归，测试因 `cached_lattice_span_borrowed` 入口不存在而失败；实现后该测试通过，命中切片分配为 0。随后新增的 FIFO 混合预热回归先在旧实现上因早期命中被后续冷跨度驱逐而失败，修复后通过；跨度缓存 8 项、`quanpin::dictionary` 124 项（3 项既有忽略）通过。全量引擎、golden、runtime、格式、差异、笔记校验及 quick 门禁作为本切片最终门禁；不把局部分配减少外推为九键 16 ms 端到端预算达标。

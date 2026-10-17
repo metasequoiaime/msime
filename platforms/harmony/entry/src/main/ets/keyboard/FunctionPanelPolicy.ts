@@ -108,6 +108,7 @@ export class FunctionPanelPolicy {
   static readonly SMART_REPLY: string = "smart_reply";
   static readonly AI_POLISH: string = "ai_polish";
   static readonly VIBRATION_STRENGTH: string = "vibration_strength";
+  static readonly PROMOTION: string = "promotion";
 
   static readonly STATE_ON: string = "已开启";
   static readonly STATE_OFF: string = "已关闭";
@@ -133,6 +134,7 @@ export class FunctionPanelPolicy {
     toggleIcon(FunctionPanelPolicy.PRIVACY, "隐私模式", KeyboardIconPaths.INCOGNITO, "隐私模式"),
     actionIcon(FunctionPanelPolicy.FEEDBACK, "反馈", KeyboardIconPaths.FEEDBACK),
     actionIcon(FunctionPanelPolicy.ABOUT, "关于", KeyboardIconPaths.ABOUT),
+    actionGlyph(FunctionPanelPolicy.PROMOTION, "宣传", "吆"),
     toggleGlyph(FunctionPanelPolicy.TRANSLATION, "候选翻译", "译", "候选翻译"),
     actionGlyph(FunctionPanelPolicy.SYMBOLS, "符号", "符"),
     actionIcon(FunctionPanelPolicy.LOCAL_INPUT, "本地输入", KeyboardIconPaths.LOCAL_INPUT),

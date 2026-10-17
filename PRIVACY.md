@@ -99,7 +99,7 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 
 ### 打字统计上传（默认关闭，需要登录）
 
-打字统计默认只在本机。在设置应用的「打字统计」页打开「上传到云端」后（要先登录水杉账号；目前只有 macOS、Linux 和 Windows 的设置应用提供这个开关），向 `PUT https://api.msime.app/v1/users/me/typing-statistics` 上传最近 7 个有字数的日子的计数：每天的字数、活跃秒数、每小时的字数、各字符类别（汉字、拉丁字母、数字、标点等）和各输入方式（全拼、五笔、语音等）的字数，以及这台设备全部历史的候选位次计数，外加平台名和一个本机随机生成的设备标识（不是匿名使用统计的 `install_id`）。**不上传输入内容**，也不上传按键热力图、徽章、皮肤和语音时长。打开时立刻上传一次，之后在设置应用启动和打开统计页时补传，两次之间至少隔 10 分钟；设置应用没有后台进程，不会定时上传。构建请求体的代码在 `crates/client-services/src/typing_statistics/upload.rs`，开关和设备标识存在统计目录的 `typing-statistics-upload.json`。
+打字统计默认只在本机。在设置应用的「打字统计」页打开「上传到云端」后（要先登录水杉账号；目前 macOS、Linux 和 Windows 的设置应用，以及 Android 和 iOS 的 App 提供这个开关，在 Android 和 iOS 上它位于「统计」页的「概览」底部），向 `PUT https://api.msime.app/v1/users/me/typing-statistics` 上传最近 7 个有字数的日子的计数：每天的字数、活跃秒数、每小时的字数、各字符类别（汉字、拉丁字母、数字、标点等）和各输入方式（全拼、五笔、语音等）的字数，以及这台设备全部历史的候选位次计数，外加平台名和一个本机随机生成的设备标识（不是匿名使用统计的 `install_id`）。**不上传输入内容**，也不上传按键热力图、徽章、皮肤和语音时长。打开时立刻上传一次，之后在设置应用启动（Android、iOS 是 App 回到前台）和打开统计页时补传，两次之间至少隔 10 分钟；设置应用和 App 都不在后台定时上传，键盘本身不上传。构建请求体的代码在 `crates/client-services/src/typing_statistics/upload.rs`，开关和设备标识存在统计目录的 `typing-statistics-upload.json`。
 
 服务端只保留 62 天，注销账号时一起删除；关掉「上传到云端」时客户端调用 `DELETE /v1/users/me/typing-statistics` 删掉你在云端的全部打字统计（删除失败时开关仍是关的，页面会提示）。账号数据导出里有这些数据（`typing_statistics.json`）。
 
