@@ -483,7 +483,7 @@ import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-he
 import { logo } from "./settings/settings-options";
 import { CommunitySkinsPage } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
-import type { CommunityResource, CommunitySharedWord } from "./community/community-resource-model";
+import { createCommunityLocalDictionary } from "./community/community-resource-actions";
 import { CommunityResourcesPage } from "./community/community-resources";
 import { CommunityPluginsPage } from "./community/community-plugins";
 import * as communityStyle from "./community/community-style";
@@ -1511,6 +1511,7 @@ export {
   CommunityResourceEditor,
   type CommunityResourceEditorProps,
 } from "./community/community-resource-editor";
+export { createCommunityLocalDictionary } from "./community/community-resource-actions";
 export type {
   CommunityLocalDictionaryClient,
   CommunityResource,
@@ -3021,28 +3022,10 @@ function SettingsShell(props: SettingsPageProps) {
   }, [page, pushedPage]);
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   // 社区图库「添加」词库的去处：宿主有命名词库时装成一个独立的词库，否则导入本机词库。「社区」页和功能页里的图库共用。宿主能核对第三方词库时，发布词库前用它拦下来自搜狗细胞词库的词。
-  const thirdPartyCheck = client.dictionaryCollections?.thirdPartyMatches;
-  const communityLocalDictionary = client.dictionaryCollections
-    ? {
-        ...client.dictionary,
-        installCollection: async (resource: CommunityResource) => {
-          await client.dictionaryCollections?.installCommunity(resource);
-        },
-        ...(thirdPartyCheck && {
-          thirdPartyMatches: async (entries: CommunitySharedWord[]) =>
-            (
-              await thirdPartyCheck(
-                entries.map((entry) => ({
-                  kind: entry.kind === "quick" ? ("quickPhrase" as const) : entry.kind,
-                  key: entry.code,
-                  value: entry.word,
-                  weight: entry.weight,
-                })),
-              )
-            ).third_party_matches ?? [],
-        }),
-      }
-    : client.dictionary;
+  const communityLocalDictionary = createCommunityLocalDictionary(
+    client.dictionary,
+    client.dictionaryCollections,
+  );
   const recordCommunitySkin = (id: string) => {
     void client.typingStatistics?.recordSkin?.(id);
   };
