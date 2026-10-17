@@ -50,7 +50,7 @@ Status: proposed
 
 ### 后续阶段（同属 #8201 第一阶段）
 
-云词库分发器与 Windows 完整备份（`msime_client_cloud_dictionary`，完整备份依赖 engine，所以放在 host-api 而不是 issue 写的 client-services）、iOS 设置映射、`msime_client_account` 的新操作（translate、phrases、sessions、user data、feedback、诊断上传、chat）、社区键盘皮肤、AI 皮肤生成与任务轮询、多分类同步编排。它们都经同一套 `session_store` 字段选会话。
+云词库分发器与 Windows 完整备份（`msime_client_cloud_dictionary`，完整备份依赖 engine，所以放在 host-api 而不是 issue 写的 client-services）、iOS 设置映射、`msime_client_account` 的新操作（translate、phrases、sessions、user data、feedback、诊断上传、chat）和流式对话 `msime_client_account_chat_stream`、社区键盘皮肤、AI 皮肤生成与任务轮询、多分类同步编排。它们都经同一套 `session_store` 字段选会话。
 
 ### 新接口的错误形状与校验
 
@@ -61,6 +61,7 @@ Status: proposed
 - 删除云端数据的 `voice` 分区同时删匿名账号名下的语音样本，先于登录账号的分区：服务端对 `DELETE /v1/users/me/data` 一律要求 10 分钟内建立的会话（`principal(w, r, true)`，匿名账号也一样），而匿名会话通常早就建立了，所以 Rust 先用现有会话试，403 `recent_login_required` 或令牌失效时用保存的匿名身份重新登录同一个账号再删。重新登录计入服务端按地址每天的匿名登录限额（默认 5 次）。匿名这一步重做没有副作用，放在前面，它失败时登录账号的分区还没动。
 - 服务端响应的结构体不拒绝未知字段。AI 皮肤的 `RawSkinJob` 曾带 `deny_unknown_fields`，msime-cloud 在 2026-10-01 给 202 响应加了 `expires_at` 以后每次创建插画任务都解析失败；回放当前形状的本地测试抓不到服务端以后再加的字段。
 - AI 皮肤生成的进度回调在调用线程上依次调用：出图线程只经通道报告完成。与头文件里其他进度回调的约定一致，JNI 和 NAPI 胶水可以直接用调用线程的 env；出图线程遇到 401 时仍可能在 Rust 的线程上调用存储回调，按上面的「任意线程」处理。
+- 对话的流式与取消（决定 15）是单独的 `msime_client_account_chat_stream`，因为 `msime_client_account` 没有回调参数；请求、预检和令牌来源与 `chat` 相同，宿主给 `request_id`，`msime_client_account_chat_cancel` 按 id 从任何线程或回调里取消，与 AI 皮肤的生成和取消是同一种形状。增量回调与进度回调一样在调用线程上依次调用。请求和读取在 Rust 自己的一个后台线程上做，读到的字节经有界通道交给调用线程解析：reqwest 的阻塞客户端不能从别的线程打断一次读取，所以取消让调用线程立刻不再等，连接由后台线程在服务端下一次发数据时（最晚到 125 秒的总时限）断开。开始输出以后的失败按服务端契约分两种：上游失败事件是 `account_unavailable`，没等到 `[DONE]` 的断开是 `account_network`，已经交出的增量不收回。换号核对只在回答完整以后做一次，与 `chat` 相同。
 
 ## Related notes
 
@@ -76,6 +77,8 @@ Status: proposed
 - **断网用 `AccountError` 的新变体 `Network`、`code()` 仍报 `account_unavailable`** — 最强的理由：刷新令牌这一步也能分出断网，新旧接口共用一份判断。否掉：Tauri 的 `mobile_community.rs` 等处对 `AccountError` 穷举匹配，要跟着改；更麻烦的是到处有 `== AccountError::Unavailable` 的比较（AI 皮肤、同步策略、测试），加了变体以后断网悄悄不再等于它，行为在不报错的地方变掉。
 - **断网用 `server_code` 里的本地码表示（像 `request_too_large`）** — 最强的理由：不用给 `AccountFailure` 加字段。否掉：云同步把 `server_code` 原样写进失败记录的 `code` 交给宿主，断网会从 `null` 变成一个看起来像服务端给的码。
 - **新接口的请求不在本地完整校验，交给服务端拒绝** — 最强的理由：规则只在服务端写一份，服务端放宽时客户端不用跟着改。否掉：64 KiB 整包超限时服务端只回 `invalid_json`，诊断上传任何一处不合规都整份被拒，用户看到的只是「不可用」；本地截断或预检能给出可操作的码。服务端放宽的那天，本地规则跟着改是一次小改动。
+- **流式对话用 reqwest 的异步客户端和一个 tokio 运行时，取消时直接丢掉请求的 future** — 最强的理由：取消时连接立刻断开，服务端马上停下上游、这次请求不计量，与 Android `ChatCall.cancel()` 的 `disconnect()` 相同。否掉：client-services 要直接依赖 tokio、另建一个异步客户端（连接池不与阻塞客户端共用，TLS 配置再建一份），每次对话再建一个运行时、多占描述符；增量回调还不能在运行时里调用，否则宿主在回调里调到任何用阻塞客户端的 `msime_client_*` 都会因为运行时里不能再起运行时而 panic。后台线程的代价是取消以后最多 125 秒的一个线程和一条连接，服务端在连接断开之前多生成一段。
+- **流式对话逐段核对给出令牌的账号（Android 每段增量前都做）** — 最强的理由：用户中途退出登录时，已经换了账号的页面上不会再冒出旧账号的回答。否掉：每段增量都要读一次会话存储，注入模式下就是一次宿主回调；页面退出登录时自己会取消对话，回答完整时的核对仍会报 `account_cancelled`。
 - **AI 皮肤的进度回调留在出图线程上** — 最强的理由：不用多一条通道，Tauri 现在就是这样 emit 事件的。否掉：C 宿主的进度回调一律在调用线程上，JNI 胶水要缓存 `JavaVM` 并 attach/detach，NAPI 没法从别的线程直接调 JS；三个线程并发回调还要宿主自己串行化。
 
 - **Rust 自己读写钥匙串和 KeyStore** — 最强的理由：宿主一行回调都不用写，没有跨线程回调和 JNI attach 的麻烦，存储逻辑也只有一份。否掉：要引入 `security-framework`、`keyring` 一类第三方 crate，仓库负责人已定不加；钥匙串的 access group、App Group 的 entitlement 和 AndroidKeyStore 的密钥别名都是各宿主自己的配置，Android 上还得从 Rust 反向调 Java，复杂度只是换了个地方。
@@ -92,7 +95,7 @@ Status: proposed
 
 - `cargo test -p msime-client-services` 覆盖：两种布局的读写、清除登录会话时连密钥串一起删、超长或解不开的文档是 `Storage`、置 SHARED 时在同一线程上成对加解锁（含 panic）、同一线程嵌套加锁被拒、匿名身份「已存在」时重读并采用先发布的那份、`shared_access_token_in` 带 `expected_user_id` 时不退回另一个账号、`client_agent` 的形状校验与发出的 User-Agent。
 - `cargo test -p msime-host-api` 覆盖：`msime_client_session_store` 在 64 位目标上是 80 字节、各字段偏移与头文件一致；非法描述符不接管 `context`、不调用 `release`；`release` 等最后一个进行中的调用结束才调用且只调用一次；四个入口在注入模式下的 status、forget、取令牌、缓存与每次重读、补登录 ID 时持宿主锁、`directory`/`session_store` 恰好一个的校验。
-- 新接口：client-services 的测试覆盖 `AccountFailure::code()` 的映射顺序与 `Retry-After`、释义的整包预检与逐项置空、常用语按服务端规则的校验、「我的设备」保留 `web` 和空串、反馈的截图尺寸只读头部、诊断上传按服务端规则重建（事件种类、崩溃时间、配置快照的层数和条目、2 MiB 先截最旧的事件），以及用 loopback 假服务器回放服务端真实的 202 `{id,state,expires_at}` 和 failed `{id,state,artwork:null,reason}`（修复前这条测试失败）；host-api 的测试用假后端覆盖三类令牌来源、401 只在同一账号内重试一次、撤销当前会话改走退出、绑定账号对不上时是 `account_identity_changed`，C 层覆盖不联网的校验与 `retry_after_seconds` 的形状。断网与 503 分开、`chat`/`chat_models`/AI 皮肤的 `retry_after_seconds`、`account_delete` 的 `account_recent_login_required`（且只在成功后清本地会话）由 client-services 的 loopback 假服务器测试（挂断连接、429、503、403）和 host-api 的假后端测试覆盖，同一组测试同时核对已有的 `chat`、`chat_models`、`delete`、`generate` 给出的码不变。
+- 新接口：client-services 的测试覆盖 `AccountFailure::code()` 的映射顺序与 `Retry-After`、释义的整包预检与逐项置空、常用语按服务端规则的校验、「我的设备」保留 `web` 和空串、反馈的截图尺寸只读头部、诊断上传按服务端规则重建（事件种类、崩溃时间、配置快照的层数和条目、2 MiB 先截最旧的事件），以及用 loopback 假服务器回放服务端真实的 202 `{id,state,expires_at}` 和 failed `{id,state,artwork:null,reason}`（修复前这条测试失败）；host-api 的测试用假后端覆盖三类令牌来源、401 只在同一账号内重试一次、撤销当前会话改走退出、绑定账号对不上时是 `account_identity_changed`，C 层覆盖不联网的校验与 `retry_after_seconds` 的形状。断网与 503 分开、`chat`/`chat_models`/AI 皮肤的 `retry_after_seconds`、`account_delete` 的 `account_recent_login_required`（且只在成功后清本地会话）由 client-services 的 loopback 假服务器测试（挂断连接、429、503、403）和 host-api 的假后端测试覆盖，同一组测试同时核对已有的 `chat`、`chat_models`、`delete`、`generate` 给出的码不变。流式对话：client-services 的解析器测试逐字节喂入（UTF-8 字符、CRLF 和 `data:` 前缀被拆开），loopback 假服务器分段写出 SSE，覆盖增量在调用线程上按序交出、请求带 `stream: true` 和 `Accept: text/event-stream`、流开始前的 429 和 503 `server_busy` 带 `retry_after_seconds`、上游失败事件和没等到 `[DONE]` 的断开（已交出的增量留着）、等响应头时和两段增量之间从别的线程取消立刻返回且服务端下次写数据时连接被断开、回调里取消不再交出下一段、旧后端 400 `invalid_chat_request` 退回非流式；host-api 的假后端测试覆盖令牌来源、401 重试不交出增量、回调里取消和回答期间换号是 `account_cancelled`，C 层覆盖请求校验、`account_busy` 与按 id 取消。
 - 带 `directory` 的现有测试全部照旧通过；`shared/backend` 的 `swift test` 和 `platforms/macos/scripts/test_backend_account_swift.sh` 通过。
 - 第二阶段：iOS、macOS、Android 改调注入接口后，Swift 和 Java 里的会话刷新、匿名注册和账号接口实现删除；HarmonyOS 与 Linux 改用目录模式。
 

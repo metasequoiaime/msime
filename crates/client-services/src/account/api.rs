@@ -417,6 +417,22 @@ pub trait AccountApi: Send + Sync + 'static {
         self.chat(messages, model, access_token).map_err(Into::into)
     }
 
+    /// 与 [`Self::chat_detailed`] 相同，只是以 `stream: true` 请求：回复每到一段非空的增量就在调用线程上交给 `on_delta`，返回整段回复。`cancel` 可以从任何线程取消，取消后不再调用 `on_delta`，返回 `account_cancelled`。默认实现给只实现了非流式接口的假后端用：整段回复作为一段增量交出。
+    fn chat_stream_detailed(
+        &self,
+        messages: &[AccountChatMessage],
+        model: &str,
+        access_token: &str,
+        cancel: &ChatStreamCancel,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<String, AccountFailure> {
+        cancel.check()?;
+        let reply = self.chat_detailed(messages, model, access_token)?;
+        cancel.check()?;
+        on_delta(&reply);
+        Ok(reply)
+    }
+
     /// 与 [`Self::delete_account`] 相同，失败时是 [`AccountFailure`]：会话不是 10 分钟内登录的是 403 `recent_login_required`（`account_recent_login_required`）。
     fn delete_account_detailed(&self, access_token: &str) -> Result<(), AccountFailure> {
         self.delete_account(access_token).map_err(Into::into)

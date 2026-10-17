@@ -176,6 +176,23 @@ impl AccountApi for FakeApi {
         self.interrupt();
         Ok(format!("回答：{}", messages[0].content))
     }
+    /// 分两段交出回答，两段之间做 `during_request` 那件事、再看一次取消。
+    fn chat_stream_detailed(
+        &self,
+        messages: &[AccountChatMessage],
+        _: &str,
+        access_token: &str,
+        cancel: &ChatStreamCancel,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<String, AccountFailure> {
+        self.call("chat_stream", access_token)?;
+        cancel.check()?;
+        on_delta("回答：");
+        self.interrupt();
+        cancel.check()?;
+        on_delta(&messages[0].content);
+        Ok(format!("回答：{}", messages[0].content))
+    }
     fn translate(
         &self,
         request: &AccountTranslateRequest,
@@ -1178,4 +1195,128 @@ fn deleting_voice_data_also_deletes_the_anonymous_samples() {
         .run(json!({ "operation": "data_delete", "sections": ["voice"] }))
         .is_ok());
     assert_eq!(fixture.api.calls(), ["data_delete a"]);
+}
+
+/// 走 `chat_stream`，返回结果和按顺序收到的增量；`during` 在每段增量交出后调用。
+fn chat_stream_with(
+    fixture: &Fixture,
+    messages: Value,
+    cancel: &ChatStreamCancel,
+    mut during: impl FnMut(&str),
+) -> (Result<Value, OperationFailure>, Vec<String>) {
+    let messages: Vec<AccountChatMessage> = serde_json::from_value(messages).unwrap();
+    let anonymous = Arc::clone(&fixture.anonymous);
+    let mut deltas = Vec::new();
+    let result = chat_stream(
+        &fixture.account,
+        move || Ok(anonymous),
+        &messages,
+        "synthetic-model",
+        cancel,
+        &mut |delta| {
+            deltas.push(delta.to_owned());
+            during(delta);
+        },
+    );
+    (result, deltas)
+}
+
+fn question() -> Value {
+    json!([{ "role": "user", "content": "你好" }])
+}
+
+#[test]
+fn chat_stream_hands_over_deltas_and_prefers_the_signed_in_account() {
+    let signed_in = Fixture::signed_in();
+    let (result, deltas) =
+        chat_stream_with(&signed_in, question(), &ChatStreamCancel::default(), |_| {});
+    assert_eq!(result.unwrap(), json!({ "content": "回答：你好" }));
+    assert_eq!(deltas, ["回答：", "你好"]);
+    assert_eq!(signed_in.api.calls(), ["chat_stream a"]);
+
+    // 没有登录时用匿名账号；匿名令牌被拒时只在匿名账号里刷新重试，被拒的那次没有交出增量。
+    let anonymous_only = Fixture::new(None, Some(saved('1', '2', ANONYMOUS_USER)));
+    anonymous_only.api.stale.lock().unwrap().push(token('1'));
+    let (result, deltas) = chat_stream_with(
+        &anonymous_only,
+        question(),
+        &ChatStreamCancel::default(),
+        |_| {},
+    );
+    assert!(result.is_ok());
+    assert_eq!(deltas, ["回答：", "你好"]);
+    assert_eq!(
+        anonymous_only.api.calls(),
+        ["chat_stream 1", "refresh 2", "chat_stream 3"]
+    );
+
+    let neither = Fixture::new(None, None);
+    let (result, deltas) =
+        chat_stream_with(&neither, question(), &ChatStreamCancel::default(), |_| {});
+    assert_eq!(result.unwrap_err().code, "account_unauthorized");
+    assert!(deltas.is_empty());
+    assert!(neither.api.calls().is_empty());
+}
+
+#[test]
+fn chat_stream_checks_the_request_before_taking_a_token() {
+    let fixture = Fixture::signed_in();
+    for (messages, code) in [
+        (json!([]), "account_invalid"),
+        (
+            json!([{ "role": "tool", "content": "问题" }]),
+            "account_invalid",
+        ),
+        (
+            json!((0..5)
+                .map(|_| json!({ "role": "user", "content": "字".repeat(5000) }))
+                .collect::<Vec<_>>()),
+            "account_too_large",
+        ),
+    ] {
+        let (result, deltas) =
+            chat_stream_with(&fixture, messages, &ChatStreamCancel::default(), |_| {});
+        assert_eq!(result.unwrap_err().code, code);
+        assert!(deltas.is_empty());
+    }
+    assert!(fixture.api.calls().is_empty());
+}
+
+#[test]
+fn chat_stream_cancelled_in_the_callback_stops_and_reports_cancelled() {
+    let fixture = Fixture::signed_in();
+    let cancel = ChatStreamCancel::default();
+    let inner = cancel.clone();
+    let (result, deltas) = chat_stream_with(&fixture, question(), &cancel, move |_| inner.cancel());
+    assert_eq!(result.unwrap_err().code, "account_cancelled");
+    assert_eq!(deltas, ["回答："]);
+
+    // 开始之前就取消的不发请求。
+    let (result, deltas) = chat_stream_with(&fixture, question(), &cancel, |_| {});
+    assert_eq!(result.unwrap_err().code, "account_cancelled");
+    assert!(deltas.is_empty());
+    assert_eq!(fixture.api.calls(), ["chat_stream a", "chat_stream a"]);
+}
+
+#[test]
+fn chat_stream_reply_is_cancelled_when_its_account_signs_out_midway() {
+    for signed_in in [false, true] {
+        let fixture = if signed_in {
+            Fixture::signed_in()
+        } else {
+            Fixture::new(None, Some(saved('1', '2', ANONYMOUS_USER)))
+        };
+        let serving = Arc::downgrade(if signed_in {
+            &fixture.account
+        } else {
+            &fixture.anonymous
+        });
+        *fixture.api.during_request.lock().unwrap() = Some(Box::new(move || {
+            serving.upgrade().unwrap().forget().unwrap()
+        }));
+        let (result, deltas) =
+            chat_stream_with(&fixture, question(), &ChatStreamCancel::default(), |_| {});
+        assert_eq!(result.unwrap_err().code, "account_cancelled");
+        assert_eq!(deltas, ["回答：", "你好"]);
+    }
 }

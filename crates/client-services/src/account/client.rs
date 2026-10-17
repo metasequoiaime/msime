@@ -200,7 +200,7 @@ impl BackendAccountClient {
     }
 
     /// 校验路径、凭据和请求体后组装请求；请求只会发往构造时给定的源站。
-    fn prepare(
+    pub(super) fn prepare(
         &self,
         method: Method,
         path: &str,
@@ -1325,22 +1325,59 @@ struct ChatBody<'a> {
 }
 
 impl<'a> ChatBody<'a> {
-    fn new(messages: &'a [AccountChatMessage], model: &'a str) -> Self {
+    fn new(messages: &'a [AccountChatMessage], model: &'a str, stream: bool) -> Self {
         Self {
             messages,
             model,
             max_tokens: 2048,
-            stream: false,
+            stream,
         }
     }
 }
 
-/// 序列化后的聊天请求体。
+/// 序列化后的聊天请求体（非流式）。流式的请求体只是 `false` 换成 `true`，短一个字节，按这份量出的上限对两者都成立。
 pub(super) fn chat_request_body(
     messages: &[AccountChatMessage],
     model: &str,
 ) -> Result<Vec<u8>, AccountError> {
-    serde_json::to_vec(&ChatBody::new(messages, model)).map_err(|_| AccountError::Invalid)
+    chat_body_bytes(messages, model, false)
+}
+
+/// 序列化后的聊天请求体，`stream` 决定服务端回 JSON 还是 SSE。
+pub(super) fn chat_body_bytes(
+    messages: &[AccountChatMessage],
+    model: &str,
+    stream: bool,
+) -> Result<Vec<u8>, AccountError> {
+    serde_json::to_vec(&ChatBody::new(messages, model, stream)).map_err(|_| AccountError::Invalid)
+}
+
+/// 非流式回答 `{choices:[{message:{role,content}}]}` 里的回复：取第一个选项，角色必须是 assistant，正文非空白、不超过 16 KiB、不含换行、回车和制表符以外的控制字符，否则是 `account_unavailable`。流式请求遇到没按 SSE 回答的响应时也按它读。
+pub(super) fn chat_reply(bytes: &[u8]) -> Result<String, AccountFailure> {
+    #[derive(Deserialize)]
+    struct Response {
+        choices: Vec<Choice>,
+    }
+    #[derive(Deserialize)]
+    struct Choice {
+        message: AccountChatMessage,
+    }
+    let response: Response =
+        serde_json::from_slice(bytes).map_err(|_| AccountError::Unavailable)?;
+    let reply = response
+        .choices
+        .into_iter()
+        .next()
+        .map(|choice| choice.message)
+        .ok_or(AccountError::Unavailable)?;
+    if reply.role != "assistant"
+        || reply.content.trim().is_empty()
+        || reply.content.len() > MAX_CHAT_RESPONSE_BYTES
+        || crate::text::has_disallowed_control(&reply.content)
+    {
+        return Err(AccountError::Unavailable.into());
+    }
+    Ok(reply.content)
 }
 
 /// 对话请求在取令牌之前的检查，与 [`BackendAccountSession::chat_checked`] 相同：不合法是 `account_invalid`，序列化后的请求体超过服务端 64 KiB 的整包上限是 `account_too_large`。
@@ -1623,41 +1660,32 @@ impl AccountApi for BackendAccountClient {
             return Err(AccountError::Invalid.into());
         }
         validate_chat_request(messages, model)?;
-        #[derive(Deserialize)]
-        struct Response {
-            choices: Vec<Choice>,
-        }
-        #[derive(Deserialize)]
-        struct Choice {
-            message: AccountChatMessage,
-        }
-        let body = ChatBody::new(messages, model);
-        if chat_request_body(messages, model)?.len() > MAX_CHAT_REQUEST_BYTES {
+        let body = chat_request_body(messages, model)?;
+        if body.len() > MAX_CHAT_REQUEST_BYTES {
             return Err(AccountFailure::too_large());
         }
-        let response = self.json_detailed::<Response, _>(
+        let bytes = self.request_detailed(
             Method::POST,
-            "/v1/chat/completions",
+            CHAT_PATH,
             Some(access_token),
-            Some(&body),
+            Some(body),
             MAX_CHAT_REQUEST_BYTES,
             MAX_CHAT_RESPONSE_BYTES,
-            Duration::from_secs(125),
+            CHAT_TIMEOUT,
+            "application/json",
         )?;
-        let reply = response
-            .choices
-            .into_iter()
-            .next()
-            .map(|choice| choice.message)
-            .ok_or(AccountError::Unavailable)?;
-        if reply.role != "assistant"
-            || reply.content.trim().is_empty()
-            || reply.content.len() > MAX_CHAT_RESPONSE_BYTES
-            || crate::text::has_disallowed_control(&reply.content)
-        {
-            return Err(AccountError::Unavailable.into());
-        }
-        Ok(reply.content)
+        chat_reply(&bytes)
+    }
+
+    fn chat_stream_detailed(
+        &self,
+        messages: &[AccountChatMessage],
+        model: &str,
+        access_token: &str,
+        cancel: &ChatStreamCancel,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<String, AccountFailure> {
+        self.stream_chat(messages, model, access_token, cancel, on_delta)
     }
 
     fn preference_schema(

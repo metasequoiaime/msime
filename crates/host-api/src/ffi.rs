@@ -213,6 +213,7 @@ pub mod account;
 pub mod ai_skin;
 pub mod android_data;
 pub mod candidates;
+pub mod chat_stream;
 pub mod cloud_dictionary;
 pub mod cloud_sync;
 pub mod community;

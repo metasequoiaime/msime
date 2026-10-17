@@ -1,4 +1,4 @@
-//! #8201 新接口的传输测试：`BackendAccountClient::loopback` 连本机 `TcpListener` 假服务器，回放服务端的响应形状（msime-cloud `origin/main`），核对发出去的方法、路径、凭据和正文，以及失败时的状态码、服务端错误码和 `Retry-After`。
+//! #8201 新接口的传输测试（请求的读取和响应的拼装也给 `chat_stream` 的测试用）：`BackendAccountClient::loopback` 连本机 `TcpListener` 假服务器，回放服务端的响应形状（msime-cloud `origin/main`），核对发出去的方法、路径、凭据和正文，以及失败时的状态码、服务端错误码和 `Retry-After`。
 
 use super::*;
 use crate::diagnostics::upload::{prepare_upload, DiagnosticUpload};
@@ -12,7 +12,7 @@ fn token(character: char) -> String {
 }
 
 /// 一个完整的 HTTP/1.1 响应，带 `Content-Length` 和 `Connection: close`，客户端不会复用连接。
-fn http(status: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
+pub(super) fn http(status: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
     let mut response = format!(
         "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n",
         body.len()
@@ -26,7 +26,7 @@ fn http(status: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn json_response(status: &str, body: Value) -> Vec<u8> {
+pub(super) fn json_response(status: &str, body: Value) -> Vec<u8> {
     http(
         status,
         &[("Content-Type", "application/json")],
@@ -34,7 +34,7 @@ fn json_response(status: &str, body: Value) -> Vec<u8> {
     )
 }
 
-fn error_response(status: &str, code: &str, headers: &[(&str, &str)]) -> Vec<u8> {
+pub(super) fn error_response(status: &str, code: &str, headers: &[(&str, &str)]) -> Vec<u8> {
     let mut all = vec![("Content-Type", "application/json")];
     all.extend_from_slice(headers);
     http(
@@ -47,24 +47,24 @@ fn error_response(status: &str, code: &str, headers: &[(&str, &str)]) -> Vec<u8>
 }
 
 /// 一个收到的请求：请求行和头（头名转成小写）以及正文。
-struct Received {
-    head: String,
-    body: Vec<u8>,
+pub(super) struct Received {
+    pub(super) head: String,
+    pub(super) body: Vec<u8>,
 }
 
 impl Received {
-    fn line(&self) -> &str {
+    pub(super) fn line(&self) -> &str {
         self.head.lines().next().unwrap()
     }
 
-    fn header(&self, name: &str) -> Option<&str> {
+    pub(super) fn header(&self, name: &str) -> Option<&str> {
         self.head.lines().skip(1).find_map(|line| {
             let (key, value) = line.split_once(':')?;
             key.eq_ignore_ascii_case(name).then(|| value.trim())
         })
     }
 
-    fn json(&self) -> Value {
+    pub(super) fn json(&self) -> Value {
         serde_json::from_slice(&self.body).unwrap()
     }
 }
@@ -85,7 +85,7 @@ fn serve(responses: Vec<Vec<u8>>) -> (String, Receiver<Received>) {
     (origin, received)
 }
 
-fn read_request(stream: &mut std::net::TcpStream) -> Received {
+pub(super) fn read_request(stream: &mut std::net::TcpStream) -> Received {
     let mut bytes = Vec::new();
     let mut buffer = [0_u8; 8192];
     let head_end = loop {

@@ -1,4 +1,4 @@
-//! 宿主注入的会话存储：`msime_client_session_store_register` 收下宿主的 load、save、remove、lock、unlock、release 回调，建好这个 store 的登录会话、匿名会话、社区服务和 AI 皮肤服务，之后 `msime_client_account`、`msime_client_community`、`msime_client_account_cloud_clipboard`、`msime_client_account_access_token`、`msime_client_cloud_dictionary` 和 AI 皮肤的两个入口带 `session_store` 就经它们走，不带时仍按 `directory` 读写会话文件，行为不变。回调的契约见头文件 `msime_client_session_store` 的注释；编解码、校验和加锁顺序在 client-services 的 `account::host_storage`。
+//! 宿主注入的会话存储：`msime_client_session_store_register` 收下宿主的 load、save、remove、lock、unlock、release 回调，建好这个 store 的登录会话、匿名会话、社区服务和 AI 皮肤服务，之后 `msime_client_account`、`msime_client_account_chat_stream`、`msime_client_community`、`msime_client_account_cloud_clipboard`、`msime_client_account_access_token`、`msime_client_cloud_dictionary` 和 AI 皮肤的两个入口带 `session_store` 就经它们走，不带时仍按 `directory` 读写会话文件，行为不变。回调的契约见头文件 `msime_client_session_store` 的注释；编解码、校验和加锁顺序在 client-services 的 `account::host_storage`。
 //!
 //! 注册表里每个 store 一个条目，注册时一次建好全部对象，请求路径只查不插：`unregister` 之后不会有调用把会话重新插回去。条目最后一个引用释放时调用宿主的 `release`，那时本模块不持有任何锁。
 //!

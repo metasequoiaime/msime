@@ -394,7 +394,7 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
     }
 }
 
-fn absolute_directory(value: &str) -> Result<&Path, String> {
+pub(super) fn absolute_directory(value: &str) -> Result<&Path, String> {
     let path = Path::new(value);
     if value.len() > MAX_DIRECTORY_BYTES || !path.is_absolute() {
         return Err(AccountError::Invalid.code().to_owned());

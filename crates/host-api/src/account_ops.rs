@@ -1,4 +1,4 @@
-//! `msime_client_account` 在 #8201 新增的操作：对话、注销账号、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接和语音贡献。请求形状、返回值和错误码见头文件；规则和传输都在 client-services，这里只按操作把它们接起来。
+//! `msime_client_account` 在 #8201 新增的操作（流式对话是单独的 `msime_client_account_chat_stream`，见 [`chat_stream`]）：对话、注销账号、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接和语音贡献。请求形状、返回值和错误码见头文件；规则和传输都在 client-services，这里只按操作把它们接起来。
 //!
 //! 写成对 [`AccountApi`] 和 [`AccountSessionStorage`] 泛型的函数，测试用假的后端驱动；C 导出（`super::ffi::account`）把按目录或注入存储建好的两个会话交进来。
 //!
@@ -11,7 +11,7 @@ use msime_client_services::account::{
     translate_request_body, valid_data_sections, with_shared_access_token, AccountApi,
     AccountChatMessage, AccountError, AccountFailure, AccountFeedbackInput, AccountPhrase,
     AccountPhrases, AccountSessionStorage, AccountTranslateRequest, AccountVoiceContributionInput,
-    AnonymousIdentitySource, BackendAccountSession, DEFAULT_TRANSLATE_TIMEOUT_MS,
+    AnonymousIdentitySource, BackendAccountSession, ChatStreamCancel, DEFAULT_TRANSLATE_TIMEOUT_MS,
     MAX_VOICE_CONTRIBUTION_AUDIO_BYTES, TRANSLATE_TIMEOUT_MS,
 };
 use msime_client_services::diagnostics::upload::{
@@ -22,6 +22,7 @@ use msime_client_services::diagnostics::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -185,6 +186,32 @@ where
         return Err(AccountError::Cancelled.into());
     }
     Ok(result)
+}
+
+/// 流式对话（`msime_client_account_chat_stream`）：请求和预检与 `chat` 相同，登录账号优先、没有登录时用匿名账号；回复的增量在调用线程上交给 `on_delta`，`cancel` 可以从任何线程取消。回答完整以后与 `chat` 一样核对给出令牌的账号没有退出或换号，否则是 `account_cancelled`（这时增量已经交出去了，宿主丢掉它们）。
+pub(crate) fn chat_stream<A, S1, S2>(
+    account: &BackendAccountSession<A, S1>,
+    anonymous: impl FnOnce() -> Result<Arc<BackendAccountSession<A, S2>>, AccountError>,
+    messages: &[AccountChatMessage],
+    model: &str,
+    cancel: &ChatStreamCancel,
+    on_delta: &mut dyn FnMut(&str),
+) -> Result<Value, OperationFailure>
+where
+    A: AccountApi,
+    S1: AccountSessionStorage,
+    S2: AccountSessionStorage,
+{
+    // 不合法和太大的请求在取令牌之前就结束。
+    prepare_chat(messages, model)?;
+    let anonymous = anonymous()?;
+    // 令牌被拒时 with_shared_access_token 会再调一次请求，所以请求写成 Fn，回调经 RefCell 借出；两次调用不会重叠。
+    let on_delta = RefCell::new(on_delta);
+    value(ChatResponse {
+        content: preferred_account_request(account, &anonymous, |api, token| {
+            api.chat_stream_detailed(messages, model, token, cancel, &mut **on_delta.borrow_mut())
+        })?,
+    })
 }
 
 /// 执行一次新操作。`account` 是登录会话；`anonymous` 给出本机匿名账号的会话，只有用得到匿名账号的操作（登录账号优先、退回匿名的，只用匿名账号的语音贡献，绑定账号的诊断操作，删除云端数据的 `voice` 分区）才会调用它；`identity` 是匿名账号的身份存在哪里，只在删除匿名账号的语音样本、匿名会话要重新登录时读。

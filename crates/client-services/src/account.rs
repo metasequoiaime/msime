@@ -28,6 +28,9 @@ const MAX_CHAT_MESSAGES: usize = 16;
 const MAX_CHAT_MESSAGE_BYTES: usize = 16 * 1024;
 const MAX_CHAT_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_CHAT_RESPONSE_BYTES: usize = 16 * 1024;
+const CHAT_PATH: &str = "/v1/chat/completions";
+/// 对话请求从连接到读完回答的总时限。服务端整条请求（流式也一样）受 `timeout_seconds` 约束，最多 120 秒，多给 5 秒让服务端自己的超时先到。
+const CHAT_TIMEOUT: Duration = Duration::from_secs(125);
 const REFRESH_EARLY_SECONDS: u64 = 30;
 /// Backend bearer sessions are short-lived; reject malformed responses that would create a
 /// practically permanent local session.
@@ -502,6 +505,8 @@ pub struct AccountFailure {
 const LOCAL_TOO_LARGE: &str = "request_too_large";
 /// 绑定账号的操作发现当前会话已不是那个账号时的码。
 const LOCAL_IDENTITY_CHANGED: &str = "identity_changed";
+/// 宿主给的请求 id 已经有一个在进行时的码。
+const LOCAL_BUSY: &str = "request_busy";
 
 impl From<AccountError> for AccountFailure {
     fn from(error: AccountError) -> Self {
@@ -540,6 +545,14 @@ impl AccountFailure {
         }
     }
 
+    /// 同一个请求 id 已经有一个在进行（[`ChatStreamRequests::begin`]），`code()` 是 `account_busy`。
+    pub fn busy() -> Self {
+        Self {
+            server_code: Some(LOCAL_BUSY.to_owned()),
+            ..AccountError::Conflict.into()
+        }
+    }
+
     /// 宿主自己收到的失败响应：`status` 是 HTTP 状态码，`body` 是响应正文，`retry_after` 是 `Retry-After` 头的原文。映射与本 crate 自己的请求相同。
     pub fn from_http_response(status: u16, body: &[u8], retry_after: Option<&str>) -> Self {
         let parsed = StatusCode::from_u16(status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE);
@@ -563,6 +576,9 @@ impl AccountFailure {
         }
         if server == Some(LOCAL_IDENTITY_CHANGED) {
             return "account_identity_changed";
+        }
+        if server == Some(LOCAL_BUSY) {
+            return "account_busy";
         }
         if server == Some("no_verified_email") {
             return "account_no_verified_email";
@@ -640,6 +656,8 @@ mod api;
 /// 安卓的 Apple 网页登录（PKCE 式一次性授权码）。
 mod apple_web;
 mod avatar;
+/// 对话的流式请求（SSE）和取消。
+mod chat_stream;
 mod client;
 mod clipboard;
 /// 多分类自动云同步的纯决策、状态文件和单轮状态机。
@@ -682,6 +700,7 @@ pub use anonymous::{
 pub use api::*;
 pub use apple_web::{AccountAppleWebChallenge, AppleWebSignIn};
 pub use avatar::*;
+pub use chat_stream::*;
 pub use client::*;
 pub use clipboard::*;
 pub use devices::*;
