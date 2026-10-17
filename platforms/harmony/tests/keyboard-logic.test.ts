@@ -9665,7 +9665,7 @@ group("the function panel follows the design's order, then the Harmony extras", 
   check(
     labels.join(",") ===
       "全角,中文标点,模糊音,繁体,手写,词库,键盘高度,设置," +
-        "按键音,振动,单手模式,隐私模式,反馈,关于,候选翻译,符号," +
+        "按键音,振动,单手模式,隐私模式,反馈,关于,宣传,候选翻译,符号," +
         "本地输入,语音输入,高情商回复,AI 润色,振动强度",
     `the tiles in page order: ${labels.join(",")}`,
   );
