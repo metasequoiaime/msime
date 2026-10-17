@@ -37,7 +37,7 @@ final class ImeVoiceEntry {
     static final String PLATFORM_PROVIDER = "system";
     /** 「已识别：…」停留的时间。 */
     static final long DONE_NOTICE_MILLIS = 1200;
-    /** 听到内容之后这么久没有新的识别文字，就当说完了，结束录音并出结果（与系统识别器停顿后自动结束一致）。 */
+    /** 听到内容之后这么久没有新的识别文字，就当说完了，结束录音并出结果（与系统识别器停顿后自动结束一致）。经过 VAD 的本机整段模型还判定在说话时推迟，长按空格按住说话时不自动结束，见 {@link VoiceHoldPolicy#silenceElapsed}。 */
     static final long SILENCE_STOP_MILLIS = 1500;
 
     /** 键盘里接手的识别方式。 */
@@ -63,6 +63,10 @@ final class ImeVoiceEntry {
     private long generation;
     private boolean recognizing;
     private boolean diagnosticAllowed;
+    /** 这次聆听由长按空格开始、空格还按着：松手才结束，停顿不自动结束。 */
+    private boolean held;
+    /** 本机整段模型的 VAD 此刻判定在说话（{@link LocalAsrRecognizer.Listener#onSpeech}）。 */
+    private boolean speaking;
 
     ImeVoiceEntry(MSIMEInputService s) {
         this.s = s;
@@ -146,6 +150,8 @@ final class ImeVoiceEntry {
         long session = ++generation;
         long startedAt = SystemClock.uptimeMillis();
         recognizing = true;
+        held = false;
+        speaking = false;
         VoiceRecognitionActivity.Polish polish = configured.polish();
         VoiceRecognitionActivity.Streaming stream = configured.streaming();
         if (engine == Engine.PLATFORM) {
@@ -177,8 +183,15 @@ final class ImeVoiceEntry {
                         // files 目录的设备吃一个 NPE，再被下面的兜底改写成那句泛泛的提示；把 null 交给
                         // 识别器当「模型不可用」处理，用户看到的就是对得上的文案。
                         text = runningLocal.recognize(model, files == null ? null : files.toPath(),
-                            language, options, null, null,
-                            partial -> s.main.post(() -> heard(session, partial)));
+                            language, options, null, null, new LocalAsrRecognizer.Listener() {
+                                @Override public void onPartial(String partial) {
+                                    s.main.post(() -> heard(session, partial));
+                                }
+
+                                @Override public void onSpeech(boolean value) {
+                                    s.main.post(() -> spoke(session, value));
+                                }
+                            });
                         pcm = runningLocal.retainedAudio();
                     } else if (runningStream != null && stream != null) {
                         text = runningStream.recognize(stream.endpoint(), stream.headers(), stream.itn(),
@@ -231,16 +244,65 @@ final class ImeVoiceEntry {
         listening.setHint(partial);
         // 系统识别服务自己判断说完了没有，这里再按停顿掐断会切掉还没说完的话。
         if (platform != null) return;
+        armSilenceStop(session);
+    }
+
+    /** 从现在起计一个停顿时长；到点时按 {@link VoiceHoldPolicy#silenceElapsed} 结束、推迟或等松手。 */
+    private void armSilenceStop(long session) {
         if (silenceStop != null) s.main.removeCallbacks(silenceStop);
         Runnable stop = new Runnable() {
             @Override public void run() {
                 if (silenceStop != this || session != generation) return;
-                silenceStop = null;
-                finishListening();
+                switch (VoiceHoldPolicy.silenceElapsed(held, speaking)) {
+                    case STOP -> {
+                        silenceStop = null;
+                        finishListening();
+                    }
+                    case POSTPONE -> s.main.postDelayed(this, SILENCE_STOP_MILLIS);
+                    case WAIT_FOR_RELEASE -> silenceStop = null;
+                }
             }
         };
         silenceStop = stop;
         s.main.postDelayed(stop, SILENCE_STOP_MILLIS);
+    }
+
+    /** 本机整段模型的 VAD 开始或停止判定在说话。一段说完时，已经在计的停顿改从这一刻重新计，而不是从上一次出字算起。 */
+    private void spoke(long session, boolean value) {
+        if (session != generation || listening == null) return;
+        speaking = value;
+        if (!value && silenceStop != null) armSilenceStop(session);
+    }
+
+    /** 当前聆听的代次。空格长按开始语音前记下，交给 {@link #hold} 判断这次按压是否真的在键区里开始了一次新的聆听。 */
+    long generation() {
+        return generation;
+    }
+
+    /**
+     * 把 {@code before} 之后刚在键区里开始的这次聆听改成按住说话：松手（{@link #releaseHold}）才结束，按住期间停顿不自动结束。按压只是结束了已有的聆听、转交了识别窗口或者没能开始时返回 false。
+     */
+    boolean hold(long before) {
+        if (generation == before || !recognizing || listening == null) return false;
+        held = true;
+        listening.setHint("松开结束，上滑取消");
+        return true;
+    }
+
+    /** 按住说话时手指进出取消区：聆听面板切换「松开取消」的样子。 */
+    void holdCancelZone(boolean inZone) {
+        if (!held || !recognizing || listening == null) return;
+        listening.setReleaseToCancel(inZone);
+    }
+
+    /** 按住说话松手：{@code cancel} 为 true（在取消区松手，或者触摸被系统取消）时丢掉这次录音，否则结束录音并出结果。这次聆听已经结束或被取消时什么也不做。 */
+    void releaseHold(boolean cancel) {
+        if (!held) return;
+        held = false;
+        if (listening != null) listening.setReleaseToCancel(false);
+        if (!recognizing) return;
+        if (cancel) cancel();
+        else finishListening();
     }
 
     /** 结束录音（保留已录到的部分并出结果）。 */
@@ -268,6 +330,7 @@ final class ImeVoiceEntry {
     void cancel() {
         generation++;
         recognizing = false;
+        held = false;
         if (local != null) local.cancel();
         if (streaming != null) streaming.cancel();
         local = null;

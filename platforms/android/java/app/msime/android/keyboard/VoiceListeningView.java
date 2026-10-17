@@ -15,6 +15,8 @@ import android.widget.TextView;
  * 键盘内的语音聆听面板：72 dp 的 accent 圆盘托着麦克风，外圈一道 1.2 s 循环的脉冲环（扩到 18 dp），识别器报音量时圆盘外再贴一圈随音量涨落的光圈（最多 12 dp），下面「正在聆听…」和「点任意处取消」。
  *
  * <p>节点 text 是「正在聆听…」，描述「正在聆听，点任意处取消」（§2.8）；整个面板可点，点击即取消，回调由调用方用 `setOnClickListener` 设置。颜色由调用方从皮肤传入。
+ *
+ * <p>按住空格说话时手指滑进取消区，面板换成「松开取消」的样子（{@link #setReleaseToCancel}）：标题改成「松开取消」，圆盘和光圈改用提示色，滑回去即恢复。
  */
 public final class VoiceListeningView extends TextView {
     public static final float ORB_DP = 72f;
@@ -32,6 +34,9 @@ public final class VoiceListeningView extends TextView {
     private final TextPaint hint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private int accent = Color.BLUE;
     private int onAccent = Color.WHITE;
+    private int secondary = Color.GRAY;
+    private boolean releaseToCancel;
+    private CharSequence listeningDescription;
     private float pulse;
     private float level;
     private ValueAnimator animator;
@@ -60,6 +65,21 @@ public final class VoiceListeningView extends TextView {
         onAccent = onAccentColor;
         title.setColor(foreground);
         hint.setColor(secondary);
+        this.secondary = secondary;
+        invalidate();
+    }
+
+    /** 按住说话时手指是否在取消区：在时标题显示「松开取消」、圆盘改用提示色，节点描述同步；离开时恢复原来的标题与描述。 */
+    public void setReleaseToCancel(boolean value) {
+        if (releaseToCancel == value) return;
+        releaseToCancel = value;
+        if (value) {
+            listeningDescription = getContentDescription();
+            setContentDescription("松开取消");
+        } else {
+            setContentDescription(listeningDescription);
+            listeningDescription = null;
+        }
         invalidate();
     }
 
@@ -139,17 +159,18 @@ public final class VoiceListeningView extends TextView {
         float top = (getHeight() - total) / 2f;
         float cx = getWidth() / 2f;
         float cy = top + radius;
-        ring.setColor(accent);
+        int orbColor = releaseToCancel ? secondary : accent;
+        ring.setColor(orbColor);
         ring.setAlpha(pulseAlpha(pulse));
         canvas.drawCircle(cx, cy, radius + pulseSpread(pulse,
             DimensionPolicy.floatPixels(getContext(), PULSE_DP)), ring);
         float spread = levelSpread(level, DimensionPolicy.floatPixels(getContext(), LEVEL_DP));
         if (spread > 0f) {
-            volume.setColor(accent);
+            volume.setColor(orbColor);
             volume.setAlpha(70);
             canvas.drawCircle(cx, cy, radius + spread, volume);
         }
-        orb.setColor(accent);
+        orb.setColor(orbColor);
         canvas.drawCircle(cx, cy, radius, orb);
         float mic = DimensionPolicy.floatPixels(getContext(), MIC_DP);
         KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC, cx - mic / 2f,
@@ -158,7 +179,7 @@ public final class VoiceListeningView extends TextView {
         // 两行居中绘制，左右各留 16 dp；放不下时省略：标题省略结尾，提示里是滚动中的识别文字，省略开头留住最新说的那段。
         float available = BoundsPolicy.nonNegative(getWidth() - getPaddingLeft() - getPaddingRight()
             - DimensionPolicy.floatPixels(getContext(), 32));
-        String titleText = String.valueOf(getText());
+        String titleText = releaseToCancel ? "松开取消" : String.valueOf(getText());
         if (!titleText.equals(fittedTitleSource) || available != fittedWidth
                 || title.getTextSize() != fittedTitleSize) {
             fittedTitleSource = titleText;

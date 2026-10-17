@@ -32,6 +32,7 @@ public final class LocalSpeechHandleDeviceSmoke extends Instrumentation {
             String.class, String.class, int.class);
         Method accept = client.getMethod("localSpeechAccept", long.class, short[].class, int.class);
         Method finish = client.getMethod("localSpeechFinish", long.class);
+        Method speaking = client.getMethod("localSpeechSpeaking", long.class);
         long first = 0;
         long second = 0;
         try {
@@ -50,6 +51,9 @@ public final class LocalSpeechHandleDeviceSmoke extends Instrumentation {
                 "Unknown speech handle was accepted");
             refused(accept, IllegalStateException.class, stale, new short[0], 0);
             refused(finish, IllegalStateException.class, stale);
+            check(!(Boolean) speaking.invoke(null, stale), "A released speech handle reported speech");
+            check(!(Boolean) speaking.invoke(null, second), "A speech handle without a session reported speech");
+            refused(speaking, IllegalArgumentException.class, -1L);
             refused(start, IllegalArgumentException.class, -1L, "", "zh-CN", "", 0);
             cancel.invoke(null, stale);
             destroy.invoke(null, stale);
