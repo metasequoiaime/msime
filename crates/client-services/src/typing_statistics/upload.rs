@@ -259,6 +259,41 @@ impl TypingStatisticsStore {
         Ok(state)
     }
 
+    /// 准备一次上传：打开了上传、离上次超过 `UPLOAD_INTERVAL_MS`（`force` 时不看间隔）、最近有可传的日子时交回请求体，否则交回不传的原因（[`UploadOutcome::Disabled`]、[`UploadOutcome::NotDue`] 或 [`UploadOutcome::Nothing`]）。只在读状态和统计时持锁。自己发 HTTP 的宿主（Android、iOS、鸿蒙）用它和 [`Self::record_upload`] 两步走，发送夹在中间；用 Rust 账号会话的宿主用 [`Self::upload_if_due`]。`today` 是宿主的本地日期，`now_ms` 是 Unix 毫秒。
+    pub fn prepare_upload(
+        &self,
+        today: &str,
+        platform: &str,
+        now_ms: u64,
+        force: bool,
+    ) -> Result<Result<TypingStatisticsUpload, UploadOutcome>, TypingStatisticsError> {
+        let lock = self.lock()?;
+        let state = self.read_upload_state(&lock)?;
+        if !state.enabled || state.device.is_empty() {
+            return Ok(Err(UploadOutcome::Disabled));
+        }
+        if !force && now_ms.saturating_sub(state.last_upload_ms) < UPLOAD_INTERVAL_MS {
+            return Ok(Err(UploadOutcome::NotDue));
+        }
+        let statistics = self.read_locked(&lock)?;
+        Ok(build_upload(&statistics, today, &state.device, platform).ok_or(UploadOutcome::Nothing))
+    }
+
+    /// 记下一次成功的上传：`device` 是 [`Self::prepare_upload`] 交回的请求体里的设备标识。发送期间用户关掉了上传（或换了设备标识）时不记，免得关掉后的状态被写回。交回记完以后的状态。
+    pub fn record_upload(
+        &self,
+        device: &str,
+        now_ms: u64,
+    ) -> Result<UploadState, TypingStatisticsError> {
+        let lock = self.lock()?;
+        let mut current = self.read_upload_state(&lock)?;
+        if current.enabled && !device.is_empty() && current.device == device {
+            current.last_upload_ms = now_ms;
+            self.write_upload_state(&lock, &current)?;
+        }
+        Ok(current)
+    }
+
     /// 打开了上传、离上次超过 `UPLOAD_INTERVAL_MS`（`force` 时不看间隔）就构建并交给 `send` 发送，成功后记下时间。发送期间不持有统计文件的锁：网络请求可能要几十秒，输入法在这期间照常记数。`today` 是宿主的本地日期，`now_ms` 是 Unix 毫秒。
     pub fn upload_if_due<E>(
         &self,
@@ -268,30 +303,12 @@ impl TypingStatisticsStore {
         force: bool,
         send: impl FnOnce(&TypingStatisticsUpload) -> Result<(), E>,
     ) -> Result<UploadOutcome, UploadError<E>> {
-        let (state, payload) = {
-            let lock = self.lock()?;
-            let state = self.read_upload_state(&lock)?;
-            if !state.enabled || state.device.is_empty() {
-                return Ok(UploadOutcome::Disabled);
-            }
-            if !force && now_ms.saturating_sub(state.last_upload_ms) < UPLOAD_INTERVAL_MS {
-                return Ok(UploadOutcome::NotDue);
-            }
-            let statistics = self.read_locked(&lock)?;
-            let payload = build_upload(&statistics, today, &state.device, platform);
-            (state, payload)
-        };
-        let Some(payload) = payload else {
-            return Ok(UploadOutcome::Nothing);
+        let payload = match self.prepare_upload(today, platform, now_ms, force)? {
+            Ok(payload) => payload,
+            Err(outcome) => return Ok(outcome),
         };
         send(&payload).map_err(UploadError::Send)?;
-        let lock = self.lock()?;
-        let mut current = self.read_upload_state(&lock)?;
-        // 发送期间用户关掉了上传（或换了设备标识）时不再记时间，免得关掉后的状态被写回。
-        if current.enabled && current.device == state.device {
-            current.last_upload_ms = now_ms;
-            self.write_upload_state(&lock, &current)?;
-        }
+        self.record_upload(&payload.device, now_ms)?;
         Ok(UploadOutcome::Uploaded(payload.days.len()))
     }
 }
@@ -576,5 +593,63 @@ mod tests {
         store.set_upload_enabled(true).unwrap();
         std::fs::write(directory.path().join(UPLOAD_STATE_FILE), b"{not json").unwrap();
         assert!(!store.upload_state().unwrap().enabled);
+    }
+
+    #[test]
+    fn the_two_step_upload_records_only_for_the_device_it_prepared() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = TypingStatisticsStore::new(directory.path().join("statistics"));
+        store.set_enabled(true).unwrap();
+        assert_eq!(
+            store
+                .prepare_upload("2026-10-17", "android", 1, false)
+                .unwrap(),
+            Err(UploadOutcome::Disabled)
+        );
+        let state = store.set_upload_enabled(true).unwrap();
+        assert_eq!(
+            store
+                .prepare_upload("2026-10-17", "android", 1, true)
+                .unwrap(),
+            Err(UploadOutcome::Nothing)
+        );
+        store
+            .record(
+                "字",
+                super::super::TypingSource::Quanpin,
+                "2026-10-17",
+                None,
+            )
+            .unwrap();
+        let payload = store
+            .prepare_upload("2026-10-17", "android", UPLOAD_INTERVAL_MS, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (payload.device.as_str(), payload.platform.as_str()),
+            (state.device.as_str(), "android")
+        );
+        // 准备不记时间：没发成功时下一次照样要传。
+        assert_eq!(store.upload_state().unwrap().last_upload_ms, 0);
+        // 别的设备标识和空标识不记。
+        assert_eq!(store.record_upload("other", 7).unwrap().last_upload_ms, 0);
+        assert_eq!(store.record_upload("", 7).unwrap().last_upload_ms, 0);
+        assert_eq!(
+            store
+                .record_upload(&payload.device, 7)
+                .unwrap()
+                .last_upload_ms,
+            7
+        );
+        assert_eq!(
+            store
+                .prepare_upload("2026-10-17", "android", 8, false)
+                .unwrap(),
+            Err(UploadOutcome::NotDue)
+        );
+        // 关掉以后再记成功也不写回。
+        store.set_upload_enabled(false).unwrap();
+        let after = store.record_upload(&payload.device, 9).unwrap();
+        assert!(!after.enabled && after.last_upload_ms == 0);
     }
 }

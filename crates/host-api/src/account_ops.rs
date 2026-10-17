@@ -21,6 +21,8 @@ use msime_client_services::diagnostics::upload::{
 use msime_client_services::diagnostics::{
     build_bundle, DiagnosticBundleRequest, DiagnosticInclude, DiagnosticSources,
 };
+use msime_client_services::typing_statistics::upload::{UploadError, UPLOAD_PLATFORMS};
+use msime_client_services::typing_statistics::TypingStatisticsStore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -110,6 +112,110 @@ pub(crate) enum Operation {
         /// WAV 文件的标准 base64。
         audio: String,
     },
+    /// 打字统计「上传到云端」的本机状态，加上本机是否登录了账号。`statistics_directory` 是打字统计目录（`msime_client_typing_statistics` 的 `directory`）。
+    TypingUploadStatus {
+        statistics_directory: String,
+    },
+    /// 打开或关闭「上传到云端」，与共享设置应用的 `set_typing_statistics_upload` 相同。`day` 是宿主的本地日期，`platform` 是服务端认的平台 id。
+    TypingUploadSet {
+        statistics_directory: String,
+        enabled: bool,
+        day: String,
+        platform: String,
+    },
+    /// 打开了上传、已登录、离上次超过十分钟时上传最近几天，与 `upload_typing_statistics` 相同。
+    TypingUpload {
+        statistics_directory: String,
+        day: String,
+        platform: String,
+        #[serde(default)]
+        force: bool,
+    },
+    /// 「绑定 QQ 群助手」：本人绑定的 QQ 群友。
+    QqLinks,
+    /// 用机器人给的 8 位绑定码绑定一个 QQ 群友。
+    QqLinkRedeem {
+        code: String,
+    },
+    /// 解除一条绑定。
+    QqLinkDelete {
+        id: String,
+    },
+}
+
+/// 串行化本进程里的打字统计上传和删除：关掉上传后的 `DELETE` 不能和还在路上的 `PUT` 交错，否则服务端可能先删、后收到旧的上传。每次调用都新建统计目录的 store，它自带的锁管不到别的调用，所以这里用一把进程级的锁。
+static TYPING_UPLOAD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn typing_upload_lock() -> std::sync::MutexGuard<'static, ()> {
+    TYPING_UPLOAD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 打字统计目录读写失败时的码。
+fn statistics_storage<E>(_: E) -> OperationFailure {
+    AccountError::Storage.into()
+}
+
+/// `typing_upload_*` 的回答：`{enabled, last_upload_ms, signed_in}`，`last_upload_ms` 还没有上传过时是 null。
+fn typing_upload_state(
+    store: &TypingStatisticsStore,
+    signed_in: bool,
+) -> Result<Value, OperationFailure> {
+    let state = store.upload_state().map_err(statistics_storage)?;
+    Ok(json!({
+        "enabled": state.enabled,
+        "last_upload_ms": (state.last_upload_ms > 0).then_some(state.last_upload_ms),
+        "signed_in": signed_in,
+    }))
+}
+
+/// 打开了上传、已登录时上传最近几天，`force` 时不看十分钟的间隔；没有登录时不上传、不报错，开关保持原样，登录后下一次照常上传。
+fn typing_upload<A, S>(
+    account: &BackendAccountSession<A, S>,
+    store: &TypingStatisticsStore,
+    day: &str,
+    platform: &str,
+    now_ms: u64,
+    force: bool,
+) -> Result<Value, OperationFailure>
+where
+    A: AccountApi,
+    S: AccountSessionStorage,
+{
+    let signed_in = account.status()?.is_some();
+    if signed_in {
+        match store.upload_if_due(day, platform, now_ms, force, |payload| {
+            account.put_typing_statistics(payload)
+        }) {
+            Ok(_) => {}
+            Err(UploadError::Send(failure)) => return Err(failure.into()),
+            Err(UploadError::Storage(error)) => return Err(statistics_storage(error)),
+        }
+    }
+    typing_upload_state(store, signed_in)
+}
+
+fn statistics_store(directory: &str) -> Result<TypingStatisticsStore, OperationFailure> {
+    Ok(TypingStatisticsStore::new(absolute_path(directory)?))
+}
+
+/// 本地日期：`YYYY-MM-DD`，只看形状，日期本身由统计模块解析。
+fn valid_day(day: &str) -> bool {
+    day.len() == 10
+        && day.bytes().enumerate().all(|(index, byte)| match index {
+            4 | 7 => byte == b'-',
+            _ => byte.is_ascii_digit(),
+        })
+}
+
+/// 现在的 Unix 毫秒。
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| {
+            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+        })
 }
 
 /// 诊断上传读哪些本机记录，与 `msime_client_diagnostic_bundle` 的请求相同，只是没有 `destination`。
@@ -521,6 +627,58 @@ where
             // 只用本机匿名账号（#8201 的决定 12），登录了也一样，样本不挂在实名账号下；没有匿名会话时是 account_unauthorized。
             let receipt = anonymous()?.voice_contribution(&contribution)?;
             Ok(json!({ "id": receipt.id, "duration_ms": contribution.duration_ms() }))
+        }
+        Operation::TypingUploadStatus {
+            statistics_directory,
+        } => {
+            let store = statistics_store(&statistics_directory)?;
+            typing_upload_state(&store, account.status()?.is_some())
+        }
+        Operation::TypingUploadSet {
+            statistics_directory,
+            enabled,
+            day,
+            platform,
+        } => {
+            let store = statistics_store(&statistics_directory)?;
+            if !valid_day(&day) || !UPLOAD_PLATFORMS.contains(&platform.as_str()) {
+                return Err(invalid());
+            }
+            let _operation = typing_upload_lock();
+            if enabled {
+                // 打开要求已登录，并立刻上传一次；上传失败时开关保持打开，错误交给宿主，下一次自动上传再试。
+                if account.status()?.is_none() {
+                    return Err(AccountError::Unauthorized.into());
+                }
+                store.set_upload_enabled(true).map_err(statistics_storage)?;
+                typing_upload(account, &store, &day, &platform, unix_ms(), true)
+            } else {
+                // 先在本地关掉，再删云端副本；删除失败时开关仍是关的，错误交给宿主。
+                store
+                    .set_upload_enabled(false)
+                    .map_err(statistics_storage)?;
+                account.delete_typing_statistics()?;
+                typing_upload_state(&store, account.status()?.is_some())
+            }
+        }
+        Operation::TypingUpload {
+            statistics_directory,
+            day,
+            platform,
+            force,
+        } => {
+            let store = statistics_store(&statistics_directory)?;
+            if !valid_day(&day) || !UPLOAD_PLATFORMS.contains(&platform.as_str()) {
+                return Err(invalid());
+            }
+            let _operation = typing_upload_lock();
+            typing_upload(account, &store, &day, &platform, unix_ms(), force)
+        }
+        Operation::QqLinks => value(account.qq_links()?),
+        Operation::QqLinkRedeem { code } => value(account.redeem_qq_link(&code)?),
+        Operation::QqLinkDelete { id } => {
+            account.delete_qq_link(&id)?;
+            Ok(Value::Null)
         }
     }
 }

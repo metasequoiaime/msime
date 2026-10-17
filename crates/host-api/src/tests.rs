@@ -5250,6 +5250,78 @@ fn typing_statistics_boundary_answers_the_settings_status() {
     );
 }
 #[test]
+fn typing_statistics_boundary_prepares_uploads_for_hosts_that_send_them() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(),
+            "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_typing_statistics(request.as_ptr(), request.len()) })
+    };
+    let prepare =
+        json!({"operation": "upload_request", "day": "2026-10-17", "platform": "android"});
+    assert_eq!(
+        call(json!({"operation": "upload_status"}))["value"],
+        json!({"enabled": false, "lastUploadMs": null})
+    );
+    assert_eq!(call(prepare.clone())["value"], json!({"skip": "disabled"}));
+    assert_eq!(
+        call(json!({"operation": "set_upload_enabled", "enabled": true}))["value"],
+        json!({"enabled": true, "lastUploadMs": null})
+    );
+    assert_eq!(call(prepare.clone())["value"], json!({"skip": "nothing"}));
+    call(json!({"operation": "set_enabled", "enabled": true}));
+    call(
+        json!({"operation": "record", "text": "合成", "source": "quanpin", "day": "2026-10-17", "hour": 9}),
+    );
+    let request = call(prepare.clone())["value"].clone();
+    assert_eq!(request["method"], "PUT");
+    assert_eq!(request["path"], "/v1/users/me/typing-statistics");
+    let device = request["device"].as_str().unwrap().to_owned();
+    assert_eq!(device.len(), 32);
+    assert_eq!(request["body"]["device"], device.as_str());
+    assert_eq!(request["body"]["platform"], "android");
+    assert_eq!(request["body"]["days"][0]["day"], "2026-10-17");
+    assert_eq!(request["body"]["days"][0]["characters"], 2);
+    // 准备不算上传：没记成功时下一次照样交回请求。
+    assert_eq!(call(prepare.clone())["value"]["method"], "PUT");
+    // 别的设备标识不记；记了以后十分钟内不再交回请求，force 时照样交回。
+    assert_eq!(
+        call(json!({"operation": "upload_succeeded", "device": "other"}))["value"]["lastUploadMs"],
+        Value::Null
+    );
+    assert!(
+        call(json!({"operation": "upload_succeeded", "device": device}))["value"]["lastUploadMs"]
+            .as_u64()
+            .is_some_and(|ms| ms > 0)
+    );
+    assert_eq!(call(prepare.clone())["value"], json!({"skip": "not_due"}));
+    let mut forced = prepare.clone();
+    forced["force"] = json!(true);
+    assert_eq!(call(forced)["value"]["method"], "PUT");
+    // 关掉后清掉时间；状态文件里没有打出的内容。
+    assert_eq!(
+        call(json!({"operation": "set_upload_enabled", "enabled": false}))["value"],
+        json!({"enabled": false, "lastUploadMs": null})
+    );
+    let persisted =
+        std::fs::read_to_string(directory.path().join("typing-statistics-upload.json")).unwrap();
+    assert!(!persisted.contains("合成"));
+    // status:true 不用于这几个操作。
+    let request = serde_json::to_vec(&json!({
+        "directory": directory.path(),
+        "action": {"operation": "upload_status"},
+        "status": true,
+    }))
+    .unwrap();
+    assert_eq!(
+        read(unsafe { msime_client_typing_statistics(request.as_ptr(), request.len()) })["ok"],
+        false
+    );
+}
+#[test]
 fn typing_statistics_boundary_records_key_press_counts() {
     let directory = tempfile::tempdir().unwrap();
     let call = |action: Value| {

@@ -853,6 +853,23 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
             id: String,
         },
         Reset,
+        /// 「上传到云端」的本机状态：开关和上次上传的时间。
+        UploadStatus,
+        /// 打开或关闭「上传到云端」。只改本机状态，不联网：关闭时宿主自己再发 `DELETE /v1/users/me/typing-statistics`。
+        SetUploadEnabled {
+            enabled: bool,
+        },
+        /// 自己发 HTTP 的宿主准备一次上传：交回要发的请求，或者不发的原因。`day` 是宿主的本地日期，`platform` 是服务端认的平台 id。
+        UploadRequest {
+            day: String,
+            platform: String,
+            #[serde(default)]
+            force: bool,
+        },
+        /// 上一步交回的请求发成功了（服务端回 204），记下时间；`device` 是那个请求里的设备标识。
+        UploadSucceeded {
+            device: String,
+        },
     }
     response(|| {
         if request.is_null() || length > 65_536 {
@@ -964,8 +981,75 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
                     .map_err(|error| error.to_string())?,
             ),
             StatisticsAction::Reset => answer(store.reset().map_err(|error| error.to_string())?),
+            StatisticsAction::UploadStatus => {
+                upload_status(&store.upload_state().map_err(|error| error.to_string())?)
+            }
+            StatisticsAction::SetUploadEnabled { enabled } => upload_status(
+                &store
+                    .set_upload_enabled(enabled)
+                    .map_err(|error| error.to_string())?,
+            ),
+            StatisticsAction::UploadRequest {
+                day,
+                platform,
+                force,
+            } => upload_request(
+                store
+                    .prepare_upload(&day, &platform, unix_ms(), force)
+                    .map_err(|error| error.to_string())?,
+            ),
+            StatisticsAction::UploadSucceeded { device } => upload_status(
+                &store
+                    .record_upload(&device, unix_ms())
+                    .map_err(|error| error.to_string())?,
+            ),
         }
     })
+}
+
+/// 「上传到云端」的本机状态：`{enabled, lastUploadMs}`，与设置页读的形状相同（client-services 的 `UploadStatus`）。
+fn upload_status(
+    state: &msime_client_services::typing_statistics::upload::UploadState,
+) -> Result<Value, String> {
+    serde_json::to_value(
+        msime_client_services::typing_statistics::upload::UploadStatus::from(state),
+    )
+    .map_err(|_| "typing statistics response failed".to_owned())
+}
+
+/// `upload_request` 的回答：要发时是 `{method, path, device, body}`，`body` 是请求体对象，宿主序列化后以 `application/json` 发出；不发时是 `{skip}`，取 `disabled`（没有打开上传）、`not_due`（离上次上传不到十分钟）或 `nothing`（最近没有可传的日子）。
+fn upload_request(
+    prepared: Result<
+        msime_client_services::typing_statistics::upload::TypingStatisticsUpload,
+        msime_client_services::typing_statistics::upload::UploadOutcome,
+    >,
+) -> Result<Value, String> {
+    use msime_client_services::typing_statistics::upload::UploadOutcome;
+    match prepared {
+        Ok(payload) => Ok(json!({
+            "method": "PUT",
+            "path": "/v1/users/me/typing-statistics",
+            "device": payload.device,
+            "body": serde_json::to_value(&payload)
+                .map_err(|_| "typing statistics response failed".to_owned())?,
+        })),
+        Err(outcome) => Ok(json!({
+            "skip": match outcome {
+                UploadOutcome::Disabled => "disabled",
+                UploadOutcome::NotDue => "not_due",
+                UploadOutcome::Nothing | UploadOutcome::Uploaded(_) => "nothing",
+            }
+        })),
+    }
+}
+
+/// 现在的 Unix 毫秒，记上传时间和算十分钟的间隔用。
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| {
+            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+        })
 }
 
 /// Read the typing-statistics master switch without accepting committed text.

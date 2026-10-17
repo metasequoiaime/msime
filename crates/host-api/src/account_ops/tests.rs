@@ -374,6 +374,48 @@ impl AccountApi for FakeApi {
             id: "0123456789abcdef".repeat(4),
         })
     }
+    fn put_typing_statistics(
+        &self,
+        upload: &msime_client_services::typing_statistics::upload::TypingStatisticsUpload,
+        access_token: &str,
+    ) -> Result<(), AccountFailure> {
+        self.call("put_typing_statistics", access_token)?;
+        assert_eq!(upload.platform, "windows");
+        assert_eq!(upload.device.len(), 32);
+        Ok(())
+    }
+    fn delete_typing_statistics(&self, access_token: &str) -> Result<(), AccountFailure> {
+        self.call("delete_typing_statistics", access_token)
+    }
+    fn qq_links(
+        &self,
+        access_token: &str,
+    ) -> Result<msime_client_services::account::AccountQqLinks, AccountFailure> {
+        self.call("qq_links", access_token)?;
+        Ok(msime_client_services::account::AccountQqLinks {
+            links: vec![msime_client_services::account::AccountQqLink {
+                id: "12".into(),
+                created_at: "2026-10-17T08:00:00Z".into(),
+            }],
+        })
+    }
+    fn redeem_qq_link(
+        &self,
+        code: &str,
+        access_token: &str,
+    ) -> Result<msime_client_services::account::AccountQqLink, AccountFailure> {
+        self.call("redeem_qq_link", access_token)?;
+        assert_eq!(code, "12345678");
+        Ok(msime_client_services::account::AccountQqLink {
+            id: "13".into(),
+            created_at: "2026-10-17T08:01:00Z".into(),
+        })
+    }
+    fn delete_qq_link(&self, id: &str, access_token: &str) -> Result<(), AccountFailure> {
+        self.call("delete_qq_link", access_token)?;
+        assert_eq!(id, "13");
+        Ok(())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -1611,4 +1653,165 @@ fn chat_stream_reply_is_cancelled_when_its_account_signs_out_midway() {
         assert_eq!(result.unwrap_err().code, "account_cancelled");
         assert_eq!(deltas, ["回答：", "你好"]);
     }
+}
+
+/// 一个打开了统计、记过一天字数的统计目录。
+fn statistics_directory() -> tempfile::TempDir {
+    let directory = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(directory.path());
+    store.set_enabled(true).unwrap();
+    store
+        .record(
+            "合成",
+            msime_client_services::typing_statistics::TypingSource::Quanpin,
+            "2026-10-17",
+            None,
+        )
+        .unwrap();
+    directory
+}
+
+#[test]
+fn typing_upload_turns_on_uploads_throttles_and_turns_off_with_a_delete() {
+    let fixture = Fixture::signed_in();
+    let directory = statistics_directory();
+    let dir = directory.path().to_str().unwrap();
+    let status = json!({ "operation": "typing_upload_status", "statistics_directory": dir });
+    assert_eq!(
+        fixture.run(status.clone()).unwrap(),
+        json!({ "enabled": false, "last_upload_ms": null, "signed_in": true })
+    );
+    // 没打开时自动上传什么也不发。
+    let upload = json!({ "operation": "typing_upload", "statistics_directory": dir, "day": "2026-10-17", "platform": "windows" });
+    assert_eq!(fixture.run(upload.clone()).unwrap()["enabled"], false);
+    assert!(fixture.api.calls().is_empty());
+    // 打开时立刻上传一次。
+    let on = fixture
+        .run(json!({ "operation": "typing_upload_set", "statistics_directory": dir, "enabled": true, "day": "2026-10-17", "platform": "windows" }))
+        .unwrap();
+    assert_eq!(
+        (on["enabled"].clone(), on["signed_in"].clone()),
+        (json!(true), json!(true))
+    );
+    assert!(on["last_upload_ms"].as_u64().is_some_and(|ms| ms > 0));
+    assert_eq!(fixture.api.calls(), ["put_typing_statistics a"]);
+    // 十分钟内的自动上传不发请求，force 时照发。
+    fixture.run(upload.clone()).unwrap();
+    assert!(fixture.api.calls().is_empty());
+    let mut forced = upload.clone();
+    forced["force"] = json!(true);
+    fixture.run(forced).unwrap();
+    assert_eq!(fixture.api.calls(), ["put_typing_statistics a"]);
+    // 关掉时先在本地关掉，再删云端副本；删除失败也保持关闭，错误交给宿主。
+    fixture.api.failures.lock().unwrap().insert(
+        "delete_typing_statistics",
+        AccountFailure::from(AccountError::Unavailable),
+    );
+    let off = json!({ "operation": "typing_upload_set", "statistics_directory": dir, "enabled": false, "day": "2026-10-17", "platform": "windows" });
+    assert_eq!(fixture.code(off.clone()), "account_unavailable");
+    assert_eq!(fixture.run(status.clone()).unwrap()["enabled"], false);
+    fixture.api.failures.lock().unwrap().clear();
+    assert_eq!(
+        fixture.run(off).unwrap(),
+        json!({ "enabled": false, "last_upload_ms": null, "signed_in": true })
+    );
+    assert_eq!(
+        fixture.api.calls(),
+        ["delete_typing_statistics a", "delete_typing_statistics a"]
+    );
+}
+
+#[test]
+fn typing_upload_needs_the_signed_in_account_and_a_valid_request() {
+    let fixture = Fixture::new(None, Some(saved('1', '2', ANONYMOUS_USER)));
+    let directory = statistics_directory();
+    let dir = directory.path().to_str().unwrap();
+    // 只认登录账号，不退回匿名账号；没登录时打开是 account_unauthorized，开关不动。
+    assert_eq!(
+        fixture.code(json!({ "operation": "typing_upload_set", "statistics_directory": dir, "enabled": true, "day": "2026-10-17", "platform": "windows" })),
+        "account_unauthorized"
+    );
+    assert_eq!(
+        fixture
+            .run(json!({ "operation": "typing_upload_status", "statistics_directory": dir }))
+            .unwrap(),
+        json!({ "enabled": false, "last_upload_ms": null, "signed_in": false })
+    );
+    // 已经打开、后来退出登录时，自动上传不发请求也不报错。
+    TypingStatisticsStore::new(directory.path())
+        .set_upload_enabled(true)
+        .unwrap();
+    assert_eq!(
+        fixture
+            .run(json!({ "operation": "typing_upload", "statistics_directory": dir, "day": "2026-10-17", "platform": "windows" }))
+            .unwrap(),
+        json!({ "enabled": true, "last_upload_ms": null, "signed_in": false })
+    );
+    assert!(fixture.api.calls().is_empty());
+    for bad in [
+        json!({ "operation": "typing_upload", "statistics_directory": "relative", "day": "2026-10-17", "platform": "windows" }),
+        json!({ "operation": "typing_upload", "statistics_directory": dir, "day": "2026/10/17", "platform": "windows" }),
+        json!({ "operation": "typing_upload", "statistics_directory": dir, "day": "2026-10-17", "platform": "beos" }),
+        json!({ "operation": "typing_upload_set", "statistics_directory": dir, "enabled": true, "day": "", "platform": "windows" }),
+    ] {
+        assert_eq!(fixture.code(bad), "account_invalid");
+    }
+}
+
+#[test]
+fn qq_links_list_redeem_and_delete_with_the_signed_in_account() {
+    let fixture = Fixture::signed_in();
+    assert_eq!(
+        fixture.run(json!({ "operation": "qq_links" })).unwrap(),
+        json!({ "links": [{ "id": "12", "created_at": "2026-10-17T08:00:00Z" }] })
+    );
+    // 码前后的空白和中间的空格、连字符先去掉。
+    assert_eq!(
+        fixture
+            .run(json!({ "operation": "qq_link_redeem", "code": " 1234-5678 " }))
+            .unwrap(),
+        json!({ "id": "13", "created_at": "2026-10-17T08:01:00Z" })
+    );
+    assert_eq!(
+        fixture
+            .run(json!({ "operation": "qq_link_delete", "id": "13" }))
+            .unwrap(),
+        Value::Null
+    );
+    assert_eq!(
+        fixture.api.calls(),
+        ["qq_links a", "redeem_qq_link a", "delete_qq_link a"]
+    );
+    // 格式不对的码和编号在本地就拒绝，不发请求。
+    assert_eq!(
+        fixture.code(json!({ "operation": "qq_link_redeem", "code": "1234" })),
+        "account_invalid"
+    );
+    assert_eq!(
+        fixture.code(json!({ "operation": "qq_link_delete", "id": "abc" })),
+        "account_invalid"
+    );
+    assert!(fixture.api.calls().is_empty());
+    // 服务端的码原样交给宿主。
+    fixture.api.failures.lock().unwrap().insert(
+        "redeem_qq_link",
+        AccountFailure {
+            error: AccountError::NotFound,
+            status: Some(404),
+            server_code: Some("qq_link_code_not_found".into()),
+            retry_after_seconds: None,
+            network_failure: false,
+        },
+    );
+    assert_eq!(
+        fixture.code(json!({ "operation": "qq_link_redeem", "code": "12345678" })),
+        "account_qq_link_code_not_found"
+    );
+    // 没有登录时不退回匿名账号。
+    let anonymous_only = Fixture::new(None, Some(saved('1', '2', ANONYMOUS_USER)));
+    assert_eq!(
+        anonymous_only.code(json!({ "operation": "qq_links" })),
+        "account_unauthorized"
+    );
+    assert!(anonymous_only.api.calls().is_empty());
 }
