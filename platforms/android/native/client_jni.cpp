@@ -771,6 +771,17 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiTranslationHt
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_parseAiTranslationResponseRaw(JNIEnv *env, jclass, jbyteArray body) {
     return bounded_request(env, body, 1048576, msime_client_parse_ai_translation_response);
 }
+JNIEXPORT jboolean JNICALL Java_app_msime_android_NativeClient_aiTranslationReplyFailedRaw(JNIEnv *env, jclass, jbyteArray body) {
+    if (!body) return JNI_TRUE;
+    jsize length = env->GetArrayLength(body);
+    if (length > 1048576) return JNI_TRUE;
+    jbyte *bytes = env->GetByteArrayElements(body, nullptr);
+    if (!bytes) return JNI_TRUE;
+    const bool failed = msime_client_ai_translation_reply_failed(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(body, bytes, JNI_ABORT);
+    return failed ? JNI_TRUE : JNI_FALSE;
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyCloudResponseRaw(JNIEnv *env, jclass, jlong handle, jbyteArray query, jbyteArray body) {
     if (!query || !body) {
         return response(env, msime_client_apply_cloud_response(

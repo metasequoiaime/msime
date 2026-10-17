@@ -9036,6 +9036,10 @@ fn learned_translation_buffers_are_bounded() {
             ["value"],
         "synthetic gloss"
     );
+    let empty = br#"{"choices":[{"message":{"content":"{\"translation\":\"\"}"}}]}"#;
+    assert!(!unsafe { msime_client_ai_translation_reply_failed(empty.as_ptr(), empty.len()) });
+    let failed = br#"{"error":{"message":"synthetic failure"}}"#;
+    assert!(unsafe { msime_client_ai_translation_reply_failed(failed.as_ptr(), failed.len()) });
     for (pointer, length) in [(std::ptr::null(), 0), (b"x".as_ptr(), 65537)] {
         assert_eq!(
             read(unsafe { msime_client_learned_translation_request(pointer, length) })["ok"],

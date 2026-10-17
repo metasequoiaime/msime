@@ -763,6 +763,11 @@ public final class NativeClient {
         if (body == null || body.length > GLOSS_RESPONSE_LIMIT) throw new IllegalArgumentException("AI response is too large");
         return TextPolicy.utf8(parseAiTranslationResponseRaw(body));
     }
+    /** 判断 AI 翻译服务回复是否失败；合法的空译文不算失败。 */
+    public static boolean aiTranslationReplyFailed(byte[] body) {
+        if (body == null || body.length > GLOSS_RESPONSE_LIMIT) return true;
+        return aiTranslationReplyFailedRaw(body);
+    }
     public static String applyCloudResponse(long session, String query, String body) {
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
         if (payload.length > OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES)
@@ -898,6 +903,7 @@ public final class NativeClient {
     private static native byte[] aiRequestForQueryRaw(long session, byte[] query);
     private static native byte[] aiTranslationHttpRequestRaw(byte[] request);
     private static native byte[] parseAiTranslationResponseRaw(byte[] body);
+    private static native boolean aiTranslationReplyFailedRaw(byte[] body);
     private static native byte[] applyCloudResponseRaw(long session, byte[] query, byte[] body);
     private static native byte[] applyOnlineCandidatesRaw(long session, byte[] query,
         byte[] candidates, int source);

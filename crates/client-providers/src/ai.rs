@@ -210,6 +210,38 @@ pub fn parse_chat_translation_response(body: &[u8]) -> Option<String> {
     Some(text.to_owned())
 }
 
+/// 判断 Chat Completions 翻译回复是服务失败，还是没有可用译文的合法回答。
+/// 空的 `translation` 是合法的否定回答，可以缓存；JSON 损坏、错误信封或字段无效的回复需要重试。
+pub fn chat_translation_response_failed(body: &[u8]) -> bool {
+    if body.len() > 1024 * 1024 {
+        return true;
+    }
+    let Ok(outer) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return true;
+    };
+    if outer.get("error").is_some_and(|error| !error.is_null()) {
+        return true;
+    }
+    let Some(content) = outer
+        .get("choices")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("content"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return true;
+    };
+    let Ok(inner) = serde_json::from_str::<serde_json::Value>(strip_code_fence(content)) else {
+        return true;
+    };
+    let Some(text) = inner.get("translation").and_then(serde_json::Value::as_str) else {
+        return true;
+    };
+    let text = text.trim();
+    text.chars().count() > 4096 || text.chars().any(char::is_control)
+}
+
 /// Resolve a secret only for the configured endpoint's origin. Never log the result.
 /// Origin-scoped entries also record an explicit clear, so even an empty entry
 /// must not fall back to a stale provider or flat token.
@@ -436,6 +468,21 @@ mod tests {
         request.candidate_limit = 1;
         request.segmented_pinyin[0] = String::new();
         assert_eq!(request.validate(), Err(AiError::InvalidSegments));
+    }
+
+    #[test]
+    fn distinguishes_empty_translation_from_failed_reply() {
+        let empty = serde_json::json!({
+            "choices": [{"message": {"content": "{\"translation\":\"\"}"}}]
+        });
+        assert!(!chat_translation_response_failed(
+            &serde_json::to_vec(&empty).unwrap()
+        ));
+
+        let failed = serde_json::json!({"error": {"message": "synthetic failure"}});
+        assert!(chat_translation_response_failed(
+            &serde_json::to_vec(&failed).unwrap()
+        ));
     }
 
     #[test]

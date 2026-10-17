@@ -147,6 +147,10 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
             memory.unreachable();
             return null;
         }
+        if (NativeClient.aiTranslationReplyFailed(body)) {
+            memory.failed(language, word);
+            return null;
+        }
         return answer(language, word,
             stringValue(NativeClient.parseAiTranslationResponse(body)));
     }

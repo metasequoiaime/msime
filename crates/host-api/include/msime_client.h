@@ -559,6 +559,7 @@ char *msime_client_niutrans_translation_http_request(const uint8_t *request, siz
  * It reuses the configured AI endpoint and token, and returns one JSON string or null. */
 char *msime_client_ai_translation_http_request(const uint8_t *request, size_t length);
 char *msime_client_parse_ai_translation_response(const uint8_t *body, size_t length);
+bool msime_client_ai_translation_reply_failed(const uint8_t *body, size_t length);
 /* A settings page's 「测试配置」 check, the one the Tauri settings shell runs on Windows and
  * macOS. Request <=64 KiB: {service,config}, service one of translation.tencent ({secret_id,
  * secret_key,region}), translation.niutrans ({app_id,apikey}), translation.custom ({endpoint,

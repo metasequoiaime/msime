@@ -170,6 +170,9 @@ public final class NativeSmoke {
         if (!NativeClient.niutransTranslationReplyFailed("{\"errorCode\":\"13001\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8))
                 || NativeClient.niutransTranslationReplyFailed("{\"tgtText\":\"\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
             throw new AssertionError("NiuTrans reply failure was misread");
+        if (!NativeClient.aiTranslationReplyFailed("{\"error\":{\"message\":\"synthetic failure\"}}".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                || NativeClient.aiTranslationReplyFailed("{\"choices\":[{\"message\":{\"content\":\"{\\\"translation\\\":\\\"\\\"}\"}}]}".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+            throw new AssertionError("AI translation reply failure was misread");
         String issue = NativeClient.translationEndpointIssue("http://192.168.1.2/translate");
         if (!issue.contains("\"accepted\":false") || issue.contains("\"issue\":\"\""))
             throw new AssertionError("a LAN http endpoint was accepted: " + issue);

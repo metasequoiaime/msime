@@ -183,6 +183,23 @@ pub unsafe extern "C" fn msime_client_parse_ai_translation_response(
         )
     })
 }
+
+/// 判断 Chat Completions 翻译回复是服务失败还是合法的空译文。
+/// # Safety
+/// `body` 引用 `length` 个可读字节；函数不会保留任何缓冲区。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_ai_translation_reply_failed(
+    body: *const u8,
+    length: usize,
+) -> bool {
+    if body.is_null() || length > 1_048_576 {
+        return true;
+    }
+    msime_client_providers::ai::chat_translation_response_failed(unsafe {
+        std::slice::from_raw_parts(body, length)
+    })
+}
+
 /// Parse a successful AI HTTP response into a bounded string array, or null.
 /// # Safety
 /// `body` references `length` readable bytes. No buffers are retained.
