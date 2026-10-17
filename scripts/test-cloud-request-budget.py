@@ -89,18 +89,18 @@ def linux_ai_budget(failures: list[str]) -> bool:
             failures.append(
                 f"the Linux online provider's {name} is {found.group(1) if found else None} s, and client-providers' AI descriptor asks for {expected_ms} ms"
             )
-    anonymous = re.search(r"^ANONYMOUS_ACCOUNT_TIMEOUT = ([0-9.]+)$", provider, re.M)
-    if not anonymous:
-        failures.append("the Linux online provider no longer declares an anonymous account timeout")
-    # worker 会拒绝超过上限的期限；上限低于调用方预算会让每个请求在发出前静默失败（ai_polish_test 曾以 8 秒请求撞上 7 秒上限）。
-    if "HTTP_WORKER_MAX_TIMEOUT = max(AI_REQUEST_TIMEOUT, ANONYMOUS_ACCOUNT_TIMEOUT)" not in provider:
-        failures.append("the Linux HTTP worker max timeout no longer covers both AI and anonymous account budgets")
+    # worker 会拒绝超过上限的期限；上限低于调用方预算会让每个请求在发出前静默失败（ai_polish_test 曾以 8 秒请求撞上 7 秒上限）。账号注册与刷新已经由 Rust host-api 负责，不再占用 Python worker 的预算。
+    if "HTTP_WORKER_MAX_TIMEOUT = AI_REQUEST_TIMEOUT" not in provider:
+        failures.append("the Linux HTTP worker max timeout no longer follows the AI request budget")
     if "not 0 < timeout <= HTTP_WORKER_MAX_TIMEOUT" not in provider:
         failures.append("the Linux HTTP worker no longer validates requests against its declared max timeout")
-    auth_timeouts = re.findall(
-        r'ANONYMOUS_ACCOUNT_ORIGIN \+ "/v1/auth/(?:refresh|challenges|login)",\s*([A-Z_]+)', provider)
-    if auth_timeouts != ["ANONYMOUS_ACCOUNT_TIMEOUT"] * 3:
-        failures.append("the Linux anonymous account requests do not all use ANONYMOUS_ACCOUNT_TIMEOUT")
+    if any(symbol not in provider for symbol in (
+            "msime_client_ensure_anonymous_account",
+            "msime_client_account_access_token",
+            "msime_client_account_gloss")):
+        failures.append("the Linux online provider no longer routes account registration, tokens and translation through host-api")
+    if "/v1/auth/" in provider or "anonymous-account.json" in provider or "anonymous-session.json" in provider:
+        failures.append("the Linux online provider still duplicates Rust account authentication or storage")
     if not re.search(r"fetch\(config\[\"endpoint\"\], AI_REQUEST_TIMEOUT,[^)]*connect_timeout=AI_CONNECT_TIMEOUT\)", provider):
         failures.append("the Linux AI candidate request does not use AI_REQUEST_TIMEOUT and AI_CONNECT_TIMEOUT")
 
