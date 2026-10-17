@@ -57,12 +57,13 @@ fn saved(access: char, refresh: char, user_id: &str) -> SavedAccountSession {
     }
 }
 
-/// 假的后端：每次调用记下 `<操作> <令牌首字符>`。令牌 `a`（登录账号）和 `1`（匿名账号）在 `stale` 里时以 401 拒绝；刷新令牌 `b` 换成 `c`/`d`，`2` 换成 `3`/`4`。`failures` 里有的操作返回那个失败。匿名账号重新登录时换来令牌 `5`；`data_delete` 对 `recent_login` 里的令牌回 403 `recent_login_required`。`during_request` 在对话和模型目录的请求进行中调用一次。
+/// 假的后端：每次调用记下 `<操作> <令牌首字符>`。令牌 `a`（登录账号）和 `1`（匿名账号）在 `stale` 里时以 401 拒绝；刷新令牌 `b` 换成 `c`/`d`，`2` 换成 `3`/`4`。`failures` 里有的操作返回那个失败，`token_failures` 里有的令牌做任何操作都返回那个失败。`data_summary` 对匿名账号的令牌只回语音样本。匿名账号重新登录时换来令牌 `5`；`data_delete` 对 `recent_login` 里的令牌回 403 `recent_login_required`。`during_request` 在对话和模型目录的请求进行中调用一次。
 #[derive(Clone, Default)]
 struct FakeApi {
     calls: Arc<Mutex<Vec<String>>>,
     stale: Arc<Mutex<Vec<String>>>,
     failures: Arc<Mutex<HashMap<&'static str, AccountFailure>>>,
+    token_failures: Arc<Mutex<HashMap<String, AccountFailure>>>,
     current_device: Arc<Mutex<Option<String>>>,
     recent_login: Arc<Mutex<Vec<String>>>,
     during_request: Arc<Mutex<Option<Interruption>>>,
@@ -85,6 +86,9 @@ impl FakeApi {
             .any(|stale| stale == access_token)
         {
             return Err(AccountError::Unauthorized.into());
+        }
+        if let Some(failure) = self.token_failures.lock().unwrap().get(access_token) {
+            return Err(failure.clone());
         }
         match self.failures.lock().unwrap().get(operation) {
             Some(failure) => Err(failure.clone()),
@@ -255,13 +259,21 @@ impl AccountApi for FakeApi {
     }
     fn data_summary(&self, access_token: &str) -> Result<AccountDataSummary, AccountFailure> {
         self.call("data_summary", access_token)?;
+        let section = |id: &str, bytes: i64, items: i64| AccountDataSection {
+            id: id.into(),
+            bytes,
+            items,
+        };
+        // 匿名账号名下只有语音样本；登录账号的 voice 分区是空的（语音贡献只用匿名账号），服务端总会列出它。
+        if [token('1'), token('3'), token('5')].contains(&access_token.to_owned()) {
+            return Ok(AccountDataSummary {
+                bytes: 300,
+                sections: vec![section("voice", 300, 2)],
+            });
+        }
         Ok(AccountDataSummary {
             bytes: 12,
-            sections: vec![AccountDataSection {
-                id: "phrases".into(),
-                bytes: 12,
-                items: 1,
-            }],
+            sections: vec![section("phrases", 12, 1), section("voice", 0, 0)],
         })
     }
     fn data_export(
@@ -499,9 +511,17 @@ fn signed_in_operations_reach_their_calls_and_answer_the_server_shapes() {
             .unwrap(),
         json!({ "sessions": [] })
     );
+    // 匿名账号的语音样本合进 voice 分区和总字节数。
     assert_eq!(
         fixture.run(json!({ "operation": "data_summary" })).unwrap(),
-        json!({ "bytes": 12, "sections": [{ "id": "phrases", "bytes": 12, "items": 1 }] })
+        json!({
+            "bytes": 312,
+            "sections": [
+                { "id": "phrases", "bytes": 12, "items": 1 },
+                { "id": "voice", "bytes": 300, "items": 2 }
+            ],
+            "anonymous_voice": "included"
+        })
     );
     let destination = std::env::temp_dir().join("synthetic-export.zip");
     assert_eq!(
@@ -514,9 +534,9 @@ fn signed_in_operations_reach_their_calls_and_answer_the_server_shapes() {
         fixture
             .run(json!({ "operation": "data_delete", "sections": ["phrases", "voice"] }))
             .unwrap(),
-        Value::Null
+        json!({ "voice_samples": { "ok": true } })
     );
-    // 都用登录账号的令牌。
+    // 都用登录账号的令牌，只有汇总和删除的语音样本另用匿名账号。
     assert_eq!(
         fixture.api.calls(),
         [
@@ -526,10 +546,11 @@ fn signed_in_operations_reach_their_calls_and_answer_the_server_shapes() {
             "put_phrases a",
             "devices a",
             "data_summary a",
+            "data_summary 1",
             "data_export a",
-            // 删 voice 分区时先删匿名账号名下的语音样本。
-            "data_delete 1",
-            "data_delete a"
+            // 删 voice 分区时先删登录账号的，再删匿名账号名下的语音样本。
+            "data_delete a",
+            "data_delete 1"
         ]
     );
 }
@@ -1073,13 +1094,17 @@ fn account_delete_reports_recent_login_and_signs_out_only_on_success() {
     // 需要重新登录时本地会话留着，宿主让用户重新登录后再注销。
     assert!(fixture.account_storage.0.lock().unwrap().is_some());
     fixture.api.failures.lock().unwrap().clear();
-    assert_eq!(fixture.run(delete.clone()).unwrap(), Value::Null);
+    assert_eq!(
+        fixture.run(delete.clone()).unwrap(),
+        json!({ "voice_samples": { "ok": true } })
+    );
     assert!(fixture.account_storage.0.lock().unwrap().is_none());
     // 只用登录账号：没有登录时不退回匿名账号。
     assert_eq!(fixture.code(delete), "account_unauthorized");
+    // 需要最近登录时没注销成功，也就不碰匿名账号；注销成功以后才删匿名账号的语音样本。
     assert_eq!(
         fixture.api.calls(),
-        ["delete_account a", "delete_account a"]
+        ["delete_account a", "delete_account a", "data_delete 1"]
     );
 }
 
@@ -1141,19 +1166,33 @@ fn a_reply_is_dropped_when_its_account_signs_out_during_the_request() {
     }
 }
 
+fn rate_limited() -> AccountFailure {
+    AccountFailure::from_http_response(
+        429,
+        br#"{"error":{"code":"rate_limit_exceeded","message":"rate limit exceeded"}}"#,
+        Some("3600"),
+    )
+}
+
 #[test]
 fn deleting_voice_data_also_deletes_the_anonymous_samples() {
-    // 匿名会话是新的：两个账号各删一次，匿名的在前、只删 voice。
+    // 匿名会话是新的：两个账号各删一次，登录账号的在前，匿名的只删 voice。
     let fixture = Fixture::signed_in();
-    assert!(fixture
-        .run(json!({ "operation": "data_delete", "sections": ["voice", "phrases"] }))
-        .is_ok());
-    assert_eq!(fixture.api.calls(), ["data_delete 1", "data_delete a"]);
+    assert_eq!(
+        fixture
+            .run(json!({ "operation": "data_delete", "sections": ["voice", "phrases"] }))
+            .unwrap(),
+        json!({ "voice_samples": { "ok": true } })
+    );
+    assert_eq!(fixture.api.calls(), ["data_delete a", "data_delete 1"]);
 
-    // 不删 voice 时不碰匿名账号。
-    assert!(fixture
-        .run(json!({ "operation": "data_delete", "sections": ["phrases"] }))
-        .is_ok());
+    // 不删 voice 时不碰匿名账号，value 仍是 null。
+    assert_eq!(
+        fixture
+            .run(json!({ "operation": "data_delete", "sections": ["phrases"] }))
+            .unwrap(),
+        Value::Null
+    );
     assert_eq!(fixture.api.calls(), ["data_delete a"]);
 
     // 匿名会话不是 10 分钟内建立的：用保存的身份重新登录匿名账号再删。
@@ -1165,15 +1204,48 @@ fn deleting_voice_data_also_deletes_the_anonymous_samples() {
     assert_eq!(
         fixture.api.calls(),
         [
+            "data_delete a",
             "data_delete 1",
             "challenge",
             "login",
-            "data_delete 5",
-            "data_delete a"
+            "data_delete 5"
         ]
     );
 
-    // 匿名那一步失败时登录账号的分区不动。
+    // 本机没有匿名账号时只删登录账号的。
+    let fixture = Fixture {
+        identity: IdentityStore(None),
+        ..Fixture::new(Some(saved('a', 'b', ACCOUNT_USER)), None)
+    };
+    assert_eq!(
+        fixture
+            .run(json!({ "operation": "data_delete", "sections": ["voice"] }))
+            .unwrap(),
+        json!({ "voice_samples": { "ok": true } })
+    );
+    assert_eq!(fixture.api.calls(), ["data_delete a"]);
+}
+
+#[test]
+fn a_signed_in_recent_login_failure_does_not_spend_an_anonymous_re_login() {
+    // 两个会话都早就建立了：登录账号那一步先失败，匿名账号不重新登录、什么也不删（PR #8350 上负责人定的顺序）。
+    let fixture = Fixture::signed_in();
+    fixture
+        .api
+        .recent_login
+        .lock()
+        .unwrap()
+        .extend([token('a'), token('1')]);
+    assert_eq!(
+        fixture.code(json!({ "operation": "data_delete", "sections": ["voice", "dictionary"] })),
+        "account_recent_login_required"
+    );
+    assert_eq!(fixture.api.calls(), ["data_delete a"]);
+}
+
+#[test]
+fn a_failed_anonymous_step_after_the_signed_in_sections_is_reported_apart() {
+    // 登录账号的分区已经删掉：匿名那一步失败不让操作失败，宿主据 voice_samples 用 voice_delete 重试。
     let fixture = Fixture::signed_in();
     fixture.api.recent_login.lock().unwrap().push(token('1'));
     let fixture = Fixture {
@@ -1181,20 +1253,223 @@ fn deleting_voice_data_also_deletes_the_anonymous_samples() {
         ..fixture
     };
     assert_eq!(
-        fixture.code(json!({ "operation": "data_delete", "sections": ["voice", "dictionary"] })),
-        "account_recent_login_required"
+        fixture
+            .run(json!({ "operation": "data_delete", "sections": ["voice", "dictionary"] }))
+            .unwrap(),
+        json!({ "voice_samples": { "ok": false, "error": "account_recent_login_required" } })
     );
-    assert_eq!(fixture.api.calls(), ["data_delete 1"]);
+    assert_eq!(fixture.api.calls(), ["data_delete a", "data_delete 1"]);
 
-    // 本机没有匿名账号时只删登录账号的。
+    // 限流带着秒数。
+    let fixture = Fixture::signed_in();
+    fixture
+        .api
+        .token_failures
+        .lock()
+        .unwrap()
+        .insert(token('1'), rate_limited());
+    assert_eq!(
+        fixture
+            .run(json!({ "operation": "data_delete", "sections": ["voice"] }))
+            .unwrap(),
+        json!({ "voice_samples": { "ok": false, "error": "account_rate_limited", "retry_after_seconds": 3600 } })
+    );
+}
+
+#[test]
+fn deleting_the_account_then_deletes_the_anonymous_voice_samples_best_effort() {
+    let delete = json!({ "operation": "account_delete" });
+    // 匿名会话要重新登录：注销以后照样换新会话再删。
+    let fixture = Fixture::signed_in();
+    fixture.api.recent_login.lock().unwrap().push(token('1'));
+    assert_eq!(
+        fixture.run(delete.clone()).unwrap(),
+        json!({ "voice_samples": { "ok": true } })
+    );
+    assert_eq!(
+        fixture.api.calls(),
+        [
+            "delete_account a",
+            "data_delete 1",
+            "challenge",
+            "login",
+            "data_delete 5"
+        ]
+    );
+
+    // 删语音样本失败：注销照样成功、本地会话照样清掉，失败只在 voice_samples 里。
+    let fixture = Fixture::signed_in();
+    fixture
+        .api
+        .token_failures
+        .lock()
+        .unwrap()
+        .insert(token('1'), rate_limited());
+    assert_eq!(
+        fixture.run(delete.clone()).unwrap(),
+        json!({ "voice_samples": { "ok": false, "error": "account_rate_limited", "retry_after_seconds": 3600 } })
+    );
+    assert!(fixture.account_storage.0.lock().unwrap().is_none());
+    assert_eq!(fixture.api.calls(), ["delete_account a", "data_delete 1"]);
+
+    // 读不了匿名会话也一样只是 voice_samples 失败。
+    let fixture = Fixture::signed_in();
+    assert_eq!(
+        account_deleted(
+            || Err::<Arc<Session>, _>(AccountError::Storage),
+            AnonymousIdentitySource::Store(&fixture.identity),
+        ),
+        json!({ "voice_samples": { "ok": false, "error": "account_storage" } })
+    );
+
+    // 本机没有匿名账号：没有样本可删，算成功。
     let fixture = Fixture {
         identity: IdentityStore(None),
         ..Fixture::new(Some(saved('a', 'b', ACCOUNT_USER)), None)
     };
-    assert!(fixture
-        .run(json!({ "operation": "data_delete", "sections": ["voice"] }))
-        .is_ok());
-    assert_eq!(fixture.api.calls(), ["data_delete a"]);
+    assert_eq!(
+        fixture.run(delete).unwrap(),
+        json!({ "voice_samples": { "ok": true } })
+    );
+    assert_eq!(fixture.api.calls(), ["delete_account a"]);
+}
+
+#[test]
+fn voice_samples_can_be_deleted_without_signing_in() {
+    let voice_delete = json!({ "operation": "voice_delete" });
+    // 从没登录过：只用匿名账号。
+    let fixture = Fixture::new(None, Some(saved('1', '2', ANONYMOUS_USER)));
+    assert_eq!(fixture.run(voice_delete.clone()).unwrap(), Value::Null);
+    assert_eq!(fixture.api.calls(), ["data_delete 1"]);
+
+    // 登录了也只删匿名账号的，不碰登录账号的 voice 分区。
+    let fixture = Fixture::signed_in();
+    assert_eq!(fixture.run(voice_delete.clone()).unwrap(), Value::Null);
+    assert_eq!(fixture.api.calls(), ["data_delete 1"]);
+
+    // 匿名会话要重新登录时用保存的身份。
+    let fixture = Fixture::new(None, Some(saved('1', '2', ANONYMOUS_USER)));
+    fixture.api.recent_login.lock().unwrap().push(token('1'));
+    assert_eq!(fixture.run(voice_delete.clone()).unwrap(), Value::Null);
+    assert_eq!(
+        fixture.api.calls(),
+        ["data_delete 1", "challenge", "login", "data_delete 5"]
+    );
+
+    // 有会话却换不了新会话：交回那次失败。
+    let fixture = Fixture {
+        identity: IdentityStore(None),
+        ..Fixture::new(None, Some(saved('1', '2', ANONYMOUS_USER)))
+    };
+    fixture.api.recent_login.lock().unwrap().push(token('1'));
+    assert_eq!(
+        fixture.code(voice_delete.clone()),
+        "account_recent_login_required"
+    );
+
+    // 本机既没有匿名会话也没有身份：没有样本可删，不联网。
+    let fixture = Fixture {
+        identity: IdentityStore(None),
+        ..Fixture::new(None, None)
+    };
+    assert_eq!(fixture.run(voice_delete).unwrap(), Value::Null);
+    assert!(fixture.api.calls().is_empty());
+}
+
+#[test]
+fn the_data_summary_counts_the_anonymous_voice_samples_or_says_it_could_not() {
+    let summary = json!({ "operation": "data_summary" });
+    let own = json!({
+        "bytes": 12,
+        "sections": [
+            { "id": "phrases", "bytes": 12, "items": 1 },
+            { "id": "voice", "bytes": 0, "items": 0 }
+        ],
+    });
+    let with = |anonymous_voice: &str| {
+        let mut value = own.clone();
+        value["anonymous_voice"] = json!(anonymous_voice);
+        value
+    };
+
+    // 本机没有匿名会话：没有可合的，只发一次请求。
+    let fixture = Fixture::new(Some(saved('a', 'b', ACCOUNT_USER)), None);
+    assert_eq!(fixture.run(summary.clone()).unwrap(), with("none"));
+    assert_eq!(fixture.api.calls(), ["data_summary a"]);
+
+    // 匿名那一次失败：汇总照样成功，标成 unknown，voice 只是登录账号的。
+    let fixture = Fixture::signed_in();
+    fixture
+        .api
+        .token_failures
+        .lock()
+        .unwrap()
+        .insert(token('1'), AccountFailure::network());
+    assert_eq!(fixture.run(summary.clone()).unwrap(), with("unknown"));
+    assert_eq!(fixture.api.calls(), ["data_summary a", "data_summary 1"]);
+
+    // 读不了匿名会话也是 unknown。
+    let fixture = Fixture::signed_in();
+    assert_eq!(
+        data_summary(&fixture.account, || Err::<Arc<Session>, _>(
+            AccountError::Storage
+        ))
+        .unwrap(),
+        with("unknown")
+    );
+
+    // 匿名令牌被拒时在匿名账号里刷新一次再取。
+    let fixture = Fixture::signed_in();
+    fixture.api.stale.lock().unwrap().push(token('1'));
+    assert_eq!(
+        fixture.run(summary.clone()).unwrap()["anonymous_voice"],
+        "included"
+    );
+    assert_eq!(
+        fixture.api.calls(),
+        [
+            "data_summary a",
+            "data_summary 1",
+            "refresh 2",
+            "data_summary 3"
+        ]
+    );
+
+    // 登录账号的汇总失败时整个失败，不再去问匿名账号。
+    let fixture = Fixture::signed_in();
+    fixture
+        .api
+        .token_failures
+        .lock()
+        .unwrap()
+        .insert(token('a'), rate_limited());
+    assert_eq!(fixture.code(summary), "account_rate_limited");
+    assert_eq!(fixture.api.calls(), ["data_summary a"]);
+}
+
+#[test]
+fn merging_adds_a_missing_voice_section() {
+    let mut summary = AccountDataSummary {
+        bytes: 5,
+        sections: vec![AccountDataSection {
+            id: "phrases".into(),
+            bytes: 5,
+            items: 1,
+        }],
+    };
+    let anonymous = AccountDataSummary {
+        bytes: i64::MAX,
+        sections: vec![AccountDataSection {
+            id: "voice".into(),
+            bytes: i64::MAX,
+            items: 3,
+        }],
+    };
+    merge_anonymous_voice(&mut summary, &anonymous);
+    // 加不下时停在上限，不溢出。
+    assert_eq!(summary.bytes, i64::MAX);
+    assert_eq!(summary.sections[1].id, "voice");
+    assert_eq!(summary.sections[1].items, 3);
 }
 
 /// 走 `chat_stream`，返回结果和按顺序收到的增量；`during` 在每段增量交出后调用。

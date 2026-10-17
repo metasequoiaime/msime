@@ -364,3 +364,81 @@ fn directory_requests_go_out_with_the_host_agent() {
         assert_eq!(agent, AGENT, "{path}");
     }
 }
+
+fn ensure_anonymous(request: &[u8]) -> Value {
+    // SAFETY: 缓冲区在调用期间有效。
+    read(unsafe {
+        msime_client_ensure_anonymous_account_with_agent(request.as_ptr(), request.len())
+    })
+}
+
+#[test]
+fn the_anonymous_registration_entry_takes_the_host_agent() {
+    let server = FakeServer::start();
+    let loopback = LoopbackOrigin::set(&server.origin);
+    let root = tempfile::tempdir().unwrap();
+    // Windows Server 注册匿名账号的入口带上 client_agent：注册请求以它作 User-Agent。
+    let registering = root.path().join("registering");
+    let response = ensure_anonymous(
+        json!({ "directory": registering, "client_agent": AGENT })
+            .to_string()
+            .as_bytes(),
+    );
+    // 假服务端一律回 503。
+    assert_eq!(
+        response,
+        json!({ "ok": false, "error": "account_unavailable" })
+    );
+    // 身份已经生成并留着，下次启动再试时是同一个账号。
+    assert!(registering
+        .join(msime_client_services::account::ANONYMOUS_ACCOUNT_FILE)
+        .is_file());
+    drop(loopback);
+    assert_eq!(
+        server.finish(),
+        [("/v1/auth/challenges".to_owned(), AGENT.to_owned())]
+    );
+
+    // 已经注册过：带不带 client_agent 都只读一次会话文件，不联网。
+    let registered = root.path().join("registered");
+    std::fs::create_dir(&registered).unwrap();
+    AnonymousSessionStorage::new(&registered)
+        .save(&saved("synthetic-anonymous"))
+        .unwrap();
+    for request in [
+        json!({ "directory": registered, "client_agent": AGENT }),
+        json!({ "directory": registered }),
+    ] {
+        assert_eq!(
+            ensure_anonymous(request.to_string().as_bytes()),
+            json!({ "ok": true, "value": true }),
+            "{request}"
+        );
+    }
+
+    // 校验与 msime_client_account 的 client_agent 相同，请求不合法时不碰目录。
+    let untouched = root.path().join("untouched");
+    for request in [
+        json!({ "directory": untouched, "client_agent": "MSIME/Android" }),
+        json!({ "directory": untouched, "client_agent": "msime-web/1.0" }),
+        json!({ "directory": "relative/account", "client_agent": AGENT }),
+        json!({ "directory": untouched, "client_agent": AGENT, "extra": true }),
+        json!({ "client_agent": AGENT }),
+    ] {
+        assert_eq!(
+            ensure_anonymous(request.to_string().as_bytes()),
+            json!({ "ok": false, "error": "account_invalid" }),
+            "{request}"
+        );
+    }
+    assert_eq!(
+        ensure_anonymous(untouched.to_string_lossy().as_bytes()),
+        json!({ "ok": false, "error": "account_invalid" })
+    );
+    assert_eq!(
+        // SAFETY: 空指针被拒绝，不读。
+        read(unsafe { msime_client_ensure_anonymous_account_with_agent(std::ptr::null(), 2) }),
+        json!({ "ok": false, "error": "account_invalid" })
+    );
+    assert!(!untouched.exists());
+}

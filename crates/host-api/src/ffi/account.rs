@@ -4,7 +4,7 @@
 //!
 //! 请求带 `session_store` 而不带 `directory` 时，会话在宿主注入的存储里（[`super::session_store`]），会话对象是注册时建好的那一个。
 //!
-//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接、语音贡献）在 [`crate::account_ops`]；它们失败时还可能带 `retry_after_seconds`。用到匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录、每个 `client_agent` 一个会话对象，刷新时与登录会话共用 `account-refresh.lock`）和 `anonymous-account.json` 里的身份，注入时用该 store 的匿名会话和 `ANONYMOUS_IDENTITY` 项。
+//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接、语音贡献和删除语音样本）在 [`crate::account_ops`]；已有的 `delete` 注销成功以后也经它删匿名账号的语音样本；它们失败时还可能带 `retry_after_seconds`。用到匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录、每个 `client_agent` 一个会话对象，刷新时与登录会话共用 `account-refresh.lock`）和 `anonymous-account.json` 里的身份，注入时用该 store 的匿名会话和 `ANONYMOUS_IDENTITY` 项。
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
@@ -30,6 +30,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 /// 请求的上限：应用云端设置时请求里带着整份云端设置文档（其中可能有 Android 的自定义键盘皮肤库，最多 768 KiB），与 Android 的设置同步导出一样给 4 MiB；目录各最多 16 KiB。
 const MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_DIRECTORY_BYTES: usize = 16 * 1024;
+/// `msime_client_ensure_anonymous_account_with_agent` 的请求上限：16 KiB 的目录加上 `client_agent` 和 JSON 本身。
+const MAX_ENSURE_ANONYMOUS_REQUEST_BYTES: usize = 32 * 1024;
 
 pub(super) type Session = BackendAccountSession<BackendAccountClient, SessionStorage>;
 
@@ -576,6 +578,55 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
     }
 }
 
+/// 目录模式的匿名账号注册：没有 `agent` 时与 `msime_client_ensure_anonymous_account` 完全相同（已有会话时只读一次会话文件、不建 HTTP 客户端），有时经这个 User-Agent 的客户端注册。`agent` 已经过 [`checked_agent`]。
+fn ensure_anonymous_in_directory(
+    directory: &Path,
+    agent: Option<&str>,
+) -> Result<(), AccountError> {
+    match agent {
+        None => ensure_anonymous_account(directory),
+        Some(agent) => directory_client(Some(agent))
+            .and_then(|client| ensure_anonymous_account_with(client, directory)),
+    }
+}
+
+/// `msime_client_ensure_anonymous_account_with_agent` 的请求。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EnsureAnonymousRequest {
+    directory: String,
+    #[serde(default)]
+    client_agent: Option<String>,
+}
+
+/// 与 `msime_client_ensure_anonymous_account` 相同，只是请求是 JSON `{"directory": 绝对路径, "client_agent": 可选}`，带 `client_agent` 时注册请求以它作 User-Agent（#8201 的决定 1 扩展到这里），服务端「我的设备」据此显示平台。校验与 `msime_client_account` 的 `client_agent` 相同，不合法是 `account_invalid`；不带时与 `msime_client_ensure_anonymous_account` 发的请求相同。失败时 error 是账号错误码，与 `msime_client_account` 的 `ensure_anonymous` 相同，不是旧入口那样的说明文字。
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_ensure_anonymous_account_with_agent(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        let invalid = || AccountError::Invalid.code().to_owned();
+        // SAFETY: forwarded from the documented caller contract.
+        let request: EnsureAnonymousRequest = unsafe {
+            with_bounded_bytes(
+                request,
+                length,
+                MAX_ENSURE_ANONYMOUS_REQUEST_BYTES,
+                "account_invalid",
+                |bytes| serde_json::from_slice(bytes).map_err(|_| invalid()),
+            )?
+        };
+        let directory = absolute_directory(&request.directory)?;
+        let agent = checked_agent(request.client_agent.as_deref()).map_err(|_| invalid())?;
+        ensure_anonymous_in_directory(directory, agent)
+            .map(|()| Value::Bool(true))
+            .map_err(|error| error.code().to_owned())
+    })
+}
+
 pub(super) fn absolute_directory(value: &str) -> Result<&Path, String> {
     let path = Path::new(value);
     if value.len() > MAX_DIRECTORY_BYTES || !path.is_absolute() {
@@ -621,15 +672,20 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                     request.action,
                     Action::Account(AccountAction::EnsureAnonymous)
                 ) {
-                    let registered = match agent {
-                        None => ensure_anonymous_account(directory),
-                        Some(agent) => directory_client(Some(agent))
-                            .and_then(|client| ensure_anonymous_account_with(client, directory)),
-                    };
-                    return registered.map(|()| Value::Bool(true)).map_err(code);
+                    return ensure_anonymous_in_directory(directory, agent)
+                        .map(|()| Value::Bool(true))
+                        .map_err(code);
                 }
                 let session = session_with_agent(directory, legacy, agent).map_err(code)?;
                 match request.action {
+                    // 注销成功以后尽力删掉本机匿名账号的语音样本（#8201 的决定 12 后续 2），结果在 voice_samples 里，不影响注销本身。
+                    Action::Account(AccountAction::Delete) => {
+                        run(&session, AccountAction::Delete)?;
+                        Ok(crate::account_ops::account_deleted(
+                            || anonymous_session_with_agent(directory, agent),
+                            AnonymousIdentitySource::Directory(directory),
+                        ))
+                    }
                     Action::Account(action) => run(&session, action),
                     Action::Extended(operation) => crate::account_ops::run(
                         &session,
@@ -648,6 +704,13 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                         .map(|()| Value::Bool(true))
                         .map_err(code)
                 }
+                Action::Account(AccountAction::Delete) => {
+                    run(&entry.account, AccountAction::Delete)?;
+                    Ok(crate::account_ops::account_deleted(
+                        || Ok(Arc::clone(&entry.anonymous)),
+                        AnonymousIdentitySource::Store(entry.backend.as_ref()),
+                    ))
+                }
                 Action::Account(action) => run(&entry.account, action),
                 Action::Extended(operation) => crate::account_ops::run(
                     &entry.account,
@@ -665,6 +728,8 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
 mod client_agent_tests;
 #[cfg(test)]
 mod link_tests;
+#[cfg(test)]
+mod voice_samples_tests;
 
 #[cfg(test)]
 mod tests {
