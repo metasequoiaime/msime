@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::SystemTime;
 use unicode_general_category::{get_general_category, GeneralCategory};
 use unicode_segmentation::UnicodeSegmentation;
@@ -887,6 +887,7 @@ pub struct TypingStatisticsStatus {
 #[derive(Clone, Debug)]
 pub struct TypingStatisticsStore {
     directory: PathBuf,
+    upload_operation: Arc<Mutex<()>>,
 }
 
 struct StatisticsLock {
@@ -898,12 +899,24 @@ impl TypingStatisticsStore {
     pub fn new(directory: impl Into<PathBuf>) -> Self {
         Self {
             directory: directory.into(),
+            upload_operation: Arc::new(Mutex::new(())),
         }
     }
 
     /// Where the statistics file lives, for hosts that offer to reveal it in a file manager.
     pub fn directory(&self) -> &Path {
         &self.directory
+    }
+
+    /// 串行化共享此 store 的云端上传和删除操作。
+    ///
+    /// 文件锁保护本地状态，但不能覆盖读取和写回状态之间的网络请求。
+    /// 宿主必须让这把锁覆盖完整的云端操作，避免关闭上传后的 `DELETE`
+    /// 与已经发出的 `PUT` 交错。
+    pub fn lock_upload_operation(&self) -> MutexGuard<'_, ()> {
+        self.upload_operation
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn path(&self) -> PathBuf {

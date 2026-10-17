@@ -124,6 +124,7 @@ pub async fn set_typing_statistics_upload(
     let store = statistics.0.clone();
     let session = Arc::clone(&account.session);
     blocking(move || {
+        let _operation = store.lock_upload_operation();
         if enabled {
             if !signed_in(&session)? {
                 return Err(AccountError::Unauthorized.code());
@@ -149,7 +150,11 @@ pub async fn upload_typing_statistics(
 ) -> Result<TypingUploadResponse, crate::CommandError> {
     let store = statistics.0.clone();
     let session = Arc::clone(&account.session);
-    blocking(move || upload(&store, &session, false)).await
+    blocking(move || {
+        let _operation = store.lock_upload_operation();
+        upload(&store, &session, false)
+    })
+    .await
 }
 
 #[tauri::command]

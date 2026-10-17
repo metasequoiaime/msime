@@ -436,6 +436,33 @@ mod tests {
     }
 
     #[test]
+    fn upload_operations_wait_for_each_other() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        let first = store.lock_upload_operation();
+        let second_store = store.clone();
+        let (attempting_tx, attempting_rx) = std::sync::mpsc::channel();
+        let acquired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let acquired_by_worker = std::sync::Arc::clone(&acquired);
+        let (released_tx, released_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            attempting_tx.send(()).unwrap();
+            let _second = second_store.lock_upload_operation();
+            acquired_by_worker.store(true, std::sync::atomic::Ordering::SeqCst);
+            released_rx.recv().unwrap();
+        });
+
+        attempting_rx.recv().unwrap();
+        assert!(!acquired.load(std::sync::atomic::Ordering::SeqCst));
+        drop(first);
+        while !acquired.load(std::sync::atomic::Ordering::SeqCst) {
+            std::thread::yield_now();
+        }
+        released_tx.send(()).unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
     fn upload_state_is_opt_in_throttled_and_survives_a_failed_send() {
         let directory = tempfile::tempdir().unwrap();
         let store = TypingStatisticsStore::new(directory.path().join("statistics"));
