@@ -393,13 +393,8 @@ fn the_anonymous_registration_entry_takes_the_host_agent() {
     assert!(registering
         .join(msime_client_services::account::ANONYMOUS_ACCOUNT_FILE)
         .is_file());
-    drop(loopback);
-    assert_eq!(
-        server.finish(),
-        [("/v1/auth/challenges".to_owned(), AGENT.to_owned())]
-    );
 
-    // 已经注册过：带不带 client_agent 都只读一次会话文件，不联网。
+    // 已经注册过：带不带 client_agent 都只读一次会话文件，不联网（回环一直连着假服务端，联网了就会记下第二个请求）。
     let registered = root.path().join("registered");
     std::fs::create_dir(&registered).unwrap();
     AnonymousSessionStorage::new(&registered)
@@ -441,4 +436,10 @@ fn the_anonymous_registration_entry_takes_the_host_agent() {
         json!({ "ok": false, "error": "account_invalid" })
     );
     assert!(!untouched.exists());
+    drop(loopback);
+    // 只有第一次真的注册过一次。
+    assert_eq!(
+        server.finish(),
+        [("/v1/auth/challenges".to_owned(), AGENT.to_owned())]
+    );
 }
