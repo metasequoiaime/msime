@@ -1228,6 +1228,11 @@ export {
   type VoiceCredentialEditorState,
 } from "./settings/use-voice-credential-editor";
 export {
+  useCustomEndpointIntent,
+  type CustomEndpointIntentOptions,
+  type CustomEndpointIntentState,
+} from "./settings/use-custom-endpoint-intent";
+export {
   VoiceCredentialSection,
   type VoiceCredentialEntry,
   type VoiceCredentialInput,

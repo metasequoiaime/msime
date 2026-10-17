@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   ASR_PROVIDER_DEFAULTS,
   DOUBAO_STREAM_ENDPOINTS,
@@ -8,6 +7,7 @@ import {
 import { ControlledSelect } from "../core/controlled-select";
 import { EndpointSettingRow } from "./endpoint-setting-row";
 import { SelectRow } from "./select-row";
+import { useCustomEndpointIntent } from "./use-custom-endpoint-intent";
 
 export interface DoubaoStreamEndpointSectionProps {
   endpoint: string;
@@ -77,8 +77,7 @@ export function DoubaoStreamEndpointSection({
   onChange,
 }: DoubaoStreamEndpointSectionProps) {
   const presetId = doubaoStreamEndpointId(endpoint.trim() || ASR_PROVIDER_DEFAULTS.doubao.endpoint);
-  const [customRequested, setCustomRequested] = useState(false);
-  const custom = customRequested || presetId === CUSTOM;
+  const { custom, setCustom } = useCustomEndpointIntent({ baseCustom: presetId === CUSTOM });
   return (
     <>
       <SelectRow
@@ -88,7 +87,7 @@ export function DoubaoStreamEndpointSection({
         value={custom ? CUSTOM : presetId}
         onChange={(event) => {
           const value = event.target.value;
-          setCustomRequested(value === CUSTOM);
+          setCustom(value === CUSTOM);
           updateDoubaoStreamEndpoint(value, onChange);
         }}
       >
@@ -101,7 +100,7 @@ export function DoubaoStreamEndpointSection({
           inputLabel="识别接口地址"
           value={endpoint}
           onChange={(value) => {
-            setCustomRequested(true);
+            setCustom(true);
             onChange(value);
           }}
         />

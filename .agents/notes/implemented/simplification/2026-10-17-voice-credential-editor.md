@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-纯 `voice-credential-model.ts` 承接语音领域类型、展示模型和保存组装，复用既有 `ProviderCredentialInput` 与宿主凭据契约。`useVoiceCredentialEditor` 持有自定义接口意图、字段动作及保存清除动作，`VoiceCredentialSection` 只绑定控件；既有豆包公共选择控件也从包入口公开。
+纯 `voice-credential-model.ts` 承接语音领域类型、展示模型和保存组装，复用既有 `ProviderCredentialInput` 与宿主凭据契约。`useCustomEndpointIntent` 承接「地址本身是自定义」与「用户手动展开」两种状态，按可选的身份键清除旧意图；独立豆包接口设置和 `useVoiceCredentialEditor` 共用它。后者再持有字段动作及保存清除动作，`VoiceCredentialSection` 只绑定控件；既有豆包公共选择控件也从包入口公开。
 
 旧输入、状态和保存类型保持转导出。接口输入的显式空串覆盖已有接口，空白 token/appKey 表示不提交该字段；存入凭据的非空字段保留原文。新凭据、旧版豆包 app key 和 busy 的写入条件由公共动作自身检查，输入动作继续允许编辑。展开意图按 kind/provider 归属，服务或类别改变时重置，同服务模型与回调变化不重置。
 
@@ -21,10 +21,11 @@ Status: implemented
 
 - **只公开控件，保留内部推导**：改动较少，但无界面调用方仍要复制凭据回退、保存条件和组装规则。
 - **在保存时统一裁剪 token/appKey**：可以统一空白处理，但会改变既有发送原文、仅用 trim 判断有无输入的契约；本片保留原字节，只对纯空白字段省略提交。
+- **让两个调用方各自维护 `customRequested`**：局部改动更少，但同一条「手动展开后地址变回预设仍保持展开、切换身份后重置」规则会再次分叉；因此抽出不依赖业务字段的 `useCustomEndpointIntent`。
 
 ## Verification
 
-新增模型和 hook 测试与组件回归先在旧实现失败；实现后 6 个相关测试文件共 29 项通过，覆盖旧凭据回退、显式空接口、绑定差异、保存原文与省略空白、旧版鉴权、busy 和服务归属。类型检查、构建、lint、笔记检查、本地 quick 与 PR CI 的结果随同本片验收。
+新增模型、共享展开意图 hook 测试与组件回归先在旧实现失败；实现后相关测试覆盖旧凭据回退、显式空接口、绑定差异、保存原文与省略空白、旧版鉴权、busy、服务归属，以及独立设置和凭据编辑共用展开意图。类型检查、构建、lint、笔记检查、本地 quick 与 PR CI 的结果随同本片验收。
 
 ## Consequences
 

@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   voiceCredentialEditorModel,
   voiceCredentialSavePayload,
@@ -7,6 +6,7 @@ import {
   type VoiceCredentialInput,
   type VoiceCredentialSaveInput,
 } from "./voice-credential-model";
+import { useCustomEndpointIntent } from "./use-custom-endpoint-intent";
 
 export interface UseVoiceCredentialEditorOptions extends VoiceCredentialEditorModelOptions {
   onChange: (patch: Partial<VoiceCredentialInput>) => void;
@@ -30,11 +30,13 @@ export function useVoiceCredentialEditor(
 ): VoiceCredentialEditorState {
   const { kind, provider, onChange, onSave, onClear } = options;
   const model = voiceCredentialEditorModel(options);
-  const [customRequested, setCustomEndpoint] = useState(false);
-  useEffect(() => setCustomEndpoint(false), [kind, provider]);
+  const { custom: customEndpoint, setCustom: setCustomEndpoint } = useCustomEndpointIntent({
+    baseCustom: model.customEndpoint,
+    resetKey: `${kind}:${provider}`,
+  });
   return {
     ...model,
-    customEndpoint: customRequested || model.customEndpoint,
+    customEndpoint,
     setCustomEndpoint,
     selectEndpoint: (endpoint) => onChange({ endpoint }),
     editEndpoint: (endpoint) => {
