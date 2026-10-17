@@ -52,11 +52,10 @@ public final class CloudClipboardPanelPolicy {
     /**
      * Which half the panel opens on.
      *
-     * <p>The half the user last chose, as long as it is still usable here: a sensitive field always falls back to the local history, and with local history switched off the cloud half is the only one with content.
+     * <p>用户上次选的那一半，只要这里还能用：敏感输入框一律回到本机历史。本机历史关着时也先停在本机，那里有「开启剪贴板历史」按钮；原来这时直接打开云端，没登录的用户只看到一句登录提示，以为剪贴板调不出来。
      */
-    public static Tab initialTab(Tab previous, boolean localEnabled, boolean cloudAllowed) {
+    public static Tab initialTab(Tab previous, boolean cloudAllowed) {
         if (!cloudAllowed) return Tab.LOCAL;
-        if (!localEnabled) return Tab.CLOUD;
         return previous == Tab.CLOUD ? Tab.CLOUD : Tab.LOCAL;
     }
 
