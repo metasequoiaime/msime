@@ -295,6 +295,8 @@ pub struct NineKeySession {
     rerank_cache: Vec<RerankEntry>,
     /// 把选中的词记进 26 键共用的个人上下文模型（`SessionOptions::personal_context`，还要 `learning`），简拼行据此把用户用过的词排到前面（#6185）。
     personal_context: bool,
+    /// `finish` 逐段代选时不把默认选择写成最近候选位置。
+    remember_recent: bool,
     digits: String,
     locked: Vec<String>,
     /// 用户用 `'` 切开音节的数字位置，升序，都在已锁定的部分之后。和锁定的拼写不同，切分只定下一个音节在哪里结束，两边数字的各种读法都还保留：`94'26` 可以是 xi'an，也可以是 yi'an，但不会是 xian。
@@ -405,6 +407,7 @@ impl NineKeySession {
             keyboard: None,
             rerank_cache: Vec::new(),
             personal_context: true,
+            remember_recent: true,
             digits: String::new(),
             locked: Vec::new(),
             splits: Vec::new(),
@@ -743,6 +746,7 @@ impl NineKeySession {
         let selected_fixed_position = selected.fixed_position;
         let selected_pinyin_length = selected.pinyin.len();
         let selected_word = selected.word.clone();
+        let selected_is_initials = is_initials_row(selected);
         let selected_canonical_pinyin = if self.learning
             && (selected_source.is_dictionary() || selected_source.is_sentence_learning())
         {
@@ -752,7 +756,7 @@ impl NineKeySession {
         };
         // 用过的简拼行在九键里的位置只由个人上下文模型里的计数决定（`boost_used_initials`）。这一行会记进模型时不再调全局词频：两边都挪的话一次选词挪两次，全局权重还会连带改掉 26 键里这个词的位置（#6185）。
         let recorded_initials =
-            self.records_personal_use(selected_source, &selected_word) && is_initials_row(selected);
+            self.records_personal_use(selected_source, &selected_word) && selected_is_initials;
         let mut diagnostic = if self.learning
             && self.frequency.mode != FrequencyAdjustmentMode::Disabled
             && index != 0
@@ -764,6 +768,19 @@ impl NineKeySession {
         } else {
             None
         };
+        // 最近选中的候选要在相同九键上下文的下一次输入中直接显示在首位。用已有固定位置表保存这个信号，不把单字写进个人上下文模型，也不改主词库权重。
+        if self.learning
+            && index != 0
+            && selected_fixed_position == 0
+            && selected_source.is_dictionary()
+            && !selected_canonical_pinyin.is_empty()
+            && !selected_is_initials
+            && selected_pinyin_length == self.digits.len()
+            && self.remember_recent
+        {
+            diagnostic = diagnostic
+                .or(self.remember_recent_candidate(&selected_canonical_pinyin, &selected_word));
+        }
         self.consume(selected_pinyin_length);
         if self.learning {
             let (learned, stored) =
@@ -903,7 +920,10 @@ impl NineKeySession {
                 commit.push_str(&self.digits);
                 break;
             }
+            let previous_remember_recent = self.remember_recent;
+            self.remember_recent = false;
             let result = self.select(index);
+            self.remember_recent = previous_remember_recent;
             if diagnostic.is_none() {
                 diagnostic = result.diagnostic;
             }
@@ -1023,9 +1043,26 @@ impl NineKeySession {
         if !self.editable(index) {
             return KeyResult::unhandled();
         }
+        let selected = self.candidates[index].clone();
+        let replaces_recent = selected.fixed_position == 0
+            && self
+                .candidates
+                .iter()
+                .any(|candidate| candidate.fixed_position == 1);
         let diagnostic = self.adjust_frequency(index, true);
+        let position_diagnostic = replaces_recent.then(|| {
+            positions::set_fixed_position(
+                &self.paths.user(assets::USER_JOURNAL),
+                &self.ranking_context(),
+                &selected.canonical_pinyin,
+                &selected.word,
+                1,
+            )
+            .err()
+            .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
+        });
         self.refresh();
-        KeyResult::handled().with_diagnostic(diagnostic)
+        KeyResult::handled().with_diagnostic(diagnostic.or(position_diagnostic.flatten()))
     }
 
     pub fn remove(&mut self, index: usize) -> KeyResult {
@@ -2091,6 +2128,19 @@ impl NineKeySession {
             // A failed write keeps the commit and reports this one message (NK:409-414).
             Err(_) => Some(diagnostics::NINE_KEY_FREQUENCY_NOT_PERSISTED.to_string()),
         }
+    }
+
+    /// 把最近一次九键选择固定到当前输入上下文的首位；后一次选择会替换第 1 槽，手动固定的其它槽位不受影响。
+    fn remember_recent_candidate(&self, canonical_pinyin: &str, word: &str) -> Option<String> {
+        positions::set_fixed_position(
+            &self.paths.user(assets::USER_JOURNAL),
+            &self.ranking_context(),
+            canonical_pinyin,
+            word,
+            1,
+        )
+        .err()
+        .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
     }
 }
 
@@ -5698,6 +5748,25 @@ mod tests {
             .expect("mu offered");
         session.choose_spelling(mu);
         assert!(!words(&session).iter().any(|word| word == "每天"));
+    }
+
+    /// 选中过的单字也应在相同九键输入的下一次候选刷新中直接位于首位，而不依赖个人上下文模型。
+    #[test]
+    fn recently_selected_candidate_leads_the_same_nine_key_context() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90),('neng','n','嗯',80),('neng','n','𠮾',70),('neng','n','莻',60);",
+        );
+        let mut first = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut first, "6364");
+        let selected = index_of(&first, "能");
+        assert!(selected > 0, "fixture must require a non-first selection");
+        assert_eq!(first.select(selected).commit.as_deref(), Some("能"));
+
+        let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut repeated, "6364");
+        assert_eq!(words(&repeated)[0], "能");
+        assert_eq!(repeated.snapshot().candidates[0].fixed_position, 1);
     }
 
     /// #5640：两位数字的音节行比候选上限还多时（出货词库里 `68` 有两百多个单字），不打切分的简拼行也不能被截掉：前三个音节行之后，其余音节行和简拼行按权重归并。
