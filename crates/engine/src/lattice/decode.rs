@@ -284,11 +284,16 @@ pub fn decode_constrained_sentences(
     options: &LatticeOptions<'_>,
     accepts: impl Fn(usize, &str) -> bool,
 ) -> Vec<SentencePath> {
+    if syllables.is_empty() {
+        return Vec::new();
+    }
     let mut unfiltered = options.clone();
     unfiltered.span_limit = usize::MAX;
     let mut graph = build_graph(syllables, lookup, &unfiltered);
+    // 终点计数只在本次过滤中使用，跨起始列清零复用。
+    let mut counts = vec![0; syllables.len() + 1];
     for (start, edges) in graph.iter_mut().enumerate() {
-        let mut counts = vec![0; syllables.len() + 1];
+        counts.fill(0);
         edges.retain(|edge| {
             if !accepts(start, &edge.word) || counts[edge.end] >= options.span_limit {
                 return false;
@@ -1699,3 +1704,7 @@ mod materialization_tests;
 #[cfg(test)]
 #[path = "decode_terminal_tests.rs"]
 mod terminal_tests;
+
+#[cfg(test)]
+#[path = "decode_constrained_tests.rs"]
+mod constrained_tests;
