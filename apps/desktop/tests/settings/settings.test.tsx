@@ -2,6 +2,7 @@
 import { testHost } from "../support/host";
 import {
   openVoiceServiceConfig,
+  selectDictionaryTab,
   selectSettingsTab,
   settingsFormReady,
   saveSettingsNow,
@@ -3446,7 +3447,8 @@ test("dictionary fallback import uses 10000 by default and preserves an explicit
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
-  // 导入在词库页的「导入与导出」组。
+  // 导入在词库页「管理词库」标签的「导入与导出」组。
+  selectDictionaryTab("管理词库");
   const manager = screen.getByRole("region", { name: "导入与导出" });
   fireEvent.change(within(manager).getByLabelText("导入"), {
     target: {
@@ -8560,6 +8562,8 @@ test("macOS opens handwriting for copying while input-session panels use the nat
   expect(client.openCloudClipboard).not.toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  // 云词库入口在词库页的「管理词库」标签里。
+  selectDictionaryTab("管理词库");
   fireEvent.click(await screen.findByRole("button", { name: "打开云词库" }));
   await waitFor(() => expect(client.openCloudDictionary).toHaveBeenCalledTimes(1));
 });
@@ -10064,12 +10068,14 @@ test("the dictionary page ends with the learning data reset", async () => {
   const expected = ["本地词库管理", "导入与导出", "更多", "学习数据"];
   expect(groups.filter((title) => expected.includes(title))).toEqual(expected);
   expect(groups.at(-1)).toBe("学习数据");
-  const transfer = within(page).getByRole("region", { name: "导入与导出" });
-  expect(within(transfer).getByLabelText("本地词库文件格式")).toBeTruthy();
-  expect(within(transfer).getByRole("group", { name: "个人词库文件" })).toBeTruthy();
+  // 词库本身在默认的「查词库」标签，导入导出到页末的学习数据都在「管理词库」标签。
   expect(within(page).getByRole("region", { name: "本地词库管理" }).textContent).not.toContain(
     "Engine",
   );
+  selectDictionaryTab("管理词库");
+  const transfer = within(page).getByRole("region", { name: "导入与导出" });
+  expect(within(transfer).getByLabelText("本地词库文件格式")).toBeTruthy();
+  expect(within(transfer).getByRole("group", { name: "个人词库文件" })).toBeTruthy();
 });
 
 // 清除学习数据只看宿主有没有提供这个动作，不再限于 macOS。
@@ -10086,6 +10092,9 @@ test.each(["windows", "linux"])("%s offers the learning data reset too", async (
       }}
     />,
   );
+  await settingsReady();
+  // 清除学习数据在词库页「管理词库」标签的页末。
+  selectDictionaryTab("管理词库");
   await screen.findByRole("region", { name: "学习数据" });
   expect(screen.getByRole("button", { name: "清除全部学习数据" })).toBeTruthy();
 });
@@ -10103,6 +10112,8 @@ test("a host without the reset has no learning data group", async () => {
     />,
   );
   await settingsReady();
+  // 先切到放学习数据的「管理词库」标签，否则这一组本来就被标签藏着，断言什么也证明不了。
+  selectDictionaryTab("管理词库");
   expect(screen.queryByRole("region", { name: "学习数据" })).toBeNull();
 });
 
