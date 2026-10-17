@@ -3,11 +3,15 @@ import XCTest
 import UIKit
 
 final class AISkinServiceTests: XCTestCase {
+  /// 三套合格的合成方案：造型、材质和背景场景各不相同，按键文字和强调色的对比度不足，留给解析修正。
   private func response(_ transform: (inout [[String:Any]]) -> Void = { _ in }) throws -> String {
+    let shapes = ["rounded", "capsule", "ticket"], materials = ["flat", "raised", "glass"], scenes = ["山", "海", "林"]
     var designs: [[String:Any]] = (0..<3).map { index in
-      ["name":"测试设计 \(index)","description":"合成测试方案","background":"#FFFFFF","keyBackground":"#F0F0F0",
+      ["name":"测试设计 \(index)","description":"合成测试方案","artworkPrompt":String(repeating: scenes[index], count: 50),
+       "background":"#FFFFFF","keyBackground":"#F0F0F0",
        "keyForeground":"#FFFFFF","accent":"#FFFFFF","actionBackground":"#185C47","gradientEnd":NSNull(),
-       "gradientHorizontal":false,"cornerRadius":index * 5,"borderWidth":0,"shadow":0.1,"pattern":index,"monospaced":false]
+       "gradientHorizontal":false,"keyShape":shapes[index],"keyMaterial":materials[index],
+       "cornerRadius":index * 5,"borderWidth":0,"shadow":0.1,"pattern":index,"monospaced":false]
     }
     transform(&designs)
     return String(data:try JSONSerialization.data(withJSONObject:["skins":designs]),encoding:.utf8)!
@@ -24,15 +28,19 @@ final class AISkinServiceTests: XCTestCase {
       XCTAssertEqual(restored.design,proposal.design)
     }
   }
-  func testRecordedCloudResponseProducesThreeSaveableDesigns() throws {
+  /// 早先录下的云端回答没有键帽造型、材质和背景场景。原来 `generate` 解析后才因此拒绝，现在 Rust 的解析一步就拒绝，两条路的结论相同。
+  func testRecordedCloudResponseWithoutKeyStylesIsRefused() throws {
     let file = try XCTUnwrap(Bundle(for:Self.self).url(forResource:"AISkinReference",withExtension:"json"))
-    let proposals = try AISkinService.parse(String(contentsOf:file,encoding:.utf8))
-    XCTAssertEqual(proposals.count,3)
-    XCTAssertEqual(proposals.first?.name,"静谧奶油")
-    for proposal in proposals {
-      XCTAssertTrue(proposal.design.hasReadableText)
-      XCTAssertEqual(try JSONDecoder().decode(CustomKeyboardSkin.self,from:JSONEncoder().encode(proposal.design)),proposal.design)
-    }
+    XCTAssertThrowsError(try AISkinService.parse(String(contentsOf:file,encoding:.utf8)))
+  }
+  /// 系统提示词由 Rust 给出，用户的描述原样排在后面；Rust 拒绝的描述不发请求。
+  func testPromptComesFromRust() throws {
+    let messages = try AISkinService.messages(prompt: "竹林里的熊猫茶会", model: "synthetic-model")
+    XCTAssertEqual(messages.map(\.role), ["system", "user"])
+    XCTAssertTrue(messages[0].content.contains("keyShape"))
+    XCTAssertEqual(messages[1].content, "竹林里的熊猫茶会")
+    XCTAssertThrowsError(try AISkinService.messages(prompt: String(repeating: "景", count: 501), model: "synthetic-model"))
+    XCTAssertThrowsError(try AISkinService.messages(prompt: "竹林", model: ""))
   }
   func testInvalidOrDuplicateDesignNeverBecomesASkin() throws {
     for text in ["```json\n{}\n```", "{}", try response { $0.removeLast() },
@@ -41,7 +49,12 @@ final class AISkinServiceTests: XCTestCase {
                  try response { $0[0]["keyShape"] = "external.svg" },
                  try response { $0[0]["keyMaterial"] = "unknown" },
                  try response { $0[1] = $0[0] },
-                 try response { $0[0]["background"] = "#000000"; $0[0]["keyBackground"] = "#FFFFFF" }] {
+                 try response { $0[0]["background"] = "#000000"; $0[0]["keyBackground"] = "#FFFFFF" },
+                 // 以下几种原来的 Swift 解析照收，Rust 拒绝：多出字段、名称里有控制字符、两套造型相同、缺背景场景。
+                 try response { $0[0]["unexpected"] = 1 },
+                 try response { $0[0]["name"] = "测试\u{0007}设计" },
+                 try response { $0[1]["keyShape"] = "rounded" },
+                 try response { $0[0].removeValue(forKey: "artworkPrompt") }] {
       XCTAssertThrowsError(try AISkinService.parse(text))
     }
   }
