@@ -323,7 +323,7 @@ pub struct NineKeySession {
     /// Opened on first use.
     dictionary: Option<QuanpinDictionary>,
     /// 每个音节及其前缀的单字频度，`SyllablePrior::from_dictionary` 在第一次查词前建好，给切分路径排序用。
-    prior: Option<SyllablePrior>,
+    prior: Option<SyllablePrior<'static>>,
     english: Option<EnglishDictionary>,
     /// 和 `locked` 一一对应：撤销那次锁定要用的东西。部分上屏之后锁定的数字位置变了，记录随之作废成 `None`。
     lock_undo: Vec<Option<LockUndo>>,
@@ -3173,14 +3173,17 @@ impl SpellingTable {
 
 /// 音节和音节前缀的单字频度：音节取词库里它最常用那个字的权重取对数，前缀取以它开头的音节里最高的那个。九宫格用它决定每个位置留哪 48 条切分路径和左列音节的先后，候选本身的先后仍由词库和整句解码决定。
 #[derive(Default)]
-struct SyllablePrior {
-    scores: HashMap<String, f64>,
+struct SyllablePrior<'a> {
+    scores: HashMap<&'a str, f64>,
     /// 完整音节自己的频度，不取以它开头的更长音节的：左列里 pin 不该沾 ping 的光。
-    syllables: HashMap<String, f64>,
+    syllables: HashMap<&'a str, f64>,
 }
 
-impl SyllablePrior {
-    fn from_dictionary(dictionary: &QuanpinDictionary, table: &SpellingTable) -> Self {
+impl<'a> SyllablePrior<'a> {
+    fn from_dictionary(
+        dictionary: &QuanpinDictionary,
+        table: &'a SpellingTable,
+    ) -> SyllablePrior<'a> {
         let keys: Vec<String> = table
             .syllables
             .iter()
@@ -3190,23 +3193,24 @@ impl SyllablePrior {
         Self::from_weights(&table.syllables, &weights)
     }
 
-    fn from_weights(syllables: &[(String, String)], weights: &HashMap<String, i64>) -> Self {
+    fn from_weights(syllables: &'a [(String, String)], weights: &HashMap<String, i64>) -> Self {
         let total: f64 = syllables
             .iter()
             .map(|(syllable, _)| weights.get(syllable).copied().unwrap_or(0).max(1) as f64)
             .sum();
-        let mut scores: HashMap<String, f64> = HashMap::new();
-        let mut own: HashMap<String, f64> = HashMap::with_capacity(syllables.len());
+        let prefix_capacity = syllables.iter().map(|(syllable, _)| syllable.len()).sum();
+        let mut scores: HashMap<&str, f64> = HashMap::with_capacity(prefix_capacity);
+        let mut own: HashMap<&str, f64> = HashMap::with_capacity(syllables.len());
         for (syllable, _) in syllables {
             // 没有单字行的音节和权重为 0 的一样按 1 算。
             let weight = weights.get(syllable).copied().unwrap_or(0).max(1) as f64;
             let score = (weight / total).ln();
-            own.insert(syllable.clone(), score);
+            own.insert(syllable.as_str(), score);
             for end in 1..=syllable.len() {
                 let Some(prefix) = syllable.get(..end) else {
                     continue;
                 };
-                let slot = scores.entry(prefix.to_string()).or_insert(score);
+                let slot = scores.entry(prefix).or_insert(score);
                 if *slot < score {
                     *slot = score;
                 }
@@ -3292,6 +3296,19 @@ mod tests {
             allocations <= destination.len() + 1,
             "拼写匹配刷新不应重新申请索引工作区：{allocations} 次分配，{} 个读音",
             destination.len()
+        );
+    }
+
+    #[test]
+    fn syllable_prior_does_not_clone_static_spelling_keys() {
+        let table = spelling_table();
+        let weights = HashMap::new();
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            SyllablePrior::from_weights(&table.syllables, &weights)
+        });
+        assert!(
+            allocations <= 4,
+            "静态九键音节表的频度索引不应复制音节和前缀键：{allocations} 次分配"
         );
     }
 

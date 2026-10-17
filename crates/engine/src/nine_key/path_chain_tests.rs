@@ -83,7 +83,7 @@ fn grids() -> [KeyGrid; 3] {
     ]
 }
 
-fn weighted_prior(table: &SpellingTable) -> SyllablePrior {
+fn weighted_prior(table: &SpellingTable) -> SyllablePrior<'_> {
     let weights = table
         .syllables
         .iter()

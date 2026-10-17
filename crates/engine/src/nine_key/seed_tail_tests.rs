@@ -111,7 +111,7 @@ fn grids() -> [KeyGrid; 3] {
     ]
 }
 
-fn prior(table: &SpellingTable, weighted: bool) -> SyllablePrior {
+fn prior(table: &SpellingTable, weighted: bool) -> SyllablePrior<'_> {
     if !weighted {
         return SyllablePrior::default();
     }
