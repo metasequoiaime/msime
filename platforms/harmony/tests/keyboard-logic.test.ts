@@ -17858,6 +17858,12 @@ group("SpaceVoiceGesture", () => {
     "letting go before the long-press timer ran types a space rather than an empty dictation",
   );
 
+  gesture.down(0, 100, 500, height, true);
+  gesture.move(100, 100, 500 - height * 0.25 - 1);
+  check(gesture.tick(SPACE_LONG_PRESS_MS), "the timer starts voice after the finger already slid up");
+  check(gesture.cancelling(), "a finger already in the cancel zone when voice starts shows release-to-cancel");
+  check(gesture.up() === SpaceGestureOutcome.VOICE_CANCEL, "and letting go there without moving again cancels");
+
   check(SpaceVoiceGesture.armed(true, true, false, false, "none"), "an idle touch keyboard arms voice");
   check(!SpaceVoiceGesture.armed(false, true, false, false, "none"), "2in1 does not arm space voice");
   check(!SpaceVoiceGesture.armed(true, false, false, false, "none"), "voice input turned off");

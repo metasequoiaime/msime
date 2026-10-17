@@ -6445,7 +6445,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     });
   }
 
-  /** The extension's context, which is what turns a packaged tone into something playable. 它的临时目录同时用来放离线 transducer 加载时读的热词文件。 */
+  /** 扩展的上下文：靠它把打包的提示音变成能播放的声音。它的临时目录同时用来放离线 transducer 加载时读的热词文件。 */
   useVoiceContext(context: common.Context): void {
     this.voiceBehaviour.use(context);
     this.voiceScratchDirectory = context.tempDir;

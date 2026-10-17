@@ -82,7 +82,7 @@ export interface LocalHotword {
   pinyin: string;
 }
 
-/** Worker to main thread: `started`, `partial`, `speech`, `final` or `error`. `correct` is set on `final` when the model wants pinyin post-correction. */
+/** 工作线程发给主线程的消息：`started`、`partial`、`speech`、`final` 或 `error`。模型要按拼音事后纠错时，`final` 带上 `correct`。 */
 export interface LocalAsrReply {
   type: string;
   id: number;
@@ -234,7 +234,7 @@ export class LocalAsrPolicy {
     return [];
   }
 
-  /** Whether the transducer (streaming or offline) takes hotwords itself: it needs the BPE vocabulary and a modeling unit to encode them. */
+  /** transducer（流式或离线）是否自己吃热词：编码热词要有 BPE 词表和建模单位。 */
   static transducerNativeHotwords(plan: LocalModelPlan): boolean {
     return (
       (plan.kind === LOCAL_MODEL_ONLINE_TRANSDUCER || plan.kind === LOCAL_MODEL_OFFLINE_TRANSDUCER) &&
@@ -295,7 +295,7 @@ export class LocalAsrPolicy {
   /**
    * The newline-separated hotword list a transducer is created with.
    *
-   * sherpa-onnx drops every hotword when one fails to encode, so a word holding a character the model has no token for is left out rather than taking the others with it. ASCII goes through the BPE model, which can spell anything; `/` and whitespace become single spaces; other ASCII punctuation disqualifies the word. `spacedCjk`（见 `cjkSpelledAsWords`）时每个非 ASCII 字自成一个词、前后隔空格，要求 token 表里有 `▁` 加这个字，否则整个词不用。
+   * 只要有一个热词编码失败，sherpa-onnx 就丢掉全部热词，所以含有模型 token 表里没有的字的词在这里单独去掉，不连累其他词。ASCII 交给能拼出任何词的 BPE 模型；`/` 和空白合成一个空格；其他 ASCII 标点让整个词不用。`spacedCjk`（见 `cjkSpelledAsWords`）时每个非 ASCII 字自成一个词、前后隔空格，要求 token 表里有 `▁` 加这个字，否则整个词不用。
    */
   static transducerHotwords(words: string[], tokens: Set<string>, spacedCjk: boolean): string {
     let joined: string = "";
@@ -392,7 +392,7 @@ export class LocalAsrPolicy {
   /**
    * Remove the spaces the recognizers put where Chinese text has none: around CJK punctuation, between the letters of a spelled-out initialism, leading, trailing and repeated.
    *
-   * 另有两条与 `tidy_local_transcript` 相同的标点规则：X-ASR 离线模型在中文后面也打半角标点（「是星期三.」），紧跟在非 ASCII 字符（CJK 标点除外）之后的 `.?!,` 换成全角；英文句子之间不留空格（「monday.Today」），夹在小写字母和大写字母之间的 `.?!` 后面补一个空格。「U.S.」「e.g.」「3.5」都不受影响。两条都看原文里的前后字符，而不是已经改写过的输出。
+   * 另有两条与 `tidy_local_transcript` 相同的标点规则：X-ASR 离线模型在中文后面也打半角标点（「是星期三.」），紧跟在汉字（CJK 统一表意文字、扩展区与兼容区）之后的 `.?!,` 换成全角；英文句子之间不留空格（「monday.Today」），夹在小写字母和大写字母之间的 `.?!` 后面补一个空格。「U.S.」「e.g.」「3.5」都不受影响。两条都看原文里的前后字符，而不是已经改写过的输出。
    */
   static tidyTranscript(text: string): string {
     const characters: string[] = TextPolicy.characters(text);

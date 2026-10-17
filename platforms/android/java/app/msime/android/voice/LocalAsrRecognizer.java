@@ -364,7 +364,7 @@ public final class LocalAsrRecognizer {
         }
     }
 
-    /** The installed model's manifest, or null when it cannot be read or is not a JSON object. */
+    /** 已安装模型的清单；读不出来或不是 JSON 对象时为 null。 */
     private static JSONObject manifest(String modelDirectory, Path trustedRoot) {
         try {
             byte[] bytes = LocalAsrPolicy.readManifest(modelDirectory, trustedRoot);

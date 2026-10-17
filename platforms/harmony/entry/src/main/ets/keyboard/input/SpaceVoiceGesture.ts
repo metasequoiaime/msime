@@ -38,6 +38,8 @@ export class SpaceVoiceGesture {
   private downAt: number = 0;
   private downX: number = 0;
   private downY: number = 0;
+  /** 最近一次知道的手指纵坐标：计时回调进入语音时没有坐标，靠它判断手指是否已经在取消区。 */
+  private lastY: number = 0;
   private cancelDistance: number = 0;
   private voiceArmed: boolean = false;
   private inCancelZone: boolean = false;
@@ -67,6 +69,7 @@ export class SpaceVoiceGesture {
     this.downAt = nowMs;
     this.downX = x;
     this.downY = y;
+    this.lastY = y;
     this.cancelDistance = Number.isFinite(keyboardHeight) && keyboardHeight > 0
       ? keyboardHeight * SPACE_VOICE_CANCEL_FRACTION : Number.POSITIVE_INFINITY;
     this.voiceArmed = voiceArmed;
@@ -78,20 +81,19 @@ export class SpaceVoiceGesture {
     if (!this.voiceArmed || this.current !== SpaceGestureState.PRESSED) return false;
     if (nowMs - this.downAt < SPACE_LONG_PRESS_MS) return false;
     this.current = SpaceGestureState.VOICE;
+    this.inCancelZone = this.downY - this.lastY > this.cancelDistance;
     return true;
   }
 
   /** 手指移动；返回这次移动是否让空格进入光标移动（只在进入的那一次为 true）。录音中只更新是否处在取消区。 */
   move(nowMs: number, x: number, y: number): boolean {
+    this.lastY = y;
     if (this.current === SpaceGestureState.VOICE) {
       this.inCancelZone = this.downY - y > this.cancelDistance;
       return false;
     }
     if (this.current !== SpaceGestureState.PRESSED) return false;
-    if (this.tick(nowMs)) {
-      this.inCancelZone = this.downY - y > this.cancelDistance;
-      return false;
-    }
+    if (this.tick(nowMs)) return false;
     if (Math.abs(x - this.downX) > SPACE_DRAG_THRESHOLD_VP) {
       this.current = SpaceGestureState.CURSOR;
       return true;

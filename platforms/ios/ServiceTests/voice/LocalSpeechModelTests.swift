@@ -257,7 +257,7 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertEqual(LocalSpeechModelStore.hotwords(resources: scratch.appendingPathComponent("missing"), stateRoot: scratch), [])
   }
 
-  /// The real host-api: transducers have no ITN of their own, so their final text gets digits; models that write numbers themselves are left alone.
+  /// 走真实的 host-api：transducer 不自带 ITN，最终文本里的汉字数字改成数字；自己会写数字的模型原样保留。
   func testNumberNormalizationOnlyRewritesTransducerTranscripts() {
     XCTAssertEqual(LocalSpeechModelStore.normalizeNumbers("二零零二年收窄了百分之五十七，一夜之间", kind: "offline_transducer"),
                    "2002年收窄了57%，一夜之间")

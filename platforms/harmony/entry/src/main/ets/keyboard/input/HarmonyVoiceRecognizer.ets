@@ -36,7 +36,7 @@ export class HarmonyVoiceRecognizer {
   private finalDelivered: boolean = false;
 
   /**
-   * `hotwordOptions` are the prepared host options, used by the `local` provider to read the user's own words as hotwords; null skips them. `onSpeech` 只有 `local` 提供方中经过 VAD 的整段模型会调用，报告此刻是否听到说话。
+   * `hotwordOptions` 是已准备好的宿主选项，`local` 提供方用它读取用户自己的词作热词，为 null 时跳过。`onSpeech` 只有 `local` 提供方中经过 VAD 的整段模型会调用，报告此刻是否听到说话。
    */
   async start(language: string, config: VoiceInputConfiguration, onResult: VoiceResultHandler,
     onError: VoiceErrorHandler, hotwordOptions: Object | null = null,

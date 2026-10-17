@@ -52,9 +52,9 @@ interface NormalizeNumbersRequest {
 }
 
 /**
- * On-device dictation through sherpa-onnx: the microphone is captured here, the model runs in `workers/LocalAsrWorker.ets`, and nothing leaves the device.
+ * 经 sherpa-onnx 的设备端听写：麦克风在这里采集，模型在 `workers/LocalAsrWorker.ets` 里运行，什么都不离开设备。
  *
- * The model directory comes from `voice_input.asr_model_path`, which the shared settings page sets when the user picks an installed model. The user's own pinyin words are fetched from the host API at session start; a model that takes hotwords natively gets them at load, and one whose manifest says `pinyin` has its final text corrected through `msime_client_voice_hotword_correct`. 最终文本随后经 `msime_client_voice_normalize_numbers` 按模型 kind 把汉字数字改写成数字（只改写不自带 ITN 的 transducer），中间结果不改写。
+ * 模型目录来自 `voice_input.asr_model_path`，用户在共享设置页选中已安装的模型时写入。会话开始时从宿主接口取用户自己的拼音词：原生吃热词的模型在加载时拿到它们，清单写 `pinyin` 的模型的最终文本经 `msime_client_voice_hotword_correct` 纠正。最终文本随后经 `msime_client_voice_normalize_numbers` 按模型 kind 把汉字数字改写成数字（只改写不自带 ITN 的 transducer），中间结果不改写。
  */
 export class HarmonyLocalAsrRecognizer {
   private readonly capture: HarmonyPcmCapture = new HarmonyPcmCapture();
@@ -76,7 +76,7 @@ export class HarmonyLocalAsrRecognizer {
   }
 
   /**
-   * Starts one dictation. `hotwordOptions` are the prepared host options the dictionary calls take; null skips hotwords rather than failing the session. `onSpeech` 收到 VAD 说话状态的变化，只有经过 VAD 的整段模型会报。
+   * 开始一次听写。`hotwordOptions` 是词库调用要用的已准备好的宿主选项，为 null 时跳过热词而不是让会话失败。`onSpeech` 收到 VAD 说话状态的变化，只有经过 VAD 的整段模型会报。
    */
   async start(config: VoiceInputConfiguration, hotwordOptions: Object | null, onResult: LocalAsrResultHandler,
     onError: LocalAsrErrorHandler, onSpeech: LocalAsrSpeechHandler | undefined = undefined): Promise<void> {

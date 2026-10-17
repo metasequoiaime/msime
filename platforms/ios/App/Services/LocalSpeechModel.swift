@@ -137,7 +137,7 @@ enum LocalSpeechText {
     return spelled
   }
 
-  /// sherpa-onnx drops every hotword of a stream when a single one fails to encode, so a word with a character the model has no token for is left out here rather than taking the others with it. ASCII goes through the BPE model, which can spell anything. At most 200 words, one per line. `spacedCJK`（见 `cjkSpelledAsWords`）时每个非 ASCII 字自成一个词、前后隔空格，要求 token 表里有 `▁` 加这个字。
+  /// 一个流里只要有一个热词编码失败，sherpa-onnx 就丢掉全部热词，所以含有模型 token 表里没有的字的词在这里单独去掉，不连累其他词。ASCII 交给能拼出任何词的 BPE 模型。最多 200 个词，每行一个。`spacedCJK`（见 `cjkSpelledAsWords`）时每个非 ASCII 字自成一个词、前后隔空格，要求 token 表里有 `▁` 加这个字。
   static func transducerHotwords(_ words: [String], tokens: Set<String>, spacedCJK: Bool) -> String {
     var joined = ""
     var kept = 0
@@ -211,7 +211,7 @@ enum LocalSpeechText {
   private static let cjkPunctuation: Set<Unicode.Scalar> = ["，", "。", "？", "！", "、", "：", "；", "“", "”", "‘", "’", "（", "）", "《", "》", "…"]
   private static let fullWidthMarks: [Unicode.Scalar: Unicode.Scalar] = [".": "。", "?": "？", "!": "！", ",": "，"]
 
-  /// Removes spaces next to CJK punctuation, inside initialisms spelled as single capitals ("A I" → "AI"), and leading, repeated or trailing ones. 紧跟在中文（非中文标点的非 ASCII 字符）后面的半角 `.?!,` 换成全角；小写字母与大写字母之间的 `.?!` 后补一个空格。
+  /// 去掉中文标点两侧、逐个大写字母拼出的缩写中间（"A I" → "AI"）以及开头、重复和末尾的空格。紧跟在汉字（CJK 统一表意文字、扩展区与兼容区）后面的半角 `.?!,` 换成全角；小写字母与大写字母之间的 `.?!` 后补一个空格。
   static func tidy(_ text: String) -> String {
     let characters = Array(text.unicodeScalars)
     func singleCapital(_ index: Int) -> Bool {

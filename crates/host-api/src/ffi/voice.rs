@@ -540,10 +540,10 @@ pub unsafe extern "C" fn msime_client_voice_hotword_correct(
 
 /// 本地模型的最终文本里，把汉字写的数字改成数字（二零零二年 → 2002年）。
 ///
-/// Request `{"text": "...", "kind": "<msime-model.json 的 kind>"}`, response `{"text": "..."}`. 只有不自带 ITN 的模型（`voice::numbers::applies_to_kind`）会被改写，其他 kind 原样返回，所以宿主对每个本地模型的最终文本都可以调用它。纯函数；文本上限与 `msime_client_voice_hotword_correct` 相同。
+/// 请求 `{"text": "...", "kind": "<msime-model.json 的 kind>"}`，响应 `{"text": "..."}`。只有不自带 ITN 的模型（`voice::numbers::applies_to_kind`）会被改写，其他 kind 原样返回，所以宿主对每个本地模型的最终文本都可以调用它。纯函数；文本上限与 `msime_client_voice_hotword_correct` 相同。
 ///
 /// # Safety
-/// `request` must point to `length` readable bytes. Null is rejected.
+/// `request` 必须指向 `length` 个可读字节；null 会被拒绝。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_voice_normalize_numbers(
     request: *const u8,

@@ -258,6 +258,10 @@ fn percent(text: &Text, start: usize) -> Option<Match> {
         return None;
     }
     let (value, mut end) = integer_at(text, number_start, run_end)?;
+    // 数字字没有读完就停下，说明后面还连着并列的数（百分之三四十），整段保留，不能只改写开头读得通的那一截。
+    if end != run_end {
+        return None;
+    }
     let mut written = value.to_string();
     if text.at(end) == Some('点') {
         let fraction_end = text.digit_end(end + 1);
@@ -280,6 +284,10 @@ fn percent(text: &Text, start: usize) -> Option<Match> {
 /// 年份、年代：二零二四年、九八年、八零后、九零年代。
 fn year(text: &Text, start: usize, run_end: usize) -> Option<Match> {
     let run = text.slice(start, run_end);
+    // 年份不用「两」来读；带「两」的是约数（一两年、两三年）。
+    if run.contains(&'两') {
+        return None;
+    }
     let digits = digit_string(run)?;
     let after_year = text.at(run_end) == Some('年') && !text.has(run_end, "年级");
     let decade = run.len() == 2 && (text.at(run_end) == Some('后') || text.has(run_end, "年代"));
@@ -323,6 +331,10 @@ fn clock(text: &Text, start: usize, run_end: usize) -> Option<Match> {
         let padded = said.len() > 1 && said[0] == '零';
         let minute = cardinal_value(if padded { &said[1..] } else { said }).filter(|m| *m < 60)?;
         if text.at(minute_run) != Some('分') || text.has(minute_run, "分钟") {
+            return None;
+        }
+        // 「X点十分」也是「这一点十分重要」里的副词「十分」，没有时段词时分不清，保留汉字。
+        if said == ['十'] && !after_time_of_day {
             return None;
         }
         let written = if padded {
@@ -424,7 +436,12 @@ pub fn convert(text: &str) -> String {
     let mut out = String::with_capacity(text.chars.len() * 3);
     let mut index = 0;
     while index < text.chars.len() {
-        if let Some(kept) = text.has_any(index, KEEP_AS_WRITTEN) {
+        // 固定说法后面紧跟着数字字时它只是一个更长的数的开头（二百五十块），交给下面的规则整段读。
+        if let Some(kept) = text.has_any(index, KEEP_AS_WRITTEN).filter(|kept| {
+            !text
+                .at(index + kept.chars().count())
+                .is_some_and(is_numeral)
+        }) {
             out.push_str(kept);
             index += kept.chars().count();
             continue;
@@ -526,6 +543,8 @@ mod tests {
         becomes("三月十五号见", "3月15号见");
         stays("三年级的学生");
         stays("五月天的演唱会");
+        stays("过一两年再说");
+        stays("两三年前");
     }
 
     #[test]
@@ -541,6 +560,9 @@ mod tests {
         stays("这一点很重要");
         stays("一点半信半疑");
         stays("等五分钟");
+        stays("这一点十分重要");
+        stays("这两点十分关键");
+        becomes("晚上八点十分到", "晚上8点10分到");
     }
 
     #[test]
@@ -552,6 +574,7 @@ mod tests {
         becomes("营收三点五亿", "营收3.5亿");
         stays("百分之百确定");
         stays("百分之二十几");
+        stays("百分之三四十");
     }
 
     #[test]
@@ -565,6 +588,8 @@ mod tests {
         becomes("第十名", "第10名");
         becomes("等了二十分钟", "等了20分钟");
         becomes("电话一三八零零", "电话13800");
+        becomes("二百五十块", "250块");
+        becomes("二百五十万", "250万");
     }
 
     #[test]
