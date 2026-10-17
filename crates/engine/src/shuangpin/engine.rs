@@ -33,7 +33,7 @@ struct HelpcodeQuery {
 
 #[derive(Clone, Debug)]
 struct DirectSpelling {
-    code: String,
+    code: [u8; 2],
     first: Option<char>,
     second: Option<char>,
     end: usize,
@@ -61,12 +61,16 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
         if position + 2 > typed.len() {
             return;
         }
-        let code = typed[position..position + 2].to_ascii_lowercase();
-        if cvt_single_sp_to_pinyin(&code, profile).is_empty() {
+        let code = [
+            typed.as_bytes()[position].to_ascii_lowercase(),
+            typed.as_bytes()[position + 1].to_ascii_lowercase(),
+        ];
+        let code_text = std::str::from_utf8(&code).expect("直接辅助码编码只含 ASCII");
+        if cvt_single_sp_to_pinyin(code_text, profile).is_empty() {
             return;
         }
         path.push(DirectSpelling {
-            code: code.clone(),
+            code,
             first: None,
             second: None,
             end: position + 2,
@@ -78,7 +82,7 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
             let first = typed.as_bytes()[position + 2] as char;
             if first.is_ascii_lowercase() {
                 path.push(DirectSpelling {
-                    code: code.clone(),
+                    code,
                     first: Some(first.to_ascii_lowercase()),
                     second: None,
                     end: position + 3,
@@ -270,7 +274,11 @@ impl ShuangpinEngine {
                 if typed.len() < 4 && path.len() == 1 {
                     continue;
                 }
-                let pure: String = path.iter().map(|spelling| spelling.code.as_str()).collect();
+                let mut pure = String::with_capacity(path.len() * 2);
+                for spelling in &path {
+                    pure.push(spelling.code[0] as char);
+                    pure.push(spelling.code[1] as char);
+                }
                 let segmentation = segment_input(&pure, self.profile);
                 let mut candidates = self.dictionary.generate_series(&pure, &segmentation, &pure);
                 candidates
@@ -562,7 +570,7 @@ mod tests {
             ("好".to_owned(), "b".to_owned()),
         ]));
         let path = [super::DirectSpelling {
-            code: "ni".to_owned(),
+            code: *b"ni",
             first: Some('a'),
             second: None,
             end: 3,
@@ -574,6 +582,23 @@ mod tests {
 
         assert!(matched);
         assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn direct_helpcode_paths_do_not_allocate_code_strings() {
+        let profile =
+            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Ziranma)
+                .unwrap();
+
+        let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            super::direct_helpcode_paths("tartantab", profile)
+        });
+
+        assert!(!paths.is_empty());
+        assert!(
+            allocations <= 13,
+            "路径生成不应为每个编码单元申请独立字符串：{allocations}"
+        );
     }
 
     use super::{
