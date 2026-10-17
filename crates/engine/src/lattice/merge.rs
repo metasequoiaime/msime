@@ -5,7 +5,8 @@
 use std::collections::HashSet;
 
 use super::decode::{
-    build_graph, decode_graph, decode_typo_on_graph, LatticeOptions, SentencePath, TypoSentence,
+    build_graph, build_graph_borrowed, decode_graph, decode_typo_on_graph, LatticeOptions,
+    SentencePath, TypoSentence,
 };
 use super::neural::{NeuralReranker, MAX_RERANK_PATHS};
 use super::{LatticeLookup, TypoEdgeSource};
@@ -32,6 +33,57 @@ pub fn merge_lattice_candidates(
         return None;
     }
     let graph = build_graph(syllables, lookup, options);
+    merge_lattice_graph(
+        candidates,
+        syllables,
+        typed_pinyin,
+        options,
+        typo_source,
+        rerankers,
+        rescoring_context,
+        graph,
+    )
+}
+
+/// 词典缓存行在建图期间保持借用，避免缓存命中先复制整页行再复制图边字段。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn merge_lattice_candidates_borrowed<'rows>(
+    candidates: &mut Vec<WordItem>,
+    syllables: &[String],
+    lookup: &mut impl FnMut(&[String]) -> &'rows [super::decode::LatticeLexeme],
+    typed_pinyin: &str,
+    options: &LatticeOptions<'_>,
+    typo_source: Option<&mut TypoEdgeSource<'_>>,
+    rerankers: &mut [NeuralReranker],
+    rescoring_context: &str,
+) -> Option<TypoSentence> {
+    if syllables.len() < 2 || !has_only_complete_pinyin_segments(syllables) {
+        return None;
+    }
+    let graph = build_graph_borrowed(syllables, lookup, options);
+    merge_lattice_graph(
+        candidates,
+        syllables,
+        typed_pinyin,
+        options,
+        typo_source,
+        rerankers,
+        rescoring_context,
+        graph,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn merge_lattice_graph(
+    candidates: &mut Vec<WordItem>,
+    syllables: &[String],
+    typed_pinyin: &str,
+    options: &LatticeOptions<'_>,
+    typo_source: Option<&mut TypoEdgeSource<'_>>,
+    rerankers: &mut [NeuralReranker],
+    rescoring_context: &str,
+    graph: super::decode::Graph,
+) -> Option<TypoSentence> {
     let mut paths = decode_graph(&graph, options, None);
     if paths.is_empty() {
         return None;

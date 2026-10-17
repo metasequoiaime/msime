@@ -41,6 +41,24 @@ fn warm_empty_hits_save_all_lookup_key_allocations() {
 }
 
 #[test]
+fn warm_nonempty_hits_borrow_cached_rows_without_cloning() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("ni'hao", "甲乙", 100)
+        .insert("ni'hao", "丙丁", 99);
+    let database = PinyinDatabase::open(&fixture.database());
+    let span = ["ni", "hao"].map(str::to_owned);
+    let mut cache = FifoCache::new(2);
+    let expected = cached_lattice_span(&database, &mut cache, &span, 32);
+    assert_eq!(expected.len(), 2);
+
+    ensure_cached_lattice_span(&database, &mut cache, &span, 32);
+    let (length, allocations) = count(|| cached_lattice_span_ref(&cache, &span, 32).unwrap().len());
+    assert_eq!(length, expected.len());
+    assert_eq!(allocations, 0, "非空缓存命中复制了 DictRow 行页");
+}
+
+#[test]
 fn cold_and_warm_queries_keep_rows_and_limits() {
     let fixture = Fixture::new();
     fixture
