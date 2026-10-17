@@ -2188,6 +2188,12 @@ public final class MSIMEInputService extends InputMethodService {
         return !toolbarEmoji || toolbarHidden;
     }
 
+    /** 空闲时不画工具栏那一行：显示方式选了「隐藏」，或者工具按钮全关了。全关时这一行只剩两端的品牌键和收起键，按「隐藏」处理，整行不显示。 */
+    boolean toolbarRowHidden() {
+        return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
+            || toolbarScheme || toolbarFloating || toolbarTextEdit);
+    }
+
     /** `touch_toolbar` 的按钮开关，以及功能面板直接切换的模糊音、单手、隐私三项；缺键时按 Android 的默认值读。 */
     private void applyToolbarPreferences(JSONObject preferences) {
         applyToolbarPreferences(preferences,
@@ -9292,9 +9298,9 @@ public final class MSIMEInputService extends InputMethodService {
         imeFrame.setKeysCollapsed(keysCollapsed);
         applyCaretCandidates(!idle || hasDiagnostic);
         // 候选条模式里空闲时工具栏总要显示：展开键在上面，「显示方式：隐藏」时整副键盘会只剩导航栏那一截。
-        // 隐藏工具栏时，底行仍能打开表情面板；面板的返回键在工具栏上，打开期间必须临时显示。
+        // 隐藏工具栏时，底行仍能打开表情面板；面板的返回键在工具栏上，打开期间必须临时显示。工具按钮全关时同样不显示这一行（toolbarRowHidden）。
         boolean toolbarRow = !heightMode && idle && !hasDiagnostic
-            && (!toolbarHidden || keysCollapsed || anyToolbarPanelOpen());
+            && (!toolbarRowHidden() || keysCollapsed || anyToolbarPanelOpen());
         // 开始打字就收起「最近复制」：用户已经在输入别的内容了。
         if (!idle) recentClip.dismiss();
         long nowMs = System.currentTimeMillis();
