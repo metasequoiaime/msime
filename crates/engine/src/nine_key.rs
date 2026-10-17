@@ -1471,7 +1471,7 @@ impl NineKeySession {
         }
         positions::apply_fixed_positions(
             &self.paths.user(assets::USER_JOURNAL),
-            &self.ranking_context(),
+            &format!("nine-key:{}:{locked_key}", self.digits),
             &mut candidates,
             false,
             None,
@@ -4312,6 +4312,24 @@ mod tests {
         session.refresh();
         assert_eq!(session.spellings.as_ptr(), pointer);
         assert_eq!(session.spellings.capacity(), capacity);
+    }
+
+    #[test]
+    fn locked_refresh_reuses_the_existing_ranking_context_prefix() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "64426");
+        assert!(
+            session
+                .choose_spelling(spelling_index(&session, "ni"))
+                .handled
+        );
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.refresh());
+        assert!(
+            allocations <= 106,
+            "locked refresh rebuilt the ranking context prefix: {allocations}"
+        );
     }
 
     #[test]
