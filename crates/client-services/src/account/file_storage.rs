@@ -1,6 +1,8 @@
 //! The desktop hosts' account session: one owner-only JSON file, shared by every process of the user that signs in.
 //!
 //! On macOS the settings app and the input method both hold the account, and the backend rotates the refresh token on every refresh and revokes the whole session when a spent one comes back. The two therefore read the same file on every access and take the same lock file around a refresh, the way the iOS app and its keyboard extension share theirs through the App Group. The file layout on macOS is the Swift backend's (`BackendSavedSession`, an `expiresAt` in seconds since 2001), so `shared/backend` reads it unchanged; the other hosts keep [`SavedAccountSession`]. Either layout is accepted on load.
+//!
+//! 鸿蒙的 ArkTS 桥接（`AccountCloudBridge.ts`）以前把登录会话存成第三种扁平布局 `{access_token, refresh_token, token_type, expires_at, user}`，`expires_at` 是 Unix 毫秒。升级后第一次读到的还是它，所以读取时也认这种布局（只读）；下一次保存按存储的布局写，鸿蒙的目录模式是 Native。
 
 use super::*;
 use std::fs::File;
@@ -36,6 +38,17 @@ struct AppleSavedSession {
     expires_at: f64,
     #[serde(rename = "sessionID", default, skip_serializing_if = "Option::is_none")]
     session_id: Option<uuid::Uuid>,
+}
+
+/// 鸿蒙 ArkTS 桥接以前保存的扁平布局，只读。没有 `expires_in` 和 `session_id`：前者读出时按剩余时长补出，后者留空，第一次认证请求前由 `BackendAccountSession` 补上并按 Native 写回。
+#[derive(Deserialize)]
+struct HarmonyFlatSession {
+    access_token: String,
+    refresh_token: String,
+    token_type: String,
+    /// Unix 毫秒。
+    expires_at: u64,
+    user: AccountUser,
 }
 
 #[derive(Clone)]
@@ -155,10 +168,37 @@ pub(crate) fn encode_session(
     .map_err(|_| AccountError::Storage)
 }
 
-/// 两种布局都接受；合法性由读取方（`BackendAccountSession` 的 `validate_saved_session`）再查一遍。
+/// 三种布局都接受（Native、Apple，以及只读的鸿蒙扁平布局）；合法性由读取方（`BackendAccountSession` 的 `validate_saved_session`）再查一遍。
 pub(crate) fn decode(bytes: &[u8]) -> Result<SavedAccountSession, AccountError> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| AccountError::Storage)?
+        .as_millis();
+    decode_at(
+        bytes,
+        u64::try_from(now).map_err(|_| AccountError::Storage)?,
+    )
+}
+
+/// 与 [`decode`] 相同，`now_unix_ms` 是补出扁平布局的 `expires_in` 用的当前时间。
+fn decode_at(bytes: &[u8], now_unix_ms: u64) -> Result<SavedAccountSession, AccountError> {
     let value: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|_| AccountError::Storage)?;
+    if value.get("tokens").is_none() && value.get("access_token").is_some() {
+        let flat: HarmonyFlatSession =
+            serde_json::from_value(value).map_err(|_| AccountError::Storage)?;
+        return Ok(SavedAccountSession {
+            tokens: AccountTokens {
+                access_token: flat.access_token,
+                refresh_token: flat.refresh_token,
+                token_type: flat.token_type,
+                expires_in: harmony_expires_in(flat.expires_at, now_unix_ms),
+                user: flat.user,
+            },
+            expires_at_unix_ms: flat.expires_at,
+            session_id: None,
+        });
+    }
     if value.get("expiresAt").is_none() {
         return serde_json::from_value(value).map_err(|_| AccountError::Storage);
     }
@@ -173,6 +213,27 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<SavedAccountSession, AccountError> 
         expires_at_unix_ms: expires_at_unix_ms.round() as u64,
         session_id: saved.session_id,
     })
+}
+
+/// 扁平布局没有 `expires_in`，按 `AccountSessionPolicy.ts` 的 `anonymousSessionForStorage` 补出：`now` 时刻剩余的整秒数，四舍五入，至少为 1。`validate_tokens` 拒收 0，所以访问令牌已经过期的会话也是 1，照样能拿刷新令牌去刷新。
+fn harmony_expires_in(expires_at_unix_ms: u64, now_unix_ms: u64) -> u64 {
+    (expires_at_unix_ms
+        .saturating_sub(now_unix_ms)
+        .saturating_add(500)
+        / 1000)
+        .max(1)
+}
+
+/// 读另一个沙箱发布的会话文件（鸿蒙设置应用与键盘之间的镜像，`session_adopt`）：规则与本目录的会话文件相同（不跟随符号链接、属主与所在目录相同、鸿蒙之外只能属主可读写、最多 64 KiB），三种布局都认。文件或所在目录不存在时是 `None`；`path` 必须有文件名。只解码，合法性由 [`BackendAccountSession::adopt_session`] 检查。
+pub fn read_published_session(path: &Path) -> Result<Option<SavedAccountSession>, AccountError> {
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(AccountError::Invalid);
+    };
+    let name = name.to_str().ok_or(AccountError::Invalid)?;
+    FileAccountSessionStorage::new(parent, AccountSessionFileLayout::Native)
+        .read_private(name, MAX_SESSION_BYTES)?
+        .map(|bytes| decode(&bytes))
+        .transpose()
 }
 
 fn read_bounded_file(file: File, maximum: u64) -> Result<Vec<u8>, AccountError> {
@@ -219,12 +280,24 @@ fn save_bytes(
 }
 
 impl FileAccountSessionStorage {
-    /// 读目录里的一个私有文件；不存在时为 `None`。自建中继的密钥串（`crate::clipboard_relay`）也经它读。
+    /// 读目录里的一个私有文件；不存在时为 `None`。自建中继的密钥串（`crate::clipboard_relay`）也经它读。鸿蒙上放宽属组位，规则见 `anonymous::forbidden_session_mode_bits`。
     pub(crate) fn read_private(
         &self,
         name: &str,
         maximum: u64,
     ) -> Result<Option<Vec<u8>>, AccountError> {
+        self.read_private_with(name, maximum, cfg!(target_env = "ohos"))
+    }
+
+    /// [`Self::read_private`] 的实现；`ohos` 为真时按鸿蒙的规则查权限位，测试据此在其他平台上覆盖两种规则。
+    fn read_private_with(
+        &self,
+        name: &str,
+        maximum: u64,
+        ohos: bool,
+    ) -> Result<Option<Vec<u8>>, AccountError> {
+        #[cfg(not(unix))]
+        let _ = ohos;
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
         #[cfg(unix)]
         let directory = match crate::storage::open_private_directory(&self.directory) {
@@ -259,7 +332,9 @@ impl FileAccountSessionStorage {
         {
             use std::os::unix::fs::MetadataExt;
             let directory_metadata = directory.metadata().map_err(|_| AccountError::Storage)?;
-            if metadata.mode() & 0o077 != 0 || metadata.uid() != directory_metadata.uid() {
+            if metadata.mode() & super::anonymous::forbidden_session_mode_bits(ohos) != 0
+                || metadata.uid() != directory_metadata.uid()
+            {
                 return Err(AccountError::Storage);
             }
         }
@@ -338,6 +413,9 @@ impl AccountSessionStorage for FileAccountSessionStorage {
         body()
     }
 }
+
+#[cfg(test)]
+mod harmony_tests;
 
 #[cfg(test)]
 mod tests {

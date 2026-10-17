@@ -4,7 +4,7 @@
 //!
 //! 请求带 `session_store` 而不带 `directory` 时，会话在宿主注入的存储里（[`super::session_store`]），会话对象是注册时建好的那一个。
 //!
-//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接、语音贡献和删除语音样本）在 [`crate::account_ops`]；已有的 `delete` 注销成功以后也经它删匿名账号的语音样本；它们失败时还可能带 `retry_after_seconds`。用到匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录、每个 `client_agent` 一个会话对象，刷新时与登录会话共用 `account-refresh.lock`）和 `anonymous-account.json` 里的身份，注入时用该 store 的匿名会话和 `ANONYMOUS_IDENTITY` 项。
+//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接、语音贡献、删除语音样本和鸿蒙两个沙箱之间的会话镜像 `session_adopt`）在 [`crate::account_ops`]；已有的 `delete` 注销成功以后也经它删匿名账号的语音样本；它们失败时还可能带 `retry_after_seconds`。用到匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录、每个 `client_agent` 一个会话对象，刷新时与登录会话共用 `account-refresh.lock`）和 `anonymous-account.json` 里的身份，注入时用该 store 的匿名会话和 `ANONYMOUS_IDENTITY` 项。
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
@@ -728,6 +728,8 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
 mod client_agent_tests;
 #[cfg(test)]
 mod link_tests;
+#[cfg(test)]
+mod session_adopt_tests;
 #[cfg(test)]
 mod voice_samples_tests;
 

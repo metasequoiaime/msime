@@ -453,9 +453,9 @@ fn read_private_file(file: std::fs::File) -> Result<Vec<u8>, AccountError> {
     )
 }
 
-/// 会话文件不允许带的权限位。鸿蒙的 `@ohos.file.fs` 没有 chmod，宿主 ArkTS 代码轮换匿名会话后重写的文件按应用 umask 带属组读写位；应用沙箱里属组只有本应用，目录也已由 `prepare_directory` 收紧为 0700，所以鸿蒙上只拒绝其他用户位，其他平台仍要求文件只有属主可读写。
+/// 会话文件不允许带的权限位。鸿蒙的 `@ohos.file.fs` 没有 chmod，宿主 ArkTS 代码轮换匿名会话后重写的文件按应用 umask 带属组读写位；应用沙箱里属组只有本应用，目录也已由 `prepare_directory` 收紧为 0700，所以鸿蒙上只拒绝其他用户位，其他平台仍要求文件只有属主可读写。登录会话和云剪贴板密钥串（`file_storage` 的 `read_private`）用同一条规则：ArkTS 以前也是这样写 `account-session.json` 和 `cloud-clipboard-keystore` 的。
 #[cfg(any(unix, test))]
-fn forbidden_session_mode_bits(ohos: bool) -> u32 {
+pub(super) fn forbidden_session_mode_bits(ohos: bool) -> u32 {
     if ohos {
         0o007
     } else {

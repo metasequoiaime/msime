@@ -1,4 +1,4 @@
-//! `msime_client_account` 在 #8201 新增的操作（流式对话是单独的 `msime_client_account_chat_stream`，见 [`chat_stream`]）：对话、注销账号、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接和语音贡献。请求形状、返回值和错误码见头文件；规则和传输都在 client-services，这里只按操作把它们接起来。
+//! `msime_client_account` 在 #8201 新增的操作（流式对话是单独的 `msime_client_account_chat_stream`，见 [`chat_stream`]）：对话、注销账号、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接和语音贡献，以及鸿蒙设置应用与键盘之间的会话镜像（`session_adopt`，只在目录模式，规则在 client-services 的 `BackendAccountSession::adopt_session`）。请求形状、返回值和错误码见头文件；规则和传输都在 client-services，这里只按操作把它们接起来。
 //!
 //! 写成对 [`AccountApi`] 和 [`AccountSessionStorage`] 泛型的函数，测试用假的后端驱动；C 导出（`super::ffi::account`）把按目录或注入存储建好的两个会话交进来。
 //!
@@ -8,12 +8,12 @@ use base64::Engine as _;
 use msime_client_services::account::page::{ChatModelsResponse, ChatResponse};
 use msime_client_services::account::{
     delete_anonymous_voice_samples, has_saved_anonymous_identity, prepare_chat, prepare_feedback,
-    prepare_voice_contribution, translate_request_body, valid_data_sections,
-    with_shared_access_token, AccountApi, AccountChatMessage, AccountDataSummary, AccountError,
-    AccountFailure, AccountFeedbackInput, AccountPhrase, AccountPhrases, AccountSessionStorage,
-    AccountTranslateRequest, AccountVoiceContributionInput, AnonymousIdentitySource,
-    BackendAccountSession, ChatStreamCancel, DEFAULT_TRANSLATE_TIMEOUT_MS,
-    MAX_VOICE_CONTRIBUTION_AUDIO_BYTES, TRANSLATE_TIMEOUT_MS,
+    prepare_voice_contribution, read_published_session, translate_request_body,
+    valid_data_sections, with_shared_access_token, AccountApi, AccountChatMessage,
+    AccountDataSummary, AccountError, AccountFailure, AccountFeedbackInput, AccountPhrase,
+    AccountPhrases, AccountSessionStorage, AccountTranslateRequest, AccountVoiceContributionInput,
+    AnonymousIdentitySource, BackendAccountSession, ChatStreamCancel, SessionAdoptSource,
+    DEFAULT_TRANSLATE_TIMEOUT_MS, MAX_VOICE_CONTRIBUTION_AUDIO_BYTES, TRANSLATE_TIMEOUT_MS,
 };
 use msime_client_services::diagnostics::upload::{
     prepare_upload, valid_diagnostic_label, DIAGNOSTIC_TTLS,
@@ -141,6 +141,23 @@ pub(crate) enum Operation {
     QqLinkDelete {
         id: String,
     },
+    /// 采用另一个沙箱发布的会话（鸿蒙设置应用与键盘之间的镜像，#8201 的 P3），只在目录模式下可用。`path` 是发布的会话文件的绝对路径，不给时表示发布方没有这份会话。
+    SessionAdopt {
+        #[serde(default)]
+        path: Option<String>,
+        item: SessionItem,
+        from: SessionAdoptSource,
+    },
+}
+
+/// `session_adopt` 采用的是目录里的哪一份会话。
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SessionItem {
+    /// `account-session.json`，登录会话。
+    Account,
+    /// `anonymous-session.json`，本机匿名账号的会话。
+    Anonymous,
 }
 
 /// 串行化本进程里的打字统计上传和删除：关掉上传后的 `DELETE` 不能和还在路上的 `PUT` 交错，否则服务端可能先删、后收到旧的上传。每次调用都新建统计目录的 store，它自带的锁管不到别的调用，所以这里用一把进程级的锁。
@@ -679,6 +696,21 @@ where
         Operation::QqLinkDelete { id } => {
             account.delete_qq_link(&id)?;
             Ok(Value::Null)
+        }
+        Operation::SessionAdopt { path, item, from } => {
+            // 镜像的两边都是目录里的文件；注入存储的宿主自己管存储，没有这个操作。
+            if !matches!(identity, AnonymousIdentitySource::Directory(_)) {
+                return Err(invalid());
+            }
+            let published = match path {
+                Some(path) => read_published_session(absolute_path(&path)?)?,
+                None => None,
+            };
+            let outcome = match item {
+                SessionItem::Account => account.adopt_session(published, from)?,
+                SessionItem::Anonymous => anonymous()?.adopt_session(published, from)?,
+            };
+            Ok(json!({ "outcome": outcome }))
         }
     }
 }

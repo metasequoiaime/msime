@@ -6,6 +6,9 @@ use super::validate::*;
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+mod adopt;
+pub use adopt::*;
+
 struct SessionState {
     loaded: bool,
     saved: Option<SavedAccountSession>,
