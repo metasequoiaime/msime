@@ -313,7 +313,8 @@ public final class AccountFragment extends HomeTabFragment {
         row(group, R.drawable.ic_ms_shield_lock, "隐私", null, "本地优先",
             () -> SettingsNavigator.open(context, PageId.PRIVACY, null));
         AppIconStyle icon = AppIcons.selected(context);
-        row(group, R.drawable.ic_ms_smartphone, "App 图标", null, icon.title(), this::showIcons);
+        group.addView(KeyboardSheets.iconNavRow(context, context.getDrawable(AppIcons.resource(icon)),
+            "App 图标", null, icon.title(), this::showIcons));
     }
 
     // ---- 收尾组 ----

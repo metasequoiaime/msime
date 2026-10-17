@@ -110,12 +110,6 @@ public final class AppIconSheet {
     }
 
     private static int iconResource(AppIconStyle style) {
-        return switch (style) {
-            case CLASSIC -> R.drawable.app_icon_classic;
-            case FOREST -> R.drawable.app_icon_forest;
-            case SKY -> R.drawable.app_icon_sky;
-            case DUSK -> R.drawable.app_icon_dusk;
-            case VERMILION -> R.drawable.app_icon_vermilion;
-        };
+        return AppIcons.resource(style);
     }
 }

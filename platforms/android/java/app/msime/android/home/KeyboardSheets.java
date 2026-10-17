@@ -7,6 +7,7 @@ import app.msime.android.DimensionPolicy;
 import app.msime.android.ImageViewPolicy;
 import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
+import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -323,13 +324,27 @@ final class KeyboardSheets {
     /** 「我的」页面共用的图标导航行，支持副标题、尾部值和可选点击行为。 */
     static LinearLayout iconNavRow(Context context, @DrawableRes int icon, CharSequence title,
             @Nullable CharSequence subtitle, @Nullable CharSequence value, @Nullable Runnable action) {
+        return iconNavRow(context, context.getDrawable(icon), true, title, subtitle, value, action);
+    }
+
+    /** 同一行的彩色图标不套用设置页的单色主题 tint；标题仍保留给无障碍和文字浏览。 */
+    static LinearLayout iconNavRow(Context context, Drawable icon, CharSequence title,
+            @Nullable CharSequence subtitle, @Nullable CharSequence value, @Nullable Runnable action) {
+        return iconNavRow(context, icon, false, title, subtitle, value, action);
+    }
+
+    private static LinearLayout iconNavRow(Context context, Drawable icon, boolean tint,
+            CharSequence title, @Nullable CharSequence subtitle, @Nullable CharSequence value,
+            @Nullable Runnable action) {
         LinearLayout row = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(row);
         ViewPolicy.setMinimumHeightDp(context, row,
             subtitle == null ? Ui.COMPACT_ROW_MIN_HEIGHT : Ui.ROW_MIN_HEIGHT);
         ViewPolicy.setRowPadding(context, row);
 
-        ImageView glyph = ImageViewPolicy.decorative(context, icon, ThemeColorPolicy.subText(context));
+        ImageView glyph = ImageViewPolicy.decorative(context, icon);
+        if (tint) ImageViewPolicy.setTint(glyph, ThemeColorPolicy.subText(context));
+        glyph.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         LinearLayout.LayoutParams glyphParams = LayoutPolicy.squareParams(context, 22);
         glyphParams.setMarginEnd(DimensionPolicy.pixels(context, 18));
         row.addView(glyph, glyphParams);
