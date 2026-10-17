@@ -18,10 +18,32 @@ public final class AiEndpointPolicySmoke {
         check(AiEndpointPolicy.check("http://8.8.8.8/v1/chat/completions") == AiEndpointPolicy.Result.CLEARTEXT_PUBLIC
                 && AiEndpointPolicy.credentialOrigin("http://8.8.8.8/v1/chat/completions") == null,
             "a public http endpoint has no origin");
-        // Rust 放行、java.net.URI 却解析不了的地址（路径里有空格）不交给 HttpURLConnection。
-        check(AiEndpointPolicy.allowed("https://api.example.com/v1 chat")
+        // Rust 放行、java.net.URI 却解析不了的地址（路径里有空格）发不出去，所以整体按不合规处理：设置页（allowed）不收，也没有来源键，不会存下一个输入法发不出去的地址。
+        check(AiEndpointPolicy.check("https://api.example.com/v1 chat") == AiEndpointPolicy.Result.INVALID
+                && !AiEndpointPolicy.allowed("https://api.example.com/v1 chat")
+                && AiEndpointPolicy.credentialOrigin("https://api.example.com/v1 chat") == null
                 && AiEndpointPolicy.uri("https://api.example.com/v1 chat") == null,
-            "an endpoint java.net.URI cannot parse is not sent");
+            "an endpoint java.net.URI cannot parse is refused everywhere");
+        // 国际化域名：java.net.URI 认不出主机，请求地址的主机换成 Rust 来源键里的 punycode，路径、端口和查询串照旧。设置页放行的，润色和 AI 候选也都发得出去。
+        String idn = "https://例子.测试/v1/chat/completions";
+        URI idnTarget = AiEndpointPolicy.uri(idn);
+        check(AiEndpointPolicy.allowed(idn) && idnTarget != null
+                && "https://xn--fsqu00a.xn--0zwm56d/v1/chat/completions".equals(idnTarget.toString()),
+            "an internationalized host is sent as punycode");
+        URI idnPort = AiEndpointPolicy.uri("https://例子.测试:8443/v1/chat/completions?x=1");
+        check(idnPort != null && "https://xn--fsqu00a.xn--0zwm56d:8443/v1/chat/completions?x=1".equals(idnPort.toString()),
+            "an internationalized host keeps its port and query");
+        AiPolishConfiguration idnPolish = new AiPolishConfiguration(idn, "m", "p", "token");
+        check("https://xn--fsqu00a.xn--0zwm56d".equals(idnPolish.destination())
+                && "https://xn--fsqu00a.xn--0zwm56d:443".equals(idnPolish.credentialOrigin())
+                && "https://xn--fsqu00a.xn--0zwm56d:443".equals(idnPolish.withPrompt("q").credentialOrigin()),
+            "AI polish accepts an internationalized host and keeps Rust's origin");
+        check(AiEndpointPolicy.allowed(AiPolishModelCatalog.modelsUri(idnPolish.endpoint()).toString()),
+            "the model directory of an internationalized host passes the policy");
+        // OnlineCandidateTransport.ai 先查 validAiURL，再用 uri(...).toURL() 连接；它收 JSONObject，JVM 冒烟里构造不了，这里核对它用到的这两步。
+        check(OnlineCandidatePolicy.validAiURL(idn)
+                && "xn--fsqu00a.xn--0zwm56d".equals(AiEndpointPolicy.uri(idn).toURL().getHost()),
+            "AI candidates connect to the punycode host");
         check(AiEndpointPolicy.uri(null) == null && !AiEndpointPolicy.allowed(""), "a missing endpoint is refused");
 
         AiPolishConfiguration local = new AiPolishConfiguration(

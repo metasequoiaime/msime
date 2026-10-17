@@ -50,6 +50,11 @@ public final class AiEndpointContract {
             answer("http://8.8.8.8/v1/chat/completions", "cleartext_public", null);
             // Rust 先把路径里的空格编码再判断，所以放行；java.net.URI 不收这样的原文。
             answer("https://api.example.com/v1 chat", "allowed", "https://api.example.com:443");
+            // 国际化域名：Rust 按 punycode 放行（与设备冒烟 AiEndpointCheckDeviceSmoke 经真实 JNI 核对的那一条相同），换成 punycode 主机以后的地址结论和来源键不变。
+            answer("https://例子.测试/v1/chat/completions", "allowed", "https://xn--fsqu00a.xn--0zwm56d:443");
+            answer("https://例子.测试:8443/v1/chat/completions?x=1", "allowed", "https://xn--fsqu00a.xn--0zwm56d:8443");
+            answer("https://xn--fsqu00a.xn--0zwm56d/v1/chat/completions", "allowed", "https://xn--fsqu00a.xn--0zwm56d:443");
+            answer("https://xn--fsqu00a.xn--0zwm56d/v1/models", "allowed", "https://xn--fsqu00a.xn--0zwm56d:443");
             answer("", "invalid", null);
         }
         AiEndpointPolicy.useChecker(endpoint -> {

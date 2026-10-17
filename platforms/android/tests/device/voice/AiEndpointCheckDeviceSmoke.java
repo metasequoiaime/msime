@@ -39,6 +39,12 @@ public final class AiEndpointCheckDeviceSmoke extends Instrumentation {
         expect(check, origin, " https://api.example.com/v1 ", "ALLOWED", "https://api.example.com:443");
         expect(check, origin, "\thttps://api.example.com/v1", "INVALID", null);
         expect(check, origin, "", "INVALID", null);
+        // 发请求用的地址经 Android 自己的 java.net.URI 构造：国际化域名的主机换成 punycode；Rust 放行而 URI 不收的写法（路径里有空格）整体不合规，设置页也不收。
+        Method uri = policy.getMethod("uri", String.class);
+        String target = String.valueOf(uri.invoke(null, "https://例子.测试/v1"));
+        if (!"https://xn--fsqu00a.xn--0zwm56d/v1".equals(target))
+            throw new AssertionError("https://例子.测试/v1: expected a punycode request target, got " + target);
+        expect(check, origin, "https://api.example.com/v1 chat", "INVALID", null);
     }
 
     private static void expect(Method check, Method origin, String endpoint, String result, String key)
