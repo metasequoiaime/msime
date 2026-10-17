@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { settingsFormReady } from "../support/settings-form";
+import { selectDictionaryTab, settingsFormReady } from "../support/settings-form";
+import { testHost } from "../support/host";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   SettingsPage,
   UNBATCHED_DICTIONARY_FILE_BYTES,
@@ -83,15 +84,29 @@ async function openDictionaryPage(dictionary: Record<string, unknown>, kind?: st
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
-  if (!kind) return;
-  const select = screen.getByLabelText("本地词库类型") as HTMLSelectElement;
-  fireEvent.change(select, { target: { value: kind } });
+  if (kind) chooseKind(kind);
   // 换类型会重新读词条；读完之前页面不接新的操作。
+  const select = screen.getByLabelText<HTMLSelectElement>("本地词库类型");
   await waitFor(() => expect(select.disabled).toBe(false));
 }
 
+/** 词库类型在桌面默认的「查词库」标签里选。 */
+function chooseKind(kind: string) {
+  selectDictionaryTab("查词库");
+  fireEvent.change(screen.getByRole("combobox", { name: "本地词库类型" }), {
+    target: { value: kind },
+  });
+}
+
+/** 桌面的导入导出在「管理词库」标签的「导入与导出」组，切过去才看得到。 */
+function transferGroup(): HTMLElement {
+  selectDictionaryTab("管理词库");
+  return screen.getByRole("region", { name: "导入与导出" });
+}
+
+/** 像用户一样到「管理词库」标签里点「导入」选文件；导入结果要在这个标签上看得到。 */
 function chooseFile(file: File) {
-  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  const input = within(transferGroup()).getByLabelText<HTMLInputElement>("导入");
   Object.defineProperty(input, "files", { value: [file], configurable: true });
   fireEvent.change(input);
 }
@@ -144,6 +159,36 @@ test("an import that skipped rows reports them instead of looking clean", async 
   const notice = await screen.findByRole("status");
   expect(notice.textContent).toContain("跳过 1 行");
   expect(notice.textContent).toContain("第 2 行");
+});
+
+// 手机词库页没有顶部标签，导入导出就在本地词库管理组下面，结果仍画在那一组里，布局不跟着桌面改。
+test("on a phone the import result stays in the local dictionary group", async () => {
+  const dictionary = {
+    list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+    edit: vi.fn(),
+    import: vi.fn().mockResolvedValue({ applied: 3 }),
+  };
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: testHost({ platform: "ios" }),
+        dictionary: dictionary as never,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  expect(screen.queryByRole("tablist", { name: "词库设置分类" })).toBeNull();
+  const input = within(
+    screen.getByRole("region", { name: "导入与导出" }),
+  ).getByLabelText<HTMLInputElement>("导入");
+  const file = new File(["你好\tni'hao\n"], "dict.txt", { type: "text/plain" });
+  Object.defineProperty(input, "files", { value: [file], configurable: true });
+  fireEvent.change(input);
+  const local = screen.getByRole("region", { name: "本地词库管理" });
+  expect((await within(local).findByRole("status")).textContent).toContain("3");
 });
 
 test("a failed import surfaces the host's reason rather than a generic hint", async () => {
@@ -268,9 +313,12 @@ describe("Sogou cell dictionaries", () => {
       "已读取搜狗细胞词库「化学」的 3 个词条。拼音导入完成，共 2 条。跳过 1 行，首先出现在第 3 行。搜狗细胞词库的整理成果属于原作者，导入的词只供你在本机使用，不能发布到社区。",
     );
     // 选中的格式跟着文件换成细胞词库，它只能导入，所以导出按钮不可用。
-    expect((screen.getByLabelText("本地词库文件格式") as HTMLSelectElement).value).toBe("scel");
+    const transfer = transferGroup();
     expect(
-      (screen.getByRole("button", { name: "导出当前类型" }) as HTMLButtonElement).disabled,
+      within(transfer).getByRole<HTMLSelectElement>("combobox", { name: "本地词库文件格式" }).value,
+    ).toBe("scel");
+    expect(
+      within(transfer).getByRole<HTMLButtonElement>("button", { name: "导出当前类型" }).disabled,
     ).toBe(true);
   });
 
@@ -340,22 +388,23 @@ describe("Sogou cell dictionaries", () => {
     await openDictionaryPage(dictionary);
     const optionValues = () =>
       Array.from(
-        (screen.getByLabelText("本地词库文件格式") as HTMLSelectElement).options,
+        within(transferGroup()).getByRole<HTMLSelectElement>("combobox", {
+          name: "本地词库文件格式",
+        }).options,
         (option) => option.value,
       );
+    const importAccept = () =>
+      within(transferGroup()).getByLabelText<HTMLInputElement>("导入").accept;
     expect(optionValues()).not.toContain("scel");
-    fireEvent.change(screen.getByLabelText("本地词库类型"), { target: { value: "pinyin" } });
+    chooseKind("pinyin");
     expect(optionValues()).toContain("scel");
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    expect(input.accept).toContain(".scel");
+    expect(importAccept()).toContain(".scel");
     cleanup();
 
     const { scelText: _scelText, ...withoutScel } = scelDictionary();
     await openDictionaryPage(withoutScel, "pinyin");
     expect(optionValues()).not.toContain("scel");
-    expect((document.querySelector('input[type="file"]') as HTMLInputElement).accept).not.toContain(
-      ".scel",
-    );
+    expect(importAccept()).not.toContain(".scel");
   });
 
   test("a .yaml file is read as Rime on the first pick", async () => {

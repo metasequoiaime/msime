@@ -1,4 +1,5 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, isInaccessible, screen, within } from "@testing-library/react";
+import { expect } from "vitest";
 
 /** Resolves once the loaded settings form is on screen, the point from which sidebar clicks are no longer overtaken by the initial page selection. */
 export async function settingsFormReady(): Promise<HTMLElement> {
@@ -20,6 +21,13 @@ export function selectSettingsTab(title: string): void {
 export function selectDictionaryTab(title: "查词库" | "管理词库"): void {
   const tabs = screen.getByRole("tablist", { name: "词库设置分类" });
   fireEvent.click(within(tabs).getByRole("tab", { name: title }));
+}
+
+/** `findByText` 不排除隐藏元素，收起的标签页里的文字也找得到；这里找到后再确认它没有被 `hidden` 等隐藏的祖先藏住，断言的是用户在当前标签页上真的看得到这段文字。 */
+export async function findVisibleText(text: string): Promise<HTMLElement> {
+  const element = await screen.findByText(text);
+  expect(isInaccessible(element), `「${text}」在页面上，但被隐藏的祖先藏住了`).toBe(false);
+  return element;
 }
 
 /** 桌面语音页把密钥、接口地址、润色、提示音细分和录音设备收在「服务配置」子视图里，测试先点进去。 */

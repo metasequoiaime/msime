@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
 import {
+  findVisibleText,
   openVoiceServiceConfig,
   selectDictionaryTab,
   selectSettingsTab,
@@ -3345,6 +3346,8 @@ test("a host-saved dictionary export reports the path only once the host has wri
   render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  // 导出在「管理词库」标签；结果要在用户点按钮的这个标签上看得到。
+  selectDictionaryTab("管理词库");
   fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
   await waitFor(() =>
     expect(saveExport).toHaveBeenCalledWith(
@@ -3354,11 +3357,9 @@ test("a host-saved dictionary export reports the path only once the host has wri
   );
   expect(screen.queryByText(/已导出/)).toBeNull();
   await act(async () => written("/Users/fixture/Downloads/水杉IME-快捷短语用户词库 (2).txt"));
-  expect(
-    await screen.findByText(
-      "已导出 1 条用户词条到 /Users/fixture/Downloads/水杉IME-快捷短语用户词库 (2).txt。",
-    ),
-  ).toBeDefined();
+  await findVisibleText(
+    "已导出 1 条用户词条到 /Users/fixture/Downloads/水杉IME-快捷短语用户词库 (2).txt。",
+  );
 
   const exportAll = screen.getByRole<HTMLButtonElement>("button", { name: "导出全部" });
   // The previous export holds the dictionary buttons until it settles.
@@ -3372,11 +3373,7 @@ test("a host-saved dictionary export reports the path only once the host has wri
   );
   expect(screen.queryByText(/已导出全部/)).toBeNull();
   await act(async () => written("/Users/fixture/Downloads/水杉用户词库.txt"));
-  expect(
-    await screen.findByText(
-      "已导出全部 1 条用户词条到 /Users/fixture/Downloads/水杉用户词库.txt。",
-    ),
-  ).toBeDefined();
+  await findVisibleText("已导出全部 1 条用户词条到 /Users/fixture/Downloads/水杉用户词库.txt。");
   // The host wrote the file, so the page must not also start a download the webview would drop.
   expect(createObjectURL).not.toHaveBeenCalled();
 });
@@ -3386,6 +3383,8 @@ test("a refused host-saved dictionary export shows an error and never claims suc
   render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  // 导出在「管理词库」标签；结果要在用户点按钮的这个标签上看得到。
+  selectDictionaryTab("管理词库");
   fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
   expect((await screen.findByRole("alert")).textContent).toBe("无法写入“下载”文件夹，词库未导出。");
   const exportAll = screen.getByRole<HTMLButtonElement>("button", { name: "导出全部" });
@@ -3403,8 +3402,10 @@ test("a host save picker the user closes cancels the export without an error or 
   render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  // 导出在「管理词库」标签；结果要在用户点按钮的这个标签上看得到。
+  selectDictionaryTab("管理词库");
   fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
-  expect(await screen.findByText("已取消导出。")).toBeDefined();
+  await findVisibleText("已取消导出。");
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.queryByText(/已导出/)).toBeNull();
 });
@@ -3414,6 +3415,8 @@ test("a host that names its own export failure has that message shown", async ()
   render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  // 导出在「管理词库」标签；结果要在用户点按钮的这个标签上看得到。
+  selectDictionaryTab("管理词库");
   fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
   expect((await screen.findByRole("alert")).textContent).toBe("无法保存导出文件，词库未导出。");
   expect(screen.queryByText(/已导出/)).toBeNull();
@@ -3427,11 +3430,50 @@ test("a host without saveExport keeps the download link", async () => {
   render(<SettingsPage client={exportingDictionaryClient()} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  // 导出在「管理词库」标签；结果要在用户点按钮的这个标签上看得到。
+  selectDictionaryTab("管理词库");
   fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
-  expect(await screen.findByText("已导出 1 条用户词条。")).toBeDefined();
+  await findVisibleText("已导出 1 条用户词条。");
   expect(createObjectURL).toHaveBeenCalledTimes(1);
   expect(click).toHaveBeenCalledTimes(1);
   click.mockRestore();
+});
+
+// 桌面上选词库类型的框在「查词库」标签，「管理词库」里看不到它，导入导出组的说明要直接写出当前是哪一类，不能再说「上面所选类型」。
+test("the desktop transfer note names the kind chosen on the lookup tab", async () => {
+  render(<SettingsPage client={exportingDictionaryClient()} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  const kind = screen.getByRole<HTMLSelectElement>("combobox", { name: "本地词库类型" });
+  await waitFor(() => expect(kind.disabled).toBe(false));
+  fireEvent.change(kind, { target: { value: "pinyin" } });
+  await waitFor(() => expect(kind.disabled).toBe(false));
+  selectDictionaryTab("管理词库");
+  const transfer = screen.getByRole("region", { name: "导入与导出" });
+  expect(transfer.textContent).toContain("导入和导出的是「查词库」中选中的「拼音」词库");
+  expect(transfer.textContent).not.toContain("上面所选类型");
+});
+
+// 没有本地词库的桌面宿主没有可查的东西：只留「管理词库」，打开词库页不落在一张空白的标签上。
+test("a desktop host without the local dictionary opens 词库 on 管理词库", async () => {
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        openCloudDictionary: vi.fn().mockResolvedValue(undefined),
+        host: testHost({ platform: "windows" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  const tabs = screen.getByRole("tablist", { name: "词库设置分类" });
+  expect(within(tabs).queryByRole("tab", { name: "查词库" })).toBeNull();
+  expect(within(tabs).getByRole("tab", { name: "管理词库" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
+  expect(screen.getByRole("region", { name: "云词库" })).toBeTruthy();
 });
 
 test("dictionary fallback import uses 10000 by default and preserves an explicit zero", async () => {
@@ -3835,6 +3877,9 @@ test("macOS exposes learning data reset and keeps its confirmation flow", async 
     />,
   );
 
+  await settingsReady();
+  // 清除学习数据在「管理词库」标签的页末，清除后的提示也要在这个标签上看得到。
+  selectDictionaryTab("管理词库");
   await screen.findByRole("region", { name: "学习数据" });
   // 破坏性操作使用共享的 `danger-button` 工具类（见 `learning-data-section.test.tsx`）。
   expect(
@@ -3843,7 +3888,7 @@ test("macOS exposes learning data reset and keeps its confirmation flow", async 
   fireEvent.click(screen.getByRole("button", { name: "清除全部学习数据" }));
   await answerConfirm("confirm");
   await waitFor(() => expect(resetLearnedData).toHaveBeenCalledTimes(1));
-  expect(await screen.findByText("已清除所有学习数据；输入方案和设置保持不变。")).toBeTruthy();
+  await findVisibleText("已清除所有学习数据；输入方案和设置保持不变。");
 });
 
 test("mobile hosts use Apple-style primary navigation and retain secondary settings", async () => {
