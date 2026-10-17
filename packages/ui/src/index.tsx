@@ -450,6 +450,7 @@ export type {
   AccountChallenge,
   AccountClient,
   AccountCommunityDestination,
+  AccountDeletion,
   AccountPreferenceSchema,
   AccountPreferences,
   AccountPreferenceValue,

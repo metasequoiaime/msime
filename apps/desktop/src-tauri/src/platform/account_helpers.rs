@@ -1,111 +1,12 @@
 use msime_client_services::account::AccountError;
-#[cfg(any(target_os = "ios", target_os = "android", test))]
-use std::path::Path;
 use std::sync::Arc;
 
-/// 预览表的发布与清理搬到了 host-api，与 Windows 设置应用和 `msime_client_cloud_dictionary` 共用。
+/// 预览表的发布与清理、快照临时文件的建目录、读写、删除和清理都在 host-api（#8201 的决定 3），与 Windows 设置应用和 `msime_client_cloud_dictionary` 共用同一套：打开时不跟随符号链接，路径上每一级都必须是真实目录，读最多 512 MiB。
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub(crate) use msime_host_api::cloud_dictionary::snapshot_files::{
-    publish_snapshot_preview, take_invalid_snapshot_previews,
+    cleanup_stale_snapshot_previews, prepare_snapshot_directory, publish_snapshot_preview,
+    read_snapshot_file, remove_snapshot_file, take_invalid_snapshot_previews, write_snapshot_file,
 };
-
-/// Create a snapshot scratch directory only when every path component is a real directory.
-/// Snapshot writers pass paths in this directory to native bridges, so following a replaced
-/// temporary-directory symlink would redirect cloud data outside the app's scratch area.
-#[cfg(any(target_os = "ios", target_os = "android", test))]
-pub(crate) fn prepare_snapshot_directory(directory: &Path) -> std::io::Result<()> {
-    crate::shared::atomic_file::create_directory_and_check(directory).map(|_| ())
-}
-
-/// Write snapshot text through a private temporary sibling before replacing the requested path.
-/// Restore paths are generated internally, but a concurrent filesystem change must not turn one
-/// into a write through a leaf symlink.
-#[cfg(any(target_os = "ios", target_os = "android", test))]
-pub(crate) fn write_snapshot_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    crate::shared::atomic_file::write(path, contents)
-}
-
-/// Read a staged snapshot through a no-follow handle and the native 512 MiB limit.
-#[cfg(any(target_os = "ios", target_os = "android", test))]
-pub(crate) fn read_snapshot_file(path: &Path) -> std::io::Result<String> {
-    let file = crate::shared::atomic_file::open_private(path)?;
-    let bytes =
-        crate::shared::bounded_body::read_bounded(file, 512 * 1024 * 1024).map_err(|error| {
-            match error {
-                crate::shared::bounded_body::BoundedReadError::TooLarge => std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "snapshot exceeds size limit",
-                ),
-                crate::shared::bounded_body::BoundedReadError::Read(error) => error,
-            }
-        })?;
-    String::from_utf8(bytes)
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "snapshot is not UTF-8"))
-}
-
-#[cfg(any(target_os = "ios", target_os = "android", test))]
-#[allow(dead_code)]
-pub(crate) fn remove_snapshot_file(path: &Path) -> std::io::Result<()> {
-    crate::shared::atomic_file::remove_private(path)
-}
-
-#[cfg(any(target_os = "ios", target_os = "android", test))]
-pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        let opened = match crate::shared::atomic_file::open_private_directory(directory) {
-            Ok(opened) => opened,
-            Err(_error) if msime_path_trust::reject_symlinked_components(directory).is_err() => {
-                return Ok(())
-            }
-            Err(error) => return Err(error),
-        };
-        cleanup_stale_snapshot_previews_in_directory(directory, &opened)
-    }
-    #[cfg(not(unix))]
-    {
-        for entry in std::fs::read_dir(directory)? {
-            let entry = entry?;
-            let file_name = entry.file_name();
-            let file_name = file_name.to_string_lossy();
-            if entry.file_type()?.is_file()
-                && file_name.starts_with("download-")
-                && file_name.ends_with(".ndjson")
-            {
-                let _ = remove_snapshot_file(&entry.path());
-            }
-        }
-        Ok(())
-    }
-}
-
-#[cfg(all(unix, any(target_os = "ios", target_os = "android", test)))]
-fn cleanup_stale_snapshot_previews_in_directory(
-    directory: &Path,
-    opened: &std::os::fd::OwnedFd,
-) -> std::io::Result<()> {
-    let entries: Vec<_> = std::fs::read_dir(directory)?.collect::<Result<_, _>>()?;
-    if !crate::shared::atomic_file::directory_matches(directory, opened)? {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "snapshot directory changed while listing previews",
-        ));
-    }
-    for entry in entries {
-        let file_name = entry.file_name();
-        let file_name = file_name.to_string_lossy();
-        if entry.file_type()?.is_file()
-            && file_name.starts_with("download-")
-            && file_name.ends_with(".ndjson")
-        {
-            let _ = crate::shared::atomic_file::remove_private_at(
-                opened,
-                entry.file_name().as_os_str(),
-            );
-        }
-    }
-    Ok(())
-}
 
 /// Keep restore requests from copying data that the native snapshot inspectors will reject.
 #[cfg(any(target_os = "ios", target_os = "android", test))]
@@ -193,9 +94,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        cleanup_stale_snapshot_previews, cleanup_stale_snapshot_previews_in_directory,
-        prepare_snapshot_directory, read_snapshot_file, write_snapshot_file,
+    // 这几个工具现在是 host-api 的（见上面的 use），这里核对 Tauri 移动端拿到的就是不跟随符号链接的那一套。
+    use msime_host_api::cloud_dictionary::snapshot_files::{
+        cleanup_stale_snapshot_previews, prepare_snapshot_directory, read_snapshot_file,
+        write_snapshot_file,
     };
 
     #[test]
@@ -228,28 +130,6 @@ mod tests {
         cleanup_stale_snapshot_previews(&linked).unwrap();
 
         assert_eq!(std::fs::read(&outside_file).unwrap(), b"synthetic-outside");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn stale_snapshot_cleanup_rejects_a_directory_replacement_after_opening() {
-        let root = tempfile::tempdir().unwrap();
-        let original = root.path().join("snapshots");
-        let moved = root.path().join("snapshots-moved");
-        let replacement = root.path().join("replacement");
-        std::fs::create_dir(&original).unwrap();
-        std::fs::create_dir(&replacement).unwrap();
-        let name = "download-stale.ndjson";
-        std::fs::write(original.join(name), b"original").unwrap();
-        std::fs::write(replacement.join(name), b"replacement").unwrap();
-        let opened = crate::shared::atomic_file::open_private_directory(&original).unwrap();
-
-        std::fs::rename(&original, &moved).unwrap();
-        std::fs::rename(&replacement, &original).unwrap();
-
-        assert!(cleanup_stale_snapshot_previews_in_directory(&original, &opened).is_err());
-        assert!(moved.join(name).exists());
-        assert!(original.join(name).exists());
     }
 
     #[cfg(unix)]

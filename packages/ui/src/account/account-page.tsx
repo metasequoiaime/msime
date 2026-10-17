@@ -41,7 +41,11 @@ import { StatusMessage } from "../core/status-message";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { useAccountAction } from "./account-operation";
 import { useAccountRecoveryActions } from "./use-account-recovery-actions";
-import { runAccountSessionAction, useAccountSessionActions } from "./use-account-session-actions";
+import {
+  ACCOUNT_DELETED_VOICE_SAMPLES_KEPT,
+  runAccountSessionAction,
+  useAccountSessionActions,
+} from "./use-account-session-actions";
 import { useAccountRename } from "./use-account-rename";
 import { useAccountGoogleLogin } from "./use-account-google-login";
 import { useAccountVerification, type AccountChannel } from "./use-account-verification";
@@ -113,7 +117,7 @@ function MobileAccountProfilePage({
     clientGeneration,
     perform,
     onSignedOut,
-    onDeleted: onSignedOut,
+    onDeleted: () => onSignedOut(),
   });
   const { clearExpired } = useAccountRecoveryActions({
     client,
@@ -247,7 +251,8 @@ function HarmonyProfilePage({
     clientGeneration,
     perform,
     onSignedOut: (all) => onSignedOut(all ? "已退出所有设备" : "已退出登录"),
-    onDeleted: () => onSignedOut("账号已注销"),
+    onDeleted: (voiceSamplesKept) =>
+      onSignedOut(voiceSamplesKept ? ACCOUNT_DELETED_VOICE_SAMPLES_KEPT : "账号已注销"),
   });
   const { normalizedName, validName, rename } = useAccountRename({
     client,
@@ -849,10 +854,10 @@ function AccountDetailsPage({
       setConfirmation(null);
       setNotice(all ? "已退出所有设备。" : "已退出登录。");
     },
-    onDeleted: () => {
+    onDeleted: (voiceSamplesKept) => {
       clearSession();
       setConfirmation(null);
-      setNotice("账号已注销。");
+      setNotice(voiceSamplesKept ? ACCOUNT_DELETED_VOICE_SAMPLES_KEPT : "账号已注销。");
     },
   });
   const applyProviders = (value: AccountProviders) => {

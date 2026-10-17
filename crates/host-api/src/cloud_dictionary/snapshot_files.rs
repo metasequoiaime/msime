@@ -1,6 +1,6 @@
 //! 完整云词库快照的预览表和临时文件工具。
 //!
-//! 预览表的两个函数只经会话，与 Tauri iOS、Android 共用；文件工具给 [`super::full_backup`] 用，放在本用户私有的临时目录里，打开时不跟随符号链接。Tauri iOS 和 Android 仍用它们自己那一套同名工具，平台迁移时再换过来。
+//! 预览表的两个函数只经会话，与 Tauri iOS、Android 共用；文件工具给 [`super::full_backup`] 用，放在本用户私有的临时目录里，打开时不跟随符号链接，Tauri iOS 和 Android 也用这一套（#8201 的决定 3）。
 
 use msime_client_core::file_lock;
 use msime_client_services::account::{

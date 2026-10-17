@@ -29,6 +29,36 @@ test("session actions pass logout scope and deletion to the current screen", asy
   expect(onSignedOut).toHaveBeenCalledWith(true);
   expect(client.deleteAccount).toHaveBeenCalledOnce();
   expect(onDeleted).toHaveBeenCalledOnce();
+  expect(onDeleted).toHaveBeenCalledWith(false);
+});
+
+test("deletion reports anonymous voice samples that were not removed", async () => {
+  for (const [result, kept] of [
+    [{ voice_samples: { ok: false, error: "account_network" } }, true],
+    [{ voice_samples: { ok: true } }, false],
+    [{ voice_samples: null }, false],
+    [undefined, false],
+  ] as const) {
+    const client = {
+      logout: vi.fn().mockResolvedValue(undefined),
+      deleteAccount: vi.fn().mockResolvedValue(result),
+    };
+    const onDeleted = vi.fn();
+    const { result: hook } = renderHook(() =>
+      useAccountSessionActions({
+        client,
+        mounted: { current: true },
+        clientGeneration: { current: 1 },
+        perform: (operation) => operation(),
+        onSignedOut: vi.fn(),
+        onDeleted,
+      }),
+    );
+    await hook.current.deleteAccount();
+    expect(onDeleted).toHaveBeenCalledOnce();
+    expect(onDeleted).toHaveBeenCalledWith(kept);
+    cleanup();
+  }
 });
 
 test("session actions ignore results from an old client generation", async () => {

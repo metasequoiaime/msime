@@ -4,8 +4,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::fd::OwnedFd;
-#[cfg(all(unix, any(target_os = "ios", target_os = "android", test)))]
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -144,7 +142,8 @@ pub(crate) fn open_private_fd(directory: &OwnedFd, name: &OsStr) -> io::Result<F
 /// Remove a private file relative to its opened parent directory. Opening the
 /// parent with `O_NOFOLLOW` keeps a concurrent replacement of the final
 /// directory component from redirecting cleanup through a symlink.
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "linux", test))]
+// 移动端的快照临时文件改用 host-api 的 snapshot_files（#8201 的决定 3），剩下的调用方只有 Linux 的 provider 凭据。
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn remove_private(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -161,10 +160,7 @@ pub(crate) fn remove_private(path: &Path) -> io::Result<()> {
     }
 }
 
-#[cfg(all(
-    unix,
-    any(target_os = "ios", target_os = "android", target_os = "linux", test)
-))]
+#[cfg(all(unix, any(target_os = "linux", test)))]
 pub(crate) fn remove_private_at(directory: &OwnedFd, name: &OsStr) -> io::Result<()> {
     rustix::fs::unlinkat(directory, name, rustix::fs::AtFlags::empty()).map_err(Into::into)
 }
@@ -313,19 +309,6 @@ pub(crate) fn open_private_directory(parent: &Path) -> io::Result<OwnedFd> {
         flags,
         rustix::fs::Mode::empty(),
     )?)
-}
-
-/// Check that a path still names the directory held by `directory`.
-#[cfg(all(unix, any(target_os = "ios", target_os = "android", test)))]
-#[allow(clippy::useless_conversion)]
-pub(crate) fn directory_matches(path: &Path, directory: &OwnedFd) -> io::Result<bool> {
-    let metadata = std::fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Ok(false);
-    }
-    let stat = rustix::fs::fstat(directory)?;
-    Ok(u64::try_from(stat.st_dev).ok() == Some(metadata.dev())
-        && u64::try_from(stat.st_ino).ok() == Some(metadata.ino()))
 }
 
 /// Atomically replace `name` using only an already opened parent directory.

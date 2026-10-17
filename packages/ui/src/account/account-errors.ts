@@ -38,6 +38,8 @@ export function accountMessage(error: unknown): string {
       return "操作已取消，请重试。";
     case "account_network":
       return "网络连接失败，请检查网络后重试。";
+    case "account_recent_login_required":
+      return "需要重新登录后再注销：请先退出登录，重新登录后再试。";
   }
   return "账号服务暂不可用，请稍后再试。";
 }

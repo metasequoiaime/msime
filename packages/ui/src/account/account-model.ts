@@ -75,6 +75,18 @@ export interface QqLinksClient {
   remove(id: string): Promise<void>;
 }
 
+/** 注销以后删除本机匿名账号名下语音样本的结果，形状与 C 接口 `account_delete` 的 `voice_samples` 相同；宿主不做这一步时没有或为 null。 */
+export interface AccountVoiceSamplesResult {
+  ok: boolean;
+  error?: string;
+  retry_after_seconds?: number;
+}
+
+/** 注销账号的结果。只有 Tauri 桌面（Windows、Linux）和原生 C 接口带 `voice_samples`，其余宿主不返回值。 */
+export interface AccountDeletion {
+  voice_samples?: AccountVoiceSamplesResult | null;
+}
+
 export interface AccountClient {
   status(): Promise<{ user?: AccountUser | null }>;
   providers(): Promise<AccountProviders>;
@@ -95,7 +107,7 @@ export interface AccountClient {
   /** 移除上传的头像；存在 Google 头像时重新显示它。 */
   removeAvatar?: () => Promise<AccountProfile>;
   logout(all: boolean): Promise<void>;
-  deleteAccount(): Promise<void>;
+  deleteAccount(): Promise<AccountDeletion | void>;
   clearExpired(): Promise<void>;
   settingsSync?: SettingsSyncClient;
   qqLinks?: QqLinksClient;
