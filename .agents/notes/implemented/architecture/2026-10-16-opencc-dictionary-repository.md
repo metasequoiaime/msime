@@ -10,7 +10,7 @@ Status: implemented
 
 七份 OpenCC 文本和上游 `LICENSE` 按原字节归 msime-dictionary 的 `sources/opencc/`；该仓的 `upstream.lock.json` 与 `NOTICE.md` 记录来源、生成地区词组表的方法和许可。msime 不增加数据 crate，也不保留词表副本。转换算法与 API 留在 `client-base`。
 
-`resources/opencc.lock.json` 固定 msime-dictionary 完整提交、OpenCC 上游提交、八份输入的大小与 SHA-256。`client-base/build.rs` 调用 Python 3.10+ 的 `scripts/fetch_opencc.py` 在构建主机准备数据，`include_str!` 仍把验证过的七张表编入各宿主。下载来自固定提交的 raw URL，不跟随 main；先限长，再校验，最后原子替换。默认缓存在 `target/opencc/<commit>/`，每次使用检查大小和摘要。`MSIME_OPENCC_OFFLINE=1` 禁止下载；`MSIME_OPENCC_SOURCE_DIR` 可指定离线检出的 `sources/opencc/`，它也必须逐字节匹配。运行时没有新增文件访问或联网。
+`resources/opencc.lock.json` 固定 msime-dictionary 完整提交、OpenCC 上游提交、八份输入的大小与 SHA-256。`client-base/build.rs` 调用 Python 3.7+ 的 `scripts/fetch_opencc.py` 在构建主机准备数据，`include_str!` 仍把验证过的七张表编入各宿主。下载来自固定提交的 raw URL，不跟随 main；先限长，再校验，最后原子替换。默认缓存在 `target/opencc/<commit>/`，每次使用检查大小和摘要。`MSIME_OPENCC_OFFLINE=1` 禁止下载；`MSIME_OPENCC_SOURCE_DIR` 可指定离线检出的 `sources/opencc/`，它也必须逐字节匹配。运行时没有新增文件访问或联网。
 
 OpenCC 是构建期内嵌输入，不进入按需安装的数据库生命周期，所以这是 msime 通常只消费词库 Release 附件的一项明确例外，两个仓的说明同步登记，不新增发布附件。配套 PR 先合词库仓，再把下游锁更新到其合并后的提交，不让默认分支引用未合并的历史。数据已由 msime-dictionary #80 合入，本仓固定其实际合并提交 `232e6dad2fbe788ad8adeb24bfa801ee1ec02c84`。构建器的来源登记与该仓的记录同步，避免读取新 checkout 时拒绝 OpenCC 记录。
 

@@ -62,7 +62,10 @@ def prepare(lock: dict, directory: Path, *, offline: bool, source: bool = False)
         try:
             with download_retry.urlopen(url, timeout=60) as response, temporary.open("wb") as output:
                 size = 0
-                while chunk := response.read(min(64 * 1024, entry["size"] - size + 1)):
+                while True:
+                    chunk = response.read(min(64 * 1024, entry["size"] - size + 1))
+                    if not chunk:
+                        break
                     size += len(chunk)
                     if size > entry["size"]:
                         raise ValueError(f"OpenCC 下载超过锁定长度：{entry['path']}")
@@ -71,7 +74,10 @@ def prepare(lock: dict, directory: Path, *, offline: bool, source: bool = False)
                 raise ValueError(f"OpenCC 下载长度或 SHA-256 不符：{entry['path']}")
             temporary.replace(target)
         finally:
-            temporary.unlink(missing_ok=True)
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
     return directory.resolve()
 
 
