@@ -38,6 +38,8 @@ import {
   useCandidatePreviewTheme,
   type AccountClient,
   type AccountProfile,
+  type AccountQqLink,
+  type QqLinksClient,
   type ApiCredentialTestResult,
   type ApiCredentialTestService,
   type ClipboardHistoryEntry,
@@ -54,6 +56,7 @@ import {
   type ProviderCredentialStatus,
   type VoiceCredentialSaveResult,
   type TypingStatisticsClient,
+  type TypingStatisticsUploadClient,
   VocabularyReviewPanel,
   type VocabularyReviewClient,
   type PanelClient,
@@ -217,6 +220,24 @@ const typingStatistics: TypingStatisticsClient = {
   setRetention: (retention: string) => invoke("set_typing_statistics_retention", { retention }),
   reset: () => invoke("reset_typing_statistics"),
 };
+// 「上传到云端」：节流（十分钟一次）、构建和状态文件都在 Rust 侧，页面只开关和触发。
+const typingStatisticsUpload: TypingStatisticsUploadClient = {
+  status: () => invoke("typing_statistics_upload_status"),
+  setEnabled: (enabled: boolean) => invoke("set_typing_statistics_upload", { enabled }),
+  sync: () => invoke("upload_typing_statistics"),
+};
+// 「绑定 QQ 群助手」：Rust 侧回的是服务端的 snake_case，这里换成页面的写法。
+type QqLinkDto = { id: string; created_at: string };
+const qqLink = (link: QqLinkDto): AccountQqLink => ({ id: link.id, createdAt: link.created_at });
+const qqLinks: QqLinksClient = {
+  list: async () => (await invoke<{ links: QqLinkDto[] }>("account_qq_links")).links.map(qqLink),
+  redeem: async (code) => qqLink(await invoke<QqLinkDto>("account_qq_link_redeem", { code })),
+  remove: (id) => invoke<void>("account_qq_link_delete", { id }),
+};
+/** 账号会话接在 Tauri 设置应用里的三个桌面宿主。 */
+function isDesktopAccountHost(platform: string): boolean {
+  return platform === "windows" || platform === "macos" || platform === "linux";
+}
 // Every method answers with the whole status, so the page keeps one request in flight rather than
 // following each change with a read of its own. The local day is resolved on the Rust side, which
 // is the process that knows the machine's timezone.
@@ -688,6 +709,9 @@ function DesktopSettings() {
       setMacosInstall(macosInstallPending);
       setBootstrapRequired((android || ios) && !ready);
       setInitialPage(page ?? undefined);
+      // 应用启动时补传一次打字统计；没打开上传、没登录或十分钟内传过时宿主什么也不做，失败也不打扰用户。
+      if (host?.typing_statistics && isDesktopAccountHost(host.platform))
+        void typingStatisticsUpload.sync().catch(() => undefined);
       const hosted: SettingsClient = host
         ? {
             ...client,
@@ -706,13 +730,16 @@ function DesktopSettings() {
             // macOS 也不给「打开数据目录」：统计文件就在偏好目录里，和「维护与诊断 › 在 Finder 中显示」打开的是同一个文件夹（Tauri 的 `open_typing_statistics_directory` 与 `open_diagnostic_log_directory` 在 macOS 上都指向 `preferences_directory`）。Linux 和 Windows 上统计页这一个按钮是唯一入口，照旧保留。
             ...(host.typing_statistics
               ? {
-                  typingStatistics:
-                    isMobileHost(host.platform) || host.platform === "macos"
-                      ? typingStatistics
-                      : {
-                          ...typingStatistics,
-                          openDirectory: () => invoke<void>("open_typing_statistics_directory"),
-                        },
+                  typingStatistics: {
+                    ...typingStatistics,
+                    ...(isMobileHost(host.platform) || host.platform === "macos"
+                      ? {}
+                      : { openDirectory: () => invoke<void>("open_typing_statistics_directory") }),
+                    // 「上传到云端」只接在三个桌面宿主的账号会话上；移动端和鸿蒙还没有。
+                    ...(isDesktopAccountHost(host.platform)
+                      ? { cloudUpload: typingStatisticsUpload }
+                      : {}),
+                  },
                 }
               : {}),
             ...(host.platform === "macos" ||
@@ -898,6 +925,7 @@ function DesktopSettings() {
                     logout: (all: boolean) => invoke("account_logout", { all }),
                     deleteAccount: () => invoke("account_delete"),
                     clearExpired: () => invoke("account_forget"),
+                    qqLinks,
                     // 设置同步只在 Windows 接到账号会话上；macOS 由输入法自己的账号窗口同步它的原生设置，Linux 还没有接入。
                     ...(host.platform === "windows"
                       ? { settingsSync: createDesktopSettingsSync(invoke) }

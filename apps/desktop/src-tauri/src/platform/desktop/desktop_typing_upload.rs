@@ -3,11 +3,12 @@
 //! 上传的构建、节流和状态文件在 client-services（`typing_statistics::upload`），这里只把统计目录和账号会话接起来。设置应用没有常驻进程，所以不定时上传：页面在应用启动和打开统计页时调一次 [`upload_typing_statistics`]，距上次不到十分钟时什么也不做。打开开关时立刻上传一次；关掉时先在本地关掉，再删云端副本，删除失败也保持关闭，把错误交给页面说明。
 
 use crate::platform::account_helpers::call_session_detailed;
-use crate::platform::desktop::desktop_account::AccountState;
+use crate::platform::desktop::desktop_account::{AccountState, Session};
 use crate::TypingStatisticsState;
-use msime_client_services::account::{AccountError, AccountFailure, AccountQqLink, AccountQqLinks};
+use msime_client_services::account::{AccountError, AccountQqLink, AccountQqLinks};
 use msime_client_services::typing_statistics::upload::{UploadError, UploadStatus};
 use msime_client_services::typing_statistics::TypingStatisticsStore;
+use std::sync::Arc;
 
 /// 上传带上的平台，和服务端认的 id 一致。
 const PLATFORM: &str = if cfg!(target_os = "macos") {
@@ -38,69 +39,103 @@ fn now_ms() -> u64 {
         })
 }
 
-fn storage_error() -> AccountFailure {
-    AccountError::Storage.into()
+/// 统计目录读写失败的码，和统计页其他命令的 `storage` 一致。
+const STORAGE: &str = "storage";
+
+/// 设置页读的上传状态：开关、上次上传的时间，以及本机是否登录了账号（没登录时开关不能打开）。
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypingUploadResponse {
+    enabled: bool,
+    last_upload_ms: Option<u64>,
+    signed_in: bool,
+}
+
+fn signed_in(session: &Session) -> Result<bool, &'static str> {
+    session
+        .status()
+        .map(|user| user.is_some())
+        .map_err(|error| error.code())
+}
+
+fn response(
+    store: &TypingStatisticsStore,
+    signed_in: bool,
+) -> Result<TypingUploadResponse, &'static str> {
+    let status = store
+        .upload_state()
+        .map(|state| UploadStatus::from(&state))
+        .map_err(|_| STORAGE)?;
+    Ok(TypingUploadResponse {
+        enabled: status.enabled,
+        last_upload_ms: status.last_upload_ms,
+        signed_in,
+    })
 }
 
 /// 打开了上传、已登录时上传最近几天；`force` 时不看十分钟的间隔。没有登录时不上传，也不报错：开关还开着，登录后下一次照常上传。
 fn upload(
     store: &TypingStatisticsStore,
-    session: &crate::platform::desktop::desktop_account::Session,
+    session: &Session,
     force: bool,
-) -> Result<UploadStatus, AccountFailure> {
-    if session.status().map_err(AccountFailure::from)?.is_some() {
+) -> Result<TypingUploadResponse, &'static str> {
+    let signed_in = signed_in(session)?;
+    if signed_in {
         match store.upload_if_due(&today(), PLATFORM, now_ms(), force, |payload| {
             session.put_typing_statistics(payload)
         }) {
             Ok(_) => {}
-            Err(UploadError::Send(failure)) => return Err(failure),
-            Err(UploadError::Storage(_)) => return Err(storage_error()),
+            Err(UploadError::Send(failure)) => return Err(failure.code()),
+            Err(UploadError::Storage(_)) => return Err(STORAGE),
         }
     }
-    store
-        .upload_state()
-        .map(|state| UploadStatus::from(&state))
-        .map_err(|_| storage_error())
+    response(store, signed_in)
+}
+
+/// 在阻塞线程上跑一个上传命令，错误码原样交给页面。
+async fn blocking<T, F>(operation: F) -> Result<T, crate::CommandError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, &'static str> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(operation)
+        .await
+        .map_err(|_| crate::CommandError { code: STORAGE })?
+        .map_err(|code| crate::CommandError { code })
 }
 
 #[tauri::command]
 pub async fn typing_statistics_upload_status(
-    state: tauri::State<'_, TypingStatisticsState>,
-) -> Result<UploadStatus, crate::CommandError> {
-    let store = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        store
-            .upload_state()
-            .map(|state| UploadStatus::from(&state))
-            .map_err(|_| crate::CommandError { code: "storage" })
-    })
-    .await
-    .map_err(|_| crate::CommandError { code: "storage" })?
+    statistics: tauri::State<'_, TypingStatisticsState>,
+    account: tauri::State<'_, AccountState>,
+) -> Result<TypingUploadResponse, crate::CommandError> {
+    let store = statistics.0.clone();
+    let session = Arc::clone(&account.session);
+    blocking(move || response(&store, signed_in(&session)?)).await
 }
 
-/// 打开时要求已登录，并立刻上传一次；上传失败时开关保持打开，错误交给页面。关闭时先在本地关掉，再删除云端副本。
+/// 打开时要求已登录，并立刻上传一次；上传失败时开关保持打开，错误交给页面，下一次自动上传再试。关闭时先在本地关掉，再删除云端副本；删除失败时开关仍是关的，错误交给页面。
 #[tauri::command]
 pub async fn set_typing_statistics_upload(
     statistics: tauri::State<'_, TypingStatisticsState>,
     account: tauri::State<'_, AccountState>,
     enabled: bool,
-) -> Result<UploadStatus, crate::CommandError> {
+) -> Result<TypingUploadResponse, crate::CommandError> {
     let store = statistics.0.clone();
-    call_session_detailed(&account.session, move |session| {
+    let session = Arc::clone(&account.session);
+    blocking(move || {
         if enabled {
-            if session.status().map_err(AccountFailure::from)?.is_none() {
-                return Err(AccountError::Unauthorized.into());
+            if !signed_in(&session)? {
+                return Err(AccountError::Unauthorized.code());
             }
-            store
-                .set_upload_enabled(true)
-                .map_err(|_| storage_error())?;
-            upload(&store, session, true)
+            store.set_upload_enabled(true).map_err(|_| STORAGE)?;
+            upload(&store, &session, true)
         } else {
-            let state = store
-                .set_upload_enabled(false)
-                .map_err(|_| storage_error())?;
-            session.delete_typing_statistics()?;
-            Ok(UploadStatus::from(&state))
+            store.set_upload_enabled(false).map_err(|_| STORAGE)?;
+            session
+                .delete_typing_statistics()
+                .map_err(|failure| failure.code())?;
+            response(&store, signed_in(&session)?)
         }
     })
     .await
@@ -111,12 +146,10 @@ pub async fn set_typing_statistics_upload(
 pub async fn upload_typing_statistics(
     statistics: tauri::State<'_, TypingStatisticsState>,
     account: tauri::State<'_, AccountState>,
-) -> Result<UploadStatus, crate::CommandError> {
+) -> Result<TypingUploadResponse, crate::CommandError> {
     let store = statistics.0.clone();
-    call_session_detailed(&account.session, move |session| {
-        upload(&store, session, false)
-    })
-    .await
+    let session = Arc::clone(&account.session);
+    blocking(move || upload(&store, &session, false)).await
 }
 
 #[tauri::command]

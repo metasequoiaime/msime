@@ -50,6 +50,23 @@ export type TypingStatisticsStatus = {
   lastWrittenMs?: number | null;
 };
 
+/** 「上传到云端」的状态。`signedIn` 为 false 时开关不能打开。 */
+export type TypingStatisticsUploadStatus = {
+  enabled: boolean;
+  /** 上次上传成功的 Unix 毫秒；还没有上传过时缺省或为 null。 */
+  lastUploadMs?: number | null;
+  signedIn: boolean;
+};
+
+/** 每日计数上传到水杉账号，给 QQ 群助手的 /stats 读。只有计数，没有输入内容。 */
+export interface TypingStatisticsUploadClient {
+  status(): Promise<TypingStatisticsUploadStatus>;
+  /** 打开时立刻上传一次；关闭时删除云端副本，删除失败时开关仍是关的，Promise 以错误码拒绝。 */
+  setEnabled(enabled: boolean): Promise<TypingStatisticsUploadStatus>;
+  /** 打开了上传、已登录、距上次超过十分钟时上传最近几天，否则什么也不做。 */
+  sync(): Promise<TypingStatisticsUploadStatus>;
+}
+
 export interface TypingStatisticsClient {
   load(): Promise<TypingStatisticsStatus>;
   setEnabled(enabled: boolean): Promise<TypingStatisticsStatus>;
@@ -62,6 +79,8 @@ export interface TypingStatisticsClient {
   summary?(userWords?: number): Promise<TypingSummary>;
   /** 记录用户试过键盘皮肤 `id`，计入「换装达人」徽章。 */
   recordSkin?(id: string): Promise<void>;
+  /** 「上传到云端」；不支持的宿主不提供，页面不显示这一项。 */
+  cloudUpload?: TypingStatisticsUploadClient;
 }
 
 /** 每日小时桶数，与共享存储一致。 */

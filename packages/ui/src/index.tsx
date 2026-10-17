@@ -520,6 +520,10 @@ export {
   type TypingStatisticsStatus,
   type StatisticsOverviewMetric,
 } from "./settings/typing-statistics";
+export type {
+  TypingStatisticsUploadClient,
+  TypingStatisticsUploadStatus,
+} from "./settings/typing-statistics-model";
 export {
   keyboardHeatmapLayout,
   keyboardHeatmapModel,
@@ -562,6 +566,8 @@ export type {
   AccountUser,
   AppIconClient,
   AppIconInfo,
+  AccountQqLink,
+  QqLinksClient,
   SettingsSyncClient,
 } from "./account/account-model";
 export {
