@@ -1,11 +1,12 @@
-//! 流式对话：`msime_client_account_chat_stream` 以 `stream: true` 请求 `/v1/chat/completions`，回复的增量在调用线程上交给宿主的回调，`msime_client_account_chat_cancel` 按宿主给的请求 id 从任何线程取消（#8201 的决定 15）。请求和预检与 `msime_client_account` 的 `chat` 相同，会话也按它的方式选：`{directory, legacy_directory?}` 或 `{session_store}`，登录账号优先、没有登录时用本机匿名账号。SSE 的解析、取消和上限都在 client-services 的 `account::chat_stream`。
+//! 流式对话：`msime_client_account_chat_stream` 以 `stream: true` 请求 `/v1/chat/completions`，回复的增量在调用线程上交给宿主的回调，`msime_client_account_chat_cancel` 按宿主给的请求 id 从任何线程取消（#8201 的决定 15）。请求和预检与 `msime_client_account` 的 `chat` 相同，会话也按它的方式选：`{directory, legacy_directory?, client_agent?}` 或 `{session_store}`，登录账号优先、没有登录时用本机匿名账号。SSE 的解析、取消和上限都在 client-services 的 `account::chat_stream`。
 //!
 //! 取消登记表是进程级的一张，与 AI 皮肤的那张分开。
 //!
 //! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。
 
 use super::account::{
-    absolute_directory, account_failure_response, anonymous_session_for, session_for, Failure,
+    absolute_directory, account_failure_response, anonymous_session_with_agent, checked_agent,
+    session_with_agent, Failure,
 };
 use super::session_store::{session_source, Source};
 use super::with_bounded_bytes;
@@ -70,6 +71,9 @@ struct StreamRequest {
     legacy_directory: Option<String>,
     #[serde(default)]
     session_store: Option<u64>,
+    /// 与 `msime_client_account` 的 `client_agent` 相同：只能与 `directory` 一起给。
+    #[serde(default)]
+    client_agent: Option<String>,
     request_id: String,
     messages: Vec<AccountChatMessage>,
     model: String,
@@ -102,6 +106,10 @@ pub unsafe extern "C" fn msime_client_account_chat_stream(
             request.session_store,
         )
         .ok_or_else(invalid)?;
+        let agent = checked_agent(request.client_agent.as_deref()).map_err(|_| invalid())?;
+        if agent.is_some() && matches!(source, Source::Store(_)) {
+            return Err(invalid());
+        }
         let cancel = requests().begin(&request.request_id)?;
         let _registered = Registered(&request.request_id);
         // SAFETY: 宿主给的回调和 context 在本次调用期间有效，sink 只在本次调用里用。
@@ -115,10 +123,10 @@ pub unsafe extern "C" fn msime_client_account_chat_stream(
                     .as_deref()
                     .map(absolute_directory)
                     .transpose()?;
-                let session = session_for(directory, legacy).map_err(account_code)?;
+                let session = session_with_agent(directory, legacy, agent).map_err(account_code)?;
                 crate::account_ops::chat_stream(
                     &session,
-                    || anonymous_session_for(directory),
+                    || anonymous_session_with_agent(directory, agent),
                     &request.messages,
                     &request.model,
                     &cancel,

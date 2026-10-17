@@ -30,7 +30,7 @@ Status: proposed
 - 每次加锁成功后，Rust 在同一线程上用同一个 item 和令牌调用 `unlock` 恰好一次，出错或 panic 时由 Drop guard 保证。
 - 存储回调可能在任意线程上被调用，包括 Rust 自己起的线程；JNI 宿主每次回调先 `GetEnv`，必要时 `AttachCurrentThread` 并在返回前 `DetachCurrentThread`。
 - `release` 只在注册成功后、最后一个引用释放时调用恰好一次；校验失败或 HTTP 客户端建不出来时 Rust 不接管 `context`。注册表每个 store 一个条目，注册时一次建好登录会话、匿名会话和社区服务（共用一个 HTTP 客户端），请求路径只查不插，所以 `unregister` 之后不会有调用把会话重新插回去。
-- 目录模式按账号目录缓存的会话、社区服务和 AI 皮肤服务，以及其他 `BackendAccountClient::new()`（正式服务端、默认 User-Agent）的调用方，共用进程里同一个 reqwest 阻塞客户端：每个阻塞客户端各带一个后台线程和事件循环（macOS 上三个文件描述符），缓存又从不释放，各建一份时目录一多就占满默认 256 的打开文件上限。客户端里只有连接池、不跟随重定向和 30 秒超时，没有 cookie 存储和默认请求头，令牌每个请求单独带，所以共用不会串号；带 `client_agent` 的注入存储和测试连本机回环的客户端各建各的。
+- 目录模式按账号目录缓存的会话、社区服务和 AI 皮肤服务，以及其他 `BackendAccountClient::new()`（正式服务端、默认 User-Agent）的调用方，共用进程里同一个 reqwest 阻塞客户端：每个阻塞客户端各带一个后台线程和事件循环（macOS 上三个文件描述符），缓存又从不释放，各建一份时目录一多就占满默认 256 的打开文件上限。客户端里只有连接池、不跟随重定向和 30 秒超时，没有 cookie 存储和默认请求头，令牌每个请求单独带，所以共用不会串号；带 `client_agent` 的注入存储和测试连本机回环的客户端各建各的；目录模式自报的 `client_agent`（决定 1）每个 User-Agent 在进程里共用一个客户端。
 
 ### 各平台怎么接
 
@@ -66,7 +66,7 @@ Status: proposed
 
 ## Related notes
 
-- [原生设置窗口账号页用到的 C 接口](../../implemented/architecture/2026-10-11-windows-settings-account-host-api.md)：部分重叠。那篇定下了 `msime_client_account` 每个 `directory` 一个会话对象、Google 登录与取消用同一对象；这里沿用它，并给同一个导出加上 `session_store`，目录模式的行为不变。
+- [原生设置窗口账号页用到的 C 接口](../../implemented/architecture/2026-10-11-windows-settings-account-host-api.md)：部分重叠。那篇定下了 `msime_client_account` 每个 `directory` 一个会话对象、Google 登录与取消用同一对象；这里沿用它，并给同一个导出加上 `session_store`，目录模式的行为不变；目录模式带 `client_agent`（决定 1）时按目录和 `client_agent` 各一个对象，不带时与那篇相同。
 - [鸿蒙设置应用与键盘扩展经共享沙箱镜像交换数据](../../implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md)：部分重叠。鸿蒙的会话在 ArkTS 里、两个进程沙箱分开，是它不走注入、改为整端切到目录模式的背景之一。
 - [iOS 原生应用的自动云同步](../../implemented/feature/2026-10-12-ios-automatic-cloud-sync.md)：与本篇无关；同步编排收进 Rust 的决定见下一条。
 - [多分类自动云同步的编排收进 Rust](2026-10-16-cloud-sync-orchestration-in-rust.md)：部分重叠。同步的 C 入口沿用这里的会话来源和 `session_store` 字段。
@@ -109,4 +109,4 @@ Status: proposed
 - JNI 回调在 Rust 起的线程上触发（AI 皮肤的出图线程遇到 401 会刷新令牌），胶水忘了 attach/detach 或没清 Java 异常时进程会崩；同上，只能在 Android 迁移时验证。
 - iOS 键盘扩展引入 reqwest 和 tokio 后常驻内存可能超标；要在真机上测出增量，超标时扩展里继续走 sans-IO。
 - 共存期间若有一方不经锁刷新同一份会话，仍可能被吊销；刷新遇到 409 `refresh_superseded` 后重读重试的兜底暂不做，等平台迁移以后再看是否还需要。
-- 注入模式的 User-Agent 由宿主的 `client_agent` 决定；目录模式的请求里没有传它的字段，仍发 `MSIME/Android`，所以经目录模式登录的 Windows、Linux 会话在「我的设备」里显示成 android。要改得给目录模式另加一个字段，这会改变现有请求的 UA，暂不做。
+- User-Agent 由宿主的 `client_agent` 决定：注入模式在注册时给，`msime_client_account` 和 `msime_client_account_chat_stream` 的目录模式在每次请求里给（决定 1），不给时仍发 `MSIME/Android`，所以不带它的宿主（现在的 Windows 设置窗口就不带）经目录模式登录的会话在「我的设备」里仍显示成 android，要宿主在迁移时自己加上。目录模式按（目录，`client_agent`）缓存会话对象，同一个宿主的调用带的 `client_agent` 不一致时 `google_cancel` 找不到另一个对象上的 `google_login`；同一目录的几个对象经文件和 `account-refresh.lock` 互斥，与几个进程共用一个目录相同。其余入口（社区、取令牌、云剪贴板、云词库、AI 皮肤、云同步）的目录模式不登录，仍发 `MSIME/Android`。

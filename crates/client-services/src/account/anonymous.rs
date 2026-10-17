@@ -105,7 +105,8 @@ pub fn ensure_anonymous_account(directory: &Path) -> Result<(), AccountError> {
     ensure_anonymous_account_with(BackendAccountClient::new()?, directory)
 }
 
-pub(super) fn ensure_anonymous_account_with<A: AccountApi>(
+/// 与 [`ensure_anonymous_account`] 相同，只是经调用方给的 `api` 注册，例如以宿主自报的 User-Agent 建的 [`BackendAccountClient::with_user_agent`]。已有会话时只读一次会话文件、不联网。
+pub fn ensure_anonymous_account_with<A: AccountApi>(
     api: A,
     directory: &Path,
 ) -> Result<(), AccountError> {

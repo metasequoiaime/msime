@@ -1,10 +1,10 @@
 //! 原生设置窗口的账号操作：与 Tauri 桌面端的十四个账号命令（`desktop_account.rs`）和 Windows 的四个设置同步命令（`windows_settings_sync.rs`）一一对应，用同一个 [`BackendAccountSession`] 和同一份本用户会话文件（[`FileAccountSessionStorage`]，`account-session.json`），返回的也是同样的脱敏形状（[`msime_client_services::account::page`]）。令牌只在本进程里，不出现在响应中。
 //!
-//! 每个会话目录在进程里只有一个会话对象，这样进行中的 Google 登录可以被另一次调用里的 `google_cancel` 结束；会话文件本身每次访问都重新读，共享应用、输入法和这里同时登录、刷新或退出时以文件为准，刷新时共用 `account-refresh.lock`。
+//! 每个会话目录（和宿主自报的 `client_agent`）在进程里只有一个会话对象，这样进行中的 Google 登录可以被另一次调用里的 `google_cancel` 结束；会话文件本身每次访问都重新读，共享应用、输入法和这里同时登录、刷新或退出时以文件为准，刷新时共用 `account-refresh.lock`。
 //!
 //! 请求带 `session_store` 而不带 `directory` 时，会话在宿主注入的存储里（[`super::session_store`]），会话对象是注册时建好的那一个。
 //!
-//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接、语音贡献）在 [`crate::account_ops`]；它们失败时还可能带 `retry_after_seconds`。用到匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录一个会话对象，刷新时与登录会话共用 `account-refresh.lock`）和 `anonymous-account.json` 里的身份，注入时用该 store 的匿名会话和 `ANONYMOUS_IDENTITY` 项。
+//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接、语音贡献）在 [`crate::account_ops`]；它们失败时还可能带 `retry_after_seconds`。用到匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录、每个 `client_agent` 一个会话对象，刷新时与登录会话共用 `account-refresh.lock`）和 `anonymous-account.json` 里的身份，注入时用该 store 的匿名会话和 `ANONYMOUS_IDENTITY` 项。
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
@@ -21,9 +21,9 @@ use msime_client_services::account::settings_sync::{
 };
 use msime_client_services::account::{
     adopt_legacy_account_session, ensure_anonymous_account, ensure_anonymous_account_in,
-    AccountError, AccountPreferences, AccountSessionFileLayout, AnonymousIdentitySource,
-    BackendAccountClient, BackendAccountSession, FileAccountSessionStorage,
-    LockedAnonymousSessionStorage,
+    ensure_anonymous_account_with, valid_client_agent, AccountError, AccountPreferences,
+    AccountSessionFileLayout, AnonymousIdentitySource, BackendAccountClient, BackendAccountSession,
+    FileAccountSessionStorage, LockedAnonymousSessionStorage,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -33,11 +33,17 @@ const MAX_DIRECTORY_BYTES: usize = 16 * 1024;
 
 pub(super) type Session = BackendAccountSession<BackendAccountClient, SessionStorage>;
 
-/// 每个会话目录一个会话对象。只在取对象时持锁，账号调用本身在锁外进行。
-static ACCOUNT_SESSIONS: OnceLock<Mutex<HashMap<PathBuf, Arc<Session>>>> = OnceLock::new();
+/// 会话对象的键：会话目录和宿主自报的 User-Agent（没给时为 `None`，发 `MSIME/Android`）。
+type SessionKey = (PathBuf, Option<String>);
 
-/// 每个会话目录一个匿名会话对象（同一目录的 `anonymous-session.json`），给登录账号优先、退回匿名账号的新操作用。
-static ANONYMOUS_SESSIONS: OnceLock<Mutex<HashMap<PathBuf, Arc<Session>>>> = OnceLock::new();
+/// 每个会话目录、每个 `client_agent` 一个会话对象。同一目录的几个对象读写同一份会话文件，刷新时共用 `account-refresh.lock`，与几个进程共用一个目录相同。只在取对象时持锁，账号调用本身在锁外进行。
+static ACCOUNT_SESSIONS: OnceLock<Mutex<HashMap<SessionKey, Arc<Session>>>> = OnceLock::new();
+
+/// 每个会话目录、每个 `client_agent` 一个匿名会话对象（同一目录的 `anonymous-session.json`），给登录账号优先、退回匿名账号的新操作用。
+static ANONYMOUS_SESSIONS: OnceLock<Mutex<HashMap<SessionKey, Arc<Session>>>> = OnceLock::new();
+
+/// 目录模式里宿主自报的每个 User-Agent 一个 HTTP 客户端，整个进程共用：客户端里只有连接池和超时，没有账号状态（见 [`BackendAccountClient::new`] 共用的那一个），各建一份时每个都多占一个后台线程和几个文件描述符。
+static AGENT_CLIENTS: OnceLock<Mutex<HashMap<String, BackendAccountClient>>> = OnceLock::new();
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -51,6 +57,9 @@ struct AccountRequest {
     /// `msime_client_session_store_register` 给的 id；与 `directory` 恰好给一个。
     #[serde(default)]
     session_store: Option<u64>,
+    /// 宿主自报的 User-Agent，形状与注入存储的 `client_agent` 相同（[`valid_client_agent`]）；只能与 `directory` 一起给，注入存储用注册时给的那个。不给时发 `MSIME/Android`，与以前相同（#8201 的决定 1）。
+    #[serde(default)]
+    client_agent: Option<String>,
     action: Action,
 }
 
@@ -154,43 +163,84 @@ enum Purpose {
     Link,
 }
 
-/// 目录对应的会话对象，第一次用到时建立；建立前先接管旧目录里的会话，与共享应用启动时做的一样。社区操作（`msime_client_community`）经同一个对象认证。
+/// 宿主给的 `client_agent`：不合法时是 [`AccountError::Invalid`]，在用到目录之前就拒绝。
+pub(super) fn checked_agent(agent: Option<&str>) -> Result<Option<&str>, AccountError> {
+    match agent {
+        Some(agent) if !valid_client_agent(agent) => Err(AccountError::Invalid),
+        agent => Ok(agent),
+    }
+}
+
+/// 目录模式的 HTTP 客户端：没有 `agent` 时是进程共用的默认客户端（`MSIME/Android`），有时是这个 User-Agent 的那一个，第一次用到时建立。
+fn directory_client(agent: Option<&str>) -> Result<BackendAccountClient, AccountError> {
+    let Some(agent) = agent else {
+        return BackendAccountClient::new();
+    };
+    let clients = AGENT_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut clients = clients.lock().map_err(|_| AccountError::Unavailable)?;
+    if let Some(client) = clients.get(agent) {
+        return Ok(client.clone());
+    }
+    let client = BackendAccountClient::with_user_agent(agent)?;
+    clients.insert(agent.to_owned(), client.clone());
+    Ok(client)
+}
+
+/// 目录对应的会话对象（默认 User-Agent），第一次用到时建立；建立前先接管旧目录里的会话，与共享应用启动时做的一样。社区操作（`msime_client_community`）经同一个对象认证。
 pub(super) fn session_for(
     directory: &Path,
     legacy: Option<&Path>,
 ) -> Result<Arc<Session>, AccountError> {
+    session_with_agent(directory, legacy, None)
+}
+
+/// 与 [`session_for`] 相同，只是请求以宿主自报的 `agent` 作 User-Agent（`agent` 已经过 [`checked_agent`]）；同一目录、同一个 `agent` 的请求用同一个对象。
+pub(super) fn session_with_agent(
+    directory: &Path,
+    legacy: Option<&Path>,
+    agent: Option<&str>,
+) -> Result<Arc<Session>, AccountError> {
     let sessions = ACCOUNT_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut sessions = sessions.lock().map_err(|_| AccountError::Unavailable)?;
-    if let Some(session) = sessions.get(directory) {
+    let key = (directory.to_path_buf(), agent.map(str::to_owned));
+    if let Some(session) = sessions.get(&key) {
         return Ok(Arc::clone(session));
     }
     if let Some(legacy) = legacy {
         adopt_legacy_account_session(legacy, directory);
     }
-    let client = BackendAccountClient::new()?;
     let session = Arc::new(BackendAccountSession::new(
-        client,
+        directory_client(agent)?,
         SessionStorage::File(FileAccountSessionStorage::new(
             directory,
             AccountSessionFileLayout::Native,
         )),
     ));
-    sessions.insert(directory.to_path_buf(), Arc::clone(&session));
+    sessions.insert(key, Arc::clone(&session));
     Ok(session)
 }
 
-/// 目录里匿名会话的对象，第一次用到时建立。
+/// 目录里匿名会话的对象（默认 User-Agent），第一次用到时建立。
 pub(super) fn anonymous_session_for(directory: &Path) -> Result<Arc<Session>, AccountError> {
+    anonymous_session_with_agent(directory, None)
+}
+
+/// 与 [`anonymous_session_for`] 相同，只是请求（包括删除语音样本时匿名账号的重新登录）以 `agent` 作 User-Agent。
+pub(super) fn anonymous_session_with_agent(
+    directory: &Path,
+    agent: Option<&str>,
+) -> Result<Arc<Session>, AccountError> {
     let sessions = ANONYMOUS_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut sessions = sessions.lock().map_err(|_| AccountError::Unavailable)?;
-    if let Some(session) = sessions.get(directory) {
+    let key = (directory.to_path_buf(), agent.map(str::to_owned));
+    if let Some(session) = sessions.get(&key) {
         return Ok(Arc::clone(session));
     }
     let session = Arc::new(BackendAccountSession::new(
-        BackendAccountClient::new()?,
+        directory_client(agent)?,
         SessionStorage::AnonymousFile(LockedAnonymousSessionStorage::new(directory)),
     ));
-    sessions.insert(directory.to_path_buf(), Arc::clone(&session));
+    sessions.insert(key, Arc::clone(&session));
     Ok(session)
 }
 
@@ -552,26 +602,32 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                     .as_deref()
                     .map(absolute_directory)
                     .transpose()?;
+                let agent = checked_agent(request.client_agent.as_deref()).map_err(code)?;
                 if matches!(
                     request.action,
                     Action::Account(AccountAction::EnsureAnonymous)
                 ) {
-                    return ensure_anonymous_account(directory)
-                        .map(|()| Value::Bool(true))
-                        .map_err(code);
+                    let registered = match agent {
+                        None => ensure_anonymous_account(directory),
+                        Some(agent) => directory_client(Some(agent))
+                            .and_then(|client| ensure_anonymous_account_with(client, directory)),
+                    };
+                    return registered.map(|()| Value::Bool(true)).map_err(code);
                 }
-                let session = session_for(directory, legacy).map_err(code)?;
+                let session = session_with_agent(directory, legacy, agent).map_err(code)?;
                 match request.action {
                     Action::Account(action) => run(&session, action),
                     Action::Extended(operation) => crate::account_ops::run(
                         &session,
-                        || anonymous_session_for(directory),
+                        || anonymous_session_with_agent(directory, agent),
                         AnonymousIdentitySource::Directory(directory),
                         operation,
                     )
                     .map_err(Failure::from),
                 }
             }
+            // 注入存储的 User-Agent 是注册时给的那个。
+            Source::Store(_) if request.client_agent.is_some() => Err(invalid()),
             Source::Store(entry) => match request.action {
                 Action::Account(AccountAction::EnsureAnonymous) => {
                     ensure_anonymous_account_in(&entry.anonymous, entry.backend.as_ref())
@@ -591,6 +647,8 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
     })
 }
 
+#[cfg(test)]
+mod client_agent_tests;
 #[cfg(test)]
 mod link_tests;
 
