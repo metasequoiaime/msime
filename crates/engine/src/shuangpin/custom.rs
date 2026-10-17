@@ -116,6 +116,12 @@ struct Canonical {
     zero_initials: Vec<(&'static str, String)>,
 }
 
+#[derive(Clone, Copy)]
+enum InitialText {
+    Single(u8),
+    Multi(&'static str),
+}
+
 /// 校验 `table`，合法时返回它对应的方案。同一张表（单位和键相同，顺序和键的大小写不论）总是返回同一个引用。
 pub fn custom_profile(
     table: &ShuangpinCustomTable,
@@ -219,39 +225,43 @@ impl Canonical {
     }
 
     /// 单键片段读作的声母：多字母声母的键读作那个声母，其余就是这个字母本身（与 `utils::initial_for_key` 相同）。
-    fn initial_for_key(&self, key: u8) -> String {
+    fn initial_for_key(&self, key: u8) -> InitialText {
         self.initials
             .iter()
             .find(|(_, mapped)| mapped.as_bytes() == [key])
-            .map_or_else(
-                || char::from(key).to_string(),
-                |(unit, _)| (*unit).to_owned(),
-            )
+            .map_or(InitialText::Single(key), |(unit, _)| {
+                InitialText::Multi(unit)
+            })
     }
 
     /// 声母键加韵母键解出的音节，与 `utils::cvt_single_sp_to_pinyin` 跳过零声母表之后的那一步相同；同一个编码解出两个不同的音节时报错。
-    /// `initial` 是 `first` 读作的声母（`initial_for_key`），由调用方算好；`buffer` 是拼音节用的临时存储，逐个编码复用。
+    /// `buffer` 是拼音节用的临时存储，逐个编码复用。
     fn decode_pair(
         &self,
-        initial: &str,
         first: u8,
         second: u8,
         buffer: &mut String,
     ) -> Result<Option<String>, CustomProfileError> {
         let accepted = accepted_syllables();
         let mut found: Option<String> = None;
+        let initial = self.initial_for_key(first);
         for (unit, _) in self
             .finals
             .iter()
             .filter(|(_, key)| key.as_bytes() == [second])
         {
-            let normalized = if *unit == "v" && matches!(initial, "j" | "q" | "x" | "y") {
+            buffer.clear();
+            match initial {
+                InitialText::Single(key) => buffer.push(char::from(key)),
+                InitialText::Multi(unit) => buffer.push_str(unit),
+            }
+            let normalized = if *unit == "v"
+                && matches!(initial, InitialText::Single(b'j' | b'q' | b'x' | b'y'))
+            {
                 "u"
             } else {
                 unit
             };
-            buffer.clear();
-            buffer.push_str(initial);
             buffer.push_str(normalized);
             if !accepted.contains(buffer.as_str()) {
                 continue;
@@ -363,9 +373,8 @@ fn check_codes(canonical: &Canonical) -> Result<(), CustomProfileError> {
     final_keys.dedup();
     let mut buffer = String::with_capacity(8);
     for first in b'a'..=b'z' {
-        let initial = canonical.initial_for_key(first);
         for &second in &final_keys {
-            canonical.decode_pair(&initial, first, second, &mut buffer)?;
+            canonical.decode_pair(first, second, &mut buffer)?;
         }
     }
     let mut zero_codes: Vec<(&str, &str)> = Vec::with_capacity(canonical.zero_initials.len());
@@ -379,8 +388,7 @@ fn check_codes(canonical: &Canonical) -> Result<(), CustomProfileError> {
             });
         }
         let bytes = code.as_bytes();
-        let initial = canonical.initial_for_key(bytes[0]);
-        if let Some(decoded) = canonical.decode_pair(&initial, bytes[0], bytes[1], &mut buffer)? {
+        if let Some(decoded) = canonical.decode_pair(bytes[0], bytes[1], &mut buffer)? {
             if decoded != *syllable {
                 return Err(CustomProfileError::AmbiguousCode {
                     code: code.clone(),
@@ -490,6 +498,19 @@ mod tests {
         assert!(std::ptr::eq(first, second));
         let other = custom_profile(&table_of(ShuangpinProfileKind::Xiaohe)).unwrap();
         assert!(!std::ptr::eq(first, other));
+    }
+
+    #[test]
+    fn checking_a_custom_profile_reuses_the_initial_text_buffer() {
+        let table = table_of(ShuangpinProfileKind::Xiaohe);
+        let canonical = canonicalize(&table).unwrap();
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            check_codes(&canonical).unwrap();
+        });
+        assert!(
+            allocations <= 420,
+            "custom profile code validation allocated {allocations} buffers"
+        );
     }
 
     #[test]
