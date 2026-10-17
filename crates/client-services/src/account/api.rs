@@ -388,6 +388,39 @@ pub trait AccountApi: Send + Sync + 'static {
         Err(AccountError::Unavailable.into())
     }
 
+    /// `PUT /v1/users/me/typing-statistics`。
+    fn put_typing_statistics(
+        &self,
+        _upload: &crate::typing_statistics::upload::TypingStatisticsUpload,
+        _access_token: &str,
+    ) -> Result<(), AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `DELETE /v1/users/me/typing-statistics`。
+    fn delete_typing_statistics(&self, _access_token: &str) -> Result<(), AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/qq-links`。
+    fn qq_links(&self, _access_token: &str) -> Result<AccountQqLinks, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/users/me/qq-links`：用机器人给的绑定码绑定一个 QQ 群友。
+    fn redeem_qq_link(
+        &self,
+        _code: &str,
+        _access_token: &str,
+    ) -> Result<AccountQqLink, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `DELETE /v1/users/me/qq-links/{id}`。
+    fn delete_qq_link(&self, _id: &str, _access_token: &str) -> Result<(), AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
     /// `POST /v1/voice/contributions`，`contribution` 由 [`prepare_voice_contribution`] 校验过。
     fn voice_contribution(
         &self,

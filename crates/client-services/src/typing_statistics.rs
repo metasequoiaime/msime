@@ -36,6 +36,8 @@ pub const MAX_SKINS_TRIED: usize = 64;
 const TRACKS_TYPING_RUNS: bool = cfg!(any(target_os = "android", test));
 
 mod metrics;
+/// 每日计数上传到云端（用户打开「上传到云端」后）。
+pub mod upload;
 pub use metrics::{
     achievement_specs, summarize, AchievementGroup, AchievementSpec, AchievementSummary, DayCount,
     HabitsSummary, KeysSummary, OverviewSummary, PeakWindow, SummaryInputs, TypingSummary,

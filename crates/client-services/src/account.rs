@@ -556,6 +556,12 @@ impl AccountFailure {
         if server == Some("no_verified_email") {
             return "account_no_verified_email";
         }
+        if server == Some("qq_link_code_not_found") {
+            return "account_qq_link_code_not_found";
+        }
+        if server == Some("qq_link_limit") {
+            return "account_qq_link_limit";
+        }
         if self.status == Some(413)
             || matches!(
                 server,
@@ -651,11 +657,15 @@ pub mod ios_settings;
 pub mod page;
 /// 无编码常用语的整列表同步。
 mod phrases;
+/// 「绑定 QQ 群助手」：用机器人给的绑定码绑定、列出和解绑。
+mod qq_links;
 mod session;
 /// 本地偏好与账号设置同步文档之间的映射，Tauri 和安卓原生宿主共用。
 pub mod settings_sync;
 /// 账号释义（`/v1/translate`）。
 mod translate;
+/// 打字统计上云：上传最近几天的计数和清空云端副本。
+mod typing_upload;
 /// 云端数据的汇总、导出和删除。
 mod user_data;
 mod validate;
@@ -680,8 +690,10 @@ pub use file_storage::*;
 pub use google::*;
 pub use host_storage::*;
 pub use phrases::*;
+pub use qq_links::*;
 pub use session::*;
 pub use translate::*;
+pub use typing_upload::*;
 pub use user_data::*;
 pub use validate::*;
 pub use voice_contribution::*;
