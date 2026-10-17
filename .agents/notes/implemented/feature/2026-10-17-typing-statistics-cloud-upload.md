@@ -22,6 +22,7 @@ Status: implemented
 
 - 用 Rust 账号会话的宿主（Windows 原生设置）走 `msime_client_account` 的新操作 `typing_upload_status`、`typing_upload_set`、`typing_upload`、`qq_links`、`qq_link_redeem`、`qq_link_delete`（`crates/host-api/src/account_ops.rs`），语义与 Tauri 命令逐条相同。每次调用都新建统计目录的 store，它自带的操作锁管不到别的调用，所以上传和关闭后的删除改用一把进程级的锁串行化。Windows 原生设置的「打字统计」页和「账号与同步」页各画了开关和卡片，设置窗口打开和进入统计页时各补传一次。
 - 自己发 HTTP 的宿主（Android、iOS、鸿蒙）走 `msime_client_typing_statistics` 的 `upload_status`、`set_upload_enabled`、`upload_request`、`upload_succeeded`：Rust 交回要发的请求（或者不发的原因 `disabled`、`not_due`、`nothing`），宿主带登录令牌发出去，成功后再告诉 Rust 记下时间。为此 `upload_if_due` 拆成 `prepare_upload` 和 `record_upload` 两步，前者不记任何东西，后者只在开关还开着、设备标识没变时记。QQ 绑定在这些宿主上直接调服务端的三个接口，没有要放进 Rust 的状态。
+- Android（`platforms/android`）：`home/TypingUpload` 把 `upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 放在一个单线程执行器上，`HomeActivity.onResume` 和打开打字统计页时各补传一次，节流仍由 Rust 判断；只有真实账号（`SyncSwitch.validLoginKind`）上传和绑定，匿名账号什么都不发。请求由 `account/TypingUploadApi` 带账号令牌发出，错误说法与共享设置页一致。打字统计页「概览」末尾加「云端」组的「上传到云端」开关，打开时页脚改写「只保存在本机」；「我的 → 同步」加「绑定 QQ 群助手」，进 `QqLinksPage` 输入绑定码、列出和解绑。
 
 ## Alternatives considered
 
@@ -34,7 +35,7 @@ Status: implemented
 
 收益：群助手可以读到打开了上传的用户的打字数据，统计页的说明也随开关改写，不再在上传开着时声称「只保存在本机」。
 
-代价：这是一条新的、带账号令牌的上传路径，PRIVACY.md 已经加了「打字统计上传」一节。上传只在设置应用打开时发生，长期不开设置应用的用户，群助手看到的数据会停在最后一次上传。Windows 原生设置已经接上；Android、iOS/macOS 原生和鸿蒙的 C ABI 已经有了，但界面和发送还没接，这些宿主的用户暂时用不了。两步形状把串行化交给了宿主：`upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 要放在同一个串行队列里，否则关闭时的删除可能先于还在路上的上传到达服务端，`record_upload` 只能保证本地状态不被写回。统计模型的分层见 [打字统计契约](../../implemented/architecture/2026-10-15-typing-statistics-model.md)，这里只在模型上加了 `cloudUpload` 这个可选能力。
+代价：这是一条新的、带账号令牌的上传路径，PRIVACY.md 已经加了「打字统计上传」一节。上传只在设置应用打开时发生，长期不开设置应用的用户，群助手看到的数据会停在最后一次上传。Windows 原生设置和 Android 已经接上；iOS/macOS 原生和鸿蒙的 C ABI 已经有了，但界面和发送还没接，这些宿主的用户暂时用不了。Android 只在应用回到前台和打开统计页时上传，键盘进程不上传，长期只用键盘、不开应用的用户同样停在最后一次上传。两步形状把串行化交给了宿主：`upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 要放在同一个串行队列里，否则关闭时的删除可能先于还在路上的上传到达服务端，`record_upload` 只能保证本地状态不被写回。统计模型的分层见 [打字统计契约](../../implemented/architecture/2026-10-15-typing-statistics-model.md)，这里只在模型上加了 `cloudUpload` 这个可选能力。
 
 ## Verification
 
