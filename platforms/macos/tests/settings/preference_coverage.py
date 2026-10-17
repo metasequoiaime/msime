@@ -38,6 +38,7 @@ NOT_APPLICABLE = {
     "touch_twenty_six_key_number_layout": "the touch keyboard's 26-key digit layer",
     "touch_shuangpin_key_hints": "the touch keyboard's 26-key shuangpin letter keys",
     "touch_toolbar": "the touch keyboard's row above the keys",
+    "harmony_toolbar": "the HarmonyOS phone keyboard's toolbar tools and display mode; the page offers them only where the host reports `touch_toolbar_tools`",
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
     "game_compatibility": "Windows TSF only: whether the TIP skips ITfUIElementMgr for games that declare UI-less and draw nothing; macOS has no UI-less host contract",

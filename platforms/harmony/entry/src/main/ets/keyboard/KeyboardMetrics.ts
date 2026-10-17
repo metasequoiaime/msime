@@ -51,6 +51,8 @@ export class KeyboardMetrics {
    * 行间距和高度调整来自用户设置，由 `KeyboardGeometry` 限定范围。它们作为参数传入而不是在这里读取，让这里保持为纯计算，ability 和视图都能算并得出一致结果。
    *
    * 触屏（`compact` 为 false）时框架固定：顶部内边距、50vp 条带、10vp 间距、按键行及其间的行间距、底部内边距。条带在自身高度内容纳候选及其释义，所以字号和释义行不会改变面板。`compact` 是 2in1 键盘和表情界面，它们保留一直以来的叠放组合行、候选行和释义预留。
+   *
+   * `withStrip` 为 false 时触屏框架不带条带和它下面的间距：工具栏设成隐藏或工具全关、又没有在组字也没有打开面板时（`TouchToolbarPolicy.stripShown`），这一行不画，键盘相应变矮。`compact` 时不看它。
    */
   static totalHeightVp(
     rowSpacingTenths: number = KeyboardMetrics.ROW_SPACING_VP * 10,
@@ -59,14 +61,14 @@ export class KeyboardMetrics {
     candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE,
     preeditFontSize: number = KeyboardMetrics.CANDIDATE_PREEDIT_FONT_SIZE,
     compact: boolean = false,
+    withStrip: boolean = true,
   ): number {
     const keys: number =
       KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS + heightAdjustmentVp;
     if (!compact) {
       return (
         KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP +
-        KeyboardMetrics.STRIP_HEIGHT_VP +
-        KeyboardMetrics.STRIP_GAP_VP +
+        (withStrip ? KeyboardMetrics.STRIP_HEIGHT_VP + KeyboardMetrics.STRIP_GAP_VP : 0) +
         keys +
         KeyboardMetrics.touchRowGapsVp(rowSpacingTenths) +
         KeyboardMetrics.TOUCH_ROOT_BOTTOM_PADDING_VP

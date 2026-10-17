@@ -6,6 +6,7 @@
 import { KeyAccessibilityPolicy } from "../entry/src/main/ets/keyboard/input/KeyAccessibilityPolicy";
 import { KeyboardGeometry } from "../entry/src/main/ets/keyboard/KeyboardGeometry";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
+import { TouchToolbarPolicy } from "../entry/src/main/ets/keyboard/TouchToolbarPolicy";
 import {
   EmojiCatalogModel,
   EMOJI_MIN_CELL_VP,
@@ -44,7 +45,11 @@ function check(condition: boolean, message: string): void {
 /**
  * 视图在触控时堆叠的内容，按 `keyboard()` 的布局方式累加：顶部内边距、候选条、其下的固定间距、四行按键（`KeyboardGeometry.adjustedRowHeight`，与 `rowHeight()` 的取法相同）及行间距，以及底部内边距。
  */
-function drawnTouchHeight(rowSpacingTenths: number, adjustment: number): number {
+function drawnTouchHeight(
+  rowSpacingTenths: number,
+  adjustment: number,
+  strip: boolean = true,
+): number {
   let keys: number = 0;
   for (let row: number = 0; row < KeyboardMetrics.KEY_ROWS; row++) {
     keys += KeyboardGeometry.adjustedRowHeight(
@@ -57,8 +62,7 @@ function drawnTouchHeight(rowSpacingTenths: number, adjustment: number): number 
   const gaps: number = (rowSpacingTenths / 10) * (KeyboardMetrics.KEY_ROWS - 1);
   return (
     KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP +
-    KeyboardMetrics.STRIP_HEIGHT_VP +
-    KeyboardMetrics.STRIP_GAP_VP +
+    (strip ? KeyboardMetrics.STRIP_HEIGHT_VP + KeyboardMetrics.STRIP_GAP_VP : 0) +
     keys +
     gaps +
     KeyboardMetrics.TOUCH_ROOT_BOTTOM_PADDING_VP
@@ -121,6 +125,21 @@ group("the touch frame the view draws is the panel height the ability asks for",
       check(
         Math.abs(drawn - sized) < 1e-9,
         `row spacing ${spacing}, adjustment ${adjustment}: drawn ${drawn}, panel ${sized}`,
+      );
+      // 工具栏隐藏、空闲时不画工具条和它下面的间距，面板高度同样不算它们。
+      const bare: number = drawnTouchHeight(spacing, adjustment, false);
+      const bareSized: number = KeyboardMetrics.totalHeightVp(
+        spacing,
+        adjustment,
+        0,
+        18,
+        15,
+        false,
+        false,
+      );
+      check(
+        Math.abs(bare - bareSized) < 1e-9,
+        `without the strip, row spacing ${spacing}, adjustment ${adjustment}: drawn ${bare}, panel ${bareSized}`,
       );
     }
   }
@@ -299,6 +318,69 @@ group("the 2in1 candidate window is sized for the card's 8vp padding", () => {
     "the width estimate leaves room for the padding on both sides",
   );
 });
+
+group(
+  "the toolbar row disappears only when hidden or empty, and comes back to compose or close a panel",
+  () => {
+    const defaults = TouchToolbarPolicy.fromDocument(undefined);
+    check(
+      defaults.emoji &&
+        defaults.phrase &&
+        defaults.clipboard &&
+        defaults.skin &&
+        defaults.scheme &&
+        !defaults.hidden,
+      "a document without harmony_toolbar keeps every tool, as the keyboard always had",
+    );
+    check(!TouchToolbarPolicy.rowHidden(defaults), "so the row is shown");
+    const partial = TouchToolbarPolicy.fromDocument({ clipboard: false });
+    check(!partial.clipboard && partial.emoji && partial.scheme, "a missing tool stays on");
+    check(!TouchToolbarPolicy.rowHidden(partial), "one tool off leaves the row");
+    const none = TouchToolbarPolicy.fromDocument({
+      emoji: false,
+      phrase: false,
+      clipboard: false,
+      skin: false,
+      scheme: false,
+    });
+    check(
+      TouchToolbarPolicy.rowHidden(none),
+      "with every tool off only the logo and chevron would be left, so the row goes",
+    );
+    check(
+      TouchToolbarPolicy.rowHidden(TouchToolbarPolicy.fromDocument({ hidden: true })),
+      "the 隐藏 display mode hides it with tools on",
+    );
+    check(
+      TouchToolbarPolicy.stripShown(false, true, false),
+      "an idle keyboard with tools shows the toolbar",
+    );
+    check(
+      !TouchToolbarPolicy.stripShown(true, true, false),
+      "an idle keyboard with the row hidden draws no strip",
+    );
+    check(
+      TouchToolbarPolicy.stripShown(true, false, false),
+      "composing brings the candidate bar back",
+    );
+    check(
+      TouchToolbarPolicy.stripShown(true, true, true),
+      "an open panel brings the row back so the logo can close it",
+    );
+    check(
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false, false) ===
+        KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false) -
+          KeyboardMetrics.STRIP_HEIGHT_VP -
+          KeyboardMetrics.STRIP_GAP_VP,
+      "the keyboard gets shorter by the strip and its gap",
+    );
+    check(
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true, false) ===
+        KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true),
+      "the 2in1 frame does not look at the strip flag",
+    );
+  },
+);
 
 console.log("");
 if (failures > 0) {

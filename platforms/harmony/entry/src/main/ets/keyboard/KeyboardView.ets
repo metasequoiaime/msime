@@ -128,6 +128,7 @@ import { PhraseList, PHRASE_LIST_ERROR, PHRASE_LIST_LOADING, PHRASE_LIST_READY }
 import { VoiceListening } from './faces/VoiceListening';
 
 import { TextPolicy } from './TextPolicy';
+import { ToolbarTools, TouchToolbarPolicy } from './TouchToolbarPolicy';
 /**
  * The 26-key touch keyboard, laid out to the same metrics as the iOS extension in
  * platforms/ios/KeyboardExtension/Sources/KeyboardViewController.swift, which is the reference
@@ -452,8 +453,9 @@ const CLIPBOARD_HISTORY_OFF: string = '剪贴板历史未开启';
 @Entry
 @Component
 struct KeyboardView {
-  @State candidates: CandidateEntry[] = [];
-  @State editing: string = '';
+  // 这几项决定工具条是不是空闲（`stripIdle`），变了就要看面板该不该因工具条出现或消失而改高度，见 `syncStripHeight`。
+  @State @Watch('syncStripHeight') candidates: CandidateEntry[] = [];
+  @State @Watch('syncStripHeight') editing: string = '';
   /** 按住空格说话时空格键上的提示：「松开结束」或「松开取消」；不在按住说话时为空串。 */
   @State spaceVoiceHint: string = '';
   @State editingCaret: number = 0;
@@ -468,12 +470,12 @@ struct KeyboardView {
   /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip, as the Engine last reported it. */
   @State candidateListOpen: boolean = false;
   /** Read-only English completions for the word being typed; empty whenever one is not. */
-  @State englishSuggestions: string[] = [];
+  @State @Watch('syncStripHeight') englishSuggestions: string[] = [];
   /** 光标前打到 `xxx@` 时给出的邮箱后缀，先于英文补全显示；没有时为空。 */
-  @State emailSuffixes: string[] = [];
+  @State @Watch('syncStripHeight') emailSuffixes: string[] = [];
   @State shuangpinProfile: string = 'xiaohe';
   @State localMode: string = 'none';
-  @State diagnostic: string = '';
+  @State @Watch('syncStripHeight') diagnostic: string = '';
   @State punctuation: boolean = false;
   /** The Japanese digit layer's bracket list, which shares the strip the other long presses use. */
   @State brackets: boolean = false;
@@ -554,7 +556,7 @@ struct KeyboardView {
   /** 长按九键字母格或 14 键双字母键时弹出的字母（九键还有数字），两种键面共用 `SURFACE_NINE_KEY_HOLD`。 */
   @State nineKeyHoldOptions: string[] = [];
   /** 拼音网格的 1 键（@#）放进候选条的常用标点；为空时候选条画 Engine 的候选。Engine 下一次回报（`onChanged`）、点选其中一个或打开别的界面时清空。 */
-  @State nineKeyQuickMarks: PunctuationEntry[] = [];
+  @State @Watch('syncStripHeight') nineKeyQuickMarks: PunctuationEntry[] = [];
   /**
    * Which surface is covering the keys, if any.
    *
@@ -606,7 +608,7 @@ struct KeyboardView {
   @State wubiProfile: string = KeyboardScheme.WUBI_86;
   @State handwritingStrokes: HandwritingStroke[] = [];
   @State handwritingRedo: HandwritingStroke[] = [];
-  @State handwritingCandidates: string[] = [];
+  @State @Watch('syncStripHeight') handwritingCandidates: string[] = [];
   @State handwritingNotice: string = '';
   @State handwritingBusy: boolean = false;
   @State voiceText: string = '';
@@ -646,6 +648,11 @@ struct KeyboardView {
   private readonly displayChanged: (id: number) => void = (_id: number): void => this.readOrientation();
   /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
   @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
+  /** 共享偏好 `harmony_toolbar`：工具栏上画哪些工具，整行是否隐藏。 */
+  @State @Watch('syncStripHeight') toolbarTools: ToolbarTools = KeyboardSession.shared.preferences().toolbarTools;
+  /** 面板上一次按工具条显示与否定下的高度，`syncStripHeight` 只在它和现在不一样时改面板高度。 */
+  private stripWasShown: boolean =
+    !TouchToolbarPolicy.rowHidden(KeyboardSession.shared.preferences().toolbarTools);
 
   /** 按下的键变暗和缩小的程度：触屏上是设计稿的 .86 和 .96；2in1 上保持不变，它的设备形态在进程存续期间不会改变。 */
   private readonly keyPressedBrightness: number = KeyboardFormFactor.isDesktop() ? 1 : KEY_PRESSED_BRIGHTNESS;
@@ -851,9 +858,7 @@ struct KeyboardView {
       this.applySettings();
       this.applyEditorFace();
       if (!KeyboardFormFactor.isDesktop()) {
-        KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
-          this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
-          this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
+        this.resizeTouchPanel();
       }
     };
     KeyboardSession.shared.onReplyContextChanged = (): void => {
@@ -2473,6 +2478,7 @@ struct KeyboardView {
       this.clearVoiceDone();
     }
     this.surface = surface;
+    this.syncStripHeight();
     if (surface === SURFACE_REPLY) {
       this.replyTemplates = KeyboardSession.shared.communityReplyTemplates();
       this.replyTemplateMenu = false;
@@ -2603,6 +2609,13 @@ struct KeyboardView {
     this.show(SURFACE_TOOLS);
   }
 
+  /** 长按工具栏的任一按钮：给一下按键反馈，回到按键，再打开设置应用里放工具栏开关的「屏幕键盘」页。 */
+  private openToolbarSettings(): void {
+    KeyboardSession.shared.holdFeedback();
+    this.show(SURFACE_NONE);
+    KeyboardSession.shared.openSettings('screen-keyboard');
+  }
+
   /** 工具栏的「剪贴板」：用剪贴板面板代替按键，或回到按键。 */
   private toggleClipboard(): void {
     if (this.surface === SURFACE_CLIPBOARD) {
@@ -2655,9 +2668,7 @@ struct KeyboardView {
   /** 按某个调整值绘制按键但不保存：面板随之调整大小，所以预览就是真实高度。 */
   private previewHeight(adjustment: number): void {
     this.geometryHeight = KeyboardGeometry.heightAdjustment(adjustment);
-    KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
-      this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
-      this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
+    this.resizeTouchPanel();
   }
 
   /** 高度条拖柄的一步：手指上移 1vp，按键行就高 1vp，范围以共享校验接受的为限。 */
@@ -2777,6 +2788,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
+    this.toolbarTools = this.settings.toolbarTools;
     // 取会话持有的副本而不是再读一次磁盘：会话在构建和每次获得焦点时读取，读不到时保留上次的值，视图跟着它就不会因一次读取失败把隐私模式等显示成关闭。
     this.feedback = KeyboardSession.shared.feedbackSettings();
     this.traditional = KeyboardSession.shared.usesTraditional();
@@ -3252,6 +3264,34 @@ struct KeyboardView {
     return SurfaceRoutingPolicy.showsHandwritingCandidates(KeyboardFormFactor.isDesktop(), this.desktop,
       KeyboardScheme.usesHandwritingFace(this.scheme, this.english, this.symbols, this.localMode))
       && this.handwritingCandidates.length > 0;
+  }
+
+  /**
+   * 触屏键盘这一刻画不画工具条那一行。工具栏设成隐藏或工具全关时，空闲的键盘不画它；组字时它是候选栏，照常画；有面板盖住按键时也画，标志键是回到按键的出口，否则从底行打开的表情面板就没有路回去。九键长按和日文变体只换掉按键行里的键面，不算面板。2in1 不走触屏框架，一律算画。
+   */
+  private stripShown(): boolean {
+    if (!this.touchDesign()) {
+      return true;
+    }
+    const panelOpen: boolean = this.surface !== SURFACE_NONE && this.surface !== SURFACE_NINE_KEY_HOLD
+      && this.surface !== SURFACE_VARIANTS;
+    return TouchToolbarPolicy.stripShown(TouchToolbarPolicy.rowHidden(this.toolbarTools), this.stripIdle(),
+      panelOpen);
+  }
+
+  /** 工具条出现或消失时让面板跟着改高度，没变时什么也不做：组字时每打一个字母都会走到这里。 */
+  private syncStripHeight(): void {
+    if (this.stripShown() !== this.stripWasShown) {
+      this.resizeTouchPanel();
+    }
+  }
+
+  /** 按当前的行距、高度调整和工具条显示与否给手机面板定高度；2in1 上会话不做任何事。 */
+  private resizeTouchPanel(): void {
+    this.stripWasShown = this.stripShown();
+    KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
+      this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
+      this.settings.candidateFontSize, this.settings.candidatePreeditFontSize, false, this.stripWasShown));
   }
 
   /** Nothing to spell, choose or report on a touch keyboard: the strip is the logo bar. */
@@ -3804,9 +3844,9 @@ struct KeyboardView {
   }
 
   /**
-   * 空闲时的工具条，即设计稿中的鸿蒙工具栏：七个等宽格，依次是标志（功能面板）、「表情」「常用语」「剪贴板」「皮肤」「输入方式」和「收起」。
+   * 空闲时的工具条，即设计稿中的鸿蒙工具栏：等宽格，依次是标志（功能面板）、「表情」「常用语」「剪贴板」「皮肤」「输入方式」和「收起」。中间五个工具按 `harmony_toolbar` 显示，关掉的不占格；标志和收起固定在两端。
    *
-   * 面板已打开的工具显示为切换色底、强调色图标，再点一次收起面板。以前在这里以胶囊显示的语言、方案名、翻译和标点，现在和语音、回复面板、设置一样放在底行和功能面板里。
+   * 面板已打开的工具显示为切换色底、强调色图标，再点一次收起面板。以前在这里以胶囊显示的语言、方案名、翻译和标点，现在和语音、回复面板、设置一样放在底行和功能面板里。长按这一行的任何按钮（含标志和收起）打开设置应用的「屏幕键盘」页，在那里选显示哪些工具，与 Android 长按工具栏打开「编辑工具栏」相同。
    */
   @Builder
   toolbarRow() {
@@ -3820,25 +3860,36 @@ struct KeyboardView {
           framePath: KeyboardIconPaths.BRAND_FRAME,
           strokePath: KeyboardIconPaths.BRAND_STROKE,
           spokenLabel: KeyAccessibilityPolicy.tools(),
-          onTap: (): void => this.tapBrand()
+          onTap: (): void => this.tapBrand(),
+          onHold: (): void => this.openToolbarSettings()
         })
       }
       .layoutWeight(1)
       .height('100%')
       .justifyContent(FlexAlign.Center)
-      this.toolbarButton(KeyboardIconPaths.TOOLBAR_EMOJI, SURFACE_EMOJI, KeyAccessibilityPolicy.emoji(),
-        (): void => {
-          KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_EMOJI);
-          this.openEmojiSurface();
-        });
-      this.toolbarButton(KeyboardIconPaths.TOOLBAR_PHRASE, SURFACE_PHRASES, KeyAccessibilityPolicy.phrase(),
-        (): void => this.togglePhrases());
-      this.toolbarButton(KeyboardIconPaths.TOOLBAR_CLIPBOARD, SURFACE_CLIPBOARD,
-        KeyAccessibilityPolicy.clipboard(), (): void => this.toggleClipboard());
-      this.toolbarButton(KeyboardIconPaths.TOOLBAR_SKIN, SURFACE_SKIN, KeyAccessibilityPolicy.skin(),
-        (): void => this.toggle(SURFACE_SKIN));
-      this.toolbarButton(KeyboardIconPaths.TOOLBAR_SCHEME, SURFACE_SCHEME, KeyAccessibilityPolicy.scheme(),
-        (): void => this.toggle(SURFACE_SCHEME));
+      if (this.toolbarTools.emoji) {
+        this.toolbarButton(KeyboardIconPaths.TOOLBAR_EMOJI, SURFACE_EMOJI, KeyAccessibilityPolicy.emoji(),
+          (): void => {
+            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_EMOJI);
+            this.openEmojiSurface();
+          });
+      }
+      if (this.toolbarTools.phrase) {
+        this.toolbarButton(KeyboardIconPaths.TOOLBAR_PHRASE, SURFACE_PHRASES, KeyAccessibilityPolicy.phrase(),
+          (): void => this.togglePhrases());
+      }
+      if (this.toolbarTools.clipboard) {
+        this.toolbarButton(KeyboardIconPaths.TOOLBAR_CLIPBOARD, SURFACE_CLIPBOARD,
+          KeyAccessibilityPolicy.clipboard(), (): void => this.toggleClipboard());
+      }
+      if (this.toolbarTools.skin) {
+        this.toolbarButton(KeyboardIconPaths.TOOLBAR_SKIN, SURFACE_SKIN, KeyAccessibilityPolicy.skin(),
+          (): void => this.toggle(SURFACE_SKIN));
+      }
+      if (this.toolbarTools.scheme) {
+        this.toolbarButton(KeyboardIconPaths.TOOLBAR_SCHEME, SURFACE_SCHEME, KeyAccessibilityPolicy.scheme(),
+          (): void => this.toggle(SURFACE_SCHEME));
+      }
       Column() {
         Column() {
           KeyboardLineIcon({
@@ -3865,6 +3916,7 @@ struct KeyboardView {
         .onClick((): void => {
           KeyboardSession.shared.dismiss();
         })
+        .gesture(LongPressGesture().onAction((): void => this.openToolbarSettings()))
       }
       .layoutWeight(1)
       .height('100%')
@@ -3905,6 +3957,8 @@ struct KeyboardView {
       .accessibilityText(label)
       .accessibilitySelected(this.surface === surface)
       .onClick(action)
+      // 长按被识别后这次触摸不再算点按，所以不会同时打开这个工具的面板。
+      .gesture(LongPressGesture().onAction((): void => this.openToolbarSettings()))
     }
     .layoutWeight(1)
     .height('100%')
@@ -6001,9 +6055,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
-    KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
-      this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
-      this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
+    this.resizeTouchPanel();
   }
 
   private setFeedback(settings: FeedbackSettings): void {
@@ -9172,11 +9224,11 @@ struct KeyboardView {
     .onTouch((event: TouchEvent): void => this.pruneKeyPreview(event))
   }
 
-  /** 长按条所在位置：在第一行按键上方，工具条及其间隙下方。 */
+  /** 长按条所在位置：在第一行按键上方，工具条及其间隙下方；工具条不画时紧贴顶部内边距。 */
   private overlayTopInset(): number {
     if (this.touchDesign()) {
-      return KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP + KeyboardMetrics.STRIP_HEIGHT_VP
-        + KeyboardMetrics.STRIP_GAP_VP;
+      return KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP
+        + (this.stripShown() ? KeyboardMetrics.STRIP_HEIGHT_VP + KeyboardMetrics.STRIP_GAP_VP : 0);
     }
     return KeyboardMetrics.ROOT_VERTICAL_PADDING_VP
       + KeyboardMetrics.compositionRowHeightVp(this.settings.candidatePreeditFontSize)
@@ -9192,14 +9244,16 @@ struct KeyboardView {
   @Builder
   keyboard() {
     if (this.touchDesign()) {
-      // 设计稿的框架：50vp 工具条上方 8vp，下方固定 10vp，按键行之间是用户设定的行距，底部 6vp，两侧 4vp。`KeyboardMetrics.totalHeightVp` 正是按此确定面板大小。
+      // 设计稿的框架：50vp 工具条上方 8vp，下方固定 10vp，按键行之间是用户设定的行距，底部 6vp，两侧 4vp。`KeyboardMetrics.totalHeightVp` 正是按此确定面板大小。工具栏隐藏或工具全关、空闲时不画工具条和它下面的间距（`stripShown`），面板同样按此变矮。
       Column() {
-        this.touchStrip()
+        if (this.stripShown()) {
+          this.touchStrip()
+        }
         Column({ space: this.rowSpacing() }) {
           this.keyFaces()
         }
         .width('100%')
-        .margin({ top: KeyboardMetrics.STRIP_GAP_VP })
+        .margin({ top: this.stripShown() ? KeyboardMetrics.STRIP_GAP_VP : 0 })
       }
       .width('100%')
       .padding({

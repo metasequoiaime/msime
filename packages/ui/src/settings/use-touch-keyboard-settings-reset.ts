@@ -63,6 +63,7 @@ export function useTouchKeyboardSettingsReset({
     delete next.touch_keyboard_height_adjustment;
     delete next.touch_voice_shortcut;
     delete next.touch_toolbar;
+    delete next.harmony_toolbar;
     setDraft(next);
     setError("");
     setNotice("屏幕键盘设置已恢复默认。");

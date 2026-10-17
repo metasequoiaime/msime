@@ -968,6 +968,9 @@ pub struct Preferences {
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
+    /// HarmonyOS 手机键盘空闲工具栏上的五个工具和显示方式。默认全开、不隐藏，就是没有这组设置时鸿蒙键盘的样子；等于默认值时不写进文档，没有这个键的旧版本照样能读。`touch_toolbar` 的缺省（剪贴板关、没有常用语和输入方式）与鸿蒙工具栏对不上，所以另起一组。其他宿主不读它，设置页只在宿主报告 `touch_toolbar_tools` 时给出这组开关。
+    #[serde(default, skip_serializing_if = "HarmonyToolbarPreferences::is_default")]
+    pub harmony_toolbar: HarmonyToolbarPreferences,
     /// 当前方案是日文、韩文、越南文或藏文时保留，记住要回到的中文方案。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_chinese_scheme: Option<ChineseScheme>,
@@ -1554,6 +1557,38 @@ impl Default for TouchToolbarPreferences {
             fullwidth: false,
             punctuation: false,
         }
+    }
+}
+
+/// HarmonyOS 手机键盘空闲工具栏的工具开关和显示方式，缺哪个字段就取默认值。标志键和收起键固定在两端，不在这里。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HarmonyToolbarPreferences {
+    pub emoji: bool,
+    pub phrase: bool,
+    pub clipboard: bool,
+    pub skin: bool,
+    pub scheme: bool,
+    /// 显示方式选了「隐藏」：空闲时整行不显示，组字时候选栏照常显示。
+    pub hidden: bool,
+}
+
+impl Default for HarmonyToolbarPreferences {
+    fn default() -> Self {
+        Self {
+            emoji: true,
+            phrase: true,
+            clipboard: true,
+            skin: true,
+            scheme: true,
+            hidden: false,
+        }
+    }
+}
+
+impl HarmonyToolbarPreferences {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
     }
 }
 
@@ -2333,6 +2368,7 @@ impl Default for Preferences {
             touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
             touch_shuangpin_key_hints: false,
             touch_toolbar: TouchToolbarPreferences::default(),
+            harmony_toolbar: HarmonyToolbarPreferences::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             shuangpin_custom_profile: ShuangpinCustomProfile::default(),

@@ -212,6 +212,8 @@ export function ScreenKeyboardSettingsPage() {
         }
         toolbarComponents={Boolean(host?.touch_toolbar_components)}
         toolbar={draft.touch_toolbar}
+        // 只有报告 `touch_toolbar_tools` 的宿主（HarmonyOS 手机）给出这组开关，其他宿主的页面不变。
+        harmonyToolbar={host?.touch_toolbar_tools ? (draft.harmony_toolbar ?? {}) : undefined}
         tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
         tabletSplitKeyboard={mobileKeyboardFeedback?.tabletSplitKeyboard}
         glideTyping={mobileKeyboardFeedback?.glideTyping}
@@ -240,6 +242,7 @@ export function ScreenKeyboardSettingsPage() {
           onPreferencesChange({ touch_shuangpin_key_hints })
         }
         onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
+        onHarmonyToolbarChange={(harmony_toolbar) => onPreferencesChange({ harmony_toolbar })}
         onTabletFullKeysChange={(tabletFullKeys) => {
           if (mobileKeyboardFeedback) {
             void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, tabletFullKeys });

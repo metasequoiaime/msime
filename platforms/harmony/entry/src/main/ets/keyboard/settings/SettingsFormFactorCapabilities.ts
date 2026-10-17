@@ -34,6 +34,8 @@ export interface SettingsFormFactorProjection {
   wordbookPacks: boolean;
   /** 表情面板的颜文字页和符号页列出符号集插件的组：插件只能在 2in1 的插件页安装，手机面板也不去读，所以只在 2in1 声明。 */
   symbolSetPacks: boolean;
+  /** 工具栏的显示方式和工具开关（`harmony_toolbar`）：只有手机键盘画那一行工具栏，2in1 的键盘没有它，所以只在手机上声明。 */
+  touchToolbarTools: boolean;
 }
 
 /** Keep the shared settings page aligned with the keyboard's actual device form factor. */
@@ -63,6 +65,7 @@ export class SettingsFormFactorCapabilities {
       typingEffects: desktop,
       wordbookPacks: desktop,
       symbolSetPacks: desktop,
+      touchToolbarTools: !desktop,
     };
   }
 }

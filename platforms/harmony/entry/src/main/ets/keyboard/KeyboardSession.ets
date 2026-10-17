@@ -18,6 +18,7 @@ import { AppThemePalette, AppThemeSeed } from './skin/AppThemePalette';
 import { AppThemeStore } from './skin/AppThemeStore';
 import { CommonPhraseStarters } from './CommonPhraseStarters';
 import { SettingsPageLink } from './SettingsPageLink';
+import { ToolbarTools, ToolbarToolsDocument, TouchToolbarPolicy } from './TouchToolbarPolicy';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
@@ -878,6 +879,8 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   /** 26 键双拼字母键底部的声母/韵母提示；旧文档没有这个键，按开。 */
   touch_shuangpin_key_hints?: boolean;
+  /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
+  harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
   clipboard_history: boolean;
   voice_input: VoiceInputConfiguration;
@@ -1015,6 +1018,8 @@ export interface KeyboardPreferences {
   readonly heightAdjustment: number;
   /** `touch_shuangpin_key_hints`：关掉时 26 键双拼不画键位提示。 */
   readonly shuangpinKeyHints: boolean;
+  /** `harmony_toolbar`：手机工具栏上显示哪些工具，整行是否隐藏。 */
+  readonly toolbarTools: ToolbarTools;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1279,7 +1284,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
-    shuangpinKeyHints: false
+    shuangpinKeyHints: false,
+    toolbarTools: TouchToolbarPolicy.DEFAULT
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1554,7 +1560,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
-      shuangpinKeyHints: preferences.touch_shuangpin_key_hints === true
+      shuangpinKeyHints: preferences.touch_shuangpin_key_hints === true,
+      toolbarTools: TouchToolbarPolicy.fromDocument(preferences.harmony_toolbar)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -5190,6 +5197,11 @@ export class KeyboardSession implements HardwareKeyTarget {
    * Failures are logged once rather than per keystroke: a device without a vibrator would otherwise
    * fill the log with the same line at typing speed.
    */
+  /** 长按工具栏按钮时的那一下按键反馈，与 Android 长按工具栏打开编辑页时一样。 */
+  holdFeedback(): void {
+    this.tapFeedback();
+  }
+
   private tapFeedback(): void {
     const settings: FeedbackSettings = this.feedbackCurrent;
     if (!settings.haptics || this.vibratorFailed) {
