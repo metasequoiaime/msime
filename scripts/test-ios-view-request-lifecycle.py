@@ -16,7 +16,9 @@ class ViewRequestLifecycleContract(unittest.TestCase):
     def test_modifier_owns_common_visibility_lifecycle(self):
         source = TASK.read_text()
         self.assertIn("struct ViewRequestLifecycle: ViewModifier", source)
-        self.assertIn(".onAppear { request.appear() }", source)
+        self.assertIn(".onAppear {", source)
+        self.assertIn("request.appear()", source)
+        self.assertIn("onAppear()", source)
         self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", source)
         self.assertIn("func trackViewRequest(", source)
 

@@ -98,11 +98,15 @@ import SwiftUI
 @MainActor struct ViewRequestLifecycle: ViewModifier {
   @Binding var request: ViewRequestGeneration
   @Binding var pending: Task<Void, Never>?
+  let onAppear: @MainActor () -> Void
   let onDisappear: @MainActor () -> Void
 
   func body(content: Content) -> some View {
     content
-      .onAppear { request.appear() }
+      .onAppear {
+        request.appear()
+        onAppear()
+      }
       .onDisappear {
         ViewRequestTask.disappear(request: $request, pending: $pending)
         onDisappear()
@@ -114,8 +118,9 @@ extension View {
   func trackViewRequest(
     request: Binding<ViewRequestGeneration>,
     pending: Binding<Task<Void, Never>?>,
+    onAppear: @escaping @MainActor () -> Void = {},
     onDisappear: @escaping @MainActor () -> Void
   ) -> some View {
-    modifier(ViewRequestLifecycle(request: request, pending: pending, onDisappear: onDisappear))
+    modifier(ViewRequestLifecycle(request: request, pending: pending, onAppear: onAppear, onDisappear: onDisappear))
   }
 }

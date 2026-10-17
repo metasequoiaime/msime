@@ -17,9 +17,9 @@ class CommunityResourceDetailLifecycleTests(unittest.TestCase):
     def test_detail_owns_visibility_and_pending_work(self):
         self.assertIn("@State private var pending: Task<Void, Never>?", self.detail)
         self.assertIn("@State private var request = ViewRequestGeneration()", self.detail)
-        self.assertIn(".onAppear { request.appear()", self.detail)
-        self.assertIn(".onDisappear", self.detail)
-        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.detail)
+        self.assertIn(".trackViewRequest(request: $request, pending: $pending, onDisappear: {", self.detail)
+        self.assertNotIn(".onAppear { request.appear()", self.detail)
+        self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.detail)
 
     def test_detail_actions_fence_late_results(self):
         self.assertIn("run(_ action: @escaping @MainActor (UUID) async throws -> Void)", self.detail)

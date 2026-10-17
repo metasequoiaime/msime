@@ -42,8 +42,8 @@ class CommunitySkinLifecycleTests(unittest.TestCase):
     def test_detail_fences_late_actions(self):
         self.assertIn("@State private var pending: Task<Void, Never>?", self.detail)
         self.assertIn("@State private var request = ViewRequestGeneration()", self.detail)
-        self.assertIn(".onDisappear", self.detail)
-        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.detail)
+        self.assertIn(".trackViewRequest(request: $request, pending: $pending, onDisappear: {", self.detail)
+        self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.detail)
         self.assertIn("run(_ action: @escaping @MainActor (UUID) async throws -> Void)", self.detail)
         self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", self.detail)
         self.assertGreaterEqual(self.detail.count("Button { run { id in"), 3)
@@ -58,8 +58,9 @@ class CommunitySkinLifecycleTests(unittest.TestCase):
     def test_publish_cancels_after_leaving(self):
         self.assertIn("@State private var pending: Task<Void, Never>?", self.publish)
         self.assertIn("@State private var request = ViewRequestGeneration()", self.publish)
-        self.assertIn(".onDisappear", self.publish)
-        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.publish)
+        self.assertIn(".trackViewRequest(request: $request, pending: $pending, onAppear: {", self.publish)
+        self.assertIn("onDisappear: {", self.publish)
+        self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.publish)
         self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", self.publish)
         self.assertIn("catch is CancellationError", TASK.read_text())
 

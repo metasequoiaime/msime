@@ -411,7 +411,6 @@ struct CommunitySkinDetail: View {
       }.padding()
     }.designCanvasBackground().navigationTitle("皮肤详情").navigationBarTitleDisplayMode(.inline)
       .task {
-        request.appear()
         run { id in
           let latest = try await SkinCommunityAPI.shared.detail(initial.id)
           try request.checkCurrent(id)
@@ -429,11 +428,9 @@ struct CommunitySkinDetail: View {
         } }
       }
       .alert("皮肤社区", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
-      .onAppear { request.appear() }
-      .onDisappear {
-        ViewRequestTask.disappear(request: $request, pending: $pending)
+      .trackViewRequest(request: $request, pending: $pending, onDisappear: {
         busy = false
-      }
+      })
   }
   private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
     ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending, action: action)
@@ -509,12 +506,12 @@ struct CommunityPublishView: View {
       }.disabled(busy)
         .navigationTitle("发布皮肤")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
-        .onAppear { request.appear(); refreshLibrary(preferring: selectedSkinID) }
-        .alert("发布失败", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
-        .onDisappear {
-          ViewRequestTask.disappear(request: $request, pending: $pending)
+        .trackViewRequest(request: $request, pending: $pending, onAppear: {
+          refreshLibrary(preferring: selectedSkinID)
+        }, onDisappear: {
           busy = false
-        }
+        })
+        .alert("发布失败", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
     }.interactiveDismissDisabled(busy)
   }
 

@@ -514,7 +514,6 @@ struct CommunityResourceDetail: View {
       }.padding(20)
     }.designCanvasBackground().navigationTitle(item.kind == .dictionary ? "词库详情" : "回复模板")
       .task {
-        request.appear()
         run { id in
         let latest = try await SkinCommunityAPI.shared.resource(initial.id)
         try request.checkCurrent(id)
@@ -546,11 +545,9 @@ struct CommunityResourceDetail: View {
       .alert("社区", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
         Button("好", role: .cancel) {}
       } message: { Text(message ?? "") }
-      .onAppear { request.appear() }
-      .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $pending)
-      busy = false
-      }
+      .trackViewRequest(request: $request, pending: $pending, onDisappear: {
+        busy = false
+      })
   }
   private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
     ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending, action: action)
@@ -668,11 +665,9 @@ struct CommunityResourceEditor: View {
         } message: { Text(message ?? "") }
     }
     .navigationViewStyle(.stack)
-    .onAppear { request.appear() }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $pending)
+    .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
-    }
+    })
   }
 
 
