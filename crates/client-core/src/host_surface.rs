@@ -348,7 +348,7 @@ pub struct HostCapabilities {
     pub input_mode_hud: bool,
     /// 宿主在系统菜单栏放一个常驻的状态项，显示当前输入模式。只有 macOS 需要：系统的输入法菜单图标只在用户把对应模式（例如「英」）加成输入源后才会跟着变，而 Windows 有托盘语言栏，Linux 有 Fcitx5/IBus 面板，触屏键盘的键面本身就显示模式。
     pub input_mode_status_item: bool,
-    /// 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格。目前只有 macOS 实现；其他桌面宿主接上之前不提供这个开关，免得设置页存下一个宿主不理会的值。
+    /// 宿主按 `expand_candidates` 让横排候选窗按 Tab、↓ 展开成多行候选网格。目前只有 macOS 实现；其他桌面宿主接上之前不提供这个开关，免得设置页存下一个宿主不理会的值。
     pub expand_candidates: bool,
     /// 宿主画的各个界面（设置窗口、屏幕键盘、悬浮工具栏与中英文提示、菜单、表情面板、手写识别板、语音输入弹出条）一律跟随颜色模式，不读 `settings_theme`、`screen_keyboard_theme`、`toolbar_theme`、`menu_theme`、`emoji_theme`、`handwriting_theme`、`voice_theme`，设置页也不给这几行；候选窗口仍按 `candidate_theme` 单独设明暗。桌面宿主（macOS、Windows、Linux、HarmonyOS）都是这样，Android 和 iOS 不是：固定明暗的内置主题本来就会盖过工具栏和菜单的单独设置，单给一个界面定明暗的需求由「夜」「墨」这类主题满足。
     pub surface_themes_follow: bool,

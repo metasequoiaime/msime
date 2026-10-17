@@ -3068,10 +3068,14 @@ static void TestExpandedCandidateGrid() {
     assert(session.lastCommand == MSIME_NEXT_CANDIDATE && !expanded());
     session.total = 23;
 
-    // 横排、多页：光标在末尾时 → 选择下一个候选，首行有展开按钮。
+    // 横排、多页：Tab 直接展开完整候选网格，Shift+Tab 仍保留上一页语义；光标在末尾时 → 选择下一个候选，首行有展开按钮。
     compose();
     MSIMECandidateButton *expandButton = ExpandedGridSubview(panel, -3);
     assert(expandButton && [expandButton.identifier isEqual:@"candidate-expand"] && [expandButton.accessibilityLabel isEqual:@"展开候选"]);
+    session.lastCommand = UINT32_MAX;
+    const NSUInteger tabReads = session.allCandidateCalls;
+    assert(press(48) && expanded() && session.allCandidateCalls == tabReads + 1 && session.lastCommand == UINT32_MAX);
+    [controller closeExpandedCandidates];
     session.lastCommand = UINT32_MAX;
     assert(press(124));
     assert(session.lastCommand == MSIME_NEXT_CANDIDATE && !expanded());

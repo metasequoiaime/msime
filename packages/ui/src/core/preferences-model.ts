@@ -128,7 +128,7 @@ export type Preferences = PunctuationPreferences &
     show_candidate_page_number?: boolean;
     /** 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏，旧文档缺这个字段时读成显示。 */
     show_app_logo?: boolean;
-    /** 「展开候选」：横排候选窗按 ↓ 展开成多行候选网格，默认关闭。 */
+    /** 「展开候选」：横排候选窗按 Tab、↓ 展开成多行候选网格，默认关闭。 */
     expand_candidates?: boolean;
     /** 展开按钮独立于页码显示，缺字段时默认开启。 */
     show_candidate_expand_button?: boolean;

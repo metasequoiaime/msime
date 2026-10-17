@@ -6318,6 +6318,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             [self renderCandidates];
             return YES;
         }
+        // 打开展开候选后，Tab 直接进入多行网格；网格里的 Tab 仍由
+        // handleExpandedCandidateEvent: 滚过可见的几行。偏好关闭或只有一页时，Tab 保持翻页。
+        if (!(event.modifierFlags & NSEventModifierFlagShift) &&
+            _appearance.expandCandidates && [self openExpandedCandidates]) return YES;
         if ([_appearance navigationEnabled:@"tab"]) {
             [self apply:[_session command:(event.modifierFlags & NSEventModifierFlagShift) ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
             return YES;

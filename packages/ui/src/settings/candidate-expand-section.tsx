@@ -18,14 +18,14 @@ export function CandidateExpandSection({
     <>
       <SwitchRow
         title="展开候选"
-        description="横排候选窗按 ↓ 或点展开按钮，把后面几页候选排成多行一起显示；竖排候选窗不受影响。"
+        description="横排候选窗按 Tab、↓ 或点展开按钮，把后面几页候选排成多行一起显示；竖排候选窗不受影响。"
         checked={value === true}
         onChange={onChange}
       />
       {value === true && (
         <SwitchRow
           title="显示展开键"
-          description="独立于页码和翻页按钮显示；关闭后仍可按 ↓ 展开候选。"
+          description="独立于页码和翻页按钮显示；关闭后仍可按 Tab 或 ↓ 展开候选。"
           checked={showButton !== false}
           onChange={onShowButtonChange}
         />

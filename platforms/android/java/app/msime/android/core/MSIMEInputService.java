@@ -4834,6 +4834,13 @@ public final class MSIMEInputService extends InputMethodService {
             return command(3) || super.onKeyDown(keyCode, event);
         if (hasEngineComposition() && (!writtenCompositionActive() || openedList)
                 && !(koreanHanjaList && KoreanInputPolicy.hanjaListMark(keyCode))) {
+            // Tab 在有多页候选时先打开完整候选面板，和 iPad 的全尺寸键盘一致；面板不适用时
+            // 继续走下面的普通翻页路径。Shift+Tab 保留上一页，不抢它的反向翻页语义。
+            if (CandidateNavigationPolicy.shouldOpenCandidatePanel(keyCode, event.isShiftPressed(),
+                    candidateNavigation, candidatePanelOpen)) {
+                openCandidatePanel();
+                if (candidatePanelOpen) return true;
+            }
             int navigationCommand = CandidateNavigationPolicy.commandFor(
                 keyCode, event.isShiftPressed(), candidateNavigation, japaneseSchemeActive());
             if (navigationCommand == CandidateNavigationPolicy.NONE && openedList) {
