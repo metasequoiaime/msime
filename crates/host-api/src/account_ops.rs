@@ -730,7 +730,7 @@ where
             };
             let outcome = match item {
                 SessionItem::Account => account.adopt_session(published, from)?,
-                SessionItem::Anonymous => anonymous()?.adopt_session(published, from)?,
+                SessionItem::Anonymous => anonymous()?.adopt_anonymous_session(published, from)?,
             };
             Ok(json!({ "outcome": outcome }))
         }

@@ -457,11 +457,32 @@ fn private_file(path: &Path, contents: &[u8]) {
     }
 }
 
-/// 升级后两个沙箱里各有一份没有 `session_id` 的旧会话，访问令牌已经过期（升级时多数用户的状态）。`keyboard_rotated` 时旧版键盘在升级前已经把 `b` 轮换成 `c`、设置应用还没导入，`b` 已经用过；否则两边都是 `b`。键盘先刷新，之后两边互相导入：谁都不能回到用过的刷新令牌，否则下一次刷新被服务端当成重放、整个会话被吊销。`file` 是会话文件名，`legacy` 按刷新令牌的字符写出旧文件的内容，`open` 按目录建出这份会话的存储。
+/// 采用的是哪一份会话，与 host-api 的 `item` 相同：登录会话走 `adopt_session`，匿名会话走 `adopt_anonymous_session`。
+#[derive(Clone, Copy)]
+enum Item {
+    Account,
+    Anonymous,
+}
+
+fn adopt<S: AccountSessionStorage>(
+    item: Item,
+    session: &BackendAccountSession<RotatingApi, S>,
+    published: Option<SavedAccountSession>,
+    from: SessionAdoptSource,
+) -> Result<SessionAdoptOutcome, AccountError> {
+    match item {
+        Item::Account => session.adopt_session(published, from),
+        Item::Anonymous => session.adopt_anonymous_session(published, from),
+    }
+}
+
+/// 升级后两个沙箱里各有一份升级前的旧会话，访问令牌已经过期（升级时多数用户的状态）。`keyboard_rotated` 时旧版键盘在升级前已经把 `b` 轮换成 `c`、设置应用还没导入，`b` 已经用过；否则两边都是 `b`。键盘先刷新，之后两边互相导入：谁都不能回到用过的刷新令牌，否则下一次刷新被服务端当成重放、整个会话被吊销。`file` 是会话文件名，`settings_file` 和 `keyboard_file` 按刷新令牌的字符写出两边旧文件的内容，`open` 按目录建出这份会话的存储，`item` 选采用的规则。
 fn assert_one_refresh_survives_the_upgrade<S: AccountSessionStorage>(
     file: &str,
-    legacy: impl Fn(char) -> Vec<u8>,
+    settings_file: impl Fn(char) -> Vec<u8>,
+    keyboard_file: impl Fn(char) -> Vec<u8>,
     open: impl Fn(&Path) -> S,
+    item: Item,
     keyboard_rotated: bool,
 ) {
     let root = tempfile::tempdir().unwrap();
@@ -475,9 +496,12 @@ fn assert_one_refresh_survives_the_upgrade<S: AccountSessionStorage>(
     } else {
         'b'
     };
-    for (directory, refresh) in [(&settings, 'b'), (&keyboard, keyboard_token)] {
+    for (directory, contents) in [
+        (&settings, settings_file('b')),
+        (&keyboard, keyboard_file(keyboard_token)),
+    ] {
         storage(directory).create_directory().unwrap();
-        private_file(&directory.join(file), &legacy(refresh));
+        private_file(&directory.join(file), &contents);
     }
     let mut spent = api.presented.lock().unwrap().clone();
     let refreshed = |directory: &Path| {
@@ -495,7 +519,9 @@ fn assert_one_refresh_survives_the_upgrade<S: AccountSessionStorage>(
 
     // 设置应用还没被 Rust 写过，发布的仍是旧会话：键盘留着自己刷新过的那份。
     assert_eq!(
-        keyboard_session.adopt_session(
+        adopt(
+            item,
+            &keyboard_session,
             read_published_session(&settings.join(file)).unwrap(),
             SessionAdoptSource::Settings
         ),
@@ -506,7 +532,9 @@ fn assert_one_refresh_survives_the_upgrade<S: AccountSessionStorage>(
     // 设置应用本地也还是旧会话：采用键盘刷新过的那份，下一次刷新交出的是它。
     let settings_session = BackendAccountSession::new(api.clone(), open(&settings));
     assert_eq!(
-        settings_session.adopt_session(
+        adopt(
+            item,
+            &settings_session,
             read_published_session(&keyboard.join(file)).unwrap(),
             SessionAdoptSource::Keyboard
         ),
@@ -523,7 +551,9 @@ fn assert_one_refresh_survives_the_upgrade<S: AccountSessionStorage>(
 
     // 键盘再导入设置应用刷新后的那份，仍是同一次登录、新者胜。
     assert_eq!(
-        keyboard_session.adopt_session(
+        adopt(
+            item,
+            &keyboard_session,
             read_published_session(&settings.join(file)).unwrap(),
             SessionAdoptSource::Settings
         ),
@@ -543,18 +573,36 @@ fn flat_session(refresh: char) -> Vec<u8> {
     .into_bytes()
 }
 
-/// ArkTS 存的匿名会话是 Native 布局，但同样没有 `session_id`，一小时前过期。
-fn anonymous_session(refresh: char) -> Vec<u8> {
+/// 一小时前过期的 Native 匿名会话，登录 ID 是 `session_id`。
+fn expired_anonymous_session(refresh: char, session_id: Option<uuid::Uuid>) -> Vec<u8> {
     let mut expired = saved("person-a", None, 60, refresh);
     expired.expires_at_unix_ms = now_ms() - 3_600_000;
-    let native = serde_json::to_vec(&expired).unwrap();
+    expired.session_id = session_id;
+    serde_json::to_vec(&expired).unwrap()
+}
+
+/// ArkTS 存的匿名会话是 Native 布局，但同样没有 `session_id`，一小时前过期。
+fn anonymous_session(refresh: char) -> Vec<u8> {
+    let native = expired_anonymous_session(refresh, None);
     assert!(!String::from_utf8_lossy(&native).contains("session_id"));
     native
 }
 
+/// Rust 注册（`sign_in_anonymous`）时写的匿名会话：随机的 v4 登录 ID，一小时前过期。
+fn registered_anonymous_session(refresh: char) -> Vec<u8> {
+    expired_anonymous_session(refresh, Some(uuid::Uuid::new_v4()))
+}
+
 #[test]
 fn an_upgraded_flat_session_refreshed_in_one_sandbox_is_not_rolled_back_by_the_other() {
-    assert_one_refresh_survives_the_upgrade(ACCOUNT_SESSION_FILE, flat_session, storage, false);
+    assert_one_refresh_survives_the_upgrade(
+        ACCOUNT_SESSION_FILE,
+        flat_session,
+        flat_session,
+        storage,
+        Item::Account,
+        false,
+    );
 }
 
 #[test]
@@ -562,14 +610,23 @@ fn an_upgraded_anonymous_session_refreshed_in_one_sandbox_is_not_rolled_back_by_
     assert_one_refresh_survives_the_upgrade(
         ANONYMOUS_SESSION_FILE,
         anonymous_session,
+        anonymous_session,
         LockedAnonymousSessionStorage::new,
+        Item::Anonymous,
         false,
     );
 }
 
 #[test]
 fn an_upgraded_flat_session_the_keyboard_rotated_before_the_upgrade_survives() {
-    assert_one_refresh_survives_the_upgrade(ACCOUNT_SESSION_FILE, flat_session, storage, true);
+    assert_one_refresh_survives_the_upgrade(
+        ACCOUNT_SESSION_FILE,
+        flat_session,
+        flat_session,
+        storage,
+        Item::Account,
+        true,
+    );
 }
 
 #[test]
@@ -577,7 +634,108 @@ fn an_upgraded_anonymous_session_the_keyboard_rotated_before_the_upgrade_survive
     assert_one_refresh_survives_the_upgrade(
         ANONYMOUS_SESSION_FILE,
         anonymous_session,
+        anonymous_session,
         LockedAnonymousSessionStorage::new,
+        Item::Anonymous,
         true,
     );
+}
+
+/// 设置应用里还是 Rust 注册时写的 `{b, v4}`，旧版键盘的 ArkTS 桥接已经把它轮换成 `c`、按 `anonymousSessionForStorage` 写回时丢了 `session_id`，`b` 已经用过（升级时常见的状态）。
+#[test]
+fn an_anonymous_session_registered_in_rust_and_rotated_by_the_old_keyboard_survives_the_upgrade() {
+    assert_one_refresh_survives_the_upgrade(
+        ANONYMOUS_SESSION_FILE,
+        registered_anonymous_session,
+        anonymous_session,
+        LockedAnonymousSessionStorage::new,
+        Item::Anonymous,
+        true,
+    );
+}
+
+/// 键盘还没被 Rust 用过、两边都没刷新时，匿名会话注册时的 v4 副本与 ArkTS 写回的没有 ID 的副本也按新者胜；两边都是 v4 时仍只认相同的 ID，登录会话的规则不变。
+#[test]
+fn an_anonymous_registration_matches_the_copy_the_old_bridge_wrote_back_without_an_id() {
+    let root = tempfile::tempdir().unwrap();
+    let (settings, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
+    let registration = uuid::Uuid::new_v4();
+    let anonymous = |directory: &Path| {
+        BackendAccountSession::new(NoNetwork, LockedAnonymousSessionStorage::new(directory))
+    };
+    let anonymous_storage = |directory: &Path| LockedAnonymousSessionStorage::new(directory);
+    anonymous_storage(&settings)
+        .save(&with_id(saved("person-a", None, 30, 'b'), registration))
+        .unwrap();
+    anonymous_storage(&keyboard)
+        .save(&saved("person-a", None, 90, 'c'))
+        .unwrap();
+    let anonymous_local = |directory: &Path| {
+        let saved = anonymous_storage(directory).load().unwrap().unwrap();
+        (saved.tokens.refresh_token, saved.session_id)
+    };
+    let token = |refresh: char| refresh.to_string().repeat(64);
+
+    // 设置应用发布的是用过的 `b`：键盘留着更新的 `c`。
+    assert_eq!(
+        anonymous(&keyboard).adopt_anonymous_session(
+            anonymous_storage(&settings).load().unwrap(),
+            SessionAdoptSource::Settings
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(anonymous_local(&keyboard), (token('c'), None));
+    // 设置应用采用键盘的 `c`，写进文件的是由 `c` 派生的登录 ID。
+    assert_eq!(
+        anonymous(&settings).adopt_anonymous_session(
+            anonymous_storage(&keyboard).load().unwrap(),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(
+        anonymous_local(&settings),
+        (token('c'), Some(legacy_session_id(&token('c'))))
+    );
+
+    // 派生 ID 的一边与注册时的 v4 仍算同一次登录；换上那个 v4 以后，两边都是 v4、但不相同时不是同一次登录，键盘发布的再新也不采用。
+    assert_eq!(
+        anonymous(&settings).adopt_anonymous_session(
+            Some(with_id(saved("person-a", None, 240, 'd'), registration)),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(
+        anonymous(&settings).adopt_anonymous_session(
+            Some(with_id(
+                saved("person-a", None, 480, 'e'),
+                uuid::Uuid::new_v4()
+            )),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(anonymous_local(&settings), (token('d'), Some(registration)));
+    // 另一个匿名账号不论有没有登录 ID 都不算。
+    assert_eq!(
+        anonymous(&settings).adopt_anonymous_session(
+            Some(saved("person-b", None, 480, 'e')),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+
+    // 同样两份登录会话仍按登录会话的规则：v4 与没有 ID 的副本不算同一次登录。
+    storage(&settings)
+        .save(&with_id(saved("person-a", None, 30, 'b'), registration))
+        .unwrap();
+    assert_eq!(
+        session(&settings).adopt_session(
+            Some(saved("person-a", None, 90, 'c')),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(local(&settings), has("person-a", 'b'));
 }

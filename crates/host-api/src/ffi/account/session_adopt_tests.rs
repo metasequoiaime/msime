@@ -198,6 +198,53 @@ fn the_anonymous_item_goes_to_the_anonymous_session_and_keeps_the_identity() {
 }
 
 #[test]
+fn the_anonymous_item_takes_the_old_bridges_copy_without_a_login_id_over_the_registration() {
+    let root = tempfile::tempdir().unwrap();
+    let published = root.path().join("group").join("keyboard").join("state");
+    let settings = root.path().join("settings").join("state");
+    // 设置应用里是 Rust 注册时写的 v4 会话；旧版键盘的 ArkTS 桥接把它轮换过，写回时丢了 session_id。
+    let registration = saved("msime-anonymous", 'b');
+    let mut rotated = saved("msime-anonymous", 'c');
+    rotated.session_id = None;
+    rotated.expires_at_unix_ms += 600_000;
+    for directory in [&settings, &published] {
+        AnonymousSessionStorage::new(directory)
+            .save(&registration)
+            .unwrap();
+        account_storage(directory).save(&registration).unwrap();
+    }
+    AnonymousSessionStorage::new(&published)
+        .save(&rotated)
+        .unwrap();
+    account_storage(&published).save(&rotated).unwrap();
+
+    // 登录会话的规则不变：v4 与没有 ID 的副本不算同一次登录。
+    assert_eq!(
+        adopt(
+            &settings,
+            json!({ "operation": "session_adopt", "path": published.join(ACCOUNT_SESSION_FILE), "item": "account", "from": "keyboard" })
+        ),
+        json!({ "ok": true, "value": { "outcome": "unchanged" } })
+    );
+    assert_eq!(
+        refresh_token(account_storage(&settings).load().unwrap()),
+        Some("b".repeat(64))
+    );
+    // 匿名会话算同一次登录，采用更新的那份，不留着用过的 `b`。
+    assert_eq!(
+        adopt(
+            &settings,
+            json!({ "operation": "session_adopt", "path": published.join(ANONYMOUS_SESSION_FILE), "item": "anonymous", "from": "keyboard" })
+        ),
+        json!({ "ok": true, "value": { "outcome": "adopted" } })
+    );
+    assert_eq!(
+        refresh_token(AnonymousSessionStorage::new(&settings).load().unwrap()),
+        Some("c".repeat(64))
+    );
+}
+
+#[test]
 fn bad_adopt_requests_are_refused_without_touching_the_session() {
     let root = tempfile::tempdir().unwrap();
     let keyboard = root.path().join("keyboard");
