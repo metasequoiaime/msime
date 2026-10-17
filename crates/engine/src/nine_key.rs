@@ -1078,6 +1078,7 @@ impl NineKeySession {
     pub fn snapshot(&self) -> SessionSnapshot {
         let locked_length = self.locked_length();
         let mut preedit = self.locked.join("'");
+        let locked_preedit_length = preedit.len();
         if self.active() && locked_length < self.digits.len() {
             if !preedit.is_empty() {
                 preedit.push('\'');
@@ -1091,7 +1092,7 @@ impl NineKeySession {
             preedit.push_str(&self.digits[start..]);
             if let Some(initial) = self.initial {
                 // 选了首字母的那一位显示成字母。
-                let at = self.locked.join("'").len() + usize::from(!self.locked.is_empty());
+                let at = locked_preedit_length + usize::from(!self.locked.is_empty());
                 preedit.replace_range(at..=at, &char::from(initial.letter).to_string());
             }
         }
@@ -3970,6 +3971,24 @@ mod tests {
         assert_eq!(view.candidate_sources, [CandidateSource::Database; 2]);
         assert_eq!(view.candidate_annotations, ["", ""]);
         assert_eq!(session.ranking_context(), "nine-key:64426:ni'hao");
+    }
+
+    #[test]
+    fn snapshot_reuses_locked_prefix_length_for_an_initial() {
+        let mut session = detached();
+        session.digits = "644269".into();
+        session.locked = vec!["ni".into(), "hao".into()];
+        session.initial = Some(Initial {
+            letter: b'n',
+            typed: 6,
+            splits: 0,
+        });
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.snapshot());
+        assert!(
+            allocations <= 4,
+            "snapshot rebuilt the locked prefix for an initial: {allocations}"
+        );
     }
 
     // ---- Ported from test_nine_key_session.cpp against the session itself ----
