@@ -208,7 +208,7 @@ impl BackendAccountClient {
             .timeout(FEEDBACK_TIMEOUT)
             .multipart(form)
             .send()
-            .map_err(|_| AccountFailure::network())?;
+            .map_err(|error| AccountFailure::from_send_error(&error))?;
         let bytes = read_detailed_response(response, MAX_JSON_BYTES)?;
         let receipt: AccountFeedbackReceipt =
             serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)?;

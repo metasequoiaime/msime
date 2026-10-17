@@ -529,6 +529,17 @@ impl AccountFailure {
         }
     }
 
+    /// `send()` 失败时的码。只有真的没拿到响应（连不上、DNS 或 TLS 失败、超时、连接在响应头到达之前断开）才是 [`Self::network`]：reqwest 在发出之前就建不出请求（`is_builder`，例如地址或头不合法）是 `account_invalid`，请求根本没有发出去；重定向被策略拒绝（`is_redirect`，客户端不跟随重定向，正常碰不到）时服务端已经回了响应，是 `account_unavailable`。
+    pub(crate) fn from_send_error(error: &reqwest::Error) -> Self {
+        if error.is_builder() {
+            AccountError::Invalid.into()
+        } else if error.is_redirect() {
+            AccountError::Unavailable.into()
+        } else {
+            Self::network()
+        }
+    }
+
     /// 请求体超过服务端的上限，在本地就拒绝，`code()` 是 `account_too_large`。
     pub fn too_large() -> Self {
         Self {

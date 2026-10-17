@@ -373,7 +373,7 @@ fn deliver(
 /// 后台线程：发请求，非 2xx 交回失败，SSE 的正文按块交回；接收端没了（调用线程已经返回）就丢掉响应，连接随之断开。
 fn stream_response(request: reqwest::blocking::RequestBuilder, sender: &SyncSender<Message>) {
     let message = match request.send() {
-        Err(_) => Message::Failed(AccountFailure::network()),
+        Err(error) => Message::Failed(AccountFailure::from_send_error(&error)),
         Ok(response) if !response.status().is_success() => {
             Message::Failed(failure_from_response(response))
         }

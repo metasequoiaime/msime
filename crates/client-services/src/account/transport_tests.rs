@@ -1257,3 +1257,100 @@ fn the_ai_skin_service_keeps_the_detail_only_for_the_detailed_entry_points() {
     }
     assert_eq!(received.iter().count(), 3);
 }
+
+#[test]
+fn feedback_voice_and_export_report_a_dropped_connection_as_account_network() {
+    let feedback = prepare_feedback(&AccountFeedbackInput {
+        kind: "bug".into(),
+        text: "合成反馈".into(),
+        platform: "android".into(),
+        app_version: "0.9.0".into(),
+        edition: "full".into(),
+        ..Default::default()
+    })
+    .unwrap();
+    let contribution = prepare_voice_contribution(&AccountVoiceContributionInput {
+        language: "zh-CN".into(),
+        provider: "system".into(),
+        transcript: "合成识别文本".into(),
+        app_version: "0.9.0".into(),
+        audio: synthetic_wav(1, 16_000, 16, 32_000),
+    })
+    .unwrap();
+    // 三个都自己 send()，不经 request_detailed：服务端读完请求就挂断，一个字节也不回。
+    let (origin, received) = serve(vec![hang_up(), hang_up(), hang_up()]);
+    let client = client(&origin);
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("export.zip");
+    std::fs::write(&destination, b"older export").unwrap();
+    let failures = [
+        client.feedback(&feedback, &token('a')).unwrap_err(),
+        client
+            .voice_contribution(&contribution, &token('a'))
+            .unwrap_err(),
+        client.data_export(&destination, &token('a')).unwrap_err(),
+    ];
+    for failure in &failures {
+        assert_eq!(failure.code(), "account_network", "{failure:?}");
+        assert!(failure.network_failure);
+        assert_eq!(failure.status, None);
+        // 经 `error` 取码的已有接口看到的仍是 Unavailable。
+        assert_eq!(failure.error, AccountError::Unavailable);
+    }
+    // 导出没拿到响应：目标位置上原有的文件不动，也不留临时文件。
+    assert_eq!(std::fs::read(&destination).unwrap(), b"older export");
+    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    let lines: Vec<String> = received
+        .iter()
+        .map(|request| request.line().to_owned())
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "POST /v1/feedback HTTP/1.1",
+            "POST /v1/voice/contributions HTTP/1.1",
+            "GET /v1/users/me/data/export HTTP/1.1",
+        ]
+    );
+}
+
+#[test]
+fn send_errors_that_are_not_a_lost_connection_are_not_account_network() {
+    // 建不出请求：根本没有发出去，是请求不合法。
+    let builder = reqwest::blocking::Client::new()
+        .get("not an absolute url")
+        .send()
+        .unwrap_err();
+    assert!(builder.is_builder(), "{builder:?}");
+    let failure = AccountFailure::from_send_error(&builder);
+    assert_eq!(failure.code(), "account_invalid");
+    assert!(!failure.network_failure);
+
+    // 重定向被策略拒绝：服务端已经回了响应，是不可用而不是断网。账号客户端不跟随重定向，这里用一个一次也不许跟随的客户端造出这种错误。
+    let (origin, received) = serve(vec![
+        http("302 Found", &[("Location", "/elsewhere")], b""),
+        hang_up(),
+    ]);
+    let redirect = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(0))
+        .build()
+        .unwrap()
+        .get(format!("{origin}/start"))
+        .send()
+        .unwrap_err();
+    assert!(redirect.is_redirect(), "{redirect:?}");
+    let failure = AccountFailure::from_send_error(&redirect);
+    assert_eq!(failure.code(), "account_unavailable");
+    assert!(!failure.network_failure);
+
+    // 真的没拿到响应仍是断网。
+    let dropped = reqwest::blocking::Client::new()
+        .get(format!("{origin}/again"))
+        .send()
+        .unwrap_err();
+    assert_eq!(
+        AccountFailure::from_send_error(&dropped).code(),
+        "account_network"
+    );
+    assert_eq!(received.iter().count(), 2);
+}

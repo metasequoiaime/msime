@@ -352,7 +352,7 @@ impl BackendAccountClient {
             .prepare(method, path, token, body, maximum_request_bytes, accept)?
             .timeout(timeout)
             .send()
-            .map_err(|_| AccountFailure::network())?;
+            .map_err(|error| AccountFailure::from_send_error(&error))?;
         read_detailed_response(response, maximum_response_bytes)
     }
 
