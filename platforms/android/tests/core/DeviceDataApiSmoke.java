@@ -72,6 +72,14 @@ public final class DeviceDataApiSmoke {
             "an oversized identities response is refused");
         check(!DeviceDataApi.validResponseArrayLength(17, DeviceDataApi.MAX_DATA_SECTIONS),
             "an oversized data summary is refused");
+        check(DeviceDataApi.validDeleteSections(List.of("preferences", "phrases")),
+            "unique deletable sections are accepted");
+        check(!DeviceDataApi.validDeleteSections(List.of("phrases", "phrases")),
+            "duplicate deletable sections are refused");
+        check(!DeviceDataApi.validDeleteSections(List.of("unknown")),
+            "unknown deletable sections are refused");
+        check(!DeviceDataApi.validDeleteSections(List.of()), "empty deletable sections are refused");
+        check(!DeviceDataApi.validDeleteSections(null), "missing deletable sections are refused");
         check(DeviceDataApi.strictCount(42L) == 42L, "integer data count");
         for (Number invalid : new Number[] {1.5d, -1L}) {
             try {

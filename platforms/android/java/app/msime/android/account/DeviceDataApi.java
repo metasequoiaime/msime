@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.URL;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -282,7 +283,7 @@ public final class DeviceDataApi {
 
     /** 只删数据、保留账号：删掉 `sections`（{@link #DELETABLE_SECTIONS} 的子集）。要求最近登录。 */
     public void deleteData(List<String> sections) throws CloudApi.Failure, RecentLoginRequired {
-        if (sections == null || sections.isEmpty() || !DELETABLE_SECTIONS.containsAll(sections)) {
+        if (!validDeleteSections(sections)) {
             throw new IllegalArgumentException("invalid data sections");
         }
         JSONObject body;
@@ -329,6 +330,13 @@ public final class DeviceDataApi {
     /** 数组长度检查独立出来供无 `org.json` 的宿主冒烟测试覆盖。 */
     public static boolean validResponseArrayLength(int length, int maximum) {
         return length >= 0 && maximum >= 0 && length <= maximum;
+    }
+
+    /** 删除分类必须非空、属于允许集合且不能重复。 */
+    public static boolean validDeleteSections(List<String> sections) {
+        return sections != null && !sections.isEmpty()
+            && DELETABLE_SECTIONS.containsAll(sections)
+            && new HashSet<>(sections).size() == sections.size();
     }
 
     /** 按文件头认头像格式：PNG 签名或 JPEG 的 SOI 标记；都不是时为 null。 */
