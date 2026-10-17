@@ -31,6 +31,8 @@ issue #6847：Arch Linux、niri 26.04 Wayland 会话、Mesa 26.2、webkit2gtk-4.
 
 所有面向用户的入口本来就经过这个启动器：桌面文件的每条 `Exec=`、IBus 与 Fcitx5 宿主的 `MSIME_EDITION_SETTINGS_PROGRAM`、首次配置引导、Omarchy 钩子与菜单。`MSIME_CLIENT_SETTINGS_COMMAND` 仍按原样优先于默认命令，由用户自己的命令决定环境。设置外壳是单实例的，先启动的那个进程的环境一直生效到它退出，排查时要先退出旧进程。
 
+Arch 的 AUR 包有一条发布滞后兼容路径：`linux-v0.11.0` 标签切出来时还没有 DMA-BUF 变量，而新版 Arch WebKitGTK 已会在 NVIDIA + Wayland 上触发同一个 Error 71。`platforms/linux/packaging/arch/msime/PKGBUILD` 在源码包的 `prepare()`、`msime-bin/PKGBUILD` 在安装二进制时，都只对缺少该变量的旧启动器插入 `WEBKIT_DISABLE_DMABUF_RENDERER=${WEBKIT_DISABLE_DMABUF_RENDERER:-1}`；带有当前 NVIDIA 判断的后续源码与 RPM 不重复修改。这样不必改动发布标签或把开发分支源码混进 AUR，下一次 Linux 发布带上完整启动器后这条兼容分支自动变成空操作。
+
 有一条启动不经过启动器：升级后的交接。旧的设置进程在关窗后还会留十分钟，这期间升级再打开设置，单实例插件只把参数和工作目录转给旧进程，它的 `hand_over_to_replaced_program`（`apps/desktop/src-tauri/src/lib.rs`）发现自身程序已被替换，就直接以 `Command::new` 启动新的 `msime-linux-desktop`，新程序继承旧进程的环境。旧启动器无条件导出过两个 `1`，所以从旧版本升级上来的第一个新进程仍走非合成路径，并且它自己关窗后也会再留十分钟。交接这里不清掉继承来的 `WEBKIT_DISABLE_*`：进程无从分辨这两个值是旧启动器的默认还是用户显式设的，清掉会丢掉用户真正的覆盖；改为经同目录的 `msime-linux-settings` 重新拉起也没用，继承来的 `1` 在启动器看来就是显式值。这只影响升级那一次，进程链退出后就不再出现，所以只在 README 里写明升级后要先让旧的设置进程完全退出，并请报告者复测前照做。
 
 ### 测试
@@ -50,10 +52,12 @@ issue #6847：Arch Linux、niri 26.04 Wayland 会话、Mesa 26.2、webkit2gtk-4.
 - NVIDIA 专有驱动的机器行为不变，仍走非合成路径，所以 Linux 设置页不放带模糊阴影的约束继续成立。
 - 判断只看内核模块。装了驱动却完全不用 NVIDIA 渲染的双显卡机器仍会套用规避，这是有意偏向安全的一侧：它与以前的行为相同，不会变差。
 - 从旧版本升级时，如果旧的设置进程还在，升级后的交接会把它环境里的两个 `1` 带进新程序（见上文「入口」），新默认值要等这条进程链完全退出才生效，最长是关窗后十分钟。用户和 #6847 的报告者复测前都要先确认 `pgrep -af msime-linux-desktop` 没有输出，README 写了做法；不确认就复测，会误以为修复没有效果。
+- Arch 的 0.11.0 AUR 包在构建或安装时会补上 DMA-BUF 规避，因此该版本的设置窗口可以启动；补丁只增加 NVIDIA 旧启动器已经缺失的第二个规避，旧版本原本就默认关闭合成，非 NVIDIA 机器不会因此回到更快的渲染路径。新版本启动器已经自带按驱动判断，补丁不再写入。
 
 ## Verification
 
 - `python3 platforms/linux/tests/core/settings_launcher_contract.py` 在 macOS 和 Linux 构建镜像（Debian bookworm，`/bin/sh` 是 dash）里都通过。把非 NVIDIA 分支里去掉空值的那两行换成空操作，测试在空值用例上失败（`WEBKIT_DISABLE_COMPOSITING_MODE` 为空串而不是未设置）；把探测结果固定为未加载，测试在 NVIDIA 用例上失败。
 - `sh -n platforms/linux/data/msime-linux-settings.in`：通过。
+- `python3 scripts/test-arch-gentoo-packaging.py`：通过；静态门禁同时检查两个 Arch `PKGBUILD` 都保留旧启动器的 DMA-BUF 兼容补丁。
 - 没有在 niri 上验证闪烁消失，也没有在 NVIDIA 加 KWin 或 Hyprland 的机器上验证 Error 71 没有回来；手上没有这两种环境，需要 #6847、#3273 和 #5834 的报告者复测。
 - 2026-10-11 在 NVIDIA 专有驱动（open 内核模块 615.71.09）加 Hyprland 0.56.2、webkit2gtk-4.1 2.54.1 的混合显卡笔记本（AMD 核显加 RTX 4070 Max-Q）上补上了 Hyprland 侧的复测，三组对照都在 develop 的 `platforms/linux/data/msime-linux-settings.in` 生成的启动器下运行（0.11.0 的启动器还没有 #5877），每次运行前等旧的设置进程退出：NVIDIA 分支默认时 `/proc/<pid>/environ` 里两个变量都是 `1`，进程存活、窗口 `mapped`、日志里没有 `Error 71`；显式设成两个 `0` 时约 0.3 秒后以 `Error 71 (协议错误) dispatching to Wayland display` 退出；两个 `0` 再加 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` 时存活、窗口 `mapped`。KWin 侧仍没有环境。
