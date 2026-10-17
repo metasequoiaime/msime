@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """离开 iOS 个人资料页后，旧账号操作不能继续回写页面或触发退出回调。"""
 from pathlib import Path
-import re
 import unittest
 
 
@@ -15,10 +14,9 @@ class IOSAccountProfileActionLifecycleContract(unittest.TestCase):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertRegex(source, r"@State private var operation: Task<Void, Never>\?")
         self.assertRegex(source, r"@State private var request = ViewRequestGeneration\(\)")
-        disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
-        self.assertIsNotNone(disappear, "profile page must invalidate account actions when it disappears")
-        body = disappear.group("body")
-        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $operation)", body)
+        self.assertIn(".trackViewRequest(request: $request, pending: $operation, onAppear:", source)
+        self.assertIn("onDisappear: {", source)
+        self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $operation)", source)
         task = TASK.read_text(encoding="utf-8")
         self.assertIn("request.wrappedValue.disappear()", task)
         self.assertIn("pending.wrappedValue?.cancel()", task)

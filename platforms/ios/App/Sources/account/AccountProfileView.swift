@@ -124,15 +124,12 @@ struct AccountProfileEditor: View {
       Button("好", role: .cancel) {}
     } message: { Text(actionMessage ?? "") }
     .tint(MetasequoiaTheme.accent)
-    .task {
-      request.appear()
+    .trackViewRequest(request: $request, pending: $operation, onAppear: {
       startLoad()
-    }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $operation)
+    }, onDisappear: {
       ViewRequestTask.cancel(task: $loadTask)
       busy = false
-    }
+    })
   }
 
   /// 84pt 的强调色圆盘显示名字的首字，下面是名字、有邮箱时的邮箱，以及账号用哪种方式登录。
@@ -384,11 +381,11 @@ private struct AccountNicknameEditor: View {
       Button("继续编辑", role: .cancel) {}
     }
     .tint(MetasequoiaTheme.accent)
-    .onAppear { request.appear(); editing = true }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $operation)
+    .trackViewRequest(request: $request, pending: $operation, onAppear: {
+      editing = true
+    }, onDisappear: {
       saving = false
-    }
+    })
   }
 
   private func save() {
