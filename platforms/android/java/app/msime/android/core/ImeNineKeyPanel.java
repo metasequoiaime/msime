@@ -118,6 +118,7 @@ final class ImeNineKeyPanel {
     private Button pressButton(String label, float sizeSp, KeyboardKeyRole role, String description,
                                Runnable action) {
         KeyboardPressButton button = ViewPolicy.newPressButton(s);
+        s.bindCandidateRenderRelease(button);
         KeyboardTypographyPolicy.normalizeKeyCap(button);
         button.setKeyboardRole(role);
         ViewPolicy.setTextSizeLabel(button, label, sizeSp);

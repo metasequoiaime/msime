@@ -168,18 +168,7 @@ final class ImeCandidates {
         // feedback without changing the existing scroll-versus-select boundary.
         Button button = candidateButton();
         ViewPolicy.bindClick(button, () -> s.selectVisibleCandidate(button, slot));
-        // 按下期间 MSIMEInputService 不重画候选条（见 candidateRenderDeferred），松开时补上那一帧。返回 false
-        // 让这次触摸照常交给按钮自己，点击、长按和滚动取消都不受影响。
-        button.setOnTouchListener((view, event) -> {
-            int action = event.getActionMasked();
-            if ((action == android.view.MotionEvent.ACTION_UP
-                    || action == android.view.MotionEvent.ACTION_CANCEL)
-                    && s.candidateRenderDeferred) {
-                s.candidateRenderDeferred = false;
-                view.post(s::render);
-            }
-            return false;
-        });
+        s.bindCandidateRenderRelease(button);
         button.setOnLongClickListener(ignored -> {
             JSONObject current = s.visibleCandidate(slot);
             JSONObject id = current == null ? null : current.optJSONObject("id");
@@ -195,6 +184,7 @@ final class ImeCandidates {
     Button expandedCandidateButton(JSONObject candidate) {
         JSONObject id = candidate.optJSONObject("id");
         Button button = candidateButton();
+        s.bindCandidateRenderRelease(button);
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
         String displayedText = ContactCandidatePolicy.displayText(source, text);
@@ -253,6 +243,7 @@ final class ImeCandidates {
     private KeyboardPressButton expandedActionButton(String label, float sizeSp,
             String description, Runnable action) {
         KeyboardPressButton button = candidateButton();
+        s.bindCandidateRenderRelease(button);
         button.setKeyboardRole(KeyboardKeyRole.ACCENT);
         ViewPolicy.setTextSizeLabel(button, label, sizeSp);
         KeyboardTypographyPolicy.setKeyTextSize(button, sizeSp);

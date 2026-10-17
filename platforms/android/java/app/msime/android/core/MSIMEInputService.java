@@ -3027,6 +3027,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private Button makeEnglishSuggestionButton(int slot) {
         Button button = new KeyboardPressButton(this);
+        bindCandidateRenderRelease(button);
         ViewPolicy.setAllCapsFalse(button);
         button.setOnClickListener(ignored -> {
             imeKeyFeedback.playFeedback(button);
@@ -9718,7 +9719,9 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout activeCandidates = candidateHorizontal ? candidates : verticalCandidates;
         // 手指按在某个候选上时不重画候选条，见 candidateRenderDeferred。这一帧剩下的东西（页码、展开键、
         // 皮肤）也一起跳过；松手后补的那次 render 会把它们一起补上。
-        if (candidateStripHeld(activeCandidates)) {
+        if (candidateTreeHeld(activeCandidates)
+                || candidateTreeHeld(expandedCandidates)
+                || candidateTreeHeld(imeNineKeyPanel.root())) {
             candidateRenderDeferred = true;
             return;
         }
@@ -9788,12 +9791,28 @@ public final class MSIMEInputService extends InputMethodService {
         imeToolbar.styleTopRow();
     }
 
-    /** 候选条里是否有一个候选正被手指按着（按下状态由框架在 ACTION_DOWN 时置上，滑走后清掉）。 */
-    private static boolean candidateStripHeld(android.view.ViewGroup group) {
-        if (group == null) return false;
+    /** 在候选条或展开面板里是否有一个视图正被手指按着。 */
+    private static boolean candidateTreeHeld(View view) {
+        if (view == null || view.getVisibility() != View.VISIBLE) return false;
+        if (view.isPressed()) return true;
+        if (!(view instanceof android.view.ViewGroup group)) return false;
         for (int index = 0; index < group.getChildCount(); index++)
-            if (group.getChildAt(index).isPressed()) return true;
+            if (candidateTreeHeld(group.getChildAt(index))) return true;
         return false;
+    }
+
+    /** 候选视图结束按压后补上被延后的那一帧；监听返回 false，不改变按钮自身的点击、长按和滚动语义。 */
+    void bindCandidateRenderRelease(View button) {
+        button.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if ((action == android.view.MotionEvent.ACTION_UP
+                    || action == android.view.MotionEvent.ACTION_CANCEL)
+                    && candidateRenderDeferred) {
+                candidateRenderDeferred = false;
+                view.post(this::render);
+            }
+            return false;
+        });
     }
 
     /**
@@ -9837,6 +9856,7 @@ public final class MSIMEInputService extends InputMethodService {
             HandwritingRequestTracker.Token token = handwritingCandidateToken;
             Button choice = keyboardKey(chineseOutput(candidate, view),
                 "手写候选 " + (index + 1), () -> commitHandwritingCandidate(token, candidate));
+            bindCandidateRenderRelease(choice);
             KeyboardTypographyPolicy.setKeyTextSize(choice, candidateFontSize);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
