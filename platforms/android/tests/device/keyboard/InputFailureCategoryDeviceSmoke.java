@@ -171,6 +171,11 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
             }, "jni_link");
         } finally {
             if (service != null) {
+                try {
+                    service.getClass().getMethod("onDestroy").invoke(service);
+                } catch (ReflectiveOperationException ignored) {
+                    // onDestroy 自己负责注销监听、取消回调和关闭服务组件；反射失败时继续清理线程。
+                }
                 for (Field field : service.getClass().getDeclaredFields()) {
                     if (!ExecutorService.class.isAssignableFrom(field.getType())) continue;
                     try {
