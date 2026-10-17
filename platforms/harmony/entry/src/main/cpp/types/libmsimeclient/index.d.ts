@@ -191,7 +191,7 @@ export const personalDictionarySync: (options: string) => string;
  */
 export const personalDictionaryRequest: (request: string) => string;
 /**
- * `{options,action}` against the named dictionaries under `<preferences_directory>/DictionaryCollections`: `action.operation` is `load`, `create`, `rename`, `delete`, `set_enabled`, `add_words`, `remove_words`, `import`, `install_community`, `queue_words` or `flush`. Answers `{ok,value}` with the collections view, or `{ok:false,error}` with a stable code. Synchronous; the keyboard uses it only for the small `flush` after each personal-dictionary drain.
+ * `{options,action}` against the named dictionaries under `<preferences_directory>/DictionaryCollections`: `action.operation` is `load`, `create`, `rename`, `delete`, `set_enabled`, `add_words`, `remove_words`, `import`, `install_community`, `queue_words`, `flush` or `third_party_matches`. Answers `{ok,value}` with the collections view, or `{ok:false,error}` with a stable code. Synchronous; the keyboard uses it only for the small `flush` after each personal-dictionary drain.
  */
 export const dictionaryCollections: (request: string) => string;
 /** The same request on a worker thread, for the settings page: an import parses up to 16 MiB and every operation rewrites files under a lock. */

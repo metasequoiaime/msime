@@ -1071,7 +1071,7 @@ interface DictionaryCollectionsFlushResponse {
 /** 命名词库接受的操作，与 client-services 的 `DictionaryCollectionsAction` 一致；别的一律在桥上拒绝。 */
 const DICTIONARY_COLLECTION_OPERATIONS: string[] = [
   'load', 'create', 'rename', 'delete', 'set_enabled', 'add_words', 'remove_words', 'import',
-  'install_community', 'queue_words', 'flush',
+  'install_community', 'queue_words', 'flush', 'third_party_matches',
 ];
 
 interface PersonalDictionarySyncResponse {
