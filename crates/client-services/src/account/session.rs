@@ -729,7 +729,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         Ok((saved.tokens.user.id.clone(), token, state.generation))
     }
 
-    /// 请求开始前在共享写锁内迁移旧会话，让两个进程使用同一个 ID，并保留旧文件的正常刷新行为。补上的 ID 由刷新令牌派生（[`legacy_session_id`]），不是随机的：鸿蒙两个沙箱各存一份同样的旧会话，各自补出来的必须相同，`session_adopt` 才认得出是同一次登录。
+    /// 请求开始前在共享写锁内迁移旧会话，让两个进程使用同一个 ID，并保留旧文件的正常刷新行为。
     fn ensure_session_id(&self) -> Result<(), AccountError> {
         let missing = {
             let mut state = self.lock()?;
@@ -749,7 +749,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                     .filter(|saved| saved.session_id.is_none())
                 {
                     let mut migrated = saved.clone();
-                    migrated.session_id = Some(legacy_session_id(&saved.tokens.refresh_token));
+                    migrated.session_id = Some(uuid::Uuid::new_v4());
                     self.storage.save(&migrated)?;
                     state.saved = Some(migrated);
                 }
@@ -1574,15 +1574,6 @@ fn saved_session(
         expires_at_unix_ms,
         session_id,
     })
-}
-
-/// 没有登录 ID 的旧会话补上的登录 ID：刷新令牌 SHA-256 的前 16 字节，按 UUID v8 设好版本和变体位。同一份旧会话不论在哪个进程、哪个沙箱补，结果都相同；不同的登录不会共用刷新令牌，所以不会撞。只在会话还没有 ID 时用，之后刷新换了令牌 ID 也不变。
-fn legacy_session_id(refresh_token: &str) -> uuid::Uuid {
-    use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(refresh_token.as_bytes());
-    let mut bytes = [0; 16];
-    bytes.copy_from_slice(&digest[..16]);
-    uuid::Builder::from_custom_bytes(bytes).into_uuid()
 }
 
 fn same_login_option(a: Option<&SavedAccountSession>, b: Option<&SavedAccountSession>) -> bool {

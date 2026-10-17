@@ -180,29 +180,35 @@ fn the_anonymous_item_goes_to_the_anonymous_session_and_keeps_the_identity() {
     // 登录会话没有被碰。
     assert!(!settings.join(ACCOUNT_SESSION_FILE).exists());
 
-    // 匿名会话的「来源不存在」只清会话，身份留着。
+    // 匿名会话的发布方没有会话时什么也不清：匿名账号没有退出登录，清掉只会逼着重新注册、用掉每个 IP 每天的注册额度。
     let keyboard = root.path().join("keyboard-local").join("state");
     AnonymousSessionStorage::new(&keyboard)
         .save(&local)
         .unwrap();
     std::fs::write(keyboard.join(ANONYMOUS_ACCOUNT_FILE), b"synthetic-identity").unwrap();
+    for request in [
+        json!({ "operation": "session_adopt", "item": "anonymous", "from": "settings" }),
+        json!({ "operation": "session_adopt", "path": keyboard.join("missing").join(ANONYMOUS_SESSION_FILE), "item": "anonymous", "from": "settings" }),
+        json!({ "operation": "session_adopt", "item": "anonymous", "from": "keyboard" }),
+    ] {
+        assert_eq!(
+            adopt(&keyboard, request),
+            json!({ "ok": true, "value": { "outcome": "unchanged" } })
+        );
+    }
     assert_eq!(
-        adopt(
-            &keyboard,
-            json!({ "operation": "session_adopt", "item": "anonymous", "from": "settings" })
-        ),
-        json!({ "ok": true, "value": { "outcome": "cleared" } })
+        refresh_token(AnonymousSessionStorage::new(&keyboard).load().unwrap()),
+        Some("b".repeat(64))
     );
-    assert!(!keyboard.join(ANONYMOUS_SESSION_FILE).exists());
     assert!(keyboard.join(ANONYMOUS_ACCOUNT_FILE).exists());
 }
 
 #[test]
-fn the_anonymous_item_takes_the_old_bridges_copy_without_a_login_id_over_the_registration() {
+fn both_items_take_the_later_copy_whatever_the_login_id() {
     let root = tempfile::tempdir().unwrap();
     let published = root.path().join("group").join("keyboard").join("state");
     let settings = root.path().join("settings").join("state");
-    // 设置应用里是 Rust 注册时写的 v4 会话；旧版键盘的 ArkTS 桥接把它轮换过，写回时丢了 session_id。
+    // 设置应用里是 Rust 注册或登录时写的 v4 会话；旧版键盘的 ArkTS 桥接把它轮换过，写回时丢了 session_id。
     let registration = saved("msime-anonymous", 'b');
     let mut rotated = saved("msime-anonymous", 'c');
     rotated.session_id = None;
@@ -218,25 +224,23 @@ fn the_anonymous_item_takes_the_old_bridges_copy_without_a_login_id_over_the_reg
         .unwrap();
     account_storage(&published).save(&rotated).unwrap();
 
-    // 登录会话的规则不变：v4 与没有 ID 的副本不算同一次登录。
-    assert_eq!(
-        adopt(
-            &settings,
-            json!({ "operation": "session_adopt", "path": published.join(ACCOUNT_SESSION_FILE), "item": "account", "from": "keyboard" })
-        ),
-        json!({ "ok": true, "value": { "outcome": "unchanged" } })
-    );
+    // 同一个 user.id 只比 expires_at：两份会话都采用更新的那份，不留着用过的 `b`。
+    for (item, file) in [
+        ("account", ACCOUNT_SESSION_FILE),
+        ("anonymous", ANONYMOUS_SESSION_FILE),
+    ] {
+        assert_eq!(
+            adopt(
+                &settings,
+                json!({ "operation": "session_adopt", "path": published.join(file), "item": item, "from": "keyboard" })
+            ),
+            json!({ "ok": true, "value": { "outcome": "adopted" } }),
+            "{item}"
+        );
+    }
     assert_eq!(
         refresh_token(account_storage(&settings).load().unwrap()),
-        Some("b".repeat(64))
-    );
-    // 匿名会话算同一次登录，采用更新的那份，不留着用过的 `b`。
-    assert_eq!(
-        adopt(
-            &settings,
-            json!({ "operation": "session_adopt", "path": published.join(ANONYMOUS_SESSION_FILE), "item": "anonymous", "from": "keyboard" })
-        ),
-        json!({ "ok": true, "value": { "outcome": "adopted" } })
+        Some("c".repeat(64))
     );
     assert_eq!(
         refresh_token(AnonymousSessionStorage::new(&settings).load().unwrap()),
