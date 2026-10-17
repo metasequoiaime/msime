@@ -3,12 +3,16 @@ package app.msime.android.home;
 import android.content.Context;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.fragment.app.Fragment;
 import app.msime.android.DimensionPolicy;
+import app.msime.android.DrawablePolicy;
+import app.msime.android.ImageViewPolicy;
 import app.msime.android.LayoutPolicy;
 import app.msime.android.NineKeySidebarPolicy;
+import app.msime.android.R;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
@@ -36,9 +40,10 @@ final class NineKeySidebarSheet {
         this.symbols = new ArrayList<>(current);
         this.saved = saved;
         Context context = owner.requireContext();
-        sheet = new SettingsSheet(context, title, "按键从上到下显示；按住拖动手柄调整顺序，删除或添加单个符号。保存后应用到键盘。");
+        sheet = new SettingsSheet(context, title, "按住拖动把手调整顺序，删除或添加单个符号。保存后应用到键盘。");
         rows = LayoutPolicy.column(context);
-        sheet.add(rows);
+        GroupCard orderCard = GroupCard.add(sheet.content(), "当前顺序");
+        orderCard.card().addView(rows, LayoutPolicy.matchWidthWrapParams());
         GroupCard actions = GroupCard.add(sheet.content(), null);
         resetRow = actions.button("恢复默认符号", null, "恢复默认", () -> {
             symbols = new ArrayList<>(this.defaults);
@@ -72,21 +77,32 @@ final class NineKeySidebarSheet {
         Context context = owner.requireContext();
         LinearLayout row = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(row);
-        TextView symbol = ViewPolicy.styledLabel(context, symbols.get(index), Ui.TEXT_ROW_TITLE, 400,
+        ViewPolicy.setRowMinimumHeight(context, row);
+        ViewPolicy.setRowPadding(context, row);
+        ViewPolicy.setBackground(row, ViewPolicy.ripple(context));
+        TextView symbol = ViewPolicy.styledLabel(context, symbols.get(index), Ui.TEXT_BAR_TITLE, 400,
             ThemeColorPolicy.text(context));
         symbol.setContentDescription("符号：" + symbols.get(index));
-        row.addView(symbol, LayoutPolicy.weightedWrapParams(1));
+        ViewPolicy.setCentered(symbol);
+        ViewPolicy.setHorizontalPaddingDp(context, symbol, 12);
+        ViewPolicy.setBackground(symbol, DrawablePolicy.rounded(ThemeColorPolicy.accentSoft(context),
+            DimensionPolicy.pixels(context, 10)));
+        LinearLayout symbolSlot = LayoutPolicy.row(context);
+        ViewPolicy.setCenteredVertically(symbolSlot);
+        symbolSlot.addView(symbol, LayoutPolicy.wrapParams());
+        row.addView(symbolSlot, LayoutPolicy.weightedWrapParams(1));
         row.addView(dragHandle(row, symbols.get(index)), LayoutPolicy.wrapParams());
-        row.addView(actionButton("删除", "删除 " + symbols.get(index), true,
-            () -> remove(row)), LayoutPolicy.wrapParams());
-        rows.addView(row, LayoutPolicy.matchWidthHeightDp(context, 56));
+        ImageView delete = ImageViewPolicy.iconButton(context, R.drawable.ic_ms_delete,
+            ThemeColorPolicy.subText(context), "删除 " + symbols.get(index), 48,
+            () -> remove(row));
+        row.addView(delete, LayoutPolicy.wrapParams());
+        rows.addView(row, LayoutPolicy.matchWidthWrapParams());
     }
 
-    private TextView dragHandle(LinearLayout row, String symbol) {
+    private ImageView dragHandle(LinearLayout row, String symbol) {
         Context context = owner.requireContext();
-        TextView handle = HomeButtonPolicy.tonalButton(context, "☷",
-            "拖动调整 " + symbol + " 的顺序", 500);
-        handle.setMinWidth(DimensionPolicy.pixels(context, 48));
+        ImageView handle = ImageViewPolicy.iconButton(context, R.drawable.ic_ms_drag_handle,
+            ThemeColorPolicy.subText(context), "拖动调整 " + symbol + " 的顺序", 48, null);
         ViewPolicy.setEnabledWithAlpha(handle, !saving, 0.38f);
         handle.setOnTouchListener((view, event) -> handleDrag(row, event));
         return handle;
@@ -135,15 +151,6 @@ final class NineKeySidebarSheet {
         Collections.swap(symbols, current, target);
         rows.removeViewAt(current);
         rows.addView(row, target);
-    }
-
-    private TextView actionButton(String label, String description, boolean enabled, Runnable action) {
-        Context context = owner.requireContext();
-        TextView button = HomeButtonPolicy.tonalButton(context, label, description, 500);
-        button.setMinWidth(DimensionPolicy.pixels(context, label.length() > 1 ? 56 : 48));
-        ViewPolicy.setEnabledWithAlpha(button, enabled && !saving, 0.38f);
-        ViewPolicy.bindClick(button, action);
-        return button;
     }
 
     private void remove(LinearLayout row) {

@@ -12,6 +12,8 @@ enum KeyboardLayoutPreference {
   static let glideTypingKey = "keyboard.gesture.glide"
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
+  static let quickPunctuationSymbolsKey = "keyboard.quickPunctuationSymbols"
+  static let defaultQuickPunctuationSymbols = ["，", "。", "？", "！", "、", "；", "："]
   static let hideLanguageKeyKey = "keyboard.bottom.hideLanguageKey"
   static var hideLanguageKey: Bool {
     get { defaults.object(forKey: hideLanguageKeyKey) as? Bool ?? false }
@@ -147,6 +149,47 @@ enum KeyboardLayoutPreference {
   static var swipeSymbols: Bool {
     get { defaults.object(forKey: swipeSymbolsKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: swipeSymbolsKey) }
+  }
+  /// 「快捷符号栏」：中文 26 键和九键的快捷标点。只保存单个字符，最多 12 项；空值或非法值回退到默认列表。
+  static var quickPunctuationSymbols: [String] {
+    get {
+      guard let stored = defaults.array(forKey: quickPunctuationSymbolsKey) as? [String] else {
+        return defaultQuickPunctuationSymbols
+      }
+      let normalized = normalizeQuickPunctuationSymbols(stored)
+      return normalized.isEmpty ? defaultQuickPunctuationSymbols : normalized
+    }
+    set {
+      let normalized = normalizeQuickPunctuationSymbols(newValue)
+      if normalized == defaultQuickPunctuationSymbols || normalized.isEmpty {
+        defaults.removeObject(forKey: quickPunctuationSymbolsKey)
+      } else {
+        defaults.set(normalized, forKey: quickPunctuationSymbolsKey)
+      }
+    }
+  }
+
+  /// 将设置页的一串字符变成可放进快捷菜单的去重列表。
+  static func normalizeQuickPunctuationSymbols(_ symbols: [String]) -> [String] {
+    var result: [String] = []
+    for symbol in symbols {
+      let value = symbol.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !value.isEmpty, value.unicodeScalars.allSatisfy({ scalar in
+        !scalar.properties.isWhitespace &&
+          !(scalar.value <= 0x1F || scalar.value == 0x7F || (0x80...0x9F).contains(scalar.value))
+      }) else {
+        continue
+      }
+      guard value.count == 1, !result.contains(value) else { continue }
+      result.append(value)
+      if result.count == 12 { break }
+    }
+    return result
+  }
+
+  /// 设置页把输入框内容按字符拆开；组合 emoji 仍作为一个字符保留。
+  static func quickPunctuationSymbols(from text: String) -> [String] {
+    normalizeQuickPunctuationSymbols(text.map(String.init))
   }
   /// 「单手模式」：手机键盘的按键收窄到 85% 并靠向一侧，另一侧是「换到另一侧」和「退出单手」组成的一列。默认关闭；它只存在本设备的 App Group 里，不进共享文档，iOS 的设置同步也不携带它；Android 的 `platform.android.one_handed` 会同步。无法识别的存储值按关闭处理。
   static var oneHanded: KeyboardOneHandedMode {
