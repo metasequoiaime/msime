@@ -166,7 +166,7 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
             result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: " + stage + " ("
-                + error.getClass().getSimpleName() + ")\n");
+                + error.getClass().getSimpleName() + ")" + causeChain(error) + "\n");
             finish(Activity.RESULT_CANCELED, result);
         } finally {
             if (service != null) {
@@ -181,6 +181,21 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
                 }
             }
         }
+    }
+
+    /**
+     * 失败的根因：反射调用抛的是 {@code InvocationTargetException}，只报包装类型定位不到真正的抛出点，
+     * 所以要顺着 cause 一路打出来，并各带几帧栈。断言失败没有 cause，那就是它自己。
+     */
+    private static String causeChain(Throwable error) {
+        StringBuilder text = new StringBuilder();
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            text.append("\n  ").append(cause.getClass().getName()).append(": ").append(cause.getMessage());
+            StackTraceElement[] frames = cause.getStackTrace();
+            for (int index = 0; index < Math.min(6, frames.length); index++)
+                text.append("\n    at ").append(frames[index]);
+        }
+        return text.toString();
     }
 
     private static Method method(Class<?> type, String name, Class<?> parameter) throws Exception {
