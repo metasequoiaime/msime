@@ -65,7 +65,8 @@ bool installer_account_state(const std::filesystem::path &state) {
   for (const auto &entry : std::filesystem::directory_iterator(state, error)) {
     if (error || entry.is_symlink(error) || error ||
         (entry.path().filename() != "anonymous-account.json" &&
-         entry.path().filename() != "anonymous-session.json") ||
+         entry.path().filename() != "anonymous-session.json" &&
+         entry.path().filename() != "account-refresh.lock") ||
         !entry.is_regular_file(error) || error) {
       return false;
     }

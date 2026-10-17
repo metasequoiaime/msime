@@ -44,12 +44,18 @@ class RustAccountApi:
         self._responses = None
         self._load_failed = False
         self._lock = threading.Lock()
+        # None 是还没拼过，空串是拼不出。
+        self._client_agent = None
 
     def _load(self):
         with self._lock:
             if self._library is not None or self._load_failed:
                 return self._library
             candidates = []
+            # 安装时 CMake 记下的库路径（相对 bin，带本版本的库名），rpm 和 Gentoo 的 lib64 都由它给出；下面按 <prefix>/lib 猜的几处只剩源码树和旧布局用得上。
+            installed = installed_host_library()
+            if installed is not None:
+                candidates.append(installed)
             configured = os.environ.get("MSIME_HOST_LIBRARY")
             if configured:
                 candidates.append(configured)
@@ -75,7 +81,8 @@ class RustAccountApi:
                 except (OSError, TypeError):
                     continue
                 try:
-                    for name in ("msime_client_ensure_anonymous_account",
+                    for name in ("msime_client_ensure_anonymous_account_with_agent",
+                                 "msime_client_client_agent",
                                  "msime_client_account_access_token",
                                  "msime_client_account_gloss"):
                         function = getattr(library, name)
@@ -100,16 +107,25 @@ class RustAccountApi:
         except (OSError, UnicodeError, ValueError, TypeError):
             return None
 
+    def client_agent(self):
+        """注册匿名账号时自报的 User-Agent，由 Rust 拼出（msime_client_client_agent），服务端「我的设备」据此显示 linux 和版本。拼不出时为 None，注册照常进行，与不带 client_agent 时相同。"""
+        if self._client_agent is not None:
+            return self._client_agent or None
+        version, edition = installed_version_and_edition()
+        response = self._call("msime_client_client_agent", {
+            "platform": "linux", "version": version, "device": None,
+            "system": linux_system(), "edition": edition,
+        })
+        value = response.get("value") if isinstance(response, dict) and response.get("ok") is True else None
+        self._client_agent = value if isinstance(value, str) else ""
+        return self._client_agent or None
+
     def ensure_anonymous(self):
-        encoded = str(self.directory).encode("utf-8")
-        library = self._load()
-        if library is None:
-            return False
-        try:
-            pointer = library.msime_client_ensure_anonymous_account(encoded, len(encoded))
-            response = self._responses.decode(pointer)
-        except (OSError, UnicodeError, ValueError, TypeError):
-            return False
+        payload = {"directory": str(self.directory)}
+        agent = self.client_agent()
+        if agent is not None:
+            payload["client_agent"] = agent
+        response = self._call("msime_client_ensure_anonymous_account_with_agent", payload)
         return isinstance(response, dict) and response.get("ok") is True and response.get("value") is True
 
     def access_token(self, rejected_token=None):
@@ -136,6 +152,42 @@ class RustAccountApi:
             payload["retry_after"] = retry_after
         response = self._call("msime_client_account_gloss", payload)
         return response.get("value") if isinstance(response, dict) and response.get("ok") is True else None
+
+
+def installed_host_library():
+    """CMake 配置进 msime_voice_paths.py 的 host 库路径；源码树里没有这个模块，返回 None。"""
+    try:
+        from msime_voice_paths import HOST_LIBRARY
+    except ImportError:
+        return None
+    return Path(__file__).resolve().parent / HOST_LIBRARY
+
+
+def installed_version_and_edition():
+    """安装包的版本号和版本 ID，与 msime_voice_paths.py 一起由 CMake 写出；源码树里是空版本号（Rust 写成 0）和 full。"""
+    try:
+        from msime_voice_paths import EDITION, VERSION
+    except ImportError:
+        return "", "full"
+    return VERSION, EDITION
+
+
+def linux_system():
+    """「我的设备」里系统那一栏：os-release 的 NAME 加 VERSION_ID（例如 Ubuntu 24.04）；读不到时为 None，Rust 写成 unknown。"""
+    for path in ("/etc/os-release", "/usr/lib/os-release"):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                text = handle.read(16384)
+        except (OSError, UnicodeError):
+            continue
+        fields = {}
+        for line in text.splitlines():
+            key, separator, value = line.strip().partition("=")
+            if separator:
+                fields[key] = value.strip().strip("\"'")
+        system = " ".join(part for part in (fields.get("NAME", ""), fields.get("VERSION_ID", "")) if part)
+        return system or None
+    return None
 
 
 class ResponseDecoder:
@@ -827,7 +879,9 @@ def translations(query, server):
         # Keep credentials out of cache keys and separate caches when they change.
         provider = (endpoint, hashlib.sha256(token.encode()).digest())
     elif selected == "ai":
-        provider = ("ai", options.get("provider", ""))
+        # options 要在这里先取出来：下面才赋值的话，Python 把它当成还没赋值的局部变量，这一行抛 UnboundLocalError，AI 候选翻译从来没走到请求那一步。
+        options = query.get("ai_assistant")
+        provider = ("ai", options.get("provider", "") if isinstance(options, dict) else "")
     else:
         # Each request keeps one credential snapshot, including both directions.
         # A removed or invalid file disables Tencent until a valid file is restored.
@@ -839,7 +893,6 @@ def translations(query, server):
         provider = ("tencent", hashlib.sha256(scope).digest())
     deadline = time.monotonic() + 6
     if selected == "ai":
-        options = query.get("ai_assistant")
         rows = []
         for text in texts:
             if time.monotonic() >= deadline:

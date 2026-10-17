@@ -129,5 +129,76 @@ class TranslationProviderSelection(unittest.TestCase):
         account.prepare_translation.assert_called_once_with(["测试"], "zh", "en")
         account.parse_translation.assert_called_once()
 
+    def test_ai_selection_reaches_the_ai_translation(self):
+        # 原来 options 在赋值之前就被读，选了 AI 的候选翻译每次都抛 UnboundLocalError。
+        assistant = {"enabled": True, "provider": "synthetic"}
+        self.server.ai_config_path = None
+        with mock.patch.object(provider, "ai_translation", return_value="synthetic ai") as translate:
+            result = provider.translations({"generation": 1, "candidates": ["测试"], "target_language": "en",
+                                            "provider": "ai", "ai_assistant": assistant}, self.server)
+        self.assertEqual(result, [{"text": "测试", "translation": "synthetic ai"}])
+        translate.assert_called_once()
+        self.assertIs(translate.call_args.args[2], assistant)
+
+
+class HostLibraryAndClientAgent(unittest.TestCase):
+    def test_the_installed_library_path_is_tried_first(self):
+        paths = SimpleNamespace(HOST_LIBRARY="../lib64/msime-client/libmsime_host_api.so",
+                                VERSION="1.4.0", EDITION="wubi")
+        tried = []
+
+        def refuse(path):
+            tried.append(str(path))
+            raise OSError("synthetic missing library")
+
+        with mock.patch.dict(sys.modules, {"msime_voice_paths": paths}), \
+                mock.patch.dict(provider.os.environ, {"MSIME_HOST_LIBRARY": "/synthetic/configured.so"}), \
+                mock.patch.object(provider.ctypes, "CDLL", side_effect=refuse):
+            self.assertIsNone(provider.RustAccountApi("/synthetic/account")._load())
+        installed = Path(provider.__file__).resolve().parent / "../lib64/msime-client/libmsime_host_api.so"
+        self.assertEqual(tried[:2], [str(installed), "/synthetic/configured.so"])
+
+    def test_registration_reports_the_linux_client_agent(self):
+        api = provider.RustAccountApi("/synthetic/account")
+        calls = []
+
+        def call(name, payload):
+            calls.append((name, payload))
+            if name == "msime_client_client_agent":
+                return {"ok": True, "value": "msime-linux/1.4.0 (unknown; Synthetic 1; edition=wubi)"}
+            return {"ok": True, "value": True}
+
+        paths = SimpleNamespace(HOST_LIBRARY="x", VERSION="1.4.0", EDITION="wubi")
+        with mock.patch.dict(sys.modules, {"msime_voice_paths": paths}), \
+                mock.patch.object(provider, "linux_system", return_value="Synthetic 1"), \
+                mock.patch.object(api, "_call", side_effect=call):
+            self.assertTrue(api.ensure_anonymous())
+            self.assertTrue(api.ensure_anonymous())
+        self.assertEqual(calls[0], ("msime_client_client_agent", {
+            "platform": "linux", "version": "1.4.0", "device": None, "system": "Synthetic 1", "edition": "wubi"}))
+        registration = {"directory": "/synthetic/account",
+                        "client_agent": "msime-linux/1.4.0 (unknown; Synthetic 1; edition=wubi)"}
+        # 拼一次就记住，之后每次惰性注册都带同一个 User-Agent。
+        self.assertEqual(calls[1:], [("msime_client_ensure_anonymous_account_with_agent", registration)] * 2)
+
+    def test_registration_without_an_agent_still_registers(self):
+        api = provider.RustAccountApi("/synthetic/account")
+        responses = {"msime_client_client_agent": {"ok": False, "error": "account_invalid"},
+                     "msime_client_ensure_anonymous_account_with_agent": {"ok": True, "value": True}}
+        with mock.patch.object(api, "_call", side_effect=lambda name, payload: responses[name]) as call:
+            self.assertTrue(api.ensure_anonymous())
+        self.assertEqual(call.call_args_list[-1].args,
+                         ("msime_client_ensure_anonymous_account_with_agent", {"directory": "/synthetic/account"}))
+
+    def test_system_comes_from_os_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            release = Path(directory) / "os-release"
+            release.write_text('NAME="Synthetic Linux"\nVERSION_ID=24.04\nID=synthetic\n')
+            real_open = open
+            with mock.patch("builtins.open", side_effect=lambda path, *args, **kwargs: real_open(
+                    release if path == "/etc/os-release" else path, *args, **kwargs)):
+                self.assertEqual(provider.linux_system(), "Synthetic Linux 24.04")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -24,8 +24,12 @@ fn setup_program_name() -> String {
 const SETUP_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MAX_LINE_BYTES: usize = 2048;
 const MAX_LINES: usize = 2000;
-/// 安装包的 postinst 会在首次配置之前为每个登录用户注册匿名账号，所以状态目录在首次配置时通常已经存在、里面只有这两份文件。`msime-linux-setup` 接受只含这些文件的目录（脚本里的 `ANONYMOUS_ACCOUNT_FILES`），这里的清单必须与它一致。
-const ANONYMOUS_ACCOUNT_FILES: [&str; 2] = ["anonymous-account.json", "anonymous-session.json"];
+/// 安装包的 postinst 会在首次配置之前为每个登录用户注册匿名账号，所以状态目录在首次配置时通常已经存在、里面只有这几份文件：身份、会话，以及 Rust 刷新匿名令牌时与设置应用共用的 `account-refresh.lock`。`msime-linux-setup` 接受只含这些文件的目录（脚本里的 `ANONYMOUS_ACCOUNT_FILES`），`msime-linux-prepare` 的 `installer_account_state` 也一样，三处清单必须一致。
+const ANONYMOUS_ACCOUNT_FILES: [&str; 3] = [
+    "anonymous-account.json",
+    "anonymous-session.json",
+    "account-refresh.lock",
+];
 pub const SETUP_OUTPUT_EVENT: &str = "linux-setup-output";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

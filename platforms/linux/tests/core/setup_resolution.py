@@ -214,6 +214,10 @@ def main() -> int:
         state = Path(directory)
         (state / "anonymous-account.json").write_text("{}")
         assert setup.anonymous_account_state(state)
+        # Rust 刷新匿名令牌时在同一目录里建 account-refresh.lock，有它的目录仍是安装包留下的状态。
+        (state / "anonymous-session.json").write_text("{}")
+        (state / "account-refresh.lock").write_text("")
+        assert setup.anonymous_account_state(state)
         (state / "unrelated.json").write_text("{}")
         assert not setup.anonymous_account_state(state)
     with tempfile.TemporaryDirectory() as directory:

@@ -63,7 +63,8 @@ FCITX5_THEME = "msime"
 # Fcitx5's stock themes, the only ones the hosts take over (src/candidates/CandidateFcitxTheme.h), for the options that name a theme.
 FCITX5_STOCK_THEMES = {"Theme": "default", "DarkTheme": "default-dark"}
 IBUS_PANEL = "org.freedesktop.ibus.panel"
-ANONYMOUS_ACCOUNT_FILES = {"anonymous-account.json", "anonymous-session.json"}
+# 安装包注册匿名账号时留下的文件：身份、会话和 Rust 刷新令牌用的锁文件。与 msime-linux-prepare 的 installer_account_state、设置应用 linux_setup.rs 的同名清单一致。
+ANONYMOUS_ACCOUNT_FILES = {"anonymous-account.json", "anonymous-session.json", "account-refresh.lock"}
 
 
 def data_home() -> Path:
