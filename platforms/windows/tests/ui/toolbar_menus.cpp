@@ -97,7 +97,7 @@ int main() {
       const std::vector<std::pair<K, C>> expected{
           {K::Item, C::OpenSystemEmoji}, {K::Item, C::OpenSettings},
           {K::Item, C::CheckForUpdates}, {K::Separator, C::OpenSettings},
-          {K::Item, C::OpenWebsite},     {K::Item, C::OpenHelp},
+          {K::Item, C::OpenPromotion}, {K::Item, C::OpenWebsite}, {K::Item, C::OpenHelp},
           {K::Item, C::OpenAbout},       {K::Item, C::OpenFeedback},
           {K::Separator, C::OpenSettings}, {K::Item, C::HideFloatingToolbar}};
       require(utility.size() == expected.size());
@@ -113,6 +113,7 @@ int main() {
       require(utility[find(utility, C::OpenSystemEmoji)].label == "表情与符号…");
       require(utility[find(utility, C::OpenSettings)].label == "打开设置…");
       require(utility[find(utility, C::CheckForUpdates)].label == "检查更新…");
+      require(utility[find(utility, C::OpenPromotion)].label == "宣传水杉输入法");
       require(utility[find(utility, C::OpenWebsite)].label == "访问 msime.app");
       require(utility[find(utility, C::OpenHelp)].label == "使用帮助…");
       require(utility[find(utility, C::OpenAbout)].label == "关于水杉输入法…");
@@ -128,7 +129,7 @@ int main() {
       const auto updates = shell_surface_request(C::CheckForUpdates);
       require(updates && updates->panel.empty() && updates->page == "about");
       require(shell_route_argument(*updates) == L"settings:about");
-      for (const auto command : {C::OpenSystemEmoji, C::OpenWebsite, C::HideFloatingToolbar})
+      for (const auto command : {C::OpenSystemEmoji, C::OpenPromotion, C::OpenWebsite, C::HideFloatingToolbar})
         require(!shell_surface_request(command));
       require(tray_menu_geometry(utility, TrayMenuMetrics{}).rows.size() == utility.size());
       auto bare = all;
@@ -137,7 +138,7 @@ int main() {
       for (const auto command : {C::OpenSettings, C::CheckForUpdates, C::OpenHelp,
                                  C::OpenAbout, C::OpenFeedback})
         require(!offline[find(offline, command)].available);
-      for (const auto command : {C::OpenSystemEmoji, C::OpenWebsite, C::HideFloatingToolbar})
+      for (const auto command : {C::OpenSystemEmoji, C::OpenPromotion, C::OpenWebsite, C::HideFloatingToolbar})
         require(offline[find(offline, command)].available);
     }
 

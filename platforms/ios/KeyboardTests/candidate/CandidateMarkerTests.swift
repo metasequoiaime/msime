@@ -57,6 +57,22 @@ final class CandidateMarkerTests: XCTestCase {
     }
   }
 
+  func testCloudPendingRowsStayOutOfMobileCandidatePresentation() throws {
+    XCTAssertFalse(CandidateMarker.isVisible(source: 15))
+    XCTAssertTrue(CandidateMarker.isVisible(source: 2))
+    XCTAssertEqual(CandidateMarker.visibleIndices(sources: [15, 0, 2, 15, 3]), [1, 2, 4])
+    let snapshot = try CandidatePanelSnapshot.decode([
+      "generation": 4, "preedit": "ni",
+      "candidates": [
+        ["text": "☁", "id": ["generation": 4, "index": 0], "source": 15],
+        ["text": "你", "id": ["generation": 4, "index": 1], "source": 0],
+        ["text": "妮", "id": ["generation": 4, "index": 2], "source": 2],
+      ],
+    ])
+    XCTAssertEqual(snapshot.entries.map(\.text), ["你", "妮"])
+    XCTAssertEqual(snapshot.entries.map(\.index), [1, 2])
+  }
+
   func testThePanelKeepsEachCandidatesSourceAndPinnedSlot() throws {
     let snapshot = try CandidatePanelSnapshot.decode([
       "generation": 4, "preedit": "ni",

@@ -28,10 +28,10 @@ public final class SymbolCategoryOrderPolicySmoke {
         check(SymbolCategoryOrderPolicy.normalize(null) == null, "null writes rejected");
         List<SymbolCategoryOrderPolicy.Item> moved = SymbolCategoryOrderPolicy.move(
             defaults, SymbolCategoryOrderPolicy.Item.MATH, -1);
-        check(moved.get(8) == SymbolCategoryOrderPolicy.Item.MATH
-            && moved.get(9) == SymbolCategoryOrderPolicy.Item.PUNCTUATION,
+        check(moved.get(9) == SymbolCategoryOrderPolicy.Item.MATH
+            && moved.get(10) == SymbolCategoryOrderPolicy.Item.PUNCTUATION,
             "move preserves neighboring identities");
-        check(defaults.get(9) == SymbolCategoryOrderPolicy.Item.MATH, "move leaves source intact");
+        check(defaults.get(10) == SymbolCategoryOrderPolicy.Item.MATH, "move leaves source intact");
         boolean immutable = false;
         try { moved.clear(); } catch (UnsupportedOperationException expected) { immutable = true; }
         check(immutable, "returned order is immutable");

@@ -701,6 +701,19 @@ if ! rg -q 'forgetCurrentClip\(\);' <<< "$search_body" \
   echo "Android clipboard search must open the app's CLIPBOARD_SEARCH page from the panel header after forgetting the current clip, never a query field in the input method (#5973)" >&2
   exit 1
 fi
+# 分享只把用户长按选中的一条记录交给系统选择器；输入法服务启动 chooser 必须带新任务标志，不能把历史列表或内部标识一起发出去。
+share_body=$(rg -A 24 'void shareClipboardText\(' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
+if ! rg -q 'ClipboardSharePolicy\.canShare\(text\)' <<< "$share_body" \
+  || ! rg -q 'Intent\.ACTION_SEND' <<< "$share_body" \
+  || ! rg -q 'Intent\.EXTRA_TEXT' <<< "$share_body" \
+  || ! rg -q 'Intent\.FLAG_ACTIVITY_NEW_TASK' <<< "$share_body" \
+  || ! rg -q 'Intent\.createChooser\(send, ClipboardSharePolicy\.CHOOSER_TITLE\)' <<< "$share_body" \
+  || ! rg -q 'clipboardItemAction\(row, ClipboardSharePolicy\.ACTION' \
+      "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java"; then
+  echo "Android clipboard sharing must use a single selected entry through the system text chooser (#8517)" >&2
+  exit 1
+fi
 if rg -q 'void manageClipboardItem|new PopupMenu\(this, anchor\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android clipboard entries must not be managed through a PopupMenu (#5653)" >&2

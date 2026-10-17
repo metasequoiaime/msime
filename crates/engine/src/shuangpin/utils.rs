@@ -250,7 +250,19 @@ pub fn convert_seg_shuangpin_to_seg_complete_pinyin(
     segmentation: &str,
     profile: &ShuangpinProfile,
 ) -> String {
-    let mut result = String::with_capacity(segmentation.len() * 2);
+    let mut result = String::new();
+    convert_seg_shuangpin_to_seg_complete_pinyin_into(segmentation, profile, &mut result);
+    result
+}
+
+/// 将双拼切分直接写入调用方缓冲，避免先构造再复制规范切分。
+pub(crate) fn convert_seg_shuangpin_to_seg_complete_pinyin_into(
+    segmentation: &str,
+    profile: &ShuangpinProfile,
+    result: &mut String,
+) {
+    result.clear();
+    result.reserve(segmentation.len() * 2);
     for piece in segmentation.split('\'') {
         match piece.len() {
             1 => {
@@ -260,7 +272,7 @@ pub fn convert_seg_shuangpin_to_seg_complete_pinyin(
             // An unaccepted pair leaves an empty syllable between two `'`, as the reference did.
             2 => {
                 if let Some(decoded) = decode_single_sp_to_pinyin(piece, profile) {
-                    append_decoded_syllable(&mut result, decoded);
+                    append_decoded_syllable(result, decoded);
                 }
                 result.push('\'');
             }
@@ -268,7 +280,6 @@ pub fn convert_seg_shuangpin_to_seg_complete_pinyin(
         }
     }
     result.pop();
-    result
 }
 
 /// Double helpcode after a complete even-length prefix (:269-287).

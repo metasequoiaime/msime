@@ -47,7 +47,10 @@ final class ImePanels {
     }
 
     void invalidateReplyTemplateReads() {
-        replyReadGeneration = ReplyTemplateLifecyclePolicy.advance(replyReadGeneration);
+        ReplyTemplateLifecyclePolicy.Generations next =
+            ReplyTemplateLifecyclePolicy.advanceOnPanelClose(replyReadGeneration, replyMenuReadGeneration);
+        replyReadGeneration = next.replyRead();
+        replyMenuReadGeneration = next.menuRead();
     }
 
     void showLocalInputMenu() {
@@ -1536,7 +1539,7 @@ final class ImePanels {
      * <p>原来是 `PopupMenu`：弹出菜单是可获得焦点的窗口，打开时编辑器的窗口失去焦点，在 Via 这类用系统 WebView 的浏览器里键盘随即被收起（#5653）。画在面板里的按钮不会碰窗口焦点。
      */
     private void renderClipboardItemActions(ClipboardHistory.Item item, boolean cloudAllowed) {
-        // 操作分两行：一行放不下「添加到常用语」「发到云剪贴板」两个长按钮和其余几个短按钮，挤在一行时每个按钮都被截成省略号。阅读顺序是 固定、删除、编辑、分词、添加到常用语、发到云剪贴板、收起。
+        // 操作分两行：一行放不下「添加到常用语」「发到云剪贴板」两个长按钮和其余几个短按钮，挤在一行时每个按钮都被截成省略号。阅读顺序是 固定、删除、编辑、分词、分享、添加到常用语、发到云剪贴板、收起。
         LinearLayout row = addClipboardItemActionRow();
         clipboardItemAction(row, item.pinned() ? "取消固定" : "固定", () -> {
             clipboardActionText = null;
@@ -1552,6 +1555,9 @@ final class ImePanels {
             s.editClipboardItem(item);
         });
         clipboardItemAction(row, "分词", () -> startClipboardSegmentation(item.text()));
+        Button share = clipboardItemAction(row, ClipboardSharePolicy.ACTION,
+            () -> s.shareClipboardText(item.text()));
+        share.setContentDescription("分享这条剪贴板记录");
         LinearLayout more = addClipboardItemActionRow();
         clipboardItemAction(more, CommonPhrasesPanelPolicy.ADD_FROM_CLIPBOARD, () -> {
             clipboardActionText = null;

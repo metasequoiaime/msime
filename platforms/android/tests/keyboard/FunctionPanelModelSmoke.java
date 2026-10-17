@@ -7,15 +7,16 @@ import java.util.List;
 
 public final class FunctionPanelModelSmoke {
     public static void main(String[] args) {
-        check(FunctionPanelModel.pageCount() == 2, "two pages");
+        check(FunctionPanelModel.pageCount() == 3, "three pages");
         check(labels(0).equals(List.of("全角", "中文标点", "模糊音", "繁体", "手写", "本地输入", "AI 辅助", "设置",
             "单手模式", "浮动键盘", "无痕输入", "键盘高度")),
             "page one");
         check(labels(1).equals(List.of("按键音", "振动", "振动强度", "插入语音文字", "词库", "文本编辑",
-            "反馈", "关于", "复制设备信息", "表情", "剪贴板历史", "编辑工具栏")), "page two");
+            "反馈", "关于", "复制设备信息", "宣传", "表情", "剪贴板历史")), "page two");
+        check(labels(2).equals(List.of("编辑工具栏")), "page three");
         check(!FunctionPanelModel.item(Id.TEXT_EDIT).toggle() && FunctionPanelModel.pageOf(Id.TEXT_EDIT) == 1,
             "文本编辑 opens a panel from page two");
-        check(FunctionPanelModel.page(2).isEmpty() && FunctionPanelModel.page(-1).isEmpty(),
+        check(FunctionPanelModel.page(3).isEmpty() && FunctionPanelModel.page(-1).isEmpty(),
             "out-of-range pages are empty");
         check(FunctionPanelModel.item(Id.TRADITIONAL).description().equals("繁体输出"),
             "繁体 is described as 繁体输出");
@@ -51,12 +52,12 @@ public final class FunctionPanelModelSmoke {
             for (Id id : shortcuts) check(ids.contains(id) != toolbar.contains(id), "shortcut has exactly one entrance");
             check(ids.contains(Id.SETTINGS) && ids.contains(Id.LOCAL_INPUT) && ids.contains(Id.COPY_DEVICE_INFO)
                 && ids.contains(Id.TOOLBAR_EDITOR), "common actions remain accessible");
-            check(visible.size() <= 2 * FunctionPanelModel.PAGE_SIZE, "menu stays within two pages");
+            check(visible.size() <= 3 * FunctionPanelModel.PAGE_SIZE, "menu stays within three pages");
         }
         List<Item> idle = FunctionPanelModel.itemsExcept(java.util.Set.of(Id.VOICE_RESULT));
         check(idle.stream().noneMatch(item -> item.id() == Id.VOICE_RESULT), "no empty voice result entrance");
         check(FunctionPanelModel.item(Id.VOICE_RESULT).label().equals("插入语音文字"), "pending voice entry states its action");
-        System.out.println("Android function panel: two pages, toolbar deduplication and toggle states passed");
+        System.out.println("Android function panel: three pages, toolbar deduplication and toggle states passed");
     }
 
     private static List<String> labels(int page) {

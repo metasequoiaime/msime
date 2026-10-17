@@ -38,6 +38,7 @@ enum class TrayMenuCommand {
   OpenSystemEmoji,
   CheckForUpdates,
   OpenWebsite,
+  OpenPromotion,
   OpenHelp,
   OpenFeedback,
   HideFloatingToolbar,

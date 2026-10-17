@@ -13,6 +13,38 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertThrowsError(try TypingStatisticsStore.strictEnabled(NSNull()))
   }
 
+  /// 「上传到云端」的本机部分走共享层：没打开时不发；打开后有字数才发，请求体带 `ios` 和今天的计数；上传成功后十分钟内不再发（`force` 不看间隔）；关掉后又不发。
+  func testUploadRequestsComeFromTheSharedStore() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = TypingStatisticsStore(directory: directory)
+    let today = Date()
+    XCTAssertEqual(try store.uploadStatus(), .init(enabled: false, lastUploadMs: nil))
+    XCTAssertEqual(try store.uploadRequest(day: today, force: true), .skip("disabled"))
+    XCTAssertEqual(try store.setUploadEnabled(true), .init(enabled: true, lastUploadMs: nil))
+    XCTAssertEqual(try store.uploadRequest(day: today, force: true), .skip("nothing"))
+    try store.setEnabled(true)
+    try store.record("你好", at: today)
+    guard case let .send(path, device, body) = try store.uploadRequest(day: today, force: false) else {
+      return XCTFail("expected a request")
+    }
+    XCTAssertEqual(path, "/v1/users/me/typing-statistics")
+    let root = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    XCTAssertEqual(root["platform"] as? String, "ios")
+    XCTAssertEqual(root["device"] as? String, device)
+    let days = try XCTUnwrap(root["days"] as? [[String: Any]])
+    XCTAssertEqual(days.first?["day"] as? String, TypingStatistics.dayKey(today))
+    XCTAssertEqual(days.first?["characters"] as? Int, 2)
+    let uploaded = try store.uploadSucceeded(device: device)
+    XCTAssertTrue(uploaded.enabled)
+    XCTAssertNotNil(uploaded.lastUploadMs)
+    XCTAssertEqual(try store.uploadRequest(day: today, force: false), .skip("not_due"))
+    if case .skip = try store.uploadRequest(day: today, force: true) { XCTFail("force ignores the interval") }
+    XCTAssertEqual(try store.setUploadEnabled(false), .init(enabled: false, lastUploadMs: nil))
+    XCTAssertEqual(try store.uploadRequest(day: today, force: true), .skip("disabled"))
+  }
+
   func testCountsCommittedCharactersAcrossDaysAndPreservesPauseOnReset() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

@@ -11,8 +11,10 @@ public final class ReplyTemplateLifecyclePolicySmoke {
             "a closed reply panel rejects a late template result");
         check(!ReplyTemplateLifecyclePolicy.accepts(4, 4, true, false),
             "a hidden reply panel rejects a late template result");
-        check(ReplyTemplateLifecyclePolicy.advance(4) == 5,
-            "closing a reply panel advances the template read generation");
+        ReplyTemplateLifecyclePolicy.Generations next =
+            ReplyTemplateLifecyclePolicy.advanceOnPanelClose(4, 9);
+        check(next.replyRead() == 5 && next.menuRead() == 10,
+            "closing a reply panel advances both template read generations");
         System.out.println("Android reply template lifecycle policy passed");
     }
 

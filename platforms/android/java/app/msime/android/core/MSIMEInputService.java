@@ -6,6 +6,7 @@ import app.msime.android.LayoutPolicy;
 import android.inputmethodservice.InputMethodService;
 import app.msime.android.core.Telemetry;
 import app.msime.android.core.InputViewValuePolicy;
+import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Context;
@@ -7040,6 +7041,28 @@ public final class MSIMEInputService extends InputMethodService {
                 } else notice(result);
             });
         });
+    }
+
+    /** 从键盘长按操作行分享用户明确选中的一条本机记录。 */
+    void shareClipboardText(String text) {
+        if (!ClipboardSharePolicy.canShare(text)) {
+            notice("这条记录没有可分享的文本");
+            return;
+        }
+        Intent send = new Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, text);
+        Intent chooser = Intent.createChooser(send, ClipboardSharePolicy.CHOOSER_TITLE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(chooser);
+            closeClipboardHistory();
+            requestHideSelf(0);
+        } catch (ActivityNotFoundException unavailable) {
+            notice("没有可用的分享应用");
+        } catch (RuntimeException unavailable) {
+            notice("无法打开分享面板");
+        }
     }
 
     /** 编辑页、剪贴板历史页做完之后要不要回到原来的应用：当前输入框属于别的应用才要；在水杉自己的输入框里打开时留在应用里（{@link ClipboardHistoryPolicy#RETURN_TO_CALLER_ARG}）。 */

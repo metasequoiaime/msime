@@ -56,6 +56,7 @@ shell_surface_request(TrayMenuCommand command) {
   // 系统表情面板、官网和隐藏工具栏都不是外壳的界面。
   case TrayMenuCommand::OpenSystemEmoji:
   case TrayMenuCommand::OpenWebsite:
+  case TrayMenuCommand::OpenPromotion:
   case TrayMenuCommand::HideFloatingToolbar:
   case TrayMenuCommand::ToggleFloatingToolbar:
   case TrayMenuCommand::SelectChinese:

@@ -14,6 +14,7 @@ public final class SymbolCategoryOrderPolicy {
         ENGLISH("english", "英文"),
         NUMBERS("numbers", "数字"),
         NETWORK("network", "网络"),
+        PINYIN("pinyin", "拼音"),
         KAOMOJI("kaomoji", "颜文字"),
         SHAPES("shapes", "形状"),
         ARROWS("arrows", "箭头"),
