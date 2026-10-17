@@ -1032,6 +1032,52 @@ struct TypingStatisticsStore {
     Self.prepared.insert(directory.path)
   }
 
+  /// 「上传到云端」的本机状态：开关和上次上传成功的时间（Unix 毫秒，还没有时为 nil）。存在统计目录的 `typing-statistics-upload.json` 里，由共享层读写。
+  struct UploadState: Equatable, Sendable {
+    let enabled: Bool
+    let lastUploadMs: Int64?
+  }
+
+  /// `upload_request` 的结果：要发时是共享层组好的路径、设备标识和请求体，不发时是原因（`disabled`、`not_due`、`nothing`）。
+  enum UploadRequest: Equatable, Sendable {
+    case send(path: String, device: String, body: Data)
+    case skip(String)
+  }
+
+  func uploadStatus() throws -> UploadState {
+    try Self.uploadState(call(["operation": "upload_status"]))
+  }
+
+  /// 只改本机状态、不联网。打开前由调用方确认已登录，关闭后由调用方删除云端副本。
+  func setUploadEnabled(_ enabled: Bool) throws -> UploadState {
+    try Self.uploadState(call(["operation": "set_upload_enabled", "enabled": enabled]))
+  }
+
+  /// 读本机统计、按十分钟节流决定要不要发；`force` 为 true 时不看间隔（刚打开上传时用）。`day` 是本地日期。
+  func uploadRequest(day: Date, force: Bool, calendar: Calendar = .current) throws -> UploadRequest {
+    let value = try call(["operation": "upload_request", "day": TypingStatistics.dayKey(day, calendar: calendar),
+                          "platform": "ios", "force": force])
+    guard let object = value as? [String: Any] else { throw TypingStatisticsError.invalidResponse }
+    if let reason = object["skip"] as? String { return .skip(reason) }
+    guard object["method"] as? String == "PUT", let path = object["path"] as? String,
+          let device = object["device"] as? String, let body = object["body"] as? [String: Any],
+          JSONSerialization.isValidJSONObject(body) else { throw TypingStatisticsError.invalidResponse }
+    return .send(path: path, device: device, body: try JSONSerialization.data(withJSONObject: body))
+  }
+
+  /// 服务端回 204 以后调用，`device` 是 `uploadRequest` 交回的那一个；期间关掉了上传时共享层不记。
+  func uploadSucceeded(device: String) throws -> UploadState {
+    try Self.uploadState(call(["operation": "upload_succeeded", "device": device]))
+  }
+
+  private static func uploadState(_ value: Any) throws -> UploadState {
+    guard let object = value as? [String: Any], let enabled = object["enabled"] as? Bool else {
+      throw TypingStatisticsError.invalidResponse
+    }
+    let last = (object["lastUploadMs"] as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0.int64Value }
+    return UploadState(enabled: enabled, lastUploadMs: last)
+  }
+
   func load() throws -> TypingStatistics {
     let value = try call(["operation": "load"])
     return try JSONDecoder().decode(TypingStatistics.self, from: JSONSerialization.data(withJSONObject: value))

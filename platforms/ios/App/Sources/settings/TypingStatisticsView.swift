@@ -23,6 +23,9 @@ struct TypingStatisticsView: View {
   @State private var settled = false
   /// 正在进行的存储操作。每次更新都等前一次完成，所以重新读取永远不会抢在先发起的写入前面落地。
   @State private var pending: Task<Void, Never>?
+  /// 「上传到云端」的状态；还没读到时为 nil，概览页不画这一组。
+  @State private var upload: TypingUpload.Status?
+  @State private var uploadBusy = false
   private let store = TypingStatisticsStore()
 
   private enum Tab: CaseIterable {
@@ -73,6 +76,7 @@ struct TypingStatisticsView: View {
                                        userWordsKnown: userWords != nil)
           }
         }
+        if tab == .overview { uploadSection }
         footer
       }
       .padding(.horizontal, 16)
@@ -178,10 +182,14 @@ struct TypingStatisticsView: View {
     .accessibilityElement(children: .contain)
   }
 
+  // 打开了「上传到云端」时改写，不能让「只保存在本机」这句话骗人。
   private var footer: some View {
-    HStack(spacing: 4) {
-      Image(systemName: "lock").font(.system(size: 13))
-      Text("统计只保存在本机，不包含输入内容").font(.system(size: 12))
+    let uploading = upload?.enabled == true
+    return HStack(spacing: 4) {
+      Image(systemName: uploading ? "icloud.and.arrow.up" : "lock").font(.system(size: 13))
+      Text(uploading ? "已打开「上传到云端」：每日计数会上传到你的水杉账号，不含输入内容" : "统计只保存在本机，不包含输入内容")
+        .font(.system(size: 12))
+        .multilineTextAlignment(.center)
     }
     .foregroundStyle(MetasequoiaTheme.sub)
     .frame(maxWidth: .infinity)
@@ -215,7 +223,7 @@ struct TypingStatisticsView: View {
     "平均速度按连续打字的时间计算，两次上屏间隔超过 10 秒算休息、不计入；只统计汉字与各种文字的字母，数字、标点和表情不参与。首选命中在选词满 50 次后显示。",
     "按键热力图另计每个键的按下次数，拼音拼写、删除和功能键都算，密码框里的按键不计；只保存每个键每天被按下的次数，不保存按键顺序和输入内容。",
     "成就由统计数据推算，清空统计时一并清除。",
-    "所有统计仅在本机保存计数，不保存输入内容。每日明细默认永久保留，可在右上角菜单里缩短为 30 至 365 天，超期的每日记录随即删除，并同时从累计总数和分类中扣除；要全部删除请用“清空统计”。",
+    "统计默认只在本机保存计数，不保存输入内容；在「概览」底部打开「上传到云端」后，每天的字数、活跃时长、时段、输入方式和候选位次会上传到你的水杉账号，供 QQ 群助手的 /stats 查看，关闭时删除云端的数据。每日明细默认永久保留，可在右上角菜单里缩短为 30 至 365 天，超期的每日记录随即删除，并同时从累计总数和分类中扣除；要全部删除请用“清空统计”。",
   ]
 
   // MARK: - 概览
@@ -363,9 +371,77 @@ struct TypingStatisticsView: View {
     }
   }
 
+  // MARK: - 上传到云端
+
+  /// 概览页最后一组「云端」：「上传到云端」开关。没登录真实账号时不能打开，已经打开的仍能关掉。说法与共享设置页、Android 相同。
+  @ViewBuilder private var uploadSection: some View {
+    if let upload {
+      let usable = upload.signedIn || upload.enabled
+      StatisticsSection("云端", note: nil) {
+        VStack(alignment: .leading, spacing: 8) {
+          Toggle(isOn: Binding(get: { upload.enabled }, set: { setUpload($0) })) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text("上传到云端").font(.system(size: 16))
+              Text(usable
+                   ? "把每天的字数、活跃时长、时段、输入方式和候选位次上传到你的水杉账号，供 QQ 群助手的 /stats 查看。只有计数，不含输入内容；关闭时删除云端的数据。"
+                   : "登录水杉账号后可以打开，供 QQ 群助手的 /stats 查看。只有计数，不含输入内容。")
+                .font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+          }
+          .toggleStyle(.switch)
+          .tint(MetasequoiaTheme.switchOn)
+          .disabled(!usable || uploadBusy)
+          .accessibilityIdentifier("typingStatisticsUpload")
+          if upload.enabled, let last = upload.lastUpload {
+            Text("上次上传：" + Self.uploadTime(last))
+              .font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
+              .accessibilityIdentifier("typingStatisticsLastUpload")
+          }
+        }
+        .statisticsCard()
+      }
+    }
+  }
+
+  /// 读出开关，顺带补传一次（与共享设置页、Android 打开统计页时相同）。补传在 `TypingUpload` 的串行队列上，十分钟内只真正发一次。
+  private func syncUpload() {
+    Task {
+      if let status = await TypingUpload.shared.sync() { upload = status }
+    }
+  }
+
+  /// 打开立刻上传一次，关闭先在本机关掉再删除云端的数据；结果用一条提示告诉用户。
+  private func setUpload(_ enabled: Bool) {
+    guard !uploadBusy else { return }
+    uploadBusy = true
+    Task {
+      let change = await TypingUpload.shared.setEnabled(enabled)
+      uploadBusy = false
+      guard let change else {
+        ToastCenter.shared.show("无法读取或保存上传设置，请稍后重试。")
+        syncUpload()
+        return
+      }
+      upload = change.status
+      ToastCenter.shared.show(change.message)
+    }
+  }
+
+  /// 上次上传的时间按本机时区显示成「2026-10-17 12:34」，与 Android 相同。
+  private static func uploadTime(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd HH:mm"
+    return formatter.string(from: date)
+  }
+
   // MARK: - 加载
 
-  private func reload() { update { _ in } }
+  private func reload() {
+    update { _ in }
+    syncUpload()
+  }
 
   /// 先执行 `operation`，再读取统计、词库快照和汇总，全部在主线程之外进行：每次存储调用都要拿统计文件锁，键盘落盘时会持有这把锁，而且 `summary` 会写入新解锁的徽章。结果按更新发起的顺序回到 main actor 上赋值。
   private func update(_ operation: @escaping @Sendable (TypingStatisticsStore) throws -> Void) {
