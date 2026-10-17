@@ -210,18 +210,17 @@ public final class DeviceDataApi {
     public DataSummary dataSummary() throws CloudApi.Failure {
         JSONObject root = cloud.json("GET", "/v1/users/me/data", null, CloudApi.Auth.ACCOUNT);
         JSONArray rows = root.optJSONArray("sections");
-        if (rows != null && !validResponseArrayLength(rows.length(), MAX_DATA_SECTIONS)) {
+        if (rows == null) throw new CloudApi.Failure(500, "invalid_response", "sections missing", 0);
+        if (!validResponseArrayLength(rows.length(), MAX_DATA_SECTIONS)) {
             throw new CloudApi.Failure(500, "invalid_response", "too many data sections", 0);
         }
-        List<DataSection> sections = new ArrayList<>(rows == null ? 0 : rows.length());
-        if (rows != null) {
-            for (int index = 0; index < rows.length(); index++) {
-                JSONObject row = rows.optJSONObject(index);
-                if (row == null || JsonPolicy.strictStringOrEmpty(row.opt("id")).isEmpty()) continue;
-                sections.add(new DataSection(JsonPolicy.strictStringOrEmpty(row.opt("id")),
-                    strictCount(row.opt("bytes")),
-                    strictCount(row.opt("items"))));
-            }
+        List<DataSection> sections = new ArrayList<>(rows.length());
+        for (int index = 0; index < rows.length(); index++) {
+            JSONObject row = rows.optJSONObject(index);
+            if (row == null || JsonPolicy.strictStringOrEmpty(row.opt("id")).isEmpty()) continue;
+            sections.add(new DataSection(JsonPolicy.strictStringOrEmpty(row.opt("id")),
+                strictCount(row.opt("bytes")),
+                strictCount(row.opt("items"))));
         }
         return new DataSummary(strictCount(root.opt("bytes")), ListPolicy.copyOrEmpty(sections));
     }

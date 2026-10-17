@@ -2976,7 +2976,8 @@ static void TestPinyinArrowCandidateNavigation() {
         assert([controller handleEvent:ModeKey(key, 0, NO) client:client]);
         assert(session.lastCommand == expected && !client.committed);
     };
-    for (int scheme : {0, 1}) {
+    // 双拼的左右键按音节移动，单独由 TestSegmentEditingChords 覆盖；这里保留全拼的候选导航契约。
+    for (int scheme : {0}) {
         for (BOOL vertical : {NO, YES}) {
             prefs.vertical = vertical;
             for (BOOL expand : {NO, YES}) {
@@ -3319,9 +3320,12 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
     ShortcutClient *client = [ShortcutClient new];
+    TestCandidatePanel *panel = [TestCandidatePanel new];
+    panel.visible = YES;
     [controller setValue:appearance forKey:@"appearance"];
     [controller setValue:session forKey:@"session"];
     [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
     appearance.englishMode = NO;
     NSDictionary *composing = @{ @"focused": @YES, @"editing_text": @"nihao", @"caret_position": @5,
                                  @"candidates": @[@{@"text": @"你好"}] };
@@ -3335,6 +3339,16 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
         assert([controller handleEvent:ModeKey(code, NSEventModifierFlagControl, NO) client:client]);
         assert(session.lastCommand == [entry[1] unsignedIntValue]);
         [controller setValue:composing forKey:@"view"];
+    }
+    // 双拼的普通左右键也按音节移动，避免候选栏打开后在音节内部误触发候选导航。
+    NSMutableDictionary *shuangpin = [composing mutableCopy];
+    shuangpin[@"scheme"] = @1;
+    for (NSArray *entry in @[@[@123, @(MSIME_MOVE_LEFT_SEGMENT)], @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
+        [controller setValue:shuangpin forKey:@"view"];
+        panel.visible = YES;
+        session.lastCommand = UINT32_MAX;
+        assert([controller handleEvent:ModeKey([entry[0] unsignedShortValue], 0, NO) client:client]);
+        assert(session.lastCommand == [entry[1] unsignedIntValue]);
     }
     // 没有整句改字的方案（五笔）里 Ctrl+左右照旧按分段移动。
     NSMutableDictionary *wubi = [composing mutableCopy];

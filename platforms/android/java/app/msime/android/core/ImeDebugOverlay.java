@@ -261,7 +261,13 @@ final class ImeDebugOverlay {
         String text = debug ? debugText() : s.diagnosticMessage;
         s.diagnosticView.setText(text);
         s.diagnosticView.setContentDescription("提示：" + text);
-        ViewPolicy.setTextColor(s.diagnosticView, Color.parseColor(s.skin.accent()));
+        ViewPolicy.setTextColor(s.diagnosticView, hasDiagnostic ? Color.WHITE
+            : Color.parseColor(s.skin.accent()));
+        ViewPolicy.setBackground(s.diagnosticView, hasDiagnostic
+            ? DrawablePolicy.pill(Color.BLACK) : null);
+        s.diagnosticView.setPadding(s.pixels(hasDiagnostic ? 10 : 0),
+            s.pixels(hasDiagnostic ? 3 : 0), s.pixels(hasDiagnostic ? 10 : 0),
+            s.pixels(hasDiagnostic ? 3 : 0));
         if (hasDiagnostic || debug) ViewPolicy.show(s.diagnosticView);
         else ViewPolicy.hide(s.diagnosticView);
     }

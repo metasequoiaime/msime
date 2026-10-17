@@ -574,6 +574,9 @@ public final class MSIMEInputService extends InputMethodService {
     void copyDeviceInfo() {
         long generation = ++deviceInfoCopyGeneration;
         DeviceInfoCollector.Screen screen = DeviceInfoCollector.screen(moreButton);
+        // 复制完成后直接回到键盘，提示会在键盘内部显示，避免用户还要手动关闭工具面板。
+        closeMoreTools();
+        render();
         try {
             preferencesWorker.execute(() -> {
                 var entries = DeviceInfoCollector.collect(getApplicationContext(), screen);
@@ -6993,6 +6996,47 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.renderClipboardHistory();
     }
 
+    /** 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定。 */
+    void removeClipboardItems(java.util.List<String> texts) {
+        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
+        try {
+            clipboardUndoTexts = clipboardHistory.removeMany(texts);
+            if (clipboardUndoTexts.isEmpty()) return;
+            if (clipboardUndoExpiry != null) main.removeCallbacks(clipboardUndoExpiry);
+            clipboardUndoExpiry = () -> {
+                clipboardUndoTexts = null;
+                if (imePanels.clipboardPanelOpen()) imePanels.renderClipboardHistory();
+            };
+            main.postDelayed(clipboardUndoExpiry, 5000L);
+            forgetCurrentClip();
+            notice("已删除 " + texts.size() + " 项，可在 5 秒内撤销");
+        } catch (IllegalStateException error) {
+            notice("无法修改剪贴板历史");
+        }
+        imePanels.renderClipboardHistory();
+    }
+
+    private java.util.List<ClipboardHistory.Item> clipboardUndoTexts;
+    private Runnable clipboardUndoExpiry;
+
+    boolean hasClipboardUndo() {
+        return clipboardUndoTexts != null && !clipboardUndoTexts.isEmpty();
+    }
+
+    void undoClipboardItems() {
+        if (!hasClipboardUndo() || clipboardHistory == null) return;
+        java.util.List<ClipboardHistory.Item> restore = clipboardUndoTexts;
+        clipboardUndoTexts = null;
+        if (clipboardUndoExpiry != null) main.removeCallbacks(clipboardUndoExpiry);
+        try {
+            clipboardHistory.restoreMany(restore);
+            notice("已撤销删除");
+        } catch (IllegalStateException error) {
+            notice("无法撤销剪贴板删除");
+        }
+        imePanels.renderClipboardHistory();
+    }
+
     /**
      * 长按操作行里的「编辑」（#5971）：打开应用里的编辑页，在那里改这一条的文字，确认后经共享存储的 `replace` 写回，条目留在原位。键盘里没有可输入的文本框，增删改放在应用里，和常用语（#5673）一样；面板里也不能弹对话框（#5605、#5653）。
      *
@@ -7597,6 +7641,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
+        String displayedText = ContactCandidatePolicy.displayText(source, text);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = InputViewValuePolicy.textOr(view, "preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
@@ -7608,7 +7653,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9，每页十个时第十个标 0（#5584、#6679）。
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
             dedicatedEnglish, visibleSlot);
-        button.setText(candidateLabel(number, text, annotation, highlighted));
+        button.setText(candidateLabel(number, displayedText, annotation, highlighted));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
@@ -7618,7 +7663,8 @@ public final class MSIMEInputService extends InputMethodService {
         button.setAlpha(AiPendingCandidatePolicy.alpha(source));
         // render() attaches the button and applies the complete skin tree once below.
         // Avoid creating its candidate drawables before that pass.
-        String description = AiPendingCandidatePolicy.description(source, "候选 " + (visibleSlot + 1) + "：", text,
+        String description = AiPendingCandidatePolicy.description(source, "候选 " + (visibleSlot + 1) + "：",
+            ContactCandidatePolicy.description(source, text),
             candidateAccessibilitySuffix(candidate, typed));
         JSONObject id = candidate.optJSONObject("id");
         button.setContentDescription(id != null && candidateManagementEnabled()
@@ -9218,6 +9264,22 @@ public final class MSIMEInputService extends InputMethodService {
             // 原先把异常整个吞掉，用户在定制系统上报来「无法打开设置」时，截图和日志里都看不出是哪一种拦截。提示里带上异常类型，日志里留下完整堆栈。
             android.util.Log.w("MSIMEHost", "Opening host page " + page + " failed", error);
             notice("无法打开设置，请从主屏幕进入（" + error.getClass().getSimpleName() + "）");
+        }
+    }
+
+    /** 从键盘功能面板直接打开官网；成功后收起输入法，回到系统浏览器。 */
+    void openWebsite() {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://msime.app/"))
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            closeMoreTools();
+            startActivity(intent);
+            requestHideSelf(0);
+        } catch (ActivityNotFoundException unavailable) {
+            notice("没有可以打开官网的应用");
+        } catch (RuntimeException unavailable) {
+            notice("无法打开官网");
         }
     }
 

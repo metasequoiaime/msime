@@ -2,6 +2,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- 关于页「检查更新」下载安装包后交给系统安装器。 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 自动更新下载好安装包后发一条通知，点了交给系统安装器；开关默认关闭，打开时才请求这项权限。 -->

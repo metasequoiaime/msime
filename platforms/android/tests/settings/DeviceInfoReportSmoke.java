@@ -32,7 +32,7 @@ public final class DeviceInfoReportSmoke {
 
         String text = DeviceInfoReport.text("水杉输入法 设备信息",
             List.of(new Entry("品牌", "vivo"), new Entry("型号", "V2046A"), new Entry("系统构建", " ")));
-        equal(text, "水杉输入法 设备信息\n品牌：vivo\n型号：V2046A\n系统构建：未知", "copied text is one entry per line");
+        equal(text, "水杉输入法 设备信息\n用于反馈问题时定位输入法与设备兼容性；不包含账号、输入内容或设备标识。\n品牌：vivo\n型号：V2046A\n系统构建：未知", "copied text explains its purpose");
         check(!text.endsWith("\n"), "no trailing newline");
         System.out.println("Android device info report passed");
     }

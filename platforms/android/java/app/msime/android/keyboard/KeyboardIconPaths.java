@@ -61,6 +61,8 @@ public final class KeyboardIconPaths {
         FEEDBACK(true, 1.7f),
         /** design panel 关于 */
         ABOUT(true, 1.7f),
+        /** Lucide-style external-link (打开官网) */
+        WEBSITE(true, 1.7f),
         /** design on-state check badge */
         CHECK(true, 4f),
         /** Lucide-style sparkles (AI 回复与润色) */
@@ -73,6 +75,8 @@ public final class KeyboardIconPaths {
         VIBRATION_STRENGTH(true, 1.7f),
         /** Lucide-style clipboard-list (剪贴板历史) */
         CLIPBOARD_HISTORY(true, 1.7f),
+        /** Lucide-style copy (设备信息) */
+        DEVICE_INFO(true, 1.7f),
         /** Lucide-style chevron-left (单手换边) */
         SWAP_SIDE(true, 1.8f),
         /** Lucide-style arrow-left (日语九键 光标左移) */
@@ -169,12 +173,14 @@ public final class KeyboardIconPaths {
             case INCOGNITO -> appendIncognito(p);
             case FEEDBACK -> appendFeedback(p);
             case ABOUT -> appendAbout(p);
+            case WEBSITE -> appendWebsite(p);
             case CHECK -> appendCheck(p);
             case AI_ASSIST -> appendAiAssist(p);
             case LOCAL_INPUT -> appendLocalInput(p);
             case VOICE_RESULT -> appendVoiceResult(p);
             case VIBRATION_STRENGTH -> appendVibrationStrength(p);
             case CLIPBOARD_HISTORY -> appendClipboardHistory(p);
+            case DEVICE_INFO -> appendDeviceInfo(p);
             case SWAP_SIDE -> appendSwapSide(p);
             case CURSOR_LEFT -> appendCursorLeft(p);
             case TOGGLE_NEXT -> appendToggleNext(p);
@@ -715,6 +721,22 @@ public final class KeyboardIconPaths {
         p.lineTo(12.01f, 8f);
     }
 
+    private static void appendWebsite(Path p) {
+        p.moveTo(14f, 3f);
+        p.lineTo(21f, 3f);
+        p.lineTo(21f, 10f);
+        p.moveTo(10f, 14f);
+        p.lineTo(21f, 3f);
+        p.moveTo(18f, 13f);
+        p.lineTo(18f, 19f);
+        p.cubicTo(18f, 20.1046f, 17.1046f, 21f, 16f, 21f);
+        p.lineTo(5f, 21f);
+        p.cubicTo(3.8954f, 21f, 3f, 20.1046f, 3f, 19f);
+        p.lineTo(3f, 8f);
+        p.cubicTo(3f, 6.8954f, 3.8954f, 6f, 5f, 6f);
+        p.lineTo(11f, 6f);
+    }
+
     private static void appendCheck(Path p) {
         p.moveTo(5f, 12.5f);
         p.lineTo(9.5f, 17f);
@@ -809,6 +831,27 @@ public final class KeyboardIconPaths {
         p.lineTo(8.01f, 11f);
         p.moveTo(8f, 16f);
         p.lineTo(8.01f, 16f);
+    }
+
+    private static void appendDeviceInfo(Path p) {
+        p.moveTo(8f, 8f);
+        p.lineTo(19f, 8f);
+        p.cubicTo(20.1046f, 8f, 21f, 8.8954f, 21f, 10f);
+        p.lineTo(21f, 20f);
+        p.cubicTo(21f, 21.1046f, 20.1046f, 22f, 19f, 22f);
+        p.lineTo(8f, 22f);
+        p.cubicTo(6.8954f, 22f, 6f, 21.1046f, 6f, 20f);
+        p.lineTo(6f, 10f);
+        p.cubicTo(6f, 8.8954f, 6.8954f, 8f, 8f, 8f);
+        p.close();
+        p.moveTo(16f, 8f);
+        p.lineTo(16f, 4f);
+        p.cubicTo(16f, 2.8954f, 15.1046f, 2f, 14f, 2f);
+        p.lineTo(5f, 2f);
+        p.cubicTo(3.8954f, 2f, 3f, 2.8954f, 3f, 4f);
+        p.lineTo(3f, 14f);
+        p.cubicTo(3f, 15.1046f, 3.8954f, 16f, 5f, 16f);
+        p.lineTo(6f, 16f);
     }
 
     private static void appendSwapSide(Path p) {

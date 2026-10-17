@@ -222,6 +222,7 @@ impl PluginTables {
                 MentionEntry {
                     text: entry.text,
                     key,
+                    phone: entry.phone,
                 }
             })
             .collect()

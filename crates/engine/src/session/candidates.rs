@@ -76,6 +76,8 @@ impl InputSession {
             clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
+            self.queries
+                .append_contact_candidates(self.engine.request().raw_input.as_str(), &mut decoded);
             if self.quick_phrase_candidates {
                 self.queries.append_quick_phrase_candidates(
                     self.engine.request().raw_input.as_str(),
@@ -184,15 +186,17 @@ impl InputSession {
     }
 
     pub(super) fn update_dedicated_english_candidates(&mut self) {
-        self.dedicated_english_candidates.clear();
         if self.dedicated_english_preedit.is_empty() {
+            self.dedicated_english_candidates.clear();
             return;
         }
         let prefix = crate::ime::queries::lowercase_prefix(&self.dedicated_english_preedit);
-        let mut candidates = self
-            .queries
-            .english_dictionary()
-            .query_prefix(&prefix, MODE_ENGLISH_LIMIT);
+        self.queries.english_dictionary().query_prefix_into(
+            &prefix,
+            MODE_ENGLISH_LIMIT,
+            &mut self.dedicated_english_candidates,
+        );
+        let mut candidates = std::mem::take(&mut self.dedicated_english_candidates);
         self.apply_candidate_positions(&mut candidates);
         if candidates.is_empty() {
             // A word the dictionary does not know is still what the user is typing.

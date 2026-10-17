@@ -2,6 +2,7 @@
 
 mod correction;
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Read;
@@ -35,6 +36,15 @@ const GLOSS_BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_CUSTOM_TRANSLATION_BYTES: u64 = 1024 * 1024;
 /// The reference never set a busy timeout on its read connections (english_dictionary.cpp:325,371), so SQLite's default of none applied: a locked file answers "no rows" at once instead of stalling the keystroke. rusqlite would otherwise wait 5 s.
 const READ_BUSY_TIMEOUT: Duration = Duration::ZERO;
+
+fn column_text_ref<'a>(row: &'a rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Cow<'a, str>> {
+    Ok(match row.get_ref(index)? {
+        ValueRef::Null => Cow::Borrowed(""),
+        ValueRef::Text(bytes) | ValueRef::Blob(bytes) => String::from_utf8_lossy(bytes),
+        ValueRef::Integer(value) => Cow::Owned(value.to_string()),
+        ValueRef::Real(value) => Cow::Owned(value.to_string()),
+    })
+}
 
 pub struct EnglishDictionary {
     connection: Option<Connection>,
@@ -83,20 +93,32 @@ impl EnglishDictionary {
 
     /// Exact word first, then weight, then shorter, then word and display (english_dictionary.cpp:39-81). Rows are `WordItem(pinyin = word, word = display, weight, EnglishDictionary)`. Empty unless the prefix is non-empty `a..=z`.
     pub fn query_prefix(&self, prefix: &str, limit: usize) -> Vec<WordItem> {
+        let mut candidates = Vec::new();
+        self.query_prefix_into(prefix, limit, &mut candidates);
+        candidates
+    }
+
+    /// 向已有候选缓冲写入结果；热查询复用候选行和其中的字符串容量。
+    pub fn query_prefix_into(&self, prefix: &str, limit: usize, candidates: &mut Vec<WordItem>) {
+        let reusable = candidates.len();
+        let mut count = 0;
         let Some(connection) = &self.connection else {
-            return Vec::new();
+            candidates.clear();
+            return;
         };
         if !is_lower_ascii_word(prefix) || limit == 0 {
-            return Vec::new();
+            candidates.clear();
+            return;
         }
         let upper_bound = prefix_upper_bound(prefix);
         let Ok(mut statement) = connection.prepare_cached(&prefix_sql(sql_limit(limit))) else {
-            return Vec::new();
+            candidates.clear();
+            return;
         };
         let Ok(mut rows) = statement.query([prefix, upper_bound.as_str()]) else {
-            return Vec::new();
+            candidates.clear();
+            return;
         };
-        let mut candidates = Vec::new();
         loop {
             match rows.next() {
                 Ok(Some(row)) => {
@@ -105,25 +127,54 @@ impl EnglishDictionary {
                     if is_null(0) || is_null(1) {
                         continue;
                     }
-                    let (Ok(word), Ok(display), Ok(weight)) =
-                        (column_text(row, 0), column_text(row, 1), column_i64(row, 2))
-                    else {
-                        return Vec::new();
+                    let (Ok(word), Ok(display), Ok(weight)) = (
+                        column_text_ref(row, 0),
+                        column_text_ref(row, 1),
+                        column_i64(row, 2),
+                    ) else {
+                        candidates.clear();
+                        return;
                     };
-                    if candidates.capacity() == 0 {
-                        candidates.reserve_exact(limit);
+                    if count < limit {
+                        if count < reusable {
+                            let candidate = &mut candidates[count];
+                            candidate.pinyin.clear();
+                            candidate.pinyin.push_str(&word);
+                            candidate.canonical_pinyin.clear();
+                            candidate.word.clear();
+                            candidate.word.push_str(&display);
+                            candidate.weight = weight;
+                            candidate.source = CandidateSource::EnglishDictionary;
+                            candidate.scheme = Default::default();
+                            candidate.fixed_position = 0;
+                            candidate.fuzzy = false;
+                            candidate.corrected_from.clear();
+                            candidate.sentence_association = false;
+                            candidate.sentence_words.clear();
+                        } else {
+                            if count == candidates.capacity() {
+                                candidates.reserve_exact(limit - count);
+                            }
+                            candidates.push(WordItem::new(
+                                word.as_ref(),
+                                display.as_ref(),
+                                weight,
+                                CandidateSource::EnglishDictionary,
+                                "",
+                            ));
+                        }
+                        count += 1;
                     }
-                    candidates.push(WordItem::new(
-                        word,
-                        display,
-                        weight,
-                        CandidateSource::EnglishDictionary,
-                        "",
-                    ));
                 }
-                Ok(None) => return candidates,
+                Ok(None) => {
+                    candidates.truncate(count);
+                    return;
+                }
                 // A step that ends in anything but DONE discards the partial page (english_dictionary.cpp:75-79).
-                Err(_) => return Vec::new(),
+                Err(_) => {
+                    candidates.clear();
+                    return;
+                }
             }
         }
     }

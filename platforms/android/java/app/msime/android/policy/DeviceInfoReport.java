@@ -18,9 +18,11 @@ public final class DeviceInfoReport {
 
     private DeviceInfoReport() {}
 
-    /** 复制出去的文本：第一行是标题，之后每项一行「标签：值」。 */
+    /** 复制出去的文本：标题后先说明用途，之后每项一行「标签：值」。 */
     public static String text(String title, List<Entry> entries) {
-        StringBuilder text = new StringBuilder(title);
+        StringBuilder text = new StringBuilder(title)
+            .append('\n')
+            .append("用于反馈问题时定位输入法与设备兼容性；不包含账号、输入内容或设备标识。");
         for (Entry entry : entries) {
             text.append('\n').append(entry.label()).append('：').append(valueOrUnknown(entry.value()));
         }

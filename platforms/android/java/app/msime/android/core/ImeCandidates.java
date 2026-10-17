@@ -185,11 +185,12 @@ final class ImeCandidates {
         Button button = candidateButton();
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
+        String displayedText = ContactCandidatePolicy.displayText(source, text);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = s.candidatePanelSnapshot == null ? ""
             : InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "preedit", "");
         String annotation = s.candidateAnnotation(candidate, typed);
-        button.setText(s.candidateLabel("", text, annotation, highlighted));
+        button.setText(s.candidateLabel("", displayedText, annotation, highlighted));
         int labelLines = MSIMEInputService.candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         s.configureCandidateTextLayout(button, labelLines);
@@ -209,7 +210,8 @@ final class ImeCandidates {
         long index = id == null ? -1
             : CandidateGlossPolicy.strictOr(id.opt("index"), -1);
         button.setContentDescription(index < 0 ? "候选" : AiPendingCandidatePolicy.description(source,
-            "候选 " + (index + 1) + "：", text, s.candidateAccessibilitySuffix(candidate, typed)));
+            "候选 " + (index + 1) + "：", ContactCandidatePolicy.description(source, text),
+            s.candidateAccessibilitySuffix(candidate, typed)));
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
         if (id == null || index < 0) {

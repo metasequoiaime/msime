@@ -2903,6 +2903,7 @@ pub(super) fn generated_mode_options(root: &Path) -> EngineOptions {
         template: "你好".into(),
     }];
     value.mention_entries = vec![MentionEntry {
+        phone: String::new(),
         text: "Alice".into(),
         key: String::new(),
     }];
@@ -2971,6 +2972,7 @@ fn generated_local_modes_publish_their_spelling_symbols_and_rows() {
     assert_eq!(session.snapshot().unwrap().candidates, ["Alice"]);
     session
         .set_mention_entries(&[MentionEntry {
+            phone: String::new(),
             text: "Alan".into(),
             key: String::new(),
         }])

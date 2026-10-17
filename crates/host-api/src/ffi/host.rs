@@ -1813,10 +1813,26 @@ struct MobileClipboardRequest {
 enum MobileClipboardAction {
     Load,
     ExportText,
-    Capture { text: String },
-    SetPinned { text: String, pinned: bool },
-    Remove { text: String },
-    Replace { text: String, replacement: String },
+    Capture {
+        text: String,
+    },
+    SetPinned {
+        text: String,
+        pinned: bool,
+    },
+    Remove {
+        text: String,
+    },
+    RemoveMany {
+        texts: Vec<String>,
+    },
+    RestoreMany {
+        entries: Vec<msime_client_core::clipboard::ClipboardHistoryEntry>,
+    },
+    Replace {
+        text: String,
+        replacement: String,
+    },
     Clear,
 }
 
@@ -1903,6 +1919,34 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                     "limit": history.limit(),
                     "entries": history.entries()
                 }))
+            }
+            MobileClipboardAction::RemoveMany { texts } => {
+                if texts.is_empty()
+                    || texts.len() > msime_client_core::clipboard::MAX_ENTRIES
+                    || texts.iter().any(|text| {
+                        text.is_empty()
+                            || text.len() > msime_client_core::clipboard::MAX_MOBILE_TEXT_BYTES
+                    })
+                {
+                    return Err("invalid mobile clipboard entries".into());
+                }
+                let removed = history
+                    .remove_many(&texts)
+                    .map_err(|_| "mobile clipboard removal failed")?;
+                Ok(
+                    json!({"removed": removed, "limit": history.limit(), "entries": history.entries()}),
+                )
+            }
+            MobileClipboardAction::RestoreMany { entries } => {
+                if entries.len() > msime_client_core::clipboard::MAX_ENTRIES {
+                    return Err("invalid mobile clipboard entries".into());
+                }
+                history
+                    .restore_many(&entries)
+                    .map_err(|_| "mobile clipboard restore failed")?;
+                Ok(
+                    json!({"restored": true, "limit": history.limit(), "entries": history.entries()}),
+                )
             }
             MobileClipboardAction::Replace { text, replacement } => {
                 if text.is_empty()

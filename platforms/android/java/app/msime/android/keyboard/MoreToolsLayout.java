@@ -62,7 +62,8 @@ public final class MoreToolsLayout {
         if (title == null) return "⌘";
         return switch (title) {
             case "表情" -> "☺";
-            case "剪贴板历史", "剪贴板", "复制设备信息" -> "▤";
+            case "剪贴板历史", "剪贴板" -> "▤";
+            case "设备信息" -> "▣";
             case "AI 润色", "AI 回复与润色", "AI 辅助" -> "✦";
             case "本地输入", "返回工具" -> "⌘";
             case "应用设置", "设置", "编辑工具栏" -> "⚙";
@@ -83,6 +84,7 @@ public final class MoreToolsLayout {
             case "隐私模式", "无痕输入" -> "⛉";
             case "反馈" -> "✉";
             case "关于" -> "ⓘ";
+            case "打开官网" -> "↗";
             case "宣传" -> "吆";
             case "文本编辑" -> "⇄";
             default -> "⌨";

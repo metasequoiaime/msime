@@ -260,6 +260,59 @@ impl ClipboardHistoryStore {
         Ok(removed)
     }
 
+    /// 原子删除多条记录，并返回删除前的完整条目供短时撤销恢复。
+    pub fn remove_many(&mut self, texts: &[String]) -> std::io::Result<Vec<ClipboardHistoryEntry>> {
+        let _lock = self.lock_writer()?;
+        let mut latest = Self::open_with_limit(&self.path, self.limit);
+        latest.load()?;
+        let removed: Vec<_> = latest
+            .entries
+            .iter()
+            .filter(|entry| texts.iter().any(|text| text == &entry.text))
+            .cloned()
+            .collect();
+        if !removed.is_empty() {
+            latest
+                .entries
+                .retain(|entry| !texts.iter().any(|text| text == &entry.text));
+            self.persist(&latest.entries)?;
+        }
+        self.entries = latest.entries;
+        Ok(removed)
+    }
+
+    /// 原子恢复完整条目；已有同文记录不覆盖，避免撤销误删掉用户随后新增的内容。
+    pub fn restore_many(&mut self, entries: &[ClipboardHistoryEntry]) -> std::io::Result<()> {
+        if entries
+            .iter()
+            .any(|entry| !mobile_text_is_valid(&entry.text))
+        {
+            return Ok(());
+        }
+        let _lock = self.lock_writer()?;
+        let mut latest = Self::open_with_limit(&self.path, self.limit);
+        latest.load()?;
+        for entry in entries {
+            if !latest
+                .entries
+                .iter()
+                .any(|current| current.text == entry.text)
+            {
+                latest.entries.push(entry.clone());
+            }
+        }
+        sort_entries(&mut latest.entries);
+        while latest.entries.len() > latest.limit {
+            let Some(index) = latest.entries.iter().rposition(|entry| !entry.pinned) else {
+                break;
+            };
+            latest.entries.remove(index);
+        }
+        self.persist(&latest.entries)?;
+        self.entries = latest.entries;
+        Ok(())
+    }
+
     /// Pin or unpin by content so stale hosts never act on a shifted row index.
     pub fn set_pinned(&mut self, text: &str, pinned: bool) -> std::io::Result<bool> {
         let _lock = self.lock_writer()?;
@@ -524,6 +577,24 @@ mod tests {
         assert!(first.push("synthetic rejected".into()).is_err());
         assert_eq!(texts(&first), ["synthetic second"]);
         assert_eq!(fs::read(&path).unwrap(), b"broken synthetic document");
+    }
+
+    #[test]
+    fn batch_remove_and_restore_preserve_entry_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let mut store = ClipboardHistoryStore::open(&path);
+        store.push("synthetic first".into()).unwrap();
+        store.push("synthetic second".into()).unwrap();
+        store.set_pinned("synthetic first", true).unwrap();
+        let before = store.entries().to_vec();
+        let removed = store
+            .remove_many(&["synthetic first".into(), "synthetic second".into()])
+            .unwrap();
+        assert_eq!(removed, before);
+        assert!(store.entries().is_empty());
+        store.restore_many(&removed).unwrap();
+        assert_eq!(store.entries(), before);
     }
 
     // Invoked by separate test processes below; no real clipboard data involved.

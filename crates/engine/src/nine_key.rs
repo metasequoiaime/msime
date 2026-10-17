@@ -2938,24 +2938,40 @@ fn keyword_spells_digits(grid: KeyGrid, keyword: &str, digits: &str) -> bool {
 
 /// Every letter prefix of the leading digits, expanded while the count stays within `budget`.
 fn letter_prefixes(grid: KeyGrid, digits: &str, budget: usize) -> Vec<String> {
-    let mut prefixes = vec![String::new()];
+    let mut count = 1;
+    let mut depth = 0;
     for digit in digits.bytes() {
         let letters = grid.letters(digit);
-        if letters.is_empty() || prefixes.len() * letters.len() > budget {
+        let width = letters.chars().count();
+        if width == 0 || count > budget / width {
             break;
         }
-        prefixes = prefixes
-            .iter()
-            .flat_map(|prefix| {
-                letters
-                    .chars()
-                    .map(move |letter| format!("{prefix}{letter}"))
-            })
-            .collect();
+        count *= width;
+        depth += 1;
     }
-    if prefixes.len() == 1 && prefixes[0].is_empty() {
+    if depth == 0 {
         Vec::new()
     } else {
+        fn visit(grid: KeyGrid, digits: &[u8], prefix: &mut String, result: &mut Vec<String>) {
+            let Some((&digit, rest)) = digits.split_first() else {
+                result.push(prefix.clone());
+                return;
+            };
+            for letter in grid.letters(digit).chars() {
+                prefix.push(letter);
+                visit(grid, rest, prefix, result);
+                prefix.pop();
+            }
+        }
+
+        let mut prefixes = Vec::with_capacity(count);
+        let mut prefix = String::with_capacity(depth);
+        visit(
+            grid,
+            &digits.as_bytes()[..depth],
+            &mut prefix,
+            &mut prefixes,
+        );
         prefixes
     }
 }
@@ -3458,6 +3474,16 @@ mod tests {
         assert_eq!(letter_prefixes("79", 64).len(), 16);
         assert!(letter_prefixes("1", 64).is_empty());
         assert!(letter_prefixes("", 64).is_empty());
+    }
+
+    #[test]
+    fn letter_prefixes_do_not_allocate_discarded_intermediate_levels() {
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| letter_prefixes("64426", 64));
+        assert!(
+            allocations <= 30,
+            "letter prefix expansion allocated {allocations} buffers"
+        );
     }
 
     #[test]

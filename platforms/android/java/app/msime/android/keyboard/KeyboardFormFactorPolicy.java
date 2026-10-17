@@ -13,6 +13,11 @@ public final class KeyboardFormFactorPolicy {
         return smallestWidthDp >= EXPANDED_SMALLEST_WIDTH_DP;
     }
 
+    /** 手机不提供只对大屏有意义的分离式键盘和物理键盘候选栏设置。 */
+    public static boolean showLargeScreenOptions(int smallestWidthDp) {
+        return expanded(smallestWidthDp);
+    }
+
     /**
      * Width of the keyboard surface, in dp. A zero result means fill the handset window.
      *

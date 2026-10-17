@@ -3,9 +3,8 @@ package app.msime.android.home;
 import app.msime.android.ClipboardExport;
 import app.msime.android.ClipboardHistoryPolicy;
 
-import app.msime.android.KeyboardBottomBarPolicy;
-
 import app.msime.android.DimensionPolicy;
+import app.msime.android.KeyboardFormFactorPolicy;
 
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ToolbarOrderPolicy;
@@ -156,25 +155,24 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.toggle("数字行", "26 键和韩文键盘的字母上方多一行 1–0，键盘整体高出一行；手机横屏时放不下，不显示",
             settings.bool(AndroidLocalSettings.NUMBER_ROW),
             checked -> saveLocalSetting(AndroidLocalSettings.NUMBER_ROW, checked));
-        layout.toggle("横屏分离式键盘", "仅在平板横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入；右半边也有 G 和 V",
-            settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD),
-            checked -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD, checked));
+        boolean showLargeScreenOptions = KeyboardFormFactorPolicy.showLargeScreenOptions(
+            requireContext().getResources().getConfiguration().smallestScreenWidthDp);
+        if (showLargeScreenOptions) {
+            layout.toggle("横屏分离式键盘", "仅在平板横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入；右半边也有 G 和 V",
+                settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD),
+                checked -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD, checked));
+        }
         layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
             checked -> saveLocalSetting(AndroidLocalSettings.FLOATING_KEYBOARD, checked));
-        layout.toggle("物理键盘时候选栏跟随光标", "接实体键盘打字时，候选栏显示在输入光标旁，靠近屏幕底部时显示在光标上方；不打字时不显示工具栏。应用不提供光标位置时仍停在屏幕底部",
-            settings.bool(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES),
-            checked -> saveLocalSetting(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES, checked));
+        if (showLargeScreenOptions) {
+            layout.toggle("物理键盘时候选栏跟随光标", "接实体键盘打字时，候选栏显示在输入光标旁，靠近屏幕底部时显示在光标上方；不打字时不显示工具栏。应用不提供光标位置时仍停在屏幕底部",
+                settings.bool(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES),
+                checked -> saveLocalSetting(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES, checked));
+        }
         layout.toggle("键盘底栏", "仅在全面屏手势导航下生效：键盘下方加一条栏，左边切换输入法、右边剪贴板，中间左右滑动移动光标，同时把按键抬离屏幕底边",
             settings.bool(AndroidLocalSettings.BOTTOM_BAR),
             checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_BAR, checked));
-        layout.toggle("底部留白", "在键区下方保留指定高度，不改变按键大小；键盘底栏的高度计入留白，避免重复叠加",
-            settings.bool(AndroidLocalSettings.BOTTOM_PADDING),
-            checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_PADDING, checked));
-        layout.slider("底部留白高度", KeyboardBottomBarPolicy.MIN_PADDING_DP,
-            KeyboardBottomBarPolicy.MAX_PADDING_DP, 1,
-            settings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT), value -> value + " dp",
-            value -> saveLocalSetting(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, value));
 
         GroupCard feedback = GroupCard.add(sectionColumn(target, "反馈"), "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();
@@ -355,15 +353,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
 
     /** 编辑左侧符号栏的符号：用空格分开，留空恢复默认；不合规（单个符号太长、太多）时确认键不可点。 */
     private void editSidebarSymbols(String title, String key, java.util.List<String> current) {
-        InputDialog dialog = new InputDialog(requireContext(), title,
-            "符号之间用空格分开，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个，每个不超过 "
-                + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符；留空恢复默认");
-        dialog.addField("例如 ， 。 ？ 、", NineKeySidebarPolicy.format(current), 0);
-        dialog.setValidator(values -> values.get(0).isEmpty() || NineKeySidebarPolicy.parse(values.get(0)) != null);
-        // 存好后重画本页：这一行的摘要和下次打开时预填的符号表都来自重画时读到的设置。
-        dialog.setPrimary("保存", values -> KeyboardSheets.saveLocal(this, key,
-            values.get(0).isEmpty() ? null : NineKeySidebarPolicy.normalize(values.get(0)), this::reload, this::reload));
-        dialog.show();
+        java.util.List<String> defaults = key.equals(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS)
+            ? NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS : NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
+        new NineKeySidebarSheet(this, title, key, current, defaults, this::reload).show();
     }
 
     private void pickAnimation(String selected, GroupCard.Row row) {

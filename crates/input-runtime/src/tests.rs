@@ -5391,6 +5391,7 @@ fn generated_mode_runtime(directory: &std::path::Path) -> Runtime {
     options.local_command = true;
     options.local_mention = true;
     options.mention_entries = vec![msime_engine::host::MentionEntry {
+        phone: String::new(),
         text: "张三".into(),
         key: "zhang'san".into(),
     }];
@@ -5711,6 +5712,7 @@ fn wubi_literal_marks_do_not_open_table_modes() {
         template: "张三".into(),
     }];
     options.mention_entries = vec![msime_engine::host::MentionEntry {
+        phone: String::new(),
         text: "张三".into(),
         key: "zhang'san".into(),
     }];

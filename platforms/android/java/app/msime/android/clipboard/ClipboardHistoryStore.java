@@ -65,6 +65,27 @@ public final class ClipboardHistoryStore {
         request("remove", text, false);
     }
 
+    /** 原子删除多条记录，并交回删除前的完整快照供撤销。 */
+    public List<ClipboardHistory.Item> removeMany(List<String> texts) {
+        if (texts == null || texts.isEmpty()) return List.of();
+        JSONObject response = request("remove_many", texts);
+        return entriesArray(response == null ? null : response.optJSONArray("removed"));
+    }
+
+    /** 原子恢复删除前的快照，保留时间戳和固定状态。 */
+    public void restoreMany(List<ClipboardHistory.Item> items) {
+        if (items == null || items.isEmpty()) return;
+        try {
+            JSONArray entries = new JSONArray();
+            for (ClipboardHistory.Item item : items) entries.put(new JSONObject()
+                .put("text", item.text()).put("timestampMs", item.timestamp())
+                .put("pinned", item.pinned()));
+            request("restore_many", entries);
+        } catch (JSONException error) {
+            throw new IllegalArgumentException("Clipboard history restore entries are invalid", error);
+        }
+    }
+
     public void setPinned(String text, boolean pinned) {
         request("set_pinned", text, pinned);
     }
@@ -120,6 +141,26 @@ public final class ClipboardHistoryStore {
         return request(operation, text, pinned, null);
     }
 
+    private JSONObject request(String operation, List<String> texts) {
+        if (directory == null) return null;
+        try {
+            JSONObject action = new JSONObject().put("operation", operation).put("texts", new JSONArray(texts));
+            return send(action);
+        } catch (JSONException | LinkageError error) {
+            throw new IllegalStateException("Clipboard history " + operation + " could not reach the shared store", error);
+        }
+    }
+
+    private JSONObject request(String operation, JSONArray entries) {
+        if (directory == null) return null;
+        try {
+            JSONObject action = new JSONObject().put("operation", operation).put("entries", entries);
+            return send(action);
+        } catch (JSONException | LinkageError error) {
+            throw new IllegalStateException("Clipboard history " + operation + " could not reach the shared store", error);
+        }
+    }
+
     /** 共享入口要的请求文档：以 `operation` 区分操作的一个对象；`replacement` 只用于 `replace`，其他操作传 null。 */
     private JSONObject request(String operation, String text, boolean pinned, String replacement) {
         if (directory == null) return null;
@@ -131,22 +172,42 @@ public final class ClipboardHistoryStore {
             JSONObject payload = new JSONObject()
                 .put("directory", directory)
                 .put("action", action);
-            JSONObject response = new JSONObject(
-                NativeClient.mobileClipboardHistory(payload.toString()));
-            if (!JsonPolicy.strictTrue(response.opt("ok"))) {
+            return send(action);
+        } catch (JSONException | LinkageError error) {
+            throw new IllegalStateException(
+                "Clipboard history " + operation + " could not reach the shared store", error);
+        }
+    }
+
+    private JSONObject send(JSONObject action) throws JSONException {
+        JSONObject payload = new JSONObject().put("directory", directory).put("action", action);
+        JSONObject response = new JSONObject(NativeClient.mobileClipboardHistory(payload.toString()));
+        String operation = action.optString("operation", "unknown");
+        if (!JsonPolicy.strictTrue(response.opt("ok"))) {
                 // Name the operation and carry the shared entry's own reason. Without them a
                 // refusal reaches the log as one indistinguishable sentence, which is how an
                 // Android-only file-locking failure read as "the clipboard is broken somehow"
                 // for as long as it did.
                 String reason = JsonPolicy.strictString(response.opt("error"));
-                throw new IllegalStateException("Clipboard history " + operation
-                    + " refused: " + (reason == null ? "no reason given" : reason));
-            }
-            return JsonPolicy.objectValue(response);
-        } catch (JSONException | LinkageError error) {
-            throw new IllegalStateException(
-                "Clipboard history " + operation + " could not reach the shared store", error);
+            throw new IllegalStateException("Clipboard history " + operation
+                + " refused: " + (reason == null ? "no reason given" : reason));
         }
+        return JsonPolicy.objectValue(response);
+    }
+
+    private List<ClipboardHistory.Item> entriesArray(JSONArray values) {
+        List<ClipboardHistory.Item> items = new ArrayList<>();
+        if (values == null) return items;
+        for (int index = 0; index < values.length(); index++) {
+            JSONObject entry = values.optJSONObject(index);
+            if (entry == null) continue;
+            String text = JsonPolicy.strictString(entry.opt("text"));
+            Boolean pinned = JsonPolicy.strictBoolean(entry.opt("pinned"));
+            if (text != null && pinned != null)
+                items.add(new ClipboardHistory.Item(text,
+                    ClipboardHistoryPolicy.timestampValue(entry.opt("timestampMs")), pinned));
+        }
+        return items;
     }
 
     private List<ClipboardHistory.Item> entries(JSONObject value) {

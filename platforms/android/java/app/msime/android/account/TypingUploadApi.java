@@ -48,9 +48,12 @@ public final class TypingUploadApi {
 
     /** 本人的绑定，新的在前。 */
     public List<Link> links() throws CloudApi.Failure {
-        JSONArray rows = api.json("GET", LINKS_PATH, null, CloudApi.Auth.ACCOUNT).optJSONArray("links");
+        JSONObject response = api.json("GET", LINKS_PATH, null, CloudApi.Auth.ACCOUNT);
+        JSONArray rows = response.optJSONArray("links");
+        if (rows == null) {
+            throw new CloudApi.Failure(200, "invalid_response", "malformed qq links", 0);
+        }
         List<Link> links = new ArrayList<>();
-        if (rows == null) return links;
         for (int i = 0; i < rows.length() && links.size() < MAX_LINKS; i++) {
             Link link = link(rows.optJSONObject(i));
             if (link != null) links.add(link);

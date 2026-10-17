@@ -1,6 +1,6 @@
-//! The @ mode's name list: `<root>/mentions.json`, where `root` is the plugins directory.
+//! The @ mode's name list and imported contacts: `<root>/mentions.json`, where `root` is the plugins directory.
 //!
-//! The list is the user's own, typed in on the settings page. It is kept out of the preferences document on purpose: that document is copied between a host's processes and read field by field for account sync, and names of people and places belong to neither. Nothing here reads a system address book or asks for a location.
+//! The list is the user's own, typed in on the settings page, or imported by a mobile host after an explicit permission grant. It is kept out of the preferences document on purpose: that document is copied between a host's processes and read field by field for account sync, and names, phone numbers and places belong to neither.
 //!
 //! Writers serialize on `mentions.lock` and replace the document with an atomic rename, so an input process can read it at any moment without a lock and see either the old list or the new one.
 
@@ -30,6 +30,9 @@ pub struct MentionEntry {
     /// Lowercase pinyin syllables joined by `'` (`zhang'san`) that the letters after `@` are matched against. Empty lets the host derive it: an ASCII name matches by its own letters, and a host fills in the reading of a Chinese one from the Engine's dictionary.
     #[serde(default)]
     pub key: String,
+    /// 联系人手机号；普通 `@` 名单为空。
+    #[serde(default)]
+    pub phone: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,6 +75,11 @@ pub fn validate_entry(entry: &MentionEntry) -> Result<(), String> {
             "「{}」的拼音只能是小写字母，音节之间用 ' 分隔",
             entry.text
         ));
+    }
+    if entry.phone.encode_utf16().count() > 64
+        || crate::text::has_disallowed_control_with_allowed(&entry.phone, &[])
+    {
+        return Err(format!("「{}」的手机号格式无效", entry.text));
     }
     Ok(())
 }
@@ -211,6 +219,7 @@ mod tests {
 
     fn entry(text: &str, key: &str) -> MentionEntry {
         MentionEntry {
+            phone: String::new(),
             text: text.into(),
             key: key.into(),
         }
@@ -221,11 +230,12 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = MentionStore::new(directory.path().join("plugins"));
         assert!(store.load().unwrap().is_empty());
-        let entries = vec![
+        let mut entries = vec![
             entry("张三", "zhang'san"),
             entry("Alice", ""),
             entry("北京市朝阳区", ""),
         ];
+        entries[0].phone = "13800138000".into();
         store.save(&entries).unwrap();
         assert_eq!(store.load().unwrap(), entries);
         assert!(document_path(&directory.path().join("plugins")).is_file());
@@ -277,7 +287,7 @@ mod tests {
         for document in [
             "not json",
             r#"{"format_version":2,"entries":[]}"#,
-            r#"{"format_version":1,"entries":[{"text":"x","key":"","phone":"1"}]}"#,
+            r#"{"format_version":1,"entries":[{"text":"x","key":"","other":"1"}]}"#,
             r#"{"format_version":1,"entries":[{"text":"","key":""}]}"#,
             r#"{"format_version":1,"entries":[],"extra":true}"#,
         ] {

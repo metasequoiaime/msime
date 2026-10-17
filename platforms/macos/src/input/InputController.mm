@@ -6429,6 +6429,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand)) &&
         !MSIMECandidateListOpen(_view) && MSIMESchemeTrait(_view, msime::mac::scheme::EditsSentence) &&
         [_appearance navigationEnabled:@"arrows"] && ![_appearance navigationEnabled:@"left_right"]) {
+        // 双拼的预编辑以音节为编辑单位。左右键在音节内部也按一个音节移动，避免高亮候选变化后把按键误解释成选词，导致用户只能删掉整句重拼。
+        if (MSIMEViewScheme(_view) == msime::mac::scheme::Shuangpin) {
+            const uint32_t segment = event.keyCode == 123 ? MSIME_MOVE_LEFT_SEGMENT : MSIME_MOVE_RIGHT_SEGMENT;
+            [self apply:[_session command:segment error:nil]];
+            return YES;
+        }
         NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
         NSUInteger highlighted = NSNotFound;
         for (NSUInteger index = 0; index < candidates.count; ++index)

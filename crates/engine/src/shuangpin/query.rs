@@ -188,7 +188,18 @@ pub fn is_complete_input(raw: &str, profile: &ShuangpinProfile) -> bool {
         return false;
     }
     raw.split('\'').all(|chunk| {
-        !chunk.is_empty() && is_all_complete_pinyin(chunk, &pinyin_segmentation(chunk, profile))
+        if chunk.is_empty() {
+            return false;
+        }
+        if !chunk.is_ascii() {
+            return is_all_complete_pinyin(chunk, &pinyin_segmentation(chunk, profile));
+        }
+        let bytes = chunk.as_bytes();
+        bytes.len().is_multiple_of(2)
+            && bytes
+                .chunks_exact(2)
+                .enumerate()
+                .all(|(index, _)| takes_two_keys(bytes, index * 2, profile))
     })
 }
 
@@ -362,7 +373,17 @@ mod tests {
         });
 
         assert_eq!(length, 2);
-        assert_eq!(allocations, 2);
+        assert_eq!(allocations, 1);
+    }
+
+    #[test]
+    fn complete_input_check_does_not_materialize_segmentation() {
+        let profile = xiaohe();
+        assert!(is_complete_input("nihc", profile));
+        let (complete, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| is_complete_input("nihc", profile));
+        assert!(complete);
+        assert_eq!(allocations, 0, "完整性判定仍创建了分段文本");
     }
 
     #[test]
@@ -374,6 +395,45 @@ mod tests {
         assert!(!is_complete_input("ni'", xiaohe()));
         assert!(!is_complete_input("ni''hc", xiaohe()));
         assert!(!is_complete_input("", xiaohe()));
+    }
+
+    #[test]
+    fn complete_input_matches_the_materialized_reference() {
+        let inputs = [
+            "", "n", "ni", "nihc", "nihcc", "ni'hc", "'nihc", "nihc'", "ni''hc", "Nihc", "j;gk",
+            "yo", "yo'ui", ";;", "éé",
+        ];
+        for kind in [
+            ShuangpinProfileKind::Xiaohe,
+            ShuangpinProfileKind::Ziranma,
+            ShuangpinProfileKind::Shoudao,
+            ShuangpinProfileKind::Microsoft,
+            ShuangpinProfileKind::SmartAbc,
+        ] {
+            let profile = profile(kind).unwrap();
+            for raw in inputs {
+                let expected = if raw.is_empty()
+                    || raw.starts_with('\'')
+                    || raw.ends_with('\'')
+                    || raw.contains("''")
+                {
+                    false
+                } else {
+                    raw.split('\'').all(|chunk| {
+                        !chunk.is_empty()
+                            && crate::shuangpin::utils::is_all_complete_pinyin(
+                                chunk,
+                                &pinyin_segmentation(chunk, profile),
+                            )
+                    })
+                };
+                assert_eq!(
+                    is_complete_input(raw, profile),
+                    expected,
+                    "{kind:?} {raw:?}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -28,6 +28,8 @@ pub enum CandidateSource {
     Plugin = 14,
     /// 云候选尚在请求中；它占据云候选的固定位置，回答到达时由第一条云候选替换。值追加在已有 ABI 之后，不能复用旧值。
     CloudPending = 15,
+    /// Android 联系人导入提供的手机号候选；选中后直接上屏，不学习、不管理。
+    Contact = 16,
 }
 
 impl CandidateSource {
@@ -48,6 +50,7 @@ impl CandidateSource {
             13 => Self::MixedJapanese,
             14 => Self::Plugin,
             15 => Self::CloudPending,
+            16 => Self::Contact,
             _ => return None,
         })
     }
@@ -1313,6 +1316,8 @@ pub struct MentionEntry {
     pub text: String,
     /// Lowercase pinyin syllables joined by `'` (`zhang'san`), matched by prefix and by initials; empty to match an ASCII `text` by its own letters only.
     pub key: String,
+    /// 联系人手机号；普通名单为空，联系人候选命中姓名拼音时提交这一栏。
+    pub phone: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

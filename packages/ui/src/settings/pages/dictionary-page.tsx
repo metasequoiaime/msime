@@ -76,7 +76,12 @@ export function DictionarySettingsPage() {
     mobilePlatform,
     openCommunityGallery,
   } = useSettingsForm();
-  const { tabList, panel } = useSettingsTabs(dictionaryTabs, "词库设置分类", !mobilePlatform);
+  const { tabList, panel } = useSettingsTabs(
+    // 没有本地词库的宿主没有可查的东西，只留「管理词库」，打开词库页时不落在一张空白的标签上。
+    dictionaryTabs.filter((tab) => tab.id !== "lookup" || Boolean(client.dictionary)),
+    "词库设置分类",
+    !mobilePlatform,
+  );
   // HarmonyOS 手机按 Android 的词库页布局：按词库列出，点进去编辑，而不是这张按种类查词条的桌面表单。它在打开时读词库和社区列表，所以只在本页可见时挂载。
   if (harmonyPlatform && mobilePlatform) {
     return (
@@ -85,13 +90,30 @@ export function DictionarySettingsPage() {
       </SettingsPageFieldset>
     );
   }
+  // 词库操作的结果。导出、导入和清除学习数据在「管理词库」，查询和编辑在「查词库」，桌面把结果画在标签下、两个面板之上，用户在哪个标签上操作都看得到；手机没有标签，导入导出就在下面，结果仍画在本地词库管理组里。
+  const feedback = (
+    <>
+      {phraseError && <ErrorAlert>{phraseError}</ErrorAlert>}
+      {phraseNotice && (
+        <SettingsEmptyMessage compact role="status">
+          {phraseNotice}
+        </SettingsEmptyMessage>
+      )}
+    </>
+  );
+  const feedbackInLookup = mobilePlatform && Boolean(client.dictionary);
+  // 桌面上选词库类型的框在「查词库」标签，「管理词库」里看不到它，所以直接写出当前类型；手机直列，那个框就在上面。
+  const transferKind = mobilePlatform
+    ? "导入和导出的是上面所选类型的词库"
+    : `导入和导出的是「查词库」中选中的「${localDictionaryKinds.find(([kind]) => kind === dictionaryKind)?.[1] ?? "词库"}」词库`;
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "dictionary"} ariaLabel="词库">
       {tabList}
+      {!feedbackInLookup && feedback}
       {/* 先是词库本身（查、看、加），再是成批的导入导出和云词库，然后是只读的词库信息和别的入口，清除学习数据这种危险操作放在页末。 */}
-      {panel(
-        "lookup",
-        client.dictionary && (
+      {client.dictionary &&
+        panel(
+          "lookup",
           <GroupList title="本地词库管理">
             <SettingsGroupNote>
               输入词条文字或编码前缀查询本地词库；查询结果也会包含匹配的内置词条。用户词条可以新增、编辑和删除，内置词条只能调整权重或删除。
@@ -154,12 +176,7 @@ export function DictionarySettingsPage() {
                 onRetry={(requestId) => void retryDictionaryFailure(requestId)}
                 onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
               />
-              {phraseError && <ErrorAlert>{phraseError}</ErrorAlert>}
-              {phraseNotice && (
-                <SettingsEmptyMessage compact role="status">
-                  {phraseNotice}
-                </SettingsEmptyMessage>
-              )}
+              {feedbackInLookup && feedback}
               <DictionaryEntries
                 kind={dictionaryKind}
                 entries={phrases}
@@ -203,9 +220,8 @@ export function DictionarySettingsPage() {
                 />
               </SettingsManagerActions>
             </SettingsManagerBlock>
-          </GroupList>
-        ),
-      )}
+          </GroupList>,
+        )}
       {panel(
         "manage",
         <>
@@ -213,8 +229,8 @@ export function DictionarySettingsPage() {
             <GroupList title="导入与导出">
               <SettingsGroupNote>
                 {client.dictionary.scelText
-                  ? "导入和导出的是上面所选类型的词库；导入支持标准、Windows TSV、Rime、纯汉字自动注音，拼音词库还能导入搜狗细胞词库（.scel）。"
-                  : "导入和导出的是上面所选类型的词库；导入支持标准、Windows TSV、Rime 和纯汉字自动注音。"}
+                  ? `${transferKind}；导入支持标准、Windows TSV、Rime、纯汉字自动注音，拼音词库还能导入搜狗细胞词库（.scel）。`
+                  : `${transferKind}；导入支持标准、Windows TSV、Rime 和纯汉字自动注音。`}
               </SettingsGroupNote>
               <SelectRow
                 title="文件格式"

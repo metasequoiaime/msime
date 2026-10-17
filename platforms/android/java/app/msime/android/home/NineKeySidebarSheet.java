@@ -1,0 +1,194 @@
+package app.msime.android.home;
+
+import android.content.Context;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import androidx.fragment.app.Fragment;
+import app.msime.android.DimensionPolicy;
+import app.msime.android.DrawablePolicy;
+import app.msime.android.ImageViewPolicy;
+import app.msime.android.LayoutPolicy;
+import app.msime.android.NineKeySidebarPolicy;
+import app.msime.android.R;
+import app.msime.android.ThemeColorPolicy;
+import app.msime.android.ViewPolicy;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/** 九键左侧符号栏的可视化编辑面板：符号逐项列出，顺序和删除动作不靠编辑一串文本完成。 */
+final class NineKeySidebarSheet {
+    private final Fragment owner;
+    private final String key;
+    private final List<String> defaults;
+    private final SettingsSheet sheet;
+    private final LinearLayout rows;
+    private final GroupCard.Row resetRow;
+    private final GroupCard.Row saveRow;
+    private final Runnable saved;
+    private List<String> symbols;
+    private boolean saving;
+
+    NineKeySidebarSheet(Fragment owner, String title, String key, List<String> current,
+            List<String> defaults, Runnable saved) {
+        this.owner = owner;
+        this.key = key;
+        this.defaults = List.copyOf(defaults);
+        this.symbols = new ArrayList<>(current);
+        this.saved = saved;
+        Context context = owner.requireContext();
+        sheet = new SettingsSheet(context, title, "按住拖动把手调整顺序，删除或添加单个符号。保存后应用到键盘。");
+        rows = LayoutPolicy.column(context);
+        GroupCard orderCard = GroupCard.add(sheet.content(), "当前顺序");
+        orderCard.card().addView(rows, LayoutPolicy.matchWidthWrapParams());
+        GroupCard actions = GroupCard.add(sheet.content(), null);
+        resetRow = actions.button("恢复默认符号", null, "恢复默认", () -> {
+            symbols = new ArrayList<>(this.defaults);
+            render();
+        });
+        actions.button("添加自定义符号", "每次添加一个，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个",
+            "添加", this::addSymbol);
+        saveRow = actions.button("保存符号栏", null, "保存", this::save);
+        actions.button("放弃本次调整", null, "取消", sheet::dismiss);
+        render();
+    }
+
+    void show() { sheet.show(); }
+
+    private void render() {
+        rows.removeAllViews();
+        Context context = owner.requireContext();
+        if (symbols.isEmpty()) {
+            TextView empty = ViewPolicy.styledLabel(context, "当前没有符号，保存后恢复默认符号。",
+                Ui.TEXT_ROW_SUBTITLE, 400, ThemeColorPolicy.subText(context));
+            ViewPolicy.setPaddingDp(context, empty, 16, 12, 16, 12);
+            rows.addView(empty, LayoutPolicy.matchWidthWrapParams());
+        } else {
+            for (int index = 0; index < symbols.size(); index++) addRow(index);
+        }
+        resetRow.setEnabled(!saving);
+        saveRow.setEnabled(!saving);
+    }
+
+    private void addRow(int index) {
+        Context context = owner.requireContext();
+        LinearLayout row = LayoutPolicy.row(context);
+        ViewPolicy.setCenteredVertically(row);
+        ViewPolicy.setRowMinimumHeight(context, row);
+        ViewPolicy.setRowPadding(context, row);
+        ViewPolicy.setBackground(row, ViewPolicy.ripple(context));
+        TextView symbol = ViewPolicy.styledLabel(context, symbols.get(index), Ui.TEXT_BAR_TITLE, 400,
+            ThemeColorPolicy.text(context));
+        symbol.setContentDescription("符号：" + symbols.get(index));
+        ViewPolicy.setCentered(symbol);
+        ViewPolicy.setHorizontalPaddingDp(context, symbol, 12);
+        ViewPolicy.setBackground(symbol, DrawablePolicy.rounded(ThemeColorPolicy.accentSoft(context),
+            DimensionPolicy.pixels(context, 10)));
+        LinearLayout symbolSlot = LayoutPolicy.row(context);
+        ViewPolicy.setCenteredVertically(symbolSlot);
+        symbolSlot.addView(symbol, LayoutPolicy.wrapParams());
+        row.addView(symbolSlot, LayoutPolicy.weightedWrapParams(1));
+        row.addView(dragHandle(row, symbols.get(index)), LayoutPolicy.wrapParams());
+        ImageView delete = ImageViewPolicy.iconButton(context, R.drawable.ic_ms_delete,
+            ThemeColorPolicy.subText(context), "删除 " + symbols.get(index), 48,
+            () -> remove(row));
+        row.addView(delete, LayoutPolicy.wrapParams());
+        rows.addView(row, LayoutPolicy.matchWidthWrapParams());
+    }
+
+    private ImageView dragHandle(LinearLayout row, String symbol) {
+        Context context = owner.requireContext();
+        ImageView handle = ImageViewPolicy.iconButton(context, R.drawable.ic_ms_drag_handle,
+            ThemeColorPolicy.subText(context), "拖动调整 " + symbol + " 的顺序", 48, null);
+        ViewPolicy.setEnabledWithAlpha(handle, !saving, 0.38f);
+        handle.setOnTouchListener((view, event) -> handleDrag(row, event));
+        return handle;
+    }
+
+    private boolean handleDrag(LinearLayout row, MotionEvent event) {
+        if (saving) return false;
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN -> {
+                if (row.getParent() != rows) return false;
+                rows.requestDisallowInterceptTouchEvent(true);
+                row.setAlpha(0.72f);
+                ViewPolicy.setElevation(row, DimensionPolicy.pixels(owner.requireContext(), 8));
+                return true;
+            }
+            case MotionEvent.ACTION_MOVE -> {
+                if (row.getParent() != rows) return false;
+                int target = dragTarget(event.getRawY());
+                int current = rows.indexOfChild(row);
+                if (target != current) reorderRow(row, current, target);
+                return true;
+            }
+            case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                rows.requestDisallowInterceptTouchEvent(false);
+                row.setAlpha(1f);
+                ViewPolicy.clearElevation(row);
+                return true;
+            }
+            default -> {
+                return true;
+            }
+        }
+    }
+
+    private int dragTarget(float rawY) {
+        for (int index = 0; index < rows.getChildCount(); index++) {
+            View child = rows.getChildAt(index);
+            int[] location = new int[2];
+            child.getLocationOnScreen(location);
+            if (rawY < location[1] + child.getHeight() / 2f) return index;
+        }
+        return Math.max(0, rows.getChildCount() - 1);
+    }
+
+    private void reorderRow(LinearLayout row, int current, int target) {
+        Collections.swap(symbols, current, target);
+        rows.removeViewAt(current);
+        rows.addView(row, target);
+    }
+
+    private void remove(LinearLayout row) {
+        if (saving) return;
+        int index = rows.indexOfChild(row);
+        if (index < 0 || index >= symbols.size()) return;
+        symbols.remove(index);
+        render();
+    }
+
+    private void addSymbol() {
+        if (saving || symbols.size() >= NineKeySidebarPolicy.MAX_SYMBOLS) return;
+        InputDialog dialog = new InputDialog(owner.requireContext(), "添加自定义符号",
+            "一次添加一个符号，最多 " + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符");
+        dialog.addField("例如 ； 或 ……", null, 0);
+        dialog.setValidator(values -> {
+            List<String> parsed = NineKeySidebarPolicy.parse(values.get(0));
+            return parsed != null && parsed.size() == 1 && !symbols.contains(parsed.get(0));
+        });
+        dialog.setPrimary("添加", values -> {
+            symbols.add(NineKeySidebarPolicy.parse(values.get(0)).get(0));
+            render();
+        });
+        dialog.show();
+    }
+
+    private void save() {
+        if (saving) return;
+        saving = true;
+        render();
+        String value = symbols.isEmpty() ? null : NineKeySidebarPolicy.format(symbols);
+        KeyboardSheets.saveLocal(owner, key, value,
+            () -> {
+                sheet.dismiss();
+                saved.run();
+            }, () -> {
+                saving = false;
+                render();
+            });
+    }
+}

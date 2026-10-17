@@ -309,6 +309,7 @@ mod tests {
 
     fn mention(text: &str, key: &str) -> MentionEntry {
         MentionEntry {
+            phone: String::new(),
             text: text.to_owned(),
             key: key.to_owned(),
         }

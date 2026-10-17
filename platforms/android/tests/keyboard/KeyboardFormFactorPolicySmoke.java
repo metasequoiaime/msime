@@ -4,6 +4,10 @@ public final class KeyboardFormFactorPolicySmoke {
     public static void main(String[] args) {
         check(!KeyboardFormFactorPolicy.expanded(599), "a phone stays compact");
         check(KeyboardFormFactorPolicy.expanded(600), "the Android large-screen boundary expands");
+        check(!KeyboardFormFactorPolicy.showLargeScreenOptions(599),
+            "a phone hides split and physical-keyboard settings");
+        check(KeyboardFormFactorPolicy.showLargeScreenOptions(600),
+            "a large screen keeps split and physical-keyboard settings");
         check(KeyboardFormFactorPolicy.surfaceWidthDp(411, 915) == 0,
             "rotating a phone does not turn it into a convertible");
         check(KeyboardFormFactorPolicy.surfaceWidthDp(600, 600) == 600,

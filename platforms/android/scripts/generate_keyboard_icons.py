@@ -71,6 +71,8 @@ ICONS: list[tuple[str, str, float, str, str]] = [
      "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM13 8H7M17 12H7"),
     ("ABOUT", STROKE, 1.7, "design panel 关于",
      "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"),
+    ("WEBSITE", STROKE, 1.7, "Lucide-style external-link (打开官网)",
+     "M14 3h7v7M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"),
     ("CHECK", STROKE, 4, "design on-state check badge", "m5 12.5 4.5 4.5L19 7.5"),
     # Lucide-style additions for entries the design draws no icon for.
     ("AI_ASSIST", STROKE, 1.7, "Lucide-style sparkles (AI 回复与润色)",
@@ -82,6 +84,8 @@ ICONS: list[tuple[str, str, float, str, str]] = [
     ("VIBRATION_STRENGTH", STROKE, 1.7, "Lucide-style activity (振动强度)", "M22 12h-4l-3 9L9 3l-3 9H2"),
     ("CLIPBOARD_HISTORY", STROKE, 1.7, "Lucide-style clipboard-list (剪贴板历史)",
      "M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zM16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M12 11h4M12 16h4M8 11h.01M8 16h.01"),
+    ("DEVICE_INFO", STROKE, 1.7, "Lucide-style copy (设备信息)",
+     "M8 8h11a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2zM16 8V4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h1"),
     ("SWAP_SIDE", STROKE, 1.8, "Lucide-style chevron-left (单手换边)", "m15 18-6-6 6-6"),
     ("CURSOR_LEFT", STROKE, 1.7, "Lucide-style arrow-left (日语九键 光标左移)", "M19 12H5M12 19l-7-7 7-7"),
     ("TOGGLE_NEXT", STROKE, 1.7, "Lucide-style arrow-right (日语九键 结束连点)", "M5 12h14M12 5l7 7-7 7"),

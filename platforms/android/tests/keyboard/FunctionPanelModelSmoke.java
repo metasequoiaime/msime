@@ -12,8 +12,8 @@ public final class FunctionPanelModelSmoke {
             "单手模式", "浮动键盘", "无痕输入", "键盘高度")),
             "page one");
         check(labels(1).equals(List.of("按键音", "振动", "振动强度", "插入语音文字", "词库", "文本编辑",
-            "反馈", "关于", "复制设备信息", "宣传", "表情", "剪贴板历史")), "page two");
-        check(labels(2).equals(List.of("编辑工具栏")), "page three");
+            "反馈", "关于", "打开官网", "设备信息", "宣传", "表情")), "page two");
+        check(labels(2).equals(List.of("剪贴板历史", "编辑工具栏")), "page three");
         check(!FunctionPanelModel.item(Id.TEXT_EDIT).toggle() && FunctionPanelModel.pageOf(Id.TEXT_EDIT) == 1,
             "文本编辑 opens a panel from page two");
         check(FunctionPanelModel.page(3).isEmpty() && FunctionPanelModel.page(-1).isEmpty(),
@@ -24,6 +24,8 @@ public final class FunctionPanelModelSmoke {
             "振动 is described as 按键振动");
         check(FunctionPanelModel.item(Id.AI_ASSIST).description().equals("AI 回复与润色")
             && !FunctionPanelModel.item(Id.AI_ASSIST).toggle(), "merged AI tile opens a panel");
+        check(FunctionPanelModel.item(Id.WEBSITE).description().equals("打开官网")
+            && !FunctionPanelModel.item(Id.WEBSITE).toggle(), "website tile opens the default browser");
         check(FunctionPanelModel.pageOf(Id.LOCAL_INPUT) == 0, "local input sits on page one");
         List<Id> toggles = new ArrayList<>();
         for (Item item : FunctionPanelModel.toggles()) toggles.add(item.id());

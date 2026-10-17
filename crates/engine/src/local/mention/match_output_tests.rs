@@ -19,6 +19,7 @@ fn assert_output_budget(code: &str, entries: &[MentionEntry], with_places: bool)
 
 fn entry(text: &str, key: &str) -> MentionEntry {
     MentionEntry {
+        phone: String::new(),
         text: text.to_owned(),
         key: key.to_owned(),
     }

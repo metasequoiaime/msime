@@ -40,31 +40,29 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
             if (Build.VERSION.SDK_INT < 30) {
                 copyFromLegacyMenu(toolbar);
             } else {
-                showTool("复制设备信息");
-                tap(tool("复制设备信息"));
+                showTool("设备信息");
+                tap(tool("设备信息"));
             }
             stage = "device information clipboard result";
             String copied = awaitDeviceInfo(clipboard);
             String[] lines = copied.split("\\n");
             String[] labels = {"应用版本", "品牌", "型号", "系统版本", "系统构建", "处理器架构",
                 "屏幕分辨率", "存储空间", "运行内存", "Android System WebView", "键盘"};
-            if (lines.length != labels.length + 1 || !lines[0].endsWith(" 设备信息"))
+            if (lines.length != labels.length + 2 || !lines[0].endsWith(" 设备信息")
+                || !lines[1].startsWith("用于反馈问题时定位输入法与设备兼容性"))
                 throw new AssertionError("Device information whitelist changed");
             for (int index = 0; index < labels.length; index++)
-                if (!lines[index + 1].startsWith(labels[index] + "："))
+                if (!lines[index + 2].startsWith(labels[index] + "："))
                     throw new AssertionError("Device information field missing: " + labels[index]);
             if (copied.contains("nihao") || copied.contains("你好") || copied.contains("MSIME synthetic clipboard sentinel")
                 || !copied.contains("键盘：已启用 · 当前默认")
                 || copied.contains("屏幕分辨率：未知") || copied.contains("应用版本：未知"))
                 throw new AssertionError("Device information contains invalid diagnostics");
-            stage = "device information copy keeps menu and editor";
-            if (Build.VERSION.SDK_INT >= 30) await(toolPanel());
+            stage = "device information copy returns to keyboard";
             await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
             if (Build.VERSION.SDK_INT < 30) {
-                // 复制提示会暂时替换工具栏；先刷新节点，等真实工具栏恢复再按品牌键。
                 await(described("键盘快捷栏").and(node -> node.refresh() && node.isVisibleToUser()));
-                shellDiscard("input tap " + (toolbar.left + toolbar.width() / 12) + " " + toolbar.centerY());
-            } else tap(tool("返回键盘"));
+            }
             stage = "typing after device information copy";
             for (String letter : new String[] {"s", "h", "i"}) tap(key(letter));
             await(field("msime-test-plain").and(node -> equalsText("你好shi", node.getText())));

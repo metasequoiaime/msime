@@ -65,7 +65,7 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         AccessibilityNodeInfo haptics = await(tool("按键振动"));
         if (!validFeedbackState(sound) || !validFeedbackState(haptics))
             throw new AssertionError("Feedback state was not exposed");
-        for (String title : new String[] {"反馈", "关于", "词库", "文本编辑", "复制设备信息"})
+        for (String title : new String[] {"反馈", "关于", "打开官网", "词库", "文本编辑", "设备信息"})
             await(tool(title));
         String originalSound = switchState(sound).toString();
         String changedSound = "已开启".equals(originalSound) ? "已关闭" : "已开启";

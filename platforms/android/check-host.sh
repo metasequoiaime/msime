@@ -1043,9 +1043,16 @@ for source in \
     exit 1
   fi
 done
-# 词库页的大标题行只放标题：右侧那排胶囊会在窄屏上把「词库」挤成「词…」（#5682），导入、导出和刷新放在内容里的管理卡片中。
-if rg -n 'headerActions\(\)' "$repo_root/platforms/android/java/app/msime/android/home/LexiconPage.java"; then
-  echo "Android lexicon page must keep its actions in the manage card, not beside the large title" >&2
+# 词库页的大标题行只放标题：右侧那排胶囊会在窄屏上把「词库」挤成「词…」（#5682）。低频管理动作收进「已安装」标题旁的菜单，正常列表下面不再放四行操作卡片；首次读取失败的单独刷新入口仍保留。
+lexicon_page="$repo_root/platforms/android/java/app/msime/android/home/LexiconPage.java"
+if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" \
+  || ! rg -q 'new PopupMenu\(requireContext\(\), anchor\)' "$lexicon_page" \
+  || ! rg -q 'menu\.getMenu\(\)\.add\("新建词库"\)' "$lexicon_page" \
+  || ! rg -q 'menu\.getMenu\(\)\.add\("导入词库"\)' "$lexicon_page" \
+  || ! rg -q 'menu\.getMenu\(\)\.add\("刷新词库"\)' "$lexicon_page" \
+  || ! rg -q 'menu\.getMenu\(\)\.add\("导出词库"\)' "$lexicon_page" \
+  || rg -q 'GroupCard manage =|manage\.addView\(KeyboardSheets\.actionRow' "$lexicon_page"; then
+  echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
   exit 1
 fi
 #

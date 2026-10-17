@@ -13398,6 +13398,7 @@ fn save_mentions(root: &std::path::Path, entries: &[(&str, &str)]) {
         .iter()
         .map(
             |(text, key)| msime_client_services::plugins::mentions::MentionEntry {
+                phone: String::new(),
                 text: (*text).into(),
                 key: (*key).into(),
             },

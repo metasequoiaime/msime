@@ -141,6 +141,42 @@ impl CandidateQueries {
         self.mentions = usable_mentions(entries);
     }
 
+    /// 普通组字里把联系人姓名的拼音映射成手机号。联系人排在本地词典前面，来源单独标记，选中后直接上屏且不写入个人词库。
+    pub fn append_contact_candidates(&self, prefix: &str, candidates: &mut Vec<WordItem>) {
+        if prefix.is_empty() || !prefix.bytes().all(|byte| byte.is_ascii_lowercase()) {
+            return;
+        }
+        let mut contacts = Vec::new();
+        for entry in &self.mentions {
+            if entry.phone.is_empty() || entry.key.is_empty() {
+                continue;
+            }
+            let compact = entry.key.replace('\'', "");
+            let initials: String = entry
+                .key
+                .split('\'')
+                .filter_map(|syllable| syllable.as_bytes().first().copied().map(char::from))
+                .collect();
+            if compact.starts_with(prefix) || initials.starts_with(prefix) {
+                contacts.push(WordItem::new(
+                    entry.key.clone(),
+                    entry.phone.clone(),
+                    0,
+                    CandidateSource::Contact,
+                    entry.key.clone(),
+                ));
+            }
+            if contacts.len() == 18 {
+                break;
+            }
+        }
+        for contact in contacts.into_iter().rev() {
+            if !candidates.iter().any(|item| item.word == contact.word) {
+                candidates.insert(0, contact);
+            }
+        }
+    }
+
     /// Turns the embedded places of `@` mode on or off.
     pub fn set_mention_places(&mut self, enabled: bool) {
         self.mention_places = enabled;
@@ -1741,6 +1777,21 @@ mod tests {
             .iter()
             .map(|word| row(word, CandidateSource::Database))
             .collect()
+    }
+
+    #[test]
+    fn contact_candidates_precede_dictionary_rows_and_commit_phone() {
+        let mut queries = CandidateQueries::new(&RuntimePaths::default(), default_profile());
+        queries.set_mentions(&[MentionEntry {
+            text: "张三".into(),
+            key: "zhang'san".into(),
+            phone: "13800138000".into(),
+        }]);
+        let mut rows = database(&["张三"]);
+        queries.append_contact_candidates("zhang", &mut rows);
+        assert_eq!(rows[0].word, "13800138000");
+        assert_eq!(rows[0].source, CandidateSource::Contact);
+        assert_eq!(rows[1].word, "张三");
     }
 
     fn with_symbols(list: Vec<WordItem>, symbols: Vec<SymbolRow>) -> Vec<WordItem> {
