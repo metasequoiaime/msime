@@ -284,9 +284,17 @@ fn percent(text: &Text, start: usize) -> Option<Match> {
 /// 年份、年代：二零二四年、九八年、八零后、九零年代。
 fn year(text: &Text, start: usize, run_end: usize) -> Option<Match> {
     let run = text.slice(start, run_end);
-    // 年份不用「两」来读；带「两」的是约数（一两年、两三年）。
+    // 年份不用「两」来读；带「两」的是约数（一两年、两三年）。相邻递增的两个数字（三四年、七八年）同样是约数：把它们当成年份的代价（三四年前 → 34年前）比漏改二三年、八九年这类简称大。
     if run.contains(&'两') {
         return None;
+    }
+    if let [first, second] = run {
+        if digit_of(*second)
+            .zip(digit_of(*first))
+            .is_some_and(|(b, a)| b == a + 1)
+        {
+            return None;
+        }
     }
     let digits = digit_string(run)?;
     let after_year = text.at(run_end) == Some('年') && !text.has(run_end, "年级");
@@ -419,7 +427,9 @@ fn cardinal(text: &Text, start: usize, run_end: usize) -> Option<Match> {
     if matches!(before, Some('几' | '数')) || matches!(text.at(run_end), Some('几' | '来')) {
         return None;
     }
-    if run == ['十'] && text.has_any(run_end, MEASURES).is_none() && before != Some('第') {
+    // 单独的十和十一到十九常是别的词（十分、十全、十一长假），后面跟着量词或前面有「第」才确定是数。
+    let teens = run.first() == Some(&'十') && run.len() <= 2;
+    if teens && text.has_any(run_end, MEASURES).is_none() && before != Some('第') {
         return None;
     }
     Some(Match {
@@ -545,6 +555,8 @@ mod tests {
         stays("五月天的演唱会");
         stays("过一两年再说");
         stays("两三年前");
+        stays("三四年前的事");
+        stays("七八年没见");
     }
 
     #[test]
@@ -586,6 +598,10 @@ mod tests {
         becomes("第十二届", "第12届");
         becomes("十个苹果", "10个苹果");
         becomes("第十名", "第10名");
+        becomes("十五个人", "15个人");
+        becomes("第十一届", "第11届");
+        stays("十一放假");
+        stays("十一长假去哪");
         becomes("等了二十分钟", "等了20分钟");
         becomes("电话一三八零零", "电话13800");
         becomes("二百五十块", "250块");
