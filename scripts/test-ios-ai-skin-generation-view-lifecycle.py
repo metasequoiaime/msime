@@ -15,13 +15,19 @@ class IOSAISkinGenerationViewLifecycleContract(unittest.TestCase):
     def test_disappear_invalidates_pending_generation(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("@State private var request = ViewRequestGeneration()", source)
-        self.assertIn(".onAppear { request.appear() }", source)
+        self.assertIn(".trackViewRequest(request: $request, pending: $pending, onDisappear: {", source)
+        self.assertNotIn(".onAppear { request.appear() }", source)
         self.assertIn("ViewRequestTask.cancel(task: $pending)", source)
-        disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
-        self.assertIsNotNone(disappear, "AI skin view must invalidate work when it disappears")
+        disappear = re.search(
+            r"\.trackViewRequest\(request: \$request, pending: \$pending, onDisappear: \{(?P<body>.*?)\n    \}\)",
+            source,
+            re.S,
+        )
+        self.assertIsNotNone(disappear, "AI skin view must clean up when it disappears")
         body = disappear.group("body")
-        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", body)
+        self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $pending)", source)
         task = TASK.read_text(encoding="utf-8")
+        self.assertIn("struct ViewRequestLifecycle: ViewModifier", task)
         self.assertIn("request.wrappedValue.disappear()", task)
         self.assertIn("pending.wrappedValue?.cancel()", task)
         self.assertIn("pending.wrappedValue = nil", task)

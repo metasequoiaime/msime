@@ -93,3 +93,29 @@ import SwiftUI
     }
   }
 }
+
+/// 页面出现时开启请求代次，离开时使旧结果失效并取消未完成任务；页面自己的离开清理紧跟在公共清理之后。
+@MainActor struct ViewRequestLifecycle: ViewModifier {
+  @Binding var request: ViewRequestGeneration
+  @Binding var pending: Task<Void, Never>?
+  let onDisappear: @MainActor () -> Void
+
+  func body(content: Content) -> some View {
+    content
+      .onAppear { request.appear() }
+      .onDisappear {
+        ViewRequestTask.disappear(request: $request, pending: $pending)
+        onDisappear()
+      }
+  }
+}
+
+extension View {
+  func trackViewRequest(
+    request: Binding<ViewRequestGeneration>,
+    pending: Binding<Task<Void, Never>?>,
+    onDisappear: @escaping @MainActor () -> Void
+  ) -> some View {
+    modifier(ViewRequestLifecycle(request: request, pending: pending, onDisappear: onDisappear))
+  }
+}

@@ -105,14 +105,12 @@ struct CloudDictionaryFilesView: View {
     .settingsStatus(busy: busy, busyTitle: "正在传输…", message: message)
     .disabled(busy)
     .navigationTitle("词库文件")
-    .onAppear { request.appear() }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $pending)
+    .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
       text = nil
       preparedSnapshot = nil
       restoreRevision = nil
-    }
+    })
     .fileImporter(isPresented: $choosing, allowedContentTypes: choosingSnapshot ? [.data] : [.plainText, .tabSeparatedText]) { result in
       guard request.isVisible else { return }
       if choosingSnapshot {

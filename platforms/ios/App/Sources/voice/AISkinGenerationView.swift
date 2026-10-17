@@ -50,13 +50,11 @@ struct AISkinGenerationView: View {
       }.navigationTitle("AI 皮肤抽卡").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement:.cancellationAction) { Button("完成") { dismiss() } } }
     }
-    .onAppear { request.appear() }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $pending)
+    .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
       proposals = []
       completed = 0
-    }
+    })
     .sheet(item: $publishing) { item in CommunityPublishView(onPublished: { publishing = nil }, selectedSkinID: item.id) }
     .sheet(isPresented: $login) { AccountLoginSheet() }
   }

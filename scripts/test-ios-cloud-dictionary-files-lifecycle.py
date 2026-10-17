@@ -12,8 +12,9 @@ TASK = Path("platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text()
 class CloudDictionaryFilesLifecycleTests(unittest.TestCase):
     def test_page_owns_task_and_shared_generation(self):
         self.assertIn("@State private var request = ViewRequestGeneration()", SOURCE)
-        self.assertIn(".onAppear { request.appear() }", SOURCE)
-        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", SOURCE)
+        self.assertIn(".trackViewRequest(request: $request, pending: $pending, onDisappear: {", SOURCE)
+        self.assertNotIn(".onAppear { request.appear() }", SOURCE)
+        self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $pending)", SOURCE)
         self.assertIn("request.wrappedValue.disappear()", TASK)
         self.assertIn("pending.wrappedValue?.cancel()", TASK)
         self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", SOURCE)
