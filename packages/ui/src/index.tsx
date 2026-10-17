@@ -1,4 +1,3 @@
-import { isComposingKeyEvent } from "./core/ime-key-event";
 import type { SettingsClient } from "./core/settings-client";
 import type { Preferences, Snapshot } from "./core/preferences-model";
 
@@ -17,6 +16,7 @@ import { useSettingsPageRouting } from "./settings/use-settings-page-routing";
 import { useSettingsShellState } from "./settings/use-settings-shell-state";
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
+import { SettingsNavigationSearch } from "./settings/settings-navigation-search";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
@@ -254,6 +254,10 @@ export {
   type SettingsPageTitleItem,
 } from "./settings/settings-page-view-model";
 export { SettingsPageStatus, type SettingsPageStatusProps } from "./settings/settings-page-status";
+export {
+  SettingsNavigationSearch,
+  type SettingsNavigationSearchProps,
+} from "./settings/settings-navigation-search";
 export { SettingsFormFooter, type SettingsFormFooterProps } from "./settings/settings-form-footer";
 export { FeedbackChannels, type FeedbackChannelsProps } from "./settings/feedback-channels";
 export {
@@ -3117,35 +3121,12 @@ function SettingsShell(props: SettingsPageProps) {
         .filter((group) => group.pages.length > 0)
     : sidebarGroups;
   const navSearchField = (
-    <>
-      <svg
-        className={settings.searchGlyph}
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        aria-hidden="true"
-      >
-        <circle cx="7" cy="7" r="5" />
-        <path d="m11 11 3.5 3.5" />
-      </svg>
-      <input
-        type="search"
-        className={settings.searchInput}
-        aria-label="搜索设置"
-        placeholder="搜索"
-        value={navQuery}
-        onChange={(event) => setNavQuery(event.target.value)}
-        onKeyDown={(event) => {
-          if (isComposingKeyEvent(event)) return;
-          if (event.key === "Escape") setNavQuery("");
-          if (event.key !== "Enter") return;
-          const first = shownSidebarGroups[0]?.pages[0];
-          if (first) selectPage(first.id);
-        }}
-      />
-    </>
+    <SettingsNavigationSearch
+      groups={shownSidebarGroups}
+      value={navQuery}
+      onChange={setNavQuery}
+      onSelectPage={selectPage}
+    />
   );
   return (
     <div
