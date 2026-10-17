@@ -928,8 +928,8 @@ impl NineKeySession {
                 if !self.grid.offers_raw_key() && !self.candidates.is_empty() {
                     return self.finish(0);
                 }
-                let raw = self.digits.clone();
-                self.command(Command::Cancel);
+                let raw = std::mem::take(&mut self.digits);
+                self.clear_composition();
                 return KeyResult::committed(raw);
             }
             Command::Cancel => self.clear_composition(),
@@ -6828,6 +6828,22 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         let longer = item("Xian", "xian", 1, CandidateSource::EnglishDictionary);
         assert_eq!(fourteen.reading_for(Some(&longer)), "xi");
         assert_eq!(nine.reading_for(None), "");
+    }
+
+    #[test]
+    fn commit_raw_moves_the_digit_buffer_into_the_result() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "64426");
+
+        let (result, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.command(Command::CommitRaw));
+        assert_eq!(result.commit.as_deref(), Some("64426"));
+        assert!(!session.active());
+        assert_eq!(
+            allocations, 0,
+            "九键原样上屏复制了数字缓冲：{allocations} 次分配"
+        );
     }
 
     #[test]
