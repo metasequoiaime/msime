@@ -130,7 +130,7 @@
 - Android 与 HarmonyOS 的触屏录音不再在用户还在说话时自行结束：经 VAD 分段的模型只在一段说完后才出文字，原来「1.5 秒没有新文字就结束」会截断连续说话超过 1.5 秒的后半句，现在改看 VAD 是否在说话。
 - iOS、Android 与 HarmonyOS 上，不自带反向文本规整的模型（两个 X-ASR）在最终文本里把汉字数字改写成数字（二零零二年 → 2002年、百分之五十七 → 57%、下午三点十分 → 下午3点10分），一个、十分有趣、三四线这类词不动；宿主接口新增 `msime_client_voice_normalize_numbers`；Windows、macOS 与 Linux 宿主还没有调用它。规则在 `client-providers::voice::numbers`，宁可少改：只在百分数、年份、完整日期、时刻、带单位的小数、带位的整数和三位以上数字串这些确定是数的场合改写。
 - Android 与 HarmonyOS 支持按住空格说话：长按空格开始录音，松手结束并出结果，上滑到「松开取消」后松手取消。iOS 键盘扩展不能录音，长按空格仍是打开语音面板、转交主应用识别。
-- `scripts/voice_eval.py` 用公开测试集（FLEURS 普通话、ASCEND 中英混说）按混合错误率评测已安装的本地模型，基线记在 `resources/eval/voice-baseline.json`：数字规整让 FLEURS 上默认流式模型的混合错误率从 7.18% 降到 5.16%。
+- `scripts/voice_eval.py` 用公开测试集（FLEURS 普通话、ASCEND 中英混说）按混合错误率评测已安装的本地模型，基线记在 `resources/eval/voice-baseline.json`：数字规整让 FLEURS 上默认流式模型的混合错误率从 7.18% 降到 5.25%。
 
 #### 账号、云服务与联网行为
 

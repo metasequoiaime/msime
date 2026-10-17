@@ -22,9 +22,9 @@
           "units": 33716,
           "errors": 2349,
           "mer": 6.97,
-          "errors_numbers": 1672,
+          "errors_numbers": 1701,
           "units_numbers": 33692,
-          "mer_numbers": 4.96,
+          "mer_numbers": 5.05,
           "finish_seconds_median": 0.452
         }
       }
@@ -50,9 +50,9 @@
           "units": 33716,
           "errors": 2421,
           "mer": 7.18,
-          "errors_numbers": 1737,
+          "errors_numbers": 1770,
           "units_numbers": 33692,
-          "mer_numbers": 5.16,
+          "mer_numbers": 5.25,
           "finish_seconds_median": 0.781
         }
       }
