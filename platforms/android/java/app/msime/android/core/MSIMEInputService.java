@@ -7616,6 +7616,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void deactivateHandwriting() {
+        imeLayoutRows.resetForInput();
         if (handwritingRecognitionTask != null) main.removeCallbacks(handwritingRecognitionTask);
         if (handwritingAvailabilityTask != null) main.removeCallbacks(handwritingAvailabilityTask);
         handwritingRecognitionTask = null;
