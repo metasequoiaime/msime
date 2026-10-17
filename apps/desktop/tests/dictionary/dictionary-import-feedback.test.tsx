@@ -83,6 +83,7 @@ async function openDictionaryPage(dictionary: Record<string, unknown>, kind?: st
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("tab", { name: "管理词库" }));
   if (!kind) return;
   const select = screen.getByLabelText("本地词库类型") as HTMLSelectElement;
   fireEvent.change(select, { target: { value: kind } });
@@ -103,6 +104,7 @@ async function importFile(
 ) {
   await openDictionaryPage(dictionary, kind);
   chooseFile(file);
+  fireEvent.click(screen.getByRole("tab", { name: "查词库" }));
 }
 
 /** 细胞词库的文件头加几个字节：页面只看前 4 字节认出它，内容由（模拟的）宿主转换。 */
@@ -268,6 +270,7 @@ describe("Sogou cell dictionaries", () => {
       "已读取搜狗细胞词库「化学」的 3 个词条。拼音导入完成，共 2 条。跳过 1 行，首先出现在第 3 行。搜狗细胞词库的整理成果属于原作者，导入的词只供你在本机使用，不能发布到社区。",
     );
     // 选中的格式跟着文件换成细胞词库，它只能导入，所以导出按钮不可用。
+    fireEvent.click(screen.getByRole("tab", { name: "管理词库" }));
     expect((screen.getByLabelText("本地词库文件格式") as HTMLSelectElement).value).toBe("scel");
     expect(
       (screen.getByRole("button", { name: "导出当前类型" }) as HTMLButtonElement).disabled,

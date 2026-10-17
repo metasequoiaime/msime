@@ -65,6 +65,11 @@ async function openInputSettings(tab?: string) {
   if (tab) selectSettingsTab(tab);
 }
 
+function openDictionaryManager() {
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("tab", { name: "管理词库" }));
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((accept) => {
@@ -3343,7 +3348,7 @@ test("a host-saved dictionary export reports the path only once the host has wri
   Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
   render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  openDictionaryManager();
   fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
   await waitFor(() =>
     expect(saveExport).toHaveBeenCalledWith(
@@ -3384,14 +3389,17 @@ test("a refused host-saved dictionary export shows an error and never claims suc
   const saveExport = vi.fn().mockRejectedValue({ code: "storage" });
   render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  openDictionaryManager();
   fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  fireEvent.click(screen.getByRole("tab", { name: "查词库" }));
   expect((await screen.findByRole("alert")).textContent).toBe("无法写入“下载”文件夹，词库未导出。");
+  fireEvent.click(screen.getByRole("tab", { name: "管理词库" }));
   const exportAll = screen.getByRole<HTMLButtonElement>("button", { name: "导出全部" });
   // The previous export holds the dictionary buttons until it settles.
   await waitFor(() => expect(exportAll.disabled).toBe(false));
   fireEvent.click(exportAll);
   await waitFor(() => expect(saveExport).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByRole("tab", { name: "查词库" }));
   expect((await screen.findByRole("alert")).textContent).toBe("无法写入“下载”文件夹，词库未导出。");
   expect(screen.queryByText(/已导出/)).toBeNull();
   expect(screen.queryByText("正在读取全部用户词库…")).toBeNull();
@@ -3401,7 +3409,7 @@ test("a host save picker the user closes cancels the export without an error or 
   const saveExport = vi.fn().mockResolvedValue(null);
   render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  openDictionaryManager();
   fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
   expect(await screen.findByText("已取消导出。")).toBeDefined();
   expect(screen.queryByRole("alert")).toBeNull();
@@ -3412,8 +3420,9 @@ test("a host that names its own export failure has that message shown", async ()
   const saveExport = vi.fn().mockRejectedValue(new Error("无法保存导出文件，词库未导出。"));
   render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  openDictionaryManager();
   fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  fireEvent.click(screen.getByRole("tab", { name: "查词库" }));
   expect((await screen.findByRole("alert")).textContent).toBe("无法保存导出文件，词库未导出。");
   expect(screen.queryByText(/已导出/)).toBeNull();
 });
@@ -3425,7 +3434,7 @@ test("a host without saveExport keeps the download link", async () => {
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
   render(<SettingsPage client={exportingDictionaryClient()} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  openDictionaryManager();
   fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
   expect(await screen.findByText("已导出 1 条用户词条。")).toBeDefined();
   expect(createObjectURL).toHaveBeenCalledTimes(1);
@@ -3445,7 +3454,7 @@ test("dictionary fallback import uses 10000 by default and preserves an explicit
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  openDictionaryManager();
   // 导入在词库页的「导入与导出」组。
   const manager = screen.getByRole("region", { name: "导入与导出" });
   fireEvent.change(within(manager).getByLabelText("导入"), {
@@ -3833,6 +3842,8 @@ test("macOS exposes learning data reset and keeps its confirmation flow", async 
     />,
   );
 
+  await settingsReady();
+  fireEvent.click(await screen.findByRole("tab", { name: "管理词库" }));
   await screen.findByRole("region", { name: "学习数据" });
   // 破坏性操作使用共享的 `danger-button` 工具类（见 `learning-data-section.test.tsx`）。
   expect(
@@ -8560,6 +8571,7 @@ test("macOS opens handwriting for copying while input-session panels use the nat
   expect(client.openCloudClipboard).not.toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("tab", { name: "管理词库" }));
   fireEvent.click(await screen.findByRole("button", { name: "打开云词库" }));
   await waitFor(() => expect(client.openCloudDictionary).toHaveBeenCalledTimes(1));
 });
@@ -10059,14 +10071,14 @@ test("the dictionary page ends with the learning data reset", async () => {
     />,
   );
   await settingsReady();
+  fireEvent.click(await screen.findByRole("tab", { name: "管理词库" }));
   const page = screen.getByRole("group", { name: "词库" });
-  const groups = pageGroupTitles(page);
-  const expected = ["本地词库管理", "导入与导出", "更多", "学习数据"];
-  expect(groups.filter((title) => expected.includes(title))).toEqual(expected);
-  expect(groups.at(-1)).toBe("学习数据");
   const transfer = within(page).getByRole("region", { name: "导入与导出" });
   expect(within(transfer).getByLabelText("本地词库文件格式")).toBeTruthy();
   expect(within(transfer).getByRole("group", { name: "个人词库文件" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "查词库" }));
+  const groups = pageGroupTitles(page);
+  expect(groups[0]).toBe("本地词库管理");
   expect(within(page).getByRole("region", { name: "本地词库管理" }).textContent).not.toContain(
     "Engine",
   );
@@ -10086,6 +10098,8 @@ test.each(["windows", "linux"])("%s offers the learning data reset too", async (
       }}
     />,
   );
+  await settingsReady();
+  fireEvent.click(await screen.findByRole("tab", { name: "管理词库" }));
   await screen.findByRole("region", { name: "学习数据" });
   expect(screen.getByRole("button", { name: "清除全部学习数据" })).toBeTruthy();
 });
