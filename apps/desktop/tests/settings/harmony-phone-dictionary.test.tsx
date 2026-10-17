@@ -739,7 +739,12 @@ test("添加词库 offers the Sogou cell dictionary after text and sends its byt
   await waitFor(() => expect(collections.importBytes).toHaveBeenCalled());
   expect(collections.importBytes).toHaveBeenCalledWith("化学词汇", "scel", "QBUAAERDUwH/");
   expect(collections.importFile).not.toHaveBeenCalled();
-  expect(await screen.findByText("已导入「化学词汇」，2 条，1 行无法识别")).toBeTruthy();
+  // 细胞词库导入后提示只供本机使用、不能发布到社区。
+  expect(
+    await screen.findByText(
+      "已导入「化学词汇」，2 条，1 行无法识别。搜狗细胞词库的整理成果属于原作者，导入的词只供你在本机使用，不能发布到社区。",
+    ),
+  ).toBeTruthy();
 });
 
 test("a host that cannot send bytes does not offer the Sogou cell dictionary", async () => {

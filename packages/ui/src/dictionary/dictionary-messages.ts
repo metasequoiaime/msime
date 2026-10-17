@@ -22,6 +22,10 @@ export function describeImportResult(kind: string, result: ImportSummary, source
   return parts.join("");
 }
 
+/** 细胞词库导入成功后接在提示末尾的一句：导入的词只给用户自己在本机用，社区发布会拦下它们（`thirdPartyMatches`）。原因见 `.agents/notes/implemented/feature/2026-10-17-scel-community-publish-guard.md`。 */
+export const SCEL_PERSONAL_USE_NOTICE =
+  "搜狗细胞词库的整理成果属于原作者，导入的词只供你在本机使用，不能发布到社区。";
+
 /** 细胞词库导入提示的来源句。 */
 export function scelImportSource(name: string, entries: number): string {
   return name

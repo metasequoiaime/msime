@@ -482,7 +482,7 @@ import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-he
 import { logo } from "./settings/settings-options";
 import { CommunitySkinsPage } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
-import type { CommunityResource } from "./community/community-resource-model";
+import type { CommunityResource, CommunitySharedWord } from "./community/community-resource-model";
 import { CommunityResourcesPage } from "./community/community-resources";
 import { CommunityPluginsPage } from "./community/community-plugins";
 import * as communityStyle from "./community/community-style";
@@ -607,6 +607,7 @@ export { isComposingKeyEvent } from "./core/ime-key-event";
 export { exceptionMessage } from "./core/exception-message";
 export { useSettledSlider } from "./core/use-settled-slider";
 export { useFullScreenScrollToTop } from "./core/use-full-screen-scroll-to-top";
+export { focusAndRevealNearest } from "./core/focus-and-reveal-nearest";
 export {
   subscribeToWindowBlur,
   subscribeToWindowEvent,
@@ -3018,7 +3019,7 @@ function SettingsShell(props: SettingsPageProps) {
   const pushedPage = harmonyPhone && !tabRootPage;
   // 「试用键盘」是一页对话：对话区在页面内滚动，输入栏贴着内容区底部，和 Android 的试用页一样不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。
   const fillsContent = mobilePlatform && page === "try-keyboard";
-  // 触屏上的 AI 对话同样是一页对话，内容区撑满、输入栏贴底，但它是「AI 辅助」的二级页，底部标签栏照常显示。
+  // 触屏上的 AI 对话同样是一页对话，内容区撑满、输入栏贴底。它是「AI 辅助」的二级页，原来照常显示底部标签栏，键盘弹起时标签栏夹在输入栏和键盘之间；现在和试用页一样不带标签栏，输入栏自己让出手势区（`touchComposer`）。
   const contentFills = fillsContent || (mobilePlatform && page === "chat");
   const pageColumnRef = useRef<HTMLDivElement>(null);
   const launchPage = useRef(page);
@@ -3032,13 +3033,27 @@ function SettingsShell(props: SettingsPageProps) {
     }
   }, [page, pushedPage]);
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
-  // 社区图库「添加」词库的去处：宿主有命名词库时装成一个独立的词库，否则导入本机词库。「社区」页和功能页里的图库共用。
+  // 社区图库「添加」词库的去处：宿主有命名词库时装成一个独立的词库，否则导入本机词库。「社区」页和功能页里的图库共用。宿主能核对第三方词库时，发布词库前用它拦下来自搜狗细胞词库的词。
+  const thirdPartyCheck = client.dictionaryCollections?.thirdPartyMatches;
   const communityLocalDictionary = client.dictionaryCollections
     ? {
         ...client.dictionary,
         installCollection: async (resource: CommunityResource) => {
           await client.dictionaryCollections?.installCommunity(resource);
         },
+        ...(thirdPartyCheck && {
+          thirdPartyMatches: async (entries: CommunitySharedWord[]) =>
+            (
+              await thirdPartyCheck(
+                entries.map((entry) => ({
+                  kind: entry.kind === "quick" ? ("quickPhrase" as const) : entry.kind,
+                  key: entry.code,
+                  value: entry.word,
+                  weight: entry.weight,
+                })),
+              )
+            ).third_party_matches ?? [],
+        }),
       }
     : client.dictionary;
   const recordCommunitySkin = (id: string) => {
@@ -3192,7 +3207,7 @@ function SettingsShell(props: SettingsPageProps) {
         )}
         <div className={settings.body} data-settings-body="">
           {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so assistive technology and keyboard focus still reach the navigation first, and the bottom padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
-          {mobilePlatform && !fillsContent && (
+          {mobilePlatform && !contentFills && (
             <MobileSettingsTabs
               tabs={mobilePrimaryPages}
               activeTab={mobileActiveTab}

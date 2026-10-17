@@ -68,6 +68,7 @@ Status: implemented
 
 ## Related
 
+- [搜狗细胞词库的词不能发布到社区](2026-10-17-scel-community-publish-guard.md)：导入之后这些词只供本机使用，社区发布在来源可查的宿主上拦下它们。
 - [导入报告保留行号最早的失败](../bug-fix/2026-10-12-dictionary-import-failure-order.md)：细胞词库的坏词条按词序进入同一份报告，最早的几处仍按行号排在前面。
 - [导入按已检查行数计上限](../bug-fix/2026-10-09-import-examined-row-limit.md)：iOS 只送前 1001 行依赖解析器每次最多看 1000 行。
 - [iOS 与鸿蒙的全平台设计](2026-10-07-ios-harmony-all-platform-design.md)：命名词库在那里作为单独的一块列出，细胞词库经它的 `import` 动作进来。

@@ -45,6 +45,8 @@ export interface DictionaryCollectionsView {
   formats: string[];
   import?: DictionaryCollectionImportReport;
   sent?: number;
+  /** 只在 `thirdPartyMatches` 时给出：候选词里出现在搜狗细胞词库导入的词库中的那些的下标。 */
+  third_party_matches?: number[];
 }
 
 /** 宿主提供的命名词库操作；每个操作都返回整份视图，失败时抛出带 `code` 的记录。 */
@@ -66,6 +68,8 @@ export interface DictionaryCollectionsClient {
   ): Promise<DictionaryCollectionsView>;
   /** 把社区词库装成一个词库；再装同一个词库会更新它，而不是再建一个。 */
   installCommunity(resource: CommunityResource): Promise<DictionaryCollectionsView>;
+  /** 发布社区词库前的核对：`entries` 里哪些来自搜狗细胞词库导入的词库（视图的 `third_party_matches`，最多 128 个词）。只读。 */
+  thirdPartyMatches?(entries: DictionaryCollectionWord[]): Promise<DictionaryCollectionsView>;
 }
 
 export const MAX_COLLECTION_NAME_CHARS = 32;
@@ -205,10 +209,12 @@ export function collectionFailureMessage(error: unknown): string {
   }
 }
 
-/** 已安装列表里一个词库的副标题：「1,234 条」，社区来的加「 · 社区」，还有没送出的增删时加「 · n 条待同步」。 */
+/** 已安装列表里一个词库的副标题：「1,234 条」，社区来的加「 · 社区」，搜狗细胞词库导入的加「 · 搜狗细胞词库 · 仅本机」（它的词不能发布到社区），还有没送出的增删时加「 · n 条待同步」。 */
 export function collectionSubtitle(collection: DictionaryCollection): string {
   const parts = [`${formatZhNumber(collection.entry_count)} 条`];
   if (collection.source.type === "community") parts.push("社区");
+  if (collection.source.type === "import" && binaryCollectionFormat(collection.source.format))
+    parts.push("搜狗细胞词库 · 仅本机");
   if (collection.pending > 0) parts.push(`${formatZhNumber(collection.pending)} 条待同步`);
   return parts.join(" · ");
 }

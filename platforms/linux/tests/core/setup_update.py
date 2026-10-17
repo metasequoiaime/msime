@@ -39,6 +39,7 @@ from pathlib import Path
 with open(os.environ["STUB_LOG"], "a") as log:
     log.write(json.dumps(sys.argv[1:]) + "\n")
 if sys.argv[1:2] == ["--refresh"]:
+    assert Path(sys.argv[2]).name == "runtime-options.json", sys.argv[2]
     document = json.loads(Path(sys.argv[2]).read_text())
     user = Path(document["user_data"])
     try:
@@ -202,7 +203,8 @@ def check_setup(harness: Harness) -> None:
     assert (staged / "a.db").stat().st_ino == (resources / "a.db").stat().st_ino, "an artifact that already matched is linked, not fetched"
     calls = harness.prepare_calls()
     assert len(calls) == 1 and calls[0][0] == "--refresh", calls
-    assert Path(calls[0][1]).parent == state and Path(calls[0][1]).name.startswith(".runtime-options-update-"), calls
+    temporary = Path(calls[0][1])
+    assert temporary.name == "runtime-options.json" and temporary.parent.parent == state and temporary.parent.name.startswith(".runtime-options-update-"), calls
     assert harness.refreshes() == [{"lease": True, "locked": True, "resources": str(staged)}], harness.refreshes()
     assert options(state)["resources"] == str(staged), options(state)
     assert options(state)["dictionaries"] == str(state / "user/dictionaries/next"), options(state)

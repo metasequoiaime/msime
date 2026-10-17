@@ -161,6 +161,8 @@ struct KeyboardTryoutView: View {
           else { Button { clearConfirmation = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("新对话").disabled(chat.messages.isEmpty) }
         }
       }
+      // 对话是二级页，返回走导航栏，不带底部标签栏，与 Android、鸿蒙的对话页一致。
+      .toolbar(.hidden, for: .tabBar)
       .task {
         // 真机连续点按验收期间保持本编辑器亮屏，不更改手机的自动锁屏设置。
         if ProcessInfo.processInfo.arguments.contains("--keyboard-toolbar-ui-test") {

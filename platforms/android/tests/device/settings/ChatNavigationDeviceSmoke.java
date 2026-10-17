@@ -48,7 +48,7 @@ public final class ChatNavigationDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
-        return "settings list with a skin row, native community tab root with skin and dictionary options, secondary AI chat, keyboard focus and top back navigation";
+        return "settings list with a skin row, native community tab root with skin and dictionary options, secondary AI chat without bottom tabs, keyboard focus and top back navigation";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -105,12 +105,16 @@ public final class ChatNavigationDeviceSmoke extends DeviceSmoke {
         stage = "AI settings chat link";
         tap(node -> equalsText("AI 对话", node.getText()));
         await(id("tryout_title").and(node -> equalsText("AI 对话", node.getText())));
-        await(id("tab_settings").and(AccessibilityNodeInfo::isSelected));
+        stage = "secondary chat hides the bottom tabs";
+        SystemClock.sleep(500);
+        if (visible(id("tab_settings"))) throw new AssertionError("The secondary AI chat must hide the bottom tabs");
         stage = "chat has top back while keyboard focused";
         tap(id("tryout_field"));
         await(id("tryout_field").and(AccessibilityNodeInfo::isFocused));
         tap(id("tryout_back"));
         await(id("ms_detail_bar_title").and(node -> equalsText("AI 润色与回复", node.getText())));
+        stage = "bottom tabs return after leaving chat";
+        await(id("tab_settings").and(AccessibilityNodeInfo::isSelected));
         shellDiscard("input keyevent 4");
         automation.waitForIdle(500, 5000);
         awaitAny(id("keyboard_title").and(node -> equalsText("设置", node.getText())));
@@ -126,6 +130,7 @@ public final class ChatNavigationDeviceSmoke extends DeviceSmoke {
         awaitStableBounds(id("keyboard_try"));
         tap(id("keyboard_try"));
         await(id("tryout_field").and(AccessibilityNodeInfo::isFocused));
+        if (visible(id("tab_settings"))) throw new AssertionError("The tryout chat must hide the bottom tabs");
         tap(id("tryout_back"));
         await(id("keyboard_title").and(node -> equalsText("设置", node.getText())));
         await(id("tab_settings").and(AccessibilityNodeInfo::isSelected));

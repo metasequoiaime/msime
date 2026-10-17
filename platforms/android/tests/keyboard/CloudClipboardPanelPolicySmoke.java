@@ -23,11 +23,10 @@ public final class CloudClipboardPanelPolicySmoke {
         check(CloudClipboardPanelPolicy.panelAvailable(false, true), "the cloud half alone opens the panel");
         check(!CloudClipboardPanelPolicy.panelAvailable(false, false), "nothing to show keeps the panel closed");
 
-        check(CloudClipboardPanelPolicy.initialTab(Tab.CLOUD, true, false) == Tab.LOCAL, "a sensitive field never opens on the cloud half");
-        check(CloudClipboardPanelPolicy.initialTab(Tab.LOCAL, false, true) == Tab.CLOUD, "with local history off the panel opens on the cloud half");
-        check(CloudClipboardPanelPolicy.initialTab(Tab.CLOUD, true, true) == Tab.CLOUD, "the last chosen cloud half is kept");
-        check(CloudClipboardPanelPolicy.initialTab(Tab.LOCAL, true, true) == Tab.LOCAL, "the last chosen local half is kept");
-        check(CloudClipboardPanelPolicy.initialTab(null, true, true) == Tab.LOCAL, "the panel opens on local history by default");
+        check(CloudClipboardPanelPolicy.initialTab(Tab.CLOUD, false) == Tab.LOCAL, "a sensitive field never opens on the cloud half");
+        check(CloudClipboardPanelPolicy.initialTab(Tab.LOCAL, true) == Tab.LOCAL, "with local history off the panel still opens on the local half, where it can be turned on");
+        check(CloudClipboardPanelPolicy.initialTab(Tab.CLOUD, true) == Tab.CLOUD, "the last chosen cloud half is kept");
+        check(CloudClipboardPanelPolicy.initialTab(null, true) == Tab.LOCAL, "the panel opens on local history by default");
 
         check(CloudClipboardPanelPolicy.loaded(false, 3) == Status.DISABLED, "a disabled account shows no items");
         check(CloudClipboardPanelPolicy.loaded(true, 0) == Status.EMPTY, "an enabled empty list is empty");

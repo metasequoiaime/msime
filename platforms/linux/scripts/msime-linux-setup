@@ -421,10 +421,11 @@ def run_refresh(prefix: Path, options_file: Path, document: dict, resources: Pat
     if Path(document["resources"]) == resources:
         result = subprocess.run([command, "--refresh", str(options_file)], capture_output=True, text=True, check=False)
         return result, result.returncode == 0 and result.stdout.strip() == "refreshed"
-    descriptor, name = tempfile.mkstemp(prefix=".runtime-options-update-", dir=options_file.parent)
-    staged = Path(name)
+    # 保留文档约定的 runtime-options.json 文件名。刷新入口也会独立随安装包发布，不能因为副本是临时的就让它接受任意隐藏文件名。
+    staged_directory = Path(tempfile.mkdtemp(prefix=".runtime-options-update-", dir=options_file.parent))
+    staged = staged_directory / "runtime-options.json"
     try:
-        with os.fdopen(descriptor, "w") as handle:
+        with staged.open("w") as handle:
             json.dump(dict(document, resources=str(resources)), handle, indent=2, ensure_ascii=False)
             handle.write("\n")
         staged.chmod(options_file.stat().st_mode & 0o777)
@@ -434,8 +435,7 @@ def run_refresh(prefix: Path, options_file: Path, document: dict, resources: Pat
             staged.replace(options_file)
         return result, refreshed
     finally:
-        with contextlib.suppress(FileNotFoundError):
-            staged.unlink()
+        shutil.rmtree(staged_directory, ignore_errors=True)
 
 
 def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: bool) -> int:

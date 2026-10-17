@@ -54,6 +54,8 @@ const UNOWNED_WORDS: Uuid = Uuid::from_u128(0x6d73_696d_652d_6261_636b_7570_0000
 /// 一次 [`DictionaryCollectionsStore::queue_words`] 最多收的词数；更多的词由调用方分几次送。
 pub const MAX_QUEUED_WORDS: usize = 20_000;
 const PREEXISTING_FILE: &str = "preexisting.json";
+/// 一次 [`DictionaryCollectionsStore::third_party_matches`] 最多核对的词数，与社区词库一份最多的词条数相同。
+pub const MAX_THIRD_PARTY_CANDIDATES: usize = 128;
 
 /// 集合的来源。
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -160,6 +162,9 @@ pub struct DictionaryCollectionsView {
     /// 只在 `queue_words` 时给出：这次排进待发送队列的词数（不合规而跳过的不算）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queued: Option<usize>,
+    /// 只在 `third_party_matches` 时给出：候选词里出现在第三方词库导入的集合中的那些，按请求里的下标从小到大。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub third_party_matches: Option<Vec<usize>>,
 }
 
 /// 一次操作，形状与 C ABI 的 `action` 相同（`operation` 区分种类）。集合 id 是字符串，内置词库的 `builtin:<kind>` 也能传进来并得到 `builtin_locked`。
@@ -210,6 +215,10 @@ pub enum DictionaryCollectionsAction {
         entries: Vec<PersonalWord>,
     },
     Flush,
+    /// 发布社区词库前的核对，见 [`DictionaryCollectionsStore::third_party_matches`]。只读，不改任何文件。
+    ThirdPartyMatches {
+        entries: Vec<PersonalWord>,
+    },
 }
 
 /// `hans` 格式的读音来源。client-services 不依赖 Engine，宿主把 Engine 的「汉字转拼音」包成这个接口传进来。
@@ -342,6 +351,9 @@ impl DictionaryCollectionsStore {
             }
             DictionaryCollectionsAction::QueueWords { entries } => self.queue_words(entries),
             DictionaryCollectionsAction::Flush => self.flush(),
+            DictionaryCollectionsAction::ThirdPartyMatches { entries } => {
+                self.third_party_matches(&entries)
+            }
         }
     }
 
@@ -590,6 +602,37 @@ impl DictionaryCollectionsStore {
             state.metadata_mut(existing.id)?.source = source;
             Ok(())
         })
+    }
+
+    /// 核对一批准备发布到社区的词：哪些出现在从第三方词库导入的集合里（来源 `import{format:"scel"}`，即搜狗细胞词库），返回的视图里 `third_party_matches` 是这些词在 `words` 里的下标。第三方词库的整理成果属于原作者，导入是为了用户自己在本机用；社区是唯一会把这些内容「向公众提供」的出口，所以发布前由界面拿这个结果拦下。按词库种类、去掉音节分隔符和大小写之后的编码、原样的词比较：用户把同一个词换个写法的拼音重新敲一遍也认得出，而自己整理的同字不同音的词不受影响。决定与依据见 `.agents/notes/implemented/feature/2026-10-17-scel-community-publish-guard.md`。
+    pub fn third_party_matches(&self, words: &[PersonalWord]) -> Result<DictionaryCollectionsView> {
+        if words.len() > MAX_THIRD_PARTY_CANDIDATES {
+            return Err(DictionaryCollectionsError::Invalid);
+        }
+        let lock = self.lock()?;
+        let state = self.read_state(&lock.directory)?;
+        let wanted: HashSet<ThirdPartyIdentity> = words.iter().map(third_party_identity).collect();
+        let mut found = HashSet::new();
+        for metadata in &state.index.collections {
+            if !third_party_source(&metadata.source) {
+                continue;
+            }
+            for word in state.entries(metadata.id) {
+                let identity = third_party_identity(word);
+                if wanted.contains(&identity) {
+                    found.insert(identity);
+                }
+            }
+        }
+        let matches = words
+            .iter()
+            .enumerate()
+            .filter(|(_, word)| found.contains(&third_party_identity(word)))
+            .map(|(index, _)| index)
+            .collect();
+        let mut view = state.view();
+        view.third_party_matches = Some(matches);
+        Ok(view)
     }
 
     /// 把不属于任何集合的词排进待发送队列，像集合的词一样由 [`Self::flush`] 在个人词库队列有空位时分批送出，返回的视图里 `queued` 是排进去的词数。Android 本地备份恢复个人词库时用：备份里的词可能有几万个，而个人词库队列同时只收 128 个未完成的请求，直接入队的话第 129 个以后的词都会被拒。编码或正文不合规的词跳过并且不计数，不让整批失败；同一个词已经排了「删除」时两者抵消，词留在词库里。
@@ -1236,6 +1279,7 @@ impl State {
             import: None,
             sent: None,
             queued: None,
+            third_party_matches: None,
         }
     }
 
@@ -1476,6 +1520,28 @@ fn parse_import(
 }
 
 /// `bytes_base64` 的细胞词库：先按编码长度拒绝放不下的，再解码。
+/// 来源是不是第三方词库。现在只有搜狗细胞词库；以后接入别家的二进制词库时加在这里。
+fn third_party_source(source: &CollectionSource) -> bool {
+    matches!(source, CollectionSource::Import { format } if format == SCEL_FORMAT)
+}
+
+/// 核对第三方词库时比较的身份：种类（五笔 86 和 98 不分）、去掉音节分隔符和空白并转小写的编码、原样的词。
+type ThirdPartyIdentity = (PersonalWordKind, String, String);
+
+fn third_party_identity(word: &PersonalWord) -> ThirdPartyIdentity {
+    let kind = match word.kind {
+        PersonalWordKind::Wubi98 => PersonalWordKind::Wubi,
+        kind => kind,
+    };
+    let key = word
+        .key
+        .chars()
+        .filter(|c| *c != '\'' && *c != '-' && !c.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect();
+    (kind, key, word.value.clone())
+}
+
 fn decode_scel_base64(encoded: &str) -> Result<Vec<u8>> {
     use base64::Engine as _;
     if encoded.len() > scel::MAX_SCEL_BYTES.div_ceil(3) * 4 {

@@ -653,6 +653,8 @@ public final class MSIMEInputService extends InputMethodService {
     LinearLayout voiceResultPanel;
     private VoiceResultStore voiceResultStore;
     private VoiceResultStore.Entry voiceResultEntry;
+    /** 不为 null 时语音面板画的是「语音输入还不能用」的引导（{@link #showVoiceSetup}），内容是原因。 */
+    private String voiceSetupReason;
     private EditorContextSnapshot voiceTarget;
     private ScrollView aiPolishScroll;
     LinearLayout aiPolishContainer;
@@ -5616,6 +5618,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (voiceResultScroll != null) ViewPolicy.hide(voiceResultScroll);
         voiceResultEntry = null;
         voiceTarget = null;
+        voiceSetupReason = null;
     }
 
     void cancelAiRequest() {
@@ -6056,7 +6059,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     void startVoiceRecognition() {
         if (!voiceInputEnabled) {
-            notice("请先在共享设置中启用语音输入");
+            showVoiceSetup("语音输入已关闭，在设置里打开后，长按空格就能说话。");
             return;
         }
         // 语音结果面板盖在键区上面；从面板里的「开始语音识别」进来时先收起它，键区里的聆听面板才看得见。只在面板开着时收：正在聆听时再按语音键是结束录音，这时清掉记下的输入位置会让结果无法直接上屏。
@@ -6075,9 +6078,8 @@ public final class MSIMEInputService extends InputMethodService {
         // user who had configured a provider got it from the settings panel and not from here.
         VoiceConfiguration configured = VoiceConfiguration.read(preferencesDirectory, requestId);
         if (configured.provider() == null && !VoiceRecognitionActivity.available(this)) {
-            // Only reached with no provider configured, so name the way out rather than leaving
-            // the user with a device limitation and nothing to do about it.
-            notice("设备没有可用的系统语音识别服务，可在设置中配置识别服务商");
+            // 只有没配置服务商时才走到这里。原来只在读音行写一行小字，大多数不带系统识别服务的国产手机上，长按空格看起来就是没反应；现在打开引导面板，一键去设置里下载本地模型或选服务商。
+            showVoiceSetup("这台手机没有系统语音识别服务。下载本地离线模型后就能用，录音不离开本机；也可以选择在线识别服务。");
             return;
         }
         closeVoiceResult();
@@ -6191,6 +6193,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         captureVoiceTarget();
+        voiceSetupReason = null;
         closeEmojiPicker();
         closeSymbolPanel();
         closeCandidatePanel();
@@ -6202,9 +6205,48 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.show(voiceResultScroll);
     }
 
+    /** 语音输入还不能用（关着，或者没有任何识别服务）时，在键区上打开引导：说明原因，按钮直达设置的「语音输入」页，本地模型的下载、按流量计费网络的确认和语音运行库都在那一页处理，键盘里不另做一套。 */
+    private void showVoiceSetup(String reason) {
+        if (voiceResultScroll == null) {
+            notice(reason);
+            return;
+        }
+        closeEmojiPicker();
+        closeSymbolPanel();
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        closeLayoutSettings();
+        closeAiPolish();
+        closeVoiceResult();
+        voiceSetupReason = reason;
+        renderVoiceResult();
+        ViewPolicy.show(voiceResultScroll);
+        render();
+    }
+
     private void renderVoiceResult() {
         if (voiceResultPanel == null) return;
         voiceResultPanel.removeAllViews();
+        if (voiceSetupReason != null) {
+            LinearLayout header = LayoutPolicy.row(this);
+            TextView title = ViewPolicy.textLabel(this, "语音输入", 18);
+            KeyboardTypographyPolicy.setKeyTextSize(title, 18);
+            header.addView(title, LayoutPolicy.weightedWrapParams(1));
+            button(header, "返回键盘", this::closeVoiceResult);
+            voiceResultPanel.addView(header);
+            voiceResultPanel.addView(textView(voiceSetupReason));
+            Button setup = button(voiceResultPanel, "设置语音输入", () -> {
+                closeVoiceResult();
+                // 直接打开「服务」：在那里选「本地模型」后出现模型下载，或者选在线服务商。
+                android.os.Bundle args = new android.os.Bundle();
+                args.putString(HostDeepLink.ARG_SECTION, "服务");
+                openHostPage("VOICE", args);
+            });
+            setup.setLayoutParams(LayoutPolicy.matchWidthWrapParams());
+            imeStyler.applySkin();
+            return;
+        }
         LinearLayout header = LayoutPolicy.row(this);
         TextView title = ViewPolicy.textLabel(this, "语音结果", 18);
         KeyboardTypographyPolicy.setKeyTextSize(title, 18);
@@ -8445,6 +8487,8 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.setBackgroundColor(voiceResultPanel, Color.parseColor(skin.background()));
         voiceResultPanel.setContentDescription("语音结果面板");
         voiceResultScroll = new ScrollView(this);
+        // 底色画在面板上，内容只有几行时也要撑满整块键区，否则下面的键从面板底边露出来半行。
+        voiceResultScroll.setFillViewport(true);
         voiceResultScroll.addView(voiceResultPanel);
         ViewPolicy.hide(voiceResultScroll);
         keyboardSurface.addView(voiceResultScroll, LayoutPolicy.frameMatchParentParams());
@@ -8669,6 +8713,11 @@ public final class MSIMEInputService extends InputMethodService {
             ? ("left".equals(oneHandedMode) ? "right" : "left")
             : ("off".equals(oneHandedMode) ? "right" : "off");
         saveLocalPanelSetting("单手模式", AndroidLocalSettings.ONE_HANDED, target);
+    }
+
+    /** 剪贴板面板「本机」页上的「开启剪贴板历史」：写共享偏好 `clipboard_history`，与设置「隐私」里的开关是同一项。保存成功后 {@link #applyPreferencesSnapshot} 发现它刚打开，会重画开着的剪贴板面板。 */
+    void enableClipboardHistory() {
+        savePanelPreference("剪贴板历史", preferences -> preferences.put("clipboard_history", true));
     }
 
     void toggleIncognito() {
