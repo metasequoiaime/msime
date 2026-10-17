@@ -7,9 +7,12 @@
 //! A trigram cannot be searched the same way without carrying two words of history in every beam entry, so it is applied after the search: the n best paths are rescored with what the third word adds over the second, then reordered. That is the reason to decode more paths than are shown.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
+
+#[cfg(test)]
+use std::cell::Cell;
 
 use super::cxx_sort;
 use super::ngram::{NgramTable, SENTENCE_START};
@@ -138,6 +141,11 @@ pub fn make_sentence_lattice_options<'a>(
 /// 备忘最多存的二元分条数，满了整个清空重来，约 0.5 MB。
 const BIGRAM_MEMO_CAPACITY: usize = 1 << 15;
 
+#[cfg(test)]
+thread_local! {
+    static BIGRAM_MEMO_HASH_CALLS: Cell<usize> = const { Cell::new(0) };
+}
+
 /// 二元分的备忘。九键一次刷新要对几十条切分各解一次词网格，它们的前后词对大量重复，而每次查表要在 12 MB 的映射里跳几次。值就是表里查到的分数（查不到为 0），只要表不变就永远正确；表换了（按 `Arc` 的地址判断）就清空。
 #[derive(Default)]
 pub struct BigramMemo {
@@ -155,15 +163,22 @@ impl BigramMemo {
             self.scores.clear();
             self.table = address;
         }
-        if let Some(&score) = self.scores.get(&key) {
-            return score;
+        let full = self.scores.len() >= BIGRAM_MEMO_CAPACITY;
+        match self.scores.entry(key) {
+            Entry::Occupied(entry) => *entry.get(),
+            Entry::Vacant(entry) if full => {
+                let key = entry.into_key();
+                self.scores.clear();
+                let score = table.score(key);
+                self.scores.insert(key, score);
+                score
+            }
+            Entry::Vacant(entry) => {
+                let score = table.score(key);
+                entry.insert(score);
+                score
+            }
         }
-        if self.scores.len() >= BIGRAM_MEMO_CAPACITY {
-            self.scores.clear();
-        }
-        let score = table.score(key);
-        self.scores.insert(key, score);
-        score
     }
 }
 
@@ -177,12 +192,16 @@ impl Hasher for KeyHasher {
     }
 
     fn write(&mut self, bytes: &[u8]) {
+        #[cfg(test)]
+        BIGRAM_MEMO_HASH_CALLS.with(|calls| calls.set(calls.get() + 1));
         self.0 = bytes.iter().fold(self.0, |state, &byte| {
             (state ^ u64::from(byte)).wrapping_mul(0x0100_0000_01B3)
         });
     }
 
     fn write_u64(&mut self, value: u64) {
+        #[cfg(test)]
+        BIGRAM_MEMO_HASH_CALLS.with(|calls| calls.set(calls.get() + 1));
         self.0 = value;
     }
 }
@@ -956,6 +975,10 @@ pub fn decode_pinned(
 #[cfg(test)]
 #[path = "decode_bigrams_tests.rs"]
 mod bigram_buffer_tests;
+
+#[cfg(test)]
+#[path = "decode_bigram_memo_entry_tests.rs"]
+mod bigram_memo_entry_tests;
 
 #[cfg(test)]
 pub(super) mod tests {
