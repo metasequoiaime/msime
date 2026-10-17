@@ -37,7 +37,6 @@ import { AppThemeRow } from "./app-theme-row";
 import { QqLinkCard } from "./qq-link-card";
 import { BottomSheet, LoginSheet } from "./login-sheet";
 import { MeSubpageHeader, MobileDownloadPage, otherPlatformCount } from "./mobile-download-page";
-import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { StatusMessage } from "../core/status-message";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { useAccountAction } from "./account-operation";
@@ -46,7 +45,7 @@ import { runAccountSessionAction, useAccountSessionActions } from "./use-account
 import { useAccountRename } from "./use-account-rename";
 import { useAccountGoogleLogin } from "./use-account-google-login";
 import { useAccountVerification, type AccountChannel } from "./use-account-verification";
-import { useMobilePopState } from "../settings/use-mobile-pop-state";
+import { useMobileSettingsSubview } from "../settings/use-mobile-settings-subview";
 
 export type {
   AccountUser,
@@ -814,7 +813,19 @@ function AccountDetailsPage({
   const [name, setName] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [editingProfile, setEditingProfile] = useState(false);
-  const [mobileSubpage, setMobileSubpage] = useState<AccountSubpage | null>(null);
+  const {
+    value: mobileSubpage,
+    open: openMobileSubpage,
+    close: closeMobileSubpage,
+    reset: resetMobileSubpage,
+  } = useMobileSettingsSubview<AccountSubpage>({
+    mobile,
+    initialValue:
+      mobile && typeof window !== "undefined" ? accountSubpageOf(window.history.state) : null,
+    stateKey: "accountSubpage",
+    decode: (state) => (state?.msimeSettings === true ? accountSubpageOf(state) : null),
+    encode: (value) => ({ page: "account", accountSubpage: value }),
+  });
   const [loginOpen, setLoginOpen] = useState(false);
   const [copiedAccountId, showCopiedAccountId] = useTemporaryFlag(1800);
   const { busy, mounted, clientGeneration, perform } = useAccountAction(
@@ -874,22 +885,8 @@ function AccountDetailsPage({
   // Leaving the page must not leave the loopback listener waiting for a browser the user abandoned.
   useEffect(() => () => cancelGoogle(), [client]);
 
-  useEffect(() => {
-    if (!mobile || typeof window === "undefined") return;
-    setMobileSubpage(accountSubpageOf(window.history.state));
-  }, [mobile]);
-  useMobilePopState(mobile, (event) => {
-    setMobileSubpage(event.state?.msimeSettings === true ? accountSubpageOf(event.state) : null);
-  });
-
-  const openSubpage = (subpage: AccountSubpage) => {
-    pushMobileSettingsState({ page: "account", accountSubpage: subpage });
-    setMobileSubpage(subpage);
-  };
-  const closeSubpage = () => {
-    if (typeof window !== "undefined") window.history.back();
-    else setMobileSubpage(null);
-  };
+  const openSubpage = openMobileSubpage;
+  const closeSubpage = closeMobileSubpage;
 
   const applyProfile = (value: AccountProfile) => {
     setProfile(value);
@@ -1037,7 +1034,7 @@ function AccountDetailsPage({
         profile={profile}
         onBack={closeSubpage}
         onSignedOut={(message) => {
-          setMobileSubpage(null);
+          resetMobileSubpage();
           setUser(null);
           setProfile(null);
           setName("");
@@ -1066,7 +1063,7 @@ function AccountDetailsPage({
         profile={profile}
         onBack={closeSubpage}
         onSignedOut={() => {
-          setMobileSubpage(null);
+          resetMobileSubpage();
           setUser(null);
           setProfile(null);
           setName("");

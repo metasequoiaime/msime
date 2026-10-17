@@ -265,7 +265,7 @@ describe("Sogou cell dictionaries", () => {
     ]);
     const notice = await screen.findByRole("status");
     expect(notice.textContent).toBe(
-      "已读取搜狗细胞词库「化学」的 3 个词条。拼音导入完成，共 2 条。跳过 1 行，首先出现在第 3 行。",
+      "已读取搜狗细胞词库「化学」的 3 个词条。拼音导入完成，共 2 条。跳过 1 行，首先出现在第 3 行。搜狗细胞词库的整理成果属于原作者，导入的词只供你在本机使用，不能发布到社区。",
     );
     // 选中的格式跟着文件换成细胞词库，它只能导入，所以导出按钮不可用。
     expect((screen.getByLabelText("本地词库文件格式") as HTMLSelectElement).value).toBe("scel");

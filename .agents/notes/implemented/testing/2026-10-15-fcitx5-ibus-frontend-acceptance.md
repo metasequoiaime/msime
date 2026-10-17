@@ -30,7 +30,7 @@ Status: implemented
 
 固定 Debian 容器中，修复前 `fcitx5-native-context` 与 `fcitx5-native-ai` 均在菜单数量断言失败；更新为 44 后，两项继续执行并通过。完整 Fcitx5 资源验收 5/5 通过，包括原生上下文、原生 AI、原有 D-Bus 前端、GTK Fcitx 模块和新增的 IBus 协议/GTK IBus 模块验收。新增协议检查分别使用有预编辑与周边文本、仅预编辑、仅周边文本的能力组合，复用匿名程序身份。
 
-负面对照只在忽略的研究脚本中把 GTK 模块改成 `simple`，同一验收以 1 退出，在等待真实前端焦点时失败。恢复 IBus 模块的正式测试通过。Linux 配置提示测试、Python 语法、Shell 语法和 `git diff --check` 通过。
+负面对照只在忽略的研究脚本中把 GTK 模块改成 `simple`，同一验收以 1 退出，在等待真实前端焦点时失败。恢复 IBus 模块的正式测试通过；本次又加入玲珑报告的 `cap:52`（Fcitx5 DebugInfo 的十六进制 `0x52`）组合，协议和 GTK IBus 编辑器验收均通过。Linux 配置提示测试、Python 语法、Shell 语法和 `git diff --check` 通过。
 
 另在官方 Deepin 25 amd64 容器中安装 2026-10-15 的拼音版 nightly 包，使用发行版自带 Fcitx5 5.1.12 与 GTK IBus 模块运行同一协议/编辑器检查，通过。基础镜像固定为 `linuxdeepin/deepin@sha256:1f988aeed0675f2c594d253095dfda4e9f0242d2110f8a8618d9336695df66e1`，包 `msime-linux-pinyin_0.11.0_amd64.deb` 的 SHA256 为 `5156a35b2a857c15d97fdb02cab6384650396ff450c756391585e4e84dd8c39f`，与 GitHub release asset digest 一致；测试配置只将插件 ID、安装路径适配到拼音版，没有替换包内插件或 Host API。该检查使用 Xvfb，不包含 DDE 会话或玲珑沙盒。
 

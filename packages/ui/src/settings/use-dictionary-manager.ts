@@ -17,7 +17,11 @@ import {
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
 } from "../dictionary/dictionary-file";
-import { describeImportResult, scelImportSource } from "../dictionary/dictionary-messages";
+import {
+  describeImportResult,
+  SCEL_PERSONAL_USE_NOTICE,
+  scelImportSource,
+} from "../dictionary/dictionary-messages";
 import {
   MAX_DICTIONARY_EXPORT_BYTES,
   dictionaryExportName,
@@ -303,7 +307,8 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
         if (!isCurrent()) return;
         if (imported)
           setPhraseNotice(
-            describeImportResult(dictionaryKindLabel(dictionaryKind), imported, source),
+            describeImportResult(dictionaryKindLabel(dictionaryKind), imported, source) +
+              (scel ? SCEL_PERSONAL_USE_NOTICE : ""),
           );
       },
       (error) => importFailureMessage(dictionaryKindLabel(dictionaryKind), error),

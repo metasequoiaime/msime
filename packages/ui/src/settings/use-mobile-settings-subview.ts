@@ -8,6 +8,8 @@ export type MobileSettingsHistoryState = Record<string, unknown> | null;
 export interface UseMobileSettingsSubviewOptions<Value> {
   /** 只在触屏设置宿主上监听返回手势。 */
   mobile: boolean;
+  /** 当前历史记录已经表示某个子视图时的初始值；只在首次挂载时读取。 */
+  initialValue?: Value | null;
   /** 当前子视图在历史记录里使用的字段名，用于关闭时确认记录归属。 */
   stateKey: string;
   /** 把历史记录中的路由字段解码成子视图值；不匹配时返回 null。 */
@@ -34,12 +36,13 @@ function asHistoryState(value: unknown): MobileSettingsHistoryState {
 /** 共用触屏设置页的子视图历史动作；页面字段与子视图内容仍由调用方持有。 */
 export function useMobileSettingsSubview<Value>({
   mobile,
+  initialValue,
   stateKey,
   decode,
   encode,
   isActiveState,
 }: UseMobileSettingsSubviewOptions<Value>): MobileSettingsSubviewState<Value> {
-  const [value, setValue] = useState<Value | null>(null);
+  const [value, setValue] = useState<Value | null>(initialValue ?? null);
   const decodeRef = useLatestRef(decode);
   const encodeRef = useLatestRef(encode);
   const activeStateRef = useLatestRef(

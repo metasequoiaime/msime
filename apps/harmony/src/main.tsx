@@ -1152,6 +1152,7 @@ function makeClient(
     importBytes: (name, format, bytes_base64) =>
       collectionsReply({ operation: "import", name, kind: "pinyin", format, bytes_base64 }),
     installCommunity: (resource) => collectionsReply({ operation: "install_community", resource }),
+    thirdPartyMatches: (entries) => collectionsReply({ operation: "third_party_matches", entries }),
   };
   const userWordCount = (): number | undefined => {
     try {
