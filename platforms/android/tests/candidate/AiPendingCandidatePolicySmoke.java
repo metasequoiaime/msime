@@ -6,6 +6,7 @@ public final class AiPendingCandidatePolicySmoke {
 
     public static void main(String[] args) {
         check(AiPendingCandidatePolicy.isPlaceholder(12), "source 12 is the AI placeholder");
+        check(AiPendingCandidatePolicy.isCloudPending(15), "source 15 is the cloud placeholder");
         // 0 词库、1 用户词、2 云、3 AI、4 英文、10 退役的 NeuralDesktop、11 整句模型：都是真候选。
         for (int source : new int[] {-1, 0, 1, 2, 3, 4, 10, 11, 13}) {
             check(!AiPendingCandidatePolicy.isPlaceholder(source), "source " + source + " is a candidate");
@@ -14,6 +15,10 @@ public final class AiPendingCandidatePolicySmoke {
             check(AiPendingCandidatePolicy.description(source, "候选 2：", "你好", "，英文 hello")
                 .equals("候选 2：你好，英文 hello"), "source " + source + " description unchanged");
         }
+        check(AiPendingCandidatePolicy.alpha(15) == 0.45f, "cloud placeholder drawn dimmed");
+        check(!AiPendingCandidatePolicy.offersMenu(15), "cloud placeholder has no long-press menu");
+        check(AiPendingCandidatePolicy.description(15, "候选 2：", "☁", "")
+            .equals("候选 2：云候选加载中"), "cloud placeholder read as loading");
         check(AiPendingCandidatePolicy.alpha(12) == 0.45f, "placeholder drawn dimmed");
         check(!AiPendingCandidatePolicy.offersMenu(12), "placeholder has no long-press menu");
         check(AiPendingCandidatePolicy.description(12, "候选 2：", "…", "；长按管理")

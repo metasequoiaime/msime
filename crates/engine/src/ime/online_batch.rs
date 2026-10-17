@@ -49,11 +49,19 @@ pub fn replace_online_candidate_batch(
     };
     // Providers repeat candidates, so the quota counts distinct words: a repeat must neither reject a valid batch nor use up a seat (online_candidate_batch.h:32-33).
 
+    let pending_index = (source == CandidateSource::CloudSuggestion).then(|| {
+        list.iter()
+            .position(|item| item.source == CandidateSource::CloudPending)
+    });
     if source == CandidateSource::AiSuggestion {
         // 新的 AI 批次替换掉之前的 AI 行；旧版本留下的占位行（来源 12）也一并去掉。
         list.retain(|item| !item.source.holds_ai_seat());
     } else {
-        list.retain(|item| item.source != source);
+        list.retain(|item| {
+            item.source != source
+                && !(source == CandidateSource::CloudSuggestion
+                    && item.source == CandidateSource::CloudPending)
+        });
     }
     let new_count = mark_existing_online_words(list, &mut unique, unique_count);
     list.reserve(new_count);
@@ -62,12 +70,31 @@ pub fn replace_online_candidate_batch(
         list.extend(words.map(|word| WordItem::new(key, word, 1, source, "")));
         return true;
     }
+    // 回包里的词全部已在本地列表时仍保留云席位，避免“回答到达但没有可见云词”再次挤动本地候选。
+    if source == CandidateSource::CloudSuggestion
+        && new_count == 0
+        && pending_index.flatten().is_some()
+    {
+        let index = pending_index
+            .flatten()
+            .expect("pending cloud seat was found")
+            .min(list.len());
+        list.insert(
+            index,
+            WordItem::new(key, "☁", 0, CandidateSource::CloudPending, ""),
+        );
+        return true;
+    }
     // 第 1 位；列表里只有 AI 行时排在它们前面，AI 行始终在最后。
-    let index = list
-        .iter()
-        .position(|item| item.source.holds_ai_seat())
-        .unwrap_or(list.len())
-        .min(1);
+    let index = pending_index.flatten().map_or_else(
+        || {
+            list.iter()
+                .position(|item| item.source.holds_ai_seat())
+                .unwrap_or(list.len())
+                .min(1)
+        },
+        |index| index.min(list.len()),
+    );
     for (offset, word) in words.enumerate() {
         list.insert(index + offset, WordItem::new(key, word, 1, source, ""));
     }

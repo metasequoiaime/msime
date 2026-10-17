@@ -301,9 +301,11 @@ static BOOL MSIMEViewContainsAICandidate(NSDictionary *view) {
     return NO;
 }
 
-// Engine CandidateSource::AiPending：AI 占位行。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），画法留着，旧的库或数据里出现时仍按占位行画。
+// Engine 的在线占位行：AI 来源 12 与云来源 15 都不是可上屏候选，画法留着，旧数据或异步请求期间出现时按占位行画。
 static BOOL MSIMECandidateIsAIPlaceholder(NSDictionary *candidate) {
-    return [candidate isKindOfClass:NSDictionary.class] && MSIMEStrictInteger(candidate[@"source"], -1) == 12;
+    if (![candidate isKindOfClass:NSDictionary.class]) return NO;
+    const NSInteger source = MSIMEStrictInteger(candidate[@"source"], -1);
+    return source == 12 || source == 15;
 }
 
 static msime::mac::TypingSource MSIMEResolveTypingSource(NSDictionary *context, NSDictionary *view,

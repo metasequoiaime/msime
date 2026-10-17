@@ -3054,6 +3054,27 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',100),('ni','n','拟',90),('ni','n','�
 }
 
 #[test]
+fn cloud_answer_replaces_its_fixed_pending_seat() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('ni','n','你',100),('ni','n','拟',90),('ni','n','妮',80);",
+    );
+    let mut session = fixture.session();
+    session.set_cloud_candidates_enabled(true);
+    type_text(&mut session, "ni");
+    let before = session.snapshot();
+    assert_eq!(before.candidates[1].word, "☁");
+    assert_eq!(before.candidate_sources[1], CandidateSource::CloudPending);
+
+    let query = session.online_query().expect("a cloud query");
+    assert!(session.apply_online_candidate(&query, "泥", CandidateSource::CloudSuggestion));
+    let after = session.snapshot();
+    assert_eq!(after.candidates[1].word, "泥");
+    assert_eq!(after.candidate_sources[1], CandidateSource::CloudSuggestion);
+    assert_eq!(&after.candidates[2..], &before.candidates[2..]);
+}
+
+#[test]
 fn clearing_one_online_source_removes_cached_rows_but_keeps_the_other_source() {
     let fixture = Fixture::new(
         "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\

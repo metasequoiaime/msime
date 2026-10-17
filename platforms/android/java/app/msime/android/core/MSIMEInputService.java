@@ -7553,7 +7553,7 @@ public final class MSIMEInputService extends InputMethodService {
         configureCandidateTextLayout(button, labelLines);
         KeyboardTypographyPolicy.setKeyTextSize(button, candidateFontSize);
         ViewPolicy.setSelected(button, highlighted);
-        // AI 占位行（Engine 候选来源 12，「…」或「—」）画淡一些，和真候选区分开；按钮会复用，其他候选恢复不透明。读屏念它的状态，不提示长按管理（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
+        // 在线占位行（AI 来源 12 或云来源 15）画淡一些，和真候选区分开；按钮会复用，其他候选恢复不透明。读屏念它的状态，不提示长按管理（#6888）。
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         button.setAlpha(AiPendingCandidatePolicy.alpha(source));
         // render() attaches the button and applies the complete skin tree once below.

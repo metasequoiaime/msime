@@ -194,9 +194,10 @@ final class ImeCandidates {
         s.configureCandidateTextLayout(button, labelLines);
         KeyboardTypographyPolicy.setKeyTextSize(button, 17);
         ViewPolicy.setSelected(button, highlighted);
-        // AI 占位行（Engine 候选来源 12，「…」或「—」）和候选条一样画淡，免得在完整候选列表里像真候选（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
+        // 在线占位行（AI 来源 12 或云来源 15）和候选条一样画淡，免得在完整候选列表里像真候选（#6888）。
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
-        boolean placeholder = AiPendingCandidatePolicy.isPlaceholder(source);
+        boolean placeholder = AiPendingCandidatePolicy.isPlaceholder(source)
+            || AiPendingCandidatePolicy.isCloudPending(source);
         button.setAlpha(AiPendingCandidatePolicy.alpha(source));
         expandedCells.add(button);
         // 格子宽度由网格的列决定（CandidateGridPolicy），这里只量自然宽度。Button 默认样式自带 88 dp 的 minWidth，View 级的 setMinimumWidth 盖不掉它：每格至少 88 dp，手机上一行只放得下三格，右边空出一截。

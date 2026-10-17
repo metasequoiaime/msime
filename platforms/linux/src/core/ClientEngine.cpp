@@ -3976,8 +3976,9 @@ void render(IBusEngine *engine, const Json &view) {
         gloss += " · " + translation;
     }
     std::string tail;
-    // Engine 候选来源 12 是 AI 占位行，下面画成次要色。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
-    const bool ai_placeholder = candidate.value("source", 0) == 12;
+    // Engine 候选来源 12 是 AI 占位行，来源 15 是云候选占位行，下面都画成次要色。
+    const auto source = candidate.value("source", 0);
+    const bool online_placeholder = source == 12 || source == 15;
     switch (candidate.value("source", 0)) {
     case 2: tail += "  云"; break;
     case 3: tail += "  AI"; break;
@@ -4032,7 +4033,7 @@ void render(IBusEngine *engine, const Json &view) {
       ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
                                  *row_text_color, 0, G_MAXUINT);
     // AI 占位行用序号的颜色（没有主题色时用灰色）画，追加在行颜色之后所以盖过它。
-    if (ai_placeholder)
+    if (online_placeholder)
       ibus_text_append_attribute(
           text, IBUS_ATTR_TYPE_FOREGROUND,
           state(engine).candidate_number_color.value_or(0x8a8a8a), 0, G_MAXUINT);

@@ -993,6 +993,9 @@ impl HostSession {
             .preferences
             .clone();
         self.set_ai_provider_cache(&requested_preferences);
+        self.runtime
+            .set_cloud_candidates_enabled(requested_preferences.cloud_candidates)
+            .map_err(|e| e.to_string())?;
         // 宿主状态，不是 Engine 状态：跟着最新请求的偏好走，不必等这次偏好重建 Engine，也不必等组字结束。
         self.runtime
             .set_backspace_reverts_selection(requested_preferences.backspace_reverts_selection);

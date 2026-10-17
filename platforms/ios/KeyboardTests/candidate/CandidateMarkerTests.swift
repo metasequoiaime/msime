@@ -45,6 +45,11 @@ final class CandidateMarkerTests: XCTestCase {
     XCTAssertEqual(CandidateMarker.markers(source: 0, fixedPosition: 0), [])
     XCTAssertEqual(CandidateMarker.markers(source: 1, fixedPosition: 0), [], "a user word is still a dictionary word")
     XCTAssertEqual(CandidateMarker.markers(source: 2, fixedPosition: 0).map(\.spoken), ["云候选"])
+    XCTAssertEqual(CandidateMarker.markers(source: 15, fixedPosition: 0).map(\.spoken), ["云候选加载中"])
+    XCTAssertEqual(CandidateMarker.markers(source: 15, fixedPosition: 0).first?.symbol, "")
+    XCTAssertEqual(
+      CandidateMarker.pendingSpoken("☁", markers: CandidateMarker.markers(source: 15, fixedPosition: 0)),
+      "云候选加载中")
     XCTAssertEqual(CandidateMarker.markers(source: 3, fixedPosition: 0).map(\.spoken), ["AI 候选"])
     XCTAssertEqual(CandidateMarker.markers(source: 0, fixedPosition: 3).map(\.spoken), ["已固定第 3 位"])
     for marker in CandidateMarker.markers(source: 2, fixedPosition: 0) + CandidateMarker.markers(source: 3, fixedPosition: 1) {

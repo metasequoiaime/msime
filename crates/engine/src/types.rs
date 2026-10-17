@@ -26,6 +26,8 @@ pub enum CandidateSource {
     MixedJapanese = 13,
     /// 脚本插件在自己的 `/` 指令里给出的行，只在桌面产生（宿主经 `Session::apply_plugin_command_rows` 写进来）。它不属于下面任何一个谓词：选中时整段上屏并结束组字，不调词频、不记整句、不进个人上下文，不能置顶、固定或删除；runtime 不把它的上屏喂进 AI 上文，宿主不为它请求释义或翻译，上屏也不转全角。
     Plugin = 14,
+    /// 云候选尚在请求中；它占据云候选的固定位置，回答到达时由第一条云候选替换。值追加在已有 ABI 之后，不能复用旧值。
+    CloudPending = 15,
 }
 
 impl CandidateSource {
@@ -45,12 +47,17 @@ impl CandidateSource {
             12 => Self::AiPending,
             13 => Self::MixedJapanese,
             14 => Self::Plugin,
+            15 => Self::CloudPending,
             _ => return None,
         })
     }
 
     pub fn is_online(self) -> bool {
         matches!(self, Self::CloudSuggestion | Self::AiSuggestion)
+    }
+
+    pub fn is_cloud_pending(self) -> bool {
+        self == Self::CloudPending
     }
 
     /// AI 行：AI 候选和已退役的占位行。
@@ -60,7 +67,7 @@ impl CandidateSource {
 
     /// 由在线座位规则摆放的行：云候选、AI 候选和已退役的 AI 占位行。
     pub fn takes_online_seat(self) -> bool {
-        self.is_online() || self == Self::AiPending
+        self.is_online() || matches!(self, Self::AiPending | Self::CloudPending)
     }
 
     pub fn is_generated_or_fallback(self) -> bool {

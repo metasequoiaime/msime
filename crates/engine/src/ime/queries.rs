@@ -597,9 +597,12 @@ fn with_first_position<R>(
 
 /// 英文第一行默认的位置：首选之后；有云候选时在它之后。AI 候选不算：引擎把 AI 行排在最后，第一条显示在第一页最后一格（input-runtime 的 `normalize_online_slots`），英文行的位置因此在回答到达前后不变（#6888）。拼音拆不开、英文完全匹配时不用它，英文直接占首位（见 `insert_mixed_rows`）。
 fn priority_slot(candidates: &[WordItem]) -> usize {
-    let has_cloud = candidates
-        .iter()
-        .any(|item| item.source == CandidateSource::CloudSuggestion);
+    let has_cloud = candidates.iter().any(|item| {
+        matches!(
+            item.source,
+            CandidateSource::CloudSuggestion | CandidateSource::CloudPending
+        )
+    });
     (1 + usize::from(has_cloud)).min(candidates.len())
 }
 

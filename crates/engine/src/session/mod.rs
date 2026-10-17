@@ -419,6 +419,11 @@ impl Session {
         self.nine_key.set_personal_context_enabled(enabled);
     }
 
+    /// 让宿主把云候选的固定席位交给当前会话；关闭时立即去掉尚未回答的占位行。
+    pub fn set_cloud_candidates_enabled(&mut self, enabled: bool) {
+        self.input.set_cloud_candidates_enabled(enabled);
+    }
+
     /// The committed text the neural sentence models condition on, updated without rebuilding the session. Only the last 64 characters matter.
     pub fn set_rescoring_context(&mut self, context: &str) {
         self.input.set_rescoring_context(context);
@@ -511,8 +516,10 @@ impl Session {
                 .iter()
                 .map(|item| {
                     // AI 占位行和网址补全不回答按键：重排模型不能把它们提到前面。
-                    item.source != CandidateSource::AiPending
-                        && !input.is_url_completion(item)
+                    !matches!(
+                        item.source,
+                        CandidateSource::AiPending | CandidateSource::CloudPending
+                    ) && !input.is_url_completion(item)
                         && input.selection_completes_composition(item)
                 })
                 .collect(),

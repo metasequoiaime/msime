@@ -44,6 +44,7 @@ mod desktop {
     pub const MAX_ANNOTATION_UTF16: usize = 32;
 
     const CLOUD: u8 = 2;
+    const CLOUD_PENDING: u8 = 15;
     const AI: u8 = 3;
     const AI_PENDING: u8 = 12;
     const PLUGIN: u8 = msime_engine::CandidateSource::Plugin as u8;
@@ -551,7 +552,10 @@ mod desktop {
             let engine_index = |seat: usize| self.engine_order.get(seat).copied().unwrap_or(seat);
             let locked = |seat: usize| {
                 snapshot.candidate_positions[seat] > 0
-                    || matches!(snapshot.candidate_sources[seat], CLOUD | AI | AI_PENDING)
+                    || matches!(
+                        snapshot.candidate_sources[seat],
+                        CLOUD | CLOUD_PENDING | AI | AI_PENDING
+                    )
                     || (seat == 0 && snapshot.wubi_unique_four_code)
             };
             let listed = |list: &[Identity], seat: usize| {

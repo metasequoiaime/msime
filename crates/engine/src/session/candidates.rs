@@ -587,6 +587,30 @@ impl InputSession {
         );
         self.insert_inline_date_time(&mut mixed);
         self.apply_candidate_positions(&mut mixed);
+        // 云候选异步到达；先在它的固定席位放一个云图标，回包时原位替换，避免本地候选整体后移。
+        if self.cloud_candidates_enabled
+            && self
+                .online_query()
+                .is_some_and(|query| query.cloud_eligible)
+            && !mixed.iter().any(|item| {
+                matches!(
+                    item.source,
+                    CandidateSource::CloudSuggestion | CandidateSource::CloudPending
+                )
+            })
+        {
+            let position = 1.min(mixed.len());
+            mixed.insert(
+                position,
+                WordItem::new(
+                    self.engine.request().raw_input.as_str(),
+                    "☁",
+                    0,
+                    CandidateSource::CloudPending,
+                    "",
+                ),
+            );
+        }
         // 放在固定位置之后：单字母输入时固定位置会补回列表里没有的词。
         if self.single_character_only && scheme.filters_to_single_characters() {
             mixed.retain(|item| !is_han_phrase(&item.word));

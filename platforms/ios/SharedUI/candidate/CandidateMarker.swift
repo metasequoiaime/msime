@@ -9,6 +9,7 @@ struct CandidateMarker: Equatable {
 
   /// Engine `CandidateSource` values, shared by every host through the runtime's view.
   static let cloudSource = 2
+  static let cloudPendingSource = 15
   static let aiSource = 3
   /// AI 占位行（「…」等待中，「—」没有结果）：不是候选，画成次要色，不加标记（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里留着，旧的库或数据里出现时仍按占位行画。
   static let aiPendingSource = 12
@@ -18,9 +19,17 @@ struct CandidateMarker: Equatable {
     text == "…" ? "AI 候选等待中" : "AI 候选没有结果"
   }
 
+  static func pendingSpoken(_ text: String, markers: [CandidateMarker]) -> String {
+    markers.contains { $0.spoken == "云候选加载中" } ? "云候选加载中" : aiPendingSpoken(text)
+  }
+
   static func markers(source: Int, fixedPosition: Int) -> [CandidateMarker] {
     var markers: [CandidateMarker] = []
-    if source == cloudSource { markers.append(CandidateMarker(symbol: "cloud", spoken: "云候选")) }
+    if source == cloudSource || source == cloudPendingSource {
+      let pending = source == cloudPendingSource
+      markers.append(CandidateMarker(
+        symbol: pending ? "" : "cloud", spoken: pending ? "云候选加载中" : "云候选"))
+    }
     if source == aiSource { markers.append(CandidateMarker(symbol: "sparkles", spoken: "AI 候选")) }
     if fixedPosition > 0 {
       markers.append(CandidateMarker(symbol: "pin.fill", spoken: "已固定第 \(fixedPosition) 位"))

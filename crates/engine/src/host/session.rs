@@ -366,6 +366,10 @@ impl Session {
         Ok(())
     }
 
+    pub fn set_cloud_candidates_enabled(&mut self, enabled: bool) {
+        self.inner.set_cloud_candidates_enabled(enabled);
+    }
+
     pub fn set_caret(&mut self, caret: Option<usize>) {
         self.inner.set_caret(caret);
     }

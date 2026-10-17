@@ -232,6 +232,12 @@ fn order_rows(snapshot: &EngineSnapshot) -> ParallelOrderRows<'_> {
 }
 
 impl Runtime<Session> {
+    /// 打开或关闭云候选固定席位；宿主偏好变化时立即刷新当前组字。
+    pub fn set_cloud_candidates_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        self.engine.set_cloud_candidates_enabled(enabled);
+        self.refresh()
+    }
+
     /// A live host mode changes neither composition nor candidate identity.
     pub fn set_chinese_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.engine
@@ -1743,6 +1749,7 @@ impl<E: InputEngine> Runtime<E> {
     /// AI 行不按上表的座位坐（#6888）。其余行先排好：有云候选时按上表分组，没有云候选时保持引擎的次序，和 AI 回答到达之前一模一样。第一条 AI 候选再插进第一页最后一格（下标 `page_size - 1`；每页只有一格时是下标 1，不顶掉首选；第一页排不满时紧跟在其余行之后），同一批多出来的排在整个列表最后。回答到达时第一页前 `page_size - 1` 格一格都不动，原来在最后一格的候选和它后面的行各往后挪一格。`page_size` 在组字中途不会变（`set_page_size` 只在空闲时生效），翻页、展开刷新时这里按同一个值重算，AI 行始终在第一页最后一格，数字键按的就是画出来的那一格。
     fn normalize_online_slots(&mut self) -> bool {
         const CLOUD: u8 = 2;
+        const CLOUD_PENDING: u8 = 15;
         const AI: u8 = 3;
         const ENGLISH: u8 = 4;
         const EMOJI: u8 = 6;
@@ -1781,7 +1788,7 @@ impl<E: InputEngine> Runtime<E> {
         const EMOJI_GROUP: usize = 5;
         const KAOMOJI_GROUP: usize = 6;
         let group_of = |source: u8| match source {
-            CLOUD => CLOUD_GROUP,
+            CLOUD | CLOUD_PENDING => CLOUD_GROUP,
             AI | AI_PENDING => AI_GROUP,
             JAPANESE => JAPANESE_GROUP,
             ENGLISH => ENGLISH_GROUP,

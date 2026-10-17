@@ -183,7 +183,11 @@ impl InputSession {
         }
         let row = self.candidates().get(row_index)?;
         // AI 占位行不是一句读法，不能从它进入改字。
-        if row.source == CandidateSource::AiPending || !self.selection_completes_composition(row) {
+        if matches!(
+            row.source,
+            CandidateSource::AiPending | CandidateSource::CloudPending
+        ) || !self.selection_completes_composition(row)
+        {
             return None;
         }
         let mut edit = ConversionEdit::from_row(row)?;

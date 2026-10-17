@@ -85,6 +85,10 @@ pub trait InputEngine {
             "Online candidate clearing is unsupported".into(),
         ))
     }
+    /// Whether the host allows the cloud provider to reserve its stable candidate seat.
+    fn set_cloud_candidates_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
+        Ok(())
+    }
     fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
     }
@@ -315,6 +319,10 @@ impl InputEngine for Session {
     fn clear_online_candidates(&mut self, source: u8) -> Result<(), RuntimeError> {
         Session::clear_online_candidates(self, source)
             .map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
+    fn set_cloud_candidates_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        Session::set_cloud_candidates_enabled(self, enabled);
+        Ok(())
     }
     fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_paired_punctuation_enabled(self, enabled)

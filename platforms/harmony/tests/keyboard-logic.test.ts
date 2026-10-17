@@ -4843,6 +4843,7 @@ group("keeps Engine candidate selection independent from row order", () => {
 
 group("keeps candidate source badges bounded to known Engine sources", () => {
   check(CandidatePresentationPolicy.badge(2) === " ☁️", "cloud candidates get a cloud badge");
+  check(CandidatePresentationPolicy.badge(15) === "", "cloud placeholders use their cloud glyph");
   check(CandidatePresentationPolicy.badge(3) === " 🤖", "AI candidates get a robot badge");
   check(CandidatePresentationPolicy.badge(0) === "", "local candidates stay unbadged");
   check(CandidatePresentationPolicy.badge(12) === "", "the AI placeholder carries no badge");

@@ -44,7 +44,10 @@ impl InputSession {
             return KeyResult::unhandled();
         }
         // AI 占位行不是候选：点它或按它的数字键什么都不做，但按键算处理过了，数字不会落进文档（#6888）。
-        if self.candidates()[index].source == CandidateSource::AiPending {
+        if matches!(
+            self.candidates()[index].source,
+            CandidateSource::AiPending | CandidateSource::CloudPending
+        ) {
             return KeyResult::handled();
         }
         // 网址补全（组字里的 `https://`、网址模式里补全了顶级域名的行）不上屏：以它为预编辑进入网址模式，接着打网址。
@@ -116,11 +119,12 @@ impl InputSession {
         } else {
             first_index
         };
-        let mut index = if self
-            .candidates()
-            .get(first_index)
-            .is_some_and(|item| item.source == CandidateSource::AiPending)
-        {
+        let mut index = if self.candidates().get(first_index).is_some_and(|item| {
+            matches!(
+                item.source,
+                CandidateSource::AiPending | CandidateSource::CloudPending
+            )
+        }) {
             0
         } else {
             first_index

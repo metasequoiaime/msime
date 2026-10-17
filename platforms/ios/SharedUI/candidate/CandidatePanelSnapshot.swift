@@ -29,7 +29,7 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
   }
 
   private static func isAIRow(_ entry: Entry) -> Bool {
-    entry.source == CandidateMarker.aiSource || entry.source == CandidateMarker.aiPendingSource
+    entry.source == CandidateMarker.aiSource || entry.source == CandidateMarker.aiPendingSource || entry.source == CandidateMarker.cloudPendingSource
   }
 
   static func decode(_ value: [String: Any]) throws -> CandidatePanelSnapshot {

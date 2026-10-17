@@ -266,7 +266,7 @@ candidate_presentation_from_view(const FocusLease &lease,
         candidate.value("fixed_position", uint8_t{}),
         candidate.value("translation", std::string{}),
         candidate_actions_available(view.value("scheme", 0u), candidate_source)};
-    item.pending = candidate_source == candidate_source_ai_pending;
+    item.pending = candidate_source == candidate_source_ai_pending || candidate_source == candidate_source_cloud_pending;
     // 释义页上的义项不是 Engine 的候选，置顶、删除、固定排位都无从谈起，菜单里不给。
     if (output.translation_page)
       item.actions_available = false;
@@ -344,7 +344,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
         candidate.value("fixed_position", uint8_t{}),
         candidate.value("translation", std::string{}),
         candidate_actions_available(view.value("scheme", 0u), candidate_source)};
-    item.pending = candidate_source == candidate_source_ai_pending;
+    item.pending = candidate_source == candidate_source_ai_pending || candidate_source == candidate_source_cloud_pending;
     // 释义页上的义项不是 Engine 的候选，置顶、删除、固定排位都无从谈起，菜单里不给。
     if (output.translation_page)
       item.actions_available = false;

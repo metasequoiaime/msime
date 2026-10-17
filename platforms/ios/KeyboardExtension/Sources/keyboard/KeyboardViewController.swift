@@ -4732,9 +4732,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     snapshot.entries.map { CandidateMarker.markers(source: $0.source, fixedPosition: $0.fixedPosition) }
   }
 
-  /// 网格里哪些格子是来源 12 的 AI 占位行，和候选条一样画成次要色（#6888）。共享内核已经不再产出这种行，这里留着，旧数据里出现时仍画淡。
+  /// 网格里哪些格子是在线占位行，和候选条一样画成次要色。
   private func candidatePanelAIPlaceholders(_ snapshot: CandidatePanelSnapshot) -> Set<Int> {
-    Set(snapshot.entries.indices.filter { snapshot.entries[$0].source == CandidateMarker.aiPendingSource })
+    Set(snapshot.entries.indices.filter {
+      snapshot.entries[$0].source == CandidateMarker.aiPendingSource ||
+      snapshot.entries[$0].source == CandidateMarker.cloudPendingSource
+    })
   }
 
   private func makeNineKeyPanelColumns() -> KeyboardNineKeyPanelColumns {
@@ -6038,7 +6041,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         glosses: candidateGlosses(at: offset), markers: candidateMarkers(at: offset), number: offset + 1,
         converting: japaneseConversionIndex == offset,
         aiPlaceholder: visibleCandidateSources.indices.contains(offset)
-          && visibleCandidateSources[offset] == CandidateMarker.aiPendingSource)
+          && (visibleCandidateSources[offset] == CandidateMarker.aiPendingSource
+            || visibleCandidateSources[offset] == CandidateMarker.cloudPendingSource))
     }
     updateExpandControl()
 
@@ -6558,7 +6562,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configuration.baseForegroundColor = pinned || selected
       ? candidatePalette?.accent ?? skin.accent
       : candidatePalette?.text ?? skin.keyForeground
-    // 来源 12 的 AI 占位行画成次要色，和真候选区分开（#6888）；共享内核已经不再产出它，画法留着。
+    // 在线占位行画成次要色，和真候选区分开（#6888）。
     if aiPlaceholder { configuration.baseForegroundColor = annotationColor }
     // The 훈음 is drawn whole, like an inline hint was, so the chip widens to it rather than cutting it to the gloss column; the glosses under it fit that width.
     var readingWidth: CGFloat = 0
@@ -6624,7 +6628,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // A Hanja's long press offers nothing (candidateMenuElements(at:)), so its glosses are read but not offered for insertion.
     button.accessibilityHint = spoken.isEmpty || reading != nil ? nil : "轻点输入，长按可输入释义"
     if aiPlaceholder {
-      button.accessibilityLabel = CandidateMarker.aiPendingSpoken(candidate)
+      button.accessibilityLabel = CandidateMarker.pendingSpoken(candidate, markers: markers)
       button.accessibilityHint = nil
     }
   }

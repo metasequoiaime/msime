@@ -24,6 +24,7 @@ NAMES = {
     "candidate_source_ai_suggestion": "AiSuggestion",
     "candidate_source_english_dictionary": "EnglishDictionary",
     "candidate_source_ai_pending": "AiPending",
+    "candidate_source_cloud_pending": "CloudPending",
 }
 
 

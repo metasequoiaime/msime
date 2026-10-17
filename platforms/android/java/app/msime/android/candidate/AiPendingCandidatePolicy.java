@@ -8,6 +8,8 @@ package app.msime.android;
 public final class AiPendingCandidatePolicy {
     /** Engine `CandidateSource::AiPending`，与 iOS `CandidateMarker.aiPendingSource` 相同。 */
     public static final int SOURCE = 12;
+    /** Engine `CandidateSource::CloudPending`，云候选回答前的固定席位。 */
+    public static final int CLOUD_SOURCE = 15;
     /** 占位行的不透明度；其他候选是 1。 */
     public static final float PLACEHOLDER_ALPHA = 0.45f;
     /** 等回答时占位行的文字，即共享内核以前放的「…」。 */
@@ -19,9 +21,13 @@ public final class AiPendingCandidatePolicy {
         return source == SOURCE;
     }
 
+    public static boolean isCloudPending(int source) {
+        return source == CLOUD_SOURCE;
+    }
+
     /** 按钮会复用，所以真候选显式回到不透明。 */
     public static float alpha(int source) {
-        return isPlaceholder(source) ? PLACEHOLDER_ALPHA : 1f;
+        return (isPlaceholder(source) || isCloudPending(source)) ? PLACEHOLDER_ALPHA : 1f;
     }
 
     /** 读屏念的占位行，与 iOS `CandidateMarker.aiPendingSpoken` 一致。 */
@@ -31,11 +37,13 @@ public final class AiPendingCandidatePolicy {
 
     /** 候选的读屏描述：占位行念它的状态，不带释义和「长按管理」；其他候选原样返回。 */
     public static String description(int source, String prefix, String text, String suffix) {
-        return isPlaceholder(source) ? prefix + spoken(text) : prefix + text + suffix;
+        if (isPlaceholder(source)) return prefix + spoken(text);
+        if (isCloudPending(source)) return prefix + "云候选加载中";
+        return prefix + text + suffix;
     }
 
     /** 长按是否打开候选菜单：占位行没有可管理的词，也没有释义可插入。 */
     public static boolean offersMenu(int source) {
-        return !isPlaceholder(source);
+        return !isPlaceholder(source) && !isCloudPending(source);
     }
 }

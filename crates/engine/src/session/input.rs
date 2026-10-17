@@ -94,6 +94,7 @@ pub(super) struct InputSession {
     /// 插件指令行的缓存：（问的是哪一份本地预编辑串，插件给的行）。只有一槽，预编辑串一变就清掉，所以 `/uuid` 退成 `/uui` 再打回 `/uuid` 会重新问插件；预编辑串不变时（方向键、翻页、列表重建）行一直在，不再问。0 行也缓存成空表。
     pub plugin_rows: Option<(String, Vec<WordItem>)>,
     pub online_requests: OnlineRequestGuard,
+    pub cloud_candidates_enabled: bool,
     pub chain: CommitChain,
     pub personal_context: Arc<PersonalNgramStore>,
     pub typo_profile: Arc<PersonalTypoProfile>,
@@ -174,6 +175,8 @@ impl InputSession {
             uppercase_passthrough: false,
             plugin_rows: None,
             online_requests: OnlineRequestGuard::new(),
+            // 宿主创建会话后显式打开；测试和嵌入式引擎默认保持离线。
+            cloud_candidates_enabled: false,
             chain: CommitChain::default(),
             personal_context: PersonalNgramStore::for_journal(&journal),
             typo_profile: PersonalTypoProfile::shared(&journal),
@@ -1406,6 +1409,14 @@ impl InputSession {
         if !enabled {
             self.reset_commit_context();
         }
+    }
+
+    pub fn set_cloud_candidates_enabled(&mut self, enabled: bool) {
+        if self.cloud_candidates_enabled == enabled {
+            return;
+        }
+        self.cloud_candidates_enabled = enabled;
+        self.update_mixed_candidates();
     }
 
     pub fn set_rescoring_context(&mut self, context: &str) {

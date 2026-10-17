@@ -44,7 +44,7 @@ final class KeyboardCandidatePanelView: UIView {
   private let candidateFamilies: [String]
   private var annotations: [KeyboardCandidateAnnotation]
   private var markers: [[CandidateMarker]]
-  /// 来源 12 的 AI 占位行（「…」或「—」）的下标：画成次要色，读屏念等待中或没有结果，不当成真候选（#6888）。共享内核已经不再产出这种行，画法留着，旧数据里出现时仍不当成真候选。
+  /// 在线占位行（AI 的「…」或云的「☁」）的下标：画成次要色，读屏念状态，不当成真候选（#6888）。
   private var aiPlaceholders: Set<Int>
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
@@ -385,7 +385,7 @@ final class KeyboardCandidatePanelView: UIView {
       ? "候选词 \(number)：\(text)"
       : "候选词 \(number)：\(text)，\(annotation.accessibilityDescription)"
     for marker in marks { chip.accessibilityLabel? += "，\(marker.spoken)" }
-    if aiPlaceholder { chip.accessibilityLabel = "候选词 \(number)：\(CandidateMarker.aiPendingSpoken(candidate))" }
+    if aiPlaceholder { chip.accessibilityLabel = "候选词 \(number)：\(CandidateMarker.pendingSpoken(candidate, markers: marks))" }
     if selected { chip.accessibilityTraits.insert(.selected) }
     // 在长按打开菜单时才构建，而不是一开始就给每个候选块建好：这个面板会排出整个列表，像 `yi` 这样的查询有几百个。
     chip.menu = UIMenu(children: [
