@@ -535,6 +535,10 @@ public final class MSIMEInputService extends InputMethodService {
     private long nextDocumentIdentifier = 1;
     private final KeyboardInputContext inputContext = new KeyboardInputContext();
     KeyboardLayout.Layer keyboardLayer = KeyboardLayout.Layer.LETTERS;
+
+    boolean directNumberPad() {
+        return EditorPolicy.numberInput(editorInputType);
+    }
     boolean allowLearning;
     private String preferencesNotice = "";
     /** 上次以 Toast 说过的空闲提示，同一条不重复弹。 */
@@ -1452,6 +1456,7 @@ public final class MSIMEInputService extends InputMethodService {
         clearEnglishSuggestions();
         keyboardLayer = KeyboardLayout.Layer.LETTERS;
         editorInputType = info == null ? 0 : info.inputType;
+        if (directNumberPad()) keyboardLayer = KeyboardLayout.Layer.SYMBOLS;
         currentEditorPackage = info == null || info.packageName == null ? "" : info.packageName;
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
         refreshLocalSettings();

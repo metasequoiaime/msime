@@ -34,7 +34,17 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
         try {
             // 使用专用 AVD 的合成偏好和统计，不读写用户输入，也不继承自定义侧栏。
             publish(local, "{\"version\":1,\"settings\":{}}".getBytes(StandardCharsets.UTF_8));
+            // 直接数字布局只验几何和字面输入，先关闭统计，避免这轮异步刷盘污染后面的方案增量断言。
+            publish(statistics, "{\"enabled\":false,\"days\":{}}".getBytes(StandardCharsets.UTF_8));
+            restartIme();
+            stage = "direct number editor grid";
+            openNumberEditor();
+            assertGrid();
+            typeLiteral("1203");
+            await(field("msime-test-number").and(node -> equalsText("1203", node.getText())));
+            // 直接数字输入的布局验收不与后续方案统计共用异步文件；清掉这轮合成按键后再建立数字页基线。
             publish(statistics, "{\"enabled\":true,\"days\":{}}".getBytes(StandardCharsets.UTF_8));
+            restartIme();
             long digitOnes = 0, nineOnes = 0, digitZeros = 0, nineZeros = 0;
             for (String[] layout : new String[][] {
                     {"quanpin", "quanpin", "twenty_six_key"},
@@ -162,6 +172,12 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
 
     private void assertField(String expected) {
         await(field("msime-test-plain").and(node -> equalsText(expected, node.getText())));
+    }
+
+    private void openNumberEditor() throws Exception {
+        shellDiscard("am force-stop app.msime.android.test");
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        tap(field("msime-test-number"));
     }
 
     private String output(String text, boolean fullwidth) {

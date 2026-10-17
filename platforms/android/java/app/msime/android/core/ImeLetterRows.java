@@ -45,8 +45,11 @@ final class ImeLetterRows {
     }
 
     boolean numberPadDrawn(int layout) {
+        if (moreSymbols) return false;
+        // 数字、电话和数字密码输入框没有 Engine 会话，不能等用户再点一次 123；它们进框就直接画同一套九宫格。
+        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS && s.directNumberPad()) return true;
         boolean local = !"none".equals(InputViewValuePolicy.textOr(s.view, "local_mode", "none"));
-        return !moreSymbols && KeyboardLayout.drawsNumberPad(s.keyboardLayer, layout,
+        return KeyboardLayout.drawsNumberPad(s.keyboardLayer, layout,
             KeyboardLayout.numberPadLanguage(InputViewValuePolicy.scheme(s.view, -1), s.dedicatedEnglish), local);
     }
 

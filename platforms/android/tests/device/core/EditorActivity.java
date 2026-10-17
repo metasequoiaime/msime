@@ -50,6 +50,12 @@ public final class EditorActivity extends Activity {
         plain.setHint("Plain editor");
         showImeOnFocus(plain);
         layout.addView(plain);
+        EditText number = new EditText(this);
+        number.setInputType(InputType.TYPE_CLASS_NUMBER);
+        number.setContentDescription("msime-test-number");
+        number.setHint("Number editor");
+        showImeOnFocus(number);
+        layout.addView(number);
         EditText limited = new EditText(this);
         limited.setInputType(InputType.TYPE_CLASS_TEXT);
         limited.setFilters(new android.text.InputFilter[] {new android.text.InputFilter.LengthFilter(30)});

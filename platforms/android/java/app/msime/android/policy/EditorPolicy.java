@@ -15,6 +15,13 @@ public final class EditorPolicy {
             && variation != InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
             && variation != InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
     }
+
+    /** 数字和电话输入框不启用 Engine，但仍应显示输入法自己的数字九宫格。 */
+    public static boolean numberInput(int type) {
+        int typeClass = type & InputType.TYPE_MASK_CLASS;
+        return typeClass == InputType.TYPE_CLASS_NUMBER
+            || typeClass == InputType.TYPE_CLASS_PHONE;
+    }
     public static boolean allowLearning(int options) {
         return (options & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) == 0;
     }
