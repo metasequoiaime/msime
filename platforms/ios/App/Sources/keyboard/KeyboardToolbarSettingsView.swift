@@ -8,6 +8,8 @@ struct KeyboardToolbarSettingsView: View {
   @State private var phrases = TouchToolbarLocalPreference.phrases
   @State private var scheme = TouchToolbarLocalPreference.scheme
   @State private var hidden = TouchToolbarLocalPreference.hidden
+  /// 「顶部语音入口」也画在工具栏上，它打开时工具栏就不算空。
+  @State private var voiceShortcut = KeyboardLayoutPreference.voiceShortcutEnabled
   @State private var skin = KeyboardTheme.current
   @State private var saveFailed = false
 
@@ -45,7 +47,7 @@ struct KeyboardToolbarSettingsView: View {
     ScrollView {
       VStack(spacing: 28) {
         preview
-        DesignGroup(title: "显示", footer: hidden ? "工具栏已隐藏，只显示候选栏。" : nil) {
+        DesignGroup(title: "显示", footer: rowHidden ? "工具栏已隐藏，只显示候选栏。" : nil) {
           DesignSelectRow(title: "显示方式", options: Self.displayModes,
                           selection: Binding(get: { hidden }, set: { enabled in
                             TouchToolbarLocalPreference.hidden = enabled
@@ -73,10 +75,15 @@ struct KeyboardToolbarSettingsView: View {
     .reloadOnAppearAndActive(reload)
   }
 
-  /// 当前皮肤下的键盘，带着这些开关组成的工具栏，工具栏隐藏时只有按键；裁成设计稿的 14pt 圆角，外加一圈细线。
+  /// 键盘空闲时不显示工具栏：显示方式为「隐藏」，或者按钮全部关掉、只剩品牌键和收起键，与键盘的 `toolbarRowHidden` 一致。
+  private var rowHidden: Bool {
+    hidden || (Self.previewItems(toolbar, phrases: phrases, scheme: scheme).isEmpty && !voiceShortcut)
+  }
+
+  /// 当前皮肤下的键盘，带着这些开关组成的工具栏，工具栏不显示时只有按键；裁成设计稿的 14pt 圆角，外加一圈细线。
   private var preview: some View {
     let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-    let strip: KeyboardPreviewTopStrip = hidden
+    let strip: KeyboardPreviewTopStrip = rowHidden
       ? .hidden : .toolbar(Self.previewItems(toolbar, phrases: phrases, scheme: scheme))
     return KeyboardSkinPreview(skin: skin, nineKey: false, topStrip: strip)
       .clipShape(shape)
@@ -128,6 +135,7 @@ struct KeyboardToolbarSettingsView: View {
     phrases = TouchToolbarLocalPreference.phrases
     scheme = TouchToolbarLocalPreference.scheme
     hidden = TouchToolbarLocalPreference.hidden
+    voiceShortcut = KeyboardLayoutPreference.voiceShortcutEnabled
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     skin = KeyboardTheme.reload(preferences)
     guard let preferences else { return }

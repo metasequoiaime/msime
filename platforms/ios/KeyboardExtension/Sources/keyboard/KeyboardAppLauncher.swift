@@ -19,6 +19,8 @@ enum KeyboardAppLauncher {
   static let inputSettingsURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings/input")!
   /// 常用语面板里的「添加常用语」：打开应用的常用语页，iOS 上只能在那里添加常用语。
   static let phrasesURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings/phrases")!
+  /// 长按工具栏上的任何按钮：打开应用的「键盘工具栏」页，在那里选择工具栏显示哪些按钮。
+  static let toolbarSettingsURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings/toolbar")!
   /// 功能菜单里的「反馈」：打开「我的」下的「帮助与反馈」。
   static let feedbackURL = URL(string: "\(MSIMEAppEdition.urlScheme)://feedback")!
   /// 功能菜单里的「关于」：打开「我的」下的关于页。
