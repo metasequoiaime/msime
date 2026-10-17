@@ -284,6 +284,16 @@ struct AccountSettingsView: View {
       .disabled(!signedIn)
       .opacity(signedIn ? 1 : 0.38)
       .accessibilityIdentifier("accountManualSync")
+      MeDivider()
+      // 与 Android「我的」→「同步」里的同名一行相同：输入 QQ 群里机器人给的绑定码，之后在群里用 /stats 看打字数据。
+      NavigationLink { QQLinksView() } label: {
+        MeRow(symbol: "person.2.circle.fill", title: "绑定 QQ 群助手",
+              subtitle: signedIn ? "在 QQ 群里用 /stats 查看你的打字数据" : "登录后可用")
+      }
+      .buttonStyle(PressFillButtonStyle())
+      .disabled(!signedIn)
+      .opacity(signedIn ? 1 : 0.38)
+      .accessibilityIdentifier("accountQQLinks")
     }
   }
 

@@ -1381,6 +1381,11 @@ fn ensure_cached_lattice_span(
     let hash = lattice_span_cache_hash(span_limit, span);
     if let Some(cached) = cache.get_ref(&hash) {
         if lattice_span_cache_key_matches(cached, span_limit, span) {
+            // 预热批次可能命中上一轮缓存；把命中项移到队尾，避免后续冷跨度插入时把本轮早先命中的项驱逐，导致借用查询找不到刚预热的行。
+            let cached = cache
+                .remove(&hash)
+                .expect("lattice span cache hit disappeared");
+            cache.insert(hash, cached);
             return;
         }
     }
