@@ -6226,7 +6226,10 @@ public final class MSIMEInputService extends InputMethodService {
             voiceResultPanel.addView(textView(voiceSetupReason));
             Button setup = button(voiceResultPanel, "设置语音输入", () -> {
                 closeVoiceResult();
-                openHostPage("VOICE");
+                // 直接打开「服务」：在那里选「本地模型」后出现模型下载，或者选在线服务商。
+                android.os.Bundle args = new android.os.Bundle();
+                args.putString(HostDeepLink.ARG_SECTION, "服务");
+                openHostPage("VOICE", args);
             });
             setup.setLayoutParams(LayoutPolicy.matchWidthWrapParams());
             imeStyler.applySkin();
@@ -8472,6 +8475,8 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.setBackgroundColor(voiceResultPanel, Color.parseColor(skin.background()));
         voiceResultPanel.setContentDescription("语音结果面板");
         voiceResultScroll = new ScrollView(this);
+        // 底色画在面板上，内容只有几行时也要撑满整块键区，否则下面的键从面板底边露出来半行。
+        voiceResultScroll.setFillViewport(true);
         voiceResultScroll.addView(voiceResultPanel);
         ViewPolicy.hide(voiceResultScroll);
         keyboardSurface.addView(voiceResultScroll, LayoutPolicy.frameMatchParentParams());

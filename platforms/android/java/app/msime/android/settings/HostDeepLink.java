@@ -24,6 +24,8 @@ public final class HostDeepLink {
     public static final String EXTRA_ARGS = "msime_page_args";
     /** HomeActivity 给从 Intent 读进来的参数加上的标记，值为 true；页面看到它就只能把参数用于导航和滚动。 */
     public static final String ARG_EXTERNAL = "msime_external";
+    /** 详情页首次打开时显示的分类（{@code DetailPage} 的分类标题），例如键盘的语音引导打开「语音输入」的「服务」；不是那一页的分类时忽略。只用于导航。 */
+    public static final String ARG_SECTION = "section";
 
     public static final int TAB_SETTINGS = 0;
     /** 「社区」tab，根页是「皮肤 / 词库」两个分类的社区列表。下标沿用原先的第二格，按旧下标 1 发来的深链落在这里。 */
