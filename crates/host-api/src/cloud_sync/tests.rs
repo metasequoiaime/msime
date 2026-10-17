@@ -841,7 +841,7 @@ fn a_cloud_cleared_after_another_section_wrote_keeps_its_progress_and_asks_next_
     assert!(state.sections.phrases.base.is_none());
     assert_eq!(
         result["status"]["status_line"],
-        "云端数据已被清空，请选择合并或使用云端"
+        "云端数据已被清空，请选择合并、使用云端或关闭同步"
     );
     // 下一轮读完云端就问，什么都不写。
     let asked = fixture.run(Trigger::Manual, None, settings_and_phrases(), NOW + 120_000);
@@ -1301,7 +1301,7 @@ fn a_cleared_cloud_asks_instead_of_deleting_local_data() {
     assert!(state.sections.phrases.base.is_none());
     assert_eq!(
         asked["status"]["status_line"],
-        "云端数据已被清空，请选择合并或使用云端"
+        "云端数据已被清空，请选择合并、使用云端或关闭同步"
     );
     // 选了「使用云端」：云端是空的，按合并处理，本机的重新上传。
     let chosen = fixture.run(
@@ -3569,4 +3569,139 @@ fn cloud_words_that_never_reach_this_device_keep_the_merge_from_finishing() {
         Err(MERGE_BLOCKED.to_owned())
     );
     assert_eq!(store.read().unwrap().pending_count(), 0);
+}
+
+/// 常用语同步过 `甲`、`乙` 以后另一台设备「删除云端数据」，这一轮问了 `cloud_cleared`。
+fn asked_after_the_cloud_was_cleared(fixture: &Fixture) {
+    synced_phrases(fixture, &["甲", "乙"]);
+    fixture.api.cloud().phrases = AccountPhrases {
+        revision: 2,
+        phrases: Vec::new(),
+    };
+    let asked = fixture.run(Trigger::Manual, None, phrases_only(), NOW + 60_000);
+    assert_eq!(asked["reason"], "cloud_cleared", "{asked}");
+    assert_eq!(asked["status"]["status_line"], policy::CLOUD_CLEARED_LINE);
+    fixture.api.calls();
+}
+
+#[test]
+fn a_cleared_cloud_can_turn_sync_off_without_uploading_or_deleting_anything() {
+    let fixture = Fixture::new();
+    asked_after_the_cloud_was_cleared(&fixture);
+    fixture.local.add_phrase("丙");
+    let disabled = disable(&fixture.session, &fixture.store, NOW + 70_000).unwrap();
+    assert_eq!(disabled["outcome"], "disabled", "{disabled}");
+    let shown = &disabled["status"];
+    assert_eq!(shown["enabled"], false);
+    assert_eq!(shown["disabled_on_cloud_cleared"], true);
+    assert_eq!(shown["sections"]["phrases"]["cleared"], true);
+    assert_eq!(shown["status_line"], policy::DISABLED_ON_CLOUD_CLEARED_LINE);
+    // 不联网：云端还是空的，本机一条都没少。
+    assert!(fixture.api.calls().is_empty());
+    assert!(fixture.api.cloud_texts().is_empty());
+    assert_eq!(fixture.local.texts(), ["甲", "乙", "丙"]);
+    // 不持有登录的进程看到的一样。
+    let peeked = peek(&fixture.store, NOW + 70_000).unwrap();
+    assert_eq!(peeked["disabled_on_cloud_cleared"], true);
+    assert_eq!(
+        peeked["status_line"],
+        policy::DISABLED_ON_CLOUD_CLEARED_LINE
+    );
+    // 关着就不再同步，记不了改动。
+    let skipped = fixture.run(Trigger::Manual, None, phrases_only(), NOW + 80_000);
+    assert_eq!(skipped["reason"], "disabled", "{skipped}");
+    assert!(
+        !mark_dirty(&fixture.store, Section::Phrases).unwrap()["marked"]
+            .as_bool()
+            .unwrap()
+    );
+    assert!(fixture.api.calls().is_empty());
+    // 用户以后自己重新打开：第一轮读完云端先问，不把本机悄悄传回被清空的云端。
+    fixture.enable();
+    let reopened = status(&fixture.session, &fixture.store, NOW + 90_000).unwrap();
+    assert_eq!(reopened["disabled_on_cloud_cleared"], false);
+    assert_eq!(reopened["status_line"], policy::CLOUD_CLEARED_LINE);
+    let asked = fixture.run(Trigger::Enable, None, phrases_only(), NOW + 90_000);
+    assert_eq!(asked["outcome"], "needs_choice", "{asked}");
+    assert_eq!(asked["reason"], "cloud_cleared");
+    assert_eq!(fixture.api.calls(), ["phrases"]);
+    assert!(fixture.api.cloud_texts().is_empty());
+}
+
+#[test]
+fn turning_sync_off_on_a_cleared_cloud_does_not_wait_for_a_round_and_is_never_stored() {
+    let fixture = Fixture::new();
+    asked_after_the_cloud_was_cleared(&fixture);
+    // 另一轮还在跑时用户先点了「合并」：记成 pending_choice。
+    fixture
+        .store
+        .update(|state| {
+            state.begin_run(USER, NOW + 61_000, None);
+            state.sections.dictionary.choice = Some(Choice::UseCloud);
+        })
+        .unwrap();
+    let running = fixture.state().run.unwrap();
+    let busy = fixture.run(
+        Trigger::Choice,
+        Some(Choice::Merge),
+        phrases_only(),
+        NOW + 62_000,
+    );
+    assert_eq!(busy["reason"], "busy", "{busy}");
+    assert_eq!(fixture.state().pending_choice, Some(Choice::Merge));
+    // 接着又点了「关闭同步」：不等那一轮，马上关掉，那一轮因此提交不了；它不记成任何选择，记着的旧选择也丢掉。
+    let disabled = disable(&fixture.session, &fixture.store, NOW + 63_000).unwrap();
+    assert_eq!(disabled["outcome"], "disabled", "{disabled}");
+    assert_eq!(disabled["status"]["pending_choice"], Value::Null);
+    let state = fixture.state();
+    assert!(!state.enabled);
+    assert_eq!(state.pending_choice, None);
+    assert_eq!(state.sections.dictionary.choice, None);
+    assert!(!state.lease_matches(&running.id, USER));
+    assert!(fixture.api.calls().is_empty());
+    // 重新打开、那一轮的租约过期以后手动同步：记着的「合并」没有留下来替用户做决定，照样先问。
+    fixture.enable();
+    let asked = fixture.run(
+        Trigger::Manual,
+        None,
+        phrases_only(),
+        NOW + 61_000 + policy::LEASE_MS,
+    );
+    assert_eq!(asked["outcome"], "needs_choice", "{asked}");
+    assert_eq!(asked["reason"], "cloud_cleared");
+    assert!(fixture.api.cloud_texts().is_empty());
+    assert_eq!(fixture.local.texts(), ["甲", "乙"]);
+}
+
+#[test]
+fn turning_sync_off_only_answers_a_cleared_cloud() {
+    // 同步过、云端没有被清空：不关，开关和进度都不动。
+    let fixture = Fixture::new();
+    synced_phrases(&fixture, &["甲"]);
+    let before = fixture.state();
+    let refused = disable(&fixture.session, &fixture.store, NOW + 60_000).unwrap();
+    assert_eq!(refused["outcome"], "skipped", "{refused}");
+    assert_eq!(refused["reason"], "not_cloud_cleared");
+    assert_eq!(refused["status"]["enabled"], true);
+    assert_eq!(fixture.state(), before);
+    // 首次同步的提示（云端已有数据）也没有这个回答。
+    let fixture = Fixture::new();
+    fixture.api.cloud().phrases = cloud_phrases(3, &["云端"]);
+    fixture.local.add_phrase("本机");
+    fixture.enable();
+    let asked = fixture.run(Trigger::Enable, None, phrases_only(), NOW);
+    assert_eq!(asked["reason"], "first_run", "{asked}");
+    let refused = disable(&fixture.session, &fixture.store, NOW + 1_000).unwrap();
+    assert_eq!(refused["reason"], "not_cloud_cleared", "{refused}");
+    assert!(fixture.state().enabled);
+    // 已经关着、或者已经退出时同样不动。
+    let fixture = Fixture::new();
+    asked_after_the_cloud_was_cleared(&fixture);
+    set_enabled(&fixture.session, &fixture.store, false, NOW + 70_000).unwrap();
+    let refused = disable(&fixture.session, &fixture.store, NOW + 71_000).unwrap();
+    assert_eq!(refused["reason"], "disabled", "{refused}");
+    assert_eq!(refused["status"]["disabled_on_cloud_cleared"], false);
+    *fixture.storage.0.lock().unwrap() = None;
+    let refused = disable(&fixture.session, &fixture.store, NOW + 72_000).unwrap();
+    assert_eq!(refused["reason"], "signed_out", "{refused}");
 }

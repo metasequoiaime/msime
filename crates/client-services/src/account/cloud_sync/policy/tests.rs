@@ -494,6 +494,7 @@ fn status_line_matches_android_and_ios() {
     let line = |enabled: bool, failure: Option<&str>, unheld: usize, synced: Option<u64>| {
         StatusLine {
             enabled,
+            disabled_on_cloud_cleared: false,
             failure,
             cloud_cleared: false,
             skins_trimmed: false,
@@ -517,6 +518,7 @@ fn status_line_matches_android_and_ios() {
     assert_eq!(line(true, Some(""), 0, Some(now)), "已同步 · 最近 刚刚");
     let trimmed = StatusLine {
         enabled: true,
+        disabled_on_cloud_cleared: false,
         failure: None,
         cloud_cleared: false,
         skins_trimmed: true,
@@ -525,6 +527,52 @@ fn status_line_matches_android_and_ios() {
         now_ms: now,
     };
     assert_eq!(trimmed.render(), "自定义皮肤太多，只同步了最近的设计");
+}
+
+#[test]
+fn the_cloud_cleared_lines_name_the_third_choice_and_why_sync_is_off() {
+    let line = |enabled: bool, disabled_on_cloud_cleared: bool, cloud_cleared: bool| {
+        StatusLine {
+            enabled,
+            disabled_on_cloud_cleared,
+            failure: None,
+            cloud_cleared,
+            skins_trimmed: false,
+            unheld_phrases: 0,
+            last_synced_ms: None,
+            now_ms: 0,
+        }
+        .render()
+    };
+    assert_eq!(line(true, false, true), CLOUD_CLEARED_LINE);
+    assert_eq!(
+        CLOUD_CLEARED_LINE,
+        "云端数据已被清空，请选择合并、使用云端或关闭同步"
+    );
+    // 选了「关闭同步，保留本机」：关着的原因说清楚，云端还记着清空也一样。
+    assert_eq!(line(false, true, true), DISABLED_ON_CLOUD_CLEARED_LINE);
+    assert_eq!(line(false, true, false), DISABLED_ON_CLOUD_CLEARED_LINE);
+    // 用户自己关的开关照旧。标记只在关着时才说话，打开以后按别的情况说。
+    assert_eq!(line(false, false, true), "云同步已关闭");
+    assert_eq!(line(true, true, true), CLOUD_CLEARED_LINE);
+}
+
+#[test]
+fn only_the_two_sync_choices_can_be_stored() {
+    // 宿主的回答多一个「关闭同步」，它不是同步选择。
+    assert_eq!(Answer::Merge.choice(), Some(Choice::Merge));
+    assert_eq!(Answer::UseCloud.choice(), Some(Choice::UseCloud));
+    assert_eq!(Answer::Disable.choice(), None);
+    assert_eq!(
+        serde_json::from_str::<Answer>("\"disable\"").unwrap(),
+        Answer::Disable
+    );
+    // 记进状态文件、留给以后那一轮的选择（`pending_choice`、词库留下的选择）是 `Choice`，写不下「关闭同步」：记着的旧选择不会在以后哪一轮把同步关掉。
+    assert!(serde_json::from_str::<Choice>("\"disable\"").is_err());
+    assert_eq!(
+        serde_json::from_str::<Choice>("\"use_cloud\"").unwrap(),
+        Choice::UseCloud
+    );
 }
 
 #[test]

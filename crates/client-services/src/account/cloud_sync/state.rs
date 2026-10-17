@@ -233,6 +233,9 @@ pub struct SyncState {
     pub notices: Notices,
     /// 不再接受旧版本状态的导入：已经导入过一次，或者用户自己打开、关闭过同步。换账号和退出（[`SyncState::reset`]）都不清它，旧状态还留在宿主的存储里、每次启动都会再带来，导入一旦关上就不能再把用户关掉的同步改回打开。
     pub import_closed: bool,
+    /// 开关是用户在「云端被清空」时选了「关闭同步，保留本机」关掉的（[`SyncState::disable_keeping_local`]），之后还没有再开关过。只给状态展示用；打开、关闭同步和换账号、退出都清掉它。
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub disabled_on_cloud_cleared: bool,
 }
 
 impl Default for SyncState {
@@ -253,6 +256,7 @@ impl Default for SyncState {
             failure: None,
             notices: Notices::default(),
             import_closed: false,
+            disabled_on_cloud_cleared: false,
         }
     }
 }
@@ -299,6 +303,7 @@ impl SyncState {
         }
         self.enabled = enabled;
         self.import_closed = true;
+        self.disabled_on_cloud_cleared = false;
         if enabled {
             for section in Section::ALL {
                 let state = self.sections.get_mut(section);
@@ -307,6 +312,25 @@ impl SyncState {
         }
         self.bump();
         Ok(())
+    }
+
+    /// 有没有分类记着「云端被清空，等用户选择」。
+    pub fn cloud_cleared(&self) -> bool {
+        Section::ALL
+            .iter()
+            .any(|section| self.sections.get(*section).cleared)
+    }
+
+    /// 用户在「云端被清空」时选了「关闭同步，保留本机」：关掉开关，不上传、不下载，两边的数据都不动。调用方已经用 [`super::machine::disable_gate`] 确认过有绑定的账号、开关开着、确实在等这个选择。
+    ///
+    /// 清空标记、游标和改动代数都留着，所以用户以后重新打开同步时，第一轮读完云端仍然先问，不会悄悄把本机传回被清空的云端。记着的选择（另一轮在跑时记下的 `pending_choice`、词库合并没做完时留下的）丢掉：那是对这次清空以前的提问的回答，重新打开以后要按那时的云端重新问。`state_version` 加一，在跑的那一轮因此提交不了；它在这之前已经写到云端的不撤回。开关是用户自己定的，此后不再导入旧状态。
+    pub fn disable_keeping_local(&mut self) {
+        self.enabled = false;
+        self.import_closed = true;
+        self.disabled_on_cloud_cleared = true;
+        self.pending_choice = None;
+        self.sections.dictionary.choice = None;
+        self.bump();
     }
 
     /// 记一次本机改动：开关打开时给这个分类的代数加一。关闭时不记，打开时本来就会整份比对。不推进 `state_version`。

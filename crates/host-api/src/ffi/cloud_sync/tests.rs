@@ -146,6 +146,23 @@ fn malformed_requests_are_cloud_sync_invalid() {
             &paths,
             json!({ "operation": "run", "trigger": "manual", "capabilities": { "settings": true, "skins_library": true }, "host_inputs": { "harmony": true } }),
         ),
+        // 「关闭同步」只回答提示，只能跟 `trigger:"choice"` 一起来；不认识的回答也不收。
+        request(
+            &paths,
+            json!({ "operation": "run", "trigger": "manual", "choice": "disable", "capabilities": { "phrases": true } }),
+        ),
+        request(
+            &paths,
+            json!({ "operation": "run", "trigger": "active", "choice": "disable", "capabilities": { "phrases": true } }),
+        ),
+        request(
+            &paths,
+            json!({ "operation": "run", "trigger": "enable", "choice": "disable", "capabilities": { "phrases": true } }),
+        ),
+        request(
+            &paths,
+            json!({ "operation": "run", "trigger": "choice", "choice": "keep_local", "capabilities": { "phrases": true } }),
+        ),
         json!({ "directory": paths.account, "state_directory": paths.state, "action": run }),
         request(&paths, json!({ "operation": "import_legacy" })),
         json!({ "state_directory": paths.state, "snapshot_queue_directory": "relative", "action": { "operation": "import_legacy", "ios_v1": { "version": 1 } } }),
@@ -340,4 +357,42 @@ fn a_process_without_the_login_reads_the_switch_with_peek_and_clears_nothing() {
     let owner = call(request(&paths, json!({ "operation": "status" })));
     assert_eq!(owner["value"]["enabled"], true, "{owner}");
     assert_eq!(owner["value"]["sections"]["phrases"]["dirty"], true);
+}
+
+#[test]
+fn turning_sync_off_on_a_cleared_cloud_goes_through_run_and_shows_in_peek() {
+    let paths = paths();
+    save_session(&paths.account, "synthetic-user");
+    call(request(
+        &paths,
+        json!({ "operation": "set_enabled", "enabled": true }),
+    ));
+    // 不联网，也不读写本机，所以不带 preferences_directory 也行。
+    let disable = json!({
+        "directory": paths.account,
+        "state_directory": paths.state,
+        "action": { "operation": "run", "trigger": "choice", "choice": "disable", "capabilities": { "phrases": true } },
+    });
+    let refused = call(disable.clone());
+    assert_eq!(refused["value"]["outcome"], "skipped", "{refused}");
+    assert_eq!(refused["value"]["reason"], "not_cloud_cleared");
+    assert_eq!(refused["value"]["status"]["enabled"], true);
+    // 上一轮发现云端被清空、记在了状态里。
+    SyncStateStore::new(&paths.state)
+        .update(|state| state.sections.phrases.cleared = true)
+        .unwrap();
+    let disabled = call(disable);
+    assert_eq!(disabled["value"]["outcome"], "disabled", "{disabled}");
+    assert_eq!(disabled["value"]["status"]["enabled"], false);
+    let peeked = call(json!({
+        "state_directory": paths.state,
+        "action": { "operation": "peek" },
+    }));
+    assert_eq!(peeked["value"]["enabled"], false, "{peeked}");
+    assert_eq!(peeked["value"]["disabled_on_cloud_cleared"], true);
+    assert_eq!(peeked["value"]["sections"]["phrases"]["cleared"], true);
+    assert_eq!(
+        peeked["value"]["status_line"],
+        "云端数据已被清空，已关闭同步，本机数据没有改动"
+    );
 }

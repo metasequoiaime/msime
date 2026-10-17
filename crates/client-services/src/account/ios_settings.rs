@@ -208,7 +208,14 @@ impl IosPreferencePlan {
             Some(layout) => layout == "nine_key",
             None => nine_key_setting == Some(true),
         };
-        let mut wubi_profile = None;
+        // 账号里的五笔版本有就写进共享偏好，不管云端的方案是不是五笔，与 Android、桌面和鸿蒙共用的 `settings_sync::apply_input_settings` 相同：方案是全拼、账号里留着别的设备选的 98 时，本机以后切到五笔就是 98。没有这个键的文档来自还不认识 98 五笔、或者当时不在五笔上的设备，保留本机的五笔版本。不认识的取值与其余的键一样拒绝整份文档。
+        let wubi_profile = string_setting(values, "input.wubi_schema")?
+            .map(|value| match value.as_str() {
+                "wubi86" => Ok(WubiProfile::Wubi86),
+                "wubi98" => Ok(WubiProfile::Wubi98),
+                _ => Err(AccountError::Invalid),
+            })
+            .transpose()?;
         let input_scheme = match string_setting(values, "input.schema")?.as_deref() {
             None => None,
             Some("quanpin") => Some(
@@ -229,17 +236,7 @@ impl IosPreferencePlan {
                     _ => return Err(AccountError::Invalid),
                 }
             }
-            Some("wubi") => {
-                // 没有 `input.wubi_schema` 的文档来自还不认识 98 五笔的设备，保留本机的五笔版本。
-                wubi_profile = string_setting(values, "input.wubi_schema")?
-                    .map(|value| match value.as_str() {
-                        "wubi86" => Ok(WubiProfile::Wubi86),
-                        "wubi98" => Ok(WubiProfile::Wubi98),
-                        _ => Err(AccountError::Invalid),
-                    })
-                    .transpose()?;
-                Some("wubi".into())
-            }
+            Some("wubi") => Some("wubi".into()),
             Some("japanese") => {
                 if string_setting(values, "input.japanese_schema")?
                     .as_deref()
@@ -562,6 +559,9 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
         }
     }
 }
+
+#[cfg(test)]
+mod wubi_tests;
 
 #[cfg(test)]
 mod tests {

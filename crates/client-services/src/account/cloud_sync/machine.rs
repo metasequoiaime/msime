@@ -17,7 +17,7 @@ pub enum Trigger {
     Active,
     /// 用户刚打开同步开关。
     Enable,
-    /// 用户在「云端已有同步数据」里做了选择。
+    /// 用户在「云端已有同步数据」或「云端被清空」的提示里做了选择。
     Choice,
     /// 用户手动点了同步。
     Manual,
@@ -38,6 +38,8 @@ pub enum SkipReason {
     Backoff,
     Throttled,
     Busy,
+    /// 只对「关闭同步，保留本机」：没有分类在等「云端被清空」的选择。
+    NotCloudCleared,
 }
 
 impl SkipReason {
@@ -48,6 +50,7 @@ impl SkipReason {
             Self::Backoff => "backoff",
             Self::Throttled => "throttled",
             Self::Busy => "busy",
+            Self::NotCloudCleared => "not_cloud_cleared",
         }
     }
 }
@@ -78,6 +81,20 @@ pub fn gate(
     }
     if state.lease_active(now_ms) {
         return Err(SkipReason::Busy);
+    }
+    Ok(())
+}
+
+/// 「关闭同步，保留本机」（[`super::policy::Answer::Disable`]）能不能做：要有绑定的账号、开关开着，而且有分类记着「云端被清空，等用户选择」；它是那个提示的第三个回答，首次同步的提示没有它。它不联网也不跑一轮，所以不看节流、`Retry-After` 的退避和租约：另一轮还在跑时也马上关掉（那一轮因此提交不了），不像同步选择那样记成 `pending_choice` 留给下一轮。
+pub fn disable_gate(state: &SyncState) -> Result<(), SkipReason> {
+    if state.account_id.is_empty() {
+        return Err(SkipReason::SignedOut);
+    }
+    if !state.enabled {
+        return Err(SkipReason::Disabled);
+    }
+    if !state.cloud_cleared() {
+        return Err(SkipReason::NotCloudCleared);
     }
     Ok(())
 }
@@ -172,7 +189,7 @@ pub enum WriteTarget {
 pub enum ChoiceReason {
     /// 首次同步，云端已经有数据。
     FirstRun,
-    /// 云端被清空了（多半是「删除云端数据」）。
+    /// 云端被清空了（多半是「删除云端数据」）。除了合并和使用云端，还可以「关闭同步，保留本机」（见 [`disable_gate`]）。
     CloudCleared,
 }
 

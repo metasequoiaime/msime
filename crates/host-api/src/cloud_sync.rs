@@ -13,8 +13,8 @@ use msime_client_core::edition::{
 use msime_client_core::ios_keyboard::IosKeyboardPreferences;
 use msime_client_core::preferences::{PreferencesError, PreferencesStore};
 use msime_client_services::account::cloud_sync::machine::{
-    gate, ChoiceReason, CloudProbe, Event, HttpFailure, LocalProbe, SectionCommit, SectionInput,
-    SectionMachine, SnapshotActivation, Step, Trigger, WriteTarget,
+    disable_gate, gate, ChoiceReason, CloudProbe, Event, HttpFailure, LocalProbe, SectionCommit,
+    SectionInput, SectionMachine, SnapshotActivation, Step, Trigger, WriteTarget,
 };
 use msime_client_services::account::cloud_sync::policy::{
     self, Choice, LocalPhrase, Mode, Section, StatusLine,
@@ -231,13 +231,12 @@ pub(crate) fn status_value(state: &SyncState, now_ms: u64) -> Value {
         .collect();
     let line = StatusLine {
         enabled: state.enabled,
+        disabled_on_cloud_cleared: state.disabled_on_cloud_cleared,
         failure: state
             .failure
             .as_ref()
             .map(|failure| failure.message.as_str()),
-        cloud_cleared: Section::ALL
-            .iter()
-            .any(|section| state.sections.get(*section).cleared),
+        cloud_cleared: state.cloud_cleared(),
         skins_trimmed: state.notices.skins_trimmed,
         unheld_phrases: state.sections.phrases.unheld.len(),
         last_synced_ms: state.last_synced_ms,
@@ -246,6 +245,7 @@ pub(crate) fn status_value(state: &SyncState, now_ms: u64) -> Value {
     .render();
     json!({
         "enabled": state.enabled,
+        "disabled_on_cloud_cleared": state.disabled_on_cloud_cleared,
         "account_id": (!state.account_id.is_empty()).then_some(&state.account_id),
         "sections": sections,
         "last_attempt_ms": state.last_attempt_ms,
@@ -414,6 +414,35 @@ pub(crate) struct RunRequest {
 
 fn skipped(reason: &str, state: &SyncState, now_ms: u64) -> Value {
     json!({ "outcome": "skipped", "reason": reason, "status": status_value(state, now_ms) })
+}
+
+/// `run` 带着 `choice:"disable"`：用户在「云端被清空」的提示里选了「关闭同步，保留本机」。不联网、不跑一轮，也不读写本机的设置、常用语和词库，只在状态锁里关掉开关（[`SyncState::disable_keeping_local`]）。账号的对齐与 `run` 相同；会话读不出来时不对齐也不关，与 `run` 一样是 `session_unavailable`。不能做时（[`disable_gate`]）是 `skipped`，原因是 `signed_out`、`disabled` 或 `not_cloud_cleared`，状态不变。
+pub(crate) fn disable<A: AccountApi, S: AccountSessionStorage>(
+    session: &BackendAccountSession<A, S>,
+    store: &SyncStateStore,
+    now_ms: u64,
+) -> Result<Value, String> {
+    let identity = match identity(session) {
+        Ok(identity) => identity,
+        Err(_) => {
+            let state = store.read().map_err(storage)?;
+            return Ok(skipped("session_unavailable", &state, now_ms));
+        }
+    };
+    let (result, state) = store
+        .update(|state| {
+            state.reconcile(identity.as_ref().map(|(user, _)| user.as_str()));
+            let result = disable_gate(state);
+            if result.is_ok() {
+                state.disable_keeping_local();
+            }
+            (result, state.clone())
+        })
+        .map_err(storage)?;
+    Ok(match result {
+        Ok(()) => json!({ "outcome": "disabled", "status": status_value(&state, now_ms) }),
+        Err(reason) => skipped(reason.as_str(), &state, now_ms),
+    })
 }
 
 /// 跑的过程中换了账号、退出后重新登录，或会话读不出来：这一轮作废，不写任何进度。

@@ -519,3 +519,63 @@ fn a_choice_kept_for_the_dictionary_and_its_backoff_are_recorded_and_cleared() {
     assert_eq!(state.sections.dictionary.choice, None);
     assert_eq!(state.sections.dictionary.stall, None);
 }
+
+#[test]
+fn disabling_on_a_cleared_cloud_keeps_the_progress_drops_stored_choices_and_persists() {
+    let (_directory, store) = store();
+    store
+        .update(|state| {
+            state.reconcile(Some("synthetic-user"));
+            state.set_enabled(true).unwrap();
+            state.sections.phrases.cursor = Some(4);
+            state.sections.phrases.cleared = true;
+            state.sections.dictionary.cursor = Some(9);
+            state.sections.dictionary.choice = Some(Choice::UseCloud);
+            state.pending_choice = Some(Choice::Merge);
+            state.begin_run("synthetic-user", 1_000, Some(Choice::Merge));
+        })
+        .unwrap();
+    let before = store.read().unwrap();
+    let run = before.run.clone().unwrap();
+    assert!(before.lease_matches(&run.id, "synthetic-user"));
+    store.update(SyncState::disable_keeping_local).unwrap();
+    let state = store.read().unwrap();
+    assert!(!state.enabled);
+    assert!(state.disabled_on_cloud_cleared);
+    assert!(state.import_closed);
+    // 清空标记、游标和代数都留着，重新打开以后先问；记着的旧选择丢掉。
+    assert!(state.sections.phrases.cleared);
+    assert_eq!(state.sections.phrases.cursor, Some(4));
+    assert_eq!(state.sections.dictionary.cursor, Some(9));
+    assert_eq!(
+        state.sections.phrases.generation,
+        before.sections.phrases.generation
+    );
+    assert_eq!(state.pending_choice, None);
+    assert_eq!(state.sections.dictionary.choice, None);
+    // 在跑的那一轮提交不了。
+    assert!(state.state_version > before.state_version);
+    assert!(!state.lease_matches(&run.id, "synthetic-user"));
+    let text = std::fs::read_to_string(store.directory().join("state.json")).unwrap();
+    assert!(
+        text.contains("\"disabled_on_cloud_cleared\":true"),
+        "{text}"
+    );
+
+    // 自己再开关一次、换账号或退出都清掉它。
+    let mut reopened = state.clone();
+    reopened.set_enabled(true).unwrap();
+    assert!(!reopened.disabled_on_cloud_cleared);
+    assert!(reopened.sections.phrases.cleared);
+    let mut switched_off = state.clone();
+    switched_off.set_enabled(false).unwrap();
+    assert!(!switched_off.disabled_on_cloud_cleared);
+    let mut signed_out = state.clone();
+    signed_out.reset("");
+    assert!(!signed_out.disabled_on_cloud_cleared);
+    // 没有这个字段的旧文件读成 false，为 false 时也不写出来。
+    let text = serde_json::to_string(&reopened).unwrap();
+    assert!(!text.contains("disabled_on_cloud_cleared"), "{text}");
+    let old: SyncState = serde_json::from_str(&text).unwrap();
+    assert!(!old.disabled_on_cloud_cleared);
+}

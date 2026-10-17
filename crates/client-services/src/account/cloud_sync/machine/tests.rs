@@ -819,3 +819,50 @@ fn the_gate_needs_an_account_respects_backoff_throttle_and_the_lease() {
     );
     assert_eq!(check(&state, now + LEASE_MS, Trigger::Manual, None), Ok(()));
 }
+
+#[test]
+fn disabling_on_a_cleared_cloud_needs_an_account_an_open_switch_and_a_cleared_section_only() {
+    let now = 10 * THROTTLE_MS;
+    let mut state = SyncState::default();
+    assert_eq!(disable_gate(&state), Err(SkipReason::SignedOut));
+    state.reconcile(Some("u"));
+    assert_eq!(disable_gate(&state), Err(SkipReason::Disabled));
+    state.set_enabled(true).unwrap();
+    // 首次同步的提示（没有分类记着清空）没有这个回答。
+    assert_eq!(disable_gate(&state), Err(SkipReason::NotCloudCleared));
+    assert_eq!(SkipReason::NotCloudCleared.as_str(), "not_cloud_cleared");
+    for section in Section::ALL {
+        let mut cleared = state.clone();
+        cleared.sections.get_mut(section).cleared = true;
+        assert_eq!(disable_gate(&cleared), Ok(()), "{section:?}");
+    }
+    // 不联网、不跑一轮：退避、节流和另一轮的租约都不挡，同步选择这时会被挡住。
+    state.sections.phrases.cleared = true;
+    state.not_before_ms = Some(now + 60_000);
+    state.last_attempt_ms = Some(now - 1_000);
+    state.begin_run("u", now, None);
+    assert_eq!(
+        gate(&state, now + 1, Trigger::Choice, true, &Section::ALL),
+        Err(SkipReason::Backoff)
+    );
+    assert_eq!(disable_gate(&state), Ok(()));
+    state.not_before_ms = None;
+    assert_eq!(
+        gate(&state, now + 1, Trigger::Choice, true, &Section::ALL),
+        Err(SkipReason::Busy)
+    );
+    assert_eq!(disable_gate(&state), Ok(()));
+    // 关掉以后不能再关一次，也不再跑。
+    state.disable_keeping_local();
+    assert_eq!(disable_gate(&state), Err(SkipReason::Disabled));
+    assert_eq!(
+        gate(
+            &state,
+            now + LEASE_MS,
+            Trigger::Manual,
+            false,
+            &Section::ALL
+        ),
+        Err(SkipReason::Disabled)
+    );
+}

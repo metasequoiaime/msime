@@ -158,6 +158,35 @@ fn apply_plans_the_native_values_and_commits_the_shared_preferences() {
 }
 
 #[test]
+fn apply_writes_the_account_wubi_profile_when_the_cloud_scheme_is_not_wubi() {
+    // #8201 的决定 10：与 Android、桌面和鸿蒙相同，账号里的五笔版本有就写，云端方案是双拼也一样。
+    let directory = tempfile::tempdir().unwrap();
+    let cloud = json!({
+        "revision": 5,
+        "settings": { "input.schema": "shuangpin", "input.wubi_schema": "wubi98" },
+    });
+    let planned = apply_call(json!({
+        "preferences_directory": directory.path(),
+        "cloud": cloud,
+        "step": "plan",
+        "ios_native": native(),
+    }));
+    assert_eq!(planned["ok"], true, "{planned}");
+    assert_eq!(planned["value"]["ios_native"]["inputScheme"], "shuangpin");
+    let committed = apply_call(json!({
+        "preferences_directory": directory.path(),
+        "cloud": cloud,
+        "step": "commit",
+        "saved_native": planned["value"]["ios_native"],
+    }));
+    assert_eq!(committed["ok"], true, "{committed}");
+    assert_eq!(
+        committed["value"]["preferences"]["preferences"]["wubi_profile"],
+        "wubi98"
+    );
+}
+
+#[test]
 fn apply_rejects_a_missing_native_value_and_an_invalid_cloud_document() {
     let directory = tempfile::tempdir().unwrap();
     let cloud = json!({ "revision": 1, "settings": { "input.schema": "quanpin" } });

@@ -92,6 +92,29 @@ pub enum Choice {
     UseCloud,
 }
 
+/// 宿主带来的用户回答：两个同步选择，加上只在「云端被清空」时提供的「关闭同步，保留本机」（#8201 的决定 8）。
+///
+/// 「关闭同步」不是一种同步模式，从不进状态文件：[`Choice`] 是能记下来留给以后那一轮的选择（`pending_choice`、词库留下的选择），它只有两种，所以记着的旧选择不会在以后哪一轮悄悄把同步关掉。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Answer {
+    Merge,
+    UseCloud,
+    /// 这台设备关闭同步：不上传、不下载，也不删任何一边的数据。
+    Disable,
+}
+
+impl Answer {
+    /// 要跑一轮同步的选择；「关闭同步」为 `None`。
+    pub fn choice(self) -> Option<Choice> {
+        match self {
+            Self::Merge => Some(Choice::Merge),
+            Self::UseCloud => Some(Choice::UseCloud),
+            Self::Disable => None,
+        }
+    }
+}
+
 /// 首次开启：云端没有任何数据就直接上传，否则要等用户选「合并」或「使用云端」，返回 `None` 表示需要问。
 pub fn first_run(cloud_has_data: bool, choice: Option<Choice>) -> Option<Mode> {
     if !cloud_has_data {
@@ -579,6 +602,10 @@ pub fn batches(words: Vec<Word>, size: usize) -> Vec<Vec<Word>> {
 // ---- 失败与状态行 ----
 
 pub const NETWORK_MESSAGE: &str = "网络不可用，稍后自动重试";
+/// 云端被清空、等用户选择时的状态行。
+pub const CLOUD_CLEARED_LINE: &str = "云端数据已被清空，请选择合并、使用云端或关闭同步";
+/// 用户在云端被清空时选了「关闭同步，保留本机」以后的状态行。
+pub const DISABLED_ON_CLOUD_CLEARED_LINE: &str = "云端数据已被清空，已关闭同步，本机数据没有改动";
 const SIGNED_OUT_MESSAGE: &str = "登录已失效，请重新登录后再同步";
 const BUSY_MESSAGE: &str = "云端暂时繁忙，稍后自动重试";
 
@@ -657,9 +684,11 @@ pub fn local_message(reason: &str) -> &'static str {
     }
 }
 
-/// 「我的」页同步行的一行状态，措辞与 iOS 的 `BackendSyncPolicy.statusLine` 和 Android 的 `CloudSync.statusLine` 相同：关闭、最近一次失败的原因、云端被清空等待选择、皮肤库被裁剪、云端常用语本机收不下、尚未同步，或「已同步 · 最近 …」。
+/// 「我的」页同步行的一行状态，措辞与 iOS 的 `BackendSyncPolicy.statusLine` 和 Android 的 `CloudSync.statusLine` 相同：关闭、最近一次失败的原因、云端被清空等待选择、皮肤库被裁剪、云端常用语本机收不下、尚未同步，或「已同步 · 最近 …」。两端没有的两句是 #8201 的决定 8 加的：云端被清空时多了「关闭同步」这个选择，等待选择那一句把它列上；用户选了它以后关闭的那一句说明为什么关着。
 pub struct StatusLine<'a> {
     pub enabled: bool,
+    /// 开关是用户在「云端被清空」时选了「关闭同步，保留本机」关掉的，之后还没有再开关过。
+    pub disabled_on_cloud_cleared: bool,
     pub failure: Option<&'a str>,
     pub cloud_cleared: bool,
     pub skins_trimmed: bool,
@@ -671,13 +700,16 @@ pub struct StatusLine<'a> {
 impl StatusLine<'_> {
     pub fn render(&self) -> String {
         if !self.enabled {
+            if self.disabled_on_cloud_cleared {
+                return DISABLED_ON_CLOUD_CLEARED_LINE.to_owned();
+            }
             return "云同步已关闭".to_owned();
         }
         if let Some(failure) = self.failure.filter(|failure| !failure.is_empty()) {
             return failure.to_owned();
         }
         if self.cloud_cleared {
-            return "云端数据已被清空，请选择合并或使用云端".to_owned();
+            return CLOUD_CLEARED_LINE.to_owned();
         }
         if self.skins_trimmed {
             return "自定义皮肤太多，只同步了最近的设计".to_owned();

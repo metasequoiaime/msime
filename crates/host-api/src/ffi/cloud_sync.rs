@@ -11,7 +11,7 @@ use crate::cloud_sync::{
 use crate::*;
 use msime_client_core::ios_keyboard::IosKeyboardPreferences;
 use msime_client_services::account::cloud_sync::machine::Trigger;
-use msime_client_services::account::cloud_sync::policy::{Choice, Section};
+use msime_client_services::account::cloud_sync::policy::{Answer, Section};
 use msime_client_services::account::cloud_sync::state::SyncStateStore;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -63,8 +63,9 @@ enum Action {
     },
     Run {
         trigger: Trigger,
+        /// `merge`、`use_cloud`，或者只回答「云端被清空」的 `disable`（要和 `trigger:"choice"` 一起给）。
         #[serde(default)]
-        choice: Option<Choice>,
+        choice: Option<Answer>,
         capabilities: Capabilities,
         #[serde(default)]
         host_inputs: HostInputs,
@@ -178,6 +179,8 @@ fn perform(request: CloudSyncRequest) -> Result<Value, String> {
             mut host_inputs,
         } => {
             if trigger == Trigger::Choice && choice.is_none()
+                // 「关闭同步」只是对提示的回答，不能跟着回到前台、打开开关或手动同步一起来。
+                || choice == Some(Answer::Disable) && trigger != Trigger::Choice
                 || capabilities.dictionary
                     && (request.options.is_none() || snapshot_queue.is_none())
                 || capabilities.skins_library && !capabilities.settings
@@ -190,6 +193,11 @@ fn perform(request: CloudSyncRequest) -> Result<Value, String> {
             {
                 return Err(invalid());
             }
+            // 不联网、不读写本机内容，所以不要 `preferences_directory`；其余字段照样校验，宿主用同一份请求带三种回答。
+            if choice == Some(Answer::Disable) {
+                return cloud_sync::disable(&session, &store, now);
+            }
+            let choice = choice.and_then(Answer::choice);
             let settings_locked = host_inputs.settings_locked;
             let excluded = std::mem::take(&mut host_inputs.excluded_phrase_texts);
             let local = local(host_inputs)?;
