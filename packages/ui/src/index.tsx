@@ -13,13 +13,12 @@ import { mobilePageTitle } from "./settings/mobile-tab-helpers";
 import { desktopDownloadUrl, fallbackAppVersion } from "./settings/app-resources";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
-import { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
+import { useSettingsPageRouting } from "./settings/use-settings-page-routing";
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
-  requestedPage,
   type MobilePrimaryPageId,
 } from "./settings/settings-navigation-helpers";
 import {
@@ -2121,35 +2120,21 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     onDeviceDownloadable,
     shuangpinKeymap: macosShuangpinKeymap,
   } = useMacosSettings({ client, macos: macosPlatform, setError });
-  const restoredMobilePage =
-    mobilePlatform &&
-    typeof window !== "undefined" &&
-    window.history.state?.msimeSettings === true &&
-    typeof window.history.state.page === "string"
-      ? window.history.state.page
-      : undefined;
-  const [requestedSettingsPage, setPage] = useState<SettingsPageId>(() =>
-    requestedPage(
-      initialPage ?? restoredMobilePage ?? (hasHomePage ? "home" : undefined),
-      pages,
-      "input",
-    ),
-  );
-  // 桌面上并进别的页的页面（`desktopMergedPages`，例如「帮助与反馈」并进「关于」）照样可以路由打开，显示的是承载它的那一页。
-  const page = mobilePlatform ? requestedSettingsPage : desktopPage(requestedSettingsPage);
-  const [accountLoginReturnPage, setAccountLoginReturnPage] = useState<SettingsPageId | null>(null);
-  // 源应用里每个底部标签页各有一个导航栈，这个共享页面只有一条扁平路由，所以为每个标签页记住它显示着的那一页：从「输入」去「统计」再回到「设置」，要回到「输入」，而不是把第一个标签页重置为首页。
-  const mobileInitialTab = mobileTabForPage(page);
-  const mobileLastPageByTab = useRef<Record<MobilePrimaryPageId, SettingsPageId>>({
-    home: mobileInitialTab === "home" ? page : "home",
-    community: mobileInitialTab === "community" ? page : "community",
-    "typing-statistics": mobileInitialTab === "typing-statistics" ? page : "typing-statistics",
-    account: mobileInitialTab === "account" ? page : "account",
+  const {
+    requestedSettingsPage,
+    setPage,
+    page,
+    accountLoginReturnPage,
+    setAccountLoginReturnPage,
+    mobileLastPageByTab,
+    settingsContentRef,
+    communityDestination,
+    setCommunityDestination,
+  } = useSettingsPageRouting({
+    initialPage,
+    mobilePlatform,
+    hasHomePage,
   });
-  const settingsContentRef = useSettingsContentScrollReset(page);
-  const [communityDestination, setCommunityDestination] = useState<
-    AccountCommunityDestination | "all"
-  >("all");
   const currentAppVersion = useAppVersion({
     readAppVersion: client.readAppVersion,
     fallbackVersion: fallbackAppVersion,
