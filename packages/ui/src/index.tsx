@@ -1194,6 +1194,8 @@ export {
 } from "./settings/doubao-auth-mode-section";
 export {
   DoubaoStreamEndpointSection,
+  DoubaoStreamEndpointSelect,
+  type DoubaoStreamEndpointSelectProps,
   type DoubaoStreamEndpointSectionProps,
 } from "./settings/doubao-stream-endpoint-section";
 export {
@@ -1214,6 +1216,17 @@ export {
   VoiceModelMirrorRow,
   type VoiceModelMirrorSectionProps,
 } from "./settings/voice-model-mirror-section";
+export {
+  voiceCredentialEditorModel,
+  voiceCredentialSavePayload,
+  type VoiceCredentialEditorModel,
+  type VoiceCredentialEditorModelOptions,
+} from "./settings/voice-credential-model";
+export {
+  useVoiceCredentialEditor,
+  type UseVoiceCredentialEditorOptions,
+  type VoiceCredentialEditorState,
+} from "./settings/use-voice-credential-editor";
 export {
   VoiceCredentialSection,
   type VoiceCredentialEntry,

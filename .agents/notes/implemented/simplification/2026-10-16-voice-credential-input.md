@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-将无 React 依赖的 `ProviderCredentialInput` 放入设置模型文件。旧组件路径继续转导出语音别名，组件和 hook 直接引用同一模型，并保留语音领域别名，以类型测试覆盖深路径和包入口兼容性；运行时更新和保存逻辑不变。
+将无 React 依赖的 `ProviderCredentialInput` 放入设置模型文件。语音领域别名归 `voice-credential-model.ts`，旧组件路径继续转导出；组件和 hook 复用同一输入契约，以类型测试覆盖深路径和包入口兼容性。完整编辑状态与保存组装的决定见[语音凭据编辑模型与状态](2026-10-17-voice-credential-editor.md)。
 
 ## Existing notes audit
 
@@ -22,5 +22,5 @@ Status: implemented
 ## Consequences
 
 - 语音凭据组件继续从旧路径转导出 `VoiceCredentialInput`，包入口保持原导出；hook 直接使用模型类型，删除重复结构。
-- 输入字段和凭据保存、清除、异步行为不变；公共文件只放无 React 的输入契约。
+- 输入字段保持原契约；`provider-credential-input.ts` 只放无 React 的输入结构，完整编辑行为由上述编辑模型与状态笔记记录。
 - 类型兼容测试、语音凭据草稿测试、类型检查、构建、lint、笔记检查和 quick 门禁覆盖迁移。

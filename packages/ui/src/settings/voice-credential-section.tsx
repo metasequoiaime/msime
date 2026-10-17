@@ -1,12 +1,4 @@
-import { useState } from "react";
-import type {
-  ProviderCredentialClient,
-  VoiceCredentialKind,
-  VoiceProviderCredential,
-} from "../core/provider-credential-contracts";
-import { doubaoStreamEndpointId, findDoubaoStreamEndpoint } from "../voice/voice-providers";
 import { CredentialActions } from "./credential-actions";
-import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { DoubaoStreamEndpointSelect } from "./doubao-stream-endpoint-section";
 import { EndpointSettingField } from "./endpoint-setting-field";
 import { PasswordSettingField } from "./password-setting-field";
@@ -14,40 +6,26 @@ import { SettingField } from "./setting-field";
 import { SettingSectionTitle } from "./setting-section-title";
 import { SettingsManagerBlock } from "./settings-manager-block";
 
-export type VoiceCredentialSectionKind = VoiceCredentialKind;
+import type { VoiceCredentialMessage } from "./voice-credential-model";
+import {
+  useVoiceCredentialEditor,
+  type UseVoiceCredentialEditorOptions,
+} from "./use-voice-credential-editor";
 
-export type VoiceCredentialEntry = VoiceProviderCredential;
+export type {
+  VoiceCredentialSectionKind,
+  VoiceCredentialEntry,
+  VoiceCredentialStatus,
+  VoiceCredentialInput,
+  VoiceCredentialSaveInput,
+  VoiceCredentialMessage,
+} from "./voice-credential-model";
 
-export interface VoiceCredentialStatus {
-  voiceAsr: readonly VoiceCredentialEntry[];
-  voicePolish: readonly VoiceCredentialEntry[];
-  voiceInvalid: boolean;
-}
-
-import type { ProviderCredentialInput } from "./provider-credential-input";
-
-export type VoiceCredentialInput = ProviderCredentialInput;
-
-export type VoiceCredentialSaveInput = Parameters<ProviderCredentialClient["saveVoice"]>[0];
-
-export type VoiceCredentialMessage = CredentialStatusMessageValue;
-
-export interface VoiceCredentialSectionProps {
-  kind: VoiceCredentialSectionKind;
-  provider: string;
-  model: string;
-  resourceId?: string;
-  authMode?: string;
-  credentials?: VoiceCredentialStatus;
-  input: VoiceCredentialInput;
-  busy: boolean;
+export interface VoiceCredentialSectionProps extends UseVoiceCredentialEditorOptions {
   message?: VoiceCredentialMessage;
-  onChange: (patch: Partial<VoiceCredentialInput>) => void;
-  onSave: (credential: VoiceCredentialSaveInput) => void;
-  onClear: () => void;
 }
 
-/** Owner-only credentials for the Linux voice provider's recognition or polishing service. */
+/** Linux 语音识别或润色服务的用户凭据编辑界面。 */
 export function VoiceCredentialSection({
   kind,
   provider,
@@ -62,40 +40,42 @@ export function VoiceCredentialSection({
   onSave,
   onClear,
 }: VoiceCredentialSectionProps) {
-  const doubao = kind === "asr" && provider === "doubao";
-  const legacy = doubao && authMode === "legacy";
-  const stored = (kind === "asr" ? credentials?.voiceAsr : credentials?.voicePolish)?.find(
-    (entry) => entry.provider === provider,
-  );
-  const endpoint = input.endpoint ?? stored?.endpoint ?? "";
-  const name = kind === "asr" ? "识别" : "润色";
-  const tokenLabel = doubao && !legacy ? "Doubao API Key" : `${name} API Token`;
-  const mismatch =
-    stored &&
-    ((model.trim() && stored.model !== model.trim()) ||
-      (doubao &&
-        ((resourceId?.trim() && stored.resourceId !== resourceId.trim()) ||
-          stored.authMode !== authMode)));
-  const streamEndpoint = endpoint.trim() || findDoubaoStreamEndpoint("async")?.endpoint || "";
-  // 豆包的「流式接口」下拉和地址输入框写的是同一个接口地址，合成一个控件：选「自定义地址」或存的地址不是预设时才露出输入框，规则与 DoubaoStreamEndpointSection 相同。
-  const [customRequested, setCustomRequested] = useState(false);
-  const customEndpoint = customRequested || doubaoStreamEndpointId(streamEndpoint) === "custom";
+  const {
+    doubao,
+    legacy,
+    stored,
+    endpoint,
+    streamEndpoint,
+    customEndpoint,
+    name,
+    tokenLabel,
+    description,
+    saveDisabled,
+    clearDisabled,
+    setCustomEndpoint,
+    selectEndpoint,
+    editEndpoint,
+    editToken,
+    editAppKey,
+    save,
+    clear,
+  } = useVoiceCredentialEditor({
+    kind,
+    provider,
+    model,
+    resourceId,
+    authMode,
+    credentials,
+    input,
+    busy,
+    onChange,
+    onSave,
+    onClear,
+  });
 
   return (
     <SettingsManagerBlock role="group" aria-label={`语音${name}凭据`}>
-      <SettingSectionTitle
-        as="div"
-        title={`${name}凭据`}
-        description={
-          credentials?.voiceInvalid
-            ? "现有 voice-provider.json 无效，语音服务不会启动；请修复或删除该文件"
-            : !stored
-              ? "尚未保存；保存后只写入用户配置目录的 voice-provider.json，由语音服务读取"
-              : mismatch
-                ? "已保存的凭据与上方模型或豆包设置不一致；保存后改为绑定当前设置"
-                : "已保存，留空则保留原凭据"
-        }
-      />
+      <SettingSectionTitle as="div" title={`${name}凭据`} description={description} />
       {doubao && (
         <SettingField
           label="流式接口"
@@ -104,8 +84,8 @@ export function VoiceCredentialSection({
           <DoubaoStreamEndpointSelect
             endpoint={streamEndpoint}
             custom={customEndpoint}
-            onCustomChange={setCustomRequested}
-            onChange={(value) => onChange({ endpoint: value })}
+            onCustomChange={setCustomEndpoint}
+            onChange={selectEndpoint}
           />
         </SettingField>
       )}
@@ -115,11 +95,7 @@ export function VoiceCredentialSection({
           inputLabel={`${name}接口地址`}
           description={doubao ? "留空时语音服务使用双向流式" : "留空使用当前服务的默认地址"}
           value={endpoint}
-          onChange={(endpoint) => {
-            // 打字打出预设地址时也不收起输入框，免得打到一半控件消失。
-            if (doubao) setCustomRequested(true);
-            onChange({ endpoint });
-          }}
+          onChange={editEndpoint}
         />
       )}
       {legacy && (
@@ -128,39 +104,24 @@ export function VoiceCredentialSection({
           inputLabel="Doubao App Key"
           description="旧版控制台鉴权使用"
           value={input.appKey}
-          onChange={(appKey) => onChange({ appKey })}
+          onChange={editAppKey}
         />
       )}
       <PasswordSettingField
         label={tokenLabel}
         inputLabel={tokenLabel}
         value={input.token}
-        onChange={(token) => onChange({ token })}
+        onChange={editToken}
       />
       <CredentialActions
-        saveDisabled={
-          busy ||
-          (!input.token.trim() && !stored) ||
-          (legacy && !input.appKey.trim() && stored?.authMode !== "legacy")
-        }
-        clearDisabled={busy}
+        saveDisabled={saveDisabled}
+        clearDisabled={clearDisabled}
         hasStoredCredential={Boolean(stored)}
         saveAriaLabel={`保存${name}凭据`}
         clearAriaLabel={`清除${name}凭据`}
         message={message}
-        onSave={() =>
-          onSave({
-            kind,
-            provider,
-            endpoint,
-            model,
-            ...(input.token.trim() ? { token: input.token } : {}),
-            ...(legacy && input.appKey.trim() ? { appKey: input.appKey } : {}),
-            resourceId: doubao ? (resourceId ?? "") : "",
-            authMode: doubao ? (authMode ?? "") : "",
-          })
-        }
-        onClear={onClear}
+        onSave={save}
+        onClear={clear}
       />
     </SettingsManagerBlock>
   );

@@ -149,3 +149,26 @@ test("shows stored credential mismatches and provides clearing", () => {
   fireEvent.click(screen.getByRole("button", { name: "清除润色凭据" }));
   expect(onClear).toHaveBeenCalledOnce();
 });
+
+test("切换服务后不保留上一服务手动展开的自定义接口", () => {
+  const props = {
+    kind: "asr" as const,
+    model: "",
+    input: { token: "", appKey: "" },
+    busy: false,
+    onChange: vi.fn(),
+    onSave: vi.fn(),
+    onClear: vi.fn(),
+  };
+  const view = render(<VoiceCredentialSection {...props} provider="doubao" />);
+  fireEvent.change(screen.getByRole("combobox", { name: "流式接口" }), {
+    target: { value: "custom" },
+  });
+  expect(screen.getByLabelText("识别接口地址")).toBeTruthy();
+  view.rerender(<VoiceCredentialSection {...props} provider="openai" />);
+  view.rerender(<VoiceCredentialSection {...props} provider="doubao" />);
+  expect(screen.queryByLabelText("识别接口地址")).toBeNull();
+  expect((screen.getByRole("combobox", { name: "流式接口" }) as HTMLSelectElement).value).toBe(
+    "async",
+  );
+});
