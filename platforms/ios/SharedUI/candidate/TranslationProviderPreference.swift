@@ -183,10 +183,11 @@ struct TranslationProviderClient: Sendable {
         results[index] = await exchange(provider: "custom", request: request, expected: 1)?.first ?? nil
       }
     case let .ai(provider, endpoint, model, token):
+      guard let origin = AIEndpointPolicy.origin(endpoint) else { break }
       for index in eligible {
         let request: [String: Any] = [
           "config": ["enabled": true, "provider": provider, "endpoint": endpoint,
-                     "model": model, "token": token],
+                     "model": model, "tokens": [origin: token]],
           "input": ["text": words[index], "source_language": "zh", "target_language": target],
         ]
         results[index] = await exchangeAI(request: request)
