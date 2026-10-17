@@ -139,9 +139,7 @@ import { useTouchKeyboardSchemeSelection } from "./settings/use-touch-keyboard-s
 import { useSettingsDestinationActions } from "./settings/use-settings-destination-actions";
 import {
   communityGalleryPage,
-  communityTabCategories,
   useCommunityGallerySubview,
-  type CommunityGalleryView,
 } from "./settings/use-community-gallery-subview";
 import { CommunityGallerySubview } from "./settings/community-gallery-subview";
 import { useMacosSettings } from "./settings/use-macos-settings";
@@ -348,6 +346,10 @@ export {
   type CommunityGallerySubviewOptions,
   type CommunityGalleryView,
 } from "./settings/use-community-gallery-subview";
+export {
+  useCommunityGalleryNavigation,
+  type CommunityGalleryNavigationOptions,
+} from "./settings/use-community-gallery-navigation";
 export { useMacosSettings, type UseMacosSettingsOptions } from "./settings/use-macos-settings";
 export {
   MacosInputModeEntriesSection,
@@ -473,6 +475,7 @@ import { AppearanceSettingsPage } from "./settings/pages/appearance-page";
 import { SkinSettingsPage } from "./settings/pages/skin-page";
 import { skinGridTabs } from "./settings/skin-grid";
 import { useSettingsTabs } from "./settings/use-settings-tabs";
+import { useCommunityGalleryNavigation } from "./settings/use-community-gallery-navigation";
 import { FloatingToolbarSettingsPage } from "./settings/pages/floating-toolbar-page";
 import { ScreenKeyboardSettingsPage } from "./settings/pages/screen-keyboard-page";
 import { ShortcutSettingsPage } from "./settings/pages/shortcuts-page";
@@ -2567,34 +2570,14 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     selectPage,
     hasSkins: Boolean(client.communitySkins),
   });
-  // 触屏「社区」标签根页顶部的「皮肤 / 词库」分类，只给宿主有社区服务的那几类；只有一类时不画分类标签。选择放在页面模型里而不是社区页里：功能页上的「浏览更多」要从外面切到对应分类，离开「社区」标签再回来也还是上次的分类。
-  const communityTabChoices = communityTabCategories.filter((tab) =>
-    tab.id === "skin" ? Boolean(client.communitySkins) : Boolean(client.communityResources),
-  );
-  const communityTabs = useSettingsTabs(
-    communityTabChoices.length > 0 ? communityTabChoices : communityTabCategories,
-    "社区分类",
-    mobilePlatform && communityTabChoices.length > 1,
-  );
-  const communityTabShown =
-    mobilePlatform && availablePages.some((item) => item.id === "community");
-  // 浏览整类皮肤或词库的入口（皮肤页的「在线皮肤」、词库页的「浏览更多词库」等）切到「社区」标签的对应分类，不再在功能页上盖一层图库；「我的」里的作品与收藏、回复模板仍在功能页上打开完整图库。
-  const openCommunityGallery = (view: CommunityGalleryView) => {
-    const category =
-      view.category === "skin" && !client.communitySkins ? "dictionary" : view.category;
-    if (
-      communityTabShown &&
-      category !== "reply" &&
-      view.scope === "" &&
-      !view.initialMine &&
-      communityTabChoices.some((tab) => tab.id === category)
-    ) {
-      communityTabs.select(category);
-      selectPage("community");
-      return;
-    }
-    openCommunityGallerySubview(view);
-  };
+  const { communityTabs, openCommunityGallery } = useCommunityGalleryNavigation({
+    mobile: mobilePlatform,
+    hasCommunityPage: availablePages.some((item) => item.id === "community"),
+    hasSkins: Boolean(client.communitySkins),
+    hasResources: Boolean(client.communityResources),
+    selectPage,
+    openSubview: openCommunityGallerySubview,
+  });
   const { openCommunity, openLocalDesigns } = useSettingsDestinationActions({
     selectPage,
     setShowTouchSkinEditor,
