@@ -40,3 +40,5 @@ Status: implemented
 - 标签：`python3 scripts/test-settings-label-parity.py`，四处界面对七套方案的写法一致。
 
 相关：[网页引擎的手到、微软双拼和辅助码](2026-10-08-web-engine-shuangpin-helpcode.md)（网页包怎么带辅助码表；本篇在那份清单上加了第七张）。
+
+Linux 无词库安装包与下载目录的补表链路见[Linux 下载词库辅助码](../bug-fix/2026-10-18-linux-packaged-helpcodes.md)。

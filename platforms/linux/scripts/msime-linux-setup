@@ -114,6 +114,33 @@ def digest(path: Path) -> str:
 # The Engine's helpcode tables live in this subdirectory of the resource directory; the host's verification lets it through (crates/client-core/src/resources.rs).
 HELPCODE_DIRECTORY = "helpcodes"
 
+HELPCODE_FILES = (
+    "helpcode.txt", "zrm_helpcode_big_unique.txt", "shouyou2_0_helpcode.txt",
+    "shouyouplus_helpcode.txt", "xiaohe_helpcode.txt", "jiajia_helpcode.txt",
+    "wubi86_helpcode.txt",
+)
+
+
+def install_helpcodes(prefix: Path, resources: Path) -> None:
+    """补齐随包内置表，保留用户自定义表；不沿目标目录链接写入。"""
+    source = prefix / "share/msime-client/resources" / HELPCODE_DIRECTORY
+    target = resources / HELPCODE_DIRECTORY
+    if source == target:
+        return
+    if resources.is_symlink() or target.is_symlink():
+        raise OSError("辅助码目标目录不能是符号链接")
+    for name in HELPCODE_FILES:
+        table = source / name
+        if table.is_symlink() or not table.is_file():
+            raise OSError(f"安装包缺少辅助码表 {table}，请重新安装")
+    target.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".helpcodes-", dir=target) as staging_name:
+        staging = Path(staging_name)
+        for name in HELPCODE_FILES:
+            shutil.copyfile(source / name, staging / name)
+        for name in HELPCODE_FILES:
+            (staging / name).replace(target / name)
+
 
 def unexpected_entries(directory: Path, lock: dict) -> list[str]:
     """目录里锁之外的条目。宿主要求词库目录恰好是锁里那几项，多一个文件就拒绝整份词库；下载补不掉它们，得由用户移走。"""
@@ -470,6 +497,7 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
     print(f"词库已校验：{target}")
     try:
         with hosts_held_off(user_data):
+            install_helpcodes(prefix, target)
             result, refreshed = run_refresh(prefix, options_file, document, target)
             if refreshed and running("ibus-daemon"):
                 time.sleep(IBUS_OPTIONS_RELOAD)
@@ -1421,6 +1449,10 @@ def main() -> int:
             return 1
 
     print(f"词库已校验：{resources}")
+    try:
+        install_helpcodes(prefix, resources)
+    except OSError as error:
+        raise SystemExit(f"准备辅助码失败：{error}") from error
     prepare_state(prefix, resources, state, arguments.cloud_candidates)
     ensure_anonymous_account(prefix)
     enable_services(service_units(state, config_home() / "msime-client"))
