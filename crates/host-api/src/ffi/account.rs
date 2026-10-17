@@ -1181,6 +1181,7 @@ mod tests {
         for operation in [
             json!({ "operation": "chat_models" }),
             json!({ "operation": "chat", "messages": [{ "role": "user", "content": "你好" }], "model": "synthetic-model" }),
+            json!({ "operation": "account_delete" }),
             json!({ "operation": "phrases_load" }),
             json!({ "operation": "sessions_list" }),
             json!({ "operation": "session_revoke", "id": "0".repeat(64) }),

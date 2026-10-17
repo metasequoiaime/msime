@@ -3,7 +3,8 @@
 //! 取消和进度展示归宿主负责。本模块负责后端契约、响应校验、账号刷新以及插画任务的清理，这样任何 UI 或平台类型都不会进入 client-services。
 
 use crate::account::{
-    AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
+    AccountApi, AccountError, AccountFailure, AccountSessionStorage, BackendAccountClient,
+    BackendAccountSession,
 };
 use crate::preferences::{TouchKeyboardSkinDesign, TouchSkinKeyMaterial, TouchSkinKeyShape};
 use crate::theme::{luminance, readable_text};
@@ -25,6 +26,8 @@ const MAX_CHAT_RESPONSE_BYTES: usize = 16 * 1024;
 const MAX_ARTWORK_RESPONSE_BYTES: usize = 12 * 1024 * 1024;
 const MAX_ARTWORK_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ARTWORK_SECONDS: u64 = 200;
+/// 请求体的上限，与其他账号请求的 1 MiB 相同；对话的请求体另外按服务端的 64 KiB 整包上限先查。
+const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 
 /// 一张插画。拒绝未知字段，因为 `msime_client_ai_skin_plan` 的 `artwork` 用它解析宿主交来的插画；服务端任务响应里的插画先按不拒绝未知字段的 `RawArtwork` 解析再换成它。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -54,6 +57,47 @@ pub enum AiSkinError {
     InvalidResponse,
     #[error(transparent)]
     Account(#[from] AccountError),
+}
+
+/// 与 [`AiSkinError`] 相同，只是账号一侧的失败是带 HTTP 状态码、服务端错误码、`Retry-After` 和有没有拿到响应的 [`AccountFailure`]：C 接口（`msime_client_ai_skin_generate`、`msime_client_ai_skin_job`）据此报 `retry_after_seconds`，并把 503 和断网分开。Tauri 的 `ai_skin_generate` 经 [`BackendAiSkinService::generate`] 拿到的仍是 [`AiSkinError`]，码不变。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AiSkinFailure {
+    Cancelled,
+    InvalidResponse,
+    Account(AccountFailure),
+}
+
+impl From<AccountFailure> for AiSkinFailure {
+    fn from(failure: AccountFailure) -> Self {
+        Self::Account(failure)
+    }
+}
+
+impl From<AccountError> for AiSkinFailure {
+    fn from(error: AccountError) -> Self {
+        Self::Account(error.into())
+    }
+}
+
+impl From<AiSkinError> for AiSkinFailure {
+    fn from(error: AiSkinError) -> Self {
+        match error {
+            AiSkinError::Cancelled => Self::Cancelled,
+            AiSkinError::InvalidResponse => Self::InvalidResponse,
+            AiSkinError::Account(error) => error.into(),
+        }
+    }
+}
+
+/// 只留 [`AccountFailure::error`]，与这些路径改成 [`AccountFailure`] 之前给出的 [`AiSkinError`] 相同。
+impl From<AiSkinFailure> for AiSkinError {
+    fn from(failure: AiSkinFailure) -> Self {
+        match failure {
+            AiSkinFailure::Cancelled => Self::Cancelled,
+            AiSkinFailure::InvalidResponse => Self::InvalidResponse,
+            AiSkinFailure::Account(failure) => Self::Account(failure.error),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -120,26 +164,28 @@ impl AiSkinRequests {
     }
 }
 
+/// AI 皮肤用到的四条路由。失败都是 [`AccountFailure`]，保留状态码、`Retry-After` 和有没有拿到响应；[`BackendAiSkinService::generate`] 交给 Tauri 时只留其中的 [`AccountError`]。
 pub trait AiSkinApi: Send + Sync + 'static {
-    fn ai_models(&self, token: &str) -> Result<AiModelCatalog, AccountError>;
+    fn ai_models(&self, token: &str) -> Result<AiModelCatalog, AccountFailure>;
     fn ai_chat(
         &self,
         messages: &[AiChatMessage<'_>],
         model: &str,
         token: &str,
-    ) -> Result<String, AccountError>;
-    fn create_skin_artwork(&self, prompt: &str, token: &str) -> Result<AiSkinJob, AccountError>;
-    fn get_skin_artwork(&self, id: &str, token: &str) -> Result<AiSkinJob, AccountError>;
-    fn delete_skin_artwork(&self, id: &str, token: &str) -> Result<(), AccountError>;
+    ) -> Result<String, AccountFailure>;
+    fn create_skin_artwork(&self, prompt: &str, token: &str) -> Result<AiSkinJob, AccountFailure>;
+    fn get_skin_artwork(&self, id: &str, token: &str) -> Result<AiSkinJob, AccountFailure>;
+    fn delete_skin_artwork(&self, id: &str, token: &str) -> Result<(), AccountFailure>;
 }
 
 impl AiSkinApi for BackendAccountClient {
-    fn ai_models(&self, token: &str) -> Result<AiModelCatalog, AccountError> {
-        let catalog = self.json_with_limit_timeout::<AiModelCatalog, ()>(
+    fn ai_models(&self, token: &str) -> Result<AiModelCatalog, AccountFailure> {
+        let catalog = self.json_detailed::<AiModelCatalog, ()>(
             Method::GET,
             "/v1/models",
             Some(token),
             None,
+            MAX_REQUEST_BYTES,
             128 * 1024,
             Duration::from_secs(30),
         )?;
@@ -149,7 +195,7 @@ impl AiSkinApi for BackendAccountClient {
             33,
             200,
         ) {
-            return Err(AccountError::Unavailable);
+            return Err(AccountError::Unavailable.into());
         }
         Ok(catalog)
     }
@@ -159,7 +205,7 @@ impl AiSkinApi for BackendAccountClient {
         messages: &[AiChatMessage<'_>],
         model: &str,
         token: &str,
-    ) -> Result<String, AccountError> {
+    ) -> Result<String, AccountFailure> {
         #[derive(Serialize)]
         struct Body<'a> {
             messages: &'a [AiChatMessage<'a>],
@@ -189,7 +235,7 @@ impl AiSkinApi for BackendAccountClient {
                     || !crate::text::is_bounded_text(message.content, 16 * 1024)
             })
         {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
         }
         let body = Body {
             messages,
@@ -199,13 +245,14 @@ impl AiSkinApi for BackendAccountClient {
         };
         let encoded = serde_json::to_vec(&body).map_err(|_| AccountError::Invalid)?;
         if encoded.len() > 64 * 1024 {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
         }
-        let result: Response = self.json_with_limit_timeout(
+        let result: Response = self.json_detailed(
             Method::POST,
             "/v1/chat/completions",
             Some(token),
             Some(&body),
+            MAX_REQUEST_BYTES,
             MAX_CHAT_RESPONSE_BYTES,
             Duration::from_secs(125),
         )?;
@@ -222,53 +269,57 @@ impl AiSkinApi for BackendAccountClient {
         Ok(message.content.clone())
     }
 
-    fn create_skin_artwork(&self, prompt: &str, token: &str) -> Result<AiSkinJob, AccountError> {
+    fn create_skin_artwork(&self, prompt: &str, token: &str) -> Result<AiSkinJob, AccountFailure> {
         #[derive(Serialize)]
         struct Body<'a> {
             prompt: &'a str,
         }
-        let job: RawSkinJob = self.json_with_limit_timeout(
+        let job: RawSkinJob = self.json_detailed(
             Method::POST,
             "/v1/skins/jobs",
             Some(token),
             Some(&Body { prompt }),
+            MAX_REQUEST_BYTES,
             128 * 1024,
             Duration::from_secs(30),
         )?;
-        validate_job(job)
+        Ok(validate_job(job)?)
     }
 
-    fn get_skin_artwork(&self, id: &str, token: &str) -> Result<AiSkinJob, AccountError> {
+    fn get_skin_artwork(&self, id: &str, token: &str) -> Result<AiSkinJob, AccountFailure> {
         if !crate::text::is_lower_hex(id, 48) {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
         }
         let path = format!("/v1/skins/jobs/{id}");
-        let job = validate_job(self.json_with_limit_timeout(
+        let job = validate_job(self.json_detailed(
             Method::GET,
             &path,
             Some(token),
             None::<&()>,
+            MAX_REQUEST_BYTES,
             MAX_ARTWORK_RESPONSE_BYTES,
             Duration::from_secs(30),
         )?)?;
         if job.id != id {
-            return Err(AccountError::Unavailable);
+            return Err(AccountError::Unavailable.into());
         }
         Ok(job)
     }
 
-    fn delete_skin_artwork(&self, id: &str, token: &str) -> Result<(), AccountError> {
+    fn delete_skin_artwork(&self, id: &str, token: &str) -> Result<(), AccountFailure> {
         if !crate::text::is_lower_hex(id, 48) {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
         }
         let path = format!("/v1/skins/jobs/{id}");
-        self.request_with_limit_timeout(
+        self.request_detailed(
             Method::DELETE,
             &path,
             Some(token),
             None,
+            MAX_REQUEST_BYTES,
             16 * 1024,
             Duration::from_secs(5),
+            "application/json",
         )
         .map(|_| ())
     }
@@ -381,14 +432,26 @@ where
     A: AccountApi + AiSkinApi,
     S: AccountSessionStorage,
 {
+    /// 完整的生成，给 Tauri 的 `ai_skin_generate`：与 [`Self::generate_detailed`] 相同，账号一侧的失败只留 [`AccountError`]。
     pub fn generate(
         &self,
         prompt: &str,
         cancelled: &AtomicBool,
-        mut progress: impl FnMut(usize),
+        progress: impl FnMut(usize),
     ) -> Result<Vec<AiSkinProposal>, AiSkinError> {
+        self.generate_detailed(prompt, cancelled, progress)
+            .map_err(Into::into)
+    }
+
+    /// 完整的生成：模型目录、对话出三套设计、三张插画，失败时账号一侧是 [`AccountFailure`]。
+    pub fn generate_detailed(
+        &self,
+        prompt: &str,
+        cancelled: &AtomicBool,
+        mut progress: impl FnMut(usize),
+    ) -> Result<Vec<AiSkinProposal>, AiSkinFailure> {
         if prompt.is_empty() || !crate::text::is_bounded_chars(prompt, MAX_PROMPT_CHARACTERS) {
-            return Err(AiSkinError::InvalidResponse);
+            return Err(AiSkinFailure::InvalidResponse);
         }
         check_cancelled(cancelled)?;
         let (user_id, token, generation) = self
@@ -455,7 +518,7 @@ where
                     Err(_) => {
                         cancelled.store(true, Ordering::Release);
                         if first_error.is_none() {
-                            first_error = Some(AiSkinError::Account(AccountError::Unavailable));
+                            first_error = Some(AccountError::Unavailable.into());
                         }
                     }
                 }
@@ -469,24 +532,24 @@ where
         Ok(ordered)
     }
 
-    /// 新建一个插画任务（`POST /v1/skins/jobs`），立即返回 `running` 的任务；只用登录账号。提示词去掉首尾空白后 1–1200 个码点、不含 NUL，否则是 [`AiSkinError::InvalidResponse`]（`ai_skin_invalid`）。
-    pub fn create_artwork_job(&self, prompt: &str) -> Result<AiSkinJob, AiSkinError> {
+    /// 新建一个插画任务（`POST /v1/skins/jobs`），立即返回 `running` 的任务；只用登录账号。提示词去掉首尾空白后 1–1200 个码点、不含 NUL，否则是 [`AiSkinFailure::InvalidResponse`]（`ai_skin_invalid`）。
+    pub fn create_artwork_job(&self, prompt: &str) -> Result<AiSkinJob, AiSkinFailure> {
         let prompt = job_prompt(prompt)?;
         self.job_request(|api, token| api.create_skin_artwork(prompt, token))
     }
 
     /// 读一个插画任务（`GET /v1/skins/jobs/{id}`）。`id` 是 48 位小写十六进制。
-    pub fn artwork_job(&self, id: &str) -> Result<AiSkinJob, AiSkinError> {
+    pub fn artwork_job(&self, id: &str) -> Result<AiSkinJob, AiSkinFailure> {
         if !crate::text::is_lower_hex(id, 48) {
-            return Err(AiSkinError::InvalidResponse);
+            return Err(AiSkinFailure::InvalidResponse);
         }
         self.job_request(|api, token| api.get_skin_artwork(id, token))
     }
 
     /// 删除一个插画任务（`DELETE /v1/skins/jobs/{id}`），进行中的任务同时取消。
-    pub fn delete_artwork_job(&self, id: &str) -> Result<(), AiSkinError> {
+    pub fn delete_artwork_job(&self, id: &str) -> Result<(), AiSkinFailure> {
         if !crate::text::is_lower_hex(id, 48) {
-            return Err(AiSkinError::InvalidResponse);
+            return Err(AiSkinFailure::InvalidResponse);
         }
         self.job_request(|api, token| api.delete_skin_artwork(id, token))
     }
@@ -494,8 +557,8 @@ where
     /// 用登录账号的令牌做一次任务请求：401 时刷新一次、在同一个账号里重试，结束时核对账号和会话代次没有变。
     fn job_request<T>(
         &self,
-        operation: impl Fn(&A, &str) -> Result<T, AccountError>,
-    ) -> Result<T, AiSkinError> {
+        operation: impl Fn(&A, &str) -> Result<T, AccountFailure>,
+    ) -> Result<T, AiSkinFailure> {
         let (user_id, token, generation) = self
             .session
             .credentials_with_generation(None, None)
@@ -508,17 +571,11 @@ where
         user_id: &str,
         generation: u64,
         token: String,
-        operation: impl Fn(&A, &str) -> Result<T, AccountError>,
-    ) -> Result<T, AiSkinError> {
+        operation: impl Fn(&A, &str) -> Result<T, AccountFailure>,
+    ) -> Result<T, AiSkinFailure> {
         let result = match operation(&self.api, &token) {
-            Err(AccountError::Unauthorized) => {
-                let (_, replacement, replacement_generation) = self
-                    .session
-                    .credentials_with_generation(Some(&token), Some(user_id))
-                    .map_err(Self::account_error)?;
-                if replacement_generation != generation {
-                    return Err(AiSkinError::Cancelled);
-                }
+            Err(failure) if failure.is_unauthorized() => {
+                let replacement = self.replacement_token(user_id, generation, &token)?;
                 operation(&self.api, &replacement)
             }
             result => result,
@@ -527,17 +584,34 @@ where
         Ok(result)
     }
 
-    fn ensure_identity(&self, user_id: &str, generation: u64) -> Result<(), AiSkinError> {
+    /// 服务端以 401 拒绝了 `rejected` 以后，同一个账号、同一次登录刷新出来的令牌；换了登录是 [`AiSkinFailure::Cancelled`]。
+    fn replacement_token(
+        &self,
+        user_id: &str,
+        generation: u64,
+        rejected: &str,
+    ) -> Result<String, AiSkinFailure> {
+        let (_, replacement, replacement_generation) = self
+            .session
+            .credentials_with_generation(Some(rejected), Some(user_id))
+            .map_err(Self::account_error)?;
+        if replacement_generation != generation {
+            return Err(AiSkinFailure::Cancelled);
+        }
+        Ok(replacement)
+    }
+
+    fn ensure_identity(&self, user_id: &str, generation: u64) -> Result<(), AiSkinFailure> {
         self.session
             .with_generation(generation, Some(user_id), || Ok(()))
             .map_err(Self::account_error)
     }
 
-    fn account_error(error: AccountError) -> AiSkinError {
+    fn account_error(error: AccountError) -> AiSkinFailure {
         if error == AccountError::Cancelled {
-            AiSkinError::Cancelled
+            AiSkinFailure::Cancelled
         } else {
-            AiSkinError::Account(error)
+            error.into()
         }
     }
 
@@ -545,13 +619,13 @@ where
         &self,
         user_id: &str,
         generation: u64,
-    ) -> Result<String, AiSkinError> {
+    ) -> Result<String, AiSkinFailure> {
         let (_, token, current_generation) = self
             .session
             .credentials_with_generation(None, Some(user_id))
             .map_err(Self::account_error)?;
         if current_generation != generation {
-            return Err(AiSkinError::Cancelled);
+            return Err(AiSkinFailure::Cancelled);
         }
         Ok(token)
     }
@@ -562,18 +636,12 @@ where
         generation: u64,
         plan: &AiSkinPlan,
         cancelled: &AtomicBool,
-    ) -> Result<AiSkinProposal, AiSkinError> {
+    ) -> Result<AiSkinProposal, AiSkinFailure> {
         check_cancelled(cancelled)?;
         let token = self.credentials_for_generation(user_id, generation)?;
         let job = match self.api.create_skin_artwork(&plan.artwork_prompt, &token) {
-            Err(AccountError::Unauthorized) => {
-                let (_, replacement, replacement_generation) = self
-                    .session
-                    .credentials_with_generation(Some(&token), Some(user_id))
-                    .map_err(Self::account_error)?;
-                if replacement_generation != generation {
-                    return Err(AiSkinError::Cancelled);
-                }
+            Err(failure) if failure.is_unauthorized() => {
+                let replacement = self.replacement_token(user_id, generation, &token)?;
                 self.api
                     .create_skin_artwork(&plan.artwork_prompt, &replacement)?
             }
@@ -600,23 +668,17 @@ where
         generation: u64,
         id: &str,
         cancelled: &AtomicBool,
-    ) -> Result<AiSkinArtwork, AiSkinError> {
+    ) -> Result<AiSkinArtwork, AiSkinFailure> {
         let deadline = Instant::now() + Duration::from_secs(MAX_ARTWORK_SECONDS);
         loop {
             check_cancelled(cancelled)?;
             if Instant::now() >= deadline {
-                return Err(AiSkinError::Account(AccountError::Unavailable));
+                return Err(AccountError::Unavailable.into());
             }
             let token = self.credentials_for_generation(user_id, generation)?;
             let job = match self.api.get_skin_artwork(id, &token) {
-                Err(AccountError::Unauthorized) => {
-                    let (_, replacement, replacement_generation) = self
-                        .session
-                        .credentials_with_generation(Some(&token), Some(user_id))
-                        .map_err(Self::account_error)?;
-                    if replacement_generation != generation {
-                        return Err(AiSkinError::Cancelled);
-                    }
+                Err(failure) if failure.is_unauthorized() => {
+                    let replacement = self.replacement_token(user_id, generation, &token)?;
                     self.api.get_skin_artwork(id, &replacement)?
                 }
                 result => result?,
@@ -630,11 +692,11 @@ where
                     }
                 }
                 "succeeded" => {
-                    let artwork = job.artwork.ok_or(AiSkinError::InvalidResponse)?;
+                    let artwork = job.artwork.ok_or(AiSkinFailure::InvalidResponse)?;
                     validate_artwork(&artwork)?;
                     return Ok(artwork);
                 }
-                _ => return Err(AiSkinError::Account(AccountError::Unavailable)),
+                _ => return Err(AccountError::Unavailable.into()),
             }
         }
     }
@@ -960,9 +1022,9 @@ mod tests {
     }
 
     impl AiSkinApi for FakeApi {
-        fn ai_models(&self, _: &str) -> Result<AiModelCatalog, AccountError> {
+        fn ai_models(&self, _: &str) -> Result<AiModelCatalog, AccountFailure> {
             if !self.working {
-                return Err(AccountError::Unavailable);
+                return Err(AccountError::Unavailable.into());
             }
             Ok(AiModelCatalog {
                 data: vec![AiModel {
@@ -976,15 +1038,15 @@ mod tests {
             _: &[AiChatMessage<'_>],
             _: &str,
             _: &str,
-        ) -> Result<String, AccountError> {
+        ) -> Result<String, AccountFailure> {
             if !self.working {
-                return Err(AccountError::Unavailable);
+                return Err(AccountError::Unavailable.into());
             }
             Ok(response())
         }
-        fn create_skin_artwork(&self, prompt: &str, _: &str) -> Result<AiSkinJob, AccountError> {
+        fn create_skin_artwork(&self, prompt: &str, _: &str) -> Result<AiSkinJob, AccountFailure> {
             if !self.working {
-                return Err(AccountError::Unavailable);
+                return Err(AccountError::Unavailable.into());
             }
             // 三套设计的插画提示词只差一个数字，按字节和区分出三个任务 id。
             let seed = prompt
@@ -993,15 +1055,15 @@ mod tests {
             let id = format!("{seed:02x}").repeat(24);
             Ok(job(&id, "running", None))
         }
-        fn get_skin_artwork(&self, id: &str, _: &str) -> Result<AiSkinJob, AccountError> {
+        fn get_skin_artwork(&self, id: &str, _: &str) -> Result<AiSkinJob, AccountFailure> {
             if !self.working {
-                return Err(AccountError::Unavailable);
+                return Err(AccountError::Unavailable.into());
             }
             Ok(job(id, "succeeded", Some(artwork())))
         }
-        fn delete_skin_artwork(&self, _: &str, _: &str) -> Result<(), AccountError> {
+        fn delete_skin_artwork(&self, _: &str, _: &str) -> Result<(), AccountFailure> {
             if !self.working {
-                return Err(AccountError::Unavailable);
+                return Err(AccountError::Unavailable.into());
             }
             Ok(())
         }
@@ -1127,9 +1189,9 @@ mod tests {
             session.forget().unwrap();
             // The replacement session has the same user id, which the old check accepted.
             session.sign_in("synthetic-challenge", "123456").unwrap();
-            Ok::<_, AccountError>("stale result")
+            Ok::<_, AccountFailure>("stale result")
         });
-        assert_eq!(result, Err(AiSkinError::Cancelled));
+        assert_eq!(result, Err(AiSkinFailure::Cancelled));
     }
 
     #[test]
@@ -1160,28 +1222,28 @@ mod tests {
         let service = BackendAiSkinService::new(FakeApi::default(), session);
         assert_eq!(
             service.create_artwork_job("   ").unwrap_err(),
-            AiSkinError::InvalidResponse
+            AiSkinFailure::InvalidResponse
         );
         assert_eq!(
             service.create_artwork_job(&"字".repeat(1201)).unwrap_err(),
-            AiSkinError::InvalidResponse
+            AiSkinFailure::InvalidResponse
         );
         assert_eq!(
             service.create_artwork_job("nul\0").unwrap_err(),
-            AiSkinError::InvalidResponse
+            AiSkinFailure::InvalidResponse
         );
         assert_eq!(
             service.artwork_job("not-a-job").unwrap_err(),
-            AiSkinError::InvalidResponse
+            AiSkinFailure::InvalidResponse
         );
         assert_eq!(
             service.delete_artwork_job(&"A".repeat(48)).unwrap_err(),
-            AiSkinError::InvalidResponse
+            AiSkinFailure::InvalidResponse
         );
         // 合法的请求到了 API 这一层，FakeApi 不工作时是账号错误。
         assert_eq!(
             service.artwork_job(&"a".repeat(48)).unwrap_err(),
-            AiSkinError::Account(AccountError::Unavailable)
+            AiSkinFailure::Account(AccountError::Unavailable.into())
         );
     }
 
@@ -1194,7 +1256,7 @@ mod tests {
         let service = BackendAiSkinService::new(FakeApi::default(), session);
         assert_eq!(
             service.create_artwork_job("合成提示词").unwrap_err(),
-            AiSkinError::Account(AccountError::Unauthorized)
+            AiSkinFailure::Account(AccountError::Unauthorized.into())
         );
     }
 

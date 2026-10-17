@@ -769,6 +769,14 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.forget_with_cleanup_at_generation(generation, Some(&user_id), cleanup)
     }
 
+    /// 与 [`Self::delete_account`] 相同，失败时是 [`AccountFailure`]：会话不是 10 分钟内登录的是 `account_recent_login_required`，本地会话留着，宿主让用户重新登录后再注销。注销成功后清掉本地会话。
+    pub fn delete_account_detailed(&self) -> Result<(), AccountFailure> {
+        let (user_id, _, generation) =
+            self.authenticated_with_user_at(None, |api, token| api.delete_account_detailed(token))?;
+        self.forget_with_cleanup_at_generation(generation, Some(&user_id), |_| {})
+            .map_err(Into::into)
+    }
+
     pub fn chat_models(&self) -> Result<AccountChatModels, AccountError> {
         self.authenticated(|api, token| api.chat_models(token))
     }
@@ -844,7 +852,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         Ok((user_id, result, generation))
     }
 
-    /// 与 [`Self::chat`] 相同，失败时是 [`AccountFailure`]：序列化后的请求体超过服务端的 64 KiB 整包上限时在本地报 `account_too_large`，不发出去。
+    /// 与 [`Self::chat`] 相同，失败时是 [`AccountFailure`]：序列化后的请求体超过服务端的 64 KiB 整包上限时在本地报 `account_too_large`，不发出去；限流带 `retry_after_seconds`，503 是 `account_unavailable`，没拿到响应是 `account_network`。
     pub fn chat_checked(
         &self,
         messages: &[AccountChatMessage],
@@ -854,7 +862,12 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         if super::client::chat_request_body(messages, model)?.len() > MAX_CHAT_REQUEST_BYTES {
             return Err(AccountFailure::too_large());
         }
-        self.chat(messages, model).map_err(Into::into)
+        self.authenticated_detailed(|api, token| api.chat_detailed(messages, model, token))
+    }
+
+    /// 与 [`Self::chat_models`] 相同，失败时是 [`AccountFailure`]。
+    pub fn chat_models_detailed(&self) -> Result<AccountChatModels, AccountFailure> {
+        self.authenticated_detailed(|api, token| api.chat_models_detailed(token))
     }
 
     /// 云端的常用语列表。只用这个会话的账号。

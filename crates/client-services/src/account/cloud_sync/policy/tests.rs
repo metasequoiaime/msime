@@ -439,11 +439,17 @@ fn failure_messages_match_android_and_ios() {
         status: Some(status),
         server_code: code.map(str::to_owned),
         retry_after_seconds: None,
+        network_failure: false,
     };
     let message = |failure: AccountFailure| failure_message(&failure);
     assert_eq!(message(AccountError::Cancelled.into()), None);
     assert_eq!(
         message(AccountError::Unavailable.into()).as_deref(),
+        Some(NETWORK_MESSAGE)
+    );
+    // 新增的断网标记不改同步的措辞：没拿到响应本来就按网络不可用说。
+    assert_eq!(
+        message(AccountFailure::network()).as_deref(),
         Some(NETWORK_MESSAGE)
     );
     assert_eq!(

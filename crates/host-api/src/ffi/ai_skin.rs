@@ -4,12 +4,12 @@
 //!
 //! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。
 
-use super::account::session_for;
+use super::account::{account_failure_response, session_for, Failure};
 use super::session_store::{session_source, SessionStorage, Source};
 use super::with_bounded_bytes;
 use crate::*;
 use msime_client_services::account::{AccountError, BackendAccountClient};
-use msime_client_services::skin::ai::{AiSkinError, AiSkinRequests, BackendAiSkinService};
+use msime_client_services::skin::ai::{AiSkinFailure, AiSkinRequests, BackendAiSkinService};
 use std::ffi::c_void;
 
 pub(super) type AiSkinService = BackendAiSkinService<BackendAccountClient, SessionStorage>;
@@ -72,13 +72,13 @@ fn service(
     }
 }
 
-fn ai_skin_code(error: AiSkinError) -> String {
-    match error {
-        AiSkinError::Cancelled => "ai_skin_cancelled",
-        AiSkinError::InvalidResponse => INVALID,
-        AiSkinError::Account(error) => error.code(),
+/// 生成和任务请求的失败：AI 皮肤自己的码，或者带 `retry_after_seconds` 的账号错误码（[`AccountFailure::code`](msime_client_services::account::AccountFailure::code)）。
+fn ai_skin_failure(failure: AiSkinFailure) -> Failure {
+    match failure {
+        AiSkinFailure::Cancelled => Failure::from("ai_skin_cancelled".to_owned()),
+        AiSkinFailure::InvalidResponse => Failure::from(INVALID.to_owned()),
+        AiSkinFailure::Account(failure) => failure.into(),
     }
-    .to_owned()
 }
 
 fn valid_request_id(id: &str) -> bool {
@@ -117,7 +117,7 @@ pub unsafe extern "C" fn msime_client_ai_skin_generate(
     progress: Option<AiSkinProgressCallback>,
     context: *mut c_void,
 ) -> *mut c_char {
-    response(|| {
+    account_failure_response(|| {
         // SAFETY: 由调用方契约保证；长度先经过上限检查。
         let request: GenerateRequest = unsafe {
             with_bounded_bytes(request, length, MAX_REQUEST_BYTES, INVALID, |bytes| {
@@ -125,25 +125,28 @@ pub unsafe extern "C" fn msime_client_ai_skin_generate(
             })
         }?;
         if !valid_request_id(&request.request_id) {
-            return Err(INVALID.into());
+            return Err(INVALID.to_owned().into());
         }
         let service = service(
             request.directory.as_deref(),
             request.legacy_directory.as_deref(),
             request.session_store,
         )?;
-        let cancelled = requests().begin(&request.request_id)?;
+        let cancelled = requests()
+            .begin(&request.request_id)
+            .map_err(|code| Failure::from(code.to_owned()))?;
         let _registered = Registered(&request.request_id);
         let proposals = service
-            .generate(&request.prompt, &cancelled, |completed| {
+            .generate_detailed(&request.prompt, &cancelled, |completed| {
                 if let Some(progress) = progress {
                     let completed = u32::try_from(completed).unwrap_or(u32::MAX);
                     // SAFETY: 宿主给的回调和 context 在本次调用期间有效；只在调用线程上依次调用。
                     unsafe { progress(context, completed) }
                 }
             })
-            .map_err(ai_skin_code)?;
-        serde_json::to_value(proposals).map_err(|_| AccountError::Unavailable.code().into())
+            .map_err(ai_skin_failure)?;
+        serde_json::to_value(proposals)
+            .map_err(|_| Failure::from(AccountError::Unavailable.code().to_owned()))
     })
 }
 
@@ -203,7 +206,7 @@ pub unsafe extern "C" fn msime_client_ai_skin_job(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
-    response(|| {
+    account_failure_response(|| {
         // SAFETY: 由调用方契约保证；长度先经过上限检查。
         let request: JobRequest = unsafe {
             with_bounded_bytes(request, length, MAX_REQUEST_BYTES, INVALID, |bytes| {
@@ -219,14 +222,18 @@ pub unsafe extern "C" fn msime_client_ai_skin_job(
             JobAction::Create { prompt } => service.create_artwork_job(&prompt),
             JobAction::Get { id } => service.artwork_job(&id),
             JobAction::Delete { id } => {
-                service.delete_artwork_job(&id).map_err(ai_skin_code)?;
+                service.delete_artwork_job(&id).map_err(ai_skin_failure)?;
                 return Ok(Value::Null);
             }
         }
-        .map_err(ai_skin_code)?;
-        serde_json::to_value(job).map_err(|_| AccountError::Unavailable.code().into())
+        .map_err(ai_skin_failure)?;
+        serde_json::to_value(job)
+            .map_err(|_| Failure::from(AccountError::Unavailable.code().to_owned()))
     })
 }
+
+#[cfg(test)]
+mod failure_tests;
 
 #[cfg(test)]
 mod tests {

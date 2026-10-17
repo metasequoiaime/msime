@@ -1,8 +1,8 @@
-//! `msime_client_account` 在 #8201 新增的操作：对话、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接和语音贡献。请求形状、返回值和错误码见头文件；规则和传输都在 client-services，这里只按操作把它们接起来。
+//! `msime_client_account` 在 #8201 新增的操作：对话、注销账号、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接和语音贡献。请求形状、返回值和错误码见头文件；规则和传输都在 client-services，这里只按操作把它们接起来。
 //!
 //! 写成对 [`AccountApi`] 和 [`AccountSessionStorage`] 泛型的函数，测试用假的后端驱动；C 导出（`super::ffi::account`）把按目录或注入存储建好的两个会话交进来。
 //!
-//! 令牌从哪个会话来：对话、常用语、我的设备、云端数据和发送下载链接只用登录账号；释义、反馈、诊断上传和语音贡献登录账号优先、没有登录时用本机匿名账号；查看、换令牌和删除诊断快照绑定到上传时返回的 `user_id`，登录会话和匿名会话都不是它时是 `account_identity_changed`，不会退回另一个账号。
+//! 令牌从哪个会话来：对话、注销账号、常用语、我的设备、云端数据和发送下载链接只用登录账号；释义、反馈、诊断上传和语音贡献登录账号优先、没有登录时用本机匿名账号；查看、换令牌和删除诊断快照绑定到上传时返回的 `user_id`，登录会话和匿名会话都不是它时是 `account_identity_changed`，不会退回另一个账号。
 
 use base64::Engine as _;
 use msime_client_services::account::page::{ChatModelsResponse, ChatResponse};
@@ -42,6 +42,8 @@ pub(crate) enum Operation {
         model: String,
     },
     ChatModels,
+    /// 注销账号，与已有的 `delete` 相同，失败时是 [`AccountFailure`]：需要最近登录时是 `account_recent_login_required`。
+    AccountDelete,
     Translate {
         texts: Vec<String>,
         source_lang: String,
@@ -176,7 +178,11 @@ where
         Operation::Chat { messages, model } => value(ChatResponse {
             content: account.chat_checked(&messages, &model)?,
         }),
-        Operation::ChatModels => value(ChatModelsResponse::from(account.chat_models()?)),
+        Operation::ChatModels => value(ChatModelsResponse::from(account.chat_models_detailed()?)),
+        Operation::AccountDelete => {
+            account.delete_account_detailed()?;
+            Ok(Value::Null)
+        }
         Operation::Translate {
             texts,
             source_lang,

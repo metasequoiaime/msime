@@ -168,7 +168,7 @@ impl BackendAccountClient {
             .bearer_auth(access_token)
             .timeout(DATA_EXPORT_TIMEOUT)
             .send()
-            .map_err(|_| AccountError::Unavailable)?;
+            .map_err(|_| AccountFailure::network())?;
         if !response.status().is_success() {
             return Err(failure_from_response(response));
         }

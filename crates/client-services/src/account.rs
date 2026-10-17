@@ -484,7 +484,7 @@ impl AccountError {
     }
 }
 
-/// 新接口（释义、常用语、我的设备、云端数据、反馈、诊断上传）的失败：在 [`AccountError`] 之外带着 HTTP 状态码、服务端的错误码和 `Retry-After` 的秒数，宿主据此区分「需要最近登录」「请求太大」「不存在」「被限流、多久后重试」。`AccountError` 的变体不变，已有接口返回的码也不变。
+/// 新接口（释义、常用语、我的设备、云端数据、反馈、诊断上传、对话、AI 皮肤、注销账号的 `account_delete`）的失败：在 [`AccountError`] 之外带着 HTTP 状态码、服务端的错误码、`Retry-After` 的秒数和有没有拿到响应，宿主据此区分「需要最近登录」「请求太大」「不存在」「被限流、多久后重试」「断网」。`AccountError` 的变体不变，已有接口返回的码也不变。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountFailure {
     pub error: AccountError,
@@ -494,6 +494,8 @@ pub struct AccountFailure {
     pub server_code: Option<String>,
     /// `Retry-After` 的秒数，只认整数秒；HTTP-date 形式忽略。
     pub retry_after_seconds: Option<u64>,
+    /// 请求发出去以后没有拿到响应：连不上、DNS 或 TLS 失败、超时、连接在响应头到达之前断开。这时 `error` 仍是 [`AccountError::Unavailable`]，经 `error` 取码的已有接口看到的还是 `account_unavailable`；[`Self::code`] 是 `account_network`，宿主据此说「网络连接失败」，与服务端 5xx 的「服务暂不可用」分开。
+    pub network_failure: bool,
 }
 
 /// 本地预检发现请求体超过服务端整包上限时的码。服务端走 `decode` 的接口超限时回的是 400 `invalid_json`，所以本地先拦下。
@@ -508,28 +510,33 @@ impl From<AccountError> for AccountFailure {
             status: None,
             server_code: None,
             retry_after_seconds: None,
+            network_failure: false,
         }
     }
 }
 
 impl AccountFailure {
+    /// 请求没有拿到响应（见 [`Self::network_failure`]），`code()` 是 `account_network`。
+    pub fn network() -> Self {
+        Self {
+            network_failure: true,
+            ..AccountError::Unavailable.into()
+        }
+    }
+
     /// 请求体超过服务端的上限，在本地就拒绝，`code()` 是 `account_too_large`。
     pub fn too_large() -> Self {
         Self {
-            error: AccountError::Invalid,
-            status: None,
             server_code: Some(LOCAL_TOO_LARGE.to_owned()),
-            retry_after_seconds: None,
+            ..AccountError::Invalid.into()
         }
     }
 
     /// 操作绑定的账号已不是当前登录或匿名会话的账号，`code()` 是 `account_identity_changed`；不会退回另一个账号去做。
     pub fn identity_changed() -> Self {
         Self {
-            error: AccountError::Cancelled,
-            status: None,
             server_code: Some(LOCAL_IDENTITY_CHANGED.to_owned()),
-            retry_after_seconds: None,
+            ..AccountError::Cancelled.into()
         }
     }
 
@@ -541,11 +548,15 @@ impl AccountFailure {
             status: Some(status),
             server_code: server_error_code(body),
             retry_after_seconds: retry_after.and_then(parse_retry_after),
+            network_failure: false,
         }
     }
 
     /// 交给宿主的错误码。`account_too_large` 的 413 规则只对反馈和快照接口有效：走 64 KiB 整包上限的接口超限时服务端回 400 `invalid_json`，那些接口靠本地预检报这个码。
     pub fn code(&self) -> &'static str {
+        if self.network_failure {
+            return "account_network";
+        }
         let server = self.server_code.as_deref();
         if server == Some("recent_login_required") {
             return "account_recent_login_required";

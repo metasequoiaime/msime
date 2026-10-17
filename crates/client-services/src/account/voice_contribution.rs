@@ -213,7 +213,7 @@ impl BackendAccountClient {
             .timeout(VOICE_CONTRIBUTION_TIMEOUT)
             .multipart(form)
             .send()
-            .map_err(|_| AccountError::Unavailable)?;
+            .map_err(|_| AccountFailure::network())?;
         let bytes = read_detailed_response(response, MAX_JSON_BYTES)?;
         let receipt: AccountVoiceContributionReceipt =
             serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)?;

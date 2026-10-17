@@ -328,7 +328,7 @@ impl BackendAccountClient {
         serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
     }
 
-    /// 返回 [`AccountFailure`] 的新接口发请求用：与 [`Self::request_with_limit_timeout_accept`] 相同，失败时带着状态码、服务端错误码和 `Retry-After`。请求体超过 `maximum_request_bytes` 时在本地以 [`AccountFailure::too_large`] 拒绝，不发出去。
+    /// 返回 [`AccountFailure`] 的新接口发请求用：与 [`Self::request_with_limit_timeout_accept`] 相同，失败时带着状态码、服务端错误码和 `Retry-After`，没拿到响应时是 [`AccountFailure::network`]。请求体超过 `maximum_request_bytes` 时在本地以 [`AccountFailure::too_large`] 拒绝，不发出去。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn request_detailed(
         &self,
@@ -351,7 +351,7 @@ impl BackendAccountClient {
             .prepare(method, path, token, body, maximum_request_bytes, accept)?
             .timeout(timeout)
             .send()
-            .map_err(|_| AccountError::Unavailable)?;
+            .map_err(|_| AccountFailure::network())?;
         read_detailed_response(response, maximum_response_bytes)
     }
 
@@ -1512,7 +1512,22 @@ impl AccountApi for BackendAccountClient {
     }
 
     fn delete_account(&self, access_token: &str) -> Result<(), AccountError> {
-        self.empty::<()>(Method::DELETE, "/v1/users/me", Some(access_token), None)
+        self.delete_account_detailed(access_token)
+            .map_err(|failure| failure.error)
+    }
+
+    fn delete_account_detailed(&self, access_token: &str) -> Result<(), AccountFailure> {
+        self.request_detailed(
+            Method::DELETE,
+            "/v1/users/me",
+            Some(access_token),
+            None,
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+            "application/json",
+        )
+        .map(|_| ())
     }
 
     fn upload_avatar(
@@ -1555,17 +1570,8 @@ impl AccountApi for BackendAccountClient {
     }
 
     fn chat_models(&self, access_token: &str) -> Result<AccountChatModels, AccountError> {
-        if !crate::text::is_lower_hex(access_token, 64) {
-            return Err(AccountError::Invalid);
-        }
-        let models = self.json::<AccountChatModels, ()>(
-            Method::GET,
-            "/v1/models",
-            Some(access_token),
-            None,
-        )?;
-        validate_chat_models(&models)?;
-        Ok(models)
+        self.chat_models_detailed(access_token)
+            .map_err(|failure| failure.error)
     }
 
     fn chat(
@@ -1574,8 +1580,38 @@ impl AccountApi for BackendAccountClient {
         model: &str,
         access_token: &str,
     ) -> Result<String, AccountError> {
+        self.chat_detailed(messages, model, access_token)
+            .map_err(|failure| failure.error)
+    }
+
+    fn chat_models_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountChatModels, AccountFailure> {
         if !crate::text::is_lower_hex(access_token, 64) {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
+        }
+        let models = self.json_detailed::<AccountChatModels, ()>(
+            Method::GET,
+            "/v1/models",
+            Some(access_token),
+            None,
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_chat_models(&models)?;
+        Ok(models)
+    }
+
+    fn chat_detailed(
+        &self,
+        messages: &[AccountChatMessage],
+        model: &str,
+        access_token: &str,
+    ) -> Result<String, AccountFailure> {
+        if !crate::text::is_lower_hex(access_token, 64) {
+            return Err(AccountError::Invalid.into());
         }
         validate_chat_request(messages, model)?;
         #[derive(Deserialize)]
@@ -1588,13 +1624,14 @@ impl AccountApi for BackendAccountClient {
         }
         let body = ChatBody::new(messages, model);
         if chat_request_body(messages, model)?.len() > MAX_CHAT_REQUEST_BYTES {
-            return Err(AccountError::Invalid);
+            return Err(AccountFailure::too_large());
         }
-        let response = self.json_with_limit_timeout::<Response, _>(
+        let response = self.json_detailed::<Response, _>(
             Method::POST,
             "/v1/chat/completions",
             Some(access_token),
             Some(&body),
+            MAX_CHAT_REQUEST_BYTES,
             MAX_CHAT_RESPONSE_BYTES,
             Duration::from_secs(125),
         )?;
@@ -1609,7 +1646,7 @@ impl AccountApi for BackendAccountClient {
             || reply.content.len() > MAX_CHAT_RESPONSE_BYTES
             || crate::text::has_disallowed_control(&reply.content)
         {
-            return Err(AccountError::Unavailable);
+            return Err(AccountError::Unavailable.into());
         }
         Ok(reply.content)
     }

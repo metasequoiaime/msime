@@ -397,7 +397,30 @@ pub trait AccountApi: Send + Sync + 'static {
         Err(AccountError::Unavailable.into())
     }
 
-    // 以下几项给云同步（`cloud_sync`）用：与上面同名的接口相同，失败时带着状态码、服务端错误码和 `Retry-After`，同步据此区分 409 `revision_conflict` 和别的 409，并尊重限流。默认实现转调不带细节的那个，只实现了旧接口的假后端照样能用。
+    // 以下几项与上面同名的已有接口相同，失败时带着状态码、服务端错误码和 `Retry-After`：对话、模型目录和注销给 `msime_client_account` 的新操作用，其余给云同步（`cloud_sync`）用，同步据此区分 409 `revision_conflict` 和别的 409，并尊重限流。默认实现转调不带细节的那个，只实现了旧接口的假后端照样能用。
+
+    /// 与 [`Self::chat_models`] 相同，失败时是 [`AccountFailure`]：限流带 `Retry-After`，503 与没拿到响应分开。
+    fn chat_models_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountChatModels, AccountFailure> {
+        self.chat_models(access_token).map_err(Into::into)
+    }
+
+    /// 与 [`Self::chat`] 相同，失败时是 [`AccountFailure`]；序列化后的请求体超过 64 KiB 是 [`AccountFailure::too_large`]。
+    fn chat_detailed(
+        &self,
+        messages: &[AccountChatMessage],
+        model: &str,
+        access_token: &str,
+    ) -> Result<String, AccountFailure> {
+        self.chat(messages, model, access_token).map_err(Into::into)
+    }
+
+    /// 与 [`Self::delete_account`] 相同，失败时是 [`AccountFailure`]：会话不是 10 分钟内登录的是 403 `recent_login_required`（`account_recent_login_required`）。
+    fn delete_account_detailed(&self, access_token: &str) -> Result<(), AccountFailure> {
+        self.delete_account(access_token).map_err(Into::into)
+    }
 
     /// 与 [`Self::preference_schema`] 相同，失败时是 [`AccountFailure`]。
     fn preference_schema_detailed(

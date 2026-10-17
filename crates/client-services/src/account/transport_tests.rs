@@ -966,3 +966,294 @@ fn apple_web_requests_are_checked_before_they_are_sent() {
         Some(AccountError::Invalid)
     );
 }
+
+// ---- 断网与服务不可用、对话和 AI 皮肤的失败细节、带细节的注销 ----
+
+/// 读完请求就挂断、什么也不回：`serve` 收到空响应时就是这样，客户端拿不到响应头。
+fn hang_up() -> Vec<u8> {
+    Vec::new()
+}
+
+/// 内存里的会话存储，开始时有一份未过期的合成登录会话（访问令牌是 `a`）。
+#[derive(Clone)]
+struct SignedIn(Arc<Mutex<Option<SavedAccountSession>>>);
+
+impl SignedIn {
+    fn new() -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        Self(Arc::new(Mutex::new(Some(SavedAccountSession {
+            tokens: AccountTokens {
+                access_token: token('a'),
+                refresh_token: token('b'),
+                token_type: "Bearer".into(),
+                expires_in: 3600,
+                user: AccountUser {
+                    id: "fixture-user".into(),
+                    display_name: "Fixture".into(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                    email: None,
+                    avatar_url: None,
+                },
+            },
+            expires_at_unix_ms: now + 3_600_000,
+            session_id: Some(uuid::Uuid::new_v4()),
+        }))))
+    }
+
+    fn signed_in(&self) -> bool {
+        self.0.lock().unwrap().is_some()
+    }
+}
+
+impl AccountSessionStorage for SignedIn {
+    fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+    fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
+        *self.0.lock().unwrap() = Some(session.clone());
+        Ok(())
+    }
+    fn clear(&self) -> Result<(), AccountError> {
+        *self.0.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+#[test]
+fn a_request_without_a_response_is_a_network_failure_only_on_the_detailed_paths() {
+    let (origin, received) = serve(vec![
+        hang_up(),
+        hang_up(),
+        error_response("503 Service Unavailable", "job_unavailable", &[]),
+    ]);
+    let client = client(&origin);
+    let failure = client.phrases(&token('a')).unwrap_err();
+    assert_eq!(failure.code(), "account_network");
+    assert!(failure.network_failure);
+    assert_eq!(failure.status, None);
+    // 经 `error` 取码的已有接口看到的码不变。
+    assert_eq!(failure.error, AccountError::Unavailable);
+    assert_eq!(
+        client.chat_models(&token('a')).unwrap_err(),
+        AccountError::Unavailable
+    );
+    // 服务端回了 503 不是断网。
+    let failure = client.chat_models_detailed(&token('a')).unwrap_err();
+    assert_eq!(failure.code(), "account_unavailable");
+    assert!(!failure.network_failure);
+    assert_eq!(failure.status, Some(503));
+    assert_eq!(received.iter().count(), 3);
+}
+
+#[test]
+fn chat_failures_keep_retry_after_and_tell_503_from_a_dropped_connection() {
+    let messages = [AccountChatMessage {
+        role: "user".into(),
+        content: "合成的问题".into(),
+    }];
+    let (origin, received) = serve(vec![
+        error_response(
+            "429 Too Many Requests",
+            "rate_limit_exceeded",
+            &[("Retry-After", "60")],
+        ),
+        error_response(
+            "429 Too Many Requests",
+            "rate_limit_exceeded",
+            &[("Retry-After", "60")],
+        ),
+        error_response(
+            "503 Service Unavailable",
+            "server_busy",
+            &[("Retry-After", "1")],
+        ),
+        error_response("503 Service Unavailable", "upstream_unavailable", &[]),
+        hang_up(),
+        error_response(
+            "429 Too Many Requests",
+            "rate_limit_exceeded",
+            &[("Retry-After", "30")],
+        ),
+    ]);
+    let client = client(&origin);
+    let chat = || {
+        client
+            .chat_detailed(&messages, "synthetic-model", &token('a'))
+            .unwrap_err()
+    };
+    let limited = chat();
+    assert_eq!(
+        (limited.code(), limited.retry_after_seconds),
+        ("account_rate_limited", Some(60))
+    );
+    // 已有的 `chat` 照旧只有 AccountError。
+    assert_eq!(
+        client
+            .chat(&messages, "synthetic-model", &token('a'))
+            .unwrap_err(),
+        AccountError::RateLimited
+    );
+    let busy = chat();
+    assert_eq!(
+        (busy.code(), busy.retry_after_seconds),
+        ("account_rate_limited", Some(1))
+    );
+    assert_eq!(chat().code(), "account_unavailable");
+    assert_eq!(chat().code(), "account_network");
+    let models = client.chat_models_detailed(&token('a')).unwrap_err();
+    assert_eq!(
+        (models.code(), models.retry_after_seconds),
+        ("account_rate_limited", Some(30))
+    );
+    let sent: Vec<_> = received.iter().collect();
+    assert_eq!(sent[0].line(), "POST /v1/chat/completions HTTP/1.1");
+    assert_eq!(sent[0].json()["stream"], false);
+    assert_eq!(sent[5].line(), "GET /v1/models HTTP/1.1");
+}
+
+#[test]
+fn only_the_detailed_account_deletion_reports_recent_login_required() {
+    let (origin, received) = serve(vec![
+        error_response("403 Forbidden", "recent_login_required", &[]),
+        error_response("403 Forbidden", "recent_login_required", &[]),
+        error_response("403 Forbidden", "recent_login_required", &[]),
+        http("204 No Content", &[], b""),
+    ]);
+    let client = client(&origin);
+    assert_eq!(
+        client
+            .delete_account_detailed(&token('a'))
+            .unwrap_err()
+            .code(),
+        "account_recent_login_required"
+    );
+    // 已有的 `delete` 不变：仍是 account_unauthorized。
+    let old = client.delete_account(&token('a')).unwrap_err();
+    assert_eq!(
+        (old.clone(), old.code()),
+        (AccountError::Forbidden, "account_unauthorized")
+    );
+    // 会话层：需要最近登录时本地会话留着，注销成功后清掉。
+    let storage = SignedIn::new();
+    let session = BackendAccountSession::new(client, storage.clone());
+    assert_eq!(
+        session.delete_account_detailed().unwrap_err().code(),
+        "account_recent_login_required"
+    );
+    assert!(storage.signed_in());
+    session.delete_account_detailed().unwrap();
+    assert!(!storage.signed_in());
+    let sent: Vec<_> = received.iter().collect();
+    assert_eq!(sent.len(), 4);
+    for request in &sent {
+        assert_eq!(request.line(), "DELETE /v1/users/me HTTP/1.1");
+        assert_eq!(
+            request.header("authorization"),
+            Some(format!("Bearer {}", token('a')).as_str())
+        );
+    }
+}
+
+#[test]
+fn ai_skin_routes_keep_retry_after_and_the_network_flag() {
+    use crate::skin::ai::AiSkinApi;
+    let id = "0123456789abcdef".repeat(3);
+    let (origin, received) = serve(vec![
+        error_response(
+            "429 Too Many Requests",
+            "rate_limit_exceeded",
+            &[("Retry-After", "7200")],
+        ),
+        error_response("404 Not Found", "skin_job_not_found", &[]),
+        hang_up(),
+        error_response(
+            "503 Service Unavailable",
+            "skin_jobs_busy",
+            &[("Retry-After", "5")],
+        ),
+    ]);
+    let client = client(&origin);
+    let limited = client
+        .create_skin_artwork("合成的插画提示词", &token('a'))
+        .unwrap_err();
+    assert_eq!(
+        (limited.code(), limited.retry_after_seconds),
+        ("account_rate_limited", Some(7200))
+    );
+    assert_eq!(
+        client
+            .get_skin_artwork(&id, &token('a'))
+            .unwrap_err()
+            .code(),
+        "account_not_found"
+    );
+    assert_eq!(
+        client
+            .delete_skin_artwork(&id, &token('a'))
+            .unwrap_err()
+            .code(),
+        "account_network"
+    );
+    let busy = client.ai_models(&token('a')).unwrap_err();
+    assert_eq!(
+        (busy.code(), busy.retry_after_seconds),
+        ("account_unavailable", Some(5))
+    );
+    let lines: Vec<_> = received
+        .iter()
+        .map(|request| request.line().to_owned())
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "POST /v1/skins/jobs HTTP/1.1".to_owned(),
+            format!("GET /v1/skins/jobs/{id} HTTP/1.1"),
+            format!("DELETE /v1/skins/jobs/{id} HTTP/1.1"),
+            "GET /v1/models HTTP/1.1".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn the_ai_skin_service_keeps_the_detail_only_for_the_detailed_entry_points() {
+    use crate::skin::ai::{AiSkinError, AiSkinFailure, BackendAiSkinService};
+    use std::sync::atomic::AtomicBool;
+    let limited = || {
+        error_response(
+            "429 Too Many Requests",
+            "rate_limit_exceeded",
+            &[("Retry-After", "3600")],
+        )
+    };
+    let (origin, received) = serve(vec![limited(), limited(), hang_up()]);
+    let service = BackendAiSkinService::new(
+        client(&origin),
+        Arc::new(BackendAccountSession::new(client(&origin), SignedIn::new())),
+    );
+    let cancelled = AtomicBool::new(false);
+    match service
+        .generate_detailed("合成的提示词", &cancelled, |_| {})
+        .unwrap_err()
+    {
+        AiSkinFailure::Account(failure) => assert_eq!(
+            (failure.code(), failure.retry_after_seconds),
+            ("account_rate_limited", Some(3600))
+        ),
+        other => panic!("{other:?}"),
+    }
+    // Tauri 的 `ai_skin_generate` 用的 `generate` 照旧只有 AccountError。
+    assert_eq!(
+        service
+            .generate("合成的提示词", &cancelled, |_| {})
+            .unwrap_err(),
+        AiSkinError::Account(AccountError::RateLimited)
+    );
+    match service.create_artwork_job("合成的插画提示词").unwrap_err() {
+        AiSkinFailure::Account(failure) => assert_eq!(failure.code(), "account_network"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(received.iter().count(), 3);
+}

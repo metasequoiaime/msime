@@ -125,9 +125,14 @@ impl AccountApi for FakeApi {
     fn delete_account(&self, _: &str) -> Result<(), AccountError> {
         unreachable!("delete_account")
     }
-    fn chat_models(&self, access_token: &str) -> Result<AccountChatModels, AccountError> {
-        self.call("chat_models", access_token)
-            .map_err(|failure| failure.error)?;
+    fn delete_account_detailed(&self, access_token: &str) -> Result<(), AccountFailure> {
+        self.call("delete_account", access_token)
+    }
+    fn chat_models_detailed(
+        &self,
+        access_token: &str,
+    ) -> Result<AccountChatModels, AccountFailure> {
+        self.call("chat_models", access_token)?;
         Ok(AccountChatModels {
             data: vec![AccountChatModel {
                 id: "synthetic-model".into(),
@@ -135,14 +140,13 @@ impl AccountApi for FakeApi {
             default_model: "synthetic-model".into(),
         })
     }
-    fn chat(
+    fn chat_detailed(
         &self,
         messages: &[AccountChatMessage],
         _: &str,
         access_token: &str,
-    ) -> Result<String, AccountError> {
-        self.call("chat", access_token)
-            .map_err(|failure| failure.error)?;
+    ) -> Result<String, AccountFailure> {
+        self.call("chat", access_token)?;
         Ok(format!("回答：{}", messages[0].content))
     }
     fn translate(
@@ -865,4 +869,96 @@ fn a_bad_voice_contribution_is_not_sent() {
     blank["transcript"] = json!("  ");
     assert_eq!(fixture.code(blank), "account_invalid");
     assert!(fixture.api.calls().is_empty());
+}
+
+#[test]
+fn chat_and_models_report_retry_after_503_and_network_apart() {
+    let fixture = Fixture::signed_in();
+    let chat = json!({ "operation": "chat", "messages": [{ "role": "user", "content": "你好" }], "model": "synthetic-model" });
+    let failure = |status: u16, code: &str, retry: Option<&str>| {
+        AccountFailure::from_http_response(
+            status,
+            json!({ "error": { "code": code, "message": code } })
+                .to_string()
+                .as_bytes(),
+            retry,
+        )
+    };
+    let set = |operation: &'static str, failure: AccountFailure| {
+        fixture
+            .api
+            .failures
+            .lock()
+            .unwrap()
+            .insert(operation, failure);
+    };
+    set("chat", failure(429, "rate_limit_exceeded", Some("60")));
+    set(
+        "chat_models",
+        failure(429, "rate_limit_exceeded", Some("3600")),
+    );
+    assert_eq!(
+        fixture.run(chat.clone()).unwrap_err(),
+        OperationFailure {
+            code: "account_rate_limited",
+            retry_after_seconds: Some(60)
+        }
+    );
+    assert_eq!(
+        fixture
+            .run(json!({ "operation": "chat_models" }))
+            .unwrap_err(),
+        OperationFailure {
+            code: "account_rate_limited",
+            retry_after_seconds: Some(3600)
+        }
+    );
+    set("chat", failure(503, "upstream_unavailable", None));
+    set("chat_models", AccountFailure::network());
+    assert_eq!(fixture.code(chat.clone()), "account_unavailable");
+    assert_eq!(
+        fixture.code(json!({ "operation": "chat_models" })),
+        "account_network"
+    );
+    set("chat", AccountFailure::network());
+    assert_eq!(fixture.code(chat), "account_network");
+    assert_eq!(
+        fixture.api.calls(),
+        [
+            "chat a",
+            "chat_models a",
+            "chat a",
+            "chat_models a",
+            "chat a"
+        ]
+    );
+}
+
+#[test]
+fn account_delete_reports_recent_login_and_signs_out_only_on_success() {
+    let fixture = Fixture::signed_in();
+    let delete = json!({ "operation": "account_delete" });
+    fixture.api.failures.lock().unwrap().insert(
+        "delete_account",
+        AccountFailure::from_http_response(
+            403,
+            br#"{"error":{"code":"recent_login_required","message":"recent_login_required"}}"#,
+            None,
+        ),
+    );
+    assert_eq!(
+        fixture.code(delete.clone()),
+        "account_recent_login_required"
+    );
+    // 需要重新登录时本地会话留着，宿主让用户重新登录后再注销。
+    assert!(fixture.account_storage.0.lock().unwrap().is_some());
+    fixture.api.failures.lock().unwrap().clear();
+    assert_eq!(fixture.run(delete.clone()).unwrap(), Value::Null);
+    assert!(fixture.account_storage.0.lock().unwrap().is_none());
+    // 只用登录账号：没有登录时不退回匿名账号。
+    assert_eq!(fixture.code(delete), "account_unauthorized");
+    assert_eq!(
+        fixture.api.calls(),
+        ["delete_account a", "delete_account a"]
+    );
 }
