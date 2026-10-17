@@ -1,0 +1,30 @@
+{
+  "description": "宿主自报的 User-Agent 的拼装和清洗用例，权威实现是 crates/client-services/src/account/client.rs 的 client_agent，C 接口是 msime_client_client_agent。agent 是拼出的结果，形状为 msime-<platform>/<version> (<device>; <system>; edition=<edition>)；error 是不合法时的错误码。platform 必须是 android、ios、macos、windows、linux、harmony 之一（区分大小写）；device、system 和 edition 去掉首尾空白和控制字符、去掉非可打印 ASCII 和 ( ) ;，保留 64 个字符再去一次首尾空白，为空时 device 和 system 用 unknown、edition 用 full；device、system 为 null 或不给时与空串相同；version 只保留 [0-9A-Za-z.+_-]，最多 32 个，为空时用 0。Android 的 system 是 \"Android \" 加 Build.VERSION.RELEASE，没有 note 的 android 用例与 Android 原来的 BackendAccount.loginUserAgent(versionName, model, release, editionId) 逐字相同；带 note 的是有意与它不同的地方。",
+  "cases": [
+    { "platform": "android", "version": "1.4.0", "device": "Pixel 8", "system": "Android 15", "edition": "full", "agent": "msime-android/1.4.0 (Pixel 8; Android 15; edition=full)" },
+    { "platform": "android", "version": "1.4.0-beta.2+7", "device": "SM-S9180", "system": "Android 14", "edition": "wubi", "agent": "msime-android/1.4.0-beta.2+7 (SM-S9180; Android 14; edition=wubi)" },
+    { "platform": "android", "version": " 0.1.0-dev ", "device": " Pixel 8 Pro ", "system": "Android 8.1.0", "edition": " japanese ", "agent": "msime-android/0.1.0-dev (Pixel 8 Pro; Android 8.1.0; edition=japanese)" },
+    { "platform": "android", "version": "2.0.0", "device": "小米 14 Ultra", "system": "Android 15", "edition": "pinyin", "agent": "msime-android/2.0.0 (14 Ultra; Android 15; edition=pinyin)" },
+    { "platform": "android", "version": "2.0.0", "device": "\u3000Pixel\u00a0Fold", "system": "Android 15", "edition": "full", "agent": "msime-android/2.0.0 (PixelFold; Android 15; edition=full)" },
+    { "platform": "android", "version": "2.0.0", "device": "Pixel (8); Pro", "system": "Android 15", "edition": "full", "agent": "msime-android/2.0.0 (Pixel 8 Pro; Android 15; edition=full)" },
+    { "platform": "android", "version": "2.0.0", "device": "Pixel\t8\n", "system": "Android 15", "edition": "full", "agent": "msime-android/2.0.0 (Pixel8; Android 15; edition=full)" },
+    { "platform": "android", "version": "2.0.0", "device": "edition=wubi", "system": "Android 15", "edition": "full", "agent": "msime-android/2.0.0 (edition=wubi; Android 15; edition=full)" },
+    { "platform": "android", "version": "2.0.0", "device": "   ", "system": "Android 15", "edition": "", "agent": "msime-android/2.0.0 (unknown; Android 15; edition=full)" },
+    { "platform": "android", "version": "2.0.0", "device": "小米", "system": "Android 15", "edition": "();", "agent": "msime-android/2.0.0 (unknown; Android 15; edition=full)" },
+    { "platform": "android", "version": "", "device": "Pixel 8", "system": "Android 15", "edition": "full", "agent": "msime-android/0 (Pixel 8; Android 15; edition=full)" },
+    { "platform": "android", "version": "2.0.0", "device": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM", "system": "Android 15", "edition": "full", "agent": "msime-android/2.0.0 (MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM; Android 15; edition=full)" },
+    { "platform": "android", "version": "2.0.0", "device": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA BCCCCCCCCCC", "system": "Android 15", "edition": "full", "agent": "msime-android/2.0.0 (AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Android 15; edition=full)" },
+    { "platform": "android", "version": "2.0.0", "device": "Pixel 8", "system": "Android ", "edition": "full", "agent": "msime-android/2.0.0 (Pixel 8; Android; edition=full)", "note": "Build.VERSION.RELEASE 为空时 Android 原来写 Android unknown；system 整段清洗，所以是 Android。实际的 RELEASE 不会为空。" },
+    { "platform": "android", "version": "1.0 beta/2", "device": "Pixel 8", "system": "Android 15", "edition": "full", "agent": "msime-android/1.0beta2 (Pixel 8; Android 15; edition=full)", "note": "Android 原来版本号与括号里的段同样清洗，会留下空格和斜杠，服务端的 msimeAgent 正则认不出整串；这里只保留服务端版本号认的字符。" },
+    { "platform": "android", "version": "123456789012345678901234567890123456", "device": "Pixel 8", "system": "Android 15", "edition": "full", "agent": "msime-android/12345678901234567890123456789012 (Pixel 8; Android 15; edition=full)", "note": "Android 原来版本号保留到 64 个字符，超过 32 个时服务端认不出整串。" },
+    { "platform": "ios", "version": "1.2.0", "device": "iPhone15,2", "system": "iOS 18.1", "edition": "full", "agent": "msime-ios/1.2.0 (iPhone15,2; iOS 18.1; edition=full)" },
+    { "platform": "macos", "version": "1.2.0", "device": "Mac15,3", "system": "macOS 15.2", "edition": "full", "agent": "msime-macos/1.2.0 (Mac15,3; macOS 15.2; edition=full)" },
+    { "platform": "windows", "version": "1.4.0", "device": "Surface Pro", "system": "Windows 11 26100", "edition": "full", "agent": "msime-windows/1.4.0 (Surface Pro; Windows 11 26100; edition=full)" },
+    { "platform": "linux", "version": "1.4.0", "device": null, "system": "Ubuntu 24.04", "edition": "full", "agent": "msime-linux/1.4.0 (unknown; Ubuntu 24.04; edition=full)" },
+    { "platform": "linux", "version": "1.4.0", "edition": "tibetan", "agent": "msime-linux/1.4.0 (unknown; unknown; edition=tibetan)" },
+    { "platform": "harmony", "version": "0.9_1", "device": "HUAWEI Mate 60 Pro", "system": "HarmonyOS 5.0.1", "edition": "vietnamese", "agent": "msime-harmony/0.9_1 (HUAWEI Mate 60 Pro; HarmonyOS 5.0.1; edition=vietnamese)" },
+    { "platform": "web", "version": "1.0", "device": "Chrome", "system": "macOS", "edition": "full", "error": "account_invalid" },
+    { "platform": "Android", "version": "1.0", "device": "Pixel 8", "system": "Android 15", "edition": "full", "error": "account_invalid" },
+    { "platform": "", "version": "1.0", "device": "Pixel 8", "system": "Android 15", "edition": "full", "error": "account_invalid" }
+  ]
+}

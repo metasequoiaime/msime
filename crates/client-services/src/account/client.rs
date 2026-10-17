@@ -54,6 +54,54 @@ pub fn valid_client_agent(agent: &str) -> bool {
     version_valid && detail_valid
 }
 
+/// [`client_agent`] 括号里的设备、系统和 edition 每段最多保留的字符数（都是 ASCII，也就是字节数）。
+const MAX_CLIENT_AGENT_PART_BYTES: usize = 64;
+
+/// 宿主自报的 User-Agent 由这里统一拼出：`msime-<platform>/<version> (<device>; <system>; edition=<edition>)`，用例在 `shared/contracts/client-agent/cases.json`。`platform` 必须是服务端认的六个平台之一（原样比较，不改大小写），否则是 [`AccountError::Invalid`]；其余各段只清洗、不拒绝，结果总能通过 [`valid_client_agent`]。
+///
+/// 清洗与 Android 原来的 `BackendAccount.loginUserAgent` 逐字相同：去掉首尾的空白和控制字符（码位不大于空格的），去掉不是可打印 ASCII 的字符和 `(`、`)`、`;`，保留到 64 个字符为止，再去掉一次首尾空白；结果为空时 `device` 和 `system` 用 `unknown`，`edition` 用 `full`。`device`、`system` 为 `None` 时与空串相同。`system` 是系统名加版本（Android 传 `Android <Build.VERSION.RELEASE>`）。`version` 要符合服务端的版本号写法，所以只保留 `[0-9A-Za-z.+_-]`、最多 32 个，为空时用 `0`。
+pub fn client_agent(
+    platform: &str,
+    version: &str,
+    device: Option<&str>,
+    system: Option<&str>,
+    edition: &str,
+) -> Result<String, AccountError> {
+    if !CLIENT_AGENT_PLATFORMS.contains(&platform) {
+        return Err(AccountError::Invalid);
+    }
+    let version: String = version
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric() || ".+_-".contains(*character))
+        .take(MAX_CLIENT_AGENT_VERSION_BYTES)
+        .collect();
+    let version = if version.is_empty() { "0" } else { &version };
+    let agent = format!(
+        "msime-{platform}/{version} ({}; {}; edition={})",
+        client_agent_part(device.unwrap_or(""), "unknown"),
+        client_agent_part(system.unwrap_or(""), "unknown"),
+        client_agent_part(edition, "full"),
+    );
+    debug_assert!(valid_client_agent(&agent), "{agent}");
+    Ok(agent)
+}
+
+/// [`client_agent`] 括号里的一段，规则见那里。去首尾空白用的是 Java `String.trim` 的口径（码位不大于空格），不是 Unicode 空白。
+fn client_agent_part(value: &str, fallback: &str) -> String {
+    let java_trim = |text: &str| text.trim_matches(|character| character <= ' ').to_owned();
+    let cleaned: String = java_trim(value)
+        .chars()
+        .filter(|character| (' '..='~').contains(character) && !"();".contains(*character))
+        .take(MAX_CLIENT_AGENT_PART_BYTES)
+        .collect();
+    let cleaned = java_trim(&cleaned);
+    if cleaned.is_empty() {
+        fallback.to_owned()
+    } else {
+        cleaned
+    }
+}
+
 fn build_http_client(agent: &str) -> Result<Client, AccountError> {
     Client::builder()
         .redirect(reqwest::redirect::Policy::none())

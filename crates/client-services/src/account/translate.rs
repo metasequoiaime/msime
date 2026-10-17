@@ -1,4 +1,4 @@
-//! `POST /v1/translate`：账号释义。请求按服务端的规则校验（msime-cloud `internal/server/handlers.go` 的 `translate`：最多 32 条，每条非空白、不超过 8192 字节，语言代码 2–16 个 `[A-Za-z-]`），整包不超过服务端 `decode` 的 65536 字节；响应逐项规范化，坏的一项只把那一项置为 `null`。
+//! `POST /v1/translate`：账号释义。请求按服务端的规则校验（msime-cloud `internal/server/handlers.go` 的 `translate`：最多 32 条，每条非空白、不超过 8192 字节，语言代码 2–16 个 `[A-Za-z-]`），整包不超过服务端 `decode` 的 65536 字节；响应逐项规范化，坏的一项只把那一项置为 `null`；规范化后超过 [`MAX_USABLE_TRANSLATION_BYTES`]（4096 字节）的一项也是 `null`，因为 `msime_client_apply_translations` 只要有一条释义超过 4096 字节就整批拒绝，留着它会让同一批里能用的释义全部上不了候选。
 //!
 //! 本 crate 自己发请求时走 [`AccountApi::translate`]；按键路径上自己发 HTTP 的宿主（Windows 的 curl、Linux）用 [`translate_request_body`] 拿请求体、用 [`parse_translate_response`] 解读响应，C 接口是 `msime_client_account_gloss`。
 
@@ -14,6 +14,8 @@ pub const MAX_TRANSLATE_TEXT_BYTES: usize = 8192;
 pub const MAX_TRANSLATE_REQUEST_BYTES: usize = 65536;
 /// 每条译文的字节上限（服务端 `contract.OutputTextBytes`）。
 const MAX_TRANSLATION_BYTES: usize = 65536;
+/// 规范化后能交给宿主的一条译文的字节上限，与 `msime_client_apply_translations` 每条释义的上限相同；更长的一项置为 `None`，不让整批作废。服务端允许到 [`MAX_TRANSLATION_BYTES`]，超过那个才算响应不可用。
+pub const MAX_USABLE_TRANSLATION_BYTES: usize = 4096;
 /// 响应的上限：32 条最长的译文，转义后最多翻倍，再留出信封的余量。
 pub(super) const MAX_TRANSLATE_RESPONSE_BYTES: usize =
     2 * MAX_TRANSLATE_TEXTS * MAX_TRANSLATION_BYTES + 4096;
@@ -77,7 +79,7 @@ pub fn translate_request_body(
     Ok(body)
 }
 
-/// 解读一个 2xx 响应 `{"code":200,"data":[...]}`。`code` 必须是整数 200，`data` 必须与 `texts` 等长、每项是不超过 65536 字节的字符串，否则整个响应不可用（`account_unavailable`）。每项再规范化：制表符和换行折成空格后去掉首尾空白，含其他控制字符、为空或与原文相同的项变成 `None`，不让整批作废。
+/// 解读一个 2xx 响应 `{"code":200,"data":[...]}`。`code` 必须是整数 200，`data` 必须与 `texts` 等长、每项是不超过 65536 字节的字符串，否则整个响应不可用（`account_unavailable`）。每项再规范化：制表符和换行折成空格后去掉首尾空白，含其他控制字符、为空、与原文相同或超过 [`MAX_USABLE_TRANSLATION_BYTES`] 字节的项变成 `None`，不让整批作废。
 pub fn parse_translate_response(
     texts: &[String],
     body: &[u8],
@@ -117,7 +119,11 @@ fn normalize_translation(translation: &str, source: &str) -> Option<String> {
         })
         .collect();
     let trimmed = folded.trim();
-    if trimmed.is_empty() || trimmed.chars().any(char::is_control) || trimmed == source.trim() {
+    if trimmed.is_empty()
+        || trimmed.len() > MAX_USABLE_TRANSLATION_BYTES
+        || trimmed.chars().any(char::is_control)
+        || trimmed == source.trim()
+    {
         return None;
     }
     Some(trimmed.to_owned())
@@ -165,6 +171,10 @@ impl BackendAccountClient {
         parse_translate_response(&request.texts, &bytes)
     }
 }
+
+#[cfg(test)]
+#[path = "translate_tests.rs"]
+mod length_tests;
 
 #[cfg(test)]
 mod tests {

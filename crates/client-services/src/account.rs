@@ -747,6 +747,8 @@ pub use validate::*;
 pub use voice_contribution::*;
 
 #[cfg(test)]
+mod client_agent_tests;
+#[cfg(test)]
 mod link_tests;
 #[cfg(test)]
 mod preference_schema_tests;

@@ -6077,7 +6077,7 @@ fn history_capture_bridge_validates_and_returns_no_text() {
     );
 }
 
-fn test_host(root: &std::path::Path) -> u64 {
+pub(super) fn test_host(root: &std::path::Path) -> u64 {
     test_host_preferences(root, chinese_preferences())
 }
 fn chinese_preferences() -> Preferences {

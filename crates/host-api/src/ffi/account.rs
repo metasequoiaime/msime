@@ -20,10 +20,10 @@ use msime_client_services::account::settings_sync::{
     prepare_desktop_settings_apply, upload_desktop_settings,
 };
 use msime_client_services::account::{
-    adopt_legacy_account_session, ensure_anonymous_account, ensure_anonymous_account_in,
-    ensure_anonymous_account_with, valid_client_agent, AccountError, AccountPreferences,
-    AccountSessionFileLayout, AnonymousIdentitySource, BackendAccountClient, BackendAccountSession,
-    FileAccountSessionStorage, LockedAnonymousSessionStorage,
+    adopt_legacy_account_session, client_agent, ensure_anonymous_account,
+    ensure_anonymous_account_in, ensure_anonymous_account_with, valid_client_agent, AccountError,
+    AccountPreferences, AccountSessionFileLayout, AnonymousIdentitySource, BackendAccountClient,
+    BackendAccountSession, FileAccountSessionStorage, LockedAnonymousSessionStorage,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -32,6 +32,8 @@ const MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_DIRECTORY_BYTES: usize = 16 * 1024;
 /// `msime_client_ensure_anonymous_account_with_agent` 的请求上限：16 KiB 的目录加上 `client_agent` 和 JSON 本身。
 const MAX_ENSURE_ANONYMOUS_REQUEST_BYTES: usize = 32 * 1024;
+/// `msime_client_client_agent` 的请求上限。
+const MAX_CLIENT_AGENT_REQUEST_BYTES: usize = 16 * 1024;
 
 pub(super) type Session = BackendAccountSession<BackendAccountClient, SessionStorage>;
 
@@ -627,6 +629,51 @@ pub unsafe extern "C" fn msime_client_ensure_anonymous_account_with_agent(
     })
 }
 
+/// `msime_client_client_agent` 的请求。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClientAgentRequest {
+    platform: String,
+    version: String,
+    #[serde(default)]
+    device: Option<String>,
+    #[serde(default)]
+    system: Option<String>,
+    edition: String,
+}
+
+/// 拼出宿主自报的 User-Agent（#8201 迁移计划 P11），规则在 client-services 的 `account::client_agent`，用例在 `shared/contracts/client-agent/cases.json`。不联网、不读文件。
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_client_agent(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        let invalid = || AccountError::Invalid.code().to_owned();
+        // SAFETY: forwarded from the documented caller contract.
+        let request: ClientAgentRequest = unsafe {
+            with_bounded_bytes(
+                request,
+                length,
+                MAX_CLIENT_AGENT_REQUEST_BYTES,
+                "account_invalid",
+                |bytes| serde_json::from_slice(bytes).map_err(|_| invalid()),
+            )?
+        };
+        client_agent(
+            &request.platform,
+            &request.version,
+            request.device.as_deref(),
+            request.system.as_deref(),
+            &request.edition,
+        )
+        .map(Value::String)
+        .map_err(|error| error.code().to_owned())
+    })
+}
+
 pub(super) fn absolute_directory(value: &str) -> Result<&Path, String> {
     let path = Path::new(value);
     if value.len() > MAX_DIRECTORY_BYTES || !path.is_absolute() {
@@ -724,6 +771,8 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
     })
 }
 
+#[cfg(test)]
+mod client_agent_assembly_tests;
 #[cfg(test)]
 mod client_agent_tests;
 #[cfg(test)]

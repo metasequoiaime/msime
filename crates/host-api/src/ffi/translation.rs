@@ -1013,6 +1013,9 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
 }
 
 #[cfg(test)]
+mod gloss_limit_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

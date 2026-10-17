@@ -1,6 +1,6 @@
 //! 账号页读到的脱敏响应：iOS、三个桌面宿主的 Tauri 命令和原生设置窗口经 C ABI（`msime_client_account`）返回的都是这几种形状，设置同步卡片读到的字段表（[`PreferenceSchemaResponse`]）也在这里。
 //!
-//! 它们就是 `packages/ui/src/account/account-page.tsx` 声明的 `AccountUser`、`AccountProviders`、`AccountChallenge` 和 `AccountProfile`，外加 `{ user }` 状态包装。令牌、nonce 和授权链接都不会进到这里。Android 宿主用同一个 provider 形状但省掉可选的 `apple` 和 `google`：只有宿主也实现了那种登录时，页面才给出相应按钮。
+//! 它们就是 `packages/ui/src/account/account-page.tsx` 声明的 `AccountUser`、`AccountProviders`、`AccountChallenge` 和 `AccountProfile`，外加 `{ user }` 状态包装。令牌、nonce 和授权链接都不会进到这里。provider 形状比 `AccountProviders` 多一个 `apple_web`（Apple 网页登录的开关，给原生 Android 宿主经 C ABI 读），共享页面不读它。Tauri 的 Android 宿主用同一个 provider 形状但省掉可选的 `apple`、`google` 和 `apple_web`：只有宿主也实现了那种登录时，页面才给出相应按钮。
 
 use super::{account_avatar_is_uploaded, account_avatar_url_allowed};
 use super::{
@@ -59,6 +59,9 @@ pub struct ProvidersResponse {
     apple: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     google: Option<bool>,
+    /// 服务端的 Apple 网页登录开关（`/v1/auth/providers` 的 `apple_web`），给没有 Apple 原生登录的 Android 宿主决定要不要给出 Apple 按钮。共享页面不读它。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    apple_web: Option<bool>,
 }
 
 pub fn provider_flags(providers: &HashMap<String, bool>) -> (bool, bool) {
@@ -75,6 +78,7 @@ pub fn providers_response(providers: HashMap<String, bool>) -> ProvidersResponse
         phone,
         apple: Some(providers.get("apple") == Some(&true)),
         google: Some(providers.get("google") == Some(&true)),
+        apple_web: Some(providers.get("apple_web") == Some(&true)),
     }
 }
 
@@ -85,6 +89,7 @@ pub fn providers_response_without_apple(providers: HashMap<String, bool>) -> Pro
         phone,
         apple: None,
         google: None,
+        apple_web: None,
     }
 }
 
@@ -260,11 +265,12 @@ mod tests {
         let providers = providers_response(HashMap::from([
             ("email".into(), true),
             ("sms".into(), true),
+            ("apple_web".into(), true),
         ]));
         // "sms" is the backend's name for the phone provider, and apple is reported even when absent so the client can tell "this account has no Apple identity" from "this build does not know about the provider".
         assert_eq!(
             serde_json::to_value(providers).unwrap(),
-            json!({"email":true,"phone":true,"apple":false,"google":false})
+            json!({"email":true,"phone":true,"apple":false,"google":false,"apple_web":true})
         );
 
         let profile = ProfileResponse::from(AccountProfile {
