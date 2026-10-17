@@ -16760,3 +16760,42 @@ fn imported_words_past_first_sync_batch_reach_nine_key_candidates() {
     read(msime_client_destroy(handle));
     assert!(found, "合成第六项未进入九键候选");
 }
+
+/// 报告 #8333 的三音节词在导入并同步后仍应出现在九键候选中。
+#[test]
+fn imported_three_syllable_word_reaches_nine_key_candidates() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    let imported = call_android_data(
+        msime_client_dictionary_collections,
+        json!({
+            "options": options, "action": {"operation": "import", "name": "合成词库",
+            "kind": "pinyin", "format": "standard", "text": "安痛定\tan'tong'ding\t20000\n"},
+        }),
+    );
+    assert_eq!(imported["value"]["import"]["imported"], 1, "{imported}");
+    let synchronized = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+    assert_eq!(synchronized["value"]["pending_count"], 0, "{synchronized}");
+    assert_eq!(synchronized["value"]["failed_count"], 0, "{synchronized}");
+
+    let bytes = options.to_string();
+    let created = read(unsafe { msime_client_create(bytes.as_ptr(), bytes.len()) });
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(
+        read(msime_client_set_nine_key_mode(handle, true))["ok"],
+        true
+    );
+    let mut typed = Value::Null;
+    // an / tong / ding 的九键数字编码：26 / 8664 / 3464。
+    for digit in b"2686643464" {
+        typed = read(msime_client_character(handle, *digit, false));
+    }
+    let found = typed["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|candidate| candidate["text"] == "安痛定");
+    read(msime_client_destroy(handle));
+    assert!(found, "导入的三音节词未进入九键候选");
+}
