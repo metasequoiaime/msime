@@ -5,7 +5,8 @@
 use std::borrow::Cow;
 
 use super::utils::{
-    convert_seg_shuangpin_to_seg_complete_pinyin, is_all_complete_pinyin, is_full_help_mode,
+    convert_seg_shuangpin_to_seg_complete_pinyin,
+    convert_seg_shuangpin_to_seg_complete_pinyin_into, is_all_complete_pinyin, is_full_help_mode,
     pinyin_segmentation, takes_two_keys,
 };
 use super::ShuangpinProfile;
@@ -85,6 +86,14 @@ pub fn segment_raw_boundaries(raw: &str, profile: &ShuangpinProfile) -> Vec<usiz
 
 pub fn to_quanpin_segmentation(segmentation: &str, profile: &ShuangpinProfile) -> String {
     convert_seg_shuangpin_to_seg_complete_pinyin(segmentation, profile)
+}
+
+pub(crate) fn to_quanpin_segmentation_into(
+    segmentation: &str,
+    profile: &ShuangpinProfile,
+    output: &mut String,
+) {
+    convert_seg_shuangpin_to_seg_complete_pinyin_into(segmentation, profile, output);
 }
 
 pub fn normalize_input_with_delimiters(raw: &str, profile: &ShuangpinProfile) -> String {
