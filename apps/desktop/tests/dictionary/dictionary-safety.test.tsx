@@ -144,6 +144,7 @@ test("Android personal dictionary JSON import previews and queues only after con
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("tab", { name: "管理词库" }));
 
   const file = new File(
     [
@@ -188,6 +189,7 @@ test("personal dictionary import ignores a duplicate confirmation while pending"
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("tab", { name: "管理词库" }));
   const file = new File(
     [
       JSON.stringify({
@@ -227,6 +229,7 @@ test("personal dictionary import ignores a response from a replaced dictionary c
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("tab", { name: "管理词库" }));
   const file = new File(
     [
       JSON.stringify({

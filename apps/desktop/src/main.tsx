@@ -100,12 +100,8 @@ import {
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
 import { discoverFontReader } from "./candidate/system-font-client";
-import {
-  DesktopKeyboard,
-  panelSurfaceTheme,
-  useHostPlatform,
-  usePanelHost,
-} from "./input/desktop-keyboard";
+import { DesktopKeyboard } from "./input/desktop-keyboard";
+import { panelSurfaceTheme, useHostPlatform, usePanelHost } from "./input/panel-host";
 import { DesktopHandwriting } from "./input/desktop-handwriting";
 import { DesktopCloudDictionary } from "./dictionary/desktop-cloud-dictionary";
 import { testDesktopApiCredential } from "./account/credential-test-client";

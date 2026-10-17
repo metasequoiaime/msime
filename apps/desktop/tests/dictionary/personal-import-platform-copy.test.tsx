@@ -45,6 +45,8 @@ async function openDictionary(platform: string) {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  const managerTab = screen.queryByRole("tab", { name: "管理词库" });
+  if (managerTab) fireEvent.click(managerTab);
   // 个人词库文件是词库页「导入与导出」组里带名字的一块。
   return screen.getByRole("group", { name: "个人词库文件" });
 }
