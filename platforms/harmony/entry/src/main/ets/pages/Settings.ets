@@ -19,7 +19,7 @@ import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { StagedResources } from '../keyboard/StagedResources';
 import { KeyboardScheme } from '../keyboard/KeyboardScheme';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
-import { HarmonyAiSkins } from '../account/HarmonyAiSkins';
+import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
 import { utf8Length, utf8WriteComplete } from '../keyboard/Utf8';
 import { TextPolicy } from '../keyboard/TextPolicy';
 import { TypingStatisticsPolicy } from '../keyboard/TypingStatisticsPolicy';
@@ -212,70 +212,6 @@ interface TypingStatisticsSkinRequest {
   action: TypingStatisticsSkinAction;
 }
 
-/** 「上传到云端」页面发来的请求：`status`、`set_enabled` 或 `sync`。 */
-interface TypingUploadAction {
-  operation: string;
-  enabled?: boolean;
-}
-
-/** `msime_client_typing_statistics` 的上传动作：`upload_status`、`set_upload_enabled`、`upload_request`、`upload_succeeded`。 */
-interface TypingUploadNativeAction {
-  operation: string;
-  enabled?: boolean;
-  day?: string;
-  platform?: string;
-  force?: boolean;
-  device?: string;
-}
-
-interface TypingUploadNativeRequest {
-  directory: string;
-  action: TypingUploadNativeAction;
-}
-
-interface TypingUploadState {
-  enabled: boolean;
-  lastUploadMs: number | null;
-}
-
-interface TypingUploadStateReply {
-  ok: boolean;
-  value?: TypingUploadState;
-  error?: string;
-}
-
-/** `upload_request` 的回答：要发时有 `device` 和 `body`，不发时只有 `skip`。 */
-interface TypingUploadPrepared {
-  skip?: string;
-  device?: string;
-  body?: Object;
-}
-
-interface TypingUploadPreparedReply {
-  ok: boolean;
-  value?: TypingUploadPrepared;
-  error?: string;
-}
-
-/** 账号桥接的信封，这里只读成败和错误码。 */
-interface AccountEnvelope {
-  ok: boolean;
-  error?: string;
-}
-
-/** 回给页面的状态，与桌面 `typing_statistics_upload_status` 的形状相同。 */
-interface TypingUploadPageStatus {
-  enabled: boolean;
-  lastUploadMs: number | null;
-  signedIn: boolean;
-}
-
-interface TypingUploadPageReply {
-  ok: boolean;
-  value?: TypingUploadPageStatus;
-  error?: string;
-}
-
 /** The installed family names, or a refusal the page can report rather than an empty list. */
 interface FontFamilyReply {
   ok: boolean;
@@ -321,11 +257,9 @@ interface NoticesRequest {
   id?: string;
 }
 
-/** One AI skin request from the page: start a run, or stop the one under that id. */
+/** 页面的 AI 皮肤请求里这里只读 request_id：进度要带着它送回页面。 */
 interface AiSkinAction {
-  operation: string;
   request_id?: string;
-  prompt?: string;
 }
 
 /**
@@ -358,26 +292,16 @@ interface SkinTrialRequest {
 
 /** One community resource request; only the two local library operations are handled here. */
 interface CommunityResourceAction {
-  resource_operation: string;
+  operation: string;
   id?: string;
   item?: Object;
 }
 
-/** One community skin request from the page; only download and finish_trial are handled here. */
+/** 社区皮肤请求里这里只处理不联网的 finish_trial，以及装好皮肤以后刷新页面的偏好。 */
 interface CommunitySkinAction {
-  community_operation: string;
+  operation: string;
   id: string;
-  name?: string;
   keep?: boolean;
-}
-
-interface CommunityDownloadValue {
-  design?: Object;
-}
-
-interface CommunityDownloadReply {
-  ok: boolean;
-  value?: CommunityDownloadValue;
 }
 
 interface CloudDownloadEntry {
@@ -969,9 +893,6 @@ class SettingsBridge {
   private webview: web_webview.WebviewController | undefined = undefined;
   private context: common.UIAbilityContext | undefined = undefined;
   private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
-  /** 「上传到云端」的串行队列，见 `typingUpload`。 */
-  private typingUploadQueue: Promise<string> = Promise.resolve('');
-  private aiSkins: HarmonyAiSkins | undefined = undefined;
   private cloudDownloadRequest: number = 0;
   // 「从文件导入」从打开选择器到安装结束的模型 id。复制进缓存的那段时间原生安装还没登记，原生取消找不到它，所以取消先记在 voiceImportsCancelled 里，由导入流程在复制每个文件前和开始安装前检查。
   private voiceImportsPending: Set<string> = new Set<string>();
@@ -995,7 +916,6 @@ class SettingsBridge {
       this.syncShared();
     });
     this.accountBridge = new HarmonyAccountCloudBridge(context);
-    this.aiSkins = this.accountBridge.aiSkins();
     // The same copy the keyboard makes, by the same rule. The page reaches the dictionary through
     // it too, and two staging rules for one directory is how it came to hold a set matching neither.
     StagedResources.stage(`${context.resourceDir}/engine`, `${context.filesDir}/engine`,
@@ -1006,13 +926,14 @@ class SettingsBridge {
 
 
   /**
-   * 设置窗口回到前台：先把自己的改动发布给键盘，再导入键盘在完整体验模式下发布的改动（键盘里改的偏好、刷新过的账号会话、打字统计）。导入的偏好由随后的 `refreshPreferencesIfChanged` 交给页面。
+   * 设置窗口回到前台：先把自己的改动发布给键盘，再导入键盘在完整体验模式下发布的改动（键盘里改的偏好、打字统计）。导入的偏好由随后的 `refreshPreferencesIfChanged` 交给页面。键盘刷新过的账号会话由 Rust 在锁里决定要不要采用，本进程的认证请求排在这次采用后面（迁移差异 M2）。
    */
   syncShared(): void {
     if (this.sharedMirror === null) {
       return;
     }
     SharedStateSync.settingsSync(this.sharedMirror, this.stateDirectory);
+    AccountSessionAdoption.adopt(this.sharedMirror, this.stateDirectory, 'keyboard');
   }
 
   /** 立即把设置应用管的条目发布给键盘：窗口退到后台时调用，用户接下来多半要去别的应用打字。 */
@@ -1209,6 +1130,8 @@ class SettingsBridge {
       this.cloudDictionary(payload).then(deliver).catch(failed);
     } else if (kind === 'chat') {
       this.account(payload).then(deliver).catch(failed);
+    } else if (kind === 'cloud_clipboard') {
+      this.cloudClipboard(payload).then(deliver).catch(failed);
     } else if (kind === 'settings_sync') {
       this.settingsSync(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_skin') {
@@ -1788,7 +1711,7 @@ class SettingsBridge {
    * display.
    */
   async aiSkin(requestId: number, actionDocument: string): Promise<string> {
-    if (this.aiSkins === undefined) {
+    if (this.accountBridge === undefined) {
       return JSON.stringify({ ok: false, error: 'ai_skin_unavailable' });
     }
     let action: AiSkinAction;
@@ -1797,12 +1720,8 @@ class SettingsBridge {
     } catch {
       return JSON.stringify({ ok: false, error: 'ai_skin_invalid' });
     }
-    const id: string = action.request_id ?? '';
-    if (action.operation === 'cancel') return this.aiSkins.cancel(id);
-    if (action.operation !== 'generate') {
-      return JSON.stringify({ ok: false, error: 'ai_skin_invalid' });
-    }
-    return await this.aiSkins.generate(id, action.prompt ?? '', (completed: number): void => {
+    const id: string = typeof action.request_id === 'string' ? action.request_id : '';
+    return await this.accountBridge.aiSkin(actionDocument, (completed: number): void => {
       this.deliverAiSkinProgress(id, completed);
     });
   }
@@ -1841,27 +1760,24 @@ class SettingsBridge {
       return JSON.stringify({ ok: false, error: 'community_invalid' });
     }
     const file: string = `${this.context.filesDir}/CommunityLibrary.json`;
-    if (action.resource_operation === 'store_reply') {
+    if (action.operation === 'store_reply') {
       return await client.communityResourceLibrary(`{"file":${JSON.stringify(file)},`
         + `"action":{"operation":"save_reply","item":${JSON.stringify(action.item ?? null)}}}`);
     }
-    if (action.resource_operation === 'remove_reply') {
+    if (action.operation === 'remove_reply') {
       const remove: ResourceLibraryRequest = {
         file: file,
         action: { operation: 'remove', id: action.id ?? '' } as ResourceLibraryRemove
       };
       return await client.communityResourceLibrary(JSON.stringify(remove));
     }
-    return this.accountBridge.request(actionDocument);
+    return this.accountBridge.community(actionDocument);
   }
 
   /**
    * The community skin gallery.
    *
-   * Browsing, rating, publishing and withdrawing are one request each and go straight to the
-   * account bridge. Downloading is the one that is not: the design has to be fetched over the
-   * system HTTPS stack and then put on the keyboard and into the library, and those two local steps
-   * are a single native call because a failed import has to end the trial it started.
+   * 浏览、评分、发布、下架和「获取」都交给 Rust（`msime_client_community`）。「获取」（`keyboard_skin_install`）下载设计、开始试用并导入皮肤库是一步，导入失败时结束刚开始的试用；它改写了偏好文档，所以之后把新文档交给页面。
    *
    * Finishing a trial never touches the network at all. It is the answer to 保留 or 还原 on a skin
    * that is already applied, so it is answered from the device.
@@ -1876,48 +1792,15 @@ class SettingsBridge {
     } catch {
       return JSON.stringify({ ok: false, error: 'community_invalid' });
     }
-    if (action.community_operation === 'finish_trial') {
+    if (action.operation === 'finish_trial') {
       return this.finishSkinTrial(action);
     }
-    if (action.community_operation !== 'download') {
-      return this.accountBridge.request(actionDocument);
+    const reply: string = await this.accountBridge.community(actionDocument);
+    if (action.operation === 'keyboard_skin_install') {
+      // 装好的皮肤写进了偏好文档，页面手里那份已经旧了；理由与设置同步相同，旧的控件会把下一次保存当作冲突拒绝。
+      this.refreshPreferencesIfChanged();
     }
-    return await this.installCommunitySkin(action);
-  }
-
-  /**
-   * Downloads one design and puts it on the keyboard.
-   *
-   * The reply shape is the shared one — `{skin, trial}` — because the page uses both: the skin to
-   * show in the library it just grew, the trial id to answer 保留 or 还原 with afterwards.
-   */
-  private async installCommunitySkin(action: CommunitySkinAction): Promise<string> {
-    if (this.accountBridge === undefined) {
-      return JSON.stringify({ ok: false, error: 'community_unavailable' });
-    }
-    const downloaded: string = await this.accountBridge.request(JSON.stringify({
-      operation: 'community_skin', community_operation: 'download', id: action.id
-    }));
-    let design: Object;
-    try {
-      const reply: CommunityDownloadReply = JSON.parse(downloaded) as CommunityDownloadReply;
-      if (reply.ok !== true || reply.value === undefined || reply.value === null
-        || reply.value.design === undefined) {
-        return downloaded.length > 0 ? downloaded
-          : JSON.stringify({ ok: false, error: 'community_unavailable' });
-      }
-      design = reply.value.design;
-    } catch {
-      return JSON.stringify({ ok: false, error: 'community_unavailable' });
-    }
-    const installed: string = await client.communitySkinInstall(JSON.stringify({
-      directory: this.stateDirectory, id: action.id, name: action.name, design: design
-    }));
-    // The install wrote the preference document, so the page's copy is now the old one. Same
-    // reasoning as the settings sync: a control still showing the previous skin would refuse the
-    // next save as a conflict.
-    this.refreshPreferencesIfChanged();
-    return installed;
+    return reply;
   }
 
   private finishSkinTrial(action: CommunitySkinAction): string {
@@ -2134,7 +2017,7 @@ class SettingsBridge {
       this.stateDirectory);
   }
 
-  /** Account and cloud clipboard requests stay native; the WebView sees only safe JSON DTOs. */
+  /** Account requests stay native; the WebView sees only safe JSON DTOs. */
   account(action: string): Promise<string> {
     if (this.accountBridge === undefined) {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
@@ -2142,11 +2025,19 @@ class SettingsBridge {
     return this.accountBridge.request(action);
   }
 
+  /** 云剪贴板面板的动作，经 Rust 的端到端加密驱动。 */
+  cloudClipboard(action: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
+    }
+    return this.accountBridge.cloudClipboard(action);
+  }
+
   cloudDictionary(action: string): Promise<string> {
     if (this.accountBridge === undefined) {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
     }
-    return this.accountBridge.request(action);
+    return this.accountBridge.cloudDictionary(action, this.stateDirectory);
   }
 
   /** Validate and queue one explicitly selected cloud entry for the keyboard's idle worker. */
@@ -2351,104 +2242,13 @@ class SettingsBridge {
   }
 
   /**
-   * 打字统计「上传到云端」。构建请求、十分钟的节流、设备标识和上次上传的时间都在 Rust 的统计存储里（`msime_client_typing_statistics` 的 `upload_*` 动作），这里只负责带登录账号把请求发出去。取请求、发送、记成功和关掉后的删除排在同一个串行队列里，免得关掉上传后的删除和还在路上的上传交错。
+   * 打字统计「上传到云端」。构建请求、十分钟的节流、设备标识、上次上传的时间和登录账号都在 Rust 里（`msime_client_account` 的 `typing_upload_*`），同一进程里的打开、关闭和上传也由 Rust 串行。
    */
   private typingUpload(document: string): Promise<string> {
-    const run: () => Promise<string> = (): Promise<string> => this.typingUploadNow(document);
-    const next: Promise<string> = this.typingUploadQueue.then(run, run);
-    this.typingUploadQueue = next;
-    return next;
-  }
-
-  private async typingUploadNow(document: string): Promise<string> {
-    const bridge: HarmonyAccountCloudBridge | undefined = this.accountBridge;
-    if (bridge === undefined) return JSON.stringify({ ok: false, error: 'account_unavailable' } as AccountEnvelope);
-    let action: TypingUploadAction;
-    try {
-      action = JSON.parse(document) as TypingUploadAction;
-    } catch {
-      return JSON.stringify({ ok: false, error: 'account_invalid' } as AccountEnvelope);
+    if (this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
     }
-    if (action.operation === 'set_enabled') {
-      if (typeof action.enabled !== 'boolean') {
-        return JSON.stringify({ ok: false, error: 'account_invalid' } as AccountEnvelope);
-      }
-      return action.enabled ? await this.enableTypingUpload(bridge) : await this.disableTypingUpload(bridge);
-    }
-    if (action.operation === 'sync') {
-      // 没登录时不发也不报错，开关保持原样，登录后下一次照常上传。
-      if (bridge.signedIn()) {
-        const failure: string | null = await this.sendTypingUpload(bridge, false);
-        if (failure !== null) return JSON.stringify({ ok: false, error: failure } as AccountEnvelope);
-      }
-      return await this.typingUploadStatus(bridge);
-    }
-    if (action.operation === 'status') return await this.typingUploadStatus(bridge);
-    return JSON.stringify({ ok: false, error: 'account_invalid' } as AccountEnvelope);
-  }
-
-  /** 打开上传：要求已登录；在本地打开后立刻上传一次。上传失败时开关保持打开、回那次上传的错误码，下一次自动上传再试。 */
-  private async enableTypingUpload(bridge: HarmonyAccountCloudBridge): Promise<string> {
-    if (!bridge.signedIn()) return JSON.stringify({ ok: false, error: 'account_unauthorized' } as AccountEnvelope);
-    const state: TypingUploadStateReply =
-      await this.typingUploadNative({ operation: 'set_upload_enabled', enabled: true });
-    if (state.ok !== true) return JSON.stringify({ ok: false, error: 'storage' } as AccountEnvelope);
-    const failure: string | null = await this.sendTypingUpload(bridge, true);
-    if (failure !== null) return JSON.stringify({ ok: false, error: failure } as AccountEnvelope);
-    return await this.typingUploadStatus(bridge);
-  }
-
-  /** 关闭上传：先在本地关掉，再删除云端副本。删除失败时开关仍是关的，回删除的错误码，页面据此提示云端副本没删掉。 */
-  private async disableTypingUpload(bridge: HarmonyAccountCloudBridge): Promise<string> {
-    const state: TypingUploadStateReply =
-      await this.typingUploadNative({ operation: 'set_upload_enabled', enabled: false });
-    if (state.ok !== true) return JSON.stringify({ ok: false, error: 'storage' } as AccountEnvelope);
-    const reply: AccountEnvelope = JSON.parse(await bridge.typingStatisticsDelete()) as AccountEnvelope;
-    if (reply.ok !== true) {
-      return JSON.stringify({ ok: false, error: reply.error ?? 'account_unavailable' } as AccountEnvelope);
-    }
-    return await this.typingUploadStatus(bridge);
-  }
-
-  /** 发一次上传：存储说不用发（没打开、不到十分钟、没有字数）时什么也不做。成功返回 null，失败返回错误码；发送失败不用告诉存储，下一次照样交回请求。 */
-  private async sendTypingUpload(bridge: HarmonyAccountCloudBridge, force: boolean): Promise<string | null> {
-    const prepared: TypingUploadPreparedReply = JSON.parse(await client.typingStatisticsAsync(JSON.stringify({
-      directory: this.stateDirectory,
-      action: {
-        operation: 'upload_request', day: TypingStatisticsPolicy.day(new Date()), platform: 'harmony', force: force
-      }
-    } as TypingUploadNativeRequest))) as TypingUploadPreparedReply;
-    if (prepared.ok !== true || prepared.value === undefined) return 'storage';
-    const value: TypingUploadPrepared = prepared.value;
-    if (typeof value.skip === 'string') return null;
-    if (typeof value.device !== 'string' || value.body === undefined) return 'storage';
-    const sent: AccountEnvelope = JSON.parse(await bridge.typingStatisticsUpload(value.body)) as AccountEnvelope;
-    if (sent.ok !== true) return sent.error ?? 'account_unavailable';
-    const recorded: TypingUploadStateReply =
-      await this.typingUploadNative({ operation: 'upload_succeeded', device: value.device });
-    return recorded.ok === true ? null : 'storage';
-  }
-
-  private async typingUploadStatus(bridge: HarmonyAccountCloudBridge): Promise<string> {
-    const state: TypingUploadStateReply = await this.typingUploadNative({ operation: 'upload_status' });
-    if (state.ok !== true || state.value === undefined) {
-      return JSON.stringify({ ok: false, error: 'storage' } as AccountEnvelope);
-    }
-    const status: TypingUploadPageStatus = {
-      enabled: state.value.enabled === true,
-      lastUploadMs: typeof state.value.lastUploadMs === 'number' ? state.value.lastUploadMs : null,
-      signedIn: bridge.signedIn()
-    };
-    return JSON.stringify({ ok: true, value: status } as TypingUploadPageReply);
-  }
-
-  private async typingUploadNative(action: TypingUploadNativeAction): Promise<TypingUploadStateReply> {
-    const request: TypingUploadNativeRequest = { directory: this.stateDirectory, action: action };
-    try {
-      return JSON.parse(await client.typingStatisticsAsync(JSON.stringify(request))) as TypingUploadStateReply;
-    } catch {
-      return { ok: false, error: 'storage' };
-    }
+    return this.accountBridge.typingUpload(document);
   }
 
   /** 记下应用了某个皮肤，供「换装达人」徽章使用。皮肤 id 的形式由存储决定；这里只限制大小。 */

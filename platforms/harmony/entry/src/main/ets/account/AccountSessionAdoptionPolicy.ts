@@ -1,0 +1,130 @@
+/**
+ * 设置应用和键盘两个沙箱之间的会话镜像（#8201 第 2 步，迁移差异 M2、M5）：各自的 `files/state` 里是各自的会话文件，另一边经共享沙箱发布的那一份由 Rust 的 `session_adopt` 在本沙箱的 `account-refresh.lock` 里按 `user.id` 和 `expires_at` 决定要不要采用，宿主不再整份覆盖。
+ *
+ * 顺序是这里的要点：服务端每次刷新都轮换刷新令牌，拿用过的那枚再刷新超过 30 秒宽限就是重放，整个会话族被撤销。所以每个沙箱在回到前台、发任何认证请求之前，都要先采用另一边发布的会话；`SerialGate` 把采用排成一条队，认证请求先等队里已有的采用做完。
+ *
+ * 这里只有规则：拼请求、读回答、决定哪一份发布物值得再采用一次、失败时怎么写日志。NAPI 调用和文件路径在 `AccountSessionAdoption.ets`。
+ */
+
+type JsonObject = Record<string, unknown>;
+
+function jsonObject(value: unknown): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** 镜像里两份会话：登录会话 `account-session.json` 与本机匿名账号的 `anonymous-session.json`，名字与 `SharedStateMirrorPolicy` 的条目名相同。 */
+export const ADOPTED_SESSIONS: readonly AdoptedSession[] = [
+  { item: "account", entry: "account-session" },
+  { item: "anonymous", entry: "anonymous-session" },
+];
+
+export interface AdoptedSession {
+  /** `session_adopt` 的 `item`。 */
+  readonly item: string;
+  /** 镜像清单里的条目名。 */
+  readonly entry: string;
+}
+
+/**
+ * `msime_client_account` 的 `session_adopt` 请求。`publishedPath` 是发布方那份会话文件的绝对路径；发布方的清单说它没有这份会话时为 null，Rust 据此按「发布方没有」处理（登录会话在 `from:"settings"` 时清掉本地的，匿名会话一律不动）。`from` 是发布方：键盘采用设置应用发布的是 `settings`，设置应用采用键盘发布的是 `keyboard`。
+ */
+export function sessionAdoptRequest(
+  directory: string,
+  publishedPath: string | null,
+  item: string,
+  from: string,
+): string {
+  const action: JsonObject = { operation: "session_adopt", item, from };
+  if (publishedPath !== null) action.path = publishedPath;
+  return JSON.stringify({ directory, action });
+}
+
+/** `session_adopt` 的结果：`adopted`、`unchanged`、`cleared` 之一；失败时 `outcome` 为空串，`error` 是错误码。 */
+export interface AdoptionResult {
+  readonly outcome: string;
+  readonly error: string;
+}
+
+const OUTCOMES: readonly string[] = ["adopted", "unchanged", "cleared"];
+
+export function adoptionResult(reply: string): AdoptionResult {
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(reply);
+  } catch {
+    return { outcome: "", error: "account_unavailable" };
+  }
+  if (!jsonObject(envelope)) return { outcome: "", error: "account_unavailable" };
+  if (envelope.ok !== true) {
+    const error: unknown = envelope.error;
+    return {
+      outcome: "",
+      error: typeof error === "string" && error.length > 0 ? error : "account_unavailable",
+    };
+  }
+  const value: unknown = envelope.value;
+  const outcome: unknown = jsonObject(value) ? value.outcome : undefined;
+  return typeof outcome === "string" && OUTCOMES.includes(outcome)
+    ? { outcome, error: "" }
+    : { outcome: "", error: "account_unavailable" };
+}
+
+/**
+ * 采用失败时写进日志的那一句，同一份发布物只写一次（键盘每次获得焦点都会再试）。
+ *
+ * `account_storage` 单独说明：Rust 读发布文件的规则与本目录的会话文件相同，文件属主必须等于所在目录的属主（迁移差异 M1）。data-group 目录的属主在真机上还没有核对过；不一致时每次采用都是这个码，键盘永远拿不到设置应用里的登录，所以这句要写清楚是哪一条规则、该去查什么。
+ */
+export function adoptionFailureMessage(item: string, from: string, error: string): string {
+  if (error === "account_storage") {
+    return (
+      `session adopt from ${from} refused for ${item}: account_storage. ` +
+      "The published session file failed Rust's ownership or permission check (owner must equal the owner of its directory, no other-user bits); " +
+      "check `ls -ln` of the shared directory and its account-session.json on the device (migration difference M1)"
+    );
+  }
+  return `session adopt from ${from} refused for ${item}: ${error}`;
+}
+
+/**
+ * 记住每份发布物最后一次成功采用时的指纹，指纹没变就不再调 Rust：同一份发布物再采用一次，结论只能是 `unchanged`，而每次调用都要拿一次 `account-refresh.lock`。失败的不记，下一次照样再试；同一份发布物的失败只报告一次。
+ */
+export class AdoptionTracker {
+  private readonly adopted: Map<string, string> = new Map<string, string>();
+  private readonly reported: Map<string, string> = new Map<string, string>();
+
+  /** 这份发布物（发布方、条目、指纹）还要不要采用。 */
+  due(from: string, item: string, fingerprint: string): boolean {
+    return this.adopted.get(`${from}/${item}`) !== fingerprint;
+  }
+
+  succeeded(from: string, item: string, fingerprint: string): void {
+    this.adopted.set(`${from}/${item}`, fingerprint);
+    this.reported.delete(`${from}/${item}`);
+  }
+
+  /** 记下一次失败；这份发布物第一次失败时返回要写的日志，之后返回 null。 */
+  failed(from: string, item: string, fingerprint: string, error: string): string | null {
+    const key: string = `${from}/${item}`;
+    const marker: string = `${fingerprint}/${error}`;
+    if (this.reported.get(key) === marker) return null;
+    this.reported.set(key, marker);
+    return adoptionFailureMessage(item, from, error);
+  }
+}
+
+/**
+ * 一条只进不退的异步队列：`run` 把任务排在已有任务之后，任务的失败不传给后面的任务；`settled` 给出「此刻已经排进来的任务都做完」的 promise，认证请求先等它。
+ */
+export class SerialGate {
+  private tail: Promise<void> = Promise.resolve();
+
+  run(task: () => Promise<void>): Promise<void> {
+    const next: Promise<void> = this.tail.then(task).catch((): void => undefined);
+    this.tail = next;
+    return next;
+  }
+
+  settled(): Promise<void> {
+    return this.tail;
+  }
+}

@@ -1,8 +1,8 @@
-import { AccountCloudBridge } from '../../account/AccountCloudBridge';
-import {
-  FileSessionStore, HarmonyAccountTransport, HarmonyCloudClipboardE2e
-} from '../../account/HarmonyAccountTransport';
-import { sha256Hex } from '../CredentialCrypto';
+import client from 'libmsimeclient.so';
+import { AccountSessionAdoption } from '../../account/AccountSessionAdoption';
+import { HarmonyAccountIdentity } from '../../account/HarmonyAccountIdentity';
+import { RequestPlan, cloudClipboardRequest, statusUserId } from '../../account/HarmonyAccountRequests';
+import { KeyboardLog, describeError } from '../KeyboardLog';
 import {
   CloudClipboardListing, CloudClipboardPolicy, CloudClipboardSendOutcome, CloudClipboardState
 } from './CloudClipboardPolicy';
@@ -11,75 +11,81 @@ export interface CloudClipboardBoundListing extends CloudClipboardListing {
   readonly binding: string | null;
 }
 
-interface CloudClipboardListAction {
+interface ListAction {
   operation: string;
-  clipboard_operation: string;
   search: string;
 }
 
+interface AddAction {
+  operation: string;
+  text: string;
+}
+
 /**
- * The keyboard extension's view of the account's cloud clipboard.
+ * 键盘扩展眼中的账号云剪贴板（#8201 第 2 步）。
  *
- * It holds no credentials. Every operation opens the session file the settings application signed in with, in the `files/state` directory both processes share, and goes through the same `AccountCloudBridge` that page uses, so expiry, single-use refresh tokens and sign-out are handled in one place. Reading the file each time rather than keeping a bridge alive is what makes a sign-out or a different sign-in in the settings page take effect here without any notification between the processes.
+ * 会话、刷新和端到端加密都在 Rust（`msime_client_account_cloud_clipboard`，目录是键盘沙箱自己的 `files/state`，设置应用里的登录经会话镜像采用过来）。每个请求之前先等本进程的会话镜像做完，免得拿已经被设置应用用过的刷新令牌去刷新。键盘只用 `list` 和 `add`；设备的批准、拒绝、移除和重置在设置页里做。
  *
- * 列表和上传经端到端加密驱动，本机密钥串 `cloud-clipboard-keystore` 与会话同目录，与设置应用共用一份。键盘只用 `list` 和 `add`；设备的批准、拒绝、移除和重置在设置页里做。
+ * 列表绑定的是读到它时登录的账号 id：退出登录或换了账号以后旧列表和待发送项作废，同一个账号的令牌轮换或重新登录不再作废它，与 Rust 只按 user.id 绑定一致（迁移差异 M29）。
  */
 export class CloudClipboardClient {
   private readonly stateDirectory: string;
-  private readonly transport: HarmonyAccountTransport = new HarmonyAccountTransport();
 
   constructor(stateDirectory: string) {
     this.stateDirectory = stateDirectory;
   }
 
-  /** A signed-out keyboard answers from the session file alone and never touches the network for this. */
+  /** 没有登录时只读本地会话文件，不联网。 */
   async list(): Promise<CloudClipboardBoundListing | null> {
     if (this.stateDirectory.length === 0) return { state: CloudClipboardState.FAILED, items: [], binding: null };
-    const bridge: AccountCloudBridge = this.bridge();
-    if (bridge.currentUserId() === null) return { state: CloudClipboardState.SIGNED_OUT, items: [], binding: null };
-    const action: CloudClipboardListAction = { operation: 'clipboard', clipboard_operation: 'list', search: '' };
-    const listing: CloudClipboardListing = CloudClipboardPolicy.parseList(await bridge.handle(JSON.stringify(action)));
-    const binding: string | null = await this.bindingFor(bridge);
-    if (binding === null) {
-      if (this.bridge().currentUserId() !== null) return null;
-      const signedOut: CloudClipboardBoundListing = { state: CloudClipboardState.SIGNED_OUT,
-        items: [], binding: null };
+    await AccountSessionAdoption.settled();
+    const before: string | null = this.userId();
+    if (before === null) return { state: CloudClipboardState.SIGNED_OUT, items: [], binding: null };
+    const action: ListAction = { operation: 'list', search: '' };
+    const listing: CloudClipboardListing = CloudClipboardPolicy.parseList(await this.send(JSON.stringify(action)));
+    const after: string | null = this.userId();
+    if (after !== before) {
+      if (after !== null) return null;
+      const signedOut: CloudClipboardBoundListing = { state: CloudClipboardState.SIGNED_OUT, items: [], binding: null };
       return signedOut;
     }
-    return { state: listing.state, items: listing.items, binding: binding };
+    return { state: listing.state, items: listing.items, binding: before };
   }
 
   async add(text: string, expectedBinding: string): Promise<CloudClipboardSendOutcome> {
     if (!CloudClipboardPolicy.validText(text)) return CloudClipboardSendOutcome.INVALID;
     if (this.stateDirectory.length === 0 || expectedBinding.length === 0) return CloudClipboardSendOutcome.FAILED;
-    const bridge: AccountCloudBridge = this.bridge();
-    if (bridge.currentUserId() === null) return CloudClipboardSendOutcome.SIGNED_OUT;
-    if (await this.bindingFor(bridge) !== expectedBinding) return CloudClipboardSendOutcome.FAILED;
-    const outcome: CloudClipboardSendOutcome = CloudClipboardPolicy.parseSend(
-      await bridge.addClipboardForCurrentSession(text));
-    return await this.bindingFor(bridge) === null ? CloudClipboardSendOutcome.FAILED : outcome;
+    await AccountSessionAdoption.settled();
+    const current: string | null = this.userId();
+    if (current === null) return CloudClipboardSendOutcome.SIGNED_OUT;
+    if (current !== expectedBinding) return CloudClipboardSendOutcome.FAILED;
+    const action: AddAction = { operation: 'add', text: text };
+    const outcome: CloudClipboardSendOutcome = CloudClipboardPolicy.parseSend(await this.send(JSON.stringify(action)));
+    return this.userId() === null ? CloudClipboardSendOutcome.FAILED : outcome;
   }
 
   async matches(binding: string): Promise<boolean> {
     if (this.stateDirectory.length === 0 || binding.length === 0) return false;
-    return await this.bindingFor(this.bridge()) === binding;
+    return this.userId() === binding;
   }
 
-  /** Hash the validated stored document. Only the digest leaves this method; a rotation or new login invalidates old rows. */
-  private async bindingFor(bridge: AccountCloudBridge): Promise<string | null> {
-    if (!bridge.matchesStoredSession()) return null;
-    const document: string | null = new FileSessionStore(this.stateDirectory).load();
-    if (document === null || !bridge.matchesStoredSession()) return null;
+  private userId(): string | null {
     try {
-      const binding: string = await sha256Hex(document);
-      return bridge.matchesStoredSession() ? binding : null;
-    } catch {
+      return statusUserId(client.accountStatus(this.stateDirectory));
+    } catch (error) {
+      KeyboardLog.error(`cloud clipboard: account status unreadable: ${describeError(error)}`);
       return null;
     }
   }
 
-  private bridge(): AccountCloudBridge {
-    return new AccountCloudBridge(this.transport, new FileSessionStore(this.stateDirectory), undefined,
-      new HarmonyCloudClipboardE2e(this.stateDirectory));
+  private async send(action: string): Promise<string> {
+    const plan: RequestPlan = cloudClipboardRequest(this.stateDirectory, HarmonyAccountIdentity.deviceName(), action);
+    if (plan.refusal.length > 0) return plan.refusal;
+    try {
+      return await client.accountCloudClipboard(plan.request);
+    } catch (error) {
+      KeyboardLog.error(`cloud clipboard request failed: ${describeError(error)}`);
+      return '{"ok":false,"error":"account_unavailable"}';
+    }
   }
 }

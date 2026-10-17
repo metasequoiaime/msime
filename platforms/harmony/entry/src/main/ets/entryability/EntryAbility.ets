@@ -8,7 +8,10 @@ import { BusinessErrorPolicy } from '../keyboard/BusinessErrorPolicy';
 import { describeError } from '../keyboard/KeyboardLog';
 import { SettingsPageLink } from '../keyboard/SettingsPageLink';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
-import client from 'libmsimeclient.so';
+import { SharedStateMirror } from '../keyboard/SharedStateMirror';
+import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
+import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
+import { HarmonyAccountIdentity } from '../account/HarmonyAccountIdentity';
 
 /**
  * The application the keyboard belongs to.
@@ -46,10 +49,16 @@ export default class EntryAbility extends UIAbility {
     EntryAbility.pendingPage = EntryAbility.linkedPage(want);
     // Sends what usage reporting has queued (and today's active) when the switch is on; the keyboard owns the sessions.
     HarmonyTelemetry.applicationStarted(`${this.context.filesDir}/state`);
-    // The device's anonymous MSIME account is registered on first launch rather than on the first feature that needs it; once its session is saved this only reads a file. A failure is retried on the next launch or keyboard start.
-    client.ensureAnonymousAccount(`${this.context.filesDir}/state`).catch((error: Error): void => {
-      KeyboardLog.error(`anonymous account: ${describeError(error)}`);
-    });
+    // 键盘经共享沙箱发布的会话要在本进程第一个认证请求之前采用过来（迁移差异 M2），所以进程一创建就占住会话镜像的队列；设置页、反馈、匿名注册的请求都排在它后面。
+    const files: string = this.context.filesDir;
+    const mirror: Promise<SharedStateMirror | null> = SharedStateMirror.resolve(this.context)
+      .then((groupDir: string | null): SharedStateMirror | null => {
+        const status = HarmonySharedSandboxPolicy.status(groupDir);
+        return status.available ? new SharedStateMirror(status.directory, files) : null;
+      });
+    AccountSessionAdoption.adoptOnStart(mirror, `${files}/state`, 'keyboard', (): boolean => true);
+    // 本机匿名账号在第一次启动时注册，而不是等到第一个要用它的功能；会话存下以后这里只读一次文件。失败时下一次启动或键盘启动再试。
+    HarmonyAccountIdentity.ensureAnonymous(`${files}/state`);
   }
 
   /**

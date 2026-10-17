@@ -38,6 +38,19 @@ interface ReplyRequest {
 /** 浏览器回跳页上「回到水杉输入法」按钮的链接。手机上浏览器占满屏幕，用户得自己找回应用；这个链接由 module.json5 里 EntryAbility 的 `msime://auth` 技能接住，`onNewWant` 不带页面参数，应用只是回到前台，登录在这里接着完成。 */
 const RETURN_LINK: string = 'msime://auth/google';
 
+/** 经 Rust 申请回环流程的 challenge（`msime_client_account` 的 `google_challenge`）。 */
+interface ChallengeRequest {
+  operation: string;
+  target: string;
+}
+
+/** 回跳带回授权码以后经 Rust 登录（`google_code_login`）。 */
+interface CodeLoginRequest {
+  operation: string;
+  challenge_id: string;
+  code: string;
+}
+
 interface TargetValue {
   target: string;
 }
@@ -56,10 +69,11 @@ interface CallbackValue {
   response: string;
 }
 
+/** Rust `google_challenge {target}` 的回答：授权链接已经校验过是指向这个回跳地址的 Google 授权链接。 */
 interface ChallengeValue {
-  challenge_id?: string;
-  expires_in?: number;
-  authorization_url?: string;
+  challengeId?: string;
+  expiresIn?: number;
+  authorizationUrl?: string;
 }
 
 interface AccountReply {
@@ -94,7 +108,7 @@ export class HarmonyGoogleSignIn {
     this.account = account;
   }
 
-  /** 完成一次 Google 登录，返回与账号桥 `login` 同形状的回复文档。新的一次会结束还在进行的上一次。 */
+  /** 完成一次 Google 登录，返回与 Rust `login` 同形状的回复文档（`{user}`）。新的一次会结束还在进行的上一次。 */
   async signIn(): Promise<string> {
     this.cancel();
     const generation: number = ++this.generation;
@@ -112,9 +126,8 @@ export class HarmonyGoogleSignIn {
       if (target === null) {
         return this.failure('account_unavailable');
       }
-      const challengeDocument: string = await this.account(JSON.stringify({
-        operation: 'request_code', provider: 'google', target: target.target
-      }));
+      const challengeRequest: ChallengeRequest = { operation: 'google_challenge', target: target.target };
+      const challengeDocument: string = await this.account(JSON.stringify(challengeRequest));
       const challenge: AccountReply = JSON.parse(challengeDocument) as AccountReply;
       if (challenge.ok !== true || challenge.value === undefined) {
         KeyboardLog.warn(`google sign-in: challenge refused ${challenge.error ?? '-'}`);
@@ -123,13 +136,13 @@ export class HarmonyGoogleSignIn {
       if (generation !== this.generation) {
         return this.failure('account_cancelled');
       }
-      const challengeId: string = challenge.value.challenge_id ?? '';
-      const authorizationUrl: string = challenge.value.authorization_url ?? '';
+      const challengeId: string = challenge.value.challengeId ?? '';
+      const authorizationUrl: string = challenge.value.authorizationUrl ?? '';
       const planRequest: PlanRequest = {
         operation: 'plan',
         authorization_url: authorizationUrl,
         target: target.target,
-        expires_in: challenge.value.expires_in ?? 0
+        expires_in: challenge.value.expiresIn ?? 0
       };
       const plan: PlanValue | null = this.native<PlanValue>(planRequest);
       if (plan === null || challengeId.length === 0) {
@@ -154,9 +167,10 @@ export class HarmonyGoogleSignIn {
       if (generation !== this.generation) {
         return this.failure('account_cancelled');
       }
-      const login: string = await this.account(JSON.stringify({
-        operation: 'google_login', challenge_id: challengeId, code: outcome.code
-      }));
+      const loginRequest: CodeLoginRequest = {
+        operation: 'google_code_login', challenge_id: challengeId, code: outcome.code
+      };
+      const login: string = await this.account(JSON.stringify(loginRequest));
       const reply: AccountReply = JSON.parse(login) as AccountReply;
       if (reply.ok === true) {
         KeyboardLog.info('google sign-in: signed in');

@@ -30,7 +30,13 @@ import {
   resolveSettingsTheme,
   settingsThemePreferences,
   useSettingsTheme,
+  type AccountChallenge,
   type AccountClient,
+  type AccountDeletion,
+  type AccountProfile,
+  type AccountProviders,
+  type AccountUser,
+  type CommunitySkinOperation,
   type AccountQqLink,
   type QqLinksClient,
   type AccountPreferences,
@@ -603,103 +609,45 @@ globalThis.msimeHarmonyOpenPage = (page: string) => {
 const GOOGLE_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
 
 function accountClient(native: NativeBridge): AccountClient {
+  // 操作名和回答都是 Rust `msime_client_account` 的（#8201 第 2 步），回答已经是共享账号页读的形状：user 是 {id,displayName,createdAt,email?,avatarUrl?,avatarUploaded?}，不再在这里换写法。
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
     bridgeRequest(native, "account", JSON.stringify(action)).then(unwrap<T>);
-  // 头像地址原样交给页面，页面据此决定何时重新取头像；图片本身由宿主的 `avatar` 下载（页面只放行 `data:` 图片），不认可的地址在宿主那边被拒绝。
-  const user = (value: {
-    id: string;
-    display_name: string;
-    created_at: string;
-    avatar_url?: string | null;
-  }) => ({
-    id: value.id,
-    displayName: value.display_name,
-    createdAt: value.created_at,
-    ...(typeof value.avatar_url === "string" && value.avatar_url.startsWith("https://")
-      ? { avatarUrl: value.avatar_url }
-      : {}),
-  });
-  const profile = (value: {
-    user: { id: string; display_name: string; created_at: string };
-    identities: { provider: string }[];
-  }) => ({
-    user: user(value.user),
-    providers: value.identities.map((identity) => identity.provider),
-  });
   return {
-    status: async () => {
-      const value = await request<{
-        user: { id: string; display_name: string; created_at: string } | null;
-      }>({ operation: "status" });
-      return { user: value.user ? user(value.user) : null };
-    },
-    providers: async () => {
-      const value = await request<{ providers: Record<string, boolean> }>({
-        operation: "providers",
-      });
-      return {
-        email: value.providers.email === true,
-        phone: value.providers.phone === true,
-        apple: value.providers.apple === true,
-        google: value.providers.google === true,
-      };
-    },
-    requestCode: async (provider, target) => {
-      const value = await request<{ challenge_id: string; expires_in: number }>({
-        operation: "request_code",
-        provider,
-        target,
-      });
-      return { challengeId: value.challenge_id, expiresIn: value.expires_in };
-    },
-    login: async (challengeId, code) => {
-      const value = await request<{
-        user: { id: string; display_name: string; created_at: string };
-      }>({ operation: "login", challenge_id: challengeId, credential: code });
-      return { user: value.user ? user(value.user) : null };
-    },
+    status: () => request<{ user: AccountUser | null }>({ operation: "status" }),
+    providers: () => request<AccountProviders>({ operation: "providers" }),
+    requestCode: (provider, target) =>
+      request<AccountChallenge>({ operation: "request_code", provider, target }),
+    login: (challengeId, code) =>
+      request<{ user: AccountUser | null }>({
+        operation: "login",
+        challenge_id: challengeId,
+        code,
+      }),
     // 宿主在 127.0.0.1 上监听、用系统浏览器打开 Google，等它跳回来再用授权码登录；页面只看到结果。
-    googleLogin: async () => {
-      const value = unwrap<{
-        user: { id: string; display_name: string; created_at: string };
-      }>(
+    googleLogin: async () =>
+      unwrap<{ user: AccountUser | null }>(
         await bridgeRequest(
           native,
           "account",
           JSON.stringify({ operation: "google_sign_in" }),
           GOOGLE_SIGN_IN_TIMEOUT_MS,
         ),
-      );
-      return { user: value.user ? user(value.user) : null };
-    },
+      ),
     googleCancel: async () => {
       await request({ operation: "google_cancel" });
     },
-    profile: async () =>
-      profile(
-        await request<{
-          user: { id: string; display_name: string; created_at: string };
-          identities: { provider: string }[];
-        }>({ operation: "profile" }),
-      ),
-    rename: async (displayName) =>
-      profile(
-        await request<{
-          user: { id: string; display_name: string; created_at: string };
-          identities: { provider: string }[];
-        }>({ operation: "rename", display_name: displayName }),
-      ),
-    // 头像的 `data:` 地址：宿主按 client-services 的头像规则从会话用户的地址下载并校验，没有头像或取不到时为 null，页面显示名字首字。
-    avatar: async () =>
-      (await request<{ data_url: string | null }>({ operation: "avatar" })).data_url ?? null,
+    profile: () => request<AccountProfile>({ operation: "profile" }),
+    rename: (displayName) =>
+      request<AccountProfile>({ operation: "rename", display_name: displayName }),
+    // 头像的 `data:` 地址：Rust 按头像规则从会话用户的地址下载并校验，没有头像时为 null，页面显示名字首字。
+    avatar: () => request<string | null>({ operation: "avatar" }),
     logout: async (all) => {
       await request({ operation: "logout", all });
     },
-    deleteAccount: async () => {
-      await request({ operation: "delete_account" });
-    },
+    // 需要最近登录时是 account_recent_login_required，本机登录保留；成功时带着本机匿名账号名下语音样本的删除结果。
+    deleteAccount: () => request<AccountDeletion>({ operation: "account_delete" }),
     clearExpired: async () => {
-      await request({ operation: "clear_expired" });
+      await request({ operation: "forget" });
     },
     settingsSync: settingsSyncClient(native),
     qqLinks: qqLinksClient(native),
@@ -778,18 +726,14 @@ function chatClient(native: NativeBridge): ChatClient {
   return {
     models: async () =>
       unwrap<ChatModels>(
-        await bridgeRequest(
-          native,
-          "chat",
-          JSON.stringify({ operation: "chat", chat_operation: "models" }),
-        ),
+        await bridgeRequest(native, "chat", JSON.stringify({ operation: "chat_models" })),
       ),
     complete: async (messages, model) =>
       unwrap<{ content: string }>(
         await bridgeRequest(
           native,
           "chat",
-          JSON.stringify({ operation: "chat", chat_operation: "complete", messages, model }),
+          JSON.stringify({ operation: "chat", messages, model }),
           130000,
         ),
       ).content,
@@ -809,24 +753,31 @@ function chatClient(native: NativeBridge): ChatClient {
  * with afterwards.
  */
 function communitySkinClient(native: NativeBridge): CommunitySkinClient {
-  const request = <T,>(operation: string, args: Record<string, unknown>): Promise<T> => {
-    const action =
-      operation === "list"
-        ? (() => {
-            const { mine, ...rest } = args;
-            return {
-              community_operation: operation,
-              ...rest,
-              ...(mine ? { scope: "mine" } : {}),
-            };
-          })()
-        : { community_operation: operation, ...args };
-    return bridgeRequest(
+  // 页面的操作换成 Rust `msime_client_community` 的 keyboard_skin_*；「获取」是 keyboard_skin_install（下载、开始试用并导入皮肤库），结束试用不联网，由宿主处理。
+  const operations: Record<CommunitySkinOperation, string> = {
+    list: "keyboard_skin_list",
+    detail: "keyboard_skin_detail",
+    download: "keyboard_skin_install",
+    rate: "keyboard_skin_rate",
+    publish: "keyboard_skin_publish",
+    unpublish: "keyboard_skin_unpublish",
+    set_category: "keyboard_skin_set_category",
+    finish_trial: "finish_trial",
+    report: "report",
+  };
+  const request = <T,>(
+    operation: CommunitySkinOperation,
+    args: Record<string, unknown>,
+  ): Promise<T> =>
+    bridgeRequest(
       native,
       "community_skin",
-      JSON.stringify({ operation: "community_skin", ...action }),
+      JSON.stringify({
+        operation: operations[operation],
+        ...args,
+        ...(operation === "report" ? { kind: "skins" } : {}),
+      }),
     ).then(unwrap<T>);
-  };
   return createCommunitySkinClient(request);
 }
 
@@ -843,24 +794,14 @@ function communitySkinClient(native: NativeBridge): CommunitySkinClient {
  */
 function communityResourceClient(native: NativeBridge): CommunityResourceClient {
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
-    bridgeRequest(
-      native,
-      "community_resource",
-      JSON.stringify({ operation: "community_resource", ...action }),
-    ).then(unwrap<T>);
+    bridgeRequest(native, "community_resource", JSON.stringify(action)).then(unwrap<T>);
   return {
     list: (kind, scope, search, offset) =>
-      request<CommunityResourcePage>({
-        resource_operation: "list",
-        kind,
-        scope,
-        search,
-        offset,
-      }),
-    detail: (id) => request<CommunityResource>({ resource_operation: "detail", id }),
+      request<CommunityResourcePage>({ operation: "resource_list", kind, scope, search, offset }),
+    detail: (id) => request<CommunityResource>({ operation: "resource_detail", id }),
     publish: async (id, kind, name, description, content, revision) => {
       await request({
-        resource_operation: "publish",
+        operation: "resource_publish",
         id,
         kind,
         name,
@@ -871,27 +812,34 @@ function communityResourceClient(native: NativeBridge): CommunityResourceClient 
     },
     apply: (id, resourceRevision) =>
       request<CommunityResourceApplication>({
-        resource_operation: "apply",
+        operation: "resource_apply",
         id,
         resource_revision: resourceRevision,
       }),
     save: async (id, saved) => {
-      await request({ resource_operation: "save", id, saved });
+      await request({ operation: "resource_save", id, saved });
     },
     rate: async (id, stars) => {
-      await request({ resource_operation: "rate", id, stars });
+      await request({ operation: "resource_rate", id, stars });
     },
     unpublish: async (id) => {
-      await request({ resource_operation: "unpublish", id });
+      await request({ operation: "resource_unpublish", id });
     },
     storeReply: async (item) => {
-      await request({ resource_operation: "store_reply", item });
+      await request({ operation: "store_reply", item });
     },
     removeReply: async (id) => {
-      await request({ resource_operation: "remove_reply", id });
+      await request({ operation: "remove_reply", id });
     },
+    // 举报的种类与桌面相同：词包是 dictionaries，回复模板和短语都按 replies。
     report: async (kind, id, reason, detail) => {
-      await request({ resource_operation: "report", kind, id, reason, detail });
+      await request({
+        operation: "report",
+        kind: kind === "dictionary" ? "dictionaries" : "replies",
+        id,
+        reason,
+        detail,
+      });
     },
   };
 }
@@ -1012,7 +960,7 @@ function localVoiceModelClient(native: NativeBridge): LocalVoiceModelClient {
 }
 
 /**
- * 云剪贴板面板的动作原样交给原生账号桥接：`operation` 改名为 `clipboard_operation`，其余字段（`search`、`text`、`id`、`enabled`、`device_id`）不动。列表、上传和 `devices`、`approve`、`reject`、`remove`、`reset` 在原生一侧经端到端加密驱动，结果是驱动给的形状；错误以 `{code}` 抛出，码是驱动或账号桥接给的（例如 `clipboard_device_pending`）。
+ * 云剪贴板面板的动作原样交给宿主，名字和字段与 Rust `msime_client_account_cloud_clipboard` 相同。列表、上传和 `devices`、`approve`、`reject`、`remove`、`reset` 在 Rust 里经端到端加密驱动，结果是驱动给的形状；错误以 `{code}` 抛出，码是驱动或账号入口给的（例如 `clipboard_device_pending`）。
  */
 function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
   type Response = Awaited<ReturnType<CloudClipboardPanelClient["request"]>>;
@@ -1020,11 +968,10 @@ function cloudClipboardClient(native: NativeBridge, close: () => void): CloudCli
     close: async () => close(),
     copyText: async (text) => native.copyText(text),
     request: async (action) => {
-      const { operation, ...payload } = action;
       const value = await bridgeRequest(
         native,
-        "account",
-        JSON.stringify({ operation: "clipboard", clipboard_operation: operation, ...payload }),
+        "cloud_clipboard",
+        JSON.stringify(action),
         // 一次操作是驱动依次发出的几个请求（首次使用时取密钥状态、登记本机、建钥、再取状态、列表），每个都有自己 30 秒的读超时，页面这边等得比单个请求久。
         CLOUD_CLIPBOARD_TIMEOUT_MS,
       );
@@ -1066,8 +1013,7 @@ function cloudDictionaryClient(
       unwrap<{ applied: boolean }>(native.cloudDictionaryDownload(JSON.stringify(entry)));
     },
     request: async (action: CloudDictionaryAction) => {
-      const { operation, ...payload } = action;
-      if (operation.startsWith("snapshot_")) {
+      if (action.operation.startsWith("snapshot_")) {
         const snapshot = await bridgeRequest(
           native,
           "cloud_dictionary_snapshot",
@@ -1076,11 +1022,8 @@ function cloudDictionaryClient(
         );
         return unwrap<Response>(snapshot);
       }
-      const value = await bridgeRequest(
-        native,
-        "cloud_dictionary",
-        JSON.stringify({ operation: "dictionary", dictionary_operation: operation, ...payload }),
-      );
+      // 名字和字段与 Rust `msime_client_cloud_dictionary` 相同；请求不合法时 Rust 报 invalid_cloud_dictionary，面板按每个动作自己的失败句子提示，不按码写文案。
+      const value = await bridgeRequest(native, "cloud_dictionary", JSON.stringify(action));
       return unwrap<Response>(value);
     },
   };
@@ -1319,6 +1262,7 @@ function makeClient(
             operation: "feedback",
             type: report.type,
             text: report.text,
+            platform: "harmony",
             diagnostics: report.diagnostics,
             app_version: native.appVersion(),
             edition: host.edition?.id ?? "full",

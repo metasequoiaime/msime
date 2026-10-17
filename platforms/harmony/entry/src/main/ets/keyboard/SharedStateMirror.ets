@@ -144,6 +144,11 @@ export class SharedStateMirror {
     return SharedStateMirror.readText(this.publishedPath(publisher, entry));
   }
 
+  /** 对方发布的某个条目在共享目录里的绝对路径，不管它此刻在不在。会话镜像把它交给 Rust 的 `session_adopt` 去读。 */
+  publishedFile(publisher: MirrorPublisher, entry: MirrorEntry): string {
+    return this.publishedPath(publisher, entry);
+  }
+
   localPath(entry: MirrorEntry): string {
     return entry.base === 'state' ? `${this.filesDir}/state/${entry.path}` : `${this.filesDir}/${entry.path}`;
   }

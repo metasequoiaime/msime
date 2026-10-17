@@ -3,8 +3,8 @@ import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
-import { FileSessionStore } from '../account/HarmonyAccountTransport';
-import { storedSessionUserId } from '../account/AccountCloudBridge';
+import { statusUserId } from '../account/HarmonyAccountRequests';
+import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
 import { utf8Length, utf8WriteComplete } from './Utf8';
 import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
@@ -3142,7 +3142,12 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.sharedMirror === null || this.stateDirectory.length === 0) {
       return;
     }
-    const imported: string[] = SharedStateSync.keyboardSync(this.sharedMirror, this.stateDirectory, this.sharedFullMode());
+    const fullMode: boolean = this.sharedFullMode();
+    const imported: string[] = SharedStateSync.keyboardSync(this.sharedMirror, this.stateDirectory, fullMode);
+    // 设置应用发布的会话由 Rust 在锁里决定要不要采用；云剪贴板这类认证请求先等它做完。基础访问模式下键盘不交换会话。
+    if (fullMode) {
+      AccountSessionAdoption.adopt(this.sharedMirror, this.stateDirectory, 'settings');
+    }
     if (imported.includes('dictionary-selection') && this.handle !== 0) {
       const resources: string = this.resourceDirectory;
       const state: string = this.stateDirectory;
@@ -3417,8 +3422,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     const staging: string = `${stateRoot}/dictionary-snapshot-staging`;
     try {
       if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
-      // 每次空闲处理都重新读共享的会话文件：键盘进程可能比设置里的一次账号切换活得更久。
-      const accountId: string | null = storedSessionUserId(new FileSessionStore(stateRoot).load());
+      // 每次空闲处理都重新读本沙箱的会话文件（目录模式的 status，只读本地文件）：键盘进程可能比设置里的一次账号切换活得更久。
+      const accountId: string | null = statusUserId(client.accountStatus(stateRoot));
       const action: SnapshotQueueProcessAction = {
         operation: 'process', directory: `${stateRoot}/dictionary-snapshots`,
         staging_root: staging, options: options, account_id: accountId

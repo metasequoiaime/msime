@@ -5,7 +5,6 @@ import { KeyboardSession, KeyboardPreferences } from '../keyboard/KeyboardSessio
 import { CandidateAnchor, CandidateAnchorPolicy } from './CandidateAnchorPolicy';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import fs from '@ohos.file.fs';
-import client from 'libmsimeclient.so';
 import display from '@ohos.display';
 import window from '@ohos.window';
 import ConfigurationConstant from '@ohos.app.ability.ConfigurationConstant';
@@ -38,6 +37,8 @@ import { HeldKeys, KeyIdPolicy } from '../keyboard/KeyIdPolicy';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
 import { SharedStateMirror } from '../keyboard/SharedStateMirror';
+import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
+import { HarmonyAccountIdentity } from '../account/HarmonyAccountIdentity';
 import { SharedStateSync } from '../keyboard/SharedStateSync';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
@@ -873,18 +874,21 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         fs.mkdirSync(state, true);
       }
       // 设置应用经共享沙箱发布的偏好、皮肤、插件等，在会话第一次读它们之前导入；拿不到共享目录时照旧只用自己的 files/state。
-      const groupDir: string | null = await SharedStateMirror.resolve(this.context);
-      const sharedSandbox = HarmonySharedSandboxPolicy.status(groupDir);
-      if (sharedSandbox.available) {
-        const mirror: SharedStateMirror = new SharedStateMirror(sharedSandbox.directory, files);
-        const fullMode = (): boolean => this.fullAccessMode();
+      const fullMode = (): boolean => this.fullAccessMode();
+      const resolving: Promise<SharedStateMirror | null> = SharedStateMirror.resolve(this.context)
+        .then((groupDir: string | null): SharedStateMirror | null => {
+          const status = HarmonySharedSandboxPolicy.status(groupDir);
+          return status.available ? new SharedStateMirror(status.directory, files) : null;
+        });
+      // 在拿到共享目录之前就占住会话镜像的队列：设置应用发布的会话要先采用过来，本进程的认证请求（匿名注册、云剪贴板）都排在它后面（迁移差异 M2）。
+      AccountSessionAdoption.adoptOnStart(resolving, state, 'settings', fullMode);
+      const mirror: SharedStateMirror | null = await resolving;
+      if (mirror !== null) {
         KeyboardSession.shared.useSharedSandbox(mirror, fullMode);
         SharedStateSync.keyboardSync(mirror, state, fullMode());
       }
       // 覆盖从未打开应用就启用键盘的场景；应用首次启动也会注册账号，由先运行的一方完成。
-      client.ensureAnonymousAccount(state).catch((error: Error): void => {
-        KeyboardLog.error(`anonymous account: ${describeError(error)}`);
-      });
+      HarmonyAccountIdentity.ensureAnonymous(state);
       // 每个键盘进程只启动一个用量上报会话；在下方提前返回之前创建，让没有面板的进程也能上报。
       HarmonyTelemetry.keyboardStarted(state);
       if (!StagedResources.stage(`${this.context.resourceDir}/engine`, resources,

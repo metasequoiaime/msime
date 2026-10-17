@@ -31,9 +31,9 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 
 云联想与 AI 联想复用 Engine 的 `online_query` 代际契约：Harmony NAPI 只传递有界查询和结果，ArkTS 通过系统 HTTPS 栈异步访问云候选或用户配置的 Chat Completions 服务，结果再交回 Engine 做会话、偏好和 generation 校验。请求防抖、超时、响应大小、重复候选和控制字符检查均在宿主边界完成，失败只丢弃可选展示结果，不阻塞本地输入，也不把查询或响应写入日志。用户配置的 AI 服务地址经 NAPI 的 `aiEndpointCheck`（`msime_client_ai_endpoint_check`）交给 `crates/client-providers/src/ai/endpoint.rs` 检查，`keyboard/settings/AiEndpoint.ets` 调用、`AiEndpointPolicy.ts` 读回答，宿主不再自己判断：https 不限主机，http 只能指向本机或局域网（回环、私有地址、`100.64.0.0/10`、链路本地、IPv6 唯一本地地址、`.local`），这样 LM Studio 这类本地模型服务可以直接用 `http://192.168.x.x:1234/v1`，公网主机仍然只走 https。本工程没有 `network_config.json`，按 HarmonyOS 网络安全配置的默认值（`cleartextTrafficPermitted` 未配置时允许明文），系统 http 模块不会拦下这类请求；这一点尚未在设备上验证，若设备报 2300997（Cleartext traffic not permitted），再在 `entry/src/main/resources/base/profile/network_config.json` 里按需放开。
 
-共享设置页的「AI 对话」现在也由 Harmony 承载，对应 MSIME-Apple 的 `KeyboardChatView` 与 `BackendChatClient`。它与「AI」页那个用户自配的服务不是一回事：后者带着用户自己的 endpoint 和 token，而这一个用宿主已经持有的账号会话认证，所以页面只在登录后才提供它，WebView 全程看不到任何凭据。模型列表走 `/v1/models`，回复走 `/v1/chat/completions`，请求与响应的边界在 `AccountCloudBridge` 里校验，数值与 Apple 的 `BackendChatClient` 逐条对齐——16 条历史、单条 16 KB、请求体 64 KB、模型 id 200 字节、最多 33 个模型且默认模型必须在列表内。回复内容按字节设限而不按字符类别：这里的换行是内容而不是控制字符，按桥上其它校验器的规则会把每一条分段的回答都拒掉。
+共享设置页的「AI 对话」现在也由 Harmony 承载，对应 MSIME-Apple 的 `KeyboardChatView` 与 `BackendChatClient`。它与「AI」页那个用户自配的服务不是一回事：后者带着用户自己的 endpoint 和 token，而这一个用宿主已经持有的账号会话认证（没有登录时用本机匿名账号，额度按匿名账号算），WebView 全程看不到任何凭据。模型列表是 Rust `msime_client_account` 的 `chat_models`，回复是 `chat`，请求与响应的边界都在 Rust 里校验（16 条历史、单条 16 KiB、请求体 64 KiB），与其他平台相同。`chat` 最长阻塞 125 秒，NAPI 的 `accountThread` 给它单独起一个线程，不占工作线程池。
 
-完成请求单独走一条 `chat` 请求类型，为的是它自己的期限。一次补全是模型在写字，共享客户端给它 125 秒；与账号请求共用一条通道就只有两种结果——要么把还差一点就返回的补全提前判成超时（随后到达的回复会因为没人在等那个编号而被丢弃），要么让一次卡住的资料拉取也空转两分钟。读超时因此是每请求的，连接超时仍是统一的 30 秒：连不上就是连不上，哪个端点都一样。
+完成请求单独走一条 `chat` 请求类型，为的是它自己的期限。一次补全是模型在写字，共享客户端给它 125 秒；与账号请求共用一条通道就只有两种结果——要么把还差一点就返回的补全提前判成超时（随后到达的回复会因为没人在等那个编号而被丢弃），要么让一次卡住的资料拉取也空转两分钟。
 
 账号页的「设置同步」也由 Harmony 承载，对应 MSIME-Apple 的 `SettingsSyncView` 与 `IOSPreferencePlan`。账号存的不是本机那份偏好文档，而是一张键名由服务端 schema 声明的标量表，每个宿主把自己的文档映射到它认识的那个子集上——这层间接正是要点：鸿蒙手机和 iPhone 在窗口装饰、工具栏、硬件和弦上几乎没有一处相同，但它们对"用户在用哪套输入方案"、"学习开不开"是一致的。
 
@@ -55,7 +55,7 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 
 id 会进 URL 路径，所以在进去之前先按形状校验：把页面给的任何字符串直接插进去，等于让页面把一个皮肤 id 变成另一个端点。失败码用 `community_*` 而不是 `account_*`——社区页面对"已达到发布上限"、"自己的作品不能评分"各有措辞，换成账号码就只剩那一句通用的。
 
-下载是唯一不止一次请求的操作：设计要经系统 HTTPS 栈取回，再装到键盘上并存进皮肤库，而后两步是一次原生调用 `msime_client_community_skin_install`。合在一起不是为了省一次跳转——试用记录正是"被换掉的是哪套皮肤"的记忆，导入失败必须把它结束掉，否则用户身上是一套从未保存、也无从还原的设计。两次调用意味着这段回滚归宿主所有，而每个拥有它的宿主都会写得略有不同。
+「获取」是 Rust `msime_client_community` 的 `keyboard_skin_install`：下载设计、开始试用并导入皮肤库是一次调用，导入失败时 Rust 把刚开始的试用结束掉——试用记录正是"被换掉的是哪套皮肤"的记忆，导入失败必须把它结束掉，否则用户身上是一套从未保存、也无从还原的设计。没有登录时用本机匿名账号下载，所以未登录也能获取皮肤。装好以后宿主把新的偏好文档推给页面。
 
 试用的结束不碰网络：保留还是还原，是对一套已经生效的皮肤的回答，由设备作答。`restore_pending` 是崩溃恢复，在没有待处理试用时调用也是安全的——它运行的时刻正是还没人知道上次会话是不是停在试用中间的时候。
 
@@ -71,29 +71,37 @@ id 会进 URL 路径，所以在进去之前先按形状校验：把页面给的
 
 请求信封上限从 64 KB 提到 512 KB。每个操作仍各自校验自己的载荷，这一条只是解析前拦掉荒谬输入的第一道；但发布一份社区词库最多带 128 条、每条最长 1024 字符，而服务端允许 350,000 字节内容，64 KB 的信封会在本宿主上拒掉服务端本会接受的资源。
 
-AI 生成皮肤也由 Harmony 承载，对应 MSIME-Apple 的 `AISkinGenerationView` 与 `AISkinService`。`BackendAiSkinService::generate` 在 Rust 里跑完整条流水线，HTTP 归 Rust 的宿主直接用它；本宿主的设置界面走系统 HTTPS 栈，所以自己发这四类请求，把不属于传输的那部分问共享客户端：对模型说什么、回答是不是三套可用的设计、返回的图是不是这个客户端会显示的图。这跟候选那边 `aiRequestForQuery` / `parseAiResponse` 的切法是同一个。
+AI 生成皮肤也由 Harmony 承载，对应 MSIME-Apple 的 `AISkinGenerationView` 与 `AISkinService`。整条流水线（提示词、模型调用、解析三套设计、三张插画的任务和轮询、失败时停掉其余任务、任务无论怎样结束都释放）在 Rust 的 `msime_client_ai_skin_generate` 里，与其他平台相同；NAPI 的 `aiSkinGenerate` 给它单独起一个线程，取消是 `aiSkinCancel`。没有登录时用本机匿名账号，额度按匿名账号算。
 
-指令和解析器不能分开。系统提示词点名了解析器唯一接受的那份文档结构，所以 `compose` 把提示词一并返回，而不是让宿主自己写一份——自己写等于在向模型要一份解析器并非为之而写的文档。
-
-步骤之间的规则放在 `AiSkinRunPolicy`，请求放在 `HarmonyAiSkins`。会出问题的是规则那一半：取消要在每一步之间生效而不只在开头；一个任务失败要停掉另外两个，而不是让它们继续为一套没人会看到的方案出图；任务无论成功、失败还是被放弃都要释放——那是记在用户账号上的上游任务，设备上不会再有任何东西回去停它；进度按已完成的图片计数，因为对着屏幕等的人只关心这个数。这些都不需要网络就能测。
-
-进度单独走一条通道，不混在回复里，方向与偏好变更通知相同，并带上页面自己选的 request id：三张图要几分钟，一次从头到尾不吭声的运行和一次已经停了的运行在屏幕上没有区别；而过期运行的计数器不该去驱动新运行的显示。
+进度单独走一条通道，不混在回复里，方向与偏好变更通知相同，并带上页面自己选的 request id：三张图要几分钟，一次从头到尾不吭声的运行和一次已经停了的运行在屏幕上没有区别；而过期运行的计数器不该去驱动新运行的显示。Rust 每完成一张插画在生成线程上回调一次，NAPI 经线程安全函数把张数送回 ArkTS 线程。
 
 Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平台裁剪而不是照抄：五个动作里这里有两个。「设置」打开系统输入法列表，选择器是安装第二步的去处，两个都是本宿主的能力。
 
 `openKeyboard` 故意不提供。Android 为它开一个独立的面板窗口；本宿主的键盘是 InputMethodExtensionAbility，编辑器要它的时候才出现，设置应用没有窗口可开。不提供这个动作时，「设置」首页状态卡片上的「试用键盘」打开共享的子页面「试用键盘」（`packages/ui/src/keyboard/try-keyboard-page.tsx`），那才是这里"让我看看键盘"的诚实版本：按 Android 试用页的聊天样式，一进页面就把焦点交给输入框，系统弹出当前输入法；登录后打的字可以作为 AI 对话发出去，走的是设置页已有的 `chat` 通道。这一页不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。表情和剪贴板两个动作不提供的理由相同：在本宿主上它们是键盘自己键面上的界面，不是窗口。
 
-云剪贴板在键盘里也有一份：剪贴板面板（手机的剪贴板键面、2in1 表情面板的剪贴板页）分「本机」与「云端」两栏。云端只在面板打开和点「刷新」时读取一次，没有轮询，复制时不上传，也不读系统剪贴板；点一条就插入当前编辑器。本机历史长按一条出现「发到云剪贴板」，只有已登录且云剪贴板已开启时可用。密码框里没有「云端」这一栏，读取期间换了编辑器的结果直接丢弃，判断都在 `keyboard/clipboard/CloudClipboardPolicy.ts`。键盘不持有凭据：两个进程同属 `entry` 模块，`files/state/account-session.json` 是同一个文件，键盘每次操作都按它新建一个 `AccountCloudBridge`，所以设置页里的登出、换号对键盘立即生效（API 12 起两个进程的 `files/state` 不是同一个目录，键盘看不到这份会话，见上文「输入法扩展的独立沙箱」）。设置应用和键盘扩展是两个进程，而服务端每次刷新都轮换刷新令牌，有人出示已用过的刷新令牌就吊销整个会话——两个进程同时刷新，或一个进程拿着另一个已经轮换掉的旧令牌去刷新，都会把用户在所有地方登出。所以每一次刷新都在 `files/state/account-session.lock` 的排他文件锁（`fs.File.lock`）里进行：`AccountCloudBridge` 进锁后先重读会话文件，另一个进程已为同一账号存下更新的会话就直接接过来用，只有磁盘上没有更好的令牌时才刷新；写回前再读一次，会话已被登出或换号就丢弃这次轮换。登录、登出、资料回写和令牌被拒后的清除也走同一把锁，被拒时只清除仍是被拒那份的会话，不会误删刚登录的新会话。拿不到锁就不刷新，报暂时不可用而不是去冒吊销的险。会话文件改为写临时文件再原子改名，读的一方不会读到写了一半的文档并把它当作损坏清掉。
+云剪贴板在键盘里也有一份：剪贴板面板（手机的剪贴板键面、2in1 表情面板的剪贴板页）分「本机」与「云端」两栏。云端只在面板打开和点「刷新」时读取一次，没有轮询，复制时不上传，也不读系统剪贴板；点一条就插入当前编辑器。本机历史长按一条出现「发到云剪贴板」，只有已登录且云剪贴板已开启时可用。密码框里没有「云端」这一栏，读取期间换了编辑器的结果直接丢弃，判断都在 `keyboard/clipboard/CloudClipboardPolicy.ts`。请求经 Rust 的 `msime_client_account_cloud_clipboard`，目录是键盘沙箱自己的 `files/state`；设置应用里的登录经共享沙箱的会话镜像采用过来（见下文「账号与云端业务在 Rust 里」）。
 
-云剪贴板是端到端加密的，协议和宿主的职责见 [docs/cloud-clipboard-e2e.md](../../docs/cloud-clipboard-e2e.md)。列表、上传和设备管理（`devices`、`approve`、`reject`、`remove`、`reset`）都经 NAPI `cloudClipboardE2e` 调共享的 sans-IO 驱动 `msime_client_cloud_clipboard_e2e`：`AccountCloudBridge` 带着账号凭据发出驱动要的请求，任何状态码都连同正文交回驱动，传输失败照旧报错；驱动的错误码（`clipboard_device_pending`、`clipboard_sync_disabled`、`clipboard_key_conflict` 等）原样作为 `{ok:false,error}` 交给设置页和键盘。服务端不再搜索，搜索词交给驱动在本机解密后匹配。删除和开关仍直接调用原来的接口。本机的密钥串存在与会话同目录的 `files/state/cloud-clipboard-keystore`（`HarmonyCloudClipboardE2e`），写临时文件再原子改名；驱动每一步交回的密钥串变了就先保存再发下一个请求；退出登录、注销、令牌被拒和会话文件损坏都随会话一起删除它，换一个账号登录时也删除，同一账号重新登录则保留。登记到服务端的设备名取 `@ohos.deviceInfo` 的 `marketName`，没有时用 `productModel`。本机还在等待批准时，键盘的「云端」一栏只显示一行提示，不显示条目，「发到云剪贴板」也不可用。服务端 `403 clipboard_sync_disabled` 不当作令牌失效处理：交给驱动，不刷新令牌，也不会因此把用户登出。
+云剪贴板是端到端加密的，协议和宿主的职责见 [docs/cloud-clipboard-e2e.md](../../docs/cloud-clipboard-e2e.md)。列表、上传和设备管理（`devices`、`approve`、`reject`、`remove`、`reset`）、删除和开关都由 Rust 驱动和发送；驱动的错误码（`clipboard_device_pending`、`clipboard_sync_disabled`、`clipboard_key_conflict` 等）原样作为 `{ok:false,error}` 交给设置页和键盘。本机的密钥串仍是与会话同目录的 `files/state/cloud-clipboard-keystore`，Rust 读写的就是原来那一份，所以升级以后不会重新登记、不会出现「等待批准」；退出登录、注销和会话失效时随会话一起删除，换一个账号登录时不再删除（迁移差异 M3）。登记到服务端的设备名由宿主每次带上：`@ohos.deviceInfo` 的 `marketName`，没有时用 `productModel`，再没有时是「HarmonyOS 设备」。置顶、保留期和清空 Rust 也支持，共享页面在本宿主上还没有入口，宿主不放行。
 
-面板只保存当前会话文件的 SHA-256 摘要。列表返回、点按插入和发送前都会重新核对；账号切换、退出登录、同账号重新登录或另一个进程轮换令牌后，旧列表和待发送项作废，用户点刷新后再读取新会话。
+面板记下读到列表时登录的账号 id。列表返回、点按插入和发送前都会重新核对；退出登录或换了账号以后，旧列表和待发送项作废，用户点刷新后再读取。同一个账号的令牌轮换或重新登录不再作废它，与 Rust 只按 user.id 绑定一致。
+
+### 账号与云端业务在 Rust 里（#8201）
+
+账号、社区、云词库、云剪贴板、AI 皮肤、对话、反馈、设置同步和打字统计上传都经 Rust 的目录模式（`msime_client_account`、`msime_client_community`、`msime_client_cloud_dictionary`、`msime_client_account_cloud_clipboard`、`msime_client_ai_skin_generate`），目录是各自沙箱的 `files/state`：会话文件、刷新令牌、`account-refresh.lock` 和全部 HTTP 都在 Rust 里，与 Windows、Linux 的同一份实现。ArkTS 以前那份桥接（`AccountCloudBridge` 和它的 `account-session.lock`、`anonymous-session.lock`）一起删掉了，同一个沙箱里不再有第二个刷新方。账号请求带着宿主自报的 User-Agent（`msime_client_client_agent` 拼出的 `msime-harmony/<版本> (<机型>; HarmonyOS <版本>; edition=<id>)`），服务端「我的设备」据此显示鸿蒙和机型。以前 ArkTS 写的扁平会话（`{access_token,refresh_token,token_type,expires_at,user}`）Rust 照样读，第一次保存时写成 Rust 的布局；降级装回旧版时旧版读不了新布局，会被登出。
+
+宿主只做 Rust 做不了的那部分（`account/HarmonyAccountCloudBridge.ets`，规则在 `account/HarmonyAccountRequests.ts`，由 `tests/account-requests.test.ts` 覆盖）：页面能发哪些操作按名单放行，带文件路径的字段只由宿主经 DocumentViewPicker 选好、复制进私有目录后填写，页面发不了 `upload_avatar`、`data_export`、`export_file` 这类带路径的操作；反馈由宿主按字段重建，不带截图，平台总是 `harmony`；登录、退出、注销前后取消旧账号排队中的词库快照；整份快照和词库导出先由 Rust 写进私有目录（`cloud-dictionary-exports`、`dictionary-exports`），再由宿主复制到用户选的位置，恢复先把选中的备份复制进 `cloud-restore` 再交给 Rust 的 `snapshot_restore_preview_file`、`snapshot_restore_file`，Rust 自己的中转目录是 `cloud-dictionary-transfer`；设置同步里宿主核对账号、取字段表和云端文档、读写按键反馈文件，映射在 Rust。长任务（对话、整份快照、AI 皮肤）在 NAPI 里各起一个线程，不占工作线程池。
+
+两个沙箱之间的会话镜像也改由 Rust 决定（`account/AccountSessionAdoption.ets`，规则在 `AccountSessionAdoptionPolicy.ts`）。`account-session`、`anonymous-session` 两条照旧发布到共享目录，但导入时不再整份覆盖本地文件，而是调 `session_adopt`：键盘采用设置应用发布的（`from:"settings"`），设置应用采用键盘发布的（`from:"keyboard"`），在本沙箱的 `account-refresh.lock` 里按 user.id 和 expires_at 决定——同一个账号新者胜，换号只认设置应用发布的，设置应用里没有登录会话时键盘跟着清掉，匿名会话从不清掉（规则见 C 头文件的 `session_adopt`）。顺序是要点：每个沙箱在进程启动时、每次回到前台时先排一次采用，本进程的每个认证请求（包括匿名注册）都先等队里已有的采用做完，免得拿另一边已经轮换掉的刷新令牌去刷新、把整个会话族撤销。同一份发布物采用成功一次以后不再重复调用。两个沙箱各用各的锁，两边各自拿同一枚刷新令牌刷新的风险是原来就有的，镜像消除不了。
+
+采用发布文件时 Rust 要求文件属主等于所在目录的属主（与本目录的会话文件同一条规则）。data-group 目录里这两者是否一致还没有在真机上核对过（迁移差异 M1）；不一致时每次采用都是 `account_storage`，键盘永远拿不到设置应用里的登录。宿主为此把这种失败写成一条点名规则的错误日志（`session adopt from settings refused for account: account_storage. The published session file failed Rust's ownership or permission check ...`），真机验收时要看一次 hilog，并 `ls -ln` 共享目录和其中的 `account-session.json`。
+
+已知的回退：已有的账号操作断网时从「网络连接失败」变成「暂不可用」（Rust 对已有操作仍报 `account_unavailable`）；云词库面板参数不合法时的码从 `account_invalid` 变成 `invalid_cloud_dictionary`，面板对每个动作有自己的失败句子，不按码写文案，所以措辞不变。
 
 使用情况上报、公告与社区审核走 client-services 的共享实现，本宿主只决定何时调用。上报开关是共享偏好 `usage_reporting`（默认开启，设置页关闭后立即清空本地队列）；队列、随机安装 id、每日一次的 `active` 和会话记录都在 `files/state/telemetry`，设置应用和键盘扩展两个进程共用、由 client-services 加锁（API 12 起两个进程的 `files/state` 不是同一个目录，见上文「输入法扩展的独立沙箱」）。一次会话就是一个键盘进程：`KeyboardExtensionAbility` 创建时开始、被正常销毁时结束；设置应用只发送已排队的事件，不再在每次启动时发 `download`。崩溃不装自己的处理器，而是用 HiAppEvent 在下次启动时收系统上报的 `APP_CRASH`（JavaScript 与原生都有），所以崩溃仍按原来的方式结束进程。键盘在开始新会话前等两秒：这期间收到的、属于上一个键盘进程的崩溃写成那次会话的崩溃记录，于是计为 `session_crash`；其余崩溃（设置应用的、或来得太晚的）写成独立记录，只计为 `crash`。原生帧只留文件名加 pc 和符号，信号只留名称和 code，不带地址；`TelemetryPolicy.ts` 里的这些决定由 `tests/run.sh` 覆盖，HiAppEvent 的实际投递时机只能在设备上确认。
 
 公告在设置窗口打开或回到前台时取（client-services 一分钟内直接用缓存），显示为设置页上方一张可关闭的卡片，关闭按公告 id 记在本地。正文是 client-services 用 pulldown-cmark 渲染、原始 HTML 已转义的 HTML，放进一个禁用脚本、CSP 为 `default-src 'none'` 的小 Web 组件里；点链接一律交给系统浏览器或邮件应用。这里没有用 RichText：它没有拦截链接点击的入口，链接会在卡片里打开，而 Web 组件的 `onLoadIntercept` 可以把它拦下来交出去。
 
-社区页仍是共享界面，本宿主的 `AccountCloudBridge` 为它补上三件事：「我的作品」列表和详情带 `fields=moderation`，作品自身的 `moderation` 字段（approved、pending、removed）原样交给页面，由页面只对 removed 显示「已下架」；`report` 操作（皮肤 `community_operation`、词库与回复 `resource_operation`）按固定的六个理由发 `POST /v1/community/reports`，需要会话，设备的匿名账号也算；422 `blocked_content`、503 `screening_unavailable`、403 `account_banned` 分别报成 `community_blocked_content`、`community_screening_unavailable`、`community_account_banned`，与桌面端同名，被封禁时不再去刷新令牌。
+社区页仍是共享界面，请求都是 Rust `msime_client_community` 的：「我的作品」带作品自身的 `moderation` 字段，由页面只对 removed 显示「已下架」；`report`（皮肤 `skins`、词库 `dictionaries`、回复 `replies`）按固定的六个理由举报，没有登录时用本机匿名账号；422 `blocked_content`、503 `screening_unavailable`、403 `account_banned` 分别报成 `community_blocked_content`、`community_screening_unavailable`、`community_account_banned`，与桌面端同名。
 
 `registerJavaScriptProxy` 的名单现在由 `scripts/test-harmony-bridge-parity.py` 守着。ArkTS 对注入对象暴露什么有两处决定——类上的方法，和交给 `registerJavaScriptProxy` 的名字——而页面看得见的只有后者。一个名字只加了一处仍然能通过类型检查、能编译、能打包，然后在真机上以 `msimeHarmony.<name> is not a function` 的形式失败，表现是某一块功能就是不工作，而那恰好在这里谁也跑不了的那个平台上。具名皮肤库那一片就是这么漏的：方法写了，名字没注册，三道绿灯什么都没说。
 
@@ -183,13 +191,13 @@ Engine 换成纯 Rust crate 之后（2026-09-30），同一脚本在三个 ABI �
 
 ## Google 登录：系统浏览器加本机回环
 
-设置页的「登录水杉」面板在后端开着 Google（`/v1/auth/providers` 返回 `google: true`）时显示「使用 Google 登录」。鸿蒙没有 Google 服务，GoogleSignIn SDK 用不了；Google 也拒绝在应用内的 WebView 里登录。所以走与桌面端同一条流程（RFC 8252）：设置应用在 `127.0.0.1` 的随机动态端口上用 `TCPSocketServer` 监听，经 `/v1/auth/challenges` 申请 Google challenge（`target` 是这个回环地址），用 `openLink` 把后端生成的授权链接交给系统浏览器，Google 跳回本机端口后把授权码经 `/v1/auth/login` 交给后端去换 token。PKCE 和 client secret 都在后端，后端不需要为鸿蒙做任何改动。
+设置页的「登录水杉」面板在后端开着 Google（`/v1/auth/providers` 返回 `google: true`）时显示「使用 Google 登录」。鸿蒙没有 Google 服务，GoogleSignIn SDK 用不了；Google 也拒绝在应用内的 WebView 里登录。所以走与桌面端同一条流程（RFC 8252）：设置应用在 `127.0.0.1` 的随机动态端口上用 `TCPSocketServer` 监听，经 Rust `msime_client_account` 的 `google_challenge {target}` 申请 Google challenge（`target` 是这个回环地址，Rust 校验过授权链接是指向它的 Google 授权链接），用 `openLink` 把授权链接交给系统浏览器，Google 跳回本机端口后把授权码经 `google_code_login` 交给后端去换 token，会话由 Rust 存进 `files/state`。PKCE 和 client secret 都在后端，后端不需要为鸿蒙做任何改动。
 
 哪些判定不在 ArkTS 里写：回跳地址的形状、授权链接能不能打开、等多久、一次回环请求是不是回跳、写回浏览器的页面，都由 C ABI `msime_client_google_loopback`（NAPI `googleLoopback`）给出，它和桌面端 `AccountSession::sign_in_google_with_browser` 用的是 `crates/client-services/src/account/google.rs` 里同一份代码。`account/HarmonyGoogleSignIn.ets` 只做 socket、浏览器和后台保活，请求头的拼接与截断在可测的 `GoogleLoopbackRequestHead.ts`。
 
 用户在浏览器里登录时设置应用在后台，系统可能冻结它，回跳就没人接，所以等待期间申请延迟挂起（`requestSuspendDelay`），结束时撤销。2026-10-08 在 HarmonyOS 6.0.2 模拟器上测过：浏览器停在页面上 120 秒后才回跳，后台的应用照样立即收到；不申请延迟挂起、等 60 秒也能收到，但模拟器的冻结可能比真机宽松，真机上的表现还要验证。最长等待是 challenge 寿命减去 30 秒（目前 270 秒），超时与用户在 Google 页面拒绝一样按取消处理；面板上的「取消 Google 登录」和关闭面板也会结束等待并关掉监听。页面那一侧的请求超时为此放宽到 6 分钟（`GOOGLE_SIGN_IN_TIMEOUT_MS`），默认的 30 秒会在用户还在浏览器里时就报超时。
 
-失败时日志会写明停在哪一步：没有端口、challenge 被拒、授权链接没通过校验、没等到授权码（含超时和取消）、授权码到了后端被拒；`/v1/auth/` 下的请求失败另记 HTTP 状态和后端的错误码，不记正文、令牌或授权码。
+失败时日志会写明停在哪一步：没有端口、challenge 被拒、授权链接没通过校验、没等到授权码（含超时和取消）、授权码到了后端被拒，记的是 Rust 给的账号错误码，不记令牌或授权码。
 
 ## 应用图标切换：本平台没有这个能力
 
@@ -484,7 +492,7 @@ V、`/`、`@` 三个模式的按键由 Engine 导出的 `spelling_symbols` 决�
 
 - 版本身份：`entry/src/main/ets/keyboard/AppEdition.ts`，对应 Android 的 `AppEdition.java` 和 iOS 的 `MSIMEAppEdition`。`AppEdition.current()` 目前返回 full。
 - 方案：`KeyboardScheme` 的启用列表、默认启用列表和各处回退（词典缺失、列表为空、偏好里认不出的方案）都回退到本版本的默认方案，本版本不提供的入口不算启用；手写不属于任何方案，写出的是汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有，写进偏好、交给 Engine 的是本版本的默认方案（`KeyboardScheme.engineSchemeOf`）；只有一个方案的版本没存过启用列表时，默认要用户自己打开的入口（越南语、藏文）也启用，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 一致。`KeyboardSession`、`KeyboardView` 的初始方案同样取版本默认。非 full 版本调 `prepareHost` 时带上版本 id（`KeyboardSession.prepareRequest`），host-api 据此收窄方案、按本版本的资源锁校验词库。
-- 设置同步：`AccountPreferencePlan` 的 `localAccountPreferences` 和 `applyAccountPreferences` 分别经 `filterUploadedAccountSettings`、`filterDownloadedAccountSettings` 过滤，规则与 client-core 的 `filter_uploaded_account_settings`、`filter_downloaded_account_settings` 相同：只有一个方案的版本既不上传也不应用 `input.schema`，随它一起的还有本机的 `platform.harmony.keyboard_layout`（方案加布局才决定是哪个入口）；多方案版本把本版本没有的方案当作缺失；不提供双拼、五笔的版本不上传对应的方案细项。
+- 设置同步：映射在 Rust 的 `msime_client_account_harmony_settings_export` 和 `_apply`，按偏好目录记下的版本经 client-core 的 `filter_uploaded_account_settings`、`filter_downloaded_account_settings` 过滤：只有一个方案的版本既不上传也不应用 `input.schema`，随它一起的还有本机的 `platform.harmony.keyboard_layout`（方案加布局才决定是哪个入口）；多方案版本把本版本没有的方案当作缺失；不提供双拼、五笔的版本不上传对应的方案细项。
 - 以上规则由 `tests/run.sh` 用拼音版、五笔版、日文版、越南文版和藏文版的声明覆盖。
 
 要发一个版本（以五笔版为例）还差这些，本分支没有做：

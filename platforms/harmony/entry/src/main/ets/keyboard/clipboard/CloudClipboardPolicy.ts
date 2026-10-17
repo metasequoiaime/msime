@@ -163,7 +163,7 @@ export class CloudClipboardPolicy {
   }
 
   /**
-   * 读取账号桥对 `{operation:"clipboard", clipboard_operation:"list"}` 的应答。
+   * 读取 Rust `msime_client_account_cloud_clipboard` 对 `{operation:"list"}` 的应答。
    *
    * 整页一起检查，与 `client-services` 的 `validate_clipboard_page` 一样：只要有一个条目格式不对，整页都不显示，因为丢掉坏行会掩盖服务发来了本客户端无法遵从的内容。剪贴板被停用时，不论页面带了什么都不显示条目。
    *
