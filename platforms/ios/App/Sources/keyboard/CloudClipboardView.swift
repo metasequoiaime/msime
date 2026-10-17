@@ -111,12 +111,11 @@ struct CloudClipboardView: View {
       }
     }
     .sheet(isPresented: $addsText) { addSheet }
-    .task { request.appear(); run { _, _ in nil } }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $pending)
+    .task { run { _, _ in nil } }
+    .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
       items = []; text = ""; devices = nil; e2eStatus = nil
-    }
+    })
     .confirmationDialog("清空云剪贴板？", isPresented: $confirmsClear, titleVisibility: .visible) {
       Button("确认清空", role: .destructive) {
         run { token, _ in try await client.deleteClipboard(token: token); return nil }
