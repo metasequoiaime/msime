@@ -220,7 +220,7 @@ fn within_one_sign_in_the_later_expiry_wins_in_both_directions() {
 }
 
 #[test]
-fn a_side_without_a_login_id_is_a_different_sign_in() {
+fn sides_without_a_login_id_differ_unless_they_share_a_refresh_token() {
     let root = tempfile::tempdir().unwrap();
     let (settings, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
     storage(&settings)
@@ -230,7 +230,7 @@ fn a_side_without_a_login_id_is_a_different_sign_in() {
         .save(&saved("person-a", None, 180, 'c'))
         .unwrap();
 
-    // 两边都没有登录 ID：键盘的副本再新也不采用。
+    // 两边都没有登录 ID、刷新令牌也不同（补出的登录 ID 就不同）：键盘的副本再新也不采用；有登录 ID 的一方也不会与按别的刷新令牌补出的 ID 相同。
     assert_eq!(
         session(&settings).adopt_session(
             Some(storage(&keyboard).load().unwrap().unwrap()),
@@ -302,4 +302,143 @@ fn an_invalid_published_session_leaves_the_local_one_alone() {
         Err(AccountError::Storage)
     );
     assert_eq!(local(&keyboard), has("person-a", 'b'));
+}
+
+/// 每次刷新按 `c`、`d`、`e`… 轮换刷新令牌，记下交出去的刷新令牌，像服务端那样拒收用过的。
+#[derive(Clone, Default)]
+struct RotatingApi {
+    presented: Arc<Mutex<Vec<String>>>,
+}
+
+impl AccountApi for RotatingApi {
+    fn providers(&self) -> Result<std::collections::HashMap<String, bool>, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+    fn challenge(&self, _: &str, _: &str) -> Result<AccountChallenge, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+    fn login(&self, _: &str, _: &str) -> Result<AccountTokens, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+    fn refresh(&self, refresh_token: &str) -> Result<AccountTokens, AccountError> {
+        let mut presented = self.presented.lock().unwrap();
+        if presented.iter().any(|spent| spent == refresh_token) {
+            return Err(AccountError::Unauthorized);
+        }
+        presented.push(refresh_token.to_owned());
+        let next = char::from(b'b' + presented.len() as u8);
+        let mut tokens = saved("person-a", None, 15, next).tokens;
+        tokens.access_token = next.to_string().repeat(64);
+        Ok(tokens)
+    }
+    fn profile(&self, _: &str) -> Result<AccountProfile, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+    fn rename(&self, _: &str, _: &str) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+    fn logout(&self, _: &str, _: bool) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+    fn delete_account(&self, _: &str) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+}
+
+fn private_file(path: &Path, contents: &[u8]) {
+    std::fs::write(path, contents).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+}
+
+/// 升级后两个沙箱里是同一份没有 `session_id` 的旧会话，访问令牌已经过期（升级时多数用户的状态）。键盘先刷新，之后两边互相导入：谁都不能回到用过的刷新令牌 `b`，否则下一次刷新被服务端当成重放、整个会话被吊销。`file` 是会话文件名，`open` 按目录建出这份会话的存储。
+fn assert_one_refresh_survives_the_upgrade<S: AccountSessionStorage>(
+    file: &str,
+    contents: &[u8],
+    open: impl Fn(&Path) -> S,
+) {
+    let root = tempfile::tempdir().unwrap();
+    let (settings, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
+    for directory in [&settings, &keyboard] {
+        storage(directory).create_directory().unwrap();
+        private_file(&directory.join(file), contents);
+    }
+    let refreshed = |directory: &Path| {
+        let saved = open(directory).load().unwrap().unwrap();
+        (saved.tokens.refresh_token, saved.session_id)
+    };
+    let api = RotatingApi::default();
+    let keyboard_session = BackendAccountSession::new(api.clone(), open(&keyboard));
+    keyboard_session.credentials(None, None).unwrap();
+    assert_eq!(*api.presented.lock().unwrap(), ["b".repeat(64)]);
+    let (token, login_id) = refreshed(&keyboard);
+    assert_eq!(token, "c".repeat(64));
+    assert!(login_id.is_some());
+
+    // 设置应用还没被 Rust 写过，发布的仍是旧会话：键盘留着自己刷新过的那份。
+    assert_eq!(
+        keyboard_session.adopt_session(
+            read_published_session(&settings.join(file)).unwrap(),
+            SessionAdoptSource::Settings
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(refreshed(&keyboard), ("c".repeat(64), login_id));
+
+    // 设置应用本地也还是旧会话：采用键盘刷新过的那份，下一次刷新交出的是 `c`。
+    let settings_session = BackendAccountSession::new(api.clone(), open(&settings));
+    assert_eq!(
+        settings_session.adopt_session(
+            read_published_session(&keyboard.join(file)).unwrap(),
+            SessionAdoptSource::Keyboard
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(refreshed(&settings), ("c".repeat(64), login_id));
+    let access = "c".repeat(64);
+    settings_session.credentials(Some(&access), None).unwrap();
+    assert_eq!(
+        *api.presented.lock().unwrap(),
+        ["b".repeat(64), "c".repeat(64)]
+    );
+    assert_eq!(refreshed(&settings), ("d".repeat(64), login_id));
+
+    // 键盘再导入设置应用刷新后的那份，仍是同一次登录、新者胜。
+    assert_eq!(
+        keyboard_session.adopt_session(
+            read_published_session(&settings.join(file)).unwrap(),
+            SessionAdoptSource::Settings
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(refreshed(&keyboard), ("d".repeat(64), login_id));
+}
+
+#[test]
+fn an_upgraded_flat_session_refreshed_in_one_sandbox_is_not_rolled_back_by_the_other() {
+    // ArkTS 桥接存的扁平登录会话，一小时前过期。
+    let flat = format!(
+        r#"{{"access_token":"{}","refresh_token":"{}","token_type":"Bearer","expires_at":{},"user":{{"id":"person-a","display_name":"","created_at":"2026-01-01T00:00:00Z"}}}}"#,
+        "a".repeat(64),
+        "b".repeat(64),
+        now_ms() - 3_600_000
+    );
+    assert_one_refresh_survives_the_upgrade(ACCOUNT_SESSION_FILE, flat.as_bytes(), storage);
+}
+
+#[test]
+fn an_upgraded_anonymous_session_refreshed_in_one_sandbox_is_not_rolled_back_by_the_other() {
+    // ArkTS 存的匿名会话是 Native 布局，但同样没有 `session_id`。
+    let mut expired = saved("person-a", None, 60, 'b');
+    expired.expires_at_unix_ms = now_ms() - 3_600_000;
+    let native = serde_json::to_vec(&expired).unwrap();
+    assert!(!String::from_utf8_lossy(&native).contains("session_id"));
+    assert_one_refresh_survives_the_upgrade(
+        ANONYMOUS_SESSION_FILE,
+        &native,
+        LockedAnonymousSessionStorage::new,
+    );
 }
