@@ -135,7 +135,7 @@ struct CloudDictionaryView: View {
       Button("添加") { if let userID { editing = Edit(entry: nil, kind: kind, userID: userID) } }
         .disabled(busy || userID == nil)
     }
-    .task { request.appear(); run { _ in try await load(offset: 0) } }
+    .task { run { _ in try await load(offset: 0) } }
     .onChange(of: kind) {
       ViewRequestTask.cancel(task: $pending)
       request.invalidate()
@@ -143,11 +143,10 @@ struct CloudDictionaryView: View {
       page = nil
       run { _ in try await load(offset: 0) }
     }
-    .onDisappear {
-      ViewRequestTask.disappear(request: $request, pending: $pending)
+    .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
       page = nil
-    }
+    })
     .sheet(item: $editing) { edit in
       CloudDictionaryEditor(kind: edit.kind, value: edit.entry.map { .init(code: $0.code, word: $0.word, weight: $0.weight) }) { value in
         try await save(value, for: edit)

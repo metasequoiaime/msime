@@ -15,7 +15,7 @@ class IOSCloudDictionaryKindLifecycleContract(unittest.TestCase):
     def test_kind_change_cancels_and_invalidates_previous_request(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("@State private var request = ViewRequestGeneration()", source)
-        self.assertIn(".task { request.appear();", source)
+        self.assertIn(".task { run { _ in try await load(offset: 0) } }", source)
         change = re.search(r"\.onChange\(of: kind\) \{(?P<body>.*?)\n    \}", source, re.S)
         self.assertIsNotNone(change, "kind changes must invalidate the previous dictionary request")
         body = change.group("body")
@@ -29,15 +29,13 @@ class IOSCloudDictionaryKindLifecycleContract(unittest.TestCase):
 
     def test_disappearance_invalidates_pending_request(self):
         source = SOURCE.read_text(encoding="utf-8")
-        disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
-        self.assertIsNotNone(disappear, "leaving the dictionary page must invalidate its request")
-        body = disappear.group("body")
-        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", body)
+        self.assertIn(".trackViewRequest(request: $request, pending: $pending, onDisappear: {", source)
+        self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $pending)", source)
         task = TASK.read_text(encoding="utf-8")
         self.assertIn("request.wrappedValue.disappear()", task)
         self.assertIn("pending.wrappedValue?.cancel()", task)
         self.assertIn("pending.wrappedValue = nil", task)
-        self.assertIn("busy = false", body)
+        self.assertIn("busy = false", source)
 
     def test_load_result_is_bound_to_requested_kind_and_generation(self):
         source = SOURCE.read_text(encoding="utf-8")
