@@ -265,6 +265,9 @@ public final class CommunityFragment extends Fragment {
             hasMore = false;
             adapter.set(List.of());
             state("正在载入…", false);
+            // 转圈居中，下面这行字也跟着居中；结果出来后 state() 恢复靠左。
+            ViewPolicy.setVisible(view.findViewById(R.id.community_loading), true);
+            ViewPolicy.setCentered(view.findViewById(R.id.community_state));
         }
         CommunityRequest.Kind requested = kind;
         int offset = adapter.count(requested);
@@ -313,10 +316,13 @@ public final class CommunityFragment extends Fragment {
             : "没有找到匹配「" + search + "」的" + what + "。";
     }
 
+    /** 提示行和重试键；转圈只在 {@link #load} 发出新的首屏请求时打开，这里之后的每个结果（列表、空列表、失败）都把它关掉。 */
     private void state(String message, boolean retryable) {
         View view = getView();
         if (view == null) return;
+        ViewPolicy.setVisible(view.findViewById(R.id.community_loading), false);
         TextView state = view.findViewById(R.id.community_state);
+        state.setGravity(android.view.Gravity.START);
         ViewPolicy.setTextAndVisibility(state, message);
         ViewPolicy.setVisible(view.findViewById(R.id.community_retry), retryable);
     }

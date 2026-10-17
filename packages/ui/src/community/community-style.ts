@@ -77,6 +77,10 @@ export const cardMetrics =
 
 export const more = "m-0 self-center";
 export const notice = "my-[26px] text-center text-muted";
+/** 读取中的提示：转圈画在文字上方，与设置启动页同一个动画；系统要求减少动态效果时停转，只留圆环。 */
+export const loadingNotice = "flex flex-col items-center gap-2.5";
+export const loadingSpinner =
+  "block size-6 animate-startup-spin rounded-full border-[2.5px] border-edge border-t-accent motion-reduce:animate-none";
 
 export const back =
   "w-fit rounded-[7px] border-0 bg-transparent px-2.5 py-1.5 text-secondary hover:bg-[var(--button-secondary-bg)] hover:text-body";

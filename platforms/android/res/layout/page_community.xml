@@ -94,6 +94,19 @@
             app:singleSelection="true" />
     </HorizontalScrollView>
 
+    <!-- 首屏读取、切换分类和搜索时的转圈，画在下面那行提示文字上方；读完或失败时隐藏。 -->
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:id="@+id/community_loading"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="32dp"
+        android:indeterminate="true"
+        android:visibility="gone"
+        app:indicatorColor="?attr/colorPrimary"
+        app:indicatorSize="32dp"
+        app:trackThickness="3dp" />
+
     <TextView
         android:id="@+id/community_state"
         android:layout_width="match_parent"

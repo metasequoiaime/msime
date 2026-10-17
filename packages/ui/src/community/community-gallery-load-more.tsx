@@ -11,7 +11,7 @@ export interface CommunityGalleryLoadMoreProps {
   look?: "harmony";
 }
 
-/** 社区图库共用的分页按钮与加载提示，两种外观共用显示和禁用条件。 */
+/** 社区图库共用的分页按钮与加载提示（转圈加文字），两种外观共用显示和禁用条件；首屏读取和加载更多都画在这里。 */
 export function CommunityGalleryLoadMore({
   hasMore,
   busy,
@@ -31,7 +31,11 @@ export function CommunityGalleryLoadMore({
         />
       )}
       {busy && (
-        <StatusMessage role="status" className={harmony ? style.harmonyNotice : style.notice}>
+        <StatusMessage
+          role="status"
+          className={`${harmony ? style.harmonyNotice : style.notice} ${style.loadingNotice}`}
+        >
+          <span className={style.loadingSpinner} aria-hidden="true" />
           {loadingText}
         </StatusMessage>
       )}

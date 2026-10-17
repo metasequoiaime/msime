@@ -80,7 +80,12 @@ for (const look of [undefined, "harmony"] as const) {
     }
     if (status) {
       expect(status.textContent).toBe("正在读取合成资源…");
-      expect(status.className).toBe(look ? style.harmonyNotice : style.notice);
+      expect(status.className).toBe(
+        `${look ? style.harmonyNotice : style.notice} ${style.loadingNotice}`,
+      );
+      // 读取中画一个转圈，对读屏隐藏，读出来的仍只是那句提示。
+      const spinner = status.querySelector(`span[aria-hidden="true"]`);
+      expect(spinner?.className).toBe(style.loadingSpinner);
     }
     if (!hasMore && !busy) expect(container.innerHTML).toBe("");
   });
