@@ -71,6 +71,8 @@ ICONS: list[tuple[str, str, float, str, str]] = [
      "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM13 8H7M17 12H7"),
     ("ABOUT", STROKE, 1.7, "design panel 关于",
      "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"),
+    ("WEBSITE", STROKE, 1.7, "Lucide-style external-link (打开官网)",
+     "M14 3h7v7M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"),
     ("CHECK", STROKE, 4, "design on-state check badge", "m5 12.5 4.5 4.5L19 7.5"),
     # Lucide-style additions for entries the design draws no icon for.
     ("AI_ASSIST", STROKE, 1.7, "Lucide-style sparkles (AI 回复与润色)",

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { settingsFormReady } from "../support/settings-form";
+import { selectDictionaryTab, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type DictionaryEntry, type Snapshot } from "@msime/ui";
@@ -144,6 +144,8 @@ test("Android personal dictionary JSON import previews and queues only after con
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  // 个人词库文件在桌面词库页的「管理词库」标签里。
+  selectDictionaryTab("管理词库");
 
   const file = new File(
     [
@@ -188,6 +190,8 @@ test("personal dictionary import ignores a duplicate confirmation while pending"
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  // 个人词库文件在桌面词库页的「管理词库」标签里。
+  selectDictionaryTab("管理词库");
   const file = new File(
     [
       JSON.stringify({
@@ -227,6 +231,8 @@ test("personal dictionary import ignores a response from a replaced dictionary c
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  // 个人词库文件在桌面词库页的「管理词库」标签里。
+  selectDictionaryTab("管理词库");
   const file = new File(
     [
       JSON.stringify({

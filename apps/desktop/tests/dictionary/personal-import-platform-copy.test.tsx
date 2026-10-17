@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady } from "../support/settings-form";
+import { selectDictionaryTab, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -24,7 +24,8 @@ const snapshot: Snapshot = {
 
 // The card appears on every mobile host, because importPersonal is wired for all of them.
 // Naming one platform in shared copy tells the users of the others something untrue.
-async function openDictionary(platform: string) {
+// 手机宿主的词库页直列；桌面（包括报不出平台的宿主）把这张卡收在「管理词库」标签里，`desktopTabs` 让调用处写明走哪一种。
+async function openDictionary(platform: string, desktopTabs = false) {
   render(
     <SettingsPage
       client={{
@@ -45,6 +46,7 @@ async function openDictionary(platform: string) {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  if (desktopTabs) selectDictionaryTab("管理词库");
   // 个人词库文件是词库页「导入与导出」组里带名字的一块。
   return screen.getByRole("group", { name: "个人词库文件" });
 }
@@ -65,7 +67,7 @@ test("Android keeps its own wording", async () => {
 
 // A host that reports no platform still gets a sentence that reads correctly. The HarmonyOS 2in1 keeps the full dictionary form; the HarmonyOS phone lists dictionaries the way Android does and, like Android, has no Apple-file card.
 test("an unknown host names no platform at all", async () => {
-  const card = await openDictionary("hm2");
+  const card = await openDictionary("hm2", true);
 
   expect(card.textContent).toContain("键盘同步队列");
   expect(card.textContent).not.toContain("Android");

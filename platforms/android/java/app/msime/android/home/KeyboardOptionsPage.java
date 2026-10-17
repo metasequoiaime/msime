@@ -353,15 +353,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
 
     /** 编辑左侧符号栏的符号：用空格分开，留空恢复默认；不合规（单个符号太长、太多）时确认键不可点。 */
     private void editSidebarSymbols(String title, String key, java.util.List<String> current) {
-        InputDialog dialog = new InputDialog(requireContext(), title,
-            "符号之间用空格分开，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个，每个不超过 "
-                + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符；留空恢复默认");
-        dialog.addField("例如 ， 。 ？ 、", NineKeySidebarPolicy.format(current), 0);
-        dialog.setValidator(values -> values.get(0).isEmpty() || NineKeySidebarPolicy.parse(values.get(0)) != null);
-        // 存好后重画本页：这一行的摘要和下次打开时预填的符号表都来自重画时读到的设置。
-        dialog.setPrimary("保存", values -> KeyboardSheets.saveLocal(this, key,
-            values.get(0).isEmpty() ? null : NineKeySidebarPolicy.normalize(values.get(0)), this::reload, this::reload));
-        dialog.show();
+        java.util.List<String> defaults = key.equals(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS)
+            ? NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS : NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
+        new NineKeySidebarSheet(this, title, key, current, defaults, this::reload).show();
     }
 
     private void pickAnimation(String selected, GroupCard.Row row) {
