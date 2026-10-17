@@ -9,6 +9,7 @@
 #include <limits>
 #include <sys/stat.h>
 #include <string>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -281,6 +282,10 @@ TEXT_ENTRY(TelemetryEnd, msime_client_telemetry_end)
 TEXT_ENTRY(TelemetryRecordCrash, msime_client_telemetry_record_crash)
 TEXT_ENTRY(TelemetryClear, msime_client_telemetry_clear)
 TEXT_ENTRY(NoticeDismiss, msime_client_notice_dismiss)
+// 宿主自报的 User-Agent 由 Rust 拼装和清洗（#8201 的 P11）：纯函数，不联网、不读文件。
+TEXT_ENTRY(ClientAgent, msime_client_client_agent)
+// 取消一次 AI 皮肤生成：立即返回，可以在任意线程上调用。
+TEXT_ENTRY(AiSkinCancel, msime_client_ai_skin_cancel)
 // 云剪贴板端到端加密的 sans-IO 驱动：每一步只做本机密码学运算、不碰网络和磁盘，五十条以内的解密在毫秒级，所以和其他文本入口一样同步调用。
 TEXT_ENTRY(CloudClipboardE2e, msime_client_cloud_clipboard_e2e)
 
@@ -583,6 +588,215 @@ static napi_value RepairPreferences(napi_env env, napi_callback_info info) {
 // 键盘的常用语存放在一个文件里，设置进程和键盘进程都会在锁下重写它，装上短语包后文档可达数 MB，所以每个操作都在 ArkTS 线程之外运行。
 static napi_value CommonPhrases(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_common_phrases, "MSIME common phrases");
+}
+
+// 账号与云端业务（#8201 第 2 步）：会话、刷新令牌和全部 HTTP 都在 Rust 的目录模式里，这些入口会阻塞网络、或要等另一个线程的刷新放开 account-refresh.lock，所以和上面的慢请求一样在工作线程上调用、经 promise 回答。几分钟级的长任务（对话、整份快照、AI 皮肤）不走这里，见下面的 startThreadRequest。
+static napi_value Account(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_account, "MSIME account");
+}
+
+static napi_value Community(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_community, "MSIME community");
+}
+
+static napi_value CloudDictionary(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_cloud_dictionary, "MSIME cloud dictionary");
+}
+
+static napi_value AccountCloudClipboard(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_account_cloud_clipboard,
+        "MSIME account cloud clipboard");
+}
+
+static napi_value EnsureAnonymousAccountWithAgent(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_ensure_anonymous_account_with_agent,
+        "MSIME anonymous account with agent");
+}
+
+// 设置同步的导出与应用：导出要读共享偏好，应用要在偏好存储的锁里比较并交换写回，与 repairPreferences 一样可能等那把锁。
+static napi_value HarmonySettingsExport(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_account_harmony_settings_export,
+        "MSIME harmony settings export");
+}
+
+static napi_value HarmonySettingsApply(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_account_harmony_settings_apply,
+        "MSIME harmony settings apply");
+}
+
+// 把字符串写成 JSON 字符串字面量。只给 AccountStatus 拼目录用：ArkTS 交来的是普通文本，不是 JSON。
+static void appendJsonString(std::string &out, const std::string &text) {
+    static const char kHex[] = "0123456789abcdef";
+    out.push_back('"');
+    for (const char raw : text) {
+        const auto byte = static_cast<unsigned char>(raw);
+        if (byte == '"' || byte == '\\') {
+            out.push_back('\\');
+            out.push_back(raw);
+        } else if (byte < 0x20) {
+            out.append("\\u00");
+            out.push_back(kHex[byte >> 4]);
+            out.push_back(kHex[byte & 0x0f]);
+        } else {
+            out.push_back(raw);
+        }
+    }
+    out.push_back('"');
+}
+
+// 目录模式的 {operation:"status"}：头文件规定它只读本地会话文件、不联网，所以同步调用，键盘在准备词库快照时、云剪贴板面板在核对账号时直接读。只接受一个目录参数、自己拼出请求，这样同步入口不会被拿去发要联网的操作。
+static napi_value AccountStatus(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string directory;
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], directory)) {
+        return response(env, msime_client_account(nullptr, 0));
+    }
+    std::string request = "{\"directory\":";
+    appendJsonString(request, directory);
+    request.append(",\"action\":{\"operation\":\"status\"}}");
+    return response(env, msime_client_account(
+        reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+}
+
+// 几分钟级的长任务（对话最长 125 秒、整份快照最多 512 MiB、AI 皮肤约 5 分钟）各起一个线程，不占 uv 线程池：那几个线程还要跑偏好、词库和上面的账号请求，被三张插画占满时设置页的其他操作都会卡住。结果经线程安全函数回到 ArkTS 线程兑现 promise；AI 皮肤的进度也经同一种通道送回。
+struct ThreadRequestWork {
+    napi_deferred deferred = nullptr;
+    napi_threadsafe_function done = nullptr;
+    napi_threadsafe_function progress = nullptr;
+    RequestCall call = nullptr;
+    bool ai_skin = false;
+    std::string request;
+    char *result = nullptr;
+    const char *failure = "Thread request failed";
+};
+
+static void callAiSkinProgress(napi_env env, napi_value callback, void *, void *data) {
+    auto *completed = static_cast<uint32_t *>(data);
+    if (env != nullptr && callback != nullptr) {
+        napi_value argument = nullptr;
+        napi_value receiver = nullptr;
+        if (napi_create_uint32(env, *completed, &argument) == napi_ok
+                && napi_get_undefined(env, &receiver) == napi_ok) {
+            napi_call_function(env, receiver, callback, 1, &argument, nullptr);
+        }
+    }
+    delete completed;
+}
+
+static void reportAiSkinProgress(void *context, uint32_t completed) {
+    auto *work = static_cast<ThreadRequestWork *>(context);
+    if (work->progress == nullptr) return;
+    auto *value = new uint32_t(completed);
+    if (napi_call_threadsafe_function(work->progress, value, napi_tsfn_nonblocking) != napi_ok) {
+        delete value;
+    }
+}
+
+static void settleThreadRequest(napi_env env, napi_value, void *, void *data) {
+    auto *work = static_cast<ThreadRequestWork *>(data);
+    if (env != nullptr) {
+        settleVoicePromise(env, napi_ok, work->deferred, work->result, work->failure);
+    } else {
+        // 环境已经关闭，没有人再等这个 promise，只把 Rust 的回复还回去。
+        msime::host_api::own_string(work->result);
+    }
+    delete work;
+}
+
+static void runThreadRequest(ThreadRequestWork *work) noexcept {
+    const auto *bytes = reinterpret_cast<const uint8_t *>(work->request.data());
+    if (work->ai_skin) {
+        work->result = msime_client_ai_skin_generate(bytes, work->request.size(),
+            work->progress != nullptr ? reportAiSkinProgress : nullptr, work);
+    } else {
+        work->result = work->call(bytes, work->request.size());
+    }
+    // 生成返回以后不会再有进度；先放掉进度通道，再交出结果，之后 work 可能随时被 ArkTS 线程删掉。
+    if (work->progress != nullptr) {
+        napi_release_threadsafe_function(work->progress, napi_tsfn_release);
+        work->progress = nullptr;
+    }
+    napi_threadsafe_function done = work->done;
+    if (napi_call_threadsafe_function(done, work, napi_tsfn_blocking) != napi_ok) {
+        msime::host_api::own_string(work->result);
+        delete work;
+    }
+    napi_release_threadsafe_function(done, napi_tsfn_release);
+}
+
+static napi_value noOperation(napi_env, napi_callback_info) {
+    return nullptr;
+}
+
+static void releaseThreadChannels(ThreadRequestWork *work) {
+    if (work->progress != nullptr) napi_release_threadsafe_function(work->progress, napi_tsfn_release);
+    if (work->done != nullptr) napi_release_threadsafe_function(work->done, napi_tsfn_release);
+}
+
+static napi_value startThreadRequest(napi_env env, napi_callback_info info, RequestCall call,
+                                     bool aiSkin, const char *name) {
+    size_t count = 2;
+    napi_value argv[2] = { nullptr, nullptr };
+    if (napi_get_cb_info(env, info, &count, argv, nullptr, nullptr) != napi_ok || count < 1) {
+        return invalid(env, "Expected a request document");
+    }
+    auto *work = new ThreadRequestWork();
+    work->call = call;
+    work->ai_skin = aiSkin;
+    if (!argumentText(env, argv[0], work->request)) {
+        delete work;
+        return invalid(env, "Expected a request document");
+    }
+    napi_value resource = nullptr;
+    napi_value placeholder = nullptr;
+    if (napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource) != napi_ok
+            || napi_create_function(env, "done", NAPI_AUTO_LENGTH, noOperation, nullptr,
+                &placeholder) != napi_ok
+            || napi_create_threadsafe_function(env, placeholder, nullptr, resource, 0, 1, nullptr,
+                nullptr, nullptr, settleThreadRequest, &work->done) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create request channel");
+    }
+    napi_valuetype callbackType = napi_undefined;
+    if (aiSkin && count >= 2 && napi_typeof(env, argv[1], &callbackType) == napi_ok
+            && callbackType == napi_function
+            && napi_create_threadsafe_function(env, argv[1], nullptr, resource, 0, 1, nullptr,
+                nullptr, nullptr, callAiSkinProgress, &work->progress) != napi_ok) {
+        releaseThreadChannels(work);
+        delete work;
+        return invalid(env, "Unable to create progress channel");
+    }
+    napi_value promise = nullptr;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok) {
+        releaseThreadChannels(work);
+        delete work;
+        return invalid(env, "Unable to create request promise");
+    }
+    try {
+        std::thread(runThreadRequest, work).detach();
+    } catch (...) {
+        // 起不了线程时 promise 照样要有答案，与其他入口的工作线程失败一样以拒绝结束。
+        rejectWith(env, work->deferred, "Unable to start request thread");
+        releaseThreadChannels(work);
+        delete work;
+    }
+    return promise;
+}
+
+// 对话的 chat 最长阻塞 125 秒；其余账号请求仍走 account。
+static napi_value AccountThread(napi_env env, napi_callback_info info) {
+    return startThreadRequest(env, info, msime_client_account, false, "MSIME account thread");
+}
+
+// 整份快照的预览、导出和恢复要下载或上传最多 512 MiB；列表、目录这些短请求仍走 cloudDictionary。
+static napi_value CloudDictionarySnapshot(napi_env env, napi_callback_info info) {
+    return startThreadRequest(env, info, msime_client_cloud_dictionary, false,
+        "MSIME cloud dictionary snapshot");
+}
+
+// 第二个参数是可选的进度回调，每完成一张插画收到一次已完成的张数。
+static napi_value AiSkinGenerate(napi_env env, napi_callback_info info) {
+    return startThreadRequest(env, info, nullptr, true, "MSIME AI skin generate");
 }
 
 // A pack import extracts or copies up to a music pack's size and validates it before swapping it into place, which the header says belongs on a worker thread, so it runs as async work and answers through a promise. The small catalog, remove and name-list calls stay on the synchronous `plugins` entry.
@@ -1534,6 +1748,19 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("commonPhrases", CommonPhrases),
         ENTRY("repairPreferences", RepairPreferences),
         ENTRY("ensureAnonymousAccount", EnsureAnonymousAccount),
+        ENTRY("ensureAnonymousAccountWithAgent", EnsureAnonymousAccountWithAgent),
+        ENTRY("clientAgent", ClientAgent),
+        ENTRY("account", Account),
+        ENTRY("accountThread", AccountThread),
+        ENTRY("accountStatus", AccountStatus),
+        ENTRY("community", Community),
+        ENTRY("cloudDictionary", CloudDictionary),
+        ENTRY("cloudDictionarySnapshot", CloudDictionarySnapshot),
+        ENTRY("accountCloudClipboard", AccountCloudClipboard),
+        ENTRY("harmonySettingsExport", HarmonySettingsExport),
+        ENTRY("harmonySettingsApply", HarmonySettingsApply),
+        ENTRY("aiSkinGenerate", AiSkinGenerate),
+        ENTRY("aiSkinCancel", AiSkinCancel),
         ENTRY("telemetryBegin", TelemetryBegin),
         ENTRY("telemetryEnd", TelemetryEnd),
         ENTRY("telemetryRecordCrash", TelemetryRecordCrash),

@@ -111,6 +111,41 @@ export const repairPreferences: (directory: string) => Promise<string>;
  */
 export const ensureAnonymousAccount: (directory: string) => Promise<string>;
 /**
+ * `msime_client_ensure_anonymous_account_with_agent` 在工作线程上：`{directory, client_agent?}`，已有会话时只读一次文件、不联网。以 `{ok,value:true}` 或 `{ok:false,error}`（账号错误码）resolve；只有工作线程没有给出应答时才 reject。
+ */
+export const ensureAnonymousAccountWithAgent: (request: string) => Promise<string>;
+/** `msime_client_client_agent`：`{platform, version, device?, system?, edition}` 拼成宿主自报的 User-Agent，纯函数，同步调用。 */
+export const clientAgent: (request: string) => string;
+/**
+ * `msime_client_account` 在工作线程上：`{directory, client_agent?, action}`，操作见 C 头文件。会阻塞网络，或要等同一目录上另一次刷新放开 `account-refresh.lock`。
+ */
+export const account: (request: string) => Promise<string>;
+/** 与 `account` 相同的请求，但在自己的线程上跑，给最长阻塞 125 秒的 `chat`，不占工作线程池。 */
+export const accountThread: (request: string) => Promise<string>;
+/** 目录模式的 `{operation:"status"}`，参数是账号目录的绝对路径本身（不是 JSON）。只读本地会话文件、不联网，同步调用。 */
+export const accountStatus: (directory: string) => string;
+/** `msime_client_community` 在工作线程上：`{directory, state_root?, action}`。 */
+export const community: (request: string) => Promise<string>;
+/** `msime_client_cloud_dictionary` 在工作线程上：列表、目录、增删改、导入这些短请求。 */
+export const cloudDictionary: (request: string) => Promise<string>;
+/** 与 `cloudDictionary` 相同的请求，但在自己的线程上跑，给要下载或上传整份快照、导出词库文件的操作。 */
+export const cloudDictionarySnapshot: (request: string) => Promise<string>;
+/** `msime_client_account_cloud_clipboard` 在工作线程上：`{directory, device_name?, action}`。 */
+export const accountCloudClipboard: (request: string) => Promise<string>;
+/** `msime_client_account_harmony_settings_export` 在工作线程上：`{preferences_directory, feedback, schema, cloud?}`，不联网、不读会话。 */
+export const harmonySettingsExport: (request: string) => Promise<string>;
+/** `msime_client_account_harmony_settings_apply` 在工作线程上：`{preferences_directory, cloud, schema, feedback}`，按读到的修订号比较并交换写回偏好。 */
+export const harmonySettingsApply: (request: string) => Promise<string>;
+/**
+ * `msime_client_ai_skin_generate` 在自己的线程上：`{directory, request_id, prompt}`，最长约 5 分钟。`onProgress` 每完成一张插画在 ArkTS 线程上收到一次已完成的张数（1 到 3）。以 `{ok,value:[三套方案]}` 或 `{ok:false,error}` resolve。
+ */
+export const aiSkinGenerate: (
+  request: string,
+  onProgress?: (completed: number) => void,
+) => Promise<string>;
+/** `msime_client_ai_skin_cancel`：`{request_id}`，立即返回，生成随后以 `ai_skin_cancelled` 结束。 */
+export const aiSkinCancel: (request: string) => string;
+/**
  * Starts the usage-reporting session at keyboard start: `{directory,platform,version,preferences_directory}` in, `{enabled,crash_record_path?,previous_session_crashed?,crashes?}` out. Closes the previous session (`session_crash` only when it left a crash record), queues crash records and today's `active`, writes the new session marker. With `usage_reporting` off it clears instead. Small files only, no network.
  */
 export const telemetryBegin: (request: string) => string;
