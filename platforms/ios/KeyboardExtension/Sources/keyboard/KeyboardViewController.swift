@@ -820,9 +820,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 空格键的 VoiceOver 提示：关掉长按空格语音后不再说长按能打开语音。
+  /// 空格键的 VoiceOver 提示：语音关闭时，长按空格改为移动光标。
   private static func spaceAccessibilityHint(voice: Bool) -> String {
-    voice ? "轻点输入空格或选词，左右滑动移动光标，长按打开语音输入" : "轻点输入空格或选词，左右滑动移动光标"
+    voice ? "轻点输入空格或选词，左右滑动移动光标，长按打开语音输入" : "轻点输入空格或选词，左右滑动或长按移动光标"
   }
 
   override func selectionWillChange(_ textInput: UITextInput?) {
@@ -4370,11 +4370,49 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   @objc private func handleSpaceVoiceHold(_ hold: UILongPressGestureRecognizer) {
+    guard spaceVoiceArmed else {
+      handleSpaceCursorHold(hold)
+      return
+    }
     guard hold.state == .began else { return }
     // 与 Android 一样，打开语音的那次按压也计为一次空格键按键。
     countKeyPress(TypingKeyID.space)
     playInputClick()
     showVoicePanel()
+  }
+
+  /// 语音长按关闭时复用同一个长按手势移动文档或拼音光标。长按先达到 `.began`，之后手指横向移动产生和拖动空格相同的步进。
+  private func handleSpaceCursorHold(_ hold: UILongPressGestureRecognizer) {
+    guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else {
+      cursorMovement.cancel()
+      updateSpaceKeyTitle()
+      return
+    }
+    switch hold.state {
+    case .began:
+      cursorMovement.begin(at: hold.location(in: view).x, document: document)
+      spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret
+      if hasComposition && !spaceDragEditsComposition { render(session.finishComposition()) }
+      if let space = hold.view as? UIButton, var configuration = space.configuration {
+        configuration.title = spaceDragEditsComposition ? "移动拼音光标" : "移动光标"
+        configuration.image = nil
+        space.configuration = configuration
+      }
+      if KeyboardFeedbackPreference.hapticsEnabled {
+        KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)
+      }
+    case .changed:
+      let steps = cursorMovement.advance(to: hold.location(in: view).x, document: document)
+      if spaceDragEditsComposition && hasComposition {
+        moveCompositionCaret(by: steps, bySegment: inputScheme.editsBySyllable)
+      } else {
+        moveCursor(by: steps)
+      }
+    case .ended, .cancelled, .failed:
+      cursorMovement.cancel()
+      updateSpaceKeyTitle()
+    default: break
+    }
   }
 
   /// 键区里的语音面板。键盘扩展不能录音，所以面板是进入语音交接的入口，「语音结果」读的也是同一份交接：点圆球打开 app 的录音界面，有待插入的结果时则插入 app 传回的结果。点圆球时会核对结果与当前编辑器是否对得上，与 `showKeyboardVoice` 插入前的检查一样。
@@ -4964,7 +5002,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Korean and Vietnamese write half-width ASCII marks, the same menu English offers.
     guard isChineseMode, !isInLocalMode, !inputScheme.writesAsciiPunctuation else { return [",", ".", "?", "!", ":", ";", "@"] }
     if inputScheme.isJapanese { return ["、", "。", "？", "！", "「", "」", "・"] }
-    return ["，", "。", "？", "！", "、", "；", "："]
+    return KeyboardLayoutPreference.quickPunctuationSymbols
   }
 
   private func updateLetterRowInsets() {
@@ -5512,7 +5550,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-    if gestureRecognizer.name == "spaceVoiceHold" { return spaceVoiceArmed && !cursorMovement.isActive }
+    if gestureRecognizer.name == "spaceVoiceHold" {
+      return (spaceVoiceArmed || !spaceVoiceEnabled) && !cursorMovement.isActive
+    }
     if gestureRecognizer.name == "layoutToggleSymbolsHold" { return !showsSymbols }
     if gestureRecognizer.name == "nineKeyDigitHold" { return !showsSymbols }
     guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
