@@ -47,4 +47,4 @@ Status: implemented
 - `cargo test -p msime-host-api`：`account_ops` 的打开即上传、十分钟节流、`force`、关闭先本地后删除且删除失败仍关闭、未登录时不退回匿名账号、请求不合法时不联网，QQ 绑定的列表、绑定码清洗、服务端错误码透传；`msime_client_typing_statistics` 的 `upload_request` 各种跳过原因和 `upload_succeeded` 只认同一设备。
 - Windows 原生设置的两个模型头（`AccountPageModel.h`、`TypingStatisticsModel.h`）的单测在 macOS 上用 clang 编译跑过；`main.cpp` 没有在本机编译，靠 PR 的 Windows CI。
 - 没有在真实账号上连通线上服务端验证。
-- 鸿蒙：`platforms/harmony/tests/account-qq-typing.test.ts` 用假传输层覆盖绑定列表只取两个字段、坏行整份拒绝、绑定码清洗和不合法时不联网、拒绝码映射、解绑编号校验，以及上传原样发出、超限本地拒绝、未登录不发、关闭即删除；vitest 覆盖鸿蒙手机和 2in1 账号页的绑定卡片、鸿蒙外观统计页的开关和说明改写。`Settings.ets` 的串行队列没有单测，HAP 没有在本机构建，靠 PR 的 HarmonyOS CI 和后续真机验证。
+- 鸿蒙：`platforms/harmony/tests/account-qq-typing.test.ts` 用假传输层覆盖绑定列表只取两个字段、坏行整份拒绝、绑定码清洗和不合法时不联网、拒绝码映射、解绑编号校验，以及上传原样发出、超限本地拒绝、未登录不发、关闭即删除；vitest 覆盖鸿蒙手机和 2in1 账号页的绑定卡片、鸿蒙外观统计页的开关和说明改写。本机 `hvigorw assembleHap`（先 `ohpm install`）ArkTS 编译通过，没带原生库、没上设备；`Settings.ets` 的串行队列没有单测，真机和真实账号还没验证。
