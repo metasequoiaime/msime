@@ -18,7 +18,7 @@ Status: implemented
   - 登录、退出、注销、`forget`、Google 回环登录前后取消旧账号排队中的词库快照。
   - 整份快照和词库导出：Rust 写进私有目录，宿主复制到选择器给的 URI；恢复先复制进私有目录再交给 `snapshot_restore_preview_file`、`snapshot_restore_file`，预览和恢复之间换了账号就作废。
   - 设置同步：宿主核对账号（`status`）、取字段表和云端文档、读写按键反馈文件（总是带 `feedback`），映射在 `msime_client_account_harmony_settings_export`、`_apply`，上传用 `preferences_put` 绑定读文档时的账号。
-- 两个沙箱之间的会话不再整份复制：`account-session`、`anonymous-session` 照旧发布，导入时 `beforeFile` 返回 `handled`，改由 Rust 的 `session_adopt` 在本沙箱的锁里决定（`account/AccountSessionAdoption.ets`，规则在 `AccountSessionAdoptionPolicy.ts`）。键盘采用设置应用的（`from:"settings"`），设置应用采用键盘的（`from:"keyboard"`）；规则只看 user.id 和 expires_at（[C 头文件](../../../../crates/host-api/include/msime_client.h) 的 `session_adopt`）。
+- 两个沙箱之间的会话不再整份复制：`account-session`、`anonymous-session` 照旧发布，导入时 `beforeFile` 返回 `handled`，改由 Rust 的 `session_adopt` 在本沙箱的锁里决定（`account/AccountSessionAdoption.ets`，规则在 `AccountSessionAdoptionPolicy.ts`）。键盘采用设置应用的（`from:"settings"`），设置应用采用键盘的（`from:"keyboard"`）；规则只看 user.id 和 expires_at（[C 头文件](../../../../crates/host-api/include/msime_client.h) 的 `session_adopt`）。匿名账号的身份 `anonymous-account` 同样不按文件复制：匿名会话的采用带上发布方身份文件的路径（`identity_path`），Rust 采用了匿名会话时在同一把锁里连同身份一起换成发布方的，会话和身份始终属于同一个匿名账号（迁移差异 M40）。
 - 顺序不变量：每个沙箱在进程启动时就登记本进程的采用并占住一条串行队列（拿到共享目录之前）；本进程的每个认证请求（包括匿名注册、Google 回环的 challenge 和授权码）都先 `await AccountSessionAdoption.beforeRequest()`，它再排一次登记过的采用并等它做完。不靠生命周期事件排序：设置页的网页在 `visibilitychange` 时就发认证请求（打字统计补传），它与窗口的 ACTIVE 事件谁先到没有保证，2in1 上只换焦点时连生命周期事件都没有。回到前台时（设置应用 ACTIVE、键盘获得焦点）照旧再排一次，只为让本地显示的账号状态尽早跟上。同一份发布物采用成功一次以后按清单指纹跳过，不再拿锁；失败的下一次再试，同一份失败只记一次日志。
 - 发布文件的属主检查不放宽（迁移差异 M1）：Rust 要求文件属主等于所在目录的属主，data-group 目录在真机上是否满足还没核对。不满足时每次采用都是 `account_storage`，宿主写一条点名这条规则、提示 `ls -ln` 的错误日志，README 的「账号与云端业务在 Rust 里」写明真机验收要看它。
 

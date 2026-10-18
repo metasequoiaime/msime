@@ -31,6 +31,7 @@ import {
   SerialGate,
   adoptionFailureMessage,
   adoptionResult,
+  adoptionFingerprint,
   sessionAdoptRequest,
 } from "../entry/src/main/ets/account/AccountSessionAdoptionPolicy";
 import {
@@ -429,26 +430,70 @@ async function main(): Promise<void> {
 
   console.log("Harmony session mirror");
 
-  await group("both sessions are adopted by Rust, the anonymous identity is still copied", () => {
-    for (const name of ["account-session", "anonymous-session"]) {
+  await group("both sessions and the anonymous identity are adopted by Rust", () => {
+    for (const name of ["account-session", "anonymous-session", "anonymous-account"]) {
       check(
         SharedStateMirrorPolicy.adoptedByRust(name),
         `${name} is decided by session_adopt, not overwritten`,
       );
     }
-    for (const name of ["anonymous-account", "preferences", "typing-statistics"]) {
+    for (const name of ["preferences", "typing-statistics"]) {
       check(!SharedStateMirrorPolicy.adoptedByRust(name), `${name} is still mirrored as before`);
     }
     for (const session of ADOPTED_SESSIONS) {
-      check(
-        SETTINGS_ENTRIES.some((entry) => entry.name === session.entry),
-        `settings publishes ${session.entry}`,
-      );
-      check(
-        KEYBOARD_ENTRIES.some((entry) => entry.name === session.entry),
-        `the keyboard publishes ${session.entry}`,
-      );
+      for (const name of [session.entry, session.identityEntry]) {
+        if (name === null) continue;
+        check(
+          SETTINGS_ENTRIES.some((entry) => entry.name === name),
+          `settings publishes ${name}`,
+        );
+        check(
+          KEYBOARD_ENTRIES.some((entry) => entry.name === name),
+          `the keyboard publishes ${name}`,
+        );
+      }
     }
+    const identities = ADOPTED_SESSIONS.map(
+      (session) => `${session.item}:${session.identityEntry}`,
+    );
+    check(
+      identities.join(",") === "account:null,anonymous:anonymous-account",
+      `only the anonymous session carries the identity (got ${identities.join(",")})`,
+    );
+  });
+
+  await group("the anonymous identity travels with the anonymous session", () => {
+    const action = parsed(
+      sessionAdoptRequest(
+        DIRECTORY,
+        "/group/msime/keyboard/state/anonymous-session.json",
+        "anonymous",
+        "keyboard",
+        "/group/msime/keyboard/state/anonymous-account.json",
+      ),
+    ).action as Json;
+    check(
+      action.identity_path === "/group/msime/keyboard/state/anonymous-account.json",
+      "the published identity file goes with the anonymous session",
+    );
+    const account = parsed(
+      sessionAdoptRequest(
+        DIRECTORY,
+        "/group/msime/settings/state/account-session.json",
+        "account",
+        "settings",
+      ),
+    ).action as Json;
+    check(!("identity_path" in account), "the login session carries no identity");
+    check(
+      adoptionFingerprint("s1", "absent") !== adoptionFingerprint("s1", "i1") &&
+        adoptionFingerprint("s1", "i1") !== adoptionFingerprint("s2", "i1"),
+      "a changed identity or session makes the publication due again",
+    );
+    check(
+      adoptionFingerprint("s1", null) === "s1",
+      "the login session is keyed by its own fingerprint",
+    );
   });
 
   await group("session_adopt names the publisher and omits the path when it has no session", () => {

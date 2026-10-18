@@ -12,10 +12,10 @@ function jsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-/** 镜像里两份会话：登录会话 `account-session.json` 与本机匿名账号的 `anonymous-session.json`，名字与 `SharedStateMirrorPolicy` 的条目名相同。 */
+/** 镜像里两份会话：登录会话 `account-session.json` 与本机匿名账号的 `anonymous-session.json`，名字与 `SharedStateMirrorPolicy` 的条目名相同。匿名会话连同匿名账号的身份 `anonymous-account.json` 一起交给 Rust，身份跟着会话走（迁移差异 M40）。 */
 export const ADOPTED_SESSIONS: readonly AdoptedSession[] = [
-  { item: "account", entry: "account-session" },
-  { item: "anonymous", entry: "anonymous-session" },
+  { item: "account", entry: "account-session", identityEntry: null },
+  { item: "anonymous", entry: "anonymous-session", identityEntry: "anonymous-account" },
 ];
 
 export interface AdoptedSession {
@@ -23,19 +23,33 @@ export interface AdoptedSession {
   readonly item: string;
   /** 镜像清单里的条目名。 */
   readonly entry: string;
+  /** 跟着这份会话一起采用的身份在镜像清单里的条目名，没有时为 null。 */
+  readonly identityEntry: string | null;
+}
+
+/** 决定要不要再采用一次时用的指纹：会话的指纹，有身份时再接上身份的指纹（清单里没有这一条时按「没有」算），两者任一变了都再采用一次。 */
+export function adoptionFingerprint(
+  sessionFingerprint: string,
+  identityFingerprint: string | null,
+): string {
+  return identityFingerprint === null
+    ? sessionFingerprint
+    : `${sessionFingerprint}+${identityFingerprint}`;
 }
 
 /**
- * `msime_client_account` 的 `session_adopt` 请求。`publishedPath` 是发布方那份会话文件的绝对路径；发布方的清单说它没有这份会话时为 null，Rust 据此按「发布方没有」处理（登录会话在 `from:"settings"` 时清掉本地的，匿名会话一律不动）。`from` 是发布方：键盘采用设置应用发布的是 `settings`，设置应用采用键盘发布的是 `keyboard`。
+ * `msime_client_account` 的 `session_adopt` 请求。`publishedPath` 是发布方那份会话文件的绝对路径；发布方的清单说它没有这份会话时为 null，Rust 据此按「发布方没有」处理（登录会话在 `from:"settings"` 时清掉本地的，匿名会话一律不动）。`from` 是发布方：键盘采用设置应用发布的是 `settings`，设置应用采用键盘发布的是 `keyboard`。`identityPath` 是发布方匿名账号身份文件的绝对路径，只随匿名会话给（登录会话为 null）；文件不在就是发布方没有身份，Rust 在采用匿名会话时把身份一起换成发布方的，发布方没有身份而换了账号时删掉本地的，会话和身份始终属于同一个匿名账号。
  */
 export function sessionAdoptRequest(
   directory: string,
   publishedPath: string | null,
   item: string,
   from: string,
+  identityPath: string | null = null,
 ): string {
   const action: JsonObject = { operation: "session_adopt", item, from };
   if (publishedPath !== null) action.path = publishedPath;
+  if (identityPath !== null) action.identity_path = identityPath;
   return JSON.stringify({ directory, action });
 }
 

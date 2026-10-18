@@ -5,7 +5,8 @@ import {
   ABSENT_FINGERPRINT, KEYBOARD_ENTRIES, ManifestEntry, MirrorEntry, MirrorManifest, MirrorPublisher, SETTINGS_ENTRIES
 } from '../keyboard/SharedStateMirrorPolicy';
 import {
-  ADOPTED_SESSIONS, AdoptedSession, AdoptionGate, AdoptionResult, AdoptionTracker, adoptionResult, sessionAdoptRequest
+  ADOPTED_SESSIONS, AdoptedSession, AdoptionGate, AdoptionResult, AdoptionTracker, adoptionFingerprint, adoptionResult,
+  sessionAdoptRequest
 } from './AccountSessionAdoptionPolicy';
 
 /**
@@ -59,26 +60,35 @@ export class AccountSessionAdoption {
     const entry: MirrorEntry | undefined =
       entries.find((candidate: MirrorEntry): boolean => candidate.name === session.entry);
     if (published === undefined || entry === undefined) return;
+    // 匿名会话连同身份一起交给 Rust：身份文件的路径总是给，文件不在就是发布方没有身份。
+    const identityEntry: MirrorEntry | undefined = session.identityEntry === null ? undefined :
+      entries.find((candidate: MirrorEntry): boolean => candidate.name === session.identityEntry);
+    const identityPublished: ManifestEntry | undefined = session.identityEntry === null ? undefined :
+      manifest.entries.find((candidate: ManifestEntry): boolean => candidate.name === session.identityEntry);
+    const identityPath: string | null =
+      identityEntry === undefined ? null : mirror.publishedFile(publisher, identityEntry);
+    const fingerprint: string = adoptionFingerprint(published.fingerprint, identityEntry === undefined ? null :
+      (identityPublished === undefined ? ABSENT_FINGERPRINT : identityPublished.fingerprint));
     const tracker: AdoptionTracker = AccountSessionAdoption.tracker;
-    if (!tracker.due(publisher, session.item, published.fingerprint)) return;
+    if (!tracker.due(publisher, session.item, fingerprint)) return;
     const path: string | null =
       published.fingerprint === ABSENT_FINGERPRINT ? null : mirror.publishedFile(publisher, entry);
     let reply: string;
     try {
-      reply = await client.account(sessionAdoptRequest(stateDirectory, path, session.item, publisher));
+      reply = await client.account(sessionAdoptRequest(stateDirectory, path, session.item, publisher, identityPath));
     } catch (error) {
       KeyboardLog.error(`session adopt from ${publisher} did not answer: ${describeError(error)}`);
       return;
     }
     const result: AdoptionResult = adoptionResult(reply);
     if (result.outcome.length > 0) {
-      tracker.succeeded(publisher, session.item, published.fingerprint);
+      tracker.succeeded(publisher, session.item, fingerprint);
       if (result.outcome !== 'unchanged') {
         KeyboardLog.info(`session ${result.outcome} from ${publisher} (${session.item})`);
       }
       return;
     }
-    const message: string | null = tracker.failed(publisher, session.item, published.fingerprint, result.error);
+    const message: string | null = tracker.failed(publisher, session.item, fingerprint, result.error);
     if (message !== null) KeyboardLog.error(message);
   }
 }

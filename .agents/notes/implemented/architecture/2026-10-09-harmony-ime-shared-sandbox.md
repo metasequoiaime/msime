@@ -24,7 +24,7 @@ Status: implemented
    - 键盘导入：扩展 `onCreate` 在会话第一次读状态之前导入一次，之后每次获得焦点（`KeyboardSession.attach`）在偏好修订号比较之前导入。偏好经 `savePreferences` 写入（走存储的锁和修订号），随后的修订号比较发现变化并重建会话；按键反馈和应用主题在 attach 里本来就会重新读；插件和皮肤由原生会话在获得焦点时重新盖戳。统计开关经 `typingStatistics` 的 `set_enabled` / `set_retention` / `reset` 用到键盘自己的统计文件上；第一次导入时不清空，免得共享沙箱启用前记下的计数被早先的清空带走。
    - 键盘只在完整体验模式下发布（`getSecurityMode() === FULL`）：键盘里改的偏好和按键反馈、刷新过的账号会话、打字统计，并附上它从设置应用导入到了哪一版。时机：每次获得焦点导入之前、失去焦点时。设置应用在窗口回到前台时先发布自己的、再导入键盘的；键盘的统计文件只在键盘已经导入了设置应用当前的统计开关时才采用，否则会把刚改的开关或刚清空的计数改回去；采用时不整体覆盖，计数取键盘的，设置应用自己记的试过的皮肤（`skinsTried`）和徽章（`achievements`）取并集，并持有统计存储的同一把 flock 写回，免得与工作线程上的 `summary` 互相覆盖。
 4. 指纹只看内容：偏好按 `preferences` 本身（不含修订号、键排好序），小文件按全文，目录按每个文件的路径、大小和修改时间（锁文件和暂存文件不算）。导入写回的内容与对方相同，指纹也相同，所以不会被发布回去，两边不会来回打转。两边都改过同一条时，以变化时刻较晚的一方为准；基础访问模式下键盘不发布，设置应用的改动总会覆盖键盘里的同一条。
-5. 账号会话（`account-session.json`、`anonymous-account.json`、`anonymous-session.json`）只在完整体验模式下交换。服务端会轮换刷新令牌，同一个刷新令牌用第二次会被拒绝；基础访问模式下键盘刷新后写不回共享目录，设置应用手里的令牌就作废了。所以基础访问模式下键盘不导入会话，继续用自己的匿名账号，与改动前相同。两份会话（`account-session.json`、`anonymous-session.json`）导入时不再整份复制，改由 Rust 的 `session_adopt` 在导入方的锁里决定，匿名账号的身份文件照旧复制，见 [鸿蒙账号与云端业务整体切到 Rust 目录模式](2026-10-17-harmony-account-rust-directory-mode.md)。
+5. 账号会话（`account-session.json`、`anonymous-account.json`、`anonymous-session.json`）只在完整体验模式下交换。服务端会轮换刷新令牌，同一个刷新令牌用第二次会被拒绝；基础访问模式下键盘刷新后写不回共享目录，设置应用手里的令牌就作废了。所以基础访问模式下键盘不导入会话，继续用自己的匿名账号，与改动前相同。两份会话（`account-session.json`、`anonymous-session.json`）导入时不再整份复制，改由 Rust 的 `session_adopt` 在导入方的锁里决定，匿名账号的身份文件随匿名会话一起由它采用、不再复制，见 [鸿蒙账号与云端业务整体切到 Rust 目录模式](2026-10-17-harmony-account-rust-directory-mode.md)。
 6. 只属于各自进程的数据不交换：键盘的 `user/`（个人词库、学习记录、工作词典代次）、`cache/`、常用语、表情记录、剪贴板历史、遥测队列，设置应用的通知、背单词进度、词库导出暂存。
 
 ## Alternatives considered

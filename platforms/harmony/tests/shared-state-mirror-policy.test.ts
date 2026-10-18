@@ -201,80 +201,29 @@ group("the keyboard publishes its anonymous identity in full experience mode", (
   );
 });
 
-group("a side without an anonymous identity never deletes the other side's", () => {
-  for (const importer of ["settings", "keyboard"] as const) {
-    let asked = false;
-    const decision = SharedStateMirrorPolicy.importDecision(
-      importer,
-      "anonymous-account",
-      null,
-      () => {
-        asked = true;
-        return false;
-      },
-    );
-    check(
-      decision === "handled",
-      `${importer} keeps its identity when the publisher has none (got ${decision}); deleting it leaves the adopted session with nothing to sign in again with`,
-    );
-    check(!asked, `${importer} does not need to look at its own file to keep it`);
-  }
-});
-
-group("settings takes the keyboard's anonymous identity only when it has none", () => {
-  const identity = JSON.stringify({ subject: "msime-k", secret: "s" });
-  check(
-    SharedStateMirrorPolicy.importDecision(
-      "settings",
-      "anonymous-account",
-      identity,
-      () => false,
-    ) === "copy",
-    "settings adopted the keyboard's anonymous session and has no identity, so it takes the keyboard's",
-  );
-  check(
-    SharedStateMirrorPolicy.importDecision(
-      "settings",
-      "anonymous-account",
-      identity,
-      () => true,
-    ) === "handled",
-    "settings never overwrites an identity it already has",
-  );
-  check(
-    SharedStateMirrorPolicy.importDecision(
-      "keyboard",
-      "anonymous-account",
-      identity,
-      () => true,
-    ) === "copy",
-    "the keyboard follows settings, as its anonymous session does when the account differs",
-  );
-});
-
-group("only the anonymous identity has its own import rule", () => {
-  for (const importer of ["settings", "keyboard"] as const) {
-    for (const name of ["account-session", "anonymous-session"]) {
-      for (const text of [null, "{}"]) {
-        check(
-          SharedStateMirrorPolicy.importDecision(importer, name, text, () => false) === "handled",
-          `${importer} leaves ${name} to session_adopt`,
-        );
-      }
+group(
+  "sessions and the anonymous identity are left to session_adopt, everything else is copied",
+  () => {
+    // 身份随匿名会话由 Rust 采用（迁移差异 M40），不再按文件复制：复制会让键盘拿着自己的匿名会话、换上设置应用的身份，或者设置应用采用了键盘的会话、留着自己的身份。
+    for (const name of ["account-session", "anonymous-session", "anonymous-account"]) {
+      check(
+        SharedStateMirrorPolicy.importDecision(name) === "handled",
+        `${name} is neither copied nor deleted by the mirror`,
+      );
     }
     check(
-      SharedStateMirrorPolicy.importDecision(importer, "key-feedback", null, () => true) === "copy",
-      `${importer} still mirrors a deleted file as deleted`,
+      SharedStateMirrorPolicy.importDecision("key-feedback") === "copy",
+      "other files are still copied (and deleted when the publisher has none)",
     );
     check(
-      SharedStateMirrorPolicy.importDecision(importer, "app-theme", "{}", () => true) === "copy",
-      `${importer} still overwrites other files`,
+      SharedStateMirrorPolicy.importDecision("app-theme") === "copy",
+      "other files are still copied",
     );
-  }
-});
+  },
+);
 
-group("the keyboard takes settings' anonymous identity even after publishing its own later", () => {
-  // 键盘先注册了 K、还没发布时设置应用注册了 S 并发布（300）；键盘随后获得焦点，先发布自己的 K（500），再导入。
+group("the anonymous identity has no special case for which side changed it later", () => {
+  // 键盘先注册了 K、还没发布时设置应用注册了 S 并发布（300）；键盘随后获得焦点，先发布自己的 K（500），再导入。身份交给 Rust 以后与其他条目一样按变化时刻判断，留不留身份由 session_adopt 随会话决定。
   const settings = manifest("settings", [
     ["anonymous-account", "s-identity", 300],
     ["preferences", "s-preferences", 300],
@@ -285,17 +234,9 @@ group("the keyboard takes settings' anonymous identity even after publishing its
   ]);
   const pending = SharedStateMirrorPolicy.pending(settings, null, keyboard, SETTINGS_ENTRIES, true);
   check(
-    pending.some((entry) => entry.name === "anonymous-account"),
-    "the keyboard's session follows settings to S, so its identity must too",
-  );
-  check(
-    !pending.some((entry) => entry.name === "preferences"),
-    "other entries still keep the later change",
-  );
-  const back = SharedStateMirrorPolicy.pending(keyboard, null, settings, KEYBOARD_ENTRIES, true);
-  check(
-    back.some((entry) => entry.name === "anonymous-account"),
-    "settings still sees the keyboard's identity and decides with importDecision whether to take it",
+    !pending.some((entry) => entry.name === "anonymous-account") &&
+      !pending.some((entry) => entry.name === "preferences"),
+    "the later change wins for the identity as for any other entry",
   );
 });
 

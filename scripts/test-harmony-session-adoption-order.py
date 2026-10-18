@@ -7,7 +7,7 @@
 2. `beforeRequest()` 每次都再排一次进程启动时登记的采用（`AdoptionGate.beforeRequest`），而不是只等已经排进来的：回到前台时网页在 `visibilitychange` 里发的请求可能早于窗口的 ACTIVE 事件，只等已排进来的就会漏掉前台那次采用。`AccountSessionAdoption.ets` 里的 `gate` 必须是 `AdoptionGate`，`adoptOnStart` 经 `gate.register` 登记，`beforeRequest` 原样转给 `gate.beforeRequest()`；`AdoptionGate` 本身的语义由 `account-requests.test.ts` 测。
 3. 两个 ability 的 `onCreate` 先 `AccountSessionAdoption.adoptOnStart`、再 `HarmonyAccountIdentity.ensureAnonymous`，采用方向分别是 `keyboard`（设置应用）和 `settings`（键盘）；没有登记过的 `beforeRequest()` 只等已经排进来的采用，顺序反了匿名注册就不等。
 4. 回到前台时两边都再排一次采用：`Settings.syncShared` 采用键盘的，`KeyboardSession.syncSharedState` 采用设置应用的。它让本地显示的账号状态尽早跟上，认证请求的顺序不靠它。
-5. 会话不按文件复制导入，匿名账号的身份按 M40 的规则导入：`SharedStateSync.accountFileDecision` 交给 `SharedStateMirrorPolicy.importDecision`（规则由 `shared-state-mirror-policy.test.ts` 测），两个 `beforeFile` 都落到它、各自报上导入的一侧（设置应用 `settings`、键盘 `keyboard`）。
+5. 两份会话和匿名账号的身份都不按文件复制导入：`SharedStateSync.accountFileDecision` 交给 `SharedStateMirrorPolicy.importDecision`（规则由 `shared-state-mirror-policy.test.ts` 测），两个 `beforeFile` 都落到它；身份随匿名会话由 Rust 采用（迁移差异 M40），所以 `adoptOne` 必须把身份文件的路径 `identityPath` 交给 `sessionAdoptRequest`，否则 Rust 不动身份、它就再也没人导入。
 
 文本检查不是编译器：它不认识动态调用和别名，所以第 6 条要求所有 `libmsimeclient.so` 的导入都叫 `client`，不能换个名字绕过第 1 条。
 """
@@ -333,10 +333,7 @@ def check_import_decision(source: Source, problems: list[str]) -> None:
         problems.append(f"{source.relative}: accountFileDecision() not found")
         return
     _, body = found
-    expected = (
-        "return SharedStateMirrorPolicy.importDecision(importer, name, text, (): boolean => "
-        "SharedStateSync.exists(`${stateDirectory}/${ANONYMOUS_IDENTITY_FILE}`));"
-    )
+    expected = "return SharedStateMirrorPolicy.importDecision(name);"
     if collapse(body) != expected:
         problems.append(
             f"{source.relative}: accountFileDecision() must hand sessions and the anonymous identity to importDecision (got `{collapse(body)}`)"
@@ -348,9 +345,22 @@ def check_import_decision(source: Source, problems: list[str]) -> None:
             continue
         _, side_body = side_found
         decision = re.search(r"beforeFile\s*:.*?\n\s*\},", side_body, re.S)
-        call = f"return SharedStateSync.accountFileDecision(stateDirectory, '{importer}', name, text);"
+        call = "return SharedStateSync.accountFileDecision(name);"
         if decision is None or call not in decision.group(0):
-            problems.append(f"{source.relative}: {side}() beforeFile no longer falls through to accountFileDecision as '{importer}'")
+            problems.append(f"{source.relative}: {side}() beforeFile no longer falls through to accountFileDecision ({importer} side)")
+
+
+def check_identity_path(source: Source, problems: list[str]) -> None:
+    """身份不再按文件复制，只随匿名会话由 Rust 采用：`adoptOne` 不把身份文件的路径交给 `session_adopt` 时 Rust 不动身份，设置应用采用了键盘的匿名会话却留着自己的身份。"""
+    found = method_body(source, "adoptOne")
+    if found is None:
+        problems.append(f"{source.relative}: adoptOne() not found")
+        return
+    _, body = found
+    if re.search(r"\bsessionAdoptRequest\s*\(\s*stateDirectory\s*,\s*path\s*,\s*session\.item\s*,\s*publisher\s*,\s*identityPath\s*\)", body) is None:
+        problems.append(f"{source.relative}: adoptOne() must pass the published identity path to sessionAdoptRequest")
+    if re.search(r"\bmirror\.publishedFile\s*\(\s*publisher\s*,\s*identityEntry\s*\)", body) is None:
+        problems.append(f"{source.relative}: adoptOne() must take the identity path from the publisher's mirror entry")
 
 
 def main() -> int:
@@ -365,6 +375,7 @@ def main() -> int:
     count = check_calls(sources, problems)
     check_imports(sources, problems)
     check_adoption_wiring(by_name[ADOPTION_FILE], problems)
+    check_identity_path(by_name[ADOPTION_FILE], problems)
     check_start(by_name["entryability/EntryAbility.ets"], "keyboard", problems)
     check_start(by_name["inputmethodextability/KeyboardExtensionAbility.ets"], "settings", problems)
     check_foreground(by_name["pages/Settings.ets"], "syncShared", "keyboard", problems)
