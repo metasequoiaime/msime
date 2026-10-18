@@ -11,6 +11,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import app.msime.android.WindowLayout;
 
 /** 模拟输入一个字符就重启同一连接的登录页，只使用合成文本。 */
 public final class RestartingEditorActivity extends Activity {
@@ -18,9 +19,11 @@ public final class RestartingEditorActivity extends Activity {
     private TextView count;
 
     @Override public void onCreate(Bundle state) {
+        WindowLayout.theme(this);
         super.onCreate(state);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
+        WindowLayout.fitSystemBars(layout);
         count = new TextView(this);
         count.setContentDescription("msime-restart-count");
         count.setText("0");
