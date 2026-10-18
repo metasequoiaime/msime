@@ -1,0 +1,159 @@
+import CMSIMEClient
+import Foundation
+import XCTest
+@testable import MSIMEBackend
+
+/// 替身 Rust：记下注册时交来的 client_agent 和每个请求，按 `replies` 给回答。C 回调不能捕获变量，状态都放在这里；测试类内的用例串行运行。
+private enum FakeAccountRust {
+  static let lock = NSLock()
+  static var registrations: [String?] = []
+  static var agentRequests: [[String: Any]] = []
+  static var requests: [(entry: String, body: [String: Any])] = []
+  static var agentReply = #"{"ok":true,"value":"msime-macos/0.52.0 (Mac14,2; macOS 26.0; edition=full)"}"#
+  static var replies: [String: String] = [:]
+
+  static func record(_ entry: String, _ bytes: UnsafePointer<UInt8>?, _ length: Int) -> UnsafeMutablePointer<CChar>? {
+    let body = bytes.flatMap { (try? JSONSerialization.jsonObject(with: Data(bytes: $0, count: length))) as? [String: Any] } ?? [:]
+    lock.lock(); defer { lock.unlock() }
+    requests.append((entry, body))
+    let operation = (body["action"] as? [String: Any])?["operation"] as? String ?? ""
+    return strdup(replies["\(entry).\(operation)"] ?? #"{"ok":false,"error":"account_invalid"}"#)
+  }
+
+  static func table() -> msime_rust_client {
+    var table = msime_rust_client()
+    table.version = MSIME_RUST_CLIENT_VERSION
+    table.size = UInt32(MemoryLayout<msime_rust_client>.size)
+    table.string_free = { free($0) }
+    table.session_store_register = { store in
+      let agent = store?.pointee.client_agent.map { String(cString: $0) }
+      FakeAccountRust.lock.lock(); FakeAccountRust.registrations.append(agent); FakeAccountRust.lock.unlock()
+      return strdup(#"{"ok":true,"value":{"session_store":9}}"#)
+    }
+    table.session_store_unregister = { _ in strdup(#"{"ok":true,"value":true}"#) }
+    table.client_agent = { bytes, length in
+      let body = bytes.flatMap { (try? JSONSerialization.jsonObject(with: Data(bytes: $0, count: length))) as? [String: Any] } ?? [:]
+      FakeAccountRust.lock.lock(); defer { FakeAccountRust.lock.unlock() }
+      FakeAccountRust.agentRequests.append(body)
+      return strdup(FakeAccountRust.agentReply)
+    }
+    table.account = { FakeAccountRust.record("account", $0, $1) }
+    table.account_cloud_clipboard = { FakeAccountRust.record("cloud_clipboard", $0, $1) }
+    table.cloud_dictionary = { FakeAccountRust.record("cloud_dictionary", $0, $1) }
+    return table
+  }
+
+  static func reset() {
+    lock.lock(); defer { lock.unlock() }
+    registrations = []; agentRequests = []; requests = []; replies = [:]
+    agentReply = #"{"ok":true,"value":"msime-macos/0.52.0 (Mac14,2; macOS 26.0; edition=full)"}"#
+  }
+
+  static func snapshot() -> (registrations: [String?], agents: [[String: Any]], requests: [(entry: String, body: [String: Any])]) {
+    lock.lock(); defer { lock.unlock() }
+    return (registrations, agentRequests, requests)
+  }
+}
+
+final class BackendRustAccountTests: XCTestCase {
+  override func setUp() { FakeAccountRust.reset() }
+
+  private var directory: URL!
+
+  override func setUpWithError() throws {
+    directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-rust-account-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  }
+
+  override func tearDownWithError() throws { try? FileManager.default.removeItem(at: directory) }
+
+  private var layout: BackendRustStoreLayout {
+    BackendRustStoreLayout(account: .localStore(directory: directory, fileName: "account-session.json"),
+                           clipboardKeystore: .localStore(directory: directory, fileName: "cloud-clipboard-keystore"),
+                           anonymous: .localStore(directory: directory, fileName: BackendAnonymousAccount.sessionFileName),
+                           anonymousIdentity: .localStore(directory: directory, fileName: BackendAnonymousAccount.identityFileName),
+                           accountLock: directory.appendingPathComponent("account-refresh.lock"),
+                           anonymousLock: directory.appendingPathComponent("backend-account-refresh.lock"))
+  }
+
+  private let agent = BackendRustAccount.Agent(platform: "macos", version: "0.52.0", device: "Mac14,2", system: "macOS 26.0", edition: "full")
+
+  func testRegistrationReportsTheAgentRustAssembled() throws {
+    let client = try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table()))
+    let account = try BackendRustAccount.register(client: client, agent: agent, layout: layout).get()
+    XCTAssertEqual(account.store, 9)
+    let seen = FakeAccountRust.snapshot()
+    // 拼装交给 Rust：宿主只给平台、版本、设备、系统和版本 ID，注册时带的是 Rust 拼出的那一串。
+    XCTAssertEqual(seen.agents.count, 1)
+    XCTAssertEqual(seen.agents.first?["platform"] as? String, "macos")
+    XCTAssertEqual(seen.agents.first?["device"] as? String, "Mac14,2")
+    XCTAssertEqual(seen.agents.first?["system"] as? String, "macOS 26.0")
+    XCTAssertEqual(seen.agents.first?["edition"] as? String, "full")
+    XCTAssertEqual(seen.registrations, ["msime-macos/0.52.0 (Mac14,2; macOS 26.0; edition=full)"])
+    // 设备和系统不知道时交 null，由 Rust 换成 unknown。
+    _ = BackendRustAccount.clientAgentString(client: client, agent: .init(platform: "macos", version: "1", device: nil, system: nil, edition: "full"))
+    XCTAssertTrue(FakeAccountRust.snapshot().agents.last?["device"] is NSNull)
+  }
+
+  func testRegistrationFailsWithoutAnAgentInsteadOfFallingBackToTheDefault() throws {
+    FakeAccountRust.agentReply = #"{"ok":false,"error":"account_invalid"}"#
+    let client = try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table()))
+    XCTAssertEqual(BackendRustAccount.register(client: client, agent: agent, layout: layout).map(\.store),
+                   .failure(BackendRustClient.Failure(code: "account_invalid",
+                                                      response: Data(#"{"ok":false,"error":"account_invalid"}"#.utf8))))
+    XCTAssertTrue(FakeAccountRust.snapshot().registrations.isEmpty)
+  }
+
+  func testSharedRegistrationHappensOncePerProcess() throws {
+    let client = try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table()))
+    let first = try BackendRustAccount.registerShared(client: client, agent: agent, layout: layout).get()
+    let second = try BackendRustAccount.registerShared(client: client, agent: agent, layout: layout).get()
+    XCTAssertEqual(first.store, second.store)
+    XCTAssertEqual(BackendRustAccount.shared?.store, first.store)
+    XCTAssertEqual(FakeAccountRust.snapshot().registrations.count, 1)
+  }
+
+  func testRequestsCarryTheStoreAndNoDirectory() async throws {
+    FakeAccountRust.replies = [
+      "account.status": #"{"ok":true,"value":{"user":{"id":"synthetic-user","displayName":"合成用户","createdAt":"2026-10-18","email":"u@example.invalid"}}}"#,
+      "cloud_clipboard.list": #"{"ok":true,"value":{"enabled":false,"items":[]}}"#,
+      "cloud_dictionary.list": #"{"ok":true,"value":{"entries":[],"has_more":false,"offset":0}}"#,
+    ]
+    let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
+    let user = try await account.status()
+    XCTAssertEqual(user, BackendAccountClient.User(id: "synthetic-user", display_name: "合成用户", created_at: "2026-10-18",
+                                                   email: "u@example.invalid", avatar_url: nil))
+    _ = try await account.cloudClipboard(["operation": "list", "search": ""], deviceName: "合成 Mac")
+    _ = try await account.cloudDictionary(["operation": "list", "kind": "pinyin", "offset": 0, "search": ""],
+                                          snapshotDirectory: directory, options: ["user_data": "/synthetic/user"])
+    let seen = FakeAccountRust.snapshot().requests
+    XCTAssertEqual(seen.map(\.entry), ["account", "cloud_clipboard", "cloud_dictionary"])
+    XCTAssertTrue(seen.allSatisfy { $0.body["session_store"] as? Int == 9 && $0.body["directory"] == nil })
+    XCTAssertEqual(seen[1].body["device_name"] as? String, "合成 Mac")
+    XCTAssertEqual(seen[2].body["snapshot_directory"] as? String, directory.path)
+    XCTAssertEqual((seen[2].body["options"] as? [String: String])?["user_data"], "/synthetic/user")
+  }
+
+  func testSignedOutIsNilButUnreadableStorageIsAFailure() async throws {
+    let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
+    FakeAccountRust.replies = ["account.status": #"{"ok":true,"value":{"user":null}}"#]
+    let signedOut = try await account.status()
+    XCTAssertNil(signedOut)
+    FakeAccountRust.replies = ["account.status": #"{"ok":false,"error":"account_storage"}"#]
+    do { _ = try await account.status(); XCTFail("unreadable storage read as signed out") }
+    catch let failure as BackendRustClient.Failure { XCTAssertEqual(failure.code, "account_storage") }
+    FakeAccountRust.replies = ["account.status": #"{"ok":true,"value":{"user":{"id":""}}}"#]
+    do { _ = try await account.status(); XCTFail("malformed user accepted") }
+    catch let failure as BackendRustClient.Failure { XCTAssertEqual(failure, .invalidResponse) }
+  }
+
+  func testFailuresReadInChinese() {
+    func message(_ code: String) -> String? { BackendRustClient.Failure(code: code).errorDescription }
+    XCTAssertEqual(message("account_storage"), "无法安全读取登录状态，请检查设备安全设置。")
+    XCTAssertEqual(message("account_recent_login_required"), "需要重新登录后再注销：请先退出登录，重新登录后再试。")
+    XCTAssertEqual(message("account_network"), "网络连接失败，请检查网络后重试。")
+    XCTAssertEqual(message("clipboard_device_pending"), BackendAccountClient.Failure.clipboardMessages["clipboard_device_pending"])
+    XCTAssertEqual(message("account_blocked_content"), BackendAccountClient.Failure.moderationMessages["blocked_content"])
+    XCTAssertEqual(message("rust_client_unavailable"), "账号服务暂不可用，请稍后再试。")
+  }
+}

@@ -16,6 +16,7 @@ let package = Package(
       sources: [
         "account/BackendAccountClient.swift",
         "account/BackendRustClient.swift",
+        "account/BackendRustAccount.swift",
         "account/BackendRustSessionStore.swift",
         "clients/BackendAiClient.swift",
         "account/BackendAccountSession.swift",

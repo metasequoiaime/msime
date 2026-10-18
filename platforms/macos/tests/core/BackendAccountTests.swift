@@ -137,6 +137,25 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
   }
   override func stopLoading() {}
 }
+/// 替身 Rust 对账号 action 的回答（#8201 迁移计划 4b）。字段改了以后的下一次调用就按新的回答。
+private final class AccountScript: @unchecked Sendable {
+  var status: Any = NSNull()
+  var statusFailure: String?
+  var deleteFailure: String?
+  var logoutFailure: String?
+  func respond(_ call: FakeRust.Call) -> String {
+    switch call.operation {
+    case "status": return statusFailure.map(FakeRust.failure) ?? FakeRust.ok(["user": status])
+    case "providers": return FakeRust.ok(["email": true, "phone": false, "apple": false, "google": false, "apple_web": false])
+    case "request_code": return FakeRust.ok(["challengeId": "synthetic", "expiresIn": 300])
+    case "login": return FakeRust.ok(["user": FakeRust.user("synthetic-user")])
+    case "rename": return FakeRust.ok(["user": FakeRust.user("synthetic-user", call.action["display_name"] as? String ?? ""), "providers": ["email"]])
+    case "account_delete": return deleteFailure.map(FakeRust.failure) ?? FakeRust.ok(["voice_samples": ["ok": true]])
+    case "logout": return logoutFailure.map(FakeRust.failure) ?? FakeRust.ok(NSNull())
+    default: return FakeRust.failure("account_invalid")
+    }
+  }
+}
 @main struct AccountTests {
   struct Failure: Error {}
   @MainActor static func require(_ value: Bool) throws { if !value { throw Failure() } }
@@ -183,17 +202,18 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(try Data(contentsOf: destination) == replacement)
     try require(try Set(FileManager.default.contentsOfDirectory(atPath: directory.path)) == ["backup.ndjson", "saved.ndjson"])
   }
+  /// 「本机账号」卡片留在 Swift（负责人决定）：匿名账号的改名、注销走 Swift 的匿名会话，不经 Rust；登录账号仍以 Rust 的 `status` 为准；验证码登录成功后丢掉匿名会话。
   @MainActor static func anonymousAccountFallback() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [AccountFixture.self]
     let client = BackendAccountClient(configuration: configuration)
-    let realStorage = MemoryCredentials()
     let anonymousStorage = MemoryCredentials()
     let anonymousSession = BackendAccountSession(api: client, storage: anonymousStorage)
     try await anonymousSession.signIn(challenge: "synthetic", credential: "123456")
+    let script = AccountScript()
+    FakeRust.answer(script.respond)
     var discarded = 0
-    let model = MacAccountModel(client: client, account: BackendAccountSession(api: client, storage: realStorage),
-                                anonymousAccount: anonymousSession,
+    let model = MacAccountModel(rust: FakeRust.account, client: client, anonymousAccount: anonymousSession,
                                 closeAccountWindows: {}, discardAnonymous: { discarded += 1 })
     model.load(); try await finished(model)
     try require(model.user?.id == "synthetic-user" && model.anonymous)
@@ -201,20 +221,96 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(model.user?.display_name == "新昵称" && anonymousStorage.load()?.tokens.user.display_name == "新昵称")
     model.name = "有效\n中文"; model.rename(); try await finished(model)
     let storedName = try anonymousStorage.load()?.tokens.user.display_name
-    try require(model.message != nil && storedName == "新昵称")
-    let realSession = BackendAccountSession(api: client, storage: realStorage)
-    try await realSession.signIn(challenge: "synthetic", credential: "123456")
-    let priorityModel = MacAccountModel(client: client, account: realSession, anonymousAccount: anonymousSession)
+    try require(model.message != nil && storedName == "新昵称" && FakeRust.calls("rename").isEmpty)
+    script.status = FakeRust.user("synthetic-user")
+    let priorityModel = MacAccountModel(rust: FakeRust.account, client: client, anonymousAccount: anonymousSession)
     priorityModel.load(); try await finished(priorityModel)
     try require(priorityModel.user?.id == "synthetic-user" && !priorityModel.anonymous)
-    try await realSession.forget()
+    script.status = NSNull()
     AccountFixture.allowDelete = true
     defer { AccountFixture.allowDelete = false }
     AccountFixture.deleteRequests = 0
     AccountFixture.rejectFirstDelete = true
     model.logout(delete: true); try await finished(model)
     try require(AccountFixture.deleteRequests == 2 && model.user == nil && !model.anonymous
-                && discarded == 1 && anonymousStorage.load() == nil)
+                && discarded == 1 && anonymousStorage.load() == nil && FakeRust.calls("account_delete").isEmpty)
+    // 本机账号下用验证码登录：登录经 Rust，成功后丢掉匿名会话和身份。
+    try await anonymousSession.signIn(challenge: "synthetic", credential: "123456")
+    let upgrading = MacAccountModel(rust: FakeRust.account, client: client, anonymousAccount: anonymousSession,
+                                    closeAccountWindows: {}, discardAnonymous: { discarded += 1 })
+    upgrading.load(); try await finished(upgrading)
+    try require(upgrading.anonymous)
+    upgrading.target = "synthetic@example.invalid"; upgrading.requestCode(); try await finished(upgrading)
+    upgrading.code = "123456"; upgrading.codeLogin(); try await finished(upgrading)
+    try require(upgrading.user?.id == "synthetic-user" && !upgrading.anonymous && discarded == 2
+                && anonymousStorage.load() == nil && FakeRust.calls("login").count == 1)
+  }
+  /// 登录账号经 Rust（#8201 迁移计划 4b）：每个操作发出的 action、带的存储 id，以及收到回答后页面的状态。
+  @MainActor static func rustAccountModel() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AccountFixture.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let script = AccountScript()
+    FakeRust.answer(script.respond)
+    let rust = FakeRust.account
+    var clipboardAccount: String?
+    var signInRequests = 0
+    await BackendClipboardEntry.open(status: { try await rust.status() }, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
+    try require(clipboardAccount == nil && signInRequests == 1)
+    var windowClosures = 0
+    // The default anonymous session lives in the real App Group container, which an unsigned harness may not create and must never read or discard, so this model gets an empty in-memory one.
+    let model = MacAccountModel(rust: rust, client: client,
+                                anonymousAccount: BackendAccountSession(api: client, storage: MemoryCredentials()),
+                                closeAccountWindows: { windowClosures += 1 }, discardAnonymous: {})
+    model.load(); try await finished(model)
+    try require(model.providers["email"] == true && model.providers["phone"] == false && model.user == nil && !model.anonymous)
+    // 没有开放的登录方式不发请求。
+    model.channel = "phone"; model.target = "+10000000000"
+    model.requestCode(); try await finished(model)
+    try require(model.challenge == nil && model.message == "账号服务暂不可用，请稍后再试。" && FakeRust.calls("request_code").isEmpty)
+    model.channel = "email"; model.target = " synthetic@example.invalid "
+    model.requestCode(); try await finished(model)
+    let requested = FakeRust.calls("request_code").last?.action
+    try require(model.challenge == .init(id: "synthetic", expiresIn: 300) && model.resendAt > Date()
+                && requested?["provider"] as? String == "email" && requested?["target"] as? String == "synthetic@example.invalid")
+    model.code = "123456"; model.codeLogin(); try await finished(model)
+    let login = FakeRust.calls("login").last?.action
+    try require(model.user?.id == "synthetic-user" && model.code.isEmpty && model.target.isEmpty
+                && login?["challenge_id"] as? String == "synthetic" && login?["code"] as? String == "123456")
+    // 每个请求都带注册给出的存储 id，不带目录：会话只在注入的存储里。
+    try require(FakeRust.calls.allSatisfy { $0.entry == "account" && $0.request["session_store"] as? Int == 7 && $0.request["directory"] == nil })
+    script.status = FakeRust.user("synthetic-user")
+    await BackendClipboardEntry.open(status: { try await rust.status() }, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
+    try require(clipboardAccount == "synthetic-user" && signInRequests == 1)
+    model.name = "新昵称"; model.rename(); try await finished(model)
+    try require(model.user?.display_name == "新昵称" && FakeRust.calls("rename").last?.action["display_name"] as? String == "新昵称")
+    // 注销需要最近登录：本机登录留着、提示先退出再重新登录，私有窗口不关。
+    script.deleteFailure = "account_recent_login_required"
+    model.logout(delete: true); try await finished(model)
+    try require(model.user != nil && model.message == "需要重新登录后再注销：请先退出登录，重新登录后再试。" && windowClosures == 0)
+    model.logout(all: true); try await finished(model)
+    try require(model.user == nil && windowClosures == 1 && FakeRust.calls("logout").last?.action["all"] as? Bool == true)
+    // 断网时 Rust 已经先清掉了本机会话：页面显示已退出和失败的原因。
+    model.load(); try await finished(model)
+    try require(model.user?.id == "synthetic-user")
+    script.status = NSNull(); script.logoutFailure = "account_network"
+    model.logout(); try await finished(model)
+    try require(windowClosures == 2 && model.user == nil && model.message == "网络连接失败，请检查网络后重试。")
+    // 读不了登录状态（钥匙串锁着、状态文件权限不对）是失败：显示原因，不当作没有登录，也不退回本机账号。
+    let anonymousSession = BackendAccountSession(api: client, storage: MemoryCredentials())
+    try await anonymousSession.signIn(challenge: "synthetic", credential: "123456")
+    script.statusFailure = "account_storage"
+    let locked = MacAccountModel(rust: rust, client: client, anonymousAccount: anonymousSession,
+                                 closeAccountWindows: {}, discardAnonymous: {})
+    locked.load(); try await finished(locked)
+    try require(locked.user == nil && !locked.anonymous && locked.message == "无法安全读取登录状态，请检查设备安全设置。")
+    // 宿主没有注册会话存储时每个操作都失败，不退回 Swift 的会话。
+    let unregistered = MacAccountModel(rust: nil, client: client, anonymousAccount: anonymousSession,
+                                       closeAccountWindows: {}, discardAnonymous: {})
+    unregistered.load(); try await finished(unregistered)
+    try require(unregistered.user == nil && unregistered.message == "账号服务暂不可用，请稍后再试。")
+    model.code = "123456"; model.target = "synthetic@example.invalid"; model.close()
+    try require(model.code.isEmpty && model.target.isEmpty && model.challenge == nil)
   }
   // Three pages asked for while the first is still on the network send two requests: the first runs to the end and the third replaces the second in the waiting slot, so a slow connection never has more than one page in flight.
   @MainActor static func candidateGlossSingleFlight() async throws {
@@ -280,39 +376,10 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [AccountFixture.self]
     let client = BackendAccountClient(configuration: configuration)
+    try await rustAccountModel()
     let storage = MemoryCredentials()
     let session = BackendAccountSession(api: client, storage: storage)
-    var clipboardAccount: String?
-    var signInRequests = 0
-    await BackendClipboardEntry.open(account: session, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
-    try require(clipboardAccount == nil && signInRequests == 1)
-    var windowClosures = 0
-    // The default anonymous session lives in the real App Group container, which an unsigned harness may not create and must never read or discard, so this model gets an empty in-memory one.
-    let model = MacAccountModel(client: client, account: session,
-                                anonymousAccount: BackendAccountSession(api: client, storage: MemoryCredentials()),
-                                closeAccountWindows: { windowClosures += 1 }, discardAnonymous: {})
-    model.load(); try await finished(model)
-    try require(model.providers["email"] == true && model.user == nil)
-    model.channel = "phone"; model.target = "+10000000000"
-    model.requestCode(); try await finished(model)
-    try require(model.challenge == nil && model.message != nil)
-    model.channel = "email"; model.target = "synthetic@example.invalid"
-    model.requestCode(); try await finished(model)
-    try require(model.challenge != nil && model.resendAt > Date())
-    model.code = "123456"; model.codeLogin(); try await finished(model)
-    try require(model.user?.id == "synthetic-user" && model.code.isEmpty && model.target.isEmpty)
-    await BackendClipboardEntry.open(account: session, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
-    try require(clipboardAccount == "synthetic-user" && signInRequests == 1)
-    model.name = "新昵称"; model.rename(); try await finished(model)
-    try require(model.user?.display_name == "新昵称" && storage.load()?.tokens.user.display_name == "新昵称")
-    AccountFixture.renameRequests = 0
-    AccountFixture.rejectFirstRename = true
-    model.name = "刷新昵称"; model.rename(); try await finished(model)
-    try require(AccountFixture.renameRequests == 2 && model.user?.display_name == "新昵称"
-                && storage.load()?.tokens.access_token == String(repeating: "c", count: 64))
-    model.logout(delete: true); try await finished(model)
-    try require(model.user != nil && model.message != nil && storage.load() != nil)
-    try require(windowClosures == 0)
+    try await session.signIn(challenge: "synthetic", credential: "123456")
     var localSettings: MacSettingsAccess.Values = ["platform.macos.global_theme": .string("shuishan"), "platform.macos.custom_theme_base": .string("system"), "platform.macos.custom_candidate_skin": .string(""), "platform.macos.custom_candidate_skin_dark": .string("night-card"), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false), "platform.macos.shuangpin_preedit_uses_raw": .boolean(false)]
     let settings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { localSettings }, validate: { values in
       guard values.count == 7 else { throw Failure() }
@@ -418,21 +485,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(!wrongAccount.loaded && wrongAccount.items.isEmpty)
     clipboard.text = "未上传的草稿"; clipboard.close()
     try require(clipboard.text.isEmpty && clipboard.items.isEmpty)
-    model.logout(all: true); try await finished(model)
-    try require(model.user == nil && storage.load() == nil)
-    try require(windowClosures == 1)
-    clipboardAccount = nil
-    await BackendClipboardEntry.open(account: session, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
-    try require(clipboardAccount == nil && signInRequests == 2)
-    try await session.signIn(challenge: "synthetic", credential: "123456")
-    model.load(); try await finished(model)
-    AccountFixture.failLogout = true
-    model.logout(); try await finished(model)
-    AccountFixture.failLogout = false
-    try require(windowClosures == 2 && model.user == nil && storage.load() == nil && model.message != nil)
-    model.code = "123456"; model.target = "synthetic@example.invalid"; model.close()
-    try require(model.code.isEmpty && model.target.isEmpty && model.challenge == nil)
-    print("PASS: native account model login, disabled provider, rename, failed deletion, logout and credential cleanup")
+    print("PASS: native account model through Rust, local account card, settings sync and cloud clipboard")
   }
 
   @MainActor static func windowAccountIsolation() throws {

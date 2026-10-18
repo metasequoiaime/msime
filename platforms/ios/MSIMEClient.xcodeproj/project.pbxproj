@@ -113,6 +113,7 @@
 		1B56450476AF24A2747ED5AC /* PersonalDictionaryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7683D50B02EC2D8AD99089B5 /* PersonalDictionaryStore.swift */; };
 		1B6440AE389598DDD5EB0450 /* AppAppearancePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98498F1E1231D37B96B2E7AB /* AppAppearancePreference.swift */; };
 		1B7A80687943A3A7D0B20BF4 /* CandidatePanelSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EC3D5BE8B5DDAE3460D503D /* CandidatePanelSnapshotTests.swift */; };
+		1BD9501AC4DD6BD2303C0263 /* BackendRustAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 098F3E7B257AD9D72906A6FB /* BackendRustAccount.swift */; };
 		1BF3081F7CC2564EAA602B5A /* VoiceTextHandoffStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5447CB7E52E5F1AB20940B /* VoiceTextHandoffStore.swift */; };
 		1C57E2A3E4DEB40105AE617B /* LocalSpeechModelDownloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1593CCC6DC8C3DCBC7B8476 /* LocalSpeechModelDownloadTests.swift */; };
 		1C6C0D59002C108D100F12D7 /* KeyboardPagedGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A65A0F8F45AA0AB5A6922C3 /* KeyboardPagedGridView.swift */; };
@@ -182,6 +183,7 @@
 		2EF5A1F691B7D8A42133CEE0 /* InlinePreeditPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7257003D3E4755834AC1188 /* InlinePreeditPreference.swift */; };
 		2F412BD4A2952CBF7EA227CD /* PrivacySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EEB4F9800B7BA6E118D750D /* PrivacySettingsView.swift */; };
 		2F4A629CA2AB65BE1507E206 /* SharedNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90BC92FC1B37877C543213DF /* SharedNumber.swift */; };
+		2F812313F653E9B8990F6ABE /* BackendRustAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 098F3E7B257AD9D72906A6FB /* BackendRustAccount.swift */; };
 		2F8CC6AEE4BFB93E614C546D /* StrokeKeypadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F4950C6F74FAE801B8E9D22 /* StrokeKeypadView.swift */; };
 		3014ECA4EE0B5695576DD6F1 /* IOSCloudSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7987ED59A86BCCC48CAE3C16 /* IOSCloudSettings.swift */; };
 		301F0BC99740BCF9A6676CDB /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 0A83D8DED0888156567425AF /* LaunchScreen.storyboard */; };
@@ -227,6 +229,7 @@
 		39D245411F0AF939148840D1 /* BoundedFileReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 915C95E1A1B908177DA4877A /* BoundedFileReader.swift */; };
 		39D7A2F0B08CF364E7E94E1F /* FuzzyPinyinPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4D40C7A42E722D65076156 /* FuzzyPinyinPreference.swift */; };
 		39FAEAE03E6F2BFB2CA1F449 /* ClipboardHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4370A5DEF25DF58EF4406C3 /* ClipboardHistoryStore.swift */; };
+		3A01284BD38672EF3A9A36DC /* BackendRustAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 098F3E7B257AD9D72906A6FB /* BackendRustAccount.swift */; };
 		3A0B0229A200FF613484475D /* ViewRequestGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB77A60E8E3F4DB399AD5E20 /* ViewRequestGeneration.swift */; };
 		3A188077796D37B89B3C44F2 /* BackendSnapshotClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A88CE15A172F9A54B2186B3 /* BackendSnapshotClient.swift */; };
 		3A4CBC1E20DE8F3AD8935DFB /* JapaneseNineKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39A57ED3372EEA9F4E698D40 /* JapaneseNineKeyTests.swift */; };
@@ -865,6 +868,7 @@
 		E46D4A24879DB32CFDFEE336 /* KeyboardPressAnimationCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9F57BB015415B3C7B59217 /* KeyboardPressAnimationCleanup.swift */; };
 		E4E084717BB9F67398A64DFB /* ProjectConfigurationTests.py in Resources */ = {isa = PBXBuildFile; fileRef = 88E0C60629DFF4968ADDFC91 /* ProjectConfigurationTests.py */; };
 		E4FA62A7EE840EE52DE1D977 /* BackendPhrasesClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DECC151322DA293E246A666 /* BackendPhrasesClient.swift */; };
+		E592E51D191AB1442AB8B077 /* BackendRustAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 098F3E7B257AD9D72906A6FB /* BackendRustAccount.swift */; };
 		E5AE9126284C4BFB33466E1C /* ExternalCandidateSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDF7AF8FF5043DBBD330758 /* ExternalCandidateSkin.swift */; };
 		E64626F93B699908E04CCAC6 /* HandwritingCanvasCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FB46140677FBE04AD2162 /* HandwritingCanvasCard.swift */; };
 		E665E4E5F71AFB3CDD1427B7 /* QuickPunctuationSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E2919FBC3B1DCF8C86928F /* QuickPunctuationSettingsTests.swift */; };
@@ -1041,6 +1045,7 @@
 		0714DB09F79EDE9A485EBE89 /* KeyboardVoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardVoiceView.swift; sourceTree = "<group>"; };
 		07F7B9BEBBE72ADDE0A2C4FA /* PersonalDictionaryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionaryStoreTests.swift; sourceTree = "<group>"; };
 		095C484ED3DA6A52CA13FE71 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		098F3E7B257AD9D72906A6FB /* BackendRustAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendRustAccount.swift; sourceTree = "<group>"; };
 		09ADCCD7226D6D9037DF7D6F /* KeyboardClipboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardClipboardView.swift; sourceTree = "<group>"; };
 		0A83D8DED0888156567425AF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		0BA0F6652DC4817F9B83399B /* AppNotices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotices.swift; sourceTree = "<group>"; };
@@ -2233,6 +2238,7 @@
 				5ED26487097D19CD4974775E /* BackendAccountClient.swift */,
 				BAFFAD7862417E1ED7B2FE00 /* BackendAccountSession.swift */,
 				8A28330A8A6A26456C5CAB1A /* BackendAnonymousAccount.swift */,
+				098F3E7B257AD9D72906A6FB /* BackendRustAccount.swift */,
 				1B520BB5EF76EE18DB6FF4CB /* BackendRustClient.swift */,
 				95C75B24716202A8D4ABCF61 /* BackendRustSessionStore.swift */,
 			);
@@ -2869,6 +2875,7 @@
 				BF6DA06FEF1537F8D456D4B3 /* BackendLocalStore.swift in Sources */,
 				E4FA62A7EE840EE52DE1D977 /* BackendPhrasesClient.swift in Sources */,
 				D327EB5236FC56459AF11FDF /* BackendPreferencesClient.swift in Sources */,
+				2F812313F653E9B8990F6ABE /* BackendRustAccount.swift in Sources */,
 				B0BACE7F2D6EB5EB4D12E46F /* BackendRustClient.swift in Sources */,
 				180CA6EF2D7A4CEAF8B96A82 /* BackendRustSessionStore.swift in Sources */,
 				6A8E1EB7BAC410F3F0D6F48E /* BackendSkinArtworkClient.swift in Sources */,
@@ -3300,6 +3307,7 @@
 				BAB5E24965AC8900E4E30501 /* BackendLocalStore.swift in Sources */,
 				E0B73F884A6E9F9B40C94838 /* BackendPhrasesClient.swift in Sources */,
 				5E0C65B3172B73850B1ABBF8 /* BackendPreferencesClient.swift in Sources */,
+				1BD9501AC4DD6BD2303C0263 /* BackendRustAccount.swift in Sources */,
 				3294D20EF7828571EE8FD7D6 /* BackendRustClient.swift in Sources */,
 				4DEF296D805464716B6BAA6C /* BackendRustSessionStore.swift in Sources */,
 				5520F4DEB5992DFCD5F3986C /* BackendSkinArtworkClient.swift in Sources */,
@@ -3496,6 +3504,7 @@
 				587412589C1A64259B7EBA36 /* BackendLocalStore.swift in Sources */,
 				5FD81D90F2B00B63AA15AED0 /* BackendPhrasesClient.swift in Sources */,
 				223F39D462E78929F6D8FDFA /* BackendPreferencesClient.swift in Sources */,
+				E592E51D191AB1442AB8B077 /* BackendRustAccount.swift in Sources */,
 				FB28418C2616476A04BDE886 /* BackendRustClient.swift in Sources */,
 				65A5520FAFE161C34F8C842B /* BackendRustSessionStore.swift in Sources */,
 				7C9121F2AB98888D007CD1BD /* BackendSkinArtworkClient.swift in Sources */,
@@ -3585,6 +3594,7 @@
 				2A6342FBC293B4ADBD39A5A5 /* BackendLocalStore.swift in Sources */,
 				0E49BAC9B505A5DDF2D5D9BF /* BackendPhrasesClient.swift in Sources */,
 				D3F7CCA5FC6EB1A6FCA6095B /* BackendPreferencesClient.swift in Sources */,
+				3A01284BD38672EF3A9A36DC /* BackendRustAccount.swift in Sources */,
 				470ACF74293BB4038BAE0959 /* BackendRustClient.swift in Sources */,
 				7F28749101093E8F0A12A0F7 /* BackendRustSessionStore.swift in Sources */,
 				63E36BCE8C622C99BE88D4D7 /* BackendSkinArtworkClient.swift in Sources */,

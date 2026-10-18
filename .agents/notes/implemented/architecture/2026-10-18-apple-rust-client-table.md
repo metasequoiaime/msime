@@ -31,6 +31,7 @@ Status: implemented
 
 - **收益**：`swift test` 和 macOS 的 dylib 不需要 Rust 就能编译和测试注入存储的全部回调；Rust 与还没迁移的 Swift 用同一组文件和锁，第 4b 步以后可以逐页切换；云剪贴板驱动不再有单独的安装入口。
 - **代价**：多了一个 C 头文件和一份 module map，四处 Swift 编译（SwiftPM、`build_backend_swift.sh`、`test_backend_account_swift.sh`、`typecheck_backend_swift.sh`）和 iOS 工程都要带 `-I shared/backend/rust`，CMake 里显式列源文件的 Swift 测试用到 `BackendRustClient.swift` 时也要带；表要跟着头文件加字段并升版本。
+- **之后的切换**：macOS 的页面怎样改调 Rust、哪些故意没切，见 [macOS 原生账号页与云端窗口改调 Rust](2026-10-18-macos-account-through-rust.md)。
 - **还没做的**：键盘扩展不注册存储（负责人决定：没有真机量内存，扩展保留 Swift 的 `BackendAccountSession`，与 Rust 共用 App Group 的锁，见 #8201 迁移计划第 9 节）；`performExpiringActivity` 的那一半因此没有写。iOS 的 `beginBackgroundTask` 在第 4b 步注册时接上；它的到期回调不能替 Rust 放锁，持锁超过后台时间（约 30 秒）时进程仍可能被系统按 0xdead10cc 杀掉。
 
 ## Verification

@@ -30,9 +30,7 @@ public func msimeBackendAccountTranslationMarker() -> UInt64 {
   return backendAccountTranslationMarker(userID: saved.tokens.user.id, sessionID: saved.sessionID)
 }
 
-/// Warm the anonymous account used by keyboard-only services after the input
-/// source is first activated. Failure is deliberately best effort: typing must
-/// never wait for account setup or be blocked by a network outage.
+/// 输入源第一次激活后为只用键盘的服务（候选释义等）备好本机匿名账号。尽力而为：打字不等账号，断网也不拦输入。由 Rust 的 `ensure_anonymous` 注册（#8201 迁移计划 4b）：已登录时不调；已有匿名会话时 Rust 只读一次存储、不联网；读不了登录状态时这次不注册，免得把读不了当作没有登录。
 private actor AnonymousAccountBootstrap {
   static let shared = AnonymousAccountBootstrap()
   private var attempted = false
@@ -40,11 +38,9 @@ private actor AnonymousAccountBootstrap {
   func runOnce() async {
     guard !attempted else { return }
     attempted = true
-    let signedIn = BackendAccountSession.shared
-    if (try? await signedIn.accessToken()) != nil { return }
-    let anonymous = BackendAnonymousAccount.session
-    if (try? await anonymous.accessToken()) != nil { return }
-    _ = try? await BackendAnonymousAccount.ensureSignedIn(session: anonymous, client: BackendAccountClient())
+    guard let rust = BackendRustAccount.shared else { return }
+    do { if try await rust.status() != nil { return } } catch { return }
+    _ = try? await rust.account(["operation": "ensure_anonymous"])
   }
 }
 

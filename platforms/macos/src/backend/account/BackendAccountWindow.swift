@@ -3,6 +3,11 @@ import SwiftUI
 
 @MainActor
 final class MacAccountModel: NSObject, ObservableObject {
+  /// 一次验证码登录的挑战。
+  struct Challenge: Equatable {
+    let id: String
+    let expiresIn: Int
+  }
   @Published var user: BackendAccountClient.User?
   @Published var anonymous = false
   @Published var providers: [String: Bool] = [:]
@@ -12,24 +17,31 @@ final class MacAccountModel: NSObject, ObservableObject {
   @Published var target = ""
   @Published var code = ""
   @Published var channel = "email"
-  @Published var challenge: BackendAccountClient.Challenge?
+  @Published var challenge: Challenge?
   @Published var expiresAt = Date.distantPast
   @Published var resendAt = Date.distantPast
+  /// 登录账号在 Rust 里（#8201 迁移计划 4b）：状态、登录方式、验证码登录、改名、退出和注销都经它，令牌不出 Rust。nil 是宿主没有注册会话存储，每个操作都报 `rust_client_unavailable`。
+  private let rust: BackendRustAccount?
+  /// 「本机账号」卡片（匿名账号的改名、退出、注销，以及登录时丢掉匿名会话）留在 Swift（负责人决定），只有这几处用下面两个。匿名会话与 Rust 共用 App Group 的 `backend-account-refresh.lock`，两边轮流刷新不会互相吊销。
   private let client: BackendAccountClient
-  private let account: BackendAccountSession
   private let anonymousAccount: BackendAccountSession
   private let closeAccountWindows: @MainActor () -> Void
   private let discardAnonymous: () async throws -> Void
   private var pending: Task<Void, Never>?
 
-  init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
+  init(rust: BackendRustAccount? = .shared, client: BackendAccountClient = BackendAccountClient(),
        anonymousAccount: BackendAccountSession = BackendAnonymousAccount.session,
        closeAccountWindows: @escaping @MainActor () -> Void = { BackendWindowBridge.shared.closeAll() },
        discardAnonymous: @escaping () async throws -> Void = BackendAnonymousAccount.discard) {
-    self.client = client; self.account = account; self.anonymousAccount = anonymousAccount
+    self.rust = rust; self.client = client; self.anonymousAccount = anonymousAccount
     self.closeAccountWindows = closeAccountWindows
     self.discardAnonymous = discardAnonymous
     super.init()
+  }
+
+  private func signedIn() throws -> BackendRustAccount {
+    guard let rust else { throw BackendRustClient.Failure.unavailable }
+    return rust
   }
 
   func perform(_ action: @escaping @MainActor () async throws -> Void) {
@@ -44,7 +56,9 @@ final class MacAccountModel: NSObject, ObservableObject {
   }
   func load() {
     perform {
-      if let user = try await self.account.user() {
+      let rust = try self.signedIn()
+      // 读不了登录状态（`account_storage`）时整次失败、显示原因，不退回匿名账号：那样会把已登录的用户显示成本机账号。
+      if let user = try await rust.status() {
         self.user = user
         self.anonymous = false
       } else {
@@ -52,20 +66,27 @@ final class MacAccountModel: NSObject, ObservableObject {
         self.anonymous = self.user != nil
       }
       self.name = self.user?.preferredDisplayName ?? ""
-      let providers = try await self.client.providers()
+      let providers = try BackendRustAccount.object(try await rust.account(["operation": "providers"]))
       try Task.checkCancellation()
-      self.providers = providers
+      self.providers = providers.compactMapValues { value in
+        guard let flag = value as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() else { return nil }
+        return flag.boolValue
+      }
     }
   }
-  private var currentSession: BackendAccountSession { anonymous ? anonymousAccount : account }
   func requestCode() {
     guard resendAt <= Date() else { return }
     perform {
-      guard self.providers[self.channel] == true else { throw BackendAccountClient.Failure(status: 503) }
-      let response = try await self.client.challenge(provider: self.channel, target: self.target.trimmingCharacters(in: .whitespacesAndNewlines))
+      let rust = try self.signedIn()
+      guard self.providers[self.channel] == true else { throw BackendRustClient.Failure(code: "account_unavailable") }
+      let response = try BackendRustAccount.object(try await rust.account([
+        "operation": "request_code", "provider": self.channel,
+        "target": self.target.trimmingCharacters(in: .whitespacesAndNewlines)]))
+      guard let id = response["challengeId"] as? String, !id.isEmpty,
+            let expires = response["expiresIn"] as? NSNumber else { throw BackendRustClient.Failure.invalidResponse }
       try Task.checkCancellation()
-      self.challenge = response
-      self.expiresAt = Date().addingTimeInterval(TimeInterval(response.expires_in))
+      self.challenge = Challenge(id: id, expiresIn: expires.intValue)
+      self.expiresAt = Date().addingTimeInterval(TimeInterval(expires.intValue))
       self.resendAt = Date().addingTimeInterval(60)
       self.code = ""
     }
@@ -73,15 +94,17 @@ final class MacAccountModel: NSObject, ObservableObject {
   func codeLogin() {
     guard let challenge, expiresAt > Date(), code.utf8.count == 6, code.utf8.allSatisfy({ (48...57).contains($0) }) else { return }
     perform {
+      let rust = try self.signedIn()
       let replacingAnonymous = self.anonymous
-      try await self.account.signIn(challenge: challenge.challenge_id, credential: self.code)
+      let response = try BackendRustAccount.object(try await rust.account([
+        "operation": "login", "challenge_id": challenge.id, "code": self.code]))
+      let user = try BackendRustAccount.user(response["user"])
       if replacingAnonymous {
         try await self.anonymousAccount.forget()
         try await self.discardAnonymous()
       }
-      let user = try await self.account.user()
       try Task.checkCancellation()
-      self.user = user; self.name = self.user?.preferredDisplayName ?? ""; self.anonymous = false
+      self.user = user; self.name = user.preferredDisplayName; self.anonymous = false
       self.challenge = nil; self.code = ""; self.target = ""
     }
   }
@@ -92,39 +115,61 @@ final class MacAccountModel: NSObject, ObservableObject {
       message = "昵称需为 1–64 个字符，不能包含换行或控制字符。"; return
     }
     perform {
-      let session = self.currentSession
-      let identity = try await session.credentials()
-      _ = try await session.authenticated(matchingUserID: identity.userID,
-                                          matchingSessionID: identity.sessionID) { token in
-        try await self.client.rename(value, token: token)
+      if self.anonymous {
+        let session = self.anonymousAccount
+        let identity = try await session.credentials()
+        _ = try await session.authenticated(matchingUserID: identity.userID,
+                                            matchingSessionID: identity.sessionID) { token in
+          try await self.client.rename(value, token: token)
+        }
+        let profile = try await session.authenticated(matchingUserID: identity.userID,
+                                                      matchingSessionID: identity.sessionID) { token in
+          try await self.client.profile(token: token)
+        }
+        try await session.updateUser(profile.value.user, matching: profile.token,
+                                     matchingSessionID: identity.sessionID)
+        try Task.checkCancellation()
+        self.user = profile.value.user; self.name = profile.value.user.preferredDisplayName
+        return
       }
-      let profile = try await session.authenticated(matchingUserID: identity.userID,
-                                                    matchingSessionID: identity.sessionID) { token in
-        try await self.client.profile(token: token)
-      }
-      try await session.updateUser(profile.value.user, matching: profile.token,
-                                   matchingSessionID: identity.sessionID)
+      let response = try BackendRustAccount.object(try await self.signedIn().account([
+        "operation": "rename", "display_name": value]))
+      let user = try BackendRustAccount.user(response["user"])
       try Task.checkCancellation()
-      self.user = profile.value.user; self.name = profile.value.user.preferredDisplayName
+      self.user = user; self.name = user.preferredDisplayName
     }
   }
   func logout(all: Bool = false, delete: Bool = false) {
     perform {
-      let session = self.currentSession
-      if delete {
-        let identity = try await session.credentials()
-        _ = try await session.authenticated(matchingUserID: identity.userID,
-                                            matchingSessionID: identity.sessionID) { token in
-          try await self.client.deleteAccount(token: token)
+      if self.anonymous {
+        let session = self.anonymousAccount
+        if delete {
+          let identity = try await session.credentials()
+          _ = try await session.authenticated(matchingUserID: identity.userID,
+                                              matchingSessionID: identity.sessionID) { token in
+            try await self.client.deleteAccount(token: token)
+          }
+          try await session.forget(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+          self.closeAccountWindows()
+          try await self.discardAnonymous()
+        } else {
+          self.closeAccountWindows()
+          do { try await session.logout(all: all) }
+          catch { self.user = try await session.user(); throw error }
         }
-        try await session.forget(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
-        self.closeAccountWindows()
-        if self.anonymous { try await self.discardAnonymous() }
       } else {
-        // Hide private views before awaiting logout, including offline failures.
-        self.closeAccountWindows()
-        do { try await session.logout(all: all) }
-        catch { self.user = try await session.user(); throw error }
+        let rust = try self.signedIn()
+        if delete {
+          // 不是 10 分钟内登录的会话是 `account_recent_login_required`：本机登录留着，提示先退出再重新登录。
+          _ = try await rust.account(["operation": "account_delete"])
+          self.closeAccountWindows()
+        } else {
+          // Hide private views before awaiting logout, including offline failures.
+          self.closeAccountWindows()
+          // Rust 总是先清掉本机会话再请服务端撤销，所以断网时本机已经退出，页面显示退出后的状态和失败原因。
+          do { _ = try await rust.account(["operation": "logout", "all": all]) }
+          catch { self.user = try await rust.status(); throw error }
+        }
       }
       self.user = nil; self.name = ""; self.anonymous = false
     }
@@ -342,7 +387,7 @@ final class BackendAccountWindow: NSWindowController, NSWindowDelegate {
   @objc func showAccount() { showWindow(nil); presentBackendWindow(window); model.load() }
   @objc func showCloudClipboard() {
     Task { @MainActor in
-      await BackendClipboardEntry.open(account: .shared,
+      await BackendClipboardEntry.open(status: { try await BackendRustAccount.current().status() },
         present: { BackendWindowBridge.shared.showClipboard(forAccountID: $0) },
         signIn: { self.showAccount() })
     }

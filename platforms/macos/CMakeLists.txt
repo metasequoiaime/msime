@@ -410,7 +410,7 @@ set_tests_properties(desktop-cloud-provider PROPERTIES TIMEOUT 30)
 # The account backend harness compiles the whole Swift backend with its test entry point, the same source list build_backend_swift.sh links into the dylib, so the script owns the list rather than a second copy here.
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/backend-account-swift-test"
   COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_backend_account_swift.sh" "${CMAKE_CURRENT_BINARY_DIR}/backend-account-swift-test"
-  DEPENDS ${MSIME_BACKEND_SWIFT} "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/BackendAccountTests.swift"
+  DEPENDS ${MSIME_BACKEND_SWIFT} "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/BackendAccountTests.swift" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/FakeRustTable.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_backend_account_swift.sh" VERBATIM)
 add_custom_target(backend-account-swift-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/backend-account-swift-test")
 add_test(NAME backend-account-swift COMMAND "${CMAKE_CURRENT_BINARY_DIR}/backend-account-swift-test")
