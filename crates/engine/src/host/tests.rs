@@ -3563,15 +3563,29 @@ fn resource_dictionary_browse_distinguishes_missing_files_and_preserves_model_pa
     assert_eq!(korean.entries.len(), 2);
     let bytes = crate::japanese::decoder::test_model::bytes(
         &[
+            ("!", "!", 0, 0, 1),
+            ("-", "-", 0, 0, 2),
             ("かな", "仮名", 0, 0, 10),
+            ("きごう", "※", 0, 0, 1),
             ("にほん", "日本", 0, 0, -10),
             ("にほんご", "日本語", 0, 0, 20),
+            ("ー", "ー", 0, 0, 1),
         ],
         1,
         &[0],
     );
     let path = Path::new(&options.resources).join("msime-japanese.dat");
     std::fs::write(&path, &bytes).unwrap();
+    for (offset, expected, has_more) in [(0, "仮名", true), (1, "日本", true), (2, "日本語", false)]
+    {
+        let page = dictionary_resource_entries(&options, Japanese, "", offset, 1).unwrap();
+        assert!(page.available);
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.entries[0].value, expected);
+        assert_eq!(page.has_more, has_more);
+    }
+    let empty = dictionary_resource_entries(&options, Japanese, "※", 0, 1).unwrap();
+    assert!(empty.available && empty.entries.is_empty() && !empty.has_more);
     let page = dictionary_resource_entries(&options, Japanese, "日本", 0, 1).unwrap();
     assert!(page.available && page.has_more);
     assert_eq!(page.entries[0].value, "日本");
