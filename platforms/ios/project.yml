@@ -330,6 +330,7 @@ targets:
       - path: App/Sources/dictionary/IOSCloudDictionary.swift
       - path: App/Sources/settings/TypingUpload.swift
       - path: App/Sources/account/QQLinksService.swift
+      - path: App/Sources/account/CloudSync.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**

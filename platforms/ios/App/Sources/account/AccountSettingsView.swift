@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 「我的」页，对应 Android 的 `AccountFragment`：先是资料卡，然后是「我的内容」「同步」「通用」三组，以及一组不带标题的下载、帮助、关于和两个重播入口，铺在季节页面底色上。
 ///
-/// 页面先读本地会话并立即绘制，再去取需要联网的内容（资料和云剪贴板条数）；没拿到数字的行就不显示数字。「云同步」和 Android 一样是一个开关，副标题是同步状态（`CloudSync.statusLine`）；手动上传下载设置、管理云词库在它下面的「手动同步」里。
+/// 页面先读本地会话并立即绘制，再去取需要联网的内容（资料和云剪贴板条数）；没拿到数字的行就不显示数字。「云同步」和 Android 一样是一个开关，副标题是 Rust 给的同步状态行；手动上传下载设置、管理云词库在它下面的「手动同步」里。
 struct AccountSettingsView: View {
   @EnvironmentObject private var router: SettingsRouter
   @Environment(\.horizontalSizeClass) private var widthClass
@@ -255,7 +255,7 @@ struct AccountSettingsView: View {
   private var syncGroup: some View {
     MeGroup(title: "同步") {
       // 与 Android 的同步行相同：整行是开关，副标题是一行状态。打开时马上比对一次，之后每次回到前台按节流自动同步。
-      Toggle(isOn: Binding(get: { signedIn && cloudSync.record.enabled }, set: setCloudSync)) {
+      Toggle(isOn: Binding(get: { signedIn && cloudSync.status.enabled }, set: setCloudSync)) {
         HStack(spacing: 12) {
           Image(systemName: "arrow.triangle.2.circlepath.circle.fill").font(.system(size: 18))
             .foregroundStyle(MetasequoiaTheme.accent)
@@ -263,7 +263,7 @@ struct AccountSettingsView: View {
             .accessibilityHidden(true)
           VStack(alignment: .leading, spacing: 1) {
             Text("云同步").font(.system(size: 16)).foregroundStyle(.primary)
-            Text(signedIn ? CloudSync.statusLine(cloudSync.record) : "登录后可用")
+            Text(signedIn ? cloudSync.status.statusLine : "登录后可用")
               .font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
               .fixedSize(horizontal: false, vertical: true)
           }
@@ -313,7 +313,8 @@ struct AccountSettingsView: View {
       } catch is CancellationError { }
       catch {
         guard request.isVisible, syncGeneration.isCurrent(id), !Task.isCancelled else { return }
-        ToastCenter.shared.show(error is CloudSyncState.Failure ? "登录后才能打开云同步" : "云同步设置没有保存，请重试")
+        ToastCenter.shared.show((error as? BackendRustClient.Failure)?.code == "cloud_sync_signed_out"
+                                ? "登录后才能打开云同步" : "云同步设置没有保存，请重试")
       }
     }
   }
@@ -452,6 +453,8 @@ struct AccountSettingsView: View {
     ViewRequestTask.cancel(task: $syncTask)
     syncTask = Task { @MainActor in
       defer { if syncGeneration.isCurrent(id) { syncTask = nil } }
+      // 刚退出登录：先让 Rust 清空这个账号的同步进度、作废进行中的那一轮，再对齐状态。
+      await cloudSync.signOut()
       await cloudSync.refresh()
       guard request.isVisible, syncGeneration.isCurrent(id), !Task.isCancelled else { return }
     }
@@ -633,7 +636,7 @@ private struct AccountCloudSyncView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 7) {
         MeGroup(title: nil) {
-          NavigationLink { SettingsSyncView(session: .shared, client: BackendAccountClient()) } label: {
+          NavigationLink { SettingsSyncView() } label: {
             MeRow(symbol: "arrow.triangle.2.circlepath", title: "设置同步", subtitle: "上传本机设置，或下载云端设置并应用")
           }
           .buttonStyle(PressFillButtonStyle())

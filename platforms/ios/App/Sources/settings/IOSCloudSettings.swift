@@ -1,88 +1,118 @@
-import Foundation
+import UIKit
 
-/// 「设置同步」页上传和应用的那组原生设置。单独放一个文件，键盘测试 target 才能直接验证上传的内容。
+/// 云同步和「设置同步」页交给 Rust 的本机键盘设置（`ios_native`，形状是 client-core 的 `IosKeyboardPreferences`，键名 camelCase），以及 Rust 要写回本机时宿主做的那一半（#8201 迁移计划 4d）。单独放一个文件，键盘测试 target 才能直接验证它。
+///
+/// 映射本身在 Rust（client-services 的 `account::ios_settings`）：上传哪些键、版本过滤、字段表过滤、合并和三方比对都在那里。这里只按原生 iOS 的存法读出当前值：方案、简繁、学习开关、全局主题和自定义键盘设计以共享文档为准（App Group 里的只是镜像，可能落后于文档），按键反馈只存在 App Group 里。写回时 Rust 先给出要写进 App Group 的值、宿主写好以后再由 Rust 把文档部分写进共享文档，失败时宿主把 App Group 恢复成旧值（`write` 和 `restore`）。
 enum IOSCloudSettings {
-  static func snapshot() throws -> [String: BackendPreferenceValue] {
-    let document = MetasequoiaInputSessionBridge.loadSharedPreferences()
-    // 上传的是文档里的方案，不是 App Group 镜像：镜像可能落后于文档，上传旧方案会让其他设备、以及之后在这台设备上「下载并应用」，都换回用户已经不用的方案。
-    let scheme = InputSchemePreference.current(in: document).scheme
-    var settings: [String: BackendPreferenceValue] = [
-      // 简繁与方案同理取文档里的值，不取可能落后的 App Group 镜像。
-      "input.character_set": .string(ChineseOutputPreference.current(in: document) ? "traditional" : "simplified"),
-      "platform.ios.sound_enabled": .boolean(KeyboardFeedbackPreference.soundEnabled),
-      "platform.ios.haptics_enabled": .boolean(KeyboardFeedbackPreference.hapticsEnabled),
-      "platform.ios.dictionary_learning": .boolean(
-        InputHabitPreference.settings(in: document).learning),
-      "platform.ios.custom_theme_base": .string(GlobalThemePreference.base(in: document))
+  /// 当前的键盘设置。`document` 为 nil 时读共享文档。
+  static func native(document: [String: Any]? = MetasequoiaInputSessionBridge.loadSharedPreferences()) throws -> [String: Any] {
+    var value: [String: Any] = [
+      "inputScheme": InputSchemePreference.current(in: document).scheme.rawValue,
+      "traditionalChineseOutput": ChineseOutputPreference.current(in: document),
+      "soundEnabled": KeyboardFeedbackPreference.soundEnabled,
+      "hapticsEnabled": KeyboardFeedbackPreference.hapticsEnabled,
+      "hapticStrength": KeyboardFeedbackPreference.hapticStrength.rawValue,
+      "englishSuggestions": EnglishSuggestionsPreference.isEnabled,
+      "candidatePaletteFollowsDesktop": CandidatePalette.followsDesktop,
+      // 原生键盘没有行内预编辑。
+      "inlinePreedit": false,
+      "hapticsAvailable": KeyboardFeedbackPreference.hapticsAvailable,
+      "dictionaryLearning": InputHabitPreference.settings(in: document).learning,
+      "globalTheme": document.map(GlobalThemePreference.theme(in:)) ?? GlobalThemePreference.selected,
     ]
-    // 「原生」先不上传，云端保留原来的主题：加入它之前的版本只认七个主题 id，同一账号下还没升级的设备收到它会拒绝整份文档。
-    let theme = document.map(GlobalThemePreference.theme(in:)) ?? GlobalThemePreference.selected
-    if theme != GlobalThemeCatalog.nativeId { settings["platform.ios.global_theme"] = .string(theme) }
-    // 「跟随系统」先不上传，云端保留原来的强度：这一版的 `IOSPreferencePlan` 已经接受 `system`，但更早的版本只认 light、medium、strong，同一账号下还没升级的设备收到它会拒绝整份文档。
-    let strength = KeyboardFeedbackPreference.hapticStrength
-    if strength != .system { settings["platform.ios.haptic_strength"] = .string(strength.rawValue) }
-    // A custom theme without a keyboard design draws its base's keyboard; there is no design to upload then, and the cloud keeps whatever design it has (as the Tauri plugin does).
+    // 文档里没有自定义键盘设计时（自定义主题画底主题的键盘）不上传，云端保留原来的设计。
     if let design = document == nil ? CustomKeyboardSkinStore.stored : GlobalThemePreference.design(in: document) {
-      settings["platform.ios.custom_keyboard_skin"] = .string(String(decoding: try JSONEncoder().encode(design), as: UTF8.self))
+      value["customKeyboardSkin"] = String(decoding: try JSONEncoder().encode(design), as: UTF8.self)
+    } else {
+      value["customKeyboardSkin"] = NSNull()
     }
-    // A scheme the cloud cannot carry (Cantonese, Zhuyin, Vietnamese, Tibetan, Stroke) leaves the account's scheme as it is: every other device would reject the whole document over an `input.schema` it does not know.
-    if let name = scheme.cloudSchema {
-      settings["input.schema"] = .string(name)
-      // 键盘布局（26 键、九键、14 键、手写）写进 `platform.ios.keyboard_layout`；还不认识它的旧版本只读 `platform.ios.nine_key`，所以照旧一起上传，14 键在那里落成全拼 26 键。服务端字段表里还没有 `keyboard_layout` 时，`mergedPreferences` 把它留在本机，其余照常上传。
-      settings["platform.ios.keyboard_layout"] = .string(scheme.cloudKeyboardLayout)
-      settings["platform.ios.nine_key"] = .boolean(scheme == .nineKey || scheme == .japaneseNineKey)
+    // 数字行与 Tab 键、横屏分离式键盘只有 iPad 全宽键盘才有，与 Tauri 插件一样只在 iPad 上报告。
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      let defaults = KeyboardLayoutPreference.defaults
+      value["tabletFullKeys"] = defaults.object(forKey: KeyboardLayoutPreference.tabletFullKeysKey) as? Bool ?? true
+      value["tabletSplitKeyboard"] = defaults.object(forKey: KeyboardLayoutPreference.tabletSplitKey) as? Bool ?? false
     }
-    if let profile = scheme.shuangpinProfile { settings["input.shuangpin_schema"] = .string(profile) }
-    // `input.wubi_schema` 是 `wubi_profile` 在云端的名字，与双拼版本一样只在当前方案是五笔时上传。
-    if scheme == .wubi { settings["input.wubi_schema"] = .string(document.map(WubiProfilePreference.profile(in:)) ?? WubiProfilePreference.profile) }
-    // 单方案版本不上传方案，多方案版本只上传本版本提供的方案；full 什么也不去掉。
-    IOSPreferencePlan.filterUploaded(&settings, offered: MSIMEAppEdition.inputSchemes)
-    return settings
+    return value
   }
-  static func apply(_ cloud: [String: BackendPreferenceValue]) throws {
-    // 单方案版本不应用账号里的方案，多方案版本把本版本没有的方案当作缺失；full 什么也不去掉。
-    var values = cloud
-    IOSPreferencePlan.filterDownloaded(&values, offered: MSIMEAppEdition.inputSchemes)
-    let plan = try IOSPreferencePlan(values, themes: Set(GlobalThemeCatalog.ids))
-    let custom = try plan.customSkinJSON.map { try JSONDecoder().decode(CustomKeyboardSkin.self, from: Data($0.utf8)).normalized }
-    let design = try custom.map { skin -> [String: Any] in
-      guard let value = CustomKeyboardSkin.documentValue(skin) else { throw CocoaError(.fileWriteUnknown) }
-      return value
+
+  /// App Group 里只有那一份、要先写好的按键反馈三项；`restore` 用它回滚。
+  struct Feedback: Equatable, Sendable {
+    let sound: Bool
+    let haptics: Bool
+    let strength: String
+
+    static var current: Feedback {
+      Feedback(sound: KeyboardFeedbackPreference.soundEnabled, haptics: KeyboardFeedbackPreference.hapticsEnabled,
+               strength: KeyboardFeedbackPreference.hapticStrength.rawValue)
     }
-    // Validate everything before writing. Unknown platforms' values stay in the
-    // cloud and are never assigned to local defaults.
-    // Learning, the theme, the scheme and the output form live in the shared document, which the keyboard copies over the App Group on every reload. Those are the writes that can fail, so they go first and a failure leaves every App Group setting unchanged.
-    if let learning = plan.learning, InputHabitPreference.update({ $0.learning = learning }) == nil {
-      throw CocoaError(.fileWriteUnknown)
+  }
+
+  /// 把 Rust 要写回本机的键盘设置（`host_writes.ios_native` 或 `plan` 的 `ios_native`）写进 App Group，返回写之前的按键反馈和实际保存下来的键盘设置（交给 Rust 的 `saved_native`）。只写按键反馈三项：方案、简繁、学习、主题和自定义键盘由 Rust 写进共享文档，之后 `mirrorDocument` 再抄回 App Group。这是同步自己写本机，不记改动。
+  static func write(_ requested: [String: Any]) throws -> (previous: Feedback, saved: [String: Any]) {
+    guard let sound = requested["soundEnabled"] as? Bool, let haptics = requested["hapticsEnabled"] as? Bool,
+          let strength = requested["hapticStrength"] as? String, KeyboardHapticStrength(rawValue: strength) != nil else {
+      throw BackendRustClient.Failure.invalidResponse
     }
-    // 方案在写文档的闭包里按文档当时的启用列表落下，不拿 App Group 镜像里可能过时的列表覆盖文档。
-    var writtenScheme: InputSchemePreference.Selection?
-    let written = MetasequoiaInputSessionBridge.updateSharedPreferences { document in
-      if let theme = plan.globalTheme { document["global_theme"] = theme }
-      if plan.customThemeBase != nil || design != nil {
-        var customTheme = GlobalThemePreference.customTheme(in: document)
-        if let base = plan.customThemeBase {
-          if base == GlobalThemeCatalog.systemId { customTheme.removeValue(forKey: "base") } else { customTheme["base"] = base }
-        }
-        if let design { customTheme["keyboard"] = design }
-        document["custom_theme"] = customTheme
-      }
-      // 云端有 `platform.ios.keyboard_layout` 时按它切换；没有时云端的全拼、不是九键保留本机的 14 键（`IOSPreferencePlan.scheme(keeping:)`）。
-      let local = InputSchemePreference.current(in: document).scheme
-      if let scheme = plan.scheme(keeping: local.rawValue).flatMap(ChineseInputScheme.init(rawValue:)) {
-        writtenScheme = InputSchemePreference.write({ $0.scheme = scheme }, into: &document)
-      }
-      if let profile = plan.wubiProfile { document[WubiProfilePreference.documentKey] = profile }
-      if let traditional = plan.traditional { document[ChineseOutputPreference.documentKey] = traditional }
+    let previous = Feedback.current
+    write(Feedback(sound: sound, haptics: haptics, strength: strength))
+    var saved = requested
+    saved["soundEnabled"] = KeyboardFeedbackPreference.soundEnabled
+    saved["hapticsEnabled"] = KeyboardFeedbackPreference.hapticsEnabled
+    saved["hapticStrength"] = KeyboardFeedbackPreference.hapticStrength.rawValue
+    return (previous, saved)
+  }
+
+  /// Rust 写共享文档失败时把按键反馈恢复成写之前的值。
+  static func restore(_ previous: Feedback) { write(previous) }
+
+  private static func write(_ feedback: Feedback) {
+    CloudSyncState.suppressingMarks {
+      let defaults = KeyboardFeedbackPreference.defaults
+      defaults.set(feedback.sound, forKey: KeyboardFeedbackPreference.soundKey)
+      defaults.set(feedback.haptics, forKey: KeyboardFeedbackPreference.hapticsKey)
+      defaults.set(feedback.strength, forKey: KeyboardFeedbackPreference.strengthKey)
     }
-    guard written else { throw CocoaError(.fileWriteUnknown) }
-    if let writtenScheme { InputSchemePreference.mirror(writtenScheme) }
-    if let profile = plan.wubiProfile { WubiProfilePreference.profile = profile }
-    if let traditional = plan.traditional { ChineseOutputPreference.usesTraditional = traditional }
-    let defaults = KeyboardFeedbackPreference.defaults
-    if let sound = plan.sound { defaults.set(sound, forKey: KeyboardFeedbackPreference.soundKey) }
-    if let haptics = plan.haptics { defaults.set(haptics, forKey: KeyboardFeedbackPreference.hapticsKey) }
-    if let strength = plan.strength { defaults.set(strength, forKey: KeyboardFeedbackPreference.strengthKey) }
-    if let document = MetasequoiaInputSessionBridge.loadSharedPreferences() { GlobalThemePreference.mirror(document) }
+  }
+
+  /// Rust 写好共享文档以后，把文档里的方案、五笔版本、简繁、主题和自定义键盘设计抄回 App Group，键盘不等下一次重载就按新值画。抄镜像不是用户的改动，不记改动。
+  static func mirrorDocument() {
+    guard let document = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
+    CloudSyncState.suppressingMarks {
+      InputSchemePreference.mirror(InputSchemePreference.current(in: document))
+      WubiProfilePreference.mirror(document)
+      ChineseOutputPreference.usesTraditional = ChineseOutputPreference.current(in: document)
+      GlobalThemePreference.mirror(document)
+    }
+  }
+}
+
+/// 「设置同步」页的上传和应用，与 `IOSCloudSettings` 放在一起，好在 KeyboardTests 里对着替身函数表测。
+enum SettingsSyncApply {
+  /// 本机设置合并进云端文档后整份上传：导出（`ios_settings_export`，按版本和字段表过滤、合并进 `cloud`）在 Rust，上传带合并后的修订号和读文档时的账号。返回上传后的云端文档。
+  static func upload(cloud: [String: Any], schema: [String: Any], userID: String, account: BackendRustAccount) async throws -> [String: Any] {
+    let exported = try BackendRustAccount.object(try await account.client.call(.accountIOSSettingsExport, [
+      "preferences_directory": MetasequoiaInputSessionBridge.sharedStateDirectory, "ios_native": try IOSCloudSettings.native(),
+      "schema": schema, "cloud": cloud]))
+    guard let merged = exported["merged"] as? [String: Any], let settings = merged["settings"] as? [String: Any],
+          let revision = merged["revision"] as? NSNumber else { throw BackendRustClient.Failure.invalidResponse }
+    return try BackendRustAccount.object(try await account.account([
+      "operation": "preferences_put", "document": settings, "revision": revision, "user_id": userID]))
+  }
+
+  /// 把云端文档应用到本机：Rust 先算出要写进 App Group 的键盘设置（plan），这里写好以后 Rust 再写共享文档（commit），commit 失败时把 App Group 恢复成写之前的值。这是同步自己写本机，不记改动。
+  static func apply(_ cloud: [String: Any], client: BackendRustClient) async throws {
+    let directory = MetasequoiaInputSessionBridge.sharedStateDirectory
+    let plan = try BackendRustAccount.object(try await client.call(.accountIOSSettingsApply, [
+      "preferences_directory": directory, "cloud": cloud, "step": "plan", "ios_native": try IOSCloudSettings.native()]))
+    guard let requested = plan["ios_native"] as? [String: Any] else { throw BackendRustClient.Failure.invalidResponse }
+    let written = try IOSCloudSettings.write(requested)
+    do {
+      _ = try await client.call(.accountIOSSettingsApply, [
+        "preferences_directory": directory, "cloud": cloud, "step": "commit", "saved_native": written.saved])
+    } catch {
+      IOSCloudSettings.restore(written.previous)
+      throw error
+    }
+    IOSCloudSettings.mirrorDocument()
   }
 }

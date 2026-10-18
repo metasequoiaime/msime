@@ -8,315 +8,140 @@ enum AccountRequestPolicy {
   }
 }
 
-/// 应用的云同步控制器，对应 Android 的 `home/CloudSync`：设置（含当前自定义键盘皮肤）和无编码常用语。
+/// 应用的云同步控制器，对应 Android 的 `home/CloudSync`：设置（含当前自定义键盘皮肤）和无编码常用语。编排都在 Rust 的 `msime_client_cloud_sync`（#8201 迁移计划 4d）：开关、节流、首次选择、三方合并、Retry-After 退避和状态行的措辞，iOS 只在两处动手：交出 App Group 里的键盘设置（`IOSCloudSettings.native`），以及在一轮要写本机时先写 App Group、再让 Rust 提交（`pending_commit`）。
 ///
-/// 只在真实账号且用户打开了同步开关时运行，登录本身不触发。应用每次回到前台（`scenePhase` 变为 `.active`）调用 `onActive`，距上次尝试满 5 分钟、或有分类带着待上传标记且满 30 秒时才真正跑（`BackendSyncPolicy.due`）。某个分类第一次同步而云端已有数据时，先弹「合并 / 使用云端」让用户选，选了才执行。
-///
-/// 失败静默，下次回到前台再试；最近一次的失败原因只留一行给「我的」页的同步行（`statusLine`）。个人词库不在自动同步里：用户词库由键盘里的 Engine 持有，应用进程导不出来，仍在「手动同步」里上传下载。
+/// 只在登录账号且用户打开了同步开关时运行，登录本身不触发。应用每次回到前台（`scenePhase` 变为 `.active`）调用 `onActive`，按节流决定要不要跑。某个分类第一次同步而云端已有数据、或者云端被清空时，先弹选择让用户选，选了才执行。失败静默，下次回到前台再试；最近一次的失败原因在状态行里。个人词库不在自动同步里：用户词库由键盘里的 Engine 持有，应用进程导不出来。
 @MainActor
 final class CloudSync: ObservableObject {
   static let shared = CloudSync()
 
   /// 「我的」页显示的状态，每次跑完和每次 `refresh` 后更新。
-  @Published private(set) var record = CloudSyncRecord()
-  /// 「云端已有同步数据」的选择是否正在显示。
+  @Published private(set) var status = CloudSyncStatus()
+  /// 「云端已有同步数据」或「云端数据已被清空」的选择是否正在显示。
   @Published var asksFirstRun = false
+  /// 正在问的是「云端被清空」：多一个「关闭同步，保留本机」。
+  @Published private(set) var cloudCleared = false
 
   private let state: CloudSyncState
-  private let session: BackendAccountSession
-  private let client: BackendAccountClient
+  private let rust: @Sendable () throws -> BackendRustAccount
   private var running = false
-  /// 用户在另一轮还在跑时做出的首次选择，那一轮结束后马上执行，不丢掉。
-  private var pendingChoice: BackendSyncPolicy.Choice?
+  /// 用户在另一轮还在跑时做出的选择，那一轮结束后马上执行，不丢掉。
+  private var pendingChoice: String?
 
-  init(state: CloudSyncState = .shared, session: BackendAccountSession = .shared,
-       client: BackendAccountClient = BackendAccountClient()) {
+  init(state: CloudSyncState = .shared,
+       rust: @escaping @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() }) {
     self.state = state
-    self.session = session
-    self.client = client
+    self.rust = rust
   }
 
   /// 回到前台时调用，按节流决定要不要跑。
-  func onActive() { request(choice: nil, force: false) }
+  func onActive() { request(trigger: "active", choice: nil) }
 
   /// 用户刚打开同步开关时调用：不等节流，马上比对一次（首次需要选择时会弹出选择）。
-  func runNow() { request(choice: nil, force: true) }
+  func runNow() { request(trigger: "enable", choice: nil) }
 
-  /// 用户在「云端已有同步数据」里选了一项。
-  func choose(_ choice: BackendSyncPolicy.Choice) { request(choice: choice, force: true) }
+  /// 用户在选择里选了一项：`merge`、`use_cloud`，或者云端被清空时的 `disable`（关闭同步，保留本机）。
+  func choose(_ choice: String) { request(trigger: "choice", choice: choice) }
 
-  /// 与当前登录对齐后重新读状态。换了账号或已经退出时，这一步会关掉开关、清空进度。
+  /// 与当前登录对齐后重新读状态。换了账号或已经退出时，Rust 在这一步关掉开关、清空进度。读不出会话时不对齐。
   func refresh() async {
-    if let record = try? await reconcile() { self.record = record }
+    guard let status = try? await call(["operation": "status"]) else { return }
+    if let decoded = try? CloudSyncStatus(status) { self.status = decoded }
   }
 
-  /// 打开或关闭同步。打开时把全部分类标成待上传，并马上比对一次。没有真实账号时抛 `CloudSyncState.Failure.notSignedIn`。
+  /// 打开或关闭同步。打开时 Rust 把全部分类标成待上传，没有登录的账号时是 `cloud_sync_signed_out`；打开以后马上比对一次。
   func setEnabled(_ enabled: Bool) async throws {
-    _ = try await reconcile()
-    try state.setEnabled(enabled)
-    record = try state.read()
+    status = try CloudSyncStatus(try await call(["operation": "set_enabled", "enabled": enabled]))
     if enabled { runNow() }
   }
 
-  /// 「我的」页同步行的一行状态（`BackendSyncPolicy.statusLine`）。
-  static func statusLine(_ record: CloudSyncRecord, now: Date = Date()) -> String {
-    BackendSyncPolicy.statusLine(enabled: record.enabled, error: record.error, unheldPhrases: record.unheldPhrases.count,
-                                 lastSynced: record.lastSynced, now: now)
+  /// 退出登录、注销或清除失效登录之前调用：Rust 清空进度、代次加一，进行中的那一轮因此提交不了。要在本机会话清掉之前调，否则请求带的会话来源已经看不到这个账号。
+  func signOut() async {
+    if let value = try? await call(["operation": "sign_out"]), let decoded = try? CloudSyncStatus(value) { status = decoded }
   }
 
-  private func reconcile() async throws -> CloudSyncRecord {
-    let login = try await session.login()
-    return try state.bind(accountID: login?.userID, sessionID: login?.sessionID)
+  /// 发一个带会话来源的 action。`preferences_directory` 是共享偏好和常用语所在的目录。
+  private func call(_ action: [String: Any]) async throws -> Any {
+    let account = try rust()
+    guard let directory = state.directory else { throw CloudSyncState.Failure.unavailable }
+    let data = try await account.client.call(.cloudSync, [
+      "session_store": account.store, "state_directory": directory.path,
+      "preferences_directory": MetasequoiaInputSessionBridge.sharedStateDirectory, "action": action])
+    return try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
   }
 
-  private func request(choice: BackendSyncPolicy.Choice?, force: Bool) {
+  private func request(trigger: String, choice: String?) {
     guard !running else {
       if let choice { pendingChoice = choice }
       return
     }
     running = true
-    let state = state, session = session, client = client
     Task {
-      let outcome = await Task.detached(priority: .utility) {
-        await CloudSyncRun.perform(state: state, session: session, client: client, choice: choice, force: force)
-      }.value
+      let outcome = await perform(trigger: trigger, choice: choice)
       running = false
-      if let record = try? state.read() { self.record = record }
       if let next = pendingChoice {
         // 用户已经选过了，不再弹出选择。
         pendingChoice = nil
-        request(choice: next, force: true)
+        request(trigger: "choice", choice: next)
         return
       }
-      if outcome == .needsChoice { asksFirstRun = true }
+      if case .needsChoice(let cleared) = outcome {
+        cloudCleared = cleared
+        asksFirstRun = true
+      }
     }
   }
-}
 
-/// 一次同步，在后台执行。先把各分类的云端状态都读一遍，决定要不要问用户，再逐类执行；一类失败不挡其他类。
-struct CloudSyncRun {
-  enum Outcome: Equatable { case skipped, needsChoice, finished }
+  enum Outcome: Equatable { case finished, needsChoice(cloudCleared: Bool) }
 
-  let state: CloudSyncState
-  let session: BackendAccountSession
-  let client: BackendAccountClient
-  let choice: BackendSyncPolicy.Choice?
-  let accountID: String
-  let sessionID: UUID
-  let binding: Int64
-  private var schema: BackendAccountClient.PreferenceSchema?
-  private var preferences: BackendAccountClient.Preferences?
-  private var phrases: BackendAccountClient.CloudPhrases?
-
-  static func perform(state: CloudSyncState, session: BackendAccountSession, client: BackendAccountClient,
-                      choice: BackendSyncPolicy.Choice?, force: Bool) async -> Outcome {
-    // 钥匙串读不出来时不对账：那不等于退出登录，清掉进度会让下一次变成首次同步。
-    guard let login = try? await session.login(),
-          let record = try? state.bind(accountID: login.userID, sessionID: login.sessionID),
-          record.enabled else { return .skipped }
-    let now = Date()
-    guard force || choice != nil || BackendSyncPolicy.due(now: now, lastAttempt: record.lastAttempt, anyDirty: record.anyDirty)
-    else { return .skipped }
-    let binding = record.bindingGeneration
-    guard (try? state.updateIfCurrent(binding, { $0.lastAttempt = now })) == true else { return .skipped }
-    var run = CloudSyncRun(state: state, session: session, client: client, choice: choice,
-                           accountID: login.userID, sessionID: login.sessionID, binding: binding)
-    let failure: String?
+  /// 跑一轮：`run` 回答 `pending_commit` 时先把键盘设置写进 App Group，再提交；提交失败时把 App Group 恢复成旧值，这一轮作废，下一轮按三方合并重来。
+  func perform(trigger: String, choice: String?) async -> Outcome {
     do {
-      guard try await run.probe() else {
-        guard await run.current() else { return .skipped }
-        guard BackendSyncPolicy.promptDue(now: now, promptedAt: record.promptedAt, force: force) else { return .skipped }
-        _ = try? state.updateIfCurrent(binding) { $0.promptedAt = now }
-        return .needsChoice
+      var action: [String: Any] = [
+        "operation": "run", "trigger": trigger,
+        "capabilities": ["settings": true, "skins_library": false, "phrases": true, "dictionary": false],
+        // 社区皮肤试用中，共享文档里是用户还没决定保留的皮肤，这一轮不同步设置；待上传标记留着，用户保留或恢复之后再同步。
+        "host_inputs": ["ios_native": try IOSCloudSettings.native(),
+                        "settings_locked": (try? KeyboardSkinTrialStore())?.hasPendingTrial == true],
+      ]
+      if let choice { action["choice"] = choice }
+      guard let result = try await call(action) as? [String: Any], let outcome = result["outcome"] as? String else {
+        return .finished
       }
-      failure = try await run.run()
+      if let status = try? CloudSyncStatus(result["status"]) { self.status = status }
+      switch outcome {
+      case "needs_choice": return .needsChoice(cloudCleared: result["reason"] as? String == "cloud_cleared")
+      case "pending_commit":
+        guard let runID = result["run_id"] as? String else { return .finished }
+        await commit(runID: runID, writes: result["host_writes"] as? [String: Any] ?? [:])
+      default: break
+      }
     } catch {
-      // 任务取消或跑的过程中退出登录、换了账号：结果作废，不写进度。
-      guard let message = BackendSyncPolicy.failureMessage(error, fallback: "同步失败，稍后自动重试") else { return .skipped }
-      failure = message
-    }
-    guard await run.current() else { return .skipped }
-    _ = try? state.updateIfCurrent(binding) { record in
-      if let failure {
-        record.error = failure
-      } else {
-        record.error = nil
-        record.lastSynced = Date()
-      }
+      // 失败静默，下次回到前台再试；状态行照 Rust 记下的读一次。
+      await refreshPeek()
     }
     return .finished
   }
 
-  /// 开始这一轮的那次登录仍然是当前登录，开关也还开着。每次写本机之前都要再确认一次。
-  func current() async -> Bool {
-    guard let login = try? await session.login(), login.userID == accountID, login.sessionID == sessionID,
-          let record = try? state.read() else { return false }
-    return record.enabled && record.bindingGeneration == binding
-  }
-
-  private func first(_ section: CloudSyncSection) throws -> Bool {
-    try state.read().cursor(section).isEmpty
-  }
-
-  /// 带着这次登录的令牌发一个请求；令牌被拒时换一枚重试一次。登录在这期间变了时抛 `CancellationError`。
-  private func call<T: Sendable>(_ operation: @Sendable (String) async throws -> T) async throws -> T {
-    try await session.authenticated(matchingUserID: accountID, matchingSessionID: sessionID, operation).value
-  }
-
-  /// 读云端状态；返回 false 表示有分类第一次同步而云端已有数据，需要先问用户。
-  mutating func probe() async throws -> Bool {
-    guard await current() else { throw CancellationError() }
-    let client = client
-    schema = try await call { try await client.preferenceSchema(token: $0) }
-    let preferences = try await call { try await client.preferences(token: $0) }
-    self.preferences = preferences
-    let phrases = try await call { try await client.phrases(token: $0) }
-    self.phrases = phrases
-    guard await current() else { throw CancellationError() }
-    if choice != nil { return true }
-    let record = try state.read()
-    let needs = record.cursor(.settings).isEmpty && !preferences.settings.isEmpty
-      || record.cursor(.phrases).isEmpty && !phrases.phrases.isEmpty
-    return !needs
-  }
-
-  /// 逐类执行，一类失败不挡其他类；返回第一条要展示的失败原因，全部成功时为 nil。任务取消、登录变了时抛 `CancellationError`，这一轮作废。
-  func run() async throws -> String? {
-    var failure: String?
-    do {
-      try await settings()
-    } catch {
-      failure = try Self.message(error, fallback: "设置同步失败，稍后自动重试")
+  private func commit(runID: String, writes: [String: Any]) async {
+    var previous: IOSCloudSettings.Feedback?
+    var results: [String: Any] = [:]
+    if let requested = writes["ios_native"] as? [String: Any] {
+      guard let written = try? IOSCloudSettings.write(requested) else { return }
+      previous = written.previous
+      results["saved_native"] = written.saved
     }
     do {
-      try await commonPhrases()
+      status = try CloudSyncStatus(try await call(["operation": "commit", "run_id": runID, "host_results": results]))
+      IOSCloudSettings.mirrorDocument()
     } catch {
-      let message = try Self.message(error, fallback: "常用语同步失败，稍后自动重试")
-      if failure == nil { failure = message }
+      // 共享偏好在这一轮读本机以后被别处改过（conflict）或写不进去（storage）：这一轮作废，App Group 回到旧值。
+      if let previous { IOSCloudSettings.restore(previous) }
     }
-    return failure
   }
 
-  /// 失败展示给用户的原因；任务取消或登录变了时把 `CancellationError` 抛出去，整轮作废。
-  private static func message(_ error: Error, fallback: String) throws -> String {
-    guard let message = BackendSyncPolicy.failureMessage(error, fallback: fallback) else { throw CancellationError() }
-    return message
-  }
-
-  private func mode(_ section: CloudSyncSection, cloudHasData: Bool, cloudChanged: Bool, dirty: Bool) throws -> BackendSyncPolicy.Mode {
-    if try first(section) {
-      return BackendSyncPolicy.firstRun(cloudHasData: cloudHasData, choice: choice) ?? .none
-    }
-    return BackendSyncPolicy.incremental(cloudChanged: cloudChanged, localDirty: dirty)
-  }
-
-  // ---- 设置（含当前自定义键盘皮肤） ----
-
-  private func settings() async throws {
-    guard await current(), let schema, let cloud = preferences else { return }
-    // 社区皮肤试用中，共享文档里是用户还没决定保留的皮肤，不能当成设置上传；也不下载，免得覆盖试用要恢复的原值。待上传标记留着，用户保留或恢复之后的下一轮再同步。
-    if (try? KeyboardSkinTrialStore())?.hasPendingTrial == true { return }
-    // 先记下改动代数再读本机：上传期间用户又改了设置，代数会变大，标记留着，下一轮再传。
-    let record = try state.read()
-    let generation = record.generation(.settings)
-    let mode = try mode(.settings, cloudHasData: !cloud.settings.isEmpty,
-                        cloudChanged: BackendSyncPolicy.cloudChanged(cursor: record.cursor(.settings), revision: cloud.revision),
-                        dirty: record.dirty(.settings))
-    let result: BackendAccountClient.Preferences
-    switch mode {
-    case .none:
-      result = cloud
-    case .download:
-      try await apply(cloud)
-      result = cloud
-    case .upload, .merge:
-      // 上传和合并都是云端文档为底、本机值覆盖：只上传服务端字段表里有的键，其他平台的键原样保留。
-      let client = client
-      result = try await BackendSyncPolicy.resolvingConflicts(cloud, mode: mode, put: { cloud, _ in
-        let local = try await MainActor.run { try IOSCloudSettings.snapshot() }
-        let merged = try BackendAccountClient.mergedPreferences(cloud, replacing: BackendSyncPolicy.withoutLocalOnly(local),
-                                                               schema: schema)
-        guard await current() else { throw CancellationError() }
-        return try await call { try await client.putPreferences(merged, token: $0) }
-      }, refetch: {
-        try await call { try await client.preferences(token: $0) }
-      })
-      // 合并结果里可能有云端独有的键，应用回本机；与本机相同的部分写不出改动。
-      try await apply(result)
-    }
-    guard await current() else { throw CancellationError() }
-    try state.updateIfCurrent(binding) { $0.cursors[CloudSyncSection.settings.rawValue] = String(result.revision) }
-    try state.clearDirtyIfCurrent(.settings, expected: generation, bindingGeneration: binding)
-  }
-
-  // ---- 常用语 ----
-
-  private func commonPhrases() async throws {
-    guard await current(), let cloud = phrases else { return }
-    let record = try state.read()
-    let generation = record.generation(.phrases)
-    let local = try ownPhrases()
-    let mode = try mode(.phrases, cloudHasData: !cloud.phrases.isEmpty,
-                        cloudChanged: BackendSyncPolicy.cloudChanged(cursor: record.cursor(.phrases), revision: cloud.revision),
-                        dirty: record.dirty(.phrases))
-    let unheld = Set(record.unheldPhrases)
-    var revision = cloud.revision
-    var target: [BackendSyncPolicy.Phrase]?
-    switch mode {
-    case .none:
-      break
-    case .download:
-      target = cloud.phrases
-    case .upload, .merge:
-      let client = client
-      let saved = try await BackendSyncPolicy.resolvingConflicts(cloud, mode: mode, put: { cloud, mode in
-        let mine = BackendSyncPolicy.asCloudPhrases(local, cloud: cloud.phrases)
-        let upload = mode == .merge
-          ? BackendSyncPolicy.mergePhrases(mine, cloud.phrases)
-          : BackendSyncPolicy.uploadPhrases(mine, cloud.phrases, unheld: unheld)
-        guard await current() else { throw CancellationError() }
-        return try await call { try await client.putPhrases(revision: cloud.revision, phrases: upload, token: $0) }
-      }, refetch: {
-        try await call { try await client.phrases(token: $0) }
-      })
-      revision = saved.revision
-      target = saved.phrases
-    }
-    if let target {
-      guard await current() else { throw CancellationError() }
-      let unheld = CloudSyncState.suppressingMarks { applyPhrases(local, target: target) }
-      try state.updateIfCurrent(binding) { $0.unheldPhrases = unheld.sorted() }
-    }
-    guard await current() else { throw CancellationError() }
-    try state.updateIfCurrent(binding) { $0.cursors[CloudSyncSection.phrases.rawValue] = String(revision) }
-    // 自己写本机不记改动，所以只在代数仍是读本机之前那一版时清标记，期间用户的改动留到下一轮上传。
-    try state.clearDirtyIfCurrent(.phrases, expected: generation, bindingGeneration: binding)
-  }
-
-  /// 用户自己添加的常用语（id, 正文），按本机顺序；社区常用语包里的不同步，装包的设备各自管理。读不出来时这一类放弃这一轮。
-  private func ownPhrases() throws -> [(id: String, text: String)] {
-    try CommonPhrasesBridge.load().filter { $0.pack == nil }.map { ($0.id, $0.text) }
-  }
-
-  /// 把本机改成 `target`，返回本机收不下的正文（过长、超出本机条数上限或写入失败；已经有的不算），与 Android 的 `applyPhrases` 相同：删不掉的跳过，下一轮再对齐。
-  private func applyPhrases(_ local: [(id: String, text: String)], target: [BackendSyncPolicy.Phrase]) -> Set<String> {
-    let plan = BackendSyncPolicy.localPlan(local, target: target)
-    for id in plan.remove { _ = try? CommonPhrasesBridge.remove(id: id) }
-    var unheld = Set<String>()
-    for text in plan.add {
-      guard CommonPhrasesBridge.storable(text) else { unheld.insert(text); continue }
-      do { _ = try CommonPhrasesBridge.add(text) }
-      catch CommonPhrasesBridge.Failure.rejected("common_phrases_duplicate") {}
-      catch { unheld.insert(text) }
-    }
-    return unheld
-  }
-
-  /// 把云端设置应用到本机，与「设置同步」页的「下载并应用」走同一条路（`IOSCloudSettings.apply`），只是不记成本机改动。去掉本地专属的键再应用。
-  private func apply(_ cloud: BackendAccountClient.Preferences) async throws {
-    guard await current() else { throw CancellationError() }
-    let values = BackendSyncPolicy.withoutLocalOnly(cloud.settings)
-    try await MainActor.run { try CloudSyncState.suppressingMarks { try IOSCloudSettings.apply(values) } }
+  private func refreshPeek() async {
+    if let status = try? state.peek() { self.status = status }
   }
 }
 
@@ -331,17 +156,21 @@ extension Binding where Value: Equatable {
   }
 }
 
-/// 首次同步时「云端已有同步数据」的选择，挂在应用根视图上：回到前台时用户在哪个标签页都能看到。
+/// 首次同步时「云端已有同步数据」、云端被清空时「云端数据已被清空」的选择，挂在应用根视图上：回到前台时用户在哪个标签页都能看到。
 struct CloudSyncFirstRunPrompt: ViewModifier {
   @ObservedObject var sync: CloudSync
 
   func body(content: Content) -> some View {
-    content.confirmationDialog("云端已有同步数据", isPresented: $sync.asksFirstRun, titleVisibility: .visible) {
-      Button("合并") { sync.choose(.merge) }
-      Button("使用云端") { sync.choose(.useCloud) }
+    content.confirmationDialog(sync.cloudCleared ? "云端数据已被清空" : "云端已有同步数据", isPresented: $sync.asksFirstRun,
+                               titleVisibility: .visible) {
+      Button("合并") { sync.choose("merge") }
+      Button("使用云端") { sync.choose("use_cloud") }
+      if sync.cloudCleared { Button("关闭同步，保留本机") { sync.choose("disable") } }
       Button("取消", role: .cancel) {}
     } message: {
-      Text("合并会保留两边的内容，同一项以本机为准；使用云端会用云端的内容替换本机")
+      Text(sync.cloudCleared
+           ? "云端的同步数据可能已在其他设备上删除。合并或使用云端都会保留本机的内容并传回云端；也可以关闭这台设备的同步，本机数据保持不变"
+           : "合并会保留两边的内容，同一项以本机为准；使用云端会用云端的内容替换本机")
     }
   }
 }

@@ -1,12 +1,14 @@
 import SwiftUI
 
+/// 「设置同步」：手动上传本机设置或下载云端设置并应用（#8201 迁移计划 4d）。字段表和云端文档经 Rust 的 `preferences_schema`、`preferences_load`；本机设置整理成账号文档、合并进云端文档在 Rust 的 `msime_client_account_ios_settings_export`，上传用 `preferences_put` 并带读文档时的修订号和账号（P4）；应用分两步（`msime_client_account_ios_settings_apply` 的 plan 和 commit），中间由这里写 App Group，失败时恢复。上传和应用之前都核对读文档时的账号，换了号就不写。
 struct SettingsSyncView: View {
-  let session: BackendAccountSession
-  let client: BackendAccountClient
+  /// 默认是 App 启动时注册的那一份，测试和预览传别的。
+  var rust: @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() }
   @State private var loadedUserID: String?
-  @State private var loadedSessionID: UUID?
-  @State private var cloud: BackendAccountClient.Preferences?
-  @State private var schema: BackendAccountClient.PreferenceSchema?
+  /// 云端文档 `{revision, settings}`，原样交给 Rust。
+  @State private var cloud: [String: Any]?
+  /// 服务端的字段表，原样交给 Rust 的导出。
+  @State private var schema: [String: Any]?
   @State private var busy = false
   @State private var message: String?
   @State private var applying = false
@@ -16,11 +18,14 @@ struct SettingsSyncView: View {
   @State private var request = ViewRequestGeneration()
   private let device = UIDevice.current.userInterfaceIdiom == .pad ? " iPad " : " iPhone "
 
+  private var revision: Int? { (cloud?["revision"] as? NSNumber)?.intValue }
+  private var cloudIsEmpty: Bool { (cloud?["settings"] as? [String: Any])?.isEmpty ?? true }
+
   var body: some View {
     Form {
       Section {
         SettingsFactRow(title: "云端版本",
-                        detail: cloud.map { "第 \($0.revision) 版" } ?? "尚未读取",
+                        detail: revision.map { "第 \($0) 版" } ?? "尚未读取",
                         symbol: "icloud")
         SettingsActionRow(title: "刷新", detail: "重新读取云端当前版本", symbol: "arrow.clockwise") {
           startLoad()
@@ -35,7 +40,7 @@ struct SettingsSyncView: View {
                           enabled: cloud != nil && schema != nil) { uploading = true }
         SettingsActionRow(title: "下载并应用", detail: "用云端设置覆盖这台\(device)",
                           symbol: "icloud.and.arrow.down",
-                          enabled: cloud?.settings.isEmpty == false) { applying = true }
+                          enabled: cloud != nil && !cloudIsEmpty) { applying = true }
       } header: {
         SettingsGroupHeader(title: "同步")
       } footer: {
@@ -50,7 +55,7 @@ struct SettingsSyncView: View {
     .task { startLoad() }
     .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
-      cloud = nil; schema = nil; loadedUserID = nil; loadedSessionID = nil
+      cloud = nil; schema = nil; loadedUserID = nil
     })
     .alert("上传本机设置？", isPresented: $uploading) {
       Button("取消", role: .cancel) { }
@@ -70,22 +75,16 @@ struct SettingsSyncView: View {
   @MainActor private func load(requestID id: UUID) async {
     guard request.isCurrent(id) else { return }
     do {
-      let identity = try await session.credentials()
+      let account = try rust()
+      guard let userID = try await account.status()?.id else { throw BackendRustClient.Failure(code: "account_unauthorized") }
       try request.checkCurrent(id)
-      let fields = try await session.authenticated(matchingUserID: identity.userID,
-                                                   matchingSessionID: identity.sessionID) { token in
-        try await client.preferenceSchema(token: token)
-      }.value
+      let fields = try BackendRustAccount.object(try await account.account(["operation": "preferences_schema"]))
       try request.checkCurrent(id)
-      let values = try await session.authenticated(matchingUserID: identity.userID,
-                                                   matchingSessionID: identity.sessionID) { token in
-        try await client.preferences(token: token)
-      }.value
+      let values = try BackendRustAccount.object(try await account.account(["operation": "preferences_load"]))
       try request.checkCurrent(id)
-      try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+      guard try await account.status()?.id == userID else { throw CancellationError() }
       try request.checkCurrent(id)
-      try Task.checkCancellation()
-      schema = fields; cloud = values; loadedUserID = identity.userID; loadedSessionID = identity.sessionID
+      schema = fields; cloud = values; loadedUserID = userID
     } catch is CancellationError {
       guard request.isCurrent(id) else { return }
     }
@@ -95,26 +94,24 @@ struct SettingsSyncView: View {
     }
   }
   @MainActor private func startApply() {
-    guard request.isVisible, !busy, let cloud, let loadedUserID, let loadedSessionID else { return }
+    guard request.isVisible, !busy, let cloud, let loadedUserID else { return }
     ViewRequestTask.run(request: $request, busy: $busy, message: $message,
                         pending: $pending) { id in
-      await apply(cloud: cloud, userID: loadedUserID, sessionID: loadedSessionID, requestID: id)
+      await apply(cloud: cloud, userID: loadedUserID, requestID: id)
     }
   }
-  @MainActor private func apply(cloud: BackendAccountClient.Preferences,
-                                userID: String,
-                                sessionID: UUID,
-                                requestID id: UUID) async {
+  @MainActor private func apply(cloud: [String: Any], userID: String, requestID id: UUID) async {
     guard request.isCurrent(id) else { return }
     do {
-      try await session.requireSession(matchingUserID: userID, matchingSessionID: sessionID)
+      let account = try rust()
+      guard try await account.status()?.id == userID else { throw CancellationError() }
       try request.checkCurrent(id)
-      try Task.checkCancellation()
-      try IOSCloudSettings.apply(cloud.settings)
+      try await SettingsSyncApply.apply(cloud, client: account.client)
       try request.checkCurrent(id)
       message = "已应用云端设置。"
     } catch is CancellationError {
       guard request.isCurrent(id) else { return }
+      message = "账号已变化，本机设置未更改，请重新读取。"
     }
     catch {
       guard request.isCurrent(id) else { return }
@@ -122,40 +119,28 @@ struct SettingsSyncView: View {
     }
   }
   @MainActor private func startUpload() {
-    guard request.isVisible, !busy, let cloud, let schema, let loadedUserID, let loadedSessionID else { return }
+    guard request.isVisible, !busy, let cloud, let schema, let loadedUserID else { return }
     ViewRequestTask.run(request: $request, busy: $busy, message: $message,
                         pending: $pending) { id in
-      await upload(cloud: cloud, schema: schema, userID: loadedUserID, sessionID: loadedSessionID, requestID: id)
+      await upload(cloud: cloud, schema: schema, userID: loadedUserID, requestID: id)
     }
   }
-  @MainActor private func upload(cloud: BackendAccountClient.Preferences,
-                                 schema: BackendAccountClient.PreferenceSchema,
-                                 userID: String,
-                                 sessionID: UUID,
-                                 requestID id: UUID) async {
+  @MainActor private func upload(cloud: [String: Any], schema: [String: Any], userID: String, requestID id: UUID) async {
     guard request.isCurrent(id) else { return }
     do {
-      let values = try BackendAccountClient.mergedPreferences(cloud, replacing: IOSCloudSettings.snapshot(), schema: schema)
-      let identity = try await session.credentials(matchingUserID: userID,
-                                                   matchingSessionID: sessionID)
+      let account = try rust()
+      let updated = try await SettingsSyncApply.upload(cloud: cloud, schema: schema, userID: userID, account: account)
       try request.checkCurrent(id)
-      try Task.checkCancellation()
-      let updated = try await session.authenticated(matchingUserID: identity.userID,
-                                                   matchingSessionID: identity.sessionID) { token in
-        try await client.putPreferences(values, token: token)
-      }.value
+      guard try await account.status()?.id == userID else { throw CancellationError() }
       try request.checkCurrent(id)
-      try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
-      try request.checkCurrent(id)
-      try Task.checkCancellation()
       self.cloud = updated
       message = "本机设置已上传。"
     } catch is CancellationError {
       guard request.isCurrent(id) else { return }
     }
-    catch let error as BackendAccountClient.Failure {
+    catch let error as BackendRustClient.Failure {
       guard request.isCurrent(id) else { return }
-      message = error.status == 409 ? "云端设置已被其他设备更新，请刷新后重新确认。" : error.localizedDescription
+      message = error.code == "account_conflict" ? "云端设置已被其他设备更新，请刷新后重新确认。" : error.localizedDescription
     } catch {
       guard request.isCurrent(id) else { return }
       message = "上传未完成，请稍后重试。"

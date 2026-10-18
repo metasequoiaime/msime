@@ -16,6 +16,8 @@ struct MetasequoiaImeApp: App {
 
   init() {
     // 账号与云端业务的 Rust 入口都经这张函数表调用（shared/backend/rust/MSIMERustClient.h），会话存储也在这里注册，要在任何页面用到 `BackendRustAccount.shared` 之前。
+    // 云同步交给 Rust 以前的状态（App Group 的 `CloudSync/state.json`）导入一次，要在用户能动开关之前；导入过、或者已经有进度时 Rust 什么也不做。
+    CloudSyncState.shared.importLegacy()
     if let account = IOSRustAccount.install() {
       // 第一次启动就注册本机匿名账号，键盘需要之前就有；已有合法的会话时 Rust 只读一次存储、不联网，失败了下次启动再试。
       Task.detached(priority: .utility) { await IOSRustAccount.ensureAnonymous(account) }

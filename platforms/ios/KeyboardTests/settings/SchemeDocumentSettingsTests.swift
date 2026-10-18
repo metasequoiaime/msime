@@ -180,7 +180,7 @@ final class SchemeDocumentSettingsTests: XCTestCase {
     }
   }
 
-  /// 「上传本机设置」带上 `platform.ios.keyboard_layout`，同时照旧带上给旧版本读的 `platform.ios.nine_key`：本机的 14 键在新版本那里落成 14 键，在旧版本那里落成全拼 26 键。
+  /// 「上传本机设置」带上 `platform.ios.keyboard_layout`，同时照旧带上给旧版本读的 `platform.ios.nine_key`：本机的 14 键在新版本那里落成 14 键，在旧版本那里落成全拼 26 键。映射在 Rust，这里对着真的 Rust 导出看 `IOSCloudSettings.native()` 交出去的方案。
   func testCloudUploadCarriesTheKeyboardLayoutBesideTheNineKeySwitch() throws {
     let keys = ["scheme", "touch_keyboard_schemes", "touch_keyboard_layout", "last_chinese_scheme", "shuangpin_profile"]
     let previous = MetasequoiaInputSessionBridge.loadSharedPreferences()
@@ -195,10 +195,10 @@ final class SchemeDocumentSettingsTests: XCTestCase {
     for (scheme, layout, nineKey) in [(ChineseInputScheme.fourteenKey, "fourteen_key", false),
                                       (.nineKey, "nine_key", true), (.nineKeyShuangpin, "nine_key_shuangpin", false), (.quanpin, "twenty_six_key", false)] {
       XCTAssertTrue(InputSchemePreference.select(scheme), "\(scheme)")
-      let settings = try IOSCloudSettings.snapshot()
-      XCTAssertEqual(settings["input.schema"], .string("quanpin"), "\(scheme)")
-      XCTAssertEqual(settings["platform.ios.keyboard_layout"], .string(layout), "\(scheme)")
-      XCTAssertEqual(settings["platform.ios.nine_key"], .boolean(nineKey), "\(scheme)")
+      let settings = try RustSettingsExport.settings()
+      XCTAssertEqual(settings["input.schema"] as? String, "quanpin", "\(scheme)")
+      XCTAssertEqual(settings["platform.ios.keyboard_layout"] as? String, layout, "\(scheme)")
+      XCTAssertEqual(settings["platform.ios.nine_key"] as? Bool, nineKey, "\(scheme)")
     }
   }
 
@@ -208,8 +208,8 @@ final class SchemeDocumentSettingsTests: XCTestCase {
     for traditional in [true, false] {
       XCTAssertTrue(ChineseOutputPreference.save(traditional))
       ChineseOutputPreference.usesTraditional = !traditional
-      let settings = try IOSCloudSettings.snapshot()
-      XCTAssertEqual(settings["input.character_set"], .string(traditional ? "traditional" : "simplified"))
+      let settings = try RustSettingsExport.settings()
+      XCTAssertEqual(settings["input.character_set"] as? String, traditional ? "traditional" : "simplified")
     }
     // 文档没记过字形时，键盘按镜像行事，取的也是镜像。
     ChineseOutputPreference.usesTraditional = true

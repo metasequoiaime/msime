@@ -176,9 +176,9 @@ final class KeyboardSkinTests: XCTestCase {
   func testCloudUploadLeavesTheNativeThemeOut() throws {
     preserveSharedTheme()
     XCTAssertTrue(GlobalThemePreference.save(GlobalThemeCatalog.nativeId))
-    XCTAssertNil(try IOSCloudSettings.snapshot()["platform.ios.global_theme"])
+    XCTAssertNil(try RustSettingsExport.settings()["platform.ios.global_theme"])
     XCTAssertTrue(GlobalThemePreference.save("night"))
-    XCTAssertEqual(try IOSCloudSettings.snapshot()["platform.ios.global_theme"], .string("night"))
+    XCTAssertEqual(try RustSettingsExport.settings()["platform.ios.global_theme"] as? String, "night")
   }
 
   /// 为测试选中应用主题 `id`，结束后恢复原先存储的选择。

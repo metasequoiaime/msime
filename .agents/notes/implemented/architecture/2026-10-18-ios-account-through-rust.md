@@ -1,4 +1,4 @@
-# Agent Note: iOS App 的账号与云端页面改调 Rust，键盘扩展保留 Swift 会话
+# Agent Note: iOS App 的账号、云端页面和云同步改调 Rust，键盘扩展保留 Swift 会话
 
 Status: implemented
 
@@ -15,6 +15,7 @@ App 和键盘扩展读写同一份会话：登录会话和云剪贴板密钥串�
 - 社区与云端页面（4c）：键盘皮肤和词包、回复模板、举报经 `msime_client_community`（键盘皮肤的下载和举报没登录时由 Rust 用本机匿名账号）；云剪贴板经 `msime_client_account_cloud_clipboard`，每次带本机的设备名（P6），密钥串仍是钥匙串里与键盘共用的那一项；云词库的列表、增删改、导入、导出、整份备份与恢复经 `msime_client_cloud_dictionary`，中转目录是 App 自己临时目录下的 `msime-cloud-dictionary`；「应用到本机」由 Rust 下载并校验整份快照（`snapshot_export_file`），再照旧排进与键盘共用的 Swift 快照队列（`DictionarySnapshotQueue`），由键盘扩展激活。AI 对话改用流式的 `msime_client_account_chat_stream`，进页时读一次 `chat_models` 的默认模型；AI 皮肤改用 `msime_client_ai_skin_generate`；单套皮肤生成、打字统计上传（`typing_upload_*`）和 QQ 群助手（`qq_links`、`qq_link_redeem`、`qq_link_delete`）经 `msime_client_account`。
 - 页面只按打开时的 user.id 绑定：C 上拿不到会话代次，请求前后各读一次 `status`，退出或换了号就丢掉结果；同一个账号的令牌轮换和重新登录不再作废页面。
 - 与 macOS 共用的 `shared/backend-ui` 三页（词包与回复模板、完整词库目录、云端候选与排序）随 iOS 一起换成 Rust：`CommunityResourceAccount` 和两页自己的 `request` 都在请求前后核对打开时的账号；macOS 的云词库窗口不再给它们 Swift 会话的令牌。
+- 云同步（4d）：自动云同步改由 Rust 的 `msime_client_cloud_sync` 编排，能力只开设置和无编码常用语。App 交出 App Group 里的键盘设置（`IOSCloudSettings.native`：方案、简繁、学习、主题和自定义键盘设计取共享文档里的，按键反馈取 App Group 的）和「社区皮肤试用中」；一轮要写本机时（`pending_commit`）先写 App Group 的按键反馈，再 `commit` 让 Rust 写共享文档，失败时恢复 App Group，成功后把文档抄回 App Group 的镜像。状态从 Swift 的 `CloudSync/state.json` 换成 Rust 的 `cloud-sync/state.json`，App 每次启动调一次 `import_legacy`；退出、注销后先 `sign_out` 再对齐。键盘扩展和 App 记改动都调 `mark_dirty`，扩展看开关只用 `peek`。手动的「设置同步」页上传经 `msime_client_account_ios_settings_export` 加 `preferences_put`（带修订号和读文档时的账号），应用经 `msime_client_account_ios_settings_apply` 的 plan、commit 两步。Rust 的 iOS 映射原来不认九键双拼，在这一组之前补上（`fix(client-services): iOS 设置映射认得九键双拼`）。
 - 键盘扩展不注册（负责人决定：没有真机量内存，「未测，扩展保留 Swift」，计划第 9 节的默认路线）：扩展里的候选释义、云剪贴板和快照激活仍用 Swift 的会话，与 App 里的 Rust 共用同一把锁。
 
 ## Alternatives considered
@@ -22,12 +23,14 @@ App 和键盘扩展读写同一份会话：登录会话和云剪贴板密钥串�
 - **键盘扩展也注册 Rust 的会话存储。** 最强的理由是这样整份 Swift 会话可以删掉，App 和扩展只剩一个刷新方。没有采用：扩展的内存上限很紧，Rust 的 HTTP 客户端和会话对象常驻以后能不能过门槛要在最老的支持机型上量，没有真机时按计划的默认路线保留 Swift；共用的 `flock` 保证两边轮流刷新同一枚令牌不会互相吊销。
 - **登录前先取消旧账号的快照，取消失败时不让登录。** 这是 Swift 原来的做法（`BackendAccountSession.signIn` 的 `replacingAccount`）。没有采用：Rust 的登录在一次调用里完成换号，宿主插不进「保存新会话之前」这一步；登录以后再取消，键盘在这之间看到的账号已经是新的，`DictionarySnapshotWorker` 按当前账号核对请求，不会把旧账号的快照应用到新账号上。
 - **AI 对话和 AI 皮肤顺势对没登录的用户开放。** Rust 两个入口都会退回本机匿名账号，鸿蒙就是这样做的。没有采用：这是功能变化，iOS 这两页原来要求登录，这一组只做迁移；页面在调 Rust 之前先看 `status`，没登录照旧请用户登录。
+- **云同步的状态文件留在 Swift，只把单轮的合并交给 Rust。** 理由是键盘扩展记改动不用再链 Rust 的状态机。没有采用：状态文件、节流、租约和提交是一套，拆开就是两份对「这一轮还算不算数」的理解；键盘扩展本来就链着 Rust 宿主库，`mark_dirty` 只读写状态文件、不读会话。
 - **云剪贴板页的刷新逻辑留在 View 里。** 没有采用：抽成 `IOSCloudClipboard` 以后才能在 KeyboardTests 里对着替身函数表测设备名、按需读设备状态和账号绑定。
 
 ## Consequences
 
 - **收益**：iOS App 的登录会话只由 Rust 刷新和改写，「我的设备」显示 iOS 和机型，注销需要最近登录时有明确提示，锁屏或权限问题读不了会话时不再被当作已退出，AI 对话边生成边显示、能停下来，限流时说清要等多久。
 - **代价**：KeyboardTests 新增替身函数表（`platforms/ios/KeyboardTests/core/FakeRustTable.swift`），页面测试只断言发出的 action、绑定和提示，HTTP 和会话行为由 host-api 和 client-services 的测试覆盖；扩展仍有一份 Swift 会话实现。
+- **行为变化（4d）**：设置按键三方合并、常用语按正文三方合并，删掉的不再复活；云端被清空时多一个「关闭同步，保留本机」；同一个账号重新登录保留同步进度；调频设置开始同步，触感强度「跟随系统」也上传。
 - **行为变化**：资料页只显示 Google 身份的验证邮箱，邮箱登录的账号显示「通过邮箱登录」；社区的服务端细码（例如「下载使用后才能评分」「最多发布 50 款」）被 Rust 归并成禁止、冲突两类，提示跟着变泛；退出时断网，本机已经退出，资料页照样退回并说明服务端没撤销成；登录换号时取消旧快照失败不再挡住登录。
 
 ## Verification
@@ -35,4 +38,5 @@ App 和键盘扩展读写同一份会话：登录会话和云剪贴板密钥串�
 - KeyboardTests：`SkinCommunityAccountTests`（登录、资料、退出、注销、清除和快照取消）、`SkinCommunityTests`（社区 action、校验和提示）、`AISkinGenerationTests`、`RustCloudPagesTests`（云剪贴板、云词库、打字统计上传、QQ 群助手、AI 对话）。整套 MSIMEClientTests 在 iOS 27.0 模拟器上通过。
 - `swift test --package-path shared/backend`：`BackendRustAccountTests` 新增挑战、资料、登录方式的解码和限流提示。
 - macOS ctest `backend-account-swift`：共用三页的绑定、目录解码和候选的查询 action（`rustSharedCloudPages`）。
+- 4d：KeyboardTests 的 `RustCloudSyncTests`（run 的请求、先写 App Group 再提交、提交失败恢复、云端被清空的选择、开关和退出、设置同步页的上传和应用），`SchemeDocumentSettingsTests`、`KeyboardSkinTests` 改为对着真的 Rust 导出核对上传的方案、简繁和主题；SharedTests 的 `CloudSyncStateTests`、`CloudSyncMarkingTests` 对着真的 Rust 状态文件测导入、记改动和抑制。Rust 侧 client-services 的 `account::ios_settings` 新增九键双拼的往返用例。
 - 守护脚本 `test-community-session-binding.py`、`test-community-cloud-import-credentials.py` 改成盯住新的绑定方式。

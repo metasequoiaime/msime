@@ -1,85 +1,85 @@
 import Foundation
-import Darwin
 
-/// 云同步的分类。命名词库和个人词库不在其中：iOS 的服务端字段表没有皮肤库字段，个人词库由键盘里的 Engine 持有、应用进程导不出来（见 `.agents/notes` 里的 iOS 自动云同步）。
-enum CloudSyncSection: String, Codable, CaseIterable, Sendable {
+@_silgen_name("msime_client_cloud_sync")
+private func msimeClientCloudSync(_ request: UnsafePointer<UInt8>?, _ length: Int) -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("msime_client_string_free")
+private func msimeCloudSyncStringFree(_ value: UnsafeMutablePointer<CChar>?)
+
+/// 云同步的分类。iOS 只同步设置和无编码常用语：服务端字段表里没有 iOS 的皮肤库，个人词库由键盘里的 Engine 持有、应用进程导不出来（见 `.agents/notes` 里的 iOS 自动云同步）。
+enum CloudSyncSection: String, CaseIterable, Sendable {
   case settings, phrases
 }
 
-/// 同步开关与进度，字段与 Android 的 `SyncSwitch` 加 `CloudSync` 的状态对应。
-struct CloudSyncRecord: Codable, Equatable, Sendable {
-  var version = 1
+/// Rust 状态（`msime_client_cloud_sync` 的 S）里页面要读的几项。
+struct CloudSyncStatus: Equatable, Sendable {
   var enabled = false
-  /// 这份进度属于哪个账号的哪一次登录；没有真实账号时都为空。
-  var accountID = ""
-  var sessionID: UUID?
-  /// 每次换账号、退出或重新登录都加一，用来作废换账号之前开始的那一轮同步的写入。
-  var bindingGeneration: Int64 = 0
-  /// 每个分类上次同步到的云端版本；空串表示还没同步过，下一轮按首次处理。
-  var cursors: [String: String] = [:]
-  /// 每个分类的本机改动代数，每记一次改动加一。
-  var generations: [String: Int64] = [:]
-  /// 每个分类上次清掉待上传标记时的代数；与 `generations` 不同即有改动还没上传。
-  var cleans: [String: Int64] = [:]
-  /// 上次应用云端常用语时本机收不下的正文（超出本机条数或长度上限、或写入失败）。
-  var unheldPhrases: [String] = []
-  var lastAttempt: Date?
-  var lastSynced: Date?
-  /// 上次弹出「云端已有同步数据」的时间。
-  var promptedAt: Date?
-  /// 最近一次失败展示给用户的原因；成功后清掉。
-  var error: String?
+  /// 「我的」页同步行的一句话，措辞在 Rust。
+  var statusLine = ""
+  var accountID: String?
+  /// 等「云端被清空」的选择，或者用户在那里选了「关闭同步」。
+  var disabledOnCloudCleared = false
+  /// 各分类有没有待上传的本机改动。
+  var dirty: Set<CloudSyncSection> = []
 
-  func cursor(_ section: CloudSyncSection) -> String { cursors[section.rawValue] ?? "" }
-  func generation(_ section: CloudSyncSection) -> Int64 { generations[section.rawValue] ?? 0 }
-  func dirty(_ section: CloudSyncSection) -> Bool { generation(section) != (cleans[section.rawValue] ?? 0) }
-  var anyDirty: Bool { CloudSyncSection.allCases.contains(where: dirty) }
-  var bound: Bool { !accountID.isEmpty && sessionID != nil }
+  init() {}
+
+  init(_ value: Any?) throws {
+    guard let object = value as? [String: Any], let enabled = object["enabled"] as? Bool,
+          let line = object["status_line"] as? String else { throw CloudSyncState.Failure.invalid }
+    self.enabled = enabled
+    statusLine = line
+    accountID = object["account_id"] as? String
+    disabledOnCloudCleared = object["disabled_on_cloud_cleared"] as? Bool ?? false
+    let sections = object["sections"] as? [String: Any] ?? [:]
+    dirty = Set(CloudSyncSection.allCases.filter { ((sections[$0.rawValue] as? [String: Any])?["dirty"] as? Bool) == true })
+  }
 }
 
-/// 同步状态的存储：App Group 的 `CloudSync/state.json`，读改写都在同目录 `state.lock` 的 `flock` 里完成。
+/// 云同步的状态文件交给 Rust 管（`msime_client_cloud_sync`，#8201 迁移计划 4d）：App Group 根目录下的 `cloud-sync/state.json`，读改写都在 Rust 的 `state.lock` 里。这里只剩两件不需要会话的事：记一次本机改动（`mark_dirty`）和只读地看开关（`peek`），键盘扩展和 App 都会调；对账、开关、跑一轮和提交只由持有登录的 App 经 `CloudSync` 调。
 ///
-/// 放在 App Group 而不是应用私有存储，是因为键盘扩展也要给代数加一：Android 的输入法进程经 `AccountSessionProvider` 让主进程记改动，iOS 的键盘没有能调用应用的通道，只能写共享容器。改动由应用和键盘两个进程并发记录，所以不用 `UserDefaults`，它跨进程的读改写不是原子的。只有应用跑同步，其余写入都是应用里的同步控制器做的。
+/// 放在 App Group 而不是应用私有存储，是因为键盘扩展也要记改动：iOS 的键盘没有能调用应用的通道，只能写共享容器。没有 App Group 容器时（未签名的模拟器构建不带 entitlements）退回应用自己的 Application Support，与 `MetasequoiaInputSessionBridge` 存共享设置文档的退路相同，改动标记和它标记的文档始终在同一处。
 final class CloudSyncState: @unchecked Sendable {
-  enum Failure: Error { case unavailable, invalid, notSignedIn }
+  enum Failure: Error, Equatable {
+    case unavailable
+    case invalid
+    /// Rust 给出的失败码，例如 `cloud_sync_storage`。
+    case rust(String)
+  }
 
-  /// 共享状态的根目录。没有 App Group 容器时（未签名的模拟器构建不带 entitlements）退回应用自己的 Application Support，与 `MetasequoiaInputSessionBridge` 存共享设置文档的退路相同，改动标记和它标记的文档始终在同一处。签名的构建总有容器，不会走到退路。
   static let defaultRoot: URL = IOSSharedPaths.sharedContainerOrApplicationSupport(
     for: MSIMEAppEdition.appGroupIdentifier)
-  static let shared = CloudSyncState(directory: defaultRoot)
-  private static let maximumBytes = 256 * 1024
+  /// 生产代码都用这一份；测试换成临时目录上的一份，免得碰真正的同步进度。
+  nonisolated(unsafe) static var shared = CloudSyncState(directory: defaultRoot)
   private static let suppressionKey = "app.msime.cloudSync.suppressMarks"
-  private static let processLock = NSLock()
-  private let directory: URL?
+  /// 交给 Rust 的 `state_directory`。
+  let directory: URL?
 
-  init(directory: URL? = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)) {
-    self.directory = directory?.appendingPathComponent("CloudSync", isDirectory: true)
+  init(directory: URL?) {
+    self.directory = directory
   }
 
-  /// 读当前状态；文件不存在时是全新的默认值。
-  func read() throws -> CloudSyncRecord {
-    try withLock { try load($0) }
-  }
+  /// iOS 第 1 版自己写的状态文件，迁移到 Rust 时导入一次（`importLegacy`）。
+  var legacyFile: URL? { directory?.appendingPathComponent("CloudSync/state.json") }
 
-  /// 在锁内读出、修改、写回。闭包可以抛错放弃这次修改。
-  @discardableResult
-  func update<T>(_ change: (inout CloudSyncRecord) throws -> T) throws -> T {
-    try withLock { root in
-      var record = try load(root)
-      let before = record
-      let result = try change(&record)
-      if record != before { try save(record, in: root) }
-      return result
-    }
-  }
-
-  /// 记一次本机改动：开关打开时给这个分类的代数加一，下一轮就会上传。同步关闭时不记，打开时本来就会整份比对。同步自己写本机时（`suppressingMarks`）不记。记不下（容器不可用，例如键盘没有完全访问权限）时什么也不做：这时改动本身也写不进共享容器。
+  /// 记一次本机改动：开关打开时给这个分类记上待上传，下一轮就会上传；开关关着时 Rust 不记。同步自己写本机时（`suppressingMarks`）不记。记不下（容器不可用，例如键盘没有完全访问权限）时什么也不做：这时改动本身也写不进共享容器。
   func markDirty(_ section: CloudSyncSection) {
     guard !Self.suppressed else { return }
-    try? update { record in
-      guard record.enabled else { return }
-      record.generations[section.rawValue] = record.generation(section) + 1
-    }
+    _ = try? call(["operation": "mark_dirty", "section": section.rawValue])
+  }
+
+  /// 只读状态文件看开关和状态行，不读会话、不对账，键盘扩展也能调。
+  func peek() throws -> CloudSyncStatus {
+    try CloudSyncStatus(try call(["operation": "peek"]))
+  }
+
+  /// 把 iOS 第 1 版的状态导入 Rust，免得迁移以后又弹首次选择。只在还没有任何进度时导入，导入过一次、调过开关以后不再导入，所以每次启动都可以调；旧文件不存在或读不出来时什么也不做。返回是否导入了。
+  @discardableResult
+  func importLegacy() -> Bool {
+    guard let file = legacyFile, let data = try? BoundedFileReader.read(from: file, maximumBytes: 256 * 1024),
+          let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let value = try? call(["operation": "import_legacy", "ios_v1": record]) as? [String: Any] else { return false }
+    return value["imported"] as? Bool == true
   }
 
   /// 在这段同步代码里写本机时不记改动，否则同步应用云端内容之后，下一轮又会把它当成本机改动上传。只对当前线程生效，闭包必须同步执行完。
@@ -95,103 +95,21 @@ final class CloudSyncState: @unchecked Sendable {
     Thread.current.threadDictionary[suppressionKey] as? Bool == true
   }
 
-  /// 把进度和当前登录对齐。登录（账号 id 加这次登录的 `sessionID`）与记下的不同（换了账号、退出后重新登录、已经退出）时清空全部进度并关闭开关，`bindingGeneration` 加一，与 Android 的 `SyncSwitch.clear` 加 `bindAccount` 相同；相同时不动。返回对齐后的状态。
-  @discardableResult
-  func bind(accountID: String?, sessionID: UUID?) throws -> CloudSyncRecord {
-    try update { record in
-      let accountID = accountID ?? ""
-      let sessionID = accountID.isEmpty ? nil : sessionID
-      guard record.accountID != accountID || record.sessionID != sessionID else { return record }
-      let generation = record.bindingGeneration + 1
-      record = CloudSyncRecord()
-      record.bindingGeneration = generation
-      record.accountID = accountID
-      record.sessionID = sessionID
-      return record
-    }
-  }
-
-  /// 打开或关闭同步；关闭时保留游标，重新打开后增量继续。没有真实账号时不能打开。打开时把全部分类标成待上传，与 Android 的开关相同。
-  func setEnabled(_ enabled: Bool) throws {
-    try update { record in
-      guard !enabled || record.bound else { throw Failure.notSignedIn }
-      record.enabled = enabled
-      if enabled {
-        for section in CloudSyncSection.allCases {
-          record.generations[section.rawValue] = record.generation(section) + 1
-        }
-      }
-    }
-  }
-
-  /// 只在开始这一轮的那次登录仍然是当前登录时才修改；换了账号或退出登录时返回 false，什么也不写。
-  @discardableResult
-  func updateIfCurrent(_ bindingGeneration: Int64, _ change: (inout CloudSyncRecord) -> Void) throws -> Bool {
-    try update { record in
-      guard record.bindingGeneration == bindingGeneration else { return false }
-      change(&record)
-      return true
-    }
-  }
-
-  /// 代数仍是 `expected` 时清掉待上传标记；期间又有改动（代数更大）或换了账号时保留，下一轮会把那次改动传上去。
-  @discardableResult
-  func clearDirtyIfCurrent(_ section: CloudSyncSection, expected: Int64, bindingGeneration: Int64) throws -> Bool {
-    try update { record in
-      guard record.bindingGeneration == bindingGeneration, record.generation(section) == expected else { return false }
-      record.cleans[section.rawValue] = expected
-      return true
-    }
-  }
-
-  private func withLock<T>(_ body: (URL) throws -> T) throws -> T {
+  /// 不带会话来源的一个 action（`peek`、`mark_dirty`、`import_legacy`），同步调用：只读写状态文件，不联网。成功时是 `value`。
+  private func call(_ action: [String: Any]) throws -> Any {
     guard let directory else { throw Failure.unavailable }
-    Self.processLock.lock()
-    defer { Self.processLock.unlock() }
-    guard !SafePath.hasRefusedSymbolicLink(directory) else { throw Failure.unavailable }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    let descriptor = open(directory.appendingPathComponent("state.lock").path,
-                          O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
-    guard descriptor >= 0 else { throw Failure.unavailable }
-    defer { close(descriptor) }
-    // 阻塞等锁：每次持锁只读写一个小文件，而键盘记改动时不能因为应用恰好在写就丢掉这一次。
-    guard flock(descriptor, LOCK_EX) == 0 else { throw Failure.unavailable }
-    defer { flock(descriptor, LOCK_UN) }
-    return try body(directory)
-  }
-
-  private func load(_ root: URL) throws -> CloudSyncRecord {
-    let file = root.appendingPathComponent("state.json")
-    guard FileManager.default.fileExists(atPath: file.path) else { return CloudSyncRecord() }
-    let data: Data
-    do {
-      data = try BoundedFileReader.read(from: file, maximumBytes: Self.maximumBytes)
-    } catch BoundedFileReader.Failure.tooLarge {
-      return CloudSyncRecord()
-    } catch {
-      throw Failure.unavailable
+    let request: [String: Any] = ["state_directory": directory.path, "action": action]
+    guard JSONSerialization.isValidJSONObject(request), let data = try? JSONSerialization.data(withJSONObject: request) else {
+      throw Failure.invalid
     }
-    // 读不出的文件按全新状态处理：开关回到关闭、游标清空，下一次打开时整份比对，不会丢数据。
-    guard let record = try? Self.decoder.decode(CloudSyncRecord.self, from: data),
-          record.version == 1 else { return CloudSyncRecord() }
-    return record
+    guard let raw = data.withUnsafeBytes({ bytes in
+      msimeClientCloudSync(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
+    }) else { throw Failure.invalid }
+    let answer = Data(bytes: raw, count: strlen(raw))
+    msimeCloudSyncStringFree(raw)
+    guard let envelope = try? JSONSerialization.jsonObject(with: answer) as? [String: Any],
+          let ok = envelope["ok"] as? Bool else { throw Failure.invalid }
+    guard ok else { throw Failure.rust(envelope["error"] as? String ?? "") }
+    return envelope["value"] ?? NSNull()
   }
-
-  private func save(_ record: CloudSyncRecord, in root: URL) throws {
-    let data = try Self.encoder.encode(record)
-    guard data.count <= Self.maximumBytes else { throw Failure.invalid }
-    try data.write(to: root.appendingPathComponent("state.json"),
-                   options: IOSSharedPaths.protectedAtomicWriteOptions)
-  }
-
-  private static let encoder: JSONEncoder = {
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    return encoder
-  }()
-  private static let decoder: JSONDecoder = {
-    let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .iso8601
-    return decoder
-  }()
 }
