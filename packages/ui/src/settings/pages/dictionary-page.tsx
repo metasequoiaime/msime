@@ -87,10 +87,21 @@ export function DictionarySettingsPage() {
     mobilePlatform,
     openCommunityGallery,
     openPanel,
+    openExternalUrl,
     dictionaryTab,
     setDictionaryTab,
   } = useSettingsForm();
   const [resourceKind, setResourceKind] = useState<ResourceDictionaryKind | null>(null);
+  const contribution = client.openExternalUrl && (
+    <GroupList title="完善公共词库">
+      <ActionRow
+        title="提交缺失词条"
+        description="前往官网填写词语和读音，审核通过后随词库更新提供给所有人。个人学习的词不会自动公开。"
+        action={() => void openExternalUrl("https://msime.app/words/")}
+        label="前往投稿"
+      />
+    </GroupList>
+  );
   const feedback = (
     <>
       {dictionaryPendingCount > 0 && (
@@ -137,6 +148,7 @@ export function DictionarySettingsPage() {
               <DictionaryUpdates request={client.dictionary.updates} />
             )}
             <HarmonyPhoneDictionary />
+            {contribution}
           </>
         )}
       </SettingsPageFieldset>
@@ -152,6 +164,7 @@ export function DictionarySettingsPage() {
         {tabList}
       </div>
       {!mobilePlatform && feedback}
+      {contribution}
       {/* 先是词库本身（查、看、加），再是成批的导入导出和云词库，然后是只读的词库信息和别的入口，清除学习数据这种危险操作放在页末。 */}
       {panel(
         "lookup",

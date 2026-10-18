@@ -188,6 +188,8 @@ public final class LexiconPage extends ReloadingDetailPage {
         // 这里只列前几个，完整列表（搜索、详情、举报）压在词库页上面，返回回到这里。
         community.nav("浏览更多词库", "搜索社区里的全部词库", null,
             () -> CommunityFragment.browse(context, CommunityRequest.Kind.DICTIONARY));
+        community.nav("提交缺失词条", "前往官网填写，审核后随公共词库更新；个人学习不会自动公开", null,
+            () -> AboutPage.openLink(context, "https://msime.app/words/"));
 
         GroupCard learning = GroupCard.add(sectionColumn(target, "学习"), "学习");
         InputFeatureToggle toggle = InputFeatureToggle.LEARNING;

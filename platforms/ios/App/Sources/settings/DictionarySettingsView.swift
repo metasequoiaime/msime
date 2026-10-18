@@ -42,6 +42,13 @@ struct DictionarySettingsView: View {
         }
         updateSection
         DesignGroup(title: "发现词库") { discoverRows }
+        DesignGroup(title: "完善公共词库", footer: "前往官网填写词语和读音，审核后随公共词库更新。个人学习的词不会自动公开。") {
+          Link(destination: URL(string: "https://msime.app/words/")!) {
+            DesignNavRowLabel(title: "提交缺失词条")
+          }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("dictionaryContributionLink")
+        }
         DesignGroup(title: "学习", footer: learningFooter) { learningRows }
         DesignGroup(title: "更多") {
           NavigationLink(destination: VocabularyReviewSettingsView()) {

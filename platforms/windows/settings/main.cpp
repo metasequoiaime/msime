@@ -13229,7 +13229,11 @@ private:
 
   void build_lexicon_page(StackPanel const &page) {
     build_dictionary_updates(page);
-    // 本地词库管理: the same list, edit and delete as the shared page, through msime_client_settings_dictionary.
+    auto contribution = add_group(page, L"完善公共词库");
+    add_row(contribution, 0xE8F2, L"提交缺失词条",
+            L"前往官网填写词语和读音，审核后随公共词库更新。个人学习的词不会自动公开。",
+            button_control(L"前往投稿", [this] { open_url(L"https://msime.app/words/"); }));
+    // 本地词库管理通过 msime_client_settings_dictionary 提供查询、编辑和删除。
     auto manage = add_group(page, L"本地词库管理");
     std::vector<Option> kinds;
     for (auto const &[id, label] : lexicon_kinds)
