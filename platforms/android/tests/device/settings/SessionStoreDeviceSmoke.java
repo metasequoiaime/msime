@@ -134,6 +134,7 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
         settingsPageRequests(delta, progress);
         legacySnapshotQueueActivates();
         legacyCloudSyncImport();
+        cloudSyncHostWrites();
     }
 
     /** Java 旧版队列写 `state.bin` 的格式（DataOutputStream）：魔数、版本 1、本机版本、一个请求。 */
@@ -338,6 +339,121 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
         } finally {
             deleteTree(root);
         }
+    }
+
+    /**
+     * 5d：一轮回答 `pending_commit` 时，RustCloudSync.commit 在账号绑定锁里先核对 `status.account_id` 是不是当前登录的账号，再把 `host_writes` 写进四个本机存储，最后以 `run_id` 提交。这里的 `host_writes` 按 Rust 的 HostWrites 拼（`feedback` 的 soundEnabled、hapticsEnabled、hapticStrength，`android_local`，`custom_keyboard_skins`，`adopt_texts`），产品读错一个键名时对应的存储不变，这里就失败；不然那一项会被静默跳过、照样提交，游标前进以后云端的值再也写不回这台设备。
+     *
+     * <p>四个存储都放在临时目录里：ContextWrapper 把 files 目录换成临时的，按键反馈和 Android 本地设置跟着它走，`runtime-options.json` 里的偏好目录（常用语的示例标记）和传给 commit 的偏好目录（皮肤库）也指向临时目录，同步状态目录同样在它下面。专用 AVD 没有登录，当前账号是空串：账号对不上时什么也不写、也不提交（提交会抛出 stale_run）；对得上时四项都写对，随后的提交带着 `run_id` 和偏好目录到了 Rust，Rust 没有这一轮的待提交进度，回答 stale_run（少了 `run_id` 或偏好目录会是 cloud_sync_invalid）。
+     */
+    private void cloudSyncHostWrites() throws Exception {
+        android.content.Context target = getTargetContext();
+        ClassLoader loader = target.getClassLoader();
+        // 产品的会话存储要用产品自己的 Context 注册；下面的 ContextWrapper 只换目录。
+        Method storeId = loader.loadClass("app.msime.android.AccountStore").getDeclaredMethod("id", android.content.Context.class);
+        storeId.setAccessible(true);
+        storeId.invoke(null, target);
+        Class<?> account = loader.loadClass("app.msime.android.RustAccount");
+        check("".equals(account.getMethod("userId", android.content.Context.class).invoke(null, target)),
+            "the product is signed in; use a fresh AVD");
+        Class<?> sync = loader.loadClass("app.msime.android.RustCloudSync");
+        Method commit = sync.getDeclaredMethod("commit", android.content.Context.class, String.class, JSONObject.class);
+        commit.setAccessible(true);
+        Class<?> feedbackStore = loader.loadClass("app.msime.android.KeyboardFeedbackStore");
+        Method loadFeedback = feedbackStore.getMethod("load", android.content.Context.class);
+        Class<?> localSettings = loader.loadClass("app.msime.android.AndroidLocalSettings");
+        Method loadLocal = localSettings.getMethod("load", android.content.Context.class);
+        Class<?> snapshot = loader.loadClass("app.msime.android.AndroidLocalSettings$Snapshot");
+        Method bool = snapshot.getMethod("bool", String.class);
+        Method integer = snapshot.getMethod("integer", String.class);
+        String fallback = (String) localSettings.getField("VOICE_OFFLINE_FALLBACK").get(null);
+        String strokeWidth = (String) localSettings.getField("HANDWRITING_STROKE_WIDTH").get(null);
+        Class<?> skins = loader.loadClass("app.msime.android.CustomSkinLibrary");
+        Method readSkins = skins.getMethod("read", java.nio.file.Path.class);
+        Class<?> phrases = loader.loadClass("app.msime.android.CommonPhrasesStore");
+        Method untouched = phrases.getMethod("untouchedStarters", android.content.Context.class);
+        Method editStarters = phrases.getDeclaredMethod("editStarters", File.class, boolean.class,
+            java.util.function.UnaryOperator.class);
+        editStarters.setAccessible(true);
+        java.lang.reflect.Field markerName = phrases.getDeclaredField("STARTER_MARKER");
+        markerName.setAccessible(true);
+
+        File root = new File(target.getCacheDir(), "synthetic-host-writes-" + System.nanoTime());
+        try {
+            File files = new File(root, "files");
+            File preferences = new File(root, "preferences");
+            check(files.mkdirs() && preferences.mkdirs(), "temporary directories");
+            java.nio.file.Files.write(new File(files, "runtime-options.json").toPath(),
+                new JSONObject().put("preferences_directory", preferences.getAbsolutePath()).toString()
+                    .getBytes(StandardCharsets.UTF_8));
+            android.content.Context isolated = new android.content.ContextWrapper(target) {
+                @Override public File getFilesDir() { return files; }
+                @Override public android.content.Context getApplicationContext() { return this; }
+            };
+            String kept = "合成示例甲";
+            String adopted = "合成示例乙";
+            editStarters.invoke(null, new File(preferences, (String) markerName.get(null)), true,
+                (java.util.function.UnaryOperator<java.util.Set<String>>) current -> new java.util.LinkedHashSet<>(
+                    java.util.List.of(kept, adopted)));
+            check(java.util.Set.of(kept, adopted).equals(untouched.invoke(null, isolated)), "planted starters");
+
+            JSONObject writes = new JSONObject()
+                .put("feedback", new JSONObject().put("soundEnabled", false).put("hapticsEnabled", true)
+                    .put("hapticStrength", "strong"))
+                .put("android_local", new JSONObject().put(fallback, true).put(strokeWidth, 5))
+                .put("custom_keyboard_skins", new JSONArray().put(new JSONObject().put("id", "synthetic-sync-skin")
+                    .put("name", "同步皮肤").put("updated_at", 100)
+                    .put("design", new JSONObject().put("accent", 0x123456))).toString())
+                .put("adopt_texts", new JSONArray().put(adopted));
+            String directory = preferences.getAbsolutePath();
+
+            // 联网那段时间里换了号：这一轮下载的是别的账号的值，不写、不提交。
+            commit.invoke(null, isolated, directory, pendingCommit("synthetic-other-account", writes));
+            Object feedback = loadFeedback.invoke(null, isolated);
+            check(Boolean.TRUE.equals(feedback.getClass().getMethod("soundEnabled").invoke(feedback))
+                && Boolean.FALSE.equals(feedback.getClass().getMethod("hapticsEnabled").invoke(feedback)),
+                "another account's feedback was written");
+            Object local = loadLocal.invoke(null, isolated);
+            check(!(Boolean) bool.invoke(local, fallback) && (Integer) integer.invoke(local, strokeWidth) == 3,
+                "another account's local settings were written");
+            check(((java.util.List<?>) readSkins.invoke(null, preferences.toPath())).isEmpty(),
+                "another account's skins were written");
+            check(java.util.Set.of(kept, adopted).equals(untouched.invoke(null, isolated)),
+                "another account's phrases adopted a starter");
+
+            // 账号对得上：四项都写进本机，再以 run_id 提交。
+            try {
+                commit.invoke(null, isolated, directory, pendingCommit("", writes));
+                throw new AssertionError("a commit without a pending round was accepted");
+            } catch (java.lang.reflect.InvocationTargetException thrown) {
+                Throwable cause = thrown.getCause();
+                Object code = cause.getClass().getName().endsWith("AccountStore$Failure")
+                    ? cause.getClass().getField("code").get(cause) : null;
+                check("stale_run".equals(code), "the commit did not reach Rust with the run id: " + cause);
+            }
+            feedback = loadFeedback.invoke(null, isolated);
+            Object strength = feedback.getClass().getMethod("hapticStrength").invoke(feedback);
+            check(Boolean.FALSE.equals(feedback.getClass().getMethod("soundEnabled").invoke(feedback))
+                && Boolean.TRUE.equals(feedback.getClass().getMethod("hapticsEnabled").invoke(feedback))
+                && "strong".equals(strength.getClass().getMethod("id").invoke(strength)),
+                "host_writes.feedback was not written: " + feedback);
+            local = loadLocal.invoke(null, isolated);
+            check((Boolean) bool.invoke(local, fallback) && (Integer) integer.invoke(local, strokeWidth) == 5,
+                "host_writes.android_local was not written");
+            java.util.List<?> library = (java.util.List<?>) readSkins.invoke(null, preferences.toPath());
+            check(library.size() == 1 && "synthetic-sync-skin".equals(library.get(0).getClass().getMethod("id")
+                .invoke(library.get(0))), "host_writes.custom_keyboard_skins was not written: " + library);
+            check(java.util.Set.of(kept).equals(untouched.invoke(null, isolated)),
+                "host_writes.adopt_texts did not adopt the starter");
+        } finally {
+            deleteTree(root);
+        }
+    }
+
+    /** RustCloudSync.run 拿到的一轮 `pending_commit` 回答，`account` 是这一轮绑定的账号。 */
+    private static JSONObject pendingCommit(String account, JSONObject writes) throws Exception {
+        return new JSONObject().put("outcome", "pending_commit").put("run_id", "synthetic-run-" + System.nanoTime())
+            .put("status", new JSONObject().put("account_id", account)).put("host_writes", new JSONObject(writes.toString()));
     }
 
     /**

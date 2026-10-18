@@ -27,7 +27,7 @@ public final class SyncSwitch {
     /** 账号绑定的读改写都在这把锁里；登录、退出与依赖绑定的本机写入也用它串行化。 */
     private static final Object BINDING_LOCK = new Object();
 
-    /** Shared lock for local writes that must exclude account rebinding. */
+    /** 账号绑定锁：不能与换绑账号交错的本机写入（例如云同步写回 `host_writes`）在这把锁里做。 */
     public static Object bindingLock() { return BINDING_LOCK; }
 
     private SyncSwitch() {}
@@ -81,8 +81,7 @@ public final class SyncSwitch {
         if (!validLoginKind(loginKind)) throw new IllegalArgumentException("unknown login kind");
         String id = accountId == null ? "" : accountId;
         if (id.isEmpty()) {
-            // A successful token exchange without a user id is not a usable binding.
-            // Keep it empty until ProfilePage can bind the real account id.
+            // 换到了令牌却没有用户 id，这样的绑定不能用：先清空，等 ProfilePage 读到资料后再绑定真实的账号编号。
             clear(context);
             return;
         }

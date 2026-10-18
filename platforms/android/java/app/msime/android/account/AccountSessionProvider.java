@@ -63,7 +63,7 @@ public final class AccountSessionProvider extends ContentProvider {
     private static Bundle sync(Context context) {
         Bundle reply = new Bundle();
         if (context == null) return reply;
-        // Do not acquire bindingLock here: sign-out holds it while it cancels the snapshot queue, and the keyboard asks for the account while it prepares that queue.
+        // 这里不能取 bindingLock：退出登录持着它取消快照队列，而键盘准备这个队列时会来问当前账号。
         SyncSwitch.Binding binding = SyncSwitch.bindingSnapshot(context);
         if (binding != null) {
             reply.putString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID, binding.accountId());

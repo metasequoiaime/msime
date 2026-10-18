@@ -5,7 +5,7 @@ import java.util.function.Supplier;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Runs snapshot preparation and activation only after the IME session is gone. 认领、准备和激活都在 Rust 的快照队列里（{@link DictionarySnapshotQueue#process}，#8201 迁移计划 5d）。 */
+/** 键盘会话结束以后才准备和激活词库快照；认领、准备和激活都在 Rust 的快照队列里（{@link DictionarySnapshotQueue#process}，#8201 迁移计划 5d）。 */
 public final class DictionarySnapshotWorker {
     private DictionarySnapshotWorker() {}
 
