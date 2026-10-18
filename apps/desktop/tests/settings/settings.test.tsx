@@ -3165,7 +3165,7 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   );
 });
 
-test("dictionary lookup submits an ASCII or Chinese query with Enter", async () => {
+test("dictionary lookup waits for the current debounced query", async () => {
   const entry = { kind: "pinyin" as const, key: "ni'hao", value: "你好", weight: 100 };
   const list = vi.fn().mockResolvedValue({ entries: [entry], has_more: false });
   const client: SettingsClient = {
@@ -3181,8 +3181,8 @@ test("dictionary lookup submits an ASCII or Chinese query with Enter", async () 
   });
   const query = await screen.findByRole("searchbox", { name: "词条或编码" });
   fireEvent.change(query, { target: { value: "你好" } });
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, 100, "pinyin", "你好"));
   expect(await screen.findByText("你好")).toBeDefined();
-  expect(list).toHaveBeenLastCalledWith(0, 100, "pinyin", "你好");
 });
 
 test("a pinyin prefix typed without separators keeps the rows the host matched", async () => {
@@ -3437,9 +3437,10 @@ test("a host without saveExport keeps the download link", async () => {
   click.mockRestore();
 });
 
-// 桌面上选词库类型的框在「查词库」标签，「管理词库」里看不到它，导入导出组的说明要直接写出当前是哪一类，不能再说「上面所选类型」。
-test("the desktop transfer note names the kind chosen on the lookup tab", async () => {
-  render(<SettingsPage client={exportingDictionaryClient()} />);
+// 查询与管理标签共用个人词库类型，实际导出也必须使用管理标签中的当前选择。
+test("the desktop transfer kind stays synchronized with lookup and export", async () => {
+  const client = exportingDictionaryClient(vi.fn().mockResolvedValue("synthetic-export.tsv"));
+  render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   const kind = screen.getByRole<HTMLSelectElement>("combobox", { name: "本地词库类型" });
@@ -3448,8 +3449,21 @@ test("the desktop transfer note names the kind chosen on the lookup tab", async 
   await waitFor(() => expect(kind.disabled).toBe(false));
   selectDictionaryTab("管理词库");
   const transfer = screen.getByRole("region", { name: "导入与导出" });
-  expect(transfer.textContent).toContain("导入和导出的是「查词库」中选中的「拼音」词库");
-  expect(transfer.textContent).not.toContain("上面所选类型");
+  const managedKind = within(transfer).getByRole<HTMLSelectElement>("combobox", {
+    name: "管理词库类型",
+  });
+  expect(managedKind.value).toBe("pinyin");
+  await waitFor(() => expect(managedKind.disabled).toBe(false));
+  fireEvent.change(managedKind, { target: { value: "wubi" } });
+  await waitFor(() => expect(managedKind.disabled).toBe(false));
+  fireEvent.click(within(transfer).getByRole("button", { name: "导出当前类型" }));
+  await waitFor(() =>
+    expect(client.dictionary!.export).toHaveBeenCalledWith("wubi", "standard", 0, 1000),
+  );
+  selectDictionaryTab("查词库");
+  expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "本地词库类型" }).value).toBe(
+    "wubi",
+  );
 });
 
 // 没有本地词库的桌面宿主没有可查的东西：只留「管理词库」，打开词库页不落在一张空白的标签上。
