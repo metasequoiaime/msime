@@ -549,6 +549,34 @@ fn import(
 }
 
 #[test]
+fn collections_import_rime_percentage_weights_reach_the_personal_dictionary() {
+    let mut fixture = Fixture::new();
+    let view = import(
+        &fixture,
+        PersonalWordKind::Pinyin,
+        "rime",
+        "---\nname: demo\n...\n丁\tding\t99.93%\n丁\tzheng\t0.07%\n三\tsan\t100%\n",
+    )
+    .unwrap();
+    let report = view.import.unwrap();
+    assert_eq!((report.imported, report.failed), (3, 0));
+    fixture.drain();
+    for (key, value, weight) in [
+        ("ding", "丁", 9993),
+        ("zheng", "丁", 7),
+        ("san", "三", 10000),
+    ] {
+        let word = PersonalWord {
+            kind: PersonalWordKind::Pinyin,
+            key: key.into(),
+            value: value.into(),
+            weight,
+        };
+        assert_eq!(fixture.dictionary.get(&word.identity()), Some(&weight));
+    }
+}
+
+#[test]
 fn collections_import_reads_text_formats_and_refuses_scel_text() {
     let fixture = Fixture::new();
     let view = import(

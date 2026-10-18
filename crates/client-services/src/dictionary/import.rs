@@ -17,6 +17,7 @@ use thiserror::Error;
 /// import holds the dictionary maintenance lock.
 pub const MAX_ENTRIES: usize = 1000;
 const MAX_VALUE_BYTES: usize = 1024;
+const DEFAULT_WEIGHT: i64 = 10000;
 /// The longest quick phrase, in UTF-16 units.
 ///
 /// Editors count UTF-16 units, and so does the Windows candidate pipe: this is
@@ -315,9 +316,20 @@ fn parse_row(
     };
     let key = key.to_ascii_lowercase();
     let weight = match columns.get(2).map(|value| value.trim()) {
-        None | Some("") => 10000,
-        // Rime carries metadata such as `c=3` in the third column.
-        Some(value) if format == ImportFormat::Rime && value.contains('=') => 10000,
+        None | Some("") => DEFAULT_WEIGHT,
+        // Rime 第三列的 `c=3` 等元数据沿用缺省权重。
+        Some(value) if format == ImportFormat::Rime && value.contains('=') => DEFAULT_WEIGHT,
+        Some(value) if format == ImportFormat::Rime && value.ends_with('%') => {
+            let percentage = value[..value.len() - 1]
+                .parse::<f64>()
+                .map_err(|_| ImportIssue::Weight)?;
+            // 没有 Rime 的预置词频表，以既有缺省权重为基数保留读音比例。
+            let scaled = percentage * (DEFAULT_WEIGHT as f64 / 100.0);
+            if !scaled.is_finite() || scaled < 0.0 || scaled >= i64::MAX as f64 {
+                return Err(ImportIssue::Weight);
+            }
+            scaled.round() as i64
+        }
         Some(value) => value.parse::<i64>().map_err(|_| ImportIssue::Weight)?,
     };
 
@@ -480,6 +492,47 @@ mod tests {
 
         let standard = parse(ImportKind::Pinyin, "standard", "你好\tni hao\n", LIMIT);
         assert_eq!(standard, Err(ImportError::NoUsableRows));
+    }
+
+    #[test]
+    fn rime_percentage_weights_keep_valid_entries_and_relative_readings() {
+        let report = parse_ok(
+            ImportKind::Pinyin,
+            "rime",
+            "---\nname: demo\n...\n丁\tding\t99.93%\n丁\tzheng\t0.07%\n三\tsa\t0%\n三\tsan\t100%\n你好\tni hao\t150%\n世界\tshi jie\t0.29%\n",
+        );
+        assert_eq!(report.failed, 0);
+        assert_eq!(
+            report
+                .entries
+                .iter()
+                .map(|entry| entry.weight)
+                .collect::<Vec<_>>(),
+            vec![9993, 7, 1, 10000, 15000, 29]
+        );
+        assert_eq!(report.entries[0].line, 4);
+        assert_eq!(report.entries[1].key, "zheng");
+    }
+
+    #[test]
+    fn percentage_weights_reject_invalid_values_and_other_formats() {
+        for value in ["%", "bad%", "-1%", "NaN%", "inf%", "1e300%", "1e999%"] {
+            let text = format!("你好\tni'hao\t{value}\n世界\tshi'jie\t7\n");
+            let report = parse_ok(ImportKind::Pinyin, "rime", &text);
+            assert_eq!(report.failed, 1, "{value}");
+            assert_eq!(report.first_failures[0].issue, ImportIssue::Weight);
+            assert_eq!(report.entries[0].weight, 7);
+        }
+        for format in ["standard", "windows"] {
+            let text = if format == "windows" {
+                "ni'hao\t你好\t100%\nshi'jie\t世界\t7\n"
+            } else {
+                "你好\tni'hao\t100%\n世界\tshi'jie\t7\n"
+            };
+            let report = parse_ok(ImportKind::Pinyin, format, text);
+            assert_eq!(report.failed, 1);
+            assert_eq!(report.entries[0].weight, 7);
+        }
     }
 
     #[test]
