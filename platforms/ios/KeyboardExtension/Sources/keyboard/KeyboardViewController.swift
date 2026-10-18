@@ -4438,12 +4438,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   @objc private func handleSpaceVoiceHold(_ hold: UILongPressGestureRecognizer) {
     if hold.state == .began {
-      // 路由在按下时固定，语音面板改变上下文后也不把同一次长按转成光标拖动。
+      // 路由在按下时固定，跳到主 App 后也不把同一次长按转成光标拖动。
       spaceHoldMovesCursor = !spaceVoiceEnabled
       if !spaceHoldMovesCursor {
         countKeyPress(TypingKeyID.space)
         playInputClick()
-        showVoicePanel()
+        startVoiceFromSpace()
       }
     }
     if spaceHoldMovesCursor {
@@ -4453,7 +4453,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if [.ended, .cancelled, .failed].contains(hold.state) { spaceHoldMovesCursor = false }
   }
 
-  /// 键区里的语音面板。键盘扩展不能录音，所以面板是进入语音交接的入口，「语音结果」读的也是同一份交接：点圆球打开 app 的录音界面，有待插入的结果时则插入 app 传回的结果。点圆球时会核对结果与当前编辑器是否对得上，与 `showKeyboardVoice` 插入前的检查一样。
+  /// 键盘扩展不能录音；长按空格直接把用户带到主 App 的录音页，由深链进入逻辑自动开始录音。
+  private func startVoiceFromSpace() {
+    guard hasFullAccess else {
+      showDiagnostic("语音输入需要开启键盘的“允许完全访问”。")
+      renderCandidateStrip()
+      return
+    }
+    guard voiceInsertionReady else { return }
+    closeKeyboardService()
+    closeKeyboardPicker()
+    KeyboardAppLauncher.open(KeyboardAppLauncher.voiceURL, from: self)
+  }
+
+  /// 键区里的语音结果面板。键盘扩展不能录音，面板只负责读取待插入的交接结果；长按空格改走 `startVoiceFromSpace()` 直接打开主 App 的录音页。点圆球时会核对结果与当前编辑器是否对得上，与 `showKeyboardVoice` 插入前的检查一样。
   private func showVoicePanel() {
     guard hasFullAccess else {
       showDiagnostic("语音输入需要开启键盘的“允许完全访问”。")

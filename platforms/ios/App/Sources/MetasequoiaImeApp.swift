@@ -311,7 +311,7 @@ private struct MainTabView: View {
     }
     .sheet(isPresented: $navigation.recordsVoice) {
       NavigationView {
-        ServiceSettingsView(kind: .voice)
+        ServiceSettingsView(kind: .voice, autoStartVoice: true)
           .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("完成") { navigation.recordsVoice = false } }
           }

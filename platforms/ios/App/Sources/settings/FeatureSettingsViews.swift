@@ -289,6 +289,8 @@ private struct SkinTilePressStyle: ButtonStyle {
 
 struct ServiceSettingsView: View {
   let kind: CustomServiceKind
+  /// 从键盘长按空格的深链进入时，页面出现后自动开始一次录音。
+  let autoStartVoice: Bool
   @Environment(\.scenePhase) private var scenePhase
   @State private var configuration: CustomServiceConfiguration
   @State private var providerDrafts: [AIProviderPreset: CustomServiceConfiguration] = [:]
@@ -320,11 +322,13 @@ struct ServiceSettingsView: View {
   /// Doubao's partial result while a live recording runs, and whether that recording's request is still open.
   @State private var liveText = ""
   @State private var recognizesLive = false
+  @State private var autoStartConsumed = false
   /// The downloaded on-device models, for the 本地模型 provider.
   @StateObject private var localModels = LocalSpeechModelManager()
 
-  init(kind: CustomServiceKind) {
+  init(kind: CustomServiceKind, autoStartVoice: Bool = false) {
     self.kind = kind
+    self.autoStartVoice = autoStartVoice
     _configuration = State(initialValue: CustomServiceConfiguration.load(kind))
     #if DEBUG && targetEnvironment(simulator)
     if kind == .voice && ProcessInfo.processInfo.arguments.contains("-voiceResultFixture") {
@@ -387,38 +391,7 @@ struct ServiceSettingsView: View {
         CommunityReplyTemplatesSection()
       } else {
         Section {
-          Button(recorder.isRecording ? "停止录音" : "开始录音") {
-            if recorder.isRecording { recorder.stop() }
-            else {
-              let onDevice = recognizesOnDevice
-              if onDevice && configuration.voiceProvider == .local && localModels.selectedDirectory == nil {
-                status = "请先在“本地模型”中下载并选用一个模型。"
-                return
-              }
-              let live = streamsLive || onDevice
-              if live { guard save() else { return } }
-              guard request.isVisible else { return }
-              let recordingID = request.begin()
-              operation = Task {
-                // The recording session silences system sounds, so the start cue has to finish before it opens.
-                if voiceSettings.soundEnabled && voiceSettings.startSound { await VoiceCue.playStart() }
-                do {
-                  try request.checkCurrent(recordingID)
-                  if live {
-                    if let pcm = try await recorder.startStreaming(quietensOthers: voiceSettings.muteOthers) {
-                      try request.checkCurrent(recordingID)
-                      if onDevice { recognizeOnDevice(pcm) } else { recognizeLive(pcm) }
-                    }
-                  } else {
-                    try await recorder.start(quietensOthers: voiceSettings.muteOthers)
-                  }
-                }
-                catch is CancellationError {} catch {
-                  if request.isCurrent(recordingID) && !Task.isCancelled { status = error.localizedDescription }
-                }
-              }
-            }
-          }
+          Button(recorder.isRecording ? "停止录音" : "开始录音") { toggleVoiceRecording() }
           .disabled(busy || recorder.isPreparing || (recognizesLive && !recorder.isRecording))
           if recorder.isRecording {
             Label("正在录音，最长 60 秒", systemImage: "mic.fill").foregroundStyle(.red)
@@ -526,10 +499,52 @@ struct ServiceSettingsView: View {
       await ViewRequestTask.poll(every: .seconds(2)) { refreshVoiceTransfer() }
     }
     .onAppear { request.appear() }
+    .onAppear {
+      guard kind == .voice, autoStartVoice, !autoStartConsumed else { return }
+      autoStartConsumed = true
+      // 深链的 sheet 先完成布局，录音请求才能在页面可见后取得当前代次。
+      DispatchQueue.main.async { toggleVoiceRecording() }
+    }
     .onDisappear { request.disappear(); cancelAndClear() }
     .onChange(of: scenePhase) { _, phase in
       if phase == .background { cancelAndClear() }
       if phase == .active && kind == .voice { refreshVoiceTransfer() }
+    }
+  }
+
+  /// 语音页按钮与键盘长按深链共用的录音入口。
+  @MainActor private func toggleVoiceRecording() {
+    guard kind == .voice else { return }
+    if recorder.isRecording {
+      recorder.stop()
+      return
+    }
+    let onDevice = recognizesOnDevice
+    if onDevice && configuration.voiceProvider == .local && localModels.selectedDirectory == nil {
+      status = "请先在“本地模型”中下载并选用一个模型。"
+      return
+    }
+    let live = streamsLive || onDevice
+    if live { guard save() else { return } }
+    guard request.isVisible else { return }
+    let recordingID = request.begin()
+    operation = Task {
+      // 录音会压低系统声音，所以开始提示音结束后才能打开录音会话。
+      if voiceSettings.soundEnabled && voiceSettings.startSound { await VoiceCue.playStart() }
+      do {
+        try request.checkCurrent(recordingID)
+        if live {
+          if let pcm = try await recorder.startStreaming(quietensOthers: voiceSettings.muteOthers) {
+            try request.checkCurrent(recordingID)
+            if onDevice { recognizeOnDevice(pcm) } else { recognizeLive(pcm) }
+          }
+        } else {
+          try await recorder.start(quietensOthers: voiceSettings.muteOthers)
+        }
+      }
+      catch is CancellationError {} catch {
+        if request.isCurrent(recordingID) && !Task.isCancelled { status = error.localizedDescription }
+      }
     }
   }
 

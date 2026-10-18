@@ -1,7 +1,7 @@
 import UIKit
 import XCTest
 
-/// 长按空格键打开语音面板（dc.html `showVoice`），与光标拖动之间的裁决方式同 Android 的 `SpaceGesturePolicy`；键盘扩展无法录音，所以面板是进入语音转交的入口。
+/// 空格长按与语音结果面板：长按直接转交主 App 开始录音，面板仍负责待插入结果；光标拖动裁决方式同 Android 的 `SpaceGesturePolicy`。
 @MainActor
 final class SpaceVoicePanelTests: XCTestCase {
   private var storedScheme = InputSchemePreference.scheme
