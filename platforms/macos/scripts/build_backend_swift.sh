@@ -17,9 +17,11 @@ optimisation=()
 if $release; then optimisation=(-Osize -wmo -Xlinker -dead_strip); fi
 
 # Translation.framework first ships with macOS 15 and the package runs on 13, where a strong link would stop the whole backend from loading. Its only user checks #available(macOS 26) before touching it.
+# `-I shared/backend/rust` 让 Swift 看到 C 头文件的类型（`CMSIMEClient` 模块）；dylib 不链接 Rust，函数指针由输入法经 `MSIMEInstallRustClient` 交来。
 compile() {
   xcrun swiftc -parse-as-library -emit-library -emit-module \
     -module-name MSIMEBackend -emit-module-path "${2%.dylib}.swiftmodule" \
+    -I "$root/shared/backend/rust" \
     -target "$1" -Xlinker -install_name -Xlinker "@rpath/$(basename "$output")" \
     -Xlinker -weak_framework -Xlinker Translation \
     ${optimisation[@]+"${optimisation[@]}"} \

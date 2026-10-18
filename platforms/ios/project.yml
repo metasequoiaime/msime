@@ -11,6 +11,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: 5.0
+    # shared/backend 里调用 Rust 的 Swift 代码经 `import CMSIMEClient` 看到 C 头文件的类型（shared/backend/rust/module.modulemap）；App 与测试 target 都链着 libmsime_host_api，iOS 直接拿 C 函数填 Rust 函数表。
+    SWIFT_INCLUDE_PATHS: "$(inherited) $(SRCROOT)/../../shared/backend/rust"
     ALWAYS_SEARCH_USER_PATHS: NO
     # 本工程没有 AppIntents，跳过不适用的元数据提取任务。
     LM_SKIP_METADATA_EXTRACTION: YES
@@ -80,6 +82,8 @@ targets:
           - Tests/**
           - Package.swift
           - .build/**
+          # 只经 SWIFT_INCLUDE_PATHS 引用的模块定义和 C 头文件，不是这个 target 的源文件。
+          - rust/**
       - path: ../../shared/backend-ui
       - path: SharedUI
       - path: App/Resources/Assets.xcassets
@@ -325,6 +329,8 @@ targets:
           - Tests/**
           - Package.swift
           - .build/**
+          # 只经 SWIFT_INCLUDE_PATHS 引用的模块定义和 C 头文件，不是这个 target 的源文件。
+          - rust/**
       - path: KeyboardExtension/Sources
         excludes:
           - handwriting/HandwritingInputView.swift
@@ -390,6 +396,8 @@ targets:
           - Tests/**
           - Package.swift
           - .build/**
+          # 只经 SWIFT_INCLUDE_PATHS 引用的模块定义和 C 头文件，不是这个 target 的源文件。
+          - rust/**
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.service-tests
@@ -432,6 +440,8 @@ targets:
           - Tests/**
           - Package.swift
           - .build/**
+          # 只经 SWIFT_INCLUDE_PATHS 引用的模块定义和 C 头文件，不是这个 target 的源文件。
+          - rust/**
       - path: KeyboardExtension/Sources
         excludes:
           - handwriting/HandwritingInputView.swift

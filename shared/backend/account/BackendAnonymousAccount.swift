@@ -4,7 +4,10 @@ import Security
 /// Lazily creates an anonymous backend account for keyboard-only services such as candidate glosses.
 enum BackendAnonymousAccount {
   struct Credentials: Codable, Sendable { let subject: String; let secret: String }
-  private static let fileName = "anonymous-account.json"
+  /// 身份 `{subject, secret}` 的文件名，在 App Group 里。
+  static let identityFileName = "anonymous-account.json"
+  /// 匿名会话的文件名，与身份在同一个目录。
+  static let sessionFileName = "anonymous-session.json"
   private static func generated() -> Credentials {
     let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789")
     func random(_ count: Int) -> String {
@@ -15,11 +18,11 @@ enum BackendAnonymousAccount {
     return Credentials(subject: "msime-" + random(16), secret: random(48))
   }
   static func stored() -> Credentials? {
-    guard let data = BackendLocalStore.read(fileName) else { return nil }
+    guard let data = BackendLocalStore.read(identityFileName) else { return nil }
     return try? JSONDecoder().decode(Credentials.self, from: data)
   }
   static func sessionStorage() -> any BackendSessionStorage {
-    BackendLocalStore(fileName: "anonymous-session.json")
+    BackendLocalStore(fileName: sessionFileName)
   }
   /// 匿名存储在进程内只有这一个 actor，轮换的刷新令牌只有一个持有者。macOS 上刷新同样拿存储旁边的 App Group 锁，否则默认的锁在进程内什么也不做，而输入法和账号窗口各自持有这个会话。
   static let session = BackendAccountSession(storage: sessionStorage(), refreshLock: BackendFileRefreshLock.appGroup)
@@ -28,7 +31,7 @@ enum BackendAnonymousAccount {
   /// by a real account or explicitly deleted by the user.
   static func discard() async throws {
     try await discard(accountSession: session,
-                      identityStorage: BackendLocalStore(fileName: fileName),
+                      identityStorage: BackendLocalStore(fileName: identityFileName),
                       sessionStorage: sessionStorage())
   }
   static func discard(accountSession: BackendAccountSession,
@@ -47,7 +50,7 @@ enum BackendAnonymousAccount {
     } else {
       let candidate = generated()
       let data = try JSONEncoder().encode(candidate)
-      if BackendLocalStore.writeIfAbsent(data, to: fileName) {
+      if BackendLocalStore.writeIfAbsent(data, to: identityFileName) {
         credentials = candidate
       } else {
         guard let existing = stored() else { throw BackendAccountClient.Failure(status: 0) }

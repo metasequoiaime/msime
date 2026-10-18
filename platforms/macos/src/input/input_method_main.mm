@@ -14,6 +14,7 @@
 #import "../voice/VoiceAudioMuter.h"
 #include "../core/DiagnosticLog.h"
 #include "msime_client.h"
+#include "MSIMERustClient.h"
 #include <cstdio>
 #include <cstring>
 #include <dlfcn.h>
@@ -92,11 +93,11 @@ int main(int argc, const char *argv[]) {
         if (swiftBackend.length > 0) {
             void *backend = dlopen(swiftBackend.fileSystemRepresentation, RTLD_NOW | RTLD_GLOBAL);
             if (backend == nullptr) return 1;
-            // 后端 dylib 不链接 Rust 库，云剪贴板的端到端加密驱动由这里把函数指针交给它；输入法和独立设置窗口都要先做这一步。
-            using MSIMEInstallCloudClipboardDriver = void (*)(char *(*)(const uint8_t *, size_t), void (*)(char *));
-            if (auto install = reinterpret_cast<MSIMEInstallCloudClipboardDriver>(dlsym(backend, "MSIMEInstallCloudClipboardDriver"))) {
-                install(msime_client_cloud_clipboard_e2e, msime_client_string_free);
-            }
+            // 后端 dylib 不链接 Rust 库，账号、云端业务和云剪贴板的端到端加密驱动都经这张带版本号的函数表交给它（shared/backend/rust/MSIMERustClient.h）；输入法和独立设置窗口都要先做这一步。dylib 不收这张表时它的每个 Rust 入口都报 rust_client_unavailable，这里只记一条日志。
+            using MSIMEInstallRustClient = bool (*)(const msime_rust_client *);
+            const msime_rust_client table = msime_rust_client_linked();
+            auto install = reinterpret_cast<MSIMEInstallRustClient>(dlsym(backend, "MSIMEInstallRustClient"));
+            if (install == nullptr || !install(&table)) NSLog(@"MSIME backend did not accept the Rust client table");
         }
         // 独立设置窗口也要检查模式是否已加入输入法列表，所以在进入该分支前初始化探针。
         MSIMEInputModeEnabledProbe = MSIMEInputSourceIsEnabled;

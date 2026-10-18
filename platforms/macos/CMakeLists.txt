@@ -115,6 +115,8 @@ file(GLOB_RECURSE MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/content/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/storage/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend-ui/*.swift"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/*"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/host-api/include/msime_client.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/*.swift")
 # bundle 里每个 Mach-O 都要包含的架构：发布包传 CMAKE_OSX_ARCHITECTURES="arm64;x86_64" 出 universal，未设置时只编宿主架构。CMake 自己编的目标直接跟随 CMAKE_OSX_ARCHITECTURES；Swift 后端和预编译的 sherpa-onnx 不经过 CMake 的编译器，所以在下面显式按这份列表处理。
 set(MSIME_BUNDLE_ARCHITECTURES ${CMAKE_OSX_ARCHITECTURES})
@@ -132,7 +134,7 @@ add_custom_command(OUTPUT "${MSIME_SWIFT_BACKEND_OUTPUT}"
 add_custom_target(macos-swift-backend DEPENDS "${MSIME_SWIFT_BACKEND_OUTPUT}")
 add_dependencies(MSIMEClientInputMethod macos-swift-backend)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "${MSIME_SWIFT_BACKEND_OUTPUT}")
-target_include_directories(MSIMEClientInputMethod PRIVATE src)
+target_include_directories(MSIMEClientInputMethod PRIVATE src ../../shared/backend/rust)
 target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client msime-voice-providers "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
 # 单按 Caps Lock 切换中英文时用 IOKit 的 IOHIDSetModifierLockState 撤回大写锁定（系统框架，不需要额外权限）。
@@ -393,11 +395,13 @@ set_tests_properties(secure-file-reader PROPERTIES TIMEOUT 30)
 set(MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES
   ../../shared/backend/account/BackendAccountClient.swift ../../shared/backend/account/BackendAccountSession.swift ../../shared/backend/storage/BackendBoundedFileReader.swift
   ../../shared/backend/clients/BackendClipboardClient.swift src/backend/clipboard/BackendCloudClipboardProvider.swift
-  src/backend/clipboard/BackendCloudClipboardDriver.swift tests/clipboard/DesktopCloudClipboardProviderTest.swift)
+  src/backend/clipboard/BackendCloudClipboardDriver.swift ../../shared/backend/account/BackendRustClient.swift
+  tests/clipboard/DesktopCloudClipboardProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone -parse-as-library
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    -I "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust"
     ${MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES} -o "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
   DEPENDS ${MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES} VERBATIM)
 add_custom_target(desktop-cloud-provider-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test")
@@ -410,6 +414,25 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/backend-account-swift-tes
     "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_backend_account_swift.sh" VERBATIM)
 add_custom_target(backend-account-swift-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/backend-account-swift-test")
 add_test(NAME backend-account-swift COMMAND "${CMAKE_CURRENT_BINARY_DIR}/backend-account-swift-test")
+# 注入会话存储对着真的 Rust 宿主库（#8201 迁移计划 4a）：后端的回调读写临时目录里的 `account-session.json` 和 App Group 文件，Rust 经 `msime_rust_client_linked()` 填的同一张函数表调用。不联网、不碰钥匙串。
+set(MSIME_BACKEND_RUST_STORE_SOURCES
+  ../../shared/backend/account/BackendAccountClient.swift ../../shared/backend/account/BackendAccountSession.swift
+  ../../shared/backend/account/BackendAnonymousAccount.swift ../../shared/backend/account/BackendRustClient.swift
+  ../../shared/backend/account/BackendRustSessionStore.swift ../../shared/backend/storage/BackendLocalStore.swift
+  ../../shared/backend/storage/BackendBoundedFileReader.swift tests/core/BackendRustSessionStoreTest.swift)
+list(TRANSFORM MSIME_BACKEND_RUST_STORE_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-store-test"
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone -parse-as-library
+    -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    -I "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust"
+    ${MSIME_BACKEND_RUST_STORE_SOURCES} "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++
+    -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit
+    -o "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-store-test"
+  DEPENDS ${MSIME_BACKEND_RUST_STORE_SOURCES} "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/MSIMERustClient.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/module.modulemap" "${MSIME_HOST_LIBRARY}" VERBATIM)
+add_custom_target(backend-rust-session-store-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-store-test")
+add_test(NAME backend-rust-session-store COMMAND "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-store-test")
+set_tests_properties(backend-rust-session-store PROPERTIES TIMEOUT 60)
 set_tests_properties(backend-account-swift PROPERTIES TIMEOUT 60)
 set(MSIME_EMOJI_WINDOW_CHROME_SOURCES src/backend/emoji/BackendEmojiWindowController.swift tests/emoji/EmojiWindowChromeTest.swift)
 list(TRANSFORM MSIME_EMOJI_WINDOW_CHROME_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
@@ -770,6 +793,7 @@ add_test(NAME tool-application-activation COMMAND tool-application-activation-te
 add_executable(backend-library-load-test tests/core/BackendLibraryLoadTest.mm)
 target_compile_options(backend-library-load-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(backend-library-load-test PRIVATE "-framework Foundation")
+target_include_directories(backend-library-load-test PRIVATE ../../shared/backend/rust)
 add_dependencies(backend-library-load-test MSIMEClientInputMethod)
 add_test(NAME backend-library-load COMMAND backend-library-load-test "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib")
 set(MSIME_SPARKLE_ROOT "" CACHE PATH "Directory containing the pinned Sparkle.framework (Apple reference: 2.9.6)")

@@ -67,10 +67,14 @@ struct BackendKeychain: BackendSessionStorage {
   #else
   static let defaultAccessGroup: String? = nil
   #endif
+  /// 账号会话和云剪贴板密钥串共用的钥匙串服务名。
+  static let defaultService = "app.msime.backend.account"
+  /// 账号会话那一项的账号名。
+  static let sessionAccount = "https://api.msime.app"
   private let accessGroup: String?
   private let service: String
 
-  init(accessGroup: String? = BackendKeychain.defaultAccessGroup, service: String = "app.msime.backend.account") {
+  init(accessGroup: String? = BackendKeychain.defaultAccessGroup, service: String = BackendKeychain.defaultService) {
     self.accessGroup = accessGroup
     self.service = service
   }
@@ -78,7 +82,7 @@ struct BackendKeychain: BackendSessionStorage {
   private var anyGroupQuery: [String: Any] {
     [kSecClass as String: kSecClassGenericPassword,
      kSecAttrService as String: service,
-     kSecAttrAccount as String: "https://api.msime.app"]
+     kSecAttrAccount as String: BackendKeychain.sessionAccount]
   }
   private var query: [String: Any] {
     var query = anyGroupQuery
@@ -139,7 +143,7 @@ struct BackendKeychainClipboardKeystore: BackendClipboardKeystoreStorage {
   private let accessGroup: String?
   private let service: String
 
-  init(accessGroup: String? = BackendKeychain.defaultAccessGroup, service: String = "app.msime.backend.account") {
+  init(accessGroup: String? = BackendKeychain.defaultAccessGroup, service: String = BackendKeychain.defaultService) {
     self.accessGroup = accessGroup
     self.service = service
   }
@@ -286,6 +290,18 @@ struct BackendDesktopSessionFile: BackendSessionStorage {
     }
   }
 
+  /// 删掉 `directory` 下的 `name`，不存在也算成功；目录路径不安全时报错。
+  static func removeOwnerOnly(named name: String, in directory: URL) throws {
+    guard backendDirectoryPathIsSafe(directory) else { throw BackendAccountClient.Failure(status: 0) }
+    let directoryDescriptor = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    if directoryDescriptor < 0 {
+      guard errno == ENOENT else { throw BackendAccountClient.Failure(status: 0) }
+      return
+    }
+    defer { close(directoryDescriptor) }
+    guard unlinkat(directoryDescriptor, name, 0) == 0 || errno == ENOENT else { throw BackendAccountClient.Failure(status: 0) }
+  }
+
   func clear() throws {
     guard directory != nil else { return }
     guard let directory, backendDirectoryPathIsSafe(directory) else {
@@ -358,7 +374,8 @@ struct BackendFileRefreshLock: BackendRefreshLock {
       .appendingPathComponent("backend-account-refresh.lock", isDirectory: false))
   }
 
-  func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
+  /// 新开一个锁文件的描述符，还没有加锁；调用方负责关掉它。每次加锁都新开一个，同一进程里两个描述符上的 `flock` 才互相排斥（Rust 注入存储的锁回调也这样做）。
+  func openDescriptor() throws -> Int32 {
     // No shared directory means no way to keep another process out, and refreshing anyway risks the revocation this lock exists to prevent.
     guard let url else { throw BackendAccountClient.Failure(status: 0) }
     let directory = url.deletingLastPathComponent()
@@ -370,6 +387,11 @@ struct BackendFileRefreshLock: BackendRefreshLock {
     guard backendDirectoryPathIsSafe(directory) else { throw BackendAccountClient.Failure(status: 0) }
     let descriptor = open(url.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
+    return descriptor
+  }
+
+  func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
+    let descriptor = try openDescriptor()
     defer { close(descriptor) }
     let deadline = Date().addingTimeInterval(timeout)
     while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {

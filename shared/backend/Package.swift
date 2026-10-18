@@ -6,12 +6,17 @@ let package = Package(
   platforms: [.macOS(.v12), .iOS(.v15)],
   products: [.library(name: "MSIMEBackend", targets: ["MSIMEBackend"])],
   targets: [
+    // C 头文件的类型（`rust/module.modulemap`），不链接 Rust：函数指针由宿主经 `msime_rust_client` 交来。
+    .systemLibrary(name: "CMSIMEClient", path: "rust"),
     .target(
       name: "MSIMEBackend",
+      dependencies: ["CMSIMEClient"],
       path: ".",
-      exclude: ["Package.swift", "Tests"],
+      exclude: ["Package.swift", "Tests", "rust"],
       sources: [
         "account/BackendAccountClient.swift",
+        "account/BackendRustClient.swift",
+        "account/BackendRustSessionStore.swift",
         "clients/BackendAiClient.swift",
         "account/BackendAccountSession.swift",
         "account/BackendAnonymousAccount.swift",

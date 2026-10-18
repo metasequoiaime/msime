@@ -53,7 +53,22 @@ struct BackendLocalStore: BackendSessionStorage {
   }
   func save(_ session: BackendSavedSession) throws {
     let validatedSession = try BackendSavedSession.validated(session)
-    let data = try JSONEncoder().encode(validatedSession)
+    try saveData(JSONEncoder().encode(validatedSession))
+  }
+
+  /// 原样读出本存储的文件，不解析内容；不存在时为 nil。与 `load` 不同，没有 App Group 容器、读不了或超过 `maximumBytes` 都抛错，不当作不存在（Rust 注入存储的 `load` 回调要分清这两种）。
+  func loadData(maximumBytes: Int) throws -> Data? {
+    guard baseDirectory != nil else { throw BackendAccountClient.Failure(status: 0) }
+    return try withLock { () throws -> Data? in
+      guard let url else { throw BackendAccountClient.Failure(status: 0) }
+      try rejectSymlinkComponents(url)
+      do { return try Self.readBounded(url, maximumBytes: maximumBytes) }
+      catch where !FileManager.default.fileExists(atPath: url.path) { return nil }
+    }
+  }
+
+  /// 原样写入并原子替换本存储的文件，写完设成仅本人可读写。
+  func saveData(_ data: Data) throws {
     try withLock {
       guard let url else { throw BackendAccountClient.Failure(status: 0) }
       try rejectSymlinkComponents(url)
@@ -100,16 +115,19 @@ struct BackendLocalStore: BackendSessionStorage {
   /// Atomically create this store's file only when no process has created it yet.
   /// The result is false when another process already owns the file.
   @discardableResult func writeIfAbsent(_ data: Data) -> Bool {
-    do {
-      return try withLock {
-        guard let url else { return false }
-        try rejectSymlinkComponents(url)
-        guard !FileManager.default.fileExists(atPath: url.path) else { return false }
-        try data.write(to: url, options: [.atomic])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        return true
-      }
-    } catch { return false }
+    do { return try createIfAbsent(data) } catch { return false }
+  }
+
+  /// 与 `writeIfAbsent` 相同，只是写不进去时抛错：返回 false 只表示文件已经存在、没有覆盖。
+  func createIfAbsent(_ data: Data) throws -> Bool {
+    try withLock {
+      guard let url else { throw BackendAccountClient.Failure(status: 0) }
+      try rejectSymlinkComponents(url)
+      guard !FileManager.default.fileExists(atPath: url.path) else { return false }
+      try data.write(to: url, options: [.atomic])
+      try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+      return true
+    }
   }
 
   @discardableResult static func writeIfAbsent(_ data: Data, to fileName: String) -> Bool {

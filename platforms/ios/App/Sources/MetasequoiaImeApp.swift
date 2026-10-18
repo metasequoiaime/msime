@@ -1,3 +1,4 @@
+import CMSIMEClient
 import SwiftUI
 #if canImport(GoogleSignIn)
 import GoogleSignIn
@@ -15,6 +16,8 @@ struct MetasequoiaImeApp: App {
   @State private var paletteVersion = AppThemePalette.version
 
   init() {
+    // 账号与云端业务的 Rust 入口都经这张函数表调用（shared/backend/rust/MSIMERustClient.h）。App 链着 Rust 静态库，直接用链进来的 C 函数填，要在任何页面用到 `BackendRustClient.shared` 之前。
+    BackendRustClient.install(msime_rust_client_linked())
     // The device's anonymous MSIME account is registered on first launch, before the keyboard needs it. The identity and session live in the app group, so the keyboard reuses them. A saved signed-in or anonymous session, even an expired one, skips the request rather than refreshing it on every launch; a failure is retried on the next launch.
     Task.detached(priority: .utility) {
       if (try? BackendKeychain().load()) != nil { return }

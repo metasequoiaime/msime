@@ -9,5 +9,5 @@ mac_sources=$(find "$root/platforms/macos/src/backend" -type f -name '*.swift' -
 swift_target=${MSIME_SWIFT_TARGET:-$(uname -m)-apple-macosx${MACOSX_DEPLOYMENT_TARGET:-13.0}}
 
 exec xcrun swiftc -typecheck -parse-as-library -swift-version 5 -module-name MacBackendViews \
-  -target "$swift_target" \
+  -target "$swift_target" -I "$root/shared/backend/rust" \
   $backend_sources $backend_ui_sources $mac_sources

@@ -1,0 +1,6 @@
+// shared/backend 里调用 Rust 的 Swift 代码经这个模块看到 C 头文件的类型。只有类型和 `MSIMERustClient.h` 里的内联函数，不链接任何库：macOS 的后端 dylib 和 swift test 不带 Rust，函数指针由宿主经 `msime_rust_client` 交来。
+module CMSIMEClient {
+  header "../../../crates/host-api/include/msime_client.h"
+  header "MSIMERustClient.h"
+  export *
+}

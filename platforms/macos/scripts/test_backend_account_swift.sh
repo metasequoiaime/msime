@@ -15,6 +15,8 @@ while IFS= read -r source; do
 done < <(find "$root/shared/backend/account" "$root/shared/backend/clients" "$root/shared/backend/content" "$root/shared/backend/storage" "$root/shared/backend-ui" "$root/platforms/macos/src/backend" -type f -name '*.swift' -print | sort)
 swift_target=${MSIME_SWIFT_TARGET:-$(uname -m)-apple-macosx${MACOSX_DEPLOYMENT_TARGET:-13.0}}
 # Weak like the backend dylib (build_backend_swift.sh): Translation.framework first ships with macOS 15, and a strong link would stop the harness from loading on an older runner.
+# `-I shared/backend/rust` 与后端 dylib 相同（build_backend_swift.sh），只为 C 头文件的类型，不链接 Rust。
 xcrun swiftc -parse-as-library -emit-executable -target "$swift_target" -Xlinker -weak_framework -Xlinker Translation \
+  -I "$root/shared/backend/rust" \
   -o "$out" "${sources[@]}" "$root/platforms/macos/tests/core/BackendAccountTests.swift"
 if [[ $# -eq 0 ]]; then "$out"; fi
