@@ -3437,8 +3437,8 @@ test("a host without saveExport keeps the download link", async () => {
   click.mockRestore();
 });
 
-// 桌面上选词库类型的框在「查词库」标签，「管理词库」里看不到它，导入导出组的说明要直接写出当前是哪一类，不能再说「上面所选类型」。
-test("the desktop transfer note names the kind chosen on the lookup tab", async () => {
+// 导入导出只操作个人词库，管理标签内必须能直接确认类型，不能依赖查询标签的上下文。
+test("the desktop transfer note identifies personal entries and offers its own kind selector", async () => {
   render(<SettingsPage client={exportingDictionaryClient()} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
@@ -3448,7 +3448,12 @@ test("the desktop transfer note names the kind chosen on the lookup tab", async 
   await waitFor(() => expect(kind.disabled).toBe(false));
   selectDictionaryTab("管理词库");
   const transfer = screen.getByRole("region", { name: "导入与导出" });
-  expect(transfer.textContent).toContain("导入和导出的是「查词库」中选中的「拼音」词库");
+  expect(transfer.textContent).toContain("导入和导出个人新增词条");
+  const personalKind = within(transfer).getByRole<HTMLSelectElement>("combobox", {
+    name: "管理词库类型",
+  });
+  expect(personalKind.value).toBe("pinyin");
+  expect(personalKind.selectedOptions[0].textContent).toBe("中文 · 拼音");
   expect(transfer.textContent).not.toContain("上面所选类型");
 });
 
@@ -3824,6 +3829,7 @@ test.each(["windows", "linux", "macos", "android", "ios", "harmony", undefined])
     render(<SettingsPage client={client} />);
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: "关于" }));
+    selectSettingsTab("许可与隐私");
     const toggle = (await screen.findByRole("switch", {
       name: "匿名使用统计",
     })) as HTMLInputElement;
@@ -6938,6 +6944,7 @@ test("the feedback report leads with the release and the scheme", async () => {
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  selectSettingsTab("帮助与反馈");
   fireEvent.click(await screen.findByRole("button", { name: "复制报告" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledOnce());
   const report = copyText.mock.calls[0][0] as string;
@@ -6961,6 +6968,7 @@ test("a host that cannot name its release still reports something", async () => 
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  selectSettingsTab("帮助与反馈");
   fireEvent.click(await screen.findByRole("button", { name: "复制报告" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledOnce());
   const report = copyText.mock.calls[0][0] as string;
@@ -7347,7 +7355,10 @@ test.each(referenceSections)(
       />,
     );
     await settingsReady();
-    if (via) fireEvent.click(screen.getByRole("button", { name: via }));
+    if (via) {
+      fireEvent.click(screen.getByRole("button", { name: via }));
+      if (via === "关于") selectSettingsTab("帮助与反馈");
+    }
     const pageName = mergedPages[button] ?? button;
     fireEvent.click(screen.getByRole("button", { name: pageName }));
     if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
@@ -7459,7 +7470,10 @@ test.each(referenceSections)(
       />,
     );
     await settingsReady();
-    if (via) fireEvent.click(screen.getByRole("button", { name: via }));
+    if (via) {
+      fireEvent.click(screen.getByRole("button", { name: via }));
+      if (via === "关于") selectSettingsTab("帮助与反馈");
+    }
     const pageName = mergedPages[button] ?? button;
     fireEvent.click(screen.getByRole("button", { name: pageName }));
     if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
