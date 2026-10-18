@@ -5728,6 +5728,77 @@ fn wubi_literal_marks_do_not_open_table_modes() {
 }
 
 #[test]
+fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
+    for profile in [0, 1] {
+        for mixed in [false, true] {
+            for (next, shift, continues) in [
+                (b'i', false, true),
+                (b'x', false, false),
+                (b'I', true, false),
+            ] {
+                let directory = tempfile::tempdir().unwrap();
+                let mut options = real_engine_options(directory.path());
+                options.scheme = 2;
+                options.wubi_profile = profile;
+                options.wubi_mixed_pinyin = mixed;
+                options.mixed_english = false;
+                rusqlite::Connection::open(
+                    std::path::Path::new(&options.dictionaries)
+                        .join(msime_engine::assets::MAIN_DICTIONARY),
+                )
+                .unwrap()
+                .execute_batch(
+                    "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                        INSERT INTO wubi86 VALUES('guiy','合成甲',100),('guiy','合成乙',90);
+                        CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
+                        INSERT INTO wubi98 SELECT * FROM wubi86;
+                        CREATE TABLE tbl_2_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                        INSERT INTO tbl_2_g VALUES('gui''yi','gy','合成',1000);",
+                )
+                .unwrap();
+                let mut runtime =
+                    Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 1).unwrap();
+                runtime.focus(true).unwrap();
+                for value in b"guiy" {
+                    let typed = runtime
+                        .dispatch(Action::Character {
+                            value: *value,
+                            shift: false,
+                        })
+                        .unwrap();
+                    assert!(typed.commit.is_none());
+                }
+                assert!(runtime
+                    .view()
+                    .candidates
+                    .iter()
+                    .all(|row| row.text != "合成"));
+                let typed = runtime
+                    .dispatch(Action::Character { value: next, shift })
+                    .unwrap();
+                if mixed && continues {
+                    assert!(typed.commit.is_none(), "{typed:?}");
+                    assert_eq!(typed.view.editing_text, "guiyi");
+                    assert!(typed.view.candidates.iter().any(|row| row.text == "合成"));
+                    let id = typed
+                        .view
+                        .candidates
+                        .iter()
+                        .find(|row| row.text == "合成")
+                        .unwrap()
+                        .id;
+                    let selected = runtime.dispatch(Action::Select(id)).unwrap();
+                    assert_eq!(selected.commit.as_deref(), Some("合成"));
+                } else {
+                    assert!(typed.commit.as_deref().unwrap().starts_with("合成甲"));
+                    assert_ne!(typed.view.editing_text, "guiyi");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn a_capital_after_a_complete_wubi_code_commits_the_word_and_keeps_the_letter() {
     let directory = tempfile::tempdir().unwrap();
     let dictionaries = directory.path().join("dictionaries");

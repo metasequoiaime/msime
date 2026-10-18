@@ -44,7 +44,7 @@ jobs:
     #   MACOS_DEVELOPER_ID_APPLICATION           the identity name, e.g. "Developer ID Application: Name (TEAMID)"
     #   MACOS_NOTARY_APPLE_ID, MACOS_NOTARY_TEAM_ID, MACOS_NOTARY_APP_SPECIFIC_PASSWORD  notarization credentials for xcrun notarytool
     #   HOMEBREW_TAP_TOKEN                       a token that can push to metasequoiaime/homebrew-tap, for the cask update after a release
-    #   SPARKLE_ED_PRIVATE_KEY                   Sparkle's EdDSA private key for platforms/macos/sparkle-public-key.txt (rotated 2026-10-15; the maintainer keeps a backup, and replacing it strands every installed copy); with it the input method updates itself through Sparkle from the macos-appcast release
+    #   SPARKLE_ED_PRIVATE_KEY                   对应 platforms/macos/sparkle-public-key.txt 的 Sparkle EdDSA 私钥（2026-10-15 轮换，维护者保留备份；更换它会使所有已安装副本无法更新）；输入法和完整设置应用分别读取 macos-appcast 发布中的独立通道
     env:
       # 钉死 Xcode 26.3（macOS 26 SDK），与 ci-macos.yml、ci-macos-package.yml 和 iOS 的 CI、发布同一个版本；不钉就是镜像默认的 Xcode 16.4，CI 测的就不是发出去的构建。
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
@@ -168,14 +168,16 @@ jobs:
           # package-release.sh 剥离发布的可执行文件（输入法、它的 msime-voice-local 辅助程序、设置应用、msime-mcp）之前先写出 dSYM，再打成一个 zip；各版本共用同一组可执行文件，一份覆盖全部版本。它作为发布资产长期保留，用来符号化这个版本的崩溃报告，不像 workflow artifact 那样 90 天后过期。
           [[ -f "dist/msime-macos-${VERSION}-dsym.zip" ]]
           grep -q " msime-macos-${VERSION}-dsym.zip\$" dist/SHA256SUMS
-          # 有 Sparkle 私钥时 package-release.sh 给每个版本出一个更新 zip 和一份 appcast；要么全有，要么全无，不能只更新一部分版本。
+          # 有 Sparkle 私钥时，每个版本分别提供输入法和完整设置应用的归档与 appcast；必须全部存在。
           appcasts=(dist/appcast-*.xml)
           if [[ ${#appcasts[@]} -gt 0 ]]; then
-            [[ ${#appcasts[@]} -eq ${#editions[@]} ]]
+            [[ ${#appcasts[@]} -eq $((${#editions[@]} * 2)) ]]
             for edition in "${editions[@]}"; do
               prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
               [[ -f "dist/appcast-${edition}.xml" && -f "dist/${prefix}-${VERSION}-input-method.zip" ]]
               grep -q " ${prefix}-${VERSION}-input-method.zip\$" dist/SHA256SUMS
+              [[ -f "dist/appcast-settings-${edition}.xml" && -f "dist/${prefix}-${VERSION}-settings.zip" ]]
+              grep -q " ${prefix}-${VERSION}-settings.zip\$" dist/SHA256SUMS
             done
           fi
           (cd dist && shasum -a 256 -c SHA256SUMS)
@@ -201,8 +203,8 @@ jobs:
           start=$(git tag --list 'macos-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform macos --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
           shopt -s nullglob
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg dist/*-input-method.zip "dist/msime-macos-${VERSION}-dsym.zip" dist/SHA256SUMS
-      # Sparkle 读的 appcast 在一个固定的滚动 release（macos-appcast）上，地址不随版本变，写在每个输入法的 SUFeedURL 里。和 Homebrew 一样只有 main 上的正式版才更新它：beta 与 alpha 不推给所有用户。appcast 指向刚发布的 macos-vVERSION 里的更新 zip，所以先确认它们已经在那个 release 上；已发布的 appcast 版本更高时停下，免得重跑旧版本的发布把它退回去。
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg dist/*-input-method.zip dist/*-settings.zip "dist/msime-macos-${VERSION}-dsym.zip" dist/SHA256SUMS
+      # 输入法与完整设置应用的 appcast 都放在固定的 macos-appcast release，分别写进各自的 SUFeedURL。和 Homebrew 一样只有 main 上的正式版才更新它：beta 与 alpha 不推给所有用户。appcast 指向刚发布的 macos-vVERSION 里的更新 zip，所以先确认它们已经在那个 release 上；已发布的 appcast 版本更高时停下，免得重跑旧版本的发布把它退回去。
       - name: Update the Sparkle appcasts
         if: ${{ inputs.publish && !inputs.prerelease && github.ref_name == 'main' }}
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}"}
@@ -215,12 +217,12 @@ jobs:
             exit 0
           fi
           published="$(gh release view "macos-v${VERSION}" --json assets --jq '.assets[].name')"
-          for zip in dist/*-input-method.zip; do
+          for zip in dist/*-input-method.zip dist/*-settings.zip; do
             grep -qxF "$(basename "$zip")" <<< "$published"
           done
           if ! gh release view macos-appcast >/dev/null 2>&1; then
             gh release create macos-appcast --prerelease --latest=false --target "$(git rev-parse HEAD)" --title "macOS Sparkle appcasts" \
-              --notes "Sparkle feeds for the macOS input method, one appcast-<edition>.xml per edition. Each release from main replaces them; the update archives they point at are on the macos-v releases."
+              --notes "macOS 输入法与完整设置应用的 Sparkle 更新通道：每个发行版本各有 appcast-<edition>.xml 和 appcast-settings-<edition>.xml，由 main 上的正式发布更新，归档放在对应 macos-v 发布中。"
           fi
           mkdir -p "$RUNNER_TEMP/appcast-current"
           gh release download macos-appcast --pattern 'appcast-*.xml' --dir "$RUNNER_TEMP/appcast-current" --clobber || true

@@ -2337,6 +2337,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     supported: updateCheckSupported,
   } = useUpdateCheck({
     checkUpdate: client.checkUpdate,
+    checkForApplicationUpdate: client.checkForApplicationUpdate,
     platform: client.host?.platform ?? null,
     edition: client.host?.edition?.id,
     arch: client.host?.arch,

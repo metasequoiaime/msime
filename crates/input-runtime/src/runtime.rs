@@ -2506,17 +2506,14 @@ impl<E: InputEngine> Runtime<E> {
         // for Select, so it can begin a phrase the same way.
         let mut selected_by_digit = false;
         let character_action = matches!(action, Action::Character { .. });
-        // Wubi top-commit (顶字): a letter typed after a complete four-letter code the Wubi table
-        // answered, unique or not, commits the first candidate and starts the next composition
-        // with that letter. The Engine caps a native Wubi code at four letters and would drop the
-        // fifth, so without this the user loses the key they typed. It is judged on the reading
-        // before the key, with the caret at its end: a caret moved back into the code is an edit
-        // of the code, not the start of the next character. A held phrase stays open, matching
-        // the reference's creating-word guard.
+        // 四码已有五笔候选时，后续字母通常顶字上屏并开始下一组编码。
+        // 混输拼音能继续当前候选的读音时，由引擎保留组字，避免把五字母拼音截成四码。
+        // 光标在末尾、没有暂存词段才顶字；光标中间的按键仍是编辑。
         let wubi_top_commit = matches!(action, Action::Character { value, .. } if value.is_ascii_alphabetic())
             && self.snapshot_valid
             && self.phrase_prefix.is_empty()
-            && wubi_four_code_is_complete(&self.cached);
+            && wubi_four_code_is_complete(&self.cached)
+            && !matches!(action, Action::Character { value, shift } if self.engine.wubi_pinyin_continues(value, shift));
         // 这次把哪个座位的候选交给了引擎、经由哪条路径，引擎调用之后再与它的上屏核对（`selection_fact`）。标点结束组字的两条路由在 `punctuation`、`punctuation_ascii` 里自己记。
         let mut pick: Option<(SelectionHow, usize)> = None;
         // 原样上屏读音的路由：bare 前缀上的 Finish 和 `CommitRaw` 命令。

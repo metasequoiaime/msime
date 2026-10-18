@@ -129,31 +129,38 @@ export function CommunityCandidateSkinsPage({
         onSearchSubmit={() => void requestList(search, false)}
         title="社区皮肤"
         note="为输入候选窗口换一身新装，安装后在「我的皮肤」中启用"
-      >
+      />
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <CommunityScopeButtons
+          className="flex gap-0.5 rounded-lg bg-subtle p-0.5 [&>button]:m-0 [&>button]:rounded-md [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-3 [&>button]:py-1.5 [&>button]:font-medium [&>button]:whitespace-nowrap [&>button]:text-secondary [&>button[aria-pressed=true]]:bg-raised [&>button[aria-pressed=true]]:text-body [&>button[aria-pressed=true]]:shadow-card"
           ariaLabel="候选窗口皮肤范围"
           mineOnly={mineOnly}
           allLabel="全部"
           mineLabel="我的作品"
           onMineOnlyChange={changeMineOnly}
         />
-        {localSkins && (
-          <ActionButton
-            action={() => setPublishOpen(true)}
-            className="primary"
-            label="发布我的皮肤"
-          />
-        )}
-        <ActionButton
-          action={sync.run}
-          label={sync.busy ? "正在同步皮肤库…" : "同步我的皮肤库"}
-          disabled={sync.busy}
-          ariaBusy={sync.busy}
-        />
-      </CommunityGalleryHeader>
-      <p className="text-xs [color:var(--p-sub)]">
-        手动同步会下载云端个人皮肤、上传本机皮肤，并同步已记录的删除。
-      </p>
+        <div className="flex items-center gap-2 [&>button]:m-0 [&>button]:whitespace-nowrap">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void sync.run()}
+            disabled={sync.busy}
+            aria-busy={sync.busy}
+            aria-label={sync.busy ? "正在同步皮肤库…" : "同步我的皮肤库"}
+            title="手动同步会下载云端个人皮肤、上传本机皮肤，并同步已记录的删除。"
+          >
+            {sync.busy ? "正在同步…" : "同步皮肤库"}
+          </button>
+          {localSkins && (
+            <ActionButton
+              action={() => setPublishOpen(true)}
+              className="primary"
+              label="发布皮肤"
+              ariaLabel="发布我的皮肤"
+            />
+          )}
+        </div>
+      </div>
       <CommunityGalleryFeedback
         error={sync.error ? candidateSkinMessage(sync.error) : undefined}
         signInRequired={communityNeedsSignIn(sync.error)}

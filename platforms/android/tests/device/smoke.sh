@@ -99,6 +99,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.BatchCompositionDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Deferred batch composition acceptance failed" >&2; exit 1; }
+# 同一编辑器每次输入后重启连接时，手动数字层不能退回字母页；换输入框仍重置。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NumberLayerRestartDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Number layer restart acceptance failed" >&2; exit 1; }
 # 菜单复制使用真实系统剪贴板与组字会话，最低 API 的核心验收也必须覆盖。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CopyDeviceInfoDeviceSmoke)
 printf '%s\n' "$result"
@@ -149,6 +153,11 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DictionaryImportDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DICTIONARY_IMPORT_PASSED* ]] || { echo "Dictionary import acceptance failed" >&2; exit 1; }
+# 分词拖选在最低与目标 API 的真实键盘上覆盖跨行、取消和边缘滚动。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Clipboard segment drag acceptance failed" >&2; exit 1; }
+
 # 数字默认九宫格涉及常规键面和字面提交，API 28 的核心验收同样覆盖。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NumberPadDeviceSmoke)
 printf '%s\n' "$result"

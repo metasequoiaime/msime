@@ -8,6 +8,8 @@ import {
 } from "./update-manifest";
 
 export interface UseUpdateCheckOptions {
+  /** 完整应用的原生更新流程，更新窗口由宿主呈现。 */
+  checkForApplicationUpdate?: () => Promise<void>;
   /** 宿主的检查更新（`SettingsClient.checkUpdate`），经由 `msime_client_services::update_check` 询问 GitHub。未提供时页面不提供检查。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
   /** 宿主所在平台（`HostCapabilities.platform`），同时也是它的发布 tag 前缀。 */
@@ -22,6 +24,7 @@ export interface UseUpdateCheckOptions {
 /** 询问宿主本平台、本版本有没有更新的已发布版本，并保存关于页展示的状态。 */
 export function useUpdateCheck({
   checkUpdate,
+  checkForApplicationUpdate,
   platform,
   edition,
   arch,
@@ -29,11 +32,12 @@ export function useUpdateCheck({
 }: UseUpdateCheckOptions) {
   const [status, setStatus] = useState("");
   const [available, setAvailable] = useState<ValidatedUpdate | null>(null);
-  const supported = !!checkUpdate && !!platform;
+  const supported = !!checkForApplicationUpdate || (!!checkUpdate && !!platform);
   const { busy, run } = useAsyncActionRunner(
     setStatus,
     undefined,
     checkUpdate,
+    checkForApplicationUpdate,
     currentAppVersion,
     edition,
     arch,
@@ -43,10 +47,24 @@ export function useUpdateCheck({
   useEffect(() => {
     setStatus("");
     setAvailable(null);
-  }, [arch, checkUpdate, currentAppVersion, edition, platform]);
+  }, [arch, checkUpdate, checkForApplicationUpdate, currentAppVersion, edition, platform]);
 
   async function checkForUpdate() {
-    if (busy || !checkUpdate || !platform) return;
+    if (busy) return;
+    if (checkForApplicationUpdate) {
+      setAvailable(null);
+      setStatus("");
+      await run(
+        async () => {
+          await checkForApplicationUpdate();
+        },
+        {
+          formatError: () => "无法打开自动更新，请稍后重试",
+        },
+      );
+      return;
+    }
+    if (!checkUpdate || !platform) return;
     setAvailable(null);
     await run(
       async (isCurrent) => {

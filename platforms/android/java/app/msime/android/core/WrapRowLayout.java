@@ -9,7 +9,7 @@ import android.view.ViewGroup;
  *
  * <p>只做这一件事：子视图按自己的大小测量（宽度不超过一整行），行内间距和行距固定。宿主不能在 `core/` 里用 Material 的 `ChipGroup`：`check-host.sh` 的 JVM 冒烟会跳过任何引用 androidx 或 Material 的源文件，面板代码就编不进去了。
  */
-final class WrapRowLayout extends ViewGroup {
+class WrapRowLayout extends ViewGroup {
     private final int horizontalGap;
     private final int verticalGap;
 

@@ -10,6 +10,8 @@ macOS 的升级要用户自己做三步：在设置页或官网看到新版本�
 
 打开它有一个硬约束：Sparkle 的安装进程（Autoupdate 的 `SUPlainInstaller performInitialInstallation:`）用标准比较器比新旧 bundle 的 `CFBundleVersion`，新的更小就以 `SUDowngradeError` 拒绝安装；这一步在独立进程里，不经过输入法设置的任何委托或比较器。而 `CFBundleVersion` 原来是 `build-number.txt`，每个版本从 1 重新开始，0.53.0 的构建 3 升到 0.54.0 的构建 1 会被当成降级。
 
+设置应用的更新范围由[完整设置应用在应用内更新](2026-10-18-macos-settings-in-app-updates.md)扩展；下文的输入法独立更新机制继续保留。
+
 ## Decision
 
 Sparkle 更新的是输入法本体，也就是 `~/Library/Input Methods` 里那份 bundle；`/Applications` 里的设置应用不在它的范围内，仍随 DMG 更新。

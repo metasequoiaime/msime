@@ -8345,6 +8345,56 @@ function hostRelease(
   };
 }
 
+test("macOS 关于页优先启动完整应用更新，不提供手动下载", async () => {
+  const checkForApplicationUpdate = vi.fn().mockResolvedValue(undefined);
+  const checkUpdate = vi.fn();
+  const openExternalUrl = vi.fn();
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        checkForApplicationUpdate,
+        checkUpdate,
+        openExternalUrl,
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  await waitFor(() => expect(checkForApplicationUpdate).toHaveBeenCalledOnce());
+  expect(checkUpdate).not.toHaveBeenCalled();
+  expect(openExternalUrl).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "前往下载" })).toBeNull();
+});
+
+test("原生应用更新启动失败后可重试，不能误报已是最新版本", async () => {
+  const checkForApplicationUpdate = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("synthetic failure"))
+    .mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        checkForApplicationUpdate,
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("无法打开自动更新，请稍后重试")).toBeDefined();
+  expect(screen.queryByText("已是最新版本")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
+  await waitFor(() => expect(checkForApplicationUpdate).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText("无法打开自动更新，请稍后重试")).toBeNull());
+});
+
 test("about page offers no update check without a host to ask", async () => {
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
   await settingsReady();

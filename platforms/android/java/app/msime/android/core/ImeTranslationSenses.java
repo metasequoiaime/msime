@@ -120,6 +120,7 @@ final class ImeTranslationSenses {
 
     private Button makeButton(int slot) {
         Button button = ViewPolicy.newPressButton(s);
+        s.bindCandidateRenderRelease(button);
         ViewPolicy.setAllCapsFalse(button);
         button.setLongClickable(false);
         ViewPolicy.bindClick(button, () -> {

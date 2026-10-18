@@ -115,6 +115,8 @@ export interface SettingsClient {
   /** 打开偏好文档所在目录，修复备份也保存在这里。 */
   openPreferencesDirectory?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
+  /** 原生更新器自行检查、下载、验签并安装完整应用；提供时优先于仅查发布列表的入口。 */
+  checkForApplicationUpdate?: () => Promise<void>;
   /** 经由 `msime_client_services::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
   openExternalUrl?: (url: string) => Promise<void>;

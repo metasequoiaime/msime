@@ -174,6 +174,10 @@ pub trait InputEngine {
         })
     }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError>;
+    /// 后续按键能继续当前五笔混输拼音时保留组字；没有混输的引擎沿用顶字。
+    fn wubi_pinyin_continues(&self, _value: u8, _shift: bool) -> bool {
+        false
+    }
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn segment_command(&mut self, command: SegmentCommand) -> Result<EngineResult, RuntimeError> {
@@ -395,6 +399,9 @@ impl InputEngine for Session {
     }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
         Session::snapshot(self).map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
+    fn wubi_pinyin_continues(&self, value: u8, shift: bool) -> bool {
+        Session::wubi_pinyin_continues(self, value, shift)
     }
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError> {
         Session::character(self, value, shift)
