@@ -11,8 +11,9 @@ public final class NineKeySidebarPolicySmoke {
         layerChoice();
         rowHeight();
         parsing();
+        choices();
         localSetting();
-        System.out.println("Android nine-key sidebar: defaults, layer row heights, custom symbol parsing and the local setting passed");
+        System.out.println("Android nine-key sidebar: defaults, layer row heights, symbol choices, custom symbol parsing and the local setting passed");
     }
 
     /** 哪个键面用哪张表：数字键面换成算式符号那张，字母键面不变。 */
@@ -79,6 +80,16 @@ public final class NineKeySidebarPolicySmoke {
             "an invalid stored table falls back to the defaults");
         check("a b".equals(NineKeySidebarPolicy.summary(List.of("a", "b"), 4)), "a short table is listed whole");
         check("a b 等 3 个".equals(NineKeySidebarPolicy.summary(List.of("a", "b", "c"), 2)), "a long table is summarised");
+    }
+
+    private static void choices() {
+        check(NineKeySidebarPolicy.addableSymbols(List.of("，", "……")).get(0).equals("。"),
+            "symbol choices keep their stable order and omit selected values");
+        check(NineKeySidebarPolicy.addableSymbols(NineKeySidebarPolicy.ADDABLE_SYMBOLS).isEmpty(),
+            "all fixed choices can be exhausted");
+        check(NineKeySidebarPolicy.ADDABLE_SYMBOLS.stream().allMatch(symbol ->
+            NineKeySidebarPolicy.parse(symbol) != null && NineKeySidebarPolicy.parse(symbol).size() == 1),
+            "every fixed choice is a valid single symbol");
     }
 
     private static void localSetting() {

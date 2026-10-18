@@ -49,7 +49,7 @@ final class NineKeySidebarSheet {
             symbols = new ArrayList<>(this.defaults);
             render();
         });
-        actions.button("添加自定义符号", "每次添加一个，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个",
+        actions.button("添加符号", "从常用符号中选择，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个",
             "添加", this::addSymbol);
         saveRow = actions.button("保存符号栏", null, "保存", this::save);
         actions.button("放弃本次调整", null, "取消", sheet::dismiss);
@@ -163,18 +163,16 @@ final class NineKeySidebarSheet {
 
     private void addSymbol() {
         if (saving || symbols.size() >= NineKeySidebarPolicy.MAX_SYMBOLS) return;
-        InputDialog dialog = new InputDialog(owner.requireContext(), "添加自定义符号",
-            "一次添加一个符号，最多 " + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符");
-        dialog.addField("例如 ； 或 ……", null, 0);
-        dialog.setValidator(values -> {
-            List<String> parsed = NineKeySidebarPolicy.parse(values.get(0));
-            return parsed != null && parsed.size() == 1 && !symbols.contains(parsed.get(0));
-        });
-        dialog.setPrimary("添加", values -> {
-            symbols.add(NineKeySidebarPolicy.parse(values.get(0)).get(0));
-            render();
-        });
-        dialog.show();
+        OptionSheet choices = new OptionSheet(owner.requireContext(), "添加符号", "选择一个常用符号");
+        for (String symbol : NineKeySidebarPolicy.addableSymbols(symbols)) {
+            choices.option(symbol, false, () -> {
+                if (saving || symbols.size() >= NineKeySidebarPolicy.MAX_SYMBOLS
+                        || symbols.contains(symbol)) return;
+                symbols.add(symbol);
+                render();
+            });
+        }
+        choices.show();
     }
 
     private void save() {

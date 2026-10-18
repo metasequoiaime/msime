@@ -30,6 +30,12 @@ public final class NineKeySidebarPolicy {
     /** 数字键面的默认符号：先是四则运算和算式里常用的半角符号，中文标点（含原来在右列的 ！）排在后面。 */
     public static final List<String> DEFAULT_DIGIT_SYMBOLS =
         List.of("+", "-", "*", "/", "=", "%", "(", ")", ":", "@", "，", "。", "？", "！");
+    /** 设置页可直接加入的常用符号；可选项优先于手写配置，避免用户记忆存储格式。 */
+    public static final List<String> ADDABLE_SYMBOLS = List.of(
+        "，", "。", "？", "！", "、", "；", "：", "…", "……", "—", "·",
+        "“", "”", "‘", "’", "（", "）", "《", "》", "【", "】", "～",
+        "+", "-", "*", "/", "=", "%", "(", ")", ":", "@", "#", "&",
+        "_", "|", "<", ">", "^", "￥", "★", "☆", "♡", "♥", "→", "←", "↑", "↓", ":-)");
 
     private NineKeySidebarPolicy() {}
 
@@ -123,5 +129,12 @@ public final class NineKeySidebarPolicy {
         if (symbols.size() <= limit) return String.join(" ", symbols);
         List<String> head = new ArrayList<>(symbols.subList(0, BoundsPolicy.nonNegative(limit)));
         return String.join(" ", head) + " 等 " + symbols.size() + " 个";
+    }
+
+    /** 返回尚未加入当前符号栏的可选项，保持选择面板的固定顺序。 */
+    public static List<String> addableSymbols(List<String> current) {
+        ArrayList<String> available = new ArrayList<>();
+        for (String symbol : ADDABLE_SYMBOLS) if (!current.contains(symbol)) available.add(symbol);
+        return List.copyOf(available);
     }
 }
