@@ -17,6 +17,7 @@ Android 键盘的本机识别早就接好了：识别服务是 `local`，或打�
 - `VoicePage`：
   - 「识别服务」多了「本地模型」。选它时会备好运行库；如果已有装好的模型而还没选用，就选用第一个。
   - 选了本地模型或打开离线识别时，出现「本地模型」组：运行库状态行加上每个模型一行（下载、取消、校验中、重试，已装的点开可以选用或删除）。删除正在用的模型时，一并清空 `asr_model_path`。
+  - 删除是异步操作：确认对话框里的 `selected` 只用于当时的文案，删除成功后在工作线程重新读取当前 `asr_model_path`，只有它仍指向被删目录时才清空。这样删除期间改选的模型会保留，删除期间才选上的模型会被清掉。
   - 选了本地模型却还不能用时，「识别服务」行说明缺什么（`VoiceProviderPolicy.localStatus`）。这里不说「暂用系统识别」，因为本地识别不会回退到系统识别。
 - Android 的「离线识别」开关默认打开，首次使用仍需用户在「本地模型」组下载并选用模型；默认识别服务和模型目录不改，已有用户明确保存的开关值也不改。
 - 行状态的纯规则放在 `voice/LocalVoiceModelPolicy.java`，配 JVM 冒烟。这个类不引用 `ResourcePackService`：后者导入了 androidx，进不了 `check-host` 的编译。
@@ -26,10 +27,11 @@ Android 键盘的本机识别早就接好了：识别服务是 `local`，或打�
 - **另写一个 `LocalVoiceModelService`**：模型和资源包互不干扰，各自的代码更好读。没有采用：前台服务类型、通知渠道、超时处理、流量确认、取消竞态（`CANCELLING` 在共享层登记之前的补发）都要再写一遍，而这些正是资源包那边踩过坑才写对的部分。两个服务同时跑还会出两条进度通知、各自去抢前台服务的时长配额。
 - **把共享 React 设置页的 `LocalModelManager` 嵌进 WebView**：模型列表、导入、许可证展示一次到位。没有采用：原生应用的其余页面都是原生的，单独嵌一个 WebView 页要接上 Tauri 命令桥，范围远超「能下载和选用」。
 - **这一期同时做从文件导入**：网络不通的用户也能装上模型。没有采用：Android 的文件选择器给的是 content URI，原生库打不开，要像 HarmonyOS 那样先复制进缓存，并处理复制期间的取消。瘦包的 `voice-runtime` 也还不能从文件导入，单补模型导入仍然做不到完全离线。留作下一期。
+- **继续使用确认时捕获的 `selected` 决定是否写偏好**：最强的理由是只在删除已选模型时写一次，改动最小。没有采用：删除在工作线程排队，页面可以在完成前改选模型；这个快照会漏清刚选上的模型，也可能在用户改选其他模型后清掉新的选择。改为删除成功后统一读取当前路径，并按 `LocalVoiceModelPolicy.selectionAfterRemoval` 决定是否清空。
 
 ## Consequences
 
 - 收益：正式包用户可以装上本地模型，选「本地模型」做识别服务，或使用默认打开的离线识别作为没网时的后备；键盘失败提示里说的「在设置中下载」现在有对应的入口。
 - 代价：`ResourcePackService` 不再只管资源包，`runningPacks` 改成遍历状态表，结果通知让所有模型共用一个位置（同一时间通常只下一个模型）。
 - 仍缺：模型许可证的展示；下载镜像的设置入口。从文件导入模型和运行库后来由[不联网安装那篇](2026-10-12-android-offline-voice-import.md)补上。
-- 验证：`platforms/android/check-host.sh`（含 `LocalVoiceModelPolicySmoke`、`VoiceProviderPolicySmoke`、`SettingsSearchIndexSmoke`）；`gradlew compileFullReleaseJavaWithJavac`；`client_jni.cpp` 用 NDK 28.2 的 clang 在 `-Wall -Wextra -Werror` 下做 `-fsyntax-only` 编译。没有做完整的 native 链接，也没有在真机上下载模型、做一次本地识别。
+- 验证：`platforms/android/check-host.sh`（含 `LocalVoiceModelPolicySmoke`、`VoiceProviderPolicySmoke`、`SettingsSearchIndexSmoke`）；`gradlew compileFullReleaseJavaWithJavac`；`client_jni.cpp` 用 NDK 28.2 的 clang 在 `-Wall -Wextra -Werror` 下做 `-fsyntax-only` 编译。删除选择竞态由 `LocalVoiceModelPolicySmoke` 覆盖：删除当前模型清空、删除旧模型保留新选择、空选择保持为空；删除失败路径仍在 `VoicePage` 的异常分支中不写偏好。没有做完整的 native 链接，也没有在真机上下载模型、做一次本地识别。

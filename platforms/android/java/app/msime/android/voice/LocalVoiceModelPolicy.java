@@ -51,4 +51,10 @@ public final class LocalVoiceModelPolicy {
         String model = modelPath == null ? "" : modelPath.trim();
         return !model.isEmpty() && model.equals(chosenPath == null ? "" : chosenPath.trim());
     }
+
+    /** 删除成功后按工作线程重新读到的当前路径更新选择；删除旧模型不能清掉用户后来选的模型。 */
+    public static String selectionAfterRemoval(String removedPath, String chosenPath) {
+        if (selected(removedPath, chosenPath)) return "";
+        return chosenPath == null ? "" : chosenPath;
+    }
 }

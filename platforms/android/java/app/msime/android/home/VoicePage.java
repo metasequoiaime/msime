@@ -413,28 +413,31 @@ public final class VoicePage extends ReloadingDetailPage {
         };
     }
 
-    /** 已装模型：没在用的可以选用；都可以删除，删的是正在用的那个时一并清掉 `asr_model_path`。 */
+    /** 已装模型：没在用的可以选用；都可以删除，删除成功后按当时的当前选择清理 `asr_model_path`。 */
     private void manageModel(LocalVoiceModels.Model model, boolean selected) {
         OptionSheet sheet = new OptionSheet(requireContext(), model.title(), null);
         if (!selected) sheet.option("使用这个模型", false, () -> saveVoice("asr_model_path", model.path()));
         sheet.option("删除", false, () -> MessageDialog.confirm(requireContext(),
             "删除「" + model.title() + "」？",
             selected ? "这是正在使用的模型，删除后本地识别和离线识别要重新下载或选用别的模型。" : "删除后要用时需要重新下载。",
-            "删除", () -> removeModel(model, selected)));
+            "删除", () -> removeModel(model)));
         sheet.show();
     }
 
-    private void removeModel(LocalVoiceModels.Model model, boolean selected) {
+    private void removeModel(LocalVoiceModels.Model model) {
         HostTask.run(this, context -> {
             try {
                 LocalVoiceModels.remove(context, model.id());
             } catch (ResourcePacks.Failure error) {
                 return error.code();
             }
-            if (selected) KeyboardSheets.write(context, preferences -> {
-                JSONObject voice = KeyboardSheets.child(preferences, "voice_input");
-                if (LocalVoiceModelPolicy.selected(model.path(), InputViewValuePolicy.textOr(voice, "asr_model_path", "")))
-                    voice.put("asr_model_path", "");
+            KeyboardSheets.write(context, preferences -> {
+                JSONObject voice = preferences.optJSONObject("voice_input");
+                String chosen = InputViewValuePolicy.textOr(voice, "asr_model_path", "");
+                String next = LocalVoiceModelPolicy.selectionAfterRemoval(model.path(), chosen);
+                if (chosen.equals(next)) return;
+                voice = KeyboardSheets.child(preferences, "voice_input");
+                voice.put("asr_model_path", next);
             });
             return "";
         }, failure -> {

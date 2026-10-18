@@ -38,6 +38,17 @@ public final class LocalVoiceModelPolicySmoke {
         check(!LocalVoiceModelPolicy.selected("", "") && !LocalVoiceModelPolicy.selected(null, null)
                 && !LocalVoiceModelPolicy.selected("/data/files/voice-models/a", "/data/files/voice-models/b"),
             "empty or different paths are not selected");
+
+        check(LocalVoiceModelPolicy.selectionAfterRemoval(
+                "/data/files/voice-models/a", "/data/files/voice-models/a").isEmpty(),
+            "deleting the currently selected model clears the selection");
+        check(LocalVoiceModelPolicy.selectionAfterRemoval(
+                "/data/files/voice-models/a", "/data/files/voice-models/b")
+                .equals("/data/files/voice-models/b"),
+            "deleting an old model keeps a newer selection");
+        check(LocalVoiceModelPolicy.selectionAfterRemoval(
+                "/data/files/voice-models/a", "").isEmpty(),
+            "deleting an unselected model keeps an empty selection");
         System.out.println("Android local voice models: listing, row actions, summary and selection passed");
     }
 }
