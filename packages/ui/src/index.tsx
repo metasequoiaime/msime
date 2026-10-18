@@ -3152,20 +3152,9 @@ function SettingsShell(props: SettingsPageProps) {
               </div>
             )}
             {searchInSidebar && <label className={settings.sidebarSearch}>{navSearchField}</label>}
-            {shownSidebarGroups.map((group, index) => (
-              <div
-                key={group.pages[0].id}
-                className={settings.sidebarSection(index === 0)}
-                data-sidebar-section=""
-                role={group.title ? "group" : undefined}
-                aria-label={group.title}
-              >
-                {group.title && (
-                  <div className={settings.sidebarGroupTitle} aria-hidden="true">
-                    {group.title}
-                  </div>
-                )}
-                {group.pages.map((item) => (
+            <div className={settings.sidebarItems}>
+              {shownSidebarGroups.flatMap((group) =>
+                group.pages.map((item) => (
                   <NavItem
                     key={item.id}
                     label={item.title}
@@ -3174,9 +3163,9 @@ function SettingsShell(props: SettingsPageProps) {
                     controls="settings-content"
                     onSelect={() => selectPage(item.id)}
                   />
-                ))}
-              </div>
-            ))}
+                )),
+              )}
+            </div>
             {shownSidebarGroups.length === 0 && (
               <p className={settings.sidebarEmpty} role="status">
                 没有匹配的设置

@@ -279,16 +279,9 @@ export const sidebarTitle =
 /** 侧栏顶部的品牌行：24px 图标加产品名，水平内边距取导航项的 `--p-nav-pad`，图标与下面各项的图标左对齐；文字颜色沿用侧栏，跟随明暗主题和自定义主题。 */
 export const sidebarHeader =
   "mt-1 mb-3 flex shrink-0 items-center gap-2 [padding:var(--p-nav-pad)] select-none [&>img]:size-6 [&>img]:shrink-0 [&>img]:rounded-md [&>span]:min-w-0 [&>span]:truncate [&>span]:text-[15px] [&>span]:font-semibold";
-/*
- * 导航项的尺寸、圆角和选中底取自 `--p-nav-*`；Windows 与 macOS 的组间距为 18px，鸿蒙为 12px，GNOME 为 10px。
- */
-export const sidebarSection = (first: boolean) =>
-  `flex shrink-0 flex-col gap-0.5 ipad:gap-0 ipad:overflow-hidden ipad:rounded-[26px] ipad:bg-[var(--p-group-bg)] ${
-    first ? "" : "mt-3.5 mac:mt-[18px] linux:mt-2.5 hm2:mt-3 ipad:mt-5 win:mt-[18px]"
-  }`;
-/** 侧栏一组页面的组名：小号灰字，水平内边距取导航项的 `--p-nav-pad`，与下面的页名左对齐。iPad 的每组是一张圆角卡片，组名放进卡片里会像多出一行，所以 iPad 不显示。 */
-export const sidebarGroupTitle =
-  "mt-1 mb-0.5 [padding:var(--p-nav-pad)] text-[11px] font-semibold text-[var(--p-sub)] select-none ipad:hidden";
+/** 侧栏页面连续排列，导航项的尺寸、圆角和选中底取自 `--p-nav-*`；iPad 用一张圆角卡片承载整个列表。 */
+export const sidebarItems =
+  "flex shrink-0 flex-col gap-0.5 ipad:gap-0 ipad:overflow-hidden ipad:rounded-[26px] ipad:bg-[var(--p-group-bg)]";
 /** The item glyphs ship light and are inverted on a light theme. Windows draws them at 16, macOS at 15, HarmonyOS at 17, GNOME at 18 and iPadOS at 20. */
 export const sidebarGlyph =
   "block size-4 object-contain opacity-90 light-theme:[filter:invert(1)_brightness(0.25)] mac:size-[15px] linux:size-[18px] hm2:size-[17px] ipad:size-5";

@@ -6784,8 +6784,8 @@ test("macOS and iOS help pages use their native host instructions", async () => 
   expect(await screen.findByText(/iPhone 与 iPad 触屏输入体验/)).toBeDefined();
 });
 
-// 设置导航（`settingsNavGroups`）：六组，按顺序排列，每组带组名。宿主不提供的页从所在组里消失而不留空位，子页从父页里进入。
-test("the sidebar follows the six titled navigation groups", async () => {
+// 侧栏按原有顺序平铺页面；宿主不提供的页不留空位，子页从父页里进入。
+test("侧栏平铺页面，不显示分类标题", async () => {
   render(
     <SettingsPage
       client={{
@@ -6797,24 +6797,30 @@ test("the sidebar follows the six titled navigation groups", async () => {
   );
   await settingsReady();
   const sidebar = screen.getByRole("navigation", { name: "设置分类" });
-  const groups = [...sidebar.querySelectorAll("[data-sidebar-section]")].map((section) =>
-    [...section.querySelectorAll("button")].map((item) => item.textContent ?? ""),
-  );
-  expect(groups).toEqual([
-    ["输入", "标点与翻译", "快捷键", "词库"],
-    ["主题", "候选窗口", "悬浮工具栏"],
-    ["屏幕键盘与手写", "语音输入"],
-    ["剪贴板", "AI 辅助"],
-    ["维护与诊断", "关于"],
+  const titles = within(sidebar)
+    .getAllByRole("button")
+    .map((item) => item.textContent ?? "");
+  expect(titles).toEqual([
+    "输入",
+    "标点与翻译",
+    "快捷键",
+    "词库",
+    "主题",
+    "候选窗口",
+    "悬浮工具栏",
+    "屏幕键盘与手写",
+    "语音输入",
+    "剪贴板",
+    "AI 辅助",
+    "维护与诊断",
+    "关于",
   ]);
-  // 组名对辅助技术可见；没有账号客户端时「账号」组整组消失，桌面也不再有「社区」入口。
-  expect(
-    within(sidebar)
-      .getAllByRole("group")
-      .map((group) => group.getAttribute("aria-label")),
-  ).toEqual(["打字", "外观", "更多输入方式", "工具", "支持"]);
+  expect(within(sidebar).queryAllByRole("group")).toHaveLength(0);
+  for (const title of ["打字", "外观", "更多输入方式", "工具", "账号", "支持"]) {
+    expect(within(sidebar).queryByText(title, { exact: true })).toBeNull();
+  }
   for (const title of ["AI 对话", "背单词", "帮助", "辅助码", "其他平台下载", "社区"]) {
-    expect(groups.flat()).not.toContain(title);
+    expect(titles).not.toContain(title);
   }
 });
 
@@ -8308,7 +8314,7 @@ test.each(["macos", "windows", "linux"] as const)(
   },
 );
 
-test("macOS sidebar uses the same six groups", async () => {
+test("macOS 侧栏连续排列所有可用页面", async () => {
   render(
     <SettingsPage
       client={{
@@ -8320,17 +8326,27 @@ test("macOS sidebar uses the same six groups", async () => {
   );
   await settingsReady();
   const sidebar = screen.getByRole("navigation", { name: "设置分类" });
-  const groups = [...sidebar.querySelectorAll("[data-sidebar-section]")].map((section) =>
-    [...section.querySelectorAll("button")].map((item) => item.textContent ?? ""),
-  );
-  expect(groups).toEqual([
-    ["输入", "标点与翻译", "快捷键", "词库"],
-    ["主题", "候选窗口", "悬浮工具栏"],
+  expect(
+    within(sidebar)
+      .getAllByRole("button")
+      .map((item) => item.textContent ?? ""),
+  ).toEqual([
+    "输入",
+    "标点与翻译",
+    "快捷键",
+    "词库",
+    "主题",
+    "候选窗口",
+    "悬浮工具栏",
     // 手写页在 macOS 上只有一个打开按钮，并进屏幕键盘页。
-    ["屏幕键盘与手写", "语音输入"],
-    ["剪贴板", "AI 辅助"],
-    ["维护与诊断", "关于"],
+    "屏幕键盘与手写",
+    "语音输入",
+    "剪贴板",
+    "AI 辅助",
+    "维护与诊断",
+    "关于",
   ]);
+  expect(within(sidebar).queryAllByRole("group")).toHaveLength(0);
 });
 
 // 宿主提供哪个发布、哪个安装包由 Rust 决定（`crates/client-services/src/update_check.rs`）；这里覆盖的是关于页向宿主问什么、拿到答复后怎么做。
