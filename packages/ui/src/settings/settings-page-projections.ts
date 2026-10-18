@@ -23,7 +23,7 @@ export interface SettingsPageProjectionOptions {
   hasHandwriting: boolean;
   /** 「手写输入」并进「屏幕键盘」页，那一页改叫「屏幕键盘与手写」。macOS、Linux、Windows 和 HarmonyOS 2-in-1 上手写页只有一个打开按钮或一段说明，单占一个侧栏入口不值得，Windows 原生设置窗口的 `SettingsNavigation.h` 也同样并成一页；触屏宿主的手写页另有内容，不并。本版本不提供手写时没有可并的页。 */
   handwritingOnScreenKeyboardPage?: boolean;
-  /** 「连接 AI 助手」子页：宿主能报告本机 MCP 服务的状态（`mcpServerStatus`，三个桌面宿主）。 */
+  /** 宿主能报告本机 MCP 服务状态时，提供桌面「AI 助手」标签和手机「连接 AI 助手」子页。 */
   hasMcp: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   mobilePageTitle: (id: SettingsPageId, title: string) => string;

@@ -13,3 +13,15 @@ resources/licenses/Unicode-License-V3.txt text eol=lf
 
 # OpenCC 许可证与固定源码输入逐字节核对，Windows 检出也保持 LF。
 resources/licenses/OpenCC-Apache-2.0.txt text eol=lf
+
+# GitHub 语言统计默认归入 Rust，主要语言仅按扩展名覆盖。
+* linguist-language=Rust
+*.cpp linguist-language=C++
+*.h linguist-language=C++
+*.hpp linguist-language=C++
+*.ts linguist-language=TypeScript
+*.tsx linguist-language=TypeScript
+*.ets linguist-language=TypeScript
+*.java linguist-language=Java
+*.swift linguist-language=Swift
+*.mm linguist-language=Objective-C++

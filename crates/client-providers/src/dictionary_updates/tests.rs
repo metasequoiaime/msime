@@ -80,6 +80,186 @@ impl Fixture {
             .unwrap(),
         );
     }
+
+    fn mirror_assets(&self) {
+        let originals: Vec<_> = self
+            .files
+            .borrow()
+            .iter()
+            .filter(|(url, _)| url.starts_with(DOWNLOAD))
+            .map(|(url, bytes)| (url.clone(), bytes.clone()))
+            .collect();
+        for (url, bytes) in originals {
+            for prefix in crate::resource_packs::PROJECT_MIRRORS {
+                self.files
+                    .borrow_mut()
+                    .insert(format!("{prefix}{url}"), bytes.clone());
+            }
+        }
+    }
+}
+
+#[test]
+fn project_cdn_serves_manifest_and_dictionary_without_origin_asset_requests() {
+    let fixture = Fixture::new();
+    fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+    fixture.mirror_assets();
+    fixture
+        .files
+        .borrow_mut()
+        .retain(|url, _| !url.starts_with(DOWNLOAD));
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "ready");
+    let prefix = crate::resource_packs::PROJECT_MIRRORS[0];
+    assert_eq!(
+        &*fixture.requests.borrow(),
+        &[
+            API.to_owned(),
+            format!("{prefix}{DOWNLOAD}dict-v2.0.10/{MANIFEST}"),
+            format!("{prefix}{DOWNLOAD}dict-v2.0.10/msime-pinyin.db"),
+        ]
+    );
+    let selected = selected(&fixture.context.state_root, &fixture.context.baseline).unwrap();
+    assert!(selected
+        .desktop
+        .artifacts
+        .iter()
+        .all(|file| file.url.starts_with(DOWNLOAD)));
+    store(&fixture.context.state_root)
+        .verify(
+            &directory(&fixture.context.state_root, &selected.desktop).unwrap(),
+            &selected.desktop,
+        )
+        .unwrap();
+}
+
+#[test]
+fn unavailable_cdn_falls_back_to_github_for_each_asset() {
+    let fixture = Fixture::new();
+    fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+    assert_eq!(
+        check_with(&fixture.context, false, &fixture).unwrap().phase,
+        "ready"
+    );
+    let mut expected = vec![API.to_owned()];
+    for name in [MANIFEST, "msime-pinyin.db"] {
+        let original = format!("{DOWNLOAD}dict-v2.0.10/{name}");
+        for prefix in crate::resource_packs::PROJECT_MIRRORS {
+            expected.push(format!("{prefix}{original}"));
+        }
+        expected.push(original);
+    }
+    assert_eq!(*fixture.requests.borrow(), expected);
+}
+
+#[test]
+fn corrupt_cdn_manifest_or_dictionary_is_replaced_from_origin_without_double_progress() {
+    for name in [MANIFEST, "msime-pinyin.db"] {
+        for wrong_size in [false, true] {
+            let fixture = Fixture::new();
+            fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+            fixture.mirror_assets();
+            let original = format!("{DOWNLOAD}dict-v2.0.10/{name}");
+            let corrupt_size = if wrong_size {
+                3
+            } else {
+                fixture.files.borrow()[&original].len()
+            };
+            for prefix in crate::resource_packs::PROJECT_MIRRORS {
+                fixture
+                    .files
+                    .borrow_mut()
+                    .insert(format!("{prefix}{original}"), vec![b'x'; corrupt_size]);
+            }
+            let result = check_with(&fixture.context, false, &fixture).unwrap();
+            assert_eq!(result.phase, "ready");
+            assert_eq!(result.downloaded_bytes, result.total_bytes);
+            assert!(fixture.requests.borrow().contains(&original));
+            let other = if name == MANIFEST {
+                "msime-pinyin.db"
+            } else {
+                MANIFEST
+            };
+            assert!(!fixture
+                .requests
+                .borrow()
+                .contains(&format!("{DOWNLOAD}dict-v2.0.10/{other}")));
+        }
+    }
+}
+
+#[test]
+fn bad_cdn_and_origin_bytes_preserve_the_installed_generation() {
+    for name in [MANIFEST, "msime-pinyin.db"] {
+        let fixture = Fixture::new();
+        fixture.release("dict-v2.0.10", b"first synthetic dictionary", 1);
+        check_with(&fixture.context, false, &fixture).unwrap();
+        fixture.release("dict-v2.0.11", b"second synthetic dictionary", 1);
+        fixture.mirror_assets();
+        let original = format!("{DOWNLOAD}dict-v2.0.11/{name}");
+        for prefix in crate::resource_packs::PROJECT_MIRRORS {
+            fixture
+                .files
+                .borrow_mut()
+                .insert(format!("{prefix}{original}"), b"bad mirror".to_vec());
+        }
+        fixture
+            .files
+            .borrow_mut()
+            .insert(original, b"bad origin".to_vec());
+        assert!(check_with(&fixture.context, false, &fixture).is_err());
+        assert_eq!(status(&fixture.context).version, "dict-v2.0.10");
+        assert_eq!(status(&fixture.context).phase, "failed");
+    }
+}
+
+struct RecordedHttp {
+    http: Http,
+    requests: RefCell<Vec<String>>,
+}
+
+impl Transport for RecordedHttp {
+    fn open(&self, url: &str, timeout: Duration) -> Result<Box<dyn Read>, UpdateError> {
+        self.requests.borrow_mut().push(url.to_owned());
+        self.http.open(url, timeout)
+    }
+}
+
+#[test]
+#[ignore = "需要联网：实际从项目 CDN 下载官方词库，按 GitHub API 摘要校验"]
+fn live_project_cdn_delivers_verified_dictionary_update() {
+    let mut fixture = Fixture::new();
+    // 用小词库覆盖完整更新流程；只写临时目录，不改本机输入法安装。
+    fixture.context.baseline.artifacts[0].name = "msime-others.db".into();
+    fixture.context.baseline.artifacts[0].url = format!("{DOWNLOAD}dict-v2.0.9/msime-others.db");
+    let transport = RecordedHttp {
+        http: Http(client().unwrap()),
+        requests: RefCell::default(),
+    };
+    let result = check_with(&fixture.context, false, &transport).unwrap();
+    assert_eq!(result.phase, "ready");
+    let selected = selected(&fixture.context.state_root, &fixture.context.baseline).unwrap();
+    store(&fixture.context.state_root)
+        .verify(
+            &directory(&fixture.context.state_root, &selected.desktop).unwrap(),
+            &selected.desktop,
+        )
+        .unwrap();
+    let prefix = crate::resource_packs::PROJECT_MIRRORS[0];
+    assert_eq!(
+        &*transport.requests.borrow(),
+        &[
+            API.to_owned(),
+            format!("{prefix}{DOWNLOAD}{}/{MANIFEST}", result.version),
+            format!("{prefix}{DOWNLOAD}{}/msime-others.db", result.version),
+        ]
+    );
+    println!(
+        "CDN verified: version={}, bytes={}, requests={:?}",
+        result.version,
+        result.downloaded_bytes,
+        transport.requests.borrow()
+    );
 }
 
 #[test]
