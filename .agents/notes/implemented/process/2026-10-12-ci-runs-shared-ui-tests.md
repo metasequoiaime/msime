@@ -25,6 +25,8 @@ Status: implemented
 
 - 社区皮肤安装回归等待「一键安装」按钮解除禁用后再点击，不能以详情标题出现作为加载结束的依据；用可控的详情响应固定覆盖加载窗口，并等待目录扫描次数达到预期。词库导出回归通过「管理词库类型」选择框确认当前个人类型，修改类型后检查导出请求，不再依赖已经移除的跨标签说明文案。学习数据清除用例提供可调用的词库列表夹具，不再用空对象伪装词库客户端。整文件复跑又定位到正常导出提示被首次防抖查询清理，底层修复及可控计时回归归属[词库页笔记](../feature/2026-10-17-dictionary-top-tabs-and-lookup.md)。
 
+- 词库管理 hook 测试显式注册 `afterEach(cleanup)`，在 jsdom 关闭前卸载组件、取消防抖查询。本项目没有开启 Vitest 全局 API，Testing Library 无法发现全局 `afterEach`，不能依赖它的自动清理；断言通过也不代表组件与异步更新已经释放。
+
 ## Alternatives considered
 
 - **让推送前钩子的 `--quick` 也跑 vitest。** 每次推送多一两分钟；而且钩子可以被 `--no-verify` 绕过，在别的机器上也不一定装了依赖。CI 是唯一每个 PR 都一定经过的地方。
@@ -43,3 +45,4 @@ Status: implemented
 - 本地照 CI 的步骤：删掉全部 `node_modules`，`pnpm install --frozen-lockfile --ignore-scripts`，然后 lint、两个 tsc、全量 vitest，2905 个通过。
 - 不带 `mobile-app-chrome` 修复时，develop 上全量 vitest 1 个失败，就是 #7210 留下的那个。
 - CI 运行 `38339433158` 中 3016 项通过、1 项失败：云词库测试只等 `list` 调用发出，就点击仍禁用的「完整目录」。本地给首次响应增加 100 ms 延迟，在旧等待条件下复现同一断言失败；该测试随后改为等待按钮可用。[鸿蒙设置行笔记](../bug-fix/2026-10-10-harmony-phone-settings-input-rows.md)也记录过同一个偶发失败，属于独立的界面布局决定，保留原记录。
+- CI 运行 `39096058231` 中 733 个文件、4392 项全部通过，但 `use-dictionary-manager.test.ts` 的 React 延迟调度在环境销毁后抛出 `window is not defined`，Vitest 因未处理异常退出 1。独立临时探针在原文件结束时数到 12 个遗留容器；补上清理后为零，12 项既有用例通过。探针只用于本地对照，不加入正式套件。

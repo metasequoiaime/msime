@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { expect, test, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   useDictionaryManager,
   type DictionaryManagerClient,
 } from "../../../../packages/ui/src/settings/use-dictionary-manager";
+
+afterEach(cleanup);
 
 test("Chinese word queries retain matching host rows and report an empty result", async () => {
   const entry = { kind: "pinyin" as const, key: "he'cheng", value: "合成", weight: 10 };
