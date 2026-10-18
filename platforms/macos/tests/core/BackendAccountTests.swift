@@ -131,34 +131,6 @@ private final class CloudPreferences: @unchecked Sendable {
     while model.busy && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
     try require(!model.busy)
   }
-  @MainActor static func fileTransfer() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let source = directory.appendingPathComponent("backup.ndjson")
-    let destination = directory.appendingPathComponent("saved.ndjson")
-    let original = Data("existing backup".utf8), replacement = Data("new backup".utf8)
-    try replacement.write(to: source); try original.write(to: destination)
-    var authorizations = 0
-    var rejected = false
-    do {
-      try await MacCloudFileTransfer.save(source, to: destination) {
-        authorizations += 1
-        if authorizations == 2 { throw CancellationError() }
-      }
-    } catch is CancellationError { rejected = true }
-    try require(rejected && authorizations == 2)
-    try require(try Data(contentsOf: destination) == original)
-    try require(try Set(FileManager.default.contentsOfDirectory(atPath: directory.path)) == ["backup.ndjson", "saved.ndjson"])
-    // A missing download must not destroy an existing user backup either.
-    rejected = false
-    do { try await MacCloudFileTransfer.save(directory.appendingPathComponent("missing"), to: destination) {} }
-    catch { rejected = true }
-    try require(rejected && (try Data(contentsOf: destination)) == original)
-    try await MacCloudFileTransfer.save(source, to: destination) {}
-    try require(try Data(contentsOf: destination) == replacement)
-    try require(try Set(FileManager.default.contentsOfDirectory(atPath: directory.path)) == ["backup.ndjson", "saved.ndjson"])
-  }
   /// 「本机账号」卡片留在 Swift（负责人决定）：匿名账号的改名、注销走 Swift 的匿名会话，不经 Rust；登录账号仍以 Rust 的 `status` 为准；验证码登录成功后丢掉匿名会话。
   @MainActor static func anonymousAccountFallback() async throws {
     let configuration = URLSessionConfiguration.ephemeral
@@ -314,14 +286,6 @@ private final class CloudPreferences: @unchecked Sendable {
                 && info["marker"] as? UInt64 == 42)
     // An unchanged value is sent as "", an empty one stays, and a duplicate keeps its non-empty answer whichever comes first.
     try require(info["translations"] as? [String: String] == ["测试": "test", "东京": "", "空白": "", "你好": "hello"])
-  }
-  @MainActor static func snapshotHandleValidation() throws {
-    try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: 42)) == 42)
-    try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: 42.0)) == nil)
-    try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: 42.5)) == nil)
-    try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: -1)) == nil)
-    try require(MacPreparedLocalSnapshot.strictHandle(true) == nil)
-    try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: UInt64.max)) == UInt64.max)
   }
   /// 云剪贴板窗口经 Rust（#8201 迁移计划 4c）：每个按钮发出的 action 和设备名，开着时才多读一次设备状态，操作自己带回设备状态时不再读，等待批准时留着草稿，打开窗口的账号不在了就丢掉结果。
   @MainActor static func rustClipboardModel() async throws {
@@ -696,9 +660,7 @@ private final class CloudPreferences: @unchecked Sendable {
     defer { if let transfer = try? MacCloudTransferDirectory.url() { try? FileManager.default.removeItem(at: transfer) } }
     try windowAccountIsolation()
     try candidateGlossPayload()
-    try snapshotHandleValidation()
     try await candidateGlossSingleFlight()
-    try await fileTransfer()
     try await anonymousAccountFallback()
     try await rustAccountModel()
     try await rustClipboardModel()

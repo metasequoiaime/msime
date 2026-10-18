@@ -40,6 +40,8 @@ macOS 与鸿蒙不同：Swift 的 `BackendAccountSession`、Tauri 设置应用�
 - **收益**：macOS 的登录会话只由 Rust 刷新和改写（共享界面的三页见下），「我的设备」显示 macOS 和机型，注销需要最近登录时有明确提示，锁屏或权限问题读不了会话时不再被当作已退出。
 - **代价**：账号页的测试改用替身函数表（`platforms/macos/tests/core/FakeRustTable.swift`）断言发出的 action，Rust 自己的行为由 host-api 和 client-services 的测试覆盖；匿名账号仍有一份 Swift 实现。
 - **行为变化**：释义在只有匿名账号可用、而匿名会话失效时，10 分钟内只补注册一次，原来每一页都会注册；单条释义不合格时只那一条没有，不再整页作废；设置同步的冲突是「云端内容已被其他设备更新」。云剪贴板窗口在同一个账号重新登录后不再作废；导出和备份写到用户选的位置之前先整份校验，原有文件在失败时不动；「应用到本机」没能马上应用时留在队列里，不再当场失败。
+- **删掉的**（4g 的 macOS 部分）：macOS 自己的端到端加密驱动接线（`MacCloudClipboardDriver.e2e`，只剩设备名）、导出和备份的 Swift 文件替换（`MacCloudFileTransfer`）、宿主自己准备和激活快照的 `MacPreparedLocalSnapshot`（`BackendLocalSnapshot.swift` 改名 `BackendLocalDictionary.swift`，只剩 HostOptions 和叫醒输入会话），以及两个 provider 的 Swift API 协议。`shared/backend` 里这些页面原来用的 Swift 客户端仍是 iOS 的，留到 iOS 那一组；`shared/apple/MSIMEClientSession` 的 `prepareSnapshot:` 等选择器 Swift 已不再调用，`snapshot-activation-test` 仍覆盖，没有删。
+- **还没删的、待负责人同意**：`src/cloud/` 里没人引用的 Objective-C 云剪贴板、云词库客户端和窗口（`CloudClipboardClient`、`CloudClipboardWindowController`、`CloudDictionaryClient`、`CloudURLSession`、`CloudFileTransfer`）和 `src/core/Account*`，计划第 4g 步写明单独一个提交、等负责人同意。
 - **还没切的**：`shared/backend-ui` 里 macOS 与 iOS 共用的三页（社区词包与回复模板、完整词库目录、云端候选与排序）仍用 Swift 的 `BackendAccountSession.shared`，与 Rust 共用 `account-refresh.lock`，随 iOS 那一组一起换成 Rust 的 `community` 和 `cloud_dictionary`。
 
 ## Verification

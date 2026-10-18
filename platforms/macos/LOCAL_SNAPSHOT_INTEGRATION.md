@@ -6,7 +6,7 @@
 
 账号窗口的「云词库同步与备份」（`BackendSnapshotView.swift`）经 Rust 的快照队列（#8201）：`downloadForLocal` 带本机的 HostOptions（`MSIMEClientSession.activeHostOptions`）调 `msime_client_cloud_dictionary` 的 `snapshot_preview`，`applyLocal` 调 `snapshot_enqueue`。Rust 入列后马上写词库维护租约、等输入会话放开词库，在本进程里准备并激活新的一代。Rust 只写租约、不发通知，而没有获得焦点的输入框时 `InputController.mm` 每秒检查租约的计时器不跑，所以请求进行期间宿主每 250 毫秒在本进程里发一次 `MSIMEDictionaryMaintenanceWillBeginNotification`，叫醒握着词库的输入会话去检查租约；放不开时请求留在 `<状态目录>/dictionary-snapshots` 的队列里，窗口开着时每两秒问一次 `snapshot_status`，关掉窗口也不丢，下一次有面板问状态时接着处理。
 
-Tauri 面板的「应用到本机」（`BackendDesktopSnapshots.swift`）走同一条路：`snapshot_status`、`snapshot_preview`、`snapshot_enqueue` 带同一份 HostOptions，面板每两秒问一次状态时 Rust 接着处理排队中的请求（最多每 60 秒一次），这期间同样叫醒本进程的输入会话。HostOptions 和叫醒都在 `BackendLocalSnapshot.swift` 的 `MacLocalDictionary` 里，它按名字动态查找共享的 `MSIMEClientSession`（`activeHostOptions`）。
+Tauri 面板的「应用到本机」（`BackendDesktopSnapshots.swift`）走同一条路：`snapshot_status`、`snapshot_preview`、`snapshot_enqueue` 带同一份 HostOptions，面板每两秒问一次状态时 Rust 接着处理排队中的请求（最多每 60 秒一次），这期间同样叫醒本进程的输入会话。HostOptions 和叫醒都在 `BackendLocalDictionary.swift` 的 `MacLocalDictionary` 里，它按名字动态查找共享的 `MSIMEClientSession`（`activeHostOptions`）。
 
 `shared/apple/MSIMEClientSession.{h,mm}` 的 `snapshotVersion:`、`prepareSnapshot:`、`applySnapshot:`、`discardSnapshot:` 和 `snapshotActivationReady` 是宿主自己准备、激活一份快照的选择器（macOS 的 Swift 后端已不再调用，`snapshot-activation-test` 仍覆盖），它们转成 `crates/host-api/include/msime_client.h` 里的 C ABI：`msime_client_snapshot_version`、`msime_client_snapshot_inspect`、`msime_client_snapshot_prepare`、`msime_client_snapshot_discard`、`msime_client_snapshot_activate`、`msime_client_snapshot_restore` 和 `msime_client_snapshot_queue`。记录流由宿主以 `msime_client_snapshot_next` 回调逐条同步喂进去：正数表示一条 UTF-8 JSON 的长度，0 只在校验过的 EOF 处返回，负数表示取消或损坏，回调本身不得抛出或栈展开。
 

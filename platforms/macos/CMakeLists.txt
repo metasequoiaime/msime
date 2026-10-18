@@ -375,9 +375,8 @@ set(MSIME_BACKEND_RUST_ACCOUNT_SOURCES
   ../../shared/backend/storage/BackendLocalStore.swift ../../shared/backend/storage/BackendBoundedFileReader.swift
   tests/core/FakeRustTable.swift)
 set(MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES ${MSIME_BACKEND_RUST_ACCOUNT_SOURCES}
-  ../../shared/backend/content/BackendDictionaryClient.swift ../../shared/backend/clients/BackendCandidateClient.swift
-  ../../shared/backend/clients/BackendSnapshotClient.swift src/backend/core/BackendEdition.swift src/backend/dictionary/BackendCloudDictionaryProvider.swift
-  src/backend/dictionary/BackendLocalSnapshot.swift src/backend/dictionary/BackendFileTransfer.swift src/backend/dictionary/BackendDesktopSnapshots.swift
+  src/backend/core/BackendEdition.swift src/backend/dictionary/BackendCloudDictionaryProvider.swift
+  src/backend/dictionary/BackendLocalDictionary.swift src/backend/dictionary/BackendFileTransfer.swift src/backend/dictionary/BackendDesktopSnapshots.swift
   tests/dictionary/DesktopCloudDictionaryProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-dictionary-provider-test"
@@ -400,7 +399,7 @@ add_custom_target(secure-file-reader-test-build ALL DEPENDS "${CMAKE_CURRENT_BIN
 add_test(NAME secure-file-reader COMMAND "${CMAKE_CURRENT_BINARY_DIR}/secure-file-reader-test")
 set_tests_properties(secure-file-reader PROPERTIES TIMEOUT 30)
 set(MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES ${MSIME_BACKEND_RUST_ACCOUNT_SOURCES}
-  ../../shared/backend/clients/BackendClipboardClient.swift src/backend/clipboard/BackendCloudClipboardProvider.swift
+  src/backend/clipboard/BackendCloudClipboardProvider.swift
   src/backend/clipboard/BackendCloudClipboardDriver.swift tests/clipboard/DesktopCloudClipboardProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
