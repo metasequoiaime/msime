@@ -10,6 +10,7 @@ import {
   render,
   renderHook,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import {
@@ -137,6 +138,11 @@ function communityClient(installed: () => void): CandidateSkinCommunityClient {
 test("installing from the community gallery lists the skin on 我的皮肤 without a manual refresh", async () => {
   let directory = catalog([]);
   const scan = vi.fn(async () => directory);
+  const detail = deferred<CommunityCandidateSkin>();
+  const community = communityClient(() => {
+    directory = catalog(["ink-wash"]);
+  });
+  community.detail = vi.fn(() => detail.promise);
   render(
     <SettingsPage
       initialPage="skin"
@@ -145,9 +151,7 @@ test("installing from the community gallery lists the skin on 我的皮肤 witho
         save: vi.fn(),
         host: testHost({ platform: "windows" }),
         scanSkinCatalog: scan,
-        communityCandidateSkins: communityClient(() => {
-          directory = catalog(["ink-wash"]);
-        }),
+        communityCandidateSkins: community,
       }}
     />,
   );
@@ -156,12 +160,17 @@ test("installing from the community gallery lists the skin on 我的皮肤 witho
   fireEvent.click(within(tabs).getByRole("tab", { name: "社区皮肤" }));
   fireEvent.click(await screen.findByRole("button", { name: "查看候选窗口皮肤 水墨" }));
   await screen.findByRole("heading", { name: "水墨" });
+  const install = screen.getByRole<HTMLButtonElement>("button", { name: "一键安装" });
+  expect(install.disabled).toBe(true);
+  fireEvent.click(install);
+  expect(community.install).not.toHaveBeenCalled();
+  await act(async () => detail.resolve(communitySkin));
+  await waitFor(() => expect(install.disabled).toBe(false));
   const scansBeforeInstall = scan.mock.calls.length;
-  fireEvent.click(screen.getByRole("button", { name: "一键安装" }));
+  fireEvent.click(install);
   expect(await screen.findByText("已安装到外部皮肤。")).toBeTruthy();
-  await settle();
   // 安装前图库查一次是否会覆盖同名皮肤；装入后的通知让隐藏着的主题页再扫一次。
-  expect(scan.mock.calls.length).toBe(scansBeforeInstall + 2);
+  await waitFor(() => expect(scan.mock.calls.length).toBe(scansBeforeInstall + 2));
   fireEvent.click(within(tabs).getByRole("tab", { name: "我的皮肤" }));
   expect(await screen.findByRole("article", { name: "本地 ink-wash" })).toBeTruthy();
   expect(screen.queryByText("没有发现外部皮肤。")).toBeNull();
