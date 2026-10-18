@@ -1912,6 +1912,8 @@ export {
 
 export { useVoicePanel, type VoicePanelState } from "./keyboard/use-voice-panel";
 
+export { useHandwritingPanel, type HandwritingPanelState } from "./keyboard/use-handwriting-panel";
+
 export {
   useCloudClipboardPanel,
   type CloudClipboardPanelState,
