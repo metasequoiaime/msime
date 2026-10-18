@@ -88,6 +88,11 @@ struct BackendRustAccount: Sendable {
     return try await client.call(.accountCloudClipboard, request)
   }
 
+  /// `msime_client_community` 的一个 action（键盘皮肤、词包与回复模板、举报）。键盘皮肤的下载和举报没有登录时 Rust 用本机匿名账号。
+  func community(_ action: [String: Any]) async throws -> Data {
+    try await client.call(.community, ["session_store": store, "action": action])
+  }
+
   /// `msime_client_cloud_dictionary` 的一个 action。`snapshotDirectory` 是本进程私有的中转目录（`snapshot_*` 和 `export_file` 必需，两个同时运行的进程不能共用一个），`options` 是本机的 HostOptions 文档（`snapshot_preview`、`snapshot_enqueue`、`snapshot_status`、`snapshot_cancel` 必需）。
   func cloudDictionary(_ action: [String: Any], snapshotDirectory: URL? = nil, options: [String: Any]? = nil) async throws -> Data {
     var request: [String: Any] = ["session_store": store, "action": action]
@@ -102,7 +107,50 @@ struct BackendRustAccount: Sendable {
     return try Self.optionalUser(object["user"])
   }
 
+  /// 服务端开着的登录方式（`providers`），值不是布尔的项丢掉。
+  func providers() async throws -> [String: Bool] {
+    try Self.object(try await account(["operation": "providers"])).compactMapValues { value in
+      guard let flag = value as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() else { return nil }
+      return flag.boolValue
+    }
+  }
+
   // MARK: - 解码
+
+  /// 登录用的挑战：`request_code` 的回答只有前两项，`apple_challenge` 和 `google_challenge` 还带 nonce。属性名沿用 Swift 页面一直用的服务端写法。
+  struct Challenge: Sendable, Equatable {
+    let challenge_id: String
+    let expires_in: Int
+    var nonce: String? = nil
+  }
+
+  /// `{challengeId, expiresIn, nonce?}`；缺字段或类型不对时是 `rust_client_invalid_response`。
+  static func challenge(_ data: Data) throws -> Challenge {
+    let object = try object(data)
+    guard let id = object["challengeId"] as? String, !id.isEmpty,
+          let expires = object["expiresIn"] as? NSNumber, CFGetTypeID(expires) != CFBooleanGetTypeID(), expires.intValue > 0
+    else { throw BackendRustClient.Failure.invalidResponse }
+    let nonce = object["nonce"]
+    if nonce != nil, !(nonce is String) { throw BackendRustClient.Failure.invalidResponse }
+    return Challenge(challenge_id: id, expires_in: expires.intValue, nonce: nonce as? String)
+  }
+
+  /// 资料页（`profile`、`rename` 的回答 `{user, providers}`）：providers 是已绑定的登录方式，去过重。
+  struct Profile: Sendable {
+    let user: BackendAccountClient.User
+    let providers: [String]
+  }
+
+  static func profile(_ data: Data) throws -> Profile {
+    let object = try object(data)
+    guard let providers = object["providers"] as? [String] else { throw BackendRustClient.Failure.invalidResponse }
+    return Profile(user: try user(object["user"]), providers: providers)
+  }
+
+  /// 登录类操作的回答 `{user}` 里的账号。
+  static func signedInUser(_ data: Data) throws -> BackendAccountClient.User {
+    try user(try object(data)["user"])
+  }
 
   /// 回答里的 JSON 对象；不是对象时是 `rust_client_invalid_response`。
   static func object(_ data: Data) throws -> [String: Any] {

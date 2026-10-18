@@ -55,15 +55,15 @@ struct AccountProfileEditor: View {
     profile?.user.preferredDisplayName ?? initialUser?.preferredDisplayName ?? "水杉用户"
   }
 
-  /// 邮箱登录身份的地址。只显示看起来像地址的 subject；其他登录方式的 subject 是不透明的 id。
+  /// 账号的邮箱。Rust 的资料只带 Google 身份的验证邮箱，邮箱登录的地址不在里面；只显示看起来像地址的值。
   private var email: String? {
-    profile?.identities.first { $0.provider == "email" && Self.looksLikeEmail($0.subject) }?.subject
+    profile?.user.email.flatMap { Self.looksLikeEmail($0) ? $0 : nil }
   }
 
-  /// 已关联的登录方式，按后端列出的顺序，每种只出现一次。
+  /// 已关联的登录方式，按 Rust 列出的顺序，每种只出现一次。
   private var providers: [String] {
     var seen = Set<String>()
-    return (profile?.identities ?? []).map(\.provider).filter { seen.insert($0).inserted }
+    return (profile?.providers ?? []).filter { seen.insert($0).inserted }
   }
 
   private static func looksLikeEmail(_ value: String) -> Bool {
@@ -242,11 +242,21 @@ struct AccountProfileEditor: View {
     .accessibilityIdentifier("accountProfileError")
   }
 
-  /// 四个动作都以「这台设备不再登录」收尾,所以走同一条路:调用、回调父视图、退回上一页。失败时留在原地把原因说出来。
+  /// 四个动作都以「这台设备不再登录」收尾,所以走同一条路:调用、回调父视图、退回上一页。失败时留在原地把原因说出来；只有本机已经退出（Rust 退出时先清本机会话，断网时服务端没撤销成）时照样退回，再用一条提示说明原因。
   private func perform(_ action: @escaping () async throws -> Void) {
     ViewRequestTask.run(request: $request, busy: $busy, message: $actionMessage,
                         pending: $operation, isCancellation: AccountRequestPolicy.isCancellation) { id in
-      try await action()
+      do {
+        try await action()
+      } catch {
+        guard !AccountRequestPolicy.isCancellation(error),
+              (try? await SkinCommunityAPI.shared.currentUser()) == .some(nil) else { throw error }
+        try request.checkCurrent(id)
+        onSignedOut()
+        dismiss()
+        ToastCenter.shared.show("已在本机退出。" + error.localizedDescription)
+        return
+      }
       try request.checkCurrent(id)
       onSignedOut()
       dismiss()

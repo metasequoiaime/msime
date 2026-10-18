@@ -295,58 +295,6 @@ final class SkinCommunityTests: XCTestCase {
     try await assertAnonymousOperationStopsAfterReplacement(download: false, rejectOld: false)
   }
 
-  func testAccountMutationDoesNotRetryAsReplacementAccount() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [AccountSwitchProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let old = BackendAccountClient.Tokens(access_token: AccountSwitchProtocol.oldToken,
-      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
-      user: .init(id: "synthetic-old-user", display_name: "旧账号", created_at: "2026-09-08"))
-    let replacement = BackendAccountClient.Tokens(access_token: AccountSwitchProtocol.newToken,
-      refresh_token: String(repeating: "e", count: 64), token_type: "Bearer", expires_in: 900,
-      user: .init(id: "synthetic-new-user", display_name: "新账号", created_at: "2026-09-08"))
-    let replacementSession = try BackendSavedSession.forTokens(replacement)
-    for deleting in [false, true] {
-      let storage = CommunityMemoryCredentials()
-      try storage.save(BackendSavedSession.forTokens(old))
-      AccountSwitchProtocol.reset(onRejection: { try? storage.save(replacementSession) })
-      let api = SkinCommunityAPI(client: client, account: switchingCommunitySession(client, storage))
-
-      do {
-        if deleting { try await api.logout(deleteAccount: true) }
-        else { _ = try await api.updateProfile(name: "合成昵称") }
-        XCTFail("old account mutation must stop after the account changes")
-      } catch is CancellationError { }
-      catch { XCTFail("expected cancellation, got \(error)") }
-      XCTAssertEqual(AccountSwitchProtocol.authorizations, ["Bearer \(AccountSwitchProtocol.oldToken)"])
-      XCTAssertEqual(try storage.load()?.tokens.user.id, "synthetic-new-user")
-    }
-  }
-
-  func testSuccessfulDeleteDoesNotForgetReplacementAccount() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [AccountSwitchProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let storage = CommunityMemoryCredentials()
-    let old = BackendAccountClient.Tokens(access_token: AccountSwitchProtocol.oldToken,
-      refresh_token: String(repeating: "d", count: 64), token_type: "Bearer", expires_in: 900,
-      user: .init(id: "synthetic-old-user", display_name: "旧账号", created_at: "2026-09-08"))
-    let replacement = BackendAccountClient.Tokens(access_token: AccountSwitchProtocol.newToken,
-      refresh_token: String(repeating: "e", count: 64), token_type: "Bearer", expires_in: 900,
-      user: .init(id: "synthetic-new-user", display_name: "新账号", created_at: "2026-09-08"))
-    try storage.save(BackendSavedSession.forTokens(old))
-    let replacementSession = try BackendSavedSession.forTokens(replacement)
-    AccountSwitchProtocol.reset(rejectOld: false, onRejection: { try? storage.save(replacementSession) })
-    let api = SkinCommunityAPI(client: client, account: switchingCommunitySession(client, storage))
-
-    do {
-      try await api.logout(deleteAccount: true)
-      XCTFail("successful old-account deletion must not forget the replacement account")
-    } catch is CancellationError { }
-    XCTAssertEqual(AccountSwitchProtocol.authorizations, ["Bearer \(AccountSwitchProtocol.oldToken)"])
-    XCTAssertEqual(try storage.load()?.tokens.user.id, "synthetic-new-user")
-  }
-
   func testCommunityWireFormatAndErrors() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [CommunityFixtureProtocol.self]
@@ -357,32 +305,8 @@ final class SkinCommunityTests: XCTestCase {
     XCTAssertEqual(page.skins.first?.rating_average, 4)
     XCTAssertNil(page.skins.first?.design.photo)
     XCTAssertFalse(page.has_more)
-    let challenge = try await api.challenge()
-    XCTAssertEqual(challenge.nonce, "server-nonce")
     do { _ = try await api.list(offset: 20); XCTFail("expected limit error") }
     catch { XCTAssertEqual(error.localizedDescription, "操作较频繁，请稍后重试。") }
-  }
-  func testLoginConcurrentRefreshAndEmptyLogoutResponse() async throws {
-    let memory = CommunityMemoryCredentials()
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [CommunityFixtureProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory))
-    try await api.login(challenge: "fixture", identityToken: "synthetic")
-    let signedIn = try await api.signedIn()
-    XCTAssertTrue(signedIn)
-    let profile = try await api.currentUser()
-    XCTAssertEqual(profile?.display_name, "测试")
-    try await withThrowingTaskGroup(of: Void.self) { group in
-      for _ in 0..<8 { group.addTask { _ = try await api.list() } }
-      try await group.waitForAll()
-    }
-    XCTAssertEqual(try memory.load()?.tokens.access_token, String(repeating: "b", count: 64))
-    try await api.logout()
-    let signedOut = try await api.signedIn()
-    XCTAssertFalse(signedOut)
-    let profileAfterLogout = try await api.currentUser()
-    XCTAssertNil(profileAfterLogout)
   }
   func testNativeLoginCancelsOnlyThePreviousAccountBeforeSavingNewSession() async throws {
     let memory = CommunityMemoryCredentials()
@@ -427,59 +351,6 @@ final class SkinCommunityTests: XCTestCase {
     XCTAssertEqual(recorder.events.first?.stored, "previous-user")
   }
 
-  func testFailedSnapshotCancelDoesNotBlockSignOutDeletionOrExpiredClear() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [CommunityFixtureProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let operations: [(String, @Sendable (SkinCommunityAPI) async throws -> Void)] = [
-      ("logout", { try await $0.logout() }),
-      ("logout_all", { try await $0.logout(all: true) }),
-      ("delete_account", { try await $0.logout(deleteAccount: true) }),
-      ("clear_expired_login", { try await $0.clearExpiredLogin() }),
-    ]
-    for (name, operation) in operations {
-      let memory = CommunityMemoryCredentials()
-      let recorder = AccountReplacementRecorder()
-      let api = SkinCommunityAPI(client: client, account: communitySession(client, memory), cancelSnapshot: {
-        recorder.record($0, storage: memory)
-        throw DictionarySnapshotQueue.Failure.busy
-      })
-      try await api.login(challenge: "fixture", identityToken: "synthetic")
-      XCTAssertTrue(recorder.events.isEmpty, name)
-
-      try await operation(api)
-
-      XCTAssertNil(try memory.load(), "\(name) 在取消快照失败后仍须清除本地会话")
-      XCTAssertEqual(recorder.events.count, 1, name)
-      XCTAssertEqual(recorder.events.first?.old, "fixture-user", name)
-      XCTAssertEqual(recorder.events.first?.stored, "fixture-user", "\(name) 应在清除会话前取消快照")
-    }
-  }
-  func testFailedSnapshotCancelKeepsPreviousAccountWhenSwitching() async throws {
-    let memory = CommunityMemoryCredentials()
-    let oldTokens = BackendAccountClient.Tokens(
-      access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "f", count: 64),
-      token_type: "Bearer", expires_in: 900,
-      user: .init(id: "previous-user", display_name: "Previous", created_at: "2026-01-01T00:00:00Z"))
-    try memory.save(BackendSavedSession.forTokens(oldTokens))
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [CommunityFixtureProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let recorder = AccountReplacementRecorder()
-    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory), cancelSnapshot: {
-      recorder.record($0, storage: memory)
-      throw DictionarySnapshotQueue.Failure.busy
-    })
-
-    do {
-      try await api.login(challenge: "fixture", identityToken: "synthetic")
-      XCTFail("取消旧账号快照失败时不得切换账号")
-    } catch DictionarySnapshotQueue.Failure.busy { }
-
-    XCTAssertEqual(try memory.load()?.tokens.user.id, "previous-user")
-    XCTAssertEqual(recorder.events.map { $0.old }, ["previous-user"])
-  }
-
   func testDelayedNativeForgetKeepsAnotherSessionsNewLoginAndSnapshot() async throws {
     let memory = CommunityMemoryCredentials()
     let oldTokens = BackendAccountClient.Tokens(
@@ -508,36 +379,15 @@ final class SkinCommunityTests: XCTestCase {
     XCTAssertEqual(try memory.load()?.tokens.user.id, "fixture-user")
     XCTAssertTrue(recorder.events.isEmpty)
   }
-  func testProfileFetchUpdateAndValidation() async throws {
-    let memory = CommunityMemoryCredentials()
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [CommunityFixtureProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory))
-    try await api.login(challenge: "fixture", identityToken: "synthetic")
-    for invalid in ["  ", String(repeating: "字", count: 65), "名字\n换行"] {
-      do { _ = try await api.updateProfile(name: invalid); XCTFail("invalid name accepted") }
-      catch { XCTAssertTrue(error.localizedDescription.contains("1–64")) }
-    }
-    XCTAssertEqual(try memory.load()?.tokens.user.display_name, "测试")
-    let profile = try await api.updateProfile(name: " 新昵称 ")
-    XCTAssertEqual(profile.user.display_name, "新昵称")
-    XCTAssertEqual(profile.identities.first?.provider, "apple")
-    XCTAssertEqual(profile.user.created_at, "2026-09-08T00:00:00Z")
-    XCTAssertEqual(try memory.load()?.tokens.user.display_name, "新昵称")
-    try await api.logout()
-    do { _ = try await api.profile(); XCTFail("signed-out profile must require authentication") }
-    catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 401) }
-  }
-
   func testSignedInReportRefreshesRejectedToken() async throws {
     RetryReportProtocol.reset()
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [RetryReportProtocol.self]
     let client = BackendAccountClient(configuration: configuration)
     let memory = CommunityMemoryCredentials()
-    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory))
-    try await api.login(challenge: "fixture", identityToken: "synthetic")
+    let session = communitySession(client, memory)
+    try await session.signIn(challenge: "fixture", credential: "synthetic")
+    let api = SkinCommunityAPI(client: client, account: session)
 
     try await api.report(kind: "skins", itemID: RetryReportProtocol.skinID.uuidString,
                          reason: "其他", detail: "合成说明")
@@ -553,7 +403,9 @@ final class SkinCommunityTests: XCTestCase {
     let client = BackendAccountClient(configuration: configuration)
     let anonymous = communitySession(client, CommunityMemoryCredentials())
     try await anonymous.signIn(challenge: "fixture", credential: "synthetic")
-    let api = SkinCommunityAPI(client: client, account: communitySession(client, CommunityMemoryCredentials()), anonymous: anonymous)
+    FakeRust.replies([:], signedIn: nil)
+    let api = SkinCommunityAPI(client: client, account: communitySession(client, CommunityMemoryCredentials()), anonymous: anonymous,
+                               rust: { FakeRust.account })
     let signedIn = try await api.signedIn()
     XCTAssertFalse(signedIn)
 
@@ -799,7 +651,8 @@ extension SkinCommunityTests {
     configuration.protocolClasses = [InvalidCommunityMutationProtocol.self]
     let client = BackendAccountClient(configuration: configuration)
     let memory = CommunityMemoryCredentials()
-    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory))
+    let session = communitySession(client, memory)
+    let api = SkinCommunityAPI(client: client, account: session)
     do {
       _ = try await api.resources(.dictionary)
       XCTFail("expected unknown dictionary word kind rejection")
@@ -807,7 +660,7 @@ extension SkinCommunityTests {
       XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
     }
 
-    try await api.login(challenge: "fixture", identityToken: "synthetic")
+    try await session.signIn(challenge: "fixture", credential: "synthetic")
     let id = "10000000-0000-4000-8000-000000000001"
     let content = CommunityResourceContent(entries: [CommunityWord(PersonalWord(kind: .pinyin, key: "a", value: "啊", weight: 1))], prompt: nil)
     do {
@@ -1090,7 +943,8 @@ final class SkinCommunityCategoryTests: XCTestCase {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [CategoryRecordingProtocol.self]
     let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client, account: communitySession(client, CommunityMemoryCredentials()))
+    let session = communitySession(client, CommunityMemoryCredentials())
+    let api = SkinCommunityAPI(client: client, account: session)
     let id = CategoryRecordingProtocol.skinID
 
     let all = try await api.list(search: "纸感")
@@ -1098,7 +952,7 @@ final class SkinCommunityCategoryTests: XCTestCase {
     _ = try await api.list(offset: 20, search: "", category: .tech)
     let detail = try await api.detail(id)
     XCTAssertEqual(detail.category, .food)
-    try await api.login(challenge: "fixture", identityToken: "synthetic")
+    try await session.signIn(challenge: "fixture", credential: "synthetic")
     try await api.publish(id: id, name: "测试", description: "", design: CustomKeyboardSkin(), category: .cute)
     try await api.publish(id: id, name: "测试", description: "", design: CustomKeyboardSkin())
     let changed = try await api.setCategory(id, category: .minimal)

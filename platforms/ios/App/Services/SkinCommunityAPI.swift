@@ -55,7 +55,7 @@ enum CommunitySkinCategorySelectionPolicy {
 struct CommunityPage: Decodable, Sendable { let skins: [CommunitySkin]; let has_more: Bool }
 struct CommunityChallenge: Decodable, Sendable { let challenge_id: String; let nonce: String }
 typealias CommunityUser = BackendAccountClient.User
-typealias CommunityProfile = BackendAccountClient.Profile
+typealias CommunityProfile = BackendRustAccount.Profile
 struct CommunityFailure: LocalizedError {
   let message: String
   var errorDescription: String? { message }
@@ -123,16 +123,21 @@ actor SkinCommunityAPI {
   private let anonymous: BackendAccountSession
   /// 按账号取消键盘待处理的词库快照，默认操作 App Group 里的共享队列；测试传入可观察或会失败的实现。
   private let cancelSnapshot: @Sendable (String) throws -> Void
+  /// 登录、退出、改资料和注销经 Rust（#8201 迁移计划 4b），令牌不出 Rust；默认是 App 启动时注册的那一份，测试传入替身函数表上的账号。
+  private let rust: @Sendable () throws -> BackendRustAccount
   init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
        anonymous: BackendAccountSession = BackendAnonymousAccount.session,
+       rust: @escaping @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() },
        cancelSnapshot: @escaping @Sendable (String) throws -> Void = {
          try DictionarySnapshotQueue().cancelIfPresent(accountID: $0)
        }) {
     self.client = client; self.account = account; self.anonymous = anonymous
+    self.rust = rust
     self.cancelSnapshot = cancelSnapshot
   }
-  func currentUser() async throws -> CommunityUser? { try await account.user() }
-  func signedIn() async throws -> Bool { try await account.user() != nil }
+  /// 登录的账号（Rust 的 `status`，只读存储、不联网）；读不了登录状态时抛 `account_storage`，不当作没登录。
+  func currentUser() async throws -> CommunityUser? { try await rust().status() }
+  func signedIn() async throws -> Bool { try await currentUser() != nil }
   private func request<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil, authenticated: Bool = false, maximumResponseBytes: Int = 1024 * 1024) async throws -> T {
     // Reading the session throws the same type a request does, so it has to sit inside the same
     // conversion. Outside it, an unreadable keychain surfaced BackendAccountClient's status-0
@@ -212,60 +217,63 @@ actor SkinCommunityAPI {
     return result.value
   }
 
+  /// Apple 原生登录的挑战（`apple_challenge`）：nonce 放进 `ASAuthorizationAppleIDRequest`，challenge id 放进 state。
   func challenge() async throws -> CommunityChallenge {
-    let value = try await client.challenge(provider: "apple")
-    guard let nonce = value.nonce else { throw CommunityFailure(message: "Apple 登录暂不可用，请稍后重试。") }
+    let value = try BackendRustAccount.challenge(try await rust().account(["operation": "apple_challenge"]))
+    guard let nonce = value.nonce, !nonce.isEmpty else { throw CommunityFailure(message: "Apple 登录暂不可用，请稍后重试。") }
     return CommunityChallenge(challenge_id: value.challenge_id, nonce: nonce)
   }
+  /// 用 Apple 的 identity token 登录（`apple_login`）。登录换了账号时取消上一个账号排队中的词库快照：Rust 的登录没有「发布新身份之前」的清理钩子，由这里在登录以后补上。
   func login(challenge: String, identityToken: String) async throws {
-    try await account.signIn(challenge: challenge, credential: identityToken, replacingAccount: cancelSnapshot)
+    _ = try await Self.signIn(rust(), cancelSnapshot: cancelSnapshot) { account in
+      try await account.account(["operation": "apple_login", "challenge_id": challenge, "identity_token": identityToken])
+    }
+  }
+  /// 经 Rust 登录（验证码、Apple、Google 都走这里），返回登录后的账号。登录之前读一次 `status` 记下原来的账号，登录成功而账号不同时取消原来那个账号排队中的词库快照；取消失败只记诊断，不让已经成功的登录报错。原来的账号读不了时（钥匙串锁着）不知道该取消谁，不取消。
+  static func signIn(_ account: BackendRustAccount, cancelSnapshot: @escaping @Sendable (String) throws -> Void,
+                     _ login: (BackendRustAccount) async throws -> Data) async throws -> CommunityUser {
+    let previous = try? await account.status()?.id
+    let user = try BackendRustAccount.signedInUser(try await login(account))
+    if let previous, previous != user.id { Self.removedAccountCleanup("login", cancel: cancelSnapshot)(previous) }
+    return user
   }
   func profile() async throws -> CommunityProfile {
-    let identity = try await account.credentials()
-    let result = try await accountRequest(matchingUserID: identity.userID,
-                                          matchingSessionID: identity.sessionID) {
-      token in try await client.profile(token: token)
-    }
-    try await account.updateUser(result.value.user, matching: result.token,
-                                 matchingSessionID: identity.sessionID)
-    let profile = result.value
-    return profile
+    try BackendRustAccount.profile(try await rust().account(["operation": "profile"]))
   }
   func updateProfile(name: String) async throws -> CommunityProfile {
     let name = CommunityProfilePolicy.normalizedName(name)
     guard CommunityProfilePolicy.validName(name) else {
       throw CommunityFailure(message: "昵称需为 1–64 个字符，不能包含换行或控制字符。")
     }
-    let identity = try await account.credentials()
-    _ = try await accountRequest(matchingUserID: identity.userID, matchingSessionID: identity.sessionID) {
-      token in try await client.rename(name, token: token)
-    }
-    let result = try await accountRequest(matchingUserID: identity.userID,
-                                          matchingSessionID: identity.sessionID) {
-      token in try await client.profile(token: token)
-    }
-    try await account.updateUser(result.value.user, matching: result.token,
-                                 matchingSessionID: identity.sessionID)
-    return result.value
+    return try BackendRustAccount.profile(try await rust().account(["operation": "rename", "display_name": name]))
   }
+  /// 退出（`logout`，`all` 为 true 时退出所有设备）或注销（`account_delete`）。Rust 退出时总是先清掉本机会话再请服务端撤销，所以断网时本机已经退出、这里仍然抛出那次失败；注销需要最近登录时是 `account_recent_login_required`，本机登录留着。本机会话清掉以后取消原来那个账号排队中的词库快照。
   func logout(deleteAccount: Bool = false, all: Bool = false) async throws {
-    if deleteAccount {
-      let identity = try await account.credentials()
-      _ = try await accountRequest(matchingUserID: identity.userID, matchingSessionID: identity.sessionID) {
-        token in try await client.deleteAccount(token: token)
-      }
-      try await account.forget(matchingUserID: identity.userID, matchingSessionID: identity.sessionID,
-                               removingAccount: removedAccountCleanup("delete_account"))
-    } else {
-      try await account.logout(all: all, removingAccount: removedAccountCleanup("logout"))
+    let account = try rust()
+    let previous = try? await account.status()?.id
+    let cancel = cancelSnapshot
+    let cleanup = {
+      if let previous { Self.removedAccountCleanup(deleteAccount ? "delete_account" : "logout", cancel: cancel)(previous) }
     }
+    let action: [String: Any] = deleteAccount ? ["operation": "account_delete"] : ["operation": "logout", "all": all]
+    do {
+      _ = try await account.account(action)
+    } catch {
+      // 退出时断网：本机会话已经清掉，快照照样取消。
+      if (try? await account.status()) == .some(nil) { cleanup() }
+      throw error
+    }
+    cleanup()
   }
+  /// 只清掉本机会话（`forget`），给读不出来或已经失效的登录。
   func clearExpiredLogin() async throws {
-    try await account.forget(removingAccount: removedAccountCleanup("clear_expired_login"))
+    let account = try rust()
+    let previous = try? await account.status()?.id
+    _ = try await account.account(["operation": "forget"])
+    if let previous { Self.removedAccountCleanup("clear_expired_login", cancel: cancelSnapshot)(previous) }
   }
   /// 退出登录、注销账号和清除失效登录时取消旧账号的快照。用户已决定离开、远端账号已删除或登录已失效，取消失败也不能让本地会话停在旧账号上，所以只记一条诊断再继续；诊断只含操作名和失败类别，不含账号、路径或错误原文。
-  private func removedAccountCleanup(_ operation: String) -> @Sendable (String) -> Void {
-    let cancel = cancelSnapshot
+  static func removedAccountCleanup(_ operation: String, cancel: @escaping @Sendable (String) throws -> Void) -> @Sendable (String) -> Void {
     return { accountID in
       do { try cancel(accountID) } catch {
         let reason = (error as? DictionarySnapshotQueue.Failure).map { "\($0)" } ?? "other"

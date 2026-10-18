@@ -41,13 +41,15 @@ struct AccountSettingsView: View {
 
   private var displayName: String { user?.preferredDisplayName ?? "水杉用户" }
 
-  /// 有邮箱身份时显示邮箱地址，否则显示账号的登录方式。资料到达之前只说明账号已登录。
+  /// 账号带着邮箱（Rust 只交出 Google 身份的验证邮箱）时显示邮箱地址，否则显示账号的登录方式。资料到达之前只说明账号已登录。
   private var signedInSubtitle: String {
     guard let profile else { return "已登录" }
-    if let email = profile.identities.first(where: { $0.provider == "email" })?.subject, !email.isEmpty { return email }
-    let providers = Set(profile.identities.map(\.provider))
+    if let email = profile.user.email, !email.isEmpty { return email }
+    let providers = Set(profile.providers)
+    if providers.contains("email") { return "通过邮箱登录" }
     if providers.contains("apple") { return "通过 Apple 登录" }
     if !providers.isDisjoint(with: ["phone", "sms"]) { return "通过手机号登录" }
+    if providers.contains("google") { return "通过 Google 登录" }
     return "已登录"
   }
 

@@ -136,7 +136,7 @@ struct AccountLoginOptions: View {
   @State private var emailExpanded = false
   @State private var email = ""
   @State private var code = ""
-  @State private var challenge: BackendAccountClient.Challenge?
+  @State private var challenge: BackendRustAccount.Challenge?
   @State private var sentTo = ""
   @State private var expiresAt = Date.distantPast
   @State private var resendAt = Date.distantPast
@@ -359,7 +359,7 @@ struct AccountLoginOptions: View {
     }
   }
 
-  private func signIn(_ challenge: BackendAccountClient.Challenge) {
+  private func signIn(_ challenge: BackendRustAccount.Challenge) {
     guard codeValid, !model.busy else { return }
     focus = nil
     pending = Task { await model.signInWithCode(challenge: challenge.challenge_id, code: code, channel: .email) }

@@ -25,7 +25,7 @@ enum GoogleSignInSupport {
   }
 }
 
-/// 登录弹窗共享的登录状态：后端提供哪些登录方式、待用的 Apple challenge、邮箱和手机号的验证码流程，以及刚完成的那次登录用的是哪种方式。
+/// 登录弹窗共享的登录状态：后端提供哪些登录方式、待用的 Apple challenge、邮箱和手机号的验证码流程，以及刚完成的那次登录用的是哪种方式。挑战和登录都经 Rust（#8201 迁移计划 4b），本机会话由 Rust 存进钥匙串。
 @MainActor
 final class CodeLoginModel: ObservableObject {
   @Published var user: BackendAccountClient.User?
@@ -39,10 +39,17 @@ final class CodeLoginModel: ObservableObject {
   @Published private(set) var signedInVia: String?
   @Published var busy = false
   @Published var message: String?
-  let client = BackendAccountClient()
-  let session = BackendAccountSession.shared
-  private let api = SkinCommunityAPI.shared
+  private let api: SkinCommunityAPI
+  private let rust: @Sendable () throws -> BackendRustAccount
+  /// 登录换了账号时取消上一个账号排队中的词库快照，见 `SkinCommunityAPI.signIn`。
+  private let cancelSnapshot: @Sendable (String) throws -> Void
   private var generation = OperationGeneration()
+
+  init(api: SkinCommunityAPI = .shared,
+       rust: @escaping @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() },
+       cancelSnapshot: @escaping @Sendable (String) throws -> Void = { try DictionarySnapshotQueue().cancelIfPresent(accountID: $0) }) {
+    self.api = api; self.rust = rust; self.cancelSnapshot = cancelSnapshot
+  }
 
   /// 让登录面板关闭时已经在路上的请求失效。网络客户端未必会及时响应 Task 的取消，
   /// 所以结果写回前还要用代次再挡一次。
@@ -57,7 +64,7 @@ final class CodeLoginModel: ObservableObject {
   func loadProviders() async {
     let id = generation.current()
     await perform { id in
-      let providers = try await self.client.providers()
+      let providers = try await self.rust().providers()
       try self.ensureCurrent(id)
       self.providers = providers
     }
@@ -94,11 +101,12 @@ final class CodeLoginModel: ObservableObject {
     }
   }
 
-  func requestCode(provider: String, target: String) async -> BackendAccountClient.Challenge? {
-    var response: BackendAccountClient.Challenge?
+  func requestCode(provider: String, target: String) async -> BackendRustAccount.Challenge? {
+    var response: BackendRustAccount.Challenge?
     await perform { id in
-      guard self.providers[provider] == true else { throw BackendAccountClient.Failure(status: 503) }
-      let result = try await self.client.challenge(provider: provider, target: target)
+      guard self.providers[provider] == true else { throw BackendRustClient.Failure(code: "account_unavailable") }
+      let result = try BackendRustAccount.challenge(try await self.rust().account([
+        "operation": "request_code", "provider": provider, "target": target]))
       try self.ensureCurrent(id)
       response = result
     }
@@ -107,14 +115,12 @@ final class CodeLoginModel: ObservableObject {
 
   func signInWithCode(challenge: String, code: String, channel: CodeLoginChannel) async {
     await perform { id in
-      try await self.session.signIn(challenge: challenge, credential: code, replacingAccount: { accountID in
-        try DictionarySnapshotQueue().cancelIfPresent(accountID: accountID)
-      })
-      try self.ensureCurrent(id)
-      let user = try await self.session.user()
+      let user = try await SkinCommunityAPI.signIn(try self.rust(), cancelSnapshot: self.cancelSnapshot) { account in
+        try await account.account(["operation": "login", "challenge_id": challenge, "code": code])
+      }
       try self.ensureCurrent(id)
       self.user = user
-      if self.user != nil { self.signedInVia = channel.via }
+      self.signedInVia = channel.via
     }
   }
 
@@ -154,7 +160,7 @@ final class CodeLoginModel: ObservableObject {
   func signInWithGoogle() async {
     #if canImport(GoogleSignIn)
     await perform { id in
-      let challenge = try await self.client.challenge(provider: "google")
+      let challenge = try BackendRustAccount.challenge(try await self.rust().account(["operation": "google_challenge"]))
       try self.ensureCurrent(id)
       guard let nonce = challenge.nonce, let presenter = Self.presenter() else {
         self.message = "现在无法开始 Google 登录，请稍后再试。"
@@ -168,14 +174,12 @@ final class CodeLoginModel: ObservableObject {
         self.message = "Google 登录未返回有效凭据，请重试。"
         return
       }
-      try await self.session.signIn(challenge: challenge.challenge_id, credential: token, replacingAccount: { accountID in
-        try DictionarySnapshotQueue().cancelIfPresent(accountID: accountID)
-      })
-      try self.ensureCurrent(id)
-      let user = try await self.session.user()
+      let user = try await SkinCommunityAPI.signIn(try self.rust(), cancelSnapshot: self.cancelSnapshot) { account in
+        try await account.account(["operation": "google_token_login", "challenge_id": challenge.challenge_id, "id_token": token])
+      }
       try self.ensureCurrent(id)
       self.user = user
-      if self.user != nil { self.signedInVia = "Google" }
+      self.signedInVia = "Google"
     }
     #endif
   }
@@ -214,7 +218,7 @@ final class CodeLoginModel: ObservableObject {
   private func report(_ error: Error) {
     if isLoginCancellation(error) { return }
     switch error {
-    case let error as BackendAccountClient.Failure: message = error.localizedDescription
+    case let error as BackendRustClient.Failure: message = error.localizedDescription
     case let error as CommunityFailure: message = error.localizedDescription
     #if canImport(GoogleSignIn)
     case is GIDSignInError: message = "Google 登录没有完成，请重试。"
@@ -238,7 +242,7 @@ struct CodeLoginView: View {
   @Environment(\.dismiss) private var dismiss
   @State private var target = ""
   @State private var code = ""
-  @State private var challenge: BackendAccountClient.Challenge?
+  @State private var challenge: BackendRustAccount.Challenge?
   @State private var expiresAt = Date.distantPast
   @State private var resendAt = Date.distantPast
   @State private var pending: Task<Void, Never>?
