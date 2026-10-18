@@ -3383,10 +3383,15 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNil(comma.onCornerHint)
   }
 
-  /// 九键保留自己的底行：符 1.05 | 123 1.25 | space 4.2 | 中 1.05 | return 1.6，中/英 紧挨回车左边，没有 0、， 或 。 键；网格的数字层把 符 换成空格右边的 0。
+  /// 九键保留自己的底行：符 1.05 | 123 1.25 | space 4.2 | 中 1.05 | return 1.6，中/英 紧挨回车左边，没有 0、， 或 。 键；网格的数字层将中央大键位交给 0，空格缩到右边。
   func testNineKeyKeepsItsOwnBottomRow() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
+    let hiddenLanguage = KeyboardLayoutPreference.hideLanguageKey
+    defer {
+      InputSchemePreference.scheme = previous
+      KeyboardLayoutPreference.hideLanguageKey = hiddenLanguage
+    }
+    KeyboardLayoutPreference.hideLanguageKey = false
     InputSchemePreference.scheme = .nineKey
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
@@ -3408,12 +3413,33 @@ final class NineKeyKeyboardTests: XCTestCase {
     try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "closeSymbolPanel" } as? UIButton)
       .sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    // 数字层：网格提供 1-9，符 的位置空出来，0 排在空格右边，宽度不变。
+    // 数字层：网格提供 1-9，0 占中央大键位，空格缩成旁边的功能键。
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
-                   ["layoutToggleButton"] + globe + ["spaceKey", "nineKeyZero", "bottomLanguageKey", "returnKey"])
-    XCTAssertEqual(try button("nineKeyZero", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+                   ["layoutToggleButton"] + globe + ["nineKeyZero", "spaceKey", "bottomLanguageKey", "returnKey"])
+    let zero = try button("nineKeyZero", in: controller)
+    let space = try button("spaceKey", in: controller)
+    XCTAssertGreaterThan(zero.bounds.width, space.bounds.width * 3)
+    XCTAssertGreaterThanOrEqual(zero.bounds.width, try button("nineKey8", in: controller).bounds.width)
+    XCTAssertLessThan(zero.frame.maxX, space.frame.minX)
+    XCTAssertNil(space.configuration?.image)
+    let zeroWidth = zero.bounds.width
+    let spaceWidth = space.bounds.width
+    KeyboardLayoutPreference.hideLanguageKey = true
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(try button("bottomLanguageKey", in: controller).isHidden)
+    XCTAssertGreaterThan(zero.bounds.width, zeroWidth)
+    XCTAssertEqual(space.bounds.width, spaceWidth, accuracy: 1)
+    KeyboardLayoutPreference.hideLanguageKey = false
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(zero.isHidden)
+    XCTAssertNotNil(space.configuration?.image)
+    XCTAssertEqual(space.bounds.width, unit * KeyboardViewController.nineKeySpaceWeight, accuracy: 0.5)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "九键")
   }
 

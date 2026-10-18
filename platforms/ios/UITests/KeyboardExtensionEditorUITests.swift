@@ -316,6 +316,11 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       XCTAssertEqual(one.minX, four.minX, accuracy: 1)
       XCTAssertLessThan(one.maxX, two.minX)
       XCTAssertLessThan(one.maxY, four.minY)
+      let zero = key("nineKeyZero").frame
+      let space = key("spaceKey").frame
+      XCTAssertGreaterThanOrEqual(zero.width, key("nineKey8").frame.width)
+      XCTAssertGreaterThan(zero.width, space.width * 3)
+      XCTAssertLessThan(zero.maxX, space.minX)
       for character in "12.3+4-5*6/7001234567890123456789" {
         let target: XCUIElement
         switch character {

@@ -328,8 +328,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var actionSplitGap: UIView?
   private var symbolDeleteWidth: NSLayoutConstraint?
   private var standardActionWidths: [NSLayoutConstraint] = []
-  /// 九键外框底行按设计稿的弹性权重，以空格键的 4.2 为基准：123 1.25、地球键 1、0 1.05、中 1.05、回车 1.6。
+  /// 九键字母层底行的弹性权重，以空格键的 4.2 为基准：123 1.25、地球键 1、0 1.05、中 1.05、回车 1.6。
   private var nineKeyActionWidths: [NSLayoutConstraint] = []
+  private var numberPadActionWidths: [NSLayoutConstraint] = []
+  private var numberPadExpandedZeroWidths: [NSLayoutConstraint] = []
   /// 123 / #+= 层的底行，以空格键的 6 为基准（`SymbolLayerLayout`）。
   private var layerActionWidths: [NSLayoutConstraint] = []
   /// 设计稿的手机底行弹性权重，以空格键的 4 为基准：123 1.25、中 1.05、地球键 1、， 1、。 1、回车 1.9。
@@ -815,6 +817,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     swipeSymbolsEnabled = KeyboardLayoutPreference.swipeSymbols
     for letter in letterButtons { (letter.button as? KeyboardKeyButton)?.swipesCornerHint = swipeSymbolsEnabled }
     for space in spaceKeys {
+      space.configuration?.contentInsets = .zero
+      space.titleLabel?.adjustsFontSizeToFitWidth = true
+      space.titleLabel?.minimumScaleFactor = 0.7
       space.accessibilityHint = Self.spaceAccessibilityHint(voice: spaceVoiceEnabled)
       space.accessibilityCustomActions = spaceAccessibilityActions()
     }
@@ -1483,6 +1488,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       key.button.gestureRecognizers?.filter { $0.name == "nineKeyDigitHold" }.forEach { $0.isEnabled = !shuangpin && !digits }
     }
     let zero = nineKeyShuangpinLayout?.keys.first { $0.key == "0" }
+    nineKeyZeroButton?.configuration?.titleTextAttributesTransformer = digits ? Self.keyLabelTransformer : Self.functionLabelTransformer
     nineKeyZeroButton?.accessibilityLabel = shuangpin && !digits ? (zero?.accessibilityLabel ?? "数字 0") : "数字 0"
   }
 
@@ -3028,7 +3034,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if optional { constraint.priority = .init(999) }
       return constraint
     }
-    // 符 和 0 不同时显示，各占同一份 1.05，所以两者都是时有时无的键。
+    // 字母层保留大空格；九键双拼的 0 仍占一个功能键的宽度。
     nineKeyActionWidths = [
       weight(nineKeySymbolsButton, 1.05, space: Self.nineKeySpaceWeight, optional: true),
       weight(layoutToggle, 1.25, space: Self.nineKeySpaceWeight),
@@ -3037,6 +3043,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       weight(zero, 1.05, space: Self.nineKeySpaceWeight, optional: true),
       weight(enter, 1.6, space: Self.nineKeySpaceWeight),
     ]
+    // 数字页把中央的大键位交给 0；空格保留在它右边，隐藏语言键时也把余量给 0。
+    func numberPadWidths(hidesLanguage: Bool) -> [NSLayoutConstraint] {
+      let zeroWeight: CGFloat = Self.nineKeySpaceWeight + (hidesLanguage ? 1.05 : 0)
+      return [
+        weight(layoutToggle, 1.25, space: 1.05),
+        weight(globe, 1, space: 1.05, optional: true),
+        weight(zero, zeroWeight, space: 1.05),
+        weight(enter, 1.6, space: 1.05),
+      ] + (hidesLanguage ? [] : [weight(language, 1.05, space: 1.05)])
+    }
+    numberPadActionWidths = numberPadWidths(hidesLanguage: false)
+    numberPadExpandedZeroWidths = numberPadWidths(hidesLanguage: true)
     layerActionWidths = [
       weight(layoutToggle, SymbolLayerLayout.lettersWeight, space: SymbolLayerLayout.spaceWeight),
       weight(emoji, SymbolLayerLayout.panelWeight, space: SymbolLayerLayout.spaceWeight, optional: true),
@@ -3090,7 +3108,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手机 26 键底行上空格键的弹性权重；其他键的权重都相对它来算。
   static let phoneSpaceWeight: CGFloat = 4
-  /// 九键外框底行（符 | 123 | space | 中 | return，数字层为 123 | space | 0 | 中 | return）上空格键的弹性权重。
+  /// 九键字母层空格键、数字层 0 键的弹性权重。
   static let nineKeySpaceWeight: CGFloat = 4.2
   /// 123 层表情键上的表情线框图标。
   private static let layerEmojiIconSide: CGFloat = 22
@@ -3904,13 +3922,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     let face = Self.spaceKeyFace(scheme: inputScheme, chinese: isChineseMode, symbols: showsSymbols, composing: hasComposition)
     let japanese = isChineseMode && inputScheme.isJapanese
+    // 数字页的空格只有一个功能键宽，留出完整的文字空间，长按语音手势仍由原按键处理。
+    let mic = face.mic && !numberPadShown
     let color = KeyboardTheme.current.secondary
     for space in spaceKeys {
       guard var configuration = space.configuration else { continue }
       let hasMic = configuration.image != nil
-      guard configuration.title != face.label || hasMic != face.mic || configuration.baseForegroundColor != color else { continue }
+      guard configuration.title != face.label || hasMic != mic || configuration.baseForegroundColor != color else { continue }
       configuration.title = face.label
-      configuration.image = face.mic ? KeyboardIcon.mic.image(pointSize: Self.spaceMicSide) : nil
+      configuration.image = mic ? KeyboardIcon.mic.image(pointSize: Self.spaceMicSide) : nil
       configuration.imagePlacement = .leading
       configuration.imagePadding = 5
       configuration.baseForegroundColor = color
@@ -5231,10 +5251,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let style: ActionRowStyle = symbolLayer ? .symbolLayer : nineKeyFrame ? .nineKey : tabletRow ? .tablet : phoneRow ? .phone : .standard
       phoneBottomRowShown = style == .phone
       nineKeyHeight.isActive = nineKeyFrame
-      arrangeActionRow(style, commaSecondary: style == .phone && letterRowsShown)
+      arrangeActionRow(style, commaSecondary: style == .phone && letterRowsShown, numberPad: numberPad)
       NSLayoutConstraint.deactivate(standardActionWidths + nineKeyActionWidths + phoneActionWidths + layerActionWidths
         + tabletActionWidths + phoneExpandedSpaceWidths + nineKeyExpandedSpaceWidths
-        + tabletExpandedSpaceWidths + tabletSplitExpandedSpaceWidths)
+        + tabletExpandedSpaceWidths + tabletSplitExpandedSpaceWidths
+        + numberPadActionWidths + numberPadExpandedZeroWidths)
       // iPad 的 26 键底行在回车的位置放第二个 123 和 ⌄，回车在 iPad 上排到第二排字母末尾。
       if tabletLayerButton.isHidden != (style != .tablet) { tabletLayerButton.isHidden = style != .tablet }
       if dismissKeyButton.isHidden != (style != .tablet) { dismissKeyButton.isHidden = style != .tablet }
@@ -5300,7 +5321,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       symbolDeleteWidth?.isActive = !actionDeleteButton.isHidden && style == .standard
       switch style {
       case .phone: NSLayoutConstraint.activate(hidesLanguage ? phoneExpandedSpaceWidths : phoneActionWidths)
-      case .nineKey: NSLayoutConstraint.activate(hidesLanguage ? nineKeyExpandedSpaceWidths : nineKeyActionWidths)
+      case .nineKey:
+        NSLayoutConstraint.activate(numberPad
+          ? (hidesLanguage ? numberPadExpandedZeroWidths : numberPadActionWidths)
+          : (hidesLanguage ? nineKeyExpandedSpaceWidths : nineKeyActionWidths))
       case .symbolLayer: NSLayoutConstraint.activate(layerActionWidths)
       case .standard: NSLayoutConstraint.activate(standardActionWidths)
       case .tablet: NSLayoutConstraint.activate(hidesLanguage
@@ -5395,7 +5419,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 按布局画出的顺序排列底行的键。按键是重新插入而不是从行里移除，所以它们的宽度约束一直保持安装；每种顺序都列出全部按键，隐藏的放在最后。
-  private func arrangeActionRow(_ style: ActionRowStyle, commaSecondary: Bool) {
+  private func arrangeActionRow(_ style: ActionRowStyle, commaSecondary: Bool, numberPad: Bool) {
     guard let toggle = layoutToggleButton, let language = bottomLanguageButton, let gap = actionSplitGap,
           let space = spaceButton, let splitSpace = splitSpaceButton, let enter = enterButton else { return }
     let symbols: UIView = nineKeySymbolsButton, globe: UIView = actionGlobeButton, delete: UIView = actionDeleteButton
@@ -5409,7 +5433,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         ? [toggle, globe, symbols, space, gap, splitSpace, comma, language, enter, delete, period, emoji, zero, tabletLayer, dismiss]
         : [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, enter, emoji, zero, tabletLayer, dismiss]
     case .nineKey:
-      order = [symbols, toggle, globe, space, gap, splitSpace, zero, language, enter, delete, comma, period, emoji, tabletLayer, dismiss]
+      order = numberPad
+        ? [symbols, toggle, globe, zero, space, gap, splitSpace, language, enter, delete, comma, period, emoji, tabletLayer, dismiss]
+        : [symbols, toggle, globe, space, gap, splitSpace, zero, language, enter, delete, comma, period, emoji, tabletLayer, dismiss]
     case .symbolLayer:
       order = [toggle, emoji, symbols, globe, space, gap, splitSpace, enter, language, delete, comma, period, zero, tabletLayer, dismiss]
     case .tablet:
