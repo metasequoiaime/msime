@@ -69,7 +69,11 @@ export function useSettingsNavigation({
       (mobilePrimaryPageIds.includes(next as MobilePrimaryPageId)
         ? (next as MobilePrimaryPageId)
         : mobileActiveTab);
-    if (next === page && owner === mobileActiveTab) return;
+    if (next === page && owner === mobileActiveTab) {
+      // 同页路由仍需恢复子标签，例如再次打开反馈入口时返回反馈标签。
+      setPage(next);
+      return;
+    }
     if (page === "account" && next !== "account") setAccountLoginReturnPage(null);
     if (mobilePlatform) {
       mobileLastPageByTab.current[owner] = next;
