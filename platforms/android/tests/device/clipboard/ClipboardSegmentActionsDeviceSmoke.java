@@ -76,7 +76,9 @@ public final class ClipboardSegmentActionsDeviceSmoke extends DeviceSmoke {
             stage = "copy returns to keyboard without insertion";
             tap(described("复制选中的词并返回键盘"));
             await(key("n"));
-            await(field("msime-test-plain").and(node -> node.getText() == null || node.getText().length() == 0));
+            // 旧系统把空编辑器的提示文字也放进无障碍 text；提示可见时实际内容仍为空。
+            await(field("msime-test-plain").and(node -> node.isShowingHintText()
+                || node.getText() == null || node.getText().length() == 0));
             ClipData copied = clipboard.getPrimaryClip();
             if (copied == null || !"SyntheticAlphaSyntheticGamma".contentEquals(copied.getItemAt(0).getText()))
                 throw new AssertionError("Copied selection did not preserve segment order");

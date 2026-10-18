@@ -75,7 +75,7 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
 
     /**
      * API 28 的 UiAutomation 不提供覆盖在字母键上的菜单节点，改用真实触摸翻页和点击。
-     * 专用 AVD 使用默认全拼布局；复制入口是第二页第二行第四列。坐标从当前工具栏边界和密度推导，
+     * 专用 AVD 使用默认全拼和工具栏配置；无语音结果的入口隐藏后，复制入口是第二页第三行第一列。坐标从当前工具栏边界和密度推导，
      * 不假设设备分辨率。结果仍读取系统剪贴板并验证完整白名单，触摸无效就失败。
      */
     private void copyFromLegacyMenu(Rect toolbar) throws Exception {
@@ -84,10 +84,10 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
         int right = toolbar.left + toolbar.width() * 7 / 8;
         int left = toolbar.left + toolbar.width() / 8;
         shellDiscard("input swipe " + right + " " + firstRow + " " + left + " " + firstRow + " 320");
-        // 网格翻页动画为 260 毫秒，结束后才点击第二行，避免点中滑动中的上一页磁贴。
+        // 网格翻页动画为 260 毫秒，结束后才点击第三行，避免点中滑动中的上一页磁贴。
         SystemClock.sleep(400);
-        int secondRow = firstRow + Math.round(68 * density);
-        shellDiscard("input tap " + right + " " + secondRow);
+        int thirdRow = firstRow + Math.round(136 * density);
+        shellDiscard("input tap " + left + " " + thirdRow);
     }
 
     /** 测试编辑器保持前台，按系统剪贴板限制从当前焦点 UID 读取，不输出报告正文。 */
