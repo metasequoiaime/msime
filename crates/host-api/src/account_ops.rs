@@ -8,13 +8,13 @@ use base64::Engine as _;
 use msime_client_services::account::page::{ChatModelsResponse, ChatResponse};
 use msime_client_services::account::{
     delete_anonymous_voice_samples, has_saved_anonymous_identity, prepare_chat, prepare_feedback,
-    prepare_voice_contribution, read_published_session, translate_request_body,
-    valid_data_sections, with_shared_access_token, AccountApi, AccountChatMessage,
-    AccountDataSummary, AccountError, AccountFailure, AccountFeedbackInput, AccountPhrase,
-    AccountPhrases, AccountPreferenceValue, AccountPreferences, AccountSessionStorage,
-    AccountTranslateRequest, AccountVoiceContributionInput, AnonymousIdentitySource,
-    BackendAccountSession, ChatStreamCancel, SessionAdoptSource, DEFAULT_TRANSLATE_TIMEOUT_MS,
-    MAX_VOICE_CONTRIBUTION_AUDIO_BYTES, TRANSLATE_TIMEOUT_MS,
+    prepare_voice_contribution, read_published_anonymous_identity, read_published_session,
+    translate_request_body, valid_data_sections, with_shared_access_token, AccountApi,
+    AccountChatMessage, AccountDataSummary, AccountError, AccountFailure, AccountFeedbackInput,
+    AccountPhrase, AccountPhrases, AccountPreferenceValue, AccountPreferences,
+    AccountSessionStorage, AccountTranslateRequest, AccountVoiceContributionInput,
+    AnonymousIdentitySource, BackendAccountSession, ChatStreamCancel, SessionAdoptSource,
+    DEFAULT_TRANSLATE_TIMEOUT_MS, MAX_VOICE_CONTRIBUTION_AUDIO_BYTES, TRANSLATE_TIMEOUT_MS,
 };
 use msime_client_services::diagnostics::upload::{
     prepare_upload, valid_diagnostic_label, DIAGNOSTIC_TTLS,
@@ -149,10 +149,12 @@ pub(crate) enum Operation {
     QqLinkDelete {
         id: String,
     },
-    /// 采用另一个沙箱发布的会话（鸿蒙设置应用与键盘之间的镜像，#8201 的 P3），只在目录模式下可用。`path` 是发布的会话文件的绝对路径，不给时表示发布方没有这份会话。
+    /// 采用另一个沙箱发布的会话（鸿蒙设置应用与键盘之间的镜像，#8201 的 P3），只在目录模式下可用。`path` 是发布的会话文件的绝对路径，不给时表示发布方没有这份会话。`identity_path` 只用于匿名会话，是发布方身份文件的绝对路径（文件不存在表示发布方没有身份），给了时身份跟着采用的匿名会话走；不给时身份不动，与加这个字段之前相同。
     SessionAdopt {
         #[serde(default)]
         path: Option<String>,
+        #[serde(default)]
+        identity_path: Option<String>,
         item: SessionItem,
         from: SessionAdoptSource,
     },
@@ -719,18 +721,40 @@ where
             account.delete_qq_link(&id)?;
             Ok(Value::Null)
         }
-        Operation::SessionAdopt { path, item, from } => {
+        Operation::SessionAdopt {
+            path,
+            identity_path,
+            item,
+            from,
+        } => {
             // 镜像的两边都是目录里的文件；注入存储的宿主自己管存储，没有这个操作。
-            if !matches!(identity, AnonymousIdentitySource::Directory(_)) {
+            let AnonymousIdentitySource::Directory(directory) = identity else {
+                return Err(invalid());
+            };
+            // 身份只跟着匿名会话走，登录会话带它是请求不合法。
+            if identity_path.is_some() && matches!(item, SessionItem::Account) {
                 return Err(invalid());
             }
             let published = match path {
                 Some(path) => read_published_session(absolute_path(&path)?)?,
                 None => None,
             };
-            let outcome = match item {
-                SessionItem::Account => account.adopt_session(published, from)?,
-                SessionItem::Anonymous => anonymous()?.adopt_anonymous_session(published, from)?,
+            let published_identity = match identity_path {
+                Some(path) => Some(read_published_anonymous_identity(absolute_path(&path)?)?),
+                None => None,
+            };
+            let outcome = match (item, published_identity) {
+                (SessionItem::Account, _) => account.adopt_session(published, from)?,
+                (SessionItem::Anonymous, None) => {
+                    anonymous()?.adopt_anonymous_session(published, from)?
+                }
+                (SessionItem::Anonymous, Some(published_identity)) => anonymous()?
+                    .adopt_anonymous_session_with_identity(
+                        published,
+                        from,
+                        directory,
+                        &published_identity,
+                    )?,
             };
             Ok(json!({ "outcome": outcome }))
         }

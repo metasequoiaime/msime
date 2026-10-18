@@ -204,6 +204,93 @@ pub fn has_saved_anonymous_identity(
     saved_anonymous_identity(source).map(|identity| identity.is_some())
 }
 
+/// 另一个沙箱发布的匿名账号身份（鸿蒙设置应用与键盘之间的镜像），交给 [`BackendAccountSession::adopt_anonymous_session_with_identity`]，采用匿名会话时一起采用，会话和身份始终属于同一个匿名账号。
+pub struct PublishedAnonymousIdentity {
+    identity: Option<AnonymousIdentity>,
+}
+
+/// 读另一个沙箱发布的身份文件 `anonymous-account.json`：规则与本目录的身份文件相同（不跟随符号链接、属主与所在目录相同、鸿蒙上只拒绝其他用户位、其他平台只能属主可读写、最多 64 KiB）。文件或所在目录不存在时表示发布方没有身份；读不了、不是 `{subject, secret}` 或不合法时是 [`AccountError::Storage`]。`path` 必须有文件名。
+pub fn read_published_anonymous_identity(
+    path: &Path,
+) -> Result<PublishedAnonymousIdentity, AccountError> {
+    if path.file_name().is_none() {
+        return Err(AccountError::Invalid);
+    }
+    let missing = path.parent().is_some_and(directory_missing);
+    let identity = if missing {
+        None
+    } else {
+        read_private_json::<AnonymousIdentity>(path)?
+    };
+    if identity
+        .as_ref()
+        .is_some_and(|identity| !identity.is_valid())
+    {
+        return Err(AccountError::Storage);
+    }
+    Ok(PublishedAnonymousIdentity { identity })
+}
+
+impl PublishedAnonymousIdentity {
+    /// 采用匿名会话时，在刷新锁里、写会话之前把本地身份换成发布方的：发布方有身份就写它（与本地相同时不写）；发布方没有身份而采用的会话换了账号（本地原来没有会话、读不了，或 `user.id` 不同）时删掉本地身份，它属于另一个账号，留着的话会话失效以后会登录回那个账号；同一个账号时本地身份不动。返回写会话失败时用来还原的原值。
+    pub(super) fn follow(
+        &self,
+        directory: &Path,
+        same_account: bool,
+    ) -> Result<Option<IdentityRestore>, AccountError> {
+        let local = read_private_json::<AnonymousIdentity>(&directory.join(ANONYMOUS_ACCOUNT_FILE));
+        let target = match (&self.identity, same_account) {
+            (Some(identity), _) => Some(identity),
+            (None, true) => return Ok(None),
+            (None, false) => None,
+        };
+        match (&local, target) {
+            (Ok(Some(local)), Some(target))
+                if local.subject == target.subject && local.secret == target.secret =>
+            {
+                return Ok(None)
+            }
+            (Ok(None), None) => return Ok(None),
+            _ => {}
+        }
+        replace_identity(directory, target)?;
+        // 本地原来的身份读不了时还原不了，写会话失败时留着发布方的那份。
+        Ok(local.ok().map(|previous| IdentityRestore { previous }))
+    }
+}
+
+/// [`PublishedAnonymousIdentity::follow`] 换掉身份以后、写会话失败时把本地身份还原成原来的样子。
+pub(super) struct IdentityRestore {
+    previous: Option<AnonymousIdentity>,
+}
+
+impl IdentityRestore {
+    pub(super) fn restore(self, directory: &Path) -> Result<(), AccountError> {
+        replace_identity(directory, self.previous.as_ref())
+    }
+}
+
+/// 把 `directory` 里的身份整份换成 `identity`，`None` 是删掉。
+fn replace_identity(
+    directory: &Path,
+    identity: Option<&AnonymousIdentity>,
+) -> Result<(), AccountError> {
+    match identity {
+        Some(identity) => {
+            let bytes = serde_json::to_vec(identity).map_err(|_| AccountError::Storage)?;
+            write_private(directory, ANONYMOUS_ACCOUNT_FILE, &bytes, false).map(|_| ())
+        }
+        None => {
+            crate::storage::reject_symlink(directory).map_err(|_| AccountError::Storage)?;
+            match crate::storage::remove_private_file(&directory.join(ANONYMOUS_ACCOUNT_FILE)) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(_) => Err(AccountError::Storage),
+            }
+        }
+    }
+}
+
 /// 删除本机匿名账号名下的语音样本（`DELETE /v1/users/me/data` 的 `voice` 分区），给「删除云端数据」用：语音贡献只用匿名账号（#8201 的决定 12），登录账号的 `data_delete` 删不到它们。
 ///
 /// 服务端对这个路由要求会话在 10 分钟内建立，匿名账号也一样，而匿名会话通常早就建立了：先用现有会话试一次，服务端回 403 `recent_login_required`（或令牌已被吊销）时用 `identity` 里保存的身份重新登录同一个匿名账号，换一个新会话再删。新会话替换存储里的旧会话；重新登录计入服务端按地址每天的匿名登录限额，超了是 `account_rate_limited`。本机从来没有匿名身份时没有样本可删，直接成功。会阻塞网络。

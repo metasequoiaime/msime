@@ -6,6 +6,7 @@
 //! - 不同的 `user.id`（换号）：设置应用发布的（`from: settings`）直接替换本地，键盘发布的（`from: keyboard`）一律不用，设置应用里的换号不会被键盘的旧副本撤销。
 //! - 本地没有会话（没有或读不了）：登录会话与换号相同；匿名会话两个方向都采用。用户没打开过设置应用就先启用了键盘时，键盘已经注册了本机的匿名账号，设置应用第一次启动时接过来用，不再注册第二个、多用掉一次每个 IP 每天 5 次的注册额度。
 //! - 发布方没有会话：登录会话在 `from: settings` 时在锁里清掉本地（与 `forget` 相同），`from: keyboard` 时不动；匿名会话一律不动，匿名账号没有退出登录，清掉只会逼着重新注册、白白用掉每个 IP 每天 5 次的注册额度。
+//! - 匿名账号的身份跟着匿名会话走（[`BackendAccountSession::adopt_anonymous_session_with_identity`]）：采用了发布的匿名会话时，同一把锁里把本地的 `anonymous-account.json` 换成发布方的；发布方没有身份而采用的会话换了账号时删掉本地身份。否则设置应用采用了键盘注册的匿名账号 K、手里却留着自己没注册成的身份 S，K 的会话失效以后会拿 S 登录、换成另一个账号，K 名下的语音样本在需要重新登录才能删时也删不掉。
 //!
 //! 以前按 `session_id` 判断「是不是同一次登录」，只在同一次登录内部比 `expires_at`。升级窗口里两边的 `session_id` 来历各不相同（ArkTS 写的扁平登录会话没有，Rust 注册的匿名会话是 v4、旧桥接写回时又丢了，各沙箱第一次认证前各自补上），为了认出同一个会话族叠了好几层特例，仍有漏网的组合会把用过的刷新令牌换回来。只比 `expires_at` 对这些组合一视同仁。
 
@@ -42,7 +43,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         published: Option<SavedAccountSession>,
         from: SessionAdoptSource,
     ) -> Result<SessionAdoptOutcome, AccountError> {
-        self.adopt_with(published, from, false)
+        self.adopt_with(published, from, None)
     }
 
     /// 匿名会话（`anonymous-session.json`）用：与 [`Self::adopt_session`] 相同，只有两处不同：发布方没有会话时一律不动、不清本地（匿名账号没有退出登录）；本地没有会话或读不了时 `Keyboard` 发布的也采用（键盘先于设置应用启用时用键盘注册的那个匿名账号），见模块说明。
@@ -51,15 +52,29 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         published: Option<SavedAccountSession>,
         from: SessionAdoptSource,
     ) -> Result<SessionAdoptOutcome, AccountError> {
-        self.adopt_with(published, from, true)
+        self.adopt_with(published, from, Some(None))
     }
 
+    /// 与 [`Self::adopt_anonymous_session`] 相同，并且身份跟着会话走：采用了发布的匿名会话时，在同一把锁里、写会话之前把 `directory` 里的 `anonymous-account.json` 换成发布方的身份 `identity`（发布方没有身份而采用的会话换了账号时删掉本地身份，同一个账号时不动），会话和身份始终属于同一个匿名账号，见 [`PublishedAnonymousIdentity`]。没有采用会话时身份不动。`directory` 是这个匿名会话所在的目录。写会话失败时尽力把身份还原成原来的样子。
+    pub fn adopt_anonymous_session_with_identity(
+        &self,
+        published: Option<SavedAccountSession>,
+        from: SessionAdoptSource,
+        directory: &Path,
+        identity: &PublishedAnonymousIdentity,
+    ) -> Result<SessionAdoptOutcome, AccountError> {
+        self.adopt_with(published, from, Some(Some((directory, identity))))
+    }
+
+    /// `anonymous` 为 `None` 是登录会话；`Some` 是匿名会话，里面是要跟着采用的身份（`None` 是不管身份）。
     fn adopt_with(
         &self,
         published: Option<SavedAccountSession>,
         from: SessionAdoptSource,
-        anonymous: bool,
+        anonymous: Option<Option<(&Path, &PublishedAnonymousIdentity)>>,
     ) -> Result<SessionAdoptOutcome, AccountError> {
+        let identity = anonymous.flatten();
+        let anonymous = anonymous.is_some();
         if let Some(published) = &published {
             validate_saved_session(published)?;
         }
@@ -97,8 +112,26 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             if !adopt {
                 return Ok(SessionAdoptOutcome::Unchanged);
             }
+            let restore = match identity {
+                Some((directory, identity)) => {
+                    let same_account = matches!(
+                        &local,
+                        Ok(Some(local)) if local.tokens.user.id == published.tokens.user.id
+                    );
+                    identity
+                        .follow(directory, same_account)?
+                        .map(|restore| (directory, restore))
+                }
+                None => None,
+            };
             let changed = !same_login_option(state.saved.as_ref(), Some(&published));
-            self.storage.save(&published)?;
+            if let Err(error) = self.storage.save(&published) {
+                // 会话没写进去：身份换回原来的，不留下与本地会话不是同一个账号的身份。还原也失败时交回写会话的错误。
+                if let Some((directory, restore)) = restore {
+                    let _ = restore.restore(directory);
+                }
+                return Err(error);
+            }
             if state.loaded && changed {
                 state.generation = state.generation.saturating_add(1);
                 state.refresh = None;

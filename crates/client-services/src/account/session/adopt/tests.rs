@@ -920,3 +920,162 @@ fn an_old_token_never_overwrites_the_copy_the_old_arkts_already_rotated() {
         }
     }
 }
+
+/// 一份合成的匿名身份文件内容：`subject` 是 `msime-` 后 16 个字符，`secret` 是 48 个字符，都由 `fill` 重复而成。
+fn identity_bytes(fill: char) -> Vec<u8> {
+    format!(
+        r#"{{"subject":"msime-{}","secret":"{}"}}"#,
+        fill.to_string().repeat(16),
+        fill.to_string().repeat(48)
+    )
+    .into_bytes()
+}
+
+/// 本地身份的 subject，没有身份时是 `None`。
+fn identity_subject(directory: &Path) -> Option<String> {
+    match std::fs::read(directory.join(ANONYMOUS_ACCOUNT_FILE)) {
+        Ok(bytes) => Some(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["subject"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => panic!("{error}"),
+    }
+}
+
+fn published_identity(directory: &Path) -> PublishedAnonymousIdentity {
+    read_published_anonymous_identity(&directory.join(ANONYMOUS_ACCOUNT_FILE)).unwrap()
+}
+
+/// 身份跟着匿名会话走（负责人决定，迁移差异 M40）：设置应用第一次注册断网失败、留着身份 S 没有会话，随后采用键盘注册的匿名账号 K 时连同 K 的身份一起采用，不会拿着 K 的会话、留着 S 的身份。
+#[test]
+fn the_anonymous_identity_follows_the_adopted_anonymous_session() {
+    let root = tempfile::tempdir().unwrap();
+    let (settings, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
+    for directory in [&settings, &keyboard] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    let anonymous = |directory: &Path| {
+        BackendAccountSession::new(NoNetwork, LockedAnonymousSessionStorage::new(directory))
+    };
+    let adopt = |published: SavedAccountSession, identity: &PublishedAnonymousIdentity| {
+        anonymous(&settings).adopt_anonymous_session_with_identity(
+            Some(published),
+            SessionAdoptSource::Keyboard,
+            &settings,
+            identity,
+        )
+    };
+    private_file(&settings.join(ANONYMOUS_ACCOUNT_FILE), &identity_bytes('s'));
+    private_file(&keyboard.join(ANONYMOUS_ACCOUNT_FILE), &identity_bytes('k'));
+    let keyboard_account = saved("msime-keyboard00000000", Some(1), 60, 'b');
+
+    // 本地没有匿名会话：采用 K 的会话，身份换成 K 的。
+    assert_eq!(
+        adopt(keyboard_account.clone(), &published_identity(&keyboard)),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(
+        identity_subject(&settings),
+        Some(format!("msime-{}", "k".repeat(16)))
+    );
+
+    // 没有采用（本地的同一个账号更新）时身份不动，哪怕发布方的身份不同。
+    private_file(&keyboard.join(ANONYMOUS_ACCOUNT_FILE), &identity_bytes('x'));
+    assert_eq!(
+        adopt(
+            saved("msime-keyboard00000000", Some(1), 30, 'c'),
+            &published_identity(&keyboard)
+        ),
+        Ok(SessionAdoptOutcome::Unchanged)
+    );
+    assert_eq!(
+        identity_subject(&settings),
+        Some(format!("msime-{}", "k".repeat(16)))
+    );
+
+    // 同一个账号刷新过、发布方没有身份：采用会话，本地身份留着，它就是这个账号的。
+    std::fs::remove_file(keyboard.join(ANONYMOUS_ACCOUNT_FILE)).unwrap();
+    assert_eq!(
+        adopt(
+            saved("msime-keyboard00000000", Some(1), 90, 'd'),
+            &published_identity(&keyboard)
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(
+        identity_subject(&settings),
+        Some(format!("msime-{}", "k".repeat(16)))
+    );
+
+    // 换了账号、发布方没有身份（这里是设置应用发布给键盘）：本地身份属于另一个账号，删掉。
+    let keyboard_session = anonymous(&keyboard);
+    keyboard_session
+        .storage
+        .save(&saved("msime-keyboard00000000", Some(1), 60, 'e'))
+        .unwrap();
+    private_file(&keyboard.join(ANONYMOUS_ACCOUNT_FILE), &identity_bytes('k'));
+    let empty = root.path().join("published-without-identity");
+    assert_eq!(
+        keyboard_session.adopt_anonymous_session_with_identity(
+            Some(saved("msime-settings00000000", Some(2), 60, 'f')),
+            SessionAdoptSource::Settings,
+            &keyboard,
+            &published_identity(&empty),
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(identity_subject(&keyboard), None);
+    assert_eq!(
+        keyboard_session.status().unwrap().unwrap().id,
+        "msime-settings00000000"
+    );
+}
+
+/// 会话写不进去时身份还原：不留下与本地会话不是同一个账号的身份。
+#[test]
+fn a_failed_session_write_puts_the_previous_identity_back() {
+    let root = tempfile::tempdir().unwrap();
+    let (settings, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
+    for directory in [&settings, &keyboard] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    private_file(&settings.join(ANONYMOUS_ACCOUNT_FILE), &identity_bytes('s'));
+    private_file(&keyboard.join(ANONYMOUS_ACCOUNT_FILE), &identity_bytes('k'));
+    // 会话文件的位置被一个非空目录占着：读不了（于是要采用），也写不进去。
+    std::fs::create_dir_all(settings.join(ANONYMOUS_SESSION_FILE).join("occupied")).unwrap();
+
+    assert_eq!(
+        BackendAccountSession::new(NoNetwork, LockedAnonymousSessionStorage::new(&settings))
+            .adopt_anonymous_session_with_identity(
+                Some(saved("msime-keyboard00000000", Some(1), 60, 'b')),
+                SessionAdoptSource::Keyboard,
+                &settings,
+                &published_identity(&keyboard),
+            ),
+        Err(AccountError::Storage)
+    );
+    assert_eq!(
+        identity_subject(&settings),
+        Some(format!("msime-{}", "s".repeat(16)))
+    );
+}
+
+/// 发布方的身份不合法时读它就失败，`session_adopt` 什么也不写。
+#[test]
+fn an_invalid_published_identity_is_refused() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join(ANONYMOUS_ACCOUNT_FILE);
+    private_file(&path, br#"{"subject":"msime-SHORT","secret":"x"}"#);
+    assert!(matches!(
+        read_published_anonymous_identity(&path),
+        Err(AccountError::Storage)
+    ));
+    private_file(&path, b"not json");
+    assert!(matches!(
+        read_published_anonymous_identity(&path),
+        Err(AccountError::Storage)
+    ));
+}

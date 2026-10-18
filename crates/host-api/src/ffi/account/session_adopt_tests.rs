@@ -334,3 +334,144 @@ fn bad_adopt_requests_are_refused_without_touching_the_session() {
         invalid
     );
 }
+
+fn identity_json(fill: char) -> String {
+    format!(
+        r#"{{"subject":"msime-{}","secret":"{}"}}"#,
+        fill.to_string().repeat(16),
+        fill.to_string().repeat(48)
+    )
+}
+
+fn private_write(path: &Path, contents: &[u8]) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, contents).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+}
+
+/// 带 `identity_path` 时身份跟着匿名会话走：设置应用第一次注册断网失败、留着身份 S 没有会话，采用键盘注册的 K 时连同 K 的身份一起采用。
+#[test]
+fn with_an_identity_path_the_identity_follows_the_adopted_anonymous_session() {
+    let root = tempfile::tempdir().unwrap();
+    let published = root.path().join("group").join("keyboard").join("state");
+    let settings = root.path().join("settings").join("state");
+    AnonymousSessionStorage::new(&published)
+        .save(&saved("msime-keyboard00000000", 'b'))
+        .unwrap();
+    private_write(
+        &published.join(ANONYMOUS_ACCOUNT_FILE),
+        identity_json('k').as_bytes(),
+    );
+    private_write(
+        &settings.join(ANONYMOUS_ACCOUNT_FILE),
+        identity_json('s').as_bytes(),
+    );
+
+    let request = json!({
+        "operation": "session_adopt",
+        "path": published.join(ANONYMOUS_SESSION_FILE),
+        "identity_path": published.join(ANONYMOUS_ACCOUNT_FILE),
+        "item": "anonymous",
+        "from": "keyboard",
+    });
+    assert_eq!(
+        adopt(&settings, request.clone()),
+        json!({ "ok": true, "value": { "outcome": "adopted" } })
+    );
+    assert_eq!(
+        std::fs::read_to_string(settings.join(ANONYMOUS_ACCOUNT_FILE)).unwrap(),
+        identity_json('k')
+    );
+    assert_eq!(
+        AnonymousSessionStorage::new(&settings)
+            .load()
+            .unwrap()
+            .unwrap()
+            .tokens
+            .user
+            .id,
+        "msime-keyboard00000000"
+    );
+    // 同一份发布物再采用一次是 unchanged，身份不再写。
+    assert_eq!(
+        adopt(&settings, request),
+        json!({ "ok": true, "value": { "outcome": "unchanged" } })
+    );
+
+    // 键盘采用设置应用发布的另一个匿名账号、设置应用那边没有身份文件：键盘的身份属于原来的账号，删掉。
+    let keyboard = root.path().join("keyboard").join("state");
+    AnonymousSessionStorage::new(&keyboard)
+        .save(&saved("msime-keyboard00000000", 'b'))
+        .unwrap();
+    private_write(
+        &keyboard.join(ANONYMOUS_ACCOUNT_FILE),
+        identity_json('k').as_bytes(),
+    );
+    let from_settings = root.path().join("group").join("settings").join("state");
+    AnonymousSessionStorage::new(&from_settings)
+        .save(&saved("msime-settings00000000", 'c'))
+        .unwrap();
+    assert_eq!(
+        adopt(
+            &keyboard,
+            json!({
+                "operation": "session_adopt",
+                "path": from_settings.join(ANONYMOUS_SESSION_FILE),
+                "identity_path": from_settings.join(ANONYMOUS_ACCOUNT_FILE),
+                "item": "anonymous",
+                "from": "settings",
+            })
+        ),
+        json!({ "ok": true, "value": { "outcome": "adopted" } })
+    );
+    assert!(!keyboard.join(ANONYMOUS_ACCOUNT_FILE).exists());
+}
+
+#[test]
+fn a_bad_identity_path_is_refused_without_touching_anything() {
+    let root = tempfile::tempdir().unwrap();
+    let published = root.path().join("group").join("keyboard").join("state");
+    let settings = root.path().join("settings").join("state");
+    AnonymousSessionStorage::new(&published)
+        .save(&saved("msime-keyboard00000000", 'b'))
+        .unwrap();
+    private_write(
+        &settings.join(ANONYMOUS_ACCOUNT_FILE),
+        identity_json('s').as_bytes(),
+    );
+    // 发布的身份不合法：account_storage，会话和身份都不动。
+    private_write(
+        &published.join(ANONYMOUS_ACCOUNT_FILE),
+        br#"{"subject":"someone","secret":"x"}"#,
+    );
+    assert_eq!(
+        adopt(
+            &settings,
+            json!({
+                "operation": "session_adopt",
+                "path": published.join(ANONYMOUS_SESSION_FILE),
+                "identity_path": published.join(ANONYMOUS_ACCOUNT_FILE),
+                "item": "anonymous",
+                "from": "keyboard",
+            })
+        ),
+        json!({ "ok": false, "error": "account_storage" })
+    );
+    assert!(!settings.join(ANONYMOUS_SESSION_FILE).exists());
+    assert_eq!(
+        std::fs::read_to_string(settings.join(ANONYMOUS_ACCOUNT_FILE)).unwrap(),
+        identity_json('s')
+    );
+    // 身份只跟着匿名会话走：和登录会话一起给、或者给相对路径，都是请求不合法。
+    let invalid = json!({ "ok": false, "error": "account_invalid" });
+    for action in [
+        json!({ "operation": "session_adopt", "identity_path": published.join(ANONYMOUS_ACCOUNT_FILE), "item": "account", "from": "keyboard" }),
+        json!({ "operation": "session_adopt", "identity_path": "relative/anonymous-account.json", "item": "anonymous", "from": "keyboard" }),
+    ] {
+        assert_eq!(adopt(&settings, action.clone()), invalid, "{action}");
+    }
+}
