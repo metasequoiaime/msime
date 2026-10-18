@@ -17,7 +17,7 @@ Status: implemented
 - AI 设计皮肤经 `msime_client_ai_skin_generate`：一次生成三套带插画的方案，页面真的关掉时取消。只在不带 Retry-After 的 `account_unavailable` 时把入口藏一天（`AccountFailureText.aiSkinUnavailable`），任务一时繁忙的 503 带 Retry-After，只提示稍后再试。生成前注册匿名账号（`ensure_anonymous`，已有操作，断网也是不带 Retry-After 的 `account_unavailable`）失败时换成只在 Java 里出现的 `ai_skin_anonymous_unavailable`，提示检查网络、不藏入口，否则刚装好、没登录的用户断网点一次「生成」，入口就消失一天。
 - 社区经 `msime_client_community`：列表是 `keyboard_skin_list` 和 `resource_list`，举报是 `report`，作者改分类是 `keyboard_skin_set_category`。「获取」皮肤是 `keyboard_skin_download`（服务端同时记一次下载）再存进 Java 的 `CustomSkinLibrary`，不换上（决定 14）。
 - 云剪贴板页里不涉及内容的开关、保留时长、置顶、删除和清空经 `msime_client_account_cloud_clipboard`；列表、上传和设备管理照旧是 Java 的端到端加密驱动（令牌由 Rust 给），与键盘进程共用同一把密钥串锁。
-- 错误码到页面文案集中在 `AccountFailureText`（社区的在 `CommunityRequest.rustMessage`），措辞沿用各页原来的那几句。
+- 错误码到页面文案集中在 `AccountFailureText`（社区的在 `CommunityRequest.rustMessage`），措辞沿用各页原来的那几句。个人资料页那张表（`profile`）逐条跑共享用例 `shared/contracts/account-errors/cases.json` 的 `android`（[账号会话布局与账号错误码的共享用例](../testing/2026-10-19-account-shared-contract-cases.md)）。
 - `check-host.sh` 守着：这些请求路径（`/v1/users/me/sessions`、`data`、`avatar`、`diagnostics`、`download-link`、`/v1/feedback`、`/v1/skins/jobs`、`/v1/community/`、`/v1/models`）不能再出现在 Java 里；`CloudClipboardApi` 不再自己拼设置类的路径；对话页不再用 `BackendAccount`。页面的接线（退出撤销会话、退出取消进行中的调用、先下载再存库、藏入口的条件、语音样本、截图限制）由 `scripts/test-android-account-pages-through-rust.py` 逐条盯住。
 
 ## Alternatives considered

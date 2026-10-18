@@ -418,6 +418,9 @@ impl AccountSessionStorage for FileAccountSessionStorage {
 mod harmony_tests;
 
 #[cfg(test)]
+pub(crate) mod layout_cases_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -513,31 +516,21 @@ mod tests {
 
     #[test]
     fn an_apple_layout_document_keeps_the_email_and_avatar_of_its_user() {
-        // Swift 的 `BackendSavedSession` 写出的形状：expiresAt 是 2001 年起的秒数，sessionID 是 UUID。
-        let document = br#"{"tokens":{"access_token":"synthetic-access","refresh_token":"synthetic-refresh","token_type":"Bearer","expires_in":900,"user":{"id":"synthetic-user","display_name":"","created_at":"2026-01-01T00:00:00Z","email":"person@example.test","avatar_url":"https://media.msime.app/avatars/synthetic.jpg"}},"expiresAt":800000000,"sessionID":"6f9619ff-8b86-d011-b42d-00c04fc964ff"}"#;
-        let saved = decode(document).unwrap();
-        assert_eq!(
-            saved.tokens.user.email.as_deref(),
-            Some("person@example.test")
-        );
+        // Swift 的 `BackendSavedSession` 实际写出的字节（共享用例 `apple_swift`）：带邮箱和头像，再按 Apple 布局写回时两个字段原样保留。
+        let case = layout_cases_tests::layout_case("apple_swift");
+        let saved = decode(&layout_cases_tests::case_document(&case)).unwrap();
+        let user = &case["session"]["tokens"]["user"];
+        assert_eq!(saved.tokens.user.email.as_deref(), user["email"].as_str());
         assert_eq!(
             saved.tokens.user.avatar_url.as_deref(),
-            Some("https://media.msime.app/avatars/synthetic.jpg")
+            user["avatar_url"].as_str()
         );
-        assert_eq!(saved.expires_at_unix_ms, 1_778_307_200_000);
-        assert!(saved.session_id.is_some());
-
-        // 再按 Apple 布局写回，两个字段原样保留。
         let encoded: serde_json::Value = serde_json::from_slice(
             &encode_session(AccountSessionFileLayout::Apple, &saved).unwrap(),
         )
         .unwrap();
-        assert_eq!(encoded["tokens"]["user"]["email"], "person@example.test");
-        assert_eq!(
-            encoded["tokens"]["user"]["avatar_url"],
-            "https://media.msime.app/avatars/synthetic.jpg"
-        );
-        assert_eq!(encoded["expiresAt"], 800_000_000.0);
+        assert_eq!(encoded["tokens"]["user"]["email"], user["email"]);
+        assert_eq!(encoded["tokens"]["user"]["avatar_url"], user["avatar_url"]);
     }
 
     #[test]

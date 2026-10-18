@@ -1,6 +1,12 @@
 #include "../../settings/AccountPageModel.h"
 #include <cstdio>
+#include <nlohmann/json.hpp>
 #include <string>
+
+// CMake 把 shared/contracts/account-errors/cases.json 编进 account_errors_cases.inc（逐字节的数组），Wine 里跑测试时不用再找仓库路径。
+static const unsigned char kAccountErrorCases[] = {
+#include "account_errors_cases.inc"
+};
 
 using namespace msime::settings::account;
 namespace {
@@ -10,6 +16,29 @@ void check(bool condition, const char *what) {
     std::fprintf(stderr, "FAIL: %s\n", what);
     ++failures;
   }
+}
+
+// 用例是 UTF-8；宽字符串在 Windows 上是 UTF-16，在其他平台上是 UTF-32。用例里没有不合法的 UTF-8。
+std::wstring widen(const std::string &text) {
+  std::wstring result;
+  for (size_t index = 0; index < text.size();) {
+    const auto lead = static_cast<unsigned char>(text[index]);
+    const size_t length = lead < 0x80 ? 1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : 4;
+    char32_t point = length == 1 ? lead : lead & (0x3F >> (length - 1));
+    for (size_t next = 1; next < length; ++next)
+      point = (point << 6) | (static_cast<unsigned char>(text[index + next]) & 0x3F);
+    index += length;
+    if constexpr (sizeof(wchar_t) == 2) {
+      if (point > 0xFFFF) {
+        point -= 0x10000;
+        result += static_cast<wchar_t>(0xD800 + (point >> 10));
+        result += static_cast<wchar_t>(0xDC00 + (point & 0x3FF));
+        continue;
+      }
+    }
+    result += static_cast<wchar_t>(point);
+  }
+  return result;
 }
 } // namespace
 
@@ -47,21 +76,20 @@ int main() {
             provider_name(L"apple") == L"Apple" && provider_name(L"wechat") == L"wechat",
         "provider names");
 
-  // accountMessage：审核的三种、账号错误码，其余都是服务暂不可用。
-  check(error_message(L"account_blocked_content") == L"内容包含不允许发布的词语，请修改后再提交",
-        "blocked content");
-  check(error_message(L"account_banned") == L"该账号已被封禁，暂时无法使用账号相关功能", "banned");
-  check(error_message(L"account_invalid") == L"填写的内容无效，请检查后重试。", "invalid");
-  check(error_message(L"account_avatar_invalid") == L"请选择 1 MiB 以内的 PNG 或 JPEG 图片。",
-        "avatar invalid");
-  check(error_message(L"account_unauthorized") == L"登录已失效，请重新登录。", "unauthorized");
-  check(error_message(L"account_conflict") == L"云端设置已被其他设备更新，请刷新后重新确认。",
-        "conflict");
-  // 断网和「注销需要最近登录」各有说法（共享页 accountMessage 相同），不再落到「暂不可用」。
-  check(error_message(L"account_network") == L"网络连接失败，请检查网络后重试。", "network");
-  check(error_message(L"account_recent_login_required") ==
-            L"需要重新登录后再注销：请先退出登录，重新登录后再试。",
-        "recent login required");
+  // accountMessage：逐条跑各平台共用的 shared/contracts/account-errors/cases.json，每个码说成 `shared` 那一句（与共享账号页相同，不读 Retry-After）。
+  const auto contract =
+      nlohmann::json::parse(std::string(reinterpret_cast<const char *>(kAccountErrorCases), sizeof(kAccountErrorCases)));
+  size_t error_cases = 0;
+  for (const auto &item : contract.at("cases")) {
+    const auto code = item.at("code").get<std::string>();
+    const bool same = error_message(widen(code)) == widen(item.at("shared").get<std::string>());
+    if (!same)
+      std::fprintf(stderr, "FAIL: account error %s\n", code.c_str());
+    check(same, "account error case");
+    ++error_cases;
+  }
+  check(error_cases > 10, "account error cases were read");
+  // 用例之外：不是账号码的写法和空串也是服务暂不可用。
   check(error_message(L"conflict") == L"账号服务暂不可用，请稍后再试。" &&
             error_message(L"") == L"账号服务暂不可用，请稍后再试。",
         "unknown codes");

@@ -1,0 +1,182 @@
+{
+  "description": "账号会话在各平台存储里的真实字节（#8201 迁移计划第 6 步）。权威实现是 crates/client-services/src/account/file_storage.rs 的 decode_at 和 encode_session：读的时候 Native、Apple、鸿蒙扁平三种布局都认（Android v2 就是 Native），写的时候按存储的 layout（0 是 Native，1 是 Apple）。document 是存储里的原样字节（一个 JSON 字符串）；session 是 Rust 在 now_unix_ms 时读出的结果，按 Native 布局的字段名写，session_id 为 null 表示没有；error 表示读不出，是 Rust 的错误码。rust_writes 为 true 时 Rust 按这个布局写出的字节与 document 逐字节相同。expires_in_at 是扁平布局在别的时刻读出的 expires_in。所有过期时间都在过去，交给 status 一类不刷新的操作时不会因为「过期时间太远」被拒、也不会联网。消费方：client-services 的 file_storage 与 host_storage 测试、shared/backend 的 BackendSessionLayoutCaseTests（Apple 布局）、Android 的 SessionStoreDeviceSmoke（android_v2，经构建时打进测试包的 assets）。",
+  "cases": [
+    {
+      "name": "native",
+      "layout": "native",
+      "writer": "Rust 的 SavedAccountSession（serde_json）：Windows、Linux、Tauri 桌面、鸿蒙目录模式和 Android 注入存储按 layout 0 写出的就是它。",
+      "rust_writes": true,
+      "document": "{\"tokens\":{\"access_token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"refresh_token\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"synthetic-native\",\"display_name\":\"合成用户\",\"created_at\":\"2026-01-01T00:00:00Z\"}},\"expires_at_unix_ms\":1780000000000,\"session_id\":\"0f8fad5b-d9cb-469f-a165-70867728950e\"}",
+      "now_unix_ms": 1779000000000,
+      "session": {
+        "tokens": {
+          "access_token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "refresh_token": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "token_type": "Bearer",
+          "expires_in": 900,
+          "user": {
+            "id": "synthetic-native",
+            "display_name": "合成用户",
+            "created_at": "2026-01-01T00:00:00Z"
+          }
+        },
+        "expires_at_unix_ms": 1780000000000,
+        "session_id": "0f8fad5b-d9cb-469f-a165-70867728950e"
+      }
+    },
+    {
+      "name": "apple_swift",
+      "layout": "apple",
+      "writer": "Swift 的 BackendSavedSession 经 JSONEncoder() 写出（shared/backend 的 BackendKeychain 和 BackendDesktopSessionFile）：键的顺序不固定，斜杠转义成 \\/，expiresAt 是 2001-01-01 起的秒数带小数，sessionID 是大写的 UUID。用本机 swift test 实际编码一次得到的字节。",
+      "rust_writes": false,
+      "document": "{\"sessionID\":\"6F9619FF-8B86-D011-B42D-00C04FC964FF\",\"tokens\":{\"refresh_token\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token_type\":\"Bearer\",\"access_token\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"expires_in\":900,\"user\":{\"id\":\"synthetic-apple\",\"created_at\":\"2026-03-14T08:21:05.123456Z\",\"email\":\"person@example.test\",\"display_name\":\"合成用户\",\"avatar_url\":\"https:\\/\\/media.msime.app\\/avatars\\/synthetic.jpg\"}},\"expiresAt\":801234567.891}",
+      "now_unix_ms": 1779000000000,
+      "session": {
+        "tokens": {
+          "access_token": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "refresh_token": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "token_type": "Bearer",
+          "expires_in": 900,
+          "user": {
+            "id": "synthetic-apple",
+            "display_name": "合成用户",
+            "created_at": "2026-03-14T08:21:05.123456Z",
+            "email": "person@example.test",
+            "avatar_url": "https://media.msime.app/avatars/synthetic.jpg"
+          }
+        },
+        "expires_at_unix_ms": 1779541767891,
+        "session_id": "6f9619ff-8b86-d011-b42d-00c04fc964ff"
+      }
+    },
+    {
+      "name": "apple_rust",
+      "layout": "apple",
+      "writer": "Rust 按 layout 1（Apple）写出：expiresAt 带 .0，sessionID 小写，没有 avatar_url 时不写这个键。Swift 必须读得出。",
+      "rust_writes": true,
+      "document": "{\"tokens\":{\"access_token\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"refresh_token\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"synthetic-apple-rust\",\"display_name\":\"\",\"created_at\":\"2026-01-01T00:00:00Z\",\"email\":\"person@example.test\"}},\"expiresAt\":800000000.0,\"sessionID\":\"7c9e6679-7425-40de-944b-e07fc1f90ae7\"}",
+      "now_unix_ms": 1778000000000,
+      "session": {
+        "tokens": {
+          "access_token": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "refresh_token": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "token_type": "Bearer",
+          "expires_in": 900,
+          "user": {
+            "id": "synthetic-apple-rust",
+            "display_name": "",
+            "created_at": "2026-01-01T00:00:00Z",
+            "email": "person@example.test"
+          }
+        },
+        "expires_at_unix_ms": 1778307200000,
+        "session_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+      }
+    },
+    {
+      "name": "harmony_flat",
+      "layout": "harmony_flat",
+      "writer": "鸿蒙旧版 ArkTS（已删除的 AccountCloudBridge.ts）JSON.stringify 写出的扁平会话，expires_at 是 Unix 毫秒，没有 expires_in 和 session_id；Rust 只读，expires_in 按 now_unix_ms 时剩余的秒数四舍五入、至少为 1。",
+      "rust_writes": false,
+      "document": "{\"access_token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"refresh_token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"token_type\":\"Bearer\",\"expires_at\":1779000000000,\"user\":{\"id\":\"synthetic-harmony\",\"display_name\":\"合成用户\",\"created_at\":\"2026-01-01T00:00:00Z\"}}",
+      "now_unix_ms": 1778999100400,
+      "session": {
+        "tokens": {
+          "access_token": "1111111111111111111111111111111111111111111111111111111111111111",
+          "refresh_token": "2222222222222222222222222222222222222222222222222222222222222222",
+          "token_type": "Bearer",
+          "expires_in": 900,
+          "user": {
+            "id": "synthetic-harmony",
+            "display_name": "合成用户",
+            "created_at": "2026-01-01T00:00:00Z"
+          }
+        },
+        "expires_at_unix_ms": 1779000000000,
+        "session_id": null
+      },
+      "expires_in_at": [
+        {
+          "now_unix_ms": 1778999100600,
+          "expires_in": 899
+        },
+        {
+          "now_unix_ms": 1778999999600,
+          "expires_in": 1
+        },
+        {
+          "now_unix_ms": 1779000000000,
+          "expires_in": 1
+        },
+        {
+          "now_unix_ms": 1779003600000,
+          "expires_in": 1
+        }
+      ]
+    },
+    {
+      "name": "harmony_flat_expired",
+      "layout": "harmony_flat",
+      "writer": "同上，访问令牌早已过期、刷新令牌还在：升级后第一次读到时多数用户是这个状态，读出来 expires_in 是 1，照样拿刷新令牌去刷新。",
+      "rust_writes": false,
+      "document": "{\"access_token\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"refresh_token\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"token_type\":\"Bearer\",\"expires_at\":1760000000000,\"user\":{\"id\":\"synthetic-harmony\",\"display_name\":\"合成用户\",\"created_at\":\"2026-01-01T00:00:00Z\"}}",
+      "now_unix_ms": 1780000000000,
+      "session": {
+        "tokens": {
+          "access_token": "5555555555555555555555555555555555555555555555555555555555555555",
+          "refresh_token": "6666666666666666666666666666666666666666666666666666666666666666",
+          "token_type": "Bearer",
+          "expires_in": 1,
+          "user": {
+            "id": "synthetic-harmony",
+            "display_name": "合成用户",
+            "created_at": "2026-01-01T00:00:00Z"
+          }
+        },
+        "expires_at_unix_ms": 1760000000000,
+        "session_id": null
+      }
+    },
+    {
+      "name": "android_v2",
+      "layout": "android_v2",
+      "writer": "Android 原来的 Java（BackendAccount.keepSession，#8201 5b 删掉）存进 msime_account_session_v2 的会话：new JSONObject().put(\"tokens\", 服务端原样的 tokens).put(\"session_id\", UUID).put(\"expires_at_unix_ms\", 毫秒)，Android 的 org.json 把斜杠转义成 \\/；created_at 是服务端 Go 的 RFC 3339 带微秒。5b 起 AccountStore 把这份字节原样交给 Rust，Rust 按 Native 布局读。",
+      "rust_writes": false,
+      "document": "{\"tokens\":{\"access_token\":\"7777777777777777777777777777777777777777777777777777777777777777\",\"refresh_token\":\"8888888888888888888888888888888888888888888888888888888888888888\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"synthetic-android\",\"display_name\":\"合成用户\",\"created_at\":\"2026-02-03T04:05:06.789012Z\",\"email\":\"person@example.test\",\"avatar_url\":\"https:\\/\\/media.msime.app\\/avatars\\/synthetic.jpg\"}},\"session_id\":\"9b2d3c4e-5f60-4718-8a9b-0c1d2e3f4a5b\",\"expires_at_unix_ms\":1779500000123}",
+      "now_unix_ms": 1779000000000,
+      "session": {
+        "tokens": {
+          "access_token": "7777777777777777777777777777777777777777777777777777777777777777",
+          "refresh_token": "8888888888888888888888888888888888888888888888888888888888888888",
+          "token_type": "Bearer",
+          "expires_in": 900,
+          "user": {
+            "id": "synthetic-android",
+            "display_name": "合成用户",
+            "created_at": "2026-02-03T04:05:06.789012Z",
+            "email": "person@example.test",
+            "avatar_url": "https://media.msime.app/avatars/synthetic.jpg"
+          }
+        },
+        "expires_at_unix_ms": 1779500000123,
+        "session_id": "9b2d3c4e-5f60-4718-8a9b-0c1d2e3f4a5b"
+      }
+    },
+    {
+      "name": "harmony_flat_missing_fields",
+      "layout": "harmony_flat",
+      "writer": "少了字段的扁平文档不是会话。",
+      "document": "{\"access_token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"expires_at\":1}",
+      "now_unix_ms": 1779000000000,
+      "error": "account_storage"
+    },
+    {
+      "name": "not_json",
+      "layout": "native",
+      "writer": "读不出 JSON 的内容不是会话。",
+      "document": "not json",
+      "now_unix_ms": 1779000000000,
+      "error": "account_storage"
+    }
+  ]
+}

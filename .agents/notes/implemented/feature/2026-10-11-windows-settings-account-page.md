@@ -29,7 +29,7 @@ Status: implemented
 
 - 原生设置窗口不再为任何设置页拉起共享应用；`PageHost::Shell` 还在类型里，但没有页面用它。还会打开共享应用的只有输入工具面板（屏幕键盘、语音、手写、云词库、云剪贴板）和社区作品库（社区皮肤、社区词包与回复模板）。
 - 有意与共享页不同的两处：改了号码以后重发倒计时照样走完（共享页 challenge 清空后不再更新 `now`，「N 秒后可重新发送」会停住，按钮一直不可用）；「我的内容」四行都落在社区首页，要在那里自己选列表。
-- 共享账号页、`account-labels.ts`、`account-errors.ts` 或 `createDesktopSettingsSync` 的文案和规则改了，要同步 `AccountPageModel.h` 和 `main.cpp`。
+- 共享账号页、`account-labels.ts`、`account-errors.ts` 或 `createDesktopSettingsSync` 的文案和规则改了，要同步 `AccountPageModel.h` 和 `main.cpp`。错误码的说法由共享用例 `shared/contracts/account-errors/cases.json` 约束，`accountMessage` 和 `error_message` 逐条跑同一份（[账号会话布局与账号错误码的共享用例](../testing/2026-10-19-account-shared-contract-cases.md)）。
 
 ## Verification
 

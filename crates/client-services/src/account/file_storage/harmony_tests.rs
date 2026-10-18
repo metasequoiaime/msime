@@ -1,23 +1,14 @@
-//! 鸿蒙的会话文件（#8201 的 P1、P2）：ArkTS 写的文件带属组位，登录会话还是扁平布局。
+//! 鸿蒙的会话文件（#8201 的 P1、P2）：ArkTS 写的文件带属组位，登录会话还是扁平布局。扁平布局的字节和读出的结果在共享用例 `shared/contracts/account-session-layouts/cases.json` 里（`harmony_flat`、`harmony_flat_expired`），解码规则由 `layout_cases_tests` 逐条核对。
 
+use super::layout_cases_tests::{case_document, layout_case};
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-const ACCESS: &str = "1111111111111111111111111111111111111111111111111111111111111111";
-const REFRESH: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64
-}
-
-/// `AccountCloudBridge.ts` 保存的扁平会话，`expires_at` 是 Unix 毫秒。
-fn flat_session(expires_at: u64) -> String {
-    format!(
-        r#"{{"access_token":"{ACCESS}","refresh_token":"{REFRESH}","token_type":"Bearer","expires_at":{expires_at},"user":{{"id":"synthetic-harmony","display_name":"合成用户","created_at":"2026-01-01T00:00:00Z"}}}}"#
-    )
 }
 
 #[cfg(unix)]
@@ -27,9 +18,9 @@ fn harmony_reads_group_writable_session_and_keystore_files_and_other_hosts_do_no
     let root = tempfile::tempdir().unwrap();
     let storage = FileAccountSessionStorage::new(root.path(), AccountSessionFileLayout::Native);
     storage.create_directory().unwrap();
-    let session = flat_session(now_ms() + 600_000);
+    let session = case_document(&layout_case("harmony_flat"));
     for (name, contents) in [
-        (ACCOUNT_SESSION_FILE, session.as_bytes()),
+        (ACCOUNT_SESSION_FILE, session.as_slice()),
         (CLOUD_CLIPBOARD_KEYSTORE_FILE, b"v1.synthetic".as_slice()),
     ] {
         let path = root.path().join(name);
@@ -64,44 +55,6 @@ fn harmony_reads_group_writable_session_and_keystore_files_and_other_hosts_do_no
             );
         }
     }
-}
-
-#[test]
-fn the_flat_harmony_layout_decodes_with_the_remaining_lifetime_as_expires_in() {
-    let now = 1_800_000_000_000;
-    let saved = decode_at(flat_session(now + 899_600).as_bytes(), now).unwrap();
-    assert_eq!(saved.tokens.access_token, ACCESS);
-    assert_eq!(saved.tokens.refresh_token, REFRESH);
-    assert_eq!(saved.tokens.token_type, "Bearer");
-    assert_eq!(saved.tokens.user.id, "synthetic-harmony");
-    assert_eq!(saved.tokens.user.display_name, "合成用户");
-    assert_eq!(saved.expires_at_unix_ms, now + 899_600);
-    assert_eq!(saved.session_id, None);
-    // 与鸿蒙旧版 ArkTS 的 `anonymousSessionForStorage`（已删除）相同：剩余毫秒数除以 1000 四舍五入。
-    assert_eq!(saved.tokens.expires_in, 900);
-    assert_eq!(
-        decode_at(flat_session(now + 899_400).as_bytes(), now)
-            .unwrap()
-            .tokens
-            .expires_in,
-        899
-    );
-    // 已经过期或只剩不到半秒时至少是 1，否则 `validate_tokens` 会把整个会话当成坏的。
-    for expires_at in [now - 3_600_000, now, now + 400] {
-        let saved = decode_at(flat_session(expires_at).as_bytes(), now).unwrap();
-        assert_eq!(saved.tokens.expires_in, 1);
-        assert_eq!(saved.expires_at_unix_ms, expires_at);
-        super::super::validate::validate_tokens(&saved.tokens).unwrap();
-    }
-    // 少了字段的扁平文档不是会话。
-    assert_eq!(
-        decode_at(
-            format!(r#"{{"access_token":"{ACCESS}","expires_at":1}}"#).as_bytes(),
-            now
-        )
-        .err(),
-        Some(AccountError::Storage)
-    );
 }
 
 /// 刷新时轮换令牌，记下收到的刷新令牌。
@@ -158,12 +111,13 @@ impl AccountApi for RefreshingApi {
 #[test]
 fn an_upgraded_flat_session_with_an_expired_access_token_refreshes_and_is_saved_native() {
     // 升级时多数用户的状态：ArkTS 存的扁平会话，访问令牌早就过期了，刷新令牌还有效。
+    let expired = layout_case("harmony_flat_expired");
     let root = tempfile::tempdir().unwrap();
     let storage = FileAccountSessionStorage::new(root.path(), AccountSessionFileLayout::Native);
     storage.create_directory().unwrap();
     std::fs::write(
         root.path().join(ACCOUNT_SESSION_FILE),
-        flat_session(now_ms() - 3_600_000),
+        case_document(&expired),
     )
     .unwrap();
     #[cfg(unix)]
@@ -182,7 +136,12 @@ fn an_upgraded_flat_session_with_an_expired_access_token_refreshes_and_is_saved_
     let (user, token) = session.credentials(None, None).unwrap();
     assert_eq!(user, "synthetic-harmony");
     assert_eq!(token, "3".repeat(64));
-    assert_eq!(*api.presented.lock().unwrap(), [REFRESH]);
+    assert_eq!(
+        *api.presented.lock().unwrap(),
+        [expired["session"]["tokens"]["refresh_token"]
+            .as_str()
+            .unwrap()]
+    );
 
     // 写回的是 Native 布局，带上了补出的登录 ID，再读一次不用再刷新。
     let written: serde_json::Value =
@@ -213,14 +172,18 @@ fn a_published_session_is_read_with_the_same_rules_in_any_layout() {
         .unwrap();
     let path = published.join(ACCOUNT_SESSION_FILE);
     assert!(read_published_session(&path).unwrap().is_none());
-    std::fs::write(&path, flat_session(now_ms() + 600_000)).unwrap();
+    let flat = layout_case("harmony_flat");
+    std::fs::write(&path, case_document(&flat)).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
     let saved = read_published_session(&path).unwrap().unwrap();
-    assert_eq!(saved.tokens.refresh_token, REFRESH);
+    assert_eq!(
+        saved.tokens.refresh_token,
+        flat["session"]["tokens"]["refresh_token"].as_str().unwrap()
+    );
     std::fs::write(&path, b"{}").unwrap();
     assert_eq!(
         read_published_session(&path).err(),

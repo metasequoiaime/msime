@@ -1,0 +1,278 @@
+{
+  "description": "账号错误码从哪里来、在账号页上说成哪一句（#8201 迁移计划第 6 步）。from 是 Rust 产生这个码的输入，权威实现是 crates/client-services/src/account.rs 的 AccountFailure::code（#8201 新加的操作经它取码；已有操作经 AccountError::code，404 仍是 account_unavailable）：status 是服务端的 HTTP 状态，server_code 是正文 {\"error\":{\"code\":...}} 里的码，retry_after 是 Retry-After 头的原文，Rust 读出的秒数是 retry_after_seconds；network 是请求没有拿到响应；local 是本地就给出的失败（storage、cancelled 是 AccountError 的变体，too_large、identity_changed、busy 是 AccountFailure 的同名构造）。from 为空的码不是 Rust 发的。shared 是共享账号页 packages/ui/src/account/account-errors.ts 的 accountMessage，Windows 原生设置的 AccountPageModel.h 的 error_message 逐字相同；apple 是 shared/backend 的 BackendRustClient.Failure 的 errorDescription（iOS 和 macOS 的账号页）；android 是 Android 个人资料页的 AccountFailureText.profile。三份文案表各跑每一条，按 code 和 retry_after_seconds（没有时是没有 Retry-After）作答；Rust 的测试核对 from 和 AccountError 的每个变体、AccountFailure 的每个本地码都在这里。",
+  "cases": [
+    {
+      "code": "account_invalid",
+      "from": [
+        {
+          "status": 400
+        },
+        {
+          "status": 400,
+          "server_code": "invalid_json"
+        }
+      ],
+      "shared": "填写的内容无效，请检查后重试。",
+      "apple": "填写的内容无效，请检查后重试。",
+      "android": "没有完成，请稍后再试"
+    },
+    {
+      "code": "account_avatar_invalid",
+      "from": [],
+      "shared": "请选择 1 MiB 以内的 PNG 或 JPEG 图片。",
+      "apple": "账号服务暂不可用，请稍后再试。",
+      "android": "没有完成，请稍后再试",
+      "note": "Rust 不发这个码：共享账号页和 Windows 原生设置上传头像收到 account_invalid 时自己换成它。"
+    },
+    {
+      "code": "account_unauthorized",
+      "from": [
+        {
+          "status": 401
+        },
+        {
+          "status": 403
+        }
+      ],
+      "shared": "登录已失效，请重新登录。",
+      "apple": "登录已失效，请重新登录。",
+      "android": "登录已失效，请重新登录"
+    },
+    {
+      "code": "account_conflict",
+      "from": [
+        {
+          "status": 409
+        }
+      ],
+      "shared": "云端设置已被其他设备更新，请刷新后重新确认。",
+      "apple": "云端内容已被其他设备更新，请刷新后重新确认。",
+      "android": "没有完成，请稍后再试"
+    },
+    {
+      "code": "account_rate_limited",
+      "retry_after_seconds": 90,
+      "from": [
+        {
+          "status": 429,
+          "retry_after": "90"
+        },
+        {
+          "status": 503,
+          "server_code": "server_busy",
+          "retry_after": "90"
+        }
+      ],
+      "shared": "操作过于频繁，请稍后再试。",
+      "apple": "操作过于频繁，请约 2 分钟后再试。",
+      "android": "操作太频繁，请约 2 分钟后再试",
+      "note": "共享账号页和 Windows 不读 Retry-After。"
+    },
+    {
+      "code": "account_rate_limited",
+      "from": [
+        {
+          "status": 429
+        }
+      ],
+      "shared": "操作过于频繁，请稍后再试。",
+      "apple": "操作过于频繁，请稍后再试。",
+      "android": "操作太频繁，请稍后再试"
+    },
+    {
+      "code": "account_storage",
+      "from": [
+        {
+          "local": "storage"
+        }
+      ],
+      "shared": "无法安全读取登录状态，请检查设备安全设置。",
+      "apple": "无法安全读取登录状态，请检查设备安全设置。",
+      "android": "读不到本机的登录状态，请重新登录"
+    },
+    {
+      "code": "account_cancelled",
+      "from": [
+        {
+          "local": "cancelled"
+        }
+      ],
+      "shared": "操作已取消，请重试。",
+      "apple": "操作已取消，请重试。",
+      "android": "登录已改变，请重新打开页面"
+    },
+    {
+      "code": "account_network",
+      "from": [
+        {
+          "network": true
+        }
+      ],
+      "shared": "网络连接失败，请检查网络后重试。",
+      "apple": "网络连接失败，请检查网络后重试。",
+      "android": "连不上服务器，请检查网络后再试"
+    },
+    {
+      "code": "account_recent_login_required",
+      "from": [
+        {
+          "status": 403,
+          "server_code": "recent_login_required"
+        }
+      ],
+      "shared": "需要重新登录后再注销：请先退出登录，重新登录后再试。",
+      "apple": "需要重新登录后再注销：请先退出登录，重新登录后再试。",
+      "android": "需要重新登录后再试"
+    },
+    {
+      "code": "account_unavailable",
+      "from": [
+        {
+          "status": 503
+        },
+        {
+          "status": 500
+        },
+        {
+          "status": 502
+        }
+      ],
+      "shared": "账号服务暂不可用，请稍后再试。",
+      "apple": "账号服务暂不可用，请稍后再试。",
+      "android": "暂时没有完成，请检查网络后再试",
+      "note": "Android 的个人资料页带上「检查网络」：已有的账号操作断网时仍是 account_unavailable。"
+    },
+    {
+      "code": "account_not_found",
+      "from": [
+        {
+          "status": 404
+        }
+      ],
+      "shared": "账号服务暂不可用，请稍后再试。",
+      "apple": "账号服务暂不可用，请稍后再试。",
+      "android": "没有完成，请稍后再试"
+    },
+    {
+      "code": "account_too_large",
+      "from": [
+        {
+          "status": 413
+        },
+        {
+          "status": 400,
+          "server_code": "feedback_too_large"
+        },
+        {
+          "local": "too_large"
+        }
+      ],
+      "shared": "账号服务暂不可用，请稍后再试。",
+      "apple": "内容超出大小限制，请缩减后重试。",
+      "android": "图片超过 1 MB，请换一张小一些的",
+      "note": "Android 的个人资料页只有上传头像会超限。"
+    },
+    {
+      "code": "account_blocked_content",
+      "from": [
+        {
+          "status": 422,
+          "server_code": "blocked_content"
+        }
+      ],
+      "shared": "内容包含不允许发布的词语，请修改后再提交",
+      "apple": "内容包含不允许发布的词语，请修改后再提交",
+      "android": "内容包含不允许发布的词语，请修改后再提交"
+    },
+    {
+      "code": "account_screening_unavailable",
+      "from": [
+        {
+          "status": 503,
+          "server_code": "screening_unavailable"
+        }
+      ],
+      "shared": "审核服务暂时不可用，请稍后重试",
+      "apple": "审核服务暂时不可用，请稍后重试",
+      "android": "审核服务暂时不可用，请稍后重试"
+    },
+    {
+      "code": "account_banned",
+      "from": [
+        {
+          "status": 403,
+          "server_code": "account_banned"
+        }
+      ],
+      "shared": "该账号已被封禁，暂时无法使用账号相关功能",
+      "apple": "该账号已被封禁，暂时无法使用账号相关功能",
+      "android": "该账号已被封禁，暂时无法使用账号相关功能"
+    },
+    {
+      "code": "account_identity_changed",
+      "from": [
+        {
+          "local": "identity_changed"
+        }
+      ],
+      "shared": "账号服务暂不可用，请稍后再试。",
+      "apple": "账号服务暂不可用，请稍后再试。",
+      "android": "没有完成，请稍后再试"
+    },
+    {
+      "code": "account_busy",
+      "from": [
+        {
+          "local": "busy"
+        }
+      ],
+      "shared": "账号服务暂不可用，请稍后再试。",
+      "apple": "账号服务暂不可用，请稍后再试。",
+      "android": "没有完成，请稍后再试"
+    },
+    {
+      "code": "account_no_verified_email",
+      "from": [
+        {
+          "status": 409,
+          "server_code": "no_verified_email"
+        }
+      ],
+      "shared": "账号服务暂不可用，请稍后再试。",
+      "apple": "账号服务暂不可用，请稍后再试。",
+      "android": "没有完成，请稍后再试"
+    },
+    {
+      "code": "account_qq_link_code_not_found",
+      "from": [
+        {
+          "status": 404,
+          "server_code": "qq_link_code_not_found"
+        }
+      ],
+      "shared": "账号服务暂不可用，请稍后再试。",
+      "apple": "账号服务暂不可用，请稍后再试。",
+      "android": "没有完成，请稍后再试"
+    },
+    {
+      "code": "account_qq_link_limit",
+      "from": [
+        {
+          "status": 409,
+          "server_code": "qq_link_limit"
+        }
+      ],
+      "shared": "账号服务暂不可用，请稍后再试。",
+      "apple": "账号服务暂不可用，请稍后再试。",
+      "android": "没有完成，请稍后再试"
+    },
+    {
+      "code": "account_synthetic_unknown",
+      "from": [],
+      "shared": "账号服务暂不可用，请稍后再试。",
+      "apple": "账号服务暂不可用，请稍后再试。",
+      "android": "没有完成，请稍后再试",
+      "note": "不认识的码。"
+    }
+  ]
+}

@@ -561,7 +561,7 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
     }
 
     /**
-     * 产品的存储适配器（AccountStore 的 Items）原样交出 Java 原来写的 v2 会话：用 AndroidAccountSessionStorage 加密写进 `msime_account_session_v2`，再把适配器另外注册一次，Rust 的 status 读得出这个账号。匿名身份的 save 是「不存在才写」。用到的项最后都删掉。
+     * 产品的存储适配器（AccountStore 的 Items）原样交出 Java 原来写的 v2 会话：共享用例 `shared/contracts/account-session-layouts/cases.json` 的 `android_v2`（构建时打进测试包的 assets）用 AndroidAccountSessionStorage 加密写进 `msime_account_session_v2`，再把适配器另外注册一次，Rust 的 status 读出用例里的账号。用例的过期时间在过去，status 不刷新；要拿访问令牌时由 Android 的 org.json 把它改成一小时以后再写一份、重新注册（flags=0 的存储 Rust 读一次就缓存），先核对 org.json 写回的字节与用例逐字相同，用例确实是这台设备上 Java 写出的形状。匿名身份的 save 是「不存在才写」。用到的项最后都删掉。
      */
     private void accountStoreAdapter() throws Exception {
         android.content.Context target = getTargetContext();
@@ -573,20 +573,31 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
         Method clear = storage.getMethod("clear");
         // 专用 AVD 上的产品没有登录过；有会话时不去覆盖它。
         check(storage.getMethod("load").invoke(v2) == null, "the product already holds a v2 session; use a fresh AVD");
+        JSONObject layout = layoutCase("android_v2");
+        String document = layout.getString("document");
+        JSONObject expected = layout.getJSONObject("session").getJSONObject("tokens");
+        check(document.equals(new JSONObject(document).toString()),
+            "the android_v2 case is not what this device's org.json writes: " + new JSONObject(document));
         Object adapter = productAdapter(target);
         long id = 0;
         try {
-            save.invoke(v2, new String(sessionBytes(), StandardCharsets.UTF_8));
-            JSONObject registered = value(callRaw("sessionStoreRegisterRaw", new Class<?>[] {storeType, byte[].class},
-                adapter, null));
-            id = registered.getJSONObject("value").getLong("session_store");
+            save.invoke(v2, document);
+            id = registerProductAdapter(adapter);
             JSONObject status = value(call("accountRaw", new JSONObject().put("session_store", id)
                 .put("action", new JSONObject().put("operation", "status"))));
-            check(USER.equals(status.getJSONObject("value").getJSONObject("user").getString("id")),
+            check(expected.getJSONObject("user").getString("id")
+                    .equals(status.getJSONObject("value").getJSONObject("user").getString("id")),
                 "Rust did not read the Java v2 session through the product adapter: " + status);
+            callRaw("sessionStoreUnregisterRaw", new Class<?>[] {long.class}, id);
+            id = 0;
+
+            save.invoke(v2, new JSONObject(document)
+                .put("expires_at_unix_ms", System.currentTimeMillis() + 3_600_000L).toString());
+            id = registerProductAdapter(adapter);
             JSONObject token = value(call("accountAccessTokenRaw", new JSONObject().put("session_store", id)))
                 .getJSONObject("value");
-            check(hex('a').equals(token.getString("access_token")) && !token.getBoolean("anonymous"),
+            check(expected.getString("access_token").equals(token.getString("access_token"))
+                    && !token.getBoolean("anonymous"),
                 "access token through the product adapter: " + token);
 
             Method load = storeType.getMethod("load", int.class);
@@ -608,6 +619,26 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
             if (id > 0) callRaw("sessionStoreUnregisterRaw", new Class<?>[] {long.class}, id);
             clear.invoke(v2);
         }
+    }
+
+    private long registerProductAdapter(Object adapter) throws Exception {
+        return value(callRaw("sessionStoreRegisterRaw", new Class<?>[] {storeType, byte[].class}, adapter, null))
+            .getJSONObject("value").getLong("session_store");
+    }
+
+    /** 共享用例 account-session-layouts 里名为 name 的那一条；build-editor.sh 把用例文件打进测试包的 assets。 */
+    private JSONObject layoutCase(String name) throws Exception {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        // InputStream.readAllBytes 要 API 33，设备套件也跑 API 28。
+        try (java.io.InputStream input = getContext().getAssets().open("contracts/account-session-layouts/cases.json")) {
+            byte[] buffer = new byte[8192];
+            for (int read; (read = input.read(buffer)) > 0; ) bytes.write(buffer, 0, read);
+        }
+        JSONArray cases = new JSONObject(new String(bytes.toByteArray(), StandardCharsets.UTF_8)).getJSONArray("cases");
+        for (int index = 0; index < cases.length(); index++) {
+            if (name.equals(cases.getJSONObject(index).getString("name"))) return cases.getJSONObject(index);
+        }
+        throw new AssertionError("no layout case named " + name);
     }
 
     /** 产品的存储适配器（AccountStore 的 Items），和 AccountStore 注册给 Rust 的是同一个类。 */

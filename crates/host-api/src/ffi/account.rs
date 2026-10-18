@@ -968,31 +968,35 @@ mod tests {
         }
 
         #[test]
-        fn an_apple_layout_store_reads_what_swift_wrote() {
-            let store = leaked_store();
-            let id = registered(store, SHARED, 1);
-            // Swift 的 BackendSavedSession：expiresAt 是 2001 年起的秒数。
-            let document = json!({
-                "tokens": {
-                    "access_token": "a".repeat(64),
-                    "refresh_token": "b".repeat(64),
-                    "token_type": "Bearer",
-                    "expires_in": 900,
-                    "user": {
-                        "id": "synthetic-user",
-                        "display_name": "",
-                        "created_at": "2026-01-01T00:00:00Z",
-                        "email": "person@example.test",
-                    },
-                },
-                "expiresAt": 800_000_000.0,
-                "sessionID": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
-            });
-            put(store, 1, document.to_string().into_bytes());
-            let user = &store_action(id, json!({ "operation": "status" }))["value"]["user"];
-            assert_eq!(user["id"], "synthetic-user");
-            assert_eq!(user["email"], "person@example.test");
-            unregister(id);
+        fn every_shared_layout_case_reads_through_a_host_store() {
+            // 共享用例 `shared/contracts/account-session-layouts/cases.json`：Swift、Rust、鸿蒙旧版 ArkTS 和 Android 原来的 Java 写的真实字节，经 C 接口注册的宿主存储交来，status 认出用例里的账号；Apple 布局的用例按 layout 1 注册，其余按 layout 0。读不出的是 account_storage。
+            let contract: Value = serde_json::from_str(include_str!(
+                "../../../../shared/contracts/account-session-layouts/cases.json"
+            ))
+            .unwrap();
+            for case in contract["cases"].as_array().unwrap() {
+                let name = case["name"].as_str().unwrap();
+                let store = leaked_store();
+                let id = registered(store, SHARED, u32::from(case["layout"] == "apple"));
+                put(
+                    store,
+                    1,
+                    case["document"].as_str().unwrap().as_bytes().to_vec(),
+                );
+                let status = store_action(id, json!({ "operation": "status" }));
+                if let Some(code) = case["error"].as_str() {
+                    assert_eq!(status, json!({ "ok": false, "error": code }), "{name}");
+                } else {
+                    let user = &case["session"]["tokens"]["user"];
+                    assert_eq!(status["value"]["user"]["id"], user["id"], "{name}");
+                    assert_eq!(
+                        status["value"]["user"].get("email"),
+                        user.get("email"),
+                        "{name}"
+                    );
+                }
+                unregister(id);
+            }
         }
 
         #[test]

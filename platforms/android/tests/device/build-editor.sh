@@ -16,7 +16,10 @@ done < platforms/android/tests/device/editor-sources.txt
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$build_dir/classes" "${sources[@]}"
 jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
 "$tools_dir/d8" --release --min-api 28 --lib "$android_jar" --output "$build_dir/dex" "$build_dir/classes.jar"
-"$tools_dir/aapt2" link -I "$android_jar" --manifest platforms/android/tests/device/AndroidManifest.xml -o "$build_dir/unsigned.apk"
+# 设备冒烟读的共享用例（SessionStoreDeviceSmoke 的 android_v2 会话）打进测试包的 assets，设备上没有仓库。
+mkdir -p "$build_dir/assets/contracts/account-session-layouts"
+cp shared/contracts/account-session-layouts/cases.json "$build_dir/assets/contracts/account-session-layouts/cases.json"
+"$tools_dir/aapt2" link -I "$android_jar" --manifest platforms/android/tests/device/AndroidManifest.xml -A "$build_dir/assets" -o "$build_dir/unsigned.apk"
 (cd "$build_dir/dex" && zip -q -0 "$build_dir/unsigned.apk" classes.dex)
 "$tools_dir/zipalign" -P 16 4 "$build_dir/unsigned.apk" "$build_dir/aligned.apk"
 # Instrumentation that targets app.msime.android only runs when this package carries the app's certificate, so it signs with the same key (scripts/signing.sh).

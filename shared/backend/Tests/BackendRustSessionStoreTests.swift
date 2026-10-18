@@ -216,15 +216,15 @@ final class BackendRustSessionStoreTests: XCTestCase {
     XCTAssertGreaterThan(count, 0)
     XCTAssertEqual(bytes, try Data(contentsOf: state.appendingPathComponent("account-session.json")))
 
-    // Rust 按布局 1 写的会话（serde 的输出：sessionID 小写，expiresAt 是 2001 年起的秒数），Swift 照常读出。
-    let sessionID = UUID()
-    let expiresAt = Date().addingTimeInterval(900).timeIntervalSinceReferenceDate.rounded()
-    let rust = #"{"tokens":{"access_token":"\#(String(repeating: "c", count: 64))","refresh_token":"\#(String(repeating: "d", count: 64))","token_type":"Bearer","expires_in":900,"user":{"id":"synthetic-user","display_name":"合成用户","created_at":"2026-10-18"}},"expiresAt":\#(expiresAt),"sessionID":"\#(sessionID.uuidString.lowercased())"}"#
-    XCTAssertEqual(save(store, account, Data(rust.utf8)), 0)
+    // Rust 按布局 1 写的会话（共享用例 `apple_rust`：sessionID 小写，expiresAt 是 2001 年起的秒数带 .0），经回调存下以后 Swift 照常读出。
+    let rust = try XCTUnwrap(SharedContract.cases("account-session-layouts").first { $0["name"] as? String == "apple_rust" })
+    let expected = try XCTUnwrap(rust["session"] as? [String: Any])
+    XCTAssertEqual(save(store, account, Data(try XCTUnwrap(rust["document"] as? String).utf8)), 0)
     let read = try XCTUnwrap(BackendDesktopSessionFile(directory: state).load())
-    XCTAssertEqual(read.sessionID, sessionID)
-    XCTAssertEqual(read.tokens.access_token, String(repeating: "c", count: 64))
-    XCTAssertEqual(read.expiresAt.timeIntervalSinceReferenceDate, expiresAt)
+    XCTAssertEqual(read.sessionID?.uuidString.lowercased(), expected["session_id"] as? String)
+    XCTAssertEqual(read.tokens.access_token, (expected["tokens"] as? [String: Any])?["access_token"] as? String)
+    XCTAssertEqual(read.expiresAt.timeIntervalSinceReferenceDate * 1000 + 978_307_200_000,
+                   (expected["expires_at_unix_ms"] as? NSNumber)?.doubleValue)
     let mode = try FileManager.default.attributesOfItem(atPath: state.appendingPathComponent("account-session.json").path)[.posixPermissions] as? NSNumber
     XCTAssertEqual(mode?.intValue, 0o600)
   }

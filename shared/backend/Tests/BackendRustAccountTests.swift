@@ -147,11 +147,9 @@ final class BackendRustAccountTests: XCTestCase {
     catch let failure as BackendRustClient.Failure { XCTAssertEqual(failure, .invalidResponse) }
   }
 
+  /// 账号错误码的说法由共享用例逐条核对（`BackendAccountErrorCaseTests`）；这里是用例之外的码：云剪贴板驱动的码、审核码与旧的 `BackendAccountClient.Failure` 共用一句，Swift 自己造的失败也有一句。
   func testFailuresReadInChinese() {
     func message(_ code: String) -> String? { BackendRustClient.Failure(code: code).errorDescription }
-    XCTAssertEqual(message("account_storage"), "无法安全读取登录状态，请检查设备安全设置。")
-    XCTAssertEqual(message("account_recent_login_required"), "需要重新登录后再注销：请先退出登录，重新登录后再试。")
-    XCTAssertEqual(message("account_network"), "网络连接失败，请检查网络后重试。")
     XCTAssertEqual(message("clipboard_device_pending"), BackendAccountClient.Failure.clipboardMessages["clipboard_device_pending"])
     XCTAssertEqual(message("account_blocked_content"), BackendAccountClient.Failure.moderationMessages["blocked_content"])
     XCTAssertEqual(message("rust_client_unavailable"), "账号服务暂不可用，请稍后再试。")

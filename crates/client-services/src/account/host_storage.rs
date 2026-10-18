@@ -409,6 +409,51 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn every_shared_layout_case_loads_from_an_injected_store_whatever_layout_it_registered() {
+        // 共享用例 `shared/contracts/account-session-layouts/cases.json`：Swift 的钥匙串、Android 的 v2 SharedPreferences 交来的是哪个平台写的字节，Rust 都按同一个规则读，与登记的 layout 无关；读出的会话 `status` 也认（过期时间都在过去，不会因为太远被拒）。鸿蒙扁平布局的 expires_in 取决于读的时刻，只核对它至少是 1。
+        use super::super::file_storage::layout_cases_tests::{
+            case_document, expected_session, layout_cases,
+        };
+        for case in layout_cases() {
+            let name = case["name"].as_str().unwrap();
+            for layout in [
+                AccountSessionFileLayout::Native,
+                AccountSessionFileLayout::Apple,
+            ] {
+                let backend = Arc::new(MemoryBackend {
+                    layout: Some(layout),
+                    ..Default::default()
+                });
+                backend
+                    .items
+                    .lock()
+                    .unwrap()
+                    .insert(SessionStoreItem::Account, case_document(&case));
+                let (account, _) = storages(&backend);
+                let loaded = account.load();
+                if let Some(code) = case["error"].as_str() {
+                    assert_eq!(loaded.err().map(|error| error.code()), Some(code), "{name}");
+                    continue;
+                }
+                let saved = loaded.unwrap().unwrap();
+                super::super::session::validate_saved_session(&saved)
+                    .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                let mut loaded = serde_json::to_value(&saved).unwrap();
+                let mut expected = expected_session(&case);
+                if case["layout"] == "harmony_flat" {
+                    assert!(
+                        loaded["tokens"]["expires_in"].as_u64().unwrap() >= 1,
+                        "{name}"
+                    );
+                    loaded["tokens"]["expires_in"] = 0.into();
+                    expected["tokens"]["expires_in"] = 0.into();
+                }
+                assert_eq!(loaded, expected, "{name} {layout:?}");
+            }
+        }
+    }
+
+    #[test]
     fn clearing_the_account_also_removes_the_keystore_but_not_the_anonymous_session() {
         let backend = Arc::new(MemoryBackend::default());
         let (account, anonymous) = storages(&backend);
