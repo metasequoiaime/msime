@@ -4,6 +4,7 @@ protocol CandidateTranslationService: Sendable {
   func translate(words: [String], target: String) async throws -> [String]
 }
 
+/// 账号释义：登录账号优先，没有登录时用本机匿名账号（没有可用的匿名会话时先注册它）。请求怎么拼、回答怎么读在 Rust（`AccountGloss`，`msime_client_account_gloss`），HTTP 和令牌在 Swift 的会话里：键盘扩展不注册 Rust 的会话存储（负责人决定：未测，扩展保留 Swift），与 App 里的 Rust 共用 App Group 的刷新锁。服务端以 401 拒绝令牌时刷新一次、在同一个账号里重试。
 struct BackendCandidateTranslationService: CandidateTranslationService {
   private let client: BackendAccountClient
   private let account: BackendAccountSession
@@ -18,11 +19,27 @@ struct BackendCandidateTranslationService: CandidateTranslationService {
   }
 
   func translate(words: [String], target: String) async throws -> [String] {
+    let session: BackendAccountSession
     if (try? await account.user()) != nil {
-      return try await client.translate(texts: words, target: target, session: account)
+      session = account
+    } else {
+      _ = try await token()
+      session = anonymous
     }
-    _ = try await token()
-    return try await client.translate(texts: words, target: target, session: anonymous)
+    let request = try AccountGloss.request(texts: words, target: target)
+    let identity = try await session.credentials()
+    let client = client
+    let response = try await session.authenticated(matchingUserID: identity.userID,
+                                                   matchingSessionID: identity.sessionID) { token in
+      let answer = try await client.exchange(request.method, request.path, token: token, body: request.body,
+                                             timeout: 30, maximumResponseBytes: 1024 * 1024)
+      // 被拒的令牌交给会话刷新一次再重试；其余状态码交给 Rust 读。
+      if answer.status == 401 { throw BackendAccountClient.Failure(status: 401) }
+      return answer
+    }.value
+    try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+    try Task.checkCancellation()
+    return try AccountGloss.parse(texts: words, status: response.status, body: response.body).map { $0 ?? "" }
   }
 
   private func token() async throws -> String {
@@ -159,5 +176,59 @@ final class CandidateTranslationStore {
     }
     if arrived { onArrival?() }
     return true
+  }
+}
+
+@_silgen_name("msime_client_account_gloss")
+private func msimeClientAccountGloss(_ request: UnsafePointer<UInt8>?, _ length: Int) -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("msime_client_string_free")
+private func msimeAccountGlossStringFree(_ value: UnsafeMutablePointer<CChar>?)
+
+/// 账号释义的 sans-IO 一半（Rust 的 `msime_client_account_gloss`，#8201 迁移计划 4f）：请求体怎么拼、回答怎么读、单条不合格时怎么办都在 Rust，键盘扩展只负责带着 Swift 会话的令牌把请求发出去。扩展不注册 Rust 的会话存储（负责人决定：没有真机量内存，未测，扩展保留 Swift），所以 HTTP 和令牌仍在 Swift，与 Windows、Linux 在按键路径上自己发 HTTP 的做法相同。
+enum AccountGloss {
+  /// Rust 给出的失败码，例如 `account_unauthorized`、`account_rate_limited`。
+  struct Failure: Error, Equatable {
+    let code: String
+  }
+
+  /// 要发出去的那一次请求。
+  struct Request: Equatable, Sendable {
+    let method: String
+    let path: String
+    let body: Data
+  }
+
+  /// 一页候选的请求：原文按顺序交给 Rust 校验（1–32 条，每条非空白、不超过 8192 字节），语言代码由 Rust 转成大写。
+  static func request(texts: [String], target: String) throws -> Request {
+    let value = try call(["operation": "request", "texts": texts, "source_lang": "ZH", "target_lang": target])
+    guard let object = value as? [String: Any], let method = object["method"] as? String,
+          let path = object["path"] as? String, let body = object["body"] as? String else { throw Failure(code: "account_unavailable") }
+    return Request(method: method, path: path, body: Data(body.utf8))
+  }
+
+  /// 读回答：2xx 时每一项要么是释义（制表符和换行已折成空格），要么是 nil（为空、与原文相同、含控制字符或超过 4096 字节），不让一条坏值作废整页；其余状态码换成账号错误码。
+  static func parse(texts: [String], status: Int, body: Data) throws -> [String?] {
+    let value = try call(["operation": "parse", "texts": texts, "status": status,
+                          "body": String(decoding: body, as: UTF8.self)])
+    guard let object = value as? [String: Any], let translations = object["translations"] as? [Any],
+          translations.count == texts.count else { throw Failure(code: "account_unavailable") }
+    return translations.map { $0 as? String }
+  }
+
+  /// 同步调用：不联网、不读会话，可以在任意线程上调。
+  private static func call(_ request: [String: Any]) throws -> Any {
+    guard JSONSerialization.isValidJSONObject(request), let data = try? JSONSerialization.data(withJSONObject: request) else {
+      throw Failure(code: "account_invalid")
+    }
+    guard let raw = data.withUnsafeBytes({ bytes in
+      msimeClientAccountGloss(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
+    }) else { throw Failure(code: "account_unavailable") }
+    let answer = Data(bytes: raw, count: strlen(raw))
+    msimeAccountGlossStringFree(raw)
+    guard let envelope = try? JSONSerialization.jsonObject(with: answer) as? [String: Any],
+          let ok = envelope["ok"] as? Bool else { throw Failure(code: "account_unavailable") }
+    guard ok else { throw Failure(code: envelope["error"] as? String ?? "account_unavailable") }
+    return envelope["value"] ?? NSNull()
   }
 }

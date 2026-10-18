@@ -16,7 +16,7 @@ App 和键盘扩展读写同一份会话：登录会话和云剪贴板密钥串�
 - 页面只按打开时的 user.id 绑定：C 上拿不到会话代次，请求前后各读一次 `status`，退出或换了号就丢掉结果；同一个账号的令牌轮换和重新登录不再作废页面。
 - 与 macOS 共用的 `shared/backend-ui` 三页（词包与回复模板、完整词库目录、云端候选与排序）随 iOS 一起换成 Rust：`CommunityResourceAccount` 和两页自己的 `request` 都在请求前后核对打开时的账号；macOS 的云词库窗口不再给它们 Swift 会话的令牌。
 - 云同步（4d）：自动云同步改由 Rust 的 `msime_client_cloud_sync` 编排，能力只开设置和无编码常用语。App 交出 App Group 里的键盘设置（`IOSCloudSettings.native`：方案、简繁、学习、主题和自定义键盘设计取共享文档里的，按键反馈取 App Group 的）和「社区皮肤试用中」；一轮要写本机时（`pending_commit`）先写 App Group 的按键反馈，再 `commit` 让 Rust 写共享文档，失败时恢复 App Group，成功后把文档抄回 App Group 的镜像。状态从 Swift 的 `CloudSync/state.json` 换成 Rust 的 `cloud-sync/state.json`，App 每次启动调一次 `import_legacy`；退出、注销后先 `sign_out` 再对齐。键盘扩展和 App 记改动都调 `mark_dirty`，扩展看开关只用 `peek`。手动的「设置同步」页上传经 `msime_client_account_ios_settings_export` 加 `preferences_put`（带修订号和读文档时的账号），应用经 `msime_client_account_ios_settings_apply` 的 plan、commit 两步。Rust 的 iOS 映射原来不认九键双拼，在这一组之前补上（`fix(client-services): iOS 设置映射认得九键双拼`）。
-- 键盘扩展不注册（负责人决定：没有真机量内存，「未测，扩展保留 Swift」，计划第 9 节的默认路线）：扩展里的候选释义、云剪贴板和快照激活仍用 Swift 的会话，与 App 里的 Rust 共用同一把锁。
+- 键盘扩展不注册（负责人决定：没有真机量内存，「未测，扩展保留 Swift」，计划第 9 节的默认路线）：扩展里的候选释义、云剪贴板和快照激活仍用 Swift 的会话，与 App 里的 Rust 共用同一把锁。4f 只把释义的请求和解读换成 Rust 的 sans-IO 入口 `msime_client_account_gloss`（request 拼请求体、parse 读回答），HTTP 和令牌照旧在 Swift，401 时 Swift 会话刷新一次、同一个账号里重试；云剪贴板照旧是 Swift 传输加 Rust 的端到端加密驱动。
 
 ## Alternatives considered
 
@@ -31,6 +31,7 @@ App 和键盘扩展读写同一份会话：登录会话和云剪贴板密钥串�
 - **收益**：iOS App 的登录会话只由 Rust 刷新和改写，「我的设备」显示 iOS 和机型，注销需要最近登录时有明确提示，锁屏或权限问题读不了会话时不再被当作已退出，AI 对话边生成边显示、能停下来，限流时说清要等多久。
 - **代价**：KeyboardTests 新增替身函数表（`platforms/ios/KeyboardTests/core/FakeRustTable.swift`），页面测试只断言发出的 action、绑定和提示，HTTP 和会话行为由 host-api 和 client-services 的测试覆盖；扩展仍有一份 Swift 会话实现。
 - **删掉的**（4g 的 iOS 和 shared/backend 部分）：`shared/backend` 里 iOS App 和共用三页原来用的 Swift 传输——AI 候选（`BackendAiClient`）、AI 插画（`BackendSkinArtworkClient`）、常用语（`BackendPhrasesClient`）、打字统计上传与 QQ 群助手（`BackendTypingUploadClient`）、云同步策略（`BackendSyncPolicy`）、iOS 设置映射（`IOSPreferencePlan`），以及设置、候选调频、云词库、社区资源、整份快照、对话和 App 云剪贴板页的 HTTP 调用，只留页面还在解码的类型；iOS 里 AI 皮肤的 `msime_client_ai_skin_plan` 包装。对应的测试一起删掉或改写。键盘扩展还在用的 Swift 会话 actor、匿名账号、释义传输和云剪贴板的端到端加密传输留着；macOS「本机账号」卡片用的改名、资料和注销留着。
+- **还没删的、留着有原因**：`BackendChatClient.swift` 的 Swift `translate` 在 4f 以后没人调用，但 Tauri 外壳的 iOS 生成工程逐文件列着它，那份工程本机重新生成不了（缺 Tauri 自己生成的目录），所以先留着。
 - **还没删的、待负责人同意**：macOS `src/cloud/` 和 `src/core/Account*` 里没人引用的 Objective-C 代码，计划第 4g 步写明单独一个提交、等负责人同意。
 - **行为变化（4d）**：设置按键三方合并、常用语按正文三方合并，删掉的不再复活；云端被清空时多一个「关闭同步，保留本机」；同一个账号重新登录保留同步进度；调频设置开始同步，触感强度「跟随系统」也上传。
 - **行为变化**：资料页只显示 Google 身份的验证邮箱，邮箱登录的账号显示「通过邮箱登录」；社区的服务端细码（例如「下载使用后才能评分」「最多发布 50 款」）被 Rust 归并成禁止、冲突两类，提示跟着变泛；退出时断网，本机已经退出，资料页照样退回并说明服务端没撤销成；登录换号时取消旧快照失败不再挡住登录。
@@ -41,4 +42,5 @@ App 和键盘扩展读写同一份会话：登录会话和云剪贴板密钥串�
 - `swift test --package-path shared/backend`：`BackendRustAccountTests` 新增挑战、资料、登录方式的解码和限流提示。
 - macOS ctest `backend-account-swift`：共用三页的绑定、目录解码和候选的查询 action（`rustSharedCloudPages`）。
 - 4d：KeyboardTests 的 `RustCloudSyncTests`（run 的请求、先写 App Group 再提交、提交失败恢复、云端被清空的选择、开关和退出、设置同步页的上传和应用），`SchemeDocumentSettingsTests`、`KeyboardSkinTests` 改为对着真的 Rust 导出核对上传的方案、简繁和主题；SharedTests 的 `CloudSyncStateTests`、`CloudSyncMarkingTests` 对着真的 Rust 状态文件测导入、记改动和抑制。Rust 侧 client-services 的 `account::ios_settings` 新增九键双拼的往返用例。
-- 守护脚本 `test-community-session-binding.py`、`test-community-cloud-import-credentials.py` 改成盯住新的绑定方式。
+- 4f：KeyboardTests 的 `TranslationProviderTests` 对着真的 Rust 入口测释义请求体（ZH、大写目标语言）、一条坏值只让那一条没有释义、401 刷新一次后重试、条数不对整页失败。
+- 守护脚本 `test-community-session-binding.py`、`test-community-cloud-import-credentials.py` 改成盯住新的绑定方式；`test-ios-cloud-clipboard-view-lifecycle.py`、`test-ios-cloud-dictionary-files-lifecycle.py`、`test-ios-cloud-dictionary-kind-lifecycle.py`、`test-ios-settings-sync-view-lifecycle.py`、`test-ios-special-file-readers.py`、`test-macos-cloud-dictionary-session-binding.py`、`test-chat-system-prompt-parity.py` 按 Rust 的 user.id 绑定和新文件位置重写，每个都临时改回源码确认过会失败。

@@ -1,5 +1,46 @@
 import XCTest
 
+/// 账号释义的服务端：旧令牌被拒（401），刷新换新令牌，新令牌按 `reply` 回答；记下每次 `/v1/translate` 的请求体和令牌。
+private final class AccountGlossProtocol: URLProtocol {
+  static let oldToken = String(repeating: "a", count: 64)
+  static let newToken = String(repeating: "c", count: 64)
+  private static let lock = NSLock()
+  private static var recorded: [(authorization: String, body: [String: Any])] = []
+  nonisolated(unsafe) static var reply = #"{"code":200,"data":["hello"]}"#
+
+  static var translations: [(authorization: String, body: [String: Any])] { lock.lock(); defer { lock.unlock() }; return recorded }
+  static func reset(reply: String) { lock.lock(); recorded = []; Self.reply = reply; lock.unlock() }
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    var data = request.httpBody ?? Data()
+    if data.isEmpty, let stream = request.httpBodyStream {
+      stream.open(); defer { stream.close() }
+      var buffer = [UInt8](repeating: 0, count: 1024)
+      while stream.hasBytesAvailable { let n = stream.read(&buffer, maxLength: buffer.count); if n <= 0 { break }; data.append(contentsOf: buffer.prefix(n)) }
+    }
+    let authorization = request.value(forHTTPHeaderField: "Authorization") ?? ""
+    var status = 200
+    var body = "{}"
+    switch request.url?.path {
+    case "/v1/translate":
+      Self.lock.lock()
+      Self.recorded.append((authorization, (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]))
+      Self.lock.unlock()
+      if authorization == "Bearer \(Self.oldToken)" { status = 401; body = #"{"error":{"code":"unauthorized"}}"# } else { body = Self.reply }
+    case "/v1/auth/refresh":
+      body = "{\"access_token\":\"\(Self.newToken)\",\"refresh_token\":\"\(String(repeating: "d", count: 64))\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"signed-in-user\",\"display_name\":\"示例\",\"created_at\":\"2026-09-08\"}}"
+    default: status = 404
+    }
+    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 private final class CandidateSessionStorage: BackendSessionStorage, @unchecked Sendable {
   private let lock = NSLock()
   private var value: BackendSavedSession?
@@ -240,6 +281,48 @@ final class TranslationProviderTests: XCTestCase {
     XCTAssertEqual(result, ["hello"])
     XCTAssertEqual(CandidateAccountTranslationProtocol.recordedAuthorizations,
                    ["Bearer \(CandidateAccountTranslationProtocol.accountToken)"])
+  }
+
+  private func glossService(token: String) throws -> BackendCandidateTranslationService {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AccountGlossProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let tokens = BackendAccountClient.Tokens(access_token: token, refresh_token: String(repeating: "b", count: 64), token_type: "Bearer",
+      expires_in: 900, user: .init(id: "signed-in-user", display_name: "示例", created_at: "2026-09-08"))
+    let account = BackendAccountSession(api: client, storage: CandidateSessionStorage(try BackendSavedSession.forTokens(tokens)),
+                                        refreshLock: BackendProcessRefreshLock())
+    let anonymous = BackendAccountSession(api: client, storage: CandidateSessionStorage(nil), refreshLock: BackendProcessRefreshLock())
+    return BackendCandidateTranslationService(client: client, account: account, anonymous: anonymous)
+  }
+
+  /// 请求体由 Rust 拼（`msime_client_account_gloss` 的 request）：源语言 ZH，目标语言转成大写，原文按顺序。
+  func testAccountGlossRequestComesFromRust() async throws {
+    AccountGlossProtocol.reset(reply: #"{"code":200,"data":["hello","world"]}"#)
+    let result = try await glossService(token: AccountGlossProtocol.newToken).translate(words: ["你好", "世界"], target: "en")
+    XCTAssertEqual(result, ["hello", "world"])
+    let body = try XCTUnwrap(AccountGlossProtocol.translations.first?.body)
+    XCTAssertEqual(body["source_lang"] as? String, "ZH")
+    XCTAssertEqual(body["target_lang"] as? String, "EN")
+    XCTAssertEqual(body["texts"] as? [String], ["你好", "世界"])
+  }
+
+  /// 一条坏值（含控制字符、与原文相同）只让那一条没有释义，其余照常显示；原来的 Swift 整页作废。
+  func testOneBadAccountGlossLeavesTheRestOfThePage() async throws {
+    AccountGlossProtocol.reset(reply: #"{"code":200,"data":["hello","bad\u0007value","世界"]}"#)
+    let result = try await glossService(token: AccountGlossProtocol.newToken).translate(words: ["你好", "坏", "世界"], target: "en")
+    XCTAssertEqual(result, ["hello", "", ""])
+  }
+
+  /// 服务端拒了令牌：会话刷新一次，用新令牌在同一个账号里重试；不合格的回答（条数不对）整页失败。
+  func testRejectedAccountGlossTokenIsRefreshedOnce() async throws {
+    AccountGlossProtocol.reset(reply: #"{"code":200,"data":["hello"]}"#)
+    let result = try await glossService(token: AccountGlossProtocol.oldToken).translate(words: ["你好"], target: "en")
+    XCTAssertEqual(result, ["hello"])
+    XCTAssertEqual(AccountGlossProtocol.translations.map(\.authorization),
+                   ["Bearer \(AccountGlossProtocol.oldToken)", "Bearer \(AccountGlossProtocol.newToken)"])
+    AccountGlossProtocol.reset(reply: #"{"code":200,"data":["one","two"]}"#)
+    do { _ = try await glossService(token: AccountGlossProtocol.newToken).translate(words: ["你好"], target: "en"); XCTFail("count mismatch") }
+    catch let failure as AccountGloss.Failure { XCTAssertEqual(failure.code, "account_unavailable") }
   }
 
   func testURLRequestDefaultsAbsentTransportLimits() throws {
