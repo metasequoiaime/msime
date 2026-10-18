@@ -77,7 +77,7 @@ fn the_flat_harmony_layout_decodes_with_the_remaining_lifetime_as_expires_in() {
     assert_eq!(saved.tokens.user.display_name, "合成用户");
     assert_eq!(saved.expires_at_unix_ms, now + 899_600);
     assert_eq!(saved.session_id, None);
-    // 与 `anonymousSessionForStorage` 相同：剩余毫秒数除以 1000 四舍五入。
+    // 与鸿蒙旧版 ArkTS 的 `anonymousSessionForStorage`（已删除）相同：剩余毫秒数除以 1000 四舍五入。
     assert_eq!(saved.tokens.expires_in, 900);
     assert_eq!(
         decode_at(flat_session(now + 899_400).as_bytes(), now)

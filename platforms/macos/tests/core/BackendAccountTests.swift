@@ -86,7 +86,7 @@ private final class CloudPreferences: @unchecked Sendable {
       var fields: [String: Any] = ["platform.macos.global_theme": ["type": "string"], "platform.macos.candidate_font_size": ["type": "integer"],
                                    "platform.macos.candidate_learning": ["type": "boolean"], "platform.macos.shuangpin_preedit_uses_raw": ["type": "boolean"],
                                    "platform.ios.nine_key": ["type": "boolean"]]
-      // A server that has registered only part of the theme group, as one that predates the custom theme would.
+      // 服务端只登记了主题组的一部分，就像早于自定义主题的服务端那样。
       if themeSchema {
         fields["platform.macos.custom_theme_base"] = ["type": "string"]; fields["platform.macos.custom_candidate_skin"] = ["type": "string"]
         if darkSkinSchema { fields["platform.macos.custom_candidate_skin_dark"] = ["type": "string"] }
@@ -187,7 +187,7 @@ private final class CloudPreferences: @unchecked Sendable {
     await BackendClipboardEntry.open(status: { try await rust.status() }, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
     try require(clipboardAccount == nil && signInRequests == 1)
     var windowClosures = 0
-    // The default anonymous session lives in the real App Group container, which an unsigned harness may not create and must never read or discard, so this model gets an empty in-memory one.
+    // 默认的匿名会话在真实的 App Group 容器里，未签名的测试程序可能建不出它，也绝不能读或丢掉它，所以这个模型用一份空的内存会话。
     let model = MacAccountModel(rust: rust, client: client,
                                 anonymousAccount: BackendAccountSession(api: client, storage: MemoryCredentials()),
                                 closeAccountWindows: { windowClosures += 1 }, discardAnonymous: {})

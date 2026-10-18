@@ -32,12 +32,9 @@ final class BackendAnonymousAccount {
 
     private static final Object LOCK = new Object();
     /**
-     * When the login endpoint may be asked again.
+     * 登录端点什么时候可以再问。
      *
-     * <p>A 429 carries `Retry-After`, and honouring it is not politeness: every catalogue page,
-     * every search and every tab switch asks for a token, so without a gate the host answers a
-     * rate limit by immediately spending another registration against it, and the window never clears.
-     * Static because the gate belongs to the endpoint, not to one instance of this class.
+     * <p>429 带着 `Retry-After`，遵守它不是客气：目录的每一页、每次搜索、每次切换标签都要令牌，没有这道闸时宿主一遇到限流就立刻再花一次注册去撞它，限流窗口永远清不掉。用静态字段是因为这道闸属于端点，不属于这个类的某个实例。
      */
     private static long nextAttemptAtMillis;
     private final Context application;

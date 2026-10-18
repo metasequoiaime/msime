@@ -215,7 +215,7 @@ fn decode_at(bytes: &[u8], now_unix_ms: u64) -> Result<SavedAccountSession, Acco
     })
 }
 
-/// 扁平布局没有 `expires_in`，按 `AccountSessionPolicy.ts` 的 `anonymousSessionForStorage` 补出：`now` 时刻剩余的整秒数，四舍五入，至少为 1。`validate_tokens` 拒收 0，所以访问令牌已经过期的会话也是 1，照样能拿刷新令牌去刷新。
+/// 扁平布局没有 `expires_in`，按鸿蒙旧版 ArkTS 桥接的算法补出（#8201 删掉的 `AccountSessionPolicy.ts` 里的 `anonymousSessionForStorage`）：`now` 时刻剩余的整秒数，四舍五入，至少为 1。`validate_tokens` 拒收 0，所以访问令牌已经过期的会话也是 1，照样能拿刷新令牌去刷新。
 fn harmony_expires_in(expires_at_unix_ms: u64, now_unix_ms: u64) -> u64 {
     (expires_at_unix_ms
         .saturating_sub(now_unix_ms)

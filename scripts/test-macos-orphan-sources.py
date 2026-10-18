@@ -23,7 +23,13 @@ MARKER = "not compiled by any target"
 SOURCE_SUFFIXES = (".mm", ".m", ".cpp", ".cc", ".c")
 
 # Orphan -> the file that carries this behaviour in the product. Keep the reason in the file itself.
-RETAINED: dict[str, str] = {}
+RETAINED: dict[str, str] = {
+    "src/cloud/CloudFileTransfer.mm": "crates/host-api/src/cloud_dictionary/snapshot_files.rs",
+    "src/core/AccountAuthClient.mm": "shared/backend/account/BackendRustAccount.swift",
+    "src/core/AccountKeychain.mm": "shared/backend/account/BackendRustAccount.swift",
+    "src/core/AccountSessionManager.mm": "shared/backend/account/BackendRustAccount.swift",
+    "src/core/AccountWindowController.mm": "platforms/macos/src/backend/account/BackendAccountWindow.swift",
+}
 
 
 def compiled_sources(cmake: Path) -> str:

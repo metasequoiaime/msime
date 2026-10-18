@@ -643,8 +643,9 @@ struct ClientAgentRequest {
 }
 
 /// 拼出宿主自报的 User-Agent（#8201 迁移计划 P11），规则在 client-services 的 `account::client_agent`，用例在 `shared/contracts/client-agent/cases.json`。不联网、不读文件。
+///
 /// # Safety
-/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+/// `request` 指向 `length` 个可读的 UTF-8 JSON 字节，NULL 被拒绝。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_client_agent(
     request: *const u8,
@@ -652,7 +653,7 @@ pub unsafe extern "C" fn msime_client_client_agent(
 ) -> *mut c_char {
     response(|| {
         let invalid = || AccountError::Invalid.code().to_owned();
-        // SAFETY: forwarded from the documented caller contract.
+        // SAFETY: 由调用方契约保证。
         let request: ClientAgentRequest = unsafe {
             with_bounded_bytes(
                 request,

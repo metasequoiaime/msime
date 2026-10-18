@@ -16,7 +16,7 @@ import org.json.JSONObject;
  *
  * <p>每个操作都在请求前后读一次登录的账号编号，期间登录、退出或换了号就丢掉结果、说「登录已切换」，与原来按会话绑定的做法相同。
  *
- * <p>Every call blocks (reading the sign-in state waits on Rust's session lock) and must not run on the main thread.
+ * <p>每个调用都会阻塞（读登录状态要等 Rust 的会话锁），不能在主线程上调用。
  */
 public final class CommunityCatalog {
     private static final long MAX_JAVASCRIPT_INTEGER = 9_007_199_254_740_991L;
@@ -129,11 +129,11 @@ public final class CommunityCatalog {
     }
 
     /**
-     * Report one entry to the moderators (Rust 的 report).
+     * 向审核举报一个条目（Rust 的 report）。
      *
-     * <p>Needs a session, and the device's anonymous account counts: the signed-in account when there is one, otherwise the keyboard's anonymous identity.
+     * <p>要有会话，本机的匿名账号也算：有登录账号时用登录账号，否则用键盘的匿名身份。
      *
-     * @return the failure to show, or an empty string once the report was taken
+     * @return 要显示的失败文案，举报被受理时是空字符串
      */
     public String report(Item item, String reason, String detail) {
         String text = TextPolicy.trimmed(detail);

@@ -2017,7 +2017,7 @@ class SettingsBridge {
       this.stateDirectory);
   }
 
-  /** Account requests stay native; the WebView sees only safe JSON DTOs. */
+  /** 账号请求留在原生层，WebView 只看到安全的 JSON DTO。 */
   account(action: string): Promise<string> {
     if (this.accountBridge === undefined) {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));

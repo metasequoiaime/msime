@@ -42,7 +42,7 @@ enum BackendCandidateGloss {
     await withTaskGroup(of: Void.self) { group in
       for code in [request.primary, request.secondary] where !code.isEmpty {
         group.addTask {
-          // A request that failed (offline, rate limited) posts nothing, so the words stay unknown and are asked about again.
+          // 失败的请求（断网、限流）什么也不发，这些词仍算未知，下次再问。
           guard let values = await translations(words, target: code, rust: rust),
                 (try? await BackendAccountState.refresh(rust)) == marker else { return }
           await MainActor.run {

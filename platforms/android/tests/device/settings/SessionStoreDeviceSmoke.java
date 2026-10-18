@@ -117,8 +117,6 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
         invalid.put("accountChatCancelRaw", "account_invalid");
         invalid.put("communityRaw", "community_invalid");
         invalid.put("aiSkinCancelRaw", "ai_skin_invalid");
-        invalid.put("aiSkinJobRaw", "ai_skin_invalid");
-        invalid.put("cloudDictionaryRaw", "invalid_cloud_dictionary");
         invalid.put("snapshotQueueRaw", "snapshot_invalid");
         invalid.put("cloudSyncRaw", "cloud_sync_invalid");
         for (Map.Entry<String, String> entry : invalid.entrySet()) {

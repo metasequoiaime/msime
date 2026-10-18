@@ -164,7 +164,7 @@ final class MacAccountModel: NSObject, ObservableObject {
           _ = try await rust.account(["operation": "account_delete"])
           self.closeAccountWindows()
         } else {
-          // Hide private views before awaiting logout, including offline failures.
+          // 等退出登录之前先收起私密页面，断网失败时也一样。
           self.closeAccountWindows()
           // Rust 总是先清掉本机会话再请服务端撤销，所以断网时本机已经退出，页面显示退出后的状态和失败原因。
           do { _ = try await rust.account(["operation": "logout", "all": all]) }

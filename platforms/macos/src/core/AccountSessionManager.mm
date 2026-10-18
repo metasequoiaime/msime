@@ -1,3 +1,4 @@
+// 本文件 not compiled by any target：#8201 起输入法改用 `shared/backend/account/BackendRustAccount.swift`（账号和云端改走 Rust），这里是以前的 Objective-C 实现，按迁移计划 4g 等负责人同意后再删，改这里不会改到产品。
 #import "AccountSessionManager.h"
 #import "AccountKeychain.h"
 #import <Security/Security.h>

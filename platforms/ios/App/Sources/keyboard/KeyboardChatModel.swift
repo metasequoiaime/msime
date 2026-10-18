@@ -71,7 +71,7 @@ final class KeyboardChatModel: ObservableObject {
     guard let userID = accountID else { loginNeeded = true; return }
     error = nil; sending = true
     let version = generation.begin()
-    // The system prompt first, then the newest complete messages that still fit the service contract.
+    // 先放系统提示词，再放服务契约还装得下的最新几条完整消息。
     let history = KeyboardChatHistoryPolicy.request(messages.map { (role: $0.role, text: $0.text) })
       .map { ["role": $0.role, "content": $0.text] }
     let model = self.model

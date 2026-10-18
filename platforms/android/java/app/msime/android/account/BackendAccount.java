@@ -174,7 +174,7 @@ public final class BackendAccount {
     /**
      * 这个部署接受哪些登录方式（Rust 的 providers，含 Android 用的 Apple 网页登录）。
      *
-     * <p>Read before anything is offered, because a provider with no client ID configured answers 503 on use. A button that is always going to fail is worse than no button.
+     * <p>给出任何登录按钮之前先读它：没有配置 client ID 的登录方式一用就回 503，注定失败的按钮不如没有。
      */
     public CloudApi.Providers providers() throws Exception {
         Object value = sessions.account(new JSONObject().put("operation", "providers"));
@@ -355,7 +355,7 @@ public final class BackendAccount {
             ? answer : NO_SESSION;
     }
 
-    /** Whether this process's own store holds a login session at all, expired or not. */
+    /** 本进程自己的存储里有没有登录会话，过期的也算。 */
     boolean hasSession() throws Exception {
         return !sessions.userId().isEmpty();
     }

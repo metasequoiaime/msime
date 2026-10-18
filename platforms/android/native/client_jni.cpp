@@ -918,7 +918,6 @@ constexpr jsize kAccountGlossRequestLimit = 4 * 1024 * 1024;
 // 其余社区操作是 4 MiB，只有 keyboard_skin_publish 可以到 9,000,000 字节（设计里可能带着照片背景），按操作区分由 Rust 做。
 constexpr jsize kCommunityRequestLimit = 9000000;
 constexpr jsize kAiSkinRequestLimit = 65536;
-constexpr jsize kCloudDictionaryRequestLimit = 4 * 1024 * 1024;
 constexpr jsize kSnapshotQueueRequestLimit = 1 * 1024 * 1024;
 constexpr jsize kCloudSyncRequestLimit = 4 * 1024 * 1024;
 
@@ -1167,12 +1166,6 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiSkinGenerateR
 // 任何线程都可以调用，立即返回。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiSkinCancelRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kCancelRequestLimit, msime_client_ai_skin_cancel);
-}
-JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiSkinJobRaw(JNIEnv *env, jclass, jbyteArray request) {
-    return bounded_request(env, request, kAiSkinRequestLimit, msime_client_ai_skin_job);
-}
-JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudDictionaryRaw(JNIEnv *env, jclass, jbyteArray request) {
-    return bounded_request(env, request, kCloudDictionaryRequestLimit, msime_client_cloud_dictionary);
 }
 // 磁盘上的快照队列（含 import_android_v1 把旧版 Java 队列就地转过来）。两个进程都可以调用，队列自己在 state.lock 的 flock 里排斥。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotQueueRaw(JNIEnv *env, jclass, jbyteArray request) {

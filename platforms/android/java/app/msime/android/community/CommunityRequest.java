@@ -6,8 +6,7 @@ import java.util.List;
 /**
  * 社区目录的分类、校验规则与失败文案。请求路径和查询的编码在 Rust 里（{@code msime_client_community}，#8201 迁移计划 5c），这里不再拼 URL。
  *
- * <p>Kept apart from the transport so it can be read without a network: what a failure says is
- * what actually goes wrong here, and it needs no socket to check.
+ * <p>与传输分开，不联网也能读：这里真正会出错的是失败时说什么，检查它不需要套接字。
  */
 public final class CommunityRequest {
     /** 目录里的四类内容。皮肤自成一个端点，词库、回复模板和短语共用资源端点。只增不改：首页按名字引用这几个值。 */
