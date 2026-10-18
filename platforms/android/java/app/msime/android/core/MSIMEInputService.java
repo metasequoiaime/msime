@@ -1345,6 +1345,15 @@ public final class MSIMEInputService extends InputMethodService {
 
     boolean commitText(String text) { return commitText(text, typingSource()); }
 
+    /** 完整符号对是用户明确选择的模板，不受自动补半个的开关影响；分两次写入，让光标停在中间。 */
+    boolean commitLiteralText(String text) {
+        String closing = PairedPunctuationPolicy.literalPairClosing(text);
+        if (closing == null) return commitText(text);
+        TypingSource source = typingSource();
+        return commitText(text.substring(0, text.length() - closing.length()), source)
+            && commitClosingMark(closing, source);
+    }
+
     private void applyPairedPunctuation(boolean enabled) {
         pairedPunctuation = enabled;
         if (!enabled) pairedPunctuationStack.clear();
@@ -1368,9 +1377,8 @@ public final class MSIMEInputService extends InputMethodService {
             return false;
         }
         CharSequence after = textAfterCursor(closing.length());
-        // 光标后面已经是后半个（正常情况）时不必再读光标前面，省一次跨进程调用。
-        CharSequence before = after == null || after.toString().startsWith(closing)
-            ? null : textBeforeCursor(closing.length());
+        // 光标后面可能是外层同名后半个，要检查刚写出的后半个有没有跑到光标前面。
+        CharSequence before = after == null ? null : textBeforeCursor(closing.length());
         if (PairedPunctuationPolicy.caretPassedClosing(closing, after, before)) {
             selectionEcho.commit(closing.length());
             selectionEcho.expect();

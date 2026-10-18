@@ -5,6 +5,7 @@ public final class PairedPunctuationPolicySmoke {
         engineCompletions();
         quoteReopening();
         symbolPanelPairs();
+        literalPairs();
         stepOver();
         symbolStepOver();
         caretAfterClosingCommit();
@@ -69,6 +70,17 @@ public final class PairedPunctuationPolicySmoke {
             "fullwidth ＜ and 《 still pair");
         for (String single : new String[] {"）", "”", "\"", "'", ">", "，", "︵", "﹁", "http://", null})
             check(PairedPunctuationPolicy.symbolClosing(single) == null, single + " is inserted alone");
+    }
+
+    private static void literalPairs() {
+        for (String[] pair : new String[][] {{"(", ")"}, {"（", "）"}, {"[", "]"}, {"{", "}"},
+                {"【", "】"}, {"《", "》"}, {"〈", "〉"}, {"「", "」"}, {"『", "』"}, {"“", "”"},
+                {"‘", "’"}, {"〔", "〕"}, {"〖", "〗"}, {"＜", "＞"}, {"｛", "｝"}, {"［", "］"}})
+            check(pair[1].equals(PairedPunctuationPolicy.literalPairClosing(pair[0] + pair[1])),
+                "a complete literal pair keeps its closing half");
+        for (String literal : new String[] {null, "", "(", ")", "(]", "x()", "()x", "(())", ":-)", "……", "😀", "<>"})
+            check(PairedPunctuationPolicy.literalPairClosing(literal) == null,
+                "other literal strings are not split into a pair");
     }
 
     private static void stepOver() {
@@ -140,11 +152,13 @@ public final class PairedPunctuationPolicySmoke {
     private static void caretAfterClosingCommit() {
         // 照规矩处理 commitText(closing, 0) 的编辑器：光标后面正是后半个，不补发方向键。
         check(!PairedPunctuationPolicy.caretPassedClosing("）", "）", "（"), "caret already between the pair");
-        check(!PairedPunctuationPolicy.caretPassedClosing("）", "）后文", null), "honoured editor needs no read before the caret");
-        // #6458：应用不认 0，光标落在后半个后面，前面是它、后面不是它，要左移一格。
+        check(!PairedPunctuationPolicy.caretPassedClosing("）", "）后文", null), "unknown text before the caret does not trigger a move");
+        // #6458：应用不认 0，光标落在后半个后面，前面是它，要左移一格。
         check(PairedPunctuationPolicy.caretPassedClosing("）", "", "）"), "caret at the end after the closing half");
         check(PairedPunctuationPolicy.caretPassedClosing("】", "后文", "】"), "caret after the closing half before other text");
         check(PairedPunctuationPolicy.caretPassedClosing("”", "x", "”"), "quotes too");
+        check(PairedPunctuationPolicy.caretPassedClosing(")", ")", ")"),
+            "an outer identical closing half must not hide a misplaced nested caret");
         // 读不出光标后的文字、或两侧都不是后半个（应用改写或拒绝了写入）：不知道光标在哪，保持原来的行为。
         check(!PairedPunctuationPolicy.caretPassedClosing("）", null, "）"), "unknown text after the caret");
         check(!PairedPunctuationPolicy.caretPassedClosing("）", "", null), "unknown text before the caret");

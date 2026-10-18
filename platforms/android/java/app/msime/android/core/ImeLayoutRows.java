@@ -310,7 +310,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 九键、14 键与笔画键盘左侧的符号栏：数字键面默认一屏四项，笔画三项，其他键面最多五项，更多的上下滚动。九键与笔画使用独立键帽，14 键共用一条底轨；点按原样上屏（全角模式下转全角）。
+     * 九键、14 键与笔画键盘左侧的符号栏：数字键面默认一屏四项，笔画三项，其他键面最多五项，更多的上下滚动。九键与笔画使用独立键帽，14 键共用一条底轨；点按原样上屏（全角模式下转全角），完整符号对的光标停在中间。
      */
     private FrameLayout symbolSidebar(boolean digits, boolean capped) {
         return symbolSidebar(digits, capped,
@@ -1319,7 +1319,7 @@ final class ImeLayoutRows {
             return;
         }
         s.command(2);
-        s.commitText(s.fullWidthOutput(text));
+        s.commitLiteralText(s.fullWidthOutput(text));
     }
 
     void commitNineKeyPeriod() {

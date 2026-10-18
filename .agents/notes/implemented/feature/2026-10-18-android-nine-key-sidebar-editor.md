@@ -12,6 +12,8 @@ Status: implemented
 
 旧的整串 `InputDialog` 方案记录在[九键左侧符号栏、数字键面与滑动出数字](../../implemented/feature/2026-10-08-android-nine-key-number-pad.md)，本篇取代它的编辑交互，不改变键盘运行时的符号表协议。
 
+固定候选包含 `()`、`（）` 两个完整括号项，分别保留原有的单独前半个和后半个，用户可直接把整对括号放进字母或数字侧栏（#8625）。点击整对后的光标行为归[Android 成对标点](2026-10-08-android-paired-punctuation.md)，不在编辑面板另存光标位置或模板格式。
+
 ## Alternatives considered
 
 - 继续保留整串输入框：实现最小，也能表达任意符号和顺序；但用户需要记住空格分隔格式，无法直接理解当前键位排列，正是这次反馈的问题。
@@ -24,6 +26,8 @@ Status: implemented
 ## Verification
 
 Gradle `compileFullDebugJavaWithJavac`、Android 主机门禁（248 项 JVM 冒烟、156 项设备套件源码编译）和 `git diff --check` 通过；随后构建签名 APK，安装到 Android 设备并打开键盘设置页，确认两项符号栏入口打开的是逐项编辑面板，没有上下箭头，并通过拖动手柄改变了行顺序。固定候选改为可滚动的网格 `ChipGroup`，点击候选立即加入并关闭选择面板；真机确认加入 `:-)` 后返回编辑页，重新打开添加面板时该候选已被排除，滚动到底部可见取消按钮。
+
+#8625 补充验收：在 API 35 模拟器的原生「键盘 → 布局」设置页，分别打开字母和数字侧栏编辑面板，实际点选添加 `()`、`（）`，保存后重新打开确认两项仍在。随后移除测试添加项并保存。两台模拟器上的键盘输入与光标回归由 `NineKeySidebarPairDeviceSmoke` 覆盖；本次没有 vivo 真机验收。
 
 ## Consequences
 

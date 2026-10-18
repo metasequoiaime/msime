@@ -83,6 +83,8 @@ public final class NineKeySidebarPolicySmoke {
     }
 
     private static void choices() {
+        check(NineKeySidebarPolicy.addableSymbols(List.of()).containsAll(List.of("()", "（）")),
+            "the editor offers both complete parentheses pairs");
         check(NineKeySidebarPolicy.addableSymbols(List.of("，", "……")).get(0).equals("。"),
             "symbol choices keep their stable order and omit selected values");
         check(NineKeySidebarPolicy.addableSymbols(NineKeySidebarPolicy.ADDABLE_SYMBOLS).isEmpty(),

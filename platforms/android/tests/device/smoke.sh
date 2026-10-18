@@ -194,6 +194,7 @@ for entry in \
     "EmojiCombinationLayoutDeviceSmoke|Combination emoji layout acceptance failed" \
     "EmojiCombinationDeviceSmoke|Combination emoji input acceptance failed" \
     "PairedPunctuationDeviceSmoke|Paired punctuation acceptance failed" \
+    "NineKeySidebarPairDeviceSmoke|Nine-key sidebar pair acceptance failed" \
     "LetterHintPunctuationDeviceSmoke|Letter hint punctuation acceptance failed" \
     "SuperscriptShortcutDeviceSmoke|Superscript shortcut acceptance failed" \
     "PreferencesDeviceSmoke|Preferences acceptance failed" \

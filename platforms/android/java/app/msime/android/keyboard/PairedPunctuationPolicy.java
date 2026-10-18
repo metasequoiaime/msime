@@ -64,16 +64,25 @@ public final class PairedPunctuationPolicy {
     /**
      * 用 `commitText(closing, 0)` 写完后半个以后，编辑器是不是把光标放到了后半个后面，需要宿主再左移一格。
      *
-     * <p>`after` 和 `before` 是写完后光标两侧读到的文字。照规矩处理第二个参数的编辑器里光标后面正是后半个，不动；个别应用（#6458 的 vivo「信息」和系统设置的搜索框）不认不大于 0 的值，把光标放在新文字后面，这时光标后面不是后半个、光标前面正是它。读不出光标后的文字时不知道落在哪，也不动，保持原来的行为。
+     * <p>`after` 和 `before` 是写完后光标两侧读到的文字。调用前刚上屏的是前半个，照规矩处理参数时光标前面仍是前半个；个别应用（#6458 的 vivo「信息」和系统设置的搜索框）不认不大于 0 的值，光标前面变成了后半个。嵌套时光标后面也可能是外层同名后半个，不能只凭它判断位置。读不出光标两侧的文字时不动，保持原来的行为。
      */
     public static boolean caretPassedClosing(String closing, CharSequence after, CharSequence before) {
         if (closing == null || closing.isEmpty() || after == null || before == null) return false;
-        return !after.toString().startsWith(closing) && before.toString().endsWith(closing);
+        return before.toString().endsWith(closing);
     }
 
     /** 符号面板里点 `symbol` 时要一起上屏的后半个；不是成对符号的前半个时为 null。 */
     public static String symbolClosing(String symbol) {
         return symbol == null ? null : SYMBOL_PAIRS.get(symbol);
+    }
+
+    /** 明确输入完整一对符号时的后半个；只认整串完全匹配的符号对，不把颜文字或带内容的短串当作模板。 */
+    public static String literalPairClosing(String text) {
+        if (text == null || text.isEmpty()) return null;
+        int split = text.offsetByCodePoints(0, 1);
+        String closing = symbolClosing(text.substring(0, split));
+        return closing != null && text.length() == split + closing.length() && text.endsWith(closing)
+            ? closing : null;
     }
 
     /**

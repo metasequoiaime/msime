@@ -13,6 +13,7 @@ platforms/android/tests/device/keyboard/MoreToolsDeviceSmoke.java
 platforms/android/tests/device/keyboard/CopyDeviceInfoDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmojiPickerDeviceSmoke.java
 platforms/android/tests/device/keyboard/PairedPunctuationDeviceSmoke.java
+platforms/android/tests/device/keyboard/NineKeySidebarPairDeviceSmoke.java
 platforms/android/tests/device/keyboard/LetterHintPunctuationDeviceSmoke.java
 platforms/android/tests/device/keyboard/SuperscriptShortcutDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseHelpcodeDeviceSmoke.java
