@@ -117,9 +117,21 @@ public final class AccountFailureText {
 
     /**
      * 这个部署是不是没开 AI 皮肤、入口要藏起来：只看没有 Retry-After 的 account_unavailable。服务端任务繁忙的 503（skin_jobs_busy）也是 account_unavailable，但带 retry_after_seconds，只是一时忙，不能把入口藏掉一天（decisions-followup 决定 17 的「503 的细分」）。
+     *
+     * <p>Rust 的契约分不出「没开 AI 皮肤的 503 job_unavailable」和下面几种，它们也是不带 Retry-After 的 account_unavailable，同样会藏入口一天（原来的 Java 只看 503）：访问令牌要先刷新、而刷新请求本身没拿到响应（例如登录账号的 15 分钟令牌过期后断网点「生成」），其他 5xx（例如一时的 500、502），重定向被拒。生成前注册匿名账号失败不在其中，见 {@link #aiSkinAnonymousFailure}。
      */
     public static boolean aiSkinUnavailable(String code, long retryAfterSeconds) {
         return "account_unavailable".equals(code) && retryAfterSeconds <= 0;
+    }
+
+    /** 没登录、也还没有匿名账号时，AI 皮肤生成前注册匿名账号没有成功；只在 Java 里出现，不是 Rust 的码。 */
+    public static final String AI_SKIN_ANONYMOUS_UNAVAILABLE = "ai_skin_anonymous_unavailable";
+
+    /**
+     * AI 皮肤生成前注册匿名账号（ensure_anonymous）失败时交给页面的码。ensure_anonymous 是已有操作，断网和服务端 5xx 都是不带 Retry-After 的 account_unavailable，{@link RustAccount#ensureAnonymous} 的兜底也映射成它；这与「部署没开 AI 皮肤」无关，所以换成 {@link #AI_SKIN_ANONYMOUS_UNAVAILABLE}，不让页面把入口藏一天。其他码（限流、封禁等）原样交回。
+     */
+    public static String aiSkinAnonymousFailure(String code) {
+        return "account_unavailable".equals(code) ? AI_SKIN_ANONYMOUS_UNAVAILABLE : code;
     }
 
     /** AI 设计皮肤的一次失败；ai_skin_cancelled 由页面自己处理（不提示），不经这里。 */
@@ -130,6 +142,7 @@ public final class AccountFailureText {
                 ? "今天的生成次数已用完，约 " + duration(retryAfterSeconds) + "后可以再试"
                 : "暂时不能生成，请" + later(retryAfterSeconds);
             case "account_unavailable" -> "生成任务繁忙，请" + later(retryAfterSeconds);
+            case AI_SKIN_ANONYMOUS_UNAVAILABLE -> "暂时连不上服务，请检查网络后重试";
             // 描述在交给 Rust 之前已经按 1–500 个字、不含控制字符查过，这时的 ai_skin_invalid 是模型给出的方案或插画不合规。
             case "ai_skin_invalid" -> "这次的设计不合格，换个描述再试一次";
             case "ai_skin_busy" -> "上一次生成还没结束，请稍候";

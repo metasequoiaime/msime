@@ -152,6 +152,8 @@ public final class RustAccount {
 
     /**
      * AI 皮肤一次生成三套（{@code msime_client_ai_skin_generate}），返回 Rust 的提案数组 `[{name,description,design,artworkPrompt,artwork}]`。登录账号优先、没有登录时用本机匿名账号，两种都没有时先注册匿名账号再试一次。
+     *
+     * <p>注册匿名账号失败时的 account_unavailable 换成 {@link AccountFailureText#AI_SKIN_ANONYMOUS_UNAVAILABLE}（{@link AccountFailureText#aiSkinAnonymousFailure}），页面只把 Rust 生成那一步的 account_unavailable 当作部署没开 AI 皮肤。
      */
     public static JSONArray aiSkinGenerate(Context context, String prompt, Call call, SkinProgress progress)
             throws AccountStore.Failure {
@@ -160,7 +162,12 @@ public final class RustAccount {
         } catch (AccountStore.Failure failure) {
             if (!"account_unauthorized".equals(failure.code)) throw failure;
         }
-        ensureAnonymous(context);
+        try {
+            ensureAnonymous(context);
+        } catch (AccountStore.Failure failure) {
+            throw new AccountStore.Failure(AccountFailureText.aiSkinAnonymousFailure(failure.code),
+                failure.retryAfterSeconds);
+        }
         return aiSkinOnce(context, prompt, call, progress);
     }
 

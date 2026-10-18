@@ -14,6 +14,13 @@ public final class AccountFailureTextSmoke {
         check(!AccountFailureText.aiSkinUnavailable("account_unavailable", 5), "busy jobs do not hide the entry");
         check(!AccountFailureText.aiSkinUnavailable("account_rate_limited", 0), "a quota does not hide the entry");
         check(AccountFailureText.aiSkin("account_unavailable", 5).contains("繁忙"), "busy jobs ask for a retry");
+        // 没登录又没有匿名账号时，生成前注册匿名账号失败（断网时也是不带 Retry-After 的 account_unavailable）不藏入口。
+        String anonymous = AccountFailureText.aiSkinAnonymousFailure("account_unavailable");
+        check(!AccountFailureText.aiSkinUnavailable(anonymous, 0), "a failed anonymous registration does not hide the entry");
+        check(AccountFailureText.aiSkin(anonymous, 0).contains("检查网络"), "a failed anonymous registration asks to check the network");
+        check("account_rate_limited".equals(AccountFailureText.aiSkinAnonymousFailure("account_rate_limited"))
+            && "account_banned".equals(AccountFailureText.aiSkinAnonymousFailure("account_banned")),
+            "other registration failures keep their codes");
         check(AccountFailureText.aiSkin("account_rate_limited", 7200).equals("今天的生成次数已用完，约 2 小时后可以再试"),
             "a daily quota with Retry-After");
         check(AccountFailureText.aiSkin("account_rate_limited", 30).contains("约 30 秒后再试"),

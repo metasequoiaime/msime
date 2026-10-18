@@ -14,7 +14,7 @@ Status: implemented
 - MCP 日志上传经 `diagnostics_upload`，交给 Rust 的是与导出诊断包同一份 bundle（`{state_root, include, sources}`），Rust 现读现建；查看、换令牌、删除带着上传时 Rust 交回的 `user_id`。页面打开时按「登录账号，否则匿名账号」的编号读状态。
 - 下载链接经 `download_link`。
 - AI 对话经 `msime_client_account_chat_stream`：Rust 要求请求带 `model`，第一次发送前读一次 `chat_models` 的 `defaultModel`，用户仍然选不了模型；页面照旧要求登录。退出登录时 `SignIn.signOut` 调 `RustAccount.cancelForSignOut`，取消进行中的对话和 AI 皮肤生成（Rust 只在回答完整以后核对账号）。
-- AI 设计皮肤经 `msime_client_ai_skin_generate`：一次生成三套带插画的方案，页面真的关掉时取消。只在不带 Retry-After 的 `account_unavailable` 时把入口藏一天（`AccountFailureText.aiSkinUnavailable`），任务一时繁忙的 503 带 Retry-After，只提示稍后再试。
+- AI 设计皮肤经 `msime_client_ai_skin_generate`：一次生成三套带插画的方案，页面真的关掉时取消。只在不带 Retry-After 的 `account_unavailable` 时把入口藏一天（`AccountFailureText.aiSkinUnavailable`），任务一时繁忙的 503 带 Retry-After，只提示稍后再试。生成前注册匿名账号（`ensure_anonymous`，已有操作，断网也是不带 Retry-After 的 `account_unavailable`）失败时换成只在 Java 里出现的 `ai_skin_anonymous_unavailable`，提示检查网络、不藏入口，否则刚装好、没登录的用户断网点一次「生成」，入口就消失一天。
 - 社区经 `msime_client_community`：列表是 `keyboard_skin_list` 和 `resource_list`，举报是 `report`，作者改分类是 `keyboard_skin_set_category`。「获取」皮肤是 `keyboard_skin_download`（服务端同时记一次下载）再存进 Java 的 `CustomSkinLibrary`，不换上（决定 14）。
 - 云剪贴板页里不涉及内容的开关、保留时长、置顶、删除和清空经 `msime_client_account_cloud_clipboard`；列表、上传和设备管理照旧是 Java 的端到端加密驱动（令牌由 Rust 给），与键盘进程共用同一把密钥串锁。
 - 错误码到页面文案集中在 `AccountFailureText`（社区的在 `CommunityRequest.rustMessage`），措辞沿用各页原来的那几句。
@@ -31,7 +31,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：设置页面的请求、令牌、401 后的重试和响应校验只剩 Rust 一份；导出失败时原来的文件不动；诊断上传多带最多 200 条崩溃记录，超过 2 MiB 时先截掉最旧的事件而不是整次失败；AI 皮肤一次生成只用一个账号；限流时提示约要等多久。
-- **用户可见的变化**（计划第 10 节 Android 的那几条）：「退出登录」撤销服务端会话，断网时提示失败、但本机已经退出；流式对话的超时改成整条 125 秒，点停止后连接要晚一点才断；「获取」皮肤断网会失败；「删除云端数据」多一个语音样本分区，注销后也尽力删匿名账号的语音样本、可能多一次匿名登录；昵称不能再留空恢复默认（Rust 要求 1–64 个字）；举报、改分类的服务端细码被 Rust 归并，提示跟着变泛；Rust 的 AI 皮肤必须恰好三套，模型只给一两套时整次失败。
+- **用户可见的变化**（计划第 10 节 Android 的那几条）：「退出登录」撤销服务端会话，断网时提示失败、但本机已经退出；流式对话的超时改成整条 125 秒，点停止后连接要晚一点才断；「获取」皮肤断网会失败；「删除云端数据」多一个语音样本分区，注销后也尽力删匿名账号的语音样本、可能多一次匿名登录；昵称不能再留空恢复默认（Rust 要求 1–64 个字）；举报、改分类的服务端细码被 Rust 归并，提示跟着变泛；Rust 的 AI 皮肤必须恰好三套，模型只给一两套时整次失败。AI 皮肤的入口原来只在 HTTP 503 时藏；Rust 把所有 5xx 报成同一个码，刷新令牌时断网也是这个码，所以登录账号（或本机匿名账号）的访问令牌过期后断网点「生成」、服务端一时回 500 或 502、重定向被拒，现在也会把入口藏一天。这是 Rust 契约分不出来的，要分开得让 Rust 给没开 AI 皮肤的 503 一个自己的码，这一组不改 Rust。
 - **代价**：页面的接线只能用源码守卫和设备冒烟盯，JVM 冒烟跑不了 org.json 和 JNI；设备冒烟 `SessionStoreDeviceSmoke` 新加的几项经真实的 Rust、不联网，核对页面拼的请求 Rust 认得、页面在本机先做的检查与 Rust 的上限一致。
 - **留给后面几组的**：常用语没有显示云端列表的页面，只在云同步里用，按 `position` 排序随 5d 的 `msime_client_cloud_sync` 处理；打字统计上传和 QQ 群助手（`TypingUploadApi`）、`SignIn` 登录后读 `/v1/users/me` 对齐账号（5d 改用 `status`）、更新检查（负责人决定除选版本外留在 Java）还在 Java。
 
