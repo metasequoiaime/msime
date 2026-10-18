@@ -2213,8 +2213,10 @@ test("Linux restart copy covers both input method frameworks", async () => {
 });
 
 test("the macOS service page repairs the input source in one action: install, then register", async () => {
-  const installInputSource = vi.fn().mockResolvedValue(undefined);
-  const restartInputMethod = vi.fn().mockResolvedValue(undefined);
+  const installation = deferred<void>();
+  const registration = deferred<void>();
+  const installInputSource = vi.fn().mockReturnValue(installation.promise);
+  const restartInputMethod = vi.fn().mockReturnValue(registration.promise);
   render(
     <SettingsPage
       client={{
@@ -2226,17 +2228,23 @@ test("the macOS service page repairs the input source in one action: install, th
       }}
     />,
   );
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
   expect(await screen.findByText("修复输入源")).toBeDefined();
   expect(screen.queryByText("安装或更新水杉输入源")).toBeNull();
   expect(screen.queryByRole("button", { name: "重新注册" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "修复" }));
+  await waitFor(() => expect(installInputSource).toHaveBeenCalledOnce());
+  expect(restartInputMethod).not.toHaveBeenCalled();
+  await act(async () => installation.resolve());
   await waitFor(() => expect(restartInputMethod).toHaveBeenCalledOnce());
   expect(installInputSource).toHaveBeenCalledOnce();
   expect(installInputSource.mock.invocationCallOrder[0]).toBeLessThan(
     restartInputMethod.mock.invocationCallOrder[0],
   );
-  expect(await screen.findByText("输入源已修复。")).toBeDefined();
+  expect(screen.queryByText("输入源已修复。")).toBeNull();
+  await act(async () => registration.resolve());
+  expect(screen.getByText("输入源已修复。")).toBeDefined();
 });
 
 test("macOS reports the start-time input method refresh and a source that still needs enabling", async () => {
