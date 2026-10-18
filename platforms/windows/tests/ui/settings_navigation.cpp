@@ -54,7 +54,7 @@ int main() {
         {"typing", 0}, {"lexicon", 0}, {"shortcuts", 0}, {"expression", 0},
         {"voice", 1}, {"osk", 1}, {"themes", 2}, {"candidate", 2},
         {"toolbar", 2}, {"clip", 3}, {"ai", 3}, {"mcp", 3}, {"plugins", 3},
-        {"stats", 3}, {"account", 4}, {"dev", 5}, {"about", 5}}};
+        {"stats", 4}, {"account", 4}, {"dev", 5}, {"about", 5}}};
     require(sidebar.size() == pages.size());
     for (std::size_t i = 0; i < pages.size(); ++i)
       require(pages[i].id == sidebar[i].first &&
@@ -69,12 +69,13 @@ int main() {
       else
         require(page.shell.panel.empty() && page.shell.page.empty());
     }
-    // AI 辅助和剪贴板、打字统计、插件同在「工具」组，都在本窗口里原生绘制。
+    // AI 辅助和剪贴板、插件同在「工具」组，打字统计与账号同在「数据」组，都在本窗口里原生绘制。
     require(find_page("plugins")->host == PageHost::Native &&
             find_page("plugins")->group == find_page("clip")->group &&
-            find_page("plugins")->group == find_page("stats")->group);
+            find_page("plugins")->group == find_page("ai")->group);
     require(find_page("ai")->host == PageHost::Native &&
             find_page("ai")->group == find_page("plugins")->group);
+    require(find_page("stats")->group == find_page("account")->group);
     for (const auto &page : pages)
       require(page.host == PageHost::Native);
     // 桌面端没有社区页：社区皮肤在共享应用的主题页上，从本窗口的主题页打开。

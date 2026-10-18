@@ -3180,11 +3180,17 @@ function SettingsShell(props: SettingsPageProps) {
                 ));
                 if (mobilePlatform || !group.title) return pages;
                 const groupId = `settings-sidebar-group-${group.title}`;
+                const groupLabelId = `${groupId}-label`;
                 return (
-                  <section key={group.title} className={settings.sidebarGroup}>
+                  <section
+                    key={group.title}
+                    className={settings.sidebarGroup}
+                    aria-labelledby={groupLabelId}
+                  >
                     <button
                       type="button"
                       className={settings.sidebarGroupToggle}
+                      id={groupLabelId}
                       aria-expanded={expanded}
                       aria-controls={groupId}
                       onClick={() => toggleSidebarGroup(group)}
