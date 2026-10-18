@@ -12,7 +12,7 @@ Status: implemented
 - 本地备份恢复还要从快照文件里读用户词、换算种类、去重分批，这部分不在 Rust 里，从 `SyncApi` 和 `SyncMergePolicy` 挪进 `dictionary/DictionarySnapshotWords`，规则一字不改；`LocalBackup` 自己记下要剔掉的皮肤库键名。
 - JNI 去掉 `snapshotPrepareRaw`、`snapshotDiscardRaw`、`snapshotActivateRaw`、`aiSkinPlanRaw` 和只给准备用的 `SnapshotReader`，Java 一侧去掉对应的包装和重算快照记录数的 `inspectSnapshot`。准备、激活整份快照从 5d 起在 Rust 的 `msime_client_snapshot_queue` 里，AI 皮肤从 5c 起是 `msime_client_ai_skin_generate`。host 库照旧导出这些 C ABI，其他平台还在用。
 - `SignIn` 登录成功后记账号绑定时，用户 id 读 Rust 刚存下的会话（`DeviceDataApi.currentUserId`，即 `status`，不联网），不再另发一次 `GET /v1/users/me`。
-- 留着的：`snapshotVersionRaw`（`SessionStoreDeviceSmoke` 用它造一份真实的旧队列状态）、`sessionStoreUnregisterRaw`（设备冒烟注册完要收掉）。`aiSkinJobRaw`、`cloudDictionaryRaw` 是 5a 加的入口，产品一直没有接上，只有设备冒烟核对它们的请求不合法码，这一组先没动；第 0–5 步做完以后的清理里删掉了（连同 `kCloudDictionaryRequestLimit`、设备冒烟里的两项和 `verify-native.sh` 清单里的两个名字）：独立 APK 的云词库入口只提示去管理界面合包，AI 皮肤的插画任务也没有 Android 界面，迁移计划里没有一步要接它们，要用时再按头文件加回来。host 库照旧导出 `msime_client_ai_skin_job` 和 `msime_client_cloud_dictionary`。
+- 留着的：`snapshotVersionRaw`（`SessionStoreDeviceSmoke` 用它造一份真实的旧队列状态）、`sessionStoreUnregisterRaw`（设备冒烟注册完要收掉）；`aiSkinJobRaw`、`cloudDictionaryRaw` 是 5a 加的入口，产品一直没有接上，只有设备冒烟核对它们的请求不合法码，这一组不动，是否删由负责人定。
 - `check-host.sh` 加一道守卫：Java 里出现 `"/v1/` 请求路径的只能是云剪贴板的端到端加密驱动（`CloudClipboardApi`、`CloudClipboardE2e`）和不在迁移范围内的打字统计与 QQ 绑定（`TypingUploadApi`）。
 - 测试跟着删或改写，不留空转的守卫：`SyncApiSmoke`、`SyncMergePolicySmoke`、`BackendAccountEventStreamSmoke` 删掉，还成立的那几项（种类换算、分批、权重、单行与总记录数上限）进 `DictionarySnapshotWordsSmoke`；`BackendAccountSessionDeviceSmoke` 里「请求绑定到发起它的登录」那几项从已删的云剪贴板开关改成走键盘的云剪贴板上传，对话几项删掉；守卫脚本 `test-android-sync-phrase-response-bounds.py`、`test-android-sync-revision-policy.py`、`test-android-snapshot-prepare-request-bounds.py`、`test-android-snapshot-activate-bounds.py` 删掉，`test-android-account-binding.py`、`test-android-file-reader-links.py`、`test-native-snapshot-readers.py`、`test-android-named-daemon-thread-policy.py` 去掉指向已删代码的那几项；`check-host.sh` 里一道从 develop 起就对不上函数签名、一直空过的 `queueImport` 守卫删掉。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 - **`SyncApi.java` 留着、只剩读快照词那一个函数。** 理由是改动最小，`LocalBackup` 一行不用改。没有采用：类名和文件头都在说云同步，下一个人会以为同步还在 Java 里，守卫脚本也还会把它当同步接口来盯；读快照词和种类换算本来就是两处各一半，合成一个以用途命名的类更好找。
 - **`SignIn` 记绑定的那次 `/v1/users/me` 先不动，只删没人调用的代码。** 理由是 5f 写的是删重复实现，这一处有调用方，改它是行为变化。没有采用：它就是 Rust `status` 的又一份，而且更差，登录刚成功就断网时读成空、被当成换了账号，清掉上一个账号的待激活快照和同步绑定；它也是新守卫唯一要放过的例外，留着就得在守卫里给它开口子。
-- **把 5a 没接上的 `aiSkinJobRaw`、`cloudDictionaryRaw` 一起删掉。** 理由是没有产品调用方的 JNI 入口只增加维护面。当时没有在这里做：它们不是重复实现，是计划 5a 按头文件接好的入口，删不删是要不要给 Android 留这两个能力的决定，不该夹在 5f 里顺手做掉。第 0–5 步做完以后的清理确认没有一步要接它们，单独删掉了（见上面「留着的」）。
+- **把 5a 没接上的 `aiSkinJobRaw`、`cloudDictionaryRaw` 一起删掉。** 理由是没有产品调用方的 JNI 入口只增加维护面。没有在这里做：它们不是重复实现，是计划 5a 按头文件接好的入口，删不删是要不要给 Android 留这两个能力的决定，不该夹在清理里顺手做掉。
 
 ## Consequences
 

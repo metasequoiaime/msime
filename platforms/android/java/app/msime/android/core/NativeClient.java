@@ -1008,7 +1008,7 @@ public final class NativeClient {
     private static native void localSpeechDestroyRaw(long handle);
     private static native int localSpeechReleaseRaw(long idleMillis);
     private static native byte[] destroyRaw(long session);
-    // 账号与云端（#8201）：会话由 Rust 持有，经 SessionStore 注入的存储读写；登录、令牌和刷新经 AccountStore 调用，其余入口经上面各自的包装调用（sessionStoreUnregisterRaw 只有设备冒烟用）。
+    // 账号与云端（#8201）：会话由 Rust 持有，经 SessionStore 注入的存储读写；登录、令牌和刷新经 AccountStore 调用，其余入口经上面各自的包装调用（sessionStoreUnregisterRaw 只有设备冒烟用）；aiSkinJobRaw、cloudDictionaryRaw 是 5a 按头文件接好的入口，产品还没有调用方，只有设备冒烟核对请求不合法码，是否删由负责人定。
     private static native byte[] sessionStoreRegisterRaw(SessionStore store, byte[] clientAgent);
     private static native byte[] sessionStoreUnregisterRaw(long sessionStore);
     private static native byte[] clientAgentRaw(byte[] request);
@@ -1021,6 +1021,8 @@ public final class NativeClient {
     private static native byte[] communityRaw(byte[] request);
     private static native byte[] aiSkinGenerateRaw(byte[] request, AiSkinProgress listener);
     private static native byte[] aiSkinCancelRaw(byte[] request);
+    private static native byte[] aiSkinJobRaw(byte[] request);
+    private static native byte[] cloudDictionaryRaw(byte[] request);
     private static native byte[] snapshotQueueRaw(byte[] request);
     private static native byte[] cloudSyncRaw(byte[] request);
 }
