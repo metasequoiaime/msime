@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-client-core 持有 `touch_quick_punctuation_symbols` 的默认值、字素校验和规范化，host-api 提供有界纯转换接口；Swift 只采集字符、调用共享 PreferencesStore 保存并镜像到 App Group。空配置恢复默认七个标点，最多十二个去重单字素，组合 emoji 保留。新设置当前只在 iOS 提供界面，其他宿主保留字段；共享 React 偏好对照门禁在 `RUST_ONLY` 中记录这项原生界面归属。
+client-core 持有 `touch_quick_punctuation_symbols` 的默认值、字素校验和规范化，host-api 提供有界纯转换接口；Swift 只采集字符、调用共享 PreferencesStore 保存并镜像到 App Group。空配置恢复默认七个标点，最多十二个去重单字素，组合 emoji 保留。新设置当前只在 iOS 提供界面，其他宿主保留字段；共享 React 偏好对照门禁在 `RUST_ONLY` 中记录这项原生界面归属。macOS 偏好覆盖检查也在 `NOT_APPLICABLE` 中说明其屏幕键盘不读取该触屏列表，避免将有意的平台边界误报为宿主遗漏。
 
 中文手机 26 键在选择了自定义列表时使用第一项键面和完整长按菜单，默认列表保留逗号长按句号；英文、日文和本地模式保持原集合。长按会话在 began 固定语音或光标路由，复用拖动的文档身份检查、步进及清理；长按慢速编辑按字母移动拼音，手写有墨迹时不吞空格。
 
@@ -18,7 +18,7 @@ client-core 持有 `touch_quick_punctuation_symbols` 的默认值、字素校验
 
 ## Verification
 
-client-core 全套 400 项单元测试与 4 项集成测试、C ABI 回归及 client-core/host-api clippy 通过。模拟器 Rust 原生库与原生 MSIMEApp 编译通过，产品 App 安装启动成功；使用 ad-hoc 签名保留 App Group entitlement 后，QuickPunctuationSettingsTests 与 SpaceVoicePanelTests 共 9 项通过。未做真机或第三方编辑器长按验收。
+client-core 全套 400 项单元测试与 4 项集成测试、C ABI 回归及 client-core/host-api clippy 通过。模拟器 Rust 原生库与原生 MSIMEApp 编译通过，产品 App 安装启动成功；使用 ad-hoc 签名保留 App Group entitlement 后，QuickPunctuationSettingsTests 与 SpaceVoicePanelTests 共 9 项通过。macOS CI 的偏好覆盖用例暴露平台归属说明遗漏，补齐后使用同一 `preference_coverage.py` 检查确认。未做真机或第三方编辑器长按验收。
 
 ## Consequences
 
