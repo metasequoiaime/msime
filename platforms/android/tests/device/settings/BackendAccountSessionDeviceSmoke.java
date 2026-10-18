@@ -423,96 +423,95 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
         check(down.failed() && down.failure().contains("连不上社区"), "an unavailable community says so");
     }
 
+    // 账号释义（#8201 迁移计划 5e）：请求和解读走真的 Rust（msime_client_account_gloss），HTTP 和令牌是内存实现。
     private void candidateTranslationUsesSyntheticTransport() throws Exception {
-        CloudApi.Tokens account = new CloudApi.Tokens() {
-            @Override public String token(String rejected) { return ACCESS; }
-            @Override public String sessionId() { return "synthetic-login-a"; }
-        };
         AtomicInteger calls = new AtomicInteger();
-        CloudApi cloud = new CloudApi((method, path, headers, body) -> {
+        AtomicReference<JSONObject> sent = new AtomicReference<>();
+        BackendTranslationClient client = new BackendTranslationClient((method, path, headers, body) -> {
             calls.incrementAndGet();
             check("POST".equals(method) && "/v1/translate".equals(path)
-                    && ("Bearer " + ACCESS).equals(headers.get("Authorization"))
-                    && body != null,
-                "translation uses the selected account and endpoint");
+                    && ("Bearer " + ACCESS).equals(headers.get("Authorization")) && body != null,
+                "translation uses Rust's endpoint and the shared token");
+            try {
+                sent.set(new JSONObject(new String(body, java.nio.charset.StandardCharsets.UTF_8)));
+            } catch (org.json.JSONException malformed) {
+                throw new java.io.IOException(malformed);
+            }
             return new CloudApi.Exchange(200, "application/json", null,
                 "{\"code\":200,\"data\":[\"synthetic-gloss\"]}".getBytes());
-        }, account, ignored -> "");
-        List<String> translated = new BackendTranslationClient(cloud).translate(List.of("合成词"), "EN");
+        }, rejected -> ACCESS);
+        List<String> translated = client.translate(List.of("合成词"), "en");
+        JSONObject body = sent.get();
         check(translated.equals(List.of("synthetic-gloss")) && calls.get() == 1,
             "synthetic translation returns without contacting the backend");
+        check(body != null && "合成词".equals(body.getJSONArray("texts").getString(0))
+                && "ZH".equals(body.getString("source_lang")) && "EN".equals(body.getString("target_lang")),
+            "Rust builds the request body: " + body);
     }
 
-    private void candidateTranslationRejectsNewLogin() throws Exception {
-        for (int status : new int[] {401, 200}) {
-            AtomicReference<String> login = new AtomicReference<>("synthetic-login-a");
-            CloudApi.Tokens account = new CloudApi.Tokens() {
-                @Override public String token(String rejected) {
-                    return "synthetic-login-a".equals(login.get()) ? ACCESS : NEXT_ACCESS;
-                }
-                @Override public String sessionId() { return login.get(); }
-            };
-            AtomicInteger calls = new AtomicInteger();
-            CloudApi cloud = new CloudApi((method, path, headers, body) -> {
-                calls.incrementAndGet();
-                login.set("synthetic-login-b");
-                return new CloudApi.Exchange(status, "application/json", null,
-                    status == 200 ? "{\"code\":200,\"data\":[\"old-gloss\"]}".getBytes()
-                        : new byte[0]);
-            }, account, ignored -> "");
-            boolean changed = false;
-            try {
-                new BackendTranslationClient(cloud).translate(List.of("合成词"), "EN");
-            } catch (CloudApi.Failure failure) {
-                changed = "session_changed".equals(failure.code);
-            }
-            check(changed && calls.get() == 1,
-                "old translation must not retry or publish after a new login: " + status);
-        }
-    }
-
-    private void candidateTranslationRetainsSameLoginAndAnonymousFallback() throws Exception {
-        AtomicReference<String> token = new AtomicReference<>(ACCESS);
-        CloudApi.Tokens account = new CloudApi.Tokens() {
-            @Override public String token(String rejected) {
-                if (rejected != null) token.set(NEXT_ACCESS);
-                return token.get();
-            }
-            @Override public String sessionId() { return "synthetic-login-a"; }
-        };
+    private void candidateTranslationRetriesWithAFreshToken() throws Exception {
         AtomicInteger calls = new AtomicInteger();
-        CloudApi cloud = new CloudApi((method, path, headers, body) -> {
+        AtomicReference<String> rejectedToken = new AtomicReference<>();
+        BackendTranslationClient client = new BackendTranslationClient((method, path, headers, body) -> {
             calls.incrementAndGet();
             boolean refreshed = ("Bearer " + NEXT_ACCESS).equals(headers.get("Authorization"));
             return new CloudApi.Exchange(refreshed ? 200 : 401, "application/json", null,
-                refreshed ? "{\"code\":200,\"data\":[\"fresh-gloss\"]}".getBytes()
-                    : new byte[0]);
-        }, account, ignored -> "");
-        check(new BackendTranslationClient(cloud).translate(List.of("合成词"), "EN")
-                .equals(List.of("fresh-gloss")) && calls.get() == 2,
-            "same login translation retries once with refreshed token");
+                refreshed ? "{\"code\":200,\"data\":[\"fresh-gloss\"]}".getBytes() : new byte[0]);
+        }, rejected -> {
+            if (rejected == null) return ACCESS;
+            rejectedToken.set(rejected);
+            return NEXT_ACCESS;
+        });
+        check(client.translate(List.of("合成词"), "EN").equals(List.of("fresh-gloss")) && calls.get() == 2
+                && ACCESS.equals(rejectedToken.get()),
+            "a rejected token is exchanged once and the request retried");
 
-        CloudApi anonymous = new CloudApi((method, path, headers, body) -> {
-            check(("Bearer " + REFRESH).equals(headers.get("Authorization")),
-                "anonymous translation retains device identity");
-            return new CloudApi.Exchange(200, "application/json", null,
-                "{\"code\":200,\"data\":[\"anonymous-gloss\"]}".getBytes());
-        }, ignored -> "", ignored -> REFRESH);
-        check(new BackendTranslationClient(anonymous).translate(List.of("合成词"), "EN")
-                .equals(List.of("anonymous-gloss")),
-            "signed-out translation uses the anonymous identity");
+        AtomicInteger refusals = new AtomicInteger();
+        BackendTranslationClient stuck = new BackendTranslationClient((method, path, headers, body) -> {
+            refusals.incrementAndGet();
+            return new CloudApi.Exchange(401, "application/json", null, new byte[0]);
+        }, rejected -> ACCESS);
+        String code = "";
+        try {
+            stuck.translate(List.of("合成词"), "EN");
+        } catch (AccountStore.Failure failure) {
+            code = failure.code;
+        }
+        check("account_unauthorized".equals(code) && refusals.get() == 1,
+            "the same token is not sent twice and Rust reads the 401: " + code);
+    }
+
+    private void candidateTranslationKeepsGoodItems() throws Exception {
+        String oversized = "x".repeat(4097);
+        BackendTranslationClient client = new BackendTranslationClient((method, path, headers, body) ->
+            new CloudApi.Exchange(200, "application/json", null,
+                ("{\"code\":200,\"data\":[\"" + oversized + "\",\" good\\n\",\"合成词\"]}").getBytes()),
+            rejected -> ACCESS);
+        List<String> translated = client.translate(List.of("长词", "好词", "合成词"), "EN");
+        check(translated.equals(java.util.Arrays.asList(null, "good", null)),
+            "Rust nulls an oversized or unchanged item and keeps the rest: " + translated);
+
+        BackendTranslationClient limited = new BackendTranslationClient((method, path, headers, body) ->
+            new CloudApi.Exchange(429, "application/json", "60",
+                "{\"error\":{\"code\":\"rate_limit_exceeded\"}}".getBytes()),
+            rejected -> ACCESS);
+        AccountStore.Failure refused = null;
+        try {
+            limited.translate(List.of("合成词"), "EN");
+        } catch (AccountStore.Failure failure) {
+            refused = failure;
+        }
+        check(refused != null && "account_rate_limited".equals(refused.code) && refused.retryAfterSeconds == 60,
+            "Rust maps a rate limit with its Retry-After");
     }
 
     private void candidateTranslationKeepsResponseBound() throws Exception {
-        CloudApi cloud = new CloudApi((method, path, headers, body) ->
+        BackendTranslationClient client = new BackendTranslationClient((method, path, headers, body) ->
             new CloudApi.Exchange(200, "application/json", null, new byte[256 * 1024 + 1]),
-            new CloudApi.Tokens() {
-                @Override public String token(String rejected) { return ACCESS; }
-                @Override public String sessionId() { return "synthetic-login-a"; }
-            }, ignored -> "");
+            rejected -> ACCESS);
         boolean tooLarge = false;
         try {
-            new BackendTranslationClient(cloud).translate(List.of("合成词"), "EN");
+            client.translate(List.of("合成词"), "EN");
         } catch (IllegalStateException bounded) {
             tooLarge = bounded.getMessage().contains("too large");
         }
@@ -576,10 +575,10 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
             communityListingRejectsNewLogin();
             stage = "candidate translation synthetic transport";
             candidateTranslationUsesSyntheticTransport();
-            stage = "candidate translation old login";
-            candidateTranslationRejectsNewLogin();
-            stage = "candidate translation same login and anonymous";
-            candidateTranslationRetainsSameLoginAndAnonymousFallback();
+            stage = "candidate translation fresh token";
+            candidateTranslationRetriesWithAFreshToken();
+            stage = "candidate translation items through Rust";
+            candidateTranslationKeepsGoodItems();
             stage = "candidate translation response bound";
             candidateTranslationKeepsResponseBound();
             stage = "malformed QQ links";

@@ -523,6 +523,9 @@ public final class NativeClient {
     /** 登录的优先、否则匿名账号的访问令牌（{@code msime_client_account_access_token}）。可能刷新令牌、阻塞网络；回复含凭据，不要写进日志。 */
     static String accountAccessToken(String request) { return TextPolicy.utf8(accountAccessTokenRaw(utf8(request))); }
 
+    /** 账号释义的 sans-IO 一半（{@code msime_client_account_gloss}），只给 {@link BackendTranslationClient} 用：拼请求体、解读收到的响应，不联网、不读会话，两个进程都能调，任意线程。 */
+    static String accountGloss(String request) { return TextPolicy.utf8(accountGlossRaw(utf8(request))); }
+
     /** 社区操作（{@code msime_client_community}），请求带 {@code session_store}。阻塞网络，放在工作线程上。 */
     static String community(String request) { return TextPolicy.utf8(communityRaw(utf8(request))); }
 

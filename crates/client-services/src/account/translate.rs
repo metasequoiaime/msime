@@ -241,7 +241,12 @@ mod tests {
         for body in [
             serde_json::json!({ "code": "200", "data": ["apple"] }),
             serde_json::json!({ "code": 200.0, "data": ["apple"] }),
+            serde_json::json!({ "code": 200.5, "data": ["apple"] }),
+            serde_json::json!({ "code": true, "data": ["apple"] }),
             serde_json::json!({ "code": 0, "data": ["apple"] }),
+            // Android 原来的 Java 解读（#8201 5e 删掉）对这两种也整页拒绝，这里接住它的测试。
+            serde_json::json!({ "code": 200, "data": [null] }),
+            serde_json::json!({ "code": 200, "data": [42] }),
             serde_json::json!({ "code": 200, "data": ["apple", "extra"] }),
             serde_json::json!({ "code": 200, "data": "apple" }),
             serde_json::json!({ "code": 200, "data": ["a".repeat(MAX_TRANSLATION_BYTES + 1)] }),

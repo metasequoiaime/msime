@@ -1062,6 +1062,12 @@ if rg -n 'PATH \+ "/' "$repo_root/platforms/android/java/app/msime/android/accou
   echo "Android cloud clipboard settings and AI chat must go through Rust" >&2
   exit 1
 fi
+# 「水杉账号」的候选释义（#8201 迁移计划 5e）：请求体怎么拼、回答怎么读都在 Rust 的 msime_client_account_gloss，路径也由它给；Java 只带着 provider 的 shared_access_token 把那一次请求发出去，不能再自己拼 /v1/translate 或解读译文。
+if rg -n '"/v1/translate"' "$repo_root/platforms/android/java" \
+  || ! rg -q 'NativeClient\.accountGloss\(' "$repo_root/platforms/android/java/app/msime/android/voice/BackendTranslationClient.java"; then
+  echo "Android account glosses must be built and read by Rust's msime_client_account_gloss" >&2
+  exit 1
+fi
 # 词库快照激活队列和云同步的状态都由 Rust 持有（#8201 迁移计划 5d）：Java 的 FileChannel.lock 是 fcntl，与 Rust 的 flock 互相看不见，所以 Java 里不能再有读写队列状态（旧的 state.bin）或加队列锁的代码，也不能再读写云同步的进度（cursor_、gen_、clean_ 这几类键、开关、上次同步时间），记改动只经 SyncSignals 调 Rust 的 mark_dirty。旧状态只在 RustCloudSync 里整份交给 Rust 的 import_legacy。
 if rg -n 'FileChannel|FileLock|DataOutputStream|DataInputStream' \
     "$repo_root/platforms/android/java/app/msime/android/dictionary/DictionarySnapshotQueue.java" \
