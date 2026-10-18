@@ -55,6 +55,7 @@ impl IosKeyboardPreferences {
                 | "tibetan"
                 | "stroke"
                 | "fourteenKey"
+                | "nineKeyShuangpin"
         ) && matches!(
             self.haptic_strength.as_str(),
             "light" | "medium" | "strong" | "system"

@@ -37,11 +37,12 @@ pub fn local_account_preferences(
     }
     let mut settings = BTreeMap::new();
     // 云端的 `input.schema` 装不下粤拼、注音、越南文、藏文和笔画（旧设备会拒收整份文档），所以这几个方案不写方案、九键开关和触屏布局，云端保留原有的值。
-    // 全拼的 26 键、9 键、14 键和手写都上传成全拼，用哪种键盘写进 `platform.ios.keyboard_layout`（与 Android 的 `platform.android.keyboard_layout` 同一套词）；还不认识它的旧版本只读 `platform.ios.nine_key`，所以两个键一起上传。
+    // 全拼的 26 键、9 键、14 键、九键双拼和手写都上传成全拼，用哪种键盘写进 `platform.ios.keyboard_layout`（与 Android 的 `platform.android.keyboard_layout` 同一套词）；还不认识它的旧版本只读 `platform.ios.nine_key`，所以两个键一起上传，九键双拼在那里是 false、落成全拼 26 键，与原生 iOS 原来的 Swift 映射相同。
     let scheme = match native.input_scheme.as_str() {
         "quanpin" => Some(("quanpin", None, "twenty_six_key")),
         "nineKey" => Some(("quanpin", None, "nine_key")),
         "fourteenKey" => Some(("quanpin", None, "fourteen_key")),
+        "nineKeyShuangpin" => Some(("quanpin", None, "nine_key_shuangpin")),
         "handwriting" => Some(("quanpin", None, "handwriting")),
         "shuangpin" => Some(("shuangpin", Some("xiaohe"), "twenty_six_key")),
         "ziranma" => Some(("shuangpin", Some("ziranma"), "twenty_six_key")),
@@ -172,8 +173,13 @@ const UNSYNCED_NATIVE_SCHEMES: [&str; 5] =
 
 /// iOS 的触屏布局键，取值与 Android 的 `platform.android.keyboard_layout` 相同。服务端只限它是不超过 32 字节的字符串，以后可能多出别的取值，所以下载时不认识的取值当作没有这一项。
 const IOS_KEYBOARD_LAYOUT: &str = "platform.ios.keyboard_layout";
-const IOS_KEYBOARD_LAYOUTS: [&str; 4] =
-    ["twenty_six_key", "nine_key", "fourteen_key", "handwriting"];
+const IOS_KEYBOARD_LAYOUTS: [&str; 5] = [
+    "twenty_six_key",
+    "nine_key",
+    "fourteen_key",
+    "handwriting",
+    "nine_key_shuangpin",
+];
 
 /// 一份已经校验过的云端设置文档要改的 iOS 值；没有出现在文档里的键是 `None`，应用时保留本机的值。
 #[derive(Debug, PartialEq)]
@@ -221,6 +227,7 @@ impl IosPreferencePlan {
             Some("quanpin") => Some(
                 match layout.as_deref() {
                     Some("fourteen_key") => "fourteenKey",
+                    Some("nine_key_shuangpin") => "nineKeyShuangpin",
                     Some("handwriting") => "handwriting",
                     _ if nine_key => "nineKey",
                     _ => "quanpin",
@@ -441,6 +448,7 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "tibetan" => Ok(TouchKeyboardScheme::Tibetan),
         "stroke" => Ok(TouchKeyboardScheme::Stroke),
         "fourteenKey" => Ok(TouchKeyboardScheme::FourteenKey),
+        "nineKeyShuangpin" => Ok(TouchKeyboardScheme::NineKeyShuangpin),
         _ => Err(AccountError::Invalid),
     }
 }
@@ -541,7 +549,7 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
             preferences.last_chinese_scheme = Some(ChineseScheme::Wubi);
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
         }
-        // 九键双拼还没有 iOS 键盘，iOS 的方案名也解析不出它；只有别的宿主写进启用列表时才会落到这里，照样按它的布局记下。
+        // 九键双拼的引擎方案是全拼，布局是九键双拼（原生 iOS 的 `nineKeyShuangpin`）。
         TouchKeyboardScheme::Quanpin
         | TouchKeyboardScheme::NineKey
         | TouchKeyboardScheme::FourteenKey
@@ -758,6 +766,39 @@ mod tests {
         );
     }
 
+    /// 九键双拼：原生 iOS 的 `nineKeyShuangpin` 是合法的键盘设置，选中全拼的九键双拼布局；上传时按全拼，布局是 `nine_key_shuangpin`，给旧版本的九键开关是 false。
+    #[test]
+    fn the_nine_key_shuangpin_scheme_round_trips() {
+        assert_eq!(
+            super::touch_scheme("nineKeyShuangpin"),
+            Ok(TouchKeyboardScheme::NineKeyShuangpin)
+        );
+        let mut native = native();
+        native.input_scheme = "nineKeyShuangpin".into();
+        assert!(native.is_valid());
+        let settings = local_account_preferences(&native, &Preferences::default(), None).unwrap();
+        assert_eq!(
+            settings["input.schema"],
+            AccountPreferenceValue::String("quanpin".into())
+        );
+        assert!(!settings.contains_key("input.shuangpin_schema"));
+        let mut preferences = Preferences::default();
+        preferences
+            .touch_keyboard_schemes
+            .enabled
+            .insert(TouchKeyboardScheme::NineKeyShuangpin);
+        super::select_touch_scheme(&mut preferences, TouchKeyboardScheme::NineKeyShuangpin);
+        assert_eq!(preferences.scheme, InputScheme::Quanpin);
+        assert_eq!(
+            preferences.touch_keyboard_layout,
+            TouchKeyboardLayout::NineKeyShuangpin
+        );
+        assert_eq!(
+            preferences.touch_keyboard_schemes.selected,
+            Some(TouchKeyboardScheme::NineKeyShuangpin)
+        );
+    }
+
     /// 每个全拼入口上传的触屏布局：26 键、九键、14 键和手写各有自己的值，九键开关只在九键时为真。
     #[test]
     fn upload_names_the_touch_layout_of_each_quanpin_entry() {
@@ -766,6 +807,7 @@ mod tests {
             ("nineKey", "nine_key", true),
             ("fourteenKey", "fourteen_key", false),
             ("handwriting", "handwriting", false),
+            ("nineKeyShuangpin", "nine_key_shuangpin", false),
             ("japaneseNineKey", "nine_key", true),
             ("wubi", "twenty_six_key", false),
         ] {
@@ -827,6 +869,13 @@ mod tests {
         assert_eq!(
             requested(&cloud("quanpin", Some("handwriting"), false), "quanpin"),
             "handwriting"
+        );
+        assert_eq!(
+            requested(
+                &cloud("quanpin", Some("nine_key_shuangpin"), false),
+                "quanpin"
+            ),
+            "nineKeyShuangpin"
         );
         assert_eq!(
             requested(
