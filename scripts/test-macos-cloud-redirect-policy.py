@@ -18,7 +18,6 @@ def main() -> int:
     for relative in (
         "platforms/macos/src/cloud/CloudDictionaryClient.mm",
         "platforms/macos/src/cloud/CloudClipboardClient.mm",
-        "platforms/macos/src/core/AccountAuthClient.mm",
     ):
         text = (ROOT / relative).read_text()
         if "MSIMEStartCloudDataTask" not in text:
