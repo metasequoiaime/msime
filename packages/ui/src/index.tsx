@@ -1931,3 +1931,8 @@ export {
   useCloudDictionaryCatalogPanel,
   type CloudDictionaryCatalogPanelState,
 } from "./keyboard/use-cloud-dictionary-catalog-panel";
+
+export {
+  useCloudCandidatesPanel,
+  type CloudCandidatesPanelState,
+} from "./keyboard/use-cloud-candidates-panel";
