@@ -147,7 +147,7 @@ test("the AI page edits the active prompt slot inside 更多选项, without a sl
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
   const page = screen.getByRole("group", { name: "AI 辅助" });
   // 三个槽位的切换没人用，只剩一个文本框，绑在当前槽位上；`prompt_id` 和其他槽位原样保留。
   expect(within(page).queryByLabelText("AI 联想提示词方案")).toBeNull();

@@ -49,13 +49,12 @@ int main() {
     }
     require(ids.size() == 16);
     require(groups.size() == page_group_count);
-    // 分组和顺序与共享设置 UI 的桌面侧栏相同：`packages/ui/src/settings/settings-page-registry.ts` 里的 `settingsNavGroups`（打字、外观、更多输入方式、工具、账号、支持）去掉 `desktopMergedPages` 并进「关于」的「帮助与反馈」，这样原生窗口和共享设置 UI 以同样的方式列出同样的页面。
+    // 分组和顺序与共享设置 UI 的 `settingsNavGroups` 一致，合并页仍通过旧路由打开。
     const std::array<std::pair<std::string_view, std::size_t>, 16> sidebar{{
-        {"typing", 0},  {"expression", 0}, {"shortcuts", 0}, {"lexicon", 0},
-        {"themes", 1},  {"candidate", 1},  {"toolbar", 1},   {"osk", 2},
-        {"voice", 2},   {"clip", 3},       {"stats", 3},     {"plugins", 3},
-        {"ai", 3},      {"account", 4},    {"dev", 5},
-        {"about", 5}}};
+        {"typing", 0}, {"lexicon", 0}, {"shortcuts", 0}, {"expression", 0},
+        {"voice", 1}, {"osk", 1}, {"themes", 2}, {"candidate", 2},
+        {"toolbar", 2}, {"clip", 3}, {"ai", 3}, {"plugins", 3},
+        {"stats", 3}, {"account", 4}, {"dev", 5}, {"about", 5}}};
     require(sidebar.size() == pages.size());
     for (std::size_t i = 0; i < pages.size(); ++i)
       require(pages[i].id == sidebar[i].first &&

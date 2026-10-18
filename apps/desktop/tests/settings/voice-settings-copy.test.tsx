@@ -385,7 +385,7 @@ test("macOS 手写页能打开识别复制面板，且不重置无关偏好", as
   );
   await settingsFormReady();
   // 旧的 handwriting 页 id 仍然能打开：macOS 上它指向合并后的「屏幕键盘与手写」页。
-  expect(await screen.findByRole("group", { name: "屏幕键盘与手写" })).toBeTruthy();
+  expect(await screen.findByRole("group", { name: "键盘手写" })).toBeTruthy();
   expect(screen.getByText("打开手写识别板")).toBeTruthy();
   expect(screen.getByLabelText("手写识别板预览")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();

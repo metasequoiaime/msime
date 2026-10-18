@@ -49,13 +49,37 @@ const groupIds = (groups: readonly { title?: string; pages: readonly { id: strin
 test("projects the desktop sidebar into the titled navigation groups", () => {
   expect(groupIds(project().sidebarGroups)).toEqual([
     { title: undefined, ids: ["home"] },
-    { title: "打字", ids: ["input", "expression", "shortcuts", "dictionary"] },
+    { title: "打字", ids: ["input", "dictionary", "shortcuts", "expression"] },
+    { title: "更多输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
-    { title: "更多输入方式", ids: ["screen-keyboard", "voice", "handwriting"] },
-    { title: "工具", ids: ["tools", "typing-statistics", "plugins", "ai"] },
+    { title: "工具", ids: ["tools", "ai", "plugins", "typing-statistics"] },
     { title: "账号", ids: ["account"] },
     // 桌面上「帮助与反馈」并进「关于」，侧栏不再列出它；它仍是可路由的页面。
     { title: "支持", ids: ["developer", "about"] },
+  ]);
+  // 完整桌面菜单统一四字名称，版本裁剪后不产生空入口。
+  const desktop = project({
+    hasHomePage: false,
+    handwritingOnScreenKeyboardPage: true,
+    desktopPageTitle,
+  });
+  expect(desktop.sidebarGroups.flatMap((group) => group.pages.map((page) => page.title))).toEqual([
+    "输入设置",
+    "词库管理",
+    "按键设置",
+    "标点翻译",
+    "语音输入",
+    "键盘手写",
+    "主题外观",
+    "候选窗口",
+    "快捷工具",
+    "剪贴管理",
+    "智能辅助",
+    "扩展插件",
+    "打字统计",
+    "账号管理",
+    "维护诊断",
+    "关于水杉",
   ]);
   expect(project().availablePages.map((page) => page.id)).toContain("feedback");
   // 宿主不提供的页从所在组里消失；整组为空时整组不出现。
@@ -70,9 +94,9 @@ test("projects the desktop sidebar into the titled navigation groups", () => {
       }).sidebarGroups,
     ),
   ).toEqual([
-    { title: "打字", ids: ["input", "expression", "shortcuts", "dictionary"] },
+    { title: "打字", ids: ["input", "dictionary", "shortcuts", "expression"] },
+    { title: "更多输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
-    { title: "更多输入方式", ids: ["screen-keyboard", "voice", "handwriting"] },
     { title: "工具", ids: ["tools", "ai"] },
     { title: "支持", ids: ["developer", "about"] },
   ]);
@@ -87,23 +111,14 @@ test("the 连接 AI 助手 page exists only where the host reports the MCP serve
   expect(project({ hasMcp: false }).availablePages.map((page) => page.id)).not.toContain("mcp");
 });
 
-test("macOS and Linux call the account page 账号, since only Windows syncs settings through it on desktop", () => {
-  const title = (platform: string) =>
-    project({
-      desktopPageTitle: (id, name) => desktopPageTitle(id, name, platform),
-    }).availablePages.find((page) => page.id === "account")?.title;
-  expect(title("macos")).toBe("账号");
-  expect(title("windows")).toBe("账号与同步");
-  expect(title("linux")).toBe("账号");
-  // 鸿蒙 2in1 的账号会话接了设置同步，仍叫「账号与同步」。
-  expect(title("harmony")).toBe("账号与同步");
-  // 没给改写函数时用注册表里的名字；触屏宿主按 `mobilePageTitle` 叫它「我的」。
-  expect(project().availablePages.find((page) => page.id === "account")?.title).toBe("账号与同步");
+test("桌面账号页统一叫账号管理，触屏仍叫我的", () => {
   expect(
-    project({
-      mobilePlatform: true,
-      desktopPageTitle: (id, name) => desktopPageTitle(id, name, "macos"),
-    }).availablePages.find((page) => page.id === "account")?.title,
+    project({ desktopPageTitle }).availablePages.find((page) => page.id === "account")?.title,
+  ).toBe("账号管理");
+  expect(
+    project({ mobilePlatform: true, desktopPageTitle }).availablePages.find(
+      (page) => page.id === "account",
+    )?.title,
   ).toBe("我的");
 });
 
@@ -141,10 +156,10 @@ test("projects mobile pages into tabs, grouped settings, and sidebar sections", 
   expect(listed).not.toContain("about");
   expect(listed).not.toContain("feedback");
   expect(groupIds(mobile.mobileSecondaryGroups)).toEqual([
-    { title: "打字", ids: ["input", "expression", "dictionary"] },
+    { title: "打字", ids: ["input", "dictionary", "expression"] },
+    { title: "键盘、语音与手写", ids: ["voice", "screen-keyboard", "handwriting"] },
     { title: "外观", ids: ["skin", "appearance"] },
-    { title: "键盘、语音与手写", ids: ["screen-keyboard", "voice", "handwriting"] },
-    { title: "工具", ids: ["tools", "plugins", "ai"] },
+    { title: "工具", ids: ["tools", "ai", "plugins"] },
     { title: "支持", ids: ["developer"] },
   ]);
   expect(mobile.sidebarGroups[0].pages.map((page) => page.id)).toEqual(["home"]);
@@ -207,9 +222,9 @@ test("places the 插件 page in 工具 and drops it where the host does not back
   expect(group?.title).toBe("工具");
   expect(group?.pages.map((page) => page.id)).toEqual([
     "tools",
-    "typing-statistics",
-    "plugins",
     "ai",
+    "plugins",
+    "typing-statistics",
   ]);
   expect(desktop.availablePages.find((page) => page.id === "plugins")?.title).toBe("插件");
 
@@ -231,12 +246,12 @@ test("drops the 手写输入 page from an edition without handwriting", () => {
   expect(desktop.availablePages.map((page) => page.id)).not.toContain("handwriting");
   expect(groupIds(desktop.sidebarGroups)).toContainEqual({
     title: "更多输入方式",
-    ids: ["screen-keyboard", "voice"],
+    ids: ["voice", "screen-keyboard"],
   });
   const phone = project({ mobilePlatform: true, hasHandwriting: false });
   expect(groupIds(phone.mobileSecondaryGroups)).toContainEqual({
     title: "键盘、语音与手写",
-    ids: ["screen-keyboard", "voice"],
+    ids: ["voice", "screen-keyboard"],
   });
 });
 
@@ -286,11 +301,11 @@ test("folds 手写输入 into the screen keyboard page where the host asks for i
   expect(merged.handwritingOnScreenKeyboardPage).toBe(true);
   expect(merged.availablePages.map((page) => page.id)).not.toContain("handwriting");
   expect(merged.availablePages.find((page) => page.id === "screen-keyboard")?.title).toBe(
-    "屏幕键盘与手写",
+    "键盘手写",
   );
   expect(groupIds(merged.sidebarGroups)).toContainEqual({
     title: "更多输入方式",
-    ids: ["screen-keyboard", "voice"],
+    ids: ["voice", "screen-keyboard"],
   });
   expect(merged.pageAliases).toEqual({ handwriting: "screen-keyboard" });
   // 同一个宿主两次投影拿到同一个别名对象，依赖它的 effect 不会每次渲染都重跑。

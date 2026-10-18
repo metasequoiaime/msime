@@ -47,7 +47,7 @@ test("关于默认显示版本，切换分类保留反馈草稿，帮助返回�
     "synthetic feedback draft",
   );
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
-  fireEvent.click(await screen.findByRole("button", { name: "返回关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "返回关于水杉" }));
   expect(screen.getByRole("tab", { name: "帮助与反馈" }).getAttribute("aria-selected")).toBe(
     "true",
   );

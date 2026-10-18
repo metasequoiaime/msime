@@ -33,7 +33,7 @@ async function openInputPage(
     <SettingsPage client={{ load: async () => snapshot(preferences), save: vi.fn(), host }} />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   await screen.findByRole("radio", { name: "中文" });
 }
 

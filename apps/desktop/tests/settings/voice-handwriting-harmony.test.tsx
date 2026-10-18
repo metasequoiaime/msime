@@ -510,7 +510,7 @@ test("a keyboard without pad settings leaves the handwriting page as instruction
 test("the 2-in-1 handwriting instructions sit on the merged screen keyboard page", async () => {
   renderSettings({ page: "handwriting", mobile: false, feedback: padFeedback });
   await settingsFormReady();
-  const page = screen.getByRole("group", { name: "屏幕键盘与手写" });
+  const page = screen.getByRole("group", { name: "键盘手写" });
   expect(screen.queryByRole("group", { name: "手写输入" })).toBeNull();
   expect(within(page).queryByRole("slider", { name: "识别等待时间" })).toBeNull();
   expect(within(page).getByText(/2-in-1 候选窗口不绘制键面/)).toBeTruthy();
@@ -658,14 +658,14 @@ test("the phone keyboard page edits which toolbar tools are shown and whether th
 test("the 2-in-1 keyboard page has no toolbar tools, as its keyboard has no toolbar row", async () => {
   renderSettings({ page: "screen-keyboard", mobile: false });
   await settingsFormReady();
-  const page = screen.getByRole("group", { name: "屏幕键盘与手写" });
+  const page = screen.getByRole("group", { name: "键盘手写" });
   expect(within(page).queryByRole("switch", { name: "工具栏：表情" })).toBeNull();
 });
 
 test("the 2-in-1 keyboard page keeps the preview above 尺寸", async () => {
   renderSettings({ page: "screen-keyboard", mobile: false });
   await settingsFormReady();
-  const page = screen.getByRole("group", { name: "屏幕键盘与手写" });
+  const page = screen.getByRole("group", { name: "键盘手写" });
   expect(groupTitles(page).slice(0, 2)).toEqual(["屏幕键盘", "尺寸"]);
   expect(within(page).queryByText("中文键盘")).toBeNull();
 });

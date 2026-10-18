@@ -855,7 +855,7 @@ test("mobile accounts expose about and desktop download actions while signed out
       onOpenDesktopDownload={openDesktopDownload}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "关于水杉" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^(关于|关于水杉)$/ }));
   fireEvent.click(screen.getByRole("button", { name: "电脑版下载" }));
   expect(openAbout).toHaveBeenCalledTimes(1);
   expect(openDesktopDownload).toHaveBeenCalledTimes(1);
@@ -962,7 +962,7 @@ test("mobile 我的 follows the design's groups: tools, content, then the walkth
   );
   fireEvent.click(screen.getByRole("button", { name: "新手引导" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   expect(calls).toEqual([
     "clipboard",
     "dictionary",
@@ -982,7 +982,7 @@ test("a touch host without an account client still reaches help and about from �
   const openAbout = vi.fn();
   render(<AccountPage platform="android" onOpenFeedback={openFeedback} onOpenAbout={openAbout} />);
   fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   expect(openFeedback).toHaveBeenCalledOnce();
   expect(openAbout).toHaveBeenCalledOnce();
 });
@@ -1212,7 +1212,7 @@ test("settings expose My only with a personal capability and omit preference act
     <SettingsPage client={{ load: async () => preferences, save: vi.fn() }} />,
   );
   await settingsFormReady();
-  expect(screen.queryByRole("button", { name: "账号与同步" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^(账号与同步|账号管理)$/ })).toBeNull();
   without.unmount();
 
   render(
@@ -1221,7 +1221,7 @@ test("settings expose My only with a personal capability and omit preference act
       initialPage="account"
     />,
   );
-  expect(await screen.findByRole("heading", { name: "账号与同步" })).not.toBeNull();
+  expect(await screen.findByRole("heading", { name: /^(账号与同步|账号管理)$/ })).not.toBeNull();
   await screen.findByText("欢迎来到水杉");
   expect(screen.queryByRole("form", { name: "设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
@@ -1644,9 +1644,9 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   expect(onOpenUrl).not.toHaveBeenCalledWith("https://msime.app/privacy/");
 
   expect(screen.getByRole("button", { name: "其他平台下载" }).textContent).toContain("7 个平台");
-  expect(screen.getByRole("button", { name: "关于" }).textContent).toContain("1.2.3");
+  expect(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }).textContent).toContain("1.2.3");
   fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   fireEvent.click(screen.getByRole("button", { name: "新手引导" }));
   expect(calls).toEqual(["clipboard", "designs", "feedback", "about", "onboarding"]);
 

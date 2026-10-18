@@ -83,7 +83,7 @@ async function openDictionaryPage(dictionary: Record<string, unknown>, kind?: st
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   if (kind) chooseKind(kind);
   // 换类型会重新读词条；读完之前页面不接新的操作。
   const select = screen.getByLabelText<HTMLSelectElement>("本地词库类型");

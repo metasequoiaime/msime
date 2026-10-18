@@ -31,6 +31,7 @@ test("search loads once and selects with keyboard without saving", async () => {
       client={{ load: async () => initial, save, listFontFamilies }}
     />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   // 字体框在「候选字体」选「自定义…」后才出现。
   fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
   const primary = await screen.findByLabelText("主字体");
@@ -62,6 +63,7 @@ test("late results from a replaced reader cannot reappear", async () => {
   const view = render(
     <SettingsPage initialPage="appearance" client={{ ...client, listFontFamilies: old }} />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   // 字体框在「候选字体」选「自定义…」后才出现。
   fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
   fireEvent.focus(await screen.findByLabelText("主字体"));
@@ -85,6 +87,7 @@ test("failed catalog retries while allowing manual font entry", async () => {
       client={{ load: async () => initial, save: vi.fn(), listFontFamilies }}
     />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   // 字体框在「候选字体」选「自定义…」后才出现。
   fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
   const input = await screen.findByLabelText("主字体");
@@ -106,6 +109,7 @@ test("disables the font catalog refresh while loading", async () => {
       client={{ load: async () => initial, save: vi.fn(), listFontFamilies }}
     />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   // 字体框在「候选字体」选「自定义…」后才出现。
   fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
   const input = await screen.findByLabelText("主字体");
@@ -128,6 +132,7 @@ test("large catalogs bound visible options without losing searchable entries", a
       }}
     />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   // 字体框在「候选字体」选「自定义…」后才出现。
   fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
   const input = await screen.findByLabelText("主字体");
@@ -139,7 +144,7 @@ test("large catalogs bound visible options without losing searchable entries", a
   expect(within(list).getAllByRole("option")).toHaveLength(1);
 });
 
-// 主字体框收起时（选着预设），「更多选项」里的英文字体框自己带着读取状态和刷新按钮，读取失败后仍能重试。
+// 主字体框收起时（选着预设），「字体与大小」里的英文字体框自己带着读取状态和刷新按钮，读取失败后仍能重试。
 test("the English font field carries the catalog status and refresh while the main field is hidden", async () => {
   const listFontFamilies = vi
     .fn()
@@ -156,6 +161,7 @@ test("the English font field carries the catalog status and refresh while the ma
       }}
     />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   const english = await screen.findByLabelText("英文字体");
   expect(screen.queryByLabelText("主字体")).toBeNull();
   // 读取状态和刷新不再单独占一行。

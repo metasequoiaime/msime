@@ -2546,7 +2546,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     hasMcp: Boolean(client.mcpServerStatus),
     mobileHiddenPageIds,
     mobilePageTitle,
-    desktopPageTitle: (id, title) => desktopPageTitle(id, title, client.host?.platform),
+    desktopPageTitle,
   });
   const {
     mobileActiveTab,

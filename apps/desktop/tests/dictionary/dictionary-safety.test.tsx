@@ -54,7 +54,7 @@ async function openDictionary(dictionary: ReturnType<typeof dictionaryClient>) {
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   // The page lists on demand rather than on open.
   // Wait for the rows themselves; the call resolving is not the same as a render.
   await screen.findAllByRole("button", { name: "删除" });
@@ -135,7 +135,7 @@ test("Android personal dictionary JSON import previews and queues only after con
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   // 个人词库文件在桌面词库页的「管理词库」标签里。
   selectDictionaryTab("管理词库");
 
@@ -181,7 +181,7 @@ test("personal dictionary import ignores a duplicate confirmation while pending"
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   // 个人词库文件在桌面词库页的「管理词库」标签里。
   selectDictionaryTab("管理词库");
   const file = new File(
@@ -222,7 +222,7 @@ test("personal dictionary import ignores a response from a replaced dictionary c
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   // 个人词库文件在桌面词库页的「管理词库」标签里。
   selectDictionaryTab("管理词库");
   const file = new File(

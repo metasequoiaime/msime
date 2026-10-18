@@ -141,14 +141,14 @@ test("typing statistics follow the injected client on any platform", async () =>
 test("Windows and Linux hosts expose the shared fuzzy-pinyin settings on the 输入 page", async () => {
   mount({ host: capabilities({ platform: "windows", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   selectSettingsTab("进阶");
   expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
 
   cleanup();
   mount({ host: capabilities({ platform: "linux", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   selectSettingsTab("进阶");
   expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
 });
@@ -160,7 +160,7 @@ test("shortcut groups follow declared capabilities, not the platform name", asyn
     host: capabilities({ platform: "windows", mode_switch_shortcuts: true, panel_shortcuts: true }),
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(快捷键|按键设置)$/ }));
   // 面板快捷键是一行只读参考，收在「按键速查」里。
   expect(
     within(screen.getByRole("region", { name: "按键速查" })).getByText("打开屏幕键盘"),
@@ -171,7 +171,7 @@ test("shortcut groups follow declared capabilities, not the platform name", asyn
 
   const macos = mount({ host: capabilities({ platform: "macos", panel_shortcuts: true }) });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(快捷键|按键设置)$/ }));
   expect(screen.getByText("Ctrl+Shift+Command+K", { selector: "kbd" })).toBeTruthy();
   expect(screen.queryByText("Ctrl+Shift+Super+K", { selector: "kbd" })).toBeNull();
   macos.unmount();
@@ -179,7 +179,7 @@ test("shortcut groups follow declared capabilities, not the platform name", asyn
   // A Linux host that does not declare them keeps them hidden.
   mount({ host: capabilities({ platform: "linux" }) });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(快捷键|按键设置)$/ }));
   expect(screen.queryByText("打开屏幕键盘")).toBeNull();
   expect(screen.queryByRole("group", { name: "输入模式切换快捷键" })).toBeNull();
 });
@@ -191,7 +191,7 @@ test("Linux number-row selection follows its capability and saves through shared
     save,
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(快捷键|按键设置)$/ }));
   const toggle = screen.getByLabelText("数字键选词") as HTMLInputElement;
   expect(toggle.checked).toBe(true);
   fireEvent.click(toggle);
@@ -206,7 +206,7 @@ test("Linux number-row selection follows its capability and saves through shared
   cleanup();
   mount({ host: capabilities({ platform: "windows", number_row_selection: false }) });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(快捷键|按键设置)$/ }));
   expect(screen.queryByLabelText("数字键选词")).toBeNull();
 });
 
@@ -215,7 +215,7 @@ test("the restart action needs both the capability and an injected handler", asy
     host: capabilities({ platform: "linux", restart_input_method: true }),
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
   expect(screen.queryByRole("button", { name: "重启" })).toBeNull();
   withoutHandler.unmount();
 
@@ -224,7 +224,7 @@ test("the restart action needs both the capability and an injected handler", asy
     restartInputMethod: vi.fn(),
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
   expect(screen.getByRole("button", { name: "重启" })).toBeTruthy();
 });
 
@@ -239,7 +239,7 @@ test("toolbar scale is hidden while Linux component choices remain available", a
     }),
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(悬浮工具栏|快捷工具)$/ }));
   expect(screen.getByLabelText("在输入法菜单显示工具栏")).toBeTruthy();
   expect(screen.queryByLabelText("在桌面显示悬浮工具栏")).toBeNull();
   expect(screen.queryByLabelText("工具栏大小")).toBeNull();
@@ -249,7 +249,7 @@ test("toolbar scale is hidden while Linux component choices remain available", a
   // A host that draws its own toolbar keeps the full set.
   mount({ host: capabilities({ platform: "macos", floating_toolbar_appearance: true }) });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(悬浮工具栏|快捷工具)$/ }));
   expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
   expect(screen.getByLabelText("工具栏大小")).toBeTruthy();
   // 缩放和图标尺寸合并成了这一个控件，不再分开出现。
@@ -266,7 +266,7 @@ test("the Linux toolbar page explains the menu at the top instead of previewing 
     }),
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(悬浮工具栏|快捷工具)$/ }));
   const toolbar = screen.getByRole("group", { name: "悬浮工具栏" });
   // Linux 不画悬浮条，没有预览；说明排在第一组「显示」之前。
   expect(toolbar.querySelector("[data-toolbar-preview]")).toBeNull();
@@ -295,7 +295,7 @@ test("the Linux toolbar page says nothing applies under GNOME Shell", async () =
     }),
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(悬浮工具栏|快捷工具)$/ }));
   expect(
     screen.getByText(
       "Linux 不显示悬浮工具栏窗口。当前是 GNOME 桌面，IBus 在输入源菜单里只列出输入模式和设置，没有「工具栏」子菜单，这一页的设置在当前桌面不生效。",
@@ -353,7 +353,7 @@ test("the floating-toolbar settings page is hidden when the host has no toolbar"
     }),
   });
   await settingsFormReady();
-  expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^(悬浮工具栏|快捷工具)$/ })).toBeNull();
 });
 
 test("candidate appearance follows host capabilities", async () => {
@@ -807,8 +807,9 @@ test("a host whose skin folder is unreachable is offered an import, not a folder
     openSkinDirectory: async () => undefined,
   });
   await settingsFormReady();
-  // 2in1 是桌面形态，这个页面叫 主题。
-  fireEvent.click(screen.getByRole("button", { name: "主题" }));
+  // 2in1 是桌面形态，本地皮肤操作在「主题外观」的「本地皮肤」标签中。
+  fireEvent.click(screen.getByRole("button", { name: "主题外观" }));
+  selectSettingsTab("本地皮肤");
   expect(screen.getByRole("button", { name: "导入皮肤" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "打开目录" })).toBeNull();
 });
@@ -820,6 +821,7 @@ test("a desktop host still opens its skin folder", async () => {
     openSkinDirectory: async () => undefined,
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "主题" }));
+  fireEvent.click(screen.getByRole("button", { name: "主题外观" }));
+  selectSettingsTab("本地皮肤");
   expect(screen.getByRole("button", { name: "打开目录" })).toBeTruthy();
 });

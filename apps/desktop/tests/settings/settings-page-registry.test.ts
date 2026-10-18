@@ -7,7 +7,7 @@ import {
   subPageParents,
 } from "../../../../packages/ui/src/settings/settings-page-registry";
 
-test("keeps the current settings route registry in navigation order", () => {
+test("注册表保留已有页面与稳定路由", () => {
   expect(pages.map((page) => page.id)).toEqual([
     "home",
     "input",
@@ -41,10 +41,10 @@ test("keeps the current settings route registry in navigation order", () => {
 
 test("keeps navigation groups and nested route ownership aligned", () => {
   expect(settingsNavGroups).toEqual([
-    { title: "打字", ids: ["input", "expression", "shortcuts", "dictionary"] },
+    { title: "打字", ids: ["input", "dictionary", "shortcuts", "expression"] },
+    { title: "更多输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
-    { title: "更多输入方式", ids: ["screen-keyboard", "voice", "handwriting"] },
-    { title: "工具", ids: ["tools", "typing-statistics", "plugins", "ai"] },
+    { title: "工具", ids: ["tools", "ai", "plugins", "typing-statistics"] },
     { title: "账号", ids: ["account"] },
     { title: "支持", ids: ["developer", "feedback", "about"] },
   ]);

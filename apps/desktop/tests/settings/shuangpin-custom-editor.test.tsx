@@ -584,7 +584,7 @@ test.each(["linux", "macos"] as const)(
     const client = { load: async () => saved, save, host: testHost({ platform }) };
     const first = render(<SettingsPage client={client} />);
     await settingsFormReady();
-    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
     fireEvent.change(await screen.findByRole("combobox", { name: "双拼方案" }), {
       target: { value: "smart_abc" },
     });
@@ -598,7 +598,7 @@ test.each(["linux", "macos"] as const)(
     first.unmount();
     render(<SettingsPage client={client} />);
     await settingsFormReady();
-    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
     expect(
       ((await screen.findByRole("combobox", { name: "双拼方案" })) as HTMLSelectElement).value,
     ).toBe("smart_abc");
@@ -624,7 +624,7 @@ test("the input page saves only a usable table and switches to it", async () => 
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   const profile = (await screen.findByRole("combobox", { name: "双拼方案" })) as HTMLSelectElement;
 
   fireEvent.change(profile, { target: { value: "custom" } });
@@ -680,15 +680,15 @@ test("going to another settings page keeps the unsaved table in the editor", asy
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   const profile = (await screen.findByRole("combobox", { name: "双拼方案" })) as HTMLSelectElement;
   fireEvent.change(profile, { target: { value: "custom" } });
   fireEvent.click(await screen.findByRole("button", { name: "填入" }));
   await waitFor(() => expect(cell("韵母 ing").value).toBe("k"));
   fireEvent.change(cell("韵母 ing"), { target: { value: ";" } });
 
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(快捷键|按键设置)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
 
   expect(await screen.findByRole("heading", { name: "自定义双拼" })).toBeTruthy();
   expect(cell("韵母 ing").value).toBe(";");
@@ -705,7 +705,7 @@ test("without host support the input page offers no custom shuangpin", async () 
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   const profile = (await screen.findByRole("combobox", { name: "双拼方案" })) as HTMLSelectElement;
   expect(Array.from(profile.options).map((option) => option.value)).not.toContain("custom");
   expect(screen.queryByRole("button", { name: "编辑自定义键位" })).toBeNull();

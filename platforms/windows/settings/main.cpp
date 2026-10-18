@@ -959,33 +959,33 @@ struct PageLabel {
   const wchar_t *summary;
 };
 
-// 「手写输入」并进了「屏幕键盘」页（见 `SettingsNavigation.h`），提供手写的版本里那一页叫「屏幕键盘与手写」，与共享设置 UI 的 `screenKeyboardAndHandwritingTitle` 相同。
+// 「手写输入」并进了「屏幕键盘」页（见 `SettingsNavigation.h`），提供手写的版本里那一页叫「键盘手写」，与共享设置 UI 的 `screenKeyboardAndHandwritingTitle` 相同。
 constexpr std::array<PageLabel, 16> page_labels{{
-    {"typing", L"输入方案", 0xE765, L"选择输入方式；专属选项随当前方案变化。"},
-    {"expression", L"输入习惯", 0xE8C1, L"调整标点、混输、输出和选词习惯。"},
-    {"shortcuts", L"按键", 0xEDA7, L"设置中英文切换、选词和翻页使用的按键。"},
-    {"lexicon", L"词库", 0xE82D, L"管理本机词库、个人词条和常用语。"},
-    {"themes", L"皮肤", 0xE790, L"选择候选窗口皮肤，搭配自己的字体和配色。"},
+    {"typing", L"输入设置", 0xE765, L"选择输入方式；专属选项随当前方案变化。"},
+    {"expression", L"标点翻译", 0xE8C1, L"调整标点、混输、输出和选词习惯。"},
+    {"shortcuts", L"按键设置", 0xEDA7, L"设置中英文切换、选词和翻页使用的按键。"},
+    {"lexicon", L"词库管理", 0xE82D, L"管理本机词库、个人词条和常用语。"},
+    {"themes", L"主题外观", 0xE790, L"选择候选窗口皮肤，搭配自己的字体和配色。"},
     {"candidate", L"候选窗口", 0xE8FD, L"调整候选的排列、文字和显示位置。"},
-    {"toolbar", L"状态栏", 0xE7F4, L"选择悬浮工具栏显示的内容和交互方式。"},
-    {"osk", MSIME_EDITION_HANDWRITING ? L"屏幕键盘与手写" : L"屏幕键盘", 0xE92E,
+    {"toolbar", L"快捷工具", 0xE7F4, L"选择悬浮工具栏显示的内容和交互方式。"},
+    {"osk", MSIME_EDITION_HANDWRITING ? L"键盘手写" : L"屏幕键盘", 0xE92E,
      MSIME_EDITION_HANDWRITING ? L"设置屏幕键盘的布局、按键和外观，打开手写识别板。"
                                : L"设置屏幕键盘的布局、按键和外观。"},
     {"voice", L"语音输入", 0xE720, L"选择识别方式，配置语音转写和文本整理。"},
-    {"clip", L"剪贴板", 0xE77F, L"管理剪贴板记录和跨设备发送。"},
+    {"clip", L"剪贴管理", 0xE77F, L"管理剪贴板记录和跨设备发送。"},
     {"stats", L"打字统计", 0xE9D2, L"查看输入量、速度和使用趋势。"},
-    {"plugins", L"插件", 0xEA86, L"管理输入扩展，浏览和安装社区插件。"},
-    {"ai", L"AI 辅助", 0xE99A, L"配置候选补全、文本整理和服务连接。"},
-    {"account", L"账号", 0xE77B, L"登录并管理跨设备同步与云端内容。"},
-    {"dev", L"维护与诊断", 0xE90F, L"导入导出设置，检查本机状态和诊断信息。"},
-    {"about", L"关于", 0xE946, L"查看版本和更新，查阅使用帮助、反馈问题，以及许可信息。"},
+    {"plugins", L"扩展插件", 0xEA86, L"管理输入扩展，浏览和安装社区插件。"},
+    {"ai", L"智能辅助", 0xE99A, L"配置候选补全、文本整理和服务连接。"},
+    {"account", L"账号管理", 0xE77B, L"登录并管理跨设备同步与云端内容。"},
+    {"dev", L"维护诊断", 0xE90F, L"导入导出设置，检查本机状态和诊断信息。"},
+    {"about", L"关于水杉", 0xE946, L"查看版本和更新，查阅使用帮助、反馈问题，以及许可信息。"},
 }};
 static_assert(page_labels.size() == nav::pages.size());
 static_assert(page_labels[0].id == nav::default_page);
 
 // 侧栏的分组标题，按 `SettingsNavigation.h` 里的 `group` 索引，措辞与共享设置 UI 的 `settingsNavGroups` 一致。
 constexpr std::array<const wchar_t *, nav::page_group_count> group_titles{
-    {L"打字", L"外观", L"更多输入方式", L"工具", L"账号", L"支持"}};
+    {L"打字", L"更多输入方式", L"外观", L"工具", L"账号", L"支持"}};
 
 // 未知 id 取默认页面的标签。
 const PageLabel &page_label(std::string_view id) {

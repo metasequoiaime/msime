@@ -58,7 +58,7 @@ test("Android reaches the helper-code settings from the 键盘 tab", async () =>
   renderSettings("android");
 
   const helpcode = await openHelpcode();
-  expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: /^(输入|输入设置)$/ })).toBeTruthy();
   expect(within(helpcode).getByText(/按 Shift 再输入的字母作为辅助码/)).toBeTruthy();
 });
 
@@ -121,7 +121,7 @@ test("the desktop input page keeps the helper-code settings and their window wor
   renderSettings("windows");
 
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   selectSettingsTab("进阶");
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.getByLabelText("在候选窗口中显示双拼辅助码")).toBeTruthy();
@@ -136,7 +136,7 @@ test("HarmonyOS reaches the helper-code settings from the 键盘 tab", async () 
   renderSettings("harmony");
 
   await openHelpcode();
-  expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: /^(输入|输入设置)$/ })).toBeTruthy();
 });
 
 test("HarmonyOS saves a helper-code schema into shared preferences", async () => {
@@ -187,7 +187,7 @@ test("a host that appends helper codes is not told to hold Shift", async () => {
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   selectSettingsTab("进阶");
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.queryByText(/按 Shift\s*再输入的字母作为辅助码/)).toBeNull();

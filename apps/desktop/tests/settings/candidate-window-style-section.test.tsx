@@ -42,7 +42,7 @@ interface SectionOptions {
   showFontPresets: boolean;
 }
 
-/** 本文件覆盖的几行：预设、缩放，以及 HarmonyOS 手机「候选栏」页仍用的「窗口样式」组。桌面「候选窗口」页把缩放、不透明度和圆角收进「更多选项」，见 `candidate-settings-layout.test.tsx`。 */
+/** 本文件覆盖的几行：预设、缩放，以及 HarmonyOS 手机「候选栏」页仍用的「窗口样式」组。桌面「候选窗口」页把缩放放在「字体与大小」，不透明度和圆角放在「窗口样式」，见 `candidate-settings-layout.test.tsx`。 */
 function renderSection(overrides: Partial<SectionOptions> = {}) {
   const options: SectionOptions = {
     preferences: {},
@@ -229,7 +229,7 @@ test.each([
         }}
       />,
     );
-    // 圆角收在「候选窗口」页的「更多选项」里，不再有「窗口样式」标签。
+    fireEvent.click(await screen.findByRole("tab", { name: "窗口样式" }));
     const slider = (await screen.findByRole("slider", { name: "圆角大小" })) as HTMLInputElement;
     expect(slider.value).toBe(value);
   },

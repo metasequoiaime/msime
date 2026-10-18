@@ -95,7 +95,7 @@ async function openDeveloper(extra: Partial<SettingsClient>) {
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
   // 桌面直接切到顶部的 AI 助手标签。
   const entry = screen.queryByRole("tab", { name: "AI 助手" });
   if (entry) fireEvent.click(entry);
@@ -125,7 +125,7 @@ test("维护与诊断通过顶部标签切换 AI 助手并保留客户端与权�
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
   const maintenance = screen.getByRole("tab", { name: "维护与诊断" });
   const assistant = screen.getByRole("tab", { name: "AI 助手" });
   expect(maintenance.getAttribute("aria-selected")).toBe("true");
@@ -143,11 +143,11 @@ test("维护与诊断通过顶部标签切换 AI 助手并保留客户端与权�
     "checked",
     false,
   );
-  expect(screen.queryByRole("button", { name: "返回维护与诊断" })).toBeNull();
-  expect(screen.getByRole("heading", { name: "维护与诊断" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "维护与诊断" }).getAttribute("aria-current")).toBe(
-    "page",
-  );
+  expect(screen.queryByRole("button", { name: "返回维护诊断" })).toBeNull();
+  expect(screen.getByRole("heading", { name: /^(维护与诊断|维护诊断)$/ })).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }).getAttribute("aria-current"),
+  ).toBe("page");
 
   assistant.focus();
   fireEvent.keyDown(assistant, { key: "ArrowRight" });
@@ -192,7 +192,7 @@ test("没有 MCP 能力时旧路由回退到输入页，不显示空标签", asy
     />,
   );
   await settingsFormReady();
-  await screen.findByRole("heading", { name: "输入" });
+  await screen.findByRole("heading", { name: /^(输入|输入设置)$/ });
   expect(screen.queryByRole("tab", { name: "AI 助手" })).toBeNull();
 });
 

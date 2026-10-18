@@ -8,6 +8,10 @@ macOS 设置里「主题」和「候选窗口」两页的控件太多，而且�
 
 调研和核查记录在这次精简的研究报告里，逐项结论见下面的 Decision 和 Alternatives considered。
 
+## 后续决定
+
+[候选窗口顶部功能标签](../feature/2026-10-18-candidate-window-top-tabs.md)取代下文共享桌面候选页的一列与「更多选项」排版决定，页面重新使用 `candidateTabs` 模型。下文保留当时的理由；宿主能力、配色、手机布局及 Windows 原生设置的决定不受这次排版调整影响。
+
 ## Decision
 
 ### 按宿主能力位固定的值

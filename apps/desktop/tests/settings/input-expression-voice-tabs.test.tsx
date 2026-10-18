@@ -58,8 +58,8 @@ test("输入分区只显示当前面板，切换和离页保留草稿与标签�
   fireEvent.click(within(tabs).getByRole("tab", { name: "输出" }));
   expect(screen.getByRole("radio", { name: "繁体" })).toBe(output);
   expect(output).toHaveProperty("checked", true);
-  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   expect(screen.getByRole("tabpanel", { name: "输出" })).toBeTruthy();
   saveSettingsNow();
   await screen.findByText("已保存");

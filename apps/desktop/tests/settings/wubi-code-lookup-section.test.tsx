@@ -237,7 +237,7 @@ async function openInputPage(
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
 }
 
 test("the input page shows 五笔查码 with the Wubi settings and asks the host's dictionary", async () => {

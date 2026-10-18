@@ -17,7 +17,7 @@ def open_page(page, name):
 
 def choose_theme(page, title):
     # The global theme cards on 主题 are switches named after the theme.
-    open_page(page, "主题")
+    open_page(page, "主题外观")
     page.get_by_role("switch", name=title, exact=True).click()
 
 def choose_segment(page, group, label):
@@ -28,12 +28,12 @@ def choose_segment(page, group, label):
     expect(radio).to_be_checked()
 
 def set_color_mode(page, label):
-    open_page(page, "主题")
+    open_page(page, "主题外观")
     choose_segment(page, "颜色模式", label)
 
 def set_surface_theme(page, label, value):
     # The per-surface light/dark overrides live under 主题 › 高级.
-    open_page(page, "主题")
+    open_page(page, "主题外观")
     page.get_by_label(label, exact=True).select_option(value)
 
 def set_layout(page, orientation):
@@ -60,18 +60,18 @@ def verify_font_sizes(page, preview):
 
 def verify_helpcode_display(page, preview):
     # The 辅助码 group is part of the 输入 page; the fixture uses quanpin. The synthetic snapshot has no quanpin_helpcode, and the switch (core default: hidden) and the preview (shown) read that absence differently, so start from an explicit choice.
-    open_page(page, "输入")
+    open_page(page, "输入设置")
     display = page.get_by_role("switch", name="在候选窗口中显示全拼辅助码", exact=True)
     display.check()
     open_page(page, "候选窗口")
     count = preview.locator("[data-preview-layout] .cand").count()
     expect(preview.locator("[data-preview-layout] .cand-helpcode")).to_have_count(count)
-    open_page(page, "输入")
+    open_page(page, "输入设置")
     display.uncheck()
     open_page(page, "候选窗口")
     expect(preview.locator("[data-preview-layout] .cand-helpcode")).to_have_count(0)
     expect(preview.locator("[data-preview-layout] .cand")).to_have_count(count)
-    open_page(page, "输入")
+    open_page(page, "输入设置")
     display.check()
     open_page(page, "候选窗口")
     expect(preview.locator("[data-preview-layout] .cand-helpcode")).to_have_count(count)
@@ -83,7 +83,7 @@ def verify_text_color(page, preview):
     open_page(page, "候选窗口")
     original = text.evaluate("el => getComputedStyle(el).color")
     original_number = number.evaluate("el => getComputedStyle(el).color")
-    open_page(page, "主题")
+    open_page(page, "主题外观")
     picker = page.get_by_label("候选文字颜色", exact=True)
     reset = page.get_by_role("button", name="跟随主题", exact=True)
     picker.fill("#ab1234")
@@ -95,7 +95,7 @@ def verify_text_color(page, preview):
     open_page(page, "候选窗口")
     expect(text).to_have_css("color", "rgb(171, 18, 52)")
     expect(number).to_have_css("color", "rgba(171, 18, 52, 0.616)")
-    open_page(page, "主题")
+    open_page(page, "主题外观")
     reset.click()
     expect(reset).to_have_attribute("aria-pressed", "true")
     open_page(page, "候选窗口")
@@ -183,12 +183,12 @@ with sync_playwright() as playwright:
                 }""")
         choose_theme(page, "跟随系统")
         set_surface_theme(page, "悬浮工具栏主题", "light")
-        open_page(page, "悬浮工具栏")
+        open_page(page, "快捷工具")
         toolbar = page.get_by_label("悬浮工具栏预览", exact=True)
         expect(toolbar.locator(".status-bar")).to_be_visible()
         expect(toolbar.locator(".status-bar")).to_have_css("background-color", "rgb(255, 255, 255)")
         set_surface_theme(page, "悬浮工具栏主题", "dark")
-        open_page(page, "悬浮工具栏")
+        open_page(page, "快捷工具")
         expect(toolbar.locator(".status-bar")).to_have_css("background-color", "rgb(26, 26, 26)")
         # 「工具栏大小」每一档同时写缩放和图标尺寸，175% 存成 150% 缩放加 28 的图标。
         for percent, scale, size in [(75, 75, 24), (100, 100, 24), (125, 125, 24), (150, 150, 24), (175, 150, 28)]:
@@ -211,7 +211,7 @@ with sync_playwright() as playwright:
         open_page(page, "候选窗口")
         expect(preview.locator(".appearance-candidate-preview")).to_have_attribute("data-preview-theme", "light")
         light_surface = preview.locator(".container").evaluate("el => getComputedStyle(el).backgroundColor")
-        open_page(page, "主题")
+        open_page(page, "主题外观")
         # Built-in themes are one fixed palette; only 跟随系统 and 自定义 follow the colour mode and offer a per-card light/dark preview.
         cards = page.locator("article:has([data-global-theme])")
         expect(cards).to_have_count(7)
@@ -240,7 +240,7 @@ with sync_playwright() as playwright:
         expect(preview.locator(".container")).to_have_css("background-color", light_surface)
         page.emulate_media(color_scheme="dark")
         expect(preview.locator(".appearance-candidate-preview")).to_have_attribute("data-preview-theme", "dark")
-        open_page(page, "主题")
+        open_page(page, "主题外观")
         expect(page.get_by_label("候选文字颜色", exact=True)).to_have_value("#e9e8e8")
         set_color_mode(page, "深色")
         set_surface_theme(page, "设置界面主题", "follow")
@@ -312,7 +312,7 @@ with sync_playwright() as playwright:
         expect(preview.locator(".preedit-hidden")).to_have_count(0)
         page.get_by_label("每页候选项数量", exact=True).fill("6")
         set_layout(page, "vertical")
-        open_page(page, "主题")
+        open_page(page, "主题外观")
         page.get_by_role("button", name="刷新皮肤", exact=True).click()
         # An external package is part of the custom theme: choosing it selects 自定义.
         page.get_by_role("switch", name="Synthetic external", exact=True).click()
