@@ -30,8 +30,10 @@ import app.msime.android.AppEdition;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.AppVersionPolicy;
 import app.msime.android.core.InputViewValuePolicy;
-import app.msime.android.CloudApi;
+import app.msime.android.AccountFailureText;
+import app.msime.android.AccountStore;
 import app.msime.android.BitmapPolicy;
+import app.msime.android.FilePolicy;
 import app.msime.android.FeedbackApi;
 import app.msime.android.FeedbackImagePolicy;
 import app.msime.android.ImageViewPolicy;
@@ -39,8 +41,13 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.R;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,7 +58,7 @@ import org.json.JSONObject;
 /**
  * 帮助与反馈：反馈类型（问题 / 建议 / 词库纠错）、附带诊断信息开关、描述（0 / 500）、至多 3 张截图，提交到水杉云（{@link FeedbackApi}）。
  *
- * <p>附带诊断信息默认关闭；打开后只带服务端白名单里的字段——机型、系统版本、应用版本与版本（edition）、当前方案、键盘布局、皮肤、键盘是否已启用和是否为默认——不带任何输入内容和日志。截图由用户从系统选择器里挑，这里按长边 1600 像素、1 MiB 以内重新编码成 JPEG，顺带去掉 EXIF（其中可能有位置）。
+ * <p>附带诊断信息默认关闭；打开后只带服务端白名单里的字段——机型、系统版本、应用版本与版本（edition）、当前方案、键盘布局、皮肤、键盘是否已启用和是否为默认——不带任何输入内容和日志。截图由用户从系统选择器里挑，这里按长边 1600 像素、1 MiB 以内重新编码成 JPEG，顺带去掉 EXIF（其中可能有位置）；提交时写进缓存目录交给 Rust 读，提交完就删。
  *
  * <p>没有登录也能提交：请求用设备的匿名账号。另外保留 QQ 群、Telegram 群组和 GitHub Issues 三个渠道，QQ 群号与 Telegram 链接和其他平台一字不差（`scripts/test-support-channels.py` 守着）。
  */
@@ -298,7 +305,10 @@ public final class FeedbackPage extends DetailPage {
         if (bitmap == null) return null;
         try {
             bitmap = BitmapPolicy.scaleToEdge(bitmap, MAX_EDGE);
-            return BitmapPolicy.compressJpegUnderBytes(bitmap, FeedbackApi.MAX_SCREENSHOT_BYTES);
+            byte[] jpeg = BitmapPolicy.compressJpegUnderBytes(bitmap, FeedbackApi.MAX_SCREENSHOT_BYTES);
+            // Rust 不重新编码，超过它的大小或尺寸限制整次提交都会失败；缩不进去的这一张不附。
+            return jpeg != null && FeedbackApi.fitsRust(jpeg.length, bitmap.getWidth(), bitmap.getHeight())
+                ? jpeg : null;
         } finally {
             bitmap.recycle();
         }
@@ -312,11 +322,17 @@ public final class FeedbackPage extends DetailPage {
         FeedbackApi.Type kind = type;
         String text = draft;
         boolean withDiagnostics = diagnostics;
-        List<FeedbackApi.Screenshot> shots = new ArrayList<>(screenshots.size());
-        for (byte[] bytes : screenshots) shots.add(new FeedbackApi.Screenshot("image/jpeg", bytes));
-        submitTask = NetworkTask.run(this, () -> new FeedbackApi(new CloudApi(application)).submit(kind, text,
-            UpdateJobService.currentVersion(application), AppEdition.current().id(),
-            withDiagnostics ? collectDiagnostics(application) : null, shots), outcome -> {
+        List<byte[]> shots = new ArrayList<>(screenshots);
+        submitTask = NetworkTask.run(this, () -> {
+            List<File> files = new ArrayList<>(shots.size());
+            try {
+                for (byte[] bytes : shots) files.add(screenshotFile(application, bytes));
+                return FeedbackApi.submit(application, kind, text, UpdateJobService.currentVersion(application),
+                    AppEdition.current().id(), withDiagnostics ? collectDiagnostics(application) : null, files);
+            } finally {
+                for (File file : files) FilePolicy.deleteQuietly(file);
+            }
+        }, outcome -> {
             submitTask = null;
             sending = false;
             if (outcome.error() != null) {
@@ -333,12 +349,24 @@ public final class FeedbackPage extends DetailPage {
     }
 
     private static String failureMessage(Exception error) {
-        if (error instanceof CloudApi.Failure failure) {
-            if (failure.rateLimited()) return "提交得太频繁了，请过一会儿再试";
-            if (failure.unavailable()) return "反馈服务暂时没有开放，可以改用下面的渠道";
-            if (failure.network()) return "连不上服务器，请检查网络后重试";
-        }
+        if (error instanceof AccountStore.Failure failure)
+            return AccountFailureText.feedback(failure.code, failure.retryAfterSeconds);
         return "没有提交成功，请稍后重试";
+    }
+
+    /** 把一张已经重新编码的截图写进缓存目录下的 feedback/，交给 Rust 按路径读；调用方提交完就删。 */
+    private static File screenshotFile(Context context, byte[] jpeg) throws IOException {
+        File directory = new File(context.getCacheDir(), "feedback");
+        if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("feedback cache");
+        File file = File.createTempFile("screenshot-", ".jpg", directory);
+        try (OutputStream output = Files.newOutputStream(file.toPath(), StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING, LinkOption.NOFOLLOW_LINKS)) {
+            output.write(jpeg);
+        } catch (IOException unwritable) {
+            FilePolicy.deleteQuietly(file);
+            throw unwritable;
+        }
+        return file;
     }
 
     /** 白名单里的诊断字段；只有用户打开开关时才调用。 */

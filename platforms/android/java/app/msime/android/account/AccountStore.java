@@ -115,8 +115,8 @@ public final class AccountStore {
         return token;
     }
 
-    /** 信封 {@code {ok, value}} 或 {@code {ok:false, error, retry_after_seconds?}}；读不懂时按 account_unavailable。 */
-    private static Object value(String response) throws Failure {
+    /** 信封 {@code {ok, value}} 或 {@code {ok:false, error, retry_after_seconds?}}；读不懂时按 account_unavailable。{@link RustAccount} 的其他入口也用它读回答。 */
+    static Object value(String response) throws Failure {
         final JSONObject root;
         try {
             root = new JSONObject(response);

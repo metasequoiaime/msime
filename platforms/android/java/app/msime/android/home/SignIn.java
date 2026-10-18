@@ -5,13 +5,16 @@ import android.app.Activity;
 import android.content.Context;
 import android.os.Handler;
 import androidx.core.content.ContextCompat;
+import app.msime.android.AccountFailureText;
 import app.msime.android.AccountStore;
 import app.msime.android.AppleWebSignIn;
 import app.msime.android.BackendAccount;
 import app.msime.android.CloudApi;
+import app.msime.android.DeviceDataApi;
 import app.msime.android.GoogleSignInFlow;
 import app.msime.android.MainThreadPolicy;
 import app.msime.android.R;
+import app.msime.android.RustAccount;
 import app.msime.android.SignInFailurePolicy;
 import app.msime.android.SyncSwitch;
 import app.msime.android.DictionarySnapshotQueue;
@@ -222,7 +225,7 @@ final class SignIn {
         }
     }
 
-    /** 退出登录：删掉本机会话并关闭同步、清空同步游标，再请 Credential Manager 清掉它记住的登录状态（尽力而为，见 {@link GoogleSignInFlow#clearCredentialState}）。阻塞；清除会话失败时抛出，界面不能按已退出处理。 */
+    /** 退出登录：删掉本机会话并关闭同步、清空同步游标，取消还在进行的流式对话和 AI 皮肤生成，再请 Credential Manager 清掉它记住的登录状态（尽力而为，见 {@link GoogleSignInFlow#clearCredentialState}）。阻塞；清除会话失败时抛出，界面不能按已退出处理。服务端的会话已经撤销或账号已经注销时（移除本机、注销账号）也走这里，Rust 的 forget 对已经清掉的会话什么也不做。 */
     static void signOut(Context context) {
         synchronized (SyncSwitch.bindingLock()) {
             String accountId = SyncSwitch.accountId(context);
@@ -230,7 +233,35 @@ final class SignIn {
             cancelPendingSnapshot(context, accountId);
             SyncSwitch.clear(context);
         }
+        RustAccount.cancelForSignOut();
         GoogleSignInFlow.clearCredentialState(context);
+    }
+
+    /** {@link #logout} 的结果：本机是否已经退出，以及要提示的一句话（完全成功时为空串）。 */
+    record Logout(boolean signedOut, String message) {}
+
+    /**
+     * 「退出登录」按钮：撤销服务端的这次登录（Rust 的 `logout{all:false}`），再清本机的同步状态。阻塞，不要在主线程调用。
+     *
+     * <p>Rust 先清本地会话再请求服务端，所以服务端那一步失败（断网）时本机已经退出：照样清掉同步状态，结果是已退出、带一句说明服务端没有撤销的话。登录已经不是页面打开时的那个账号时什么也不动；本机也没退出时是未退出加失败说明。
+     */
+    static Logout logout(Context context, String expectedUserId) {
+        synchronized (SyncSwitch.bindingLock()) {
+            String code = "";
+            try {
+                new DeviceDataApi(context, expectedUserId).logout();
+            } catch (AccountStore.Failure failure) {
+                if ("account_cancelled".equals(failure.code)) return new Logout(false, "登录已改变，请重新打开页面");
+                code = failure.code;
+            }
+            try {
+                if (!RustAccount.userId(context).isEmpty()) return new Logout(false, "没有退出登录，请稍后再试");
+                signOut(context);
+            } catch (AccountStore.Failure | RuntimeException failure) {
+                return new Logout(false, "没有退出登录，请稍后再试");
+            }
+            return new Logout(true, code.isEmpty() ? "" : AccountFailureText.signedOutLocally(code));
+        }
     }
 
     /** Clears the local login only when it is still the session that a page loaded. */

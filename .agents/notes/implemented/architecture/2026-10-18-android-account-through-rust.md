@@ -28,7 +28,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：主进程里不再有 Java 的刷新、登录和会话写入；匿名账号改为用刷新令牌续期，不再每次过期都重新登录（每个出口地址每天 5 次的匿名登录额度省下来）；「我的设备」按 Rust 拼的 client_agent 显示这台设备，刷新和匿名注册也带它。
-- **代价**：几处主线程上的 `sessionId()`（对话页、账号页的回调）现在调 Rust 的 `status`：不联网、不拿刷新锁，但要等 Rust 的会话锁和一次 AndroidKeyStore 解密，5c 把这些页改调 Rust 时一并挪到工作线程。设备测试包的编译清单多了 `NativeClient` 和它引用的几个类。
+- **代价**：几处主线程上的 `sessionId()`（对话页、账号页的回调）现在调 Rust 的 `status`：不联网、不拿刷新锁，但要等 Rust 的会话锁和一次 AndroidKeyStore 解密，5c 把这些页改调 Rust 时一并挪到了工作线程（[Android 设置页面的账号与云端操作改调 Rust](2026-10-18-android-settings-pages-through-rust.md)）。设备测试包的编译清单多了 `NativeClient` 和它引用的几个类。
 - **还没做的**：设备套件（API 28、35）这一次没有跑，`SessionStoreDeviceSmoke` 新加的几项和 `BackendAccountSessionDeviceSmoke` 只编译过。
 
 ## Verification

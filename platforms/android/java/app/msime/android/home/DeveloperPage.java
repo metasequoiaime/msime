@@ -14,11 +14,13 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
+import app.msime.android.AccountFailureText;
+import app.msime.android.AccountStore;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppVersionPolicy;
-import app.msime.android.BackendAccount;
-import app.msime.android.CloudApi;
+import app.msime.android.DeviceDataApi;
 import app.msime.android.DiagnosticsApi;
+import app.msime.android.RustAccount;
 import app.msime.android.FilePolicy;
 import app.msime.android.McpUploadSwitchPolicy;
 import app.msime.android.NativeClient;
@@ -50,7 +52,9 @@ import org.json.JSONObject;
 /**
  * 开发者选项：MCP 开发者访问（把选定的日志打包上传一次到水杉云，供开发者用 MCP 读取）、调试开关、导出诊断包和重置所有设置。
  *
- * <p>P19：MCP 上传默认关闭，每次上传（包括重新上传）都要在「确认上传」组里点一次「上传」；「输入事件」默认不勾选。上传内容只来自 Rust 写出的诊断包，配置快照已在那里脱敏，输入事件和性能数据只有时间、耗时和事件种类，见 {@link DiagnosticsApi}。是否已上传、远程地址和令牌是服务端状态，每次进页从云端读回；完整令牌只在上传或重新生成的那一次回答里出现，只留在本页内存里。
+ * <p>P19：MCP 上传默认关闭，每次上传（包括重新上传）都要在「确认上传」组里点一次「上传」；「输入事件」默认不勾选。上传由 Rust 从本机记录现读现建（与导出诊断包同一份 bundle），配置快照已脱敏，输入事件和性能数据只有时间、耗时和事件种类，见 {@link DiagnosticsApi}。是否已上传、远程地址和令牌是服务端状态，每次进页从云端读回；完整令牌只在上传或重新生成的那一次回答里出现，只留在本页内存里。
+ *
+ * <p>页面记下两个账号编号：打开时登录的账号（`cloudAccountId`，没有登录为空串），每次操作前核对它没变；快照所属的账号（`cloudSessionId`，登录账号或匿名账号，上传后换成 Rust 交回的那一个），查看、换令牌和删除都带着它，Rust 发现会话已经不是它时报 account_identity_changed。
  *
  * <p>调试开关、日志级别、「记录输入日志」和 MCP 上传的内容与保留时长只在本机，存在 {@link AndroidLocalSettings}（`platform.android.developer.*`），不进共享偏好、不同步；「重置所有设置」同时把共享偏好和这份本地设置恢复为默认值。
  */
@@ -61,7 +65,6 @@ public final class DeveloperPage extends ReloadingDetailPage {
 
     private static final String PLATFORM = "android";
     private static final String DIAGNOSTICS_CACHE = "diagnostics";
-    private static final String UPLOAD_BUNDLE = "mcp-upload.zip";
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
     private static final DateTimeFormatter DAY_CLOCK = DateTimeFormatter.ofPattern("M月d日 HH:mm", Locale.ROOT);
 
@@ -130,11 +133,12 @@ public final class DeveloperPage extends ReloadingDetailPage {
         // 读云端状态是一次 HTTP 请求，走网络线程；放在共享存储的串行线程上时，网络慢的那几十秒里开关的保存都排在它后面。
         HostTask.runNetwork(this, context -> {
             try {
-                String accountId = SyncSwitch.accountId(context);
-                String sessionId = new BackendAccount(context).sessionId();
-                DiagnosticsApi.State state = new DiagnosticsApi(pageCloud(context, accountId, sessionId)).state();
+                String accountId = DeviceDataApi.currentUserId(context);
+                String sessionId = DiagnosticsApi.uploaderId(context);
+                DiagnosticsApi.State state = DiagnosticsApi.state(context, sessionId);
+                RustAccount.requireUser(context, accountId);
                 return new LoadedCloud(state, accountId, sessionId);
-            } catch (CloudApi.Failure failure) {
+            } catch (AccountStore.Failure failure) {
                 return null;
             }
         }, result -> {
@@ -150,21 +154,9 @@ public final class DeveloperPage extends ReloadingDetailPage {
         });
     }
 
-    /** 把诊断页的每个请求限制在加载页面时的账号；匿名页也拒绝账号后来变成真实账号。 */
-    private static CloudApi pageCloud(Context context, String expectedAccountId, String expectedSessionId)
-            throws CloudApi.Failure {
-        String currentAccountId = SyncSwitch.accountId(context);
-        if (!expectedAccountId.isEmpty() && !expectedAccountId.equals(currentAccountId))
-            throw new CloudApi.Failure(409, "session_changed", "account changed", 0);
-        String currentSessionId = new BackendAccount(context).sessionId();
-        if (expectedSessionId.isEmpty()) {
-            if (!currentSessionId.isEmpty())
-                throw new CloudApi.Failure(409, "session_changed", "account changed", 0);
-        } else if (!expectedSessionId.equals(currentSessionId)) {
-            throw new CloudApi.Failure(409, "session_changed", "account changed", 0);
-        }
-        CloudApi cloud = new CloudApi(context);
-        return expectedSessionId.isEmpty() ? cloud : cloud.forAccountSession(expectedSessionId);
+    /** 把诊断页的每个操作限制在加载页面时登录的账号；匿名页也拒绝账号后来变成真实账号。 */
+    private static void requirePage(Context context, String expectedAccountId) throws AccountStore.Failure {
+        RustAccount.requireUser(context, expectedAccountId);
     }
 
     // ---- 渲染 ----
@@ -308,27 +300,21 @@ public final class DeveloperPage extends ReloadingDetailPage {
         String expectedAccountId = cloudAccountId;
         String expectedSessionId = cloudSessionId;
         HostTask.runNetwork(this, context -> {
-            File zip = new File(diagnosticsCache(context), UPLOAD_BUNDLE);
             try {
-                String path = writeBundle(context, include, zip);
-                if (path == null) return new UploadResult(null, null, "诊断包生成失败，请重试");
-                DiagnosticsApi.Sections sections = DiagnosticsApi.readBundle(new File(path), include);
-                DiagnosticsApi api = new DiagnosticsApi(pageCloud(context, expectedAccountId, expectedSessionId));
-                DiagnosticsApi.Created created = api.upload(
-                    PLATFORM, AppVersionPolicy.versionName(context, ""), sections, retention);
+                JSONObject bundle = bundleRequest(context, include);
+                if (bundle == null) return new UploadResult(null, null, "诊断包生成失败，请重试");
+                requirePage(context, expectedAccountId);
+                DiagnosticsApi.Created created = DiagnosticsApi.upload(context, PLATFORM,
+                    AppVersionPolicy.versionName(context, ""), bundle, retention);
                 DiagnosticsApi.State state;
                 try {
-                    state = api.state();
-                } catch (CloudApi.Failure failure) {
+                    state = DiagnosticsApi.state(context, created.userId());
+                } catch (AccountStore.Failure failure) {
                     state = null;
                 }
                 return new UploadResult(created, state, null);
-            } catch (CloudApi.Failure failure) {
+            } catch (AccountStore.Failure failure) {
                 return new UploadResult(null, null, failureMessage(failure));
-            } catch (java.io.IOException failure) {
-                return new UploadResult(null, null, "诊断包读取失败，请重试");
-            } finally {
-                FilePolicy.deleteQuietly(zip);
             }
         }, result -> {
             if (request != generation) {
@@ -343,6 +329,8 @@ public final class DeveloperPage extends ReloadingDetailPage {
             }
             confirming = false;
             freshToken = result.created.token();
+            // 之后的查看、换令牌和删除都绑定到这次上传所用的账号。
+            cloudSessionId = result.created.userId();
             expanded.clear();
             if (result.state != null) {
                 cloud = result.state;
@@ -371,9 +359,10 @@ public final class DeveloperPage extends ReloadingDetailPage {
                 render();
                 HostTask.runNetwork(this, context -> {
                     try {
-                        new DiagnosticsApi(pageCloud(context, expectedAccountId, expectedSessionId)).delete();
+                        requirePage(context, expectedAccountId);
+                        DiagnosticsApi.delete(context, expectedSessionId);
                         return "";
-                    } catch (CloudApi.Failure failure) {
+                    } catch (AccountStore.Failure failure) {
                         return failureMessage(failure);
                     }
                 }, error -> {
@@ -410,9 +399,10 @@ public final class DeveloperPage extends ReloadingDetailPage {
         String expectedSessionId = cloudSessionId;
         HostTask.runNetwork(this, context -> {
             try {
-                String token = new DiagnosticsApi(pageCloud(context, expectedAccountId, expectedSessionId)).regenerateToken();
+                requirePage(context, expectedAccountId);
+                String token = DiagnosticsApi.regenerateToken(context, expectedSessionId);
                 return new String[] {token, null};
-            } catch (CloudApi.Failure failure) {
+            } catch (AccountStore.Failure failure) {
                 return new String[] {null, failureMessage(failure)};
             }
         }, result -> {
@@ -686,8 +676,10 @@ public final class DeveloperPage extends ReloadingDetailPage {
         return directory;
     }
 
-    /** 用 Rust 写诊断包；源文件是键盘写的 `<files>/diagnostics/*.jsonl` 和 Telemetry 的崩溃记录目录，不存在的传 null。成功时返回 zip 的路径。 */
-    @Nullable private static String writeBundle(Context context, DiagnosticsApi.Include include, File destination) {
+    /**
+     * 诊断包的读取范围 `{state_root, include, sources}`：导出诊断包时再加上 destination 交给 `NativeClient.diagnosticBundle`，MCP 上传时原样交给 Rust 的 diagnostics_upload。源文件是键盘写的 `<files>/diagnostics/*.jsonl` 和 Telemetry 的崩溃记录目录，不存在的传 null。状态目录还没准备好时为 null。
+     */
+    @Nullable private static JSONObject bundleRequest(Context context, DiagnosticsApi.Include include) {
         String stateRoot = HostStore.directory(context);
         if (stateRoot.isEmpty()) return null;
         File files = context.getFilesDir();
@@ -695,7 +687,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
         File perf = new File(files, "diagnostics/perf.jsonl");
         File crashes = new File(files, "telemetry/telemetry-crashes");
         try {
-            JSONObject request = new JSONObject()
+            return new JSONObject()
                 .put("state_root", stateRoot)
                 .put("include", new JSONObject()
                     .put("crash_logs", include.crashLogs())
@@ -705,8 +697,18 @@ public final class DeveloperPage extends ReloadingDetailPage {
                 .put("sources", new JSONObject()
                     .put("crash_logs", crashes.isDirectory() ? crashes.getAbsolutePath() : JSONObject.NULL)
                     .put("performance_logs", perf.isFile() ? perf.getAbsolutePath() : JSONObject.NULL)
-                    .put("input_events", events.isFile() ? events.getAbsolutePath() : JSONObject.NULL))
-                .put("destination", destination.getAbsolutePath());
+                    .put("input_events", events.isFile() ? events.getAbsolutePath() : JSONObject.NULL));
+        } catch (JSONException malformed) {
+            return null;
+        }
+    }
+
+    /** 用 Rust 写诊断包（{@link #bundleRequest} 加上 destination）。成功时返回 zip 的路径。 */
+    @Nullable private static String writeBundle(Context context, DiagnosticsApi.Include include, File destination) {
+        JSONObject request = bundleRequest(context, include);
+        if (request == null) return null;
+        try {
+            request.put("destination", destination.getAbsolutePath());
             JSONObject value = envelopeValue(NativeClient.diagnosticBundle(request.toString()));
             if (value == null) return null;
             String path = value.optString("path", destination.getAbsolutePath());
@@ -728,14 +730,8 @@ public final class DeveloperPage extends ReloadingDetailPage {
 
     // ---- 文案 ----
 
-    private static String failureMessage(CloudApi.Failure failure) {
-        if (failure.network()) return "连不上水杉云，请检查网络";
-        if (failure.unavailable()) return "这项服务暂未开放";
-        if (failure.rateLimited()) return "上传太频繁，请稍后再试";
-        if (failure.payloadTooLarge()) return "日志太大，请少选几类再上传";
-        if (failure.signedOut()) return "账号会话已失效，请稍后重试";
-        if (failure.status == 400) return "日志未通过校验，未上传";
-        return "操作失败，请重试";
+    private static String failureMessage(AccountStore.Failure failure) {
+        return AccountFailureText.diagnostics(failure.code, failure.retryAfterSeconds);
     }
 
     private static String categories(DiagnosticsApi.Include include) {

@@ -20,6 +20,8 @@ Android 诊断包读取只限制单个 ZIP 条目的展开大小，没有限制�
 
 原生诊断包的固定条目数量远低于上限，正常上传行为不变；异常归档在有限的条目数内失败，事件内存占用保持有界。
 
+从 #8201 迁移计划 5c 起 MCP 上传由 Rust 的 `diagnostics_upload` 直接读本机记录重建，Java 的 `DiagnosticsApi.readBundle` 和这里的条目上限随之删掉。见 [Android 设置页面的账号与云端操作改调 Rust](../architecture/2026-10-18-android-settings-pages-through-rust.md)。
+
 ## Verification
 
 新增 `DiagnosticsApiSmoke` 回归测试，129 个 ZIP 条目必须被拒绝。`bash platforms/android/check-host.sh` 通过，包含 187 个 Android JVM 冒烟和 55 个设备契约源码编译；`git diff --check` 通过。

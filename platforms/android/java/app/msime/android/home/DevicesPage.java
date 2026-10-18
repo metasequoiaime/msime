@@ -2,7 +2,8 @@ package app.msime.android.home;
 
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
-import app.msime.android.CloudApi;
+import app.msime.android.AccountFailureText;
+import app.msime.android.AccountStore;
 import app.msime.android.DeviceNamePolicy;
 import app.msime.android.DeviceDataApi;
 import java.util.List;
@@ -10,7 +11,7 @@ import java.util.List;
 /**
  * 我的设备：这个账号当前有效的登录会话，每台一行（设备名、平台与版本、最近活跃），当前这台标出「本机」；点一行确认后移除。
  *
- * <p>设备名、平台和版本由服务端从登录时的 User-Agent 解析，解析不出时显示「未知设备」。移除当前这台就是退出登录：服务端撤销会话后再清掉本机会话与同步状态（{@link SignIn#signOut}），然后回到「我的」。
+ * <p>设备名、平台和版本由服务端从登录时的 User-Agent 解析，解析不出时显示「未知设备」。列表和移除经 Rust 的 sessions_list、session_revoke（{@link DeviceDataApi}）。移除当前这台就是退出登录：Rust 撤销会话并清掉本机会话，这里再清本机的同步状态（{@link SignIn#signOut}），然后回到「我的」。
  */
 public final class DevicesPage extends ReloadingDetailPage {
     private record Loaded(String sessionId, List<DeviceDataApi.Session> sessions) {}
@@ -41,18 +42,18 @@ public final class DevicesPage extends ReloadingDetailPage {
         showLoading();
         HostTask.runNetwork(this, context -> {
             try {
-                String sessionId = new DeviceDataApi(context).currentAccountSessionId();
+                String sessionId = DeviceDataApi.currentUserId(context);
+                if (sessionId.isEmpty()) return new AccountStore.Failure("account_unauthorized", 0);
                 return (Object) new Loaded(sessionId, new DeviceDataApi(context, sessionId).sessions());
-            } catch (CloudApi.Failure failure) {
+            } catch (AccountStore.Failure failure) {
                 return failure;
             }
         }, result -> {
             LinearLayout current = contentColumn();
             if (current == null || request != generation) return;
             current.removeAllViews();
-            if (result instanceof CloudApi.Failure failure) {
-                GroupCard.add(current, null).note(failure.signedOut() ? "登录后可以在这里查看和移除登录过的设备。"
-                    : failure.network() ? "连不上服务器，请检查网络后再试。" : "设备列表暂时读不到，请稍后再试。");
+            if (result instanceof AccountStore.Failure failure) {
+                GroupCard.add(current, null).note(AccountFailureText.devices(failure.code, false));
                 return;
             }
             if (!(result instanceof Loaded loaded)) {
@@ -94,16 +95,25 @@ public final class DevicesPage extends ReloadingDetailPage {
         loadedSessionId = null;
         HostTask.runNetwork(this, context -> {
             try {
-                new DeviceDataApi(context, sessionId).revokeSession(session.id());
-                if (session.current()) return SignIn.signOut(context, sessionId) ? "" : "登录已改变，请重新打开设备列表";
+                boolean signedOut = new DeviceDataApi(context, sessionId).revokeSession(session.id());
+                // 撤销的是本机这一次时 Rust 已经清掉本地会话，这里清本机的同步状态。
+                if (signedOut) SignIn.signOut(context);
                 return "";
-            } catch (CloudApi.Failure failure) {
-                return failure.network() ? "连不上服务器，请检查网络后再试" : "没有移除，请稍后再试";
+            } catch (AccountStore.Failure failure) {
+                // 撤销本机这一次时 Rust 先清本地会话再请求服务端：服务端那一步失败（断网）时本机已经退出，照样清同步状态。
+                if (session.current() && signedOutLocally(context)) {
+                    SignIn.signOut(context);
+                    return SIGNED_OUT + AccountFailureText.signedOutLocally(failure.code);
+                }
+                return AccountFailureText.devices(failure.code, true);
             }
         }, failure -> {
             if (request != generation) return;
             if (failure == null) {
                 MsToast.show(requireContext(), "没有移除，请稍后再试");
+            } else if (failure.startsWith(SIGNED_OUT)) {
+                MsToast.show(requireContext(), failure.substring(SIGNED_OUT.length()));
+                requireActivity().getOnBackPressedDispatcher().onBackPressed();
             } else if (!failure.isEmpty()) {
                 MsToast.show(requireContext(), failure);
             } else if (session.current()) {
@@ -114,6 +124,18 @@ public final class DevicesPage extends ReloadingDetailPage {
                 reload();
             }
         });
+    }
+
+    /** 内部记号：本机已经退出，后面那句话照样显示，然后离开本页；不会显示给用户。 */
+    private static final String SIGNED_OUT = "\u0001";
+
+    /** Rust 那边已经没有登录会话了。读不了时按还登录着处理，不去清同步状态。 */
+    private static boolean signedOutLocally(android.content.Context context) {
+        try {
+            return DeviceDataApi.currentUserId(context).isEmpty();
+        } catch (AccountStore.Failure unreadable) {
+            return false;
+        }
     }
 
     /** 服务端给的平台标识（android / ios / windows / macos / linux / harmony …）的显示名。 */

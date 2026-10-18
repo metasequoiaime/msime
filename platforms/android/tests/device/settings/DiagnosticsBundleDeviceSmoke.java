@@ -7,11 +7,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 import org.json.JSONObject;
 
-/** 用安装后的原生宿主生成合成日志包，验证上传前的读取和编码，不访问云端。 */
+/** 用安装后的原生宿主生成合成日志包，验证本地事件的写入、隐私过滤和导出，不访问云端。MCP 上传前的重建从 5c 起在 Rust 的 diagnostics_upload 里（#8201 迁移计划），由 client-services 的 diagnostics::upload 测试覆盖。 */
 public final class DiagnosticsBundleDeviceSmoke extends Instrumentation {
     private String stage = "native bundle";
 
@@ -123,56 +121,10 @@ public final class DiagnosticsBundleDeviceSmoke extends Instrumentation {
                 check(!rows.contains("synthetic-private-marker"), "local export rejects private fields");
                 check(rows.split("\n").length == localKinds.length + 1, "native export has all fixed events");
             }
-            stage = "native bundle upload sections";
-            JSONObject body = readBody(loader, archive, true, true, true, false);
-            checkSections(body);
-            for (String kind : localKinds) check(!body.toString().contains(kind),
-                "local failure does not break old cloud contract");
-            check(body.getJSONArray("crash_logs").getJSONObject(0).getString("at")
-                .equals("2026-10-14T00:00:00Z"), "native crash timestamp retention");
-            check(!body.toString().contains("synthetic-private-marker"), "private field exclusion");
-            stage = "unselected categories";
-            check(readBody(loader, archive, false, false, false, false).length() == 0,
-                "unselected categories stay absent");
-
-            stage = "legacy archive aliases";
-            Path legacy = root.resolve("legacy.zip");
-            try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(legacy))) {
-                entry(output, "input-events.jsonl", "{\"t_ms\":10,\"kind\":\"key_down\"}\n");
-                entry(output, "perf.jsonl", "{\"t_ms\":20,\"kind\":\"candidate_shown\",\"duration_ms\":9}\n");
-                entry(output, "synthetic.crash", "java.lang.IllegalStateException\nat synthetic.Example.run(Example.java:7)");
-                entry(output, "config_snapshot.json", "{\"theme\":\"system\"}");
-            }
-            JSONObject legacyBody = readBody(loader, legacy, true, true, true, true);
-            checkSections(legacyBody);
-            check(legacyBody.getJSONObject("config_snapshot").getString("theme").equals("system"),
-                "configuration remains present");
-
-            stage = "malformed ndjson records";
-            Path malformed = root.resolve("malformed.zip");
-            try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(malformed))) {
-                entry(output, "crash_logs.ndjson", "not-json\n{\"at\":7,\"message\":\"synthetic\",\"stack\":\"\"}\n");
-                entry(output, "input_events.ndjson", "{\"t_ms\":10,\"kind\":\"unknown\"}\n");
-                entry(output, "performance_logs.ndjson", "{\"t_ms\":20,\"kind\":\"candidate_shown\"}\n");
-            }
-            JSONObject malformedBody = readBody(loader, malformed, true, true, true, false);
-            check(malformedBody.getJSONArray("crash_logs").length() == 0
-                && malformedBody.getJSONArray("input_events").length() == 0
-                && malformedBody.getJSONArray("perf_trace").length() == 0, "malformed records are dropped");
-            stage = "crash record bound";
-            Path bounded = root.resolve("bounded.zip");
-            String crashLine = "{\"at\":\"2026-10-14T00:00:00Z\",\"message\":\"java.lang.IllegalStateException\",\"stack\":\"\"}\n";
-            StringBuilder crashRows = new StringBuilder();
-            for (int index = 0; index < 51; index++) crashRows.append(crashLine);
-            try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(bounded))) {
-                entry(output, "crash_logs.ndjson", crashRows.toString());
-            }
-            check(readBody(loader, bounded, true, false, false, false).getJSONArray("crash_logs").length() == 50,
-                "crash records stay bounded");
             stage = "cleanup";
             remove(root);
             root = null;
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: native diagnostics bundle, upload sections, privacy, legacy aliases and selection\n");
+            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: native diagnostics bundle, privacy and local failure retention\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
             result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: " + stage + " ("
@@ -186,39 +138,8 @@ public final class DiagnosticsBundleDeviceSmoke extends Instrumentation {
         }
     }
 
-    private static JSONObject readBody(ClassLoader loader, Path archive, boolean crash, boolean perf,
-            boolean input, boolean config) throws Exception {
-        Class<?> api = loader.loadClass("app.msime.android.DiagnosticsApi");
-        Class<?> include = loader.loadClass("app.msime.android.DiagnosticsApi$Include");
-        Class<?> sections = loader.loadClass("app.msime.android.DiagnosticsApi$Sections");
-        Class<?> retention = loader.loadClass("app.msime.android.DiagnosticsApi$Retention");
-        Object selection = include.getConstructor(boolean.class, boolean.class, boolean.class, boolean.class)
-            .newInstance(crash, perf, input, config);
-        Object parsed = api.getMethod("readBundle", java.io.File.class, include)
-            .invoke(null, archive.toFile(), selection);
-        String body = (String) api.getMethod("requestBody", String.class, String.class, sections, retention)
-            .invoke(null, "android", "synthetic", parsed, retention.getField("ONE_DAY").get(null));
-        return new JSONObject(body).getJSONObject("sections");
-    }
-
-    private static void checkSections(JSONObject body) throws Exception {
-        check(body.getJSONArray("input_events").length() == 1, "input event retention");
-        check(body.getJSONArray("input_events").getJSONObject(0).getLong("t_ms") == 10, "input event value");
-        check(body.getJSONArray("perf_trace").length() == 1, "performance retention");
-        check(body.getJSONArray("perf_trace").getJSONObject(0).getLong("duration_ms") == 9, "performance value");
-        check(body.getJSONArray("crash_logs").length() == 1, "crash retention");
-        check(body.getJSONArray("crash_logs").getJSONObject(0).getString("message")
-            .equals("java.lang.IllegalStateException"), "crash value");
-    }
-
     private static void write(Path path, String text) throws Exception {
         Files.write(path, text.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static void entry(ZipOutputStream output, String name, String text) throws Exception {
-        output.putNextEntry(new ZipEntry(name));
-        output.write(text.getBytes(StandardCharsets.UTF_8));
-        output.closeEntry();
     }
 
     private static void remove(Path root) throws Exception {

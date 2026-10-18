@@ -13,7 +13,6 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-import app.msime.android.BackendAccount;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -48,7 +47,6 @@ public final class CommunityFragment extends Fragment {
     public static final String ARG_KIND = "kind";
     /** 嵌在别的页面的分类里，由父页提供标题和分类导航。键名带连字符，外部深链的参数键（`HostDeepLink.isAllowedArgKey`）伪造不了它。 */
     private static final String ARG_EMBEDDED = "community-embedded";
-    private record LoadedPage(CommunityCatalog.Page page, String sessionId, boolean stable) {}
 
     /** 这一页列出的作品类型。 */
     private CommunityRequest.Kind kind = CommunityRequest.Kind.SKIN;
@@ -273,30 +271,16 @@ public final class CommunityFragment extends Fragment {
         int offset = adapter.count(requested);
         String term = search;
         CommunityRequest.Category filter = requestCategory();
-        HostTask.run(this,
-            context -> {
-                BackendAccount account = new BackendAccount(context);
-                String before = account.sessionId();
-                CommunityCatalog.Page page = new CommunityCatalog(context).list(
-                    requested, term, offset, filter);
-                String after = account.sessionId();
-                return new LoadedPage(page, before, java.util.Objects.equals(before, after));
-            },
-            loaded -> {
+        // 读一页要联网，读登录状态也要等 Rust 的会话锁，都放在网络线程上；期间登录换了号时 CommunityCatalog 自己回一页「登录已切换」。
+        HostTask.runNetwork(this,
+            context -> new CommunityCatalog(context).list(requested, term, offset, filter),
+            page -> {
                 // 同一筛选条件也可能连续请求；旧结果不能填入新列表或清掉新请求的加载状态。
                 if (request != requestGeneration || requested != kind || !term.equals(search)
                         || filter != requestCategory()) {
                     return;
                 }
-                if (loaded == null || !loaded.stable()
-                        || !java.util.Objects.equals(loaded.sessionId(),
-                            new BackendAccount(requireContext()).sessionId())) {
-                    loading = false;
-                    state("账号已切换，请重试。", true);
-                    return;
-                }
                 loading = false;
-                CommunityCatalog.Page page = loaded.page();
                 if (page == null || page.failed()) {
                     state(page == null ? CommunityRequest.message(null, 0) : page.failure(), true);
                     return;
@@ -396,13 +380,17 @@ public final class CommunityFragment extends Fragment {
         }
     }
 
-    /** 获取：存进皮肤库（键盘皮肤面板读的同一份），成功后在服务端记一次下载。 */
+    /**
+     * 获取：经 Rust 下载这款皮肤的设计（服务端同时记一次下载，即卡片上的「使用次数」），再存进皮肤库（键盘皮肤面板读的同一份），不换上（决定 14：keyboard_skin_download 加皮肤库，不用会立即试用的 keyboard_skin_install）。下载在前，所以断网时获取失败。
+     */
     private void get(CommunityCatalog.Item item) {
         adapter.setAction(item.id(), CommunityAdapter.Action.BUSY);
-        HostTask.run(this, context -> {
+        HostTask.runNetwork(this, context -> {
             String directory = HostStore.directory(context);
             if (directory.isEmpty()) return "键盘还没有完成首次准备，请先打开一次键盘。";
-            String failure = new CommunityCatalog(context).install(Paths.get(directory), item);
+            CommunityCatalog.Download download = new CommunityCatalog(context).download(item);
+            if (download.failed()) return download.failure();
+            String failure = CommunityCatalog.install(Paths.get(directory), item, download.design());
             if (failure.isEmpty()) SyncSignals.markDirty(context, SyncSwitch.SKINS);
             return failure;
         }, failure -> {
@@ -411,7 +399,6 @@ public final class CommunityFragment extends Fragment {
             adapter.setAction(item.id(), saved ? CommunityAdapter.Action.DONE : CommunityAdapter.Action.AVAILABLE);
             MsToast.show(requireContext(), saved ? "已获取「" + item.name() + "」，点「使用」换上"
                 : failure == null ? "保存失败，请稍后重试。" : failure);
-            if (saved) HostTask.runNetwork(this, context -> new CommunityCatalog(context).recordDownload(item), ignored -> { });
         });
     }
 

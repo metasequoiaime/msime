@@ -26,6 +26,8 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
+import app.msime.android.AccountFailureText;
+import app.msime.android.AccountStore;
 import app.msime.android.BitmapPolicy;
 import app.msime.android.BackendAccount;
 import app.msime.android.CloudApi;
@@ -33,7 +35,6 @@ import app.msime.android.DeviceDataApi;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.FilePolicy;
 import app.msime.android.HttpBodyPolicy;
-import app.msime.android.HttpConnectionPolicy;
 import app.msime.android.ListPolicy;
 import app.msime.android.SyncSwitch;
 import app.msime.android.ViewPolicy;
@@ -41,10 +42,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -52,12 +51,13 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import javax.net.ssl.HttpsURLConnection;
 
 /**
  * 个人资料：头像（点了换一张）、昵称、水杉 ID、邮箱，三种登录方式的关联状态，云端数据（大小、导出、删除），退出登录与注销账号。
  *
- * <p>数据全部来自 {@link DeviceDataApi}。注销账号和删除云端数据要求最近登录：收到 {@link DeviceDataApi.RecentLoginRequired} 时弹登录面板，用户重新登录同一个账号后自动重试一次；登录成了别的账号时不重试，免得删错。关联登录方式走登录面板的 `link` 用途，回来后按关联列表的变化说出关联了哪一种。
+ * <p>数据全部来自 {@link DeviceDataApi}，经 Rust 的账号入口（#8201 迁移计划 5c），页面绑定打开时的账号编号。注销账号和删除云端数据要求最近登录：收到 {@link DeviceDataApi.RecentLoginRequired} 时弹登录面板，用户重新登录同一个账号后自动重试一次；登录成了别的账号时不重试，免得删错。关联登录方式走登录面板的 `link` 用途，回来后按关联列表的变化说出关联了哪一种。
+ *
+ * <p>「退出登录」会撤销服务端的这次登录（`logout{all:false}`），断网时本机照样退出、提示服务端没有撤销。「删除云端数据」连同这台设备匿名账号名下的语音样本一起删；注销账号以后 Rust 也尽力删它们，那一步没做成时只提示样本没删掉。云端数据汇总合不进匿名账号的语音样本时，这一行写「语音样本数暂不可知」。
  */
 public final class ProfilePage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
@@ -79,8 +79,8 @@ public final class ProfilePage extends ReloadingDetailPage {
     private boolean busy;
     private long generation;
 
-    /** 一次读取的结果：资料（未登录或读不到时为 null）、读不到的原因、云端数据汇总（读不到时为 null）、后端开放的登录方式、头像。 */
-    private record Loaded(@Nullable DeviceDataApi.Profile profile, @Nullable CloudApi.Failure failure,
+    /** 一次读取的结果：资料（未登录或读不到时为 null）、读不到的原因（Rust 的错误码，未登录是 account_unauthorized）、云端数据汇总（读不到时为 null）、后端开放的登录方式、头像、页面绑定的账号编号。 */
+    private record Loaded(@Nullable DeviceDataApi.Profile profile, String failure,
             @Nullable DeviceDataApi.DataSummary data, CloudApi.Providers providers, @Nullable Bitmap avatar,
             String sessionId) {}
 
@@ -116,25 +116,26 @@ public final class ProfilePage extends ReloadingDetailPage {
         CloudApi.Providers providers = SignIn.providers(context);
         String sessionId;
         try {
-            sessionId = new DeviceDataApi(context).currentAccountSessionId();
-        } catch (CloudApi.Failure failure) {
-            return new Loaded(null, failure, null, providers, null, "");
+            sessionId = DeviceDataApi.currentUserId(context);
+        } catch (AccountStore.Failure failure) {
+            return new Loaded(null, failure.code, null, providers, null, "");
         }
+        if (sessionId.isEmpty()) return new Loaded(null, "account_unauthorized", null, providers, null, "");
         DeviceDataApi api = new DeviceDataApi(context, sessionId);
         DeviceDataApi.Profile profile;
         try {
             profile = api.profile();
-        } catch (CloudApi.Failure failure) {
-            return new Loaded(null, failure, null, providers, null, "");
+        } catch (AccountStore.Failure failure) {
+            return new Loaded(null, failure.code, null, providers, null, "");
         }
         bindIfNeeded(context, profile, sessionId);
         DeviceDataApi.DataSummary data;
         try {
             data = api.dataSummary();
-        } catch (CloudApi.Failure unavailable) {
+        } catch (AccountStore.Failure unavailable) {
             data = null;
         }
-        return new Loaded(profile, null, data, providers, avatar(profile.avatarUrl()), sessionId);
+        return new Loaded(profile, "", data, providers, avatar(api, profile), sessionId);
     }
 
     /** 同步状态记着的账号与服务端说的不一致（登录时没读到用户 id，或换了账号）时重新绑定；绑定换账号时会关闭同步并清空游标。 */
@@ -154,24 +155,13 @@ public final class ProfilePage extends ReloadingDetailPage {
         }
     }
 
-    /** 读头像图片：只认账号头像服务的 HTTPS 主机、不超过 1 MiB；读不到时为 null，界面显示首字头像。阻塞。 */
-    @Nullable static Bitmap avatar(String url) {
-        if (!DeviceDataApi.avatarUrlAllowed(url)) return null;
+    /** 读头像图片：由 Rust 下载（只认账号头像服务的地址、不超过 1 MiB）；没有或读不到时为 null，界面显示首字头像。阻塞。 */
+    @Nullable static Bitmap avatar(DeviceDataApi api, DeviceDataApi.Profile profile) {
+        if (!profile.hasAvatar()) return null;
         try {
-            HttpsURLConnection connection = (HttpsURLConnection) new URL(url).openConnection();
-            try {
-                HttpConnectionPolicy.rejectRedirects(connection);
-                HttpConnectionPolicy.setTimeouts(connection, 10_000, 15_000);
-                connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
-                if (connection.getResponseCode() / 100 != 2) return null;
-                try (InputStream input = connection.getInputStream()) {
-                    byte[] bytes = HttpBodyPolicy.readBounded(input, DeviceDataApi.MAX_AVATAR_BYTES);
-                    return bytes == null ? null : decodeAvatar(bytes);
-                }
-            } finally {
-                connection.disconnect();
-            }
-        } catch (IOException | RuntimeException unavailable) {
+            byte[] bytes = api.avatar();
+            return bytes == null ? null : decodeAvatar(bytes);
+        } catch (AccountStore.Failure | RuntimeException unavailable) {
             return null;
         }
     }
@@ -240,8 +230,8 @@ public final class ProfilePage extends ReloadingDetailPage {
         methods.footer("关联后可以用任意一种方式登录同一个账号");
 
         GroupCard data = GroupCard.add(sectionColumn(target, "数据"), "数据").withDividers(16);
-        data.nav("云端数据", null, state.data() == null ? null : DeviceDataApi.formatBytes(state.data().bytes()),
-            this::confirmDeleteData);
+        data.nav("云端数据", state.data() == null ? null : AccountFailureText.anonymousVoice(state.data().anonymousVoice()),
+            state.data() == null ? null : DeviceDataApi.formatBytes(state.data().bytes()), this::confirmDeleteData);
         data.nav("导出我的数据", null, null, this::export);
 
         GroupCard signOut = GroupCard.add(sectionColumn(target, "账号"), null);
@@ -251,14 +241,14 @@ public final class ProfilePage extends ReloadingDetailPage {
         delete.footer("注销后云端的词库、皮肤、设置和社区作品会立即永久删除，无法恢复");
     }
 
-    private void renderUnavailable(LinearLayout column, @Nullable CloudApi.Failure failure) {
+    private void renderUnavailable(LinearLayout column, String failure) {
         GroupCard card = GroupCard.add(column, null);
-        if (failure != null && failure.signedOut()) {
+        if ("account_unauthorized".equals(failure)) {
             card.note("登录后可以在这里修改昵称和头像、关联登录方式、导出或删除云端数据。");
             card.button("登录", "Google、Apple 或邮箱", "登录", this::signIn);
         } else {
-            card.note(failure != null && failure.network() ? "连不上服务器，请检查网络后再试。"
-                : "个人资料暂时读不到，请稍后再试。");
+            // 读资料是已有的账号操作，断网时 Rust 报的也是 account_unavailable，分不出是网络还是服务。
+            card.note("个人资料暂时读不到，请检查网络后再试。");
             card.button("重新读取", null, "重试", () -> reload(null));
         }
     }
@@ -338,10 +328,10 @@ public final class ProfilePage extends ReloadingDetailPage {
         Loaded state = loaded;
         if (state == null || state.profile() == null || state.sessionId().isEmpty()) return;
         String expectedSessionId = state.sessionId();
-        InputDialog dialog = new InputDialog(requireContext(), "昵称", "最多 64 个字，留空恢复默认昵称");
+        InputDialog dialog = new InputDialog(requireContext(), "昵称", "1 到 64 个字");
         dialog.addField("昵称", state.profile().displayName(), 0)
             .setFilters(new InputFilter[] {new InputFilter.LengthFilter(DeviceDataApi.MAX_DISPLAY_NAME * 2)});
-        dialog.setValidator(values -> DeviceDataApi.validDisplayName(values.get(0)));
+        dialog.setValidator(values -> DeviceDataApi.validDisplayName(TextPolicy.trimmed(values.get(0))));
         dialog.setPrimary("保存", values -> run(context -> {
             new DeviceDataApi(context, expectedSessionId).rename(values.get(0));
             return "";
@@ -409,7 +399,24 @@ public final class ProfilePage extends ReloadingDetailPage {
             BitmapFactory.Options size = BitmapPolicy.decodeBounds(image);
             if (size == null) return "读不到这张图片";
             if (BitmapPolicy.longestEdge(size.outWidth, size.outHeight) > MAX_AVATAR_UPLOAD_EDGE) return "图片尺寸太大，请换一张小一些的";
-            new DeviceDataApi(context, expectedSessionId).uploadAvatar(image);
+            // Rust 从文件读头像：写进应用私有的缓存目录，上传完就删。
+            File file;
+            try {
+                file = File.createTempFile("avatar-", ".img", context.getCacheDir());
+            } catch (IOException unwritable) {
+                return "存储空间不可用，请稍后再试";
+            }
+            try {
+                try (OutputStream output = Files.newOutputStream(file.toPath(), StandardOpenOption.WRITE,
+                        StandardOpenOption.TRUNCATE_EXISTING, LinkOption.NOFOLLOW_LINKS)) {
+                    output.write(image);
+                } catch (IOException unwritable) {
+                    return "存储空间不可用，请稍后再试";
+                }
+                new DeviceDataApi(context, expectedSessionId).uploadAvatar(file);
+            } finally {
+                FilePolicy.deleteQuietly(file);
+            }
             return "";
         }, "头像已更新");
     }
@@ -433,28 +440,14 @@ public final class ProfilePage extends ReloadingDetailPage {
                         && stale.lastModified() < cutoff) FilePolicy.deleteQuietly(stale);
             }
             File file = new File(directory, name);
-            java.nio.file.Path temporary = null;
+            // Rust 先写进同目录的临时文件，读得出 zip 的中央目录才换到 file；失败时 file 不会出现。
             try {
-                temporary = Files.createTempFile(directory.toPath(), name + ".", ".part");
-                try (OutputStream output = Files.newOutputStream(temporary, StandardOpenOption.WRITE,
-                        StandardOpenOption.TRUNCATE_EXISTING, LinkOption.NOFOLLOW_LINKS)) {
-                    new DeviceDataApi(context, expectedSessionId).exportData(output);
-                }
-                try {
-                    Files.move(temporary, file.toPath(), StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING);
-                } catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
-                    Files.move(temporary, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                }
-            } catch (IOException unwritable) {
+                new DeviceDataApi(context, expectedSessionId).exportData(file);
+            } catch (AccountStore.Failure failure) {
                 FilePolicy.deleteQuietly(file);
-                return "没有导出，存储空间不可用";
-            } catch (CloudApi.Failure failure) {
-                FilePolicy.deleteQuietly(file);
-                if (failure.rateLimited()) return "今天的导出次数已用完，明天再试";
+                if ("account_rate_limited".equals(failure.code)) return "今天的导出次数已用完，明天再试";
+                if ("account_storage".equals(failure.code)) return "没有导出，存储空间不可用";
                 throw failure;
-            } finally {
-                if (temporary != null) FilePolicy.deleteQuietly(temporary.toFile());
             }
             return "";
         }, outcome -> {
@@ -482,10 +475,12 @@ public final class ProfilePage extends ReloadingDetailPage {
         String expectedSessionId = state.sessionId();
         String size = state == null || state.data() == null ? "" : "（约 " + DeviceDataApi.formatBytes(state.data().bytes()) + "）";
         new OptionSheet(requireContext(), "删除云端数据" + size,
-            "删除云端的设置、词库、常用语和云剪贴板，账号和社区作品保留，本机数据不受影响")
+            "删除云端的设置、词库、常用语、云剪贴板和这台设备上传过的语音样本，账号和社区作品保留，本机数据不受影响")
             .destructive("删除云端数据", () -> recentLogin(sessionId -> context -> {
-                new DeviceDataApi(context, sessionId).deleteData(DeviceDataApi.DELETABLE_SECTIONS);
-                return "";
+                DeviceDataApi.VoiceSamples voice =
+                    new DeviceDataApi(context, sessionId).deleteData(DeviceDataApi.DELETABLE_SECTIONS);
+                return voice.ok() ? "" : NOTICE + "云端数据已删除。"
+                    + AccountFailureText.voiceSamplesLeft(voice.code(), voice.retryAfterSeconds());
             }, expectedSessionId, "云端数据已删除", false))
             .show();
     }
@@ -496,7 +491,9 @@ public final class ProfilePage extends ReloadingDetailPage {
         String expectedSessionId = state.sessionId();
         new OptionSheet(requireContext(), "退出登录", "本机的词库和设置会保留，云同步随之关闭")
             .destructive("退出登录", () -> run(context -> {
-                return SignIn.signOut(context, expectedSessionId) ? "" : "登录已改变，请重新打开页面";
+                SignIn.Logout result = SignIn.logout(context, expectedSessionId);
+                if (!result.signedOut()) return result.message();
+                return result.message().isEmpty() ? "" : NOTICE + result.message();
             }, "已退出登录", true))
             .show();
     }
@@ -508,9 +505,11 @@ public final class ProfilePage extends ReloadingDetailPage {
         new OptionSheet(requireContext(), "注销账号", "云端的词库、皮肤、设置和社区作品会立即永久删除")
             .destructive("继续注销", () -> new OptionSheet(requireContext(), "确定注销？", "这一步无法撤销")
                 .destructive("永久注销账号", () -> recentLogin(sessionId -> context -> {
-                    new DeviceDataApi(context, sessionId).deleteAccount();
-                    if (!SignIn.signOut(context, sessionId)) return "登录已改变，请重新打开页面";
-                    return "";
+                    DeviceDataApi.VoiceSamples voice = new DeviceDataApi(context, sessionId).deleteAccount();
+                    // 注销成功时 Rust 已经清掉本地会话，这里只清本机的同步状态。
+                    SignIn.signOut(context);
+                    return voice.ok() ? "" : NOTICE + "账号已注销。"
+                        + AccountFailureText.voiceSamplesLeft(voice.code(), voice.retryAfterSeconds());
                 }, expectedSessionId, "账号已注销", true))
                 .show())
             .show();
@@ -518,9 +517,18 @@ public final class ProfilePage extends ReloadingDetailPage {
 
     // ---- 执行 ----
 
-    /** 一次要联网的动作：返回空字符串表示成功，否则是给人看的失败说明。 */
+    /** 一次要联网的动作：返回空字符串表示成功，以 {@link #NOTICE} 开头表示成功但另有一句要说（例如语音样本没删掉），否则是给人看的失败说明。 */
     private interface Work {
-        String run(Context context) throws CloudApi.Failure, DeviceDataApi.RecentLoginRequired;
+        String run(Context context) throws AccountStore.Failure, DeviceDataApi.RecentLoginRequired;
+    }
+
+    /** 内部记号：成功了，但后面那句话要代替成功提示显示出来，不会显示给用户。 */
+    private static final String NOTICE = "\u0001";
+
+    private void done(String outcome, @Nullable String success, boolean leave) {
+        if (outcome.isEmpty()) finish(success, leave);
+        else if (outcome.startsWith(NOTICE)) finish(outcome.substring(NOTICE.length()), leave);
+        else MsToast.show(requireContext(), outcome);
     }
 
     private void run(Work work, @Nullable String success) {
@@ -528,10 +536,7 @@ public final class ProfilePage extends ReloadingDetailPage {
     }
 
     private void run(Work work, @Nullable String success, boolean leave) {
-        execute(work, outcome -> {
-            if (outcome.isEmpty()) finish(success, leave);
-            else MsToast.show(requireContext(), outcome);
-        }, null);
+        execute(work, outcome -> done(outcome, success, leave), null);
     }
 
     /**
@@ -542,10 +547,7 @@ public final class ProfilePage extends ReloadingDetailPage {
         Loaded initial = loaded;
         if (initial == null || initial.profile() == null || !expectedSessionId.equals(initial.sessionId())) return;
         String before = initial.profile().id();
-        execute(workFactory.apply(expectedSessionId), outcome -> {
-            if (outcome.isEmpty()) finish(success, leave);
-            else MsToast.show(requireContext(), outcome);
-        }, () -> {
+        execute(workFactory.apply(expectedSessionId), outcome -> done(outcome, success, leave), () -> {
             MsToast.show(requireContext(), "为了安全，请重新登录一次");
             SignIn.start(requireActivity(), failure -> {
                 if (!isAdded()) return;
@@ -578,8 +580,8 @@ public final class ProfilePage extends ReloadingDetailPage {
                 return work.run(context);
             } catch (DeviceDataApi.RecentLoginRequired required) {
                 return relogin == null ? "需要重新登录后再试" : RELOGIN;
-            } catch (CloudApi.Failure failure) {
-                return explain(failure);
+            } catch (AccountStore.Failure failure) {
+                return AccountFailureText.profile(failure.code, failure.retryAfterSeconds);
             }
         };
         HostTask.runNetwork(this, task, outcome -> {
@@ -604,17 +606,6 @@ public final class ProfilePage extends ReloadingDetailPage {
         } else {
             reload(null);
         }
-    }
-
-    static String explain(CloudApi.Failure failure) {
-        if (failure.network()) return "连不上服务器，请检查网络后再试";
-        if ("session_changed".equals(failure.code)) return "登录已改变，请重新打开页面";
-        if (failure.signedOut()) return "登录已失效，请重新登录";
-        if (failure.rateLimited()) return "操作太频繁，请稍后再试";
-        if (failure.payloadTooLarge()) return "图片超过 1 MB，请换一张小一些的";
-        if (failure.unsupportedMediaType() || "invalid_avatar".equals(failure.code)) return "头像只支持 PNG 或 JPEG 图片";
-        if (failure.unavailable() || failure.status == 503) return "这项功能暂未开放";
-        return "没有完成，请稍后再试";
     }
 
 }

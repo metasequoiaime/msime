@@ -21,6 +21,8 @@ Android 的 SSE 请求明确发送 `Accept-Encoding: identity`，保持事件以
 
 流式响应不再主动请求 gzip，代理更容易立即转发每个 SSE 事件；代价是回复正文不使用传输压缩，流量略有增加。首个 token 仍受上游模型延迟影响，不承诺立即出现。
 
+从 #8201 迁移计划 5c 起对话改经 Rust 的 `msime_client_account_chat_stream`：Rust 的 reqwest 没有开 gzip 之类的特性，不发 `Accept-Encoding`，服务端和中间层按不压缩回答，效果与这里显式请求 identity 相同。见 [Android 设置页面的账号与云端操作改调 Rust](../architecture/2026-10-18-android-settings-pages-through-rust.md)。
+
 ## Verification
 
 - 临时诊断仅记录增量数和耗时，不记录消息、凭据或账号资料；诊断代码不进入最终 APK。

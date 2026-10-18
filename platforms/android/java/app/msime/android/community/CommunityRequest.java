@@ -1,15 +1,13 @@
 package app.msime.android;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 社区目录的请求路径与失败文案。
+ * 社区目录的分类、校验规则与失败文案。请求路径和查询的编码在 Rust 里（{@code msime_client_community}，#8201 迁移计划 5c），这里不再拼 URL。
  *
- * <p>Kept apart from the transport so both can be read without a network: what a query looks like
- * and what a failure says are the two things that actually go wrong here, and neither needs a
- * socket to check.
+ * <p>Kept apart from the transport so it can be read without a network: what a failure says is
+ * what actually goes wrong here, and it needs no socket to check.
  */
 public final class CommunityRequest {
     /** 目录里的四类内容。皮肤自成一个端点，词库、回复模板和短语共用资源端点。只增不改：首页按名字引用这几个值。 */
@@ -87,7 +85,6 @@ public final class CommunityRequest {
         List.of("侵权/抄袭", "色情低俗", "违法违规", "垃圾广告", "恶意插件", "其他");
     /** The longest optional detail a report may carry, in characters (code points). */
     public static final int MAX_REPORT_DETAIL = 1000;
-    public static final String REPORT_PATH = "/v1/community/reports";
 
     private CommunityRequest() {}
 
@@ -126,36 +123,7 @@ public final class CommunityRequest {
             && !CommunityTextPolicy.hasDisallowedControl(group, false);
     }
 
-    /**
-     * 返回皮肤条目的请求都要带上它，服务端才会在每个条目里给出 `category`；不带的请求拿到的条目没有这个字段，以免读条目时拒绝未知字段的旧客户端出错。
-     */
-    public static final String INCLUDE_CATEGORY = "include=category";
-
     public static List<Category> categories() { return List.of(Category.values()); }
-
-    /** The catalogue path for one kind, scope and search term, across every category. */
-    public static String path(Kind kind, String scope, String search, int offset) {
-        return path(kind, scope, search, offset, null);
-    }
-
-    /**
-     * The catalogue path for one kind, scope, search term and category.
-     *
-     * <p>分类只对皮肤有意义；`category` 为 null 时列出全部分类。词库、回复和短语走资源端点，那里没有分类，传了也不带上。
-     */
-    public static String path(Kind kind, String scope, String search, int offset,
-            Category category) {
-        String bounded = TextPolicy.trimmed(search);
-        int page = BoundsPolicy.nonNegative(offset);
-        if (kind == Kind.SKIN) {
-            return "/v1/community/skins?offset=" + page + "&q=" + encode(bounded)
-                + (category == null ? "" : "&category=" + category.id())
-                + "&" + INCLUDE_CATEGORY;
-        }
-        return "/v1/community/resources?kind=" + kind.id()
-            + "&scope=" + encode(scope == null ? "" : scope)
-            + "&q=" + encode(bounded) + "&offset=" + page;
-    }
 
     /** The `kind` a report names this catalogue's items by. */
     public static String reportKind(Kind kind) {
@@ -173,16 +141,6 @@ public final class CommunityRequest {
         String text = detail == null ? "" : detail;
         if (!TextPolicy.withinCodePoints(text, MAX_REPORT_DETAIL)) return false;
         return !CommunityTextPolicy.hasDisallowedControl(text, true);
-    }
-
-    /** 作者修改自己皮肤的分类：`PATCH` 这条路径，回来的是改过之后的条目，所以同样带上 `include=category`。 */
-    public static String skinPath(String id) {
-        return "/v1/community/skins/" + encode(id) + "?" + INCLUDE_CATEGORY;
-    }
-
-    /** 记一次皮肤下载（服务端的「使用次数」）：`POST` 这条路径，同一账号重复记只算一次。 */
-    public static String skinDownloadPath(String id) {
-        return "/v1/community/skins/" + encode(id) + "/download";
     }
 
     /** 皮肤卡上的使用次数：一万以下照写，一万起按「万」取一位小数（去掉 `.0`），如「15.8 万 次使用」。 */
@@ -240,34 +198,24 @@ public final class CommunityRequest {
         return String.join(" · ", parts);
     }
 
-    /** 修改分类的请求体，只有 `category` 一个字段。分类 id 是固定的 ASCII 小写字母，不需要转义。 */
-    public static String categoryBody(Category category) {
-        return "{\"category\":\"" + category.id() + "\"}";
-    }
-
     /**
-     * Percent-encode one query value.
-     *
-     * <p>Not {@code URLEncoder}: that is form encoding, where a space becomes `+` and a literal `+`
-     * survives unescaped. In a query the server reads as percent-encoded, a search for `C++` then
-     * arrives as two spaces.
+     * Rust 社区入口（{@code msime_client_community}）的错误码说成一句话（#8201 迁移计划 5c）。措辞沿用 {@link #message} 按服务端错误码和状态码选的那几句；Rust 没有单独的断网码，连不上和服务端出错都是 community_unavailable，合成一句。注册匿名账号被限流时是 account_rate_limited，与社区的限流同一句。
      */
-    public static String encode(String value) {
-        if (value == null || value.isEmpty()) return "";
-        StringBuilder result = new StringBuilder(value.length());
-        for (byte raw : value.getBytes(StandardCharsets.UTF_8)) {
-            int octet = raw & 0xFF;
-            if (octet >= 'a' && octet <= 'z' || octet >= 'A' && octet <= 'Z'
-                    || octet >= '0' && octet <= '9'
-                    || octet == '-' || octet == '_' || octet == '.' || octet == '~') {
-                result.append((char) octet);
-            } else {
-                result.append('%').append(Character.toUpperCase(
-                    Character.forDigit(octet >>> 4, 16))).append(Character.toUpperCase(
-                    Character.forDigit(octet & 0x0F, 16)));
-            }
-        }
-        return result.toString();
+    public static String rustMessage(String code) {
+        return switch (code == null ? "" : code) {
+            case "community_unauthorized" -> message(null, 401);
+            case "community_forbidden" -> message(null, 403);
+            case "community_not_found" -> message("item_not_found", 404);
+            case "community_rate_limited", "account_rate_limited" -> message(null, 429);
+            case "community_cancelled", "account_cancelled" -> message("session_changed", 409);
+            case "community_conflict" -> message(null, 409);
+            case "community_blocked_content" -> message("blocked_content", 422);
+            case "community_screening_unavailable" -> message("screening_unavailable", 503);
+            case "community_account_banned" -> message("account_banned", 403);
+            case "community_storage" -> "保存失败，请稍后重试。";
+            case "community_invalid" -> "请求不符合要求，请刷新后重试。";
+            default -> "连不上社区或社区暂时不可用，请稍后重试。";
+        };
     }
 
     /**

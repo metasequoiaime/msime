@@ -33,9 +33,9 @@ def main() -> int:
     if 'TextPolicy.lowercase(item.id())' not in source:
         print(f"{SOURCE}: 重复 ID 应直接调用 TextPolicy.lowercase", file=sys.stderr)
         return 1
-    if 'JsonPolicy.strictTrue(root.opt("has_more"))' not in source \
-            or 'JsonPolicy.strictTrue(response.opt("reported"))' not in source:
-        print(f"{SOURCE}: 分页与举报确认应直接调用 JsonPolicy.strictTrue", file=sys.stderr)
+    # 举报改经 Rust（#8201 迁移计划 5c），Rust 自己核对服务端的确认，Java 只剩分页这一处布尔。
+    if 'JsonPolicy.strictTrue(root.opt("has_more"))' not in source:
+        print(f"{SOURCE}: 分页应直接调用 JsonPolicy.strictTrue", file=sys.stderr)
         return 1
     for forwarded in ("idKey", "pageHasMore", "confirmedReport"):
         if f'CommunityCatalog.class.getDeclaredMethod("{forwarded}"' in smoke:
@@ -44,7 +44,7 @@ def main() -> int:
     if "import app.msime.android.TextPolicy;" not in smoke or smoke.count("TextPolicy.lowercase(") < 4:
         print(f"{SMOKE}: 应直接检查 TextPolicy.lowercase", file=sys.stderr)
         return 1
-    if smoke.count("JsonPolicy.strictTrue(") < 5:
+    if smoke.count("JsonPolicy.strictTrue(") < 2:
         print(f"{SMOKE}: 应直接检查 JsonPolicy.strictTrue", file=sys.stderr)
         return 1
     print("Android community catalogue uses the shared boolean and text policies")

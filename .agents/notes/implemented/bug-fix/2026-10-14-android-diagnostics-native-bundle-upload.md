@@ -32,3 +32,5 @@ API 28 专用 arm64 AVD：原宿主生成的输入记录通过共享层过滤，
 Android 开发者日志上传保留共享层已过滤的三类记录，不再静默上传空列表。新增崩溃条目沿用现有读取上限和脱敏来源约束，仍需要解析有界的 NDJSON 文本；不把上传漏读修复宣称为 #7837 原故障修复。原现场失败类别仍未知，已有附件没有页面启动结果或输入连接失败原因，后续排查不能把空崩溃列表等同于没有故障。
 
 [输入失败类别](2026-10-14-android-input-failure-categories.md)补上宿主丢弃失败来源的诊断缺口，只输出固定 logcat 类别，不改变原停止回退或 P19 上传格式；原报告根因仍未确认。
+
+从 #8201 迁移计划 5c 起上传不再经共享层 ZIP 转一道：Rust 的 `diagnostics_upload` 收到与导出同一份 bundle，自己读三类记录并按服务端规则重建，Java 的读取器和请求编码删掉，`DiagnosticsBundleDeviceSmoke` 只留导出和隐私过滤那一半。见 [Android 设置页面的账号与云端操作改调 Rust](../architecture/2026-10-18-android-settings-pages-through-rust.md)。

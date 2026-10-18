@@ -11,7 +11,10 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import app.msime.android.AccountFailureText;
+import app.msime.android.AccountStore;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.DeviceDataApi;
 import app.msime.android.DoubaoAsrPolicy;
 import app.msime.android.LocalVoiceModelPolicy;
 import app.msime.android.LocalVoiceModels;
@@ -48,7 +51,7 @@ import org.json.JSONObject;
  *
  * <p>本地识别要用的语音运行库（libonnxruntime 与 libsherpa-onnx-c-api）在 full 版里不随安装包，是按需下载的资源包 `voice-runtime`：选本地模型或打开离线识别时还没有运行库就经 {@link ResourcePackService} 下载（按流量计费的网络先确认），「本地模型」组里显示下载状态；安装包自带运行库时不需要它。
  *
- * <p>「上传语音以改进识别」（本地设置的 `platform.android.voice_contribute_audio`，只在本机、不同步）默认关闭；每次从关切到开都先弹确认框说明上传什么、保存多久，用户确认后才写（P19）。
+ * <p>「上传语音以改进识别」（本地设置的 `platform.android.voice_contribute_audio`，只在本机、不同步）默认关闭；每次从关切到开都先弹确认框说明上传什么、保存多久，用户确认后才写（P19）。下面的「删除上传过的语音样本」经 Rust 的 voice_delete 删掉这台设备匿名账号名下的样本，不要求登录。
  */
 public final class VoicePage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
@@ -212,6 +215,25 @@ public final class VoicePage extends ReloadingDetailPage {
         boolean contribute = local.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO);
         contributeRow = privacy.toggle("上传语音以改进识别", "语音片段匿名处理，可随时关闭", contribute,
             this::onContributeChanged);
+        privacy.button("删除上传过的语音样本", "删掉这台设备之前上传的语音和识别文字，不需要登录", "删除",
+            this::confirmDeleteVoiceSamples);
+    }
+
+    /**
+     * 删掉这台设备匿名账号名下上传过的语音样本（Rust 的 voice_delete，#8201 迁移计划 5c）：语音贡献只用匿名账号，从没登录过的用户也能删；注销账号或删除云端数据时那一步没做成的，也在这里重试。服务端要求最近登录，Rust 会用保存的匿名身份重新登录一次再删，这一次计入每天的匿名登录限额。
+     */
+    private void confirmDeleteVoiceSamples() {
+        MessageDialog.confirm(requireContext(), "删除上传过的语音样本？",
+            "这台设备之前上传的语音和识别出的文字会从水杉云删掉，无法恢复。以后是否继续上传由上面的开关决定。",
+            "删除", () -> HostTask.runNetwork(this, context -> {
+                try {
+                    DeviceDataApi.deleteVoiceSamples(context);
+                    return "";
+                } catch (AccountStore.Failure failure) {
+                    return AccountFailureText.voiceDelete(failure.code, failure.retryAfterSeconds);
+                }
+            }, failure -> MsToast.show(requireContext(), failure == null || !failure.isEmpty()
+                ? (failure == null ? "没有删掉，请稍后重试" : failure) : "已删除上传过的语音样本")));
     }
 
     /** 「识别服务」组：服务选择，选了联网服务时再列出它要的密钥和可改的接口、模型。 */

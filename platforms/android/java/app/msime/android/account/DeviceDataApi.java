@@ -1,76 +1,44 @@
 package app.msime.android;
 
 import android.content.Context;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.URI;
-import java.net.URL;
+import java.io.File;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.CancellationException;
-import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 「我的」里个人资料、我的设备与云端数据用到的接口：`/v1/users/me`（读、改昵称、注销）、头像、会话列表与撤销、云端数据汇总 / 导出 / 删除。
+ * 「我的」里个人资料、我的设备与云端数据：资料、改名、头像、退出与注销、会话列表与撤销、云端数据汇总 / 导出 / 删除，都经 Rust 的 {@code msime_client_account}（#8201 迁移计划 5c，见 {@link RustAccount}）。
  *
- * <p>全部建在 {@link CloudApi} 上，用真实账号的会话（匿名账号不算「我的」）。注销账号和删除云端数据要求最近登录，服务端回 403 `recent_login_required` 时这里抛 {@link RecentLoginRequired}，界面据此让用户重新登录一次再重试。导出是一个可能很大的 zip，不走 CloudApi 的 4 MiB 响应上限，由 {@link #exportData} 直接流式写进调用方给的输出流。
+ * <p>只用登录账号（匿名账号不算「我的」）。一个实例绑定页面打开时的账号编号（user.id）：每次请求前后都核对登录的仍是它，退出或换了号就以 account_cancelled 失败，页面丢掉结果。注销账号和删除云端数据要求 10 分钟内登录过，Rust 报 account_recent_login_required 时这里抛 {@link RecentLoginRequired}，界面据此让用户重新登录一次再重试。
  *
- * <p>每个方法都阻塞在网络上，不要在主线程调用。
+ * <p>每个方法都阻塞（读状态也要等 Rust 的会话锁），不要在主线程调用。
  */
 public final class DeviceDataApi {
     /** 昵称上限，与服务端 `utf8.RuneCountInString(name) > 64` 一致，按码点计。 */
     public static final int MAX_DISPLAY_NAME = 64;
     /** 头像上传上限，与服务端 `maxAvatarUploadBytes` 一致。 */
     public static final int MAX_AVATAR_BYTES = 1024 * 1024;
-    /** 账号响应里允许展开的会话数。 */
-    public static final int MAX_SESSIONS = 100;
-    /** 账号响应里允许展开的数据分类数。 */
-    public static final int MAX_DATA_SECTIONS = 16;
-    /** 账号响应里允许展开的关联身份数，与共享账号校验保持一致。 */
-    public static final int MAX_IDENTITIES = 16;
-    public static final String RECENT_LOGIN_REQUIRED = "recent_login_required";
-    /** 云端数据里可以单独删除的分类，顺序即确认框里的顺序。 */
-    public static final List<String> DELETABLE_SECTIONS = List.of("preferences", "dictionary", "phrases", "clipboard");
+    /** 云端数据里可以单独删除的分类，顺序即确认框里的顺序；voice 是这台设备匿名账号名下的语音样本（Rust 的 data_delete 另删匿名账号的那一份）。 */
+    public static final List<String> DELETABLE_SECTIONS =
+        List.of("preferences", "dictionary", "phrases", "clipboard", "voice");
 
-    /** Only fetch avatar URLs from the backend's upload bucket or Google's image host. */
-    public static boolean avatarUrlAllowed(String value) {
-        if (value == null) return false;
-        try {
-            URI url = URI.create(value);
-            if (!"https".equalsIgnoreCase(url.getScheme())
-                    || url.getUserInfo() != null || url.getPort() != -1 || url.getFragment() != null) {
-                return false;
-            }
-            String host = url.getHost();
-            if (host == null) return false;
-            host = host.toLowerCase(Locale.ROOT);
-            return host.equals("media.msime.app")
-                || host.equals("googleusercontent.com")
-                || host.endsWith(".googleusercontent.com");
-        } catch (IllegalArgumentException malformed) {
-            return false;
-        }
-    }
-
-    /** 这个操作要求最近登录过的会话；重新登录后再试。 */
+    /** 这个操作要求 10 分钟内登录过；重新登录同一个账号后再试。 */
     public static final class RecentLoginRequired extends Exception {
         private static final long serialVersionUID = 1L;
 
-        public RecentLoginRequired(CloudApi.Failure cause) {
+        public RecentLoginRequired(AccountStore.Failure cause) {
             super("recent login required", cause);
         }
     }
 
-    /** `GET /v1/users/me` 的用户与已关联的登录方式（只取 provider 名，subject 不给界面看）。 */
-    public record Profile(String id, String displayName, String email, String avatarUrl, List<String> providers) {
+    /** Rust profile 的用户与已关联的登录方式（去重后的 provider 名）。`hasAvatar` 是 Rust 给了本客户端会去取的头像地址，这时才值得调 {@link #avatar}。 */
+    public record Profile(String id, String displayName, String email, boolean hasAvatar, List<String> providers) {
         public boolean linked(String provider) { return providers.contains(provider); }
 
         /** 真实账号的登录方式里排在最前的一种（google / apple / email），一种都没有时为空字符串。 */
@@ -87,110 +55,96 @@ public final class DeviceDataApi {
     /** 云端数据的一个分类。 */
     public record DataSection(String id, long bytes, long items) {}
 
-    /** `GET /v1/users/me/data`：总字节数（统计口径，不是精确的磁盘占用）与各分类。 */
-    public record DataSummary(long bytes, List<DataSection> sections) {}
+    /**
+     * 云端数据汇总：总字节数（统计口径，不是精确的磁盘占用）与各分类。`anonymousVoice` 是 Rust 合并本机匿名账号语音样本的结果：included、none，或 unknown（这一次没合进来，voice 只是登录账号的，页面写「语音样本数暂不可知」）。
+     */
+    public record DataSummary(long bytes, List<DataSection> sections, String anonymousVoice) {}
 
-    /** 流式下载的那一层；冒烟测试换成内存实现。只在 2xx 时把响应体写进 `out`，否则把错误体放进返回值。 */
-    public interface Downloader {
-        Download download(String path, String token, OutputStream out) throws IOException;
+    /** 注销账号或删除云端数据之后，删本机匿名账号语音样本那一步的结果；没有删到语音样本这一步时 ok 为 true。 */
+    public record VoiceSamples(boolean ok, String code, long retryAfterSeconds) {
+        static final VoiceSamples DONE = new VoiceSamples(true, "", 0);
     }
 
-    /** 一次流式下载的结果：状态码，非 2xx 时的错误体与 `Retry-After`。 */
-    public record Download(int status, String retryAfter, byte[] errorBody) {}
+    private final Context application;
+    private final String userId;
 
-    private final CloudApi cloud;
-    private final CloudApi.Tokens account;
-    private final Downloader downloader;
-
-    public DeviceDataApi(Context context) {
-        Context application = context.getApplicationContext();
-        this.cloud = new CloudApi(application);
-        this.account = CloudApi.accountTokens(application);
-        this.downloader = DeviceDataApi::httpDownload;
+    /** 绑定页面打开时的账号编号；空串表示没有登录，这时每个操作都以 account_unauthorized 失败。 */
+    public DeviceDataApi(Context context, String expectedUserId) {
+        this.application = context.getApplicationContext();
+        this.userId = expectedUserId == null ? "" : expectedUserId;
     }
 
-    /** A device list is owned by the login that supplied it, including its later revoke action. */
-    public DeviceDataApi(Context context, String expectedSessionId) {
-        Context application = context.getApplicationContext();
-        if (expectedSessionId == null || expectedSessionId.isEmpty())
-            throw new IllegalArgumentException("account session id required");
-        this.account = CloudApi.accountTokens(application, expectedSessionId);
-        this.cloud = new CloudApi(application, this.account);
-        this.downloader = DeviceDataApi::httpDownload;
-    }
-
-    public DeviceDataApi(CloudApi cloud, CloudApi.Tokens account, Downloader downloader) {
-        this.cloud = cloud;
-        this.account = account;
-        this.downloader = downloader;
-    }
-
-    public String currentAccountSessionId() throws CloudApi.Failure {
-        return cloud.currentAccountSessionId();
+    /** 当前登录账号的编号，没有登录时为空串。不联网，但要在工作线程上调用。 */
+    public static String currentUserId(Context context) throws AccountStore.Failure {
+        return RustAccount.userId(context);
     }
 
     // ---- 个人资料 ----
 
-    public Profile profile() throws CloudApi.Failure {
-        return parseProfile(cloud.json("GET", "/v1/users/me", null, CloudApi.Auth.ACCOUNT));
+    public Profile profile() throws AccountStore.Failure {
+        return parseProfile(call(op("profile")));
     }
 
-    /** 改昵称；去掉首尾空白后为空表示恢复服务端的默认昵称。 */
-    public void rename(String displayName) throws CloudApi.Failure {
+    /** 头像的图片字节（PNG 或 JPEG）；没有头像时为 null。图片由 Rust 下载，只认账号头像服务的地址。 */
+    public byte[] avatar() throws AccountStore.Failure {
+        Object value = bound(() -> RustAccount.account(application, op("avatar")));
+        if (!(value instanceof String url)) return null;
+        return avatarBytes(url);
+    }
+
+    /** 改昵称：去掉首尾空白后 1–64 个码点（Rust 不接受空昵称）。 */
+    public Profile rename(String displayName) throws AccountStore.Failure {
         String name = TextPolicy.trimmed(displayName);
-        if (!validDisplayName(name)) throw new IllegalArgumentException("invalid display name");
-        JSONObject body;
+        if (!validDisplayName(name)) throw new AccountStore.Failure("account_invalid", 0);
         try {
-            body = new JSONObject().put("display_name", name);
+            return parseProfile(call(op("rename").put("display_name", name)));
         } catch (JSONException impossible) {
-            throw new IllegalStateException(impossible);
-        }
-        cloud.send("PATCH", "/v1/users/me", CloudApi.Body.json(body), CloudApi.Auth.ACCOUNT);
-    }
-
-    /** 上传头像（PNG 或 JPEG，≤1 MiB，服务端重编码为 256 px），返回带新 `avatar_url` 的资料。 */
-    public Profile uploadAvatar(byte[] image) throws CloudApi.Failure {
-        String type = avatarType(image);
-        if (type == null) throw new IllegalArgumentException("avatar must be PNG or JPEG");
-        if (image.length > MAX_AVATAR_BYTES) throw new IllegalArgumentException("avatar too large");
-        CloudApi.Response response = cloud.send("PUT", "/v1/users/me/avatar", new CloudApi.Body(type, image),
-            CloudApi.Auth.ACCOUNT);
-        try {
-            return parseProfile(response.json());
-        } catch (JSONException malformed) {
-            throw new CloudApi.Failure(response.status(), "invalid_response", "malformed profile", 0);
+            throw new AccountStore.Failure("account_invalid", 0);
         }
     }
 
-    public void deleteAvatar() throws CloudApi.Failure {
-        cloud.send("DELETE", "/v1/users/me/avatar", null, CloudApi.Auth.ACCOUNT);
+    /** 上传头像：`image` 是已经核对过的 PNG 或 JPEG（≤1 MiB），Rust 读这个私有文件后上传。 */
+    public Profile uploadAvatar(File image) throws AccountStore.Failure {
+        try {
+            return parseProfile(call(op("upload_avatar").put("path", image.getAbsolutePath())));
+        } catch (JSONException impossible) {
+            throw new AccountStore.Failure("account_invalid", 0);
+        }
     }
 
-    /** 注销账号：服务端立即删除账号与它的全部云端数据、社区作品和会话。要求最近登录。 */
-    public void deleteAccount() throws CloudApi.Failure, RecentLoginRequired {
+    /** 退出登录并撤销服务端的这次登录（`logout{all:false}`）。Rust 先清本地会话再请求服务端：失败时本机已经退出，失败照样抛出，页面说明服务端没有撤销。 */
+    public void logout() throws AccountStore.Failure {
+        RustAccount.requireUser(application, userId);
         try {
-            cloud.send("DELETE", "/v1/users/me", null, CloudApi.Auth.ACCOUNT);
-        } catch (CloudApi.Failure failure) {
+            RustAccount.account(application, op("logout").put("all", false));
+        } catch (JSONException impossible) {
+            throw new AccountStore.Failure("account_invalid", 0);
+        }
+    }
+
+    /** 注销账号：服务端立即删除账号与它的全部云端数据、社区作品和会话，Rust 随后清掉本地会话，再尽力删本机匿名账号名下的语音样本。要求最近登录。 */
+    public VoiceSamples deleteAccount() throws AccountStore.Failure, RecentLoginRequired {
+        RustAccount.requireUser(application, userId);
+        final Object value;
+        try {
+            value = RustAccount.account(application, op("account_delete"));
+        } catch (AccountStore.Failure failure) {
             throw recentLogin(failure);
         }
+        return voiceSamples(value);
     }
 
     // ---- 我的设备 ----
 
-    public List<Session> sessions() throws CloudApi.Failure {
-        JSONObject root = cloud.json("GET", "/v1/users/me/sessions", null, CloudApi.Auth.ACCOUNT);
-        JSONArray rows = root.optJSONArray("sessions");
-        if (rows == null) throw new CloudApi.Failure(500, "invalid_response", "sessions missing", 0);
-        if (!validResponseArrayLength(rows.length(), MAX_SESSIONS)) {
-            throw new CloudApi.Failure(500, "invalid_response", "too many sessions", 0);
-        }
+    public List<Session> sessions() throws AccountStore.Failure {
+        JSONArray rows = call(op("sessions_list")).optJSONArray("sessions");
+        if (rows == null) throw new AccountStore.Failure("account_unavailable", 0);
         List<Session> sessions = new ArrayList<>(rows.length());
         for (int index = 0; index < rows.length(); index++) {
             JSONObject row = rows.optJSONObject(index);
             if (row == null) continue;
-            String id = JsonPolicy.strictStringOrEmpty(row.opt("id"));
-            if (!validSessionId(id)) continue;
-            sessions.add(new Session(id, JsonPolicy.strictStringOrEmpty(row.opt("platform")),
+            sessions.add(new Session(JsonPolicy.strictStringOrEmpty(row.opt("id")),
+                JsonPolicy.strictStringOrEmpty(row.opt("platform")),
                 JsonPolicy.strictStringOrEmpty(row.opt("name")),
                 JsonPolicy.strictStringOrEmpty(row.opt("app_version")),
                 instant(JsonPolicy.strictStringOrEmpty(row.opt("created_at"))),
@@ -200,136 +154,92 @@ public final class DeviceDataApi {
         return ListPolicy.copyOrEmpty(sessions);
     }
 
-    /** 撤销一个会话；撤销当前会话等于在服务端退出登录，调用方随后要清掉本机会话。 */
-    public void revokeSession(String id) throws CloudApi.Failure {
-        if (!validSessionId(id)) throw new IllegalArgumentException("invalid session id");
-        cloud.send("DELETE", "/v1/users/me/sessions/" + id, null, CloudApi.Auth.ACCOUNT);
+    /** 撤销一个会话；撤销的是本机这一次时 Rust 当作退出登录、清掉本地会话，返回 true，调用方随后清本机的同步状态。 */
+    public boolean revokeSession(String id) throws AccountStore.Failure {
+        RustAccount.requireUser(application, userId);
+        final Object value;
+        try {
+            value = RustAccount.account(application, op("session_revoke").put("id", id));
+        } catch (JSONException impossible) {
+            throw new AccountStore.Failure("account_invalid", 0);
+        }
+        return value instanceof JSONObject result && JsonPolicy.strictTrue(result.opt("signed_out"));
     }
 
     // ---- 云端数据 ----
 
-    public DataSummary dataSummary() throws CloudApi.Failure {
-        JSONObject root = cloud.json("GET", "/v1/users/me/data", null, CloudApi.Auth.ACCOUNT);
+    public DataSummary dataSummary() throws AccountStore.Failure {
+        JSONObject root = call(op("data_summary"));
         JSONArray rows = root.optJSONArray("sections");
-        if (rows == null) throw new CloudApi.Failure(500, "invalid_response", "sections missing", 0);
-        if (!validResponseArrayLength(rows.length(), MAX_DATA_SECTIONS)) {
-            throw new CloudApi.Failure(500, "invalid_response", "too many data sections", 0);
-        }
+        if (rows == null) throw new AccountStore.Failure("account_unavailable", 0);
         List<DataSection> sections = new ArrayList<>(rows.length());
         for (int index = 0; index < rows.length(); index++) {
             JSONObject row = rows.optJSONObject(index);
             if (row == null || JsonPolicy.strictStringOrEmpty(row.opt("id")).isEmpty()) continue;
             sections.add(new DataSection(JsonPolicy.strictStringOrEmpty(row.opt("id")),
-                strictCount(row.opt("bytes")),
-                strictCount(row.opt("items"))));
+                JsonPolicy.nonNegativeLong(row.opt("bytes"), 0), JsonPolicy.nonNegativeLong(row.opt("items"), 0)));
         }
-        return new DataSummary(strictCount(root.opt("bytes")), ListPolicy.copyOrEmpty(sections));
+        return new DataSummary(JsonPolicy.nonNegativeLong(root.opt("bytes"), 0), ListPolicy.copyOrEmpty(sections),
+            JsonPolicy.strictStringOrEmpty(root.opt("anonymous_voice")));
     }
 
     /**
-     * 把一次性导出的 zip 流式写进 `out`（每用户每天 3 次，超出时是 429）。令牌被拒时只在同一登录内重试一次；失败时调用方须丢弃已写入的临时文件。
+     * 把一次性导出的 zip 写到 `destination`（每用户每天 3 次，超出时是带 Retry-After 的 account_rate_limited）。Rust 先写进同目录的临时文件，读得出 zip 的中央目录才换到 destination；失败时 destination 上原有的文件不动。
      *
      * @return 写入的字节数
      */
-    public long exportData(OutputStream out) throws CloudApi.Failure {
-        String rejected = null;
-        String sessionId = null;
-        for (int attempt = 0; ; attempt++) {
-            CloudApi.TokenSnapshot session = accountSnapshot(rejected);
-            if (sessionId != null && !sessionId.equals(session.sessionId())) throw sessionChanged();
-            String token = session.token();
-            if (token == null || token.isEmpty()) throw new CloudApi.Failure(401, "signed_out", "not signed in", 0);
-            if (session.sessionId() == null || session.sessionId().isEmpty())
-                throw new CloudApi.Failure(0, "session_unavailable", "account identity unavailable", 0);
-            if (sessionId == null) sessionId = session.sessionId();
-            ensureCurrentLogin(sessionId);
-            CountingStream counted = new CountingStream(out);
-            Download result;
-            try {
-                result = downloader.download("/v1/users/me/data/export", token, counted);
-            } catch (IOException offline) {
-                throw new CloudApi.Failure(0, "network", offline.getMessage(), 0);
-            }
-            ensureCurrentLogin(sessionId);
-            if (result.status() / 100 == 2) return counted.count;
-            if (result.status() == 401 && attempt == 0) {
-                rejected = token;
-                continue;
-            }
-            throw CloudApi.failure(new CloudApi.Exchange(result.status(), "application/json", result.retryAfter(),
-                result.errorBody()));
-        }
-    }
-
-    private CloudApi.TokenSnapshot accountSnapshot(String rejected) throws CloudApi.Failure {
+    public long exportData(File destination) throws AccountStore.Failure {
         try {
-            return account.snapshot(rejected);
-        } catch (CloudApi.Failure failure) {
-            throw failure;
-        } catch (CancellationException changed) {
-            throw sessionChanged();
-        } catch (Exception unavailable) {
-            throw new CloudApi.Failure(0, "session_unavailable", unavailable.getMessage(), 0);
-        }
-    }
-
-    private void ensureCurrentLogin(String expectedId) throws CloudApi.Failure {
-        if (!expectedId.equals(accountSnapshot(null).sessionId())) throw sessionChanged();
-    }
-
-    private static CloudApi.Failure sessionChanged() {
-        return new CloudApi.Failure(409, "session_changed", "account session changed", 0);
-    }
-
-    /** 只删数据、保留账号：删掉 `sections`（{@link #DELETABLE_SECTIONS} 的子集）。要求最近登录。 */
-    public void deleteData(List<String> sections) throws CloudApi.Failure, RecentLoginRequired {
-        if (!validDeleteSections(sections)) {
-            throw new IllegalArgumentException("invalid data sections");
-        }
-        JSONObject body;
-        try {
-            body = new JSONObject().put("sections", new JSONArray(sections));
+            JSONObject result = call(op("data_export").put("destination", destination.getAbsolutePath()));
+            return JsonPolicy.nonNegativeLong(result.opt("bytes"), 0);
         } catch (JSONException impossible) {
-            throw new IllegalStateException(impossible);
+            throw new AccountStore.Failure("account_invalid", 0);
         }
+    }
+
+    /** 只删数据、保留账号：删掉 `sections`（{@link #DELETABLE_SECTIONS} 的子集）。要求最近登录。含 voice 时还删本机匿名账号名下的语音样本，那一步的结果在返回值里。 */
+    public VoiceSamples deleteData(List<String> sections) throws AccountStore.Failure, RecentLoginRequired {
+        if (!validDeleteSections(sections)) {
+            throw new AccountStore.Failure("account_invalid", 0);
+        }
+        RustAccount.requireUser(application, userId);
+        final Object value;
         try {
-            cloud.send("DELETE", "/v1/users/me/data", CloudApi.Body.json(body), CloudApi.Auth.ACCOUNT);
-        } catch (CloudApi.Failure failure) {
+            value = RustAccount.account(application, op("data_delete").put("sections", new JSONArray(sections)));
+        } catch (AccountStore.Failure failure) {
             throw recentLogin(failure);
+        } catch (JSONException impossible) {
+            throw new AccountStore.Failure("account_invalid", 0);
         }
+        RustAccount.requireUser(application, userId);
+        return voiceSamples(value);
+    }
+
+    /** 「语音」设置里的「删除上传过的语音样本」：删掉本机匿名账号名下的样本，不要求登录（Rust 的 voice_delete）。 */
+    public static void deleteVoiceSamples(Context context) throws AccountStore.Failure {
+        RustAccount.account(context, op("voice_delete"));
     }
 
     // ---- 纯逻辑（冒烟测试覆盖） ----
 
-    /** 403 `recent_login_required`：要求重新登录一次。 */
-    public static boolean recentLoginRequired(CloudApi.Failure failure) {
-        return failure != null && failure.status == 403 && RECENT_LOGIN_REQUIRED.equals(failure.code);
+    /** Rust 报的是「要求最近登录」：要求重新登录一次。 */
+    public static boolean recentLoginRequired(String code) {
+        return "account_recent_login_required".equals(code);
     }
 
-    private static CloudApi.Failure recentLogin(CloudApi.Failure failure) throws RecentLoginRequired {
-        if (recentLoginRequired(failure)) throw new RecentLoginRequired(failure);
+    private static AccountStore.Failure recentLogin(AccountStore.Failure failure) throws RecentLoginRequired {
+        if (recentLoginRequired(failure.code)) throw new RecentLoginRequired(failure);
         return failure;
     }
 
-    /** 昵称：去掉首尾空白后不超过 64 个码点，不含控制字符。空字符串合法（恢复默认昵称）。 */
+    /** 昵称：去掉首尾空白后 1–64 个码点，不含控制字符。Rust 不接受空昵称，所以「留空恢复默认」不再提供。 */
     public static boolean validDisplayName(String name) {
-        if (name == null) return false;
-        if (!TextPolicy.withinCodePoints(name, MAX_DISPLAY_NAME)) return false;
+        if (name == null || name.isEmpty() || !TextPolicy.withinCodePoints(name, MAX_DISPLAY_NAME)) return false;
         for (int index = 0; index < name.length(); index++) {
             char c = name.charAt(index);
             if (c < 0x20 || c == 0x7F) return false;
         }
         return true;
-    }
-
-    /** 会话 id 只拼进路径，所以只认 1–128 个字母、数字、`-`、`_`。 */
-    public static boolean validSessionId(String id) {
-        return TextPolicy.validAsciiToken(id, 1, 128);
-    }
-
-    /** 数组长度检查独立出来供无 `org.json` 的宿主冒烟测试覆盖。 */
-    public static boolean validResponseArrayLength(int length, int maximum) {
-        return length >= 0 && maximum >= 0 && length <= maximum;
     }
 
     /** 删除分类必须非空、属于允许集合且不能重复。 */
@@ -345,6 +255,22 @@ public final class DeviceDataApi {
         if ((image[0] & 0xFF) == 0x89 && image[1] == 'P' && image[2] == 'N' && image[3] == 'G') return "image/png";
         if ((image[0] & 0xFF) == 0xFF && (image[1] & 0xFF) == 0xD8 && (image[2] & 0xFF) == 0xFF) return "image/jpeg";
         return null;
+    }
+
+    /** Rust avatar 给的 `data:image/png;base64,…` 或 `data:image/jpeg;base64,…` 里的图片字节；别的形状、解不开的 base64 或超过 1 MiB 时为 null。 */
+    public static byte[] avatarBytes(String dataUrl) {
+        if (dataUrl == null) return null;
+        String payload;
+        if (dataUrl.startsWith("data:image/png;base64,")) payload = dataUrl.substring("data:image/png;base64,".length());
+        else if (dataUrl.startsWith("data:image/jpeg;base64,")) payload = dataUrl.substring("data:image/jpeg;base64,".length());
+        else return null;
+        if (payload.length() > (MAX_AVATAR_BYTES + 2) / 3 * 4) return null;
+        try {
+            byte[] bytes = Base64.getDecoder().decode(payload);
+            return avatarType(bytes) == null ? null : bytes;
+        } catch (IllegalArgumentException malformed) {
+            return null;
+        }
     }
 
     /** 给人看的大小：`512 B`、`3.2 KB`、`12.4 MB`、`1.1 GB`（1024 进制，一位小数）。 */
@@ -381,86 +307,56 @@ public final class DeviceDataApi {
         return RelativeTimePolicy.isoMillis(value);
     }
 
-    private static Profile parseProfile(JSONObject root) throws CloudApi.Failure {
+    // ---- 请求 ----
+
+    private interface Request {
+        Object run() throws AccountStore.Failure;
+    }
+
+    /** 请求前后都核对登录的仍是这个实例绑定的账号。 */
+    private Object bound(Request request) throws AccountStore.Failure {
+        RustAccount.requireUser(application, userId);
+        Object value = request.run();
+        RustAccount.requireUser(application, userId);
+        return value;
+    }
+
+    private JSONObject call(JSONObject action) throws AccountStore.Failure {
+        Object value = bound(() -> RustAccount.account(application, action));
+        if (!(value instanceof JSONObject object)) throw new AccountStore.Failure("account_unavailable", 0);
+        return object;
+    }
+
+    private static JSONObject op(String name) throws AccountStore.Failure {
+        try {
+            return new JSONObject().put("operation", name);
+        } catch (JSONException impossible) {
+            throw new AccountStore.Failure("account_invalid", 0);
+        }
+    }
+
+    /** `{voice_samples:{ok,error?,retry_after_seconds?}}`；没有这个字段（data_delete 不含 voice 时是 null）按已经删完处理。 */
+    private static VoiceSamples voiceSamples(Object value) {
+        JSONObject result = value instanceof JSONObject object ? object.optJSONObject("voice_samples") : null;
+        if (result == null || JsonPolicy.strictTrue(result.opt("ok"))) return VoiceSamples.DONE;
+        return new VoiceSamples(false, JsonPolicy.strictStringOrEmpty(result.opt("error")),
+            JsonPolicy.nonNegativeLong(result.opt("retry_after_seconds"), 0));
+    }
+
+    private static Profile parseProfile(JSONObject root) throws AccountStore.Failure {
         JSONObject user = root.optJSONObject("user");
-        if (user == null || JsonPolicy.strictStringOrEmpty(user.opt("id")).isEmpty()) {
-            throw new CloudApi.Failure(500, "invalid_response", "user missing", 0);
-        }
-        JSONArray identities = root.optJSONArray("identities");
-        if (identities != null && !validResponseArrayLength(identities.length(), MAX_IDENTITIES)) {
-            throw new CloudApi.Failure(500, "invalid_response", "too many identities", 0);
-        }
-        List<String> providers = new ArrayList<>(identities == null ? 0 : identities.length());
-        if (identities != null) {
-            for (int index = 0; index < identities.length(); index++) {
-                JSONObject identity = identities.optJSONObject(index);
-                String provider = identity == null ? ""
-                    : JsonPolicy.strictStringOrEmpty(identity.opt("provider"));
+        String id = user == null ? "" : JsonPolicy.strictStringOrEmpty(user.opt("id"));
+        if (id.isEmpty()) throw new AccountStore.Failure("account_unavailable", 0);
+        JSONArray names = root.optJSONArray("providers");
+        List<String> providers = new ArrayList<>(names == null ? 0 : names.length());
+        if (names != null) {
+            for (int index = 0; index < names.length(); index++) {
+                String provider = JsonPolicy.strictStringOrEmpty(names.opt(index));
                 if (!provider.isEmpty() && !providers.contains(provider)) providers.add(provider);
             }
         }
-        return new Profile(JsonPolicy.strictStringOrEmpty(user.opt("id")),
-            JsonPolicy.strictStringOrEmpty(user.opt("display_name")),
+        return new Profile(id, JsonPolicy.strictStringOrEmpty(user.opt("displayName")),
             JsonPolicy.strictStringOrEmpty(user.opt("email")),
-            JsonPolicy.strictStringOrEmpty(user.opt("avatar_url")), ListPolicy.copyOrEmpty(providers));
-    }
-
-    /** Data summary counters are JSON integers; reject coercion and negative values. */
-    public static long strictCount(Object value) throws CloudApi.Failure {
-        Long count = JsonPolicy.nonNegativeLong(value);
-        if (count == null) throw new CloudApi.Failure(500, "invalid_response", "invalid data count", 0);
-        return count;
-    }
-
-    /** 数一数写了多少字节，原样转给下游。 */
-    private static final class CountingStream extends OutputStream {
-        private final OutputStream target;
-        long count;
-
-        CountingStream(OutputStream target) { this.target = target; }
-
-        @Override public void write(int value) throws IOException {
-            target.write(value);
-            count++;
-        }
-
-        @Override public void write(byte[] buffer, int offset, int length) throws IOException {
-            target.write(buffer, offset, length);
-            count += length;
-        }
-
-        @Override public void flush() throws IOException { target.flush(); }
-    }
-
-    private static Download httpDownload(String path, String token, OutputStream out) throws IOException {
-        HttpsURLConnection connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
-        try {
-            HttpConnectionPolicy.rejectRedirects(connection);
-            connection.setRequestMethod("GET");
-            // 导出在服务端现拼，给它比普通请求长的读超时。
-            HttpConnectionPolicy.setTimeouts(connection, CloudApi.CONNECT_TIMEOUT_MILLIS,
-                    CloudApi.READ_TIMEOUT_MILLIS * 4);
-            connection.setRequestProperty("Accept", "application/zip");
-            connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-            int status = connection.getResponseCode();
-            if (HttpConnectionPolicy.isSuccessful(status)) {
-                try (InputStream input = connection.getInputStream()) {
-                    HttpBodyPolicy.copy(input, out);
-                }
-                out.flush();
-                return new Download(status, null, new byte[0]);
-            }
-            InputStream error = connection.getErrorStream();
-            byte[] body = new byte[0];
-            if (error != null) {
-                try (InputStream input = error) {
-                    body = HttpBodyPolicy.readRequired(input, CloudApi.MAX_RESPONSE_BYTES);
-                }
-            }
-            return new Download(status, connection.getHeaderField("Retry-After"), body);
-        } finally {
-            connection.disconnect();
-        }
+            !JsonPolicy.strictStringOrEmpty(user.opt("avatarUrl")).isEmpty(), ListPolicy.copyOrEmpty(providers));
     }
 }

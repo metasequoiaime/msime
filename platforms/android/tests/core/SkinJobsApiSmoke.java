@@ -1,63 +1,24 @@
-import app.msime.android.CloudApi;
-import app.msime.android.JsonPolicy;
 import app.msime.android.SkinJobsApi;
-import java.util.List;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-/** AI 设计皮肤的失败分类与提示文案；请求本身走 org.json，在 check-host 的桩 classpath 下跑不了，留给设备上验证。 */
+/** AI 设计皮肤留在 Java 的规则：描述的形状和插画尺寸。生成、轮询、取消和失败的分类都在 Rust（#8201 迁移计划 5c），失败的文案见 AccountFailureTextSmoke。 */
 public final class SkinJobsApiSmoke {
     public static void main(String[] arguments) throws Exception {
-        check(Boolean.TRUE.equals(JsonPolicy.strictBoolean(Boolean.TRUE)),
-            "skin jobs responses accept JSON booleans");
-        check(JsonPolicy.strictBoolean("true") == null,
-            "skin jobs responses reject boolean strings instead of coercing them");
         check(SkinJobsApi.strictArtworkDimension(512L) == 512,
             "artwork dimensions accept JSON integers");
         check(SkinJobsApi.strictArtworkDimension(1.5d) == null,
             "artwork dimensions reject fractional JSON numbers");
-        CloudApi.Failure quota = new CloudApi.Failure(429, "rate_limit_exceeded", "", 7200);
-        check(SkinJobsApi.quotaExhausted(quota), "429 is the daily quota");
-        check(SkinJobsApi.message(quota).startsWith("今天的生成次数已用完"), "quota wording");
-        check(SkinJobsApi.message(quota).contains("2 小时"), "retry-after rounds up to hours");
-        check(SkinJobsApi.message(new CloudApi.Failure(429, "rate_limit_exceeded", "", 0)).equals("今天的生成次数已用完"),
-            "quota without retry-after");
+        check(SkinJobsApi.strictArtworkDimension(0) == null && SkinJobsApi.strictArtworkDimension(2049) == null,
+            "artwork dimensions stay within the decoded image bounds");
 
-        CloudApi.Failure disabled = new CloudApi.Failure(503, "service_disabled", "", 0);
-        check(SkinJobsApi.unavailable(disabled), "503 hides the entry");
-        check(SkinJobsApi.unavailable(new CloudApi.Failure(503, "", "", 0)), "any 503 hides the entry");
-        check(!SkinJobsApi.unavailable(quota), "quota is not unavailable");
-
-        check(SkinJobsApi.validPlanCount(1), "one generated plan is accepted");
-        check(SkinJobsApi.validPlanCount(SkinJobsApi.MAX_DESIGNS),
-            "the design limit is accepted");
-        check(!SkinJobsApi.validPlanCount(0), "an empty plan list is refused");
-        check(!SkinJobsApi.validPlanCount(SkinJobsApi.MAX_DESIGNS + 1),
-            "plans beyond the design limit are refused");
-
-        check(SkinJobsApi.message(new CloudApi.Failure(0, "cancelled", "", 0)).equals("已取消"),
-            "local cancellation is not a network failure");
-        check(SkinJobsApi.message(new CloudApi.Failure(0, "ai_skin_response", "", 0)).contains("不合格"),
-            "refused plans");
-        check(SkinJobsApi.message(new CloudApi.Failure(0, "network", "", 0)).startsWith("连不上服务器"),
-            "network failure");
-        check(SkinJobsApi.message(new CloudApi.Failure(401, "signed_out", "", 0)).equals("请先登录后再生成"),
-            "signed out");
-
-        // If a later plan is malformed after earlier illustrations were submitted, the
-        // in-flight jobs must enter cancellation so their finally blocks release them.
-        AtomicBoolean cancelled = new AtomicBoolean(false);
-        FutureTask<Void> submitted = new FutureTask<>(() -> null);
-        try {
-            java.lang.reflect.Method cancel = SkinJobsApi.class.getDeclaredMethod(
-                "cancelSubmitted", AtomicBoolean.class, List.class);
-            cancel.setAccessible(true);
-            cancel.invoke(null, cancelled, List.of(submitted));
-        } catch (ReflectiveOperationException error) {
-            throw new AssertionError("submitted illustrations need cancellation cleanup", error);
-        }
-        check(cancelled.get() && submitted.isCancelled(),
-            "malformed plan cancels submitted illustrations");
+        // Rust 收 1–500 个字符、不含控制字符的描述；交过去之前先在本机挡住，免得把模型方案不合规和描述不合规混成同一个 ai_skin_invalid。
+        check(SkinJobsApi.validPrompt("秋天的银杏"), "an ordinary description");
+        check(SkinJobsApi.validPrompt("  深夜霓虹  "), "surrounding spaces are trimmed");
+        check(!SkinJobsApi.validPrompt("   "), "a blank description is refused");
+        check(SkinJobsApi.validPrompt("字".repeat(SkinJobsApi.MAX_PROMPT_CHARACTERS)), "500 characters");
+        check(!SkinJobsApi.validPrompt("字".repeat(SkinJobsApi.MAX_PROMPT_CHARACTERS + 1)), "501 characters");
+        check(SkinJobsApi.validPrompt("🌲".repeat(SkinJobsApi.MAX_PROMPT_CHARACTERS)), "characters, not UTF-16 units");
+        check(!SkinJobsApi.validPrompt("两行\n描述"), "a line break is a control character");
+        check(!SkinJobsApi.validPrompt(null), "no description");
         System.out.println("SkinJobsApiSmoke ok");
     }
 

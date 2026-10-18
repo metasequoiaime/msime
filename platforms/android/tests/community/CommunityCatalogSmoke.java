@@ -24,29 +24,6 @@ public final class CommunityCatalogSmoke {
         check(!TextPolicy.lowercase("a1234567-1234-1234-1234-123456789abc").equals(
             TextPolicy.lowercase("b1234567-1234-1234-1234-123456789abc")),
             "different UUIDs must remain distinct");
-        Method responseLimit = CommunityCatalog.class.getDeclaredMethod(
-            "maximumResponseBytes", CommunityRequest.Kind.class);
-        responseLimit.setAccessible(true);
-        check((int) responseLimit.invoke(null, CommunityRequest.Kind.SKIN) == 4 * 1024 * 1024,
-            "skin pages keep the ordinary response bound");
-        check((int) responseLimit.invoke(null, CommunityRequest.Kind.DICTIONARY) == 48 * 1024 * 1024,
-            "dictionary pages allow the shared resource response bound");
-        check((int) responseLimit.invoke(null, CommunityRequest.Kind.REPLY) == 48 * 1024 * 1024,
-            "reply pages allow the shared resource response bound");
-        check((int) responseLimit.invoke(null, CommunityRequest.Kind.PHRASE) == 48 * 1024 * 1024,
-            "phrase pages allow the shared resource response bound");
-        String token = "e".repeat(64);
-        Method retryListing = CommunityCatalog.class.getDeclaredMethod(
-            "shouldRetryListing", int.class, String.class, int.class);
-        retryListing.setAccessible(true);
-        check((boolean) retryListing.invoke(null, 401, token, 0),
-            "an account 401 retries the listing once");
-        check(!(boolean) retryListing.invoke(null, 401, token, 1),
-            "a listing cannot retry an account 401 twice");
-        check(!(boolean) retryListing.invoke(null, 500, token, 0),
-            "a server failure is not an account refresh signal");
-        check(!(boolean) retryListing.invoke(null, 401, "", 0),
-            "an anonymous or missing token does not trigger account refresh");
         Method validItem = CommunityCatalog.class.getDeclaredMethod(
             "validItem", CommunityCatalog.Item.class, CommunityRequest.Kind.class);
         validItem.setAccessible(true);
@@ -88,9 +65,9 @@ public final class CommunityCatalogSmoke {
             "validDownloadItem", CommunityCatalog.Item.class);
         validDownloadItem.setAccessible(true);
         check(!(boolean) validDownloadItem.invoke(null, malformed),
-            "download counting must reject an item with an unsafe ID");
+            "downloading must reject an item with an unsafe ID");
         check(!(boolean) validDownloadItem.invoke(null, nilId),
-            "download counting must reject an item with a nil ID");
+            "downloading must reject an item with a nil ID");
         CommunityCatalog.Item invalidRating = new CommunityCatalog.Item(
             UUID.randomUUID().toString(), CommunityRequest.Kind.SKIN, "名称", "说明", "作者",
             0, 0, 1, null, CommunityRequest.Category.OTHER, false, 0, null);
@@ -132,12 +109,6 @@ public final class CommunityCatalogSmoke {
             "community pagination accepts JSON booleans");
         check(!JsonPolicy.strictTrue("true"),
             "community pagination rejects strings instead of coercing them");
-        check(JsonPolicy.strictTrue(Boolean.TRUE),
-            "a report is successful only when the backend confirms it");
-        check(!JsonPolicy.strictTrue(Boolean.FALSE),
-            "a backend refusal must not be reported as a successful report");
-        check(!JsonPolicy.strictTrue("true"),
-            "a string reported value must not be coerced into success");
         Method countNumber = CommunityCatalog.class.getDeclaredMethod("countNumber", Object.class);
         countNumber.setAccessible(true);
         check(Long.valueOf(9_007_199_254_740_991L).equals(
@@ -165,15 +136,11 @@ public final class CommunityCatalogSmoke {
         } catch (InvocationTargetException error) {
             throw new AssertionError("a missing item must not throw", error.getCause());
         }
-        Method install = CommunityCatalog.class.getDeclaredMethod(
-            "install", java.nio.file.Path.class, CommunityCatalog.Item.class);
-        try {
-            String failure = (String) install.invoke(uninitialized, null, null);
-            check(failure != null && !failure.isEmpty(),
-                "a missing item must return an install failure");
-        } catch (InvocationTargetException error) {
-            throw new AssertionError("a missing item must not throw during install", error.getCause());
-        }
+        String failure = CommunityCatalog.install(null, null, null);
+        check(failure != null && !failure.isEmpty(), "a missing item must return an install failure");
+        CommunityCatalog.Download download = uninitialized.download(null);
+        check(download.failed() && !download.failure().isEmpty(),
+            "a missing item must return a download failure without asking Rust");
         System.out.println("Android community catalogue bounds passed");
     }
 

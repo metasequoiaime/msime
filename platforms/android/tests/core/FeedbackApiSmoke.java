@@ -1,7 +1,6 @@
 import app.msime.android.CloudClipboardApi;
 import app.msime.android.DownloadLinkApi;
 import app.msime.android.FeedbackApi;
-import app.msime.android.CloudApi;
 import app.msime.android.JsonPolicy;
 import app.msime.android.TextPolicy;
 import java.util.LinkedHashMap;
@@ -41,9 +40,23 @@ public final class FeedbackApiSmoke {
         check(!FeedbackApi.validScreenshot(new FeedbackApi.Screenshot("image/png", jpeg)), "type must match bytes");
         check(!FeedbackApi.validScreenshot(new FeedbackApi.Screenshot("image/jpeg", new byte[FeedbackApi.MAX_SCREENSHOT_BYTES + 1])), "size limit");
 
-        check(DownloadLinkApi.noVerifiedEmail(new CloudApi.Failure(409, "no_verified_email", "", 0)), "409 no_verified_email");
-        check(!DownloadLinkApi.noVerifiedEmail(new CloudApi.Failure(429, "rate_limit_exceeded", "", 0)), "rate limit is not missing email");
+        // Rust 不重新编码截图：页面交过去的每一张都要在它的限制以内（迁移差异 25）。
+        check(FeedbackApi.fitsRust(FeedbackApi.MAX_SCREENSHOT_BYTES, 1600, 1200), "a re-encoded screenshot fits");
+        check(!FeedbackApi.fitsRust(FeedbackApi.MAX_SCREENSHOT_BYTES + 1, 1600, 1200), "over 1 MiB");
+        check(FeedbackApi.fitsRust(1024, 8192, 1024) && !FeedbackApi.fitsRust(1024, 8193, 10)
+            && !FeedbackApi.fitsRust(1024, 10, 8193), "each edge is at most 8192");
+        check(FeedbackApi.fitsRust(1024, 4096, 2048) && !FeedbackApi.fitsRust(1024, 4096, 2049),
+            "at most 8388608 pixels");
+        check(!FeedbackApi.fitsRust(0, 10, 10) && !FeedbackApi.fitsRust(1024, 0, 10), "unreadable sizes are refused");
+
         check(DownloadLinkApi.PLATFORMS.contains("harmony-pc"), "platform list");
+
+        // 云剪贴板页按状态和错误码分辨失败；Rust 的码换成同一套。
+        check(CloudClipboardApi.rustFailure("account_unauthorized").signedOut(), "no session reads as signed out");
+        check("session_changed".equals(CloudClipboardApi.rustFailure("account_cancelled").code), "a replaced login");
+        check(CloudClipboardApi.rustFailure("account_network").network(), "a request that never got a reply");
+        check("clipboard_sync_disabled".equals(CloudClipboardApi.rustFailure("clipboard_sync_disabled").code),
+            "a driver code is kept as is");
 
         check(CloudClipboardApi.validRetention(0) && CloudClipboardApi.validRetention(30) && !CloudClipboardApi.validRetention(3), "retention values");
         List<CloudClipboardApi.Item> ordered = CloudClipboardApi.ordered(List.of(

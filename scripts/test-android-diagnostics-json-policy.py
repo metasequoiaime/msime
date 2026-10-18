@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""诊断接口直接复用共享 JSON 字符串、整数、引用和截断策略。"""
+"""诊断接口直接复用共享 JSON 字符串和整数策略。
+
+上传请求体的编码和崩溃记录的截断已经移到 Rust（#8201 迁移计划 5c，`msime_client_account` 的 diagnostics_upload），Java 只剩读回快照状态这一处解析，这里盯住它不再长出自己的转发方法。
+"""
 from pathlib import Path
-import re
 import sys
 
 
@@ -19,26 +21,8 @@ def main() -> int:
     if "strictInteger(Object value)" in source:
         print(f"{SOURCE}: 不应保留 strictInteger 转发方法", file=sys.stderr)
         return 1
-    if "static void quote(StringBuilder out, String value)" in source:
-        print(f"{SOURCE}: 不应保留 quote 转发方法", file=sys.stderr)
-        return 1
-    if "quote(out," in source:
-        print(f"{SOURCE}: 诊断请求仍通过 quote 转发", file=sys.stderr)
-        return 1
-    if source.count("out.append(JsonPolicy.quote(") < 6:
-        print(f"{SOURCE}: 诊断请求应直接复用共享 JSON 引用策略", file=sys.stderr)
-        return 1
-    if "static String clipUtf8(String value, int maxBytes)" in source:
-        print(f"{SOURCE}: 不应保留 clipUtf8 转发方法", file=sys.stderr)
-        return 1
-    if re.search(r"(?<![.\w])clipUtf8\(", source):
-        print(f"{SOURCE}: 崩溃记录仍通过 clipUtf8 转发", file=sys.stderr)
-        return 1
-    if source.count("TextPolicy.clipUtf8(") < 2:
-        print(f"{SOURCE}: 崩溃记录应直接复用共享 UTF-8 截断策略", file=sys.stderr)
-        return 1
-    if "DiagnosticsApi.class.getDeclaredMethod(\"strictString\"" in smoke:
-        print(f"{SMOKE}: 不应反射检查已删除的字符串转发方法", file=sys.stderr)
+    if "requestBody(" in source or "readBundle(" in source:
+        print(f"{SOURCE}: 上传请求体由 Rust 从诊断记录重建，Java 不应再自己编码或读诊断包", file=sys.stderr)
         return 1
     if "DiagnosticsApi.strictInteger" in smoke:
         print(f"{SMOKE}: 不应继续通过诊断类调用 strictInteger", file=sys.stderr)
@@ -49,7 +33,7 @@ def main() -> int:
     if "JsonPolicy.strictLong" not in source or "JsonPolicy.strictLong" not in smoke:
         print(f"{SMOKE}: 应直接检查 JsonPolicy.strictLong", file=sys.stderr)
         return 1
-    print("Android 诊断接口已复用共享 JSON 字符串、整数、引用和截断策略")
+    print("Android 诊断接口已复用共享 JSON 字符串和整数策略，上传请求体交给 Rust")
     return 0
 
 

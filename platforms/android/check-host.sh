@@ -1052,6 +1052,16 @@ if rg -n 'msime_account_session_v2|msime_anonymous_session_v1|msime_anonymous_ac
   echo "Only AccountStore may name the session stores Rust owns" >&2
   exit 1
 fi
+# 账号页、我的设备、云端数据、反馈、诊断上传、下载链接、AI 皮肤和社区都改调 Rust 的 msime_client_account、msime_client_community 和 msime_client_ai_skin_generate（#8201 迁移计划 5c）：这些请求路径不能再出现在 Java 里，Java 只拼 Rust 的请求、读它的回答。云剪贴板页不涉及内容的开关、保留时长、置顶、删除和清空也经 Rust，只有端到端加密驱动还用 CloudClipboardApi.PATH；AI 对话页经 Rust 的流式入口，不再用 BackendAccount 的 Java 实现。
+if rg -n '"/v1/(users/me/(sessions|data|avatar|diagnostics|download-link)|feedback|skins/jobs|community/|models)' "$repo_root/platforms/android/java"; then
+  echo "Android Java must not send account page, feedback, diagnostics, download-link, AI skin or community requests itself; Rust owns them" >&2
+  exit 1
+fi
+if rg -n 'PATH \+ "/' "$repo_root/platforms/android/java/app/msime/android/account/CloudClipboardApi.java" \
+  || rg -n 'BackendAccount' "$repo_root/platforms/android/java/app/msime/android/home/ChatFragment.java"; then
+  echo "Android cloud clipboard settings and AI chat must go through Rust" >&2
+  exit 1
+fi
 # The host compiles against AndroidX and Material now, and those are AARs that only Gradle resolves,
 # so this script no longer compiles the whole source set -- `platforms/android/gradle-app` does, and
 # build-apk.sh drives it. What stays here is the part that is worth having without a Gradle daemon:

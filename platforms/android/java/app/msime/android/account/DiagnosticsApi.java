@@ -1,42 +1,22 @@
 package app.msime.android;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.time.Instant;
-import java.util.ArrayDeque;
+import android.content.Context;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 「MCP 开发者访问」的云端接口：上传一份日志快照、读回快照与最近访问、重新生成访问令牌、删除快照（`/v1/users/me/diagnostics`）。
+ * 「MCP 开发者访问」的云端操作：上传一份日志快照、读回快照与最近访问、重新生成访问令牌、删除快照，都经 Rust 的 {@code msime_client_account}（diagnostics_upload、diagnostics_state、diagnostics_regenerate_token、diagnostics_delete，#8201 迁移计划 5c）。
  *
- * <p>上传的内容只来自 Rust 写出的诊断包（`NativeClient.diagnosticBundle`）：配置快照是诊断包里已经脱敏的 `config_snapshot`，这里不自己脱敏；输入事件和性能数据从诊断包里按本地白名单校验过的 jsonl 读出，再在这里按 {@link DiagnosticEventKind} 枚举逐条重建，只留 `t_ms`、`kind`、`duration_ms`，不认识的种类和仅供本地导出的失败类别整行丢弃。请求体里不会出现任何文本、拼音、候选或按键字面值。
+ * <p>上传的内容由 Rust 从本机记录现读现建：请求里给的是与 `NativeClient.diagnosticBundle` 相同的 bundle（状态根、勾选的类别和各类记录的源文件），Rust 按服务端的规则重建（事件只留认识的种类和 `t_ms`、`kind`、`duration_ms`，崩溃记录最多 200 条，配置快照已脱敏），整份超过 2 MiB 时先截掉最旧的事件。请求体里不会出现任何文本、拼音、候选或按键字面值。
  *
- * <p>匿名账号也可以上传（`ACCOUNT_OR_ANONYMOUS`）。每个请求都阻塞在网络上，不要在主线程调用。
+ * <p>登录账号优先、没有登录时用匿名账号上传；之后的查看、换令牌和删除绑定到上传时 Rust 交回的 `user_id`，登录会话和匿名会话都不是它时是 account_identity_changed，不会去动另一个账号的快照。每个请求都阻塞在网络上，不要在主线程调用。
  */
 public final class DiagnosticsApi {
-    static final String PATH = "/v1/users/me/diagnostics";
-    /** 后端整份请求体的上限。 */
-    static final int MAX_BODY_BYTES = 2 * 1024 * 1024;
-    /** 崩溃摘要与堆栈的上限（UTF-8 字节），与后端校验一致。 */
-    static final int MAX_MESSAGE_BYTES = 2 * 1024;
-    static final int MAX_STACK_BYTES = 16 * 1024;
-    /** 每类事件最多带多少条，超出时保留最新的。 */
+    /** 读回的访问记录最多保留多少条，超出时保留最新的。 */
     static final int MAX_EVENTS = 8000;
-    static final int MAX_CRASH_LOGS = 50;
-    /** 原生诊断包只有少量固定条目；拒绝异常归档的无界条目遍历。 */
-    static final int MAX_ARCHIVE_ENTRIES = 128;
 
     /** 快照在云端保留多久，对应偏好 `developer_options.mcp_upload.retention` 和请求里的 `ttl`。 */
     public enum Retention {
@@ -65,293 +45,98 @@ public final class DiagnosticsApi {
         }
     }
 
-    /** 一条输入事件或性能记录；`durationMs` 小于 0 表示没有耗时。 */
-    public record Event(long tMs, DiagnosticEventKind kind, long durationMs) {
-        /** 按云端枚举重建一条记录；本地类别、不认识的种类、负时间都返回 null。 */
-        public static Event of(long tMs, String kind, long durationMs) {
-            DiagnosticEventKind known = DiagnosticEventKind.fromWire(kind);
-            if (known == null || !known.uploadable() || tMs < 0) return null;
-            return new Event(tMs, known, durationMs < 0 ? -1 : durationMs);
-        }
-    }
-
-    /** 一条崩溃记录；摘要和堆栈按后端上限截断。 */
-    public record CrashLog(String at, String message, String stack) {
-        public static CrashLog of(String at, String message, String stack) {
-            return new CrashLog(at == null ? "" : at,
-                TextPolicy.clipUtf8(message, MAX_MESSAGE_BYTES),
-                TextPolicy.clipUtf8(stack, MAX_STACK_BYTES));
-        }
-    }
-
     /** 上传哪几类日志，对应偏好 `developer_options.mcp_upload.*`。 */
     public record Include(boolean crashLogs, boolean performanceLogs, boolean inputEvents,
             boolean configSnapshot) {
         public boolean any() { return crashLogs || performanceLogs || inputEvents || configSnapshot; }
     }
 
-    /** 请求体的 `sections`；没选的类别为 null，不出现在请求里。`configSnapshot` 是诊断包里脱敏后的 JSON 对象原文。 */
-    public record Sections(List<CrashLog> crashLogs, List<Event> perfTrace, String configSnapshot,
-            List<Event> inputEvents) {}
-
-    /** 上传成功的回答；`token` 只在这里出现一次。 */
-    public record Created(String id, String mcpUrl, String token, String expiresAt) {}
+    /** 上传成功的回答；`token` 只在这里出现一次。`userId` 是上传所用的账号，之后的三个操作要带上它。 */
+    public record Created(String id, String mcpUrl, String token, String expiresAt, String userId) {}
 
     /** 云端现有的快照。 */
     public record Snapshot(String id, String createdAt, String expiresAt, long bytes, List<String> sections,
             String tokenHint) {
-        /** 远程地址；GET 不回 `mcp_url`，按 id 拼出与上传回答相同的地址。 */
+        /** 远程地址；读状态时没有 `mcp_url`，按 id 拼出与上传回答相同的地址。 */
         public String mcpUrl() { return DiagnosticsApi.mcpUrl(id); }
     }
 
     /** 开发者的一次读取。`arguments` 是调用参数的 JSON 原文（≤1 KiB）。 */
     public record Access(String at, String tool, String arguments, long resultCount, long bytes) {}
 
-    /** `GET` 的回答；`snapshot` 为 null 表示云端没有快照。 */
+    /** 读状态的回答；`snapshot` 为 null 表示云端没有快照。 */
     public record State(Snapshot snapshot, List<Access> accesses) {
         public static final State EMPTY = new State(null, ListPolicy.copyOrEmpty(null));
     }
 
-    private final CloudApi api;
+    private DiagnosticsApi() {}
 
-    public DiagnosticsApi(CloudApi api) {
-        this.api = api;
-    }
-
-    /** 上传一份快照，替换云端已有的那份。 */
-    public Created upload(String platform, String appVersion, Sections sections, Retention ttl)
-            throws CloudApi.Failure {
-        byte[] body = TextPolicy.utf8Bytes(requestBody(platform, appVersion, sections, ttl));
-        if (body.length > MAX_BODY_BYTES) {
-            throw new CloudApi.Failure(413, "payload_too_large", "diagnostics snapshot exceeds 2 MiB", 0);
-        }
-        CloudApi.Response response = api.send("POST", PATH, new CloudApi.Body("application/json", body),
-            CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
+    /**
+     * 这台设备现在会以哪个账号上传：登录账号的编号，没有登录时是匿名账号的编号；两种会话都没有时为空串。页面打开时按它读快照状态。可能刷新令牌、阻塞网络。
+     */
+    public static String uploaderId(Context context) throws AccountStore.Failure {
         try {
-            JSONObject root = response.json();
-            String id = JsonPolicy.strictString(root.opt("id"));
-            String token = JsonPolicy.strictString(root.opt("token"));
-            if (id == null || token == null || id.isEmpty() || token.isEmpty()) {
-                throw new CloudApi.Failure(response.status(), "invalid_response", "snapshot id or token missing", 0);
-            }
-            String url = JsonPolicy.strictString(root.opt("mcp_url"));
-            String expiresAt = JsonPolicy.strictString(root.opt("expires_at"));
-            return new Created(id, url == null || url.isEmpty() ? mcpUrl(id) : url, token,
-                expiresAt == null ? "" : expiresAt);
-        } catch (JSONException malformed) {
-            throw new CloudApi.Failure(response.status(), "invalid_response", "malformed JSON response", 0);
+            return JsonPolicy.strictStringOrEmpty(AccountStore.accessToken(context, null).opt("user_id"));
+        } catch (AccountStore.Failure failure) {
+            if ("account_unauthorized".equals(failure.code)) return "";
+            throw failure;
         }
     }
 
-    /** 云端快照与最近访问。 */
-    public State state() throws CloudApi.Failure {
-        JSONObject root = api.json("GET", PATH, null, CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
+    /**
+     * 上传一份快照，替换云端已有的那份。`bundle` 是 `{state_root, include, sources}`，与 `NativeClient.diagnosticBundle` 的请求相同、只是没有 destination。没有任何会话时先注册匿名账号再试一次。
+     */
+    public static Created upload(Context context, String platform, String appVersion, JSONObject bundle,
+            Retention ttl) throws AccountStore.Failure {
+        final JSONObject action;
+        try {
+            action = new JSONObject().put("operation", "diagnostics_upload").put("platform", platform)
+                .put("app_version", appVersion).put("ttl", ttl.wire()).put("bundle", bundle);
+        } catch (JSONException impossible) {
+            throw new AccountStore.Failure("account_invalid", 0);
+        }
+        Object value = RustAccount.preferredAccount(context, action);
+        if (!(value instanceof JSONObject root)) throw new AccountStore.Failure("account_unavailable", 0);
+        String id = JsonPolicy.strictStringOrEmpty(root.opt("id"));
+        String token = JsonPolicy.strictStringOrEmpty(root.opt("token"));
+        String userId = JsonPolicy.strictStringOrEmpty(root.opt("user_id"));
+        if (id.isEmpty() || token.isEmpty() || userId.isEmpty()) throw new AccountStore.Failure("account_unavailable", 0);
+        String url = JsonPolicy.strictStringOrEmpty(root.opt("mcp_url"));
+        return new Created(id, url.isEmpty() ? mcpUrl(id) : url, token,
+            JsonPolicy.strictStringOrEmpty(root.opt("expires_at")), userId);
+    }
+
+    /** `userId` 名下的云端快照与最近访问；`userId` 为空（这台设备还没有任何会话）时是空状态，不联网。 */
+    public static State state(Context context, String userId) throws AccountStore.Failure {
+        if (userId == null || userId.isEmpty()) return State.EMPTY;
+        Object value = RustAccount.account(context, bound("diagnostics_state", userId));
+        if (!(value instanceof JSONObject root)) throw new AccountStore.Failure("account_unavailable", 0);
         return parseState(root);
     }
 
-    /** 换一枚访问令牌，旧令牌立即作废；返回新令牌（只出现这一次）。 */
-    public String regenerateToken() throws CloudApi.Failure {
-        JSONObject root = api.json("POST", PATH + "/token", new JSONObject(), CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
-        String token = JsonPolicy.strictString(root.opt("token"));
-        if (token == null || token.isEmpty()) throw new CloudApi.Failure(200, "invalid_response", "token missing", 0);
+    /** 换一枚访问令牌，旧令牌立即作废；返回新令牌（只出现这一次）。没有有效快照时是 account_not_found。 */
+    public static String regenerateToken(Context context, String userId) throws AccountStore.Failure {
+        Object value = RustAccount.account(context, bound("diagnostics_regenerate_token", userId));
+        String token = value instanceof JSONObject root ? JsonPolicy.strictStringOrEmpty(root.opt("token")) : "";
+        if (token.isEmpty()) throw new AccountStore.Failure("account_unavailable", 0);
         return token;
     }
 
-    /** 删除云端快照和令牌。 */
-    public void delete() throws CloudApi.Failure {
-        api.send("DELETE", PATH, null, CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
+    /** 删除云端快照和令牌；没有快照也算成功。 */
+    public static void delete(Context context, String userId) throws AccountStore.Failure {
+        RustAccount.account(context, bound("diagnostics_delete", userId));
     }
 
     public static String mcpUrl(String id) {
         return CloudApi.ORIGIN + "/mcp/s/" + id;
     }
 
-    /**
-     * 编码请求体。只写固定的键：事件只有 `t_ms`、`kind`（枚举值）和可选的 `duration_ms`，性能记录的耗时缺失时记 0；配置快照原样嵌入诊断包里已脱敏的对象。
-     */
-    public static String requestBody(String platform, String appVersion, Sections sections, Retention ttl) {
-        StringBuilder out = new StringBuilder(4096);
-        out.append("{\"platform\":");
-        out.append(JsonPolicy.quote(platform));
-        out.append(",\"app_version\":");
-        out.append(JsonPolicy.quote(appVersion));
-        out.append(",\"sections\":{");
-        boolean first = true;
-        if (sections.crashLogs() != null) {
-            first = false;
-            out.append("\"crash_logs\":[");
-            for (int i = 0; i < sections.crashLogs().size(); i++) {
-                CrashLog log = sections.crashLogs().get(i);
-                if (i > 0) out.append(',');
-                out.append("{\"at\":");
-                out.append(JsonPolicy.quote(log.at()));
-                out.append(",\"message\":");
-                out.append(JsonPolicy.quote(log.message()));
-                out.append(",\"stack\":");
-                out.append(JsonPolicy.quote(log.stack()));
-                out.append('}');
-            }
-            out.append(']');
-        }
-        if (sections.perfTrace() != null) {
-            if (!first) out.append(',');
-            first = false;
-            out.append("\"perf_trace\":");
-            events(out, sections.perfTrace(), true);
-        }
-        if (sections.configSnapshot() != null) {
-            if (!first) out.append(',');
-            first = false;
-            out.append("\"config_snapshot\":").append(sections.configSnapshot());
-        }
-        if (sections.inputEvents() != null) {
-            if (!first) out.append(',');
-            out.append("\"input_events\":");
-            events(out, sections.inputEvents(), false);
-        }
-        out.append("},\"ttl\":");
-        out.append(JsonPolicy.quote(ttl.wire()));
-        out.append('}');
-        return out.toString();
-    }
-
-    private static void events(StringBuilder out, List<Event> events, boolean durationRequired) {
-        out.append('[');
-        boolean first = true;
-        for (Event event : events) {
-            // 即使调用方直接构造 Event，也不向旧云端上传本地失败类别。
-            if (event.kind() == null || !event.kind().uploadable()) continue;
-            if (!first) out.append(',');
-            first = false;
-            out.append("{\"t_ms\":").append(event.tMs()).append(",\"kind\":\"").append(event.kind().wire()).append('"');
-            if (event.durationMs() >= 0 || durationRequired) {
-                out.append(",\"duration_ms\":").append(BoundsPolicy.nonNegative(event.durationMs()));
-            }
-            out.append('}');
-        }
-        out.append(']');
-    }
-
-    /**
-     * 从共享层诊断包 ZIP 读取 `config_snapshot.json` 和三类 `.ndjson`；兼容旧 `.jsonl`、`*.crash`，没选的类别不读。
-     */
-    public static Sections readBundle(File zip, Include include) throws IOException {
-        Path path = zip == null ? null : zip.toPath();
-        if (path == null || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
-                || !SafePaths.isSingleLink(path))
-            throw new IOException("diagnostics archive is not a private regular file");
-        List<CrashLog> crashes = include.crashLogs() ? new ArrayList<>(MAX_CRASH_LOGS) : null;
-        List<Event> perf = include.performanceLogs() ? new ArrayList<>(MAX_EVENTS) : null;
-        List<Event> input = include.inputEvents() ? new ArrayList<>(MAX_EVENTS) : null;
-        String config = null;
-        try (ZipInputStream stream = new ZipInputStream(
-                Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS), StandardCharsets.UTF_8)) {
-            int archiveEntries = 0;
-            for (ZipEntry entry = stream.getNextEntry(); entry != null; entry = stream.getNextEntry()) {
-                if (++archiveEntries > MAX_ARCHIVE_ENTRIES) {
-                    throw new IOException("diagnostics archive has too many entries");
-                }
-                if (entry.isDirectory()) continue;
-                String name = baseName(entry.getName());
-                if (include.configSnapshot() && name.equals("config_snapshot.json")) {
-                    config = configSnapshot(entryText(stream));
-                } else if (input != null && (name.equals("input_events.ndjson")
-                        || name.equals("input_events.jsonl") || name.equals("input-events.jsonl"))) {
-                    appendEvents(input, eventLines(entryText(stream), false));
-                } else if (perf != null && (name.equals("performance_logs.ndjson")
-                        || name.equals("perf.jsonl") || name.equals("perf_trace.jsonl")
-                        || name.equals("performance_logs.jsonl"))) {
-                    appendEvents(perf, eventLines(entryText(stream), true));
-                } else if (crashes != null && name.equals("crash_logs.ndjson") && crashes.size() < MAX_CRASH_LOGS) {
-                    appendCrashRecords(crashes, entryText(stream));
-                } else if (crashes != null && name.endsWith(".crash") && crashes.size() < MAX_CRASH_LOGS) {
-                    crashes.add(crashRecord(entryText(stream), entry.getTime()));
-                }
-            }
-        }
-        return new Sections(crashes, latest(perf), include.configSnapshot() ? (config == null ? "{}" : config) : null,
-            latest(input));
-    }
-
-    /** 共享层已脱敏的崩溃 NDJSON；拒绝不符合三字符串字段契约的记录。 */
-    private static void appendCrashRecords(List<CrashLog> target, String text) {
-        for (String line : text.split("\n")) {
-            if (target.size() == MAX_CRASH_LOGS) break;
-            try {
-                JSONObject row = new JSONObject(line);
-                if (row.length() != 3) continue;
-                String at = JsonPolicy.strictString(row.opt("at"));
-                String message = JsonPolicy.strictString(row.opt("message"));
-                String stack = JsonPolicy.strictString(row.opt("stack"));
-                if (at == null || at.isEmpty() || TextPolicy.utf8Length(at) > 64
-                        || message == null || TextPolicy.utf8Length(message) > MAX_MESSAGE_BYTES
-                        || stack == null || TextPolicy.utf8Length(stack) > MAX_STACK_BYTES) continue;
-                target.add(CrashLog.of(at, message, stack));
-            } catch (JSONException malformed) {
-                // 空行和不合规记录不进入上传请求，也不输出异常原文。
-            }
-        }
-    }
-
-    /** 每条 jsonl 都按枚举重建，只取三个数值/枚举字段；坏行和不认识的种类丢弃。 */
-    static List<Event> eventLines(String text, boolean durationRequired) {
-        Deque<Event> events = new ArrayDeque<>(MAX_EVENTS);
-        for (String line : text.split("\n")) {
-            String trimmed = TextPolicy.trimmed(line);
-            if (trimmed.isEmpty()) continue;
-            try {
-                JSONObject row = new JSONObject(trimmed);
-                Object kind = row.opt("kind");
-                if (!(kind instanceof String) || !row.has("t_ms")) continue;
-                if (durationRequired && !row.has("duration_ms")) continue;
-                Long time = JsonPolicy.strictLong(row.opt("t_ms"));
-                Object rawDuration = row.opt("duration_ms");
-                Long duration = rawDuration == null || rawDuration == JSONObject.NULL
-                    ? -1L : JsonPolicy.strictLong(rawDuration);
-                if (time == null || duration == null) continue;
-                Event event = Event.of(time, (String) kind, duration);
-                if (event != null) {
-                    if (events.size() == MAX_EVENTS) events.removeFirst();
-                    events.addLast(event);
-                }
-            } catch (JSONException malformed) {
-                // 不合规的行丢弃，与 Rust 诊断包和后端的口径一致。
-            }
-        }
-        return new ArrayList<>(events);
-    }
-
-    private static void appendEvents(List<Event> target, List<Event> additions) {
-        int overflow = target.size() + additions.size() - MAX_EVENTS;
-        if (overflow > 0) target.subList(0, BoundsPolicy.atMost(overflow, target.size())).clear();
-        int remaining = MAX_EVENTS - target.size();
-        if (additions.size() > remaining) {
-            target.addAll(additions.subList(additions.size() - remaining, additions.size()));
-        } else {
-            target.addAll(additions);
-        }
-    }
-
-    private static String configSnapshot(String text) {
+    private static JSONObject bound(String operation, String userId) throws AccountStore.Failure {
         try {
-            return new JSONObject(text).toString();
-        } catch (JSONException malformed) {
-            return "{}";
+            return new JSONObject().put("operation", operation).put("user_id", userId == null ? "" : userId);
+        } catch (JSONException impossible) {
+            throw new AccountStore.Failure("account_invalid", 0);
         }
-    }
-
-    /** `Telemetry` 的崩溃记录：第一行是摘要，其余是堆栈。 */
-    static CrashLog crashRecord(String text, long modifiedMillis) {
-        int end = text.indexOf('\n');
-        String message = end < 0 ? text : text.substring(0, end);
-        String stack = end < 0 ? "" : text.substring(end + 1);
-        String at = modifiedMillis > 0 ? Instant.ofEpochMilli(modifiedMillis).toString() : "";
-        return CrashLog.of(at, message, stack);
-    }
-
-    private static List<Event> latest(List<Event> events) {
-        if (events == null || events.size() <= MAX_EVENTS) return events;
-        return new ArrayList<>(events.subList(events.size() - MAX_EVENTS, events.size()));
     }
 
     static State parseState(JSONObject root) {
@@ -387,8 +172,10 @@ public final class DiagnosticsApi {
                 Object arguments = item.opt("arguments");
                 String at = optionalString(item, "at");
                 String tool = optionalString(item, "tool");
-                String rawArguments = arguments == null || arguments == JSONObject.NULL
-                    ? "" : JsonPolicy.strictString(arguments);
+                // Rust 把服务端记下的参数原样交回：通常是对象，也可能是别的 JSON 值。
+                String rawArguments = arguments == null || arguments == JSONObject.NULL ? ""
+                    : arguments instanceof JSONObject || arguments instanceof JSONArray ? arguments.toString()
+                    : JsonPolicy.strictString(arguments);
                 Long resultCount = optionalInteger(item, "result_count");
                 Long bytes = optionalInteger(item, "bytes");
                 if (at == null || tool == null || rawArguments == null || resultCount == null || bytes == null
@@ -410,14 +197,4 @@ public final class DiagnosticsApi {
         if (object == null || !object.has(key) || object.isNull(key)) return 0L;
         return JsonPolicy.strictLong(object.opt(key));
     }
-
-    private static String entryText(InputStream stream) throws IOException {
-        return TextPolicy.utf8(HttpBodyPolicy.readRequired(stream, MAX_BODY_BYTES * 4));
-    }
-
-    private static String baseName(String path) {
-        int slash = path.lastIndexOf('/');
-        return TextPolicy.lowercase(slash < 0 ? path : path.substring(slash + 1));
-    }
-
 }

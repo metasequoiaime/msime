@@ -29,8 +29,9 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.ViewModel;
 import androidx.lifecycle.ViewModelProvider;
-import app.msime.android.CloudApi;
-import app.msime.android.BackendAccount;
+import app.msime.android.AccountFailureText;
+import app.msime.android.AccountStore;
+import app.msime.android.RustAccount;
 import app.msime.android.BitmapPolicy;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.ColorPolicy;
@@ -49,14 +50,13 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
  * AI 设计皮肤：上面是实时预览（26 键 / 9 键分段、配色圆点），下面是描述框和建议 chip、按键音效与按键动画两组分段，底部「✦ 生成皮肤」；生成后变成「✦ 重新生成」和「使用此皮肤」。
  *
- * <p>生成走 {@link SkinJobsApi}：client-services 拼提示词并校验模型给出的三套设计（`NativeClient.aiSkinPlan`），每套再由 `/v1/skins/jobs` 生成一张背景图；三套设计在预览上方用分段切换。生成期间预览变淡到 45 % 并显示「正在设计…」。生成状态和结果放在 {@link State} 这个 ViewModel 里：旋转、换深浅模式和 `recreate()` 重建页面时生成继续、结果保留；只有页面真的被关掉（返回或 activity 结束）时才取消，已经开出的任务都会被删除。服务端每天限额，429 时提示「今天的生成次数已用完」；503 说明这个部署没有开 AI 皮肤，页面和皮肤页的入口一起隐藏一天。
+ * <p>生成走 {@link SkinJobsApi}：Rust 的 `msime_client_ai_skin_generate` 拼提示词、校验模型给出的三套设计，并为每套生成一张背景图；三套设计在预览上方用分段切换。生成期间预览变淡到 45 % 并显示「正在设计…」。生成状态和结果放在 {@link State} 这个 ViewModel 里：旋转、换深浅模式和 `recreate()` 重建页面时生成继续、结果保留；只有页面真的被关掉（返回或 activity 结束）或退出登录时才取消，Rust 在返回前删掉已经开出的任务。服务端每天限额，限流时提示「今天的生成次数已用完，约 N 小时后可以再试」；不带 Retry-After 的 account_unavailable 说明这个部署没有开 AI 皮肤，页面和皮肤页的入口一起隐藏一天，带 Retry-After 的（任务繁忙）只提示稍后再试。
  *
  * <p>「使用此皮肤」把设计（背景图压成 JPEG 放进 `photo`，并带上所选的按键音效与动画，P23）存进自定义皮肤库、选中它、在统计里记一次 `record_skin`，提示「已使用「名」」后回到皮肤页。
  */
@@ -106,49 +106,51 @@ public final class AiSkinPage extends ColumnDetailPage {
         boolean initialized;
         /** 生成结束时要提示的一句话，等页面有视图时再显示。 */
         @Nullable String pendingMessage;
-        @Nullable AtomicBoolean cancelled;
+        /** 进行中那次生成的取消把手；没有在生成时为 null。 */
+        @Nullable RustAccount.Call cancelled;
         /** 页面有视图时设置，结果到了就调用它重画；onDestroyView 时清掉。 */
         @Nullable Runnable observer;
 
         void start(Context application, String text) {
             prompt = text;
             busy = true;
-            String expectedSessionId = new BackendAccount(application).sessionId();
-            AtomicBoolean flag = new AtomicBoolean(false);
+            RustAccount.Call flag = new RustAccount.Call();
             cancelled = flag;
-            // 一次生成可能要几分钟，不能占用设置页共用的那条 HostTask 线程。
+            // 一次生成可能要几分钟，不能占用设置页共用的那条 HostTask 线程。读登录状态也要等 Rust 的会话锁，同样放在这里。
             Thread worker = ThreadPolicy.namedDaemonThread("msime-ai-skin-generate", () -> {
                 List<Result> generated = new ArrayList<>(SkinJobsApi.MAX_DESIGNS);
-                CloudApi.Failure failure = null;
+                AccountStore.Failure failure = null;
                 try {
-                    CloudApi cloud = new CloudApi(application);
-                    if (!expectedSessionId.isEmpty()) cloud = cloud.forAccountSession(expectedSessionId);
-                    for (SkinJobsApi.Proposal proposal : new SkinJobsApi(cloud).generate(text, flag)) {
+                    String before = RustAccount.userId(application);
+                    for (SkinJobsApi.Proposal proposal : SkinJobsApi.generate(application, text, flag)) {
                         generated.add(new Result(proposal.name(), proposal.description(), withPhoto(proposal)));
                     }
-                } catch (CloudApi.Failure error) {
+                    // 登录账号开始的生成，结束时已经退出或换了号就不交出结果；没登录时开始的不受随后登录影响。
+                    if (!before.isEmpty()) RustAccount.requireUser(application, before);
+                } catch (AccountStore.Failure error) {
                     failure = error;
                 } catch (RuntimeException error) {
                     android.util.Log.w("MSIMESettings", "AI skin generation failed", error);
-                    failure = new CloudApi.Failure(0, "ai_skin_unavailable", String.valueOf(error), 0);
+                    failure = new AccountStore.Failure("ai_skin_unavailable", 0);
                 }
-                CloudApi.Failure result = failure;
+                AccountStore.Failure result = failure;
                 main.post(() -> complete(application, flag, text, generated, result));
             });
             worker.start();
         }
 
-        private void complete(Context application, AtomicBoolean flag, String text, List<Result> generated,
-                @Nullable CloudApi.Failure failure) {
-            if (cancelled != flag || flag.get()) return;
+        private void complete(Context application, RustAccount.Call flag, String text, List<Result> generated,
+                @Nullable AccountStore.Failure failure) {
+            if (cancelled != flag || flag.cancelled()) return;
             busy = false;
             cancelled = null;
             if (failure != null) {
-                if (SkinJobsApi.unavailable(failure)) {
+                if (AccountFailureText.aiSkinUnavailable(failure.code, failure.retryAfterSeconds)) {
                     store(application).edit()
                         .putLong(UNAVAILABLE_UNTIL, System.currentTimeMillis() + HIDE_MILLIS).apply();
                 }
-                if (!"cancelled".equals(failure.code)) pendingMessage = SkinJobsApi.message(failure);
+                if (!"ai_skin_cancelled".equals(failure.code))
+                    pendingMessage = AccountFailureText.aiSkin(failure.code, failure.retryAfterSeconds);
             } else if (!generated.isEmpty()) {
                 results.clear();
                 results.addAll(generated);
@@ -172,8 +174,8 @@ public final class AiSkinPage extends ColumnDetailPage {
 
         /** 页面真的被关掉时才走到这里；配置变化和 `recreate()` 不会。 */
         @Override protected void onCleared() {
-            AtomicBoolean flag = cancelled;
-            if (flag != null) flag.set(true);
+            RustAccount.Call flag = cancelled;
+            if (flag != null) flag.cancel();
             observer = null;
         }
     }
@@ -190,7 +192,7 @@ public final class AiSkinPage extends ColumnDetailPage {
     @Nullable private LinearLayout palette;
     @Nullable private View busyOverlay;
 
-    /** 入口是否因为服务端 503 暂时隐藏。只读本应用自己的 SharedPreferences，可以在主线程调用。 */
+    /** 入口是否因为这个部署没开 AI 皮肤（不带 Retry-After 的 account_unavailable）暂时隐藏。只读本应用自己的 SharedPreferences，可以在主线程调用。 */
     static boolean hidden(Context context) {
         return System.currentTimeMillis() < store(context).getLong(UNAVAILABLE_UNTIL, 0L);
     }
@@ -501,6 +503,10 @@ public final class AiSkinPage extends ColumnDetailPage {
         State s = state();
         String text = TextPolicy.trimmed(input.getText().toString());
         if (s.busy || text.isEmpty()) return;
+        if (!SkinJobsApi.validPrompt(text)) {
+            MsToast.show(requireContext(), "描述最多 " + SkinJobsApi.MAX_PROMPT_CHARACTERS + " 个字，不能有换行");
+            return;
+        }
         s.start(requireContext().getApplicationContext(), text);
         render();
     }

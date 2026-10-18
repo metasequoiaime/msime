@@ -100,8 +100,8 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
                 return new Loaded(api, api.load());
             }
             CloudApi cloud = new CloudApi(application);
-            CloudClipboardApi api = new CloudClipboardApi(
-                cloud.forAccountSession(cloud.currentAccountSessionId()),
+            String userId = cloud.currentAccountSessionId();
+            CloudClipboardApi api = new CloudClipboardApi(application, userId, cloud.forAccountSession(userId),
                 CloudClipboardNativeDriver.local(application));
             return new Loaded(api, api.load());
         }, outcome -> {

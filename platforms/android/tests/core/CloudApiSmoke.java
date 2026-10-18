@@ -130,6 +130,7 @@ public final class CloudApiSmoke {
         check(sameLoginRetry.send("GET", "/v1/users/me", null, CloudApi.Auth.ACCOUNT).status() == 204,
             "a token refresh in the same login still retries");
 
+        // 云剪贴板页的端到端驱动仍经 CloudApi 绑定到打开页面时的登录：换了号以后旧页面的请求和复制都被拒绝（开关、清空等不涉及内容的操作改经 Rust，见 FeedbackApiSmoke 和设备冒烟）。
         AtomicReference<String> clipboardLogin = new AtomicReference<>("synthetic-login-a");
         AtomicInteger clipboardDeletes = new AtomicInteger();
         CloudApi.Tokens clipboardTokens = new CloudApi.Tokens() {
@@ -142,21 +143,20 @@ public final class CloudApiSmoke {
         }, clipboardTokens, rejected -> "");
         CloudApi boundClipboard = clipboardTransport.forAccountSession(
             clipboardTransport.currentAccountSessionId());
-        CloudClipboardApi clipboardPage = new CloudClipboardApi(boundClipboard, null);
         boundClipboard.send("GET", CloudClipboardApi.PATH, null, CloudApi.Auth.ACCOUNT);
         clipboardLogin.set("synthetic-login-b");
         try {
-            clipboardPage.requireCurrentSession();
+            boundClipboard.currentAccountSessionId();
             throw new AssertionError("an old clipboard row must not be copied after a new login");
         } catch (CloudApi.Failure failure) {
             check("session_changed".equals(failure.code), "old clipboard row rejects a new login");
         }
         try {
-            clipboardPage.clear();
-            throw new AssertionError("an old clipboard page must not clear the new account");
+            boundClipboard.exchange("DELETE", CloudClipboardApi.PATH, null, CloudApi.Auth.ACCOUNT);
+            throw new AssertionError("an old clipboard page must not reach the new account");
         } catch (CloudApi.Failure failure) {
             check("session_changed".equals(failure.code), "old clipboard page rejects a new login");
-            check(clipboardDeletes.get() == 0, "the new account receives no old-page delete");
+            check(clipboardDeletes.get() == 0, "the new account receives no old-page request");
         }
 
         // 端到端驱动要自己读错误响应：exchange 不论状态码都交回，401 仍先换令牌重试一次，连不上仍抛出。

@@ -37,6 +37,8 @@ Android 原生宿主的对话页（[底部「对话」tab](2026-10-11-android-ch
 - **收益**：模型完全由服务端决定，换默认模型、加兜底模型都不用发 Android 新版本；对话页少一个账号请求，目录拿不到不再连累发送。
 - **代价与已知上限**：客户端不再知道这次用的是哪个模型，也就没法在界面上显示它；以后如果产品要显示模型名，得由后端在回复里带回来，而不是恢复目录。`SkinJobsApi` 仍然依赖 `/v1/models` 的 `default_model`，后端不能因为对话页不再用它就去掉这个接口。
 
+- **后来部分取代（#8201 迁移计划 5c）**：对话改经 Rust 的流式入口，它要求请求带 `model`，「请求不带 `model`」这一条不再成立：页面第一次发送前读一次 Rust 的 `chat_models`，用服务端给的 `defaultModel`，用户仍然选不了模型，模型仍是服务端说了算的那一个。见 [Android 设置页面的账号与云端操作改调 Rust](../architecture/2026-10-18-android-settings-pages-through-rust.md)。AI 设计皮肤同样改由 Rust 取默认模型。
+
 ## Verification
 
 - `scripts/test-android-keyboard-tryout.py`：`ChatFragment` 里没有模型目录和 `models`，`chatStream` 只传消息、取消把手、回调和会话；`BackendAccount.chatBody` 的参数和请求体里都没有 `model`，源码里没有对 `"/v1/models"` 的请求，也没有 `chatModels` / `ChatModel` / `MAX_CHAT_MODELS`。

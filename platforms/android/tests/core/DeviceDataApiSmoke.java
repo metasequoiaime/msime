@@ -1,44 +1,56 @@
-import app.msime.android.CloudApi;
 import app.msime.android.DeviceDataApi;
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
-import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * 「我的」的纯逻辑：昵称、头像、云端数据分区、大小与时间的写法。请求都经 Rust（#8201 迁移计划 5c），令牌、401 后的重试和导出的原子替换由 client-services 和 host-api 的测试覆盖，这里只核对 Java 一侧留下的规则。
+ */
 public final class DeviceDataApiSmoke {
     public static void main(String[] arguments) throws Exception {
-        // 403 recent_login_required 是要求重新登录，其他 403 不是。
-        check(DeviceDataApi.recentLoginRequired(new CloudApi.Failure(403, "recent_login_required", "", 0)),
-            "recent_login_required is recognised");
-        check(!DeviceDataApi.recentLoginRequired(new CloudApi.Failure(403, "forbidden", "", 0)), "other 403");
-        check(!DeviceDataApi.recentLoginRequired(new CloudApi.Failure(401, "recent_login_required", "", 0)),
-            "only 403 counts");
+        // Rust 报的「要求最近登录」才弹重新登录，其他失败不弹。
+        check(DeviceDataApi.recentLoginRequired("account_recent_login_required"), "recent login is recognised");
+        check(!DeviceDataApi.recentLoginRequired("account_unauthorized"), "a lost session is not a recent-login demand");
+        check(!DeviceDataApi.recentLoginRequired(null), "no code");
 
-        // 昵称按码点计 64 个，空字符串是恢复默认。
-        check(DeviceDataApi.validDisplayName(""), "an empty name restores the default");
+        // 昵称按码点计 1–64 个：Rust 不接受空昵称，「留空恢复默认」不再提供。
+        check(!DeviceDataApi.validDisplayName(""), "an empty name is refused");
+        check(DeviceDataApi.validDisplayName("林"), "one code point");
         check(DeviceDataApi.validDisplayName("林".repeat(64)), "64 code points");
         check(!DeviceDataApi.validDisplayName("林".repeat(65)), "65 code points");
         check(DeviceDataApi.validDisplayName("🌲".repeat(64)), "astral characters count once");
         check(!DeviceDataApi.validDisplayName("a\nb"), "control characters are refused");
         check(!DeviceDataApi.validDisplayName(null), "null is refused");
 
-        // 会话 id 只拼进路径。
-        check(DeviceDataApi.validSessionId("a1B2-c_3"), "plain session id");
-        check(!DeviceDataApi.validSessionId("../me"), "path traversal is refused");
-        check(!DeviceDataApi.validSessionId(""), "empty id is refused");
-        check(!DeviceDataApi.validSessionId("a".repeat(129)), "overlong id is refused");
+        // 删除云端数据连同这台设备匿名账号的语音样本（Rust 的 data_delete 认 voice）。
+        check(DeviceDataApi.DELETABLE_SECTIONS.equals(List.of("preferences", "dictionary", "phrases", "clipboard", "voice")),
+            "every deletable section, voice included, in dialog order");
 
         // 头像按文件头认格式。
-        check("image/png".equals(DeviceDataApi.avatarType(new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10})), "png");
-        check("image/jpeg".equals(DeviceDataApi.avatarType(new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0})),
-            "jpeg");
+        byte[] png = {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10};
+        byte[] jpeg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0};
+        check("image/png".equals(DeviceDataApi.avatarType(png)), "png");
+        check("image/jpeg".equals(DeviceDataApi.avatarType(jpeg)), "jpeg");
         check(DeviceDataApi.avatarType(new byte[] {'G', 'I', 'F', '8'}) == null, "gif is refused");
         check(DeviceDataApi.avatarType(null) == null, "missing image");
+
+        // Rust 交回的头像是 data: URL，只认 PNG 和 JPEG，类型要与文件头一致。
+        String encodedPng = Base64.getEncoder().encodeToString(png);
+        check(java.util.Arrays.equals(png, DeviceDataApi.avatarBytes("data:image/png;base64," + encodedPng)),
+            "a PNG data URL decodes to its bytes");
+        check(java.util.Arrays.equals(jpeg, DeviceDataApi.avatarBytes(
+            "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg))), "a JPEG data URL decodes");
+        check(DeviceDataApi.avatarBytes("data:image/gif;base64," + encodedPng) == null, "another media type is refused");
+        check(DeviceDataApi.avatarBytes("https://media.msime.app/a.png") == null, "a remote URL is not fetched here");
+        check(DeviceDataApi.avatarBytes("data:image/png;base64,%%%") == null, "malformed base64 is refused");
+        check(DeviceDataApi.avatarBytes("data:image/png;base64,"
+            + Base64.getEncoder().encodeToString("not an image".getBytes(StandardCharsets.UTF_8))) == null,
+            "bytes that are not an image are refused");
+        check(DeviceDataApi.avatarBytes("data:image/png;base64," + "A".repeat(2 * 1024 * 1024)) == null,
+            "an avatar larger than 1 MiB is refused before decoding");
+        check(DeviceDataApi.avatarBytes(null) == null, "no avatar");
 
         check("512 B".equals(DeviceDataApi.formatBytes(512)), "bytes");
         check("12.4 MB".equals(DeviceDataApi.formatBytes(13_002_342)), "megabytes with one decimal");
@@ -61,17 +73,6 @@ public final class DeviceDataApiSmoke {
         check(!firstArchive.equals(nextArchive), "separate exports cannot reuse a shared URI path");
         check(firstArchive.startsWith("msime-data-2026-10-05-") && firstArchive.endsWith(".zip"),
             "the private export path remains a dated zip archive");
-        String token = "t".repeat(64);
-
-        // 外部数组必须在展开前受限，避免恶意账号响应让移动端按数组长度分配内存。
-        check(DeviceDataApi.validResponseArrayLength(100, DeviceDataApi.MAX_SESSIONS),
-            "the session limit accepts its boundary");
-        check(!DeviceDataApi.validResponseArrayLength(101, DeviceDataApi.MAX_SESSIONS),
-            "an oversized sessions response is refused");
-        check(!DeviceDataApi.validResponseArrayLength(17, DeviceDataApi.MAX_IDENTITIES),
-            "an oversized identities response is refused");
-        check(!DeviceDataApi.validResponseArrayLength(17, DeviceDataApi.MAX_DATA_SECTIONS),
-            "an oversized data summary is refused");
         check(DeviceDataApi.validDeleteSections(List.of("preferences", "phrases")),
             "unique deletable sections are accepted");
         check(!DeviceDataApi.validDeleteSections(List.of("phrases", "phrases")),
@@ -80,139 +81,6 @@ public final class DeviceDataApiSmoke {
             "unknown deletable sections are refused");
         check(!DeviceDataApi.validDeleteSections(List.of()), "empty deletable sections are refused");
         check(!DeviceDataApi.validDeleteSections(null), "missing deletable sections are refused");
-        check(DeviceDataApi.strictCount(42L) == 42L, "integer data count");
-        for (Number invalid : new Number[] {1.5d, -1L}) {
-            try {
-                DeviceDataApi.strictCount(invalid);
-                throw new AssertionError("invalid data count must be refused: " + invalid);
-            } catch (CloudApi.Failure expected) {
-                check(expected.status == 500 && "invalid_response".equals(expected.code),
-                    "invalid data count failure");
-            }
-        }
-
-        // 撤销会话走 DELETE /v1/users/me/sessions/{id}，带真实账号的令牌；不合法的 id 不发请求。
-        List<String> requests = new ArrayList<>();
-        List<Map<String, String>> headers = new ArrayList<>();
-        CloudApi cloud = new CloudApi((method, path, sent, body) -> {
-            requests.add(method + " " + path);
-            headers.add(Map.copyOf(sent));
-            return new CloudApi.Exchange(204, null, null, new byte[0]);
-        }, rejected -> token, rejected -> "");
-        DeviceDataApi api = new DeviceDataApi(cloud, rejected -> token, (path, bearer, out) -> {
-            throw new AssertionError("no download expected");
-        });
-        api.revokeSession("abc123");
-        check(requests.equals(List.of("DELETE /v1/users/me/sessions/abc123")), "revoke path");
-        check(("Bearer " + token).equals(headers.get(0).get("Authorization")), "account bearer");
-        try {
-            api.revokeSession("../../admin");
-            throw new AssertionError("an unsafe id must be refused");
-        } catch (IllegalArgumentException expected) {
-            check(requests.size() == 1, "no request for an unsafe id");
-        }
-        AtomicReference<String> account = new AtomicReference<>("session-a");
-        CloudApi.Tokens switching = new CloudApi.Tokens() {
-            @Override public String token(String rejected) { return token; }
-            @Override public String sessionId() { return account.get(); }
-        };
-        CloudApi bound = new CloudApi((method, path, sent, body) -> {
-            requests.add(method + " " + path);
-            return new CloudApi.Exchange(204, null, null, new byte[0]);
-        }, switching, rejected -> "");
-        DeviceDataApi staleApi = new DeviceDataApi(bound.forAccountSession("session-a"), switching,
-            (path, bearer, out) -> { throw new AssertionError("no download expected"); });
-        account.set("session-b");
-        try {
-            staleApi.revokeSession("abc123");
-            throw new AssertionError("old device page must not revoke a new login");
-        } catch (CloudApi.Failure failure) {
-            check("session_changed".equals(failure.code), "old device page rejects a new login");
-        }
-        api.deleteAvatar();
-        check("DELETE /v1/users/me/avatar".equals(requests.get(1)), "avatar delete path");
-        api.deleteAccount();
-        check("DELETE /v1/users/me".equals(requests.get(2)), "account delete path");
-
-        // 导出：401 换新令牌重试一次，成功时字节原样写进输出流。
-        String stale = "s".repeat(64);
-        String fresh = "f".repeat(64);
-        byte[] zip = "PK\u0003\u0004zip".getBytes(StandardCharsets.ISO_8859_1);
-        List<String> bearers = new ArrayList<>();
-        CloudApi.Tokens sameLogin = new CloudApi.Tokens() {
-            @Override public String token(String rejected) {
-                return rejected == null ? stale : fresh;
-            }
-            @Override public String sessionId() { return "synthetic-login-a"; }
-        };
-        DeviceDataApi exporter = new DeviceDataApi(cloud, sameLogin,
-            (path, bearer, out) -> {
-                check("/v1/users/me/data/export".equals(path), "export path");
-                bearers.add(bearer);
-                if (!fresh.equals(bearer)) return new DeviceDataApi.Download(401, null, new byte[0]);
-                out.write(zip);
-                return new DeviceDataApi.Download(200, null, new byte[0]);
-            });
-        ByteArrayOutputStream exported = new ByteArrayOutputStream();
-        long written = exporter.exportData(exported);
-        check(bearers.equals(List.of(stale, fresh)), "export retries once with a fresh token");
-        check(written == zip.length && java.util.Arrays.equals(exported.toByteArray(), zip), "export bytes");
-
-        CloudApi.Tokens limitedLogin = new CloudApi.Tokens() {
-            @Override public String token(String rejected) { return token; }
-            @Override public String sessionId() { return "synthetic-login-a"; }
-        };
-        DeviceDataApi limited = new DeviceDataApi(cloud, limitedLogin,
-            (path, bearer, out) -> new DeviceDataApi.Download(429, "3600", new byte[0]));
-        try {
-            limited.exportData(new ByteArrayOutputStream());
-            throw new AssertionError("a rate-limited export must fail");
-        } catch (CloudApi.Failure failure) {
-            check(failure.status == 429 && failure.retryAfterSeconds == 3600, "rate limit and Retry-After");
-        }
-
-        DeviceDataApi signedOut = new DeviceDataApi(cloud, rejected -> "", (path, bearer, out) -> {
-            throw new AssertionError("no download without a session");
-        });
-        try {
-            signedOut.exportData(new ByteArrayOutputStream());
-            throw new AssertionError("export needs a session");
-        } catch (CloudApi.Failure failure) {
-            check(failure.signedOut(), "signed out");
-        }
-        DeviceDataApi unidentified = new DeviceDataApi(cloud, rejected -> token,
-            (path, bearer, out) -> { throw new AssertionError("no export without login identity"); });
-        try {
-            unidentified.exportData(new ByteArrayOutputStream());
-            throw new AssertionError("export needs a stable login identity");
-        } catch (CloudApi.Failure failure) {
-            check("session_unavailable".equals(failure.code), "missing login identity is refused");
-        }
-
-        for (int status : new int[] {401, 200}) {
-            AtomicReference<String> login = new AtomicReference<>("synthetic-login-a");
-            CloudApi.Tokens changing = new CloudApi.Tokens() {
-                @Override public String token(String rejected) {
-                    return "synthetic-login-a".equals(login.get()) ? stale : fresh;
-                }
-                @Override public String sessionId() { return login.get(); }
-            };
-            AtomicInteger calls = new AtomicInteger();
-            DeviceDataApi oldExport = new DeviceDataApi(cloud, changing, (path, bearer, out) -> {
-                calls.incrementAndGet();
-                login.set("synthetic-login-b");
-                if (status == 200) out.write(zip);
-                return new DeviceDataApi.Download(status, null, new byte[0]);
-            });
-            boolean changed = false;
-            try {
-                oldExport.exportData(new ByteArrayOutputStream());
-            } catch (CloudApi.Failure failure) {
-                changed = "session_changed".equals(failure.code);
-            }
-            check(changed && calls.get() == 1,
-                "old data export must not retry or succeed after a new login: " + status);
-        }
         System.out.println("Android device data API passed");
     }
 

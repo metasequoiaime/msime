@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""确保 Android 的对话页（底部「对话」tab，也是试用键盘）默认就能和 AI 对话：有字就能发，编辑草稿时仍能取消请求；用哪个模型由服务端决定，页面不加载模型目录、请求里不带 `model`；聊天请求绑定发起它的那个账号会话。"""
+"""确保 Android 的对话页（底部「对话」tab，也是试用键盘）默认就能和 AI 对话：有字就能发，编辑草稿时仍能取消请求；用户选不了模型，页面用 Rust 的 chat_models 给的 defaultModel（Rust 的流式对话要求请求带 `model`，#8201 迁移计划 5c）；聊天请求绑定发起它的那个账号会话。"""
 from pathlib import Path
 import ast
 import re
@@ -44,26 +44,14 @@ class KeyboardTryoutSourceContract(unittest.TestCase):
                         # 默认就能和 AI 对话：发送键只看有没有字。
                         self.assertEqual(actual, text_length > 0)
 
-    def test_page_does_not_choose_a_model(self):
-        # 产品决定：用户不能选对话模型，客户端也不替用户挑。页面不加载 `/v1/models`，发送时不传模型。
+    def test_page_uses_the_default_model(self):
+        # 产品决定：用户不能选对话模型。Rust 要求请求带模型，页面就用 chat_models 的 defaultModel，不给选择界面，也不自己挑。
         source = SOURCE.read_text()
-        for pattern in (r"chatModels", r"ChatModel\b", r"\bmodels\b", r"loadModels", r"selectedModel"):
+        for pattern in (r"ChatModel\b", r"loadModels", r"selectedModel", r"modelPicker"):
             self.assertNotRegex(source, pattern)
-        self.assertRegex(source, r"\.chatStream\(request, reply\.call, reply::append,\s*session\)")
-
-    def test_chat_request_leaves_the_model_to_the_server(self):
-        # 后端在请求省略 `model` 时用它配置的默认模型，所以请求体里不放这个字段，也不为挑模型去拉目录。
-        account = ACCOUNT.read_text()
-        body = re.search(
-            r"private static JSONObject chatBody\((?P<params>[^)]*)\) throws Exception \{(?P<body>.*?)\n    \}\n",
-            account,
-            re.S,
-        )
-        self.assertIsNotNone(body, "could not locate the chat request body builder")
-        self.assertNotIn("model", body.group("params"))
-        self.assertNotIn('"model"', body.group("body"))
-        self.assertNotIn('"/v1/models"', account)
-        self.assertNotRegex(account, r"\bchatModels\b|\bChatModel\b|MAX_CHAT_MODELS")
+        self.assertIn('put("operation", "chat_models")', source)
+        self.assertIn('optString("defaultModel"', source)
+        self.assertRegex(source, r"RustAccount\.chatStream\(app, body, chosen, reply\.call, reply::append\)")
 
     def test_chat_is_bound_to_the_page_session(self):
         # tab 关不掉：换账号时页面改绑新会话。发出去的那一次带着发起时的会话，旧账号的请求不会落到新账号上。

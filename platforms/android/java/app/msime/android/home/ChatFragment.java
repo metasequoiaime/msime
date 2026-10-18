@@ -35,7 +35,9 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.button.MaterialButton;
 import app.msime.android.R;
-import app.msime.android.BackendAccount;
+import app.msime.android.AccountFailureText;
+import app.msime.android.AccountStore;
+import app.msime.android.RustAccount;
 import io.noties.markwon.AbstractMarkwonPlugin;
 import io.noties.markwon.Markwon;
 import io.noties.markwon.MarkwonConfiguration;
@@ -49,7 +51,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * AI 对话，也是试用键盘：一个只为了把键盘调出来而存在的输入框，按设计做成聊天样式。
  *
- * <p>这里的键盘是绑定到这个输入框上的真正输入法，不是首页的静态预览。打的字不会被读取、保存或发送到任何地方；只有用户点了发送，那一条消息才会作为 AI 对话发给水杉的后端。用哪个模型由服务端决定：页面不加载模型目录，请求里也不带 `model`，用户在这里选不了模型。没登录时发出去会得到失败提示，对话区开头只有水杉的问候。
+ * <p>这里的键盘是绑定到这个输入框上的真正输入法，不是首页的静态预览。打的字不会被读取、保存或发送到任何地方；只有用户点了发送，那一条消息才会作为 AI 对话发给水杉的后端。对话经 Rust 的流式入口（`msime_client_account_chat_stream`，#8201 迁移计划 5c），它要求请求带 `model`：第一次发送前在工作线程上读一次 `chat_models` 的 `defaultModel`，用户在这里仍然选不了模型。没登录时发出去会得到「请先登录」的提示，对话区开头只有水杉的问候。
+ *
+ * <p>页面绑定打开时登录的账号编号：读登录状态要等 Rust 的会话锁，所以绑定和核对都在工作线程上做，界面线程不调 Rust。Rust 只在回答完整以后核对账号，生成中途退出登录时由 {@link SignIn#signOut} 取消这次对话（{@link RustAccount#cancelForSignOut}），回来的 account_cancelled 让页面回到刚打开的样子。
  *
  * <p>宿主通过设置导航栈打开本二级页，保留返回按钮；「试用键盘」还会请求输入框焦点。独立的 {@link KeyboardTryoutActivity} 继续承载共享设置发起的试用。
  */
@@ -63,19 +67,27 @@ public final class ChatFragment extends HomeTabFragment {
     private static final int BUBBLE_LIMIT = 60;
     /** 流式回复两次重画之间的最短间隔：最多每秒 20 次。 */
     private static final long STREAM_FRAME_MS = 50;
-    private static final String FAILURE = "请求失败，请检查登录状态或稍后重试。";
+    /** 一条回复的 UTF-8 字节上限，与 Rust 的流式对话相同。 */
+    private static final int MAX_REPLY_BYTES = 16 * 1024;
     /** 每次请求开头的系统提示词，与共享设置页的 packages/ui/src/chat/chat-prompt.ts 和 iOS 的 KeyboardChatHistoryPolicy 逐字相同，由 scripts/test-chat-system-prompt-parity.py 检查。 */
     private static final String SYSTEM_PROMPT =
         "你是水杉输入法（MSIME，Metasequoia IME）里的 AI 助手。用户在水杉输入法的应用里和你对话，多半是一边聊一边试键盘：看候选、皮肤和手感。\n\n介绍自己时说你是水杉输入法的 AI 助手，不要主动报出背后的模型名称或开发公司；用户直接问用的是什么模型时，如实回答。\n\n用户发来的常常是试打的内容：一个词、半句话、没转成汉字的拼音（比如 shuishan）、错字或随手敲的字母。这时简短自然地接话，看得出是拼音就顺带说出可能想打的字，不要追问用意，也不要长篇解释。\n\n关于水杉输入法：它是开源的中文输入法，支持 Android、iOS、macOS、Linux、Windows 和 HarmonyOS，官网 msime.app。你没有它完整的功能和设置资料，被问到具体功能、设置项或操作步骤时只说你确定的部分，其余建议用户在设置里查看或到官网了解，不要编造功能、菜单名称或步骤。你看不到用户的屏幕，也不能更改任何设置。\n\n隐私：这段对话会发给 AI 服务来生成回复，不计入输入统计；用户平时用输入法打的字不会发给你。\n\n回答：默认用简体中文；用户整句用其他语言时，用那种语言回答。回答简洁，先说结论，适合在小屏幕上读，少用标题和表格。";
     private final Handler mainHandler = MainThreadPolicy.mainHandler();
     private final ExecutorService worker = Executors.newSingleThreadExecutor(
         ThreadPolicy.namedFactory("msime-keyboard-tryout"));
-    private final List<BackendAccount.ChatMessage> messages = new ArrayList<>(13);
+    /** 对话里的一条：role 是 system、user 或 assistant。 */
+    private record Turn(String role, String content) {}
+
+    private final List<Turn> messages = new ArrayList<>(13);
+    /** chat_models 给的默认模型；第一次发送前在工作线程上读，读到之前为 null。 */
+    private volatile String model;
     private Future<?> operation;
     private int generation;
     private boolean sending;
-    /** 页面绑定的真实账号会话；空值表示绑定时没有登录。 */
+    /** 页面绑定的账号编号；空值表示绑定时没有登录。在工作线程上读出，再在界面线程上写。 */
     private String pageSessionId = "";
+    /** 工作线程上最近一次绑定读到的账号编号。打开页面后立刻发送时界面线程上的 {@link #pageSessionId} 可能还没写上，发送和绑定排在同一条工作线程上，发送时读它就一定是绑定之后的值。 */
+    private volatile String boundUser = "";
     /** 正在流式到达的那条回复；没有请求在进行时为 null。只在界面线程上读写。 */
     private StreamingReply streaming;
     private boolean standalone;
@@ -101,7 +113,7 @@ public final class ChatFragment extends HomeTabFragment {
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         Context context = requireContext();
         standalone = getArguments() != null && getArguments().getBoolean(ARG_STANDALONE);
-        pageSessionId = new BackendAccount(context).sessionId();
+        bindSession();
         field = view.findViewById(R.id.tryout_field);
         sendAi = view.findViewById(R.id.tryout_ai_send);
         chat = view.findViewById(R.id.tryout_chat);
@@ -197,9 +209,40 @@ public final class ChatFragment extends HomeTabFragment {
         requireContext().getSystemService(InputMethodManager.class).hideSoftInputFromWindow(field.getWindowToken(), 0);
     }
 
-    /** 每次回到眼前都核对一次账号：在「我的」里登录、退出或换了账号之后，这一页不能还拿着上一个账号的会话。 */
+    /** 每次回到眼前都核对一次账号：在「我的」里登录、退出或换了账号之后，这一页不能还拿着上一个账号的会话。核对在工作线程上，变了才回到界面线程重置。 */
     @Override protected void onBecameVisible() {
-        if (field != null && !pageSessionCurrent()) abortForSessionChange();
+        if (field == null) return;
+        String bound = pageSessionId;
+        int token = generation;
+        Context app = requireContext().getApplicationContext();
+        worker.submit(() -> {
+            if (bound.equals(currentUser(app))) return;
+            mainHandler.post(() -> {
+                if (token == generation && alive() && bound.equals(pageSessionId)) abortForSessionChange();
+            });
+        });
+    }
+
+    /** 在工作线程上读出现在登录的账号，回到界面线程记成页面绑定的账号。 */
+    private void bindSession() {
+        Context app = requireContext().getApplicationContext();
+        int token = generation;
+        worker.submit(() -> {
+            String user = currentUser(app);
+            boundUser = user;
+            mainHandler.post(() -> {
+                if (token == generation && alive()) pageSessionId = user;
+            });
+        });
+    }
+
+    /** 现在登录的账号编号；没有登录或读不了时为空串。阻塞，只在工作线程上调用。 */
+    private static String currentUser(Context app) {
+        try {
+            return RustAccount.userId(app);
+        } catch (AccountStore.Failure unavailable) {
+            return "";
+        }
     }
 
     @Override public void onHiddenChanged(boolean hidden) {
@@ -240,17 +283,13 @@ public final class ChatFragment extends HomeTabFragment {
     }
 
     private void dispatchChat(String text, MaterialButton send) {
-        if (!pageSessionCurrent()) {
-            abortForSessionChange();
-            return;
-        }
         // 请求最多 14 条：开头一条系统约定，加最近 13 条对话。
         while (messages.size() >= 13) messages.remove(0);
-        messages.add(new BackendAccount.ChatMessage("user", text));
+        messages.add(new Turn("user", text));
         showStop(send);
         int token = ++generation;
-        List<BackendAccount.ChatMessage> request = new ArrayList<>(messages.size() + 1);
-        request.add(new BackendAccount.ChatMessage("system", SYSTEM_PROMPT));
+        List<Turn> request = new ArrayList<>(messages.size() + 1);
+        request.add(new Turn("system", SYSTEM_PROMPT));
         request.addAll(messages);
         final String session = pageSessionId;
         Context app = requireContext().getApplicationContext();
@@ -258,33 +297,70 @@ public final class ChatFragment extends HomeTabFragment {
         streaming = reply;
         operation = worker.submit(() -> {
             try {
-                String full = new BackendAccount(app).chatStream(request, reply.call, reply::append,
-                    session);
+                String full = stream(app, session, request, reply);
                 mainHandler.post(() -> {
                     if (token != generation || !alive()) return;
-                    if (!pageSessionCurrent()) {
-                        abortForSessionChange();
-                        return;
-                    }
                     streaming = null;
                     reply.show(full);
-                    messages.add(new BackendAccount.ChatMessage("assistant", full));
+                    messages.add(new Turn("assistant", full));
                     finishChat(send);
                 });
-            } catch (Exception error) {
+            } catch (AccountStore.Failure failure) {
                 mainHandler.post(() -> {
                     if (token != generation || !alive()) return;
-                    if (!pageSessionCurrent()) {
+                    // 期间退出或换了账号（Rust 回答完整后核对，或退出时被取消）：已经显示的那段也丢掉，页面改绑现在的账号。
+                    if ("account_cancelled".equals(failure.code)) {
                         abortForSessionChange();
                         return;
                     }
                     streaming = null;
                     // 已经到了一部分就留着它；一个字都没到才说失败。
-                    if (!keepPartial(reply)) appendBubble(FAILURE, false);
+                    if (!keepPartial(reply))
+                        appendBubble(AccountFailureText.chat(failure.code, failure.retryAfterSeconds), false);
                     finishChat(send);
                 });
             }
         });
+    }
+
+    /**
+     * 工作线程：核对页面绑定的账号仍在、取默认模型，再发流式对话。没登录时不发请求，以 account_unauthorized 失败；账号变了是 account_cancelled。
+     */
+    private String stream(Context app, String session, List<Turn> request, StreamingReply reply)
+            throws AccountStore.Failure {
+        String bound = session.isEmpty() ? boundUser : session;
+        if (bound.isEmpty()) throw new AccountStore.Failure("account_unauthorized", 0);
+        RustAccount.requireUser(app, bound);
+        String chosen = model;
+        if (chosen == null) {
+            chosen = defaultModel(app);
+            model = chosen;
+        }
+        org.json.JSONArray body = new org.json.JSONArray();
+        try {
+            for (Turn turn : request) {
+                body.put(new org.json.JSONObject().put("role", turn.role()).put("content", turn.content()));
+            }
+        } catch (org.json.JSONException impossible) {
+            throw new AccountStore.Failure("account_invalid", 0);
+        }
+        return RustAccount.chatStream(app, body, chosen, reply.call, reply::append);
+    }
+
+    /** chat_models 的 defaultModel：Rust 的流式对话要求请求带模型，用户在这里选不了，就用服务端说的默认那一个。 */
+    private static String defaultModel(Context app) throws AccountStore.Failure {
+        org.json.JSONObject catalog = RustAccount.accountObject(app, chatModels());
+        String chosen = catalog.optString("defaultModel", "");
+        if (chosen.isEmpty()) throw new AccountStore.Failure("account_unavailable", 0);
+        return chosen;
+    }
+
+    private static org.json.JSONObject chatModels() throws AccountStore.Failure {
+        try {
+            return new org.json.JSONObject().put("operation", "chat_models");
+        } catch (org.json.JSONException impossible) {
+            throw new AccountStore.Failure("account_invalid", 0);
+        }
     }
 
     private void cancelChat(MaterialButton send) {
@@ -305,7 +381,7 @@ public final class ChatFragment extends HomeTabFragment {
         String partial = reply.text();
         if (partial.isEmpty()) return false;
         reply.show(partial);
-        messages.add(new BackendAccount.ChatMessage("assistant", partial));
+        messages.add(new Turn("assistant", partial));
         return true;
     }
 
@@ -314,8 +390,8 @@ public final class ChatFragment extends HomeTabFragment {
      */
     private final class StreamingReply {
         final int token;
-        final BackendAccount.ChatCall call = new BackendAccount.ChatCall();
-        private final StringBuilder received = new StringBuilder(BackendAccount.MAX_CHAT_REPLY_BYTES);
+        final RustAccount.Call call = new RustAccount.Call();
+        private final StringBuilder received = new StringBuilder(MAX_REPLY_BYTES);
         private final AtomicBoolean scheduled = new AtomicBoolean();
         /** 上一次重画的时刻；worker 线程读它算延迟，界面线程写。 */
         private volatile long shownAt;
@@ -348,10 +424,6 @@ public final class ChatFragment extends HomeTabFragment {
         private void render() {
             scheduled.set(false);
             if (token != generation || !alive()) return;
-            if (!pageSessionCurrent()) {
-                abortForSessionChange();
-                return;
-            }
             show(text());
         }
 
@@ -391,16 +463,13 @@ public final class ChatFragment extends HomeTabFragment {
         EditText field = this.field;
         MaterialButton send = sendAi;
         if (field == null || send == null) return;
-        pageSessionId = new BackendAccount(requireContext()).sessionId();
+        pageSessionId = "";
+        bindSession();
         messages.clear();
         if (chat != null) chat.removeAllViews();
         field.setText("");
         finishChat(send);
         greet();
-    }
-
-    private boolean pageSessionCurrent() {
-        return pageSessionId.equals(new BackendAccount(requireContext()).sessionId());
     }
 
     /** 回调到达时这一页还在：已经加在界面上、视图也还在。 */

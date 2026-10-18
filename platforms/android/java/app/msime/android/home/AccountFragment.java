@@ -23,7 +23,7 @@ import androidx.annotation.Nullable;
 import app.msime.android.AppIconStyle;
 import app.msime.android.AppVersionPolicy;
 import app.msime.android.BackendAccount;
-import app.msime.android.CloudApi;
+import app.msime.android.AccountStore;
 import app.msime.android.CloudClipboardNativeDriver;
 import app.msime.android.CloudClipboardRelay;
 import app.msime.android.DeviceDataApi;
@@ -47,9 +47,9 @@ public final class AccountFragment extends HomeTabFragment {
     private record Local(@Nullable JSONObject preferences, boolean signedIn, boolean syncEnabled, boolean realAccount,
             long lastSyncedAt, String syncStatus) {}
 
-    /** 联网读到的：资料（读不到为 null）、头像、设备数与云剪贴板条数（读不到为 -1）、是否绑定了真实账号。 */
+    /** 联网读到的：资料（读不到为 null）、头像、设备数与云剪贴板条数（读不到为 -1）、是否绑定了真实账号、读的是哪个账号，以及读完时登录的是否仍是它（在工作线程上核对，主线程不调 Rust）。 */
     private record Remote(@Nullable DeviceDataApi.Profile profile, @Nullable Bitmap avatar, int devices,
-            int clipboard, boolean realAccount, String sessionId) {}
+            int clipboard, boolean realAccount, String sessionId, boolean current) {}
 
     @Nullable private Local local;
     @Nullable private Remote remote;
@@ -94,23 +94,24 @@ public final class AccountFragment extends HomeTabFragment {
         HostTask.runNetwork(this, context -> {
             String sessionId;
             try {
-                sessionId = new DeviceDataApi(context).currentAccountSessionId();
-            } catch (CloudApi.Failure unavailable) {
-                return new Remote(null, null, -1, -1, false, "");
+                sessionId = DeviceDataApi.currentUserId(context);
+            } catch (AccountStore.Failure unavailable) {
+                return new Remote(null, null, -1, -1, false, "", false);
             }
+            if (sessionId.isEmpty()) return new Remote(null, null, -1, -1, false, "", false);
             DeviceDataApi api = new DeviceDataApi(context, sessionId);
             DeviceDataApi.Profile profile;
             try {
                 profile = api.profile();
                 // 登录时没读到用户 id 的话，这里补上同步要用的账号绑定。
                 ProfilePage.bindIfNeeded(context, profile, sessionId);
-            } catch (CloudApi.Failure failure) {
+            } catch (AccountStore.Failure failure) {
                 profile = null;
             }
             int devices;
             try {
                 devices = profile == null ? -1 : api.sessions().size();
-            } catch (CloudApi.Failure failure) {
+            } catch (AccountStore.Failure failure) {
                 devices = -1;
             }
             int clipboard;
@@ -127,13 +128,18 @@ public final class AccountFragment extends HomeTabFragment {
             } catch (Exception unavailable) {
                 clipboard = -1;
             }
-            Bitmap avatar = profile == null ? null : ProfilePage.avatar(profile.avatarUrl());
+            Bitmap avatar = profile == null ? null : ProfilePage.avatar(api, profile);
+            boolean current;
+            try {
+                current = sessionId.equals(DeviceDataApi.currentUserId(context));
+            } catch (AccountStore.Failure unavailable) {
+                current = false;
+            }
             return new Remote(profile, avatar, devices, clipboard,
-                SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)), sessionId);
+                SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)), sessionId, current);
         }, state -> {
             if (state == null || request != generation || getView() == null) return;
-            if (state.sessionId().isEmpty() || state.profile() == null
-                    || !state.sessionId().equals(new BackendAccount(requireContext()).sessionId())
+            if (state.sessionId().isEmpty() || state.profile() == null || !state.current()
                     || !state.profile().id().equals(SyncSwitch.accountId(requireContext()))) return;
             remote = state;
             Local current = local;

@@ -48,7 +48,6 @@ platforms/android/tests/device/settings/CloudClipboardKeystoreDeviceSmoke.java
 platforms/android/tests/device/settings/CloudClipboardDriverDeviceSmoke.java
 platforms/android/tests/device/settings/CloudClipboardRelayDeviceSmoke.java
 platforms/android/tests/device/settings/BackendAccountSessionDeviceSmoke.java
-platforms/android/tests/device/settings/DeviceDataSummaryDeviceSmoke.java
 platforms/android/java/app/msime/android/AppVersionPolicy.java
 platforms/android/java/app/msime/android/BoundsPolicy.java
 platforms/android/java/app/msime/android/ColorPolicy.java
@@ -70,6 +69,9 @@ platforms/android/java/app/msime/android/ThreadPolicy.java
 platforms/android/java/app/msime/android/ViewPolicy.java
 platforms/android/java/app/msime/android/account/AccountHttpRequest.java
 platforms/android/java/app/msime/android/account/AccountStore.java
+platforms/android/java/app/msime/android/account/AccountFailureText.java
+platforms/android/java/app/msime/android/account/ActiveRequests.java
+platforms/android/java/app/msime/android/account/RustAccount.java
 platforms/android/java/app/msime/android/account/AccountTokenPolicy.java
 platforms/android/java/app/msime/android/account/AppleWebSignIn.java
 platforms/android/java/app/msime/android/account/BackendAccount.java

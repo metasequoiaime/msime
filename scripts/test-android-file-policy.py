@@ -42,7 +42,9 @@ def main() -> None:
         raise AssertionError("DeveloperPage 仍保留重复的文件清理实现")
     if "if (!stale.delete()) stale.deleteOnExit();" in developer_page:
         raise AssertionError("DeveloperPage 仍保留重复的文件清理实现")
-    if developer_page.count("FilePolicy.deleteQuietly(zip);") != 1:
+    # MCP 上传从 5c 起由 Rust 从诊断记录现读现建（#8201 迁移计划），不再先写一份临时 zip；剩下的是导出诊断包时的归档和生成失败时的目标文件。
+    if "FilePolicy.deleteQuietly(archive);" not in developer_page \
+            or "FilePolicy.deleteQuietly(destination);" not in developer_page:
         raise AssertionError("DeveloperPage 没有完整调用共享文件清理策略")
     if "FilePolicy.deleteQuietly(stale);" not in developer_page:
         raise AssertionError("DeveloperPage 没有清理过期文件")

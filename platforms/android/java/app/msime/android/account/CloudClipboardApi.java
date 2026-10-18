@@ -10,7 +10,7 @@ import org.json.JSONObject;
 /**
  * 「我的 → 云剪贴板」页的接口：列表、设备与批准、开关、保留时长、置顶、删除与清空。
  *
- * <p>条目端到端加密（`docs/cloud-clipboard-e2e.md`）：文字只在设备上加密和解密，服务端只保存密文，搜索也在解密之后于本机进行。读列表、读设备和「允许」「拒绝」「移除」「重置」都经共享驱动（{@link CloudClipboardE2e}）完成；置顶、保留时长、删除、清空和开关不涉及内容，仍直接调用原来的接口。只有真实账号有云剪贴板。服务端最多保存 50 条，单条不超过 4000 个 UTF-16 单元；保留时长 0 表示一直保留。
+ * <p>条目端到端加密（`docs/cloud-clipboard-e2e.md`）：文字只在设备上加密和解密，服务端只保存密文，搜索也在解密之后于本机进行。读列表、读设备和「允许」「拒绝」「移除」「重置」都经共享驱动（{@link CloudClipboardE2e}）完成，水杉账号这条路上驱动仍在 Java 里跑（令牌由 Rust 给），与键盘进程共用同一把密钥串锁；置顶、保留时长、删除、清空和开关不涉及内容，经 Rust 的 `msime_client_account_cloud_clipboard`（#8201 迁移计划 5c）。只有真实账号有云剪贴板。服务端最多保存 50 条，单条不超过 4000 个 UTF-16 单元；保留时长 0 表示一直保留。
  *
  * <p>请求经哪条路发出由 {@link Backend} 决定：水杉账号（{@link #CloudClipboardApi(CloudApi, CloudClipboardE2e.Local)}）或用户自建的中继（{@link CloudClipboardRelay}，`docs/cloud-clipboard-relay.md`）。两条路的结果形状相同，解析和校验只在这里写一份。
  *
@@ -88,9 +88,9 @@ public final class CloudClipboardApi {
 
     private final Backend backend;
 
-    /** 经水杉账号：请求走 `api` 绑定的那个登录（{@link CloudApi#forAccountSession}）。 */
-    public CloudClipboardApi(CloudApi api, CloudClipboardE2e.Local local) {
-        this(new AccountBackend(api, local));
+    /** 经水杉账号：驱动的请求走 `api` 绑定的那个登录（{@link CloudApi#forAccountSession}），不涉及内容的几个操作经 Rust、前后核对登录的仍是 `userId`。 */
+    public CloudClipboardApi(android.content.Context context, String userId, CloudApi api, CloudClipboardE2e.Local local) {
+        this(new AccountBackend(context, userId, api, local));
     }
 
     public CloudClipboardApi(Backend backend) {
@@ -186,12 +186,16 @@ public final class CloudClipboardApi {
         backend.clear();
     }
 
-    /** 经水杉账号的那条路：驱动的请求和不涉及内容的几个接口都走同一个绑定好的登录。 */
+    /** 经水杉账号的那条路：驱动的请求走绑定好的登录，不涉及内容的几个操作经 Rust，都核对页面打开时的那个账号。 */
     private static final class AccountBackend implements Backend {
+        private final android.content.Context context;
+        private final String userId;
         private final CloudApi api;
         private final CloudClipboardE2e.Local local;
 
-        AccountBackend(CloudApi api, CloudClipboardE2e.Local local) {
+        AccountBackend(android.content.Context context, String userId, CloudApi api, CloudClipboardE2e.Local local) {
+            this.context = context.getApplicationContext();
+            this.userId = userId;
             this.api = api;
             this.local = local;
         }
@@ -216,23 +220,40 @@ public final class CloudClipboardApi {
         }
 
         @Override public void setEnabled(boolean enabled) throws CloudApi.Failure {
-            api.json("PUT", PATH + "/settings", object("enabled", enabled), CloudApi.Auth.ACCOUNT);
+            rust(object("operation", "set_enabled", "enabled", enabled));
         }
 
         @Override public void setRetention(int days) throws CloudApi.Failure {
-            api.json("PUT", PATH + "/retention", object("days", days), CloudApi.Auth.ACCOUNT);
+            rust(object("operation", "set_retention", "days", days));
         }
 
         @Override public void setPinned(String id, boolean pinned) throws CloudApi.Failure {
-            api.json("PUT", PATH + "/" + id + "/pin", object("pinned", pinned), CloudApi.Auth.ACCOUNT);
+            JSONObject action = object("operation", "pin", "id", id);
+            try {
+                action.put("pinned", pinned);
+            } catch (JSONException impossible) {
+                throw new IllegalStateException(impossible);
+            }
+            rust(action);
         }
 
         @Override public void delete(String id) throws CloudApi.Failure {
-            api.send("DELETE", PATH + "/" + id, null, CloudApi.Auth.ACCOUNT);
+            rust(object("operation", "delete", "id", id));
         }
 
         @Override public void clear() throws CloudApi.Failure {
-            api.send("DELETE", PATH, null, CloudApi.Auth.ACCOUNT);
+            rust(object("operation", "clear", null, null));
+        }
+
+        /** 经 Rust 做一个不涉及内容的操作，前后核对登录的仍是页面打开时的账号；Rust 的错误码换成页面认得的 {@link CloudApi.Failure}。 */
+        private void rust(JSONObject action) throws CloudApi.Failure {
+            try {
+                RustAccount.requireUser(context, userId);
+                RustAccount.cloudClipboard(context, action);
+                RustAccount.requireUser(context, userId);
+            } catch (AccountStore.Failure failure) {
+                throw rustFailure(failure.code);
+            }
         }
 
         @Override public void requireCurrent() throws CloudApi.Failure {
@@ -344,12 +365,27 @@ public final class CloudClipboardApi {
         return code;
     }
 
-    private static JSONObject object(String key, Object value) {
+    private static JSONObject object(String key, Object value, String otherKey, Object otherValue) {
         try {
-            return new JSONObject().put(key, value);
+            JSONObject object = new JSONObject().put(key, value);
+            if (otherKey != null) object.put(otherKey, otherValue);
+            return object;
         } catch (JSONException impossible) {
             throw new IllegalStateException(impossible);
         }
+    }
+
+    /**
+     * Rust 云剪贴板账号路径的错误码换成这一页按状态和错误码分辨的 {@link CloudApi.Failure}：没有登录是 401（`signedOut`），账号变了是 `session_changed`，断网是状态 0，驱动给的码原样保留。
+     */
+    public static CloudApi.Failure rustFailure(String code) {
+        return switch (code) {
+            case "account_unauthorized" -> new CloudApi.Failure(401, "signed_out", code, 0);
+            case "account_cancelled" -> new CloudApi.Failure(409, "session_changed", code, 0);
+            case "account_network" -> new CloudApi.Failure(0, "network", code, 0);
+            case "account_rate_limited" -> new CloudApi.Failure(429, code, code, 0);
+            default -> new CloudApi.Failure(500, code, code, 0);
+        };
     }
 
     private static CloudApi.Failure invalid() {

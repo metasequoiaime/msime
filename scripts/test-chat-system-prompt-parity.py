@@ -24,7 +24,7 @@ SENDERS = [
     ("shared AI 对话 conversation", "packages/ui/src/chat/use-chat-conversation.ts", "chatRequest(history)"),
     ("shared try-keyboard page", "packages/ui/src/keyboard/try-keyboard-page.tsx", "chatRequest(conversation)"),
     ("shared request builder", "packages/ui/src/chat/chat-prompt.ts", '{ role: "system", content: CHAT_SYSTEM_PROMPT }'),
-    ("Android chat page", "platforms/android/java/app/msime/android/home/ChatFragment.java", 'new BackendAccount.ChatMessage("system", SYSTEM_PROMPT)'),
+    ("Android chat page", "platforms/android/java/app/msime/android/home/ChatFragment.java", 'new Turn("system", SYSTEM_PROMPT)'),
     ("iOS request builder", "platforms/ios/App/Sources/keyboard/KeyboardChatHistoryPolicy.swift", '(role: "system", text: systemPrompt)'),
     ("iOS keyboard chat", "platforms/ios/App/Sources/keyboard/KeyboardChatModel.swift", "KeyboardChatHistoryPolicy.request("),
 ]

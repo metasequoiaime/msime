@@ -17,8 +17,9 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
-import app.msime.android.CloudApi;
-import app.msime.android.BackendAccount;
+import app.msime.android.AccountFailureText;
+import app.msime.android.AccountStore;
+import app.msime.android.DeviceDataApi;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.DownloadLinkApi;
 import app.msime.android.R;
@@ -149,16 +150,15 @@ public final class DownloadPage extends DetailPage {
     private void send(String platform, TextView button) {
         if (sending.contains(platform) || sentPlatforms.contains(platform)) return;
         Context application = requireContext().getApplicationContext();
-        String expectedSessionId = new BackendAccount(application).sessionId();
-        if (expectedSessionId.isEmpty()) {
-            MsToast.show(requireContext(), "登录已失效，请重新打开页面");
-            return;
-        }
         sending.add(platform);
         button.setText("正在发送…");
         ViewPolicy.setEnabled(button, false);
-        NetworkTask.run(this, () -> new DownloadLinkApi(
-            new CloudApi(application).forAccountSession(expectedSessionId)).send(platform), outcome -> {
+        // 读登录状态也要等 Rust 的会话锁，放在工作线程上；发送前后都核对是同一个账号。
+        NetworkTask.run(this, () -> {
+            String userId = DeviceDataApi.currentUserId(application);
+            if (userId.isEmpty()) throw new AccountStore.Failure("account_unauthorized", 0);
+            return DownloadLinkApi.send(application, userId, platform);
+        }, outcome -> {
             sending.remove(platform);
             if (outcome.error() != null) {
                 button.setText("发送链接");
@@ -174,13 +174,8 @@ public final class DownloadPage extends DetailPage {
     }
 
     private static String failureMessage(@Nullable Exception error) {
-        if (error instanceof CloudApi.Failure failure) {
-            if (DownloadLinkApi.noVerifiedEmail(failure)) return "账号还没有验证过的邮箱，请改用「复制链接」";
-            if (failure.signedOut()) return "登录后才能发到邮箱，也可以改用「复制链接」";
-            if (failure.rateLimited()) return "发送得太频繁了，请过一会儿再试";
-            if (failure.unavailable()) return "暂时不能发送邮件，请改用「复制链接」";
-            if (failure.network()) return "连不上服务器，请检查网络后重试";
-        }
+        if (error instanceof AccountStore.Failure failure)
+            return AccountFailureText.downloadLink(failure.code, failure.retryAfterSeconds);
         return "没有发送成功，请改用「复制链接」";
     }
 }

@@ -523,6 +523,28 @@ public final class NativeClient {
     /** 登录的优先、否则匿名账号的访问令牌（{@code msime_client_account_access_token}）。可能刷新令牌、阻塞网络；回复含凭据，不要写进日志。 */
     static String accountAccessToken(String request) { return TextPolicy.utf8(accountAccessTokenRaw(utf8(request))); }
 
+    /** 社区操作（{@code msime_client_community}），请求带 {@code session_store}。阻塞网络，放在工作线程上。 */
+    static String community(String request) { return TextPolicy.utf8(communityRaw(utf8(request))); }
+
+    /** 云剪贴板的账号路径（{@code msime_client_account_cloud_clipboard}），请求带 {@code session_store}。阻塞网络，放在工作线程上。 */
+    static String accountCloudClipboard(String request) { return TextPolicy.utf8(accountCloudClipboardRaw(utf8(request))); }
+
+    /** 流式对话（{@code msime_client_account_chat_stream}）：增量在调用线程上交给 listener，最长阻塞 125 秒，放在工作线程上。 */
+    static String accountChatStream(String request, ChatDelta listener) {
+        return TextPolicy.utf8(accountChatStreamRaw(utf8(request), listener));
+    }
+
+    /** 取消一次流式对话（{@code {request_id}}），任意线程，立即返回。 */
+    static String accountChatCancel(String request) { return TextPolicy.utf8(accountChatCancelRaw(utf8(request))); }
+
+    /** AI 皮肤一次生成三套（{@code msime_client_ai_skin_generate}）：最长约 5 分钟，放在工作线程上。 */
+    static String aiSkinGenerate(String request, AiSkinProgress listener) {
+        return TextPolicy.utf8(aiSkinGenerateRaw(utf8(request), listener));
+    }
+
+    /** 取消一次 AI 皮肤生成（{@code {request_id}}），任意线程，立即返回。 */
+    static String aiSkinCancel(String request) { return TextPolicy.utf8(aiSkinCancelRaw(utf8(request))); }
+
     /** 本地语音模型安装的进度：{@code {id, stage, downloaded, total}} 的 JSON 字节，stage 是 "download"（从本地文件安装时是 "import"）、"verify"、"extract" 或 "done"。在调用 {@link #voiceLocalModelInstall} 的工作线程上调用；不要在这里抛异常或做耗时的事。 */
     public interface LocalModelProgress {
         void onProgress(byte[] json);

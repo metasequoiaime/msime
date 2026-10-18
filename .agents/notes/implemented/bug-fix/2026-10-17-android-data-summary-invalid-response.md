@@ -19,6 +19,8 @@ Android 在展开分类前要求 `sections` 是 JSON 数组；缺失或类型错
 
 Android 账号页在外层响应 malformed 时进入统一的服务不可用流程，合法的 `sections: []` 仍表示真实空分类；现有合法分类和坏行过滤行为不变。新增设备回归通过 Android 真正的 `org.json` 实现验证，并纳入设置设备套件。
 
+从 #8201 迁移计划 5c 起汇总经 Rust 的 `data_summary`，缺少 `sections` 由 Rust 的反序列化拒绝（`AccountDataSummary.sections` 不带默认值），Java 不再解析服务端响应，`DeviceDataSummaryDeviceSmoke` 随之删掉。见 [Android 设置页面的账号与云端操作改调 Rust](../architecture/2026-10-18-android-settings-pages-through-rust.md)。
+
 ## Verification
 
 - 修复前 API 28 `DeviceDataSummaryDeviceSmoke` 红：`{"bytes":0}` 被当成空分类。

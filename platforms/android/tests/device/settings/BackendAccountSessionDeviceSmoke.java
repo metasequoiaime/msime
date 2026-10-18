@@ -3,8 +3,6 @@ package app.msime.android;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.Context;
-import android.content.ContextWrapper;
-import android.content.SharedPreferences;
 import android.os.Bundle;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -12,9 +10,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONObject;
 
 /**
- * 原生 Android 账号客户端里还留在 Java 的那些请求（对话、云剪贴板开关、社区、释义）怎样绑定到发起它们的登录。
+ * 原生 Android 账号客户端里的请求（对话、云剪贴板开关、社区、释义）怎样绑定到发起它们的登录。
  *
- * <p>令牌的刷新、单飞和吊销都由 Rust 持有（#8201 迁移计划 5b），由 client-services 的测试覆盖；这里用一个假的 {@link BackendAccount.Sessions} 代替 Rust，核对 Java 一侧：换成别的账号或退出以后，旧请求既不重试也不交出结果；同一个账号里 401 后带着被拒的令牌换一枚再试一次；同一个账号重新登录（令牌变了、账号编号没变）不算换号。
+ * <p>令牌的刷新、单飞和吊销都由 Rust 持有（#8201 迁移计划 5b），由 client-services 的测试覆盖；这里用一个假的 {@link BackendAccount.Sessions} 代替 Rust，核对 Java 一侧：换成别的账号或退出以后，旧请求既不重试也不交出结果；同一个账号里 401 后带着被拒的令牌换一枚再试一次；同一个账号重新登录（令牌变了、账号编号没变）不算换号。社区从 5c 起整个经 Rust 的 `msime_client_community`，这里换成假的 {@link CommunityCatalog.Calls}，核对请求的形状、哪些操作允许退回匿名账号，以及请求前后账号编号变了就丢掉结果。
  */
 public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
     private static final String ACCESS = "a".repeat(64);
@@ -281,276 +279,148 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
             new JSONObject(), CommunityRequest.Category.OTHER, true, 0, new JSONObject());
     }
 
-    private static byte[] updatedSkin() {
-        try {
-            return new JSONObject().put("id", syntheticSkin().id()).put("name", "Synthetic")
-                .put("description", "").put("author", "Synthetic author").put("design", new JSONObject())
-                .put("saves", 0).put("rating_count", 0).put("rating_average", 0.0)
-                .put("downloads", 0).put("category", "tech").put("owned", true)
-                .toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        } catch (Exception error) {
-            throw new AssertionError(error);
+    private static JSONObject updatedSkin() throws Exception {
+        return new JSONObject().put("id", syntheticSkin().id()).put("name", "Synthetic")
+            .put("description", "").put("author", "Synthetic author").put("design", new JSONObject())
+            .put("downloads", 0).put("rating_count", 0).put("rating_average", 0.0)
+            .put("category", "tech").put("owned", true).put("my_rating", 0);
+    }
+
+    private static JSONObject syntheticListingPage() throws Exception {
+        return new JSONObject().put("skins", new org.json.JSONArray().put(updatedSkin())).put("has_more", false);
+    }
+
+    /**
+     * 代替 Rust 的社区入口（#8201 迁移计划 5c）：记下每次的操作和是否允许退回匿名账号，按给定的回答或失败码作答，`afterCall` 可以在作答时换掉登录的账号。令牌、刷新和 401 后的重试都在 Rust 里，由 client-services 的测试覆盖；这里只核对 Java 一侧的请求形状和按账号编号的绑定。
+     */
+    private static final class FakeCommunity implements CommunityCatalog.Calls {
+        final AtomicReference<String> login = new AtomicReference<>("synthetic-login-a");
+        final List<JSONObject> actions = new java.util.ArrayList<>();
+        final List<Boolean> fallbacks = new java.util.ArrayList<>();
+        Object answer = JSONObject.NULL;
+        String failure = "";
+        String afterCall = null;
+
+        @Override public synchronized Object community(JSONObject action, boolean anonymousFallback)
+                throws AccountStore.Failure {
+            actions.add(action);
+            fallbacks.add(anonymousFallback);
+            if (afterCall != null) login.set(afterCall);
+            if (!failure.isEmpty()) throw new AccountStore.Failure(failure, 0);
+            return answer;
         }
+
+        @Override public String userId() { return login.get(); }
     }
 
     private void communityCategoryRejectsNewLogin() throws Exception {
-        AtomicReference<String> login = new AtomicReference<>("synthetic-login-a");
-        CloudApi.Tokens account = new CloudApi.Tokens() {
-            @Override public String token(String rejected) {
-                return "synthetic-login-a".equals(login.get()) ? ACCESS : NEXT_ACCESS;
-            }
-            @Override public String sessionId() { return login.get(); }
-        };
-        AtomicInteger rejectedCalls = new AtomicInteger();
-        CloudApi rejected = new CloudApi((method, path, headers, body) -> {
-            rejectedCalls.incrementAndGet();
-            login.set("synthetic-login-b");
-            return new CloudApi.Exchange(401, "application/json", null, new byte[0]);
-        }, account, ignored -> "");
-        CommunityCatalog.Update rejectedUpdate = new CommunityCatalog(getTargetContext(), rejected)
+        FakeCommunity rust = new FakeCommunity();
+        rust.answer = updatedSkin();
+        rust.afterCall = "synthetic-login-b";
+        CommunityCatalog.Update update = new CommunityCatalog(rust)
             .setCategory(syntheticSkin(), CommunityRequest.Category.TECH);
-        check(rejectedCalls.get() == 1 && rejectedUpdate.failed()
-                && rejectedUpdate.failure().contains("登录已切换"),
-            "old category update must not retry under a new login");
-
-        login.set("synthetic-login-a");
-        AtomicInteger acceptedCalls = new AtomicInteger();
-        CloudApi accepted = new CloudApi((method, path, headers, body) -> {
-            acceptedCalls.incrementAndGet();
-            login.set("synthetic-login-b");
-            return new CloudApi.Exchange(200, "application/json", null, updatedSkin());
-        }, account, ignored -> "");
-        CommunityCatalog.Update oldSuccess = new CommunityCatalog(getTargetContext(), accepted)
-            .setCategory(syntheticSkin(), CommunityRequest.Category.TECH);
-        check(acceptedCalls.get() == 1 && oldSuccess.failed()
-                && oldSuccess.failure().contains("登录已切换"),
-            "old category response must not be accepted after a new login");
+        check(rust.actions.size() == 1 && update.failed() && update.failure().contains("登录已切换"),
+            "an old category response must not be accepted after a new login");
+        check("keyboard_skin_set_category".equals(rust.actions.get(0).getString("operation"))
+                && "tech".equals(rust.actions.get(0).getString("category")) && !rust.fallbacks.get(0),
+            "the category edit is the owner's own operation, without an anonymous fallback");
     }
 
-    private void communityCategoryRetriesWithinTheSameLogin() throws Exception {
-        AtomicReference<String> token = new AtomicReference<>(ACCESS);
-        CloudApi.Tokens account = new CloudApi.Tokens() {
-            @Override public String token(String rejected) {
-                if (rejected != null) token.set(NEXT_ACCESS);
-                return token.get();
-            }
-            @Override public String sessionId() { return "synthetic-login-a"; }
-        };
-        AtomicInteger calls = new AtomicInteger();
-        CloudApi cloud = new CloudApi((method, path, headers, body) -> {
-            calls.incrementAndGet();
-            boolean refreshed = ("Bearer " + NEXT_ACCESS).equals(headers.get("Authorization"));
-            return new CloudApi.Exchange(refreshed ? 200 : 401, "application/json", null,
-                refreshed ? updatedSkin() : new byte[0]);
-        }, account, ignored -> "");
-        CommunityCatalog.Update update = new CommunityCatalog(getTargetContext(), cloud)
+    private void communityCategoryWithinTheSameLogin() throws Exception {
+        FakeCommunity rust = new FakeCommunity();
+        rust.answer = updatedSkin();
+        CommunityCatalog.Update update = new CommunityCatalog(rust)
             .setCategory(syntheticSkin(), CommunityRequest.Category.TECH);
         check(!update.failed() && update.item().category() == CommunityRequest.Category.TECH,
-            "same login category update accepts a refreshed token");
-        check(calls.get() == 2, "same login category update retries once");
+            "same login category update accepts Rust's updated item");
 
-        CloudApi signedOut = new CloudApi((method, path, headers, body) -> {
-            throw new AssertionError("signed-out category update must not send a request");
-        }, rejected -> "", rejected -> "");
-        CommunityCatalog.Update missing = new CommunityCatalog(getTargetContext(), signedOut)
+        FakeCommunity signedOut = new FakeCommunity();
+        signedOut.failure = "community_unauthorized";
+        CommunityCatalog.Update missing = new CommunityCatalog(signedOut)
             .setCategory(syntheticSkin(), CommunityRequest.Category.TECH);
         check(missing.failed() && missing.failure().contains("请先登录水杉账号"),
             "signed-out category update keeps its sign-in guidance");
     }
 
-    /** Keep the old direct transport from contacting a real account during the red test. */
-    private Context communityTestContext() {
-        return new ContextWrapper(getTargetContext()) {
-            @Override public Context getApplicationContext() { return this; }
-            @Override public SharedPreferences getSharedPreferences(String name, int mode) {
-                return (SharedPreferences) java.lang.reflect.Proxy.newProxyInstance(
-                    getClass().getClassLoader(), new Class<?>[] {SharedPreferences.class},
-                    (proxy, method, arguments) -> {
-                        if ("getString".equals(method.getName())
-                                && !name.contains("anonymous")) return null;
-                        throw new IllegalStateException("synthetic account storage only");
-                    });
-            }
-        };
-    }
-
     private void communityWritesRejectNewLogin() throws Exception {
-        for (int status : new int[] {401, 200}) {
-            AtomicReference<String> login = new AtomicReference<>("synthetic-login-a");
-            CloudApi.Tokens account = new CloudApi.Tokens() {
-                @Override public String token(String rejected) {
-                    return "synthetic-login-a".equals(login.get()) ? ACCESS : NEXT_ACCESS;
-                }
-                @Override public String sessionId() { return login.get(); }
-            };
-            AtomicInteger reportCalls = new AtomicInteger();
-            CloudApi reportCloud = new CloudApi((method, path, headers, body) -> {
-                reportCalls.incrementAndGet();
-                check("POST".equals(method) && CommunityRequest.REPORT_PATH.equals(path),
-                    "report endpoint");
-                login.set("synthetic-login-b");
-                return new CloudApi.Exchange(status, "application/json", null,
-                    "{\"reported\":true}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            }, account, ignored -> "");
-            String failure = new CommunityCatalog(communityTestContext(), reportCloud)
-                .report(syntheticSkin(), CommunityRequest.REPORT_REASONS.get(0), "");
-            check(reportCalls.get() == 1 && failure.contains("登录已切换"),
-                "old report must not retry or accept a response under a new login: " + status);
+        FakeCommunity report = new FakeCommunity();
+        report.afterCall = "synthetic-login-b";
+        String failure = new CommunityCatalog(report).report(syntheticSkin(), CommunityRequest.REPORT_REASONS.get(0), "");
+        check(report.actions.size() == 1 && failure.contains("登录已切换"),
+            "an old report must not be accepted under a new login");
 
-            login.set("synthetic-login-a");
-            AtomicInteger downloadCalls = new AtomicInteger();
-            String downloadPath = CommunityRequest.skinDownloadPath(syntheticSkin().id());
-            CloudApi downloadCloud = new CloudApi((method, path, headers, body) -> {
-                downloadCalls.incrementAndGet();
-                check("POST".equals(method) && downloadPath.equals(path),
-                    "download endpoint");
-                login.set("synthetic-login-b");
-                return new CloudApi.Exchange(status, "application/json", null, "{}".getBytes());
-            }, account, ignored -> "");
-            check(!new CommunityCatalog(communityTestContext(), downloadCloud)
-                    .recordDownload(syntheticSkin()) && downloadCalls.get() == 1,
-                "old download must not retry or accept a response under a new login: " + status);
-        }
+        FakeCommunity download = new FakeCommunity();
+        download.answer = new JSONObject().put("background", 1);
+        download.afterCall = "synthetic-login-b";
+        CommunityCatalog.Download got = new CommunityCatalog(download).download(syntheticSkin());
+        check(download.actions.size() == 1 && got.failed() && got.failure().contains("登录已切换"),
+            "an old download must not be saved under a new login");
     }
 
-    private void communityWritesRetryWithinTheSameLogin() throws Exception {
-        AtomicReference<String> token = new AtomicReference<>(ACCESS);
-        CloudApi.Tokens account = new CloudApi.Tokens() {
-            @Override public String token(String rejected) {
-                if (rejected != null) token.set(NEXT_ACCESS);
-                return token.get();
-            }
-            @Override public String sessionId() { return "synthetic-login-a"; }
-        };
-        AtomicInteger reportCalls = new AtomicInteger();
-        CloudApi reportCloud = new CloudApi((method, path, headers, body) -> {
-            reportCalls.incrementAndGet();
-            boolean refreshed = ("Bearer " + NEXT_ACCESS).equals(headers.get("Authorization"));
-            return new CloudApi.Exchange(refreshed ? 201 : 401, "application/json", null,
-                refreshed ? "{\"reported\":true}".getBytes() : new byte[0]);
-        }, account, ignored -> "");
-        check(new CommunityCatalog(communityTestContext(), reportCloud)
-                .report(syntheticSkin(), CommunityRequest.REPORT_REASONS.get(0), "").isEmpty()
-                && reportCalls.get() == 2,
-            "same login report retries once with refreshed token");
+    private void communityWritesWithinTheSameLogin() throws Exception {
+        FakeCommunity report = new FakeCommunity();
+        check(new CommunityCatalog(report).report(syntheticSkin(), CommunityRequest.REPORT_REASONS.get(0), "合成说明").isEmpty(),
+            "same login report is taken");
+        JSONObject sent = report.actions.get(0);
+        check("report".equals(sent.getString("operation")) && "skins".equals(sent.getString("kind"))
+                && syntheticSkin().id().equals(sent.getString("id")) && "合成说明".equals(sent.getString("detail"))
+                && report.fallbacks.get(0),
+            "a report names the item the way Rust expects and may use the anonymous account");
 
-        token.set(ACCESS);
-        AtomicInteger downloadCalls = new AtomicInteger();
-        CloudApi downloadCloud = new CloudApi((method, path, headers, body) -> {
-            downloadCalls.incrementAndGet();
-            boolean refreshed = ("Bearer " + NEXT_ACCESS).equals(headers.get("Authorization"));
-            return new CloudApi.Exchange(refreshed ? 200 : 401, "application/json", null,
-                refreshed ? "{}".getBytes() : new byte[0]);
-        }, account, ignored -> "");
-        check(new CommunityCatalog(communityTestContext(), downloadCloud)
-                .recordDownload(syntheticSkin()) && downloadCalls.get() == 2,
-            "same login download retries once with refreshed token");
+        FakeCommunity download = new FakeCommunity();
+        JSONObject design = new JSONObject().put("background", 1);
+        download.answer = design;
+        CommunityCatalog.Download got = new CommunityCatalog(download).download(syntheticSkin());
+        check(!got.failed() && got.design() == design && download.fallbacks.get(0)
+                && "keyboard_skin_download".equals(download.actions.get(0).getString("operation")),
+            "getting a skin downloads Rust's design and may use the anonymous account");
+
+        FakeCommunity offline = new FakeCommunity();
+        offline.failure = "community_unavailable";
+        check(new CommunityCatalog(offline).download(syntheticSkin()).failed(),
+            "getting a skin fails without a download, so nothing is saved offline");
     }
 
     private void communityReportKeepsAnonymousRateLimit() throws Exception {
-        CloudApi cloud = new CloudApi((method, path, headers, body) -> {
-            throw new AssertionError("rate-limited identity must not send a report");
-        }, ignored -> "", rejected -> {
-            throw new BackendAnonymousAccount.RateLimited(60_000L);
-        });
-        String failure = new CommunityCatalog(communityTestContext(), cloud)
-            .report(syntheticSkin(), CommunityRequest.REPORT_REASONS.get(0), "");
-        check(failure.contains("操作较频繁"), "anonymous report retains rate-limit guidance");
+        FakeCommunity rust = new FakeCommunity();
+        rust.failure = "account_rate_limited";
+        String failure = new CommunityCatalog(rust).report(syntheticSkin(), CommunityRequest.REPORT_REASONS.get(0), "");
+        check(failure.contains("操作较频繁"), "a rate-limited anonymous registration keeps the rate-limit guidance");
     }
 
-    private static byte[] syntheticListingPage() throws Exception {
-        JSONObject root = new JSONObject().put("skins", new org.json.JSONArray()
-            .put(new JSONObject(new String(updatedSkin(), java.nio.charset.StandardCharsets.UTF_8))))
-            .put("has_more", false);
-        return root.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-    }
+    private void communityListingAsksRust() throws Exception {
+        FakeCommunity rust = new FakeCommunity();
+        rust.answer = syntheticListingPage();
+        CommunityCatalog.Page page = new CommunityCatalog(rust).list(CommunityRequest.Kind.SKIN, " 海 ", 20,
+            CommunityRequest.Category.GUOFENG);
+        check(!page.failed() && page.items().size() == 1, "a skin page from Rust is parsed");
+        JSONObject sent = rust.actions.get(0);
+        check("keyboard_skin_list".equals(sent.getString("operation")) && sent.getInt("offset") == 20
+                && "海".equals(sent.getString("search")) && "guofeng".equals(sent.getString("category"))
+                && !rust.fallbacks.get(0),
+            "the skin listing carries offset, trimmed search and category");
 
-    private CommunityCatalog syntheticListingCatalog(CloudApi.Tokens account,
-            CloudApi.Tokens anonymous, CloudApi.Transport listing) throws Exception {
-        CloudApi cloud = new CloudApi((method, path, headers, body) -> {
-            throw new AssertionError("listing must use its bounded transport");
-        }, account, anonymous);
-        return new CommunityCatalog(getTargetContext(), cloud, account, anonymous, listing);
-    }
-
-    private void communityListingUsesSyntheticTransport() throws Exception {
-        CloudApi.Tokens account = new CloudApi.Tokens() {
-            @Override public String token(String rejected) { return ACCESS; }
-            @Override public String sessionId() { return "synthetic-login-a"; }
-        };
-        CloudApi.Tokens anonymous = rejected -> "";
-        byte[] pageBody = syntheticListingPage();
-        AtomicInteger calls = new AtomicInteger();
-        CloudApi.Transport listing = (method, path, headers, body) -> {
-            calls.incrementAndGet();
-            check("GET".equals(method) && path.contains("include=category")
-                    && ("Bearer " + ACCESS).equals(headers.get("Authorization")),
-                "listing uses the selected account and category path");
-            return new CloudApi.Exchange(200, "application/json", null, pageBody);
-        };
-        CommunityCatalog catalog = syntheticListingCatalog(account, anonymous, listing);
-        CommunityCatalog.Page page = catalog.list(CommunityRequest.Kind.SKIN, "", 0, null);
-        check(!page.failed() && page.items().size() == 1 && calls.get() == 1,
-            "synthetic catalogue page is returned without contacting the backend");
+        FakeCommunity resources = new FakeCommunity();
+        resources.answer = new JSONObject().put("items", new org.json.JSONArray()).put("has_more", false);
+        CommunityCatalog.Page empty = new CommunityCatalog(resources).list(CommunityRequest.Kind.REPLY, "", -5, null);
+        JSONObject listed = resources.actions.get(0);
+        check(!empty.failed() && "resource_list".equals(listed.getString("operation"))
+                && "reply".equals(listed.getString("kind")) && "".equals(listed.getString("scope"))
+                && listed.getInt("offset") == 0 && !listed.has("category"),
+            "resources go to resource_list by kind, without categories");
     }
 
     private void communityListingRejectsNewLogin() throws Exception {
-        byte[] pageBody = syntheticListingPage();
-        for (int status : new int[] {401, 200}) {
-            AtomicReference<String> login = new AtomicReference<>("synthetic-login-a");
-            CloudApi.Tokens account = new CloudApi.Tokens() {
-                @Override public String token(String rejected) {
-                    return "synthetic-login-a".equals(login.get()) ? ACCESS : NEXT_ACCESS;
-                }
-                @Override public String sessionId() { return login.get(); }
-            };
-            AtomicInteger calls = new AtomicInteger();
-            CloudApi.Transport listing = (method, path, headers, body) -> {
-                calls.incrementAndGet();
-                login.set("synthetic-login-b");
-                return new CloudApi.Exchange(status, "application/json", null,
-                    status == 200 ? pageBody : new byte[0]);
-            };
-            CommunityCatalog.Page page = syntheticListingCatalog(account, ignored -> "", listing)
-                .list(CommunityRequest.Kind.SKIN, "", 0, null);
-            check(page.failed() && page.failure().contains("登录已切换") && calls.get() == 1,
-                "old catalogue page must not retry or display after a new login: " + status);
-        }
-    }
-
-    private void communityListingRetainsSameLoginAndPublicFallback() throws Exception {
-        byte[] pageBody = syntheticListingPage();
-        AtomicReference<String> token = new AtomicReference<>(ACCESS);
-        CloudApi.Tokens account = new CloudApi.Tokens() {
-            @Override public String token(String rejected) {
-                if (rejected != null) token.set(NEXT_ACCESS);
-                return token.get();
-            }
-            @Override public String sessionId() { return "synthetic-login-a"; }
-        };
-        AtomicInteger calls = new AtomicInteger();
-        CloudApi.Transport listing = (method, path, headers, body) -> {
-            calls.incrementAndGet();
-            boolean refreshed = ("Bearer " + NEXT_ACCESS).equals(headers.get("Authorization"));
-            return new CloudApi.Exchange(refreshed ? 200 : 401, "application/json", null,
-                refreshed ? pageBody : new byte[0]);
-        };
-        CommunityCatalog.Page refreshed = syntheticListingCatalog(account, ignored -> "", listing)
-            .list(CommunityRequest.Kind.SKIN, "", 0, null);
-        check(!refreshed.failed() && refreshed.items().size() == 1 && calls.get() == 2,
-            "same login listing retries once with refreshed token");
-
-        CloudApi.Tokens unavailable = rejected -> {
-            throw new IllegalStateException("synthetic identity unavailable");
-        };
-        CloudApi.Transport publicListing = (method, path, headers, body) -> {
-            check(!headers.containsKey("Authorization"), "public listing omits bearer token");
-            return new CloudApi.Exchange(200, "application/json", null, pageBody);
-        };
-        CommunityCatalog.Page publicPage = syntheticListingCatalog(unavailable, unavailable, publicListing)
-            .list(CommunityRequest.Kind.SKIN, "", 0, null);
-        check(!publicPage.failed() && publicPage.items().size() == 1,
-            "catalogue remains readable without identity endpoints");
+        FakeCommunity rust = new FakeCommunity();
+        rust.answer = syntheticListingPage();
+        rust.afterCall = "synthetic-login-b";
+        CommunityCatalog.Page page = new CommunityCatalog(rust).list(CommunityRequest.Kind.SKIN, "", 0, null);
+        check(page.failed() && page.failure().contains("登录已切换"),
+            "an old catalogue page must not display after a new login");
+        FakeCommunity failing = new FakeCommunity();
+        failing.failure = "community_unavailable";
+        CommunityCatalog.Page down = new CommunityCatalog(failing).list(CommunityRequest.Kind.SKIN, "", 0, null);
+        check(down.failed() && down.failure().contains("连不上社区"), "an unavailable community says so");
     }
 
     private void candidateTranslationUsesSyntheticTransport() throws Exception {
@@ -693,19 +563,17 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
             stage = "community category old login";
             communityCategoryRejectsNewLogin();
             stage = "community category same login";
-            communityCategoryRetriesWithinTheSameLogin();
+            communityCategoryWithinTheSameLogin();
             stage = "community writes old login";
             communityWritesRejectNewLogin();
             stage = "community writes same login";
-            communityWritesRetryWithinTheSameLogin();
+            communityWritesWithinTheSameLogin();
             stage = "community report rate limit";
             communityReportKeepsAnonymousRateLimit();
-            stage = "community listing synthetic transport";
-            communityListingUsesSyntheticTransport();
+            stage = "community listing through Rust";
+            communityListingAsksRust();
             stage = "community listing old login";
             communityListingRejectsNewLogin();
-            stage = "community listing same login and public";
-            communityListingRetainsSameLoginAndPublicFallback();
             stage = "candidate translation synthetic transport";
             candidateTranslationUsesSyntheticTransport();
             stage = "candidate translation old login";

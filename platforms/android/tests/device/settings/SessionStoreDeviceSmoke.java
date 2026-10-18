@@ -130,6 +130,99 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
             "account_invalid");
         expectError(callRaw("aiSkinGenerateRaw", new Class<?>[] {byte[].class, progress}, bytes(new JSONObject()), null),
             "ai_skin_invalid");
+
+        settingsPageRequests(delta, progress);
+    }
+
+    /**
+     * 5c 起设置页面经 Rust 发的那几种请求（#8201 迁移计划）：用一份没有任何会话的内存存储，Rust 在联网之前就按请求的形状作答——形状不对是「请求不合法」，形状对了是没有会话（account_unauthorized、community_unauthorized）。所以这里不联网，核对的是页面拼的请求 Rust 认得，以及页面在本机先做的那几项检查与 Rust 的上限一致。
+     */
+    private void settingsPageRequests(Class<?> delta, Class<?> progress) throws Exception {
+        long empty = register(new MemoryStore(false), null);
+        ClassLoader loader = client.getClassLoader();
+
+        // 流式对话：Rust 要求带 model，所以对话页先读 chat_models 的 defaultModel。
+        JSONArray messages = new JSONArray().put(new JSONObject().put("role", "system").put("content", "合成提示"))
+            .put(new JSONObject().put("role", "user").put("content", "shuishan"));
+        JSONObject chat = new JSONObject().put("session_store", empty).put("request_id", "synthetic-chat")
+            .put("messages", messages);
+        expectError(callRaw("accountChatStreamRaw", new Class<?>[] {byte[].class, delta}, bytes(chat), null),
+            "account_invalid");
+        expectError(callRaw("accountChatStreamRaw", new Class<?>[] {byte[].class, delta},
+            bytes(new JSONObject(chat.toString()).put("model", "synthetic-model")), null), "account_unauthorized");
+
+        // AI 皮肤：页面查过的描述 Rust 也收；没有会话时是 account_unauthorized，RustAccount 据此先注册匿名账号。
+        Class<?> skins = loader.loadClass("app.msime.android.SkinJobsApi");
+        String prompt = "秋天的银杏";
+        check((boolean) skins.getMethod("validPrompt", String.class).invoke(null, prompt), "page accepts the prompt");
+        expectError(callRaw("aiSkinGenerateRaw", new Class<?>[] {byte[].class, progress}, bytes(new JSONObject()
+            .put("session_store", empty).put("request_id", "synthetic-skin").put("prompt", prompt)), null),
+            "account_unauthorized");
+
+        // 删除云端数据：页面的分区表（含 voice）Rust 全认；不认识的分区是 account_invalid。
+        @SuppressWarnings("unchecked")
+        java.util.List<String> sections = (java.util.List<String>) loader.loadClass("app.msime.android.DeviceDataApi")
+            .getField("DELETABLE_SECTIONS").get(null);
+        expectError(call("accountRaw", new JSONObject().put("session_store", empty).put("action", new JSONObject()
+            .put("operation", "data_delete").put("sections", new JSONArray(sections)))), "account_unauthorized");
+        expectError(call("accountRaw", new JSONObject().put("session_store", empty).put("action", new JSONObject()
+            .put("operation", "data_delete").put("sections", new JSONArray().put("synthetic")))), "account_invalid");
+
+        // 诊断上传：与开发者选项拼的 bundle 同形；一类都没勾时 Rust 不读文件就拒绝。
+        java.io.File root = new java.io.File(getTargetContext().getCacheDir(), "synthetic-diagnostics-upload");
+        if (!root.isDirectory() && !root.mkdirs()) throw new AssertionError("diagnostics directory");
+        JSONObject sources = new JSONObject().put("crash_logs", JSONObject.NULL)
+            .put("performance_logs", JSONObject.NULL).put("input_events", JSONObject.NULL);
+        JSONObject upload = new JSONObject().put("operation", "diagnostics_upload").put("platform", "android")
+            .put("app_version", "1.2.3").put("ttl", "one_day").put("bundle", new JSONObject()
+                .put("state_root", root.getAbsolutePath()).put("sources", sources).put("include", new JSONObject()
+                    .put("crash_logs", true).put("performance_logs", false).put("input_events", false)
+                    .put("config_snapshot", false)));
+        expectError(call("accountRaw", new JSONObject().put("session_store", empty).put("action", upload)),
+            "account_unauthorized");
+        upload.getJSONObject("bundle").getJSONObject("include").put("crash_logs", false);
+        expectError(call("accountRaw", new JSONObject().put("session_store", empty).put("action", upload)),
+            "account_invalid");
+
+        // 反馈截图：Rust 只读文件头和尺寸，单边超过 8192 是 account_too_large；FeedbackApi.fitsRust 在同一处划线。
+        Method fits = loader.loadClass("app.msime.android.FeedbackApi")
+            .getMethod("fitsRust", long.class, int.class, int.class);
+        for (int width : new int[] {8192, 8193}) {
+            java.io.File shot = new java.io.File(root, "synthetic-" + width + ".jpg");
+            android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(width, 1,
+                android.graphics.Bitmap.Config.ARGB_8888);
+            try (java.io.OutputStream output = new java.io.FileOutputStream(shot)) {
+                check(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, output), "synthetic screenshot");
+            } finally {
+                bitmap.recycle();
+            }
+            boolean fitsJava = (boolean) fits.invoke(null, shot.length(), width, 1);
+            byte[] answer = call("accountRaw", new JSONObject().put("session_store", empty).put("action", new JSONObject()
+                .put("operation", "feedback").put("type", "bug").put("text", "合成反馈").put("platform", "android")
+                .put("app_version", "1.2.3").put("edition", "full")
+                .put("screenshots", new JSONArray().put(shot.getAbsolutePath()))));
+            expectError(answer, fitsJava ? "account_unauthorized" : "account_too_large");
+            check(fitsJava == (width <= 8192), "the page and Rust draw the screenshot edge at the same place: " + width);
+            if (!shot.delete()) shot.deleteOnExit();
+        }
+        if (!root.delete()) root.deleteOnExit();
+
+        // 社区：下载皮肤没有任何会话时是 community_unauthorized，RustAccount 据此注册匿名账号再试；举报的原因不在固定的几条里是 community_invalid。
+        String skin = "10000000-0000-4000-8000-000000000001";
+        expectError(call("communityRaw", new JSONObject().put("session_store", empty).put("action", new JSONObject()
+            .put("operation", "keyboard_skin_download").put("id", skin))), "community_unauthorized");
+        expectError(call("communityRaw", new JSONObject().put("session_store", empty).put("action", new JSONObject()
+            .put("operation", "report").put("kind", "skins").put("id", skin).put("reason", "合成原因"))),
+            "community_invalid");
+
+        // 云剪贴板不涉及内容的操作：没有登录时是 account_unauthorized，保留时长只认 0、1、7、30。
+        expectError(call("accountCloudClipboardRaw", new JSONObject().put("session_store", empty)
+            .put("action", new JSONObject().put("operation", "set_retention").put("days", 7))), "account_unauthorized");
+        expectError(call("accountCloudClipboardRaw", new JSONObject().put("session_store", empty)
+            .put("action", new JSONObject().put("operation", "set_retention").put("days", 3))), "invalid_cloud_clipboard");
+
+        check(value(callRaw("sessionStoreUnregisterRaw", new Class<?>[] {long.class}, empty)).getBoolean("value"),
+            "unregister of the empty store");
     }
 
     /**
