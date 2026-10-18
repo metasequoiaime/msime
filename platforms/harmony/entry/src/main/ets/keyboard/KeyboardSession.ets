@@ -772,6 +772,19 @@ export interface PrepareRequest {
   edition?: string;
 }
 
+/** 词库更新状态与后台下载（`dictionary` 的 `updates`）交给 `client.dictionary` 的引擎选项，字段名与 Rust 的选项相同；ArkTS 不允许无类型的对象字面量，所以单独声明。没有语言词库目录时不带 `language_dictionaries`。 */
+interface DictionaryUpdateOptions {
+  api_version: number;
+  resources: string;
+  preferences_directory: string;
+  user_data: string;
+  cache: string;
+  dictionaries: string;
+  preferences: Record<string, Object>;
+  edition: string;
+  language_dictionaries?: string;
+}
+
 interface SnapshotQueueProcessAction {
   operation: string;
   directory: string;
