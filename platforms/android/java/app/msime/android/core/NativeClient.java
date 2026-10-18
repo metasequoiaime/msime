@@ -474,6 +474,41 @@ public final class NativeClient {
         resourcePackCancelRaw(pack == null ? null : pack.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * 注入给 Rust 的会话存储（{@code msime_client_session_store}）的 Java 一侧：只提供字节，编解码、布局、校验和刷新都在 Rust。只在主进程里注册一次，同一份存储注册两次会各自缓存会话、拿同一个会轮换的刷新令牌各刷新一次。
+     *
+     * <p>Rust 可能在任意线程上并发调用这三个方法，包括 Rust 自己起的线程；方法里不能再调 NativeClient 的账号与云端入口，也不能等待账号刷新。抛出的异常按失败处理，在 JNI 一侧清掉，不会抛给调用 Rust 的那一方。
+     */
+    public interface SessionStore {
+        /** 登录会话。 */
+        int ITEM_ACCOUNT = 1;
+        /** 云剪贴板密钥串，属于登录会话，清掉登录会话时一起删除。 */
+        int ITEM_CLIPBOARD_KEYSTORE = 2;
+        /** 本机匿名账号的会话。 */
+        int ITEM_ANONYMOUS = 3;
+        /** 匿名账号的身份，save 是「不存在才写」。 */
+        int ITEM_ANONYMOUS_IDENTITY = 4;
+
+        /** 该项最后一次成功写入的字节；不存在时返回 null，空数组也按不存在处理。比 Rust 给的上限（会话和身份 65536 字节，密钥串 4096 字节）长的按失败处理。 */
+        byte[] load(int item);
+
+        /** 原子地整体替换该项，返回 0 是已写入。{@link #ITEM_ANONYMOUS_IDENTITY} 已经有值时不覆盖、返回 1。其他返回值是失败。 */
+        int save(int item, byte[] bytes);
+
+        /** 删掉该项，不存在也算成功：返回 0 是成功，其他值是失败。 */
+        int remove(int item);
+    }
+
+    /** 流式对话的一段增量（UTF-8，不会把一个字符拆在两段里），在调用流式对话的那个工作线程上按到达顺序收到。可以在这里取消那次对话；抛出异常以后不再收到增量，对话照常进行到结束，然后异常抛给调用方。 */
+    public interface ChatDelta {
+        void onDelta(byte[] text);
+    }
+
+    /** AI 皮肤每画完一张插画收到一次，completed 从 1 到 3，在调用生成的那个工作线程上。可以在这里取消那次生成；抛出异常时的处理与 {@link ChatDelta} 相同。 */
+    public interface AiSkinProgress {
+        void onProgress(int completed);
+    }
+
     /** 本地语音模型安装的进度：{@code {id, stage, downloaded, total}} 的 JSON 字节，stage 是 "download"（从本地文件安装时是 "import"）、"verify"、"extract" 或 "done"。在调用 {@link #voiceLocalModelInstall} 的工作线程上调用；不要在这里抛异常或做耗时的事。 */
     public interface LocalModelProgress {
         void onProgress(byte[] json);
@@ -962,6 +997,23 @@ public final class NativeClient {
     private static native void localSpeechDestroyRaw(long handle);
     private static native int localSpeechReleaseRaw(long idleMillis);
     private static native byte[] destroyRaw(long session);
+    // 账号与云端（#8201）：会话由 Rust 持有，经 SessionStore 注入的存储读写；Java 的调用方随后几组提交接上。
+    private static native byte[] sessionStoreRegisterRaw(SessionStore store, byte[] clientAgent);
+    private static native byte[] sessionStoreUnregisterRaw(long sessionStore);
+    private static native byte[] clientAgentRaw(byte[] request);
+    private static native byte[] accountRaw(byte[] request);
+    private static native byte[] accountAccessTokenRaw(byte[] request);
+    private static native byte[] accountCloudClipboardRaw(byte[] request);
+    private static native byte[] accountChatStreamRaw(byte[] request, ChatDelta listener);
+    private static native byte[] accountChatCancelRaw(byte[] request);
+    private static native byte[] accountGlossRaw(byte[] request);
+    private static native byte[] communityRaw(byte[] request);
+    private static native byte[] aiSkinGenerateRaw(byte[] request, AiSkinProgress listener);
+    private static native byte[] aiSkinCancelRaw(byte[] request);
+    private static native byte[] aiSkinJobRaw(byte[] request);
+    private static native byte[] cloudDictionaryRaw(byte[] request);
+    private static native byte[] snapshotQueueRaw(byte[] request);
+    private static native byte[] cloudSyncRaw(byte[] request);
 
     private static final Pattern TYPE = Pattern.compile("\\\"type\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
     private static final Pattern RECORDS = Pattern.compile("(\\\"records\\\"\\s*:\\s*)\\d+");

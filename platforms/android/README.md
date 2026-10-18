@@ -68,7 +68,9 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 底栏不画的设备（系统自己画输入法按钮的、Android 11 及以前、三键导航）可以在同一处打开「底部留白」（本地设置 `platform.android.bottom_padding`，布尔，默认关，只在本机，#6392）：键盘列的底部内边距再加一段 40 dp 的空白，把底行键抬离屏幕底边。底栏画着时不叠加；浮动键盘、外接键盘收起键区和手机横屏时不垫（`KeyboardBottomBarPolicy.paddingShown`）。
 
-`check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg、Rust Android 目标和固定的语音运行时，这一步都不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
+`check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 和 `native/JniCallbacks.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg、Rust Android 目标和固定的语音运行时，这一步都不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
+
+注入给 Rust 的会话存储（`NativeClient.SessionStore`，#8201）和流式对话、AI 皮肤的 listener 回调进 Java 的那一半在 `native/JniCallbacks.cpp`，不依赖 `msime_client_*` 的导出：`JNI_OnLoad` 记下 JavaVM，回调在没有 attach 的线程上（Rust 自己起的线程）先 attach、返回前 detach，Java 抛出的异常清掉后按失败返回。模拟器上造不出没有 attach 的线程，所以 `check-host.sh` 用 JDK 的 JNI 调用接口起一个带 `-Xcheck:jni` 的 JVM，经 `tests/native/JniCallbacksTest.cpp` 直接驱动它；没有 JDK 头文件、libjvm 或宿主 C++ 编译器时跳过并说明。经真实 Rust 的那一半由设备冒烟 `SessionStoreDeviceSmoke` 覆盖。
 
 宿主 Java 以 API 35 的 `android.jar` 编译，而 manifest 声明 minSdk 28，因此比真实 APK 构建宽松；`Files.readString`/`writeString` 属于 API 34，本宿主不使用，`check-host.sh` 对这两个方法有定向检查，其余 API 级别问题仍由 Gradle lint 覆盖。`scripts/verify-local.sh` 另有 `compile: android target` 阶段，在固定 NDK、Rust `aarch64-linux-android` 目标与 vcpkg 依赖前缀齐备时检查 `msime-desktop` 的 Android 分支；宿主的 `cargo check --workspace` 只覆盖宿主目标。
 

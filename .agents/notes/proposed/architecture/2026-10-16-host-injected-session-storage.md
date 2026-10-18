@@ -77,6 +77,7 @@ provider 的 HTTP worker 只剩候选、AI 和第三方翻译路径；它们没�
 - [鸿蒙设置应用与键盘扩展经共享沙箱镜像交换数据](../../implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md)：部分重叠。鸿蒙的会话在 ArkTS 里、两个进程沙箱分开，是它不走注入、改为整端切到目录模式的背景之一。
 - [iOS 原生应用的自动云同步](../../implemented/feature/2026-10-12-ios-automatic-cloud-sync.md)：与本篇无关；同步编排收进 Rust 的决定见下一条。
 - [多分类自动云同步的编排收进 Rust](2026-10-16-cloud-sync-orchestration-in-rust.md)：部分重叠。同步的 C 入口沿用这里的会话来源和 `session_store` 字段。
+- [Android 的会话存储经 JNI 注入，回调胶水在桌面 JVM 上验证](../../implemented/architecture/2026-10-18-android-session-store-jni.md)：部分重叠。Android 实现这里的 JNI 回调契约（缓存 `JavaVM`、attach 与 detach、清异常），下面「风险」里只能在 Android 迁移时验证的那一条改由 `check-host.sh` 在桌面 JVM 上验证。
 - [Apple 宿主经一张函数表调用 Rust，会话存储由 Swift 注入](../../implemented/architecture/2026-10-18-apple-rust-client-table.md)：部分重叠。macOS 与 iOS 实现这里的回调契约（钥匙串和 App Group 的位置、锁文件、失败不当作不存在），以及 Swift 怎样在不链接 Rust 的 dylib 和 `swift test` 里拿到这些 C 入口。
 - [旧账号会话迁移不覆盖新登录](../../implemented/bug-fix/2026-10-13-account-session-migration-no-clobber.md)：无关；匿名身份的「不存在才写」沿用的是同一种 no-clobber 思路，但那篇只管目录间的会话迁移。
 

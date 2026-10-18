@@ -57,7 +57,7 @@ else
 fi
 "$compiler++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-soname,libmsime_android.so \
-  platforms/android/native/client_jni.cpp shared/voice/LocalAsr.cpp \
+  platforms/android/native/client_jni.cpp platforms/android/native/JniCallbacks.cpp shared/voice/LocalAsr.cpp \
   -Icrates/host-api/include -Ishared -Ishared/voice/third_party -I"$deps/$triplet/include" \
   -L"$output" -lmsime_host_api -ldl -o "$output/libmsime_android.so"
 bash platforms/android/verify-native.sh "$toolchain/bin/llvm-readelf" "$output" "$abi"

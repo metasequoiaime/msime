@@ -23,7 +23,7 @@ if [[ ! -f "$android_jar" ]]; then
   exit 1
 fi
 output_dir=$(mktemp -d)
-trap 'rm -f "$output_dir/manifest.apk" "$output_dir/resources.zip"; find "$output_dir" -name "*.class" -delete; find "$output_dir" -depth -type d -empty -delete' EXIT
+trap 'rm -f "$output_dir/manifest.apk" "$output_dir/resources.zip" "$output_dir/jni-callbacks/jni-callbacks-test"; find "$output_dir" -name "*.class" -delete; find "$output_dir" -depth -type d -empty -delete' EXIT
 # Command 9 was unmapped when this guard was added; it is now Action::Finish in
 # crates/host-api/src/ffi/input.rs, and the declined-punctuation path needs it.
 # What must not come back is the literal, which is how the unmapped call got in.
@@ -979,10 +979,43 @@ jni_compiler="$ndk/toolchains/llvm/prebuilt/$host_tag/bin/aarch64-linux-android2
 if [[ -n "$host_tag" && -x "$jni_compiler" ]]; then
   "$jni_compiler" -std=c++20 -fsyntax-only -Wall -Werror \
     -I"$repo_root/crates/host-api/include" -I"$repo_root/shared" \
-    "$repo_root/platforms/android/native/client_jni.cpp"
-  echo "client_jni.cpp: aarch64-linux-android compile against the shared header passed"
+    "$repo_root/platforms/android/native/client_jni.cpp" \
+    "$repo_root/platforms/android/native/JniCallbacks.cpp"
+  echo "client_jni.cpp, JniCallbacks.cpp: aarch64-linux-android compile against the shared header passed"
 else
   echo "client_jni.cpp: skipped (pinned NDK 28.2.13676358 not installed)"
+fi
+# 会话存储和 listener 的回调进 Java 的那一半（native/JniCallbacks.cpp）只能在真的 JVM 上验：没 attach 的线程要自己 attach、返回前 detach，本来就 attach 着的线程不能被它 detach，Java 抛出的异常要清掉、不留给调用 Rust 的一方，release 要放掉全局引用。模拟器上的设备冒烟造不出没 attach 的线程（Rust 在自己的线程上回调存储，例如 AI 皮肤出图遇到 401 时刷新令牌，离线的设备测试触发不了），所以这里用 JDK 的 JNI 调用接口起一个带 -Xcheck:jni 的 JVM 直接驱动它，-Xcheck:jni 报出的 WARNING 也算失败。没有 JDK 头文件、libjvm 或宿主 C++ 编译器的机器跳过并说明。
+java_home=$(java -XshowSettings:properties -version 2>&1 | sed -n 's/^ *java\.home = //p' | head -n 1)
+case $(uname -s) in
+  Darwin) jni_platform=darwin; libjvm=libjvm.dylib ;;
+  Linux) jni_platform=linux; libjvm=libjvm.so ;;
+  *) jni_platform=""; libjvm="" ;;
+esac
+host_cxx=${CXX:-c++}
+if [[ -n "$jni_platform" && -n "$java_home" && -f "$java_home/include/jni.h" && -f "$java_home/lib/server/$libjvm" ]] \
+    && command -v "$host_cxx" >/dev/null 2>&1; then
+  jni_test_dir="$output_dir/jni-callbacks"
+  mkdir -p "$jni_test_dir"
+  javac --release 17 -Xlint:all -Werror -d "$jni_test_dir" "$repo_root/platforms/android/tests/native/JniCallbacksFixture.java"
+  "$host_cxx" -std=c++17 -Wall -Wextra -Werror -pthread \
+    -I"$java_home/include" -I"$java_home/include/$jni_platform" \
+    "$repo_root/platforms/android/tests/native/JniCallbacksTest.cpp" \
+    "$repo_root/platforms/android/native/JniCallbacks.cpp" \
+    -L"$java_home/lib/server" -ljvm -Wl,-rpath,"$java_home/lib/server" \
+    -o "$jni_test_dir/jni-callbacks-test"
+  jni_test_output=$("$jni_test_dir/jni-callbacks-test" "$jni_test_dir" 2>&1) || {
+    printf '%s\n' "$jni_test_output" >&2
+    echo "JniCallbacks.cpp failed on the desktop JVM" >&2
+    exit 1
+  }
+  printf '%s\n' "$jni_test_output"
+  if [[ "$jni_test_output" == *WARNING* ]]; then
+    echo "JniCallbacks.cpp: -Xcheck:jni reported a JNI misuse" >&2
+    exit 1
+  fi
+else
+  echo "JniCallbacks.cpp: desktop JVM check skipped (no JDK headers and libjvm, or no host C++ compiler)"
 fi
 # This script compiles against API 35 while the manifest declares minSdk 28, so a
 # newer java.nio API passes here and only fails in the real APK build. These two

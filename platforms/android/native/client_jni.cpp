@@ -1,6 +1,8 @@
 #include <jni.h>
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
+// 会话存储和 listener 回调进 Java 的那一半（JNI_OnLoad 记下的 JavaVM、attach 与 detach、异常清理）。
+#include "JniCallbacks.h"
 // The polish presets carry their own prompt-injection wording, and there are already four copies
 // of that text in this repository. This host reads the shared one rather than adding a fifth.
 #include "voice/PolishPrompt.h"
@@ -176,6 +178,11 @@ constexpr jsize kPolishPromptCustomLimit = 8192;
 }
 
 extern "C" {
+// 注入的会话存储的回调可能在 Rust 自己起的线程上发生，那里要经 JavaVM 取 env，所以加载时记下它。
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
+    msime::android::remember_java_vm(vm);
+    return JNI_VERSION_1_6;
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_loadPreferencesRaw(JNIEnv *env, jclass, jbyteArray directory) {
     return bounded_request(env, directory, kLoadPreferencesDirectoryLimit, msime_client_load_preferences);
 }
@@ -1032,6 +1039,50 @@ void local_model_progress(const uint8_t *json, size_t length, void *context) {
     progress->env->CallVoidMethod(progress->listener, progress->method, bytes);
     progress->env->DeleteLocalRef(bytes);
 }
+
+// 账号与云端入口（#8201）的请求上限，与 msime_client.h 写明的一致。
+constexpr jsize kClientAgentRequestLimit = 16384;
+// msime_client_session_store 的 client_agent 最多 256 字节（不含结尾的 NUL）。
+constexpr jsize kSessionStoreClientAgentLimit = 256;
+constexpr jsize kAccountRequestLimit = 4 * 1024 * 1024;
+constexpr jsize kAccountAccessTokenRequestLimit = 16384;
+constexpr jsize kAccountCloudClipboardRequestLimit = 131072;
+constexpr jsize kAccountChatStreamRequestLimit = 1 * 1024 * 1024;
+// 流式对话和 AI 皮肤的取消请求只有 {request_id}。
+constexpr jsize kCancelRequestLimit = 4096;
+constexpr jsize kAccountGlossRequestLimit = 4 * 1024 * 1024;
+// 其余社区操作是 4 MiB，只有 keyboard_skin_publish 可以到 9,000,000 字节（设计里可能带着照片背景），按操作区分由 Rust 做。
+constexpr jsize kCommunityRequestLimit = 9000000;
+constexpr jsize kAiSkinRequestLimit = 65536;
+constexpr jsize kCloudDictionaryRequestLimit = 4 * 1024 * 1024;
+constexpr jsize kSnapshotQueueRequestLimit = 1 * 1024 * 1024;
+constexpr jsize kCloudSyncRequestLimit = 4 * 1024 * 1024;
+
+// 带 listener 的宿主调用（流式对话、AI 皮肤）：与 bounded_request 相同地先查长度，listener 在本线程上收到回调。listener 抛出的异常调用结束后原样抛给 Java，这次的结果丢掉、返回 null。
+template <typename Call> jbyteArray bounded_listener_request(JNIEnv *env, jbyteArray request, jsize limit,
+                                                             msime::android::ListenerCall &listener, Call call) {
+    char *result = nullptr;
+    if (!request || env->GetArrayLength(request) > limit) {
+        result = call(nullptr, 0);
+    } else {
+        const jsize length = env->GetArrayLength(request);
+        jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+        if (!bytes) return nullptr;
+        result = call(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+        env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    }
+    if (msime::android::listener_finish(listener)) {
+        msime::host_api::discard_string(result);
+        return nullptr;
+    }
+    return response(env, result);
+}
+
+// msime_client_session_store_register 的回答是不是成功：失败时 Rust 没有接管 context，要由这里释放。信封是 serde_json 紧凑输出的 {"ok":true,"value":...}。
+bool session_store_registered(const char *result) {
+    static constexpr char kSuccess[] = "{\"ok\":true,";
+    return result && std::strncmp(result, kSuccess, sizeof(kSuccess) - 1) == 0;
+}
 } // namespace
 
 extern "C" {
@@ -1172,6 +1223,102 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_testApiCredenti
 // AI 辅助接口地址的规则在 Rust：{origin, problem, hint}，不做 I/O，上限与头文件写明的 64 KiB 一致。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiEndpointCheckRaw(JNIEnv *env, jclass, jbyteArray endpoint) {
     return bounded_request(env, endpoint, kAiEndpointCheckLimit, msime_client_ai_endpoint_check);
+}
+// ---- 账号与云端（#8201）：会话由 Rust 持有，Java 只经 NativeClient.SessionStore 提供字节 ----
+// 注册一份会话存储，Value 是 {session_store: id}。只在主进程里注册一次：布局 0（Native SavedAccountSession，Java 现有的 v2 会话就是它），flags 为 0、不给 lock 和 unlock，因为 SharedPreferences 跨进程不满足 SHARED 的要求（头文件），:ime 进程不注册、经 AccountSessionProvider 取令牌。clientAgent 可以为 null；超过 256 字节、为空或含 NUL 时交给 Rust 以空描述符拒绝（invalid_session_store），免得 Rust 读到 NUL 就停、把截断的那一段当成合法的。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_sessionStoreRegisterRaw(JNIEnv *env, jclass, jobject store, jbyteArray clientAgent) {
+    if (!store) return response(env, msime_client_session_store_register(nullptr));
+    std::string agent;
+    if (clientAgent) {
+        const jsize length = env->GetArrayLength(clientAgent);
+        if (length <= 0 || length > kSessionStoreClientAgentLimit) {
+            return response(env, msime_client_session_store_register(nullptr));
+        }
+        agent.resize(static_cast<size_t>(length));
+        env->GetByteArrayRegion(clientAgent, 0, length, reinterpret_cast<jbyte *>(agent.data()));
+        if (env->ExceptionCheck()) return nullptr;
+        if (agent.find('\0') != std::string::npos) return response(env, msime_client_session_store_register(nullptr));
+    }
+    void *context = msime::android::session_store_create(env, store);
+    if (!context) return nullptr;
+    msime_client_session_store descriptor{};
+    descriptor.version = MSIME_CLIENT_SESSION_STORE_VERSION;
+    descriptor.layout = 0;
+    descriptor.flags = 0;
+    descriptor.client_agent = clientAgent ? agent.c_str() : nullptr;
+    descriptor.context = context;
+    descriptor.load = msime::android::session_store_load;
+    descriptor.save = msime::android::session_store_save;
+    descriptor.remove = msime::android::session_store_remove;
+    descriptor.lock = nullptr;
+    descriptor.unlock = nullptr;
+    descriptor.release = msime::android::session_store_release;
+    char *result = msime_client_session_store_register(&descriptor);
+    if (!session_store_registered(result)) msime::android::session_store_release(context);
+    return response(env, result);
+}
+// Value 是这个 id 是否曾经注册。最后一次进行中的调用结束时 Rust 调用 release，放掉 Java 对象的全局引用，可能就在本次调用里。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_sessionStoreUnregisterRaw(JNIEnv *env, jclass, jlong sessionStore) {
+    return response(env, msime_client_session_store_unregister(sessionStore > 0 ? static_cast<uint64_t>(sessionStore) : 0));
+}
+// 下面这些都会阻塞网络或读写文件，只在工作线程上调用；会话存储的回调可能在本线程上发生，也可能在 Rust 自己的线程上。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_clientAgentRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kClientAgentRequestLimit, msime_client_client_agent);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kAccountRequestLimit, msime_client_account);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountAccessTokenRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kAccountAccessTokenRequestLimit, msime_client_account_access_token);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountCloudClipboardRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kAccountCloudClipboardRequestLimit, msime_client_account_cloud_clipboard);
+}
+// listener 可以为 null；不为 null 时在本线程上依次收到 onDelta(byte[])（UTF-8，不会把一个字符拆在两段里），可以在里面调 accountChatCancelRaw。listener 抛出异常后不再收到增量，对话照常进行到结束（要早点停就自己取消），然后异常原样抛给调用方。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountChatStreamRaw(JNIEnv *env, jclass, jbyteArray request, jobject listener) {
+    msime::android::ListenerCall call;
+    if (!msime::android::listener_begin(env, listener, "onDelta", "([B)V", call)) return nullptr;
+    return bounded_listener_request(env, request, kAccountChatStreamRequestLimit, call, [&](const uint8_t *bytes, size_t length) {
+        return msime_client_account_chat_stream(bytes, length,
+            listener ? msime::android::chat_delta : nullptr, listener ? &call : nullptr);
+    });
+}
+// 任何线程都可以调用，立即返回。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountChatCancelRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCancelRequestLimit, msime_client_account_chat_cancel);
+}
+// 账号释义的 sans-IO 一半（request/parse），不联网、不读会话，:ime 进程也可以用。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountGlossRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kAccountGlossRequestLimit, msime_client_account_gloss);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_communityRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCommunityRequestLimit, msime_client_community);
+}
+// listener 可以为 null；不为 null 时在本线程上收到 onProgress(int)，completed 从 1 到 3，可以在里面调 aiSkinCancelRaw。listener 抛出异常后的处理与 accountChatStreamRaw 相同。最长约 5 分钟。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiSkinGenerateRaw(JNIEnv *env, jclass, jbyteArray request, jobject listener) {
+    msime::android::ListenerCall call;
+    if (!msime::android::listener_begin(env, listener, "onProgress", "(I)V", call)) return nullptr;
+    return bounded_listener_request(env, request, kAiSkinRequestLimit, call, [&](const uint8_t *bytes, size_t length) {
+        return msime_client_ai_skin_generate(bytes, length,
+            listener ? msime::android::ai_skin_progress : nullptr, listener ? &call : nullptr);
+    });
+}
+// 任何线程都可以调用，立即返回。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiSkinCancelRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCancelRequestLimit, msime_client_ai_skin_cancel);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiSkinJobRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kAiSkinRequestLimit, msime_client_ai_skin_job);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudDictionaryRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCloudDictionaryRequestLimit, msime_client_cloud_dictionary);
+}
+// 磁盘上的快照队列（含 import_android_v1 把旧版 Java 队列就地转过来）。两个进程都可以调用，队列自己在 state.lock 的 flock 里排斥。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotQueueRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kSnapshotQueueRequestLimit, msime_client_snapshot_queue);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudSyncRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCloudSyncRequestLimit, msime_client_cloud_sync);
 }
 // 按需下载的资源包（msime_client.h 里 msime_client_resource_pack_* 一节）。列出只读几个文件属性；安装和收编阻塞，只在主进程的工作线程上调用。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePacksRaw(JNIEnv *env, jclass, jbyteArray request) {
