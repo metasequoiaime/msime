@@ -1947,3 +1947,10 @@ export {
 export { useEmojiPanel, type EmojiPanelState, type EmojiPage } from "./keyboard/use-emoji-panel";
 
 export { useKeyboardPanel, type KeyboardPanelState } from "./keyboard/use-keyboard-panel";
+
+export {
+  isKeyboardLetter,
+  keyboardKeyLabel,
+  type KeyboardKey,
+  type Modifier,
+} from "./keyboard/keyboard-input";

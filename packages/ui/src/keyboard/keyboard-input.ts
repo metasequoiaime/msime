@@ -19,6 +19,16 @@ export const modifier = (label: Modifier, virtualKey: number): KeyboardKey => ({
   modifier: label,
 });
 
+export function isKeyboardLetter(key: KeyboardKey) {
+  return key.label.length === 1 && /[a-z]/i.test(key.label);
+}
+
+export function keyboardKeyLabel(key: KeyboardKey, shifted: boolean) {
+  return shifted
+    ? key.shifted || (isKeyboardLetter(key) ? key.label.toUpperCase() : key.label)
+    : key.label;
+}
+
 export function modifierPrefix(modifiers: Set<Modifier>) {
   return ["Ctrl", "Alt", "Win", "Shift"]
     .filter((value) => modifiers.has(value as Modifier))

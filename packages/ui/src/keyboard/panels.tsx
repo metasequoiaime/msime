@@ -32,7 +32,7 @@ import * as surface from "./panel-surface-style";
 import { StatusMessage } from "../core/status-message";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import { useMountedRef } from "../settings/use-mounted-ref";
-import { keyboardKeyWeight } from "./keyboard-input";
+import { keyboardKeyLabel, keyboardKeyWeight } from "./keyboard-input";
 import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import type { NineKeyShuangpinKeyFace } from "../settings/nine-key-shuangpin-profile";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
@@ -184,12 +184,8 @@ export function KeyboardPanel({
           {rows.map((row, rowIndex) => (
             <div className={surface.keyboardRow} data-keyboard-row="" key={rowIndex}>
               {row.map((keyToRender, keyIndex) => {
-                const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
                 const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
-                const label = shifted
-                  ? keyToRender.shifted ||
-                    (letter ? keyToRender.label.toUpperCase() : keyToRender.label)
-                  : keyToRender.label;
+                const label = keyboardKeyLabel(keyToRender, shifted);
                 return (
                   <button
                     type="button"

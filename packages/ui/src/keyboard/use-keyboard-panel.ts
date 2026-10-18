@@ -4,7 +4,14 @@ import { readOptionalStorage, writeOptionalStorage } from "../core/optional-stor
 import { useLatestRef } from "../core/use-latest-ref";
 import type { NineKeyShuangpinKeyFace } from "../settings/nine-key-shuangpin-profile";
 import type { KeyboardInputRequest, PanelClient } from "./panel-client";
-import { isImeCommitKey, modifierPrefix, type KeyboardKey, type Modifier } from "./keyboard-input";
+import {
+  isImeCommitKey,
+  isKeyboardLetter,
+  keyboardKeyLabel,
+  modifierPrefix,
+  type KeyboardKey,
+  type Modifier,
+} from "./keyboard-input";
 import { keyboardDeliveryNotice, MACOS_KEYBOARD_GUIDANCE } from "./keyboard-delivery-notice";
 import { keyboardRows, nineKeyRows, nineKeyShuangpinRows } from "./panel-keyboard-layouts";
 import { usePanelDrag } from "./use-panel-drag";
@@ -140,11 +147,8 @@ export function useKeyboardPanel({
     rows.flat().forEach((item, index) => {
       const button = buttons[index];
       if (!button) return;
-      const letter = item.label.length === 1 && /[a-z]/i.test(item.label);
       const shifted = modifiers.has("Shift") && item.label.length === 1;
-      const face = shifted
-        ? item.shifted || (letter ? item.label.toUpperCase() : item.label)
-        : item.label;
+      const face = keyboardKeyLabel(item, shifted);
       const label = button.querySelector<HTMLElement>("[data-key-label]");
       if (label) label.textContent = face;
       else button.textContent = face;
@@ -223,7 +227,7 @@ export function useKeyboardPanel({
     const activeModifiers = modifiersRef.current;
     const shift = activeModifiers.has("Shift");
     const caps = activeModifiers.has("Caps Lock");
-    const letter = keyToPress.label.length === 1 && /[a-z]/i.test(keyToPress.label);
+    const letter = isKeyboardLetter(keyToPress);
     // 与 Windows 键盘面板一致，字母的 Caps Lock 与 Shift 相互取反；标点只受 Shift 影响。
     const withShift = letter ? caps !== shift : shift;
     const modifiers = {
@@ -233,9 +237,7 @@ export function useKeyboardPanel({
     };
     const includeStickyModifiers = !isImeCommitKey(keyToPress.virtualKey);
     const prefix = modifierPrefix(activeModifiers);
-    const displayedLabel = withShift
-      ? keyToPress.shifted || (letter ? keyToPress.label.toUpperCase() : keyToPress.label)
-      : keyToPress.label;
+    const displayedLabel = keyboardKeyLabel(keyToPress, withShift);
     const description = `${prefix}${prefix ? "+" : ""}${displayedLabel}`;
     const request: KeyboardInputRequest = {
       virtual_key: keyToPress.virtualKey,
