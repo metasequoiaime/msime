@@ -3177,7 +3177,7 @@ function SettingsShell(props: SettingsPageProps) {
                 没有匹配的设置
               </p>
             )}
-            <p className={settings.previewLabel}>客户端预览版</p>
+            {!client.host && <p className={settings.previewLabel}>客户端预览版</p>}
           </nav>
           <main
             ref={settingsContentRef}

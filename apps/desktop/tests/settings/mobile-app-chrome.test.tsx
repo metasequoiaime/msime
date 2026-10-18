@@ -57,6 +57,13 @@ test("a phone host draws no window titlebar", async () => {
   expect(screen.queryByRole("banner", { name: "窗口控制" })).toBeNull();
 });
 
+test("原生宿主不显示浏览器预览标记", async () => {
+  renderSettings("macos");
+  await settingsFormReady();
+
+  expect(screen.queryByText("客户端预览版")).toBeNull();
+});
+
 test("Harmony settings follow the actual phone or 2-in-1 form factor", async () => {
   renderSettings("harmony", { mobile_settings: true });
   await settingsFormReady();
