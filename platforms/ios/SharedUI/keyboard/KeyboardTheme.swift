@@ -175,7 +175,7 @@ struct KeyboardTheme: Equatable {
     if let design { return CustomKeyboardSkin.color(design.accent) }
     return drawnPalette?.accent ?? (isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.accent)
   }
-  /// 强调键（组字时的回车）：主题自己的主色；跟随系统配色时为季节主色；原生皮肤为系统蓝；键盘设计时为它的操作色；什么都没解析出来时为经典绿色。
+  /// 回车键使用主题强调色；原生皮肤使用柔和水杉绿，键盘设计使用自己的操作色。
   var actionBackground: UIColor {
     if let design { return CustomKeyboardSkin.color(design.actionBackground) }
     return drawnPalette?.accent ?? (isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.accent)
@@ -220,9 +220,9 @@ struct KeyboardTheme: Equatable {
     return UIColor { traits in alwaysDark || Self.isDark(traits, appearance) ? dark : light }
   }
 
-  /// 工具栏 logo 的圆底：除原生皮肤外不论皮肤，都取应用主题季节的 mix(accent 14% light / 22% dark, card)；应用主题解析不了时为 `#FFFFFF` / `#1C1C1E` 上的经典绿色。原生皮肤不跟季节，按同一配方取系统蓝（`SystemKeyboardTokens.logoCircle`）。
+  /// 工具栏 logo 的圆底：原生皮肤使用柔和水杉绿，其余皮肤使用应用主题季节的混合色。
   var logoCircle: UIColor { isNative ? SystemKeyboardTokens.logoCircle : Self.logoCircleColor }
-  /// 圆底里的 logo 图形：应用主题季节的 mix(accent 82%, #000)；应用主题解析不了时为经典绿色；原生皮肤为 mix(系统蓝 82%, #000)。
+  /// 圆底里的 logo 图形：原生皮肤使用深绿，其余皮肤使用应用主题季节的混合色。
   var logoMark: UIColor { isNative ? SystemKeyboardTokens.logoMark : Self.logoMarkColor }
 
   private static let logoCircleColor = MetasequoiaTheme.mixUIColor(14, 22)
