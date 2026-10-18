@@ -474,10 +474,19 @@ pub unsafe extern "C" fn msime_client_niutrans_translation_reply_failed(
     body: *const u8,
     length: usize,
 ) -> bool {
+    unsafe { niutrans_reply_failure_from_raw(body, length, niutrans_translation::failed) }
+}
+
+/// 在构造借用切片前拒绝空指针和超长回复，避免 FFI 调用方的长度契约变成未定义行为。
+unsafe fn niutrans_reply_failure_from_raw(
+    body: *const u8,
+    length: usize,
+    parse: impl FnOnce(&[u8]) -> bool,
+) -> bool {
     if body.is_null() || length > 1_048_576 {
         return true;
     }
-    niutrans_translation::failed(unsafe { std::slice::from_raw_parts(body, length) })
+    parse(unsafe { std::slice::from_raw_parts(body, length) })
 }
 
 /// 同代次非空候选释义合并，空数组主动清空；宿主异步无结果时跳过调用。
@@ -1016,6 +1025,16 @@ mod tests {
         assert_eq!(indexes, [0]);
         assert!(retry.capacity() >= candidates.len());
         assert!(indexes.capacity() >= candidates.len());
+    }
+
+    #[test]
+    fn niutrans_reply_failure_checks_length_before_borrowing() {
+        let pointer = std::ptr::NonNull::<u8>::dangling().as_ptr();
+        assert!(unsafe {
+            niutrans_reply_failure_from_raw(pointer, 1_048_577, |_| {
+                panic!("oversized reply must not be borrowed")
+            })
+        });
     }
 }
 
