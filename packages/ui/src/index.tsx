@@ -1936,3 +1936,8 @@ export {
   useCloudCandidatesPanel,
   type CloudCandidatesPanelState,
 } from "./keyboard/use-cloud-candidates-panel";
+
+export {
+  useCloudDictionaryFilesPanel,
+  type CloudDictionaryFilesPanelState,
+} from "./keyboard/use-cloud-dictionary-files-panel";
