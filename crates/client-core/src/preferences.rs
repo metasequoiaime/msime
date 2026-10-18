@@ -12,6 +12,7 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use unicode_segmentation::UnicodeSegmentation;
 
 /// The largest preference document accepted by the shared host boundary. This
 /// covers a validated custom skin photo while preventing a damaged local file
@@ -965,6 +966,9 @@ pub struct Preferences {
     /// 触屏 26 键双拼时在字母键底部画当前方案的声母/韵母提示，读屏也读它。默认关；全拼、独立英文和本地模式本来就不画，不受它影响。桌面宿主原样保留、不使用。
     #[serde(default = "disabled_by_default")]
     pub touch_shuangpin_key_hints: bool,
+    /// 中文触屏键盘的快捷符号，单个字素、去重，最多十二项；宿主只负责显示与提交。
+    #[serde(default = "default_touch_quick_symbols")]
+    pub touch_quick_punctuation_symbols: Vec<String>,
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
@@ -2300,6 +2304,36 @@ fn default_candidate_opacity_percent() -> u8 {
     100
 }
 
+/// 快捷符号的统一默认值，空配置和无有效字符的输入均恢复这份列表。
+pub fn default_touch_quick_symbols() -> Vec<String> {
+    ["，", "。", "？", "！", "、", "；", "："]
+        .map(str::to_owned)
+        .to_vec()
+}
+
+/// 规范化原生设置提交的单字素列表；保留组合 emoji，过滤控制字符与空白。
+pub fn normalize_touch_quick_symbols(symbols: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for symbol in symbols {
+        let value = symbol.trim();
+        if value.graphemes(true).count() != 1
+            || value.chars().any(|c| c.is_whitespace() || c.is_control())
+            || normalized.iter().any(|stored| stored == value)
+        {
+            continue;
+        }
+        normalized.push(value.to_owned());
+        if normalized.len() == 12 {
+            break;
+        }
+    }
+    if normalized.is_empty() {
+        default_touch_quick_symbols()
+    } else {
+        normalized
+    }
+}
+
 fn default_touch_key_spacing_tenths() -> u8 {
     60
 }
@@ -2374,6 +2408,7 @@ impl Default for Preferences {
             touch_number_keypad_order: NumberKeypadOrder::default(),
             touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
             touch_shuangpin_key_hints: false,
+            touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
             last_chinese_scheme: None,
@@ -3075,6 +3110,11 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTouchKeyboardSpacing);
         }
+        if self.touch_quick_punctuation_symbols
+            != normalize_touch_quick_symbols(&self.touch_quick_punctuation_symbols)
+        {
+            return Err(PreferencesError::InvalidTouchQuickSymbols);
+        }
         self.custom_theme.validate()?;
         if self.touch_keyboard_schemes.enabled.is_empty()
             || self
@@ -3179,6 +3219,8 @@ pub enum PreferencesError {
     InvalidPageSize,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
     InvalidTouchKeyboardSpacing,
+    #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
+    InvalidTouchQuickSymbols,
     #[error(
         "at least one touch keyboard scheme must be enabled and the selection must be visible"
     )]
@@ -4020,3 +4062,45 @@ fn redact_sensitive_keys(value: &mut serde_json::Value) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod quick_symbols_tests {
+    use super::*;
+    #[test]
+    fn touch_symbols_are_validated_and_persisted() {
+        let symbols = vec![
+            "☆".into(),
+            "☆".into(),
+            "ab".into(),
+            "\n".into(),
+            "\0".into(),
+            "👩‍💻".into(),
+        ];
+        let normalized = normalize_touch_quick_symbols(&symbols);
+        assert_eq!(normalized, ["☆", "👩‍💻"]);
+        assert_eq!(
+            normalize_touch_quick_symbols(&[]),
+            default_touch_quick_symbols()
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut snapshot = store.load().unwrap();
+        snapshot.preferences.touch_quick_punctuation_symbols = normalized.clone();
+        store.save(snapshot.revision, snapshot.preferences).unwrap();
+        assert_eq!(
+            store
+                .load()
+                .unwrap()
+                .preferences
+                .touch_quick_punctuation_symbols,
+            normalized
+        );
+        let invalid = Preferences {
+            touch_quick_punctuation_symbols: symbols,
+            ..Preferences::default()
+        };
+        assert!(invalid.validate().is_err());
+        let many: Vec<_> = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬".graphemes(true).map(str::to_owned).collect();
+        assert_eq!(normalize_touch_quick_symbols(&many).len(), 12);
+    }
+}

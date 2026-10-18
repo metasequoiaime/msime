@@ -251,6 +251,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var tabletShiftWidth: NSLayoutConstraint?
   private weak var spaceButton: UIButton?
   private var cursorMovement = SpaceCursorMovement()
+  private var spaceHoldMovesCursor = false
   private var backspaceRepeatTimer: Timer?
   private var didRepeatBackspace = false
   private var hasComposition = false
@@ -906,6 +907,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 键盘收起时还在调整高度就当作取消：没点「完成」的预览不保存，与 Android onFinishInputView 一致。
     closeInlineHeight(commit: false)
     cursorMovement.cancel()
+    spaceHoldMovesCursor = false
     endGlide()
     updateSpaceKeyTitle()
     // Putting the keyboard away used to drop whatever was composed. macOS commits in
@@ -2924,7 +2926,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // 统计实际按下的标点键；键面和输出仍由当前方案及标点模式决定。
       countKeyPress(TypingKeyID.quickPunctuation)
       // 手机 26 键底行上这个键是设计稿的 ，：发逗号键，由 Engine 的标点路由选出标点，与符号行一样。日语画的是 、，发的也是 、（经 `KeyboardPunctuationContext` 换成 `\` 键）：Engine 的日语方案走中文标点表，逗号键写出的是 ，，与键面不符。
-      handleSymbol(phoneBottomRowShown ? (writesJapaneseComma ? "、" : ",") : quickPunctuationSymbols[0])
+      handleSymbol(usesCustomQuickPunctuation ? quickPunctuationSymbols[0] : phoneBottomRowShown ? (writesJapaneseComma ? "、" : ",") : quickPunctuationSymbols[0])
     }
     punctuation.configuration?.contentInsets = .zero
     punctuation.accessibilityIdentifier = "quickPunctuationKey"
@@ -4370,49 +4372,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   @objc private func handleSpaceVoiceHold(_ hold: UILongPressGestureRecognizer) {
-    guard spaceVoiceArmed else {
-      handleSpaceCursorHold(hold)
-      return
-    }
-    guard hold.state == .began else { return }
-    // 与 Android 一样，打开语音的那次按压也计为一次空格键按键。
-    countKeyPress(TypingKeyID.space)
-    playInputClick()
-    showVoicePanel()
-  }
-
-  /// 语音长按关闭时复用同一个长按手势移动文档或拼音光标。长按先达到 `.began`，之后手指横向移动产生和拖动空格相同的步进。
-  private func handleSpaceCursorHold(_ hold: UILongPressGestureRecognizer) {
-    guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else {
-      cursorMovement.cancel()
-      updateSpaceKeyTitle()
-      return
-    }
-    switch hold.state {
-    case .began:
-      cursorMovement.begin(at: hold.location(in: view).x, document: document)
-      spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret
-      if hasComposition && !spaceDragEditsComposition { render(session.finishComposition()) }
-      if let space = hold.view as? UIButton, var configuration = space.configuration {
-        configuration.title = spaceDragEditsComposition ? "移动拼音光标" : "移动光标"
-        configuration.image = nil
-        space.configuration = configuration
+    if hold.state == .began {
+      // 路由在按下时固定，语音面板改变上下文后也不把同一次长按转成光标拖动。
+      spaceHoldMovesCursor = !spaceVoiceEnabled
+      if !spaceHoldMovesCursor {
+        countKeyPress(TypingKeyID.space)
+        playInputClick()
+        showVoicePanel()
       }
-      if KeyboardFeedbackPreference.hapticsEnabled {
-        KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)
-      }
-    case .changed:
-      let steps = cursorMovement.advance(to: hold.location(in: view).x, document: document)
-      if spaceDragEditsComposition && hasComposition {
-        moveCompositionCaret(by: steps, bySegment: inputScheme.editsBySyllable)
-      } else {
-        moveCursor(by: steps)
-      }
-    case .ended, .cancelled, .failed:
-      cursorMovement.cancel()
-      updateSpaceKeyTitle()
-    default: break
     }
+    if spaceHoldMovesCursor {
+      handleSpaceCursorMovement(hold.state, at: hold.location(in: view).x,
+                                velocity: 0, space: hold.view as? UIButton)
+    }
+    if [.ended, .cancelled, .failed].contains(hold.state) { spaceHoldMovesCursor = false }
   }
 
   /// 键区里的语音面板。键盘扩展不能录音，所以面板是进入语音交接的入口，「语音结果」读的也是同一份交接：点圆球打开 app 的录音界面，有待插入的结果时则插入 app 传回的结果。点圆球时会核对结果与当前编辑器是否对得上，与 `showKeyboardVoice` 插入前的检查一样。
@@ -4998,6 +4971,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateLetterCaseControls()
   }
 
+  private var usesCustomQuickPunctuation: Bool {
+    isChineseMode && !isInLocalMode && !inputScheme.writesAsciiPunctuation && !writesJapaneseComma
+      && KeyboardLayoutPreference.quickPunctuationSymbols != KeyboardLayoutPreference.defaultQuickPunctuationSymbols
+  }
+
   private var quickPunctuationSymbols: [String] {
     // Korean and Vietnamese write half-width ASCII marks, the same menu English offers.
     guard isChineseMode, !isInLocalMode, !inputScheme.writesAsciiPunctuation else { return [",", ".", "?", "!", ":", ";", "@"] }
@@ -5138,7 +5116,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 不在手机 26 键底行时，， 键是快捷标点键，键面是第一个快捷标点（`updateKeyboardLayout`）。
     // 日语的逗号写作 、，手机底行的逗号键就画 、，按下也发 、。
     let japaneseComma = writesJapaneseComma
-    for face in symbolKeyFaces where face.key !== quickPunctuationButton || phoneBottomRowShown {
+    for face in symbolKeyFaces where face.key !== quickPunctuationButton || (phoneBottomRowShown && !usesCustomQuickPunctuation) {
       let styled = Self.chineseSymbolFace(face.ascii, cornerQuotes: currentCornerQuotes,
                                           hollowBrackets: currentHollowBrackets) ?? face.chinese
       let chinese = japaneseComma && face.key === quickPunctuationButton ? "、" : styled
@@ -5271,7 +5249,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       quickPunctuationWidth?.isActive = !quickPunctuationButton.isHidden && style == .standard
       periodKey.isHidden = style != .phone || showsSymbols || phoneLetterSymbols
       let punctuation = quickPunctuationSymbols
-      if phoneRow {
+      if phoneRow && !usesCustomQuickPunctuation {
         // 手机底行按当前标点模式更新键面。
         quickPunctuationButton.accessibilityValue = nil
       } else {
@@ -5280,20 +5258,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         quickPunctuationButton.accessibilityValue = punctuation[0]
       }
       // 26 键复用角标的长按取消机制，松手只输入句号；其他布局继续长按打开常用标点。
-      quickPunctuationButton.menu = phoneLetterSymbols ? nil : UIMenu(children: punctuation.map { symbol in
+      quickPunctuationButton.menu = phoneLetterSymbols && !usesCustomQuickPunctuation ? nil : UIMenu(children: punctuation.map { symbol in
         UIAction(title: symbol) { [weak self] _ in
           self?.countKeyPress(TypingKeyID.quickPunctuation)
           self?.handleSymbol(symbol)
         }
       })
       if let key = quickPunctuationButton as? KeyboardKeyButton {
-        key.cornerHint = phoneLetterSymbols ? (periodKey.configuration?.title ?? ".") : nil
+        key.cornerHint = phoneLetterSymbols && !usesCustomQuickPunctuation ? (periodKey.configuration?.title ?? ".") : nil
         key.swipesCornerHint = false
-        key.onCornerHint = phoneLetterSymbols ? { [weak self] _ in
+        key.onCornerHint = phoneLetterSymbols && !usesCustomQuickPunctuation ? { [weak self] _ in
           self?.countKeyPress(TypingKeyID.quickPunctuation)
           self?.handleSymbol(".")
         } : nil
-        key.accessibilityHint = phoneLetterSymbols ? "轻点输入逗号，长按输入句号" : "轻点输入，长按选择常用标点"
+        key.accessibilityHint = phoneLetterSymbols && !usesCustomQuickPunctuation ? "轻点输入逗号，长按输入句号" : "轻点输入，长按选择常用标点"
       }
       // 底行的 ⌫ 是大千符号行唯一的 ⌫；123 / #+= 层和九键外框在各自的行里带 ⌫。
       actionDeleteButton.isHidden = !showsSymbols || kana || symbolLayer || nineKeyFrame
@@ -5551,13 +5529,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
     if gestureRecognizer.name == "spaceVoiceHold" {
-      return (spaceVoiceArmed || !spaceVoiceEnabled) && !cursorMovement.isActive
+      return (spaceVoiceArmed || (!spaceVoiceEnabled && (handwriting.isHidden || !handwriting.hasInk))) && !cursorMovement.isActive
     }
     if gestureRecognizer.name == "layoutToggleSymbolsHold" { return !showsSymbols }
     if gestureRecognizer.name == "nineKeyDigitHold" { return !showsSymbols }
     guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
     let velocity = pan.velocity(in: view)
-    return abs(velocity.x) > abs(velocity.y)
+    return !cursorMovement.isActive && abs(velocity.x) > abs(velocity.y)
   }
 
   private func moveCompositionCaret(by offset: Int, bySegment: Bool = false) {
@@ -5584,21 +5562,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   @objc private func handleSpacePan(_ pan: UIPanGestureRecognizer) {
+    handleSpaceCursorMovement(pan.state, at: pan.translation(in: view).x,
+                              velocity: pan.velocity(in: view).x, space: pan.view as? UIButton)
+  }
+
+  /// 拖动和长按共用步进、文档身份检查与结束清理，慢速编辑始终按字母移动拼音光标。
+  private func handleSpaceCursorMovement(_ state: UIGestureRecognizer.State, at position: CGFloat,
+                                         velocity: CGFloat, space: UIButton?) {
     guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else {
       cursorMovement.cancel()
       updateSpaceKeyTitle()
       return
     }
-    switch pan.state {
+    switch state {
     case .began:
-      cursorMovement.begin(at: pan.translation(in: view).x, document: document)
+      cursorMovement.begin(at: position, document: document)
       // While spelling, the drag edits the spelling: the caret walks through the pinyin as ← / → do in the Windows composition, and typing or backspace then acts there. A Japanese reading keeps ending the composition, because its conversion owns the space key.
       // A Korean syllable, a Zhuyin conversion and a Vietnamese word have no caret inside them either, so the drag finishes them and moves the document caret.
       spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret
       if hasComposition && !spaceDragEditsComposition { render(session.finishComposition()) }
       // 分离式键盘有两个空格，只给正在拖的那个换标题；结束时 updateSpaceKeyTitle 把两个都还原。
       // 拖动时的标签单独显示、不带麦克风，与 Android 的临时空格标签一致。
-      if let space = pan.view as? UIButton, var configuration = space.configuration {
+      if let space, var configuration = space.configuration {
         configuration.title = spaceDragEditsComposition ? "移动拼音光标" : "移动光标"
         configuration.image = nil
         space.configuration = configuration
@@ -5607,11 +5592,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)
       }
     case .changed:
-      let steps = cursorMovement.advance(to: pan.translation(in: view).x, document: document)
+      let steps = cursorMovement.advance(to: position, document: document)
       if spaceDragEditsComposition && hasComposition {
         moveCompositionCaret(
           by: steps,
-          bySegment: inputScheme.editsBySyllable && SpaceCursorMovement.movesBySegment(velocity: pan.velocity(in: view).x))
+          bySegment: inputScheme.editsBySyllable && SpaceCursorMovement.movesBySegment(velocity: velocity))
       } else {
         moveCursor(by: steps)
       }

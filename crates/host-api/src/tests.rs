@@ -16877,3 +16877,15 @@ fn imported_three_syllable_word_reaches_nine_key_candidates() {
     read(msime_client_destroy(handle));
     assert!(found, "导入的三音节词未进入九键候选");
 }
+
+#[test]
+fn touch_quick_symbols_use_the_shared_rules_across_the_abi() {
+    let value = serde_json::to_vec(&json!({"symbols": ["☆", "☆", "👩‍💻", "ab", "\n"]})).unwrap();
+    let result = read(unsafe { msime_client_touch_quick_symbols(value.as_ptr(), value.len()) });
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["value"], json!(["☆", "👩‍💻"]));
+    assert_eq!(
+        read(unsafe { msime_client_touch_quick_symbols(std::ptr::null(), 1) })["ok"],
+        false
+    );
+}

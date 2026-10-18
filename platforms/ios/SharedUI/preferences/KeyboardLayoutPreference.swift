@@ -1,6 +1,9 @@
 import Foundation
 import CoreFoundation
 
+@_silgen_name("msime_client_touch_quick_symbols")
+private func msimeClientTouchQuickSymbols(_ value: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+
 enum KeyboardLayoutPreference {
   static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
   static let keySpacingKey = "keyboard.spacing.keys"
@@ -13,7 +16,7 @@ enum KeyboardLayoutPreference {
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
   static let quickPunctuationSymbolsKey = "keyboard.quickPunctuationSymbols"
-  static let defaultQuickPunctuationSymbols = ["，", "。", "？", "！", "、", "；", "："]
+  static var defaultQuickPunctuationSymbols: [String] { normalizeQuickPunctuationSymbols([]) }
   static let hideLanguageKeyKey = "keyboard.bottom.hideLanguageKey"
   static var hideLanguageKey: Bool {
     get { defaults.object(forKey: hideLanguageKeyKey) as? Bool ?? false }
@@ -71,8 +74,10 @@ enum KeyboardLayoutPreference {
     return true
   }
 
-  /// 把共享文档里的键距、行距、高度和语音入口抄进 App Group，文档里没有的项不动。键盘每次出现、设置页每次回到前台都按文档对齐，两边读到的才是同一个值。
+  /// 把共享文档里的几何、语音与快捷符号镜像到 App Group。缺少几何项时保持原值，快捷符号缺省时采用共享默认；键盘和设置页每次出现都按文档对齐。
   static func mirrorGeometry(_ preferences: [String: Any]) {
+    defaults.set(normalizeQuickPunctuationSymbols(preferences["touch_quick_punctuation_symbols"] as? [String] ?? []),
+                 forKey: quickPunctuationSymbolsKey)
     if let spacing = sharedKeySpacing(preferences["touch_key_spacing_tenths"]) { keySpacing = spacing }
     if let spacing = sharedRowSpacing(preferences["touch_row_spacing_tenths"]) { rowSpacing = spacing }
     if let adjustment = sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
@@ -110,13 +115,14 @@ enum KeyboardLayoutPreference {
   static func resetGeometry(stateRoot: URL? = nil) -> Bool {
     let written = MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot) { preferences in
       for key in ["touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
-                  "touch_voice_shortcut"] {
+                  "touch_voice_shortcut", "touch_quick_punctuation_symbols"] {
         preferences.removeValue(forKey: key)
       }
     }
     guard written else { return false }
     resetToDefaults()
     // 「横屏分离式键盘」和间距、高度在 App 的同一页，一起恢复成默认（关）。键盘里的间距面板也调 `resetToDefaults`，那里不显示这个开关，所以不放进上面的列表，免得在键盘里点「恢复默认」把分离式键盘悄悄关掉。
+    defaults.removeObject(forKey: quickPunctuationSymbolsKey)
     defaults.removeObject(forKey: tabletSplitKey)
     defaults.removeObject(forKey: hideLanguageKeyKey)
     return true
@@ -150,44 +156,27 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: swipeSymbolsKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: swipeSymbolsKey) }
   }
-  /// 「快捷符号栏」：中文 26 键和九键的快捷标点。只保存单个字符，最多 12 项；空值或非法值回退到默认列表。
+  /// App Group 仅缓存共享文档的快捷符号，默认值和校验由 Rust 提供。
   static var quickPunctuationSymbols: [String] {
-    get {
-      guard let stored = defaults.array(forKey: quickPunctuationSymbolsKey) as? [String] else {
-        return defaultQuickPunctuationSymbols
-      }
-      let normalized = normalizeQuickPunctuationSymbols(stored)
-      return normalized.isEmpty ? defaultQuickPunctuationSymbols : normalized
-    }
-    set {
-      let normalized = normalizeQuickPunctuationSymbols(newValue)
-      if normalized == defaultQuickPunctuationSymbols || normalized.isEmpty {
-        defaults.removeObject(forKey: quickPunctuationSymbolsKey)
-      } else {
-        defaults.set(normalized, forKey: quickPunctuationSymbolsKey)
-      }
-    }
+    normalizeQuickPunctuationSymbols(defaults.array(forKey: quickPunctuationSymbolsKey) as? [String] ?? [])
   }
 
-  /// 将设置页的一串字符变成可放进快捷菜单的去重列表。
+  @discardableResult
+  static func saveQuickPunctuationSymbols(_ symbols: [String], stateRoot: URL? = nil) -> Bool {
+    let normalized = normalizeQuickPunctuationSymbols(symbols)
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { document in
+      document["touch_quick_punctuation_symbols"] = normalized
+    }) else { return false }
+    defaults.set(normalized, forKey: quickPunctuationSymbolsKey)
+    return true
+  }
+
   static func normalizeQuickPunctuationSymbols(_ symbols: [String]) -> [String] {
-    var result: [String] = []
-    for symbol in symbols {
-      let value = symbol.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !value.isEmpty, value.unicodeScalars.allSatisfy({ scalar in
-        !scalar.properties.isWhitespace &&
-          !(scalar.value <= 0x1F || scalar.value == 0x7F || (0x80...0x9F).contains(scalar.value))
-      }) else {
-        continue
-      }
-      guard value.count == 1, !result.contains(value) else { continue }
-      result.append(value)
-      if result.count == 12 { break }
-    }
-    return result
+    // 桥不可用时仅保留一个可点击的标点，正常默认列表由共享层返回。
+    ClientRequestEnvelope.call(msimeClientTouchQuickSymbols, ["symbols": symbols]) as? [String] ?? ["，"]
   }
 
-  /// 设置页把输入框内容按字符拆开；组合 emoji 仍作为一个字符保留。
+  /// 文本框按字素收集选项，规范化规则留在共享层。
   static func quickPunctuationSymbols(from text: String) -> [String] {
     normalizeQuickPunctuationSymbols(text.map(String.init))
   }

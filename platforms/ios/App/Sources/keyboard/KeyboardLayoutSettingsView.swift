@@ -236,7 +236,7 @@ struct KeyboardLayoutSettingsView: View {
   }
 
   private var quickSymbolsGroup: some View {
-    DesignGroup(title: "快捷符号", footer: "中文键盘的快捷标点栏按从左到右显示；最多 12 个字符，留空会恢复默认。") {
+    DesignGroup(title: "快捷符号", footer: "修改列表后，手机 26 键轻点输入第一项、长按选择；九键快捷栏按顺序显示。最多 12 个字符，留空恢复默认逗号与句号。") {
       VStack(alignment: .leading, spacing: 8) {
         TextField("，。？！、；：", text: $quickSymbols)
           .textFieldStyle(.roundedBorder)
@@ -274,6 +274,7 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityIdentifier("appGlideTypingSwitch")
       DesignDivider()
       DesignToggleRow(title: "长按空格语音输入",
+                      subtitle: "开启时长按打开语音；关闭后长按并左右移动可定位光标",
                       isOn: Binding(get: { spaceVoice }, set: { enabled in
                         spaceVoice = enabled
                         KeyboardLayoutPreference.spaceVoice = enabled
@@ -426,7 +427,7 @@ struct KeyboardLayoutSettingsView: View {
 
   private func saveQuickSymbols() {
     let symbols = KeyboardLayoutPreference.quickPunctuationSymbols(from: quickSymbols)
-    KeyboardLayoutPreference.quickPunctuationSymbols = symbols
+    guard KeyboardLayoutPreference.saveQuickPunctuationSymbols(symbols) else { saveFailed = true; return }
     quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
   }
 
@@ -450,6 +451,7 @@ struct KeyboardLayoutSettingsView: View {
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
     // 文档是权威：先抄进 App Group，再从 App Group 读回页面，两边才是同一个值。
     KeyboardLayoutPreference.mirrorGeometry(preferences)
+    quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
     keySpacing = KeyboardLayoutPreference.keySpacing
     rowSpacing = KeyboardLayoutPreference.rowSpacing
     height = KeyboardLayoutPreference.heightAdjustment

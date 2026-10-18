@@ -22,8 +22,12 @@ RUST = ROOT / "crates/client-core/src/preferences.rs"
 
 # Rust fields with no control on the settings page, and why.
 RUST_ONLY: dict[str, set[str]] = {
-    # 智能标点默认开的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
-    "Preferences": {"smart_punctuation_migrated"},
+    "Preferences": {
+        # 智能标点默认开的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
+        "smart_punctuation_migrated",
+        # 快捷符号当前只有 iOS 原生设置页提供编辑，其他宿主保留共享字段，不在 React 设置页重复增加入口。
+        "touch_quick_punctuation_symbols",
+    },
 }
 
 

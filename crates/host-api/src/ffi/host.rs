@@ -10,6 +10,33 @@ use msime_client_core::is_bounded_text;
 /// an arbitrarily large converted string.
 const MAX_TRADITIONAL_CONVERSION_BYTES: usize = 1 << 20;
 
+/// 规范化快捷符号列表，默认值与偏好校验都由 client-core 持有。
+/// # Safety
+/// `value` 指向 `length` 字节的 JSON `{symbols: string[]}`，最多 64 KiB；结果用 string_free 释放。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_touch_quick_symbols(
+    value: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if value.is_null() || length > 64 * 1024 {
+            return Err("invalid_touch_symbols".into());
+        }
+        // 安全：调用方保证缓冲区可读，长度已检查。
+        let bytes = unsafe { std::slice::from_raw_parts(value, length) };
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Request {
+            symbols: Vec<String>,
+        }
+        let request: Request =
+            serde_json::from_slice(bytes).map_err(|_| "invalid_touch_symbols")?;
+        Ok(json!(
+            msime_client_core::preferences::normalize_touch_quick_symbols(&request.symbols)
+        ))
+    })
+}
+
 fn clipboard_history_limit(directory: &std::path::Path) -> usize {
     msime_client_core::preferences::PreferencesStore::new(directory)
         .load()

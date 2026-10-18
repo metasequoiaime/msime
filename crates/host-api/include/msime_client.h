@@ -354,6 +354,9 @@ char *msime_client_shuangpin_key_hints(const uint8_t *profile, size_t length);
 char *msime_client_shuangpin_zero_initials(const uint8_t *profile, size_t length);
 /* 九键双拼方案在宿主看来的样子。request 是 JSON {"profile": "migala2"|"migala3"|"gushi2_low"|"custom", "table"?: {initials, finals, zero_initials}}，table 是 custom 用的表（与 nine_key_shuangpin_custom_profile 同形，键是数字）。Value 是 {effective, table, problem, keys}：effective 是输入法实际用的方案（custom 的表不能用时是默认的 migala3，与建会话时的回退相同），table 是它的表，problem 是 custom 表的问题（形状同自定义双拼表的问题，只有 unknown_unit、duplicate_unit、missing_unit、invalid_key 四种，能用时为 null），keys 按 1 到 9、0 的顺序列出每个用到的数字键的 {key, initials, finals, zero_initial}，键面从这里取，宿主不另存键位。不留存任何东西，编辑表时每改一格都可以调用。不认识的方案名或多余的字段报错。 */
 char *msime_client_nine_key_shuangpin_layout(const uint8_t *request, size_t length);
+/* 规范化中文触屏快捷符号：{symbols: string[]}，最多 64 KiB。标准响应 value 为去重的单字素列表，最多十二项；无有效项时返回共享默认值。不落盘，用 string_free 释放。 */
+char *msime_client_touch_quick_symbols(const uint8_t *value, size_t length);
+
 /* Load PreferencesStore from an absolute UTF-8 directory, without a session.
  * May block on disk/file lock: use a worker thread. Returns PreferencesSnapshot.
  * Missing file returns shared defaults; malformed/future files return errors.
