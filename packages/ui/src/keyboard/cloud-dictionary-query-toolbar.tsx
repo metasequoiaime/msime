@@ -13,6 +13,7 @@ export interface CloudDictionaryQueryToolbarProps {
   queryValue: string;
   queryButtonLabel: string;
   queryDisabled?: boolean;
+  live?: boolean;
   placeholder?: string;
   inputClassName?: string;
   queryButtonClassName?: string;
@@ -31,6 +32,7 @@ export function CloudDictionaryQueryToolbar({
   queryValue,
   queryButtonLabel,
   queryDisabled = false,
+  live = false,
   placeholder,
   inputClassName,
   queryButtonClassName,
@@ -40,12 +42,12 @@ export function CloudDictionaryQueryToolbar({
   children,
 }: CloudDictionaryQueryToolbarProps) {
   return (
-    <div className={cloud.dictionaryToolbar}>
+    <div className={live ? cloud.dictionaryLiveToolbar : cloud.dictionaryToolbar}>
       <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
         词库
         <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={onKindChange} />
       </label>
-      <label className={cloud.dictionarySearch}>
+      <label className={`${cloud.dictionaryField} ${cloud.dictionarySearch} min-w-0`}>
         {queryLabel}
         <input
           {...(inputClassName ? { className: inputClassName } : {})}
@@ -53,20 +55,28 @@ export function CloudDictionaryQueryToolbar({
           value={queryValue}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key !== "Enter" || busy || queryDisabled || isComposingKeyEvent(event))
+            if (
+              live ||
+              event.key !== "Enter" ||
+              busy ||
+              queryDisabled ||
+              isComposingKeyEvent(event)
+            )
               return;
             void onQuery();
           }}
           placeholder={placeholder}
         />
       </label>
-      <ActionButton
-        action={onQuery}
-        {...(queryButtonClassName ? { className: queryButtonClassName } : {})}
-        disabled={busy || queryDisabled}
-        label={queryButtonLabel}
-      />
-      {children}
+      {!live && (
+        <ActionButton
+          action={onQuery}
+          {...(queryButtonClassName ? { className: queryButtonClassName } : {})}
+          disabled={busy || queryDisabled}
+          label={queryButtonLabel}
+        />
+      )}
+      {live ? <div className={cloud.dictionaryLiveActions}>{children}</div> : children}
     </div>
   );
 }

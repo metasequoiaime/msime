@@ -11,12 +11,17 @@ export function useSettingsTabs<T extends string>(
   tabs: readonly SettingsTab<T>[],
   label: string,
   enabled: boolean,
+  controlledSelection?: T,
+  onSelectionChange?: (selection: T) => void,
+  tabListClassName?: string,
 ) {
-  const [selection, setSelection] = useState<T>(tabs[0].id);
+  const [internalSelection, setInternalSelection] = useState<T>(tabs[0].id);
+  const selection = controlledSelection ?? internalSelection;
   const selected = tabs.some((tab) => tab.id === selection) ? selection : tabs[0].id;
+  const select = onSelectionChange ?? setInternalSelection;
   const id = useId();
   const tabList = enabled ? (
-    <div className={settings.candidateTabs} role="tablist" aria-label={label}>
+    <div className={tabListClassName ?? settings.candidateTabs} role="tablist" aria-label={label}>
       {tabs.map((tab, index) => (
         <button
           key={tab.id}
@@ -26,7 +31,7 @@ export function useSettingsTabs<T extends string>(
           aria-controls={`${id}-${tab.id}-panel`}
           aria-selected={selected === tab.id}
           tabIndex={selected === tab.id ? 0 : -1}
-          onClick={() => setSelection(tab.id)}
+          onClick={() => select(tab.id)}
           onKeyDown={(event) => {
             let next: number;
             if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
@@ -35,7 +40,7 @@ export function useSettingsTabs<T extends string>(
             else if (event.key === "End") next = tabs.length - 1;
             else return;
             event.preventDefault();
-            setSelection(tabs[next].id);
+            select(tabs[next].id);
             document.getElementById(`${id}-${tabs[next].id}-tab`)?.focus();
           }}
         >
@@ -59,5 +64,5 @@ export function useSettingsTabs<T extends string>(
       children
     );
   // `select` 让外壳从页面之外切换分类，例如功能页上的「浏览更多词库」打开「社区」标签的「词库」。
-  return { tabList, panel, selected, select: setSelection };
+  return { tabList, panel, selected, select };
 }

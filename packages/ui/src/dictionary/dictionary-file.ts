@@ -219,6 +219,22 @@ export const personalDictionaryExample = JSON.stringify(
 export const DICTIONARY_PAGE_SIZE = 100;
 
 export type LocalDictionaryKind = "pinyin" | "wubi" | "wubi98" | "quick_phrase" | "english";
+export type ResourceDictionaryKind =
+  | "japanese"
+  | "cantonese"
+  | "zhuyin"
+  | "stroke"
+  | "korean_hanja";
+export type DictionaryLookupKind = LocalDictionaryKind | ResourceDictionaryKind;
+export type DictionaryLookupEntry =
+  | DictionaryEntry
+  | {
+      kind: ResourceDictionaryKind;
+      key: string;
+      value: string;
+      weight: number;
+      source: "bundled";
+    };
 export type LocalDictionaryFormat = "standard" | "windows" | "rime" | "hans";
 /** 设置页上可选的文件格式：宿主 `import` 接受的那几种，加上只在页面上存在的 `scel`。细胞词库先经 `scelText` 转成标准文本，再以 `standard` 交给宿主，所以 `scel` 永远不会到 `import` 那里。 */
 export type DictionaryPageFormat = LocalDictionaryFormat | "scel";

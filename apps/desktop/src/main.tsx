@@ -115,6 +115,10 @@ import {
 } from "./core/desktop-host-services";
 
 const dictionary: DictionaryClient = {
+  browse: (offset, limit, kind, query) =>
+    invoke("dictionary_request", {
+      action: { operation: "browse", offset, limit, kind, query },
+    }),
   list: (offset, limit, kind, query) =>
     invoke("dictionary_request", {
       action: { operation: "list", offset, limit, kind, query },
@@ -221,6 +225,10 @@ const typingStatisticsUpload: TypingStatisticsUploadClient = {
   status: () => invoke("typing_statistics_upload_status"),
   setEnabled: (enabled: boolean) => invoke("set_typing_statistics_upload", { enabled }),
   sync: () => invoke("upload_typing_statistics"),
+};
+const cloudDictionaryClient: CloudDictionaryPanelClient = {
+  close: () => invoke("close_panel", { label: "cloud-dictionary-panel" }),
+  request: (action: CloudDictionaryAction) => invoke("cloud_dictionary_request", { action }),
 };
 // 「绑定 QQ 群助手」：Rust 侧回的是服务端的 snake_case，这里换成页面的写法。
 type QqLinkDto = { id: string; created_at: string };
@@ -331,6 +339,7 @@ const client: SettingsClient = {
   openCloudClipboard: () => invoke("open_cloud_clipboard_panel"),
   cloudClipboardRequest: (action) => invoke("cloud_clipboard_request", { action }),
   openCloudDictionary: () => invoke("open_cloud_dictionary_panel"),
+  cloudDictionary: cloudDictionaryClient,
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
   inputSourceStartup,
@@ -435,10 +444,7 @@ const panelClients: {
     copyText: (text) => invoke("copy_text", { text }),
     request: (action: CloudClipboardAction) => invoke("cloud_clipboard_request", { action }),
   },
-  cloudDictionary: {
-    close: () => invoke("close_panel", { label: "cloud-dictionary-panel" }),
-    request: (action: CloudDictionaryAction) => invoke("cloud_dictionary_request", { action }),
-  },
+  cloudDictionary: cloudDictionaryClient,
   emoji: {
     close: () => invoke("close_panel", { label: "emoji-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
@@ -718,6 +724,24 @@ function DesktopSettings() {
             ...client,
             host,
             dictionary: isMobileHost(host.platform) ? mobileDictionary : dictionary,
+            ...(!isMobileHost(host.platform) && client.cloudDictionary
+              ? {
+                  cloudDictionary: {
+                    ...client.cloudDictionary,
+                    ...cloudDictionaryCapabilities(host.platform, client.cloudDictionary.request),
+                    ...(host.platform === "macos"
+                      ? {
+                          snapshotNative: false,
+                          snapshotAppliesInPanel: true,
+                          chooseSnapshotRestore: undefined,
+                          saveExport: async (name: string, contents: string) => {
+                            await invoke<string>("save_export", { name, contents });
+                          },
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
             // Windows 和 macOS 在各自的原生候选控制器里查离线释义，所以释义设置在两边都生效。读音也是这两个宿主画在释义后面（日文罗马音在 macOS 来自系统分词器，在 Windows 来自系统的微软日语输入法）；其他宿主不动这个值。
             candidatePronunciation: host.platform === "macos" || host.platform === "windows",
             candidateEnglishGloss:

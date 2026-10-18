@@ -3137,8 +3137,8 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   fireEvent.click(within(dictionaryTabs).getByRole("tab", { name: "管理词库" }));
   expect(screen.queryByRole("region", { name: "本地词库管理" })).toBeNull();
   fireEvent.click(within(dictionaryTabs).getByRole("tab", { name: "查词库" }));
-  fireEvent.click(await screen.findByRole("button", { name: "查询" }));
   expect(await screen.findByText("fixture")).toBeDefined();
+  expect(list).toHaveBeenCalledWith(0, 100, "quick_phrase", "");
   expect(
     within(screen.getByRole("region", { name: "本地词库管理" })).queryByText("你好"),
   ).toBeNull();
@@ -3179,9 +3179,8 @@ test("dictionary lookup submits an ASCII or Chinese query with Enter", async () 
   fireEvent.change(await screen.findByLabelText("本地词库类型"), {
     target: { value: "pinyin" },
   });
-  const query = await screen.findByRole("textbox", { name: "词条或编码" });
+  const query = await screen.findByRole("searchbox", { name: "词条或编码" });
   fireEvent.change(query, { target: { value: "你好" } });
-  fireEvent.keyDown(query, { key: "Enter" });
   expect(await screen.findByText("你好")).toBeDefined();
   expect(list).toHaveBeenLastCalledWith(0, 100, "pinyin", "你好");
 });
@@ -3205,14 +3204,15 @@ test("a pinyin prefix typed without separators keeps the rows the host matched",
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
-  fireEvent.change(screen.getByRole("textbox", { name: "词条或编码" }), {
+  fireEvent.change(screen.getByRole("searchbox", { name: "词条或编码" }), {
     target: { value: "NiHao" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "查询" }));
   const results = await screen.findByRole("list", { name: "词库查询结果" });
   expect(list).toHaveBeenLastCalledWith(0, 100, "pinyin", "NiHao");
   expect(await within(results).findByText("你好")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "查询" }));
+  fireEvent.change(screen.getByRole("searchbox", { name: "词条或编码" }), {
+    target: { value: "NiHao " },
+  });
   await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
   await waitFor(() => expect(within(results).queryByText("再见")).toBeNull());
   expect(within(results).getByText("你好")).toBeDefined();
@@ -3235,17 +3235,15 @@ test("local dictionary searches Chinese words and clearly reports no match", asy
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
-  const query = screen.getByRole("textbox", { name: "词条或编码" });
+  const query = screen.getByRole("searchbox", { name: "词条或编码" });
   fireEvent.change(query, { target: { value: "合成" } });
-  fireEvent.click(screen.getByRole("button", { name: "查询" }));
   const results = await screen.findByRole("list", { name: "词库查询结果" });
   expect(await within(results).findByText("合成")).toBeDefined();
   expect(list).toHaveBeenLastCalledWith(0, 100, "pinyin", "合成");
   fireEvent.change(query, { target: { value: "无匹配合成词" } });
-  fireEvent.click(screen.getByRole("button", { name: "查询" }));
   await waitFor(() => expect(screen.queryByRole("list", { name: "词库查询结果" })).toBeNull());
   expect(screen.getAllByText("未找到匹配词条").length).toBeGreaterThan(0);
-  expect(screen.queryByText("点击查询后查看拼音词条")).toBeNull();
+  expect(screen.queryByText("输入关键词后查看拼音词条")).toBeNull();
 });
 
 test("a refused pinyin entry says why instead of asking for a retry", async () => {
@@ -3536,6 +3534,7 @@ test("dictionary manager pages through entries instead of loading the whole dict
   });
   const list = vi
     .fn()
+    .mockResolvedValueOnce({ entries: [], has_more: false })
     .mockResolvedValueOnce(page(0, 100, true))
     .mockResolvedValueOnce(page(100, 20, false));
   const client: SettingsClient = {
@@ -3547,12 +3546,12 @@ test("dictionary manager pages through entries instead of loading the whole dict
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
-  fireEvent.click(screen.getByRole("button", { name: "查询" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
   expect(await screen.findByText("第 1–100 条，后面还有结果")).toBeDefined();
   // This case selected 拼音, so that is the kind the host is asked for.
   expect(list).toHaveBeenCalledWith(0, 100, "pinyin", "");
-  // The first page must not be followed by a second request on its own.
-  expect(list).toHaveBeenCalledTimes(1);
+  // 防抖查询只发出一次；前一次是切换词库类型时的初始空结果。
+  expect(list).toHaveBeenCalledTimes(2);
   expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", true);
   const results = screen.getByRole("list", { name: "词库查询结果" });
   results.scrollTop = 480;
@@ -3594,13 +3593,12 @@ test("dictionary manager ignores a stale page response", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
-  const query = await screen.findByRole("button", { name: "查询" });
   const kind = screen.getByLabelText("本地词库类型");
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
   act(() => {
-    fireEvent.click(query);
     fireEvent.change(kind, { target: { value: "pinyin" } });
   });
-  expect(list).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
   resolveSecond?.({
     entries: [{ kind: "pinyin", key: "new", value: "新结果", weight: 100 }],
     has_more: false,
@@ -8575,12 +8573,21 @@ test("screen keyboard and handwriting pages expose the native panel actions", as
 });
 
 test("macOS opens handwriting for copying while input-session panels use the native process", async () => {
+  const cloudDictionaryRequest = vi.fn().mockResolvedValue({
+    entries: [],
+    has_more: false,
+    offset: 0,
+  });
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn(),
     openHandwriting: vi.fn(),
     openCloudClipboard: vi.fn(),
     openCloudDictionary: vi.fn(),
+    cloudDictionary: {
+      close: vi.fn(),
+      request: cloudDictionaryRequest,
+    },
     host: testHost({ platform: "macos" }),
   };
   render(<SettingsPage client={client} />);
@@ -8602,15 +8609,22 @@ test("macOS opens handwriting for copying while input-session panels use the nat
   expect(within(tools).getByRole("region", { name: "剪贴板" }).contains(note)).toBe(true);
   expect(within(tools).queryByRole("region", { name: "云剪贴板" })).toBeNull();
   expect(screen.queryByRole("button", { name: "打开云剪贴板" })).toBeNull();
-  // The cloud dictionary only manages words, so it needs no input session and opens from 词库 like on every other desktop.
-  expect(screen.queryByRole("button", { name: "打开云词库" })).toBeNull();
   expect(client.openCloudClipboard).not.toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
-  // 云词库入口在词库页的「管理词库」标签里。
-  selectDictionaryTab("管理词库");
-  fireEvent.click(await screen.findByRole("button", { name: "打开云词库" }));
-  await waitFor(() => expect(client.openCloudDictionary).toHaveBeenCalledTimes(1));
+  const dictionaryTabs = await screen.findByRole("tablist", { name: "词库设置分类" });
+  expect(within(dictionaryTabs).getByRole("tab", { name: "云词库" })).toBeDefined();
+  fireEvent.click(within(dictionaryTabs).getByRole("tab", { name: "云词库" }));
+  expect(await screen.findByRole("main", { name: "云词库" })).toBeDefined();
+  await waitFor(() =>
+    expect(cloudDictionaryRequest).toHaveBeenCalledWith({
+      operation: "list",
+      kind: "pinyin",
+      offset: 0,
+      search: "",
+    }),
+  );
+  expect(client.openCloudDictionary).not.toHaveBeenCalled();
 });
 
 test("the 剪贴板 page sends a history entry through the host's cloud clipboard, macOS included", async () => {
@@ -8841,7 +8855,7 @@ test("cloud dictionary clears old account entries when refresh fails", async () 
 test("cloud dictionary exposes visible kind tabs for mobile layouts", async () => {
   const request = vi.fn().mockResolvedValue({ entries: [], has_more: false, offset: 0 });
   render(<CloudDictionaryPanel client={{ close: vi.fn(), request }} />);
-  await screen.findByText("暂无词条");
+  await screen.findByText("暂无云词条");
   const tabs = screen.getByRole("tablist", { name: "云词库类型" });
   expect(tabs.querySelector("button[aria-selected='true']")?.textContent).toBe("拼音");
   // 请求发出并不表示刷新已结束；等到页签恢复可用后再开始下一次切换。

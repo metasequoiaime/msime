@@ -22,6 +22,8 @@ macOS 保留显式 provider、原生会话和发现 socket 的优先级；没有
 
 不把已有 provider 的业务失败当作缺少入口；保持 Linux 的 provider-only 行为。真实账号联网验收不使用用户凭据。
 
+设置页云词库入口由[词库顶部标签](../feature/2026-10-17-dictionary-top-tabs-and-lookup.md)接管：提供页内客户端时显示标签，原生菜单与账号回退协议继续沿用本篇。
+
 ## 历史笔记检索
 
 检索 desktop_cloud_dictionary、云词库和 macOS。[Windows 桌面云账号笔记](../feature/2026-10-10-windows-desktop-cloud-account.md)部分重叠，保留账号共享锁及快照规则；[macOS 工具设置裁剪](../simplification/2026-10-16-macos-tools-support-settings-prune.md)部分重叠，本篇收窄云词库入口；会话存储注入提案无关，不推进其架构迁移。

@@ -1,5 +1,7 @@
 import type {
   DictionaryEntry,
+  DictionaryLookupEntry,
+  DictionaryLookupKind,
   LocalDictionaryFormat,
   LocalDictionaryKind,
   ScelText,
@@ -41,6 +43,13 @@ export interface DictionaryImportResult {
 export type DictionaryManifest = { profile: string; sourceCommit: string };
 
 export interface DictionaryClient {
+  /** 浏览包含内置行的全部词库；语言资源没有安装时 `available` 为假。 */
+  browse?(
+    offset: number,
+    limit: number,
+    kind: DictionaryLookupKind,
+    query: string,
+  ): Promise<{ entries: DictionaryLookupEntry[]; has_more: boolean; available: boolean }>;
   /** ASCII 查询匹配编码前缀，含非 ASCII 字符时匹配词条字面内容；宿主在分页前完成筛选。 */
   list(
     offset: number,

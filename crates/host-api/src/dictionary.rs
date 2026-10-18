@@ -26,6 +26,36 @@ enum Kind {
     Wubi98,
 }
 
+/// 浏览类型独立于个人词库类型，资源词条不能流入编辑、导入或云同步协议。
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(untagged)]
+enum LookupKind {
+    Personal(Kind),
+    Resource(ResourceKind),
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ResourceKind {
+    Japanese,
+    Cantonese,
+    Zhuyin,
+    Stroke,
+    KoreanHanja,
+}
+
+impl From<ResourceKind> for msime_engine::host::dictionary_lookup::ResourceDictionaryKind {
+    fn from(kind: ResourceKind) -> Self {
+        match kind {
+            ResourceKind::Japanese => Self::Japanese,
+            ResourceKind::Cantonese => Self::Cantonese,
+            ResourceKind::Zhuyin => Self::Zhuyin,
+            ResourceKind::Stroke => Self::Stroke,
+            ResourceKind::KoreanHanja => Self::KoreanHanja,
+        }
+    }
+}
+
 /// Where a listed row comes from. A bundled row shipped with the dictionary (or was learned from typing rather than added): its code and word are fixed, so it can only be given another weight or deleted.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -153,6 +183,14 @@ impl TryFrom<DictionaryEntry> for Entry {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Operation {
+    /// 浏览个人词库与语言资源；空查询也包含内置词条，不改变旧 `list` 的个人导出语义。
+    Browse {
+        kind: LookupKind,
+        #[serde(default)]
+        query: String,
+        offset: usize,
+        limit: usize,
+    },
     List {
         offset: usize,
         limit: usize,
@@ -727,6 +765,52 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
         .filter(|path| Path::new(path).is_absolute());
     let options = request.options.into_engine_options();
     match request.action {
+        Operation::Browse {
+            kind,
+            query,
+            offset,
+            limit,
+        } => {
+            if !(1..=1000).contains(&limit) || offset > 1_000_000 || query.len() > 256 {
+                return Err("invalid dictionary page".into());
+            }
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            match kind {
+                LookupKind::Personal(kind) => {
+                    let (entries, has_more) =
+                        table_entries_page(&options, kind, query.trim(), offset, limit)?;
+                    Ok(json!({ "entries": entries, "has_more": has_more, "available": true }))
+                }
+                LookupKind::Resource(resource) => {
+                    let page = msime_engine::host::dictionary_lookup::dictionary_resource_entries(
+                        &options,
+                        resource.into(),
+                        &query,
+                        offset,
+                        limit,
+                    )
+                    .map_err(|_| "dictionary read rejected")?;
+                    let entries: Vec<_> = page
+                        .entries
+                        .into_iter()
+                        .map(|row| {
+                            json!({
+                                "kind": kind, "key": row.key, "value": row.value,
+                                "weight": row.weight, "source": "bundled",
+                            })
+                        })
+                        .collect();
+                    Ok(
+                        json!({ "entries": entries, "has_more": page.has_more, "available": page.available }),
+                    )
+                }
+            }
+        }
         Operation::List {
             offset,
             limit,
@@ -1267,7 +1351,8 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             let state = store.read().map_err(personal_dictionary_error)?;
             Ok(json!({ "pending_count": state.pending_count() }))
         }
-        Operation::Count { .. }
+        Operation::Browse { .. }
+        | Operation::Count { .. }
         | Operation::ExportSnapshot { .. }
         | Operation::LearningCount
         | Operation::QueueLearningMerge { .. }

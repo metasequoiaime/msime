@@ -22,10 +22,10 @@ test("distinguishes an unqueried dictionary from a completed empty result", () =
     onRemove: vi.fn(),
   };
   const { rerender } = render(<DictionaryEntries {...props} />);
-  expect(screen.getByText("点击查询后查看拼音词条")).toBeTruthy();
+  expect(screen.getByText("输入关键词后查看中文 · 拼音词条")).toBeTruthy();
   rerender(<DictionaryEntries {...props} emptyMessage="未找到匹配词条" />);
   expect(screen.getByText("未找到匹配词条")).toBeTruthy();
-  expect(screen.queryByText("点击查询后查看拼音词条")).toBeNull();
+  expect(screen.queryByText("输入关键词后查看中文 · 拼音词条")).toBeNull();
 });
 
 test("marks the dictionary save action busy", () => {

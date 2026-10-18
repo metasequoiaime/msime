@@ -426,7 +426,7 @@ test("desktop dictionary file page reuses the authenticated client and returns t
 });
 
 test.each([
-  ["unavailable", "无法访问云词库服务，请确认 provider 已连接"],
+  ["unavailable", "无法加载云词库，请检查网络后重试。"],
   ["account_unauthorized", "登录已失效，请重新登录。"],
   ["timeout", "云词库请求超时，请稍后重试。"],
   ["account_network", "网络连接失败，请检查网络后重试。"],

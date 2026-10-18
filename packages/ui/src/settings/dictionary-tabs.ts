@@ -4,4 +4,6 @@ export const dictionaryTabs = [
   { id: "manage", title: "管理词库" },
 ] as const;
 
-export type DictionaryTab = (typeof dictionaryTabs)[number]["id"];
+export const cloudDictionaryTab = { id: "cloud", title: "云词库" } as const;
+
+export type DictionaryTab = (typeof dictionaryTabs)[number]["id"] | typeof cloudDictionaryTab.id;

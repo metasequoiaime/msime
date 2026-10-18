@@ -39,6 +39,9 @@ import { useSettingsThemePreviews } from "./settings/use-settings-theme-previews
 import { useLayoutEffect, useState } from "react";
 export type {
   DictionaryEntry,
+  DictionaryLookupEntry,
+  DictionaryLookupKind,
+  ResourceDictionaryKind,
   DictionaryPageFormat,
   LocalDictionaryFormat,
   LocalDictionaryKind,
@@ -475,6 +478,7 @@ import { InputSettingsPage } from "./settings/pages/input-page";
 import { ExpressionSettingsPage } from "./settings/pages/expression-page";
 import { DeveloperSettingsPage, McpSettingsPage } from "./settings/pages/developer-page";
 import { DictionarySettingsPage } from "./settings/pages/dictionary-page";
+import type { DictionaryTab } from "./settings/dictionary-tabs";
 import { AppearanceSettingsPage } from "./settings/pages/appearance-page";
 import { SkinSettingsPage } from "./settings/pages/skin-page";
 import { useCommunityGalleryNavigation } from "./settings/use-community-gallery-navigation";
@@ -2142,6 +2146,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     requestedSettingsPage,
     setPage,
     page,
+    dictionaryTab,
+    setDictionaryTab,
     accountLoginReturnPage,
     setAccountLoginReturnPage,
     mobileLastPageByTab,
@@ -2687,6 +2693,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     inputSourceStartup,
     dismissInputSourceStartup,
     page,
+    dictionaryTab,
+    setDictionaryTab,
     accountLoginReturnPage,
     settingsContentRef,
     communityDestination,
@@ -2911,6 +2919,8 @@ function SettingsShell(props: SettingsPageProps) {
     inputSourceStartup,
     dismissInputSourceStartup,
     page,
+    dictionaryTab,
+    setDictionaryTab,
     accountLoginReturnPage,
     settingsContentRef,
     communityDestination,
@@ -3307,13 +3317,18 @@ function SettingsShell(props: SettingsPageProps) {
                   onOpenCommunity={client.communityResources ? openCommunity : undefined}
                   communityHasSkins={Boolean(client.communitySkins)}
                   onOpenCloudDictionary={
-                    client.openCloudDictionary && !macosPlatform
+                    !mobilePlatform && client.cloudDictionary
                       ? () => {
-                          void client.openCloudDictionary!().catch(() =>
-                            setError("无法打开云词库，请重试。"),
-                          );
+                          selectPage("dictionary");
+                          setDictionaryTab("cloud");
                         }
-                      : undefined
+                      : client.openCloudDictionary && !macosPlatform
+                        ? () => {
+                            void client.openCloudDictionary!().catch(() =>
+                              setError("无法打开云词库，请重试。"),
+                            );
+                          }
+                        : undefined
                   }
                   // macOS opens the cloud clipboard only from the IME menu, which supplies the input session it pastes into.
                   onOpenCloudClipboard={

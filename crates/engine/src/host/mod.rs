@@ -3,6 +3,7 @@
 //! Errors are `EngineError`, whose `Display` is the C++ exception text; callers read it through `to_string()`. Audio capture lives in host-api, and offline handwriting recognition is `crate::handwriting`.
 
 pub mod dictionary;
+pub mod dictionary_lookup;
 pub mod glosses;
 pub mod options;
 pub mod session;

@@ -2145,13 +2145,20 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   );
 }
 
-export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelClient }) {
+export function CloudDictionaryPanel({
+  client,
+  embedded = false,
+}: {
+  client: CloudDictionaryPanelClient;
+  embedded?: boolean;
+}) {
   const { confirm, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
   const [entries, setEntries] = useState<CloudDictionaryEntry[]>([]);
   const [hasMore, setHasMore] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [form, setForm] = useState<{
     entry: CloudDictionaryEntry | null;
     code: string;
@@ -2195,9 +2202,19 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
 
   function refresh(nextOffset = 0, nextSearch = searchRef.current, nextKind = kind) {
     return run(async (revision) => {
-      await load(revision, nextOffset, nextSearch, nextKind);
-      if (isCurrent(revision)) setNotice("云词库已刷新");
-    }, "无法访问云词库服务，请确认 provider 已连接");
+      try {
+        await load(revision, nextOffset, nextSearch, nextKind);
+        if (isCurrent(revision)) {
+          setLoadError(false);
+          setNotice("云词库已刷新");
+        }
+      } catch (error) {
+        if (isCurrent(revision)) {
+          setLoadError(true);
+          setNotice(cloudDictionaryErrorMessage(error, "无法加载云词库，请检查网络后重试。"));
+        }
+      }
+    }, "无法加载云词库，请检查网络后重试。");
   }
 
   useEffect(() => {
@@ -2206,11 +2223,12 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     setOffset(0);
     setHasMore(false);
     setForm(null);
-    void refresh(0);
+    const timer = window.setTimeout(() => void refresh(0), embedded ? 280 : 0);
     return () => {
+      window.clearTimeout(timer);
       invalidate();
     };
-  }, [client, invalidate]);
+  }, [client, invalidate, embedded, embedded ? kind : null, embedded ? search : null]);
 
   function beginAdd() {
     if (!busyRef.current) setForm({ entry: null, code: "", word: "", weight: 100000 });
@@ -2308,7 +2326,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     setOffset(0);
     setEntries([]);
     setHasMore(false);
-    void refresh(0, searchRef.current, next);
+    if (!embedded) void refresh(0, searchRef.current, next);
   }
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词库">
@@ -2316,7 +2334,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
       <CloudPanelHeader title="水杉云词库" onClose={() => void client.close()} />
       <div className={cloud.dictionaryBody}>
         <p className={cloud.dictionaryNote}>
-          管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。
+          词条同步到当前账号，可在其他设备使用。应用到本机后用于输入。
         </p>
         <CloudDictionaryKindTabs value={kind} disabled={busy} onChange={changeKind} />
         <CloudDictionaryQueryToolbar
@@ -2326,6 +2344,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
           queryAriaLabel="搜索云词条"
           queryValue={search}
           queryButtonLabel="查询"
+          live={embedded}
           inputClassName={cloud.dictionaryInput}
           onKindChange={changeKind}
           onQueryChange={(value) => {
@@ -2386,7 +2405,9 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
               />
             ))
           ) : (
-            <p className={cloud.dictionaryEmpty}>暂无词条</p>
+            <p className={`${cloud.dictionaryEmpty} py-8`}>
+              {busy ? "正在加载云词条…" : loadError ? "云词条加载失败" : "暂无云词条"}
+            </p>
           )}
         </div>
         <CloudDictionaryPagination
@@ -2511,12 +2532,12 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       }
       const text = cloudResponseText(result);
       if (typeof text !== "string") throw new Error("provider returned no file");
-      downloadBlob(
-        new Blob([text], { type: "text/plain;charset=utf-8" }),
-        result.filename || `msime-${kind}-dictionary.tsv`,
-      );
+      const filename = result.filename || `msime-${kind}-dictionary.tsv`;
+      if (client.saveExport) await client.saveExport(filename, text);
+      else downloadBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), filename);
+      if (revision !== requestRevision.current) return;
       setNotice("云词库已导出");
-    }, "导出失败，请确认 provider 已连接");
+    }, "导出失败，请检查网络和登录状态后重试");
   }
 
   async function exportSnapshot() {
@@ -2532,10 +2553,10 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       }
       const text = cloudResponseText(result);
       if (typeof text !== "string" || !text) throw new Error("provider returned no snapshot");
-      downloadBlob(
-        new Blob([text], { type: "application/x-ndjson;charset=utf-8" }),
-        result.filename || "msime-dictionary-snapshot.ndjson",
-      );
+      const filename = result.filename || "msime-dictionary-snapshot.ndjson";
+      if (client.saveExport) await client.saveExport(filename, text);
+      else downloadBlob(new Blob([text], { type: "application/x-ndjson;charset=utf-8" }), filename);
+      if (!mounted.current || lifecycle !== lifecycleRevision.current) return;
       setNotice("完整云词库快照已导出");
     } catch {
       if (mounted.current && lifecycle === lifecycleRevision.current)
