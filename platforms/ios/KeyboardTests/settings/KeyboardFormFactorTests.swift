@@ -80,7 +80,8 @@ final class KeyboardFormFactorTests: XCTestCase {
               space.convert(space.bounds, to: controller.view), height)
     }
     let phone = try layout(tablet: false, width: 393)
-    XCTAssertEqual(phone.height, KeyboardViewController.defaultKeyboardHeight)
+    XCTAssertEqual(phone.height, KeyboardViewController.defaultKeyboardHeight + 12)
+    XCTAssertEqual(phone.space.minY - phone.key.maxY, 11, accuracy: 0.5)
     XCTAssertEqual(phone.key.height, 52, accuracy: 0.5)
     XCTAssertEqual(phone.space.height, 52, accuracy: 0.5)
     XCTAssertEqual(phone.strip.minY, 2, accuracy: 0.5)

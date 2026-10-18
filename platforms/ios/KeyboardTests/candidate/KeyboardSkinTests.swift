@@ -86,10 +86,13 @@ final class KeyboardSkinTests: XCTestCase {
     func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
     for style in [UIUserInterfaceStyle.light, .dark] {
       let controller = KeyboardViewController()
+      controller.traitOverrides.verticalSizeClass = .regular
       // 放进窗口，明暗才会在渲染前传到每个按键；键盘出现时按偏好设明暗，所以之后再固定成要渲染的那一种。
       let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight))
       window.overrideUserInterfaceStyle = style
       window.rootViewController = controller
+      controller.loadViewIfNeeded()
+      window.frame.size.height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
       window.isHidden = false
       defer { window.isHidden = true }
       controller.viewWillAppear(false)

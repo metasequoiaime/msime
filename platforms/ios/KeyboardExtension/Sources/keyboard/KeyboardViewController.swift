@@ -5075,7 +5075,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard appliedLayout != layout else { return }
     appliedLayout = layout
     keyboardRoot?.spacing = layout.rowSpacing
-    keyColumn.spacing = layout.rowSpacing
+    keyColumn.spacing = keyRowSpacing
     nineGrid?.spacing = layout.rowSpacing
     nineControls?.spacing = layout.rowSpacing
     numberPadSidebar.spacing = layout.rowSpacing
@@ -5243,6 +5243,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let symbolLayer = Self.drawsSymbolLayer(symbols: showsSymbols, nineKey: numberPad, kana: kana, dachen: dachen)
     let letterRowsShown = !(showsSymbols || nineKeyFrame || writes || kana || dachen || fourteenKey)
     letterRowViews.forEach { $0.isHidden = !letterRowsShown }
+    keyColumn.spacing = keyRowSpacing
     applyTabletLetterKeys()
     let fullKeys = formFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
     numberRowView?.isHidden = !fullKeys || showsSymbols || nineKeyFrame || writes || kana || dachen || fourteenKey
@@ -7018,11 +7019,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateShadows(view)
   }
 
+  /// 手机 26 键在存储行距之外增加 4pt 留白，计入总高度以保留按键高度。
+  private var keyRowSpacing: CGFloat {
+    let letterPadding: CGFloat = formFactor == .phone && letterRowViews.first?.isHidden == false ? 4 : 0
+    return CGFloat(KeyboardLayoutPreference.rowSpacing) + letterPadding
+  }
+
   /// 用户调整之前的键盘高度：由内边距、当前尺寸的顶栏、顶栏下的间距和按存储行距排列的各排按键累加而成，所以顶栏变高（释义行、更大的候选字号）或行距变宽会加高键盘，而不是从按键里扣。
   private var preferredKeyboardHeight: CGFloat {
     // 手写共用顶栏，因此也共用竖屏的通用高度。
     formFactor.keyboardHeight(
-      topRow: shownTopRowHeight, rowSpacing: CGFloat(KeyboardLayoutPreference.rowSpacing),
+      topRow: shownTopRowHeight, rowSpacing: keyRowSpacing,
       landscape: isLandscape, handwriting: !handwriting.isHidden, numberRow: showsKeyboardNumberRow)
   }
 

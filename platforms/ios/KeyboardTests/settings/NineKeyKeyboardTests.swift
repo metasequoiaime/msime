@@ -571,7 +571,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
         let field = UUID()
         controller.applyInputContext(keyboardType: type, documentIdentifier: field)
-        controller.view.layoutIfNeeded()
+        try layoutAtRequestedHeight(controller)
         XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "英文输入")
         XCTAssertTrue(try XCTUnwrap(button("nineKey6", in: controller).superview).isHidden)
         XCTAssertFalse(try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" }).isHidden)
@@ -584,19 +584,19 @@ final class NineKeyKeyboardTests: XCTestCase {
         q.sendActions(for: .primaryActionTriggered)
         XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "英文输入")
         try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
-        controller.view.layoutIfNeeded()
+        try layoutAtRequestedHeight(controller)
         for symbol in ["@", "/", "_", "="] {
           // @ 和 / 在 123 层，_ 和 = 在 #+= 层。
           if symbol == "_" {
             try button("symbolLayerToggle", in: controller).sendActions(for: .primaryActionTriggered)
-            controller.view.layoutIfNeeded()
+            try layoutAtRequestedHeight(controller)
           }
           let key = try XCTUnwrap(shownSymbolKey(symbol, in: controller), symbol)
           XCTAssertGreaterThan(key.bounds.width, 20)
         }
         controller.applyInputContext(keyboardType: type, documentIdentifier: field)
         controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
-        controller.view.layoutIfNeeded()
+        try layoutAtRequestedHeight(controller)
         XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "中文输入")
         XCTAssertFalse(try XCTUnwrap(button("nineKey6", in: controller).superview).isHidden)
         XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "全拼 9 键")
@@ -729,10 +729,11 @@ final class NineKeyKeyboardTests: XCTestCase {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
-      controller.view.layoutIfNeeded()
+      try layoutAtRequestedHeight(controller)
+      let initialHeight = controller.view.frame.height
       let skinShortcut = try XCTUnwrap(try button("skinShortcut", in: controller) as? KeyboardToolbarButton)
       skinShortcut.sendActions(for: .primaryActionTriggered)
-      controller.view.layoutIfNeeded()
+      try layoutAtRequestedHeight(controller)
       let picker = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSkinPicker" })
       // 选择器替换工具栏下方的按键，工具栏保持可见且 皮肤 高亮；选择器自身没有标题栏。
       try assertInKeyArea(picker, of: controller)
@@ -759,7 +760,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(MetasequoiaInputSessionBridge.loadSharedPreferences()?["global_theme"] as? String, "paper")
       XCTAssertNil(picker.superview)
       XCTAssertFalse(skinShortcut.isActive)
-      XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight)
+      XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, initialHeight)
       skinShortcut.sendActions(for: .primaryActionTriggered)
       XCTAssertEqual(try button("skinCard-paper", in: controller).accessibilityValue, "已选中")
       // 再点一次高亮图标会关闭选择器，按键回来。
@@ -883,13 +884,13 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
-    controller.view.layoutIfNeeded()
+    try layoutAtRequestedHeight(controller)
     let letterKey = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" })
     let letterHeight = letterKey.bounds.height
     // 英文数字页仍使用横排，完整验证同一套符号行的份额。
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
-    controller.view.layoutIfNeeded()
+    try layoutAtRequestedHeight(controller)
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let visible = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
@@ -909,10 +910,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("returnKey", in: controller).bounds.height, letterHeight, accuracy: 0.5)
     XCTAssertTrue(try button("symbolDeleteKey", in: controller).isHidden, "⌫ is in the layer's third row")
     XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
-                   KeyboardViewController.defaultKeyboardHeight, "the layer is as tall as the letters")
+                   KeyboardViewController.defaultKeyboardHeight, "符号层沿用原来的行距和按键高度")
     for (name, more) in [("123", false), ("#+=", true)] {
       if more { try button("symbolLayerToggle", in: controller).sendActions(for: .primaryActionTriggered) }
-      controller.view.layoutIfNeeded()
+      try layoutAtRequestedHeight(controller)
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
       })
@@ -1423,9 +1424,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
-      controller.view.layoutIfNeeded()
+      try layoutAtRequestedHeight(controller)
       try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
-      controller.view.layoutIfNeeded()
+      try layoutAtRequestedHeight(controller)
       let picker = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSchemePicker" } as? KeyboardSchemePickerView)
       try assertInKeyArea(picker, of: controller)
       XCTAssertTrue(try XCTUnwrap(try button("schemeButton", in: controller) as? KeyboardToolbarButton).isActive)
@@ -1458,8 +1459,8 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertNil(picker.superview)
       XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
       XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, ChineseInputScheme.quanpin.title)
-      controller.view.layoutIfNeeded()
-      XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight)
+      try layoutAtRequestedHeight(controller)
+      XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight + 12)
       try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertEqual(try button("schemeCard-quanpin", in: controller).accessibilityValue, "已选中")
       // 高亮的 输入方式 图标关闭它自己的选择器。
@@ -2231,7 +2232,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
-      controller.view.layoutIfNeeded()
+      try layoutAtRequestedHeight(controller)
       let reference = try button("nineKey6", in: controller).bounds.height
       // Handwriting has a taller canvas, covered by HandwritingTests. The kana nine-key panel
       // brings its own ⌫ / 空白 / 改行 and the action row is collapsed underneath it, so the
@@ -2249,7 +2250,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         controller.viewWillAppear(false)
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
-          controller.view.layoutIfNeeded()
+          try layoutAtRequestedHeight(controller)
           if scheme == .zhuyin && !symbols {
             // The Dachen layout fits four rows of keys above the action row into the same keyboard height, as the system Zhuyin keyboard does, so its rows are shorter than the three letter rows and all of them stay the same height.
             let returnHeight = try button("returnKey", in: controller).bounds.height
@@ -2279,7 +2280,9 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertEqual(try button("symbolLayerKey0_0", in: controller).bounds.height, reference, accuracy: 0.5, "\(scheme)")
             XCTAssertFalse(try button("symbolLayerDeleteKey", in: controller).isHidden)
           }
-          XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, keyboardHeight, "\(scheme)")
+          let paddedLetters = !symbols && ![.nineKey, .nineKeyShuangpin, .stroke, .zhuyin, .fourteenKey].contains(scheme)
+          XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
+                         keyboardHeight + (paddedLetters ? 12 : 0), "\(scheme)")
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
             // 输入方式 自己绘制设计稿的线框图标，不带会被皮肤处理画成键帽的 configuration。
             let selector = try XCTUnwrap(try button("schemeButton", in: controller) as? KeyboardToolbarButton)
@@ -2382,7 +2385,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
         controller.openLocalInputMode(trigger)
-        controller.view.layoutIfNeeded()
+        try layoutAtRequestedHeight(controller)
         let modeTitles = ["U": "Unicode 码点", "T": "日期时间", "J": "超级简拼", "C": "拆字"]
         XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, modeTitles[trigger],
                        "the strip names the mode it opened")
@@ -2401,14 +2404,14 @@ final class NineKeyKeyboardTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
-        controller.view.layoutIfNeeded()
+        try layoutAtRequestedHeight(controller)
         // 本地工具输出 ASCII，所以它们用英文层，九键键盘上也一样。
         XCTAssertNotNil(shownSymbolKey(":", in: controller))
         XCTAssertNil(shownSymbolKey("：", in: controller))
         XCTAssertNil(shownSymbolKey("、", in: controller))
         XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
         try button("exitLocalModeButton", in: controller).sendActions(for: .primaryActionTriggered)
-        controller.view.layoutIfNeeded()
+        try layoutAtRequestedHeight(controller)
         XCTAssertTrue(try button("exitLocalModeButton", in: controller).isHidden)
         XCTAssertFalse(try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" }).isHidden)
         XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, scheme.title)
@@ -3992,6 +3995,12 @@ final class NineKeyKeyboardTests: XCTestCase {
                      "\(scheme)")
     }
     XCTAssertEqual(SymbolLayerLayout.lettersTitle(chinese: true), "拼音")
+  }
+
+  /// 按键盘请求的高度布局，避免固定旧总高把增加行距后的按键压扁。
+  private func layoutAtRequestedHeight(_ controller: KeyboardViewController) throws {
+    controller.view.frame.size.height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+    controller.view.layoutIfNeeded()
   }
 
   private func shown(_ view: UIView) -> Bool {
