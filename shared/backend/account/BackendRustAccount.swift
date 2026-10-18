@@ -154,6 +154,7 @@ extension BackendRustClient.Failure: LocalizedError {
     case "account_recent_login_required": return "需要重新登录后再注销：请先退出登录，重新登录后再试。"
     case "account_too_large": return "内容超出大小限制，请缩减后重试。"
     case "snapshot_busy": return "词库正在处理另一项操作，请稍后重试。"
+    case "snapshot_unavailable": return "词库快照暂时不可用，请稍后重试。"
     default: return "账号服务暂不可用，请稍后再试。"
     }
   }

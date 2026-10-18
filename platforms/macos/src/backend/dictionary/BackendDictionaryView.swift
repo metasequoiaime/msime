@@ -12,15 +12,18 @@ final class MacDictionaryModel: ObservableObject {
   @Published var importText: String?
   @Published var format = BackendAccountClient.DictionaryFileFormat.standard
   private let accountID: String
-  private var sessionID: UUID?
-  private let client: BackendAccountClient
+  /// 列表、增删改、导入和导出经 Rust 的 `msime_client_cloud_dictionary`（#8201 迁移计划 4c）。nil 是宿主没有注册会话存储，每个操作都报 `rust_client_unavailable`。
+  private let rust: BackendRustAccount?
+  /// 只交给共享界面的「完整词库目录」和「云端候选与排序」两页：它们与 iOS 共用，随 iOS 那一组再改调 Rust，在那之前仍用 Swift 的会话（与 Rust 共用 `account-refresh.lock`）。
   private let account: BackendAccountSession
+  private var sessionID: UUID?
   private var pending: Task<Void, Never>?
   private var panel: NSSavePanel?
   private var closed = false
-  init(accountID: String, client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared) {
-    self.accountID = accountID; self.client = client; self.account = account
+  init(accountID: String, rust: BackendRustAccount? = .shared, account: BackendAccountSession = .shared) {
+    self.accountID = accountID; self.rust = rust; self.account = account
   }
+  /// 共享界面两页的令牌（见 `account`）。
   func authorize() async throws -> String {
     let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
     try Task.checkCancellation()
@@ -28,44 +31,51 @@ final class MacDictionaryModel: ObservableObject {
     sessionID = identity.sessionID
     return identity.token
   }
-  private func run(offset: Int = 0, _ operation: @escaping @MainActor @Sendable (String, BackendAccountClient.DictionaryKind) async throws -> Void) {
+  private func request(_ action: [String: Any]) async throws -> Data {
+    guard let rust else { throw BackendRustClient.Failure.unavailable }
+    return try await rust.cloudDictionary(action, snapshotDirectory: try MacCloudTransferDirectory.url())
+  }
+  /// 打开窗口时的账号还登录着、窗口也没关才继续。C 上拿不到会话代次，只按 user.id 绑定。
+  private func requireAccount() async throws {
+    guard let rust else { throw BackendRustClient.Failure.unavailable }
+    let current = try await rust.status()?.id
+    try Task.checkCancellation()
+    guard !closed, current == accountID else { throw CancellationError() }
+  }
+  private func run(offset: Int = 0, _ operation: @escaping @MainActor @Sendable (BackendAccountClient.DictionaryKind) async throws -> Void) {
     guard !busy, !closed else { return }
     let selected = kind, query = search
     busy = true; message = nil
     pending = Task {
       defer { busy = false }
       do {
-        let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-        try Task.checkCancellation()
-        guard !closed else { throw CancellationError() }
-        sessionID = identity.sessionID
-        _ = try await account.authenticated(matchingUserID: identity.userID,
-                                            matchingSessionID: identity.sessionID) { token in
-          try await operation(token, selected)
-        }.value
-        let result = try await account.authenticated(matchingUserID: identity.userID,
-                                                     matchingSessionID: identity.sessionID) { token in
-          try await client.dictionary(selected, search: query, offset: offset, token: token)
-        }.value
+        try await requireAccount()
+        try await operation(selected)
+        let result = try BackendRustAccount.decode(BackendAccountClient.DictionaryPage.self, try await request([
+          "operation": "list", "kind": selected.rawValue, "offset": offset, "search": query]))
+        try await requireAccount()
         guard kind == selected, search == query else { throw CancellationError() }
         page = result
       } catch is CancellationError { page = nil }
       catch { page = nil; if !Task.isCancelled { message = error.localizedDescription } }
     }
   }
-  func refresh(offset: Int = 0) { run(offset: offset) { _, _ in } }
+  func refresh(offset: Int = 0) { run(offset: offset) { _ in } }
   func save(_ value: BackendAccountClient.DictionaryValue, replacing entry: BackendAccountClient.DictionaryEntry? = nil) {
-    run { token, kind in
+    run { kind in
       if let entry {
-        guard entry.kind == kind else { throw BackendAccountClient.Failure(status: 409) }
-        _ = try await self.client.updateDictionary(entry, value: value, token: token)
-      } else { _ = try await self.client.addDictionary(kind, value: value, token: token) }
+        guard entry.kind == kind else { throw BackendRustClient.Failure(code: "account_conflict") }
+        _ = try await self.request(["operation": "update", "kind": kind.rawValue, "id": entry.id, "code": value.code,
+                                    "word": value.word, "weight": value.weight, "revision": entry.revision])
+      } else {
+        _ = try await self.request(["operation": "add", "kind": kind.rawValue, "code": value.code, "word": value.word, "weight": value.weight])
+      }
     }
   }
   func delete(_ entry: BackendAccountClient.DictionaryEntry) {
-    run { token, kind in
-      guard entry.kind == kind else { throw BackendAccountClient.Failure(status: 409) }
-      _ = try await self.client.deleteDictionary(entry, token: token)
+    run { kind in
+      guard entry.kind == kind else { throw BackendRustClient.Failure(code: "account_conflict") }
+      _ = try await self.request(["operation": "delete", "kind": kind.rawValue, "id": entry.id, "revision": entry.revision])
     }
   }
   func chooseImport() {
@@ -103,10 +113,11 @@ final class MacDictionaryModel: ObservableObject {
   func uploadImport() {
     guard let text = importText else { return }
     let format = format
-    run { token, kind in
-      let result = try await self.client.importDictionary(kind, text: text, format: format, token: token)
-      _ = try await self.authorize()
-      self.importText = nil; self.message = "已导入 \(result.imported) 个词条。"
+    run { kind in
+      let result = try BackendRustAccount.object(try await self.request([
+        "operation": "import", "kind": kind.rawValue, "format": format.rawValue, "text": text]))
+      try await self.requireAccount()
+      self.importText = nil; self.message = "已导入 \((result["imported"] as? NSNumber)?.intValue ?? 0) 个词条。"
     }
   }
   func chooseExport() {
@@ -122,13 +133,14 @@ final class MacDictionaryModel: ObservableObject {
       }
     }
   }
+  /// Rust 边下载边写进中转目录、校验完才经 `destination` 旁边的临时文件换进去（`export_file`）；断网、退出登录或写入失败时 `destination` 上原有的文件不动。
   func export(to destination: URL) {
     let format = format
-    run { token, kind in
-      let file = try await self.client.exportDictionary(kind, format: format, token: token)
-      defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-      _ = try await self.authorize()
-      try await MacCloudFileTransfer.save(file, to: destination) { _ = try await self.authorize() }
+    run { kind in
+      let scoped = destination.startAccessingSecurityScopedResource()
+      defer { if scoped { destination.stopAccessingSecurityScopedResource() } }
+      _ = try await self.request(["operation": "export_file", "kind": kind.rawValue, "format": format.rawValue, "path": destination.path])
+      try await self.requireAccount()
       self.message = "云词库已导出。"
     }
   }

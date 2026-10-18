@@ -14,6 +14,12 @@ enum BackendEdition {
     isFull ? fullInputMethodBundleIdentifier : (Bundle.main.bundleIdentifier ?? fullInputMethodBundleIdentifier)
   }
 
+  /// 设置应用和输入法之间的通知名：不是 full 的版本在名字后面加「.版本 id」，与 src/core/EditionIdentity.h 的 `MSIMEEditionNotificationName` 相同。
+  static func notificationName(_ base: String) -> Notification.Name {
+    guard !isFull, let edition = Bundle.main.object(forInfoDictionaryKey: "MSIMEEdition") as? String else { return Notification.Name(base) }
+    return Notification.Name("\(base).\(edition)")
+  }
+
   /// 本版本提供的方案；nil 表示 full，即全部方案。
   static var inputSchemes: [String]? {
     isFull ? nil : Bundle.main.object(forInfoDictionaryKey: "MSIMEInputSchemes") as? [String]

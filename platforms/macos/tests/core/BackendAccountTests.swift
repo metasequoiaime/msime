@@ -10,54 +10,6 @@ private final class MemoryCredentials: BackendSessionStorage, @unchecked Sendabl
   func save(_ value: BackendSavedSession) throws { lock.lock(); defer { lock.unlock() }; saved = value }
   func clear() throws { lock.lock(); defer { lock.unlock() }; saved = nil }
 }
-private final class MemoryKeystore: BackendClipboardKeystoreStorage, @unchecked Sendable {
-  private let lock = NSLock()
-  private var value: String?
-  func load() throws -> String? { lock.lock(); defer { lock.unlock() }; return value }
-  func save(_ value: String) throws { lock.lock(); defer { lock.unlock() }; self.value = value }
-  func clear() throws { lock.lock(); defer { lock.unlock() }; value = nil }
-}
-/// 不加密的驱动替身：列表和上传把下面这个服务端替身的明文正文当作结果，设备状态直接给出。`pending` 为真时模拟本机还在等待批准。
-private final class FixtureClipboardDriver: @unchecked Sendable {
-  private let lock = NSLock()
-  private var pendingValue = false
-  private var operations: [String] = []
-  var pending: Bool { get { lock.lock(); defer { lock.unlock() }; return pendingValue } set { lock.lock(); pendingValue = newValue; lock.unlock() } }
-  var seen: [String] { lock.lock(); defer { lock.unlock() }; return operations }
-  static let code = "0421 9873 5530 1176"
-  var e2e: BackendClipboardE2E { BackendClipboardE2E(drive: { [self] in reply($0) }, keystore: MemoryKeystore(), deviceName: { "合成 Mac" }) }
-  private func devices(pending: Bool) -> [String: Any] {
-    ["enabled": true, "status": pending ? "pending" : "ready", "device_id": String(repeating: "a", count: 32), "code": Self.code, "devices": [
-      ["device_id": String(repeating: "a", count: 32), "name": "合成 Mac", "created_at": "2026-10-11T08:00:00Z", "approved": !pending, "current": true, "code": Self.code],
-      ["device_id": String(repeating: "b", count: 32), "name": "合成 iPhone", "created_at": "2026-10-11T09:00:00Z", "approved": false, "current": false, "code": "1111 2222 3333 4444"],
-    ]]
-  }
-  private func reply(_ data: Data) -> Data? {
-    let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-    let pending = self.pending
-    var value: [String: Any] = ["keystore": "synthetic-keystore"]
-    if let start = input["start"] as? [String: Any], let op = start["op"] as? String {
-      lock.lock(); operations.append(op); lock.unlock()
-      switch op {
-      case "list" where pending:
-        value["done"] = ["enabled": true, "retention_days": 0, "items": [], "e2e": ["status": "pending", "code": Self.code, "pending_devices": 0, "undecryptable": 0]]
-      case "list": value["request"] = ["method": "GET", "path": "/v1/users/me/clipboard", "body": NSNull()]; value["state"] = ["op": "list"]
-      case "add" where pending: value["error"] = ["status": 0, "code": "clipboard_device_pending"]
-      case "add":
-        let body = String(data: try! JSONSerialization.data(withJSONObject: ["text": start["text"] ?? ""]), encoding: .utf8)!
-        value["request"] = ["method": "POST", "path": "/v1/users/me/clipboard", "body": body]; value["state"] = ["op": "add"]
-      default: value["done"] = devices(pending: pending)
-      }
-    } else if let state = input["resume"] as? [String: Any], let response = input["response"] as? [String: Any],
-              let body = response["body"] as? String, var object = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any] {
-      if state["op"] as? String == "list" {
-        object["e2e"] = ["status": object["enabled"] as? Bool == true ? "ready" : "disabled", "code": Self.code, "pending_devices": 1, "undecryptable": 0]
-      }
-      value["done"] = object
-    } else { value["error"] = ["status": 0, "code": "invalid_response"] }
-    return try? JSONSerialization.data(withJSONObject: ["ok": true, "value": value])
-  }
-}
 private final class AccountFixture: URLProtocol, @unchecked Sendable {
   static var failLogout = false
   static var allowDelete = false
@@ -71,8 +23,6 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
   static var darkSkinSchema = true
   private static var preferenceRevision = 1
   private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true, "platform.macos.quanpin_helpcode_schema": 6, "platform.macos.shuangpin_helpcode_schema": 9]
-  private static var clipboardEnabled = false
-  private static var clipboardText: String?
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
@@ -85,8 +35,6 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
       while true { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; payload.append(contentsOf: buffer.prefix(count)) }
     }
     let values = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
-    let itemID = String(repeating: "c", count: 64)
-    func item(_ text: String) -> [String: String] { ["id": itemID, "text": text, "updated_at": "2026-09-08"] }
     func json(_ object: Any) -> String { String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)! }
     switch (request.httpMethod!, request.url!.path) {
     case ("GET", "/v1/users/me/preferences/schema"):
@@ -101,17 +49,6 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
         Self.preferenceRevision += 1; Self.preferences = settings
         body = json(["revision":Self.preferenceRevision, "settings":Self.preferences])
       } else { body = "{}"; status = 409 }
-    case ("PUT", "/v1/users/me/clipboard/settings"):
-      Self.clipboardEnabled = values?["enabled"] as? Bool ?? false
-      if !Self.clipboardEnabled { Self.clipboardText = nil }
-      body = ""; status = 204
-    case ("GET", "/v1/users/me/clipboard"):
-      body = json(["enabled": Self.clipboardEnabled, "items": Self.clipboardText.map { [item($0)] } ?? []])
-    case ("POST", "/v1/users/me/clipboard"):
-      Self.clipboardText = values?["text"] as? String
-      body = json(item(Self.clipboardText ?? ""))
-    case ("DELETE", "/v1/users/me/clipboard"), ("DELETE", "/v1/users/me/clipboard/" + itemID):
-      Self.clipboardText = nil; body = ""; status = 204
     case (_, "/v1/auth/providers"): body = #"{"providers":{"email":true,"phone":false,"apple":false}}"#
     case (_, "/v1/auth/challenges"): body = #"{"challenge_id":"synthetic","expires_in":300}"#
     case (_, "/v1/auth/login"):
@@ -165,6 +102,16 @@ private final class AccountScript: @unchecked Sendable {
     try require(!model.busy)
   }
   @MainActor static func finished(_ model: MacClipboardModel) async throws {
+    let deadline = Date().addingTimeInterval(5)
+    while model.busy && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
+    try require(!model.busy)
+  }
+  @MainActor static func finished(_ model: MacDictionaryModel) async throws {
+    let deadline = Date().addingTimeInterval(5)
+    while model.busy && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
+    try require(!model.busy)
+  }
+  @MainActor static func finished(_ model: MacSnapshotModel) async throws {
     let deadline = Date().addingTimeInterval(5)
     while model.busy && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
     try require(!model.busy)
@@ -366,6 +313,235 @@ private final class AccountScript: @unchecked Sendable {
     try require(MacPreparedLocalSnapshot.strictHandle(true) == nil)
     try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: UInt64.max)) == UInt64.max)
   }
+  /// 云剪贴板窗口经 Rust（#8201 迁移计划 4c）：每个按钮发出的 action 和设备名，开着时才多读一次设备状态，操作自己带回设备状态时不再读，等待批准时留着草稿，打开窗口的账号不在了就丢掉结果。
+  @MainActor static func rustClipboardModel() async throws {
+    final class Cloud: @unchecked Sendable {
+      var enabled = false
+      var text: String?
+      var pending = false
+    }
+    let cloud = Cloud()
+    let code = "0421 9873 5530 1176"
+    let itemID = String(repeating: "c", count: 64)
+    func devices() -> [String: Any] {
+      ["enabled": true, "status": cloud.pending ? "pending" : "ready", "device_id": String(repeating: "a", count: 32), "code": code, "devices": [
+        ["device_id": String(repeating: "a", count: 32), "name": "合成 Mac", "created_at": "2026-10-11T08:00:00Z", "approved": !cloud.pending, "current": true, "code": code],
+        ["device_id": String(repeating: "b", count: 32), "name": "合成 iPhone", "created_at": "2026-10-11T09:00:00Z", "approved": false, "current": false, "code": "1111 2222 3333 4444"],
+      ]]
+    }
+    FakeRust.answer { call in
+      if call.entry == "account" { return FakeRust.ok(["user": FakeRust.user("synthetic-user")]) }
+      switch call.operation {
+      case "list":
+        if cloud.enabled && cloud.pending {
+          return FakeRust.ok(["enabled": true, "retention_days": 0, "items": [], "e2e": ["status": "pending", "code": code, "pending_devices": 0, "undecryptable": 0]])
+        }
+        let items: [[String: Any]] = cloud.text.map { [["id": itemID, "text": $0, "updated_at": "2026-09-08", "pinned": false, "device": "合成 Mac"]] } ?? []
+        return FakeRust.ok(["enabled": cloud.enabled, "retention_days": 0, "items": items,
+                            "e2e": ["status": cloud.enabled ? "ready" : "disabled", "code": code, "pending_devices": 1, "undecryptable": 0]])
+      case "set_enabled":
+        cloud.enabled = call.action["enabled"] as? Bool ?? false
+        if !cloud.enabled { cloud.text = nil }
+        return FakeRust.ok(["enabled": cloud.enabled])
+      case "add":
+        if cloud.pending { return FakeRust.failure("clipboard_device_pending") }
+        cloud.text = call.action["text"] as? String
+        return FakeRust.ok(["id": itemID, "text": cloud.text ?? "", "updated_at": "2026-09-08"])
+      case "delete", "clear": cloud.text = nil; return FakeRust.ok([String: Any]())
+      case "devices", "approve", "reject", "remove", "reset": return FakeRust.ok(devices())
+      default: return FakeRust.failure("invalid_cloud_clipboard")
+      }
+    }
+    func sent() -> [String] { FakeRust.calls.filter { $0.entry == "cloud_clipboard" }.compactMap(\.operation) }
+    let clipboard = MacClipboardModel(accountID: "synthetic-user", rust: FakeRust.account, deviceName: "合成 Mac")
+    clipboard.refresh(); try await finished(clipboard)
+    try require(clipboard.loaded && !clipboard.enabled && clipboard.items.isEmpty && clipboard.devices == nil && sent() == ["list"])
+    clipboard.setEnabled(true); try await finished(clipboard)
+    // 开着时列表之后再取一次设备状态，等待本机批准的另一台设备显示出来。
+    try require(clipboard.enabled && !clipboard.isPending && clipboard.awaitingApproval.map(\.name) == ["合成 iPhone"]
+                && Array(sent().suffix(3)) == ["set_enabled", "list", "devices"])
+    // 每个请求都带注册给出的存储 id 和本机的设备名，不带目录。
+    try require(FakeRust.calls.filter { $0.entry == "cloud_clipboard" }.allSatisfy {
+      $0.request["session_store"] as? Int == 7 && $0.request["device_name"] as? String == "合成 Mac" && $0.request["directory"] == nil })
+    clipboard.text = "合成剪贴板内容"; clipboard.upload(); try await finished(clipboard)
+    try require(clipboard.items.first?.text == "合成剪贴板内容" && clipboard.text.isEmpty
+                && FakeRust.calls("add").last?.action["text"] as? String == "合成剪贴板内容")
+    // 批准本身带回设备状态，不再多取一次。
+    let before = sent().count
+    clipboard.change(.approve(deviceID: String(repeating: "b", count: 32))); try await finished(clipboard)
+    try require(Array(sent().dropFirst(before)) == ["approve", "list"] && clipboard.message == nil
+                && FakeRust.calls("approve").last?.action["device_id"] as? String == String(repeating: "b", count: 32))
+    // 本机等待批准：看不到条目，显示核对码；上传失败时提示去批准，草稿留着。
+    cloud.pending = true
+    clipboard.refresh(); try await finished(clipboard)
+    try require(clipboard.isPending && clipboard.items.isEmpty && clipboard.code == code && clipboard.awaitingApproval.isEmpty)
+    clipboard.text = "等待批准时的草稿"; clipboard.upload(); try await finished(clipboard)
+    try require(clipboard.text == "等待批准时的草稿" && clipboard.loaded
+                && clipboard.message == BackendAccountClient.Failure.clipboardMessages["clipboard_device_pending"])
+    cloud.pending = false
+    clipboard.text = ""; clipboard.refresh(); try await finished(clipboard)
+    try require(!clipboard.isPending && clipboard.items.first?.text == "合成剪贴板内容")
+    clipboard.delete(id: clipboard.items.first!.id); try await finished(clipboard)
+    try require(clipboard.items.isEmpty && FakeRust.calls("delete").last?.action["id"] as? String == itemID)
+    // 「清空云端历史」是 clear：删掉全部条目、开关不变。
+    clipboard.text = "合成清理内容"; clipboard.upload(); try await finished(clipboard)
+    clipboard.delete(); try await finished(clipboard)
+    try require(clipboard.items.isEmpty && clipboard.enabled && FakeRust.calls("clear").count == 1)
+    clipboard.setEnabled(false); try await finished(clipboard)
+    try require(!clipboard.enabled && clipboard.items.isEmpty)
+    // 打开窗口时的账号已经不是登录的那个：什么都不发，也不显示。
+    let wrongAccount = MacClipboardModel(accountID: "previous-account", rust: FakeRust.account, deviceName: "合成 Mac")
+    let sentBefore = sent().count
+    wrongAccount.refresh(); try await finished(wrongAccount)
+    try require(!wrongAccount.loaded && wrongAccount.items.isEmpty && sent().count == sentBefore)
+    clipboard.text = "未上传的草稿"; clipboard.close()
+    try require(clipboard.text.isEmpty && clipboard.items.isEmpty)
+  }
+  /// 云词库窗口经 Rust（#8201 迁移计划 4c）：列表、增删改、导入和导出发出的 action，以及导出由 Rust 直接写进用户选的位置。
+  @MainActor static func rustDictionaryModel() async throws {
+    final class Cloud: @unchecked Sendable { var entries: [[String: Any]] = [] }
+    let cloud = Cloud()
+    let entryID = String(repeating: "d", count: 64)
+    FakeRust.answer { call in
+      if call.entry == "account" { return FakeRust.ok(["user": FakeRust.user("synthetic-user")]) }
+      let action = call.action
+      func entry(revision: Int) -> [String: Any] {
+        ["id": entryID, "kind": action["kind"] ?? "pinyin", "code": action["code"] ?? "", "word": action["word"] ?? "", "weight": action["weight"] ?? 0, "revision": revision]
+      }
+      switch call.operation {
+      case "list":
+        return FakeRust.ok(["entries": cloud.entries.filter { $0["kind"] as? String == action["kind"] as? String }, "has_more": false, "offset": action["offset"] ?? 0])
+      case "add":
+        cloud.entries = [entry(revision: 1)]
+        return FakeRust.ok(["revision": 1, "previous": NSNull(), "replacement": cloud.entries[0]])
+      case "update":
+        guard action["revision"] as? Int == cloud.entries.first?["revision"] as? Int else { return FakeRust.failure("account_conflict") }
+        let previous = cloud.entries[0]
+        cloud.entries = [entry(revision: 2)]
+        return FakeRust.ok(["revision": 2, "previous": previous, "replacement": cloud.entries[0]])
+      case "delete":
+        let previous = cloud.entries[0]
+        cloud.entries = []
+        return FakeRust.ok(["revision": 3, "previous": previous, "replacement": NSNull()])
+      case "import": return FakeRust.ok(["imported": 2, "revision": 4])
+      case "export_file":
+        guard let path = action["path"] as? String else { return FakeRust.failure("invalid_cloud_dictionary") }
+        try? Data("合成\tci\t100\n".utf8).write(to: URL(fileURLWithPath: path))
+        return FakeRust.ok(["path": path, "filename": "dictionary-pinyin.tsv", "bytes": 14])
+      default: return FakeRust.failure("invalid_cloud_dictionary")
+      }
+    }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AccountFixture.self]
+    let children = BackendAccountSession(api: BackendAccountClient(configuration: configuration), storage: MemoryCredentials())
+    let model = MacDictionaryModel(accountID: "synthetic-user", rust: FakeRust.account, account: children)
+    model.refresh(); try await finished(model)
+    let list = FakeRust.calls("list").last
+    try require(model.page?.entries.isEmpty == true && list?.action["kind"] as? String == "pinyin" && list?.action["offset"] as? Int == 0
+                && list?.request["snapshot_directory"] as? String == (try MacCloudTransferDirectory.url()).path
+                && list?.request["session_store"] as? Int == 7)
+    model.save(.init(code: "ce shi", word: "测试", weight: 100000)); try await finished(model)
+    let added = FakeRust.calls("add").last?.action
+    try require(model.page?.entries.first?.word == "测试" && added?["code"] as? String == "ce shi" && added?["weight"] as? Int == 100000)
+    let row = model.page!.entries[0]
+    model.save(.init(code: "ce shi", word: "测验", weight: 100000), replacing: row); try await finished(model)
+    let updated = FakeRust.calls("update").last?.action
+    try require(model.page?.entries.first?.word == "测验" && updated?["id"] as? String == entryID && updated?["revision"] as? Int == 1)
+    // 拿旧的版本号再改一次：云端已被改过，冲突原样报出来，页面清空等刷新。
+    model.save(.init(code: "ce shi", word: "又改", weight: 1), replacing: row); try await finished(model)
+    try require(model.page == nil && model.message == "云端内容已被其他设备更新，请刷新后重新确认。")
+    model.refresh(); try await finished(model)
+    model.delete(model.page!.entries[0]); try await finished(model)
+    try require(model.page?.entries.isEmpty == true && FakeRust.calls("delete").last?.action["revision"] as? Int == 2)
+    model.importText = "合成\tci\t100\n测验\tce yan\t100\n"; model.uploadImport(); try await finished(model)
+    try require(model.importText == nil && model.message == "已导入 2 个词条。"
+                && FakeRust.calls("import").last?.action["format"] as? String == "standard")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let destination = directory.appendingPathComponent("水杉-拼音.tsv")
+    model.export(to: destination); try await finished(model)
+    let exported = FakeRust.calls("export_file").last?.action
+    try require(model.message == "云词库已导出。" && exported?["path"] as? String == destination.path && exported?["format"] as? String == "standard"
+                && (try? String(contentsOf: destination, encoding: .utf8)) == "合成\tci\t100\n")
+    // 打开窗口时的账号已经不是登录的那个：不发云词库请求。
+    let wrongAccount = MacDictionaryModel(accountID: "previous-account", rust: FakeRust.account, account: children)
+    let before = FakeRust.calls.filter { $0.entry == "cloud_dictionary" }.count
+    wrongAccount.refresh(); try await finished(wrongAccount)
+    try require(wrongAccount.page == nil && FakeRust.calls.filter { $0.entry == "cloud_dictionary" }.count == before)
+    model.close()
+  }
+  /// 整份快照窗口经 Rust（#8201 迁移计划 4c）：「应用到本机」带本机的 HostOptions 排进 Rust 的快照队列，没能马上应用时窗口开着就问状态；备份、恢复按用户选的路径交给 Rust。
+  @MainActor static func rustSnapshotModel() async throws {
+    final class Queue: @unchecked Sendable { var enqueued = "applied"; var later = "applied" }
+    let queue = Queue()
+    let metadata: [String: Any] = ["cloudRevision": 5, "sha256": String(repeating: "e", count: 64), "bytes": 120, "records": 7,
+                                   "entries": 3, "overlays": 2, "positions": 1, "selections": 4]
+    FakeRust.answer { call in
+      if call.entry == "account" { return FakeRust.ok(["user": FakeRust.user("synthetic-user")]) }
+      let request: (String) -> [String: Any] = { ["id": "synthetic-request", "cloudRevision": 5, "fileSha256": String(repeating: "f", count: 64), "status": $0] }
+      switch call.operation {
+      case "snapshot_preview": return FakeRust.ok(["previewToken": "preview-1", "snapshot": metadata, "localVersion": "local-1"])
+      case "snapshot_enqueue":
+        // 处理队列要等输入会话放开词库，与真的 Rust 一样占住调用线程一会儿。
+        usleep(300_000)
+        return FakeRust.ok(["localVersion": "local-1", "request": request(queue.enqueued)])
+      case "snapshot_status": return FakeRust.ok(["localVersion": "local-1", "request": request(queue.later)])
+      case "snapshot_export_file":
+        guard let path = call.action["path"] as? String else { return FakeRust.failure("account_invalid") }
+        try? Data("{}\n".utf8).write(to: URL(fileURLWithPath: path))
+        return FakeRust.ok(["path": path, "filename": "msime-dictionary-snapshot.ndjson", "snapshot": metadata])
+      case "snapshot_restore_preview_file": return FakeRust.ok(["snapshot": metadata, "expectedRevision": 5])
+      case "snapshot_restore_file": return FakeRust.ok(["revision": 6, "reset": true])
+      default: return FakeRust.failure("invalid_cloud_dictionary")
+      }
+    }
+    let options: [String: Any] = ["user_data": "/synthetic/state/user", "dictionaries": "/synthetic/dictionaries"]
+    let model = MacSnapshotModel(accountID: "synthetic-user", rust: FakeRust.account, hostOptions: { options })
+    model.downloadForLocal(); try await finished(model)
+    try require(model.localPreview && model.preview?.entries == 3 && model.preview?.selections == 4
+                && (FakeRust.calls("snapshot_preview").last?.request["options"] as? [String: String])?["user_data"] == "/synthetic/state/user")
+    var wakes = 0
+    let observer = NotificationCenter.default.addObserver(forName: Notification.Name("MSIMEDictionaryMaintenanceWillBeginNotification"),
+                                                          object: nil, queue: nil) { _ in wakes += 1 }
+    defer { NotificationCenter.default.removeObserver(observer) }
+    model.applyLocal(); try await finished(model)
+    // 排队处理期间叫醒本进程里握着词库的输入会话，它们才会放手。
+    try require(wakes > 0)
+    let enqueued = FakeRust.calls("snapshot_enqueue").last
+    try require(model.preview == nil && model.message == "云词库已应用到本机，后续输入将使用新词库。"
+                && enqueued?.action["token"] as? String == "preview-1" && (enqueued?.request["options"] as? [String: String])?["dictionaries"] == "/synthetic/dictionaries")
+    // 输入会话一时放不开词库：请求留在队列里，窗口开着时问状态，直到应用完。
+    queue.enqueued = "queued"
+    model.downloadForLocal(); try await finished(model)
+    model.applyLocal(); try await finished(model)
+    try require(model.message == "已排进本机的词库队列，输入法放开词库后应用。关掉窗口也不会丢。")
+    let deadline = Date().addingTimeInterval(8)
+    while model.message != "云词库已应用到本机，后续输入将使用新词库。" && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+    try require(model.message == "云词库已应用到本机，后续输入将使用新词库。" && !FakeRust.calls("snapshot_status").isEmpty)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let backup = directory.appendingPathComponent("水杉完整云词库.ndjson")
+    model.backup(to: backup); try await finished(model)
+    try require(model.message == "已保存完整云词库备份。" && FakeRust.calls("snapshot_export_file").last?.action["path"] as? String == backup.path
+                && FileManager.default.fileExists(atPath: backup.path))
+    model.prepare(backup); try await finished(model)
+    try require(model.preview?.entries == 3 && !model.localPreview)
+    model.restore(); try await finished(model)
+    let restored = FakeRust.calls("snapshot_restore_file").last?.action
+    try require(model.preview == nil && model.message == "完整备份已恢复到云端。本机词库尚未替换。"
+                && restored?["path"] as? String == backup.path && restored?["expected_sha256"] as? String == String(repeating: "e", count: 64)
+                && restored?["revision"] as? Int == 5)
+    // 独立设置窗口没有输入会话，拿不到 HostOptions：报原因，不发请求。
+    let previews = FakeRust.calls("snapshot_preview").count
+    let standalone = MacSnapshotModel(accountID: "synthetic-user", rust: FakeRust.account,
+                                      hostOptions: { throw BackendRustClient.Failure(code: "snapshot_unavailable") })
+    standalone.downloadForLocal(); try await finished(standalone)
+    try require(standalone.preview == nil && standalone.message == "词库快照暂时不可用，请稍后重试。"
+                && FakeRust.calls("snapshot_preview").count == previews)
+    model.close()
+  }
   @MainActor static func main() async throws {
     try windowAccountIsolation()
     try candidateGlossPayload()
@@ -377,6 +553,9 @@ private final class AccountScript: @unchecked Sendable {
     configuration.protocolClasses = [AccountFixture.self]
     let client = BackendAccountClient(configuration: configuration)
     try await rustAccountModel()
+    try await rustClipboardModel()
+    try await rustDictionaryModel()
+    try await rustSnapshotModel()
     let storage = MemoryCredentials()
     let session = BackendAccountSession(api: client, storage: storage)
     try await session.signIn(challenge: "synthetic", credential: "123456")
@@ -452,39 +631,6 @@ private final class AccountScript: @unchecked Sendable {
     try require(settings.preview?["platform.macos.custom_candidate_skin_dark"] == .string("dusk-card"))
     AccountFixture.omittedPreferenceKey = nil
     settings.close(); try require(settings.preview == nil && settings.cloud == nil)
-    let driver = FixtureClipboardDriver()
-    let clipboard = MacClipboardModel(accountID: "synthetic-user", client: client, account: session, e2e: driver.e2e)
-    clipboard.refresh(); try await finished(clipboard)
-    try require(clipboard.loaded && !clipboard.enabled && clipboard.items.isEmpty && clipboard.devices == nil)
-    clipboard.setEnabled(true); try await finished(clipboard)
-    // 开着时列表之后再取一次设备状态，等待本机批准的另一台设备显示出来。
-    try require(clipboard.enabled && !clipboard.isPending && clipboard.awaitingApproval.map(\.name) == ["合成 iPhone"])
-    clipboard.text = "合成剪贴板内容"; clipboard.upload(); try await finished(clipboard)
-    try require(clipboard.items.first?.text == "合成剪贴板内容" && clipboard.text.isEmpty)
-    // 批准经驱动完成，操作本身带回设备状态，不再多取一次。
-    let before = driver.seen.count
-    clipboard.change(.approve(deviceID: String(repeating: "b", count: 32))); try await finished(clipboard)
-    try require(Array(driver.seen.dropFirst(before)) == ["approve", "list"] && clipboard.message == nil)
-    // 本机等待批准：看不到条目，显示核对码；上传失败时提示去批准，草稿留着。
-    driver.pending = true
-    clipboard.refresh(); try await finished(clipboard)
-    try require(clipboard.isPending && clipboard.items.isEmpty && clipboard.code == FixtureClipboardDriver.code && clipboard.awaitingApproval.isEmpty)
-    clipboard.text = "等待批准时的草稿"; clipboard.upload(); try await finished(clipboard)
-    try require(clipboard.text == "等待批准时的草稿" && clipboard.loaded
-                && clipboard.message == BackendAccountClient.Failure.clipboardMessages["clipboard_device_pending"])
-    driver.pending = false
-    clipboard.text = ""; clipboard.refresh(); try await finished(clipboard)
-    try require(!clipboard.isPending && clipboard.items.first?.text == "合成剪贴板内容")
-    clipboard.delete(id: clipboard.items.first!.id); try await finished(clipboard)
-    try require(clipboard.items.isEmpty)
-    clipboard.text = "合成清理内容"; clipboard.upload(); try await finished(clipboard)
-    clipboard.setEnabled(false); try await finished(clipboard)
-    try require(!clipboard.enabled && clipboard.items.isEmpty)
-    let wrongAccount = MacClipboardModel(accountID: "previous-account", client: client, account: session, e2e: driver.e2e)
-    wrongAccount.refresh(); try await finished(wrongAccount)
-    try require(!wrongAccount.loaded && wrongAccount.items.isEmpty)
-    clipboard.text = "未上传的草稿"; clipboard.close()
-    try require(clipboard.text.isEmpty && clipboard.items.isEmpty)
     print("PASS: native account model through Rust, local account card, settings sync and cloud clipboard")
   }
 

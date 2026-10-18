@@ -15,15 +15,13 @@ final class MacClipboardModel: ObservableObject {
   /// 账号下登记的设备，云剪贴板开着时与列表一起刷新。
   @Published var devices: BackendAccountClient.ClipboardDevices?
   private let accountID: String
-  private var sessionID: UUID?
-  private let client: BackendAccountClient
-  private let account: BackendAccountSession
-  private let clipboardE2E: BackendClipboardE2E?
+  /// 云剪贴板经 Rust 的 `msime_client_account_cloud_clipboard`（#8201 迁移计划 4c）：端到端加密、密钥串（`account-session.json` 旁边的 `cloud-clipboard-keystore`）和令牌都在 Rust 里。nil 是宿主没有注册会话存储，每个操作都报 `rust_client_unavailable`。
+  private let rust: BackendRustAccount?
+  /// 本机登记端到端加密时给其他设备看的名字。
+  private let deviceName: String
   private var pending: Task<Void, Never>?
-  /// `e2e` 缺省是输入法交给后端的驱动；没有驱动时读写都失败，不退回明文。
-  init(accountID: String, client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
-       e2e: BackendClipboardE2E? = MacCloudClipboardDriver.e2e) {
-    self.accountID = accountID; self.client = client; self.account = account; self.clipboardE2E = e2e
+  init(accountID: String, rust: BackendRustAccount? = .shared, deviceName: String = MacCloudClipboardDriver.deviceName) {
+    self.accountID = accountID; self.rust = rust; self.deviceName = deviceName
   }
 
   /// 本机还在等待批准：看不到条目，也不能上传。
@@ -33,67 +31,76 @@ final class MacClipboardModel: ObservableObject {
   /// 等待本机批准的其他设备。
   var awaitingApproval: [BackendAccountClient.ClipboardDevice] { isPending ? [] : devices?.awaitingApproval ?? [] }
 
-  private func credentials() async throws -> String {
-    let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+  private func request(_ action: [String: Any]) async throws -> Data {
+    guard let rust else { throw BackendRustClient.Failure.unavailable }
+    return try await rust.cloudClipboard(action, deviceName: deviceName)
+  }
+  /// 打开窗口时的账号还登录着才继续，退出或换了号就丢掉结果。C 上拿不到会话代次，只按 user.id 绑定：同一个账号的令牌轮换和重新登录不作废（迁移差异 M29）。
+  private func requireAccount() async throws {
+    guard let rust else { throw BackendRustClient.Failure.unavailable }
+    guard try await rust.status()?.id == accountID else { throw CancellationError() }
     try Task.checkCancellation()
-    guard identity.userID == accountID else { throw CancellationError() }
-    sessionID = identity.sessionID
-    return identity.token
   }
   /// 执行一个操作，然后重新读列表；云剪贴板开着时再读一次设备状态（操作本身已经带回设备状态时不再读）。
-  func run(_ action: @escaping @MainActor (String, BackendClipboardE2E?) async throws -> BackendAccountClient.ClipboardDevices?) {
+  func run(_ action: @escaping @MainActor () async throws -> BackendAccountClient.ClipboardDevices?) {
     guard !busy else { return }
     busy = true; message = nil
     pending = Task {
       defer { busy = false }
       do {
-        let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-        try Task.checkCancellation()
-        sessionID = identity.sessionID
-        let e2e = clipboardE2E?.bound(to: account, userID: identity.userID, sessionID: identity.sessionID)
-        var status = try await account.authenticated(matchingUserID: identity.userID,
-                                                     matchingSessionID: identity.sessionID) { token in
-          try await action(token, e2e)
-        }.value
-        let page = try await client.clipboard(search: search, e2e: e2e, session: account,
-                                              matchingUserID: identity.userID,
-                                              matchingSessionID: identity.sessionID)
+        try await requireAccount()
+        var status = try await action()
+        let page = try BackendRustAccount.decode(BackendAccountClient.ClipboardPage.self,
+                                                 try await request(["operation": "list", "search": search]))
         if page.enabled && status == nil {
-          status = try await account.authenticated(matchingUserID: identity.userID,
-                                                   matchingSessionID: identity.sessionID) { [client] token in
-            try await client.clipboardDevices(token: token, e2e: e2e)
-          }.value
+          status = try BackendRustAccount.decode(BackendAccountClient.ClipboardDevices.self,
+                                                 try await request(["operation": "devices"]))
         }
-        try await account.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+        try await requireAccount()
         enabled = page.enabled; items = page.items; self.e2e = page.e2e
         devices = page.enabled ? status : nil
         loaded = true
       } catch is CancellationError { clear() }
       catch {
-        let keepsState = (error as? BackendAccountClient.Failure)?.code == "clipboard_device_pending"
+        let keepsState = (error as? BackendRustClient.Failure)?.code == "clipboard_device_pending"
         if !keepsState { items = []; loaded = false }
         if !Task.isCancelled { message = error.localizedDescription }
       }
     }
   }
-  func refresh() { run { _, _ in nil } }
-  func setEnabled(_ value: Bool) { run { token, _ in try await self.client.setClipboardEnabled(value, token: token); return nil } }
+  func refresh() { run { nil } }
+  func setEnabled(_ value: Bool) { run { _ = try await self.request(["operation": "set_enabled", "enabled": value]); return nil } }
   func upload() {
     let value = text
-    run { token, e2e in
-      _ = try await self.client.addClipboard(value, token: token, e2e: e2e)
-      _ = try await self.credentials()
+    run {
+      _ = try await self.request(["operation": "add", "text": value])
+      try await self.requireAccount()
       self.text = ""
       return nil
     }
   }
-  func delete(id: String? = nil) { run { token, _ in try await self.client.deleteClipboard(id: id, token: token); return nil } }
-  /// 批准、拒绝、移除一台设备或重置云剪贴板。
+  /// 删除一条；`id` 为 nil 时清空云端全部条目，开关不变。
+  func delete(id: String? = nil) {
+    run {
+      _ = try await self.request(id.map { ["operation": "delete", "id": $0] } ?? ["operation": "clear"])
+      return nil
+    }
+  }
+  /// 批准、拒绝、移除一台设备或重置云剪贴板，结果就是设备状态。
   func change(_ operation: BackendAccountClient.ClipboardE2EOperation) {
-    run { token, e2e in try await self.client.clipboardDevices(operation, token: token, e2e: e2e) }
+    let action: [String: Any]
+    switch operation {
+    case .approve(let id): action = ["operation": "approve", "device_id": id]
+    case .reject(let id): action = ["operation": "reject", "device_id": id]
+    case .remove(let id): action = ["operation": "remove", "device_id": id]
+    case .reset: action = ["operation": "reset"]
+    case .status: action = ["operation": "devices"]
+    case .list, .add: return
+    }
+    run { try BackendRustAccount.decode(BackendAccountClient.ClipboardDevices.self, try await self.request(action)) }
   }
   func copy(_ item: BackendAccountClient.ClipboardItem) {
-    run { _, _ in
+    run {
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(item.text, forType: .string)
       return nil
