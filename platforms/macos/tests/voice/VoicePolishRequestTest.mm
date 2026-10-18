@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
         // A polish that fails hands back the transcript untouched. That is the whole reason the budget
         // matters: the failure is silent, so a budget the service cannot meet means the transcript went to
         // the provider and the answer was binned with nothing shown.
-        for (NSString *path in @[@"/failure", @"/empty"]) {
+        for (NSString *path in @[@"/failure", @"/empty", @"/length", @"/content_filter", @"/error"]) {
             options[@"polish_endpoint"] = [base stringByAppendingString:path];
             request = [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
             done = NO;

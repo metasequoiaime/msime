@@ -41,7 +41,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
                 time.sleep(6)
             value = "" if self.path == "/empty" else "synthetic polished"
-            self.wfile.write(json.dumps({"choices": [{"message": {"content": value}}]}).encode())
+            payload = {"choices": [{"message": {"content": value}}]}
+            if self.path in ("/length", "/content_filter"):
+                payload["choices"][0]["finish_reason"] = self.path[1:]
+            elif self.path == "/error":
+                payload["error"] = {"message": "synthetic failure"}
+            self.wfile.write(json.dumps(payload).encode())
         except (BrokenPipeError, ConnectionResetError):
             if not self.path.startswith("/stall-"):
                 errors.append("unexpected disconnected fixture")
@@ -57,6 +62,7 @@ try:
     result = subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}"], timeout=60)
     assert result.returncode == 0 and not errors
     assert counts == {"/polish": 1, "/failure": 1, "/empty": 1,
+                      "/length": 1, "/content_filter": 1, "/error": 1,
                       "/stall-headers": 1, "/stall-body": 1}
 finally:
     server.shutdown()

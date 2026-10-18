@@ -36,6 +36,17 @@ class SharedVoiceHandler(http.server.BaseHTTPRequestHandler):
         # chat 场景是阿里云百炼的回答形状：文字在 choices[0].message.content。
         payload = {"text": "synthetic result"} if mode == "asr" and scenario != "chat" else {
             "choices": [{"message": {"content": "synthetic result"}}]}
+        if mode == "polish":
+            if scenario in ("length", "content_filter", "stop"):
+                payload["choices"][0]["finish_reason"] = scenario
+            elif scenario == "null-finish":
+                payload["choices"][0]["finish_reason"] = None
+            elif scenario == "error":
+                payload["error"] = {"message": "synthetic failure"}
+            elif scenario == "empty-error":
+                payload["error"] = {}
+            elif scenario == "null-error":
+                payload["error"] = None
         body = json.dumps(payload).encode()
         if scenario == "reject":
             status = 401
@@ -74,6 +85,15 @@ with LoopbackHTTPServer(("127.0.0.1", 0), SharedVoiceHandler) as server:
                                check=True, timeout=10, env=environment)
                 assert SharedVoiceHandler.counts[path] == 1
             assert SharedVoiceHandler.counts[f"/{mode}/success"] == 1
+        # 非空正文也可能不完整；明确失败时不得让半段文字替换转写。
+        for scenario in ("length", "content_filter", "error", "empty-error",
+                         "stop", "null-finish", "null-error"):
+            path = f"/polish/{scenario}"
+            url = f"http://127.0.0.1:{server.server_port}{path}"
+            expected = "success" if scenario in ("stop", "null-finish", "null-error") else "failure"
+            subprocess.run([sys.argv[1], "polish", "openai", url, expected],
+                           check=True, timeout=10, env=environment)
+            assert SharedVoiceHandler.counts[path] == 1
         url = f"http://127.0.0.1:{server.server_port}/asr/retry"
         subprocess.run([sys.argv[1], "asr", "siliconflow", url, "success"],
                        check=True, timeout=10, env=environment)

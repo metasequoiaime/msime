@@ -574,11 +574,14 @@ std::string polish_cloud_text(
                                          std::to_string(status));
   try {
     const auto result_json = nlohmann::json::parse(response.body);
-    const auto polished = result_json.at("choices")
-                              .at(0)
-                              .at("message")
-                              .at("content")
-                              .get<std::string>();
+    if (result_json.contains("error") && !result_json.at("error").is_null())
+      throw VoiceError("Voice polish service returned an error");
+    const auto &choice = result_json.at("choices").at(0);
+    const auto finish_reason = choice.value("finish_reason", nlohmann::json());
+    // 明确截断或过滤的半段正文不能覆盖完整转写；缺省状态兼容旧服务。
+    if (finish_reason == "length" || finish_reason == "content_filter")
+      throw VoiceError("Incomplete polished text");
+    const auto polished = choice.at("message").at("content").get<std::string>();
     if (!polished.empty())
       return polished;
   } catch (const nlohmann::json::exception &) {

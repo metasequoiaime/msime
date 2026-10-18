@@ -36,7 +36,7 @@ Windows Server 的原生语音（热键或托盘启动，`platforms/windows/src/
 
 ### 反馈与其余对齐
 
-- 润色整体超时 `voice_polish_timeout_ms = 30000`，与 macOS `HTTPVoiceRequest.mm` 相同。
+- 润色整体超时 `voice_polish_timeout_ms = 30000`，与 macOS `HTTPVoiceRequest.mm` 相同。共享解析器拒绝明确截断、过滤或带错误信封的回复，保留完整转写，见[响应完整性检查](../bug-fix/2026-10-19-voice-polish-incomplete-reply.md)。
 - 识别正常结束却没有文字时提示 `voice_no_speech_message`（「未识别到语音，请重试」）；不足 0.25 秒的短录音照旧静默，取消或新会话接手时不提示。
 - `AudioCapture` 记下最近一次启动失败的原因（`AudioCaptureFailure`）：miniaudio 的 `MA_ACCESS_DENIED`（WASAPI `E_ACCESSDENIED`，Windows 隐私设置关掉了桌面应用的麦克风）提示到「设置 › 隐私和安全性 › 麦克风」，设置里选定的设备 id 格式不对、找不到或有歧义，以及别的平台写下的设备选择，提示「所选麦克风不可用，请重新选择录音设备」（与 macOS 同一句），其余仍是「无法启动麦克风。」。
 - 识别或润色中点浮层的 ✓ 调 `dismiss_processing()`：收起浮层并记下代次，`finish()` 不再为润色弹出它，结果照常上屏，失败提示照常显示。
