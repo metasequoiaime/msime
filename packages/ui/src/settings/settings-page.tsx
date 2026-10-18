@@ -1,5 +1,5 @@
 import { useSettingsPageModel, type SettingsPageProps } from "./use-settings-page-model";
-import { NavItem } from "../core/platform-controls";
+import { SettingsSidebar } from "./settings-sidebar";
 import { appThemeStyle, seasonAttr } from "../core/app-theme-style";
 import { SetupWarningStrip } from "../keyboard/setup-status-card";
 import { KeyboardSwitchGuideHost } from "../keyboard/keyboard-switch-guide";
@@ -181,14 +181,11 @@ function SettingsShell(props: SettingsPageProps) {
     contentFills,
     macShell,
     linuxShell,
-    ipadShell,
     ipadSidebarShown,
     titlebarShown,
     pageTitle,
     collapsingTitle,
     searchInTitlebar,
-    searchInSidebar,
-    sidebarBrandShown,
   } = shellPresentation;
   // 从一个推入页面再推入的页面（反馈 到 帮助）会保留内容列的动画类，所以要重启动画，而不是让它停在已结束的状态。用重启动画而不是按页面给内容列设 key，能让表单页面像在其他宿主上一样保持挂载、保留状态。
   useLayoutEffect(() => {
@@ -313,78 +310,18 @@ function SettingsShell(props: SettingsPageProps) {
               platform={settingsPlatform}
             />
           )}
-          <nav
-            className={`${settings.sidebar} ${ipadSidebarShown ? "" : "ipad:hidden"}`}
-            aria-label="设置分类"
-          >
-            {macShell && (
-              <div className={settings.macosDragRow} data-window-drag="" {...windowDragHandlers} />
-            )}
-            {ipadShell && <h2 className={settings.sidebarTitle}>设置</h2>}
-            {/* 品牌（图标加名称）放在侧栏顶部、搜索框之上，只在没有自绘标题栏的桌面窗口出现：macOS 排在红绿灯那一行下面，并和那一行一样可以拖动窗口；HarmonyOS 2in1 与没有窗口命令的桌面窗口直接起头。Windows 和 Linux 的标题栏已经写着品牌，手机和 iPad 的界面由系统和标签栏承担，都不再画一份。图标是装饰，名称就是文字本身。 */}
-            {sidebarBrandShown && (
-              <div
-                className={settings.sidebarHeader}
-                data-sidebar-brand=""
-                data-window-drag={macShell ? "" : undefined}
-                {...(macShell ? windowDragHandlers : {})}
-              >
-                <img src={logo} alt="" draggable={false} />
-                <span>水杉输入法</span>
-              </div>
-            )}
-            {searchInSidebar && <label className={settings.sidebarSearch}>{navSearchField}</label>}
-            <div className={settings.sidebarItems}>
-              {shownSidebarGroups.map((group) => {
-                const expanded = isSidebarGroupExpanded(group);
-                const pages = group.pages.map((item) => (
-                  <NavItem
-                    key={item.id}
-                    label={item.title}
-                    icon={<img className={settings.sidebarGlyph} src={item.icon} alt="" />}
-                    selected={navigationPage === item.id}
-                    controls="settings-content"
-                    onSelect={() => selectPage(item.id)}
-                  />
-                ));
-                if (mobilePlatform || !group.title) return pages;
-                const groupId = `settings-sidebar-group-${group.title}`;
-                const groupLabelId = `${groupId}-label`;
-                return (
-                  <section
-                    key={group.title}
-                    className={settings.sidebarGroup}
-                    aria-labelledby={groupLabelId}
-                  >
-                    <button
-                      type="button"
-                      className={settings.sidebarGroupToggle}
-                      id={groupLabelId}
-                      aria-expanded={expanded}
-                      aria-controls={groupId}
-                      onClick={() => toggleSidebarGroup(group)}
-                    >
-                      <span>{group.title}</span>
-                      <FluentIcon
-                        name="chevron_right"
-                        size={14}
-                        className={settings.sidebarGroupToggleIcon(expanded)}
-                      />
-                    </button>
-                    <div id={groupId} className={settings.sidebarGroupPages} hidden={!expanded}>
-                      {pages}
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
-            {shownSidebarGroups.length === 0 && (
-              <p className={settings.sidebarEmpty} role="status">
-                没有匹配的设置
-              </p>
-            )}
-            {!client.host && <p className={settings.previewLabel}>客户端预览版</p>}
-          </nav>
+          <SettingsSidebar
+            presentation={shellPresentation}
+            mobilePlatform={mobilePlatform}
+            preview={!client.host}
+            shownSidebarGroups={shownSidebarGroups}
+            navigationPage={navigationPage}
+            navSearchField={navSearchField}
+            windowDragHandlers={windowDragHandlers}
+            selectPage={selectPage}
+            isSidebarGroupExpanded={isSidebarGroupExpanded}
+            toggleSidebarGroup={toggleSidebarGroup}
+          />
           <main
             ref={settingsContentRef}
             id="settings-content"

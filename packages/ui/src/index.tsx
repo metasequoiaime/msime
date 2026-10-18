@@ -1879,3 +1879,4 @@ export {
 export type { SettingsPageModel } from "./settings/use-settings-page-model";
 
 export { SettingsPage } from "./settings/settings-page";
+export { SettingsSidebar, type SettingsSidebarProps } from "./settings/settings-sidebar";
