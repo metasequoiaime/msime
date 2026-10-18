@@ -62,7 +62,18 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
             stage = "import seventy-four synthetic words through installed store";
             Object report = importReport(importFile, context, "合成导入", rows(0, 74));
             check((int) report.getClass().getMethod("imported").invoke(report) == 74, "import count");
-            check(((String) report.getClass().getMethod("applicationNotice").invoke(report)).isEmpty(), "small import still pending");
+            String notice = (String) report.getClass().getMethod("applicationNotice").invoke(report);
+            if (!notice.isEmpty()) {
+                // 产品只同步两秒；慢设备允许明确提示等待，再验证队列最终完整应用，不能把预算当吞词。
+                check(notice.contains("等待"), "small import failed instead of queued");
+                long deadline = android.os.SystemClock.uptimeMillis() + 30000;
+                JSONObject sync;
+                do {
+                    sync = value("personalDictionarySync", new Class<?>[] {String.class}, optionsText);
+                    check(sync.getInt("failed_count") == 0, "small import retry failed");
+                    check(android.os.SystemClock.uptimeMillis() < deadline, "small import retry timed out");
+                } while (sync.getInt("pending_count") > 0);
+            }
             String target = word(5);
             try (SQLiteDatabase db = SQLiteDatabase.openDatabase(new File(root, "dictionaries/msime-pinyin.db").getPath(), null, SQLiteDatabase.OPEN_READONLY);
                     android.database.Cursor cursor = db.rawQuery("SELECT count(*) FROM tbl_2_n", null)) {

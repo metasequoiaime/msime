@@ -43,3 +43,5 @@ API 28 专用模拟器上，client-base/core/providers/services 共 1452 项通�
 - [细胞词库导入](../../implemented/feature/2026-10-13-scel-import.md)：部分重叠，解析和默认权重不变，本篇补齐导入到应用的时序。
 - [词库访问锁释放](../../implemented/bug-fix/2026-10-15-dictionary-access-lock-release.md)：无关，决定租约析构时释放，本篇不改变其生命周期语义。
 - [个人词库锁释放](../../implemented/bug-fix/2026-10-15-personal-dictionary-lock-release.md)：无关，决定文件锁析构释放，本篇不改变队列落盘和文件锁实现。
+
+设备验收允许产品两秒预算到期后的明确等待提示，并在三十秒内继续同步后检查全部 74 项与第 6 项九键候选；不把设备速度当作即时完成的契约。JVM 的合成时钟测试仍验证预算内跨 19 批持续应用，实际忙碌时的 9 项排队、无 failed 和关闭会话后重试断言保持原样。
