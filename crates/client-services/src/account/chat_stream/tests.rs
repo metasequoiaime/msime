@@ -432,3 +432,18 @@ fn a_cancel_that_arrives_before_begin_cancels_the_request() {
     requests.finish("synthetic-early");
     assert!(!requests.begin("synthetic-early").unwrap().is_cancelled());
 }
+
+#[test]
+fn cancels_for_finished_requests_do_not_push_out_an_early_cancel() {
+    let requests = ChatStreamRequests::default();
+    // 一次真正先到的取消，它的请求还没登记。
+    assert_eq!(requests.cancel("synthetic-early"), Ok(false));
+    // 期间别的对话一个个结束，宿主在它们结束以后才发的取消（比如关页面时把记着的 id 全取消一遍）不该占掉先到的那一个的位置。
+    for index in 0..200 {
+        let id = format!("synthetic-late-{index}");
+        requests.begin(&id).unwrap();
+        requests.finish(&id);
+        assert_eq!(requests.cancel(&id), Ok(false));
+    }
+    assert!(requests.begin("synthetic-early").unwrap().is_cancelled());
+}

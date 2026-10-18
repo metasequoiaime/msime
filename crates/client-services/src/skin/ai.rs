@@ -171,10 +171,11 @@ impl AiSkinRequests {
         }
     }
 
-    /// 生成结束（成功、失败或取消）后注销，同一个 id 之后可以再用（取消过的除外，见 `EarlyCancels`）。
+    /// 生成结束（成功、失败或取消）后注销，同一个 id 之后可以再用，但再用时登记之前到的取消不起作用（见 `EarlyCancels`）。之后才到的这个 id 的取消不再当成先到的记下。
     pub fn finish(&self, id: &str) {
         if let Ok(mut requests) = self.0.lock() {
             requests.running.remove(id);
+            requests.early.finish(id);
         }
     }
 }
@@ -1418,6 +1419,24 @@ mod tests {
         requests.cancel("synthetic-request").unwrap();
         assert!(!first.load(Ordering::Acquire));
         assert!(second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn cancels_for_finished_generations_do_not_push_out_an_early_cancel() {
+        let requests = AiSkinRequests::default();
+        // 一次真正先到的取消，它的生成还没登记。
+        assert_eq!(requests.cancel("synthetic-early"), Ok(false));
+        // 期间别的生成一个个结束，结束以后才到的取消不该占掉先到的那一个的位置。
+        for index in 0..200 {
+            let id = format!("synthetic-late-{index}");
+            requests.begin(&id).unwrap();
+            requests.finish(&id);
+            assert_eq!(requests.cancel(&id), Ok(false));
+        }
+        assert!(requests
+            .begin("synthetic-early")
+            .unwrap()
+            .load(Ordering::Acquire));
     }
 
     #[test]

@@ -132,10 +132,11 @@ impl ChatStreamRequests {
         }
     }
 
-    /// 对话结束（成功、失败或取消）后注销，同一个 id 之后可以再用（取消过的除外，见 `EarlyCancels`）。
+    /// 对话结束（成功、失败或取消）后注销，同一个 id 之后可以再用，但再用时登记之前到的取消不起作用（见 `EarlyCancels`）。之后才到的这个 id 的取消不再当成先到的记下。
     pub fn finish(&self, id: &str) {
         if let Ok(mut requests) = self.0.lock() {
             requests.running.remove(id);
+            requests.early.finish(id);
         }
     }
 }
