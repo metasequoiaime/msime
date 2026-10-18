@@ -3,6 +3,17 @@ import UIKit
 
 @MainActor
 final class KeyboardEmojiCatalogTests: XCTestCase {
+  func testCategorySwipeMovesOneTabAndStopsAtBothEnds() {
+    XCTAssertEqual(
+      KeyboardEmojiPickerView.categorySwipeTarget(current: 1, translationX: -60, translationY: 4, count: 4), 2)
+    XCTAssertEqual(
+      KeyboardEmojiPickerView.categorySwipeTarget(current: 2, translationX: 60, translationY: 4, count: 4), 1)
+    XCTAssertNil(KeyboardEmojiPickerView.categorySwipeTarget(current: 0, translationX: 60, translationY: 4, count: 4))
+    XCTAssertNil(KeyboardEmojiPickerView.categorySwipeTarget(current: 3, translationX: -60, translationY: 4, count: 4))
+    XCTAssertNil(KeyboardEmojiPickerView.categorySwipeTarget(current: 1, translationX: 47, translationY: 0, count: 4))
+    XCTAssertNil(KeyboardEmojiPickerView.categorySwipeTarget(current: 1, translationX: -60, translationY: 45, count: 4))
+  }
+
   private var savedRecents: [String: Any] = [:]
   private let recentKeys = [KeyboardEmojiRecents.key, KeyboardSymbolRecents.key, KeyboardKaomojiRecents.key]
 

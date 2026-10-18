@@ -7,7 +7,7 @@ import UIKit
 /// Search swaps the category bar for a letter pad of the picker's own. A keyboard extension has no text field it can type into, and the Engine matches Emoji and kaomoji by pinyin and English keywords, both of which are letters, so the pad types the query and the grid above it shows the matches. While searching, the category bar's place holds two scopes, 表情 and 颜文字, like the separate Emoji and kaomoji results of the Windows panel's search; the search opens on 颜文字 from the kaomoji tab and on 表情 from any other.
 ///
 /// 带标题栏时（默认）选择器盖住整个键盘：一行带返回、搜索和删除的标题，下面是分类栏和网格。不带标题栏时（`showsHeader: false`）选择器放在按键区里，即设计稿的表情面板：网格在上，底部是一条 ABC | 分类签 | ⌫ 的栏，搜索是第一个分类签。
-final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
+final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
   typealias PageLoader = @Sendable (
     KeyboardEmojiCatalog.Category, Int
   ) throws -> KeyboardEmojiCatalog.Page
@@ -33,6 +33,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   private let loadQueue = DispatchQueue(label: "app.msime.ios.emoji-catalog", qos: .userInitiated)
   private let tabs = UIStackView()
   private let tabScroll = UIScrollView()
+  private lazy var categoryPan = UIPanGestureRecognizer(target: self, action: #selector(handleCategoryPan(_:)))
   private let status = UILabel()
   private lazy var grid = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
   private var tabButtons: [UIButton] = []
@@ -62,6 +63,14 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   private static let chipSide: CGFloat = 32
   private static let barHeight: CGFloat = 40
   private static let barGap: CGFloat = 6
+  static let categorySwipeDistance: CGFloat = 48
+
+  static func categorySwipeTarget(current: Int, translationX: CGFloat, translationY: CGFloat, count: Int) -> Int? {
+    guard count > 0, abs(translationX) >= categorySwipeDistance,
+          abs(translationX) > abs(translationY) * 1.5 else { return nil }
+    let target = current + (translationX < 0 ? 1 : -1)
+    return (0..<count).contains(target) ? target : nil
+  }
 
   /// What the grid shows: the search while one is open, otherwise the selected tab.
   private var currentTab: Tab? {
@@ -139,6 +148,11 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     grid.register(KeyboardEmojiCell.self, forCellWithReuseIdentifier: KeyboardEmojiCell.reuseIdentifier)
     grid.disableEdgeEffects()
     grid.contentInsetAdjustmentBehavior = .never
+    categoryPan.delegate = self
+    categoryPan.maximumNumberOfTouches = 1
+    categoryPan.cancelsTouchesInView = true
+    grid.addGestureRecognizer(categoryPan)
+    grid.panGestureRecognizer.require(toFail: categoryPan)
 
     buildLetterPad()
     letterPad.isHidden = true
@@ -176,6 +190,21 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   }
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    guard gestureRecognizer === categoryPan, searchQuery == nil else { return false }
+    let velocity = categoryPan.velocity(in: self)
+    return abs(velocity.x) > abs(velocity.y) * 1.5
+  }
+
+  @objc private func handleCategoryPan(_ pan: UIPanGestureRecognizer) {
+    guard pan.state == .ended else { return }
+    let translation = pan.translation(in: self)
+    guard let target = Self.categorySwipeTarget(
+      current: selectedTab, translationX: translation.x, translationY: translation.y, count: availableTabs.count)
+    else { return }
+    selectTab(target)
+  }
 
   /// 盖住键盘的面板：一行带返回、搜索和删除的标题，下面是分类栏，搜索时字母键盘占据底部。
   private func layOutWithHeader(onClose: @escaping () -> Void) {
