@@ -281,6 +281,13 @@ impl ImeSession {
 
     /// `scheme.handle_key` then `refresh_candidates`; `SchemeKey::Requery` only refreshes.
     pub fn handle_key(&mut self, key: SchemeKey) -> bool {
+        if let SchemeKey::Letter(letter) = key {
+            if self.wubi_pinyin_continues(letter) {
+                if let Some(wubi) = self.scheme.as_wubi_mut() {
+                    wubi.set_extended_length_allowed(true);
+                }
+            }
+        }
         let changed = if key != SchemeKey::Requery {
             self.scheme.handle_key(key)
         } else if self.current_scheme_type() == SchemeType::Cantonese {
@@ -570,6 +577,27 @@ impl ImeSession {
             .is_some_and(|wubi| wubi.has_complete_code())
     }
 
+    /// 四码命中五笔时，后续小写字母能否继续当前拼音候选的完整读音。
+    /// 只匹配真实读音前缀，简拼、纠错和模糊音不能把不相关的第五码当成拼音。
+    pub fn wubi_pinyin_continues(&self, letter: u8) -> bool {
+        if !self.wubi_options.mixed_pinyin
+            || !self.wubi_has_complete_code()
+            || !letter.is_ascii_lowercase()
+        {
+            return false;
+        }
+        let raw = &self.state.request.raw_input;
+        self.state.candidates.iter().any(|item| {
+            item.scheme == SchemeType::Quanpin
+                && item
+                    .canonical_pinyin
+                    .bytes()
+                    .filter(|&byte| byte != b'\'')
+                    .take(raw.len() + 1)
+                    .eq(raw.bytes().chain(std::iter::once(letter)))
+        })
+    }
+
     /// 全拼词典里每个键（以 `'` 连接的完整音节）最好那一行的权重，供滑行输入使用。
     pub fn quanpin_best_weights(&self, keys: &[String]) -> HashMap<String, i64> {
         self.registry.quanpin_best_weights(keys)
@@ -846,7 +874,7 @@ impl ImeSession {
             }
             None => self.decode(&request),
         };
-        // A fifth letter is only allowed once the table has failed the code typed so far.
+        // 未命中五笔码时允许延长；四码碰撞但能续输拼音时，由 handle_key 临时放开。
         let extended = self.wubi_options.mixed_pinyin && !decoded.wubi_table_answered;
         if let Some(wubi) = self.scheme.as_wubi_mut() {
             wubi.set_extended_length_allowed(extended);
