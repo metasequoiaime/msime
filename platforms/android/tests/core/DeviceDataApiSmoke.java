@@ -35,13 +35,23 @@ public final class DeviceDataApiSmoke {
         check("image/jpeg".equals(DeviceDataApi.avatarType(jpeg)), "jpeg");
         check(DeviceDataApi.avatarType(new byte[] {'G', 'I', 'F', '8'}) == null, "gif is refused");
         check(DeviceDataApi.avatarType(null) == null, "missing image");
+        // 上传只收 PNG、JPEG；显示还认 WebP：Rust 下载时声明接受它，Google 的头像主机多半就回 WebP。
+        byte[] webp = {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' '};
+        check(DeviceDataApi.avatarType(webp) == null, "webp is not uploadable");
+        check("image/webp".equals(DeviceDataApi.displayAvatarType(webp)), "webp is displayable");
+        check("image/jpeg".equals(DeviceDataApi.displayAvatarType(jpeg)), "jpeg is displayable");
+        check(DeviceDataApi.displayAvatarType(new byte[] {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'A', 'V', 'E'}) == null,
+            "another RIFF container is refused");
+        check(DeviceDataApi.displayAvatarType(null) == null, "missing image to display");
 
-        // Rust 交回的头像是 data: URL，只认 PNG 和 JPEG，类型要与文件头一致。
+        // Rust 交回的头像是 data: URL，只认 PNG、JPEG 和 WebP，文件头也要是这三种之一。
         String encodedPng = Base64.getEncoder().encodeToString(png);
         check(java.util.Arrays.equals(png, DeviceDataApi.avatarBytes("data:image/png;base64," + encodedPng)),
             "a PNG data URL decodes to its bytes");
         check(java.util.Arrays.equals(jpeg, DeviceDataApi.avatarBytes(
             "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg))), "a JPEG data URL decodes");
+        check(java.util.Arrays.equals(webp, DeviceDataApi.avatarBytes(
+            "data:image/webp;base64," + Base64.getEncoder().encodeToString(webp))), "a WebP data URL decodes");
         check(DeviceDataApi.avatarBytes("data:image/gif;base64," + encodedPng) == null, "another media type is refused");
         check(DeviceDataApi.avatarBytes("https://media.msime.app/a.png") == null, "a remote URL is not fetched here");
         check(DeviceDataApi.avatarBytes("data:image/png;base64,%%%") == null, "malformed base64 is refused");

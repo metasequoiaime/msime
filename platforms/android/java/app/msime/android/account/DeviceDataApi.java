@@ -85,7 +85,7 @@ public final class DeviceDataApi {
         return parseProfile(call(op("profile")));
     }
 
-    /** 头像的图片字节（PNG 或 JPEG）；没有头像时为 null。图片由 Rust 下载，只认账号头像服务的地址。 */
+    /** 头像的图片字节（PNG、JPEG 或 WebP）；没有头像时为 null。图片由 Rust 下载，只认账号头像服务的地址。 */
     public byte[] avatar() throws AccountStore.Failure {
         Object value = bound(() -> RustAccount.account(application, op("avatar")));
         if (!(value instanceof String url)) return null;
@@ -257,17 +257,28 @@ public final class DeviceDataApi {
         return null;
     }
 
-    /** Rust avatar 给的 `data:image/png;base64,…` 或 `data:image/jpeg;base64,…` 里的图片字节；别的形状、解不开的 base64 或超过 1 MiB 时为 null。 */
+    /** 按文件头认要显示的头像格式：上传只收的 PNG、JPEG 之外还有 WebP（RIFF 容器、类型标记 WEBP）。Rust 下载头像时声明接受 WebP，Google 的头像主机按 Accept 内容协商，没上传过头像的 Google 登录用户拿到的多半是 WebP；BitmapFactory 能解。都不是时为 null。 */
+    public static String displayAvatarType(byte[] image) {
+        String uploadable = avatarType(image);
+        if (uploadable != null) return uploadable;
+        if (image != null && image.length >= 12 && image[0] == 'R' && image[1] == 'I' && image[2] == 'F' && image[3] == 'F'
+            && image[8] == 'W' && image[9] == 'E' && image[10] == 'B' && image[11] == 'P') return "image/webp";
+        return null;
+    }
+
+    /** Rust avatar 给的 `data:image/png;base64,…`、`data:image/jpeg;base64,…` 或 `data:image/webp;base64,…` 里的图片字节；别的形状、解不开的 base64、文件头不是这三种之一或超过 1 MiB 时为 null。 */
     public static byte[] avatarBytes(String dataUrl) {
         if (dataUrl == null) return null;
-        String payload;
-        if (dataUrl.startsWith("data:image/png;base64,")) payload = dataUrl.substring("data:image/png;base64,".length());
-        else if (dataUrl.startsWith("data:image/jpeg;base64,")) payload = dataUrl.substring("data:image/jpeg;base64,".length());
-        else return null;
+        String payload = null;
+        for (String type : new String[] {"image/png", "image/jpeg", "image/webp"}) {
+            String prefix = "data:" + type + ";base64,";
+            if (dataUrl.startsWith(prefix)) payload = dataUrl.substring(prefix.length());
+        }
+        if (payload == null) return null;
         if (payload.length() > (MAX_AVATAR_BYTES + 2) / 3 * 4) return null;
         try {
             byte[] bytes = Base64.getDecoder().decode(payload);
-            return avatarType(bytes) == null ? null : bytes;
+            return displayAvatarType(bytes) == null ? null : bytes;
         } catch (IllegalArgumentException malformed) {
             return null;
         }
