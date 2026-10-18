@@ -1675,6 +1675,9 @@ final class ImePanels {
     private TextView clipboardSegmentStatus;
     private Button clipboardSegmentSelectAll;
     private Button clipboardSegmentConfirm;
+    private Button clipboardSegmentShare;
+    private Button clipboardSegmentPhrase;
+    private Button clipboardSegmentCopy;
 
     /** 长按菜单里的「分词」：把这一条切成词片，面板换成点选界面（#5645）。 */
     private void startClipboardSegmentation(String text) {
@@ -1696,10 +1699,13 @@ final class ImePanels {
         clipboardSegmentStatus = null;
         clipboardSegmentSelectAll = null;
         clipboardSegmentConfirm = null;
+        clipboardSegmentShare = null;
+        clipboardSegmentPhrase = null;
+        clipboardSegmentCopy = null;
     }
 
     /**
-     * 分词界面：上面是按行折排的词片，点一下选中、再点取消；底部固定一行「取消 · 已选几个 · 全选 · 插入」。插入时按原文顺序拼接选中的词片（{@link ClipboardSegmentation#join}），上屏并关闭面板；原来那条历史不变。
+     * 分词界面：词片点选，底部状态与操作固定显示。分享、常用语、复制和插入都按原文顺序拼接选中的词片（{@link ClipboardSegmentation#join}）；复制回到键盘并提供最近复制，插入直接上屏。
      *
      * <p>词片放在面板里自己的滚动区，操作行在滚动区外、贴着面板底边：原先操作行是面板的第一行，跟着词片一起滚，长文字滚到末尾去「去尾」时「插入」「取消」已经滚出屏幕（#5645）。外层的剪贴板滚动视图开着 fillViewport，会把面板撑到正好一屏高；滚动区的高度基数给 1 px 而不是 0：外层第一次按不限高度测量时，高度为 0 的加权子视图会按全部词片的高度报上去，面板就比一屏高，操作行又被推到屏幕外。给了固定基数，面板先报一个很小的高度，外层再按一屏高精确测量，剩下的高度全部分给滚动区。面板于是不比一屏高，外层滚不动、也不拦截触摸，滑动交给词片的滚动区。
      */
@@ -1728,25 +1734,31 @@ final class ImePanels {
             LinearLayout.LayoutParams.MATCH_PARENT, 1);
         scrollParams.weight = 1;
         s.clipboardPanel.addView(wordScroll, scrollParams);
-        LinearLayout bar = LayoutPolicy.row(s);
-        ViewPolicy.setCenteredVertically(bar);
-        clipboardAction(bar, "取消", () -> {
-            endClipboardSegmentation();
-            renderClipboardHistory();
-        }).setContentDescription("取消分词，回到剪贴板历史");
         clipboardSegmentStatus = ViewPolicy.textLabel(s, "", 13);
         KeyboardTypographyPolicy.setKeyTextSize(clipboardSegmentStatus, 13);
         ViewPolicy.setMaxLinesEllipsized(clipboardSegmentStatus, 1);
         LayoutPolicy.setHorizontalPaddingDp(clipboardSegmentStatus, s, 6);
-        bar.addView(clipboardSegmentStatus, LayoutPolicy.weightedZeroParams(1));
-        clipboardSegmentSelectAll = clipboardAction(bar, "全选", () -> {
+        s.clipboardPanel.addView(clipboardSegmentStatus, LayoutPolicy.matchWidthWrapParams());
+        LinearLayout bar = LayoutPolicy.row(s);
+        ViewPolicy.setCenteredVertically(bar);
+        clipboardSegmentAction(bar, "取消", "取消分词，回到剪贴板历史", () -> {
+            endClipboardSegmentation();
+            renderClipboardHistory();
+        });
+        clipboardSegmentShare = clipboardSegmentAction(bar, "分享", "分享选中的词",
+            () -> s.shareClipboardText(selectedClipboardSegments()));
+        clipboardSegmentPhrase = clipboardSegmentAction(bar, "常用语", "添加选中的词到常用语",
+            () -> addClipboardTextToPhrases(selectedClipboardSegments()));
+        clipboardSegmentCopy = clipboardSegmentAction(bar, "复制", "复制选中的词并返回键盘",
+            () -> s.copyClipboardSelection(selectedClipboardSegments()));
+        clipboardSegmentSelectAll = clipboardSegmentAction(bar, "全选", "全选或取消全部词片", () -> {
             boolean select = !allSegmentsSelected();
             for (int index = 0; index < clipboardSegmentSelected.length; index++)
                 clipboardSegmentSelected[index] = select;
             renderClipboardHistory();
         });
-        clipboardSegmentConfirm = clipboardAction(bar, "插入", () -> {
-            String text = ClipboardSegmentation.join(clipboardSegments, clipboardSegmentSelected);
+        clipboardSegmentConfirm = clipboardSegmentAction(bar, "插入", "插入选中的词", () -> {
+            String text = selectedClipboardSegments();
             endClipboardSegmentation();
             s.insertClipboardText(text);
         });
@@ -1769,6 +1781,20 @@ final class ImePanels {
             }
             @Override public void refreshed() { refreshClipboardSegmentControls(); }
         };
+    }
+
+    private String selectedClipboardSegments() {
+        return clipboardSegments == null ? ""
+            : ClipboardSegmentation.join(clipboardSegments, clipboardSegmentSelected);
+    }
+
+    /** 六个操作等分可用宽度，长文案放在无障碍说明里，避免窄屏挤掉后面的按钮。 */
+    private Button clipboardSegmentAction(LinearLayout bar, String label, String description, Runnable action) {
+        Button button = clipboardAction(bar, label, action);
+        compactReplyControl(button, s.pixels(2));
+        button.setLayoutParams(LayoutPolicy.weightedMatchParentParams(1));
+        button.setContentDescription(description);
+        return button;
     }
 
     private Button clipboardSegmentButton(String text, int index) {
@@ -1815,6 +1841,9 @@ final class ImePanels {
         boolean all = chosen > 0 && allSegmentsSelected();
         clipboardSegmentSelectAll.setText(all ? "全不选" : "全选");
         ViewPolicy.setEnabledWithAlpha(clipboardSegmentConfirm, chosen > 0, .45f);
+        ViewPolicy.setEnabledWithAlpha(clipboardSegmentShare, chosen > 0, .45f);
+        ViewPolicy.setEnabledWithAlpha(clipboardSegmentPhrase, chosen > 0, .45f);
+        ViewPolicy.setEnabledWithAlpha(clipboardSegmentCopy, chosen > 0, .45f);
     }
 
     /** 操作行里的一个按钮：键帽样式，宽度按字数分，长的「发到云剪贴板」不会被挤成省略号。 */

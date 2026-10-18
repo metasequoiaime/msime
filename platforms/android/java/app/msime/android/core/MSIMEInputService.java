@@ -7103,7 +7103,25 @@ public final class MSIMEInputService extends InputMethodService {
         });
     }
 
-    /** 从键盘长按操作行分享用户明确选中的一条本机记录。 */
+    /** 分词复制只更新系统剪贴板，回到原键盘后沿用既有最近复制、隐私及历史开关。 */
+    void copyClipboardSelection(String text) {
+        if (text == null || text.isEmpty()) return;
+        ClipboardManager manager = getSystemService(ClipboardManager.class);
+        if (manager == null) {
+            notice("无法访问系统剪贴板");
+            return;
+        }
+        try {
+            manager.setPrimaryClip(ClipData.newPlainText("分词", text));
+            closeClipboardHistory();
+            offerRecentClip(true);
+            render();
+        } catch (RuntimeException error) {
+            notice("复制失败，请重试");
+        }
+    }
+
+    /** 从键盘分享用户明确选中的本机记录或分词内容。 */
     void shareClipboardText(String text) {
         if (!ClipboardSharePolicy.canShare(text)) {
             notice("这条记录没有可分享的文本");

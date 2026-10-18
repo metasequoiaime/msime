@@ -80,6 +80,13 @@
     <instrumentation android:name="app.msime.android.test.BatchCompositionDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <application android:label="MSIME Editor Fixture" android:allowBackup="false">
         <activity android:name="app.msime.android.test.RestartingEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
+        <activity android:name="app.msime.android.test.ClipboardShareSinkActivity" android:exported="true" android:label="MSIME 合成分享">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
         <activity android:name="app.msime.android.test.BatchEditorActivity" android:exported="true" />
         <!-- 系统文档选择器可见的合成目录；产品必须通过选择器取得跨 UID 授权。 -->
         <provider android:name="app.msime.android.test.DiagnosticDocumentsProvider"
@@ -111,4 +118,5 @@
     <instrumentation android:name="app.msime.android.test.ClipboardExportDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.NumberLayerEntryDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.NumberLayerRestartDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.ClipboardSegmentActionsDeviceSmoke" android:targetPackage="app.msime.android" />
 </manifest>

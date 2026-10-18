@@ -123,6 +123,8 @@ platforms/android/tests/device/keyboard/EmptyEditorBackspaceDeviceSmoke.java
 platforms/android/tests/device/clipboard/ClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/PinyinClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/ClipboardEditDeviceSmoke.java
+platforms/android/tests/device/clipboard/ClipboardShareSinkActivity.java
+platforms/android/tests/device/clipboard/ClipboardSegmentActionsDeviceSmoke.java
 platforms/android/tests/device/keyboard/FeedbackInputStabilityDeviceSmoke.java
 platforms/android/tests/device/settings/DiagnosticsBundleDeviceSmoke.java
 platforms/android/tests/device/settings/DiagnosticsExportDirectoryDeviceSmoke.java

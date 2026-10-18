@@ -103,6 +103,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NumberLayerRestartDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Number layer restart acceptance failed" >&2; exit 1; }
+# 分词操作通过真实分享接收器、共享常用语存储和系统剪贴板验收。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentActionsDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Clipboard segment actions acceptance failed" >&2; exit 1; }
 # 菜单复制使用真实系统剪贴板与组字会话，最低 API 的核心验收也必须覆盖。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CopyDeviceInfoDeviceSmoke)
 printf '%s\n' "$result"
