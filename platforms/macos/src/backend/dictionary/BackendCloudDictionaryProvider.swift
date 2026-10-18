@@ -1,243 +1,75 @@
 import Foundation
 
-protocol DesktopCloudDictionaryAPI {
-  func dictionaryCatalog(_ kind: BackendAccountClient.DictionaryKind, code: String, offset: Int, scheme: String, profile: String, token: String) async throws -> BackendAccountClient.DictionaryCatalog
-  func editCatalog(_ entry: BackendAccountClient.CatalogEntry, revision: Int64, replacement: BackendAccountClient.DictionaryValue?, token: String) async throws -> BackendAccountClient.DictionaryChange
-  func personalCandidates(_ query: BackendAccountClient.CandidateQuery, token: String) async throws -> BackendAccountClient.PersonalCandidates
-  func rankCandidate(_ candidate: BackendAccountClient.PersonalCandidate, query: BackendAccountClient.CandidateQuery, revision: Int64, mode: BackendAccountClient.RankingMode, step: Int, trigger: Int, forceTop: Bool, token: String) async throws -> BackendAccountClient.RankingResult
-  func removeCandidate(_ candidate: BackendAccountClient.PersonalCandidate, query: BackendAccountClient.CandidateQuery, revision: Int64, token: String) async throws -> BackendAccountClient.DictionaryChange
-  func fixedPositions(context: String, offset: Int, token: String) async throws -> BackendAccountClient.FixedPositions
-  func setFixedPosition(context: String, code: String, word: String, position: Int?, revision: Int64, token: String) async throws -> BackendAccountClient.DictionaryRevision
-  func dictionary(_ kind: BackendAccountClient.DictionaryKind, search: String, offset: Int, token: String) async throws -> BackendAccountClient.DictionaryPage
-  func addDictionary(_ kind: BackendAccountClient.DictionaryKind, value: BackendAccountClient.DictionaryValue, token: String) async throws -> BackendAccountClient.DictionaryChange
-  func updateDictionary(_ entry: BackendAccountClient.DictionaryEntry, value: BackendAccountClient.DictionaryValue, token: String) async throws -> BackendAccountClient.DictionaryChange
-  func deleteDictionary(_ entry: BackendAccountClient.DictionaryEntry, token: String) async throws -> BackendAccountClient.DictionaryChange
-  func importDictionary(_ kind: BackendAccountClient.DictionaryKind, text: String, format: BackendAccountClient.DictionaryFileFormat, token: String) async throws -> BackendAccountClient.DictionaryImportResult
-  func exportDictionary(_ kind: BackendAccountClient.DictionaryKind, format: BackendAccountClient.DictionaryFileFormat, token: String) async throws -> URL
-}
-extension BackendAccountClient: DesktopCloudDictionaryAPI {}
-
-/// Account credentials stay in the native actor. Only dictionary values and a
-/// private, bounded export descriptor cross the authenticated desktop channel.
+/// 给 Tauri 云词库面板的 IPC 服务端（`DesktopCloudClipboard.mm` 的词库那一路）做事的一方：一个面板只能操作打开它时登录的那个账号。动作交给 Rust 的 `msime_client_cloud_dictionary`（#8201 迁移计划 4e），令牌不出 Rust；跨过 IPC 的只有词库内容和一份私有的导出文件描述。
 @MainActor @objc(MSIMEBackendCloudDictionaryProvider)
 final class BackendCloudDictionaryProvider: NSObject {
-  private let client: any DesktopCloudDictionaryAPI
-  private let credentials: () async throws -> String
-  private let refreshCredentials: ((String) async throws -> String)?
-  private lazy var snapshots: BackendDesktopSnapshots? = {
-    guard let client = client as? any DesktopSnapshotAPI else { return nil }
-    return BackendDesktopSnapshots(client: client, credentials: credentials, refreshCredentials: refreshCredentials)
-  }()
+  /// 面板能发的账号云词库动作，与原来的 Swift provider 相同；`snapshot_*` 交给 `BackendDesktopSnapshots`。`changes` 和 Rust 只在 C 上有的 `export_file` 等文件动作不放行：路径只由宿主自己定。
+  static let operations: Set<String> = ["catalog", "edit_catalog", "candidates", "rank", "remove_candidate", "fixed_positions",
+                                        "set_fixed_position", "list", "add", "update", "delete", "import", "export"]
+  private static let kinds: Set<String> = ["pinyin", "wubi", "wubi98", "quick", "english"]
+  private let rust: BackendRustAccount
+  private let accountID: String
+  private let transfer: () throws -> URL
+  /// 放导出目录的地方，`crates/host-macos` 的 `read_export` 只认它下面的 `msime-export-<UUID>`。
+  private let exports: URL
+  private lazy var snapshots = BackendDesktopSnapshots(rust: rust, accountID: accountID, transfer: transfer)
+  /// 上一次导出的私有目录，面板读完以后下一次导出或 provider 释放时删掉。
   private var exported: URL?
-  init(client: any DesktopCloudDictionaryAPI, credentials: @escaping () async throws -> String,
-       refreshCredentials: ((String) async throws -> String)? = nil) {
-    self.client = client; self.credentials = credentials; self.refreshCredentials = refreshCredentials
+  init(rust: BackendRustAccount, accountID: String, transfer: @escaping () throws -> URL = MacCloudTransferDirectory.url,
+       exports: URL = FileManager.default.temporaryDirectory) {
+    self.rust = rust; self.accountID = accountID; self.transfer = transfer; self.exports = exports
   }
-  deinit { if let exported { try? FileManager.default.removeItem(at: exported.deletingLastPathComponent()) } }
+  deinit { if let exported { try? FileManager.default.removeItem(at: exported) } }
 
+  /// 为当前登录的账号准备一个 provider；宿主没有注册会话存储、没有登录或读不了登录状态时是 nil，输入法随后回退到原生窗口。
   @objc static func prepare(completion: @escaping (BackendCloudDictionaryProvider?) -> Void) {
     Task {
-      do {
-        let identity = try await BackendAccountSession.shared.credentials()
-        completion(BackendCloudDictionaryProvider(client: BackendAccountClient(), credentials: {
-          try await BackendAccountSession.shared.credentials(matchingUserID: identity.userID,
-                                                              matchingSessionID: identity.sessionID).token
-        }, refreshCredentials: { rejected in
-          try await BackendAccountSession.shared.credentials(retrying: rejected, matchingUserID: identity.userID,
-                                                              matchingSessionID: identity.sessionID).token
-        }))
-      } catch { completion(nil) }
+      guard let rust = BackendRustAccount.shared, let user = (try? await rust.status()) ?? nil else { completion(nil); return }
+      completion(BackendCloudDictionaryProvider(rust: rust, accountID: user.id))
     }
   }
 
-  private static func number(_ value: Any?, minimum: Int64 = 0, maximum: Int64 = 9_007_199_254_740_991) throws -> Int64 {
-    guard let value = value as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
-          value.doubleValue.isFinite, value.doubleValue.rounded() == value.doubleValue,
-          value.doubleValue >= Double(minimum), value.doubleValue <= Double(maximum) else { throw BackendAccountClient.Failure(status: 400) }
-    return value.int64Value
+  /// 打开面板时的账号还登录着才继续。C 上拿不到会话代次，只按 user.id 绑定。
+  private func requireAccount() async throws {
+    guard try await rust.status()?.id == accountID else { throw BackendRustClient.Failure(code: "account_unauthorized") }
+    try Task.checkCancellation()
   }
-  private static func text(_ value: Any?, limit: Int, empty: Bool = false, multiline: Bool = false) throws -> String {
-    guard let value = value as? String, (empty || !value.isEmpty), value.utf8.count <= limit,
-          !value.unicodeScalars.contains(where: { $0.properties.generalCategory == .control && !(multiline && [9,10,13].contains($0.value)) }) else { throw BackendAccountClient.Failure(status: 400) }
-    return value
-  }
-  private static func identity(_ value: Any?) throws -> String {
-    let value = try text(value, limit: 64)
-    guard value.utf8.count == 64, value.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw BackendAccountClient.Failure(status: 400) }
-    return value
-  }
-  private static func dictionaryValue(_ request: NSDictionary, kind: BackendAccountClient.DictionaryKind) throws -> BackendAccountClient.DictionaryValue {
-    let maximum = kind == .wubi || kind == .wubi98 ? 4 : kind == .quick ? 32 : kind == .english ? 64 : 256
-    let code = try text(request["code"], limit: maximum)
-    let word = try text(request["word"], limit: 1024)
-    guard code.utf8.allSatisfy({ byte in
-      switch kind {
-      case .pinyin: return (97...122).contains(byte) || byte == 39 || byte == 32
-      case .wubi, .wubi98: return (97...122).contains(byte)
-      case .quick: return (97...122).contains(byte) || (48...57).contains(byte)
-      case .english: return (97...122).contains(byte) || (65...90).contains(byte)
-      }
-    }), kind != .quick || word.utf16.count <= 199 else { throw BackendAccountClient.Failure(status: 400) }
-    return .init(code: code, word: word, weight: try number(request["weight"]))
-  }
-  private enum Action {
-    case catalog(BackendAccountClient.DictionaryKind, String, Int, String, String)
-    case editCatalog(BackendAccountClient.CatalogEntry, Int64, BackendAccountClient.DictionaryValue?)
-    case candidates(BackendAccountClient.CandidateQuery)
-    case rank(BackendAccountClient.PersonalCandidate, BackendAccountClient.CandidateQuery, Int64, BackendAccountClient.RankingMode, Int, Int, Bool)
-    case removeCandidate(BackendAccountClient.PersonalCandidate, BackendAccountClient.CandidateQuery, Int64)
-    case positions(String, Int)
-    case setPosition(String, String, String, Int?, Int64)
-    case list(BackendAccountClient.DictionaryKind, Int, String)
-    case add(BackendAccountClient.DictionaryKind, BackendAccountClient.DictionaryValue)
-    case update(BackendAccountClient.DictionaryEntry, BackendAccountClient.DictionaryValue)
-    case delete(BackendAccountClient.DictionaryEntry)
-    case `import`(BackendAccountClient.DictionaryKind, BackendAccountClient.DictionaryFileFormat, String)
-    case export(BackendAccountClient.DictionaryKind, BackendAccountClient.DictionaryFileFormat)
-    @MainActor init(_ request: NSDictionary) throws {
-      let operation = request["operation"] as? String
-      if operation == "fixed_positions" {
-        self = .positions(try text(request["context"], limit: 1024, empty: true), Int(try number(request["offset"], maximum: 1_000_000))); return
-      }
-      if operation == "set_fixed_position" {
-        guard request["position"] != nil else { throw BackendAccountClient.Failure(status: 400) }
-        let position = request["position"] is NSNull ? nil : Int(try number(request["position"], minimum: 1, maximum: 5))
-        self = .setPosition(try text(request["context"], limit: 1024), try text(request["code"], limit: 256), try text(request["word"], limit: 1024), position, try number(request["revision"])); return
-      }
-      if ["candidates", "rank", "remove_candidate"].contains(operation ?? "") {
-        guard let kind = request["kind"] as? String, ["pinyin", "jianpin", "wubi", "wubi98", "quick", "english"].contains(kind) else { throw BackendAccountClient.Failure(status: 400) }
-        let query = BackendAccountClient.CandidateQuery(text: try text(request["text"], limit: 256), kind: kind,
-          scheme: try text(request["scheme"], limit: 64), profile: try text(request["profile"], limit: 64), limit: Int(try number(request["limit"], minimum: 1, maximum: 100)))
-        guard ["pinyin", "shuangpin"].contains(query.scheme), ["xiaohe", "ziranma", "microsoft", "shoudao", "smart_abc"].contains(query.profile) else { throw BackendAccountClient.Failure(status: 400) }
-        if operation == "candidates" { self = .candidates(query); return }
-        guard kind != "quick" else { throw BackendAccountClient.Failure(status: 400) }
-        // The shared UI sends canonical pinyin as code for mutation, not the display abbreviation.
-        let candidate = BackendAccountClient.PersonalCandidate(code: try text(request["code"], limit: 256), word: try text(request["word"], limit: 1024), weight: 0, canonical_pinyin: nil)
-        let revision = try number(request["revision"])
-        if operation == "remove_candidate" { self = .removeCandidate(candidate, query, revision); return }
-        guard let name = request["mode"] as? String, let mode = BackendAccountClient.RankingMode(rawValue: name),
-              let force = request["force_top"] as? NSNumber, CFGetTypeID(force) == CFBooleanGetTypeID() else { throw BackendAccountClient.Failure(status: 400) }
-        self = .rank(candidate, query, revision, mode, Int(try number(request["linear_step"], minimum: 1, maximum: 100)), Int(try number(request["trigger_count"], minimum: 1, maximum: 10)), force.boolValue); return
-      }
-      guard let name = request["kind"] as? String, let kind = BackendAccountClient.DictionaryKind(rawValue: name) else { throw BackendAccountClient.Failure(status: 400) }
-      switch request["operation"] as? String {
-      case "catalog": self = .catalog(kind, try text(request["code"], limit: 256, empty: kind == .quick), Int(try number(request["offset"], maximum: 1_000_000)), try text(request["scheme"], limit: 64), try text(request["profile"], limit: 64))
-      case "edit_catalog":
-        guard request["replacement"] is NSNull || request["replacement"] is NSDictionary else { throw BackendAccountClient.Failure(status: 400) }
-        let previous = BackendAccountClient.CatalogEntry(kind: kind, code: try text(request["code"], limit: 256), word: try text(request["word"], limit: 1024), weight: 0)
-        self = .editCatalog(previous, try number(request["revision"]), try (request["replacement"] as? NSDictionary).map { try dictionaryValue($0, kind: kind) })
-      case "list": self = .list(kind, Int(try number(request["offset"], maximum: 1_000_000)), try text(request["search"], limit: 1024, empty: true))
-      case "add": self = .add(kind, try dictionaryValue(request, kind: kind))
-      case "update", "delete":
-        let entry = BackendAccountClient.DictionaryEntry(id: try identity(request["id"]), kind: kind, code: "", word: "", weight: 0, revision: try number(request["revision"], minimum: 1))
-        self = request["operation"] as? String == "delete" ? .delete(entry) : .update(entry, try dictionaryValue(request, kind: kind))
-      case "import", "export":
-        guard let name = request["format"] as? String, let format = BackendAccountClient.DictionaryFileFormat(rawValue: name),
-              format != .hans || (kind == .pinyin && request["operation"] as? String == "import") else { throw BackendAccountClient.Failure(status: 400) }
-        self = request["operation"] as? String == "export" ? .export(kind, format) : .import(kind, format, try text(request["text"], limit: 65536, multiline: true))
-      default: throw BackendAccountClient.Failure(status: 400)
-      }
-    }
-  }
-  private func entry(_ value: BackendAccountClient.DictionaryEntry) throws -> [String: Any] {
-    let id = try Self.identity(value.id)
-    let code = try Self.text(value.code, limit: 256), word = try Self.text(value.word, limit: 1024)
-    guard value.weight >= 0, value.revision > 0 else { throw BackendAccountClient.Failure(status: 0) }
-    return ["id":id, "kind":value.kind.rawValue, "code":code, "word":word, "weight":value.weight, "revision":value.revision]
-  }
-  private func change(_ value: BackendAccountClient.DictionaryChange) throws -> [String: Any] {
-    guard value.revision > 0 else { throw BackendAccountClient.Failure(status: 0) }
-    return ["revision":value.revision, "previous":try value.previous.map(entry) as Any? ?? NSNull(), "replacement":try value.replacement.map(entry) as Any? ?? NSNull()]
-  }
+
   func execute(_ request: NSDictionary) async throws -> [String: Any] {
-    if let operation = request["operation"] as? String, operation.hasPrefix("snapshot_"), let snapshots {
-      return try await snapshots.execute(request)
+    guard let operation = request["operation"] as? String else { throw BackendRustClient.Failure(code: "invalid_cloud_dictionary") }
+    if operation.hasPrefix("snapshot_") { return try await snapshots.execute(request) }
+    guard Self.operations.contains(operation), var action = request as? [String: Any], JSONSerialization.isValidJSONObject(action) else {
+      throw BackendRustClient.Failure(code: "invalid_cloud_dictionary")
     }
-    let action = try Action(request)
-    let token = try await credentials()
-    try Task.checkCancellation()
-    let outcome: (result: [String: Any], export: URL?)
-    do { outcome = try await executeOnce(action, token: token) }
-    catch let failure as BackendAccountClient.Failure where failure.status == 401 {
-      guard let refreshCredentials else { throw failure }
-      let fresh = try await refreshCredentials(token)
-      try Task.checkCancellation()
-      outcome = try await executeOnce(action, token: fresh)
+    try await requireAccount()
+    guard operation == "export" else {
+      let result = try BackendRustAccount.object(try await rust.cloudDictionary(action, snapshotDirectory: try transfer()))
+      try await requireAccount()
+      return result
     }
-    var pendingExport = outcome.export
-    defer { if let pendingExport { try? FileManager.default.removeItem(at: pendingExport.deletingLastPathComponent()) } }
-    _ = try await credentials()
-    try Task.checkCancellation()
-    if let file = pendingExport {
-      if let exported { try? FileManager.default.removeItem(at: exported.deletingLastPathComponent()) }
-      exported = file; pendingExport = nil
-    }
-    return outcome.result
+    // 导出的正文最多 384 MiB，不进 IPC：Rust 写进一个只有本人能读写的 `msime-export-<UUID>` 目录（`export_file`），面板只拿到路径和字节数，由 Tauri 一侧按 `crates/host-macos` 的 `read_export` 核对目录、文件名、权限和大小后读出。
+    guard let kind = action["kind"] as? String, Self.kinds.contains(kind) else { throw BackendRustClient.Failure(code: "invalid_cloud_dictionary") }
+    let directory = exports.appendingPathComponent("msime-export-" + UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    var kept = false
+    defer { if !kept { try? FileManager.default.removeItem(at: directory) } }
+    let file = directory.appendingPathComponent("dictionary-" + kind + ".tsv", isDirectory: false)
+    action["operation"] = "export_file"
+    action["path"] = file.path
+    let result = try BackendRustAccount.object(try await rust.cloudDictionary(action, snapshotDirectory: try transfer()))
+    try await requireAccount()
+    guard let bytes = result["bytes"] as? NSNumber, bytes.int64Value <= 384 * 1024 * 1024 else { throw BackendRustClient.Failure.invalidResponse }
+    if let exported { try? FileManager.default.removeItem(at: exported) }
+    exported = directory; kept = true
+    return ["export_file": ["path": file.path, "bytes": bytes], "filename": file.lastPathComponent]
   }
 
-  private func executeOnce(_ action: Action, token: String) async throws -> (result: [String: Any], export: URL?) {
-    var pendingExport: URL?
-    var returned = false
-    defer {
-      if !returned, let pendingExport {
-        try? FileManager.default.removeItem(at: pendingExport.deletingLastPathComponent())
-      }
-    }
-    let result: [String: Any]
-    switch action {
-    case .catalog(let kind, let code, let offset, let scheme, let profile):
-      let page = try await client.dictionaryCatalog(kind, code: code, offset: offset, scheme: scheme, profile: profile, token: token)
-      guard page.entries.count <= 100, page.offset == offset, page.entries.allSatisfy({ $0.kind == kind }) else { throw BackendAccountClient.Failure(status: 0) }
-      let entries = try page.entries.map { value -> [String: Any] in
-        ["kind":value.kind.rawValue, "code":try Self.text(value.code, limit: 256), "word":try Self.text(value.word, limit: 1024), "weight":try Self.number(value.weight)]
-      }
-      result = ["catalog_entries":entries, "offset":offset, "has_more":page.has_more, "revision":try Self.number(page.revision), "normalized":try Self.text(page.normalized, limit: 256, empty: true)]
-    case .editCatalog(let entry, let revision, let replacement):
-      result = try change(await client.editCatalog(entry, revision: revision, replacement: replacement, token: token))
-    case .candidates(let query):
-      let page = try await client.personalCandidates(query, token: token)
-      guard page.candidates.count <= query.limit else { throw BackendAccountClient.Failure(status: 0) }
-      let candidates = try page.candidates.map { value -> [String: Any] in
-        ["code":try Self.text(value.code, limit: 256), "word":try Self.text(value.word, limit: 1024), "weight":try Self.number(value.weight), "canonical_pinyin":try value.canonical_pinyin.map { try Self.text($0, limit: 256, empty: true) } as Any? ?? NSNull()]
-      }
-      result = ["candidates":candidates, "context":try Self.text(page.context, limit: 1024, empty: true), "revision":try Self.number(page.revision)]
-    case .rank(let candidate, let query, let revision, let mode, let step, let trigger, let force):
-      let ranked = try await client.rankCandidate(candidate, query: query, revision: revision, mode: mode, step: step, trigger: trigger, forceTop: force, token: token)
-      result = ["revision":try Self.number(ranked.revision), "changed":ranked.changed, "selection_count":try Self.number(ranked.selection.count)]
-    case .removeCandidate(let candidate, let query, let revision):
-      result = try change(await client.removeCandidate(candidate, query: query, revision: revision, token: token))
-    case .positions(let context, let offset):
-      let page = try await client.fixedPositions(context: context, offset: offset, token: token)
-      guard page.positions.count <= 100, page.offset == offset, context.isEmpty || page.positions.allSatisfy({ $0.context == context }) else { throw BackendAccountClient.Failure(status: 0) }
-      let positions = try page.positions.map { value -> [String: Any] in
-        ["context":try Self.text(value.context, limit: 1024), "code":try Self.text(value.code, limit: 256), "word":try Self.text(value.word, limit: 1024), "position":try Self.number(value.position, minimum: 1, maximum: 5)]
-      }
-      result = ["positions":positions, "offset":offset, "has_more":page.has_more]
-    case .setPosition(let context, let code, let word, let position, let revision):
-      let changed = try await client.setFixedPosition(context: context, code: code, word: word, position: position, revision: revision, token: token)
-      result = ["revision":try Self.number(changed.revision)]
-    case .list(let kind, let offset, let search):
-      let page = try await client.dictionary(kind, search: search, offset: offset, token: token)
-      guard page.entries.count <= 100, page.offset == offset, page.entries.allSatisfy({ $0.kind == kind }) else { throw BackendAccountClient.Failure(status: 0) }
-      result = ["entries":try page.entries.map(entry), "offset":page.offset, "has_more":page.has_more]
-    case .add(let kind, let value): result = try change(await client.addDictionary(kind, value: value, token: token))
-    case .update(let entry, let value): result = try change(await client.updateDictionary(entry, value: value, token: token))
-    case .delete(let entry): result = try change(await client.deleteDictionary(entry, token: token))
-    case .import(let kind, let format, let text):
-      let imported = try await client.importDictionary(kind, text: text, format: format, token: token)
-      result = ["imported":imported.imported, "revision":imported.revision]
-    case .export(let kind, let format):
-      let file = try await client.exportDictionary(kind, format: format, token: token)
-      guard file.isFileURL, file.lastPathComponent == "dictionary-" + kind.rawValue + ".tsv",
-            file.deletingLastPathComponent().lastPathComponent.hasPrefix("msime-export-") else { throw BackendAccountClient.Failure(status: 0) }
-      pendingExport = file
-      let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
-      guard let bytes = attributes[.size] as? NSNumber, bytes.int64Value <= 384 * 1024 * 1024 else { throw BackendAccountClient.Failure(status: 0) }
-      result = ["export_file":["path":file.path, "bytes":bytes], "filename":file.lastPathComponent]
-    }
-    returned = true
-    return (result, pendingExport)
+  /// 失败时交给面板的错误：冲突（云端或本机词库已经变了、快照正忙）是 `conflict`，其余都是 `unavailable`，与原来的 Swift provider 相同。
+  static func errorReply(_ error: Error) -> NSDictionary {
+    let code = (error as? BackendRustClient.Failure)?.code
+    return ["ok": false, "error": ["account_conflict", "snapshot_conflict", "snapshot_busy"].contains(code ?? "") ? "conflict" : "unavailable"]
   }
+
   @objc func request(_ request: NSDictionary, completion: @escaping (NSDictionary) -> Void) -> Progress {
     let progress = Progress(totalUnitCount: 1)
     let task = Task {
@@ -247,10 +79,9 @@ final class BackendCloudDictionaryProvider: NSObject {
         // execute so a request cancelled before this task is scheduled never
         // fetches credentials or starts network I/O.
         guard !progress.isCancelled else { throw CancellationError() }
-        completion(["ok":true, "value":try await execute(request)])
+        completion(["ok": true, "value": try await execute(request)])
       }
-      catch let failure as BackendAccountClient.Failure { completion(["ok":false, "error":failure.status == 409 ? "conflict" : "unavailable"]) }
-      catch { completion(["ok":false, "error":"unavailable"]) }
+      catch { completion(Self.errorReply(error)) }
       progress.completedUnitCount = 1; progress.cancellationHandler = nil
     }
     progress.cancellationHandler = { task.cancel() }

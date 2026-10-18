@@ -37,46 +37,61 @@ final class MacSettingsModel: ObservableObject {
   private var schema: BackendAccountClient.PreferenceSchema?
   private var expectedLocal: MacSettingsAccess.Values?
   private let accountID: String
-  private var sessionID: UUID?
-  private let client: BackendAccountClient
-  private let account: BackendAccountSession
+  /// 字段表、云端文档和上传经 Rust（#8201 迁移计划 4e）：`preferences_schema`、`preferences_load`，上传用 `preferences_put` 并绑定打开窗口时的账号（P4）。`platform.macos.*` 与本机设置之间的映射留在 Swift（`MacSettingsAccess`）。nil 是宿主没有注册会话存储。
+  private let rust: BackendRustAccount?
   private let local: MacSettingsAccess
   private var pending: Task<Void, Never>?
-  init(accountID: String, client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared, local: MacSettingsAccess? = nil) {
-    self.accountID = accountID; self.client = client; self.account = account; self.local = local ?? .native
+  init(accountID: String, rust: BackendRustAccount? = .shared, local: MacSettingsAccess? = nil) {
+    self.accountID = accountID; self.rust = rust; self.local = local ?? .native
   }
-  private func authorize() async throws -> String {
-    let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+  private func request(_ action: [String: Any]) async throws -> Data {
+    guard let rust else { throw BackendRustClient.Failure.unavailable }
+    return try await rust.account(action)
+  }
+  /// 打开窗口时的账号还登录着才继续，退出或换了号就丢掉结果。C 上拿不到会话代次，只按 user.id 绑定。
+  private func requireAccount() async throws {
+    guard let rust else { throw BackendRustClient.Failure.unavailable }
+    let current = try await rust.status()?.id
     try Task.checkCancellation()
-    guard identity.userID == accountID else { throw CancellationError() }
-    sessionID = identity.sessionID
-    return identity.token
+    guard current == accountID else { throw CancellationError() }
   }
-  private func run(_ operation: @escaping @MainActor @Sendable (String) async throws -> Void) {
+  private func run(_ operation: @escaping @MainActor @Sendable () async throws -> Void) {
     guard !busy else { return }
     busy = true; message = nil
     pending = Task {
       defer { busy = false }
       do {
-        let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-        try Task.checkCancellation()
-        sessionID = identity.sessionID
-        _ = try await account.authenticated(matchingUserID: identity.userID,
-                                            matchingSessionID: identity.sessionID) { token in
-          try await operation(token)
-        }.value
+        try await requireAccount()
+        try await operation()
       }
       catch is CancellationError { preview = nil; cloud = nil; schema = nil }
       catch { preview = nil; if !Task.isCancelled { message = error.localizedDescription } }
     }
   }
+  /// `preferences_schema` 的回答（键名是 camelCase）换成 Swift 合并用的字段表。
+  static func schema(_ data: Data) throws -> BackendAccountClient.PreferenceSchema {
+    let object = try BackendRustAccount.object(data)
+    guard let fields = object["fields"] as? [String: Any], let maximum = object["maximumBytes"] as? NSNumber,
+          let mode = object["updateMode"] as? String, let required = object["revisionRequired"] as? Bool else {
+      throw BackendRustClient.Failure.invalidResponse
+    }
+    var types: [String: BackendAccountClient.PreferenceSchema.Field] = [:]
+    for (key, value) in fields {
+      guard let type = (value as? [String: Any])?["type"] as? String else { throw BackendRustClient.Failure.invalidResponse }
+      types[key] = .init(type: type)
+    }
+    return .init(fields: types, maximum_bytes: maximum.intValue, update_mode: mode, revision_required: required)
+  }
+  private func cloudDocument() async throws -> BackendAccountClient.Preferences {
+    try BackendRustAccount.decode(BackendAccountClient.Preferences.self, try await request(["operation": "preferences_load"]))
+  }
   func download() {
-    run { token in
+    run {
       self.preview = nil
       let before = try self.local.snapshot()
-      let schema = try await self.client.preferenceSchema(token: token)
-      let cloud = try await self.client.preferences(token: token)
-      _ = try await self.authorize()
+      let schema = try Self.schema(try await self.request(["operation": "preferences_schema"]))
+      let cloud = try await self.cloudDocument()
+      try await self.requireAccount()
       self.cloud = cloud; self.schema = schema
       var values = cloud.settings.filter { before[$0.key] != nil }
       // Preserve device choices for fields added after the original snapshot format.
@@ -112,7 +127,7 @@ final class MacSettingsModel: ObservableObject {
   static let darkSkinKey = "platform.macos.custom_candidate_skin_dark"
   func upload() {
     guard let cloud, let schema else { return }
-    run { token in
+    run {
       var values = try self.local.snapshot()
       try self.local.validate(values)
       // A server that has not registered the theme fields yet rejects the whole upload over them, so the other settings are uploaded without the theme and the message says so.
@@ -120,18 +135,21 @@ final class MacSettingsModel: ObservableObject {
       if themeless { for key in Self.themeKeys { values[key] = nil } }
       if themeless || schema.fields[Self.darkSkinKey] == nil { values[Self.darkSkinKey] = nil }
       let merged = try BackendAccountClient.mergedPreferences(cloud, replacing: values, schema: schema)
-      let saved = try await self.client.putPreferences(merged, token: token)
-      _ = try await self.authorize()
+      // 整份替换云端文档，按读到它时的修订号比较并交换；读文档以后换了号、退出或重新登录时是 `account_cancelled`。
+      let document = try JSONSerialization.jsonObject(with: JSONEncoder().encode(merged.settings))
+      let saved = try BackendRustAccount.decode(BackendAccountClient.Preferences.self, try await self.request([
+        "operation": "preferences_put", "document": document, "revision": merged.revision, "user_id": self.accountID]))
+      try await self.requireAccount()
       self.cloud = saved; self.preview = nil; self.expectedLocal = nil
       self.message = themeless ? "本机设置已上传，其他平台的云端设置已保留。云端暂不支持主题设置，主题没有上传。" : "本机设置已上传，其他平台的云端设置已保留。"
     }
   }
   func apply() {
     guard let preview, let expectedLocal, let cloud else { return }
-    run { token in
-      let current = try await self.client.preferences(token: token)
-      _ = try await self.authorize()
-      guard current.revision == cloud.revision, try self.local.snapshot() == expectedLocal else { throw BackendAccountClient.Failure(status: 409) }
+    run {
+      let current = try await self.cloudDocument()
+      try await self.requireAccount()
+      guard current.revision == cloud.revision, try self.local.snapshot() == expectedLocal else { throw BackendRustClient.Failure(code: "account_conflict") }
       try self.local.apply(preview)
       self.preview = nil; self.expectedLocal = nil
       self.message = "云端设置已应用到本机。"

@@ -1,195 +1,131 @@
+// Tauri 云剪贴板面板的 IPC provider 经 Rust（#8201 迁移计划 4e）：动作原样交给 `msime_client_account_cloud_clipboard`，带设备名、按打开面板时的账号绑定，错误码交给面板。Rust 是替身函数表（tests/core/FakeRustTable.swift）。
 import Foundation
 
-/// 驱动的替身：列表、条目和设备状态都按驱动的结果形状给出。`failure` 设了时驱动操作一律以它失败，模拟驱动的错误码。
-@MainActor final class SyntheticClipboardAPI: DesktopCloudClipboardAPI {
-  var calls = 0
-  var uploaded = ""
-  var failure: BackendAccountClient.Failure?
-  var operations: [BackendAccountClient.ClipboardE2EOperation] = []
+private func check(_ condition: @autoclosure () -> Bool, _ message: String, line: UInt = #line) {
+  if !condition() {
+    FileHandle.standardError.write(Data("DesktopCloudClipboardProviderTest:\(line): \(message)\n".utf8))
+    exit(1)
+  }
+}
+
+/// 替身 Rust 的回答：账号是 `user`（nil 是没有登录），云剪贴板的动作按 `failure` 失败或给出形状正确的结果。
+private final class Cloud: @unchecked Sendable {
+  var user: String? = "synthetic-user"
+  var failure: String?
   static let devices: [String: Any] = ["enabled": true, "status": "ready", "device_id": String(repeating: "a", count: 32),
     "code": "0421 9873 5530 1176", "devices": [
       ["device_id": String(repeating: "a", count: 32), "name": "合成 Mac", "created_at": "2026-10-11T08:00:00Z", "approved": true, "current": true, "code": "0421 9873 5530 1176"],
       ["device_id": String(repeating: "b", count: 32), "name": "合成 iPhone", "created_at": "2026-10-11T09:00:00Z", "approved": false, "current": false, "code": "1111 2222 3333 4444"],
     ]]
-  func clipboardE2EObject(_ operation: BackendAccountClient.ClipboardE2EOperation, token: String,
-                          e2e: BackendClipboardE2E?) async throws -> [String: Any] {
-    calls += 1
-    operations.append(operation)
-    if let failure { throw failure }
-    switch operation {
-    case .list:
-      return ["enabled": true, "retention_days": 7, "items": [["id": String(repeating: "a", count: 64), "text": "synthetic\n\t合成",
+  func respond(_ call: FakeRust.Call) -> String {
+    if call.entry == "account" { return FakeRust.ok(["user": user.map { FakeRust.user($0) as Any } ?? NSNull()]) }
+    if let failure { return FakeRust.failure(failure) }
+    switch call.operation {
+    case "list":
+      return FakeRust.ok(["enabled": true, "retention_days": 7, "items": [["id": String(repeating: "a", count: 64), "text": "synthetic\n\t合成",
         "updated_at": "synthetic-time", "pinned": true, "device": "合成 iPhone"]],
-        "e2e": ["status": "ready", "code": "0421 9873 5530 1176", "pending_devices": 1, "undecryptable": 0]]
-    case .add(let text):
-      uploaded = text
-      return ["id": String(repeating: "a", count: 64), "text": text, "updated_at": "synthetic-time", "pinned": false, "device": "合成 Mac"]
-    case .status, .approve, .reject, .remove, .reset:
-      return Self.devices
+        "e2e": ["status": "ready", "code": "0421 9873 5530 1176", "pending_devices": 1, "undecryptable": 0]])
+    case "add": return FakeRust.ok(["id": String(repeating: "a", count: 64), "text": call.action["text"] ?? "", "updated_at": "synthetic-time"])
+    case "delete": return FakeRust.ok([String: Any]())
+    case "set_enabled": return FakeRust.ok(["enabled": call.action["enabled"] ?? false])
+    default: return FakeRust.ok(Self.devices)
     }
   }
-  func deleteClipboard(id: String?, token: String) async throws { calls += 1; assert(id?.count == 64) }
-  func setClipboardEnabled(_ enabled: Bool, token: String) async throws { calls += 1; assert(!enabled) }
 }
 
-@MainActor final class RetryingClipboardAPI: DesktopCloudClipboardAPI {
-  var calls = 0
-  var rejectEveryCall = false
-  func clipboardE2EObject(_ operation: BackendAccountClient.ClipboardE2EOperation, token: String,
-                          e2e: BackendClipboardE2E?) async throws -> [String: Any] {
-    calls += 1
-    if case .add = operation { throw BackendAccountClient.Failure(status: 500) }
-    if calls == 1 || rejectEveryCall { throw BackendAccountClient.Failure(status: 401, code: "invalid_credentials") }
-    assert(token == "fresh-token")
-    return ["enabled": true, "retention_days": 0, "items": []]
+@MainActor private func reply(_ provider: BackendCloudClipboardProvider, _ request: NSDictionary, cancel: Bool = false) async -> NSDictionary {
+  await withCheckedContinuation { continuation in
+    let progress = provider.request(request, completion: { continuation.resume(returning: $0) })
+    if cancel { progress.cancel() }
   }
-  func deleteClipboard(id: String?, token: String) async throws { calls += 1 }
-  func setClipboardEnabled(_ enabled: Bool, token: String) async throws { calls += 1 }
 }
 
 @main enum DesktopCloudClipboardProviderTest {
   @MainActor static func main() async throws {
-    let api = SyntheticClipboardAPI()
-    let provider = BackendCloudClipboardProvider(client: api, credentials: { "synthetic-token" })
-    let page = try await provider.execute(["operation":"list", "search":"合成"])
-    // 列表原样转发驱动的形状：条目带置顶和设备名，另有保留期和端到端加密状态。
+    let cloud = Cloud()
+    FakeRust.answer(cloud.respond)
+    func sent() -> [FakeRust.Call] { FakeRust.calls.filter { $0.entry == "cloud_clipboard" } }
+    let provider = BackendCloudClipboardProvider(rust: FakeRust.account, accountID: "synthetic-user", deviceName: "合成 Mac")
+    let page = try await provider.execute(["operation": "list", "search": "合成"])
+    // 列表原样转发 Rust 的形状：条目带置顶和设备名，另有保留期和端到端加密状态。
     let listed = (page["items"] as? [[String: Any]])?.first
-    assert((page["items"] as? [[String: Any]])?.count == 1 && listed?["pinned"] as? Bool == true && listed?["device"] as? String == "合成 iPhone")
-    assert(page["retention_days"] as? Int == 7 && (page["e2e"] as? [String: Any])?["pending_devices"] as? Int == 1)
-    assert(api.operations.first == .list(search: "合成"))
+    check(listed?["pinned"] as? Bool == true && listed?["device"] as? String == "合成 iPhone", "list shape \(page)")
+    check(page["retention_days"] as? Int == 7 && (page["e2e"] as? [String: Any])?["pending_devices"] as? Int == 1, "list e2e \(page)")
+    // 动作原样交给 Rust，带注册给出的存储 id 和本机的设备名，不带目录；请求前后各核对一次账号。
+    let first = sent().first
+    check(first?.action["operation"] as? String == "list" && first?.action["search"] as? String == "合成"
+          && first?.request["session_store"] as? Int == 7 && first?.request["device_name"] as? String == "合成 Mac"
+          && first?.request["directory"] == nil, "forwarded \(String(describing: first?.request))")
+    check(FakeRust.calls.map(\.entry) == ["account", "cloud_clipboard", "account"], "binding \(FakeRust.calls.map(\.entry))")
     let text = String(repeating: "界", count: 3997) + "\n\r\t"
-    _ = try await provider.execute(["operation":"add", "text":text])
-    assert(api.uploaded == text)
-    _ = try await provider.execute(["operation":"delete", "id":String(repeating: "a", count: 64)])
-    _ = try await provider.execute(["operation":"set_enabled", "enabled":false])
-    assert(api.calls == 4)
-    _ = try await provider.execute(["operation":"add", "text":"👩‍💻"])
-    assert(api.uploaded == "👩‍💻")
-    _ = try await provider.execute(["operation":"list", "search":"👩‍💻"])
-    for request: NSDictionary in [
-      ["operation":"add", "text":String(repeating: "界", count: 4001)],
-      ["operation":"add", "text":"synthetic\0"], ["operation":"list", "search":"bad\n"],
-      ["operation":"add", "text":"synthetic\u{0085}"],
-      ["operation":"delete", "id":"bad/id"], ["operation":"set_enabled", "enabled":1],
-      ["operation":"token"], ["operation":"approve"], ["operation":"reject", "device_id":"../keys"],
-      ["operation":"remove", "device_id":String(repeating: "A", count: 32)],
-    ] {
-      do { _ = try await provider.execute(request); assertionFailure("invalid action accepted") } catch { }
-    }
-    assert(api.calls == 6)
-    // 设备相关的五个动作经驱动，结果都是驱动的设备状态形状。
+    _ = try await provider.execute(["operation": "add", "text": text])
+    check(sent().last?.action["text"] as? String == text, "add text")
+    _ = try await provider.execute(["operation": "delete", "id": String(repeating: "a", count: 64)])
+    _ = try await provider.execute(["operation": "set_enabled", "enabled": false])
+    check(sent().last?.action["enabled"] as? Bool == false, "set_enabled")
     let other = String(repeating: "b", count: 32)
-    for (request, operation): (NSDictionary, BackendAccountClient.ClipboardE2EOperation) in [
-      (["operation":"devices"], .status), (["operation":"approve", "device_id":other], .approve(deviceID: other)),
-      (["operation":"reject", "device_id":other], .reject(deviceID: other)), (["operation":"remove", "device_id":other], .remove(deviceID: other)),
-      (["operation":"reset"], .reset),
-    ] {
+    for request: NSDictionary in [["operation": "devices"], ["operation": "approve", "device_id": other], ["operation": "reject", "device_id": other],
+                                  ["operation": "remove", "device_id": other], ["operation": "reset"]] {
       let status = try await provider.execute(request)
-      assert(api.operations.last == operation)
-      assert(status["status"] as? String == "ready" && (status["devices"] as? [[String: Any]])?.count == 2)
+      check(sent().last?.action["operation"] as? String == request["operation"] as? String
+            && status["status"] as? String == "ready" && (status["devices"] as? [[String: Any]])?.count == 2, "devices \(request)")
     }
-    assert(api.calls == 11)
-    // 驱动的错误码原样交给面板，本地校验不过是 invalid，其余是 unavailable。
-    api.failure = BackendAccountClient.Failure(status: 0, code: "clipboard_device_pending")
-    let pendingReply: NSDictionary = await withCheckedContinuation { continuation in
-      _ = provider.request(["operation":"add", "text":"synthetic"], completion: { continuation.resume(returning: $0) })
+    check(sent().count == 9, "forwarded \(sent().count)")
+    // 共享面板在 macOS 上没有置顶、保留期和清空的入口，宿主不放行；不认识的动作也一样。都不发请求。
+    for request: NSDictionary in [["operation": "pin", "id": String(repeating: "a", count: 64), "pinned": true], ["operation": "set_retention", "days": 7],
+                                  ["operation": "clear"], ["operation": "token"], [:]] {
+      let rejected = await reply(provider, request)
+      check(rejected["ok"] as? Bool == false && rejected["error"] as? String == "invalid", "\(request) accepted: \(rejected)")
     }
-    assert(pendingReply["ok"] as? Bool == false && pendingReply["error"] as? String == "clipboard_device_pending" && pendingReply["status"] as? Int == 0)
-    api.failure = BackendAccountClient.Failure(status: 409, code: "clipboard_key_conflict")
-    let conflictReply: NSDictionary = await withCheckedContinuation { continuation in
-      _ = provider.request(["operation":"reset"], completion: { continuation.resume(returning: $0) })
+    check(sent().count == 9, "a refused action was sent")
+    // Rust 和驱动给出的错误码原样交给面板，参数不合法是 invalid，本地造出的失败是 unavailable。
+    cloud.failure = "clipboard_device_pending"
+    let pending = await reply(provider, ["operation": "add", "text": "synthetic"])
+    check(pending["ok"] as? Bool == false && pending["error"] as? String == "clipboard_device_pending", "pending \(pending)")
+    cloud.failure = "invalid_cloud_clipboard"
+    let invalid = await reply(provider, ["operation": "approve", "device_id": "bad"])
+    check(invalid["error"] as? String == "invalid", "invalid \(invalid)")
+    cloud.failure = nil
+    let unavailable = BackendCloudClipboardProvider(rust: BackendRustAccount(client: BackendRustClient(table: {
+      var table = FakeRust.table(); table.account_cloud_clipboard = nil; return table }())!, store: 7), accountID: "synthetic-user", deviceName: "合成 Mac")
+    let missing = await reply(unavailable, ["operation": "list", "search": ""])
+    check(missing["error"] as? String == "unavailable", "missing entry \(missing)")
+    // 打开面板以后换了号或退出登录：不发请求，回答 account_unauthorized；请求在路上时换了号，回答不交给面板。
+    let before = sent().count
+    cloud.user = "another-user"
+    let switched = await reply(provider, ["operation": "add", "text": "synthetic"])
+    check(switched["error"] as? String == "account_unauthorized" && sent().count == before, "switched \(switched)")
+    cloud.user = nil
+    let signedOut = await reply(provider, ["operation": "list", "search": ""])
+    check(signedOut["error"] as? String == "account_unauthorized" && sent().count == before, "signed out \(signedOut)")
+    cloud.user = "synthetic-user"
+    FakeRust.answer { call in
+      // 列表发出之后、回答之前换了号。
+      if call.entry == "cloud_clipboard" { cloud.user = "another-user" }
+      return cloud.respond(call)
     }
-    assert(conflictReply["error"] as? String == "clipboard_key_conflict" && conflictReply["status"] as? Int == 409)
-    api.failure = nil
-    let invalidReply: NSDictionary = await withCheckedContinuation { continuation in
-      _ = provider.request(["operation":"approve", "device_id":"bad"], completion: { continuation.resume(returning: $0) })
-    }
-    assert(invalidReply["error"] as? String == "invalid" && invalidReply["status"] as? Int == 400)
-    assert(api.calls == 13)
-    var identities = 0
-    let changed = BackendCloudClipboardProvider(client: api, credentials: {
-      identities += 1
-      if identities > 1 { throw CancellationError() }
-      return "synthetic-token"
-    })
-    do { _ = try await changed.execute(["operation":"list"]); assertionFailure("old account data exposed") } catch { }
-    let before = api.calls
-    let missing = BackendCloudClipboardProvider(client: api, credentials: { throw CancellationError() })
-    do { _ = try await missing.execute(["operation":"add", "text":"synthetic"]); assertionFailure("signed-out mutation") } catch { }
-    assert(api.calls == before)
-    let response: NSDictionary = await withCheckedContinuation { continuation in
-      let progress = provider.request(["operation":"add", "text":"synthetic"], completion: { continuation.resume(returning: $0) })
-      progress.cancel()
-    }
-    assert(response["ok"] as? Bool == false && api.calls == before)
-    assert(response["error"] as? String == "unavailable")
+    let raced = await reply(provider, ["operation": "list", "search": ""])
+    check(raced["error"] as? String == "account_unauthorized", "an old account's list reached the panel: \(raced)")
+    cloud.user = "synthetic-user"
+    FakeRust.answer(cloud.respond)
+    // 调用方在开始之前就取消：什么都不发。
+    let cancelled = await reply(provider, ["operation": "add", "text": "synthetic"], cancel: true)
+    check(cancelled["ok"] as? Bool == false && cancelled["error"] as? String == "unavailable" && sent().isEmpty, "cancelled \(cancelled)")
 
-    let retryAPI = RetryingClipboardAPI()
-    var refreshes = 0
-    var currentToken = "stale-token"
-    let retrying = BackendCloudClipboardProvider(client: retryAPI, credentials: { currentToken },
-                                                  refreshCredentials: { rejected in
-      assert(rejected == "stale-token")
-      refreshes += 1
-      currentToken = "fresh-token"
-      return "fresh-token"
-    })
-    _ = try await retrying.execute(["operation":"list", "search":"合成"])
-    assert(retryAPI.calls == 2 && refreshes == 1)
-
-    let persistentAPI = RetryingClipboardAPI()
-    persistentAPI.rejectEveryCall = true
-    var persistentRefreshes = 0
-    let persistent = BackendCloudClipboardProvider(client: persistentAPI, credentials: { "stale-token" },
-                                                   refreshCredentials: { _ in
-      persistentRefreshes += 1
-      return "fresh-token"
-    })
-    do {
-      _ = try await persistent.execute(["operation":"list"])
-      assertionFailure("a second 401 must fail")
-    } catch let failure as BackendAccountClient.Failure {
-      assert(failure.status == 401)
-    }
-    assert(persistentAPI.calls == 2 && persistentRefreshes == 1)
-
-    let switchedAPI = RetryingClipboardAPI()
-    var switchedRefreshes = 0
-    let switched = BackendCloudClipboardProvider(client: switchedAPI, credentials: { "stale-token" },
-                                                 refreshCredentials: { _ in
-      switchedRefreshes += 1
-      throw CancellationError()
-    })
-    do {
-      _ = try await switched.execute(["operation":"list"])
-      assertionFailure("an account switch must stop the retry")
-    } catch is CancellationError { }
-    assert(switchedAPI.calls == 1 && switchedRefreshes == 1)
-
-    // Sending a local history entry goes straight to the driver, which reads the server flag and this device's approval first; a switched-off clipboard or a pending device uploads nothing.
-    let sending = SyntheticClipboardAPI()
-    let sender = BackendCloudClipboardProvider(client: sending, credentials: { "synthetic-token" })
-    let sent = await sender.send("synthetic\n合成")
-    assert(sent == .sent && sending.uploaded == "synthetic\n合成" && sending.calls == 1)
-    sending.uploaded = ""
-    sending.failure = BackendAccountClient.Failure(status: 403, code: "clipboard_sync_disabled")
-    let disabled = await sender.send("synthetic")
-    assert(disabled == .disabled && sending.uploaded.isEmpty && sending.calls == 2)
-    sending.failure = BackendAccountClient.Failure(status: 0, code: "clipboard_device_pending")
-    let pending = await sender.send("synthetic")
-    assert(pending == .pending && sending.uploaded.isEmpty && sending.calls == 3)
-    sending.failure = nil
-    let rejected = await sender.send("synthetic\0")
-    assert(rejected == .failed && sending.uploaded.isEmpty && sending.calls == 3)
-    let signedOut = BackendCloudClipboardProvider(client: sending, credentials: { throw CancellationError() })
-    let unauthenticated = await signedOut.send("synthetic")
-    assert(unauthenticated == .failed && sending.calls == 3)
-    assert(BackendCloudClipboardProvider.SendOutcome.signedOut.message == "登录水杉账号后可在设备间同步剪贴板")
-    assert(BackendCloudClipboardProvider.SendOutcome.disabled.message == "云剪贴板未开启")
-    assert(BackendCloudClipboardProvider.SendOutcome.pending.message.contains("等待批准"))
-    // 没有驱动时不会退回明文：真实客户端在发出任何请求前就失败。
-    let noDriver = BackendCloudClipboardProvider(client: BackendAccountClient(), e2e: nil, credentials: { "synthetic-token" })
-    do { _ = try await noDriver.execute(["operation":"list"]); assertionFailure("listed without a driver") }
-    catch let failure as BackendAccountClient.Failure { assert(failure.status == 0) }
+    // 表情面板「发到云剪贴板」：开关关着或本机还在等待批准时 Rust 不上传，宿主按码给出提示。
+    let delivered = await provider.send("synthetic\n合成")
+    check(delivered == .sent && sent().last?.action["text"] as? String == "synthetic\n合成", "send")
+    cloud.failure = "clipboard_sync_disabled"
+    let disabled = await provider.send("synthetic")
+    check(disabled == .disabled, "disabled")
+    cloud.failure = "clipboard_device_pending"
+    let waiting = await provider.send("synthetic")
+    check(waiting == .pending, "waiting")
+    cloud.failure = "account_network"
+    let failed = await provider.send("synthetic")
+    check(failed == .failed, "failed")
+    check(BackendCloudClipboardProvider.SendOutcome.signedOut.message == "登录水杉账号后可在设备间同步剪贴板", "signed out message")
+    check(BackendCloudClipboardProvider.SendOutcome.pending.message.contains("等待批准"), "pending message")
+    print("DesktopCloudClipboardProviderTest: ok")
   }
 }

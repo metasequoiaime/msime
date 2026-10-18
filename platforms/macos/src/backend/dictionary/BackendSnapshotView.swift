@@ -36,21 +36,15 @@ final class MacSnapshotModel: ObservableObject {
   private let accountID: String
   /// 整份快照经 Rust（#8201 迁移计划 4c）：下载、备份、恢复走文件（`snapshot_export_file`、`snapshot_restore_preview_file`、`snapshot_restore_file`），「应用到本机」排进 Rust 的快照队列（`snapshot_preview`、`snapshot_enqueue`），由 Rust 请输入会话放开词库后在本进程里激活。nil 是宿主没有注册会话存储。
   private let rust: BackendRustAccount?
-  /// 本机的 HostOptions 文档（`MSIMEClientSession.activeHostOptions`），只有输入法进程里有活动的输入会话时才有。
+  /// 本机的 HostOptions 文档（`MacLocalDictionary.hostOptions`），只有输入法进程里有活动的输入会话时才有。
   private let hostOptions: @MainActor () throws -> [String: Any]
   private var pending: Task<Void, Never>?
   private var watching: Task<Void, Never>?
   private var panel: NSSavePanel?
   private var closed = false
   init(accountID: String, rust: BackendRustAccount? = .shared,
-       hostOptions: @escaping @MainActor () throws -> [String: Any] = MacSnapshotModel.activeHostOptions) {
+       hostOptions: @escaping @MainActor () throws -> [String: Any] = MacLocalDictionary.hostOptions) {
     self.accountID = accountID; self.rust = rust; self.hostOptions = hostOptions
-  }
-  static func activeHostOptions() throws -> [String: Any] {
-    guard let options = try MacPreparedLocalSnapshot.invoke("activeHostOptions") as? [String: Any] else {
-      throw BackendRustClient.Failure(code: "snapshot_unavailable")
-    }
-    return options
   }
   private func request(_ action: [String: Any], options: [String: Any]? = nil) async throws -> [String: Any] {
     guard let rust else { throw BackendRustClient.Failure.unavailable }
@@ -113,7 +107,7 @@ final class MacSnapshotModel: ObservableObject {
     guard localPreview, let token = previewToken else { return }
     run {
       let options = try self.hostOptions()
-      let result = try await Self.wakingInputSessions { try await self.request(["operation": "snapshot_enqueue", "token": token], options: options) }
+      let result = try await MacLocalDictionary.wakingInputSessions { try await self.request(["operation": "snapshot_enqueue", "token": token], options: options) }
       self.discard()
       self.show(result["request"])
       if Self.waiting(result["request"]) { self.watch(options) }
@@ -128,17 +122,6 @@ final class MacSnapshotModel: ObservableObject {
       try await self.requireAccount()
       self.discard(); self.message = "完整备份已恢复到云端。本机词库尚未替换。"
     }
-  }
-  /// 在 `body` 进行期间每 250 毫秒叫醒一次本进程里握着词库的输入会话（`InputController.mm` 的 `dictionaryMaintenanceWillBegin:`，它只在词库维护租约有效时放手）。Rust 处理队列时写租约、不发通知，而输入法没有获得焦点的输入框时每秒检查租约的计时器不跑，会话就一直握着词库，请求只能留在队列里。
-  static func wakingInputSessions<T>(_ body: () async throws -> T) async throws -> T {
-    let ticker = Task { @MainActor in
-      while !Task.isCancelled {
-        NotificationCenter.default.post(name: BackendEdition.notificationName("MSIMEDictionaryMaintenanceWillBeginNotification"), object: nil)
-        try? await Task.sleep(nanoseconds: 250_000_000)
-      }
-    }
-    defer { ticker.cancel() }
-    return try await body()
   }
   private static func waiting(_ request: Any?) -> Bool {
     let status = (request as? [String: Any])?["status"] as? String
@@ -160,7 +143,7 @@ final class MacSnapshotModel: ObservableObject {
       while !Task.isCancelled, !closed {
         try? await Task.sleep(nanoseconds: 2_000_000_000)
         guard !Task.isCancelled, !closed,
-              let result = try? await Self.wakingInputSessions({ try await self.request(["operation": "snapshot_status"], options: options) }) else { continue }
+              let result = try? await MacLocalDictionary.wakingInputSessions({ try await self.request(["operation": "snapshot_status"], options: options) }) else { continue }
         show(result["request"])
         if !Self.waiting(result["request"]) { return }
       }

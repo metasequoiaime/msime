@@ -1,364 +1,177 @@
+// Tauri 云词库面板的 IPC provider 经 Rust（#8201 迁移计划 4e）：账号云词库的动作原样交给 `msime_client_cloud_dictionary`，导出写进只有本人能读写的 `msime-export-<UUID>` 目录，整份快照的文件面板和预览令牌留在宿主里。Rust 是替身函数表（tests/core/FakeRustTable.swift）。
 import Foundation
-import CryptoKit
 
-@MainActor final class SyntheticSnapshotTarget: DesktopSnapshotTarget {
-  let version = "synthetic-local-version"
-  func currentVersion() throws -> String { version }
-  func stage(_ snapshot: BackendPreparedSnapshot) async throws -> any DesktopSnapshotActivation {
-    throw BackendAccountClient.Failure(status: 500)
+private func check(_ condition: @autoclosure () -> Bool, _ message: String, line: UInt = #line) {
+  if !condition() {
+    FileHandle.standardError.write(Data("DesktopCloudDictionaryProviderTest:\(line): \(message)\n".utf8))
+    exit(1)
   }
 }
 
-@MainActor final class SyntheticDictionaryAPI: DesktopCloudDictionaryAPI, DesktopSnapshotAPI {
-  var calls = 0
-  var failure: Int?
-  var lastRevision: Int64 = 0
-  var lastExport: URL?
-  var snapshotSource: URL?
-  var lastCode = ""
-  var lastProfile = ""
-  var lastPosition: Int?
-  var lastReplacement: BackendAccountClient.DictionaryValue?
-  var lastMode: BackendAccountClient.RankingMode?
-  var invalidPage = false
-  var rejectFirstList = false
-  var rejectEveryList = false
-  var listTokens: [String] = []
-  var rejectFirstCatalog = false
-  var rejectEveryCatalog = false
-  var catalogTokens: [String] = []
-  func dictionaryCatalog(_ kind: BackendAccountClient.DictionaryKind, code: String, offset: Int, scheme: String, profile: String, token: String) async throws -> BackendAccountClient.DictionaryCatalog {
-    catalogTokens.append(token)
-    if rejectFirstCatalog || rejectEveryCatalog { rejectFirstCatalog = false; throw BackendAccountClient.Failure(status: 401) }
-    try tick(); assert((scheme == "shuangpin" && profile == "xiaohe") || (kind == .quick && code.isEmpty && scheme == "pinyin" && profile == "xiaohe"))
-    return .init(entries: [.init(kind:kind, code:"he'cheng", word:"合成", weight:100)], offset:invalidPage ? offset + 1 : offset, has_more:offset == 0, revision:0, normalized:"he'cheng")
+private final class Cloud: @unchecked Sendable {
+  var user: String? = "synthetic-user"
+  var failure: String?
+  var queued = "queued"
+  static let snapshot: [String: Any] = ["cloudRevision": 5, "sha256": String(repeating: "e", count: 64), "bytes": 120, "records": 7,
+                                        "entries": 3, "overlays": 2, "positions": 1, "selections": 4]
+  func respond(_ call: FakeRust.Call) -> String {
+    if call.entry == "account" { return FakeRust.ok(["user": user.map { FakeRust.user($0) as Any } ?? NSNull()]) }
+    if let failure { return FakeRust.failure(failure) }
+    let request: [String: Any] = ["id": "synthetic-request", "cloudRevision": 5, "fileSha256": String(repeating: "f", count: 64), "status": queued]
+    switch call.operation {
+    case "list": return FakeRust.ok(["entries": [], "has_more": false, "offset": call.action["offset"] ?? 0])
+    case "catalog": return FakeRust.ok(["catalog_entries": [["kind": "pinyin", "code": "he'cheng", "word": "合成", "weight": 100]], "has_more": true,
+                                        "offset": 0, "revision": 3, "normalized": "he'cheng"])
+    case "rank": return FakeRust.ok(["revision": 4, "changed": true, "selection_count": 2])
+    case "export_file":
+      guard let path = call.action["path"] as? String else { return FakeRust.failure("invalid_cloud_dictionary") }
+      // 与 Rust 相同：经私有的临时文件换进去，只有本人能读写。
+      FileManager.default.createFile(atPath: path, contents: Data("合成\the'cheng\t100\n".utf8), attributes: [.posixPermissions: 0o600])
+      return FakeRust.ok(["path": path, "filename": "dictionary-pinyin.tsv", "bytes": 19])
+    case "snapshot_status":
+      // 处理排队中的请求要等输入会话放开词库，与真的 Rust 一样占住调用线程一会儿。
+      usleep(300_000)
+      return FakeRust.ok(["localVersion": "local-1", "request": request])
+    case "snapshot_cancel": return FakeRust.ok(["localVersion": "local-1", "request": NSNull()])
+    case "snapshot_preview": return FakeRust.ok(["previewToken": "preview-1", "snapshot": Self.snapshot, "localVersion": "local-1"])
+    case "snapshot_enqueue":
+      usleep(300_000)
+      return FakeRust.ok(["localVersion": "local-1", "request": request])
+    case "snapshot_restore_preview_file": return FakeRust.ok(["snapshot": Self.snapshot, "expectedRevision": 5])
+    case "snapshot_restore_file": return FakeRust.ok(["revision": 6, "reset": true])
+    case "snapshot_export_file":
+      guard let path = call.action["path"] as? String else { return FakeRust.failure("account_invalid") }
+      FileManager.default.createFile(atPath: path, contents: Data("{}\n".utf8))
+      return FakeRust.ok(["path": path, "filename": "msime-dictionary-snapshot.ndjson", "snapshot": Self.snapshot])
+    default: return FakeRust.failure("invalid_cloud_dictionary")
+    }
   }
-  func dictionarySnapshot(token: String) async throws -> BackendAccountClient.DownloadedSnapshot {
-    guard let snapshotSource else { throw BackendAccountClient.Failure(status: 500) }
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-synthetic-download-" + UUID().uuidString)
-    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
-    let file = root.appendingPathComponent("msime-dictionary-snapshot.ndjson")
-    try FileManager.default.copyItem(at: snapshotSource, to: file)
-    return .init(url: file, envelope: try BackendSnapshotEnvelope.inspect(file))
+}
+
+@MainActor private func reply(_ provider: BackendCloudDictionaryProvider, _ request: NSDictionary) async -> NSDictionary {
+  await withCheckedContinuation { continuation in
+    _ = provider.request(request, completion: { continuation.resume(returning: $0) })
   }
-  func restoreDictionarySnapshot(file: URL, expectedSHA256: String, revision: Int64, token: String) async throws -> BackendAccountClient.SnapshotRestoreResult {
-    assertionFailure("已取消的预览不应恢复云端快照")
-    throw BackendAccountClient.Failure(status: 500)
-  }
-  func editCatalog(_ entry: BackendAccountClient.CatalogEntry, revision: Int64, replacement: BackendAccountClient.DictionaryValue?, token: String) async throws -> BackendAccountClient.DictionaryChange {
-    try tick(); lastCode = entry.code; lastRevision = revision; lastReplacement = replacement
-    return .init(revision:1, previous:nil, replacement:nil)
-  }
-  func personalCandidates(_ query: BackendAccountClient.CandidateQuery, token: String) async throws -> BackendAccountClient.PersonalCandidates {
-    try tick(); lastProfile = query.profile; assert(query.text == "heig" && query.scheme == "shuangpin")
-    return .init(candidates:[.init(code:"heig", word:"合成", weight:100, canonical_pinyin:"he'cheng")], context:"pinyin:he'cheng", revision:0)
-  }
-  func rankCandidate(_ candidate: BackendAccountClient.PersonalCandidate, query: BackendAccountClient.CandidateQuery, revision: Int64, mode: BackendAccountClient.RankingMode, step: Int, trigger: Int, forceTop: Bool, token: String) async throws -> BackendAccountClient.RankingResult {
-    try tick(); lastCode = candidate.mutationCode; lastRevision = revision; lastMode = mode
-    assert(step == 3 && trigger == 2 && forceTop)
-    return .init(revision:1, changed:true, selection:.init(count:2))
-  }
-  func removeCandidate(_ candidate: BackendAccountClient.PersonalCandidate, query: BackendAccountClient.CandidateQuery, revision: Int64, token: String) async throws -> BackendAccountClient.DictionaryChange {
-    try tick(); lastCode = candidate.mutationCode; lastRevision = revision
-    return .init(revision:2, previous:nil, replacement:nil)
-  }
-  func fixedPositions(context: String, offset: Int, token: String) async throws -> BackendAccountClient.FixedPositions {
-    try tick(); return .init(positions:[.init(context:context, code:"he'cheng", word:"合成", position:5)], offset:offset, has_more:false)
-  }
-  func setFixedPosition(context: String, code: String, word: String, position: Int?, revision: Int64, token: String) async throws -> BackendAccountClient.DictionaryRevision {
-    try tick(); lastCode = code; lastRevision = revision; lastPosition = position
-    return .init(revision:3)
-  }
-  func tick() throws { calls += 1; if let failure { throw BackendAccountClient.Failure(status: failure) } }
-  func dictionary(_ kind: BackendAccountClient.DictionaryKind, search: String, offset: Int, token: String) async throws -> BackendAccountClient.DictionaryPage {
-    listTokens.append(token)
-    if rejectFirstList || rejectEveryList { rejectFirstList = false; throw BackendAccountClient.Failure(status: 401) }
-    try tick()
-    return .init(entries: [.init(id: String(repeating: "a", count: 64), kind: kind, code: "synthetic", word: "合成", weight: 100, revision: 17)], has_more: offset == 0, offset: offset)
-  }
-  func addDictionary(_ kind: BackendAccountClient.DictionaryKind, value: BackendAccountClient.DictionaryValue, token: String) async throws -> BackendAccountClient.DictionaryChange {
-    try tick(); return .init(revision: 18, previous: nil, replacement: nil)
-  }
-  func updateDictionary(_ entry: BackendAccountClient.DictionaryEntry, value: BackendAccountClient.DictionaryValue, token: String) async throws -> BackendAccountClient.DictionaryChange {
-    try tick(); lastRevision = entry.revision; return .init(revision: 18, previous: nil, replacement: nil)
-  }
-  func deleteDictionary(_ entry: BackendAccountClient.DictionaryEntry, token: String) async throws -> BackendAccountClient.DictionaryChange {
-    try tick(); lastRevision = entry.revision; return .init(revision: 19, previous: nil, replacement: nil)
-  }
-  func importDictionary(_ kind: BackendAccountClient.DictionaryKind, text: String, format: BackendAccountClient.DictionaryFileFormat, token: String) async throws -> BackendAccountClient.DictionaryImportResult {
-    try tick(); return .init(imported: 1, revision: 20)
-  }
-  func exportDictionary(_ kind: BackendAccountClient.DictionaryKind, format: BackendAccountClient.DictionaryFileFormat, token: String) async throws -> URL {
-    try tick()
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-export-" + UUID().uuidString)
-    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions:0o700])
-    let file = root.appendingPathComponent("dictionary-" + kind.rawValue + ".tsv")
-    let content = String(repeating: "synthetic\t合成\t100\n", count: 150_000).data(using: .utf8)!
-    assert(FileManager.default.createFile(atPath: file.path, contents: content, attributes: [.posixPermissions:0o600]))
-    lastExport = file
-    return file
-  }
+}
+
+private func permissions(_ path: String) -> Int {
+  ((try? FileManager.default.attributesOfItem(atPath: path)[.posixPermissions]) as? NSNumber)?.intValue ?? -1
 }
 
 @main enum DesktopCloudDictionaryProviderTest {
   @MainActor static func main() async throws {
-    let api = SyntheticDictionaryAPI()
-    try await restorationPreviewCancellation(api)
-    var provider: BackendCloudDictionaryProvider? = .init(client: api, credentials: { "synthetic-token" })
-    try await advanced(provider!, api)
-    for kind in ["pinyin", "wubi", "quick", "english"] {
-      let page = try await provider!.execute(["operation":"list", "kind":kind, "offset":100, "search":"合成"])
-      assert(page["offset"] as? Int == 100 && page["has_more"] as? Bool == false)
+    let cloud = Cloud()
+    FakeRust.answer(cloud.respond)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-dictionary-provider-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let transfer = root.appendingPathComponent("transfer", isDirectory: true)
+    func sent() -> [FakeRust.Call] { FakeRust.calls.filter { $0.entry == "cloud_dictionary" } }
+
+    let exports = root.appendingPathComponent("exports", isDirectory: true)
+    try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: false)
+    var provider: BackendCloudDictionaryProvider? = BackendCloudDictionaryProvider(rust: FakeRust.account, accountID: "synthetic-user",
+                                                                                  transfer: { transfer }, exports: exports)
+    // 账号云词库的动作原样交给 Rust，带存储 id 和私有中转目录，不带目录模式的 directory；请求前后各核对一次账号。
+    let catalog = try await provider!.execute(["operation": "catalog", "kind": "pinyin", "code": "heig", "offset": 0, "scheme": "shuangpin", "profile": "xiaohe"])
+    let first = sent().first
+    check(first?.action["code"] as? String == "heig" && first?.action["profile"] as? String == "xiaohe" && first?.request["session_store"] as? Int == 7
+          && first?.request["snapshot_directory"] as? String == transfer.path && first?.request["directory"] == nil, "forwarded \(String(describing: first?.request))")
+    check((catalog["catalog_entries"] as? [[String: Any]])?.first?["word"] as? String == "合成" && catalog["revision"] as? Int == 3, "catalog \(catalog)")
+    check(FakeRust.calls.map(\.entry) == ["account", "cloud_dictionary", "account"], "binding \(FakeRust.calls.map(\.entry))")
+    let ranked = try await provider!.execute(["operation": "rank", "text": "heig", "kind": "pinyin", "scheme": "shuangpin", "profile": "xiaohe", "limit": 10,
+                                              "code": "he'cheng", "word": "合成", "revision": 3, "mode": "linear", "linear_step": 3, "trigger_count": 2, "force_top": true])
+    check(ranked["selection_count"] as? Int == 2 && sent().last?.action["force_top"] as? Bool == true, "rank \(ranked)")
+    // 只在 C 上有的文件动作和面板不发的动作不放行：路径只由宿主定。都不发请求。
+    let count = sent().count
+    for request: NSDictionary in [["operation": "export_file", "kind": "pinyin", "format": "standard", "path": "/tmp/x.tsv"], ["operation": "changes", "after": 0, "limit": 1],
+                                  ["operation": "snapshot_export_file", "path": "/tmp/x"], ["operation": "export", "kind": "../x", "format": "standard"], [:]] {
+      let rejected = await reply(provider!, request)
+      check(rejected["ok"] as? Bool == false && rejected["error"] as? String == "unavailable", "\(request) accepted: \(rejected)")
     }
-    let retryAPI = SyntheticDictionaryAPI()
-    retryAPI.rejectFirstList = true
-    var currentToken = "stale-token"
-    var refreshes = 0
-    let retrying = BackendCloudDictionaryProvider(client: retryAPI, credentials: { currentToken },
-                                                   refreshCredentials: { rejected in
-      assert(rejected == "stale-token")
-      refreshes += 1
-      currentToken = "fresh-token"
-      return currentToken
-    })
-    _ = try await retrying.execute(["operation":"list", "kind":"pinyin", "offset":0, "search":"合成"])
-    assert(retryAPI.listTokens == ["stale-token", "fresh-token"] && refreshes == 1)
-    let persistentAPI = SyntheticDictionaryAPI()
-    persistentAPI.rejectEveryList = true
-    var persistentRefreshes = 0
-    let persistent = BackendCloudDictionaryProvider(client: persistentAPI, credentials: { "stale-token" },
-                                                    refreshCredentials: { _ in
-      persistentRefreshes += 1
-      return "fresh-token"
-    })
-    do {
-      _ = try await persistent.execute(["operation":"list", "kind":"pinyin", "offset":0, "search":"合成"])
-      assertionFailure("a second 401 must fail")
-    } catch let failure as BackendAccountClient.Failure {
-      assert(failure.status == 401)
-    }
-    assert(persistentAPI.listTokens == ["stale-token", "fresh-token"] && persistentRefreshes == 1)
-    let switchedAPI = SyntheticDictionaryAPI()
-    switchedAPI.rejectFirstList = true
-    var switchedRefreshes = 0
-    let switched = BackendCloudDictionaryProvider(client: switchedAPI, credentials: { "stale-token" },
-                                                  refreshCredentials: { _ in
-      switchedRefreshes += 1
-      throw CancellationError()
-    })
-    do {
-      _ = try await switched.execute(["operation":"list", "kind":"pinyin", "offset":0, "search":"合成"])
-      assertionFailure("an account switch must stop the retry")
-    } catch is CancellationError { }
-    assert(switchedAPI.listTokens == ["stale-token"] && switchedRefreshes == 1)
-    _ = try await provider!.execute(["operation":"add", "kind":"quick", "code":"k2", "word":String(repeating:"界",count:199), "weight":100])
-    _ = try await provider!.execute(["operation":"update", "kind":"pinyin", "id":String(repeating:"a",count:64), "revision":17, "code":"he'cheng", "word":"合成", "weight":100])
-    assert(api.lastRevision == 17)
-    _ = try await provider!.execute(["operation":"delete", "kind":"pinyin", "id":String(repeating:"a",count:64), "revision":18])
-    assert(api.lastRevision == 18)
-    for format in ["standard", "windows", "hans"] {
-      _ = try await provider!.execute(["operation":"import", "kind":"pinyin", "format":format, "text":"he'cheng\t合成\t100\n"])
-    }
-    let before = api.calls
-    for request: NSDictionary in [
-      ["operation":"list","kind":"pinyin","offset":true,"search":""],
-      ["operation":"list","kind":"pinyin","offset":0.5,"search":""],
-      ["operation":"add","kind":"wubi","code":"abcde","word":"合成","weight":1],
-      ["operation":"add","kind":"quick","code":"K2","word":"合成","weight":1],
-      ["operation":"add","kind":"quick","code":"k2","word":String(repeating:"界",count:200),"weight":1],
-      ["operation":"delete","kind":"pinyin","id":"bad/id","revision":17],
-      ["operation":"delete","kind":"pinyin","id":String(repeating:"a",count:64),"revision":0],
-      ["operation":"export","kind":"pinyin","format":"hans"],
-      ["operation":"import","kind":"wubi","format":"hans","text":"合成"],
-      ["operation":"import","kind":"pinyin","format":"standard","text":"bad\0"],
-      ["operation":"token","kind":"pinyin"]
-    ] {
-      do { _ = try await provider!.execute(request); assertionFailure("invalid action accepted") } catch { }
-    }
-    assert(api.calls == before)
-    api.failure = 409
-    let conflict: NSDictionary = await withCheckedContinuation { continuation in
-      _ = provider!.request(["operation":"delete","kind":"pinyin","id":String(repeating:"a",count:64),"revision":17]) { continuation.resume(returning:$0) }
-    }
-    assert(conflict["ok"] as? Bool == false && conflict["error"] as? String == "conflict")
-    api.failure = nil
-    let exported = try await provider!.execute(["operation":"export","kind":"pinyin","format":"standard"])
-    assert(exported["text"] == nil)
-    let descriptor = exported["export_file"] as! [String:Any]
-    assert((descriptor["bytes"] as! NSNumber).intValue > 2 * 1024 * 1024)
-    let oldFile = api.lastExport!
-    _ = try await provider!.execute(["operation":"export","kind":"pinyin","format":"windows"])
-    assert(!FileManager.default.fileExists(atPath: oldFile.path))
-    let current = api.lastExport!
+    check(sent().count == count, "a refused action was sent")
+
+    // 导出：Rust 写进一个只有本人能读写的 msime-export-<UUID> 目录，面板只拿到路径和字节数；下一次导出删掉上一次的目录。
+    let exported = try await provider!.execute(["operation": "export", "kind": "pinyin", "format": "standard"])
+    let file = (exported["export_file"] as? [String: Any])?["path"] as? String ?? ""
+    let directory = (file as NSString).deletingLastPathComponent
+    let name = (directory as NSString).lastPathComponent
+    check(exported["filename"] as? String == "dictionary-pinyin.tsv" && (exported["export_file"] as? [String: Any])?["bytes"] as? Int == 19
+          && sent().last?.action["operation"] as? String == "export_file" && sent().last?.action["path"] as? String == file
+          && sent().last?.action["format"] as? String == "standard", "export \(exported)")
+    check(name.hasPrefix("msime-export-") && UUID(uuidString: String(name.dropFirst("msime-export-".count))) != nil
+          && permissions(directory) == 0o700 && permissions(file) == 0o600, "export directory \(directory)")
+    let again = try await provider!.execute(["operation": "export", "kind": "pinyin", "format": "windows"])
+    let second = (((again["export_file"] as? [String: Any])?["path"] as? String ?? "") as NSString).deletingLastPathComponent
+    check(!FileManager.default.fileExists(atPath: directory) && FileManager.default.fileExists(atPath: second), "previous export kept")
+    // 导出失败时不留下目录。
+    cloud.failure = "account_network"
+    let failedExport = await reply(provider!, ["operation": "export", "kind": "pinyin", "format": "standard"])
+    let leftovers = try FileManager.default.contentsOfDirectory(atPath: exports.path).filter { exports.appendingPathComponent($0).path != second }
+    check(failedExport["error"] as? String == "unavailable" && leftovers.isEmpty, "failed export \(failedExport) left \(leftovers)")
+    cloud.failure = nil
     provider = nil
-    assert(!FileManager.default.fileExists(atPath: current.path))
-    var identities = 0
-    let changed = BackendCloudDictionaryProvider(client:api, credentials: {
-      identities += 1; if identities > 1 { throw CancellationError() }; return "synthetic-token"
-    })
-    do { _ = try await changed.execute(["operation":"export","kind":"pinyin","format":"standard"]); assertionFailure("old account data exposed") } catch { }
-    assert(!FileManager.default.fileExists(atPath: api.lastExport!.path))
-    let missing = BackendCloudDictionaryProvider(client:api, credentials: { throw CancellationError() })
-    let count = api.calls
-    do { _ = try await missing.execute(["operation":"add","kind":"pinyin","code":"he","word":"合","weight":1]); assertionFailure("signed-out write") } catch { }
-    assert(api.calls == count)
-  }
+    check(!FileManager.default.fileExists(atPath: second), "export survived the provider")
 
-  @MainActor static func restorationPreviewCancellation(_ api: SyntheticDictionaryAPI) async throws {
-    let source = FileManager.default.temporaryDirectory.appendingPathComponent("msime-synthetic-" + UUID().uuidString + ".ndjson")
-    defer { try? FileManager.default.removeItem(at: source) }
-    let header = #"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":0}"#
-    let body = Data((header + "\n").utf8)
-    let digest = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
-    let footer = #"{"type":"footer","records":1,"sha256":"\#(digest)"}"#
-    try (body + Data((footer + "\n").utf8)).write(to: source)
-    let snapshots = BackendDesktopSnapshots(client: api, credentials: { "synthetic-token" }, choose: { _ in source })
-    let result = try await snapshots.execute(["operation":"snapshot_restore_preview"])
-    let token = result["previewToken"] as! String
-    let cancelled = try await snapshots.execute(["operation":"snapshot_restore_cancel"])
-    assert(cancelled["cancelled"] as? Bool == true)
-    do {
-      _ = try await snapshots.execute(["operation":"snapshot_restore_native", "token":token])
-      assertionFailure("已取消的预览仍可恢复")
-    } catch let failure as BackendAccountClient.Failure {
-      assert(failure.status == 400)
+    // 冲突（云端或本机词库已经变了、快照正忙）交给面板是 conflict，其余是 unavailable。
+    let errors = BackendCloudDictionaryProvider(rust: FakeRust.account, accountID: "synthetic-user", transfer: { transfer })
+    for (code, expected) in [("account_conflict", "conflict"), ("snapshot_busy", "conflict"), ("snapshot_conflict", "conflict"),
+                             ("account_unauthorized", "unavailable"), ("account_network", "unavailable")] {
+      cloud.failure = code
+      let failed = await reply(errors, ["operation": "list", "kind": "pinyin", "offset": 0, "search": ""])
+      check(failed["error"] as? String == expected, "\(code) became \(failed)")
     }
-    let empty = BackendDesktopSnapshots(client: api, credentials: { "synthetic-token" }, choose: { _ in nil })
-    let dismissed = try await empty.execute(["operation":"snapshot_restore_preview"])
-    assert(dismissed["saved"] as? Bool == false)
+    cloud.failure = nil
+    // 打开面板以后换了号：不发请求。
+    cloud.user = "another-user"
+    let before = sent().count
+    let switched = await reply(errors, ["operation": "list", "kind": "pinyin", "offset": 0, "search": ""])
+    check(switched["ok"] as? Bool == false && sent().count == before, "switched account sent \(switched)")
+    cloud.user = "synthetic-user"
 
-    let statusAPI = SyntheticDictionaryAPI()
-    statusAPI.snapshotSource = source
-    var signedIn = true
-    let statusOwner = BackendDesktopSnapshots(client: statusAPI, credentials: {
-      if !signedIn { throw CancellationError() }
-      return "synthetic-token"
-    }, capture: { SyntheticSnapshotTarget() })
-    let staged = try await statusOwner.execute(["operation":"snapshot_preview"])
-    _ = try await statusOwner.execute(["operation":"snapshot_enqueue", "token":staged["previewToken"]!])
-    signedIn = false
-    let hidden = try await statusOwner.execute(["operation":"snapshot_status"])
-    assert(hidden["request"] is NSNull)
-    let cancelledAfterLogout = try await statusOwner.execute(["operation":"snapshot_cancel"])
-    assert(cancelledAfterLogout["request"] is NSNull)
-
-    let retryAPI = SyntheticDictionaryAPI()
-    retryAPI.rejectFirstCatalog = true
-    var currentToken = "stale-token"
-    var refreshes = 0
-    let retrying = BackendDesktopSnapshots(client: retryAPI, credentials: {
-      currentToken
-    }, refreshCredentials: { rejected in
-      assert(rejected == "stale-token")
-      refreshes += 1
-      currentToken = "fresh-token"
-      return currentToken
-    }, choose: { _ in source })
-    let preview = try await retrying.execute(["operation":"snapshot_restore_preview"])
-    assert(preview["expectedRevision"] as? Int64 == 0)
-    assert(retryAPI.catalogTokens == ["stale-token", "fresh-token"] && refreshes == 1)
-
-    let persistentAPI = SyntheticDictionaryAPI()
-    persistentAPI.rejectEveryCatalog = true
-    var persistentRefreshes = 0
-    let persistent = BackendDesktopSnapshots(client: persistentAPI, credentials: { "stale-token" },
-                                             refreshCredentials: { _ in
-      persistentRefreshes += 1
-      return "fresh-token"
-    }, choose: { _ in source })
-    do {
-      _ = try await persistent.execute(["operation":"snapshot_restore_preview"])
-      assertionFailure("a second 401 must fail")
-    } catch let failure as BackendAccountClient.Failure {
-      assert(failure.status == 401)
-    }
-    assert(persistentAPI.catalogTokens == ["stale-token", "fresh-token"] && persistentRefreshes == 1)
-
-    let switchedAPI = SyntheticDictionaryAPI()
-    switchedAPI.rejectFirstCatalog = true
-    var switchedRefreshes = 0
-    let switched = BackendDesktopSnapshots(client: switchedAPI, credentials: { "stale-token" },
-                                           refreshCredentials: { _ in
-      switchedRefreshes += 1
-      throw CancellationError()
-    }, choose: { _ in source })
-    do {
-      _ = try await switched.execute(["operation":"snapshot_restore_preview"])
-      assertionFailure("an account switch must stop the retry")
-    } catch is CancellationError { }
-    assert(switchedAPI.catalogTokens == ["stale-token"] && switchedRefreshes == 1)
-  }
-
-  @MainActor static func advanced(_ provider: BackendCloudDictionaryProvider, _ api: SyntheticDictionaryAPI) async throws {
-    let catalog: [String:Any] = ["operation":"catalog", "kind":"pinyin", "code":"heig", "offset":100, "scheme":"shuangpin", "profile":"xiaohe"]
-    let page = try await provider.execute(catalog as NSDictionary)
-    assert(page["revision"] as? Int64 == 0 && page["normalized"] as? String == "he'cheng")
-    assert((page["catalog_entries"] as! [[String:Any]])[0]["id"] == nil)
-    for kind in ["pinyin", "wubi", "quick", "english"] {
-      var request = catalog; request["kind"] = kind
-      let response = try await provider.execute(request as NSDictionary)
-      assert((response["catalog_entries"] as! [[String:Any]])[0]["kind"] as? String == kind)
-    }
-    api.invalidPage = true
-    do { _ = try await provider.execute(catalog as NSDictionary); assertionFailure("incorrect catalog page accepted") } catch { }
-    api.invalidPage = false
-    var edit: [String:Any] = ["operation":"edit_catalog", "kind":"pinyin", "code":"he'cheng", "word":"合成", "revision":0, "replacement":NSNull()]
-    _ = try await provider.execute(edit as NSDictionary)
-    assert(api.lastRevision == 0 && api.lastReplacement == nil && api.lastCode == "he'cheng")
-    edit["replacement"] = ["code":"he'cheng", "word":"合成词", "weight":101]
-    _ = try await provider.execute(edit as NSDictionary)
-    assert(api.lastReplacement?.word == "合成词")
-    var query: [String:Any] = ["operation":"candidates", "kind":"jianpin", "text":"heig", "scheme":"shuangpin", "profile":"xiaohe", "limit":100]
-    let candidates = try await provider.execute(query as NSDictionary)
-    assert((candidates["candidates"] as! [[String:Any]])[0]["canonical_pinyin"] as? String == "he'cheng")
-    for kind in ["pinyin", "jianpin", "wubi", "quick", "english"] {
-      var request = query; request["kind"] = kind
-      _ = try await provider.execute(request as NSDictionary)
-    }
-    query["profile"] = "smart_abc"
-    _ = try await provider.execute(query as NSDictionary)
-    assert(api.lastProfile == "smart_abc")
-    query.merge(["operation":"rank", "code":"he'cheng", "word":"合成", "revision":0, "linear_step":3, "trigger_count":2, "force_top":true]) { _, new in new }
-    for mode in BackendAccountClient.RankingMode.allCases {
-      query["mode"] = mode.rawValue
-      let ranked = try await provider.execute(query as NSDictionary)
-      assert(ranked["selection_count"] as? Int64 == 2 && api.lastMode == mode && api.lastCode == "he'cheng" && api.lastRevision == 0)
-    }
-    let positions = try await provider.execute(["operation":"fixed_positions", "context":"pinyin:he'cheng", "offset":100])
-    assert((positions["positions"] as! [[String:Any]])[0]["position"] as? Int64 == 5)
-    var fixed: [String:Any] = ["operation":"set_fixed_position", "context":"pinyin:he'cheng", "code":"he'cheng", "word":"合成", "position":5, "revision":1]
-    _ = try await provider.execute(fixed as NSDictionary); assert(api.lastPosition == 5)
-    fixed["position"] = NSNull()
-    _ = try await provider.execute(fixed as NSDictionary); assert(api.lastPosition == nil)
-    var removed = query; removed["operation"] = "remove_candidate"
-    _ = try await provider.execute(removed as NSDictionary); assert(api.lastCode == "he'cheng")
-    let count = api.calls
-    for (original, key, value): ([String:Any], String, Any) in [
-      (query,"force_top",1), (query,"linear_step",true), (query,"trigger_count",11),
-      (query,"revision",-1), (query,"mode","unknown"), (query,"kind","quick"),
-      (query,"limit",101), (query,"text","bad\0"), (query,"scheme","unknown"), (query,"profile","unknown"), (fixed,"position",0),
-      (fixed,"position",6), (fixed,"position",true), (fixed,"revision",0.5),
-      (catalog,"offset",-1), (edit,"replacement","bad")
-    ] {
-      var invalid = original; invalid[key] = value
-      do { _ = try await provider.execute(invalid as NSDictionary); assertionFailure("invalid advanced action accepted") } catch { }
-    }
-    assert(api.calls == count)
-    api.failure = 409
-    let conflict: NSDictionary = await withCheckedContinuation { continuation in
-      _ = provider.request(query as NSDictionary) { continuation.resume(returning:$0) }
-    }
-    assert(conflict["error"] as? String == "conflict"); api.failure = nil
-    var checks = 0
-    let changed = BackendCloudDictionaryProvider(client:api, credentials: {
-      checks += 1; if checks > 1 { throw CancellationError() }; return "synthetic-token"
-    })
-    do { _ = try await changed.execute(catalog as NSDictionary); assertionFailure("stale catalog exposed") } catch { }
-    let snapshots = BackendDesktopSnapshots(credentials: { throw CancellationError() }, capture: { SyntheticSnapshotTarget() })
-    let status = try await snapshots.execute(["operation":"snapshot_status"])
-    assert(status["nativeFiles"] as? Bool == true)
-    assert(status["localVersion"] as? String == "synthetic-local-version")
-    let cancelled = try await snapshots.execute(["operation":"snapshot_cancel"])
-    assert(cancelled["request"] is NSNull)
+    // 整份快照：状态和入列带本机的 HostOptions，处理期间叫醒本进程里握着词库的输入会话。
+    var chosen: [URL?] = []
+    let options: [String: Any] = ["user_data": "/synthetic/state/user"]
+    let snapshots = BackendDesktopSnapshots(rust: FakeRust.account, accountID: "synthetic-user", transfer: { transfer },
+                                            choose: { _ in chosen.isEmpty ? nil : chosen.removeFirst() }, hostOptions: { options })
+    var wakes = 0
+    let observer = NotificationCenter.default.addObserver(forName: Notification.Name("MSIMEDictionaryMaintenanceWillBeginNotification"),
+                                                          object: nil, queue: nil) { _ in wakes += 1 }
+    defer { NotificationCenter.default.removeObserver(observer) }
+    let status = try await snapshots.execute(["operation": "snapshot_status"])
+    check(status["nativeFiles"] as? Bool == true && status["localVersion"] as? String == "local-1"
+          && (sent().last?.request["options"] as? [String: String])?["user_data"] == "/synthetic/state/user" && wakes > 0, "status \(status)")
+    let preview = try await snapshots.execute(["operation": "snapshot_preview"])
+    check(preview["previewToken"] as? String == "preview-1", "preview \(preview)")
+    wakes = 0
+    let queued = try await snapshots.execute(["operation": "snapshot_enqueue", "token": "preview-1"])
+    check((queued["request"] as? [String: Any])?["status"] as? String == "queued" && sent().last?.action["token"] as? String == "preview-1" && wakes > 0, "enqueue \(queued)")
+    // 恢复：宿主弹面板选文件，网页只拿到令牌；确认时按预览给出的摘要和修订号恢复，令牌只能用一次。
+    let backup = root.appendingPathComponent("backup.ndjson")
+    FileManager.default.createFile(atPath: backup.path, contents: Data("{}\n".utf8))
+    let cancelledChoice = try await snapshots.execute(["operation": "snapshot_choose_restore"])
+    check(cancelledChoice["saved"] as? Bool == false, "cancelled choice \(cancelledChoice)")
+    chosen = [backup]
+    let restorePreview = try await snapshots.execute(["operation": "snapshot_choose_restore"])
+    let token = restorePreview["previewToken"] as? String ?? ""
+    check(!token.isEmpty && restorePreview["expectedRevision"] as? Int == 5 && sent().last?.action["path"] as? String == backup.path, "restore preview \(restorePreview)")
+    let restored = try await snapshots.execute(["operation": "snapshot_restore_native", "token": token])
+    let restoreAction = sent().last?.action
+    check(restored["revision"] as? Int == 6 && restoreAction?["path"] as? String == backup.path
+          && restoreAction?["expected_sha256"] as? String == String(repeating: "e", count: 64) && restoreAction?["revision"] as? Int == 5, "restore \(restored)")
+    do { _ = try await snapshots.execute(["operation": "snapshot_restore_native", "token": token]); check(false, "a used restore token was accepted") } catch { }
+    chosen = [backup]
+    let discarded = try await snapshots.execute(["operation": "snapshot_choose_restore"])
+    _ = try await snapshots.execute(["operation": "snapshot_restore_cancel"])
+    do { _ = try await snapshots.execute(["operation": "snapshot_restore_native", "token": discarded["previewToken"] as? String ?? ""]); check(false, "a cancelled restore was sent") } catch { }
+    // 备份：宿主弹面板选位置，Rust 校验完换进去；取消时不发请求。
+    let saves = sent().count
+    let cancelledSave = try await snapshots.execute(["operation": "snapshot_export"])
+    check(cancelledSave["cancelled"] as? Bool == true && sent().count == saves, "cancelled save \(cancelledSave)")
+    let destination = root.appendingPathComponent("saved.ndjson")
+    chosen = [destination]
+    let saved = try await snapshots.execute(["operation": "snapshot_export"])
+    check(saved["saved"] as? Bool == true && sent().last?.action["path"] as? String == destination.path, "save \(saved)")
+    print("DesktopCloudDictionaryProviderTest: ok")
   }
 }

@@ -13,27 +13,62 @@ enum BackendCandidateGloss {
   }
 
   nonisolated static let notification = Notification.Name("MSIMEBackendCandidateTranslationsDidArrive")
-  private nonisolated static let account = BackendAccountSession.shared
-  private nonisolated static let anonymous = BackendAnonymousAccount.session
-  private nonisolated static let client = BackendAccountClient()
   // One page in flight and one waiting, as Windows' single cloud translation worker keeps them. On a slow network every page the user typed past used to start its own pair of requests, and the page on screen queued behind all of them at the service's rate limit. A newer page now replaces the waiting one, and the one in flight runs to the end rather than being cancelled, because its answers still fill the controller's cache.
   private static var pending: Request?
   private static var inFlight: Task<Void, Never>?
   // The network round trip for one page. A variable so BackendAccountTests can count what is sent without a server or an account.
-  static var perform: @MainActor (Request) async -> Void = { await translate($0) }
+  static var perform: @MainActor (Request) async -> Void = { request in
+    guard let rust = BackendRustAccount.shared else { return }
+    await translate(request, rust: rust)
+  }
 
-  private nonisolated static func translationSession() async throws -> (session: BackendAccountSession, marker: UInt64) {
-    if (try? await account.accessToken()) != nil {
-      // Capture the login identity with the session selected for this request.
-      // A settings app can replace the shared session file while the network
-      // request is in flight; the reply must remain tagged with the old login.
-      let login = try await account.login()
-      let marker = login.map { backendAccountTranslationMarker(userID: $0.userID, sessionID: $0.sessionID) } ?? 0
-      return (account, marker)
+  /// 本进程补注册匿名账号的间隔：Rust 的 `translate` 登录账号优先、没有登录时用本机匿名账号，两个都没有时是 `account_unauthorized`，这时补注册一次再问；一个进程 600 秒内只补一次，按尝试计，与 Linux、Windows 相同（迁移差异 M37）。注册计入服务端每个出口地址每天 5 次的额度，原来每一页都会再注册一次。
+  private actor AnonymousRegistration {
+    static let shared = AnonymousRegistration()
+    static let interval: TimeInterval = 600
+    private var last: Date?
+    func attempt() -> Bool {
+      let now = Date()
+      if let last, now.timeIntervalSince(last) < Self.interval { return false }
+      last = now
+      return true
     }
-    if (try? await anonymous.accessToken()) != nil { return (anonymous, 0) }
-    _ = try await BackendAnonymousAccount.ensureSignedIn(session: anonymous, client: client)
-    return (anonymous, 0)
+  }
+
+  /// 一页候选的释义经 Rust 的 `translate`（#8201 迁移计划 4e）：令牌、刷新和会话选择都在 Rust 里。回答标记的是问之前登录的那个账号（`BackendAccountState`）；回来以后再读一次登录状态，换了号就丢掉，输入法也会按标记丢掉不属于当前账号的回答。
+  nonisolated static func translate(_ request: Request, rust: BackendRustAccount) async {
+    let words = request.words, generation = request.generation
+    guard let marker = try? await BackendAccountState.refresh(rust) else { return }
+    await withTaskGroup(of: Void.self) { group in
+      for code in [request.primary, request.secondary] where !code.isEmpty {
+        group.addTask {
+          // A request that failed (offline, rate limited) posts nothing, so the words stay unknown and are asked about again.
+          guard let values = await translations(words, target: code, rust: rust),
+                (try? await BackendAccountState.refresh(rust)) == marker else { return }
+          await MainActor.run {
+            NotificationCenter.default.post(name: notification, object: nil,
+                                            userInfo: payload(words: words, values: values, code: code, generation: generation, marker: marker))
+          }
+        }
+      }
+    }
+  }
+
+  /// 一种语言的释义，与 `words` 等长：Rust 把不合格的那一项给成 null，这里当作没有释义（""）。失败时为 nil。
+  private nonisolated static func translations(_ words: [String], target: String, rust: BackendRustAccount) async -> [String]? {
+    let action: [String: Any] = ["operation": "translate", "texts": words, "source_lang": "ZH", "target_lang": target]
+    func decode(_ data: Data) -> [String]? {
+      guard let object = try? BackendRustAccount.object(data), let values = object["translations"] as? [Any],
+            values.count == words.count else { return nil }
+      return values.map { $0 as? String ?? "" }
+    }
+    do { return decode(try await rust.account(action)) }
+    catch let failure as BackendRustClient.Failure where failure.code == "account_unauthorized" {
+      guard await AnonymousRegistration.shared.attempt(),
+            (try? await rust.account(["operation": "ensure_anonymous"])) != nil,
+            let data = try? await rust.account(action) else { return nil }
+      return decode(data)
+    } catch { return nil }
   }
 
   static func fetch(words: [String], primary: String, secondary: String, generation: UInt64) {
@@ -54,25 +89,6 @@ enum BackendCandidateGloss {
       await perform(request)
       inFlight = nil
       pump()
-    }
-  }
-
-  private nonisolated static func translate(_ request: Request) async {
-    let words = request.words, generation = request.generation
-    guard let selected = try? await translationSession() else { return }
-    let session = selected.session
-    let marker = selected.marker
-    await withTaskGroup(of: Void.self) { group in
-      for code in [request.primary, request.secondary] where !code.isEmpty {
-        group.addTask {
-          // A request that failed (offline, rate limited) posts nothing, so the words stay unknown and are asked about again.
-          guard let values = try? await client.translate(texts: words, target: code, session: session) else { return }
-          await MainActor.run {
-            NotificationCenter.default.post(name: notification, object: nil,
-                                            userInfo: payload(words: words, values: values, code: code, generation: generation, marker: marker))
-          }
-        }
-      }
     }
   }
 

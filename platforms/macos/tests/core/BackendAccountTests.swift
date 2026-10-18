@@ -17,38 +17,12 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
   static var renameRequests = 0
   static var rejectFirstDelete = false
   static var deleteRequests = 0
-  static var omittedPreferenceKey: String?
-  static var themeSchema = true
-  /// 服务端字段表是否收录了晚加入的深色槽位。
-  static var darkSkinSchema = true
-  private static var preferenceRevision = 1
-  private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true, "platform.macos.quanpin_helpcode_schema": 6, "platform.macos.shuangpin_helpcode_schema": 9]
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
     let body: String
     var status = 200
-    var payload = request.httpBody ?? Data()
-    if let stream = request.httpBodyStream {
-      stream.open(); defer { stream.close() }
-      var buffer = [UInt8](repeating: 0, count: 4096)
-      while true { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; payload.append(contentsOf: buffer.prefix(count)) }
-    }
-    let values = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
-    func json(_ object: Any) -> String { String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)! }
     switch (request.httpMethod!, request.url!.path) {
-    case ("GET", "/v1/users/me/preferences/schema"):
-      var fields: [String: Any] = ["platform.macos.global_theme": ["type":"string", "maxLength":64], "platform.macos.candidate_font_size": ["type":"integer"], "platform.macos.candidate_learning": ["type":"boolean"], "platform.macos.shuangpin_preedit_uses_raw": ["type":"boolean"], "platform.ios.nine_key": ["type":"boolean"]]
-      // A server that has registered only part of the theme group, as one that predates the custom theme would.
-      if Self.themeSchema { fields["platform.macos.custom_theme_base"] = ["type":"string", "maxLength":64]; fields["platform.macos.custom_candidate_skin"] = ["type":"string", "maxLength":128]; if Self.darkSkinSchema { fields["platform.macos.custom_candidate_skin_dark"] = ["type":"string", "maxLength":128] } }
-      body = json(["fields": fields, "maximum_bytes": 1048576, "update_mode": "replace", "revision_required": true])
-    case ("GET", "/v1/users/me/preferences"):
-      body = json(["revision":Self.preferenceRevision, "settings":Self.preferences.filter { $0.key != Self.omittedPreferenceKey }])
-    case ("PUT", "/v1/users/me/preferences"):
-      if values?["revision"] as? Int == Self.preferenceRevision, let settings = values?["settings"] as? [String: Any] {
-        Self.preferenceRevision += 1; Self.preferences = settings
-        body = json(["revision":Self.preferenceRevision, "settings":Self.preferences])
-      } else { body = "{}"; status = 409 }
     case (_, "/v1/auth/providers"): body = #"{"providers":{"email":true,"phone":false,"apple":false}}"#
     case (_, "/v1/auth/challenges"): body = #"{"challenge_id":"synthetic","expires_in":300}"#
     case (_, "/v1/auth/login"):
@@ -89,6 +63,42 @@ private final class AccountScript: @unchecked Sendable {
     case "rename": return FakeRust.ok(["user": FakeRust.user("synthetic-user", call.action["display_name"] as? String ?? ""), "providers": ["email"]])
     case "account_delete": return deleteFailure.map(FakeRust.failure) ?? FakeRust.ok(["voice_samples": ["ok": true]])
     case "logout": return logoutFailure.map(FakeRust.failure) ?? FakeRust.ok(NSNull())
+    default: return FakeRust.failure("account_invalid")
+    }
+  }
+}
+/// 替身 Rust 的设置同步：服务端的字段表、云端文档和按修订号比较并交换的上传。`omitted` 是云端文档里还没有的键，`themeSchema` 和 `darkSkinSchema` 为假时字段表缺主题组或深色槽位。
+private final class CloudPreferences: @unchecked Sendable {
+  var revision = 1
+  var settings: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true,
+                                 "platform.macos.quanpin_helpcode_schema": 6, "platform.macos.shuangpin_helpcode_schema": 9]
+  var omitted: String?
+  var themeSchema = true
+  var darkSkinSchema = true
+  /// 云端现在的文档。
+  var document: BackendAccountClient.Preferences {
+    try! JSONDecoder().decode(BackendAccountClient.Preferences.self, from: JSONSerialization.data(withJSONObject: ["revision": revision, "settings": settings]))
+  }
+  func respond(_ call: FakeRust.Call) -> String {
+    switch call.operation {
+    case "status": return FakeRust.ok(["user": FakeRust.user("synthetic-user")])
+    case "preferences_schema":
+      var fields: [String: Any] = ["platform.macos.global_theme": ["type": "string"], "platform.macos.candidate_font_size": ["type": "integer"],
+                                   "platform.macos.candidate_learning": ["type": "boolean"], "platform.macos.shuangpin_preedit_uses_raw": ["type": "boolean"],
+                                   "platform.ios.nine_key": ["type": "boolean"]]
+      // A server that has registered only part of the theme group, as one that predates the custom theme would.
+      if themeSchema {
+        fields["platform.macos.custom_theme_base"] = ["type": "string"]; fields["platform.macos.custom_candidate_skin"] = ["type": "string"]
+        if darkSkinSchema { fields["platform.macos.custom_candidate_skin_dark"] = ["type": "string"] }
+      }
+      return FakeRust.ok(["fields": fields, "maximumBytes": 1048576, "updateMode": "replace", "revisionRequired": true])
+    case "preferences_load":
+      return FakeRust.ok(["revision": revision, "settings": settings.filter { $0.key != omitted }])
+    case "preferences_put":
+      guard call.action["user_id"] as? String == "synthetic-user" else { return FakeRust.failure("account_cancelled") }
+      guard call.action["revision"] as? Int == revision, let document = call.action["document"] as? [String: Any] else { return FakeRust.failure("account_conflict") }
+      revision += 1; settings = document
+      return FakeRust.ok(["revision": revision, "settings": settings])
     default: return FakeRust.failure("account_invalid")
     }
   }
@@ -542,25 +552,12 @@ private final class AccountScript: @unchecked Sendable {
                 && FakeRust.calls("snapshot_preview").count == previews)
     model.close()
   }
-  @MainActor static func main() async throws {
-    try windowAccountIsolation()
-    try candidateGlossPayload()
-    try snapshotHandleValidation()
-    try await candidateGlossSingleFlight()
-    try await fileTransfer()
-    try await anonymousAccountFallback()
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [AccountFixture.self]
-    let client = BackendAccountClient(configuration: configuration)
-    try await rustAccountModel()
-    try await rustClipboardModel()
-    try await rustDictionaryModel()
-    try await rustSnapshotModel()
-    let storage = MemoryCredentials()
-    let session = BackendAccountSession(api: client, storage: storage)
-    try await session.signIn(challenge: "synthetic", credential: "123456")
+  /// 桌面设置同步经 Rust（#8201 迁移计划 4e）：字段表（camelCase）、云端文档和上传都是 `msime_client_account` 的 action，`platform.macos.*` 的映射留在 Swift。
+  @MainActor static func rustSettingsModel() async throws {
+    let cloud = CloudPreferences()
+    FakeRust.answer(cloud.respond)
     var localSettings: MacSettingsAccess.Values = ["platform.macos.global_theme": .string("shuishan"), "platform.macos.custom_theme_base": .string("system"), "platform.macos.custom_candidate_skin": .string(""), "platform.macos.custom_candidate_skin_dark": .string("night-card"), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false), "platform.macos.shuangpin_preedit_uses_raw": .boolean(false)]
-    let settings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { localSettings }, validate: { values in
+    let settings = MacSettingsModel(accountID: "synthetic-user", rust: FakeRust.account, local: .init(snapshot: { localSettings }, validate: { values in
       guard values.count == 7 else { throw Failure() }
     }, apply: { localSettings = $0 }))
     settings.download(); try await finished(settings)
@@ -569,15 +566,15 @@ private final class AccountScript: @unchecked Sendable {
     try require(settings.preview?["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(false))
     // 云端的辅助码方案下标 9 是本机没有的方案，预览换成本机的选择；6（五笔 86）本机认得，照常进预览。
     let helpcodeLocal: MacSettingsAccess.Values = ["platform.macos.candidate_font_size": .integer(16), "platform.macos.quanpin_helpcode_schema": .integer(0), "platform.macos.shuangpin_helpcode_schema": .integer(2)]
-    let helpcodeSettings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { helpcodeLocal }, validate: { _ in }, apply: { _ in }))
+    let helpcodeSettings = MacSettingsModel(accountID: "synthetic-user", rust: FakeRust.account, local: .init(snapshot: { helpcodeLocal }, validate: { _ in }, apply: { _ in }))
     helpcodeSettings.download(); try await finished(helpcodeSettings)
     try require(helpcodeSettings.preview?["platform.macos.quanpin_helpcode_schema"] == .integer(6))
     try require(helpcodeSettings.preview?["platform.macos.shuangpin_helpcode_schema"] == .integer(2))
     helpcodeSettings.close()
-    AccountFixture.omittedPreferenceKey = "platform.macos.candidate_font_size"
+    cloud.omitted = "platform.macos.candidate_font_size"
     settings.download(); try await finished(settings)
     try require(settings.preview == nil && settings.message != nil)
-    AccountFixture.omittedPreferenceKey = nil
+    cloud.omitted = nil
     settings.download(); try await finished(settings)
     localSettings["platform.macos.candidate_font_size"] = .integer(20)
     settings.apply(); try await finished(settings)
@@ -589,8 +586,10 @@ private final class AccountScript: @unchecked Sendable {
     // A cloud-supported explicit value must win over the local fallback on restore.
     localSettings["platform.macos.shuangpin_preedit_uses_raw"] = .boolean(true)
     settings.upload(); try await finished(settings)
-    let credentials = try await session.credentials()
-    let savedPreferences = try await client.preferences(token: credentials.token)
+    let savedPreferences = cloud.document
+    // 上传带读文档时的修订号和打开窗口时的账号（P4 的 `preferences_put`）。
+    let put = FakeRust.calls("preferences_put").last?.action
+    try require(put?["user_id"] as? String == "synthetic-user" && put?["revision"] as? Int == 1 && put?["document"] is [String: Any])
     try require(savedPreferences.settings["platform.ios.nine_key"] == .boolean(true))
     try require(savedPreferences.settings["platform.macos.global_theme"] == .string("shuishan"))
     try require(savedPreferences.settings["platform.macos.custom_theme_base"] == .string("system") && savedPreferences.settings["platform.macos.custom_candidate_skin"] == .string(""))
@@ -602,35 +601,111 @@ private final class AccountScript: @unchecked Sendable {
     try require(settings.preview?["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(true))
     settings.apply(); try await finished(settings)
     try require(localSettings["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(true))
-    _ = try await client.putPreferences(savedPreferences, token: credentials.token)
+    // 另一台设备在这期间改过云端文档：按读到时的修订号比较并交换，冲突原样报出来，不重放旧文档。
+    cloud.revision += 1
     settings.upload(); try await finished(settings)
-    try require(settings.message != nil)
+    try require(settings.message == "云端内容已被其他设备更新，请刷新后重新确认。")
     // A server without the whole theme group still takes the other settings; the theme is left out as a group and the message says so, rather than the whole upload failing.
-    AccountFixture.themeSchema = false
+    cloud.themeSchema = false
     localSettings["platform.macos.global_theme"] = .string("night")
     localSettings["platform.macos.candidate_font_size"] = .integer(22)
     settings.download(); try await finished(settings)
     settings.upload(); try await finished(settings)
     try require(settings.message == "本机设置已上传，其他平台的云端设置已保留。云端暂不支持主题设置，主题没有上传。")
-    let themeless = try await client.preferences(token: credentials.token)
+    let themeless = cloud.document
     try require(themeless.settings["platform.macos.candidate_font_size"] == .integer(22) && themeless.settings["platform.macos.global_theme"] == .string("shuishan"))
-    AccountFixture.themeSchema = true
+    cloud.themeSchema = true
     // 服务端字段表只缺深色槽位：只去掉这一项，主题组其余字段照常上传，提示也不说主题没上传。
-    AccountFixture.darkSkinSchema = false
+    cloud.darkSkinSchema = false
     localSettings["platform.macos.global_theme"] = .string("ink")
     localSettings["platform.macos.custom_candidate_skin_dark"] = .string("dusk-card")
     settings.download(); try await finished(settings)
     settings.upload(); try await finished(settings)
     try require(settings.message == "本机设置已上传，其他平台的云端设置已保留。")
-    let darkless = try await client.preferences(token: credentials.token)
+    let darkless = cloud.document
     try require(darkless.settings["platform.macos.global_theme"] == .string("ink") && darkless.settings["platform.macos.custom_candidate_skin_dark"] == .string("night-card"))
-    AccountFixture.darkSkinSchema = true
+    cloud.darkSkinSchema = true
     // 云端还没有深色槽位：下载时保留本机的值，不因少一项拒绝整份快照。
-    AccountFixture.omittedPreferenceKey = "platform.macos.custom_candidate_skin_dark"
+    cloud.omitted = "platform.macos.custom_candidate_skin_dark"
     settings.download(); try await finished(settings)
     try require(settings.preview?["platform.macos.custom_candidate_skin_dark"] == .string("dusk-card"))
-    AccountFixture.omittedPreferenceKey = nil
+    cloud.omitted = nil
     settings.close(); try require(settings.preview == nil && settings.cloud == nil)
+    // 打开窗口时的账号已经不是登录的那个：不发设置请求。
+    let loads = FakeRust.calls("preferences_load").count
+    let wrongAccount = MacSettingsModel(accountID: "previous-account", rust: FakeRust.account, local: .init(snapshot: { localSettings }, validate: { _ in }, apply: { _ in }))
+    wrongAccount.download(); try await finished(wrongAccount)
+    try require(wrongAccount.preview == nil && FakeRust.calls("preferences_load").count == loads)
+  }
+  /// 候选释义经 Rust 的 `translate`（#8201 迁移计划 4e）：回答按问之前登录的账号打标记，问完换了号就丢掉；两个账号都没有时补注册一次匿名账号再问，600 秒内只补一次；输入法同步读的标记来自 `status` 的缓存。
+  @MainActor static func rustCandidateGloss() async throws {
+    final class Script: @unchecked Sendable {
+      var users: [Any] = []
+      var signedIn: Any = NSNull()
+      var unauthorized = false
+      func respond(_ call: FakeRust.Call) -> String {
+        switch call.operation {
+        case "status":
+          if !users.isEmpty { return FakeRust.ok(["user": users.removeFirst()]) }
+          return FakeRust.ok(["user": signedIn])
+        case "translate":
+          if unauthorized { return FakeRust.failure("account_unauthorized") }
+          let texts = call.action["texts"] as? [String] ?? []
+          return FakeRust.ok(["translations": texts.map { $0 == "测试" ? "test" as Any : NSNull() }])
+        case "ensure_anonymous": unauthorized = false; return FakeRust.ok(true)
+        default: return FakeRust.failure("account_invalid")
+        }
+      }
+    }
+    let script = Script()
+    FakeRust.answer(script.respond)
+    final class Posted: @unchecked Sendable { var items: [[AnyHashable: Any]] = [] }
+    let box = Posted()
+    let observer = NotificationCenter.default.addObserver(forName: BackendCandidateGloss.notification, object: nil, queue: nil) { box.items.append($0.userInfo ?? [:]) }
+    defer { NotificationCenter.default.removeObserver(observer) }
+    var posted: [[AnyHashable: Any]] { box.items }
+    let request = BackendCandidateGloss.Request(words: ["测试", "东京"], primary: "en", secondary: "", generation: 9)
+    script.signedIn = FakeRust.user("synthetic-user")
+    await BackendCandidateGloss.translate(request, rust: FakeRust.account)
+    try await Task.sleep(nanoseconds: 20_000_000)
+    let signedInMarker = backendAccountTranslationMarker(userID: "synthetic-user")
+    let sent = FakeRust.calls("translate").last?.action
+    try require(posted.count == 1 && posted[0]["marker"] as? UInt64 == signedInMarker && posted[0]["target"] as? String == "en"
+                && posted[0]["translations"] as? [String: String] == ["测试": "test", "东京": ""]
+                && sent?["texts"] as? [String] == ["测试", "东京"] && sent?["source_lang"] as? String == "ZH" && sent?["target_lang"] as? String == "en")
+    try require(msimeBackendAccountTranslationMarker() == signedInMarker)
+    // 问完再看一次登录状态，换了号就不交给输入法。
+    script.users = [FakeRust.user("synthetic-user"), FakeRust.user("another-user")]
+    await BackendCandidateGloss.translate(request, rust: FakeRust.account)
+    try await Task.sleep(nanoseconds: 20_000_000)
+    try require(posted.count == 1)
+    // 没有登录、也没有匿名会话：补注册一次匿名账号再问，回答的标记是 0。
+    script.signedIn = NSNull(); script.unauthorized = true
+    await BackendCandidateGloss.translate(request, rust: FakeRust.account)
+    try await Task.sleep(nanoseconds: 20_000_000)
+    try require(posted.count == 2 && posted[1]["marker"] as? UInt64 == 0 && FakeRust.calls("ensure_anonymous").count == 1
+                && msimeBackendAccountTranslationMarker() == 0)
+    // 600 秒内不再补注册：这一页没有释义，下一页再问。
+    script.unauthorized = true
+    await BackendCandidateGloss.translate(request, rust: FakeRust.account)
+    try await Task.sleep(nanoseconds: 20_000_000)
+    try require(posted.count == 2 && FakeRust.calls("ensure_anonymous").count == 1)
+  }
+  @MainActor static func main() async throws {
+    // 云词库和快照窗口的中转目录在 $TMPDIR 下按进程号建，测试结束时删掉。
+    defer { if let transfer = try? MacCloudTransferDirectory.url() { try? FileManager.default.removeItem(at: transfer) } }
+    try windowAccountIsolation()
+    try candidateGlossPayload()
+    try snapshotHandleValidation()
+    try await candidateGlossSingleFlight()
+    try await fileTransfer()
+    try await anonymousAccountFallback()
+    try await rustAccountModel()
+    try await rustClipboardModel()
+    try await rustDictionaryModel()
+    try await rustSnapshotModel()
+    try await rustSettingsModel()
+    try await rustCandidateGloss()
     print("PASS: native account model through Rust, local account card, settings sync and cloud clipboard")
   }
 

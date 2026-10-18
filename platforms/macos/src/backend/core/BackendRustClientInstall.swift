@@ -13,7 +13,11 @@ public func msimeInstallRustClient(_ table: UnsafeRawPointer?) -> Bool {
     return false
   }
   guard BackendRustClient.install(table.load(as: msime_rust_client.self)), let client = BackendRustClient.shared else { return false }
-  if case .failure(let failure) = BackendRustAccount.registerShared(client: client, agent: MacRustAgent.current) {
+  switch BackendRustAccount.registerShared(client: client, agent: MacRustAgent.current) {
+  case .success(let account):
+    // 输入法同步读的登录状态缓存（`BackendAccountState`）先填一次，不等第一页释义。
+    Task.detached { try? await BackendAccountState.refresh(account) }
+  case .failure(let failure):
     NSLog("MSIME backend could not register the account session store with Rust: %@", failure.code)
   }
   return true

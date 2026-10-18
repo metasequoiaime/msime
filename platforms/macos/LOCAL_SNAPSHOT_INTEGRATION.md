@@ -6,22 +6,24 @@
 
 账号窗口的「云词库同步与备份」（`BackendSnapshotView.swift`）经 Rust 的快照队列（#8201）：`downloadForLocal` 带本机的 HostOptions（`MSIMEClientSession.activeHostOptions`）调 `msime_client_cloud_dictionary` 的 `snapshot_preview`，`applyLocal` 调 `snapshot_enqueue`。Rust 入列后马上写词库维护租约、等输入会话放开词库，在本进程里准备并激活新的一代。Rust 只写租约、不发通知，而没有获得焦点的输入框时 `InputController.mm` 每秒检查租约的计时器不跑，所以请求进行期间宿主每 250 毫秒在本进程里发一次 `MSIMEDictionaryMaintenanceWillBeginNotification`，叫醒握着词库的输入会话去检查租约；放不开时请求留在 `<状态目录>/dictionary-snapshots` 的队列里，窗口开着时每两秒问一次 `snapshot_status`，关掉窗口也不丢，下一次有面板问状态时接着处理。
 
-Tauri 面板的「应用到本机」（`BackendDesktopSnapshots.swift`）仍调用 `BackendLocalSnapshot.swift`，后者按名字动态查找共享的 `MSIMEClientSession`，用 `snapshotVersion:`、`prepareSnapshot:`、`applySnapshot:`、`discardSnapshot:` 四个选择器完成整个流程；激活前先用 `snapshotActivationReady` 确认会话空闲。
+Tauri 面板的「应用到本机」（`BackendDesktopSnapshots.swift`）走同一条路：`snapshot_status`、`snapshot_preview`、`snapshot_enqueue` 带同一份 HostOptions，面板每两秒问一次状态时 Rust 接着处理排队中的请求（最多每 60 秒一次），这期间同样叫醒本进程的输入会话。HostOptions 和叫醒都在 `BackendLocalSnapshot.swift` 的 `MacLocalDictionary` 里，它按名字动态查找共享的 `MSIMEClientSession`（`activeHostOptions`）。
 
-`shared/apple/MSIMEClientSession.{h,mm}` 把这些选择器转成 `crates/host-api/include/msime_client.h` 里的 C ABI：`msime_client_snapshot_version`、`msime_client_snapshot_inspect`、`msime_client_snapshot_prepare`、`msime_client_snapshot_discard`、`msime_client_snapshot_activate`、`msime_client_snapshot_restore` 和 `msime_client_snapshot_queue`。记录流由宿主以 `msime_client_snapshot_next` 回调逐条同步喂进去：正数表示一条 UTF-8 JSON 的长度，0 只在校验过的 EOF 处返回，负数表示取消或损坏，回调本身不得抛出或栈展开。
+`shared/apple/MSIMEClientSession.{h,mm}` 的 `snapshotVersion:`、`prepareSnapshot:`、`applySnapshot:`、`discardSnapshot:` 和 `snapshotActivationReady` 是宿主自己准备、激活一份快照的选择器（macOS 的 Swift 后端已不再调用，`snapshot-activation-test` 仍覆盖），它们转成 `crates/host-api/include/msime_client.h` 里的 C ABI：`msime_client_snapshot_version`、`msime_client_snapshot_inspect`、`msime_client_snapshot_prepare`、`msime_client_snapshot_discard`、`msime_client_snapshot_activate`、`msime_client_snapshot_restore` 和 `msime_client_snapshot_queue`。记录流由宿主以 `msime_client_snapshot_next` 回调逐条同步喂进去：正数表示一条 UTF-8 JSON 的长度，0 只在校验过的 EOF 处返回，负数表示取消或损坏，回调本身不得抛出或栈展开。
 
 Rust 侧的实现在 `crates/host-api/src/dictionary_snapshot.rs`（记录解析在 `dictionary_snapshot/record.rs`）。`inspect` 先校验完整的 NDJSON 信封——头尾顺序、整段 body 的校验和、分类顺序和记录边界都属于云端格式的一部分；Engine 记录更深一层的、按方案区分的校验放在 prepare 阶段。准备句柄登记在进程内的注册表里，`activate` 只接受未过期的句柄并比对期望版本，发布前做原子替换，失败时把原目录搬回来；回滚之后留下的空备份目录才会被删掉，`remove_dir` 对非空目录的拒绝正是这里要的保护——那时备份可能是用户词库仅剩的一份。
 
 记录流与状态版本的适配全部在 host-api 的 C ABI 之后，宿主不再有自己的 C++ 桥接层；`shared/snapshot`（Swift Package）负责快照文件格式本身的校验与上传。
 
-凭据和网络请求留在 Swift 后端，不进入 `client-core`。引擎会话的 `snapshot()`（`crates/engine/src/host/session.rs`）返回的是编辑串/候选这类输入状态，与词库快照无关。
+下载快照的凭据和网络请求在 Rust 的账号会话里（`msime_client_cloud_dictionary`），不进入 `client-core`。引擎会话的 `snapshot()`（`crates/engine/src/host/session.rs`）返回的是编辑串/候选这类输入状态，与词库快照无关。
 
 ## 边界
+
+下面几条对 Rust 快照队列的「准备并激活」和宿主自己调用这些选择器同样成立。
 
 - 准备阶段不修改活动词库，只在隔离的客户端用户目录里落暂存数据，用的是已校验资源。
 - 预览之后发生本地学习、编辑或代次切换时，版本比对会让本次覆盖失败，而不是静默覆盖。
 - 激活要与现有会话和跨进程词库访问锁协调：探测到新代次成功后才原子发布，并重建当前运行时会话、使旧候选回调失效。失败保持旧安装可用。
-- 取消、应用失败和窗口关闭都走 `discardSnapshot:`，清理只动 staging，不碰活动代次。
+- 取消和应用失败只清理暂存目录（Rust 队列的 `dictionary-snapshot-staging`，或 `discardSnapshot:` 丢掉的 staging），不碰活动代次；窗口关闭时排队中的请求留在队列里。
 
 ## 本地验证
 

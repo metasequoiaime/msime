@@ -1,58 +1,6 @@
 import AppKit
 import Foundation
 
-protocol DesktopSnapshotAPI {
-  func dictionarySnapshot(token: String) async throws -> BackendAccountClient.DownloadedSnapshot
-  func dictionaryCatalog(_ kind: BackendAccountClient.DictionaryKind, code: String, offset: Int, scheme: String, profile: String, token: String) async throws -> BackendAccountClient.DictionaryCatalog
-  func restoreDictionarySnapshot(file: URL, expectedSHA256: String, revision: Int64, token: String) async throws -> BackendAccountClient.SnapshotRestoreResult
-}
-extension BackendAccountClient: DesktopSnapshotAPI {}
-
-@MainActor protocol DesktopSnapshotTarget {
-  var version: String { get }
-  func currentVersion() throws -> String
-  func stage(_ snapshot: BackendPreparedSnapshot) async throws -> any DesktopSnapshotActivation
-}
-@MainActor protocol DesktopSnapshotActivation {
-  func ready() throws -> Bool
-  func activate() throws
-}
-
-@MainActor final class MacDesktopSnapshotTarget: DesktopSnapshotTarget {
-  let context: NSDictionary
-  let version: String
-  init() throws {
-    context = try MacPreparedLocalSnapshot.invoke("activeHostOptions")
-    guard let version = try MacPreparedLocalSnapshot.invoke("snapshotVersion:", context)["version"] as? String else { throw BackendAccountClient.Failure(status: 503) }
-    self.version = version
-  }
-  func currentVersion() throws -> String {
-    let active = try MacPreparedLocalSnapshot.invoke("activeHostOptions")
-    guard let version = try MacPreparedLocalSnapshot.invoke("snapshotVersion:", active)["version"] as? String else { throw BackendAccountClient.Failure(status: 503) }
-    return version
-  }
-  func stage(_ snapshot: BackendPreparedSnapshot) async throws -> any DesktopSnapshotActivation {
-    guard try currentVersion() == version else { throw BackendAccountClient.Failure(status: 409) }
-    let prepared = MacPreparedLocalSnapshot(context: context, snapshot: snapshot)
-    let work = Task.detached(priority: .utility) { try prepared.stage() }
-    try await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
-    return MacDesktopSnapshotActivation(prepared: prepared, target: self)
-  }
-}
-@MainActor final class MacDesktopSnapshotActivation: DesktopSnapshotActivation {
-  let prepared: MacPreparedLocalSnapshot
-  let target: MacDesktopSnapshotTarget
-  init(prepared: MacPreparedLocalSnapshot, target: MacDesktopSnapshotTarget) { self.prepared = prepared; self.target = target }
-  func ready() throws -> Bool {
-    guard try target.currentVersion() == target.version else { throw BackendAccountClient.Failure(status: 409) }
-    return try MacPreparedLocalSnapshot.invoke("snapshotActivationReady")["ready"] as? Bool == true
-  }
-  func activate() throws {
-    guard try ready() else { throw BackendAccountClient.Failure(status: 409) }
-    try prepared.activate()
-  }
-}
-
 @MainActor final class DesktopSnapshotFileDialogs {
   func choose(saving: Bool) async throws -> URL? {
     let panel: NSSavePanel = saving ? NSSavePanel() : NSOpenPanel()
@@ -69,156 +17,94 @@ extension BackendAccountClient: DesktopSnapshotAPI {}
   }
 }
 
-/// The webview sees only metadata and one-use preview tokens. Snapshot contents,
-/// paths, credentials and Engine handles stay with this native account owner.
+/// Tauri 云词库面板的整份快照（`snapshotNative`）：网页只看到元数据和一次性的预览令牌，快照内容、路径和令牌都留在宿主里。下载、备份、恢复和「应用到本机」都经 Rust 的 `msime_client_cloud_dictionary`（#8201 迁移计划 4e）：保存和选文件由宿主弹面板，路径交给 `snapshot_export_file`、`snapshot_restore_preview_file`、`snapshot_restore_file`；「应用到本机」排进 Rust 的快照队列，与账号窗口的「云词库同步与备份」相同（`MacSnapshotModel`）。
 @MainActor final class BackendDesktopSnapshots {
-  private let client: any DesktopSnapshotAPI
-  private let credentials: () async throws -> String
-  private let refreshCredentials: ((String) async throws -> String)?
+  private let rust: BackendRustAccount
+  private let accountID: String
+  private let transfer: () throws -> URL
   private let choose: (Bool) async throws -> URL?
-  private let capture: @MainActor () throws -> any DesktopSnapshotTarget
-  private var preview: (token: String, file: BackendPreparedSnapshot, target: (any DesktopSnapshotTarget)?, revision: Int64)?
-  private var job: Task<Void, Never>?
-  private var status: [String: Any]?
-  private var busy = false
-  init(client: any DesktopSnapshotAPI = BackendAccountClient(), credentials: @escaping () async throws -> String,
-       refreshCredentials: ((String) async throws -> String)? = nil,
+  private let hostOptions: @MainActor () throws -> [String: Any]
+  /// 面板确认恢复之前留着的那份备份：路径、预览给出的摘要和云端修订号，网页只拿到令牌。
+  private var restore: (token: String, file: URL, sha256: String, revision: Int64)?
+  init(rust: BackendRustAccount, accountID: String, transfer: @escaping () throws -> URL = MacCloudTransferDirectory.url,
        choose: @escaping (Bool) async throws -> URL? = { try await DesktopSnapshotFileDialogs().choose(saving: $0) },
-       capture: @escaping @MainActor () throws -> any DesktopSnapshotTarget = { try MacDesktopSnapshotTarget() }) {
-    self.client = client; self.credentials = credentials; self.refreshCredentials = refreshCredentials
-    self.choose = choose; self.capture = capture
+       hostOptions: @escaping @MainActor () throws -> [String: Any] = MacLocalDictionary.hostOptions) {
+    self.rust = rust; self.accountID = accountID; self.transfer = transfer; self.choose = choose; self.hostOptions = hostOptions
   }
-  deinit { job?.cancel() }
-  private func authorize() async throws -> String {
+
+  private func requireAccount() async throws {
+    guard try await rust.status()?.id == accountID else { throw BackendRustClient.Failure(code: "account_unauthorized") }
     try Task.checkCancellation()
-    let token = try await credentials()
-    try Task.checkCancellation()
-    return token
   }
-  private func visibleStatus() async -> Any {
-    guard (try? await authorize()) != nil else { return NSNull() }
-    return status as Any? ?? NSNull()
+  private func request(_ action: [String: Any], options: [String: Any]? = nil) async throws -> [String: Any] {
+    try BackendRustAccount.object(try await rust.cloudDictionary(action, snapshotDirectory: try transfer(), options: options))
   }
-  private static func read<T>(token: String, refreshCredentials: ((String) async throws -> String)?,
-                              operation: (String) async throws -> T) async throws -> T {
-    do { return try await operation(token) }
-    catch let failure as BackendAccountClient.Failure where failure.status == 401 {
-      guard let refreshCredentials else { throw failure }
-      let fresh = try await refreshCredentials(token)
-      try Task.checkCancellation()
-      return try await operation(fresh)
-    }
+  /// 队列状态里只有页面要的 `localVersion` 和 `request`，另带 `nativeFiles` 说明备份与恢复走宿主的文件面板。
+  private func queue(_ result: [String: Any]) -> [String: Any] {
+    var value = result
+    value["nativeFiles"] = true
+    return value
   }
-  private func read<T>(token: String, operation: (String) async throws -> T) async throws -> T {
-    try await Self.read(token: token, refreshCredentials: refreshCredentials, operation: operation)
-  }
-  private func metadata(_ file: BackendPreparedSnapshot) throws -> [String: Any] {
-    let e = file.envelope
-    let size = try FileManager.default.attributesOfItem(atPath: file.url.path)[.size] as? NSNumber
-    guard let size else { throw BackendAccountClient.Failure(status: 0) }
-    return ["cloudRevision":e.revision, "sha256":e.sha256, "bytes":size, "records":e.records,
-      "entries":e.entries, "overlays":e.overlays, "positions":e.positions, "selections":e.selections]
-  }
-  private func cloudRevision(_ token: String) async throws -> Int64 {
-    try await read(token: token) { current in
-      try await client.dictionaryCatalog(.quick, code: "", offset: 0, scheme: "pinyin", profile: "xiaohe", token: current).revision
-    }
-  }
-  private func freeze(_ url: URL) async throws -> BackendPreparedSnapshot {
-    let work = Task.detached(priority: .utility) { try BackendPreparedSnapshot(copying: url) }
-    return try await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
-  }
+
   func execute(_ request: NSDictionary) async throws -> [String: Any] {
-    guard let operation = request["operation"] as? String else { throw BackendAccountClient.Failure(status: 400) }
-    if operation == "snapshot_status" {
-      return ["nativeFiles":true, "localVersion":try capture().version, "request":await visibleStatus()]
-    }
-    if operation == "snapshot_cancel" {
-      // Keep the handle until the task's defer path observes cancellation and
-      // releases its prepared snapshot. A synchronous staging call may still
-      // be unwinding; clearing job here would allow a second enqueue to race
-      // that cleanup and create two native snapshot lifecycles at once.
-      job?.cancel()
-      if status?["status"] as? String == "preparing" || status?["status"] as? String == "queued" { status?["status"] = "cancelled" }
-      return ["request":await visibleStatus()]
-    }
+    guard let operation = request["operation"] as? String else { throw BackendRustClient.Failure(code: "invalid_cloud_dictionary") }
     if operation == "snapshot_restore_cancel" {
-      if preview?.target == nil { preview = nil }
-      return ["cancelled":true]
+      restore = nil
+      return ["cancelled": true]
     }
-    let token = try await authorize()
-    guard !busy else { throw BackendAccountClient.Failure(status: 409) }
-    busy = true; defer { busy = false }
+    if operation == "snapshot_discard" {
+      // 本机替换的预览由 Rust 保管，换号、下一次预览或入列时作废；这里只丢掉恢复的那份。
+      if let token = request["token"] as? String, token == restore?.token { restore = nil }
+      return ["discarded": true]
+    }
+    try await requireAccount()
+    let result: [String: Any]
     switch operation {
+    case "snapshot_status":
+      // 面板每两秒问一次状态，Rust 借这次接着处理排队中的请求（最多每 60 秒一次），所以同样要叫醒本进程的输入会话。
+      let options = try hostOptions()
+      result = queue(try await MacLocalDictionary.wakingInputSessions {
+        try await self.request(["operation": "snapshot_status"], options: options)
+      })
+    case "snapshot_cancel":
+      result = queue(try await self.request(["operation": "snapshot_cancel"], options: try hostOptions()))
     case "snapshot_preview":
-      guard job == nil else { throw BackendAccountClient.Failure(status: 409) }
-      preview = nil
-      let target = try capture()
-      let downloaded = try await read(token: token) { try await client.dictionarySnapshot(token: $0) }
-      defer { try? FileManager.default.removeItem(at: downloaded.url.deletingLastPathComponent()) }
-      let frozen = try await freeze(downloaded.url)
-      _ = try await authorize()
-      guard try target.currentVersion() == target.version else { throw BackendAccountClient.Failure(status: 409) }
-      let id = UUID().uuidString
-      preview = (id, frozen, target, frozen.envelope.revision)
-      return ["previewToken":id, "snapshot":try metadata(frozen), "localVersion":target.version]
+      result = try await self.request(["operation": "snapshot_preview"], options: try hostOptions())
+    case "snapshot_enqueue":
+      guard let token = request["token"] as? String else { throw BackendRustClient.Failure(code: "invalid_cloud_dictionary") }
+      let options = try hostOptions()
+      result = queue(try await MacLocalDictionary.wakingInputSessions {
+        try await self.request(["operation": "snapshot_enqueue", "token": token], options: options)
+      })
     case "snapshot_restore_preview", "snapshot_choose_restore":
-      guard job == nil else { throw BackendAccountClient.Failure(status: 409) }
-      preview = nil
-      guard let source = try await choose(false) else { return ["saved":false] }
+      restore = nil
+      guard let source = try await choose(false) else { return ["saved": false] }
       let scoped = source.startAccessingSecurityScopedResource()
       defer { if scoped { source.stopAccessingSecurityScopedResource() } }
-      let frozen = try await freeze(source)
-      let revision = try await cloudRevision(try await authorize())
-      _ = try await authorize()
-      let id = UUID().uuidString
-      preview = (id, frozen, nil, revision)
-      return ["previewToken":id, "snapshot":try metadata(frozen), "expectedRevision":revision]
+      let preview = try await self.request(["operation": "snapshot_restore_preview_file", "path": source.path])
+      guard let snapshot = preview["snapshot"] as? [String: Any], let sha256 = snapshot["sha256"] as? String,
+            let revision = preview["expectedRevision"] as? NSNumber else { throw BackendRustClient.Failure.invalidResponse }
+      let token = UUID().uuidString
+      restore = (token, source, sha256, revision.int64Value)
+      result = ["previewToken": token, "snapshot": snapshot, "expectedRevision": revision]
     case "snapshot_export", "snapshot_save":
-      guard let destination = try await choose(true) else { return ["cancelled":true] }
-      let downloaded = try await read(token: try await authorize()) { try await client.dictionarySnapshot(token: $0) }
-      defer { try? FileManager.default.removeItem(at: downloaded.url.deletingLastPathComponent()) }
-      try await MacCloudFileTransfer.save(downloaded.url, to: destination) { _ = try await self.authorize() }
-      return ["saved":true]
-    case "snapshot_discard":
-      guard let id = request["token"] as? String, id == preview?.token else { throw BackendAccountClient.Failure(status: 400) }
-      preview = nil; return ["discarded":true]
+      guard let destination = try await choose(true) else { return ["cancelled": true] }
+      let scoped = destination.startAccessingSecurityScopedResource()
+      defer { if scoped { destination.stopAccessingSecurityScopedResource() } }
+      _ = try await self.request(["operation": "snapshot_export_file", "path": destination.path])
+      result = ["saved": true]
     case "snapshot_restore_native", "snapshot_restore", "snapshot_restore_prepared":
-      guard let selected = preview, selected.target == nil, request["token"] as? String == selected.token else { throw BackendAccountClient.Failure(status: 400) }
-      // Consume before network mutation: an uncertain acknowledgement is never retried.
-      preview = nil
-      let result = try await client.restoreDictionarySnapshot(file: selected.file.url, expectedSHA256: selected.file.envelope.sha256, revision: selected.revision, token: token)
-      _ = try await authorize()
-      return ["revision":result.revision]
-    case "snapshot_enqueue":
-      guard job == nil, let selected = preview, let target = selected.target, request["token"] as? String == selected.token else { throw BackendAccountClient.Failure(status: 400) }
-      guard try target.currentVersion() == target.version else { throw BackendAccountClient.Failure(status: 409) }
-      preview = nil
-      let id = UUID().uuidString
-      status = ["id":id, "cloudRevision":selected.file.envelope.revision, "expectedLocalVersion":target.version, "fileSha256":selected.file.fileSHA256, "status":"queued"]
-      let credentials = self.credentials, refreshCredentials = self.refreshCredentials, client = self.client
-      job = Task { [weak self] in
-        self?.status?["status"] = "preparing"
-        let outcome: String
-        do {
-          let activation = try await target.stage(selected.file)
-          while !(try activation.ready()) { try await Task.sleep(nanoseconds: 100_000_000) }
-          let token = try await credentials()
-          let cloud = try await Self.read(token: token, refreshCredentials: refreshCredentials) { current in
-            try await client.dictionaryCatalog(.quick, code:"", offset:0, scheme:"pinyin", profile:"xiaohe", token:current)
-          }
-          _ = try await credentials()
-          try Task.checkCancellation()
-          guard cloud.revision == selected.file.envelope.revision, try target.currentVersion() == target.version else { throw BackendAccountClient.Failure(status:409) }
-          try activation.activate()
-          outcome = "applied"
-        } catch is CancellationError { outcome = "cancelled" }
-        catch let failure as BackendAccountClient.Failure { outcome = failure.status == 409 ? "conflict" : "failed" }
-        catch { outcome = "failed" }
-        if self?.status?["id"] as? String == id { self?.status?["status"] = outcome; self?.job = nil }
-      }
-      return ["request":status!]
-    default: throw BackendAccountClient.Failure(status: 400)
+      guard let selected = restore, request["token"] as? String == selected.token else { throw BackendRustClient.Failure(code: "invalid_cloud_dictionary") }
+      // 发出去之前就作废：拿不准结果的恢复不会被再发一次。
+      restore = nil
+      let scoped = selected.file.startAccessingSecurityScopedResource()
+      defer { if scoped { selected.file.stopAccessingSecurityScopedResource() } }
+      let restored = try await self.request(["operation": "snapshot_restore_file", "path": selected.file.path,
+                                             "expected_sha256": selected.sha256, "revision": selected.revision])
+      result = ["revision": restored["revision"] ?? NSNull()]
+    default: throw BackendRustClient.Failure(code: "invalid_cloud_dictionary")
     }
+    try await requireAccount()
+    return result
   }
 }
