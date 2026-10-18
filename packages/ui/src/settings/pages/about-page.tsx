@@ -2,6 +2,7 @@ import * as doc from "../document-style";
 import { logo } from "../settings-options";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow, Row } from "../../core/platform-controls";
+import { MascotIllustration } from "../../core/mascot";
 import { LicenseRows } from "../license-rows";
 import { TelemetryRow, TelemetrySection } from "../telemetry-section";
 import { AboutHeroSection, HarmonyAboutHero } from "../about-hero-section";
@@ -124,6 +125,7 @@ export function AboutSettingsPage() {
                         {updateStatus}
                       </p>
                     )}
+                    {latest && <MascotIllustration scene="updated" size={64} className="mt-2" />}
                   </div>
                   {updateCheckSupported && (
                     <ActionButton

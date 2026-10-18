@@ -1,4 +1,5 @@
 import { actionRow, primary } from "../account/account-style";
+import { MascotIllustration } from "../core/mascot";
 import { ActionButton } from "./action-button";
 import { SettingSectionTitle } from "./setting-section-title";
 
@@ -75,6 +76,12 @@ export function InputSourceStartupNotice({
   } else {
     title = "系统目录里多了一份水杉输入法";
   }
+  // 只在顺利装好或更新、用户无事可做时配图；失败、要重新登录、要手动加入列表时，页面要把注意力留给接下来的操作。
+  const celebrate =
+    !failed &&
+    !loginRequired &&
+    !needsAdding &&
+    (status.action === "installed" || status.action === "updated");
   const systemBundles = status.system_bundles?.length
     ? `「/Library/Input Methods」里还有一份水杉输入法（${status.system_bundles.join("、")}），它会让输入法列表出现重复项，或用上较旧的版本。请在「访达」中按 Shift+Command+G 前往该文件夹，把它移到废纸篓（需要管理员密码），然后注销并重新登录。`
     : null;
@@ -85,6 +92,7 @@ export function InputSourceStartupNotice({
       className="section flex flex-col gap-2"
       aria-label="水杉输入法安装状态"
     >
+      {celebrate && <MascotIllustration scene="updated" size={72} />}
       <SettingSectionTitle
         as="p"
         className={`section-title m-0${failed ? " text-[var(--danger-text)]" : ""}`}

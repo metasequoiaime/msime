@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLatestRef } from "../core/use-latest-ref";
 import { errorCode } from "../core/error-code";
+import { MascotIllustration } from "../core/mascot";
 import { trackAsyncSubscription } from "../core/async-subscription";
 import { useAsyncGeneration } from "./use-async-generation";
 import { useMountedRef } from "./use-mounted-ref";
@@ -268,7 +269,12 @@ export function ResourcePackRow({
     return (
       <ActionRow
         title={title}
-        description={`${localModelStageLabel(progress.stage)} ${localModelProgressPercent(progress)}%`}
+        description={
+          <span className="inline-flex items-center gap-2">
+            <MascotIllustration scene="downloading" size={32} />
+            {`${localModelStageLabel(progress.stage)} ${localModelProgressPercent(progress)}%`}
+          </span>
+        }
         action={() => packs.cancel(id)}
         label="取消"
         ariaLabel={`取消下载${title}`}
