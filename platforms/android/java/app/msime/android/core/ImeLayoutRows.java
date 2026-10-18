@@ -877,8 +877,21 @@ final class ImeLayoutRows {
         showTextOptions(anchor, SuperscriptShortcutPolicy.variants());
     }
 
+    /** 英文键盘长按 O 的唯一入口：先切到拼音键盘，用户选字后自行切回英文。 */
+    void showEnglishPinyinOption(Button anchor) {
+        showChoiceOptions(anchor, java.util.List.of("⮕"), ignored -> {
+            dismissNineKeyHoldOptions();
+            s.toggleInputLanguage();
+        });
+    }
+
     /** 显示不依赖具体键位的短文本选项，并复用九键长按弹窗的生命周期。 */
     private void showTextOptions(Button anchor, java.util.List<String> choices) {
+        showChoiceOptions(anchor, choices, this::commitNineKeyHoldOption);
+    }
+
+    private void showChoiceOptions(Button anchor, java.util.List<String> choices,
+            java.util.function.Consumer<String> action) {
         s.imeKeyFeedback.playFeedback(anchor);
         LinearLayout options = LayoutPolicy.row(s);
         int padding = s.pixels(5);
@@ -889,8 +902,8 @@ final class ImeLayoutRows {
         ViewPolicy.setBackground(options, surface);
         for (String choice : choices) {
             Button option = s.keyboardKey(choice, "输入 " + choice,
-                () -> commitNineKeyHoldOption(choice));
-            option.setContentDescription("输入 " + choice);
+                () -> action.accept(choice));
+            option.setContentDescription("⮕".equals(choice) ? "切换到拼音键盘" : "输入 " + choice);
             ViewPolicy.clearPadding(option);
             LinearLayout.LayoutParams params = LayoutPolicy.linearParamsPx(
                 s.pixels(36), s.pixels(38));

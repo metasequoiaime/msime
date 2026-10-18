@@ -531,6 +531,11 @@ impl Session {
             .apply_online_candidates(&request, candidates, source))
     }
 
+    /// 由引擎判断第五码是否继续混输拼音，宿主不复制读音规则。
+    pub fn wubi_pinyin_continues(&self, value: u8, shift: bool) -> bool {
+        self.inner.wubi_pinyin_continues(value, shift)
+    }
+
     /// `CHARACTER_MUST_BE_ASCII` above 127.
     pub fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult> {
         require_ascii(value, diagnostics::CHARACTER_MUST_BE_ASCII)?;

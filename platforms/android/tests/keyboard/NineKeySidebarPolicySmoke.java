@@ -49,7 +49,7 @@ public final class NineKeySidebarPolicySmoke {
 
     private static void rowHeight() {
         int digitRows = NineKeySidebarPolicy.DIGIT_VISIBLE_ROWS;
-        check(NineKeySidebarPolicy.rowHeight(300, 14, 28, digitRows) == 75, "the digit rail shows all four default arithmetic operators");
+        check(NineKeySidebarPolicy.rowHeight(300, 14, 28, digitRows) == 60, "the digit rail shows five symbols before scrolling");
         check(NineKeySidebarPolicy.rowHeight(300, 2, 28, digitRows) == 150, "a short custom digit table fills the rail");
         check(NineKeySidebarPolicy.rowHeight(60, 14, 28, digitRows) == 30, "a compact digit rail respects the minimum height");
         check(NineKeySidebarPolicy.rowHeight(500, 9, 28) == 100, "five rows share a full rail");

@@ -368,6 +368,14 @@ impl Session {
             .set_english_only(self.key_grid == Some(KeyGrid::NineKey) && enabled);
     }
 
+    /// 混输候选的读音能继续时，运行时应保留组字，不提前顶字上屏。
+    pub fn wubi_pinyin_continues(&self, value: u8, shift: bool) -> bool {
+        !shift
+            && !self.input.dedicated_english
+            && self.input.local_mode == LocalInputMode::None
+            && self.input.engine.wubi_pinyin_continues(value)
+    }
+
     pub fn set_wubi_mixed_pinyin(&mut self, enabled: bool) {
         self.input.set_wubi_mixed_pinyin(enabled);
     }

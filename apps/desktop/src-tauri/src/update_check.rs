@@ -37,3 +37,43 @@ pub async fn update_check(
         })?
         .map_err(update_check_error)
 }
+
+/// 只为带完整更新配置的 macOS 安装包提供原生更新入口。
+#[tauri::command]
+pub fn application_update_supported() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        msime_host_macos::settings_update_supported()
+    }
+    #[cfg(not(target_os = "macos"))]
+    false
+}
+
+/// Sparkle 的标准界面负责下载、验签、替换应用和重启，始终运行在 AppKit 主线程。
+#[tauri::command]
+pub async fn application_update_check(app: tauri::AppHandle) -> Result<(), CommandError> {
+    #[cfg(target_os = "macos")]
+    {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        app.run_on_main_thread(move || {
+            let _ = sender.send(msime_host_macos::check_settings_update());
+        })
+        .map_err(|_| CommandError {
+            code: "application_update_unavailable",
+        })?;
+        tauri::async_runtime::spawn_blocking(move || receiver.recv().unwrap_or(false))
+            .await
+            .unwrap_or(false)
+            .then_some(())
+            .ok_or(CommandError {
+                code: "application_update_unavailable",
+            })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err(CommandError {
+            code: "application_update_unavailable",
+        })
+    }
+}

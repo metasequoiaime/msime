@@ -5478,6 +5478,8 @@ pub fn run() {
             notices::notices_list,
             notices::notice_dismiss,
             update_check::update_check,
+            update_check::application_update_supported,
+            update_check::application_update_check,
             list_voice_capture_devices,
             capture_voice_pcm,
             supports_font_catalog,

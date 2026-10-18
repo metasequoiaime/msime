@@ -191,6 +191,11 @@ enum Operation {
         offset: usize,
         limit: usize,
     },
+    /// 官方词库独立更新，不需要输入会话释放个人词库。
+    Updates {
+        command: String,
+        enabled: Option<bool>,
+    },
     List {
         offset: usize,
         limit: usize,
@@ -757,6 +762,10 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
         .preferences
         .validate()
         .map_err(|_| "invalid dictionary options".to_owned())?;
+    if let Operation::Updates { command, enabled } = &request.action {
+        return crate::dictionary_updates::request(&request.options, command, *enabled);
+    }
+
     // 只有 `queue_learning_merge` 和 `merge_pending_learning` 用到：待合并的输入记录放在它下面。
     let preferences_directory = request
         .options
@@ -811,6 +820,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 }
             }
         }
+        Operation::Updates { .. } => Err("dictionary_update_invalid".into()),
         Operation::List {
             offset,
             limit,
@@ -1187,6 +1197,10 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
         .preferences
         .validate()
         .map_err(|_| "invalid dictionary options".to_owned())?;
+    if let Operation::Updates { command, enabled } = &request.action {
+        return crate::dictionary_updates::request(&request.options, command, *enabled);
+    }
+
     let directory = request
         .options
         .preferences_directory
@@ -1195,6 +1209,7 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
         .ok_or("personal dictionary shared directory unavailable")?;
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
     match request.action {
+        Operation::Updates { .. } => Err("dictionary_update_invalid".into()),
         // The kind and prefix travel with the page request, and the keyboard answers them from the user's whole store. The entries returned here are the last page it confirmed, which `page_kind` and `page_query` describe.
         Operation::List {
             offset,
@@ -1501,6 +1516,7 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
         .preferences
         .validate()
         .map_err(|_| "invalid dictionary options".to_owned())?;
+
     let directory = options
         .preferences_directory
         .as_deref()

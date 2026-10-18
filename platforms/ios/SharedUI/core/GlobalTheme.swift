@@ -83,19 +83,19 @@ enum SystemKeyboardTokens {
   static let functionKey = drawsLiquidGlassKeyboard ? key : NativeKeyboardTokens.functionKey
   /// iPhone 上量得约 6pt；iPad 没有量过，按经典取值比例（5 比 7）放大。
   static var cornerRadius: CGFloat { UIDevice.current.userInterfaceIdiom == .pad ? 8 : 6 }
-  /// 回车键和选中候选用的系统蓝：UIKit `systemBlue` 的增强对比度取值（浅色 `#0040DD`、深色 `#409CFF`）。常规的 `#007AFF` 写在浅色键盘底板上对比度不到 2:1，候选文字看不清。
-  static let accent = adaptiveColor(0x0040DD, 0x409CFF)
-  /// 系统蓝上的文字：浅色下白色；深色下的蓝偏亮，白字对比度不到 3:1，与经典兜底一样改用黑字。
+  /// 原生皮肤以低饱和水杉绿强调回车、候选和激活状态，不跟季节。
+  static let accent = adaptiveColor(0x32664B, 0x8AC4A2)
+  /// 水杉绿填充上的文字：浅色用白色，深色用黑色。
   static let onAccent = adaptiveColor(0xFFFFFF, 0x000000)
-  static let accentSoft = adaptiveColor(0x0040DD, 0x409CFF, lightAlpha: 0.14, darkAlpha: 0.26)
-  /// 工具栏 logo 的圆底：与其他皮肤同一个配方 mix(强调色 14% 浅色 / 22% 深色, 卡片底)，只是强调色换成系统蓝、卡片底取系统的 `#FFFFFF` / `#1C1C1E`，不跟季节。
+  static let accentSoft = adaptiveColor(0x32664B, 0x8AC4A2, lightAlpha: 0.14, darkAlpha: 0.26)
+  /// 工具栏 logo 的圆底：水杉绿混入系统卡片底，不跟季节。
   static let logoCircle = UIColor { traits in
     let dark = traits.userInterfaceStyle == .dark
     return AppThemePalette.mix(accent.resolvedColor(with: traits), dark ? 22 : 14, rgbColor(dark ? 0x1C1C1E : 0xFFFFFF))
   }
-  /// 圆底里的 logo 图形：mix(系统蓝 82%, #000)，白色折线描边画在它上面依然清楚。
+  /// 圆底里的 logo 图形使用深绿，保留白色折线描边的对比度。
   static let logoMark = UIColor { traits in
-    AppThemePalette.mix(accent.resolvedColor(with: traits), 82, .black)
+    AppThemePalette.mix(accent.resolvedColor(with: traits), traits.userInterfaceStyle == .dark ? 38 : 82, .black)
   }
   /// iOS 26 之前的按键底边：中性黑色，浅色 .3、深色 .55，与 `NativeKeyboardTokens` 的透明度相同。
   static let keyShadowColor = UIColor { traits in

@@ -1392,6 +1392,19 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard (result["applied"] as? Bool) == true else { throw InputBridgeFailure.response("个人词条未能应用") }
   }
 
+  /// 设置主应用的更新入口不建 Engine 会话，不取得键盘的维护锁；后台任务只写独立的资源代次。
+  static func dictionaryUpdates(_ command: String, enabled: Bool? = nil) throws -> [String: Any] {
+    guard let resources = PersonalDictionaryBridge.packagedResources else { throw InputBridgeFailure.unavailable }
+    let root = sharedStateDirectory
+    var options: [String: Any] = ["api_version": 1, "resources": resources.path,
+      "user_data": root + "/user", "cache": root + "/cache", "dictionaries": root + "/user/dictionaries",
+      "preferences_directory": root, "preferences": loadSharedPreferences() ?? [:]]
+    if !MSIMEAppEdition.isFull { options["edition"] = MSIMEAppEdition.identifier }
+    var action: [String: Any] = ["operation": "updates", "command": command]
+    if let enabled { action["enabled"] = enabled }
+    return try callOptions(msimeClientDictionary, ["options": options, "action": action])
+  }
+
   /// 五笔查码（#6789）：`text` 里每个不同汉字（以及整段作为一个词）在 86 和 98 码表里的编码。给设置 App 用，不建输入会话：经 `msime_client_prepare_host` 解析出选项后发词库请求 `wubi_codes`，host-api 只读打开会话用的同一份五笔码表，不拿词库维护租约，键盘开着也能查。
   ///
   /// `resources` 默认是 `PersonalDictionaryBridge.packagedResources`：App 自己不带词库，它找到的是键盘扩展包里的 `EngineResources`，和键盘准备宿主时是同一个目录，所以状态目录里的资源校验标记两边一致，查一次码不会让键盘下次启动重新哈希整套词库。在磁盘上读码表，调用方放到主线程之外。

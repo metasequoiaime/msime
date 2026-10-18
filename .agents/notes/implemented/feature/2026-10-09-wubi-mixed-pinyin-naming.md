@@ -9,7 +9,7 @@ Status: implemented
 用户找不到它，有两个原因：
 
 - 开关叫「编码打不出时用拼音候选」，没有「混输」二字。同类功能都叫「中英混输」「emoji 混输」，用户会按这个词去找。
-- 说明写「五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响」，与引擎不符。`decode()` 不看 `wubi_table_answered` 就查全拼，拼音候选每次都会出现在五笔候选之后；`wubi_table_answered` 只决定能不能打第五码。这种「回退」式的说法让真正想要混输的用户以为这不是自己要的功能。
+- 说明写「五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响」，与引擎不符。`decode()` 不看 `wubi_table_answered` 就查全拼，拼音候选每次都会出现在五笔候选之后；`wubi_table_answered` 不决定是否追加拼音候选；四码碰撞时能否续输见下文。这种「回退」式的说法让真正想要混输的用户以为这不是自己要的功能。
 
 ## Decision
 
@@ -20,6 +20,8 @@ Status: implemented
 - 依赖旧标题定位控件的测试同步改：`wubi-section.test.tsx`、`input-scheme-edition.test.tsx`、Android 设备冒烟 `SettingsDeviceSmoke.java` 的 `aria-label` 选择器。`wubi-section.test.tsx` 另外钉住新的说明文字。
 
 共享 React 控件的三项偏好类型与有效状态由无 React 依赖的 `settings/wubi-preferences.ts` 持有，公共 `Preferences` 和控件共同消费；缺省、显式选择和逐字段写回不变，见[五笔控件共用偏好契约和有效状态](../simplification/2026-10-15-wubi-preferences.md)。
+
+四码与拼音读音前缀碰撞时，第五码先由引擎判断是否可续输，见[五笔拼音续输](../bug-fix/2026-10-18-wubi-mixed-pinyin-continuation.md)。可续输时保留组字，其余顶字规则不变。
 
 ## Alternatives considered
 

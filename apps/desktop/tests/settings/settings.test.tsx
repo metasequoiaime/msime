@@ -3453,6 +3453,7 @@ test("the desktop transfer kind stays synchronized with lookup and export", asyn
     name: "管理词库类型",
   });
   expect(managedKind.value).toBe("pinyin");
+  expect(transfer.textContent).toContain("导入和导出个人新增词条");
   await waitFor(() => expect(managedKind.disabled).toBe(false));
   fireEvent.change(managedKind, { target: { value: "wubi" } });
   await waitFor(() => expect(managedKind.disabled).toBe(false));
@@ -3883,7 +3884,10 @@ test("macOS exposes learning data reset and keeps its confirmation flow", async 
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         resetLearnedData,
-        dictionary: {} as never,
+        dictionary: {
+          list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+          edit: vi.fn(),
+        },
         host: testHost({ platform: "macos" }),
       }}
     />,
@@ -8171,7 +8175,7 @@ test("中英混输 sits on the input page's 候选与联想 group, not on 标点
   expect(within(expression).queryByRole("switch", { name: /^中英混输/ })).toBeNull();
 });
 
-test("rarely changed candidate and output rows sit in each group's 更多选项", async () => {
+test("candidate rows stay folded while full-width input is shown directly in output", async () => {
   render(
     <SettingsPage
       initialPage="input"
@@ -8195,8 +8199,8 @@ test("rarely changed candidate and output rows sit in each group's 更多选项"
   }
   selectSettingsTab("输出");
   const output = screen.getByRole("region", { name: "输出" });
-  const outputFold = output.querySelector("details") as HTMLDetailsElement;
-  expect(outputFold.contains(within(output).getByText("全角输入"))).toBe(true);
+  expect(output.querySelector("details")).toBeNull();
+  expect(within(output).getByRole("switch", { name: /^全角输入/ })).toBeTruthy();
 });
 
 // Windows 和 macOS 一样：关掉的 Tab、PageUp/PageDown 在组字时被吃掉，不会还给应用，所以两组固定开启。
@@ -8325,6 +8329,56 @@ function hostRelease(
     ...fields,
   };
 }
+
+test("macOS 关于页优先启动完整应用更新，不提供手动下载", async () => {
+  const checkForApplicationUpdate = vi.fn().mockResolvedValue(undefined);
+  const checkUpdate = vi.fn();
+  const openExternalUrl = vi.fn();
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        checkForApplicationUpdate,
+        checkUpdate,
+        openExternalUrl,
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  await waitFor(() => expect(checkForApplicationUpdate).toHaveBeenCalledOnce());
+  expect(checkUpdate).not.toHaveBeenCalled();
+  expect(openExternalUrl).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "前往下载" })).toBeNull();
+});
+
+test("原生应用更新启动失败后可重试，不能误报已是最新版本", async () => {
+  const checkForApplicationUpdate = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("synthetic failure"))
+    .mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        checkForApplicationUpdate,
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("无法打开自动更新，请稍后重试")).toBeDefined();
+  expect(screen.queryByText("已是最新版本")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
+  await waitFor(() => expect(checkForApplicationUpdate).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText("无法打开自动更新，请稍后重试")).toBeNull());
+});
 
 test("about page offers no update check without a host to ask", async () => {
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);

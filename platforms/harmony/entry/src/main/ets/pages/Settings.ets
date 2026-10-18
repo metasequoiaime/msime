@@ -934,6 +934,7 @@ class SettingsBridge {
   // 与键盘交换状态的共享沙箱镜像，拿不到共享目录时为 null；`sharedPublishTimer` 合并短时间内的多次改动，只发布一次。
   private sharedMirror: SharedStateMirror | null = null;
   private sharedPublishTimer: number = -1;
+  private dictionaryUpdateTimer: number = -1;
   // What the page was last handed, so an activation can tell a changed document from an unchanged
   // one. -1 until the page has loaded once, which never compares equal to a real revision.
   private observedRevision: number = -1;
@@ -2102,8 +2103,26 @@ class SettingsBridge {
     if (this.context === undefined) {
       return JSON.stringify({ ok: false, error: 'settings context unavailable' });
     }
-    return KeyboardSession.shared.dictionary(action, `${this.context.filesDir}/engine`,
+    const response: string = KeyboardSession.shared.dictionary(action, `${this.context.filesDir}/engine`,
       this.stateDirectory);
+    // 页面切走后仍观察任务完成，把完整代次发布给键盘；镜像只随安装选择变化。
+    try {
+      const request: Record<string, Object> = JSON.parse(action) as Record<string, Object>;
+      if (request['operation'] === 'updates') {
+        this.publishShared();
+        const reply: Record<string, Object> = JSON.parse(response) as Record<string, Object>;
+        if (reply['ok'] === true) {
+          const status: Record<string, Object> = reply['value'] as Record<string, Object>;
+          if ((status['phase'] === 'checking' || status['phase'] === 'downloading') && this.dictionaryUpdateTimer === -1) {
+            this.dictionaryUpdateTimer = setTimeout((): void => {
+              this.dictionaryUpdateTimer = -1;
+              this.dictionary('{"operation":"updates","command":"status"}');
+            }, 5000);
+          }
+        }
+      }
+    } catch (_) {}
+    return response;
   }
 
   /** 词库页的命名词库：建、删、启停、加词、导入、装社区词库。导入可达 16 MiB，所以走 startRequest 在原生工作线程上做。 */

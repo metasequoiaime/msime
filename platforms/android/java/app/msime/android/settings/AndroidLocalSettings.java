@@ -194,7 +194,7 @@ public final class AndroidLocalSettings {
         bool(HANDWRITING_SHOW_PINYIN, true, true);
         choice(HANDWRITING_STROKE_COLOR, "follow_skin", true, "follow_skin", "black", "white", "blue");
         integer(HANDWRITING_STROKE_WIDTH, 3, true, 1, 8, 1);
-        bool(VOICE_OFFLINE_FALLBACK, false, true);
+        bool(VOICE_OFFLINE_FALLBACK, true, true);
 
         bool(INCOGNITO, false, false);
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);

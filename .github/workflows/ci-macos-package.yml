@@ -50,7 +50,7 @@ jobs:
             [[ -z "$path" ]] && continue
             case "$path" in
               # 打包输入：打包脚本、Tauri 的 macOS 资源声明、核心词库和三个资源包的锁、决定暂存与下载的 client-core、client-providers 代码和示例、发布工作流和这个文件。scripts/test-macos-package-resources.py 核对这份清单覆盖了每个打包输入。
-              platforms/macos/package-release.sh|platforms/macos/stage-resources.sh|apps/desktop/src-tauri/tauri.macos.conf.json)
+              platforms/macos/package-release.sh|platforms/macos/scripts/settings_updater.py|platforms/macos/stage-resources.sh|apps/desktop/src-tauri/tauri.macos.conf.json)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
               resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源锁改动: $path"; exit 0 ;;

@@ -36,7 +36,7 @@ import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences"
 import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
 import { useSettingsThemePreviews } from "./settings/use-settings-theme-previews";
 
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 export type {
   DictionaryEntry,
   DictionaryLookupEntry,
@@ -2015,6 +2015,18 @@ type SettingsPageProps = {
 
 // The state, effects and handlers behind the settings window. The shell below and every page component read the same values - the pages through `SettingsFormContext` - so splitting the page into files changed where the markup lives, not what it closes over.
 function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {
+  useEffect(() => {
+    const automatic = () => {
+      void client.dictionary?.updates?.("automatic").catch(() => undefined);
+    };
+    automatic();
+    window.addEventListener("focus", automatic);
+    const timer = setInterval(automatic, 60 * 60 * 1000);
+    return () => {
+      window.removeEventListener("focus", automatic);
+      clearInterval(timer);
+    };
+  }, [client.dictionary?.updates]);
   const { confirm, confirmation } = useConfirm();
   const {
     host,
@@ -2323,6 +2335,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     supported: updateCheckSupported,
   } = useUpdateCheck({
     checkUpdate: client.checkUpdate,
+    checkForApplicationUpdate: client.checkForApplicationUpdate,
     platform: client.host?.platform ?? null,
     edition: client.host?.edition?.id,
     arch: client.host?.arch,
@@ -2545,7 +2558,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     mobileHiddenPageIds,
     availablePages,
     pageAliases,
-    page,
+    page: requestedSettingsPage,
     setPage,
     mobileLastPageByTab,
     route,
@@ -2693,6 +2706,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     inputSourceStartup,
     dismissInputSourceStartup,
     page,
+    requestedSettingsPage,
     dictionaryTab,
     setDictionaryTab,
     accountLoginReturnPage,

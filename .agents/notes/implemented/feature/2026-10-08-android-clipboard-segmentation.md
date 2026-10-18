@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+#8604 使用 `ClipboardSegmentLayout` 复用折行布局，普通点击仍交给原按钮；词片起手超过系统触摸阈值后接管手势并取消按钮点击。按起点原先的选中状态决定整段选中或取消，跨行、反向与回缩都按原文顺序取连续范围，范围外保留手势开始前的状态；取消手势恢复基线。空白起手允许滚动，拖选到可见区边缘则持续滚动并扩展选择，长文不必松手。选中变化只刷新词片与状态，不重建整个面板。
+
 - 长按一条本机历史打开的操作行里有「分词」（`ImePanels.renderClipboardItemActions`，操作行本身见 [剪贴板面板的确认和操作画在面板里](../bug-fix/2026-10-08-android-clipboard-panel-in-place.md)）。点它后面板换成分词界面：上面是按行折排（`WrapRowLayout`）的词片，点一下选中、再点取消；底部固定一行「取消 · 已选几个 · 全选/全不选 · 插入」，和 issue 里「下面有确认和取消」一致。「插入」把选中的词片拼起来，经 `insertClipboardText` 上屏并关闭面板；原来那条历史不变。换分段、重开面板都退出分词。
 - 切词和拼接在 `ClipboardSegmentation`（`platforms/android/java/app/msime/android/clipboard/`），不依赖 Android：
   - 词边界来自 `java.text.BreakIterator.getWordInstance(Locale.CHINESE)`。Android 上它由 ICU 实现，中文按 ICU 自带的中日文词典切；超过 6 个字的纯汉字片段再拆成单字，词典里没有的长串也能逐字掐头去尾。
@@ -18,6 +20,8 @@ Status: implemented
 
 ## Alternatives considered
 
+- **只接受水平滑动**：容易与垂直滚动共存，但录屏中的链接跨越多行，只支持同一行仍需反复起手；因此词片起手接受任意方向，空白起手留给滚动。
+
 - **经 Engine 分词**（新增一个 Host API，用拼音词库做最大匹配）— 和输入时的词库一致，专名、用户词也能切对；但 Engine 现在没有对任意文字分词的入口，要跨 crates/engine、host-api、JNI 三层加接口，而 ICU 词典对这里「掐头去尾」的需求已经够用。日后要更准时再加。
 - **按字切**（每个字、每个字母一片）— 最简单，不依赖任何词典；但一段英文要逐个字母点，中文也要一个字一个字点，长文字里几百个片段，失去「分词」的意义。
 - **把操作行做成悬在键盘表面上的独立视图**（加在 `keyboardSurface` 里、贴底显示）— 不用嵌套滚动；但剪贴板面板的显示和隐藏散在 `closeClipboardHistory`、`alignOverlaysBelowTopRow`、`anyToolbarPanelOpen` 等多处，另一个视图要在每一处跟着显隐，漏一处就会在键盘上留下一条孤零零的操作行。
@@ -26,7 +30,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：长文字可以只插入其中一段，不用先整段粘贴再删；中英混排、数字、版本号（`os1.0`）都按词切。
-- **代价**：分词质量取决于设备的 ICU 版本；词典里没有的专名会被切开或拆成单字。超长文字只切开头 2000 个字。分词界面不支持拖动连选，选一大段要逐个点或先「全选」再去掉头尾。
+- **代价**：分词质量取决于设备的 ICU 版本；词典里没有的专名会被切开或拆成单字。超长文字只切开头 2000 个字。从词片起手拖动会连续选择或取消原文区间；从空白起手仍可滚动。拖选与滚动的起点需要区分。
 
 ## Verification
 

@@ -119,6 +119,8 @@ const dictionary: DictionaryClient = {
     invoke("dictionary_request", {
       action: { operation: "browse", offset, limit, kind, query },
     }),
+  updates: (command, enabled) =>
+    invoke("dictionary_request", { action: { operation: "updates", command, enabled } }),
   list: (offset, limit, kind, query) =>
     invoke("dictionary_request", {
       action: { operation: "list", offset, limit, kind, query },
@@ -711,6 +713,10 @@ function DesktopSettings() {
         host?.platform === "macos"
           ? await invoke<boolean>("first_install_window_pending").catch(() => false)
           : false;
+      const applicationUpdater =
+        host?.platform === "macos"
+          ? await invoke<boolean>("application_update_supported").catch(() => false)
+          : false;
       if (!active) return;
       if (linuxSetupStatus && !linuxSetupStatus.prepared) setLinuxSetup(linuxSetupStatus);
       setMacosInstall(macosInstallPending);
@@ -723,6 +729,11 @@ function DesktopSettings() {
         ? {
             ...client,
             host,
+            ...(applicationUpdater
+              ? {
+                  checkForApplicationUpdate: () => invoke<void>("application_update_check"),
+                }
+              : {}),
             dictionary: isMobileHost(host.platform) ? mobileDictionary : dictionary,
             ...(!isMobileHost(host.platform) && client.cloudDictionary
               ? {

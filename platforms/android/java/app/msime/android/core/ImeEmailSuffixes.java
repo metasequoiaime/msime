@@ -63,6 +63,7 @@ final class ImeEmailSuffixes {
 
     private Button makeButton(int slot) {
         Button button = new KeyboardPressButton(s);
+        s.bindCandidateRenderRelease(button);
         ViewPolicy.setAllCapsFalse(button);
         ViewPolicy.bindClick(button, () -> {
             s.imeKeyFeedback.playFeedback(button);

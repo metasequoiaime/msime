@@ -718,6 +718,26 @@ pub fn stop_input_method() -> bool {
     unsafe { msime_macos_stop_input_method(identifier.as_ptr()) }
 }
 
+/// 本设置应用是否带有签名更新 feed 与随包分发的 Sparkle 框架。
+#[cfg(target_os = "macos")]
+pub fn settings_update_supported() -> bool {
+    unsafe extern "C" {
+        fn msime_macos_settings_update_supported() -> bool;
+    }
+    // 原生端只读取当前应用的元数据与框架路径。
+    unsafe { msime_macos_settings_update_supported() }
+}
+
+/// 在主线程打开 Sparkle 的检查、下载与安装界面；不接受调用方提供的 URL。
+#[cfg(target_os = "macos")]
+pub fn check_settings_update() -> bool {
+    unsafe extern "C" {
+        fn msime_macos_settings_update_check() -> bool;
+    }
+    // 原生端核对主线程，并从当前应用的签名元数据取得更新通道。
+    unsafe { msime_macos_settings_update_check() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

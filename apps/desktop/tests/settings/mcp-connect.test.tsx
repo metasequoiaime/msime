@@ -96,12 +96,12 @@ async function openDeveloper(extra: Partial<SettingsClient>) {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
-  // 连接命令和配置收在「维护与诊断」下的「连接 AI 助手」子页里，维护页上只有进入它的一行。
-  const entry = screen.queryByRole("button", { name: /连接 AI 助手/ });
+  // 桌面直接切到顶部的 AI 助手标签。
+  const entry = screen.queryByRole("tab", { name: "AI 助手" });
   if (entry) fireEvent.click(entry);
 }
 
-/** 子页里的「连接 AI 助手」一块。子页本身的 fieldset 也叫这个名字，取里面那一个。 */
+/** 连接内容的分组；手机的外层 fieldset 同名，因此取最里面的一组。 */
 async function mcpGroup() {
   return (await screen.findAllByRole("group", { name: "连接 AI 助手" })).at(-1)!;
 }
@@ -109,10 +109,10 @@ async function mcpGroup() {
 test("a host without the server shows no section", async () => {
   await openDeveloper({});
   expect(screen.queryByRole("group", { name: "连接 AI 助手" })).toBeNull();
-  expect(screen.queryByRole("button", { name: /连接 AI 助手/ })).toBeNull();
+  expect(screen.queryByRole("tab", { name: "AI 助手" })).toBeNull();
 });
 
-test("the maintenance page carries one row into the 连接 AI 助手 page instead of the whole block", async () => {
+test("维护与诊断通过顶部标签切换 AI 助手并保留客户端与权限选择", async () => {
   render(
     <SettingsPage
       client={{
@@ -120,20 +120,100 @@ test("the maintenance page carries one row into the 连接 AI 助手 page instea
         save: vi.fn(),
         host: testHost({ platform: "macos" }),
         mcpServerStatus: async () => status(),
+        installMcpClient: vi.fn(),
       }}
     />,
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
-  const maintenance = screen.getByRole("group", { name: "维护与诊断" });
-  expect(within(maintenance).queryByRole("switch", { name: "允许修改设置" })).toBeNull();
-  expect(within(maintenance).queryByLabelText("Claude Code 安装命令")).toBeNull();
-  fireEvent.click(within(maintenance).getByRole("button", { name: /连接 AI 助手/ }));
+  const maintenance = screen.getByRole("tab", { name: "维护与诊断" });
+  const assistant = screen.getByRole("tab", { name: "AI 助手" });
+  expect(maintenance.getAttribute("aria-selected")).toBe("true");
+  expect(screen.queryByRole("switch", { name: "允许修改设置" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /连接 AI 助手/ })).toBeNull();
+  fireEvent.click(assistant);
   const group = await mcpGroup();
-  expect(within(group).getByRole("switch", { name: "允许修改设置" })).toBeTruthy();
-  // 子页点亮「维护与诊断」，并能回到那里。
-  fireEvent.click(screen.getByRole("button", { name: "返回维护与诊断" }));
-  expect(screen.getByRole("group", { name: "维护与诊断" })).toBeTruthy();
+  fireEvent.click(within(group).getByRole("radio", { name: "Cursor" }));
+  fireEvent.click(within(group).getByRole("switch", { name: "允许读取词库" }));
+  fireEvent.click(maintenance);
+  expect(screen.queryByRole("switch", { name: "允许修改设置" })).toBeNull();
+  fireEvent.click(assistant);
+  expect(within(group).getByRole("radio", { name: "Cursor" })).toHaveProperty("checked", true);
+  expect(within(group).getByRole("switch", { name: "允许读取词库" })).toHaveProperty(
+    "checked",
+    false,
+  );
+  expect(screen.queryByRole("button", { name: "返回维护与诊断" })).toBeNull();
+  expect(screen.getByRole("heading", { name: "维护与诊断" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "维护与诊断" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+
+  assistant.focus();
+  fireEvent.keyDown(assistant, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(maintenance);
+  expect(maintenance.getAttribute("aria-selected")).toBe("true");
+  fireEvent.keyDown(maintenance, { key: "End" });
+  expect(document.activeElement).toBe(assistant);
+  expect(assistant.getAttribute("aria-selected")).toBe("true");
+  fireEvent.keyDown(assistant, { key: "Home" });
+  expect(document.activeElement).toBe(maintenance);
+});
+
+test("桌面旧 MCP 路由和后续外部路由直接选中 AI 助手标签", async () => {
+  const client: SettingsClient = {
+    load: async () => snapshot,
+    save: vi.fn(),
+    host: testHost({ platform: "linux" }),
+    mcpServerStatus: async () => status(),
+  };
+  const view = render(<SettingsPage client={client} initialPage="mcp" />);
+  await settingsFormReady();
+  expect(screen.getByRole("tab", { name: "AI 助手" }).getAttribute("aria-selected")).toBe("true");
+  expect(await mcpGroup()).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "维护与诊断" }));
+  expect(screen.queryByRole("group", { name: "连接 AI 助手" })).toBeNull();
+  view.rerender(
+    <SettingsPage client={client} initialPage="mcp" route={{ page: "mcp", nonce: 1 }} />,
+  );
+  expect(screen.getByRole("tab", { name: "AI 助手" }).getAttribute("aria-selected")).toBe("true");
+  expect(await mcpGroup()).toBeTruthy();
+  view.rerender(<SettingsPage client={client} route={{ page: "developer", nonce: 2 }} />);
+  expect(screen.getByRole("tab", { name: "维护与诊断" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
+});
+
+test("没有 MCP 能力时旧路由回退到输入页，不显示空标签", async () => {
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), host: testHost({ platform: "macos" }) }}
+      initialPage="mcp"
+    />,
+  );
+  await settingsFormReady();
+  await screen.findByRole("heading", { name: "输入" });
+  expect(screen.queryByRole("tab", { name: "AI 助手" })).toBeNull();
+});
+
+test("手机保留 AI 助手二级入口与返回导航", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: testHost({ platform: "android" }),
+        mcpServerStatus: async () => status(),
+      }}
+      initialPage="developer"
+    />,
+  );
+  await settingsFormReady();
+  expect(screen.queryByRole("tab", { name: "AI 助手" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /连接 AI 助手/ }));
+  expect(await mcpGroup()).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "返回开发者选项" }));
+  expect(screen.getByRole("button", { name: /连接 AI 助手/ })).toBeTruthy();
 });
 
 test("the entry is shown and copied as the host reports it", async () => {

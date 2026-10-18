@@ -127,6 +127,8 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 
 首次准备词库时从 GitHub Releases 拉取固定版本的资源，地址、长度和 SHA-256 全部写死在 `resources/desktop-dictionary.lock.json` 里，逐一校验，全部成功才发布到内容标识目录。下载的是公开发布物，不上传任何东西。检查更新只在点击「检查更新」时进行，由应用本身（不经网页）向 `https://api.github.com/repos/metasequoiaime/msime/releases` 发起 GET 请求，在本地按平台标签前缀、版本和架构筛选；请求除 IP 地址和固定的 User-Agent `msime-client` 外不携带标识，适用 GitHub 隐私条款。
 
+六个平台的「自动更新词库」默认开启。设置应用启动、回到前台或运行期间按每天一次的节流，通过 `https://api.github.com/repos/metasequoiaime/msime-dictionary/releases?per_page=100` 查询公开版本，并从该仓库的 HTTPS Release 附件地址下载兼容的词库、清单与许可文本；GitHub 可能重定向到自己的文件存储域名。请求使用固定 User-Agent `msime-dictionary-updater`，不携带账号、设备标识、输入内容或个人词条。摘要先取自 GitHub API，再与清单交叉校验。可在「词库更新」关闭自动更新，关闭后仍可手动检查。该更新入口直接访问官方 GitHub，不使用模型资源包的镜像设置。
+
 桌面和 Android 发布包不内置的几个资源包由设置应用在首次用到时下载，之后从本机读取。哪些平台下载哪些：
 
 - 日文词典、粤拼注音与笔画词库：macOS 和 Android full 版下载，它们的发布包只内置打中文所需的核心词库；Android 拼音版只下载日文词典（给临时日语用），它不提供粤拼、注音和笔画方案，所以不下载语言词库；Windows 和 Linux 的安装包带着它们，Android 日文版的 APK 带着日文词典。

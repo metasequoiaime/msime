@@ -39,7 +39,7 @@ export function DictionaryManifestCard({ read }: DictionaryManifestCardProps) {
   return (
     <GroupList title="词库信息">
       <SettingsGroupNote>
-        词库保存在设备上，日常输入不需要联网；它随应用更新，不单独下载。
+        词库保存在设备上，日常输入不需要联网。下方记录本机使用的词库清单。
       </SettingsGroupNote>
       <SummaryRow title="规格">
         <code>{manifest.profile}</code>

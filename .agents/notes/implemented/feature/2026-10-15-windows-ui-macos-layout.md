@@ -56,3 +56,5 @@ macOS 本机没有 Windows App SDK 运行环境，Windows runner 的结果和截
 审查修复的配色回归先在原实现上失败，再在修复后通过，覆盖浅深色默认底板下的橙色／灰色选中底、仅设置强调色、暗色底以及原有显式前景和半透明规则；独立以 `clang++ -std=c++20 -Wall -Wextra -Werror` 编译执行通过。本轮本地 quick 的 149 项宿主测试、391 项 x86 源文件语法检查、Windows x64 交叉构建、共享宿主与 pipe 检查通过，笔记及 diff 检查通过。工具栏预览的圆角和边框通过源代码调用核对接入原生 `toolbar_palette`；本机没有 MSBuild／Windows 运行时，本轮未复跑 WinUI 原生截图，上述 106 张截图对应修复前的明确提交。
 
 第二轮审查修复工具栏语言预览忽略方案和默认英文状态的问题，以及 XAML 外边框使实际外观大于标注尺寸的问题。原生 UI Automation 在双拼、五笔切换并保存后打开工具栏页，等待并检查实际可见的「双」「五」，再回到输入页继续切换；工具栏图标策略用例以 `clang++ -std=c++20 -Wall -Wextra -Werror -DMSIME_EDITION_FULL=1` 独立编译执行通过；本地 quick（149 项宿主测试、391 项 x86 语法检查、Windows x64 交叉构建及共享宿主与 pipe 检查）通过，笔记与 diff 检查通过。本机无法执行新增 Windows UI Automation 用例或编译 WinUI 宿主，尚无本轮运行截图。
+
+云词库修复 #8585 的 Windows 原生验收在完成全拼切换后，`Open-Page` 滚动导航并立即重新查找，取得空节点后调用 `SelectionItemPattern` 失败。滚动后的选择现在在十秒内重新查找并取得选择模式，节点在查找与选择之间失效时也重试；超时仍失败，选中后仍等待真实正文页面标识，不能把等待变成跳过验收。检索命中本篇与云剪贴板、五笔快捷键及设置裁剪笔记，本次属于本篇已有导航虚拟化验收规则的补全，其余功能笔记不改变。macOS 本机无法执行 UI Automation，实际运行由 PR 的 Windows native settings 门禁验证。

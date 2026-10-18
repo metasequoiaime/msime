@@ -27,7 +27,7 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertNil(KeyboardTheme.designed(design).palette)
   }
 
-  /// 「原生」不跟季节：不带配色、把背景交给系统底板，回车键和选中候选用系统蓝；iOS 26 起按系统键盘画扁平按键（字母键和功能键同色、没有底边阴影、6pt 圆角），更早的系统画经典 UIKit 按键。
+  /// 「原生」不跟季节：背景交给系统底板，回车、候选和标识使用柔和水杉绿。
   func testNativeDrawsTheSystemKeyboardAndLeavesTheBackgroundToTheSystemBackdrop() throws {
     selectAppTheme("qiushan")
     XCTAssertTrue(GlobalThemeCatalog.contains(GlobalThemeCatalog.nativeId))
@@ -43,18 +43,22 @@ final class KeyboardSkinTests: XCTestCase {
 
     let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)
     func hex(_ color: UIColor, _ traits: UITraitCollection) -> UInt32 { packed(color.resolvedColor(with: traits)) }
-    XCTAssertEqual(hex(skin.accent, light), 0x0040DD)
-    XCTAssertEqual(hex(skin.accent, dark), 0x409CFF)
-    XCTAssertEqual(hex(skin.actionBackground, light), 0x0040DD)
+    XCTAssertEqual(hex(skin.accent, light), 0x32664B)
+    XCTAssertEqual(hex(skin.accent, dark), 0x8AC4A2)
+    XCTAssertEqual(hex(skin.actionBackground, light), 0x32664B)
+    XCTAssertEqual(hex(skin.actionBackground, dark), 0x8AC4A2)
     XCTAssertEqual(hex(skin.actionForeground, light), 0xFFFFFF)
     XCTAssertEqual(hex(skin.actionForeground, dark), 0x000000)
     XCTAssertEqual(hex(skin.keyForeground, light), 0x000000)
     XCTAssertEqual(skin.accentSoft, SystemKeyboardTokens.accentSoft)
-    // 工具栏 logo 也不跟季节：按其他皮肤的配方取系统蓝，圆底垫在系统的白 / #1C1C1E 卡片底上。
+    // 工具栏 logo 同样使用水杉绿，白色描边仍需清楚。
     for (traits, percent, card) in [(light, 14.0, UIColor.white), (dark, 22.0, UIColor(red: 0x1C / 255, green: 0x1C / 255, blue: 0x1E / 255, alpha: 1))] {
-      let blue = skin.accent.resolvedColor(with: traits)
-      XCTAssertEqual(hex(skin.logoCircle, traits), packed(AppThemePalette.mix(blue, percent, card)))
-      XCTAssertEqual(hex(skin.logoMark, traits), packed(AppThemePalette.mix(blue, 82, .black)))
+      let green = skin.accent.resolvedColor(with: traits)
+      XCTAssertGreaterThanOrEqual(CustomKeyboardSkin.contrast(hex(skin.actionForeground, traits), hex(skin.actionBackground, traits)), 4.5)
+      XCTAssertGreaterThanOrEqual(CustomKeyboardSkin.contrast(hex(skin.accent, traits), hex(skin.background, traits)), 4.5)
+      XCTAssertEqual(hex(skin.logoCircle, traits), packed(AppThemePalette.mix(green, percent, card)))
+      XCTAssertEqual(hex(skin.logoMark, traits), packed(AppThemePalette.mix(green, traits.userInterfaceStyle == .dark ? 38 : 82, .black)))
+      XCTAssertGreaterThanOrEqual(CustomKeyboardSkin.contrast(packed(skin.logoMark.resolvedColor(with: traits)), 0xFFFFFF), 4.5)
     }
     XCTAssertNotEqual(hex(skin.logoCircle, light), hex(KeyboardTheme.resolve(GlobalThemeCatalog.systemId, document: [:]).logoCircle, light))
     if #available(iOS 26.0, *) {
@@ -74,7 +78,7 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertEqual(KeyboardTheme.resolve(GlobalThemeCatalog.systemId, document: [:]).palette, SeasonKeyboardTokens.palette)
   }
 
-  /// 真实键盘选「原生」后背景透明（露出系统底板），回车键是系统蓝，功能键用原生 token；附上浅色和深色下垫着系统底板色的渲染图，供和系统键盘截图对照。
+  /// 真实键盘选「原生」后背景透明，回车使用水杉绿；附上浅色和深色渲染图。
   @MainActor
   func testNativeKeyboardLeavesItsBackgroundClearOnTheRealKeyboard() throws {
     preserveSharedTheme()
@@ -816,7 +820,7 @@ final class KeyboardSkinTests: XCTestCase {
     }
   }
 
-  /// 打开的磁贴（文字、图标和角标用 `toggleForeground`，不铺底色）、激活的工具栏底块和回车键都用当前主题自己的强调色（ios-kb-31），高亮不再在所有皮肤下都是绿色：凡是有配色的主题，工具栏底块的 `accentSoft` 都是强调色在浅色下取 `22`、深色下取 `40` 的透明度，键盘设计则用它自己的强调色着色。
+  /// 磁贴、工具栏和回车使用当前主题的强调色，原生皮肤使用水杉绿。
   func testSwitchedOnTileUsesTheActiveThemeAccent() {
     XCTAssertTrue(GlobalThemeCatalog.ids.contains { KeyboardTheme.resolve($0, document: [:]).palette != nil })
     for id in GlobalThemeCatalog.ids {
@@ -831,9 +835,10 @@ final class KeyboardSkinTests: XCTestCase {
         let accent = skin.accent.resolvedColor(with: traits)
         XCTAssertEqual(skin.toolbarActiveBackground.resolvedColor(with: traits), skin.accentSoft.resolvedColor(with: traits), "\(id) \(style.rawValue)")
         XCTAssertEqual(skin.toggleForeground.resolvedColor(with: traits), accent, "\(id) \(style.rawValue)")
-        XCTAssertEqual(skin.actionBackground.resolvedColor(with: traits), accent, "\(id) \(style.rawValue)")
+        XCTAssertEqual(skin.actionBackground.resolvedColor(with: traits),
+                       accent, "\(id) \(style.rawValue)")
         guard let palette = skin.palette else {
-          // 经典兜底保留原生的 token；原生皮肤用系统蓝。
+          // 经典兜底保留原生 token，原生皮肤使用水杉绿。
           let soft = skin.isNative ? SystemKeyboardTokens.accentSoft : NativeKeyboardTokens.accentSoft
           XCTAssertEqual(skin.accentSoft.resolvedColor(with: traits), soft.resolvedColor(with: traits), "\(id) \(style.rawValue)")
           continue

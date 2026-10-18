@@ -3,6 +3,7 @@ package app.msime.android.home;
 import android.content.Context;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -15,6 +16,8 @@ import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.R;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ViewPolicy;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -163,15 +166,33 @@ final class NineKeySidebarSheet {
 
     private void addSymbol() {
         if (saving || symbols.size() >= NineKeySidebarPolicy.MAX_SYMBOLS) return;
-        OptionSheet choices = new OptionSheet(owner.requireContext(), "添加符号", "选择一个常用符号");
+        Context context = owner.requireContext();
+        SettingsSheet choices = new SettingsSheet(context, "添加符号", "点选一个加入当前顺序");
+        ChipGroup grid = new ChipGroup(context);
+        grid.setSingleLine(false);
+        grid.setChipSpacingHorizontal(DimensionPolicy.pixels(context, 8));
+        grid.setChipSpacingVertical(DimensionPolicy.pixels(context, 8));
+        ViewPolicy.setPaddingDp(context, grid, 16, 8, 16, 8);
         for (String symbol : NineKeySidebarPolicy.addableSymbols(symbols)) {
-            choices.option(symbol, false, () -> {
+            Chip chip = new Chip(context);
+            chip.setText(symbol);
+            chip.setTextSize(Ui.TEXT_ROW_TITLE);
+            chip.setCheckable(false);
+            chip.setMinHeight(DimensionPolicy.pixels(context, 48));
+            chip.setContentDescription("添加 " + symbol);
+            ViewPolicy.bindClick(chip, () -> {
+                choices.dismiss();
                 if (saving || symbols.size() >= NineKeySidebarPolicy.MAX_SYMBOLS
                         || symbols.contains(symbol)) return;
                 symbols.add(symbol);
                 render();
             });
+            grid.addView(chip, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
+        choices.add(grid);
+        GroupCard actions = GroupCard.add(choices.content(), null);
+        actions.button("关闭选择", null, "取消", choices::dismiss);
         choices.show();
     }
 

@@ -134,7 +134,6 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     const generation = ++phraseRequestGeneration.current;
     setPhraseBusy(true);
     setPhraseError("");
-    setPhraseNotice("");
     setPhrasePage((current) => ({ ...current, status: "查询中…" }));
     try {
       const query = phraseSearch.trim();
@@ -174,6 +173,8 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   // 进入设置时先列出当前类型的全部词条；输入查询条件后用短暂防抖实时筛选。
   useEffect(() => {
     if (!client.dictionary) return;
+    // 查询条件变化时清理旧提示，延迟执行的查询不能擦掉期间完成的操作结果。
+    setPhraseNotice("");
     const timer = window.setTimeout(() => {
       void loadPhrases(dictionaryKind, 0);
     }, 280);

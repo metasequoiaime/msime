@@ -168,6 +168,7 @@ final class ImeCandidates {
         // feedback without changing the existing scroll-versus-select boundary.
         Button button = candidateButton();
         ViewPolicy.bindClick(button, () -> s.selectVisibleCandidate(button, slot));
+        s.bindCandidateRenderRelease(button);
         button.setOnLongClickListener(ignored -> {
             JSONObject current = s.visibleCandidate(slot);
             JSONObject id = current == null ? null : current.optJSONObject("id");
@@ -183,6 +184,7 @@ final class ImeCandidates {
     Button expandedCandidateButton(JSONObject candidate) {
         JSONObject id = candidate.optJSONObject("id");
         Button button = candidateButton();
+        s.bindCandidateRenderRelease(button);
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
         String displayedText = ContactCandidatePolicy.displayText(source, text);
@@ -241,6 +243,7 @@ final class ImeCandidates {
     private KeyboardPressButton expandedActionButton(String label, float sizeSp,
             String description, Runnable action) {
         KeyboardPressButton button = candidateButton();
+        s.bindCandidateRenderRelease(button);
         button.setKeyboardRole(KeyboardKeyRole.ACCENT);
         ViewPolicy.setTextSizeLabel(button, label, sizeSp);
         KeyboardTypographyPolicy.setKeyTextSize(button, sizeSp);
