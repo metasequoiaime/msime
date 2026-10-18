@@ -49,8 +49,8 @@ export function mobilePageTitle(id: string, title: string): string {
   return title;
 }
 
-/** What a touch host calls a navigation group: the phone has no other way to type, so 更多输入方式 names what the group holds. */
+/** 触屏宿主把这个导航组称为「键盘、语音与手写」，因为手机设置页没有其他方式说明输入入口。 */
 export function mobileGroupTitle(title: string): string {
-  if (title === "更多输入方式") return "键盘、语音与手写";
+  if (title === "输入方式" || title === "更多输入方式") return "键盘、语音与手写";
   return title;
 }

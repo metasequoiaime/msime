@@ -282,6 +282,13 @@ export const sidebarHeader =
 /** 侧栏页面连续排列，导航项的尺寸、圆角和选中底取自 `--p-nav-*`；iPad 用一张圆角卡片承载整个列表。 */
 export const sidebarItems =
   "flex shrink-0 flex-col gap-0.5 ipad:gap-0 ipad:overflow-hidden ipad:rounded-[26px] ipad:bg-[var(--p-group-bg)]";
+/** 桌面侧栏保留组标题，组内页面可以折叠隐藏。 */
+export const sidebarGroup = "flex min-w-0 flex-col gap-0.5 first:mt-0 mt-2";
+export const sidebarGroupToggle =
+  "flex min-h-7 w-full items-center justify-between gap-2 rounded-[var(--p-nav-r)] border-0 bg-transparent px-2 text-left text-[11px] font-semibold tracking-wide text-[var(--p-sub)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:outline-2 focus-visible:outline-accent";
+export const sidebarGroupToggleIcon = (expanded: boolean) =>
+  `shrink-0 transition-transform motion-reduce:transition-none ${expanded ? "rotate-90" : ""}`;
+export const sidebarGroupPages = "flex min-w-0 flex-col gap-0.5";
 /** The item glyphs ship light and are inverted on a light theme. Windows draws them at 16, macOS at 15, HarmonyOS at 17, GNOME at 18 and iPadOS at 20. */
 export const sidebarGlyph =
   "block size-4 object-contain opacity-90 light-theme:[filter:invert(1)_brightness(0.25)] mac:size-[15px] linux:size-[18px] hm2:size-[17px] ipad:size-5";

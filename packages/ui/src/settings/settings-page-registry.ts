@@ -122,14 +122,14 @@ export type SettingsPageId = (typeof pages)[number]["id"];
 /**
  * 一级导航的分组：桌面侧栏、手机「设置」列表和旧的分组导出都从这里派生，导航顺序只有这一个来源，`pages` 只登记页面。Windows 原生设置窗口的 `SettingsNavigation.h` 也要与它保持一致：和共享桌面侧栏一样，是这里去掉 `desktopMergedPages` 之后的页面。
  *
- * 先排常用输入设置和其他输入方式，再排外观、工具、账号与支持；桌面只平铺页面，不显示分组标题。
+ * 先排输入设置和其他输入方式，再排外观、工具、数据与支持；桌面侧栏按组折叠，触屏列表沿用同一顺序。
  */
 export const settingsNavGroups = [
   { title: "打字", ids: ["input", "dictionary", "shortcuts", "expression"] },
-  { title: "更多输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
+  { title: "输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
   { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
-  { title: "工具", ids: ["tools", "ai", "mcp", "plugins", "typing-statistics"] },
-  { title: "账号", ids: ["account"] },
+  { title: "工具", ids: ["tools", "ai", "mcp", "plugins"] },
+  { title: "数据", ids: ["typing-statistics", "account"] },
   { title: "支持", ids: ["developer", "feedback", "about"] },
 ] as const satisfies readonly { title: string; ids: readonly SettingsPageId[] }[];
 

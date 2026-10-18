@@ -50,10 +50,10 @@ test("projects the desktop sidebar into the titled navigation groups", () => {
   expect(groupIds(project().sidebarGroups)).toEqual([
     { title: undefined, ids: ["home"] },
     { title: "打字", ids: ["input", "dictionary", "shortcuts", "expression"] },
-    { title: "更多输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
+    { title: "输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
-    { title: "工具", ids: ["tools", "ai", "mcp", "plugins", "typing-statistics"] },
-    { title: "账号", ids: ["account"] },
+    { title: "工具", ids: ["tools", "ai", "mcp", "plugins"] },
+    { title: "数据", ids: ["typing-statistics", "account"] },
     // 桌面上「帮助与反馈」并进「关于」，侧栏不再列出它；它仍是可路由的页面。
     { title: "支持", ids: ["developer", "about"] },
   ]);
@@ -96,7 +96,7 @@ test("projects the desktop sidebar into the titled navigation groups", () => {
     ),
   ).toEqual([
     { title: "打字", ids: ["input", "dictionary", "shortcuts", "expression"] },
-    { title: "更多输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
+    { title: "输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
     { title: "工具", ids: ["tools", "ai", "mcp"] },
     { title: "支持", ids: ["developer", "about"] },
@@ -166,7 +166,7 @@ test("projects mobile pages into tabs, grouped settings, and sidebar sections", 
   ]);
   expect(mobile.sidebarGroups[0].pages.map((page) => page.id)).toEqual(["home"]);
   expect(mobile.sidebarGroups.map((group) => group.title)).toContain("键盘、语音与手写");
-  expect(mobile.sidebarGroups.map((group) => group.title)).not.toContain("更多输入方式");
+  expect(mobile.sidebarGroups.map((group) => group.title)).not.toContain("输入方式");
   expect(mobile.sidebarGroups.flatMap((group) => group.pages.map((page) => page.id))).toContain(
     "skin",
   );
@@ -222,13 +222,7 @@ test("places the 插件 page in 工具 and drops it where the host does not back
     item.pages.some((page) => page.id === "tools"),
   );
   expect(group?.title).toBe("工具");
-  expect(group?.pages.map((page) => page.id)).toEqual([
-    "tools",
-    "ai",
-    "mcp",
-    "plugins",
-    "typing-statistics",
-  ]);
+  expect(group?.pages.map((page) => page.id)).toEqual(["tools", "ai", "mcp", "plugins"]);
   expect(desktop.availablePages.find((page) => page.id === "plugins")?.title).toBe("插件");
 
   expect(project({ hasPlugins: false }).availablePages.map((page) => page.id)).not.toContain(
@@ -248,7 +242,7 @@ test("drops the 手写输入 page from an edition without handwriting", () => {
   const desktop = project({ hasHandwriting: false });
   expect(desktop.availablePages.map((page) => page.id)).not.toContain("handwriting");
   expect(groupIds(desktop.sidebarGroups)).toContainEqual({
-    title: "更多输入方式",
+    title: "输入方式",
     ids: ["voice", "screen-keyboard"],
   });
   const phone = project({ mobilePlatform: true, hasHandwriting: false });
@@ -307,7 +301,7 @@ test("folds 手写输入 into the screen keyboard page where the host asks for i
     "键盘手写",
   );
   expect(groupIds(merged.sidebarGroups)).toContainEqual({
-    title: "更多输入方式",
+    title: "输入方式",
     ids: ["voice", "screen-keyboard"],
   });
   expect(merged.pageAliases).toEqual({ handwriting: "screen-keyboard" });

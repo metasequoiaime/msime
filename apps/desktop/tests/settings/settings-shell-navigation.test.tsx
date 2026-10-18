@@ -75,6 +75,22 @@ test("侧栏搜索只保留标题命中的分组", () => {
   ]);
 });
 
+test("桌面侧栏分组可折叠，搜索结果和当前页所在组始终展开", () => {
+  const collapsed = renderNavigation({ navigationPage: "input" });
+  const support = groups[1];
+  expect(collapsed.result.current.isSidebarGroupExpanded(support)).toBe(true);
+  act(() => collapsed.result.current.toggleSidebarGroup(support));
+  expect(collapsed.result.current.isSidebarGroupExpanded(support)).toBe(false);
+
+  const current = renderNavigation({ navigationPage: "about" });
+  act(() => current.result.current.toggleSidebarGroup(support));
+  expect(current.result.current.isSidebarGroupExpanded(support)).toBe(true);
+
+  const searched = renderNavigation({ navigationPage: "input", navQuery: "帮助" });
+  act(() => searched.result.current.toggleSidebarGroup(support));
+  expect(searched.result.current.isSidebarGroupExpanded(support)).toBe(true);
+});
+
 test("搜索框回调使用外壳的查询 setter和页面选择器", () => {
   const { result, setNavQuery, selectPage } = renderNavigation({ navQuery: "输入" });
   render(result.current.navSearchField);

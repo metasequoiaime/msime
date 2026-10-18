@@ -77,7 +77,8 @@ test("Harmony settings follow the actual phone or 2-in-1 form factor", async () 
   // 2-in-1 是没有手机根页面的桌面窗口：侧栏从 输入 开始，也在 输入 打开。
   expect(within(sidebar).queryByRole("button", { name: "首页" })).toBeNull();
   expect(within(sidebar).queryByRole("button", { name: "设置" })).toBeNull();
-  expect(sidebar.querySelector("button")?.textContent).toBe("输入设置");
+  expect(sidebar.querySelector("button")?.textContent).toBe("打字");
+  expect(within(sidebar).getByRole("button", { name: "输入设置" })).toBeTruthy();
   expect(screen.getByRole("heading", { level: 1, name: /^(输入|输入设置)$/ })).toBeTruthy();
 });
 
