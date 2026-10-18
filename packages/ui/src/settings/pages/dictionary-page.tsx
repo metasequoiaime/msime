@@ -16,6 +16,7 @@ import {
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
 import { GroupList } from "../../core/platform-controls";
+import { DictionaryUpdates } from "../dictionary-updates";
 import { DictionaryManifestCard } from "../dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "../personal-dictionary-import-card";
 import { DictionaryEntries } from "../dictionary-entries";
@@ -130,7 +131,14 @@ export function DictionarySettingsPage() {
   if (harmonyPlatform && mobilePlatform) {
     return (
       <SettingsPageFieldset disabled={busy} hidden={page !== "dictionary"} ariaLabel="词库">
-        {page === "dictionary" && <HarmonyPhoneDictionary />}
+        {page === "dictionary" && (
+          <>
+            {client.dictionary?.updates && (
+              <DictionaryUpdates request={client.dictionary.updates} />
+            )}
+            <HarmonyPhoneDictionary />
+          </>
+        )}
       </SettingsPageFieldset>
     );
   }
@@ -387,6 +395,7 @@ export function DictionarySettingsPage() {
               />
             </GroupList>
           )}
+          {client.dictionary?.updates && <DictionaryUpdates request={client.dictionary.updates} />}
           {client.dictionaryManifest && <DictionaryManifestCard read={client.dictionaryManifest} />}
           <SubPageEntries
             title="更多"

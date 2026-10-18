@@ -63,7 +63,13 @@ export class SharedStateMirror {
   /** 这一侧当前的指纹，按 `entries` 的顺序。 */
   fingerprints(entries: MirrorEntry[]): FingerprintedEntry[] {
     return entries.map((entry: MirrorEntry): FingerprintedEntry => {
-      return { name: entry.name, fingerprint: SharedStateMirror.fingerprintOf(entry, this.localPath(entry)) };
+      // 只在安装选择原子发布后镜像词库，下载中不扫描或复制大目录。
+      const path: string = entry.name === 'dictionary-generations'
+        ? `${this.filesDir}/state/dictionary-updates/installed.json` : this.localPath(entry);
+      const fingerprint: string = entry.name === 'dictionary-generations'
+        ? SharedStateMirrorPolicy.fingerprintText(SharedStateMirror.readText(path) ?? '')
+        : SharedStateMirror.fingerprintOf(entry, path);
+      return { name: entry.name, fingerprint: fingerprint };
     });
   }
 
@@ -225,7 +231,7 @@ export class SharedStateMirror {
 
   private static transient(name: string): boolean {
     return name.endsWith('.lock') || name.endsWith('.tmp') || name.includes('.staging')
-      || name.includes('.previous') || name.startsWith('.import-');
+      || name.includes('.previous') || name.startsWith('.import-') || name.startsWith('incoming-');
   }
 
   private static copy(directory: boolean, source: string, destination: string): void {

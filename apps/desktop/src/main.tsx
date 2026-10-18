@@ -119,6 +119,8 @@ const dictionary: DictionaryClient = {
     invoke("dictionary_request", {
       action: { operation: "browse", offset, limit, kind, query },
     }),
+  updates: (command, enabled) =>
+    invoke("dictionary_request", { action: { operation: "updates", command, enabled } }),
   list: (offset, limit, kind, query) =>
     invoke("dictionary_request", {
       action: { operation: "list", offset, limit, kind, query },

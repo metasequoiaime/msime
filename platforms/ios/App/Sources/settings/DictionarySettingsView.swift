@@ -7,6 +7,9 @@ struct DictionarySettingsView: View {
 
   @EnvironmentObject private var navigation: AppNavigation
 
+  @State private var updateStatus: [String: Any]?
+  @State private var updateError = false
+  @State private var updateGeneration = 0
   @State private var habits = InputHabitPreference.mirrored
   @State private var saveFailed = false
   @State private var dictionary: PersonalDictionaryState?
@@ -37,6 +40,7 @@ struct DictionarySettingsView: View {
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("importDictionaryAction")
         }
+        updateSection
         DesignGroup(title: "发现词库") { discoverRows }
         DesignGroup(title: "学习", footer: learningFooter) { learningRows }
         DesignGroup(title: "更多") {
@@ -62,6 +66,12 @@ struct DictionarySettingsView: View {
     .navigationBarTitleDisplayMode(.inline)
     .reloadOnAppearAndActive(reload)
     .task { await loadDiscover() }
+    .task {
+      while !Task.isCancelled {
+        await updateDictionary("status")
+        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+      }
+    }
     .refreshable { await loadDiscover() }
     .sheet(isPresented: $importing, onDismiss: reload) {
       PersonalDictionaryImportView { words in
@@ -79,6 +89,52 @@ struct DictionarySettingsView: View {
     .alert("词库", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
       Button("好", role: .cancel) {}
     } message: { Text(message ?? "") }
+  }
+
+  private var updating: Bool {
+    let phase = updateStatus?["phase"] as? String
+    return phase == "checking" || phase == "downloading"
+  }
+
+  private var updateSection: some View {
+    DesignGroup(title: "词库更新", footer: updateMessage) {
+      Toggle("自动更新词库", isOn: Binding(get: { updateStatus?["enabled"] as? Bool ?? true },
+        set: { value in Task { await updateDictionary("configure", enabled: value) } }))
+        .padding(20).disabled(updateStatus == nil)
+      DesignDivider(leading: 20)
+      Button { Task { await updateDictionary("check") } } label: {
+        DesignNavRowLabel(title: "检查词库更新")
+      }.buttonStyle(PressFillButtonStyle()).disabled(updating || updateStatus == nil)
+      if updateStatus?["can_rollback"] as? Bool == true {
+        DesignDivider(leading: 20)
+        Button { Task { await updateDictionary("rollback") } } label: {
+          DesignNavRowLabel(title: "恢复上一版词库")
+        }.buttonStyle(PressFillButtonStyle()).disabled(updating || updateStatus == nil)
+      }
+    }
+  }
+
+  private var updateMessage: String {
+    if updateError { return "词库更新暂不可用，请稍后重试" }
+    guard let status = updateStatus else { return "正在读取词库版本…" }
+    if let error = status["error"], !(error is NSNull) { return "更新失败，继续使用原词库" }
+    let phase = status["phase"] as? String
+    if phase == "checking" { return "正在检查词库更新…" }
+    if phase == "downloading" { return "正在下载词库…" }
+    if status["pending_restart"] as? Bool == true { return "词库已准备好，重新打开键盘时生效。个人词条和学习记录保留。" }
+    return "词库版本：\(status["version"] as? String ?? "随应用安装")；每天自动检查兼容的版本。"
+  }
+
+  @MainActor private func updateDictionary(_ command: String, enabled: Bool? = nil) async {
+    updateGeneration += 1
+    let generation = updateGeneration
+    let result = await Task.detached(priority: .utility) {
+      // JSON 字节可跨执行域传递，不把 Any 字典从后台线程送回主线程。
+      try? JSONSerialization.data(withJSONObject: MetasequoiaInputSessionBridge.dictionaryUpdates(command, enabled: enabled))
+    }.value
+    if Task.isCancelled || generation != updateGeneration { return }
+    updateStatus = result.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    updateError = updateStatus == nil
   }
 
   // MARK: - 已安装

@@ -158,6 +158,7 @@ pub use dictionary::{
 mod diagnostics;
 pub use diagnostics::{msime_client_set_diagnostic_sink, DiagnosticSink};
 mod dictionary_snapshot;
+mod dictionary_updates;
 mod key_sound;
 // 生命周期核心；`pub` 是为了让集成测试（零分配断言）直接调用纯推导函数。
 pub mod lifecycle;
@@ -1428,11 +1429,25 @@ impl LanguageDictionaries {
         let find = |name: &str| {
             state_root
                 .and_then(|root| {
-                    resource_packs::installed_file(root, ResourcePack::LanguageDictionaries, name)
+                    updated_dictionary_file(root, name).or_else(|| {
+                        resource_packs::installed_file(
+                            root,
+                            ResourcePack::LanguageDictionaries,
+                            name,
+                        )
+                    })
                 })
                 .or_else(|| {
                     recorded
                         .filter(|directory| directory.is_absolute())
+                        // 更新目录已在上面校验；校验失败不能再把它当作普通随包路径采用。
+                        .filter(|directory| {
+                            !state_root.is_some_and(|state| {
+                                let state = std::fs::canonicalize(state)
+                                    .unwrap_or_else(|_| state.to_path_buf());
+                                directory.starts_with(state.join("dictionary-updates"))
+                            })
+                        })
                         .map(|directory| directory.join(name))
                         .filter(|path| Self::trusted_regular_file(path))
                 })
@@ -1484,7 +1499,23 @@ impl LanguageDictionaries {
 
 /// 已下载的日文资源包里的 `msime-japanese.dat`。`None` 时 Engine 读资源目录里的那份（完整发布包或开发环境内置的）。
 fn japanese_dictionary(state_root: Option<&Path>) -> Option<PathBuf> {
-    resource_packs::installed_file(state_root?, ResourcePack::Japanese, "msime-japanese.dat")
+    let state = state_root?;
+    updated_dictionary_file(state, "msime-japanese.dat").or_else(|| {
+        resource_packs::installed_file(state, ResourcePack::Japanese, "msime-japanese.dat")
+    })
+}
+
+/// 可选词库只读已经由设置宿主完整校验、原子发布的文件，不在聚焦输入框时联网。
+fn updated_dictionary_file(state: &Path, name: &str) -> Option<PathBuf> {
+    let edition = Edition::recorded_in(state).unwrap_or_else(Edition::full);
+    let baseline = edition.resource_set().ok()?;
+    let selected = msime_client_providers::dictionary_updates::selected(state, &baseline)?;
+    let set = std::iter::once(&selected.desktop)
+        .chain(selected.languages.iter())
+        .find(|set| set.artifacts.iter().any(|file| file.name == name))?;
+    let directory = msime_client_providers::dictionary_updates::directory(state, set).ok()?;
+    dictionary_updates::verify(state, &directory, set)?;
+    msime_client_providers::dictionary_updates::installed_file(state, &baseline, name)
 }
 
 /// EngineOptions 里的路径文本，没有路径（或路径不是 UTF-8）时为空。
@@ -1867,16 +1898,26 @@ pub(crate) fn offline_glosses_file(
     state_root: Option<&Path>,
     language: &str,
 ) -> Option<PathBuf> {
-    offline_glosses_beside(resources, language).or_else(|| {
-        if !OFFLINE_GLOSS_LANGUAGES.contains(&language) {
-            return None;
-        }
-        resource_packs::installed_file(
-            state_root?,
-            ResourcePack::OfflineGlosses,
-            &format!("zh-{language}.db"),
-        )
-    })
+    offline_glosses_beside(resources, language)
+        .or_else(|| {
+            let state = state_root?;
+            let edition = Edition::recorded_in(state).unwrap_or_else(Edition::full);
+            let original = msime_client_providers::dictionary_updates::bundled_resources(
+                state,
+                &edition.resource_set().ok()?,
+            )?;
+            offline_glosses_beside(&original, language)
+        })
+        .or_else(|| {
+            if !OFFLINE_GLOSS_LANGUAGES.contains(&language) {
+                return None;
+            }
+            resource_packs::installed_file(
+                state_root?,
+                ResourcePack::OfflineGlosses,
+                &format!("zh-{language}.db"),
+            )
+        })
 }
 
 /// The Cantonese, Zhuyin and Stroke dictionaries installed beside a resource bundle: `language-dictionaries/msime-cantonese.db`, `language-dictionaries/msime-zhuyin.db` and `language-dictionaries/msime-stroke.db`, built by `msime-dict-builder`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and only the hosts that offer these schemes ship them. Absence is the normal case.
@@ -2016,12 +2057,67 @@ pub fn prepare_host_configuration_for_edition(
     state_root: &std::path::Path,
     edition: &'static Edition,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    // 资源目录按本版本的锁校验，用户词库代次也按它计算；full 的锁就是原来那份文件。
     let specification = edition.resource_set()?;
+    prepare_host_with_updates(resources, state_root, edition, &specification)
+}
+
+/// 安装选择与随包基线共用准备流程，测试用小型真实词库验证代次切换与日志回放。
+fn prepare_host_with_updates(
+    resources: &Path,
+    state_root: &Path,
+    edition: &'static Edition,
+    specification: &ResourceSet,
+) -> Result<String, Box<dyn std::error::Error>> {
+    if let Some((updated, selected)) =
+        dictionary_updates::selected_resources(state_root, specification)
+    {
+        if verify_resources_once(&updated, &selected, state_root, &[]).is_ok() {
+            let mut document: Value = serde_json::from_str(&prepare_shipped_host_configuration(
+                &updated,
+                state_root,
+                &selected,
+                &[],
+                edition,
+            )?)?;
+            // 随包的独立模型、音效和插件不属于主词库代次，保留原有入口。
+            let original = msime_client_providers::dictionary_updates::bundled_resources(
+                state_root,
+                specification,
+            )
+            .filter(|p| p.is_dir())
+            .unwrap_or_else(|| resources.to_path_buf());
+            for (key, name) in [
+                ("sound_packs", "sound-packs"),
+                ("plugin_packs", "plugin-packs"),
+            ] {
+                if let Some(path) = original
+                    .parent()
+                    .map(|p| p.join(name))
+                    .filter(|p| p.is_dir())
+                {
+                    document[key] = json!(path);
+                }
+            }
+            if let Some(model) = settled_model_beside(&original) {
+                document["settled_model"] = json!(model);
+            }
+            if let Some(languages) = dictionary_updates::languages(state_root, edition)
+                .and_then(|p| p.to_str().map(str::to_owned))
+                .or_else(|| installed_language_dictionaries(&original))
+            {
+                document["language_dictionaries"] = json!(languages);
+            }
+            return Ok(serde_json::to_string_pretty(&document)?);
+        }
+    }
+    // 记录的 resources 已属于下载代次时，回退仍需回到安装包目录。
+    let bundled =
+        msime_client_providers::dictionary_updates::bundled_resources(state_root, specification)
+            .filter(|p| p.is_dir());
     prepare_shipped_host_configuration(
-        resources,
+        bundled.as_deref().unwrap_or(resources),
         state_root,
-        &specification,
+        specification,
         ON_DEMAND_ARTIFACTS,
         edition,
     )
@@ -2230,11 +2326,25 @@ fn refresh_options_file(
     let edition =
         Edition::of_host_options(&document).ok_or("runtime options name an unknown edition")?;
     // 已安装的代次要和 `prepare_host_configuration_for_edition` 用同一份锁比较，否则不是 full 的版本每次刷新都会被当成过期。
-    let specification = edition.resource_set()?;
+    let baseline = edition.resource_set()?;
+    let state = document["preferences_directory"].as_str().map(Path::new);
+    let updated = state
+        .and_then(|state| dictionary_updates::selected_resources(state, &baseline))
+        .filter(|(path, set)| {
+            state.is_some_and(|state| verify_resources_once(path, set, state, &[]).is_ok())
+        });
+    let specification = updated.as_ref().map(|(_, set)| set).unwrap_or(&baseline);
+    let fallback = state.and_then(|state| {
+        msime_client_providers::dictionary_updates::bundled_resources(state, &baseline)
+    });
     let prepared = refreshed_host_options(
         &document,
         &specification.generation()?,
-        bundled,
+        updated
+            .as_ref()
+            .map(|(path, _)| path.as_path())
+            .or(bundled)
+            .or(fallback.as_deref()),
         Path::is_dir,
         |resources, state| {
             Ok(serde_json::from_str(
@@ -2346,6 +2456,27 @@ fn refreshed_layout(
             .filter(|value| value.is_string())
             .cloned()
             .ok_or("prepared options are incomplete")?;
+    }
+    if let Some(value) = prepared
+        .get("language_dictionaries")
+        .filter(|v| v.is_string())
+    {
+        refreshed["language_dictionaries"] = value.clone();
+    } else if document["language_dictionaries"]
+        .as_str()
+        .is_some_and(|p| p.contains("dictionary-updates"))
+    {
+        refreshed
+            .as_object_mut()
+            .ok_or("invalid host options")?
+            .remove("language_dictionaries");
+    }
+    for key in ["settled_model", "sound_packs", "plugin_packs"] {
+        if refreshed.get(key).is_none() {
+            if let Some(value) = prepared.get(key) {
+                refreshed[key] = value.clone();
+            }
+        }
     }
     Ok(refreshed)
 }

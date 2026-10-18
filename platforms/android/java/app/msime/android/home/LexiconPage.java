@@ -55,6 +55,8 @@ public final class LexiconPage extends ReloadingDetailPage {
     private record Model(DictionaryCollectionsStore.View view, long builtinCount, boolean learning, String failure) {}
 
     @Nullable private Model model;
+    @Nullable private JSONObject updateStatus;
+    private int updateGeneration;
     @Nullable private List<CommunityCatalog.Item> discover;
     @Nullable private String discoverFailure;
     /** 正在进行的导入所选的格式；文件名推不出格式时用它。 */
@@ -71,6 +73,7 @@ public final class LexiconPage extends ReloadingDetailPage {
     }
 
     @Override protected void onInitialReloadScheduled() {
+        updateDictionary("status", null);
         loadDiscover();
     }
 
@@ -79,6 +82,7 @@ public final class LexiconPage extends ReloadingDetailPage {
     }
 
     @Override protected void onContentDestroyed() {
+        updateGeneration++;
         installing.clear();
     }
 
@@ -94,6 +98,21 @@ public final class LexiconPage extends ReloadingDetailPage {
             model = result;
             render();
             if (flush) MsToast.show(requireContext(), result.failure().isEmpty() ? "已刷新" : result.failure());
+        });
+    }
+
+    private void updateDictionary(String command, Boolean enabled) {
+        final int generation = ++updateGeneration;
+        HostTask.run(this, context -> DictionaryUpdates.request(context, command, enabled), result -> {
+            if (generation != updateGeneration) return;
+            updateStatus = result;
+            if (model != null) render();
+            if (result != null && ("checking".equals(result.optString("phase")) || "downloading".equals(result.optString("phase")))) {
+                View view = getView();
+                if (view != null) view.postDelayed(() -> {
+                    if (getView() == view && generation == updateGeneration) updateDictionary("status", null);
+                }, 2000);
+            }
         });
     }
 
@@ -146,6 +165,16 @@ public final class LexiconPage extends ReloadingDetailPage {
         }
         installed.footer("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
         if (!current.failure().isEmpty()) installed.note(current.failure());
+
+        GroupCard updates = GroupCard.add(sectionColumn(target, "已安装"), "词库更新");
+        updates.toggle("自动更新词库", "每天检查兼容的词库版本", updateStatus == null || updateStatus.optBoolean("enabled", true),
+            enabled -> updateDictionary("configure", enabled));
+        updates.note(DictionaryUpdates.message(updateStatus));
+        boolean updating = updateStatus != null && ("checking".equals(updateStatus.optString("phase")) || "downloading".equals(updateStatus.optString("phase")));
+        updates.nav("检查词库更新", null, null, () -> updateDictionary("check", null)).setEnabled(!updating);
+        if (updateStatus != null && updateStatus.optBoolean("can_rollback")) {
+            updates.nav("恢复上一版词库", "恢复后关闭自动更新，下次启动生效", null, () -> updateDictionary("rollback", null)).setEnabled(!updating);
+        }
 
         GroupCard community = GroupCard.add(sectionColumn(target, "社区"), "发现词库").withDividers(58);
         List<CommunityCatalog.Item> items = discover;
