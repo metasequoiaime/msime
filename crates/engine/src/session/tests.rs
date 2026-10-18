@@ -77,6 +77,18 @@ INSERT INTO tbl_1_b VALUES('bian','b','边',500);\
 CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
 INSERT INTO tbl_2_b VALUES('bian''yi','by','编译',1000);";
 
+const WUBI_XUQIU_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('xuq','绞',10);\
+INSERT INTO wubi86 VALUES('xuqi','纯音乐',9);\
+CREATE TABLE tbl_2_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_x VALUES('xu''qi','xq','续期',16735);\
+INSERT INTO tbl_2_x VALUES('xu''qiu','xq','需求',519652);";
+
+const WUBI_HANGUO_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('hang','虛',10);\
+CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_h VALUES('han''guo','hg','韩国',500496);";
+
 /// test_personal_context_input_session.cpp:136-149 with test_pick_pair_input_session.cpp:73-94's shan/shui rows.
 const CONTEXT_FIXTURE: &str = "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
 INSERT INTO tbl_1_n VALUES('ni','n','甲',100),('ni','n','乙',90),('ni','n','丙',80);\
@@ -2590,6 +2602,42 @@ fn bianyi_continues_after_the_bian_wubi_code() {
     assert_eq!(snapshot.preedit, "bianyi");
     assert!(
         snapshot.candidates.iter().any(|item| item.word == "编译"),
+        "{snapshot:?}"
+    );
+}
+
+#[test]
+fn xuqiu_continues_after_a_four_letter_wubi_code() {
+    let fixture = Fixture::new(WUBI_XUQIU_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.mixed_pinyin = true;
+    });
+    type_text(&mut session, "xuqi");
+    assert!(session.input.engine.wubi_pinyin_continues(b'u'));
+    type_text(&mut session, "u");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "xuqiu");
+    assert!(
+        snapshot.candidates.iter().any(|item| item.word == "需求"),
+        "{snapshot:?}"
+    );
+}
+
+#[test]
+fn mixed_wubi_keeps_a_pinyin_prefix_when_the_fourth_code_is_a_complete_syllable() {
+    let fixture = Fixture::new(WUBI_HANGUO_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.mixed_pinyin = true;
+    });
+    type_text(&mut session, "hang");
+    assert!(session.input.engine.wubi_pinyin_continues(b'u'));
+    type_text(&mut session, "uo");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "hanguo");
+    assert!(
+        snapshot.candidates.iter().any(|item| item.word == "韩国"),
         "{snapshot:?}"
     );
 }

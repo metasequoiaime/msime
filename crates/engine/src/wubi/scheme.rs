@@ -141,6 +141,10 @@ impl WubiScheme {
         self.extended_length_allowed = allowed;
     }
 
+    pub fn extended_length_allowed(&self) -> bool {
+        self.extended_length_allowed
+    }
+
     fn max_code_length(&self) -> usize {
         if self.extended_length_allowed || self.in_pinyin_lookup() {
             MAX_MIXED_CODE_LENGTH

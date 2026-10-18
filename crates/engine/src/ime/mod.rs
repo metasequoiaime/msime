@@ -586,7 +586,17 @@ impl ImeSession {
         {
             return false;
         }
+        if self
+            .scheme
+            .as_wubi()
+            .is_some_and(|wubi| wubi.extended_length_allowed())
+        {
+            return true;
+        }
         let raw = &self.state.request.raw_input;
+        if pinyin_prefix_can_continue_after_code(raw, letter) {
+            return true;
+        }
         let starts_new_pinyin_syllable = crate::pinyin::segment::is_complete_pinyin_input(raw)
             && std::str::from_utf8(&[letter]).is_ok_and(crate::pinyin::syllables::is_prefix);
         self.state.candidates.iter().any(|item| {
@@ -882,8 +892,25 @@ impl ImeSession {
             }
             None => self.decode(&request),
         };
-        // 未命中五笔码时允许延长；四码碰撞但能续输拼音时，由 handle_key 临时放开。
-        let extended = self.wubi_options.mixed_pinyin && !decoded.wubi_table_answered;
+        // 未命中五笔码时允许延长；四码碰撞但能续输拼音时，由上一键的拼音候选保留延长状态。
+        // 不能只看当前四码的拼音列表：`hang`、`cang` 这类输入会被切成一个完整音节，
+        // 更长的 `han'guo`、`can'guan` 候选要到下一次切分后才会出现。
+        let previous_pinyin_candidates = request.scheme == SchemeType::Wubi
+            && self.wubi_options.mixed_pinyin
+            && self.state.request.raw_input.len() >= 3
+            && self.state.candidates.iter().any(|item| {
+                item.scheme == SchemeType::Quanpin && !item.canonical_pinyin.is_empty()
+            });
+        let was_extended = self
+            .scheme
+            .as_wubi()
+            .is_some_and(|wubi| wubi.extended_length_allowed());
+        let inherited_pinyin_continuation = request.scheme == SchemeType::Wubi
+            && self.wubi_options.mixed_pinyin
+            && ((request.raw_input.len() == 4 && previous_pinyin_candidates)
+                || (request.raw_input.len() > 4 && was_extended));
+        let extended = self.wubi_options.mixed_pinyin
+            && (!decoded.wubi_table_answered || inherited_pinyin_continuation);
         if let Some(wubi) = self.scheme.as_wubi_mut() {
             wubi.set_extended_length_allowed(extended);
         }
@@ -1051,6 +1078,33 @@ fn same_candidate_identity(left: &WordItem, right: &WordItem) -> bool {
         && left.source == right.source
         && left.pinyin == right.pinyin
         && left.canonical_pinyin == right.canonical_pinyin
+}
+
+/// 四码同时落在一个更长拼音的音节边界中时，当前默认切分可能只显示整音节候选。
+/// 例如 `hang` 既是五笔整码，也可以按 `han'g...` 继续输入“韩国”。只接受合法的完整首音节和合法的未完成尾音节，避免把任意第五码当成拼音。
+fn pinyin_prefix_can_continue_after_code(raw: &str, letter: u8) -> bool {
+    if !letter.is_ascii_lowercase() {
+        return false;
+    }
+    let next = [letter];
+    let Ok(next) = std::str::from_utf8(&next) else {
+        return false;
+    };
+    (1..raw.len()).any(|split| {
+        let (head, tail) = raw.split_at(split);
+        crate::pinyin::segment::is_complete_pinyin_input(head)
+            && pinyin_prefix_with_next(tail, next.as_bytes()[0])
+    })
+}
+
+fn pinyin_prefix_with_next(tail: &str, next: u8) -> bool {
+    let mut bytes = [0; 16];
+    if tail.len() + 1 > bytes.len() {
+        return false;
+    }
+    bytes[..tail.len()].copy_from_slice(tail.as_bytes());
+    bytes[tail.len()] = next;
+    std::str::from_utf8(&bytes[..tail.len() + 1]).is_ok_and(crate::pinyin::syllables::is_prefix)
 }
 
 /// 从已构造的请求复用方案显示文本，避免刷新时再次调用 `Scheme::preedit()` 分配同一份字符串。
@@ -1438,5 +1492,11 @@ mod tests {
         assert_eq!(words(&list), vec!["妳", "你好"]);
         assert_eq!(list[1].pinyin, "ni'hao");
         assert!(!only_pinyin_rows(&list));
+    }
+
+    #[test]
+    fn pinyin_prefix_split_can_continue() {
+        assert!(pinyin_prefix_can_continue_after_code("hang", b'u'));
+        assert!(pinyin_prefix_can_continue_after_code("cang", b'u'));
     }
 }
