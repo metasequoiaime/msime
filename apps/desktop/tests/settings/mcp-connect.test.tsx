@@ -206,7 +206,7 @@ test("both permissions are on by default and the commands carry them", async () 
   await openMcp({ mcpServerStatus: async () => status() });
   const group = await mcpGroup();
   for (const name of ["允许修改设置", "允许读取词库"])
-    expect((within(group).getByRole("switch", { name }) as HTMLInputElement).checked).toBe(true);
+    expect((await within(group).findByRole("switch", { name })).checked).toBe(true);
   expect(within(group).getByLabelText("Claude Code 安装命令").textContent).toBe(
     "claude mcp add --scope user msime -- /opt/msime/msime-mcp --options /state/runtime-options.json --allow-write --allow-dictionary-read",
   );
