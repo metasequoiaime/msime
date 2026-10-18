@@ -93,59 +93,6 @@ struct BackendSnapshotEnvelope: Sendable {
   }
 }
 
-extension BackendAccountClient {
-  struct DownloadedSnapshot: Sendable { let url: URL; let envelope: BackendSnapshotEnvelope }
-  struct SnapshotRestoreResult: Decodable, Sendable { let revision: Int64; let reset: Bool }
-
-  func restoreDictionarySnapshot(file: URL, expectedSHA256: String, revision: Int64, token: String) async throws -> SnapshotRestoreResult {
-    guard revision >= 0 else { throw Failure(status: 400) }
-    // Freeze the file before validating it. A document provider or another
-    // process may replace the originally selected file after the preview.
-    let prepared = try BackendPreparedSnapshot(copying: file)
-    defer { withExtendedLifetime(prepared) {} }
-    guard prepared.envelope.sha256 == expectedSHA256 else { throw Failure(status: 400) }
-    let data = try await uploadSnapshot(prepared.url, revision: revision, token: token)
-    let result: SnapshotRestoreResult
-    do { result = try JSONDecoder().decode(SnapshotRestoreResult.self, from: data) }
-    catch { throw Failure(status: 0) }
-    guard result.reset, result.revision > revision else { throw Failure(status: 0) }
-    return result
-  }
-  func restoreDictionarySnapshot(file: URL, expectedSHA256: String, revision: Int64,
-                                 session: BackendAccountSession,
-                                 matchingUserID expected: String? = nil,
-                                 matchingSessionID expectedSessionID: UUID? = nil) async throws -> SnapshotRestoreResult {
-    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
-    return try await session.authenticated(matchingUserID: identity.userID,
-                                           matchingSessionID: identity.sessionID) { token in
-      try await restoreDictionarySnapshot(file: file, expectedSHA256: expectedSHA256,
-                                           revision: revision, token: token)
-    }.value
-  }
-
-  func dictionarySnapshot(token: String) async throws -> DownloadedSnapshot {
-    let url = try await download("/v1/users/me/dictionary/snapshot", token: token,
-      filename: "msime-dictionary-snapshot.ndjson", maximumBytes: 512 * 1024 * 1024, mediaType: "application/x-ndjson")
-    do {
-      let envelope = try BackendSnapshotEnvelope.inspect(url)
-      return .init(url: url, envelope: envelope)
-    } catch {
-      try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
-      throw error
-    }
-  }
-  func dictionarySnapshot(session: BackendAccountSession,
-                          matchingUserID expected: String? = nil,
-                          matchingSessionID expectedSessionID: UUID? = nil) async throws -> DownloadedSnapshot {
-    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: expectedSessionID)
-    return try await session.authenticated(matchingUserID: identity.userID,
-                                           matchingSessionID: identity.sessionID) { token in
-      try await dictionarySnapshot(token: token)
-    }.value
-  }
-}
-
-
 /// The wire format contains only objects and scalar values. Foundation otherwise
 /// silently accepts repeated keys, including keys written with Unicode escapes.
 private struct SnapshotJSONSyntax {

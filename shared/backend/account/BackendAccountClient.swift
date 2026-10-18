@@ -166,12 +166,6 @@ struct BackendAccountClient: Sendable {
     session = URLSession(configuration: configuration, delegate: Redirects(), delegateQueue: nil)
   }
 
-  func providers() async throws -> [String: Bool] {
-    struct Response: Decodable { let providers: [String: Bool] }
-    let response: Response = try await json("GET", "/v1/auth/providers")
-    guard Self.validProviders(response.providers) else { throw Failure(status: 0) }
-    return response.providers
-  }
   func challenge(provider: String, target: String = "", linkToken: String? = nil) async throws -> Challenge {
     struct Body: Encodable { let provider: String; let target: String; let purpose: String }
     guard Self.validProviderTarget(provider, target: target) else { throw Failure(status: 400) }
@@ -311,76 +305,6 @@ struct BackendAccountClient: Sendable {
     return decoded.split(separator: "/", omittingEmptySubsequences: false).contains { $0 == "." || $0 == ".." }
   }
 
-  // Export directly to a private temporary file. Keep the ordinary JSON transport's
-  // smaller bound; dictionary files may legitimately contain 100,000 entries.
-  func download(_ path: String, token: String, filename: String, maximumBytes: Int, mediaType: String = "text/plain") async throws -> URL {
-    guard maximumBytes > 0, maximumBytes <= 512 * 1024 * 1024,
-          ["text/plain", "application/x-ndjson"].contains(mediaType),
-          !filename.isEmpty, filename == URL(fileURLWithPath: filename).lastPathComponent else { throw Failure(status: 400) }
-    var request = try makeRequest("GET", path, token: token, body: nil)
-    request.timeoutInterval = 600
-    request.setValue(mediaType, forHTTPHeaderField: "Accept")
-    request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-    let (bytes, response) = try await session.bytes(for: request)
-    guard let response = response as? HTTPURLResponse else { throw Failure(status: 0) }
-    guard response.statusCode == 200 else { throw Failure(status: response.statusCode) }
-    guard response.expectedContentLength <= maximumBytes,
-          response.mimeType == mediaType else { throw Failure(status: 0) }
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-export-" + UUID().uuidString)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-    var complete = false
-    defer { if !complete { try? FileManager.default.removeItem(at: directory) } }
-    let file = directory.appendingPathComponent(filename)
-    var attributes: [FileAttributeKey: Any] = [.posixPermissions: 0o600]
-    #if os(iOS)
-    attributes[.protectionKey] = FileProtectionType.completeUntilFirstUserAuthentication
-    #endif
-    guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: attributes) else { throw Failure(status: 0) }
-    let handle = try FileHandle(forWritingTo: file)
-    defer { try? handle.close() }
-    var buffer = Data(); buffer.reserveCapacity(65536)
-    var count = 0
-    for try await byte in bytes {
-      guard count < maximumBytes else { throw Failure(status: 0) }
-      buffer.append(byte); count += 1
-      if buffer.count == 65536 {
-        try Task.checkCancellation()
-        try handle.write(contentsOf: buffer); buffer.removeAll(keepingCapacity: true)
-      }
-    }
-    try Task.checkCancellation()
-    if response.expectedContentLength >= 0 && response.expectedContentLength != count { throw Failure(status: 0) }
-    try handle.write(contentsOf: buffer)
-    try handle.synchronize()
-    complete = true
-    return file
-  }
-  // The caller owns a validated private copy for the entire request lifetime.
-  // Stream both the large request and bounded JSON response; do not retry a
-  // replacement automatically after an ambiguous network failure.
-  func uploadSnapshot(_ file: URL, revision: Int64, token: String) async throws -> Data {
-    guard revision >= 0, file.isFileURL,
-          let stream = InputStream(url: file),
-          let size = try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber,
-          size.int64Value > 0, size.int64Value <= 512 * 1024 * 1024 else { throw Failure(status: 400) }
-    var request = try makeRequest("PUT", "/v1/users/me/dictionary/snapshot?revision=\(revision)", token: token, body: nil)
-    request.timeoutInterval = 130
-    request.setValue("application/x-ndjson", forHTTPHeaderField: "Content-Type")
-    request.setValue(size.stringValue, forHTTPHeaderField: "Content-Length")
-    request.httpBodyStream = stream
-    let (bytes, response) = try await session.bytes(for: request)
-    guard let response = response as? HTTPURLResponse else { throw Failure(status: 0) }
-    guard response.statusCode == 200 else { throw Failure(status: response.statusCode) }
-    guard response.mimeType == "application/json", response.expectedContentLength <= 1024 * 1024 else { throw Failure(status: 0) }
-    var result = Data()
-    for try await byte in bytes {
-      guard result.count < 1024 * 1024 else { throw Failure(status: 0) }
-      result.append(byte)
-    }
-    try Task.checkCancellation()
-    return result
-  }
-
   func json<T: Decodable>(_ method: String, _ path: String, token: String? = nil,
                                   body: Data? = nil, timeout: TimeInterval = 30, maximumResponseBytes: Int = 1024 * 1024) async throws -> T {
     let data = try await request(method, path, token: token, body: body, timeout: timeout, maximumResponseBytes: maximumResponseBytes)
@@ -400,12 +324,6 @@ struct BackendAccountClient: Sendable {
       && user.display_name.unicodeScalars.count <= 64
       && !user.display_name.unicodeScalars.contains { $0.properties.generalCategory == .control }
       && validSingleLine(user.created_at, maximumBytes: 128)
-  }
-  private static func validProviders(_ providers: [String: Bool]) -> Bool {
-    providers.count <= 16 && providers.keys.allSatisfy { key in
-      !key.isEmpty && key.utf8.count <= 32
-        && key.utf8.allSatisfy { (97...122).contains($0) || $0 == 95 || $0 == 45 }
-    }
   }
   private static func validProviderTarget(_ provider: String, target: String) -> Bool {
     switch provider {

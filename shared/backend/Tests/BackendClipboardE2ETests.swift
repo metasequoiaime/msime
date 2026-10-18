@@ -179,7 +179,6 @@ private final class ClipboardSessionStore: BackendSessionStorage, @unchecked Sen
 
 final class BackendClipboardE2ETests: XCTestCase {
   private let deviceID = String(repeating: "a", count: 32)
-  private let otherID = String(repeating: "b", count: 32)
   private let itemID = String(repeating: "c", count: 64)
 
   private func client() -> BackendAccountClient {
@@ -191,9 +190,7 @@ final class BackendClipboardE2ETests: XCTestCase {
   private func request(_ method: String, _ path: String, body: String? = nil, state: Int, keystore: String) -> [String: Any] {
     ["request": ["method": method, "path": path, "body": body.map { $0 as Any } ?? NSNull()], "state": ["opaque": state], "keystore": keystore]
   }
-  private func status(_ devices: [[String: Any]], status: String = "ready") -> [String: Any] {
-    ["enabled": true, "status": status, "device_id": deviceID, "code": "0421 9873 5530 1176", "devices": devices]
-  }
+
 
   func testLateClipboardResponseCannotRestoreKeystoreAfterLogout() async throws {
     try await checkLateClipboardResponse(relogin: false)
@@ -231,7 +228,14 @@ final class BackendClipboardE2ETests: XCTestCase {
     ClipboardE2EProtocol.reset([(200, "{}"), (200, "{}")], events: .init(), beforeResponse: { await gate.pause() })
     let e2e = BackendClipboardE2E(drive: { driver.call($0) }, keystore: keystore, deviceName: { "合成设备" })
     let api = client()
-    let pending = Task { try await api.clipboard(e2e: e2e, session: session) }
+    // 与键盘扩展（`BackendKeyboardCloudClipboardService`）相同：操作绑定发起时的登录，令牌经会话取。
+    let identity = try await session.credentials()
+    let bound = e2e.bound(to: session, userID: identity.userID, sessionID: identity.sessionID)
+    let pending = Task {
+      try await session.authenticated(matchingUserID: identity.userID, matchingSessionID: identity.sessionID) { token in
+        try await api.clipboard(token: token, e2e: bound)
+      }.value
+    }
     await gate.waitUntilPaused()
     let signingOut = otherProcess ? BackendAccountSession(storage: storage, refreshLock: sharedLock) : session
     try await signingOut.forget()
@@ -301,12 +305,13 @@ final class BackendClipboardE2ETests: XCTestCase {
   /// 第一次使用时没有密钥串，驱动收到 null。
   func testFirstUseStartsWithoutAKeystore() async throws {
     let keystore = MemoryClipboardKeystore()
-    let driver = ScriptedClipboardDriver([["done": status([], status: "pending"), "keystore": "created"]])
+    let page: [String: Any] = ["enabled": true, "items": [],
+                               "e2e": ["status": "pending", "code": "0421 9873 5530 1176", "pending_devices": 0, "undecryptable": 0]]
+    let driver = ScriptedClipboardDriver([["done": page, "keystore": "created"]])
     ClipboardE2EProtocol.reset([], events: .init())
     let e2e = BackendClipboardE2E(drive: { driver.call($0) }, keystore: keystore, deviceName: { "合成设备" })
-    let devices = try await client().clipboardDevices(token: "synthetic-token", e2e: e2e)
-    XCTAssertTrue(devices.isPending)
-    XCTAssertTrue(devices.awaitingApproval.isEmpty)
+    let result = try await client().clipboard(token: "synthetic-token", e2e: e2e)
+    XCTAssertTrue(result.isPending)
     XCTAssertTrue(driver.inputs.first?["keystore"] is NSNull)
     XCTAssertEqual(keystore.stored, "created")
     XCTAssertTrue(ClipboardE2EProtocol.requests.isEmpty)
@@ -378,7 +383,7 @@ final class BackendClipboardE2ETests: XCTestCase {
     for operation: BackendAccountClient.ClipboardE2EOperation in [
       .approve(deviceID: "../auth"), .reject(deviceID: String(repeating: "A", count: 32)), .remove(deviceID: ""),
     ] {
-      do { _ = try await client().clipboardDevices(operation, token: "synthetic-token", e2e: e2e); XCTFail("invalid device id") }
+      do { _ = try await client().clipboardE2E(operation, token: "synthetic-token", e2e: e2e); XCTFail("invalid device id") }
       catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
     }
     do { _ = try await client().addClipboard(String(repeating: "😀", count: 2001), token: "synthetic-token", e2e: e2e); XCTFail("too long") }
@@ -386,37 +391,8 @@ final class BackendClipboardE2ETests: XCTestCase {
       XCTAssertEqual(failure.status, 400)
       XCTAssertEqual(failure.code, "invalid_clipboard_text")
     }
-    do { _ = try await client().clipboardDevices(.list(search: ""), token: "synthetic-token", e2e: e2e); XCTFail("list is not a device operation") }
-    catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
     XCTAssertTrue(driver.inputs.isEmpty)
     XCTAssertTrue(ClipboardE2EProtocol.requests.isEmpty)
-  }
-
-  /// 设备状态：本机就绪时列出等待批准的其他设备；批准等操作把设备编号交给驱动。
-  func testDeviceOperationsReportTheDriverStatus() async throws {
-    let devices: [[String: Any]] = [
-      ["device_id": deviceID, "name": "MacBook", "created_at": "2026-10-11T08:00:00Z", "approved": true, "current": true, "code": "0421 9873 5530 1176"],
-      ["device_id": otherID, "name": "iPhone", "created_at": "2026-10-11T09:00:00Z", "approved": false, "current": false, "code": "1111 2222 3333 4444"],
-    ]
-    for operation: BackendAccountClient.ClipboardE2EOperation in [.status, .approve(deviceID: otherID), .reject(deviceID: otherID), .remove(deviceID: otherID), .reset] {
-      let driver = ScriptedClipboardDriver([["done": status(devices), "keystore": "k"]])
-      let e2e = BackendClipboardE2E(drive: { driver.call($0) }, keystore: MemoryClipboardKeystore("k"), deviceName: { "合成设备" })
-      let result = try await client().clipboardDevices(operation, token: "synthetic-token", e2e: e2e)
-      XCTAssertEqual(result.awaitingApproval.map(\.device_id), [otherID])
-      XCTAssertEqual(result.devices.first { $0.current }?.name, "MacBook")
-      let start = try XCTUnwrap(driver.inputs.first?["start"] as? [String: Any])
-      XCTAssertEqual(start as NSDictionary, operation.json as NSDictionary)
-      let object = try await client().clipboardE2EObject(operation, token: "synthetic-token",
-        e2e: BackendClipboardE2E(drive: { _ in try! JSONSerialization.data(withJSONObject: ["ok": true, "value": ["done": self.status(devices)]]) },
-                                 keystore: MemoryClipboardKeystore("k"), deviceName: { "合成设备" }))
-      XCTAssertEqual((object["devices"] as? [[String: Any]])?.count, 2)
-    }
-    var malformed = devices
-    malformed[1]["code"] = "1111-2222-3333-4444"
-    let driver = ScriptedClipboardDriver([["done": status(malformed), "keystore": "k"]])
-    let e2e = BackendClipboardE2E(drive: { driver.call($0) }, keystore: MemoryClipboardKeystore("k"), deviceName: { "合成设备" })
-    do { _ = try await client().clipboardDevices(token: "synthetic-token", e2e: e2e); XCTFail("malformed device accepted") }
-    catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 0) }
   }
 
   /// 本机等待批准时列表为空，`isPending` 为真，核对码随列表一起给出。

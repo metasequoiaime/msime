@@ -115,7 +115,7 @@ enum ChineseInputScheme: String, CaseIterable {
     case .nineKeyShuangpin: "nine_key_shuangpin"
     }
   }
-  /// 这个方案在云端设置文档里的 `input.schema`，云端带不了的方案为 nil。云端只认 quanpin、shuangpin、wubi、japanese 和 korean，任何设备收到其他值都会拒绝整份文档（`IOSPreferencePlan`），所以粤拼、注音、越南语、藏文和笔画不写这个字段，保留账号里的方案，与 Tauri 的 `local_account_preferences` 一致。
+  /// 这个方案在云端设置文档里的 `input.schema`，云端带不了的方案为 nil。云端只认 quanpin、shuangpin、wubi、japanese 和 korean，任何设备收到其他值都会拒绝整份文档（Rust 的 `account::ios_settings`），所以粤拼、注音、越南语、藏文和笔画不写这个字段，保留账号里的方案，与 Tauri 的 `local_account_preferences` 一致。
   var cloudSchema: String? {
     switch self {
     // 全拼的 26 键、9 键、14 键、九键双拼和手写使用全拼引擎，用哪种键盘由 `cloudKeyboardLayout` 说明。

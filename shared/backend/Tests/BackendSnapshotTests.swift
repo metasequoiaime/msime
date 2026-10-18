@@ -130,31 +130,4 @@ final class BackendSnapshotTests: XCTestCase {
 
     XCTAssertThrowsError(try BackendPreparedSnapshot(copying: source))
   }
-
-  func testRestoreRejectsFileChangedSincePreviewBeforeNetworking() async throws {
-    let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: source) }
-    try framed([header]).write(to: source)
-    let expected = try BackendSnapshotEnvelope.inspect(source).sha256
-    try framed([header.replacingOccurrences(of: "10000", with: "10001")]).write(to: source)
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [UnexpectedSnapshotNetwork.self]
-    do {
-      _ = try await BackendAccountClient(configuration: configuration).restoreDictionarySnapshot(file: source,
-        expectedSHA256: expected, revision: 0, token: "synthetic")
-      XCTFail("changed snapshot accepted")
-    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
-  }
-
-}
-
-
-private final class UnexpectedSnapshotNetwork: URLProtocol {
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    XCTFail("Unconfirmed snapshot must not reach the network")
-    client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
-  }
-  override func stopLoading() {}
 }

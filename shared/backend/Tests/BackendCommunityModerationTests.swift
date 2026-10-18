@@ -27,8 +27,6 @@ private final class ModerationProtocol: URLProtocol {
 }
 
 final class BackendCommunityModerationTests: XCTestCase {
-  private let id = UUID(uuidString: "10000000-0000-0000-0000-000000000002")!
-
   private func client() -> BackendAccountClient {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [ModerationProtocol.self]
@@ -39,16 +37,6 @@ final class BackendCommunityModerationTests: XCTestCase {
     super.setUp()
     ModerationProtocol.sent = []
     ModerationProtocol.reply = (200, [:])
-  }
-
-  private func resource(owned: Bool, moderation: String?) -> [String: Any] {
-    var value: [String: Any] = [
-      "id": id.uuidString.lowercased(), "kind": "reply", "name": "合成模板", "description": "", "author": "测试作者",
-      "content": ["prompt": "请礼貌回复"], "revision": 1, "saves": 0, "saved": false, "owned": owned,
-      "rating_count": 0, "rating_average": 0, "my_rating": 0,
-    ]
-    if let moderation { value["moderation"] = moderation }
-    return value
   }
 
   func testRefusalCodesBecomeTheirOwnMessages() async throws {
@@ -77,70 +65,5 @@ final class BackendCommunityModerationTests: XCTestCase {
     XCTAssertEqual(BackendAccountClient.errorCode(Data(#"{"error":{"code":"blocked_content"}}"#.utf8)), "blocked_content")
     XCTAssertNil(BackendAccountClient.errorCode(Data(#"{"error":{"code":"Bad Code"}}"#.utf8)))
     XCTAssertNil(BackendAccountClient.errorCode(Data("not json".utf8)))
-  }
-
-  func testOwnListAndDetailAskForTheModerationState() async throws {
-    ModerationProtocol.reply = (200, ["items": [resource(owned: true, moderation: "removed")], "has_more": false])
-    let page = try await client().communityResources(.reply, scope: .mine, token: "token")
-    XCTAssertTrue(page.items[0].removed)
-    XCTAssertTrue(ModerationProtocol.sent[0].url.query?.contains("fields=moderation") == true)
-
-    ModerationProtocol.reply = (200, ["items": [resource(owned: false, moderation: nil)], "has_more": false])
-    let everyone = try await client().communityResources(.reply)
-    XCTAssertFalse(everyone.items[0].removed)
-    XCTAssertFalse(ModerationProtocol.sent[1].url.query?.contains("fields") == true)
-
-    ModerationProtocol.reply = (200, resource(owned: true, moderation: "pending"))
-    let detail = try await client().communityResource(id, token: "token")
-    // Pending is post-moderation: already public, so nothing is shown for it.
-    XCTAssertEqual(detail.moderation, "pending")
-    XCTAssertFalse(detail.removed)
-    XCTAssertEqual(ModerationProtocol.sent[2].url.query, "fields=moderation")
-  }
-
-  func testReportSendsTheFixedReasonAndOptionalDetail() async throws {
-    ModerationProtocol.reply = (201, ["reported": true])
-    try await client().reportContent(kind: "dictionaries", itemID: id, reason: "垃圾广告", detail: "  ", token: "token")
-    try await client().reportContent(kind: "replies", itemID: id, reason: "其他", detail: "合成说明", token: "token")
-    XCTAssertEqual(ModerationProtocol.sent.count, 2)
-    XCTAssertEqual(ModerationProtocol.sent[0].method, "POST")
-    XCTAssertEqual(ModerationProtocol.sent[0].url.path, "/v1/community/reports")
-    XCTAssertEqual(ModerationProtocol.sent[0].body["kind"] as? String, "dictionaries")
-    XCTAssertEqual(ModerationProtocol.sent[0].body["item_id"] as? String, id.uuidString.lowercased())
-    XCTAssertEqual(ModerationProtocol.sent[0].body["reason"] as? String, "垃圾广告")
-    XCTAssertNil(ModerationProtocol.sent[0].body["detail"])
-    XCTAssertEqual(ModerationProtocol.sent[1].body["detail"] as? String, "合成说明")
-  }
-
-  func testReportRejectsUnknownReasonsKindsAndLongDetail() async {
-    for (kind, reason, detail) in [("skins", "不喜欢", ""), ("users", "其他", ""), ("skins", "其他", String(repeating: "字", count: 1001))] {
-      do {
-        try await client().reportContent(kind: kind, itemID: id, reason: reason, detail: detail, token: "token")
-        XCTFail("\(kind) \(reason) was sent")
-      } catch let failure as BackendAccountClient.Failure {
-        XCTAssertEqual(failure.status, 400)
-      } catch { XCTFail("\(error)") }
-    }
-    XCTAssertTrue(ModerationProtocol.sent.isEmpty)
-  }
-  func testReportRejectsUnconfirmedResponseAndNilItemID() async throws {
-    ModerationProtocol.reply = (200, ["reported": false])
-    do {
-      try await client().reportContent(kind: "replies", itemID: id, reason: "其他", detail: "", token: "token")
-      XCTFail("unconfirmed report was accepted")
-    } catch let failure as BackendAccountClient.Failure {
-      XCTAssertEqual(failure.status, 502)
-    }
-    XCTAssertEqual(ModerationProtocol.sent.count, 1)
-
-    ModerationProtocol.sent = []
-    let nilID = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
-    do {
-      try await client().reportContent(kind: "replies", itemID: nilID, reason: "其他", detail: "", token: "token")
-      XCTFail("nil item ID was sent")
-    } catch let failure as BackendAccountClient.Failure {
-      XCTAssertEqual(failure.status, 400)
-    }
-    XCTAssertTrue(ModerationProtocol.sent.isEmpty)
   }
 }

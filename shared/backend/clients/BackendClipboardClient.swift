@@ -131,13 +131,6 @@ extension BackendAccountClient {
       case .reset: return ["op": "reset"]
       }
     }
-    /// 结果是设备状态（而不是列表或条目）的操作。
-    var reportsDevices: Bool {
-      switch self {
-      case .list, .add: return false
-      case .status, .approve, .reject, .remove, .reset: return true
-      }
-    }
     fileprivate var isValid: Bool {
       switch self {
       case .list(let search): return BackendAccountClient.validClipboardSearch(search)
@@ -214,77 +207,12 @@ extension BackendAccountClient {
     return try Self.validatedClipboardPage(data)
   }
 
-  /// 读取与发起时登录绑定的列表；令牌刷新不改变绑定，换号后不再保存密钥或发布结果。
-  func clipboard(search: String = "", e2e: BackendClipboardE2E?, session: BackendAccountSession,
-                 matchingUserID expected: String? = nil,
-                 matchingSessionID expectedSessionID: UUID? = nil) async throws -> ClipboardPage {
-    let identity = try await session.credentials(matchingUserID: expected,
-                                                 matchingSessionID: expectedSessionID)
-    let e2e = e2e?.bound(to: session, userID: identity.userID, sessionID: identity.sessionID)
-    let page = try await session.authenticated(matchingUserID: identity.userID,
-                                               matchingSessionID: identity.sessionID) { token in
-      try await clipboard(token: token, search: search, e2e: e2e)
-    }.value
-    try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
-    try Task.checkCancellation()
-    return page
-  }
-
   /// 加密后上传一段文字。本机等待批准时失败，错误码 `clipboard_device_pending`。
   func addClipboard(_ text: String, token: String, e2e: BackendClipboardE2E?) async throws -> ClipboardItem {
     let data = try await clipboardE2E(.add(text: text), token: token, e2e: e2e)
     guard let item = try? JSONDecoder().decode(ClipboardItem.self, from: data),
           Self.validClipboardItem(item) else { throw Failure(status: 0) }
     return Self.normalized(item)
-  }
-
-  /// 设备状态，或批准、拒绝、移除一台设备、重置云剪贴板之后的设备状态。
-  func clipboardDevices(_ operation: ClipboardE2EOperation = .status, token: String,
-                        e2e: BackendClipboardE2E?) async throws -> ClipboardDevices {
-    guard operation.reportsDevices else { throw Failure(status: 400) }
-    let data = try await clipboardE2E(operation, token: token, e2e: e2e)
-    return try Self.validatedClipboardDevices(data)
-  }
-
-  /// 驱动结果的 JSON 对象，形状与驱动给出的相同，先按操作校验过。供只转发结果的宿主（macOS 给 Tauri 面板的 IPC）使用。
-  func clipboardE2EObject(_ operation: ClipboardE2EOperation, token: String,
-                          e2e: BackendClipboardE2E?) async throws -> [String: Any] {
-    let data = try await clipboardE2E(operation, token: token, e2e: e2e)
-    switch operation {
-    case .list: _ = try Self.validatedClipboardPage(data)
-    case .add:
-      guard let item = try? JSONDecoder().decode(ClipboardItem.self, from: data),
-            Self.validClipboardItem(item) else { throw Failure(status: 0) }
-    case .status, .approve, .reject, .remove, .reset: _ = try Self.validatedClipboardDevices(data)
-    }
-    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Failure(status: 0) }
-    return object
-  }
-
-  func setClipboardPinned(id: String, pinned: Bool, token: String) async throws {
-    guard Self.validClipboardID(id) else { throw Failure(status: 400) }
-    struct Body: Encodable { let pinned: Bool }
-    _ = try await request("PUT", "/v1/users/me/clipboard/" + id + "/pin", token: token,
-                          body: JSONEncoder().encode(Body(pinned: pinned)))
-  }
-  /// `days` 取 `clipboardRetentionDays` 中的一个值；0 表示保留到删除为止。
-  func setClipboardRetention(days: Int, token: String) async throws {
-    guard Self.clipboardRetentionDays.contains(days) else { throw Failure(status: 400) }
-    struct Body: Encodable { let days: Int }
-    _ = try await request("PUT", "/v1/users/me/clipboard/retention", token: token,
-                          body: JSONEncoder().encode(Body(days: days)))
-  }
-  /// 关闭时服务端连同条目、密钥、封装和全部设备登记一起删除。
-  func setClipboardEnabled(_ enabled: Bool, token: String) async throws {
-    struct Body: Encodable { let enabled: Bool }
-    _ = try await request("PUT", "/v1/users/me/clipboard/settings", token: token,
-                          body: JSONEncoder().encode(Body(enabled: enabled)))
-  }
-  func deleteClipboard(id: String? = nil, token: String) async throws {
-    if let id {
-      guard Self.validClipboardID(id) else { throw Failure(status: 400) }
-    }
-    _ = try await request("DELETE", "/v1/users/me/clipboard" + (id.map { "/" + $0 } ?? ""), token: token)
   }
 
   private static func clipboardDriverStep(_ e2e: BackendClipboardE2E, _ input: [String: Any]) throws -> [String: Any] {
@@ -317,20 +245,6 @@ extension BackendAccountClient {
     // 较新的可选字段解析不了时降级处理，而不是让整页失败，和 Android 客户端一样：未知的保留天数当作缺省，空的或不可用的设备名直接丢弃。
     let retention = page.retention_days.flatMap { clipboardRetentionDays.contains($0) ? $0 : nil }
     return ClipboardPage(enabled: page.enabled, items: page.items.map(normalized), retention_days: retention, e2e: page.e2e)
-  }
-
-  private static func validatedClipboardDevices(_ data: Data) throws -> ClipboardDevices {
-    guard let value = try? JSONDecoder().decode(ClipboardDevices.self, from: data),
-          ["ready", "pending", "disabled"].contains(value.status),
-          validClipboardDeviceID(value.device_id), validClipboardCode(value.code),
-          value.devices.count <= 20,
-          value.devices.allSatisfy({ device in
-            validClipboardDeviceID(device.device_id) && validClipboardCode(device.code)
-              && validClipboardDevice(device.name)
-              && device.created_at.utf8.count <= 128
-              && !device.created_at.unicodeScalars.contains { $0.properties.generalCategory == .control }
-          }) else { throw Failure(status: 0) }
-    return value
   }
 
   private static func normalized(_ item: ClipboardItem) -> ClipboardItem {

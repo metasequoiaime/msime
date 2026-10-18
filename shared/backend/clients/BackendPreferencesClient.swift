@@ -22,6 +22,7 @@ enum BackendPreferenceValue: Codable, Equatable, Sendable {
     switch self { case .boolean: return "boolean"; case .integer: return "integer"; case .number: return "number"; case .string: return "string" }
   }
 }
+/// macOS 桌面设置同步在 Swift 里做的合并（`mergedPreferences`）用的几种形状：字段表和云端文档由 Rust 的 `preferences_schema`、`preferences_load` 给，上传用 `preferences_put`（#8201 迁移计划 4e）。
 extension BackendAccountClient {
   struct Preferences: Codable, Sendable {
     let revision: Int64
@@ -34,16 +35,6 @@ extension BackendAccountClient {
     let update_mode: String
     let revision_required: Bool
   }
-  func preferences(token: String) async throws -> Preferences {
-    let value: Preferences = try await json("GET", "/v1/users/me/preferences", token: token)
-    guard Self.validPreferences(value) else { throw Failure(status: 0) }
-    return value
-  }
-  func preferenceSchema(token: String) async throws -> PreferenceSchema {
-    let value: PreferenceSchema = try await json("GET", "/v1/users/me/preferences/schema", token: token)
-    guard Self.validPreferenceSchema(value) else { throw Failure(status: 0) }
-    return value
-  }
   /// 把本机要上传的值并进云端文档。只上传服务端字段表（`/preferences/schema`）里有的键，与 Android（host-api `android_data.rs`）和 Tauri 的 iOS 工程（`ios_account.rs`）一样：客户端比服务端新、多出一个服务端还不认识的键时，那一项留在本机，其余照常上传，不让整次上传失败。字段表里有、类型却对不上的值仍然拒绝；一项都不在字段表里时也拒绝，免得把一份什么也没改的文档当成上传成功。
   static func mergedPreferences(_ base: Preferences, replacing values: [String: BackendPreferenceValue], schema: PreferenceSchema) throws -> Preferences {
     guard validPreferences(base), validPreferenceSchema(schema) else { throw Failure(status: 0) }
@@ -54,20 +45,11 @@ extension BackendAccountClient {
       known[key] = value
     }
     guard !known.isEmpty else { throw Failure(status: 503) }
-    // Preserve every other platform's fields. A revision conflict is never resolved by replaying the stale document: the 设置同步 page returns it to the user, and automatic sync (`CloudSync`) fetches the cloud again and merges onto that before retrying.
+    // Preserve every other platform's fields. 修订号冲突时不拿旧文档重放：设置同步页把冲突交给用户，重新读取云端以后再合并。
     let merged = Preferences(revision: base.revision, settings: base.settings.merging(known) { _, new in new })
     guard validPreferences(merged), try JSONEncoder().encode(merged).count <= min(schema.maximum_bytes, 1024 * 1024) else { throw Failure(status: 400) }
     return merged
   }
-  func putPreferences(_ preferences: Preferences, token: String) async throws -> Preferences {
-    guard Self.validPreferences(preferences) else { throw Failure(status: 400) }
-    let body = try JSONEncoder().encode(preferences)
-    guard body.count <= 1024 * 1024 else { throw Failure(status: 400) }
-    let result: Preferences = try await json("PUT", "/v1/users/me/preferences", token: token, body: body)
-    guard Self.validPreferences(result) else { throw Failure(status: 0) }
-    return result
-  }
-
   private static func validPreferences(_ value: Preferences) -> Bool {
     value.revision >= 0 && value.settings.count <= 512
       && value.settings.allSatisfy { key, setting in

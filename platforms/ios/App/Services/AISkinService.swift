@@ -1,14 +1,10 @@
 import Foundation
 
-@_silgen_name("msime_client_ai_skin_plan")
-private func msimeClientAISkinPlan(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
-
 struct AISkinProposal: Identifiable, Sendable {
   let id = UUID()
   let name: String
   let description: String
   let design: CustomKeyboardSkin
-  var artworkPrompt: String? = nil
 }
 
 enum AISkinService {
@@ -18,35 +14,7 @@ enum AISkinService {
     return "这是一次随机皮肤抽卡。分别围绕以下三个灵感创作三套主题，每套对应一个场景：\(selected)。自由设计原创角色、插画风格和配色，三套键帽造型与材质都要不同，文字清晰。不要使用已有品牌或角色。"
   }
 
-  /// 系统提示词与答案的解析都在 Rust（`msime_client_ai_skin_plan`）：提示词点名的文档格式就是解析器认的格式，两者不能分开。HTTP 暂时仍由 Swift 发。
-  static func messages(prompt: String, model: String) throws -> [BackendAccountClient.ChatMessage] {
-    struct Compose: Decodable {
-      struct Body: Decodable { let messages: [BackendAccountClient.ChatMessage] }
-      let path: String
-      let body: Body
-    }
-    guard let compose = plan(["operation": "compose", "prompt": prompt, "model": model], as: Compose.self),
-          compose.path == "/v1/chat/completions" else {
-      throw ServiceFailure(message: "无法生成抽卡灵感，请重试。")
-    }
-    return compose.body.messages
-  }
-
-  /// 模型的回答经 Rust 校验成三套可用的设计，配色对比度不足的已修正；不合格（不是三套、造型材质或背景场景重复、参数越界、多出字段）时整批拒绝。
-  static func parse(_ text: String) throws -> [AISkinProposal] {
-    struct Plan: Decodable {
-      let name: String
-      let description: String
-      let artworkPrompt: String
-      let design: CustomKeyboardSkin
-    }
-    guard let plans = plan(["operation": "parse", "text": text], as: [Plan].self), plans.count == 3 else {
-      throw ServiceFailure(message: "AI 返回的皮肤方案不可用，请重新生成。")
-    }
-    return plans.map { .init(name: $0.name, description: $0.description, design: $0.design, artworkPrompt: $0.artworkPrompt) }
-  }
-
-  /// 发给模型的描述。Rust 的 compose 拒收一切控制字符、按 Unicode 标量数限 500 个，而描述来自多行输入框：去掉首尾空白，内部的换行和制表符连同两侧空白折成一个空格；折完仍超过 500 个 Unicode 标量（emoji 常常一个字形占好几个）或含其他控制字符时为 nil，好在联网之前就提示，而不是白发一次模型目录请求再报「无法生成」。
+  /// 发给 Rust 的描述。Rust 拒收一切控制字符、按 Unicode 标量数限 500 个，而描述来自多行输入框：去掉首尾空白，内部的换行和制表符连同两侧空白折成一个空格；折完仍超过 500 个 Unicode 标量（emoji 常常一个字形占好几个）或含其他控制字符时为 nil，好在联网之前就提示，而不是白发一次模型目录请求再报「无法生成」。
   static func requestPrompt(_ text: String) -> String? {
     let folded = text.components(separatedBy: CharacterSet.newlines.union(CharacterSet(charactersIn: "\t")))
       .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -57,16 +25,9 @@ enum AISkinService {
     return folded
   }
 
-  /// 与 Rust compose 的上限相同，按 Unicode 标量（Rust 的 char）计。
+  /// 与 Rust 的上限相同，按 Unicode 标量（Rust 的 char）计。
   static let maximumPromptScalars = 500
 
-  /// 调 `msime_client_ai_skin_plan`，成功时把 value 解成 `type`；被拒绝或读不懂时为 nil。
-  private static func plan<Value: Decodable>(_ request: [String: Any], as type: Value.Type) -> Value? {
-    guard let value = ClientRequestEnvelope.call(msimeClientAISkinPlan, request),
-          JSONSerialization.isValidJSONObject(value),
-          let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
-    return try? JSONDecoder().decode(type, from: data)
-  }
   /// 三套带插画的皮肤（Rust 的 `msime_client_ai_skin_generate`，#8201 迁移计划 4c）：提示词、模型的回答、三张插画和账号都在 Rust 里，一次生成从头到尾用开始时的账号；每完成一张插画调一次 `progress`。这一页只给登录账号用（Rust 也接受匿名账号，与原来一样不放开），没登录时是 `account_unauthorized`。任务取消时 Rust 随即以 `ai_skin_cancelled` 结束，这里换成 `CancellationError`。
   static func generate(_ prompt: String,
                        rust: @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() },

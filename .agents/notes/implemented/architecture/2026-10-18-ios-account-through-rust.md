@@ -30,6 +30,8 @@ App 和键盘扩展读写同一份会话：登录会话和云剪贴板密钥串�
 
 - **收益**：iOS App 的登录会话只由 Rust 刷新和改写，「我的设备」显示 iOS 和机型，注销需要最近登录时有明确提示，锁屏或权限问题读不了会话时不再被当作已退出，AI 对话边生成边显示、能停下来，限流时说清要等多久。
 - **代价**：KeyboardTests 新增替身函数表（`platforms/ios/KeyboardTests/core/FakeRustTable.swift`），页面测试只断言发出的 action、绑定和提示，HTTP 和会话行为由 host-api 和 client-services 的测试覆盖；扩展仍有一份 Swift 会话实现。
+- **删掉的**（4g 的 iOS 和 shared/backend 部分）：`shared/backend` 里 iOS App 和共用三页原来用的 Swift 传输——AI 候选（`BackendAiClient`）、AI 插画（`BackendSkinArtworkClient`）、常用语（`BackendPhrasesClient`）、打字统计上传与 QQ 群助手（`BackendTypingUploadClient`）、云同步策略（`BackendSyncPolicy`）、iOS 设置映射（`IOSPreferencePlan`），以及设置、候选调频、云词库、社区资源、整份快照、对话和 App 云剪贴板页的 HTTP 调用，只留页面还在解码的类型；iOS 里 AI 皮肤的 `msime_client_ai_skin_plan` 包装。对应的测试一起删掉或改写。键盘扩展还在用的 Swift 会话 actor、匿名账号、释义传输和云剪贴板的端到端加密传输留着；macOS「本机账号」卡片用的改名、资料和注销留着。
+- **还没删的、待负责人同意**：macOS `src/cloud/` 和 `src/core/Account*` 里没人引用的 Objective-C 代码，计划第 4g 步写明单独一个提交、等负责人同意。
 - **行为变化（4d）**：设置按键三方合并、常用语按正文三方合并，删掉的不再复活；云端被清空时多一个「关闭同步，保留本机」；同一个账号重新登录保留同步进度；调频设置开始同步，触感强度「跟随系统」也上传。
 - **行为变化**：资料页只显示 Google 身份的验证邮箱，邮箱登录的账号显示「通过邮箱登录」；社区的服务端细码（例如「下载使用后才能评分」「最多发布 50 款」）被 Rust 归并成禁止、冲突两类，提示跟着变泛；退出时断网，本机已经退出，资料页照样退回并说明服务端没撤销成；登录换号时取消旧快照失败不再挡住登录。
 
