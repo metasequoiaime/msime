@@ -17,6 +17,7 @@ fn main() {
     // voice_capture_devices.mm includes this; the path moved with `refactor(macos): organize tests by
     // feature area` and the stale one meant an edit to the header rebuilt nothing.
     println!("cargo:rerun-if-changed=../../platforms/macos/src/voice/VoiceCaptureDevice.h");
+    println!("cargo:rerun-if-changed=native/updater.mm");
     cc::Build::new()
         .cpp(true)
         .file("native/keyboard.mm")
@@ -26,6 +27,7 @@ fn main() {
         .file("native/dictionary.mm")
         .file("native/file_picker.mm")
         .file("native/process.mm")
+        .file("native/updater.mm")
         .flag("-fobjc-arc")
         .std("c++17")
         .compile("msime_macos_keyboard");

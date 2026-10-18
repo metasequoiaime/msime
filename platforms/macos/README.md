@@ -93,9 +93,11 @@ workflow 曾经读取的是括号里的名字，而仓库的 secrets 是以前�
 
 装好之后，输入法本体（`~/Library/Input Methods` 里的那份）经 Sparkle 自己更新，不用再下载 DMG。只有带 Sparkle 私钥打出的发布包有这条路径：`release-macos.yml` 把仓库 secret `SPARKLE_ED_PRIVATE_KEY`（Sparkle 的 EdDSA 私钥）交给 `package-release.sh`，后者先核对它与 `sparkle-public-key.txt` 里的公钥是一对，再以 `-DMSIME_SPARKLE_APPCAST_BASE_URL` 配置 CMake，输入法的 Info.plist 于是带上 `SUFeedURL`（`https://github.com/metasequoiaime/msime/releases/download/macos-appcast/appcast-<版本 id>.xml`，`edition_bundle.py` 把 full 的改成各版本的）、`SUPublicEDKey`、`SURequireSignedFeed`、`SUVerifyUpdateBeforeExtraction`、每天一次的自动检查和静默更新。现在这对密钥是 2026-10-15 换的（见 `.agents/notes/implemented/process/2026-10-15-macos-sparkle-key-rotation.md`），私钥的备份在维护者的密码管理器里。不要再换：已经装上的输入法只认 `sparkle-public-key.txt` 里的公钥，换了它们就再也收不到更新。每个版本另出一个签好名的 `<dmg_prefix>-VERSION-input-method.zip`（随 DMG 挂在 `macos-vVERSION` 上、写进 SHA256SUMS）和一份用 Sparkle 的 `generate_appcast` 签过的 `appcast-<版本 id>.xml`。main 上的正式版发布后，workflow 把这些 appcast 传到滚动的 `macos-appcast` release（预发布、不设为 latest），已发布的 appcast 版本更高时停下。beta、alpha 和 nightly 的输入法同样带 feed，但它们自己不进 appcast。没有这个 secret 的构建（fork、开发构建）不带任何 Sparkle 键，输入法与设置应用的「检查更新…」照旧打开官网下载页（`msime.app/download/?platform=macos`），那里有 GitHub 和国内镜像两种下载。
 
+设置应用的「检查更新」在带 feed 的发布包中也使用 Sparkle：它读取独立的 `appcast-settings-<版本 id>.xml`，下载完整应用、验证签名、替换并重启，启动时再安装内嵌的新输入法。发布产物同时包含 `<dmg_prefix>-VERSION-settings.zip`。设置应用沿用输入法的公钥与单调构建号；无 feed 的开发包保留官网下载入口。旧版设置应用首次接入仍需安装一次带此能力的新版本。
+
 Sparkle 跑在输入法进程里，几处默认行为对它不合适，`src/core/UpdateController.mm` 改掉了：输入法是 `LSBackgroundOnly`，Sparkle 的提醒窗口会从正在打字的应用那里抢走焦点，所以后台检查到的更新只静默下载，由委托接管安装时机，在用户切到别的输入源时安装（`input_method_main.mm` 的 `switchedAway`），应用退出时 Sparkle 也会装；装完不重新拉起，系统在下次需要时从新 bundle 拉起它。独立设置窗口只在以 `--preferences` 参数启动输入法 bundle 时出现（`src/input/input_method_main.mm` 的 `MSIMEShouldShowPreferences`），不带参数直接启动 bundle 不会打开它。手动「检查更新…」显示 Sparkle 自己的界面。
 
-Sparkle 只更新输入法本体，`/Applications` 里的设置应用要等用户装下一个 DMG。设置应用启动时从不把已装的输入法降级（`macos_input_source.rs`），反过来输入法比设置应用新是安全的方向：新的读旧的写下的配置。Sparkle 的安装进程只用标准比较器比新旧 bundle 的 `CFBundleVersion`，所以它由 CMake 按 `((主 × 1000 + 次) × 1000 + 修订) × 1000 + build-number.txt` 算出，跨版本单调递增，见 `CMakeLists.txt`。
+输入法和设置应用可以分别更新。设置应用启动时从不把已装的输入法降级（`macos_input_source.rs`），反过来输入法比设置应用新是安全的方向：新的读旧的写下的配置。Sparkle 的安装进程只用标准比较器比新旧 bundle 的 `CFBundleVersion`，所以它由 CMake 按 `((主 × 1000 + 次) × 1000 + 修订) × 1000 + build-number.txt` 算出，跨版本单调递增，设置应用也使用同一个值，见 `CMakeLists.txt`。
 
 ### Homebrew
 

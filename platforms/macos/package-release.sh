@@ -23,7 +23,7 @@
 #   MACOS_SIGNING_IDENTITY        a "Developer ID Application: ... (TEAMID)" identity in the keychain. Without it everything is signed ad-hoc: the package builds and the settings app runs, but macOS will not register the embedded input method as an input source (see scripts/install.sh)
 #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD
 #                                 when all three are set (and an identity is), the DMG is notarized and stapled
-#   MSIME_SPARKLE_PRIVATE_KEY     Sparkle's base64 EdDSA private key (the 32-byte seed `generate_keys -x` exports, or Sparkle's older 96-byte form) matching platforms/macos/sparkle-public-key.txt. With it (and an identity) the input method gets a Sparkle feed, and OUT_DIR also receives one <dmg_prefix>-VERSION-input-method.zip and one appcast-<edition>.xml per edition. Without it the input method has no feed and updates through the download page, as before
+#   MSIME_SPARKLE_PRIVATE_KEY     与 platforms/macos/sparkle-public-key.txt 对应的 base64 EdDSA 私钥（generate_keys -x 导出的 32 字节种子或旧版 96 字节格式）。同时具备私钥和签名身份时，每个发行版本生成输入法与完整设置应用的签名归档和独立 appcast；缺少时不配置更新通道，保留下载页入口
 #   MSIME_SPARKLE_APPCAST_BASE_URL    where the appcast-<edition>.xml files are served; defaults to the macos-appcast release
 #   MSIME_SPARKLE_DOWNLOAD_URL_PREFIX where the update zips are served; defaults to the macos-vVERSION release
 #
@@ -58,7 +58,7 @@ out_dir="${2:-$repo_root/target/macos-package/dist}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$repo_root/target}"
 build_dir="${MSIME_MACOS_BUILD_DIR:-$repo_root/target/macos-release}"
 identity="${MACOS_SIGNING_IDENTITY:-}"
-# Sparkle 更新的是 ~/Library/Input Methods 里的输入法本体：每个版本一个签好名的 zip、一份用私钥签过的 appcast。Sparkle 还要求新 bundle 与已装的出自同一签名身份，ad-hoc 包无从更新，所以没有 Developer ID 时不开 feed。
+# Sparkle 分别更新 ~/Library/Input Methods 里的输入法和完整设置应用，各自使用签名归档与 appcast。新 bundle 必须与已安装副本出自同一签名身份，因此没有 Developer ID 时不开 feed。
 sparkle_key="${MSIME_SPARKLE_PRIVATE_KEY:-}"
 sparkle_appcast_base=""
 if [ -n "$sparkle_key" ] && [ -z "$identity" ]; then
@@ -248,10 +248,32 @@ tauri_bundle_dir="$CARGO_TARGET_DIR/release/bundle/macos"
 glosses="$repo_root/target/macos/offline-glosses"
 
 mkdir -p "$out_dir"
-rm -f "$out_dir/SHA256SUMS" "$out_dir"/appcast-*.xml "$out_dir"/*-input-method.zip
+rm -f "$out_dir/SHA256SUMS" "$out_dir"/appcast-*.xml "$out_dir"/*-input-method.zip "$out_dir"/*-settings.zip
 dmgs=()
 # 更新 zip 随 DMG 一起挂在 macos-vVERSION 上并写进 SHA256SUMS；appcast 挂在滚动的 macos-appcast 上，不写进去。
 update_zips=()
+
+# 同一种签名与校验流程分别生成输入法和完整设置应用的更新归档。
+create_sparkle_update() {
+  local bundle="$1" archive_name="$2" feed_name="$3"
+  local update_zip="$out_dir/$archive_name" appcast_dir="$work/$feed_name"
+  local appcast="$out_dir/$feed_name" feed build_version
+  rm -f "$update_zip"
+  ditto -c -k --sequesterRsrc --keepParent "$bundle" "$update_zip"
+  rm -rf "$appcast_dir"
+  mkdir -p "$appcast_dir"
+  cp "$update_zip" "$appcast_dir/"
+  printf '%s' "$sparkle_key" | "$MSIME_SPARKLE_ROOT/bin/generate_appcast" --ed-key-file - \
+    --download-url-prefix "$sparkle_download_prefix" -o "$appcast" "$appcast_dir"
+  feed="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$bundle/Contents/Info.plist")"
+  [ "$feed" = "${sparkle_appcast_base}$feed_name" ] || { echo "unexpected Sparkle feed for $edition" >&2; exit 1; }
+  build_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$bundle/Contents/Info.plist")"
+  grep -qF "url=\"$sparkle_download_prefix$(basename "$update_zip")\"" "$appcast" || { echo "$appcast points at a different archive" >&2; exit 1; }
+  grep -qF "<sparkle:version>$build_version</sparkle:version>" "$appcast" || { echo "$appcast offers a different build" >&2; exit 1; }
+  grep -qF 'sparkle:edSignature=' "$appcast" || { echo "$appcast has no archive signature" >&2; exit 1; }
+  grep -qF 'sparkle-signatures:' "$appcast" || { echo "$appcast has no feed signature" >&2; exit 1; }
+  update_zips+=("$update_zip")
+}
 
 # 打一个版本：暂存该版本的资源和输入法 bundle，打设置应用，出 DMG 并在挂载后的 DMG 里再检查一遍。下面这些变量对当前版本有效，check_app 也读它们。
 package_edition() {
@@ -284,28 +306,9 @@ else
 fi
 codesign --verify --deep --strict "$staged_bundle"
 
-# ---- Sparkle update for this edition ----
-# 更新包就是这个签好名的输入法 bundle（DMG 公证时其中的代码一并公证）。generate_appcast 解开它读版本、用私钥签名，目录里只放这一个 zip，所以 appcast 只有这一版、不生成增量包。
+# ---- Sparkle 输入法更新 ----
 if [ -n "$sparkle_key" ]; then
-  update_zip="$out_dir/$dmg_prefix-$version-input-method.zip"
-  rm -f "$update_zip"
-  ditto -c -k --sequesterRsrc --keepParent "$staged_bundle" "$update_zip"
-  appcast_dir="$work/appcast-$edition"
-  rm -rf "$appcast_dir"
-  mkdir -p "$appcast_dir"
-  cp "$update_zip" "$appcast_dir/"
-  appcast="$out_dir/appcast-$edition.xml"
-  printf '%s' "$sparkle_key" | "$MSIME_SPARKLE_ROOT/bin/generate_appcast" --ed-key-file - \
-    --download-url-prefix "$sparkle_download_prefix" -o "$appcast" "$appcast_dir"
-  feed="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$staged_bundle/Contents/Info.plist")"
-  [ "$feed" = "${sparkle_appcast_base}appcast-$edition.xml" ] || { echo "$edition reads its updates from $feed, not appcast-$edition.xml" >&2; exit 1; }
-  build_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$staged_bundle/Contents/Info.plist")"
-  grep -qF "url=\"$sparkle_download_prefix$(basename "$update_zip")\"" "$appcast" || { echo "$appcast does not point at $(basename "$update_zip")" >&2; exit 1; }
-  grep -qF "<sparkle:version>$build_version</sparkle:version>" "$appcast" || { echo "$appcast does not offer build $build_version" >&2; exit 1; }
-  grep -qF 'sparkle:edSignature=' "$appcast" || { echo "$appcast has no EdDSA signature for the zip" >&2; exit 1; }
-  # 输入法开了 SURequireSignedFeed，没有签名的 appcast 会被整份拒收。
-  grep -qF 'sparkle-signatures:' "$appcast" || { echo "$appcast is not signed itself" >&2; exit 1; }
-  update_zips+=("$update_zip")
+  create_sparkle_update "$staged_bundle" "$dmg_prefix-$version-input-method.zip" "appcast-$edition.xml"
 fi
 
 # ---- Settings app for this edition ----
@@ -347,6 +350,8 @@ app_name="$(basename "$app")"
 # Tauri copies resources by following symlinks, which turns Sparkle.framework's links into duplicate files and drops the directory links, and codesign then rejects the nested bundle ("invalid Info.plist (plist or signature have been modified)"). The signed bundle staged above is copied back over it with ditto, which keeps the links; the settings app's installer recreates them in ~/Library/Input Methods the same way.
 find "$app/Contents/Resources" -maxdepth 1 -name '*.app' -exec rm -rf {} +
 ditto "$staged_bundle" "$app/Contents/Resources/$bundle_name"
+# 完整应用沿用输入法的构建号、公钥与框架，但读取独立的设置应用 feed。
+python3 platforms/macos/scripts/settings_updater.py --app "$app" --input-method "$staged_bundle" --edition "$edition"
 # A helper executable beside the app's own is signed on its own first, and the outer signature below seals it.
 ditto "$universal_dir/msime-mcp" "$app/Contents/MacOS/msime-mcp"
 sign "$app/Contents/MacOS/msime-mcp"
@@ -376,6 +381,13 @@ codesign --verify --deep --strict "$app"
 check_app() {
   local root="$1"
   local resources_dir="$root/Contents/Resources"
+  if [ -n "$sparkle_key" ]; then
+    # 两份应用必须保持同一个单调构建号，设置应用只读取自己的已签名通道。
+    test "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$root/Contents/Info.plist")" = "${sparkle_appcast_base}appcast-settings-$edition.xml"
+    test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$root/Contents/Info.plist")" = "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$staged_bundle/Contents/Info.plist")"
+    test "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$root/Contents/Info.plist")" = "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$staged_bundle/Contents/Info.plist")"
+    test -d "$root/Contents/Frameworks/Sparkle.framework"
+  fi
   test -d "$resources_dir/EngineResources"
   cargo run --quiet --locked -p msime-client-core --example verify_resources -- --omit-on-demand --edition "$edition" "$resources_dir/EngineResources" >/dev/null
   for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt wubi86_helpcode.txt NOTICE.md NOTICE-jiajia.md NOTICE-wubi86.md; do
@@ -529,6 +541,10 @@ resources_kib="$(du -sk "$app/Contents/Resources" | cut -f1)"
 echo "DMG size: $dmg_bytes bytes; Contents/Resources: $resources_kib KiB"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   printf '### macOS package size\n\n- %s: %s bytes\n- Contents/Resources: %s KiB\n' "$(basename "$dmg")" "$dmg_bytes" "$resources_kib" >> "$GITHUB_STEP_SUMMARY"
+fi
+# 完整应用也已随 DMG 完成签名与公证，再生成供设置应用直接安装的归档。
+if [ -n "$sparkle_key" ]; then
+  create_sparkle_update "$app" "$dmg_prefix-$version-settings.zip" "appcast-settings-$edition.xml"
 fi
 dmgs+=("$dmg")
 }
