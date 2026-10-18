@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SettingsGroupNote } from "../settings-group-note";
 import * as settings from "../settings-style";
 import { SettingsManagerBlock } from "../settings-manager-block";
@@ -64,6 +64,9 @@ export function DictionarySettingsPage() {
     dictionaryFailures,
     dictionarySnapshotError,
     phraseNotice,
+    learnedDataError,
+    learnedDataNotice,
+    clearPhraseFeedback,
     phraseSearch,
     setPhraseSearch,
     setPhraseForm,
@@ -102,6 +105,19 @@ export function DictionarySettingsPage() {
       />
     </GroupList>
   );
+  // 「清除全部学习数据」在「管理词库」页末，桌面把它的结果画在「学习数据」组里、按钮下面：画在页顶的话，用户滚到页末点完按钮什么也看不到。
+  const learnedDataFeedback =
+    learnedDataError || learnedDataNotice ? (
+      <>
+        {learnedDataError && <ErrorAlert>{learnedDataError}</ErrorAlert>}
+        {learnedDataNotice && (
+          <SettingsEmptyMessage compact role="status">
+            {learnedDataNotice}
+          </SettingsEmptyMessage>
+        )}
+      </>
+    ) : null;
+  // 等待同步、快照错误和失败记录是词库本身的状态，导入后由重新读取的列表带回来；桌面画在标签下、面板之上，在哪个标签上都看得到，重试和移除按钮也只有这一份。操作结果（`phraseError`、`phraseNotice`）同样画在这里，但切换标签时清掉。
   const feedback = (
     <>
       {dictionaryPendingCount > 0 && (
@@ -124,20 +140,31 @@ export function DictionarySettingsPage() {
           {phraseNotice}
         </SettingsEmptyMessage>
       )}
+      {/* 手机直列，清除学习数据的结果仍和其他提示画在一起，位置不变。 */}
+      {mobilePlatform && learnedDataFeedback}
     </>
   );
   const tabs =
     client.cloudDictionary && !mobilePlatform
       ? ([...dictionaryTabs, cloudDictionaryTab] as const)
       : dictionaryTabs;
-  const { tabList, panel } = useSettingsTabs(
-    tabs.filter((tab) => tab.id !== "lookup" || Boolean(client.dictionary)),
+  const shownTabs = tabs.filter((tab) => tab.id !== "lookup" || Boolean(client.dictionary));
+  const { tabList, panel, selected } = useSettingsTabs(
+    shownTabs,
     "词库设置分类",
-    !mobilePlatform,
+    // 没有本地词库的桌面宿主只剩「管理词库」一项，没有可切换的东西，像手机一样不画标签栏、直接展示。不在列表里的两个面板这时内容为空（「查找词库」要本地词库，「云端词库」有了才会进列表），不会多出东西。
+    !mobilePlatform && shownTabs.length > 1,
     dictionaryTab,
     setDictionaryTab,
     settings.dictionaryTabs,
   );
+  // 桌面切换标签时清掉上一个标签留下的操作结果，例如「查找词库」里的查询错误不该留在「管理词库」的导入导出上面；外壳从别处切换标签（账号页打开「云端词库」）也一样。手机没有标签，不受影响。
+  const shownTab = useRef(selected);
+  useEffect(() => {
+    if (shownTab.current === selected) return;
+    shownTab.current = selected;
+    if (!mobilePlatform) clearPhraseFeedback();
+  });
   // HarmonyOS 手机按 Android 的词库页布局：按词库列出，点进去编辑，而不是这张按种类查词条的桌面表单。它在打开时读词库和社区列表，所以只在本页可见时挂载。
   if (harmonyPlatform && mobilePlatform) {
     return (
@@ -425,6 +452,9 @@ export function DictionarySettingsPage() {
                 disabled={phraseBusy}
                 label="清除全部学习数据"
               />
+              {!mobilePlatform && learnedDataFeedback && (
+                <SettingsManagerBlock>{learnedDataFeedback}</SettingsManagerBlock>
+              )}
             </GroupList>
           )}
         </>,

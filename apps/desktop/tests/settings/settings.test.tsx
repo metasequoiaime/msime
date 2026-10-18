@@ -3475,8 +3475,8 @@ test("the desktop transfer kind stays synchronized with lookup and export", asyn
   );
 });
 
-// 没有本地词库的桌面宿主没有可查的东西：只留「管理词库」，打开词库页不落在一张空白的标签上。
-test("a desktop host without the local dictionary opens 词库 on 管理词库", async () => {
+// 没有本地词库的桌面宿主没有可查的东西：只剩「管理词库」一项，不画只有一个标签的标签栏，直接展示管理内容，打开词库页也不落在一张空白的标签上。
+test("a desktop host without the local dictionary shows 管理词库 without a tab list", async () => {
   render(
     <SettingsPage
       initialPage="dictionary"
@@ -3489,12 +3489,11 @@ test("a desktop host without the local dictionary opens 词库 on 管理词库",
     />,
   );
   await settingsReady();
-  const tabs = screen.getByRole("tablist", { name: "词库设置分类" });
-  expect(within(tabs).queryByRole("tab", { name: "查词库" })).toBeNull();
-  expect(within(tabs).getByRole("tab", { name: "管理词库" }).getAttribute("aria-selected")).toBe(
-    "true",
-  );
+  expect(screen.queryByRole("tablist", { name: "词库设置分类" })).toBeNull();
+  expect(screen.queryByRole("tab", { name: "管理词库" })).toBeNull();
+  // `getByRole` 跳过隐藏的元素：云词库入口就在用户眼前。
   expect(screen.getByRole("region", { name: "云词库" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "打开云词库" })).toBeTruthy();
 });
 
 test("dictionary fallback import uses 10000 by default and preserves an explicit zero", async () => {

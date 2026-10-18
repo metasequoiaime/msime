@@ -15,9 +15,10 @@ export function useSettingsTabs<T extends string>(
   onSelectionChange?: (selection: T) => void,
   tabListClassName?: string,
 ) {
-  const [internalSelection, setInternalSelection] = useState<T>(tabs[0].id);
+  // null 表示用户还没点过标签：这时选中的始终是当前的第一个标签，宿主能力晚到、默认标签后出现时也会落到它上面；用户点过之后就一直尊重这次选择。
+  const [internalSelection, setInternalSelection] = useState<T | null>(null);
   const selection = controlledSelection ?? internalSelection;
-  const selected = tabs.some((tab) => tab.id === selection) ? selection : tabs[0].id;
+  const selected = tabs.some((tab) => tab.id === selection) ? (selection as T) : tabs[0].id;
   const select = onSelectionChange ?? setInternalSelection;
   const id = useId();
   const tabList = enabled ? (

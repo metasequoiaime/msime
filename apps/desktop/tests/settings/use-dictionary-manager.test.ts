@@ -401,14 +401,17 @@ test.each(["export", "reset"] as const)(
         if (action === "export") await result.current.exportPhrases();
         else await result.current.resetLearnedData();
       });
-      const notice = result.current.phraseNotice;
+      // 清除学习数据的结果单独存放，桌面把它画在「学习数据」组里。
+      const shown = () =>
+        action === "export" ? result.current.phraseNotice : result.current.learnedDataNotice;
+      const notice = shown();
       expect(notice).toContain(action === "export" ? "已导出 1 条用户词条" : "已清除所有学习数据");
       expect(list).not.toHaveBeenCalled();
       await act(async () => vi.advanceTimersByTimeAsync(280));
       expect(list).toHaveBeenCalledOnce();
-      expect(result.current.phraseNotice).toBe(notice);
+      expect(shown()).toBe(notice);
       act(() => result.current.setPhraseSearch("synthetic-query"));
-      expect(result.current.phraseNotice).toBe("");
+      expect(shown()).toBe("");
     } finally {
       unmount();
       vi.useRealTimers();

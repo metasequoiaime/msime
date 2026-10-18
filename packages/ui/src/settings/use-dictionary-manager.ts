@@ -73,6 +73,9 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   const [dictionaryFailures, setDictionaryFailures] = useState<DictionaryFailure[]>([]);
   const [dictionarySnapshotError, setDictionarySnapshotError] = useState("");
   const [phraseNotice, setPhraseNotice] = useState("");
+  // 「清除全部学习数据」的结果单独存放：桌面把它画在页末「学习数据」组旁边，按钮就在那里，其余词库操作的结果画在页顶。
+  const [learnedDataError, setLearnedDataError] = useState("");
+  const [learnedDataNotice, setLearnedDataNotice] = useState("");
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<DictionaryPhraseForm | null>(null);
   const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
@@ -118,14 +121,28 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     setPhraseBusy(false);
   }, [client.dictionary, client.resetLearnedData, client.saveExport]);
 
+  /** 清掉词库操作留下的提示，包括清除学习数据的结果。查询条件变化、新操作开始时都会清；桌面切换词库页标签时也调用它，提示只留在产生它的那个标签上。 */
+  function clearPhraseFeedback() {
+    setPhraseError("");
+    setPhraseNotice("");
+    setLearnedDataError("");
+    setLearnedDataNotice("");
+  }
+
   async function runPhraseAction(
     operation: (isCurrent: () => boolean) => Promise<void>,
     formatError: (error: unknown) => string,
     generation = clientGeneration.current,
+    feedback: { setError: (message: string) => void; setNotice: (message: string) => void } = {
+      setError: setPhraseError,
+      setNotice: setPhraseNotice,
+    },
   ) {
     if (phraseActionBusy.current || phraseBusy) return;
     const owner = ++phraseActionOwner.current;
     phraseActionBusy.current = true;
+    // 新操作开始时两处提示都清掉，页面上只留这一次操作的结果。
+    clearPhraseFeedback();
     await runAsyncAction(
       {
         busy: false,
@@ -138,8 +155,8 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
           phraseActionBusy.current = busy;
           setPhraseBusy(busy);
         },
-        setError: setPhraseError,
-        setNotice: setPhraseNotice,
+        setError: feedback.setError,
+        setNotice: feedback.setNotice,
       },
       operation,
       { formatError },
@@ -200,8 +217,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   useEffect(() => {
     if (!client.dictionary) return;
     // 查询条件变化时清理旧提示，延迟执行的查询不能擦掉期间完成的操作结果。
-    setPhraseNotice("");
-    setPhraseError("");
+    clearPhraseFeedback();
     const timer = window.setTimeout(() => {
       void loadPhrases(dictionaryKind, 0, { preserveError: true });
     }, 280);
@@ -555,11 +571,12 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
         setDictionaryPendingCount(0);
         setDictionaryFailures([]);
         setDictionarySnapshotError("");
-        setPhraseNotice("已清除所有学习数据；输入方案和设置保持不变。");
+        setLearnedDataNotice("已清除所有学习数据；输入方案和设置保持不变。");
       },
       (error) =>
         dictionaryErrorMessage(error, "清除学习数据失败，请关闭正在使用输入法的程序后重试。"),
       generation,
+      { setError: setLearnedDataError, setNotice: setLearnedDataNotice },
     );
   }
 
@@ -573,6 +590,9 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     dictionaryFailures,
     dictionarySnapshotError,
     phraseNotice,
+    learnedDataError,
+    learnedDataNotice,
+    clearPhraseFeedback,
     phraseSearch,
     setPhraseSearch,
     phraseForm,
