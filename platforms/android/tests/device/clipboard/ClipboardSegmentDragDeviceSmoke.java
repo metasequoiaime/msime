@@ -88,7 +88,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             int edgeY = bottom.bottom - 8;
             downTime = SystemClock.uptimeMillis();
             event(MotionEvent.ACTION_DOWN, start.centerX(), start.centerY());
-            Rect edge = new Rect(start.centerX(), edgeY, start.centerX() + 1, edgeY + 1);
+            // 最后一行可能有多个词片，停在右下角才能覆盖末词。
+            Rect edge = new Rect(bottom.right - 8, edgeY, bottom.right - 7, edgeY + 1);
             move(start, edge);
             SystemClock.sleep(8000);
             event(MotionEvent.ACTION_UP, edge.centerX(), edge.centerY());
