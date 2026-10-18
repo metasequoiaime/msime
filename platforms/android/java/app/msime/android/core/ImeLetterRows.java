@@ -203,7 +203,11 @@ final class ImeLetterRows {
             if (triggered[0] || !key.isPressed()) return;
             triggered[0] = true;
             // 长按不看「按键弹出」：这是手势已触发的唯一提示。
-            showKeyPreview(key, LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
+            if (s.dedicatedEnglish && "o".equalsIgnoreCase(input)) {
+                s.imeLayoutRows.showEnglishPinyinOption(key);
+            } else {
+                showKeyPreview(key, LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
+            }
         };
         key.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
