@@ -1889,3 +1889,8 @@ export {
   SettingsAccountPage,
   type SettingsAccountPageProps,
 } from "./settings/settings-account-page";
+
+export {
+  SettingsCommunityPage,
+  type SettingsCommunityPageProps,
+} from "./settings/settings-community-page";

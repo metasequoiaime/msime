@@ -44,3 +44,5 @@ iOS、Android 和 HarmonyOS 手机（共享触屏壳）的底部是「设置 / �
 - Android：`BottomTabsSmoke` 核对四个标签与图标、社区根页的两个分类、设置列表有皮肤行、`browse` 皮肤与词库切到社区；`HostDeepLinkSmoke` 核对 `TAB_COMMUNITY == 1`；设备验收 `ChatNavigationDeviceSmoke` 从设置出发检查皮肤行、社区根页无返回按钮、切到词库与系统返回。
 - 共享壳：社区根页、分类切换与保留、「浏览更多」切标签、设置列表重新有皮肤、没有社区服务时无社区格、`more`/`skin` 历史回退均有测试。
 - 各层实际跑过的命令和结果在 PR 描述中列出。
+
+共享壳的根页渲染接线由[设置社区根页组件](../simplification/2026-10-19-settings-community-page.md)持有；两分类状态继续归外层导航 hook，离开根页后保留分类、重新挂载时重置图库内部搜索的规则不变。

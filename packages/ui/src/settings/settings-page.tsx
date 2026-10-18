@@ -25,6 +25,7 @@ import { VocabularyReviewPage } from "./vocabulary-review";
 import * as settings from "./settings-style";
 import { FluentIcon } from "../core/fluent-icons";
 import { SettingsAccountPage } from "./settings-account-page";
+import { SettingsCommunityPage } from "./settings-community-page";
 import { ChatPage } from "../chat/chat-page";
 import { HomePage } from "../keyboard/home-page";
 import {
@@ -39,7 +40,6 @@ import { createSettingsNavigationActions } from "./settings-navigation-actions";
 import { logo } from "./settings-options";
 import { CommunitySkinsPage } from "../community/community-skins";
 import { createCommunityLocalDictionary } from "../community/community-resource-actions";
-import { CommunityResourcesPage } from "../community/community-resources";
 import { CommunityPluginsPage } from "../community/community-plugins";
 import * as communityStyle from "../community/community-style";
 import { CommunityPage } from "../community/community-page";
@@ -81,7 +81,6 @@ function SettingsShell(props: SettingsPageProps) {
     page,
     dictionaryTab,
     settingsContentRef,
-    communityDestination,
     windowMaximized,
     reload,
     retrySave,
@@ -105,12 +104,8 @@ function SettingsShell(props: SettingsPageProps) {
     selectPage,
     selectMobileTab,
     openAccountLogin,
-    initialCommunityCategory,
-    initialCommunityScope,
-    initialCommunityMine,
     communityGallery,
     closeCommunityGallery,
-    communityTabs,
   } = model;
   const {
     pluginView,
@@ -431,62 +426,12 @@ function SettingsShell(props: SettingsPageProps) {
                   />
                 </div>
               )}
-              {page === "community" && !mobilePlatform && (
-                <CommunityPage
-                  destinationKey={communityDestination}
-                  skins={client.communitySkins}
-                  resources={client.communityResources}
-                  theme={keyboardPreviewTheme}
-                  initialMine={initialCommunityMine}
-                  initialCategory={initialCommunityCategory}
-                  initialScope={initialCommunityScope}
+              {page === "community" && (
+                <SettingsCommunityPage
+                  model={model}
                   localDictionary={communityLocalDictionary}
-                  localSkinLibrary={client.customSkinLibrary}
-                  mobile={mobilePlatform}
-                  onLogin={openAccountLogin}
-                  preferences={draft}
-                  // 从皮肤库应用的皮肤和其他偏好修改一样：先进入草稿，再由表单的自动保存写入。
-                  onApplyPreferences={setDraft}
                   onSkinApplied={recordCommunitySkin}
-                  look={harmonyPlatform && mobilePlatform ? "harmony" : undefined}
                 />
-              )}
-              {/* 触屏的「社区」标签根页：顶部「皮肤 / 词库」分类，每类是完整的社区图库（搜索、分类、详情、获取或添加、举报、发布都在里面），只挂载选中的那一类。和皮肤页的「社区」分类一样画在设置表单之外：图库自带搜索和发布表单，嵌在设置的 <form> 里会被 WebView 当成外层表单提交。详情的历史记录留在这一页，返回先关详情。 */}
-              {page === "community" && mobilePlatform && communityTabs.tabList}
-              {page === "community" && mobilePlatform && (
-                <div className={communityTabs.tabList ? "mt-6" : undefined}>
-                  {communityTabs.selected === "skin" &&
-                    client.communitySkins &&
-                    communityTabs.panel(
-                      "skin",
-                      <CommunitySkinsPage
-                        client={client.communitySkins}
-                        theme={keyboardPreviewTheme}
-                        localSkinLibrary={client.customSkinLibrary}
-                        mobile
-                        onLogin={openAccountLogin}
-                        look={harmonyPlatform ? "harmony" : undefined}
-                        preferences={draft}
-                        // 「使用」和皮肤页的网格一样先进入草稿，再由表单的自动保存写入。
-                        onApplyPreferences={setDraft}
-                        onSkinApplied={recordCommunitySkin}
-                        historyPage="community"
-                      />,
-                    )}
-                  {communityTabs.selected === "dictionary" &&
-                    client.communityResources &&
-                    communityTabs.panel(
-                      "dictionary",
-                      <CommunityResourcesPage
-                        client={client.communityResources}
-                        kind="dictionary"
-                        localDictionary={communityLocalDictionary}
-                        mobile
-                        look={harmonyPlatform ? "harmony" : undefined}
-                        historyPage="community"
-                      />,
-                    )}
-                </div>
               )}
               {/* 触屏宿主在功能页里打开的完整社区图库。画在设置表单之外：图库自带搜索和发布表单，嵌在设置的 <form> 里会被 WebView 当成外层表单提交。 */}
               {communityGallery && page === communityGalleryPage(communityGallery.category) && (
