@@ -18,3 +18,5 @@ Status: implemented
 ## Consequences
 
 外壳的局部状态有独立、可测试的边界，新增外壳页面可以复用该 hook 的生命周期约束。hook 仍由共享设置入口导出，页面状态字段保持原名和原始 setter 语义；它不负责导航选择、页面动画或渲染，因此这些逻辑的所有权没有改变。
+
+临时状态由[独立设置页组件](2026-10-19-settings-page-component-module.md)中的 `SettingsShell` 调用，状态生命周期与返回契约保持不变。

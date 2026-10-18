@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`packages/ui/src/settings/use-settings-page-model.ts` 持有 `useSettingsPageModel`、同形的 `SettingsPageProps` 和由返回值推导的 `SettingsPageModel`。入口只调用同一个模型 hook 并继续转导出已有的模型类型；`settings-form-context.ts` 直接从模型模块导入类型。原有 hook 调用顺序、effects、处理器、返回字段和每个设置窗口的状态归属保持原样；模型只通过各功能模块组装，不从入口导入实现。
+`packages/ui/src/settings/use-settings-page-model.ts` 持有 `useSettingsPageModel`、同形的 `SettingsPageProps` 和由返回值推导的 `SettingsPageModel`。[设置页组件](2026-10-19-settings-page-component-module.md)调用同一个模型 hook，入口继续转导出已有的模型类型；`settings-form-context.ts` 直接从模型模块导入类型。原有 hook 调用顺序、effects、处理器、返回字段和每个设置窗口的状态归属保持原样；模型只通过各功能模块组装，不从入口导入实现。
 
 ## Historical audit
 

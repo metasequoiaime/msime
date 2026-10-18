@@ -19,3 +19,5 @@ Status: implemented
 ## Consequences
 
 平台展示判定有单独的纯函数和组合测试，入口文件不再重复声明这些布尔值。返回行为和页面动画仍留在 `SettingsShell`，所以历史记录、窗口交互和表单挂载边界不变。helper 需要接收可用页面与移动端无标题页列表，调用方仍拥有这些页面模型。
+
+平台投影由[独立设置页组件](2026-10-19-settings-page-component-module.md)消费，公共入口只转导出组件；平台判定规则保持不变。

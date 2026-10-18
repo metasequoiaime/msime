@@ -19,3 +19,5 @@ Status: implemented
 ## Consequences
 
 外壳导航有独立的 hook 与测试，页面组件和平台展示继续由 `SettingsShell` 负责。返回历史、启动页替换、父页标题、侧栏过滤和搜索框回调保持原行为；hook 依赖 React 元素和浏览器历史，因此仍属于共享 UI 外壳层，不下沉到纯模型层。新增测试覆盖推入页历史返回、启动页父页替换、标题过滤和搜索框动作接线。
+
+导航 hook 由[独立设置页组件](2026-10-19-settings-page-component-module.md)中的 `SettingsShell` 调用；组件搬移保留其返回、搜索和侧栏折叠规则。
