@@ -30,7 +30,6 @@ import {
   type QqLinksClient,
   type ApiCredentialTestResult,
   type ApiCredentialTestService,
-  type ClipboardHistoryEntry,
   type CloudDictionaryAction,
   type CloudDictionaryPanelClient,
   type CustomHelpcodeSchema,
@@ -84,6 +83,7 @@ import { subscribeWindowState } from "./input/window-state";
 import { discoverFontReader } from "./candidate/system-font-client";
 import { DesktopKeyboard } from "./input/desktop-keyboard";
 import { createDesktopPanelClients } from "./input/desktop-panel-clients";
+import { createDesktopClipboardClient } from "./input/desktop-clipboard-client";
 import { useHostPlatform } from "./input/panel-host";
 import { DesktopPanelTheme } from "./input/desktop-panel-theme";
 import { DesktopEmojiPanel } from "./input/desktop-emoji-panel";
@@ -257,6 +257,7 @@ const localVoiceModels: LocalVoiceModelClient = {
   remove: (id) => invoke<void>("voice_local_model_remove", { id }),
 };
 
+const clipboardClient = createDesktopClipboardClient();
 const client: SettingsClient = {
   readAppVersion: getVersion,
   resolveFontFamilies: (names) => invoke("resolve_font_families", { names }),
@@ -349,19 +350,12 @@ const client: SettingsClient = {
     ),
   onWindowStateChanged: (listener, onError) =>
     subscribeWindowState(getCurrentWindow(), listener, onError),
-  clipboard: {
-    clear: () => invoke("clear_clipboard_history"),
-    list: () => invoke<ClipboardHistoryEntry[]>("list_clipboard_history"),
-    sync: () => invoke<ClipboardHistoryEntry[]>("sync_clipboard_history"),
-    copy: (text) => invoke("copy_text", { text }),
-    remove: (text) => invoke("remove_clipboard_history", { text }),
-    setPinned: (text, pinned) => invoke("set_clipboard_history_pinned", { text, pinned }),
-  },
+  clipboard: clipboardClient,
   dictionary,
   loadDefaultPreferences: () => invoke<Preferences>("restored_default_preferences"),
   /* mobile host services are injected after host_capabilities resolves */
 };
-const panelClients = createDesktopPanelClients(client, cloudDictionaryClient);
+const panelClients = createDesktopPanelClients(client, cloudDictionaryClient, clipboardClient);
 const panel = new URLSearchParams(window.location.search).get("panel");
 // 桌面的手写面板在宿主列出手写模型时第一次打开就下载它，下载失败时就地设置下载镜像。客户端固定为模块级对象，避免每次渲染换一个 client 让面板重置识别队列。
 const desktopHandwritingClient: PanelClient = {

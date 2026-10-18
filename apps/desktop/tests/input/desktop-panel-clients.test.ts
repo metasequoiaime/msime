@@ -2,8 +2,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Snapshot } from "@msime/ui";
+import type { ClipboardHistoryClient, Snapshot } from "@msime/ui";
 import { createDesktopPanelClients } from "../../src/input/desktop-panel-clients";
+import { createDesktopClipboardClient } from "../../src/input/desktop-clipboard-client";
 
 const bridge = vi.hoisted(() => ({ drag: vi.fn(async () => {}) }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -39,7 +40,11 @@ function setup(clipboardHistory?: boolean) {
     save: vi.fn(async (_revision: number, _preferences: Snapshot["preferences"]) => snapshot),
   };
   const cloudDictionary = { close: vi.fn(async () => {}), request: vi.fn(async () => ({})) };
-  const clients = createDesktopPanelClients(preferences, cloudDictionary);
+  const clients = createDesktopPanelClients(
+    preferences,
+    cloudDictionary,
+    createDesktopClipboardClient(),
+  );
   return { clients, preferences, snapshot, cloudDictionary };
 }
 
@@ -180,6 +185,33 @@ test("表情目录透传，剪贴板读取和同步只投影文字", async () =>
     ["remove_clipboard_history", { text: "合成第二条" }],
     ["clear_clipboard_history"],
   ]);
+});
+
+test("表情面板使用注入的剪贴板客户端，并透传失败", async () => {
+  const { preferences, cloudDictionary } = setup();
+  const entries = [{ text: "合成注入记录", timestampMs: 3, pinned: true }];
+  const failure = new Error("合成同步失败");
+  const clipboard: Required<ClipboardHistoryClient> = {
+    list: vi.fn(async () => entries),
+    sync: vi.fn(async () => {
+      throw failure;
+    }),
+    copy: vi.fn(async () => {}),
+    remove: vi.fn(async () => {}),
+    clear: vi.fn(async () => {}),
+    setPinned: vi.fn(async () => {}),
+  };
+  const { emoji } = createDesktopPanelClients(preferences, cloudDictionary, clipboard);
+  await expect(emoji.clipboard!.list!()).resolves.toEqual(["合成注入记录"]);
+  await expect(emoji.clipboard!.sync!()).rejects.toBe(failure);
+  await emoji.clipboard!.copy!("合成复制");
+  await emoji.clipboard!.remove!("合成删除");
+  await emoji.clipboard!.clear!();
+  expect(clipboard.copy).toHaveBeenCalledExactlyOnceWith("合成复制");
+  expect(clipboard.remove).toHaveBeenCalledExactlyOnceWith("合成删除");
+  expect(clipboard.clear).toHaveBeenCalledOnce();
+  expect(entries).toEqual([{ text: "合成注入记录", timestampMs: 3, pinned: true }]);
+  expect(invoke).not.toHaveBeenCalled();
 });
 
 test.each([undefined, false, true])(

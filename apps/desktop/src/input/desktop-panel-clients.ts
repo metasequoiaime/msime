@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
-  ClipboardHistoryEntry,
+  ClipboardHistoryClient,
   CloudClipboardPanelClient,
   CloudDictionaryPanelClient,
   EmojiCatalogGroup,
@@ -26,6 +26,7 @@ type DesktopPanelClients = {
 export function createDesktopPanelClients(
   preferences: Pick<SettingsClient, "load" | "save">,
   cloudDictionary: CloudDictionaryPanelClient,
+  clipboard: Required<ClipboardHistoryClient>,
 ): DesktopPanelClients {
   return {
     keyboard: {
@@ -76,10 +77,7 @@ export function createDesktopPanelClients(
           unavailable?: ("emoji" | "kaomoji" | "symbols")[];
         }>("load_emoji_catalog"),
       clipboard: {
-        list: () =>
-          invoke<ClipboardHistoryEntry[]>("list_clipboard_history").then((entries) =>
-            entries.map((entry) => entry.text),
-          ),
+        list: () => clipboard.list().then((entries) => entries.map((entry) => entry.text)),
         isEnabled: async () => (await preferences.load()).preferences.clipboard_history ?? false,
         enable: async () => {
           const snapshot = await preferences.load();
@@ -103,13 +101,10 @@ export function createDesktopPanelClients(
             throw error;
           }
         },
-        remove: (text) => invoke("remove_clipboard_history", { text }),
-        clear: () => invoke("clear_clipboard_history"),
-        sync: () =>
-          invoke<ClipboardHistoryEntry[]>("sync_clipboard_history").then((entries) =>
-            entries.map((entry) => entry.text),
-          ),
-        copy: (text) => invoke("copy_text", { text }),
+        remove: (text) => clipboard.remove(text),
+        clear: () => clipboard.clear(),
+        sync: () => clipboard.sync().then((entries) => entries.map((entry) => entry.text)),
+        copy: (text) => clipboard.copy(text),
       },
     },
   };
