@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { SettingsPageModel } from "../index";
+import type { SettingsPageModel } from "./use-settings-page-model";
 import type { Preferences } from "../core/preferences-model";
 
 /**

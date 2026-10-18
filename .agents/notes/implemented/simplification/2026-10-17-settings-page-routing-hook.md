@@ -18,3 +18,5 @@ Status: implemented
 ## Consequences
 
 路由状态现在有独立的公共 hook，可由后续设置页壳拆分复用；设置页主文件减少了历史恢复和导航栈的内联逻辑。hook 仍依赖设置页注册表和滚动重置 hook，路由字段的语义没有改变，新增入口仍应通过该 hook 返回的 setter 进入导航栈。
+
+模型组装层位于[独立模型模块](2026-10-18-settings-page-model-module.md)，继续调用同一套路由 hook；路由状态的归属与规则保持不变。
