@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 test("emoji panel clipboard polling reuses the shared interval subscription", () => {
   const source = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/keyboard/panels.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/keyboard/use-emoji-panel.ts", {
       eager: true,
       query: "?raw",
       import: "default",

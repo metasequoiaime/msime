@@ -1943,3 +1943,5 @@ export {
   useCloudDictionaryFilesPanel,
   type CloudDictionaryFilesPanelState,
 } from "./keyboard/use-cloud-dictionary-files-panel";
+
+export { useEmojiPanel, type EmojiPanelState, type EmojiPage } from "./keyboard/use-emoji-panel";

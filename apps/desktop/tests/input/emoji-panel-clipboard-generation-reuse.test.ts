@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 test("emoji panel clipboard subscription reuses the shared effect generation lifecycle", () => {
   const source = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/keyboard/panels.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/keyboard/use-emoji-panel.ts", {
       eager: true,
       query: "?raw",
       import: "default",
@@ -12,7 +12,7 @@ test("emoji panel clipboard subscription reuses the shared effect generation lif
   const end = source.indexOf("  type DisplayGroup", start);
   const effect = source.slice(start, end);
 
-  expect(source.slice(source.indexOf("export function EmojiPanel"), start)).toContain(
+  expect(source.slice(source.indexOf("export function useEmojiPanel"), start)).toContain(
     "const clipboardLifecycle = useAsyncGeneration(client, page, clipboardRefresh)",
   );
   expect(effect).not.toContain("let active = true");
