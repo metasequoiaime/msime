@@ -13213,10 +13213,10 @@ private:
     std::wstring message = dictionary_update_message_;
     if (dictionary_update_status_ && message.empty()) {
       const auto &status = *dictionary_update_status_;
-      const auto phase = named_string(status, L"phase");
-      if (phase == L"checking") message = L"正在检查词库更新…";
-      else if (phase == L"downloading") message = L"正在下载词库…";
-      else if (phase == L"failed" || !named_string(status, L"error").empty()) message = L"更新失败，继续使用原词库";
+      const auto status_phase = named_string(status, L"phase");
+      if (status_phase == L"checking") message = L"正在检查词库更新…";
+      else if (status_phase == L"downloading") message = L"正在下载词库…";
+      else if (status_phase == L"failed" || !named_string(status, L"error").empty()) message = L"更新失败，继续使用原词库";
       else if (status.GetNamedBoolean(L"pending_restart", false)) message = L"词库已准备好，下次启动输入法时生效";
       else message = L"词库版本：" + named_string(status, L"version");
     }

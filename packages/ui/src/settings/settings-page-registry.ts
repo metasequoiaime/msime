@@ -97,7 +97,7 @@ export const pages = [
     title: "发送哪些内容",
     icon: settingsIcons.about,
   },
-  // 「维护与诊断」里「连接 AI 助手」那一行打开：本机 `msime-mcp` 服务的连接命令、配置和两个权限开关。整块原来直接摊在维护页上，是那一页最长的一块，收成一行后维护页只剩服务、日志、数据目录和卸载。
+  // 桌面打开「维护与诊断」的「AI 助手」标签；手机保留「连接 AI 助手」二级页面。只在宿主提供 MCP 状态时可用。
   {
     id: "mcp",
     title: "连接 AI 助手",
@@ -151,6 +151,7 @@ export const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
  */
 export const desktopMergedPages: Partial<Record<SettingsPageId, SettingsPageId>> = {
   feedback: "about",
+  mcp: "developer",
 };
 
 /** 桌面上真正显示的页面：并进别的页的 id 换成承载它的页，其他原样返回。 */
