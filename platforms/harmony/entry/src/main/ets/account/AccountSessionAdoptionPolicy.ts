@@ -86,13 +86,13 @@ export function adoptionResult(reply: string): AdoptionResult {
 /**
  * 采用失败时写进日志的那一句，同一份发布物只写一次（键盘每次获得焦点都会再试）。
  *
- * `account_storage` 单独说明：Rust 读发布文件的规则与本目录的会话文件相同，文件属主必须等于所在目录的属主（迁移差异 M1）。data-group 目录的属主在真机上还没有核对过；不一致时每次采用都是这个码，键盘永远拿不到设置应用里的登录，所以这句要写清楚是哪一条规则、该去查什么。
+ * `account_storage` 单独说明：Rust 读发布文件时要求文件属主是本进程的有效 uid、不看所在目录的属主，并拒绝其他用户位（迁移差异 M1）。这条规则假定设置应用和键盘两个进程的 uid 相同，真机上还没有核对过；不同时每次采用都是这个码，键盘永远拿不到设置应用里的登录，所以这句要写清楚是哪一条规则、该去查什么。
  */
 export function adoptionFailureMessage(item: string, from: string, error: string): string {
   if (error === "account_storage") {
     return (
       `session adopt from ${from} refused for ${item}: account_storage. ` +
-      "The published session file failed Rust's ownership or permission check (owner must equal the owner of its directory, no other-user bits); " +
+      "The published session file failed Rust's ownership or permission check (owner must be this process's uid, no other-user bits); " +
       "check `ls -ln` of the shared directory and its account-session.json on the device (migration difference M1)"
     );
   }

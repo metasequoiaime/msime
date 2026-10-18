@@ -221,9 +221,17 @@ pub struct PublishedAnonymousIdentity {
     identity: Option<AnonymousIdentity>,
 }
 
-/// 读另一个沙箱发布的身份文件 `anonymous-account.json`：规则与本目录的身份文件相同（不跟随符号链接、属主与所在目录相同、鸿蒙上只拒绝其他用户位、其他平台只能属主可读写、最多 64 KiB）。文件或所在目录不存在时表示发布方没有身份；读不了、不是 `{subject, secret}` 或不合法时是 [`AccountError::Storage`]。`path` 必须有文件名。
+/// 读另一个沙箱发布的身份文件 `anonymous-account.json`：规则与发布的会话文件（`file_storage::read_published_session`）相同（不跟随符号链接；鸿蒙上属主必须是本进程的有效 uid、不看所在目录，只拒绝其他用户位；其他平台属主与所在目录相同、只能属主可读写；最多 64 KiB，见 [`owner_is_trusted`]）。文件或所在目录不存在时表示发布方没有身份；读不了、不是 `{subject, secret}` 或不合法时是 [`AccountError::Storage`]。`path` 必须有文件名。
 pub fn read_published_anonymous_identity(
     path: &Path,
+) -> Result<PublishedAnonymousIdentity, AccountError> {
+    read_published_anonymous_identity_with(path, cfg!(target_env = "ohos"))
+}
+
+/// [`read_published_anonymous_identity`] 的实现；`ohos` 为真时按鸿蒙的规则查属主和权限位（见 [`owner_is_trusted`]），测试据此在其他平台上覆盖两种规则。
+fn read_published_anonymous_identity_with(
+    path: &Path,
+    ohos: bool,
 ) -> Result<PublishedAnonymousIdentity, AccountError> {
     if path.file_name().is_none() {
         return Err(AccountError::Invalid);
@@ -232,7 +240,7 @@ pub fn read_published_anonymous_identity(
     let identity = if missing {
         None
     } else {
-        read_private_json::<AnonymousIdentity>(path)?
+        read_private_json_with::<AnonymousIdentity>(path, ohos, true)?
     };
     if identity
         .as_ref()
@@ -562,18 +570,53 @@ pub(super) fn forbidden_session_mode_bits(ohos: bool) -> u32 {
     }
 }
 
+/// 文件的属主可不可信。本沙箱目录里的文件（`published` 为假）和鸿蒙之外的发布文件要求属主与所在目录相同。鸿蒙上另一个沙箱发布的文件（`ohos` 和 `published` 都为真）改成要求属主是本进程的有效 uid `euid`、不看所在目录：发布目录在 data-group 共享目录下，不在本沙箱里，它的属主在真机上没有核对过，要求与文件相同的话两者一不一致每次采用都失败，两个沙箱就各拿各的刷新令牌刷新；设置应用和键盘是同一个应用的两个进程、有效 uid 相同，所以发布方写的文件属主就是读的这一方，别的 uid 放进去的文件照样拒收，连它先建好发布目录、再放进自己的文件也一样（与目录相同的规则在这种情况下会放行）。权限位与本目录的文件同一条规则（[`forbidden_session_mode_bits`]）：发布的副本带着发布方本地文件的权限位，ArkTS 写过的是属组可读写的。
+#[cfg(any(unix, test))]
+pub(super) fn owner_is_trusted(
+    file_uid: u32,
+    directory_uid: u32,
+    euid: u32,
+    ohos: bool,
+    published: bool,
+) -> bool {
+    if ohos && published {
+        file_uid == euid
+    } else {
+        file_uid == directory_uid
+    }
+}
+
+/// 打开的私有文件按 [`forbidden_session_mode_bits`] 和 [`owner_is_trusted`] 查权限位和属主，`file_storage` 的 `read_private` 也用它。
+#[cfg(unix)]
+pub(super) fn private_file_is_trusted(
+    metadata: &std::fs::Metadata,
+    directory: &std::fs::Metadata,
+    ohos: bool,
+    published: bool,
+) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    metadata.mode() & forbidden_session_mode_bits(ohos) == 0
+        && owner_is_trusted(
+            metadata.uid(),
+            directory.uid(),
+            rustix::process::geteuid().as_raw(),
+            ohos,
+            published,
+        )
+}
+
 #[cfg(unix)]
 fn validate_opened_private_json_file(
     file: &std::fs::File,
     directory: &std::fs::File,
+    ohos: bool,
+    published: bool,
 ) -> Result<(), AccountError> {
-    use std::os::unix::fs::MetadataExt;
-
     let metadata = file.metadata().map_err(|_| AccountError::Storage)?;
     let directory_metadata = directory.metadata().map_err(|_| AccountError::Storage)?;
     if !metadata.is_file()
-        || metadata.mode() & forbidden_session_mode_bits(cfg!(target_env = "ohos")) != 0
-        || metadata.uid() != directory_metadata.uid()
+        || !private_file_is_trusted(&metadata, &directory_metadata, ohos, published)
     {
         return Err(AccountError::Storage);
     }
@@ -581,6 +624,17 @@ fn validate_opened_private_json_file(
 }
 
 fn read_private_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, AccountError> {
+    read_private_json_with(path, cfg!(target_env = "ohos"), false)
+}
+
+/// [`read_private_json`] 的实现；`published` 为真时读的是另一个沙箱发布的文件，属主按 [`owner_is_trusted`] 的发布规则查。
+fn read_private_json_with<T: DeserializeOwned>(
+    path: &Path,
+    ohos: bool,
+    published: bool,
+) -> Result<Option<T>, AccountError> {
+    #[cfg(not(unix))]
+    let _ = (ohos, published);
     let parent = path.parent().ok_or(AccountError::Storage)?;
     #[cfg(unix)]
     let name = path.file_name().ok_or(AccountError::Storage)?;
@@ -594,7 +648,7 @@ fn read_private_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, Acco
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(AccountError::Storage),
         };
-        validate_opened_private_json_file(&file, &directory)?;
+        validate_opened_private_json_file(&file, &directory, ohos, published)?;
         read_private_file(file)?
     };
     #[cfg(not(unix))]
@@ -1320,10 +1374,10 @@ mod tests {
             std::ffi::OsStr::new(ANONYMOUS_ACCOUNT_FILE),
         )
         .unwrap();
-        assert!(validate_opened_private_json_file(&file, &parent).is_ok());
+        assert!(validate_opened_private_json_file(&file, &parent, false, false).is_ok());
 
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(validate_opened_private_json_file(&file, &parent).is_err());
+        assert!(validate_opened_private_json_file(&file, &parent, false, false).is_err());
     }
 
     #[cfg(unix)]
@@ -1361,5 +1415,59 @@ mod tests {
             Some(AccountError::Storage)
         );
         assert_eq!(std::fs::read(&target).unwrap(), br#"{}"#);
+    }
+
+    /// 两条属主规则。本沙箱的文件和鸿蒙之外的发布文件：与所在目录同一个属主。鸿蒙上的发布文件：是本进程的有效 uid，所在目录是谁的都不管，别的 uid 的文件不认，连它先建好目录、再放进自己的文件也不认。
+    #[test]
+    fn published_files_on_harmony_must_belong_to_the_reader_and_others_to_their_directory() {
+        let (me, owner, other) = (20_010_001, 3_000, 20_010_099);
+        for ohos in [false, true] {
+            assert!(owner_is_trusted(owner, owner, me, ohos, false));
+            assert!(!owner_is_trusted(me, owner, me, ohos, false));
+        }
+        assert!(owner_is_trusted(owner, owner, me, false, true));
+        assert!(!owner_is_trusted(me, owner, me, false, true));
+        assert!(owner_is_trusted(me, owner, me, true, true));
+        assert!(owner_is_trusted(me, me, me, true, true));
+        assert!(!owner_is_trusted(other, owner, me, true, true));
+        assert!(!owner_is_trusted(other, other, me, true, true));
+    }
+
+    /// 发布的身份文件与发布的会话文件同一条规则：鸿蒙上自己写在别人目录里的照样读，其他平台拒收。用 root 的 `/tmp`（macOS 上是 `/private/tmp`）造出这种目录；以 root 运行时造不出来，什么也不查。
+    #[cfg(unix)]
+    #[test]
+    fn harmony_reads_a_published_identity_it_owns_in_a_directory_owned_by_someone_else() {
+        use std::io::Write as _;
+        use std::os::unix::fs::MetadataExt;
+
+        let shared = if cfg!(target_vendor = "apple") {
+            Path::new("/private/tmp")
+        } else {
+            Path::new("/tmp")
+        };
+        let mut file = tempfile::Builder::new()
+            .prefix("msime-synthetic-identity-")
+            .tempfile_in(shared)
+            .unwrap();
+        if file.as_file().metadata().unwrap().uid() == std::fs::metadata(shared).unwrap().uid() {
+            return;
+        }
+        let subject = format!("msime-{}", "p".repeat(16));
+        write!(
+            file,
+            r#"{{"subject":"{subject}","secret":"{}"}}"#,
+            "p".repeat(48)
+        )
+        .unwrap();
+        file.as_file().sync_all().unwrap();
+        let published = read_published_anonymous_identity_with(file.path(), true).unwrap();
+        assert_eq!(
+            published.identity.map(|identity| identity.subject),
+            Some(subject)
+        );
+        assert_eq!(
+            read_published_anonymous_identity_with(file.path(), false).err(),
+            Some(AccountError::Storage)
+        );
     }
 }

@@ -53,7 +53,7 @@ flate2 = "1"
 msime-script-runtime = { path = "../script-runtime" }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { workspace = true, features = ["fs"] }
+rustix = { workspace = true, features = ["fs", "process"] }
 
 # 皮肤同步的测试用 `libc::O_NONBLOCK` 打开 FIFO 的写端（`skin::candidate_sync` 的测试）。
 [target.'cfg(unix)'.dev-dependencies]

@@ -28,12 +28,12 @@ fn harmony_reads_group_writable_session_and_keystore_files_and_other_hosts_do_no
         // ArkTS 没有 chmod，按应用 umask 写出 0660：鸿蒙上照样读得出，其他平台仍然拒绝。
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o660)).unwrap();
         assert_eq!(
-            storage.read_private_with(name, MAX_SESSION_BYTES, true),
+            storage.read_private_with(name, MAX_SESSION_BYTES, true, false),
             Ok(Some(contents.to_vec())),
             "{name}"
         );
         assert_eq!(
-            storage.read_private_with(name, MAX_SESSION_BYTES, false),
+            storage.read_private_with(name, MAX_SESSION_BYTES, false, false),
             Err(AccountError::Storage),
             "{name}"
         );
@@ -41,7 +41,7 @@ fn harmony_reads_group_writable_session_and_keystore_files_and_other_hosts_do_no
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o604)).unwrap();
         for ohos in [true, false] {
             assert_eq!(
-                storage.read_private_with(name, MAX_SESSION_BYTES, ohos),
+                storage.read_private_with(name, MAX_SESSION_BYTES, ohos, false),
                 Err(AccountError::Storage),
                 "{name} ohos={ohos}"
             );
@@ -49,7 +49,7 @@ fn harmony_reads_group_writable_session_and_keystore_files_and_other_hosts_do_no
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         for ohos in [true, false] {
             assert_eq!(
-                storage.read_private_with(name, MAX_SESSION_BYTES, ohos),
+                storage.read_private_with(name, MAX_SESSION_BYTES, ohos, false),
                 Ok(Some(contents.to_vec())),
                 "{name} ohos={ohos}"
             );
@@ -198,4 +198,47 @@ fn a_published_session_is_read_with_the_same_rules_in_any_layout() {
             Some(AccountError::Storage)
         );
     }
+}
+
+/// 鸿蒙上发布文件的属主规则：属主是本进程的有效 uid 就认，不看所在目录的属主；其他平台仍要求与目录同一个属主。data-group 共享目录的属主在真机上没有核对过，这里用 root 的 `/tmp`（macOS 上是 `/private/tmp`）造出「目录不是自己的、文件是自己写的」这种发布目录。以 root 运行时两者相同，造不出来，什么也不查。
+#[cfg(unix)]
+#[test]
+fn harmony_reads_a_published_session_it_owns_in_a_directory_owned_by_someone_else() {
+    use std::io::Write as _;
+    use std::os::unix::fs::MetadataExt;
+
+    let shared = if cfg!(target_vendor = "apple") {
+        Path::new("/private/tmp")
+    } else {
+        Path::new("/tmp")
+    };
+    let mut file = tempfile::Builder::new()
+        .prefix("msime-synthetic-published-")
+        .tempfile_in(shared)
+        .unwrap();
+    if file.as_file().metadata().unwrap().uid() == std::fs::metadata(shared).unwrap().uid() {
+        return;
+    }
+    let flat = layout_case("harmony_flat");
+    file.write_all(&case_document(&flat)).unwrap();
+    file.as_file().sync_all().unwrap();
+    let saved = read_published_session_with(file.path(), true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        saved.tokens.refresh_token,
+        flat["session"]["tokens"]["refresh_token"].as_str().unwrap()
+    );
+    // 其他平台的规则不变：文件属主与所在目录不同就拒收。
+    assert_eq!(
+        read_published_session_with(file.path(), false).err(),
+        Some(AccountError::Storage)
+    );
+    // 其他用户位在鸿蒙上照样拒收。
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(file.path(), std::fs::Permissions::from_mode(0o604)).unwrap();
+    assert_eq!(
+        read_published_session_with(file.path(), true).err(),
+        Some(AccountError::Storage)
+    );
 }

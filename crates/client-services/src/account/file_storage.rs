@@ -3,6 +3,8 @@
 //! On macOS the settings app and the input method both hold the account, and the backend rotates the refresh token on every refresh and revokes the whole session when a spent one comes back. The two therefore read the same file on every access and take the same lock file around a refresh, the way the iOS app and its keyboard extension share theirs through the App Group. The file layout on macOS is the Swift backend's (`BackendSavedSession`, an `expiresAt` in seconds since 2001), so `shared/backend` reads it unchanged; the other hosts keep [`SavedAccountSession`]. Either layout is accepted on load.
 //!
 //! 鸿蒙的 ArkTS 桥接（`AccountCloudBridge.ts`）以前把登录会话存成第三种扁平布局 `{access_token, refresh_token, token_type, expires_at, user}`，`expires_at` 是 Unix 毫秒。升级后第一次读到的还是它，所以读取时也认这种布局（只读）；下一次保存按存储的布局写，鸿蒙的目录模式是 Native。
+//!
+//! 本目录里的文件要求属主与所在目录相同。另一个沙箱发布的会话文件（[`read_published_session`]，鸿蒙设置应用与键盘之间的 `session_adopt`）在鸿蒙上改成要求属主是本进程的有效 uid、不看所在目录：发布目录在 data-group 共享目录下，它的属主在真机上没有核对过，两者不一致时与目录相同的规则会让每次采用都失败；设置应用和键盘是同一个应用的两个进程、有效 uid 相同，别的 uid 放进去的文件照样拒收。权限位的规则不变。细节见 `anonymous::owner_is_trusted`。
 
 use super::*;
 use std::fs::File;
@@ -224,14 +226,22 @@ fn harmony_expires_in(expires_at_unix_ms: u64, now_unix_ms: u64) -> u64 {
         .max(1)
 }
 
-/// 读另一个沙箱发布的会话文件（鸿蒙设置应用与键盘之间的镜像，`session_adopt`）：规则与本目录的会话文件相同（不跟随符号链接、属主与所在目录相同、鸿蒙之外只能属主可读写、最多 64 KiB），三种布局都认。文件或所在目录不存在时是 `None`；`path` 必须有文件名。只解码，合法性由 [`BackendAccountSession::adopt_session`] 检查。
+/// 读另一个沙箱发布的会话文件（鸿蒙设置应用与键盘之间的镜像，`session_adopt`）：不跟随符号链接、最多 64 KiB，权限位与本目录的会话文件同一条规则（鸿蒙上只拒绝其他用户位，其他平台只能属主可读写）；属主在鸿蒙上必须是本进程的有效 uid、不看所在目录（发布目录在 data-group 共享目录下，规则和理由见 `anonymous::owner_is_trusted`），其他平台与本目录的会话文件相同、必须等于所在目录的属主。三种布局都认。文件或所在目录不存在时是 `None`；`path` 必须有文件名。只解码，合法性由 [`BackendAccountSession::adopt_session`] 检查。
 pub fn read_published_session(path: &Path) -> Result<Option<SavedAccountSession>, AccountError> {
+    read_published_session_with(path, cfg!(target_env = "ohos"))
+}
+
+/// [`read_published_session`] 的实现；`ohos` 为真时按鸿蒙的规则查属主和权限位，测试据此在其他平台上覆盖两种规则。
+fn read_published_session_with(
+    path: &Path,
+    ohos: bool,
+) -> Result<Option<SavedAccountSession>, AccountError> {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(AccountError::Invalid);
     };
     let name = name.to_str().ok_or(AccountError::Invalid)?;
     FileAccountSessionStorage::new(parent, AccountSessionFileLayout::Native)
-        .read_private(name, MAX_SESSION_BYTES)?
+        .read_private_with(name, MAX_SESSION_BYTES, ohos, true)?
         .map(|bytes| decode(&bytes))
         .transpose()
 }
@@ -286,18 +296,19 @@ impl FileAccountSessionStorage {
         name: &str,
         maximum: u64,
     ) -> Result<Option<Vec<u8>>, AccountError> {
-        self.read_private_with(name, maximum, cfg!(target_env = "ohos"))
+        self.read_private_with(name, maximum, cfg!(target_env = "ohos"), false)
     }
 
-    /// [`Self::read_private`] 的实现；`ohos` 为真时按鸿蒙的规则查权限位，测试据此在其他平台上覆盖两种规则。
+    /// [`Self::read_private`] 的实现；`ohos` 为真时按鸿蒙的规则查权限位，测试据此在其他平台上覆盖两种规则。`published` 为真时读的是另一个沙箱发布的文件，属主按 `anonymous::owner_is_trusted` 的发布规则查。
     fn read_private_with(
         &self,
         name: &str,
         maximum: u64,
         ohos: bool,
+        published: bool,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         #[cfg(not(unix))]
-        let _ = ohos;
+        let _ = (ohos, published);
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
         #[cfg(unix)]
         let directory = match crate::storage::open_private_directory(&self.directory) {
@@ -330,11 +341,13 @@ impl FileAccountSessionStorage {
         }
         #[cfg(unix)]
         {
-            use std::os::unix::fs::MetadataExt;
             let directory_metadata = directory.metadata().map_err(|_| AccountError::Storage)?;
-            if metadata.mode() & super::anonymous::forbidden_session_mode_bits(ohos) != 0
-                || metadata.uid() != directory_metadata.uid()
-            {
+            if !super::anonymous::private_file_is_trusted(
+                &metadata,
+                &directory_metadata,
+                ohos,
+                published,
+            ) {
                 return Err(AccountError::Storage);
             }
         }
