@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-- **快照队列整组一起切。** `DictionarySnapshotQueue` 只剩 Rust 的薄包装（`read` 经 `import_android_v1`、`enqueue`、`cancel`、`process`），使用方在同一个提交里全部改调它：`:ime` 空闲时的 `DictionarySnapshotWorker`（现在是一次 `process`，只有排着的请求属于某个账号时才经 provider 问当前账号）、本地备份恢复的整份激活、退出登录和换账号时的取消、Tauri 合包 `AccountPlugin` 的三个命令。Java 的实现、`DictionarySnapshotPolicy` 和只测它们的两个 JVM 冒烟、`test-android-snapshot-json-policy.py` 删掉；`check-host.sh` 守着 Java 里不再有队列的锁、`state.bin` 和队列路径（路径只在 `DictionarySnapshotQueue` 里）。
+- **快照队列整组一起切。** `DictionarySnapshotQueue` 只剩 Rust 的薄包装（`read` 经 `import_android_v1`、`enqueue`、`cancel`、`process`），使用方在同一个提交里全部改调它：`:ime` 空闲时的 `DictionarySnapshotWorker`（现在是一次 `process`，只有排着的请求属于某个账号时才经 provider 问当前账号）、本地备份恢复的整份激活、退出登录和换账号时的取消、Tauri 合包 `AccountPlugin` 的三个命令。Java 的实现、`DictionarySnapshotPolicy`、两个 JVM 冒烟（`DictionarySnapshotQueueSmoke`、`DictionarySnapshotQueueWriteSmoke`）和 `test-android-snapshot-json-policy.py` 删掉；旧冒烟里还测着两道留下来的路径检查（Tauri 合包 `enqueueSnapshot` 来源文件的 `DictionarySnapshotPathPolicy.privateSource`、`:ime` 暂存目录的 `DictionarySnapshotWorker.ensureSafeDirectory`），这两项挪进新的 `DictionarySnapshotPathPolicySmoke`；`check-host.sh` 守着 Java 里不再有队列的锁、`state.bin` 和队列路径（路径只在 `DictionarySnapshotQueue` 里）。
 - **云同步的编排、状态和措辞都在 Rust。** `account/RustCloudSync` 带着 `session_store` 调 `status`、`set_enabled`、`sign_out`、`run`、`commit`；`run` 四类都开，交出 Rust 读不到的本机值（按键反馈、Android 本地设置、皮肤库、还没认领的示例常用语）。`pending_commit` 时在账号绑定锁里先核对登录的仍是这一轮的账号，再把 `host_writes` 写进各自的存储、以 `run_id` 提交。`home/CloudSync` 只剩排队和弹选择：Rust 回答 `needs_choice` 时弹「合并 / 使用云端」，原因是 `cloud_cleared` 时多一个「关闭同步，保留本机」（`choice:"disable"`，表在 `CloudSyncChoicePolicy`）。「我的」页同步行用 Rust 的 `status_line`。
 - **状态目录是 `files/bootstrap/state`**（状态在它下面的 `cloud-sync/`），两个进程用同一个绝对路径。`SyncSignals` 的记改动是 Rust 的 `mark_dirty`、看开关是 `peek`，两个进程都直接调 Rust；provider 去掉 `sync_dirty`，`sync_state` 只回账号绑定。
 - **`SyncSwitch` 只剩账号绑定**（账号编号、登录方式、绑定代次和那把锁），它仍是 `:ime` 判断云剪贴板和候选翻译归属的依据；开关、游标、改动代数、收不下的常用语、上次同步时间都删掉，`check-host.sh` 守着 Java 不再读写这些键。
@@ -37,7 +37,7 @@ Status: implemented
 
 ## Verification
 
-- JVM 冒烟（`check-host.sh`）：新加 `CloudSyncChoicePolicySmoke`（云端被清空时多「关闭同步」）；`AccountSessionRoutingPolicySmoke` 改成 provider 不再收 `sync_dirty`；`SyncSignalsSmoke` 只剩分类名。两项都临时改回源码确认会失败。
+- JVM 冒烟（`check-host.sh`）：新加 `CloudSyncChoicePolicySmoke`（云端被清空时多「关闭同步」）；`AccountSessionRoutingPolicySmoke` 改成 provider 不再收 `sync_dirty`；`SyncSignalsSmoke` 只剩分类名。两项都临时改回源码确认会失败。`DictionarySnapshotPathPolicySmoke` 接住旧队列冒烟里那两道路径检查：来源路径经过指向 files 以外的链接时拒绝（链接那头真有文件，只靠最后一级不跟随链接拦不下），暂存目录本身或上一级是链接时抛 IOException、不在链接那头建目录；去掉逐级链接检查、或把 `SafePaths.ensureDirectory` 换成 `Files.createDirectories`，冒烟都会失败。
 - `check-host.sh` 的两段新守卫、改写的 `test-android-sync-signals-routing-policy.py` 和 `test-android-file-reader-links.py` 都逐项改回源码确认会失败。
 - Rust：`cloud_sync::tests::words_still_in_the_collections_outbox_block_the_dictionary_upload`，去掉待发送队列那一项时失败。
 - 设备冒烟 `SessionStoreDeviceSmoke` 新加两项：一份 DataOutputStream 写的真实 `state.bin` 经 `import_android_v1` 转换以后，`DictionarySnapshotWorker` 照常激活它（本地备份的请求不问 provider）；两份旧偏好经 `importLegacy` 导入，队列里有这个账号的快照时词库游标保留、队列读不懂时只丢词库游标，导入以后 `peek` 和 `mark_dirty` 读写的是 Rust 的状态，属于账号的请求在不知道当前账号时原样留着、`cancel` 取消它。
