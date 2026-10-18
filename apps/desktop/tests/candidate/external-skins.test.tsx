@@ -116,18 +116,14 @@ function packageCard(
   return <ExternalSkinCard {...cardProps} skin={skin} {...props} />;
 }
 
-// 桌面皮肤包和目录操作集中在「本地皮肤」标签，内置主题另占一个分类。
-async function openSkinPage(client: Partial<SettingsClient> = {}) {
-  const mounted = render(
+// 主题页：每个皮肤包是轮播里的一张卡片，皮肤目录是「本地皮肤」组里的「外部皮肤」一行。
+function openSkinPage(client: Partial<SettingsClient> = {}) {
+  return render(
     <SettingsPage
       initialPage="skin"
       client={{ load: async () => initial, save: vi.fn(), ...client }}
     />,
   );
-  await screen.findByRole("heading", { level: 1 });
-  const localTab = screen.queryByRole("tab", { name: "本地皮肤" });
-  if (localTab) fireEvent.click(localTab);
-  return mounted;
 }
 async function skinRow(): Promise<HTMLElement> {
   const title = await screen.findByText("外部皮肤", { selector: "[data-row-title]" });
@@ -142,7 +138,7 @@ function carousel(): HTMLElement {
 }
 
 test("the theme page keeps the 外部皮肤 row on a host with a community page", async () => {
-  await openSkinPage({
+  openSkinPage({
     scanSkinCatalog: vi.fn().mockResolvedValue(catalog),
     openSkinDirectory: vi.fn(),
     communityCandidateSkins: {} as NonNullable<SettingsClient["communityCandidateSkins"]>,
@@ -212,7 +208,6 @@ test("settings forwards the declared toolbar reader using only package id", asyn
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
   await waitFor(() => expect(readSkinToolbarCss).toHaveBeenCalledExactlyOnceWith("sample"));
 });
 test("settings forwards the font reader with package id and relative name", async () => {
@@ -239,7 +234,6 @@ test("settings forwards the font reader with package id and relative name", asyn
       />,
     );
     fireEvent.click(await screen.findByRole("button", { name: "主题" }));
-    fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
     await waitFor(() =>
       expect(readSkinFont).toHaveBeenCalledExactlyOnceWith("sample", "fonts/test.woff2"),
     );
@@ -308,7 +302,7 @@ test("image data URLs preserve bytes and reject non-image or invalid payloads", 
 
 test("one host image read feeds both preview layouts and refresh reloads unchanged manifests", async () => {
   const readSkinImage = vi.fn().mockResolvedValue(imageData);
-  const mounted = await openSkinPage({ scanSkinCatalog: async () => imageCatalog, readSkinImage });
+  const mounted = openSkinPage({ scanSkinCatalog: async () => imageCatalog, readSkinImage });
   expect(readSkinImage).not.toHaveBeenCalled();
   const card = await screen.findByRole("article", { name: "Sample skin" });
   await waitFor(() => expect(card.querySelectorAll("img.skin-decoration-image")).toHaveLength(2));
@@ -336,7 +330,6 @@ test("settings forwards image reader and existing CSP permits image data without
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
   await waitFor(() =>
     expect(readSkinImage).toHaveBeenCalledExactlyOnceWith("sample", "images/top.png"),
   );
@@ -351,7 +344,7 @@ test("image read and decode failures retain base preview and can be retried", as
     .fn()
     .mockRejectedValueOnce(new Error("private diagnostic"))
     .mockResolvedValue(imageData);
-  await openSkinPage({ scanSkinCatalog: async () => imageCatalog, readSkinImage });
+  openSkinPage({ scanSkinCatalog: async () => imageCatalog, readSkinImage });
   await screen.findByText("皮肤图片加载失败，保留基础预览。可刷新皮肤重试。");
   expect(screen.queryByText("private diagnostic")).toBeNull();
   await refresh();
@@ -411,7 +404,7 @@ test("old image response cannot replace current resource after catalog refresh",
         }),
     )
     .mockResolvedValue({ ...imageData, bytes: [2] });
-  await openSkinPage({ scanSkinCatalog: async () => imageCatalog, readSkinImage });
+  openSkinPage({ scanSkinCatalog: async () => imageCatalog, readSkinImage });
   await waitFor(() => expect(readSkinImage).toHaveBeenCalledTimes(1));
   await refresh();
   const card = screen.getByRole("article", { name: "Sample skin" });
@@ -517,7 +510,7 @@ test("refresh removes stale geometry and independent cards do not inherit it", a
       ],
     })
     .mockResolvedValue(catalog);
-  await openSkinPage({ scanSkinCatalog: scan });
+  openSkinPage({ scanSkinCatalog: scan });
   const card = await screen.findByRole("article", { name: "Sample skin" });
   expect(card.querySelectorAll(".containerParent")).toHaveLength(2);
   expect(
@@ -605,7 +598,7 @@ test("open directory is explicit, path-free and independent of scanning and sele
   const openSkinDirectory = vi.fn().mockResolvedValue(undefined);
   const scanSkinCatalog = vi.fn().mockResolvedValue(catalog);
   const save = vi.fn();
-  await openSkinPage({ openSkinDirectory, scanSkinCatalog, save });
+  openSkinPage({ openSkinDirectory, scanSkinCatalog, save });
   const card = await screen.findByRole("article", { name: "Sample skin" });
   expect(openSkinDirectory).not.toHaveBeenCalled();
   const row = await skinRow();
@@ -623,7 +616,6 @@ test("settings forwards the open directory capability", async () => {
   const save = vi.fn();
   render(<SettingsPage client={{ load: async () => initial, save, openSkinDirectory }} />);
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
   fireEvent.click(screen.getByRole("button", { name: "打开目录" }));
   await screen.findByRole("button", { name: "打开目录" });
   expect(openSkinDirectory).toHaveBeenCalledWith();
@@ -631,7 +623,7 @@ test("settings forwards the open directory capability", async () => {
 });
 
 test("directory opener is disabled when unavailable and retries sanitized failures", async () => {
-  const mounted = await openSkinPage();
+  const mounted = openSkinPage();
   expect(
     (within(await skinRow()).getByRole("button", { name: "打开目录" }) as HTMLButtonElement)
       .disabled,
@@ -644,7 +636,9 @@ test("directory opener is disabled when unavailable and retries sanitized failur
     })
     .mockResolvedValue(undefined);
   // 异步读取触发表单挂载；等首次 effect 完成，避免它在点击后重置错误状态。
-  await openSkinPage({ openSkinDirectory });
+  await act(async () => {
+    openSkinPage({ openSkinDirectory });
+  });
   const row = await skinRow();
   fireEvent.click(within(row).getByRole("button", { name: "打开目录" }));
   const group = await skinGroup();
@@ -686,7 +680,7 @@ test("the page opening scans the catalog and its row shows the directory and dia
         finish = resolve;
       }),
   );
-  await openSkinPage({ scanSkinCatalog: scan });
+  openSkinPage({ scanSkinCatalog: scan });
   const row = await skinRow();
   // The scan starts in an effect once the page has rendered.
   await waitFor(() =>
@@ -711,8 +705,8 @@ test("the page opening scans the catalog and its row shows the directory and dia
   expect(screen.queryByRole("region", { name: "外部皮肤" })).toBeNull();
 });
 
-test("本地皮肤轮播只列皮肤包，内置主题属于主题标签", async () => {
-  await openSkinPage({
+test("external skins join the theme carousel after the built-in themes", async () => {
+  openSkinPage({
     scanSkinCatalog: async () => ({
       ...catalog,
       packages: [sample, { ...sample, id: "second", name: "Second skin" }],
@@ -722,26 +716,31 @@ test("本地皮肤轮播只列皮肤包，内置主题属于主题标签", async
   const slides = within(carousel())
     .getAllByRole("article")
     .map((article) => article.getAttribute("aria-label"));
-  expect(slides).toEqual(["Sample skin", "Second skin"]);
+  expect(slides).toEqual([
+    ...themeCatalog.map((entry) => entry.title),
+    "Sample skin",
+    "Second skin",
+  ]);
   expect(within(carousel()).getByRole("button", { name: "查看Second skin" })).toBeTruthy();
-  const total = 2;
+  const total = themeCatalog.length + 2;
   expect(within(carousel()).getByText(`1 / ${total}`)).toBeTruthy();
 });
 
 test("a host without a catalog scanner has no package cards and says so in the row", async () => {
-  await openSkinPage();
+  openSkinPage();
   const row = await skinRow();
   expect(within(row).getByRole("status").textContent).toBe("当前宿主不支持扫描外部皮肤。");
-  expect(screen.queryByRole("region", { name: "主题列表" })).toBeNull();
-  fireEvent.click(screen.getByRole("tab", { name: "主题" }));
   expect(within(carousel()).getAllByRole("article")).toHaveLength(themeCatalog.length);
   expect(within(carousel()).getByText(`1 / ${themeCatalog.length}`)).toBeTruthy();
 });
 
 test("an external card is styled as the built-in theme cards are", async () => {
-  await openSkinPage({ scanSkinCatalog: async () => catalog });
+  openSkinPage({ scanSkinCatalog: async () => catalog });
   const card = await screen.findByRole("article", { name: "Sample skin" });
+  const builtin = screen.getByRole("article", { name: "夜青" });
+  expect(card.className).toBe(builtin.className);
   const toggle = within(card).getByRole("switch");
+  expect(toggle.className).toBe(within(builtin).getByRole("switch").className);
   expect(toggle.className).toBe(settingsStyle.skinSwitch(false));
   expect(toggle.classList.contains("skin-selection-switch")).toBe(false);
   expect(toggle.firstElementChild?.className).toBe(settingsStyle.skinSwitchKnob(false));
@@ -752,10 +751,6 @@ test("an external card is styled as the built-in theme cards are", async () => {
   expect(within(card).getByRole("button", { name: "预览浅色" }).className).toBe(
     settingsStyle.skinPreviewSwitch,
   );
-  fireEvent.click(screen.getByRole("tab", { name: "主题" }));
-  const builtin = screen.getByRole("article", { name: "夜青" });
-  expect(card.className).toBe(builtin.className);
-  expect(toggle.className).toBe(within(builtin).getByRole("switch").className);
 });
 
 test("choosing a package makes it the custom theme's skin, and the 自定义 card drops it", async () => {
@@ -764,15 +759,20 @@ test("choosing a package makes it the custom theme's skin, and the 自定义 car
     revision: 4,
     preferences,
   }));
-  await openSkinPage({
+  openSkinPage({
     save,
     scanSkinCatalog: async () => ({ ...catalog, packages: [{ ...sample, base: "paper" }] }),
   });
   const card = await screen.findByRole("article", { name: "Sample skin" });
+  const custom = screen.getByRole("article", { name: "自定义" });
   fireEvent.click(within(card).getByRole("switch"));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("true");
   expect(within(card).getByText("使用中")).toBeTruthy();
   expect(card.className).toBe(settingsStyle.skinCard(true));
+  // 自定义主题通过皮肤包卡片启用，内置的「自定义」卡片保持关闭。
+  expect(within(custom).getByRole("switch").getAttribute("aria-checked")).toBe("false");
+  expect(within(custom).queryByText("使用中")).toBeNull();
+  expect(within(custom).getByText("外部皮肤、候选颜色与自定义键盘")).toBeTruthy();
   // paper 底的皮肤放进浅色槽位；页面说明两种明暗各用哪款。
   expect(within(card).getByText("浅色皮肤，用在浅色模式")).toBeTruthy();
   expect(screen.getByText("浅色模式用「Sample skin」，深色模式不用皮肤。")).toBeTruthy();
@@ -783,15 +783,8 @@ test("choosing a package makes it the custom theme's skin, and the 自定义 car
     global_theme: "custom",
     custom_theme: { base: "paper", candidate_skin: "sample" },
   });
-  fireEvent.click(screen.getByRole("tab", { name: "主题" }));
-  const custom = screen.getByRole("article", { name: "自定义" });
-  // 自定义主题通过本地皮肤启用时，主题标签的「自定义」开关保持关闭。
-  expect(within(custom).getByRole("switch").getAttribute("aria-checked")).toBe("false");
-  expect(within(custom).queryByText("使用中")).toBeNull();
-  expect(within(custom).getByText("外部皮肤、候选颜色与自定义键盘")).toBeTruthy();
   fireEvent.click(within(custom).getByRole("switch"));
   expect(within(custom).getByRole("switch").getAttribute("aria-checked")).toBe("true");
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("false");
   saveSettingsNow();
   await waitFor(() =>
@@ -811,7 +804,7 @@ test("a light and a dark skin are in use together, each in its own slot", async 
     revision: 4,
     preferences,
   }));
-  await openSkinPage({
+  openSkinPage({
     save,
     scanSkinCatalog: async () => ({
       ...catalog,
@@ -851,7 +844,7 @@ test("a light and a dark skin are in use together, each in its own slot", async 
 });
 
 test("the carousel opens on the package card when the custom theme draws a package", async () => {
-  await openSkinPage({
+  openSkinPage({
     load: async () => ({
       ...initial,
       preferences: {
@@ -863,7 +856,7 @@ test("the carousel opens on the package card when the custom theme draws a packa
     scanSkinCatalog: async () => catalog,
   });
   const card = await screen.findByRole("article", { name: "Sample skin" });
-  const count = 1;
+  const count = themeCatalog.length + 1;
   await waitFor(() =>
     expect(
       within(carousel())
@@ -874,7 +867,6 @@ test("the carousel opens on the package card when the custom theme draws a packa
   expect(within(carousel()).getByText(`${count} / ${count}`)).toBeTruthy();
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("true");
   expect(within(card).getByText("使用中")).toBeTruthy();
-  fireEvent.click(screen.getByRole("tab", { name: "主题" }));
   expect(
     within(screen.getByRole("article", { name: "自定义" }))
       .getByRole("switch")
@@ -895,7 +887,6 @@ test("external selection enters the revisioned draft; preview toggles never save
   );
   await settingsFormReady();
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
   const card = await screen.findByRole("article", { name: "Sample skin" });
   fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("false");
@@ -963,26 +954,20 @@ test("settings synchronize all cards and reset local overrides on candidate them
     scan = vi.fn().mockResolvedValue(catalog);
   render(<SettingsPage client={{ load: async () => initial, save, scanSkinCatalog: scan }} />);
   await settingsFormReady();
-  const mode = (name: string) => {
-    fireEvent.click(screen.getByRole("tab", { name: "主题" }));
+  const mode = (name: string) =>
     fireEvent.click(
       within(screen.getByRole("radiogroup", { name: "颜色模式" })).getByRole("radio", { name }),
     );
-  };
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
   mode("浅色");
-  expect(screen.getAllByRole("article")).toHaveLength(themeCatalog.length);
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
   await screen.findByRole("article", { name: "Sample skin" });
   const scansBeforePreviewChanges = scan.mock.calls.length;
-  expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.getAllByRole("article")).toHaveLength(8);
   // The built-in themes are fixed palettes with no preview switch; the system card, the custom card over the system base and the external package follow the mode.
-  const cards = ["跟随系统", "自定义", "Sample skin"].map((name) => {
-    fireEvent.click(
-      screen.getByRole("tab", { name: name === "Sample skin" ? "本地皮肤" : "主题" }),
-    );
-    const card = screen.getByRole("article", { name });
+  const cards = ["跟随系统", "自定义", "Sample skin"].map((name) =>
+    screen.getByRole("article", { name }),
+  );
+  for (const card of cards) {
     expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "light",
     );
@@ -990,8 +975,7 @@ test("settings synchronize all cards and reset local overrides on candidate them
     expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "dark",
     );
-    return card;
-  });
+  }
   mode("深色");
   mode("浅色");
   for (const card of cards)
@@ -1029,7 +1013,6 @@ test("settings without a layout use the same vertical default for skin compatibi
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
   expect(
     ((await screen.findByRole("switch", { name: "Sample skin" })) as HTMLButtonElement).disabled,
   ).toBe(true);
@@ -1041,7 +1024,7 @@ test("errors retain last catalog, hide raw exception and permit retry to empty r
     .mockResolvedValueOnce(catalog)
     .mockRejectedValueOnce(new Error("sensitive diagnostic"))
     .mockResolvedValueOnce({ directory: catalog.directory, packages: [], issues: [] });
-  await openSkinPage({ scanSkinCatalog: scan });
+  openSkinPage({ scanSkinCatalog: scan });
   await screen.findByRole("article", { name: "Sample skin" });
   const group = await skinGroup();
   await refresh();
@@ -1078,13 +1061,13 @@ test("late old-host result cannot overwrite current catalog; busy scan cannot be
 });
 
 test("unavailable hosts and synchronous scan exceptions are handled", async () => {
-  const mounted = await openSkinPage();
+  const mounted = openSkinPage();
   expect(
     (within(await skinRow()).getByRole("button", { name: "刷新皮肤" }) as HTMLButtonElement)
       .disabled,
   ).toBe(true);
   mounted.unmount();
-  await openSkinPage({
+  openSkinPage({
     scanSkinCatalog: () => {
       throw new Error("synthetic");
     },
@@ -1128,7 +1111,7 @@ test("manifest text is escaped and palette cannot inject CSS or resource URLs", 
 
 // 手机上不会有人备好 skin.toml 皮肤文件夹：外部皮肤这一行（导入、刷新、目录）只在桌面形态的宿主上出现，手机的皮肤从社区获取。
 test.each(["harmony", "android", "ios"])("a %s phone has no 外部皮肤 row", async (platform) => {
-  await openSkinPage({
+  openSkinPage({
     host: testHost({ platform, skin_directory_import: platform === "harmony" }),
     openSkinDirectory: vi.fn(),
     scanSkinCatalog: vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] }),
@@ -1142,7 +1125,7 @@ test.each(["harmony", "android", "ios"])("a %s phone has no 外部皮肤 row", a
 // 手机的候选栏默认跟随键盘皮肤，候选颜色要打开「候选栏使用主题配色」才生效：开关关着时不显示取色器，打开后才显示。只有 iOS 宿主提供这个开关；HarmonyOS 手机的皮肤页只有网格。
 test("a phone shows the candidate colours only while the strip follows the theme", async () => {
   for (const follows of [false, true]) {
-    const mounted = await openSkinPage({
+    const mounted = openSkinPage({
       host: testHost({ platform: "ios", candidate_row_colors: true }),
       mobileKeyboardFeedback: {
         load: vi.fn().mockResolvedValue({
@@ -1166,7 +1149,7 @@ test("a phone shows the candidate colours only while the strip follows the theme
 test("an import host lists the imported skin without a manual refresh", async () => {
   const scan = vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] });
   const openDirectory = vi.fn().mockResolvedValue(undefined);
-  await openSkinPage({
+  openSkinPage({
     host: testHost({ platform: "harmony", mobile_settings: false, skin_directory_import: true }),
     openSkinDirectory: openDirectory,
     scanSkinCatalog: scan,
@@ -1186,7 +1169,7 @@ test("an import host lists the imported skin without a manual refresh", async ()
 test("an import that fails does not rescan", async () => {
   const scan = vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] });
   const openDirectory = vi.fn().mockRejectedValue(new Error("synthetic"));
-  await openSkinPage({
+  openSkinPage({
     host: testHost({ platform: "harmony", mobile_settings: false, skin_directory_import: true }),
     openSkinDirectory: openDirectory,
     scanSkinCatalog: scan,
@@ -1222,7 +1205,6 @@ test("a host that draws one layout judges skins by it, not by the shared setting
   mounted.unmount();
 
   render(<SettingsPage initialPage="skin" client={client()} />);
-  fireEvent.click(await screen.findByRole("tab", { name: "本地皮肤" }));
   const desktopCard = await screen.findByRole("article", { name: /Sample skin/ });
   expect(within(desktopCard).getByText(/当前布局或明暗模式不受支持/)).toBeTruthy();
 });
@@ -1259,7 +1241,6 @@ test("the Linux skin page describes the candidate window only", async () => {
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("tab", { name: "本地皮肤" }));
   const external = await screen.findByRole("article", { name: /Sample skin/ });
   // Both Linux hosts present the toolbar as an input method menu, which no skin styles.
   expect(
@@ -1267,8 +1248,6 @@ test("the Linux skin page describes the candidate window only", async () => {
   ).toBeTruthy();
   // Every page is mounted at once; the toolbar page itself still names the toolbar.
   expect(within(external.closest("fieldset")!).queryByText(/悬浮工具栏/)).toBeNull();
-  expect(external.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
-  fireEvent.click(screen.getByRole("tab", { name: "主题" }));
   const builtin = screen.getByRole("article", { name: "夜青" });
   expect(within(builtin).getByText("深色候选窗口与键盘")).toBeTruthy();
   expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
@@ -1447,7 +1426,6 @@ test("the theme page opens the candidate publish dialog outside the settings fie
   );
   // A desktop host browses candidate-window skins on 主题, so it lists no 社区 page.
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
   expect(screen.queryByRole("button", { name: "社区" })).toBeNull();
   const card = await screen.findByRole("article", { name: "Sample skin" });
   fireEvent.click(within(card).getByRole("button", { name: "发布到社区" }));

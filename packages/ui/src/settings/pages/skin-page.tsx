@@ -525,70 +525,39 @@ export function SkinSettingsPage({
             )}
           </>
         ) : (
-          <>
-            {desktopTabs.panel(
-              "mine",
-              <>
-                {/* 颜色模式排在卡片之前，因为每张卡片的明暗预览都以它为起点。 */}
-                {colourMode}
-                <ThemeCarousel
-                  labels={[
-                    ...themeCatalog.map((entry) => entry.title),
-                    ...(mobilePlatform ? packages.map((skin) => skin.name) : []),
-                  ]}
-                  selectedIndex={
-                    mobilePlatform && packageInUse >= 0
-                      ? themeCatalog.length + packageInUse
-                      : Math.max(
-                          themeCatalog.findIndex((entry) => entry.id === globalTheme),
-                          0,
-                        )
-                  }
-                >
-                  {builtinCards}
-                  {mobilePlatform && localCards}
-                </ThemeCarousel>
-                {mobilePlatform && (
-                  <>
-                    {slotSummary && <SettingsExternalMeta>{slotSummary}</SettingsExternalMeta>}
-                    {published && (
-                      <SettingsExternalMeta role="status">
-                        {published === "private"
-                          ? "已保存到你的皮肤库，仅自己可见。"
-                          : "已发布到社区。"}
-                      </SettingsExternalMeta>
-                    )}
-                    {moreSkins}
-                  </>
-                )}
-                {customThemeGroup}
-                {advanced}
-              </>,
-            )}
-            {!mobilePlatform &&
-              desktopTabs.panel(
-                "local",
-                <>
-                  {packages.length > 0 && (
-                    <ThemeCarousel
-                      labels={packages.map((skin) => skin.name)}
-                      selectedIndex={packageInUse}
-                    >
-                      {localCards}
-                    </ThemeCarousel>
-                  )}
-                  {slotSummary && <SettingsExternalMeta>{slotSummary}</SettingsExternalMeta>}
-                  {published && (
-                    <SettingsExternalMeta role="status">
-                      {published === "private"
-                        ? "已保存到你的皮肤库，仅自己可见。"
-                        : "已发布到社区。"}
-                    </SettingsExternalMeta>
-                  )}
-                  {moreSkins}
-                </>,
+          desktopTabs.panel(
+            "mine",
+            <>
+              {/* 内置主题与已安装皮肤统一选择，颜色模式决定它们的默认预览明暗。 */}
+              {colourMode}
+              <ThemeCarousel
+                labels={[
+                  ...themeCatalog.map((entry) => entry.title),
+                  ...packages.map((skin) => skin.name),
+                ]}
+                selectedIndex={
+                  packageInUse >= 0
+                    ? themeCatalog.length + packageInUse
+                    : Math.max(
+                        themeCatalog.findIndex((entry) => entry.id === globalTheme),
+                        0,
+                      )
+                }
+              >
+                {builtinCards}
+                {localCards}
+              </ThemeCarousel>
+              {slotSummary && <SettingsExternalMeta>{slotSummary}</SettingsExternalMeta>}
+              {published && (
+                <SettingsExternalMeta role="status">
+                  {published === "private" ? "已保存到你的皮肤库，仅自己可见。" : "已发布到社区。"}
+                </SettingsExternalMeta>
               )}
-          </>
+              {moreSkins}
+              {customThemeGroup}
+              {advanced}
+            </>,
+          )
         )}
       </SettingsPageFieldset>
       {candidateSkins && publishSkinId && shown && (
