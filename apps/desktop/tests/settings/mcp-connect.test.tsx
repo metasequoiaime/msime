@@ -212,7 +212,7 @@ test("手机保留 AI 助手二级入口与返回导航", async () => {
   expect(screen.queryByRole("tab", { name: "AI 助手" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /连接 AI 助手/ }));
   expect(await mcpGroup()).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "返回维护与诊断" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回开发者选项" }));
   expect(screen.getByRole("button", { name: /连接 AI 助手/ })).toBeTruthy();
 });
 
