@@ -19,6 +19,7 @@ Status: implemented
   - 共享设置页 `LocalModelManager`：`LocalVoiceModelClient.import` 是可选的，宿主不提供就不显示按钮。未安装的模型在「下载」旁边多一个「从文件导入」，下面列出要下载的文件链接；导入成功后和下载一样，没有选用模型时自动选用。
   - HarmonyOS：设置页 `voice_local_model` 新增 `import` 操作，用 `DocumentViewPicker` 多选，选择器给的是原生库打不开的文档 URI，所以先复制进 `cacheDir/voice-model-import/<uuid>/`；只复制长度和目录里需要的文件对得上的那些（`LocalVoiceModelPolicy.importSizes`），免得用户多选了一个大文件白占空间。缓存副本在安装结束后删掉。复制那段时间原生安装还没登记，原生取消找不到它，所以 `SettingsBridge` 记着正在导入的 id：取消先记下来，复制每个文件前和开始安装前检查，看到就以 `local_model_cancelled` 结束，不再安装（review 发现最初的版本在复制时点「取消导入」没有作用，复制完照样装上）。
   - iOS：`LocalSpeechModelsView` 用 `.fileImporter(allowsMultipleSelection: true)`，在整个安装期间保持安全范围访问权，把原文件路径交给共享安装接口，不复制。
+    下载和导入都由每次独立的 `LocalSpeechModelDownload` 保存取消意图；启动前取消不调用安装器，登记前取消在 C ABI 的首次进度中同步补发。主线程只用短锁保存意图，由每次独立的后台串行队列转发共享取消；FFI 不持该锁，避免共享登记锁被其他模型删除占用时阻塞页面。结束标记在同一队列排空旧取消后设置，避免旧对象的取消误伤下一次重试；安装器与外部进度闭包不持锁。管理器在发布运行状态前保存该对象，离页只取消而不提前解除运行标记，等实际退出后再清理。进度同时核对页面代次和对象身份，旧任务不能覆盖重试；后台返回成功前离页也不自动选用模型。
   - Android 原生设置页本来就没有模型下载、删除入口，本次不补；瘦包的 `voice-runtime` 也不能从文件导入，所以 Android 还不能完全离线。
 - 删除已有的 `remove` 能力不变，各宿主的「删除」按钮沿用。
 
@@ -27,6 +28,8 @@ Status: implemented
 - **按文件名对应** — 实现最简单，用户也容易理解「把这几个文件选上」。但下载工具常会改名（加序号、`.download` 后缀、浏览器去掉扩展名），按名字对应会让一个字节完全正确的文件被拒；内容是唯一可靠的身份，长度先筛一遍，大多数情况下不用额外读一遍文件。
 - **新增 `msime_client_voice_local_model_import` C ABI** — 分诊建议的形状，名字更直白。但它要复制一遍 install 的登记、取消、进度回调和删除互斥，iOS 的 `@_silgen_name`、HarmonyOS 的 NAPI async work 也都要再加一套；在 install 请求上加一个可选字段，所有这些都自动成立。
 - **只靠后续进度补发登记前的取消** — 宿主已有补发逻辑，不必改共享接口。但模型下载首次进度在读取数据后才出现，无法在阻塞网络读取前取消；导入也可能在报告进度前以缺文件失败。初始回调复用已有阶段和 JSON 字段，不增加新状态或 ABI 符号。
+- **离页时直接清空运行标记并异步调用一次共享取消** — 页面能立即恢复可操作状态，但共享任务未登记时取消会丢失；旧任务还在执行时允许重试，又会碰到同 id 互斥或让迟到的取消影响新任务。按次对象保存意图并等实际退出，与 iOS 资源包的取消契约一致。
+- **持对象锁同步转发共享取消** — 取消和结束天然串行，容易防止旧请求影响重试。但共享取消会等待登记锁，而另一模型的删除可能持该锁遍历目录；主线程直接取消或等待进度补发持有的对象锁都会卡住。改由后台队列串行转发并在退出前排空，短锁只保护状态。
 - **复用手填目录（`VoiceModelPathSection`）让用户自己解压** — 不需要任何新代码。但用户解压出的目录没有 `msime-model.json`，识别器拒绝它；就算补写清单，也没人校验里面的文件是否完整、是否被替换过，这正是安装器要挡住的东西。
 - **官网建一个「语音数据包」下载页** — issue 的原意，能放国内镜像。需要有人建页面并跟着目录版本持续同步；直接链到目录里的上游地址不用维护，国内访问不畅时用户仍可以用镜像或别的下载工具拿到同一个文件，导入时照样按 SHA-256 校验。
 
@@ -36,6 +39,8 @@ Status: implemented
 - **代价与已知上限**：导入时同一个文件最多读两遍（长度相同的候选有几个时先算摘要，安装时再校验一遍），842 MB 的 Fun-ASR-Nano 归档在慢盘上要多花几秒；HarmonyOS 先复制进缓存，峰值占用是原文件、缓存副本和解压结果三份。所选文件打不开或读到一半出错（权限、文件被移走、可移动磁盘拔掉、iCloud 占位文件）报 `local_model_import_unreadable`：`LocalFileFetcher` 打开和定位失败、算摘要时读失败直接报它；复用的 `download()` 把来源读错误都归成 `Network`，而导入根本不联网，所以 `import_model` 把结果里的 `Network` 改成它。最初的版本把前者报成 `local_model_io`（页面说「无法写入，请检查存储空间」）、后者报成 `local_model_network`，都把问题指向了别处。Android 原生应用要补模型管理和 `voice-runtime` 离线导入时，需要重新拆一期；其中下载、选用和删除已由 [Android 本地语音模型](2026-10-12-android-local-voice-models.md)补上，从文件导入模型和运行库由 [Android 不联网安装](2026-10-12-android-offline-voice-import.md)补上。
 
 ## Verification
+
+`scripts/test-ios-local-model-cancellation.py` 编译真实 `LocalSpeechModelManager` 与下载对象，替换安装和偏好边界，以条件同步覆盖下载、导入各自的启动前取消、登记前取消、离页取消、共享取消阻塞、首次进度补发阻塞与退出后重试。测试只剥离同文件的 SwiftUI 视图部分，不复制管理器逻辑。旧实现的启动前取消与离页提前解除运行标记均先稳定失败，持锁同步转发取消的版本在阻塞回归中超时；回归不下载真实模型。`LocalSpeechModelDownloadTests` 还通过原生 Swift 桥接在共享首次进度中取消下载和导入。
 
 `cargo test -p msime-host-api --locked voice_local_model_initial_progress_can_cancel_before_provider_io` 通过真实 C ABI 在首次回调重入指定 id 的取消，覆盖下载与导入，断言初始阶段、零字节、归档总量、取消时任务已登记、退出后登记释放且模型根目录未创建。下载请求带明文合成镜像，即使初始回调回归也会在联网前被拒绝；导入使用空文件列表。旧实现回归先以 `local_model_invalid_mirror` 失败，修复后两条路径均以 `local_model_cancelled` 结束。此回归不代表设备上真实下载验收。
 

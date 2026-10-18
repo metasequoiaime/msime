@@ -23,6 +23,7 @@ final class LocalSpeechModelManager: ObservableObject {
   @Published var status = ""
   private var refreshTask: Task<Void, Never>?
   private var operationTasks: [String: Task<Void, Never>] = [:]
+  private var downloads: [String: LocalSpeechModelDownload] = [:]
   private var operationGeneration = OperationGeneration()
   /// Saves the mirror address as it is typed.
   let mirrorAutosave = SettingsAutosave()
@@ -69,32 +70,33 @@ final class LocalSpeechModelManager: ObservableObject {
     // A mirror typed just before tapping 下载 is used, not the one saved before it.
     mirrorAutosave.flush()
     let mirror = savedMirror
+    let download = LocalSpeechModelDownload(id: model.id)
+    downloads[model.id] = download
+    let generation = operationGeneration.current()
     installing.insert(model.id)
     progress[model.id] = nil
     status = ""
-    let generation = operationGeneration.current()
     let task = Task { [weak self] in
+      defer { self?.finishDownload(model.id, download: download) }
       do {
         let id = model.id
         let path = try await Task.detached(priority: .userInitiated) {
-          try LocalSpeechModelStore.install(root: root, id: id, mirror: mirror) { update in
+          try download.install(root: root, mirror: mirror) { update in
             Task { @MainActor [weak self] in
-              if self?.installing.contains(id) == true { self?.progress[id] = update }
+              guard let self, self.downloads[id] === download,
+                    self.operationGeneration.isCurrent(generation) else { return }
+              self.progress[id] = update
             }
           }
         }.value
         try Task.checkCancellation()
         guard let self, self.operationGeneration.isCurrent(generation) else { return }
-        self.installing.remove(model.id)
-        self.progress[model.id] = nil
         // The first model downloaded is the one to use; a later one waits for 使用.
         if self.selectedDirectory == nil { self.writeSelection(path.path) }
         self.status = "已下载“\(model.title)”。"
       } catch is CancellationError { }
       catch {
         if self?.operationGeneration.isCurrent(generation) == true {
-          self?.installing.remove(model.id)
-          self?.progress[model.id] = nil
           self?.status = error.localizedDescription
         }
       }
@@ -106,40 +108,47 @@ final class LocalSpeechModelManager: ObservableObject {
   /// 用用户在文件选择器里选中的文件安装 `model`，不联网。文件按长度和 SHA-256 对上目录，不看文件名；选择器给的是带安全范围的 URL，整个安装期间都保持访问权。
   func importFiles(_ model: LocalSpeechModelInfo, from urls: [URL]) {
     guard let root, !installing.contains(model.id), !urls.isEmpty else { return }
+    let download = LocalSpeechModelDownload(id: model.id)
+    downloads[model.id] = download
+    let generation = operationGeneration.current()
     installing.insert(model.id)
     importing.insert(model.id)
     progress[model.id] = nil
     status = ""
-    let generation = operationGeneration.current()
     let task = Task { [weak self] in
+      defer { self?.finishDownload(model.id, download: download) }
       do {
         let id = model.id
         let path = try await Task.detached(priority: .userInitiated) {
           let accessed = urls.map { $0.startAccessingSecurityScopedResource() }
           defer { for (url, granted) in zip(urls, accessed) where granted { url.stopAccessingSecurityScopedResource() } }
-          return try LocalSpeechModelStore.install(root: root, id: id, mirror: "", files: urls) { update in
+          return try download.install(root: root, mirror: "", files: urls) { update in
             Task { @MainActor [weak self] in
-              if self?.installing.contains(id) == true { self?.progress[id] = update }
+              guard let self, self.downloads[id] === download,
+                    self.operationGeneration.isCurrent(generation) else { return }
+              self.progress[id] = update
             }
           }
         }.value
         try Task.checkCancellation()
         guard let self, self.operationGeneration.isCurrent(generation) else { return }
-        self.finishImport(model.id)
         if self.selectedDirectory == nil { self.writeSelection(path.path) }
         self.status = "已导入“\(model.title)”。"
       } catch let failure as LocalSpeechModelStore.HostFailure {
-        if self?.operationGeneration.isCurrent(generation) == true { self?.finishImport(model.id); self?.status = Self.importMessage(for: failure) }
+        if self?.operationGeneration.isCurrent(generation) == true { self?.status = Self.importMessage(for: failure) }
       } catch is CancellationError { }
       catch {
-        if self?.operationGeneration.isCurrent(generation) == true { self?.finishImport(model.id); self?.status = error.localizedDescription }
+        if self?.operationGeneration.isCurrent(generation) == true { self?.status = error.localizedDescription }
       }
       if self?.operationGeneration.isCurrent(generation) == true { self?.refresh() }
     }
     operationTasks[model.id] = task
   }
 
-  private func finishImport(_ id: String) {
+  private func finishDownload(_ id: String, download: LocalSpeechModelDownload) {
+    guard downloads[id] === download else { return }
+    downloads[id] = nil
+    operationTasks[id] = nil
     installing.remove(id)
     importing.remove(id)
     progress[id] = nil
@@ -156,8 +165,7 @@ final class LocalSpeechModelManager: ObservableObject {
   }
 
   func cancel(_ model: LocalSpeechModelInfo) {
-    let id = model.id
-    Task.detached { LocalSpeechModelStore.cancel(id: id) }
+    downloads[model.id]?.cancel()
   }
 
   func cancelPending() {
@@ -165,12 +173,9 @@ final class LocalSpeechModelManager: ObservableObject {
     refreshTask?.cancel()
     refreshTask = nil
     operationTasks.values.forEach { $0.cancel() }
-    let ids = installing
     operationTasks.removeAll()
-    importing.removeAll()
-    installing.removeAll()
+    downloads.values.forEach { $0.cancel() }
     progress.removeAll()
-    Task.detached { ids.forEach { LocalSpeechModelStore.cancel(id: $0) } }
   }
 
   func use(_ model: LocalSpeechModelInfo) {

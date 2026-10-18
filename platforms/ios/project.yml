@@ -368,6 +368,7 @@ targets:
       - path: App/Services/AboutUpdateRequestState.swift
       - path: App/Services/CustomService.swift
       - path: App/Services/LocalSpeechModel.swift
+      - path: App/Services/LocalSpeechModelDownload.swift
       - path: App/Services/LocalSpeechModelStore.swift
       - path: App/Services/VoicePolish.swift
       - path: App/Services/VoicePolishPrompt.cpp
@@ -413,6 +414,7 @@ targets:
       - path: tests
         excludes:
           - resource-packs/**
+          - local-models/**
           - input/EnglishCapitalizationPolicyTests.swift
           - settings/FrequencyAdjustmentPreferenceTests.swift
           - input/HandwritingTests.swift

@@ -18,7 +18,7 @@ class IOSLocalSpeechModelLifecycleContract(unittest.TestCase):
         body = cancel.group(0)
         self.assertIn("refreshTask?.cancel()", body)
         self.assertIn("operationTasks.values.forEach { $0.cancel() }", body)
-        self.assertIn("LocalSpeechModelStore.cancel", body)
+        self.assertIn("downloads.values.forEach { $0.cancel() }", body)
 
     def test_section_cancels_manager_work_on_disappearance(self):
         source = SOURCE.read_text(encoding="utf-8")
