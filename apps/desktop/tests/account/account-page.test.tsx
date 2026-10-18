@@ -50,10 +50,12 @@ function account(overrides: Partial<AccountClient> = {}): AccountClient {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((accept) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((accept, fail) => {
     resolve = accept;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 test("code login trims the target, requires six ASCII digits and loads the profile", async () => {
@@ -749,6 +751,67 @@ test("the signed-out page offers the recovery actions only when something went w
   await waitFor(() =>
     expect(screen.queryByRole("button", { name: "清除失效登录状态" })).toBeNull(),
   );
+});
+
+test.each(["account_network", "account_unavailable"])(
+  "登录方式请求失败时不误报服务端未配置登录方式：%s",
+  async (code) => {
+    const providers = vi
+      .fn()
+      .mockRejectedValueOnce({ code })
+      .mockResolvedValue({ email: true, phone: false });
+    render(<AccountPage client={account({ providers })} />);
+    expect(await screen.findByText("登录方式加载失败，请重试。")).not.toBeNull();
+    expect(screen.queryByText("当前没有可用的验证码登录方式，请稍后重试。")).toBeNull();
+    expect(screen.getByRole("alert")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "刷新登录方式" }));
+    await screen.findByRole("button", { name: "邮箱登录" });
+    expect(screen.queryByText("登录方式加载失败，请重试。")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  },
+);
+
+test("重试成功但服务端没有启用登录方式时才显示空状态", async () => {
+  const providers = vi
+    .fn()
+    .mockRejectedValueOnce({ code: "account_unavailable" })
+    .mockResolvedValue({ email: false, phone: false });
+  render(<AccountPage client={account({ providers })} />);
+  await screen.findByText("登录方式加载失败，请重试。");
+  fireEvent.click(screen.getByRole("button", { name: "刷新登录方式" }));
+  expect(await screen.findByText("当前没有可用的验证码登录方式，请稍后重试。")).not.toBeNull();
+  expect(screen.queryByText("登录方式加载失败，请重试。")).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("空列表刷新失败后不沿用之前的空状态结论", async () => {
+  const pending = deferred<{ email: boolean; phone: boolean }>();
+  const providers = vi
+    .fn()
+    .mockResolvedValueOnce({ email: false, phone: false })
+    .mockReturnValueOnce(pending.promise);
+  render(<AccountPage client={account({ providers })} />);
+  await screen.findByText("当前没有可用的验证码登录方式，请稍后重试。");
+  fireEvent.click(screen.getByRole("button", { name: "刷新登录方式" }));
+  expect(await screen.findByText("正在加载登录方式…")).not.toBeNull();
+  expect(screen.queryByText("当前没有可用的验证码登录方式，请稍后重试。")).toBeNull();
+  pending.reject({ code: "account_unavailable" });
+  expect(await screen.findByText("登录方式加载失败，请重试。")).not.toBeNull();
+  expect(screen.queryByText("当前没有可用的验证码登录方式，请稍后重试。")).toBeNull();
+  expect(screen.getByRole("button", { name: "刷新登录方式" }).hasAttribute("disabled")).toBe(false);
+});
+
+test("切换客户端后登录方式请求失败不沿用旧列表", async () => {
+  const view = render(<AccountPage client={account()} />);
+  await screen.findByRole("button", { name: "邮箱登录" });
+  view.rerender(
+    <AccountPage
+      client={account({ providers: vi.fn().mockRejectedValue({ code: "account_unavailable" }) })}
+    />,
+  );
+  expect(await screen.findByText("登录方式加载失败，请重试。")).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "邮箱登录" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "手机号登录" })).toBeNull();
 });
 
 test("a successful sign-in after an unreadable session drops the stale clear action", async () => {

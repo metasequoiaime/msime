@@ -806,6 +806,7 @@ function AccountDetailsPage({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [providers, setProviders] = useState<AccountProviders>({ email: false, phone: false });
+  const [providersLoaded, setProvidersLoaded] = useState(false);
   const [user, setUser] = useState<AccountUser | null>(null);
   // 读不出本机保存的登录状态（`status()` 失败，例如登录状态文件坏了）。只有这时才给「清除失效登录状态」，平常未登录时它只是噪音。
   const [sessionUnreadable, setSessionUnreadable] = useState(false);
@@ -854,18 +855,27 @@ function AccountDetailsPage({
       setNotice("账号已注销。");
     },
   });
-  const { refreshProviders, clearExpired } = useAccountRecoveryActions({
+  const applyProviders = (value: AccountProviders) => {
+    setProviders(value);
+    setProvidersLoaded(true);
+  };
+  const { refreshProviders: reloadProviders, clearExpired } = useAccountRecoveryActions({
     client,
     mounted,
     clientGeneration,
     perform,
-    onProvidersChange: setProviders,
+    onProvidersChange: applyProviders,
     onClearedExpired: () => {
       clearSession();
       setSessionUnreadable(false);
       setNotice("已清除失效登录状态。");
     },
   });
+  const refreshProviders = () => {
+    if (busy) return;
+    setProvidersLoaded(false);
+    return reloadProviders();
+  };
   const verification = useAccountVerification({ client, mounted, clientGeneration, setNotice });
   const {
     channel,
@@ -917,10 +927,13 @@ function AccountDetailsPage({
 
   useEffect(() => {
     const generation = clientGeneration.current;
+    setLoading(true);
+    setProviders({ email: false, phone: false });
+    setProvidersLoaded(false);
     void Promise.allSettled([client.status(), client.providers()]).then(async (results) => {
       if (!mounted.current || generation !== clientGeneration.current) return;
       const [status, available] = results;
-      if (available.status === "fulfilled") setProviders(available.value);
+      if (available.status === "fulfilled") applyProviders(available.value);
       else if (!isAccountCancellation(available.reason)) setError(accountMessage(available.reason));
       if (status.status === "fulfilled") {
         setSessionUnreadable(false);
@@ -1324,7 +1337,7 @@ function AccountDetailsPage({
           <LoginSheet
             client={client}
             providers={providers}
-            onProvidersChange={setProviders}
+            onProvidersChange={applyProviders}
             onSignedIn={signedIn}
             onClearedExpired={() => {
               setUser(null);
@@ -1453,7 +1466,11 @@ function AccountDetailsPage({
                 )}
                 {enabledProviders === 0 && (
                   <p className={`${account.muted} text-center`}>
-                    当前没有可用的验证码登录方式，请稍后重试。
+                    {providersLoaded
+                      ? "当前没有可用的验证码登录方式，请稍后重试。"
+                      : busy
+                        ? "正在加载登录方式…"
+                        : "登录方式加载失败，请重试。"}
                   </p>
                 )}
               </div>
