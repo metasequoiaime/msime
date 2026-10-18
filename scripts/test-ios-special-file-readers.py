@@ -34,9 +34,9 @@ CHECKS = (
     ),
     (
         ROOT / "platforms/ios/SharedUI/core/CloudSyncState.swift",
-        "private func load(_ root: URL)",
-        "  }\n\n  private func save(",
-        ("BoundedFileReader.read(from: file, maximumBytes: Self.maximumBytes)",),
+        "func importLegacy() -> Bool",
+        "  }\n\n  /// ",
+        ("BoundedFileReader.read(from: file, maximumBytes: 256 * 1024)",),
     ),
     (
         ROOT / "platforms/ios/SharedUI/dictionary/DictionarySnapshotQueue.swift",

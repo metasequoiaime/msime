@@ -7,6 +7,7 @@ import unittest
 SOURCE = Path("platforms/ios/App/Sources/dictionary/CloudDictionaryFilesView.swift").read_text()
 GENERATION = Path("platforms/ios/App/Sources/app/ViewRequestGeneration.swift").read_text()
 TASK = Path("platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text()
+DICTIONARY = Path("platforms/ios/App/Sources/dictionary/IOSCloudDictionary.swift").read_text()
 
 
 class CloudDictionaryFilesLifecycleTests(unittest.TestCase):
@@ -23,7 +24,13 @@ class CloudDictionaryFilesLifecycleTests(unittest.TestCase):
     def test_run_fences_late_work_and_cleanup(self):
         self.assertIn("run(_ action: @escaping @MainActor (UUID) async throws -> Void)", SOURCE)
         self.assertIn("guard request.isVisible else { return }", SOURCE)
-        self.assertIn("try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)", SOURCE)
+        # 页面按打开时的 user.id 绑定（#8201 4c）：每个远端请求都经 IOSCloudDictionary，它在请求前后核对账号，退出或换号时是 CancellationError。
+        self.assertIn("private var dictionary: IOSCloudDictionary { IOSCloudDictionary(accountID: accountID) }", SOURCE)
+        self.assertNotIn("BackendRustAccount.current()", SOURCE)
+        self.assertNotIn("account.cloudDictionary(", SOURCE)
+        self.assertGreaterEqual(SOURCE.count("try await dictionary.object(") + SOURCE.count("try await dictionary.request("), 5)
+        self.assertRegex(DICTIONARY, r"try await requireAccount\(account\)\n\s*let data = try await account\.cloudDictionary\(action, snapshotDirectory: try Self\.transferDirectory\(\)\)\n\s*try await requireAccount\(account\)")
+        self.assertIn("guard current == accountID else { throw CancellationError() }", DICTIONARY)
         self.assertIn("if request.wrappedValue.isCurrent(id)", TASK)
         self.assertIn("busy.wrappedValue = false", TASK)
         self.assertIn("pending.wrappedValue = nil", TASK)

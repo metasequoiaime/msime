@@ -77,8 +77,11 @@ class IOSCloudDictionaryKindLifecycleContract(unittest.TestCase):
         self.assertIsNotNone(save)
         body = save.group(0)
         self.assertIn("guard let id = request.current() else { throw CancellationError() }", body)
-        self.assertEqual(body.count("try request.checkCurrent(id)"), 2)
-        self.assertIn("try await load(offset: 0)", body)
+        # 账号核对在 IOSCloudDictionary 的请求前后（#8201 4c），页面里只剩一个远端写：它回来以后、重新读列表之前核对代次。
+        self.assertIn("let dictionary = IOSCloudDictionary(accountID: edit.userID)", body)
+        self.assertEqual(body.count("try await dictionary.request("), 2)
+        self.assertEqual(body.count("try request.checkCurrent(id)"), 1)
+        self.assertRegex(body, r"\}\n\s*try request\.checkCurrent\(id\)\n\s*try await load\(offset: 0\)\n  \}$")
 
 
 if __name__ == "__main__":

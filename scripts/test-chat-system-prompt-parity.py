@@ -26,7 +26,7 @@ SENDERS = [
     ("shared request builder", "packages/ui/src/chat/chat-prompt.ts", '{ role: "system", content: CHAT_SYSTEM_PROMPT }'),
     ("Android chat page", "platforms/android/java/app/msime/android/home/ChatFragment.java", 'new BackendAccount.ChatMessage("system", SYSTEM_PROMPT)'),
     ("iOS request builder", "platforms/ios/App/Sources/keyboard/KeyboardChatHistoryPolicy.swift", '(role: "system", text: systemPrompt)'),
-    ("iOS keyboard chat", "platforms/ios/App/Sources/keyboard/KeyboardChatView.swift", "KeyboardChatHistoryPolicy.request("),
+    ("iOS keyboard chat", "platforms/ios/App/Sources/keyboard/KeyboardChatModel.swift", "KeyboardChatHistoryPolicy.request("),
 ]
 
 
