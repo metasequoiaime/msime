@@ -339,12 +339,14 @@ struct ServiceSettingsView: View {
 
   var body: some View {
     Form {
-      providerSection
-      if kind == .ai || !configuration.voiceProvider.isOnDevice {
-        configurationSection
-      }
-      if kind == .voice && configuration.voiceProvider == .local {
-        LocalSpeechModelsSection(manager: localModels, disabled: busy || recorder.isRecording || recorder.isPreparing)
+      if !autoStartVoice {
+        providerSection
+        if kind == .ai || !configuration.voiceProvider.isOnDevice {
+          configurationSection
+        }
+        if kind == .voice && configuration.voiceProvider == .local {
+          LocalSpeechModelsSection(manager: localModels, disabled: busy || recorder.isRecording || recorder.isPreparing)
+        }
       }
 
       if kind == .ai {
@@ -414,8 +416,10 @@ struct ServiceSettingsView: View {
             ? "在水杉 App 中录音，由本机识别，边说边显示文字，再将结果发送到键盘或复制。iOS 键盘扩展不能直接录音。"
             : "在水杉 App 中录音识别，再将结果发送到键盘或复制。iOS 键盘扩展不能直接录音。")
         }
-        voiceOptionsSection
-        voicePolishSection
+        if !autoStartVoice {
+          voiceOptionsSection
+          voicePolishSection
+        }
       }
       if busy {
         Button("取消请求") { cancelRequest(); status = "已取消" }
@@ -468,7 +472,7 @@ struct ServiceSettingsView: View {
           .font(.footnote).foregroundStyle(.secondary)
       }
     }
-    .navigationTitle(kind.title)
+    .navigationTitle(autoStartVoice ? "语音输入" : kind.title)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItemGroup(placement: .keyboard) {
