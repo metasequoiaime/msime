@@ -1,14 +1,6 @@
 import { createVoiceRecognitionClient } from "./voice/voice-recognition-client";
 import { createTauriProgressClient } from "./core/tauri-progress-client";
-import {
-  StrictMode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createMobileSettingsHistoryState } from "../../../packages/ui/src/settings/mobile-history-state";
 import { trackAsyncSubscription } from "../../../packages/ui/src/core/async-subscription";
@@ -26,7 +18,6 @@ import {
   EmojiPanel,
   VoicePanel,
   completeOnboardingPreferences,
-  usePreferencesSnapshot,
   useMobilePopState,
   subscribeToWindowEvent,
   SettingsPage,
@@ -35,7 +26,6 @@ import {
   LinuxSetupPage,
   MacosInstallPage,
   savedModelMirror,
-  useCandidatePreviewTheme,
   type AccountClient,
   type AccountProfile,
   type AccountQqLink,
@@ -101,7 +91,8 @@ import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
 import { discoverFontReader } from "./candidate/system-font-client";
 import { DesktopKeyboard } from "./input/desktop-keyboard";
-import { panelSurfaceTheme, useHostPlatform, usePanelHost } from "./input/panel-host";
+import { useHostPlatform } from "./input/panel-host";
+import { DesktopPanelTheme } from "./input/desktop-panel-theme";
 import { DesktopHandwriting } from "./input/desktop-handwriting";
 import { DesktopCloudDictionary } from "./dictionary/desktop-cloud-dictionary";
 import { testDesktopApiCredential } from "./account/credential-test-client";
@@ -519,27 +510,6 @@ function DesktopHandwritingSurface({ theme }: { theme: "dark" | "light" }) {
   );
 }
 
-function DesktopPanelTheme({
-  preferences,
-  surface,
-  children,
-}: {
-  preferences: Pick<SettingsClient, "load" | "onPreferencesChanged" | "host">;
-  surface: "handwriting" | "voice" | "emoji";
-  children: (theme: "dark" | "light") => ReactNode;
-}) {
-  const snapshot = usePreferencesSnapshot(preferences);
-  const host = usePanelHost(preferences.host);
-  const surfaceTheme =
-    surface === "handwriting"
-      ? snapshot?.preferences.handwriting_theme
-      : surface === "voice"
-        ? snapshot?.preferences.voice_theme
-        : snapshot?.preferences.emoji_theme;
-  return children(
-    useCandidatePreviewTheme(snapshot?.preferences.theme, panelSurfaceTheme(host, surfaceTheme)),
-  );
-}
 // The host reports what it supports; outside Tauri (the browser preview) there is no host.
 async function discoverHostCapabilities(): Promise<HostCapabilities | null> {
   if (!isTauri()) return null;
