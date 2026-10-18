@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""编译真实模型管理器，以条件同步验证取消和离页后的运行状态。"""
+"""编译真实模型管理器，以条件同步验证取消、离页和删除后的状态。"""
 from pathlib import Path
 import platform
 import shutil
@@ -32,6 +32,8 @@ def main():
     for operation in ["download", "import"]:
         for mode in ["early", "registration", "leave", "blocked-cancel", "progress-blocked"]:
             subprocess.run([str(binary), operation, mode], cwd=ROOT, check=True, timeout=15)
+    for mode in ["switch-other", "select-removed", "selected", "unselected", "failure"]:
+        subprocess.run([str(binary), "remove", mode], cwd=ROOT, check=True, timeout=15)
 
 
 if __name__ == "__main__":

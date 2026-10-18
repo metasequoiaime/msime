@@ -2,11 +2,11 @@ import Combine
 import Foundation
 
 struct LocalSpeechModelInfo {
-  let id = "synthetic-model"
+  var id = "synthetic-model"
   let title = "合成模型"
   let desktopOnly = false
-  let installed = false
-  let path = "/synthetic/models/synthetic-model"
+  var installed = false
+  var path: String { "/synthetic/models/" + id }
 }
 struct LocalSpeechInstallProgress {
   let id: String
@@ -30,6 +30,14 @@ final class ModelInstallationFixture: @unchecked Sendable {
   var holdCompletion = false
   var succeed = false
   var holdCancel = false
+  var removalFails = false
+
+  func remove() throws {
+    condition.lock()
+    waitForRelease()
+    condition.unlock()
+    if removalFails { throw LocalSpeechModelStore.HostFailure(code: "synthetic_remove_failed") }
+  }
 
   func install(progress: (LocalSpeechInstallProgress) -> Void) throws -> URL {
     condition.lock()
@@ -115,19 +123,28 @@ enum LocalSpeechModelStore {
     try ModelInstallationFixture.shared.install(progress: progress)
   }
   static func cancel(id: String) { ModelInstallationFixture.shared.cancel() }
-  static func remove(root: URL, id: String) throws {}
+  static func remove(root: URL, id: String) throws { try ModelInstallationFixture.shared.remove() }
   static func isValidMirror(_ value: String) -> Bool { true }
   static func message(for code: String) -> String { code }
 }
 enum LocalSpeechModelLocation {
   static func root() throws -> URL { URL(fileURLWithPath: "/synthetic/models") }
-  static func resolve(storedPath: String, root: URL?) -> URL? { nil }
-  static func names(_ path: String, model: String) -> Bool { false }
+  static func resolve(storedPath: String, root: URL?) -> URL? {
+    storedPath.isEmpty ? nil : URL(fileURLWithPath: storedPath)
+  }
+  static func names(_ path: String, model: String) -> Bool {
+    !path.isEmpty && URL(fileURLWithPath: path).lastPathComponent == model
+  }
 }
 @MainActor enum MetasequoiaInputSessionBridge {
   static var writes = 0
-  static func loadSharedPreferences() -> [String: Any]? { nil }
-  static func updateSharedPreferences(_ change: (inout [String: Any]) -> Void) -> Bool { writes += 1; return true }
+  static var preferences: [String: Any] = [:]
+  static func loadSharedPreferences() -> [String: Any]? { preferences }
+  static func updateSharedPreferences(_ change: (inout [String: Any]) -> Void) -> Bool {
+    writes += 1
+    change(&preferences)
+    return true
+  }
 }
 @MainActor final class SettingsAutosave {
   var hasPending = false
@@ -143,6 +160,10 @@ struct ServiceFailure: Error { let message: String }
 
 @main struct LocalModelCancellationTests {
   @MainActor static func main() async {
+    if CommandLine.arguments[1] == "remove" {
+      await verifyRemovalSelection(mode: CommandLine.arguments[2])
+      return
+    }
     let fixture = ModelInstallationFixture.shared
     let mode = CommandLine.arguments[2]
     fixture.holdRegistration = ["registration", "progress-blocked"].contains(mode)
@@ -206,5 +227,44 @@ struct ServiceFailure: Error { let message: String }
       exit(1)
     }
     print("模型取消及重试回归通过：\(CommandLine.arguments[1]) / \(mode)")
+  }
+
+  @MainActor static func verifyRemovalSelection(mode: String) async {
+    let fixture = ModelInstallationFixture.shared
+    fixture.removalFails = mode == "failure"
+    let removed = LocalSpeechModelInfo(installed: true)
+    let other = LocalSpeechModelInfo(id: "synthetic-other", installed: true)
+    let manager = LocalSpeechModelManager()
+    manager.use(mode == "select-removed" || mode == "unselected" ? other : removed)
+    let (events, continuation) = AsyncStream<String>.makeStream()
+    let subscription = manager.$status.sink { continuation.yield($0) }
+    defer { subscription.cancel() }
+
+    manager.remove(removed)
+    await Task.detached { fixture.waitForWorker() }.value
+    let previous = manager.selectedPath
+    guard previous == (mode == "select-removed" || mode == "unselected" ? other.path : removed.path) else {
+      fatalError("删除完成前已清空模型选择")
+    }
+    if mode == "switch-other" { manager.use(other) }
+    if mode == "select-removed" { manager.use(removed) }
+    let writesBeforeCompletion = MetasequoiaInputSessionBridge.writes
+    fixture.releaseWorker()
+    for await status in events {
+      if status == "已删除“\(removed.title)”。" || status == "synthetic_remove_failed" { break }
+    }
+    let expected = mode == "failure" ? removed.path :
+      (mode == "switch-other" || mode == "unselected" ? other.path : "")
+    guard manager.selectedPath == expected else {
+      print("删除完成后覆盖了当前选择：\(mode)，预期 \(expected)，实际 \(manager.selectedPath)")
+      exit(1)
+    }
+    let persisted = (MetasequoiaInputSessionBridge.preferences["voice_input"] as? [String: Any])?["asr_model_path"] as? String
+    guard persisted == expected else { fatalError("页面与保存的模型选择不一致") }
+    let clearsSelection = expected.isEmpty
+    guard MetasequoiaInputSessionBridge.writes == writesBeforeCompletion + (clearsSelection ? 1 : 0) else {
+      fatalError("删除完成后写入了无关选择")
+    }
+    print("模型删除与选择回归通过：\(mode)")
   }
 }

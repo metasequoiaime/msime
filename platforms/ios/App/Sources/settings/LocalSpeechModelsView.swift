@@ -185,11 +185,7 @@ final class LocalSpeechModelManager: ObservableObject {
 
   func remove(_ model: LocalSpeechModelInfo) {
     guard let root else { return }
-    let wasSelected = isSelected(model)
-    // Release the recognizer before removing its files, but keep the selection until the
-    // removal succeeds. If the host cannot delete the model (for example, storage or I/O
-    // failure), the installed model must remain the selected one rather than silently
-    // disabling voice input.
+    // 删除前释放识别器，失败时保留选择；成功后再核对当前选择，避免覆盖等待期间的改选。
     LocalSpeechEngine.shared.release()
     let id = model.id
     let generation = operationGeneration.current()
@@ -198,7 +194,7 @@ final class LocalSpeechModelManager: ObservableObject {
         try await Task.detached { try LocalSpeechModelStore.remove(root: root, id: id) }.value
         try Task.checkCancellation()
         guard let self, self.operationGeneration.isCurrent(generation) else { return }
-        if wasSelected { _ = self.writeSelection("") }
+        if self.isSelected(model) { _ = self.writeSelection("") }
         self.status = "已删除“\(model.title)”。"
       } catch is CancellationError { }
       catch { if self?.operationGeneration.isCurrent(generation) == true { self?.status = error.localizedDescription } }
