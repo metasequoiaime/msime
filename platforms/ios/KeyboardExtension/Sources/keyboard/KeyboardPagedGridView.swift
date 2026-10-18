@@ -149,11 +149,34 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
 
   func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
     isScrollAnimating = false
+    settlePageOffset()
   }
 
   /// 拖动打断带动画的 `scrollToPage` 时由拖动接管，偏移重新归用户控制。
   func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
     isScrollAnimating = false
+  }
+
+  func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+    settlePageOffset()
+  }
+
+  func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+    if !decelerate { settlePageOffset() }
+  }
+
+  /// 结束拖动或动画时把偏移对齐到整页。面板重排、转屏或手势反向时可能在减速中触发布局；只依赖 `layoutSubviews` 会把滚动位置留在半页，下一次反向滑动就从错误的基准继续。
+  private func settlePageOffset() {
+    let width = scrollView.bounds.width
+    guard width > 0 else { return }
+    let target = min(max(Int((scrollView.contentOffset.x / width).rounded()), 0), pageCount - 1)
+    dots.setActive(target, animated: false)
+    setPage(target)
+    let offset = CGPoint(x: CGFloat(target) * width, y: 0)
+    guard scrollView.contentOffset != offset else { return }
+    isApplyingLayout = true
+    scrollView.setContentOffset(offset, animated: false)
+    isApplyingLayout = false
   }
 
   private func setPage(_ page: Int) {

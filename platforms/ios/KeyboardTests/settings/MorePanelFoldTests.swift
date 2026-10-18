@@ -116,6 +116,25 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertEqual(KeyboardPagedGridView.pickerRows(formFactor: .tablet, landscape: true), 3)
   }
 
+  /// 反向拖动或布局中断减速时，分页网格必须回到最近的整页，避免下一次手势从半页继续。
+  func testPagedGridSettlesAfterInterruptedDrag() throws {
+    let tools = (0..<20).map { index in KeyboardTool(id: "tool\(index)", title: "工具\(index)", face: .glyph("\(index)")) {} }
+    let panel = KeyboardMorePickerView(tools: tools, formFactor: .phone)
+    panel.frame = CGRect(x: 0, y: 0, width: 380, height: 201)
+    panel.layoutIfNeeded()
+    let grid = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagedGridView }.first)
+    let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
+    let width = scroll.bounds.width
+    grid.scrollToPage(1, animated: false)
+    scroll.setContentOffset(CGPoint(x: width * 0.2, y: 0), animated: false)
+    grid.scrollViewDidEndDragging(scroll, willDecelerate: false)
+    XCTAssertEqual(scroll.contentOffset.x, 0, accuracy: 0.5)
+    scroll.setContentOffset(CGPoint(x: width * 0.8, y: 0), animated: false)
+    grid.scrollViewDidEndDragging(scroll, willDecelerate: false)
+    XCTAssertEqual(scroll.contentOffset.x, width, accuracy: 0.5)
+    XCTAssertEqual(grid.currentPage, 1)
+  }
+
   /// Windows 上的 Ctrl+Shift+Alt+C 组合键在 iOS 上没有键可按，所以菜单把它放在最后一页；点这个图块会关闭菜单并提示已生效。
   func testTheClearCacheCardClearsAndSaysSo() throws {
     let controller = makeController(width: 390)
