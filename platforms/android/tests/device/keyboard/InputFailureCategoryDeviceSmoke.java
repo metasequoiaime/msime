@@ -143,7 +143,8 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
             Object editPanel = panelConstructor.newInstance(service);
             Class<?> action = loader.loadClass("app.msime.android.TextEditPanelModel$Action");
             for (Object valueAction : action.getEnumConstants()) {
-                if (valueAction.toString().equals("PASTE")) continue;
+                // 粘贴读取系统剪贴板，数字键切换完整键面；两者不属于隔离编辑器连接检查。
+                if (valueAction.toString().equals("PASTE") || valueAction.toString().equals("NUMBER_PAD")) continue;
                 method(editPanel.getClass(), "perform", action).invoke(editPanel, valueAction);
             }
             stage = "private exception exclusion";

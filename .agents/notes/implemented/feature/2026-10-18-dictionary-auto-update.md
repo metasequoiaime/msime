@@ -22,7 +22,11 @@ Status: implemented
 
 ## Verification
 
-覆盖六个平台的设置入口和启动检查。单测覆盖版本比较、组件边界、错误摘要、格式不兼容、关闭自动更新、失败保留旧代次、回退、个人词条和学习回放；执行共享层和宿主门禁，原生设备不可用时明确列出。
+共享词库测试通过（providers 14 项、host-api 142 项），包括真实 SQLite 新代次加载、个人词条、内置词权重与删除、英文学习回放、回退及损坏后使用基线；clippy 无警告。桌面与鸿蒙共享界面类型检查、构建和 6 项界面测试通过。Android API 28 与 35 模拟器均通过 client-base、client-core、client-providers、client-services 整套单测；正式 APK 构建与签名校验通过。
+
+鸿蒙逻辑和 C++ 套件、ArkTS 规则检查、iOS 修改文件的 Swift 语法解析通过。原生 WinUI、完整 iOS App/键盘与鸿蒙 HAP 仍需要对应构建及设备验收；Linux 原生宿主和设置外壳容器检查受本机没有 Docker 限制。这些缺口不能由共享层测试或语法检查替代。
+
+`scripts/verify-local.sh --quick` 通过，包含 macOS 原生宿主与共享 Apple 桥编译；Windows 交叉构建因共享依赖锁被其他任务占用而跳过，宿主可运行的 168 项 Windows 原生测试通过。
 
 ## Consequences
 
