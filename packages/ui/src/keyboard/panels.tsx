@@ -22,6 +22,7 @@ import type {
   CloudDictionaryPanelClient,
   EmojiPanelClient,
 } from "./panel-client";
+import { FluentIcon } from "../core/fluent-icons";
 import { ControlledCheckbox } from "../core/controlled-checkbox";
 import { downloadBlob } from "../core/download-blob";
 import { trackAsyncSubscription } from "../core/async-subscription";
@@ -1041,14 +1042,19 @@ export function HandwritingPanel({
   const renderStrokes = [...strokes, ...(drawing.length ? [{ points: drawing }] : [])];
   return (
     <main
-      className={`native-panel ${surface.handwritingPanel}`}
+      className={surface.handwritingPanel}
       onKeyDown={editInk}
       data-panel-theme={theme}
       aria-label="手写识别板"
     >
       <NativePanelHeader
-        title="水杉手写识别板"
-        className={`native-panel-header ${surface.panelHeader}`}
+        title={
+          <>
+            <FluentIcon name="pen" size={18} />
+            水杉手写识别板
+          </>
+        }
+        className={surface.handwritingHeader}
         drag={drag}
         closeDisabled={closing}
         onClose={() => void closeHandwriting()}
@@ -1068,6 +1074,9 @@ export function HandwritingPanel({
             aria-label="手写画布"
             aria-disabled={closing}
           >
+            <g className={surface.inkGuides} aria-hidden="true">
+              <path d="M210 20V400 M20 210H400 M20 20L400 400 M400 20L20 400" />
+            </g>
             {renderStrokes.map((stroke, index) =>
               stroke.points.length === 1 ? (
                 <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} />
@@ -1084,9 +1093,10 @@ export function HandwritingPanel({
               </text>
             )}
           </svg>
-          <div className={surface.handwritingActions}>
+          <div className={surface.inkActions}>
             <button
               type="button"
+              className={surface.inkAction}
               onClick={undo}
               disabled={closing || (!strokes.length && !drawing.length)}
               aria-keyshortcuts="Control+z Meta+z"
@@ -1095,6 +1105,7 @@ export function HandwritingPanel({
             </button>
             <button
               type="button"
+              className={surface.inkAction}
               onClick={redo}
               disabled={closing || !redoStrokes.length || drawing.length > 0}
               aria-keyshortcuts="Control+Shift+z Meta+Shift+z Control+y"
@@ -1103,6 +1114,7 @@ export function HandwritingPanel({
             </button>
             <button
               type="button"
+              className={surface.inkAction}
               onClick={clear}
               disabled={closing || (!strokes.length && !drawing.length && !redoStrokes.length)}
             >
@@ -1111,6 +1123,7 @@ export function HandwritingPanel({
             {client.recognizeHandwriting && (
               <button
                 type="button"
+                className={surface.inkAction}
                 onClick={retryRecognition}
                 disabled={
                   closing || !strokes.length || drawing.length > 0 || recognizing || submitting
@@ -1181,6 +1194,16 @@ export function HandwritingPanel({
               </div>
             ))}
           </div>
+          {!candidates.length && (
+            <div className={surface.handwritingEmpty} aria-hidden="true">
+              <span>
+                <FluentIcon name="pen" size={26} />
+              </span>
+              <p>写下一个字，候选会出现在这里</p>
+              <small>每写完一笔，自动更新识别结果</small>
+            </div>
+          )}
+          {candidates.length > 0 && <div className="flex-1" />}
           {handwritingPack && <HandwritingModelNotice packs={packs} mirror={client.modelMirror} />}
           <StatusMessage role="status">{notice}</StatusMessage>
         </section>
