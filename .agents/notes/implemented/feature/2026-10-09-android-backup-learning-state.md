@@ -24,7 +24,7 @@ Status: implemented
 - **恢复时一律整份激活，不做合并**：实现最省，学习状态原样恢复。但会悄悄替换掉新设备上已经学到的东西，和用户拍板的「合并、本机优先」相反。
 - **把输入记录放进备份包的独立条目，另定格式**：能顺带装下快照格式没有的几张表（`pick_transitions`、`personal_bigram`/`personal_trigram`、`pinyin_typo_counts`、`pinyin_autocorrect_suppressions`、`pinned_candidates`）。但这些表的合并规则各不相同，要单独设计和校验；快照格式第 1 版本来就能装调权、删除、位置和计数，复用它旧版本也能读、整份激活路径零改动。那几张表这次不做；后来按这条路另存了一个条目，见[输入习惯与恢复校验](./2026-10-10-android-backup-habits-and-verified-restore.md)。
 - **在建会话前的个人词库同步里合并**：键盘每次弹出都会先跑这条同步，恢复后最快生效，也是这个分支最初的做法。但同步跑完才建会话，合并一份大备份要逐条查日志、改词库，恢复后第一次弹出键盘会有几秒没有引擎；合并一直失败时更是每次弹出都付一遍代价。HarmonyOS 也调这条同步，放在这里还让它的契约平白多出一块。所以改到空闲处理里。
-- **SyncApi.snapshotWords 加过滤**：分诊担心学习调权的 overlay 会被当成用户词塞进待发送队列。读代码确认 `snapshotWords` 只从 `entry` 记录取词，`overlay` 只用来标记删除，而学习记录从不写成 `entry`，所以不用改它。
+- **快照读词（现在是 `DictionarySnapshotWords.read`，原来是 `SyncApi.snapshotWords`）加过滤**：分诊担心学习调权的 overlay 会被当成用户词塞进待发送队列。读代码确认它只从 `entry` 记录取词，`overlay` 只用来标记删除，而学习记录从不写成 `entry`，所以不用改它。
 
 ## Consequences
 

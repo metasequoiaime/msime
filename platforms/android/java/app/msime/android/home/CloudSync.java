@@ -13,7 +13,6 @@ import app.msime.android.JsonPolicy;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.NativeClient;
 import app.msime.android.RustCloudSync;
-import app.msime.android.SyncMergePolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
@@ -24,9 +23,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -198,41 +195,6 @@ public final class CloudSync {
         if (localVersion == null) throw new IOException("keyboard has not published a dictionary version yet");
         DictionarySnapshotQueue.enqueue(queue, file.toAbsolutePath(), owner, revision, localVersion,
             DigestPolicy.sha256Hex(file));
-    }
-
-    /**
-     * 经个人词库队列导入一批词，键盘下次开会话时应用；已有的词由队列合并，不会重复。整批被拒时逐条再试，坏的那条跳过。云同步的「合并」和本地备份的恢复都用它。
-     *
-     * @param requestPrefix 队列请求 id 的前缀，区分来源（只进日志）
-     * @return 没能排进队列的词数
-     */
-    static int queueWords(Context context, List<SyncMergePolicy.Word> words, String requestPrefix)
-            throws IOException, JSONException {
-        String options = hostOptions(context);
-        int skipped = 0;
-        for (List<SyncMergePolicy.Word> batch : SyncMergePolicy.batches(words, SyncMergePolicy.PERSONAL_IMPORT_BATCH)) {
-            if (queueImport(options, batch, requestPrefix)) continue;
-            for (SyncMergePolicy.Word word : batch) {
-                if (!queueImport(options, List.of(word), requestPrefix)) skipped++;
-            }
-        }
-        return skipped;
-    }
-
-    private static boolean queueImport(String options, List<SyncMergePolicy.Word> words, String requestPrefix)
-            throws JSONException {
-        JSONArray entries = new JSONArray();
-        for (SyncMergePolicy.Word word : words) {
-            entries.put(new JSONObject().put("kind", word.kind()).put("key", word.key())
-                .put("value", word.value()).put("weight", word.weight()));
-        }
-        String file = new JSONObject().put("format", "msime-personal-dictionary").put("version", 1)
-            .put("entries", entries).toString();
-        JSONObject response = new JSONObject(NativeClient.personalDictionaryRequest(new JSONObject()
-            .put("options", new JSONObject(options))
-            .put("action", new JSONObject().put("operation", "import_personal").put("text", file)
-                .put("request_id", requestPrefix + UUID.randomUUID())).toString()));
-        return JsonPolicy.strictTrue(response.opt("ok"));
     }
 
     // ---- JSON 小工具 ----

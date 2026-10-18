@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONObject;
 
 /**
- * 原生 Android 账号客户端里的请求（对话、云剪贴板开关、社区、释义）怎样绑定到发起它们的登录。
+ * 原生 Android 账号客户端里的请求（键盘的云剪贴板、社区、释义）怎样绑定到发起它们的登录。
  *
  * <p>令牌的刷新、单飞和吊销都由 Rust 持有（#8201 迁移计划 5b），由 client-services 的测试覆盖；这里用一个假的 {@link BackendAccount.Sessions} 代替 Rust，核对 Java 一侧：换成别的账号或退出以后，旧请求既不重试也不交出结果；同一个账号里 401 后带着被拒的令牌换一枚再试一次；同一个账号重新登录（令牌变了、账号编号没变）不算换号。社区从 5c 起整个经 Rust 的 `msime_client_community`，这里换成假的 {@link CommunityCatalog.Calls}，核对请求的形状、哪些操作允许退回匿名账号，以及请求前后账号编号变了就丢掉结果。
  */
@@ -57,11 +57,42 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
         if (!value) throw new AssertionError(message);
     }
 
-    /** 会话相关的用例借云剪贴板的开关做一次普通的账号请求。云剪贴板的列表经端到端加密驱动、一次要发好几个请求，不再适合当作「一个请求」。 */
-    private static final String CLIPBOARD = "/v1/users/me/clipboard/settings";
+    /**
+     * 会话相关的用例借键盘的云剪贴板上传（{@link BackendAccount#addClipboard}）做一次带登录令牌的请求：脚本化的驱动只要一次 `POST /v1/users/me/clipboard`，收到 200 就交出那一条。真的驱动在 Rust 里（{@link CloudClipboardNativeDriver}），这里只核对 Java 一侧怎样把请求绑定到发起它的登录。云剪贴板的开关和删除从 5c 起经 Rust，对话从 5c 起经 Rust 的流式对话，这两处原来的 Java 请求在 5f 删掉。
+     */
+    private static final String CLIPBOARD = "/v1/users/me/clipboard";
+    private static final String NOTE = "synthetic note";
 
-    private static JSONObject clipboardPage() throws Exception {
-        return new JSONObject().put("enabled", true).put("items", new org.json.JSONArray());
+    private static CloudClipboardE2e.Local oneRequestDriver() {
+        CloudClipboardE2e.Driver driver = new CloudClipboardE2e.Driver() {
+            @Override public CloudClipboardE2e.Step start(CloudClipboardE2e.Operation operation, String keystore,
+                    String deviceName) {
+                check("add".equals(operation.op()) && NOTE.equals(operation.text()), "the upload reaches the driver");
+                return CloudClipboardE2e.Step.request("POST", CLIPBOARD, "{}", "{}", null);
+            }
+
+            @Override public CloudClipboardE2e.Step resume(String state, int status, String body) throws Exception {
+                if (status != 200) return CloudClipboardE2e.Step.error(status, "", null);
+                return CloudClipboardE2e.Step.done(new JSONObject().put("id", "d".repeat(64)).put("text", NOTE)
+                    .put("updated_at", "2026-10-18T00:00:00Z").toString(), null);
+            }
+        };
+        CloudClipboardE2e.Keystore keystore = new CloudClipboardE2e.Keystore() {
+            @Override public String load() { return null; }
+            @Override public void save(String value, CloudClipboardE2e.Guard guard) {
+                throw new AssertionError("this driver never hands over a keystore");
+            }
+            @Override public void delete() { throw new AssertionError("nothing deletes the keystore here"); }
+        };
+        return new CloudClipboardE2e.Local(driver, keystore, "Synthetic Phone");
+    }
+
+    private static CloudClipboardE2e.Reply ok() {
+        return new CloudClipboardE2e.Reply(200, "{}");
+    }
+
+    private static CloudClipboardE2e.Reply rejected() {
+        return new CloudClipboardE2e.Reply(401, "");
     }
 
     private static void retriesAccountRequestsAfter401() throws Exception {
@@ -70,37 +101,33 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
         BackendAccount account = new BackendAccount(sessions, (method, path, body, token) -> {
             int call = calls.incrementAndGet();
             check(CLIPBOARD.equals(path), "account retry keeps the original endpoint");
-            if (call == 1) throw new BackendAccount.RequestException(401);
+            if (call == 1) return rejected();
             check(NEXT_ACCESS.equals(token), "account retry uses the refreshed access token");
-            return clipboardPage();
+            return ok();
         });
 
-        account.setClipboardEnabled(true);
+        BackendAccount.ClipboardItem item = account.addClipboard(NOTE, "user-a", oneRequestDriver());
+        check(NOTE.equals(item.text()), "the retried upload hands over its item");
         check(calls.get() == 2 && sessions.refreshes.get() == 1, "account request and its retry are each issued once");
     }
 
     private static void oldRequestDoesNotRetryAfterNewLogin() throws Exception {
         FakeSessions sessions = new FakeSessions("user-a", ACCESS);
-        AtomicInteger clipboardCalls = new AtomicInteger();
+        AtomicInteger calls = new AtomicInteger();
         BackendAccount old = new BackendAccount(sessions, (method, path, body, token) -> {
-            if (CLIPBOARD.equals(path)) {
-                if (clipboardCalls.incrementAndGet() == 1) {
-                    sessions.signIn("user-b", NEXT_ACCESS);
-                    throw new BackendAccount.RequestException(401);
-                }
-                return clipboardPage();
-            }
-            throw new AssertionError("unexpected account request");
+            calls.incrementAndGet();
+            sessions.signIn("user-b", NEXT_ACCESS);
+            return rejected();
         });
 
         boolean cancelled = false;
         try {
-            old.setClipboardEnabled(true);
+            old.addClipboard(NOTE, "user-a", oneRequestDriver());
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
         }
         check(cancelled, "a rejected old request must not retry with a new login");
-        check(clipboardCalls.get() == 1, "the new login must not receive the old request");
+        check(calls.get() == 1, "the new login must not receive the old request");
     }
 
     private static void oldRequestDiscardsSuccessAfterNewLogin() throws Exception {
@@ -108,12 +135,12 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
         BackendAccount old = new BackendAccount(sessions, (method, path, body, token) -> {
             check(CLIPBOARD.equals(path), "clipboard endpoint");
             sessions.signIn("user-b", NEXT_ACCESS);
-            return clipboardPage();
+            return ok();
         });
 
         boolean cancelled = false;
         try {
-            old.setClipboardEnabled(true);
+            old.addClipboard(NOTE, "user-a", oneRequestDriver());
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
         }
@@ -128,9 +155,9 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
             calls.incrementAndGet();
             check(CLIPBOARD.equals(path), "clipboard endpoint");
             sessions.signIn("user-a", NEXT_ACCESS);
-            return clipboardPage();
+            return ok();
         });
-        account.setClipboardEnabled(true);
+        account.addClipboard(NOTE, "user-a", oneRequestDriver());
         check(calls.get() == 1, "signing in to the same account again is not an account switch");
     }
 
@@ -140,14 +167,12 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
         BackendAccount secondary = new BackendAccount(owner, (method, path, body, token) -> {
             calls.incrementAndGet();
             owner.signIn("user-b", NEXT_ACCESS);
-            throw new BackendAccount.RequestException(401);
-        }, (body, token, call, listener) -> {
-            throw new AssertionError("no chat stream here");
+            return rejected();
         }, false);
 
         boolean cancelled = false;
         try {
-            secondary.setClipboardEnabled(true);
+            secondary.addClipboard(NOTE, "user-a", oneRequestDriver());
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
         }
@@ -160,117 +185,16 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
         BackendAccount account = new BackendAccount(sessions, (method, path, body, token) -> {
             check(CLIPBOARD.equals(path), "clipboard endpoint");
             sessions.signOut();
-            return clipboardPage();
+            return ok();
         });
 
         boolean cancelled = false;
         try {
-            account.setClipboardEnabled(true);
+            account.addClipboard(NOTE, "user-a", oneRequestDriver());
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
         }
         check(cancelled, "a signed-out request must not deliver its old response");
-    }
-
-    private static List<BackendAccount.ChatMessage> chatRequest() {
-        return java.util.List.of(new BackendAccount.ChatMessage("user", "synthetic prompt"));
-    }
-
-    private static void oldChatStreamDoesNotRetryAfterNewLogin() throws Exception {
-        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
-        AtomicInteger calls = new AtomicInteger();
-        BackendAccount old = new BackendAccount(sessions, (method, path, body, token) -> clipboardPage(),
-            (body, token, call, listener) -> {
-                calls.incrementAndGet();
-                sessions.signIn("user-b", NEXT_ACCESS);
-                throw new BackendAccount.RequestException(401);
-            }, true);
-        boolean cancelled = false;
-        try {
-            old.chatStream(chatRequest(), new BackendAccount.ChatCall(), delta -> {});
-        } catch (java.util.concurrent.CancellationException expected) {
-            cancelled = true;
-        }
-        check(cancelled, "an old chat stream must not retry after a new login");
-        check(calls.get() == 1, "a new login receives no old chat stream retry");
-    }
-
-    private static void oldChatStreamDiscardsDeltaAfterNewLogin() throws Exception {
-        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
-        AtomicInteger deltas = new AtomicInteger();
-        BackendAccount old = new BackendAccount(sessions, (method, path, body, token) -> clipboardPage(),
-            (body, token, call, listener) -> {
-                sessions.signIn("user-b", NEXT_ACCESS);
-                listener.onDelta("old delta");
-                return "old delta";
-            }, true);
-        boolean cancelled = false;
-        try {
-            old.chatStream(chatRequest(), new BackendAccount.ChatCall(),
-                delta -> deltas.incrementAndGet());
-        } catch (java.util.concurrent.CancellationException expected) {
-            cancelled = true;
-        }
-        check(cancelled, "an old chat stream must stop after a new login");
-        check(deltas.get() == 0, "an old chat delta must not reach the listener");
-    }
-
-    private static void oldChatStreamDoesNotFallbackAfterNewLogin() throws Exception {
-        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
-        AtomicInteger fallbackCalls = new AtomicInteger();
-        BackendAccount old = new BackendAccount(sessions, (method, path, body, token) -> {
-            fallbackCalls.incrementAndGet();
-            return clipboardPage();
-        }, (body, token, call, listener) -> {
-            sessions.signIn("user-b", NEXT_ACCESS);
-            throw new BackendAccount.RequestException(400);
-        }, true);
-        boolean cancelled = false;
-        try {
-            old.chatStream(chatRequest(), new BackendAccount.ChatCall(), delta -> {});
-        } catch (java.util.concurrent.CancellationException expected) {
-            cancelled = true;
-        }
-        check(cancelled, "an old chat stream must not fallback under a new login");
-        check(fallbackCalls.get() == 0, "a new login receives no old fallback request");
-    }
-
-    private static void chatStreamRetriesWithinTheSameLogin() throws Exception {
-        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
-        AtomicInteger calls = new AtomicInteger();
-        BackendAccount account = new BackendAccount(sessions, (method, path, body, token) -> {
-            throw new AssertionError("the chat stream retry needs no other request");
-        }, (body, token, call, listener) -> {
-            calls.incrementAndGet();
-            check(!body.has("model"), "chat stream leaves the model to the server");
-            if (ACCESS.equals(token)) throw new BackendAccount.RequestException(401);
-            check(NEXT_ACCESS.equals(token), "chat stream retry uses refreshed token");
-            listener.onDelta("synthetic reply");
-            return "synthetic reply";
-        }, true);
-        AtomicInteger deltas = new AtomicInteger();
-        String reply = account.chatStream(chatRequest(), new BackendAccount.ChatCall(),
-            delta -> deltas.incrementAndGet());
-        check("synthetic reply".equals(reply), "same login chat stream returns reply");
-        check(calls.get() == 2 && deltas.get() == 1 && sessions.refreshes.get() == 1,
-            "same login chat stream retries once and delivers delta");
-    }
-
-    private static void chatStreamFallsBackWithinTheSameLogin() throws Exception {
-        BackendAccount account = new BackendAccount(new FakeSessions("user-a", ACCESS), (method, path, body, token) -> {
-            check(ACCESS.equals(token) && "/v1/chat/completions".equals(path), "fallback keeps request identity");
-            check(!body.optBoolean("stream", true), "fallback disables streaming");
-            check(!body.has("model"), "fallback leaves the model to the server");
-            return new JSONObject().put("choices", new org.json.JSONArray().put(new JSONObject()
-                .put("message", new JSONObject().put("role", "assistant").put("content", "synthetic reply"))));
-        }, (body, token, call, listener) -> {
-            throw new BackendAccount.RequestException(400);
-        }, true);
-        AtomicInteger deltas = new AtomicInteger();
-        String reply = account.chatStream(chatRequest(), new BackendAccount.ChatCall(),
-            delta -> deltas.incrementAndGet());
-        check("synthetic reply".equals(reply) && deltas.get() == 1,
-            "same login fallback delivers one complete reply");
     }
 
     private static CommunityCatalog.Item syntheticSkin() throws Exception {
@@ -549,16 +473,6 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
             stage = "secondary process";
             secondaryProcessRejectsChangedOwnerLogin();
             oldRequestDiscardsSuccessAfterSignOut();
-            stage = "old stream retry";
-            oldChatStreamDoesNotRetryAfterNewLogin();
-            stage = "old stream delta";
-            oldChatStreamDiscardsDeltaAfterNewLogin();
-            stage = "old stream fallback";
-            oldChatStreamDoesNotFallbackAfterNewLogin();
-            stage = "same login stream refresh";
-            chatStreamRetriesWithinTheSameLogin();
-            stage = "same login stream fallback";
-            chatStreamFallsBackWithinTheSameLogin();
             stage = "community category old login";
             communityCategoryRejectsNewLogin();
             stage = "community category same login";
@@ -583,7 +497,7 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
             candidateTranslationKeepsResponseBound();
             stage = "malformed QQ links";
             malformedQqLinksAreRejected();
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: account login lineage, chat stream, community and translation\n");
+            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: account login lineage, community and translation\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
             result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: account session " + stage + " ("

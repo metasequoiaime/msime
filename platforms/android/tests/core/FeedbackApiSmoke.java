@@ -33,13 +33,6 @@ public final class FeedbackApiSmoke {
         check(clean.get("skin").getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 256, "values clipped to 256 bytes");
         check(FeedbackApi.DIAGNOSTIC_KEYS.containsAll(clean.keySet()), "only allow-listed keys");
 
-        byte[] png = {(byte) 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a};
-        byte[] jpeg = {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0x00};
-        check(FeedbackApi.validScreenshot(new FeedbackApi.Screenshot("image/png", png)), "png accepted");
-        check(FeedbackApi.validScreenshot(new FeedbackApi.Screenshot("image/jpeg", jpeg)), "jpeg accepted");
-        check(!FeedbackApi.validScreenshot(new FeedbackApi.Screenshot("image/png", jpeg)), "type must match bytes");
-        check(!FeedbackApi.validScreenshot(new FeedbackApi.Screenshot("image/jpeg", new byte[FeedbackApi.MAX_SCREENSHOT_BYTES + 1])), "size limit");
-
         // Rust 不重新编码截图：页面交过去的每一张都要在它的限制以内（迁移差异 25）。
         check(FeedbackApi.fitsRust(FeedbackApi.MAX_SCREENSHOT_BYTES, 1600, 1200), "a re-encoded screenshot fits");
         check(!FeedbackApi.fitsRust(FeedbackApi.MAX_SCREENSHOT_BYTES + 1, 1600, 1200), "over 1 MiB");

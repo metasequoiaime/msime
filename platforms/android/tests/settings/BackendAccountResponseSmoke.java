@@ -3,7 +3,6 @@ package app.msime.android;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 public final class BackendAccountResponseSmoke {
     public static void main(String[] args) throws Exception {
@@ -65,16 +64,16 @@ public final class BackendAccountResponseSmoke {
         } catch (IllegalStateException error) {
             rejected = true;
         }
-        check(rejected, "chat responses without string content are rejected");
+        check(rejected, "clipboard responses without a string field are rejected");
         rejected = false;
         try {
             BackendAccount.requiredStringField(42);
         } catch (IllegalStateException error) {
             rejected = true;
         }
-        check(rejected, "chat responses with numeric content are rejected");
+        check(rejected, "clipboard responses with a numeric string field are rejected");
         check("synthetic reply".equals(BackendAccount.requiredStringField("synthetic reply")),
-            "chat responses with string content are accepted");
+            "clipboard responses with a string field are accepted");
 
         rejected = false;
         try {
@@ -87,35 +86,6 @@ public final class BackendAccountResponseSmoke {
             "missing optional account string uses its fallback");
         check("synthetic".equals(BackendAccount.optionalStringField("synthetic", "fallback")),
             "string account response is accepted");
-
-        List<BackendAccount.ChatMessage> messages = new java.util.ArrayList<>();
-        messages.add(new BackendAccount.ChatMessage("system", "system prompt"));
-        for (int index = 1; index < 16; index++) {
-            messages.add(new BackendAccount.ChatMessage(index % 2 == 0 ? "assistant" : "user",
-                "你".repeat(1_000)));
-        }
-        check(BackendAccount.validChatRequest(messages),
-            "chat accepts the shared sixteen-message and UTF-8 bounds");
-        check(!BackendAccount.validChatRequest(List.of(
-                new BackendAccount.ChatMessage("user", "bad\u0000text"))),
-            "chat request rejects disallowed controls");
-        check(!BackendAccount.validChatRequest(List.of(
-                new BackendAccount.ChatMessage("user", "bad\ud800text"))),
-            "chat request rejects malformed Unicode");
-        check(!BackendAccount.validChatResponse("user", "synthetic reply"),
-            "chat response requires an assistant role");
-        check(!BackendAccount.validChatResponse("assistant", "bad\u0000reply"),
-            "chat response rejects disallowed controls");
-        check(!BackendAccount.validChatResponse("assistant", "bad\ud800reply"),
-            "chat response rejects malformed Unicode");
-
-        String longAsciiReply = "a".repeat(12_000);
-        check(BackendAccount.validChatReplyText(longAsciiReply),
-            "chat accepts a valid response up to the shared UTF-8 byte bound");
-        check(!BackendAccount.validChatReplyText(" \n"),
-            "chat rejects a whitespace-only streaming response");
-        check(!BackendAccount.validChatReplyText("bad\ud800reply"),
-            "streaming chat rejects malformed Unicode");
 
         check(!BackendAccount.validClipboardItem(new BackendAccount.ClipboardItem(
             "a".repeat(64), "safe\u0000hidden", "2026-10-04T00:00:00Z")),

@@ -49,9 +49,6 @@ public final class FeedbackApi {
         public String title() { return title; }
     }
 
-    /** 一张截图：`image/png` 或 `image/jpeg`。 */
-    public record Screenshot(String contentType, byte[] bytes) {}
-
     private FeedbackApi() {}
 
     /** 描述去掉首尾空白后非空、不超过 500 个字符、不含换行和制表以外的控制字符时可以提交。 */
@@ -71,20 +68,6 @@ public final class FeedbackApi {
             if (!trimmed.isEmpty()) clean.put(key, trimmed);
         }
         return clean;
-    }
-
-    /** 截图是 PNG 或 JPEG（看文件头，与声明的类型一致）、非空、不超过 1 MiB 时为真。 */
-    public static boolean validScreenshot(Screenshot shot) {
-        if (shot == null || shot.bytes() == null) return false;
-        byte[] data = shot.bytes();
-        if (!HttpBodyPolicy.isNonEmptyWithinLimit(data, MAX_SCREENSHOT_BYTES)) return false;
-        if ("image/png".equals(shot.contentType())) {
-            return data.length >= 8 && (data[0] & 0xff) == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G';
-        }
-        if ("image/jpeg".equals(shot.contentType())) {
-            return data.length >= 3 && (data[0] & 0xff) == 0xff && (data[1] & 0xff) == 0xd8 && (data[2] & 0xff) == 0xff;
-        }
-        return false;
     }
 
     /** 一张截图的大小和尺寸在 Rust 的限制以内：不超过 1 MiB、单边不超过 8192、总像素不超过 8388608。尺寸读不出（0 或负数）时不算。 */

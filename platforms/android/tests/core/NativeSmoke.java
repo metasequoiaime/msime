@@ -13,9 +13,6 @@ public final class NativeSmoke {
         if (!NativeClient.snapshotVersion("{\"resources\":\"relative\"}").contains("\"ok\":false")) {
             throw new AssertionError("snapshot version accepted incomplete paths");
         }
-        if (!NativeClient.snapshotPrepare("{}", "relative").contains("\"ok\":false")) {
-            throw new AssertionError("snapshot preparation accepted an invalid request");
-        }
         if (!NativeClient.emojiCatalog("{\"cursor\":true,\"limit\":64}", "relative")
                 .contains("\"ok\":false")) {
             throw new AssertionError("emoji catalog accepted a relative resource path");

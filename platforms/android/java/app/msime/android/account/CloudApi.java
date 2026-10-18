@@ -1,15 +1,12 @@
 package app.msime.android;
 
 import android.content.Context;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import javax.net.ssl.HttpsURLConnection;
@@ -17,9 +14,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 水杉云端接口的公共传输层：基础地址、会话 Bearer、固定 User-Agent、JSON 与 multipart 请求体、错误解析和超时。
+ * 水杉云端接口在 Java 里还剩的那一层传输：基础地址、会话 Bearer、固定 User-Agent、JSON 请求体、错误解析和超时。
  *
- * <p>各功能自己的接口文件（同步、设备、反馈……）都建在这一层上，只管路径和字段。这里统一发 `MSIME/Android`；带设备型号的详细 User-Agent 由 Rust 在登录和刷新时发出（{@link AccountStore}），后端只在登录时记录它。令牌也由 Rust 给：登录账号的经 {@link BackendAccount}，匿名的经 {@link BackendAnonymousAccount}。
+ * <p>账号、同步、反馈、诊断、社区、对话等请求都已经由 Rust 发出（#8201 迁移计划第 5 步），建在这一层上的只剩云剪贴板的端到端加密驱动（{@link CloudClipboardApi}）和打字统计、QQ 绑定（{@link TypingUploadApi}），各自只管路径和字段。这里统一发 `MSIME/Android`；带设备型号的详细 User-Agent 由 Rust 在登录和刷新时发出（{@link AccountStore}），后端只在登录时记录它。令牌也由 Rust 给：登录账号的经 {@link BackendAccount}，匿名的经 {@link BackendAnonymousAccount}。
  *
  * <p>错误响应是 `{"error":{"code","message"}}`，读成 {@link Failure}。503 且错误码是 `provider_disabled` / `service_disabled` 表示这个部署没有开这项功能，{@link Failure#unavailable()} 为真，界面应当隐藏入口而不是提示重试。
  *
@@ -31,9 +28,8 @@ public final class CloudApi {
     public static final String USER_AGENT = "MSIME/Android";
     static final int CONNECT_TIMEOUT_MILLIS = 15_000;
     static final int READ_TIMEOUT_MILLIS = 30_000;
-    /** 响应体上限；导出之类更大的下载由各自的接口文件流式读取，不走这里。 */
+    /** 响应体上限。 */
     static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     /** 请求用哪个身份：不带令牌、真实账号、设备的匿名账号，或有真实账号用真实账号、否则用匿名账号。 */
     public enum Auth { NONE, ACCOUNT, ANONYMOUS, ACCOUNT_OR_ANONYMOUS }
@@ -64,12 +60,6 @@ public final class CloudApi {
 
         /** 服务端要求调用方稍后再试。 */
         public boolean rateLimited() { return status == 429; }
-
-        /** 请求体超过服务端允许的大小。 */
-        public boolean payloadTooLarge() { return status == 413; }
-
-        /** 请求体的媒体类型不被服务端接受。 */
-        public boolean unsupportedMediaType() { return status == 415; }
     }
 
     /** 一次成功的响应。 */
@@ -85,33 +75,10 @@ public final class CloudApi {
         }
     }
 
-    /** multipart/form-data 的一段：字段名、可选的文件名、类型与内容。 */
-    public record Part(String name, String filename, String contentType, byte[] content) {
-        /** 一个 JSON 字段，例如反馈和语音贡献的 `payload`。 */
-        public static Part json(String name, String json) {
-            return new Part(name, null, "application/json", TextPolicy.utf8Bytes(json));
-        }
-
-        /** 一个纯文本字段。 */
-        public static Part text(String name, String value) {
-            return new Part(name, null, "text/plain; charset=utf-8", TextPolicy.utf8Bytes(value));
-        }
-
-        /** 一个文件，例如截图或录音。 */
-        public static Part file(String name, String filename, String contentType, byte[] content) {
-            return new Part(name, filename, contentType, content);
-        }
-    }
-
     /** 已编码好的请求体与它的 `Content-Type`。 */
     public record Body(String contentType, byte[] bytes) {
         public static Body json(JSONObject value) {
             return new Body("application/json", TextPolicy.utf8Bytes(value.toString()));
-        }
-
-        public static Body multipart(List<Part> parts) {
-            String boundary = newBoundary();
-            return new Body(multipartContentType(boundary), encodeMultipart(boundary, parts));
         }
     }
 
@@ -155,14 +122,6 @@ public final class CloudApi {
         Context application = context.getApplicationContext();
         this.transport = CloudApi::httpExchange;
         this.account = accountTokens(application);
-        this.anonymous = rejected -> new BackendAnonymousAccount(application).accessToken(rejected);
-    }
-
-    /** Account-bound transport for a sync run; the token supplier fences sign-out and re-login. */
-    public CloudApi(Context context, Tokens account) {
-        Context application = context.getApplicationContext();
-        this.transport = CloudApi::httpExchange;
-        this.account = account;
         this.anonymous = rejected -> new BackendAnonymousAccount(application).accessToken(rejected);
     }
 
@@ -221,16 +180,6 @@ public final class CloudApi {
     /** 发一个 JSON 请求（`body` 可为 null）并把响应读成 JSON 对象。 */
     public JSONObject json(String method, String path, JSONObject body, Auth auth) throws Failure {
         Response response = send(method, path, body == null ? null : Body.json(body), auth);
-        try {
-            return response.json();
-        } catch (JSONException malformed) {
-            throw new Failure(response.status(), "invalid_response", "malformed JSON response", 0);
-        }
-    }
-
-    /** 发一个 multipart/form-data 请求并把响应读成 JSON 对象。 */
-    public JSONObject multipart(String path, List<Part> parts, Auth auth) throws Failure {
-        Response response = send("POST", path, Body.multipart(parts), auth);
         try {
             return response.json();
         } catch (JSONException malformed) {
@@ -394,90 +343,6 @@ public final class CloudApi {
             if (!TextPolicy.isAsciiDigit(value.charAt(index))) return 0L;
         }
         return Long.parseLong(value);
-    }
-
-    // ---- multipart ----
-
-    /** 一个新的随机分隔串：24 字节随机数的十六进制，前面加固定前缀。 */
-    static String newBoundary() {
-        byte[] bytes = new byte[24];
-        RANDOM.nextBytes(bytes);
-        StringBuilder value = new StringBuilder("msime-");
-        for (byte raw : bytes) {
-            value.append(Character.forDigit((raw >>> 4) & 0x0F, 16)).append(Character.forDigit(raw & 0x0F, 16));
-        }
-        return value.toString();
-    }
-
-    public static String multipartContentType(String boundary) {
-        return "multipart/form-data; boundary=" + requireBoundary(boundary);
-    }
-
-    /**
-     * 按 RFC 7578 编码 multipart/form-data：每段 `--boundary`、`Content-Disposition`（文件段带 filename）、`Content-Type`、空行、内容，最后 `--boundary--`，行尾一律 CRLF。
-     *
-     * <p>字段名和文件名里不允许出现引号、反斜杠和控制字符：它们是本应用自己写的固定值，出现了就是调用方的错误。内容里出现分隔串同样拒绝。
-     */
-    public static byte[] encodeMultipart(String boundary, List<Part> parts) {
-        requireBoundary(boundary);
-        if (parts == null || parts.isEmpty()) throw new IllegalArgumentException("multipart needs at least one part");
-        byte[] delimiter = ("--" + boundary).getBytes(StandardCharsets.US_ASCII);
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        for (Part part : parts) {
-            if (part == null || part.content() == null) throw new IllegalArgumentException("empty multipart part");
-            if (contains(part.content(), delimiter)) throw new IllegalArgumentException("part contains the boundary");
-            String type = part.contentType() == null ? "application/octet-stream" : part.contentType();
-            StringBuilder head = new StringBuilder(96 + boundary.length()
-                + headerLength(part.name()) + headerLength(part.filename()) + headerLength(type));
-            head.append("--").append(boundary).append("\r\n");
-            head.append("Content-Disposition: form-data; name=\"").append(headerToken(part.name())).append('"');
-            if (part.filename() != null) head.append("; filename=\"").append(headerToken(part.filename())).append('"');
-            head.append("\r\n");
-            head.append("Content-Type: ").append(headerToken(type)).append("\r\n\r\n");
-            write(output, TextPolicy.utf8Bytes(head.toString()));
-            write(output, part.content());
-            write(output, "\r\n".getBytes(StandardCharsets.US_ASCII));
-        }
-        write(output, ("--" + boundary + "--\r\n").getBytes(StandardCharsets.US_ASCII));
-        return output.toByteArray();
-    }
-
-    /** `ByteArrayOutputStream.writeBytes` 要到 API 33 才有，最低支持的版本是 28。 */
-    private static void write(ByteArrayOutputStream output, byte[] bytes) {
-        output.write(bytes, 0, bytes.length);
-    }
-
-    private static String requireBoundary(String boundary) {
-        if (!TextPolicy.validAsciiToken(boundary, 1, 70)) {
-            throw new IllegalArgumentException("invalid multipart boundary");
-        }
-        return boundary;
-    }
-
-    private static int headerLength(String value) {
-        return value == null ? 0 : value.length();
-    }
-
-    private static String headerToken(String value) {
-        if (value == null || value.isEmpty()) throw new IllegalArgumentException("empty multipart header value");
-        for (int index = 0; index < value.length(); index++) {
-            char c = value.charAt(index);
-            if (c < 0x20 || c == 0x7F || c == '"' || c == '\\') {
-                throw new IllegalArgumentException("invalid multipart header value");
-            }
-        }
-        return value;
-    }
-
-    private static boolean contains(byte[] haystack, byte[] needle) {
-        outer:
-        for (int start = 0; start + needle.length <= haystack.length; start++) {
-            for (int offset = 0; offset < needle.length; offset++) {
-                if (haystack[start + offset] != needle[offset]) continue outer;
-            }
-            return true;
-        }
-        return false;
     }
 
     // ---- HTTP ----

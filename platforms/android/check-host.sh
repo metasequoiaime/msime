@@ -443,14 +443,6 @@ if sed -n '/private static JSONObject nativeValue(String response)/,/^    }$/p' 
   echo "Android cloud sync native envelopes must require a typed boolean ok field" >&2
   exit 1
 fi
-# Personal dictionary imports are acknowledged separately from the value envelope. A malformed
-# acknowledgement must not be reported as a successful merge item.
-if sed -n '/private boolean queueImport(String options, List<SyncMergePolicy.Word> words)/,/^    }$/p' \
-    "$repo_root/platforms/android/java/app/msime/android/home/CloudSync.java" \
-    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
-  echo "Android cloud sync imports must require a typed boolean ok field" >&2
-  exit 1
-fi
 # Typing statistics writes are optional, but their acknowledgement still controls failure
 # reporting. Do not let org.json coerce a malformed status into success.
 if sed -n '/private void submitTypingStatistics(String request, Runnable nothingRecorded/,/^    }$/p' \
@@ -1066,6 +1058,12 @@ fi
 if rg -n '"/v1/translate"' "$repo_root/platforms/android/java" \
   || ! rg -q 'NativeClient\.accountGloss\(' "$repo_root/platforms/android/java/app/msime/android/voice/BackendTranslationClient.java"; then
   echo "Android account glosses must be built and read by Rust's msime_client_account_gloss" >&2
+  exit 1
+fi
+# 重复实现删掉以后（#8201 迁移计划 5f），Java 里还自己拼水杉云端请求路径的只剩三处：云剪贴板的端到端加密驱动（设置页的 CloudClipboardApi 和两边共用的 CloudClipboardE2e，路径由 Rust 的驱动给、这里只核对前缀），以及不在迁移范围内的打字统计与 QQ 绑定（TypingUploadApi）。账号、登录、同步、对话、云剪贴板开关和删除、`/v1/users/me` 都经 Rust，其他地方再出现 `"/v1/` 就是又在 Java 里写了一份。
+if rg -n '"/v1/' "$repo_root/platforms/android/java" \
+    | rg -v '/account/(CloudClipboardApi|CloudClipboardE2e|TypingUploadApi)\.java:'; then
+  echo "Android Java must not build Metasequoia cloud request paths outside the clipboard driver and typing upload; Rust owns them" >&2
   exit 1
 fi
 # 词库快照激活队列和云同步的状态都由 Rust 持有（#8201 迁移计划 5d）：Java 的 FileChannel.lock 是 fcntl，与 Rust 的 flock 互相看不见，所以 Java 里不能再有读写队列状态（旧的 state.bin）或加队列锁的代码，也不能再读写云同步的进度（cursor_、gen_、clean_ 这几类键、开关、上次同步时间），记改动只经 SyncSignals 调 Rust 的 mark_dirty。旧状态只在 RustCloudSync 里整份交给 Rust 的 import_legacy。

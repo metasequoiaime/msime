@@ -13,7 +13,6 @@ READERS = (
     ROOT / "platforms/android/java/app/msime/android/dictionary/DictionarySnapshotQueue.java",
     ROOT / "platforms/android/java/app/msime/android/home/CloudSync.java",
     ROOT / "platforms/android/java/app/msime/android/voice/VoiceResultStore.java",
-    ROOT / "platforms/android/java/app/msime/android/account/SyncApi.java",
     ROOT / "platforms/android/java/app/msime/android/account/UpdateApi.java",
     ROOT / "platforms/android/java/app/msime/android/account/DiagnosticsApi.java",
     ROOT / "platforms/android/java/app/msime/android/core/NativeClient.java",

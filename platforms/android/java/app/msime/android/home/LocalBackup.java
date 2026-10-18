@@ -12,6 +12,7 @@ import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.DictionarySnapshotQueue;
+import app.msime.android.DictionarySnapshotWords;
 import app.msime.android.DigestPolicy;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.JsonPolicy;
@@ -20,8 +21,6 @@ import app.msime.android.LocalBackupPolicy;
 import app.msime.android.NativeClient;
 import app.msime.android.R;
 import app.msime.android.SafePaths;
-import app.msime.android.SyncApi;
-import app.msime.android.SyncMergePolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
 import app.msime.android.TextPolicy;
@@ -70,6 +69,8 @@ final class LocalBackup {
     /** 应用缓存下的工作目录：导出时先在这里拼好整个包再写到用户选的位置，恢复时先把选中的文件复制到这里。 */
     private static final String WORK = "backup";
     private static final int COPY_BUFFER = 64 * 1024;
+    /** 设置文档里自定义皮肤库那个键；皮肤另存成 skins 一项，设置那一项不带它。 */
+    private static final String SKINS_KEY = "platform.android.custom_keyboard_skins";
     /** 导出页和导出结果里都要说的话：输入记录能看出打字习惯，备份文件没有加密。 */
     static final String PRIVACY_NOTICE = "备份文件里有你的输入记录，能看出你常打的字词和打字习惯。文件没有加密，请妥善保管，不要发给别人或传到公开的地方。";
 
@@ -99,7 +100,7 @@ final class LocalBackup {
                 new JSONObject().put("preferences_directory", directory)
                     .put("feedback", CloudSync.hostFeedback(context)).toString()))
                 .getJSONObject("settings");
-            settings.remove(SyncMergePolicy.SKINS_KEY);
+            settings.remove(SKINS_KEY);
             JSONObject local = new JSONObject();
             for (Map.Entry<String, Object> entry : AndroidLocalSettings.load(context).explicit().entrySet()) {
                 if (LocalBackupPolicy.backsUpLocalSetting(entry.getKey())) local.put(entry.getKey(), entry.getValue());
@@ -453,7 +454,7 @@ final class LocalBackup {
                 new JSONObject().put("preferences_directory", directory)
                     .put("feedback", CloudSync.hostFeedback(context)).toString()))
                 .getJSONObject("settings");
-            settings.remove(SyncMergePolicy.SKINS_KEY);
+            settings.remove(SKINS_KEY);
             return new Undo(settings, KeyboardFeedbackStore.load(context),
                 new LinkedHashMap<>(AndroidLocalSettings.load(context).explicit()),
                 CustomSkinLibrary.read(Paths.get(directory)));
@@ -527,7 +528,7 @@ final class LocalBackup {
         JSONObject document = jsonEntry(zip, LocalBackupPolicy.SETTINGS, LocalBackupPolicy.MAX_SETTINGS_BYTES);
         JSONObject settings = document == null ? null : document.optJSONObject("settings");
         if (settings != null && settings.length() > 0) {
-            settings.remove(SyncMergePolicy.SKINS_KEY);
+            settings.remove(SKINS_KEY);
             applySettingsDocument(context, directory, settings);
             applied = true;
         }
@@ -630,7 +631,7 @@ final class LocalBackup {
             try (InputStream input = zip.getInputStream(entry)) {
                 copyBounded(input, file, LocalBackupPolicy.MAX_DICTIONARY_BYTES);
             }
-            List<SyncMergePolicy.Word> words = SyncApi.snapshotWords(file);
+            List<DictionarySnapshotWords.Word> words = DictionarySnapshotWords.read(file);
             LocalBackupPolicy.DictionaryRestore mode = words.isEmpty() ? LocalBackupPolicy.DictionaryRestore.MERGE
                 : LocalBackupPolicy.dictionaryRestore(words.size(), localWordCount(context), localLearningCount(context));
             if (mode == LocalBackupPolicy.DictionaryRestore.ACTIVATE) {
@@ -647,7 +648,7 @@ final class LocalBackup {
             if (words.isEmpty()) return new int[] {0, 0, learning};
             int queued = 0;
             String failure = null;
-            for (List<SyncMergePolicy.Word> batch : SyncMergePolicy.batches(words, DictionaryCollectionsStore.MAX_QUEUED_WORDS)) {
+            for (List<DictionarySnapshotWords.Word> batch : DictionarySnapshotWords.batches(words, DictionaryCollectionsStore.MAX_QUEUED_WORDS)) {
                 DictionaryCollectionsStore.Result<Integer> result = DictionaryCollectionsStore.queueUnownedWords(context, batch);
                 if (!result.ok()) {
                     failure = result.failure();

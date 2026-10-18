@@ -26,28 +26,6 @@ public final class CloudApiSmoke {
             "cloud clipboard retention rejects numeric strings instead of coercing them");
         check(JsonPolicy.strictInteger(Double.valueOf(7.5)) == null,
             "cloud clipboard retention rejects fractional numbers instead of truncating them");
-        // multipart 按 RFC 7578 编码，行尾 CRLF，文件段带 filename，结尾 `--boundary--`。
-        byte[] encoded = CloudApi.encodeMultipart("b0und", List.of(
-            CloudApi.Part.json("payload", "{\"type\":\"bug\"}"),
-            CloudApi.Part.file("screenshots", "1.png", "image/png", new byte[] {1, 2})));
-        byte[] expected = concat(
-            ("--b0und\r\nContent-Disposition: form-data; name=\"payload\"\r\nContent-Type: application/json\r\n\r\n"
-                + "{\"type\":\"bug\"}\r\n--b0und\r\nContent-Disposition: form-data; name=\"screenshots\"; filename=\"1.png\"\r\n"
-                + "Content-Type: image/png\r\n\r\n").getBytes(StandardCharsets.UTF_8),
-            new byte[] {1, 2}, "\r\n--b0und--\r\n".getBytes(StandardCharsets.US_ASCII));
-        check(java.util.Arrays.equals(encoded, expected), "multipart body must match RFC 7578 layout");
-        check("multipart/form-data; boundary=b0und".equals(CloudApi.multipartContentType("b0und")),
-            "content type names the boundary");
-        rejects(() -> CloudApi.encodeMultipart("b0und", List.of(CloudApi.Part.text("a\"b", "x"))),
-            "a quote in a field name is refused");
-        rejects(() -> CloudApi.encodeMultipart("b0und", List.of(CloudApi.Part.text("a", "x--b0undy"))),
-            "content containing the boundary is refused");
-        rejects(() -> CloudApi.encodeMultipart("bad boundary", List.of(CloudApi.Part.text("a", "x"))),
-            "a boundary with a space is refused");
-        rejects(() -> CloudApi.encodeMultipart("b0und", List.of()), "an empty multipart body is refused");
-        CloudApi.Body random = CloudApi.Body.multipart(List.of(CloudApi.Part.text("a", "x")));
-        check(random.contentType().startsWith("multipart/form-data; boundary=msime-"), "random boundary prefix");
-
         // 503 + provider_disabled / service_disabled 是功能未开，不是暂时故障。
         check(CloudApi.featureUnavailable(503, "provider_disabled"), "provider_disabled is unavailable");
         check(CloudApi.featureUnavailable(503, "service_disabled"), "service_disabled is unavailable");
@@ -235,21 +213,6 @@ public final class CloudApiSmoke {
             } catch (IllegalArgumentException unsafe) { }
         }
         System.out.println("Android cloud API transport passed");
-    }
-
-    private static byte[] concat(byte[]... parts) {
-        java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
-        for (byte[] part : parts) output.write(part, 0, part.length);
-        return output.toByteArray();
-    }
-
-    private static void rejects(Runnable action, String message) {
-        try {
-            action.run();
-        } catch (IllegalArgumentException expected) {
-            return;
-        }
-        throw new AssertionError(message);
     }
 
     private static void check(boolean condition, String message) {

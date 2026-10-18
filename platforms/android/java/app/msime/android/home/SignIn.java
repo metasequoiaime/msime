@@ -24,7 +24,6 @@ import android.util.Log;
 import java.io.IOException;
 import app.msime.android.TextPolicy;
 import java.util.function.Consumer;
-import org.json.JSONObject;
 
 /**
  * 登录：Google、Apple（网页授权）与邮箱验证码三种方式，我的页、新手引导和登录面板共用这一份。
@@ -296,15 +295,16 @@ final class SignIn {
         }
     }
 
-    /** 记下这次登录的账号，再让 Rust 的云同步按会话里的用户 id 对齐一次（换了账号时关闭同步、清空进度，同一个账号重新登录保留进度）；读不到用户 id 时按换账号处理（SyncSwitch 清空账号绑定）。 */
+    /**
+     * 记下这次登录的账号，再让 Rust 的云同步按会话里的用户 id 对齐一次（换了账号时关闭同步、清空进度，同一个账号重新登录保留进度）。
+     *
+     * <p>用户 id 读 Rust 刚存下的登录会话（status，不联网），与 Rust 对齐同步时用的是同一个值；读不到时按换账号处理（SyncSwitch 清空账号绑定）。原来这里另发一次 `GET /v1/users/me`，登录刚成功就断网时会读成空、被当成换了账号（迁移差异 M105）。
+     */
     private static void bind(Context context, String loginKind) {
-        String id = "";
+        String id;
         try {
-            JSONObject me = new CloudApi(context).json("GET", "/v1/users/me", null, CloudApi.Auth.ACCOUNT);
-            JSONObject user = me.optJSONObject("user");
-            Object value = user == null ? null : user.opt("id");
-            if (value instanceof String text) id = text;
-        } catch (CloudApi.Failure | RuntimeException error) {
+            id = DeviceDataApi.currentUserId(context);
+        } catch (AccountStore.Failure failure) {
             id = "";
         }
         String previousAccount = SyncSwitch.accountId(context);

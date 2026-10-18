@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import javax.net.ssl.HttpsURLConnection;
 
-/** Shared request setup for the two account login transports. Response policies stay with each account. */
+/** 键盘云剪贴板驱动那条传输（{@link BackendAccount}）的请求设置：不跟随重定向、30 秒超时、带令牌的 JSON 请求。响应怎么读由调用方决定。 */
 final class AccountHttpRequest {
     private AccountHttpRequest() {}
 

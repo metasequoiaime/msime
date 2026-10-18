@@ -1,15 +1,6 @@
 package app.msime.android;
 
-import java.io.BufferedInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.Paths;
-import java.security.MessageDigest;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -45,25 +36,6 @@ public final class NativeClient {
     /** Reads the current native dictionary version without creating a session. */
     public static String snapshotVersion(String options) {
         return TextPolicy.utf8(snapshotVersionRaw(options.getBytes(StandardCharsets.UTF_8)));
-    }
-    /** Streams one NDJSON record at a time into native preparation. Call on a worker. */
-    public static String snapshotPrepare(String request, String file) {
-        try {
-            String adjusted = replaceRecordCount(request, inspectSnapshot(file));
-            return TextPolicy.utf8(snapshotPrepareRaw(adjusted.getBytes(StandardCharsets.UTF_8),
-                file.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception error) {
-            return TextPolicy.utf8(snapshotPrepareRaw("{}".getBytes(StandardCharsets.UTF_8),
-                "invalid".getBytes(StandardCharsets.UTF_8)));
-        }
-    }
-    public static String snapshotDiscard(long handle) {
-        if (handle <= 0) throw new IllegalArgumentException("Invalid snapshot handle");
-        return TextPolicy.utf8(snapshotDiscardRaw(handle));
-    }
-    public static String snapshotActivate(long handle, String expectedVersion) {
-        if (handle <= 0) throw new IllegalArgumentException("Invalid snapshot handle");
-        return TextPolicy.utf8(snapshotActivateRaw(handle, expectedVersion.getBytes(StandardCharsets.UTF_8)));
     }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String loadPreferences(String directory) { return TextPolicy.utf8(loadPreferencesRaw(directory.getBytes(StandardCharsets.UTF_8))); }
@@ -115,8 +87,6 @@ public final class NativeClient {
     public static String communityResourceLibrary(String request) {
         return TextPolicy.utf8(communityResourceLibraryRaw(utf8(request)));
     }
-    /** AI 设计皮肤的 compose / parse / artwork 决策；HTTP 由宿主自己发。纯计算。 */
-    public static String aiSkinPlan(String request) { return TextPolicy.utf8(aiSkinPlanRaw(utf8(request))); }
     /** 皮肤试用的结束与崩溃恢复。写偏好，在工作线程调用。 */
     public static String keyboardSkinTrial(String request) { return TextPolicy.utf8(keyboardSkinTrialRaw(utf8(request))); }
     /** 社区皮肤安装并开始试用。写偏好与两个加锁文件，在工作线程调用。 */
@@ -905,9 +875,6 @@ public final class NativeClient {
     private static native byte[] prepareHostRaw(byte[] options);
     private static native byte[] refreshHostRaw(byte[] path);
     private static native byte[] snapshotVersionRaw(byte[] options);
-    private static native byte[] snapshotPrepareRaw(byte[] request, byte[] file);
-    private static native byte[] snapshotDiscardRaw(long handle);
-    private static native byte[] snapshotActivateRaw(long handle, byte[] expectedVersion);
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] telemetryBeginRaw(byte[] request);
     private static native byte[] telemetryEndRaw(byte[] request);
@@ -931,7 +898,6 @@ public final class NativeClient {
     private static native byte[] dictionaryManifestRaw(byte[] resources);
     private static native byte[] pluginsRaw(byte[] request);
     private static native byte[] communityResourceLibraryRaw(byte[] request);
-    private static native byte[] aiSkinPlanRaw(byte[] request);
     private static native byte[] keyboardSkinTrialRaw(byte[] request);
     private static native byte[] communitySkinInstallRaw(byte[] request);
     private static native byte[] keySoundPackRaw(byte[] request);
@@ -1059,77 +1025,4 @@ public final class NativeClient {
     private static native byte[] cloudDictionaryRaw(byte[] request);
     private static native byte[] snapshotQueueRaw(byte[] request);
     private static native byte[] cloudSyncRaw(byte[] request);
-
-    private static final Pattern TYPE = Pattern.compile("\\\"type\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
-    private static final Pattern RECORDS = Pattern.compile("(\\\"records\\\"\\s*:\\s*)\\d+");
-    private static final Pattern FOOTER_RECORDS = Pattern.compile("\\\"records\\\"\\s*:\\s*(\\d+)");
-    private static final Pattern SHA256 = Pattern.compile("\\\"sha256\\\"\\s*:\\s*\\\"([0-9a-f]{64})\\\"");
-
-    private static String replaceRecordCount(String request, int records) {
-        Matcher matcher = RECORDS.matcher(request);
-        if (!matcher.find()) throw new IllegalArgumentException("Snapshot request is missing records");
-        return matcher.replaceFirst(Matcher.quoteReplacement(matcher.group(1) + records));
-    }
-
-    private static int inspectSnapshot(String file) throws Exception {
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        int engineRecords = 0;
-        int dataRecords = 0;
-        boolean header = false;
-        boolean ended = false;
-        String footerHash = null;
-        int footerRecords = -1;
-        try (BufferedInputStream input = new BufferedInputStream(
-                Files.newInputStream(Paths.get(file), LinkOption.NOFOLLOW_LINKS))) {
-            ByteArrayOutputStream line = new ByteArrayOutputStream();
-            int value;
-            while ((value = input.read()) != -1) {
-                if (value == '\n') {
-                    if (line.size() == 0) throw new IOException("empty snapshot line");
-                    byte[] bytes = line.toByteArray();
-                    if (bytes.length > 65_535) throw new IOException("snapshot line too large");
-                    String text = new String(bytes, StandardCharsets.UTF_8);
-                    Matcher type = TYPE.matcher(text);
-                    if (!type.find()) throw new IOException("missing snapshot type");
-                    String kind = type.group(1);
-                    if ("header".equals(kind)) {
-                        if (header || dataRecords != 0 || ended) throw new IOException("invalid snapshot header");
-                        header = true;
-                        // The header counts and hashes like any other record, which is what
-                        // the Server's footer was written against; skipping it rejects every
-                        // valid snapshot.
-                        digest.update(bytes);
-                        digest.update((byte) '\n');
-                        dataRecords++;
-                    } else if ("footer".equals(kind)) {
-                        if (!header || footerHash != null) throw new IOException("invalid snapshot footer");
-                        Matcher count = FOOTER_RECORDS.matcher(text);
-                        Matcher hash = SHA256.matcher(text);
-                        if (!count.find() || !hash.find()) throw new IOException("invalid snapshot footer");
-                        footerRecords = Integer.parseInt(count.group(1));
-                        footerHash = hash.group(1);
-                        ended = true;
-                    } else if ("entry".equals(kind) || "overlay".equals(kind)
-                            || "position".equals(kind) || "selection".equals(kind)) {
-                        if (!header || ended) throw new IOException("invalid snapshot record");
-                        digest.update(bytes);
-                        digest.update((byte) '\n');
-                        dataRecords++;
-                        if (!"entry".equals(kind)) engineRecords++;
-                    } else throw new IOException("unknown snapshot record");
-                    line.reset();
-                } else {
-                    line.write(value);
-                    if (line.size() > 65_535) throw new IOException("snapshot line too large");
-                }
-            }
-            if (line.size() != 0) throw new IOException("unterminated snapshot line");
-        }
-        if (!header || footerHash == null || footerRecords != dataRecords
-                || !footerHash.equals(DigestPolicy.hex(digest.digest())) || engineRecords > 500_000) {
-            throw new IOException("invalid snapshot envelope");
-        }
-        return engineRecords;
-    }
-
 }

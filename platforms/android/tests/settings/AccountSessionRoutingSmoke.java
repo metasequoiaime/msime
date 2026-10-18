@@ -181,26 +181,6 @@ public final class AccountSessionRoutingSmoke {
         check(oldListCancelled && clipboardRequests.get() == 0,
             "a queued list fetch cannot switch to the new account");
 
-        AtomicInteger chatRequests = new AtomicInteger();
-        AtomicInteger streamCalls = new AtomicInteger();
-        BackendAccount chat = new BackendAccount(sessions(refused -> login(TOKEN, "user-b"), accountCalls),
-            (method, path, body, token) -> {
-                chatRequests.incrementAndGet();
-                throw new AssertionError("old session must not send a chat request");
-            }, (body, token, call, listener) -> {
-                streamCalls.incrementAndGet();
-                throw new AssertionError("old session must not open a chat stream");
-            }, false);
-        boolean oldChatCancelled = false;
-        try {
-            chat.chatStream(java.util.List.of(new BackendAccount.ChatMessage("user", "synthetic message")),
-                new BackendAccount.ChatCall(), delta -> { }, "user-a");
-        } catch (java.util.concurrent.CancellationException expected) {
-            oldChatCancelled = true;
-        }
-        check(oldChatCancelled && chatRequests.get() == 0 && streamCalls.get() == 0,
-            "a chat queued by the old account cannot use the new account");
-
         check("f".repeat(64).equals(secondary(refused -> {
             if (refused == null) return login(TOKEN, "user-a");
             check(TOKEN.equals(refused), "the rejected token reaches the owner process");
@@ -259,9 +239,7 @@ public final class AccountSessionRoutingSmoke {
     }
 
     private static BackendAccount secondary(Answer answer, AtomicInteger accountCalls, BackendAccount.Requester requester) {
-        return new BackendAccount(sessions(answer, accountCalls), requester, (body, token, call, listener) -> {
-            throw new AssertionError("no chat stream in this smoke");
-        }, false);
+        return new BackendAccount(sessions(answer, accountCalls), requester, false);
     }
 
     private static BackendAccount.SessionCredential login(String token, String user) {

@@ -5,8 +5,8 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# Android 的 JNI 胶水从 #8201 迁移计划 5f 起不再自己读快照文件（准备和激活整份快照都在 Rust 的 msime_client_snapshot_queue 里），只剩鸿蒙的 N-API 胶水。
 SOURCES = (
-    ROOT / "platforms/android/native/client_jni.cpp",
     ROOT / "platforms/harmony/native/client_napi.cpp",
 )
 

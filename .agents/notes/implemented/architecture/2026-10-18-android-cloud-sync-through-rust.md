@@ -32,7 +32,7 @@ Status: implemented
 
 - **收益**：快照队列和同步状态只有 Rust 一份、一种锁；Android 拿到 Rust 的三方合并、删掉的常用语不复活、Retry-After 退避、词库合并分多轮做完才上传、空快照不替换有词的本机、同步进行中做的选择不丢、云端被清空时先问（迁移差异第 L 节，第 37–65、112–149 条）。
 - **用户可见的变化**：云端被清空时多一个「关闭同步，保留本机」；同步行的措辞由 Rust 给（失败原因按 Rust 的文案，新加「云端数据已被清空…」两句）；回到前台时同步关着就直接跳过。
-- **代价**：`home/` 下的接线只能靠 Gradle 编译和设备冒烟，JVM 冒烟跑不了 org.json 和 JNI；`SyncApi`、`SyncMergePolicy` 里只给旧 `CloudSync` 用的部分已经没人调用，留给 5f 一起删。Tauri 合包的 `cancelSnapshot` 回来的是取消时的状态，Rust 随后把终态请求从状态里拿掉，之后 `snapshotState` 看不到它。
+- **代价**：`home/` 下的接线只能靠 Gradle 编译和设备冒烟，JVM 冒烟跑不了 org.json 和 JNI；`SyncApi`、`SyncMergePolicy` 里只给旧 `CloudSync` 用的部分已经没人调用，5f 删掉，本地备份还要的读快照词挪进 `DictionarySnapshotWords`（[删掉 Android 已经交给 Rust 的账号与云端重复实现](../simplification/2026-10-19-android-duplicate-account-code-removed.md)）。Tauri 合包的 `cancelSnapshot` 回来的是取消时的状态，Rust 随后把终态请求从状态里拿掉，之后 `snapshotState` 看不到它。
 - 相关：[Android 本地备份](../feature/2026-10-08-android-local-backup.md)（恢复时排整份激活的那一步改经 Rust 的队列，规则不变）。
 
 ## Verification

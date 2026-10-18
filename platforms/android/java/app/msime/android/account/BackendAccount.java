@@ -4,11 +4,8 @@ import android.app.Application;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CancellationException;
@@ -20,22 +17,13 @@ import app.msime.android.clipboard.CloudClipboardTextPolicy;
 /**
  * 水杉账号：登录方式、挑战、登录，以及本机的登录会话。
  *
- * <p>会话、令牌、登录和刷新都由 Rust 持有（#8201 迁移计划 5b）：主进程里经 {@link AccountStore} 注入的存储调 {@code msime_client_account} 和 {@code msime_client_account_access_token}，`:ime` 键盘进程经 {@link AccountSessionProvider} 向主进程要令牌，自己不读也不刷新会话。这里还留着的对话、云剪贴板请求用 Rust 给的令牌经 Java 的 HTTPS 发出，随后几组提交改调 Rust。
+ * <p>会话、令牌、登录和刷新都由 Rust 持有（#8201 迁移计划 5b）：主进程里经 {@link AccountStore} 注入的存储调 {@code msime_client_account} 和 {@code msime_client_account_access_token}，`:ime` 键盘进程经 {@link AccountSessionProvider} 向主进程要令牌，自己不读也不刷新会话。这里还留着键盘的云剪贴板：端到端加密驱动在 Java（{@link CloudClipboardE2e}），请求用 Rust 给的令牌经 Java 的 HTTPS 发出；对话、云剪贴板的开关和删除都已经改调 Rust（{@link RustAccount}）。
  *
  * <p>登录的绑定按账号编号（user.id）：页面记下的「会话」就是当时的账号编号，同一个账号重新登录不算换号，与 Rust 相同。
  */
 public final class BackendAccount {
     /** Fixed hexadecimal length of account challenge and clipboard identifiers. */
     public static final int HEX_ID_LENGTH = 64;
-    /** 与 client-services 的账号 JSON 响应上限一致。云剪贴板的整页密文走 {@link #httpExchange}，上限是 {@link CloudClipboardE2e#MAX_RESPONSE_BYTES}。 */
-    private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
-    /** 一条 AI 回复的 UTF-8 字节上限，流式与非流式相同。 */
-    public static final int MAX_CHAT_REPLY_BYTES = 16 * 1024;
-    /** 流式回复整个响应体的上限：最多 2048 个 token 的增量块，每块几十到一两百字节的 JSON 外壳。 */
-    static final int MAX_STREAM_BYTES = 4 * 1024 * 1024;
-    /** SSE 单行上限；一个增量块远小于它。 */
-    static final int MAX_EVENT_LINE_BYTES = 64 * 1024;
-
     /** 一次等待提供商凭据的挑战；link 挑战还记住发起它的账号（user.id）。 */
     public record Challenge(String id, String nonce, String purpose, String sessionId) {
         public Challenge(String id, String nonce) { this(id, nonce, "login", ""); }
@@ -48,7 +36,6 @@ public final class BackendAccount {
     }
     /** Apple 网页登录开始时 Rust 给的授权地址与 verifier，以及 link 时发起它的账号。 */
     public record AppleWebStart(String authorizationUrl, String codeVerifier, String sessionId) {}
-    public record ChatMessage(String role, String content) {}
     public record ClipboardItem(String id, String text, String updatedAt) {}
     /**
      * 键盘读到的云剪贴板：已解密的条目，以及本机的加密状态 `status`（`ready`、`pending` 或 `disabled`，见 {@link CloudClipboardApi}）和本机核对码 `code`。待批准时 `items` 为空。
@@ -58,30 +45,9 @@ public final class BackendAccount {
         public boolean pending() { return CloudClipboardApi.STATUS_PENDING.equals(status); }
     }
 
+    /** 发一个请求，不论状态码都把状态和正文交回，连不上时抛出；只给云剪贴板的端到端驱动用（{@link CloudClipboardE2e}）。默认实现走 HTTPS，固定发 `MSIME/Android`。 */
     interface Requester {
-        JSONObject request(String method, String path, JSONObject body, String token) throws Exception;
-
-        /** 发一个请求，不论状态码都把状态和正文交回，连不上时抛出；只给云剪贴板的端到端驱动用（{@link CloudClipboardE2e}）。 */
-        default CloudClipboardE2e.Reply exchange(String method, String path, String body, String token) throws Exception {
-            throw new UnsupportedOperationException("raw exchange");
-        }
-    }
-
-    interface StreamRequester {
-        String stream(JSONObject body, String token, ChatCall call, ChatStreamListener listener) throws Exception;
-    }
-
-    /** 走 HTTPS 的默认实现，固定发 `MSIME/Android`。 */
-    private static final class HttpRequester implements Requester {
-        @Override public JSONObject request(String method, String path, JSONObject body, String token)
-                throws Exception {
-            return httpRequest(method, path, body, token);
-        }
-
-        @Override public CloudClipboardE2e.Reply exchange(String method, String path, String body, String token)
-                throws Exception {
-            return httpExchange(method, path, body, token);
-        }
+        CloudClipboardE2e.Reply exchange(String method, String path, String body, String token) throws Exception;
     }
 
     /**
@@ -107,12 +73,8 @@ public final class BackendAccount {
     static final class RequestException extends IllegalStateException {
         private static final long serialVersionUID = 1L;
         final int status;
-        /** 错误码；只有云剪贴板驱动报的错带它（例如 `clipboard_device_pending`，这时 `status` 为 0），其余为空字符串。 */
+        /** 云剪贴板驱动报的错误码（例如 `clipboard_device_pending`，这时 `status` 为 0）；驱动没有给时为空字符串。 */
         final String code;
-
-        RequestException(int status) {
-            this(status, "");
-        }
 
         RequestException(int status, String code) {
             super(code == null || code.isEmpty() ? "HTTP " + status : code);
@@ -123,7 +85,6 @@ public final class BackendAccount {
 
     private final Sessions sessions;
     private final Requester requester;
-    private final StreamRequester streamer;
     /** 这个进程是否持有会话：只有它能登录和退出。 */
     private final boolean owner;
 
@@ -134,23 +95,22 @@ public final class BackendAccount {
      */
     public BackendAccount(Context context) {
         this(AccountSessionRoutingPolicy.ownsSession(Application.getProcessName(), context.getPackageName())
-                ? rustSessions(context) : sessionOwner(context), new HttpRequester(), BackendAccount::streamChat,
+                ? rustSessions(context) : sessionOwner(context), BackendAccount::httpExchange,
             AccountSessionRoutingPolicy.ownsSession(Application.getProcessName(), context.getPackageName()));
     }
 
     /** 本进程自己持有的会话，不论是哪个进程；只有主进程里的 {@link AccountSessionProvider} 用它。 */
     static BackendAccount owningSession(Context context) {
-        return new BackendAccount(rustSessions(context), new HttpRequester(), BackendAccount::streamChat, true);
+        return new BackendAccount(rustSessions(context), BackendAccount::httpExchange, true);
     }
 
     BackendAccount(Sessions sessions, Requester requester) {
-        this(sessions, requester, BackendAccount::streamChat, true);
+        this(sessions, requester, true);
     }
 
-    BackendAccount(Sessions sessions, Requester requester, StreamRequester streamer, boolean owner) {
+    BackendAccount(Sessions sessions, Requester requester, boolean owner) {
         this.sessions = sessions;
         this.requester = requester;
-        this.streamer = streamer;
         this.owner = owner;
     }
 
@@ -411,313 +371,6 @@ public final class BackendAccount {
         }
     }
 
-    static boolean validChatRequest(List<ChatMessage> messages) {
-        if (messages == null || messages.isEmpty() || messages.size() > 16) return false;
-        int bytes = 0;
-        for (ChatMessage message : messages) {
-            if (message == null || !("user".equals(message.role()) || "assistant".equals(message.role())
-                    || "system".equals(message.role()))
-                    || !TextPolicy.boundedNonBlankAllowingWhitespaceControls(message.content(), 16 * 1024)) return false;
-            bytes += TextPolicy.utf8Length(message.content());
-        }
-        return bytes <= 64 * 1024;
-    }
-
-    static boolean validChatResponse(String role, String content) {
-        return "assistant".equals(role)
-            && TextPolicy.boundedNonBlankAllowingWhitespaceControls(content, 16 * 1024);
-    }
-
-    static boolean validChatReplyText(String content) {
-        return TextPolicy.hasText(content)
-            && TextPolicy.utf8Length(content) <= MAX_CHAT_REPLY_BYTES
-            && TextPolicy.validUnicode(content);
-    }
-
-    /** Sends one bounded non-streaming chat request; callers must run it off the UI thread. */
-    public String chat(List<ChatMessage> messages) throws Exception {
-        SessionCredential session = currentSession();
-        JSONObject body = chatBody(messages, session.token()).put("stream", false);
-        return chatContent(authorizedRequest("POST", "/v1/chat/completions", body, session));
-    }
-
-    /**
-     * 流式发送一次对话：每到一段增量就交给 {@code listener}，返回拼好的完整回复。调用方必须在后台线程上调用。
-     *
-     * <p>请求与 {@link #chat} 相同，只多了 `"stream": true`；服务端回 OpenAI 兼容的 SSE（`data: <chat.completion.chunk>`，以 `data: [DONE]` 结束）。不认识 stream 的旧后端回 HTTP 400，这时退回 {@link #chat}，把整段回复一次交给 listener。{@code call} 可以从任何线程取消，取消会断开连接，阻塞中的读取立刻失败。
-     */
-    public String chatStream(List<ChatMessage> messages, ChatCall call, ChatStreamListener listener)
-            throws Exception {
-        return chatStream(messages, call, listener, null);
-    }
-
-    /** 只在页面传入的会话仍是当前会话时发送聊天流。 */
-    public String chatStream(List<ChatMessage> messages, ChatCall call, ChatStreamListener listener,
-            String expectedSessionId) throws Exception {
-        SessionCredential session = currentSession();
-        requireSession(session, expectedSessionId);
-        JSONObject body = chatBody(messages, session.token()).put("stream", true);
-        ChatStreamListener guarded = delta -> {
-            try {
-                ensureCurrentSession(session);
-            } catch (Exception unavailable) {
-                throw new CancellationException("account session changed");
-            }
-            if (call.cancelled()) throw new CancellationException("chat cancelled");
-            listener.onDelta(delta);
-        };
-        try {
-            try {
-                ensureCurrentSession(session);
-                String reply = streamer.stream(body, session.token(), call, guarded);
-                ensureCurrentSession(session);
-                return reply;
-            } catch (RequestException error) {
-                if (error.status != 401) throw error;
-                ensureCurrentSession(session);
-                SessionCredential fresh = currentSession(session.token());
-                if (!session.sessionId().equals(fresh.sessionId()))
-                    throw new CancellationException("account session changed");
-                if (fresh.token().isEmpty() || fresh.token().equals(session.token())) throw error;
-                ensureCurrentSession(session);
-                String reply = streamer.stream(body, fresh.token(), call, guarded);
-                ensureCurrentSession(session);
-                return reply;
-            }
-        } catch (RequestException error) {
-            if (error.status != 400) throw error;
-            // 旧后端不认识 stream：退回非流式请求，整段回复一次交出去。
-            ensureCurrentSession(session);
-            if (call.cancelled()) throw new CancellationException("chat cancelled");
-            String reply = chatContent(authorizedRequest("POST", "/v1/chat/completions",
-                body.put("stream", false), session));
-            ensureCurrentSession(session);
-            if (call.cancelled()) throw new CancellationException("chat cancelled");
-            guarded.onDelta(reply);
-            return reply;
-        }
-    }
-
-    /** 流式回复的接收方：每到一段非空增量调用一次，在发起请求的那个后台线程上。 */
-    public interface ChatStreamListener {
-        void onDelta(String delta);
-    }
-
-    /** 一次流式对话的取消把手。 */
-    public static final class ChatCall {
-        private HttpsURLConnection connection;
-        private boolean cancelled;
-
-        /**
-         * 取消这次请求：之后不再交出增量，正在进行的连接被断开。
-         *
-         * <p>断开放到一个短命线程上做：界面线程调用这里时，关闭 TLS 连接可能写出 close_notify，在主线程上会被 StrictMode 当成网络访问拦下。
-         */
-        public void cancel() {
-            HttpsURLConnection open;
-            synchronized (this) {
-                cancelled = true;
-                open = connection;
-                connection = null;
-            }
-            if (open != null) ThreadPolicy.startNamedThread("msime-chat-cancel", open::disconnect);
-        }
-
-        public synchronized boolean cancelled() { return cancelled; }
-
-        /** 记下正在用的连接；已经取消时返回 false，调用方不要再用它。 */
-        synchronized boolean attach(HttpsURLConnection value) {
-            if (cancelled) return false;
-            connection = value;
-            return true;
-        }
-
-        synchronized void detach(HttpsURLConnection value) {
-            if (connection == value) connection = null;
-        }
-    }
-
-    /**
-     * 校验对话请求并组装请求体（不含 stream 字段），{@link #chat} 和 {@link #chatStream} 共用同一套上限。
-     *
-     * <p>请求体不带 `model`：用哪个模型由服务端决定，省略时后端用它配置的默认模型，用户在客户端选不了，客户端也不去 `/v1/models` 替用户挑一个。
-     */
-    private static JSONObject chatBody(List<ChatMessage> messages, String token) throws Exception {
-        if (token.isEmpty() || !validChatRequest(messages))
-            throw new IllegalStateException("invalid chat request");
-        org.json.JSONArray payloadMessages = new org.json.JSONArray();
-        for (int index = 0; index < messages.size(); index++) {
-            ChatMessage message = messages.get(index);
-            // system 只能是第一条：调用方用它给出回答约定（例如默认用中文），不能夹在对话中间。
-            if (index > 0 && "system".equals(message.role()))
-                throw new IllegalStateException("invalid chat request");
-            payloadMessages.put(new JSONObject().put("role", message.role())
-                .put("content", message.content()));
-        }
-        return new JSONObject().put("messages", payloadMessages).put("max_tokens", 2048);
-    }
-
-    /** 非流式回复里的 choices[0].message.content：按 {@link #validChatResponse} 校验。 */
-    private static String chatContent(JSONObject response) {
-        org.json.JSONArray choices = response.optJSONArray("choices");
-        JSONObject first = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0);
-        JSONObject message = first == null ? null : first.optJSONObject("message");
-        String content = message == null ? "" : requiredStringField(message.opt("content"));
-        String role = message == null ? "" : optionalStringField(message.opt("role"), "");
-        if (!validChatResponse(role, content) || !validChatReplyText(content))
-            throw new IllegalStateException("invalid chat response");
-        return content;
-    }
-
-    /** 一个 chat.completion.chunk 里的 choices[0].delta.content；只带 role 或 finish_reason 的块没有内容，返回空串。 */
-    private static String chunkDelta(JSONObject chunk) {
-        org.json.JSONArray choices = chunk.optJSONArray("choices");
-        JSONObject first = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0);
-        JSONObject delta = first == null ? null : first.optJSONObject("delta");
-        Object content = delta == null ? null : delta.opt("content");
-        if (content == null || content == JSONObject.NULL) return "";
-        return requiredStringField(content);
-    }
-
-    /** SSE 一行里 `data:` 字段的值（去掉冒号后一个可选空格）；不是 data 行（空行、注释、其他字段）返回 null。 */
-    static String eventData(String line) {
-        if (!line.startsWith("data:")) return null;
-        String value = line.substring(5);
-        return value.startsWith(" ") ? value.substring(1) : value;
-    }
-
-    /** 把一行 data 解成 JSON 对象；空的、不是对象或解析不了时返回 null，调用方跳过这一行。 */
-    static JSONObject eventObject(String data) {
-        String trimmed = TextPolicy.trimmed(data);
-        if (!trimmed.startsWith("{")) return null;
-        try {
-            return new JSONObject(trimmed);
-        } catch (org.json.JSONException malformed) {
-            return null;
-        }
-    }
-
-    /**
-     * 按行读 SSE 响应体：以 LF 分行、去掉行尾 CR，整行凑齐后才按 UTF-8 解码，多字节字符跨读缓冲也不会被切坏。
-     *
-     * <p>单行超过 {@link #MAX_EVENT_LINE_BYTES} 或整个响应超过 {@link #MAX_STREAM_BYTES} 都直接失败，不让服务端把内存撑爆。
-     */
-    static final class EventLines {
-        private final InputStream input;
-        private final byte[] buffer = new byte[4096];
-        private final ByteArrayOutputStream line = new ByteArrayOutputStream();
-        private int position;
-        private int limit;
-        private long total;
-
-        EventLines(InputStream input) {
-            this.input = input;
-        }
-
-        /** 下一行，不含换行符；读到流尾时返回 null（流尾前没有换行的最后一段仍作为一行返回）。 */
-        String next() throws Exception {
-            line.reset();
-            while (true) {
-                if (position == limit) {
-                    int count = input.read(buffer);
-                    if (count == -1) return line.size() == 0 ? null : decode();
-                    total += count;
-                    if (total > MAX_STREAM_BYTES) throw new IllegalStateException("response too large");
-                    position = 0;
-                    limit = count;
-                    continue;
-                }
-                byte value = buffer[position++];
-                if (value == '\n') return decode();
-                if (line.size() >= MAX_EVENT_LINE_BYTES) throw new IllegalStateException("event too large");
-                line.write(value);
-            }
-        }
-
-        private String decode() {
-            byte[] bytes = line.toByteArray();
-            int length = bytes.length > 0 && bytes[bytes.length - 1] == '\r' ? bytes.length - 1 : bytes.length;
-            return new String(bytes, 0, length, StandardCharsets.UTF_8);
-        }
-    }
-
-    /** 发一次流式请求并读完 SSE；连接前或响应头之前的非 2xx 抛 {@link RequestException}，流开始后的失败抛 {@link IllegalStateException}。 */
-    private static String streamChat(JSONObject body, String token, ChatCall call, ChatStreamListener listener)
-            throws Exception {
-        byte[] payload = TextPolicy.utf8Bytes(body.toString());
-        HttpsURLConnection connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + "/v1/chat/completions").openConnection();
-        try {
-            if (!call.attach(connection)) throw new CancellationException("chat cancelled");
-            HttpConnectionPolicy.rejectRedirects(connection);
-            connection.setRequestMethod("POST");
-            HttpConnectionPolicy.setTimeouts(connection, 30_000, 30_000);
-            connection.setRequestProperty("Accept", "text/event-stream");
-            // SSE 必须逐事件到达；不请求 gzip，避免 Android 或中间代理等到压缩缓冲区满了才把增量交给读取端。
-            connection.setRequestProperty("Accept-Encoding", "identity");
-            connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-            connection.setDoOutput(true);
-            connection.setFixedLengthStreamingMode(payload.length);
-            connection.setRequestProperty("Content-Type", "application/json");
-            // 连接真正建立之前取消时，cancel() 里的 disconnect() 什么也断不了，请求照样会发出去；所以在建连、发完请求体、拿到状态码这三处各看一次取消标记，尽早放弃，也不让取消后的 400/401 走进退回或重试。
-            if (call.cancelled()) throw new CancellationException("chat cancelled");
-            try (OutputStream output = connection.getOutputStream()) {
-                if (call.cancelled()) throw new CancellationException("chat cancelled");
-                output.write(payload);
-            }
-            if (call.cancelled()) throw new CancellationException("chat cancelled");
-            int status = connection.getResponseCode();
-            if (call.cancelled()) throw new CancellationException("chat cancelled");
-            if (!HttpConnectionPolicy.isSuccessful(status)) throw new RequestException(status);
-            String type = connection.getContentType();
-            try (InputStream input = connection.getInputStream()) {
-                if (type == null || !TextPolicy.lowercase(type).startsWith("text/event-stream")) {
-                    // 没按流式回答（例如中间层吞掉了 stream）：按普通 JSON 回复读，整段一次交出去。
-                    byte[] response = readBounded(input);
-                    String reply = chatContent(new JSONObject(TextPolicy.utf8(response)));
-                    if (call.cancelled()) throw new CancellationException("chat cancelled");
-                    listener.onDelta(reply);
-                    return reply;
-                }
-                StringBuilder reply = new StringBuilder(MAX_CHAT_REPLY_BYTES);
-                int replyBytes = 0;
-                EventLines lines = new EventLines(input);
-                String line;
-                while ((line = lines.next()) != null) {
-                    if (Thread.currentThread().isInterrupted() || call.cancelled())
-                        throw new CancellationException("chat cancelled");
-                    String data = eventData(line);
-                    if (data == null) continue;
-                    if ("[DONE]".equals(data)) {
-                        if (!validChatReplyText(reply.toString()))
-                            throw new IllegalStateException("invalid chat response");
-                        return reply.toString();
-                    }
-                    // 空的或不是 JSON 对象的 data 行（例如中间层发来的空 data 行或心跳）跳过，不让一行杂音废掉已经收到的整段回复；`[DONE]` 和带 error 的对象照旧处理。
-                    JSONObject chunk = eventObject(data);
-                    if (chunk == null) continue;
-                    if (chunk.has("error")) throw new IllegalStateException("chat stream failed");
-                    String delta = chunkDelta(chunk);
-                    if (delta.isEmpty()) continue;
-                    if (TextPolicy.hasControlExceptWhitespace(delta)
-                            || !TextPolicy.validUnicode(delta))
-                        throw new IllegalStateException("invalid chat response");
-                    int deltaBytes = TextPolicy.utf8Length(delta);
-                    if (deltaBytes > MAX_CHAT_REPLY_BYTES - replyBytes)
-                        throw new IllegalStateException("invalid chat response");
-                    reply.append(delta);
-                    replyBytes += deltaBytes;
-                    listener.onDelta(delta);
-                }
-                // 没等到 [DONE] 流就断了：回复不完整，按失败处理，已经交出去的增量由调用方决定是否保留。
-                throw new IllegalStateException("chat stream ended early");
-            }
-        } finally {
-            call.detach(connection);
-            connection.disconnect();
-        }
-    }
-
     /**
      * Read only from the session that opened the keyboard panel.
      *
@@ -779,12 +432,6 @@ public final class BackendAccount {
         return value == null ? fallback : requiredStringField(value);
     }
 
-    public void setClipboardEnabled(boolean enabled) throws Exception {
-        SessionCredential session = currentSession();
-        if (session.token().isEmpty()) throw new IllegalStateException("HTTP 401");
-        authorizedRequest("PUT", "/v1/users/me/clipboard/settings", new JSONObject().put("enabled", enabled), session);
-    }
-
     /** Prevent a queued keyboard upload from switching to a newly signed-in account. 在本机加密后上传；本机还在等批准时驱动报 `clipboard_device_pending`，不上传。 */
     ClipboardItem addClipboard(String text, String expectedSessionId, CloudClipboardE2e.Local local) throws Exception {
         SessionCredential session = currentSession();
@@ -807,7 +454,7 @@ public final class BackendAccount {
     }
 
     /**
-     * 经驱动跑一个云剪贴板操作：请求一律用开始时的这个会话发出（401 时与 {@link #authorizedRequest} 一样换一枚令牌重试一次），密钥串只在这个会话仍是当前会话时写入。
+     * 经驱动跑一个云剪贴板操作：请求一律用开始时的这个会话发出（401 时换一枚令牌重试一次，换到的仍是同一个账号、而且是不同的令牌才重试），密钥串只在这个会话仍是当前会话时写入。
      */
     private String runClipboard(CloudClipboardE2e.Local local, CloudClipboardE2e.Operation operation,
             SessionCredential session) throws Exception {
@@ -847,14 +494,6 @@ public final class BackendAccount {
             && TextPolicy.boundedNonEmpty(item.updatedAt(), 128);
     }
 
-    public void deleteClipboard(String id) throws Exception {
-        SessionCredential session = currentSession();
-        if (session.token().isEmpty() || (id != null && !TextPolicy.isLowerHex(id, HEX_ID_LENGTH)))
-            throw new IllegalStateException("invalid clipboard request");
-        authorizedRequest("DELETE", id == null ? "/v1/users/me/clipboard" : "/v1/users/me/clipboard/" + id,
-            null, session);
-    }
-
     /**
      * Forget the session on this device. The account itself is untouched.
      *
@@ -869,55 +508,10 @@ public final class BackendAccount {
         }
     }
 
-    private JSONObject request(String method, String path, JSONObject body, String token)
-            throws Exception {
-        return requester.request(method, path, body, token);
-    }
-
-    /** Retry one request after the server rejects an otherwise unexpired access token. */
-    private JSONObject authorizedRequest(String method, String path, JSONObject body, SessionCredential session)
-            throws Exception {
-        ensureCurrentSession(session);
-        try {
-            JSONObject response = request(method, path, body, session.token());
-            ensureCurrentSession(session);
-            return response;
-        } catch (RequestException error) {
-            if (error.status != 401) throw error;
-            ensureCurrentSession(session);
-            SessionCredential fresh = currentSession(session.token());
-            if (!session.sessionId().equals(fresh.sessionId()))
-                throw new CancellationException("account session changed");
-            if (fresh.token().isEmpty() || fresh.token().equals(session.token())) throw error;
-            JSONObject response = request(method, path, body, fresh.token());
-            ensureCurrentSession(session);
-            return response;
-        }
-    }
-
     /** 登录的仍是请求开始时的那个账号；退出或换号时抛 {@link CancellationException}。主进程只读 Rust 的本地状态，不刷新。 */
     private void ensureCurrentSession(SessionCredential expected) throws Exception {
         if (expected.sessionId().isEmpty() || !expected.sessionId().equals(sessions.userId()))
             throw new CancellationException("account session changed");
-    }
-
-    private static JSONObject httpRequest(String method, String path, JSONObject body, String token)
-            throws Exception {
-        byte[] payload = body == null ? null : body.toString().getBytes(StandardCharsets.UTF_8);
-        HttpsURLConnection connection = null;
-        try {
-            connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
-            AccountHttpRequest.writeJson(connection, method, token, CloudApi.USER_AGENT, payload);
-            int status = connection.getResponseCode();
-            if (!HttpConnectionPolicy.isSuccessful(status)) throw new RequestException(status);
-            try (InputStream input = connection.getInputStream()) {
-                byte[] response = readBounded(input);
-                if (response.length == 0) return new JSONObject();
-                return new JSONObject(TextPolicy.utf8(response));
-            }
-        } finally {
-            if (connection != null) connection.disconnect();
-        }
     }
 
     /** 云剪贴板驱动的一次往返：非 2xx 也读出错误正文交回，正文上限是驱动能接收的 {@link CloudClipboardE2e#MAX_RESPONSE_BYTES}。 */
@@ -942,11 +536,4 @@ public final class BackendAccount {
             if (connection != null) connection.disconnect();
         }
     }
-
-    private static byte[] readBounded(InputStream input) throws Exception {
-        byte[] response = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
-        if (response == null) throw new IllegalStateException("response too large");
-        return response;
-    }
-
 }

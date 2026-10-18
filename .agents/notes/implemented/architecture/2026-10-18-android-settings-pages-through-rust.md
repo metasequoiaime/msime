@@ -26,14 +26,14 @@ Status: implemented
 - **反馈截图原样交给 Rust，只在超限时才缩图（计划第 6 节的字面做法，迁移差异 25）。** 理由是不超限的截图不必重新编码，画质更好。没有采用：原来 Java 总是重新编码，顺带去掉 EXIF 里的位置，Rust 不重新编码，原样交过去就会把位置一起上传，这是隐私上的倒退。照旧总是重新编码，交给 Rust 的那一张一定在限制以内，「超限先缩图」自然成立。
 - **「获取」皮肤用 Rust 的 `msime_client_custom_skin_library` 的 create 存库（决定 14 的原话）。** 理由是皮肤库的规则也只剩 Rust 一份。没有采用：Android 的皮肤库是 Java 的 `CustomSkinLibrary`，键盘进程经它的锁文件读写同一份 `library.json`；JNI 没有接 `msime_client_custom_skin_library`（5a 的十六个入口里没有），换成 Rust 的库要另起一组 JNI 和锁的对齐。下载这一步按决定 14 换成了 `keyboard_skin_download`，存库仍用 Java 的那一份。
 - **AI 对话继续不带 `model`。** 这是 2026-10-11 的产品决定（[Android 对话页不选模型，由服务端决定](../feature/2026-10-11-android-chat-server-picks-model.md)）。不能保留：Rust 的流式入口要求 `model`（迁移差异 121），缺了是 `account_invalid`。改成用 `chat_models` 的 `defaultModel`，用户仍然选不了，模型仍是服务端说了算的那一个，代价是第一次发送前多一个请求。
-- **这一组顺手删掉不再有人调用的 Java 实现（`BackendAccount` 的对话和云剪贴板开关、`CloudApi` 里只给它们用的部分）。** 理由是删得越早，越不会有人接着用。没有在这里做：计划把删除排在 5f，与快照队列、云同步切完以后剩下的一起删；这一组只删了被改写的类里已经没人调用的部分（`DiagnosticsApi` 的读包和编码、`SkinJobsApi` 的任务轮询、`CommunityCatalog` 的令牌选择和重试、`CommunityRequest` 的路径拼接、`DeviceDataApi` 的流式下载），和只测它们的冒烟、守卫脚本。
+- **这一组顺手删掉不再有人调用的 Java 实现（`BackendAccount` 的对话和云剪贴板开关、`CloudApi` 里只给它们用的部分）。** 理由是删得越早，越不会有人接着用。没有在这里做：计划把删除排在 5f，与快照队列、云同步切完以后剩下的一起删；5f 删掉了它们（[删掉 Android 已经交给 Rust 的账号与云端重复实现](../simplification/2026-10-19-android-duplicate-account-code-removed.md)）；这一组只删了被改写的类里已经没人调用的部分（`DiagnosticsApi` 的读包和编码、`SkinJobsApi` 的任务轮询、`CommunityCatalog` 的令牌选择和重试、`CommunityRequest` 的路径拼接、`DeviceDataApi` 的流式下载），和只测它们的冒烟、守卫脚本。
 
 ## Consequences
 
 - **收益**：设置页面的请求、令牌、401 后的重试和响应校验只剩 Rust 一份；导出失败时原来的文件不动；诊断上传多带最多 200 条崩溃记录，超过 2 MiB 时先截掉最旧的事件而不是整次失败；AI 皮肤一次生成只用一个账号；限流时提示约要等多久。
 - **用户可见的变化**（计划第 10 节 Android 的那几条）：「退出登录」撤销服务端会话，断网时提示失败、但本机已经退出；流式对话的超时改成整条 125 秒，点停止后连接要晚一点才断；「获取」皮肤断网会失败；「删除云端数据」多一个语音样本分区，注销后也尽力删匿名账号的语音样本、可能多一次匿名登录；昵称不能再留空恢复默认（Rust 要求 1–64 个字）；举报、改分类的服务端细码被 Rust 归并，提示跟着变泛；Rust 的 AI 皮肤必须恰好三套，模型只给一两套时整次失败。AI 皮肤的入口原来只在 HTTP 503 时藏；Rust 把所有 5xx 报成同一个码，刷新令牌时断网也是这个码，所以登录账号（或本机匿名账号）的访问令牌过期后断网点「生成」、服务端一时回 500 或 502、重定向被拒，现在也会把入口藏一天。这是 Rust 契约分不出来的，要分开得让 Rust 给没开 AI 皮肤的 503 一个自己的码，这一组不改 Rust。
 - **代价**：页面的接线只能用源码守卫和设备冒烟盯，JVM 冒烟跑不了 org.json 和 JNI；设备冒烟 `SessionStoreDeviceSmoke` 新加的几项经真实的 Rust、不联网，核对页面拼的请求 Rust 认得、页面在本机先做的检查与 Rust 的上限一致。
-- **留给后面几组的**：常用语没有显示云端列表的页面，只在云同步里用，按 `position` 排序随 5d 的 `msime_client_cloud_sync` 处理（[Android 的词库快照队列与自动云同步改调 Rust](2026-10-18-android-cloud-sync-through-rust.md)）；打字统计上传和 QQ 群助手（`TypingUploadApi`）、`SignIn` 登录后读 `/v1/users/me` 记账号绑定（5d 在这之后再调一次云同步的 `status` 对齐）、更新检查（负责人决定除选版本外留在 Java）还在 Java。
+- **留给后面几组的**：常用语没有显示云端列表的页面，只在云同步里用，按 `position` 排序随 5d 的 `msime_client_cloud_sync` 处理（[Android 的词库快照队列与自动云同步改调 Rust](2026-10-18-android-cloud-sync-through-rust.md)）；打字统计上传和 QQ 群助手（`TypingUploadApi`）、`SignIn` 登录后读 `/v1/users/me` 记账号绑定（5d 在这之后再调一次云同步的 `status` 对齐；5f 改成读 Rust 的 `status`，见[删掉 Android 已经交给 Rust 的账号与云端重复实现](../simplification/2026-10-19-android-duplicate-account-code-removed.md)）、更新检查（负责人决定除选版本外留在 Java）还在 Java。
 
 ## Verification
 

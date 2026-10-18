@@ -9,110 +9,16 @@
 // On-device recognition is the shared sherpa-onnx recognizer every desktop host uses, compiled into this library; the runtime itself (libsherpa-onnx-c-api.so and libonnxruntime.so from the pinned .aar) is loaded on first use, by name when the package carries it, otherwise from the downloaded voice-runtime resource pack at the path Java hands to localSpeechRuntimeRaw.
 #include "voice/LocalAsr.h"
 #include <atomic>
-#include <cerrno>
 #include <chrono>
 #include <cstring>
 #include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <fcntl.h>
-#include <sys/stat.h>
 #include <vector>
 #include <limits>
 #include <string>
-#include <unistd.h>
 #include <unordered_map>
-
-struct SnapshotReader {
-    explicit SnapshotReader(const std::string &path)
-        : descriptor(::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)) {
-        struct stat metadata{};
-        if (descriptor < 0 || ::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode)) {
-            if (descriptor >= 0) ::close(descriptor);
-            descriptor = -1;
-        }
-    }
-    ~SnapshotReader() { if (descriptor >= 0) ::close(descriptor); }
-    SnapshotReader(const SnapshotReader &) = delete;
-    SnapshotReader &operator=(const SnapshotReader &) = delete;
-
-    int next() noexcept {
-        if (pending != kNoPending) {
-            const int value = pending;
-            pending = kNoPending;
-            return value;
-        }
-        for (;;) {
-            if (offset < available) return buffer[offset++];
-            const ssize_t count = ::read(descriptor, buffer, sizeof(buffer));
-            if (count > 0) {
-                offset = 0;
-                available = static_cast<size_t>(count);
-                continue;
-            }
-            if (count == 0) return kEof;
-            if (errno == EINTR) continue;
-            return kError;
-        }
-    }
-
-    int peek() noexcept {
-        if (pending == kNoPending) pending = next();
-        return pending;
-    }
-
-    static constexpr int kNoPending = -3;
-    static constexpr int kEof = -1;
-    static constexpr int kError = -2;
-    int descriptor = -1;
-    unsigned char buffer[4096]{};
-    size_t offset = 0;
-    size_t available = 0;
-    int pending = kNoPending;
-};
-
-static intptr_t snapshotNext(void *context, uint8_t *buffer, size_t capacity) noexcept {
-    auto *reader = static_cast<SnapshotReader *>(context);
-    if (!reader || !buffer || capacity == 0) return -1;
-    for (;;) {
-        size_t length = 0;
-        bool ended = false;
-        // Reserve one byte for the NUL terminator used by the lightweight record discriminator.
-        // A full buffer is still a malformed overlong line, never a reason to write past it.
-        while (length + 1 < capacity) {
-            const int value = reader->next();
-            if (value == SnapshotReader::kEof) {
-                ended = true;
-                break;
-            }
-            if (value == SnapshotReader::kError) return -1;
-            if (value == '\n') {
-                ended = true;
-                break;
-            }
-            if (value == '\r' && reader->peek() == '\n') {
-                reader->next();
-                ended = true;
-                break;
-            }
-            buffer[length++] = static_cast<uint8_t>(value);
-        }
-        if (!ended || length == 0) return ended && length == 0 ? 0 : -1;
-        buffer[length] = 0;
-        const char *type = std::strstr(reinterpret_cast<const char *>(buffer), "\"type\":\"");
-        if (!type) return -1;
-        type += 8;
-        const bool engine_record = std::strncmp(type, "overlay\"", 8) == 0
-            || std::strncmp(type, "position\"", 9) == 0
-            || std::strncmp(type, "selection\"", 10) == 0;
-        if (engine_record) return static_cast<intptr_t>(length);
-        if (std::strncmp(type, "header\"", 7) == 0
-                || std::strncmp(type, "entry\"", 6) == 0
-                || std::strncmp(type, "footer\"", 7) == 0) continue;
-        return -1;
-    }
-}
 
 // Use UTF-8 byte arrays, not JNI modified UTF-8: supplementary characters in
 // candidates and resource paths must survive the Java/native boundary unchanged.
@@ -150,8 +56,6 @@ constexpr jsize kMobileVoiceDirectoryLimit = 16384;
 constexpr jsize kLoadPreferencesDirectoryLimit = 16384;
 constexpr jsize kRefreshHostPathLimit = 4096;
 constexpr jsize kSnapshotVersionRequestLimit = 1 * 1024 * 1024;
-constexpr jsize kSnapshotPrepareRequestLimit = 1 * 1024 * 1024;
-constexpr jsize kSnapshotPreparePathLimit = 16384;
 constexpr jsize kUpdatePreferencesSnapshotLimit = 1 * 1024 * 1024;
 constexpr jsize kSmallJsonRequestLimit = 16 * 1024;
 constexpr jsize kEmojiQueryLimit = 16384;
@@ -469,45 +373,6 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_refreshHostRaw(
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotVersionRaw(JNIEnv *env, jclass, jbyteArray options) {
     return bounded_request(env, options, kSnapshotVersionRequestLimit, msime_client_snapshot_version);
-}
-JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotPrepareRaw(JNIEnv *env, jclass, jbyteArray request, jbyteArray file) {
-    if (!request || !file) return response(env, msime_client_snapshot_prepare(nullptr, 0, nullptr, nullptr));
-    jsize request_length = env->GetArrayLength(request);
-    jsize file_length = env->GetArrayLength(file);
-    if (request_length > kSnapshotPrepareRequestLimit || file_length > kSnapshotPreparePathLimit) {
-        return response(env, msime_client_snapshot_prepare(nullptr, 0, nullptr, nullptr));
-    }
-    jbyte *request_bytes = env->GetByteArrayElements(request, nullptr);
-    if (!request_bytes) return nullptr;
-    jbyte *file_bytes = env->GetByteArrayElements(file, nullptr);
-    if (!file_bytes) {
-        env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
-        return nullptr;
-    }
-    std::string path(reinterpret_cast<const char *>(file_bytes), static_cast<size_t>(file_length));
-    SnapshotReader reader(path);
-    char *result = msime_client_snapshot_prepare(
-        reinterpret_cast<const uint8_t *>(request_bytes), static_cast<size_t>(request_length),
-        snapshotNext, &reader);
-    env->ReleaseByteArrayElements(file, file_bytes, JNI_ABORT);
-    env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
-    return response(env, result);
-}
-JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotDiscardRaw(JNIEnv *env, jclass, jlong handle) {
-    if (handle <= 0) return response(env, msime_client_snapshot_discard(0));
-    return response(env, msime_client_snapshot_discard(static_cast<uint64_t>(handle)));
-}
-JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotActivateRaw(JNIEnv *env, jclass, jlong handle, jbyteArray expected) {
-    if (!expected || handle <= 0) return response(env, msime_client_snapshot_activate(0, nullptr, 0));
-    jsize length = env->GetArrayLength(expected);
-    if (length != 64) return response(env, msime_client_snapshot_activate(0, nullptr, 0));
-    jbyte *bytes = env->GetByteArrayElements(expected, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_snapshot_activate(
-        static_cast<uint64_t>(handle), reinterpret_cast<const uint8_t *>(bytes),
-        static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(expected, bytes, JNI_ABORT);
-    return response(env, result);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_updatePreferencesRaw(JNIEnv *env, jclass, jlong handle, jbyteArray snapshot) {
     if (!snapshot) return response(env, msime_client_update_preferences(static_cast<uint64_t>(handle), nullptr, 0));
@@ -966,7 +831,6 @@ constexpr jsize kHansTextLimit = 64 * 1024;
 constexpr jsize kImportRequestLimit = 1200000;
 constexpr jsize kPluginsRequestLimit = 2 * 1024 * 1024;
 constexpr jsize kCommunityLibraryLimit = 4000000;
-constexpr jsize kAiSkinPlanLimit = 12 * 1024 * 1024;
 constexpr jsize kSkinTrialLimit = 16384;
 constexpr jsize kCommunitySkinInstallLimit = 9000000;
 constexpr jsize kKeySoundPackLimit = 65536;
@@ -1143,9 +1007,6 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_pluginsRaw(JNIE
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_communityResourceLibraryRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kCommunityLibraryLimit, msime_client_community_resource_library);
-}
-JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiSkinPlanRaw(JNIEnv *env, jclass, jbyteArray request) {
-    return bounded_request(env, request, kAiSkinPlanLimit, msime_client_ai_skin_plan);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_keyboardSkinTrialRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kSkinTrialLimit, msime_client_keyboard_skin_trial);

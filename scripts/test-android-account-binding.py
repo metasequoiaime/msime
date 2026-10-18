@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""检查 Android 登录会话替换与云同步账号代数使用同一把绑定锁。"""
+"""检查 Android 的登录、退出与云同步的账号绑定在同一把绑定锁里衔接。
+
+云同步的令牌和账号对齐从 #8201 迁移计划 5d 起由 Rust 的 msime_client_cloud_sync 按会话处理，Java 的同步接口已经删掉，这里只剩登录一侧。
+"""
 from pathlib import Path
 import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SYNC_API = ROOT / "platforms/android/java/app/msime/android/account/SyncApi.java"
 SIGN_IN = ROOT / "platforms/android/java/app/msime/android/home/SignIn.java"
 
 
@@ -30,12 +32,8 @@ def inside_lock(source: str, expression: str) -> bool:
 
 
 def main() -> int:
-    sync_api = SYNC_API.read_text(encoding="utf-8")
     sign_in = SIGN_IN.read_text(encoding="utf-8")
     ok = True
-    if not inside_lock(sync_api, "BackendAccount.SessionCredential session = new BackendAccount(application).currentSession(rejected)"):
-        print("SyncApi 的同步令牌读取没有绑定账号锁", file=sys.stderr)
-        ok = False
     for expression, description in (
         ("new BackendAccount(context).login(started, idToken)", "Google 登录"),
         ("AppleWebSignIn.complete(context, pending, grant)", "Apple 登录"),
@@ -46,7 +44,7 @@ def main() -> int:
             print(f"{description} 没有与同步绑定锁原子衔接", file=sys.stderr)
             ok = False
     if ok:
-        print("Android account session changes and sync token reads share the binding lock")
+        print("Android sign-in, sign-out and the sync account binding share the binding lock")
     return 0 if ok else 1
 
 
