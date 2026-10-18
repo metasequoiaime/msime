@@ -14,7 +14,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 「水杉账号」的候选释义（#8201 迁移计划 5e）：请求体怎么拼、回答怎么读都在 Rust 的 `msime_client_account_gloss`（sans-IO 的 request 和 parse），这里只带着令牌把那一次请求发出去，与 Windows、Linux 和 iOS 键盘扩展相同。
+ * 「水杉账号」的候选释义（#8201 迁移计划 5e）：请求体怎么拼、回答怎么读都在 Rust 的 `msime_client_account_gloss`（sans-IO 的 request 和 parse），这里只带着令牌把那一次请求发出去，与 Windows 和 iOS 键盘扩展相同；Linux 改用了由 Rust 发请求的 `translate`。
  *
  * <p>令牌是登录账号优先、否则本机匿名账号的那一枚（{@link BackendAnonymousAccount#accessToken}）：`:ime` 经 provider 的 shared_access_token 向主进程要，自己不持有刷新令牌、不刷新。服务端以 401 拒绝时把被拒的令牌交回去换一枚，换到不同的才重试一次。回答逐项是释义或 null（为空、与原文相同、含控制字符或超过 4096 字节），一条坏值不让整页作废；换号以后才到的旧回答由 {@link CandidateTranslationStore#bindTo} 挡住。阻塞网络，放在工作线程上。
  */
