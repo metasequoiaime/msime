@@ -26,6 +26,7 @@ import * as settings from "./settings-style";
 import { FluentIcon } from "../core/fluent-icons";
 import { SettingsAccountPage } from "./settings-account-page";
 import { SettingsCommunityPage } from "./settings-community-page";
+import { SettingsSkinCommunitySection } from "./settings-skin-community-section";
 import { ChatPage } from "../chat/chat-page";
 import { HomePage } from "../keyboard/home-page";
 import {
@@ -38,11 +39,9 @@ import { createSettingsStatusActions } from "./settings-status-actions";
 import { createSettingsExternalActions } from "./settings-external-actions";
 import { createSettingsNavigationActions } from "./settings-navigation-actions";
 import { logo } from "./settings-options";
-import { CommunitySkinsPage } from "../community/community-skins";
 import { createCommunityLocalDictionary } from "../community/community-resource-actions";
 import { CommunityPluginsPage } from "../community/community-plugins";
 import * as communityStyle from "../community/community-style";
-import { CommunityPage } from "../community/community-page";
 
 export function SettingsPage(props: SettingsPageProps) {
   // 宿主自己的屏幕键盘布局：没写 `layout` 的键盘预览按它画，手机上不画桌面键盘。
@@ -165,13 +164,7 @@ function SettingsShell(props: SettingsPageProps) {
   const recordCommunitySkin = (id: string) => {
     void client.typingStatistics?.recordSkin?.(id);
   };
-  const {
-    skinTabs,
-    desktopTabs: desktopSkinTabs,
-    phoneSkinCommunityShown,
-    skinCommunityShown,
-    pluginCommunityShown,
-  } = useSettingsCommunityViews({
+  const communityViews = useSettingsCommunityViews({
     page,
     mobile: mobilePlatform,
     harmony: harmonyPlatform,
@@ -182,6 +175,12 @@ function SettingsShell(props: SettingsPageProps) {
     hasCommunityCandidateSkins: Boolean(client.communityCandidateSkins),
     hasCommunityPlugins: Boolean(client.communityPlugins),
   });
+  const {
+    skinTabs,
+    desktopTabs: desktopSkinTabs,
+    skinCommunityShown,
+    pluginCommunityShown,
+  } = communityViews;
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
     recoverPreferences,
@@ -473,45 +472,12 @@ function SettingsShell(props: SettingsPageProps) {
                   openPanel={client.openVocabulary}
                 />
               )}
-              {page === "skin" && desktopSkinTabs.tabList}
-              {page === "skin" && skinTabs.tabList}
-              {phoneSkinCommunityShown && client.communitySkins && (
-                <div className="mt-6">
-                  {skinTabs.panel(
-                    "community",
-                    <CommunitySkinsPage
-                      client={client.communitySkins}
-                      theme={keyboardPreviewTheme}
-                      localSkinLibrary={client.customSkinLibrary}
-                      mobile
-                      onLogin={openAccountLogin}
-                      look="harmony"
-                      preferences={draft}
-                      // 「使用」和网格里的卡片一样先进入草稿，再由表单的自动保存写入。
-                      onApplyPreferences={setDraft}
-                      onSkinApplied={recordCommunitySkin}
-                      // 详情的历史记录留在皮肤页上，返回先关详情、再离开这一页。
-                      historyPage="skin"
-                    />,
-                  )}
-                </div>
-              )}
-              {skinCommunityShown &&
-                client.communityCandidateSkins &&
-                desktopSkinTabs.panel(
-                  "community",
-                  <div className="mt-4">
-                    <CommunityPage
-                      candidateSkins={client.communityCandidateSkins}
-                      localSkins={client.scanSkinCatalog}
-                      openSkinDirectory={client.openSkinDirectory}
-                      readSkinImage={client.readSkinImage}
-                      onOpenSkinPage={() => setSkinView("mine")}
-                      theme={keyboardPreviewTheme}
-                      onLogin={openAccountLogin}
-                    />
-                  </div>,
-                )}
+              <SettingsSkinCommunitySection
+                model={model}
+                views={communityViews}
+                onSkinViewChange={setSkinView}
+                onSkinApplied={recordCommunitySkin}
+              />
               {page === "plugins" && client.communityPlugins && (
                 <div
                   className={communityStyle.categoryTabsPair}

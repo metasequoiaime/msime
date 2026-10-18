@@ -1894,3 +1894,8 @@ export {
   SettingsCommunityPage,
   type SettingsCommunityPageProps,
 } from "./settings/settings-community-page";
+
+export {
+  SettingsSkinCommunitySection,
+  type SettingsSkinCommunitySectionProps,
+} from "./settings/settings-skin-community-section";

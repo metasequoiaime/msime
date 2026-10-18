@@ -39,3 +39,5 @@ iOS 顺带修正一个已有缺陷：键盘已用着一款自定义设计时，�
 
 - iOS：Mac Studio 上 `xcodebuild build-for-testing`（`MSIMEClientTests`、`MSIMEClientUITests`）通过；本机 iPhone 17 / iOS 27.0 模拟器上单元测试 934 通过、7 跳过；13 个涉及皮肤页的界面测试 12 个通过，其中新增 `testSkinPageTabsTakeCommunitySkinIntoMine` 覆盖三类内容、空状态、社区「获取 → 使用 → 使用中」和「我的」里出现并选中。`testSettingsPersistAndExposeGuideAndTryout` 在打开皮肤页之前的 `reachSettingsLink` 失败，与本次改动无关，未在 develop 构建上复核。
 - 鸿蒙与共享界面：`tsc --noEmit` 通过，`vitest run tests/settings` 2199 个测试全部通过（含三类分类、我的空状态、无社区客户端时不显示社区、2in1 与 Windows 无分类栏、社区面板在表单之外），`stage-settings.sh` 通过。HAP 未打包，未在设备上看过。
+
+共享皮肤页的分类栏和图库接线归入[设置皮肤社区区域](../simplification/2026-10-19-settings-skin-community-section.md)；分类状态继续由外壳的既有 hook 持有，图库仍在偏好表单之外，不改变原生平台实现。
