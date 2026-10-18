@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`crates/dict-builder/src/wubi_supplement.rs` 统一这些与版本无关的步骤。86 和 98 模块仍各自筛选候选词、解析来源表、记录来源标记、处理基本区过滤，并保留各自报告和生成格式。旧的 `wubi86_supplement` 辅助函数通过重导出保持 `wubi86_helpcode` 的调用边界。
+`crates/dict-builder/src/wubi_supplement.rs` 统一这些与版本无关的步骤，词组取码委托给 `crates/engine/src/wubi/code.rs` 的共用规则。86 和 98 模块仍各自筛选候选词、解析来源表、记录来源标记、处理基本区过滤，并保留各自报告和生成格式。旧的 `wubi86_supplement` 辅助函数通过重导出保持 `wubi86_helpcode` 的调用边界。
 
 ## Alternatives considered
 
@@ -20,3 +20,5 @@ Status: implemented
 词组编码和排名规则只有一个实现点；两个版本的来源过滤和输出契约保持不变。两套原有测试继续覆盖权重、编码、去重、不可推导字符和输出合并。
 
 候选来源和长度范围扩展见[五笔多字词覆盖](../feature/2026-10-18-wubi-vocabulary-coverage.md)；此处的共用编码与排名边界继续成立。
+
+构建时重新派生与个人学习共用取码规则的后续决定见[词库持续补全](../../implemented/feature/2026-10-18-dictionary-completion.md)；本篇的来源筛选及权重约束继续适用。

@@ -77,6 +77,7 @@ pub use user_dictionary::state::{
     dictionary_state_revision, stage_dictionary_state, stream_dictionary_state,
     DictionaryStateRecord, DEFAULT_MAXIMUM_RECORDS,
 };
+pub use wubi::code::phrase_code as wubi_phrase_code;
 
 pub use local::date_time::LocalDateTime;
 pub use local::url;

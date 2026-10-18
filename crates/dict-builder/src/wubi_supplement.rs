@@ -40,23 +40,10 @@ pub(crate) fn word_code(
     codes: &HashMap<char, Vec<String>>,
     word: &str,
 ) -> std::result::Result<String, char> {
-    let chars: Vec<char> = word.chars().collect();
-    let parts: Vec<(char, usize)> = match chars.len() {
-        0 | 1 => unreachable!("only words of two or more characters are coded"),
-        2 => vec![(chars[0], 2), (chars[1], 2)],
-        3 => vec![(chars[0], 1), (chars[1], 1), (chars[2], 2)],
-        n => vec![
-            (chars[0], 1),
-            (chars[1], 1),
-            (chars[2], 1),
-            (chars[n - 1], 1),
-        ],
-    };
-    let mut code = String::with_capacity(4);
-    for (c, letters) in parts {
-        code.push_str(prefix(codes, c, letters).ok_or(c)?);
-    }
-    Ok(code)
+    msime_engine::wubi_phrase_code(word, |c, letters| {
+        prefix(codes, c, letters).map(str::to_owned)
+    })
+    .expect("only words of two or more characters are coded")
 }
 
 pub(crate) fn is_word(value: &str) -> bool {

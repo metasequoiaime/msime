@@ -379,7 +379,11 @@ impl InputSession {
         word: &str,
     ) -> Result<()> {
         self.canonical_phrase_engine()
-            .create_word_from_canonical_pinyin(pinyin, word)
+            .create_word_from_canonical_pinyin(pinyin, word)?;
+        if crate::user_dictionary::wubi_learning::learn(&self.paths, word)? {
+            self.engine.reset_cache();
+        }
+        Ok(())
     }
 
     pub(super) fn canonical_phrase_engine(&mut self) -> &mut QuanpinEngine {

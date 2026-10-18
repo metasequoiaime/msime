@@ -2195,6 +2195,64 @@ fn quanpin_picks_beside_a_wubi_row_learn_a_pinyin_phrase() {
     );
 }
 
+#[test]
+fn composed_words_become_both_wubi_profiles_only_when_learning_is_enabled() {
+    for learning in [false, true] {
+        for scheme in [SchemeType::Quanpin, SchemeType::Wubi] {
+            let fixture = Fixture::new(
+                "CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                INSERT INTO tbl_1_j VALUES('jia','j','甲',100);
+                CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                INSERT INTO tbl_1_y VALUES('yi','y','乙',100);
+                CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                INSERT INTO wubi86 VALUES('abcd','甲',100),('efgh','乙',100);
+                CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
+                INSERT INTO wubi98 VALUES('ijkl','甲',100),('mnop','乙',100);",
+            );
+            let mut session = fixture.session_with(|options| {
+                options.scheme = scheme;
+                options.wubi.mixed_pinyin = true;
+                options.learning = learning;
+            });
+            type_text(&mut session, "jiayi");
+            assert_eq!(
+                select_word(&mut session, "甲").commit.as_deref(),
+                Some("甲")
+            );
+            assert_eq!(
+                select_word(&mut session, "乙").commit.as_deref(),
+                Some("乙")
+            );
+            drop(session);
+            for (profile, code, table) in [
+                (crate::WubiProfileKind::Wubi86, "abef", "wubi86"),
+                (crate::WubiProfileKind::Wubi98, "ijmn", "wubi98"),
+            ] {
+                assert_eq!(
+                    count(
+                        &fixture.main_db(),
+                        &format!("SELECT count(*) FROM {table} WHERE value='甲乙'")
+                    ),
+                    i64::from(learning)
+                );
+                if learning {
+                    let mut next = fixture.session_with(|options| {
+                        options.scheme = SchemeType::Wubi;
+                        options.wubi.profile = profile;
+                        options.learning = false;
+                    });
+                    type_text(&mut next, code);
+                    assert_eq!(
+                        select_word(&mut next, "甲乙").commit.as_deref(),
+                        Some("甲乙")
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// A generated quanpin sentence selected beside a native wubi row is learned as a pinyin phrase (the per-row guards of `learn_sentence_candidate` and `follows_pinyin`); the wubi row itself writes nothing to the pinyin side.
 #[test]
 fn a_quanpin_sentence_beside_a_wubi_row_is_learned_and_the_wubi_row_is_not() {
