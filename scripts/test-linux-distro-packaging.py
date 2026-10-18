@@ -94,6 +94,8 @@ def main() -> int:
     if '"--register"' not in SETUP.read_text(encoding="utf-8"):
         failures.append("platforms/linux/scripts/msime-linux-setup has no --register for the packages to run after a replacement")
     spec_text = SPEC.read_text(encoding="utf-8")
+    if "%{_bindir}/host_api.py" not in spec_text:
+        failures.append("rpm/msime.spec does not list host_api.py installed by platforms/linux/CMakeLists.txt")
     if "\nObsoletes:      msime-linux " in spec_text:
         trigger = spec_text.split("\n%triggerpostun -- msime-linux\n", 1)
         if len(trigger) != 2 or register not in trigger[1].split("\n%files\n", 1)[0] or 'if [ "$2" = 0 ]' not in trigger[1]:

@@ -231,6 +231,7 @@ fi
 %{_datadir}/doc/msime-client/
 %{_bindir}/msime
 %{_bindir}/msime-*
+%{_bindir}/host_api.py
 %{_bindir}/msime_*.py
 %{_libdir}/msime-client/
 %{_libdir}/fcitx5/libmsime-fcitx5.so
