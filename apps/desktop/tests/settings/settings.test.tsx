@@ -4631,9 +4631,15 @@ test("candidate appearance settings persist and use Windows baseline defaults", 
   expect((within(layout).getByRole("radio", { name: "纵向" }) as HTMLInputElement).checked).toBe(
     true,
   );
+  selectSettingsTab("字体与大小");
   expect((screen.getByLabelText("字号") as HTMLSelectElement).value).toBe("18");
-  expect((screen.getByLabelText("预编辑字号") as HTMLSelectElement).value).toBe("15");
+  selectSettingsTab("预编辑");
+  expect((screen.getByRole("combobox", { name: "预编辑字号" }) as HTMLSelectElement).value).toBe(
+    "15",
+  );
+  selectSettingsTab("布局");
   fireEvent.click(within(layout).getByRole("radio", { name: "横向" }));
+  selectSettingsTab("字体与大小");
   fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   fireEvent.click(screen.getByRole("button", { name: "主题" }));
   expect(screen.getByRole("switch", { name: /跟随系统/ }).getAttribute("aria-checked")).toBe(
@@ -4731,6 +4737,8 @@ test("font family controls validate drafts and save Unicode without touching the
     preferences,
   }));
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "候选窗口" }));
+  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   // 主字体框在「候选字体」选「自定义…」后才出现。
   fireEvent.click(await screen.findByLabelText("自定义…"));
   const primary = await screen.findByLabelText("主字体");
@@ -4780,6 +4788,8 @@ test("the candidate window page has no fallback font editor and keeps the stored
       }}
     />,
   );
+  fireEvent.click(await screen.findByRole("button", { name: "候选窗口" }));
+  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   // 主字体框在「候选字体」选「自定义…」后才出现。
   fireEvent.click(await screen.findByLabelText("自定义…"));
   const primary = await screen.findByLabelText("主字体");
@@ -4812,6 +4822,8 @@ test("on Windows the main font leads the fallback chain", async () => {
       }}
     />,
   );
+  fireEvent.click(await screen.findByRole("button", { name: "候选窗口" }));
+  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   // 主字体框在「候选字体」选「自定义…」后才出现。
   fireEvent.click(await screen.findByLabelText("自定义…"));
   const primary = await screen.findByLabelText("主字体");
@@ -5888,8 +5900,10 @@ test("complete candidate and preedit font sizes load, preview independently and 
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
   render(<SettingsPage initialPage="appearance" client={{ load: async () => saved, save }} />);
-  const size = (await screen.findByLabelText("字号")) as HTMLSelectElement;
-  const preedit = screen.getByLabelText("预编辑字号") as HTMLSelectElement;
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
+  const size = screen.getByLabelText("字号") as HTMLSelectElement;
+  selectSettingsTab("预编辑");
+  const preedit = screen.getByRole("combobox", { name: "预编辑字号" }) as HTMLSelectElement;
   expect(size.value).toBe("19");
   expect(preedit.value).toBe("27");
   expect([...size.options].map((option) => option.value)).toEqual(
@@ -5906,7 +5920,9 @@ test("complete candidate and preedit font sizes load, preview independently and 
   // 42 further full re-renders of the settings page -- enough to push this past the 20s timeout
   // on its own, which reports as a product failure rather than a slow test.
   for (const value of [12, 22, 32]) {
+    selectSettingsTab("字体与大小");
     fireEvent.change(size, { target: { value: String(value) } });
+    selectSettingsTab("预编辑");
     fireEvent.change(preedit, { target: { value: String(44 - value) } });
     expect(preview.style.getPropertyValue("--appearance-font-size")).toBe(`${value}px`);
     expect(preview.style.getPropertyValue("--appearance-preedit-font-size")).toBe(
@@ -5938,10 +5954,14 @@ test("appearance preview follows drafts and skin selection before they are saved
     }),
   );
   fireEvent.change(screen.getByLabelText("每页候选项数量"), { target: { value: "9" } });
+  selectSettingsTab("字体与大小");
   fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   // 水杉 logo 在首行拼音之前。
   expect(preview.querySelector(".pinyin > .candidate-brand + .text")).not.toBeNull();
-  fireEvent.change(screen.getByLabelText("候选窗口预编辑"), { target: { value: "empty" } });
+  selectSettingsTab("预编辑");
+  fireEvent.change(screen.getByRole("combobox", { name: "候选窗口预编辑" }), {
+    target: { value: "empty" },
+  });
   // 隐藏拼音后，首行仍为 logo 保留。
   expect(
     preview.querySelector(".container.preedit-hidden > .candidate-brand-row > .candidate-brand"),
@@ -7842,6 +7862,11 @@ test.each(
     );
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: button }));
+    if (button === "候选窗口") {
+      selectSettingsTab(
+        control.includes("预编辑") ? "预编辑" : control === "字号" ? "字体与大小" : "布局",
+      );
+    }
     if (button === "输入") {
       selectSettingsTab(
         ["默认中英文", "中英文状态"].includes(control)
@@ -7934,46 +7959,50 @@ test.each(optionHosts)(
   },
 );
 
-test.each(optionHosts)(
-  "the appearance page runs basic to advanced on %s",
-  async (platform, host) => {
-    render(
-      <SettingsPage
-        initialPage="appearance"
-        client={{
-          load: vi.fn().mockResolvedValue(initial),
-          save: vi.fn(),
-          host: { ...host, candidate_page_number: true, shuangpin_preedit: true },
-        }}
-      />,
-    );
-    await settingsReady();
-    const appearance = screen.getByRole("group", { name: "候选窗口" });
-    const present = sectionTitles(appearance);
-    // 一列：先是排列、每页数量、字体和字号，其余收在一个「更多选项」里，从布局到绘制大小、外围的窗口，最后是预编辑。不再分标签，颜色和明暗只在侧栏的「主题」页，本页没有跳转行。
-    const expected = [
-      "布局与字体",
-      "候选项排列方式",
-      "每页候选项数量",
-      "候选字体",
-      "字号",
-      platform === "macos" ? "显示页码和翻页按钮" : "显示页码",
-      "跟随光标",
-      "预编辑字号",
-      "候选窗口预编辑",
-      "行内预编辑",
-    ];
-    const ordered = present.filter((text) => expected.includes(text));
-    expect(ordered).toEqual(expected);
-    // 双拼预编辑在「输入 › 方案」的双拼详情里。
-    expect(present).not.toContain("双拼预编辑");
-    // 每项偏好只有一个入口：主题和颜色选择器不在这里重复。
-    expect(within(appearance).queryByRole("combobox", { name: "主题" })).toBeNull();
-    expect(appearance.querySelector('input[type="color"]')).toBeNull();
-    expect(within(appearance).queryByRole("button", { name: "皮肤、颜色与明暗" })).toBeNull();
-    expect(within(appearance).queryByRole("tablist")).toBeNull();
-  },
-);
+test.each(optionHosts)("候选窗口在 %s 上按四个顶部标签分组", async (platform, host) => {
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { ...host, candidate_page_number: true, shuangpin_preedit: true },
+      }}
+    />,
+  );
+  await settingsReady();
+  const appearance = screen.getByRole("group", { name: "候选窗口" });
+  const present = sectionTitles(appearance);
+  // 分区按布局、字体与大小、窗口样式、预编辑排列，主题和颜色仍在主题页。
+  const expected = [
+    "布局",
+    "候选项排列方式",
+    "每页候选项数量",
+    platform === "macos" ? "显示页码和翻页按钮" : "显示页码",
+    "跟随光标",
+    "字体与大小",
+    "候选字体",
+    "字号",
+    "窗口样式",
+    "预编辑",
+    "预编辑字号",
+    "候选窗口预编辑",
+    "行内预编辑",
+  ];
+  const ordered = present.filter((text) => expected.includes(text));
+  expect(ordered).toEqual(expected);
+  // 双拼预编辑在「输入 › 方案」的双拼详情里。
+  expect(present).not.toContain("双拼预编辑");
+  // 每项偏好只有一个入口：主题和颜色选择器不在这里重复。
+  expect(within(appearance).queryByRole("combobox", { name: "主题" })).toBeNull();
+  expect(appearance.querySelector('input[type="color"]')).toBeNull();
+  expect(within(appearance).queryByRole("button", { name: "皮肤、颜色与明暗" })).toBeNull();
+  expect(
+    within(appearance)
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent),
+  ).toEqual(["布局", "字体与大小", "窗口样式", "预编辑"]);
+});
 
 test("the page number row needs a host that draws one", async () => {
   render(

@@ -55,39 +55,65 @@ function rowTitles(container: HTMLElement) {
   return Array.from(container.querySelectorAll("[data-row-title]"), (title) => title.textContent);
 }
 
-test("候选窗口页是一列：主流程四行，其余收在同一个「更多选项」里", async () => {
-  await renderAppearance();
-  expect(screen.queryByRole("tablist")).toBeNull();
-  expect(screen.queryByRole("tabpanel")).toBeNull();
-  // 颜色和明暗在侧栏的「主题」页，本页不再放跳转行。
+test("顶部四标签按功能分组，只显示当前分区，共用预览位于标签之后", async () => {
+  const save = await renderAppearance();
+  const tablist = screen.getByRole("tablist", { name: "候选窗口设置" });
+  expect(
+    within(tablist)
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent),
+  ).toEqual(["布局", "字体与大小", "窗口样式", "预编辑"]);
+  const preview = screen.getByRole("region", { name: "候选窗口预览" });
+  expect(tablist.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const rows = {
+    布局: [
+      "候选项排列方式",
+      "每页候选项数量",
+      "展开候选",
+      "显示页码和翻页按钮",
+      "显示水杉 logo",
+      "跟随光标",
+    ],
+    字体与大小: ["候选字体", "字号", "英文字体", "整体大小"],
+    窗口样式: ["不透明度", "圆角大小", "内边距"],
+    预编辑: ["预编辑字号", "候选窗口预编辑", "行内预编辑"],
+  };
+  const content = document.getElementById("settings-content")!;
+  for (const [name, titles] of Object.entries(rows)) {
+    content.scrollTop = name === "布局" ? 0 : 300;
+    fireEvent.click(within(tablist).getByRole("tab", { name }));
+    expect(content.scrollTop).toBe(0);
+    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+    const panel = screen.getByRole("tabpanel", { name });
+    expect(rowTitles(panel)).toEqual(titles);
+    expect(panel.querySelector("details")).toBeNull();
+    expect(screen.getByRole("region", { name: "候选窗口预览" })).toBe(preview);
+  }
+  expect(save).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "皮肤、颜色与明暗" })).toBeNull();
-  const group = screen.getByRole("region", { name: "布局与字体" });
-  const more = group.querySelector("details")!;
-  expect(more.open).toBe(false);
-  expect(within(more).getByText("更多选项")).toBeTruthy();
-  const main = rowTitles(group).filter((title) => !rowTitles(more).includes(title));
-  expect(main).toEqual(["候选项排列方式", "每页候选项数量", "候选字体", "字号"]);
-  expect(rowTitles(more)).toEqual([
-    "展开候选",
-    "显示页码和翻页按钮",
-    "显示水杉 logo",
-    "跟随光标",
-    "英文字体",
-    "预编辑字号",
-    "整体大小",
-    "不透明度",
-    "圆角大小",
-    "内边距",
-    "候选窗口预编辑",
-    // 双拼预编辑在没有触屏方案的宿主上放在「输入 › 方案」的双拼详情里，这里不画。
-    "行内预编辑",
-  ]);
-  // 只有一个折叠区，也没有「窗口样式」那样的第二个设置组。
-  expect(group.querySelectorAll("details")).toHaveLength(1);
-  expect(screen.queryByRole("region", { name: "窗口样式" })).toBeNull();
 });
 
-test("折叠区里的修改和主流程一样写进草稿，预览共用一个", async () => {
+test("顶部标签支持方向键、Home 和 End，并同步焦点及选中状态", async () => {
+  await renderAppearance();
+  const layout = screen.getByRole("tab", { name: "布局" });
+  const font = screen.getByRole("tab", { name: "字体与大小" });
+  const preedit = screen.getByRole("tab", { name: "预编辑" });
+  layout.focus();
+  for (const [from, key, target] of [
+    [layout, "ArrowRight", font],
+    [font, "End", preedit],
+    [preedit, "ArrowRight", layout],
+    [layout, "ArrowLeft", preedit],
+    [preedit, "Home", layout],
+  ] as const) {
+    fireEvent.keyDown(from, { key });
+    expect(document.activeElement).toBe(target);
+    expect(target.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").id).toBe(target.getAttribute("aria-controls"));
+  }
+});
+
+test("跨标签修改写进同一草稿并保存，预览共用一个", async () => {
   const save = await renderAppearance();
   const preview = screen.getByRole("region", { name: "候选窗口预览" });
   expect(preview.querySelector(".candidate-brand")).toBeNull();
@@ -96,8 +122,10 @@ test("折叠区里的修改和主流程一样写进草稿，预览共用一个",
   fireEvent.click(screen.getByRole("radio", { name: "横向" }));
   expect(preview.querySelector('[data-preview-layout="horizontal"]')).not.toBeNull();
   expect(preview.querySelector("[data-preview-reserve]")).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   fireEvent.change(screen.getByRole("combobox", { name: "字号" }), { target: { value: "24" } });
   expect(preview.querySelector('[data-font-size="24"]')).not.toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
   fireEvent.change(screen.getByRole("combobox", { name: "候选窗口预编辑" }), {
     target: { value: "empty" },
   });
@@ -117,6 +145,7 @@ test("折叠区里的修改和主流程一样写进草稿，预览共用一个",
 
 test("选「自定义…」才出现字体框，选回预设就收起；非预设字体直接显示字体框", async () => {
   const save = await renderAppearance();
+  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   const presets = screen.getByRole("radiogroup", { name: "候选字体" });
   expect(within(presets).getByRole("radio", { name: "默认" })).toHaveProperty("checked", true);
   expect(screen.queryByLabelText("主字体")).toBeNull();
@@ -125,6 +154,12 @@ test("选「自定义…」才出现字体框，选回预设就收起；非预�
   // 只亮出字体框，字体本身不变。
   const field = screen.getByLabelText("主字体") as HTMLInputElement;
   expect(field.value).toBe("Noto Sans SC");
+  fireEvent.click(screen.getByRole("tab", { name: "布局" }));
+  fireEvent.click(screen.getByRole("button", { name: "主题" }));
+  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
+  expect(screen.getByRole("combobox", { name: "主字体" })).toBe(field);
+  expect(within(presets).getByRole("radio", { name: "自定义…" })).toHaveProperty("checked", true);
   // 没有预设的字体（例如霞鹜文楷）仍然可以填。
   fireEvent.change(field, { target: { value: "LXGW WenKai" } });
   expect(within(presets).getByRole("radio", { name: "自定义…" })).toHaveProperty("checked", true);
@@ -141,6 +176,7 @@ test("选「自定义…」才出现字体框，选回预设就收起；非预�
 
 test("存着非预设字体时一打开就是「自定义…」和字体框", async () => {
   await renderAppearance({ ...initial.preferences, candidate_font_family: "LXGW WenKai" });
+  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   const presets = screen.getByRole("radiogroup", { name: "候选字体" });
   expect(within(presets).getByRole("radio", { name: "自定义…" })).toHaveProperty("checked", true);
   expect((screen.getByLabelText("主字体") as HTMLInputElement).value).toBe("LXGW WenKai");
