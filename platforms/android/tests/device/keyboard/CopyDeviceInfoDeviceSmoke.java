@@ -86,6 +86,8 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
         shellDiscard("input swipe " + right + " " + firstRow + " " + left + " " + firstRow + " 320");
         // 网格翻页动画为 260 毫秒，结束后才点击第三行，避免点中滑动中的上一页磁贴。
         SystemClock.sleep(400);
+        // 模拟器负载高时动画可能延迟调度；等待界面空闲后再点，不能只靠固定延时。
+        automation.waitForIdle(1000, 10000);
         int thirdRow = firstRow + Math.round(136 * density);
         shellDiscard("input tap " + left + " " + thirdRow);
     }
