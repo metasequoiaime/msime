@@ -25,6 +25,7 @@ import app.msime.android.R;
 import app.msime.android.ThreadPolicy;
 import app.msime.android.UpdateApi;
 import java.io.File;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -68,6 +69,8 @@ public final class UpdateJobService extends JobService {
                     }
                     notifyReady(context, update.release().version(), apk);
                 }
+            } catch (CancellationException cancelled) {
+                // 系统停止任务属于正常取消；重新调度由 onStopJob 的返回值决定。
             } catch (UpdateApi.Failure failure) {
                 // 连不上或服务器出错时交给 JobScheduler 按退避重试；校验不通过的包已经删掉，明天再查。
                 retry = failure.getCause() instanceof java.io.IOException;
