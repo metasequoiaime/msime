@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { useSettingsCommunityViews } from "../../../../packages/ui/src/settings/use-settings-community-views";
 import type { SettingsShellView } from "../../../../packages/ui/src/settings/use-settings-shell-state";
 
@@ -10,6 +10,7 @@ test("鸿蒙手机皮肤页的社区分类显示完整社区图库", () => {
       page: "skin",
       mobile: true,
       harmony: true,
+      onSkinViewChange: vi.fn(),
       skinView: "mine",
       pluginView: "mine",
       hasCommunitySkins: true,
@@ -32,6 +33,7 @@ test("候选皮肤图库和手机皮肤图库都算作皮肤页覆盖视图", ()
       page: "skin",
       mobile: false,
       harmony: false,
+      onSkinViewChange: vi.fn(),
       skinView: view,
       pluginView: "mine",
       hasCommunitySkins: false,
@@ -46,6 +48,7 @@ test("候选皮肤图库和手机皮肤图库都算作皮肤页覆盖视图", ()
       page: "skin",
       mobile: true,
       harmony: true,
+      onSkinViewChange: vi.fn(),
       skinView: view,
       pluginView: "mine",
       hasCommunitySkins: true,
@@ -63,6 +66,7 @@ test("插件社区视图只在插件页且服务可用时覆盖设置表单", ()
       page: "plugins",
       mobile: false,
       harmony: false,
+      onSkinViewChange: vi.fn(),
       skinView: "mine",
       pluginView: "community",
       hasCommunitySkins: false,

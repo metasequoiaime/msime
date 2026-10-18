@@ -147,7 +147,7 @@ test("lists with the exact offset, search and scope", async () => {
   render(<CommunityCandidateSkinsPage client={communityClient} />);
   await waitFor(() => expect(communityClient.list).toHaveBeenCalledWith(0, "", false, null));
   expect(screen.getByRole("heading", { name: "社区皮肤" })).not.toBeNull();
-  expect(screen.getByText("为输入候选窗口换一身新装，安装后在「我的皮肤」中启用")).not.toBeNull();
+  expect(screen.getByText("为输入候选窗口换一身新装，安装后在「本地皮肤」中启用")).not.toBeNull();
 
   fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗口皮肤" }), {
     target: { value: " 水墨 " },

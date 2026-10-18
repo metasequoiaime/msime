@@ -4347,7 +4347,7 @@ test("the theme page runs from the colour mode to the custom colours", async () 
   const skin = screen.getByRole("group", { name: "主题" });
   const groups = [...skin.querySelectorAll("[data-group-title]")].map((title) => title.textContent);
   // Linux 的各界面跟随颜色模式（`surface_themes_follow`），没有「高级」组，候选窗口主题在「明暗」组里。
-  expect(groups).toEqual(["明暗", "更多皮肤", "自定义主题"]);
+  expect(groups).toEqual(["明暗", "自定义主题", "本地皮肤"]);
   expect(
     within(skin)
       .getByRole("region", { name: "明暗", hidden: true })
@@ -7243,7 +7243,6 @@ const referenceSections: {
     titles: [
       // 来源把四套内置皮肤各自做成一节；这里是一个皮肤选择器，四套在同一个卡片列表里，
       // 所以只有「外部皮肤」是小节。皮肤本身四套都在（CandidateSkin.cpp 与皮肤页的名字）。
-      "外部皮肤",
       // The reference's 外观 sections that pick colours rather than lay out the window; the design gathers them on 主题. 主题模式 is 颜色模式 here, beside the theme cards it would otherwise read as a second picker of.
       "颜色模式",
       "候选文字颜色",
@@ -7254,6 +7253,7 @@ const referenceSections: {
       "表情面板主题",
       "手写识别板主题",
       "语音输入弹出条主题",
+      "外部皮肤",
     ],
   },
   {

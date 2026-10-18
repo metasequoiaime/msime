@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`packages/ui/src/settings/use-settings-community-views.tsx` 集中管理皮肤标签状态和三种社区覆盖结果：`phoneSkinCommunityShown`、`skinCommunityShown`、`pluginCommunityShown`。它复用 `useSettingsTabs` 与 `skinGridTabs`，只让 HarmonyOS 触屏在有社区皮肤服务时启用皮肤分类标签；皮肤覆盖结果继续合并触屏分类和桌面候选皮肤视图，插件覆盖结果继续要求当前页、插件服务和社区视图同时成立。设置外壳只传入页面、平台、外壳视图和服务能力。
+`packages/ui/src/settings/use-settings-community-views.tsx` 集中管理皮肤标签状态和三种社区覆盖结果：`phoneSkinCommunityShown`、`skinCommunityShown`、`pluginCommunityShown`。它复用 `useSettingsTabs`、`skinGridTabs` 与 `desktopSkinTabs`：HarmonyOS 触屏保留内置、我的和按服务过滤的社区分类，桌面提供主题、本地皮肤和按服务过滤的社区皮肤分类；皮肤覆盖结果继续合并触屏分类和桌面候选皮肤视图，插件覆盖结果继续要求当前页、插件服务和社区视图同时成立。设置外壳只传入页面、平台、外壳视图、皮肤视图变更回调和服务能力。桌面扩展见[本地皮肤顶部标签](../feature/2026-10-18-local-skin-top-tab.md)。
 
 ## Alternatives considered
 

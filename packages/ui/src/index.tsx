@@ -3039,17 +3039,23 @@ function SettingsShell(props: SettingsPageProps) {
   const recordCommunitySkin = (id: string) => {
     void client.typingStatistics?.recordSkin?.(id);
   };
-  const { skinTabs, phoneSkinCommunityShown, skinCommunityShown, pluginCommunityShown } =
-    useSettingsCommunityViews({
-      page,
-      mobile: mobilePlatform,
-      harmony: harmonyPlatform,
-      skinView,
-      pluginView,
-      hasCommunitySkins: Boolean(client.communitySkins),
-      hasCommunityCandidateSkins: Boolean(client.communityCandidateSkins),
-      hasCommunityPlugins: Boolean(client.communityPlugins),
-    });
+  const {
+    skinTabs,
+    desktopTabs: desktopSkinTabs,
+    phoneSkinCommunityShown,
+    skinCommunityShown,
+    pluginCommunityShown,
+  } = useSettingsCommunityViews({
+    page,
+    mobile: mobilePlatform,
+    harmony: harmonyPlatform,
+    skinView,
+    onSkinViewChange: setSkinView,
+    pluginView,
+    hasCommunitySkins: Boolean(client.communitySkins),
+    hasCommunityCandidateSkins: Boolean(client.communityCandidateSkins),
+    hasCommunityPlugins: Boolean(client.communityPlugins),
+  });
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
     recoverPreferences,
@@ -3497,30 +3503,7 @@ function SettingsShell(props: SettingsPageProps) {
                   openPanel={client.openVocabulary}
                 />
               )}
-              {page === "skin" && client.communityCandidateSkins && (
-                <div
-                  className={communityStyle.categoryTabsPair}
-                  role="tablist"
-                  aria-label="皮肤来源"
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={skinView === "mine"}
-                    onClick={() => setSkinView("mine")}
-                  >
-                    我的皮肤
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={skinView === "community"}
-                    onClick={() => setSkinView("community")}
-                  >
-                    社区皮肤
-                  </button>
-                </div>
-              )}
+              {page === "skin" && desktopSkinTabs.tabList}
               {page === "skin" && skinTabs.tabList}
               {phoneSkinCommunityShown && client.communitySkins && (
                 <div className="mt-6">
@@ -3543,19 +3526,22 @@ function SettingsShell(props: SettingsPageProps) {
                   )}
                 </div>
               )}
-              {skinCommunityShown && client.communityCandidateSkins && (
-                <div className="mt-4">
-                  <CommunityPage
-                    candidateSkins={client.communityCandidateSkins}
-                    localSkins={client.scanSkinCatalog}
-                    openSkinDirectory={client.openSkinDirectory}
-                    readSkinImage={client.readSkinImage}
-                    onOpenSkinPage={() => setSkinView("mine")}
-                    theme={keyboardPreviewTheme}
-                    onLogin={openAccountLogin}
-                  />
-                </div>
-              )}
+              {skinCommunityShown &&
+                client.communityCandidateSkins &&
+                desktopSkinTabs.panel(
+                  "community",
+                  <div className="mt-4">
+                    <CommunityPage
+                      candidateSkins={client.communityCandidateSkins}
+                      localSkins={client.scanSkinCatalog}
+                      openSkinDirectory={client.openSkinDirectory}
+                      readSkinImage={client.readSkinImage}
+                      onOpenSkinPage={() => setSkinView("local")}
+                      theme={keyboardPreviewTheme}
+                      onLogin={openAccountLogin}
+                    />
+                  </div>,
+                )}
               {page === "plugins" && client.communityPlugins && (
                 <div
                   className={communityStyle.categoryTabsPair}
@@ -3592,7 +3578,11 @@ function SettingsShell(props: SettingsPageProps) {
               {draft && isSettingsFormPage(page) && (
                 <SettingsFormFrame showReload={false} busy={busy}>
                   <SettingsFormContext.Provider value={{ ...model, draft }}>
-                    <SkinSettingsPage hidden={skinCommunityShown} tabs={skinTabs} />
+                    <SkinSettingsPage
+                      hidden={skinCommunityShown}
+                      tabs={skinTabs}
+                      desktopTabs={desktopSkinTabs}
+                    />
                     <AppearanceSettingsPage />
                     <FloatingToolbarSettingsPage />
                     <InputSettingsPage />

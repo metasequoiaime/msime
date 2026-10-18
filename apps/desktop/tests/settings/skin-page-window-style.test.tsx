@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, themeEntry, type SkinCatalog, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
@@ -83,6 +83,7 @@ test("主题 page package cards draw the user's window radius and opacity over t
       }}
     />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "本地皮肤" }));
   const card = await screen.findByRole("article", { name: "Rounded skin" });
   const preview = card.querySelector<HTMLElement>("[data-skin-preview]")!;
   // 用户设的 0 圆角压过包自带的 12px，与实际候选窗相同。

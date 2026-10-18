@@ -1,4 +1,5 @@
 import type { SettingsPageId } from "./settings-page-registry";
+import { desktopSkinTabs, type DesktopSkinTab } from "./desktop-skin-tabs";
 import { skinGridTabs } from "./skin-grid";
 import type { SettingsShellView } from "./use-settings-shell-state";
 import { useSettingsTabs } from "./use-settings-tabs";
@@ -7,7 +8,8 @@ export interface UseSettingsCommunityViewsOptions {
   page: SettingsPageId;
   mobile: boolean;
   harmony: boolean;
-  skinView: SettingsShellView;
+  skinView: DesktopSkinTab;
+  onSkinViewChange: (view: DesktopSkinTab) => void;
   pluginView: SettingsShellView;
   hasCommunitySkins: boolean;
   hasCommunityCandidateSkins: boolean;
@@ -20,11 +22,19 @@ export function useSettingsCommunityViews({
   mobile,
   harmony,
   skinView,
+  onSkinViewChange,
   pluginView,
   hasCommunitySkins,
   hasCommunityCandidateSkins,
   hasCommunityPlugins,
 }: UseSettingsCommunityViewsOptions) {
+  const desktopTabs = useSettingsTabs(
+    desktopSkinTabs.filter((tab) => tab.id !== "community" || hasCommunityCandidateSkins),
+    "皮肤来源",
+    !mobile,
+    skinView,
+    onSkinViewChange,
+  );
   const skinTabs = useSettingsTabs(
     skinGridTabs.filter((tab) => tab.id !== "community" || hasCommunitySkins),
     "皮肤分类",
@@ -38,5 +48,11 @@ export function useSettingsCommunityViews({
   const pluginCommunityShown =
     page === "plugins" && hasCommunityPlugins && pluginView === "community";
 
-  return { skinTabs, phoneSkinCommunityShown, skinCommunityShown, pluginCommunityShown } as const;
+  return {
+    skinTabs,
+    desktopTabs,
+    phoneSkinCommunityShown,
+    skinCommunityShown,
+    pluginCommunityShown,
+  } as const;
 }

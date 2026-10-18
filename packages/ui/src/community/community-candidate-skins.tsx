@@ -49,7 +49,7 @@ export function CommunityCandidateSkinsPage({
   localSkins?: () => Promise<SkinCatalog>;
   openSkinDirectory?: () => Promise<void>;
   readSkinImage?: SkinImageReader;
-  /** Returns to 我的皮肤 on 主题, where an installed package is enabled; the community page sits outside the settings form and never writes preferences itself. */
+  /** 回到主题页的本地皮肤标签启用已安装的皮肤，社区页面位于设置表单之外，不直接写偏好。 */
   onOpenSkinPage?: () => void;
   onLogin?: () => void;
 }) {
@@ -128,7 +128,7 @@ export function CommunityCandidateSkinsPage({
         onSearchChange={setSearch}
         onSearchSubmit={() => void requestList(search, false)}
         title="社区皮肤"
-        note="为输入候选窗口换一身新装，安装后在「我的皮肤」中启用"
+        note="为输入候选窗口换一身新装，安装后在「本地皮肤」中启用"
       />
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <CommunityScopeButtons

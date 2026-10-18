@@ -25,7 +25,7 @@ export interface CommunityPageProps {
   openSkinDirectory?: () => Promise<void>;
   /** Reads an installed package's images, so publishing can draw a preview for a package without one. */
   readSkinImage?: SkinImageReader;
-  /** Returns to 我的皮肤 on 主题, where an installed candidate-window skin is enabled. */
+  /** 回到主题页的本地皮肤标签，启用已安装的候选窗口皮肤。 */
   onOpenSkinPage?: () => void;
   theme: "light" | "dark";
   initialMine?: boolean;

@@ -115,7 +115,7 @@ function candidateSkins() {
   };
 }
 
-// Desktop browses candidate-window skins on 主题 behind 我的皮肤 / 社区皮肤, the way 插件 switches between 我的插件 and 社区插件.
+// 桌面主题、本地皮肤和社区皮肤位于同一层顶部标签。
 test("the desktop theme page switches to the community candidate-window skins", async () => {
   render(
     <SettingsPage
@@ -141,7 +141,104 @@ test("the desktop theme page switches to the community candidate-window skins", 
   expect(screen.queryByRole("group", { name: "主题" })).toBeNull();
   expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
 
-  fireEvent.click(within(tabs).getByRole("tab", { name: "我的皮肤" }));
+  fireEvent.click(within(tabs).getByRole("tab", { name: "主题" }));
   expect(screen.getByRole("group", { name: "主题" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "社区皮肤" })).toBeNull();
+});
+
+test("没有社区服务时主题和本地皮肤仍为独立顶部标签，切换不保存偏好", async () => {
+  const save = vi.fn();
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{ load: async () => initial, save, host: testHost({ platform: "macos" }) }}
+    />,
+  );
+  await settingsFormReady();
+  const tabs = screen.getByRole("tablist", { name: "皮肤来源" });
+  expect(
+    within(tabs)
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent),
+  ).toEqual(["主题", "本地皮肤"]);
+  expect(screen.getByRole("radiogroup", { name: "颜色模式" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "刷新皮肤" })).toBeNull();
+  const theme = within(tabs).getByRole("tab", { name: "主题" });
+  const local = within(tabs).getByRole("tab", { name: "本地皮肤" });
+  const content = document.getElementById("settings-content")!;
+  content.scrollTop = 250;
+  theme.focus();
+  fireEvent.keyDown(theme, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(local);
+  expect(local.getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("tabpanel", { name: "本地皮肤" }).id).toBe(
+    local.getAttribute("aria-controls"),
+  );
+  expect(content.scrollTop).toBe(0);
+  expect(screen.queryByRole("radiogroup", { name: "颜色模式" })).toBeNull();
+  expect(screen.getByText("当前宿主不支持扫描外部皮肤。")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "主题列表" })).toBeNull();
+  expect(save).not.toHaveBeenCalled();
+});
+
+test("本地皮肤保留预览明暗和卡片实例，应用仍写入原有明暗槽位", async () => {
+  const scanSkinCatalog = vi.fn().mockResolvedValue({
+    directory: "/synthetic/skins",
+    issues: [],
+    packages: [
+      {
+        id: "sample",
+        name: "示例皮肤",
+        version: "1",
+        base: "system",
+        author: null,
+        description: null,
+        layouts: ["horizontal", "vertical"],
+        themes: ["dark", "light"],
+        minWidthDip: 0,
+        decorationTopDip: 0,
+        decorationWidthDip: 0,
+        toolbarStylesheet: null,
+        preview: null,
+        candidate: { dark: {}, light: {} },
+      },
+    ],
+  });
+  const save = vi.fn().mockImplementation(async (revision, preferences) => ({
+    ...initial,
+    revision: revision + 1,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{ load: async () => initial, save, scanSkinCatalog }}
+    />,
+  );
+  await settingsFormReady();
+  expect(screen.queryByRole("article", { name: "示例皮肤" })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
+  const card = await screen.findByRole("article", { name: "示例皮肤" });
+  fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
+  fireEvent.click(within(card).getByRole("switch", { name: "示例皮肤" }));
+  fireEvent.click(screen.getByRole("tab", { name: "主题" }));
+  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
+  expect(screen.getByRole("article", { name: "示例皮肤" })).toBe(card);
+  expect(within(card).getByRole("button", { name: "预览深色" })).toBeTruthy();
+  expect(within(card).getByRole("switch", { name: "示例皮肤" }).getAttribute("aria-checked")).toBe(
+    "true",
+  );
+  expect(scanSkinCatalog).toHaveBeenCalledTimes(1);
+  fireEvent.blur(window);
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(
+    initial.revision,
+    expect.objectContaining({
+      global_theme: "custom",
+      custom_theme: expect.objectContaining({
+        candidate_skin: "sample",
+        candidate_skin_dark: "sample",
+      }),
+    }),
+  );
 });
