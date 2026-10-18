@@ -1909,3 +1909,5 @@ export {
   SettingsFeaturePages,
   type SettingsFeaturePagesProps,
 } from "./settings/settings-feature-pages";
+
+export { useVoicePanel, type VoicePanelState } from "./keyboard/use-voice-panel";
