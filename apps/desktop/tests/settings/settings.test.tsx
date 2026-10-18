@@ -8353,34 +8353,37 @@ test("about page offers no update check without a host to ask", async () => {
   expect(screen.queryByRole("button", { name: "检查更新" })).toBeNull();
 });
 
-test("about page offers the release the host found and opens its page", async () => {
-  const checkUpdate = vi.fn().mockResolvedValue({
-    status: "available",
-    update: hostRelease("windows-v1.2.0", { signed: true }),
-  } satisfies UpdateCheckResult);
-  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        openExternalUrl,
-        checkUpdate,
-        host: testHost({ platform: "windows" }),
-      }}
-    />,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
-  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
-  expect(checkUpdate).toHaveBeenCalledWith(
-    expect.objectContaining({ platform: "windows", currentVersion: expect.any(String) }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
-  await waitFor(() =>
-    expect(openExternalUrl).toHaveBeenCalledWith(`${releasesPage}/tag/windows-v1.2.0`),
-  );
-});
+test.each(["macos", "windows", "linux"] as const)(
+  "%s 关于页发现更新后打开官网下载页",
+  async (platform) => {
+    const checkUpdate = vi.fn().mockResolvedValue({
+      status: "available",
+      update: hostRelease(`${platform}-v1.2.0`, { signed: true }),
+    } satisfies UpdateCheckResult);
+    const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          openExternalUrl,
+          checkUpdate,
+          host: testHost({ platform }),
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关于" }));
+    fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+    expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+    expect(checkUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ platform, currentVersion: expect.any(String) }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
+    await waitFor(() =>
+      expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/download/"),
+    );
+  },
+);
 
 test("a platform without a published release is a normal result", async () => {
   render(
@@ -8481,9 +8484,7 @@ test("Windows update notice shows the installer digest and the unsigned warning"
     screen.getByText("Get-FileHash .\\MetasequoiaIME-Full_Setup_v1.2.0.exe -Algorithm SHA256"),
   ).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
-  await waitFor(() =>
-    expect(openExternalUrl).toHaveBeenCalledWith(`${releasesPage}/tag/windows-v1.2.0`),
-  );
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/download/"));
 });
 
 test("a check the host could not complete says so", async () => {

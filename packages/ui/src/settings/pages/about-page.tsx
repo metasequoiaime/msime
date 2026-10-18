@@ -31,6 +31,7 @@ export function AboutSettingsPage() {
     settingsPlatform,
     clientHostedPlatform,
     platformLicenseUrl,
+    desktopDownloadUrl,
     platformAboutDescription,
     draft,
     setDraft,
@@ -77,10 +78,7 @@ export function AboutSettingsPage() {
       {mirrorUrl && (
         <ActionButton action={() => void openExternalUrl(mirrorUrl)} label="国内镜像下载" />
       )}
-      <ActionButton
-        action={() => void openExternalUrl(availableUpdate.releaseUrl)}
-        label="前往下载"
-      />
+      <ActionButton action={() => void openExternalUrl(desktopDownloadUrl)} label="前往下载" />
     </div>
   );
   const openPrivacy = () =>
