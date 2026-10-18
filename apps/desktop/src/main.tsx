@@ -35,7 +35,6 @@ import {
   type CloudClipboardAction,
   type CloudClipboardPanelClient,
   type CloudDictionaryAction,
-  type CloudDictionaryEntry,
   type CloudDictionaryPanelClient,
   type EmojiCatalogGroup,
   type EmojiPanelClient,
@@ -95,8 +94,9 @@ import { DesktopPanelTheme } from "./input/desktop-panel-theme";
 import { DesktopEmojiPanel } from "./input/desktop-emoji-panel";
 import { DesktopHandwriting } from "./input/desktop-handwriting";
 import { DesktopCloudDictionary } from "./dictionary/desktop-cloud-dictionary";
+import { createDesktopCloudDictionaryClient } from "./dictionary/desktop-cloud-dictionary-client";
 import { testDesktopApiCredential } from "./account/credential-test-client";
-import { cloudDictionaryCapabilities, isMobileHost } from "./input/mobile-host-capabilities";
+import { isMobileHost } from "./input/mobile-host-capabilities";
 import { createMobileHostServices } from "./core/mobile-host-services";
 import {
   createDesktopCandidateSkinCommunity,
@@ -162,26 +162,6 @@ const mobileDictionary: DictionaryClient = {
     invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
 };
 
-async function downloadCloudEntryToLocal(
-  entry: CloudDictionaryEntry,
-  dictionaryClient: DictionaryClient,
-): Promise<void> {
-  if (!dictionaryClient.importPersonal)
-    throw new Error("personal dictionary import is unavailable");
-  const text = JSON.stringify({
-    format: "msime-personal-dictionary",
-    version: 1,
-    entries: [
-      {
-        kind: entry.kind === "quick" ? "quickPhrase" : entry.kind,
-        key: entry.code,
-        value: entry.word,
-        weight: entry.weight,
-      },
-    ],
-  });
-  await dictionaryClient.importPersonal(text, `ui-cloud-download-${Date.now()}`);
-}
 const linuxSetupClient: LinuxSetupClient = {
   run: async ({ download, cloudCandidates }, onLine) => {
     const unlisten = await listen<LinuxSetupLine>("linux-setup-output", (event) =>
@@ -708,8 +688,11 @@ function DesktopSettings() {
             ...(!isMobileHost(host.platform) && client.cloudDictionary
               ? {
                   cloudDictionary: {
-                    ...client.cloudDictionary,
-                    ...cloudDictionaryCapabilities(host.platform, client.cloudDictionary.request),
+                    ...createDesktopCloudDictionaryClient(
+                      client.cloudDictionary,
+                      host.platform,
+                      mobileDictionary,
+                    ),
                     ...(host.platform === "macos"
                       ? {
                           snapshotNative: false,
@@ -1058,19 +1041,11 @@ function DesktopSettings() {
         }
       />
     );
-  const cloudDictionary = {
-    ...panelClients.cloudDictionary,
-    ...cloudDictionaryCapabilities(
-      settingsClient.host?.platform,
-      panelClients.cloudDictionary.request,
-    ),
-    ...(isMobileHost(settingsClient.host?.platform)
-      ? {
-          downloadToLocal: (entry: CloudDictionaryEntry) =>
-            downloadCloudEntryToLocal(entry, mobileDictionary),
-        }
-      : {}),
-  };
+  const cloudDictionary = createDesktopCloudDictionaryClient(
+    panelClients.cloudDictionary,
+    settingsClient.host?.platform,
+    mobileDictionary,
+  );
   if (mobilePanel === "voice") {
     return <VoicePanel client={mobileVoiceClient} theme="light" />;
   }
@@ -1179,20 +1154,11 @@ function DesktopCloudDictionarySurface() {
     };
   }, []);
   if (host === undefined) return <StatusMessage role="status">正在连接云词库…</StatusMessage>;
-  const capabilities = cloudDictionaryCapabilities(
+  const cloudDictionary = createDesktopCloudDictionaryClient(
+    panelClients.cloudDictionary,
     host?.platform,
-    panelClients.cloudDictionary.request,
+    mobileDictionary,
   );
-  const cloudDictionary = {
-    ...panelClients.cloudDictionary,
-    ...capabilities,
-    ...(isMobileHost(host?.platform)
-      ? {
-          downloadToLocal: (entry: CloudDictionaryEntry) =>
-            downloadCloudEntryToLocal(entry, mobileDictionary),
-        }
-      : {}),
-  };
   return <DesktopCloudDictionary client={cloudDictionary} />;
 }
 
