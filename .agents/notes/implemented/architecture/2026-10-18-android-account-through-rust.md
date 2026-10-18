@@ -34,4 +34,5 @@ Status: implemented
 ## Verification
 
 - JVM 冒烟（`check-host.sh`）：`AccountSessionRoutingSmoke` 改用假的 `Sessions`，核对键盘进程只从主进程拿令牌、不跑 Rust 的账号操作、换号后旧请求连驱动都不碰、不带账号编号的令牌不用；`SignInFailurePolicySmoke` 核对按错误码选的文案；`AppleWebSignInPendingSmoke` 核对只有 `account_invalid` 保留等待中的流程。逐个改回（删掉 `account_network` 那一行、`keepPendingAfter` 返回 false、去掉「令牌要带账号编号」、provider 不认新方法）时对应冒烟失败；往 Java 里加一个 `"/v1/auth/refresh"` 或在 `BackendAccount` 里写 `msime_account_session_v2` 时 `check-host.sh` 的守卫失败。
-- 设备冒烟（只编译过）：`SessionStoreDeviceSmoke` 把一份 Java v2 形状的会话经 `AndroidAccountSessionStorage` 加密写进 `msime_account_session_v2`、把产品的适配器再注册一次，Rust 的 `status` 和 `access_token` 读得出；匿名身份第二次 save 返回 1；`AccountStore` 的两道守卫；`voice_contribution` 拒绝约定目录以外的路径。`BackendAccountSessionDeviceSmoke`（原 `BackendAccountRefreshDeviceSmoke`，Java 刷新的用例删掉）用假的 `Sessions` 核对换号、退出和同一账号重新登录。
+- JVM 冒烟 `AccountStoreKeystoreItemSmoke`：产品的适配器把第 2 项读写到 `CloudClipboardKeystore` 的文件；另一条线程持着密钥串的锁时 `remove(2)` 立刻返回 0、文件还在，锁放开后文件被删；删除失败时仍返回 0。改回同步删除时它失败。
+- 设备冒烟（只编译过）：`SessionStoreDeviceSmoke` 把一份 Java v2 形状的会话经 `AndroidAccountSessionStorage` 加密写进 `msime_account_session_v2`、把产品的适配器再注册一次，Rust 的 `status` 和 `access_token` 读得出；匿名身份第二次 save 返回 1；密钥串那一项对产品私有目录里的文件做同样的「不等锁」核对；`AccountStore` 的两道守卫；`voice_contribution` 拒绝约定目录以外的路径。`BackendAccountSessionDeviceSmoke`（原 `BackendAccountRefreshDeviceSmoke`，Java 刷新的用例删掉）用假的 `Sessions` 核对换号、退出和同一账号重新登录。

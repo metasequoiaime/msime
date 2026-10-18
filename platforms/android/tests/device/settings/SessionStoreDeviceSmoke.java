@@ -10,18 +10,22 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
  * 经安装产品里真实的 libmsime_android.so 核对 #8201 新加的账号与云端 JNI 入口：NativeClient.SessionStore 注册给 Rust 以后，Rust 经它读出一份合成的 Native 布局会话，status 和 access_token 认得它；存储方法抛出的异常在 JNI 一侧变成 account_storage，不抛给调用方；注销以后同一个 id 不再可用。其余入口各发一个空请求，按各自的「请求不合法」码确认 JNI 名字连到了对的 Rust 函数。不联网，合成会话没有过期，不会去刷新。
  *
- * <p>迁移计划 5b 起产品经 AccountStore 注册：它的存储适配器把 Java 原来写的 v2 会话（AndroidKeyStore 加密的 SharedPreferences）原样交给 Rust，匿名身份「不存在才写」；AccountStore 只在主进程里注册一次，`:ime` 进程名和第二次注册都在碰 Rust 之前就拒绝。
+ * <p>迁移计划 5b 起产品经 AccountStore 注册：它的存储适配器把 Java 原来写的 v2 会话（AndroidKeyStore 加密的 SharedPreferences）原样交给 Rust，匿名身份「不存在才写」，云剪贴板密钥串是 CloudClipboardKeystore 的那个文件，删除不等它的锁；AccountStore 只在主进程里注册一次，`:ime` 进程名和第二次注册都在碰 Rust 之前就拒绝。
  *
  * <p>没 attach 的线程上的回调这里造不出来（Rust 自己的线程只在联网刷新时回调存储），由 check-host.sh 在桌面 JVM 上驱动 native/JniCallbacks.cpp 验证。
  */
 public final class SessionStoreDeviceSmoke extends Instrumentation {
     private static final String USER = "synthetic-session-store-user";
+    /** 冒烟里占着密钥串锁的最长时间；同步删除的 remove(2) 至少要等这么久才返回。 */
+    private static final long LOCK_HOLD_SECONDS = 5;
 
     @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
 
@@ -90,6 +94,7 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
             .put("action", new JSONObject().put("operation", "status"))), "account_invalid");
 
         accountStoreAdapter();
+        accountStoreKeystore();
         accountStoreGuards();
         voiceContributionPaths();
 
@@ -140,10 +145,7 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
         Method clear = storage.getMethod("clear");
         // 专用 AVD 上的产品没有登录过；有会话时不去覆盖它。
         check(storage.getMethod("load").invoke(v2) == null, "the product already holds a v2 session; use a fresh AVD");
-        Class<?> items = loader.loadClass("app.msime.android.AccountStore$Items");
-        java.lang.reflect.Constructor<?> constructor = items.getDeclaredConstructor(android.content.Context.class);
-        constructor.setAccessible(true);
-        Object adapter = constructor.newInstance(target);
+        Object adapter = productAdapter(target);
         long id = 0;
         try {
             save.invoke(v2, new String(sessionBytes(), StandardCharsets.UTF_8));
@@ -177,6 +179,95 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
         } finally {
             if (id > 0) callRaw("sessionStoreUnregisterRaw", new Class<?>[] {long.class}, id);
             clear.invoke(v2);
+        }
+    }
+
+    /** 产品的存储适配器（AccountStore 的 Items），和 AccountStore 注册给 Rust 的是同一个类。 */
+    private static Object productAdapter(android.content.Context target) throws Exception {
+        Class<?> items = target.getClassLoader().loadClass("app.msime.android.AccountStore$Items");
+        java.lang.reflect.Constructor<?> constructor = items.getDeclaredConstructor(android.content.Context.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(target);
+    }
+
+    /**
+     * 适配器的第 2 项是云剪贴板密钥串的那个文件（CloudClipboardKeystore，键盘进程也直接读写它）：经适配器存进去的，CloudClipboardKeystore 读得出来，适配器读回的也是它；映射到别的存储时，退出登录后下一个账号会接着用上一个账号的设备私钥和剪贴板密钥。
+     *
+     * <p>remove(2) 不等密钥串的锁：另一条线程在锁里停住时（端到端加密驱动持着这把锁、经 Rust 核对会话），remove(2) 照样立刻返回 0，文件先留着；锁放开以后文件被删掉。同步删除会在这里一直等到锁放开，产品里那就是 Rust 的会话锁和密钥串的锁互等。
+     */
+    private void accountStoreKeystore() throws Exception {
+        android.content.Context target = getTargetContext();
+        ClassLoader loader = target.getClassLoader();
+        Class<?> keystoreType = loader.loadClass("app.msime.android.CloudClipboardKeystore");
+        Class<?> guardType = loader.loadClass("app.msime.android.CloudClipboardE2e$Guard");
+        Object keystore = keystoreType.getMethod("forContext", android.content.Context.class).invoke(null, target);
+        Method keystoreLoad = keystoreType.getMethod("load");
+        Method keystoreSave = keystoreType.getMethod("save", String.class, guardType);
+        Method keystoreDelete = keystoreType.getMethod("delete");
+        File file = new File(target.getFilesDir(), "cloud-clipboard-keystore");
+        // 专用 AVD 上的产品没有登录过，也就没有密钥串；有的时候不去动它。
+        check(!file.exists(), "the product already holds a cloud clipboard keystore; use a fresh AVD");
+        Object adapter = productAdapter(target);
+        Method load = storeType.getMethod("load", int.class);
+        Method put = storeType.getMethod("save", int.class, byte[].class);
+        Method remove = storeType.getMethod("remove", int.class);
+        String value = "v1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.synthetic-key-id.synthetic-key";
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        CountDownLatch held = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Throwable[] holderError = new Throwable[1];
+        try {
+            check((int) put.invoke(adapter, 2, bytes) == 0, "the keystore is saved through the adapter");
+            check(value.equals(keystoreLoad.invoke(keystore)), "item 2 is not the cloud clipboard keystore file");
+            check(java.util.Arrays.equals(bytes, (byte[]) load.invoke(adapter, 2)), "the adapter reads the keystore back");
+
+            // 在密钥串的锁里停住：save 写入之前在锁里调 guard，同一个值不会撞上身份冲突。
+            Object guard = Proxy.newProxyInstance(loader, new Class<?>[] {guardType}, (proxy, method, arguments) -> {
+                switch (method.getName()) {
+                    case "check":
+                        held.countDown();
+                        if (!release.await(LOCK_HOLD_SECONDS, TimeUnit.SECONDS))
+                            throw new IllegalStateException("the keystore lock was held too long");
+                        return null;
+                    case "hashCode":
+                        return System.identityHashCode(proxy);
+                    case "equals":
+                        return proxy == arguments[0];
+                    default:
+                        return "KeystoreLockHolder";
+                }
+            });
+            Thread holder = new Thread(() -> {
+                try {
+                    keystoreSave.invoke(keystore, value, guard);
+                } catch (Throwable error) {
+                    holderError[0] = error;
+                }
+            }, "msime-test-keystore-holder");
+            holder.setDaemon(true);
+            holder.start();
+            check(held.await(10, TimeUnit.SECONDS), "the holder never took the keystore lock");
+
+            long started = android.os.SystemClock.elapsedRealtime();
+            int removed = (int) remove.invoke(adapter, 2);
+            long elapsed = android.os.SystemClock.elapsedRealtime() - started;
+            boolean stillHeld = release.getCount() == 1 && holder.isAlive();
+            boolean keptWhileHeld = file.exists();
+            release.countDown();
+            holder.join(10_000);
+            check(removed == 0, "remove(2) returned " + removed);
+            check(stillHeld && elapsed < 2_000, "remove(2) waited for the keystore lock (" + elapsed + " ms)");
+            check(keptWhileHeld, "the keystore was deleted while another thread held its lock");
+            check(!holder.isAlive() && holderError[0] == null, "the lock holder failed: " + holderError[0]);
+
+            long deadline = android.os.SystemClock.elapsedRealtime() + 5_000;
+            while (file.exists() && android.os.SystemClock.elapsedRealtime() < deadline) Thread.sleep(20);
+            check(!file.exists(), "remove(2) did not delete the keystore file once the lock was released");
+            check(keystoreLoad.invoke(keystore) == null && load.invoke(adapter, 2) == null,
+                "a removed keystore reads as absent");
+        } finally {
+            release.countDown();
+            keystoreDelete.invoke(keystore);
         }
     }
 

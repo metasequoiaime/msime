@@ -144,10 +144,19 @@ public final class AccountStore {
         private final CloudClipboardE2e.Keystore keystore;
 
         Items(Context application) {
-            account = new AndroidAccountSessionStorage(application, ACCOUNT_SESSION);
-            anonymous = new AndroidAccountSessionStorage(application, ANONYMOUS_SESSION);
-            identity = new AndroidAccountSessionStorage(application, ANONYMOUS_IDENTITY);
-            keystore = CloudClipboardKeystore.deferred(application);
+            this(new AndroidAccountSessionStorage(application, ACCOUNT_SESSION),
+                new AndroidAccountSessionStorage(application, ANONYMOUS_SESSION),
+                new AndroidAccountSessionStorage(application, ANONYMOUS_IDENTITY),
+                CloudClipboardKeystore.deferred(application));
+        }
+
+        /** JVM 冒烟（AccountStoreKeystoreItemSmoke）经这里换成临时目录里的密钥串；三个 SharedPreferences 项离不开 Android，那里不构造。 */
+        Items(AndroidAccountSessionStorage account, AndroidAccountSessionStorage anonymous,
+                AndroidAccountSessionStorage identity, CloudClipboardE2e.Keystore keystore) {
+            this.account = account;
+            this.anonymous = anonymous;
+            this.identity = identity;
+            this.keystore = keystore;
         }
 
         @Override public byte[] load(int item) {
