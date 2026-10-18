@@ -1,3 +1,4 @@
+import { SettingsPreferencesForm } from "./settings-preferences-form";
 import { useSettingsPageModel, type SettingsPageProps } from "./use-settings-page-model";
 import { SettingsSidebar } from "./settings-sidebar";
 import { appThemeStyle, seasonAttr } from "../core/app-theme-style";
@@ -13,15 +14,9 @@ import { MobileSettingsTabs } from "./mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings-page-header";
 import { settingsShellPlatformPresentation } from "./settings-shell-platform-presentation";
 import { SettingsShellToasts } from "./settings-shell-toasts";
-import {
-  canReloadSettingsPage,
-  canRestoreDefaultsOnPage,
-  isSettingsFormPage,
-} from "./settings-page-visibility";
+import { canReloadSettingsPage, isSettingsFormPage } from "./settings-page-visibility";
 import { useLayoutEffect } from "react";
-import { SettingsFormFooter } from "./settings-form-footer";
 import { SettingsPageStatus } from "./settings-page-status";
-import { SettingsFormFrame } from "./settings-form-frame";
 import { NoticeBanner } from "./notice-banner";
 import { WindowTitlebar } from "./window-titlebar";
 import { communityGalleryPage } from "./use-community-gallery-subview";
@@ -37,31 +32,11 @@ import {
   ScreenKeyboardLayoutContext,
   screenKeyboardLayoutFor,
 } from "../keyboard/screen-keyboard-preview";
-import { SettingsFormContext } from "./settings-form-context";
 import { createSettingsReloadAction } from "./settings-reload-action";
 import { createSettingsPageSelection } from "./settings-page-selection";
 import { createSettingsStatusActions } from "./settings-status-actions";
 import { createSettingsExternalActions } from "./settings-external-actions";
 import { createSettingsNavigationActions } from "./settings-navigation-actions";
-import { VoiceSettingsPage } from "./pages/voice-page";
-import { AiSettingsPage } from "./pages/ai-page";
-import { InputSettingsPage } from "./pages/input-page";
-import { ExpressionSettingsPage } from "./pages/expression-page";
-import { DeveloperSettingsPage, McpSettingsPage } from "./pages/developer-page";
-import { DictionarySettingsPage } from "./pages/dictionary-page";
-import { AppearanceSettingsPage } from "./pages/appearance-page";
-import { SkinSettingsPage } from "./pages/skin-page";
-import { FloatingToolbarSettingsPage } from "./pages/floating-toolbar-page";
-import { ScreenKeyboardSettingsPage } from "./pages/screen-keyboard-page";
-import { ShortcutSettingsPage } from "./pages/shortcuts-page";
-import { ToolsSettingsPage } from "./pages/tools-page";
-import { PluginsSettingsPage } from "./pages/plugins-page";
-import { AboutSettingsPage } from "./pages/about-page";
-import { UsageReportingSettingsPage } from "./pages/usage-reporting-page";
-import { PrivacySettingsPage } from "./pages/privacy-page";
-import { HelpSettingsPage } from "./help-settings-page";
-import { HandwritingSettingsPage } from "./pages/handwriting-page";
-import { FeedbackSettingsPage } from "./pages/feedback-page";
 import { logo } from "./settings-options";
 import { CommunitySkinsPage } from "../community/community-skins";
 import { createCommunityLocalDictionary } from "../community/community-resource-actions";
@@ -116,7 +91,6 @@ function SettingsShell(props: SettingsPageProps) {
     retrySave,
     saveState,
     saveError,
-    loadFailed,
     openExternalUrl,
     platformIssuesUrl,
     openPanel,
@@ -126,7 +100,6 @@ function SettingsShell(props: SettingsPageProps) {
     keyboardPreviewTheme,
     surfaceThemesFollow,
     availablePages,
-    handwritingOnScreenKeyboardPage,
     sidebarGroups,
     mobileActiveTab,
     untitledOnPhone,
@@ -708,77 +681,16 @@ function SettingsShell(props: SettingsPageProps) {
                 </div>
               )}
               {draft && isSettingsFormPage(page) && (
-                <SettingsFormFrame showReload={false} busy={busy}>
-                  <SettingsFormContext.Provider value={{ ...model, draft }}>
-                    <SkinSettingsPage
-                      hidden={skinCommunityShown}
-                      tabs={skinTabs}
-                      desktopTabs={desktopSkinTabs}
-                    />
-                    <AppearanceSettingsPage />
-                    <FloatingToolbarSettingsPage />
-                    <InputSettingsPage />
-                    <ExpressionSettingsPage />
-                    <AiSettingsPage />
-                    <ShortcutSettingsPage />
-                    <DictionarySettingsPage />
-                    <ScreenKeyboardSettingsPage />
-                    <VoiceSettingsPage />
-                    {/* 手写并进屏幕键盘页时，那一页自己画手写的分组。 */}
-                    {!handwritingOnScreenKeyboardPage && <HandwritingSettingsPage />}
-                    <ToolsSettingsPage />
-                    <PluginsSettingsPage hidden={pluginCommunityShown} />
-                    <DeveloperSettingsPage />
-                    <McpSettingsPage />
-                    <FeedbackSettingsPage />
-                    <HelpSettingsPage
-                      busy={busy}
-                      hidden={page !== "help"}
-                      macos={macosPlatform}
-                      mobile={mobilePlatform}
-                      ios={iosPlatform}
-                      android={androidPlatform}
-                      platformHelpIntro={model.platformHelpIntro}
-                      platformQuickStart={model.platformQuickStart}
-                      platformNetworkDescription={model.platformNetworkDescription}
-                      onOpenDocumentation={externalActions.onOpenDocumentation}
-                      onOpenSystemKeyboardSettings={externalActions.onOpenSystemKeyboardSettings}
-                    />
-                    <AboutSettingsPage />
-                    <UsageReportingSettingsPage />
-                    {/* 只在打开着时渲染：它和「关于」用同一个统计开关，常驻的话桌面上会有两个。 */}
-                    {page === "privacy" && <PrivacySettingsPage />}
-                  </SettingsFormContext.Provider>
-                  <SettingsFormFooter
-                    draft={draft}
-                    busy={busy}
-                    // 保存失败由页面顶部的提示说明并重试（SettingsPageStatus），这一行不再重复同一个错误和按钮。
-                    saveState={saveState === "failed" ? "idle" : saveState}
-                    saveError={saveError}
-                    showRestoreDefaults={
-                      Boolean(client.loadDefaultPreferences) &&
-                      canRestoreDefaultsOnPage(page) &&
-                      // macOS 的屏幕键盘页（并进手写之后）只剩两个打开按钮，没有一项偏好，页脚的全局「恢复默认设置」在那里只会让人以为它恢复这一页。
-                      !(
-                        page === "screen-keyboard" &&
-                        !mobilePlatform &&
-                        !model.showTouchKeyboardHeight &&
-                        !model.showTouchKeyboardSpacing
-                      ) &&
-                      !skinCommunityShown &&
-                      !pluginCommunityShown
-                    }
-                    onRestoreDefaults={onRestoreDefaults}
-                    onRetry={() => void retrySave()}
-                    // 设置自动保存，重新读取只用于从保存失败、加载失败或页面错误中恢复。
-                    onReload={
-                      canReloadSettingsPage(page) &&
-                      (saveState === "failed" || loadFailed || !!error)
-                        ? () => void reloadSettings()
-                        : undefined
-                    }
-                  />
-                </SettingsFormFrame>
+                <SettingsPreferencesForm
+                  model={{ ...model, draft }}
+                  skinTabs={skinTabs}
+                  desktopSkinTabs={desktopSkinTabs}
+                  skinCommunityShown={skinCommunityShown}
+                  pluginCommunityShown={pluginCommunityShown}
+                  externalActions={externalActions}
+                  onRestoreDefaults={onRestoreDefaults}
+                  reloadSettings={reloadSettings}
+                />
               )}
               {/* 表单可见时，加载或保存失败后的「重新读取」位于表单操作行；没有表单或设置加载失败时，这里是唯一的恢复入口。 */}
               {canReloadSettingsPage(page) && !(draft && isSettingsFormPage(page)) && (

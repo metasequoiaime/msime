@@ -116,3 +116,5 @@ macOS 这一轮之后，Windows、Linux 和 HarmonyOS 逐项对照同样的理�
 - 各平台跟进：`FloatingToolbarSizeModel.h` 的测试和 `tests/ui/settings_navigation.cpp` 在本机用 clang 按 C++17 和 C++20 加 `-Wall -Wextra -Werror` 编译运行通过；`main.cpp` 的改动没有在本机编译（WinUI 只能在 CI 的 Windows 机器上编译），`settings_ui.ps1` 新加的 UIA 断言也要等 CI 跑。共享页的用例改成 Windows 和 HarmonyOS 2-in-1 都落在「键盘手写」，参考窗口的小节表在 Windows 上同样按合并后的页查找，Linux 的 `tests/runtime/mode_badge_style.cpp` 在本机用 clang 按 C++17 加 `-Wall -Wextra -Werror` 编译运行通过，`FcitxEngine.cpp` 的改动只能交给 CI 的 Linux 构建。
 
 - 菜单名称与顺序：Chromium 合成宿主在浅色、深色以及 1000×780、800×600 下核对 16 项完整导航，名称均为四个字、等高且无横向溢出；「AI」「工具栏」「快捷键」「屏幕键盘」搜索与 Enter 跳转、Escape 清空、无结果提示均通过。Windows 导航模型在本机以 C++20、`MSIME_EDITION_FULL` 与 `-Wall -Wextra -Werror` 编译运行通过，PowerShell 验收顺序检查通过。WinUI 窗口需由 Windows CI 构建，本机没有安装这次菜单改动。
+
+共享表单中的手写合并挂载判断与无偏好页面的恢复默认策略由[偏好设置表单组件](2026-10-19-settings-preferences-form.md)原样持有；平台投影及各页面实现的归属不变。
