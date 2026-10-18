@@ -4540,7 +4540,7 @@ test("mobile settings pages follow the WebView back stack", async () => {
     await settingsFormReady();
     fireEvent.click(
       within(screen.getByRole("region", { name: "首页" })).getByRole("button", {
-        name: "输入设置",
+        name: "输入",
       }),
     );
     expect(window.history.state).toEqual(
@@ -7337,7 +7337,7 @@ const referenceSections: {
   {
     page: "help",
     button: "帮助",
-    via: "关于",
+    via: "关于水杉",
     titles: ["快速上手", "基本功能"],
   },
 ];
@@ -7346,6 +7346,19 @@ const referenceSections: {
 const mergedPages: Record<string, string> = {
   屏幕键盘: "键盘手写",
   手写输入: "键盘手写",
+};
+
+/** 菜单显示名称与内容分组各自有契约，不能拿四字菜单名查询页面内的 fieldset。 */
+const referencePageGroups: Record<string, string> = {
+  input: "输入",
+  expression: "标点与翻译",
+  tools: "剪贴板",
+  "floating-toolbar": "悬浮工具栏",
+  skin: "主题",
+  dictionary: "词库",
+  ai: "AI 辅助",
+  shortcuts: "快捷键",
+  developer: "维护与诊断",
 };
 
 /** 参考窗口有、而各界面一律跟随颜色模式的桌面宿主（`surface_themes_follow`：macOS、Windows、Linux）有意不给的主题行：这些界面只看颜色模式，主题页只留「候选窗口主题」。 */
@@ -7360,7 +7373,7 @@ const followedSurfaceThemeSections: Record<string, string> = {
 
 test.each(referenceSections)(
   "the $page page still carries the reference window's sections",
-  async ({ button, via, group, titles }) => {
+  async ({ page: pageId, button, via, group, titles }) => {
     render(
       <SettingsPage
         client={{
@@ -7398,14 +7411,14 @@ test.each(referenceSections)(
     await settingsReady();
     if (via) {
       fireEvent.click(screen.getByRole("button", { name: via }));
-      if (via === "关于") selectSettingsTab("帮助与反馈");
+      if (via === "关于水杉") selectSettingsTab("帮助与反馈");
     }
     const pageName = mergedPages[button] ?? button;
     fireEvent.click(screen.getByRole("button", { name: pageName }));
-    if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
+    if (pageId === "input" && group === "辅助码") selectSettingsTab("进阶");
     const page = group
       ? await screen.findByRole("region", { name: group })
-      : await screen.findByRole("group", { name: pageName });
+      : await screen.findByRole("group", { name: referencePageGroups[pageId] ?? pageName });
     const present = sectionTitles(page);
     const wanted = titles.filter((title) => !(title in followedSurfaceThemeSections));
     expect(wanted.filter((title) => !present.includes(title))).toEqual([]);
@@ -7491,7 +7504,7 @@ const macosAbsentSections: Record<string, string> = {
 
 test.each(referenceSections)(
   "the $page page carries the reference window's sections on macOS too",
-  async ({ button, via, group, titles }) => {
+  async ({ page: pageId, button, via, group, titles }) => {
     render(
       <SettingsPage
         client={{
@@ -7513,14 +7526,14 @@ test.each(referenceSections)(
     await settingsReady();
     if (via) {
       fireEvent.click(screen.getByRole("button", { name: via }));
-      if (via === "关于") selectSettingsTab("帮助与反馈");
+      if (via === "关于水杉") selectSettingsTab("帮助与反馈");
     }
     const pageName = mergedPages[button] ?? button;
     fireEvent.click(screen.getByRole("button", { name: pageName }));
-    if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
+    if (pageId === "input" && group === "辅助码") selectSettingsTab("进阶");
     const page = group
       ? await screen.findByRole("region", { name: group })
-      : await screen.findByRole("group", { name: pageName });
+      : await screen.findByRole("group", { name: referencePageGroups[pageId] ?? pageName });
     const present = sectionTitles(page);
     const wanted = titles.filter((title) => !(title in macosAbsentSections));
     expect(wanted.filter((title) => !present.includes(title))).toEqual([]);
@@ -7614,7 +7627,7 @@ test("on the desktop 帮助与反馈 lives in 关于: its route opens 关于 and
   expect(await screen.findByRole("group", { name: "关于" })).toBeTruthy();
 });
 
-test("the account page is called 账号 on macOS and Linux and keeps 账号与同步 where settings sync", async () => {
+test("桌面账号菜单与标题统一为账号管理", async () => {
   const accountClient = {
     status: vi.fn().mockResolvedValue({ user: null }),
     providers: vi.fn().mockResolvedValue({ email: true, phone: false }),
@@ -7627,9 +7640,9 @@ test("the account page is called 账号 on macOS and Linux and keeps 账号与�
     clearExpired: vi.fn(),
   };
   for (const [platform, title] of [
-    ["macos", "账号"],
-    ["linux", "账号"],
-    ["windows", "账号与同步"],
+    ["macos", "账号管理"],
+    ["linux", "账号管理"],
+    ["windows", "账号管理"],
   ] as const) {
     render(
       <SettingsPage
@@ -7880,7 +7893,7 @@ test.each(
   ),
 )(
   "$control offers the reference window's choices on $platform",
-  async ({ button, control, role, expand, options, host }) => {
+  async ({ page, button, control, role, expand, options, host }) => {
     render(
       <SettingsPage
         client={{
@@ -7902,7 +7915,7 @@ test.each(
         control.includes("预编辑") ? "预编辑" : control === "字号" ? "字体与大小" : "布局",
       );
     }
-    if (button === "输入") {
+    if (page === "input") {
       selectSettingsTab(
         ["默认中英文", "中英文状态"].includes(control)
           ? "中英文"
@@ -10102,7 +10115,7 @@ test("a host can open the settings window on the section its menu named", async 
   for (const id of ["not-a-page", "download", "helpcode", "community"]) {
     render(<SettingsPage client={client} initialPage={id} />);
     await settingsFormReady();
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("输入");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("输入设置");
     cleanup();
   }
 });

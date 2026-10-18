@@ -245,9 +245,16 @@ test.each([true, false])("HarmonyOS 输入设置完成导入并保存发起组�
   await settingsFormReady();
   selectSettingsTab("进阶");
   fireEvent.click(screen.getByRole("button", { name: "导入双拼辅助码表" }));
-  await waitFor(() =>
-    expect(screen.getAllByRole("option", { name: "合成码表（插件）" }).length).toBeGreaterThan(0),
-  );
+  if (mobile) {
+    // 鸿蒙手机用选择面板，已选码表显示在行上，原生 select 只负责传递值。
+    expect(
+      await screen.findByRole("button", { name: /辅助码方案.*合成码表（插件）/ }),
+    ).toBeTruthy();
+  } else {
+    await waitFor(() =>
+      expect(screen.getAllByRole("option", { name: "合成码表（插件）" }).length).toBeGreaterThan(0),
+    );
+  }
   saveSettingsNow();
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(
