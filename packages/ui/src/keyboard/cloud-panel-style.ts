@@ -73,9 +73,9 @@ export const dictionaryInput =
 export const dictionaryButton =
   "rounded-lg border border-edge bg-[var(--button-secondary-bg)] px-3 py-[7px] text-body not-disabled:hover:bg-[var(--button-secondary-hover)]";
 export const dictionaryToolbar = "flex flex-wrap items-end gap-2.5";
-/** 设置页内嵌查询的输入控件等高，操作独占下一行并自动换行。 */
+/** 设置页内嵌查询的输入控件等高；固定高度的原生下拉去掉纵向内边距，避免 WebKitGTK 裁切文字。操作独占下一行并自动换行。 */
 export const dictionaryLiveToolbar =
-  "grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)] items-end gap-4 max-phone:grid-cols-1 [&_input]:h-9 [&_input]:min-w-0 [&_select]:h-9 [&_select]:w-full [&_select]:rounded-md [&_select]:border [&_select]:border-edge [&_select]:bg-[var(--dropdown-bg)] [&_select]:px-2";
+  "grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)] items-end gap-4 max-phone:grid-cols-1 [&_input]:h-9 [&_input]:min-w-0 [&_select]:h-9 [&_select]:w-full [&_select]:rounded-md [&_select]:border [&_select]:border-edge [&_select]:bg-[var(--dropdown-bg)] [&_select]:px-2 [&_select]:py-0";
 export const dictionaryLiveActions =
   "col-span-full flex min-w-0 flex-wrap gap-2 border-t border-edge pt-3 [&>button]:mt-0 [&>button]:h-8 [&>button]:rounded-md [&>button]:border [&>button]:border-edge [&>button]:bg-raised [&>button]:px-3 [&>button]:text-xs";
 /** The width query that decides the search field lives here rather than in a stylesheet. */
