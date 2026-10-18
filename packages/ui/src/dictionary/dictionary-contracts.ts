@@ -1,5 +1,7 @@
 import type {
   DictionaryEntry,
+  DictionaryLookupEntry,
+  DictionaryLookupKind,
   LocalDictionaryFormat,
   LocalDictionaryKind,
   ScelText,
@@ -40,7 +42,31 @@ export interface DictionaryImportResult {
 /** 随包词库的构建规格与来源提交。 */
 export type DictionaryManifest = { profile: string; sourceCommit: string };
 
+export interface DictionaryUpdateStatus {
+  enabled: boolean;
+  version: string;
+  phase: string;
+  checked_at: number;
+  downloaded_bytes: number;
+  total_bytes: number;
+  error: string | null;
+  can_rollback: boolean;
+  pending_restart: boolean;
+}
+
 export interface DictionaryClient {
+  /** 浏览包含内置行的全部词库；语言资源没有安装时 `available` 为假。 */
+  browse?(
+    offset: number,
+    limit: number,
+    kind: DictionaryLookupKind,
+    query: string,
+  ): Promise<{ entries: DictionaryLookupEntry[]; has_more: boolean; available: boolean }>;
+  /** 由共享 Rust 处理的官方词库独立更新。 */
+  updates?(
+    command: "status" | "automatic" | "check" | "configure" | "rollback",
+    enabled?: boolean,
+  ): Promise<DictionaryUpdateStatus>;
   /** ASCII 查询匹配编码前缀，含非 ASCII 字符时匹配词条字面内容；宿主在分页前完成筛选。 */
   list(
     offset: number,

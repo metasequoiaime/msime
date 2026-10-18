@@ -1,12 +1,22 @@
+import { useState } from "react";
 import { SettingsGroupNote } from "../settings-group-note";
 import * as settings from "../settings-style";
 import { SettingsManagerBlock } from "../settings-manager-block";
 import type { LocalDictionaryKind, DictionaryPageFormat } from "../../index";
-import { localDictionaryKinds } from "../../dictionary/dictionary-kinds";
-import { DICTIONARY_PAGE_SIZE } from "../../dictionary/dictionary-file";
+import {
+  isResourceDictionaryKind,
+  localDictionaryKinds,
+  resourceDictionaryKinds,
+} from "../../dictionary/dictionary-kinds";
+import {
+  DICTIONARY_PAGE_SIZE,
+  type DictionaryLookupKind,
+  type ResourceDictionaryKind,
+} from "../../dictionary/dictionary-file";
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
 import { GroupList } from "../../core/platform-controls";
+import { DictionaryUpdates } from "../dictionary-updates";
 import { DictionaryManifestCard } from "../dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "../personal-dictionary-import-card";
 import { DictionaryEntries } from "../dictionary-entries";
@@ -25,7 +35,9 @@ import { SettingsManagerActions } from "../settings-manager-actions";
 import { SettingsEmptyMessage } from "../settings-empty-message";
 import { HarmonyPhoneDictionary } from "../harmony-phone-dictionary";
 import { useSettingsTabs } from "../use-settings-tabs";
-import { dictionaryTabs } from "../dictionary-tabs";
+import { cloudDictionaryTab, dictionaryTabs } from "../dictionary-tabs";
+import { CloudDictionaryTab } from "../cloud-dictionary-tab";
+import { ResourceDictionaryLookup } from "../resource-dictionary-lookup";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -37,7 +49,7 @@ function fileFormat(fileName: string, chosen: DictionaryPageFormat): DictionaryP
   return chosen;
 }
 
-/** The 词库 page of the settings form. */
+/** 词库查询、个人词库管理与云词库共用顶部标签。 */
 export function DictionarySettingsPage() {
   const {
     client,
@@ -71,28 +83,30 @@ export function DictionarySettingsPage() {
     exportPhrases,
     exportAllPhrases,
     resetLearnedData,
-    openPanel,
     harmonyPlatform,
     mobilePlatform,
     openCommunityGallery,
+    openPanel,
+    dictionaryTab,
+    setDictionaryTab,
   } = useSettingsForm();
-  const { tabList, panel } = useSettingsTabs(
-    // 没有本地词库的宿主没有可查的东西，只留「管理词库」，打开词库页时不落在一张空白的标签上。
-    dictionaryTabs.filter((tab) => tab.id !== "lookup" || Boolean(client.dictionary)),
-    "词库设置分类",
-    !mobilePlatform,
-  );
-  // HarmonyOS 手机按 Android 的词库页布局：按词库列出，点进去编辑，而不是这张按种类查词条的桌面表单。它在打开时读词库和社区列表，所以只在本页可见时挂载。
-  if (harmonyPlatform && mobilePlatform) {
-    return (
-      <SettingsPageFieldset disabled={busy} hidden={page !== "dictionary"} ariaLabel="词库">
-        {page === "dictionary" && <HarmonyPhoneDictionary />}
-      </SettingsPageFieldset>
-    );
-  }
-  // 词库操作的结果。导出、导入和清除学习数据在「管理词库」，查询和编辑在「查词库」，桌面把结果画在标签下、两个面板之上，用户在哪个标签上操作都看得到；手机没有标签，导入导出就在下面，结果仍画在本地词库管理组里。
+  const [resourceKind, setResourceKind] = useState<ResourceDictionaryKind | null>(null);
   const feedback = (
     <>
+      {dictionaryPendingCount > 0 && (
+        <SettingsInputDescription role="status">
+          {dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。
+        </SettingsInputDescription>
+      )}
+      {dictionarySnapshotError && <ErrorAlert>{dictionarySnapshotError}</ErrorAlert>}
+      <DictionaryFailuresNotice
+        failures={dictionaryFailures}
+        busy={phraseBusy}
+        canRetry={Boolean(client.dictionary?.retry)}
+        canDismiss={Boolean(client.dictionary?.dismissFailure)}
+        onRetry={(requestId) => void retryDictionaryFailure(requestId)}
+        onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
+      />
       {phraseError && <ErrorAlert>{phraseError}</ErrorAlert>}
       {phraseNotice && (
         <SettingsEmptyMessage compact role="status">
@@ -101,30 +115,67 @@ export function DictionarySettingsPage() {
       )}
     </>
   );
-  const feedbackInLookup = mobilePlatform && Boolean(client.dictionary);
-  // 桌面上选词库类型的框在「查词库」标签，「管理词库」里看不到它，所以直接写出当前类型；手机直列，那个框就在上面。
-  const transferKind = mobilePlatform
-    ? "导入和导出的是上面所选类型的词库"
-    : `导入和导出的是「查词库」中选中的「${localDictionaryKinds.find(([kind]) => kind === dictionaryKind)?.[1] ?? "词库"}」词库`;
+  const tabs =
+    client.cloudDictionary && !mobilePlatform
+      ? ([...dictionaryTabs, cloudDictionaryTab] as const)
+      : dictionaryTabs;
+  const { tabList, panel } = useSettingsTabs(
+    tabs.filter((tab) => tab.id !== "lookup" || Boolean(client.dictionary)),
+    "词库设置分类",
+    !mobilePlatform,
+    dictionaryTab,
+    setDictionaryTab,
+    settings.dictionaryTabs,
+  );
+  // HarmonyOS 手机按 Android 的词库页布局：按词库列出，点进去编辑，而不是这张按种类查词条的桌面表单。它在打开时读词库和社区列表，所以只在本页可见时挂载。
+  if (harmonyPlatform && mobilePlatform) {
+    return (
+      <SettingsPageFieldset disabled={busy} hidden={page !== "dictionary"} ariaLabel="词库">
+        {page === "dictionary" && (
+          <>
+            {client.dictionary?.updates && (
+              <DictionaryUpdates request={client.dictionary.updates} />
+            )}
+            <HarmonyPhoneDictionary />
+          </>
+        )}
+      </SettingsPageFieldset>
+    );
+  }
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "dictionary"} ariaLabel="词库">
-      {tabList}
-      {!feedbackInLookup && feedback}
+      <div className={settings.dictionaryNav}>
+        <div className={settings.dictionaryNavCopy}>
+          <span className={settings.dictionaryNavEyebrow}>词库工具</span>
+          <span className={settings.dictionaryNavDescription}>管理本机词条与云端词库</span>
+        </div>
+        {tabList}
+      </div>
+      {!mobilePlatform && feedback}
       {/* 先是词库本身（查、看、加），再是成批的导入导出和云词库，然后是只读的词库信息和别的入口，清除学习数据这种危险操作放在页末。 */}
-      {client.dictionary &&
-        panel(
-          "lookup",
+      {panel(
+        "lookup",
+        client.dictionary && (
           <GroupList title="本地词库管理">
             <SettingsGroupNote>
-              输入词条文字或编码前缀查询本地词库；查询结果也会包含匹配的内置词条。用户词条可以新增、编辑和删除，内置词条只能调整权重或删除。
+              默认显示所选词库的全部词条，输入文字或编码后实时筛选。个人词条可以编辑，基础词库只读。
             </SettingsGroupNote>
             <SelectRow
               title="词库"
               aria-label="本地词库类型"
-              value={dictionaryKind}
-              disabled={phraseBusy}
+              className={settings.dictionaryKindSelect}
+              value={resourceKind ?? dictionaryKind}
               onChange={(event) => {
-                const kind = event.target.value as LocalDictionaryKind;
+                const kind = event.target.value as DictionaryLookupKind;
+                setPhraseForm(null);
+                setPhraseSearch("");
+                setPhrases([]);
+                if (isResourceDictionaryKind(kind)) {
+                  setResourceKind(kind);
+                  return;
+                }
+                setResourceKind(null);
+                if (kind === dictionaryKind && !phraseSearch) void loadPhrases(kind, 0);
                 setDictionaryKind(kind);
                 if (
                   kind !== "pinyin" &&
@@ -132,96 +183,95 @@ export function DictionarySettingsPage() {
                 )
                   setDictionaryFormat("standard");
                 setPhrases([]);
-                void loadPhrases(kind);
               }}
             >
-              {localDictionaryKinds.map(([kind, label]) => (
+              {[
+                ...localDictionaryKinds,
+                ...(client.dictionary.browse ? resourceDictionaryKinds : []),
+              ].map(([kind, label]) => (
                 <option key={kind} value={kind}>
                   {label}
                 </option>
               ))}
             </SelectRow>
-            <TextInputRow
-              title="词条或编码"
-              label="词条或编码"
-              className={settings.fieldInput}
-              value={phraseSearch}
-              placeholder="例如：你好 或 nihao"
-              onChange={setPhraseSearch}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void loadPhrases(dictionaryKind, 0);
-                }
-              }}
-            >
-              <ActionButton
-                action={() => void loadPhrases(dictionaryKind, 0)}
-                disabled={phraseBusy}
-                label="查询"
+            {resourceKind ? (
+              <ResourceDictionaryLookup
+                key={resourceKind}
+                dictionary={client.dictionary}
+                kind={resourceKind}
               />
-            </TextInputRow>
-            <SettingsManagerBlock>
-              {dictionaryPendingCount > 0 && (
-                <SettingsInputDescription role="status">
-                  {dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。
-                </SettingsInputDescription>
-              )}
-              {dictionarySnapshotError && <ErrorAlert>{dictionarySnapshotError}</ErrorAlert>}
-              <DictionaryFailuresNotice
-                failures={dictionaryFailures}
-                busy={phraseBusy}
-                canRetry={Boolean(client.dictionary?.retry)}
-                canDismiss={Boolean(client.dictionary?.dismissFailure)}
-                onRetry={(requestId) => void retryDictionaryFailure(requestId)}
-                onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
-              />
-              {feedbackInLookup && feedback}
-              <DictionaryEntries
-                kind={dictionaryKind}
-                entries={phrases}
-                form={phraseForm}
-                busy={phraseBusy}
-                emptyMessage={phrasePage.status}
-                listRef={phraseListRef}
-                onFormChange={setPhraseForm}
-                onSave={() => void savePhrase()}
-                onCancel={() => setPhraseForm(null)}
-                onEdit={(entry) =>
-                  setPhraseForm({
-                    key: entry.key,
-                    value: entry.value,
-                    weight: entry.weight,
-                    previous: entry,
-                  })
-                }
-                onRemove={(entry) => void removePhrase(entry)}
-              />
-              <DictionaryPagination
-                busy={phraseBusy}
-                offset={phrasePage.offset}
-                hasMore={phrasePage.hasMore}
-                status={phrasePage.status}
-                pageSize={DICTIONARY_PAGE_SIZE}
-                onPageChange={turnPhrasePage}
-              />
-              <SettingsManagerActions>
-                <ActionButton
-                  action={() =>
-                    setPhraseForm({
-                      key: "",
-                      value: "",
-                      weight: 10,
-                      previous: null,
-                    })
-                  }
-                  disabled={phraseBusy}
-                  label="新增词条"
+            ) : (
+              <>
+                <TextInputRow
+                  title="词条或编码"
+                  label="词条或编码"
+                  className={settings.fieldInput}
+                  type="search"
+                  value={phraseSearch}
+                  placeholder="例如：你好 或 nihao"
+                  onChange={setPhraseSearch}
                 />
-              </SettingsManagerActions>
-            </SettingsManagerBlock>
-          </GroupList>,
-        )}
+                <SettingsManagerBlock>
+                  {mobilePlatform && feedback}
+                  <DictionaryEntries
+                    kind={dictionaryKind}
+                    entries={phrases}
+                    form={phraseForm}
+                    busy={phraseBusy}
+                    emptyMessage={phrasePage.status}
+                    listRef={phraseListRef}
+                    onFormChange={setPhraseForm}
+                    onSave={() => void savePhrase()}
+                    onCancel={() => setPhraseForm(null)}
+                    onEdit={(entry) =>
+                      setPhraseForm({
+                        key: entry.key,
+                        value: entry.value,
+                        weight: entry.weight,
+                        previous: entry,
+                      })
+                    }
+                    onRemove={(entry) => void removePhrase(entry)}
+                  />
+                  <div className={settings.dictionaryFooter}>
+                    <ActionButton
+                      action={() =>
+                        setPhraseForm({
+                          key: "",
+                          value: "",
+                          weight: 10,
+                          previous: null,
+                        })
+                      }
+                      disabled={phraseBusy}
+                      label="新增词条"
+                    />
+                    <DictionaryPagination
+                      busy={phraseBusy}
+                      offset={phrasePage.offset}
+                      hasMore={phrasePage.hasMore}
+                      status={phrasePage.status}
+                      pageSize={DICTIONARY_PAGE_SIZE}
+                      onPageChange={turnPhrasePage}
+                    />
+                  </div>
+                </SettingsManagerBlock>
+              </>
+            )}
+          </GroupList>
+        ),
+      )}
+      {panel(
+        "cloud",
+        client.cloudDictionary && (
+          <div className={settings.cloudDictionaryEmbed}>
+            <CloudDictionaryTab
+              client={client.cloudDictionary}
+              onClose={() => setDictionaryTab("lookup")}
+            />
+          </div>
+        ),
+      )}
       {panel(
         "manage",
         <>
@@ -229,9 +279,30 @@ export function DictionarySettingsPage() {
             <GroupList title="导入与导出">
               <SettingsGroupNote>
                 {client.dictionary.scelText
-                  ? `${transferKind}；导入支持标准、Windows TSV、Rime、纯汉字自动注音，拼音词库还能导入搜狗细胞词库（.scel）。`
-                  : `${transferKind}；导入支持标准、Windows TSV、Rime 和纯汉字自动注音。`}
+                  ? "导入和导出个人新增词条；导入支持标准、Windows TSV、Rime、纯汉字自动注音，拼音词库还能导入搜狗细胞词库（.scel）。"
+                  : "导入和导出个人新增词条；导入支持标准、Windows TSV、Rime 和纯汉字自动注音。"}
               </SettingsGroupNote>
+              <SelectRow
+                title="个人词库"
+                aria-label="管理词库类型"
+                value={dictionaryKind}
+                disabled={phraseBusy}
+                onChange={(event) => {
+                  const kind = event.target.value as LocalDictionaryKind;
+                  setDictionaryKind(kind);
+                  if (
+                    kind !== "pinyin" &&
+                    (dictionaryFormat === "hans" || dictionaryFormat === "scel")
+                  )
+                    setDictionaryFormat("standard");
+                }}
+              >
+                {localDictionaryKinds.map(([kind, label]) => (
+                  <option key={kind} value={kind}>
+                    {label}
+                  </option>
+                ))}
+              </SelectRow>
               <SelectRow
                 title="文件格式"
                 aria-label="本地词库文件格式"
@@ -299,16 +370,18 @@ export function DictionarySettingsPage() {
               )}
             </GroupList>
           )}
-          {client.openCloudDictionary && (
-            <GroupList title="云词库">
-              <OpenPanelRow
-                title="云词库"
-                description="管理同步到账号的词条和备份"
-                action={() => openPanel(client.openCloudDictionary)}
-                label="打开云词库"
-              />
-            </GroupList>
-          )}
+          {client.openCloudDictionary &&
+            client.host?.platform !== "macos" &&
+            (!client.cloudDictionary || mobilePlatform) && (
+              <GroupList title="云词库">
+                <OpenPanelRow
+                  title="云词库"
+                  description="管理同步到账号的词条和备份"
+                  action={() => openPanel(client.openCloudDictionary)}
+                  label="打开云词库"
+                />
+              </GroupList>
+            )}
           {/* 触屏宿主的社区词库也从这里进入：「浏览更多词库」切到底部「社区」标签的「词库」分类。 */}
           {mobilePlatform && client.communityResources && (
             <GroupList title="社区词库">
@@ -322,6 +395,7 @@ export function DictionarySettingsPage() {
               />
             </GroupList>
           )}
+          {client.dictionary?.updates && <DictionaryUpdates request={client.dictionary.updates} />}
           {client.dictionaryManifest && <DictionaryManifestCard read={client.dictionaryManifest} />}
           <SubPageEntries
             title="更多"

@@ -859,6 +859,51 @@ impl JapaneseDictionary {
         i32::from(u16_at(&self.bytes, self.connection_offset + index * 2) as i16)
     }
 
+    /// 按文件里的读音顺序浏览，先排除纯标点和符号再分页，只为当前页分配字符串；同读音的不同词性保留为独立模型行。
+    pub(crate) fn browse(
+        &self,
+        query: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Vec<crate::dictionary::DictRow> {
+        let reading: String = query
+            .chars()
+            .map(|ch| {
+                if ('ァ'..='ヶ').contains(&ch) {
+                    char::from_u32(ch as u32 - 0x60).expect("平片假名对应码点")
+                } else {
+                    ch
+                }
+            })
+            .collect();
+        (0..self.token_count)
+            .map(|id| self.lemma_ref(id as u32))
+            .filter(|lemma| {
+                lemma.surface.chars().any(|ch| {
+                    // 长音与迭代记号具有字母属性，单独出现时仍不是可浏览的词条。
+                    ch.is_alphanumeric()
+                        && !matches!(
+                            ch,
+                            '々' | '〻' | '\u{3031}'
+                                ..='\u{3035}' | 'ゝ' | 'ゞ' | 'ヽ' | 'ヾ' | 'ー' | 'ｰ'
+                        )
+                })
+            })
+            .filter(|lemma| {
+                query.is_empty()
+                    || lemma.reading.starts_with(&reading)
+                    || lemma.surface.contains(query)
+            })
+            .skip(offset)
+            .take(limit)
+            .map(|lemma| crate::dictionary::DictRow {
+                key: lemma.reading.to_owned(),
+                value: lemma.surface.to_owned(),
+                weight: i64::from(lemma.word_cost),
+            })
+            .collect()
+    }
+
     fn token_at(&self, index: usize) -> Token {
         let offset = self.token_offset + index * TOKEN_SIZE;
         let bytes = &self.bytes;
@@ -1010,6 +1055,86 @@ mod tests {
 
     fn surfaces(lemmas: &[JapaneseLemma]) -> Vec<&str> {
         lemmas.iter().map(|lemma| lemma.surface.as_str()).collect()
+    }
+
+    #[test]
+    fn browse_filters_reading_and_surface_before_paging() {
+        let dictionary = parsed(test_model::bytes(
+            &[
+                ("かな", "仮名", 0, 0, 400),
+                ("かな", "仮名", 0, 0, 500),
+                ("にほん", "日本", 0, 0, -10),
+                ("にほんご", "日本語", 0, 0, 600),
+                ("わいるど", "語%_", 0, 0, 700),
+            ],
+            1,
+            &[0],
+        ));
+        assert_eq!(
+            dictionary
+                .browse("", 1, 2)
+                .iter()
+                .map(|row| row.value.as_str())
+                .collect::<Vec<_>>(),
+            ["仮名", "日本"]
+        );
+        for query in ["日本", "にほん", "ニホン"] {
+            let rows = dictionary.browse(query, 1, 10);
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].value, "日本語");
+        }
+        assert_eq!(dictionary.browse("日本", 0, 1)[0].weight, -10);
+        assert_eq!(dictionary.browse("%_", 0, 10)[0].value, "語%_");
+        assert!(dictionary.browse("不存在", 0, 10).is_empty());
+        assert!(dictionary.browse("", 5, 10).is_empty());
+    }
+
+    #[test]
+    fn browse_omits_symbol_only_surfaces_before_offset_without_changing_conversion() {
+        let symbols = [
+            " ", "!", "$", "&", "-", ".", "。", "・", "々", "ゝ", "ー", "ｰ", "🙂",
+        ];
+        let mut entries: Vec<_> = symbols
+            .iter()
+            .map(|symbol| (*symbol, *symbol, 0, 0, 10))
+            .collect();
+        entries.extend([
+            ("えーびー", "A/B", 0, 0, 20),
+            ("かな", "仮名", 0, 0, 30),
+            ("かな", "仮名", 0, 0, 40),
+            ("きごう", "※", 0, 0, 50),
+            ("こーひー", "コーヒー", 0, 0, 60),
+            ("ぜろ", "007", 0, 0, 70),
+            ("ときどき", "時々", 0, 0, 80),
+            ("にほん", "日本", 0, 0, 90),
+        ]);
+        entries.sort_by_key(|entry| entry.0);
+        let dictionary = parsed(test_model::bytes(&entries, 1, &[0]));
+        let rows = dictionary.browse("", 0, 100);
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.value.as_str())
+                .collect::<Vec<_>>(),
+            ["A/B", "仮名", "仮名", "コーヒー", "007", "時々", "日本"]
+        );
+        assert_eq!(
+            dictionary
+                .browse("", 3, 2)
+                .iter()
+                .map(|row| row.value.as_str())
+                .collect::<Vec<_>>(),
+            ["コーヒー", "007"]
+        );
+        assert!(dictionary.browse("", 7, 2).is_empty());
+        for query in ["!", "きごう", "※", "🙂"] {
+            assert!(dictionary.browse(query, 0, 10).is_empty(), "{query}");
+        }
+        for query in ["こー", "コー", "コーヒー", "ー"] {
+            assert_eq!(dictionary.browse(query, 0, 10)[0].value, "コーヒー");
+        }
+        assert_eq!(dictionary.browse("/", 0, 10)[0].value, "A/B");
+        assert_eq!(dictionary.exact_lemmas("!", 1)[0].surface, "!");
+        assert_eq!(dictionary.exact_lemmas("きごう", 1)[0].surface, "※");
     }
 
     fn assert_borrowed_lemmas(

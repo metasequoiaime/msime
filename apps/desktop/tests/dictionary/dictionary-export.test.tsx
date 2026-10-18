@@ -11,8 +11,8 @@ import {
 import { dictionaryKindLabel } from "../../../../packages/ui/src/dictionary/dictionary-export";
 import { localDictionaryKinds } from "../../../../packages/ui/src/dictionary/dictionary-kinds";
 
-test("the pinyin dictionary is named 拼音 in the local dictionary controls", () => {
-  expect(localDictionaryKinds.find(([kind]) => kind === "pinyin")?.[1]).toBe("拼音");
+test("本地词库控件明确显示中文拼音", () => {
+  expect(localDictionaryKinds.find(([kind]) => kind === "pinyin")?.[1]).toBe("中文 · 拼音");
   expect(dictionaryKindLabel("pinyin")).toBe("拼音");
 });
 

@@ -376,3 +376,40 @@ test("a dictionary export response from a replaced client cannot publish stale f
   expect(result.current.phraseNotice).toBe("");
   expect(result.current.phraseError).toBe("");
 });
+
+test.each(["export", "reset"] as const)(
+  "a delayed initial query preserves the %s success notice",
+  async (action) => {
+    vi.useFakeTimers();
+    const list = vi.fn().mockResolvedValue({ entries: [], has_more: false });
+    const client: DictionaryManagerClient = {
+      dictionary: {
+        list,
+        edit: vi.fn(),
+        export: vi.fn().mockResolvedValue({ text: "synthetic\tfixture\t10\n", has_more: false }),
+      },
+      saveExport: vi.fn().mockResolvedValue("/synthetic/export.txt"),
+      resetLearnedData: vi.fn().mockResolvedValue(undefined),
+    };
+    const { result, unmount } = renderHook(() =>
+      useDictionaryManager({ client, confirm: vi.fn().mockResolvedValue(true) }),
+    );
+    try {
+      await act(async () => {
+        if (action === "export") await result.current.exportPhrases();
+        else await result.current.resetLearnedData();
+      });
+      const notice = result.current.phraseNotice;
+      expect(notice).toContain(action === "export" ? "已导出 1 条用户词条" : "已清除所有学习数据");
+      expect(list).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTimeAsync(280));
+      expect(list).toHaveBeenCalledOnce();
+      expect(result.current.phraseNotice).toBe(notice);
+      act(() => result.current.setPhraseSearch("synthetic-query"));
+      expect(result.current.phraseNotice).toBe("");
+    } finally {
+      unmount();
+      vi.useRealTimers();
+    }
+  },
+);

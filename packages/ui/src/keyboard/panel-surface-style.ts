@@ -1,11 +1,4 @@
-/**
- * The handwriting and voice panels.
- *
- * Both are separate windows with the same two-palette arrangement as the emoji panel: a fixed dark
- * chrome, and a light half selected by `data-panel-theme` on the root. Same reasoning as there -- the
- * pairs are named once and the light values ride along as `group-data` variants, instead of the
- * stylesheet's habit of writing every declaration twice.
- */
+/** 手写和语音浮窗的布局与配色。手写板使用自身明暗属性下的局部颜色变量，语音沿用分组主题。 */
 
 import { minWidthZero } from "../core/row-style";
 
@@ -34,35 +27,33 @@ export const voiceSubmit = `${voiceAction} bg-[#3a3945] text-[#f5f5f7] group-dat
 
 // ---- handwriting ----
 
-export const handwritingPanel = `group ${panelSurface} ${panelText}`;
-/** Canvas beside the recognition column, stacked once the window is too narrow to hold both. */
+// 面板明暗由自身属性决定，避免全局设置页主题覆盖浮窗的画布和系统按钮。
+export const handwritingPanel =
+  "group flex h-screen flex-col overflow-auto bg-[var(--hw-bg)] text-[var(--hw-text)] [font-family:-apple-system,BlinkMacSystemFont,sans-serif] [color-scheme:dark] [--hw-bg:#242628] [--hw-card:#2d3032] [--hw-canvas:#282b2d] [--hw-text:#f0f1f0] [--hw-muted:#a2aaa7] [--hw-edge:#414644] [--hw-guide:#424a46] [--hw-accent:#84c5a0] [--hw-soft:#35483e] data-[panel-theme=light]:[color-scheme:light] data-[panel-theme=light]:[--hw-bg:#f4f5f4] data-[panel-theme=light]:[--hw-card:#fff] data-[panel-theme=light]:[--hw-canvas:#fafbf9] data-[panel-theme=light]:[--hw-text:#25312b] data-[panel-theme=light]:[--hw-muted:#6b7870] data-[panel-theme=light]:[--hw-edge:#dce2dd] data-[panel-theme=light]:[--hw-guide:#dce5dd] data-[panel-theme=light]:[--hw-accent:#28764d] data-[panel-theme=light]:[--hw-soft:#e6f1e9] [&_button]:font-[inherit] [&_button]:transition-colors [&_button]:disabled:cursor-default [&_button]:disabled:opacity-40 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-offset-2 [&_button]:focus-visible:outline-[var(--hw-accent)]";
+export const handwritingHeader =
+  "flex h-14 shrink-0 items-center justify-between border-0 border-b border-solid border-[var(--hw-edge)] px-6 text-[13px] font-medium select-none [&>span]:flex [&>span]:items-center [&>span]:gap-2.5 [&_svg]:text-[var(--hw-accent)] [&>button]:flex [&>button]:size-7 [&>button]:items-center [&>button]:justify-center [&>button]:rounded-full [&>button]:border-0 [&>button]:bg-transparent [&>button]:p-0 [&>button]:text-xl [&>button]:text-[var(--hw-muted)] [&>button:hover]:bg-[var(--hw-edge)] [&>button:hover]:text-[var(--hw-text)]";
+/** 画布与候选卡片占满可用高度，小窗口改为纵向排列。 */
 export const handwritingBody =
-  "grid grid-cols-[minmax(300px,0.43fr)_minmax(360px,0.57fr)] gap-7 p-6 max-phone:grid-cols-1 max-phone:p-3.5";
-export const inkSection = minWidthZero;
-/*
- * Crosshair while a stroke is in progress, hand otherwise, as the shipped panel does: with no cursor
- * at all the square gives no hint that it can be written on.
- */
-export const inkCanvas = `block aspect-square w-full cursor-grab touch-none rounded-lg border bg-[#25262d] ${panelEdge} group-data-[panel-theme=light]:bg-white data-[drawing=true]:cursor-crosshair focus-visible:outline-2 focus-visible:-outline-offset-[3px] focus-visible:outline-[#5fbf84] [&_polyline]:fill-none [&_polyline]:stroke-[#f5f5f7] [&_polyline]:stroke-4 [&_polyline]:[stroke-linecap:round] [&_polyline]:[stroke-linejoin:round] group-data-[panel-theme=light]:[&_polyline]:stroke-[#202124] [&_circle]:fill-[#f5f5f7] group-data-[panel-theme=light]:[&_circle]:fill-[#202124] [&_text]:fill-[#b8b8c0] [&_text]:text-lg group-data-[panel-theme=light]:[&_text]:fill-[#6b6f78]`;
-
-/*
- * A tappable tile in this panel: the stroke actions and the candidate grid share one treatment.
- *
- * Every variant is written out rather than composed from a shared constant. A prefix interpolated in
- * front of a multi-class string only ever lands on the first class -- `[&>button]:${tile}` yields
- * `[&>button]:border bg-... text-...`, so the rest leak onto the container and Tailwind never emits
- * the prefixed forms at all.
- */
-export const handwritingActions =
-  "mt-[18px] flex flex-wrap gap-3 [&>button]:flex-[0_0_112px] [&>button]:rounded-md [&>button]:p-2.5 [&>button]:border [&>button]:bg-[#292a31] [&>button]:border-[#45454f] [&>button]:group-data-[panel-theme=light]:border-[#c8ccd5] [&>button]:text-[#f5f5f7] [&>button]:group-data-[panel-theme=light]:text-[#202124] [&>button]:hover:border-[#5fbf84] [&>button]:hover:bg-[#3b3240] [&>button]:group-data-[panel-theme=light]:bg-white [&>button]:group-data-[panel-theme=light]:hover:bg-[#edf0f5]";
+  "mx-auto grid w-full max-w-[1060px] flex-1 box-border grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] items-start gap-6 p-6 max-phone:grid-cols-1 max-phone:gap-4 max-phone:p-4";
+export const inkSection = `${minWidthZero} flex flex-col items-center gap-3.5`;
+export const inkCanvas =
+  "block aspect-square w-full max-w-[calc(100vh-155px)] box-border cursor-crosshair touch-none rounded-2xl border border-solid border-[var(--hw-edge)] bg-[var(--hw-canvas)] shadow-[0_2px_8px_#00000008] focus-visible:outline-2 focus-visible:-outline-offset-[3px] focus-visible:outline-[var(--hw-accent)] [&_polyline]:fill-none [&_polyline]:stroke-[var(--hw-text)] [&_polyline]:stroke-4 [&_polyline]:[stroke-linecap:round] [&_polyline]:[stroke-linejoin:round] [&_circle]:fill-[var(--hw-text)] [&_text]:fill-[var(--hw-muted)] [&_text]:text-[17px]";
+export const inkGuides =
+  "pointer-events-none fill-none stroke-[var(--hw-guide)] stroke-1 [stroke-dasharray:5_7]";
+const handwritingButton =
+  "rounded-lg border border-solid border-[var(--hw-edge)] bg-[var(--hw-card)] text-[var(--hw-text)] enabled:hover:border-[var(--hw-accent)] enabled:hover:bg-[var(--hw-soft)]";
+export const inkActions = `flex w-full max-w-[calc(100vh-155px)] gap-2 [&>button]:min-h-9 [&>button]:min-w-0 [&>button]:flex-1 [&>button]:px-1 [&>button]:text-xs [&>button]:whitespace-nowrap`;
+export const inkAction = handwritingButton;
+export const handwritingActions = `flex flex-wrap items-center gap-2 text-xs text-[var(--hw-muted)] [&>button]:min-h-7 [&>button]:rounded-md [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-3 [&>button]:text-[var(--hw-muted)] [&>button]:enabled:hover:bg-[var(--hw-soft)] [&>button[aria-pressed=true]]:bg-[var(--hw-soft)] [&>button[aria-pressed=true]]:font-medium [&>button[aria-pressed=true]]:text-[var(--hw-accent)]`;
 export const recognitionSection =
-  "[&>h2]:mt-0 [&>h2]:mb-4 [&>h2]:text-lg [&>h2]:font-semibold [&>p]:mt-6 [&>p]:text-[13px] [&>p]:text-[#b8b8c0] group-data-[panel-theme=light]:[&>p]:text-[#6b6f78]";
-export const candidateGrid =
-  "grid grid-cols-4 gap-2 [&>button]:aspect-square [&>button]:rounded-md [&>button]:text-3xl [&>button]:border [&>button]:bg-[#292a31] [&>button]:border-[#45454f] [&>button]:group-data-[panel-theme=light]:border-[#c8ccd5] [&>button]:text-[#f5f5f7] [&>button]:group-data-[panel-theme=light]:text-[#202124] [&>button]:hover:border-[#5fbf84] [&>button]:hover:bg-[#3b3240] [&>button]:group-data-[panel-theme=light]:bg-white [&>button]:group-data-[panel-theme=light]:hover:bg-[#edf0f5]";
+  "flex min-h-[min(490px,calc(100vh-105px))] min-w-0 self-stretch flex-col rounded-2xl border border-solid border-[var(--hw-edge)] bg-[var(--hw-card)] p-5 box-border max-phone:min-h-64 [&>h2]:m-0 [&>h2]:mb-3 [&>h2]:text-[15px] [&>h2]:font-semibold [&>p]:mb-0 [&>p]:mt-4 [&>p]:border-0 [&>p]:border-t [&>p]:border-solid [&>p]:border-[var(--hw-edge)] [&>p]:pt-3 [&>p]:text-xs [&>p]:leading-relaxed [&>p]:text-[var(--hw-muted)]";
+export const candidateGrid = "mt-5 grid grid-cols-4 content-start gap-2 empty:mt-0";
 export const candidate = "flex min-w-0 flex-col gap-1";
-export const candidateSubmit = "w-full min-w-0 p-1.5 leading-tight wrap-anywhere whitespace-normal";
-/** The copy affordance beside a candidate is a label, not a glyph, so it does not want a square. */
-export const candidateCopy = "aspect-auto! px-2 py-1 text-[13px]!";
+export const candidateSubmit = `w-full min-w-0 min-h-16 p-1.5 leading-tight wrap-anywhere whitespace-normal ${handwritingButton}`;
+export const candidateCopy =
+  "rounded-md border-0 bg-transparent px-2 py-1 text-xs text-[var(--hw-muted)] enabled:hover:bg-[var(--hw-soft)] enabled:hover:text-[var(--hw-accent)]";
+export const handwritingEmpty =
+  "flex flex-1 flex-col items-center justify-center gap-3 py-9 text-center text-[var(--hw-muted)] [&>span]:flex [&>span]:size-14 [&>span]:items-center [&>span]:justify-center [&>span]:rounded-2xl [&>span]:bg-[var(--hw-soft)] [&>span]:text-[var(--hw-accent)] [&>p]:m-0 [&>p]:text-[13px] [&>small]:text-xs";
 
 // ---- the handwriting illustration on the settings page, which uses the app's palette ----
 

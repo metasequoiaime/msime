@@ -68,7 +68,7 @@ public final class AndroidLocalSettingsSmoke {
         check(settings.bool(AndroidLocalSettings.HANDWRITING_SHOW_PINYIN), "show pinyin default");
         check("follow_skin".equals(settings.choice(AndroidLocalSettings.HANDWRITING_STROKE_COLOR)), "stroke colour default");
         check(settings.integer(AndroidLocalSettings.HANDWRITING_STROKE_WIDTH) == 3, "stroke width default");
-        check(!settings.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK), "offline fallback default");
+        check(settings.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK), "offline fallback default");
         check(!settings.bool(AndroidLocalSettings.INCOGNITO), "incognito default");
         check(!settings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO), "contribute audio default");
         check(settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT) == 0, "height default");

@@ -4,7 +4,6 @@ import {
   usePreferencesSnapshot,
   type PanelClient,
   type SettingsClient,
-  type SurfaceTheme,
   type TouchKeyboardSkinDesign,
   keyboardThemeId,
   type NineKeyShuangpinKeyFace,
@@ -12,67 +11,14 @@ import {
 import { useCandidatePreviewTheme } from "../../../../packages/ui/src/candidate/candidate-preview-theme";
 import { touchKeyboardGeometryPreferences } from "../../../../packages/ui/src/settings/touch-keyboard-geometry-preferences";
 import { defaultTouchKeyboardGeometry } from "../../../../packages/ui/src/settings/touch-keyboard-geometry-defaults";
-import { invoke, isTauri } from "@tauri-apps/api/core";
-
+import { panelSurfaceTheme, usePanelHost } from "./panel-host";
 type ThemeClient = Pick<
   SettingsClient,
   "load" | "onPreferencesChanged" | "host" | "nineKeyShuangpinLayout"
 >;
 
-/** 面板窗口读到的宿主能力：客户端已经知道的那份，否则是外壳报告的那份。键盘面板要用其中的平台和 `touch_keyboard_spacing`，各面板还要用 `surface_themes_follow` 决定读不读自己的单独明暗。 */
-type PanelHost = {
-  platform: string;
-  touch_keyboard_spacing?: boolean;
-  surface_themes_follow?: boolean;
-};
-
-/** `resolved` 为 false 表示还在等外壳报告宿主能力；报告失败或不在 Tauri 里时 `host` 为 undefined、`resolved` 为 true。 */
-export type PanelHostState = { host?: PanelHost; resolved: boolean };
-
-export function usePanelHost(host: SettingsClient["host"]): PanelHostState {
-  const [state, setState] = useState<PanelHostState>({
-    host,
-    resolved: Boolean(host?.platform),
-  });
-  useEffect(() => {
-    let active = true;
-    if (host?.platform)
-      setState((current) =>
-        current.host === host && current.resolved ? current : { host, resolved: true },
-      );
-    else if (isTauri())
-      void invoke<PanelHost>("host_capabilities")
-        .then((value) => {
-          if (active) setState({ host: value, resolved: true });
-        })
-        .catch(() => {
-          if (active) setState({ host: undefined, resolved: true });
-        });
-    else
-      setState((current) =>
-        current.host === undefined && current.resolved
-          ? current
-          : { host: undefined, resolved: true },
-      );
-    return () => {
-      active = false;
-    };
-  }, [host]);
-  return state;
-}
-
-/** The host platform a panel window runs under: the one the client already knows, or else the one the shell reports. */
-export function useHostPlatform(host: SettingsClient["host"]): string | undefined {
-  return usePanelHost(host).host?.platform;
-}
-
-/** 面板实际按哪一项单独明暗着色：各界面一律跟随颜色模式的宿主（`surface_themes_follow`，macOS、Windows 和 Linux）不读存下的值，与原生面板一致。宿主能力还没读到时也先只按颜色模式画，免得面板在答复到来前闪一下已经砍掉的单独明暗；确定没有宿主（浏览器预览，或外壳没答上来）时照旧套用。 */
-export function panelSurfaceTheme(
-  { host, resolved }: PanelHostState,
-  surface: SurfaceTheme | undefined,
-): SurfaceTheme | undefined {
-  return !resolved || host?.surface_themes_follow === true ? undefined : surface;
-}
+export { panelSurfaceTheme, useHostPlatform, usePanelHost } from "./panel-host";
+export type { PanelHost, PanelHostState } from "./panel-host";
 
 export function DesktopKeyboard({
   client,

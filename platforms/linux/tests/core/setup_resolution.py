@@ -72,6 +72,43 @@ def main() -> int:
         problems = setup.verify_directory(resources, lock)
         assert len(problems) == 1 and "缺少" in problems[0], problems
 
+    # 下载目录缺表时从安装包补齐，更新内置表时保留自定义表和无关文件。
+    with tempfile.TemporaryDirectory() as name:
+        root = Path(name)
+        prefix = root / "prefix"
+        source = prefix / "share/msime-client/resources/helpcodes"
+        source.mkdir(parents=True)
+        for table in setup.HELPCODE_FILES:
+            (source / table).write_text("测=ab\n")
+        resources = root / "downloaded"
+        resources.mkdir()
+        setup.install_helpcodes(prefix, resources)
+        target = resources / "helpcodes"
+        assert {p.name for p in target.iterdir()} == set(setup.HELPCODE_FILES)
+        (target / "custom").mkdir()
+        custom = target / "custom/user.txt"
+        custom.write_text("测=cd\n")
+        (source / "xiaohe_helpcode.txt").write_text("测=ef\n")
+        setup.install_helpcodes(prefix, resources)
+        assert (target / "xiaohe_helpcode.txt").read_text() == "测=ef\n"
+        assert custom.read_text() == "测=cd\n"
+        setup.install_helpcodes(prefix, source.parent)
+        # 链接目标不写入；既有叶子链接则被原子替换，不改链接指向的文件。
+        outside = root / "outside"
+        outside.write_text("unchanged")
+        (target / "helpcode.txt").unlink()
+        (target / "helpcode.txt").symlink_to(outside)
+        setup.install_helpcodes(prefix, resources)
+        assert outside.read_text() == "unchanged"
+        linked = root / "linked"
+        linked.mkdir()
+        (linked / "helpcodes").symlink_to(target, target_is_directory=True)
+        try:
+            setup.install_helpcodes(prefix, linked)
+            raise AssertionError("辅助码目录链接未被拒绝")
+        except OSError:
+            pass
+
     # 锁里没有下载地址的一项只要目录里已有且摘要相符就不算缺；缺了则在发出任何请求之前就中止，不下半份词库。
     with tempfile.TemporaryDirectory() as name:
         resources = Path(name) / "resources"

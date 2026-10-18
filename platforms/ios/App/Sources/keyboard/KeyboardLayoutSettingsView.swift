@@ -16,6 +16,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
   @State private var spaceVoice = KeyboardLayoutPreference.spaceVoice
+  @State private var quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
   @State private var tabOpensCandidates = true
   @State private var shuangpinKeyHints = KeyboardLayoutPreference.shuangpinKeyHints
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
@@ -40,6 +41,7 @@ struct KeyboardLayoutSettingsView: View {
       ScrollView {
         VStack(spacing: 28) {
           layoutGroup
+          quickSymbolsGroup
           feedbackGroup
           gestureGroup
           if UIDevice.current.userInterfaceIdiom == .pad { tabletGroup }
@@ -233,6 +235,28 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
+  private var quickSymbolsGroup: some View {
+    DesignGroup(title: "快捷符号", footer: "修改列表后，手机 26 键轻点输入第一项、长按选择；九键快捷栏按顺序显示。最多 12 个字符，留空恢复默认逗号与句号。") {
+      VStack(alignment: .leading, spacing: 8) {
+        TextField("，。？！、；：", text: $quickSymbols)
+          .textFieldStyle(.roundedBorder)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .accessibilityLabel("快捷符号")
+          .accessibilityIdentifier("appQuickPunctuationSymbolsField")
+        HStack {
+          Spacer()
+          Button("保存") { saveQuickSymbols() }
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(MetasequoiaTheme.accent)
+            .accessibilityIdentifier("appSaveQuickPunctuationSymbols")
+        }
+      }
+      .padding(.vertical, 8)
+      .padding(.horizontal, 20)
+    }
+  }
+
   private var gestureGroup: some View {
     DesignGroup(title: "手势", footer: "滑行输入只在全拼 26 键的字母键盘上生效，轻点照常输入单个字母。") {
       DesignToggleRow(title: "滑动输入符号", subtitle: "在字母键上下滑，输入角标符号；长按字母键始终可以输入",
@@ -250,6 +274,7 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityIdentifier("appGlideTypingSwitch")
       DesignDivider()
       DesignToggleRow(title: "长按空格语音输入",
+                      subtitle: "开启时长按打开语音；关闭后长按并左右移动可定位光标",
                       isOn: Binding(get: { spaceVoice }, set: { enabled in
                         spaceVoice = enabled
                         KeyboardLayoutPreference.spaceVoice = enabled
@@ -400,6 +425,12 @@ struct KeyboardLayoutSettingsView: View {
       ? KeyboardLayoutPreference.tabShowsMoreCandidates(MetasequoiaInputSessionBridge.loadSharedPreferences()) : enabled
   }
 
+  private func saveQuickSymbols() {
+    let symbols = KeyboardLayoutPreference.quickPunctuationSymbols(from: quickSymbols)
+    guard KeyboardLayoutPreference.saveQuickPunctuationSymbols(symbols) else { saveFailed = true; return }
+    quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
+  }
+
   private func readPreferences() {
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     // 文档里的选择（取不到时退回 App Group 镜像）就是键盘下次打开时用的方案。
@@ -414,11 +445,13 @@ struct KeyboardLayoutSettingsView: View {
     glideTyping = KeyboardLayoutPreference.glideTyping
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols
     spaceVoice = KeyboardLayoutPreference.spaceVoice
+    quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences else { return }
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
     // 文档是权威：先抄进 App Group，再从 App Group 读回页面，两边才是同一个值。
     KeyboardLayoutPreference.mirrorGeometry(preferences)
+    quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
     keySpacing = KeyboardLayoutPreference.keySpacing
     rowSpacing = KeyboardLayoutPreference.rowSpacing
     height = KeyboardLayoutPreference.heightAdjustment

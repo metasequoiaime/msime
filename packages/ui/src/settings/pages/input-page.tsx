@@ -423,7 +423,7 @@ export function InputSettingsPage() {
             />
           )
         }
-        outputMore={
+        outputExtra={
           showCharacterWidth ? (
             <CharacterWidthRow preferences={draft} onChange={onPreferencesChange} />
           ) : null

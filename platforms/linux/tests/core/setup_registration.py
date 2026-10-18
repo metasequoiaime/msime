@@ -170,6 +170,11 @@ class Harness:
         for tool in TOOLS:
             (tools / tool).symlink_to(stub)
         (prefix / "bin/msime-linux-prepare").symlink_to(stub)
+        # 安装包无条件提供七套内置辅助码，独立于下载的词库。
+        tables = prefix / "share/msime-client/resources/helpcodes"
+        tables.mkdir(parents=True)
+        for table in (ROOT.parents[1] / "resources/helpcodes").glob("*.txt"):
+            (tables / table.name).write_text("测=ab\n")
         resources = scratch / "resources"
         resources.mkdir()
         payload = b"synthetic dictionary"

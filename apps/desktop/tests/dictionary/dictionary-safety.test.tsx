@@ -56,7 +56,6 @@ async function openDictionary(dictionary: ReturnType<typeof dictionaryClient>) {
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   // The page lists on demand rather than on open.
-  fireEvent.click(await screen.findByRole("button", { name: "查询" }));
   // Wait for the rows themselves; the call resolving is not the same as a render.
   await screen.findAllByRole("button", { name: "删除" });
 }
@@ -106,7 +105,7 @@ test("deleting the only row on a later page steps back instead of showing nothin
   expect(dictionary.list.mock.calls[2][0]).toBe(0);
 });
 
-test("a bundled row is badged and its edit only changes the weight", async () => {
+test("a bundled row is badged and has no edit or delete actions", async () => {
   const bundled: DictionaryEntry = {
     kind: "quick_phrase",
     key: "dh",
@@ -120,18 +119,11 @@ test("a bundled row is badged and its edit only changes the weight", async () =>
   });
   await openDictionary(dictionary);
   expect(screen.getAllByText("内置")).toHaveLength(1);
-  // A user row keeps the full editor; the bundled one offers only a weight change.
+  // 用户词条保留完整编辑操作，内置词条只展示内容和来源标记。
   expect(screen.getByRole("button", { name: "编辑" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "调权重" }));
-  const code = screen.getByDisplayValue("dh") as HTMLInputElement;
-  const phrase = screen.getByDisplayValue("电话") as HTMLInputElement;
-  expect(code.readOnly && phrase.readOnly).toBe(true);
-  fireEvent.change(screen.getByDisplayValue("500"), { target: { value: "1" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存" }));
-  await waitFor(() => expect(dictionary.edit).toHaveBeenCalled());
-  const [previous, replacement] = dictionary.edit.mock.calls[0];
-  expect(previous).toEqual(bundled);
-  expect(replacement).toEqual({ ...bundled, weight: 1 });
+  expect(screen.queryByRole("button", { name: "调权重" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: "删除" })).toHaveLength(1);
+  expect(screen.queryByDisplayValue("电话")).toBeNull();
 });
 
 test("Android personal dictionary JSON import previews and queues only after confirmation", async () => {

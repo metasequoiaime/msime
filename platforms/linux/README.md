@@ -580,7 +580,7 @@ msime-linux-ibus-launcher
 
 两个参数必须是绝对路径，状态目录的父目录必须已存在；全新状态目录不能已有文件，但安装流程预先写入的 `anonymous-account.json` 或 `anonymous-session.json` 可以保留在其中。命令通过 Host API 按固定的 `desktop-dictionary.lock.json` 校验资源目录及其资源，再准备 Engine 用户数据、缓存和偏好配置；以 0700 创建状态目录，以 0600 原子发布 `runtime-options.json`，成功时输出配置路径。失败时保留已准备的数据，不覆盖已有目录或配置；重试需另选全新目录。若希望启动器自动发现配置，可将新状态目录选为 `$XDG_CONFIG_HOME/msime-client`（未设置时为 `$HOME/.config/msime-client`），并事先准备其父目录。自定义位置的 `MSIME_IBUS_OPTIONS` 需传入实际启动 IBus 的会话环境。
 
-若安装时已在 CMake 配置阶段传入 `-DMSIME_ENGINE_RESOURCES=/absolute/verified-resources`，CMake 会按仓库内固定的 `resources/desktop-dictionary.lock.json` 校验每个词库文件的名称、大小和 SHA-256，并将这些文件安装到 `${CMAKE_INSTALL_DATADIR}/msime-client/resources`；仓库自带的七套辅助码表（`resources/helpcodes`，不在词库发布里）装进其中的 `helpcodes/`，Engine 从资源目录下的这个子目录读辅助码表，宿主校验放行它；锁文件作为同级的来源元数据安装，不会混入 Engine 运行目录。`msime-linux-setup --download` 下载的词库目录目前不带辅助码表。这样可以直接使用已安装资源准备状态：
+若安装时已在 CMake 配置阶段传入 `-DMSIME_ENGINE_RESOURCES=/absolute/verified-resources`，CMake 会按仓库内固定的 `resources/desktop-dictionary.lock.json` 校验每个词库文件的名称、大小和 SHA-256，并将这些文件安装到 `${CMAKE_INSTALL_DATADIR}/msime-client/resources`；仓库自带的七套辅助码表（`resources/helpcodes`，不在词库发布里）装进其中的 `helpcodes/`，Engine 从资源目录下的这个子目录读辅助码表，宿主校验放行它；锁文件作为同级的来源元数据安装，不会混入 Engine 运行目录。辅助码表无条件随安装包提供；`msime-linux-setup` 首次配置时复制到下载或自备词库目录，已有安装运行 `msime-linux-setup --update` 即可补齐，不需要重新下载词库；`helpcodes/custom` 中的自定义表保留。这样可以直接使用已安装资源准备状态：
 
 ```sh
 msime-linux-prepare --installed /absolute/new-state

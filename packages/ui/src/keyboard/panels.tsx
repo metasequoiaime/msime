@@ -22,6 +22,7 @@ import type {
   CloudDictionaryPanelClient,
   EmojiPanelClient,
 } from "./panel-client";
+import { FluentIcon } from "../core/fluent-icons";
 import { ControlledCheckbox } from "../core/controlled-checkbox";
 import { downloadBlob } from "../core/download-blob";
 import { trackAsyncSubscription } from "../core/async-subscription";
@@ -46,6 +47,7 @@ import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { DictionaryFormatOptions } from "../dictionary/dictionary-format-options";
 import { usePanelDrag } from "./use-panel-drag";
 import { usePanelAction } from "./use-panel-action";
+import { cloudDictionaryErrorMessage } from "./cloud-dictionary-errors";
 import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
 import {
   useEffect,
@@ -1040,14 +1042,19 @@ export function HandwritingPanel({
   const renderStrokes = [...strokes, ...(drawing.length ? [{ points: drawing }] : [])];
   return (
     <main
-      className={`native-panel ${surface.handwritingPanel}`}
+      className={surface.handwritingPanel}
       onKeyDown={editInk}
       data-panel-theme={theme}
       aria-label="手写识别板"
     >
       <NativePanelHeader
-        title="水杉手写识别板"
-        className={`native-panel-header ${surface.panelHeader}`}
+        title={
+          <>
+            <FluentIcon name="pen" size={18} />
+            水杉手写识别板
+          </>
+        }
+        className={surface.handwritingHeader}
         drag={drag}
         closeDisabled={closing}
         onClose={() => void closeHandwriting()}
@@ -1067,6 +1074,9 @@ export function HandwritingPanel({
             aria-label="手写画布"
             aria-disabled={closing}
           >
+            <g className={surface.inkGuides} aria-hidden="true">
+              <path d="M210 20V400 M20 210H400 M20 20L400 400 M400 20L20 400" />
+            </g>
             {renderStrokes.map((stroke, index) =>
               stroke.points.length === 1 ? (
                 <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} />
@@ -1083,9 +1093,10 @@ export function HandwritingPanel({
               </text>
             )}
           </svg>
-          <div className={surface.handwritingActions}>
+          <div className={surface.inkActions}>
             <button
               type="button"
+              className={surface.inkAction}
               onClick={undo}
               disabled={closing || (!strokes.length && !drawing.length)}
               aria-keyshortcuts="Control+z Meta+z"
@@ -1094,6 +1105,7 @@ export function HandwritingPanel({
             </button>
             <button
               type="button"
+              className={surface.inkAction}
               onClick={redo}
               disabled={closing || !redoStrokes.length || drawing.length > 0}
               aria-keyshortcuts="Control+Shift+z Meta+Shift+z Control+y"
@@ -1102,6 +1114,7 @@ export function HandwritingPanel({
             </button>
             <button
               type="button"
+              className={surface.inkAction}
               onClick={clear}
               disabled={closing || (!strokes.length && !drawing.length && !redoStrokes.length)}
             >
@@ -1110,6 +1123,7 @@ export function HandwritingPanel({
             {client.recognizeHandwriting && (
               <button
                 type="button"
+                className={surface.inkAction}
                 onClick={retryRecognition}
                 disabled={
                   closing || !strokes.length || drawing.length > 0 || recognizing || submitting
@@ -1180,6 +1194,16 @@ export function HandwritingPanel({
               </div>
             ))}
           </div>
+          {!candidates.length && (
+            <div className={surface.handwritingEmpty} aria-hidden="true">
+              <span>
+                <FluentIcon name="pen" size={26} />
+              </span>
+              <p>写下一个字，候选会出现在这里</p>
+              <small>每写完一笔，自动更新识别结果</small>
+            </div>
+          )}
+          {candidates.length > 0 && <div className="flex-1" />}
           {handwritingPack && <HandwritingModelNotice packs={packs} mirror={client.modelMirror} />}
           <StatusMessage role="status">{notice}</StatusMessage>
         </section>
@@ -2144,13 +2168,20 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   );
 }
 
-export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelClient }) {
+export function CloudDictionaryPanel({
+  client,
+  embedded = false,
+}: {
+  client: CloudDictionaryPanelClient;
+  embedded?: boolean;
+}) {
   const { confirm, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
   const [entries, setEntries] = useState<CloudDictionaryEntry[]>([]);
   const [hasMore, setHasMore] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [form, setForm] = useState<{
     entry: CloudDictionaryEntry | null;
     code: string;
@@ -2158,7 +2189,10 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     weight: number;
   } | null>(null);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
-  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
+  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(
+    setNotice,
+    cloudDictionaryErrorMessage,
+  );
   const searchRef = useLatestRef(search);
 
   async function load(
@@ -2191,9 +2225,19 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
 
   function refresh(nextOffset = 0, nextSearch = searchRef.current, nextKind = kind) {
     return run(async (revision) => {
-      await load(revision, nextOffset, nextSearch, nextKind);
-      if (isCurrent(revision)) setNotice("云词库已刷新");
-    }, "无法访问云词库服务，请确认 provider 已连接");
+      try {
+        await load(revision, nextOffset, nextSearch, nextKind);
+        if (isCurrent(revision)) {
+          setLoadError(false);
+          setNotice("云词库已刷新");
+        }
+      } catch (error) {
+        if (isCurrent(revision)) {
+          setLoadError(true);
+          setNotice(cloudDictionaryErrorMessage(error, "无法加载云词库，请检查网络后重试。"));
+        }
+      }
+    }, "无法加载云词库，请检查网络后重试。");
   }
 
   useEffect(() => {
@@ -2202,11 +2246,12 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     setOffset(0);
     setHasMore(false);
     setForm(null);
-    void refresh(0);
+    const timer = window.setTimeout(() => void refresh(0), embedded ? 280 : 0);
     return () => {
+      window.clearTimeout(timer);
       invalidate();
     };
-  }, [client, invalidate]);
+  }, [client, invalidate, embedded, embedded ? kind : null, embedded ? search : null]);
 
   function beginAdd() {
     if (!busyRef.current) setForm({ entry: null, code: "", word: "", weight: 100000 });
@@ -2304,7 +2349,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     setOffset(0);
     setEntries([]);
     setHasMore(false);
-    void refresh(0, searchRef.current, next);
+    if (!embedded) void refresh(0, searchRef.current, next);
   }
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词库">
@@ -2312,7 +2357,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
       <CloudPanelHeader title="水杉云词库" onClose={() => void client.close()} />
       <div className={cloud.dictionaryBody}>
         <p className={cloud.dictionaryNote}>
-          管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。
+          词条同步到当前账号，可在其他设备使用。应用到本机后用于输入。
         </p>
         <CloudDictionaryKindTabs value={kind} disabled={busy} onChange={changeKind} />
         <CloudDictionaryQueryToolbar
@@ -2322,6 +2367,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
           queryAriaLabel="搜索云词条"
           queryValue={search}
           queryButtonLabel="查询"
+          live={embedded}
           inputClassName={cloud.dictionaryInput}
           onKindChange={changeKind}
           onQueryChange={(value) => {
@@ -2382,7 +2428,9 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
               />
             ))
           ) : (
-            <p className={cloud.dictionaryEmpty}>暂无词条</p>
+            <p className={`${cloud.dictionaryEmpty} py-8`}>
+              {busy ? "正在加载云词条…" : loadError ? "云词条加载失败" : "暂无云词条"}
+            </p>
           )}
         </div>
         <CloudDictionaryPagination
@@ -2413,7 +2461,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     revisionRef: requestRevision,
     run,
     invalidate,
-  } = usePanelAction(setNotice);
+  } = usePanelAction(setNotice, cloudDictionaryErrorMessage);
   const [snapshotBusy, setSnapshotBusy] = useState(false);
   const [restorePreview, setRestorePreview] = useState<{
     text: string;
@@ -2507,12 +2555,12 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       }
       const text = cloudResponseText(result);
       if (typeof text !== "string") throw new Error("provider returned no file");
-      downloadBlob(
-        new Blob([text], { type: "text/plain;charset=utf-8" }),
-        result.filename || `msime-${kind}-dictionary.tsv`,
-      );
+      const filename = result.filename || `msime-${kind}-dictionary.tsv`;
+      if (client.saveExport) await client.saveExport(filename, text);
+      else downloadBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), filename);
+      if (revision !== requestRevision.current) return;
       setNotice("云词库已导出");
-    }, "导出失败，请确认 provider 已连接");
+    }, "导出失败，请检查网络和登录状态后重试");
   }
 
   async function exportSnapshot() {
@@ -2528,10 +2576,10 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       }
       const text = cloudResponseText(result);
       if (typeof text !== "string" || !text) throw new Error("provider returned no snapshot");
-      downloadBlob(
-        new Blob([text], { type: "application/x-ndjson;charset=utf-8" }),
-        result.filename || "msime-dictionary-snapshot.ndjson",
-      );
+      const filename = result.filename || "msime-dictionary-snapshot.ndjson";
+      if (client.saveExport) await client.saveExport(filename, text);
+      else downloadBlob(new Blob([text], { type: "application/x-ndjson;charset=utf-8" }), filename);
+      if (!mounted.current || lifecycle !== lifecycleRevision.current) return;
       setNotice("完整云词库快照已导出");
     } catch {
       if (mounted.current && lifecycle === lifecycleRevision.current)
@@ -2837,7 +2885,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     run: runAction,
     invalidate,
     isCurrent,
-  } = usePanelAction(setNotice);
+  } = usePanelAction(setNotice, cloudDictionaryErrorMessage);
   const lifecycleRevision = useAsyncGeneration(client);
 
   async function refreshStatus() {
@@ -3067,7 +3115,10 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     weight: number;
   } | null>(null);
   const [notice, setNotice] = useState("查询基础词库与当前账号的完整目录");
-  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
+  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(
+    setNotice,
+    cloudDictionaryErrorMessage,
+  );
 
   useEffect(() => {
     invalidate();
@@ -3358,7 +3409,10 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   const [context, setContext] = useState("");
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState("仅在点击查询时发送编码；修改只保存到当前账号");
-  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
+  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(
+    setNotice,
+    cloudDictionaryErrorMessage,
+  );
   const textRef = useLatestRef(text);
 
   useEffect(() => {

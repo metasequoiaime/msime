@@ -7,6 +7,7 @@ import {
 } from "./settings-navigation-helpers";
 import { desktopPage, pages, type SettingsPageId } from "./settings-page-registry";
 import { useSettingsContentScrollReset } from "./use-settings-content-scroll-reset";
+import type { DictionaryTab } from "./dictionary-tabs";
 
 export interface UseSettingsPageRoutingOptions {
   initialPage?: string;
@@ -49,6 +50,7 @@ export function useSettingsPageRouting({
   const [communityDestination, setCommunityDestination] = useState<
     AccountCommunityDestination | "all"
   >("all");
+  const [dictionaryTab, setDictionaryTab] = useState<DictionaryTab>("lookup");
 
   return {
     requestedSettingsPage,
@@ -60,5 +62,7 @@ export function useSettingsPageRouting({
     settingsContentRef,
     communityDestination,
     setCommunityDestination,
+    dictionaryTab,
+    setDictionaryTab,
   };
 }

@@ -162,9 +162,9 @@ enum Command {
     PlacesSupplement(PlacesSupplement),
     /// 写出 msime-dictionary 的 sources/english/scowl-words.txt：SCOWL 60 级 Aspell 词典（美式拼写加英式 -ise 拼写，固定在 scowl/ 下）里 msime-dictionary 的 rime-ice 英文词表（含被注释掉的条目）和 custom/english.txt 都没有的词，去掉蔑称、只有大写形式且拼出某个全拼的名字，以及没有 Google 词频的词（见 english_supplement.rs）。
     EnglishSupplement(EnglishSupplement),
-    /// 写出 msime-dictionary 的 sources/wubi/wubi86-supplement.txt：msime-dictionary 的 86 码表（sources/wubi/wubi86-jidian.txt）缺少、而 98 码表列有或 sources/pinyin/rime-ice.txt 里权重不低于 5000 的二字词，限两个及以上汉字；编码按 86 版词组规则由 86 码表的单字编码推出，权重低于 86 码表同一编码下的行（见 wubi86_supplement.rs）。
+    /// 写出 msime-dictionary 的 sources/wubi/wubi86-supplement.txt：msime-dictionary 的 86 码表（sources/wubi/wubi86-jidian.txt）缺少、而 98 码表列有或 rime-ice 主表及补充表里权重不低于 100 的多字词，或 custom/words.txt、places.txt 的词语，限两个及以上汉字；编码按 86 版词组规则由 86 码表的单字编码推出，权重低于 86 码表同一编码下的行（见 wubi86_supplement.rs）。
     Wubi86Supplement(Wubi86Supplement),
-    /// 写出 msime-dictionary 的 sources/wubi/wubi98-supplement.txt：两张 98 码表（sources/wubi/wubi98.txt、sources/wubi/wubi98-fcitx.txt）缺少、而 86 码表列有或 sources/pinyin/rime-ice.txt 里权重不低于 5000 的二字词，限两个及以上基本区汉字；编码按词组规则由 98 码表的单字编码推出，权重低于 98 码表同一编码下的行（见 wubi98_supplement.rs）。
+    /// 写出 msime-dictionary 的 sources/wubi/wubi98-supplement.txt：两张 98 码表（sources/wubi/wubi98.txt、sources/wubi/wubi98-fcitx.txt）缺少、而 86 码表列有或 rime-ice 主表及补充表里权重不低于 100 的多字词，或 custom/words.txt、places.txt 的词语，限两个及以上基本区汉字；编码按词组规则由 98 码表的单字编码推出，权重低于 98 码表同一编码下的行（见 wubi98_supplement.rs）。
     Wubi98Supplement(Wubi98Supplement),
     /// 写出 msime 的 resources/helpcodes/wubi86_helpcode.txt：辅助码方案 wubi86 的码表，每个基本区汉字取它在 msime-dictionary 的 86 码表（sources/wubi/wubi86-jidian.txt）里全码的前两码（见 wubi86_helpcode.rs）。
     Wubi86Helpcode(Wubi86Helpcode),
@@ -520,6 +520,9 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
         wubi98: &wubi98,
         wubi98_fcitx: &wubi98_fcitx,
         base: &base,
+        pinyin_supplement: &read(wubi86_supplement::PINYIN_SUPPLEMENT)?,
+        places: &read(wubi86_supplement::PLACES)?,
+        custom: &read(wubi86_supplement::CUSTOM)?,
     })?;
     // 表头里的 SHA-256 按实际读到的字节计算。
     let digests = [
@@ -527,6 +530,9 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
         wubi86_supplement::WUBI98,
         wubi86_supplement::WUBI98_FCITX,
         wubi86_supplement::BASE,
+        wubi86_supplement::PINYIN_SUPPLEMENT,
+        wubi86_supplement::PLACES,
+        wubi86_supplement::CUSTOM,
     ]
     .into_iter()
     .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
@@ -541,6 +547,7 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
         &wubi86_supplement::Provenance {
             inputs: &inputs,
             generator_commit: &generator_commit,
+            upstreams: &wubi_supplement::upstreams(&sources.lock),
         },
     );
     std::fs::write(&arguments.out, rendered)
@@ -642,6 +649,9 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
         wubi98_fcitx: &wubi98_fcitx,
         jidian: &jidian,
         base: &base,
+        pinyin_supplement: &read(wubi98_supplement::PINYIN_SUPPLEMENT)?,
+        places: &read(wubi98_supplement::PLACES)?,
+        custom: &read(wubi98_supplement::CUSTOM)?,
     })?;
     // 表头里的 SHA-256 按实际读到的字节计算。
     let digests = [
@@ -649,6 +659,9 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
         wubi98_supplement::WUBI98_FCITX,
         wubi98_supplement::JIDIAN,
         wubi98_supplement::BASE,
+        wubi98_supplement::PINYIN_SUPPLEMENT,
+        wubi98_supplement::PLACES,
+        wubi98_supplement::CUSTOM,
     ]
     .into_iter()
     .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
@@ -663,6 +676,7 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
         &wubi98_supplement::Provenance {
             inputs: &inputs,
             generator_commit: &generator_commit,
+            upstreams: &wubi_supplement::upstreams(&sources.lock),
         },
     );
     std::fs::write(&arguments.out, rendered)

@@ -1,7 +1,16 @@
 import type { RefObject } from "react";
-import type { DictionaryEntry, LocalDictionaryKind } from "../dictionary/dictionary-file";
+import type {
+  DictionaryEntry,
+  DictionaryLookupEntry,
+  DictionaryLookupKind,
+  LocalDictionaryKind,
+} from "../dictionary/dictionary-file";
 import { dictionaryKindKeyHint } from "../dictionary/dictionary-messages";
-import { localDictionaryKinds } from "../dictionary/dictionary-kinds";
+import {
+  isResourceDictionaryKind,
+  localDictionaryKinds,
+  resourceDictionaryKinds,
+} from "../dictionary/dictionary-kinds";
 import * as settings from "./settings-style";
 import { SettingsPhraseForm } from "./settings-phrase-form";
 import { ActionButton } from "./action-button";
@@ -75,40 +84,110 @@ export function DictionaryEntries({
           <ActionButton action={onCancel} disabled={busy} label="取消" />
         </SettingsPhraseForm>
       )}
-      {entries.length === 0 ? (
-        <SettingsEmptyMessage compact>
-          {emptyMessage || (
-            <>
-              点击查询后查看
-              {localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库"}词条
-            </>
-          )}
-        </SettingsEmptyMessage>
-      ) : (
-        <ul ref={listRef} className={settings.phraseList} aria-label="词库查询结果">
-          {entries.map((entry, index) => (
-            <li key={`${entry.key}-${entry.value}-${index}`}>
-              <span>
-                <code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small>
-                {entry.source === "bundled" && (
-                  <>
-                    {" "}
-                    <small className={settings.bundledBadge}>内置</small>
-                  </>
-                )}
-              </span>
-              <span>
-                <ActionButton
-                  action={() => onEdit(entry)}
-                  disabled={busy}
-                  label={entry.source === "bundled" ? "调权重" : "编辑"}
-                />{" "}
-                <ActionButton action={() => onRemove(entry)} disabled={busy} label="删除" />
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+      <DictionaryEntryList
+        kind={kind}
+        entries={entries}
+        busy={busy}
+        emptyMessage={emptyMessage}
+        listRef={listRef}
+        onEdit={onEdit}
+        onRemove={onRemove}
+      />
     </>
+  );
+}
+
+/** 查询结果共用同一列表；资源类型即使来源标记异常也不出现写入操作。 */
+export function DictionaryEntryList({
+  kind,
+  entries,
+  busy,
+  emptyMessage,
+  listRef,
+  onEdit,
+  onRemove,
+}: {
+  kind: DictionaryLookupKind;
+  entries: DictionaryLookupEntry[];
+  busy: boolean;
+  emptyMessage?: string;
+  listRef: RefObject<HTMLUListElement | null>;
+  onEdit?: (entry: DictionaryEntry) => void;
+  onRemove?: (entry: DictionaryEntry) => void;
+}) {
+  const resource = isResourceDictionaryKind(kind);
+  const columns = resource ? settings.phraseResourceColumns : settings.phrasePersonalColumns;
+  const reading = kind === "japanese" || kind === "korean_hanja";
+
+  return entries.length === 0 ? (
+    <SettingsEmptyMessage compact>
+      {emptyMessage || (
+        <>
+          输入关键词后查看
+          {[...localDictionaryKinds, ...resourceDictionaryKinds].find(
+            ([value]) => value === kind,
+          )?.[1] ?? "词库"}
+          词条
+        </>
+      )}
+    </SettingsEmptyMessage>
+  ) : (
+    <div className={settings.phraseTable}>
+      <div className={`${settings.phraseListHeader} ${columns}`} aria-hidden="true">
+        <span>{reading ? "读音" : "编码"}</span>
+        <span>{kind === "quick_phrase" ? "短语" : "词条"}</span>
+        {!resource && (
+          <>
+            <span className="text-right">权重</span>
+            <span>来源</span>
+            <span className="text-right">操作</span>
+          </>
+        )}
+      </div>
+      <ul ref={listRef} className={settings.phraseList} aria-label="词库查询结果">
+        {entries.map((entry, index) => (
+          <li
+            key={`${entry.key}-${entry.value}-${index}`}
+            className={`${settings.phraseListItem} ${columns}`}
+          >
+            <code className={settings.phraseEntryKey} title={entry.key}>
+              {entry.key}
+            </code>
+            <span className={settings.phraseEntryValue} title={entry.value}>
+              {entry.value}
+            </span>
+            {!resource && (
+              <>
+                <small className="text-right text-muted" title="权重">
+                  {entry.weight}
+                </small>
+                <small className="text-xs text-muted">
+                  {entry.source === "bundled" ? "内置" : "个人"}
+                </small>
+                <span className={settings.phraseEntryActions}>
+                  {!isResourceDictionaryKind(entry.kind) &&
+                    entry.source !== "bundled" &&
+                    onEdit &&
+                    onRemove && (
+                      <>
+                        <ActionButton
+                          action={() => onEdit(entry as DictionaryEntry)}
+                          disabled={busy}
+                          label="编辑"
+                        />
+                        <ActionButton
+                          action={() => onRemove(entry as DictionaryEntry)}
+                          disabled={busy}
+                          label="删除"
+                        />
+                      </>
+                    )}
+                </span>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

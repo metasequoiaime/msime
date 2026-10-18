@@ -36,9 +36,12 @@ import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences"
 import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
 import { useSettingsThemePreviews } from "./settings/use-settings-theme-previews";
 
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 export type {
   DictionaryEntry,
+  DictionaryLookupEntry,
+  DictionaryLookupKind,
+  ResourceDictionaryKind,
   DictionaryPageFormat,
   LocalDictionaryFormat,
   LocalDictionaryKind,
@@ -475,6 +478,7 @@ import { InputSettingsPage } from "./settings/pages/input-page";
 import { ExpressionSettingsPage } from "./settings/pages/expression-page";
 import { DeveloperSettingsPage, McpSettingsPage } from "./settings/pages/developer-page";
 import { DictionarySettingsPage } from "./settings/pages/dictionary-page";
+import type { DictionaryTab } from "./settings/dictionary-tabs";
 import { AppearanceSettingsPage } from "./settings/pages/appearance-page";
 import { SkinSettingsPage } from "./settings/pages/skin-page";
 import { useCommunityGalleryNavigation } from "./settings/use-community-gallery-navigation";
@@ -2011,6 +2015,18 @@ type SettingsPageProps = {
 
 // The state, effects and handlers behind the settings window. The shell below and every page component read the same values - the pages through `SettingsFormContext` - so splitting the page into files changed where the markup lives, not what it closes over.
 function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {
+  useEffect(() => {
+    const automatic = () => {
+      void client.dictionary?.updates?.("automatic").catch(() => undefined);
+    };
+    automatic();
+    window.addEventListener("focus", automatic);
+    const timer = setInterval(automatic, 60 * 60 * 1000);
+    return () => {
+      window.removeEventListener("focus", automatic);
+      clearInterval(timer);
+    };
+  }, [client.dictionary?.updates]);
   const { confirm, confirmation } = useConfirm();
   const {
     host,
@@ -2142,6 +2158,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     requestedSettingsPage,
     setPage,
     page,
+    dictionaryTab,
+    setDictionaryTab,
     accountLoginReturnPage,
     setAccountLoginReturnPage,
     mobileLastPageByTab,
@@ -2539,7 +2557,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     mobileHiddenPageIds,
     availablePages,
     pageAliases,
-    page,
+    page: requestedSettingsPage,
     setPage,
     mobileLastPageByTab,
     route,
@@ -2687,6 +2705,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     inputSourceStartup,
     dismissInputSourceStartup,
     page,
+    requestedSettingsPage,
+    dictionaryTab,
+    setDictionaryTab,
     accountLoginReturnPage,
     settingsContentRef,
     communityDestination,
@@ -2911,6 +2932,8 @@ function SettingsShell(props: SettingsPageProps) {
     inputSourceStartup,
     dismissInputSourceStartup,
     page,
+    dictionaryTab,
+    setDictionaryTab,
     accountLoginReturnPage,
     settingsContentRef,
     communityDestination,
@@ -3307,13 +3330,18 @@ function SettingsShell(props: SettingsPageProps) {
                   onOpenCommunity={client.communityResources ? openCommunity : undefined}
                   communityHasSkins={Boolean(client.communitySkins)}
                   onOpenCloudDictionary={
-                    client.openCloudDictionary
+                    !mobilePlatform && client.cloudDictionary
                       ? () => {
-                          void client.openCloudDictionary!().catch(() =>
-                            setError("无法打开云词库，请重试。"),
-                          );
+                          selectPage("dictionary");
+                          setDictionaryTab("cloud");
                         }
-                      : undefined
+                      : client.openCloudDictionary && !macosPlatform
+                        ? () => {
+                            void client.openCloudDictionary!().catch(() =>
+                              setError("无法打开云词库，请重试。"),
+                            );
+                          }
+                        : undefined
                   }
                   // macOS opens the cloud clipboard only from the IME menu, which supplies the input session it pastes into.
                   onOpenCloudClipboard={

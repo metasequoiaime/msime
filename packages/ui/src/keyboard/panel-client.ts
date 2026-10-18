@@ -261,6 +261,8 @@ export interface CloudDictionaryPanelClient extends PanelClient {
   /** 「应用到本机」由这个面板自己处理队列（Windows 设置应用）：入列后马上应用、输入暂停，没能应用的请求只在面板开着时重试，输入法不会在空闲时自己应用。 */
   snapshotAppliesInPanel?: boolean;
   exportNative?: boolean;
+  /** 桌面设置宿主保存导出文本，避免 WebView 取消浏览器下载。 */
+  saveExport?(name: string, contents: string): Promise<void>;
   chooseSnapshotRestore?(): Promise<CloudDictionaryResponse>;
   downloadToLocal?(entry: CloudDictionaryEntry): Promise<void>;
   openCatalog?(): Promise<void>;

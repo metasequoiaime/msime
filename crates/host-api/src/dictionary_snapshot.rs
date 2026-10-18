@@ -1784,9 +1784,7 @@ fn snapshot_queue_process(
         .to_owned();
     let stream = SnapshotFileRecords::open(&path).map_err(str::to_owned)?;
     // 与准备宿主时相同：按文档记录的版本的锁校验资源、计算代次。
-    let specification = options
-        .edition()
-        .resource_set()
+    let specification = crate::dictionary_updates::specification_for_options(&options)
         .map_err(|_| "snapshot resources rejected".to_owned())?;
     let prepared = prepare(
         PrepareRequest {
@@ -2020,10 +2018,7 @@ pub unsafe extern "C" fn msime_client_snapshot_prepare(
             serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
                 .map_err(|_| "invalid snapshot request")?;
         // 与准备宿主时相同：按文档记录的版本的锁校验资源、计算代次。
-        let specification = request
-            .options
-            .edition()
-            .resource_set()
+        let specification = crate::dictionary_updates::specification_for_options(&request.options)
             .map_err(|_| "snapshot resources rejected")?;
         let mut buffer = vec![0; BUFFER_LIMIT];
         let stream = std::iter::from_fn(move || {

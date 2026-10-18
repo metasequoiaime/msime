@@ -86,6 +86,20 @@ const RETENTIONS: string[] = ["forever", "30d", "90d", "180d", "365d"];
 /** 设置应用发布、键盘导入的条目。 */
 export const SETTINGS_ENTRIES: MirrorEntry[] = [
   {
+    name: "dictionary-generations",
+    kind: "directory",
+    base: "state",
+    path: "dictionary-updates/generations",
+    fullModeOnly: false,
+  },
+  {
+    name: "dictionary-selection",
+    kind: "file",
+    base: "state",
+    path: "dictionary-updates/installed.json",
+    fullModeOnly: false,
+  },
+  {
     name: "preferences",
     kind: "preferences",
     base: "state",

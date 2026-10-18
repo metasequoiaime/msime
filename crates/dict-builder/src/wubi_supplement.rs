@@ -76,9 +76,9 @@ pub(crate) struct Ranked<'a> {
 }
 
 /// 语料里同一词可能出现多次；取最大权重。
-pub(crate) fn frequencies(source: &str) -> HashMap<&str, i64> {
+pub(crate) fn frequencies<'a>(sources: impl IntoIterator<Item = &'a str>) -> HashMap<&'a str, i64> {
     let mut frequency = HashMap::new();
-    for (value, _, weight) in weighted_rows(source) {
+    for (value, _, weight) in sources.into_iter().flat_map(weighted_rows) {
         let slot = frequency.entry(value).or_insert(weight);
         *slot = (*slot).max(weight);
     }
@@ -88,11 +88,19 @@ pub(crate) fn frequencies(source: &str) -> HashMap<&str, i64> {
 pub(crate) fn pinyin_words<'a>(
     frequency: &'a HashMap<&'a str, i64>,
     minimum: i64,
+    curated: &[&'a str],
 ) -> BTreeSet<&'a str> {
     frequency
         .iter()
-        .filter(|(word, weight)| word.chars().count() == 2 && **weight >= minimum)
+        .filter(|(_, weight)| **weight >= minimum)
         .map(|(word, _)| *word)
+        .chain(
+            curated
+                .iter()
+                .flat_map(|source| weighted_rows(source))
+                .map(|(word, _, _)| word),
+        )
+        .filter(|word| is_word(word))
         .collect()
 }
 
@@ -145,5 +153,41 @@ pub(crate) fn rank<'a>(
         entries,
         underivable,
         unique_codes_shared,
+    }
+}
+
+/// 来源引用来自已校验的构建锁，不把上游提交再硬编码一遍。
+pub(crate) fn upstreams(lock: &crate::sources::Lock) -> String {
+    [
+        "rime-ice",
+        "rime-ice-supplement",
+        "98wubi-tables",
+        "fcitx5-table-extra",
+    ]
+    .iter()
+    .filter_map(|name| lock.references.get(*name))
+    .map(|source| format!("{} 提交 {}", source.repository, source.commit))
+    .collect::<Vec<_>>()
+    .join("、")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn candidates_merge_sources_keep_manual_low_weights_and_deduplicate_readings() {
+        let base =
+            "日工\tri'gong\t100\n工人\tgong'ren\t99\n日\tri\t10000\n工人日\tgong'ren'ri\t100\n";
+        let supplement = "工人\tgong'ren\t150\n工人\tgong'reng\t10\n人民\tren'min\t99\n";
+        let custom = "工人民\tgong'ren'min\t1\nASCII\ta\t100\n";
+        let places = "工人日民\tgong'ren'ri'min\t1\n";
+        let frequency = frequencies([base, supplement, places, custom]);
+        assert_eq!(frequency["工人"], 150);
+        let words = pinyin_words(&frequency, 100, &[places, custom]);
+        assert_eq!(
+            words.into_iter().collect::<Vec<_>>(),
+            ["工人", "工人日", "工人日民", "工人民", "日工"]
+        );
     }
 }

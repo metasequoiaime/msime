@@ -2873,10 +2873,18 @@ struct MainWindow : WindowT<MainWindow> {
     build_shell(0.0);
     // 设置窗口打开时补传一次打字统计（没打开上传、没登录或离上次不到十分钟时不发请求）。
     sync_typing_upload();
+    dictionary_update_request(L"automatic");
+    dictionary_update_timer_ = DispatcherQueue().CreateTimer();
+    dictionary_update_timer_.Interval(std::chrono::seconds(2));
+    dictionary_update_timer_.Tick([this](auto const &, auto const &) {
+      if (!closed_ && current_page_ == "lexicon" && !dictionary_update_busy_) dictionary_update_request(L"status");
+    });
+    dictionary_update_timer_.Start();
     Activated({this, &MainWindow::on_activated});
     Closed([this](Inspectable const &, WindowEventArgs const &) {
       // A save refused while closing has no window left to report in; the stored settings stay as they were.
       closed_ = true;
+      if (dictionary_update_timer_) dictionary_update_timer_.Stop();
       flush_pending();
       // 本地模型的下载随窗口一起停下，下次安装时清掉没装完的临时文件。
       take_response(msime_client_voice_local_model_cancel(nullptr, 0));
@@ -3065,8 +3073,9 @@ private:
       flush_pending();
       return;
     }
-    // 与共享页一样，窗口获得焦点时重读打字统计。
+    // 与共享页一样，窗口获得焦点时重读打字统计并按日节流检查词库。
     poll_statistics();
+    dictionary_update_request(L"automatic");
     // Another window (the tray, the shared app, another device through sync) may have changed the settings or Windows may have switched between light and dark while this window was in the background.
     bool changed = false;
     PreferencesDocument fresh;
@@ -13161,7 +13170,65 @@ private:
     vocabulary_request(vocabulary_action(L"reset"));
   }
 
+  // 原生设置只显示共享状态，不复制版本判断、文件校验和自动检查的节流。
+  void dictionary_update_request(std::wstring const &command, std::optional<bool> enabled = std::nullopt) {
+    if (dictionary_update_busy_ || closed_) return;
+    const auto options = runtime_options_document();
+    if (!options) return;
+    JsonObject action;
+    action.SetNamedValue(L"operation", JsonValue::CreateStringValue(L"updates"));
+    action.SetNamedValue(L"command", JsonValue::CreateStringValue(command));
+    if (enabled) action.SetNamedValue(L"enabled", JsonValue::CreateBooleanValue(*enabled));
+    dictionary_update_busy_ = true;
+    run_host([options = *options, body = utf8(action.Stringify())] { return settings_dictionary_call(options, body); },
+      [this](Response const &response) {
+        dictionary_update_busy_ = false;
+        if (!response.ok) { dictionary_update_message_ = L"词库更新暂不可用，请稍后重试"; redraw_lexicon(); return; }
+        try {
+          const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+          // 这里不展示字节进度；下载期间轮询不重建整页，避免打断词条编辑表单。
+          const bool same_display = dictionary_update_status_
+            && named_string(*dictionary_update_status_, L"phase") == named_string(value, L"phase")
+            && named_string(*dictionary_update_status_, L"version") == named_string(value, L"version")
+            && named_string(*dictionary_update_status_, L"error") == named_string(value, L"error")
+            && dictionary_update_status_->GetNamedBoolean(L"enabled", true) == value.GetNamedBoolean(L"enabled", true)
+            && dictionary_update_status_->GetNamedBoolean(L"pending_restart", false) == value.GetNamedBoolean(L"pending_restart", false)
+            && dictionary_update_status_->GetNamedBoolean(L"can_rollback", false) == value.GetNamedBoolean(L"can_rollback", false);
+          if (same_display && dictionary_update_message_.empty()) { dictionary_update_status_ = value; return; }
+          dictionary_update_status_ = value;
+          dictionary_update_message_.clear();
+          redraw_lexicon();
+        } catch (...) { dictionary_update_message_ = L"无法读取词库更新状态"; redraw_lexicon(); }
+      });
+  }
+
+  void build_dictionary_updates(StackPanel const &page) {
+    auto group = add_group(page, L"词库更新");
+    const bool automatic = !dictionary_update_status_ || dictionary_update_status_->GetNamedBoolean(L"enabled", true);
+    const auto phase = dictionary_update_status_ ? named_string(*dictionary_update_status_, L"phase") : L"";
+    const bool running = phase == L"checking" || phase == L"downloading";
+    add_row(group, 0xE895, L"自动更新词库", L"每天检查兼容版本，个人词条和学习记录保留。",
+      toggle_control(L"自动更新词库", automatic,
+        [this](bool value) { dictionary_update_request(L"configure", value); }, !dictionary_update_busy_, false));
+    std::wstring message = dictionary_update_message_;
+    if (dictionary_update_status_ && message.empty()) {
+      const auto &status = *dictionary_update_status_;
+      const auto status_phase = named_string(status, L"phase");
+      if (status_phase == L"checking") message = L"正在检查词库更新…";
+      else if (status_phase == L"downloading") message = L"正在下载词库…";
+      else if (status_phase == L"failed" || !named_string(status, L"error").empty()) message = L"更新失败，继续使用原词库";
+      else if (status.GetNamedBoolean(L"pending_restart", false)) message = L"词库已准备好，下次启动输入法时生效";
+      else message = L"词库版本：" + named_string(status, L"version");
+    }
+    add_row(group, 0xE72C, L"检查词库更新", message,
+      button_control(L"检查更新", [this] { dictionary_update_request(L"check"); }, !dictionary_update_busy_ && !running));
+    if (dictionary_update_status_ && dictionary_update_status_->GetNamedBoolean(L"can_rollback", false))
+      add_row(group, 0xE777, L"恢复上一版词库", L"恢复后关闭自动更新，下次启动生效。",
+        button_control(L"恢复", [this] { dictionary_update_request(L"rollback"); }, !dictionary_update_busy_ && !running));
+  }
+
   void build_lexicon_page(StackPanel const &page) {
+    build_dictionary_updates(page);
     // 本地词库管理: the same list, edit and delete as the shared page, through msime_client_settings_dictionary.
     auto manage = add_group(page, L"本地词库管理");
     std::vector<Option> kinds;
@@ -20324,6 +20391,10 @@ private:
   Border preview_host_{nullptr};
   Border toolbar_preview_host_{nullptr};
   TextBlock toolbar_preview_size_{nullptr};
+  std::optional<JsonObject> dictionary_update_status_;
+  std::wstring dictionary_update_message_;
+  bool dictionary_update_busy_ = false;
+  Microsoft::UI::Dispatching::DispatcherQueueTimer dictionary_update_timer_{nullptr};
   Microsoft::UI::Dispatching::DispatcherQueueTimer save_timer_{nullptr};
   // A redraw held back until the click that activated the window has been delivered.
   bool pointer_down_ = false;

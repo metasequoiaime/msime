@@ -10,6 +10,26 @@ use crate::types::{CandidateSource, QueryRequest, SchemeType, WordItem};
 
 const TABLE: &str = include_str!("hanja.tsv");
 
+/// 只读浏览内嵌汉字表，编码用韩文读音；此表按来源顺序排序，没有数值权重。
+pub(crate) fn browse(query: &str, offset: usize, limit: usize) -> Vec<crate::dictionary::DictRow> {
+    TABLE
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            let (key, value) = (fields.next()?, fields.next()?);
+            (query.is_empty() || key.starts_with(query) || value.contains(query))
+                .then_some((key, value))
+        })
+        .skip(offset)
+        .take(limit)
+        .map(|(key, value)| crate::dictionary::DictRow {
+            key: key.to_owned(),
+            value: value.to_owned(),
+            weight: 0,
+        })
+        .collect()
+}
+
 /// Byte range and row count of each syllable's lines in `TABLE`.
 fn index() -> &'static HashMap<&'static str, (Range<usize>, usize)> {
     static INDEX: OnceLock<HashMap<&'static str, (Range<usize>, usize)>> = OnceLock::new();

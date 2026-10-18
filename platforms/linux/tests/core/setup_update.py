@@ -107,6 +107,11 @@ class Harness:
         prepare = self.prefix / "bin/msime-linux-prepare"
         prepare.write_text(PREPARE_STUB)
         prepare.chmod(0o755)
+        # 安装包无条件提供七套内置辅助码，独立于下载的词库。
+        tables = self.prefix / "share/msime-client/resources/helpcodes"
+        tables.mkdir(parents=True)
+        for table in (ROOT.parents[1] / "resources/helpcodes").glob("*.txt"):
+            (tables / table.name).write_text("测=ab\n")
         self.current = {"a.db": b"dictionary a, unchanged", "b.db": b"dictionary b, next release"}
         self.previous_b = b"dictionary b, previous release"
         self.lock = scratch / "desktop-dictionary.lock.json"
@@ -134,7 +139,7 @@ class Harness:
         state = self.scratch / name
         # Each fixture gets its own parent: an update stages the new dictionaries beside the recorded directory.
         resources = resources or self.scratch / f"{name}-data/resources"
-        resources.mkdir(parents=True)
+        resources.mkdir(parents=True, exist_ok=True)
         (resources / "a.db").write_bytes(self.current["a.db"])
         (resources / "b.db").write_bytes(self.previous_b)
         (state / "user/dictionaries/previous").mkdir(parents=True)
@@ -200,6 +205,7 @@ def check_setup(harness: Harness) -> None:
     # The directory the previous generation reads is never written: it stays exactly as it was, for the sessions still on it and for rollback.
     assert (resources / "b.db").read_bytes() == harness.previous_b
     assert (staged / "b.db").read_bytes() == harness.current["b.db"]
+    assert (staged / "helpcodes/xiaohe_helpcode.txt").read_text() == "测=ab\n"
     assert (staged / "a.db").stat().st_ino == (resources / "a.db").stat().st_ino, "an artifact that already matched is linked, not fetched"
     calls = harness.prepare_calls()
     assert len(calls) == 1 and calls[0][0] == "--refresh", calls
@@ -303,7 +309,7 @@ def check_setup(harness: Harness) -> None:
     result = harness.run("--update", "--download", "--state", str(state))
     assert result.returncode == 0, result
     assert Artifacts.requested == ["/b.db"], Artifacts.requested
-    assert sorted(path.name for path in harness.staged(resources).iterdir()) == ["a.db", "b.db"]
+    assert sorted(path.name for path in harness.staged(resources).iterdir()) == ["a.db", "b.db", "helpcodes"]
     assert (resources / "retired.db").is_file() and (resources / "b.db").read_bytes() == harness.previous_b
 
     # A refresh that fails leaves the options naming the previous directory, which was never written, and says where the new dictionaries wait.
@@ -322,7 +328,11 @@ def check_setup(harness: Harness) -> None:
     result = harness.run("--update", "--download", "--state", str(state), XDG_DATA_HOME=str(harness.prefix / "share"))
     assert result.returncode == 0, result
     assert options(state)["resources"] == str(harness.staged(harness.prefix / "share/msime-client/resources")), options(state)
-    shutil.rmtree(harness.prefix / "share/msime-client")
+    shutil.rmtree(harness.prefix / "share/msime-client/resources")
+    tables = harness.prefix / "share/msime-client/resources/helpcodes"
+    tables.mkdir(parents=True)
+    for table in (ROOT.parents[1] / "resources/helpcodes").glob("*.txt"):
+        (tables / table.name).write_text("测=ab\n")
 
     # Dictionaries shipped with the package belong to the package manager, even under a prefix the user can write.
     state = harness.installed("state-packaged", harness.prefix / "share/msime-client/resources")

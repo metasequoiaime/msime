@@ -1094,6 +1094,12 @@ function makeClient(
   const dictionaryReply = <T,>(action: Record<string, unknown>): T =>
     unwrap<T>(native.dictionary(JSON.stringify(action)));
   const dictionary: DictionaryClient = {
+    updates: async (command, enabled) =>
+      dictionaryReply({
+        operation: "updates",
+        command,
+        ...(enabled === undefined ? {} : { enabled }),
+      }),
     list: async (offset: number, limit: number, kind?: LocalDictionaryKind, query?: string) =>
       dictionaryReply<{ entries: DictionaryEntry[]; has_more: boolean }>({
         operation: "list",

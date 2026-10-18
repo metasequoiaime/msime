@@ -1,6 +1,6 @@
 //! `wubi86-supplement`：生成 msime-dictionary 的 `sources/wubi/wubi86-supplement.txt`，即 86 五笔码表（`sources/wubi/wubi86-jidian.txt`）缺少的多字词，编码按 86 版词组规则由该表自己的单字编码推出。
 //!
-//! 一个词在极点码表的任何编码下都没有，并且满足以下其一时收录：98 五笔码表（`sources/wubi/wubi98.txt` 和 `sources/wubi/wubi98-fcitx.txt`）列有它；或 `sources/pinyin/rime-ice.txt` 里它是权重不低于 `MIN_PINYIN_WEIGHT` 的二字词。只算全部由汉字组成的词。98 码表是人工整理的词表，所以两字及以上的词都从中收录；rime-ice 的权重来自语料，语料也会产生词的碎片（被他、请把），所以从它只收超过阈值的二字词。9999 这类人工填写的权重不与词频区分。
+//! 极点码表在任何编码下都没有的基本区汉字词，来自 98 码表、权重不低于 `MIN_PINYIN_WEIGHT` 的 rime-ice 主表和补充表，或人工维护的 custom/words.txt、区划补充表。拼音来源不再限制为二字词，100 的门槛保留上游按该权重整理的现代词语，同时排除更低权重的语料碎片；人工词条与区划名称不设权重门槛。
 //!
 //! 编码按 86 版词组规则，取每个字的全码，即极点码表里该字单独出现时最长的编码：二字词各取前两码；三字词取前两字的首码和第三字的前两码；更长的词取第一、二、三字和末字的首码。码表没有单独编码的字，或几个全码在词所需码位上不一致的字（部首和几百个生僻字），含它的词不收。在极点码表自己的词上，这套规则还原了 63,127 个编码中的 63,095 个；其余是码表自己的简码和拆法（占比 hxx、蹂躏 kcka）。
 //!
@@ -22,9 +22,12 @@ pub const JIDIAN: &str = "sources/wubi/wubi86-jidian.txt";
 pub const WUBI98: &str = "sources/wubi/wubi98.txt";
 pub const WUBI98_FCITX: &str = "sources/wubi/wubi98-fcitx.txt";
 pub const BASE: &str = "sources/pinyin/rime-ice.txt";
+pub const PINYIN_SUPPLEMENT: &str = "sources/pinyin/rime-ice-supplement.txt";
+pub const PLACES: &str = "sources/pinyin/places.txt";
+pub const CUSTOM: &str = "custom/words.txt";
 
-/// 86 码表缺少的二字词，在 rime-ice 里达到这个权重才收录。
-pub const MIN_PINYIN_WEIGHT: i64 = 5000;
+/// 包含上游人工整理时使用的 100 权重词条；低权重的语料碎片不自动收录。
+pub const MIN_PINYIN_WEIGHT: i64 = 100;
 
 /// 补充行的最高权重：比极点码表有排名的词的最低权重低 1。
 pub(crate) const SUPPLEMENT_CEILING: i64 = 9;
@@ -38,6 +41,9 @@ pub struct Inputs<'a> {
     pub wubi98: &'a str,
     pub wubi98_fcitx: &'a str,
     pub base: &'a str,
+    pub pinyin_supplement: &'a str,
+    pub places: &'a str,
+    pub custom: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,7 +82,12 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .filter(|(_, value, _)| value.chars().count() >= 2)
         .map(|(_, value, _)| *value)
         .collect();
-    let frequency = frequencies(inputs.base);
+    let frequency = frequencies([
+        inputs.base,
+        inputs.pinyin_supplement,
+        inputs.places,
+        inputs.custom,
+    ]);
 
     let mut wubi98: BTreeSet<String> = BTreeSet::new();
     for line in text::universal_lines(text::without_bom(inputs.wubi98)) {
@@ -92,13 +103,19 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     if wubi98.is_empty() {
         bail!("{WUBI98} and {WUBI98_FCITX} have no rows");
     }
-    let pinyin = pinyin_words(&frequency, MIN_PINYIN_WEIGHT);
+    let pinyin = pinyin_words(
+        &frequency,
+        MIN_PINYIN_WEIGHT,
+        &[inputs.places, inputs.custom],
+    );
 
     let candidates: BTreeSet<&str> = wubi98
         .iter()
         .map(String::as_str)
         .chain(pinyin.iter().copied())
-        .filter(|word| is_word(word) && !jidian_words.contains(word))
+        .filter(|word| {
+            is_word(word) && !msime::outside_basic_cjk(word) && !jidian_words.contains(word)
+        })
         .collect();
 
     let ranked = rank(&rows, candidates, &frequency, SUPPLEMENT_CEILING);
@@ -126,6 +143,8 @@ pub struct Provenance<'a> {
     pub inputs: &'a [(&'a str, &'a str)],
     /// 运行生成器的 msime 提交；构建器有未提交改动时带 `-dirty` 后缀。
     pub generator_commit: &'a str,
+    /// 已校验的上游仓库与提交。
+    pub upstreams: &'a str,
 }
 
 pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
@@ -138,9 +157,14 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# 86 五笔词组补充表，由 msime 仓库提交 {} 的 crates/dict-builder/src/wubi86_supplement.rs 以 `msime-dict-build wubi86-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out sources/wubi/wubi86-supplement.txt` 生成；不要手工编辑。", provenance.generator_commit);
     let _ = writeln!(out, "# 输入：{inputs}。");
-    let _ = writeln!(out, "# 收录：{JIDIAN} 在任何编码下都没有、且全部由汉字组成的词，满足其一即收：在 98 五笔的 {WUBI98} 或 {WUBI98_FCITX} 里是两字及以上的词；或在 {BASE} 里是权重不低于 {MIN_PINYIN_WEIGHT} 的二字词（9999 这类人工填写的权重不与词频区分）。");
+    let _ = writeln!(
+        out,
+        "# 上游：{}；jidian 与区划表的来源、提交和许可另见 NOTICE.md 及输入文件头。",
+        provenance.upstreams
+    );
+    let _ = writeln!(out, "# 收录：{JIDIAN} 在任何编码下都没有、且全部由基本区汉字组成（不含 CJK 扩展 A 和 BMP 以外的字）的词，满足其一即收：在 98 五笔的 {WUBI98} 或 {WUBI98_FCITX} 里是两字及以上的词；或在 {BASE} 里是权重不低于 {MIN_PINYIN_WEIGHT} 的两字及以上词，或 {PINYIN_SUPPLEMENT} 里达到同一门槛的词，或 {PLACES}、{CUSTOM} 的人工维护词（后两者不设权重门槛；9999 这类人工填写的权重不与词频区分）。");
     let _ = writeln!(out, "# 编码：按 86 版词组规则，取 {JIDIAN} 里单字的全码（该字单独出现时最长的编码）：二字词各取前两码；三字词取前两字的首码和第三字的前两码；四字及以上取第一、二、三字和末字的首码。单字表里没有、或几个全码在所需码位上不一致的字，含它的词不收。");
-    let _ = writeln!(out, "# 去重与权重：对照集合是 {JIDIAN} 的全部两字及以上词条，已有的词不论编码一律不收。同一编码下补充词排在 {JIDIAN} 原有词条之后：最高权重取 {SUPPLEMENT_CEILING} 与该编码原有最低权重减 1 中较小者，几个补充词按 {BASE} 的权重从高到低（没有的排最后，再按词）依次减 1，最低为 0；构建的 wubi 阶段在 {JIDIAN} 之后并入本文件，同权重时原有词条在前。");
+    let _ = writeln!(out, "# 去重与权重：对照集合是 {JIDIAN} 的全部两字及以上词条，已有的词不论编码一律不收。同一编码下补充词排在 {JIDIAN} 原有词条之后：最高权重取 {SUPPLEMENT_CEILING} 与该编码原有最低权重减 1 中较小者，几个补充词按 {BASE}、{PINYIN_SUPPLEMENT}、{PLACES}、{CUSTOM} 中同词最大权重从高到低（没有的排最后，再按词）依次减 1，最低为 0；构建的 wubi 阶段在 {JIDIAN} 之后并入本文件，同权重时原有词条在前。");
     for entry in &supplement.entries {
         let _ = writeln!(out, "{}\t{}\t{}", entry.word, entry.code, entry.weight);
     }
@@ -178,7 +202,7 @@ pub fn report(supplement: &Supplement) -> Vec<String> {
         .join(" ");
     vec![
         format!(
-            "{} words under {} codes: {wubi98} from the 98 tables, {pinyin} from {BASE} at weight {MIN_PINYIN_WEIGHT} or above, {both} from both",
+            "{} words under {} codes: {wubi98} from the 98 tables, {pinyin} from pinyin inputs (rime-ice weight >= {MIN_PINYIN_WEIGHT}, curated words at any weight), {both} from both",
             supplement.entries.len(),
             codes.len()
         ),
@@ -205,6 +229,9 @@ mod tests {
             wubi98,
             wubi98_fcitx: fcitx,
             base,
+            pinyin_supplement: "",
+            places: "",
+            custom: "",
         })
         .unwrap()
     }
@@ -241,12 +268,16 @@ mod tests {
     }
 
     #[test]
-    fn pinyin_words_need_two_characters_and_the_threshold() {
-        let base = "工人\tgong'ren\t5000\n日工\tri'gong\t4999\n工人民\tgong'ren'min\t90000\n";
+    fn pinyin_words_include_longer_words_at_the_threshold() {
+        let base = "工人\tgong'ren\t100\n日工\tri'gong\t99\n工人民\tgong'ren'min\t100\n";
         let supplement = build_with(JIDIAN_FIXTURE, "日日\tx\r\n", "", base);
         assert_eq!(
             rows(&supplement),
-            [("工人", "aaww", 9), ("日日", "jjjj", 9)]
+            [
+                ("工人", "aaww", 9),
+                ("工人民", "awna", 9),
+                ("日日", "jjjj", 9)
+            ]
         );
         assert!(supplement.entries[0].from_pinyin && !supplement.entries[0].from_wubi98);
     }
@@ -260,6 +291,29 @@ mod tests {
             "人民\tren'min\t90000\n",
         );
         assert!(supplement.entries.is_empty());
+    }
+
+    #[test]
+    fn supplementary_and_manual_inputs_reach_the_version_specific_generator() {
+        let supplement = build(&Inputs {
+            jidian: JIDIAN_FIXTURE,
+            wubi98: "日日\tx\n",
+            wubi98_fcitx: "",
+            base: "",
+            pinyin_supplement: "工人\tgong'ren\t100\n",
+            places: "工人日\tgong'ren'ri\t1\n",
+            custom: "工人民\tgong'ren'min\t1\n工人\tgong'ren\t100\n",
+        })
+        .unwrap();
+        assert_eq!(
+            rows(&supplement),
+            [
+                ("工人", "aaww", 9),
+                ("工人日", "awjj", 9),
+                ("工人民", "awna", 9),
+                ("日日", "jjjj", 9)
+            ]
+        );
     }
 
     #[test]
@@ -296,6 +350,12 @@ mod tests {
     }
 
     #[test]
+    fn extension_characters_in_unused_middle_positions_are_left_out() {
+        let supplement = build_with(JIDIAN_FIXTURE, "工人民𠂇日\tx\n", "", "");
+        assert!(supplement.entries.is_empty());
+    }
+
+    #[test]
     fn rendered_rows_parse_as_wubi86_rows() {
         let supplement = build_with(JIDIAN_FIXTURE, "冲凉\tukuy\r\n", "", "");
         let rendered = render(
@@ -303,6 +363,7 @@ mod tests {
             &Provenance {
                 inputs: &[(JIDIAN, "0")],
                 generator_commit: "0123456789abcdef0123456789abcdef01234567",
+                upstreams: "fixture",
             },
         );
         let first = rendered.lines().next().unwrap();

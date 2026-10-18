@@ -281,11 +281,12 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       XCTAssertTrue(app.buttons["candidate-1"].exists, "必须先建立可选词的拼音组合")
       key("layoutToggleButton").tap()
       let target = key(identifier)
+      revealNumberPadSidebarKey(target, in: app)
       XCTAssertTrue(target.isHittable)
       target.tap()
       expected += "ni" + literal
       XCTAssertEqual(field.value as? String, expected, "数字页必须原样结束组合，再写入 \(literal)")
-      XCTAssertTrue(key("numberPadMoreSymbols").isHittable, "输入后必须留在数字页")
+      XCTAssertTrue(key("numberPadSymbolPanelKey").isHittable, "输入后必须留在数字页")
       key("layoutToggleButton").tap()
     }
   }
@@ -316,6 +317,16 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       XCTAssertEqual(one.minX, four.minX, accuracy: 1)
       XCTAssertLessThan(one.maxX, two.minX)
       XCTAssertLessThan(one.maxY, four.minY)
+      let zero = key("nineKeyZero").frame
+      let space = key("spaceKey").frame
+      XCTAssertGreaterThanOrEqual(zero.width, key("nineKey8").frame.width)
+      if !key("inputModeSwitchButton").exists {
+        XCTAssertEqual(zero.minX, key("nineKey7").frame.minX, accuracy: 1)
+        XCTAssertEqual(zero.maxX, key("nineKey7").frame.maxX, accuracy: 1)
+        XCTAssertEqual(space.minX, key("nineKey8").frame.minX, accuracy: 1)
+        XCTAssertEqual(space.maxX, key("nineKey8").frame.maxX, accuracy: 1)
+      }
+      XCTAssertLessThan(zero.maxX, space.minX)
       for character in "12.3+4-5*6/7001234567890123456789" {
         let target: XCUIElement
         switch character {
@@ -324,7 +335,8 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
         case ".": target = key("nineKeyMiddleKey")
         default: target = app.buttons["运算符 \(character)"]
         }
-        XCTAssertTrue(target.isHittable, "数字页必须能直接输入 \(character)")
+        revealNumberPadSidebarKey(target, in: app)
+        XCTAssertTrue(target.isHittable, "数字页必须能输入 \(character)")
         target.tap()
         expected.append(character)
       }
@@ -332,7 +344,15 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       key("nineKeyDelete").tap()
       expected.removeLast()
       XCTAssertEqual(field.value as? String, expected)
-      key("numberPadMoreSymbols").tap()
+      let symbols = key("numberPadSymbolPanelKey")
+      XCTAssertTrue(symbols.isHittable, "滚动后符号入口仍固定可点")
+      symbols.tap()
+      XCTAssertTrue(key("keyboardSymbolPanel").waitForExistence(timeout: 5))
+      key("closeSymbolPanel").tap()
+      XCTAssertTrue(key("nineKeyZero").isHittable)
+      let more = key("numberPadMoreSymbols")
+      revealNumberPadSidebarKey(more, in: app)
+      more.tap()
       XCTAssertTrue(key("symbolLayerToggle").waitForExistence(timeout: 5))
       key("symbolLayerToggle").tap()
       XCTAssertTrue(key("nineKey1").isHittable)
@@ -340,6 +360,14 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       XCTAssertTrue((scheme == "quanpin" ? key("字母 A") : key("nineKey2")).isHittable,
                     "返回后必须恢复原中文方案")
     }
+  }
+
+  /// 侧栏每项保持数字排高度，屏幕外的运算符通过真实滑动触达。
+  private func revealNumberPadSidebarKey(_ key: XCUIElement, in app: XCUIApplication) {
+    let scroll = app.scrollViews["numberPadOperatorScroll"]
+    guard scroll.exists else { return }
+    for _ in 0..<4 where !key.isHittable { scroll.swipeDown() }
+    for _ in 0..<4 where !key.isHittable { scroll.swipeUp() }
   }
 
   /// 用系统键盘在真实编辑器中验收全拼分词和英文大写，覆盖跨进程上屏。

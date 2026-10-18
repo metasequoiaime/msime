@@ -13,6 +13,7 @@ import {
   readDictionaryFile,
   readScelFile,
   type DictionaryEntry,
+  type DictionaryLookupEntry,
   type DictionaryPageFormat,
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
@@ -133,14 +134,23 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     const generation = ++phraseRequestGeneration.current;
     setPhraseBusy(true);
     setPhraseError("");
-    setPhraseNotice("");
     setPhrasePage((current) => ({ ...current, status: "查询中…" }));
     try {
       const query = phraseSearch.trim();
-      const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, query);
+      // 新宿主的浏览入口允许空查询列出内置词条；旧宿主继续使用个人词库接口。
+      const page = client.dictionary.browse
+        ? {
+            ...(await client.dictionary.browse(offset, DICTIONARY_PAGE_SIZE, kind, query)),
+            pending_count: 0,
+            failed_requests: [],
+            snapshot_error: null,
+          }
+        : await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, query);
       if (!mounted.current || generation !== phraseRequestGeneration.current) return;
-      const entries = page.entries.filter(
-        (entry) => entry.kind === kind && dictionaryEntryMatches(entry, query),
+      const listed: DictionaryLookupEntry[] = page.entries;
+      const entries = listed.filter(
+        (entry): entry is DictionaryEntry =>
+          entry.kind === kind && dictionaryEntryMatches(entry as DictionaryEntry, query),
       );
       setPhrases(entries);
       setDictionaryPendingCount(page.pending_count ?? 0);
@@ -159,6 +169,23 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
       if (mounted.current && generation === phraseRequestGeneration.current) setPhraseBusy(false);
     }
   }
+
+  // 进入设置时先列出当前类型的全部词条；输入查询条件后用短暂防抖实时筛选。
+  useEffect(() => {
+    if (!client.dictionary) return;
+    // 查询条件变化时清理旧提示，延迟执行的查询不能擦掉期间完成的操作结果。
+    setPhraseNotice("");
+    const timer = window.setTimeout(() => {
+      void loadPhrases(dictionaryKind, 0);
+    }, 280);
+    return () => {
+      window.clearTimeout(timer);
+      // 查询条件已经变化时，旧响应在下一次防抖请求发出前也不能覆盖列表。
+      phraseRequestGeneration.current += 1;
+    };
+    // 初次挂载、宿主替换、类型切换或输入变化都走同一条防抖查询路径。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client.dictionary, dictionaryKind, phraseSearch]);
 
   function turnPhrasePage(offset: number) {
     if (phraseListRef.current) phraseListRef.current.scrollTop = 0;

@@ -3546,3 +3546,53 @@ fn a_bare_entry_letter_raw_commit_learns_nothing() {
         assert_eq!(english_word_count(&value, word), 0);
     }
 }
+
+#[test]
+fn resource_dictionary_browse_distinguishes_missing_files_and_preserves_model_paging() {
+    use super::dictionary_lookup::{dictionary_resource_entries, ResourceDictionaryKind::*};
+    let root = tempfile::tempdir().unwrap();
+    let options = options(root.path());
+    for kind in [Japanese, Cantonese, Zhuyin, Stroke] {
+        let page = dictionary_resource_entries(&options, kind, "", 0, 2).unwrap();
+        assert!(!page.available);
+        assert!(!page.has_more);
+        assert!(page.entries.is_empty());
+    }
+    let korean = dictionary_resource_entries(&options, KoreanHanja, "", 0, 2).unwrap();
+    assert!(korean.available && korean.has_more);
+    assert_eq!(korean.entries.len(), 2);
+    let bytes = crate::japanese::decoder::test_model::bytes(
+        &[
+            ("!", "!", 0, 0, 1),
+            ("-", "-", 0, 0, 2),
+            ("かな", "仮名", 0, 0, 10),
+            ("きごう", "※", 0, 0, 1),
+            ("にほん", "日本", 0, 0, -10),
+            ("にほんご", "日本語", 0, 0, 20),
+            ("ー", "ー", 0, 0, 1),
+        ],
+        1,
+        &[0],
+    );
+    let path = Path::new(&options.resources).join("msime-japanese.dat");
+    std::fs::write(&path, &bytes).unwrap();
+    for (offset, expected, has_more) in [(0, "仮名", true), (1, "日本", true), (2, "日本語", false)]
+    {
+        let page = dictionary_resource_entries(&options, Japanese, "", offset, 1).unwrap();
+        assert!(page.available);
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.entries[0].value, expected);
+        assert_eq!(page.has_more, has_more);
+    }
+    let empty = dictionary_resource_entries(&options, Japanese, "※", 0, 1).unwrap();
+    assert!(empty.available && empty.entries.is_empty() && !empty.has_more);
+    let page = dictionary_resource_entries(&options, Japanese, "日本", 0, 1).unwrap();
+    assert!(page.available && page.has_more);
+    assert_eq!(page.entries[0].value, "日本");
+    let page = dictionary_resource_entries(&options, Japanese, "にほん", 1, 1).unwrap();
+    assert!(!page.has_more);
+    assert_eq!(page.entries[0].value, "日本語");
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+    assert!(dictionary_resource_entries(&options, Japanese, "", 0, 1001).is_err());
+    assert!(dictionary_resource_entries(&options, Japanese, "", 1_000_001, 1).is_err());
+}

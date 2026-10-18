@@ -92,6 +92,12 @@ PY
       done
       echo "official plugin packs installed: $(cd /build/stage-full/usr/share/msime-client/plugin-packs && find . -name plugin.toml | sort | tr "\n" " ")" >&2
     fi
+    # 不内置词库的 full/wubi 安装也必须带齐辅助码，否则 setup 下载词库后仍无法筛选。
+    for packaged in /build/stage-full/usr/share/msime-client /build/stage-wubi/opt/msime-linux-wubi/share/msime-client-wubi; do
+      for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt wubi86_helpcode.txt; do
+        cmp "resources/helpcodes/$table" "$packaged/resources/helpcodes/$table"
+      done
+    done
     shared=$(comm -12 <(cd /build/stage-full && find . ! -type d | sort) <(cd /build/stage-wubi && find . ! -type d | sort))
     if [ -n "$shared" ]; then
       echo "full and wubi install the same paths:" >&2

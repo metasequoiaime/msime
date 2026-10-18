@@ -8,6 +8,7 @@ import {
   CloudDictionaryApplyPanel,
   CloudDictionaryCatalogPanel,
   CloudDictionaryFilesPanel,
+  CloudDictionaryPanel,
 } from "@msime/ui";
 import { answerConfirm } from "../support/confirm";
 
@@ -422,4 +423,17 @@ test("desktop dictionary file page reuses the authenticated client and returns t
   fireEvent.click(screen.getByRole("button", { name: "返回云词库" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "导入与导出" })).toBeTruthy());
   expect(close).not.toHaveBeenCalled();
+});
+
+test.each([
+  ["unavailable", "无法加载云词库，请检查网络后重试。"],
+  ["account_unauthorized", "登录已失效，请重新登录。"],
+  ["timeout", "云词库请求超时，请稍后重试。"],
+  ["account_network", "网络连接失败，请检查网络后重试。"],
+  ["account_conflict", "云词库已被其他设备更新，请刷新后重试。"],
+])("云词库保留 %s 的可操作错误提示", async (code, message) => {
+  const request = vi.fn().mockRejectedValue({ code, detail: "synthetic private payload" });
+  render(<CloudDictionaryPanel client={{ close: async () => {}, request }} />);
+  expect(await screen.findByText(message)).toBeTruthy();
+  expect(screen.queryByText("synthetic private payload")).toBeNull();
 });

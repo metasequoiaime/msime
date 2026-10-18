@@ -46,6 +46,7 @@ import type { SkinFontReader } from "../skin/skin-font";
 import type { UpdateCheckRequest, UpdateCheckResult } from "../settings/update-manifest";
 import type { AiAssistantClient } from "./ai-assistant-client";
 import type { ApiCredentialTestService, ApiCredentialTestResult } from "./api-credential-test";
+import type { CloudDictionaryPanelClient } from "../keyboard/panel-client";
 
 export interface SettingsClient {
   /** 宿主能力；未提供时按 user-agent 检测。 */
@@ -147,6 +148,8 @@ export interface SettingsClient {
   /** 这个宿主的云剪贴板会按偏好 `cloud_clipboard_relay` 改走自建中继；有它时「剪贴板」页显示同步方式和中继的地址、令牌。 */
   cloudClipboardRelay?: boolean;
   openCloudDictionary?: () => Promise<void>;
+  /** 桌面设置页内嵌的云词库客户端；提供时词库页显示「云词库」顶部标签。 */
+  cloudDictionary?: CloudDictionaryPanelClient;
   restartInputMethod?: () => Promise<void>;
   /** macOS 先安装或更新独立的 InputMethodKit 包，再注册输入源。 */
   installInputSource?: () => Promise<void>;

@@ -9,7 +9,7 @@ export interface DictionaryPaginationProps {
   onPageChange: (offset: number) => void;
 }
 
-/** Previous/next controls for paged dictionary results. */
+/** 词库结果的分页控件，与新增按钮共用底栏；窄窗口内允许换行。 */
 export function DictionaryPagination({
   busy,
   offset,
@@ -19,7 +19,7 @@ export function DictionaryPagination({
   onPageChange,
 }: DictionaryPaginationProps) {
   return (
-    <div className="flex items-center justify-center gap-4 text-xs text-secondary">
+    <div className="flex max-w-full flex-wrap items-center justify-end gap-2 text-xs text-secondary">
       <ActionButton
         action={() => onPageChange(Math.max(0, offset - pageSize))}
         disabled={busy || offset === 0}

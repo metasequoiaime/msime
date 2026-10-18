@@ -46,7 +46,7 @@ pub struct DictionaryTablePage {
     pub has_more: bool,
 }
 
-/// 只读查询：ASCII 按编码前缀，含非 ASCII 字符时按词条字面包含匹配。拼音编码忽略分隔符、空格和大小写；快捷短语允许空查询。个人行优先，再按精确匹配、权重、编码和词条排序。
+/// 只读查询：ASCII 按编码前缀，含非 ASCII 字符时按词条字面包含匹配，空查询列出全部。拼音编码忽略分隔符、空格和大小写。个人行优先，再按精确匹配、权重、编码和词条排序。
 ///
 /// 无效编码或缺少目标词库时返回空页；查询不创建或写入词库和 journal。
 pub fn dictionary_table_entries(
@@ -72,7 +72,7 @@ pub fn dictionary_table_entries(
         };
         code
     };
-    if code.is_empty() && (word_search || kind != PersonalDictionaryKind::QuickPhrase) {
+    if code.is_empty() && !query.trim().is_empty() {
         return Ok(DictionaryTablePage::default());
     }
     paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
@@ -109,7 +109,9 @@ pub fn dictionary_table_entries(
     } else {
         ("key", "value")
     };
-    let (matches, exact) = if word_search {
+    let (matches, exact) = if code.is_empty() {
+        ("1".to_owned(), "0".to_owned())
+    } else if word_search {
         (
             format!("instr({value_column},?1)>0"),
             format!("{value_column}=?1"),
@@ -372,7 +374,7 @@ fn bundled_table(kind: PersonalDictionaryKind, key: &str) -> Option<String> {
 
 /// 编码查询遍历首字母的全部拼音表，词条查询遍历所有首字母；其他种类各用一张表。
 fn lookup_tables(kind: PersonalDictionaryKind, code: &str, word_search: bool) -> Vec<String> {
-    let initials = if !word_search {
+    let initials = if !word_search && !code.is_empty() {
         &code.as_bytes()[..code.len().min(1)]
     } else {
         b"abcdefghijklmnopqrstuvwxyz"
@@ -729,7 +731,7 @@ mod tests {
         assert!(fixture.lookup(English, "hel").is_empty());
         // 中文按词条内容查询，无效 ASCII 编码仍返回空页。
         assert_eq!(values(&fixture.lookup(Wubi, "你")), ["你好"]);
-        assert!(fixture.lookup(Pinyin, "").is_empty());
+        assert!(!fixture.lookup(Pinyin, "").is_empty());
         assert!(fixture.lookup(Wubi, "a1").is_empty());
     }
 

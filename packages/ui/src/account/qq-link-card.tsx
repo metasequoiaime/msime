@@ -29,6 +29,7 @@ export function qqLinkMessage(error: unknown): string {
 export function QqLinkCard({ client, userId }: { client: QqLinksClient; userId: string }) {
   const [links, setLinks] = useState<AccountQqLink[] | null>(null);
   const [code, setCode] = useState("");
+  const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState("");
   const { busy, mounted, clientGeneration, perform } = useAccountAction(
     client,
@@ -46,6 +47,7 @@ export function QqLinkCard({ client, userId }: { client: QqLinksClient; userId: 
   useEffect(() => {
     setLinks(null);
     setCode("");
+    setAdding(false);
     setMessage("");
     void perform(reload, { allowBusy: true });
   }, [client, userId]);
@@ -65,43 +67,71 @@ export function QqLinkCard({ client, userId }: { client: QqLinksClient; userId: 
       if (!mounted.current) return;
       setCode("");
       await reload();
-      if (mounted.current)
-        setMessage("已绑定。在 QQ 群里 @机器人 发 /stats 就能看到你的打字数据。");
+      if (mounted.current) {
+        setAdding(false);
+        setMessage("绑定成功。");
+      }
     });
   };
+  const hasLinks = Boolean(links?.length);
+  const showForm = links !== null && (!hasLinks || adding);
 
   return (
     <section className={`${account.section} ${account.stack}`}>
-      <h2 className={account.heading}>绑定 QQ 群助手</h2>
-      <p className={account.note}>
-        在水杉输入法的 QQ 群里 @机器人 发 /bind，把收到的 8 位绑定码填在这里。绑定后发 /stats
-        能看到你的打字数据（先在「打字统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。
-      </p>
-      <label className={account.field}>
-        绑定码
-        <input
-          className={account.input}
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={10}
-          placeholder="8 位数字"
-          value={code}
-          disabled={busy}
-          onChange={(event) => setCode(event.target.value)}
-        />
-      </label>
-      <div className={account.actionRow}>
-        <ActionButton
-          action={redeem}
-          ariaBusy={busy}
-          className={account.primary}
-          disabled={busy || !/^[0-9]{8}$/.test(digits)}
-          label="绑定"
-        />
-      </div>
-      {links && links.length > 0 && (
+      <h2 className={account.heading}>{hasLinks ? "QQ 群助手" : "绑定 QQ 群助手"}</h2>
+      {hasLinks && (
+        <p className={account.note}>
+          已绑定。在 QQ 群里 @机器人 发 /stats
+          就能看到你的打字数据（先在「打字统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。
+        </p>
+      )}
+      {showForm && (
+        <>
+          <p className={account.note}>
+            在水杉输入法的 QQ 群里 @机器人 发 /bind，把收到的 8 位绑定码填在这里。绑定后发 /stats
+            能看到你的打字数据（先在「打字统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。
+          </p>
+          <label className={account.field}>
+            绑定码
+            <input
+              className={account.input}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={10}
+              placeholder="8 位数字"
+              value={code}
+              disabled={busy}
+              onChange={(event) => setCode(event.target.value)}
+            />
+          </label>
+          <div className={account.actionRow}>
+            <ActionButton
+              action={redeem}
+              ariaBusy={busy}
+              className={account.primary}
+              disabled={busy || !/^[0-9]{8}$/.test(digits)}
+              label="绑定"
+            />
+            {hasLinks && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setAdding(false);
+                  setCode("");
+                  setMessage("");
+                }}
+              >
+                取消
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      {hasLinks && (
         <ul className="m-0 flex list-none flex-col gap-2 p-0" aria-label="已绑定的 QQ 群友">
-          {links.map((link) => (
+          {links?.map((link) => (
             <li key={link.id} className="flex items-center justify-between gap-3">
               <span className={account.muted}>绑定于 {formatDateTime(link.createdAt)}</span>
               <ActionButton
@@ -119,6 +149,24 @@ export function QqLinkCard({ client, userId }: { client: QqLinksClient; userId: 
             </li>
           ))}
         </ul>
+      )}
+      {hasLinks && !adding && (
+        <div className={account.actionRow}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            onClick={() => {
+              setAdding(true);
+              setMessage("");
+            }}
+          >
+            绑定其他 QQ
+          </button>
+        </div>
+      )}
+      {links === null && !busy && message && (
+        <ActionButton action={() => perform(reload)} className="secondary" label="重试" />
       )}
       {busy && <StatusMessage role="status">正在处理…</StatusMessage>}
       {message && <StatusMessage role="status">{message}</StatusMessage>}

@@ -171,6 +171,7 @@ public final class HomeActivity extends AppCompatActivity {
         // out of. Existing configurations are reported, never overwritten.
         // 先挂上引导页记下的待保存选择：上次在准备完成前选了方案就离开、或进程被杀，这次准备完成时把它写进去。
         OnboardingChoices.watch(this);
+        FirstRunPreparation.observe(dictionaryPreparation);
         FirstRunPreparation.startIfNeeded(this);
 
         // 只有首次创建才执行 Intent 里的深链：旋转、换深浅模式和进程恢复时 getIntent() 还是那一个，再执行一遍会把用户已经离开的页面又压回来。
@@ -182,6 +183,13 @@ public final class HomeActivity extends AppCompatActivity {
         setIntent(intent);
         openDeepLink(intent);
     }
+
+    // 首次解包完成也检查一次，避免首次 onResume 早于 runtime-options.json 写入。
+    private final FirstRunPreparation.Listener dictionaryPreparation = state -> {
+        if (state == FirstRunPreparation.State.READY && !themeWorker.isShutdown()) {
+            themeWorker.execute(() -> DictionaryUpdates.request(getApplicationContext(), "automatic", null));
+        }
+    };
 
     /** 每次回到前台都按今天的月份重新解析一次应用主题：「水杉四季」跨季节时，开着的页面要换成新季节的颜色。 */
     @Override protected void onResume() {
@@ -196,6 +204,7 @@ public final class HomeActivity extends AppCompatActivity {
         CloudSync.onResume(this);
         // 打开了「上传到云端」时补传打字统计；十分钟的节流在共享层，没登录真实账号时什么都不发。
         TypingUpload.onResume(this);
+        themeWorker.execute(() -> DictionaryUpdates.request(getApplicationContext(), "automatic", null));
     }
 
     /**
@@ -398,6 +407,7 @@ public final class HomeActivity extends AppCompatActivity {
     }
 
     @Override protected void onDestroy() {
+        FirstRunPreparation.stopObserving(dictionaryPreparation);
         stopBreath();
         themeWorker.shutdownNow();
         super.onDestroy();

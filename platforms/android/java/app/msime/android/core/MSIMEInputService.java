@@ -1464,10 +1464,15 @@ public final class MSIMEInputService extends InputMethodService {
         resourcePacks = java.util.Set.of();
         letterCase.reset();
         clearEnglishSuggestions();
-        keyboardLayer = KeyboardLayout.Layer.LETTERS;
-        editorInputType = info == null ? 0 : info.inputType;
+        int nextInputType = info == null ? 0 : info.inputType;
+        String nextPackage = info == null || info.packageName == null ? "" : info.packageName;
+        // 同一编辑器重启连接时保留用户选择的数字层；换输入框或输入类型时重新按编辑器决定。
+        boolean keepKeyboardLayer = !newDocument && editorInputType == nextInputType
+            && currentEditorPackage.equals(nextPackage);
+        if (!keepKeyboardLayer) keyboardLayer = KeyboardLayout.Layer.LETTERS;
+        editorInputType = nextInputType;
         if (directNumberPad()) keyboardLayer = KeyboardLayout.Layer.SYMBOLS;
-        currentEditorPackage = info == null || info.packageName == null ? "" : info.packageName;
+        currentEditorPackage = nextPackage;
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
         refreshLocalSettings();
         preferencesNotice = "";

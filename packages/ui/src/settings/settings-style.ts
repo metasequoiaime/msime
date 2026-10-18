@@ -181,6 +181,9 @@ export const field = compactFieldLabel;
 export const fieldInput =
   "min-w-25 rounded-md border border-edge bg-[var(--dropdown-bg)] px-2 py-1.5 text-body";
 export const fieldSelect = `${fieldInput} min-w-[150px]`;
+export const dictionaryKindSelect = "min-w-44";
+export const dictionaryFooter =
+  "flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-[var(--divider-color)] pt-3 [&_button]:mt-0 [&_button]:h-8 [&_button]:shrink-0 [&_button]:px-3 [&_button]:py-0";
 /** A prompt edited in place, the full width of its group. */
 export const promptInput = `${fieldInput} min-h-32 w-full resize-y leading-relaxed`;
 export const phraseForm = "mt-3.5 flex flex-wrap items-end gap-2.5";
@@ -189,9 +192,19 @@ export const bundledBadge =
   "rounded border border-edge px-1 py-px text-[11px] leading-none text-muted";
 const listRow =
   "flex items-center justify-between gap-3 border-t border-[var(--divider-color)] pt-2 [&>span:first-child]:min-w-0 [&>span:first-child]:wrap-anywhere [&_.secondary]:mt-0 [&_.secondary]:px-[9px] [&_.secondary]:py-1";
+export const phraseTable = "mt-3.5 overflow-hidden rounded-lg border border-edge";
+export const phraseResourceColumns = "grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]";
+export const phrasePersonalColumns =
+  "grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_3rem_2rem_5.5rem] max-phone:gap-x-2";
+const phraseColumns = "grid items-center gap-x-5 px-3";
+export const phraseListHeader = `${phraseColumns} h-9 overflow-y-auto border-b border-edge bg-raised text-xs text-muted [scrollbar-gutter:stable]`;
 export const phraseList =
-  "mt-3.5 mb-0 flex max-h-[clamp(180px,calc(100vh-350px),550px)] list-none flex-col gap-2 overflow-x-hidden overflow-y-auto p-0 [scrollbar-gutter:stable]";
-export const phraseListItem = listRow;
+  "m-0 max-h-80 list-none overflow-x-hidden overflow-y-auto p-0 [scrollbar-gutter:stable] max-phone:max-h-70";
+export const phraseListItem = `${phraseColumns} h-10 border-b border-[var(--divider-color)] text-sm last:border-b-0 hover:bg-raised`;
+export const phraseEntryKey = "min-w-0 truncate font-sans text-xs text-muted";
+export const phraseEntryValue = "min-w-0 truncate";
+export const phraseEntryActions =
+  "flex min-w-0 items-center justify-end gap-1 [&_.secondary]:mt-0 [&_.secondary]:px-1 [&_.secondary]:py-1 [&_.secondary]:text-xs";
 export const failures =
   "mt-3.5 rounded-lg border border-edge-strong bg-raised px-3 py-2.5 [&>p]:m-0 [&>p]:text-xs [&>p]:text-danger [&>ul]:mt-2 [&>ul]:mb-0 [&>ul]:flex [&>ul]:list-none [&>ul]:flex-col [&>ul]:gap-2 [&>ul]:p-0";
 export const failureItem = `${listRow} [&>span:first-child]:flex [&>span:first-child]:flex-col [&>span:first-child]:gap-0.5 [&_small]:text-muted [&>button]:mt-0 [&>button]:px-[9px] [&>button]:py-1`;
@@ -365,3 +378,15 @@ export const mobileTabIcon =
 /** 桌面设置页的顶部功能标签，沿用当前平台的分段控件配色。 */
 export const candidateTabs =
   "grid grid-flow-col auto-cols-fr gap-0.5 rounded-[var(--p-seg-r)] bg-[var(--p-seg-bg)] p-0.5 [border:var(--p-seg-border)] [&>button]:min-h-9 [&>button]:rounded-[var(--p-seg-item-r)] [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-2 [&>button]:text-sm [&>button]:[color:var(--p-text)] [&>button[aria-selected=true]]:bg-[var(--p-seg-on)] [&>button[aria-selected=true]]:[color:var(--p-seg-on-fg)] [&>button[aria-selected=true]]:[box-shadow:var(--p-seg-on-shadow)] [&>button:focus-visible]:outline-2 [&>button:focus-visible]:outline-offset-1 [&>button:focus-visible]:outline-accent";
+
+/** 词库页的导航：用细底线和留白表达层级，避免和页面内的控件分段混在一起。 */
+export const dictionaryNav =
+  "flex flex-wrap items-end justify-between gap-x-5 gap-y-3 border-b border-[var(--p-row-divider)] pb-3";
+export const dictionaryNavCopy = "flex min-w-44 flex-col gap-0.5 pl-1";
+export const dictionaryNavEyebrow =
+  "text-[11px] font-semibold uppercase tracking-[0.12em] text-accent";
+export const dictionaryNavDescription = "text-xs text-muted";
+export const dictionaryTabs =
+  "grid min-w-[390px] flex-1 grid-flow-col auto-cols-fr gap-1 bg-transparent sm:max-w-[480px] sm:min-w-0 [&>button]:relative [&>button]:min-h-9 [&>button]:rounded-md [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-3 [&>button]:text-sm [&>button]:font-medium [&>button]:text-muted [&>button]:transition-colors [&>button:hover]:bg-[var(--p-hover)] [&>button[aria-selected=true]]:bg-[var(--p-seg-on)] [&>button[aria-selected=true]]:text-[var(--p-seg-on-fg)] [&>button[aria-selected=true]]:shadow-[0_1px_2px_rgba(0,0,0,0.08)] [&>button:focus-visible]:outline-2 [&>button:focus-visible]:outline-offset-2 [&>button:focus-visible]:outline-accent max-phone:min-w-0 max-phone:w-full";
+export const cloudDictionaryEmbed =
+  "min-w-0 rounded-[var(--p-group-r)] border border-edge bg-[var(--p-group-bg)] shadow-[var(--p-group-shadow)] [&>main]:w-full [&>main]:min-h-0 [&>main]:bg-transparent [&_.native-panel-header]:hidden [&>main>div]:min-h-0 [&>main>div]:overflow-visible [&>main>div]:p-5 [&>main>div]:max-phone:p-4";

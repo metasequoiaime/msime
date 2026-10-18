@@ -723,6 +723,16 @@ if(MSIME_EMOJI_RESOURCES)
   install(DIRECTORY "${MSIME_EMOJI_RESOURCES}/"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/emoji")
 endif()
+# 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes，Engine 从资源目录下的 helpcodes/ 读它们（crates/engine/src/assets.rs 列出七个文件）。宿主的校验放行真实的 helpcodes/ 目录。它们的来源声明与下面其他声明一起安装。
+install(FILES
+          "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/helpcode.txt"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/zrm_helpcode_big_unique.txt"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/shouyou2_0_helpcode.txt"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/shouyouplus_helpcode.txt"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/xiaohe_helpcode.txt"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/jiajia_helpcode.txt"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/wubi86_helpcode.txt"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources/helpcodes")
 if(MSIME_ENGINE_RESOURCES)
   if(NOT IS_DIRECTORY "${MSIME_ENGINE_RESOURCES}")
     message(FATAL_ERROR "MSIME_ENGINE_RESOURCES is not a directory: ${MSIME_ENGINE_RESOURCES}")
@@ -753,16 +763,6 @@ if(MSIME_ENGINE_RESOURCES)
     install(FILES "${MSIME_ENGINE_RESOURCE_FILE}"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources")
   endforeach()
-  # 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes，Engine 从资源目录下的 helpcodes/ 读它们（crates/engine/src/assets.rs 列出七个文件）。宿主的校验放行真实的 helpcodes/ 目录。它们的来源声明与下面其他声明一起安装。
-  install(FILES
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/helpcode.txt"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/zrm_helpcode_big_unique.txt"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/shouyou2_0_helpcode.txt"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/shouyouplus_helpcode.txt"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/xiaohe_helpcode.txt"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/jiajia_helpcode.txt"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/wubi86_helpcode.txt"
-          DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources/helpcodes")
   # Keep the reviewed lock beside the installed bundle as provenance metadata;
   # it is not copied into the runtime directory because the Engine verifier
   # requires that directory to contain exactly the pinned artifacts.

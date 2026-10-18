@@ -42,6 +42,8 @@ int main() {
                          {"preferences",
                           {{"scheme", "quanpin"},
                            {"learning", true},
+                           // 本夹具只验证 AI 候选清除，显式关闭独立的云候选占位。
+                           {"cloud_candidates", false},
                            {"candidate_page_size", 5},
                            {"chinese_punctuation", true},
                            {"ai_assistant", {{"enabled", true}}},

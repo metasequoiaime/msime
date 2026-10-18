@@ -3130,7 +3130,16 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.sharedMirror === null || this.stateDirectory.length === 0) {
       return;
     }
-    SharedStateSync.keyboardSync(this.sharedMirror, this.stateDirectory, this.sharedFullMode());
+    const imported: string[] = SharedStateSync.keyboardSync(this.sharedMirror, this.stateDirectory, this.sharedFullMode());
+    if (imported.includes('dictionary-selection') && this.handle !== 0) {
+      const resources: string = this.resourceDirectory;
+      const state: string = this.stateDirectory;
+      const dark: boolean = this.systemDark;
+      this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
+      this.stop();
+      this.start(resources, state, dark);
+      if (this.handle !== 0) this.apply(client.focus(this.handle, true));
+    }
   }
 
   detach(): void {
@@ -3429,6 +3438,26 @@ export class KeyboardSession implements HardwareKeyTarget {
       action = decoded;
     } catch (error) {
       return JSON.stringify({ ok: false, error: 'invalid dictionary action' });
+    }
+    if (action.operation === 'updates') {
+      // 更新状态与后台下载不准备工作词库，也不触碰正在组字的会话。
+      try {
+        const loaded: SnapshotResponse = JSON.parse(client.loadPreferences(stateRoot)) as SnapshotResponse;
+        const snapshot: PreferencesSnapshot | null = NativeReplyPolicy.successfulValue(loaded);
+        if (snapshot === null) return JSON.stringify(loaded);
+        const options: Record<string, Object> = {
+          api_version: 1, resources: resources, preferences_directory: stateRoot,
+          user_data: `${stateRoot}/user`, cache: `${stateRoot}/cache`,
+          dictionaries: `${stateRoot}/user/dictionaries`, preferences: snapshot.preferences,
+          edition: AppEdition.current().id,
+        };
+        const languages: string = `${resources.substring(0, resources.lastIndexOf('/'))}/language-dictionaries`;
+        if (fs.accessSync(languages)) options['language_dictionaries'] = languages;
+        return client.dictionary(JSON.stringify({ options: options, action: action }));
+      } catch (error) {
+        KeyboardLog.error(`dictionary update unavailable: ${describeError(error)}`);
+        return JSON.stringify({ ok: false, error: 'dictionary update unavailable' });
+      }
     }
     const decision = DictionaryMaintenancePolicy.decide(action.operation, this.composing());
     if (!decision.allowed) {

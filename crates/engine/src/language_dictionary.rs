@@ -76,6 +76,27 @@ pub fn open_read_only(path: &Path) -> Result<LanguageDictionary> {
 }
 
 impl LanguageDictionary {
+    /// 浏览全部词条，或按编码前缀、词条文字筛选后分页；`instr` 按字面处理通配符。
+    pub(crate) fn browse(
+        &self,
+        query: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<crate::dictionary::DictRow>> {
+        let query = query.to_ascii_lowercase();
+        let mut statement = self.connection.prepare_cached(
+            "SELECT key,text,weight FROM entries WHERE ?1='' OR instr(key,?1)=1 OR instr(text,?1)>0 ORDER BY key,text LIMIT ?2 OFFSET ?3",
+        )?;
+        let rows = statement.query_map((query, limit as i64, offset as i64), |row| {
+            Ok(crate::dictionary::DictRow {
+                key: row.get(0)?,
+                value: row.get(1)?,
+                weight: row.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// The `metadata` value stored under `name`.
     pub fn metadata(&self, name: &str) -> Result<Option<String>> {
         Ok(self
@@ -589,6 +610,28 @@ mod tests {
     fn completion_upper_bound_increments_only_the_last_character() {
         assert_eq!(completion_upper_bound("nei h").as_deref(), Some("nei i"));
         assert_eq!(completion_upper_bound("ㄋㄧˇ").as_deref(), Some("ㄋㄧˈ"));
+    }
+
+    #[test]
+    fn browse_pages_all_rows_and_filters_literal_keys_and_words_without_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dictionary.db");
+        build(&path, &FORMAT_VERSION.to_string());
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch("INSERT INTO entries VALUES('ㄋㄧˇ', '你%_', 10);")
+            .unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let dictionary = open_read_only(&path).unwrap();
+        let all = dictionary.browse("", 0, 20).unwrap();
+        assert_eq!(all.len(), 5);
+        assert_eq!(dictionary.browse("", 2, 2).unwrap(), all[2..4]);
+        assert_eq!(dictionary.browse("NEI", 0, 10).unwrap().len(), 4);
+        assert_eq!(dictionary.browse("好", 0, 10).unwrap().len(), 2);
+        assert_eq!(dictionary.browse("ㄋ", 0, 10).unwrap()[0].value, "你%_");
+        assert_eq!(dictionary.browse("%_", 0, 10).unwrap()[0].value, "你%_");
+        assert!(dictionary.browse("不存在", 0, 10).unwrap().is_empty());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
     }
 
     #[test]

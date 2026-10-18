@@ -18,6 +18,7 @@ Android 键盘的本机识别早就接好了：识别服务是 `local`，或打�
   - 「识别服务」多了「本地模型」。选它时会备好运行库；如果已有装好的模型而还没选用，就选用第一个。
   - 选了本地模型或打开离线识别时，出现「本地模型」组：运行库状态行加上每个模型一行（下载、取消、校验中、重试，已装的点开可以选用或删除）。删除正在用的模型时，一并清空 `asr_model_path`。
   - 选了本地模型却还不能用时，「识别服务」行说明缺什么（`VoiceProviderPolicy.localStatus`）。这里不说「暂用系统识别」，因为本地识别不会回退到系统识别。
+- Android 的「离线识别」开关默认打开，首次使用仍需用户在「本地模型」组下载并选用模型；默认识别服务和模型目录不改，已有用户明确保存的开关值也不改。
 - 行状态的纯规则放在 `voice/LocalVoiceModelPolicy.java`，配 JVM 冒烟。这个类不引用 `ResourcePackService`：后者导入了 androidx，进不了 `check-host` 的编译。
 
 ## Alternatives considered
@@ -28,7 +29,7 @@ Android 键盘的本机识别早就接好了：识别服务是 `local`，或打�
 
 ## Consequences
 
-- 收益：正式包用户可以装上本地模型，选「本地模型」做识别服务，或打开离线识别作为没网时的后备；键盘失败提示里说的「在设置中下载」现在有对应的入口。
+- 收益：正式包用户可以装上本地模型，选「本地模型」做识别服务，或使用默认打开的离线识别作为没网时的后备；键盘失败提示里说的「在设置中下载」现在有对应的入口。
 - 代价：`ResourcePackService` 不再只管资源包，`runningPacks` 改成遍历状态表，结果通知让所有模型共用一个位置（同一时间通常只下一个模型）。
 - 仍缺：模型许可证的展示；下载镜像的设置入口。从文件导入模型和运行库后来由[不联网安装那篇](2026-10-12-android-offline-voice-import.md)补上。
 - 验证：`platforms/android/check-host.sh`（含 `LocalVoiceModelPolicySmoke`、`VoiceProviderPolicySmoke`、`SettingsSearchIndexSmoke`）；`gradlew compileFullReleaseJavaWithJavac`；`client_jni.cpp` 用 NDK 28.2 的 clang 在 `-Wall -Wextra -Werror` 下做 `-fsyntax-only` 编译。没有做完整的 native 链接，也没有在真机上下载模型、做一次本地识别。

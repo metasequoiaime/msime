@@ -16,6 +16,8 @@ Status: implemented
 
 账号绑定方向固定为「机器人发码，App 里输入」：群友在群里发 `/bind`，拿到一个 8 位、10 分钟有效、只能用一次的码，在账号页的「绑定 QQ 群助手」卡片里输入（`POST /v1/users/me/qq-links`）。两种失败映射成各自的错误码，页面分别说明：`account_qq_link_code_not_found` 表示码不对或已过期，`account_qq_link_limit` 表示已经绑了 10 个。
 
+共享设置页根据已读取的绑定列表展示卡片：空列表显示绑定说明和表单，已有绑定时默认只显示使用说明、绑定时间与解绑操作；「绑定其他 QQ」主动展开表单，取消或绑定成功后收起，以保留多绑定能力。读取期间不先显示未绑定表单，读取失败提供重试，不把未知状态当作未绑定；解绑最后一项后恢复表单。这里修正的是共享页面展示，原生设置界面和服务端绑定上限保持原有契约。
+
 接入范围是三个桌面宿主的 Tauri 设置应用（`apps/desktop/src-tauri/src/platform/desktop/desktop_typing_upload.rs`）。页面通过 `TypingStatisticsClient.cloudUpload` 和 `AccountClient.qqLinks` 两个可选能力判断显示与否，宿主不提供时不显示。
 
 原生宿主经 C ABI 复用同一份 Rust 逻辑，按宿主怎么联网分成两种形状：
@@ -44,6 +46,7 @@ Status: implemented
 - `cargo test -p msime-client-services`：覆盖构建（7 天上限、60 天窗口、键名过滤和 32 个上限、24 桶校验）、状态（默认关闭、节流、发送失败不记时间、发送中被关掉不写回、坏文件读成关闭）、绑定码和编号的形状、列表解析，以及两个错误码的映射。
 - `cargo clippy -p msime-desktop --all-targets -D warnings`：在 macOS 上跑，用空的资源目录占位，构建脚本只检查这些目录存在。
 - vitest 覆盖开关的打开、关闭、删除失败和未登录时禁用，覆盖说明文字随开关改写，也覆盖绑定卡片的空格处理、绑定与解绑和错误文案。
+- 绑定卡片回归还覆盖已绑定时隐藏初次绑定表单、读取期间不闪现表单、主动追加绑定及取消、绑定成功收起、解绑最后一项后恢复，以及读取失败重试。
 - `cargo test -p msime-client-services typing_statistics::upload`：两步上传只为准备时的设备记时间，准备本身不记，关闭后不写回。
 - `cargo test -p msime-host-api`：`account_ops` 的打开即上传、十分钟节流、`force`、关闭先本地后删除且删除失败仍关闭、未登录时不退回匿名账号、请求不合法时不联网，QQ 绑定的列表、绑定码清洗、服务端错误码透传；`msime_client_typing_statistics` 的 `upload_request` 各种跳过原因和 `upload_succeeded` 只认同一设备。
 - Windows 原生设置的两个模型头（`AccountPageModel.h`、`TypingStatisticsModel.h`）的单测在 macOS 上用 clang 编译跑过；`main.cpp` 没有在本机编译，靠 PR 的 Windows CI。

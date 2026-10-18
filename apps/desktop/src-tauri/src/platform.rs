@@ -9,7 +9,13 @@ pub(crate) mod account_helpers;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) mod android;
 pub(crate) mod cloud_clipboard;
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows", test))]
+#[cfg(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    test
+))]
 #[cfg_attr(
     not(any(target_os = "ios", target_os = "android", target_os = "windows")),
     allow(dead_code)
