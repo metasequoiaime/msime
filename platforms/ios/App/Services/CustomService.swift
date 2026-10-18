@@ -164,7 +164,7 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
   private static let maximumPromptBytes = 32 * 1024
   private static let maximumDoubaoFieldBytes = 8 * 1024
   var provider: AIProviderPreset = .custom
-  var voiceProvider: VoiceProviderPreset = .custom
+  var voiceProvider: VoiceProviderPreset = .local
   var voiceAppKey = ""
   var voiceResourceID = ""
   var doubaoEnableITN = true
@@ -177,11 +177,14 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
 
   static func load(_ kind: CustomServiceKind, defaults: UserDefaults = .standard) -> Self {
     var result = Self()
+    result.endpoint = defaults.string(forKey: "service.\(kind.rawValue).endpoint") ?? ""
     if kind == .ai {
       result.provider = AIProviderPreset(rawValue: defaults.string(forKey: "service.ai.provider") ?? "") ?? .custom
     }
     if kind == .voice {
-      result.voiceProvider = VoiceProviderPreset(rawValue: defaults.string(forKey: "service.voice.provider") ?? "") ?? .custom
+      // 旧版只有接口地址的配置仍按自定义服务读取；未配置服务时默认离线识别。
+      result.voiceProvider = VoiceProviderPreset(rawValue: defaults.string(forKey: "service.voice.provider") ?? "")
+        ?? (result.endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .local : .custom)
       result.voiceAppKey = defaults.string(forKey: "service.voice.app_key") ?? ""
       result.voiceResourceID = defaults.string(forKey: "service.voice.resource_id") ?? ""
       result.doubaoEnableITN = defaults.object(forKey: "service.voice.enable_itn") as? Bool ?? true
@@ -189,7 +192,6 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
       result.doubaoEnableDDC = defaults.bool(forKey: "service.voice.enable_ddc")
       result.doubaoBoostingTableID = defaults.string(forKey: "service.voice.boosting_table_id") ?? ""
     }
-    result.endpoint = defaults.string(forKey: "service.\(kind.rawValue).endpoint") ?? ""
     result.model = defaults.string(forKey: "service.\(kind.rawValue).model") ?? ""
     if kind == .voice { result.model = currentVoiceModel(result.model, for: result.voiceProvider) }
     result.prompt = defaults.string(forKey: "service.\(kind.rawValue).prompt") ?? result.prompt

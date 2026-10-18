@@ -17,6 +17,39 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
 }
 
 final class CustomServiceTests: XCTestCase {
+  func testUnconfiguredVoiceDefaultsToLocalRecognition() throws {
+    let suite = "msime-voice-default-\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    XCTAssertEqual(CustomServiceConfiguration().voiceProvider, .local)
+    for provider in [nil, "unknown"] as [String?] {
+      defaults.set(provider, forKey: "service.voice.provider")
+      defaults.set(" \n", forKey: "service.voice.endpoint")
+      let configuration = CustomServiceConfiguration.load(.voice, defaults: defaults)
+      XCTAssertEqual(configuration.voiceProvider, .local)
+      XCTAssertNoThrow(try configuration.save(.voice, token: "", defaults: defaults))
+      XCTAssertEqual(defaults.string(forKey: "service.voice.provider"), "local")
+    }
+  }
+
+  func testVoiceDefaultPreservesSavedProvidersAndLegacyCustomService() throws {
+    let suite = "msime-voice-default-compatibility-\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    for provider in VoiceProviderPreset.allCases {
+      defaults.set(provider.rawValue, forKey: "service.voice.provider")
+      XCTAssertEqual(CustomServiceConfiguration.load(.voice, defaults: defaults).voiceProvider, provider)
+    }
+    defaults.removeObject(forKey: "service.voice.provider")
+    defaults.set("https://fixture.invalid/transcriptions", forKey: "service.voice.endpoint")
+    defaults.set("fixture-model", forKey: "service.voice.model")
+    let configuration = CustomServiceConfiguration.load(.voice, defaults: defaults)
+    XCTAssertEqual(configuration.voiceProvider, .custom)
+    XCTAssertEqual(configuration.endpoint, "https://fixture.invalid/transcriptions")
+    XCTAssertEqual(configuration.model, "fixture-model")
+    XCTAssertNil(defaults.string(forKey: "service.voice.provider"), "读取不应重写旧配置")
+  }
+
   func testDoubaoRequestUsesPCMCoordinatorAndHandshake() async throws {
     let transport = DoubaoRequestFixtureTransport()
     var packets: [(Int32, Int, Bool)] = []

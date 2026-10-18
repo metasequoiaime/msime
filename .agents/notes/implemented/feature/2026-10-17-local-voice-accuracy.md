@@ -16,6 +16,8 @@ msime 默认的本地模型是 X-ASR zh-en 的 480 ms 流式导出。同一模�
 
 ## Decision
 
+iOS 未配置语音服务时默认选择本地识别，见 [iOS 本地识别默认值](2026-10-18-ios-local-voice-default.md)；这里的默认模型仍指模型目录中的选择。
+
 ### 模型与解码（`resources/local-asr-models.json`、`shared/voice/LocalAsr.cpp`）
 
 - 目录新增 `x-asr-zh-en-offline`（`offline_transducer`），作为可选模型，默认仍是流式。离线 transducer 与 SenseVoice 走同一条 Silero VAD 分段路径，`modified_beam_search`、`max_active_paths = 16`、`hotwords_score = 2.0`，热词随每段新建的流传入（`SherpaOnnxCreateOfflineStreamWithHotwords`）。
