@@ -15890,7 +15890,7 @@ fn imported_cell_words_reach_both_pinyin_keyboards_after_synchronization() {
     assert_eq!(imported["value"]["import"]["imported"], words.len());
     let first = call_android_data(msime_client_personal_dictionary_sync, options.clone());
     assert_eq!(first["ok"], true, "{first}");
-    assert_eq!(first["value"]["pending_count"], 2, "{first}");
+    assert_eq!(first["value"]["pending_count"], 0, "{first}");
     let second = call_android_data(msime_client_personal_dictionary_sync, options.clone());
     assert_eq!(second["ok"], true, "{second}");
     assert_eq!(second["value"]["pending_count"], 0, "{second}");
@@ -15954,10 +15954,10 @@ fn a_busy_dictionary_sync_preserves_pending_collection_words_for_retry() {
     assert!(state.requests.iter().all(|request| {
         request.status == PersonalWordRequestStatus::Pending && request.error.is_none()
     }));
-    for expected_pending in [2, 0] {
+    for _ in 0..2 {
         let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
         assert_eq!(synced["ok"], true, "{synced}");
-        assert_eq!(synced["value"]["pending_count"], expected_pending);
+        assert_eq!(synced["value"]["pending_count"], 0);
     }
     let state = store.read().unwrap();
     assert!(
@@ -16770,9 +16770,9 @@ fn personal_dictionary_sync_leaves_busy_imports_pending() {
     assert_eq!(applied["value"]["failed_count"], 0, "{applied}");
 }
 
-/// 合成词表超过启动时的一批：第六项只有继续同步后才进入九键候选。
+/// 合成词表在一次有界同步后完整生效，第六项进入九键候选。
 #[test]
-fn imported_words_past_first_sync_batch_reach_nine_key_candidates() {
+fn imported_words_in_one_batch_reach_nine_key_candidates() {
     let directory = tempfile::tempdir().unwrap();
     let options = host_options_with_main_dictionary(directory.path());
     let words = [
@@ -16797,27 +16797,8 @@ fn imported_words_past_first_sync_batch_reach_nine_key_candidates() {
     );
     assert_eq!(imported["value"]["import"]["imported"], 9, "{imported}");
     let first = call_android_data(msime_client_personal_dictionary_sync, options.clone());
-    assert_eq!(first["value"]["pending_count"], 5, "{first}");
-    let listed = call_android_data(
-        msime_client_dictionary,
-        json!({
-            "options": options, "action": {"operation": "list", "offset": 0, "limit": 100},
-        }),
-    );
-    assert!(!listed["value"]["entries"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|entry| entry["value"] == words[5]));
-    for remaining in [1, 0] {
-        let synchronized =
-            call_android_data(msime_client_personal_dictionary_sync, options.clone());
-        assert_eq!(
-            synchronized["value"]["pending_count"], remaining,
-            "{synchronized}"
-        );
-        assert_eq!(synchronized["value"]["failed_count"], 0, "{synchronized}");
-    }
+    assert_eq!(first["value"]["pending_count"], 0, "{first}");
+    assert_eq!(first["value"]["failed_count"], 0, "{first}");
     let bytes = options.to_string();
     let created = read(unsafe { msime_client_create(bytes.as_ptr(), bytes.len()) });
     let handle = created["value"]["session"].as_u64().unwrap();
@@ -16889,3 +16870,6 @@ fn touch_quick_symbols_use_the_shared_rules_across_the_abi() {
         false
     );
 }
+
+#[path = "dictionary/batch_tests.rs"]
+mod dictionary_batch_tests;

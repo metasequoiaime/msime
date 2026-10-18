@@ -242,6 +242,8 @@ pub enum PersonalDictionaryError {
     Conflict,
     #[error("personal dictionary request is invalid")]
     InvalidRequest,
+    #[error("personal dictionary batch was not committed")]
+    BatchFailed,
     #[error("personal dictionary I/O failed")]
     Io(#[source] io::Error),
 }
@@ -457,26 +459,71 @@ impl PersonalDictionaryStore {
     pub fn synchronize_reporting_present<Apply, Page>(
         &self,
         mut apply: Apply,
-        mut page: Page,
+        page: Page,
     ) -> Result<(), PersonalDictionaryError>
     where
         Apply: FnMut(&PersonalWordRequest) -> Result<PersonalWordApplied, String>,
         Page: FnMut(&PersonalPageRequest) -> Result<PersonalWordPage, String>,
     {
+        self.synchronize_batch(
+            4,
+            |requests| Ok(requests.iter().map(|request| apply(request)).collect()),
+            page,
+        )
+    }
+
+    /// 批量编辑最多处理活动队列的 128 项；回调必须先提交数据库，再返回逐项结果。
+    /// 回调整体失败或返回数量不符时不修改队列，数据库已成功的重试由请求回执识别。
+    pub fn synchronize_batch_reporting_present<Apply, Page>(
+        &self,
+        apply: Apply,
+        page: Page,
+    ) -> Result<(), PersonalDictionaryError>
+    where
+        Apply: FnMut(
+            &[&PersonalWordRequest],
+        ) -> Result<Vec<Result<PersonalWordApplied, String>>, String>,
+        Page: FnMut(&PersonalPageRequest) -> Result<PersonalWordPage, String>,
+    {
+        self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, page)
+    }
+
+    fn synchronize_batch<Apply, Page>(
+        &self,
+        limit: usize,
+        mut apply: Apply,
+        mut page: Page,
+    ) -> Result<(), PersonalDictionaryError>
+    where
+        Apply: FnMut(
+            &[&PersonalWordRequest],
+        ) -> Result<Vec<Result<PersonalWordApplied, String>>, String>,
+        Page: FnMut(&PersonalPageRequest) -> Result<PersonalWordPage, String>,
+    {
         self.update(|state| {
-            let mut pending = Vec::with_capacity(4);
-            pending.extend(
-                state
-                    .requests
+            let pending: Vec<_> = state
+                .requests
+                .iter()
+                .enumerate()
+                .filter_map(|(index, request)| {
+                    (request.status == PersonalWordRequestStatus::Pending).then_some(index)
+                })
+                .take(limit)
+                .collect();
+            let outcomes = if pending.is_empty() {
+                Vec::new()
+            } else {
+                let requests: Vec<_> = pending
                     .iter()
-                    .enumerate()
-                    .filter_map(|(index, request)| {
-                        (request.status == PersonalWordRequestStatus::Pending).then_some(index)
-                    })
-                    .take(4),
-            );
-            for index in pending {
-                match apply(&state.requests[index]) {
+                    .map(|index| &state.requests[*index])
+                    .collect();
+                apply(&requests).map_err(|_| PersonalDictionaryError::BatchFailed)?
+            };
+            if outcomes.len() != pending.len() {
+                return Err(PersonalDictionaryError::InvalidState);
+            }
+            for (index, outcome) in pending.into_iter().zip(outcomes) {
+                match outcome {
                     Ok(applied) => {
                         state.requests[index].status = PersonalWordRequestStatus::Applied;
                         state.requests[index].error = None;

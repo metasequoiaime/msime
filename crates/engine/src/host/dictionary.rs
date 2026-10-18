@@ -148,6 +148,23 @@ pub fn dictionary_edit(
     ))
 }
 
+/// 有界批量编辑的参数；维护租约由 host-api 持有。
+pub use personal::{
+    PersonalDictionaryApplied as DictionaryApplied, PersonalDictionaryEdit as DictionaryEdit,
+};
+
+/// 一次事务提交一批编辑，逐项结果只在外层提交成功后返回。
+pub fn dictionary_edit_batch(
+    options: &EngineOptions,
+    edits: &[DictionaryEdit<'_>],
+) -> Result<Vec<Result<DictionaryApplied>>> {
+    released(personal::edit_personal_dictionary_batch_with(
+        &runtime_paths(options),
+        main_dictionary(options),
+        edits,
+    ))
+}
+
 /// Refuses to reset the packaged bundle in place and needs both packaged dictionaries. 方案集合不读 `msime-pinyin.db` 时只需要、也只换回 `msime-english.db`。
 pub fn reset_learned_data(options: &EngineOptions) -> Result<()> {
     released(reset::reset_learned_data_with(

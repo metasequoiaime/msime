@@ -3,13 +3,12 @@
 //! Validation failures are `InvalidArgument` (the bridge threw `invalid_argument` for them); every failure of an edit, page or lookup is `Failed` carrying the reference's `result.error`, which the bridge threw as `runtime_error`.
 
 use rusqlite::types::ValueRef;
-use rusqlite::{
-    params, Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior,
-};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, TransactionBehavior};
 
 use crate::assets;
 use crate::dictionary::english::ensure_english_schema;
 use crate::error::{EngineError, Result};
+use crate::lattice::personal::PersonalTransition;
 use crate::paths::RuntimePaths;
 use crate::pinyin::syllables::intact_pinyin_set;
 use crate::types::{PersonalDictionaryEntry, PersonalDictionaryKind};
@@ -183,6 +182,134 @@ pub fn edit_personal_dictionary_with(
     replacement: Option<&PersonalDictionaryEntry>,
     request_id: &str,
 ) -> Result<()> {
+    let (old, new) = normalize_edit(main_dictionary, previous, replacement, request_id)?;
+    paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
+    let journal = paths.user(assets::USER_JOURNAL);
+    let mut connection = open_edit_connection(paths, main_dictionary)?;
+    // 先刷新内存中的上下文，避免删除词条时遗漏尚未落盘的记录。
+    flush_journal(&journal).map_err(|_| failed(CONTEXT_NOT_WRITTEN))?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| failed(EDIT_NOT_BEGUN))?;
+    let applied =
+        apply_normalized_edit(&transaction, old.as_ref(), new.as_ref(), request_id, false)?;
+    transaction
+        .commit()
+        .map_err(|_| failed(EDIT_NOT_COMMITTED))?;
+    if let Some(removed) = applied.forgotten {
+        forget_journal_rows(&journal, &removed);
+    }
+    Ok(())
+}
+
+/// 一批最多 128 项，和跨进程个人词库队列的活动请求上限一致。
+pub const MAX_EDIT_BATCH: usize = 128;
+
+/// 一次编辑的借用参数；请求回执格式与单项入口相同。
+#[derive(Clone, Copy)]
+pub struct PersonalDictionaryEdit<'a> {
+    pub previous: Option<&'a PersonalDictionaryEntry>,
+    pub replacement: Option<&'a PersonalDictionaryEntry>,
+    pub request_id: &'a str,
+    /// 集合新增不能覆盖用户原有词；先核对本请求的回执，再判断既有行。
+    pub preserve_existing: bool,
+}
+
+/// 批量编辑对一项的处理结果，既有用户词归集合管理层记录保护。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PersonalDictionaryApplied {
+    Written,
+    AlreadyPresent,
+}
+
+struct AppliedEdit {
+    outcome: PersonalDictionaryApplied,
+    forgotten: Option<Vec<PersonalTransition>>,
+}
+
+/// 一次准备连接并提交有界批次；保存点隔离条目失败，外层失败则整批不生效。
+pub fn edit_personal_dictionary_batch_with(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    edits: &[PersonalDictionaryEdit<'_>],
+) -> Result<Vec<Result<PersonalDictionaryApplied>>> {
+    if edits.len() > MAX_EDIT_BATCH {
+        return Err(failed("Personal dictionary edit batch is too large"));
+    }
+    if edits.is_empty() {
+        return Ok(Vec::new());
+    }
+    paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
+    let journal = paths.user(assets::USER_JOURNAL);
+    let mut connection = open_edit_connection(paths, main_dictionary)?;
+    flush_journal(&journal).map_err(|_| failed(CONTEXT_NOT_WRITTEN))?;
+    let mut transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| failed(EDIT_NOT_BEGUN))?;
+    let mut outcomes = Vec::with_capacity(edits.len());
+    let mut forgotten = Vec::new();
+    for edit in edits {
+        let (old, new) = match normalize_edit(
+            main_dictionary,
+            edit.previous,
+            edit.replacement,
+            edit.request_id,
+        ) {
+            Ok(entries) => entries,
+            Err(error) => {
+                outcomes.push(Err(error));
+                continue;
+            }
+        };
+        let mut savepoint = transaction
+            .savepoint()
+            .map_err(|_| failed(EDIT_NOT_BEGUN))?;
+        let result = apply_normalized_edit(
+            &savepoint,
+            old.as_ref(),
+            new.as_ref(),
+            edit.request_id,
+            edit.preserve_existing,
+        );
+        // RAISE(ROLLBACK) 或存储故障可能已经撤销外层事务，不能再开启保存点并误报前面的项成功。
+        if savepoint.is_autocommit() {
+            return Err(failed(EDIT_NOT_COMMITTED));
+        }
+        match result {
+            Ok(applied) => {
+                savepoint.commit().map_err(|_| failed(EDIT_NOT_COMMITTED))?;
+                if let Some(removed) = applied.forgotten {
+                    forgotten.extend(removed);
+                }
+                outcomes.push(Ok(applied.outcome));
+            }
+            Err(error) => {
+                savepoint
+                    .rollback()
+                    .map_err(|_| failed(EDIT_NOT_COMMITTED))?;
+                savepoint.commit().map_err(|_| failed(EDIT_NOT_COMMITTED))?;
+                outcomes.push(Err(error));
+            }
+        }
+    }
+    transaction
+        .commit()
+        .map_err(|_| failed(EDIT_NOT_COMMITTED))?;
+    if !forgotten.is_empty() {
+        forget_journal_rows(&journal, &forgotten);
+    }
+    Ok(outcomes)
+}
+
+fn normalize_edit(
+    main_dictionary: bool,
+    previous: Option<&PersonalDictionaryEntry>,
+    replacement: Option<&PersonalDictionaryEntry>,
+    request_id: &str,
+) -> Result<(
+    Option<PersonalDictionaryEntry>,
+    Option<PersonalDictionaryEntry>,
+)> {
     if !valid_request_id(request_id) {
         return Err(failed(INVALID_REQUEST_ID));
     }
@@ -206,27 +333,45 @@ pub fn edit_personal_dictionary_with(
         return Err(failed(NO_CHINESE_DICTIONARY));
     }
 
-    paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
-    let journal = paths.user(assets::USER_JOURNAL);
-    let mut connection = open_edit_connection(paths, main_dictionary)?;
-    // A removal below may delete personal context rows, which must include what is still queued in memory. Written before the transaction: the store writes on its own connection (J:1837-1838).
-    flush_journal(&journal).map_err(|_| failed(CONTEXT_NOT_WRITTEN))?;
-    // Every early return drops the transaction, which rolls the dictionary, the journal and the receipt back together, as the reference's `fail` did.
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|_| failed(EDIT_NOT_BEGUN))?;
+    Ok((old, new))
+}
+
+fn apply_normalized_edit(
+    transaction: &Connection,
+    old: Option<&PersonalDictionaryEntry>,
+    new: Option<&PersonalDictionaryEntry>,
+    request_id: &str,
+    preserve_existing: bool,
+) -> Result<AppliedEdit> {
     let payload = if request_id.is_empty() {
         String::new()
     } else {
         let mut payload = String::new();
-        append_payload(&mut payload, old.as_ref());
-        append_payload(&mut payload, new.as_ref());
-        if check_receipt(&transaction, request_id, &payload)? == Receipt::Retry {
-            return transaction.commit().map_err(|_| failed(RETRY_NOT_FINISHED));
+        append_payload(&mut payload, old);
+        append_payload(&mut payload, new);
+        if check_receipt(transaction, request_id, &payload)? == Receipt::Retry {
+            return Ok(AppliedEdit {
+                outcome: PersonalDictionaryApplied::Written,
+                forgotten: None,
+            });
         }
         payload
     };
-    if let Some(old) = &old {
+    if preserve_existing && old.is_none() {
+        if let Some(new) = new {
+            let present = transaction.query_row(
+                "SELECT 1 FROM personal_journal.user_dictionary_operations WHERE dictionary=?1 AND key=?2 AND value=?3 AND operation='upsert' AND user_inserted=1",
+                params![new.kind.journal_name(), new.key, new.value], |_| Ok(()),
+            ).optional().map_err(|_| failed(DICTIONARY_NOT_READ))?;
+            if present.is_some() {
+                return Ok(AppliedEdit {
+                    outcome: PersonalDictionaryApplied::AlreadyPresent,
+                    forgotten: None,
+                });
+            }
+        }
+    }
+    if let Some(old) = old {
         let current = transaction
             .query_row(
                 "SELECT 1 FROM personal_journal.user_dictionary_operations WHERE dictionary=?1 AND key=?2 AND value=?3 AND weight=?4 AND operation='upsert' AND user_inserted=1",
@@ -237,40 +382,37 @@ pub fn edit_personal_dictionary_with(
         if !matches!(current, Ok(Some(()))) {
             return Err(failed(ENTRY_CHANGED));
         }
-        if !matches!(apply_personal_edit(&transaction, old, true), Ok(true)) {
+        if !matches!(apply_personal_edit(transaction, old, true), Ok(true)) {
             return Err(failed(PREVIOUS_NOT_REMOVED));
         }
     }
-    if let Some(new) = &new {
-        if !matches!(apply_personal_edit(&transaction, new, false), Ok(true)) {
+    if let Some(new) = new {
+        if !matches!(apply_personal_edit(transaction, new, false), Ok(true)) {
             return Err(failed(ENTRY_NOT_SAVED));
         }
     }
-    // Only a word that leaves the dictionary loses its typing context; re-weighting it keeps the context.
-    let forgotten = match &old {
+    // 词条离开词库才删除输入上下文；只调整权重时保留。
+    let forgotten = match old {
         Some(old)
             if old.kind == PersonalDictionaryKind::Pinyin
-                && !new.as_ref().is_some_and(|new| {
+                && !new.is_some_and(|new| {
                     new.kind == PersonalDictionaryKind::Pinyin && new.value == old.value
                 }) =>
         {
             Some(
-                delete_personal_ngram_word(&transaction, "personal_journal", &old.value)
+                delete_personal_ngram_word(transaction, "personal_journal", &old.value)
                     .map_err(|_| failed(CONTEXT_NOT_REMOVED))?,
             )
         }
         _ => None,
     };
     if !request_id.is_empty() {
-        save_receipt(&transaction, request_id, &payload)?;
+        save_receipt(transaction, request_id, &payload)?;
     }
-    transaction
-        .commit()
-        .map_err(|_| failed(EDIT_NOT_COMMITTED))?;
-    if let Some(removed) = forgotten {
-        forget_journal_rows(&journal, &removed);
-    }
-    Ok(())
+    Ok(AppliedEdit {
+        outcome: PersonalDictionaryApplied::Written,
+        forgotten,
+    })
 }
 
 /// User-inserted entries (auto-created words included) in kind/key/value order; with `include_learned_pinyin`, also learned or edited pinyin weights of shipped multi-character words.
@@ -449,7 +591,7 @@ pub(super) enum Receipt {
 
 /// Idempotency by request id: the stored payload must match exactly (J:1858-1880).
 pub(super) fn check_receipt(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     request_id: &str,
     payload: &str,
 ) -> Result<Receipt> {
@@ -470,7 +612,7 @@ pub(super) fn check_receipt(
 }
 
 pub(super) fn save_receipt(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     request_id: &str,
     payload: &str,
 ) -> Result<()> {

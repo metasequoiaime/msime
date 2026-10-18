@@ -32,7 +32,9 @@ def main() -> int:
         )
     ]
     required = {
-        "four-entry native batch": ".take(4)" in store,
+        "bounded native batch": ".synchronize_batch_reporting_present(" in host
+        and "self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, page)" in store
+        and ".take(limit)" in store,
         "idle sync before Engine session": start < drain < create,
         "two-second yield": "IDLE_DICTIONARY_RETRY_MS: number = 2000" in session,
         # Keep the queue out of both an active composition and a local Engine mode. The old

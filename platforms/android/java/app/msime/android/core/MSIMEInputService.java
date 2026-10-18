@@ -2140,7 +2140,7 @@ public final class MSIMEInputService extends InputMethodService {
                         // The next idle boundary retries a busy or unavailable journal.
                         return;
                     }
-                    // 个人词库每同步一次只写 4 条，导入的词库又按队列空位分批送进来。这里把下一批送进去，只要还有没写完的（队列里还有，或者刚送进了新的）就马上再来一轮，直到全部写完。每一轮都回到主线程重新确认此刻没有输入会话：键盘一弹出就停，下次空闲时接着写。
+                    // 个人词库每同步一次最多写 128 条，导入的词库又按队列空位分批送进来。这里把下一批送进去，只要还有没写完的（队列里还有，或者刚送进了新的）就马上再来一轮，直到全部写完。每一轮都回到主线程重新确认此刻没有输入会话：键盘一弹出就停，下次空闲时接着写。
                     DictionaryCollectionsStore.Result<Integer> sent = DictionaryCollectionsStore.flushSent(this);
                     if (queued > 0 || (sent.value() != null && sent.value() > 0))
                         main.post(() -> schedulePersonalDictionarySynchronization(true));

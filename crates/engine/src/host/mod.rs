@@ -44,14 +44,15 @@ pub use crate::wubi::lookup::{
 };
 pub use crate::{close_cached_databases, flush_personal_learning};
 pub use dictionary::{
-    count_learning_habits, dictionary_edit, dictionary_edit_bundled, dictionary_entries,
-    dictionary_entries_for_kind, dictionary_export_entries, dictionary_export_entries_for_kind,
-    dictionary_state_revision, dictionary_table_entries, dictionary_validate,
-    dictionary_validate_previous, habit_is_storable, merge_dictionary_state, merge_learning_habits,
-    replay_user_dictionary, reset_learned_data, stage_dictionary_state, stream_dictionary_state,
-    stream_learning_habits, DictionaryEntry, DictionaryKind, DictionaryPage, DictionaryStateMerge,
-    DictionaryStateRecord, DictionaryTableEntry, DictionaryTablePage, LearningHabit,
-    LearningHabitsMerge, SnapshotReadError,
+    count_learning_habits, dictionary_edit, dictionary_edit_batch, dictionary_edit_bundled,
+    dictionary_entries, dictionary_entries_for_kind, dictionary_export_entries,
+    dictionary_export_entries_for_kind, dictionary_state_revision, dictionary_table_entries,
+    dictionary_validate, dictionary_validate_previous, habit_is_storable, merge_dictionary_state,
+    merge_learning_habits, replay_user_dictionary, reset_learned_data, stage_dictionary_state,
+    stream_dictionary_state, stream_learning_habits, DictionaryApplied, DictionaryEdit,
+    DictionaryEntry, DictionaryKind, DictionaryPage, DictionaryStateMerge, DictionaryStateRecord,
+    DictionaryTableEntry, DictionaryTablePage, LearningHabit, LearningHabitsMerge,
+    SnapshotReadError,
 };
 pub use glosses::{
     candidate_glosses, candidate_glosses_with_user, candidate_target_glosses, english_completions,

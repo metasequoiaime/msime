@@ -1,8 +1,8 @@
 //! Native management requests. The native caller owns and authorizes all paths.
 
 use super::{
-    edit_personal_dictionary, edit_personal_dictionary_with_access, invalid_dictionary_entry,
-    require_dictionary_kind, response, DictionaryAccess, HostOptions, DICTIONARY_REQUEST_LIMIT,
+    edit_personal_dictionary, invalid_dictionary_entry, require_dictionary_kind, response,
+    DictionaryAccess, HostOptions, DICTIONARY_REQUEST_LIMIT,
 };
 use msime_client_services::dictionary::import::{dictionary_row_matches, PageSelector};
 use msime_client_services::dictionary::is_han_character;
@@ -1525,36 +1525,74 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
     let options = options.into_engine_options();
     // 整个有界同步期间都持有维护租约。活动会话时保留 Pending，让调用方在会话销毁后重试。
-    let access = DictionaryAccess::try_maintenance(
+    let _access = DictionaryAccess::try_maintenance(
         Path::new(&options.user_data),
         Path::new(&options.dictionaries),
     )
     .map_err(|_| "dictionary access unavailable")?
     .ok_or("dictionary maintenance busy")?;
-    // Read once per synchronization, and only when a collection addition is pending.
-    let mut user_words: Option<std::collections::HashSet<String>> = None;
     store
-        .synchronize_reporting_present(
-            |queued| {
-                let previous = queued.previous.as_ref().map(personal_engine_entry);
-                let replacement = queued.replacement.as_ref().map(personal_engine_entry);
-                if let (None, Some(entry)) = (&previous, &replacement) {
-                    if queued.id.starts_with(COLLECTION_REQUEST_PREFIX) {
-                        let words =
-                            user_words.get_or_insert_with(|| user_word_identities(&options));
-                        if user_word_present(words, entry) {
-                            return Ok(PersonalWordApplied::AlreadyPresent);
-                        }
+        .synchronize_batch_reporting_present(
+            |requests| {
+                let entries: Vec<_> = requests
+                    .iter()
+                    .map(|queued| {
+                        (
+                            queued.previous.as_ref().map(personal_engine_entry),
+                            queued.replacement.as_ref().map(personal_engine_entry),
+                        )
+                    })
+                    .collect();
+                let mut outcomes = Vec::with_capacity(requests.len());
+                let mut edit_indexes = Vec::new();
+                for (index, queued) in requests.iter().enumerate() {
+                    let (previous, replacement) = &entries[index];
+                    let result = crate::validate_personal_dictionary_edit(
+                        &options,
+                        previous.as_ref(),
+                        replacement.as_ref(),
+                        &queued.id,
+                    );
+                    if let Err(error) = result {
+                        outcomes.push(Some(Err(error)));
+                        continue;
                     }
+                    edit_indexes.push(index);
+                    outcomes.push(None);
                 }
-                edit_personal_dictionary_with_access(
-                    &access,
-                    &options,
-                    previous.as_ref(),
-                    replacement.as_ref(),
-                    &queued.id,
-                )
-                .map(|()| PersonalWordApplied::Written)
+                let edits: Vec<_> = edit_indexes
+                    .iter()
+                    .map(|index| msime_engine::host::DictionaryEdit {
+                        previous: entries[*index].0.as_ref(),
+                        replacement: entries[*index].1.as_ref(),
+                        request_id: &requests[*index].id,
+                        preserve_existing: requests[*index]
+                            .id
+                            .starts_with(COLLECTION_REQUEST_PREFIX),
+                    })
+                    .collect();
+                let applied = msime_engine::host::dictionary_edit_batch(&options, &edits)
+                    .map_err(|_| "dictionary batch was not committed".to_owned())?;
+                for (index, result) in edit_indexes.into_iter().zip(applied) {
+                    outcomes[index] = Some(
+                        result
+                            .map(|outcome| match outcome {
+                                msime_engine::host::DictionaryApplied::Written => {
+                                    PersonalWordApplied::Written
+                                }
+                                msime_engine::host::DictionaryApplied::AlreadyPresent => {
+                                    PersonalWordApplied::AlreadyPresent
+                                }
+                            })
+                            .map_err(|_| "dictionary edit rejected".to_owned()),
+                    );
+                }
+                outcomes
+                    .into_iter()
+                    .map(|outcome| {
+                        outcome.ok_or_else(|| "dictionary batch result missing".to_owned())
+                    })
+                    .collect()
             },
             |request| {
                 let (entries, has_more) = user_entries_page(
@@ -1592,50 +1630,6 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
 
 /// `msime_client_services::dictionary::collections` 给它排队的请求所加的 id 前缀。
 const COLLECTION_REQUEST_PREFIX: &str = "collections-";
-
-/// Identities of the user's own rows (`user_inserted`), the ones a dictionary collection must neither overwrite nor later remove. A store the Engine cannot read answers empty, so the addition is written as it was before this check existed.
-fn user_word_identities(
-    options: &msime_engine::host::EngineOptions,
-) -> std::collections::HashSet<String> {
-    const CHUNK: usize = 1000;
-    const SCAN_LIMIT: usize = 1_000_000;
-    let mut identities = std::collections::HashSet::with_capacity(CHUNK);
-    let mut offset = 0usize;
-    loop {
-        let Ok(page) = msime_engine::host::dictionary_entries(options, offset, CHUNK) else {
-            return std::collections::HashSet::new();
-        };
-        let count = page.entries.len();
-        for raw in page.entries {
-            if let Ok(entry) = Entry::try_from(raw) {
-                identities.insert(engine_identity(&DictionaryEntry::from(entry)));
-            }
-        }
-        offset = offset.saturating_add(count);
-        if !page.has_more || count == 0 || offset >= SCAN_LIMIT {
-            return identities;
-        }
-    }
-}
-
-/// Whether `entry`, normalized as the Engine would store it, is already one of the user's rows.
-fn user_word_present(
-    identities: &std::collections::HashSet<String>,
-    entry: &DictionaryEntry,
-) -> bool {
-    msime_engine::host::dictionary_validate(entry)
-        .is_ok_and(|normalized| identities.contains(&engine_identity(&normalized)))
-}
-
-fn engine_identity(entry: &DictionaryEntry) -> String {
-    PersonalWord {
-        kind: personal_kind(entry.kind),
-        key: entry.key.clone(),
-        value: entry.value.clone(),
-        weight: 0,
-    }
-    .identity()
-}
 
 /// JNI entry point for the Android IME worker.
 ///
