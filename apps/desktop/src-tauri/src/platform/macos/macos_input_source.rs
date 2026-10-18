@@ -995,7 +995,7 @@ fn input_method_in_input_source_list(json: &[u8]) -> Option<bool> {
 
 /// Whether System Settings still shows this input method, so an uninstall has to wait for the user to remove it there. `None` when no list can be read.
 pub(crate) fn input_method_listed() -> Option<bool> {
-    enabled_in_any_list(ENABLED_INPUT_SOURCE_LISTS.iter().map(|(domain, key)| {
+    preferred_input_source_list(ENABLED_INPUT_SOURCE_LISTS.iter().map(|(domain, key)| {
         input_method_in_input_source_list(&preference_list_json(domain, key)?)
     }))
 }
@@ -1022,6 +1022,11 @@ fn enabled_in_any_list(lists: impl IntoIterator<Item = Option<bool>>) -> Option<
         .into_iter()
         .flatten()
         .reduce(|any, enabled| any || enabled)
+}
+
+/// 优先采用第一个可读的输入源列表。当前 macOS 以现代第三方列表为准；旧版 HIToolbox 列表只在现代列表不可读时回退使用。
+fn preferred_input_source_list(lists: impl IntoIterator<Item = Option<bool>>) -> Option<bool> {
+    lists.into_iter().flatten().next()
 }
 
 /// Whether the user has this input method in the System Settings input source list. `None` when the list cannot be read.
@@ -1596,6 +1601,16 @@ mod tests {
         assert_eq!(enabled_in_any_list([None, Some(true)]), Some(true));
         assert_eq!(enabled_in_any_list([None, Some(false)]), Some(false));
         assert_eq!(enabled_in_any_list([None, None]), None);
+    }
+
+    #[test]
+    fn uninstall_listing_prefers_the_current_third_party_list() {
+        assert_eq!(
+            preferred_input_source_list([Some(false), Some(true)]),
+            Some(false)
+        );
+        assert_eq!(preferred_input_source_list([None, Some(true)]), Some(true));
+        assert_eq!(preferred_input_source_list([None, None]), None);
     }
 
     #[test]
