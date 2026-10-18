@@ -1199,6 +1199,34 @@ done < "$repo_root/platforms/android/tests/device/editor-sources.txt"
 mkdir -p "$output_dir/device"
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir/device" "${device_sources[@]}"
 echo "Compiled ${#device_sources[@]} Android device-suite sources"
+# 设备测试包里编进了 NativeClient，却没有 libmsime_android.so：targetPackage 是测试包自己（app.msime.android.test）的 instrumentation 跑在测试包的进程里，第一次碰到 NativeClient 就是 UnsatisfiedLinkError。要经 JNI 调 Rust 的设备冒烟得以产品包为目标，跑进应用进程，那里的库路径带着应用的原生库（测试包的类排在前面，见 CloudClipboardDriverDeviceSmoke）。BackendAccountSessionDeviceSmoke 的释义用例曾经这样只编译过、一上设备就失败。这里按 jdeps 给出的类引用从每个这样的 instrumentation 往下找，能走到 NativeClient 就失败，并打印那条引用链。
+device_self_targets=$(rg -o -r '$1' 'instrumentation android:name="([^"]+)" android:targetPackage="app\.msime\.android\.test"' \
+  "$repo_root/platforms/android/tests/device/AndroidManifest.xml" || true)
+device_class_deps=$(jdeps -verbose:class -filter:none -cp "$android_jar" "$output_dir/device" 2>/dev/null)
+if ! DEVICE_SELF_TARGETS="$device_self_targets" awk '
+  $2 == "->" && $3 ~ /^app\.msime\./ { from = $1; to = $3; sub(/\$.*/, "", from); sub(/\$.*/, "", to); edges[from] = edges[from] " " to }
+  END {
+    native = "app.msime.android.NativeClient"; bad = 0
+    count = split(ENVIRON["DEVICE_SELF_TARGETS"], list, "\n")
+    for (i = 1; i <= count; i++) {
+      delete seen; delete via; head = 1; tail = 1; queue[1] = list[i]; seen[list[i]] = 1
+      while (head <= tail) {
+        current = queue[head++]
+        width = split(edges[current], targets, " ")
+        for (j = 1; j <= width; j++) if (targets[j] != "" && !(targets[j] in seen)) { seen[targets[j]] = 1; via[targets[j]] = current; queue[++tail] = targets[j] }
+      }
+      if (native in seen) {
+        chain = native; step = native
+        while (step in via) { step = via[step]; chain = step " -> " chain }
+        print "Android device smoke reaches NativeClient but runs in the test package without libmsime_android.so; target app.msime.android instead: " chain > "/dev/stderr"
+        bad = 1
+      }
+    }
+    exit bad || count == 0
+  }' <<< "$device_class_deps"; then
+  echo "Android device smokes that call Rust over JNI must instrument app.msime.android" >&2
+  exit 1
+fi
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed
 # drawable, layout or values file, which is what this step was for.

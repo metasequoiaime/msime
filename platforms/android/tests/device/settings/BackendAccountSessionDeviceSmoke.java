@@ -13,6 +13,8 @@ import org.json.JSONObject;
  * 原生 Android 账号客户端里的请求（键盘的云剪贴板、社区、释义）怎样绑定到发起它们的登录。
  *
  * <p>令牌的刷新、单飞和吊销都由 Rust 持有（#8201 迁移计划 5b），由 client-services 的测试覆盖；这里用一个假的 {@link BackendAccount.Sessions} 代替 Rust，核对 Java 一侧：换成别的账号或退出以后，旧请求既不重试也不交出结果；同一个账号里 401 后带着被拒的令牌换一枚再试一次；同一个账号重新登录（令牌变了、账号编号没变）不算换号。社区从 5c 起整个经 Rust 的 `msime_client_community`，这里换成假的 {@link CommunityCatalog.Calls}，核对请求的形状、哪些操作允许退回匿名账号，以及请求前后账号编号变了就丢掉结果。
+ *
+ * <p>释义的用例经 JNI 调真的 Rust（{@link NativeClient#accountGloss}），而测试包里没有 libmsime_android.so，所以这一套以产品包 app.msime.android 为目标、跑在应用进程里：测试包的类排在应用的类前面，原生库按应用的库路径加载，与 CloudClipboardDriverDeviceSmoke 相同。check-host.sh 拦着以测试包自己为目标、却能引用到 NativeClient 的 instrumentation。
  */
 public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
     private static final String ACCESS = "a".repeat(64);
@@ -499,7 +501,7 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
             malformedQqLinksAreRejected();
             result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: account login lineage, community and translation\n");
             finish(Activity.RESULT_OK, result);
-        } catch (Exception | AssertionError error) {
+        } catch (Exception | AssertionError | LinkageError error) {
             result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: account session " + stage + " ("
                 + error.getClass().getSimpleName() + ": " + error.getMessage() + ")\n");
             finish(Activity.RESULT_CANCELED, result);

@@ -32,7 +32,7 @@ client-services 早有这个接口的 sans-IO 一半 `msime_client_account_gloss
   - 只用 Tauri 开发合包登录的用户，原来 provider 会读合包那份会话给登录令牌，现在 `shared_access_token` 只看 Rust 的注入存储，这类用户改用本机匿名账号释义。
   - 换号与一次 401 撞在一起时，重试那一次带的是新账号的令牌；回答到达时 store 发现绑定变了，整个缓存清空、不显示。
   - 服务端回任意 2xx 都交给 Rust 解读（原来只认 200）。
-- **没有验证到的**：设备套件里改写的 `BackendAccountSessionDeviceSmoke` 释义四项（真的 Rust 拼请求体、换令牌重试一次、坏的一项置 null 与限流的 Retry-After、256 KiB 上限）要在 API 28 和 35 的模拟器上跑，见 PR 正文。
+- **没有验证到的**：设备套件里改写的 `BackendAccountSessionDeviceSmoke` 释义四项（真的 Rust 拼请求体、换令牌重试一次、坏的一项置 null 与限流的 Retry-After、256 KiB 上限）要在 API 28 和 35 的模拟器上跑，见 PR 正文。这四项第一次上设备（5f 的验收）就 `UnsatisfiedLinkError`：这个 instrumentation 原来以测试包自己为目标，跑在没有 `libmsime_android.so` 的测试包进程里；之后改成以产品包 `app.msime.android` 为目标、跑进应用进程，`check-host.sh` 按 jdeps 的类引用拦着以测试包为目标、却能引用到 `NativeClient` 的 instrumentation。
 
 ## Verification
 
