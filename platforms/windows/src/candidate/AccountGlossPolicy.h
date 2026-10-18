@@ -18,7 +18,7 @@ inline std::string account_gloss_cache_scope(std::string_view user_id) {
          (user_id.empty() ? std::string("anonymous") : std::string(user_id));
 }
 
-// 水杉账号的候选释义接口，和 macOS 的 BackendChatClient.translate、Linux provider 的 anonymous_translation 是同一个：一次最多 32 个中文词、一种目标语言，源语言固定是中文。路径、请求体和对回复的解读都由 Rust 给出（msime_client_account_gloss），这里只有服务的来源。
+// 水杉账号的候选释义接口（服务端的 /v1/translate），和 macOS 输入法、Linux provider 经 msime_client_account 的 translate 操作、Android 与 iOS 键盘经 msime_client_account_gloss 问的是同一个：一次最多 32 个中文词、一种目标语言，源语言固定是中文。Windows 走 msime_client_account_gloss：路径、请求体和对回复的解读都由 Rust 给出，HTTP 和令牌在这里，所以这里只有服务的来源和本地预先筛词用的上限。
 inline constexpr std::string_view account_gloss_origin = "https://api.msime.app";
 inline constexpr size_t account_gloss_maximum_words = 32;
 inline constexpr size_t account_gloss_maximum_word_bytes = 2048;
