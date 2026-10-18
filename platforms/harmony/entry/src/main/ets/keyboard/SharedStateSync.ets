@@ -8,10 +8,12 @@ import util from '@ohos.util';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { SharedStateMirror, MirrorImportHandlers } from './SharedStateMirror';
 import {
+  ANONYMOUS_IDENTITY_FILE,
   ImportDecision,
   KEYBOARD_ENTRIES,
   ImportRecord,
   MirrorManifest,
+  MirrorPublisher,
   SETTINGS_ENTRIES,
   STATISTICS_SWITCH_FILE,
   SharedStateMirrorPolicy,
@@ -51,7 +53,7 @@ export class SharedStateSync {
           }
           return SharedStateSync.adoptKeyboardStatistics(stateDirectory, text) ? 'handled' : 'retry';
         }
-        return SharedStateSync.sessionDecision(name);
+        return SharedStateSync.accountFileDecision(stateDirectory, 'settings', name, text);
       },
     };
     const imported: string[] = mirror.importFrom('keyboard', KEYBOARD_ENTRIES, true, handlers);
@@ -62,10 +64,12 @@ export class SharedStateSync {
   }
 
   /**
-   * 两份会话不经文件复制导入：Rust 的 `session_adopt` 在本沙箱的 `account-refresh.lock` 里按 user.id 和 expires_at 决定要不要采用（`AccountSessionAdoption`，迁移差异 M5），整份覆盖会把轮换后的令牌换回用过的那枚，或者让键盘的旧副本撤销设置应用里的换号。发布方删掉了会话时也不在这里删本地文件，登录会话是否跟着清掉同样由 Rust 决定。
+   * 两份会话不经文件复制导入：Rust 的 `session_adopt` 在本沙箱的 `account-refresh.lock` 里按 user.id 和 expires_at 决定要不要采用（`AccountSessionAdoption`，迁移差异 M5），整份覆盖会把轮换后的令牌换回用过的那枚，或者让键盘的旧副本撤销设置应用里的换号。发布方删掉了会话时也不在这里删本地文件，登录会话是否跟着清掉同样由 Rust 决定。匿名账号的身份对方没有时不删本地的，设置应用只在本地没有时才用键盘的（迁移差异 M40），规则在 `SharedStateMirrorPolicy.importDecision`。
    */
-  static sessionDecision(name: string): ImportDecision {
-    return SharedStateMirrorPolicy.adoptedByRust(name) ? 'handled' : 'copy';
+  static accountFileDecision(stateDirectory: string, importer: MirrorPublisher, name: string,
+    text: string | null): ImportDecision {
+    return SharedStateMirrorPolicy.importDecision(importer, name, text,
+      (): boolean => SharedStateSync.exists(`${stateDirectory}/${ANONYMOUS_IDENTITY_FILE}`));
   }
 
   /** 设置应用一侧：发布设置应用管的那些条目。改完设置之后和窗口退到后台时调用。 */
@@ -97,7 +101,7 @@ export class SharedStateSync {
         if (name === 'statistics-switch') {
           return SharedStateSync.applyStatisticsSwitch(stateDirectory, text) ? 'copy' : 'retry';
         }
-        return SharedStateSync.sessionDecision(name);
+        return SharedStateSync.accountFileDecision(stateDirectory, 'keyboard', name, text);
       },
     };
     const imported: string[] = mirror.importFrom('settings', SETTINGS_ENTRIES, fullMode, handlers);
@@ -252,6 +256,15 @@ export class SharedStateSync {
       return false;
     }
     return true;
+  }
+
+  /** 这个路径上有没有文件；查不了时当作有，拿不准时不覆盖本地的身份。 */
+  private static exists(path: string): boolean {
+    try {
+      return fs.accessSync(path);
+    } catch {
+      return true;
+    }
   }
 
   private static readText(path: string): string | null {

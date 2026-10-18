@@ -83,6 +83,10 @@ export const MANIFEST_FILE: string = "manifest.json";
 export const STATISTICS_SWITCH_FILE: string = "typing-statistics-switch.json";
 const RETENTIONS: string[] = ["forever", "30d", "90d", "180d", "365d"];
 
+/** 本机匿名账号的身份文件（`{subject, secret}`），会话过期或被拒以后靠它重新登录同一个匿名账号。 */
+export const ANONYMOUS_IDENTITY_FILE: string = "anonymous-account.json";
+export const ANONYMOUS_IDENTITY_ENTRY: string = "anonymous-account";
+
 /** 设置应用发布、键盘导入的条目。 */
 export const SETTINGS_ENTRIES: MirrorEntry[] = [
   {
@@ -138,10 +142,10 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
     fullModeOnly: true,
   },
   {
-    name: "anonymous-account",
+    name: ANONYMOUS_IDENTITY_ENTRY,
     kind: "file",
     base: "state",
-    path: "anonymous-account.json",
+    path: ANONYMOUS_IDENTITY_FILE,
     fullModeOnly: true,
   },
   {
@@ -153,7 +157,7 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
   },
 ];
 
-/** 键盘在完整体验模式下发布、设置应用导入的条目：键盘里改的偏好和按键反馈、刷新过的账号会话，以及打字统计。 */
+/** 键盘在完整体验模式下发布、设置应用导入的条目：键盘里改的偏好和按键反馈、刷新过的账号会话、匿名账号的身份（设置应用本地没有时才用，见 `importDecision`），以及打字统计。 */
 export const KEYBOARD_ENTRIES: MirrorEntry[] = [
   {
     name: "preferences",
@@ -177,6 +181,13 @@ export const KEYBOARD_ENTRIES: MirrorEntry[] = [
     fullModeOnly: true,
   },
   {
+    name: ANONYMOUS_IDENTITY_ENTRY,
+    kind: "file",
+    base: "state",
+    path: ANONYMOUS_IDENTITY_FILE,
+    fullModeOnly: true,
+  },
+  {
     name: "anonymous-session",
     kind: "file",
     base: "state",
@@ -192,13 +203,29 @@ export const KEYBOARD_ENTRIES: MirrorEntry[] = [
   },
 ];
 
-/** 由 Rust 的 `session_adopt` 采用、不按文件复制导入的条目：登录会话和本机匿名账号的会话（#8201 第 2 步）。匿名账号的身份文件 `anonymous-account` 不在其中，仍照常复制。 */
+/** 由 Rust 的 `session_adopt` 采用、不按文件复制导入的条目：登录会话和本机匿名账号的会话（#8201 第 2 步）。匿名账号的身份文件 `anonymous-account` 不在其中，按 `importDecision` 的规则复制。 */
 export const RUST_ADOPTED_ENTRIES: readonly string[] = ["account-session", "anonymous-session"];
 
 export class SharedStateMirrorPolicy {
   /** 这个条目是不是交给 Rust 采用：导入时调用方返回 `handled`，不复制也不删除本地文件。 */
   static adoptedByRust(name: string): boolean {
     return RUST_ADOPTED_ENTRIES.includes(name);
+  }
+
+  /**
+   * 导入一个普通文件前的决定，`importer` 是导入的一侧，`localExists` 只在需要时才查本地文件。两份会话交给 Rust（`handled`）。匿名账号的身份（迁移差异 M40）：对方没有身份时两边都不删本地的（`handled`），匿名账号没有退出登录，删掉身份以后会话一失效就只能注册新账号；设置应用只在本地没有身份时才用键盘的（键盘先于设置应用注册、设置应用采用了它的会话），已有的不覆盖，与 `session_adopt{from:"keyboard"}` 换号时不动相同；键盘照旧用设置应用的，与 `session_adopt{from:"settings"}` 换号时替换相同，身份跟着会话走。其余条目照常复制。
+   */
+  static importDecision(
+    importer: MirrorPublisher,
+    name: string,
+    incoming: string | null,
+    localExists: () => boolean,
+  ): ImportDecision {
+    if (SharedStateMirrorPolicy.adoptedByRust(name)) return "handled";
+    if (name !== ANONYMOUS_IDENTITY_ENTRY) return "copy";
+    if (incoming === null) return "handled";
+    if (importer === "settings" && localExists()) return "handled";
+    return "copy";
   }
 
   /** FNV-1a 32 位加长度，只用来判断内容是否变了，不是安全用途。 */
@@ -306,7 +333,11 @@ export class SharedStateMirrorPolicy {
         own === null
           ? undefined
           : own.entries.find((item: ManifestEntry): boolean => item.name === entry.name);
+      // 匿名账号的身份在键盘一侧总以设置应用为准，不看键盘自己是否发布得更晚：键盘的匿名会话在换号时跟着设置应用替换，身份不跟着换，键盘就拿着设置应用的会话、留着自己的身份。键盘先注册了自己的身份、设置应用随后另注册了一个时，键盘下一次获得焦点先发布自己的（变化时刻是这时），再导入设置应用较早发布的那份。
+      const settingsWins: boolean =
+        theirs.publisher === "settings" && entry.name === ANONYMOUS_IDENTITY_ENTRY;
       if (
+        !settingsWins &&
         mine !== undefined &&
         mine.fingerprint !== published.fingerprint &&
         mine.changedMs > published.changedMs

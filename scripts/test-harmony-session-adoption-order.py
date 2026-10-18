@@ -7,7 +7,7 @@
 2. `beforeRequest()` 每次都再排一次进程启动时登记的采用（`AdoptionGate.beforeRequest`），而不是只等已经排进来的：回到前台时网页在 `visibilitychange` 里发的请求可能早于窗口的 ACTIVE 事件，只等已排进来的就会漏掉前台那次采用。`AccountSessionAdoption.ets` 里的 `gate` 必须是 `AdoptionGate`，`adoptOnStart` 经 `gate.register` 登记，`beforeRequest` 原样转给 `gate.beforeRequest()`；`AdoptionGate` 本身的语义由 `account-requests.test.ts` 测。
 3. 两个 ability 的 `onCreate` 先 `AccountSessionAdoption.adoptOnStart`、再 `HarmonyAccountIdentity.ensureAnonymous`，采用方向分别是 `keyboard`（设置应用）和 `settings`（键盘）；没有登记过的 `beforeRequest()` 只等已经排进来的采用，顺序反了匿名注册就不等。
 4. 回到前台时两边都再排一次采用：`Settings.syncShared` 采用键盘的，`KeyboardSession.syncSharedState` 采用设置应用的。它让本地显示的账号状态尽早跟上，认证请求的顺序不靠它。
-5. 会话不按文件复制导入：`SharedStateSync.sessionDecision` 交给 `SharedStateMirrorPolicy.adoptedByRust`，两个 `beforeFile` 都落到它。
+5. 会话不按文件复制导入，匿名账号的身份按 M40 的规则导入：`SharedStateSync.accountFileDecision` 交给 `SharedStateMirrorPolicy.importDecision`（规则由 `shared-state-mirror-policy.test.ts` 测），两个 `beforeFile` 都落到它、各自报上导入的一侧（设置应用 `settings`、键盘 `keyboard`）。
 
 文本检查不是编译器：它不认识动态调用和别名，所以第 6 条要求所有 `libmsimeclient.so` 的导入都叫 `client`，不能换个名字绕过第 1 条。
 """
@@ -328,24 +328,29 @@ def check_adoption_wiring(source: Source, problems: list[str]) -> None:
 
 
 def check_import_decision(source: Source, problems: list[str]) -> None:
-    found = method_body(source, "sessionDecision")
+    found = method_body(source, "accountFileDecision")
     if found is None:
-        problems.append(f"{source.relative}: sessionDecision() not found")
+        problems.append(f"{source.relative}: accountFileDecision() not found")
         return
     _, body = found
-    if collapse(body) != "return SharedStateMirrorPolicy.adoptedByRust(name) ? 'handled' : 'copy';":
+    expected = (
+        "return SharedStateMirrorPolicy.importDecision(importer, name, text, (): boolean => "
+        "SharedStateSync.exists(`${stateDirectory}/${ANONYMOUS_IDENTITY_FILE}`));"
+    )
+    if collapse(body) != expected:
         problems.append(
-            f"{source.relative}: sessionDecision() must hand account sessions to Rust via adoptedByRust (got `{collapse(body)}`)"
+            f"{source.relative}: accountFileDecision() must hand sessions and the anonymous identity to importDecision (got `{collapse(body)}`)"
         )
-    for side in ("settingsSync", "keyboardSync"):
+    for side, importer in (("settingsSync", "settings"), ("keyboardSync", "keyboard")):
         side_found = method_body(source, side)
         if side_found is None:
             problems.append(f"{source.relative}: {side}() not found")
             continue
         _, side_body = side_found
         decision = re.search(r"beforeFile\s*:.*?\n\s*\},", side_body, re.S)
-        if decision is None or "return SharedStateSync.sessionDecision(name);" not in decision.group(0):
-            problems.append(f"{source.relative}: {side}() beforeFile no longer falls through to sessionDecision")
+        call = f"return SharedStateSync.accountFileDecision(stateDirectory, '{importer}', name, text);"
+        if decision is None or call not in decision.group(0):
+            problems.append(f"{source.relative}: {side}() beforeFile no longer falls through to accountFileDecision as '{importer}'")
 
 
 def main() -> int:
