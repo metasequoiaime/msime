@@ -1916,3 +1916,8 @@ export {
   useCloudClipboardPanel,
   type CloudClipboardPanelState,
 } from "./keyboard/use-cloud-clipboard-panel";
+
+export {
+  useCloudDictionaryPanel,
+  type CloudDictionaryPanelState,
+} from "./keyboard/use-cloud-dictionary-panel";
