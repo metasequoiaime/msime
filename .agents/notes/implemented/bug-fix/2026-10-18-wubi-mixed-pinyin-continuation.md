@@ -36,4 +36,6 @@ Status: implemented
 
 后续发现 `bian` 的拼音候选本身只有完整音节 `bian`，而“编译”的长词要等到第二个音节输入后才出现，原来的候选全读音匹配因此仍会在 `y` 处截断。现在在已有完整拼音候选的边界上，只要下一个字母是合法拼音音节前缀也允许续输；这覆盖 `bianyi`，同时仍要求当前列表有拼音行，不改变纯五笔码的四码上限。回归测试 `bianyi_continues_after_the_bian_wubi_code` 固定该路径。
 
+同一边界还可能出现在两个完整音节之后，例如 `qigu` 既是五笔整码也是 `qi'gu` 的拼音输入；候选保存的规范读音带有音节分隔符，边界判断必须在比较时忽略 `'`，否则输入 `qiguai` 的第五个字母仍会被截掉。回归测试 `mixed_wubi_starts_a_new_pinyin_syllable_after_a_four_letter_code` 固定这一条续输路径。
+
 `bash scripts/verify-local.sh --quick` 通过：Rust 工作区、Android 目标与宿主 Java、WASM、Linux 设置壳、Linux 原生宿主（90 项测试）、macOS 原生宿主、共享 Apple 桥与 Windows IPC 两种架构均通过；Windows 完整交叉编译因其他构建占用共享锁而跳过，HarmonyOS 原生编译因缺少 staged 输入而跳过。未进行系统输入法替换或发布。

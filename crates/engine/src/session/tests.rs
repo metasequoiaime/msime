@@ -2594,6 +2594,29 @@ fn bianyi_continues_after_the_bian_wubi_code() {
     );
 }
 
+/// 五笔整码也可能正好是两个完整音节；混拼续输下一个音节时，拼音候选的规范读音带有 `'` 分隔符，仍应允许继续输入。
+#[test]
+fn mixed_wubi_starts_a_new_pinyin_syllable_after_a_four_letter_code() {
+    let fixture = Fixture::new(
+        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('qigu','乐平',100);\
+CREATE TABLE tbl_2_q(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_q VALUES('qi''gu','qg','其故',100);\
+INSERT INTO tbl_2_q VALUES('qi''guai','qg','奇怪',1000);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.mixed_pinyin = true;
+    });
+    type_text(&mut session, "qiguai");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "qiguai");
+    assert!(
+        snapshot.candidates.iter().any(|item| item.word == "奇怪"),
+        "{snapshot:?}"
+    );
+}
+
 /// Backspace never goes through a reset, so the emptied composition itself has to end the tail; Cancel ends it too.
 #[test]
 fn an_emptied_or_cancelled_tail_gives_codes_back_to_the_wubi_table() {

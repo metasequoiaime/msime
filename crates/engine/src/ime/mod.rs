@@ -597,7 +597,12 @@ impl ImeSession {
                     .filter(|&byte| byte != b'\'')
                     .take(raw.len() + 1)
                     .eq(raw.bytes().chain(std::iter::once(letter)))
-                    || (starts_new_pinyin_syllable && item.canonical_pinyin == raw.as_str()))
+                    || (starts_new_pinyin_syllable
+                        && item
+                            .canonical_pinyin
+                            .bytes()
+                            .filter(|&byte| byte != b'\'')
+                            .eq(raw.bytes())))
         })
     }
 
