@@ -7,18 +7,20 @@ export interface CommunityScopeButtonsProps {
   allLabel: string;
   mineLabel: string;
   onMineOnlyChange: (mineOnly: boolean) => void;
+  className?: string;
 }
 
-/** Two-option scope switch shared by the community skin galleries. */
+/** 社区皮肤图库共用的两项范围切换，可按所在工具栏调整外观。 */
 export function CommunityScopeButtons({
   ariaLabel,
   mineOnly,
   allLabel,
   mineLabel,
   onMineOnlyChange,
+  className = style.scopeButtons,
 }: CommunityScopeButtonsProps) {
   return (
-    <div className={style.scopeButtons} role="group" aria-label={ariaLabel}>
+    <div className={className} role="group" aria-label={ariaLabel}>
       <ActionButton
         action={() => {
           if (mineOnly) onMineOnlyChange(false);
