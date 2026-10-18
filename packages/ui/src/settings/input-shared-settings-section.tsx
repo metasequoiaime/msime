@@ -51,8 +51,8 @@ export interface InputSharedSettingsSectionProps {
   modeExtra?: ReactNode;
   /** 「选词与翻页」组里以词定字之后的翻页设置，两者互斥，所以放在同一组里同屏可见。 */
   paging?: ReactNode;
-  /** 「输出」组里少有人改的行（全角输入的起始状态），收进组末的「更多选项」。 */
-  outputMore?: ReactNode;
+  /** 「输出」组直接显示的附加行（全角输入的起始状态）。 */
+  outputExtra?: ReactNode;
   beforeFrequency?: ReactNode;
   afterFrequency?: ReactNode;
   /** 鸿蒙手机的「输入」页只把主要分组留在视野内：这里的每个分组都放进末尾「更多」分组的同一个「更多选项」折叠中，「中文输出」单选不放，因为该页以「中文字符集」提供它。 */
@@ -82,7 +82,7 @@ export function InputSharedSettingsSection({
   candidatesMore,
   modeExtra,
   paging,
-  outputMore,
+  outputExtra,
   beforeFrequency,
   afterFrequency,
   foldIntoMore = false,
@@ -124,7 +124,7 @@ export function InputSharedSettingsSection({
     />
   );
 
-  // 少有人改的行收进所在组末的「更多选项」。鸿蒙手机已经把整页收在一个「更多选项」里，那里不再套一层，这些行也留在原来的位置上：混输各行和只出单字在学习开关之前，全角输入在「输出」组最前。
+  // 少有人改的候选行收进组末的「更多选项」。鸿蒙手机已经把整页收在一个「更多选项」里，那里不再套一层，混输各行和只出单字仍在学习开关之前。
   const candidatesMoreRows = (
     <>
       {mixedInput && onMixedInputChange && (
@@ -212,13 +212,13 @@ export function InputSharedSettingsSection({
       {renderGroup(
         "output",
         <GroupList title="输出">
-          {foldIntoMore && outputMore}
+          {foldIntoMore && outputExtra}
           {!foldIntoMore && traditionalOutputRow}
           <ChineseEnglishSpacingSection
             value={preferences.chinese_english_spacing}
             onChange={(chinese_english_spacing) => onPreferencesChange({ chinese_english_spacing })}
           />
-          {!foldIntoMore && outputMore && <MoreOptions>{outputMore}</MoreOptions>}
+          {!foldIntoMore && outputExtra}
         </GroupList>,
       )}
       {renderGroup(

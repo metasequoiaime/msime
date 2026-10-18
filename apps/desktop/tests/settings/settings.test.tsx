@@ -8157,7 +8157,7 @@ test("中英混输 sits on the input page's 候选与联想 group, not on 标点
   expect(within(expression).queryByRole("switch", { name: /^中英混输/ })).toBeNull();
 });
 
-test("rarely changed candidate and output rows sit in each group's 更多选项", async () => {
+test("candidate rows stay folded while full-width input is shown directly in output", async () => {
   render(
     <SettingsPage
       initialPage="input"
@@ -8181,8 +8181,8 @@ test("rarely changed candidate and output rows sit in each group's 更多选项"
   }
   selectSettingsTab("输出");
   const output = screen.getByRole("region", { name: "输出" });
-  const outputFold = output.querySelector("details") as HTMLDetailsElement;
-  expect(outputFold.contains(within(output).getByText("全角输入"))).toBe(true);
+  expect(output.querySelector("details")).toBeNull();
+  expect(within(output).getByRole("switch", { name: /^全角输入/ })).toBeTruthy();
 });
 
 // Windows 和 macOS 一样：关掉的 Tab、PageUp/PageDown 在组字时被吃掉，不会还给应用，所以两组固定开启。
