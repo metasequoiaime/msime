@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+iOS 数字侧栏的五项均分与无独立「符」入口由[大触控区与固定符号入口](../bug-fix/2026-10-18-ios-number-sidebar-touch-targets.md)部分取代：运算符与 `#+=` 按数字排高度滚动，底部固定「符」直接打开分类面板。其余平台与输入规则保留。
+
 Android 数字层的 0 与空格位置由[底行中间的数字 0](2026-10-16-android-nine-key-numeric-bottom-row.md)取代；下文保留此前布局的理由，其余决定继续成立。
 
 三端（iOS、Android、HarmonyOS）同一套行为：
