@@ -1911,3 +1911,8 @@ export {
 } from "./settings/settings-feature-pages";
 
 export { useVoicePanel, type VoicePanelState } from "./keyboard/use-voice-panel";
+
+export {
+  useCloudClipboardPanel,
+  type CloudClipboardPanelState,
+} from "./keyboard/use-cloud-clipboard-panel";

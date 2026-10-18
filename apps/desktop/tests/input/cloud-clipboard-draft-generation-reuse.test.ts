@@ -1,16 +1,13 @@
 import { expect, test } from "vitest";
 
-test("cloud clipboard drafts reuse the shared generation", () => {
-  const source = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/keyboard/panels.tsx", {
+test("云剪贴板草稿复用公共代次", () => {
+  const panel = Object.values(
+    import.meta.glob<string>("../../../../packages/ui/src/keyboard/use-cloud-clipboard-panel.ts", {
       eager: true,
       query: "?raw",
       import: "default",
     }),
   )[0];
-  const start = source.indexOf("export function CloudClipboardPanel");
-  const end = source.indexOf("export function CloudDictionaryPanel", start);
-  const panel = source.slice(start, end);
 
   expect(panel).toContain("const draftRevision = useAsyncGeneration()");
   expect(panel).not.toContain("const draftRevision = useRef(0)");
