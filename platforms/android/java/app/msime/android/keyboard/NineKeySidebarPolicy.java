@@ -13,8 +13,8 @@ import java.util.Set;
 public final class NineKeySidebarPolicy {
     /** 符号栏一屏最多显示几个符号；符号不足这么多时按实际个数均分整栏高度。 */
     public static final int VISIBLE_ROWS = 5;
-    /** 数字键面默认一屏四项，完整展示四则运算；最小行高规则仍可减少可见项。 */
-    public static final int DIGIT_VISIBLE_ROWS = 4;
+    /** 数字键面一屏最多五项，和九键左侧符号栏一致；最小行高规则仍可减少可见项。 */
+    public static final int DIGIT_VISIBLE_ROWS = 5;
     /** 每个符号键至少多高（dp）：键盘高度调到最矮时一屏少放几个，不把键压得比字还矮。 */
     public static final int MIN_ROW_HEIGHT_DP = 28;
     /** 一张符号表最多几个符号。 */
