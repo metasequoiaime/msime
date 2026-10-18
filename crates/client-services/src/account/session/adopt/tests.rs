@@ -1079,3 +1079,68 @@ fn an_invalid_published_identity_is_refused() {
         Err(AccountError::Storage)
     ));
 }
+
+/// 记下每次写会话那一刻本地身份的 subject。
+struct IdentityAtSave {
+    inner: LockedAnonymousSessionStorage,
+    directory: std::path::PathBuf,
+    seen: Mutex<Vec<Option<String>>>,
+}
+
+impl AccountSessionStorage for IdentityAtSave {
+    fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
+        self.inner.load()
+    }
+    fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
+        self.seen
+            .lock()
+            .unwrap()
+            .push(identity_subject(&self.directory));
+        self.inner.save(session)
+    }
+    fn clear(&self) -> Result<(), AccountError> {
+        self.inner.clear()
+    }
+    fn shared_across_processes(&self) -> bool {
+        true
+    }
+    fn with_refresh_lock<T>(
+        &self,
+        body: impl FnOnce() -> Result<T, AccountError>,
+    ) -> Result<T, AccountError> {
+        self.inner.with_refresh_lock(body)
+    }
+}
+
+/// 身份先于会话写：两次写之间崩溃时留下的是发布方的身份、原来的会话，下一次采用的输入不变、结论仍是 adopted，会写上会话。反过来先写会话，崩溃后本地已是发布的会话，再采用是 unchanged，身份就再也换不过来。
+#[test]
+fn the_identity_is_in_place_before_the_session_is_written() {
+    let root = tempfile::tempdir().unwrap();
+    let (settings, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
+    for directory in [&settings, &keyboard] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    private_file(&settings.join(ANONYMOUS_ACCOUNT_FILE), &identity_bytes('s'));
+    private_file(&keyboard.join(ANONYMOUS_ACCOUNT_FILE), &identity_bytes('k'));
+    let session = BackendAccountSession::new(
+        NoNetwork,
+        IdentityAtSave {
+            inner: LockedAnonymousSessionStorage::new(&settings),
+            directory: settings.clone(),
+            seen: Mutex::new(Vec::new()),
+        },
+    );
+    assert_eq!(
+        session.adopt_anonymous_session_with_identity(
+            Some(saved("msime-keyboard00000000", Some(1), 60, 'b')),
+            SessionAdoptSource::Keyboard,
+            &settings,
+            &published_identity(&keyboard),
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(
+        *session.storage.seen.lock().unwrap(),
+        [Some(format!("msime-{}", "k".repeat(16)))]
+    );
+}

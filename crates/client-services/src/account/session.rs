@@ -158,8 +158,19 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         subject: &str,
         secret: &str,
     ) -> Result<AccountUser, AccountError> {
+        self.sign_in_anonymous_if(subject, secret, || Ok(true))
+    }
+
+    /// 与 [`Self::sign_in_anonymous`] 相同，只是在刷新锁里、保存会话之前再问一次 `still_current`：返回假时不保存，结果是 [`AccountError::Cancelled`]。登录要联网，期间 `session_adopt` 可能已经在同一把锁里把身份连同会话换成了另一个匿名账号，这时把这一次登录的会话写上去，会话和身份就不再属于同一个账号。
+    pub(super) fn sign_in_anonymous_if(
+        &self,
+        subject: &str,
+        secret: &str,
+        still_current: impl FnOnce() -> Result<bool, AccountError>,
+    ) -> Result<AccountUser, AccountError> {
         let challenge = self.request_code("anonymous", subject)?;
-        self.sign_in_validated(&challenge.challenge_id, secret, |_| {})
+        let challenge = challenge.challenge_id;
+        self.sign_in_exchanging_if(|| self.api.login(&challenge, secret), still_current, |_| {})
     }
 
     /// Completes an Apple challenge using the identity token returned by the
@@ -491,6 +502,21 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         E: FnOnce() -> Result<AccountTokens, AccountError>,
         F: FnOnce(&str),
     {
+        self.sign_in_exchanging_if(exchange, || Ok(true), cleanup)
+    }
+
+    /// 与 [`Self::sign_in_exchanging`] 相同，只是在刷新锁里、保存之前调 `still_current`，返回假时不保存，结果是 [`AccountError::Cancelled`]。
+    fn sign_in_exchanging_if<E, G, F>(
+        &self,
+        exchange: E,
+        still_current: G,
+        cleanup: F,
+    ) -> Result<AccountUser, AccountError>
+    where
+        E: FnOnce() -> Result<AccountTokens, AccountError>,
+        G: FnOnce() -> Result<bool, AccountError>,
+        F: FnOnce(&str),
+    {
         let version = {
             let mut state = self.lock()?;
             let version = Self::next_generation(&mut state)?;
@@ -514,7 +540,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             } else {
                 None
             };
-            if state.generation != version {
+            if state.generation != version || !still_current()? {
                 return Err(AccountError::Cancelled);
             }
             self.storage.save(&value)?;

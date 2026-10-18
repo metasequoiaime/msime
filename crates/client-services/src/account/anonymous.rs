@@ -115,9 +115,21 @@ pub fn ensure_anonymous_account_with<A: AccountApi>(
         return Ok(());
     }
     let identity = anonymous_identity(directory)?;
-    BackendAccountSession::new(api, AnonymousSessionStorage::new(directory))
-        .sign_in_anonymous(&identity.subject, &identity.secret)
-        .map(|_| ())
+    // 会话在 account-refresh.lock 里保存，并且只在身份还是登录用的这一份时保存：登录要联网，期间 session_adopt（鸿蒙两个沙箱之间的镜像）可能已经在同一把锁里把身份连同会话换成了另一个匿名账号，或者删掉了身份。这时不写这一次登录的会话，否则本地留下的是这个账号的会话、另一个账号的身份，会话失效以后会登录成另一个账号。
+    let still_current = || {
+        Ok(matches!(
+            read_private_json::<AnonymousIdentity>(&directory.join(ANONYMOUS_ACCOUNT_FILE)),
+            Ok(Some(saved)) if saved.subject == identity.subject && saved.secret == identity.secret
+        ))
+    };
+    match BackendAccountSession::new(api, LockedAnonymousSessionStorage::new(directory))
+        .sign_in_anonymous_if(&identity.subject, &identity.secret, still_current)
+    {
+        Ok(_) => Ok(()),
+        // 身份被换掉时采用方已经写好了它的会话，本机仍有匿名会话。
+        Err(AccountError::Cancelled) if has_session(directory) => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 /// [`ensure_anonymous_account`] 的注入存储版本：匿名会话在 `session` 的存储里（宿主的 `ANONYMOUS` 项），身份在 `identity` 的 [`SessionStoreItem::AnonymousIdentity`] 项。登录在调用方缓存的这个会话对象上完成，存储不跨进程共享时它也能直接看到新会话。
@@ -439,7 +451,7 @@ where
     }
 }
 
-/// [`shared_access_token`] 读匿名会话用的存储：文件仍是 `anonymous-session.json`，但每次都重新读，刷新时持与登录会话同一把 `account-refresh.lock`。输入法进程里几个线程可能同时取令牌，每次调用又各建一个会话，不加锁时它们会拿同一个刷新令牌各刷新一次，而服务端见到用过的刷新令牌会吊销整个会话。[`ensure_anonymous_account`] 和其他宿主读写匿名会话的方式不变；host-api 按目录缓存匿名会话时也用它。
+/// [`shared_access_token`] 读匿名会话用的存储：文件仍是 `anonymous-session.json`，但每次都重新读，刷新时持与登录会话同一把 `account-refresh.lock`。输入法进程里几个线程可能同时取令牌，每次调用又各建一个会话，不加锁时它们会拿同一个刷新令牌各刷新一次，而服务端见到用过的刷新令牌会吊销整个会话。其他宿主读写匿名会话的方式不变；host-api 按目录缓存匿名会话时也用它，[`ensure_anonymous_account`] 注册后也在这把锁里保存会话，与 `session_adopt` 换身份互斥。
 pub struct LockedAnonymousSessionStorage {
     session: AnonymousSessionStorage,
     lock: FileAccountSessionStorage,
@@ -670,11 +682,15 @@ mod tests {
     }
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    type DuringLogin = Box<dyn FnOnce() + Send>;
+
     #[derive(Clone, Default)]
     struct RegisteringApi {
         challenges: Arc<Mutex<Vec<(String, String)>>>,
         logins: Arc<Mutex<Vec<(String, String)>>>,
         failures: Arc<AtomicUsize>,
+        /// 登录请求在路上时（令牌还没交回）做的事，模拟同一个目录里并发的 `session_adopt`。
+        during_login: Arc<Mutex<Option<DuringLogin>>>,
     }
 
     impl AccountApi for RegisteringApi {
@@ -706,6 +722,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((challenge.into(), credential.into()));
+            if let Some(during) = self.during_login.lock().unwrap().take() {
+                during();
+            }
             Ok(AccountTokens {
                 access_token: "a".repeat(64),
                 refresh_token: "b".repeat(64),
@@ -780,6 +799,51 @@ mod tests {
                 .mode();
             assert_eq!(mode & 0o077, 0, "{name} is readable by others");
         }
+    }
+
+    /// 注册的登录请求在路上时，`session_adopt` 在同一把锁里把身份连同会话换成了另一个匿名账号 K（鸿蒙设置应用采用键盘注册的那个）：登录回来以后不再写自己的会话，本地仍是 K 的会话和 K 的身份，而不是这一次登录的会话、K 的身份。
+    #[test]
+    fn a_registration_does_not_overwrite_a_session_adopted_with_its_identity_meanwhile() {
+        let root = tempfile::tempdir().unwrap();
+        let (local, keyboard) = (root.path().join("settings"), root.path().join("keyboard"));
+        let published = AnonymousIdentity::generate();
+        let bytes = serde_json::to_vec(&published).unwrap();
+        assert!(write_private(&keyboard, ANONYMOUS_ACCOUNT_FILE, &bytes, true).unwrap());
+        let mut adopted = anonymous_session('e', 'f');
+        adopted.tokens.user.id = "msime-keyboard00000000".into();
+        let api = RegisteringApi::default();
+        let (directory, identity_path, session) = (
+            local.clone(),
+            keyboard.join(ANONYMOUS_ACCOUNT_FILE),
+            adopted.clone(),
+        );
+        *api.during_login.lock().unwrap() = Some(Box::new(move || {
+            let identity = read_published_anonymous_identity(&identity_path).unwrap();
+            let outcome = BackendAccountSession::new(
+                RegisteringApi::default(),
+                LockedAnonymousSessionStorage::new(&directory),
+            )
+            .adopt_anonymous_session_with_identity(
+                Some(session),
+                SessionAdoptSource::Keyboard,
+                &directory,
+                &identity,
+            );
+            assert_eq!(outcome, Ok(SessionAdoptOutcome::Adopted));
+        }));
+
+        ensure_anonymous_account_with(api.clone(), &local).unwrap();
+
+        assert_eq!(api.logins.lock().unwrap().len(), 1);
+        let saved = AnonymousSessionStorage::new(&local)
+            .load()
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.tokens.user.id, "msime-keyboard00000000");
+        let identity: AnonymousIdentity =
+            serde_json::from_slice(&std::fs::read(local.join(ANONYMOUS_ACCOUNT_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(identity.subject, published.subject);
     }
 
     #[test]
