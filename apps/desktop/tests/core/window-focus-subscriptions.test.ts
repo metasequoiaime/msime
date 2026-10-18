@@ -146,7 +146,7 @@ test("resumes on focus and visible transitions, but ignores hidden transitions",
 
 const blurConsumers = import.meta.glob<string>(
   [
-    "../../../../packages/ui/src/keyboard/panels.tsx",
+    "../../../../packages/ui/src/keyboard/use-keyboard-panel.ts",
     "../../../../packages/ui/src/keyboard/use-panel-drag.ts",
     "../../../../packages/ui/src/settings/use-flush-on-window-leave.ts",
     "../../../../packages/ui/src/settings/use-settings-window-interactions.ts",

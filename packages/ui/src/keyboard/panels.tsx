@@ -1,3 +1,4 @@
+import { useKeyboardPanel } from "./use-keyboard-panel";
 import { useEmojiPanel, type EmojiPage } from "./use-emoji-panel";
 import { useCloudDictionaryFilesPanel } from "./use-cloud-dictionary-files-panel";
 import { useCloudCandidatesPanel } from "./use-cloud-candidates-panel";
@@ -8,7 +9,6 @@ import { useCloudClipboardPanel } from "./use-cloud-clipboard-panel";
 import { useVoicePanel } from "./use-voice-panel";
 import { isComposingKeyEvent } from "../core/ime-key-event";
 import type {
-  KeyboardInputRequest,
   PanelClient,
   VoicePanelClient,
   CloudClipboardPanelClient,
@@ -20,31 +20,20 @@ import type {
 import { FluentIcon } from "../core/fluent-icons";
 import { ControlledCheckbox } from "../core/controlled-checkbox";
 import { subscribeToElementResize } from "../core/element-resize";
-import { subscribeToWindowBlur, subscribeToWindowEvent } from "../core/window-focus";
-import { readOptionalStorage, writeOptionalStorage } from "../core/optional-storage";
+import { subscribeToWindowEvent } from "../core/window-focus";
 import { clamp } from "../core/number";
 import { touchKeyboardSpacing } from "../settings/touch-keyboard-spacing";
 import { DictionaryFormatOptions } from "../dictionary/dictionary-format-options";
-import { usePanelDrag } from "./use-panel-drag";
 import { useHandwritingPanel } from "./use-handwriting-panel";
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { GlobalTheme } from "../theme/global-theme";
 import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
 import { StatusMessage } from "../core/status-message";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import { useMountedRef } from "../settings/use-mounted-ref";
-import { useLatestRef } from "../core/use-latest-ref";
-import {
-  isImeCommitKey,
-  keyboardKeyWeight,
-  modifierPrefix,
-  type KeyboardKey,
-  type Modifier,
-} from "./keyboard-input";
+import { keyboardKeyWeight } from "./keyboard-input";
 import { keyboardSkinStyles } from "./keyboard-skin-styles";
-import { keyboardDeliveryNotice, MACOS_KEYBOARD_GUIDANCE } from "./keyboard-delivery-notice";
-import { keyboardRows, nineKeyRows, nineKeyShuangpinRows } from "./panel-keyboard-layouts";
 import type { NineKeyShuangpinKeyFace } from "../settings/nine-key-shuangpin-profile";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import { CloudDictionaryEntryCard } from "./cloud-dictionary-entry-card";
@@ -130,306 +119,23 @@ export function KeyboardPanel({
   skin?: GlobalTheme;
   customDesign?: TouchKeyboardSkinDesign;
 }) {
-  const [activeLayout, setActiveLayout] = useState<
-    "twenty_six_key" | "nine_key" | "nine_key_shuangpin"
-  >(() => {
-    const saved = readOptionalStorage("msime.keyboard.layout");
-    return saved === "nine_key" || saved === "twenty_six_key" || saved === "nine_key_shuangpin"
-      ? saved
-      : layout;
-  });
-  function switchLayout() {
-    const next =
-      activeLayout === "twenty_six_key"
-        ? layout === "nine_key_shuangpin"
-          ? "nine_key_shuangpin"
-          : "nine_key"
-        : "twenty_six_key";
-    setActiveLayout(next);
-    writeOptionalStorage("msime.keyboard.layout", next);
-  }
-  const previousHostLayout = useRef(layout);
-  useEffect(() => {
-    // Initial mounting (including StrictMode replay) must preserve the saved preference.
-    if (previousHostLayout.current === layout) return;
-    previousHostLayout.current = layout;
-    setActiveLayout(layout);
-  }, [layout]);
-  const sourceRows =
-    activeLayout === "nine_key_shuangpin"
-      ? nineKeyShuangpinRows(nineKeyShuangpinKeys ?? [])
-      : activeLayout === "nine_key"
-        ? nineKeyRows
-        : keyboardRows;
-  const rows =
-    platform === "macos"
-      ? sourceRows.map((row) => {
-          // PC 底行左侧 Ctrl/Win/Alt 改为 Control/Option/Command，右侧按相反方向镜像。
-          const ordered =
-            row[0]?.virtualKey === 0x11 && row[3]?.virtualKey === 0x20
-              ? [row[0], row[2], row[1], row[3], row[5], row[4], ...row.slice(6)]
-              : row;
-          return (
-            ordered
-              // macOS 没有这些 PC 专用键；保留有稳定 ANSI 映射的数字小键盘和导航键。
-              .filter((item) => ![0x2c, 0x91, 0x13, 0x2d, 0x5d].includes(item.virtualKey))
-              .map((item) => ({
-                ...item,
-                label:
-                  item.label === "Win"
-                    ? "Command"
-                    : item.label === "Alt"
-                      ? "Option"
-                      : item.label === "Num Lock"
-                        ? "Clear"
-                        : item.label,
-              }))
-          );
-        })
-      : sourceRows;
-  const [, setActiveModifiers] = useState<Set<Modifier>>(new Set());
-  const modifiersRef = useRef<Set<Modifier>>(new Set());
-  const [notice, setNotice] = useState(
-    platform === "macos" ? MACOS_KEYBOARD_GUIDANCE : "Touch keyboard",
-  );
-  const platformRef = useLatestRef(platform);
-  useEffect(() => {
-    if (platform === "macos")
-      setNotice((shown) => (shown === "Touch keyboard" ? MACOS_KEYBOARD_GUIDANCE : shown));
-  }, [platform]);
-  const [openingVoice, setOpeningVoice] = useState(false);
-  type QueuedKey = { request: KeyboardInputRequest; description: string };
-  const inputQueue = useRef<{
-    active: boolean;
-    running: boolean;
-    openingVoice: boolean;
-    pending: QueuedKey[];
-  }>({ active: true, running: false, openingVoice: false, pending: [] });
-  const keyRepeat = useRef<{ delay?: number; interval?: number }>({});
-  // Windows sends on release, like the shipped KeyboardPanel::OnMouseUp: the key pressed on pointerdown is remembered and only sent if the pointer is released over that same key, so sliding off a key cancels it and there is no held-key repeat.
-  const releaseKey = useRef<{ button: HTMLButtonElement; key: KeyboardKey } | null>(null);
-  const sendsOnRelease = platform === "windows";
-  const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
-  function stopKeyRepeat() {
-    if (keyRepeat.current.delay !== undefined) window.clearTimeout(keyRepeat.current.delay);
-    if (keyRepeat.current.interval !== undefined) window.clearInterval(keyRepeat.current.interval);
-    keyRepeat.current = {};
-  }
-  useEffect(() => {
-    const queue = { active: true, running: false, openingVoice: false, pending: [] as QueuedKey[] };
-    setOpeningVoice(false);
-    inputQueue.current = queue;
-    modifiersRef.current = new Set();
-    setActiveModifiers(new Set());
-    if (client.rememberInputTarget)
-      void client.rememberInputTarget().catch((error: unknown) => {
-        if (queue.active) setNotice(keyboardDeliveryNotice(error, platformRef.current));
-      });
-    const stopBlur = subscribeToWindowBlur(stopKeyRepeat);
-    return () => {
-      stopBlur();
-      stopKeyRepeat();
-      queue.active = false;
-      queue.pending = [];
-    };
-  }, [client]);
-  function toggleModifier(keyToToggle: Modifier) {
-    const next = new Set(modifiersRef.current);
-    if (next.has(keyToToggle)) next.delete(keyToToggle);
-    else next.add(keyToToggle);
-    modifiersRef.current = next;
-    setActiveModifiers(next);
-    syncKeyboardFaces(next);
-  }
-  function syncKeyboardFaces(modifiers: Set<Modifier>) {
-    // React may batch the Shift click with the following key click in a
-    // synthetic test/event turn. Update the visible faces eagerly so the
-    // keyboard remains truthful between those two events.
-    if (typeof document === "undefined") return;
-    const buttons = document.querySelectorAll<HTMLButtonElement>(
-      "[data-keyboard-layout-grid] .keyboard-key",
-    );
-    rows.flat().forEach((item, index) => {
-      const button = buttons[index];
-      if (!button) return;
-      const letter = item.label.length === 1 && /[a-z]/i.test(item.label);
-      const shifted = modifiers.has("Shift") && item.label.length === 1;
-      const face = shifted
-        ? item.shifted || (letter ? item.label.toUpperCase() : item.label)
-        : item.label;
-      const label = button.querySelector<HTMLElement>("[data-key-label]");
-      if (label) label.textContent = face;
-      else button.textContent = face;
-      if (item.modifier)
-        button.setAttribute("aria-pressed", modifiers.has(item.modifier) ? "true" : "false");
-    });
-  }
-  async function drainKeys() {
-    const queue = inputQueue.current;
-    if (!queue.active || queue.running || !client.sendKey) return;
-    queue.running = true;
-    try {
-      while (queue.active && queue.pending.length) {
-        const next = queue.pending.shift()!;
-        setNotice(`正在发送：${next.description}`);
-        try {
-          // The Windows panel records the external foreground target on every
-          // click because the editor may change while the non-activating panel
-          // remains open. Keep that capture in the same serialized operation
-          // as the key so a later click cannot overwrite the target before an
-          // earlier key is delivered.
-          if (client.rememberInputTarget) await client.rememberInputTarget();
-          await client.sendKey(next.request);
-        } catch (error: unknown) {
-          // 发送可能已部分成功；不重放失败按键，清空队列并停止长按连发。
-          queue.pending = [];
-          stopKeyRepeat();
-          if (queue.active) setNotice(keyboardDeliveryNotice(error, platform));
-          return;
-        }
-        if (queue.active) setNotice(`已发送：${next.description}`);
-      }
-    } finally {
-      queue.running = false;
-    }
-  }
-  async function openVoiceKeyboard() {
-    const queue = inputQueue.current;
-    if (!queue.active || queue.openingVoice || !client.openVoice) return;
-    if (queue.running || queue.pending.length) {
-      setNotice("请等待按键发送完成后打开语音输入");
-      return;
-    }
-    queue.openingVoice = true;
-    setOpeningVoice(true);
-    setNotice("正在打开语音输入…");
-    try {
-      await client.openVoice();
-      if (queue.active) setNotice("已打开语音输入");
-    } catch {
-      if (queue.active) setNotice("无法打开语音输入，请重试");
-    } finally {
-      queue.openingVoice = false;
-      if (queue.active && inputQueue.current === queue) setOpeningVoice(false);
-    }
-  }
-  function closeKeyboard() {
-    const queue = inputQueue.current;
-    queue.active = false;
-    queue.pending = [];
-    stopKeyRepeat();
-    void client.close().catch(() => {
-      if (inputQueue.current === queue) {
-        queue.active = true;
-        setNotice("无法关闭键盘，请重试");
-      }
-    });
-  }
-  function pressKey(keyToPress: KeyboardKey) {
-    const queue = inputQueue.current;
-    if (!queue.active || queue.openingVoice) return;
-    if (keyToPress.modifier) {
-      toggleModifier(keyToPress.modifier);
-      return;
-    }
-    if (queue.pending.length >= 64) {
-      setNotice("按键正在发送，请稍候再继续输入");
-      return;
-    }
-    const activeModifiers = modifiersRef.current;
-    const shift = activeModifiers.has("Shift");
-    const caps = activeModifiers.has("Caps Lock");
-    const letter = keyToPress.label.length === 1 && /[a-z]/i.test(keyToPress.label);
-    // Caps Lock and Shift invert one another for letters, just like the
-    // Windows keyboard panel. Punctuation still follows Shift alone.
-    const withShift = letter ? caps !== shift : shift;
-    const modifiers = {
-      ctrl: activeModifiers.has("Ctrl"),
-      alt: activeModifiers.has("Alt"),
-      win: activeModifiers.has("Win"),
-    };
-    const includeStickyModifiers = !isImeCommitKey(keyToPress.virtualKey);
-    const prefix = modifierPrefix(activeModifiers);
-    const displayedLabel = withShift
-      ? keyToPress.shifted || (letter ? keyToPress.label.toUpperCase() : keyToPress.label)
-      : keyToPress.label;
-    const description = `${prefix}${prefix ? "+" : ""}${displayedLabel}`;
-    const request: KeyboardInputRequest = {
-      virtual_key: keyToPress.virtualKey,
-      shift: withShift && includeStickyModifiers,
-      modifiers,
-      include_sticky_modifiers: includeStickyModifiers,
-    };
-    setNotice(
-      client.sendKey ? `正在发送：${description}` : `已准备：${description}（等待宿主注入能力）`,
-    );
-    if (client.sendKey) {
-      // The native reference sends each complete SendInput sequence
-      // synchronously. Tauri commands are asynchronous, so preserve that
-      // ordering explicitly instead of allowing later taps to overtake an
-      // in-flight key or escape the bounded failure queue.
-      queue.pending.push({ request, description });
-      void drainKeys();
-    }
-    if (shift) {
-      const next = new Set(activeModifiers);
-      next.delete("Shift");
-      modifiersRef.current = next;
-      setActiveModifiers(next);
-      syncKeyboardFaces(next);
-    }
-  }
-  function endPointerKey(event: PointerEvent<HTMLButtonElement>) {
-    stopKeyRepeat();
-    const pressed = releaseKey.current;
-    releaseKey.current = null;
-    if (!sendsOnRelease || !pressed || pressed.button !== event.currentTarget) return;
-    if (!event.isPrimary || event.button !== 0) return;
-    pressKey(resolveRenderedKey(pressed.key, event.currentTarget.textContent ?? ""));
-  }
-  function cancelPointerKey() {
-    stopKeyRepeat();
-    releaseKey.current = null;
-  }
-  function beginPointerKey(event: PointerEvent<HTMLButtonElement>, keyToPress: KeyboardKey) {
-    releaseKey.current = null;
-    // Num Lock is a lock key in the Linux extended layout, so a held pointer
-    // must not toggle it repeatedly like an ordinary keypad key.
-    if (
-      !event.isPrimary ||
-      event.button !== 0 ||
-      keyToPress.modifier ||
-      keyToPress.virtualKey === 0x90 ||
-      openingVoice
-    )
-      return;
-    stopKeyRepeat();
-    if (sendsOnRelease) {
-      // Touch and pen capture the pointer implicitly, which would deliver the release to this key wherever it happens; release the capture so pointerup lands on the key actually under the pointer.
-      if (event.currentTarget.hasPointerCapture?.(event.pointerId))
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      releaseKey.current = { button: event.currentTarget, key: keyToPress };
-      return;
-    }
-    pressKey(resolveRenderedKey(keyToPress, event.currentTarget.textContent ?? ""));
-    keyRepeat.current.delay = window.setTimeout(() => {
-      pressKey(keyToPress);
-      keyRepeat.current.interval = window.setInterval(() => pressKey(keyToPress), 75);
-    }, 450);
-  }
-  function resolveRenderedKey(fallback: KeyboardKey, displayed: string) {
-    if (!modifiersRef.current.has("Shift")) return fallback;
-    const match = rows
-      .flat()
-      .find(
-        (item) =>
-          item.shifted === displayed ||
-          (item.shifted == null &&
-            item.label.length === 1 &&
-            item.label.toUpperCase() === displayed),
-      );
-    return match ?? fallback;
-  }
+  const {
+    activeLayout,
+    rows,
+    renderedModifiers,
+    notice,
+    openingVoice,
+    drag,
+    switchLayout,
+    pressKey,
+    resolveRenderedKey,
+    openVoiceKeyboard,
+    closeKeyboard,
+    beginPointerKey,
+    endPointerKey,
+    cancelPointerKey,
+    stopKeyRepeat,
+  } = useKeyboardPanel({ client, platform, layout, nineKeyShuangpinKeys });
   const { keySpacing: keyGap, rowSpacing: rowGap } = touchKeyboardSpacing(
     keySpacingTenths,
     rowSpacingTenths,
@@ -439,7 +145,6 @@ export function KeyboardPanel({
     "--keyboard-row-gap": `${rowGap}px`,
   } as CSSProperties;
   const skinStyle = keyboardSkinStyles(theme, skin, customDesign);
-  const renderedModifiers = modifiersRef.current;
   const keyMaterial = skin === "custom" ? (customDesign?.keyMaterial ?? "flat") : "flat";
   return (
     <main
