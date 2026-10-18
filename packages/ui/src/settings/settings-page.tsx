@@ -5,7 +5,6 @@ import { appThemeStyle, seasonAttr } from "../core/app-theme-style";
 import { SetupWarningStrip } from "../keyboard/setup-status-card";
 import { KeyboardSwitchGuideHost } from "../keyboard/keyboard-switch-guide";
 import { TryKeyboardPage } from "../keyboard/try-keyboard-page";
-import { desktopDownloadUrl } from "./app-resources";
 import { useSettingsWindowInteractions } from "./use-settings-window-interactions";
 import { useSettingsShellState } from "./use-settings-shell-state";
 import { useSettingsShellNavigation } from "./use-settings-shell-navigation";
@@ -25,7 +24,7 @@ import { TypingStatisticsPage } from "./typing-statistics";
 import { VocabularyReviewPage } from "./vocabulary-review";
 import * as settings from "./settings-style";
 import { FluentIcon } from "../core/fluent-icons";
-import { AccountPage } from "../account/account-page";
+import { SettingsAccountPage } from "./settings-account-page";
 import { ChatPage } from "../chat/chat-page";
 import { HomePage } from "../keyboard/home-page";
 import {
@@ -63,7 +62,6 @@ function SettingsShell(props: SettingsPageProps) {
     client,
     confirmation,
     confirm,
-    androidPlatform,
     iosPlatform,
     harmonyPlatform,
     mobilePlatform,
@@ -82,8 +80,6 @@ function SettingsShell(props: SettingsPageProps) {
     dismissInputSourceStartup,
     page,
     dictionaryTab,
-    setDictionaryTab,
-    accountLoginReturnPage,
     settingsContentRef,
     communityDestination,
     windowMaximized,
@@ -109,16 +105,12 @@ function SettingsShell(props: SettingsPageProps) {
     selectPage,
     selectMobileTab,
     openAccountLogin,
-    finishAccountLogin,
-    openLocalDesigns,
-    openCommunity,
     initialCommunityCategory,
     initialCommunityScope,
     initialCommunityMine,
     communityGallery,
     closeCommunityGallery,
     communityTabs,
-    currentAppVersion,
   } = model;
   const {
     pluginView,
@@ -424,79 +416,7 @@ function SettingsShell(props: SettingsPageProps) {
                 />
               )}
               {(client.account || client.appIcon) && page === "account" && (
-                <AccountPage
-                  client={client.account}
-                  appIcon={client.appIcon}
-                  platform={
-                    androidPlatform
-                      ? "android"
-                      : iosPlatform
-                        ? "ios"
-                        : harmonyPlatform
-                          ? "harmony"
-                          : undefined
-                  }
-                  mobile={mobilePlatform}
-                  onCancelLogin={accountLoginReturnPage ? finishAccountLogin : undefined}
-                  onLoginComplete={accountLoginReturnPage ? finishAccountLogin : undefined}
-                  onOpenLocalDesigns={
-                    client.customTouchKeyboardSkins ? openLocalDesigns : undefined
-                  }
-                  // Windows 的社区页只有词包与回复模板，没有皮肤画廊；它的候选窗口皮肤社区在主题页。
-                  onOpenCommunity={client.communityResources ? openCommunity : undefined}
-                  communityHasSkins={Boolean(client.communitySkins)}
-                  onOpenCloudDictionary={
-                    !mobilePlatform && client.cloudDictionary
-                      ? () => {
-                          selectPage("dictionary");
-                          setDictionaryTab("cloud");
-                        }
-                      : client.openCloudDictionary && !macosPlatform
-                        ? () => {
-                            void client.openCloudDictionary!().catch(() =>
-                              setError("无法打开云词库，请重试。"),
-                            );
-                          }
-                        : undefined
-                  }
-                  // macOS 只从输入法菜单打开云剪贴板，由菜单提供粘贴目标的输入会话。
-                  onOpenCloudClipboard={
-                    client.openCloudClipboard && !macosPlatform
-                      ? () => {
-                          void client.openCloudClipboard!().catch(() =>
-                            setError("无法打开云剪贴板，请重试。"),
-                          );
-                        }
-                      : undefined
-                  }
-                  onOpenAbout={mobilePlatform ? () => selectPage("about") : undefined}
-                  onOpenFeedback={
-                    mobilePlatform && availablePages.some((item) => item.id === "feedback")
-                      ? () => selectPage("feedback")
-                      : undefined
-                  }
-                  onOpenDesktopDownload={
-                    mobilePlatform && client.openExternalUrl
-                      ? () => {
-                          void openExternalUrl(desktopDownloadUrl);
-                        }
-                      : undefined
-                  }
-                  onReplayOnboarding={mobilePlatform ? onReplayOnboarding : undefined}
-                  preferences={draft}
-                  onOpenPage={selectPage}
-                  appTheme={client.appTheme}
-                  onOpenUrl={
-                    client.openExternalUrl
-                      ? (url: string) => {
-                          void openExternalUrl(url);
-                        }
-                      : undefined
-                  }
-                  copyText={client.copyText}
-                  desktopDownloadUrl={desktopDownloadUrl}
-                  appVersion={currentAppVersion}
-                />
+                <SettingsAccountPage model={model} onReplayOnboarding={onReplayOnboarding} />
               )}
               {/* 触屏上 AI 对话从「AI 辅助」二级页进入：第一次打开后一直挂着，切换标签只是隐藏，对话记录和进行中的回复都不丢。 */}
               {client.chat && (page === "chat" || (mobilePlatform && chatMounted)) && (

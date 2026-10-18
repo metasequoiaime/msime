@@ -111,3 +111,5 @@ macOS 的决定逐项搬到 Windows、Linux 和 HarmonyOS，判据是控件在�
 Windows 的「帮助与反馈」并入「关于」、手写并入屏幕键盘后，原生侧栏共 16 页。真实宿主验收同步访问这 16 页，并检查「关于」仍有反馈类型、描述、复制报告与交流入口；`scripts/test-windows-settings-ui-pages.py` 在本地与 CI 上核对 PowerShell 验收清单和 `SettingsNavigation.h` 的页面顺序，防止只改导航却漏改设备验收。保留独立的清单核对，是为了在不能启动 WinUI 的开发机器上也能立即发现这类漂移；真实 Windows 验收仍负责确认控件实际呈现。
 
 macOS 云词库入口收窄到输入法菜单，设置进程已有面板的账号回退见[云词库回退](../bug-fix/2026-10-18-macos-cloud-dictionary-account-fallback.md)。
+
+[设置账号接线组件](2026-10-19-settings-account-page.md)继续保留桌面词库跳转优先和 macOS 原生云端入口限制，公共账号动作不改变这些平台筛选。

@@ -26,3 +26,5 @@ Status: implemented
 ## Related notes
 
 [设置导航复用移动端返回监听](../../implemented/simplification/2026-10-15-settings-navigation-popstate.md) 保持 `popstate` 监听的最新回调与生命周期；本修复只补充账号登录返回目标的页面生命周期约束，不改变历史状态格式。
+
+[设置账号接线组件](../simplification/2026-10-19-settings-account-page.md)通过既有公共账号动作透传当前返回目标与完成回调，返回目标的清理仍归统一导航。

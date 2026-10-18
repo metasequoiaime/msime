@@ -1884,3 +1884,8 @@ export {
   SettingsPreferencesForm,
   type SettingsPreferencesFormProps,
 } from "./settings/settings-preferences-form";
+
+export {
+  SettingsAccountPage,
+  type SettingsAccountPageProps,
+} from "./settings/settings-account-page";
