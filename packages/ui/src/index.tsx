@@ -1899,3 +1899,8 @@ export {
   SettingsSkinCommunitySection,
   type SettingsSkinCommunitySectionProps,
 } from "./settings/settings-skin-community-section";
+
+export {
+  SettingsPluginCommunitySection,
+  type SettingsPluginCommunitySectionProps,
+} from "./settings/settings-plugin-community-section";

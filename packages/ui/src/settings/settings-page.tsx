@@ -26,6 +26,7 @@ import * as settings from "./settings-style";
 import { FluentIcon } from "../core/fluent-icons";
 import { SettingsAccountPage } from "./settings-account-page";
 import { SettingsCommunityPage } from "./settings-community-page";
+import { SettingsPluginCommunitySection } from "./settings-plugin-community-section";
 import { SettingsSkinCommunitySection } from "./settings-skin-community-section";
 import { ChatPage } from "../chat/chat-page";
 import { HomePage } from "../keyboard/home-page";
@@ -40,8 +41,6 @@ import { createSettingsExternalActions } from "./settings-external-actions";
 import { createSettingsNavigationActions } from "./settings-navigation-actions";
 import { logo } from "./settings-options";
 import { createCommunityLocalDictionary } from "../community/community-resource-actions";
-import { CommunityPluginsPage } from "../community/community-plugins";
-import * as communityStyle from "../community/community-style";
 
 export function SettingsPage(props: SettingsPageProps) {
   // 宿主自己的屏幕键盘布局：没写 `layout` 的键盘预览按它画，手机上不画桌面键盘。
@@ -478,39 +477,12 @@ function SettingsShell(props: SettingsPageProps) {
                 onSkinViewChange={setSkinView}
                 onSkinApplied={recordCommunitySkin}
               />
-              {page === "plugins" && client.communityPlugins && (
-                <div
-                  className={communityStyle.categoryTabsPair}
-                  role="tablist"
-                  aria-label="插件来源"
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={pluginView === "mine"}
-                    onClick={() => setPluginView("mine")}
-                  >
-                    我的插件
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={pluginView === "community"}
-                    onClick={() => setPluginView("community")}
-                  >
-                    社区插件
-                  </button>
-                </div>
-              )}
-              {client.communityPlugins && pluginCommunityShown && (
-                <div className="mt-4">
-                  <CommunityPluginsPage
-                    client={client.communityPlugins}
-                    localPlugins={client.plugins?.catalog}
-                    onLogin={openAccountLogin}
-                  />
-                </div>
-              )}
+              <SettingsPluginCommunitySection
+                model={model}
+                views={communityViews}
+                pluginView={pluginView}
+                onPluginViewChange={setPluginView}
+              />
               {draft && isSettingsFormPage(page) && (
                 <SettingsPreferencesForm
                   model={{ ...model, draft }}

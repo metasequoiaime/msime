@@ -22,6 +22,6 @@ Status: implemented
 
 社区视图 hook 和图库渲染位于[独立设置页组件](2026-10-19-settings-page-component-module.md)的调用层，图库仍在设置表单之外，覆盖判定与挂载规则保持不变。
 
-覆盖结果与标签输入交给[偏好设置表单组件](2026-10-19-settings-preferences-form.md)，图库渲染继续由外壳持有，不进入表单上下文。
+覆盖结果与标签输入交给[偏好设置表单组件](2026-10-19-settings-preferences-form.md)，图库渲染由外壳组合的社区区域持有，不进入表单上下文。
 
-皮肤页标签和两类皮肤图库的渲染由[设置皮肤社区区域](2026-10-19-settings-skin-community-section.md)消费同一组视图对象；hook 仍由外壳调用一次，本地表单继续使用相同标签和覆盖结果。插件和社区根页的渲染归属不变。
+皮肤页标签和两类皮肤图库的渲染由[设置皮肤社区区域](2026-10-19-settings-skin-community-section.md)消费同一组视图对象；hook 仍由外壳调用一次，本地表单继续使用相同标签和覆盖结果。插件来源标签与图库由[设置插件社区区域](2026-10-19-settings-plugin-community-section.md)消费同一组覆盖结果和外层分类状态，社区根页的渲染归属不变。
