@@ -216,7 +216,7 @@ test("does not echo a saved relay token and keeps it when only the address chang
     target: { value: "https://relay.example.test/new" },
   });
   const saveButton = screen.getByRole("button", { name: "保存中继设置" }) as HTMLButtonElement;
-  expect(saveButton.disabled).toBe(false);
+  await waitFor(() => expect(saveButton.disabled).toBe(false));
   fireEvent.click(saveButton);
   saveSettingsNow();
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));

@@ -3085,7 +3085,14 @@ function SettingsShell(props: SettingsPageProps) {
       macShell,
       onError: setError,
     });
-  const { parentPage, goBack, shownSidebarGroups, navSearchField } = useSettingsShellNavigation({
+  const {
+    parentPage,
+    goBack,
+    shownSidebarGroups,
+    navSearchField,
+    isSidebarGroupExpanded,
+    toggleSidebarGroup,
+  } = useSettingsShellNavigation({
     page,
     navigationPage,
     launchPage,
@@ -3159,8 +3166,9 @@ function SettingsShell(props: SettingsPageProps) {
             )}
             {searchInSidebar && <label className={settings.sidebarSearch}>{navSearchField}</label>}
             <div className={settings.sidebarItems}>
-              {shownSidebarGroups.flatMap((group) =>
-                group.pages.map((item) => (
+              {shownSidebarGroups.map((group) => {
+                const expanded = isSidebarGroupExpanded(group);
+                const pages = group.pages.map((item) => (
                   <NavItem
                     key={item.id}
                     label={item.title}
@@ -3169,8 +3177,37 @@ function SettingsShell(props: SettingsPageProps) {
                     controls="settings-content"
                     onSelect={() => selectPage(item.id)}
                   />
-                )),
-              )}
+                ));
+                if (mobilePlatform || !group.title) return pages;
+                const groupId = `settings-sidebar-group-${group.title}`;
+                const groupLabelId = `${groupId}-label`;
+                return (
+                  <section
+                    key={group.title}
+                    className={settings.sidebarGroup}
+                    aria-labelledby={groupLabelId}
+                  >
+                    <button
+                      type="button"
+                      className={settings.sidebarGroupToggle}
+                      id={groupLabelId}
+                      aria-expanded={expanded}
+                      aria-controls={groupId}
+                      onClick={() => toggleSidebarGroup(group)}
+                    >
+                      <span>{group.title}</span>
+                      <FluentIcon
+                        name="chevron_right"
+                        size={14}
+                        className={settings.sidebarGroupToggleIcon(expanded)}
+                      />
+                    </button>
+                    <div id={groupId} className={settings.sidebarGroupPages} hidden={!expanded}>
+                      {pages}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
             {shownSidebarGroups.length === 0 && (
               <p className={settings.sidebarEmpty} role="status">

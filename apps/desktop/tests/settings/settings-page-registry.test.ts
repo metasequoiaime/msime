@@ -42,10 +42,10 @@ test("注册表保留已有页面与稳定路由", () => {
 test("keeps navigation groups and nested route ownership aligned", () => {
   expect(settingsNavGroups).toEqual([
     { title: "打字", ids: ["input", "dictionary", "shortcuts", "expression"] },
-    { title: "更多输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
+    { title: "输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
-    { title: "工具", ids: ["tools", "ai", "mcp", "plugins", "typing-statistics"] },
-    { title: "账号", ids: ["account"] },
+    { title: "工具", ids: ["tools", "ai", "mcp", "plugins"] },
+    { title: "数据", ids: ["typing-statistics", "account"] },
     { title: "支持", ids: ["developer", "feedback", "about"] },
   ]);
   expect(subPageParents).toEqual({

@@ -313,6 +313,8 @@ pub struct NineKeySession {
     seed_buffer: Vec<String>,
     /// 九键切分路径的输出缓冲；相邻刷新复用路径及其音节字符串。
     path_buffer: Vec<Path>,
+    /// 活动拼音组字复用搜索页；组字结束时释放页容器。
+    path_scratch: PathScratch<'static>,
     english_only: bool,
     /// 部分选择正在拼的词：已经选掉的各段的全拼（`'` 连接）和文字。整串数字选完时把它们连同最后一段存成用户词，下次打简拼就能出来（#5640）；有一段读不出一字一音节的全拼（英文词、模糊音行）时 `phrase_storable` 为假，这个词不存。
     phrase_pinyin: String,
@@ -421,6 +423,7 @@ impl NineKeySession {
             sentence_seeds: Vec::with_capacity(SEED_RETAIN_LIMIT),
             seed_buffer: Vec::with_capacity(SEED_RETAIN_LIMIT),
             path_buffer: Vec::new(),
+            path_scratch: PathScratch::default(),
             english_only: false,
             phrase_pinyin: String::new(),
             phrase_word: String::new(),
@@ -1010,6 +1013,7 @@ impl NineKeySession {
 
     /// 结束这次组字：数字连同锁定、撤销记录、切分、首字母、光标和正在拼的词一起清掉。
     fn clear_composition(&mut self) {
+        self.path_scratch.pages.clear();
         self.digits.clear();
         self.locked.clear();
         self.lock_undo.clear();
@@ -1196,6 +1200,7 @@ impl NineKeySession {
         self.candidates.clear();
         self.reading.clear();
         if !self.active() {
+            self.path_scratch.pages.clear();
             self.spellings.clear();
             // 筛选和撤销记录只属于这一次组字。
             self.sentence_seeds.clear();
@@ -1206,6 +1211,7 @@ impl NineKeySession {
             return;
         }
         if self.english_only || !self.pinyin {
+            self.path_scratch.pages.clear();
             self.spellings.clear();
             // No syllables to offer and no pinyin to look up: the digits stand for letters only.
             self.candidates = self.english_candidates(false);
@@ -1249,7 +1255,14 @@ impl NineKeySession {
                 &mut self.spelling_match_indices,
             );
             self.spellings.retain(|syllable| starts_right(syllable));
-            table.split_paths_into(remaining, splits, prior, PATH_LIMIT, &mut alternatives);
+            table.split_paths_with_scratch(
+                remaining,
+                splits,
+                prior,
+                PATH_LIMIT,
+                &mut self.path_scratch,
+                &mut alternatives,
+            );
             alternatives.retain(|path| path.first().is_none_or(|piece| starts_right(piece)));
             // 种子只在用户没锁定拼写、没打切分、没选首字母时用：那些情况下切分已经被用户限定，种子未必守得住这些限定。
             if self.locked.is_empty() && splits.is_empty() && initial.is_none() {
@@ -3034,6 +3047,12 @@ pub(crate) struct SpellingTable {
     longest_code: usize,
 }
 
+/// 搜索页只借用拼写表音节；每次切分从后向前完整覆写旧节点。
+#[derive(Default)]
+struct PathScratch<'a> {
+    pages: Vec<Vec<SpellingPath<'a>>>,
+}
+
 /// 中间路径只借用音节；后继索引指向已经定序、不会再改变的后页。
 #[derive(Clone, Copy)]
 struct SpellingPath<'a> {
@@ -3248,8 +3267,37 @@ impl SpellingTable {
         output_limit: usize,
         destination: &mut Vec<Path>,
     ) {
+        self.split_paths_with_scratch(
+            digits,
+            splits,
+            prior,
+            output_limit,
+            &mut PathScratch::default(),
+            destination,
+        );
+    }
+
+    fn split_paths_with_scratch<'a>(
+        &'a self,
+        digits: &str,
+        splits: &[usize],
+        prior: &SyllablePrior,
+        output_limit: usize,
+        scratch: &mut PathScratch<'a>,
+        destination: &mut Vec<Path>,
+    ) {
         let length = digits.len();
-        let mut suffix: Vec<Vec<SpellingPath<'_>>> = vec![Vec::new(); length + 1];
+        if scratch.pages.is_empty() {
+            scratch.pages = vec![Vec::new(); length + 1];
+        } else {
+            scratch.pages.resize_with(length + 1, Vec::new);
+        }
+        let suffix = &mut scratch.pages;
+        if destination.is_empty() {
+            // 冷输出的根页从空容器建立，保持消费式 collect 的原分配与容量。
+            suffix[0] = Vec::new();
+        }
+        suffix[length].clear();
         suffix[length].push(SpellingPath {
             score: 0.0,
             complete: false,
@@ -3258,7 +3306,8 @@ impl SpellingTable {
             length: 0,
         });
         for offset in (0..length).rev() {
-            let mut result = Vec::new();
+            let mut result = std::mem::take(&mut suffix[offset]);
+            result.clear();
             for end in offset + 1..=length.min(offset + self.longest_code) {
                 if splits.iter().any(|&split| offset < split && split < end) {
                     break;
@@ -3296,7 +3345,7 @@ impl SpellingTable {
                     .cmp(&b.length)
                     .then_with(|| b.complete.cmp(&a.complete))
                     .then_with(|| b.score.total_cmp(&a.score))
-                    .then_with(|| a.pieces(&suffix).cmp(b.pieces(&suffix)))
+                    .then_with(|| a.pieces(suffix).cmp(b.pieces(suffix)))
             };
             let keep = if offset == 0 {
                 output_limit.min(PATH_LIMIT)
@@ -3312,24 +3361,25 @@ impl SpellingTable {
             result.truncate(keep);
             suffix[offset] = result;
         }
-        // 后继一定在更大偏移，取出根页不影响回溯；只有最终保留路径才物化字符串。
-        let roots = std::mem::take(&mut suffix[0]);
+        // 冷输出仍消费根页，让 collect 复用原分配；已有输出时才保留根页容量。
         if destination.is_empty() {
+            let roots = std::mem::take(&mut suffix[0]);
             *destination = roots
                 .into_iter()
                 .take(output_limit)
                 .map(|root| {
                     let mut path = Vec::with_capacity(root.length);
-                    path.extend(root.pieces(&suffix).map(str::to_owned));
+                    path.extend(root.pieces(suffix).map(str::to_owned));
                     path
                 })
                 .collect();
             return;
         }
+        let roots = &suffix[0];
         let output_len = roots.len().min(output_limit);
         destination.reserve(output_len.saturating_sub(destination.len()));
         destination.truncate(output_len);
-        for (index, root) in roots.into_iter().take(output_limit).enumerate() {
+        for (index, root) in roots.iter().copied().take(output_limit).enumerate() {
             let path = if let Some(path) = destination.get_mut(index) {
                 path
             } else {
@@ -3338,7 +3388,7 @@ impl SpellingTable {
             };
             path.truncate(root.length);
             path.reserve(root.length.saturating_sub(path.len()));
-            for (piece_index, piece) in root.pieces(&suffix).enumerate() {
+            for (piece_index, piece) in root.pieces(suffix).enumerate() {
                 if piece_index == path.len() {
                     path.push(String::new());
                 }
@@ -3430,6 +3480,9 @@ mod path_chain_tests;
 
 #[cfg(test)]
 mod path_buffer_tests;
+
+#[cfg(test)]
+mod path_scratch_tests;
 
 #[cfg(test)]
 mod seed_tail_tests;
@@ -4543,6 +4596,53 @@ mod tests {
         let (_, allocations) =
             crate::ime::personal_rerank::allocations::count(|| session.refresh());
         assert!(allocations < 601, "九键读音热刷新分配了 {allocations} 次");
+    }
+
+    #[test]
+    fn refresh_reuses_search_pages_and_releases_them_outside_pinyin_composition() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        session.digits = "64426".into();
+        session.refresh();
+        session.refresh();
+        let pages: Vec<_> = session
+            .path_scratch
+            .pages
+            .iter()
+            .map(|page| (page.as_ptr(), page.capacity()))
+            .collect();
+        assert!(pages.iter().any(|(_, capacity)| *capacity != 0));
+        session.refresh();
+        assert_eq!(
+            pages,
+            session
+                .path_scratch
+                .pages
+                .iter()
+                .map(|page| (page.as_ptr(), page.capacity()))
+                .collect::<Vec<_>>()
+        );
+        session.english_only = true;
+        session.refresh();
+        assert!(session.path_scratch.pages.is_empty());
+        session.english_only = false;
+        session.refresh();
+        assert!(!session.path_scratch.pages.is_empty());
+        session.digits.clear();
+        session.refresh();
+        assert!(session.path_scratch.pages.is_empty());
+    }
+
+    #[test]
+    fn commit_raw_releases_search_pages_before_returning() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        session.digits = "64426".into();
+        session.refresh();
+        assert!(!session.path_scratch.pages.is_empty());
+        let result = session.command(Command::CommitRaw);
+        assert_eq!(result.commit.as_deref(), Some("64426"));
+        assert!(session.path_scratch.pages.is_empty());
     }
 
     #[test]

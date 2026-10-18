@@ -91,6 +91,7 @@ import { DesktopHandwriting } from "./input/desktop-handwriting";
 import { DesktopCloudDictionary } from "./dictionary/desktop-cloud-dictionary";
 import { createDesktopCloudDictionaryClient } from "./dictionary/desktop-cloud-dictionary-client";
 import { testDesktopApiCredential } from "./account/credential-test-client";
+import { createAccountCommandClient } from "./account/account-command-client";
 import { isMobileHost } from "./input/mobile-host-capabilities";
 import { createMobileHostServices } from "./core/mobile-host-services";
 import {
@@ -786,22 +787,12 @@ function DesktopSettings() {
             host.platform === "linux"
               ? {
                   account: {
-                    status: () => invoke("account_status"),
-                    providers: () => invoke("account_providers"),
-                    requestCode: (provider: string, target: string) =>
-                      invoke("account_request_code", { provider, target }),
-                    login: (challengeId: string, code: string) =>
-                      invoke("account_login", { challengeId, code }),
+                    ...createAccountCommandClient(invoke),
                     googleLogin: () => invoke("account_google_login"),
                     googleCancel: () => invoke("account_google_cancel"),
-                    profile: () => invoke("account_profile"),
-                    rename: (displayName: string) => invoke("account_rename", { displayName }),
                     avatar: () => invoke<string | null>("account_avatar"),
                     chooseAvatar: () => invoke<AccountProfile | null>("account_choose_avatar"),
                     removeAvatar: () => invoke<AccountProfile>("account_remove_avatar"),
-                    logout: (all: boolean) => invoke("account_logout", { all }),
-                    deleteAccount: () => invoke("account_delete"),
-                    clearExpired: () => invoke("account_forget"),
                     qqLinks,
                     // 设置同步只在 Windows 接到账号会话上；macOS 由输入法自己的账号窗口同步它的原生设置，Linux 还没有接入。
                     ...(host.platform === "windows"

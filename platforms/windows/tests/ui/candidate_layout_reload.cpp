@@ -1,6 +1,7 @@
 #include "../../src/candidate/CandidateCardSize.h"
 #include "../../src/candidate/CandidateLayoutSettings.h"
 #include <cassert>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -104,8 +105,12 @@ int main() {
   assert(offline && offline->reserved_gloss_lines == 1);
   // 离线释义词典装在 resources 的同级目录 offline-glosses 里，英文不算（它随包在 resources 里）。
   {
-    const auto root = std::filesystem::temp_directory_path() / "msime-offline-gloss-languages-test";
-    std::filesystem::remove_all(root);
+    auto root = std::filesystem::temp_directory_path() /
+                ("msime-offline-gloss-languages-test-" +
+                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    // 原子取得独立目录，多个门禁进程不能清理彼此的夹具。
+    while (!std::filesystem::create_directory(root))
+      root += "-next";
     std::filesystem::create_directories(root / "resources");
     std::filesystem::create_directories(root / "offline-glosses" / "zh-de.db");
     assert(installed_offline_gloss_languages(root / "resources").empty());

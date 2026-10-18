@@ -419,9 +419,9 @@ fn assert_dominated_rows_are_rejected_before_field_copies() {
     let (_, new_count) = count(|| after.refresh());
     assert_session(&after, &before);
     eprintln!("完整热刷新申请：{old_count} → {new_count}");
-    // 新路径同时复用首候选读音行、主读音列表、拼写匹配索引、左列选项和切分路径输出缓冲。
+    // 新路径同时复用首候选读音行、主读音列表、拼写匹配索引、左列选项、切分路径输出和搜索页缓冲。
     assert_eq!(
-        new_count + 1118,
+        new_count + 1123,
         old_count,
         "重复前缀行和读音字符串不能先复制再丢弃"
     );

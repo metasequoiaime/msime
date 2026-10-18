@@ -12,6 +12,8 @@ Status: implemented
 
 本机 Python 启动器、Git Bash 搜索次序和原生工具读取 `/dev/fd` 的问题通过临时调用环境处理，不把本机路径、凭据或工具 shim 加入仓库。缺少 SDK、设备或构建依赖的阶段仍如实报告，不能据此声称全门禁通过。
 
+`candidate_layout_reload` 的离线释义夹具用原子 `create_directory` 取得独立目录，名字含单调时钟值，碰撞时换名重试；只清理自己成功创建的目录。多个 worktree 的本机门禁可以同时运行，不能在测试开头删除固定名字的共享目录。
+
 ## Existing note audit
 
 - [引擎测试进 CI](2026-10-10-engine-tests-in-ci.md)：部分重叠，保留 CI 覆盖与拒绝符号链接的约定，本篇补充 Windows 示例和本机门禁的兼容范围。
@@ -42,3 +44,5 @@ Status: implemented
 - 本机 Windows 原生设置页通过 MSBuild 完整构建与链接，所需 35 个 Host API 导入均存在于同目录 DLL 的导出中。旧 Host API 缓存只按现有构建入口离线更新，没有改动接口契约。
 - 使用真实 Python、Git Bash、Node 和 pnpm 的临时调用环境执行 `bash scripts/verify-local.sh --quick`，退出 0，输出 `quick check passed`。可运行合同、771 篇笔记和 2 项归档封印、Windows workspace Rust 全目标检查及 pipe-only MSVC 构建通过；未准备资源的 `msime-desktop` 按既有门禁条件排除。
 - 本机未安装 Android SDK/NDK、DevEco 工具、相关 wasm 目标或 Docker，不具备 Apple 编译环境；对应平台编译与设备阶段不能据此认定通过。
+
+九键搜索页复用的本机 quick 在 Windows 可移植测试中暴露固定临时目录竞争。在独立临时根下，16 路并发执行同一旧测试 160 次，有 39 次因目录清理或内容断言失败；原子取得独立目录后，同样 160 次全部通过。此修正只涉及 Windows 测试夹具，不改变宿主的文件访问规则，也不据此声明 Android 设备验证通过。

@@ -5,7 +5,7 @@ import UIKit
 
 @MainActor
 final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDelegate {
-  private enum LetterCaseState {
+  private enum LetterCaseState: Equatable {
     case lowercase, shifted, capsLock
   }
 
@@ -407,6 +407,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var currentNineKeySingleCharacter = false
   private var currentNineKeyStrokes = ""
   private var appliedLayoutInputs: KeyboardLayoutInputs?
+  private var appliedLetterCaseInputs: LetterCaseInputs?
+  private var appliedSpellingStripInputs: SpellingStripInputs?
   private var candidateGlossTimer: Timer?
   /// Engine's local mode, as of the last snapshot.
   ///
@@ -2300,8 +2302,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 拼音选择条：九键画在网格左侧的侧栏里（竖排），全拼 14 键画在读音行右侧（横排）。两处按钮各自复用，只有当前布局的那一处有内容。
   private func updateSpellingStrip() {
+    // 布局依赖仍然每次核对，但拼音条本身在连续输入中通常没有任何变化；重复给每个按钮写配置会把布局工作塞进每个按键的主线程路径。
+    updateKeyboardLayoutIfNeeded()
     let spellings = currentNineKeySpellings
     let inReadingRow = readingRowCarriesSpellings
+    let inputs = SpellingStripInputs(spellings: spellings, inReadingRow: inReadingRow)
+    guard appliedSpellingStripInputs != inputs else { return }
+    appliedSpellingStripInputs = inputs
     fillSpellingButtons(&spellingButtons, in: spellingStack, spellings: inReadingRow ? [] : spellings, readingRow: false)
     fillSpellingButtons(&readingSpellingButtons, in: readingSpellingStack, spellings: inReadingRow ? spellings : [],
                         readingRow: true)
@@ -2310,7 +2317,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     readingSpellingMinimumWidth?.isActive = readingStripShown
     spellingScrollView.setContentOffset(.zero, animated: false)
     readingSpellingScrollView.setContentOffset(.zero, animated: false)
-    updateKeyboardLayoutIfNeeded()
   }
 
   /// 拼音选择条是否在读音行里：全拼 14 键是，九键的在侧栏里。
@@ -3798,6 +3804,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateLetterCaseControls() {
+    guard !letterButtons.isEmpty else { return }
+    let inputs = LetterCaseInputs(
+      chinese: isChineseMode, scheme: inputScheme, state: letterCaseState,
+      localMode: currentLocalMode, entersHelpcode: entersHelpcode,
+      casedLetters: typesCasedLetters, korean: typesKorean,
+      swipeSymbols: swipeSymbolsEnabled, shuangpinHints: shuangpinKeyHintsEnabled)
+    guard appliedLetterCaseInputs != inputs else { return }
+    appliedLetterCaseInputs = inputs
     // 中文模式的字母键面画大写（与搜狗、微信、百度、豆包的拼音 26 键一致），输入的仍是小写拼写；英文模式画小写，只有下一键真的会输入大写时键面才变大写：英文的 Shift 或大写锁定，组字中的辅助码 Shift（无障碍标签里也会体现，并以大写辅助码交给 Engine），以及越南语和藏文区分大小写的字母（它们按 Shift 画大小写，不跟中文模式画大写）。日语罗马字照日文键盘的惯例画小写；本地输入模式（英文补全、Unicode、快捷短语等）按字面输入，也画小写。
     let casedLetters = typesCasedLetters
     let shifted = letterCaseState != .lowercase && (!isChineseMode || entersHelpcode || casedLetters)
@@ -5137,6 +5151,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let split: Bool
   }
 
+  /// 字母键面只有在这些输入变化时才需要重写。候选变化不会影响键面，连续打字时可以复用上一次配置。
+  private struct LetterCaseInputs: Equatable {
+    let chinese: Bool
+    let scheme: ChineseInputScheme
+    let state: LetterCaseState
+    let localMode: String
+    let entersHelpcode: Bool
+    let casedLetters: Bool
+    let korean: Bool
+    let swipeSymbols: Bool
+    let shuangpinHints: Bool
+  }
+
+  private struct SpellingStripInputs: Equatable {
+    let spellings: [String]
+    let inReadingRow: Bool
+  }
+
   private var layoutInputs: KeyboardLayoutInputs {
     KeyboardLayoutInputs(
       chinese: isChineseMode, scheme: inputScheme, localMode: currentLocalMode,
@@ -5159,9 +5191,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 此刻该不该画横屏分离式键盘：平板形态、横屏、开关打开，而且当前显示的是会分开的字母布局。开关放在最后读，手机和竖屏不读 App Group。
   private var wantsSplitKeyboard: Bool {
-    !numberPadShown && KeyboardSplitLayout.splitsLayout(scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
-      && KeyboardSplitLayout.isActive(
-        formFactor: formFactor, landscape: isLandscape, enabled: KeyboardLayoutPreference.tabletSplit)
+    guard !numberPadShown,
+          KeyboardSplitLayout.isActive(
+            formFactor: formFactor, landscape: isLandscape, enabled: KeyboardLayoutPreference.tabletSplit)
+    else { return false }
+    return KeyboardSplitLayout.splitsLayout(scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
   }
 
   /// 旋转、台前调度改窗口大小、停靠与浮动切换，或者键盘再次出现时读到新的开关值，都可能让分离与否变化；只有真的变了才重新布局。
@@ -6127,7 +6161,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // it was showing no longer describes anything.
     // A horizontal offset belongs to the previous matches, just like the page index.
     // Cancel deceleration as well so it cannot hide the new leading candidate.
-    candidateScrollView.setContentOffset(.zero, animated: false)
+    if candidateScrollView.contentOffset != .zero {
+      candidateScrollView.setContentOffset(.zero, animated: false)
+    }
     renderCandidateStrip()
   }
 

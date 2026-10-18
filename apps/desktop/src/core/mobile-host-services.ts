@@ -1,5 +1,6 @@
 import { createCommunityResourceClient } from "./community-resource-host";
 import { createSettingsSyncClient } from "./settings-sync-host";
+import { createAccountCommandClient } from "../account/account-command-client";
 import { createCommunitySkinClient } from "@msime/ui";
 
 import type {
@@ -40,17 +41,7 @@ export function createMobileHostServices(
     set: (style: string) =>
       invoke<{ supported: boolean; selected: string }>("app_icon_set", { style }),
   };
-  const baseAccount: AccountClient = {
-    status: () => invoke("account_status"),
-    providers: () => invoke("account_providers"),
-    requestCode: (provider, target) => invoke("account_request_code", { provider, target }),
-    login: (challengeId, code) => invoke("account_login", { challengeId, code }),
-    profile: () => invoke("account_profile"),
-    rename: (displayName) => invoke("account_rename", { displayName }),
-    logout: (all) => invoke("account_logout", { all }),
-    deleteAccount: () => invoke("account_delete"),
-    clearExpired: () => invoke("account_forget"),
-  };
+  const baseAccount = createAccountCommandClient(invoke);
   const accountChat: ChatClient = {
     models: () => invoke("account_chat_models"),
     complete: (messages, model) =>

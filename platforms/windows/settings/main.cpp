@@ -986,7 +986,7 @@ static_assert(page_labels[0].id == nav::default_page);
 
 // 侧栏的分组标题，按 `SettingsNavigation.h` 里的 `group` 索引，措辞与共享设置 UI 的 `settingsNavGroups` 一致。
 constexpr std::array<const wchar_t *, nav::page_group_count> group_titles{
-    {L"打字", L"更多输入方式", L"外观", L"工具", L"账号", L"支持"}};
+    {L"打字", L"输入方式", L"外观", L"工具", L"数据", L"支持"}};
 
 // 未知 id 取默认页面的标签。
 const PageLabel &page_label(std::string_view id) {
