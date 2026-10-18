@@ -37,6 +37,8 @@ bundle 使用系统已登记的 `app.msime.inputmethod.MetasequoiaIME`，已在�
 
 `--input-source-registered` 是只读的另一半：按登记后的同一个条件（bundle identifier、可启用、包括未启用的源）查一次注册表，查到退 0，查不到退 3，缺 bundle identifier 退 1，不登记、不启用任何东西。设置应用用它分辨首次安装后同一次登录里「已装但这次登录看不到」的情况（见「发布包」一节）；判定函数 `MSIMEInputSourceRegistryStateFor` 的查询函数是注入的，`input-source-registration` 这项 CTest 覆盖。
 
+`--input-source-enabled` 也是只读探针：输入法进程在不启动 IMK 服务的情况下调用 TIS 查询本 bundle 的顶层输入源是否仍启用，输出 `true` 或 `false` 后退出。设置应用卸载前优先使用它判断系统设置刚移除的输入源，旧 bundle 不认识这个参数或探针无法读取时才回退到 `defaults export` 的偏好列表。
+
 ## 窗口打开日志
 
 输入法是 `LSBackgroundOnly` 进程，它替用户打开的窗口（设置、帮助、账号、词库、翻译与 AI 设置、云剪贴板与云词库、表情、手写、屏幕键盘）一旦被压在正在打字的应用下面，屏幕上看起来和「点了没反应」完全一样。这条链路上的每一步都写进统一日志的 `app.msime.inputmethod.MetasequoiaIME` 子系统、`ui` 分类，不依赖诊断日志开关，复现之后直接读：

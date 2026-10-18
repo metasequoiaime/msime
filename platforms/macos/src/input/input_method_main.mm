@@ -66,6 +66,10 @@ int main(int argc, const char *argv[]) {
             for (NSString *mode in modes) std::printf("%s\n", mode.UTF8String);
             return 0;
         }
+        if (MSIMEShouldReportInputSourceEnabled(argc, argv)) {
+            std::printf("%s\n", MSIMEInputSourceIsEnabled(NSBundle.mainBundle.bundleIdentifier) ? "true" : "false");
+            return 0;
+        }
         [NSApplication sharedApplication];
         // Host API reports failures it recovers from by itself (a sound, music or helpcode pack that does not load, an audio device that does not open) as one line on stderr, which launchd points at /dev/null for an input method; this sends them to diagnostic.log instead. Before the first session, whose creation reports the helpcode fallback; lines that arrive before the log is configured or while it is off are dropped, not kept for later (DiagnosticLog.h).
         msime_client_set_diagnostic_sink(msime_macos_diagnostic_host_line);

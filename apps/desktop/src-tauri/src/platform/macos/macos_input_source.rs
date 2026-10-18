@@ -995,9 +995,11 @@ fn input_method_in_input_source_list(json: &[u8]) -> Option<bool> {
 
 /// Whether System Settings still shows this input method, so an uninstall has to wait for the user to remove it there. `None` when no list can be read.
 pub(crate) fn input_method_listed() -> Option<bool> {
-    preferred_input_source_list(ENABLED_INPUT_SOURCE_LISTS.iter().map(|(domain, key)| {
-        input_method_in_input_source_list(&preference_list_json(domain, key)?)
-    }))
+    input_method_enabled_from_installed_bundle().or_else(|| {
+        preferred_input_source_list(ENABLED_INPUT_SOURCE_LISTS.iter().map(|(domain, key)| {
+            input_method_in_input_source_list(&preference_list_json(domain, key)?)
+        }))
+    })
 }
 
 fn enabled_in_input_source_list(json: &[u8]) -> Option<bool> {
@@ -1089,6 +1091,32 @@ fn enabled_modes_from_installed_bundle() -> Option<Vec<String>> {
         ENABLED_MODES_PROBE_MAX_BYTES,
     )?;
     enabled_modes_from_probe_output(&output)
+}
+
+/// 跑已装 bundle 的 `--input-source-enabled`，读取 TIS 当前的顶层输入源状态。系统设置刚移除输入源时，`defaults export` 可能还返回旧的偏好缓存；TIS 是设置页实际展示的状态，所以卸载判定优先用它。
+fn input_method_enabled_from_installed_bundle() -> Option<bool> {
+    let bundle = installed_bundle_path().ok()?;
+    validate_bundle(&bundle).ok()?;
+    let executable = bundle
+        .join("Contents/MacOS")
+        .join(input_source_executable());
+    let output = probe_output(
+        &executable,
+        "--input-source-enabled",
+        REGISTRY_PROBE_TIMEOUT,
+        INPUT_SOURCE_ENABLED_PROBE_MAX_BYTES,
+    )?;
+    input_method_enabled_from_probe_output(&output)
+}
+
+const INPUT_SOURCE_ENABLED_PROBE_MAX_BYTES: usize = 16;
+
+fn input_method_enabled_from_probe_output(output: &[u8]) -> Option<bool> {
+    match std::str::from_utf8(output).ok()?.trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
 }
 
 /// 每行一个标识符；只留本输入法的模式，即以 bundle 标识加「.」开头的那些。
@@ -1898,6 +1926,21 @@ mod tests {
         );
         assert_eq!(enabled_modes_from_probe_output(b""), Some(Vec::new()));
         assert_eq!(enabled_modes_from_probe_output(&[0xff, 0xfe]), None);
+    }
+
+    #[test]
+    fn input_source_enabled_probe_accepts_only_a_boolean_answer() {
+        assert_eq!(
+            input_method_enabled_from_probe_output(b"true\n"),
+            Some(true)
+        );
+        assert_eq!(
+            input_method_enabled_from_probe_output(b"false\n"),
+            Some(false)
+        );
+        assert_eq!(input_method_enabled_from_probe_output(b"1\n"), None);
+        assert_eq!(input_method_enabled_from_probe_output(b"not json"), None);
+        assert_eq!(input_method_enabled_from_probe_output(&[0xff]), None);
     }
 
     #[test]

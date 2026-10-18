@@ -86,6 +86,10 @@ bool MSIMEShouldReportEnabledInputModes(int argc, const char *argv[]) {
     return argc == 2 && argv && argv[1] && std::strcmp(argv[1], "--enabled-input-modes") == 0;
 }
 
+bool MSIMEShouldReportInputSourceEnabled(int argc, const char *argv[]) {
+    return argc == 2 && argv && argv[1] && std::strcmp(argv[1], "--input-source-enabled") == 0;
+}
+
 NSArray<NSString *> *MSIMEEnabledInputModeIDs(NSString *bundleIdentifier, MSIMEInputSourceLister lister,
                                               MSIMEInputSourcePropertyGetter propertyGetter) {
     if (!bundleIdentifier.length || !lister || !propertyGetter) return nil;

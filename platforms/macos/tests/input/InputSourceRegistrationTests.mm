@@ -248,6 +248,13 @@ int main()
 
         // `--enabled-input-modes` 只读：在全部已装输入源里列出本 bundle 已启用的模式，不列 bundle 自己那一项和没启用的模式，也不启用任何东西。
         const char *enabledModesArguments[] = {"MetasequoiaIME", "--enabled-input-modes"};
+        const char *enabledSourceArguments[] = {"MetasequoiaIME", "--input-source-enabled"};
+        require(MSIMEShouldReportInputSourceEnabled(2, enabledSourceArguments) &&
+                    !MSIMEShouldReportInputSourceEnabled(2, enabledModesArguments) &&
+                    !MSIMEShouldReportInputSourceEnabled(2, probeArguments) &&
+                    !MSIMEShouldReportInputSourceEnabled(1, ordinaryArguments) &&
+                    !MSIMEShouldReportInputSourceEnabled(1, nullptr),
+                "The input source enabled command was not told apart from the others.");
         require(MSIMEShouldReportEnabledInputModes(2, enabledModesArguments) &&
                     !MSIMEShouldReportEnabledInputModes(2, probeArguments) &&
                     !MSIMEShouldReportEnabledInputModes(2, registrationArguments) &&

@@ -34,6 +34,8 @@ bool MSIMEShouldReportEnabledInputModes(int argc, const char *argv[]);
 /// 本 bundle 已启用的输入模式：TIS 列出的全部已装输入源里，标识符以 bundle 标识加「.」开头、`kTISPropertyInputSourceIsEnabled` 为真的那些；没有 bundle 标识、查询函数或列表时为 nil。
 NSArray<NSString *> *MSIMEEnabledInputModeIDs(NSString *bundleIdentifier, MSIMEInputSourceLister lister,
                                               MSIMEInputSourcePropertyGetter propertyGetter);
+/// `--input-source-enabled`：只读地报告本 bundle 的顶层输入源是否仍在系统输入源列表里；输出由调用方解释，命令本身不登记或启用输入源。
+bool MSIMEShouldReportInputSourceEnabled(int argc, const char *argv[]);
 OSStatus MSIMERegisterInputSource(NSURL *bundleURL, MSIMEInputSourceRegistrar registrar);
 /// 登记前已有输入源时保留启用状态；首次安装只启用主模式和存在时的顶层输入源。
 OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleIdentifier,
