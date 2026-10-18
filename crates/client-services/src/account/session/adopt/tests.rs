@@ -1144,3 +1144,78 @@ fn the_identity_is_in_place_before_the_session_is_written() {
         [Some(format!("msime-{}", "k".repeat(16)))]
     );
 }
+
+/// 登录请求停在服务端、等测试放行的接口：`started` 在请求到达时收到一次，`release` 收到以后返回 `tokens`。
+struct LoginInFlight {
+    started: Mutex<mpsc::Sender<()>>,
+    release: Mutex<mpsc::Receiver<()>>,
+    tokens: AccountTokens,
+}
+
+impl AccountApi for LoginInFlight {
+    fn providers(&self) -> Result<std::collections::HashMap<String, bool>, AccountError> {
+        panic!("only login is expected")
+    }
+    fn challenge(&self, _: &str, _: &str) -> Result<AccountChallenge, AccountError> {
+        panic!("only login is expected")
+    }
+    fn login(&self, _: &str, _: &str) -> Result<AccountTokens, AccountError> {
+        self.started.lock().unwrap().send(()).unwrap();
+        self.release.lock().unwrap().recv().unwrap();
+        Ok(self.tokens.clone())
+    }
+    fn refresh(&self, _: &str) -> Result<AccountTokens, AccountError> {
+        panic!("only login is expected")
+    }
+    fn profile(&self, _: &str) -> Result<AccountProfile, AccountError> {
+        panic!("only login is expected")
+    }
+    fn rename(&self, _: &str, _: &str) -> Result<(), AccountError> {
+        panic!("only login is expected")
+    }
+    fn logout(&self, _: &str, _: bool) -> Result<(), AccountError> {
+        panic!("only login is expected")
+    }
+    fn delete_account(&self, _: &str) -> Result<(), AccountError> {
+        panic!("only login is expected")
+    }
+}
+
+/// 同一个对象上的登录还在路上时采用了设置应用的换号：登录回来以后不能把它盖掉。这个对象还没读过存储（`loaded` 为假）时，采用以前不推进会话代次，登录在锁里看到的代次没变，就把自己的会话写了上去。
+#[test]
+fn a_sign_in_in_flight_does_not_overwrite_an_adopted_account_switch() {
+    let root = tempfile::tempdir().unwrap();
+    let keyboard = root.path().join("keyboard");
+    storage(&keyboard)
+        .save(&saved("person-a", Some(1), 60, 'b'))
+        .unwrap();
+    let (started, wait) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let keyboard_session = std::sync::Arc::new(BackendAccountSession::new(
+        LoginInFlight {
+            started: Mutex::new(started),
+            release: Mutex::new(released),
+            tokens: saved("person-b", None, 60, 'c').tokens,
+        },
+        storage(&keyboard),
+    ));
+    let signing_in = {
+        let keyboard_session = std::sync::Arc::clone(&keyboard_session);
+        std::thread::spawn(move || keyboard_session.sign_in("synthetic-challenge", "123456"))
+    };
+    wait.recv().unwrap();
+    assert_eq!(
+        keyboard_session.adopt_session(
+            Some(saved("person-c", Some(3), 60, 'd')),
+            SessionAdoptSource::Settings
+        ),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    release.send(()).unwrap();
+    assert_eq!(signing_in.join().unwrap(), Err(AccountError::Cancelled));
+    assert_eq!(local(&keyboard), has("person-c", 'd'));
+    assert_eq!(
+        keyboard_session.status().unwrap().map(|user| user.id),
+        Some("person-c".to_owned())
+    );
+}

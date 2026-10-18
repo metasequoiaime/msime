@@ -37,7 +37,7 @@ pub enum SessionAdoptOutcome {
 impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     /// 登录会话（`account-session.json`）用：按模块说明的规则决定是否采用 `published`（`None` 是发布方没有这份会话），整个过程持有存储的刷新锁，与刷新、登录、退出互斥。`from: Settings` 且 `published` 是 `None` 时清掉本地会话（与 [`Self::forget`] 相同，不联网）。
     ///
-    /// 本地没有会话或读不了时，`Settings` 发布的直接替换，`Keyboard` 发布的不用（匿名会话两个方向都用，见 [`Self::adopt_anonymous_session`]）。`published` 不合法时是 [`AccountError::Storage`]，本地不动。采用的会话与原来的不是同一次登录（`user.id` 或 `session_id` 不同）时推进会话代次，进行中的操作和刷新不会再把旧会话写回来。
+    /// 本地没有会话或读不了时，`Settings` 发布的直接替换，`Keyboard` 发布的不用（匿名会话两个方向都用，见 [`Self::adopt_anonymous_session`]）。`published` 不合法时是 [`AccountError::Storage`]，本地不动。采用的会话与刚读到的本地会话或内存里那份不是同一次登录（`user.id` 或 `session_id` 不同）时推进会话代次，不论这个对象读没读过存储，进行中的操作、刷新和登录都不会再把旧会话或自己的会话写上去。
     pub fn adopt_session(
         &self,
         published: Option<SavedAccountSession>,
@@ -124,7 +124,9 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 }
                 None => None,
             };
-            let changed = !same_login_option(state.saved.as_ref(), Some(&published));
+            // 与刚读到的本地会话比，也与内存里那份比（读过存储时）：哪一个不是同一次登录，都有可能有操作拿着它的代次在路上。这个对象还没读过存储时内存里那份是空的，但同一个对象上已经开始的登录照样推进过代次、在等服务端，不推进代次的话它回来就会把采用的换号盖掉。
+            let changed = !matches!(&local, Ok(local) if same_login_option(local.as_ref(), Some(&published)))
+                || (state.loaded && !same_login_option(state.saved.as_ref(), Some(&published)));
             if let Err(error) = self.storage.save(&published) {
                 // 会话没写进去：身份换回原来的，不留下与本地会话不是同一个账号的身份。还原也失败时交回写会话的错误。
                 if let Some((directory, restore)) = restore {
@@ -132,7 +134,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 }
                 return Err(error);
             }
-            if state.loaded && changed {
+            if changed {
                 state.generation = state.generation.saturating_add(1);
                 state.refresh = None;
             }
