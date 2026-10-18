@@ -372,6 +372,10 @@ export const mobileTabIcon =
 export const candidateTabs =
   "grid grid-flow-col auto-cols-fr gap-0.5 rounded-[var(--p-seg-r)] bg-[var(--p-seg-bg)] p-0.5 [border:var(--p-seg-border)] [&>button]:min-h-9 [&>button]:rounded-[var(--p-seg-item-r)] [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-2 [&>button]:text-sm [&>button]:[color:var(--p-text)] [&>button[aria-selected=true]]:bg-[var(--p-seg-on)] [&>button[aria-selected=true]]:[color:var(--p-seg-on-fg)] [&>button[aria-selected=true]]:[box-shadow:var(--p-seg-on-shadow)] [&>button:focus-visible]:outline-2 [&>button:focus-visible]:outline-offset-1 [&>button:focus-visible]:outline-accent";
 
+/** 维护页只有两个入口，使用紧凑的分段控件，避免标签横向铺满内容区。 */
+export const maintenanceTabs =
+  "grid w-full max-w-[420px] grid-flow-col auto-cols-fr gap-0.5 rounded-[var(--p-seg-r)] bg-[var(--p-seg-bg)] p-0.5 [border:var(--p-seg-border)] [&>button]:min-h-9 [&>button]:rounded-[var(--p-seg-item-r)] [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-3 [&>button]:text-sm [&>button]:[color:var(--p-text)] [&>button[aria-selected=true]]:bg-[var(--p-seg-on)] [&>button[aria-selected=true]]:[color:var(--p-seg-on-fg)] [&>button[aria-selected=true]]:[box-shadow:var(--p-seg-on-shadow)] [&>button:focus-visible]:outline-2 [&>button:focus-visible]:outline-offset-1 [&>button:focus-visible]:outline-accent max-phone:max-w-none";
+
 /** 词库页的导航：用细底线和留白表达层级，避免和页面内的控件分段混在一起。 */
 export const dictionaryNav =
   "flex flex-wrap items-end justify-between gap-x-5 gap-y-3 border-b border-[var(--p-row-divider)] pb-3";

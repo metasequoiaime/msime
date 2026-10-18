@@ -61,7 +61,7 @@ export function DeveloperSettingsPage() {
     desktopMcp,
     requestedSettingsPage === "mcp" ? "mcp" : "developer",
     selectPage,
-    settings.dictionaryTabs,
+    settings.maintenanceTabs,
   );
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "developer"} ariaLabel="维护与诊断">
