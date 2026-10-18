@@ -147,13 +147,15 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         openPage();
         stage = "cancel directory change";
         choose();
-        await(node -> picker(node) && node.isVisibleToUser());
+        waitFor(() -> {
+            AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+            return root != null && picker(root);
+        }, "directory picker foreground");
         stage = "cancel picker returns to clipboard settings";
-        for (int attempt = 0; attempt < 6 && findAll(node -> picker(node) && node.isVisibleToUser()) != null; attempt++) {
-            shell("input keyevent 4");
-            SystemClock.sleep(250);
-        }
-        await(text("导出文件夹"));
+        // 关闭后的选择器仍可能留在其他窗口的无障碍树里，不能据此继续返回并退出设置页。
+        shell("input keyevent 4");
+        waitFor(() -> find(automation.getRootInActiveWindow(), text("导出文件夹")) != null,
+            "clipboard settings foreground");
         check(ROOT.equals(saved()), "cancel preserves selection");
 
         stage = "incomplete permission does not change selection";
