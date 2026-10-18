@@ -48,19 +48,19 @@ test("输入分区只显示当前面板，切换和离页保留草稿与标签�
     within(tabs)
       .getAllByRole("tab")
       .map((tab) => tab.textContent),
-  ).toEqual(["方案", "中英文", "选词与翻页", "候选与联想", "输出", "进阶"]);
+  ).toEqual(["输入方案", "中英模式", "选词翻页", "候选联想", "输出设置", "高级选项"]);
   expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
   expect(screen.queryByRole("radiogroup", { name: "中文输出" })).toBeNull();
-  fireEvent.click(within(tabs).getByRole("tab", { name: "输出" }));
+  fireEvent.click(within(tabs).getByRole("tab", { name: "输出设置" }));
   const output = screen.getByRole("radio", { name: "繁体" });
   fireEvent.click(output);
-  fireEvent.click(within(tabs).getByRole("tab", { name: "方案" }));
-  fireEvent.click(within(tabs).getByRole("tab", { name: "输出" }));
+  fireEvent.click(within(tabs).getByRole("tab", { name: "输入方案" }));
+  fireEvent.click(within(tabs).getByRole("tab", { name: "输出设置" }));
   expect(screen.getByRole("radio", { name: "繁体" })).toBe(output);
   expect(output).toHaveProperty("checked", true);
   fireEvent.click(screen.getByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
   fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
-  expect(screen.getByRole("tabpanel", { name: "输出" })).toBeTruthy();
+  expect(screen.getByRole("tabpanel", { name: "输出设置" })).toBeTruthy();
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save.mock.calls.at(-1)?.[1]).toEqual(
@@ -75,8 +75,8 @@ test("标点与翻译按功能拆分，方向键与 Home、End 同步焦点和�
     within(tabs)
       .getAllByRole("tab")
       .map((tab) => tab.textContent),
-  ).toEqual(["标点", "候选释义", "翻译服务"]);
-  const first = within(tabs).getByRole("tab", { name: "标点" });
+  ).toEqual(["标点设置", "候选释义", "翻译服务"]);
+  const first = within(tabs).getByRole("tab", { name: "标点设置" });
   first.focus();
   fireEvent.keyDown(first, { key: "ArrowLeft" });
   const last = within(tabs).getByRole("tab", { name: "翻译服务" });

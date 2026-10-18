@@ -3132,11 +3132,11 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   const dictionaryTabs = screen.getByRole("tablist", { name: "词库设置分类" });
   expect(
-    within(dictionaryTabs).getByRole("tab", { name: "查词库" }).getAttribute("aria-selected"),
+    within(dictionaryTabs).getByRole("tab", { name: "查找词库" }).getAttribute("aria-selected"),
   ).toBe("true");
   fireEvent.click(within(dictionaryTabs).getByRole("tab", { name: "管理词库" }));
   expect(screen.queryByRole("region", { name: "本地词库管理" })).toBeNull();
-  fireEvent.click(within(dictionaryTabs).getByRole("tab", { name: "查词库" }));
+  fireEvent.click(within(dictionaryTabs).getByRole("tab", { name: "查找词库" }));
   expect(await screen.findByText("fixture")).toBeDefined();
   expect(list).toHaveBeenCalledWith(0, 100, "quick_phrase", "");
   expect(
@@ -8749,8 +8749,8 @@ test("macOS opens handwriting for copying while input-session panels use the nat
 
   fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   const dictionaryTabs = await screen.findByRole("tablist", { name: "词库设置分类" });
-  expect(within(dictionaryTabs).getByRole("tab", { name: "云词库" })).toBeDefined();
-  fireEvent.click(within(dictionaryTabs).getByRole("tab", { name: "云词库" }));
+  expect(within(dictionaryTabs).getByRole("tab", { name: "云端词库" })).toBeDefined();
+  fireEvent.click(within(dictionaryTabs).getByRole("tab", { name: "云端词库" }));
   expect(await screen.findByRole("main", { name: "云词库" })).toBeDefined();
   await waitFor(() =>
     expect(cloudDictionaryRequest).toHaveBeenCalledWith({

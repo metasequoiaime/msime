@@ -11,11 +11,11 @@ import { useSettingsTabs } from "../use-settings-tabs";
 import * as settings from "../settings-style";
 
 const developerTabs = [
-  { id: "developer", title: "维护与诊断" },
-  { id: "mcp", title: "AI 助手" },
+  { id: "developer", title: "维护诊断" },
+  { id: "mcp", title: "AI助手" },
 ] as const;
 
-/** 维护与诊断页：桌面通过顶部标签切换维护操作与 AI 助手，手机保留二级入口。 */
+/** 维护与诊断页：桌面通过顶部标签切换维护诊断与 AI 助手，手机保留二级入口。 */
 export function DeveloperSettingsPage() {
   const {
     client,

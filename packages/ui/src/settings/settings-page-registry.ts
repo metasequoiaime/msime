@@ -97,7 +97,7 @@ export const pages = [
     title: "发送哪些内容",
     icon: settingsIcons.about,
   },
-  // 桌面打开「维护与诊断」的「AI 助手」标签；手机保留「连接 AI 助手」二级页面。只在宿主提供 MCP 状态时可用。
+  // 桌面打开「维护诊断」的「AI助手」标签；手机保留「连接 AI 助手」二级页面。只在宿主提供 MCP 状态时可用。
   {
     id: "mcp",
     title: "连接 AI 助手",
