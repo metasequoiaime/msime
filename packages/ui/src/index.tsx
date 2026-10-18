@@ -3525,7 +3525,7 @@ function SettingsShell(props: SettingsPageProps) {
                       localSkins={client.scanSkinCatalog}
                       openSkinDirectory={client.openSkinDirectory}
                       readSkinImage={client.readSkinImage}
-                      onOpenSkinPage={() => setSkinView("local")}
+                      onOpenSkinPage={() => setSkinView("mine")}
                       theme={keyboardPreviewTheme}
                       onLogin={openAccountLogin}
                     />

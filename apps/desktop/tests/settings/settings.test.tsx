@@ -4353,7 +4353,7 @@ test("the theme page runs from the colour mode to the custom colours", async () 
   const skin = screen.getByRole("group", { name: "主题" });
   const groups = [...skin.querySelectorAll("[data-group-title]")].map((title) => title.textContent);
   // Linux 的各界面跟随颜色模式（`surface_themes_follow`），没有「高级」组，候选窗口主题在「明暗」组里。
-  expect(groups).toEqual(["明暗", "自定义主题", "本地皮肤"]);
+  expect(groups).toEqual(["明暗", "本地皮肤", "自定义主题"]);
   expect(
     within(skin)
       .getByRole("region", { name: "明暗", hidden: true })

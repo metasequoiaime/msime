@@ -115,7 +115,7 @@ function candidateSkins() {
   };
 }
 
-// 桌面主题、本地皮肤和社区皮肤位于同一层顶部标签。
+// 桌面把所有可用皮肤放在本地标签，社区只负责获取。
 test("the desktop theme page switches to the community candidate-window skins", async () => {
   render(
     <SettingsPage
@@ -141,12 +141,12 @@ test("the desktop theme page switches to the community candidate-window skins", 
   expect(screen.queryByRole("group", { name: "主题" })).toBeNull();
   expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
 
-  fireEvent.click(within(tabs).getByRole("tab", { name: "主题" }));
+  fireEvent.click(within(tabs).getByRole("tab", { name: "本地皮肤" }));
   expect(screen.getByRole("group", { name: "主题" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "社区皮肤" })).toBeNull();
 });
 
-test("没有社区服务时主题和本地皮肤仍为独立顶部标签，切换不保存偏好", async () => {
+test("没有社区服务时本地皮肤仍展示内置主题、配色和目录入口", async () => {
   const save = vi.fn();
   render(
     <SettingsPage
@@ -160,24 +160,17 @@ test("没有社区服务时主题和本地皮肤仍为独立顶部标签，切�
     within(tabs)
       .getAllByRole("tab")
       .map((tab) => tab.textContent),
-  ).toEqual(["主题", "本地皮肤"]);
-  expect(screen.getByRole("radiogroup", { name: "颜色模式" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "刷新皮肤" })).toBeNull();
-  const theme = within(tabs).getByRole("tab", { name: "主题" });
+  ).toEqual(["本地皮肤"]);
   const local = within(tabs).getByRole("tab", { name: "本地皮肤" });
-  const content = document.getElementById("settings-content")!;
-  content.scrollTop = 250;
-  theme.focus();
-  fireEvent.keyDown(theme, { key: "ArrowRight" });
-  expect(document.activeElement).toBe(local);
   expect(local.getAttribute("aria-selected")).toBe("true");
   expect(screen.getByRole("tabpanel", { name: "本地皮肤" }).id).toBe(
     local.getAttribute("aria-controls"),
   );
-  expect(content.scrollTop).toBe(0);
-  expect(screen.queryByRole("radiogroup", { name: "颜色模式" })).toBeNull();
+  expect(screen.getByRole("radiogroup", { name: "颜色模式" })).toBeTruthy();
+  expect(screen.getByRole("article", { name: "跟随系统" })).toBeTruthy();
+  expect(screen.getByRole("article", { name: "自定义" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "刷新皮肤" })).toBeTruthy();
   expect(screen.getByText("当前宿主不支持扫描外部皮肤。")).toBeTruthy();
-  expect(screen.queryByRole("region", { name: "主题列表" })).toBeNull();
   expect(save).not.toHaveBeenCalled();
 });
 
@@ -212,23 +205,41 @@ test("本地皮肤保留预览明暗和卡片实例，应用仍写入原有明�
   render(
     <SettingsPage
       initialPage="skin"
-      client={{ load: async () => initial, save, scanSkinCatalog }}
+      client={{
+        load: async () => initial,
+        save,
+        scanSkinCatalog,
+        communityCandidateSkins: candidateSkins(),
+      }}
     />,
   );
   await settingsFormReady();
-  expect(screen.queryByRole("article", { name: "示例皮肤" })).toBeNull();
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
+  expect(screen.getByRole("article", { name: "跟随系统" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("tablist", { name: "皮肤来源" }))
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent),
+  ).toEqual(["本地皮肤", "社区皮肤"]);
   const card = await screen.findByRole("article", { name: "示例皮肤" });
   fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
   fireEvent.click(within(card).getByRole("switch", { name: "示例皮肤" }));
-  fireEvent.click(screen.getByRole("tab", { name: "主题" }));
-  fireEvent.click(screen.getByRole("tab", { name: "本地皮肤" }));
+  const local = screen.getByRole("tab", { name: "本地皮肤" });
+  const content = document.getElementById("settings-content")!;
+  content.scrollTop = 250;
+  local.focus();
+  fireEvent.keyDown(local, { key: "ArrowRight" });
+  const community = screen.getByRole("tab", { name: "社区皮肤" });
+  expect(document.activeElement).toBe(community);
+  expect(community.getAttribute("aria-selected")).toBe("true");
+  expect(content.scrollTop).toBe(0);
+  fireEvent.keyDown(community, { key: "Home" });
+  expect(document.activeElement).toBe(local);
+  expect(local.getAttribute("aria-selected")).toBe("true");
   expect(screen.getByRole("article", { name: "示例皮肤" })).toBe(card);
   expect(within(card).getByRole("button", { name: "预览深色" })).toBeTruthy();
   expect(within(card).getByRole("switch", { name: "示例皮肤" }).getAttribute("aria-checked")).toBe(
     "true",
   );
-  expect(scanSkinCatalog).toHaveBeenCalledTimes(1);
   fireEvent.blur(window);
   await screen.findByText("已保存");
   expect(save).toHaveBeenLastCalledWith(

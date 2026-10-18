@@ -20,6 +20,7 @@ import {
   type SkinCatalog,
   type Snapshot,
 } from "@msime/ui";
+import { offeredThemeCatalog } from "../../../../packages/ui/src/theme/global-theme";
 import { useSkinCatalog } from "../../../../packages/ui/src/skin/external-skins";
 import { notifySkinCatalogChanged } from "../../../../packages/ui/src/skin/skin-catalog-changes";
 
@@ -288,6 +289,6 @@ test("a rescan that adds a skin keeps the carousel on the card being viewed", as
   act(() => notifySkinCatalogChanged());
   await screen.findByRole("article", { name: "本地 added" });
   expect(current()).toBe("查看本地 sample");
-  const total = 2;
+  const total = offeredThemeCatalog(undefined).length + 2;
   expect(within(carousel).getByText(`${total} / ${total}`)).toBeTruthy();
 });
