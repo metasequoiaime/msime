@@ -18,13 +18,13 @@ import org.json.JSONObject;
 /**
  * 经安装产品里真实的 libmsime_android.so 核对 #8201 新加的账号与云端 JNI 入口：NativeClient.SessionStore 注册给 Rust 以后，Rust 经它读出一份合成的 Native 布局会话，status 和 access_token 认得它；存储方法抛出的异常在 JNI 一侧变成 account_storage，不抛给调用方；注销以后同一个 id 不再可用。其余入口各发一个空请求，按各自的「请求不合法」码确认 JNI 名字连到了对的 Rust 函数。不联网，合成会话没有过期，不会去刷新。
  *
- * <p>迁移计划 5b 起产品经 AccountStore 注册：它的存储适配器把 Java 原来写的 v2 会话（AndroidKeyStore 加密的 SharedPreferences）原样交给 Rust，匿名身份「不存在才写」，云剪贴板密钥串是 CloudClipboardKeystore 的那个文件，删除不等它的锁；AccountStore 只在主进程里注册一次，`:ime` 进程名和第二次注册都在碰 Rust 之前就拒绝。
+ * <p>迁移计划 5b 起产品经 AccountStore 注册：它的存储适配器把 Java 原来写的 v2 会话（AndroidKeyStore 加密的 SharedPreferences）原样交给 Rust，匿名身份「不存在才写」，云剪贴板密钥串是 CloudClipboardKeystore 的那个文件，删除是同步的但不等它的锁；AccountStore 只在主进程里注册一次，`:ime` 进程名和第二次注册都在碰 Rust 之前就拒绝。
  *
  * <p>没 attach 的线程上的回调这里造不出来（Rust 自己的线程只在联网刷新时回调存储），由 check-host.sh 在桌面 JVM 上驱动 native/JniCallbacks.cpp 验证。
  */
 public final class SessionStoreDeviceSmoke extends Instrumentation {
     private static final String USER = "synthetic-session-store-user";
-    /** 冒烟里占着密钥串锁的最长时间；同步删除的 remove(2) 至少要等这么久才返回。 */
+    /** 冒烟里占着密钥串锁的最长时间；等这把锁的 remove(2) 至少要等这么久才返回。 */
     private static final long LOCK_HOLD_SECONDS = 5;
 
     @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
@@ -652,7 +652,7 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
     /**
      * 适配器的第 2 项是云剪贴板密钥串的那个文件（CloudClipboardKeystore，键盘进程也直接读写它）：经适配器存进去的，CloudClipboardKeystore 读得出来，适配器读回的也是它；映射到别的存储时，退出登录后下一个账号会接着用上一个账号的设备私钥和剪贴板密钥。
      *
-     * <p>remove(2) 不等密钥串的锁：另一条线程在锁里停住时（端到端加密驱动持着这把锁、经 Rust 核对会话），remove(2) 照样立刻返回 0，文件先留着；锁放开以后文件被删掉。同步删除会在这里一直等到锁放开，产品里那就是 Rust 的会话锁和密钥串的锁互等。
+     * <p>remove(2) 是同步的，但不等密钥串的锁：另一条线程在锁里停住时（端到端加密驱动持着这把锁、经 Rust 核对会话），remove(2) 照样很快返回 0，返回时文件已经删掉；那条线程的保存随后以 CancellationException 结束，不会把旧身份写回去。等这把锁的删除会在这里一直等到锁放开，产品里那就是 Rust 的会话锁和密钥串的锁互等；起线程去删的删除返回时文件还在。
      */
     private void accountStoreKeystore() throws Exception {
         android.content.Context target = getTargetContext();
@@ -711,17 +711,17 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
             int removed = (int) remove.invoke(adapter, 2);
             long elapsed = android.os.SystemClock.elapsedRealtime() - started;
             boolean stillHeld = release.getCount() == 1 && holder.isAlive();
-            boolean keptWhileHeld = file.exists();
+            boolean goneOnReturn = !file.exists();
             release.countDown();
             holder.join(10_000);
+            Throwable holderCause = holderError[0] instanceof java.lang.reflect.InvocationTargetException wrapped
+                ? wrapped.getCause() : holderError[0];
             check(removed == 0, "remove(2) returned " + removed);
             check(stillHeld && elapsed < 2_000, "remove(2) waited for the keystore lock (" + elapsed + " ms)");
-            check(keptWhileHeld, "the keystore was deleted while another thread held its lock");
-            check(!holder.isAlive() && holderError[0] == null, "the lock holder failed: " + holderError[0]);
-
-            long deadline = android.os.SystemClock.elapsedRealtime() + 5_000;
-            while (file.exists() && android.os.SystemClock.elapsedRealtime() < deadline) Thread.sleep(20);
-            check(!file.exists(), "remove(2) did not delete the keystore file once the lock was released");
+            check(goneOnReturn, "remove(2) returned before the keystore file was deleted");
+            check(!holder.isAlive() && holderCause instanceof java.util.concurrent.CancellationException,
+                "a save that started before remove(2) was not refused: " + holderCause);
+            check(!file.exists(), "a save that started before remove(2) wrote the keystore back");
             check(keystoreLoad.invoke(keystore) == null && load.invoke(adapter, 2) == null,
                 "a removed keystore reads as absent");
         } finally {

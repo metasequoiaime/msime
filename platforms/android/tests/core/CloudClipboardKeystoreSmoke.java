@@ -153,8 +153,9 @@ public final class CloudClipboardKeystoreSmoke {
         }
         try (Stream<Path> files = Files.list(keys)) {
             List<String> names = files.map(path -> path.getFileName().toString()).sorted().toList();
-            check(names.equals(List.of(CloudClipboardKeystore.RELAY_FILE_NAME, CloudClipboardKeystore.RELAY_FILE_NAME + ".lock")),
-                "the relay directory holds only its keystore and lock: " + names);
+            check(names.equals(List.of(CloudClipboardKeystore.RELAY_FILE_NAME, CloudClipboardKeystore.RELAY_FILE_NAME + ".lock",
+                    CloudClipboardKeystore.RELAY_FILE_NAME + ".removals")),
+                "the relay directory holds only its keystore and its two locks: " + names);
         }
     }
 
@@ -171,7 +172,8 @@ public final class CloudClipboardKeystoreSmoke {
     private static List<String> leftovers(Path directory) throws Exception {
         try (Stream<Path> files = Files.list(directory)) {
             return files.map(file -> file.getFileName().toString())
-                .filter(name -> !name.equals(CloudClipboardKeystore.FILE_NAME) && !name.equals(CloudClipboardKeystore.LOCK_NAME))
+                .filter(name -> !name.equals(CloudClipboardKeystore.FILE_NAME) && !name.equals(CloudClipboardKeystore.LOCK_NAME)
+                    && !name.equals(CloudClipboardKeystore.REMOVALS_NAME))
                 .toList();
         }
     }

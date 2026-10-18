@@ -135,7 +135,7 @@ public final class AccountStore {
     /**
      * 交给 Rust 的四个存储项，都放在原来的位置：登录会话、匿名会话和匿名身份是 AndroidKeyStore 加密的 SharedPreferences，云剪贴板密钥串是 {@link CloudClipboardKeystore} 的那个文件（键盘进程也直接读写它）。
      *
-     * <p>Rust 可能在任意线程上并发调用这里，包括它自己的线程。删除密钥串放到另一条线程上做、立即返回：Rust 在持着会话锁时删它，而 Java 的端到端加密驱动在持着密钥串的锁时会经 Rust 核对会话（键盘进程经 provider 绕回主进程），同步删除会让两边互等。
+     * <p>Rust 可能在任意线程上并发调用这里，包括它自己的线程。删除密钥串就在调用线程上做完再返回，返回以后 load 读到的就是没有：Rust 在持着会话锁时删它，而 Java 的端到端加密驱动在持着密钥串的锁时会经 Rust 核对会话（键盘进程经 provider 绕回主进程），所以 {@link CloudClipboardKeystore#delete} 不等那把锁，只等一把从不在持有时调外部代码的短锁，正在保存的一方核对到删过就不再写。删不掉时报失败，与文件存储的会话相同。
      */
     private static final class Items implements NativeClient.SessionStore {
         private final AndroidAccountSessionStorage account;
@@ -205,13 +205,7 @@ public final class AccountStore {
                     case ITEM_ACCOUNT -> account.clear();
                     case ITEM_ANONYMOUS -> anonymous.clear();
                     case ITEM_ANONYMOUS_IDENTITY -> identity.clear();
-                    case ITEM_CLIPBOARD_KEYSTORE -> ThreadPolicy.startNamedThread("msime-clipboard-keystore", () -> {
-                        try {
-                            keystore.delete();
-                        } catch (Exception | LinkageError ignored) {
-                            // 删不掉时下一个登录的账号仍可能拿到这份密钥串；文件解不开时 CloudClipboardKeystore 自己换一个身份。
-                        }
-                    });
+                    case ITEM_CLIPBOARD_KEYSTORE -> keystore.delete();
                     default -> throw new IllegalArgumentException("session item");
                 }
                 return 0;

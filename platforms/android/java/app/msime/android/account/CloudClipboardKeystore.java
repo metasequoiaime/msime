@@ -17,6 +17,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyStore;
 import java.util.Arrays;
+import java.util.concurrent.CancellationException;
 import javax.crypto.AEADBadTagException;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -26,7 +27,9 @@ import javax.crypto.spec.GCMParameterSpec;
 /**
  * 云剪贴板的本机密钥串：设备私钥和当前剪贴板密钥，由共享驱动交来的不透明字符串（`docs/cloud-clipboard-e2e.md` 的「密钥串的存放位置」）。
  *
- * <p>存在应用私有目录下的 `cloud-clipboard-keystore`，和账号会话一样先用 AndroidKeyStore 里的 AES-GCM 密钥加密（{@link AndroidAccountSessionStorage}），密钥不出 AndroidKeyStore。主进程（原生设置页、账号页、Tauri 设置页）和 `:ime` 进程（键盘）读写的是这同一个文件，不经过 provider：每次读、写、删都先拿进程内的监视器，再拿 `cloud-clipboard-keystore.lock` 上的文件锁（FileChannel 的锁按进程算，同一进程里两个线程靠监视器互斥），写入先写临时文件、落盘后原子改名。不用 SharedPreferences：它在每个进程里各缓存一份，另一个进程写的新值看不到。
+ * <p>存在应用私有目录下的 `cloud-clipboard-keystore`，和账号会话一样先用 AndroidKeyStore 里的 AES-GCM 密钥加密（{@link AndroidAccountSessionStorage}），密钥不出 AndroidKeyStore。主进程（原生设置页、账号页、Tauri 设置页）和 `:ime` 进程（键盘）读写的是这同一个文件，不经过 provider：每次读、写都先拿进程内的监视器，再拿 `cloud-clipboard-keystore.lock` 上的文件锁（FileChannel 的锁按进程算，同一进程里两个线程靠监视器互斥），写入先写临时文件、落盘后原子改名。不用 SharedPreferences：它在每个进程里各缓存一份，另一个进程写的新值看不到。
+ *
+ * <p>删除不拿上面那把锁，只拿 `cloud-clipboard-keystore.removals` 这把短锁：在里面把删除次数加一、删掉文件，立即返回。保存在第一把锁里调 guard（端到端加密驱动经它核对登录还在，会经 Rust 等会话锁，键盘进程还要经 provider 绕回主进程），而 Rust 正是持着会话锁来删密钥串的，删除要是等第一把锁，两边就互等。保存在调 guard 之前记下删除次数，真正写入时再拿这把短锁核对：其间删过就不写、以 {@link CancellationException} 结束，于是删除一返回，读到的就是没有，也不会有一份更早开始的保存在删除之后把旧身份写回去。短锁只在核对和改名的那一下持有，持锁时不调任何外部代码，删除最多等一次落盘。
  *
  * <p>一个安装只有一个设备身份。文件里已经有一个解得开的身份时，写入另一个身份一律拒绝（{@link CloudClipboardE2e.IdentityConflict}），后到的一方改用文件里的身份重来（见 {@link CloudClipboardE2e#run}）。身份只在两种情况下更换：退出登录时 {@link #delete}，或者文件解不开（AndroidKeyStore 里的密钥没了、文件被改过），那时旧身份本来就找不回来了。
  *
@@ -35,6 +38,8 @@ import javax.crypto.spec.GCMParameterSpec;
 public final class CloudClipboardKeystore implements CloudClipboardE2e.Keystore {
     public static final String FILE_NAME = "cloud-clipboard-keystore";
     static final String LOCK_NAME = FILE_NAME + ".lock";
+    /** 删除次数（8 字节大端序），也是删除和写入共用的那把短锁，见类注释。 */
+    static final String REMOVALS_NAME = FILE_NAME + ".removals";
     /** 中继密钥串的文件名，与共享层 `clipboard_relay::RELAY_KEYSTORE_FILE` 同名：这个改动之前的开发构建由 Rust 在同一位置写过明文，第一次保存时被这里加密的那份原子替换。 */
     public static final String RELAY_FILE_NAME = "cloud-clipboard-relay-keystore";
     /** 驱动的密钥串最长约 125 个字符（`v1.` + 私钥 + 密钥编号 + 密钥），留出余量。 */
@@ -44,6 +49,8 @@ public final class CloudClipboardKeystore implements CloudClipboardE2e.Keystore 
     private static final String PREFIX = "v1.";
     private static final int SECRET_CHARS = 43;
     private static final Object LOCK = new Object();
+    /** 删除次数那把文件锁在进程内的监视器；拿着它时不会再去拿 {@link #LOCK}。 */
+    private static final Object REMOVALS_LOCK = new Object();
 
     /** 加密与解密；Android 上是 AndroidKeyStore，JVM 冒烟里换成可逆的假实现。 */
     public interface Sealer {
@@ -64,6 +71,7 @@ public final class CloudClipboardKeystore implements CloudClipboardE2e.Keystore 
 
     private final Path file;
     private final Path lockFile;
+    private final Path removalsFile;
     private final Sealer sealer;
     /** 账号的那份为空串；中继的那份是中继的绑定，写在密文里密钥串前面，读出时不同就当作没有。 */
     private final String scope;
@@ -77,6 +85,7 @@ public final class CloudClipboardKeystore implements CloudClipboardE2e.Keystore 
             throw new IllegalArgumentException("keystore");
         this.file = directory.resolve(fileName);
         this.lockFile = directory.resolve(fileName + ".lock");
+        this.removalsFile = directory.resolve(fileName + ".removals");
         this.sealer = sealer;
         this.scope = scope;
     }
@@ -141,11 +150,12 @@ public final class CloudClipboardKeystore implements CloudClipboardE2e.Keystore 
             try (FileChannel channel = lockChannel()) {
                 FileLock lock = channel.lock();
                 try {
+                    long removals = removals();
                     String current = read();
                     if (current != null && !identity.equals(identity(current)))
                         throw new CloudClipboardE2e.IdentityConflict(current);
                     if (guard != null) guard.check();
-                    if (!value.equals(current)) write(value);
+                    writeUnlessRemoved(removals, value.equals(current) ? null : value);
                 } finally {
                     lock.release();
                 }
@@ -153,17 +163,61 @@ public final class CloudClipboardKeystore implements CloudClipboardE2e.Keystore 
         }
     }
 
+    /** 删掉密钥串，不等正在保存的一方（见类注释）。删除次数记不下或文件删不掉时抛出，这时文件可能还在。 */
     @Override public void delete() throws IOException {
-        synchronized (LOCK) {
-            try (FileChannel channel = lockChannel()) {
+        synchronized (REMOVALS_LOCK) {
+            try (FileChannel channel = removalsChannel()) {
                 FileLock lock = channel.lock();
                 try {
+                    ByteBuffer count = ByteBuffer.allocate(Long.BYTES).putLong(0, removals(channel) + 1);
+                    while (count.hasRemaining()) {
+                        if (channel.write(count, count.position()) <= 0) throw new IOException("keystore removal count made no progress");
+                    }
                     Files.deleteIfExists(file);
                 } finally {
                     lock.release();
                 }
             }
         }
+    }
+
+    /** 在删除次数的短锁里核对：从 `removals` 记下以后删过就抛 {@link CancellationException}，否则写入 `value`（null 时不写）。 */
+    private void writeUnlessRemoved(long removals, String value) throws Exception {
+        synchronized (REMOVALS_LOCK) {
+            try (FileChannel channel = removalsChannel()) {
+                FileLock lock = channel.lock();
+                try {
+                    if (removals(channel) != removals) throw new CancellationException("cloud clipboard keystore removed");
+                    if (value != null) write(value);
+                } finally {
+                    lock.release();
+                }
+            }
+        }
+    }
+
+    /** 短暂拿一次删除次数的锁，读出删除次数。 */
+    private long removals() throws IOException {
+        synchronized (REMOVALS_LOCK) {
+            try (FileChannel channel = removalsChannel()) {
+                FileLock lock = channel.lock();
+                try {
+                    return removals(channel);
+                } finally {
+                    lock.release();
+                }
+            }
+        }
+    }
+
+    /** 已经持锁的删除次数文件里的次数；文件是空的或长度不对时是 0。 */
+    private static long removals(FileChannel channel) throws IOException {
+        if (channel.size() != Long.BYTES) return 0;
+        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+        while (buffer.hasRemaining()) {
+            if (channel.read(buffer, buffer.position()) < 0) return 0;
+        }
+        return buffer.getLong(0);
     }
 
     /** 密钥串里代表设备身份的那一段（`v1.<私钥>`）；格式不对时为 null。 */
@@ -180,11 +234,19 @@ public final class CloudClipboardKeystore implements CloudClipboardE2e.Keystore 
     }
 
     private FileChannel lockChannel() throws IOException {
-        Path parent = lockFile.getParent();
+        return openLock(lockFile);
+    }
+
+    private FileChannel removalsChannel() throws IOException {
+        return openLock(removalsFile);
+    }
+
+    private static FileChannel openLock(Path path) throws IOException {
+        Path parent = path.getParent();
         // 中继的那份放在自己的子目录里，第一次用到时才建，只有本应用能进。
         if (parent != null && !Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS))
             Files.createDirectories(parent, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
-        return FileChannel.open(lockFile, StandardOpenOption.READ, StandardOpenOption.WRITE,
+        return FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE,
             StandardOpenOption.CREATE, LinkOption.NOFOLLOW_LINKS);
     }
 

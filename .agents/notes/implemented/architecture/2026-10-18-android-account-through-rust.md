@@ -21,7 +21,8 @@ Status: implemented
 ## Alternatives considered
 
 - **语音贡献留到 5e，5b 里让主进程从适配器读匿名会话的字节、把访问令牌交给 `:ime`。** 最强的理由是 5b 不用碰 `:ime` 的语音代码，计划把语音排在 5e。不行：Rust 没有「只要匿名令牌」的取法（计划第 1 节决定不加），登录了的用户的匿名访问令牌过期以后，主进程既刷新不了它（Rust 的 access_token 只刷新登录的那份），也不能自己刷新（那又是一个 Java 写入方）。所以 5b 里语音贡献就要改走主进程，5e 只剩释义。
-- **删除密钥串的回调同步执行。** 理由是删不掉时能把失败报给退出登录的界面，原来的 Java 就是这样。不行：Rust 在持着会话锁时调 remove，而 Java 的端到端循环在持着密钥串的锁时经 guard 核对会话（主进程调 Rust 的 status 要等那把会话锁；`:ime` 经 provider 绕回主进程，同样要等），同步删除会让两边互等，键盘那一路还是跨进程的死锁。现在 remove 起一条线程去删、立即返回；删不掉时最坏是下一个登录的账号沿用这份设备身份，与原来「删不掉就报退出失败、会话却已经清掉」相比没有更差。
+- **删除密钥串的回调同步执行。** 理由是删不掉时能把失败报给退出登录的界面，原来的 Java 就是这样。不行：Rust 在持着会话锁时调 remove，而 Java 的端到端循环在持着密钥串的锁时经 guard 核对会话（主进程调 Rust 的 status 要等那把会话锁；`:ime` 经 provider 绕回主进程，同样要等），等这把锁的同步删除会让两边互等，键盘那一路还是跨进程的死锁。
+- **remove 起一条线程去删、立即返回（这一组最初的做法）。** 理由是不碰密钥串的锁就不会死锁。审查后改掉：remove 返回 0 时文件还在，违反「load 返回最后一次 save/remove 留下的」，下一个登录的账号可能先读到上一个账号的设备私钥，迟一步的删除也可能删掉下一个账号刚存的密钥串。现在的做法：`CloudClipboardKeystore.delete` 不拿密钥串的锁，只拿 `cloud-clipboard-keystore.removals` 这把短锁，把删除次数加一、删掉文件再返回；保存在调 guard 之前记下删除次数，写入时在同一把短锁里核对，删过就以 CancellationException 结束、不写。短锁持有时不调外部代码，删除不会排在 guard 后面，删不掉时 remove 报失败，与文件存储相同。
 - **退出登录改用 `logout{all:false}`，顺便撤销服务端会话（计划第 10 节列的 Android 用户可见变化）。** 理由是第 10 节要这个变化，而退出正是会话的写入方。没在 5b 做：设备页「移除本机」和注销账号之后也调 `SignIn.signOut`，那时服务端会话已经撤销或账号已经删掉，再发 logout 只会报一个多余的失败；`logout` 要和账号页一起切（5c），在那里分开「退出登录」按钮和这两处。5b 的 `forget` 与原来 Java 的本地清除相同。
 - **Java 继续在本机生成匿名身份（`ensureSubject`），只是改成「不存在才写」。** 理由是设置页显示匿名编号时不用联网。没留：它没有调用方（`AccountIdentity.subject` 早就没人用），留着就是第二份身份生成器；身份的生成、保存和注册都交给 Rust 的 `ensure_anonymous`。
 
@@ -34,5 +35,5 @@ Status: implemented
 ## Verification
 
 - JVM 冒烟（`check-host.sh`）：`AccountSessionRoutingSmoke` 改用假的 `Sessions`，核对键盘进程只从主进程拿令牌、不跑 Rust 的账号操作、换号后旧请求连驱动都不碰、不带账号编号的令牌不用；`SignInFailurePolicySmoke` 核对按错误码选的文案；`AppleWebSignInPendingSmoke` 核对只有 `account_invalid` 保留等待中的流程。逐个改回（删掉 `account_network` 那一行、`keepPendingAfter` 返回 false、去掉「令牌要带账号编号」、provider 不认新方法）时对应冒烟失败；往 Java 里加一个 `"/v1/auth/refresh"` 或在 `BackendAccount` 里写 `msime_account_session_v2` 时 `check-host.sh` 的守卫失败。
-- JVM 冒烟 `AccountStoreKeystoreItemSmoke`：产品的适配器把第 2 项读写到 `CloudClipboardKeystore` 的文件；另一条线程持着密钥串的锁时 `remove(2)` 立刻返回 0、文件还在，锁放开后文件被删；删除失败时仍返回 0。改回同步删除时它失败。
-- 设备冒烟（只编译过）：`SessionStoreDeviceSmoke` 把一份 Java v2 形状的会话经 `AndroidAccountSessionStorage` 加密写进 `msime_account_session_v2`、把产品的适配器再注册一次，Rust 的 `status` 和 `access_token` 读得出；匿名身份第二次 save 返回 1；密钥串那一项对产品私有目录里的文件做同样的「不等锁」核对；`AccountStore` 的两道守卫；`voice_contribution` 拒绝约定目录以外的路径。`BackendAccountSessionDeviceSmoke`（原 `BackendAccountRefreshDeviceSmoke`，Java 刷新的用例删掉）用假的 `Sessions` 核对换号、退出和同一账号重新登录。
+- JVM 冒烟 `AccountStoreKeystoreItemSmoke`：产品的适配器把第 2 项读写到 `CloudClipboardKeystore` 的文件；另一条线程持着密钥串的锁、在 guard 里等 remove 的调用方手里的锁时，`remove(2)` 很快返回 0、返回时文件已经删掉，那条线程的保存以 CancellationException 结束，下一个账号存的密钥串留得住；删除失败时报失败。改回起线程去删、改成等密钥串的锁、或去掉删除次数的核对，它分别失败。
+- 设备冒烟（只编译过）：`SessionStoreDeviceSmoke` 把一份 Java v2 形状的会话经 `AndroidAccountSessionStorage` 加密写进 `msime_account_session_v2`、把产品的适配器再注册一次，Rust 的 `status` 和 `access_token` 读得出；匿名身份第二次 save 返回 1；密钥串那一项对产品私有目录里的文件做同样的「同步但不等锁」核对；`AccountStore` 的两道守卫；`voice_contribution` 拒绝约定目录以外的路径。`BackendAccountSessionDeviceSmoke`（原 `BackendAccountRefreshDeviceSmoke`，Java 刷新的用例删掉）用假的 `Sessions` 核对换号、退出和同一账号重新登录。
