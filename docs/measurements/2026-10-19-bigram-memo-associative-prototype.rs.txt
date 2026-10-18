@@ -1,0 +1,330 @@
+use super::super::ngram::tests::pair_table;
+use super::*;
+
+// 冻结7d00657a65的键构造之后、完整表失效与HashMap访问路径。
+#[derive(Default)]
+struct Reference {
+    table: usize,
+    scores: HashMap<u64, f32, BuildHasherDefault<KeyHasher>>,
+    lookups: usize,
+}
+
+impl Reference {
+    fn score<const COUNT: bool>(&mut self, table: &Arc<NgramTable>, key: u64) -> f32 {
+        let address = Arc::as_ptr(table) as usize;
+        if self.table != address {
+            self.scores.clear();
+            self.table = address;
+        }
+        let full = self.scores.len() >= BIGRAM_MEMO_CAPACITY;
+        match self.scores.entry(key) {
+            Entry::Occupied(entry) => *entry.get(),
+            Entry::Vacant(entry) if full => {
+                let key = entry.into_key();
+                self.scores.clear();
+                if COUNT {
+                    self.lookups += 1;
+                }
+                let score = table.score(key);
+                self.scores.insert(key, score);
+                score
+            }
+            Entry::Vacant(entry) => {
+                if COUNT {
+                    self.lookups += 1;
+                }
+                let score = table.score(key);
+                entry.insert(score);
+                score
+            }
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct Group {
+    keys: [u64; 8],
+    scores: [f32; 8],
+    len: u8,
+    next: u8,
+}
+
+#[derive(Default)]
+struct Candidate {
+    table: usize,
+    groups: Vec<Group>,
+    lookups: usize,
+}
+
+impl Candidate {
+    fn score<const COUNT: bool>(&mut self, table: &Arc<NgramTable>, key: u64) -> f32 {
+        let address = Arc::as_ptr(table) as usize;
+        if self.table != address {
+            self.groups.clear();
+            self.table = address;
+        }
+        if self.groups.is_empty() {
+            self.groups.resize(4096, Group::default());
+        }
+        let group = &mut self.groups[key as usize & 4095];
+        if let Some(position) = group.keys[..usize::from(group.len)]
+            .iter()
+            .position(|old| *old == key)
+        {
+            return group.scores[position];
+        }
+        if COUNT {
+            self.lookups += 1;
+        }
+        let score = table.score(key);
+        let position = usize::from(group.next);
+        group.keys[position] = key;
+        group.scores[position] = score;
+        group.len = group.len.max(group.next + 1);
+        group.next = (group.next + 1) & 7;
+        score
+    }
+
+    fn lookups(&self) -> usize {
+        self.lookups
+    }
+}
+
+#[test]
+fn an_unrelated_full_set_keeps_other_cached_keys() {
+    let directory = tempfile::tempdir().unwrap();
+    let table = Arc::new(pair_table(
+        directory.path(),
+        "pairs.bin",
+        &[("前", "后", 1.0)],
+    ));
+    let mut candidate = Candidate::default();
+    for key in 1..=BIGRAM_MEMO_CAPACITY as u64 {
+        candidate.score::<true>(&table, key);
+    }
+    candidate.score::<true>(&table, BIGRAM_MEMO_CAPACITY as u64 + 1);
+    let before = candidate.lookups();
+    candidate.score::<true>(&table, 2);
+    assert_eq!(candidate.lookups(), before, "另一组填满后仍应命中原键");
+}
+
+#[test]
+fn scores_keep_bits_after_collisions_and_table_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let first = Arc::new(pair_table(
+        directory.path(),
+        "first.bin",
+        &[
+            ("前", "后", -0.0),
+            ("甲", "乙", f32::from_bits(0x7fc0_1234)),
+        ],
+    ));
+    let second = Arc::new(pair_table(
+        directory.path(),
+        "second.bin",
+        &[("前", "后", 3.0)],
+    ));
+    let mut candidate = Candidate::default();
+    for table in [&first, &second, &first] {
+        for (previous, next) in [("前", "后"), ("甲", "乙"), ("缺", "失")] {
+            let key = table.bigram_key(previous, next).unwrap();
+            for _ in 0..2 {
+                assert_eq!(
+                    candidate.score::<true>(table, key).to_bits(),
+                    table.score(key).to_bits()
+                );
+            }
+            for collision in 1..=17 {
+                let key = key.wrapping_add(collision * 4096);
+                assert_eq!(
+                    candidate.score::<true>(table, key).to_bits(),
+                    table.score(key).to_bits()
+                );
+            }
+            assert_eq!(
+                candidate.score::<true>(table, key).to_bits(),
+                table.score(key).to_bits()
+            );
+        }
+        for key in [0, u64::MAX] {
+            assert_eq!(
+                candidate.score::<true>(table, key).to_bits(),
+                table.score(key).to_bits()
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "需固定完整合成轨迹，使用release手工配对"]
+#[allow(clippy::assertions_on_constants)]
+fn associative_trace_release_budget() {
+    use std::hint::black_box;
+    use std::time::Instant;
+    assert!(!cfg!(debug_assertions));
+    let resources = std::env::var_os("MSIME_NEURAL_MODEL_DIR").unwrap();
+    let trace = std::env::var_os("MSIME_MEMO_TRACE").unwrap();
+    let table = Arc::new(
+        NgramTable::load(&std::path::Path::new(&resources).join("msime-bigram.bin")).unwrap(),
+    );
+    let bytes = std::fs::read(trace).unwrap();
+    assert_eq!(bytes.len(), 110796740 * 8);
+    let keys: Vec<_> = bytes
+        .chunks_exact(8)
+        .map(|key| u64::from_le_bytes(key.try_into().unwrap()))
+        .collect();
+    drop(bytes);
+    let mut old = Reference::default();
+    let mut new = Candidate::default();
+    for &key in &keys {
+        assert_eq!(
+            new.score::<true>(&table, key).to_bits(),
+            old.score::<true>(&table, key).to_bits()
+        );
+    }
+    eprintln!(
+        "ASSOC_TRACE keys={} reference_lookups={} candidate_lookups={}",
+        keys.len(),
+        old.lookups,
+        new.lookups()
+    );
+    assert_eq!(old.lookups, 16481705);
+    assert!(new.lookups() <= 14833534);
+    let baseline = |keys: &[u64]| {
+        let mut memo = Reference::default();
+        let mut sum = 0u64;
+        for &key in keys {
+            sum = sum.wrapping_add(u64::from(
+                memo.score::<false>(black_box(&table), black_box(key))
+                    .to_bits(),
+            ));
+        }
+        black_box(sum)
+    };
+    let candidate = |keys: &[u64]| {
+        let mut memo = Candidate::default();
+        let mut sum = 0u64;
+        for &key in keys {
+            sum = sum.wrapping_add(u64::from(
+                memo.score::<false>(black_box(&table), black_box(key))
+                    .to_bits(),
+            ));
+        }
+        black_box(sum)
+    };
+    let expected = baseline(&keys);
+    assert_eq!(candidate(&keys), expected);
+    let mut pairs = Vec::new();
+    for pair in 0..6 {
+        let measure = |arm: &dyn Fn(&[u64]) -> u64| {
+            let started = Instant::now();
+            assert_eq!(arm(black_box(&keys)), expected);
+            started.elapsed().as_secs_f64()
+        };
+        let (old, new) = if pair % 2 == 0 {
+            let old = measure(&baseline);
+            (old, measure(&candidate))
+        } else {
+            let new = measure(&candidate);
+            (measure(&baseline), new)
+        };
+        pairs.push((new / old, old, new));
+    }
+    pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    eprintln!("ASSOC_TRACE pairs={pairs:?}");
+    assert!(pairs[3].0 < 0.95, "完整轨迹未达预算：{pairs:?}");
+}
+
+fn synthetic_key(key: u64) -> u64 {
+    (key.wrapping_mul(0x9e37_79b9_7f4a_7c15) & !4095) | (key & 4095)
+}
+
+#[test]
+#[ignore = "完整资源缓存形状配对，使用release手工运行"]
+#[allow(clippy::assertions_on_constants)]
+fn associative_shapes_release_budget() {
+    use std::hint::black_box;
+    use std::time::{Duration, Instant};
+    assert!(!cfg!(debug_assertions));
+    let resources = std::env::var_os("MSIME_NEURAL_MODEL_DIR").unwrap();
+    let table = Arc::new(
+        NgramTable::load(&std::path::Path::new(&resources).join("msime-bigram.bin")).unwrap(),
+    );
+    let mut results = Vec::new();
+    for shape in ["full-hit", "small-hot", "miss-stream", "conflict"] {
+        let size = match shape {
+            "small-hot" => 64,
+            "conflict" => 512,
+            _ => 32768,
+        };
+        let keys: Vec<u64> = (1..=size)
+            .map(|key| synthetic_key(if shape == "conflict" { key * 4096 } else { key }))
+            .collect();
+        let run = |new: bool, rounds: usize| {
+            let mut old = Reference::default();
+            let mut candidate = Candidate::default();
+            let mut sum = 0u64;
+            for &key in &keys {
+                let value = if new {
+                    candidate.score::<false>(black_box(&table), black_box(key))
+                } else {
+                    old.score::<false>(black_box(&table), black_box(key))
+                };
+                sum = sum.wrapping_add(u64::from(value.to_bits()));
+            }
+            let started = Instant::now();
+            for round in 0..rounds {
+                for (position, &key) in keys.iter().enumerate() {
+                    let key = if shape == "miss-stream" {
+                        synthetic_key((round as u64 + 1) * size + position as u64 + 1)
+                    } else {
+                        key
+                    };
+                    let value = if new {
+                        candidate.score::<false>(black_box(&table), black_box(key))
+                    } else {
+                        old.score::<false>(black_box(&table), black_box(key))
+                    };
+                    sum = sum.wrapping_add(u64::from(value.to_bits()));
+                }
+            }
+            black_box((sum, started.elapsed()))
+        };
+        let mut rounds = 1;
+        loop {
+            let old = run(false, rounds);
+            let new = run(true, rounds);
+            assert_eq!(old.0, new.0);
+            if old.1.min(new.1) >= Duration::from_millis(20) {
+                break;
+            }
+            rounds *= 2;
+        }
+        let mut pairs = Vec::new();
+        for pair in 0..21 {
+            let (old, new) = if pair % 2 == 0 {
+                let old = run(false, rounds);
+                (old, run(true, rounds))
+            } else {
+                let new = run(true, rounds);
+                (run(false, rounds), new)
+            };
+            assert_eq!(old.0, new.0);
+            pairs.push((
+                new.1.as_secs_f64() / old.1.as_secs_f64(),
+                old.1.as_secs_f64(),
+                new.1.as_secs_f64(),
+            ));
+        }
+        pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
+        eprintln!(
+            "ASSOC_SHAPE {shape} rounds={rounds} median={} pairs={pairs:?}",
+            pairs[10].0
+        );
+        results.push((shape, pairs[10].0));
+    }
+    assert!(
+        results.iter().all(|(_, ratio)| *ratio < 1.05),
+        "形状预算失败：{results:?}"
+    );
+}
