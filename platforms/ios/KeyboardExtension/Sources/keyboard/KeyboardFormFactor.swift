@@ -34,9 +34,11 @@ enum KeyboardFormFactor: Equatable {
 
   /// 默认键盘高度下一排按键的高度。
   ///
-  /// 竖屏用设计稿的按键高度（`KeyboardHeightPercent.portraitKeyHeight`）：手机 52pt，iPad 54pt。设计稿没有画横屏键盘，所以横屏沿用以前按系统尺寸做的横屏键盘的按键高度：手机 34pt，其中手写为 40pt，让书写区仍然够用；iPad 为更高的 73pt，和系统键盘一样随更宽的屏幕变大。
-  func keyHeight(landscape: Bool, handwriting: Bool) -> CGFloat {
-    guard landscape else { return KeyboardHeightPercent.portraitKeyHeight(tablet: self == .tablet) }
+  /// 竖屏用设计稿的按键高度（`KeyboardHeightPercent.portraitKeyHeight`）：手机 52pt、26 键字母页 44pt，iPad 54pt。设计稿没有画横屏键盘，所以横屏沿用以前按系统尺寸做的横屏键盘的按键高度：手机 34pt，其中手写为 40pt，让书写区仍然够用；iPad 为更高的 73pt，和系统键盘一样随更宽的屏幕变大。
+  func keyHeight(landscape: Bool, handwriting: Bool, letterKeys: Bool = false) -> CGFloat {
+    guard landscape else {
+      return self == .phone && letterKeys ? 44 : KeyboardHeightPercent.portraitKeyHeight(tablet: self == .tablet)
+    }
     switch self {
     case .phone: return handwriting ? 40 : 34
     case .tablet: return 73
@@ -48,10 +50,10 @@ enum KeyboardFormFactor: Equatable {
 
   /// 用户调整之前的键盘高度，按设计稿的结构逐项相加：上边距、顶部那一行、它下面的间隔、各排按键连同排间距，以及下边距。顶部那一行收起（`topRow` 为 0，「显示方式」为隐藏时）时间隔也一起去掉，与 `applyKeyboardMetrics` 把那段间隔设为 0 一致，否则多出的高度会被分给按键，组字开始和结束时按键高度跟着跳。
   func keyboardHeight(topRow: CGFloat, rowSpacing: CGFloat, landscape: Bool, handwriting: Bool,
-                      numberRow: Bool = false) -> CGFloat {
+                      numberRow: Bool = false, letterKeys: Bool = false) -> CGFloat {
     padding.top + topRow + (topRow > 0 ? topRowGap : 0)
       + KeyboardHeightPercent.keyBlockHeight(
-        keyHeight: keyHeight(landscape: landscape, handwriting: handwriting), rows: keyRows(numberRow: numberRow),
+        keyHeight: keyHeight(landscape: landscape, handwriting: handwriting, letterKeys: letterKeys), rows: keyRows(numberRow: numberRow),
         rowSpacing: rowSpacing)
       + padding.bottom
   }

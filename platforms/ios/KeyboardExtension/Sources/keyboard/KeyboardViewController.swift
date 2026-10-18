@@ -7019,9 +7019,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateShadows(view)
   }
 
-  /// 手机 26 键在存储行距之外增加 4pt 留白，计入总高度以保留按键高度。
+  private var showsPhoneLetterRows: Bool {
+    formFactor == .phone && letterRowViews.first?.isHidden == false
+  }
+
+  /// 手机 26 键在存储行距之外增加 4pt 留白。
   private var keyRowSpacing: CGFloat {
-    let letterPadding: CGFloat = formFactor == .phone && letterRowViews.first?.isHidden == false ? 4 : 0
+    let letterPadding: CGFloat = showsPhoneLetterRows ? 4 : 0
     return CGFloat(KeyboardLayoutPreference.rowSpacing) + letterPadding
   }
 
@@ -7030,7 +7034,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 手写共用顶栏，因此也共用竖屏的通用高度。
     formFactor.keyboardHeight(
       topRow: shownTopRowHeight, rowSpacing: keyRowSpacing,
-      landscape: isLandscape, handwriting: !handwriting.isHidden, numberRow: showsKeyboardNumberRow)
+      landscape: isLandscape, handwriting: !handwriting.isHidden, numberRow: showsKeyboardNumberRow,
+      letterKeys: showsPhoneLetterRows)
   }
 
   /// 是否显示第五排按键：iPad 数字行、数字符号页补充行或大千各排。

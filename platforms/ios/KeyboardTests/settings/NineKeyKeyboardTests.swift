@@ -578,7 +578,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         let q = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? UIButton)
         XCTAssertFalse(try XCTUnwrap(q.superview).isHidden)
         XCTAssertEqual(q.bounds.height, try button("returnKey", in: controller).bounds.height, accuracy: 0.5)
-        XCTAssertGreaterThanOrEqual(q.bounds.height, KeyboardHeightPercent.portraitKeyHeight(tablet: false) - 0.5)
+        XCTAssertGreaterThanOrEqual(q.bounds.height, 43.5)
         if type != .asciiCapable { XCTAssertEqual(q.configuration?.title, "q") }
         XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, ",")
         q.sendActions(for: .primaryActionTriggered)
@@ -886,7 +886,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     try layoutAtRequestedHeight(controller)
     let letterKey = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" })
-    let letterHeight = letterKey.bounds.height
+    XCTAssertEqual(letterKey.bounds.height, 44, accuracy: 0.5)
     // 英文数字页仍使用横排，完整验证同一套符号行的份额。
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
@@ -906,8 +906,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     for id in ["symbolLayerToggle", "symbolLayerDeleteKey"] {
       XCTAssertEqual(try button(id, in: controller).bounds.width, mark.bounds.width * SymbolLayerLayout.edgeWeight, accuracy: 0.5, id)
     }
-    XCTAssertEqual(try button("symbolLayerKey0_0", in: controller).bounds.height, letterHeight, accuracy: 0.5)
-    XCTAssertEqual(try button("returnKey", in: controller).bounds.height, letterHeight, accuracy: 0.5)
+    XCTAssertEqual(try button("symbolLayerKey0_0", in: controller).bounds.height, 52, accuracy: 0.5)
+    XCTAssertEqual(try button("returnKey", in: controller).bounds.height, 52, accuracy: 0.5)
     XCTAssertTrue(try button("symbolDeleteKey", in: controller).isHidden, "⌫ is in the layer's third row")
     XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
                    KeyboardViewController.defaultKeyboardHeight, "符号层沿用原来的行距和按键高度")
@@ -1460,7 +1460,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
       XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, ChineseInputScheme.quanpin.title)
       try layoutAtRequestedHeight(controller)
-      XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight + 12)
+      XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, KeyboardViewController.defaultKeyboardHeight - 20)
       try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertEqual(try button("schemeCard-quanpin", in: controller).accessibilityValue, "已选中")
       // 高亮的 输入方式 图标关闭它自己的选择器。
@@ -2218,7 +2218,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(chips.contains("，"), "\(chips)")
   }
 
-  func testKeyLayoutsKeepNineKeyHeight() throws {
+  func testKeyLayoutsUseTheirDesignedKeyHeights() throws {
     let previous = InputSchemePreference.scheme
     let previousEnabled = InputSchemePreference.enabledSchemes
     defer {
@@ -2242,7 +2242,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         InputSchemePreference.scheme = scheme
         // 笔画和注音只在测试宿主带了 msime-stroke.db、msime-zhuyin.db 时才能选上（CI 不带）；没带时上面的赋值落到别的方案，那个方案已经单独测过。
         if [.stroke, .zhuyin].contains(scheme) && InputSchemePreference.scheme != scheme { continue }
-        // 韩语方案在候选栏里常留一行训音（2758a0ebc，#2615），全拼 14 键的读音单独一行，键盘为这些行长高而不是从按键里扣，所以视图要按方案自己要的高度给，按键才保持九键高度。
+        // 韩语方案在候选栏里常留一行训音（2758a0ebc，#2615），全拼 14 键的读音单独一行，键盘为这些行长高而不是从按键里扣，所以视图要按方案自己请求的高度布局，按键才保持各自的设计高度。
         let keyboardHeight = KeyboardViewController.keyboardHeight(
           glossLines: KeyboardViewController.stripGlossLines(scheme: scheme, fullAccess: false, onlineRoute: false),
           separateReadingRow: scheme == .fourteenKey)
@@ -2251,6 +2251,8 @@ final class NineKeyKeyboardTests: XCTestCase {
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
           try layoutAtRequestedHeight(controller)
+          let paddedLetters = !symbols && ![.nineKey, .nineKeyShuangpin, .stroke, .zhuyin, .fourteenKey].contains(scheme)
+          let expectedKeyHeight: CGFloat = paddedLetters ? 44 : reference
           if scheme == .zhuyin && !symbols {
             // The Dachen layout fits four rows of keys above the action row into the same keyboard height, as the system Zhuyin keyboard does, so its rows are shorter than the three letter rows and all of them stay the same height.
             let returnHeight = try button("returnKey", in: controller).bounds.height
@@ -2258,7 +2260,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(returnHeight, 30)
             XCTAssertEqual(try button("zhuyinKeyq", in: controller).bounds.height, returnHeight, accuracy: 0.5)
           } else {
-            XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5,
+            XCTAssertEqual(try button("returnKey", in: controller).bounds.height, expectedKeyHeight, accuracy: 0.5,
                            "\(scheme) symbols=\(symbols)")
           }
           if scheme == .stroke {
@@ -2276,13 +2278,12 @@ final class NineKeyKeyboardTests: XCTestCase {
           if symbols && ![.nineKey, .nineKeyShuangpin, .japaneseNineKey, .zhuyin].contains(scheme)
               && !KeyboardViewController.drawsNumberPad(symbols: true, moreSymbols: false, scheme: scheme,
                                                         chinese: true, localMode: false) {
-            // 保留横排数字的独立语言沿用符号行，其按键与字母键等高。
-            XCTAssertEqual(try button("symbolLayerKey0_0", in: controller).bounds.height, reference, accuracy: 0.5, "\(scheme)")
+            // 保留横排数字的独立语言沿用符号行，按键保持 52pt。
+            XCTAssertEqual(try button("symbolLayerKey0_0", in: controller).bounds.height, expectedKeyHeight, accuracy: 0.5, "\(scheme)")
             XCTAssertFalse(try button("symbolLayerDeleteKey", in: controller).isHidden)
           }
-          let paddedLetters = !symbols && ![.nineKey, .nineKeyShuangpin, .stroke, .zhuyin, .fourteenKey].contains(scheme)
           XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
-                         keyboardHeight + (paddedLetters ? 12 : 0), "\(scheme)")
+                         keyboardHeight + (paddedLetters ? -20 : 0), "\(scheme)")
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
             // 输入方式 自己绘制设计稿的线框图标，不带会被皮肤处理画成键帽的 configuration。
             let selector = try XCTUnwrap(try button("schemeButton", in: controller) as? KeyboardToolbarButton)
@@ -2330,18 +2331,18 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertGreaterThan(delete.frame.minX, m.frame.maxX)
             XCTAssertEqual(delete.bounds.width, 44, accuracy: 0.5)
             XCTAssertEqual(shift.bounds.width, 44, accuracy: 0.5)
-            XCTAssertEqual(delete.bounds.height, reference, accuracy: 0.5)
+            XCTAssertEqual(delete.bounds.height, expectedKeyHeight, accuracy: 0.5)
             XCTAssertLessThanOrEqual(delete.convert(delete.bounds, to: controller.view).maxX, width - KeyboardFormFactor.phone.padding.trailing + 0.5)
             for label in ["Q", "A", "Z", "P", "L", "M"] {
               let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == letterLabel(label) } as? UIButton)
-              XCTAssertEqual(key.bounds.height, reference, accuracy: 0.5)
+              XCTAssertEqual(key.bounds.height, expectedKeyHeight, accuracy: 0.5)
               let frame = key.convert(key.bounds, to: controller.view)
               XCTAssertGreaterThanOrEqual(frame.minX, KeyboardFormFactor.phone.padding.leading - 0.5)
               XCTAssertLessThanOrEqual(frame.maxX, controller.view.bounds.width - KeyboardFormFactor.phone.padding.trailing + 0.5, "\(scheme) \(label) frame \(frame)")
             }
           }
           if !symbols && scheme == .japaneseNineKey {
-            XCTAssertEqual(try button("japaneseKana0", in: controller).bounds.height, reference, accuracy: 0.5)
+            XCTAssertEqual(try button("japaneseKana0", in: controller).bounds.height, expectedKeyHeight, accuracy: 0.5)
           }
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
         }
@@ -2393,7 +2394,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         for label in ["Q", "A", "Z", "P", "L", "M"] {
           let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(label)" } as? UIButton)
           XCTAssertEqual(key.bounds.height, returnKey.bounds.height, accuracy: 0.5)
-          XCTAssertGreaterThanOrEqual(key.bounds.height, KeyboardHeightPercent.portraitKeyHeight(tablet: false) - 0.5)
+          XCTAssertGreaterThanOrEqual(key.bounds.height, 43.5)
           XCTAssertTrue(key.subviews.compactMap { $0 as? UILabel }.filter { $0.font.pointSize == 9 }.allSatisfy { $0.isHidden })
         }
         XCTAssertFalse(try button("exitLocalModeButton", in: controller).isHidden)

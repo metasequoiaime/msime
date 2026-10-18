@@ -21,6 +21,8 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertEqual(phone.topRowGap, 4)
     XCTAssertEqual(tablet.topRowGap, 9)
     XCTAssertEqual(phone.keyHeight(landscape: false, handwriting: false), 52)
+    XCTAssertEqual(phone.keyHeight(landscape: false, handwriting: false, letterKeys: true), 44)
+    XCTAssertEqual(phone.keyHeight(landscape: true, handwriting: false, letterKeys: true), 34)
     XCTAssertEqual(phone.keyHeight(landscape: false, handwriting: true), 52)
     XCTAssertEqual(phone.keyHeight(landscape: true, handwriting: false), 34)
     XCTAssertEqual(phone.keyHeight(landscape: true, handwriting: true), 40)
@@ -45,7 +47,7 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertFalse(KeyboardFormFactor.phone.canShowFullKeys)
   }
 
-  /// 默认排间距下画出的布局：手机 52pt 键和 iPad 54pt 键（dc.html `keyH`），带或不带 iPad 数字行，四周的内边距，以及顶栏下方的间隙。
+  /// 默认排间距下画出的布局：手机 26 键为 44pt和 iPad 54pt 键（dc.html `keyH`），带或不带 iPad 数字行，四周的内边距，以及顶栏下方的间隙。
   @MainActor
   func testDesignKeyHeights() throws {
     enableAllInputSchemes()
@@ -80,10 +82,10 @@ final class KeyboardFormFactorTests: XCTestCase {
               space.convert(space.bounds, to: controller.view), height)
     }
     let phone = try layout(tablet: false, width: 393)
-    XCTAssertEqual(phone.height, KeyboardViewController.defaultKeyboardHeight + 12)
+    XCTAssertEqual(phone.height, KeyboardViewController.defaultKeyboardHeight - 20)
     XCTAssertEqual(phone.space.minY - phone.key.maxY, 11, accuracy: 0.5)
-    XCTAssertEqual(phone.key.height, 52, accuracy: 0.5)
-    XCTAssertEqual(phone.space.height, 52, accuracy: 0.5)
+    XCTAssertEqual(phone.key.height, 44, accuracy: 0.5)
+    XCTAssertEqual(phone.space.height, 44, accuracy: 0.5)
     XCTAssertEqual(phone.strip.minY, 2, accuracy: 0.5)
     XCTAssertEqual(phone.strip.minX, 3, accuracy: 0.5)
     XCTAssertEqual(phone.strip.maxX, 393 - 3, accuracy: 0.5)
