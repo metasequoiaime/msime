@@ -70,6 +70,13 @@ CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
 INSERT INTO tbl_1_g VALUES('ge','g','个',500);\
 INSERT INTO tbl_1_g VALUES('ge','g','各',400);";
 
+const WUBI_BIANYI_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('bian','便',100);\
+CREATE TABLE tbl_1_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_b VALUES('bian','b','边',500);\
+CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_b VALUES('bian''yi','by','编译',1000);";
+
 /// test_personal_context_input_session.cpp:136-149 with test_pick_pair_input_session.cpp:73-94's shan/shui rows.
 const CONTEXT_FIXTURE: &str = "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
 INSERT INTO tbl_1_n VALUES('ni','n','甲',100),('ni','n','乙',90),('ni','n','丙',80);\
@@ -2568,6 +2575,22 @@ fn the_rest_after_a_pinyin_pick_stays_pinyin() {
     assert_eq!(
         schemes(&session).first(),
         Some(&("人".to_owned(), SchemeType::Wubi))
+    );
+}
+
+#[test]
+fn bianyi_continues_after_the_bian_wubi_code() {
+    let fixture = Fixture::new(WUBI_BIANYI_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.mixed_pinyin = true;
+    });
+    type_text(&mut session, "bianyi");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "bianyi");
+    assert!(
+        snapshot.candidates.iter().any(|item| item.word == "编译"),
+        "{snapshot:?}"
     );
 }
 

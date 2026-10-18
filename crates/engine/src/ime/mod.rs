@@ -577,7 +577,7 @@ impl ImeSession {
             .is_some_and(|wubi| wubi.has_complete_code())
     }
 
-    /// 四码命中五笔时，后续小写字母能否继续当前拼音候选的完整读音。
+    /// 四码命中五笔时，后续小写字母能否继续当前拼音候选的完整读音或开始下一个音节。
     /// 只匹配真实读音前缀，简拼、纠错和模糊音不能把不相关的第五码当成拼音。
     pub fn wubi_pinyin_continues(&self, letter: u8) -> bool {
         if !self.wubi_options.mixed_pinyin
@@ -587,14 +587,17 @@ impl ImeSession {
             return false;
         }
         let raw = &self.state.request.raw_input;
+        let starts_new_pinyin_syllable = crate::pinyin::segment::is_complete_pinyin_input(raw)
+            && std::str::from_utf8(&[letter]).is_ok_and(crate::pinyin::syllables::is_prefix);
         self.state.candidates.iter().any(|item| {
             item.scheme == SchemeType::Quanpin
-                && item
+                && (item
                     .canonical_pinyin
                     .bytes()
                     .filter(|&byte| byte != b'\'')
                     .take(raw.len() + 1)
                     .eq(raw.bytes().chain(std::iter::once(letter)))
+                    || (starts_new_pinyin_syllable && item.canonical_pinyin == raw.as_str()))
         })
     }
 

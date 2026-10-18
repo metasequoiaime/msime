@@ -32,6 +32,8 @@ Status: implemented
 
 使用合成候选的运行时回归先在旧实现失败，再覆盖五笔 86/98、混输开关、可续输小写字母、不相关字母、Shift 字母与拼音候选选择，分页设为每页一行以确认后页读音仍可续输。真实词库测试只在本机执行，不把个人目录或学习记录写进提交。
 
-`cargo test -p msime-engine --lib --locked`：2292 passed、40 ignored；`cargo test -p msime-input-runtime --lib --locked`：320 passed；`cargo fmt --all -- --check`、两 crate 的全 target Clippy（warnings denied）与 `pnpm run verify-notes` 通过。本机当前安装的工作词库在五笔 86/98 下均验证 `guiyi`、`yqna` 候选及选择上屏为“诡异”，另用同次构建的 macOS Host API 动态库、当前偏好与真实工作词库重复四组输入及选词，均通过；尚未替换系统输入法，不能把这项证据写成 IMK 编辑器界面验收。
+`cargo test -p msime-engine --lib --locked`：2298 passed、40 ignored；`cargo test -p msime-input-runtime --lib --locked`：320 passed；`cargo fmt --all -- --check`、`pnpm run verify-notes` 与 `bash scripts/verify-local.sh --quick` 通过。本机工作词库在五笔 86/98 下已验证既有混输回归；本次同一构建还完成 macOS Host API、macOS bundle 构建与 `platforms/macos/scripts/install.sh` 安装，输入源注册检查确认五笔模式已启用。自动化文本工具对 TextEdit 使用无障碍文本注入，不能把它的原始文本结果当作 IMK 候选窗口证据。
+
+后续发现 `bian` 的拼音候选本身只有完整音节 `bian`，而“编译”的长词要等到第二个音节输入后才出现，原来的候选全读音匹配因此仍会在 `y` 处截断。现在在已有完整拼音候选的边界上，只要下一个字母是合法拼音音节前缀也允许续输；这覆盖 `bianyi`，同时仍要求当前列表有拼音行，不改变纯五笔码的四码上限。回归测试 `bianyi_continues_after_the_bian_wubi_code` 固定该路径。
 
 `bash scripts/verify-local.sh --quick` 通过：Rust 工作区、Android 目标与宿主 Java、WASM、Linux 设置壳、Linux 原生宿主（90 项测试）、macOS 原生宿主、共享 Apple 桥与 Windows IPC 两种架构均通过；Windows 完整交叉编译因其他构建占用共享锁而跳过，HarmonyOS 原生编译因缺少 staged 输入而跳过。未进行系统输入法替换或发布。
