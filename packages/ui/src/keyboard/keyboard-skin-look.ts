@@ -46,23 +46,23 @@ const systemKeyboard: Record<"dark" | "light", Palette> = {
   },
 };
 
-// `native`（原生，只在 iOS 提供）照 iOS 26 起的系统键盘画，与 iOS 的 `SystemKeyboardTokens` 同值：底板 `#E2E3E8` / `#222223`，字母键和功能键同为 `#FFFFFF` / `#464646`，强调色是系统蓝的增强对比度值 `#0040DD` / `#409CFF`，圆角 6，不跟季节。
+// `native`（原生，只在 iOS 提供）与 iOS 的 `SystemKeyboardTokens` 同值：灰白键面、柔和水杉绿强调色、圆角 6，不跟季节。
 const nativeKeyboard: Record<"dark" | "light", Palette> = {
   light: {
     background: "#E2E3E8",
     key: "#FFFFFF",
     foreground: "#000000",
-    accent: "#0040DD",
-    action: "#FFFFFF",
-    actionForeground: "#000000",
+    accent: "#32664B",
+    action: "#32664B",
+    actionForeground: "#FFFFFF",
   },
   dark: {
     background: "#222223",
     key: "#464646",
     foreground: "#FFFFFF",
-    accent: "#409CFF",
-    action: "#464646",
-    actionForeground: "#FFFFFF",
+    accent: "#8AC4A2",
+    action: "#8AC4A2",
+    actionForeground: "#000000",
   },
 };
 
