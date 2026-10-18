@@ -33,7 +33,8 @@ struct BackendRustClient: @unchecked Sendable {
 
   /// 版本、大小不对，或者缺了必需的三个函数（`string_free`、`session_store_register`、`session_store_unregister`）时为 nil。
   init?(table: msime_rust_client) {
-    guard table.version == MSIME_RUST_CLIENT_VERSION, Int(table.size) == MemoryLayout<msime_rust_client>.size,
+    // 宿主填的是 C 的 sizeof，含结尾的填充，对应 Swift 的 stride；size 不含结尾填充，结构体末尾一旦有填充两边就对不上。
+    guard table.version == MSIME_RUST_CLIENT_VERSION, Int(table.size) == MemoryLayout<msime_rust_client>.stride,
           table.string_free != nil, table.session_store_register != nil, table.session_store_unregister != nil else { return nil }
     self.table = table
   }
@@ -194,7 +195,7 @@ struct BackendRustClient: @unchecked Sendable {
     let cancelled = CancelFlag()
     return try await withTaskCancellationHandler {
       try await Self.onDedicatedThread { () -> Result<Data, Failure> in
-        // 取消在生成登记之前到达时 cancel 什么也找不到，所以开始之前先看一眼；登记以后到达的取消由 Rust 处理。
+        // 已经取消的不必再调 Rust。在这之后、Rust 登记 id 之前到达的取消由 Rust 记下，登记时直接按已取消开始。
         if cancelled.isSet { return .failure(Failure(code: "ai_skin_cancelled")) }
         let sink = Unmanaged.passRetained(ProgressSink(progress)).toOpaque()
         defer { Unmanaged<ProgressSink>.fromOpaque(sink).release() }

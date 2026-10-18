@@ -7,6 +7,7 @@
 use super::client::{chat_body_bytes, chat_reply};
 use super::validate::*;
 use super::*;
+use crate::early_cancels::EarlyCancels;
 use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -91,32 +92,50 @@ impl Drop for Attached<'_> {
     }
 }
 
-/// 按宿主给的请求 id 登记进行中的流式对话，取消时按 id 找到它。与 AI 皮肤的 `AiSkinRequests` 相同。
+/// 按宿主给的请求 id 登记进行中的流式对话，取消时按 id 找到它。与 AI 皮肤的 `AiSkinRequests` 相同：先于登记到达的取消记在 `EarlyCancels` 里，同一个 id 随后登记时直接按已取消开始。
 #[derive(Default)]
-pub struct ChatStreamRequests(Mutex<HashMap<String, ChatStreamCancel>>);
+pub struct ChatStreamRequests(Mutex<ChatStreamTable>);
+
+#[derive(Default)]
+struct ChatStreamTable {
+    running: HashMap<String, ChatStreamCancel>,
+    early: EarlyCancels,
+}
 
 impl ChatStreamRequests {
-    /// 登记一次对话，返回它的取消把手；同一个 id 已经有一个在进行时是 `account_busy`，原来那次的把手不动。
+    /// 登记一次对话，返回它的取消把手；同一个 id 已经有一个在进行时是 `account_busy`，原来那次的把手不动。这个 id 的取消在登记之前就到了时，返回的把手已经取消。
     pub fn begin(&self, id: &str) -> Result<ChatStreamCancel, AccountFailure> {
         let mut requests = self.0.lock().map_err(|_| AccountError::Unavailable)?;
-        if requests.contains_key(id) {
+        if requests.running.contains_key(id) {
             return Err(AccountFailure::busy());
         }
         let cancel = ChatStreamCancel::default();
-        requests.insert(id.to_owned(), cancel.clone());
+        if requests.early.take(id) {
+            cancel.cancel();
+        }
+        requests.running.insert(id.to_owned(), cancel.clone());
         Ok(cancel)
     }
 
-    /// 取消 `id` 的对话，返回当时是否有一个在进行。只碰这张表和那次请求的通道，立即返回。
+    /// 取消 `id` 的对话，返回当时是否有一个在进行。没有在进行的记下来，这个 id 随后登记时按已取消开始。只碰这张表和那次请求的通道，立即返回。
     pub fn cancel(&self, id: &str) -> Result<bool, AccountFailure> {
-        let requests = self.0.lock().map_err(|_| AccountError::Unavailable)?;
-        Ok(requests.get(id).map(ChatStreamCancel::cancel).is_some())
+        let mut requests = self.0.lock().map_err(|_| AccountError::Unavailable)?;
+        match requests.running.get(id) {
+            Some(cancel) => {
+                cancel.cancel();
+                Ok(true)
+            }
+            None => {
+                requests.early.remember(id);
+                Ok(false)
+            }
+        }
     }
 
-    /// 对话结束（成功、失败或取消）后注销，同一个 id 之后可以再用。
+    /// 对话结束（成功、失败或取消）后注销，同一个 id 之后可以再用（取消过的除外，见 `EarlyCancels`）。
     pub fn finish(&self, id: &str) {
         if let Ok(mut requests) = self.0.lock() {
-            requests.remove(id);
+            requests.running.remove(id);
         }
     }
 }

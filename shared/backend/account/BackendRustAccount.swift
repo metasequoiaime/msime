@@ -40,9 +40,11 @@ struct BackendRustAccount: Sendable {
   }
 
   /// 用 `layout` 注册本进程的会话存储，成功后 `shared` 就是它。已经注册过时直接返回那一份，不注册第二次。不联网，可以在主线程上调用。
+  ///
+  /// `backgroundActivity` 故意没有默认值：iOS App 必须交 `beginBackgroundTask`，否则挂起时还持有 App Group 文件锁会被系统杀掉（0xdead10cc）；不会被这样挂起的宿主（macOS）明确交 nil。
   @discardableResult
   static func registerShared(client: BackendRustClient, agent: Agent, layout: BackendRustStoreLayout = .standard,
-                             backgroundActivity: BackendRustSessionStore.BackgroundActivity? = nil)
+                             backgroundActivity: BackendRustSessionStore.BackgroundActivity?)
     -> Result<BackendRustAccount, BackendRustClient.Failure> {
     registered.lock.lock(); defer { registered.lock.unlock() }
     if let account = registered.account { return .success(account) }
@@ -54,7 +56,7 @@ struct BackendRustAccount: Sendable {
 
   /// 拼出 client_agent 再注册一份存储，不记进 `shared`。client_agent 由 Rust 拼（服务端「我的设备」据此显示平台和设备），拼不出时整次注册失败：不带它注册，之后的登录都会以默认的 MSIME/Android 发出。
   static func register(client: BackendRustClient, agent: Agent, layout: BackendRustStoreLayout,
-                       backgroundActivity: BackendRustSessionStore.BackgroundActivity? = nil)
+                       backgroundActivity: BackendRustSessionStore.BackgroundActivity?)
     -> Result<BackendRustAccount, BackendRustClient.Failure> {
     clientAgentString(client: client, agent: agent).flatMap { clientAgent in
       BackendRustSessionStore(layout: layout, backgroundActivity: backgroundActivity)

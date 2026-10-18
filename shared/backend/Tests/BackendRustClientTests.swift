@@ -26,7 +26,7 @@ private enum FakeRust {
   static func table() -> msime_rust_client {
     var table = msime_rust_client()
     table.version = MSIME_RUST_CLIENT_VERSION
-    table.size = UInt32(MemoryLayout<msime_rust_client>.size)
+    table.size = UInt32(MemoryLayout<msime_rust_client>.stride)
     table.string_free = { value in
       FakeRust.lock.lock(); FakeRust.frees += 1; FakeRust.lock.unlock()
       free(value)

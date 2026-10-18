@@ -120,7 +120,7 @@ enum FakeRust {
   static func table() -> msime_rust_client {
     var table = msime_rust_client()
     table.version = MSIME_RUST_CLIENT_VERSION
-    table.size = UInt32(MemoryLayout<msime_rust_client>.size)
+    table.size = UInt32(MemoryLayout<msime_rust_client>.stride)
     table.string_free = { free($0) }
     table.session_store_register = { _ in strdup(#"{"ok":true,"value":{"session_store":7}}"#) }
     table.session_store_unregister = { _ in strdup(#"{"ok":true,"value":true}"#) }

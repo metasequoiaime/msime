@@ -16,7 +16,7 @@ private enum FakeRegistry {
   static func table() -> msime_rust_client {
     var table = msime_rust_client()
     table.version = MSIME_RUST_CLIENT_VERSION
-    table.size = UInt32(MemoryLayout<msime_rust_client>.size)
+    table.size = UInt32(MemoryLayout<msime_rust_client>.stride)
     table.string_free = { free($0) }
     table.session_store_register = { store in
       guard let store else { return strdup(#"{"ok":false,"error":"invalid_session_store"}"#) }
@@ -164,7 +164,7 @@ final class BackendRustSessionStoreTests: XCTestCase {
   }
 
   func testRegistrationDescribesASharedAppleLayoutStoreAndCopiesTheAgent() throws {
-    let store = try registered(BackendRustSessionStore(layout: fileLayout()))
+    let store = try registered(BackendRustSessionStore(layout: fileLayout(), backgroundActivity: nil))
     XCTAssertEqual(store.version, UInt32(MSIME_CLIENT_SESSION_STORE_VERSION))
     XCTAssertEqual(store.layout, 1)
     XCTAssertEqual(store.flags, MSIME_CLIENT_SESSION_STORE_SHARED)
@@ -177,7 +177,7 @@ final class BackendRustSessionStoreTests: XCTestCase {
   func testReleaseAfterRegistrationAndFailedRegistrationEachDropTheStoreExactlyOnce() throws {
     weak var released: BackendRustSessionStore?
     try autoreleasepool {
-      let object = BackendRustSessionStore(layout: fileLayout())
+      let object = BackendRustSessionStore(layout: fileLayout(), backgroundActivity: nil)
       released = object
       let store = try registered(object, agent: nil)
       XCTAssertNil(FakeRegistry.clientAgent)
@@ -189,7 +189,7 @@ final class BackendRustSessionStoreTests: XCTestCase {
     FakeRegistry.reply = #"{"ok":false,"error":"invalid_session_store"}"#
     weak var rejected: BackendRustSessionStore?
     autoreleasepool {
-      let object = BackendRustSessionStore(layout: fileLayout())
+      let object = BackendRustSessionStore(layout: fileLayout(), backgroundActivity: nil)
       rejected = object
       let client = BackendRustClient(table: FakeRegistry.table())!
       XCTAssertEqual(object.register(with: client, clientAgent: nil),
@@ -199,7 +199,7 @@ final class BackendRustSessionStoreTests: XCTestCase {
   }
 
   func testEveryItemIsAbsentAtFirstAndRemovingAbsentItemsSucceeds() throws {
-    let store = try registered(BackendRustSessionStore(layout: fileLayout()))
+    let store = try registered(BackendRustSessionStore(layout: fileLayout(), backgroundActivity: nil))
     for item in [account, keystore, anonymous, identity] {
       XCTAssertEqual(load(store, item).0, 0, "item \(item)")
       XCTAssertEqual(store.remove!(store.context, item), 0, "item \(item)")
@@ -208,7 +208,7 @@ final class BackendRustSessionStoreTests: XCTestCase {
   }
 
   func testAccountBytesAreTheSwiftSessionFileAndRustBytesReadBackInSwift() throws {
-    let store = try registered(BackendRustSessionStore(layout: fileLayout()))
+    let store = try registered(BackendRustSessionStore(layout: fileLayout(), backgroundActivity: nil))
     // Swift 写的会话，Rust 读到的是原样的字节。
     let swift = syntheticSession()
     try BackendDesktopSessionFile(directory: state).save(swift)
@@ -230,7 +230,7 @@ final class BackendRustSessionStoreTests: XCTestCase {
   }
 
   func testLoadRefusesBuffersTooSmallAndFilesItCannotRead() throws {
-    let store = try registered(BackendRustSessionStore(layout: fileLayout()))
+    let store = try registered(BackendRustSessionStore(layout: fileLayout(), backgroundActivity: nil))
     XCTAssertEqual(save(store, account, Data(repeating: 0x41, count: 100)), 0)
     XCTAssertEqual(load(store, account, capacity: 99).0, -1)
     XCTAssertEqual(load(store, account, capacity: 100).0, 100)
@@ -243,7 +243,7 @@ final class BackendRustSessionStoreTests: XCTestCase {
   }
 
   func testKeystoreLosesTrailingNewlinesAndIsRemovedOnItsOwn() throws {
-    let store = try registered(BackendRustSessionStore(layout: fileLayout()))
+    let store = try registered(BackendRustSessionStore(layout: fileLayout(), backgroundActivity: nil))
     try BackendDesktopSessionFile.writeOwnerOnly(Data("synthetic-keystore\r\n".utf8), named: "cloud-clipboard-keystore", in: state)
     XCTAssertEqual(load(store, keystore).1, Data("synthetic-keystore".utf8))
     try BackendDesktopSessionFile(directory: state).save(syntheticSession())
@@ -256,7 +256,7 @@ final class BackendRustSessionStoreTests: XCTestCase {
   }
 
   func testAnonymousSessionIsTheLocalStoreFileAndIdentityIsWrittenOnlyOnce() throws {
-    let store = try registered(BackendRustSessionStore(layout: fileLayout()))
+    let store = try registered(BackendRustSessionStore(layout: fileLayout(), backgroundActivity: nil))
     let swift = syntheticSession()
     try BackendLocalStore(fileName: "anonymous-session.json", directory: group).save(swift)
     XCTAssertEqual(load(store, anonymous).1, try Data(contentsOf: group.appendingPathComponent("anonymous-session.json")))
@@ -274,7 +274,7 @@ final class BackendRustSessionStoreTests: XCTestCase {
 
   func testKeychainAbsentIsZeroButUnreadableKeychainIsAFailure() throws {
     let keychain = MemoryKeychain()
-    let store = try registered(BackendRustSessionStore(layout: keychainLayout(), keychain: keychain.calls))
+    let store = try registered(BackendRustSessionStore(layout: keychainLayout(), keychain: keychain.calls, backgroundActivity: nil))
     XCTAssertEqual(load(store, account).0, 0)
     // 未签名的构建（-34018）和锁屏时的钥匙串都不是「已退出」。
     for status in [OSStatus(-34018), errSecInteractionNotAllowed] {
@@ -303,7 +303,7 @@ final class BackendRustSessionStoreTests: XCTestCase {
   }
 
   func testLockExcludesSwiftRefreshLockOnTheSameFileAndAnotherDescriptor() async throws {
-    let store = try registered(BackendRustSessionStore(layout: fileLayout()))
+    let store = try registered(BackendRustSessionStore(layout: fileLayout(), backgroundActivity: nil))
     var token: UInt64 = 0
     XCTAssertEqual(store.lock!(store.context, account, 20_000, &token), 0)
     XCTAssertNotEqual(token, 0)

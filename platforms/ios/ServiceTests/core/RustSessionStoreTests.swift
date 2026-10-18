@@ -102,7 +102,7 @@ final class RustSessionStoreTests: XCTestCase {
       anonymous: .localStore(directory: root, fileName: BackendAnonymousAccount.sessionFileName),
       anonymousIdentity: .localStore(directory: root, fileName: BackendAnonymousAccount.identityFileName),
       accountLock: lock, anonymousLock: lock)
-    let id = try BackendRustSessionStore(layout: layout, keychain: keychain.calls).register(with: client, clientAgent: agent).get()
+    let id = try BackendRustSessionStore(layout: layout, keychain: keychain.calls, backgroundActivity: nil).register(with: client, clientAgent: agent).get()
     defer { _ = client.unregister(id) }
 
     func status() async throws -> String? {

@@ -20,6 +20,8 @@ pub mod common_phrases;
 pub mod community;
 pub mod diagnostics;
 pub mod dictionary;
+/// 先于登记到达的取消，流式对话和 AI 皮肤的请求登记表共用。
+mod early_cancels;
 pub mod notices;
 pub mod plugins;
 pub mod skin;

@@ -6,6 +6,7 @@ use crate::account::{
     AccountApi, AccountError, AccountFailure, AccountSessionStorage, BackendAccountClient,
     BackendAccountSession,
 };
+use crate::early_cancels::EarlyCancels;
 use crate::preferences::{TouchKeyboardSkinDesign, TouchSkinKeyMaterial, TouchSkinKeyShape};
 use crate::theme::{luminance, readable_text};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -130,36 +131,50 @@ pub struct AiSkinJob {
     pub expires_at: Option<String>,
 }
 
-/// 进行中的生成按宿主给的请求 id 登记，好让另一次调用取消它。同一个 id 正在生成时再次开始是 `ai_skin_busy`，原任务的取消标记不变。
+/// 进行中的生成按宿主给的请求 id 登记，好让另一次调用取消它。同一个 id 正在生成时再次开始是 `ai_skin_busy`，原任务的取消标记不变。先于登记到达的取消记在 `EarlyCancels` 里，同一个 id 随后登记时直接按已取消开始。
 #[derive(Default)]
-pub struct AiSkinRequests(Mutex<HashMap<String, Arc<AtomicBool>>>);
+pub struct AiSkinRequests(Mutex<AiSkinTable>);
+
+#[derive(Default)]
+struct AiSkinTable {
+    running: HashMap<String, Arc<AtomicBool>>,
+    early: EarlyCancels,
+}
 
 impl AiSkinRequests {
-    /// 登记一次生成，返回它的取消标记。
+    /// 登记一次生成，返回它的取消标记。这个 id 的取消在登记之前就到了时，返回的标记已经置位。
     pub fn begin(&self, id: &str) -> Result<Arc<AtomicBool>, &'static str> {
         let mut requests = self.0.lock().map_err(|_| "ai_skin_unavailable")?;
         // 拒绝重复 id 时保留原任务的取消标记。
-        if requests.contains_key(id) {
+        if requests.running.contains_key(id) {
             return Err("ai_skin_busy");
         }
-        let cancelled = Arc::new(AtomicBool::new(false));
-        requests.insert(id.to_owned(), Arc::clone(&cancelled));
+        let cancelled = Arc::new(AtomicBool::new(requests.early.take(id)));
+        requests
+            .running
+            .insert(id.to_owned(), Arc::clone(&cancelled));
         Ok(cancelled)
     }
 
-    /// 取消 `id` 的生成，返回是否有一个在跑。只碰这张表，立即返回。
+    /// 取消 `id` 的生成，返回是否有一个在跑。没有在跑的记下来，这个 id 随后登记时按已取消开始。只碰这张表，立即返回。
     pub fn cancel(&self, id: &str) -> Result<bool, &'static str> {
-        let requests = self.0.lock().map_err(|_| "ai_skin_unavailable")?;
-        Ok(requests
-            .get(id)
-            .map(|cancelled| cancelled.store(true, Ordering::Release))
-            .is_some())
+        let mut requests = self.0.lock().map_err(|_| "ai_skin_unavailable")?;
+        match requests.running.get(id) {
+            Some(cancelled) => {
+                cancelled.store(true, Ordering::Release);
+                Ok(true)
+            }
+            None => {
+                requests.early.remember(id);
+                Ok(false)
+            }
+        }
     }
 
-    /// 生成结束（成功、失败或取消）后注销，同一个 id 之后可以再用。
+    /// 生成结束（成功、失败或取消）后注销，同一个 id 之后可以再用（取消过的除外，见 `EarlyCancels`）。
     pub fn finish(&self, id: &str) {
         if let Ok(mut requests) = self.0.lock() {
-            requests.remove(id);
+            requests.running.remove(id);
         }
     }
 }
@@ -1403,5 +1418,26 @@ mod tests {
         requests.cancel("synthetic-request").unwrap();
         assert!(!first.load(Ordering::Acquire));
         assert!(second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_cancel_that_arrives_before_begin_cancels_the_generation() {
+        let requests = AiSkinRequests::default();
+        // 宿主已经发起调用、Rust 还没登记时到的取消：当时没有在跑的，但这个 id 随后登记时标记已经置位。
+        assert_eq!(requests.cancel("synthetic-early"), Ok(false));
+        assert!(requests
+            .begin("synthetic-early")
+            .unwrap()
+            .load(Ordering::Acquire));
+        // 先到的取消只用一次，也不影响别的 id。
+        assert!(!requests
+            .begin("synthetic-other")
+            .unwrap()
+            .load(Ordering::Acquire));
+        requests.finish("synthetic-early");
+        assert!(!requests
+            .begin("synthetic-early")
+            .unwrap()
+            .load(Ordering::Acquire));
     }
 }

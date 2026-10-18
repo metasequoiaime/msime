@@ -85,8 +85,9 @@ final class BackendRustSessionStore: @unchecked Sendable {
   private var nextToken: UInt64 = 0
   private var locks: [UInt64: (descriptor: Int32, end: (@Sendable () -> Void)?)] = [:]
 
+  /// `backgroundActivity` 没有默认值，原因见 `BackendRustAccount.registerShared`。
   init(layout: BackendRustStoreLayout = .standard, keychain: BackendRustKeychain = .system,
-       backgroundActivity: BackgroundActivity? = nil) {
+       backgroundActivity: BackgroundActivity?) {
     self.layout = layout
     self.keychain = keychain
     self.backgroundActivity = backgroundActivity

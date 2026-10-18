@@ -7,13 +7,14 @@ import Foundation
 /// 收下表以后接着注册本进程的会话存储（#8201 迁移计划 4b）：输入法进程和独立设置窗口进程都经这里，各注册一次，Objective-C++ 不注册。注册失败只记一条日志，账号页随后报 `rust_client_unavailable`。
 @_cdecl("MSIMEInstallRustClient")
 public func msimeInstallRustClient(_ table: UnsafeRawPointer?) -> Bool {
-  // 先只读开头的 version 和 size：调用方的表可能来自别的版本、比本版本的结构体短，按本版本的大小整个读出来会越界。
+  // 先只读开头的 version 和 size：调用方的表可能来自别的版本、比本版本的结构体短，按本版本的大小整个读出来会越界。size 是 C 的 sizeof，与 Swift 的 stride 比（见 `BackendRustClient.init`）。
   guard let table, table.load(as: UInt32.self) == MSIME_RUST_CLIENT_VERSION,
-        Int(table.load(fromByteOffset: MemoryLayout<UInt32>.size, as: UInt32.self)) == MemoryLayout<msime_rust_client>.size else {
+        Int(table.load(fromByteOffset: MemoryLayout<UInt32>.size, as: UInt32.self)) == MemoryLayout<msime_rust_client>.stride else {
     return false
   }
   guard BackendRustClient.install(table.load(as: msime_rust_client.self)), let client = BackendRustClient.shared else { return false }
-  switch BackendRustAccount.registerShared(client: client, agent: MacRustAgent.current) {
+  // macOS 不会像 iOS 那样把持着文件锁的进程挂起后杀掉，不需要后台执行。
+  switch BackendRustAccount.registerShared(client: client, agent: MacRustAgent.current, backgroundActivity: nil) {
   case .success(let account):
     // 输入法同步读的登录状态缓存（`BackendAccountState`）先填一次，不等第一页释义。
     Task.detached { try? await BackendAccountState.refresh(account) }

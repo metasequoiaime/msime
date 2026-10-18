@@ -37,7 +37,7 @@ enum BackendRustSessionStoreTest {
       accountLock: state.appendingPathComponent("account-refresh.lock"),
       anonymousLock: group.appendingPathComponent("backend-account-refresh.lock"))
     let id: UInt64
-    switch BackendRustSessionStore(layout: layout).register(with: client, clientAgent: "msime-macos/0.52.0 (Mac; macOS 26; edition=full)") {
+    switch BackendRustSessionStore(layout: layout, backgroundActivity: nil).register(with: client, clientAgent: "msime-macos/0.52.0 (Mac; macOS 26; edition=full)") {
     case .success(let value): id = value
     case .failure(let failure): return check(false, "register failed: \(failure.code)")
     }

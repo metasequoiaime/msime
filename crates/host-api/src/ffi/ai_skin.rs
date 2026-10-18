@@ -158,7 +158,7 @@ struct CancelRequest {
     request_id: String,
 }
 
-/// 取消一次进行中的生成，Value 是当时是否有一个在跑。任意线程上调用，立即返回；也可以在进度回调里调用。
+/// 取消一次进行中的生成，Value 是当时是否有一个在跑；没有在跑的记下来，同一个 id 随后开始时立即取消（见头文件）。任意线程上调用，立即返回；也可以在进度回调里调用。
 /// # Safety
 /// `request` 指向 `length` 个可读的 UTF-8 JSON 字节，NULL 被拒绝。
 #[no_mangle]

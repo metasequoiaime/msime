@@ -418,3 +418,17 @@ fn request_ids_are_busy_until_finished_and_cancel_only_their_own() {
     requests.finish("synthetic-first");
     assert!(!requests.begin("synthetic-first").unwrap().is_cancelled());
 }
+
+#[test]
+fn a_cancel_that_arrives_before_begin_cancels_the_request() {
+    let requests = ChatStreamRequests::default();
+    // 宿主已经发起调用、Rust 还没登记时到的取消：当时没有在进行的，但这个 id 随后登记时已经取消。
+    assert_eq!(requests.cancel("synthetic-early"), Ok(false));
+    let early = requests.begin("synthetic-early").unwrap();
+    assert!(early.is_cancelled());
+    assert_eq!(early.check().unwrap_err().code(), "account_cancelled");
+    // 先到的取消只用一次，也不影响别的 id。
+    assert!(!requests.begin("synthetic-other").unwrap().is_cancelled());
+    requests.finish("synthetic-early");
+    assert!(!requests.begin("synthetic-early").unwrap().is_cancelled());
+}

@@ -23,7 +23,7 @@ private enum FakeAccountRust {
   static func table() -> msime_rust_client {
     var table = msime_rust_client()
     table.version = MSIME_RUST_CLIENT_VERSION
-    table.size = UInt32(MemoryLayout<msime_rust_client>.size)
+    table.size = UInt32(MemoryLayout<msime_rust_client>.stride)
     table.string_free = { free($0) }
     table.session_store_register = { store in
       let agent = store?.pointee.client_agent.map { String(cString: $0) }
@@ -80,7 +80,7 @@ final class BackendRustAccountTests: XCTestCase {
 
   func testRegistrationReportsTheAgentRustAssembled() throws {
     let client = try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table()))
-    let account = try BackendRustAccount.register(client: client, agent: agent, layout: layout).get()
+    let account = try BackendRustAccount.register(client: client, agent: agent, layout: layout, backgroundActivity: nil).get()
     XCTAssertEqual(account.store, 9)
     let seen = FakeAccountRust.snapshot()
     // 拼装交给 Rust：宿主只给平台、版本、设备、系统和版本 ID，注册时带的是 Rust 拼出的那一串。
@@ -98,7 +98,7 @@ final class BackendRustAccountTests: XCTestCase {
   func testRegistrationFailsWithoutAnAgentInsteadOfFallingBackToTheDefault() throws {
     FakeAccountRust.agentReply = #"{"ok":false,"error":"account_invalid"}"#
     let client = try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table()))
-    XCTAssertEqual(BackendRustAccount.register(client: client, agent: agent, layout: layout).map(\.store),
+    XCTAssertEqual(BackendRustAccount.register(client: client, agent: agent, layout: layout, backgroundActivity: nil).map(\.store),
                    .failure(BackendRustClient.Failure(code: "account_invalid",
                                                       response: Data(#"{"ok":false,"error":"account_invalid"}"#.utf8))))
     XCTAssertTrue(FakeAccountRust.snapshot().registrations.isEmpty)
@@ -106,8 +106,8 @@ final class BackendRustAccountTests: XCTestCase {
 
   func testSharedRegistrationHappensOncePerProcess() throws {
     let client = try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table()))
-    let first = try BackendRustAccount.registerShared(client: client, agent: agent, layout: layout).get()
-    let second = try BackendRustAccount.registerShared(client: client, agent: agent, layout: layout).get()
+    let first = try BackendRustAccount.registerShared(client: client, agent: agent, layout: layout, backgroundActivity: nil).get()
+    let second = try BackendRustAccount.registerShared(client: client, agent: agent, layout: layout, backgroundActivity: nil).get()
     XCTAssertEqual(first.store, second.store)
     XCTAssertEqual(BackendRustAccount.shared?.store, first.store)
     XCTAssertEqual(FakeAccountRust.snapshot().registrations.count, 1)
