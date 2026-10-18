@@ -424,6 +424,39 @@ fn import_waits_for_a_held_state_lock_instead_of_reporting_busy() {
     assert_eq!(queue.read().unwrap(), preparing_state());
 }
 
+#[test]
+fn import_after_the_conversion_does_not_wait_for_a_held_state_lock() {
+    // Android 的 `DictionarySnapshotQueue.read` 每次都经 import_android_v1；`:ime` 激活时整个回调都持着 state.lock，转换完成以后读状态不能排在它后面。
+    let (parent, queue) = java_queue(PREPARING, Some(PREPARING_ID));
+    assert!(queue.import_android_v1().unwrap());
+    let held = queue.lock(super::super::STATE_LOCK_NAME).unwrap();
+    let root = queue_root(&parent);
+    let importer = std::thread::spawn(move || {
+        DictionarySnapshotQueue::new(root)
+            .unwrap()
+            .import_android_v1()
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !importer.is_finished() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let finished = importer.is_finished();
+    drop(held);
+    assert!(finished, "转换完成以后不该再等 state.lock");
+    assert!(!importer.join().unwrap().unwrap());
+    assert_eq!(queue.read().unwrap(), preparing_state());
+}
+
+#[test]
+fn import_of_a_queue_without_state_bin_does_not_create_the_lock_file() {
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().join("queue");
+    fs::create_dir(&root).unwrap();
+    let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
+    assert!(!queue.import_android_v1().unwrap());
+    assert!(entries(&root).is_empty());
+}
+
 /// Java 排的本地备份恢复请求（`LOCAL_BACKUP`，账号是 `LOCAL_RESTORE_OWNER`）转换以后原样保留，Rust 的 worker 不知道当前账号是谁时也照样认领并激活，与 Java 的 `owned` 相同。`import_first` 为假时不先调 `import_android_v1`，由认领时的就地转换接上。
 fn assert_local_backup_is_applied_without_an_account(import_first: bool) {
     let (_parent, queue) = java_queue(LOCAL_BACKUP, Some(LOCAL_BACKUP_ID));

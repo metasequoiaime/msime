@@ -292,10 +292,20 @@ impl DictionarySnapshotQueue {
     }
 
     /// Android 旧版队列（Java 写的 `state.bin`）就地转成 `state.json`，在 `state.lock` 的 flock 里做，要等正在持锁的激活做完。返回这一次是否转换了：目录不存在、没有 `state.bin`、或者已经转换过时是 `false`，什么也不改，也不创建目录。其余会改状态的操作持锁时也先做同样的转换，所以 `:ime` 进程先跑起来也不会把旧队列当成空的覆盖掉。
+    ///
+    /// 目录里已经没有 `state.bin` 时不取锁直接返回 `false`：转换完成以后再没有谁会写 `state.bin`（写它的 Java 队列已经不在了），这时取锁只会让 Android 读状态的 `read`（它每次都经这里）和主进程启动时的这一步排在 `:ime` 持着锁的整次激活后面。`state.bin` 还在、或者打不开它（比如是符号链接）时照旧持锁处理，错误也在锁里报。
     pub fn import_android_v1(&self) -> Result<bool, SnapshotQueueError> {
-        if self.existing_root()?.is_none() {
+        let Some(root) = self.existing_root()? else {
+            return Ok(false);
+        };
+        let directory = crate::file_lock::open_private_directory(&root)
+            .map_err(|_| SnapshotQueueError::Unavailable)?;
+        let legacy =
+            crate::file_lock::open_private_file_at(&directory, OsStr::new(android_v1::STATE_NAME));
+        if matches!(&legacy, Err(error) if error.kind() == std::io::ErrorKind::NotFound) {
             return Ok(false);
         }
+        drop((legacy, directory));
         let lock = self.lock_wait()?;
         Self::import_android_v1_at(&lock.directory)
     }

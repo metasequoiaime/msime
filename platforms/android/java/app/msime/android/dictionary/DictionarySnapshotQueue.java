@@ -41,7 +41,7 @@ public final class DictionarySnapshotQueue {
     }
 
     /**
-     * 读出队列状态 `{version, localVersion, request}`（形状同 Rust 的 `SnapshotQueueState`）。经 `import_android_v1`：还没转换的旧队列这一步顺带在锁里转成 `state.json`，已经转换过、或目录不存在时什么也不改，也不创建目录。只读不会发布本机词库版本，`localVersion` 是键盘最后一次发布的。
+     * 读出队列状态 `{version, localVersion, request}`（形状同 Rust 的 `SnapshotQueueState`）。经 `import_android_v1`：还没转换的旧队列这一步顺带在锁里转成 `state.json`；已经转换过（目录里没有 `state.bin`）、或目录不存在时什么也不改，也不创建目录，而且不取 `state.lock`，不会排在 `:ime` 正持锁的激活后面，`state.json` 由 Rust 不持锁地读。只读不会发布本机词库版本，`localVersion` 是键盘最后一次发布的。
      */
     public static JSONObject read(Path directory) throws Failure {
         Object state = importAndroidV1(directory).opt("state");
