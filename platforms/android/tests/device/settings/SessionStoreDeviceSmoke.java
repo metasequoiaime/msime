@@ -413,7 +413,7 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
             JSONObject writes = new JSONObject()
                 .put("feedback", new JSONObject().put("soundEnabled", false).put("hapticsEnabled", true)
                     .put("hapticStrength", "strong"))
-                .put("android_local", new JSONObject().put(fallback, true).put(strokeWidth, 5))
+                .put("android_local", new JSONObject().put(fallback, false).put(strokeWidth, 5))
                 .put("custom_keyboard_skins", new JSONArray().put(new JSONObject().put("id", "synthetic-sync-skin")
                     .put("name", "同步皮肤").put("updated_at", 100)
                     .put("design", new JSONObject().put("accent", 0x123456))).toString())
@@ -427,7 +427,7 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
                 && Boolean.FALSE.equals(feedback.getClass().getMethod("hapticsEnabled").invoke(feedback)),
                 "another account's feedback was written");
             Object local = loadLocal.invoke(null, isolated);
-            check(!(Boolean) bool.invoke(local, fallback) && (Integer) integer.invoke(local, strokeWidth) == 3,
+            check((Boolean) bool.invoke(local, fallback) && (Integer) integer.invoke(local, strokeWidth) == 3,
                 "another account's local settings were written");
             check(((java.util.List<?>) readSkins.invoke(null, preferences.toPath())).isEmpty(),
                 "another account's skins were written");
@@ -451,7 +451,7 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
                 && "strong".equals(strength.getClass().getMethod("id").invoke(strength)),
                 "host_writes.feedback was not written: " + feedback);
             local = loadLocal.invoke(null, isolated);
-            check((Boolean) bool.invoke(local, fallback) && (Integer) integer.invoke(local, strokeWidth) == 5,
+            check(!(Boolean) bool.invoke(local, fallback) && (Integer) integer.invoke(local, strokeWidth) == 5,
                 "host_writes.android_local was not written");
             java.util.List<?> library = (java.util.List<?>) readSkins.invoke(null, preferences.toPath());
             check(library.size() == 1 && "synthetic-sync-skin".equals(library.get(0).getClass().getMethod("id")
