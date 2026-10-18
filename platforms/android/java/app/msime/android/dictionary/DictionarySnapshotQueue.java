@@ -1,531 +1,143 @@
 package app.msime.android;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import android.content.Context;
+import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.channels.OverlappingFileLockException;
-import java.nio.channels.WritableByteChannel;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.UUID;
-import java.util.function.Supplier;
-/** Cross-process, crash-safe handoff for one cloud dictionary snapshot.
- * Native code owns snapshot decoding, staging, and activation. This class
- * owns only bounded metadata and the downloaded NDJSON file.
+import org.json.JSONException;
+import org.json.JSONObject;
+
+/**
+ * 词库快照激活队列的 Java 一侧（#8201 迁移计划 5d）：状态、排队、取消、认领和激活都在 Rust 的 {@code msime_client_snapshot_queue} 里，在队列目录的 `state.lock` 上用 flock 互斥。这里只拼请求、读回答。
+ *
+ * <p>原来这里是 Java 自己的一份实现，状态写在 `state.bin`、用 Java 的文件锁（fcntl）加锁，与 Rust 的 flock 互相看不见，所以主进程（云同步、本地备份、Tauri 合包的插件、退出登录）和 `:ime`（空闲时激活）在同一组提交里一起改调 Rust。旧版本留下的 `state.bin` 由 Rust 就地转成 `state.json`（{@link #read}，主进程启动时先做一次；任何会改队列的操作持锁时也先做），排着的快照文件两边同名、原样留着。
+ *
+ * <p>不读会话，两个进程都能调；都会读写文件，放在工作线程上。
  */
 public final class DictionarySnapshotQueue {
-    public static final long MAXIMUM_SNAPSHOT_BYTES = 512L * 1024L * 1024L;
-    public static final int MAXIMUM_STATE_BYTES = 65_536;
-    private static final String STATE_NAME = "state.bin";
-    private static final String LOCK_NAME = "state.lock";
-    private static final String WORKER_LOCK_NAME = "worker.lock";
-    private static final String PREFIX = "local-v1:";
-    /** 本地备份恢复排进来的请求的所有者。这份快照来自用户自己选的备份文件，不属于任何账号，所以认领和激活时不做账号比对：未登录时当前账号是空字符串、登录后是真实账号 id，都不会等于它，比对的话恢复的词和输入记录会被当成别的账号的请求丢掉。退出登录只取消该账号自己的请求（{@link #cancel}），也碰不到它。磁盘上已经排着的请求用的就是这个值，不能改。 */
+    /** 本地备份恢复排进来的请求的所有者，与 Rust 的 `LOCAL_RESTORE_OWNER` 相同：这份快照来自用户自己选的备份文件，不属于任何账号，认领和激活时不比对账号，退出登录也取消不到它。磁盘上已经排着的请求用的就是这个值，不能改。 */
     public static final String LOCAL_RESTORE_OWNER = "local-backup";
+    /** 队列在应用私有 files 目录下的位置；两个进程用同一个绝对路径。 */
+    public static final String PATH = "bootstrap/state/dictionary-snapshots";
 
-    public enum Status {
-        QUEUED("queued"), PREPARING("preparing"), APPLIED("applied"),
-        CONFLICT("conflict"), FAILED("failed"), CANCELLED("cancelled");
-        private final String wire;
-        Status(String wire) { this.wire = wire; }
-        boolean active() { return this == QUEUED || this == PREPARING; }
-        public String wire() { return wire; }
-    }
-
-    public enum Reason { UNAVAILABLE, BUSY, INVALID, CONFLICT }
-
+    /** Rust 报的一次失败：snapshot_busy（已有一份在排队，或另一处正持着锁）、snapshot_conflict（本机词库版本已经变了）、snapshot_invalid、snapshot_unavailable 等。 */
     public static final class Failure extends Exception {
         private static final long serialVersionUID = 1L;
-        private final Reason reason;
-        Failure(Reason reason) { super(reason.name()); this.reason = reason; }
-        Failure(Reason reason, Throwable cause) { super(reason.name(), cause); this.reason = reason; }
-        public Reason reason() { return reason; }
-    }
+        public final String code;
 
-    public static final class Request {
-        private final UUID id;
-        private final String accountId;
-        private final long cloudRevision;
-        private final String expectedLocalVersion;
-        private final String fileSha256;
-        private final Status status;
-        Request(UUID id, String accountId, long cloudRevision, String expectedLocalVersion,
-                String fileSha256, Status status) {
-            this.id = id;
-            this.accountId = accountId;
-            this.cloudRevision = cloudRevision;
-            this.expectedLocalVersion = expectedLocalVersion;
-            this.fileSha256 = fileSha256;
-            this.status = status;
-        }
-        public UUID id() { return id; }
-        public String accountId() { return accountId; }
-        public long cloudRevision() { return cloudRevision; }
-        public String expectedLocalVersion() { return expectedLocalVersion; }
-        public String fileSha256() { return fileSha256; }
-        public Status status() { return status; }
-    }
-
-    public static final class State {
-        private final String localVersion;
-        private final Request request;
-        State(String localVersion, Request request) {
-            this.localVersion = localVersion;
-            this.request = request;
-        }
-        public String localVersion() { return localVersion; }
-        public Request request() { return request; }
-    }
-
-    public static final class WorkerLease implements AutoCloseable {
-        private final FileChannel channel;
-        private final FileLock lock;
-        private final Path owner;
-        private boolean closed;
-        private WorkerLease(FileChannel channel, FileLock lock, Path owner) {
-            this.channel = channel;
-            this.lock = lock;
-            this.owner = owner;
-        }
-        @Override public void close() throws IOException {
-            if (closed) return;
-            closed = true;
-            try { lock.release(); }
-            finally { channel.close(); }
+        Failure(String code) {
+            super(code);
+            this.code = code == null || code.isEmpty() ? "snapshot_unavailable" : code;
         }
     }
 
-    @FunctionalInterface
-    public interface Activation { String apply() throws Exception; }
-    private interface LockedAction<T> { T run() throws Exception; }
+    private DictionarySnapshotQueue() {}
 
-    private final Path directory;
-    private final Path trustedRoot;
-
-    /** The files root comes from Android Context, before app-owned path components are appended. */
-    public DictionarySnapshotQueue(Path trustedRoot, Path directory) {
-        if (trustedRoot == null || directory == null
-                || !trustedRoot.isAbsolute() || !directory.isAbsolute())
-            throw new IllegalArgumentException("Snapshot queue paths must be absolute");
-        this.trustedRoot = trustedRoot.normalize();
-        this.directory = directory.normalize();
-        if (this.directory.equals(this.trustedRoot)
-                || !this.directory.startsWith(this.trustedRoot))
-            throw new IllegalArgumentException("Snapshot queue must be under the files root");
+    /** 本应用的队列目录（绝对路径）；拿不到私有 files 目录时抛出。 */
+    public static Path directory(Context context) throws IOException {
+        File files = context.getApplicationContext().getFilesDir();
+        if (files == null) throw new IOException("private files unavailable");
+        return files.toPath().toAbsolutePath().normalize().resolve(PATH);
     }
 
-    public static boolean validVersion(String value) {
-        if (value == null || !value.startsWith(PREFIX)) return false;
-        String[] fields = value.split(":", -1);
-        if (fields.length != 3 || !validOwner(fields[1])) return false;
-        return validDigest(fields[2]);
+    /**
+     * 读出队列状态 `{version, localVersion, request}`（形状同 Rust 的 `SnapshotQueueState`）。经 `import_android_v1`：还没转换的旧队列这一步顺带在锁里转成 `state.json`，已经转换过、或目录不存在时什么也不改，也不创建目录。只读不会发布本机词库版本，`localVersion` 是键盘最后一次发布的。
+     */
+    public static JSONObject read(Path directory) throws Failure {
+        Object state = importAndroidV1(directory).opt("state");
+        if (!(state instanceof JSONObject object)) throw new Failure("snapshot_unavailable");
+        return object;
     }
 
-    /** 本机词库版本 `local-v1:<代次>:<摘要>` 里交给原生快照准备（`expected_version`）和激活的那段摘要，64 位小写十六进制。原生侧只认这段摘要，整串传过去会被当成越界请求拒绝，整份激活永远失败；iOS 的 `activateDictionarySnapshot` 也是先拆出这一段。 */
-    public static String nativeVersion(String version) throws Failure {
-        if (!validVersion(version)) throw new Failure(Reason.INVALID);
-        return version.split(":", -1)[2];
+    /** 旧版 Java 队列的 `state.bin` 就地转成 `state.json`：`{imported, state}`。幂等，主进程启动时调一次。 */
+    public static JSONObject importAndroidV1(Path directory) throws Failure {
+        return call(request("import_android_v1", directory));
     }
 
-    private static boolean validOwner(String value) {
-        return JsonPolicy.snapshotOwnerUuid(value);
+    /** 键盘最后一次发布的本机词库版本（`local-v1:<代次>:<摘要>`）；还没发布过时为 null。 */
+    public static String localVersion(JSONObject state) {
+        return JsonPolicy.strictString(state.opt("localVersion"));
     }
 
-    public static boolean validDigest(String value) {
-        return TextPolicy.isLowerHex(value, 64);
-    }
-
-    public State read() throws Failure { return locked(this::readUnlocked); }
-
-    /** Publishes a native durable version and reconciles a request acknowledged by activation. */
-    public void publishLocalVersion(String version) throws Failure {
-        if (!validVersion(version)) throw new Failure(Reason.INVALID);
-        Request applied = locked(() -> {
-            State state = readUnlocked();
-            Request request = state.request();
-            if (request != null && request.status().active()
-                    && request.id().toString().equals(version.split(":", -1)[1])) {
-                request = copy(request, Status.APPLIED);
-            }
-            writeState(new State(version, request));
-            return request != null && request.status() == Status.APPLIED ? request : null;
-        });
-        if (applied != null) deleteSnapshot(applied.id());
-    }
-
-    public Path filePath(UUID id) throws Failure {
-        if (id == null) throw new Failure(Reason.INVALID);
-        return root().resolve(id + ".ndjson");
-    }
-
-    public UUID enqueue(Path source, String accountId, long cloudRevision,
+    /**
+     * 排一份快照，键盘下次没有会话时整份激活。Rust 把 `source` 复制进队列（不跟随符号链接、最多 512 MiB、核对 SHA-256），只在没有正在排队的请求、且 `expectedLocalVersion` 仍是键盘发布的版本时才收下，否则是 snapshot_busy 或 snapshot_conflict。返回排队以后的状态。
+     *
+     * @param owner 请求的所有者：云同步是账号 id，本地备份是 {@link #LOCAL_RESTORE_OWNER}
+     */
+    public static JSONObject enqueue(Path directory, Path source, String owner, long cloudRevision,
             String expectedLocalVersion, String fileSha256) throws Failure {
-        if (source == null || !source.isAbsolute()
-                || !Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)
-                || !SafePaths.isSingleLink(source)
-                || accountId == null || accountId.isEmpty() || accountId.length() > 128
-                || cloudRevision < 0 || !validVersion(expectedLocalVersion)
-                || !validDigest(fileSha256)) throw new Failure(Reason.INVALID);
-        UUID id = UUID.randomUUID();
-        Path incoming = null;
-        boolean staged = false;
         try {
-            incoming = Files.createTempFile(root(), "snapshot-", ".incoming");
-            copyAndHash(source, incoming, fileSha256);
-            staged = true;
-        } catch (Failure error) { throw error; }
-        catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
-        finally {
-            if (!staged && incoming != null) {
-                try { Files.deleteIfExists(incoming); }
-                catch (IOException | SecurityException ignored) { }
-            }
+            return call(request("enqueue", directory)
+                .put("source", source.toAbsolutePath().toString())
+                .put("account_id", owner)
+                .put("cloud_revision", cloudRevision)
+                .put("expected_local_version", expectedLocalVersion)
+                .put("file_sha256", fileSha256));
+        } catch (JSONException invalid) {
+            throw new Failure("snapshot_invalid");
         }
-        final Path stagedIncoming = incoming;
-        Path destination = directory.resolve(id + ".ndjson");
-        boolean committed = false;
+    }
+
+    /** 取消 `accountId` 还在排队或准备中的请求（退出登录、换账号），等正在持锁的激活做完。返回取消以后的状态。 */
+    public static JSONObject cancel(Path directory, String accountId) throws Failure {
         try {
-            UUID result = locked(() -> {
-                State before = readUnlocked();
-                if (before.request() != null && before.request().status().active())
-                    throw new Failure(Reason.BUSY);
-                if (!expectedLocalVersion.equals(before.localVersion()))
-                    throw new Failure(Reason.CONFLICT);
-                try { Files.move(stagedIncoming, destination, StandardCopyOption.ATOMIC_MOVE); }
-                catch (IOException error) { throw new Failure(Reason.UNAVAILABLE, error); }
-                Request request = new Request(id, accountId, cloudRevision, expectedLocalVersion,
-                    fileSha256, Status.QUEUED);
-                writeState(new State(before.localVersion(), request));
-                return id;
-            });
-            committed = true;
-            return result;
-        } finally {
-            if (!committed) {
-                try { Files.deleteIfExists(incoming); } catch (IOException ignored) { }
-                try { Files.deleteIfExists(destination); } catch (IOException ignored) { }
-            }
+            return call(request("cancel", directory).put("account_id", accountId));
+        } catch (JSONException invalid) {
+            throw new Failure("snapshot_invalid");
         }
     }
 
-    public WorkerLease acquireWorkerLease() throws Failure {
+    /**
+     * `:ime` 在键盘没有会话时调：发布本机词库版本，认领排着的请求，在 `stagingDirectory` 里准备好再激活。
+     *
+     * @param accountId 当前账号；null 表示不知道（provider 不可达），属于账号的请求原样留到下次，本地备份的请求照样激活；空串表示没有登录，属于账号的请求取消
+     */
+    public static JSONObject process(Path directory, Path stagingDirectory, String options, String accountId)
+            throws Failure {
         try {
-            Path queueRoot = root();
-            Path lockPath = queueRoot.resolve(WORKER_LOCK_NAME);
-            rejectLockPath(lockPath);
-            FileChannel channel = FileChannel.open(lockPath,
-                StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE,
-                LinkOption.NOFOLLOW_LINKS);
-            try {
-                FileLock lock;
-                try { lock = channel.tryLock(); }
-                catch (OverlappingFileLockException error) { throw new Failure(Reason.BUSY, error); }
-                if (lock == null) throw new Failure(Reason.BUSY);
-                return new WorkerLease(channel, lock, queueRoot);
-            } catch (Failure error) {
-                channel.close();
-                throw error;
-            }
-        } catch (Failure error) { throw error; }
-        catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
-    }
-
-    public Request claim(WorkerLease lease, Supplier<String> currentAccountId) throws Failure {
-        checkLease(lease);
-        if (currentAccountId == null) throw new Failure(Reason.INVALID);
-        Request result = locked(() -> {
-            State state = readUnlocked();
-            Request request = state.request();
-            if (request == null || !request.status().active()) return null;
-            Boolean owned = owned(request, currentAccountId);
-            if (owned == null) return null;
-            if (!owned) {
-                Request cancelled = copy(request, Status.CANCELLED);
-                writeState(new State(state.localVersion(), cancelled));
-                return cancelled;
-            }
-            Request claimed = copy(request, Status.PREPARING);
-            writeState(new State(state.localVersion(), claimed));
-            return claimed;
-        });
-        if (result != null && result.status() == Status.CANCELLED) {
-            deleteSnapshot(result.id());
-            return null;
+            JSONObject request = request("process", directory)
+                .put("staging_root", stagingDirectory.toAbsolutePath().normalize().toString())
+                .put("options", new JSONObject(options));
+            if (accountId != null) request.put("account_id", accountId);
+            return call(request);
+        } catch (JSONException invalid) {
+            throw new Failure("snapshot_invalid");
         }
-        return result;
     }
 
-    public boolean complete(UUID id, WorkerLease lease, String currentVersion,
-            boolean alreadyApplied, Supplier<String> currentAccountId,
-            Activation activation) throws Failure {
-        checkLease(lease);
-        if (id == null || !validVersion(currentVersion) || currentAccountId == null || activation == null)
-            throw new Failure(Reason.INVALID);
-        Status result = locked(() -> {
-            State state = readUnlocked();
-            Request request = state.request();
-            if (request == null || !id.equals(request.id())
-                    || (!alreadyApplied && !request.status().active()))
-                throw new Failure(Reason.CONFLICT);
-            if (alreadyApplied) {
-                writeState(new State(currentVersion, copy(request, Status.APPLIED)));
-                return Status.APPLIED;
-            }
-            Boolean owned = owned(request, currentAccountId);
-            if (owned == null) return request.status();
-            if (!owned) {
-                writeState(new State(state.localVersion(), copy(request, Status.CANCELLED)));
-                return Status.CANCELLED;
-            }
-            if (!request.expectedLocalVersion().equals(currentVersion)) {
-                writeState(new State(currentVersion, copy(request, Status.CONFLICT)));
-                return Status.CONFLICT;
-            }
-            final String next;
-            try { next = activation.apply(); }
-            catch (Failure error) { throw error; }
-            catch (Exception error) { throw new Failure(Reason.UNAVAILABLE, error); }
-            if (!validVersion(next)) throw new Failure(Reason.INVALID);
-            writeState(new State(next, copy(request, Status.APPLIED)));
-            return Status.APPLIED;
-        });
-        if (result == Status.APPLIED || result == Status.CANCELLED) deleteSnapshot(id);
-        return result == Status.APPLIED;
+    /** 队列里有一个还在排队或准备中的请求。 */
+    public static boolean active(JSONObject state) {
+        JSONObject request = state.optJSONObject("request");
+        String status = request == null ? null : JsonPolicy.strictString(request.opt("status"));
+        return "queued".equals(status) || "preparing".equals(status);
     }
 
-    /** 请求是否仍归当前账号：本地备份恢复的请求不属于任何账号，总是成立，也不去问账号；其余请求的所有者必须等于当前账号。账号暂时读不到（provider 不可达）时返回 null，调用方原样保留请求，下次空闲再试。 */
-    private static Boolean owned(Request request, Supplier<String> currentAccountId) {
-        if (LOCAL_RESTORE_OWNER.equals(request.accountId())) return Boolean.TRUE;
-        String owner = currentAccountId.get();
-        return owner == null ? null : owner.equals(request.accountId());
+    /** 排着的请求不属于任何账号（本地备份恢复的）。 */
+    public static boolean localRestore(JSONObject state) {
+        JSONObject request = state.optJSONObject("request");
+        return request != null && LOCAL_RESTORE_OWNER.equals(JsonPolicy.strictString(request.opt("accountId")));
     }
 
-    public void fail(UUID id, WorkerLease lease) throws Failure {
-        checkLease(lease);
-        transition(id, Status.FAILED);
-    }
-
-    public void cancel(String accountId) throws Failure {
-        if (accountId == null || accountId.isEmpty()) throw new Failure(Reason.INVALID);
-        // 输入法 worker 在认领或完成请求时可能短暂持有状态锁。
-        // 重试这次交接，避免退出登录或切换账号时静默留下旧账号的活动快照。
-        // 已完成的请求不会造成影响：下一次尝试会观察到终态，不会触碰更新后的请求。
-        Failure busy = null;
-        for (int attempt = 0; attempt < 40; attempt++) {
-            try {
-                Request cancelled = locked(() -> {
-                    State state = readUnlocked();
-                    Request request = state.request();
-                    if (request == null || !accountId.equals(request.accountId()) || !request.status().active()) return null;
-                    Request result = copy(request, Status.CANCELLED);
-                    writeState(new State(state.localVersion(), result));
-                    return result;
-                });
-                if (cancelled != null) deleteSnapshot(cancelled.id());
-                return;
-            } catch (Failure error) {
-                if (error.reason() != Reason.BUSY) throw error;
-                busy = error;
-                try {
-                    Thread.sleep(25L);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    throw new Failure(Reason.BUSY, interrupted);
-                }
-            }
-        }
-        throw busy == null ? new Failure(Reason.BUSY) : busy;
-    }
-
-    private void transition(UUID id, Status status) throws Failure {
-        if (id == null || status.active()) throw new Failure(Reason.INVALID);
-        Request changed = locked(() -> {
-            State state = readUnlocked();
-            Request request = state.request();
-            if (request == null || !id.equals(request.id()) || !request.status().active()) return null;
-            Request result = copy(request, status);
-            writeState(new State(state.localVersion(), result));
-            return result;
-        });
-        if (changed != null) deleteSnapshot(changed.id());
-    }
-
-    private void checkLease(WorkerLease lease) throws Failure {
-        if (lease == null || lease.closed || !directory.equals(lease.owner))
-            throw new Failure(Reason.INVALID);
-    }
-
-    private Request copy(Request request, Status status) {
-        return new Request(request.id(), request.accountId(), request.cloudRevision(),
-            request.expectedLocalVersion(), request.fileSha256(), status);
-    }
-
-    private void deleteSnapshot(UUID id) throws Failure {
-        try { Files.deleteIfExists(filePath(id)); }
-        catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
-    }
-
-    private void copyAndHash(Path source, Path destination, String expected) throws IOException, Failure {
-        if (!SafePaths.isSingleLink(source)) throw new Failure(Reason.INVALID);
-        MessageDigest digest;
-        try { digest = MessageDigest.getInstance("SHA-256"); }
-        catch (NoSuchAlgorithmException error) { throw new Failure(Reason.UNAVAILABLE, error); }
-        long total = 0;
-        try (InputStream input = Files.newInputStream(source, LinkOption.NOFOLLOW_LINKS);
-                OutputStream output = Files.newOutputStream(destination, StandardOpenOption.WRITE)) {
-            byte[] buffer = new byte[65_536];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                total += count;
-                if (total > MAXIMUM_SNAPSHOT_BYTES) throw new Failure(Reason.INVALID);
-                digest.update(buffer, 0, count);
-                output.write(buffer, 0, count);
-            }
-        }
-        if (total == 0 || !DigestPolicy.hex(digest.digest()).equals(expected))
-            throw new Failure(Reason.INVALID);
-    }
-
-    private Path root() throws Failure {
+    private static JSONObject request(String operation, Path directory) throws Failure {
+        if (directory == null || !directory.isAbsolute()) throw new Failure("snapshot_invalid");
         try {
-            rejectSymlinkBoundary();
-            Files.createDirectories(directory);
-            rejectSymlinkBoundary();
-            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) throw new Failure(Reason.UNAVAILABLE);
-            return directory;
-        } catch (Failure error) { throw error; }
-        catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
-    }
-
-    private void rejectSymlinkBoundary() throws IOException {
-        Path current = trustedRoot;
-        for (Path component : trustedRoot.relativize(directory)) {
-            current = current.resolve(component);
-            if (Files.isSymbolicLink(current))
-                throw new IOException("snapshot queue path contains a symbolic link");
-            if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)
-                    && !Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS))
-                throw new IOException("snapshot queue path is not a directory");
+            return new JSONObject().put("operation", operation).put("directory", directory.toString());
+        } catch (JSONException invalid) {
+            throw new Failure("snapshot_invalid");
         }
     }
 
-    private <T> T locked(LockedAction<T> action) throws Failure {
+    /** 信封 `{ok, value}` 或 `{ok:false, error}`；读不懂时按 snapshot_unavailable。 */
+    private static JSONObject call(JSONObject request) throws Failure {
+        final JSONObject root;
         try {
-            Path queueRoot = root();
-            Path lockPath = queueRoot.resolve(LOCK_NAME);
-            rejectLockPath(lockPath);
-            try (FileChannel channel = FileChannel.open(lockPath,
-                    StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE,
-                    LinkOption.NOFOLLOW_LINKS)) {
-                FileLock lock;
-                try { lock = channel.tryLock(); }
-                catch (OverlappingFileLockException error) { throw new Failure(Reason.BUSY, error); }
-                if (lock == null) throw new Failure(Reason.BUSY);
-                try { return action.run(); }
-                finally { lock.release(); }
-            }
-        } catch (Failure error) { throw error; }
-        catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
-        catch (Exception error) { throw new Failure(Reason.UNAVAILABLE, error); }
-    }
-
-    private static void rejectLockPath(Path path) throws IOException {
-        if (Files.isSymbolicLink(path)
-                || (Files.exists(path, LinkOption.NOFOLLOW_LINKS)
-                    && !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)))
-            throw new IOException("snapshot queue lock is not a private regular file");
-    }
-
-    private State readUnlocked() throws Failure {
-        Path stateFile = directory.resolve(STATE_NAME);
-        try {
-            if (!Files.exists(stateFile, LinkOption.NOFOLLOW_LINKS)) return new State(null, null);
-            if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS))
-                throw new Failure(Reason.INVALID);
-            if (!SafePaths.isSingleLink(stateFile)) throw new Failure(Reason.INVALID);
-            byte[] bytes;
-            try (InputStream input = Files.newInputStream(stateFile, LinkOption.NOFOLLOW_LINKS)) {
-                bytes = HttpBodyPolicy.readRequired(input, MAXIMUM_STATE_BYTES);
-            }
-            if (bytes.length == 0) throw new Failure(Reason.INVALID);
-            DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes));
-            if (input.readInt() != 0x4d535131 || input.readInt() != 1) throw new Failure(Reason.INVALID);
-            String local = input.readBoolean() ? input.readUTF() : null;
-            if (local != null && !validVersion(local)) throw new Failure(Reason.INVALID);
-            Request request = input.readBoolean() ? decodeRequest(input) : null;
-            if (input.available() != 0) throw new Failure(Reason.INVALID);
-            return new State(local, request);
-        } catch (Failure error) { throw error; }
-        catch (IOException | SecurityException error) { throw new Failure(Reason.INVALID, error); }
-    }
-
-    private Request decodeRequest(DataInputStream input) throws IOException, Failure {
-        UUID id;
-        try { id = new UUID(input.readLong(), input.readLong()); }
-        catch (IllegalArgumentException error) { throw new Failure(Reason.INVALID, error); }
-        String accountId = input.readUTF();
-        String expected = input.readUTF();
-        String digest = input.readUTF();
-        long revision = input.readLong();
-        if (accountId.isEmpty() || accountId.length() > 128 || revision < 0
-                || !validVersion(expected) || !validDigest(digest)) throw new Failure(Reason.INVALID);
-        int status = input.readUnsignedByte();
-        if (status >= Status.values().length) throw new Failure(Reason.INVALID);
-        return new Request(id, accountId, revision, expected, digest, Status.values()[status]);
-    }
-
-    private void writeState(State state) throws Failure {
-        final byte[] bytes;
-        try (ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-                DataOutputStream output = new DataOutputStream(buffer)) {
-            output.writeInt(0x4d535131);
-            output.writeInt(1);
-            output.writeBoolean(state.localVersion() != null);
-            if (state.localVersion() != null) output.writeUTF(state.localVersion());
-            output.writeBoolean(state.request() != null);
-            if (state.request() != null) {
-                Request request = state.request();
-                output.writeLong(request.id().getMostSignificantBits());
-                output.writeLong(request.id().getLeastSignificantBits());
-                output.writeUTF(request.accountId());
-                output.writeUTF(request.expectedLocalVersion());
-                output.writeUTF(request.fileSha256());
-                output.writeLong(request.cloudRevision());
-                output.writeByte(request.status().ordinal());
-            }
-            output.flush();
-            bytes = buffer.toByteArray();
-        } catch (IOException error) {
-            throw new Failure(Reason.INVALID, error);
+            root = new JSONObject(NativeClient.snapshotQueue(request.toString()));
+        } catch (JSONException | RuntimeException malformed) {
+            throw new Failure("snapshot_unavailable");
         }
-        if (bytes.length > MAXIMUM_STATE_BYTES) throw new Failure(Reason.INVALID);
-        Path temporary = null;
-        try {
-            temporary = Files.createTempFile(directory, "state-", ".incoming");
-            try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
-                writeFully(channel, java.nio.ByteBuffer.wrap(bytes));
-                channel.force(true);
-            }
-            Files.move(temporary, directory.resolve(STATE_NAME), StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
-        finally { if (temporary != null) try { Files.deleteIfExists(temporary); } catch (IOException ignored) { } }
-    }
-
-    static void writeFully(WritableByteChannel channel, java.nio.ByteBuffer bytes) throws IOException {
-        while (bytes.hasRemaining()) {
-            if (channel.write(bytes) <= 0) throw new IOException("state write made no progress");
-        }
+        if (!JsonPolicy.strictTrue(root.opt("ok"))) throw new Failure(JsonPolicy.strictString(root.opt("error")));
+        JSONObject value = JsonPolicy.objectValue(root);
+        if (value == null) throw new Failure("snapshot_unavailable");
+        return value;
     }
 }

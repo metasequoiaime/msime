@@ -100,7 +100,7 @@ public final class CommonPhrasesStore {
         if (marker.exists()) return result;
         List<String> seeded = new ArrayList<>(STARTER_PHRASES.size());
         if (result.document().phrases().isEmpty() && result.document().packs().isEmpty()
-                && !SyncSignals.state(context).enabled()) {
+                && !SyncSignals.enabled(context)) {
             for (String text : STARTER_PHRASES) {
                 Result added = seed(context, text);
                 if (added.ok()) {

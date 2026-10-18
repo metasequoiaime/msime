@@ -25,20 +25,12 @@ public final class AccountSessionRoutingPolicy {
     public static final String KEY_ERROR = "error";
     /** `:ime` 写语音贡献音频的目录名，在应用的 cache 目录下；主进程只读这里面的文件。 */
     public static final String VOICE_CONTRIBUTION_DIRECTORY = "voice-contributions";
-    /** `:ime` 进程标记某个同步分类本机有改动；参数是分类名。 */
-    public static final String METHOD_SYNC_DIRTY = "sync_dirty";
-    /** `:ime` 进程读同步开关、登录方式与账号 ID；回复里没有任何令牌。 */
+    /** `:ime` 进程读主进程记着的账号绑定（账号 ID 与绑定代次）；回复里没有任何令牌。同步开关和改动标记 `:ime` 直接经 Rust 读写，不经过这里。 */
     public static final String METHOD_SYNC_STATE = "sync_state";
-    /** `sync_state` 回复中的开关字段。 */
-    public static final String KEY_SYNC_ENABLED = "sync_enabled";
-    /** `sync_state` 回复中的登录方式字段（google / apple / email，未登录为空）。 */
-    public static final String KEY_LOGIN_KIND = "login_kind";
     /** `sync_state` 回复中的主进程账号 ID；缺失表示暂不可读，空字符串表示未绑定。 */
     public static final String KEY_ACCOUNT_ID = "account_id";
     /** `sync_state` 回复中的账号绑定代次；缺失表示快照不可用。 */
     public static final String KEY_BINDING_GENERATION = "binding_generation";
-    /** `sync_dirty` 回复中「标记已记下」的字段。 */
-    public static final String KEY_SYNC_MARKED = "sync_marked";
     /** 回复中携带令牌的字段名。 */
     public static final String KEY_ACCESS_TOKEN = "access_token";
     /** 当前登录的账号编号（user.id）：刷新不变，同一个账号重新登录也不变。 */
@@ -113,16 +105,15 @@ public final class AccountSessionRoutingPolicy {
         throw new IllegalStateException("anonymous account unavailable");
     }
 
-    /** Provider 只回答本 UID 的两种令牌方法、语音贡献与两种同步方法；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */
+    /** Provider 只回答本 UID 的两种令牌方法、语音贡献与读账号绑定；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */
     public static boolean accepts(String method, int callingUid, int ownUid) {
         return (METHOD_ACCESS_TOKEN.equals(method) || METHOD_SHARED_ACCESS_TOKEN.equals(method)
-                || METHOD_VOICE_CONTRIBUTION.equals(method)
-                || METHOD_SYNC_DIRTY.equals(method) || METHOD_SYNC_STATE.equals(method))
+                || METHOD_VOICE_CONTRIBUTION.equals(method) || METHOD_SYNC_STATE.equals(method))
             && callingUid == ownUid;
     }
 
-    /** 是不是只读写同步标记、不涉及令牌的方法；provider 据此走另一条分支，回复里不放令牌字段。 */
+    /** 是不是只读账号绑定、不涉及令牌的方法；provider 据此走另一条分支，回复里不放令牌字段。 */
     public static boolean syncMethod(String method) {
-        return METHOD_SYNC_DIRTY.equals(method) || METHOD_SYNC_STATE.equals(method);
+        return METHOD_SYNC_STATE.equals(method);
     }
 }

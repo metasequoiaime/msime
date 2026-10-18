@@ -16,6 +16,7 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
+import org.json.JSONObject
 import java.nio.file.Path
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.RejectedExecutionException
@@ -93,37 +94,27 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
         super.onDestroy()
     }
 
-    private fun snapshotQueue(): DictionarySnapshotQueue {
-        val files = hostActivity.filesDir
-            ?: throw IllegalStateException("private files unavailable")
-        return DictionarySnapshotQueue(files.toPath(),
-            File(files, "bootstrap/state/dictionary-snapshots").toPath())
-    }
-
-    private fun snapshotQueueRoot(): Path {
-        val files = hostActivity.filesDir
-            ?: throw IllegalStateException("private files unavailable")
-        return File(files, "bootstrap/state/dictionary-snapshots").toPath().toAbsolutePath().normalize()
-    }
+    /** 词库快照激活队列的目录。队列本身在 Rust 的 msime_client_snapshot_queue 里（#8201 迁移计划 5d），与原生页、键盘用的是同一份、同一把 flock。 */
+    private fun snapshotQueueRoot(): Path = DictionarySnapshotQueue.directory(hostActivity)
 
     private fun privateSnapshotSource(value: String): Path {
         return DictionarySnapshotPathPolicy.privateSource(
             hostActivity.filesDir.toPath(), snapshotQueueRoot(), value)
     }
 
-    private fun snapshotStateResponse(): JSObject {
-        val state = snapshotQueue().read()
+    /** Rust 的队列状态换成 Tauri 一侧原来读的形状：没有的字段不写，不带 Rust 的 version。 */
+    private fun snapshotStateResponse(state: JSONObject): JSObject {
         val response = JSObject()
-        state.localVersion()?.let { response.put("localVersion", it) }
-        val request = state.request()
+        DictionarySnapshotQueue.localVersion(state)?.let { response.put("localVersion", it) }
+        val request = state.optJSONObject("request")
         if (request != null) {
             response.put("request", JSObject()
-                .put("id", request.id().toString())
-                .put("accountId", request.accountId())
-                .put("cloudRevision", request.cloudRevision())
-                .put("expectedLocalVersion", request.expectedLocalVersion())
-                .put("fileSha256", request.fileSha256())
-                .put("status", request.status().wire()))
+                .put("id", request.getString("id"))
+                .put("accountId", request.getString("accountId"))
+                .put("cloudRevision", request.getLong("cloudRevision"))
+                .put("expectedLocalVersion", request.getString("expectedLocalVersion"))
+                .put("fileSha256", request.getString("fileSha256"))
+                .put("status", request.getString("status")))
         }
         return response
     }
@@ -494,12 +485,12 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
     fun enqueueSnapshot(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(EnqueueSnapshotArgs::class.java)
-            snapshotQueue().enqueue(
+            val state = DictionarySnapshotQueue.enqueue(snapshotQueueRoot(),
                 privateSnapshotSource(args.source), args.accountId, args.cloudRevision,
                 args.expectedLocalVersion, args.fileSha256)
-            invoke.resolve(snapshotStateResponse())
+            invoke.resolve(snapshotStateResponse(state))
         } catch (error: DictionarySnapshotQueue.Failure) {
-            invoke.reject("snapshot_${error.reason().name.lowercase()}", "snapshot_${error.reason().name.lowercase()}")
+            invoke.reject(error.code, error.code)
         } catch (error: IllegalArgumentException) {
             invoke.reject("snapshot_invalid", error.message)
         } catch (_: Exception) {
@@ -509,9 +500,9 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
 
     @Command
     fun snapshotState(invoke: Invoke) {
-        try { invoke.resolve(snapshotStateResponse()) }
+        try { invoke.resolve(snapshotStateResponse(DictionarySnapshotQueue.read(snapshotQueueRoot()))) }
         catch (error: DictionarySnapshotQueue.Failure) {
-            invoke.reject("snapshot_${error.reason().name.lowercase()}", "snapshot_${error.reason().name.lowercase()}")
+            invoke.reject(error.code, error.code)
         } catch (_: Exception) { invoke.reject("snapshot_unavailable", "snapshot_unavailable") }
     }
 
@@ -519,10 +510,9 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
     fun cancelSnapshot(invoke: Invoke) {
         try {
             val accountId = invoke.parseArgs(CancelSnapshotArgs::class.java).accountId
-            snapshotQueue().cancel(accountId)
-            invoke.resolve(snapshotStateResponse())
+            invoke.resolve(snapshotStateResponse(DictionarySnapshotQueue.cancel(snapshotQueueRoot(), accountId)))
         } catch (error: DictionarySnapshotQueue.Failure) {
-            invoke.reject("snapshot_${error.reason().name.lowercase()}", "snapshot_${error.reason().name.lowercase()}")
+            invoke.reject(error.code, error.code)
         } catch (error: IllegalArgumentException) {
             invoke.reject("snapshot_invalid", error.message)
         } catch (_: Exception) { invoke.reject("snapshot_unavailable", "snapshot_unavailable") }

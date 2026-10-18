@@ -3281,6 +3281,41 @@ fn drain_personal_queue(options: &Value) {
     panic!("the personal dictionary queue did not drain");
 }
 
+/// Android 本地备份恢复的大批词先进命名词库的待发送队列，由键盘空闲时一批批送进个人词库导入队列。个人词库队列已经清空、待发送队列里还有词时，这些词还不在本机快照里，词库不能上传（#8201 迁移计划 5d，与 Android 原来的 Java 驱动相同）。
+#[test]
+fn words_still_in_the_collections_outbox_block_the_dictionary_upload() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = crate::tests::host_options_with_main_dictionary(directory.path());
+    let local = HostLocal {
+        options: Some(options.clone()),
+        ..host_local(directory.path(), HostInputs::default())
+    };
+    let file = directory.path().join("backup.ndjson");
+    cloud_snapshot(&file, 200);
+    let words: Vec<PersonalWord> = snapshot_words(&file)
+        .unwrap()
+        .iter()
+        .filter_map(import_word)
+        .collect();
+    let collections = DictionaryCollectionsStore::new(
+        directory.path(),
+        PersonalDictionaryStore::new(directory.path().join("PersonalDictionary")),
+    );
+    let queued = collections.queue_words(words).unwrap().queued.unwrap();
+    assert!(queued > policy::PERSONAL_IMPORT_BATCH, "{queued}");
+    drain_personal_queue(&options);
+    let personal = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    assert_eq!(personal.read().unwrap().pending_count(), 0);
+    let outbox = collections.load().unwrap().outbox_pending;
+    assert!(outbox > 0, "the outbox kept words for the next idle flush");
+    let probe = local.dictionary(None).unwrap();
+    assert_eq!(probe.pending, outbox);
+    assert!(policy::upload_blocked(
+        probe.pending,
+        probe.activation == SnapshotActivation::Waiting
+    ));
+}
+
 #[test]
 fn merging_more_cloud_words_than_the_queue_holds_continues_over_several_rounds() {
     let directory = tempfile::tempdir().unwrap();

@@ -19,7 +19,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 向本应用的其他进程提供登录账号或「登录的优先、否则匿名」的 access token，代 `:ime` 上传语音贡献，以及云同步的开关与改动标记（`sync_state` / `sync_dirty`）。
+ * 向本应用的其他进程提供登录账号或「登录的优先、否则匿名」的 access token，代 `:ime` 上传语音贡献，以及主进程记着的账号绑定（`sync_state`）。
  *
  * <p>Declared in the main process and not exported, so only this uid can reach it. The `:ime` keyboard therefore never holds a refresh token and never refreshes, which is what keeps the rotating refresh token from being spent twice. Which session answers is {@link AccountSessionRoutingPolicy#source}: the native sign-in's own session（Rust 经 {@link AccountStore} 持有并刷新）, or else the combined package's Rust-owned session, read but never refreshed here. The token is returned in the reply and nowhere else: nothing here logs it. 回复里的 session_id 是账号编号（user.id）。
  */
@@ -31,7 +31,7 @@ public final class AccountSessionProvider extends ContentProvider {
             throw new SecurityException("account session");
         }
         Context context = getContext();
-        if (AccountSessionRoutingPolicy.syncMethod(method)) return sync(context, method, arg);
+        if (AccountSessionRoutingPolicy.syncMethod(method)) return sync(context);
         if (AccountSessionRoutingPolicy.METHOD_VOICE_CONTRIBUTION.equals(method)) return voice(context, extras);
         Bundle reply = new Bundle();
         String token = "";
@@ -59,25 +59,16 @@ public final class AccountSessionProvider extends ContentProvider {
         return reply;
     }
 
-    /** 同步状态与改动标记由主进程代 `:ime` 读写；回复里只有开关、登录方式、账号 ID 和「已记下」，没有令牌。 */
-    private static Bundle sync(Context context, String method, String section) {
+    /** 主进程记着的账号绑定（账号编号与登录代次）由这里交给 `:ime`；回复里没有令牌。同步开关和改动标记 `:ime` 直接经 Rust 读写（{@link SyncSignals}）。 */
+    private static Bundle sync(Context context) {
         Bundle reply = new Bundle();
         if (context == null) return reply;
-        if (AccountSessionRoutingPolicy.METHOD_SYNC_STATE.equals(method)) {
-            reply.putBoolean(AccountSessionRoutingPolicy.KEY_SYNC_ENABLED, SyncSwitch.enabled(context));
-            reply.putString(AccountSessionRoutingPolicy.KEY_LOGIN_KIND, SyncSwitch.loginKind(context));
-            // Do not acquire bindingLock here: the snapshot worker may hold the queue lock
-            // while calling us, and sign-out holds bindingLock while cancelling that queue.
-            SyncSwitch.Binding binding = SyncSwitch.bindingSnapshot(context);
-            if (binding != null) {
-                reply.putString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID, binding.accountId());
-                reply.putLong(AccountSessionRoutingPolicy.KEY_BINDING_GENERATION, binding.generation());
-            }
-            return reply;
+        // Do not acquire bindingLock here: sign-out holds it while it cancels the snapshot queue, and the keyboard asks for the account while it prepares that queue.
+        SyncSwitch.Binding binding = SyncSwitch.bindingSnapshot(context);
+        if (binding != null) {
+            reply.putString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID, binding.accountId());
+            reply.putLong(AccountSessionRoutingPolicy.KEY_BINDING_GENERATION, binding.generation());
         }
-        if (!SyncSwitch.validSection(section)) throw new IllegalArgumentException("unknown sync section");
-        SyncSwitch.markDirty(context, section);
-        reply.putBoolean(AccountSessionRoutingPolicy.KEY_SYNC_MARKED, true);
         return reply;
     }
 

@@ -1062,6 +1062,23 @@ if rg -n 'PATH \+ "/' "$repo_root/platforms/android/java/app/msime/android/accou
   echo "Android cloud clipboard settings and AI chat must go through Rust" >&2
   exit 1
 fi
+# 词库快照激活队列和云同步的状态都由 Rust 持有（#8201 迁移计划 5d）：Java 的 FileChannel.lock 是 fcntl，与 Rust 的 flock 互相看不见，所以 Java 里不能再有读写队列状态（旧的 state.bin）或加队列锁的代码，也不能再读写云同步的进度（cursor_、gen_、clean_ 这几类键、开关、上次同步时间），记改动只经 SyncSignals 调 Rust 的 mark_dirty。旧状态只在 RustCloudSync 里整份交给 Rust 的 import_legacy。
+if rg -n 'FileChannel|FileLock|DataOutputStream|DataInputStream' \
+    "$repo_root/platforms/android/java/app/msime/android/dictionary/DictionarySnapshotQueue.java" \
+    "$repo_root/platforms/android/java/app/msime/android/dictionary/DictionarySnapshotWorker.java" \
+  || rg -n '"state\.bin"|"bootstrap/state/dictionary-snapshots"|dictionary-snapshots"' "$repo_root/platforms/android/java" \
+    | rg -v '/dictionary/DictionarySnapshotQueue\.java:' \
+  || rg -n '"(cursor|gen|clean)_"|"last_synced_at"|"phrases_unheld"|KEY_ENABLED' "$repo_root/platforms/android/java"; then
+  echo "Android Java must not read or write the snapshot queue or cloud sync progress itself; Rust owns both" >&2
+  exit 1
+fi
+if ! rg -q '"import_android_v1"' "$repo_root/platforms/android/java/app/msime/android/dictionary/DictionarySnapshotQueue.java" \
+  || ! rg -q '"import_legacy"' "$repo_root/platforms/android/java/app/msime/android/account/RustCloudSync.java" \
+  || ! awk '/static void migrate\(Context context\)/ { inside = 1 } inside && /importAndroidV1\(queue\)/ { queue = NR } inside && /importLegacy\(/ { legacy = NR } inside && /^    }$/ { exit } END { exit !(queue && legacy && queue < legacy) }' \
+      "$repo_root/platforms/android/java/app/msime/android/account/RustCloudSync.java"; then
+  echo "Android must convert the old snapshot queue before importing the old cloud sync progress" >&2
+  exit 1
+fi
 # The host compiles against AndroidX and Material now, and those are AARs that only Gradle resolves,
 # so this script no longer compiles the whole source set -- `platforms/android/gradle-app` does, and
 # build-apk.sh drives it. What stays here is the part that is worth having without a Gradle daemon:

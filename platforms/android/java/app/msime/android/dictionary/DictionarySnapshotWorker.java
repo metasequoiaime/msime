@@ -1,21 +1,19 @@
 package app.msime.android;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.Supplier;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Runs snapshot preparation and activation only after the IME session is gone. */
+/** Runs snapshot preparation and activation only after the IME session is gone. 认领、准备和激活都在 Rust 的快照队列里（{@link DictionarySnapshotQueue#process}，#8201 迁移计划 5d）。 */
 public final class DictionarySnapshotWorker {
     private DictionarySnapshotWorker() {}
 
     /** 先处理排着的整份快照激活，再合并本地备份恢复时排下的输入记录。合并会改本机词库版本，放在激活前面会让排着的激活因版本不符被拒。 */
-    public static void process(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options,
-            Supplier<String> currentAccountId)
-            throws Exception {
+    public static void process(Path queueDirectory, Path stagingDirectory, String options,
+            Supplier<String> currentAccountId) throws Exception {
         try {
-            activate(filesRoot, queueDirectory, stagingDirectory, options, currentAccountId);
+            activate(queueDirectory, stagingDirectory, options, currentAccountId);
         } finally {
             mergePendingLearning(options);
         }
@@ -35,78 +33,22 @@ public final class DictionarySnapshotWorker {
         }
     }
 
-    private static void activate(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options,
+    /**
+     * 每次都交给 Rust 处理一次：它先发布本机词库版本（主进程排快照时要比对它），再认领、准备、激活排着的请求。
+     *
+     * <p>当前账号要经 provider 问主进程（一次 binder 调用），所以只在排着的请求属于某个账号时才问；没有请求、或者是本地备份恢复的请求（不属于任何账号）时不问，按「不知道」交给 Rust。读状态和处理之间主进程刚排进来的请求这一次按「不知道」原样留着，下次空闲再处理。
+     */
+    private static void activate(Path queueDirectory, Path stagingDirectory, String options,
             Supplier<String> currentAccountId) throws Exception {
-        DictionarySnapshotQueue queue = new DictionarySnapshotQueue(filesRoot, queueDirectory);
-        String current = version(options);
-        queue.publishLocalVersion(current);
-        try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
-            DictionarySnapshotQueue.Request request = queue.claim(lease, currentAccountId);
-            if (request == null) return;
-            long handle = 0;
-            try {
-                ensureSafeDirectory(stagingDirectory);
-                // 队列里记的是带前缀的本机版本，原生侧只认其中的摘要。
-                String expected = DictionarySnapshotQueue.nativeVersion(request.expectedLocalVersion());
-                String prepareRequest = new JSONObject()
-                    .put("options", new JSONObject(options))
-                    .put("staging_root", stagingDirectory.toAbsolutePath().normalize().toString())
-                    .put("expected_version", expected)
-                    .put("activation_id", request.id().toString())
-                    .put("records", 0)
-                    .toString();
-                JSONObject prepared = new JSONObject(NativeClient.snapshotPrepare(
-                    prepareRequest, queue.filePath(request.id()).toString()));
-                if (!JsonPolicy.strictTrue(prepared.opt("ok"))) {
-                    queue.fail(request.id(), lease);
-                    return;
-                }
-                long preparedHandle = DictionarySnapshotPolicy.handle(
-                    prepared.getJSONObject("value").opt("handle"), 0);
-                if (preparedHandle == 0)
-                    throw new IllegalStateException("snapshot handle invalid");
-                handle = preparedHandle;
-                boolean applied = queue.complete(request.id(), lease, current, false, currentAccountId, () -> {
-                    JSONObject activated = new JSONObject(NativeClient.snapshotActivate(
-                        preparedHandle, expected));
-                    if (!JsonPolicy.strictTrue(activated.opt("ok")))
-                        throw new IllegalStateException("snapshot activation rejected");
-                    return version(options);
-                });
-                if (!applied) {
-                    try { NativeClient.snapshotDiscard(preparedHandle); }
-                    finally { handle = 0; }
-                } else handle = 0;
-            } catch (Exception error) {
-                try { queue.fail(request.id(), lease); }
-                catch (Exception ignored) { /* Preserve the original worker failure. */ }
-                throw error;
-            } finally {
-                if (handle != 0) NativeClient.snapshotDiscard(handle);
-            }
-        }
+        ensureSafeDirectory(stagingDirectory);
+        JSONObject state = DictionarySnapshotQueue.read(queueDirectory);
+        String accountId = DictionarySnapshotQueue.active(state) && !DictionarySnapshotQueue.localRestore(state)
+            ? currentAccountId.get() : null;
+        DictionarySnapshotQueue.process(queueDirectory, stagingDirectory, options, accountId);
     }
 
     static void ensureSafeDirectory(Path directory) throws java.io.IOException {
         if (directory == null) throw new java.io.IOException("snapshot staging directory unavailable");
         SafePaths.ensureDirectory(directory);
     }
-
-    private static String version(String options) throws Exception {
-        JSONObject result = new JSONObject(NativeClient.snapshotVersion(options));
-        if (!JsonPolicy.strictTrue(result.opt("ok")))
-            throw new IllegalStateException("snapshot version unavailable");
-        JSONObject value = result.getJSONObject("value");
-        String digest = JsonPolicy.strictString(value.opt("version"));
-        if (digest == null) throw new IllegalStateException("snapshot version missing");
-        Object rawGeneration = value.opt("generation");
-        String generation = rawGeneration == null || rawGeneration == JSONObject.NULL
-            ? "legacy" : JsonPolicy.strictString(rawGeneration);
-        if (generation == null) throw new IllegalStateException("snapshot generation invalid");
-        String version = "local-v1:" + generation + ":" + digest;
-        if (!DictionarySnapshotQueue.validVersion(version))
-            throw new IllegalStateException("snapshot version invalid");
-        return version;
-    }
-
 }

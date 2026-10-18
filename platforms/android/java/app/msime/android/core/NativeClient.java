@@ -545,6 +545,12 @@ public final class NativeClient {
     /** 取消一次 AI 皮肤生成（{@code {request_id}}），任意线程，立即返回。 */
     static String aiSkinCancel(String request) { return TextPolicy.utf8(aiSkinCancelRaw(utf8(request))); }
 
+    /** 词库快照激活队列（{@code msime_client_snapshot_queue}），只给 {@link DictionarySnapshotQueue} 用。不读会话，主进程和 `:ime` 都能调；会读写文件，process 还会准备和激活整份快照，放在工作线程上。 */
+    static String snapshotQueue(String request) { return TextPolicy.utf8(snapshotQueueRaw(utf8(request))); }
+
+    /** 自动云同步（{@code msime_client_cloud_sync}），只给 {@link SyncSignals} 和 {@link RustCloudSync} 用。peek、mark_dirty 和 import_legacy 不读会话，两个进程都能调；其余操作带 {@code session_store}，只在主进程里调。run 会联网，放在工作线程上。 */
+    static String cloudSync(String request) { return TextPolicy.utf8(cloudSyncRaw(utf8(request))); }
+
     /** 本地语音模型安装的进度：{@code {id, stage, downloaded, total}} 的 JSON 字节，stage 是 "download"（从本地文件安装时是 "import"）、"verify"、"extract" 或 "done"。在调用 {@link #voiceLocalModelInstall} 的工作线程上调用；不要在这里抛异常或做耗时的事。 */
     public interface LocalModelProgress {
         void onProgress(byte[] json);

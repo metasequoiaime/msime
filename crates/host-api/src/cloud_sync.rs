@@ -40,6 +40,7 @@ use msime_client_services::account::{
 use msime_client_services::common_phrases::{
     valid_phrase_text, CommonPhrasesError, CommonPhrasesStore,
 };
+use msime_client_services::dictionary::collections::DictionaryCollectionsStore;
 use msime_client_services::dictionary::personal::{
     PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordRequest,
     PersonalWordRequestStatus,
@@ -133,7 +134,7 @@ pub(crate) struct SettingsApplied {
 /// 本机词库的情况。
 pub(crate) struct DictionaryLocal {
     pub(crate) has_words: bool,
-    /// 个人词库导入队列里还没被键盘应用的请求数。
+    /// 个人词库导入队列里还没被键盘应用的请求数，加上命名词库待发送队列里还没送进去的增删条数。
     pub(crate) pending: usize,
     /// 下载下来的云端快照：激活队列里还有在等激活的（`Waiting`），或者状态里记着的那份没激活就结束了（`Lost`）。
     pub(crate) activation: SnapshotActivation,
@@ -1745,16 +1746,28 @@ impl HostLocal {
         DictionarySnapshotQueue::new(directory.clone()).map_err(|_| "dictionary_storage".to_owned())
     }
 
-    /// 个人词库导入队列，在 Engine 选项的 `preferences_directory` 下，与 `msime_client_personal_dictionary_request` 用的是同一份。
-    fn personal_store(&self) -> Result<PersonalDictionaryStore, String> {
-        let directory = self
-            .options()?
+    /// Engine 选项里的 `preferences_directory`：个人词库导入队列和命名词库都在它下面。
+    fn dictionary_preferences(&self) -> Result<&Path, String> {
+        self.options()?
             .get("preferences_directory")
             .and_then(Value::as_str)
-            .filter(|path| Path::new(path).is_absolute())
-            .ok_or_else(|| "dictionary_storage".to_owned())?;
+            .map(Path::new)
+            .filter(|path| path.is_absolute())
+            .ok_or_else(|| "dictionary_storage".to_owned())
+    }
+
+    /// 个人词库导入队列，在 Engine 选项的 `preferences_directory` 下，与 `msime_client_personal_dictionary_request` 用的是同一份。
+    fn personal_store(&self) -> Result<PersonalDictionaryStore, String> {
         Ok(PersonalDictionaryStore::new(
-            Path::new(directory).join("PersonalDictionary"),
+            self.dictionary_preferences()?.join("PersonalDictionary"),
+        ))
+    }
+
+    /// 命名词库，与 `msime_client_dictionary_collections` 用的是同一份。
+    fn collections_store(&self) -> Result<DictionaryCollectionsStore, String> {
+        Ok(DictionaryCollectionsStore::new(
+            self.dictionary_preferences()?,
+            self.personal_store()?,
         ))
     }
 }
@@ -2059,11 +2072,17 @@ impl SyncLocal for HostLocal {
 
     fn dictionary(&self, awaited: Option<&str>) -> Result<DictionaryLocal, String> {
         let count = self.dictionary_call(json!({ "operation": "count", "user_only": true }))?;
+        // 命名词库的启用、停用和 Android 本地备份恢复的大批词先进命名词库的待发送队列，由键盘空闲时一批批送进个人词库导入队列（那边同时只收 128 个请求）。还没送进去的词不在本机导出的快照里：这时上传会把它们从云端漏掉，之后云端一有改动，下载下来的快照还会整份替换掉随后才送进去的词。所以两个队列都算排着的改动，与 Android 原来的 Java 驱动相同（#8201 迁移计划 5d）。
         let pending = self
             .personal_store()?
             .read()
             .map_err(|_| "dictionary_storage".to_owned())?
-            .pending_count();
+            .pending_count()
+            + self
+                .collections_store()?
+                .load()
+                .map_err(|_| "dictionary_storage".to_owned())?
+                .outbox_pending;
         // 没有激活队列目录的宿主不会下载快照，也就没有等激活的。
         let activation = match self.snapshot_queue {
             None => SnapshotActivation::Idle,

@@ -28,7 +28,7 @@ import app.msime.android.CloudClipboardNativeDriver;
 import app.msime.android.CloudClipboardRelay;
 import app.msime.android.DeviceDataApi;
 import app.msime.android.R;
-import app.msime.android.SyncSignals;
+import app.msime.android.RustCloudSync;
 import app.msime.android.SyncSwitch;
 import app.msime.android.ViewPolicy;
 import app.msime.android.core.InputViewValuePolicy;
@@ -38,14 +38,14 @@ import org.json.JSONObject;
 /**
  * 「我的」tab：资料卡、我的内容、同步、通用，以及其他平台下载、帮助与反馈、关于、新手引导和开屏动画。
  *
- * <p>资料卡在登录真实账号（Google / Apple / 邮箱）后显示头像、昵称和「已同步 · 最近 N 分钟前」，点了进个人资料；未登录时是「?」头像和「未登录」，点了打开登录面板。云同步开关只写本机的 {@link SyncSwitch}（P9）：打开时标记全部分类待同步，首次开启的「合并 / 使用云端」确认由宿主的同步控制器在回到前台时弹出；关闭时只关开关、保留游标。没有真实账号时开关置灰，副标题是「登录后可用」。
+ * <p>资料卡在登录真实账号（Google / Apple / 邮箱）后显示头像、昵称和「已同步 · 最近 N 分钟前」，点了进个人资料；未登录时是「?」头像和「未登录」，点了打开登录面板。云同步开关经 Rust 的 `set_enabled`（{@link CloudSync#setEnabled}）：打开时 Rust 把全部分类标成待上传，马上比对一次，首次开启的「合并 / 使用云端」确认由宿主的同步控制器弹出；关闭时只关开关、保留游标。没有真实账号时开关置灰，副标题是「登录后可用」。
  *
  * <p>页面先读本机的状态（偏好、同步开关、是否登录）立即画出来，再读要联网的部分（资料、设备数、云剪贴板条数），后者读不到时对应的行只是不显示数字。
  */
 public final class AccountFragment extends HomeTabFragment {
-    /** 本机状态：偏好、是否登录、同步开关、是否绑定了真实账号、上次同步时间、同步控制器留下的状态提示（没有时为空串）。 */
+    /** 本机状态：偏好、是否登录、同步开关、是否绑定了真实账号、Rust 写好的同步状态行（读不到时为空串）。 */
     private record Local(@Nullable JSONObject preferences, boolean signedIn, boolean syncEnabled, boolean realAccount,
-            long lastSyncedAt, String syncStatus) {}
+            String syncStatus) {}
 
     /** 联网读到的：资料（读不到为 null）、头像、设备数与云剪贴板条数（读不到为 -1）、是否绑定了真实账号、读的是哪个账号，以及读完时登录的是否仍是它（在工作线程上核对，主线程不调 Rust）。 */
     private record Remote(@Nullable DeviceDataApi.Profile profile, @Nullable Bitmap avatar, int devices,
@@ -79,9 +79,11 @@ public final class AccountFragment extends HomeTabFragment {
 
     private void reload() {
         long request = ++generation;
-        HostTask.run(this, context -> new Local(KeyboardSheets.preferences(context), new BackendAccount(context).signedIn(),
-            SyncSwitch.enabled(context), SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)),
-            SyncSwitch.lastSyncedAt(context), CloudSync.statusLine(context)), state -> {
+        HostTask.run(this, context -> {
+            RustCloudSync.Status sync = CloudSync.status(context);
+            return new Local(KeyboardSheets.preferences(context), new BackendAccount(context).signedIn(),
+                sync.enabled(), SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)), sync.line());
+        }, state -> {
                 if (state == null || request != generation || getView() == null) return;
                 local = state;
                 remote = null;
@@ -145,7 +147,7 @@ public final class AccountFragment extends HomeTabFragment {
             Local current = local;
             if (current != null && state.realAccount() != current.realAccount()) {
                 local = new Local(current.preferences(), current.signedIn(), current.syncEnabled(),
-                    state.realAccount(), current.lastSyncedAt(), current.syncStatus());
+                    state.realAccount(), current.syncStatus());
             }
             render();
         });
@@ -183,13 +185,11 @@ public final class AccountFragment extends HomeTabFragment {
             signedIn ? name + "，个人资料" : "未登录，点按登录");
     }
 
+    /** 资料卡下面那一行。登录了真实账号时用 Rust 写好的同步状态行：失败原因、云端被清空等提示优先于「已同步 · 最近 …」，关闭时是「云同步已关闭」（在「云端被清空」里选了关闭同步时另有一句）；读不到状态时只按开关说。 */
     private static String syncLine(Local state) {
         if (!state.realAccount()) return "已登录";
-        if (!state.syncEnabled()) return "云同步已关闭";
-        // 最近一次失败的原因等提示优先于「已同步」，否则同步失败了页面也看不出来。
         if (!state.syncStatus().isEmpty()) return state.syncStatus();
-        String ago = DeviceDataApi.relativeTime(System.currentTimeMillis(), state.lastSyncedAt());
-        return ago.isEmpty() ? "云同步已开启 · 尚未同步" : "已同步 · 最近 " + ago;
+        return state.syncEnabled() ? "云同步已开启" : "云同步已关闭";
     }
 
     private void openProfile() {
@@ -296,10 +296,13 @@ public final class AccountFragment extends HomeTabFragment {
 
     private void setSync(boolean enabled) {
         HostTask.run(this, context -> {
-            SyncSwitch.setEnabled(context, enabled);
-            // 打开时把全部分类标成待上传；比对与首次合并确认由宿主的同步控制器负责。
-            if (enabled) for (String section : SyncSwitch.SECTIONS) SyncSignals.markDirty(context, section);
-            return enabled;
+            // 打开时 Rust 把全部分类标成待上传；比对与首次合并确认由宿主的同步控制器负责。
+            try {
+                CloudSync.setEnabled(context, enabled);
+                return enabled;
+            } catch (AccountStore.Failure failure) {
+                return null;
+            }
         }, done -> {
             if (done == null) {
                 MsToast.show(requireContext(), "登录后才能打开云同步");

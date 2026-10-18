@@ -30,9 +30,10 @@ def main() -> int:
                     and "NOFOLLOW_LINKS" not in line):
                 print(f"{path}:{line_number}: 文件读取没有使用 LinkOption.NOFOLLOW_LINKS", file=sys.stderr)
                 ok = False
-    cloud_sync = (ROOT / "platforms/android/java/app/msime/android/home/CloudSync.java").read_text(encoding="utf-8")
-    if "SafePaths.ensureDirectory(work);" not in cloud_sync:
-        print("CloudSync 工作目录没有使用 SafePaths.ensureDirectory", file=sys.stderr)
+    # 云同步的临时文件（词库快照）从 #8201 迁移计划 5d 起由 Rust 放在 cloud-sync/work 下，Java 不再建工作目录；快照暂存目录仍由 Java 先建好再交给 Rust。
+    worker = (ROOT / "platforms/android/java/app/msime/android/dictionary/DictionarySnapshotWorker.java").read_text(encoding="utf-8")
+    if "SafePaths.ensureDirectory(directory);" not in worker:
+        print("DictionarySnapshotWorker 的暂存目录没有使用 SafePaths.ensureDirectory", file=sys.stderr)
         ok = False
     if ok:
         print("Android cross-process file readers open files without following symlinks")

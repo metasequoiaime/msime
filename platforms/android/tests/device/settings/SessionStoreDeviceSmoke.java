@@ -132,6 +132,212 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
             "ai_skin_invalid");
 
         settingsPageRequests(delta, progress);
+        legacySnapshotQueueActivates();
+        legacyCloudSyncImport();
+    }
+
+    /** Java 旧版队列写 `state.bin` 的格式（DataOutputStream）：魔数、版本 1、本机版本、一个请求。 */
+    private static byte[] legacyStateBin(String localVersion, java.util.UUID id, String owner, String expected,
+            String sha256, long revision) throws Exception {
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        try (java.io.DataOutputStream output = new java.io.DataOutputStream(buffer)) {
+            output.writeInt(0x4d535131);
+            output.writeInt(1);
+            output.writeBoolean(true);
+            output.writeUTF(localVersion);
+            output.writeBoolean(true);
+            output.writeLong(id.getMostSignificantBits());
+            output.writeLong(id.getLeastSignificantBits());
+            output.writeUTF(owner);
+            output.writeUTF(expected);
+            output.writeUTF(sha256);
+            output.writeLong(revision);
+            output.writeByte(0);
+        }
+        return buffer.toByteArray();
+    }
+
+    private static String sha256(File file) throws Exception {
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+        digest.update(java.nio.file.Files.readAllBytes(file.toPath()));
+        StringBuilder text = new StringBuilder(64);
+        for (byte value : digest.digest()) text.append(String.format(java.util.Locale.ROOT, "%02x", value));
+        return text.toString();
+    }
+
+    private static void deleteTree(File root) {
+        File[] children = root.listFiles();
+        if (children != null) for (File child : children) deleteTree(child);
+        if (root.exists() && !root.delete()) throw new AssertionError("could not delete " + root);
+    }
+
+    /** 产品的宿主选项（首次准备写下的 runtime-options.json）。 */
+    private String productOptions(android.content.Context target) throws Exception {
+        File file = new File(target.getFilesDir(), "runtime-options.json");
+        check(file.isFile(), "the product has not prepared its host yet");
+        return new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * #8201 迁移计划 5d、P13：旧版 Java 队列留下的一份真实 `state.bin`（DataOutputStream 写的，排着一份本地备份恢复的整份快照）经 Rust 的 import_android_v1 转成 `state.json` 以后，键盘空闲时的 DictionarySnapshotWorker（现在调 Rust 的 process）照常认领、准备、激活它。快照是产品词库此刻导出的那一份，所以激活不改变词库的内容；队列放在产品 files 下的一个临时目录里，与真实队列同一个文件系统（激活要原子地换目录）。
+     */
+    private void legacySnapshotQueueActivates() throws Exception {
+        android.content.Context target = getTargetContext();
+        ClassLoader loader = target.getClassLoader();
+        String options = productOptions(target);
+        File queue = new File(target.getFilesDir(), "synthetic-p13-queue-" + System.nanoTime());
+        try {
+            check(queue.mkdirs(), "queue directory");
+            JSONObject version = value(call("snapshotVersionRaw", new JSONObject(options))).getJSONObject("value");
+            Object generation = version.opt("generation");
+            String local = "local-v1:" + (generation instanceof String text ? text : "legacy") + ":"
+                + version.getString("version");
+            java.util.UUID id = java.util.UUID.randomUUID();
+            File snapshot = new File(queue, id + ".ndjson");
+            JSONObject exported = value(call("dictionaryRaw", new JSONObject().put("options", new JSONObject(options))
+                .put("action", new JSONObject().put("operation", "export_snapshot")
+                    .put("destination", snapshot.getAbsolutePath()))));
+            check(snapshot.isFile(), "export_snapshot wrote nothing: " + exported);
+            java.nio.file.Files.write(new File(queue, "state.bin").toPath(),
+                legacyStateBin(local, id, "local-backup", local, sha256(snapshot), 0));
+
+            Class<?> queueType = loader.loadClass("app.msime.android.DictionarySnapshotQueue");
+            Method importV1 = queueType.getMethod("importAndroidV1", java.nio.file.Path.class);
+            Method read = queueType.getMethod("read", java.nio.file.Path.class);
+            JSONObject imported = (JSONObject) importV1.invoke(null, queue.toPath());
+            check(imported.getBoolean("imported"), "the old queue was not converted: " + imported);
+            check(!new File(queue, "state.bin").exists() && new File(queue, "state.json").isFile(),
+                "state.bin was not replaced by state.json");
+            JSONObject request = imported.getJSONObject("state").getJSONObject("request");
+            check(id.toString().equals(request.getString("id")) && "queued".equals(request.getString("status"))
+                && "local-backup".equals(request.getString("accountId")), "converted request: " + request);
+            check(snapshot.isFile(), "the queued snapshot file must stay where it was, not be copied");
+
+            Class<?> worker = loader.loadClass("app.msime.android.DictionarySnapshotWorker");
+            Method process = worker.getMethod("process", java.nio.file.Path.class, java.nio.file.Path.class,
+                String.class, java.util.function.Supplier.class);
+            int[] asked = {0};
+            java.util.function.Supplier<String> account = () -> { asked[0]++; return null; };
+            process.invoke(null, queue.toPath(), new File(queue, "staging").toPath(), options, account);
+            JSONObject after = (JSONObject) read.invoke(null, queue.toPath());
+            JSONObject done = after.optJSONObject("request");
+            check(done != null && "applied".equals(done.getString("status")), "the converted snapshot was not activated: " + after);
+            check(asked[0] == 0, "a local-backup request must not ask the provider for the account");
+            check(!snapshot.exists(), "the activated snapshot file was not removed");
+        } finally {
+            deleteTree(queue);
+        }
+    }
+
+    /**
+     * 5d 的另一半：旧版 Java 云同步的两份 SharedPreferences 经 RustCloudSync.importLegacy 交给 Rust 的 import_legacy（先把旧快照队列转换好，再带上队列目录）。队列里还有这个账号没应用的快照时，词库游标保留下来；读不懂队列时词库游标不导入。导入以后 SyncSignals 的 peek 看到开关开着、mark_dirty 记得下改动；没导入的全新状态里两者都是关着的。DictionarySnapshotWorker 遇到属于账号的请求时才问 provider 当前账号，问不到（null）就原样留着；退出登录的 cancel 取消它。都在临时目录里做，不碰产品的同步状态。
+     */
+    private void legacyCloudSyncImport() throws Exception {
+        android.content.Context target = getTargetContext();
+        ClassLoader loader = target.getClassLoader();
+        Class<?> sync = loader.loadClass("app.msime.android.RustCloudSync");
+        Class<?> signals = loader.loadClass("app.msime.android.SyncSignals");
+        Class<?> queueType = loader.loadClass("app.msime.android.DictionarySnapshotQueue");
+        Method preferences = sync.getDeclaredMethod("preferences", Map.class);
+        preferences.setAccessible(true);
+        Method importLegacy = sync.getDeclaredMethod("importLegacy", String.class, JSONObject.class, JSONObject.class,
+            java.nio.file.Path.class);
+        importLegacy.setAccessible(true);
+        Method markDirty = signals.getDeclaredMethod("markDirty", String.class, String.class);
+        markDirty.setAccessible(true);
+        Method enabled = signals.getDeclaredMethod("enabled", String.class);
+        enabled.setAccessible(true);
+        Method peek = signals.getDeclaredMethod("call", String.class, JSONObject.class, JSONObject.class);
+        peek.setAccessible(true);
+        Method importV1 = queueType.getMethod("importAndroidV1", java.nio.file.Path.class);
+        Method read = queueType.getMethod("read", java.nio.file.Path.class);
+        Method cancel = queueType.getMethod("cancel", java.nio.file.Path.class, String.class);
+
+        String account = "synthetic-sync-account";
+        Map<String, Object> legacy = new HashMap<>();
+        legacy.put("enabled", true);
+        legacy.put("account_id", account);
+        legacy.put("login_kind", "email");
+        legacy.put("binding_generation", 4L);
+        legacy.put("cursor_settings", "3");
+        legacy.put("gen_settings", 2L);
+        legacy.put("clean_settings", 1L);
+        legacy.put("cursor_dictionary", "7");
+        legacy.put("phrases_unheld", new java.util.HashSet<>(java.util.List.of("收不下的常用语")));
+        legacy.put("last_synced_at", 1_700_000_000_000L);
+        Map<String, Object> status = new HashMap<>();
+        status.put("binding_generation", 4L);
+        status.put("last_attempt", 1_700_000_000_000L);
+        JSONObject syncV1 = (JSONObject) preferences.invoke(null, legacy);
+        check(syncV1.getJSONArray("phrases_unheld").length() == 1 && syncV1.getLong("gen_settings") == 2L,
+            "SharedPreferences values were not written as JSON: " + syncV1);
+        JSONObject statusV1 = (JSONObject) preferences.invoke(null, status);
+
+        File root = new File(target.getCacheDir(), "synthetic-cloud-sync-" + System.nanoTime());
+        try {
+            File queue = new File(root, "dictionary-snapshots");
+            check(queue.mkdirs(), "queue directory");
+            String local = "local-v1:legacy:" + hex('a');
+            java.util.UUID id = java.util.UUID.randomUUID();
+            File snapshot = new File(queue, id + ".ndjson");
+            java.nio.file.Files.write(snapshot.toPath(), "synthetic snapshot\n".getBytes(StandardCharsets.UTF_8));
+            java.nio.file.Files.write(new File(queue, "state.bin").toPath(),
+                legacyStateBin(local, id, account, local, sha256(snapshot), 7));
+
+            File fresh = new File(root, "fresh");
+            check(!(Boolean) enabled.invoke(null, fresh.getAbsolutePath()), "a fresh state reads as off");
+            check(!(Boolean) markDirty.invoke(null, fresh.getAbsolutePath(), "phrases"), "nothing is marked while off");
+
+            // 与产品启动时的顺序相同：先转换旧队列，再导入旧同步进度。
+            JSONObject converted = (JSONObject) importV1.invoke(null, queue.toPath());
+            check(converted.getBoolean("imported"), "convert the old queue first: " + converted);
+            File state = new File(root, "state");
+            check((Boolean) importLegacy.invoke(null, state.getAbsolutePath(), syncV1, statusV1, queue.toPath()),
+                "import_legacy did not answer");
+            JSONObject imported = ((JSONObject) peek.invoke(null, state.getAbsolutePath(),
+                new JSONObject().put("operation", "peek"), null));
+            check(imported.getBoolean("enabled") && account.equals(imported.getString("account_id")),
+                "the old switch and account were not imported: " + imported);
+            JSONObject sections = imported.getJSONObject("sections");
+            check(sections.getJSONObject("settings").getInt("cursor") == 3
+                && sections.getJSONObject("settings").getBoolean("dirty"), "settings progress: " + sections);
+            check(sections.getJSONObject("dictionary").getInt("cursor") == 7,
+                "a dictionary cursor with a queued snapshot for the account is kept: " + sections);
+            check(imported.getInt("unheld_phrases") == 1, "unheld phrases: " + imported);
+            check((Boolean) enabled.invoke(null, state.getAbsolutePath()), "peek reads the imported switch");
+            check((Boolean) markDirty.invoke(null, state.getAbsolutePath(), "phrases"), "a local edit is marked");
+            check(((JSONObject) peek.invoke(null, state.getAbsolutePath(), new JSONObject().put("operation", "peek"), null))
+                .getJSONObject("sections").getJSONObject("phrases").getBoolean("dirty"), "the phrases mark is in Rust's state");
+
+            // 读不懂的旧队列：词库游标不导入，第一轮按首次同步处理。
+            File broken = new File(root, "broken-queue");
+            check(broken.mkdirs(), "broken queue directory");
+            java.nio.file.Files.write(new File(broken, "state.bin").toPath(), new byte[] {1, 2, 3});
+            File other = new File(root, "other-state");
+            check((Boolean) importLegacy.invoke(null, other.getAbsolutePath(), syncV1, statusV1, broken.toPath()),
+                "import_legacy did not answer for an unreadable queue");
+            JSONObject unknown = (JSONObject) peek.invoke(null, other.getAbsolutePath(),
+                new JSONObject().put("operation", "peek"), null);
+            check(unknown.getJSONObject("sections").getJSONObject("dictionary").isNull("cursor")
+                && unknown.getJSONObject("sections").getJSONObject("settings").getInt("cursor") == 3,
+                "an unreadable queue must drop only the dictionary cursor: " + unknown);
+
+            // 属于账号的请求：不知道当前账号时原样留着（只问一次 provider），退出登录时取消。
+            Class<?> worker = loader.loadClass("app.msime.android.DictionarySnapshotWorker");
+            Method process = worker.getMethod("process", java.nio.file.Path.class, java.nio.file.Path.class,
+                String.class, java.util.function.Supplier.class);
+            int[] asked = {0};
+            java.util.function.Supplier<String> unknownAccount = () -> { asked[0]++; return null; };
+            process.invoke(null, queue.toPath(), new File(queue, "staging").toPath(), productOptions(target), unknownAccount);
+            check(asked[0] == 1, "an account-owned request asks for the current account once: " + asked[0]);
+            check("queued".equals(((JSONObject) read.invoke(null, queue.toPath())).getJSONObject("request").getString("status")),
+                "a request for an unknown account must stay queued");
+            JSONObject cancelled = (JSONObject) cancel.invoke(null, queue.toPath(), account);
+            check("cancelled".equals(cancelled.getJSONObject("request").getString("status")) && !snapshot.exists(),
+                "sign-out cancels the account's queued snapshot: " + cancelled);
+        } finally {
+            deleteTree(root);
+        }
     }
 
     /**

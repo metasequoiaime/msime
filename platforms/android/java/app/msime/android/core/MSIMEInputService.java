@@ -2161,14 +2161,14 @@ public final class MSIMEInputService extends InputMethodService {
     private void scheduleDictionarySnapshotProcessing() {
         if (runtimeOptionsForSnapshot.isEmpty()) return;
         String options = runtimeOptionsForSnapshot;
-        Path filesRoot = getFilesDir().toPath();
-        Path root = filesRoot.resolve("bootstrap/state/dictionary-snapshots");
-        Path staging = root.resolve("staging");
         Context application = getApplicationContext();
         try {
             preferencesWorker.execute(() -> {
-                try { DictionarySnapshotWorker.process(filesRoot, root, staging, options,
-                    () -> SyncSignals.accountId(application)); }
+                try {
+                    Path root = DictionarySnapshotQueue.directory(application);
+                    DictionarySnapshotWorker.process(root, root.resolve("staging"), options,
+                        () -> SyncSignals.accountId(application));
+                }
                 catch (Exception | LinkageError ignored) { /* Retry at the next idle boundary. */ }
             });
         } catch (RuntimeException ignored) { /* Service shutdown owns the final worker state. */ }

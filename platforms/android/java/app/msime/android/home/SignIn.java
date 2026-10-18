@@ -15,11 +15,13 @@ import app.msime.android.GoogleSignInFlow;
 import app.msime.android.MainThreadPolicy;
 import app.msime.android.R;
 import app.msime.android.RustAccount;
+import app.msime.android.RustCloudSync;
 import app.msime.android.SignInFailurePolicy;
 import app.msime.android.SyncSwitch;
 import app.msime.android.DictionarySnapshotQueue;
 import app.msime.android.ThreadPolicy;
-import java.io.File;
+import android.util.Log;
+import java.io.IOException;
 import app.msime.android.TextPolicy;
 import java.util.function.Consumer;
 import org.json.JSONObject;
@@ -27,7 +29,7 @@ import org.json.JSONObject;
 /**
  * 登录：Google、Apple（网页授权）与邮箱验证码三种方式，我的页、新手引导和登录面板共用这一份。
  *
- * <p>Whether to offer it and how to run it. The offer depends on the backend accepting at least one provider this build can use -- the providers Rust reads from the backend answer false for a provider with no client configured, and a button that is certain to fail is worse than no button. 挑战、凭据和会话都经 Rust 的账号入口（{@link BackendAccount}），失败按 Rust 的错误码说成一句话（{@link SignInFailurePolicy}）。登录成功后记下账号与登录方式（{@link SyncSwitch#bindAccount}，换账号时它会关闭同步并清空游标），但不触发任何同步；退出登录时调用 {@link #signOut}，同样清空同步状态。{@link BackendAccount} 在设备测试 APK 的编译清单里，不能引用 SyncSwitch，所以这两个时机放在这里。
+ * <p>Whether to offer it and how to run it. The offer depends on the backend accepting at least one provider this build can use -- the providers Rust reads from the backend answer false for a provider with no client configured, and a button that is certain to fail is worse than no button. 挑战、凭据和会话都经 Rust 的账号入口（{@link BackendAccount}），失败按 Rust 的错误码说成一句话（{@link SignInFailurePolicy}）。登录成功后记下账号与登录方式（{@link SyncSwitch#bindAccount}），并让 Rust 的云同步按新登录对齐一次（换账号时 Rust 关闭同步、清空进度），但不触发任何同步；退出登录时调用 {@link #signOut}，先让 Rust 清空同步状态、取消旧账号排队中的词库快照，再清会话。{@link BackendAccount} 在设备测试 APK 的编译清单里，不能引用 SyncSwitch，所以这两个时机放在这里。
  */
 final class SignIn {
     /** Signed in, sign-in offered, or neither (no provider this build can use, or the backend could not be asked). */
@@ -225,10 +227,16 @@ final class SignIn {
         }
     }
 
-    /** 退出登录：删掉本机会话并关闭同步、清空同步游标，取消还在进行的流式对话和 AI 皮肤生成，再请 Credential Manager 清掉它记住的登录状态（尽力而为，见 {@link GoogleSignInFlow#clearCredentialState}）。阻塞；清除会话失败时抛出，界面不能按已退出处理。服务端的会话已经撤销或账号已经注销时（移除本机、注销账号）也走这里，Rust 的 forget 对已经清掉的会话什么也不做。 */
+    /** 退出登录：先让 Rust 的云同步清空进度、关掉开关并取消旧账号排队中的词库快照（Rust 的 `sign_out`，要在清会话之前），再删掉本机会话，取消还在进行的流式对话和 AI 皮肤生成，最后请 Credential Manager 清掉它记住的登录状态（尽力而为，见 {@link GoogleSignInFlow#clearCredentialState}）。阻塞；清除会话失败时抛出，界面不能按已退出处理。服务端的会话已经撤销或账号已经注销时（移除本机、注销账号）也走这里，Rust 的 forget 对已经清掉的会话什么也不做。 */
     static void signOut(Context context) {
         synchronized (SyncSwitch.bindingLock()) {
             String accountId = SyncSwitch.accountId(context);
+            try {
+                RustCloudSync.signOut(context);
+            } catch (AccountStore.Failure failure) {
+                // 退出登录不能因为同步状态写不进去而失败：Rust 下一次读状态时按会话对齐，看到已经退出就清空进度、关掉开关。
+                Log.w("MSIMESignIn", "cloud sync sign-out failed: " + failure.code);
+            }
             new BackendAccount(context).signOut();
             cancelPendingSnapshot(context, accountId);
             SyncSwitch.clear(context);
@@ -278,21 +286,17 @@ final class SignIn {
     }
 
 
-    /** 账号退出或替换时取消仍待激活的云端词库快照，避免下一位账号继承旧账号的词库。 */
+    /** 账号退出或替换时取消仍待激活的云端词库快照（Rust 的快照队列），避免下一位账号继承旧账号的词库。 */
     static void cancelPendingSnapshot(Context context, String accountId) {
         if (accountId == null || accountId.isEmpty()) return;
         try {
-            File files = context.getFilesDir();
-            if (files == null) return;
-            DictionarySnapshotQueue queue = new DictionarySnapshotQueue(
-                files.toPath(), new File(files, "bootstrap/state/dictionary-snapshots").toPath());
-            queue.cancel(accountId);
-        } catch (Exception | LinkageError ignored) {
+            DictionarySnapshotQueue.cancel(DictionarySnapshotQueue.directory(context), accountId);
+        } catch (DictionarySnapshotQueue.Failure | IOException ignored) {
             // 退出登录不能因过期的同步队列损坏而失败；下次队列维护会继续处理。
         }
     }
 
-    /** 记下这次登录的账号；读不到用户 id 时按换账号处理（SyncSwitch 会清空同步状态）。 */
+    /** 记下这次登录的账号，再让 Rust 的云同步按会话里的用户 id 对齐一次（换了账号时关闭同步、清空进度，同一个账号重新登录保留进度）；读不到用户 id 时按换账号处理（SyncSwitch 清空账号绑定）。 */
     private static void bind(Context context, String loginKind) {
         String id = "";
         try {
@@ -308,6 +312,12 @@ final class SignIn {
             cancelPendingSnapshot(context, previousAccount);
         }
         SyncSwitch.bindAccount(context, id, loginKind);
+        try {
+            RustCloudSync.status(context);
+        } catch (AccountStore.Failure failure) {
+            // 对齐只是提前做：Rust 的 status、set_enabled、run 每次都会按会话再对齐一次。
+            Log.w("MSIMESignIn", "cloud sync alignment after sign-in failed: " + failure.code);
+        }
     }
 
     private static void offMainThread(Runnable work) {
