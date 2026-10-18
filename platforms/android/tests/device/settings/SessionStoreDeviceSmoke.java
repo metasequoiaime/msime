@@ -219,7 +219,20 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
                 String.class, java.util.function.Supplier.class);
             int[] asked = {0};
             java.util.function.Supplier<String> account = () -> { asked[0]++; return null; };
-            process.invoke(null, queue.toPath(), new File(queue, "staging").toPath(), options, account);
+            // 激活要独占词库维护权：smoke.sh 先停用了本输入法，但系统解绑它、`:ime` 关掉会话是异步的，这之前 Rust 答 snapshot_unavailable，请求留在 preparing、下一次照样能认领（产品里就是等下一次空闲）。所以只对这个码在 30 秒内重试，别的失败和超时照旧抛出。
+            long deadline = android.os.SystemClock.uptimeMillis() + 30_000;
+            while (true) {
+                try {
+                    process.invoke(null, queue.toPath(), new File(queue, "staging").toPath(), options, account);
+                    break;
+                } catch (java.lang.reflect.InvocationTargetException failed) {
+                    Throwable cause = failed.getCause();
+                    boolean busy = cause != null && "snapshot_unavailable".equals(cause.getMessage())
+                        && cause.getClass().getName().equals("app.msime.android.DictionarySnapshotQueue$Failure");
+                    if (!busy || android.os.SystemClock.uptimeMillis() >= deadline) throw failed;
+                    android.os.SystemClock.sleep(500);
+                }
+            }
             JSONObject after = (JSONObject) read.invoke(null, queue.toPath());
             JSONObject done = after.optJSONObject("request");
             check(done != null && "applied".equals(done.getString("status")), "the converted snapshot was not activated: " + after);
