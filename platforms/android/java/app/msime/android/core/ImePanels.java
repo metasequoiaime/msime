@@ -1712,8 +1712,9 @@ final class ImePanels {
             content.addView(note, LayoutPolicy.matchWidthWrapParams());
             notes.add(note);
         }
-        WrapRowLayout words = new WrapRowLayout(s, s.pixels(6), s.pixels(6));
-        words.setContentDescription("分词结果，点按选择要插入的词");
+        ClipboardSegmentLayout words = new ClipboardSegmentLayout(s, s.pixels(6),
+            clipboardSegmentSelectionListener());
+        words.setContentDescription("分词结果，点按或从词片滑动连续选择，空白处滑动滚动");
         for (int index = 0; index < clipboardSegments.size(); index++) {
             ClipboardSegmentation.Segment segment = clipboardSegments.get(index);
             if (segment.separator()) continue;
@@ -1721,6 +1722,7 @@ final class ImePanels {
         }
         content.addView(words, LayoutPolicy.matchWidthWrapParams());
         ScrollView wordScroll = new ScrollView(s);
+        wordScroll.setContentDescription("分词滚动区域");
         wordScroll.addView(content, LayoutPolicy.scrollMatchWidthWrapParams());
         LinearLayout.LayoutParams scrollParams = LayoutPolicy.linearParamsPx(
             LinearLayout.LayoutParams.MATCH_PARENT, 1);
@@ -1757,6 +1759,18 @@ final class ImePanels {
         refreshClipboardSegmentControls();
     }
 
+    private ClipboardSegmentLayout.SelectionListener clipboardSegmentSelectionListener() {
+        return new ClipboardSegmentLayout.SelectionListener() {
+            @Override public void changed(View child, boolean selected) {
+                if (clipboardSegmentSelected == null) return;
+                clipboardSegmentSelected[(Integer) child.getTag()] = selected;
+                setSegmentSelected((Button) child, selected);
+                s.imeStyler.styleButton((Button) child, KeyboardKeyRole.KEY, s.skin);
+            }
+            @Override public void refreshed() { refreshClipboardSegmentControls(); }
+        };
+    }
+
     private Button clipboardSegmentButton(String text, int index) {
         KeyboardPressButton button = ViewPolicy.newPressButton(s);
         button.setKeyboardRole(KeyboardKeyRole.KEY);
@@ -1768,6 +1782,7 @@ final class ImePanels {
         ViewPolicy.clearStateListAnimator(button);
         // 不能直接用词片文字做描述：换肤遍历按描述前缀「候选 」「按键 」识别候选和按键。
         button.setContentDescription("词片 " + text);
+        button.setTag(index);
         setSegmentSelected(button, clipboardSegmentSelected[index]);
         bindFeedbackAction(button, () -> {
             if (clipboardSegmentSelected == null) return;

@@ -163,3 +163,4 @@ platforms/android/tests/device/keyboard/QuickDeletePreviewDeviceSmoke.java
 platforms/android/tests/device/keyboard/QuickDeleteEditorActivity.java
 platforms/android/tests/device/settings/DictionaryImportDeviceSmoke.java
 platforms/android/tests/device/keyboard/NumberLayerEntryDeviceSmoke.java
+platforms/android/tests/device/clipboard/ClipboardSegmentDragDeviceSmoke.java
