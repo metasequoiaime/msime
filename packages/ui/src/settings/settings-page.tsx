@@ -1,10 +1,10 @@
+import { SettingsFeaturePages } from "./settings-feature-pages";
 import { SettingsPreferencesForm } from "./settings-preferences-form";
 import { useSettingsPageModel, type SettingsPageProps } from "./use-settings-page-model";
 import { SettingsSidebar } from "./settings-sidebar";
 import { appThemeStyle, seasonAttr } from "../core/app-theme-style";
 import { SetupWarningStrip } from "../keyboard/setup-status-card";
 import { KeyboardSwitchGuideHost } from "../keyboard/keyboard-switch-guide";
-import { TryKeyboardPage } from "../keyboard/try-keyboard-page";
 import { useSettingsWindowInteractions } from "./use-settings-window-interactions";
 import { useSettingsShellState } from "./use-settings-shell-state";
 import { useSettingsShellNavigation } from "./use-settings-shell-navigation";
@@ -18,18 +18,10 @@ import { useLayoutEffect } from "react";
 import { SettingsPageStatus } from "./settings-page-status";
 import { NoticeBanner } from "./notice-banner";
 import { WindowTitlebar } from "./window-titlebar";
-import { communityGalleryPage } from "./use-community-gallery-subview";
-import { CommunityGallerySubview } from "./community-gallery-subview";
-import { TypingStatisticsPage } from "./typing-statistics";
-import { VocabularyReviewPage } from "./vocabulary-review";
 import * as settings from "./settings-style";
 import { FluentIcon } from "../core/fluent-icons";
-import { SettingsAccountPage } from "./settings-account-page";
-import { SettingsCommunityPage } from "./settings-community-page";
 import { SettingsPluginCommunitySection } from "./settings-plugin-community-section";
 import { SettingsSkinCommunitySection } from "./settings-skin-community-section";
-import { ChatPage } from "../chat/chat-page";
-import { HomePage } from "../keyboard/home-page";
 import {
   ScreenKeyboardLayoutContext,
   screenKeyboardLayoutFor,
@@ -60,7 +52,6 @@ function SettingsShell(props: SettingsPageProps) {
     client,
     confirmation,
     confirm,
-    iosPlatform,
     harmonyPlatform,
     mobilePlatform,
     macosPlatform,
@@ -68,7 +59,6 @@ function SettingsShell(props: SettingsPageProps) {
     dark,
     resolvedAppTheme,
     draft,
-    setDraft,
     busy,
     setError,
     error,
@@ -90,20 +80,14 @@ function SettingsShell(props: SettingsPageProps) {
     restoreDefaults,
     recoverPreferences,
     dirty,
-    keyboardPreviewTheme,
-    surfaceThemesFollow,
     availablePages,
     sidebarGroups,
     mobileActiveTab,
     untitledOnPhone,
     mobilePrimaryPages,
-    mobileSecondaryGroups,
     navigationPage,
     selectPage,
     selectMobileTab,
-    openAccountLogin,
-    communityGallery,
-    closeCommunityGallery,
   } = model;
   const {
     pluginView,
@@ -371,106 +355,15 @@ function SettingsShell(props: SettingsPageProps) {
               {client.notices && (
                 <NoticeBanner client={client.notices} openExternalUrl={openExternalUrl} />
               )}
-              {client.home && draft && page === "home" && (
-                <HomePage
-                  preferences={draft}
-                  actions={client.home}
-                  onOpenPage={onOpenPage}
-                  onOpenChat={
-                    onOpenChat &&
-                    (() => {
-                      setChatFocusRequest((count) => count + 1);
-                      onOpenChat();
-                    })
-                  }
-                  touchLayout={mobilePlatform}
-                  ios={iosPlatform}
-                  keyboardSurfaceTheme={
-                    surfaceThemesFollow ? undefined : draft.screen_keyboard_theme
-                  }
-                  rootPages={mobileSecondaryGroups
-                    .flatMap((group) => group.pages)
-                    .map((item) => ({ id: item.id, title: item.title }))}
-                />
-              )}
-              {client.home && page === "try-keyboard" && (
-                <TryKeyboardPage
-                  actions={client.home}
-                  switchAway={!harmonyPlatform}
-                  chat={client.chat}
-                  onLogin={openAccountLogin}
-                  onOpenUrl={
-                    client.openExternalUrl
-                      ? (url: string) => {
-                          void openExternalUrl(url);
-                        }
-                      : undefined
-                  }
-                />
-              )}
-              {(client.account || client.appIcon) && page === "account" && (
-                <SettingsAccountPage model={model} onReplayOnboarding={onReplayOnboarding} />
-              )}
-              {/* 触屏上 AI 对话从「AI 辅助」二级页进入：第一次打开后一直挂着，切换标签只是隐藏，对话记录和进行中的回复都不丢。 */}
-              {client.chat && (page === "chat" || (mobilePlatform && chatMounted)) && (
-                <div className={page === "chat" ? "contents" : undefined} hidden={page !== "chat"}>
-                  <ChatPage
-                    client={client.chat}
-                    touch={mobilePlatform}
-                    active={page === "chat"}
-                    focusRequest={chatFocusRequest}
-                    setup={client.home}
-                    onLogin={openAccountLogin}
-                  />
-                </div>
-              )}
-              {page === "community" && (
-                <SettingsCommunityPage
-                  model={model}
-                  localDictionary={communityLocalDictionary}
-                  onSkinApplied={recordCommunitySkin}
-                />
-              )}
-              {/* 触屏宿主在功能页里打开的完整社区图库。画在设置表单之外：图库自带搜索和发布表单，嵌在设置的 <form> 里会被 WebView 当成外层表单提交。 */}
-              {communityGallery && page === communityGalleryPage(communityGallery.category) && (
-                <CommunityGallerySubview
-                  key={`${communityGallery.category}:${communityGallery.scope}:${communityGallery.initialMine}`}
-                  view={communityGallery}
-                  skins={client.communitySkins}
-                  resources={client.communityResources}
-                  theme={keyboardPreviewTheme}
-                  localDictionary={communityLocalDictionary}
-                  localSkinLibrary={client.customSkinLibrary}
-                  onLogin={openAccountLogin}
-                  preferences={draft}
-                  onApplyPreferences={setDraft}
-                  onSkinApplied={recordCommunitySkin}
-                  look={harmonyPlatform && mobilePlatform ? "harmony" : undefined}
-                  onClose={closeCommunityGallery}
-                />
-              )}
-              {client.typingStatistics && page === "typing-statistics" && (
-                <TypingStatisticsPage
-                  client={client.typingStatistics}
-                  mobile={mobilePlatform}
-                  platform={client.host?.platform}
-                  openSystemSettings={client.openSystemKeyboardSettings}
-                  look={
-                    settingsPlatform === "harmony"
-                      ? "harmony"
-                      : settingsPlatform === "hm2"
-                        ? "hm2"
-                        : undefined
-                  }
-                />
-              )}
-              {client.vocabularyReview && page === "vocabulary" && (
-                <VocabularyReviewPage
-                  client={client.vocabularyReview}
-                  mobile={mobilePlatform}
-                  openPanel={client.openVocabulary}
-                />
-              )}
+              <SettingsFeaturePages
+                model={model}
+                chatState={{ chatMounted, chatFocusRequest, setChatFocusRequest }}
+                onOpenPage={onOpenPage}
+                onOpenChat={onOpenChat}
+                onReplayOnboarding={onReplayOnboarding}
+                localDictionary={communityLocalDictionary}
+                onSkinApplied={recordCommunitySkin}
+              />
               <SettingsSkinCommunitySection
                 model={model}
                 views={communityViews}

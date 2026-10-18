@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`settings/settings-account-page.tsx` 的 `SettingsAccountPage` 接收现有 `SettingsPageModel` 的账号相关字段与可选新手引导回调，集中组装既有 `AccountPage`。外壳保留 `(client.account || client.appIcon) && page === "account"`，继续持有导航和持久化状态；新组件不调用模型 hook。
+`settings/settings-account-page.tsx` 的 `SettingsAccountPage` 接收现有 `SettingsPageModel` 的账号相关字段与可选新手引导回调，集中组装既有 `AccountPage`。[功能页组合](2026-10-19-settings-feature-pages.md)保留 `(client.account || client.appIcon) && page === "account"`，外壳继续持有导航和持久化状态；新组件不调用模型 hook。
 
 复用现有 `useAccountPageActions`，不增加它的输入或返回字段。桌面云词库优先进入词库页的 `cloud` 标签，以及触屏反馈页能力筛选，仍由账号接线组件持有。宿主方法以闭包调用 `client` 的属性，保留原方法接收者；macOS 的原生云端入口限制、社区和本地设计能力条件、登录返回、新手引导与外链策略不变。公共入口转导出组件与属性类型。
 

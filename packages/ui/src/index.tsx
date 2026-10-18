@@ -1904,3 +1904,8 @@ export {
   SettingsPluginCommunitySection,
   type SettingsPluginCommunitySectionProps,
 } from "./settings/settings-plugin-community-section";
+
+export {
+  SettingsFeaturePages,
+  type SettingsFeaturePagesProps,
+} from "./settings/settings-feature-pages";
