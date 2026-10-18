@@ -88,8 +88,25 @@ function Open-Page($window, [string]$page) {
     } while ([DateTime]::UtcNow -lt $deadline)
     if (-not $item) { throw "Missing native page: $page" }
     $item.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()
-    $item = Find-ById $window $page
-    $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    # 滚动会重建虚拟化的导航节点；重新查到且可选中才继续，不能立即解引用暂时消失的节点。
+    $selected = $false
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $item = Find-ById $window $page
+        if ($item) {
+            try {
+                [object]$selection = $null
+                if ($item.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection)) {
+                    $selection.Select()
+                    $selected = $true
+                }
+            } catch [System.Windows.Automation.ElementNotAvailableException] {
+                # 查找与选择之间节点也可能失效，下一次轮询重新取得。
+            }
+        }
+        if (-not $selected) { Start-Sleep -Milliseconds 200 }
+    } while (-not $selected -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $selected) { throw "Native page could not be selected after scrolling: $page" }
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
     do {
         Start-Sleep -Milliseconds 200
