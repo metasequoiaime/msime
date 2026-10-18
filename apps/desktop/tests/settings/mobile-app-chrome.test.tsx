@@ -70,8 +70,8 @@ test("Harmony settings follow the actual phone or 2-in-1 form factor", async () 
   // 2-in-1 是没有手机根页面的桌面窗口：侧栏从 输入 开始，也在 输入 打开。
   expect(within(sidebar).queryByRole("button", { name: "首页" })).toBeNull();
   expect(within(sidebar).queryByRole("button", { name: "设置" })).toBeNull();
-  expect(sidebar.querySelector("button")?.textContent).toBe("输入");
-  expect(screen.getByRole("heading", { level: 1, name: "输入" })).toBeTruthy();
+  expect(sidebar.querySelector("button")?.textContent).toBe("输入设置");
+  expect(screen.getByRole("heading", { level: 1, name: /^(输入|输入设置)$/ })).toBeTruthy();
 });
 
 test("Harmony capability chrome stays split between phone and 2-in-1", async () => {
@@ -100,15 +100,15 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   ).toBeTruthy();
   // HarmonyOS 关于页的头图在版本行里写明设备形态，而不是放标语。
   expect(screen.getByText(/^版本 .* · HarmonyOS 2in1$/)).toBeTruthy();
-  expect(screen.getByRole("button", { name: "悬浮工具栏" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(screen.getByRole("button", { name: /^(悬浮工具栏|快捷工具)$/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /^(快捷键|按键设置)$/ }));
   expect(screen.getByRole("group", { name: "输入模式切换快捷键" })).toBeTruthy();
   // 2-in-1 不是鸿蒙手机：面板快捷键并进「按键速查」。
   expect(
     within(screen.getByRole("region", { name: "按键速查" })).getByText("打开屏幕键盘"),
   ).toBeTruthy();
   expect(screen.getByRole("switch", { name: "数字键选词" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
   selectSettingsTab("候选释义");
   expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
 
@@ -133,18 +133,20 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
     ),
   ).toBeTruthy();
   expect(screen.getByText(/^版本 .* · HarmonyOS$/)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^(悬浮工具栏|快捷工具)$/ })).toBeNull();
   fireEvent.click(
     within(screen.getByRole("navigation", { name: "主要功能" })).getByRole("button", {
       name: "设置",
     }),
   );
   const phoneSettings = screen.getByRole("region", { name: "首页" });
-  expect(within(phoneSettings).queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
-  expect(within(phoneSettings).queryByRole("button", { name: "快捷键" })).toBeNull();
+  expect(
+    within(phoneSettings).queryByRole("button", { name: /^(悬浮工具栏|快捷工具)$/ }),
+  ).toBeNull();
+  expect(within(phoneSettings).queryByRole("button", { name: /^(快捷键|按键设置)$/ })).toBeNull();
   expect(within(phoneSettings).queryByRole("button", { name: "外接键盘快捷键" })).toBeNull();
   // 手机把候选翻译放在 输入 页的 翻译 分组里，只显示一种候选翻译，没有第二种语言。
-  fireEvent.click(within(phoneSettings).getByRole("button", { name: "输入" }));
+  fireEvent.click(within(phoneSettings).getByRole("button", { name: /^(输入|输入设置)$/ }));
   selectSettingsTab("候选释义");
   expect(screen.getByRole("combobox", { name: "候选词翻译目标语言" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
@@ -177,7 +179,7 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   expect(screen.queryByRole("combobox", { name: "候选窗口预编辑" })).toBeNull();
 
   // The phone hides the physical-keyboard shortcut page everywhere, the sidebar included: a sidebar entry here was a button `selectPage` refused, and asserting the page's text passed only because the hidden fieldset stays in the DOM.
-  expect(screen.queryByRole("button", { name: "快捷键" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^(快捷键|按键设置)$/ })).toBeNull();
 
   // 手机皮肤页只有网格，不提供各界面的明暗覆盖。
   cleanup();
@@ -204,12 +206,12 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
     candidate_font_controls: true,
   });
   await settingsFormReady();
-  expect(screen.getByRole("button", { name: "悬浮工具栏" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^(悬浮工具栏|快捷工具)$/ })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
   expect(screen.getByRole("region", { name: "候选窗口预览" })).toBeTruthy();
   // 预编辑各行在「候选窗口」页的「更多选项」里，不再有「预编辑」标签。
   expect(screen.getByRole("combobox", { name: "候选窗口预编辑" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "主题" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(主题|主题外观)$/ }));
   // 2in1 的各界面跟随颜色模式（`surface_themes_follow`）：候选窗口主题在「明暗」组里，没有工具栏主题和「高级」组。
   const candidateTheme = screen.getByRole("combobox", { name: "候选窗口主题" });
   expect(screen.getByRole("region", { name: "明暗", hidden: true }).contains(candidateTheme)).toBe(
@@ -219,7 +221,7 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   expect(screen.queryByRole("region", { name: "高级", hidden: true })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "候选栏主题" })).toBeNull();
 
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(快捷键|按键设置)$/ }));
   const shortcuts = screen.getByRole("group", { name: "快捷键" }) as HTMLFieldSetElement;
   expect(shortcuts.hidden).toBe(false);
   expect(
@@ -383,13 +385,13 @@ test("a touch host calls the keyboard pages by their touch names", async () => {
   expect(within(sidebar).queryByRole("button", { name: "屏幕键盘" })).toBeNull();
   // 手机上不提供实体键盘快捷键页，即使宿主路由了快捷键。
   expect(within(sidebar).queryByRole("button", { name: "外接键盘快捷键" })).toBeNull();
-  expect(within(sidebar).queryByRole("button", { name: "快捷键" })).toBeNull();
+  expect(within(sidebar).queryByRole("button", { name: /^(快捷键|按键设置)$/ })).toBeNull();
 
   cleanup();
   renderSettings("windows", {}, "screen-keyboard");
   await settingsFormReady();
   // 桌面上手写并进了这一页，标题随之是「屏幕键盘与手写」。
-  expect(screen.getByRole("heading", { level: 1, name: "屏幕键盘与手写" })).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 1, name: "键盘手写" })).toBeTruthy();
 });
 
 // 每个标签页只在对应页面存在时出现，每个页面又取决于它背后的客户端能力。社区客户端在，但触屏宿主已没有「社区」标签页。
@@ -693,9 +695,14 @@ test("a HarmonyOS phone page pushed onto a tab has a back button", async () => {
   expect(screen.queryByRole("button", { name: "返回" })).toBeNull();
 
   fireEvent.click(
-    within(screen.getByRole("region", { name: "首页" })).getByRole("button", { name: "输入" }),
+    within(screen.getByRole("region", { name: "首页" })).getByRole("button", {
+      name: /^(输入|输入设置)$/,
+    }),
   );
-  const header = screen.getByRole("heading", { level: 1, name: "输入" }).parentElement!;
+  const header = screen.getByRole("heading", {
+    level: 1,
+    name: /^(输入|输入设置)$/,
+  }).parentElement!;
   const back = within(header).getByRole("button", { name: "返回" });
   expect(back.querySelector("svg")?.getAttribute("width")).toBe("22");
   fireEvent.click(back);
@@ -732,7 +739,9 @@ test("the back button of the page the settings opened on goes up to its tab's ro
 
   // 从那里推入的页面沿历史返回。
   fireEvent.click(
-    within(screen.getByRole("region", { name: "首页" })).getByRole("button", { name: "输入" }),
+    within(screen.getByRole("region", { name: "首页" })).getByRole("button", {
+      name: /^(输入|输入设置)$/,
+    }),
   );
   fireEvent.click(screen.getByRole("button", { name: "返回" }));
   expect(back).toHaveBeenCalledTimes(1);
@@ -750,7 +759,9 @@ test("a HarmonyOS phone pushes pages in and marks the tab pages", async () => {
   expect(columnOf().hasAttribute("data-tab-page")).toBe(false);
 
   fireEvent.click(
-    within(screen.getByRole("region", { name: "首页" })).getByRole("button", { name: "输入" }),
+    within(screen.getByRole("region", { name: "首页" })).getByRole("button", {
+      name: /^(输入|输入设置)$/,
+    }),
   );
   expect(columnOf().className).toContain("animate-ms-push-in");
   expect(columnOf().className).toContain("motion-reduce:animate-none");
@@ -894,9 +905,9 @@ test("the 2-in-1 warns on 输入 and 关于 while the input method is not set up
   fireEvent.click(screen.getByRole("button", { name: "去添加" }));
   expect(openSystemKeyboardSettings).toHaveBeenCalledTimes(1);
 
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   expect(screen.getByText("水杉输入法尚未在「系统 → 输入法」中添加")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   expect(screen.queryByText("水杉输入法尚未在「系统 → 输入法」中添加")).toBeNull();
   cleanup();
 

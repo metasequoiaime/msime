@@ -142,7 +142,7 @@ test("a Windows host offers the input mode badge and the Alt+Shift+H switch", as
   await settingsFormReady();
   selectSettingsTab("中英文");
   expect(screen.getByLabelText("中英文切换提示")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(快捷键|按键设置)$/ }));
   expect(await screen.findByRole("switch", { name: "Alt+Shift+H 切换全半角" })).toBeTruthy();
 });
 

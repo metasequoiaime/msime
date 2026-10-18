@@ -40,7 +40,7 @@ test("语言资源与个人词库都出现在查询下拉，切到日语即列�
   };
   render(<SettingsPage client={client} />);
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   const select = screen.getByLabelText("本地词库类型");
   expect(
     within(select)

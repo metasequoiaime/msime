@@ -428,7 +428,7 @@ test("the settings page shows the script group only where the host declares scri
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
   expect(await screen.findByText("脚本插件（实验）")).toBeTruthy();
   expect(client.scriptGrants).toHaveBeenCalled();
 });

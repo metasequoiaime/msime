@@ -84,3 +84,18 @@ test("搜索框回调使用外壳的查询 setter和页面选择器", () => {
   fireEvent.keyDown(input, { key: "Enter" });
   expect(selectPage).toHaveBeenCalledWith("input");
 });
+
+test.each([
+  ["AI", "ai", "智能辅助"],
+  ["工具栏", "floating-toolbar", "快捷工具"],
+  ["快捷键", "shortcuts", "按键设置"],
+  ["屏幕键盘", "screen-keyboard", "键盘手写"],
+  ["智能", "ai", "智能辅助"],
+] as const)("菜单改名后仍能用 %s 搜索并按回车进入", (query, id, title) => {
+  const sidebarGroups = [{ pages: [page(id, title)] }];
+  const { result, selectPage } = renderNavigation({ navQuery: query, sidebarGroups });
+  expect(result.current.shownSidebarGroups).toEqual(sidebarGroups);
+  render(result.current.navSearchField);
+  fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Enter" });
+  expect(selectPage).toHaveBeenCalledWith(id);
+});

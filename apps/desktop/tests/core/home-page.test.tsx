@@ -156,9 +156,13 @@ test("root rows carry the current values read from the preferences", () => {
   renderTouchHome();
 
   expect(screen.getByRole("button", { name: "皮肤", description: "夜青" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "输入", description: "小鹤双拼" })).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: /^(输入|输入设置)$/, description: "小鹤双拼" }),
+  ).toBeTruthy();
   expect(screen.getByRole("button", { name: "表达", description: "中文标点" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "词库", description: "记忆新词已开" })).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: /^(词库|词库管理)$/, description: "记忆新词已开" }),
+  ).toBeTruthy();
   expect(screen.getByRole("button", { name: "语音输入", description: "粤语" })).toBeTruthy();
   for (const plain of ["键盘", "候选栏", "手写输入", "剪贴板", "AI 辅助", "开发者选项"]) {
     expect(screen.getByRole("button", { name: plain }).getAttribute("aria-describedby")).toBeNull();
@@ -182,7 +186,9 @@ test("root row values follow the opposite preferences and a custom skin", () => 
 
   expect(screen.getByRole("button", { name: "皮肤", description: "我的皮肤" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "表达", description: "英文标点" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "词库", description: "记忆新词已关" })).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: /^(词库|词库管理)$/, description: "记忆新词已关" }),
+  ).toBeTruthy();
 });
 
 test("voice languages are named for both locale ids and provider codes, and unknown codes are shown as they are", () => {
@@ -493,7 +499,7 @@ test("the HarmonyOS phone shell opens on the 设置 root with its rows", async (
   );
 
   const home = await screen.findByRole("region", { name: "首页" });
-  expect(within(home).getByRole("button", { name: "输入" })).toBeTruthy();
+  expect(within(home).getByRole("button", { name: /^(输入|输入设置)$/ })).toBeTruthy();
   fireEvent.click(within(statusCard()).getByRole("button", { name: "去开启" }));
   expect(openSystemKeyboardSettings).toHaveBeenCalledOnce();
 });
@@ -692,7 +698,9 @@ test("opens on home with home capability and falls back to the first navigation 
   cleanup();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
   await settingsFormReady();
-  expect(screen.getByRole("button", { name: "输入" }).getAttribute("aria-current")).toBe("page");
+  expect(
+    screen.getByRole("button", { name: /^(输入|输入设置)$/ }).getAttribute("aria-current"),
+  ).toBe("page");
   expect(screen.queryByRole("region", { name: "首页" })).toBeNull();
 });
 

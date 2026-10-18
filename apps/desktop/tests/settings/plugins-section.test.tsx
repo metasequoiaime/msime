@@ -47,7 +47,7 @@ test("ignores a duplicate plugin import while the first import is pending", asyn
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
   const importButton = await screen.findByRole("button", {
     name: "导入文件夹",
   });
@@ -1793,7 +1793,7 @@ test("the 插件 page saves plugin settings into the preferences document", asyn
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
   const form = screen.getByRole("group", { name: "插件" });
   await within(form).findByRole("button", { name: "打字机" });
 
@@ -1830,7 +1830,7 @@ test("the 插件 page turns the / and @ modes on from a command table and the @ 
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
   const form = screen.getByRole("group", { name: "插件" });
   const row = await within(form).findByRole("button", { name: "签名" });
   expect(row.textContent).toContain("已启用 · / 指令未开");
@@ -1875,7 +1875,7 @@ test("the 插件 page tells a user whose scheme cannot open / or @ so on the lis
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
   const form = screen.getByRole("group", { name: "插件" });
   const row = await within(form).findByRole("button", { name: "签名" });
   expect(row.textContent).toContain("已启用 · 当前方案打不开 / 指令");
@@ -1903,7 +1903,7 @@ test("the 插件 page on Windows describes the sparks it draws at the caret", as
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
   const form = screen.getByRole("group", { name: "插件" });
   fireEvent.click(within(form).getByRole("button", { name: "声音与效果" }));
   expect(within(form).getByRole("radiogroup", { name: "效果样式" })).toBeTruthy();
@@ -1931,7 +1931,7 @@ test("the 插件 page offers the typing effects where the host draws them, and o
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
   const form = screen.getByRole("group", { name: "插件" });
   // No pack store on this host, and the switches are still one step away.
   fireEvent.click(within(form).getByRole("button", { name: "声音与效果" }));
@@ -1952,7 +1952,7 @@ test("the 插件 page offers the typing effects where the host draws them, and o
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
   const linux = screen.getByRole("group", { name: "插件" });
   fireEvent.click(within(linux).getByRole("button", { name: "声音与效果" }));
   expect(within(linux).getByRole("switch", { name: "连击计数" })).toBeTruthy();
@@ -1987,7 +1987,7 @@ test("the 插件 page on macOS, Windows and HarmonyOS fixes the effect intensity
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
   const form = screen.getByRole("group", { name: "插件" });
   fireEvent.click(within(form).getByRole("button", { name: "声音与效果" }));
   expect(within(form).getByRole("radiogroup", { name: "效果样式" })).toBeTruthy();
@@ -2021,7 +2021,7 @@ test("the 插件 page on macOS, Windows and HarmonyOS fixes the effect intensity
       />,
     );
     await settingsFormReady();
-    fireEvent.click(screen.getByRole("button", { name: "插件" }));
+    fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
     const page = screen.getByRole("group", { name: "插件" });
     fireEvent.click(within(page).getByRole("button", { name: "声音与效果" }));
     expect(within(page).getByRole("radiogroup", { name: "效果样式" })).toBeTruthy();
@@ -2135,7 +2135,7 @@ test("the @ switch is offered only where the host can edit the name list", async
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   selectSettingsTab("进阶");
   const form = screen.getByRole("group", { name: "输入" });
   expect(within(form).getByRole("switch", { name: /\/ 模式/ })).toBeTruthy();
@@ -2153,7 +2153,7 @@ test("the 插件 page is not offered on a phone or a host that backs none of it"
     />,
   );
   await settingsFormReady();
-  expect(screen.queryByRole("button", { name: "插件" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^(插件|扩展插件)$/ })).toBeNull();
 
   cleanup();
   render(
@@ -2171,7 +2171,7 @@ test("the 插件 page is not offered on a phone or a host that backs none of it"
     />,
   );
   await settingsFormReady();
-  expect(screen.queryByRole("button", { name: "插件" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^(插件|扩展插件)$/ })).toBeNull();
 });
 
 test("a phrase table shows its rows and is enabled in priority order", async () => {

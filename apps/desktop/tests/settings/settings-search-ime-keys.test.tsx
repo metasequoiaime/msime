@@ -52,14 +52,16 @@ test.each(
 
   expect(fireEvent.keyDown(field, { key, ...event })).toBe(true);
   expect(field.value).toBe("标点");
-  expect(screen.queryByRole("heading", { name: "输入", level: 1 })).not.toBeNull();
+  expect(screen.queryByRole("heading", { name: /^(输入|输入设置)$/, level: 1 })).not.toBeNull();
 
   fireEvent.keyDown(field, { key, keyCode: key === "Enter" ? 13 : 27 });
   if (key === "Enter") {
-    expect(screen.queryByRole("heading", { name: "标点与翻译", level: 1 })).not.toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: /^(标点与翻译|标点翻译)$/, level: 1 }),
+    ).not.toBeNull();
   } else {
     expect(field.value).toBe("");
-    expect(screen.queryByRole("heading", { name: "输入", level: 1 })).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: /^(输入|输入设置)$/, level: 1 })).not.toBeNull();
   }
 });
 

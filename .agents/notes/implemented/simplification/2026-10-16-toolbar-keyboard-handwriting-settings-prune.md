@@ -37,9 +37,15 @@ macOS 的屏幕键盘页没有任何偏好之后，页脚不再显示全局的�
 
 ### 屏幕键盘与手写合成一页
 
-- 在桌面宿主上合并（最初只有 macOS 和 Linux，各平台跟进时加上 Windows 和 HarmonyOS 2-in-1）：`settingsPageProjections` 的 `handwritingOnScreenKeyboardPage` 为真、不是触屏宿主且本版本提供手写时，`handwriting` 不进 `availablePages`，`screen-keyboard` 的标题改为「屏幕键盘与手写」，屏幕键盘页在键盘各组之后画手写那一组（`HandwritingSettingsContent`，和单独的「手写输入」页是同一个组件）。
+- 在桌面宿主上合并（最初只有 macOS 和 Linux，各平台跟进时加上 Windows 和 HarmonyOS 2-in-1）：`settingsPageProjections` 的 `handwritingOnScreenKeyboardPage` 为真、不是触屏宿主且本版本提供手写时，`handwriting` 不进 `availablePages`，`screen-keyboard` 的标题改为「键盘手写」，屏幕键盘页在键盘各组之后画手写那一组（`HandwritingSettingsContent`，和单独的「手写输入」页是同一个组件）。
 - 旧 id 仍然能打开：投影返回 `pageAliases`（`handwriting → screen-keyboard`），`useSettingsNavigation` 在 `selectPage`、宿主路由和启动页上都先查它，`settings:handwriting` 和 `initialPage="handwriting"` 打开合并后的页，而不是落到「输入」。
-- `settings-page-registry.ts` 的 `pages` 和 `settingsNavGroups` 不变。最初 `SettingsNavigation.h` 也不变、Windows 两页分开，各平台跟进时 Windows 原生窗口同样并成一页（见下）。触屏宿主的手写页另有内容，不并；不提供手写的版本没有可并的页，屏幕键盘页保留原名。
+- 页面 id 与路由不变，导航顺序由 `settingsNavGroups` 统一定义。最初 `SettingsNavigation.h` 也不变、Windows 两页分开，各平台跟进时 Windows 原生窗口同样并成一页（见下）。触屏宿主的手写页另有内容，不并；不提供手写的版本没有可并的页，屏幕键盘页保留原名。
+
+### 桌面菜单名称与顺序
+
+桌面菜单统一采用四字名称：输入设置、词库管理、按键设置、标点翻译、语音输入、键盘手写、主题外观、候选窗口、快捷工具、剪贴管理、智能辅助、扩展插件、打字统计、账号管理、维护诊断、关于水杉。不提供手写的版本仍叫「屏幕键盘」。共享桌面侧栏连续平铺页面，不显示分类标题。先排输入行为和其他输入方式，再排外观、工具、账号与支持；词库紧接输入，统计放在工具末尾，避免几个功能相邻的页面被外观打断。
+
+共享页的桌面名称走 `desktopPageTitle` 投影，不改 `pages` 的注册名称、路由 id 与 `mobilePageTitle` 的触屏名称。`settingsNavGroups` 继续作为导航顺序的唯一来源，触屏设置列表也按输入方式先于外观排列。Windows 原生窗口同步菜单名称、顺序、组索引和 PowerShell 验收清单。搜索同时匹配显示名称与注册名称，改成「智能辅助」「快捷工具」「按键设置」后仍可用「AI」「工具栏」「快捷键」查找。
 
 ### 原生回退窗口和检查脚本
 
@@ -54,7 +60,7 @@ macOS 这一轮之后，Windows、Linux 和 HarmonyOS 逐项对照同样的理�
 
 - 原生「悬浮工具栏」页的「尺寸」组把「工具栏缩放」「图标尺寸」两个下拉换成一个「工具栏大小」（`platforms/windows/settings/main.cpp` 的 `toolbar_size_control`），五档和匹配规则放在新的 `FloatingToolbarSizeModel.h`，与 `floatingToolbarSizes` / `floatingToolbarSize` 逐档相同，由 `tests/ui/floating_toolbar_size_model.cpp` 核对。选一档在同一次编辑里写两个值并重画页面；存下的组合凑不成一档时，最前面是一项灰着的「自定义（缩放 X%，图标 Y）」并选着它，不改写存储（用的是 `select_control` 已有的不可选选项）。175% 仍写成 150% 加 28，`FloatingToolbarSettings::valid()` 不用改。原生页不再能调出不成档的组合，共享页上的「自定义」只剩旧数据会触发。
 - 原生「屏幕键盘」页的「恢复默认」说明和确认框改成「高度、间距和顶部语音入口」，与共享页给 Windows 的 `touchKeyboardResetSubjects` 一致；删掉的五个键（含 `touch_toolbar`）不变。
-- 「手写输入」并进「屏幕键盘」页：Windows 的手写页只有一个打开面板的按钮，macOS 的理由成立。`SettingsNavigation.h` 去掉 `hand` 页（18 页变 17 页），`handwriting` 路由改指 `osk`；`page_offered` 只用来收掉 `hand` 页，一并删掉，改由 `offered_page_for_route` 在不提供手写的版本里把 `handwriting` 路由送到默认页，对应共享页只在有手写时才有 `handwriting` 别名。`build_osk_page` 在「工具栏」和「外观」之间画 `build_hand_page` 那一组，页名在提供手写的版本里是「屏幕键盘与手写」。共享页的 `handwritingOnScreenKeyboardPage` 同时对 Windows 打开，两边侧栏一致。`tests/ui/settings_navigation.cpp`、`tests/tools/settings_ui.ps1` 和 README 同步。
+- 「手写输入」并进「屏幕键盘」页：Windows 的手写页只有一个打开面板的按钮，macOS 的理由成立。`SettingsNavigation.h` 去掉 `hand` 页（18 页变 17 页），`handwriting` 路由改指 `osk`；`page_offered` 只用来收掉 `hand` 页，一并删掉，改由 `offered_page_for_route` 在不提供手写的版本里把 `handwriting` 路由送到默认页，对应共享页只在有手写时才有 `handwriting` 别名。`build_osk_page` 在「工具栏」和「外观」之间画 `build_hand_page` 那一组，页名在提供手写的版本里是「键盘手写」。共享页的 `handwritingOnScreenKeyboardPage` 同时对 Windows 打开，两边侧栏一致。`tests/ui/settings_navigation.cpp`、`tests/tools/settings_ui.ps1` 和 README 同步。
 - 不跟：键盘高度和两种间距都留着。macOS 去掉间距的决定性理由是 Mac 没有触屏，而 Windows 有 Surface 这类二合一触屏设备，面板本身写着「使用鼠标或触控方式」；Tauri 面板在 Windows 上按存下的高度定窗口高度（`panel_window.rs` 的 `windows_panel_height`），`touch_keyboard_spacing` 为真时也按存下的间距画，所以两个能力位都不改。`desktop-keyboard.tsx` 在能力返回前先画默认几何的改动是共享代码，Windows 面板已经带上。
 
 **Linux**
@@ -65,9 +71,12 @@ macOS 这一轮之后，Windows、Linux 和 HarmonyOS 逐项对照同样的理�
 **HarmonyOS**
 
 - 手机：全部保留。它是触屏输入法，高度和间距都由 ArkTS 键盘读取（`KeyboardSession.ets`），并以 `platform.harmony.*` 同步到云端，不能硬砍；手机的手写页有识别等待时间、笔迹颜色和粗细，不并进屏幕键盘页（投影本身排除触屏宿主）；手机没有悬浮工具栏页。
-- 2-in-1：「工具栏大小」由共享页直接带上，`FloatingToolbarLayout.ts` 和 `InputModeHud` 接受每一档（150 加 28 画成 175%）。手写页在 2-in-1 上只是一段说明，而且说明本身就让人从屏幕键盘的方案选择器切到手写，所以同样并进「屏幕键盘与手写」，`handwritingOnScreenKeyboardPage` 对 HarmonyOS 打开即可。两个触屏几何能力位在 2-in-1 上照旧为真，键盘仍按它们画。
+- 2-in-1：「工具栏大小」由共享页直接带上，`FloatingToolbarLayout.ts` 和 `InputModeHud` 接受每一档（150 加 28 画成 175%）。手写页在 2-in-1 上只是一段说明，而且说明本身就让人从屏幕键盘的方案选择器切到手写，所以同样并进「键盘手写」，`handwritingOnScreenKeyboardPage` 对 HarmonyOS 打开即可。两个触屏几何能力位在 2-in-1 上照旧为真，键盘仍按它们画。
 
 ## Alternatives considered
+
+- **直接把注册名称全部改成四个字**：一份名称覆盖所有地方，代码最少。不用它，是因为手机底部标签和列表已有适合窄屏的短名，桌面整理菜单不应改变手机术语；桌面投影也能保留原名供搜索。
+- **为每个平台各维护一份菜单顺序**：可以完全保留手机现有排序。不用它，是因为输入方式靠近输入设置对两种布局都适用，重复清单还会让共享桌面与 Windows 的导航继续漂移。
 
 - **新增 175 这个缩放值，控件只写 `scale_percent`、把 `font_size` 重置成 24**：存储模型最简单，一个数就是大小。不用它，是因为每个读取方都把缩放限在 75–150：Windows `FloatingToolbarSettings::valid()` 会整份拒绝工具栏设置，PreviewConfig 只接受 0.75–1.5（`CandidateAppearance.h` 因此把超范围的缩放直接丢掉）；macOS `FloatingToolbarPanel.mm` 和 `AppearancePreferences.mm` 的 `ValidToolbarScale` 会回落到 100，而 `sharedPreferencesByMerging:` 每次保存外观都会把 100 写回去；Linux 的 `ModeBadgeStyle.h` 当时也只认四个值（各平台跟进后它不再读缩放）。要支持它就得改 Windows 宿主，超出这次范围，而 Mac 上选的 175 一旦同步到 Windows，就会让那边的工具栏设置整份失效。
 - **升级时把 `font_size` 一次性折算进 `scale_percent`（调研报告的建议）**：之后只剩一个值。不用它，是因为这是所有宿主上的数据迁移，Windows 原生页还在分开调两项，折算后它显示的值会变；这次的约定是不做数据迁移，Windows 对齐另行跟进。
@@ -99,4 +108,6 @@ macOS 这一轮之后，Windows、Linux 和 HarmonyOS 逐项对照同样的理�
 - `scripts/test-appearance-preview.py`（本地 Playwright 回归，不在 CI 里）原来逐个组合拨两个下拉，改为逐档拨「工具栏大小」并核对图标宽度；这次没有在本机跑它。
 - `platforms/macos/tests/settings/preference_coverage.py` 与 `scripts/test-reference-config-coverage.py` 通过。
 - 没有在本机编译 macOS 或 Windows 原生宿主（这次没有改原生代码），也没有启动应用或面板看实际效果。
-- 各平台跟进：`FloatingToolbarSizeModel.h` 的测试和 `tests/ui/settings_navigation.cpp` 在本机用 clang 按 C++17 和 C++20 加 `-Wall -Wextra -Werror` 编译运行通过；`main.cpp` 的改动没有在本机编译（WinUI 只能在 CI 的 Windows 机器上编译），`settings_ui.ps1` 新加的 UIA 断言也要等 CI 跑。共享页的用例改成 Windows 和 HarmonyOS 2-in-1 都落在「屏幕键盘与手写」，参考窗口的小节表在 Windows 上同样按合并后的页查找，Linux 的 `tests/runtime/mode_badge_style.cpp` 在本机用 clang 按 C++17 加 `-Wall -Wextra -Werror` 编译运行通过，`FcitxEngine.cpp` 的改动只能交给 CI 的 Linux 构建。
+- 各平台跟进：`FloatingToolbarSizeModel.h` 的测试和 `tests/ui/settings_navigation.cpp` 在本机用 clang 按 C++17 和 C++20 加 `-Wall -Wextra -Werror` 编译运行通过；`main.cpp` 的改动没有在本机编译（WinUI 只能在 CI 的 Windows 机器上编译），`settings_ui.ps1` 新加的 UIA 断言也要等 CI 跑。共享页的用例改成 Windows 和 HarmonyOS 2-in-1 都落在「键盘手写」，参考窗口的小节表在 Windows 上同样按合并后的页查找，Linux 的 `tests/runtime/mode_badge_style.cpp` 在本机用 clang 按 C++17 加 `-Wall -Wextra -Werror` 编译运行通过，`FcitxEngine.cpp` 的改动只能交给 CI 的 Linux 构建。
+
+- 菜单名称与顺序：Chromium 合成宿主在浅色、深色以及 1000×780、800×600 下核对 16 项完整导航，名称均为四个字、等高且无横向溢出；「AI」「工具栏」「快捷键」「屏幕键盘」搜索与 Enter 跳转、Escape 清空、无结果提示均通过。Windows 导航模型在本机以 C++20、`MSIME_EDITION_FULL` 与 `-Wall -Wextra -Werror` 编译运行通过，PowerShell 验收顺序检查通过。WinUI 窗口需由 Windows CI 构建，本机没有安装这次菜单改动。

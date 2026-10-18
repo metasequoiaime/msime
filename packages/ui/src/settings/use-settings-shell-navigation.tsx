@@ -1,7 +1,7 @@
 import type { MutableRefObject } from "react";
 import type { SettingsPageGroup, SettingsPageItem } from "./settings-page-projections";
 import { mobileTabForPage } from "./settings-navigation-helpers";
-import type { SettingsPageId } from "./settings-page-registry";
+import { pages, type SettingsPageId } from "./settings-page-registry";
 import { SettingsNavigationSearch } from "./settings-navigation-search";
 
 export interface UseSettingsShellNavigationOptions {
@@ -45,7 +45,12 @@ export function useSettingsShellNavigation({
     ? sidebarGroups
         .map((group) => ({
           ...group,
-          pages: group.pages.filter((item) => item.title.toLocaleLowerCase().includes(navNeedle)),
+          // 菜单缩短名称后，仍能用「AI」「快捷键」「工具栏」等原名找到页面。
+          pages: group.pages.filter((item) =>
+            [item.title, pages.find((page) => page.id === item.id)?.title ?? ""].some((title) =>
+              title.toLocaleLowerCase().includes(navNeedle),
+            ),
+          ),
         }))
         .filter((group) => group.pages.length > 0)
     : sidebarGroups;

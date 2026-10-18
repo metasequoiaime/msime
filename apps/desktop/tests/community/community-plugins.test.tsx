@@ -680,7 +680,7 @@ test("the 插件 page switches between the installed packs and the community gal
     />,
   );
   const form = await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(插件|扩展插件)$/ }));
   const tabs = screen.getByRole("tablist", { name: "插件来源" });
   expect(within(tabs).getByRole("tab", { name: "我的插件" }).getAttribute("aria-selected")).toBe(
     "true",
