@@ -1,14 +1,15 @@
 //! 官方词库独立更新。网络只发生在设置宿主的后台任务，输入宿主只读取已校验的资源代次。
 
+use crate::voice::local_models::{self, Fetched, Fetcher, LocalModelError};
 use crate::{file_lock, resources, storage};
 use resources::{Artifact, ResourceSet, ResourceStore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const API: &str =
@@ -412,6 +413,60 @@ fn fetch(transport: &dyn Transport, url: &str, limit: u64) -> Result<Vec<u8>, Up
     Ok(bytes)
 }
 
+struct UpdateFetcher<'a> {
+    transport: &'a dyn Transport,
+    timeout: Duration,
+}
+
+impl Fetcher for UpdateFetcher<'_> {
+    fn fetch<'a>(&'a self, url: &str, _: u64) -> Result<Fetched<'a>, LocalModelError> {
+        self.transport
+            .open(url, self.timeout)
+            .map(|reader| Fetched { reader, offset: 0 })
+            .map_err(|_| LocalModelError::Network("dictionary update".into()))
+    }
+}
+
+/// 复用资源包的逐文件换源与校验；匿名暂存文件随句柄关闭删除，不把大词库放进内存。
+fn download(
+    transport: &dyn Transport,
+    artifact: &Artifact,
+    state: &Path,
+    progress: &mut dyn FnMut(u64),
+) -> Result<File, UpdateError> {
+    let mut output = tempfile::tempfile_in(root(state))?;
+    // CDN 只缓存不可变附件，版本 API 始终直连；选择记录继续保留 GitHub 原地址。
+    let mirrors = if artifact.url.starts_with(DOWNLOAD) {
+        crate::resource_packs::PROJECT_MIRRORS
+    } else {
+        &[]
+    };
+    local_models::download_from_mirrors(
+        &UpdateFetcher {
+            transport,
+            timeout: Duration::from_secs(if artifact.name == MANIFEST {
+                30
+            } else {
+                30 * 60
+            }),
+        },
+        mirrors,
+        &artifact.url,
+        artifact.size,
+        &artifact.sha256,
+        &mut output,
+        &AtomicBool::new(false),
+        progress,
+    )
+    .map_err(|error| match error {
+        LocalModelError::Network(_) | LocalModelError::HttpStatus(_) => UpdateError::Network,
+        LocalModelError::Io(_) => UpdateError::Storage,
+        _ => UpdateError::Integrity,
+    })?;
+    output.rewind()?;
+    Ok(output)
+}
+
 #[derive(Deserialize)]
 struct ProductManifest {
     manifest_version: u32,
@@ -510,35 +565,12 @@ fn plan(
     Ok(selection)
 }
 
-struct ProgressReader {
-    source: Box<dyn Read>,
-    status: Arc<Mutex<UpdateStatus>>,
-    path: PathBuf,
-    reported: u64,
-}
-impl Read for ProgressReader {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let size = self.source.read(buf)?;
-        let mut status = self
-            .status
-            .lock()
-            .map_err(|_| io::Error::other("progress lock"))?;
-        status.downloaded_bytes += size as u64;
-        if status.downloaded_bytes.saturating_sub(self.reported) >= 1024 * 1024 || size == 0 {
-            self.reported = status.downloaded_bytes;
-            let _ = write(&self.path, &*status);
-        }
-        Ok(size)
-    }
-}
-
 fn install(
     context: &UpdateContext,
     set: &ResourceSet,
     transport: &dyn Transport,
     status: &mut UpdateStatus,
 ) -> Result<(), UpdateError> {
-    let progress = Arc::new(Mutex::new(status.clone()));
     store(&context.state_root)
         .install(set, |file| {
             // 复用当前资源的字节；ResourceStore 始终重新校验，损坏缓存不能被带进新代次。
@@ -572,21 +604,19 @@ fn install(
                     }
                 }
             }
-            let response = transport
-                .open(&file.url, Duration::from_secs(30 * 60))
-                .map_err(io::Error::other)?;
-            Ok(Box::new(ProgressReader {
-                source: response,
-                status: Arc::clone(&progress),
-                path: root(&context.state_root).join("status.json"),
-                reported: 0,
-            }) as Box<dyn Read>)
+            let offset = status.downloaded_bytes;
+            let mut reported = offset;
+            let source = download(transport, file, &context.state_root, &mut |count| {
+                status.downloaded_bytes = offset + count.min(file.size);
+                if status.downloaded_bytes.abs_diff(reported) >= 1024 * 1024 || count == file.size {
+                    reported = status.downloaded_bytes;
+                    let _ = write(&root(&context.state_root).join("status.json"), status);
+                }
+            })
+            .map_err(io::Error::other)?;
+            Ok(Box::new(source) as Box<dyn Read>)
         })
         .map_err(|_| UpdateError::Integrity)?;
-    *status = Arc::try_unwrap(progress)
-        .map_err(|_| UpdateError::Storage)?
-        .into_inner()
-        .map_err(|_| UpdateError::Storage)?;
     Ok(())
 }
 
@@ -639,12 +669,13 @@ fn check_with(
             version(&r.tag_name) > current || (active.is_some() && version(&r.tag_name) == current)
         }) {
             let descriptor = artifact(release, MANIFEST)?;
-            let manifest = fetch(transport, &descriptor.url, DOCUMENT_LIMIT)?;
-            if manifest.len() as u64 != descriptor.size
-                || hex::encode(Sha256::digest(&manifest)) != descriptor.sha256
-            {
-                return Err(UpdateError::Integrity);
+            if descriptor.size > DOCUMENT_LIMIT {
+                return Err(UpdateError::Invalid);
             }
+            let mut manifest = Vec::new();
+            download(transport, &descriptor, &context.state_root, &mut |_| {})?
+                .take(DOCUMENT_LIMIT + 1)
+                .read_to_end(&mut manifest)?;
             match plan(context, release, &manifest) {
                 Err(UpdateError::Incompatible) => incompatible = true,
                 Err(error) => return Err(error),

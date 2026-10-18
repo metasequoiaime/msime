@@ -3383,7 +3383,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNil(comma.onCornerHint)
   }
 
-  /// 九键保留自己的底行：符 1.05 | 123 1.25 | space 4.2 | 中 1.05 | return 1.6，中/英 紧挨回车左边，没有 0、， 或 。 键；网格的数字层将中央大键位交给 0，空格缩到右边。
+  /// 九键字母层保留大空格；数字层的底行对齐上方五列，需要额外地球键时保留比例布局。
   func testNineKeyKeepsItsOwnBottomRow() throws {
     let previous = InputSchemePreference.scheme
     let hiddenLanguage = KeyboardLayoutPreference.hideLanguageKey
@@ -3413,14 +3413,28 @@ final class NineKeyKeyboardTests: XCTestCase {
     try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "closeSymbolPanel" } as? UIButton)
       .sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    // 数字层：网格提供 1-9，0 占中央大键位，空格缩成旁边的功能键。
+    // 数字层：九键、0、空格、中/英、换行分别对齐左栏和四列按键。
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
                    ["layoutToggleButton"] + globe + ["nineKeyZero", "spaceKey", "bottomLanguageKey", "returnKey"])
     let zero = try button("nineKeyZero", in: controller)
     let space = try button("spaceKey", in: controller)
-    XCTAssertGreaterThan(zero.bounds.width, space.bounds.width * 3)
+    if controller.needsInputModeSwitchKey {
+      XCTAssertGreaterThan(zero.bounds.width, space.bounds.width * 3)
+    } else {
+      let bottom = [try button("layoutToggleButton", in: controller), zero, space,
+                    try button("bottomLanguageKey", in: controller), try button("returnKey", in: controller)]
+      let top = [try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeySidebar" }),
+                 try button("nineKey7", in: controller), try button("nineKey8", in: controller),
+                 try button("nineKey9", in: controller), try button("nineKeyDelete", in: controller)]
+      for (lower, upper) in zip(bottom, top) {
+        let lowerFrame = lower.convert(lower.bounds, to: controller.view)
+        let upperFrame = upper.convert(upper.bounds, to: controller.view)
+        XCTAssertEqual(lowerFrame.minX, upperFrame.minX, accuracy: 0.5)
+        XCTAssertEqual(lowerFrame.maxX, upperFrame.maxX, accuracy: 0.5)
+      }
+    }
     XCTAssertGreaterThanOrEqual(zero.bounds.width, try button("nineKey8", in: controller).bounds.width)
     XCTAssertLessThan(zero.frame.maxX, space.frame.minX)
     XCTAssertNil(space.configuration?.image)
@@ -3433,6 +3447,17 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(try button("bottomLanguageKey", in: controller).isHidden)
     XCTAssertGreaterThan(zero.bounds.width, zeroWidth)
     XCTAssertEqual(space.bounds.width, spaceWidth, accuracy: 1)
+    if !controller.needsInputModeSwitchKey {
+      let seven = try button("nineKey7", in: controller)
+      let eight = try button("nineKey8", in: controller)
+      let nine = try button("nineKey9", in: controller)
+      XCTAssertEqual(zero.convert(zero.bounds, to: controller.view).minX,
+                     seven.convert(seven.bounds, to: controller.view).minX, accuracy: 0.5)
+      XCTAssertEqual(zero.convert(zero.bounds, to: controller.view).maxX,
+                     eight.convert(eight.bounds, to: controller.view).maxX, accuracy: 0.5)
+      XCTAssertEqual(space.convert(space.bounds, to: controller.view).minX,
+                     nine.convert(nine.bounds, to: controller.view).minX, accuracy: 0.5)
+    }
     KeyboardLayoutPreference.hideLanguageKey = false
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
@@ -3901,6 +3926,61 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("layoutToggleButton", in: nineKey).configuration?.title, "九键")
     XCTAssertEqual(try button("layoutToggleButton", in: nineKey).accessibilityLabel, "切换到字母")
     XCTAssertEqual(try button("nineKey2", in: nineKey).configuration?.title, "2")
+  }
+
+  /// 运算符滚动时保留整排触控高度，符号面板入口固定且能返回数字页。
+  func testNumberPadSidebarKeepsLargeKeysAndAFixedSymbolEntry() throws {
+    let previous = InputSchemePreference.scheme
+    let previousSpacing = KeyboardLayoutPreference.rowSpacing
+    defer {
+      InputSchemePreference.scheme = previous
+      KeyboardLayoutPreference.rowSpacing = previousSpacing
+    }
+    for tablet in [false, true] {
+      KeyboardLayoutPreference.rowSpacing = tablet ? 10 : 4
+      InputSchemePreference.scheme = .nineKey
+      let controller = KeyboardViewController()
+      if tablet {
+        controller.traitOverrides.userInterfaceIdiom = .pad
+        controller.traitOverrides.horizontalSizeClass = .regular
+      }
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: tablet ? 834 : 390, height: 320)
+      try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      let symbols = try button("numberPadSymbolPanelKey", in: controller)
+      let scroll = try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityIdentifier == "numberPadOperatorScroll"
+      } as? UIScrollView)
+      let digit = try button("nineKey7", in: controller)
+      XCTAssertTrue(shown(symbols))
+      XCTAssertEqual(symbols.configuration?.title, "符")
+      XCTAssertEqual(symbols.bounds.height, digit.bounds.height, accuracy: 0.5)
+      XCTAssertEqual(symbols.convert(symbols.bounds, to: controller.view).minY,
+                     digit.convert(digit.bounds, to: controller.view).minY, accuracy: 0.5)
+      XCTAssertGreaterThan(scroll.contentSize.height, scroll.bounds.height)
+      let fixedFrame = symbols.convert(symbols.bounds, to: controller.view)
+      for mark in ["+", "-", "*", "/"] {
+        let key = try XCTUnwrap(descendants(scroll).first { $0.accessibilityLabel == "运算符 \(mark)" })
+        XCTAssertEqual(key.bounds.height, digit.bounds.height, accuracy: 0.5)
+        XCTAssertTrue(scroll.touchesShouldCancel(in: key), "从运算符起滑也必须能滚动，不能误输入符号")
+        scroll.scrollRectToVisible(key.convert(key.bounds, to: scroll), animated: false)
+        XCTAssertTrue(scroll.bounds.contains(key.convert(key.bounds, to: scroll)))
+        XCTAssertEqual(symbols.convert(symbols.bounds, to: controller.view), fixedFrame)
+      }
+      let more = try button("numberPadMoreSymbols", in: controller)
+      scroll.scrollRectToVisible(more.convert(more.bounds, to: scroll), animated: false)
+      XCTAssertTrue(scroll.bounds.contains(more.convert(more.bounds, to: scroll)))
+      symbols.sendActions(for: .primaryActionTriggered)
+      XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+      try button("closeSymbolPanel", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+      XCTAssertTrue(shown(try button("nineKeyZero", in: controller)))
+      XCTAssertGreaterThanOrEqual(try button("nineKeyZero", in: controller).bounds.width,
+                                 digit.bounds.width - 0.5)
+      controller.viewDidDisappear(false)
+    }
   }
 
   /// 借用数字页的返回键键面按原键面取，与 Android `KeyboardActionRow.layerTitle` 相同；词库没装时上面的界面用例跳过笔画，这里按方案直接固定。

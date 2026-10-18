@@ -321,6 +321,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeySymbolsButton: UIButton!
   private let punctuationStack = UIStackView()
   private let numberPadSidebar = UIStackView()
+  private let numberPadOperators = UIStackView()
   private var quickPunctuationButton: UIButton!
   private var quickPunctuationWidth: NSLayoutConstraint?
   /// 14 键和手写等底行的独立句号；手机 26 键通过逗号长按输入句号。
@@ -333,6 +334,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyActionWidths: [NSLayoutConstraint] = []
   private var numberPadActionWidths: [NSLayoutConstraint] = []
   private var numberPadExpandedZeroWidths: [NSLayoutConstraint] = []
+  private var numberPadGridWidths: [NSLayoutConstraint] = []
+  private var numberPadExpandedGridWidths: [NSLayoutConstraint] = []
   /// 123 / #+= 层的底行，以空格键的 6 为基准（`SymbolLayerLayout`）。
   private var layerActionWidths: [NSLayoutConstraint] = []
   /// 设计稿的手机底行弹性权重，以空格键的 4 为基准：123 1.25、中 1.05、地球键 1、， 1、。 1、回车 1.9。
@@ -1326,7 +1329,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       punctuationStack.addArrangedSubview(button)
     }
     numberPadSidebar.axis = .vertical
-    numberPadSidebar.distribution = .fillEqually
+    numberPadSidebar.spacing = 7
+    let operators = numberPadOperators
+    operators.axis = .vertical
+    operators.spacing = 7
+    let operatorScroll = CandidateScrollView()
+    operatorScroll.accessibilityIdentifier = "numberPadOperatorScroll"
+    operatorScroll.showsVerticalScrollIndicator = true
+    operators.translatesAutoresizingMaskIntoConstraints = false
+    operatorScroll.addSubview(operators)
+    NSLayoutConstraint.activate([
+      operators.leadingAnchor.constraint(equalTo: operatorScroll.contentLayoutGuide.leadingAnchor),
+      operators.trailingAnchor.constraint(equalTo: operatorScroll.contentLayoutGuide.trailingAnchor),
+      operators.topAnchor.constraint(equalTo: operatorScroll.contentLayoutGuide.topAnchor),
+      operators.bottomAnchor.constraint(equalTo: operatorScroll.contentLayoutGuide.bottomAnchor),
+      operators.widthAnchor.constraint(equalTo: operatorScroll.frameLayoutGuide.widthAnchor),
+    ])
+    numberPadSidebar.addArrangedSubview(operatorScroll)
     for symbol in ["+", "-", "*", "/"] {
       let button = makeKey(title: symbol, accessibilityLabel: "运算符 \(symbol)") { [weak self] in
         guard let self else { return }
@@ -1334,7 +1353,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         insertNumberPadLiteral(symbol)
       }
       Self.drawBareInSidebar(button)
-      numberPadSidebar.addArrangedSubview(button)
+      operators.addArrangedSubview(button)
     }
     let more = makeKey(title: "#+=", accessibilityLabel: "更多符号", function: true) { [weak self] in
       self?.countKeyPress(TypingKeyID.layer)
@@ -1342,7 +1361,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     Self.drawBareInSidebar(more)
     more.accessibilityIdentifier = "numberPadMoreSymbols"
-    numberPadSidebar.addArrangedSubview(more)
+    operators.addArrangedSubview(more)
+    let symbols = makeKey(title: "符", accessibilityLabel: "符号", function: true) { [weak self] in
+      self?.countKeyPress(TypingKeyID.symbol)
+      self?.showSymbolPanel()
+    }
+    symbols.configuration?.contentInsets = .zero
+    symbols.accessibilityIdentifier = "numberPadSymbolPanelKey"
+    Self.drawBareInSidebar(symbols)
+    numberPadSidebar.addArrangedSubview(symbols)
+    // 符固定在第三排，运算符按同一排高滚动，避免五项挤在三排高度里。
+    for button in operators.arrangedSubviews {
+      button.heightAnchor.constraint(equalTo: symbols.heightAnchor).isActive = true
+    }
     for content in [punctuationStack, numberPadSidebar, makeSpellingStrip()] {
       content.translatesAutoresizingMaskIntoConstraints = false
       sidebar.addSubview(content)
@@ -1458,6 +1489,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     exclamation.accessibilityIdentifier = "nineKeyClosingMark"
     controls.addArrangedSubview(exclamation)
     nineKeyContainer.addArrangedSubview(controls)
+    symbols.heightAnchor.constraint(equalTo: delete.heightAnchor).isActive = true
     controls.widthAnchor.constraint(equalTo: sidebar.widthAnchor).isActive = true
     return nineKeyContainer
   }
@@ -3057,6 +3089,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     numberPadActionWidths = numberPadWidths(hidesLanguage: false)
     numberPadExpandedZeroWidths = numberPadWidths(hidesLanguage: true)
+    // 数字页底行沿用上方的五列；隐藏中/英时，0 合并前两格，空格留在第三格。
+    if let sidebar = nineSidebarWidth?.firstItem as? UIView, let controls = nineControls,
+       let digit = nineKeyGridKeys.first?.button {
+      let edges = [
+        layoutToggle.widthAnchor.constraint(equalTo: sidebar.widthAnchor),
+        enter.widthAnchor.constraint(equalTo: controls.widthAnchor),
+      ]
+      numberPadGridWidths = edges + [
+        zero.widthAnchor.constraint(equalTo: digit.widthAnchor),
+        language.widthAnchor.constraint(equalTo: digit.widthAnchor),
+      ]
+      numberPadExpandedGridWidths = edges + [space.widthAnchor.constraint(equalTo: digit.widthAnchor)]
+    }
     layerActionWidths = [
       weight(layoutToggle, SymbolLayerLayout.lettersWeight, space: SymbolLayerLayout.spaceWeight),
       weight(emoji, SymbolLayerLayout.panelWeight, space: SymbolLayerLayout.spaceWeight, optional: true),
@@ -3110,7 +3155,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手机 26 键底行上空格键的弹性权重；其他键的权重都相对它来算。
   static let phoneSpaceWeight: CGFloat = 4
-  /// 九键字母层空格键、数字层 0 键的弹性权重。
+  /// 九键字母层空格键及需要底行地球键时数字层 0 键的弹性权重。
   static let nineKeySpaceWeight: CGFloat = 4.2
   /// 123 层表情键上的表情线框图标。
   private static let layerEmojiIconSide: CGFloat = 22
@@ -5033,6 +5078,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     keyColumn.spacing = layout.rowSpacing
     nineGrid?.spacing = layout.rowSpacing
     nineControls?.spacing = layout.rowSpacing
+    numberPadSidebar.spacing = layout.rowSpacing
+    numberPadOperators.spacing = layout.rowSpacing
     handwritingColumns.forEach { $0.spacing = layout.rowSpacing }
     handwritingPad.spacing = layout.keySpacing
     strokeKeys?.applySpacing(row: layout.rowSpacing, key: layout.keySpacing)
@@ -5233,7 +5280,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       NSLayoutConstraint.deactivate(standardActionWidths + nineKeyActionWidths + phoneActionWidths + layerActionWidths
         + tabletActionWidths + phoneExpandedSpaceWidths + nineKeyExpandedSpaceWidths
         + tabletExpandedSpaceWidths + tabletSplitExpandedSpaceWidths
-        + numberPadActionWidths + numberPadExpandedZeroWidths)
+        + numberPadActionWidths + numberPadExpandedZeroWidths
+        + numberPadGridWidths + numberPadExpandedGridWidths)
       // iPad 的 26 键底行在回车的位置放第二个 123 和 ⌄，回车在 iPad 上排到第二排字母末尾。
       if tabletLayerButton.isHidden != (style != .tablet) { tabletLayerButton.isHidden = style != .tablet }
       if dismissKeyButton.isHidden != (style != .tablet) { dismissKeyButton.isHidden = style != .tablet }
@@ -5300,9 +5348,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       switch style {
       case .phone: NSLayoutConstraint.activate(hidesLanguage ? phoneExpandedSpaceWidths : phoneActionWidths)
       case .nineKey:
-        NSLayoutConstraint.activate(numberPad
-          ? (hidesLanguage ? numberPadExpandedZeroWidths : numberPadActionWidths)
-          : (hidesLanguage ? nineKeyExpandedSpaceWidths : nineKeyActionWidths))
+        if numberPad {
+          // 系统要求额外地球键时仍保留其触控宽度；通常的手机数字页按网格对齐。
+          NSLayoutConstraint.activate(needsInputModeSwitchKey
+            ? (hidesLanguage ? numberPadExpandedZeroWidths : numberPadActionWidths)
+            : (hidesLanguage ? numberPadExpandedGridWidths : numberPadGridWidths))
+        } else {
+          NSLayoutConstraint.activate(hidesLanguage ? nineKeyExpandedSpaceWidths : nineKeyActionWidths)
+        }
       case .symbolLayer: NSLayoutConstraint.activate(layerActionWidths)
       case .standard: NSLayoutConstraint.activate(standardActionWidths)
       case .tablet: NSLayoutConstraint.activate(hidesLanguage
@@ -5386,7 +5439,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private enum ActionRowStyle {
     /// 手机底行：26 键是 123 | 符 | space | ， | 中 | return，逗号长按输入句号；14 键和手写保留独立逗号句号。中/英 紧挨回车左边。
     case phone
-    /// 九键外框：符 | 123 | space | 中 | return，中/英 紧挨回车左边；网格的数字层没有 符，0 排在空格右边。
+    /// 九键外框：符 | 123 | space | 中 | return；数字层为 九键 | 0 | 空格 | 中 | return，符固定在左侧栏。
     case nineKey
     /// 123 / #+= 层：拼音或 ABC | 表情或符号 | space | return。
     case symbolLayer

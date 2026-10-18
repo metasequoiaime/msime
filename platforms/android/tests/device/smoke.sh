@@ -99,6 +99,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.BatchCompositionDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Deferred batch composition acceptance failed" >&2; exit 1; }
+# 同一编辑器每次输入后重启连接时，手动数字层不能退回字母页；换输入框仍重置。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NumberLayerRestartDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Number layer restart acceptance failed" >&2; exit 1; }
 # 菜单复制使用真实系统剪贴板与组字会话，最低 API 的核心验收也必须覆盖。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CopyDeviceInfoDeviceSmoke)
 printf '%s\n' "$result"

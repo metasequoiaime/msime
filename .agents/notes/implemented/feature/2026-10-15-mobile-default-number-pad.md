@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+Android 的数字层属于当前编辑器的交互状态。同一文档以 `restarting=true` 重建连接、包名及输入类型均未变时保留用户选择的键层；新文档或输入类型变化则重新按编辑器决定初始键层。登录页每次输入后调用 `restartInput` 时不能退回字母页，不按应用包名做特例。`NumberLayerRestartDeviceSmoke` 使用每次文字变化后重启连接的独立合成编辑器，核对连续数字、退格和切换输入框，不读取真实手机号。
+
 三端常规中文数字入口默认复用数字九宫格，沿用电话顺序、0、小数点、删除、空格和回车。原拼音九键继续显示同一数字面板；日文、韩文、越南文、藏文、大千注音、英文和本地工具保留各自符号契约。Android 注音九键也复用数字页。数字面板不改变原来的中文输入布局、语言或 Engine 网格状态，手动返回后恢复原键面。连续数字与运算符按字面上屏，始终留在当前面板，组字中的数字先按既有原样结束组合路径提交。
 
 四则运算 `+ - * /` 在数字侧栏直接可点，不经过中文标点转换；显式 `character_width` 全角设置仍然生效。数字页的 `#+=` 打开原扩展符号页，`123` 返回数字九宫格，原符号面板和 Android 中文标点开关仍然可达。该需求不新增或移除自动计算。键位统计区分原拼音九键 `Nine*` 与从其他中文键面进入的普通数字 `Digit*`，不能因为复用显示控件而把 26 键输入统计成拼音九键。
@@ -76,3 +78,8 @@ develop 上的[Android 九键数字层把 0 移到底行中间](2026-10-16-andro
 键面由各端可测的纯函数给出：Android 是 `KeyboardActionRow.layerTitle(layout, symbols, chineseNumberPad)`，iOS 是 `KeyboardViewController.numberPadReturnTitle(_:)`（按方案，14 键和笔画之外都取 `SymbolLayerLayout.lettersTitle(chinese: true)`），HarmonyOS 是 `NineKeyLayout.numberPadReturnTitle(stroke, fourteenKey)`（笔画先于 14 键判断，与 `typingFace` 的分支同序，其余取 `NumberSymbolLayout.lettersKeyTitle(true)`）。读屏名称沿用各端已有的写法：iOS 借用页改用它接替的 123 层的「切换到字母键盘」，笔画为「切换到笔画」，原拼音九键数字层仍是「切换到字母」；HarmonyOS 九键外框底行的这个键仍是「切换到所选输入方案」；Android 仍是 `layerDescription` 的「切换到字母键盘」。
 
 只统一键面文字，不另起一套「返回」键：HarmonyOS 的「返回」本身意思没错，但三端同一个键印三种字，且看不出回到哪个键面；iOS 的「ABC」在中文键面上还会被读成英文入口。iOS 的 `FourteenKeyKeyboardTests` 和 `NineKeyKeyboardTests` 原先固定的「ABC」改为「14键」「笔」，跨键面数字页用例逐个方案检查键面和读屏名称，另有纯函数用例遍历全部方案；HarmonyOS 的 `keyboard-logic` 检查 `numberPadReturnTitle` 的三种结果。
+
+
+## Verification update
+
+Android 原生库、发布 APK、宿主检查和 JVM 冒烟通过；API 28 专用模拟器安装发布 APK 后，`NumberLayerRestartDeviceSmoke` 通过，确认同一编辑器连续数字与退格保持数字层、切换编辑器回到字母层。API 35 模拟器已启动并安装包，但该轮合成编辑器未建立可见输入法窗口，专项用例在启动阶段失败，不能记为 API 35 设备通过。

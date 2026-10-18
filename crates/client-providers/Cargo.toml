@@ -16,6 +16,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 sha2.workspace = true
 hex = "0.4"
+tempfile.workspace = true
 base64 = "0.23"
 flate2 = "1"
 uuid = { workspace = true, features = ["serde", "v4"] }
@@ -34,7 +35,6 @@ zip = { version = "9.0", default-features = false, features = ["deflate-flate2"]
 
 [dev-dependencies]
 msime-path-trust = { path = "../path-trust", features = ["test-support"] }
-tempfile.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

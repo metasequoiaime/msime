@@ -58,8 +58,9 @@ test("keeps navigation groups and nested route ownership aligned", () => {
     mcp: "developer",
   });
   // 桌面上并进别的页、只留作路由别名的页面。
-  expect(desktopMergedPages).toEqual({ feedback: "about" });
+  expect(desktopMergedPages).toEqual({ feedback: "about", mcp: "developer" });
   expect(desktopPage("feedback")).toBe("about");
+  expect(desktopPage("mcp")).toBe("developer");
   expect(desktopPage("help")).toBe("help");
 });
 
