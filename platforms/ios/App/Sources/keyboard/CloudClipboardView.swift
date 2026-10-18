@@ -1,13 +1,11 @@
 import SwiftUI
 import UIKit
 
+/// 云剪贴板页经 Rust 的 `msime_client_account_cloud_clipboard`（#8201 迁移计划 4c）：端到端加密、令牌和密钥串（与键盘共用的钥匙串项 `cloud-clipboard-keystore`）都在 Rust 里，键盘扩展仍用 Swift 的传输和同一份密钥串，所以两边是同一台设备。页面只按第一次读到的 user.id 绑定：C 上拿不到会话代次，同一个账号的令牌轮换和重新登录不作废页面，换号、退出作废。
 struct CloudClipboardView: View {
-  let session: BackendAccountSession
-  let client: BackendAccountClient
-  /// 端到端加密驱动和与键盘共用的密钥串。
-  var e2e: BackendClipboardE2E? = IOSCloudClipboardDriver.e2e
+  /// 默认是 App 启动时注册的那一份；测试和预览传别的。
+  var rust: @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() }
   @State private var accountID: String?
-  @State private var sessionID: UUID?
   @State private var enabled = false
   @State private var loaded = false
   @State private var retention: Int?
@@ -72,7 +70,7 @@ struct CloudClipboardView: View {
           }
         } else if !busy {
           DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
-            Button { run { _, _ in nil } } label: {
+            Button { run { _ in nil } } label: {
               HStack {
                 VStack(alignment: .leading, spacing: 2) {
                   Text("重试").font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.accent)
@@ -96,7 +94,7 @@ struct CloudClipboardView: View {
     }
     .designCanvasBackground()
     .searchable(text: $search, prompt: "搜索云端内容")
-    .onSubmit(of: .search) { run { _, _ in nil } }
+    .onSubmit(of: .search) { run { _ in nil } }
     .settingsStatus(busy: busy, message: message)
     .disabled(busy)
     .navigationTitle("云剪贴板")
@@ -111,14 +109,14 @@ struct CloudClipboardView: View {
       }
     }
     .sheet(isPresented: $addsText) { addSheet }
-    .task { run { _, _ in nil } }
+    .task { run { _ in nil } }
     .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
       items = []; text = ""; devices = nil; e2eStatus = nil
     })
     .confirmationDialog("清空云剪贴板？", isPresented: $confirmsClear, titleVisibility: .visible) {
       Button("确认清空", role: .destructive) {
-        run { token, _ in try await client.deleteClipboard(token: token); return nil }
+        run { request in _ = try await request(["operation": "clear"]); return nil }
       }
       Button("取消", role: .cancel) { }
     }
@@ -152,7 +150,7 @@ struct CloudClipboardView: View {
           .designSubtext()
           .fixedSize(horizontal: false, vertical: true)
         HStack {
-          Button("刷新") { run { _, _ in nil } }
+          Button("刷新") { run { _ in nil } }
             .accessibilityIdentifier("cloudClipboardPendingRefresh")
           Spacer()
           Button("重置云剪贴板", role: .destructive) { deviceConfirmation = .reset }
@@ -263,7 +261,7 @@ struct CloudClipboardView: View {
     DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
       Toggle(isOn: Binding(
         get: { enabled },
-        set: { on in run { token, _ in try await client.setClipboardEnabled(on, token: token); return nil } }
+        set: { on in run { request in _ = try await request(["operation": "set_enabled", "enabled": on]); return nil } }
       )) {
         VStack(alignment: .leading, spacing: 2) {
           Text("云剪贴板").font(.system(size: 16)).foregroundStyle(.primary)
@@ -288,7 +286,7 @@ struct CloudClipboardView: View {
               get: { retention },
               set: { days in
                 guard days != retention else { return }
-                run { token, _ in try await client.setClipboardRetention(days: days, token: token); return nil }
+                run { request in _ = try await request(["operation": "set_retention", "days": days]); return nil }
               }
             ),
             identifierPrefix: "cloudClipboardRetention"
@@ -368,7 +366,7 @@ struct CloudClipboardView: View {
       .buttonStyle(.plain)
       .accessibilityHint("轻点复制")
       Button {
-        run { token, _ in try await client.setClipboardPinned(id: item.id, pinned: !pinned, token: token); return nil }
+        run { request in _ = try await request(["operation": "pin", "id": item.id, "pinned": !pinned]); return nil }
       } label: {
         Image(systemName: pinned ? "pin.fill" : "pin").font(.system(size: 15))
           .foregroundStyle(pinned ? MetasequoiaTheme.accent : MetasequoiaTheme.sub)
@@ -378,7 +376,7 @@ struct CloudClipboardView: View {
       .buttonStyle(.plain)
       .accessibilityLabel(pinned ? "取消置顶" : "置顶")
       Button {
-        run { token, _ in try await client.deleteClipboard(id: item.id, token: token); return nil }
+        run { request in _ = try await request(["operation": "delete", "id": item.id]); return nil }
       } label: {
         Image(systemName: "trash").font(.system(size: 15))
           .foregroundStyle(MetasequoiaTheme.sub)
@@ -431,8 +429,8 @@ struct CloudClipboardView: View {
           Button("上传") {
             let value = text
             addsText = false
-            run { token, e2e in
-              _ = try await client.addClipboard(value, token: token, e2e: e2e)
+            run { request in
+              _ = try await request(["operation": "add", "text": value])
               text = ""
               return nil
             }
@@ -447,49 +445,34 @@ struct CloudClipboardView: View {
     .presentationDetents([.medium, .large])
   }
 
-  /// 批准、拒绝、移除一台设备或重置云剪贴板。
+  /// 批准、拒绝、移除一台设备或重置云剪贴板，结果就是设备状态。
   @MainActor private func change(_ operation: BackendAccountClient.ClipboardE2EOperation) {
-    run { [client] token, e2e in try await client.clipboardDevices(operation, token: token, e2e: e2e) }
+    guard let action = IOSCloudClipboard.action(operation) else { return }
+    run { request in try BackendRustAccount.decode(BackendAccountClient.ClipboardDevices.self, try await request(action)) }
   }
 
-  /// 执行一个操作，然后重新读列表；云剪贴板开着时再读一次设备状态（操作本身已经带回设备状态时不再读）。
-  @MainActor private func run(_ action: @escaping @MainActor @Sendable (String, BackendClipboardE2E?) async throws -> BackendAccountClient.ClipboardDevices?) {
+  /// 执行一个操作，然后重新读列表（`IOSCloudClipboard.refresh`）。
+  @MainActor private func run(_ action: @escaping @MainActor @Sendable (IOSCloudClipboard.Request) async throws -> BackendAccountClient.ClipboardDevices?) {
     ViewRequestTask.run(request: $request, busy: $busy, message: $message,
                         pending: $pending) { id in await execute(action, requestID: id) }
   }
-  @MainActor private func execute(_ action: @MainActor @Sendable (String, BackendClipboardE2E?) async throws -> BackendAccountClient.ClipboardDevices?, requestID id: UUID) async {
+  @MainActor private func execute(_ action: @escaping @MainActor @Sendable (IOSCloudClipboard.Request) async throws -> BackendAccountClient.ClipboardDevices?,
+                                  requestID id: UUID) async {
     guard request.isCurrent(id) else { return }
     do {
-      let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+      let clipboard = IOSCloudClipboard(account: try rust(), deviceName: IOSCloudClipboardDriver.deviceName(UIDevice.current))
+      let result = try await clipboard.refresh(boundTo: accountID, search: search) { request in try await action(request) }
       try request.checkCurrent(id)
-      accountID = identity.userID; sessionID = identity.sessionID
-      let e2e = e2e?.bound(to: session, userID: identity.userID, sessionID: identity.sessionID)
-      var status = try await session.authenticated(matchingUserID: identity.userID,
-                                                   matchingSessionID: identity.sessionID) { token in
-        try await action(token, e2e)
-      }.value
-      try request.checkCurrent(id)
-      let page = try await client.clipboard(search: search, e2e: e2e, session: session,
-                                            matchingUserID: identity.userID,
-                                            matchingSessionID: identity.sessionID)
-      try request.checkCurrent(id)
-      if page.enabled && status == nil {
-        status = try await session.authenticated(matchingUserID: identity.userID,
-                                                 matchingSessionID: identity.sessionID) { [client, e2e] token in
-          try await client.clipboardDevices(token: token, e2e: e2e)
-        }.value
-      }
-      try request.checkCurrent(id)
-      try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
-      try request.checkCurrent(id)
+      accountID = result.accountID
+      let page = result.page
       enabled = page.enabled; retention = page.retention_days; items = page.items; e2eStatus = page.e2e
-      devices = page.enabled ? status : nil
+      devices = result.devices
       loaded = true
     } catch is CancellationError {
       guard request.isCurrent(id) else { return }
       items = []; text = ""; loaded = false; devices = nil; e2eStatus = nil
     }
-    catch let error as BackendAccountClient.Failure {
+    catch let error as BackendRustClient.Failure {
       guard request.isCurrent(id) else { return }
       // 本机等待批准时上传失败不清空页面，只提示去批准。
       if error.code != "clipboard_device_pending" { items = []; loaded = false }

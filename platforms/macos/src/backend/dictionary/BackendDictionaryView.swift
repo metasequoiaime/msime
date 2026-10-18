@@ -14,22 +14,11 @@ final class MacDictionaryModel: ObservableObject {
   private let accountID: String
   /// 列表、增删改、导入和导出经 Rust 的 `msime_client_cloud_dictionary`（#8201 迁移计划 4c）。nil 是宿主没有注册会话存储，每个操作都报 `rust_client_unavailable`。
   private let rust: BackendRustAccount?
-  /// 只交给共享界面的「完整词库目录」和「云端候选与排序」两页：它们与 iOS 共用，随 iOS 那一组再改调 Rust，在那之前仍用 Swift 的会话（与 Rust 共用 `account-refresh.lock`）。
-  private let account: BackendAccountSession
-  private var sessionID: UUID?
   private var pending: Task<Void, Never>?
   private var panel: NSSavePanel?
   private var closed = false
-  init(accountID: String, rust: BackendRustAccount? = .shared, account: BackendAccountSession = .shared) {
-    self.accountID = accountID; self.rust = rust; self.account = account
-  }
-  /// 共享界面两页的令牌（见 `account`）。
-  func authorize() async throws -> String {
-    let identity = try await account.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-    try Task.checkCancellation()
-    guard !closed, identity.userID == accountID else { throw CancellationError() }
-    sessionID = identity.sessionID
-    return identity.token
+  init(accountID: String, rust: BackendRustAccount? = .shared) {
+    self.accountID = accountID; self.rust = rust
   }
   private func request(_ action: [String: Any]) async throws -> Data {
     guard let rust else { throw BackendRustClient.Failure.unavailable }
@@ -146,7 +135,8 @@ final class MacDictionaryModel: ObservableObject {
   }
   func close() { closed = true; pending?.cancel(); panel?.cancel(nil); panel = nil; page = nil; importText = nil; search = "" }
   var cloudAccountID: String { accountID }
-  var cloudAccountSession: BackendAccountSession { account }
+  /// 共享界面的「完整词库目录」和「云端候选与排序」两页用同一份 Rust 账号。
+  var cloudRust: BackendRustAccount? { rust }
 }
 
 struct MacCloudDictionaryView: View {
@@ -215,11 +205,9 @@ struct MacCloudDictionaryView: View {
           Spacer(); Button("关闭") { management = nil }
         }.padding()
         if selected == .catalog {
-          CloudDictionaryCatalogView(kind: model.kind, authorize: { try await model.authorize() },
-                                     accountID: model.cloudAccountID, session: model.cloudAccountSession)
+          CloudDictionaryCatalogView(kind: model.kind, accountID: model.cloudAccountID, rust: model.cloudRust)
         } else {
-          CloudCandidatesView(kind: model.kind, authorize: { try await model.authorize() },
-                              accountID: model.cloudAccountID, session: model.cloudAccountSession)
+          CloudCandidatesView(kind: model.kind, accountID: model.cloudAccountID, rust: model.cloudRust)
         }
       }.frame(width: 650, height: 650)
     }

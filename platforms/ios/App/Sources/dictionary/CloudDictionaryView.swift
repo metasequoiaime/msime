@@ -1,12 +1,12 @@
 import SwiftUI
 
+/// 云词库：当前账号的云端个人词条，列表和增删改经 Rust 的 `msime_client_cloud_dictionary`（#8201 迁移计划 4c）。
 struct CloudDictionaryView: View {
   private struct Edit: Identifiable { let id = UUID(); let entry: BackendAccountClient.DictionaryEntry?; let kind: BackendAccountClient.DictionaryKind; let userID: String }
   @State private var kind = BackendAccountClient.DictionaryKind.pinyin
   @State private var search = ""
   @State private var page: BackendAccountClient.DictionaryPage?
   @State private var userID: String?
-  @State private var sessionID: UUID?
   @State private var busy = false
   @State private var message: String?
   @State private var editing: Edit?
@@ -14,8 +14,6 @@ struct CloudDictionaryView: View {
   @State private var downloading: BackendAccountClient.DictionaryEntry?
   @State private var request = ViewRequestGeneration()
   @State private var pending: Task<Void, Never>?
-  private let client = BackendAccountClient()
-  private let session = BackendAccountSession.shared
 
   var body: some View {
     List {
@@ -84,26 +82,23 @@ struct CloudDictionaryView: View {
 
       if let userID {
         Section {
-          NavigationLink(destination: CloudCandidatesView(kind: kind,
-            authorize: { try await authorizedToken(matching: userID) }, accountID: userID, session: session)) {
+          NavigationLink(destination: CloudCandidatesView(kind: kind, accountID: userID)) {
             CloudDictionaryRowLabel(
               title: "云端候选与排序", detail: "调整这个词库里候选的先后",
               symbol: "list.number")
           }
-          NavigationLink(destination: CloudDictionaryCatalogView(kind: kind,
-            authorize: { try await authorizedToken(matching: userID) }, accountID: userID, session: session)) {
+          NavigationLink(destination: CloudDictionaryCatalogView(kind: kind, accountID: userID)) {
             CloudDictionaryRowLabel(
               title: "完整目录", detail: "查询与批量管理全部词条",
               symbol: "square.stack.3d.up.fill")
           }
-          NavigationLink(destination: CloudDictionaryApplyView(accountID: userID,
-            session: session)) {
+          NavigationLink(destination: CloudDictionaryApplyView(accountID: userID)) {
             CloudDictionaryRowLabel(
               title: "应用到本机", detail: "把整份云词库交给本机键盘",
               symbol: "iphone.and.arrow.forward")
           }
           NavigationLink(destination: CloudDictionaryFilesView(accountID: userID,
-            kind: kind, session: session, imported: { try await refreshAfterImport() })) {
+            kind: kind, imported: { try await refreshAfterImport() })) {
             CloudDictionaryRowLabel(
               title: "导入与导出", detail: "用文件搬运词条",
               symbol: "doc.badge.arrow.up.fill")
@@ -157,12 +152,9 @@ struct CloudDictionaryView: View {
       Button("删除", role: .destructive) {
         guard let entry = deleting, let userID else { return }
         run { id in
-          let credentials = try await session.credentials(matchingUserID: userID, matchingSessionID: sessionID)
+          _ = try await IOSCloudDictionary(accountID: userID).request([
+            "operation": "delete", "kind": entry.kind.rawValue, "id": entry.id, "revision": entry.revision])
           try request.checkCurrent(id)
-          _ = try await client.deleteDictionary(entry, session: session,
-            matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
-          try request.checkCurrent(id)
-          sessionID = credentials.sessionID
           try await load(offset: 0)
         }
         deleting = nil
@@ -173,7 +165,7 @@ struct CloudDictionaryView: View {
       Button("下载") {
         guard let entry = downloading, let userID else { return }
         run { id in
-          _ = try await session.credentials(matchingUserID: userID, matchingSessionID: sessionID)
+          guard try await BackendRustAccount.current().status()?.id == userID else { throw CancellationError() }
           try request.checkCurrent(id)
           let word = try entry.localWord()
           try PersonalDictionaryStore().enqueue(previous: nil, replacement: word)
@@ -183,26 +175,17 @@ struct CloudDictionaryView: View {
       }
     } message: { Text("下载内容仅在 Engine 完成处理后生效，可在本机词库查看成功或失败状态。") }
   }
-  @MainActor private func authorizedToken(matching expected: String) async throws -> String {
-    let identity = try await session.credentials(matchingUserID: expected, matchingSessionID: sessionID)
-    guard identity.userID == expected else { throw BackendAccountClient.Failure(status: 401) }
-    try Task.checkCancellation()
-    sessionID = identity.sessionID
-    return identity.token
-  }
   @MainActor private func save(_ value: BackendAccountClient.DictionaryValue, for edit: Edit) async throws {
     guard let id = request.current() else { throw CancellationError() }
-    let credentials = try await session.credentials(matchingUserID: edit.userID, matchingSessionID: sessionID)
-    try request.checkCurrent(id)
+    let dictionary = IOSCloudDictionary(accountID: edit.userID)
     if let entry = edit.entry {
-      _ = try await client.updateDictionary(entry, value: value, session: session,
-        matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+      _ = try await dictionary.request(["operation": "update", "kind": entry.kind.rawValue, "id": entry.id, "code": value.code,
+                                        "word": value.word, "weight": value.weight, "revision": entry.revision])
     } else {
-      _ = try await client.addDictionary(edit.kind, value: value, session: session,
-        matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+      _ = try await dictionary.request(["operation": "add", "kind": edit.kind.rawValue, "code": value.code,
+                                        "word": value.word, "weight": value.weight])
     }
     try request.checkCurrent(id)
-    sessionID = credentials.sessionID
     try await load(offset: 0)
   }
   @MainActor private func refreshAfterImport() async throws {
@@ -212,13 +195,15 @@ struct CloudDictionaryView: View {
   @MainActor private func load(offset: Int) async throws {
     guard let id = request.current() else { throw CancellationError() }
     let requestedKind = kind
-    guard let identity = try await session.user()?.id else { throw BackendAccountClient.Failure(status: 401) }
-    let credentials = try await session.credentials(matchingUserID: identity, matchingSessionID: sessionID)
-    let result = try await client.dictionary(requestedKind, search: search, offset: offset,
-      session: session, matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+    // 没登录时整页报「登录已失效」；登录了就按当前的账号读，换了号时页面跟着换。
+    guard let identity = try await BackendRustAccount.current().status()?.id else {
+      throw BackendRustClient.Failure(code: "account_unauthorized")
+    }
+    let result = try BackendRustAccount.decode(BackendAccountClient.DictionaryPage.self,
+      try await IOSCloudDictionary(accountID: identity).request([
+        "operation": "list", "kind": requestedKind.rawValue, "offset": offset, "search": search]))
     try request.checkCurrent(id)
     guard kind == requestedKind else { return }
-    sessionID = credentials.sessionID
     page = result; userID = identity
   }
   @MainActor private func run(_ work: @escaping @MainActor (UUID) async throws -> Void) {

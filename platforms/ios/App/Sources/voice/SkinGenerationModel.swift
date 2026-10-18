@@ -1,9 +1,12 @@
 import SwiftUI
 
+/// 用一句描述生成一套键盘皮肤：模型目录（`chat_models`）和对话（`chat`）都经 Rust 的 `msime_client_account`（#8201 迁移计划 4c），只给登录账号用。
 @MainActor
 final class SkinGenerationModel: ObservableObject {
+  /// 模型目录里的一项。
+  struct Model: Identifiable, Equatable, Sendable { let id: String }
   @Published var prompt = ""
-  @Published var models: [BackendAccountClient.ChatModels.Model] = []
+  @Published var models: [Model] = []
   @Published var selectedModel = ""
   @Published var loading = false
   @Published var generating = false
@@ -12,15 +15,17 @@ final class SkinGenerationModel: ObservableObject {
   @Published var result: SavedKeyboardSkin?
   private var request: Task<Void, Never>?
   private var generation = OperationGeneration()
-  private let api = BackendAccountClient()
   private var accountID: String?
-  private var accountSessionID: UUID?
-  private func switchAccount(to userID: String?, sessionID: UUID? = nil) {
-    guard accountID != userID || accountSessionID != sessionID else { return }
+  /// 默认是 App 启动时注册的那一份，测试传入替身函数表上的账号。
+  private let rust: @Sendable () throws -> BackendRustAccount
+  init(rust: @escaping @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() }) {
+    self.rust = rust
+  }
+  private func switchAccount(to userID: String?) {
+    guard accountID != userID else { return }
     let hadAccount = accountID != nil
     cancel()
     accountID = userID
-    accountSessionID = sessionID
     models = []
     selectedModel = ""
     if hadAccount { prompt = "" }
@@ -42,16 +47,18 @@ final class SkinGenerationModel: ObservableObject {
       models = [.init(id: "gpt-5.6-luna")]; selectedModel = "gpt-5.6-luna"; return
     }
     do {
-      guard let userID = try await BackendAccountSession.shared.user()?.id else {
+      let account = try rust()
+      guard let userID = try await account.status()?.id else {
         switchAccount(to: nil); loginNeeded = true; return
       }
-      let identity = try await BackendAccountSession.shared.credentials(matchingUserID: userID)
-      switchAccount(to: identity.userID, sessionID: identity.sessionID)
-      let catalog = try await api.chatModels(session: .shared, matchingUserID: identity.userID,
-                                              matchingSessionID: identity.sessionID)
+      switchAccount(to: userID)
+      let catalog = try BackendRustAccount.object(try await account.account(["operation": "chat_models"]))
+      guard let data = catalog["data"] as? [[String: Any]], let defaultModel = catalog["defaultModel"] as? String else {
+        throw BackendRustClient.Failure.invalidResponse
+      }
       try Task.checkCancellation()
-      models = catalog.data
-      if !models.contains(where: { $0.id == selectedModel }) { selectedModel = catalog.default_model }
+      models = data.compactMap { ($0["id"] as? String).map(Model.init(id:)) }
+      if !models.contains(where: { $0.id == selectedModel }) { selectedModel = defaultModel }
       loginNeeded = false; message = nil
     } catch is CancellationError { }
     catch { show(error) }
@@ -63,7 +70,7 @@ final class SkinGenerationModel: ObservableObject {
     generating = true; message = nil
     let id = generation.begin()
     let model = selectedModel
-    let sessionID = accountSessionID
+    let rust = self.rust
     request = Task {
       defer { if generation.isCurrent(id) { generating = false; request = nil } }
       do {
@@ -72,10 +79,13 @@ final class SkinGenerationModel: ObservableObject {
           try await Task.sleep(nanoseconds: ProcessInfo.processInfo.arguments.contains("-skinGenerationSlowFixture") ? 3_600_000_000_000 : 300_000_000)
           reply = ##"{"name":"AI 苔绿庭院","design":{"background":"#E8F0EB","keyBackground":"#FFFFFF","keyForeground":"#17251D","accent":"#185C47","actionBackground":"#185C47","cornerRadius":12,"borderWidth":0.5,"shadow":0.1,"pattern":3}}"##
         } else {
-          let messages: [BackendAccountClient.ChatMessage] = [.init(role: "system", content: GeneratedKeyboardSkin.instruction), .init(role: "user", content: description)]
-          reply = try await api.chat(messages: messages, model: model,
-                                     session: .shared, matchingUserID: userID,
-                                     matchingSessionID: sessionID)
+          let account = try rust()
+          let messages = [["role": "system", "content": GeneratedKeyboardSkin.instruction], ["role": "user", "content": description]]
+          let answer = try BackendRustAccount.object(try await account.account(["operation": "chat", "messages": messages, "model": model]))
+          guard let content = answer["content"] as? String else { throw BackendRustClient.Failure.invalidResponse }
+          // 回答期间退出或换了号时 Rust 报 `account_cancelled`；这里再核对页面绑定的账号。
+          guard try await account.status()?.id == userID else { throw CancellationError() }
+          reply = content
         }
         try Task.checkCancellation()
         let parsed = try GeneratedKeyboardSkin.parse(reply)
@@ -87,9 +97,9 @@ final class SkinGenerationModel: ObservableObject {
   }
   func cancel() { generation.cancel(task: &request); generating = false }
   private func show(_ error: Error) {
-    if let failure = error as? BackendAccountClient.Failure {
-      loginNeeded = failure.status == 401
-      message = failure.status == 400 ? "模型列表已更新，请刷新模型后重试。" : failure.localizedDescription
+    if let failure = error as? BackendRustClient.Failure {
+      loginNeeded = failure.code == "account_unauthorized"
+      message = failure.code == "account_invalid" ? "模型列表已更新，请刷新模型后重试。" : failure.localizedDescription
     } else { message = error.localizedDescription }
   }
 }

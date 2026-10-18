@@ -1,17 +1,18 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// 词库文件：导入、导出这一类词条，以及整份云词库的备份和恢复，都经 Rust 的 `msime_client_cloud_dictionary`（`import`、`export_file`、`snapshot_export_file`、`snapshot_restore_preview_file`、`snapshot_restore_file`，#8201 迁移计划 4c）。导出和备份由 Rust 下载、整份校验后写进本 App 的私有目录，再交给分享面板。
 struct CloudDictionaryFilesView: View {
   let accountID: String
   let kind: BackendAccountClient.DictionaryKind
-  let session: BackendAccountSession
   let imported: () async throws -> Void
   @State private var format = BackendAccountClient.DictionaryFileFormat.standard
   @State private var choosing = false
   @State private var confirming = false
   @State private var choosingSnapshot = false
   @State private var confirmingRestore = false
-  @State private var preparedSnapshot: BackendPreparedSnapshot?
+  /// 用户选的备份复制进本 App 私有目录的那一份，以及 Rust 校验后给出的元数据；恢复时 Rust 再核对一次摘要。
+  @State private var preparedSnapshot: (file: URL, snapshot: IOSCloudDictionary.Snapshot)?
   @State private var restoreRevision: Int64?
   @State private var text: String?
   @State private var fileName = ""
@@ -19,9 +20,8 @@ struct CloudDictionaryFilesView: View {
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
   @State private var exported: Export?
-  @State private var sessionID: UUID?
   @State private var request = ViewRequestGeneration()
-  private let client = BackendAccountClient()
+  private var dictionary: IOSCloudDictionary { IOSCloudDictionary(accountID: accountID) }
   private struct Export: Identifiable { let id = UUID(); let url: URL }
   private var lines: [String] { (text ?? "").components(separatedBy: .newlines).filter { !$0.isEmpty } }
   /// 每一行长什么样,取决于格式和词库类型 —— 这是选文件之前唯一需要知道的事,所以跟着那个动作走。
@@ -82,14 +82,14 @@ struct CloudDictionaryFilesView: View {
                           symbol: "arrow.uturn.backward.circle.fill") {
           choosingSnapshot = true; choosing = true
         }
-        if let snapshot = preparedSnapshot, restoreRevision != nil {
+        if let snapshot = preparedSnapshot?.snapshot, restoreRevision != nil {
           SettingsFactRow(title: "已校验这份快照",
-                          detail: "\(snapshot.envelope.entries) 个词条 · \(snapshot.envelope.overlays) 条覆盖 · \(snapshot.envelope.positions) 个固定位置",
+                          detail: "\(snapshot.entries) 个词条 · \(snapshot.overlays) 条覆盖 · \(snapshot.positions) 个固定位置",
                           symbol: "checkmark.seal.fill")
           SettingsActionRow(title: "恢复此快照到云端", detail: "替换全部四类云词库及排序记录",
                             symbol: "arrow.left.arrow.right", destructive: true) { confirmingRestore = true }
           SettingsActionRow(title: "取消恢复", symbol: "xmark.circle.fill") {
-            preparedSnapshot = nil; restoreRevision = nil
+            discardPrepared(); restoreRevision = nil
           }
         }
       } header: {
@@ -108,21 +108,28 @@ struct CloudDictionaryFilesView: View {
     .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
       text = nil
-      preparedSnapshot = nil
+      discardPrepared()
       restoreRevision = nil
     })
     .fileImporter(isPresented: $choosing, allowedContentTypes: choosingSnapshot ? [.data] : [.plainText, .tabSeparatedText]) { result in
       guard request.isVisible else { return }
       if choosingSnapshot {
-        preparedSnapshot = nil; restoreRevision = nil
+        discardPrepared(); restoreRevision = nil
         do {
           let url = try result.get()
           run { id in
-            let prepared = try await BackendPreparedSnapshot.prepareDocument(url)
-            let current = try await client.dictionaryCatalog(.quick, code: "", session: session,
-              matchingUserID: accountID, matchingSessionID: sessionID)
-            try request.checkCurrent(id)
-            preparedSnapshot = prepared; restoreRevision = current.revision
+            // 选中的文件只在这一刻能读（安全作用域），先复制一份到私有目录：预览和恢复都读这一份，恢复时 Rust 核对它与预览时相同。
+            let copy = try await Self.copyChosenFile(url)
+            do {
+              let preview = try await dictionary.object(["operation": "snapshot_restore_preview_file", "path": copy.path])
+              let snapshot = try IOSCloudDictionary.Snapshot(preview["snapshot"])
+              guard let revision = (preview["expectedRevision"] as? NSNumber)?.int64Value else { throw BackendRustClient.Failure.invalidResponse }
+              try request.checkCurrent(id)
+              preparedSnapshot = (copy, snapshot); restoreRevision = revision
+            } catch {
+              try? FileManager.default.removeItem(at: copy.deletingLastPathComponent())
+              throw error
+            }
           }
         } catch { message = "未选择可读取的快照文件。" }
         return
@@ -144,11 +151,10 @@ struct CloudDictionaryFilesView: View {
       Button("上传") {
         guard let text else { return }
         run { id in
-          let result = try await client.importDictionary(kind, text: text, format: format, session: session,
-            matchingUserID: accountID, matchingSessionID: sessionID)
+          let result = try await dictionary.object(["operation": "import", "kind": kind.rawValue, "format": format.rawValue, "text": text])
           try request.checkCurrent(id)
           self.text = nil
-          message = "云端已导入 \(result.imported) 条；需要下载到本机后才会影响本机输入。"
+          message = "云端已导入 \((result["imported"] as? NSNumber)?.intValue ?? 0) 条；需要下载到本机后才会影响本机输入。"
           try await imported()
         }
       }
@@ -156,14 +162,13 @@ struct CloudDictionaryFilesView: View {
     .alert("替换全部云词库？", isPresented: $confirmingRestore) {
       Button("取消", role: .cancel) { }
       Button("替换云词库", role: .destructive) {
-        guard let snapshot = preparedSnapshot, let revision = restoreRevision else { return }
+        guard let prepared = preparedSnapshot, let revision = restoreRevision else { return }
         run { id in
-          let result = try await client.restoreDictionarySnapshot(file: snapshot.url,
-            expectedSHA256: snapshot.envelope.sha256, revision: revision, session: session,
-            matchingUserID: accountID, matchingSessionID: sessionID)
+          let result = try await dictionary.object(["operation": "snapshot_restore_file", "path": prepared.file.path,
+                                                    "expected_sha256": prepared.snapshot.sha256, "revision": revision])
           try request.checkCurrent(id)
-          preparedSnapshot = nil; restoreRevision = nil
-          message = "云词库已恢复，版本 \(result.revision)。本机词库尚未更新。"
+          discardPrepared(); restoreRevision = nil
+          message = "云词库已恢复，版本 \((result["revision"] as? NSNumber)?.int64Value ?? 0)。本机词库尚未更新。"
           try await imported()
         }
       }
@@ -186,26 +191,49 @@ struct CloudDictionaryFilesView: View {
   }
 
   @MainActor private func exportSnapshot(id: UUID) async throws {
-    let snapshot = try await client.dictionarySnapshot(session: session, matchingUserID: accountID,
-                                                       matchingSessionID: sessionID)
-    do { try request.checkCurrent(id) }
-    catch { try? FileManager.default.removeItem(at: snapshot.url.deletingLastPathComponent()); throw error }
-    message = "备份文件摘要已校验：云端版本 \(snapshot.envelope.revision)，共 \(snapshot.envelope.records) 条记录。"
-    exported = Export(url: snapshot.url)
+    let file = try IOSCloudDictionary.privateFile("msime-dictionary-snapshot.ndjson")
+    let snapshot: IOSCloudDictionary.Snapshot
+    do {
+      let result = try await dictionary.object(["operation": "snapshot_export_file", "path": file.path])
+      snapshot = try IOSCloudDictionary.Snapshot(result["snapshot"])
+      try request.checkCurrent(id)
+    } catch { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()); throw error }
+    message = "备份文件摘要已校验：云端版本 \(snapshot.cloudRevision)，共 \(snapshot.records) 条记录。"
+    exported = Export(url: file)
   }
   @MainActor private func export(id: UUID) async throws {
-    let url = try await client.exportDictionary(kind, format: format, session: session,
-      matchingUserID: accountID, matchingSessionID: sessionID)
-    do { try request.checkCurrent(id) }
-    catch { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()); throw error }
-    exported = Export(url: url)
+    let file = try IOSCloudDictionary.privateFile("dictionary-" + kind.rawValue + ".tsv")
+    do {
+      _ = try await dictionary.request(["operation": "export_file", "kind": kind.rawValue, "format": format.rawValue, "path": file.path])
+      try request.checkCurrent(id)
+    } catch { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()); throw error }
+    exported = Export(url: file)
+  }
+
+  /// 删掉复制进来、还没恢复的备份。
+  @MainActor private func discardPrepared() {
+    if let file = preparedSnapshot?.file { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+    preparedSnapshot = nil
+  }
+
+  /// 把用户选的备份复制进私有目录，最多 512 MiB；复制在后台线程上做。
+  nonisolated private static func copyChosenFile(_ source: URL) async throws -> URL {
+    try await Task.detached(priority: .userInitiated) {
+      let scoped = source.startAccessingSecurityScopedResource()
+      defer { if scoped { source.stopAccessingSecurityScopedResource() } }
+      let size = (try source.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]))
+      guard size.isRegularFile == true, let bytes = size.fileSize, bytes > 0, bytes <= 512 * 1024 * 1024 else {
+        throw CocoaError(.fileReadCorruptFile)
+      }
+      let copy = try IOSCloudDictionary.privateFile("restore.ndjson")
+      do { try FileManager.default.copyItem(at: source, to: copy) }
+      catch { try? FileManager.default.removeItem(at: copy.deletingLastPathComponent()); throw error }
+      return copy
+    }.value
   }
 
   @MainActor private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
     ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending) { id in
-      let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-      try request.checkCurrent(id)
-      sessionID = identity.sessionID
       try await action(id)
     }
   }

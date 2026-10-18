@@ -67,67 +67,55 @@ enum AISkinService {
           let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
     return try? JSONDecoder().decode(type, from: data)
   }
-  static func generate(_ prompt: String, client: BackendAccountClient = BackendAccountClient(),
-                       account: BackendAccountSession = .shared,
-                       progress: @MainActor @Sendable (Int) -> Void = { _ in }) async throws -> [AISkinProposal] {
+  /// 三套带插画的皮肤（Rust 的 `msime_client_ai_skin_generate`，#8201 迁移计划 4c）：提示词、模型的回答、三张插画和账号都在 Rust 里，一次生成从头到尾用开始时的账号；每完成一张插画调一次 `progress`。这一页只给登录账号用（Rust 也接受匿名账号，与原来一样不放开），没登录时是 `account_unauthorized`。任务取消时 Rust 随即以 `ai_skin_cancelled` 结束，这里换成 `CancellationError`。
+  static func generate(_ prompt: String,
+                       rust: @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() },
+                       progress: @escaping @MainActor @Sendable (Int) -> Void = { _ in }) async throws -> [AISkinProposal] {
     guard let prompt = requestPrompt(prompt) else {
       throw ServiceFailure(message: "描述太长或含有无法识别的字符，请删减后再试。")
     }
-    let identity = try await account.credentials()
-    let catalog = try await client.chatModels(session: account, matchingUserID: identity.userID,
-                                              matchingSessionID: identity.sessionID)
-    try Task.checkCancellation()
-    let chatMessages = try messages(prompt: prompt, model: catalog.default_model)
-    let result = try await account.authenticated(matchingUserID: identity.userID,
-                                                 matchingSessionID: identity.sessionID) { token in
-      try await client.chat(messages: chatMessages, model: catalog.default_model, token: token)
-    }.value
-    try await account.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
-    try Task.checkCancellation()
-    let plans = try parse(result)
-    return try await withThrowingTaskGroup(of: (Int, AISkinProposal).self) { group in
-      // The validated response has exactly three independent illustrations.
-      for (index, plan) in plans.enumerated() {
-        group.addTask {
-          (index, try await illustrate(plan, prompt: prompt, client: client, account: account,
-                                       userID: identity.userID, sessionID: identity.sessionID))
-        }
+    let account = try rust()
+    guard try await account.status() != nil else { throw BackendRustClient.Failure(code: "account_unauthorized") }
+    let requestID = UUID().uuidString
+    let body = try BackendRustClient.request(["session_store": account.store, "request_id": requestID, "prompt": prompt])
+    let data: Data
+    do {
+      data = try await account.client.aiSkinGenerate(requestID: requestID, request: body) { completed in
+        Task { @MainActor in progress(Int(completed)) }
       }
-      var completed: [(Int, AISkinProposal)] = []
-      for try await value in group {
-        completed.append(value)
-        try Task.checkCancellation()
-        await progress(completed.count)
-      }
-      try await account.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
-      try Task.checkCancellation()
-      return completed.sorted { $0.0 < $1.0 }.map { $0.1 }
+    } catch let failure as BackendRustClient.Failure where failure.code == "ai_skin_cancelled" {
+      throw CancellationError()
+    } catch let failure as BackendRustClient.Failure where failure.code == "ai_skin_invalid" {
+      throw ServiceFailure(message: "AI 返回的皮肤方案不可用，请重新生成。")
+    }
+    try Task.checkCancellation()
+    struct Artwork: Decodable { let b64_json: String; let mime_type: String; let width: Int; let height: Int }
+    struct Plan: Decodable { let name: String; let description: String; let design: CustomKeyboardSkin; let artwork: Artwork }
+    guard let plans = try? JSONDecoder().decode([Plan].self, from: data), plans.count == 3 else {
+      throw ServiceFailure(message: "AI 返回的皮肤方案不可用，请重新生成。")
+    }
+    return try plans.map { plan in
+      try illustrated(AISkinProposal(name: plan.name, description: plan.description, design: plan.design),
+                      artwork: (plan.artwork.b64_json, plan.artwork.mime_type, plan.artwork.width, plan.artwork.height))
     }
   }
-  private static func illustrate(_ plan: AISkinProposal, prompt: String, client: BackendAccountClient,
-                                 account: BackendAccountSession, userID: String,
-                                 sessionID: UUID) async throws -> AISkinProposal {
-      try await account.requireSession(matchingUserID: userID, matchingSessionID: sessionID)
-      try Task.checkCancellation()
-      guard let scene = plan.artworkPrompt else { throw ServiceFailure(message: "缺少背景场景，请重新抽取。") }
-      let artwork = try await client.skinArtwork(prompt: scene,
-        account: account, userID: userID, matchingSessionID: sessionID)
-      try await account.requireSession(matchingUserID: userID, matchingSessionID: sessionID)
-      try Task.checkCancellation()
-      guard ["image/png", "image/jpeg"].contains(artwork.mime_type), (1...2048).contains(artwork.width),
-            (1...2048).contains(artwork.height), let data = Data(base64Encoded:artwork.b64_json),
-            !data.isEmpty, data.count <= 8 * 1024 * 1024 else {
-        throw ServiceFailure(message: "AI 插画格式无效，请重新生成。")
-      }
-      let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-      defer { try? FileManager.default.removeItem(at:temporary) }
-      try data.write(to:temporary,options:.atomic)
-      guard let photo = SkinPhotoData.thumbnail(at:temporary) else {
-        throw ServiceFailure(message: "无法处理 AI 插画，请重新生成。")
-      }
-      var design = plan.design
-      design.photo = photo; design.photoShade = 0.08; design.photoPosition = 0.5
-      design.keyOpacity = 0.92; design.pattern = 0
-      return .init(name:plan.name,description:plan.description,design:design)
+
+  /// 把 Rust 给的插画缩成照片背景放进设计。
+  static func illustrated(_ plan: AISkinProposal, artwork: (base64: String, mimeType: String, width: Int, height: Int)) throws -> AISkinProposal {
+    guard ["image/png", "image/jpeg"].contains(artwork.mimeType), (1...2048).contains(artwork.width),
+          (1...2048).contains(artwork.height), let data = Data(base64Encoded: artwork.base64),
+          !data.isEmpty, data.count <= 8 * 1024 * 1024 else {
+      throw ServiceFailure(message: "AI 插画格式无效，请重新生成。")
+    }
+    let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    try data.write(to: temporary, options: .atomic)
+    guard let photo = SkinPhotoData.thumbnail(at: temporary) else {
+      throw ServiceFailure(message: "无法处理 AI 插画，请重新生成。")
+    }
+    var design = plan.design
+    design.photo = photo; design.photoShade = 0.08; design.photoPosition = 0.5
+    design.keyOpacity = 0.92; design.pattern = 0
+    return .init(name: plan.name, description: plan.description, design: design)
   }
 }

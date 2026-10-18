@@ -109,7 +109,7 @@ struct AISkinGenerationView: View {
     } catch is CancellationError {
       guard request.isCurrent(id) else { return }
     }
-    catch let failure as BackendAccountClient.Failure where failure.status == 401 {
+    catch let failure as BackendRustClient.Failure where failure.code == "account_unauthorized" {
       guard request.isCurrent(id) else { return }
       message = "请先登录，再来抽取皮肤。"; login = true
     } catch {

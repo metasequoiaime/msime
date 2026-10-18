@@ -156,4 +156,37 @@ final class BackendRustAccountTests: XCTestCase {
     XCTAssertEqual(message("account_blocked_content"), BackendAccountClient.Failure.moderationMessages["blocked_content"])
     XCTAssertEqual(message("rust_client_unavailable"), "账号服务暂不可用，请稍后再试。")
   }
+  func testRateLimitSaysHowLongToWaitWhenKnown() {
+    func message(_ seconds: Int?) -> String? {
+      BackendRustClient.Failure(code: "account_rate_limited", retryAfterSeconds: seconds).errorDescription
+    }
+    XCTAssertEqual(message(nil), "操作过于频繁，请稍后再试。")
+    XCTAssertEqual(message(42), "操作过于频繁，请约 42 秒后再试。")
+    XCTAssertEqual(message(61), "操作过于频繁，请约 2 分钟后再试。")
+    XCTAssertEqual(message(3600), "操作过于频繁，请约 1 小时后再试。")
+    XCTAssertEqual(message(7201), "操作过于频繁，请约 3 小时后再试。")
+    XCTAssertEqual(BackendRustClient.Failure(code: "community_rate_limited", retryAfterSeconds: 0).errorDescription, "操作过于频繁，请约 1 秒后再试。")
+  }
+
+  func testLoginShapesDecode() throws {
+    let challenge = try BackendRustAccount.challenge(Data(#"{"challengeId":"c-1","expiresIn":300,"nonce":"n"}"#.utf8))
+    XCTAssertEqual(challenge, .init(challenge_id: "c-1", expires_in: 300, nonce: "n"))
+    XCTAssertNil(try BackendRustAccount.challenge(Data(#"{"challengeId":"c-1","expiresIn":300}"#.utf8)).nonce)
+    for invalid in [#"{"challengeId":"","expiresIn":300}"#, #"{"challengeId":"c","expiresIn":0}"#,
+                    #"{"challengeId":"c","expiresIn":true}"#, #"{"challengeId":"c","expiresIn":3,"nonce":1}"#] {
+      XCTAssertThrowsError(try BackendRustAccount.challenge(Data(invalid.utf8)), invalid)
+    }
+    let profile = try BackendRustAccount.profile(Data(#"{"user":{"id":"u","displayName":"名","createdAt":"t","email":"u@example.invalid"},"providers":["google","email"]}"#.utf8))
+    XCTAssertEqual(profile.user.email, "u@example.invalid")
+    XCTAssertEqual(profile.providers, ["google", "email"])
+    XCTAssertThrowsError(try BackendRustAccount.profile(Data(#"{"user":{"id":"u","displayName":"名","createdAt":"t"}}"#.utf8)))
+    XCTAssertEqual(try BackendRustAccount.signedInUser(Data(#"{"user":{"id":"u","displayName":"名","createdAt":"t"}}"#.utf8)).id, "u")
+  }
+
+  func testProvidersKeepOnlyBooleans() async throws {
+    FakeAccountRust.replies = ["account.providers": #"{"ok":true,"value":{"email":true,"phone":false,"apple":1,"google":true}}"#]
+    let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
+    let providers = try await account.providers()
+    XCTAssertEqual(providers, ["email": true, "phone": false, "google": true])
+  }
 }

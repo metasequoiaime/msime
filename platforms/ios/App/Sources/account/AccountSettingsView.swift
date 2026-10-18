@@ -230,7 +230,7 @@ struct AccountSettingsView: View {
       MeDivider()
       if signedIn {
         NavigationLink {
-          CloudClipboardView(session: .shared, client: BackendAccountClient())
+          CloudClipboardView()
         } label: {
           MeRow(symbol: "doc.on.clipboard.fill", title: "云剪贴板", value: clipboardValue)
         }
@@ -422,7 +422,9 @@ struct AccountSettingsView: View {
   /// 「云剪贴板」行尾的条数；本机等待批准、或有其他设备等待本机批准时显示这件事。取不到时这一行不显示值，不为一个数字弹出提示。
   @MainActor private func loadClipboardCount(id: UUID) async {
     do {
-      let page = try await BackendAccountClient().clipboard(e2e: IOSCloudClipboardDriver.e2e, session: .shared)
+      let deviceName = IOSCloudClipboardDriver.deviceName(UIDevice.current)
+      let page = try BackendRustAccount.decode(BackendAccountClient.ClipboardPage.self,
+        try await BackendRustAccount.current().cloudClipboard(["operation": "list", "search": ""], deviceName: deviceName))
       try request.checkCurrent(id)
       let waiting = page.e2e?.pending_devices ?? 0
       if !page.enabled { clipboardValue = "已关闭" }

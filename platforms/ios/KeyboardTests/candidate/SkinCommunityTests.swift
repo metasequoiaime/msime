@@ -1,423 +1,210 @@
 import XCTest
 import UIKit
 
-private final class CommunityMemoryCredentials: BackendSessionStorage, @unchecked Sendable {
-  private let lock = NSLock()
-  private var value: BackendSavedSession?
-  func load() throws -> BackendSavedSession? { lock.lock(); defer { lock.unlock() }; return value }
-  func save(_ session: BackendSavedSession) throws { lock.lock(); defer { lock.unlock() }; value = session }
-  func clear() throws { lock.lock(); defer { lock.unlock() }; value = nil }
-}
-
-private final class AccountReplacementRecorder: @unchecked Sendable {
-  private let lock = NSLock()
-  private var recorded: [(old: String, stored: String?)] = []
-  func record(_ accountID: String, storage: CommunityMemoryCredentials) {
-    let stored = try? storage.load()?.tokens.user.id
-    lock.lock(); recorded.append((accountID, stored)); lock.unlock()
-  }
-  var events: [(old: String, stored: String?)] {
-    lock.lock(); defer { lock.unlock() }; return recorded
-  }
-}
-
-private actor FirstRefreshLockGate {
-  private var calls = 0
-  private var entered = false
-  private var entering: CheckedContinuation<Void, Never>?
-  private var blocked: CheckedContinuation<Void, Never>?
-
-  func waitOnFirstRun() async {
-    calls += 1
-    guard calls == 1 else { return }
-    entered = true
-    entering?.resume()
-    entering = nil
-    await withCheckedContinuation { blocked = $0 }
-  }
-
-  func untilFirstRun() async {
-    if entered { return }
-    await withCheckedContinuation { entering = $0 }
-  }
-
-  func release() {
-    blocked?.resume()
-    blocked = nil
-  }
-}
-
-private struct FirstRunGatedRefreshLock: BackendRefreshLock {
-  let gate: FirstRefreshLockGate
-  var sharedAcrossProcesses: Bool { false }
-  func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
-    await gate.waitOnFirstRun()
-    return try await body()
-  }
-}
-
-/// 需要登录的用例用这个会话。内存存储只属于本进程，所以配进程内的刷新锁；默认的 App Group 文件锁在未签名的测试宿主里拿不到共享容器，`login` 会被它直接拒绝成 `Failure(status: 0)`。
-private func communitySession(_ client: BackendAccountClient, _ storage: CommunityMemoryCredentials) -> BackendAccountSession {
-  BackendAccountSession(api: client, storage: storage, refreshLock: BackendProcessRefreshLock())
-}
-
-private struct SharedCommunityTestLock: BackendRefreshLock {
-  var sharedAcrossProcesses: Bool { true }
-  func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T { try await body() }
-}
-
-private func switchingCommunitySession(_ client: BackendAccountClient, _ storage: CommunityMemoryCredentials) -> BackendAccountSession {
-  BackendAccountSession(api: client, storage: storage, refreshLock: SharedCommunityTestLock())
-}
-
-private final class AccountSwitchProtocol: URLProtocol, @unchecked Sendable {
-  static let oldToken = String(repeating: "a", count: 64)
-  static let newToken = String(repeating: "b", count: 64)
-  private static let lock = NSLock()
-  private static var recorded: [String] = []
-  private static var onRejection: (() -> Void)?
-  private static var rejectOld = true
-  static var authorizations: [String] { lock.withLock { recorded } }
-  static func reset(rejectOld: Bool = true, onRejection: @escaping () -> Void) {
-    lock.withLock { recorded = []; Self.rejectOld = rejectOld; Self.onRejection = onRejection }
-  }
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let authorization = request.value(forHTTPHeaderField: "Authorization") ?? ""
-    let (rejectOld, onRejection) = Self.lock.withLock { () -> (Bool, (() -> Void)?) in
-      Self.recorded.append(authorization)
-      defer { Self.onRejection = nil }
-      return (Self.rejectOld, Self.onRejection)
-    }
-    let oldRequest = authorization == "Bearer \(Self.oldToken)"
-    let rejected = rejectOld && oldRequest
-    if oldRequest { onRejection?() }
-    let response = HTTPURLResponse(url: request.url!, statusCode: rejected ? 401 : 204,
-                                   httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
-    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-    if rejected { client?.urlProtocol(self, didLoad: Data(#"{"error":{"code":"invalid_credentials"}}"#.utf8)) }
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-private final class AnonymousSwitchProtocol: URLProtocol, @unchecked Sendable {
-  static let oldToken = String(repeating: "c", count: 64)
-  static let newToken = String(repeating: "d", count: 64)
-  private static let lock = NSLock()
-  private static var recorded: [String] = []
-  private static var onOldRequest: (() -> Void)?
-  private static var rejectOld = true
-  static var authorizations: [String] { lock.withLock { recorded } }
-  static func reset(rejectOld: Bool, onOldRequest: @escaping () -> Void) {
-    lock.withLock { recorded = []; Self.rejectOld = rejectOld; Self.onOldRequest = onOldRequest }
-  }
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let authorization = request.value(forHTTPHeaderField: "Authorization") ?? ""
-    let (rejectOld, onOldRequest) = Self.lock.withLock { () -> (Bool, (() -> Void)?) in
-      Self.recorded.append(authorization)
-      defer { Self.onOldRequest = nil }
-      return (Self.rejectOld, Self.onOldRequest)
-    }
-    let oldRequest = authorization == "Bearer \(Self.oldToken)"
-    if oldRequest { onOldRequest?() }
-    let rejected = rejectOld && oldRequest
-    let isDownload = request.url!.path.hasSuffix("/download")
-    let body = rejected ? #"{"error":{"code":"invalid_credentials"}}"# :
-      (isDownload
-        ? #"{"design":{"background":15266027,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false}}"#
-        : #"{"reported":true}"#)
-    let status = rejected ? 401 : (isDownload ? 200 : 201)
-    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
-      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: Data(body.utf8))
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-private final class RetryReportProtocol: URLProtocol, @unchecked Sendable {
-  static let skinID = UUID(uuidString: "a1234567-1234-1234-1234-123456789abc")!
-  private static let lock = NSLock()
-  private static var attempts = 0
-  static var reportAttempts: Int { lock.lock(); defer { lock.unlock() }; return attempts }
-  static func reset() { lock.lock(); defer { lock.unlock() }; attempts = 0 }
-
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let path = request.url!.path
-    let tokenA = String(repeating: "a", count: 64)
-    let tokenB = String(repeating: "b", count: 64)
-    let refreshA = String(repeating: "f", count: 64)
-    let refreshB = String(repeating: "e", count: 64)
-    let body: String
-    let status: Int
-    if path == "/v1/auth/login" {
-      body = "{\"access_token\":\"\(tokenA)\",\"refresh_token\":\"\(refreshA)\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"fixture-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"
-      status = 200
-    } else if path == "/v1/auth/refresh" {
-      body = "{\"access_token\":\"\(tokenB)\",\"refresh_token\":\"\(refreshB)\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"fixture-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"
-      status = 200
-    } else if path == "/v1/community/reports" {
-      Self.lock.lock(); Self.attempts += 1; let attempt = Self.attempts; Self.lock.unlock()
-      if attempt == 1 && request.value(forHTTPHeaderField: "Authorization") == "Bearer \(tokenA)" {
-        body = #"{"error":{"code":"invalid_credentials"}}"#
-        status = 401
-      } else {
-        // 与服务端 `community_reports.go` 一致：新记录 201、重复举报 200，响应体都是 `{"reported":true}`；`reportContent` 会校验这个字段。
-        body = #"{"reported":true}"#
-        status = 201
-      }
-    } else {
-      body = "{}"
-      status = 200
-    }
-    let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
-      headerFields: ["Content-Type": "application/json"])!
-    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: Data(body.utf8))
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-private final class CommunityFixtureProtocol: URLProtocol, @unchecked Sendable {
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let path = request.url!.path
-    let body: String
-    let status: Int
-    if path == "/v1/auth/challenges" {
-      body = #"{"challenge_id":"fixture-id","nonce":"server-nonce","expires_in":300}"#; status = 200
-    } else if path == "/v1/auth/login" || path == "/v1/auth/refresh" {
-      let token = String(repeating: path.hasSuffix("refresh") ? "b" : "a", count: 64)
-      body = "{\"access_token\":\"\(token)\",\"refresh_token\":\"\(String(repeating: "f", count: 64))\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"fixture-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"
-      status = 200
-    } else if path == "/v1/auth/logout" {
-      body = ""; status = 204
-    } else if path == "/v1/users/me" && request.httpMethod == "PATCH" {
-      body = ""; status = 204
-    } else if path == "/v1/users/me" {
-      body = #"{"user":{"id":"fixture-user","display_name":"新昵称","created_at":"2026-09-08T00:00:00Z"},"identities":[{"provider":"apple","subject":"not-displayed"}]}"#
-      status = 200
-    } else if request.value(forHTTPHeaderField: "Authorization") == "Bearer " + String(repeating: "a", count: 64) {
-      body = #"{"error":{"code":"invalid_credentials"}}"#; status = 401
-    } else if request.url?.query?.contains("offset=20") == true {
-      body = #"{"error":{"code":"rate_limit_exceeded","message":"internal"}}"#; status = 429
-    } else {
-      body = #"{"skins":[{"id":"a1234567-1234-1234-1234-123456789abc","name":"测试","description":"示例","author":"作者","design":{"background":15266027,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false},"downloads":2,"rating_count":1,"rating_average":4,"owned":false,"my_rating":0}],"has_more":false}"#
-      status = 200
-    }
-    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: Data(body.utf8))
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-/// 记录下载请求的方法、路径和 Authorization 头；登录接口给出匿名会话的令牌，下载接口返回一份合成皮肤。
-private final class AnonymousDownloadProtocol: URLProtocol, @unchecked Sendable {
-  static let anonymousToken = String(repeating: "c", count: 64)
-  private static let lock = NSLock()
-  private static var recorded: [(method: String, path: String, authorization: String?)] = []
-  static var requests: [(method: String, path: String, authorization: String?)] { lock.lock(); defer { lock.unlock() }; return recorded }
-  static func reset() { lock.lock(); defer { lock.unlock() }; recorded = [] }
-
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let path = request.url!.path
-    Self.lock.lock()
-    Self.recorded.append((request.httpMethod ?? "", path, request.value(forHTTPHeaderField: "Authorization")))
-    Self.lock.unlock()
-    let body: String
-    let status: Int
-    if path == "/v1/auth/login" {
-      body = "{\"access_token\":\"\(Self.anonymousToken)\",\"refresh_token\":\"\(String(repeating: "d", count: 64))\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"anonymous-user\",\"display_name\":\"匿名\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"
-      status = 200
-    } else if path.hasPrefix("/v1/community/skins/") && path.hasSuffix("/download") {
-      body = #"{"design":{"background":15266027,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false}}"#
-      status = 200
-    } else {
-      body = #"{"error":{"code":"not_found"}}"#
-      status = 404
-    }
-    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: Data(body.utf8))
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
+/// 社区页经 Rust 的 `msime_client_community`（#8201 迁移计划 4c）：发出的 action、回答的解码与校验、失败换成的提示。HTTP、令牌和匿名账号的选择在 Rust 里，由 host-api 和 client-services 的测试覆盖。
 final class SkinCommunityTests: XCTestCase {
-  private func assertAnonymousOperationStopsAfterReplacement(download: Bool, rejectOld: Bool) async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [AnonymousSwitchProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let storage = CommunityMemoryCredentials()
-    let old = BackendAccountClient.Tokens(access_token: AnonymousSwitchProtocol.oldToken,
-      refresh_token: String(repeating: "e", count: 64), token_type: "Bearer", expires_in: 900,
-      user: .init(id: "synthetic-anonymous-old", display_name: "旧匿名用户", created_at: "2026-09-08"))
-    let replacement = BackendAccountClient.Tokens(access_token: AnonymousSwitchProtocol.newToken,
-      refresh_token: String(repeating: "f", count: 64), token_type: "Bearer", expires_in: 900,
-      user: .init(id: "synthetic-anonymous-new", display_name: "新匿名用户", created_at: "2026-09-08"))
-    try storage.save(BackendSavedSession.forTokens(old))
-    let replacementSession = try BackendSavedSession.forTokens(replacement)
-    AnonymousSwitchProtocol.reset(rejectOld: rejectOld, onOldRequest: { try? storage.save(replacementSession) })
-    let api = SkinCommunityAPI(client: client, account: communitySession(client, CommunityMemoryCredentials()),
-                               anonymous: switchingCommunitySession(client, storage))
-    do {
-      if download { _ = try await api.download("a1234567-1234-1234-1234-123456789abc") }
-      else { try await api.report(kind: "skins", itemID: "a1234567-1234-1234-1234-123456789abc",
-                                  reason: "其他", detail: "合成说明") }
-      XCTFail("the old anonymous request must stop after the identity changes")
-    } catch is CancellationError { }
-    catch { XCTFail("expected cancellation, got \(error)") }
-    XCTAssertEqual(AnonymousSwitchProtocol.authorizations, ["Bearer \(AnonymousSwitchProtocol.oldToken)"])
-    XCTAssertEqual(try storage.load()?.tokens.user.id, "synthetic-anonymous-new")
+  private let skinID = "a1234567-1234-1234-1234-123456789abc"
+  private let resourceID = "10000000-0000-4000-8000-000000000001"
+  private var api: SkinCommunityAPI { SkinCommunityAPI(rust: { FakeRust.account }) }
+
+  private func design(background: Int = 15266027) -> [String: Any] {
+    ["background": background, "keyBackground": 16777215, "keyForeground": 1516829, "accent": 1596487,
+     "actionBackground": 1596487, "cornerRadius": 8, "borderWidth": 0, "shadow": 0, "pattern": 0, "monospaced": false,
+     "keyShape": NSNull(), "photo": NSNull()]
   }
 
-  func testAnonymousDownloadDoesNotRetryAsReplacementAccount() async throws {
-    try await assertAnonymousOperationStopsAfterReplacement(download: true, rejectOld: true)
-  }
-  func testAnonymousReportDoesNotRetryAsReplacementAccount() async throws {
-    try await assertAnonymousOperationStopsAfterReplacement(download: false, rejectOld: true)
-  }
-  func testAnonymousDownloadDoesNotReturnReplacedAccountsSuccess() async throws {
-    try await assertAnonymousOperationStopsAfterReplacement(download: true, rejectOld: false)
-  }
-  func testAnonymousReportDoesNotReturnReplacedAccountsSuccess() async throws {
-    try await assertAnonymousOperationStopsAfterReplacement(download: false, rejectOld: false)
+  private func skin(_ id: String? = nil, name: String = "纸感", category: String? = "acg", owned: Bool = false) -> [String: Any] {
+    var value: [String: Any] = ["id": id ?? skinID, "name": name, "description": "", "author": "作者", "design": design(),
+                                "downloads": 2, "rating_count": 1, "rating_average": 4, "owned": owned, "my_rating": 0]
+    if let category { value["category"] = category }
+    return value
   }
 
-  func testCommunityWireFormatAndErrors() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [CommunityFixtureProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client, account: BackendAccountSession(api: client, storage: CommunityMemoryCredentials()))
+  private func resource(_ id: String? = nil, kind: String = "dictionary", saved: Bool = false) -> [String: Any] {
+    var content: [String: Any] = [:]
+    if kind == "dictionary" { content["entries"] = [["kind": "pinyin", "code": "a", "word": "啊", "weight": 1]] }
+    else { content["prompt"] = "请礼貌地回复。" }
+    return ["id": id ?? resourceID, "kind": kind, "name": "词包", "description": "", "author": "作者", "content": content,
+            "revision": 3, "saves": 1, "saved": saved, "owned": false, "rating_count": 0, "rating_average": 0, "my_rating": 0]
+  }
+
+  private func answerCommunity(_ table: [String: String]) {
+    FakeRust.answer { call in
+      guard call.entry == "community" else { return FakeRust.ok(["user": FakeRust.user("user-1")]) }
+      return table[call.operation ?? ""] ?? FakeRust.failure("community_invalid")
+    }
+  }
+
+  func testKeyboardSkinRequestsGoThroughRust() async throws {
+    answerCommunity([
+      "keyboard_skin_list": FakeRust.ok(["skins": [skin()], "has_more": false]),
+      "keyboard_skin_detail": FakeRust.ok(skin(category: "food", owned: true)),
+      "keyboard_skin_publish": FakeRust.ok(NSNull()),
+      "keyboard_skin_set_category": FakeRust.ok(skin(category: "minimal", owned: true)),
+      "keyboard_skin_download": FakeRust.ok(design()),
+      "keyboard_skin_rate": FakeRust.ok(NSNull()),
+      "keyboard_skin_unpublish": FakeRust.ok(NSNull()),
+    ])
     let page = try await api.list(search: "纸感 & 星光")
     XCTAssertEqual(page.skins.first?.downloads, 2)
-    XCTAssertEqual(page.skins.first?.rating_average, 4)
+    XCTAssertEqual(page.skins.first?.category, .acg)
     XCTAssertNil(page.skins.first?.design.photo)
-    XCTAssertFalse(page.has_more)
-    do { _ = try await api.list(offset: 20); XCTFail("expected limit error") }
-    catch { XCTAssertEqual(error.localizedDescription, "操作较频繁，请稍后重试。") }
-  }
-  func testNativeLoginCancelsOnlyThePreviousAccountBeforeSavingNewSession() async throws {
-    let memory = CommunityMemoryCredentials()
-    let oldTokens = BackendAccountClient.Tokens(
-      access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "f", count: 64),
-      token_type: "Bearer", expires_in: 900,
-      user: .init(id: "previous-user", display_name: "Previous", created_at: "2026-01-01T00:00:00Z"))
-    try memory.save(BackendSavedSession.forTokens(oldTokens))
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [CommunityFixtureProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let session = communitySession(client, memory)
-    let recorder = AccountReplacementRecorder()
+    _ = try await api.list(offset: 20, mine: true, category: .tech)
+    let detail = try await api.detail(skinID)
+    XCTAssertEqual(detail.category, .food)
+    try await api.publish(id: skinID, name: "测试", description: "说明", design: CustomKeyboardSkin(), category: .cute)
+    try await api.publish(id: skinID, name: "测试", description: "", design: CustomKeyboardSkin())
+    let changed = try await api.setCategory(skinID, category: .minimal)
+    XCTAssertEqual(changed.category, .minimal)
+    let downloaded = try await api.download(skinID)
+    XCTAssertEqual(downloaded.background, 15266027)
+    try await api.rate(skinID, stars: 5)
+    try await api.unpublish(skinID)
 
-    try await session.signIn(challenge: "fixture", credential: "synthetic", replacingAccount: {
-      recorder.record($0, storage: memory)
-    })
-    XCTAssertEqual(recorder.events.count, 1)
-    XCTAssertEqual(recorder.events.first?.old, "previous-user")
-    XCTAssertEqual(recorder.events.first?.stored, "previous-user")
-
-    try await session.signIn(challenge: "fixture", credential: "synthetic", replacingAccount: {
-      recorder.record($0, storage: memory)
-    })
-    XCTAssertEqual(recorder.events.count, 1, "same-account login keeps its pending snapshot")
-  }
-  func testNativeForgetCancelsTheOldQueueBeforeClearingTheSession() async throws {
-    let memory = CommunityMemoryCredentials()
-    let oldTokens = BackendAccountClient.Tokens(
-      access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "f", count: 64),
-      token_type: "Bearer", expires_in: 900,
-      user: .init(id: "previous-user", display_name: "Previous", created_at: "2026-01-01T00:00:00Z"))
-    try memory.save(BackendSavedSession.forTokens(oldTokens))
-    let session = BackendAccountSession(storage: memory, refreshLock: BackendProcessRefreshLock())
-    let recorder = AccountReplacementRecorder()
-
-    try await session.forget(removingAccount: { recorder.record($0, storage: memory) })
-
-    XCTAssertNil(try memory.load())
-    XCTAssertEqual(recorder.events.count, 1)
-    XCTAssertEqual(recorder.events.first?.old, "previous-user")
-    XCTAssertEqual(recorder.events.first?.stored, "previous-user")
+    let calls = FakeRust.calls.filter { $0.entry == "community" }
+    XCTAssertTrue(calls.allSatisfy { $0.request["session_store"] as? Int == 7 && $0.request["directory"] == nil })
+    let lists = FakeRust.calls("keyboard_skin_list")
+    XCTAssertEqual(lists[0].action["search"] as? String, "纸感 & 星光")
+    XCTAssertEqual(lists[0].action["mine"] as? Bool, false)
+    XCTAssertNil(lists[0].action["category"])
+    XCTAssertEqual(lists[1].action["offset"] as? Int, 20)
+    XCTAssertEqual(lists[1].action["mine"] as? Bool, true)
+    XCTAssertEqual(lists[1].action["category"] as? String, "tech")
+    let publishes = FakeRust.calls("keyboard_skin_publish")
+    XCTAssertEqual(publishes.map { $0.action["category"] as? String }, ["cute", "other"])
+    XCTAssertEqual(publishes[0].action["description"] as? String, "说明")
+    XCTAssertNotNil(publishes[0].action["design"] as? [String: Any], "设计以 JSON 对象交给 Rust")
+    XCTAssertEqual(FakeRust.calls("keyboard_skin_set_category").first?.action["category"] as? String, "minimal")
+    XCTAssertEqual(FakeRust.calls("keyboard_skin_rate").first?.action["stars"] as? Int, 5)
+    XCTAssertEqual(FakeRust.calls("keyboard_skin_download").first?.action["id"] as? String, skinID)
   }
 
-  func testDelayedNativeForgetKeepsAnotherSessionsNewLoginAndSnapshot() async throws {
-    let memory = CommunityMemoryCredentials()
-    let oldTokens = BackendAccountClient.Tokens(
-      access_token: String(repeating: "a", count: 64), refresh_token: String(repeating: "f", count: 64),
-      token_type: "Bearer", expires_in: 900,
-      user: .init(id: "previous-user", display_name: "Previous", created_at: "2026-01-01T00:00:00Z"))
-    try memory.save(BackendSavedSession.forTokens(oldTokens))
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [CommunityFixtureProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let gate = FirstRefreshLockGate()
-    let session = BackendAccountSession(api: client, storage: memory,
-                                        refreshLock: FirstRunGatedRefreshLock(gate: gate))
-    let replacement = communitySession(client, memory)
-    let recorder = AccountReplacementRecorder()
-    let oldForget = Task {
-      try await session.forget(removingAccount: { recorder.record($0, storage: memory) })
+  func testResourceAndReportRequestsGoThroughRust() async throws {
+    answerCommunity([
+      "resource_list": FakeRust.ok(["items": [resource()], "has_more": true]),
+      "resource_detail": FakeRust.ok(resource(saved: true)),
+      "resource_publish": FakeRust.ok(["id": resourceID, "revision": 4]),
+      "resource_save": FakeRust.ok(NSNull()),
+      "resource_rate": FakeRust.ok(NSNull()),
+      "resource_unpublish": FakeRust.ok(NSNull()),
+      "report": FakeRust.ok(NSNull()),
+    ])
+    let page = try await api.resources(.dictionary, scope: "mine", search: "C++", offset: 20)
+    XCTAssertEqual(page.items.first?.content.entries?.count, 1)
+    XCTAssertTrue(page.has_more)
+    let detail = try await api.resource(resourceID)
+    XCTAssertTrue(detail.saved)
+    let content = CommunityResourceContent(entries: [CommunityWord(PersonalWord(kind: .pinyin, key: "a", value: "啊", weight: 1))], prompt: nil)
+    try await api.publishResource(id: resourceID, kind: .dictionary, name: "词包", description: "", content: content, revision: 3)
+    try await api.saveResource(resourceID, saved: true)
+    try await api.rateResource(resourceID, stars: 4)
+    try await api.unpublishResource(resourceID)
+    try await api.report(kind: "dictionaries", itemID: resourceID, reason: "其他", detail: "  合成说明\n")
+
+    let list = try XCTUnwrap(FakeRust.calls("resource_list").first?.action)
+    XCTAssertEqual(list["kind"] as? String, "dictionary")
+    XCTAssertEqual(list["scope"] as? String, "mine")
+    XCTAssertEqual(list["search"] as? String, "C++")
+    XCTAssertEqual(list["offset"] as? Int, 20)
+    let publish = try XCTUnwrap(FakeRust.calls("resource_publish").first?.action)
+    let entries = try XCTUnwrap((publish["content"] as? [String: Any])?["entries"] as? [[String: Any]])
+    XCTAssertEqual(entries.first?["word"] as? String, "啊")
+    XCTAssertNil((publish["content"] as? [String: Any])?["prompt"], "没有提示词时不带这个键")
+    XCTAssertEqual(FakeRust.calls("resource_save").first?.action["saved"] as? Bool, true)
+    let report = try XCTUnwrap(FakeRust.calls("report").first?.action)
+    XCTAssertEqual(report["kind"] as? String, "dictionaries")
+    XCTAssertEqual(report["id"] as? String, resourceID)
+    XCTAssertEqual(report["reason"] as? String, "其他")
+    XCTAssertEqual(report["detail"] as? String, "合成说明")
+  }
+
+  /// 没登录时下载和举报照样交给 Rust，由它用本机匿名账号；这里不再要求先登录。
+  func testSignedOutDownloadAndReportStillReachRust() async throws {
+    FakeRust.answer { call in
+      if call.entry == "account" { return FakeRust.ok(["user": NSNull()]) }
+      switch call.operation {
+      case "keyboard_skin_download": return FakeRust.ok(self.design())
+      case "report": return FakeRust.ok(NSNull())
+      default: return FakeRust.failure("community_invalid")
+      }
     }
-    await gate.untilFirstRun()
-
-    try await replacement.signIn(challenge: "fixture", credential: "synthetic")
-    await gate.release()
-    do { try await oldForget.value; XCTFail("stale forget cleared the new account") }
-    catch is CancellationError { }
-
-    XCTAssertEqual(try memory.load()?.tokens.user.id, "fixture-user")
-    XCTAssertTrue(recorder.events.isEmpty)
-  }
-  func testSignedInReportRefreshesRejectedToken() async throws {
-    RetryReportProtocol.reset()
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [RetryReportProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let memory = CommunityMemoryCredentials()
-    let session = communitySession(client, memory)
-    try await session.signIn(challenge: "fixture", credential: "synthetic")
-    let api = SkinCommunityAPI(client: client, account: session)
-
-    try await api.report(kind: "skins", itemID: RetryReportProtocol.skinID.uuidString,
-                         reason: "其他", detail: "合成说明")
-    XCTAssertEqual(RetryReportProtocol.reportAttempts, 2)
-    XCTAssertEqual(try memory.load()?.tokens.access_token,
-                   String(repeating: "b", count: 64))
-  }
-  /// 没有登录账号时，下载与 Android 的「获取」一样用设备的匿名身份记一次下载，而不是要求先用 Apple 登录。
-  func testSignedOutDownloadUsesAnonymousAccount() async throws {
-    AnonymousDownloadProtocol.reset()
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [AnonymousDownloadProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let anonymous = communitySession(client, CommunityMemoryCredentials())
-    try await anonymous.signIn(challenge: "fixture", credential: "synthetic")
-    FakeRust.replies([:], signedIn: nil)
-    let api = SkinCommunityAPI(client: client, account: communitySession(client, CommunityMemoryCredentials()), anonymous: anonymous,
-                               rust: { FakeRust.account })
     let signedIn = try await api.signedIn()
     XCTAssertFalse(signedIn)
-
-    let id = "b7654321-4321-4321-4321-cba987654321"
-    let design = try await api.download(id)
-    XCTAssertEqual(design.background, 15266027)
-    let downloads = AnonymousDownloadProtocol.requests.filter { $0.path.hasSuffix("/download") }
-    XCTAssertEqual(downloads.count, 1)
-    XCTAssertEqual(downloads.first?.method, "POST")
-    XCTAssertEqual(downloads.first?.path, "/v1/community/skins/\(id)/download")
-    XCTAssertEqual(downloads.first?.authorization, "Bearer \(AnonymousDownloadProtocol.anonymousToken)")
+    _ = try await api.download(skinID)
+    try await api.report(kind: "skins", itemID: skinID, reason: "其他", detail: "")
+    XCTAssertEqual(FakeRust.calls("keyboard_skin_download").count, 1)
+    XCTAssertEqual(FakeRust.calls("report").count, 1)
   }
+
+  func testRustFailuresBecomeCommunityMessages() async throws {
+    let cases: [(String, String)] = [
+      ("community_unauthorized", "请先登录水杉账号，或登录已过期，请重新登录。"),
+      ("community_not_found", "作品不存在或已下架。"),
+      ("community_invalid", "请检查名称、词条或提示词是否符合要求。"),
+      ("community_forbidden", "下载或收藏后才能评分，且不能评价自己的作品。"),
+      ("community_conflict", "作品已更新或达到发布上限，请刷新后重试。"),
+      ("community_rate_limited", "操作较频繁，请稍后重试。"),
+      ("community_blocked_content", "内容包含不允许发布的词语，请修改后再提交"),
+      ("community_screening_unavailable", "审核服务暂时不可用，请稍后重试"),
+      ("community_account_banned", "该账号已被封禁，暂时无法使用账号相关功能"),
+      ("community_unavailable", "社区暂时不可用，请稍后重试。"),
+      ("rust_client_unavailable", "社区暂时不可用，请稍后重试。"),
+    ]
+    for (code, message) in cases {
+      FakeRust.answer { _ in FakeRust.failure(code) }
+      do { try await api.rate(skinID, stars: 3); XCTFail(code) }
+      catch let failure as CommunityFailure { XCTAssertEqual(failure.message, message, code) }
+    }
+    // 请求进行中给出令牌的账号退出或换了号：作废，页面不提示。
+    FakeRust.answer { _ in FakeRust.failure("community_cancelled") }
+    do { _ = try await api.list(); XCTFail("cancelled") } catch is CancellationError { }
+  }
+
+  func testMalformedAnswersAreRejected() async throws {
+    let rejected = "社区暂时不可用，请稍后重试。"
+    func expectRejected(_ table: [String: String], _ run: () async throws -> Void, _ label: String) async {
+      answerCommunity(table)
+      do { try await run(); XCTFail(label) }
+      catch let failure as CommunityFailure { XCTAssertEqual(failure.message, rejected, label) }
+      catch { XCTFail("\(label): \(error)") }
+    }
+    await expectRejected(["keyboard_skin_list": FakeRust.ok(["skins": [skin(), skin()], "has_more": false])],
+                         { _ = try await self.api.list() }, "duplicate skins")
+    await expectRejected(["keyboard_skin_list": FakeRust.ok(["skins": Array(repeating: skin(), count: 21).enumerated().map {
+      self.skin(String(format: "a1234567-1234-1234-1234-%012d", $0.offset + 1)) }, "has_more": false])],
+                         { _ = try await self.api.list() }, "oversized page")
+    await expectRejected(["keyboard_skin_list": FakeRust.ok(["skins": [skin(name: "")], "has_more": false])],
+                         { _ = try await self.api.list() }, "empty name")
+    await expectRejected(["keyboard_skin_list": FakeRust.ok(["skins": [], "has_more": true])],
+                         { _ = try await self.api.list() }, "empty page with more")
+    await expectRejected(["keyboard_skin_detail": FakeRust.ok(skin("b7654321-4321-4321-4321-cba987654321"))],
+                         { _ = try await self.api.detail(self.skinID) }, "another skin's detail")
+    await expectRejected(["keyboard_skin_detail": FakeRust.ok(["id": skinID])],
+                         { _ = try await self.api.detail(self.skinID) }, "undecodable detail")
+    await expectRejected(["keyboard_skin_set_category": FakeRust.ok(skin(category: "food"))],
+                         { _ = try await self.api.setCategory(self.skinID, category: .minimal) }, "category not changed")
+    await expectRejected(["keyboard_skin_download": FakeRust.ok(design(background: 0x1_000_000))],
+                         { _ = try await self.api.download(self.skinID) }, "design out of range")
+    await expectRejected(["resource_list": FakeRust.ok(["items": [resource(kind: "reply")], "has_more": false])],
+                         { _ = try await self.api.resources(.dictionary) }, "wrong resource kind")
+    await expectRejected(["resource_publish": FakeRust.ok(["id": "b7654321-4321-4321-4321-cba987654321", "revision": 4])],
+                         { try await self.api.publishResource(id: self.resourceID, kind: .reply, name: "回复", description: "",
+                                                              content: CommunityResourceContent(entries: nil, prompt: "提示"), revision: 0) },
+                         "another publication")
+  }
+
+  func testInvalidLocalInputIsNotSent() async throws {
+    FakeRust.answer { _ in FakeRust.ok(NSNull()) }
+    for run in [{ try await self.api.rate("not-a-uuid", stars: 3) }, { try await self.api.rate(self.skinID, stars: 6) },
+                { try await self.api.unpublish("") }, { try await self.api.saveResource("00000000-0000-0000-0000-000000000000", saved: true) }]
+      as [() async throws -> Void] {
+      do { try await run(); XCTFail("invalid input accepted") } catch is CommunityFailure { }
+    }
+    do { try await api.report(kind: "skins", itemID: skinID, reason: "不在列表里", detail: ""); XCTFail("bad reason") }
+    catch let failure as CommunityFailure { XCTAssertEqual(failure.message, "请选择举报原因，补充说明不超过 1000 字。") }
+    XCTAssertTrue(FakeRust.calls.isEmpty)
+  }
+
   @MainActor func testCommunityPreviewDoesNotChangeActiveDesign() throws {
     let previous = CustomKeyboardSkinStore.current
     let backdrop = KeyboardSkinBackgroundView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
@@ -433,479 +220,6 @@ final class SkinCommunityTests: XCTestCase {
     XCTAssertEqual(CustomKeyboardSkinStore.current, previous)
     XCTAssertEqual(CustomKeyboardSkin.rgb(try XCTUnwrap(backdrop.backgroundColor)), design.background)
   }
-}
-
-private final class LargeResourceProtocol: URLProtocol {
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let entries = (0..<128).map { ["kind":"quick", "code":"key\($0)", "word":String(repeating:"🌱", count:99), "weight":10] as [String:Any] }
-    let items = (0..<20).map { index in
-      ["id":String(format:"10000000-0000-0000-0000-%012d",index),"kind":"dictionary","name":"词包","description":"","author":"测试",
-       "content":["entries":entries],"revision":1,"saves":0,"saved":false,"owned":false,"rating_count":0,"rating_average":0,"my_rating":0] as [String:Any]
-    }
-    let data = try! JSONSerialization.data(withJSONObject:["items":items,"has_more":false])
-    let status = request.url!.absoluteString.contains("C%2B%2B") ? 200 : 400
-    client?.urlProtocol(self, didReceive:HTTPURLResponse(url:request.url!,statusCode:status,httpVersion:nil,
-      headerFields:["Content-Type":"application/json","Content-Length":String(data.count)])!, cacheStoragePolicy:.notAllowed)
-    client?.urlProtocol(self,didLoad:data); client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-private final class OversizedSkinPageProtocol: URLProtocol {
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let design: [String: Any] = [
-      "background": 15266027, "keyBackground": 16777215, "keyForeground": 1516829,
-      "accent": 1596487, "actionBackground": 1596487, "cornerRadius": 8,
-      "borderWidth": 0, "shadow": 0, "pattern": 0, "monospaced": false
-    ]
-    let skins = (0..<21).map { index in
-      ["id": String(format: "a1234567-1234-1234-1234-%012d", index), "name": "测试",
-       "description": "", "author": "作者", "design": design, "downloads": 0,
-       "rating_count": 0, "rating_average": 0, "owned": false, "my_rating": 0] as [String: Any]
-    }
-    let data = try! JSONSerialization.data(withJSONObject: ["skins": skins, "has_more": true])
-    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
-      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
-      cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: data)
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-private final class OversizedResourcePageProtocol: URLProtocol {
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let items = (0..<21).map { index in
-      ["id": String(format: "10000000-0000-4000-8000-%012d", index), "kind": "dictionary",
-       "name": "测试", "description": "", "author": "作者",
-       "content": ["entries": []], "revision": 1, "saves": 0, "saved": false,
-       "owned": false, "rating_count": 0, "rating_average": 0, "my_rating": 0] as [String: Any]
-    }
-    let data = try! JSONSerialization.data(withJSONObject: ["items": items, "has_more": true])
-    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
-      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
-      cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: data)
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-private final class MalformedCommunityPageProtocol: URLProtocol {
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let design: [String: Any] = [
-      "background": 15266027, "keyBackground": 16777215, "keyForeground": 1516829,
-      "accent": 1596487, "actionBackground": 1596487, "cornerRadius": 8,
-      "borderWidth": 0, "shadow": 0, "pattern": 0, "monospaced": false
-    ]
-    let value: [String: Any]
-    if request.url?.path == "/v1/community/skins" {
-      value = ["skins": [
-        ["id": "a1234567-1234-1234-1234-123456789abc", "name": "测试", "description": "",
-         "author": "作者", "design": design, "downloads": 0, "rating_count": 0,
-         "rating_average": 0, "owned": false, "my_rating": 0],
-        ["id": "A1234567-1234-1234-1234-123456789ABC", "name": "重复", "description": "",
-         "author": "作者", "design": design, "downloads": 0, "rating_count": 0,
-         "rating_average": 0, "owned": false, "my_rating": 0]
-      ], "has_more": true]
-    } else {
-      value = ["items": [
-        ["id": "10000000-0000-4000-8000-000000000001", "kind": "dictionary", "name": "测试",
-         "description": "", "author": "作者", "content": ["entries": []], "revision": 1,
-         "saves": 0, "saved": false, "owned": false, "rating_count": 0,
-         "rating_average": 0, "my_rating": 0],
-        ["id": "10000000-0000-4000-8000-000000000001", "kind": "dictionary", "name": "重复",
-         "description": "", "author": "作者", "content": ["entries": []], "revision": 1,
-         "saves": 0, "saved": false, "owned": false, "rating_count": 0,
-         "rating_average": 0, "my_rating": 0]
-      ], "has_more": true]
-    }
-    let data = try! JSONSerialization.data(withJSONObject: value)
-    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
-      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
-      cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: data)
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-private final class InvalidCommunityPageProtocol: URLProtocol {
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let design: [String: Any] = [
-      "background": 15266027, "keyBackground": 16777215, "keyForeground": 1516829,
-      "accent": 1596487, "actionBackground": 1596487, "cornerRadius": 8,
-      "borderWidth": 0, "shadow": 0, "pattern": 0, "monospaced": false
-    ]
-    let invalidSkin: [String: Any] = [
-      "id": "not-a-uuid", "name": " ", "description": "", "author": "",
-      "design": design, "downloads": 0, "rating_count": 0, "rating_average": 1,
-      "owned": false, "my_rating": 6
-    ]
-    let invalidResource: [String: Any] = [
-      "id": "not-a-uuid", "kind": "dictionary", "name": " ", "description": "",
-      "author": "", "content": ["entries": []], "revision": 0, "saves": 0,
-      "saved": false, "owned": false, "rating_count": 0, "rating_average": 1,
-      "my_rating": 6
-    ]
-    let body: [String: Any] = request.url?.path == "/v1/community/skins"
-      ? ["skins": [invalidSkin], "has_more": false]
-      : ["items": [invalidResource], "has_more": false]
-    let data = try! JSONSerialization.data(withJSONObject: body)
-    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
-      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
-      cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: data)
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-private final class InvalidCommunityDetailProtocol: URLProtocol {
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let design: [String: Any] = [
-      "background": 15266027, "keyBackground": 16777215, "keyForeground": 1516829,
-      "accent": 1596487, "actionBackground": 1596487, "cornerRadius": 8,
-      "borderWidth": 0, "shadow": 0, "pattern": 0, "monospaced": false
-    ]
-    let skin: [String: Any] = [
-      "id": "not-a-uuid", "name": " ", "description": "", "author": "",
-      "design": design, "downloads": 0, "rating_count": 0, "rating_average": 1,
-      "owned": false, "my_rating": 6
-    ]
-    let resource: [String: Any] = [
-      "id": "not-a-uuid", "kind": "dictionary", "name": " ", "description": "",
-      "author": "", "content": ["entries": []], "revision": 0, "saves": 0,
-      "saved": false, "owned": false, "rating_count": 0, "rating_average": 1,
-      "my_rating": 6
-    ]
-    let body: [String: Any] = request.url?.path.hasPrefix("/v1/community/skins/") == true
-      ? skin : resource
-    let data = try! JSONSerialization.data(withJSONObject: body)
-    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
-      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
-      cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: data)
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-private final class InvalidCommunityMutationProtocol: URLProtocol, @unchecked Sendable {
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    let path = request.url!.path
-    let body: String
-    let status: Int
-    if path == "/v1/auth/challenges" {
-      body = #"{"challenge_id":"fixture-id","nonce":"server-nonce","expires_in":300}"#; status = 200
-    } else if path == "/v1/auth/login" {
-      let token = String(repeating: "a", count: 64)
-      let refresh = String(repeating: "f", count: 64)
-      body = "{\"access_token\":\"\(token)\",\"refresh_token\":\"\(refresh)\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"fixture-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"; status = 200
-    } else if path == "/v1/users/me" {
-      body = #"{"user":{"id":"fixture-user","display_name":"测试","created_at":"2026-09-08T00:00:00Z"},"identities":[]}"#; status = 200
-    } else if path == "/v1/community/resources" && request.httpMethod == "GET" {
-      body = #"{"items":[{"id":"10000000-0000-4000-8000-000000000001","kind":"dictionary","name":"测试","description":"","author":"作者","content":{"entries":[{"kind":"unknown","code":"a","word":"啊","weight":1}]},"revision":1,"saves":0,"saved":false,"owned":false,"rating_count":0,"rating_average":0,"my_rating":0}],"has_more":false}"#; status = 200
-    } else if path == "/v1/community/resources" && request.httpMethod == "POST" {
-      body = #"{"id":"10000000-0000-4000-8000-000000000001","revision":0}"#; status = 200
-    } else if path == "/v1/community/skins" && request.httpMethod == "POST" {
-      body = #"{"id":"a1234567-1234-1234-1234-123456789abc"}"#; status = 200
-    } else if path.hasSuffix("/download") {
-      body = #"{"design":{"background":16777216,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false}}"#; status = 200
-    } else if path.hasSuffix("/save") {
-      body = #"{"saved":false}"#; status = 200
-    } else if path.hasSuffix("/rating") {
-      body = #"{"stars":1}"#; status = 200
-    } else if path == "/v1/community/resources/10000000-0000-4000-8000-000000000001" && request.httpMethod == "DELETE" {
-      body = #"{"deleted":false}"#; status = 200
-    } else if path == "/v1/community/skins/10000000-0000-4000-8000-000000000001" && request.httpMethod == "DELETE" {
-      body = #"{"deleted":false}"#; status = 200
-    } else {
-      body = #"{}"#; status = 200
-    }
-    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
-      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: Data(body.utf8))
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
-}
-
-extension SkinCommunityTests {
-  func testUnknownDictionaryWordKindAndCommunityMutationResponsesAreRejected() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [InvalidCommunityMutationProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let memory = CommunityMemoryCredentials()
-    let session = communitySession(client, memory)
-    let api = SkinCommunityAPI(client: client, account: session)
-    do {
-      _ = try await api.resources(.dictionary)
-      XCTFail("expected unknown dictionary word kind rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-
-    try await session.signIn(challenge: "fixture", credential: "synthetic")
-    let id = "10000000-0000-4000-8000-000000000001"
-    let content = CommunityResourceContent(entries: [CommunityWord(PersonalWord(kind: .pinyin, key: "a", value: "啊", weight: 1))], prompt: nil)
-    do {
-      try await api.publishResource(id: id, kind: .dictionary, name: "测试", description: "", content: content, revision: 1)
-      XCTFail("expected invalid publish response rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-    do {
-      try await api.saveResource(id, saved: true)
-      XCTFail("expected invalid save response rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-    do {
-      try await api.rateResource(id, stars: 4)
-      XCTFail("expected invalid rating response rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-    do {
-      try await api.unpublishResource(id)
-      XCTFail("expected invalid delete response rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-    do {
-      try await api.publish(id: id, name: "测试", description: "", design: CustomKeyboardSkin())
-      XCTFail("expected mismatched skin publication ID rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-    do {
-      _ = try await api.download(id)
-      XCTFail("expected invalid downloaded design rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-    do {
-      try await api.rate(id, stars: 4)
-      XCTFail("expected mismatched skin rating rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-    do {
-      try await api.unpublish(id)
-      XCTFail("expected unsuccessful skin deletion rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-  }
-
-  func testMalformedCommunityDetailsAreRejected() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [InvalidCommunityDetailProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client,
-                               account: BackendAccountSession(api: client,
-                                                              storage: CommunityMemoryCredentials()))
-    do {
-      _ = try await api.detail("10000000-0000-4000-8000-000000000001")
-      XCTFail("expected malformed skin detail rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    } catch {
-      XCTFail("unexpected error: \(error)")
-    }
-    do {
-      _ = try await api.resource("10000000-0000-4000-8000-000000000001")
-      XCTFail("expected malformed resource detail rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    } catch {
-      XCTFail("unexpected error: \(error)")
-    }
-  }
-
-  func testMalformedCommunityItemsAreRejected() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [InvalidCommunityPageProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client,
-                               account: BackendAccountSession(api: client,
-                                                              storage: CommunityMemoryCredentials()))
-    do {
-      _ = try await api.list(search: "malformed")
-      XCTFail("expected malformed skin page rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    } catch {
-      XCTFail("unexpected error: \(error)")
-    }
-    do {
-      _ = try await api.resources(.dictionary, search: "malformed")
-      XCTFail("expected malformed resource page rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    } catch {
-      XCTFail("unexpected error: \(error)")
-    }
-  }
-
-  func testDuplicateCommunityPageIsRejected() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [MalformedCommunityPageProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client,
-                               account: BackendAccountSession(api: client,
-                                                              storage: CommunityMemoryCredentials()))
-    do {
-      _ = try await api.list()
-      XCTFail("expected duplicate skin page rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-    do {
-      _ = try await api.resources(.dictionary)
-      XCTFail("expected duplicate resource page rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    }
-  }
-
-  func testOversizedSkinPageIsRejected() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [OversizedSkinPageProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client,
-                               account: BackendAccountSession(api: client,
-                                                              storage: CommunityMemoryCredentials()))
-    do {
-      _ = try await api.list(search: "oversized")
-      XCTFail("expected oversized page rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    } catch {
-      XCTFail("unexpected error: \(error)")
-    }
-  }
-
-  func testOversizedResourcePageIsRejected() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [OversizedResourcePageProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client,
-                               account: BackendAccountSession(api: client,
-                                                              storage: CommunityMemoryCredentials()))
-    do {
-      _ = try await api.resources(.dictionary, search: "oversized")
-      XCTFail("expected oversized resource page rejection")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    } catch {
-      XCTFail("unexpected error: \(error)")
-    }
-  }
-
-  func testLargeResourcePageKeepsPlusSearchAndOrdinaryLimit() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [LargeResourceProtocol.self]
-    let client = BackendAccountClient(configuration:configuration)
-    let api = SkinCommunityAPI(client:client,account:BackendAccountSession(api:client,storage:CommunityMemoryCredentials()))
-    let page = try await api.resources(.dictionary,search:"C++")
-    XCTAssertEqual(page.items.count,20)
-    XCTAssertEqual(page.items.first?.content.entries?.count,128)
-    do {
-      _ = try await client.request("GET","/v1/community/resources?kind=dictionary&q=C%2B%2B")
-      XCTFail("Ordinary limit was relaxed")
-    } catch is BackendAccountClient.Failure { }
-  }
-}
-
-/// A keychain the process cannot read. `BackendKeychain` hits this on an unsigned simulator build,
-/// where SecItemCopyMatching answers -34018 (errSecMissingEntitlement), and on a locked device.
-private struct UnreadableCredentials: BackendSessionStorage {
-  func load() throws -> BackendSavedSession? { throw BackendAccountClient.Failure(status: 0) }
-  func save(_ session: BackendSavedSession) throws {}
-  func clear() throws {}
-}
-
-final class SkinCommunityFailureConversionTests: XCTestCase {
-  /// Reading the session used to sit outside the block that converts backend failures into
-  /// something this screen can say, so an unreadable keychain surfaced the account layer's own
-  /// status-0 fallback — 请求未完成 — on a screen the user had opened to browse skins.
-  func testUnreadableSessionSurfacesACommunityMessage() async {
-    let api = SkinCommunityAPI(account: BackendAccountSession(storage: UnreadableCredentials()))
-    do {
-      _ = try await api.list()
-      XCTFail("expected the unreadable session to fail the request")
-    } catch let failure as CommunityFailure {
-      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
-    } catch let failure as BackendAccountClient.Failure {
-      XCTFail("account failure reached the caller unconverted: status \(failure.status)")
-    } catch {
-      XCTFail("unexpected error: \(error)")
-    }
-  }
-}
-
-/// 记录每个请求的方法、URL 和请求体，并按路径返回带分类的合成条目。
-private final class CategoryRecordingProtocol: URLProtocol, @unchecked Sendable {
-  struct Recorded { let method: String; let url: URL; let body: Data }
-  private static let lock = NSLock()
-  private static var recorded: [Recorded] = []
-  static func reset() { lock.lock(); defer { lock.unlock() }; recorded = [] }
-  static var requests: [Recorded] { lock.lock(); defer { lock.unlock() }; return recorded }
-  static let skinID = "a1234567-1234-1234-1234-123456789abc"
-
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    var body = request.httpBody ?? Data()
-    if body.isEmpty, let stream = request.httpBodyStream {
-      stream.open(); defer { stream.close() }
-      var buffer = [UInt8](repeating: 0, count: 4096)
-      while stream.hasBytesAvailable {
-        let count = stream.read(&buffer, maxLength: buffer.count)
-        guard count > 0 else { break }
-        body.append(buffer, count: count)
-      }
-    }
-    let path = request.url!.path
-    Self.lock.lock()
-    Self.recorded.append(Recorded(method: request.httpMethod ?? "GET", url: request.url!, body: body))
-    Self.lock.unlock()
-    let item = #"{"id":"a1234567-1234-1234-1234-123456789abc","name":"测试","description":"","author":"作者","design":{"background":15266027,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false},"downloads":0,"rating_count":0,"rating_average":0,"owned":true,"my_rating":0,"category":"CATEGORY"}"#
-    let response: String
-    if path == "/v1/auth/login" {
-      response = "{\"access_token\":\"\(String(repeating: "c", count: 64))\",\"refresh_token\":\"\(String(repeating: "f", count: 64))\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"fixture-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"
-    } else if path == "/v1/community/skins" && request.httpMethod == "POST" {
-      response = #"{"id":"a1234567-1234-1234-1234-123456789abc"}"#
-    } else if path == "/v1/community/skins" {
-      response = "{\"skins\":[\(item.replacingOccurrences(of: "CATEGORY", with: "acg"))],\"has_more\":false}"
-    } else if request.httpMethod == "PATCH" {
-      let requested = (try? JSONSerialization.jsonObject(with: body) as? [String: String])?["category"] ?? "other"
-      response = item.replacingOccurrences(of: "CATEGORY", with: requested)
-    } else {
-      response = item.replacingOccurrences(of: "CATEGORY", with: "food")
-    }
-    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
-      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: Data(response.utf8))
-    client?.urlProtocolDidFinishLoading(self)
-  }
-  override func stopLoading() {}
 }
 
 final class SkinCommunityCategoryTests: XCTestCase {
@@ -936,51 +250,5 @@ final class SkinCommunityCategoryTests: XCTestCase {
   func testFailedCategoryLoadRestoresDisplayedSelection() {
     XCTAssertEqual(CommunitySkinCategorySelectionPolicy.afterFailedLoad(previous: .nature), .nature)
     XCTAssertNil(CommunitySkinCategorySelectionPolicy.afterFailedLoad(previous: nil))
-  }
-
-  func testCategoryRequestsCarryIncludeAndFilter() async throws {
-    CategoryRecordingProtocol.reset()
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [CategoryRecordingProtocol.self]
-    let client = BackendAccountClient(configuration: configuration)
-    let session = communitySession(client, CommunityMemoryCredentials())
-    let api = SkinCommunityAPI(client: client, account: session)
-    let id = CategoryRecordingProtocol.skinID
-
-    let all = try await api.list(search: "纸感")
-    XCTAssertEqual(all.skins.first?.category, .acg)
-    _ = try await api.list(offset: 20, search: "", category: .tech)
-    let detail = try await api.detail(id)
-    XCTAssertEqual(detail.category, .food)
-    try await session.signIn(challenge: "fixture", credential: "synthetic")
-    try await api.publish(id: id, name: "测试", description: "", design: CustomKeyboardSkin(), category: .cute)
-    try await api.publish(id: id, name: "测试", description: "", design: CustomKeyboardSkin())
-    let changed = try await api.setCategory(id, category: .minimal)
-    XCTAssertEqual(changed.category, .minimal)
-
-    let community = CategoryRecordingProtocol.requests.filter { $0.url.path.hasPrefix("/v1/community/skins") }
-    XCTAssertEqual(community.map(\.method), ["GET", "GET", "GET", "POST", "POST", "PATCH"])
-    func query(_ request: CategoryRecordingProtocol.Recorded) -> [String: String] {
-      let items = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-      return Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
-    }
-    // 发布只返回 `{"id"}`，服务端忽略 include；其余返回皮肤条目的请求都要带上它。
-    for (index, request) in community.enumerated() where request.method != "POST" {
-      XCTAssertEqual(query(request)["include"], "category", "\(index) \(request.url.absoluteString)")
-    }
-    XCTAssertNil(query(community[3])["include"])
-    XCTAssertNil(query(community[0])["category"])
-    XCTAssertEqual(query(community[1])["category"], "tech")
-    XCTAssertEqual(query(community[1])["offset"], "20")
-    XCTAssertEqual(community[2].url.path, "/v1/community/skins/\(id)")
-
-    func json(_ request: CategoryRecordingProtocol.Recorded) throws -> [String: Any] {
-      try XCTUnwrap(JSONSerialization.jsonObject(with: request.body) as? [String: Any])
-    }
-    XCTAssertEqual(try json(community[3])["category"] as? String, "cute")
-    XCTAssertEqual(try json(community[4])["category"] as? String, "other")
-    XCTAssertEqual(community[5].url.path, "/v1/community/skins/\(id)")
-    XCTAssertEqual(query(community[5]), ["include": "category"])
-    XCTAssertEqual(try json(community[5]) as? [String: String], ["category": "minimal"])
   }
 }

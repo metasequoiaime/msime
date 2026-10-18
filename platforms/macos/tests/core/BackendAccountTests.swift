@@ -405,10 +405,7 @@ private final class CloudPreferences: @unchecked Sendable {
       default: return FakeRust.failure("invalid_cloud_dictionary")
       }
     }
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [AccountFixture.self]
-    let children = BackendAccountSession(api: BackendAccountClient(configuration: configuration), storage: MemoryCredentials())
-    let model = MacDictionaryModel(accountID: "synthetic-user", rust: FakeRust.account, account: children)
+    let model = MacDictionaryModel(accountID: "synthetic-user", rust: FakeRust.account)
     model.refresh(); try await finished(model)
     let list = FakeRust.calls("list").last
     try require(model.page?.entries.isEmpty == true && list?.action["kind"] as? String == "pinyin" && list?.action["offset"] as? Int == 0
@@ -439,7 +436,7 @@ private final class CloudPreferences: @unchecked Sendable {
     try require(model.message == "云词库已导出。" && exported?["path"] as? String == destination.path && exported?["format"] as? String == "standard"
                 && (try? String(contentsOf: destination, encoding: .utf8)) == "合成\tci\t100\n")
     // 打开窗口时的账号已经不是登录的那个：不发云词库请求。
-    let wrongAccount = MacDictionaryModel(accountID: "previous-account", rust: FakeRust.account, account: children)
+    let wrongAccount = MacDictionaryModel(accountID: "previous-account", rust: FakeRust.account)
     let before = FakeRust.calls.filter { $0.entry == "cloud_dictionary" }.count
     wrongAccount.refresh(); try await finished(wrongAccount)
     try require(wrongAccount.page == nil && FakeRust.calls.filter { $0.entry == "cloud_dictionary" }.count == before)
@@ -655,6 +652,35 @@ private final class CloudPreferences: @unchecked Sendable {
     try await Task.sleep(nanoseconds: 20_000_000)
     try require(posted.count == 2 && FakeRust.calls("ensure_anonymous").count == 1)
   }
+  /// 与 iOS 共用的「词包与回复模板」「完整词库目录」「云端候选与排序」经 Rust（#8201 迁移计划 4c）：请求带 `session_store`、前后都核对打开时的账号；目录页把 `catalog_entries` 读成词条；候选页的查询类 action 带同样的五项。
+  @MainActor static func rustSharedCloudPages() async throws {
+    final class Script: @unchecked Sendable { var user: Any = FakeRust.user("synthetic-user") }
+    let script = Script()
+    FakeRust.answer { call in
+      switch (call.entry, call.operation) {
+      case ("account", "status"): return FakeRust.ok(["user": script.user])
+      case ("community", "resource_list"): return FakeRust.ok(["items": [], "has_more": false])
+      case ("cloud_dictionary", "catalog"):
+        return FakeRust.ok(["catalog_entries": [["kind": "pinyin", "code": "shi", "word": "是", "weight": 9]], "has_more": false,
+                            "offset": 0, "revision": 4, "normalized": "shi"])
+      default: return FakeRust.failure("account_invalid")
+      }
+    }
+    let account = CommunityResourceAccount(accountID: "synthetic-user", rust: FakeRust.account)
+    let page = try await account.decode(BackendAccountClient.ResourcePage.self, ["operation": "resource_list", "kind": "dictionary",
+                                                                                  "scope": "", "search": "", "offset": 0])
+    try require(page.items.isEmpty && FakeRust.calls("resource_list").first?.request["session_store"] as? Int == 7)
+    script.user = FakeRust.user("another-user")
+    do { _ = try await account.community(["operation": "resource_list"]); throw Failure() } catch is CancellationError { }
+    try require(FakeRust.calls("resource_list").count == 1)
+    script.user = FakeRust.user("synthetic-user")
+    let catalog = try CloudDictionaryCatalogView.catalog(BackendRustAccount.object(try await account.cloudDictionary(["operation": "catalog"])))
+    try require(catalog.entries.first?.word == "是" && catalog.revision == 4 && catalog.normalized == "shi")
+    let query = BackendAccountClient.CandidateQuery(text: "shi", kind: "pinyin", scheme: "shuangpin", profile: "xiaohe", limit: 100)
+    let action = CloudCandidatesView.queryAction("rank", query)
+    try require(action["operation"] as? String == "rank" && action["text"] as? String == "shi" && action["kind"] as? String == "pinyin"
+                && action["scheme"] as? String == "shuangpin" && action["profile"] as? String == "xiaohe" && action["limit"] as? Int == 100)
+  }
   @MainActor static func main() async throws {
     // 云词库和快照窗口的中转目录在 $TMPDIR 下按进程号建，测试结束时删掉。
     defer { if let transfer = try? MacCloudTransferDirectory.url() { try? FileManager.default.removeItem(at: transfer) } }
@@ -668,6 +694,7 @@ private final class CloudPreferences: @unchecked Sendable {
     try await rustSnapshotModel()
     try await rustSettingsModel()
     try await rustCandidateGloss()
+    try await rustSharedCloudPages()
     print("PASS: native account model through Rust, local account card, settings sync and cloud clipboard")
   }
 

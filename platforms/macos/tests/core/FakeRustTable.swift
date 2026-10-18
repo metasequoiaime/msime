@@ -3,7 +3,7 @@ import CMSIMEClient
 import Foundation
 
 enum FakeRust {
-  /// 一次调用：入口名（`account`、`cloud_clipboard`、`cloud_dictionary`、`client_agent`）和整个请求。
+  /// 一次调用：入口名（`account`、`cloud_clipboard`、`cloud_dictionary`、`community`、`client_agent`）和整个请求。
   struct Call {
     let entry: String
     let request: [String: Any]
@@ -69,6 +69,7 @@ enum FakeRust {
     table.account = { FakeRust.handle("account", $0, $1) }
     table.account_cloud_clipboard = { FakeRust.handle("cloud_clipboard", $0, $1) }
     table.cloud_dictionary = { FakeRust.handle("cloud_dictionary", $0, $1) }
+    table.community = { FakeRust.handle("community", $0, $1) }
     return table
   }
 

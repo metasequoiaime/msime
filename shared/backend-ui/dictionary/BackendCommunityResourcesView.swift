@@ -1,5 +1,33 @@
 import SwiftUI
 
+/// 词包与回复模板各页发给 Rust 的社区请求（`msime_client_community` 的 `resource_*` 和 `report`，#8201 迁移计划 4c）。macOS 与 iOS 共用；页面只按打开时的 user.id 绑定（C 上拿不到会话代次），每个请求前后都核对，退出或换了号就丢掉结果。
+struct CommunityResourceAccount: Sendable {
+  let accountID: String
+  /// nil 是宿主没有注册会话存储，每个操作都报 `rust_client_unavailable`。
+  var rust: BackendRustAccount? = .shared
+
+  func community(_ action: [String: Any]) async throws -> Data {
+    try await checked { try await $0.community(action) }
+  }
+
+  func cloudDictionary(_ action: [String: Any]) async throws -> Data {
+    try await checked { try await $0.cloudDictionary(action) }
+  }
+
+  func decode<T: Decodable>(_ type: T.Type, _ action: [String: Any]) async throws -> T {
+    try BackendRustAccount.decode(type, try await community(action))
+  }
+
+  private func checked(_ body: (BackendRustAccount) async throws -> Data) async throws -> Data {
+    guard let rust else { throw BackendRustClient.Failure.unavailable }
+    guard try await rust.status()?.id == accountID else { throw CancellationError() }
+    let data = try await body(rust)
+    guard try await rust.status()?.id == accountID else { throw CancellationError() }
+    try Task.checkCancellation()
+    return data
+  }
+}
+
 @MainActor
 struct BackendCommunityResourcesView: View {
   let accountID: String
@@ -14,10 +42,7 @@ struct BackendCommunityResourcesView: View {
   @State private var pending: Task<Void, Never>?
   @State private var selected: BackendAccountClient.CommunityResource?
   @State private var creating = false
-  private let client = BackendAccountClient()
-  private func authorize() async throws -> (userID: String, token: String, sessionID: UUID) {
-    try await BackendAccountSession.shared.credentials(matchingUserID: accountID)
-  }
+  private var account: CommunityResourceAccount { CommunityResourceAccount(accountID: accountID) }
   private var scopeTitle: String {
     switch scope {
     case .mine: return "我发布的"
@@ -88,12 +113,10 @@ struct BackendCommunityResourcesView: View {
     .onCompatibleChange(of: scope) { _ in load() }
     .onDisappear { pending?.cancel(); items = []; selected = nil; search = "" }
     .sheet(item: $selected, onDismiss: { load() }) { item in
-      CommunityResourceDetailView(initial: item,
-        session: BackendAccountSession.shared, credentials: authorize).communitySheetSize()
+      CommunityResourceDetailView(initial: item, account: account).communitySheetSize()
     }
     .sheet(isPresented: $creating, onDismiss: { load() }) {
-      BackendCommunityResourceEditor(kind: kind, existing: nil,
-        session: BackendAccountSession.shared, credentials: authorize).communitySheetSize()
+      BackendCommunityResourceEditor(kind: kind, existing: nil, account: account).communitySheetSize()
     }
   }
   private func load(append: Bool = false) {
@@ -105,10 +128,9 @@ struct BackendCommunityResourcesView: View {
     pending = Task {
       defer { busy = false }
       do {
-        let identity = try await authorize()
-        let page = try await client.communityResources(queryKind, scope: queryScope, search: query, offset: offset,
-          session: BackendAccountSession.shared, matchingUserID: identity.userID,
-          matchingSessionID: identity.sessionID)
+        let page = try await account.decode(BackendAccountClient.ResourcePage.self, [
+          "operation": "resource_list", "kind": queryKind.rawValue, "scope": queryScope.rawValue,
+          "search": query, "offset": offset])
         guard kind == queryKind, scope == queryScope, search == query else { return }
         if append { let ids = Set(items.map(\.id)); items += page.items.filter { !ids.contains($0.id) } }
         else { items = page.items }
@@ -122,8 +144,7 @@ struct BackendCommunityResourcesView: View {
 @MainActor
 private struct CommunityResourceDetailView: View {
   let initial: BackendAccountClient.CommunityResource
-  let session: BackendAccountSession
-  let credentials: @MainActor () async throws -> (userID: String, token: String, sessionID: UUID)
+  let account: CommunityResourceAccount
   @Environment(\.dismiss) private var dismiss
   @State private var current: BackendAccountClient.CommunityResource?
   @State private var busy = false
@@ -133,7 +154,6 @@ private struct CommunityResourceDetailView: View {
   @State private var editing = false
   @State private var reportReason = BackendAccountClient.reportReasons[0]
   @State private var reportDetail = ""
-  private let client = BackendAccountClient()
   private var value: BackendAccountClient.CommunityResource { current ?? initial }
   var body: some View {
     VStack {
@@ -153,15 +173,12 @@ private struct CommunityResourceDetailView: View {
           }
         }
         if value.kind == .dictionary {
-          CommunityCloudImportButton(resourceID: value.id, resourceRevision: value.revision) {
-            try await credentials()
-          }
+          CommunityCloudImportButton(resourceID: value.id, resourceRevision: value.revision, accountID: account.accountID,
+                                     rust: account.rust)
         }
         Button(value.saved ? "取消收藏" : "收藏") {
           run {
-            let identity = try await credentials()
-            try await client.saveResource(value.id, saved: !value.saved, session: session,
-              matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+            _ = try await account.community(["operation": "resource_save", "id": value.id.uuidString.lowercased(), "saved": !value.saved])
           }
         }.disabled(busy)
         if value.saved && !value.owned {
@@ -169,9 +186,7 @@ private struct CommunityResourceDetailView: View {
             ForEach(1...5, id: \.self) { stars in
               Button("\(stars) 星\(value.my_rating == stars ? " · 当前评分" : "")") {
                 run {
-                  let identity = try await credentials()
-                  try await client.rateResource(value.id, stars: stars, session: session,
-                    matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+                  _ = try await account.community(["operation": "resource_rate", "id": value.id.uuidString.lowercased(), "stars": stars])
                 }
               }.disabled(busy)
             }
@@ -189,10 +204,9 @@ private struct CommunityResourceDetailView: View {
             Button("举报") {
               let reason = reportReason, detail = reportDetail
               run(refresh: false) {
-                let identity = try await credentials()
-                try await client.reportContent(kind: value.kind == .dictionary ? "dictionaries" : "replies", itemID: value.id,
-                                               reason: reason, detail: detail, session: session,
-                                               matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+                _ = try await account.community(["operation": "report", "kind": value.kind == .dictionary ? "dictionaries" : "replies",
+                                                 "id": value.id.uuidString.lowercased(), "reason": reason,
+                                                 "detail": detail.trimmingCharacters(in: .whitespacesAndNewlines)])
                 reportDetail = ""; message = "已收到举报，我们会尽快处理。"
               }
             }.disabled(busy || reportDetail.unicodeScalars.count > 1000).accessibilityIdentifier("reportCommunityResource")
@@ -205,16 +219,13 @@ private struct CommunityResourceDetailView: View {
     .task { run { } }
     .onDisappear { pending?.cancel(); current = nil }
     .sheet(isPresented: $editing, onDismiss: { run { } }) {
-      BackendCommunityResourceEditor(kind: value.kind, existing: value,
-        session: session, credentials: credentials).communitySheetSize()
+      BackendCommunityResourceEditor(kind: value.kind, existing: value, account: account).communitySheetSize()
     }
     .alert("删除此资源？", isPresented: $deleting) {
       Button("取消", role: .cancel) { }
       Button("删除", role: .destructive) {
         run(refresh: false) {
-          let identity = try await credentials()
-          try await client.deleteResource(value.id, session: session, matchingUserID: identity.userID,
-                                          matchingSessionID: identity.sessionID)
+          _ = try await account.community(["operation": "resource_unpublish", "id": value.id.uuidString.lowercased()])
           dismiss()
         }
       }
@@ -227,9 +238,8 @@ private struct CommunityResourceDetailView: View {
       do {
         try await action()
         if refresh {
-          let identity = try await credentials()
-          current = try await client.communityResource(initial.id, session: session, matchingUserID: identity.userID,
-                                                       matchingSessionID: identity.sessionID)
+          current = try await account.decode(BackendAccountClient.CommunityResource.self,
+                                             ["operation": "resource_detail", "id": initial.id.uuidString.lowercased()])
         }
       } catch is CancellationError { current = nil; dismiss() }
       catch { if !Task.isCancelled { message = error.localizedDescription } }
@@ -241,8 +251,7 @@ private struct CommunityResourceDetailView: View {
 private struct BackendCommunityResourceEditor: View {
   let kind: BackendAccountClient.ResourceKind
   let existing: BackendAccountClient.CommunityResource?
-  let session: BackendAccountSession
-  let credentials: @MainActor () async throws -> (userID: String, token: String, sessionID: UUID)
+  let account: CommunityResourceAccount
   @Environment(\.dismiss) private var dismiss
   @State private var id = UUID()
   @State private var name = ""
@@ -255,7 +264,6 @@ private struct BackendCommunityResourceEditor: View {
   @State private var busy = false
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
-  private let client = BackendAccountClient()
   var body: some View {
     VStack {
       HStack { Text("分享\(kind.title)").font(.title2); Spacer(); Button("取消") { dismiss() } }.padding()
@@ -302,19 +310,18 @@ private struct BackendCommunityResourceEditor: View {
   private func query(offset: Int) {
     let kind = sourceKind, search = sourceSearch
     run {
-      let identity = try await credentials()
-      let page = try await client.dictionary(kind, search: search, offset: offset, session: session,
-        matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+      let page = try BackendRustAccount.decode(BackendAccountClient.DictionaryPage.self, try await account.cloudDictionary([
+        "operation": "list", "kind": kind.rawValue, "offset": offset, "search": search]))
       if sourceKind == kind && sourceSearch == search { source = page }
     }
   }
   private func publish() {
     let content = BackendAccountClient.ResourceContent(entries: kind == .dictionary ? entries : nil, prompt: kind == .reply ? prompt : nil)
     run {
-      let identity = try await credentials()
-      _ = try await client.publishResource(id: id, kind: kind, name: name, description: description,
-        content: content, revision: existing?.revision ?? 0, session: session, matchingUserID: identity.userID,
-        matchingSessionID: identity.sessionID)
+      let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(content))
+      _ = try await account.community(["operation": "resource_publish", "id": id.uuidString.lowercased(), "kind": kind.rawValue,
+                                       "name": name, "description": description, "content": encoded,
+                                       "revision": existing?.revision ?? 0])
       dismiss()
     }
   }
@@ -350,43 +357,42 @@ struct CommunityResourcesAccountView: View {
       else { ProgressView("正在读取账号…") }
     }.task {
       do {
-        let identity = try await BackendAccountSession.shared.credentials()
-        try Task.checkCancellation(); accountID = identity.userID
+        guard let rust = BackendRustAccount.shared else { throw BackendRustClient.Failure.unavailable }
+        guard let user = try await rust.status() else { throw BackendRustClient.Failure(code: "account_unauthorized") }
+        try Task.checkCancellation(); accountID = user.id
       } catch { if !Task.isCancelled { message = error.localizedDescription } }
     }.onDisappear { accountID = nil }
   }
 }
 
 // Both native community layouts use the same account-bound import confirmation.
+/// 把一个词包导入自己的云端词库（`resource_apply`）。确认之前只核对账号，不联网；词包或云端词库在查看之后变了时 Rust 拒绝导入。
 @MainActor
 struct CommunityCloudImportButton: View {
   let resourceID: UUID
   let resourceRevision: Int
-  var credentials: @MainActor () async throws -> (userID: String, token: String, sessionID: UUID) = {
-    try await BackendAccountSession.shared.credentials()
-  }
+  /// 打开页面时登录的账号；为 nil 时按点下按钮那一刻的账号，确认时仍须是同一个。
+  var accountID: String? = nil
+  var rust: BackendRustAccount? = .shared
   private struct Preview {
     let resourceID: UUID
     let resourceRevision: Int
-    let dictionaryRevision: Int64
     let accountID: String
-    let sessionID: UUID
   }
   @State private var preview: Preview?
   @State private var confirming = false
   @State private var busy = false
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
-  private let client = BackendAccountClient()
   var body: some View {
     Button("导入我的云端词库") {
       let id = resourceID, version = resourceRevision
       run {
-        let identity = try await credentials()
-        let catalog = try await client.dictionaryCatalog(.quick, code: "", token: identity.token)
+        guard let rust else { throw BackendRustClient.Failure.unavailable }
+        guard let current = try await rust.status()?.id else { throw BackendRustClient.Failure(code: "account_unauthorized") }
+        if let accountID, accountID != current { throw CancellationError() }
         try Task.checkCancellation()
-        preview = Preview(resourceID: id, resourceRevision: version, dictionaryRevision: catalog.revision,
-                          accountID: identity.userID, sessionID: identity.sessionID)
+        preview = Preview(resourceID: id, resourceRevision: version, accountID: current)
         confirming = true
       }
     }.disabled(busy)
@@ -400,15 +406,11 @@ struct CommunityCloudImportButton: View {
           guard let selected = preview else { return }
           preview = nil
           run {
-            let identity = try await credentials()
-            guard identity.userID == selected.accountID, identity.sessionID == selected.sessionID else {
-              throw BackendAccountClient.Failure(status: 409)
-            }
-            try Task.checkCancellation()
-            let result = try await client.applyResource(selected.resourceID, resourceRevision: selected.resourceRevision,
-              dictionaryRevision: selected.dictionaryRevision, token: identity.token)
-            try Task.checkCancellation()
-            message = "已导入云端词库，新增或更新 \(result.imported) 个词条。请通过词库同步应用到本机。"
+            let result = try BackendRustAccount.object(try await CommunityResourceAccount(accountID: selected.accountID, rust: rust)
+              .community(["operation": "resource_apply", "id": selected.resourceID.uuidString.lowercased(),
+                          "resource_revision": selected.resourceRevision]))
+            let imported = (result["imported"] as? NSNumber)?.intValue ?? 0
+            message = "已导入云端词库，新增或更新 \(imported) 个词条。请通过词库同步应用到本机。"
           }
         }
       } message: {

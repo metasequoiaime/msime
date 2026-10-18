@@ -324,6 +324,12 @@ targets:
       - path: App/Sources/app/DesignKit.swift
       - path: App/Sources/settings/IOSCloudSettings.swift
       - path: App/Sources/keyboard/KeyboardChatHistoryPolicy.swift
+      # 经 Rust 的账号与云端请求（#8201 迁移计划 4c），各自的测试在 KeyboardTests 里对着替身函数表跑。
+      - path: App/Sources/keyboard/KeyboardChatModel.swift
+      - path: App/Sources/keyboard/IOSCloudClipboard.swift
+      - path: App/Sources/dictionary/IOSCloudDictionary.swift
+      - path: App/Sources/settings/TypingUpload.swift
+      - path: App/Sources/account/QQLinksService.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**

@@ -52,7 +52,7 @@ final class AISkinDesignModel: ObservableObject {
             AISkinProposal(name: "AI 测试 \($0.offset + 1)", description: "仅用于界面自动化的合成设计", design: $0.element.1)
           }
         } else {
-          guard try await BackendAccountSession.shared.user() != nil else {
+          guard try await BackendRustAccount.current().status() != nil else {
             if generation.isCurrent(id) { loginNeeded = true }
             return
           }
@@ -64,11 +64,11 @@ final class AISkinDesignModel: ObservableObject {
         guard generation.isCurrent(id) else { return }
         proposals = values; chosen = 0; saved.removeAll()
       } catch is CancellationError {
-      } catch let failure as BackendAccountClient.Failure where failure.status == 401 {
+      } catch let failure as BackendRustClient.Failure where failure.code == "account_unauthorized" {
         guard generation.isCurrent(id) else { return }
         message = "请先登录，再来设计皮肤。"; loginNeeded = true
       } catch {
-        // 429 和 503 直接用后端客户端自带的文案（操作过于频繁… / 此服务暂不可用…）。
+        // 限流和服务不可用直接用 Rust 失败自带的文案（操作过于频繁，请约 N 后再试… / 账号服务暂不可用…）。
         if generation.isCurrent(id) && !Task.isCancelled { message = error.localizedDescription }
       }
     }

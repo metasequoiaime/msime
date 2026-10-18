@@ -195,7 +195,8 @@ extension BackendRustClient.Failure: LocalizedError {
       return "填写的内容无效，请检查后重试。"
     case "account_unauthorized", "community_unauthorized": return "登录已失效，请重新登录。"
     case "account_conflict", "snapshot_conflict", "community_conflict": return "云端内容已被其他设备更新，请刷新后重新确认。"
-    case "account_rate_limited", "community_rate_limited": return "操作过于频繁，请稍后再试。"
+    case "account_rate_limited", "community_rate_limited":
+      return retryAfterSeconds.map { "操作过于频繁，请约 \(Self.wait($0))后再试。" } ?? "操作过于频繁，请稍后再试。"
     case "account_storage": return "无法安全读取登录状态，请检查设备安全设置。"
     case "account_cancelled", "community_cancelled": return "操作已取消，请重试。"
     case "account_network": return "网络连接失败，请检查网络后重试。"
@@ -205,5 +206,12 @@ extension BackendRustClient.Failure: LocalizedError {
     case "snapshot_unavailable": return "词库快照暂时不可用，请稍后重试。"
     default: return "账号服务暂不可用，请稍后再试。"
     }
+  }
+
+  /// 服务端 Retry-After 的秒数说成「N 秒」「N 分钟」「N 小时」，向上取整。
+  static func wait(_ seconds: Int) -> String {
+    if seconds < 60 { return "\(max(1, seconds)) 秒" }
+    if seconds < 3600 { return "\((seconds + 59) / 60) 分钟" }
+    return "\((seconds + 3599) / 3600) 小时"
   }
 }

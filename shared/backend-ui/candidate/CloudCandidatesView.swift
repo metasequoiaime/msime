@@ -1,10 +1,11 @@
 import SwiftUI
 
+/// 「云端候选与排序」：查询、调频、固定位置和删除候选都经 Rust 的 `msime_client_cloud_dictionary`（`candidates`、`fixed_positions`、`rank`、`set_fixed_position`、`remove_candidate`，#8201 迁移计划 4c）。macOS 与 iOS 共用；页面只按打开时的 user.id 绑定（C 上拿不到会话代次），每个请求前后都核对，退出或换了号就丢掉结果。
 struct CloudCandidatesView: View {
   let kind: BackendAccountClient.DictionaryKind
-  let authorize: () async throws -> String
-  let accountID: String?
-  let session: BackendAccountSession?
+  let accountID: String
+  /// nil 是宿主没有注册会话存储，每个操作都报 `rust_client_unavailable`。
+  let rust: BackendRustAccount?
   @State private var text = ""
   @State private var scheme = "pinyin"
   @State private var profile = "xiaohe"
@@ -21,8 +22,6 @@ struct CloudCandidatesView: View {
   @State private var busy = false
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
-  @State private var sessionID: UUID?
-  private let client = BackendAccountClient()
   private enum Action: Sendable {
     case rank(BackendAccountClient.PersonalCandidate)
     case fix(BackendAccountClient.PersonalCandidate)
@@ -33,9 +32,8 @@ struct CloudCandidatesView: View {
     }
   }
 
-  init(kind: BackendAccountClient.DictionaryKind, authorize: @escaping () async throws -> String,
-       accountID: String? = nil, session: BackendAccountSession? = nil) {
-    self.kind = kind; self.authorize = authorize; self.accountID = accountID; self.session = session
+  init(kind: BackendAccountClient.DictionaryKind, accountID: String, rust: BackendRustAccount? = .shared) {
+    self.kind = kind; self.accountID = accountID; self.rust = rust
   }
 
   var body: some View {
@@ -124,48 +122,58 @@ struct CloudCandidatesView: View {
     } message: { Text("修改当前查询的云端状态；固定位置会替换该位置原有的词条。若其他设备已更新，需重新查询再确认。") }
   }
   @MainActor private func load(_ query: BackendAccountClient.CandidateQuery) async throws {
-    let client = self.client
-    let value = try await authenticated { token in
-      let result = try await client.personalCandidates(query, token: token)
-      let fixed: [BackendAccountClient.FixedPosition]
-      if query.kind != "quick" && !result.context.isEmpty {
-        fixed = try await client.fixedPositions(context: result.context, token: token).positions
-      } else { fixed = [] }
-      return (result, fixed)
-    }
-    self.query = query; page = value.0; positions = value.1
+    let result = try BackendRustAccount.decode(BackendAccountClient.PersonalCandidates.self,
+                                               try await request(Self.queryAction("candidates", query)))
+    let fixed: [BackendAccountClient.FixedPosition]
+    if query.kind != "quick" && !result.context.isEmpty {
+      fixed = try BackendRustAccount.decode(BackendAccountClient.FixedPositions.self,
+        try await request(["operation": "fixed_positions", "context": result.context, "offset": 0])).positions
+    } else { fixed = [] }
+    self.query = query; page = result; positions = fixed
   }
   @MainActor private func apply(_ action: Action, page: BackendAccountClient.PersonalCandidates, query: BackendAccountClient.CandidateQuery) async throws {
     let unchangedStatus = "云端状态已更新，本机设置保持原样。"
-    let client = self.client
-    let mode = self.mode, step = self.step, trigger = self.trigger, forceTop = self.forceTop, position = self.position
-    let status = try await authenticated { token in
-      switch action {
-      case .rank(let candidate):
-        let result = try await client.rankCandidate(candidate, query: query, revision: page.revision, mode: mode, step: step, trigger: trigger, forceTop: forceTop, token: token)
-        return result.changed ? "云端排序已更新。" : "已记录本次选择，本次未调整排序；累计 \(result.selection.count) 次。"
-      case .fix(let candidate):
-        _ = try await client.setFixedPosition(context: page.context, code: candidate.mutationCode, word: candidate.word, position: position, revision: page.revision, token: token)
-        return unchangedStatus
-      case .unfix(let item):
-        _ = try await client.setFixedPosition(context: item.context, code: item.code, word: item.word, position: nil, revision: page.revision, token: token)
-        return unchangedStatus
-      case .remove(let candidate):
-        _ = try await client.removeCandidate(candidate, query: query, revision: page.revision, token: token)
-        return unchangedStatus
+    let status: String
+    switch action {
+    case .rank(let candidate):
+      var rank = Self.queryAction("rank", query)
+      rank["code"] = candidate.mutationCode; rank["word"] = candidate.word; rank["revision"] = page.revision
+      rank["mode"] = mode.rawValue; rank["linear_step"] = step; rank["trigger_count"] = trigger; rank["force_top"] = forceTop
+      let result = try BackendRustAccount.object(try await request(rank))
+      guard let changed = result["changed"] as? Bool, let count = (result["selection_count"] as? NSNumber)?.intValue else {
+        throw BackendRustClient.Failure.invalidResponse
       }
+      status = changed ? "云端排序已更新。" : "已记录本次选择，本次未调整排序；累计 \(count) 次。"
+    case .fix(let candidate):
+      _ = try await request(["operation": "set_fixed_position", "context": page.context, "code": candidate.mutationCode,
+                             "word": candidate.word, "position": position, "revision": page.revision])
+      status = unchangedStatus
+    case .unfix(let item):
+      _ = try await request(["operation": "set_fixed_position", "context": item.context, "code": item.code,
+                             "word": item.word, "position": NSNull(), "revision": page.revision])
+      status = unchangedStatus
+    case .remove(let candidate):
+      var remove = Self.queryAction("remove_candidate", query)
+      remove["code"] = candidate.mutationCode; remove["word"] = candidate.word; remove["revision"] = page.revision
+      _ = try await request(remove)
+      status = unchangedStatus
     }
     try await load(query)
     message = status
   }
-  @MainActor private func authenticated<T: Sendable>(_ operation: @escaping @Sendable (String) async throws -> T) async throws -> T {
-    if let session, let accountID {
-      let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-      sessionID = identity.sessionID
-      return try await session.authenticated(matchingUserID: identity.userID,
-                                             matchingSessionID: identity.sessionID, operation).value
-    }
-    return try await operation(try await authorize())
+  /// 带查询的 action：`candidates`、`rank`、`remove_candidate` 都带同样的五项。
+  static func queryAction(_ operation: String, _ query: BackendAccountClient.CandidateQuery) -> [String: Any] {
+    ["operation": operation, "text": query.text, "kind": query.kind, "scheme": query.scheme,
+     "profile": query.profile, "limit": query.limit]
+  }
+  /// 发一个云词库 action；请求前后都核对打开页面时的账号。
+  @MainActor private func request(_ action: [String: Any]) async throws -> Data {
+    guard let rust else { throw BackendRustClient.Failure.unavailable }
+    guard try await rust.status()?.id == accountID else { throw CancellationError() }
+    let data = try await rust.cloudDictionary(action)
+    guard try await rust.status()?.id == accountID else { throw CancellationError() }
+    try Task.checkCancellation()
+    return data
   }
   @MainActor private func run(_ work: @escaping @MainActor () async throws -> Void) {
     guard !busy else { return }

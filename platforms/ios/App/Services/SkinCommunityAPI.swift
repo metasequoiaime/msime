@@ -112,109 +112,64 @@ enum CommunityProfilePolicy {
   }
 }
 
+/// 键盘皮肤社区、社区词包与回复模板、举报和账号操作，都经 Rust 的 `msime_client_community` 和 `msime_client_account`（#8201 迁移计划 4b、4c），令牌不出 Rust。键盘皮肤的下载和举报登录账号优先、没有登录时 Rust 用本机匿名账号，其余要登录的操作只认登录账号。请求进行中给出令牌的账号退出或换了号时 Rust 报 `community_cancelled`，这里按取消处理，页面不提示。
 actor SkinCommunityAPI {
   static let shared = SkinCommunityAPI()
   private static let maximumPageItems = 20
-  /// 每个返回皮肤条目的请求都带上它，服务端才会在条目里附带 `category`。
-  private static let includeCategory = URLQueryItem(name: "include", value: "category")
-  private let client: BackendAccountClient
-  private let account: BackendAccountSession
-  /// 没有登录账号时举报和下载所用的设备匿名身份，默认是应用与键盘扩展共用的那一个；测试传入只在内存里的会话。
-  private let anonymous: BackendAccountSession
   /// 按账号取消键盘待处理的词库快照，默认操作 App Group 里的共享队列；测试传入可观察或会失败的实现。
   private let cancelSnapshot: @Sendable (String) throws -> Void
-  /// 登录、退出、改资料和注销经 Rust（#8201 迁移计划 4b），令牌不出 Rust；默认是 App 启动时注册的那一份，测试传入替身函数表上的账号。
+  /// 默认是 App 启动时注册的那一份，测试传入替身函数表上的账号。
   private let rust: @Sendable () throws -> BackendRustAccount
-  init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
-       anonymous: BackendAccountSession = BackendAnonymousAccount.session,
-       rust: @escaping @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() },
+  init(rust: @escaping @Sendable () throws -> BackendRustAccount = { try BackendRustAccount.current() },
        cancelSnapshot: @escaping @Sendable (String) throws -> Void = {
          try DictionarySnapshotQueue().cancelIfPresent(accountID: $0)
        }) {
-    self.client = client; self.account = account; self.anonymous = anonymous
     self.rust = rust
     self.cancelSnapshot = cancelSnapshot
   }
   /// 登录的账号（Rust 的 `status`，只读存储、不联网）；读不了登录状态时抛 `account_storage`，不当作没登录。
   func currentUser() async throws -> CommunityUser? { try await rust().status() }
   func signedIn() async throws -> Bool { try await currentUser() != nil }
-  private func request<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil, authenticated: Bool = false, maximumResponseBytes: Int = 1024 * 1024) async throws -> T {
-    // Reading the session throws the same type a request does, so it has to sit inside the same
-    // conversion. Outside it, an unreadable keychain surfaced BackendAccountClient's status-0
-    // fallback — 请求未完成 — in place of anything this screen could say about the community.
-    var identity: (userID: String, token: String, sessionID: UUID)?
-    let data: Data
-    do {
-      if try await account.user() != nil { identity = try await account.credentials() }
-      let token = identity?.token
-      if authenticated && token == nil { throw CommunityFailure(message: "请先使用 Apple 登录。") }
-      do { data = try await client.request(method, path, token: token, body: body, maximumResponseBytes: maximumResponseBytes) }
-      catch let error as BackendAccountClient.Failure where error.status == 401 && token != nil {
-        guard let identity else { throw CancellationError() }
-        let fresh = try await account.credentials(retrying: token, matchingUserID: identity.userID,
-                                                  matchingSessionID: identity.sessionID)
-        data = try await client.request(method, path, token: fresh.token, body: body, maximumResponseBytes: maximumResponseBytes)
-      }
-      if let identity {
-        try await account.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
-      } else {
-        guard try await account.user()?.id == nil else { throw CancellationError() }
-      }
-    } catch let error as BackendAccountClient.Failure { throw Self.failure(error) }
-    try Task.checkCancellation()
-    return try JSONDecoder().decode(T.self, from: data.isEmpty ? Data("{}".utf8) : data)
+
+  /// 发一个社区 action，按 `T` 读回答；失败换成社区页面的提示，`community_cancelled` 换成 `CancellationError`。
+  private func community<T: Decodable>(_ action: [String: Any], as type: T.Type) async throws -> T {
+    let data = try await communityData(action)
+    do { return try JSONDecoder().decode(T.self, from: data) }
+    catch { throw CommunityFailure(message: "社区暂时不可用，请稍后重试。") }
   }
-  private static func failure(_ error: BackendAccountClient.Failure) -> CommunityFailure {
-    if let moderation = error.moderationMessage { return CommunityFailure(message: moderation) }
-    let code = error.code ?? "", status = error.status
+
+  /// 回答是 `null` 的社区 action。
+  private func community(_ action: [String: Any]) async throws {
+    _ = try await communityData(action)
+  }
+
+  private func communityData(_ action: [String: Any]) async throws -> Data {
+    let data: Data
+    do { data = try await rust().community(action) }
+    catch let failure as BackendRustClient.Failure { throw try Self.failure(failure) }
+    try Task.checkCancellation()
+    return data
+  }
+
+  /// Rust 的社区错误码换成页面上的一句话。服务端更细的码（例如「下载使用后才能评分」「最多发布 50 款」）Rust 归进 `community_forbidden`、`community_conflict`，这里按归并后的码说。
+  static func failure(_ failure: BackendRustClient.Failure) throws -> CommunityFailure {
+    let moderation = BackendAccountClient.Failure.moderationMessages
     let message: String
-    switch code {
-    case "provider_disabled", "user_auth_disabled": message = "社区登录尚未启用，请稍后重试。"
-    case "download_before_rating_or_own_skin": message = "下载使用后才能评分，且不能评价自己的作品。"
-    case "skin_publish_limit": message = "最多发布 50 款皮肤，请先下架部分作品。"
-    case "recent_login_required": message = "请退出并重新使用 Apple 登录后，再注销账号。"
-    case "invalid_skin_design", "invalid_skin_metadata": message = "皮肤内容或名称不符合发布要求。"
-    default:
-      switch status {
-      case 401: message = "登录已过期，请重新使用 Apple 登录。"
-      case 404: message = "作品不存在或已下架。"
-      case 400: message = "请检查名称、词条或提示词是否符合要求。"
-      case 403: message = "收藏后才能评分，且不能评价自己的作品。"
-      case 409: message = "作品已更新或达到发布上限，请刷新后重试。"
-      case 429: message = "操作较频繁，请稍后重试。"
-      default: message = "社区暂时不可用，请稍后重试。"
-      }
+    switch failure.code {
+    case "community_cancelled", "account_cancelled": throw CancellationError()
+    case "community_blocked_content", "account_blocked_content": message = moderation["blocked_content"]!
+    case "community_screening_unavailable", "account_screening_unavailable": message = moderation["screening_unavailable"]!
+    case "community_account_banned", "account_banned": message = moderation["account_banned"]!
+    case "community_unauthorized", "account_unauthorized": message = "请先登录水杉账号，或登录已过期，请重新登录。"
+    case "community_not_found", "account_not_found": message = "作品不存在或已下架。"
+    case "community_invalid", "account_invalid": message = "请检查名称、词条或提示词是否符合要求。"
+    case "community_forbidden": message = "下载或收藏后才能评分，且不能评价自己的作品。"
+    case "community_conflict", "account_conflict": message = "作品已更新或达到发布上限，请刷新后重试。"
+    case "community_rate_limited", "account_rate_limited": message = "操作较频繁，请稍后重试。"
+    case "account_storage": message = failure.localizedDescription
+    default: message = "社区暂时不可用，请稍后重试。"
     }
     return CommunityFailure(message: message)
-  }
-
-  /// Run one account request with the token that was actually used. A session may still look
-  /// unexpired locally when the backend has revoked that access token, so retry exactly once after
-  /// rotating it. Callers receive the token paired with the successful result for session updates.
-  private func accountRequest<T: Sendable>(matchingUserID expected: String? = nil,
-                                           matchingSessionID expectedSessionID: UUID? = nil,
-                                           _ operation: @Sendable (String) async throws -> T) async throws -> (value: T, token: String) {
-    let identity = try await account.credentials(matchingUserID: expected,
-                                                  matchingSessionID: expectedSessionID)
-    let result = try await account.authenticated(matchingUserID: identity.userID,
-                                                 matchingSessionID: identity.sessionID, operation)
-    try await account.requireSession(matchingUserID: identity.userID,
-                                     matchingSessionID: identity.sessionID)
-    try Task.checkCancellation()
-    return result
-  }
-
-  private func anonymousRequest<T: Sendable>(_ operation: @Sendable (String) async throws -> T) async throws -> T {
-    if (try? await anonymous.accessToken()) == nil {
-      _ = try await BackendAnonymousAccount.ensureSignedIn(session: anonymous, client: client)
-    }
-    let identity = try await anonymous.credentials()
-    let result = try await anonymous.authenticated(matchingUserID: identity.userID,
-                                                   matchingSessionID: identity.sessionID, operation)
-    try await anonymous.requireSession(matchingUserID: identity.userID,
-                                       matchingSessionID: identity.sessionID)
-    try Task.checkCancellation()
-    return result.value
   }
 
   /// Apple 原生登录的挑战（`apple_challenge`）：nonce 放进 `ASAuthorizationAppleIDRequest`，challenge id 放进 state。
@@ -284,7 +239,7 @@ actor SkinCommunityAPI {
       }
     }
   }
-  /// `category` 为 `nil` 时不按分类筛选。
+  /// `category` 为 `nil` 时不按分类筛选。`mine` 列出自己的作品（要登录），带着审核状态，已下架的能标出来。
   func list(offset: Int = 0, search: String = "", mine: Bool = false,
             category: CommunitySkinCategory? = nil) async throws -> CommunityPage {
     #if DEBUG && targetEnvironment(simulator)
@@ -292,15 +247,9 @@ actor SkinCommunityAPI {
       return CommunityPage(skins: CommunityPreviewFixtures.skins.filter { category == nil || $0.category == category }, has_more: false)
     }
     #endif
-    var parts = URLComponents()
-    parts.path = "/v1/community/skins"
-    parts.queryItems = [.init(name: "offset", value: String(offset)), .init(name: "q", value: search)]
-    if let category { parts.queryItems!.append(.init(name: "category", value: category.rawValue)) }
-    // The author's own list, with each skin's moderation state so a removed one can be marked.
-    if mine { parts.queryItems! += [.init(name: "scope", value: "mine"), .init(name: "fields", value: "moderation")] }
-    parts.queryItems!.append(Self.includeCategory)
-    parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-    let page: CommunityPage = try await request(parts.string!, authenticated: mine)
+    var action: [String: Any] = ["operation": "keyboard_skin_list", "offset": offset, "search": search, "mine": mine]
+    if let category { action["category"] = category.rawValue }
+    let page = try await community(action, as: CommunityPage.self)
     guard Self.validPage(page.skins, hasMore: page.has_more),
           page.skins.allSatisfy(CommunityResponseValidation.validSkin) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
@@ -314,7 +263,7 @@ actor SkinCommunityAPI {
     guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let skin: CommunitySkin = try await request(Self.skinPath(id))
+    let skin = try await community(["operation": "keyboard_skin_detail", "id": id], as: CommunitySkin.self)
     guard CommunityResponseValidation.validSkin(skin),
           CommunityValidation.matchesID(skin.id, requested: id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
@@ -323,88 +272,50 @@ actor SkinCommunityAPI {
   }
   func publish(id: String, name: String, description: String, design: CustomKeyboardSkin,
                category: CommunitySkinCategory = .other) async throws {
-    struct Payload: Encodable {
-      let id: String; let name: String; let description: String; let design: CustomKeyboardSkin
-      let category: CommunitySkinCategory
-    }
-    struct Result: Decodable { let id: String }
     guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let result: Result = try await request("/v1/community/skins", method: "POST", body: JSONEncoder().encode(Payload(id: id, name: name, description: description, design: design.normalized, category: category)), authenticated: true)
-    guard CommunityValidation.matchesID(result.id, requested: id) else {
-      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
-    }
+    try await community(["operation": "keyboard_skin_publish", "id": id, "name": name, "description": description,
+                         "design": try Self.json(design.normalized), "category": category.rawValue])
   }
-  /// 作者修改自己作品的分类，返回更新后的条目。请求体只能有 `category` 一个键，服务端对多余的键回 400。返回的条目不带 `moderation`，调用方要沿用原条目的审核状态。
+  /// 作者修改自己作品的分类，返回更新后的条目。返回的条目不带 `moderation`，调用方要沿用原条目的审核状态。
   func setCategory(_ id: String, category: CommunitySkinCategory) async throws -> CommunitySkin {
     guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let skin: CommunitySkin = try await request(Self.skinPath(id, moderation: false), method: "PATCH",
-      body: JSONEncoder().encode(["category": category]), authenticated: true)
+    let skin = try await community(["operation": "keyboard_skin_set_category", "id": id, "category": category.rawValue],
+                                   as: CommunitySkin.self)
     guard CommunityResponseValidation.validSkin(skin),
           CommunityValidation.matchesID(skin.id, requested: id), skin.category == category else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     return skin
   }
-  /// 单个皮肤条目的路径，总是带分类；详情另外带上审核状态，作者据此看到已下架标记。
-  private static func skinPath(_ id: String, moderation: Bool = true) -> String {
-    var parts = URLComponents()
-    parts.path = "/v1/community/skins/\(id)"
-    parts.queryItems = (moderation ? [URLQueryItem(name: "fields", value: "moderation")] : []) + [includeCategory]
-    return parts.string!
-  }
+  /// 领取并记一次下载。没有登录账号时 Rust 用设备的匿名身份，与 Android 的「获取」一致；评分仍要登录。
   func download(_ id: String) async throws -> CustomKeyboardSkin {
     #if DEBUG && targetEnvironment(simulator)
     if CommunityPreviewFixtures.enabled, let skin = CommunityPreviewFixtures.skins.first(where: { $0.id == id }) { return skin.design }
     #endif
-    struct Result: Decodable, Sendable { let design: CustomKeyboardSkin }
     guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let path = "/v1/community/skins/\(id)/download", body = Data("{}".utf8)
-    let result: Result
-    // 读会话抛出的与请求同一种错误，要在同一处转换成社区的提示，原因见 `request`。
-    let hasAccount: Bool
-    do { hasAccount = try await account.user() != nil } catch let error as BackendAccountClient.Failure { throw Self.failure(error) }
-    if hasAccount {
-      result = try await request(path, method: "POST", body: body, authenticated: true)
-    } else {
-      // 没有登录账号时与举报相同，用设备的匿名身份领取并记一次下载，与 Android 的「获取」（`CommunityCatalog.recordDownload`）一致；评分仍要登录。
-      let data: Data
-      do {
-        data = try await anonymousRequest { token in
-          try await client.request("POST", path, token: token, body: body)
-        }
-      } catch let error as BackendAccountClient.Failure { throw Self.failure(error) }
-      result = try JSONDecoder().decode(Result.self, from: data)
-    }
-    guard result.design == result.design.normalized else {
+    let design = try await community(["operation": "keyboard_skin_download", "id": id], as: CustomKeyboardSkin.self)
+    guard design == design.normalized else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    return result.design.normalized
+    return design.normalized
   }
   func rate(_ id: String, stars: Int) async throws {
-    struct Result: Decodable { let stars: Int }
     guard CommunityValidation.validID(id), (1...5).contains(stars) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let result: Result = try await request("/v1/community/skins/\(id)/rating", method: "PUT", body: JSONSerialization.data(withJSONObject: ["stars": stars]), authenticated: true)
-    guard result.stars == stars else {
-      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
-    }
+    try await community(["operation": "keyboard_skin_rate", "id": id, "stars": stars])
   }
   func unpublish(_ id: String) async throws {
-    struct Result: Decodable { let deleted: Bool }
     guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let result: Result = try await request("/v1/community/skins/\(id)", method: "DELETE", authenticated: true)
-    guard result.deleted else {
-      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
-    }
+    try await community(["operation": "keyboard_skin_unpublish", "id": id])
   }
   struct ResourcePage: Decodable { let items: [CommunityResource]; let has_more: Bool }
   func resources(_ kind: CommunityResourceKind, scope: String = "", search: String = "", offset: Int = 0) async throws -> ResourcePage {
@@ -413,12 +324,8 @@ actor SkinCommunityAPI {
       return ResourcePage(items: CommunityPreviewFixtures.items.filter { $0.kind == kind && (scope != "saved" || $0.saved) && (scope != "mine" || $0.owned) }, has_more: false)
     }
     #endif
-    var parts = URLComponents(); parts.path = "/v1/community/resources"
-    parts.queryItems = [.init(name: "kind", value: kind.rawValue), .init(name: "scope", value: scope),
-      .init(name: "q", value: search), .init(name: "offset", value: String(offset))]
-    if scope == "mine" { parts.queryItems!.append(.init(name: "fields", value: "moderation")) }
-    parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-    let page: ResourcePage = try await request(parts.string!, maximumResponseBytes: 48 * 1024 * 1024)
+    let page = try await community(["operation": "resource_list", "kind": kind.rawValue, "scope": scope,
+                                    "search": search, "offset": offset], as: ResourcePage.self)
     guard Self.validPage(page.items, hasMore: page.has_more),
           page.items.allSatisfy({ CommunityResponseValidation.validResource($0, expectedKind: kind) }) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
@@ -432,6 +339,14 @@ actor SkinCommunityAPI {
     return items.allSatisfy { ids.insert($0.id.lowercased()).inserted }
   }
 
+  /// 编成 JSON 对象，放进请求的 action 里。
+  private static func json<T: Encodable>(_ value: T) throws -> Any {
+    guard let object = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    return object
+  }
+
   func resource(_ id: String) async throws -> CommunityResource {
     #if DEBUG && targetEnvironment(simulator)
     if CommunityPreviewFixtures.enabled, let item = CommunityPreviewFixtures.items.first(where: { $0.id == id }) { return item }
@@ -439,7 +354,7 @@ actor SkinCommunityAPI {
     guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let resource: CommunityResource = try await request("/v1/community/resources/\(id)?fields=moderation", maximumResponseBytes: 3 * 1024 * 1024)
+    let resource = try await community(["operation": "resource_detail", "id": id], as: CommunityResource.self)
     guard CommunityResponseValidation.validResource(resource, expectedKind: resource.kind),
           CommunityValidation.matchesID(resource.id, requested: id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
@@ -448,71 +363,42 @@ actor SkinCommunityAPI {
   }
   func publishResource(id: String, kind: CommunityResourceKind, name: String, description: String,
                        content: CommunityResourceContent, revision: Int) async throws {
-    struct Payload: Encodable {
-      let id: String; let kind: CommunityResourceKind; let name: String; let description: String
-      let content: CommunityResourceContent; let revision: Int
-    }
     struct Result: Decodable { let id: String; let revision: Int }
     guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let result: Result = try await request("/v1/community/resources", method: "POST", body: JSONEncoder().encode(
-      Payload(id: id, kind: kind, name: name, description: description, content: content, revision: revision)), authenticated: true)
+    let result = try await community(["operation": "resource_publish", "id": id, "kind": kind.rawValue, "name": name,
+                                      "description": description, "content": try Self.json(content), "revision": revision],
+                                     as: Result.self)
     guard CommunityValidation.matchesID(result.id, requested: id), result.revision > 0 else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
   }
   func saveResource(_ id: String, saved: Bool) async throws {
-    struct Result: Decodable { let saved: Bool }
     guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let result: Result = try await request("/v1/community/resources/\(id)/save", method: "PUT",
-      body: JSONSerialization.data(withJSONObject: ["saved": saved]), authenticated: true)
-    guard result.saved == saved else {
-      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
-    }
+    try await community(["operation": "resource_save", "id": id, "saved": saved])
   }
   func rateResource(_ id: String, stars: Int) async throws {
-    struct Result: Decodable { let stars: Int }
     guard CommunityValidation.validID(id), (1...5).contains(stars) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let result: Result = try await request("/v1/community/resources/\(id)/rating", method: "PUT",
-      body: JSONSerialization.data(withJSONObject: ["stars": stars]), authenticated: true)
-    guard result.stars == stars else {
-      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
-    }
+    try await community(["operation": "resource_rate", "id": id, "stars": stars])
   }
-  /// Report another user's work. Signed in or not: without a signed-in account the device's anonymous account sends it.
+  /// 举报别人的作品。登录不登录都行：没有登录账号时 Rust 用设备的匿名账号发。
   func report(kind: String, itemID: String, reason: String, detail: String) async throws {
     let detail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
     guard CommunityValidation.validID(itemID), BackendAccountClient.reportReasons.contains(reason),
           CommunityValidation.validText(detail, minimum: 0, maximum: 1_000, multiline: true) else {
       throw CommunityFailure(message: "请选择举报原因，补充说明不超过 1000 字。")
     }
-    guard let id = UUID(uuidString: itemID) else { throw CommunityFailure(message: "作品不存在或已下架。") }
-    do {
-      if let userID = try await account.user()?.id {
-        _ = try await accountRequest(matchingUserID: userID) { token in
-          try await client.reportContent(kind: kind, itemID: id, reason: reason, detail: detail, token: token)
-        }
-        return
-      }
-      _ = try await anonymousRequest { token in
-        try await client.reportContent(kind: kind, itemID: id, reason: reason, detail: detail, token: token)
-      }
-    } catch let error as BackendAccountClient.Failure { throw Self.failure(error) }
+    try await community(["operation": "report", "kind": kind, "id": itemID, "reason": reason, "detail": detail])
   }
   func unpublishResource(_ id: String) async throws {
-    struct Result: Decodable { let deleted: Bool }
     guard CommunityValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let result: Result = try await request("/v1/community/resources/\(id)", method: "DELETE", authenticated: true)
-    guard result.deleted else {
-      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
-    }
+    try await community(["operation": "resource_unpublish", "id": id])
   }
-
 }
