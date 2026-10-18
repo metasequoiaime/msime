@@ -2439,7 +2439,7 @@ fn download(
 
 /// 按顺序从每个源把 `url` 下载进 `file`：先是 `mirrors` 里每个非空前缀加原地址，最后是原地址本身。每换一个源都把文件截断重写；长度或摘要不符、网络和 HTTP 错误都换下一个源，取消和本地读写错误直接返回。返回核对通过的小写十六进制 SHA-256。
 #[allow(clippy::too_many_arguments)]
-fn download_from_mirrors(
+pub(crate) fn download_from_mirrors(
     fetcher: &dyn Fetcher,
     mirrors: &[&str],
     url: &str,
