@@ -4770,13 +4770,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           clearNineKeyFilter()
         },
         onClose: { [weak self] in self?.closeKeyboardPicker() },
-        // ⌫ 关闭候选网格并删除，与 Android 的底栏一致：网格列出的是正在编辑的组字的候选。九键三栏面板不画底栏，退格在右栏里。
-        onBackspace: { [weak self] in
-          guard let self else { return }
-          countKeyPress(TypingKeyID.backspace)
-          closeKeyboardPicker()
-          handleBackspace()
-        },
         columns: columns.map { ($0.leading, $0.trailing) })
       candidatePanel = panel
       candidatePanelSnapshot = snapshot
@@ -4790,7 +4783,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 全拼九键或 14 键正在组字时，展开的是三栏的九键面板（单字和笔画筛选照常可用）；其他方案、注音九键和本地模式照旧是带「返回」和 ⌫ 底栏的候选网格。
+  /// 全拼九键或 14 键正在组字时，展开的是三栏的九键面板（单字和笔画筛选照常可用）；其他方案、注音九键和本地模式使用铺满键区的候选网格，由顶部箭头收起。
   private var opensNineKeyPanel: Bool {
     (inputScheme.isMandarinNineKey || inputScheme == .fourteenKey) && isChineseMode && hasComposition && !isInLocalMode
   }

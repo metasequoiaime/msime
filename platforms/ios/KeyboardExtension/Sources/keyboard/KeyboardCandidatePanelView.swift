@@ -24,7 +24,7 @@ extension UIColor {
 //
 // 网格就是设计稿的 `repeat(auto-fill, minmax(64px, 1fr))`，间隔 6pt、内边距 2pt：在不窄于 64pt 的前提下放尽可能多的等宽列，44pt 的格子画得像按键。比一列宽的候选按自身文字所需占多列，带注释的候选至少占两列，让翻译或标记行保持可读（Android 出于同样原因把这个列表排成换行布局）。占几列只取决于候选本身，与注释文字无关，所以晚到的注释不会改变页面尺寸。
 //
-// 带标题栏时（默认）面板独自盖住整个键盘：顶部是品牌标志、拼写、候选数和收起箭头。不带标题栏时（`showsHeader: false`）面板位于候选条下方的按键区，拼写和收起箭头由候选条保留，底部改为一行「返回」和 ⌫，代替标题栏。
+// 带标题栏时（默认）面板独自盖住整个键盘：顶部是品牌标志、拼写、候选数和收起箭头。不带标题栏时（`showsHeader: false`）面板用满候选条下方的按键区，拼写和收起箭头由候选条保留，不另放底部按钮。
 //
 // 传入 `columns` 时是全拼九键的三栏面板：左边拼音栏、中间候选网格、右边功能键，同样位于按键区；读音留在上面的候选栏里，所以不画标题栏，返回和退格在右栏里，也不画底栏。
 final class KeyboardCandidatePanelView: UIView {
@@ -32,9 +32,6 @@ final class KeyboardCandidatePanelView: UIView {
   static let cellSpacing: CGFloat = 6
   static let cellHeight: CGFloat = 44
   static let gridPadding: CGFloat = 2
-  /// 无标题栏面板底部按键的高度，以及它们上方的间隔。
-  static let footerHeight: CGFloat = 40
-  static let footerGap: CGFloat = 8
   /// 带注释的候选至少占的列数。
   private static let annotatedSpan = 2
   private static let cellInsets = NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
@@ -93,7 +90,6 @@ final class KeyboardCandidatePanelView: UIView {
        display: @escaping (String) -> String,
        menuElements: @escaping (Int) -> [UIMenuElement] = { _ in [] },
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void,
-       onBackspace: (() -> Void)? = nil,
        columns: (leading: UIView, trailing: UIView)? = nil) {
     self.candidates = candidates
     self.candidateScale = candidateScale
@@ -149,10 +145,9 @@ final class KeyboardCandidatePanelView: UIView {
         scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
       ])
     } else {
-      let footer = makeFooter(onClose: onClose, onBackspace: onBackspace)
       NSLayoutConstraint.activate([
         scrollView.topAnchor.constraint(equalTo: topAnchor),
-        scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -Self.footerGap),
+        scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
       ])
     }
     rebuildChips()
@@ -213,50 +208,6 @@ final class KeyboardCandidatePanelView: UIView {
       brandMark.heightAnchor.constraint(equalToConstant: 16),
     ])
     return header
-  }
-
-  /// 「返回」和 ⌫ 各占一半宽度，高 40pt，用功能键底色。「返回」沿用标题栏收起按钮的标识符，因为是同一个操作；没有处理方时不放 ⌫。
-  private func makeFooter(onClose: @escaping () -> Void, onBackspace: (() -> Void)?) -> UIView {
-    let back = footerKey(id: "closeCandidatePanel", label: "收起候选") { onClose() }
-    var backConfiguration = back.configuration
-    backConfiguration?.attributedTitle = AttributedString("返回", attributes: AttributeContainer([
-      .font: UIFont.systemFont(ofSize: 15, weight: .medium),
-    ]))
-    back.configuration = backConfiguration
-    var keys: [UIView] = [back]
-    if let onBackspace {
-      let delete = footerKey(id: "candidatePanelBackspace", label: "删除") { onBackspace() }
-      var deleteConfiguration = delete.configuration
-      deleteConfiguration?.image = KeyboardIcon.backspace.image(pointSize: 22)
-      delete.configuration = deleteConfiguration
-      keys.append(delete)
-    }
-    let footer = UIStackView(arrangedSubviews: keys)
-    footer.axis = .horizontal
-    footer.distribution = .fillEqually
-    footer.spacing = Self.cellSpacing
-    footer.translatesAutoresizingMaskIntoConstraints = false
-    addSubview(footer)
-    NSLayoutConstraint.activate([
-      footer.leadingAnchor.constraint(equalTo: leadingAnchor),
-      footer.trailingAnchor.constraint(equalTo: trailingAnchor),
-      footer.bottomAnchor.constraint(equalTo: bottomAnchor),
-      footer.heightAnchor.constraint(equalToConstant: Self.footerHeight),
-    ])
-    return footer
-  }
-
-  private func footerKey(id: String, label: String, action: @escaping () -> Void) -> KeyboardKeyButton {
-    var configuration = UIButton.Configuration.plain()
-    configuration.baseForegroundColor = skin.keyForeground
-    configuration.background.backgroundColor = skin.functionKeyBackground
-    configuration.background.cornerRadius = skin.cornerRadius
-    configuration.contentInsets = .zero
-    let key = KeyboardKeyButton(configuration: configuration, primaryAction: UIAction { _ in action() })
-    key.isFunctionKey = true
-    key.accessibilityIdentifier = id
-    key.accessibilityLabel = label
-    return key
   }
 
   func updateAnnotations(_ annotations: [KeyboardCandidateAnnotation]) {

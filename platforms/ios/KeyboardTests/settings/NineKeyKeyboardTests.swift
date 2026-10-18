@@ -2124,10 +2124,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       let chips = descendants(panel).compactMap { $0.accessibilityIdentifier }
         .filter { $0.hasPrefix("panelCandidate-") }
       XCTAssertGreaterThan(chips.count, CandidatePageSizePreference.defaultSize)
-      // 全拼九键的展开面板由右栏的「返回」收起，其他方案是标题行的收起按钮。
-      let closeIdentifier = scheme == .nineKey ? "candidatePanelBack" : "closeCandidatePanel"
-      let close = try XCTUnwrap(
-        descendants(panel).first { $0.accessibilityIdentifier == closeIdentifier } as? UIButton)
+      // 顶部候选栏的展开箭头在所有方案下都能收起面板。
+      XCTAssertEqual(expand.accessibilityLabel, "收起候选")
+      let close = expand
       close.sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
       XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" })
@@ -3813,7 +3812,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     })
   }
 
-  /// 其他方案展开的仍是普通候选网格：同样装在键区，底栏是「返回」和 ⌫，没有九键的两栏。
+  /// 普通候选网格用满键区，移除底部按钮后仍能从顶部收起并选中候选。
   func testQuanpinKeepsTheFullCandidatePanel() throws {
     let previousScheme = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previousScheme }
@@ -3832,9 +3831,26 @@ final class NineKeyKeyboardTests: XCTestCase {
     let strip = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidateStrip" })
     XCTAssertEqual(panel.convert(panel.bounds, to: controller.view).minY,
                    strip.convert(strip.bounds, to: controller.view).maxY, accuracy: 0.5, "the grid opens under the strip")
-    XCTAssertNoThrow(try button("closeCandidatePanel", in: controller))
-    XCTAssertNoThrow(try button("candidatePanelBackspace", in: controller))
+    XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "closeCandidatePanel" })
+    XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "candidatePanelBackspace" })
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanelBack" })
+    let scroll = try XCTUnwrap(panel.subviews.first { $0 is UIScrollView })
+    XCTAssertEqual(scroll.frame.minY, 0, accuracy: 0.5)
+    XCTAssertEqual(scroll.frame.maxY, panel.bounds.maxY, accuracy: 0.5, "候选区不能留下空底栏")
+
+    let expand = try button("expandCandidates", in: controller)
+    XCTAssertEqual(expand.accessibilityLabel, "收起候选")
+    let composition = try preedit(in: controller)
+    expand.sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(candidatePanel(in: controller))
+    XCTAssertEqual(try preedit(in: controller), composition, "收起不能删除组字")
+    expand.sendActions(for: .primaryActionTriggered)
+    let reopened = try XCTUnwrap(candidatePanel(in: controller))
+    let candidate = try XCTUnwrap(descendants(reopened).compactMap { $0 as? UIButton }
+      .first { $0.accessibilityIdentifier == "panelCandidate-1" })
+    candidate.sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(candidatePanel(in: controller))
+    XCTAssertTrue(try preedit(in: controller).isEmpty, "选中候选后完成组字")
   }
 
   // MARK: - 数字层的排列

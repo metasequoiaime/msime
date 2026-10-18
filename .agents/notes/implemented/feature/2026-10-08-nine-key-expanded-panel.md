@@ -38,6 +38,7 @@ Status: implemented
   - 切回拼音模式会清掉笔画；关闭面板会清掉全部筛选，收起后的候选栏不带筛选。
   - 判断逻辑放在各端可测的地方：Android `keyboard/NineKeyPanelPolicy.java`，HarmonyOS `keyboard/input/NineKeyPanelPolicy.ts`；iOS 的左右两栏在 `KeyboardNineKeyPanelColumns.swift`，由 `NineKeyKeyboardTests` 驱动整个视图控制器来测。
   - iOS 的三栏面板只盖住键盘区，候选栏留在上面，展开按钮变成收起；没有打包 `msime-stroke.db` 时不显示「笔画」切换。
+  - iOS 普通候选网格同样由顶部箭头收起，不放底部「返回」和 ⌫：候选栏已保留收起入口，重复按钮会挤掉一行候选。滚动区直接延伸到面板底部；九键三栏的右侧功能键仍服务于拼音和笔画编辑。
 - Android 的拼音选择从横条改成侧栏里的竖列，和另外两端以及录屏一致；注音九键仍是候选行上的横条。Android 的「展开」按钮在九键组字只有一页候选时也显示，因为面板现在还是选拼音和筛选的入口。
 - 读音行显示 `nine_key_reading`（`ning'bai`）而不是数字。HarmonyOS 和 iOS 原来显示的是数字，这次补上了。
 
