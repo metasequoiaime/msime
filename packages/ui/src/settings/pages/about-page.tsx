@@ -14,11 +14,13 @@ import { androidPrivacyUrl, downloadMirrorPrefix, privacyUrl } from "../app-reso
 import { mirrorDownloadUrl } from "../update-manifest";
 import { SystemInfoSection } from "../system-info-section";
 import { schemeTitle } from "../label-helpers";
+import { aboutTabs } from "../about-tabs";
+import { useSettingsTabs } from "../use-settings-tabs";
 
 /** 当前运行的版本已是最新时 `useUpdateCheck` 报告的内容。 */
 const latestStatus = "已是最新版本";
 
-/** 设置表单的「关于」页：品牌头部、「版本与更新」（含原「其他平台下载」页的几行）、桌面上并进来的「帮助与反馈」（帮助入口、问题报告和反馈渠道，见 `desktopMergedPages`）、「系统信息」（反馈问题时一键复制，#6644）和「许可与隐私」。卸载在「维护与诊断」。HarmonyOS（手机与 2in1）按新设计换成带版本行和检查更新胶囊的页首、「法律信息」组和单独的「隐私」组。 */
+/** 桌面关于页按功能分成顶部标签，手机保留直列；鸿蒙沿用自己的品牌头部与法律信息布局。 */
 export function AboutSettingsPage() {
   const {
     client,
@@ -46,6 +48,8 @@ export function AboutSettingsPage() {
     chooseDataDirectory,
     selectPage,
     host,
+    aboutTab,
+    setAboutTab,
   } = useSettingsForm();
   const { onCheckForUpdate, onTelemetryChange } = createAboutSettingsActions({
     checkForUpdate,
@@ -81,107 +85,123 @@ export function AboutSettingsPage() {
   );
   const openPrivacy = () =>
     void openExternalUrl(clientHostedPlatform && !linuxPlatform ? androidPrivacyUrl : privacyUrl);
-  if (settingsPlatform === "harmony" || settingsPlatform === "hm2") {
-    // 只有结果为「已是最新」（"current"）时胶囊才把检查结果并入自己的标签；其他结果（有新版本、尚未发布、检查失败）都是用户需要读的一句话，所以仍作为状态行放在版权信息下方。
-    const latest = !updateBusy && updateStatus === latestStatus;
-    return (
-      <SettingsPageFieldset disabled={busy} hidden={page !== "about"} ariaLabel="关于">
-        <GroupList>
-          <HarmonyAboutHero
-            version={currentAppVersion}
-            platformLabel={settingsPlatform === "hm2" ? "HarmonyOS 2in1" : "HarmonyOS"}
-            update={updateBusy ? "checking" : latest ? "latest" : "idle"}
-            updateStatus={updateBusy || latest ? undefined : updateStatus}
-            onCheckForUpdate={updateCheckSupported ? onCheckForUpdate : undefined}
-          />
-        </GroupList>
-        {(updateResult || !mobilePlatform) && (
-          <GroupList title="版本与更新">
-            {updateResult}
-            <OtherPlatformDownloadRows />
-          </GroupList>
-        )}
-        {/* 2in1 是桌面形态，「帮助与反馈」同样并进这一页；手机保留单独的「反馈」页。 */}
-        {!mobilePlatform && <FeedbackSections />}
-        <GroupList title="法律信息">
-          <Row title="隐私政策">
-            <ActionButton
-              action={openPrivacy}
-              className={doc.rowButton}
-              ariaLabel="查看隐私政策"
-              label="查看"
-            />
-          </Row>
-          <Row title="开源许可">
-            <ActionButton
-              action={() => void openExternalUrl(platformLicenseUrl)}
-              className={doc.rowButton}
-              ariaLabel="查看开源许可"
-              label="查看"
-            />
-          </Row>
-        </GroupList>
-        <TelemetrySection
-          value={draft?.usage_reporting}
-          onChange={onTelemetryChange}
-          onOpenDetails={() => selectPage("usage-reporting")}
-        />
-      </SettingsPageFieldset>
-    );
-  }
+  const harmony = settingsPlatform === "harmony" || settingsPlatform === "hm2";
+  const { tabList, panel } = useSettingsTabs(
+    aboutTabs.filter((tab) => tab.id !== "system" || !harmony),
+    "关于设置分类",
+    !mobilePlatform,
+    aboutTab,
+    setAboutTab,
+  );
+  // 最新版本并入鸿蒙的检查按钮，其余检查结果仍单独显示。
+  const latest = !updateBusy && updateStatus === latestStatus;
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "about"} ariaLabel="关于">
-      <GroupList>
-        <AboutHeroSection logo={logo} description={platformAboutDescription} />
-      </GroupList>
-      <GroupList title="版本与更新">
-        <div className={`${doc.linkRow} ${doc.versionRow}`}>
-          <div>
-            <div className={doc.linkTitle}>当前版本</div>
-            <div className={doc.version}>v{currentAppVersion}</div>
-            {updateStatus && (
-              <p className={doc.updateStatus} role="status">
-                {updateStatus}
-              </p>
+      {tabList}
+      {panel(
+        "version",
+        <>
+          <GroupList>
+            {harmony ? (
+              <HarmonyAboutHero
+                version={currentAppVersion}
+                platformLabel={settingsPlatform === "hm2" ? "HarmonyOS 2in1" : "HarmonyOS"}
+                update={updateBusy ? "checking" : latest ? "latest" : "idle"}
+                updateStatus={updateBusy || latest ? undefined : updateStatus}
+                onCheckForUpdate={updateCheckSupported ? onCheckForUpdate : undefined}
+              />
+            ) : (
+              <AboutHeroSection logo={logo} description={platformAboutDescription} />
             )}
-          </div>
-          {updateCheckSupported && (
-            <ActionButton
-              action={onCheckForUpdate}
-              className={`secondary ${doc.updateButton}`}
-              disabled={updateBusy}
-              label={updateBusy ? "正在检查…" : "检查更新"}
-            />
+          </GroupList>
+          {(!harmony || updateResult || !mobilePlatform) && (
+            <GroupList title="版本与更新">
+              {!harmony && (
+                <div className={`${doc.linkRow} ${doc.versionRow}`}>
+                  <div>
+                    <div className={doc.linkTitle}>当前版本</div>
+                    <div className={doc.version}>v{currentAppVersion}</div>
+                    {updateStatus && (
+                      <p className={doc.updateStatus} role="status">
+                        {updateStatus}
+                      </p>
+                    )}
+                  </div>
+                  {updateCheckSupported && (
+                    <ActionButton
+                      action={onCheckForUpdate}
+                      className={`secondary ${doc.updateButton}`}
+                      disabled={updateBusy}
+                      label={updateBusy ? "正在检查…" : "检查更新"}
+                    />
+                  )}
+                </div>
+              )}
+              {updateResult}
+              <OtherPlatformDownloadRows />
+            </GroupList>
           )}
-        </div>
-        {updateResult}
-        <OtherPlatformDownloadRows />
-      </GroupList>
-      {/* 桌面上「帮助与反馈」并进这一页（`desktopMergedPages`）；触屏宿主从「我的」打开单独的反馈页。 */}
-      {!mobilePlatform && <FeedbackSections />}
-      <SystemInfoSection
-        appVersion={currentAppVersion}
-        host={host}
-        scheme={schemeTitle(draft.scheme)}
-        copyText={client.copyText}
-      />
-      <GroupList title="许可与隐私">
-        <LinkRow
-          title="开源许可协议"
-          external
-          onClick={() => void openExternalUrl(platformLicenseUrl)}
-        />
-        {/* 第三方声明随 macOS 应用资源和 Windows 安装目录提供，两个宿主都能打开它。 */}
-        {(macosPlatform || windowsPlatform) && (
-          <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />
+        </>,
+      )}
+      {!mobilePlatform && panel("feedback", <FeedbackSections />)}
+      {!harmony &&
+        panel(
+          "system",
+          <SystemInfoSection
+            appVersion={currentAppVersion}
+            host={host}
+            scheme={schemeTitle(draft.scheme)}
+            copyText={client.copyText}
+          />,
         )}
-        <LinkRow title="隐私政策" external onClick={openPrivacy} />
-        <TelemetryRow
-          value={draft?.usage_reporting}
-          onChange={onTelemetryChange}
-          onOpenDetails={() => selectPage("usage-reporting")}
-        />
-      </GroupList>
+      {panel(
+        "privacy",
+        harmony ? (
+          <>
+            <GroupList title="法律信息">
+              <Row title="隐私政策">
+                <ActionButton
+                  action={openPrivacy}
+                  className={doc.rowButton}
+                  ariaLabel="查看隐私政策"
+                  label="查看"
+                />
+              </Row>
+              <Row title="开源许可">
+                <ActionButton
+                  action={() => void openExternalUrl(platformLicenseUrl)}
+                  className={doc.rowButton}
+                  ariaLabel="查看开源许可"
+                  label="查看"
+                />
+              </Row>
+            </GroupList>
+            <TelemetrySection
+              value={draft?.usage_reporting}
+              onChange={onTelemetryChange}
+              onOpenDetails={() => selectPage("usage-reporting")}
+            />
+          </>
+        ) : (
+          <GroupList title="许可与隐私">
+            <LinkRow
+              title="开源许可协议"
+              external
+              onClick={() => void openExternalUrl(platformLicenseUrl)}
+            />
+            {/* 第三方声明随 macOS 应用资源和 Windows 安装目录提供。 */}
+            {(macosPlatform || windowsPlatform) && (
+              <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />
+            )}
+            <LinkRow title="隐私政策" external onClick={openPrivacy} />
+            <TelemetryRow
+              value={draft?.usage_reporting}
+              onChange={onTelemetryChange}
+              onOpenDetails={() => selectPage("usage-reporting")}
+            />
+          </GroupList>
+        ),
+      )}
     </SettingsPageFieldset>
   );
 }

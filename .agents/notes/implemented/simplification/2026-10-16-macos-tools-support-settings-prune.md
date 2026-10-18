@@ -27,6 +27,7 @@ macOS 设置里「工具」「账号」「支持」几组页面上的控件，�
 - 账号：桌面的「云端」组去掉「云词库」一行（入口留在「词库」页，不登录也看得到），只剩云剪贴板，macOS 上因此整组不出现；触屏宿主「我的」里的云词库不动。「刷新登录方式」只在没有可用的登录方式（读失败或一个都没开）时出现；「清除失效登录状态」只在读不出本机登录状态（`status()` 失败）时出现，清掉以后消失。登录说明在没有设置同步（`settingsSync`）的桌面上不再许诺「同步设置」。
 - 维护与诊断：macOS 的「重新注册当前输入源」和「安装或更新水杉输入源」合成一个「修复输入源」，先 `installInputSource` 再 `restartInputMethod`。安装一步改走和启动检查同一套版本比较的 `macos_input_source::repair`：没装时安装、随附的更新时替换，从不降级；与启动检查不同的是版本相同也重装一遍，因为 Info.plist 读得出版本不代表可执行文件、框架和签名完好（清理工具删掉了一部分、只拷了一半），原来的「安装 / 更新」会覆盖这样的 bundle，修复不能少了这一步；不是打包运行、没有随附输入源（`SourceUnavailable`）和 bundle 已留在原处只等登记（`RegistrationPending`）都不算失败。安装真的失败时照样重新登记已装的那份，登记完再报失败。原来「安装 / 更新」那条不比较版本的强制重装（`macos_input_source::install`）随之删掉，它没有别的调用方。启动时安装失败的提示改为指向「修复」。「连接 AI 助手」整块移到新的子页 `mcp`（`subPageParents.mcp = "developer"`，只在宿主报告 `mcpServerStatus` 时存在），维护页上只剩进入它的一行。
 - 帮助与反馈并进关于（桌面）：注册表新增 `desktopMergedPages = { feedback: "about" }`。`settingsNavGroups` 不变，触屏宿主、Windows 原生窗口的 `SettingsNavigation.h` 和 `main.tsx` 的 `onNativeSettingsPage` 都照旧认 `feedback` 和 `help`；桌面侧栏不列出被并进的页，`index.tsx` 把桌面上请求的 `feedback` 显示成 `about`，`help` 的上级随之点亮「关于」、返回按钮写「返回关于」。「关于」在桌面（含 HarmonyOS 2in1）上画 `FeedbackSections`（帮助入口、问题报告、反馈渠道），桌面上不再挂一份藏起来的反馈页；手机保留单独的反馈页和应用内表单。
+- 关于页顶部标签：共享桌面页使用「版本与更新」「帮助与反馈」「系统信息」「许可与隐私」，默认选版本；旧 `feedback` 路由（包括同窗口再次收到的路由）直接选帮助与反馈，从帮助返回保留该标签。沿用 `useSettingsTabs` 保持面板挂载，切换不丢反馈草稿和更新结果，并把内容滚动回顶部。HarmonyOS 2in1 原来没有系统信息，因此只显示其余三个标签；手机保留直列与独立反馈页。
 - 页名：`desktopPageTitle` 让 macOS 的账号页叫「账号」（设置同步只接在 Windows 的账号会话上），其他桌面仍叫「账号与同步」；`settingsPageProjections` 的 `desktopPageTitle` 选项缺省时用注册表里的名字，触屏宿主仍由 `mobilePageTitle` 改写。页面留在侧栏。
 
 `settingsCapabilities` 里算出来却没人用的 `showDesktopMaintenanceShortcuts` 不动：它的使用方（快捷键页的维护快捷键一组）是 `252562694a` 有意删掉的，不是丢失，接回去不在这次的决定里。
@@ -70,6 +71,8 @@ macOS 的决定逐项搬到 Windows、Linux 和 HarmonyOS，判据是控件在�
 - 剪贴板页「云剪贴板」组的改动只针对 macOS 那个只有一句说明的组；Windows、Linux、鸿蒙那里有真的按钮。
 
 ## Alternatives considered
+
+- **关于页继续使用一列分组或折叠面板** — 全部信息可顺序浏览，也不用维护标签状态。改用顶部标签是因为合并反馈后内容过长，用户明确要求与词库页一致的顶部切换；只显示当前分类并保留挂载兼顾浏览和草稿状态。
 
 - **只藏起 AI 候选数量和效果强度这两行，宿主照旧读存下的值** — 改动最小，核查组也指出两个值继续生效「无害」（效果样式仍能关掉效果，数量已经限制在 1–10）。不用它，是因为 [撤掉数字键面设置](2026-10-11-remove-number-keypad-settings.md) 已经否决过这种做法：改过的人从此改不回来，同一个值在 macOS 上看不见却在起作用。
 - **在页面里按 `macosPlatform` 判断要不要画这两行** — 一行代码就够。不用它，是因为取值固定是宿主的事实，host-api 必须按同一个事实取值，否则设置页和宿主各说各的；能力字段让 host-api、设置页和测试读同一个 `HostPlatform` 方法。

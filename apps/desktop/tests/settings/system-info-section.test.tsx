@@ -110,6 +110,7 @@ test("the 关于 page shows the 系统信息 group and its 复制 button copies 
   const copyText = vi.fn().mockResolvedValue(undefined);
   renderAbout(copyText);
   const about = await screen.findByRole("group", { name: "关于" });
+  fireEvent.click(within(about).getByRole("tab", { name: "系统信息" }));
   const group = within(about).getByRole("region", { name: "系统信息" });
 
   expect(await within(group).findByText("v0.11.0")).toBeTruthy();
@@ -129,6 +130,7 @@ test("the 关于 page shows the 系统信息 group and its 复制 button copies 
 test("without a clipboard the fields are still listed but there is no 复制 button", async () => {
   renderAbout();
   const about = await screen.findByRole("group", { name: "关于" });
+  fireEvent.click(within(about).getByRole("tab", { name: "系统信息" }));
   const group = within(about).getByRole("region", { name: "系统信息" });
   expect(await within(group).findByText("x86_64")).toBeTruthy();
   expect(within(group).queryByRole("button", { name: "复制系统信息" })).toBeNull();

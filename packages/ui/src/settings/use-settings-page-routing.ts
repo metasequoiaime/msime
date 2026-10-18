@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { AccountCommunityDestination } from "../account/account-model";
 import {
   mobileTabForPage,
@@ -8,6 +8,7 @@ import {
 import { desktopPage, pages, type SettingsPageId } from "./settings-page-registry";
 import { useSettingsContentScrollReset } from "./use-settings-content-scroll-reset";
 import type { DictionaryTab } from "./dictionary-tabs";
+import type { AboutTab } from "./about-tabs";
 
 export interface UseSettingsPageRoutingOptions {
   initialPage?: string;
@@ -28,12 +29,23 @@ export function useSettingsPageRouting({
     typeof window.history.state.page === "string"
       ? window.history.state.page
       : undefined;
-  const [requestedSettingsPage, setPage] = useState<SettingsPageId>(() =>
+  const [requestedSettingsPage, setRequestedPage] = useState<SettingsPageId>(() =>
     requestedPage(
       initialPage ?? restoredMobilePage ?? (hasHomePage ? "home" : undefined),
       pages,
       "input",
     ),
+  );
+  const [aboutTab, setAboutTab] = useState<AboutTab>(
+    requestedSettingsPage === "feedback" ? "feedback" : "version",
+  );
+  const setPage = useCallback<Dispatch<SetStateAction<SettingsPageId>>>(
+    (next) => {
+      // 同一设置窗口再次收到反馈路由时，也要从当前的关于标签切到反馈。
+      if (!mobilePlatform && next === "feedback") setAboutTab("feedback");
+      setRequestedPage(next);
+    },
+    [mobilePlatform],
   );
   // 桌面上并进别的页的页面照样可以路由打开，显示的是承载它的那一页。
   const page = mobilePlatform ? requestedSettingsPage : desktopPage(requestedSettingsPage);
@@ -46,7 +58,9 @@ export function useSettingsPageRouting({
     "typing-statistics": mobileInitialTab === "typing-statistics" ? page : "typing-statistics",
     account: mobileInitialTab === "account" ? page : "account",
   });
-  const settingsContentRef = useSettingsContentScrollReset(page);
+  const settingsContentRef = useSettingsContentScrollReset(
+    page === "about" && !mobilePlatform ? `about:${aboutTab}` : page,
+  );
   const [communityDestination, setCommunityDestination] = useState<
     AccountCommunityDestination | "all"
   >("all");
@@ -64,5 +78,7 @@ export function useSettingsPageRouting({
     setCommunityDestination,
     dictionaryTab,
     setDictionaryTab,
+    aboutTab,
+    setAboutTab,
   };
 }
