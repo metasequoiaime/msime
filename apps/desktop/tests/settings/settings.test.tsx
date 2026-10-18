@@ -3437,9 +3437,10 @@ test("a host without saveExport keeps the download link", async () => {
   click.mockRestore();
 });
 
-// 导入导出只操作个人词库，管理标签内必须能直接确认类型，不能依赖查询标签的上下文。
-test("the desktop transfer note identifies personal entries and offers its own kind selector", async () => {
-  render(<SettingsPage client={exportingDictionaryClient()} />);
+// 「管理词库」直接提供个人词库选择，与「查词库」共用当前个人类型；导出应使用这里选中的类型。
+test("desktop dictionary transfer shows the current personal kind and exports the chosen kind", async () => {
+  const client = exportingDictionaryClient(vi.fn().mockResolvedValue(null));
+  render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   const kind = screen.getByRole<HTMLSelectElement>("combobox", { name: "本地词库类型" });
@@ -3448,13 +3449,16 @@ test("the desktop transfer note identifies personal entries and offers its own k
   await waitFor(() => expect(kind.disabled).toBe(false));
   selectDictionaryTab("管理词库");
   const transfer = screen.getByRole("region", { name: "导入与导出" });
-  expect(transfer.textContent).toContain("导入和导出个人新增词条");
   const personalKind = within(transfer).getByRole<HTMLSelectElement>("combobox", {
     name: "管理词库类型",
   });
   expect(personalKind.value).toBe("pinyin");
-  expect(personalKind.selectedOptions[0].textContent).toBe("中文 · 拼音");
-  expect(transfer.textContent).not.toContain("上面所选类型");
+  expect(transfer.textContent).toContain("导入和导出个人新增词条");
+  fireEvent.change(personalKind, { target: { value: "english" } });
+  fireEvent.click(within(transfer).getByRole("button", { name: "导出当前类型" }));
+  await waitFor(() =>
+    expect(client.dictionary?.export).toHaveBeenCalledWith("english", "standard", 0, 1000),
+  );
 });
 
 // 没有本地词库的桌面宿主没有可查的东西：只留「管理词库」，打开词库页不落在一张空白的标签上。
@@ -3875,7 +3879,10 @@ test("macOS exposes learning data reset and keeps its confirmation flow", async 
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         resetLearnedData,
-        dictionary: {} as never,
+        dictionary: {
+          list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+          edit: vi.fn(),
+        },
         host: testHost({ platform: "macos" }),
       }}
     />,
