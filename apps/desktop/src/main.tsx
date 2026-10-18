@@ -1,4 +1,3 @@
-import { createVoiceRecognitionClient } from "./voice/voice-recognition-client";
 import { createTauriProgressClient } from "./core/tauri-progress-client";
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -32,12 +31,8 @@ import {
   type ApiCredentialTestResult,
   type ApiCredentialTestService,
   type ClipboardHistoryEntry,
-  type CloudClipboardAction,
-  type CloudClipboardPanelClient,
   type CloudDictionaryAction,
   type CloudDictionaryPanelClient,
-  type EmojiCatalogGroup,
-  type EmojiPanelClient,
   type CustomHelpcodeSchema,
   type HostCapabilities,
   type ProviderCredentialClient,
@@ -48,7 +43,6 @@ import {
   VocabularyReviewPanel,
   type VocabularyReviewClient,
   type PanelClient,
-  type VoicePanelClient,
   type Preferences,
   type PreferencesRecovery,
   type AppNotice,
@@ -89,6 +83,7 @@ import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
 import { discoverFontReader } from "./candidate/system-font-client";
 import { DesktopKeyboard } from "./input/desktop-keyboard";
+import { createDesktopPanelClients } from "./input/desktop-panel-clients";
 import { useHostPlatform } from "./input/panel-host";
 import { DesktopPanelTheme } from "./input/desktop-panel-theme";
 import { DesktopEmojiPanel } from "./input/desktop-emoji-panel";
@@ -366,108 +361,7 @@ const client: SettingsClient = {
   loadDefaultPreferences: () => invoke<Preferences>("restored_default_preferences"),
   /* mobile host services are injected after host_capabilities resolves */
 };
-const panelClients: {
-  keyboard: PanelClient;
-  handwriting: PanelClient;
-  voice: VoicePanelClient;
-  cloudClipboard: CloudClipboardPanelClient;
-  cloudDictionary: CloudDictionaryPanelClient;
-  emoji: EmojiPanelClient;
-} = {
-  keyboard: {
-    beginWindowDrag: () => getCurrentWindow().startDragging(),
-    close: () => invoke("close_panel", { label: "keyboard-panel" }),
-    openVoice: () => invoke("open_voice_panel"),
-    rememberInputTarget: () => invoke("remember_input_target"),
-    sendKey: (request) => invoke("send_key", { request }),
-  },
-  handwriting: {
-    beginWindowDrag: () => getCurrentWindow().startDragging(),
-    close: () => invoke("close_panel", { label: "handwriting-panel" }),
-    rememberInputTarget: () => invoke("remember_input_target"),
-    recognizeHandwriting: (request) => invoke("recognize_handwriting", { request }),
-    submitHandwritingCandidate: (candidate) =>
-      invoke("submit_handwriting_candidate", { candidate }),
-    copyHandwritingCandidate: (text) => invoke("copy_text", { text }),
-  },
-  voice: {
-    maxSubmitBytes: 4096,
-    beginWindowDrag: () => getCurrentWindow().startDragging(),
-    close: () => invoke("close_panel", { label: "voice-panel" }),
-    rememberInputTarget: () => invoke("remember_input_target"),
-    loadVoiceLanguage: () => invoke<string>("voice_input_language"),
-    ...createVoiceRecognitionClient(invoke, (listener) =>
-      listen<{
-        request_id: string;
-        text: string;
-        final: boolean;
-        phase?: "recording" | "recognizing" | "polishing";
-        level?: number;
-      }>("voice-update", (event) => listener(event.payload)),
-    ),
-    sendText: (text) => invoke("send_text", { text }),
-    sendVoiceText: (text) => invoke("send_voice_text", { text }),
-    copyText: (text) => invoke("copy_text", { text }),
-  },
-  cloudClipboard: {
-    canSendText: () => invoke<boolean>("cloud_clipboard_can_send_text"),
-    close: () => invoke("close_panel", { label: "cloud-clipboard-panel" }),
-    rememberInputTarget: () => invoke("remember_input_target"),
-    sendText: (text) => invoke("send_text", { text }),
-    copyText: (text) => invoke("copy_text", { text }),
-    request: (action: CloudClipboardAction) => invoke("cloud_clipboard_request", { action }),
-  },
-  cloudDictionary: cloudDictionaryClient,
-  emoji: {
-    close: () => invoke("close_panel", { label: "emoji-panel" }),
-    rememberInputTarget: () => invoke("remember_input_target"),
-    sendText: (text) => invoke("send_text", { text }),
-    copyText: (text) => invoke("copy_text", { text }),
-    loadCatalog: () =>
-      invoke<{
-        emoji: EmojiCatalogGroup[];
-        kaomoji: EmojiCatalogGroup[];
-        symbols: EmojiCatalogGroup[];
-        unavailable?: ("emoji" | "kaomoji" | "symbols")[];
-      }>("load_emoji_catalog"),
-    clipboard: {
-      list: () =>
-        invoke<ClipboardHistoryEntry[]>("list_clipboard_history").then((entries) =>
-          entries.map((entry) => entry.text),
-        ),
-      isEnabled: async () => (await client.load()).preferences.clipboard_history ?? false,
-      enable: async () => {
-        const snapshot = await client.load();
-        if (!snapshot.preferences.clipboard_history) {
-          await client.save(snapshot.revision, {
-            ...snapshot.preferences,
-            clipboard_history: true,
-          });
-        }
-      },
-      onChanged: async (listener) => {
-        const stopHistory = await listen("clipboard-history-changed", () => listener());
-        try {
-          const stopPreferences = await listen("preferences-changed", () => listener());
-          return () => {
-            stopHistory();
-            stopPreferences();
-          };
-        } catch (error) {
-          stopHistory();
-          throw error;
-        }
-      },
-      remove: (text) => invoke("remove_clipboard_history", { text }),
-      clear: () => invoke("clear_clipboard_history"),
-      sync: () =>
-        invoke<ClipboardHistoryEntry[]>("sync_clipboard_history").then((entries) =>
-          entries.map((entry) => entry.text),
-        ),
-      copy: (text) => invoke("copy_text", { text }),
-    },
-  },
-};
+const panelClients = createDesktopPanelClients(client, cloudDictionaryClient);
 const panel = new URLSearchParams(window.location.search).get("panel");
 // 桌面的手写面板在宿主列出手写模型时第一次打开就下载它，下载失败时就地设置下载镜像。客户端固定为模块级对象，避免每次渲染换一个 client 让面板重置识别队列。
 const desktopHandwritingClient: PanelClient = {
