@@ -8,15 +8,20 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Process;
+import android.util.Base64;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
 import org.json.JSONException;
 import org.json.JSONObject;
-import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 
 /**
- * 向本应用的其他进程提供登录账号或匿名账号的 access token，以及云同步的开关与改动标记（`sync_state` / `sync_dirty`）。
+ * 向本应用的其他进程提供登录账号或「登录的优先、否则匿名」的 access token，代 `:ime` 上传语音贡献，以及云同步的开关与改动标记（`sync_state` / `sync_dirty`）。
  *
- * <p>Declared in the main process and not exported, so only this uid can reach it. The `:ime` keyboard therefore never holds a refresh token and never refreshes, which is what keeps the rotating refresh token from being spent twice. Which session answers is {@link AccountSessionRoutingPolicy#source}: the native sign-in's own session, refreshed by {@link BackendAccount#owningSession} under the existing in-process lock, or else the combined package's Rust-owned session, read but never refreshed here. The token is returned in the reply and nowhere else: nothing here logs it.
+ * <p>Declared in the main process and not exported, so only this uid can reach it. The `:ime` keyboard therefore never holds a refresh token and never refreshes, which is what keeps the rotating refresh token from being spent twice. Which session answers is {@link AccountSessionRoutingPolicy#source}: the native sign-in's own session（Rust 经 {@link AccountStore} 持有并刷新）, or else the combined package's Rust-owned session, read but never refreshed here. The token is returned in the reply and nowhere else: nothing here logs it. 回复里的 session_id 是账号编号（user.id）。
  */
 public final class AccountSessionProvider extends ContentProvider {
     @Override public boolean onCreate() { return true; }
@@ -27,14 +32,15 @@ public final class AccountSessionProvider extends ContentProvider {
         }
         Context context = getContext();
         if (AccountSessionRoutingPolicy.syncMethod(method)) return sync(context, method, arg);
+        if (AccountSessionRoutingPolicy.METHOD_VOICE_CONTRIBUTION.equals(method)) return voice(context, extras);
         Bundle reply = new Bundle();
         String token = "";
         String sessionId = "";
         String state;
         try {
             if (context == null) throw new IllegalStateException("account session");
-            if (AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method)) {
-                token = currentAnonymousToken(context, rejectedToken(extras));
+            if (AccountSessionRoutingPolicy.METHOD_SHARED_ACCESS_TOKEN.equals(method)) {
+                token = new BackendAnonymousAccount(context).accessToken(rejectedToken(extras));
             } else {
                 BackendAccount.SessionCredential session = currentToken(context, arg);
                 token = session.token();
@@ -90,25 +96,79 @@ public final class AccountSessionProvider extends ContentProvider {
                 if (token.isEmpty() || token.equals(rejectedToken)) {
                     throw new IllegalStateException("account session needs the app");
                 }
-                String sessionId = legacy.optString("session_id", legacy.optString("sessionID", ""));
-                if (sessionId.isEmpty()) {
-                    // Old Rust sessions have no ID yet. A refresh changes this derived ID, so
-                    // requests from the older token are conservatively cancelled.
-                    String refresh = legacy.getJSONObject("tokens").optString("refresh_token", "");
-                    if (!AccountTokenPolicy.validToken(refresh)) throw new IllegalStateException("account session unavailable");
-                    sessionId = UUID.nameUUIDFromBytes(refresh.getBytes(StandardCharsets.UTF_8)).toString();
-                } else {
-                    sessionId = UUID.fromString(sessionId).toString();
-                }
+                // 与原生登录一样按账号编号绑定：Rust 刷新这份会话不会让键盘里进行中的请求作废。
+                JSONObject user = legacy.getJSONObject("tokens").optJSONObject("user");
+                String sessionId = user == null ? "" : JsonPolicy.strictStringOrEmpty(user.opt("id"));
+                if (sessionId.isEmpty()) throw new IllegalStateException("account session unavailable");
                 yield new BackendAccount.SessionCredential(token, sessionId);
             }
             case NONE -> new BackendAccount.SessionCredential("", "");
         };
     }
 
-    /** 匿名会话也只能由主进程读写，避免键盘进程各自刷新同一枚轮换令牌。 */
-    private static String currentAnonymousToken(Context context, String rejectedToken) throws Exception {
-        return new BackendAnonymousAccount(context).accessToken(rejectedToken);
+    /**
+     * 代 `:ime` 上传一次语音贡献。音频在 `:ime` 写进 cache 下的 {@link AccountSessionRoutingPolicy#VOICE_CONTRIBUTION_DIRECTORY}，这里只读那个目录里的普通文件（不跟随符号链接，最多 2 MiB），读完就删；元数据和音频都交给 Rust 校验，Rust 只用本机匿名账号。还没有匿名会话时先注册一次再试。回复里是服务端给的编号或 Rust 的错误码。阻塞网络，最长约 60 秒。
+     */
+    private static Bundle voice(Context context, Bundle extras) {
+        Bundle reply = new Bundle();
+        String code;
+        try {
+            if (context == null || extras == null) throw new AccountStore.Failure("account_invalid", 0);
+            byte[] audio = voiceAudio(context, extras.getString(AccountSessionRoutingPolicy.KEY_VOICE_AUDIO_PATH));
+            JSONObject action = new JSONObject().put("operation", "voice_contribution")
+                .put("language", extras.getString(AccountSessionRoutingPolicy.KEY_VOICE_LANGUAGE, ""))
+                .put("provider", extras.getString(AccountSessionRoutingPolicy.KEY_VOICE_PROVIDER, ""))
+                .put("transcript", extras.getString(AccountSessionRoutingPolicy.KEY_VOICE_TRANSCRIPT, ""))
+                .put("app_version", extras.getString(AccountSessionRoutingPolicy.KEY_VOICE_APP_VERSION, ""))
+                .put("audio", Base64.encodeToString(audio, Base64.NO_WRAP));
+            Object value;
+            try {
+                value = AccountStore.account(context, action);
+            } catch (AccountStore.Failure failure) {
+                if (!"account_unauthorized".equals(failure.code)) throw failure;
+                new BackendAnonymousAccount(context).ensureRegistered();
+                value = AccountStore.account(context, action);
+            }
+            String id = value instanceof JSONObject answer ? JsonPolicy.strictStringOrEmpty(answer.opt("id")) : "";
+            reply.putString(AccountSessionRoutingPolicy.KEY_VOICE_ID, id);
+            return reply;
+        } catch (AccountStore.Failure failure) {
+            code = failure.code;
+        } catch (BackendAnonymousAccount.RateLimited limited) {
+            code = "account_rate_limited";
+        } catch (Exception | LinkageError error) {
+            code = "account_unavailable";
+        }
+        reply.putString(AccountSessionRoutingPolicy.KEY_ERROR, code);
+        return reply;
+    }
+
+    /** 读出并删掉 `:ime` 交来的音频文件；路径不在约定的目录里、是符号链接或超过上限时按请求不合法处理。 */
+    private static byte[] voiceAudio(Context context, String path) throws AccountStore.Failure {
+        if (path == null || path.isEmpty()) throw new AccountStore.Failure("account_invalid", 0);
+        File cache = context.getCacheDir();
+        if (cache == null) throw new AccountStore.Failure("account_storage", 0);
+        Path directory = cache.toPath().resolve(AccountSessionRoutingPolicy.VOICE_CONTRIBUTION_DIRECTORY).normalize();
+        Path file = directory.resolve(path).normalize();
+        if (!file.isAbsolute() || !directory.equals(file.getParent()))
+            throw new AccountStore.Failure("account_invalid", 0);
+        try {
+            if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new AccountStore.Failure("account_invalid", 0);
+            byte[] audio;
+            try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+                audio = HttpBodyPolicy.readBounded(input, VoiceContributionApi.MAX_AUDIO_BYTES);
+            }
+            if (audio == null) throw new AccountStore.Failure("account_invalid", 0);
+            return audio;
+        } catch (IOException unreadable) {
+            throw new AccountStore.Failure("account_storage", 0);
+        } finally {
+            try {
+                Files.deleteIfExists(file);
+            } catch (IOException ignored) {
+                // `:ime` 在调用结束后也会删一次。
+            }
+        }
     }
 
     private static String rejectedToken(Bundle extras) {

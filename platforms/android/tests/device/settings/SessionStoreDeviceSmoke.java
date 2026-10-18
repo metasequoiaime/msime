@@ -14,7 +14,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 经安装产品里真实的 libmsime_android.so 核对 #8201 新加的账号与云端 JNI 入口（迁移计划 5a，还没有调用方）：NativeClient.SessionStore 注册给 Rust 以后，Rust 经它读出一份合成的 Native 布局会话，status 和 access_token 认得它；存储方法抛出的异常在 JNI 一侧变成 account_storage，不抛给调用方；注销以后同一个 id 不再可用。其余入口各发一个空请求，按各自的「请求不合法」码确认 JNI 名字连到了对的 Rust 函数。不联网，合成会话没有过期，不会去刷新。
+ * 经安装产品里真实的 libmsime_android.so 核对 #8201 新加的账号与云端 JNI 入口：NativeClient.SessionStore 注册给 Rust 以后，Rust 经它读出一份合成的 Native 布局会话，status 和 access_token 认得它；存储方法抛出的异常在 JNI 一侧变成 account_storage，不抛给调用方；注销以后同一个 id 不再可用。其余入口各发一个空请求，按各自的「请求不合法」码确认 JNI 名字连到了对的 Rust 函数。不联网，合成会话没有过期，不会去刷新。
+ *
+ * <p>迁移计划 5b 起产品经 AccountStore 注册：它的存储适配器把 Java 原来写的 v2 会话（AndroidKeyStore 加密的 SharedPreferences）原样交给 Rust，匿名身份「不存在才写」；AccountStore 只在主进程里注册一次，`:ime` 进程名和第二次注册都在碰 Rust 之前就拒绝。
  *
  * <p>没 attach 的线程上的回调这里造不出来（Rust 自己的线程只在联网刷新时回调存储），由 check-host.sh 在桌面 JVM 上驱动 native/JniCallbacks.cpp 验证。
  */
@@ -87,6 +89,10 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
         expectError(call("accountRaw", new JSONObject().put("session_store", id)
             .put("action", new JSONObject().put("operation", "status"))), "account_invalid");
 
+        accountStoreAdapter();
+        accountStoreGuards();
+        voiceContributionPaths();
+
         // 旧版 Java 快照队列的就地转换：目录里没有 state.bin 时什么也不改。
         File queue = new File(getTargetContext().getCacheDir(), "synthetic-session-store-queue");
         if (!queue.isDirectory() && !queue.mkdirs()) throw new AssertionError("queue directory");
@@ -119,6 +125,114 @@ public final class SessionStoreDeviceSmoke extends Instrumentation {
             "account_invalid");
         expectError(callRaw("aiSkinGenerateRaw", new Class<?>[] {byte[].class, progress}, bytes(new JSONObject()), null),
             "ai_skin_invalid");
+    }
+
+    /**
+     * 产品的存储适配器（AccountStore 的 Items）原样交出 Java 原来写的 v2 会话：用 AndroidAccountSessionStorage 加密写进 `msime_account_session_v2`，再把适配器另外注册一次，Rust 的 status 读得出这个账号。匿名身份的 save 是「不存在才写」。用到的项最后都删掉。
+     */
+    private void accountStoreAdapter() throws Exception {
+        android.content.Context target = getTargetContext();
+        ClassLoader loader = target.getClassLoader();
+        Class<?> storage = loader.loadClass("app.msime.android.AndroidAccountSessionStorage");
+        Object v2 = storage.getConstructor(android.content.Context.class, String.class)
+            .newInstance(target, "msime_account_session_v2");
+        Method save = storage.getMethod("save", String.class);
+        Method clear = storage.getMethod("clear");
+        // 专用 AVD 上的产品没有登录过；有会话时不去覆盖它。
+        check(storage.getMethod("load").invoke(v2) == null, "the product already holds a v2 session; use a fresh AVD");
+        Class<?> items = loader.loadClass("app.msime.android.AccountStore$Items");
+        java.lang.reflect.Constructor<?> constructor = items.getDeclaredConstructor(android.content.Context.class);
+        constructor.setAccessible(true);
+        Object adapter = constructor.newInstance(target);
+        long id = 0;
+        try {
+            save.invoke(v2, new String(sessionBytes(), StandardCharsets.UTF_8));
+            JSONObject registered = value(callRaw("sessionStoreRegisterRaw", new Class<?>[] {storeType, byte[].class},
+                adapter, null));
+            id = registered.getJSONObject("value").getLong("session_store");
+            JSONObject status = value(call("accountRaw", new JSONObject().put("session_store", id)
+                .put("action", new JSONObject().put("operation", "status"))));
+            check(USER.equals(status.getJSONObject("value").getJSONObject("user").getString("id")),
+                "Rust did not read the Java v2 session through the product adapter: " + status);
+            JSONObject token = value(call("accountAccessTokenRaw", new JSONObject().put("session_store", id)))
+                .getJSONObject("value");
+            check(hex('a').equals(token.getString("access_token")) && !token.getBoolean("anonymous"),
+                "access token through the product adapter: " + token);
+
+            Method load = storeType.getMethod("load", int.class);
+            Method put = storeType.getMethod("save", int.class, byte[].class);
+            Method remove = storeType.getMethod("remove", int.class);
+            // 产品启动时可能已经注册了匿名账号：那时只核对「不覆盖」，不删它的身份。
+            byte[] existing = (byte[]) load.invoke(adapter, 4);
+            byte[] first = existing != null ? existing
+                : "{\"subject\":\"msime-aaaaaaaaaaaaaaaa\",\"secret\":\"first\"}".getBytes(StandardCharsets.UTF_8);
+            byte[] second = "{\"subject\":\"msime-bbbbbbbbbbbbbbbb\",\"secret\":\"second\"}".getBytes(StandardCharsets.UTF_8);
+            if (existing == null) check((int) put.invoke(adapter, 4, first) == 0, "the first anonymous identity is written");
+            check((int) put.invoke(adapter, 4, second) == 1, "a second anonymous identity is not written over the first");
+            check(java.util.Arrays.equals(first, (byte[]) load.invoke(adapter, 4)), "the first identity stays");
+            if (existing == null) {
+                check((int) remove.invoke(adapter, 4) == 0, "the identity is removed");
+                check(load.invoke(adapter, 4) == null, "a removed identity reads as absent");
+            }
+        } finally {
+            if (id > 0) callRaw("sessionStoreUnregisterRaw", new Class<?>[] {long.class}, id);
+            clear.invoke(v2);
+        }
+    }
+
+    /** AccountStore 的两道守卫：不是主进程（`:ime`）时、以及同一进程第二次注册时，都在碰 Rust 之前抛出。 */
+    private void accountStoreGuards() throws Exception {
+        android.content.Context target = getTargetContext();
+        Class<?> store = target.getClassLoader().loadClass("app.msime.android.AccountStore");
+        Method register = store.getDeclaredMethod("register", android.content.Context.class, String.class);
+        register.setAccessible(true);
+        Method id = store.getDeclaredMethod("id", android.content.Context.class);
+        id.setAccessible(true);
+        expectGuard(register, target, target.getPackageName() + ":ime", "account store owner");
+        long first = (long) id.invoke(null, target);
+        check(first > 0 && first == (long) id.invoke(null, target), "the main process registers its store once");
+        expectGuard(register, target, target.getPackageName(), "account store registered");
+        expectGuard(register, target, target.getPackageName() + ":ime", "account store owner");
+    }
+
+    /**
+     * `:ime` 交给主进程的语音贡献只读 cache 下约定目录里的文件：别处的路径和缺参数在碰 Rust 之前就以 account_invalid 拒绝，别处的文件也不会被删掉。不联网。
+     */
+    private void voiceContributionPaths() throws Exception {
+        android.content.Context target = getTargetContext();
+        android.net.Uri uri = android.net.Uri.parse("content://" + target.getPackageName() + ".account-session");
+        File outside = new File(target.getCacheDir(), "synthetic-voice-outside.wav");
+        java.nio.file.Files.write(outside.toPath(), "not a contribution".getBytes(StandardCharsets.UTF_8));
+        try {
+            Bundle extras = new Bundle();
+            extras.putString("audio_path", outside.getAbsolutePath());
+            extras.putString("language", "zh-CN");
+            extras.putString("provider", "local");
+            extras.putString("transcript", "合成");
+            extras.putString("app_version", "1.2.3");
+            Bundle reply = target.getContentResolver().call(uri, "voice_contribution", null, extras);
+            check(reply != null && "account_invalid".equals(reply.getString("error")),
+                "a path outside the contribution directory is refused: " + reply);
+            check(outside.isFile(), "a refused path is not deleted");
+            Bundle missing = target.getContentResolver().call(uri, "voice_contribution", null, null);
+            check(missing != null && "account_invalid".equals(missing.getString("error")),
+                "a contribution without arguments is refused: " + missing);
+        } finally {
+            java.nio.file.Files.deleteIfExists(outside.toPath());
+        }
+    }
+
+    private static void expectGuard(Method register, android.content.Context target, String process, String message)
+            throws Exception {
+        try {
+            register.invoke(null, target, process);
+        } catch (java.lang.reflect.InvocationTargetException thrown) {
+            Throwable cause = thrown.getCause();
+            check(cause instanceof IllegalStateException && message.equals(cause.getMessage()),
+                "register(" + process + ") threw " + cause);
+            return;
+        }
+        throw new AssertionError("register(" + process + ") was not refused");
     }
 
     private long register(MemoryStore store, byte[] agent) throws Exception {

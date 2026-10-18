@@ -1,10 +1,8 @@
 package app.msime.android;
 
-import java.security.SecureRandom;
-
 public final class AppleWebSignInPendingSmoke {
     public static void main(String[] arguments) {
-        String grant = AppleWebSignIn.newVerifier(new SecureRandom());
+        String grant = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
         check(AppleWebSignIn.acceptableCallback(grant, null), "a well-shaped grant is accepted");
         check(AppleWebSignIn.acceptableCallback(null, "user_cancelled_authorize"), "a short error code is accepted");
         check(!AppleWebSignIn.acceptableCallback(null, null), "neither grant nor error is dropped");
@@ -14,14 +12,14 @@ public final class AppleWebSignInPendingSmoke {
         check(!AppleWebSignIn.acceptableCallback(null, "Access-Denied"), "an error outside [a-z_] is dropped");
         check(!AppleWebSignIn.acceptableCallback(null, "a".repeat(65)), "an overlong error is dropped");
 
-        check(AppleWebSignIn.keepPendingAfter(400) && AppleWebSignIn.keepPendingAfter(401)
-            && AppleWebSignIn.keepPendingAfter(404), "an unknown, used or foreign grant keeps the flow");
-        check(!AppleWebSignIn.keepPendingAfter(0) && !AppleWebSignIn.keepPendingAfter(500)
-            && !AppleWebSignIn.keepPendingAfter(429), "network, server and rate-limit failures end the flow");
+        check(AppleWebSignIn.keepPendingAfter("account_invalid"), "an unknown, used or foreign grant keeps the flow");
+        check(!AppleWebSignIn.keepPendingAfter("account_network") && !AppleWebSignIn.keepPendingAfter("account_unavailable")
+            && !AppleWebSignIn.keepPendingAfter("account_rate_limited") && !AppleWebSignIn.keepPendingAfter("account_unauthorized")
+            && !AppleWebSignIn.keepPendingAfter(""), "network, server, rate-limit and other failures end the flow");
 
         MemoryPreferences store = new MemoryPreferences();
         long now = 1_700_000_000_000L;
-        String verifier = AppleWebSignIn.newVerifier(new SecureRandom());
+        String verifier = "synthetic-verifier-" + "v".repeat(24);
         store.edit().putString(AppleWebSignIn.KEY_VERIFIER, verifier).putString(AppleWebSignIn.KEY_PURPOSE, "login")
             .putLong(AppleWebSignIn.KEY_CREATED_AT, now - 1_000L).commit();
 
@@ -31,7 +29,7 @@ public final class AppleWebSignInPendingSmoke {
         check(AppleWebSignIn.peekPending(store, now) != null, "peek leaves the flow in place");
 
         // 伪造或旧标签页的 grant 被服务端以 401 拒绝：不清记录，下一次真正的回调仍能拿到同一个 verifier。
-        if (!AppleWebSignIn.keepPendingAfter(401)) AppleWebSignIn.clearPending(store, first.verifier());
+        if (!AppleWebSignIn.keepPendingAfter("account_invalid")) AppleWebSignIn.clearPending(store, first.verifier());
         AppleWebSignIn.Pending genuine = AppleWebSignIn.peekPending(store, now);
         check(genuine != null && verifier.equals(genuine.verifier()), "a rejected grant leaves the flow for the real callback");
 

@@ -7,127 +7,56 @@ import android.content.ContextWrapper;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONObject;
 
-/** Regression coverage for refresh-token rotation in the native Android account client. */
-public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
+/**
+ * 原生 Android 账号客户端里还留在 Java 的那些请求（对话、云剪贴板开关、社区、释义）怎样绑定到发起它们的登录。
+ *
+ * <p>令牌的刷新、单飞和吊销都由 Rust 持有（#8201 迁移计划 5b），由 client-services 的测试覆盖；这里用一个假的 {@link BackendAccount.Sessions} 代替 Rust，核对 Java 一侧：换成别的账号或退出以后，旧请求既不重试也不交出结果；同一个账号里 401 后带着被拒的令牌换一枚再试一次；同一个账号重新登录（令牌变了、账号编号没变）不算换号。
+ */
+public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
     private static final String ACCESS = "a".repeat(64);
     private static final String REFRESH = "b".repeat(64);
     private static final String NEXT_ACCESS = "c".repeat(64);
-    private static final String NEXT_REFRESH = "d".repeat(64);
 
-    private static final class MemoryStore implements BackendAccount.SessionStore {
-        private String value;
+    /** 代替 Rust 的会话：一个账号编号和它当前的令牌。刚被拒绝的令牌换成 NEXT_ACCESS，记下换了几次。 */
+    private static final class FakeSessions implements BackendAccount.Sessions {
+        private String user;
+        private String token;
+        final AtomicInteger refreshes = new AtomicInteger();
 
-        MemoryStore(String value) { this.value = value; }
+        FakeSessions(String user, String token) {
+            this.user = user;
+            this.token = token;
+        }
 
-        @Override public synchronized String load() { return value; }
-        @Override public synchronized void save(String next) { value = next; }
-        @Override public synchronized void clear() { value = null; }
-    }
+        @Override public synchronized BackendAccount.SessionCredential session(String rejectedToken) {
+            if (user.isEmpty()) return new BackendAccount.SessionCredential("", "");
+            if (rejectedToken != null && rejectedToken.equals(token)) {
+                token = NEXT_ACCESS;
+                refreshes.incrementAndGet();
+            }
+            return new BackendAccount.SessionCredential(token, user);
+        }
 
-    private static JSONObject tokens(String access, String refresh) throws Exception {
-        return new JSONObject().put("access_token", access).put("refresh_token", refresh)
-            .put("token_type", "Bearer").put("expires_in", 900);
-    }
+        @Override public synchronized String userId() { return user; }
 
-    private static String expiredSession() throws Exception {
-        return new JSONObject().put("tokens", tokens(ACCESS, REFRESH))
-            .put("expires_at_unix_ms", System.currentTimeMillis() - 1_000L).toString();
-    }
+        /** 另一个账号登录了，或同一个账号重新登录（只换了令牌）。 */
+        synchronized void signIn(String nextUser, String nextToken) {
+            user = nextUser;
+            token = nextToken;
+        }
 
-    private static String activeSession() throws Exception {
-        return new JSONObject().put("tokens", tokens(ACCESS, REFRESH))
-            .put("expires_at_unix_ms", System.currentTimeMillis() + 900_000L).toString();
+        synchronized void signOut() {
+            user = "";
+            token = "";
+        }
     }
 
     private static void check(boolean value, String message) {
         if (!value) throw new AssertionError(message);
-    }
-
-    private static void refreshesExpiredSessionAndRotatesCredentials() throws Exception {
-        MemoryStore store = new MemoryStore(expiredSession());
-        AtomicInteger calls = new AtomicInteger();
-        BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
-            calls.incrementAndGet();
-            check("POST".equals(method) && "/v1/auth/refresh".equals(path), "refresh endpoint");
-            check(REFRESH.equals(body.optString("refresh_token")), "refresh token sent");
-            return tokens(NEXT_ACCESS, NEXT_REFRESH);
-        });
-
-        check(NEXT_ACCESS.equals(account.accessToken()), "refreshed access token returned");
-        JSONObject saved = new JSONObject(store.load());
-        JSONObject savedTokens = saved.getJSONObject("tokens");
-        check(NEXT_ACCESS.equals(savedTokens.optString("access_token")), "access token rotated");
-        check(NEXT_REFRESH.equals(savedTokens.optString("refresh_token")), "refresh token rotated");
-        check(!saved.optString("session_id").isEmpty(), "legacy session receives a login identity");
-        check(saved.optLong("expires_at_unix_ms") > System.currentTimeMillis(), "expiry persisted");
-        check(calls.get() == 1, "one refresh request");
-    }
-
-    private static void concurrentCallersShareOneRefresh() throws Exception {
-        MemoryStore store = new MemoryStore(expiredSession());
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        AtomicInteger calls = new AtomicInteger();
-        BackendAccount.Requester requester = (method, path, body, token) -> {
-            calls.incrementAndGet();
-            started.countDown();
-            check(release.await(5, TimeUnit.SECONDS), "refresh released");
-            return tokens(NEXT_ACCESS, NEXT_REFRESH);
-        };
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        try {
-            Future<String> first = executor.submit(() -> new BackendAccount(store, requester).accessToken());
-            check(started.await(5, TimeUnit.SECONDS), "refresh started");
-            Future<String> second = executor.submit(() -> new BackendAccount(store, requester).accessToken());
-            release.countDown();
-            check(NEXT_ACCESS.equals(first.get(5, TimeUnit.SECONDS)), "first caller token");
-            check(NEXT_ACCESS.equals(second.get(5, TimeUnit.SECONDS)), "second caller token");
-            check(calls.get() == 1, "single-flight refresh");
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    private static void refreshesAnUnexpiredRejectedToken() throws Exception {
-        MemoryStore store = new MemoryStore(activeSession());
-        AtomicInteger calls = new AtomicInteger();
-        BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
-            calls.incrementAndGet();
-            check("POST".equals(method) && "/v1/auth/refresh".equals(path), "rejected token refresh endpoint");
-            check(REFRESH.equals(body.optString("refresh_token")), "rejected token refresh credential");
-            return tokens(NEXT_ACCESS, NEXT_REFRESH);
-        });
-
-        check(NEXT_ACCESS.equals(account.currentAccessToken(ACCESS)),
-            "an unexpired rejected token must be refreshed");
-        check(calls.get() == 1, "a rejected token triggers one refresh");
-    }
-
-    private static void retriesAccountRequestsAfter401() throws Exception {
-        MemoryStore store = new MemoryStore(activeSession());
-        AtomicInteger calls = new AtomicInteger();
-        BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
-            int call = calls.incrementAndGet();
-            if ("/v1/auth/refresh".equals(path)) return tokens(NEXT_ACCESS, NEXT_REFRESH);
-            check(CLIPBOARD.equals(path), "account retry keeps the original endpoint");
-            if (call == 1) throw new BackendAccount.RequestException(401);
-            check(NEXT_ACCESS.equals(token), "account retry uses the refreshed access token");
-            return clipboardPage();
-        });
-
-        account.setClipboardEnabled(true);
-        check(calls.get() == 3, "account request, refresh and retry are each issued once");
-        check(!new JSONObject(store.load()).optString("session_id").isEmpty(),
-            "refresh retains a persisted login identity");
     }
 
     /** 会话相关的用例借云剪贴板的开关做一次普通的账号请求。云剪贴板的列表经端到端加密驱动、一次要发好几个请求，不再适合当作「一个请求」。 */
@@ -137,17 +66,28 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         return new JSONObject().put("enabled", true).put("items", new org.json.JSONArray());
     }
 
+    private static void retriesAccountRequestsAfter401() throws Exception {
+        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
+        AtomicInteger calls = new AtomicInteger();
+        BackendAccount account = new BackendAccount(sessions, (method, path, body, token) -> {
+            int call = calls.incrementAndGet();
+            check(CLIPBOARD.equals(path), "account retry keeps the original endpoint");
+            if (call == 1) throw new BackendAccount.RequestException(401);
+            check(NEXT_ACCESS.equals(token), "account retry uses the refreshed access token");
+            return clipboardPage();
+        });
+
+        account.setClipboardEnabled(true);
+        check(calls.get() == 2 && sessions.refreshes.get() == 1, "account request and its retry are each issued once");
+    }
+
     private static void oldRequestDoesNotRetryAfterNewLogin() throws Exception {
-        MemoryStore store = new MemoryStore(activeSession());
-        String oldId = new BackendAccount(store, (method, path, body, token) -> clipboardPage()).currentSession().sessionId();
-        BackendAccount replacement = new BackendAccount(store,
-            (method, path, body, token) -> tokens(NEXT_ACCESS, NEXT_REFRESH));
+        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
         AtomicInteger clipboardCalls = new AtomicInteger();
-        BackendAccount old = new BackendAccount(store, (method, path, body, token) -> {
+        BackendAccount old = new BackendAccount(sessions, (method, path, body, token) -> {
             if (CLIPBOARD.equals(path)) {
                 if (clipboardCalls.incrementAndGet() == 1) {
-                    replacement.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"),
-                        "synthetic-credential");
+                    sessions.signIn("user-b", NEXT_ACCESS);
                     throw new BackendAccount.RequestException(401);
                 }
                 return clipboardPage();
@@ -163,18 +103,13 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         }
         check(cancelled, "a rejected old request must not retry with a new login");
         check(clipboardCalls.get() == 1, "the new login must not receive the old request");
-        check(!oldId.equals(new JSONObject(store.load()).optString("session_id")),
-            "new login has a new identity");
     }
 
     private static void oldRequestDiscardsSuccessAfterNewLogin() throws Exception {
-        MemoryStore store = new MemoryStore(activeSession());
-        BackendAccount replacement = new BackendAccount(store,
-            (method, path, body, token) -> tokens(NEXT_ACCESS, NEXT_REFRESH));
-        BackendAccount old = new BackendAccount(store, (method, path, body, token) -> {
+        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
+        BackendAccount old = new BackendAccount(sessions, (method, path, body, token) -> {
             check(CLIPBOARD.equals(path), "clipboard endpoint");
-            replacement.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"),
-                "synthetic-credential");
+            sessions.signIn("user-b", NEXT_ACCESS);
             return clipboardPage();
         });
 
@@ -187,20 +122,30 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         check(cancelled, "an old response must not be delivered after a new login");
     }
 
-    private static void secondaryProcessRejectsChangedOwnerLogin() throws Exception {
-        AtomicReference<String> login = new AtomicReference<>("synthetic-login-a");
-        BackendAccount.TokenSource owner = new BackendAccount.TokenSource() {
-            @Override public String accessToken() { return ACCESS; }
-            @Override public BackendAccount.SessionCredential session(String rejectedToken) {
-                return new BackendAccount.SessionCredential(ACCESS, login.get());
-            }
-        };
+    /** 同一个账号重新登录只换了令牌，账号编号没变：请求照常交出结果，与 Rust 按 user.id 绑定相同。 */
+    private static void sameAccountReLoginKeepsTheRequest() throws Exception {
+        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
         AtomicInteger calls = new AtomicInteger();
-        BackendAccount secondary = new BackendAccount(new MemoryStore(null), (method, path, body, token) -> {
+        BackendAccount account = new BackendAccount(sessions, (method, path, body, token) -> {
             calls.incrementAndGet();
-            login.set("synthetic-login-b");
+            check(CLIPBOARD.equals(path), "clipboard endpoint");
+            sessions.signIn("user-a", NEXT_ACCESS);
+            return clipboardPage();
+        });
+        account.setClipboardEnabled(true);
+        check(calls.get() == 1, "signing in to the same account again is not an account switch");
+    }
+
+    private static void secondaryProcessRejectsChangedOwnerLogin() throws Exception {
+        FakeSessions owner = new FakeSessions("user-a", ACCESS);
+        AtomicInteger calls = new AtomicInteger();
+        BackendAccount secondary = new BackendAccount(owner, (method, path, body, token) -> {
+            calls.incrementAndGet();
+            owner.signIn("user-b", NEXT_ACCESS);
             throw new BackendAccount.RequestException(401);
-        }, owner);
+        }, (body, token, call, listener) -> {
+            throw new AssertionError("no chat stream here");
+        }, false);
 
         boolean cancelled = false;
         try {
@@ -213,10 +158,10 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
     }
 
     private static void oldRequestDiscardsSuccessAfterSignOut() throws Exception {
-        MemoryStore store = new MemoryStore(activeSession());
-        BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
+        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
+        BackendAccount account = new BackendAccount(sessions, (method, path, body, token) -> {
             check(CLIPBOARD.equals(path), "clipboard endpoint");
-            new BackendAccount(store, (m, p, b, t) -> clipboardPage()).signOut();
+            sessions.signOut();
             return clipboardPage();
         });
 
@@ -234,17 +179,14 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
     }
 
     private static void oldChatStreamDoesNotRetryAfterNewLogin() throws Exception {
-        MemoryStore store = new MemoryStore(activeSession());
-        BackendAccount replacement = new BackendAccount(store,
-            (method, path, body, token) -> tokens(NEXT_ACCESS, NEXT_REFRESH));
+        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
         AtomicInteger calls = new AtomicInteger();
-        BackendAccount old = new BackendAccount(store, (method, path, body, token) -> clipboardPage(), null,
+        BackendAccount old = new BackendAccount(sessions, (method, path, body, token) -> clipboardPage(),
             (body, token, call, listener) -> {
                 calls.incrementAndGet();
-                replacement.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"),
-                    "synthetic-credential");
+                sessions.signIn("user-b", NEXT_ACCESS);
                 throw new BackendAccount.RequestException(401);
-            });
+            }, true);
         boolean cancelled = false;
         try {
             old.chatStream(chatRequest(), new BackendAccount.ChatCall(), delta -> {});
@@ -256,17 +198,14 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
     }
 
     private static void oldChatStreamDiscardsDeltaAfterNewLogin() throws Exception {
-        MemoryStore store = new MemoryStore(activeSession());
-        BackendAccount replacement = new BackendAccount(store,
-            (method, path, body, token) -> tokens(NEXT_ACCESS, NEXT_REFRESH));
+        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
         AtomicInteger deltas = new AtomicInteger();
-        BackendAccount old = new BackendAccount(store, (method, path, body, token) -> clipboardPage(), null,
+        BackendAccount old = new BackendAccount(sessions, (method, path, body, token) -> clipboardPage(),
             (body, token, call, listener) -> {
-                replacement.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"),
-                    "synthetic-credential");
+                sessions.signIn("user-b", NEXT_ACCESS);
                 listener.onDelta("old delta");
                 return "old delta";
-            });
+            }, true);
         boolean cancelled = false;
         try {
             old.chatStream(chatRequest(), new BackendAccount.ChatCall(),
@@ -279,18 +218,15 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
     }
 
     private static void oldChatStreamDoesNotFallbackAfterNewLogin() throws Exception {
-        MemoryStore store = new MemoryStore(activeSession());
-        BackendAccount replacement = new BackendAccount(store,
-            (method, path, body, token) -> tokens(NEXT_ACCESS, NEXT_REFRESH));
+        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
         AtomicInteger fallbackCalls = new AtomicInteger();
-        BackendAccount old = new BackendAccount(store, (method, path, body, token) -> {
+        BackendAccount old = new BackendAccount(sessions, (method, path, body, token) -> {
             fallbackCalls.incrementAndGet();
             return clipboardPage();
-        }, null, (body, token, call, listener) -> {
-            replacement.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"),
-                "synthetic-credential");
+        }, (body, token, call, listener) -> {
+            sessions.signIn("user-b", NEXT_ACCESS);
             throw new BackendAccount.RequestException(400);
-        });
+        }, true);
         boolean cancelled = false;
         try {
             old.chatStream(chatRequest(), new BackendAccount.ChatCall(), delta -> {});
@@ -302,37 +238,36 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
     }
 
     private static void chatStreamRetriesWithinTheSameLogin() throws Exception {
-        MemoryStore store = new MemoryStore(activeSession());
+        FakeSessions sessions = new FakeSessions("user-a", ACCESS);
         AtomicInteger calls = new AtomicInteger();
-        BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
-            check("/v1/auth/refresh".equals(path), "chat stream refresh endpoint");
-            return tokens(NEXT_ACCESS, NEXT_REFRESH);
-        }, null, (body, token, call, listener) -> {
+        BackendAccount account = new BackendAccount(sessions, (method, path, body, token) -> {
+            throw new AssertionError("the chat stream retry needs no other request");
+        }, (body, token, call, listener) -> {
             calls.incrementAndGet();
             check(!body.has("model"), "chat stream leaves the model to the server");
             if (ACCESS.equals(token)) throw new BackendAccount.RequestException(401);
             check(NEXT_ACCESS.equals(token), "chat stream retry uses refreshed token");
             listener.onDelta("synthetic reply");
             return "synthetic reply";
-        });
+        }, true);
         AtomicInteger deltas = new AtomicInteger();
         String reply = account.chatStream(chatRequest(), new BackendAccount.ChatCall(),
             delta -> deltas.incrementAndGet());
         check("synthetic reply".equals(reply), "same login chat stream returns reply");
-        check(calls.get() == 2 && deltas.get() == 1, "same login chat stream retries once and delivers delta");
+        check(calls.get() == 2 && deltas.get() == 1 && sessions.refreshes.get() == 1,
+            "same login chat stream retries once and delivers delta");
     }
 
     private static void chatStreamFallsBackWithinTheSameLogin() throws Exception {
-        MemoryStore store = new MemoryStore(activeSession());
-        BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
+        BackendAccount account = new BackendAccount(new FakeSessions("user-a", ACCESS), (method, path, body, token) -> {
             check(ACCESS.equals(token) && "/v1/chat/completions".equals(path), "fallback keeps request identity");
             check(!body.optBoolean("stream", true), "fallback disables streaming");
             check(!body.has("model"), "fallback leaves the model to the server");
             return new JSONObject().put("choices", new org.json.JSONArray().put(new JSONObject()
                 .put("message", new JSONObject().put("role", "assistant").put("content", "synthetic reply"))));
-        }, null, (body, token, call, listener) -> {
+        }, (body, token, call, listener) -> {
             throw new BackendAccount.RequestException(400);
-        });
+        }, true);
         AtomicInteger deltas = new AtomicInteger();
         String reply = account.chatStream(chatRequest(), new BackendAccount.ChatCall(),
             delta -> deltas.incrementAndGet());
@@ -714,27 +649,6 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         check(tooLarge, "translation retains its 256 KiB response bound");
     }
 
-    private static void unauthorizedRefreshClearsSession() throws Exception {
-        MemoryStore store = new MemoryStore(expiredSession());
-        BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
-            throw new BackendAccount.RequestException(401);
-        });
-        check(account.accessToken().isEmpty(), "unauthorized refresh has no token");
-        check(store.load() == null, "unauthorized refresh clears session");
-    }
-
-    private static void unboundedPersistedExpiryIsRejected() throws Exception {
-        MemoryStore store = new MemoryStore(new JSONObject().put("tokens", tokens(ACCESS, REFRESH))
-            .put("expires_at_unix_ms", Long.MAX_VALUE).toString());
-        AtomicInteger calls = new AtomicInteger();
-        BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
-            calls.incrementAndGet();
-            return tokens(NEXT_ACCESS, NEXT_REFRESH);
-        });
-        check(account.accessToken().isEmpty(), "unbounded persisted expiry rejected");
-        check(calls.get() == 0, "unbounded expiry does not use token or refresh");
-    }
-
     private static void malformedQqLinksAreRejected() throws Exception {
         CloudApi cloud = new CloudApi((method, path, headers, body) ->
             new CloudApi.Exchange(200, "application/json", null, new byte[] {'{', '}'}),
@@ -755,14 +669,15 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
 
     @Override public void onStart() {
         Bundle result = new Bundle();
-        String stage = "refresh";
+        String stage = "same login retry";
         try {
-            refreshesExpiredSessionAndRotatesCredentials();
-            concurrentCallersShareOneRefresh();
-            refreshesAnUnexpiredRejectedToken();
             retriesAccountRequestsAfter401();
+            stage = "old login";
             oldRequestDoesNotRetryAfterNewLogin();
             oldRequestDiscardsSuccessAfterNewLogin();
+            stage = "same account sign-in again";
+            sameAccountReLoginKeepsTheRequest();
+            stage = "secondary process";
             secondaryProcessRejectsChangedOwnerLogin();
             oldRequestDiscardsSuccessAfterSignOut();
             stage = "old stream retry";
@@ -799,14 +714,12 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
             candidateTranslationRetainsSameLoginAndAnonymousFallback();
             stage = "candidate translation response bound";
             candidateTranslationKeepsResponseBound();
-            unauthorizedRefreshClearsSession();
-            unboundedPersistedExpiryIsRejected();
             stage = "malformed QQ links";
             malformedQqLinksAreRejected();
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: account refresh, login lineage, chat stream, community and translation\n");
+            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: account login lineage, chat stream, community and translation\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
-            result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: account refresh " + stage + " ("
+            result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: account session " + stage + " ("
                 + error.getClass().getSimpleName() + ": " + error.getMessage() + ")\n");
             finish(Activity.RESULT_CANCELED, result);
         }

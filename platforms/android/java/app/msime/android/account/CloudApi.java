@@ -19,7 +19,7 @@ import org.json.JSONObject;
 /**
  * 水杉云端接口的公共传输层：基础地址、会话 Bearer、固定 User-Agent、JSON 与 multipart 请求体、错误解析和超时。
  *
- * <p>各功能自己的接口文件（同步、设备、反馈……）都建在这一层上，只管路径和字段。这里统一发 `MSIME/Android`；带设备型号的详细 User-Agent 只出现在 {@link BackendAccount} 的真实账号登录请求上，后端只在登录时记录它。
+ * <p>各功能自己的接口文件（同步、设备、反馈……）都建在这一层上，只管路径和字段。这里统一发 `MSIME/Android`；带设备型号的详细 User-Agent 由 Rust 在登录和刷新时发出（{@link AccountStore}），后端只在登录时记录它。令牌也由 Rust 给：登录账号的经 {@link BackendAccount}，匿名的经 {@link BackendAnonymousAccount}。
  *
  * <p>错误响应是 `{"error":{"code","message"}}`，读成 {@link Failure}。503 且错误码是 `provider_disabled` / `service_disabled` 表示这个部署没有开这项功能，{@link Failure#unavailable()} 为真，界面应当隐藏入口而不是提示重试。
  *
@@ -115,7 +115,7 @@ public final class CloudApi {
         }
     }
 
-    /** 服务端在 `GET /v1/auth/providers` 里说它接受哪些登录方式。 */
+    /** 服务端接受哪些登录方式（由 Rust 的 providers 读出，见 {@link BackendAccount#providers}）。 */
     public record Providers(boolean google, boolean apple, boolean appleWeb, boolean email) {
         public static final Providers NONE = new Providers(false, false, false, false);
     }
@@ -216,16 +216,6 @@ public final class CloudApi {
                 return result;
             }
         };
-    }
-
-    /** 当前部署接受的登录方式。读不到时抛出，调用方按「都不提供」处理。 */
-    public Providers providers() throws Failure {
-        JSONObject root = json("GET", "/v1/auth/providers", null, Auth.NONE);
-        JSONObject map = root.optJSONObject("providers");
-        if (map == null) throw new Failure(500, "invalid_response", "providers missing", 0);
-        return new Providers(JsonPolicy.strictTrue(map.opt("google")),
-            JsonPolicy.strictTrue(map.opt("apple")), JsonPolicy.strictTrue(map.opt("apple_web")),
-            JsonPolicy.strictTrue(map.opt("email")));
     }
 
     /** 发一个 JSON 请求（`body` 可为 null）并把响应读成 JSON 对象。 */

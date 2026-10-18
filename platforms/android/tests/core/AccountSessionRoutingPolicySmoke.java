@@ -11,7 +11,8 @@ public final class AccountSessionRoutingPolicySmoke {
         check(AccountSessionRoutingPolicy.syncMethod("sync_dirty") && AccountSessionRoutingPolicy.syncMethod("sync_state"),
             "both sync methods take the token-free branch");
         check(!AccountSessionRoutingPolicy.syncMethod("access_token")
-            && !AccountSessionRoutingPolicy.syncMethod("anonymous_access_token"), "token methods are not sync methods");
+            && !AccountSessionRoutingPolicy.syncMethod("shared_access_token")
+            && !AccountSessionRoutingPolicy.syncMethod("voice_contribution"), "token methods are not sync methods");
         check(!AccountSessionRoutingPolicy.KEY_SYNC_ENABLED.equals(AccountSessionRoutingPolicy.KEY_ACCESS_TOKEN)
             && !AccountSessionRoutingPolicy.KEY_LOGIN_KIND.equals(AccountSessionRoutingPolicy.KEY_ACCESS_TOKEN),
             "sync replies never reuse the token key");

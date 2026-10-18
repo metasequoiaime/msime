@@ -1,6 +1,6 @@
 package app.msime.android;
 
-/** Shared validation for account bearer tokens received from the backend or secure storage. */
+/** 令牌形状与 Tauri 合包旧会话的过期判断；登录会话的整体校验在 Rust（#8201 迁移计划 5b）。 */
 public final class AccountTokenPolicy {
     static final long MAX_SESSION_SECONDS = 86_400L * 30;
     private static final long EXPIRY_MARGIN_MILLISECONDS = 30_000L;
@@ -13,13 +13,6 @@ public final class AccountTokenPolicy {
         return TextPolicy.isLowerHex(value, 64);
     }
 
-    /** The complete token envelope required before a session can be persisted or used. */
-    public static boolean validSession(String tokenType, String accessToken, String refreshToken,
-            long expiresIn) {
-        return "Bearer".equals(tokenType) && expiresIn > 0 && expiresIn <= MAX_SESSION_SECONDS
-            && validToken(accessToken) && validToken(refreshToken);
-    }
-
     /** Reject missing, expired, and implausibly distant saved-session expiries. */
     static boolean validExpiry(long expiresAtUnixMillis, long nowUnixMillis) {
         if (expiresAtUnixMillis <= nowUnixMillis) return false;
@@ -30,11 +23,5 @@ public final class AccountTokenPolicy {
     /** Read a JSON number only when it is an exact signed 64-bit integer. */
     static long strictLong(Object value, long fallback) {
         return NumberPolicy.strictLong(value, fallback);
-    }
-
-    /** Read the backend's bounded integer lifetime without optLong's fractional truncation. */
-    static long strictSeconds(Object value) {
-        long seconds = strictLong(value, 0);
-        return seconds > 0 && seconds <= MAX_SESSION_SECONDS ? seconds : 0;
     }
 }

@@ -559,8 +559,8 @@ final class ImeVoiceEntry {
                         || !s.imePrivacyGate.contributesVoice()
                         || !AndroidLocalSettings.load(s).bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO)) return;
                 try {
-                    new VoiceContributionApi(new CloudApi(s)).upload(contribution);
-                } catch (CloudApi.Failure | RuntimeException error) {
+                    new VoiceContributionApi(s).upload(contribution);
+                } catch (java.io.IOException | RuntimeException error) {
                     ImeLog.w("Voice contribution not uploaded");
                 }
             });

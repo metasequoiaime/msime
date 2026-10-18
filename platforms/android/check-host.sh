@@ -1042,6 +1042,16 @@ if ! rg -Uq 'android:name="app\.msime\.android\.AccountSessionProvider"[[:space:
   echo "Android account session provider must be declared unexported in the main process" >&2
   exit 1
 fi
+# 登录会话、匿名会话、登录和刷新都由 Rust 持有（#8201 迁移计划 5b）：Java 不再自己发 /v1/auth/ 下的请求（登录、刷新、挑战、Apple 网页授权、登录方式），这三份会话存储的名字只出现在注入给 Rust 的存储适配器 AccountStore 里。存储注册时不置 SHARED，Rust 读一次就缓存；主进程里再有一个 Java 写入方，Rust 就会拿旧的刷新令牌去刷新，服务端随即吊销整个会话。
+if rg -n '"/v1/auth/' "$repo_root/platforms/android/java"; then
+  echo "Android Java must not send /v1/auth/ requests itself; Rust owns sign-in and refresh" >&2
+  exit 1
+fi
+if rg -n 'msime_account_session_v2|msime_anonymous_session_v1|msime_anonymous_account_v1' "$repo_root/platforms/android/java" \
+    | rg -v '/account/AccountStore\.java:'; then
+  echo "Only AccountStore may name the session stores Rust owns" >&2
+  exit 1
+fi
 # The host compiles against AndroidX and Material now, and those are AARs that only Gradle resolves,
 # so this script no longer compiles the whole source set -- `platforms/android/gradle-app` does, and
 # build-apk.sh drives it. What stays here is the part that is worth having without a Gradle daemon:

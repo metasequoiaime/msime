@@ -509,6 +509,20 @@ public final class NativeClient {
         void onProgress(int completed);
     }
 
+    /** 注册会话存储（{@code msime_client_session_store_register}），只给 {@link AccountStore} 用：返回信封，成功时 value 是 {@code {session_store}}。clientAgent 为 null 时请求以 MSIME/Android 发出。不联网。 */
+    static String sessionStoreRegister(SessionStore store, String clientAgent) {
+        return TextPolicy.utf8(sessionStoreRegisterRaw(store, clientAgent == null ? null : utf8(clientAgent)));
+    }
+
+    /** 由 Rust 拼出本宿主自报的 User-Agent（{@code msime_client_client_agent}）。不联网，任意线程。 */
+    static String clientAgent(String request) { return TextPolicy.utf8(clientAgentRaw(utf8(request))); }
+
+    /** 账号操作（{@code msime_client_account}），请求带 {@code session_store}。除 status 和 forget 外都阻塞网络，经存储的调用都不能放在主线程上。 */
+    static String account(String request) { return TextPolicy.utf8(accountRaw(utf8(request))); }
+
+    /** 登录的优先、否则匿名账号的访问令牌（{@code msime_client_account_access_token}）。可能刷新令牌、阻塞网络；回复含凭据，不要写进日志。 */
+    static String accountAccessToken(String request) { return TextPolicy.utf8(accountAccessTokenRaw(utf8(request))); }
+
     /** 本地语音模型安装的进度：{@code {id, stage, downloaded, total}} 的 JSON 字节，stage 是 "download"（从本地文件安装时是 "import"）、"verify"、"extract" 或 "done"。在调用 {@link #voiceLocalModelInstall} 的工作线程上调用；不要在这里抛异常或做耗时的事。 */
     public interface LocalModelProgress {
         void onProgress(byte[] json);
@@ -997,7 +1011,7 @@ public final class NativeClient {
     private static native void localSpeechDestroyRaw(long handle);
     private static native int localSpeechReleaseRaw(long idleMillis);
     private static native byte[] destroyRaw(long session);
-    // 账号与云端（#8201）：会话由 Rust 持有，经 SessionStore 注入的存储读写；Java 的调用方随后几组提交接上。
+    // 账号与云端（#8201）：会话由 Rust 持有，经 SessionStore 注入的存储读写；登录、令牌和刷新从 5b 起经 AccountStore 调用，其余入口随后几组提交接上。
     private static native byte[] sessionStoreRegisterRaw(SessionStore store, byte[] clientAgent);
     private static native byte[] sessionStoreUnregisterRaw(long sessionStore);
     private static native byte[] clientAgentRaw(byte[] request);

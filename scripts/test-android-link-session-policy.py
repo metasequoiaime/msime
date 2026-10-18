@@ -16,16 +16,15 @@ def main() -> int:
     sign_in = SIGN_IN.read_text(encoding="utf-8")
     login_sheet = LOGIN_SHEET.read_text(encoding="utf-8")
     checks = (
-        ("public Challenge challenge(String provider, String target, String purpose)",
-         "关联挑战必须显式携带用途"),
-        ("new Challenge(id, nonce, purpose, session.sessionId())", "提供商挑战必须记录发起会话"),
-        ("requireSession(session, \"link\".equals(challenge.purpose()) ? challenge.sessionId() : null)",
-         "提供商兑换必须检查发起会话"),
+        ("public Challenge googleChallenge(String purpose)", "关联挑战必须显式携带用途"),
+        ("new Challenge(id, nonce, purpose, sessionId)", "提供商挑战必须记录发起会话"),
+        ("requireLinkSession(challenge.purpose(), challenge.sessionId())", "提供商兑换必须检查发起会话"),
+        ("requireLinkSession(purpose, expectedSessionId)", "Apple 兑换必须检查发起会话"),
         ("public record EmailChallenge(String id, String purpose, long expiresIn, String sessionId)",
          "邮箱挑战必须记录发起会话"),
         ("KEY_SESSION_ID", "Apple pending 必须保存关联会话"),
         ("pending.sessionId()", "Apple 兑换必须使用 pending 会话"),
-        ("challenge(\"google\", null, purpose)", "Google 必须沿用 LoginSheet 的关联用途"),
+        ("googleChallenge(purpose)", "Google 必须沿用 LoginSheet 的关联用途"),
         ("if (!\"link\".equals(purpose)) bind(context, \"google\")", "关联 Google 不能重绑同步账号"),
         ("SignIn.startGoogle(activity, purpose, this::finishWith)", "登录面板必须把用途传给 Google 流程"),
     )

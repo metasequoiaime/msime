@@ -36,7 +36,6 @@ public final class VoiceContributionApiSmoke {
         check(!VoiceContributionApi.valid(new VoiceContributionApi.Contribution("zh-CN", "local",
             1000, "好", "😀".repeat(17), wav)),
             "app version metadata is bounded by UTF-8 bytes");
-        check(VoiceContributionApi.PATH.equals("/v1/voice/contributions"), "the contribution endpoint");
         check("synthetic".equals(JsonPolicy.strictString("synthetic")),
             "voice contribution response ids accept strings");
         check(JsonPolicy.strictString(7) == null,

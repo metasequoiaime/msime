@@ -24,10 +24,16 @@ public final class AccountSessionRoutingSmoke {
         check(AccountSessionRoutingPolicy.accepts("access_token", 10123, 10123), "our own uid gets the token");
         check(!AccountSessionRoutingPolicy.accepts("access_token", 10124, 10123), "another uid is refused");
         check(!AccountSessionRoutingPolicy.accepts("refresh_token", 10123, 10123), "no other method is answered");
-        check(AccountSessionRoutingPolicy.accepts("anonymous_access_token", 10123, 10123),
-            "our own uid gets the anonymous token");
-        check(!AccountSessionRoutingPolicy.accepts("anonymous_access_token", 10124, 10123),
-            "another uid cannot get the anonymous token");
+        check(AccountSessionRoutingPolicy.accepts("shared_access_token", 10123, 10123),
+            "our own uid gets the shared token");
+        check(!AccountSessionRoutingPolicy.accepts("shared_access_token", 10124, 10123),
+            "another uid is refused the shared token");
+        check(AccountSessionRoutingPolicy.accepts("voice_contribution", 10123, 10123),
+            "our own keyboard may hand a voice contribution to the main process");
+        check(!AccountSessionRoutingPolicy.accepts("voice_contribution", 10124, 10123),
+            "another uid cannot upload through the main process");
+        check(!AccountSessionRoutingPolicy.accepts("anonymous_access_token", 10123, 10123),
+            "there is no anonymous-only token any more: Rust has no such source");
         check(!AccountSessionRoutingPolicy.accepts(null, 10123, 10123), "a missing method is refused");
 
         check(AccountSessionRoutingPolicy.source(true, true) == AccountSessionRoutingPolicy.Source.OWN, "a native sign-in session wins");
@@ -54,21 +60,6 @@ public final class AccountSessionRoutingSmoke {
             check(JsonPolicy.strictStringOrEmpty(invalid).isEmpty(),
                 "a non-string Rust token is not converted to a string");
         }
-        check(AccountTokenPolicy.strictSeconds(900) == 900,
-            "integer account lifetimes are accepted");
-        check(AccountTokenPolicy.strictSeconds(900.5) == 0,
-            "fractional account lifetimes are rejected");
-        check(AccountTokenPolicy.strictSeconds(true) == 0,
-            "boolean account lifetimes are rejected");
-        check(AccountTokenPolicy.strictSeconds("900") == 0,
-            "string account lifetimes are rejected");
-        check(AccountTokenPolicy.strictSeconds(null) == 0,
-            "missing account lifetimes are rejected");
-        check(AccountTokenPolicy.strictSeconds(AccountTokenPolicy.MAX_SESSION_SECONDS)
-                == AccountTokenPolicy.MAX_SESSION_SECONDS,
-            "the maximum integer lifetime is accepted");
-        check(AccountTokenPolicy.strictSeconds(AccountTokenPolicy.MAX_SESSION_SECONDS + 1) == 0,
-            "lifetimes beyond the maximum are rejected");
         check(AccountTokenPolicy.strictLong(1_700_000_000_000L, -1) == 1_700_000_000_000L,
             "integer saved expiries are accepted");
         check(AccountTokenPolicy.strictLong(1_700_000_000_000.5, -1) == -1,
@@ -87,9 +78,9 @@ public final class AccountSessionRoutingSmoke {
         check(AccountSessionRoutingPolicy.stateFor("").equals(AccountSessionRoutingPolicy.STATE_SIGNED_OUT), "no token is reported as signed out");
         check(AccountSessionRoutingPolicy.tokenFromReply(AccountSessionRoutingPolicy.STATE_SIGNED_IN, TOKEN).equals(TOKEN), "a signed-in reply yields its token");
         check(AccountSessionRoutingPolicy.tokenFromReply(AccountSessionRoutingPolicy.STATE_SIGNED_OUT, "").isEmpty(), "a signed-out reply yields no token");
-        check(AccountSessionRoutingPolicy.anonymousTokenFromReply(
+        check(AccountSessionRoutingPolicy.sharedTokenFromReply(
                 AccountSessionRoutingPolicy.STATE_SIGNED_IN, TOKEN).equals(TOKEN),
-            "an anonymous signed-in reply yields its token");
+            "a shared signed-in reply yields its token");
         for (String[] reply : new String[][] {
                 {AccountSessionRoutingPolicy.STATE_UNAVAILABLE, ""},
                 {AccountSessionRoutingPolicy.STATE_SIGNED_IN, ""},
@@ -112,57 +103,53 @@ public final class AccountSessionRoutingSmoke {
                 {"unknown", TOKEN}}) {
             boolean unavailable = false;
             try {
-                AccountSessionRoutingPolicy.anonymousTokenFromReply(reply[0], reply[1]);
+                AccountSessionRoutingPolicy.sharedTokenFromReply(reply[0], reply[1]);
             } catch (IllegalStateException expected) {
                 unavailable = true;
             }
-            check(unavailable, "anonymous reply " + reply[0] + " is unavailable");
+            check(unavailable, "shared reply " + reply[0] + " is unavailable");
         }
 
-        // A process that does not own the session neither reads nor writes the store and never calls the service; the token comes from the owner alone.
-        AtomicInteger storeTouches = new AtomicInteger();
+        // 不持有会话的进程（键盘）只从主进程拿令牌：不登录、不退出、不跑 Rust 的账号操作，也不自己发刷新请求。
+        AtomicInteger accountCalls = new AtomicInteger();
         AtomicInteger requests = new AtomicInteger();
-        BackendAccount.SessionStore store = new BackendAccount.SessionStore() {
-            @Override public String load() { storeTouches.incrementAndGet(); return null; }
-            @Override public void save(String value) { storeTouches.incrementAndGet(); }
-            @Override public void clear() { storeTouches.incrementAndGet(); }
-        };
         BackendAccount.Requester requester = (method, path, body, token) -> {
             requests.incrementAndGet();
             throw new IllegalStateException("no network in this smoke");
         };
-        check(new BackendAccount(store, requester, () -> TOKEN).accessToken().equals(TOKEN), "the owner's token is used");
-        check(new BackendAccount(store, requester, () -> TOKEN).signedIn(), "an owner token means signed in");
-        check(new BackendAccount(store, requester, () -> "").accessToken().isEmpty(), "a signed-out owner means signed out");
-        check(new BackendAccount(store, requester, () -> null).accessToken().isEmpty(), "a missing reply means signed out");
-        check(new BackendAccount(store, requester, () -> "not-a-token").accessToken().isEmpty(), "a malformed reply is not used as a token");
-        check(new BackendAccount(store, requester, () -> {
+        check(secondary(refused -> login(TOKEN, "user-a"), accountCalls, requester).accessToken().equals(TOKEN),
+            "the owner's token is used");
+        check(secondary(refused -> login(TOKEN, "user-a"), accountCalls, requester).signedIn(),
+            "an owner token means signed in");
+        check(secondary(refused -> login("", ""), accountCalls, requester).accessToken().isEmpty(),
+            "a signed-out owner means signed out");
+        check(secondary(refused -> null, accountCalls, requester).accessToken().isEmpty(),
+            "a missing reply means signed out");
+        check(secondary(refused -> login("not-a-token", "user-a"), accountCalls, requester).accessToken().isEmpty(),
+            "a malformed reply is not used as a token");
+        check(secondary(refused -> login(TOKEN, ""), accountCalls, requester).accessToken().isEmpty(),
+            "a token without the account it belongs to is not used");
+        check(secondary(refused -> {
             throw new IllegalArgumentException("Unknown authority");
-        }).accessToken().isEmpty(), "an unreachable owner means signed out rather than a local refresh");
+        }, accountCalls, requester).accessToken().isEmpty(), "an unreachable owner means signed out rather than a local refresh");
         boolean retry = false;
         try {
-            new BackendAccount(store, requester, () -> {
+            secondary(refused -> {
                 throw new IllegalStateException("account session unavailable");
-            }).currentAccessToken();
+            }, accountCalls, requester).currentAccessToken();
         } catch (IllegalStateException expected) {
             retry = true;
         }
         check(retry, "an owner that cannot tell is reported to callers that word a retry");
-        check(storeTouches.get() == 0, "a non-owning process never touches the session store");
         check(requests.get() == 0, "a non-owning process never refreshes");
 
+        // 页面记下的是账号编号（user.id）：换成别的账号以后，旧页面排队的请求连驱动和密钥串都不碰。
         AtomicInteger clipboardRequests = new AtomicInteger();
-        BackendAccount.TokenSource switchedOwner = new BackendAccount.TokenSource() {
-            @Override public String accessToken() { return TOKEN; }
-            @Override public BackendAccount.SessionCredential session(String rejected) {
-                return new BackendAccount.SessionCredential(TOKEN, "session-b");
-            }
-        };
-        BackendAccount clipboard = new BackendAccount(store, (method, path, body, token) -> {
-            clipboardRequests.incrementAndGet();
-            throw new AssertionError("old session must not send a clipboard request");
-        }, switchedOwner);
-        // 旧会话排队的读取或上传连驱动和密钥串都不碰，更不会发请求。
+        BackendAccount clipboard = secondary(refused -> login(TOKEN, "user-b"), accountCalls,
+            (method, path, body, token) -> {
+                clipboardRequests.incrementAndGet();
+                throw new AssertionError("old session must not send a clipboard request");
+            });
         CloudClipboardE2e.Local untouched = new CloudClipboardE2e.Local(new CloudClipboardE2e.Driver() {
             @Override public CloudClipboardE2e.Step start(CloudClipboardE2e.Operation operation, String keystore, String name) {
                 throw new AssertionError("old session must not start the clipboard driver");
@@ -179,148 +166,107 @@ public final class AccountSessionRoutingSmoke {
         }, "Synthetic Phone");
         boolean oldUploadCancelled = false;
         try {
-            clipboard.addClipboard("synthetic note", "session-a", untouched);
+            clipboard.addClipboard("synthetic note", "user-a", untouched);
         } catch (java.util.concurrent.CancellationException expected) {
             oldUploadCancelled = true;
         }
         check(oldUploadCancelled && clipboardRequests.get() == 0,
-            "an upload queued by the old session cannot send using the new session");
+            "an upload queued by the old account cannot send using the new account");
         boolean oldListCancelled = false;
         try {
-            clipboard.clipboard("", "session-a", untouched);
+            clipboard.clipboard("", "user-a", untouched);
         } catch (java.util.concurrent.CancellationException expected) {
             oldListCancelled = true;
         }
         check(oldListCancelled && clipboardRequests.get() == 0,
-            "a queued list fetch cannot switch to the new session");
+            "a queued list fetch cannot switch to the new account");
 
         AtomicInteger chatRequests = new AtomicInteger();
         AtomicInteger streamCalls = new AtomicInteger();
-        BackendAccount.TokenSource switchedChatOwner = new BackendAccount.TokenSource() {
-            @Override public String accessToken() { return TOKEN; }
-            @Override public BackendAccount.SessionCredential session(String rejected) {
-                return new BackendAccount.SessionCredential(TOKEN, "session-b");
-            }
-        };
-        BackendAccount chat = new BackendAccount(store, (method, path, body, token) -> {
-            chatRequests.incrementAndGet();
-            throw new AssertionError("old session must not send a chat request");
-        }, switchedChatOwner, (body, token, call, listener) -> {
-            streamCalls.incrementAndGet();
-            throw new AssertionError("old session must not open a chat stream");
-        });
+        BackendAccount chat = new BackendAccount(sessions(refused -> login(TOKEN, "user-b"), accountCalls),
+            (method, path, body, token) -> {
+                chatRequests.incrementAndGet();
+                throw new AssertionError("old session must not send a chat request");
+            }, (body, token, call, listener) -> {
+                streamCalls.incrementAndGet();
+                throw new AssertionError("old session must not open a chat stream");
+            }, false);
         boolean oldChatCancelled = false;
         try {
             chat.chatStream(java.util.List.of(new BackendAccount.ChatMessage("user", "synthetic message")),
-                new BackendAccount.ChatCall(), delta -> { }, "session-a");
+                new BackendAccount.ChatCall(), delta -> { }, "user-a");
         } catch (java.util.concurrent.CancellationException expected) {
             oldChatCancelled = true;
         }
         check(oldChatCancelled && chatRequests.get() == 0 && streamCalls.get() == 0,
-            "a chat queued by the old session cannot use the new session");
+            "a chat queued by the old account cannot use the new account");
 
-        BackendAccount.TokenSource rotatingOwner = new BackendAccount.TokenSource() {
-            @Override public String accessToken() { return TOKEN; }
-            @Override public String accessToken(String rejectedToken) {
-                check(TOKEN.equals(rejectedToken), "the rejected token reaches the owner process");
-                return "f".repeat(64);
-            }
-        };
-        check("f".repeat(64).equals(
-            new BackendAccount(store, requester, rotatingOwner).currentAccessToken(TOKEN)),
+        check("f".repeat(64).equals(secondary(refused -> {
+            if (refused == null) return login(TOKEN, "user-a");
+            check(TOKEN.equals(refused), "the rejected token reaches the owner process");
+            return login("f".repeat(64), "user-a");
+        }, accountCalls, requester).currentAccessToken(TOKEN)),
             "a secondary process can request one owner refresh after a 401");
 
-        AtomicInteger loginRequests = new AtomicInteger();
-        BackendAccount.SessionStore loginStore = new BackendAccount.SessionStore() {
-            @Override public String load() { return null; }
-            @Override public void save(String value) { loginRequests.incrementAndGet(); }
-            @Override public void clear() { loginRequests.incrementAndGet(); }
-        };
-        BackendAccount secondary = new BackendAccount(loginStore, (method, path, body, token) -> {
-            loginRequests.incrementAndGet();
-            return new org.json.JSONObject()
-                .put("access_token", TOKEN)
-                .put("refresh_token", TOKEN)
-                .put("token_type", "Bearer")
-                .put("expires_in", 900);
-        }, () -> TOKEN);
+        BackendAccount keyboard = secondary(refused -> login(TOKEN, "user-a"), accountCalls, requester);
         boolean loginRejected = false;
         try {
-            secondary.login(null, null);
-        } catch (RuntimeException error) {
-            loginRejected = error instanceof IllegalStateException;
-        }
-        check(loginRejected, "a non-owning process rejects local sign-in");
-        check(loginRequests.get() == 0, "a non-owning process never signs in through its local store");
-
-        AtomicInteger signOutTouches = new AtomicInteger();
-        BackendAccount.SessionStore signOutStore = new BackendAccount.SessionStore() {
-            @Override public String load() { return TOKEN_SESSION; }
-            @Override public void save(String value) { signOutTouches.incrementAndGet(); }
-            @Override public void clear() { signOutTouches.incrementAndGet(); }
-        };
-        AtomicInteger keystoreDeletes = new AtomicInteger();
-        CloudClipboardE2e.Keystore clipboardKeys = new CloudClipboardE2e.Keystore() {
-            @Override public String load() { throw new AssertionError("sign-out never reads the keystore"); }
-            @Override public void save(String value, CloudClipboardE2e.Guard guard) {
-                throw new AssertionError("sign-out never writes the keystore");
-            }
-            @Override public void delete() { keystoreDeletes.incrementAndGet(); }
-        };
-        new BackendAccount(signOutStore, requester, () -> TOKEN, null, clipboardKeys).signOut();
-        check(signOutTouches.get() == 0, "a non-owning process never signs out through its local store");
-        check(keystoreDeletes.get() == 0, "a non-owning process never deletes the cloud clipboard keystore");
-        java.util.List<String> signOutOrder = new java.util.ArrayList<>();
-        BackendAccount.SessionStore ownStore = new BackendAccount.SessionStore() {
-            @Override public String load() { return TOKEN_SESSION; }
-            @Override public void save(String value) { throw new AssertionError("no save on sign-out"); }
-            @Override public void clear() { signOutOrder.add("session"); }
-        };
-        new BackendAccount(ownStore, requester, null, null, new CloudClipboardE2e.Keystore() {
-            @Override public String load() { throw new AssertionError("sign-out never reads the keystore"); }
-            @Override public void save(String value, CloudClipboardE2e.Guard guard) {
-                throw new AssertionError("sign-out never writes the keystore");
-            }
-            @Override public void delete() { signOutOrder.add("keystore"); }
-        }).signOut();
-        check(signOutOrder.equals(java.util.List.of("session", "keystore")),
-            "sign-out clears the session first, then deletes the cloud clipboard keystore");
-        BackendAccount.SessionStore keptStore = new BackendAccount.SessionStore() {
-            @Override public String load() { return TOKEN_SESSION; }
-            @Override public void save(String value) { throw new AssertionError("no save on sign-out"); }
-            @Override public void clear() { }
-        };
-        boolean keystoreFailed = false;
-        try {
-            new BackendAccount(keptStore, requester, null, null, new CloudClipboardE2e.Keystore() {
-                @Override public String load() { return null; }
-                @Override public void save(String value, CloudClipboardE2e.Guard guard) { }
-                @Override public void delete() throws Exception { throw new java.io.IOException("synthetic failure"); }
-            }).signOut();
+            keyboard.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"), "synthetic-token");
         } catch (IllegalStateException expected) {
-            keystoreFailed = true;
+            loginRejected = true;
         }
-        check(keystoreFailed, "sign-out reports a keystore that could not be deleted");
-
-        BackendAccount.SessionStore failingStore = new BackendAccount.SessionStore() {
-            @Override public String load() { return TOKEN_SESSION; }
-            @Override public void save(String value) { throw new AssertionError("no save on sign-out"); }
-            @Override public void clear() throws Exception { throw new java.io.IOException("synthetic failure"); }
-        };
-        boolean clearFailed = false;
-        int deletesBefore = keystoreDeletes.get();
+        check(loginRejected, "a non-owning process rejects Google sign-in");
+        boolean emailRejected = false;
         try {
-            new BackendAccount(failingStore, requester, null, null, clipboardKeys).signOut();
+            keyboard.verifyEmailCode(new BackendAccount.EmailChallenge("synthetic-challenge", "login", 600), "123456");
         } catch (IllegalStateException expected) {
-            clearFailed = true;
+            emailRejected = true;
         }
-        check(clearFailed, "sign-out must report a failed persistent clear");
-        check(keystoreDeletes.get() == deletesBefore, "a failed session clear leaves the keystore for the retry");
-        check(TOKEN_SESSION.equals(failingStore.load()), "a failed clear leaves the stored session present");
+        check(emailRejected, "a non-owning process rejects email sign-in");
+        boolean appleRejected = false;
+        try {
+            keyboard.loginWithAppleGrant("g".repeat(43), "v".repeat(43), false, null);
+        } catch (IllegalStateException expected) {
+            appleRejected = true;
+        }
+        check(appleRejected, "a non-owning process rejects Apple sign-in");
+        keyboard.signOut();
+        check(accountCalls.get() == 0, "a non-owning process never runs an account operation");
         System.out.println("Android account session routing: single refreshing process passed");
     }
 
-    private static final String TOKEN_SESSION = "synthetic-session";
+    /** 测试里的「主进程」：`answer` 回答令牌和账号编号，Rust 的账号操作一律不该被调用。 */
+    private interface Answer {
+        BackendAccount.SessionCredential get(String rejected) throws Exception;
+    }
+
+    private static BackendAccount.Sessions sessions(Answer answer, AtomicInteger accountCalls) {
+        return new BackendAccount.Sessions() {
+            @Override public BackendAccount.SessionCredential session(String rejected) throws Exception {
+                return answer.get(rejected);
+            }
+
+            @Override public String userId() throws Exception {
+                BackendAccount.SessionCredential current = answer.get(null);
+                return current == null ? "" : current.sessionId();
+            }
+
+            @Override public Object account(org.json.JSONObject action) {
+                accountCalls.incrementAndGet();
+                throw new AssertionError("a non-owning process must not run an account operation");
+            }
+        };
+    }
+
+    private static BackendAccount secondary(Answer answer, AtomicInteger accountCalls, BackendAccount.Requester requester) {
+        return new BackendAccount(sessions(answer, accountCalls), requester, (body, token, call, listener) -> {
+            throw new AssertionError("no chat stream in this smoke");
+        }, false);
+    }
+
+    private static BackendAccount.SessionCredential login(String token, String user) {
+        return new BackendAccount.SessionCredential(token, user);
+    }
 
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);

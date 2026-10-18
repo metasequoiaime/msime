@@ -37,9 +37,9 @@ def main() -> int:
         print("SyncApi 的同步令牌读取没有绑定账号锁", file=sys.stderr)
         ok = False
     for expression, description in (
-        ("new BackendAccount(context).login(started, idToken, userAgent(context))", "Google 登录"),
-        ("AppleWebSignIn.complete(context, pending, grant, userAgent(context))", "Apple 登录"),
-        ("new BackendAccount(context).verifyEmailCode(challenge, credential, userAgent(context))", "邮箱登录"),
+        ("new BackendAccount(context).login(started, idToken)", "Google 登录"),
+        ("AppleWebSignIn.complete(context, pending, grant)", "Apple 登录"),
+        ("new BackendAccount(context).verifyEmailCode(challenge, credential)", "邮箱登录"),
         ("new BackendAccount(context).signOut()", "退出登录"),
     ):
         if not inside_lock(sign_in, expression):

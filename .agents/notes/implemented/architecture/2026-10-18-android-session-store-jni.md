@@ -31,7 +31,7 @@ Status: implemented
 
 - **收益**：attach、detach、异常清理、局部帧和全局引用的释放每次 PR 都在 `check-host.sh` 里对着真的 JVM（`-Xcheck:jni`）跑，不用模拟器；`build-native.sh` 照常把 `JniCallbacks.cpp` 链进 `libmsime_android.so`。
 - **代价**：`check-host.sh` 多依赖 JDK 的头文件、libjvm 和一个宿主 C++ 编译器，缺任何一个就跳过并说明；JNI 胶水从一个文件变成两个，`build-native.sh` 和 `check-host.sh` 的目标平台编译都要列上新文件。桌面 JVM 与 ART 的差别（局部引用表上限、CheckJNI 的报法）仍要靠设备冒烟兜底。
-- **还没做的**：5a 没有调用方，`SessionStoreDeviceSmoke` 只在 `smoke.sh` 的核心部分接好、编译过，第一次在 API 28 和 35 上跑要在 5b 合入之前；Java 一侧「一个进程只注册一次」的守卫也在 5b。
+- **还没做的**：5a 没有调用方，`SessionStoreDeviceSmoke` 只在 `smoke.sh` 的核心部分接好、编译过，第一次在 API 28 和 35 上跑要在 5b 合入之前。5b 接上了调用方和 Java 一侧「一个进程只注册一次」的守卫，见 [Android 的登录会话改由 Rust 持有](2026-10-18-android-account-through-rust.md)。
 
 ## Verification
 

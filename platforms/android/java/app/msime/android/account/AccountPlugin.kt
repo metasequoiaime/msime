@@ -200,7 +200,7 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
         }
     }
 
-    // 退出登录（包括会话被服务端吊销后 Rust 清掉它）时，云剪贴板的本机密钥串随会话一起删除；先清会话再删密钥串，理由同 BackendAccount.signOut。
+    // 退出登录（包括会话被服务端吊销后 Rust 清掉它）时，云剪贴板的本机密钥串随会话一起删除；先清会话再删密钥串：正在写密钥串的一方在密钥串的锁里核对会话，会话一清它就不会再写，而这里删除时不拿会话的锁，两把锁不会互相等。
     @Command
     fun clearSession(invoke: Invoke) {
         try {

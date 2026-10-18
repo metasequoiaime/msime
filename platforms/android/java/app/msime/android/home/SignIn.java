@@ -5,13 +5,14 @@ import android.app.Activity;
 import android.content.Context;
 import android.os.Handler;
 import androidx.core.content.ContextCompat;
-import app.msime.android.AppEdition;
+import app.msime.android.AccountStore;
 import app.msime.android.AppleWebSignIn;
 import app.msime.android.BackendAccount;
 import app.msime.android.CloudApi;
 import app.msime.android.GoogleSignInFlow;
 import app.msime.android.MainThreadPolicy;
 import app.msime.android.R;
+import app.msime.android.SignInFailurePolicy;
 import app.msime.android.SyncSwitch;
 import app.msime.android.DictionarySnapshotQueue;
 import app.msime.android.ThreadPolicy;
@@ -23,7 +24,7 @@ import org.json.JSONObject;
 /**
  * 登录：Google、Apple（网页授权）与邮箱验证码三种方式，我的页、新手引导和登录面板共用这一份。
  *
- * <p>Whether to offer it and how to run it. The offer depends on the backend accepting at least one provider this build can use -- `/v1/auth/providers` answers false for a provider with no client configured, and a button that is certain to fail is worse than no button. 登录成功后记下账号与登录方式（{@link SyncSwitch#bindAccount}，换账号时它会关闭同步并清空游标），但不触发任何同步；退出登录时调用 {@link #signOut}，同样清空同步状态。{@link BackendAccount} 在设备测试 APK 的编译清单里，不能引用 SyncSwitch，所以这两个时机放在这里。
+ * <p>Whether to offer it and how to run it. The offer depends on the backend accepting at least one provider this build can use -- the providers Rust reads from the backend answer false for a provider with no client configured, and a button that is certain to fail is worse than no button. 挑战、凭据和会话都经 Rust 的账号入口（{@link BackendAccount}），失败按 Rust 的错误码说成一句话（{@link SignInFailurePolicy}）。登录成功后记下账号与登录方式（{@link SyncSwitch#bindAccount}，换账号时它会关闭同步并清空游标），但不触发任何同步；退出登录时调用 {@link #signOut}，同样清空同步状态。{@link BackendAccount} 在设备测试 APK 的编译清单里，不能引用 SyncSwitch，所以这两个时机放在这里。
  */
 final class SignIn {
     /** Signed in, sign-in offered, or neither (no provider this build can use, or the backend could not be asked). */
@@ -49,8 +50,8 @@ final class SignIn {
     /** 后端现在接受的登录方式；读不到时都当作不提供。阻塞。 */
     static CloudApi.Providers providers(Context context) {
         try {
-            return new CloudApi(context).providers();
-        } catch (CloudApi.Failure | RuntimeException | LinkageError error) {
+            return new BackendAccount(context).providers();
+        } catch (Exception | LinkageError error) {
             return CloudApi.Providers.NONE;
         }
     }
@@ -79,7 +80,7 @@ final class SignIn {
         offMainThread(() -> {
             BackendAccount.Challenge challenge;
             try {
-                challenge = new BackendAccount(context).challenge("google", null, purpose);
+                challenge = new BackendAccount(context).googleChallenge(purpose);
             } catch (Exception | LinkageError error) {
                 challenge = null;
             }
@@ -99,12 +100,12 @@ final class SignIn {
                                 String failure;
                                 try {
                                     synchronized (SyncSwitch.bindingLock()) {
-                                        new BackendAccount(context).login(started, idToken, userAgent(context));
+                                        new BackendAccount(context).login(started, idToken);
                                         if (!"link".equals(purpose)) bind(context, "google");
                                     }
                                     failure = "";
                                 } catch (Exception | LinkageError error) {
-                                    failure = "登录没有完成：" + explain(error);
+                                    failure = SignInFailurePolicy.login(AccountStore.code(error));
                                 }
                                 String result = failure;
                                 activity.runOnUiThread(() -> finished.accept(result));
@@ -133,13 +134,9 @@ final class SignIn {
             try {
                 url = AppleWebSignIn.start(context, purpose);
                 failure = "";
-            } catch (CloudApi.Failure error) {
+            } catch (Exception | LinkageError error) {
                 url = null;
-                failure = error.unavailable() ? "Apple 登录暂未开放" : error.network()
-                    ? "连不上服务器，请检查网络后再试" : "现在无法开始 Apple 登录，请稍后再试。";
-            } catch (RuntimeException | LinkageError error) {
-                url = null;
-                failure = "现在无法开始 Apple 登录，请稍后再试。";
+                failure = SignInFailurePolicy.appleStart(AccountStore.code(error));
             }
             String address = url;
             String message = failure;
@@ -169,7 +166,7 @@ final class SignIn {
     /**
      * 处理一次形状已经检查过的 Apple 回调（{@link AuthRedirectActivity}）。阻塞，不要在主线程调用；结果交给等待中的界面。
      *
-     * <p>在锁里读出等待中的流程再兑换，成功、网络错误或 5xx 都按 verifier 删掉它并报告结果；服务端以 400 / 401 / 404 拒绝（grant 不认识、已用过或属于别的 challenge，例如伪造的或旧标签页的回调）时保留它、也不报告失败，真正的回调随后仍能完成。`error=` 回调同样保留、不报告：回调 Activity 是导出的，任何应用或网页都能发一个带 error 的 VIEW，原先它会删掉流程、让正在进行的登录失败；现在流程留到过期，用户也可以自己关掉登录面板。
+     * <p>在锁里读出等待中的流程再兑换，成功或其他失败都按 verifier 删掉它并报告结果；Rust 报 account_invalid（服务端不认这个 grant：不认识、已用过或属于别的 verifier，例如伪造的或旧标签页的回调）时保留它、也不报告失败，真正的回调随后仍能完成。`error=` 回调同样保留、不报告：回调 Activity 是导出的，任何应用或网页都能发一个带 error 的 VIEW，原先它会删掉流程、让正在进行的登录失败；现在流程留到过期，用户也可以自己关掉登录面板。
      *
      * @param error 回调里的 `error`，没有时为 null
      */
@@ -181,13 +178,13 @@ final class SignIn {
             if (error != null && !error.isEmpty()) return;
             try {
                 synchronized (SyncSwitch.bindingLock()) {
-                    AppleWebSignIn.complete(context, pending, grant, userAgent(context));
+                    AppleWebSignIn.complete(context, pending, grant);
                     if (!pending.link()) bind(context, "apple");
                 }
                 failure = "";
             } catch (Exception | LinkageError rejected) {
-                if (AppleWebSignIn.keepPendingAfter(BackendAccount.failureStatus(rejected))) return;
-                failure = "Apple 登录没有完成：" + explain(rejected);
+                if (AppleWebSignIn.keepPendingAfter(AccountStore.code(rejected))) return;
+                failure = "Apple " + SignInFailurePolicy.login(AccountStore.code(rejected));
             }
             AppleWebSignIn.clearPending(context, pending.verifier());
         }
@@ -206,14 +203,7 @@ final class SignIn {
         try {
             return new EmailCode(new BackendAccount(context).requestEmailCode(target, purpose), "");
         } catch (Exception | LinkageError error) {
-            int status = BackendAccount.failureStatus(error);
-            String failure = status == 429 ? "发送太频繁，请稍后再试"
-                : status == 503 ? "邮箱登录暂未开放"
-                : status == 400 ? "这个邮箱地址不能用来登录"
-                : status == 403 ? "需要先重新登录一次"
-                : status == 0 ? "连不上服务器，请检查网络后再试"
-                : "验证码没有发出，请稍后再试";
-            return new EmailCode(null, failure);
+            return new EmailCode(null, SignInFailurePolicy.emailCode(AccountStore.code(error)));
         }
     }
 
@@ -223,17 +213,12 @@ final class SignIn {
         if (!BackendAccount.validEmailCode(credential)) return "验证码是 6 位数字";
         try {
             synchronized (SyncSwitch.bindingLock()) {
-                new BackendAccount(context).verifyEmailCode(challenge, credential, userAgent(context));
+                new BackendAccount(context).verifyEmailCode(challenge, credential);
                 if (!"link".equals(challenge.purpose())) bind(context, "email");
             }
             return "";
         } catch (Exception | LinkageError error) {
-            int status = BackendAccount.failureStatus(error);
-            return status == 400 || status == 401 ? "验证码不对或已过期"
-                : status == 429 ? "尝试太多次，请稍后再试"
-                : status == 403 ? "需要先重新登录一次"
-                : status == 0 ? "连不上服务器，请检查网络后再试"
-                : "登录没有完成，请稍后再试";
+            return SignInFailurePolicy.emailLogin(AccountStore.code(error));
         }
     }
 
@@ -292,18 +277,6 @@ final class SignIn {
             cancelPendingSnapshot(context, previousAccount);
         }
         SyncSwitch.bindAccount(context, id, loginKind);
-    }
-
-    private static String userAgent(Context context) {
-        return BackendAccount.loginUserAgent(context, AppEdition.current().id());
-    }
-
-    private static String explain(Throwable error) {
-        int status = BackendAccount.failureStatus(error);
-        if (status == 0) return "连不上服务器";
-        if (status == 429) return "尝试太频繁，请稍后再试";
-        if (status == 503) return "这种登录方式暂未开放";
-        return "服务器拒绝了这次登录（" + status + "）";
     }
 
     private static void offMainThread(Runnable work) {

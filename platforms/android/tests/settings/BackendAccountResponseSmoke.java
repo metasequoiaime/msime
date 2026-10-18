@@ -7,16 +7,7 @@ import java.util.List;
 
 public final class BackendAccountResponseSmoke {
     public static void main(String[] args) throws Exception {
-        BackendAccount providerAccount = new BackendAccount(
-            new BackendAccount.SessionStore() {
-                @Override public String load() { return ""; }
-                @Override public void save(String value) {}
-                @Override public void clear() {}
-            },
-            (method, path, body, token) -> new org.json.JSONObject()
-                .put("providers", new org.json.JSONObject().put("google", "true")));
-        check(!providerAccount.supports("google"),
-            "provider flags reject boolean strings instead of coercing them");
+        // Rust 的 providers 交回的开关经 JsonPolicy.strictTrue 读（BackendAccount#providers），字符串 "true" 不算开。
         check(JsonPolicy.strictTrue(Boolean.TRUE), "boolean provider flag is enabled");
         check(!JsonPolicy.strictTrue("true"),
             "string provider flag is not enabled");

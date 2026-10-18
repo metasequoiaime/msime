@@ -11,7 +11,7 @@ JAVA = ROOT / "platforms/android/java/app/msime/android"
 POLICY = JAVA / "AppVersionPolicy.java"
 DEVICE_SOURCES = ROOT / "platforms/android/tests/device/editor-sources.txt"
 SITES = {
-    JAVA / "account/BackendAccount.java": 'AppVersionPolicy.versionName(context, "")',
+    JAVA / "account/AccountStore.java": 'AppVersionPolicy.versionName(context, "")',
     JAVA / "core/Telemetry.java": "AppVersionPolicy.versionName(app)",
     JAVA / "home/AccountFragment.java": 'AppVersionPolicy.versionName(requireContext(), "—")',
     JAVA / "home/DeveloperPage.java": 'AppVersionPolicy.versionName(context, "")',

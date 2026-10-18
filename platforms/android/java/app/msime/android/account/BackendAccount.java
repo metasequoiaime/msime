@@ -11,29 +11,22 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.FutureTask;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONException;
 import org.json.JSONObject;
 import app.msime.android.clipboard.CloudClipboardTextPolicy;
 
 /**
- * 水杉账号：登录方式、挑战、登录、以及本机保存的会话。
+ * 水杉账号：登录方式、挑战、登录，以及本机的登录会话。
  *
- * <p>Separate from {@link BackendAnonymousAccount}, which holds the device's own identity and needs
- * no one's permission. This one is a real account: a third party vouches for it, and the backend
- * only accepts providers it has been configured for.
+ * <p>会话、令牌、登录和刷新都由 Rust 持有（#8201 迁移计划 5b）：主进程里经 {@link AccountStore} 注入的存储调 {@code msime_client_account} 和 {@code msime_client_account_access_token}，`:ime` 键盘进程经 {@link AccountSessionProvider} 向主进程要令牌，自己不读也不刷新会话。这里还留着的对话、云剪贴板请求用 Rust 给的令牌经 Java 的 HTTPS 发出，随后几组提交改调 Rust。
  *
- * <p>The exchange is the one `docs/user-auth.md` describes: ask for a challenge, hand its `nonce` to
- * the provider's own SDK unchanged, then post the ID token back as the credential. The nonce is what
- * stops a token minted for some other app, or captured from an earlier sign-in, being replayed here.
+ * <p>登录的绑定按账号编号（user.id）：页面记下的「会话」就是当时的账号编号，同一个账号重新登录不算换号，与 Rust 相同。
  */
 public final class BackendAccount {
     /** Fixed hexadecimal length of account challenge and clipboard identifiers. */
     public static final int HEX_ID_LENGTH = 64;
-    private static final String SESSION_STORE = "msime_account_session_v2";
     /** 与 client-services 的账号 JSON 响应上限一致。云剪贴板的整页密文走 {@link #httpExchange}，上限是 {@link CloudClipboardE2e#MAX_RESPONSE_BYTES}。 */
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
     /** 一条 AI 回复的 UTF-8 字节上限，流式与非流式相同。 */
@@ -42,21 +35,19 @@ public final class BackendAccount {
     static final int MAX_STREAM_BYTES = 4 * 1024 * 1024;
     /** SSE 单行上限；一个增量块远小于它。 */
     static final int MAX_EVENT_LINE_BYTES = 64 * 1024;
-    private static final long MAX_SESSION_MILLISECONDS = AccountTokenPolicy.MAX_SESSION_SECONDS * 1000L;
-    private static final Object SESSION_LOCK = new Object();
-    private static FutureTask<String> refreshFlight;
-    private static long sessionGeneration;
 
-    /** 一次等待提供商凭据的挑战；link 挑战还记住发起它的账号会话。 */
+    /** 一次等待提供商凭据的挑战；link 挑战还记住发起它的账号（user.id）。 */
     public record Challenge(String id, String nonce, String purpose, String sessionId) {
         public Challenge(String id, String nonce) { this(id, nonce, "login", ""); }
     }
-    /** 一次邮箱验证码挑战：服务端的 id、用途（login / link）与有效秒数。 */
+    /** 一次邮箱验证码挑战：服务端的 id、用途（login / link）、有效秒数，以及 link 时发起它的账号。 */
     public record EmailChallenge(String id, String purpose, long expiresIn, String sessionId) {
         public EmailChallenge(String id, String purpose, long expiresIn) {
             this(id, purpose, expiresIn, "");
         }
     }
+    /** Apple 网页登录开始时 Rust 给的授权地址与 verifier，以及 link 时发起它的账号。 */
+    public record AppleWebStart(String authorizationUrl, String codeVerifier, String sessionId) {}
     public record ChatMessage(String role, String content) {}
     public record ClipboardItem(String id, String text, String updatedAt) {}
     /**
@@ -67,20 +58,8 @@ public final class BackendAccount {
         public boolean pending() { return CloudClipboardApi.STATUS_PENDING.equals(status); }
     }
 
-    interface SessionStore {
-        String load() throws Exception;
-        void save(String value) throws Exception;
-        void clear() throws Exception;
-    }
-
     interface Requester {
         JSONObject request(String method, String path, JSONObject body, String token) throws Exception;
-
-        /** 真实账号登录请求带详细 User-Agent；不关心它的实现（测试里的内存实现）照常走四参数版本。 */
-        default JSONObject request(String method, String path, JSONObject body, String token, String userAgent)
-                throws Exception {
-            return request(method, path, body, token);
-        }
 
         /** 发一个请求，不论状态码都把状态和正文交回，连不上时抛出；只给云剪贴板的端到端驱动用（{@link CloudClipboardE2e}）。 */
         default CloudClipboardE2e.Reply exchange(String method, String path, String body, String token) throws Exception {
@@ -92,16 +71,11 @@ public final class BackendAccount {
         String stream(JSONObject body, String token, ChatCall call, ChatStreamListener listener) throws Exception;
     }
 
-    /** 走 HTTPS 的默认实现；只有登录请求会传入详细 User-Agent。 */
+    /** 走 HTTPS 的默认实现，固定发 `MSIME/Android`。 */
     private static final class HttpRequester implements Requester {
         @Override public JSONObject request(String method, String path, JSONObject body, String token)
                 throws Exception {
-            return httpRequest(method, path, body, token, CloudApi.USER_AGENT);
-        }
-
-        @Override public JSONObject request(String method, String path, JSONObject body, String token,
-                String userAgent) throws Exception {
-            return httpRequest(method, path, body, token, userAgent);
+            return httpRequest(method, path, body, token);
         }
 
         @Override public CloudClipboardE2e.Reply exchange(String method, String path, String body, String token)
@@ -110,19 +84,23 @@ public final class BackendAccount {
         }
     }
 
-    /** Where a process that does not own the session gets its access token (see {@link AccountSessionRoutingPolicy}). */
-    interface TokenSource {
-        String accessToken() throws Exception;
+    /**
+     * 本进程从哪里拿登录会话（见 {@link AccountSessionRoutingPolicy}）：主进程是 Rust 持有的存储，其他进程是主进程的 provider。
+     */
+    interface Sessions {
+        /** 当前登录的令牌和账号编号；没有登录时两者都为空串，现在说不清（刷新时断网、provider 连不上）时抛出。`rejectedToken` 是服务端刚拒绝的令牌，给了就不再交回它。 */
+        SessionCredential session(String rejectedToken) throws Exception;
 
-        default String accessToken(String rejectedToken) throws Exception {
-            return accessToken();
-        }
+        /** 当前登录的账号编号，没有登录时为空串。主进程只读本地，不刷新、不联网。 */
+        String userId() throws Exception;
 
-        default SessionCredential session(String rejectedToken) throws Exception {
-            throw new IllegalStateException("account session identity unavailable");
+        /** 跑一个 {@code msime_client_account} 操作并返回它的 value；只有持有会话的主进程能做。 */
+        default Object account(JSONObject action) throws Exception {
+            throw new IllegalStateException("account session owner");
         }
     }
 
+    /** 一次登录的令牌和账号编号（user.id）；页面和请求按 `sessionId` 绑定到发起时的账号。 */
     record SessionCredential(String token, String sessionId) {}
     private static final SessionCredential NO_SESSION = new SessionCredential("", "");
 
@@ -143,63 +121,76 @@ public final class BackendAccount {
         }
     }
 
-    private final SessionStore sessions;
+    private final Sessions sessions;
     private final Requester requester;
-    private final TokenSource ownerProcess;
     private final StreamRequester streamer;
-    /** 云剪贴板的本机密钥串，退出登录时与会话一起删除；测试构造的账号没有。 */
-    private final CloudClipboardE2e.Keystore clipboardKeystore;
+    /** 这个进程是否持有会话：只有它能登录和退出。 */
+    private final boolean owner;
 
     /**
      * The account as this process may use it.
      *
-     * <p>In the main process this reads and refreshes the session itself. In any other process - the `:ime` keyboard - the access token comes from the main process through {@link AccountSessionProvider}, so only one process ever spends a refresh token. Sign-in and sign-out belong to the main process.
+     * <p>主进程里会话由 Rust 持有（{@link AccountStore}）；其他进程（`:ime` 键盘）的令牌经 {@link AccountSessionProvider} 从主进程来，所以只有一个进程会花掉刷新令牌。登录和退出只在主进程里做。
      */
     public BackendAccount(Context context) {
-        this(new AndroidAccountSessionStorage(context, SESSION_STORE), new HttpRequester(),
-            AccountSessionRoutingPolicy.ownsSession(Application.getProcessName(), context.getPackageName())
-                ? null : sessionOwner(context), BackendAccount::streamChat, CloudClipboardKeystore.deferred(context));
+        this(AccountSessionRoutingPolicy.ownsSession(Application.getProcessName(), context.getPackageName())
+                ? rustSessions(context) : sessionOwner(context), new HttpRequester(), BackendAccount::streamChat,
+            AccountSessionRoutingPolicy.ownsSession(Application.getProcessName(), context.getPackageName()));
     }
 
-    /** The account read and refreshed in this process, whatever process it is; only {@link AccountSessionProvider} uses this, in the main process. */
+    /** 本进程自己持有的会话，不论是哪个进程；只有主进程里的 {@link AccountSessionProvider} 用它。 */
     static BackendAccount owningSession(Context context) {
-        return new BackendAccount(new AndroidAccountSessionStorage(context, SESSION_STORE),
-            new HttpRequester(), null, BackendAccount::streamChat, CloudClipboardKeystore.deferred(context));
+        return new BackendAccount(rustSessions(context), new HttpRequester(), BackendAccount::streamChat, true);
     }
 
-    BackendAccount(SessionStore sessions, Requester requester) {
-        this(sessions, requester, null);
+    BackendAccount(Sessions sessions, Requester requester) {
+        this(sessions, requester, BackendAccount::streamChat, true);
     }
 
-    BackendAccount(SessionStore sessions, Requester requester, TokenSource owner) {
-        this(sessions, requester, owner, BackendAccount::streamChat);
-    }
-
-    BackendAccount(SessionStore sessions, Requester requester, TokenSource owner, StreamRequester streamer) {
-        this(sessions, requester, owner, streamer, null);
-    }
-
-    BackendAccount(SessionStore sessions, Requester requester, TokenSource owner, StreamRequester streamer,
-            CloudClipboardE2e.Keystore clipboardKeystore) {
+    BackendAccount(Sessions sessions, Requester requester, StreamRequester streamer, boolean owner) {
         this.sessions = sessions;
         this.requester = requester;
-        this.ownerProcess = owner;
         this.streamer = streamer;
-        this.clipboardKeystore = clipboardKeystore;
+        this.owner = owner;
     }
 
-    private static TokenSource sessionOwner(Context context) {
+    /** 主进程：令牌由 Rust 给（登录的那一份，必要时刷新），账号编号读 Rust 的 status。 */
+    private static Sessions rustSessions(Context context) {
+        Context application = context.getApplicationContext();
+        return new Sessions() {
+            @Override public SessionCredential session(String rejectedToken) throws Exception {
+                if (userId().isEmpty()) return NO_SESSION;
+                final JSONObject token;
+                try {
+                    token = AccountStore.accessToken(application, rejectedToken);
+                } catch (AccountStore.Failure failure) {
+                    // 刷新被服务端拒绝时 Rust 已经清掉本地会话，与没有登录相同。
+                    if ("account_unauthorized".equals(failure.code)) return NO_SESSION;
+                    throw failure;
+                }
+                // 期间退出了登录：Rust 交回的是匿名账号的令牌，不能当登录会话用。
+                if (JsonPolicy.strictTrue(token.opt("anonymous"))) return NO_SESSION;
+                return new SessionCredential(JsonPolicy.strictStringOrEmpty(token.opt("access_token")),
+                    JsonPolicy.strictStringOrEmpty(token.opt("user_id")));
+            }
+
+            @Override public String userId() throws Exception {
+                Object value = AccountStore.account(application, new JSONObject().put("operation", "status"));
+                JSONObject user = value instanceof JSONObject status ? status.optJSONObject("user") : null;
+                return user == null ? "" : JsonPolicy.strictStringOrEmpty(user.opt("id"));
+            }
+
+            @Override public Object account(JSONObject action) throws Exception {
+                return AccountStore.account(application, action);
+            }
+        };
+    }
+
+    /** `:ime` 等其他进程：令牌和账号编号都由主进程的 provider 回答。 */
+    private static Sessions sessionOwner(Context context) {
         Context application = context.getApplicationContext();
         Uri uri = Uri.parse("content://" + AccountSessionRoutingPolicy.authority(application.getPackageName()));
-        return new TokenSource() {
-            @Override public String accessToken() throws Exception {
-                return accessToken(null);
-            }
-
-            @Override public String accessToken(String rejectedToken) throws Exception {
-                return session(rejectedToken).token();
-            }
-
+        return new Sessions() {
             @Override public SessionCredential session(String rejectedToken) throws Exception {
                 Bundle reply = application.getContentResolver().call(
                     uri, AccountSessionRoutingPolicy.METHOD_ACCESS_TOKEN, rejectedToken, null);
@@ -213,140 +204,143 @@ public final class BackendAccount {
                     throw new IllegalStateException("account session unavailable");
                 return new SessionCredential(token, sessionId);
             }
+
+            @Override public String userId() throws Exception {
+                return session(null).sessionId();
+            }
         };
     }
 
     /**
-     * Which sign-in methods this deployment actually accepts.
+     * 这个部署接受哪些登录方式（Rust 的 providers，含 Android 用的 Apple 网页登录）。
      *
-     * <p>Read before anything is offered, because a provider with no client ID configured answers
-     * 503 on use. A button that is always going to fail is worse than no button.
+     * <p>Read before anything is offered, because a provider with no client ID configured answers 503 on use. A button that is always going to fail is worse than no button.
      */
-    public JSONObject providers() throws Exception {
-        return request("GET", "/v1/auth/providers", null, null).getJSONObject("providers");
+    public CloudApi.Providers providers() throws Exception {
+        Object value = sessions.account(new JSONObject().put("operation", "providers"));
+        if (!(value instanceof JSONObject providers)) throw new IllegalStateException("providers unavailable");
+        return new CloudApi.Providers(JsonPolicy.strictTrue(providers.opt("google")),
+            JsonPolicy.strictTrue(providers.opt("apple")), JsonPolicy.strictTrue(providers.opt("apple_web")),
+            JsonPolicy.strictTrue(providers.opt("email")));
     }
 
-    public boolean supports(String provider) {
-        try {
-            return JsonPolicy.strictTrue(providers().opt(provider));
-        } catch (Exception | LinkageError error) {
-            return false;
-        }
+    /** 开始 Google 登录或关联，取得 Google 必须原样回传的 nonce。link 挑战只能在发起它的同一个账号里完成。 */
+    public Challenge googleChallenge(String purpose) throws Exception {
+        String sessionId = linkSession(purpose);
+        JSONObject challenge = object(sessions.account(new JSONObject().put("operation", "google_challenge")
+            .put("purpose", purpose)));
+        ensureLinkSession(purpose, sessionId);
+        String id = JsonPolicy.strictStringOrEmpty(challenge.opt("challengeId"));
+        String nonce = JsonPolicy.strictStringOrEmpty(challenge.opt("nonce"));
+        if (id.isEmpty() || nonce.isEmpty()) throw new IllegalStateException("challenge unavailable");
+        return new Challenge(id, nonce, purpose, sessionId);
     }
 
-    /** 开始登录或关联并取得提供商 SDK 必须原样回传的 nonce。 */
-    public Challenge challenge(String provider, String target) throws Exception {
-        return challenge(provider, target, "login");
-    }
-
-    /** 只允许在发起 link 挑战的同一账号会话中完成关联。 */
-    public Challenge challenge(String provider, String target, String purpose) throws Exception {
-        SessionCredential session = linkSession(purpose);
-        ensureBoundSession(session);
-        JSONObject body = new JSONObject().put("provider", provider).put("purpose", purpose);
-        if (target != null && !target.isEmpty()) body.put("target", target);
-        JSONObject response = request("POST", "/v1/auth/challenges", body,
-            session.token().isEmpty() ? null : session.token());
-        ensureBoundSession(session);
-        String id = optionalStringField(response.opt("challenge_id"), "");
-        String nonce = optionalStringField(response.opt("nonce"), "");
-        if (id.length() != HEX_ID_LENGTH || nonce.isEmpty()) {
-            throw new IllegalStateException("challenge unavailable");
-        }
-        return new Challenge(id, nonce, purpose, session.sessionId());
-    }
-
-    /** Finish it with the provider's ID token, and keep the session this device is now signed in on. */
+    /** 用 Google 的 ID token 完成登录或关联，会话由 Rust 保存。 */
     public void login(Challenge challenge, String idToken) throws Exception {
-        login(challenge, idToken, CloudApi.USER_AGENT);
-    }
-
-    /** 同上，登录请求带 {@link #loginUserAgent} 生成的详细 User-Agent；后端只在登录时记下它，用来在「我的设备」里显示这台设备。 */
-    public void login(Challenge challenge, String idToken, String userAgent) throws Exception {
-        if (ownerProcess != null) throw new IllegalStateException("account session owner");
-        if (challenge == null || !("login".equals(challenge.purpose()) || "link".equals(challenge.purpose())))
+        if (!owner) throw new IllegalStateException("account session owner");
+        if (challenge == null || !validPurpose(challenge.purpose()))
             throw new IllegalArgumentException("invalid challenge");
-        SessionCredential session = linkSession(challenge.purpose());
-        requireSession(session, "link".equals(challenge.purpose()) ? challenge.sessionId() : null);
-        JSONObject response = request("POST", "/v1/auth/login",
-            new JSONObject().put("challenge_id", challenge.id()).put("credential", idToken),
-            session.token().isEmpty() ? null : session.token(),
-            userAgent(userAgent));
-        ensureBoundSession(session);
-        keepSession(response);
+        requireLinkSession(challenge.purpose(), challenge.sessionId());
+        sessions.account(new JSONObject().put("operation", "google_token_login")
+            .put("challenge_id", challenge.id()).put("id_token", idToken).put("purpose", challenge.purpose()));
     }
 
     /**
      * 请服务端给这个邮箱发一封 6 位验证码。
      *
-     * <p>邮箱挑战没有 nonce，所以不走 {@link #challenge}。`purpose=link` 是把邮箱绑到已登录的账号上，服务端要求最近登录过的会话，所以带上当前令牌。
+     * <p>`purpose=link` 是把邮箱绑到已登录的账号上，服务端要求最近登录过的会话，Rust 带着当前登录的令牌发。
      *
      * @param purpose `login` 或 `link`
      */
     public EmailChallenge requestEmailCode(String email, String purpose) throws Exception {
         String target = TextPolicy.trimmed(email);
         if (!validEmail(target)) throw new IllegalArgumentException("invalid email");
-        SessionCredential session = linkSession(purpose);
-        ensureBoundSession(session);
-        JSONObject response = request("POST", "/v1/auth/challenges", new JSONObject()
-            .put("provider", "email").put("target", target).put("purpose", purpose),
-            session.token().isEmpty() ? null : session.token());
-        ensureBoundSession(session);
-        String id = optionalStringField(response.opt("challenge_id"), "");
-        long expires = AccountTokenPolicy.strictLong(response.opt("expires_in"), 0);
-        if (id.length() != HEX_ID_LENGTH || expires <= 0) throw new IllegalStateException("challenge unavailable");
-        return new EmailChallenge(id, purpose, expires, session.sessionId());
+        String sessionId = linkSession(purpose);
+        JSONObject challenge = object(sessions.account(new JSONObject().put("operation", "request_code")
+            .put("provider", "email").put("target", target).put("purpose", purpose)));
+        ensureLinkSession(purpose, sessionId);
+        String id = JsonPolicy.strictStringOrEmpty(challenge.opt("challengeId"));
+        long expires = NumberPolicy.strictLong(challenge.opt("expiresIn"), 0);
+        if (id.isEmpty() || expires <= 0) throw new IllegalStateException("challenge unavailable");
+        return new EmailChallenge(id, purpose, expires, sessionId);
     }
 
-    /** 提交邮件里的验证码完成登录（或绑定），保存得到的会话。 */
-    public void verifyEmailCode(EmailChallenge challenge, String code, String userAgent) throws Exception {
-        if (ownerProcess != null) throw new IllegalStateException("account session owner");
+    /** 提交邮件里的验证码完成登录（或绑定），会话由 Rust 保存。 */
+    public void verifyEmailCode(EmailChallenge challenge, String code) throws Exception {
+        if (!owner) throw new IllegalStateException("account session owner");
         String credential = TextPolicy.trimmed(code);
-        if (challenge == null || !validEmailCode(credential)) throw new IllegalArgumentException("invalid code");
-        SessionCredential session = linkSession(challenge.purpose());
-        requireSession(session, "link".equals(challenge.purpose()) ? challenge.sessionId() : null);
-        JSONObject response = request("POST", "/v1/auth/login",
-            new JSONObject().put("challenge_id", challenge.id()).put("credential", credential),
-            session.token().isEmpty() ? null : session.token(),
-            userAgent(userAgent));
-        ensureBoundSession(session);
-        keepSession(response);
+        if (challenge == null || !validPurpose(challenge.purpose()) || !validEmailCode(credential))
+            throw new IllegalArgumentException("invalid code");
+        requireLinkSession(challenge.purpose(), challenge.sessionId());
+        sessions.account(new JSONObject().put("operation", "login").put("challenge_id", challenge.id())
+            .put("code", credential).put("purpose", challenge.purpose()));
     }
 
     /**
-     * 用 Apple 网页授权回调里的一次性授权码和本机保存的 verifier 换会话（`POST /v1/auth/apple/web/login`）。
+     * 开始 Apple 网页登录：Rust 生成 verifier、只把它的摘要交给服务端，返回校验过的 Apple 授权地址和 verifier。verifier 由调用方私下保存（浏览器打开期间进程可能被杀）。
      *
-     * @param link 这次流程是不是绑定到已登录账号；是的话带上当前令牌
+     * @param app 发起登录的 applicationId
      */
-    public void loginWithAppleGrant(String grant, String verifier, boolean link, String userAgent)
-            throws Exception {
-        loginWithAppleGrant(grant, verifier, link, userAgent, null);
+    public AppleWebStart appleWebStart(String app, String purpose) throws Exception {
+        String sessionId = linkSession(purpose);
+        JSONObject start = object(sessions.account(new JSONObject().put("operation", "apple_web_start")
+            .put("app", app).put("purpose", purpose)));
+        ensureLinkSession(purpose, sessionId);
+        String url = JsonPolicy.strictStringOrEmpty(start.opt("authorizationUrl"));
+        String verifier = JsonPolicy.strictStringOrEmpty(start.opt("codeVerifier"));
+        if (url.isEmpty() || verifier.isEmpty()) throw new IllegalStateException("authorization unavailable");
+        return new AppleWebStart(url, verifier, sessionId);
     }
 
-    /** 用发起 Apple link 流程时的会话兑换授权码，账号切换后拒绝写入新会话。 */
-    public void loginWithAppleGrant(String grant, String verifier, boolean link, String userAgent,
-            String expectedSessionId) throws Exception {
-        if (ownerProcess != null) throw new IllegalStateException("account session owner");
+    /**
+     * 用 Apple 网页授权回调里的一次性授权码和本机保存的 verifier 完成登录或关联。
+     *
+     * @param expectedSessionId link 流程发起时的账号；账号已经换了时拒绝，不写入新会话
+     */
+    public void loginWithAppleGrant(String grant, String verifier, boolean link, String expectedSessionId)
+            throws Exception {
+        if (!owner) throw new IllegalStateException("account session owner");
         if (grant == null || grant.isEmpty() || grant.length() > AppleWebSignIn.MAX_GRANT_LENGTH
                 || verifier == null || verifier.isEmpty()) {
             throw new IllegalArgumentException("invalid grant");
         }
-        SessionCredential session = link ? linkSession("link") : NO_SESSION;
-        requireSession(session, link ? expectedSessionId : null);
-        JSONObject response = request("POST", "/v1/auth/apple/web/login",
-            new JSONObject().put("grant", grant).put("code_verifier", verifier),
-            session.token().isEmpty() ? null : session.token(), userAgent(userAgent));
-        ensureBoundSession(session);
-        keepSession(response);
+        String purpose = link ? "link" : "login";
+        requireLinkSession(purpose, expectedSessionId);
+        sessions.account(new JSONObject().put("operation", "apple_web_login").put("grant", grant)
+            .put("code_verifier", verifier).put("purpose", purpose));
     }
 
-    /** 读取 link 的当前会话；login 不读取账号令牌。 */
-    private SessionCredential linkSession(String purpose) throws Exception {
-        if ("login".equals(purpose)) return NO_SESSION;
+    private static boolean validPurpose(String purpose) {
+        return "login".equals(purpose) || "link".equals(purpose);
+    }
+
+    /** link 要已经登录，返回当时的账号编号；login 不读会话，返回空串。 */
+    private String linkSession(String purpose) throws Exception {
+        if ("login".equals(purpose)) return "";
         if (!"link".equals(purpose)) throw new IllegalArgumentException("invalid purpose");
-        SessionCredential session = currentSession();
-        if (session.token().isEmpty()) throw new IllegalStateException("HTTP 401");
-        return session;
+        String sessionId = sessions.userId();
+        if (sessionId.isEmpty()) throw new AccountStore.Failure("account_unauthorized", 0);
+        return sessionId;
+    }
+
+    /** link 的申请回来以后，登录的仍是发起它的那个账号。 */
+    private void ensureLinkSession(String purpose, String sessionId) throws Exception {
+        if ("link".equals(purpose) && !sessionId.equals(sessions.userId()))
+            throw new CancellationException("account session changed");
+    }
+
+    /** link 的完成只在发起它的那个账号里做；login 不看。 */
+    private void requireLinkSession(String purpose, String expectedSessionId) throws Exception {
+        if (!"link".equals(purpose)) return;
+        if (expectedSessionId == null || expectedSessionId.isEmpty()
+                || !expectedSessionId.equals(sessions.userId()))
+            throw new CancellationException("account session changed");
+    }
+
+    private static JSONObject object(Object value) {
+        if (!(value instanceof JSONObject object)) throw new IllegalStateException("invalid account response");
+        return object;
     }
 
     /** 粗查邮箱形状：去掉首尾空白后 3–254 个字符、恰好一个 @、两边都不为空、没有空白和控制字符。真正的校验在服务端。 */
@@ -370,60 +364,6 @@ public final class BackendAccount {
         return true;
     }
 
-    /**
-     * 真实账号登录请求的 User-Agent：`msime-android/<versionName> (<Build.MODEL>; Android <Build.VERSION.RELEASE>; edition=<id>)`。
-     *
-     * <p>只给登录请求用：后端只在登录时把它记进会话，刷新和其他请求都发 `MSIME/Android`。
-     */
-    public static String loginUserAgent(Context context, String editionId) {
-        String version = AppVersionPolicy.versionName(context, "");
-        return loginUserAgent(version, android.os.Build.MODEL, android.os.Build.VERSION.RELEASE, editionId);
-    }
-
-    /** 同上，各段由调用方给出；每段去掉控制字符和会破坏括号结构的字符，过长截断。 */
-    public static String loginUserAgent(String versionName, String model, String release, String editionId) {
-        return "msime-android/" + agentPart(versionName, "0") + " (" + agentPart(model, "unknown")
-            + "; Android " + agentPart(release, "unknown") + "; edition=" + agentPart(editionId, "full") + ")";
-    }
-
-    private static String agentPart(String value, String fallback) {
-        StringBuilder result = new StringBuilder(64);
-        String raw = TextPolicy.trimmed(value);
-        for (int index = 0; index < raw.length() && result.length() < 64; index++) {
-            char c = raw.charAt(index);
-            if (c < 0x20 || c > 0x7E || c == '(' || c == ')' || c == ';') continue;
-            result.append(c);
-        }
-        String cleaned = TextPolicy.trimmed(result.toString());
-        return cleaned.isEmpty() ? fallback : cleaned;
-    }
-
-    /** 一次登录请求失败时的 HTTP 状态；不是服务端拒绝（网络断了、响应读不出）时为 0。给登录界面分辨「验证码不对」「太频繁」「没开这种登录」。 */
-    public static int failureStatus(Throwable error) {
-        return error instanceof RequestException rejected ? rejected.status : 0;
-    }
-
-    private static String userAgent(String value) {
-        return value == null || value.isEmpty() ? CloudApi.USER_AGENT : value;
-    }
-
-    /** 校验并保存一次登录得到的会话。 */
-    private void keepSession(JSONObject tokens) throws Exception {
-        String access = optionalStringField(tokens.opt("access_token"), "");
-        long expires = AccountTokenPolicy.strictSeconds(tokens.opt("expires_in"));
-        if (!AccountTokenPolicy.validSession(optionalStringField(tokens.opt("token_type"), ""), access,
-                optionalStringField(tokens.opt("refresh_token"), ""), expires)) {
-            throw new IllegalStateException("login refused");
-        }
-        String saved = new JSONObject().put("tokens", tokens)
-            .put("session_id", UUID.randomUUID().toString())
-            .put("expires_at_unix_ms", expiration(expires)).toString();
-        synchronized (SESSION_LOCK) {
-            sessionGeneration++;
-            sessions.save(saved);
-        }
-    }
-
     /** The saved access token, or an empty string when this device is not signed in or the token cannot be had right now. */
     public String accessToken() {
         try {
@@ -442,99 +382,30 @@ public final class BackendAccount {
         return currentAccessToken(null);
     }
 
-    /** 被服务端拒绝的令牌不能走未过期快路径，必须加入当前刷新单飞。 */
+    /** 被服务端拒绝的令牌不再交回，Rust 带着它强制刷新。 */
     String currentAccessToken(String rejectedToken) throws Exception {
-        if (ownerProcess != null) {
-            String token = ownerProcess.accessToken(rejectedToken);
-            return AccountTokenPolicy.validToken(token) ? token : "";
-        }
         return currentSession(rejectedToken).token();
     }
 
     SessionCredential currentSession() throws Exception { return currentSession(null); }
 
     SessionCredential currentSession(String rejectedToken) throws Exception {
-        if (ownerProcess != null) {
-            SessionCredential answer = ownerProcess.session(rejectedToken);
-            return AccountTokenPolicy.validToken(answer.token()) ? answer : NO_SESSION;
-        }
-        FutureTask<String> flight;
-        boolean owner = false;
-        String sessionId;
-        synchronized (SESSION_LOCK) {
-            String saved = sessions.load();
-            if (saved == null) return NO_SESSION;
-            JSONObject session = new JSONObject(saved);
-            JSONObject tokens = session.getJSONObject("tokens");
-            if (!AccountTokenPolicy.validSession(optionalStringField(tokens.opt("token_type"), ""),
-                    optionalStringField(tokens.opt("access_token"), ""), optionalStringField(tokens.opt("refresh_token"), ""),
-                    AccountTokenPolicy.strictSeconds(tokens.opt("expires_in")))) return NO_SESSION;
-            long now = System.currentTimeMillis();
-            long expiry = AccountTokenPolicy.strictLong(session.opt("expires_at_unix_ms"), 0);
-            if (expiry > now + MAX_SESSION_MILLISECONDS) return NO_SESSION;
-            sessionId = session.optString("session_id", "");
-            if (sessionId.isEmpty()) {
-                sessionId = UUID.randomUUID().toString();
-                session.put("session_id", sessionId);
-                sessions.save(session.toString());
-            }
-            if (expiry > now + 30_000L
-                    && !java.util.Objects.equals(rejectedToken,
-                        optionalStringField(tokens.opt("access_token"), ""))) {
-                return new SessionCredential(optionalStringField(tokens.opt("access_token"), ""), sessionId);
-            }
-            if (refreshFlight != null) {
-                flight = refreshFlight;
-            } else {
-                long generation = sessionGeneration;
-                String refresh = optionalStringField(tokens.opt("refresh_token"), "");
-                String refreshingSessionId = sessionId;
-                flight = new FutureTask<>(() -> refresh(refresh, generation, refreshingSessionId));
-                refreshFlight = flight;
-                owner = true;
-            }
-        }
-        if (owner) {
-            try {
-                flight.run();
-            } finally {
-                synchronized (SESSION_LOCK) {
-                    if (refreshFlight == flight) refreshFlight = null;
-                }
-            }
-        }
-        try {
-            String token = flight.get();
-            if (token.isEmpty()) return NO_SESSION;
-            synchronized (SESSION_LOCK) {
-                String saved = sessions.load();
-                if (saved == null) throw new CancellationException("account session changed");
-                JSONObject session = new JSONObject(saved);
-                if (!sessionId.equals(session.optString("session_id", ""))
-                        || !token.equals(session.getJSONObject("tokens").optString("access_token", "")))
-                    throw new CancellationException("account session changed");
-            }
-            return new SessionCredential(token, sessionId);
-        } catch (java.util.concurrent.ExecutionException error) {
-            Throwable cause = error.getCause();
-            if (cause instanceof Exception exception) throw exception;
-            throw error;
-        }
+        SessionCredential answer = sessions.session(rejectedToken);
+        return answer != null && AccountTokenPolicy.validToken(answer.token()) && !answer.sessionId().isEmpty()
+            ? answer : NO_SESSION;
     }
 
-    /** Whether this process's own store holds a session at all, expired or not. */
+    /** Whether this process's own store holds a login session at all, expired or not. */
     boolean hasSession() throws Exception {
-        synchronized (SESSION_LOCK) {
-            return sessions.load() != null;
-        }
+        return !sessions.userId().isEmpty();
     }
 
     public boolean signedIn() { return !accessToken().isEmpty(); }
 
-    /** Stable local login identity for UI actions that must not outlive an account switch. */
+    /** 页面动作不能跨过换号：当前登录的账号编号，没有登录或读不了时为空串。 */
     public String sessionId() {
         try {
-            return currentSession().sessionId();
+            return sessions.userId();
         } catch (Exception | LinkageError error) {
             return "";
         }
@@ -987,18 +858,13 @@ public final class BackendAccount {
     /**
      * Forget the session on this device. The account itself is untouched.
      *
-     * <p>云剪贴板的本机密钥串随会话一起删除，下一个登录的账号不会拿到上一个账号的剪贴板密钥。先清会话、出了会话锁再删密钥串：正在写密钥串的一方是在密钥串的锁里核对会话的（{@link #runClipboard}），会话一清它就不会再写，而这里删除时不拿会话锁，两把锁不会互相等。
+     * <p>Rust 的 forget 只清本地：登录会话和属于它的云剪贴板密钥串一起删掉（见 {@link AccountStore}），下一个登录的账号不会拿到上一个账号的剪贴板密钥。清不掉时抛出，界面不能按已退出处理。
      */
     public void signOut() {
-        if (ownerProcess != null) return;
+        if (!owner) return;
         try {
-            synchronized (SESSION_LOCK) {
-                sessionGeneration++;
-                sessions.clear();
-            }
-            if (clipboardKeystore != null) clipboardKeystore.delete();
+            sessions.account(new JSONObject().put("operation", "forget"));
         } catch (Exception | LinkageError error) {
-            // 清除失败时会话仍可能有效，必须把失败交给界面，不能按退出成功处理。
             throw new IllegalStateException("account sign-out unavailable");
         }
     }
@@ -1006,11 +872,6 @@ public final class BackendAccount {
     private JSONObject request(String method, String path, JSONObject body, String token)
             throws Exception {
         return requester.request(method, path, body, token);
-    }
-
-    private JSONObject request(String method, String path, JSONObject body, String token, String userAgent)
-            throws Exception {
-        return requester.request(method, path, body, token, userAgent);
     }
 
     /** Retry one request after the server rejects an otherwise unexpired access token. */
@@ -1034,79 +895,20 @@ public final class BackendAccount {
         }
     }
 
-    private void ensureBoundSession(SessionCredential expected) throws Exception {
-        if (!expected.sessionId().isEmpty()) ensureCurrentSession(expected);
-    }
-
+    /** 登录的仍是请求开始时的那个账号；退出或换号时抛 {@link CancellationException}。主进程只读 Rust 的本地状态，不刷新。 */
     private void ensureCurrentSession(SessionCredential expected) throws Exception {
-        if (expected.sessionId().isEmpty()) throw new CancellationException("account session changed");
-        if (ownerProcess != null) {
-            if (!expected.sessionId().equals(ownerProcess.session(null).sessionId()))
-                throw new CancellationException("account session changed");
-            return;
-        }
-        synchronized (SESSION_LOCK) {
-            String saved = sessions.load();
-            if (saved == null || !expected.sessionId().equals(new JSONObject(saved).optString("session_id", "")))
-                throw new CancellationException("account session changed");
-        }
+        if (expected.sessionId().isEmpty() || !expected.sessionId().equals(sessions.userId()))
+            throw new CancellationException("account session changed");
     }
 
-    private String refresh(String refreshToken, long generation, String sessionId) throws Exception {
-        JSONObject tokens;
-        try {
-            tokens = request("POST", "/v1/auth/refresh",
-                new JSONObject().put("refresh_token", refreshToken), null);
-        } catch (RequestException error) {
-            if (error.status == 401 || error.status == 403) {
-                boolean revoked = false;
-                synchronized (SESSION_LOCK) {
-                    String current = sessions.load();
-                    if (sessionGeneration == generation && current != null
-                            && sessionId.equals(new JSONObject(current).optString("session_id", ""))) {
-                        sessionGeneration++;
-                        sessions.clear();
-                        revoked = true;
-                    }
-                }
-                // 服务端吊销了会话，等同于退出登录：云剪贴板的密钥串一起删掉，理由与锁的顺序同 signOut。
-                if (revoked && clipboardKeystore != null) clipboardKeystore.delete();
-                return "";
-            }
-            throw error;
-        }
-        String access = optionalStringField(tokens.opt("access_token"), "");
-        long expires = AccountTokenPolicy.strictSeconds(tokens.opt("expires_in"));
-        if (!AccountTokenPolicy.validSession(optionalStringField(tokens.opt("token_type"), ""), access,
-                optionalStringField(tokens.opt("refresh_token"), ""), expires)) {
-            throw new IllegalStateException("refresh refused");
-        }
-        String saved = new JSONObject().put("tokens", tokens)
-            .put("session_id", sessionId)
-            .put("expires_at_unix_ms", expiration(expires)).toString();
-        synchronized (SESSION_LOCK) {
-            if (sessionGeneration != generation) return "";
-            String current = sessions.load();
-            if (current == null || !sessionId.equals(new JSONObject(current).optString("session_id", "")))
-                return "";
-            sessions.save(saved);
-        }
-        return access;
-    }
-
-    private static long expiration(long expiresInSeconds) {
-        return Math.addExact(System.currentTimeMillis(), Math.multiplyExact(expiresInSeconds, 1000L));
-    }
-
-    private static JSONObject httpRequest(String method, String path, JSONObject body, String token,
-            String userAgent) throws Exception {
+    private static JSONObject httpRequest(String method, String path, JSONObject body, String token)
+            throws Exception {
         byte[] payload = body == null ? null : body.toString().getBytes(StandardCharsets.UTF_8);
         HttpsURLConnection connection = null;
         try {
             connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
-            AccountHttpRequest.writeJson(connection, method, token, userAgent, payload);
+            AccountHttpRequest.writeJson(connection, method, token, CloudApi.USER_AGENT, payload);
             int status = connection.getResponseCode();
-            // 状态码带进消息里：503 是这个登录方式没配，401 是凭据不对，两件事不该长同一个样子。
             if (!HttpConnectionPolicy.isSuccessful(status)) throw new RequestException(status);
             try (InputStream input = connection.getInputStream()) {
                 byte[] response = readBounded(input);

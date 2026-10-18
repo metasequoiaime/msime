@@ -21,7 +21,7 @@ def main() -> int:
     if "BackendAccount.providerEnabled" in smoke:
         print(f"{SMOKE}: 不应测试已移除的转发方法", file=sys.stderr)
         return 1
-    if "JsonPolicy.strictTrue(providers().opt(provider))" not in source:
+    if "JsonPolicy.strictTrue(providers.opt(\"google\"))" not in source:
         print(f"{SOURCE}: 提供商状态应直接调用 JsonPolicy.strictTrue", file=sys.stderr)
         return 1
     if "JsonPolicy.strictTrue" not in smoke:

@@ -26,6 +26,7 @@ DIRECT_SITES = {
 }
 STARTED_SITES = {
     JAVA / "account/AccountIdentity.java": ("msime-anonymous-account",),
+    JAVA / "account/AccountStore.java": ("msime-clipboard-keystore",),
     JAVA / "account/BackendAccount.java": ("msime-chat-cancel",),
     JAVA / "home/AuthRedirectActivity.java": ("msime-apple-sign-in",),
     JAVA / "home/LoginSheet.java": ("msime-login-sheet", "msime-email-code", "msime-email-login"),

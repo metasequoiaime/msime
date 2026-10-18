@@ -3,15 +3,28 @@ package app.msime.android;
 /**
  * 规定哪个进程拥有登录和匿名会话，以及其他进程如何取得令牌。
  *
- * <p>The service rotates the refresh token on every refresh and revokes the whole session when a used one is presented again. Two processes that each refresh from their own copy of the session can therefore sign the user out, and the settings app and the isolated `:ime` keyboard process both need a token. So exactly one process refreshes: the app's main process, the one sign-in and sign-out already run in. Every other process asks it for the current access token through a non-exported provider and never reads or writes the session store itself.
+ * <p>The service rotates the refresh token on every refresh and revokes the whole session when a used one is presented again. Two processes that each refresh from their own copy of the session can therefore sign the user out, and the settings app and the isolated `:ime` keyboard process both need a token. So exactly one process refreshes: the app's main process, the one sign-in and sign-out already run in（会话由 Rust 经 {@code AccountStore} 注册的存储持有）. Every other process asks it for the current access token through a non-exported provider and never reads or writes the session store itself.
  */
 public final class AccountSessionRoutingPolicy {
     /** The provider authority, after the package name; the manifests declare `${applicationId}` + this. */
     public static final String AUTHORITY_SUFFIX = ".account-session";
     /** Provider 接受的 `ContentProvider.call` 方法。 */
     public static final String METHOD_ACCESS_TOKEN = "access_token";
-    /** 主进程独占的匿名账号令牌方法；键盘进程不能直接碰匿名会话存储。 */
-    public static final String METHOD_ANONYMOUS_ACCESS_TOKEN = "anonymous_access_token";
+    /** 登录的优先、否则本机匿名账号的令牌（Rust 的 access_token）；键盘进程不能直接碰匿名会话存储。 */
+    public static final String METHOD_SHARED_ACCESS_TOKEN = "shared_access_token";
+    /** `:ime` 进程把一次语音贡献交给主进程上传：音频是应用私有目录里的一个 WAV 文件，主进程带着会话存储调 Rust 的 voice_contribution（只用匿名账号）。 */
+    public static final String METHOD_VOICE_CONTRIBUTION = "voice_contribution";
+    /** `voice_contribution` 的参数：WAV 文件的绝对路径、识别语言、识别器、识别文本和应用版本。 */
+    public static final String KEY_VOICE_AUDIO_PATH = "audio_path";
+    public static final String KEY_VOICE_LANGUAGE = "language";
+    public static final String KEY_VOICE_PROVIDER = "provider";
+    public static final String KEY_VOICE_TRANSCRIPT = "transcript";
+    public static final String KEY_VOICE_APP_VERSION = "app_version";
+    /** `voice_contribution` 回复里服务端给的编号；失败时为空，KEY_ERROR 是 Rust 的错误码。 */
+    public static final String KEY_VOICE_ID = "voice_id";
+    public static final String KEY_ERROR = "error";
+    /** `:ime` 写语音贡献音频的目录名，在应用的 cache 目录下；主进程只读这里面的文件。 */
+    public static final String VOICE_CONTRIBUTION_DIRECTORY = "voice-contributions";
     /** `:ime` 进程标记某个同步分类本机有改动；参数是分类名。 */
     public static final String METHOD_SYNC_DIRTY = "sync_dirty";
     /** `:ime` 进程读同步开关、登录方式与账号 ID；回复里没有任何令牌。 */
@@ -28,7 +41,7 @@ public final class AccountSessionRoutingPolicy {
     public static final String KEY_SYNC_MARKED = "sync_marked";
     /** 回复中携带令牌的字段名。 */
     public static final String KEY_ACCESS_TOKEN = "access_token";
-    /** The stable identifier of the current login; refresh keeps it, sign-in replaces it. */
+    /** 当前登录的账号编号（user.id）：刷新不变，同一个账号重新登录也不变。 */
     public static final String KEY_SESSION_ID = "session_id";
     /** Optional access token that the caller just saw rejected; the owner must not reuse it. */
     public static final String KEY_REJECTED_ACCESS_TOKEN = "rejected_access_token";
@@ -42,7 +55,7 @@ public final class AccountSessionRoutingPolicy {
     /**
      * Which session the owning process answers from.
      *
-     * <p>Two packages share this code and sign in through different paths. The native APK signs in through {@link BackendAccount}, which keeps its session in the v2 store and refreshes it here. The Tauri combined package signs in through the shared Rust client, which keeps its session in the v1 store ({@code AccountPlugin}) and refreshes it itself. A v2 session wins when there is one; otherwise a v1 session is only ever read, never refreshed from Java, because a Java refresh would rotate the refresh token behind the Rust client's back and the service would revoke the session the next time Rust used its copy.
+     * <p>Two packages share this code and sign in through different paths. The native APK signs in through {@link BackendAccount}（会话由 Rust 存在 v2 存储里、在这个进程里刷新）. The Tauri combined package signs in through the shared Rust client, which keeps its session in the v1 store ({@code AccountPlugin}) and refreshes it itself. A v2 session wins when there is one; otherwise a v1 session is only ever read, never refreshed from Java, because a Java refresh would rotate the refresh token behind the Rust client's back and the service would revoke the session the next time Rust used its copy.
      */
     public enum Source { OWN, LEGACY_READ_ONLY, NONE }
 
@@ -94,21 +107,16 @@ public final class AccountSessionRoutingPolicy {
         throw new IllegalStateException("account session unavailable");
     }
 
-    /** 匿名账号必须始终有令牌；主进程暂时拿不到时让键盘重试，不把它当成已退出。 */
-    public static String anonymousTokenFromReply(String state, String token) {
+    /** 登录或匿名，总该有一枚令牌；主进程暂时拿不到时让键盘重试，不把它当成已退出。 */
+    public static String sharedTokenFromReply(String state, String token) {
         if (STATE_SIGNED_IN.equals(state) && AccountTokenPolicy.validToken(token)) return token;
         throw new IllegalStateException("anonymous account unavailable");
     }
 
-    /** Whether a saved anonymous access token is the one the server just rejected. */
-    public static boolean needsReauthentication(String savedToken, String rejectedToken) {
-        return rejectedToken != null && !rejectedToken.isEmpty()
-            && rejectedToken.equals(savedToken);
-    }
-
-    /** Provider 只回答本 UID 的两种令牌方法与两种同步方法；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */
+    /** Provider 只回答本 UID 的两种令牌方法、语音贡献与两种同步方法；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */
     public static boolean accepts(String method, int callingUid, int ownUid) {
-        return (METHOD_ACCESS_TOKEN.equals(method) || METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method)
+        return (METHOD_ACCESS_TOKEN.equals(method) || METHOD_SHARED_ACCESS_TOKEN.equals(method)
+                || METHOD_VOICE_CONTRIBUTION.equals(method)
                 || METHOD_SYNC_DIRTY.equals(method) || METHOD_SYNC_STATE.equals(method))
             && callingUid == ownUid;
     }
