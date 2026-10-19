@@ -121,7 +121,9 @@ Serve the chosen directory on a loopback HTTP port, then run `scripts/test-skin-
 
 ## Mascot illustrations
 
-`src/assets/mascot/updated.webp`, `empty.webp`, `offline.webp` and `downloading.webp` are this project's own artwork of its mascot, 水杉娘, drawn in the standard look (zigzag needle-leaf ahoge). They have no upstream source: the project generated them with ByteDance's Seedream 5.0 pro image model (Volcengine Ark), then cut them out to a transparent background and saved them as 256px WebP. They are distributed under this repository's GPL-3.0 like the other first-party assets. Whether AI-generated imagery attracts copyright differs by jurisdiction, so treat the license as covering the project's selection, editing and arrangement of these files; no third-party notice is required.
+`src/assets/mascot/` 的十张图来自仓库负责人于 2026-10-19 提供的「水杉娘四季／幼年」角色素材：`settings.webp` 对应「修设置.png」，`welcome.webp` 对应「欢迎.png」，`empty.webp`、`offline.webp`、`downloading.webp`、`updated.webp` 分别对应「应用-无结果.png」「应用-断网.png」「应用-下载词库.png」「应用-更新完成.png」。上述六张与下述三张在「场景」目录；`input.webp` 对应「拼音积木.png」，`privacy.webp` 对应「隐私保护.png」，`sync.webp` 对应「云同步.png」；`notes.webp` 对应「表情／47-记笔记.png」。未采用网络下载的图片或第三方角色。
+
+原图为 1536×1536 的浅色背景 PNG。接入时去除与边缘相连的近白色背景，保留角色内部浅色衣服与道具，按透明区域裁切并等比缩放到留有 8px 边距的 256×256 透明 WebP（质量 70，透明通道无损保留）。显示尺寸不超过 128 CSS 像素，沿用本仓库第一方资源的 GPL-3.0 授权。此次替换原四张状态图，新增设置、欢迎、拼音积木、记笔记、隐私保护与云同步六张；旧状态图由项目用 Seedream 5.0 pro 生成的来源说明仅适用于替换前版本。
 
 ## AI 服务商品牌图标
 

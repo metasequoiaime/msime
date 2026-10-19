@@ -1,7 +1,23 @@
-/** 水杉娘插画出现的场景。每个场景一张图，只用在低频页面（更新完成、空列表、连不上服务、下载中），不进入候选窗等高频输入区域。 */
-export type MascotScene = "updated" | "empty" | "offline" | "downloading";
+/** 水杉娘插画出现的场景。每个场景一张图，用于设置品牌与状态反馈，不进入候选窗等高频输入区域。 */
+export type MascotScene =
+  | "settings"
+  | "welcome"
+  | "input"
+  | "notes"
+  | "privacy"
+  | "sync"
+  | "updated"
+  | "empty"
+  | "offline"
+  | "downloading";
 
 const mascotImages: Record<MascotScene, string> = {
+  input: new URL("../assets/mascot/input.webp", import.meta.url).href,
+  notes: new URL("../assets/mascot/notes.webp", import.meta.url).href,
+  privacy: new URL("../assets/mascot/privacy.webp", import.meta.url).href,
+  sync: new URL("../assets/mascot/sync.webp", import.meta.url).href,
+  settings: new URL("../assets/mascot/settings.webp", import.meta.url).href,
+  welcome: new URL("../assets/mascot/welcome.webp", import.meta.url).href,
   updated: new URL("../assets/mascot/updated.webp", import.meta.url).href,
   empty: new URL("../assets/mascot/empty.webp", import.meta.url).href,
   offline: new URL("../assets/mascot/offline.webp", import.meta.url).href,
@@ -15,7 +31,7 @@ export interface MascotIllustrationProps {
   className?: string;
 }
 
-/** 水杉娘插画。纯装饰：旁边的文字已经说明了状态，所以对辅助技术隐藏，不替代任何文字。图源是 256px 的透明 WebP；HarmonyOS 设置页是单文件 HTML，会把它们内联成 base64，四张合计约 95KB。 */
+/** 水杉娘插画。纯装饰：旁边的文字已经说明了状态，所以对辅助技术隐藏，不替代任何文字。图源是 256px 的透明 WebP；HarmonyOS 单文件设置将它们内联，不请求远程图片。 */
 export function MascotIllustration({ scene, size = 96, className }: MascotIllustrationProps) {
   return (
     <img

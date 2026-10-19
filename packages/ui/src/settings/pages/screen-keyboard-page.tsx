@@ -4,7 +4,7 @@ import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import { harmonyTouchKeyboardRows, type HarmonyTouchLayout } from "../../keyboard/keyboard-layouts";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList, LinkRow, Row } from "../../core/platform-controls";
+import { GroupList, LinkRow } from "../../core/platform-controls";
 import { TouchKeyboardGeometrySection } from "../touch-keyboard-geometry-section";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { OpenPanelRow } from "../open-panel-row";
@@ -118,6 +118,8 @@ export function ScreenKeyboardSettingsPage() {
     showTouchKeyboardHeight,
     showTouchKeyboardSpacing,
     handwritingOnScreenKeyboardPage,
+    introTabs,
+    selectIntroTab,
     surfaceThemesFollow,
   } = useSettingsForm();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
@@ -191,6 +193,8 @@ export function ScreenKeyboardSettingsPage() {
     ] as const,
     "键盘手写分类",
     handwritingOnScreenKeyboardPage,
+    introTabs["screen-keyboard"],
+    (tab) => selectIntroTab("screen-keyboard", tab),
   );
   return (
     <SettingsPageFieldset

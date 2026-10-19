@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import {
+  selectSettingsTab,
+  settingsFormReady,
+  saveSettingsNow,
+  openVoiceServiceConfig,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type SettingsClient, type Snapshot } from "@msime/ui";
@@ -598,6 +603,7 @@ test("a host with one commit path is not offered a choice between three", async 
     />,
   );
   await settingsFormReady();
+  openVoiceServiceConfig();
   expect(screen.queryByLabelText("结果提交策略")).toBeNull();
   cleanup();
   render(

@@ -24,6 +24,8 @@ export function ToolsSettingsPage() {
     openPanel,
     clipboardHistory,
     toggleClipboardHistory,
+    introTabs,
+    selectIntroTab,
   } = useSettingsForm();
   // 已保存的中继配置决定云剪贴板走哪条路；在本页保存或改回账号后，历史记录一组要按新的路重新查可用状态。
   const savedRelay = snapshot?.preferences.cloud_clipboard_relay;
@@ -31,6 +33,8 @@ export function ToolsSettingsPage() {
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "tools"} ariaLabel="剪贴板">
       <ClipboardHistorySection
+        activeTab={introTabs.tools}
+        onTabChange={(tab) => selectIntroTab("tools", tab)}
         client={client.clipboard}
         historyEnabled={clipboardHistory}
         historyLimit={clipboardHistoryLimit(draft)}

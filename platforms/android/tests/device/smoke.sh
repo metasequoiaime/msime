@@ -103,6 +103,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NumberLayerRestartDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Number layer restart acceptance failed" >&2; exit 1; }
+# 同编辑器的组字重启必须保留候选，外部清空、改写和移动不能复活旧组字。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Composition restart acceptance failed" >&2; exit 1; }
 # 中文临时大写用完或取消后返回中文，快速双击仍锁定大写。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ChineseShiftReturnDeviceSmoke)
 printf '%s\n' "$result"

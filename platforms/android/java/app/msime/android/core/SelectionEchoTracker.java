@@ -42,6 +42,13 @@ public final class SelectionEchoTracker {
         selectionEnd = BoundsPolicy.atLeast(start, end);
     }
 
+    /** 同编辑器重启仅接受已知、折叠在当前完整组字末尾的精确位置；未知删除偏移不能猜。 */
+    public boolean matchesRestartComposition(int start, int end, int length) {
+        return known && slack == 0 && length > 0 && start == end
+            && start == selectionStart && end == selectionEnd && end == composingEnd
+            && composingStart >= 0 && composingEnd - composingStart == length;
+    }
+
     /** 这次写入的结果算不出来（发按键事件、编辑器拒绝了写入、删除时有选区或组字区等）。 */
     public void invalidate() {
         pendingCount = 0;

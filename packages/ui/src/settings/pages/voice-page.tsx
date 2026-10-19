@@ -46,10 +46,14 @@ export function VoiceSettingsPage() {
     runVoiceCredential,
     credentialTestControl,
     providerPresetControls,
+    introTabs,
+    selectIntroTab,
   } = useSettingsForm();
 
   return (
     <VoiceSettingsContent
+      activeTab={introTabs.voice}
+      onTabChange={(tab) => selectIntroTab("voice", tab)}
       disabled={busy}
       hidden={page !== "voice"}
       client={client}

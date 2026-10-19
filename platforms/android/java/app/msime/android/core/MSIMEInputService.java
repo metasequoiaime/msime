@@ -1442,9 +1442,62 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesReloader.start(preferencesDirectory, this::reloadPreferences);
     }
 
+    private int currentEditorFieldId;
+    private int currentEditorImeOptions;
+    private Runnable pendingCompositionMarkerLoss;
+
+    private void cancelPendingCompositionMarkerLoss() {
+        if (pendingCompositionMarkerLoss != null) main.removeCallbacks(pendingCompositionMarkerLoss);
+        pendingCompositionMarkerLoss = null;
+    }
+
+    /** 新按键不能在失去标记的旧区间上继续追加；先按原规则处理尚未被重启接手的回报。 */
+    private void finishPendingCompositionMarkerLoss() {
+        Runnable pending = pendingCompositionMarkerLoss;
+        cancelPendingCompositionMarkerLoss();
+        if (pending != null) pending.run();
+    }
+
+    /** 重启连接不等于换文档；只有新连接确认还保存自己的拼音组字时才延续原会话。 */
+    private boolean retainRestartedComposition(EditorInfo info, InputConnection next) {
+        if (info == null || next == null || currentDocumentIdentifier == 0 || session == 0
+                || view == null || editorCompositionSuppressed
+                || !EditorPolicy.useEngine(info.inputType)
+                || info.inputType != editorInputType || info.fieldId != currentEditorFieldId
+                || info.imeOptions != currentEditorImeOptions
+                || !currentEditorPackage.equals(info.packageName)) return false;
+        return retainCompositionAtSelection(next, info.initialSelStart, info.initialSelEnd);
+    }
+
+    /** 编辑器可能先移除组字标记、再通知连接重启；只重标记已核对的原区间，不重新写文字。 */
+    private boolean retainCompositionAtSelection(InputConnection next, int start, int end) {
+        if (next == null || session == 0 || view == null || editorCompositionSuppressed) return false;
+        int scheme = InputViewValuePolicy.scheme(view, -1);
+        if (scheme != 0 && scheme != 1) return false;
+        String marked = composingText(view, InputViewValuePolicy.editingText(view), true);
+        if (!selectionEcho.matchesRestartComposition(start, end, marked.length())) return false;
+        try {
+            CharSequence before = next.getTextBeforeCursor(marked.length(), 0);
+            if (!android.text.TextUtils.equals(before, marked)) return false;
+            // 重启可能去掉标记但留下文字；先恢复已核对的区间，下一次写入才不会追加第二份组字。
+            return next.setComposingRegion(end - marked.length(), end);
+        } catch (RuntimeException disconnected) {
+            return false;
+        }
+    }
+
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
+        cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
         cancelInputViewRefresh();
+        InputConnection nextConnection = getCurrentInputConnection();
+        if (restarting && retainRestartedComposition(info, nextConnection)) {
+            connection = nextConnection;
+            resetCaretAnchor();
+            updateAutomaticCapitalization();
+            render();
+            return;
+        }
         long startGeneration = ++engineStartGeneration;
         cloudClipboardGeneration++;
         clipboardImageGeneration++;
@@ -1484,6 +1537,8 @@ public final class MSIMEInputService extends InputMethodService {
             && currentEditorPackage.equals(nextPackage);
         if (!keepKeyboardLayer) keyboardLayer = KeyboardLayout.Layer.LETTERS;
         editorInputType = nextInputType;
+        currentEditorFieldId = info == null ? 0 : info.fieldId;
+        currentEditorImeOptions = info == null ? 0 : info.imeOptions;
         if (directNumberPad()) keyboardLayer = KeyboardLayout.Layer.SYMBOLS;
         currentEditorPackage = nextPackage;
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
@@ -1635,6 +1690,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        cancelPendingCompositionMarkerLoss();
         flushKeyPresses();
         clearQuickDeleteUndo();
         imeLetterRows.cancelBackspaceRepeat();
@@ -3736,6 +3792,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean character(int ascii, boolean shifted) {
+        finishPendingCompositionMarkerLoss();
         clearQuickDeleteUndo();
         if (session == 0) return false;
         try { return apply(NativeClient.character(session, ascii, shifted)); }
@@ -3772,6 +3829,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean command(int code) {
+        finishPendingCompositionMarkerLoss();
         if (code == 0) clearQuickDeleteUndo();
         if (session == 0) return false;
         try { return apply(NativeClient.command(session, code)); }
@@ -3803,6 +3861,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void type(char key) {
+        finishPendingCompositionMarkerLoss();
         clearQuickDeleteUndo();
         if (connection == null) return;
         if (directEnglishActive()) {
@@ -3860,6 +3919,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean punctuation(int ascii) {
+        finishPendingCompositionMarkerLoss();
         if (session == 0) return false;
         CharSequence before = null;
         if (connection != null) {
@@ -4736,6 +4796,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+        finishPendingCompositionMarkerLoss();
         // Every physical press counts once, whoever ends up handling it; the OS's auto-repeat does not.
         if (event.getRepeatCount() == 0) countKey(KeyPressIds.forKeyCode(keyCode));
         if (event.getRepeatCount() == 0 && physicalKeyboardEvent(event)) noteHardwareTyping();
@@ -4966,6 +5027,25 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onUpdateSelection(int oldStart, int oldEnd, int newStart, int newEnd, int composingStart, int composingEnd) {
         super.onUpdateSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
+        cancelPendingCompositionMarkerLoss();
+        int scheme = InputViewValuePolicy.scheme(view, -1);
+        // restartInput 前可能先丢失标记，旧连接也已不可读；给紧随的重启一小段接手机会。
+        if (composingStart == -1 && composingEnd == -1
+                && session != 0 && !editorCompositionSuppressed && (scheme == 0 || scheme == 1)
+                && view != null && selectionEcho.matchesRestartComposition(newStart, newEnd,
+                    composingText(view, InputViewValuePolicy.editingText(view), true).length())) {
+            pendingCompositionMarkerLoss = () -> {
+                pendingCompositionMarkerLoss = null;
+                updateEditorSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
+            };
+            main.postDelayed(pendingCompositionMarkerLoss, 100);
+            return;
+        }
+        updateEditorSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
+    }
+
+    private void updateEditorSelection(int oldStart, int oldEnd, int newStart, int newEnd,
+            int composingStart, int composingEnd) {
         boolean selectionChanged = oldStart != newStart || oldEnd != newEnd;
         if (selectionChanged) {
             editorContextRevision++;
@@ -7621,6 +7701,7 @@ public final class MSIMEInputService extends InputMethodService {
      * <p>Returns false when there is nothing to act on, which lets the key type its own symbol.
      */
     private boolean selectCandidateEdge(WordCharacterPolicy.Edge edge) {
+        finishPendingCompositionMarkerLoss();
         JSONObject candidate = highlightedCandidate();
         JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
         if (id == null || session == 0
@@ -7651,6 +7732,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void selectVisibleCandidate(Button button, int slot) {
+        finishPendingCompositionMarkerLoss();
         JSONObject candidate = visibleCandidate(slot);
         JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
         if (id == null) return;
@@ -7666,6 +7748,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean selectHardwareCandidate(int slot) {
+        finishPendingCompositionMarkerLoss();
         int actualSlot = visibleCandidateSlot(slot);
         JSONObject candidate = visibleCandidate(actualSlot);
         JSONObject id = candidate == null ? null : candidate.optJSONObject("id");

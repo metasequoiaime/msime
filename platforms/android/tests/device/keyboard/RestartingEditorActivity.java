@@ -8,7 +8,9 @@ import android.text.TextWatcher;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.BaseInputConnection;
 import android.widget.EditText;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import app.msime.android.WindowLayout;
@@ -46,6 +48,26 @@ public final class RestartingEditorActivity extends Activity {
             }
         });
         layout.addView(restarting);
+        for (String action : new String[] {"clear", "rewrite", "move", "finish"}) {
+            Button control = new Button(this);
+            control.setText(action);
+            control.setContentDescription("msime-restart-" + action);
+            control.setOnClickListener(view -> {
+                if (action.equals("finish")) {
+                    BaseInputConnection.removeComposingSpans(restarting.getText());
+                    int position = restarting.getSelectionStart();
+                    getSystemService(InputMethodManager.class).updateSelection(
+                        restarting, position, position, -1, -1);
+                    return;
+                }
+                if (action.equals("clear")) restarting.setText("");
+                else if (action.equals("rewrite")) restarting.setText("x");
+                else restarting.setSelection(0);
+                if (action.equals("rewrite")) restarting.setSelection(restarting.length());
+                getSystemService(InputMethodManager.class).restartInput(restarting);
+            });
+            layout.addView(control);
+        }
         EditText other = new EditText(this);
         other.setId(102);
         other.setInputType(InputType.TYPE_CLASS_TEXT);

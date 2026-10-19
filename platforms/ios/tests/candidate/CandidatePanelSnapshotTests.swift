@@ -20,6 +20,20 @@ final class CandidatePanelSnapshotTests: XCTestCase {
     XCTAssertEqual(snapshot.entries.map(\.translation), ["", "grandfather"])
   }
 
+  func testDecodeRetainsEveryCandidateBeyondTheGlossRequestLimit() throws {
+    for count in [4097, 10000] {
+      let rows: [[String: Any]] = (0..<count).map { index in
+        ["id": ["generation": 7, "index": index], "text": "合成词\(index)"]
+      }
+      let snapshot = try CandidatePanelSnapshot.decode([
+        "generation": 7, "preedit": "y", "candidates": rows,
+      ])
+      XCTAssertEqual(snapshot.entries.count, count)
+      XCTAssertEqual(snapshot.entries.last?.index, UInt64(count - 1))
+      XCTAssertEqual(snapshot.entries.last?.text, "合成词\(count - 1)")
+    }
+  }
+
   func testDecodeRejectsStaleOrDuplicateCandidateIdentity() {
     XCTAssertThrowsError(try CandidatePanelSnapshot.decode([
       "generation": 7,

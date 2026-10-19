@@ -1,6 +1,7 @@
 import { SettingsFeaturePages } from "./settings-feature-pages";
 import { SettingsPreferencesForm } from "./settings-preferences-form";
 import { useSettingsPageModel, type SettingsPageProps } from "./use-settings-page-model";
+import { SettingsMascotIntro, settingsMascotIntro } from "./settings-mascot-intro";
 import { SettingsSidebar } from "./settings-sidebar";
 import { appThemeStyle, seasonAttr } from "../core/app-theme-style";
 import { SetupWarningStrip } from "../keyboard/setup-status-card";
@@ -137,6 +138,15 @@ function SettingsShell(props: SettingsPageProps) {
       animation.play();
     }
   }, [page, pushedPage]);
+  const mascotIntro = mobilePlatform
+    ? undefined
+    : settingsMascotIntro(page, {
+        ...model.introTabs,
+        "screen-keyboard": model.handwritingOnScreenKeyboardPage
+          ? model.introTabs["screen-keyboard"]
+          : "keyboard",
+        tools: client.clipboard?.list ? model.introTabs.tools : "clipboard",
+      });
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   // 社区图库「添加」词库的去处：宿主有命名词库时装成一个独立的词库，否则导入本机词库。「社区」页和功能页里的图库共用。宿主能核对第三方词库时，发布词库前用它拦下来自搜狗细胞词库的词。
   const communityLocalDictionary = createCommunityLocalDictionary(
@@ -315,13 +325,24 @@ function SettingsShell(props: SettingsPageProps) {
                   {parentPage.title}
                 </button>
               )}
-              {!macShell && (
-                <SettingsPageHeader
-                  title={pageTitle}
-                  hiddenOnPhone={mobilePlatform && untitledOnPhone.includes(page)}
-                  onBack={pushedPage ? goBack : undefined}
-                  home={page === "home"}
-                />
+              {mascotIntro ? (
+                <SettingsMascotIntro {...mascotIntro}>
+                  {!macShell && (
+                    <SettingsPageHeader
+                      title={pageTitle}
+                      onBack={pushedPage ? goBack : undefined}
+                    />
+                  )}
+                </SettingsMascotIntro>
+              ) : (
+                !macShell && (
+                  <SettingsPageHeader
+                    title={pageTitle}
+                    hiddenOnPhone={mobilePlatform && untitledOnPhone.includes(page)}
+                    onBack={pushedPage ? goBack : undefined}
+                    home={page === "home"}
+                  />
+                )
               )}
               {/* 2-in-1 的根页面上没有设置引导卡片，所以输入法还需要添加或设为默认时，由 输入 和 关于 提示。 */}
               {settingsPlatform === "hm2" &&

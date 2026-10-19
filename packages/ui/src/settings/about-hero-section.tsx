@@ -1,4 +1,5 @@
 import { MsimeMark } from "../core/brand-logo";
+import { MascotIllustration } from "../core/mascot";
 import * as doc from "./document-style";
 
 export interface AboutHeroSectionProps {
@@ -13,11 +14,12 @@ export function AboutHeroSection({ logo, description }: AboutHeroSectionProps) {
       <div className={doc.mark}>
         <img src={logo} alt="水杉 IME" />
       </div>
-      <div>
+      <div className="min-w-0 flex-1 wrap-anywhere">
         <div className={doc.eyebrow}>Metasequoia IME</div>
         <div className={doc.heroTitle}>水杉 IME</div>
         <p>{description}</p>
       </div>
+      <MascotIllustration scene="welcome" size={112} className="shrink-0 max-phone:size-16" />
     </div>
   );
 }

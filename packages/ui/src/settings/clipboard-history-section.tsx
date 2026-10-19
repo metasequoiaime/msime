@@ -20,6 +20,7 @@ import {
 import { SelectRow } from "./select-row";
 import { DictionaryPagination } from "./dictionary-pagination";
 import { useSettingsTabs } from "./use-settings-tabs";
+import type { SettingsIntroTabs } from "./use-settings-intro-tabs";
 
 const HISTORY_PAGE_SIZE = 20;
 
@@ -35,6 +36,8 @@ export interface ClipboardHistorySectionProps {
   ios: boolean;
   /** 桌面设置按「剪贴板」「历史记录」分标签；独立控件与触屏宿主默认顺序显示。 */
   tabbed?: boolean;
+  activeTab?: SettingsIntroTabs["tools"];
+  onTabChange?: (tab: SettingsIntroTabs["tools"]) => void;
   onToggle: (enabled: boolean) => void;
   onLimitChange?: (limit: number) => void;
   onError: (message: string) => void;
@@ -57,6 +60,8 @@ export function ClipboardHistorySection({
   page,
   ios,
   tabbed = false,
+  activeTab,
+  onTabChange,
   onToggle,
   onLimitChange,
   onError,
@@ -94,6 +99,8 @@ export function ClipboardHistorySection({
     ] as const,
     "剪贴管理分类",
     tabsEnabled,
+    activeTab,
+    onTabChange,
   );
 
   useEffect(() => {
