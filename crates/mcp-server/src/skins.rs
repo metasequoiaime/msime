@@ -1,7 +1,6 @@
 //! AI 助手通过共享安装器创建候选皮肤，清单和资源与社区下载使用同一套校验。
 //!
-//! 资源支持 PNG/JPEG/APNG/GIF/WebP，预览保持 PNG/JPEG。MCP 只写本地皮肤，
-//! 不持有账号会话；宿主在用户触发同步时检查服务端能力，再上传扩展包。
+//! 资源支持 PNG/JPEG/APNG/GIF/WebP，预览保持 PNG/JPEG。图片可以是 base64，也可以是本机文件的绝对路径：代理先用代码把图写成文件再给路径，免得几十 KB 的 base64 在转写时出错。MCP 只写本地皮肤，不持有账号会话；宿主在用户触发同步时检查服务端能力，再上传扩展包。
 
 use msime_client_core::uuid::Uuid;
 use msime_client_services::skin::candidate_community::{self, CandidateSkinPackage};
@@ -96,8 +95,12 @@ pub struct CreateSkinRequest {
     pub package_id: String,
     /// The whole `skin.toml`, at most 64 KiB.
     pub manifest: String,
-    /// 清单引用的全部资源，以包内相对路径为键、标准 base64 为值。支持 PNG/JPEG/APNG/GIF/WebP，预览限 PNG/JPEG；最多 37 张，每张 1 MiB、每边 2048 像素，合计 2 MiB 和 8,000,000 像素，预览最多 256 KiB。 动画最多 120 帧，每帧按整张画布计入像素预算。
+    /// 以标准 base64 给出的资源，以包内相对路径为键。支持 PNG/JPEG/APNG/GIF/WebP，预览限 PNG/JPEG；与 image_files 合计最多 37 张，每张 1 MiB、每边 2048 像素，合计 2 MiB 和 8,000,000 像素，预览最多 256 KiB。动画最多 120 帧，每帧按整张画布计入像素预算。
+    #[serde(default)]
     pub images: BTreeMap<String, String>,
+    /// 以本机文件给出的资源，以包内相对路径为键、文件的绝对路径为值。服务器只读这些文件：路径上不能有符号链接，必须是普通文件，超过 1 MiB 的在读之前就拒绝；读进来的字节和 images 里的 base64 走同一套检查和上限。同一个包内路径不能两边都给。
+    #[serde(default)]
+    pub image_files: BTreeMap<String, String>,
     /// Replace an existing skin of this id whole. Without it an existing skin is left alone and the call refused.
     #[serde(default)]
     pub replace: bool,
@@ -179,20 +182,54 @@ pub fn create(state_dir: &Path, request: &CreateSkinRequest) -> Result<CreatedSk
         manifest: request.manifest.clone(),
         files: request.images.clone(),
     };
-    match candidate_community::install(&root, &package, request.replace) {
+    let local_files: BTreeMap<String, PathBuf> = request
+        .image_files
+        .iter()
+        .map(|(path, file)| (path.clone(), PathBuf::from(file)))
+        .collect();
+    match candidate_community::install_with_local_files(
+        &root,
+        &package,
+        &local_files,
+        request.replace,
+    ) {
         Ok(id) => Ok(CreatedSkin { id, replaced }),
         Err("candidate_skin_package") => Err(manifest_problem(request)),
+        Err("candidate_skin_file_unreadable") => Err(local_file_problem(&request.image_files)),
         Err(code) => Err(explain(code).to_owned()),
     }
+}
+
+const LOCAL_FILE_RULES: &str = "each image_files value must be the absolute path of a regular file on this computer that this user can read, with no symbolic link anywhere on the way (system links such as /tmp on macOS excepted); write the image there and pass that path";
+
+/// 哪个本机文件读不出来、为什么。安装器对每种读不出来的情况只给一个代码，这里按路径做几项便宜的检查，好让代理知道该改哪一项；检查不出的（例如路径上某一级是符号链接）给出整条规则。
+fn local_file_problem(image_files: &BTreeMap<String, String>) -> String {
+    for (key, file) in image_files {
+        let path = Path::new(file);
+        let problem = if !path.is_absolute() {
+            "is not an absolute path"
+        } else {
+            match std::fs::symlink_metadata(path) {
+                Err(_) => "does not exist or cannot be reached",
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    "is a symbolic link; pass the file it points to"
+                }
+                Ok(metadata) if !metadata.is_file() => "is not a regular file",
+                Ok(_) => continue,
+            }
+        };
+        return format!("image_files[{key:?}] = {file:?} {problem}; {LOCAL_FILE_RULES}");
+    }
+    format!("an image file cannot be read: {LOCAL_FILE_RULES}")
 }
 
 fn explain(code: &str) -> &'static str {
     match code {
         "candidate_skin_exists" => "a skin with this package_id is already installed; list_candidate_skins shows it. Pass replace: true to replace it whole, or choose another id",
-        "candidate_skin_file_path" => "images must hold 1 to 37 entries, the preview and any decoration, background, border_image and decorations images counted together, each a relative path inside the skin folder other than skin.toml, unique ignoring case",
+        "candidate_skin_file_path" => "images and image_files together must hold 1 to 37 entries, the preview and any decoration, background, border_image and decorations images counted together, each a relative path inside the skin folder other than skin.toml, unique ignoring case and given in only one of the two",
         "candidate_skin_file_type" => "resources must be .png, .jpg, .jpeg, .apng, .gif or .webp; the preview must be .png, .jpg or .jpeg, and stylesheets are not accepted",
-        "candidate_skin_too_large" => "too large: the manifest may be 64 KiB, each image 1 MiB and 2048 pixels on each side, all images 2 MiB and 8,000,000 pixels together (each animated frame counts as a whole image), an animation at most 120 frames, and the preview 256 KiB",
-        "candidate_skin_image_invalid" => "an image is not valid standard base64, or its bytes (every animation frame) cannot be decoded using the format its extension names: it may be truncated or corrupted, so generate it again and pass the whole base64",
+        "candidate_skin_too_large" => "too large: the manifest may be 64 KiB, each image 1 MiB (a larger file in image_files is refused before it is read) and 2048 pixels on each side, all images 2 MiB and 8,000,000 pixels together (each animated frame counts as a whole image), an animation at most 120 frames, and the preview 256 KiB",
+        "candidate_skin_image_invalid" => "an image is not valid standard base64, or its bytes (every animation frame) cannot be decoded using the format its extension names: it may be truncated or corrupted, so generate it again with code, write it to a file and pass its path in image_files",
         "storage" => "the skin folder could not be written",
         _ => "the skin was refused",
     }
@@ -205,7 +242,7 @@ fn manifest_problem(request: &CreateSkinRequest) -> String {
     if !catalog::is_external_id(&request.package_id) {
         return "package_id must be lowercase ASCII letters, digits, `_`, `-` and `.`, start with a letter or digit, be at most 64 bytes, and not be a reserved id: a built-in theme (system, shuishan, light, paper, night, ink), an msime-windows built-in look (fluent, wechat, wechat_scroll, graphite, willow_green, autumn_osmanthus, microsoft), canvas or default".into();
     }
-    const SHARING_RULES: &str = "a skin must set `preview` to a .png, .jpg or .jpeg image, must not set `toolbar_stylesheet`, and images must hold exactly the images the manifest references";
+    const SHARING_RULES: &str = "a skin must set `preview` to a .png, .jpg or .jpeg image, must not set `toolbar_stylesheet`, and images and image_files together must hold exactly the images the manifest references";
     let Ok(scratch) = tempfile::tempdir() else {
         return SHARING_RULES.into();
     };
@@ -215,7 +252,7 @@ fn manifest_problem(request: &CreateSkinRequest) -> String {
     {
         return SHARING_RULES.into();
     }
-    for path in request.images.keys() {
+    for path in request.images.keys().chain(request.image_files.keys()) {
         // Only plain relative paths are stood in for; install already refused anything else with its own code.
         if !Path::new(path)
             .components()
@@ -256,6 +293,7 @@ mod tests {
             package_id: id.into(),
             manifest: manifest(id, name),
             images: BTreeMap::from([("preview.png".into(), PNG.into())]),
+            image_files: BTreeMap::new(),
             replace,
         }
     }
@@ -339,6 +377,7 @@ mod tests {
                     package_id: id.into(),
                     manifest,
                     images: BTreeMap::from([("preview.png".into(), PNG.into())]),
+                    image_files: BTreeMap::new(),
                     replace: false,
                 },
             )
@@ -396,6 +435,7 @@ mod tests {
                         ("preview.png".into(), PNG.into()),
                         ("whale.png".into(), image.into()),
                     ]),
+                    image_files: BTreeMap::new(),
                     replace: false,
                 },
             )
@@ -454,6 +494,7 @@ mod tests {
                     ("panel.png".into(), PNG.into()),
                     ("leaf.png".into(), PNG.into()),
                 ]),
+                image_files: BTreeMap::new(),
                 replace: false,
             },
         )
@@ -482,6 +523,7 @@ mod tests {
                 ("leaf.png".into(), PNG.into()),
                 ("star.png".into(), PNG.into()),
             ]),
+            image_files: BTreeMap::new(),
             replace: false,
         };
         assert_eq!(create(state.path(), &crowded).unwrap().id, "crowded");
@@ -501,6 +543,7 @@ mod tests {
                     &format!("{CANVAS_TABLES}[animation]\nenter = 'slide_up'\n"),
                 ),
                 images: BTreeMap::from([("preview.png".into(), PNG.into())]),
+                image_files: BTreeMap::new(),
                 replace: false,
             },
         )
@@ -598,6 +641,95 @@ mod tests {
             .unwrap_err()
             .contains("cannot be decoded using the format"));
 
+        assert!(list(state.path()).skins.is_empty());
+    }
+
+    /// 与 [`PNG`] 同一张 1×1 PNG 的字节，写成文件给 image_files 用。
+    const PNG_BYTES: &[u8] = b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0d\x49\x44\x41\x54\x78\x9c\x63\x60\x60\x60\x60\x00\x00\x00\x05\x00\x01\xa5\xf6\x45\x40\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";
+
+    /// `request` 的预览改由 `file` 给出。
+    fn from_file(id: &str, file: &Path) -> CreateSkinRequest {
+        let mut request = request(id, "From file", false);
+        request.images.clear();
+        request.image_files =
+            BTreeMap::from([("preview.png".into(), file.to_str().unwrap().into())]);
+        request
+    }
+
+    #[test]
+    fn images_given_as_files_are_installed_as_their_bytes() {
+        let state = tempfile::tempdir().unwrap();
+        let files = tempfile::tempdir().unwrap();
+        let file = files.path().join("preview.png");
+        std::fs::write(&file, PNG_BYTES).unwrap();
+        assert_eq!(
+            create(state.path(), &from_file("sunset", &file)).unwrap(),
+            CreatedSkin {
+                id: "sunset".into(),
+                replaced: false
+            }
+        );
+        assert_eq!(
+            std::fs::read(state.path().join("skins/sunset/preview.png")).unwrap(),
+            PNG_BYTES
+        );
+        // 文件只被读，不被移动或改写。
+        assert_eq!(std::fs::read(&file).unwrap(), PNG_BYTES);
+        assert_eq!(list(state.path()).skins[0].name, "From file");
+        // 参数里只给 image_files、不给 images 也能解析。
+        let request: CreateSkinRequest = serde_json::from_value(serde_json::json!({
+            "package_id": "dusk",
+            "manifest": manifest("dusk", "Dusk"),
+            "image_files": { "preview.png": file.to_str().unwrap() },
+        }))
+        .unwrap();
+        assert!(request.images.is_empty());
+        assert_eq!(create(state.path(), &request).unwrap().id, "dusk");
+    }
+
+    #[test]
+    fn an_unreadable_image_file_is_named_with_what_is_wrong() {
+        let state = tempfile::tempdir().unwrap();
+        let files = tempfile::tempdir().unwrap();
+        let refused = |file: &Path| create(state.path(), &from_file("sunset", file)).unwrap_err();
+        let error = refused(Path::new("preview.png"));
+        assert!(error.contains("is not an absolute path"), "{error}");
+        let error = refused(&files.path().join("missing.png"));
+        assert!(error.contains("does not exist"), "{error}");
+        let error = refused(files.path());
+        assert!(error.contains("is not a regular file"), "{error}");
+        #[cfg(unix)]
+        {
+            let real = files.path().join("real.png");
+            std::fs::write(&real, PNG_BYTES).unwrap();
+            let link = files.path().join("link.png");
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            let error = refused(&link);
+            assert!(error.contains("is a symbolic link"), "{error}");
+            // 符号链接在上一级目录时，便宜的检查看不出来，给出整条规则。
+            let linked = files.path().join("linked");
+            std::os::unix::fs::symlink(files.path(), &linked).unwrap();
+            // root 在只有 root 能写的目录里建的链接，Linux 上算系统链接（`msime_path_trust::is_root_only_link`），以 root 运行的测试容器里跳过这一项。
+            use std::os::unix::fs::MetadataExt;
+            if std::fs::symlink_metadata(&linked).unwrap().uid() != 0 {
+                let error = refused(&linked.join("real.png"));
+                assert!(
+                    error.contains("no symbolic link anywhere on the way"),
+                    "{error}"
+                );
+            }
+        }
+        // 同一个路径两边都给。
+        let file = files.path().join("preview.png");
+        std::fs::write(&file, PNG_BYTES).unwrap();
+        let mut both = from_file("sunset", &file);
+        both.images = BTreeMap::from([("preview.png".into(), PNG.into())]);
+        let error = create(state.path(), &both).unwrap_err();
+        assert!(error.contains("given in only one of the two"), "{error}");
+        // 坏图与 base64 一样完整解码后拒绝，并建议写成文件重来。
+        std::fs::write(&file, &PNG_BYTES[..40]).unwrap();
+        let error = create(state.path(), &from_file("sunset", &file)).unwrap_err();
+        assert!(error.contains("pass its path in image_files"), "{error}");
         assert!(list(state.path()).skins.is_empty());
     }
 

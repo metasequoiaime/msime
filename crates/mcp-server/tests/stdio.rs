@@ -968,3 +968,55 @@ fn arguments_can_come_from_a_file() {
     assert_eq!(code, 2);
     assert!(error.contains("cannot read the arguments"), "{error}");
 }
+
+/// 一张 1×1 PNG 的字节，写成文件给 image_files 用。
+const PNG_BYTES: &[u8] = b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0d\x49\x44\x41\x54\x78\x9c\x63\x60\x60\x60\x60\x00\x00\x00\x05\x00\x01\xa5\xf6\x45\x40\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";
+
+/// 一份最小的皮肤清单，`base` 决定它画在哪种明暗下。
+fn skin_manifest(id: &str, name: &str, base: &str) -> String {
+    format!("schema_version = 1\nid = '{id}'\nname = '{name}'\nversion = '1.0'\nbase = '{base}'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal', 'vertical']\nthemes = ['dark', 'light']\n[candidate_window]\nmin_width_dip = 200\n")
+}
+
+#[tokio::test]
+async fn an_agent_manages_candidate_skins() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let images = tempfile::tempdir().unwrap();
+    let preview = images.path().join("preview.png");
+    std::fs::write(&preview, PNG_BYTES).unwrap();
+    let (client, _child) = start(&options, &["--allow-write"]).await;
+
+    // 图片以本机文件的路径给出，装进去的是同样的字节。
+    assert_eq!(
+        ok(
+            &client,
+            "create_candidate_skin",
+            json!({
+                "package_id": "dusk",
+                "manifest": skin_manifest("dusk", "Dusk", "night"),
+                "image_files": { "preview.png": preview.to_str().unwrap() },
+            }),
+        )
+        .await,
+        json!({ "id": "dusk", "replaced": false })
+    );
+    assert_eq!(
+        std::fs::read(directory.path().join("skins/dusk/preview.png")).unwrap(),
+        PNG_BYTES
+    );
+    // 相对路径被拒绝，并指出是哪一项。
+    after_write_interval().await;
+    let error = refused(
+        &client,
+        "create_candidate_skin",
+        json!({
+            "package_id": "dawn",
+            "manifest": skin_manifest("dawn", "Dawn", "paper"),
+            "image_files": { "preview.png": "preview.png" },
+        }),
+    )
+    .await;
+    assert!(error.contains("is not an absolute path"), "{error}");
+
+    client.cancel().await.unwrap();
+}

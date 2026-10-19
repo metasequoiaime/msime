@@ -54,6 +54,8 @@ For an AI assistant:
   A skin's schema_version 2 adds bounded motion on any base; base = canvas,
   also version 2, is an msime-windows full-image skin. tools describes every
   skin.toml key, its range and which hosts draw it, under create_candidate_skin.
+  Its image_files maps each image path in skin.toml to the absolute path of a
+  file on this computer, which is only read, instead of base64 in images.
 
 Flags:
   --options <path>         The runtime-options document the input method reads
