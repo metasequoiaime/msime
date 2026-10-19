@@ -2,7 +2,7 @@
 //!
 //! Engine 只有一个用户词库，这里不改它，只在 client-services 里加一层集合的元数据；词条真正写进用户词库仍然走个人词库的跨进程队列（[`PersonalDictionaryStore`]），键盘在下一次同步时应用。
 //!
-//! 存储在 `<preferences_directory>/DictionaryCollections/` 下：`index.json` 是集合列表，`index.json.lock` 是整个目录的文件锁，每个集合的词条在 `<uuid>.json`（所以停用以后还能重新启用），`outbox.json` 是还没交给个人词库队列的增删。个人词库队列同时最多只接受 128 个未完成的请求，一个两万条的集合要分很多批送进去，所以启用和停用先记进待发送队列，再由 [`DictionaryCollectionsStore::flush`] 在队列有空位时一批批送出；每次修改之后也会顺手送一批。不属于任何集合的大批词（Android 本地备份恢复的个人词库）也借这个待发送队列分批送出，见 [`DictionaryCollectionsStore::queue_words`]。
+//! 存储在 `<preferences_directory>/DictionaryCollections/` 下：`index.json` 是集合列表，`index.json.lock` 是整个目录的文件锁，每个集合的词条在 `<uuid>.json`（所以停用以后还能重新启用），`outbox.json` 是还没交给个人词库队列的增删。个人词库队列同时最多只接受 128 个未完成的请求，大型集合要分很多批送进去，所以启用和停用先记进待发送队列，再由 [`DictionaryCollectionsStore::flush`] 在队列有空位时一批批送出；每次修改之后也会顺手送一批。不属于任何集合的大批词（Android 本地备份恢复的个人词库）也借这个待发送队列分批送出，见 [`DictionaryCollectionsStore::queue_words`]。
 //!
 //! 待发送队列按词条身份（[`PersonalWord::identity`]）合并：同一个词先排了「加入」又排「删除」（或反过来）时，两者都还没送出，直接互相抵消。停用或删除一个集合时，只删除不属于任何其他已启用集合的词，Engine 自己学来的词不属于任何集合，不会被删掉。内置主词库不是集合，常开、不能停用。
 //!
@@ -27,7 +27,7 @@ use uuid::Uuid;
 /// 集合目录在偏好目录里的名字。
 pub const DIRECTORY_NAME: &str = "DictionaryCollections";
 /// 每个集合最多的词条数。
-pub const MAX_COLLECTION_ENTRIES: usize = 20_000;
+pub const MAX_COLLECTION_ENTRIES: usize = 50_000;
 /// 最多的集合个数。
 pub const MAX_COLLECTIONS: usize = 32;
 /// 集合名最多的字符数。

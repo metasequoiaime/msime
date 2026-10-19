@@ -356,7 +356,53 @@ fn collections_queue_words_counts_distinct_additions() {
 }
 
 #[test]
-fn collections_hold_at_most_twenty_thousand_entries() {
+fn collections_rime_import_retains_thirty_three_thousand_entries_after_reload() {
+    let fixture = Fixture::new();
+    let count = 33_555;
+    let view = fixture
+        .store
+        .create("合成大词库", PersonalWordKind::Pinyin)
+        .unwrap();
+    let id = id_of(&view, "合成大词库");
+    fixture.store.set_enabled(&id, false).unwrap();
+    let text: String = (0..count)
+        .map(|index| format!("合成{}\tni hao\t{}\n", letters(index), index % 7623))
+        .collect();
+    let view = fixture
+        .store
+        .import(ImportRequest {
+            id: Some(&id),
+            name: None,
+            kind: PersonalWordKind::Pinyin,
+            format: "rime",
+            text: &text,
+            readings: None,
+        })
+        .unwrap();
+    let report = view.import.unwrap();
+    assert_eq!(report.imported, count);
+    assert!(!report.truncated);
+    assert_eq!(
+        fixture.store.load().unwrap().collections[0].entry_count,
+        count
+    );
+    let lock = fixture.store.lock().unwrap();
+    let state = fixture.store.read_state(&lock.directory).unwrap();
+    let entries = state.entries(Uuid::parse_str(&id).unwrap());
+    assert_eq!(entries.len(), count);
+    assert_eq!(
+        entries.last().unwrap().value,
+        format!("合成{}", letters(count - 1))
+    );
+    assert_eq!(entries.last().unwrap().key, "ni hao");
+    assert!(
+        fixture.requests().is_empty(),
+        "禁用集合不能提前送进引擎队列"
+    );
+}
+
+#[test]
+fn collections_reject_entries_over_the_capacity() {
     let fixture = Fixture::new();
     let view = fixture
         .store

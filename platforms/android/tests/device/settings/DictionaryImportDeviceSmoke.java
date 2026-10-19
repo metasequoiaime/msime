@@ -15,12 +15,17 @@ import java.util.Comparator;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 从安装产品的导入入口写合成词库，再经过 JNI 验证九键候选与繁忙重试。 */
+/** 从安装产品的导入入口写合成词库，再经过 JNI 验证九键候选、繁忙重试和大集合落盘。 */
 public final class DictionaryImportDeviceSmoke extends Instrumentation {
     private Class<?> nativeClient;
     private String stage = "prepare synthetic import";
+    private boolean measureCapacity;
 
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+    @Override public void onCreate(Bundle arguments) {
+        super.onCreate(arguments);
+        measureCapacity = arguments != null && "true".equals(arguments.getString("measure_capacity"));
+        start();
+    }
 
     @Override public void onStart() {
         Bundle result = new Bundle();
@@ -113,7 +118,57 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
                 synchronizedWords = value("personalDictionarySync", new Class<?>[] {String.class}, optionsText);
                 check(synchronizedWords.getInt("failed_count") == 0, "retry failed");
             } while (synchronizedWords.getInt("pending_count") > 0);
-            result.putString("result", "MSIME_DICTIONARY_IMPORT_PASSED: 74 words applied, sixth word in nine-key candidates, busy queue preserved and retried");
+            stage = "import 33555 synthetic Rime words through installed store";
+            long capacityStart = android.os.SystemClock.uptimeMillis();
+            report = importReport(importFile, context, "合成容量回归", "rime", capacityRows());
+            check((int) report.getClass().getMethod("imported").invoke(report) == 33555, "capacity import truncated");
+            check(!(boolean) report.getClass().getMethod("truncated").invoke(report), "capacity truncation flag");
+            check((int) report.getClass().getMethod("failed").invoke(report) == 0, "capacity import rejected rows");
+            stage = "reload capacity collection and verify durable final row";
+            JSONObject loaded = value("dictionaryCollections", new Class<?>[] {String.class}, new JSONObject()
+                .put("options", options).put("action", new JSONObject().put("operation", "load")).toString());
+            JSONArray collections = loaded.getJSONArray("collections");
+            String id = null;
+            for (int index = 0; index < collections.length(); index++) {
+                JSONObject collection = collections.getJSONObject(index);
+                if ("合成容量回归".equals(collection.getString("name"))) {
+                    check(collection.getInt("entry_count") == 33555, "capacity reload count");
+                    id = collection.getString("id");
+                }
+            }
+            check(id != null, "capacity collection missing on reload");
+            JSONArray entries = new JSONObject(new String(Files.readAllBytes(new File(root,
+                "preferences/DictionaryCollections/" + id + ".json").toPath()), StandardCharsets.UTF_8))
+                .getJSONArray("entries");
+            check(entries.length() == 33555, "capacity durable row count");
+            JSONObject tail = entries.getJSONObject(33554);
+            check(capacityWord(33554).equals(tail.getString("value")), "capacity final row missing");
+            check("ni hao".equals(tail.getString("key")), "capacity reading changed");
+            check(tail.getLong("weight") == 33554 % 7623, "capacity weight changed");
+            if (measureCapacity) {
+                // 显式测量才把三万词全部写入引擎，不给日常装包冒烟添加设备速度门槛。
+                stage = "measure complete capacity import application";
+                int rounds = 0;
+                long longest = 0;
+                while (true) {
+                    long batchStart = android.os.SystemClock.uptimeMillis();
+                    JSONObject synced = value("personalDictionarySync", new Class<?>[] {String.class}, optionsText);
+                    longest = Math.max(longest, android.os.SystemClock.uptimeMillis() - batchStart);
+                    check(synced.getInt("failed_count") == 0, "capacity application failed");
+                    JSONObject flushed = value("dictionaryCollections", new Class<?>[] {String.class}, new JSONObject()
+                        .put("options", options).put("action", new JSONObject().put("operation", "flush")).toString());
+                    rounds++;
+                    if (synced.getInt("pending_count") == 0 && flushed.getInt("sent") == 0) break;
+                    check(android.os.SystemClock.uptimeMillis() - capacityStart < 300000, "capacity application timed out");
+                }
+                try (SQLiteDatabase db = SQLiteDatabase.openDatabase(new File(root, "dictionaries/msime-pinyin.db").getPath(), null, SQLiteDatabase.OPEN_READONLY);
+                        android.database.Cursor cursor = db.rawQuery("SELECT count(*) FROM tbl_2_n", null)) {
+                    check(cursor.moveToFirst() && cursor.getInt(0) == 33555 + 74 + 9, "capacity not fully applied");
+                }
+                result.putString("measurement", "MSIME_CAPACITY_THROUGHPUT words=33555 elapsed_ms="
+                    + (android.os.SystemClock.uptimeMillis() - capacityStart) + " rounds=" + rounds + " longest_sync_ms=" + longest);
+            }
+            result.putString("result", "MSIME_DICTIONARY_IMPORT_PASSED: 74 words applied, sixth word in nine-key candidates, busy queue retried; 33555 Rime words imported and reloaded without truncation");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | LinkageError | AssertionError error) {
             Throwable cause = error instanceof java.lang.reflect.InvocationTargetException
@@ -148,13 +203,29 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
     }
 
     private static Object importReport(Method method, Context context, String name, String text) throws Exception {
-        Object imported = method.invoke(null, context, "standard", name, text.getBytes(StandardCharsets.UTF_8));
+        return importReport(method, context, name, "standard", text);
+    }
+
+    private static Object importReport(Method method, Context context, String name, String format, String text) throws Exception {
+        Object imported = method.invoke(null, context, format, name, text.getBytes(StandardCharsets.UTF_8));
         check((boolean) imported.getClass().getMethod("ok").invoke(imported), "installed import rejected");
         Object view = imported.getClass().getMethod("value").invoke(imported);
         return view.getClass().getMethod("importReport").invoke(view);
     }
 
     private static String word(int index) { return "" + (char) (0x4e00 + index) + "蒿"; }
+
+    private static String capacityWord(int index) {
+        return "" + (char) (0x4e00 + index / 200) + (char) (0x4e00 + index % 200);
+    }
+
+    private static String capacityRows() {
+        StringBuilder text = new StringBuilder();
+        for (int index = 0; index < 33555; index++) {
+            text.append(capacityWord(index)).append("\tni hao\t").append(index % 7623).append('\n');
+        }
+        return text.toString();
+    }
 
     private static String rows(int start, int count) {
         StringBuilder text = new StringBuilder();

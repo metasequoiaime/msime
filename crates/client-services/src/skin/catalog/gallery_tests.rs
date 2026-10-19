@@ -12,7 +12,11 @@ use std::path::PathBuf;
 use tempfile::tempdir;
 
 fn gallery() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/candidate-skins")
+    std::env::var_os("MSIME_CANDIDATE_SKIN_FIXTURES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/candidate-skins")
+        })
 }
 
 /// 目录里的全部验证皮肤，按名字排序。新加一个包时要在这里登记，并给它写断言。
