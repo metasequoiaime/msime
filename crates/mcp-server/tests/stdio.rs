@@ -132,6 +132,7 @@ async fn read_only_by_default() {
     assert_eq!(
         tool_names(&client).await,
         [
+            "get_candidate_skin",
             "get_preferences",
             "get_typing_statistics",
             "list_candidate_skins",
@@ -158,7 +159,7 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
     let (client, _child) = start(&options, &["--allow-write"]).await;
-    assert_eq!(tool_names(&client).await.len(), 10);
+    assert_eq!(tool_names(&client).await.len(), 11);
 
     // Quick phrases: add, list, replace, remove, with a failure in the middle of a batch.
     let outcome = ok(
@@ -295,7 +296,7 @@ async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
     client.cancel().await.unwrap();
 
     let (client, _child) = start(&options, &["--allow-write", "--allow-dictionary-read"]).await;
-    assert_eq!(tool_names(&client).await.len(), 14);
+    assert_eq!(tool_names(&client).await.len(), 15);
 
     let outcome = ok(
         &client,
@@ -637,6 +638,7 @@ fn the_command_line_runs_the_same_tools() {
     assert_eq!(
         names,
         [
+            "get_candidate_skin",
             "get_preferences",
             "get_typing_statistics",
             "list_candidate_skins",
@@ -1017,6 +1019,54 @@ async fn an_agent_manages_candidate_skins() {
     )
     .await;
     assert!(error.contains("is not an absolute path"), "{error}");
+
+    // 读回它：清单原文和每张图在本机的文件，改了清单后用这些文件整包重装。
+    let files = ok(
+        &client,
+        "get_candidate_skin",
+        json!({ "package_id": "dusk" }),
+    )
+    .await;
+    assert_eq!(files["manifest"], skin_manifest("dusk", "Dusk", "night"));
+    assert_eq!(files["synced"], false);
+    let image = &files["images"][0];
+    assert_eq!(image["path"], "preview.png");
+    assert_eq!(image["format"], "png");
+    assert_eq!(
+        (
+            image["width"].clone(),
+            image["height"].clone(),
+            image["frames"].clone()
+        ),
+        (json!(1), json!(1), json!(1))
+    );
+    assert_eq!(image["bytes"], PNG_BYTES.len());
+    after_write_interval().await;
+    assert_eq!(
+        ok(
+            &client,
+            "create_candidate_skin",
+            json!({
+                "package_id": "dusk",
+                "manifest": skin_manifest("dusk", "Dusk Again", "night"),
+                "image_files": { "preview.png": image["file"] },
+                "replace": true,
+            }),
+        )
+        .await,
+        json!({ "id": "dusk", "replaced": true })
+    );
+    assert_eq!(
+        ok(&client, "list_candidate_skins", json!({})).await["skins"][0]["name"],
+        "Dusk Again"
+    );
+    assert!(refused(
+        &client,
+        "get_candidate_skin",
+        json!({ "package_id": "missing" })
+    )
+    .await
+    .contains("no skin missing is installed"));
 
     // 选上它作深色模式的皮肤：主题随之换到 custom，get_preferences 报告这个选择。
     let before = ok(&client, "get_preferences", json!({})).await;

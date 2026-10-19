@@ -133,6 +133,40 @@ pub struct DeletedSkin {
     pub synced: bool,
 }
 
+/// get_candidate_skin 给出的一款已安装皮肤：改好清单后连同图片交给 create_candidate_skin（replace: true）重装。
+#[derive(Debug, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SkinFiles {
+    pub id: String,
+    /// `skin.toml` 全文。
+    pub manifest: String,
+    /// 皮肤文件夹在本机的绝对路径。
+    pub directory: String,
+    /// 清单引用的每张图片；文件夹里清单没引用的文件不列。
+    pub images: Vec<SkinFileView>,
+    /// 设置应用是否把它同步到过用户的云端皮肤库。
+    pub synced: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SkinFileView {
+    /// 清单里写的包内路径，也是 create_candidate_skin 的 images 和 image_files 用的键。
+    pub path: String,
+    /// 这张图在本机的绝对路径，可以原样作为 image_files 的值。
+    pub file: String,
+    /// 文件的字节数。
+    pub bytes: u64,
+    /// 按内容认出的编码：png、apng（多于一帧的 PNG）、jpeg、gif 或 webp；认不出时为 null。
+    pub format: Option<String>,
+    /// 一帧的宽，像素；认不出时为 null。
+    pub width: Option<u32>,
+    /// 一帧的高，像素；认不出时为 null。
+    pub height: Option<u32>,
+    /// 动画帧数，静态图为 1。
+    pub frames: u32,
+}
+
 fn root(state_dir: &Path) -> PathBuf {
     state_dir.join(SKIN_DIRECTORY)
 }
@@ -217,6 +251,44 @@ pub fn create(state_dir: &Path, request: &CreateSkinRequest) -> Result<CreatedSk
         Err("candidate_skin_file_unreadable") => Err(local_file_problem(&request.image_files)),
         Err(code) => Err(explain(code).to_owned()),
     }
+}
+
+/// 读一款已安装皮肤的清单原文和它引用的图片，规则与 list_candidate_skins 列出的皮肤相同。
+pub fn get(state_dir: &Path, request: &SkinRequest) -> Result<SkinFiles, String> {
+    let id = request.package_id.as_str();
+    if !catalog::is_external_id(id) {
+        return Err(format!("{id:?} is not a skin the user installed: built-in themes, msime-windows built-in looks, canvas and default have no skin folder"));
+    }
+    let root = root(state_dir);
+    let directory = root.join(id);
+    let files = catalog::package_files(&root, id).map_err(|reason| {
+        if std::fs::symlink_metadata(&directory).is_err() {
+            format!("no skin {id} is installed; list_candidate_skins shows the installed skins")
+        } else {
+            format!("{id} cannot be read as a skin ({reason}); list_candidate_skins lists it under issues with the reason")
+        }
+    })?;
+    let synced = candidate_sync::synced_packages(&state_dir.join(candidate_sync::STATE_FILE))
+        .contains_key(id);
+    Ok(SkinFiles {
+        id: id.to_owned(),
+        manifest: files.manifest,
+        directory: directory.display().to_string(),
+        images: files
+            .images
+            .into_iter()
+            .map(|image| SkinFileView {
+                file: directory.join(&image.path).display().to_string(),
+                path: image.path,
+                bytes: image.bytes,
+                format: image.format.map(str::to_owned),
+                width: image.dimensions.map(|(width, _)| width),
+                height: image.dimensions.map(|(_, height)| height),
+                frames: image.frames,
+            })
+            .collect(),
+        synced,
+    })
 }
 
 /// 删掉一款用户装的皮肤。偏好里选着它（浅色或深色槽位，无论当前主题是不是 custom）时拒绝，不顺手改偏好：改偏好要走 update_preferences 的修订号比较，删除不该绕开它。同步状态由共享的 `candidate_sync::delete_installed` 保留，见那里的说明。
@@ -874,6 +946,67 @@ mod tests {
         // 同步状态留着，设置应用下一次同步才知道要把云端那份一起删掉，而不是当成新包下载回来。
         assert_eq!(std::fs::read(&sync_state).unwrap(), before);
         assert!(list(state.path()).skins.is_empty());
+    }
+
+    #[test]
+    fn an_installed_skin_is_read_back_and_recreated_from_its_own_files() {
+        let state = tempfile::tempdir().unwrap();
+        create(state.path(), &request("sunset", "Sunset", false)).unwrap();
+        let get = |id: &str| {
+            get(
+                state.path(),
+                &SkinRequest {
+                    package_id: id.into(),
+                },
+            )
+        };
+        let files = get("sunset").unwrap();
+        assert_eq!(files.manifest, manifest("sunset", "Sunset"));
+        assert!(!files.synced);
+        let preview = state.path().join("skins/sunset/preview.png");
+        assert_eq!(
+            files.directory,
+            state.path().join("skins/sunset").display().to_string()
+        );
+        assert_eq!(
+            files.images,
+            [SkinFileView {
+                path: "preview.png".into(),
+                file: preview.display().to_string(),
+                bytes: PNG_BYTES.len() as u64,
+                format: Some("png".into()),
+                width: Some(1),
+                height: Some(1),
+                frames: 1,
+            }]
+        );
+        let value = serde_json::to_value(&files).unwrap();
+        crate::assert_required_fields_present::<SkinFiles>(&value);
+        crate::assert_required_fields_present::<SkinFileView>(&value["images"][0]);
+
+        // 改了清单，图片原样指回已安装的文件，整包替换。
+        let mut edited = request("sunset", "Sunset", true);
+        edited.manifest = files.manifest.replace("Sunset", "Afterglow");
+        edited.images.clear();
+        edited.image_files = files
+            .images
+            .iter()
+            .map(|image| (image.path.clone(), image.file.clone()))
+            .collect();
+        assert!(create(state.path(), &edited).unwrap().replaced);
+        assert_eq!(list(state.path()).skins[0].name, "Afterglow");
+        assert_eq!(std::fs::read(&preview).unwrap(), PNG_BYTES);
+
+        for (id, expected) in [
+            ("night", "is not a skin the user installed"),
+            ("missing", "no skin missing is installed"),
+        ] {
+            let error = get(id).unwrap_err();
+            assert!(error.contains(expected), "{id}: {error}");
+        }
+        std::fs::create_dir(state.path().join("skins/broken")).unwrap();
+        let error = get("broken").unwrap_err();
+        assert!(error.contains("under issues"), "{error}");
     }
 
     #[test]

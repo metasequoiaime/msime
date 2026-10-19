@@ -6,7 +6,9 @@ use crate::config::Config;
 use crate::diagnostics::{self, LogRequest, LogView, SwitchRequest, SwitchView};
 use crate::preferences::{self, PreferencesChange, PreferencesView};
 use crate::prompts::WRITE_PROMPTS;
-use crate::skins::{self, CreateSkinRequest, CreatedSkin, DeletedSkin, SkinList, SkinRequest};
+use crate::skins::{
+    self, CreateSkinRequest, CreatedSkin, DeletedSkin, SkinFiles, SkinList, SkinRequest,
+};
 use crate::statistics::{self, StatisticsRequest, StatisticsView};
 use crate::words;
 use crate::words::{
@@ -50,7 +52,7 @@ const DICTIONARY_READ_TOOLS: [&str; 2] = ["list_dictionary_words", "lookup_candi
 /// Offered with --allow-write and --allow-dictionary-read together: an edit or import also tells whether a word is there.
 const DICTIONARY_WRITE_TOOLS: [&str; 2] = ["edit_dictionary_words", "import_dictionary_words"];
 
-const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. update_preferences switches the input method to a skin, and delete_candidate_skin removes one the user no longer wants. The app can sync skins to the user's cloud library as private packages when the user requests sync, from where they can publish them; extended resources require explicit server support; this server never signs in to the account itself. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
+const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. update_preferences switches the input method to a skin, get_candidate_skin shows an installed skin's manifest and image files so it can be changed and installed again, and delete_candidate_skin removes one the user no longer wants. The app can sync skins to the user's cloud library as private packages when the user requests sync, from where they can publish them; extended resources require explicit server support; this server never signs in to the account itself. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
 
 #[derive(Clone)]
 pub struct MsimeServer {
@@ -329,6 +331,23 @@ impl MsimeServer {
         blocking(move || {
             let state_dir = config.state_dir(&config.read_options()?)?;
             Ok(Json(skins::list(&state_dir)))
+        })
+        .await
+    }
+
+    #[tool(
+        name = "get_candidate_skin",
+        description = "Read one installed skin so it can be changed: its whole skin.toml, the absolute path of its folder, whether the desktop app has synced it to the user's cloud library, and for each image the manifest references its path in the manifest, the absolute path of the file on this computer, its size in bytes, its format as read from its content (png, apng for a PNG of more than one frame, jpeg, gif or webp, or null when unrecognised), the width and height of one frame in pixels and its frame count. Files the manifest does not reference are not listed. To change the skin, edit the manifest, write any new or changed images to files, and call create_candidate_skin with replace: true, passing each unchanged image by the file given here in image_files: it reads every image before it replaces the folder. Refused for a built-in theme or look, an id that is not installed, and a folder list_candidate_skins reports as an issue.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_candidate_skin(
+        &self,
+        Parameters(request): Parameters<SkinRequest>,
+    ) -> Result<Json<SkinFiles>, String> {
+        let config = self.config.clone();
+        blocking(move || {
+            let state_dir = config.state_dir(&config.read_options()?)?;
+            skins::get(&state_dir, &request).map(Json)
         })
         .await
     }
@@ -766,6 +785,7 @@ mod tests {
         assert_eq!(
             names(&server(false)),
             [
+                "get_candidate_skin",
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
@@ -780,6 +800,7 @@ mod tests {
                 "create_candidate_skin",
                 "delete_candidate_skin",
                 "edit_quick_phrases",
+                "get_candidate_skin",
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
@@ -792,6 +813,7 @@ mod tests {
         assert_eq!(
             names(&server_with(false, true)),
             [
+                "get_candidate_skin",
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
@@ -809,6 +831,7 @@ mod tests {
                 "delete_candidate_skin",
                 "edit_dictionary_words",
                 "edit_quick_phrases",
+                "get_candidate_skin",
                 "get_preferences",
                 "get_typing_statistics",
                 "import_dictionary_words",
@@ -872,6 +895,15 @@ mod tests {
             "refuses a file over 1 MiB before reading it",
         ] {
             assert!(create.contains(word), "{word}");
+        }
+        let get = description("get_candidate_skin");
+        for word in [
+            "its whole skin.toml",
+            "the absolute path of the file on this computer",
+            "png, apng for a PNG of more than one frame, jpeg, gif or webp",
+            "call create_candidate_skin with replace: true, passing each unchanged image by the file given here in image_files",
+        ] {
+            assert!(get.contains(word), "{word}");
         }
         let delete = description("delete_candidate_skin");
         for word in [

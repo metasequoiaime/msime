@@ -2224,3 +2224,45 @@ fn shared_dialect_cases_match_the_loader() {
         }
     }
 }
+
+#[test]
+fn package_files_return_the_manifest_and_each_referenced_image() {
+    let root = tempdir().unwrap();
+    let skin = root.path().join("sample");
+    fs::create_dir_all(skin.join("images")).unwrap();
+    let text = "\u{feff}schema_version = 2\nid = 'sample'\nname = 'Sample'\nversion = '1.0'\nbase = 'system'\npreview = 'preview.png'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 20\nwidth_dip = 20\nimage = 'images/deco.png'\n[candidate_window.background]\nimage = 'images/bg.gif'\n";
+    fs::write(skin.join("skin.toml"), text).unwrap();
+    let preview = encoded_png(4, 2);
+    fs::write(skin.join("preview.png"), &preview).unwrap();
+    fs::write(skin.join("images/deco.png"), encoded_apng(3, 3, 3)).unwrap();
+    fs::write(skin.join("images/bg.gif"), encoded_gif(5, 4, 2)).unwrap();
+    // 清单没引用的文件不列。
+    fs::write(skin.join("images/unused.png"), encoded_png(1, 1)).unwrap();
+
+    let files = package_files(root.path(), "sample").unwrap();
+    assert_eq!(files.manifest, text.trim_start_matches('\u{feff}'));
+    let summary: Vec<_> = files
+        .images
+        .iter()
+        .map(|image| {
+            (
+                image.path.as_str(),
+                image.format,
+                image.dimensions,
+                image.frames,
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("images/deco.png", Some("apng"), Some((3, 3)), 3),
+            ("images/bg.gif", Some("gif"), Some((5, 4)), 2),
+            ("preview.png", Some("png"), Some((4, 2)), 1),
+        ]
+    );
+    assert_eq!(files.images[2].bytes, preview.len() as u64);
+
+    assert!(package_files(root.path(), "missing").is_err());
+    assert!(package_files(root.path(), "night").is_err());
+}
