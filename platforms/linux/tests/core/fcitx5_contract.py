@@ -138,7 +138,6 @@ assert 'snapshot["preferences"]["character_width"]' in source
 assert 'saveBooleanPreference("traditional_chinese_output"' in source
 assert 'preferences_["traditional_chinese_output"]' in source
 assert "waitForPreferenceSave" in source
-assert 'if (fixedPosition > 0) actions.push_back(make(20, "取消固定"));' in source
 # Both hosts label the Engine's local mode through the shared table; comparing against hand-written names is how the Fcitx5 footer once missed every mode ("phrase", "abbreviation", "english", "japanese" are not names the Engine emits).
 for host_source in (source, ibus_source):
     assert "candidate_local_mode_label(mode)" in host_source
@@ -196,6 +195,15 @@ def body(text, signature):
             if depth == 0:
                 return text[start : position + 1]
     raise AssertionError(signature)
+
+
+# 原生画布与框架菜单共用操作列表；只有已固定的候选才提供取消固定。
+menu_actions = body(source, "std::vector<std::pair<int, std::string>> candidateMenuActions(")
+assert 'if (item.fixedPosition() > 0) actions.emplace_back(20, "取消固定");' in menu_actions
+framework_actions = body(source, "candidateActions(const fcitx::CandidateWord &candidate) const override")
+native_canvas = body(source, "bool FcitxState::renderNativeCanvas()")
+assert "candidateMenuActions(state_, *item)" in framework_actions
+assert "candidateMenuActions(*this, *item)" in native_canvas
 
 
 # 每个会话一建好就选择加入 FEEDBACK 并报告字段属性，排在任何一个键之前。
@@ -333,12 +341,12 @@ assert 'ibus_text_new_from_static_string("取消固定")' in ibus_source
 assert '"固定候选"' not in ibus_source
 assert '"固定到 1"' not in ibus_source
 assert 'std::string("取消固定 ")' not in ibus_source
-# Only main-lexicon candidates of the user dictionary sources carry candidate actions; the shared policy decides it for both hosts.
+# 仅用户词库来源的主词库候选提供操作，新旧框架菜单都由共享策略决定。
 assert (
     'candidate_dictionary_actions_available(msime::linux_host::strict_json_value(state_.view_, "scheme", 0u), item->source())'
     in source
 )
-assert "candidate_dictionary_actions_available(scheme, item->source())" in source
+assert "candidate_dictionary_actions_available(scheme, item.source())" in menu_actions
 assert (
     'source_(msime::linux_host::strict_json_value(candidate, "source", uint64_t{}))'
     in source
@@ -348,8 +356,8 @@ assert (
     'fixed_position_(msime::linux_host::strict_json_value(candidate, "fixed_position", uint8_t{}))'
     in source
 )
-assert "item->text()))" in source
-assert "item->fixedPosition()" in source
+assert "candidate_dictionary_removal_available(scheme, item.source(), item.text())" in menu_actions
+assert "item.fixedPosition()" in menu_actions
 assert "state_.session_ != item->session()" in source
 assert "!state_.ic_.hasFocus() || !state_.input_enabled_" in source
 assert "state_.privateInput() || state_.session_ != item->session()" in source
@@ -755,7 +763,7 @@ apply_theme = body(source, "  bool applyCandidatePanelTheme(fcitx::AddonInstance
 # 一次主动选择（chosen）时即使输入没变也重新接管，所以返回条件多了它；主题输入与落盘选择不变时仍不调 getConfig()。
 assert apply_theme.count("classicui->getConfig()") == 1
 assert apply_theme.index("if (inputs == candidate_theme_applied_ && !chosen && hint_stamp == classicui_hint_stamp_) return false;") < apply_theme.index("read_classicui_theme_selection()") < apply_theme.index("if (attempt_key == candidate_theme_attempt_ && now < candidate_theme_retry_at_) return false;") < apply_theme.index("classicui->getConfig()")
-assert apply_theme.index("hint_inputs_ = fcitx_hint_inputs(current, system_dark);") < apply_theme.index("if (inputs == candidate_theme_applied_ && !chosen) return false;") < apply_theme.index("if (!chosen && !host::fcitx_theme_replaceable")
+assert apply_theme.index("hint_inputs_ = fcitx_hint_inputs(current, system_dark);") < apply_theme.index("if (inputs == candidate_theme_applied_ && !chosen) {") < apply_theme.index("if (!chosen && !host::fcitx_theme_replaceable")
 assert '{"hint", hint_stamp}' in apply_theme
 assert "candidate_theme_retry_at_ = now + kCandidateThemeRetry;" in apply_theme
 assert "host::fcitx_candidate_theme(" not in apply_theme

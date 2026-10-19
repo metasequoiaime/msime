@@ -331,6 +331,34 @@ if(BUILD_TESTING)
               "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
               "$<TARGET_FILE:msime-fcitx5>")
           set_tests_properties(fcitx5-gtk-canvas-${canvas_layout} PROPERTIES TIMEOUT 90)
+          if(MSIME_BADGE_X11_FOUND)
+            add_test(NAME fcitx5-native-canvas-${canvas_layout}
+              COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout} MSIME_TEST_NATIVE_CANVAS=1
+                "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+                "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+                "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                "$<TARGET_FILE:msime-fcitx5>")
+            set_tests_properties(fcitx5-native-canvas-${canvas_layout} PROPERTIES TIMEOUT 90)
+            add_test(NAME fcitx5-native-canvas-${canvas_layout}-scale2
+              COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+                MSIME_TEST_NATIVE_CANVAS=1 GDK_SCALE=2
+                "${XVFB_RUN}" -a -s "-screen 0 1920x1280x24" "${DBUS_RUN_SESSION}" --
+                "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+                "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                "$<TARGET_FILE:msime-fcitx5>")
+            set_tests_properties(fcitx5-native-canvas-${canvas_layout}-scale2 PROPERTIES TIMEOUT 90)
+            find_program(XCOMPMGR xcompmgr)
+            if(XCOMPMGR)
+              add_test(NAME fcitx5-native-canvas-${canvas_layout}-composited
+                COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+                  MSIME_TEST_NATIVE_CANVAS=1 MSIME_TEST_COMPOSITED=1
+                  "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+                  "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+                  "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                  "$<TARGET_FILE:msime-fcitx5>")
+              set_tests_properties(fcitx5-native-canvas-${canvas_layout}-composited PROPERTIES TIMEOUT 90)
+            endif()
+          endif()
           foreach(canvas_format gif webp)
             add_test(NAME fcitx5-gtk-canvas-${canvas_layout}-${canvas_format}
               COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
@@ -370,4 +398,23 @@ if(BUILD_TESTING)
       endif()
     endif()
   endif()
+endif()
+
+# 原生画布只在具备 X11 与 Pango 的构建中接入，不借普通窗口冒充 Wayland popup。
+if(MSIME_BADGE_X11_FOUND)
+  if(BUILD_TESTING)
+    add_executable(linux-candidate-native-canvas-test ../tests/candidate/candidate_native_canvas.cpp)
+    target_compile_features(linux-candidate-native-canvas-test PRIVATE cxx_std_20)
+    target_compile_options(linux-candidate-native-canvas-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    target_include_directories(linux-candidate-native-canvas-test PRIVATE ../../../crates/host-api/include)
+    target_link_libraries(linux-candidate-native-canvas-test PRIVATE PkgConfig::MSIME_BADGE_X11 nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+    add_test(NAME linux-candidate-native-canvas COMMAND linux-candidate-native-canvas-test)
+  endif()
+  foreach(canvas_target msime-fcitx5 fcitx5-native-test)
+    if(TARGET ${canvas_target})
+      target_sources(${canvas_target} PRIVATE ../src/candidates/NativeCanvasX11.cpp)
+      target_compile_definitions(${canvas_target} PRIVATE MSIME_FCITX5_NATIVE_CANVAS)
+      target_link_libraries(${canvas_target} PRIVATE PkgConfig::MSIME_BADGE_X11)
+    endif()
+  endforeach()
 endif()

@@ -649,6 +649,8 @@ bash platforms/linux/tests/tools/check-image-toolchain.sh \
 
 Fcitx5 的 `tests/tools/check-container.sh /absolute/verified-resources --fcitx5` 还运行 `fcitx5-gtk-canvas-horizontal` 与 `fcitx5-gtk-canvas-vertical`，以及各自的 `-gif`、`-webp` 用例（合成图片需要 Pillow，专用验收镜像已包含）：真实 GTK 编辑器通过本次构建的插件唤起 classicui 候选，读取隔离 X11 显示像素，验证合成九宫格的明暗切换、坏图回退和修复恢复。期间不发送刷新按键，最终检查焦点保持、空格上屏与面板消失。在验收容器内直接运行 CTest 时，设置 `MSIME_TEST_CANVAS_ARTIFACTS` 为可写目录可保留各阶段截图。它覆盖 Xvfb／GTK／classicui，不包含 Wayland 合成器、真实字体或系统安装验收。
 
+同一验收还包含 `fcitx5-native-canvas-horizontal`／`vertical` 及各自的 `-scale2`、`-composited`：真实 GTK 编辑器检查原生 X11 窗口的挂件像素、独立行距热更新、随框架坐标移动、明暗、坏图回退与恢复、过期鼠标释放、滚轮翻页、左键上屏、右键置顶写入合成词库，以及失焦和切换输入法时隐藏。`-composited` 用专用 `xcompmgr` 检查实际 ARGB 窗口，其他用例覆盖无合成器的 Shape 回退。`linux-candidate-native-canvas` 在内存中检查几何、锚点、层级与透明中心；它不能替代这些真实窗口用例。
+
 `bash tests/tools/check-container.sh /absolute/verified-resources` 创建专用 Linux 容器，源码与词库只读挂载，构建缓存仅写入本仓 target/linux。基础 Rust 镜像固定摘要，apt 开发依赖来自 Debian bookworm 仓库；不声称所有系统包字节级可复现。容器内创建独立 D-Bus 和 IBus daemon，不连接宿主桌面，不修改现有输入源，结束后移除容器并保留构建缓存。
 
 `engine_smoke` 使用真实共享库与固定 Release 词库，通过 D-Bus 调用实际 IBusEngine：验证预编辑与候选信号、上屏、第二页全局索引点击、标点、修饰键/key-up、快捷键取消、失焦、密码隔离与私密文本恢复。另启动实际宿主可执行文件，由独立 Python IBus 输入上下文通过 daemon/factory 输入合成拼音并接收提交。共享核心/运行时/宿主 25 项 Rust 测试纳入本地脚本。
@@ -858,7 +860,11 @@ Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和
 
 外部皮肤目录只由 Linux 展示层消费，不传给严格校验的 HostOptions。目录由桌面设置写入运行配置的 `candidate_skin_catalog`：保存设置，或设置的外观页、皮肤页扫描皮肤目录时，读取状态目录下的 `skins/`，每个包保留 id、标题（清单 `name`）、清单的 `base` 与 `layouts`，以及清单声明的明暗主题下的调色板（未设任何颜色的模式是空对象）；宿主只列出 id 安全、标题非空、`base` 不是 `custom` 且布局只含 `horizontal`/`vertical` 的条目，调色板原样交给共享层解析，最多 32 个，浅色槽位 `candidate_skin` 与深色槽位 `candidate_skin_dark` 当前选中的皮肤总在其中；IBus 与 Fcitx5 整读运行配置，上限 16 KiB，写入时整份文件超过 15 KiB 就从目录末尾删包，两个槽位选中的皮肤保留。只把包拷进 `skins/` 而不打开设置时，宿主看不到它。启动、菜单主题选择及设置热更新均按最终选择重新解析；目录内容变化也会刷新当前展示。自定义主题的颜色选择器叠在外部皮肤之上，由共享层按设置页同一规则合成，外部皮肤的颜色不写入共享 preferences。
 
-Fcitx5 的 classicui 还可绘制 `base = "canvas"` 的静态 PNG／APNG、GIF 和 WebP 九宫格面板：支持 `source`／`light_source`、`stretch_dip`（缺省取 `slice_dip`）、独立的 `width_dip`、`fill`、内容与外留白；非整数边距向上取整。资源通过共享包 API 校验，共享 Rust 解码器成功返回画布后才启用贴图配色，用户文字取色器仍由共享解析器覆盖；坏图回到原生卡片与可读颜色，修复后自动重试。APNG 只显示默认图，GIF／WebP 只显示首帧；编码输入最多 8 MiB、边长最多 2048。JPEG 按上游规则不能用于 canvas 面板或挂件。动画、自由挂件与 canvas 行间距尚未接入 classicui；IBus、GNOME Shell 与 kimpanel 仍受各自面板能力限制，不能据此当作全平台完整绘制。
+Fcitx5 的 classicui 还可绘制 `base = "canvas"` 的静态 PNG／APNG、GIF 和 WebP 九宫格面板：支持 `source`／`light_source`、`stretch_dip`（缺省取 `slice_dip`）、独立的 `width_dip`、`fill`、内容与外留白；非整数边距向上取整。资源通过共享包 API 校验，共享 Rust 解码器成功返回画布后才启用贴图配色，用户文字取色器仍由共享解析器覆盖；坏图回到原生卡片与可读颜色，修复后自动重试。APNG 只显示默认图，GIF／WebP 只显示首帧；编码输入最多 8 MiB、边长最多 2048。JPEG 按上游规则不能用于 canvas 面板或挂件。
+
+在具备 X11／Pango 的构建中，X11 输入上下文选择有效 canvas 包且 classicui 的明暗主题均归水杉接管时，插件用 Cairo／Pango 原生候选窗补上九种锚点的自由挂件、前后层、外伸留白与独立 `line_gap_dip`。窗口不获取焦点，使用框架上报的根坐标定位，GTK 3 移动整个窗口后在下一次光标更新时上报新位置；跨屏编辑器以光标所在屏幕约束位置。指针选择、翻页与右键操作复用原候选身份和运行时围栏，失焦、清空及切换输入法时隐藏。成功显示后只保留客户端内嵌预编辑并清空桌面面板候选；资源或窗口准备失败时保留原桌面面板。第三方主题、非 canvas、其他活动 UI、Wayland 与 IBus 不进入此路径。有合成器时使用 ARGB，无合成器时使用二值透明轮廓并将半透明像素合到主题底色上；挂件和留白不截获鼠标。
+
+原生 X11 画布仍只绘制静态图片，动画、完整皮肤几何与系统材质尚未补齐；Wayland 的自由画布、IBus、GNOME Shell 与 kimpanel 仍受各自面板协议和能力限制，不能据此当作 Linux 或全平台完整视觉兼容。
 
 皮肤资源变化后，主题成功套用或退出覆盖会立即请求当前候选窗口重绘，明暗切换、坏图回退和修复恢复均无需再次按键。不变输入不重复刷新，组合和编辑器焦点保持。
 

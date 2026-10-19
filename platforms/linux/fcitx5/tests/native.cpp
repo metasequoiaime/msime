@@ -406,6 +406,25 @@ void classicuiThemeTicks(FcitxEngine &engine) {
           "a failed theme write is retried once its time comes, without any input changing");
   tick(classicui, Json{{"global_theme", "system"}}, false);
   require(classicui.scans == 8 && classicui.writes == 6, "the next change of the inputs writes the theme again");
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+  // 即使本轮写入了浅色主题，也不能用原生窗口盖住用户保留的第三方深色主题。
+  FakeClassicUi partial;
+  partial.config.darkTheme.setValue("synthetic-dark");
+  require(fcitx::safeSaveAsIni(partial.config, "conf/classicui.conf"), "保存合成的深色主题");
+  engine.candidate_theme_applied_.clear();
+  engine.candidate_theme_attempt_.clear();
+  tick(partial, ink, false);
+  require(partial.config.theme.value() == host::kFcitxCandidateTheme &&
+              partial.config.darkTheme.value() == "synthetic-dark" && !engine.native_canvas_owned_,
+          "保留第三方深色主题时不接管原生画布");
+  engine.applyCandidatePanelTheme(&partial, ink, false, Json(), true);
+  require(engine.native_canvas_owned_, "主动选择水杉主题后可以接管原生画布");
+  fcitx::RawConfig external;
+  external.setValueByPath("Theme", "synthetic-light");
+  partial.setConfig(external);
+  tick(partial, ink, false);
+  require(!engine.native_canvas_owned_, "第三方主题热更新立即退出原生画布所有权");
+#endif
   if (savedDataHome) setenv("XDG_DATA_HOME", savedDataHome->c_str(), 1);
   else unsetenv("XDG_DATA_HOME");
   if (savedStateHome) setenv("XDG_STATE_HOME", savedStateHome->c_str(), 1);
