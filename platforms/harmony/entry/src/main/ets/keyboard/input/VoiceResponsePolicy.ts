@@ -12,8 +12,10 @@
  */
 import { VoiceRecognitionPolicy } from "./VoiceRecognitionPolicy";
 import { utf8Length } from "../Utf8";
+import { TextPolicy } from "../TextPolicy";
 
 const MAX_RESPONSE_BYTES: number = 1024 * 1024;
+const MAX_POLISH_TEXT_BYTES: number = 16_384;
 
 /** What the host should do about one reply. */
 export interface VoiceOutcome {
@@ -26,6 +28,39 @@ export interface VoiceOutcome {
 }
 
 export class VoiceResponsePolicy {
+  /** 润色失败时返回 null，由识别器保留完整转写。 */
+  static polishResult(responseCode: number, body: string | null): string | null {
+    if (
+      responseCode < 200 ||
+      responseCode >= 300 ||
+      body === null ||
+      utf8Length(body) > MAX_RESPONSE_BYTES
+    )
+      return null;
+    try {
+      const document: Record<string, Object> | null = VoiceResponsePolicy.record(JSON.parse(body));
+      if (document === null) return null;
+      // 不能按真假判断错误；缺省和 null 保持兼容，明确失败的正文必须回退。
+      if (document.error !== undefined && document.error !== null) return null;
+      const choices: Object | undefined = document.choices;
+      const first: Record<string, Object> | null = Array.isArray(choices)
+        ? VoiceResponsePolicy.record(choices[0])
+        : null;
+      if (first?.finish_reason === "length" || first?.finish_reason === "content_filter")
+        return null;
+      const content: Object | undefined = VoiceResponsePolicy.chatContent(document);
+      if (
+        typeof content !== "string" ||
+        !TextPolicy.validMultiline(content, MAX_POLISH_TEXT_BYTES, true)
+      )
+        return null;
+      const result: string = VoiceRecognitionPolicy.result(content);
+      return result.length > 0 ? result : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
   /**
    * A batch transcription reply.
    *

@@ -12,6 +12,8 @@ macOS 与 Windows 的原生语音流程调用共享 `polish_cloud_text`，Linux 
 
 iOS 在 `AppServicesBridge.parseResponse` 的非语音分支应用同一规则，抛出固定 `ServiceFailure`，让语音页原有的失败处理保留转写，通用 AI 请求也拒绝这些明确失败的正文。JSON `null` 以 `NSNull` 判断，不能按真假值判断顶层错误。`voice: true` 的转写解析保持原有契约。
 
+HarmonyOS 的 `HarmonyVoicePolisher` 将 HTTP 状态与字符串正文交给现有 `VoiceResponsePolicy.polishResult`，按同一规则返回 `null`，识别器沿用 `polished ?? finalText` 保留完整转写。该方法保留原有 1 MiB 响应上限、16 KiB 文字上限、控制字符检查和文字规范化；解析异常静默失败，不再进入网络异常日志。请求创建、重定向保护、超时、取消与释放仍由原润色类负责。
+
 ## 历史笔记审计
 
 - [Windows 原生语音对齐](../../implemented/feature/2026-10-10-windows-native-voice-mac-parity.md)：部分重叠，保留润色失败静默回退和 30 秒预算，本篇补齐哪些回复应当失败。
@@ -22,7 +24,7 @@ iOS 在 `AppServicesBridge.parseResponse` 的非语音分支应用同一规则�
 
 - 只检查 HTTP 成功和非空正文：能兼容更多服务并使用模型已经写出的文字，但无法告诉宿主这只是半段结果，会覆盖完整转写。
 - 强制 `finish_reason: stop`：判断最简单，但既有兼容服务可能省略或置空该字段；只拒绝明确报告的截断与过滤，避免扩大兼容性变化。
-- 在各宿主各自检查：靠近转写回退位置，但会复制协议规则。共享 C++ 入口是 macOS 与 Windows 的共同路径，应在这里拒绝不可用结果；Linux 用户会话服务、Android 和 iOS 的独立解析入口按同一规则处理。
+- 在各宿主各自检查：靠近转写回退位置，但会复制协议规则。共享 C++ 入口是 macOS 与 Windows 的共同路径，应在这里拒绝不可用结果；Linux 用户会话服务、Android 和 iOS 的独立解析入口按同一规则处理。HarmonyOS 的响应策略已有转写与流式回复解析，把润色规则放在同一策略层可以复用正文解析和现有纯逻辑测试入口；保留在系统 HTTP 类内则需要另建 ArkTS 运行替身与转译工具。
 
 ## Verification
 
@@ -34,11 +36,13 @@ Android 的 `VoicePolishReplyDeviceSmoke` 把同一份产品源文件编进 `edi
 
 iOS 的 `MSIMEServiceTests.CustomServiceTests` 通过 `URLProtocol` 替身返回合成 HTTP 200 回复，实际经过 `CustomServiceClient.request` → `URLSession` → `AppServicesBridge.parseResponse`，按请求路径确定回复，不共享可变测试状态。新增两项测试覆盖 13 种回复：截断、过滤、六种非 `null` 错误、空候选和四种兼容成功状态；旧实现出现 8 个预期失败。修复后在 Xcode 27 / iOS 27.0 模拟器上，整个 `CustomServiceTests` 的 30 项测试通过。已暂存校验资源、编译 Rust 模拟器静态库并运行 XcodeGen；生成差异仅为默认构建设置，没有源文件注册变化，丢弃这些无关差异后使用仓库工程完成修复后的验证。独立审查、`pnpm run verify-notes`、`git diff --check` 和本地 quick 门禁通过。未访问外部模型服务、录音或进行语音页完整交互验收。
 
+HarmonyOS 的 `voice-polish-reply.test.ts` 由现有 `tests/run.sh` 自动发现。先将既有解析行为移到响应策略，再运行新增回归，截断、过滤和六种非 `null` 错误出现 8 个预期失败；加入状态判断后 22 种回复与边界情况全部通过，HarmonyOS 逻辑和 C++ 套件也通过。已从当前检出构建原生库、暂存校验资源与设置页、执行 `ohpm install` 后完成 `hvigorw assembleHap --no-daemon`。实际 HAP 编译暴露并修复已有的词库更新参数对象类型错误，不改变参数字段或更新流程。独立审查复跑类型检查、新回归和差异检查通过，本地 quick 门禁与笔记校验通过。测试不联网或录音；HAP 未签名，未在设备上验收系统 HTTP 或完整语音交互。
+
 ## Consequences
 
 - 明确报告截断、过滤或错误的回复走现有失败回退，完整转写得以保留。失败没有新增日志或服务端错误透传。
 - 未提供结束原因或提供 `null` 的旧服务继续兼容，因此仍不能保证这些服务的输出完整性。
-- 覆盖范围是使用共享 C++ 润色入口的 macOS、Windows 原生流程、Linux 用户会话语音服务、Android 识别窗口使用的 `VoicePolisher`，以及 iOS 语音润色与通用 AI 请求共用的非语音解析分支。HarmonyOS 的独立语音实现和 iOS 的 `voice: true` 转写解析不受本篇修复覆盖。
+- 覆盖范围是使用共享 C++ 润色入口的 macOS、Windows 原生流程、Linux 用户会话语音服务、Android 识别窗口使用的 `VoicePolisher`、iOS 语音润色与通用 AI 请求共用的非语音解析分支，以及 HarmonyOS 的原生语音润色。各平台的转写协议解析不受本篇修复覆盖。
 - 请求参数、润色预算和错误提示沿用现有规则；明确失败时不再展示服务已经生成的部分正文。
 
 ## Sources
