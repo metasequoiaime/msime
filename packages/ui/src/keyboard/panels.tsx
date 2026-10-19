@@ -7,6 +7,7 @@ import { useCloudDictionaryApplyPanel } from "./use-cloud-dictionary-apply-panel
 import { useCloudDictionaryPanel } from "./use-cloud-dictionary-panel";
 import { useCloudClipboardPanel } from "./use-cloud-clipboard-panel";
 import { useVoicePanel } from "./use-voice-panel";
+import { CloudClipboardComposer } from "./cloud-clipboard-composer";
 import { CloudClipboardHistory } from "./cloud-clipboard-history";
 import { VoiceResults } from "./voice-results";
 import type {
@@ -544,29 +545,13 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
                 刷新
               </button>
             </div>
-            <div className={cloud.clipboardAddRow}>
-              <textarea
-                className={cloud.clipboardTextArea}
-                aria-label="待上传文本"
-                value={draft}
-                onChange={(event) => {
-                  updateDraft(event.target.value);
-                }}
-                placeholder="输入要上传的文本"
-                rows={3}
-              />
-              <small className={cloud.clipboardCount(draft.length > 4000)}>
-                {draft.length} / 4000
-              </small>
-              <button
-                type="button"
-                className={cloud.clipboardSubmit}
-                onClick={() => void add()}
-                disabled={!enabled || draft.trim().length === 0 || draft.length > 4000 || busy}
-              >
-                上传明确选择的文本
-              </button>
-            </div>
+            <CloudClipboardComposer
+              draft={draft}
+              enabled={enabled}
+              busy={busy}
+              onDraftChange={updateDraft}
+              onUpload={add}
+            />
             {e2e && e2e.undecryptable > 0 && (
               <p className={cloud.clipboardNote} role="note">
                 有 {e2e.undecryptable}{" "}

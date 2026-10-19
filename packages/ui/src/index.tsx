@@ -1694,6 +1694,10 @@ export { HandwritingResults, type HandwritingResultsProps } from "./keyboard/han
 export { KeyboardKeyButton, type KeyboardKeyButtonProps } from "./keyboard/keyboard-key-button";
 export { VoiceResults, type VoiceResultsProps } from "./keyboard/voice-results";
 export {
+  CloudClipboardComposer,
+  type CloudClipboardComposerProps,
+} from "./keyboard/cloud-clipboard-composer";
+export {
   CloudClipboardHistory,
   type CloudClipboardHistoryProps,
 } from "./keyboard/cloud-clipboard-history";

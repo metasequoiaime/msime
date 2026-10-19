@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-公开 `useCloudClipboardPanel` 和返回状态类型，接收原 `CloudClipboardPanelClient`。原状态、effect、动作和派生值按原顺序迁入 hook；确认类型和文案生成函数随状态保留为私有实现。草稿输入的修订递增与赋值原样合为 `updateDraft`，历史列表由受控的 [CloudClipboardHistory](2026-10-19-cloud-clipboard-history.md) 消费条目、忙状态和动作；面板保留其他 JSX、文案、客户端能力判断及装配。
+公开 `useCloudClipboardPanel` 和返回状态类型，接收原 `CloudClipboardPanelClient`。原状态、effect、动作和派生值按原顺序迁入 hook；确认类型和文案生成函数随状态保留为私有实现。草稿输入的修订递增与赋值原样合为 `updateDraft`，历史列表由受控的 [CloudClipboardHistory](2026-10-19-cloud-clipboard-history.md) 消费条目、忙状态和动作；上传表单由受控的 [CloudClipboardComposer](2026-10-19-cloud-clipboard-composer.md) 消费草稿及动作，并与 hook 共用已有长度上限常量；面板保留其他 JSX、文案、客户端能力判断及装配。
 
 继续复用 `usePanelAction` 的同步互斥和刷新代次、`useAsyncGeneration` 的客户端及草稿代次、`useLatestRef` 的搜索与设备列表镜像。宿主契约、加密协议、原生存储和网络实现不变，不新增依赖。
 

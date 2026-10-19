@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLatestRef } from "../core/use-latest-ref";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import {
+  CLOUD_CLIPBOARD_MAX_UTF16,
   cloudClipboardErrorMessage,
   cloudClipboardFailure,
 } from "../settings/cloud-clipboard-send";
@@ -196,9 +197,10 @@ export function useCloudClipboardPanel(client: CloudClipboardPanelClient) {
   }
 
   function add() {
-    if (!enabled || draft.trim().length === 0 || draft.length > 4000) {
+    if (!enabled || draft.trim().length === 0 || draft.length > CLOUD_CLIPBOARD_MAX_UTF16) {
       if (draft.trim().length === 0) setNotice("请输入要上传的文本");
-      else if (draft.length > 4000) setNotice("上传内容不能超过 4000 个 UTF-16 单元");
+      else if (draft.length > CLOUD_CLIPBOARD_MAX_UTF16)
+        setNotice(`上传内容不能超过 ${CLOUD_CLIPBOARD_MAX_UTF16} 个 UTF-16 单元`);
       return;
     }
     const uploadedRevision = draftRevision.current;
