@@ -192,13 +192,13 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
                 long longest = 0;
                 while (true) {
                     long batchStart = android.os.SystemClock.uptimeMillis();
-                    JSONObject synced = value("personalDictionarySync", new Class<?>[] {String.class}, optionsText);
+                    Object idleResult = store.getMethod("synchronizeIdle", String.class).invoke(null, optionsText);
+                    check((boolean) idleResult.getClass().getMethod("ok").invoke(idleResult), "capacity idle synchronization rejected");
+                    Object synced = idleResult.getClass().getMethod("value").invoke(idleResult);
                     longest = Math.max(longest, android.os.SystemClock.uptimeMillis() - batchStart);
-                    check(synced.getInt("failed_count") == 0, "capacity application failed");
-                    JSONObject flushed = value("dictionaryCollections", new Class<?>[] {String.class}, new JSONObject()
-                        .put("options", options).put("action", new JSONObject().put("operation", "flush")).toString());
+                    check((int) synced.getClass().getMethod("failed").invoke(synced) == 0, "capacity application failed");
                     rounds++;
-                    if (synced.getInt("pending_count") == 0 && flushed.getInt("sent") == 0) break;
+                    if ((int) synced.getClass().getMethod("pending").invoke(synced) == 0) break;
                     check(android.os.SystemClock.uptimeMillis() - capacityStart < 300000, "capacity application timed out");
                 }
                 try (SQLiteDatabase db = SQLiteDatabase.openDatabase(new File(root, "dictionaries/msime-pinyin.db").getPath(), null, SQLiteDatabase.OPEN_READONLY);
@@ -273,10 +273,9 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
     }
 
     private void synchronize(String options) throws Exception {
-        JSONObject synced = value("personalDictionarySync", new Class<?>[] {String.class}, options);
+        JSONObject synced = value("dictionaryCollections", new Class<?>[] {String.class}, new JSONObject()
+            .put("options", new JSONObject(options)).put("action", new JSONObject().put("operation", "synchronize")).toString());
         check(synced.getInt("failed_count") == 0 && synced.getInt("pending_count") == 0, "ranking synchronization failed");
-        value("dictionaryCollections", new Class<?>[] {String.class}, new JSONObject()
-            .put("options", new JSONObject(options)).put("action", new JSONObject().put("operation", "flush")).toString());
     }
 
     private static String word(int index) { return "" + (char) (0x4e00 + index) + "蒿"; }

@@ -1,14 +1,11 @@
 package app.msime.android;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 /**
- * 设置页「识别服务」的凭据换槽、字段校验与状态文案；公开服务和接口目录由 {@link VoiceProviderCatalog} 读取共享 Rust。
+ * 设置页「识别服务」的字段校验与状态文案；服务目录和换服务补丁经原生桥读取共享 Rust。
  *
  * <p>这里不推导任何默认接口或模型。键盘经 `msime_client_mobile_voice_configuration` 读共享解析，`asr_endpoint` 和 `asr_model` 留空时由共享层补上该服务的默认值，所以切换服务时把这两项清空就够了，不需要在 Java 里再放一份默认值表。共享设置页切换时会保留不是任何预设的自定义地址；这里不保留，因为那个地址是为上一个服务填的，留着它会把新服务的密钥发到旧服务的主机上。
  *
- * <p>凭据沿用共享设置页的分槽写法（`swapTokenSlot`）：`asr_token` 是当前服务的密钥，`asr_tokens` 按服务 id 存其他服务的，切走时把当前的收进槽里，切回来时取出来，两边读同一份文档不会互相错位。
+ * <p>凭据分槽与地址、模型的清空策略由 {@link VoiceProviderSettings} 调用共享 `provider_settings` 计算。
  */
 public final class VoiceProviderPolicy {
     /** 设备自带的语音识别服务；共享解析对它不给配置，键盘因此用系统识别。 */
@@ -27,26 +24,6 @@ public final class VoiceProviderPolicy {
     /** 豆包旧版鉴权要另填 App ID；其他模式和服务只要一个密钥。 */
     public static boolean legacyAuth(String mode) {
         return AUTH_LEGACY.equals(mode == null ? "" : mode.trim());
-    }
-
-    /** 切换服务后的凭据：`token` 写回 `asr_token`，`tokens` 整个替换 `asr_tokens`。 */
-    public record Tokens(String token, Map<String, String> tokens) {}
-
-    /** 与共享设置页 `asrProviderUpdate` 的凭据部分相同：当前密钥收进旧服务的槽（空就删掉那个槽），取出新服务的；系统识别和本地模型不发请求，不留槽也不带密钥。 */
-    public static Tokens switchTokens(String from, String to, String token, Map<String, String> slots) {
-        Map<String, String> next = new LinkedHashMap<>();
-        if (slots != null) next.putAll(slots);
-        String current = token == null ? "" : token;
-        if (from != null && !from.isEmpty()) {
-            if (current.isEmpty()) next.remove(from);
-            else next.put(from, current);
-        }
-        if (!network(to)) {
-            next.remove(to);
-            return new Tokens("", next);
-        }
-        String restored = next.get(to);
-        return new Tokens(restored == null ? "" : restored, next);
     }
 
     /** 密钥、App ID 能不能存：留空表示删除；否则不能有控制字符，长度与共享层的上限一致。豆包的凭据放进 WebSocket 握手的请求头，非 ASCII 的值共享层会拒绝，这里提前拦下。 */

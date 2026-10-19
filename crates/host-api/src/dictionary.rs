@@ -1631,6 +1631,49 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
 /// `msime_client_services::dictionary::collections` 给它排队的请求所加的 id 前缀。
 const COLLECTION_REQUEST_PREFIX: &str = "collections-";
 
+/// 同一有界调用内复用集合状态；个人同步每批独立取得并释放维护租约。
+pub(crate) fn synchronize_collections_with_budget(
+    options: &HostOptions,
+    budget: std::time::Duration,
+) -> Result<serde_json::Value, String> {
+    let directory = options
+        .preferences_directory
+        .as_deref()
+        .filter(|path| Path::new(path).is_absolute())
+        .ok_or("personal dictionary shared directory unavailable")?;
+    let personal = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
+    let collections =
+        msime_client_services::dictionary::collections::DictionaryCollectionsStore::new(
+            directory,
+            PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary")),
+        );
+    let started = std::time::Instant::now();
+    let mut flushing = collections
+        .begin_flush()
+        .map_err(|error| error.code().to_owned())?;
+    let bytes = serde_json::to_vec(options).map_err(|_| "invalid dictionary request")?;
+    let mut previous = usize::MAX;
+    loop {
+        // 先成功申请维护租约并应用个人队列，繁忙时不得提前推进集合待发项。
+        let mut synchronized = personal_dictionary_sync_json(&bytes)?;
+        let view = flushing.flush().map_err(|error| error.code().to_owned())?;
+        let state = personal.read().map_err(personal_dictionary_error)?;
+        let pending = state.pending_count().saturating_add(view.outbox_pending);
+        let sent = view.sent.unwrap_or(0);
+        synchronized["pending_count"] = json!(pending);
+        synchronized["failed_count"] = json!(state
+            .requests
+            .iter()
+            .filter(|request| request.status == PersonalWordRequestStatus::Failed)
+            .count());
+        synchronized["sent"] = json!(sent);
+        if pending == 0 || started.elapsed() >= budget || (sent == 0 && pending >= previous) {
+            return Ok(synchronized);
+        }
+        previous = pending;
+    }
+}
+
 /// JNI entry point for the Android IME worker.
 ///
 /// # Safety

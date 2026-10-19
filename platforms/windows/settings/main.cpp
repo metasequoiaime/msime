@@ -20161,7 +20161,7 @@ private:
 
   // 「连接 AI 助手」：展示助手运行的 `msime-mcp` 条目，可复制或写入 Claude Desktop、Cursor 的配置；通过 `msime_client_mcp_status` 和 `msime_client_mcp_install` 与共享设置页保持一致。
   void append_mcp_section(StackPanel const &panel) {
-    append_text(panel, L"MCP（Model Context Protocol）让 AI 助手通过本机服务调用水杉输入法的功能，不联网。连接后，助手可以管理快捷短语和设置、制作候选窗口皮肤、读取打字统计和已安装皮肤；遇到卡顿或候选窗口问题时，也能读取诊断日志帮助排查。除开关诊断日志外，修改功能需要在下方明确开启对应权限。");
+    append_text(panel, L"MCP（Model Context Protocol）让 AI 助手通过本机服务调用水杉输入法的功能，不联网。连接后，助手可以管理快捷短语和设置、制作、切换和删除候选窗口皮肤、读取打字统计和已安装皮肤；遇到卡顿或候选窗口问题时，也能读取诊断日志帮助排查。除开关诊断日志外，修改功能需要在下方明确开启对应权限。");
     const auto response =
         call_mcp(msime_client_mcp_status, mcp_request(runtime_options_path()));
     JsonObject status{nullptr};
@@ -20204,7 +20204,7 @@ private:
     ScrollViewer::SetHorizontalScrollBarVisibility(code, ScrollBarVisibility::Auto);
     panel.Children().Append(code);
     append_text(panel,
-                L"要让助手修改快捷短语和设置、为你制作候选窗口皮肤，在 args 中加入 "
+                L"要让助手修改快捷短语和设置、为你制作、切换和删除候选窗口皮肤，在 args 中加入 "
                 L"--allow-write；要让它读取你的用户词库、查看编码的候选，加入 "
                 L"--allow-dictionary-"
                 L"read；两项都加才能增删、调整和导入词。这两项只应在你信任该助"

@@ -751,7 +751,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button backspaceRepeatButton;
     boolean backspaceRepeated;
     boolean backspaceClearedComposition;
-    private long personalDictionarySyncGeneration;
+    private volatile long personalDictionarySyncGeneration;
     private Runnable personalDictionarySyncTask;
     /** 用户每复制一次就记进本机剪贴板历史；只在本服务（当前默认输入法）存活期间监听，关掉剪贴板历史或命中隐私规则时什么也不记。 */
     private final ClipboardManager.OnPrimaryClipChangedListener clipboardWatcher = () -> {
@@ -2199,17 +2199,17 @@ public final class MSIMEInputService extends InputMethodService {
             personalDictionarySyncTask = null;
             try {
                 preferencesWorker.execute(() -> {
-                    int queued;
-                    try {
-                        queued = value(NativeClient.personalDictionarySync(options)).optInt("pending_count", 0);
-                    } catch (Exception | LinkageError ignored) {
-                        // The next idle boundary retries a busy or unavailable journal.
-                        return;
-                    }
-                    // 个人词库每同步一次最多写 128 条，导入的词库又按队列空位分批送进来。这里把下一批送进去，只要还有没写完的（队列里还有，或者刚送进了新的）就马上再来一轮，直到全部写完。每一轮都回到主线程重新确认此刻没有输入会话：键盘一弹出就停，下次空闲时接着写。
-                    DictionaryCollectionsStore.Result<Integer> sent = DictionaryCollectionsStore.flushSent(this);
-                    if (queued > 0 || (sent.value() != null && sent.value() > 0))
-                        main.post(() -> schedulePersonalDictionarySynchronization(true));
+                    if (generation != personalDictionarySyncGeneration) return;
+                    DictionaryCollectionsStore.Result<DictionaryImportSynchronization.Batch> synchronizedWords =
+                        DictionaryCollectionsStore.synchronizeIdle(options);
+                    if (!synchronizedWords.ok()) return;
+                    DictionaryImportSynchronization.Batch batch = synchronizedWords.value();
+                    // 每 100 毫秒软预算回到主线程确认空闲；失败词挡住待发项且没有进展时停止，避免空转。
+                    if (batch.pending() > 0 && (batch.sent() > 0 || batch.failed() == 0))
+                        main.post(() -> {
+                            if (generation == personalDictionarySyncGeneration && session == 0)
+                                schedulePersonalDictionarySynchronization(true);
+                        });
                 });
             } catch (RuntimeException ignored) {
                 // Service shutdown owns the final worker state.

@@ -36,6 +36,7 @@ Testing by hand:
   If some <keys> cannot be looked up, the others still are and expand exits 1.
   Every run reads the current preferences; there is nothing to reload.
   The input method applies config set within a few seconds.
+  Pick a skin with config set candidate_skin=<id> candidate_skin_dark=<id>.
   expand leaves out cloud and AI candidates and the context of earlier words.
   From a terminal, expand implies --allow-dictionary-read.
   From a terminal, config set implies --allow-write.
@@ -54,6 +55,8 @@ For an AI assistant:
   A skin's schema_version 2 adds bounded motion on any base; base = canvas,
   also version 2, is an msime-windows full-image skin. tools describes every
   skin.toml key, its range and which hosts draw it, under create_candidate_skin.
+  Its image_files maps each image path in skin.toml to the absolute path of a
+  file on this computer, which is only read, instead of base64 in images.
 
 Flags:
   --options <path>         The runtime-options document the input method reads

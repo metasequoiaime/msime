@@ -64,7 +64,7 @@ const permissionFlags = [
   {
     flag: "--allow-write",
     title: "允许修改设置",
-    detail: "修改快捷短语和设置、制作候选窗口皮肤",
+    detail: "修改快捷短语和设置、制作、切换和删除候选窗口皮肤",
   },
   {
     flag: "--allow-dictionary-read",
@@ -97,7 +97,7 @@ function grantMessage(name: string, flags: readonly McpFlag[]): string {
   const write = flags.includes("--allow-write");
   const read = flags.includes("--allow-dictionary-read");
   const abilities = [
-    write ? "修改设置和快捷短语、制作候选窗口皮肤" : undefined,
+    write ? "修改设置和快捷短语、制作、切换和删除候选窗口皮肤" : undefined,
     read ? "读取你的用户词库、查看编码的候选" : undefined,
     write && read ? "增删、调整和导入词" : undefined,
   ].filter((ability) => ability !== undefined);
@@ -383,7 +383,7 @@ export function McpConnectSection({
       <SettingsManagerBlock role="group" aria-label="连接 AI 助手">
         <SettingsManagerNote>
           MCP（Model Context Protocol）让 AI
-          助手通过本机服务调用水杉输入法的功能，不联网。连接后，助手可以管理快捷短语和设置、制作候选窗口皮肤、读取打字统计和已安装皮肤；遇到卡顿或候选窗口问题时，也能读取诊断日志帮助排查。助手能否修改内容由下面两个开关决定，默认都开；复制的命令、配置和一键写入都带上开着的权限。两个都关时只读，除了开关诊断日志不改动任何设置。
+          助手通过本机服务调用水杉输入法的功能，不联网。连接后，助手可以管理快捷短语和设置、制作、切换和删除候选窗口皮肤、读取打字统计和已安装皮肤；遇到卡顿或候选窗口问题时，也能读取诊断日志帮助排查。助手能否修改内容由下面两个开关决定，默认都开；复制的命令、配置和一键写入都带上开着的权限。两个都关时只读，除了开关诊断日志不改动任何设置。
         </SettingsManagerNote>
         {loadFailed && <ErrorAlert>无法读取 MCP 服务器的状态。</ErrorAlert>}
         {copyFailed && <ErrorAlert>复制失败，请重试。</ErrorAlert>}

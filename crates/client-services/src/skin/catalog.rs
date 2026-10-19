@@ -1441,36 +1441,7 @@ fn decoded_animation_frames(
 /// 检查清单引用的 PNG/JPEG/GIF/WebP 尺寸，避免宿主把声明为极大尺寸的压缩图片交给系统解码器。动画图的每一帧都按整张画布计入像素合计，帧数不超过 [`MAX_ANIMATION_FRAMES`]，所以一个包解码后的位图总量与静态图同一个上限。返回装饰图的帧数（没有装饰图时为 0）。
 /// 不能解析的旧资源仍由宿主按原有方式处理；社区发布和安装会再做完整解码检查。
 fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, String> {
-    let mut paths = Vec::new();
-    for path in [
-        summary.decoration_image.as_deref(),
-        summary
-            .background
-            .as_ref()
-            .map(|background| background.image.as_str()),
-        summary.preview.as_deref().filter(|path| is_image(path)),
-        summary
-            .border_image
-            .as_ref()
-            .map(|image| image.source.as_str()),
-        summary
-            .border_image
-            .as_ref()
-            .and_then(|image| image.light_source.as_deref()),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if !paths.iter().any(|existing| existing == &path) {
-            paths.push(path);
-        }
-    }
-    for decoration in &summary.decorations {
-        if !paths.iter().any(|existing| existing == &decoration.image) {
-            paths.push(decoration.image.as_str());
-        }
-    }
-
+    let paths = referenced_image_paths(summary);
     let mut pixels = 0_u64;
     let mut decoration_frames = u32::from(summary.decoration_image.is_some());
     for path in paths {
@@ -1528,6 +1499,122 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, S
         }
     }
     Ok(decoration_frames)
+}
+
+/// 清单引用的图片路径：装饰图、背景、预览（是图片时）、九宫格的两个来源，再是各个挂件，同一路径只列一次。
+fn referenced_image_paths(summary: &SkinSummary) -> Vec<&str> {
+    let mut paths = Vec::new();
+    for path in [
+        summary.decoration_image.as_deref(),
+        summary
+            .background
+            .as_ref()
+            .map(|background| background.image.as_str()),
+        summary.preview.as_deref().filter(|path| is_image(path)),
+        summary
+            .border_image
+            .as_ref()
+            .map(|image| image.source.as_str()),
+        summary
+            .border_image
+            .as_ref()
+            .and_then(|image| image.light_source.as_deref()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !paths.iter().any(|existing| existing == &path) {
+            paths.push(path);
+        }
+    }
+    for decoration in &summary.decorations {
+        if !paths.iter().any(|existing| existing == &decoration.image) {
+            paths.push(decoration.image.as_str());
+        }
+    }
+    paths
+}
+
+/// 清单里一张图片在磁盘上的样子，见 [`package_files`]。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkinImageFile {
+    /// 清单里写的包内相对路径。
+    pub path: String,
+    /// 文件的字节数。
+    pub bytes: u64,
+    /// 按内容认出的编码：`png`、`apng`（多于一帧的 PNG）、`jpeg`、`gif` 或 `webp`；认不出时为 `None`，这样的旧资源由宿主按原有方式处理。
+    pub format: Option<&'static str>,
+    /// 一帧整幅画布的宽和高；认不出编码或读不出尺寸时为 `None`。
+    pub dimensions: Option<(u32, u32)>,
+    /// 动画帧数，静态图为 1。
+    pub frames: u32,
+}
+
+/// 一款已安装皮肤的清单原文和它引用的图片，供修改后整包重装。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkinPackageFiles {
+    /// `skin.toml` 原文，去掉开头的字节序标记。
+    pub manifest: String,
+    /// 清单引用的图片，顺序与同一路径只列一次的规则同扫描时一样。
+    pub images: Vec<SkinImageFile>,
+}
+
+/// 读 `root` 下已安装、能用（与 [`scan`] 同一条规则）的皮肤 `id` 的清单原文和它引用的每张图片。文件经不跟随符号链接的句柄读，清单最多 64 KiB，每张图最多 [`MAX_RESOURCE_BYTES`]；格式、尺寸和帧数按扫描时的同一套方法得出，读不出的旧资源报告为认不出，不算错误。
+pub fn package_files(root: impl AsRef<Path>, id: &str) -> Result<SkinPackageFiles, String> {
+    let root = root.as_ref();
+    let summary = load_package(root, id)?;
+    let dir = root.join(id);
+    let read = |path: &Path, limit: usize| {
+        let input = crate::storage::open_private_file_in(path)
+            .map_err(|_| "a skin file is unavailable".to_owned())?;
+        crate::bounded_io::read_bounded_file_with(
+            input,
+            limit as u64,
+            || "a skin file is too large".to_owned(),
+            |_| "a skin file is unavailable".to_owned(),
+        )
+    };
+    let manifest = String::from_utf8(read(&dir.join("skin.toml"), 65_536)?)
+        .map_err(|_| "skin.toml is not UTF-8".to_owned())?;
+    let manifest = match manifest.strip_prefix('\u{feff}') {
+        Some(body) => body.to_owned(),
+        None => manifest,
+    };
+    let mut images = Vec::new();
+    for path in referenced_image_paths(&summary) {
+        let bytes = read(&dir.join(path), MAX_RESOURCE_BYTES)?;
+        let reader = image::ImageReader::new(Cursor::new(&bytes[..]))
+            .with_guessed_format()
+            .ok();
+        let format = reader.as_ref().and_then(|reader| reader.format());
+        let dimensions = reader.and_then(|reader| reader.into_dimensions().ok());
+        let frames = match (format, dimensions) {
+            (Some(image::ImageFormat::Png), _) => {
+                png_frames(&bytes).map_or(1, |(frames, _)| frames)
+            }
+            (Some(format @ (image::ImageFormat::Gif | image::ImageFormat::WebP)), Some(size)) => {
+                decoded_animation_frames(&bytes, format, size, MAX_PACKAGE_PIXELS)
+                    .map_or(1, |(frames, _)| frames)
+            }
+            _ => 1,
+        };
+        let format = match format {
+            Some(image::ImageFormat::Png) if frames > 1 => Some("apng"),
+            Some(image::ImageFormat::Png) => Some("png"),
+            Some(image::ImageFormat::Jpeg) => Some("jpeg"),
+            Some(image::ImageFormat::Gif) => Some("gif"),
+            Some(image::ImageFormat::WebP) => Some("webp"),
+            _ => None,
+        };
+        images.push(SkinImageFile {
+            path: path.to_owned(),
+            bytes: bytes.len() as u64,
+            dimensions: format.and(dimensions),
+            format,
+            frames,
+        });
+    }
+    Ok(SkinPackageFiles { manifest, images })
 }
 
 /// 读 `decoration.motion` 和 `decoration.motion_period_ms`。两者都只在 schema 2 里可写，并且只对有装饰的包有意义；版本 1 保持静态，与 `[animation]` 相同。

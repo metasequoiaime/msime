@@ -46,9 +46,9 @@ pub fn make_skin_text(style: Option<String>) -> String {
 3. Use schema_version = 2 for a lively skin. Animation and decoration motion work with schema_version = 2 on any base, so keep base = system or a built-in theme for an animated skin. Add an [animation] table that writes all three presets explicitly, a short enter (fade_scale or slide_up), exit (fade) and selection (spring or glow), with duration_ms around 160-220 and stagger_ms around 10-18; macOS plays only the presets the table writes. The native hosts map these presets to their own compositor; reduced-motion settings still win. Use schema_version = 1 only when the user explicitly asks for a static skin.
 4. With a decoration image in [candidate_window.decoration] (singular: a character or ornament standing on the card's top edge), you can make it move while the candidate window is shown: set motion in [candidate_window.decoration] to float, sway, breathe or bounce (the host keeps the movement small) and optionally motion_period_ms (1200-8000, default 3000; around 2400-4000 feels calm). For frame animation, make the decoration an animated PNG (APNG): a few to a few dozen small frames (at most 120, each frame counts as a whole image toward the 8,000,000-pixel limit), a frame delay of about 80-200 ms, and a first frame that looks right on its own, because hosts that cannot play frames, and every host when the user asks the system to reduce motion, show only the first frame. Motion and APNG can be combined. Leave motion out, or use a still PNG, when the user wants a calm skin.
 5. Use base = \"canvas\" only when the user explicitly asks for an msime-windows full-image (nine-slice) skin. It needs schema_version = 2 (version 1 with canvas is refused); give it a [candidate_window.border_image] whose images can be PNG/JPEG/APNG/GIF/WebP. border_image, [[candidate_window.decorations]] (plural: free widgets) and the canvas insets are read only with base = canvas. The Web engine and the macOS, Windows, iOS, Android and HarmonyOS candidate windows draw these canvas textures using their platform image codecs, while a host without that renderer (Linux for now) uses a readable opaque canvas look (only accent and menu colours are kept in that fallback). Explain the target host's support before making the skin. [animation] and decoration motion work on canvas as on any other base. The preview, panel and widgets count toward the 37-image limit. canvas and wechat_scroll are reserved and cannot be a package_id. Extended resources and new bases require explicit server support before upload; older deployments keep these skins local.
-6. Make every image by running code; never write base64 by hand. A short Python script using only the standard library (zlib and struct are enough to write a PNG, and an APNG is the same file with an acTL chunk and one fcTL plus fdAT pair per extra frame) runs without installing anything; use Pillow only if it is already installed. Use PNG/JPEG/APNG/GIF/WebP for resources and PNG/JPEG for the preview. Always make the preview, a small picture of the skin in its own colours, around 480x160 and under 256 KiB. Keep background and decoration images to a few hundred pixels; at most 37 images and 2 MiB together. Have the script print each image's base64 and pass it in images, keyed by the path the manifest uses. If you cannot run code, tell the user that making a skin needs an assistant that can, such as Claude Code or Codex, and stop.
+6. Make every image by running code; never write base64 by hand. A short Python script using only the standard library (zlib and struct are enough to write a PNG, and an APNG is the same file with an acTL chunk and one fcTL plus fdAT pair per extra frame) runs without installing anything; use Pillow only if it is already installed. Use PNG/JPEG/APNG/GIF/WebP for resources and PNG/JPEG for the preview. Always make the preview, a small picture of the skin in its own colours, around 480x160 and under 256 KiB. Keep background and decoration images to a few hundred pixels; at most 37 images and 2 MiB together. Have the script save each image as a file in a new folder of its own and pass the files' absolute paths in image_files, keyed by the path the manifest uses; do not copy base64 into the call, where a single wrong character gets the whole skin refused. Only if you cannot write files, have the script print each image's base64 and pass it in images. If you cannot run code, tell the user that making a skin needs an assistant that can, such as Claude Code or Codex, and stop.
 7. If create_candidate_skin refuses the skin, read the reason, fix the manifest or the images, and try again.
-8. Once it is installed, tell the user how to use it: in the MSIME settings, open 主题 and pick the skin under 我的皮肤. If they are signed in, they can request sync to save it to their cloud library as a private skin and publish it from its card there. Extended resources require explicit server support."
+8. Once it is installed, offer to switch to it, and do it yourself when the user agrees: read get_preferences, then call update_preferences with that revision and the skin as candidate_skin for light mode (a skin on a light base, light or paper, or on system) and as candidate_skin_dark for dark mode (a dark base, night, ink or shuishan, or system). This also switches the theme to custom, and the input method shows it within a few seconds. Note the global_theme and skins get_preferences reported, so you can switch back if the user does not like it. The user can also pick it in the MSIME settings: open 主题 and choose it under 我的皮肤. If they are signed in, they can request sync to save it to their cloud library as a private skin and publish it from its card there. Extended resources require explicit server support."
     )
 }
 
@@ -128,6 +128,30 @@ mod tests {
             "(Linux for now)",
             "#RRGGBB or #RRGGBBAA",
             "require explicit server support before upload",
+        ] {
+            assert!(text.contains(word), "{word}");
+        }
+    }
+
+    #[test]
+    fn make_skin_switches_to_the_skin_it_made() {
+        let text = super::make_skin_text(None);
+        for word in [
+            "call update_preferences with that revision and the skin as candidate_skin",
+            "as candidate_skin_dark for dark mode",
+            "so you can switch back",
+        ] {
+            assert!(text.contains(word), "{word}");
+        }
+    }
+
+    #[test]
+    fn make_skin_passes_images_as_files() {
+        let text = super::make_skin_text(None);
+        for word in [
+            "never write base64 by hand",
+            "pass the files' absolute paths in image_files",
+            "do not copy base64 into the call",
         ] {
             assert!(text.contains(word), "{word}");
         }

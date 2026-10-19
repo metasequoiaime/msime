@@ -132,6 +132,7 @@ async fn read_only_by_default() {
     assert_eq!(
         tool_names(&client).await,
         [
+            "get_candidate_skin",
             "get_preferences",
             "get_typing_statistics",
             "list_candidate_skins",
@@ -158,7 +159,7 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
     let (client, _child) = start(&options, &["--allow-write"]).await;
-    assert_eq!(tool_names(&client).await.len(), 9);
+    assert_eq!(tool_names(&client).await.len(), 11);
 
     // Quick phrases: add, list, replace, remove, with a failure in the middle of a batch.
     let outcome = ok(
@@ -295,7 +296,7 @@ async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
     client.cancel().await.unwrap();
 
     let (client, _child) = start(&options, &["--allow-write", "--allow-dictionary-read"]).await;
-    assert_eq!(tool_names(&client).await.len(), 13);
+    assert_eq!(tool_names(&client).await.len(), 15);
 
     let outcome = ok(
         &client,
@@ -637,6 +638,7 @@ fn the_command_line_runs_the_same_tools() {
     assert_eq!(
         names,
         [
+            "get_candidate_skin",
             "get_preferences",
             "get_typing_statistics",
             "list_candidate_skins",
@@ -967,4 +969,186 @@ fn arguments_can_come_from_a_file() {
     );
     assert_eq!(code, 2);
     assert!(error.contains("cannot read the arguments"), "{error}");
+}
+
+/// 一张 1×1 PNG 的字节，写成文件给 image_files 用。
+const PNG_BYTES: &[u8] = b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0d\x49\x44\x41\x54\x78\x9c\x63\x60\x60\x60\x60\x00\x00\x00\x05\x00\x01\xa5\xf6\x45\x40\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";
+
+/// 一份最小的皮肤清单，`base` 决定它画在哪种明暗下。
+fn skin_manifest(id: &str, name: &str, base: &str) -> String {
+    format!("schema_version = 1\nid = '{id}'\nname = '{name}'\nversion = '1.0'\nbase = '{base}'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal', 'vertical']\nthemes = ['dark', 'light']\n[candidate_window]\nmin_width_dip = 200\n")
+}
+
+#[tokio::test]
+async fn an_agent_manages_candidate_skins() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let images = tempfile::tempdir().unwrap();
+    let preview = images.path().join("preview.png");
+    std::fs::write(&preview, PNG_BYTES).unwrap();
+    let (client, _child) = start(&options, &["--allow-write"]).await;
+
+    // 图片以本机文件的路径给出，装进去的是同样的字节。
+    assert_eq!(
+        ok(
+            &client,
+            "create_candidate_skin",
+            json!({
+                "package_id": "dusk",
+                "manifest": skin_manifest("dusk", "Dusk", "night"),
+                "image_files": { "preview.png": preview.to_str().unwrap() },
+            }),
+        )
+        .await,
+        json!({ "id": "dusk", "replaced": false })
+    );
+    assert_eq!(
+        std::fs::read(directory.path().join("skins/dusk/preview.png")).unwrap(),
+        PNG_BYTES
+    );
+    // 相对路径被拒绝，并指出是哪一项。
+    after_write_interval().await;
+    let error = refused(
+        &client,
+        "create_candidate_skin",
+        json!({
+            "package_id": "dawn",
+            "manifest": skin_manifest("dawn", "Dawn", "paper"),
+            "image_files": { "preview.png": "preview.png" },
+        }),
+    )
+    .await;
+    assert!(error.contains("is not an absolute path"), "{error}");
+
+    // 读回它：清单原文和每张图在本机的文件，改了清单后用这些文件整包重装。
+    let files = ok(
+        &client,
+        "get_candidate_skin",
+        json!({ "package_id": "dusk" }),
+    )
+    .await;
+    assert_eq!(files["manifest"], skin_manifest("dusk", "Dusk", "night"));
+    assert_eq!(files["synced"], false);
+    let image = &files["images"][0];
+    assert_eq!(image["path"], "preview.png");
+    assert_eq!(image["format"], "png");
+    assert_eq!(
+        (
+            image["width"].clone(),
+            image["height"].clone(),
+            image["frames"].clone()
+        ),
+        (json!(1), json!(1), json!(1))
+    );
+    assert_eq!(image["bytes"], PNG_BYTES.len());
+    after_write_interval().await;
+    assert_eq!(
+        ok(
+            &client,
+            "create_candidate_skin",
+            json!({
+                "package_id": "dusk",
+                "manifest": skin_manifest("dusk", "Dusk Again", "night"),
+                "image_files": { "preview.png": image["file"] },
+                "replace": true,
+            }),
+        )
+        .await,
+        json!({ "id": "dusk", "replaced": true })
+    );
+    assert_eq!(
+        ok(&client, "list_candidate_skins", json!({})).await["skins"][0]["name"],
+        "Dusk Again"
+    );
+    assert!(refused(
+        &client,
+        "get_candidate_skin",
+        json!({ "package_id": "missing" })
+    )
+    .await
+    .contains("no skin missing is installed"));
+
+    // 选上它作深色模式的皮肤：主题随之换到 custom，get_preferences 报告这个选择。
+    let before = ok(&client, "get_preferences", json!({})).await;
+    assert_eq!(before["global_theme"], "system");
+    assert_eq!(before["candidate_skin"], Value::Null);
+    assert_eq!(before["candidate_skin_dark"], Value::Null);
+    after_write_interval().await;
+    let error = refused(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": before["revision"], "candidate_skin": "dusk" }),
+    )
+    .await;
+    assert!(error.contains("put it in candidate_skin_dark"), "{error}");
+    after_write_interval().await;
+    let selected = ok(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": before["revision"], "candidate_skin_dark": "dusk" }),
+    )
+    .await;
+    assert_eq!(selected["global_theme"], "custom");
+    assert_eq!(selected["candidate_skin_dark"], "dusk");
+    assert_eq!(ok(&client, "get_preferences", json!({})).await, selected);
+    // 换回原来的主题，取下皮肤。
+    after_write_interval().await;
+    let restored = ok(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": selected["revision"], "global_theme": "system", "candidate_skin_dark": null }),
+    )
+    .await;
+    assert_eq!(restored["global_theme"], "system");
+    assert_eq!(restored["candidate_skin_dark"], Value::Null);
+
+    // 删掉它：内置主题拒绝；选着时拒绝；取下后删掉，目录里不再列出。
+    after_write_interval().await;
+    let error = refused(
+        &client,
+        "delete_candidate_skin",
+        json!({ "package_id": "night" }),
+    )
+    .await;
+    assert!(error.contains("cannot be deleted"), "{error}");
+    after_write_interval().await;
+    ok(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": restored["revision"], "candidate_skin_dark": "dusk" }),
+    )
+    .await;
+    after_write_interval().await;
+    let error = refused(
+        &client,
+        "delete_candidate_skin",
+        json!({ "package_id": "dusk" }),
+    )
+    .await;
+    assert!(error.contains("chosen as candidate_skin_dark"), "{error}");
+    let chosen = ok(&client, "get_preferences", json!({})).await;
+    after_write_interval().await;
+    ok(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": chosen["revision"], "candidate_skin_dark": null, "global_theme": "system" }),
+    )
+    .await;
+    after_write_interval().await;
+    assert_eq!(
+        ok(
+            &client,
+            "delete_candidate_skin",
+            json!({ "package_id": "dusk" })
+        )
+        .await,
+        json!({ "id": "dusk", "synced": false })
+    );
+    assert_eq!(
+        ok(&client, "list_candidate_skins", json!({})).await["skins"],
+        json!([])
+    );
+    assert!(!directory.path().join("skins/dusk").exists());
+
+    client.cancel().await.unwrap();
 }

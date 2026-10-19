@@ -121,6 +121,28 @@ public final class DictionaryCollectionsStore {
         return Result.of(sent == null ? 0 : sent);
     }
 
+    /** 空闲工作线程以短预算继续导入；返回的待处理数量包含尚未进入活动队列的词。 */
+    public static Result<DictionaryImportSynchronization.Batch> synchronizeIdle(String options) {
+        return synchronize(options, 100);
+    }
+
+    private static Result<DictionaryImportSynchronization.Batch> synchronize(String options, int budgetMillis) {
+        if (options.isEmpty()) return Result.failed(failureMessage("unavailable"));
+        try {
+            JSONObject synchronizedWords = value(NativeClient.dictionaryCollections(new JSONObject()
+                .put("options", new JSONObject(options)).put("action", action("synchronize")
+                    .put("budget_millis", budgetMillis)).toString()));
+            if (synchronizedWords == null) return Result.failed(failureMessage(""));
+            int pending = JsonPolicy.nonNegativeInteger(synchronizedWords.opt("pending_count"), -1);
+            int sent = JsonPolicy.nonNegativeInteger(synchronizedWords.opt("sent"), -1);
+            int failed = JsonPolicy.nonNegativeInteger(synchronizedWords.opt("failed_count"), -1);
+            if (pending < 0 || sent < 0 || failed < 0) return Result.failed(failureMessage(""));
+            return Result.of(new DictionaryImportSynchronization.Batch(pending, sent, failed));
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return Result.failed(failureMessage(""));
+        }
+    }
+
     /** 还没交给个人词库队列的集合增删总数；云同步导出前必须等它清零。 */
     public static Result<Integer> pendingOutbox(Context context) {
         String options = hostOptions(context);
@@ -533,14 +555,9 @@ public final class DictionaryCollectionsStore {
         View view = parseView(value);
         if (view.importReport() != null) {
             DictionaryImportSynchronization.Outcome outcome = DictionaryImportSynchronization.run(() -> {
-                JSONObject synchronizedWords = value(NativeClient.personalDictionarySync(options));
-                if (synchronizedWords == null) throw new IllegalStateException("dictionary synchronization unavailable");
-                Result<Integer> flushed = flushSent(context);
-                if (!flushed.ok()) throw new IllegalStateException("dictionary collections unavailable");
-                return new DictionaryImportSynchronization.Batch(
-                    JsonPolicy.nonNegativeInteger(synchronizedWords.opt("pending_count"), -1),
-                    flushed.value(),
-                    JsonPolicy.nonNegativeInteger(synchronizedWords.opt("failed_count"), -1));
+                Result<DictionaryImportSynchronization.Batch> synchronizedWords = synchronize(options, 2000);
+                if (!synchronizedWords.ok()) throw new IllegalStateException("dictionary synchronization unavailable");
+                return synchronizedWords.value();
             }, System::nanoTime);
             ImportReport report = view.importReport();
             view = new View(view.collections(), view.formats(), view.outboxPending(), new ImportReport(

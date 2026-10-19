@@ -82,6 +82,8 @@ const IMAGE_INVALID: &str = "candidate_skin_image_invalid";
 const LICENSE_REQUIRED: &str = "candidate_skin_license_required";
 const PREVIEW_REQUIRED: &str = "candidate_skin_preview_required";
 const EXISTS: &str = "candidate_skin_exists";
+/// 本机图片文件读不出来：不是绝对路径、路径上有符号链接、不是普通文件、不存在或没有权限。只有 [`install_with_local_files`] 会给出。
+const LOCAL_FILE: &str = "candidate_skin_file_unreadable";
 const STORAGE: &str = "storage";
 
 /// License text of a published package, each `""` when the manifest leaves it out.
@@ -1528,13 +1530,24 @@ struct ManifestId {
 }
 
 /// Check every key and decode every image of a downloaded package, before anything is written.
-fn decode_files(files: &BTreeMap<String, String>) -> Result<Vec<(&str, Vec<u8>)>, &'static str> {
+/// 包里一张图片从哪里来。
+enum FileSource<'a> {
+    /// 标准 base64，社区下载和 MCP 的 `images` 都是这样给的。
+    Base64(&'a str),
+    /// 本机文件的绝对路径，MCP 的 `image_files`。
+    Local(&'a Path),
+}
+
+/// 先核对全部包内路径，再按路径顺序逐张取出字节并检查，任一张超出单张、整包或像素预算就立即停下，不再读后面的。
+fn load_files<'a>(
+    files: &BTreeMap<&'a str, FileSource<'_>>,
+) -> Result<Vec<(&'a str, Vec<u8>)>, &'static str> {
     if files.is_empty() || files.len() > MAX_PACKAGE_FILES {
         return Err(FILE_PATH);
     }
     let mut lowercase = HashSet::with_capacity(files.len());
     for path in files.keys() {
-        if !catalog::safe_resource(path, MAX_RESOURCE_PATH_BYTES) || path == MANIFEST_FILE {
+        if !catalog::safe_resource(path, MAX_RESOURCE_PATH_BYTES) || *path == MANIFEST_FILE {
             return Err(FILE_PATH);
         }
         if image_content_type(path).is_none() {
@@ -1547,11 +1560,16 @@ fn decode_files(files: &BTreeMap<String, String>) -> Result<Vec<(&str, Vec<u8>)>
     let mut decoded = Vec::with_capacity(files.len());
     let mut total = 0_usize;
     let mut pixels = 0_u64;
-    for (path, data) in files {
-        if data.len() > base64_length(MAX_PACKAGE_FILE_BYTES) {
-            return Err(TOO_LARGE);
-        }
-        let bytes = BASE64.decode(data).map_err(|_| IMAGE_INVALID)?;
+    for (path, source) in files {
+        let bytes = match source {
+            FileSource::Base64(data) => {
+                if data.len() > base64_length(MAX_PACKAGE_FILE_BYTES) {
+                    return Err(TOO_LARGE);
+                }
+                BASE64.decode(data).map_err(|_| IMAGE_INVALID)?
+            }
+            FileSource::Local(file) => read_local_image(file)?,
+        };
         if bytes.len() > MAX_PACKAGE_FILE_BYTES {
             return Err(TOO_LARGE);
         }
@@ -1568,9 +1586,28 @@ fn decode_files(files: &BTreeMap<String, String>) -> Result<Vec<(&str, Vec<u8>)>
         if pixels > MAX_PACKAGE_PIXELS {
             return Err(TOO_LARGE);
         }
-        decoded.push((path.as_str(), bytes));
+        decoded.push((*path, bytes));
     }
     Ok(decoded)
+}
+
+/// 读调用方在本机给出的一张图片，只读不写。`path` 必须是绝对路径，各级都不能是符号链接（`msime-path-trust` 列出的系统别名除外，如 macOS 的 `/tmp`），最后一级必须是普通文件：FIFO、设备和目录都拒绝，打开时不会因 FIFO 阻塞。读之前先按文件大小拒绝超过单张上限的图，读时再按同一上限截断，文件在两步之间变大也读不进更多。
+fn read_local_image(path: &Path) -> Result<Vec<u8>, &'static str> {
+    if !path.is_absolute() {
+        return Err(LOCAL_FILE);
+    }
+    crate::storage::reject_symlink(path).map_err(|_| LOCAL_FILE)?;
+    let file = crate::storage::open_private_file_in(path).map_err(|_| LOCAL_FILE)?;
+    let length = file.metadata().map_err(|_| LOCAL_FILE)?.len();
+    if length > MAX_PACKAGE_FILE_BYTES as u64 {
+        return Err(TOO_LARGE);
+    }
+    crate::bounded_io::read_bounded_file_with(
+        file,
+        MAX_PACKAGE_FILE_BYTES as u64,
+        || TOO_LARGE,
+        |_| LOCAL_FILE,
+    )
 }
 
 #[cfg(not(unix))]
@@ -1671,6 +1708,18 @@ pub fn install(
     package: &CandidateSkinPackage,
     replace: bool,
 ) -> Result<String, &'static str> {
+    install_with_local_files(root, package, &BTreeMap::new(), replace)
+}
+
+/// 与 [`install`] 相同，但部分图片由本机文件给出：`local_files` 以包内相对路径为键、本机绝对路径为值，和 `package.files` 里的 base64 图片合在一起算作这个包的全部图片，同一个包内路径不能两边都给。
+///
+/// 每个文件按 [`read_local_image`] 的规则读：路径上不能有符号链接（`msime-path-trust` 列出的系统别名除外），必须是普通文件，读之前先按大小拒绝。读进来的字节和解码后的 base64 走同一套检查（路径、扩展名、每张和整包的大小、完整解码、像素与帧数预算），全部读完才写入暂存目录再换入，所以文件可以就在要替换的那个皮肤文件夹里。本机文件读不出来时返回 `candidate_skin_file_unreadable`。
+pub fn install_with_local_files(
+    root: &Path,
+    package: &CandidateSkinPackage,
+    local_files: &BTreeMap<String, std::path::PathBuf>,
+    replace: bool,
+) -> Result<String, &'static str> {
     let package_id = package.package_id.as_str();
     if package.manifest.len() > MAX_MANIFEST_BYTES {
         return Err(TOO_LARGE);
@@ -1681,7 +1730,20 @@ pub fn install(
     if manifest_id != package_id || !valid_package_id(package_id) {
         return Err(PACKAGE);
     }
-    let files = decode_files(&package.files)?;
+    let mut sources: BTreeMap<&str, FileSource<'_>> = package
+        .files
+        .iter()
+        .map(|(path, data)| (path.as_str(), FileSource::Base64(data)))
+        .collect();
+    for (path, file) in local_files {
+        if sources
+            .insert(path.as_str(), FileSource::Local(file))
+            .is_some()
+        {
+            return Err(FILE_PATH);
+        }
+    }
+    let files = load_files(&sources)?;
     // A linked root would install into an unrelated directory; check it before creating it, as folder import does.
     if !crate::storage::create_directory_and_check(root).unwrap_or(false) {
         return Err(STORAGE);

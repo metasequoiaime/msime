@@ -1,8 +1,6 @@
 import app.msime.android.VoiceProviderPolicy;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
-/** 设置页的凭据换槽、接口校验与状态提示；目录展示另由共享快照冒烟覆盖。 */
+/** 设置页的接口校验与状态提示；换服务补丁由共享 Rust 和设备 JNI 冒烟覆盖。 */
 public final class VoiceProviderPolicySmoke {
     static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -13,29 +11,6 @@ public final class VoiceProviderPolicySmoke {
         check(!VoiceProviderPolicy.network("system") && !VoiceProviderPolicy.network("local")
                 && !VoiceProviderPolicy.network("") && !VoiceProviderPolicy.network(null),
             "the platform recogniser and the local model send nothing");
-
-        // Switching parks the current key in the old provider's slot and brings back the new one's, as the shared page's swapTokenSlot does.
-        Map<String, String> slots = new LinkedHashMap<>();
-        slots.put("openai", "sk-openai");
-        VoiceProviderPolicy.Tokens toOpenai = VoiceProviderPolicy.switchTokens("doubao", "openai", "doubao-key", slots);
-        check(toOpenai.token().equals("sk-openai"), "the new provider's own key is restored");
-        check("doubao-key".equals(toOpenai.tokens().get("doubao")), "the old provider's key is kept in its slot");
-        check(slots.size() == 1, "the caller's map is not modified");
-
-        VoiceProviderPolicy.Tokens fresh = VoiceProviderPolicy.switchTokens("doubao", "groq", "doubao-key", slots);
-        check(fresh.token().isEmpty(), "a provider without a key starts empty rather than inheriting another's");
-
-        VoiceProviderPolicy.Tokens cleared = VoiceProviderPolicy.switchTokens("openai", "doubao", "", slots);
-        check(!cleared.tokens().containsKey("openai"), "an empty box removes the old provider's slot");
-
-        Map<String, String> withSystem = new LinkedHashMap<>();
-        withSystem.put("system", "stale");
-        VoiceProviderPolicy.Tokens toSystem = VoiceProviderPolicy.switchTokens("openai", "system", "sk", withSystem);
-        check(toSystem.token().isEmpty() && !toSystem.tokens().containsKey("system")
-                && "sk".equals(toSystem.tokens().get("openai")),
-            "the platform recogniser holds no key, and the one being left is kept");
-        check(VoiceProviderPolicy.switchTokens("", "openai", "", null).token().isEmpty(),
-            "no previous provider and no slots is not an error");
 
         check(VoiceProviderPolicy.legacyAuth("legacy") && VoiceProviderPolicy.legacyAuth(" legacy "),
             "legacy auth needs the App ID");

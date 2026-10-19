@@ -710,7 +710,7 @@ fn install_rejections_leave_the_previous_skin_untouched() {
         BASE64.encode(png(MAX_PACKAGE_FILE_BYTES + 1)),
     );
     cases.push((oversize, TOO_LARGE));
-    // Under the per-file cap decode_files checks, so only the preview cap applied after staging refuses it.
+    // Under the per-file cap load_files checks, so only the preview cap applied after staging refuses it.
     let mut oversize_preview = good.clone();
     oversize_preview.files.insert(
         PREVIEW.to_owned(),
@@ -773,6 +773,153 @@ fn install_refuses_a_symlinked_root() {
     std::os::unix::fs::symlink(outside.path(), &root).unwrap();
     assert_eq!(install(&root, &standard_download(), false), Err(STORAGE));
     assert!(fs::read_dir(outside.path()).unwrap().next().is_none());
+}
+
+/// `package` 里列出的图片改由 `directory` 下的本机文件给出：写出字节，从 base64 里拿掉，返回包内路径到绝对路径的映射。
+fn move_to_files(
+    package: &mut CandidateSkinPackage,
+    directory: &Path,
+    paths: &[&str],
+) -> BTreeMap<String, PathBuf> {
+    let mut local = BTreeMap::new();
+    for path in paths {
+        let data = package.files.remove(*path).unwrap();
+        let file = directory.join(path.replace('/', "-"));
+        fs::write(&file, BASE64.decode(data).unwrap()).unwrap();
+        local.insert((*path).to_owned(), file);
+    }
+    local
+}
+
+#[test]
+fn local_files_install_the_same_bytes_as_base64_and_may_come_from_the_skin_itself() {
+    let state = tempfile::tempdir().unwrap();
+    let files = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let expected = standard_download();
+    let mut package = expected.clone();
+    let local = move_to_files(&mut package, files.path(), &[BACKGROUND, DECORATION]);
+    assert_eq!(package.files.len(), 1);
+    assert_eq!(
+        install_with_local_files(&root, &package, &local, false).unwrap(),
+        "sakura"
+    );
+    for (path, data) in &expected.files {
+        assert_eq!(
+            fs::read(root.join("sakura").join(path)).unwrap(),
+            BASE64.decode(data).unwrap(),
+            "{path}"
+        );
+    }
+    assert!(catalog::load_package(&root, "sakura").is_ok());
+
+    // 改清单再装一遍时，全部图片可以直接指向已安装皮肤自己的文件：先读完再换入。
+    let mut renamed = expected.clone();
+    renamed.manifest = renamed.manifest.replace("樱花候选", "夜樱候选");
+    renamed.files.clear();
+    let own: BTreeMap<String, PathBuf> = expected
+        .files
+        .keys()
+        .map(|path| (path.clone(), root.join("sakura").join(path)))
+        .collect();
+    assert_eq!(
+        install_with_local_files(&root, &renamed, &own, true).unwrap(),
+        "sakura"
+    );
+    assert_eq!(
+        catalog::load_package(&root, "sakura").unwrap().name,
+        "夜樱候选"
+    );
+    assert_eq!(
+        fs::read(root.join("sakura").join(BACKGROUND)).unwrap(),
+        png(3000)
+    );
+    assert_no_helpers(&root);
+}
+
+#[test]
+fn local_files_are_refused_by_the_same_rules_and_leave_the_previous_skin() {
+    let state = tempfile::tempdir().unwrap();
+    let files = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    fs::create_dir_all(root.join("sakura")).unwrap();
+    fs::write(root.join("sakura").join("skin.toml"), b"old").unwrap();
+    let before = snapshot(&root);
+    let good = standard_download();
+    let attempt = |change: &dyn Fn(&mut BTreeMap<String, PathBuf>)| {
+        let mut package = good.clone();
+        let mut local = move_to_files(&mut package, files.path(), &[BACKGROUND]);
+        change(&mut local);
+        install_with_local_files(&root, &package, &local, true)
+    };
+    let point = |target: PathBuf| {
+        move |local: &mut BTreeMap<String, PathBuf>| {
+            local.insert(BACKGROUND.to_owned(), target.clone());
+        }
+    };
+    // 相对路径、不存在的文件和目录都读不出来。
+    assert_eq!(attempt(&point(PathBuf::from("bg.png"))), Err(LOCAL_FILE));
+    assert_eq!(
+        attempt(&point(files.path().join("missing.png"))),
+        Err(LOCAL_FILE)
+    );
+    assert_eq!(attempt(&point(files.path().to_owned())), Err(LOCAL_FILE));
+    // 超过单张上限的文件按大小拒绝，不必读完；损坏的图和 base64 一样完整解码后拒绝。
+    let large = files.path().join("large.png");
+    fs::write(&large, png(MAX_PACKAGE_FILE_BYTES + 1)).unwrap();
+    assert_eq!(attempt(&point(large)), Err(TOO_LARGE));
+    let broken = files.path().join("broken.png");
+    fs::write(&broken, &png(3000)[..40]).unwrap();
+    assert_eq!(attempt(&point(broken)), Err(IMAGE_INVALID));
+    // 同一个包内路径不能既给 base64 又给文件。
+    let mut both = good.clone();
+    let local = BTreeMap::from([(PREVIEW.to_owned(), files.path().join("preview.png"))]);
+    fs::write(files.path().join("preview.png"), png(1000)).unwrap();
+    both.files
+        .insert(PREVIEW.to_owned(), BASE64.encode(png(1000)));
+    assert_eq!(
+        install_with_local_files(&root, &both, &local, true),
+        Err(FILE_PATH)
+    );
+    assert_eq!(snapshot(&root), before);
+    assert_no_helpers(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn local_files_refuse_symbolic_links_and_fifos() {
+    use msime_path_trust::untrusted_symlink as symlink;
+
+    let state = tempfile::tempdir().unwrap();
+    let files = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let real = files.path().join("real");
+    fs::create_dir(&real).unwrap();
+    fs::write(real.join("bg.png"), png(3000)).unwrap();
+    symlink(real.join("bg.png"), files.path().join("linked.png")).unwrap();
+    symlink(&real, files.path().join("linked-directory")).unwrap();
+    let fifo = files.path().join("fifo.png");
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap()
+        .success());
+    let good = standard_download();
+    for target in [
+        files.path().join("linked.png"),
+        files.path().join("linked-directory").join("bg.png"),
+        fifo,
+    ] {
+        let mut package = good.clone();
+        package.files.remove(BACKGROUND);
+        let local = BTreeMap::from([(BACKGROUND.to_owned(), target.clone())]);
+        assert_eq!(
+            install_with_local_files(&root, &package, &local, false),
+            Err(LOCAL_FILE),
+            "{target:?}"
+        );
+    }
+    assert!(!root.join("sakura").exists());
 }
 
 #[cfg(unix)]

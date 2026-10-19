@@ -1481,7 +1481,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         if (reply.ok === true && reply.value !== undefined && reply.value !== null
           && reply.value.bytes.length <= remainingBytes) {
           remainingBytes -= reply.value.bytes.length;
-          resources.push({ relative: relative, contentType: reply.value.contentType, bytes: new Uint8Array(reply.value.bytes) });
+          resources.push({ relative: relative, contentType: reply.value.contentType, base64: new util.Base64Helper().encodeToStringSync(new Uint8Array(reply.value.bytes)) });
         }
       } catch (_) {
         // 单张资源失败由绘制层回退，不影响候选输入。

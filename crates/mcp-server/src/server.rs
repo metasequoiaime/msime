@@ -6,7 +6,9 @@ use crate::config::Config;
 use crate::diagnostics::{self, LogRequest, LogView, SwitchRequest, SwitchView};
 use crate::preferences::{self, PreferencesChange, PreferencesView};
 use crate::prompts::WRITE_PROMPTS;
-use crate::skins::{self, CreateSkinRequest, CreatedSkin, SkinList};
+use crate::skins::{
+    self, CreateSkinRequest, CreatedSkin, DeletedSkin, SkinFiles, SkinList, SkinRequest,
+};
 use crate::statistics::{self, StatisticsRequest, StatisticsView};
 use crate::words;
 use crate::words::{
@@ -39,8 +41,9 @@ const WRITE_LOCK: &str = "mcp-write.lock";
 /// 写锁只保存一个毫秒时间戳，拒绝异常膨胀的内容以免无界分配内存。
 const WRITE_LOCK_READ_LIMIT: u64 = 128;
 
-const WRITE_TOOLS: [&str; 3] = [
+const WRITE_TOOLS: [&str; 4] = [
     "create_candidate_skin",
+    "delete_candidate_skin",
     "edit_quick_phrases",
     "update_preferences",
 ];
@@ -49,7 +52,7 @@ const DICTIONARY_READ_TOOLS: [&str; 2] = ["list_dictionary_words", "lookup_candi
 /// Offered with --allow-write and --allow-dictionary-read together: an edit or import also tells whether a word is there.
 const DICTIONARY_WRITE_TOOLS: [&str; 2] = ["edit_dictionary_words", "import_dictionary_words"];
 
-const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview and pass them to create_candidate_skin. The app can sync skins to the user's cloud library as private packages when the user requests sync, from where they can publish them; extended resources require explicit server support; this server never signs in to the account itself. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
+const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. update_preferences switches the input method to a skin, get_candidate_skin shows an installed skin's manifest and image files so it can be changed and installed again, and delete_candidate_skin removes one the user no longer wants. The app can sync skins to the user's cloud library as private packages when the user requests sync, from where they can publish them; extended resources require explicit server support; this server never signs in to the account itself. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
 
 #[derive(Clone)]
 pub struct MsimeServer {
@@ -269,7 +272,7 @@ impl MsimeServer {
 
     #[tool(
         name = "get_preferences",
-        description = "Read the preferences an agent may see: input scheme, shuangpin layout, candidate page size, font size and layout, the starting mode, character width, punctuation, Traditional Chinese output, Wubi switches, whether the AI assistant is on and a few more. Pass the returned revision to update_preferences.",
+        description = "Read the preferences an agent may see: input scheme, shuangpin layout, candidate page size, font size and layout, the starting mode, character width, punctuation, Traditional Chinese output, Wubi switches, whether the AI assistant is on, the global theme and the candidate-window skin chosen for light and for dark mode, and a few more. Pass the returned revision to update_preferences.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_preferences(&self) -> Result<Json<PreferencesView>, String> {
@@ -284,7 +287,7 @@ impl MsimeServer {
 
     #[tool(
         name = "update_preferences",
-        description = "Change some of the preferences get_preferences returns. Only the fields given change. Refused when the preferences changed since expected_revision was read, for a scheme the installed edition of the input method does not offer, and for turning the AI assistant on. Turn the AI assistant off when the user finds the AI candidate slow or in the way: it holds one candidate slot showing … while it waits for the model.",
+        description = "Change some of the preferences get_preferences returns. Only the fields given change. Refused when the preferences changed since expected_revision was read, for a scheme the installed edition of the input method does not offer, and for turning the AI assistant on. Turn the AI assistant off when the user finds the AI candidate slow or in the way: it holds one candidate slot showing … while it waits for the model. To use an installed skin (an id list_candidate_skins lists), set candidate_skin for light mode and candidate_skin_dark for dark mode; candidate_skin also serves dark mode while candidate_skin_dark is null, and null takes a skin out of its slot. A skin is drawn only in the mode of its manifest base: on night, ink or shuishan only in dark mode, on light or paper only in light mode, on system in both, so a slot refuses a skin that cannot show in its mode, and it refuses an id that is not an installed, usable skin. Choosing a skin also switches global_theme to custom, the theme that draws skins, unless global_theme is given; a built-in theme (system, shuishan, light, paper, night, ink) is chosen with global_theme alone and keeps the skin choice for later.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -333,8 +336,25 @@ impl MsimeServer {
     }
 
     #[tool(
+        name = "get_candidate_skin",
+        description = "Read one installed skin so it can be changed: its whole skin.toml, the absolute path of its folder, whether the desktop app has synced it to the user's cloud library, and for each image the manifest references its path in the manifest, the absolute path of the file on this computer, its size in bytes, its format as read from its content (png, apng for a PNG of more than one frame, jpeg, gif or webp, or null when unrecognised), the width and height of one frame in pixels and its frame count. Files the manifest does not reference are not listed. To change the skin, edit the manifest, write any new or changed images to files, and call create_candidate_skin with replace: true, passing each unchanged image by the file given here in image_files: it reads every image before it replaces the folder. Refused for a built-in theme or look, an id that is not installed, and a folder list_candidate_skins reports as an issue.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn get_candidate_skin(
+        &self,
+        Parameters(request): Parameters<SkinRequest>,
+    ) -> Result<Json<SkinFiles>, String> {
+        let config = self.config.clone();
+        blocking(move || {
+            let state_dir = config.state_dir(&config.read_options()?)?;
+            skins::get(&state_dir, &request).map(Json)
+        })
+        .await
+    }
+
+    #[tool(
         name = "create_candidate_skin",
-        description = "Install a candidate-window skin from a skin.toml and its images. Schema version 1 remains supported; version 2 additionally accepts [animation] with enter/exit/selection = none, fade, fade_scale, slide_up, spring or glow, duration_ms 40-600 and stagger_ms 0-80, and the decoration motion and animated PNG below, with any base. Write each preset you want explicitly: macOS plays only the presets the [animation] table writes, while Windows and the web engine fill omitted ones with a default. The manifest is TOML: id (equal to package_id); name (at most 80 bytes); version; base, the look drawn under it: a built-in theme (system, shuishan, light, paper, night or ink) or an msime-windows built-in look (fluent, wechat, wechat_scroll, graphite, willow_green, autumn_osmanthus or microsoft), whose colours fill the ones the manifest leaves out, or canvas, msime-windows' full-image base, which requires schema_version = 2 (version 1 with canvas is refused) and is drawn on the system base with the canvas look described below; preview, the path of a PNG or JPEG shown in the skin list; optional author, description and [license] code, assets and source (empty author or description reads as not written; syncing these or new bases requires explicit server support); [supports] layouts (horizontal, vertical) and themes (dark, light); [candidate_window] min_width_dip (0-1000), optional corner_radius_dip (0-32), optional [candidate_window.decoration] top_inset_dip, width_dip, image and align (left, center, right), and in schema version 2 motion (none, float, sway, breathe or bounce: a small idle movement of the whole decoration image while the candidate window is on screen) and motion_period_ms (1200-8000, default 3000); the decoration image may be an animated PNG (APNG, at most 120 frames, each frame counted as a whole image toward the pixel limit), which macOS plays with its own frame delays and loop count and other hosts draw as its first frame; both stop when the system asks to reduce motion. Optional [candidate_window.background] image, fit (cover, contain, stretch) and opacity (0-1). [candidate_window] also accepts msime-windows' font_family (at most 64 bytes, without quotes, backslash, comma, semicolon, braces, angle brackets or backtick), which Windows draws; item_corner_radius_dip (0-16), which macOS also draws; and these msime-windows layout keys, which Windows draws and the other hosts check so the skin loads alike everywhere but do not draw yet: border_width_dip (0-4), shadow (none, soft or strong), backdrop (none, acrylic or mica; Windows draws the system material behind the card, mica as acrylic before Windows 11, and an opaque surface where the material is unavailable, transparency effects are off or high contrast is on), page_arrows, fit_content and expand_panel (true or false; expand_panel puts a button at the end of the horizontal list that opens it into a scrolling grid), expand_rows (2-8), the geometry keys padding, item_gap, item_extra_height, number_inset, item_padding_right and number_gap (0-64 as a number of dip, or 0-4em as a string such as '0.5em'), item_min_width (0-500, or 0-40em), selected_bar_width (0-16, or 0-1em), number_scale and selected_bar_height_em (0-2), selected_bar_inside, item_corners_follow_card, justify_rows and trim_hidden_preedit_gap (true or false), page_arrow_style (chevron or triangle) and preedit_margin_dip (1, 2 or 4 numbers 0-500), and the same geometry keys in [candidate_window.horizontal] or [candidate_window.vertical] for one layout only. Only with base = canvas: [candidate_window.border_image], a nine-slice panel image, with source and optional light_source (PNG/JPEG/APNG/GIF/WebP), slice_dip and optional stretch_dip and width_dip (each 1, 2 or 4 numbers 0-500) and fill (true or false, default true); content_insets_dip (top and bottom 0-200, left and right 0-500), outer_insets_dip (top, right, bottom and left 0-500) and line_gap_dip (0-100); and up to 32 [[candidate_window.decorations]] free widgets, each with image (PNG/JPEG/APNG/GIF/WebP), anchor (top-left, top-right, bottom-left, bottom-right, left, right, top, bottom or center, default right), width_dip and height_dip (above 0, at most 2000), offset_x_dip and offset_y_dip (-2000 to 2000) and z_index (-1000 to 1000, default 2). With any other base these canvas-only keys are ignored. The Web engine and the macOS, Windows, iOS, Android and HarmonyOS candidate windows draw these canvas textures using their platform image codecs; a host without that renderer (Linux for now) shows a readable opaque canvas look (with a border_image, keeping only accent and menu colours in that fallback); list_candidate_skins reports such ignored or undrawn keys as notices. Optional [toolbar] corner_radius_dip (0-32) and icon_corner_radius_dip (0-16, not drawn yet), with [toolbar.dark] and [toolbar.light] colours background, border, handle, divider, icon and hover for the floating toolbar. [candidate.dark] and [candidate.light] colours accent, selected, hover, surface, border, text, number and translation, plus show_selected_bar, which every host draws; the detail colours candidate_text, preedit_text, preedit_caret, preedit_background, preedit_divider, translation_pos, translation_separator, selected_text, selected_number, selected_translation, selected_translation_pos, selected_translation_separator, selected_bar and page_arrow_divider, backdrop_opacity and backdrop_luminosity (numbers 0-1), and a [candidate.dark.menu] or [candidate.light.menu] table with background, border, text and hover for the candidate window's menu, which a host draws where it has that slot and otherwise checks and replaces with the base colours. A colour is text of at most 80 bytes: #RGB, #RGBA, #RRGGBB, #RRGGBBAA, rgb(r, g, b) or rgba(r, g, b, a) with channels 0-255 and alpha 0-1, or transparent; #RRGGBB and #RRGGBBAA are read everywhere, and a colour a host cannot read is not drawn. images must hold exactly the images the manifest references (the preview, decoration and background images and, with canvas, the border_image sources and each decorations image), at most 37 in all, each a .png, .jpg, .jpeg, .apng, .gif or .webp; the preview stays PNG/JPEG. Each image is at most 1 MiB and 2048 pixels on each side, all images at most 2 MiB and 8,000,000 pixels, animations at most 120 frames counted as full canvases, and the preview at most 256 KiB. Extended resources and new bases require explicit server support before upload; older deployments leave these skins available locally. A stylesheet is not accepted, so the skin can be synced and shared. Refused when the skin exists, unless replace is true.",
+        description = "Install a candidate-window skin from a skin.toml and its images. Schema version 1 remains supported; version 2 additionally accepts [animation] with enter/exit/selection = none, fade, fade_scale, slide_up, spring or glow, duration_ms 40-600 and stagger_ms 0-80, and the decoration motion and animated PNG below, with any base. Write each preset you want explicitly: macOS plays only the presets the [animation] table writes, while Windows and the web engine fill omitted ones with a default. The manifest is TOML: id (equal to package_id); name (at most 80 bytes); version; base, the look drawn under it: a built-in theme (system, shuishan, light, paper, night or ink) or an msime-windows built-in look (fluent, wechat, wechat_scroll, graphite, willow_green, autumn_osmanthus or microsoft), whose colours fill the ones the manifest leaves out, or canvas, msime-windows' full-image base, which requires schema_version = 2 (version 1 with canvas is refused) and is drawn on the system base with the canvas look described below; preview, the path of a PNG or JPEG shown in the skin list; optional author, description and [license] code, assets and source (empty author or description reads as not written; syncing these or new bases requires explicit server support); [supports] layouts (horizontal, vertical) and themes (dark, light); [candidate_window] min_width_dip (0-1000), optional corner_radius_dip (0-32), optional [candidate_window.decoration] top_inset_dip, width_dip, image and align (left, center, right), and in schema version 2 motion (none, float, sway, breathe or bounce: a small idle movement of the whole decoration image while the candidate window is on screen) and motion_period_ms (1200-8000, default 3000); the decoration image may be an animated PNG (APNG, at most 120 frames, each frame counted as a whole image toward the pixel limit), which macOS plays with its own frame delays and loop count and other hosts draw as its first frame; both stop when the system asks to reduce motion. Optional [candidate_window.background] image, fit (cover, contain, stretch) and opacity (0-1). [candidate_window] also accepts msime-windows' font_family (at most 64 bytes, without quotes, backslash, comma, semicolon, braces, angle brackets or backtick), which Windows draws; item_corner_radius_dip (0-16), which macOS also draws; and these msime-windows layout keys, which Windows draws and the other hosts check so the skin loads alike everywhere but do not draw yet: border_width_dip (0-4), shadow (none, soft or strong), backdrop (none, acrylic or mica; Windows draws the system material behind the card, mica as acrylic before Windows 11, and an opaque surface where the material is unavailable, transparency effects are off or high contrast is on), page_arrows, fit_content and expand_panel (true or false; expand_panel puts a button at the end of the horizontal list that opens it into a scrolling grid), expand_rows (2-8), the geometry keys padding, item_gap, item_extra_height, number_inset, item_padding_right and number_gap (0-64 as a number of dip, or 0-4em as a string such as '0.5em'), item_min_width (0-500, or 0-40em), selected_bar_width (0-16, or 0-1em), number_scale and selected_bar_height_em (0-2), selected_bar_inside, item_corners_follow_card, justify_rows and trim_hidden_preedit_gap (true or false), page_arrow_style (chevron or triangle) and preedit_margin_dip (1, 2 or 4 numbers 0-500), and the same geometry keys in [candidate_window.horizontal] or [candidate_window.vertical] for one layout only. Only with base = canvas: [candidate_window.border_image], a nine-slice panel image, with source and optional light_source (PNG/JPEG/APNG/GIF/WebP), slice_dip and optional stretch_dip and width_dip (each 1, 2 or 4 numbers 0-500) and fill (true or false, default true); content_insets_dip (top and bottom 0-200, left and right 0-500), outer_insets_dip (top, right, bottom and left 0-500) and line_gap_dip (0-100); and up to 32 [[candidate_window.decorations]] free widgets, each with image (PNG/JPEG/APNG/GIF/WebP), anchor (top-left, top-right, bottom-left, bottom-right, left, right, top, bottom or center, default right), width_dip and height_dip (above 0, at most 2000), offset_x_dip and offset_y_dip (-2000 to 2000) and z_index (-1000 to 1000, default 2). With any other base these canvas-only keys are ignored. The Web engine and the macOS, Windows, iOS, Android and HarmonyOS candidate windows draw these canvas textures using their platform image codecs; a host without that renderer (Linux for now) shows a readable opaque canvas look (with a border_image, keeping only accent and menu colours in that fallback); list_candidate_skins reports such ignored or undrawn keys as notices. Optional [toolbar] corner_radius_dip (0-32) and icon_corner_radius_dip (0-16, not drawn yet), with [toolbar.dark] and [toolbar.light] colours background, border, handle, divider, icon and hover for the floating toolbar. [candidate.dark] and [candidate.light] colours accent, selected, hover, surface, border, text, number and translation, plus show_selected_bar, which every host draws; the detail colours candidate_text, preedit_text, preedit_caret, preedit_background, preedit_divider, translation_pos, translation_separator, selected_text, selected_number, selected_translation, selected_translation_pos, selected_translation_separator, selected_bar and page_arrow_divider, backdrop_opacity and backdrop_luminosity (numbers 0-1), and a [candidate.dark.menu] or [candidate.light.menu] table with background, border, text and hover for the candidate window's menu, which a host draws where it has that slot and otherwise checks and replaces with the base colours. A colour is text of at most 80 bytes: #RGB, #RGBA, #RRGGBB, #RRGGBBAA, rgb(r, g, b) or rgba(r, g, b, a) with channels 0-255 and alpha 0-1, or transparent; #RRGGBB and #RRGGBBAA are read everywhere, and a colour a host cannot read is not drawn. images (standard base64) and image_files (the absolute path of a file on this computer) together must hold exactly the images the manifest references (the preview, decoration and background images and, with canvas, the border_image sources and each decorations image), each keyed by the path the manifest uses and given in only one of the two, at most 37 in all, each a .png, .jpg, .jpeg, .apng, .gif or .webp; the preview stays PNG/JPEG. Prefer image_files: write each image to a file with code and pass its path, since base64 copied into the call by hand is easily corrupted. The server only reads those files: it refuses a path with a symbolic link anywhere on the way or that is not a regular file, refuses a file over 1 MiB before reading it, and checks the bytes exactly as it checks base64. Each image is at most 1 MiB and 2048 pixels on each side, all images at most 2 MiB and 8,000,000 pixels, animations at most 120 frames counted as full canvases, and the preview at most 256 KiB. Extended resources and new bases require explicit server support before upload; older deployments leave these skins available locally. A stylesheet is not accepted, so the skin can be synced and shared. Refused when the skin exists, unless replace is true.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -362,6 +382,37 @@ impl MsimeServer {
                 Ok(_) => "installed",
                 Err(_) => "refused",
             }
+        );
+        result
+    }
+
+    #[tool(
+        name = "delete_candidate_skin",
+        description = "Delete one skin the user installed: the folder named package_id directly under the input method's skin directory, with everything in it. Refused for a built-in theme, an msime-windows built-in look, canvas or default, for a name that is not installed, for anything there that is not a real folder (a file or a symbolic link), and for a skin chosen as candidate_skin or candidate_skin_dark in the preferences, even while another theme is shown: choose another skin or set the slot to null with update_preferences first. Says whether the desktop app had synced the skin to the user's cloud library; if it had, the app's next sync removes the private copy there too, leaves a publicly published copy published, and downloads it again if it was changed on another device since. Only offered when the user started the server with --allow-write.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_candidate_skin(
+        &self,
+        Parameters(request): Parameters<SkinRequest>,
+    ) -> Result<Json<DeletedSkin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            skins::delete(&state_dir, config.edition(&document)?, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: delete_candidate_skin {}",
+            if result.is_ok() { "deleted" } else { "refused" }
         );
         result
     }
@@ -734,6 +785,7 @@ mod tests {
         assert_eq!(
             names(&server(false)),
             [
+                "get_candidate_skin",
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
@@ -746,7 +798,9 @@ mod tests {
             names(&server(true)),
             [
                 "create_candidate_skin",
+                "delete_candidate_skin",
                 "edit_quick_phrases",
+                "get_candidate_skin",
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
@@ -759,6 +813,7 @@ mod tests {
         assert_eq!(
             names(&server_with(false, true)),
             [
+                "get_candidate_skin",
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
@@ -773,8 +828,10 @@ mod tests {
             names(&server_with(true, true)),
             [
                 "create_candidate_skin",
+                "delete_candidate_skin",
                 "edit_dictionary_words",
                 "edit_quick_phrases",
+                "get_candidate_skin",
                 "get_preferences",
                 "get_typing_statistics",
                 "import_dictionary_words",
@@ -831,14 +888,63 @@ mod tests {
             "at most 37 in all",
             "the preview stays PNG/JPEG",
             "empty author or description reads as not written",
+            // 图片可以给本机文件的路径，规则与 base64 相同。
+            "images (standard base64) and image_files (the absolute path of a file on this computer)",
+            "Prefer image_files",
+            "refuses a path with a symbolic link anywhere on the way or that is not a regular file",
+            "refuses a file over 1 MiB before reading it",
         ] {
             assert!(create.contains(word), "{word}");
+        }
+        let get = description("get_candidate_skin");
+        for word in [
+            "its whole skin.toml",
+            "the absolute path of the file on this computer",
+            "png, apng for a PNG of more than one frame, jpeg, gif or webp",
+            "call create_candidate_skin with replace: true, passing each unchanged image by the file given here in image_files",
+        ] {
+            assert!(get.contains(word), "{word}");
+        }
+        let delete = description("delete_candidate_skin");
+        for word in [
+            "directly under the input method's skin directory",
+            "anything there that is not a real folder (a file or a symbolic link)",
+            "chosen as candidate_skin or candidate_skin_dark in the preferences",
+            "the app's next sync removes the private copy there too",
+            "Only offered when the user started the server with --allow-write",
+        ] {
+            assert!(delete.contains(word), "{word}");
         }
         let list = description("list_candidate_skins");
         assert!(list.contains("idle motion, motion period and frame count"));
         assert!(list.contains("whether it is a canvas"));
         assert!(list.contains("notices about keys that were ignored or are not drawn"));
         assert!(create.contains("reports such ignored or undrawn keys as notices"));
+    }
+
+    #[test]
+    fn preference_tools_describe_choosing_a_skin() {
+        let description = |name: &str| {
+            server(true)
+                .tool_router
+                .list_all()
+                .into_iter()
+                .find(|tool| tool.name == name)
+                .and_then(|tool| tool.description)
+                .unwrap()
+                .to_string()
+        };
+        assert!(description("get_preferences")
+            .contains("the candidate-window skin chosen for light and for dark mode"));
+        let update = description("update_preferences");
+        for word in [
+            "set candidate_skin for light mode and candidate_skin_dark for dark mode",
+            "candidate_skin also serves dark mode while candidate_skin_dark is null",
+            "on night, ink or shuishan only in dark mode, on light or paper only in light mode, on system in both",
+            "switches global_theme to custom",
+        ] {
+            assert!(update.contains(word), "{word}");
+        }
     }
 
     #[test]

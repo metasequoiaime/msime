@@ -16,6 +16,11 @@
 
 - **Xcode 27 的模拟器界面是 `/Applications/Xcode.app/Contents/Applications/DeviceHub.app`，`Simulator.app` 已经不存在了。** `open -a Simulator` 和 `open -b com.apple.iphonesimulator` 都会失败，而 `xcrun simctl` 的 boot、install、launch、screenshot 全都照常工作——于是很容易把「窗口没出现」误判成「模拟器没起来」。设备真实状态以 `xcrun simctl list devices` 为准，要看画面才需要开 DeviceHub。
 
+## 本机安装
+
+- **维护者在开发机上说「安装」（「更新安装」「切到 develop 安装」同理），指的是整套安装，不是只换输入法。** 做法是用 `platforms/macos/package-release.sh` 从当前分支打出完整的包（设置应用 `MSIME.app`，内嵌输入法 `水杉输入法.app`、核心词库和 `msime-mcp`），备份后替换 `/Applications/MSIME.app`，打开一次让它装好内嵌的输入法，再确认设置应用和输入法报的版本都是 `platforms/macos/version.txt` 里的版本。签名用钥匙串里 Developer ID 的 SHA-1（`MACOS_SIGNING_IDENTITY`），`MSIME_SPARKLE_ROOT` 指向固定版本的 Sparkle；包是 universal 的，Rust 部分按两个架构各编一遍，开编前按下文「Worktree」一节先查磁盘。
+- 只跑 `platforms/macos/scripts/install.sh` 只换了输入法本体，设置应用和 `msime-mcp` 都还是旧的；`apps/desktop/src-tauri/tauri.conf.json` 的版本号也只在打包时被 `TAURI_CONFIG` 覆盖，不经打包构建出的设置应用一律报那个旧值。2026-10-19 连续几次「更新安装」都只换了输入法，用户打开的设置应用一直是 0.52.0，带着 develop 上早已修好的弹窗透底问题，版本号也对不上。
+
 ## 语言
 
 本仓库的以下文本一律使用中文：

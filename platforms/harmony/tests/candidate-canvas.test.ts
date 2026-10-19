@@ -139,41 +139,31 @@ console.log(`candidate-canvas: ${assertions} assertions passed`);
 
 const gifHeader: number[] = [71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 0, 0, 0];
 const appExtension: number[] = [33, 255, 11, 78, 69, 84, 83, 67, 65, 80, 69, 50, 46, 48, 3, 1];
-const resource = (contentType: string, bytes: number[]) => ({
-  relative: "fixture",
-  contentType: contentType,
-  bytes: new Uint8Array(bytes),
-});
+const loops = (contentType: string, bytes: number[]): number =>
+  Canvas.loops(contentType, new Uint8Array(bytes));
+check(loops("image/gif", gifHeader.concat([59])) === 1, "没有扩展的 GIF 只播放一轮");
 check(
-  Canvas.loops(resource("image/gif", gifHeader.concat([59]))) === 1,
-  "没有扩展的 GIF 只播放一轮",
-);
-check(
-  Canvas.loops(resource("image/gif", gifHeader.concat(appExtension, [2, 0, 0, 59]))) === 3,
+  loops("image/gif", gifHeader.concat(appExtension, [2, 0, 0, 59])) === 3,
   "GIF 扩展值二表示三轮",
 );
 check(
-  Canvas.loops(resource("image/gif", gifHeader.concat(appExtension, [0, 0, 0, 59]))) === 0,
+  loops("image/gif", gifHeader.concat(appExtension, [0, 0, 0, 59])) === 0,
   "GIF 扩展值零无限循环",
 );
 check(
-  Canvas.loops(
-    resource(
-      "image/png",
-      [
-        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 8, 97, 99, 84, 76, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0,
-        0, 0,
-      ],
-    ),
+  loops(
+    "image/png",
+    [
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 8, 97, 99, 84, 76, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0,
+      0,
+    ],
   ) === 3,
   "APNG 循环数已经是总轮数",
 );
 check(
-  Canvas.loops(
-    resource(
-      "image/webp",
-      [82, 73, 70, 70, 18, 0, 0, 0, 87, 69, 66, 80, 65, 78, 73, 77, 6, 0, 0, 0, 0, 0, 0, 0, 3, 0],
-    ),
+  loops(
+    "image/webp",
+    [82, 73, 70, 70, 18, 0, 0, 0, 87, 69, 66, 80, 65, 78, 73, 77, 6, 0, 0, 0, 0, 0, 0, 0, 3, 0],
   ) === 3,
   "WebP ANIM 循环数按小端读取",
 );
