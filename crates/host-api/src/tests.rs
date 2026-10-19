@@ -3978,6 +3978,73 @@ fn a_picked_skin_folder_is_copied_in_through_the_c_abi() {
 }
 
 #[test]
+fn the_skin_editor_checks_and_installs_drafts_through_the_c_abi() {
+    // 1×1 的合成 PNG。
+    const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==";
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let call = |request: Value| {
+        let request = request.to_string();
+        read(unsafe { msime_client_candidate_skin_editor(request.as_ptr(), request.len()) })
+    };
+    let manifest = "schema_version = 1\nid = 'drafted'\nname = '草稿'\nversion = '1.0'\nbase = 'wechat'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 0\n";
+    // `check` 不写皮肤目录，回复扫描会列出的那一项，外观的颜色已经补齐。
+    let checked = call(json!({
+        "operation": "check",
+        "package_id": "drafted",
+        "manifest": manifest,
+        "files": {"preview.png": PNG},
+    }));
+    assert_eq!(checked["ok"], true);
+    assert_eq!(checked["value"]["candidate"]["light"]["accent"], "#07C160");
+    assert_eq!(checked["value"]["minWidthDip"], 0.0);
+    assert!(!root.exists());
+    let create = |replace: bool| {
+        call(json!({
+            "operation": "create",
+            "directory": root,
+            "package_id": "drafted",
+            "manifest": manifest,
+            "files": {"preview.png": PNG},
+            "replace": replace,
+        }))
+    };
+    assert_eq!(
+        create(false),
+        json!({"ok": true, "value": {"id": "drafted", "replaced": false}})
+    );
+    assert!(root.join("drafted/skin.toml").is_file());
+    assert_eq!(
+        create(false),
+        json!({"ok": false, "error": "candidate_skin_exists"})
+    );
+    assert_eq!(create(true)["value"]["replaced"], true);
+    // 清单没通过扫描时带上扫描给出的原因。
+    let refused = call(json!({
+        "operation": "check",
+        "package_id": "drafted",
+        "manifest": manifest.replace("min_width_dip = 0", "min_width_dip = 5000"),
+    }));
+    assert_eq!(
+        refused,
+        json!({"ok": false, "error": "candidate_skin_package", "detail": "invalid min_width_dip"})
+    );
+    // 页面不能写到相对路径，也不能发出未知的操作或字段。
+    for request in [
+        json!({"operation": "create", "directory": "skins", "package_id": "drafted", "manifest": manifest}),
+        json!({"operation": "create", "package_id": "drafted", "manifest": manifest}),
+        json!({"operation": "delete", "package_id": "drafted", "manifest": manifest}),
+        json!({"operation": "check", "package_id": "drafted", "manifest": manifest, "path": "/"}),
+    ] {
+        assert_eq!(call(request)["error"], "candidate_skin_package");
+    }
+    assert_eq!(
+        read(unsafe { msime_client_candidate_skin_editor(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
 #[cfg(not(target_os = "android"))]
 fn skin_package_resolves_one_manifest_with_the_catalog_loader() {
     let directory = tempfile::tempdir().unwrap();

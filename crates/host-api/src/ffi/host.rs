@@ -1342,6 +1342,96 @@ pub unsafe extern "C" fn msime_client_skin_import(
     })
 }
 
+/// 「制作皮肤」请求最大的长度：图片合计 2 MiB 换成 base64 后约 2.7 MiB，加上 64 KiB 的清单和 JSON 的键，留出余量。
+const MAX_CANDIDATE_SKIN_EDITOR_REQUEST_BYTES: usize = 4 << 20;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CandidateSkinEditorRequest {
+    operation: String,
+    /// 只有 `create` 读它：皮肤根目录的绝对路径。
+    #[serde(default)]
+    directory: Option<String>,
+    package_id: String,
+    manifest: String,
+    #[serde(default)]
+    files: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    replace: bool,
+}
+
+/// 共享设置页「制作皮肤」的两个操作，规则全在 `msime_client_services::skin::candidate_editor`：`check` 不写皮肤目录，按目录扫描的规则读一遍草稿，回复扫描会列出的那一项（camelCase，与 `msime_client_skin_catalog` 的 `packages` 同形）；`create` 用社区下载和 MCP 同一个安装器把草稿装进 `directory`，回复 `{id,replaced}`。失败回复 `{ok:false,error,detail?}`：`error` 是 `candidate_skin_*` 或 `storage`，`detail` 是清单没通过扫描时扫描给出的原因。
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes, at most 4 MiB. Null is rejected. The returned JSON must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_candidate_skin_editor(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_services::skin::candidate_editor::{
+        self, CandidateSkinDraft, CandidateSkinFailure,
+    };
+    candidate_skin_editor_response(|| {
+        let invalid = || CandidateSkinFailure::code("candidate_skin_package");
+        if request.is_null() || length == 0 || length > MAX_CANDIDATE_SKIN_EDITOR_REQUEST_BYTES {
+            return Err(invalid());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: CandidateSkinEditorRequest =
+            serde_json::from_slice(bytes).map_err(|_| invalid())?;
+        let draft = CandidateSkinDraft {
+            package_id: request.package_id,
+            manifest: request.manifest,
+            files: request.files,
+        };
+        let storage = || CandidateSkinFailure::code("storage");
+        match request.operation.as_str() {
+            "check" => {
+                serde_json::to_value(candidate_editor::check(&draft)?).map_err(|_| storage())
+            }
+            "create" => {
+                let directory = request.directory.ok_or_else(invalid)?;
+                if !Path::new(&directory).is_absolute() {
+                    return Err(invalid());
+                }
+                serde_json::to_value(candidate_editor::create(
+                    Path::new(&directory),
+                    &draft,
+                    request.replace,
+                )?)
+                .map_err(|_| storage())
+            }
+            _ => Err(invalid()),
+        }
+    })
+}
+
+/// 和插件的 `plugin_response` 一样把 `detail` 带给页面。
+fn candidate_skin_editor_response(
+    operation: impl FnOnce() -> Result<
+        Value,
+        msime_client_services::skin::candidate_editor::CandidateSkinFailure,
+    >,
+) -> *mut c_char {
+    use msime_client_services::skin::candidate_editor::CandidateSkinFailure;
+    let value = match catch_unwind(AssertUnwindSafe(operation)) {
+        Ok(Ok(value)) => json!({ "ok": true, "value": value }),
+        Ok(Err(CandidateSkinFailure {
+            code,
+            detail: Some(detail),
+        })) => json!({ "ok": false, "error": code, "detail": detail }),
+        Ok(Err(CandidateSkinFailure { code, detail: None })) => {
+            json!({ "ok": false, "error": code })
+        }
+        Err(_) => json!({ "ok": false, "error": "internal runtime failure" }),
+    };
+    // JSON escapes embedded NUL bytes, so this cannot contain an interior NUL.
+    CString::new(value.to_string())
+        .expect("JSON contains no NUL")
+        .into_raw()
+}
+
 #[derive(Debug, Deserialize)]
 struct CustomSkinLibraryRequest {
     directory: String,

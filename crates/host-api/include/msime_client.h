@@ -433,6 +433,8 @@ char *msime_client_skin_toolbar_stylesheet(const uint8_t *request, size_t length
  * folder under its own name, replacing a skin of that name whole; returns {id}.
  * The error message is skin_name, skin_manifest or storage. Touches the disk. */
 char *msime_client_skin_import(const uint8_t *request, size_t length);
+/* The shared settings page's 「制作皮肤」, ruled by client-services skin::candidate_editor. JSON {operation:"check",package_id,manifest,files} reads the draft with the catalog loader in a scratch folder, without touching the skin root, and returns the camelCase package entry msime_client_skin_catalog would list (a template manifest such as base = "wechat" with no files resolves that look's colours). {operation:"create",directory:absolute skin root,package_id, manifest,files,replace} installs it with the installer community downloads and MCP use and returns {id,replaced}. files maps package-relative image paths to standard base64. A refusal is {ok:false,error,detail?}: error is a candidate_skin_* code or storage (candidate_skin_exists when the id is taken and replace is false), detail the loader's reason when the manifest did not load. Requests may be up to 4 MiB. Decodes images and touches the disk: use a worker. */
+char *msime_client_candidate_skin_editor(const uint8_t *request, size_t length);
 /* The queued personal dictionary, for a host that cannot take the Engine's
  * maintenance lock when the request arrives. Same request shape as
  * msime_client_dictionary - {options,action} - but the operations act on
