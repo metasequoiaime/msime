@@ -2078,6 +2078,143 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testStatisticsAboutAndDeveloperPagesReturnWithoutEnablingLogs() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["统计"].tap()
+    app.buttons["statisticsMenu"].tap()
+    app.buttons["typingStatisticsAbout"].tap()
+    expectNativePage("关于统计", in: app)
+    XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "字数只统计水杉键盘提交的字符")).firstMatch.exists)
+    app.navigationBars["关于统计"].buttons["完成"].tap()
+    XCTAssertTrue(wait(app.navigationBars["关于统计"], until: "exists == false"))
+    XCTAssertTrue(app.navigationBars["统计"].exists)
+
+    app.tabBars.buttons["设置"].tap()
+    tapRevealed("developerOptionsLink", in: app)
+    expectNativePage("开发者选项", in: app)
+    let logging = app.switches["developerDiagnosticLogToggle"]
+    XCTAssertTrue(logging.exists)
+    let original = logging.value as? String
+    tapRevealed("diagnosticLogLink", in: app)
+    expectNativePage("诊断日志", in: app)
+    XCTAssertEqual(app.switches["diagnosticLogEnabled"].value as? String, original)
+    returnFromNativePage(to: "开发者选项", in: app)
+    XCTAssertEqual(logging.value as? String, original)
+    returnFromNativePage(to: "设置", in: app)
+  }
+
+  @MainActor
+  func testVoicePolishServicePageReturnsAndRestoresEnabledState() throws {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    tapRevealed("voiceSettingsLink", in: app)
+    tapRevealed("voiceServiceLink", in: app)
+    let polish = app.switches["voicePolishEnabled"]
+    reveal(polish, in: app)
+    let original = try XCTUnwrap(polish.value as? String)
+    addTeardownBlock { @MainActor in
+      app.terminate()
+      app.launch()
+      self.tapRevealed("voiceSettingsLink", in: app)
+      self.tapRevealed("voiceServiceLink", in: app)
+      self.reveal(polish, in: app)
+      if polish.value as? String != original {
+        polish.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(self.wait(polish, until: "value == '\(original)'"))
+      }
+    }
+    if original == "0" {
+      polish.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      XCTAssertTrue(wait(polish, until: "value == '1'"))
+    }
+    tapRevealed("voicePolishService", in: app)
+    expectNativePage("润色服务", in: app)
+    XCTAssertTrue(app.switches["voicePolishSeparate"].exists)
+    returnFromNativePage(to: "语音设置", in: app)
+  }
+
+  @MainActor
+  func testAICandidatePromptPageAndPunctuationControlsAreReachable() throws {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    openAISettings(app)
+    let enabled = app.switches["keyboardAIEnabled"]
+    reveal(enabled, in: app)
+    let originalEnabled = try XCTUnwrap(enabled.value as? String)
+    if originalEnabled == "0" {
+      enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      XCTAssertTrue(wait(enabled, until: "value == '1'"))
+    }
+    let candidates = app.switches["aiCandidatesEnabled"]
+    reveal(candidates, in: app)
+    let originalCandidates = try XCTUnwrap(candidates.value as? String)
+    // 只检查本地入口，不保存服务配置，不向模型发送内容；失败后也恢复候选开关。
+    addTeardownBlock { @MainActor in
+      app.terminate()
+      app.launch()
+      self.openAISettings(app)
+      self.reveal(enabled, in: app)
+      if originalEnabled == "0" { return }
+      self.reveal(candidates, in: app)
+      if candidates.value as? String != originalCandidates {
+        candidates.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(self.wait(candidates, until: "value == '\(originalCandidates)'"))
+      }
+    }
+    if originalCandidates == "0" {
+      candidates.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      XCTAssertTrue(wait(candidates, until: "value == '1'"))
+    }
+    tapRevealed("aiCandidatePrompt", in: app)
+    expectNativePage("提示词", in: app)
+    XCTAssertTrue(app.descendants(matching: .any)["aiCandidatePromptSlot"].firstMatch.exists)
+    XCTAssertTrue(app.textViews["aiCandidatePromptText"].exists)
+    returnFromNativePage(to: "AI 设置", in: app)
+    if originalCandidates == "0" {
+      reveal(candidates, in: app)
+      candidates.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      XCTAssertTrue(wait(candidates, until: "value == '0'"))
+    }
+    // 未保存的总开关在重新进入时从原有配置加载，不必触发停用服务。
+    returnFromNativePage(to: "键盘", in: app)
+    returnFromNativePage(to: "设置", in: app)
+    tapRevealed("expressionSettingsLink", in: app)
+    tapRevealed("punctuationSettingsLink", in: app)
+    expectNativePage("标点", in: app)
+    XCTAssertTrue(app.descendants(matching: .any)["quoteStyle"].firstMatch.exists)
+    XCTAssertTrue(app.descendants(matching: .any)["bracketStyle"].firstMatch.exists)
+    XCTAssertTrue(app.switches["smartPunctuation"].exists)
+    returnFromNativePage(to: "表达", in: app)
+  }
+
+  @MainActor
+  func testCommunityReportCanBeInspectedAndCancelled() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-communityPreview"]
+    app.launch()
+    app.tabBars.buttons["社区"].tap()
+    app.buttons["communityTab-1"].tap()
+    let resource = app.buttons["communityResource-10000000-0000-4000-8000-000000000002"]
+    XCTAssertTrue(resource.waitForExistence(timeout: 5))
+    resource.tap()
+    tapRevealed("reportCommunityWork", in: app)
+    expectNativePage("举报", in: app)
+    XCTAssertTrue(app.buttons["submitCommunityReport"].exists)
+    XCTAssertTrue(app.textFields["补充说明（选填）"].exists)
+    app.navigationBars["举报"].buttons["取消"].tap()
+    XCTAssertTrue(wait(app.navigationBars["举报"], until: "exists == false"))
+    XCTAssertTrue(app.buttons["communityImportLocal"].exists)
+  }
+
+  @MainActor
   func testHandwritingCanBeEnabledSelectedAndDisabled() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
