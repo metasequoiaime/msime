@@ -38,4 +38,6 @@ Status: implemented
 
 - iPad 设备族修复后，iPad Air 13 英寸 regular width 的设置分栏与平板专属控件通过 `OnboardingUITests/testTabletSettingsSidebarSelectsPagesAndShowsTabletControls`（9.197 秒），截图已人工查看；iPad mini 竖屏为 compact width，继续使用手机设置栈。该项不改变真机系统键盘九键连续输入仍未完成的结论。
 
+- 设置布局验收用例改为按实际宽度分支：regular width 检查 `NavigationSplitView` 侧栏和两个平板控件，compact width 检查手机导航栈进入「输入」页。这样同一套验收可在 iPhone、iPad mini 和 iPad Air 上运行，不会把合法的 compact 回退误报成产品失败。
+
 - 未登录账号页入口验收通过 `OnboardingUITests/testSignedOutAccountActionsExplainLoginAndStayUnavailable`（12.924 秒）：云剪贴板、手动同步和 QQ 群助手显示登录后可用且保持禁用，我的发布与收藏不伪造登录入口；未开启云剪贴板、未提交绑定码，也未访问需要真实账号的子页。

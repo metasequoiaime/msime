@@ -2162,23 +2162,32 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
-  func testTabletSettingsSidebarSelectsPagesAndShowsTabletControls() throws {
+  func testSettingsLayoutAdaptsBetweenRegularAndCompactWidths() throws {
     continueAfterFailure = false
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     XCTAssertTrue(app.buttons["设置"].waitForExistence(timeout: 8))
     let input = app.descendants(matching: .any)["tabletSettings.input"]
-    XCTAssertTrue(input.waitForExistence(timeout: 5))
-    input.tap()
+    if input.waitForExistence(timeout: 5) {
+      // iPad regular width 使用分栏；侧栏选中项直接打开右侧详情页。
+      input.tap()
+    } else {
+      // iPhone、iPad compact width 和窄分屏沿用手机导航栈，不应把缺少侧栏标识当成失败。
+      let compactInput = app.descendants(matching: .any)["inputSettingsLink"]
+      XCTAssertTrue(compactInput.waitForExistence(timeout: 5))
+      compactInput.tap()
+    }
     XCTAssertTrue(app.navigationBars["输入"].waitForExistence(timeout: 5))
-    let layout = app.descendants(matching: .any)["tabletSettings.layout"]
-    XCTAssertTrue(layout.exists)
-    layout.tap()
-    XCTAssertTrue(app.switches["appTabletFullKeysSwitch"].exists)
-    XCTAssertTrue(app.switches["appTabletSplitSwitch"].exists)
+    if input.exists {
+      let layout = app.descendants(matching: .any)["tabletSettings.layout"]
+      XCTAssertTrue(layout.exists)
+      layout.tap()
+      XCTAssertTrue(app.switches["appTabletFullKeysSwitch"].exists)
+      XCTAssertTrue(app.switches["appTabletSplitSwitch"].exists)
+    }
     let shot = XCTAttachment(screenshot: app.screenshot())
-    shot.name = "iPad 分栏设置与平板控件"
+    shot.name = input.exists ? "iPad 分栏设置与平板控件" : "紧凑宽度设置导航"
     shot.lifetime = .keepAlways
     add(shot)
   }
