@@ -71,9 +71,9 @@ export const externalDiagnostics =
   "mx-1 mt-2.5 text-xs wrap-anywhere text-muted [&>summary]:cursor-pointer [&>ul]:mt-[7px] [&>ul]:mb-0 [&>ul]:pl-5";
 export const externalResourceNote = "px-6 pt-0 pb-3";
 
-/** The theme page shows one card at a time: a horizontal scroll-snap track, so a trackpad or touch swipe moves between cards as well as the arrows do. */
+/** 主题页逐张显示卡片，横向滚动吸附保留触控板和触屏切换；卡片按自然高度排列，由轮播跟随当前卡片测量高度。 */
 export const themeCarouselTrack =
-  "flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+  "flex items-start snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 /** The padding keeps the card's shadow and focus ring inside the track, which clips its overflow. */
 export const themeCarouselSlide = "w-full shrink-0 snap-start p-1";
 export const themeCarouselNav = "mt-2 flex items-center justify-center gap-3";

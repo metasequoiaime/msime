@@ -6,6 +6,7 @@ import { ThemeCarousel } from "@msime/ui";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 const labels = ["跟随系统", "水杉", "薄荷晨光"];
@@ -25,32 +26,77 @@ function current() {
 }
 
 test("尺寸变化时按当前卡片重定位，卸载后断开观察", () => {
-  let resize!: ResizeObserverCallback;
+  const callbacks = new Map<Element, ResizeObserverCallback>();
   const observe = vi.fn();
   const disconnect = vi.fn();
   vi.stubGlobal(
     "ResizeObserver",
     class {
       constructor(callback: ResizeObserverCallback) {
-        resize = callback;
+        this.callback = callback;
       }
-      observe = observe;
+      callback: ResizeObserverCallback;
+      observe(element: Element) {
+        callbacks.set(element, this.callback);
+        observe(element);
+      }
       disconnect = disconnect;
     },
   );
   const { unmount } = renderCarousel(0);
-  const track = observe.mock.calls[0][0] as HTMLDivElement;
+  const track = screen.getByRole("article", { name: labels[0] }).parentElement!.parentElement!;
   Object.defineProperty(track, "clientWidth", { value: 300 });
   track.scrollTo = vi.fn();
   fireEvent.click(screen.getByRole("button", { name: "查看薄荷晨光" }));
   vi.mocked(track.scrollTo).mockClear();
 
-  act(() => resize([], {} as ResizeObserver));
+  act(() => callbacks.get(track)!([], {} as ResizeObserver));
 
   expect(track.scrollTo).toHaveBeenCalledExactlyOnceWith({ left: 600, behavior: "auto" });
-  expect(observe).toHaveBeenCalledOnce();
+  vi.mocked(track.scrollTo).mockClear();
+  act(() => callbacks.get(track)!([], {} as ResizeObserver));
+  expect(track.scrollTo).not.toHaveBeenCalled();
+  expect(callbacks.has(track)).toBe(true);
   unmount();
-  expect(disconnect).toHaveBeenCalledOnce();
+  expect(disconnect.mock.calls).toHaveLength(observe.mock.calls.length);
+});
+
+test("轮播跟随当前卡片高度，切换、滑动和内容变化都不为其他卡片留白", () => {
+  const heights = new Map([
+    [labels[0], 240],
+    [labels[1], 520],
+    [labels[2], 300],
+  ]);
+  const callbacks = new Map<Element, ResizeObserverCallback>();
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return heights.get(this.firstElementChild?.getAttribute("aria-label") ?? "") ?? 0;
+  });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(element: Element) {
+        callbacks.set(element, this.callback);
+      }
+      disconnect() {}
+    },
+  );
+  renderCarousel(0);
+  const track = screen.getByRole("article", { name: labels[0] }).parentElement!.parentElement!;
+  Object.defineProperty(track, "clientWidth", { value: 300 });
+  expect(track.style.height).toBe("240px");
+  fireEvent.click(screen.getByRole("button", { name: "下一个主题" }));
+  expect(track.style.height).toBe("520px");
+  fireEvent.click(screen.getByRole("button", { name: "上一个主题" }));
+  expect(track.style.height).toBe("240px");
+  heights.set(labels[0], 280);
+  act(() => callbacks.get(track.children[0])!([], {} as ResizeObserver));
+  expect(track.style.height).toBe("280px");
+  track.scrollLeft = 600;
+  fireEvent.scroll(track);
+  expect(track.style.height).toBe("300px");
 });
 
 test("opens on the selected theme and keeps every card mounted", () => {
