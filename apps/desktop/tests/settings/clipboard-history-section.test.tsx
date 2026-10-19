@@ -24,6 +24,45 @@ function syntheticHistory(count: number, prefix = "合成分页记录"): Clipboa
   }));
 }
 
+test("桌面设置与历史分为顶部标签，往返保留页码且不会重读", async () => {
+  const client = { clear: vi.fn(), list: vi.fn(async () => syntheticHistory(45)) };
+  render(
+    <ClipboardHistorySection {...paginationProps} client={client} tabbed>
+      <button type="button">合成中继配置</button>
+    </ClipboardHistorySection>,
+  );
+  expect(screen.getByRole("tab", { name: "剪贴板", selected: true })).toBeTruthy();
+  expect(screen.getByRole("switch", { name: "剪贴板历史" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "清空历史" })).toBeNull();
+  expect(screen.queryByRole("tabpanel", { name: "历史记录" })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
+  await screen.findByText("第 1 / 3 页 · 共 45 条");
+  expect(screen.getByRole("button", { name: "清空历史" })).toBeTruthy();
+  expect(screen.queryByRole("switch", { name: "剪贴板历史" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "合成中继配置" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  fireEvent.click(screen.getByRole("tab", { name: "剪贴板" }));
+  expect(screen.getByRole("button", { name: "合成中继配置" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
+  expect(screen.getByText("第 2 / 3 页 · 共 45 条")).toBeTruthy();
+  expect(client.list).toHaveBeenCalledOnce();
+});
+
+test("关闭历史时仍能进入历史标签查看开启说明", () => {
+  render(
+    <ClipboardHistorySection
+      {...paginationProps}
+      historyEnabled={false}
+      persistedHistoryEnabled={false}
+      client={{ clear: vi.fn(), list: vi.fn() }}
+      tabbed
+    />,
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
+  expect(screen.getByText("请先在「剪贴板」中开启剪贴板历史")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "清空历史" })).toBeNull();
+});
+
 test("历史每页只渲染 20 条，翻页不重读且操作对应当前页记录", async () => {
   const copy = vi.fn().mockResolvedValue(undefined);
   const list = vi.fn().mockResolvedValue(syntheticHistory(45));

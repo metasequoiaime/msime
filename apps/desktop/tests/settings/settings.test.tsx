@@ -2824,6 +2824,7 @@ test("clipboard history exposes timestamps, pinning, deletion and two-step clear
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(剪贴板|剪贴管理)$/ }));
   expect(await screen.findByText("synthetic pinned")).toBeDefined();
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   expect(screen.getByText(/已固定/)).toBeDefined();
 
   fireEvent.click(screen.getByRole("button", { name: "固定剪贴板记录" }));
@@ -2990,6 +2991,7 @@ test("clipboard history waits for the sync turning it on before accepting deleti
   const row = (await screen.findByText(entry.text)).closest(
     "[data-clipboard-entry-row]",
   ) as HTMLElement;
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   const deleteButton = within(row).getByRole("button", {
     name: "删除剪贴板记录",
   }) as HTMLButtonElement;
@@ -3028,6 +3030,7 @@ test("clipboard history refreshes a deletion that finishes after leaving and reo
   const row = (await screen.findByText(entry.text)).closest(
     "[data-clipboard-entry-row]",
   ) as HTMLElement;
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   fireEvent.click(within(row).getByRole("button", { name: "删除剪贴板记录" }));
   await waitFor(() => expect(remove).toHaveBeenCalledWith(entry.text));
 
@@ -3037,9 +3040,11 @@ test("clipboard history refreshes a deletion that finishes after leaving and reo
   expect(screen.getByText(entry.text)).toBeDefined();
   const deleteButton = screen.getByRole("button", { name: "删除剪贴板记录" }) as HTMLButtonElement;
   expect(deleteButton.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("tab", { name: "剪贴板" }));
   expect((screen.getByRole("switch", { name: "剪贴板历史" }) as HTMLInputElement).disabled).toBe(
     true,
   );
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
 
   await act(async () => pendingDelete.resolve());
   expect(screen.queryByText(entry.text)).toBeNull();
