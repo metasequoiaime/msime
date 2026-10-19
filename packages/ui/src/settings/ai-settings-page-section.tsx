@@ -5,7 +5,7 @@ import { GroupList, MoreOptions } from "../core/platform-controls";
 import { ModelPickerRows } from "./model-picker-rows";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import { SwitchRow } from "./switch-row";
-import { SelectRow } from "./select-row";
+import { AiProviderSelect } from "./ai-provider-select";
 import { TextInputRow } from "./text-input-row";
 import { ActionRow } from "./action-row";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
@@ -116,18 +116,13 @@ export function AiSettingsPageSection({
           checked={enabled}
           onChange={onEnabledChange}
         />
-        <SelectRow
-          title="服务提供商"
-          aria-label="AI 服务提供商"
+        <AiProviderSelect
+          options={providerOptions}
           value={provider}
-          onChange={(event) => onProviderChange(event.target.value)}
-        >
-          {providerOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.title}
-            </option>
-          ))}
-        </SelectRow>
+          disabled={disabled}
+          hidden={hidden}
+          onChange={onProviderChange}
+        />
         {credentialSection}
         {providerPreset}
         <ModelPickerRows
