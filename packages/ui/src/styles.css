@@ -3061,19 +3061,28 @@ html[data-macos-liquid-glass="true"]
   outline: 2px solid var(--accent-color);
   outline-offset: 2px;
 }
-.ai-provider-icon,
-.ai-provider-icon > span,
+.ai-provider-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+}
+.ai-provider-icon[data-brand-tile] {
+  background: #fff;
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.12);
+}
+.ai-provider-icon[data-brand-tile="dark"] {
+  background: #171719;
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.16);
+}
 .ai-provider-icon > img {
   display: block;
-  flex: none;
   width: 20px;
   height: 20px;
-}
-.ai-provider-icon > span {
-  background: currentColor;
-  mask-size: contain;
-  mask-repeat: no-repeat;
-  mask-position: center;
+  object-fit: contain;
 }
 .ai-provider-title {
   overflow: hidden;

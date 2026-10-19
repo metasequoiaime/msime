@@ -12,6 +12,7 @@ import openrouter from "../assets/providers/openrouter.svg";
 import { FluentIcon } from "../core/fluent-icons";
 
 const icons: Record<string, string> = {
+  everyapi,
   openai,
   anthropic: claude,
   gemini,
@@ -24,15 +25,20 @@ const icons: Record<string, string> = {
   openrouter,
 };
 
-/** 品牌图形随应用打包；单色标志继承文字颜色，深浅主题下都保持可见。 */
+/** 保留品牌配色；需要底色的标志使用固定底色，深浅主题和选中行都不改写图标颜色。 */
 export function AiProviderIcon({ provider }: { provider: string }) {
   const icon = icons[provider];
   return (
-    <span className="ai-provider-icon" aria-hidden="true" data-provider-icon={provider}>
-      {provider === "everyapi" ? (
-        <img src={everyapi} alt="" width="20" height="20" />
-      ) : icon ? (
-        <span style={{ maskImage: `url("${icon}")`, WebkitMaskImage: `url("${icon}")` }} />
+    <span
+      className="ai-provider-icon"
+      aria-hidden="true"
+      data-provider-icon={provider}
+      data-brand-tile={
+        icon ? (["kimi", "openrouter"].includes(provider) ? "dark" : "light") : undefined
+      }
+    >
+      {icon ? (
+        <img src={icon} alt="" width="20" height="20" />
       ) : (
         <FluentIcon name="link" size={20} />
       )}

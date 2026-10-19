@@ -125,7 +125,9 @@ Serve the chosen directory on a loopback HTTP port, then run `scripts/test-skin-
 
 ## AI 服务商品牌图标
 
-`src/assets/providers/` 的 `openai.svg`、`claude.svg`、`gemini.svg`、`deepseek.svg`、`qwen.svg`、`kimi.svg`、`zhipu.svg`、`siliconcloud.svg`、`groq.svg`、`openrouter.svg` 原样复制自 [Lobe Icons](https://github.com/lobehub/lobe-icons/tree/8a1b2821bb768c484fe8da20c5e1838b6bf551a9/packages/static-svg/icons)，固定默认分支 `master` 的提交 `8a1b2821bb768c484fe8da20c5e1838b6bf551a9`，MIT 许可（Copyright (c) 2023 LobeHub）；完整许可随图标保存在 `src/assets/providers/LICENSE`。品牌标志的商标权仍归各自所有者。
+`src/assets/providers/` 来自 [Lobe Icons](https://github.com/lobehub/lobe-icons/tree/8a1b2821bb768c484fe8da20c5e1838b6bf551a9/packages/static-svg/icons)，固定默认分支 `master` 的提交 `8a1b2821bb768c484fe8da20c5e1838b6bf551a9`，MIT 许可（Copyright (c) 2023 LobeHub）；完整许可随图标保存在 `src/assets/providers/LICENSE`。品牌标志的商标权仍归各自所有者。
+
+本地 `claude.svg`、`gemini.svg`、`deepseek.svg`、`qwen.svg`、`kimi.svg`、`zhipu.svg`、`siliconcloud.svg`、`openrouter.svg` 分别原样复制同名的 `*-color.svg`，保留完整品牌配色；`openai.svg` 原样复制同名黑白标志，显示在白色底板上。`groq.svg` 来自同名 SVG，仅把 `currentColor` 换成该提交 `src/Groq/style.ts` 的 `COLOR_PRIMARY`（`#F55036`）。Kimi 白色笔画和 OpenRouter 亮绿标志使用深色底板，其他品牌使用白色底板，避免选中高亮和深浅主题改写品牌颜色。
 
 `everyapi.svg` 为 EveryAPI 公开站点的 [favicon](https://everyapi.ai/favicon.svg)，于 2026-10-19 获取，原样用于标识该服务商，品牌权利归 EveryAPI。自定义与未知服务商使用已有 Fluent 连接图标。
 
