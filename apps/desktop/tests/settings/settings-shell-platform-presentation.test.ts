@@ -54,7 +54,7 @@ test("macOS、Linux 和 HarmonyOS 2-in-1 使用侧栏搜索", () => {
     macShell: false,
     linuxShell: true,
     searchInTitlebar: false,
-    searchInSidebar: false,
+    searchInSidebar: true,
   });
   expect(presentation({ settingsPlatform: "hm2" })).toMatchObject({
     harmonyLook: true,

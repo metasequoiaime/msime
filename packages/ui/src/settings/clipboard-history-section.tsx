@@ -89,7 +89,7 @@ export function ClipboardHistorySection({
   const tabsEnabled = tabbed && Boolean(client?.list);
   const { tabList, panel } = useSettingsTabs(
     [
-      { id: "clipboard", title: "剪贴板" },
+      { id: "clipboard", title: "设置" },
       { id: "history", title: "历史记录" },
     ] as const,
     "剪贴管理分类",

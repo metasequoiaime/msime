@@ -31,7 +31,7 @@ test("桌面设置与历史分为顶部标签，往返保留页码且不会重�
       <button type="button">合成中继配置</button>
     </ClipboardHistorySection>,
   );
-  expect(screen.getByRole("tab", { name: "剪贴板", selected: true })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "设置", selected: true })).toBeTruthy();
   expect(screen.getByRole("switch", { name: "剪贴板历史" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "清空历史" })).toBeNull();
   expect(screen.queryByRole("tabpanel", { name: "历史记录" })).toBeNull();
@@ -41,7 +41,7 @@ test("桌面设置与历史分为顶部标签，往返保留页码且不会重�
   expect(screen.queryByRole("switch", { name: "剪贴板历史" })).toBeNull();
   expect(screen.queryByRole("button", { name: "合成中继配置" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "下一页" }));
-  fireEvent.click(screen.getByRole("tab", { name: "剪贴板" }));
+  fireEvent.click(screen.getByRole("tab", { name: "设置" }));
   expect(screen.getByRole("button", { name: "合成中继配置" })).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   expect(screen.getByText("第 2 / 3 页 · 共 45 条")).toBeTruthy();

@@ -288,14 +288,19 @@ test("the voice page keeps the common rows and folds the service into its own vi
     [...root.querySelectorAll("[data-group-title]")].map((node) => node.textContent ?? "");
   const config = page.querySelector('[aria-label="服务配置"][role="region"]')!;
   expect(config.hasAttribute("hidden")).toBe(true);
-  expect(titles(screen.getByRole("tabpanel", { name: "输入法" }))).toEqual([
+  expect(titles(screen.getByRole("tabpanel", { name: "识别与输入" }))).toEqual([
     "语音面板",
     "识别",
+    "识别结果",
     "语音快捷键",
   ]);
   fireEvent.click(screen.getByRole("tab", { name: "录音行为" }));
-  expect(titles(screen.getByRole("tabpanel", { name: "录音行为" }))).toEqual(["录音行为"]);
-  fireEvent.click(screen.getByRole("tab", { name: "输入法" }));
+  expect(titles(screen.getByRole("tabpanel", { name: "录音行为" }))).toEqual([
+    "录音行为",
+    "录音设备",
+  ]);
+  expect(screen.getByRole("combobox", { name: "麦克风" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "识别与输入" }));
   expect(screen.queryByRole("textbox", { name: "Doubao 资源 ID" })).toBeNull();
   // 「服务配置」一行写着凭据填没填：旧版鉴权填了令牌、没填 App ID。
   const row = screen.getByRole("button", { name: "服务配置" });
@@ -305,11 +310,11 @@ test("the voice page keeps the common rows and folds the service into its own vi
   expect(screen.queryByRole("switch", { name: "长按录音时按空格锁定" })).toBeNull();
 
   const view = openVoiceServiceConfig();
-  // Windows 只认提示音总开关，也只有一种录音方式：子视图里没有「提示音」组，录音设备只有一个「麦克风」下拉。
-  expect(titles(view)).toEqual(["识别服务", "识别结果", "文本润色", "录音设备"]);
+  // 服务下钻只放识别与润色服务；麦克风在录音行为标签。
+  expect(titles(view)).toEqual(["识别服务", "文本润色"]);
   expect(within(view).queryByLabelText("开始录音提示音")).toBeNull();
   expect(within(view).queryByLabelText("录音后端")).toBeNull();
-  expect(within(view).getByRole("combobox", { name: "麦克风" })).toBeTruthy();
+  expect(within(view).queryByRole("combobox", { name: "麦克风" })).toBeNull();
   expect(screen.queryByRole("switch", { name: "启用语音输入" })).toBeNull();
   // 豆包的识别选项和资源 ID 收在「更多选项」里，检查按钮是这一组的最后一项。
   const service = within(view).getByRole("region", { name: "识别服务" });
@@ -424,14 +429,16 @@ test("macOS drops the rows its host fixes or does not read", async () => {
   expect(screen.getByRole("combobox", { name: "按住录音" })).toBeTruthy();
   expect(screen.queryByLabelText("空格锁定语音")).toBeNull();
   expect(screen.queryByRole("switch", { name: "按住右 Option 录音" })).toBeNull();
-  // 设备列表只在子视图打开时读取。
+  // 设备列表只在录音行为标签显示时读取。
   expect(listVoiceCaptureDevices).not.toHaveBeenCalled();
 
   const view = openVoiceServiceConfig();
   expect(within(view).queryByLabelText("开始录音提示音")).toBeNull();
   expect(within(view).queryByLabelText("识别模型")).toBeNull();
   expect(within(view).queryByLabelText("录音后端")).toBeNull();
-  const microphone = within(view).getByRole("combobox", { name: "麦克风" });
+  fireEvent.click(within(view).getByRole("button", { name: "返回" }));
+  fireEvent.click(screen.getByRole("tab", { name: "录音行为" }));
+  const microphone = screen.getByRole("combobox", { name: "麦克风" });
   await waitFor(() =>
     expect(
       within(microphone).getByRole("option", { name: "Synthetic USB microphone" }),

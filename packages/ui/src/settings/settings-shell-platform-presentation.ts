@@ -44,7 +44,11 @@ export function settingsShellPlatformPresentation({
     !fillsContent;
   const searchInTitlebar = winShell && titlebarShown;
   const searchInSidebar =
-    macShell || settingsPlatform === "hm2" || ipadShell || (winShell && !titlebarShown);
+    macShell ||
+    linuxShell ||
+    settingsPlatform === "hm2" ||
+    ipadShell ||
+    (winShell && !titlebarShown);
   const sidebarBrandShown = !mobilePlatform && !titlebarShown;
 
   return {

@@ -74,7 +74,11 @@ export function Row({
   const labelId = useId();
   const descriptionId = useId();
   return (
-    <div className={wideControl ? style.wideRow : style.row} hidden={hidden}>
+    <div
+      className={wideControl ? style.wideRow : style.row}
+      hidden={hidden}
+      data-settings-search-label={typeof title === "string" ? title : undefined}
+    >
       {icon && (
         <span className={style.rowIcon} aria-hidden="true">
           {icon}
@@ -124,6 +128,7 @@ export function LinkRow({
     <button
       type="button"
       className={style.linkRow}
+      data-settings-search-label={title}
       aria-label={title}
       aria-describedby={describedBy}
       onClick={onClick}
@@ -346,7 +351,10 @@ function Check<T extends string>({
     if (input.current) input.current.indeterminate = mixed;
   }, [mixed]);
   return (
-    <label className={className}>
+    <label
+      className={className}
+      data-settings-search-label={typeof item.label === "string" ? item.label : undefined}
+    >
       <input
         ref={input}
         type="checkbox"
@@ -384,7 +392,11 @@ export function Checks<T extends string>({
     />
   ));
   return (
-    <fieldset className={style.checks} aria-describedby={description ? descriptionId : undefined}>
+    <fieldset
+      className={style.checks}
+      aria-describedby={description ? descriptionId : undefined}
+      data-settings-search-label={typeof legend === "string" ? legend : undefined}
+    >
       {/* The legend names the setting the way a row title does, so it carries the same `data-row-title` mark. */}
       <legend className={style.checksLegend} data-row-title="">
         {legend}
@@ -568,7 +580,11 @@ export function PickerRow({
     </span>
   );
   return (
-    <div className="min-w-0" hidden={hidden}>
+    <div
+      className="min-w-0"
+      hidden={hidden}
+      data-settings-search-label={typeof title === "string" ? title : undefined}
+    >
       {/* 按内容（标题、描述、当前值）命名，而不是用 `aria-labelledby`：标题已经是隐藏控件的标签，同一个标签命名两个控件会让标签查找指向哪个控件变得含糊。 */}
       <button
         type="button"

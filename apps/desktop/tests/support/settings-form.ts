@@ -16,16 +16,20 @@ export function selectSettingsTab(title: string): void {
   const currentTitle: Record<string, string> = {
     方案: "输入方案",
     中英文: "中英模式",
-    选词与翻页: "选词翻页",
-    候选与联想: "候选联想",
+    选词与翻页: "选词与翻页",
+    选词翻页: "选词与翻页",
+    候选与联想: "候选与联想",
+    候选联想: "候选与联想",
     输出: "输出设置",
     进阶: "高级选项",
     标点: "标点设置",
     查词库: "查找词库",
     云词库: "云端词库",
     版本与更新: "版本更新",
-    帮助与反馈: "帮助反馈",
-    许可与隐私: "许可隐私",
+    帮助与反馈: "帮助与反馈",
+    帮助反馈: "帮助与反馈",
+    许可与隐私: "许可与隐私",
+    许可隐私: "许可与隐私",
     维护与诊断: "维护诊断",
     "AI 助手": "AI助手",
   };
@@ -46,7 +50,7 @@ export async function findVisibleText(text: string): Promise<HTMLElement> {
   return element;
 }
 
-/** 桌面语音页把密钥、接口地址、润色、提示音细分和录音设备收在「服务配置」子视图里，测试先点进去。 */
+/** 桌面语音页把密钥、接口地址和润色收在「服务配置」子视图里，测试先点进去。 */
 export function openVoiceServiceConfig(): HTMLElement {
   fireEvent.click(screen.getByRole("button", { name: "服务配置" }));
   return screen.getByRole("region", { name: "服务配置" });

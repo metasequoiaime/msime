@@ -1,5 +1,5 @@
 export const aiTabs = [
-  { id: "assistance", title: "辅助功能" },
+  { id: "assistance", title: "输入辅助" },
   { id: "connection", title: "连接助手" },
 ] as const;
 

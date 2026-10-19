@@ -37,7 +37,7 @@ async function openAbout(platform: "windows" | "linux") {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
-  fireEvent.click(screen.getByRole("tab", { name: "许可隐私" }));
+  fireEvent.click(screen.getByRole("tab", { name: "许可与隐私" }));
   await screen.findByRole("button", { name: "开源许可协议" });
   return openThirdPartyLicenses;
 }

@@ -1,3 +1,4 @@
+import { SettingsSearchReveal } from "./settings-search-reveal";
 import type {
   ProviderCredentialStatus,
   VoiceCredentialKind,
@@ -47,7 +48,7 @@ import * as platform from "../core/platform-controls-style";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
 
 const voiceTabs = [
-  { id: "input", title: "输入法" },
+  { id: "input", title: "识别与输入" },
   { id: "recording", title: "录音行为" },
 ] as const;
 
@@ -192,7 +193,11 @@ export function VoiceSettingsContent({
     encode: () => ({ voiceService: true }),
     isActiveState: (state) => state?.voiceService === true,
   });
-  const { tabList, panel } = useSettingsTabs(voiceTabs, "语音输入设置分类", !mobilePlatform);
+  const { tabList, panel, selected } = useSettingsTabs(
+    voiceTabs,
+    "语音输入设置分类",
+    !mobilePlatform,
+  );
   const serviceOpen = serviceSubview === true;
   useEffect(() => {
     if (hidden) resetServiceSubview();
@@ -331,7 +336,7 @@ export function VoiceSettingsContent({
       spaceLock={showVoiceSpaceLockSwitch}
     />
   );
-  // 桌面把边说边显示放到主页面的「识别」组里，「识别结果」组只剩结果提交策略，收在「服务配置」子页。
+  // 桌面把边说边显示与结果提交都放在「识别与输入」，服务配置只负责服务接入。
   const recognitionResult = (showStreamPreedit: boolean) => (
     <VoiceRecognitionResultSection
       showStreamPreedit={showStreamPreedit}
@@ -566,13 +571,7 @@ export function VoiceSettingsContent({
     harmony: harmonyPlatform,
   });
   const recognitionResultRows = recognitionResult(false);
-  const serviceGroups = [
-    providerConfigVisible,
-    showVoiceCommitMode,
-    Boolean(polish),
-    Boolean(cueSwitches),
-    showVoiceCaptureDevices,
-  ].some(Boolean);
+  const serviceGroups = providerConfigVisible || Boolean(polish);
   // 豆包的识别请求不读识别语言（macOS 的 DoubaoVoiceRequest 和 Windows 的 DoubaoAsrClient 都不发它），选豆包时不画这一行；值照旧保存、照旧上云。Linux 的豆包由单独运行的语音服务识别，HarmonyOS 的豆包没填凭据时改用系统识别，这两处照旧显示。
   const hideLanguage = voiceInput.asr_provider === "doubao" && !linuxPlatform && !harmonyPlatform;
   const main = basics({
@@ -602,20 +601,28 @@ export function VoiceSettingsContent({
   return (
     <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="语音输入">
       {/* 两层 div：外层的 hidden 属性管显隐，内层的 flex 排版类不会把它盖掉。 */}
-      <div hidden={serviceOpen}>
+      <SettingsSearchReveal hidden={serviceOpen} onReveal={closePhoneService}>
         <div className="flex flex-col gap-6">
           {tabList}
           {panel(
             "input",
             <>
               {main}
+              {recognitionResultRows}
               {hotkeys}
             </>,
           )}
-          {panel("recording", recordingBehavior)}
+          {panel(
+            "recording",
+            <>
+              {recordingBehavior}
+              {cueSwitches}
+              {captureDevices(!hidden && !serviceOpen && selected === "recording")}
+            </>,
+          )}
         </div>
-      </div>
-      <div role="region" aria-label="服务配置" hidden={!serviceOpen}>
+      </SettingsSearchReveal>
+      <SettingsSearchReveal label="服务配置" hidden={!serviceOpen} onReveal={openPhoneService}>
         <div className="flex flex-col gap-6">
           <SettingsPageHeader title="服务配置" onBack={closePhoneService} level={2} />
           {providerConfigVisible && (
@@ -632,12 +639,9 @@ export function VoiceSettingsContent({
               {asrServiceTest}
             </GroupList>
           )}
-          {recognitionResultRows}
           {polish}
-          {cueSwitches}
-          {captureDevices(!hidden && serviceOpen)}
         </div>
-      </div>
+      </SettingsSearchReveal>
     </SettingsPageFieldset>
   );
 }

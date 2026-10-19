@@ -48,7 +48,7 @@ test("输入分区只显示当前面板，切换和离页保留草稿与标签�
     within(tabs)
       .getAllByRole("tab")
       .map((tab) => tab.textContent),
-  ).toEqual(["输入方案", "中英模式", "选词翻页", "候选联想", "输出设置", "高级选项"]);
+  ).toEqual(["输入方案", "中英模式", "选词与翻页", "候选与联想", "输出设置", "高级选项"]);
   expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
   expect(screen.queryByRole("radiogroup", { name: "中文输出" })).toBeNull();
   fireEvent.click(within(tabs).getByRole("tab", { name: "输出设置" }));
@@ -99,7 +99,7 @@ test("标点与翻译按功能拆分，方向键与 Home、End 同步焦点和�
 test("语音两个标签与服务配置来回切换保留未保存的输入框", async () => {
   await mount("voice");
   const tabs = screen.getByRole("tablist", { name: "语音输入设置分类" });
-  expect(screen.getByRole("tabpanel", { name: "输入法" })).toBeTruthy();
+  expect(screen.getByRole("tabpanel", { name: "识别与输入" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "文本润色" })).toBeNull();
   // 这个宿主列不出录音设备，子视图里也没有这一组。
   fireEvent.click(screen.getByRole("button", { name: "服务配置" }));
@@ -111,7 +111,7 @@ test("语音两个标签与服务配置来回切换保留未保存的输入框",
   fireEvent.click(screen.getByRole("button", { name: "返回" }));
   fireEvent.click(within(tabs).getByRole("tab", { name: "录音行为" }));
   expect(screen.getByRole("region", { name: "录音行为" })).toBeTruthy();
-  fireEvent.click(within(tabs).getByRole("tab", { name: "输入法" }));
+  fireEvent.click(within(tabs).getByRole("tab", { name: "识别与输入" }));
   fireEvent.click(screen.getByRole("button", { name: "服务配置" }));
   expect(
     within(screen.getByRole("region", { name: "文本润色" })).getByLabelText("文本润色服务提供商"),
@@ -127,8 +127,8 @@ test.each(["macos", "linux", "windows", "harmony"])(
       within(tabs)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["输入法", "录音行为"]);
-    const input = within(tabs).getByRole("tab", { name: "输入法" });
+    ).toEqual(["识别与输入", "录音行为"]);
+    const input = within(tabs).getByRole("tab", { name: "识别与输入" });
     const recording = within(tabs).getByRole("tab", { name: "录音行为" });
     expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
     expect(screen.getByRole("combobox", { name: "识别服务" })).toBeTruthy();

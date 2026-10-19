@@ -29,26 +29,28 @@ test("关于默认显示版本，切换分类保留反馈草稿，帮助返回�
     within(tabs)
       .getAllByRole("tab")
       .map((tab) => tab.textContent),
-  ).toEqual(["版本更新", "帮助反馈", "系统信息", "许可隐私"]);
+  ).toEqual(["版本更新", "帮助与反馈", "系统信息", "许可与隐私"]);
   expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
     within(tabs).getByRole("tab", { name: "版本更新" }).id,
   );
   expect(screen.queryByRole("textbox", { name: "反馈描述" })).toBeNull();
-  fireEvent.click(within(tabs).getByRole("tab", { name: "帮助反馈" }));
+  fireEvent.click(within(tabs).getByRole("tab", { name: "帮助与反馈" }));
   fireEvent.change(screen.getByRole("textbox", { name: "反馈描述" }), {
     target: { value: "synthetic feedback draft" },
   });
   fireEvent.click(within(tabs).getByRole("tab", { name: "系统信息" }));
   expect(screen.getByRole("region", { name: "系统信息" })).toBeTruthy();
-  fireEvent.click(within(tabs).getByRole("tab", { name: "许可隐私" }));
+  fireEvent.click(within(tabs).getByRole("tab", { name: "许可与隐私" }));
   expect(screen.getByRole("button", { name: "隐私政策" })).toBeTruthy();
-  fireEvent.click(within(tabs).getByRole("tab", { name: "帮助反馈" }));
+  fireEvent.click(within(tabs).getByRole("tab", { name: "帮助与反馈" }));
   expect((screen.getByRole("textbox", { name: "反馈描述" }) as HTMLTextAreaElement).value).toBe(
     "synthetic feedback draft",
   );
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
-  fireEvent.click(await screen.findByRole("button", { name: "返回关于水杉" }));
-  expect(screen.getByRole("tab", { name: "帮助反馈" }).getAttribute("aria-selected")).toBe("true");
+  fireEvent.click(await screen.findByRole("button", { name: "返回关于" }));
+  expect(screen.getByRole("tab", { name: "帮助与反馈" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
 });
 
 test("反馈路由初次与再次打开都定位帮助与反馈", async () => {
@@ -60,9 +62,9 @@ test("反馈路由初次与再次打开都定位帮助与反馈", async () => {
       client={settingsClient}
     />,
   );
-  expect((await screen.findByRole("tab", { name: "帮助反馈" })).getAttribute("aria-selected")).toBe(
-    "true",
-  );
+  expect(
+    (await screen.findByRole("tab", { name: "帮助与反馈" })).getAttribute("aria-selected"),
+  ).toBe("true");
   fireEvent.click(screen.getByRole("tab", { name: "版本更新" }));
   view.rerender(
     <SettingsPage
@@ -71,7 +73,9 @@ test("反馈路由初次与再次打开都定位帮助与反馈", async () => {
       client={settingsClient}
     />,
   );
-  expect(screen.getByRole("tab", { name: "帮助反馈" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("tab", { name: "帮助与反馈" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
 });
 
 test.each([
@@ -80,7 +84,7 @@ test.each([
   [
     "harmony",
     { mobile_settings: false, panel_windows: true },
-    ["版本更新", "帮助反馈", "许可隐私"],
+    ["版本更新", "帮助与反馈", "许可与隐私"],
   ],
 ])("%s 按宿主形态显示关于标签", async (platform, capabilities, expected) => {
   render(

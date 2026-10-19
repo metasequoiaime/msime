@@ -1348,7 +1348,7 @@ test("voice capture backend choices follow the host platform", async () => {
       />,
     );
     await settingsReady();
-    fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
+    fireEvent.click(screen.getByRole("tab", { name: "录音行为" }));
     const select = screen.queryByRole("combobox", { name: "录音后端" }) as HTMLSelectElement | null;
     const values = select ? Array.from(select.options).map((option) => option.value) : null;
     mounted.unmount();
@@ -3040,7 +3040,7 @@ test("clipboard history refreshes a deletion that finishes after leaving and reo
   expect(screen.getByText(entry.text)).toBeDefined();
   const deleteButton = screen.getByRole("button", { name: "删除剪贴板记录" }) as HTMLButtonElement;
   expect(deleteButton.disabled).toBe(true);
-  fireEvent.click(screen.getByRole("tab", { name: "剪贴板" }));
+  fireEvent.click(screen.getByRole("tab", { name: "设置" }));
   expect((screen.getByRole("switch", { name: "剪贴板历史" }) as HTMLInputElement).disabled).toBe(
     true,
   );
