@@ -36,6 +36,8 @@ export interface SettingsFormFactorProjection {
   symbolSetPacks: boolean;
   /** 工具栏的显示方式和工具开关（`harmony_toolbar`）：只有手机键盘画那一行工具栏，2in1 的键盘没有它，所以只在手机上声明。 */
   touchToolbarTools: boolean;
+  /** 皮肤页的「制作皮肤」标签：编辑器是桌面形态的设置界面，只在 2in1 上声明；手机的皮肤页保持原样。 */
+  candidateSkinEditor: boolean;
 }
 
 /** Keep the shared settings page aligned with the keyboard's actual device form factor. */
@@ -66,6 +68,7 @@ export class SettingsFormFactorCapabilities {
       wordbookPacks: desktop,
       symbolSetPacks: desktop,
       touchToolbarTools: !desktop,
+      candidateSkinEditor: desktop,
     };
   }
 }

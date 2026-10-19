@@ -347,6 +347,25 @@ interface PluginImportRequest {
   source: string;
 }
 
+/** 「制作皮肤」页面发来的请求：`check` 或 `create`，草稿是文件夹名、`skin.toml` 全文和 base64 图片。页面不给路径。 */
+interface CandidateSkinEditorPayload {
+  operation?: string;
+  package_id?: string;
+  manifest?: string;
+  files?: Record<string, string>;
+  replace?: boolean;
+}
+
+/** `msime_client_candidate_skin_editor` 的请求；`directory` 由宿主填成自己的皮肤根目录，只有 `create` 带它。 */
+interface CandidateSkinEditorRequest {
+  operation: string;
+  package_id: string;
+  manifest: string;
+  files: Record<string, string>;
+  replace: boolean;
+  directory?: string;
+}
+
 /** `msime_client_plugins`'s import action, naming the staged copy of what was picked. */
 interface PluginImportAction {
   operation: string;
@@ -1191,6 +1210,11 @@ class SettingsBridge {
         KeyboardLog.error(`plugin import failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'storage' }));
       });
+    } else if (kind === 'candidate_skin_editor') {
+      this.candidateSkinEditor(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`candidate skin editor request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'storage' }));
+      });
     } else if (kind === 'update_check') {
       this.updateCheck(payload).then(deliver).catch((error: Object): void => {
         KeyboardLog.error(`update check failed: ${describeError(error)}`);
@@ -1206,6 +1230,54 @@ class SettingsBridge {
       this.deliverReply(id, JSON.stringify({ ok: false, error: 'unknown_request' }));
     }
     return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+  }
+
+  /**
+   * 皮肤页「制作皮肤」：`check` 按目录扫描的规则读一遍草稿（页面用它取外观补齐后的配色），`create` 用社区下载和 MCP 同一个安装器把草稿装进皮肤目录，规则全在 `msime_client_candidate_skin_editor`。皮肤根目录由这里填，页面发来的任何路径都不用；装好后像导入皮肤一样把新目录发布给键盘。
+   */
+  private async candidateSkinEditor(document: string): Promise<string> {
+    const refused: string = JSON.stringify({ ok: false, error: 'candidate_skin_package' });
+    let payload: CandidateSkinEditorPayload;
+    try {
+      payload = JSON.parse(document) as CandidateSkinEditorPayload;
+    } catch {
+      return refused;
+    }
+    const operation: string = typeof payload.operation === 'string' ? payload.operation : '';
+    const packageId: string = typeof payload.package_id === 'string' ? payload.package_id : '';
+    const manifest: string = typeof payload.manifest === 'string' ? payload.manifest : '';
+    if ((operation !== 'check' && operation !== 'create') || packageId.length === 0 || manifest.length === 0) {
+      return refused;
+    }
+    const files: Record<string, string> = payload.files ?? {};
+    if (typeof files !== 'object') {
+      return refused;
+    }
+    const request: CandidateSkinEditorRequest = {
+      operation: operation,
+      package_id: packageId,
+      manifest: manifest,
+      files: files,
+      replace: payload.replace === true
+    };
+    if (operation === 'create') {
+      if (!this.safeDirectory(this.stateDirectory)) {
+        return JSON.stringify({ ok: false, error: 'storage' });
+      }
+      request.directory = `${this.stateDirectory}/skins`;
+    }
+    const reply: string = await client.candidateSkinEditor(JSON.stringify(request));
+    if (operation === 'create') {
+      try {
+        const parsed: Record<string, Object> = JSON.parse(reply) as Record<string, Object>;
+        if (parsed['ok'] === true) {
+          this.schedulePublish();
+        }
+      } catch (error) {
+        KeyboardLog.error(`candidate skin editor reply unreadable: ${describeError(error)}`);
+      }
+    }
+    return reply;
   }
 
   /**
@@ -1964,6 +2036,7 @@ class SettingsBridge {
       value['wordbook_packs'] = projection.wordbookPacks;
       value['symbol_set_packs'] = projection.symbolSetPacks;
       value['touch_toolbar_tools'] = projection.touchToolbarTools;
+      value['candidate_skin_editor'] = projection.candidateSkinEditor;
       value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {
         value['os_version'] = release;

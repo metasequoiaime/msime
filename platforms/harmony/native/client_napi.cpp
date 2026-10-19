@@ -566,6 +566,11 @@ static napi_value SkinImport(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_skin_import, "MSIME skin import");
 }
 
+// 「制作皮肤」要解码最多 2 MiB 的图片、在临时目录或皮肤目录里写包并整体替换，放到 ArkTS 线程之外运行。
+static napi_value CandidateSkinEditor(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_candidate_skin_editor, "MSIME candidate skin editor");
+}
+
 // Named dictionaries: an import parses up to 16 MiB of text and every operation rewrites the collection files under their lock, so the settings page runs them on a worker and awaits the promise. The keyboard's small flush uses the synchronous `dictionaryCollections`.
 static napi_value DictionaryCollectionsAsync(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_dictionary_collections,
@@ -1659,6 +1664,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("skinResource", SkinResource),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),
         ENTRY("skinImport", SkinImport),
+        ENTRY("candidateSkinEditor", CandidateSkinEditor),
         ENTRY("customSkinLibrary", CustomSkinLibrary),
         ENTRY("keyboardSkinTrial", KeyboardSkinTrial),
         ENTRY("communityResourceLibrary", CommunityResourceLibrary),

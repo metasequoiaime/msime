@@ -43,6 +43,8 @@ export const skinResource: (request: string) => string;
 export const skinToolbarStylesheet: (request: string) => string;
 /** `{source,directory}` validates and atomically imports a picked skin folder off the UI thread. */
 export const skinImport: (request: string) => Promise<string>;
+/** 皮肤页「制作皮肤」，在工作线程上执行：`{operation:"check",package_id,manifest,files}` 回复扫描会列出的那一项；`{operation:"create",directory,package_id,manifest,files,replace}` 安装并回复 `{id,replaced}`。失败为 `{ok:false,error,detail?}`。 */
+export const candidateSkinEditor: (request: string) => Promise<string>;
 /**
  * `{directory}` reads the named custom touch-keyboard designs; adding `{action}` applies one change
  * first. Both answer with the whole library. Takes the library's file lock, so call it off the UI

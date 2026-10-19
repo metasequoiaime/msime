@@ -1469,6 +1469,10 @@ group("projects the same form factor into every settings capability", () => {
     "only the phone keyboard has the toolbar row whose tools and display mode the page offers",
   );
   check(
+    desktop.candidateSkinEditor && !phone.candidateSkinEditor,
+    "only the 2-in-1 settings offer the candidate skin editor tab",
+  );
+  check(
     desktop.candidateWindowOpacity && desktop.candidateCornerRadius,
     "2-in-1 settings offer the candidate card opacity and radius",
   );
