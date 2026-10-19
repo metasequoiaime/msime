@@ -27,6 +27,13 @@ fn gallery() -> tempfile::TempDir {
         "verify-arrows-chevron/skin.toml",
         "verify-arrows-triangle/preview.png",
         "verify-arrows-triangle/skin.toml",
+        "verify-canvas-frame/assets/frame.png",
+        "verify-canvas-frame/assets/leaf.png",
+        "verify-canvas-frame/assets/ribbon.png",
+        "verify-canvas-frame/assets/seal.png",
+        "verify-canvas-frame/assets/stars.gif",
+        "verify-canvas-frame/preview.png",
+        "verify-canvas-frame/skin.toml",
         "verify-canvas-keys-ignored/preview.png",
         "verify-canvas-keys-ignored/skin.toml",
         "verify-canvas/assets/cloud.png",
@@ -489,7 +496,12 @@ fn canvas_frame_keeps_its_stretch_hollow_panel_and_gif_widget() {
 #[test]
 fn canvas_frame_gif_decodes_every_frame() {
     use image::AnimationDecoder;
-    let bytes = fs::read(gallery().join("verify-canvas-frame/assets/stars.gif")).unwrap();
+    let bytes = fs::read(
+        gallery()
+            .path()
+            .join("verify-canvas-frame/assets/stars.gif"),
+    )
+    .unwrap();
     let frames = image::codecs::gif::GifDecoder::new(Cursor::new(&bytes[..]))
         .unwrap()
         .into_frames()
@@ -505,7 +517,12 @@ fn canvas_frame_gif_decodes_every_frame() {
     }
     // 面板图中心是品红：fill = false 时它不该被画出来，按 slice_dip = 20 切的话四角会带上它。
     let frame = image::load_from_memory(
-        &fs::read(gallery().join("verify-canvas-frame/assets/frame.png")).unwrap(),
+        &fs::read(
+            gallery()
+                .path()
+                .join("verify-canvas-frame/assets/frame.png"),
+        )
+        .unwrap(),
     )
     .unwrap()
     .to_rgba8();
