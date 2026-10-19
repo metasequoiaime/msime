@@ -33,7 +33,7 @@ Web 面板使用宿主生成的固定 `border-image` 属性，挂件使用 `<img
 
 ## Consequences
 
-共享 catalog 与 Windows 之间的字段契约扩大，后续修改清单 schema 必须同步 Rust 模型、各平台 JSON 消费和对应测试。候选皮肤可以安全携带来源新增字段，Windows 已有渲染路径会显示更完整的颜色和字体效果，网页、macOS、Linux、HarmonyOS 与 iOS 仍通过同一份扫描规则读取公共字段，旧包不受影响。msime-cloud 的 `ParseStored` 还不收 `canvas` 与 `wechat_scroll` 基底，也仍按长度拒收空的 `author` / `description`，所以社区打包在上传前拒绝这几类包（`SERVER_UNSUPPORTED_BASES` 与空串检查），而不是上传后才收到说不清原因的服务端错误；它们照常在本机加载和使用。msime-cloud 需要配套改动：`windowsLookIDs` 加 `wechat_scroll`，只在 v2 下接受 `canvas`，把九宫格来源图和挂件图算进引用集合，同步新的 `client_dialect.json`，之后再删掉客户端这两道检查。MCP 的 `create_candidate_skin` 描述与 `make_skin` 提示词同步说明：v2 动画与装饰动效对任何 base 有效，`canvas` 只在明确要全贴图皮肤时使用、需要 v2，Web 与 macOS 原生候选窗已绘制九宫格与挂件，尚无相应能力的原生宿主显示 `canvas` 外观的不透明底色；`author`、`description` 不要写空串，否则不同步到云端库。
+共享 catalog 与 Windows 之间的字段契约扩大，后续修改清单 schema 必须同步 Rust 模型、各平台 JSON 消费和对应测试。候选皮肤可以安全携带来源新增字段，Windows 已有渲染路径会显示更完整的颜色和字体效果，网页、macOS、Linux、HarmonyOS 与 iOS 仍通过同一份扫描规则读取公共字段，旧包不受影响。社区上传对新基底与空可选文字的保护由[社区画布资源按服务端能力上传](2026-10-19-community-canvas-resources.md) 部分取代：本地创建、打包与安装接受这些清单，真正上传前要求同源服务端明确声明扩展能力。MCP 描述与生成提示词同步说明资源规则；云端不支持时仍保留本机使用。
 
 原生宿主的九宫格、材质、版式、insets 和自由挂件仍未全部绘制，仍与来源的完整视觉效果有差距；Windows 已经绘制的版式、外框、阴影档位、列表翻页箭头和收紧宽度见 [Windows 候选窗绘制皮肤的版式、外框、阴影、翻页箭头与收紧宽度](2026-10-19-windows-candidate-skin-layout-keys.md)，canvas 的九宫格、insets 与自由挂件见 [Windows 候选窗绘制 canvas 皮肤](2026-10-19-windows-candidate-canvas.md)；文档明确这一边界，避免把协议支持误报成绘制支持。图片边界现在对 PNG/JPEG/GIF/WebP 统一检查尺寸、动画帧和包内像素预算；网页宿主与原生宿主一样对任何 base 的 v2 清单启用动画，只有九宫格、自由挂件和 insets 依赖 `canvas`；网页 SDK 还与 catalog 一样拒绝没有 `schemaVersion: 2` 的 `base: "canvas"`，`canvas: true` 标记也不会覆盖全局主题或 Windows 外观基底。代价是 v2 在本仓与来源的含义不再逐字相同：同一个非 canvas v2 包在 msime-windows 上不播动画，在本仓播；以后来源若给非 canvas 的 v2 加新字段，需要逐项判断它属于哪一层。新增 JSON 和 C++ 字段也扩大了构建面，因此提交前运行皮肤单测、clippy、笔记校验、差异检查和 Windows x64 交叉构建。
 

@@ -137,6 +137,45 @@ Response take_response(char *raw) {
   }
 }
 
+struct AccountNamePresentation {
+  std::wstring normalized;
+  std::wstring preferred;
+  bool valid = false;
+  int32_t maximum_utf16_units = 0;
+};
+
+// 纯计算接口可在 UI 线程调用；失败时不猜测昵称规则，也不提交未经校验的值。
+std::optional<AccountNamePresentation> account_name_presentation(std::wstring const &name,
+                                                               std::wstring const &id = {}) {
+  try {
+    JsonObject request;
+    request.SetNamedValue(L"name", JsonValue::CreateStringValue(hstring(name)));
+    request.SetNamedValue(L"id", JsonValue::CreateStringValue(hstring(id)));
+    const auto body = utf8(request.Stringify());
+    const auto response = take_response(msime_client_account_name(
+        reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+    if (!response.ok)
+      return std::nullopt;
+    const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+    const auto maximum = value.GetNamedNumber(L"maximum_utf16_units");
+    if (maximum < 1 || maximum > INT32_MAX || std::floor(maximum) != maximum)
+      return std::nullopt;
+    const auto normalized = value.GetNamedString(L"normalized");
+    const auto preferred = value.GetNamedString(L"preferred");
+    return AccountNamePresentation{std::wstring(normalized.c_str(), normalized.size()),
+                                   std::wstring(preferred.c_str(), preferred.size()),
+                                   value.GetNamedBoolean(L"valid"), static_cast<int32_t>(maximum)};
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+std::wstring preferred_account_name(std::wstring const &name, std::wstring const &id) {
+  if (const auto presentation = account_name_presentation(name, id))
+    return presentation->preferred;
+  return name.empty() ? L"水杉账号" : name;
+}
+
 // An environment variable, empty when it is unset. GetEnvironmentVariableW rather than the CRT's _wgetenv, which MSVC deprecates (C4996) and /WX would turn into an error.
 std::wstring environment(const wchar_t *name) {
   std::wstring value(64, L'\0');
@@ -5144,7 +5183,7 @@ private:
   void request_account_code() {
     if (account_channel_ == AccountChannel::none || !account_begin())
       return;
-    const auto target = am::normalize_name(account_target_);
+    const auto target = am::trim_login_target(account_target_);
     if (target.empty()) {
       account_finish(L"account_invalid");
       return;
@@ -5280,13 +5319,18 @@ private:
   void rename_account() {
     if (!account_begin())
       return;
-    if (!am::valid_name(account_name_)) {
+    const auto name = account_name_presentation(account_name_);
+    if (!name) {
+      account_finish(L"account_unavailable");
+      return;
+    }
+    if (!name->valid) {
       account_finish(L"account_invalid");
       return;
     }
     auto action = account_action(L"rename");
     action.SetNamedValue(L"display_name",
-                         JsonValue::CreateStringValue(hstring(am::normalize_name(account_name_))));
+                         JsonValue::CreateStringValue(hstring(name->normalized)));
     account_request(action, [this](Response const &response) {
       if (!response.ok || !apply_account_profile(response, false)) {
         account_finish(account_failure(response));
@@ -5474,7 +5518,7 @@ private:
     if (account_resend_button_) {
       account_resend_button_.Content(box_value(hstring(am::resend_label(seconds))));
       account_resend_button_.IsEnabled(!account_busy_ &&
-                                       !am::normalize_name(account_target_).empty() &&
+                                       !am::trim_login_target(account_target_).empty() &&
                                        seconds == 0);
     }
     if (account_login_button_) {
@@ -6088,7 +6132,7 @@ private:
     content.ColumnDefinitions().Append(avatar_column);
     content.ColumnDefinitions().Append(text_column);
     content.ColumnDefinitions().Append(chevron_column);
-    const auto name = am::preferred_name(user.display_name, user.id);
+    const auto name = preferred_account_name(user.display_name, user.id);
     auto avatar = make_account_avatar(52, 22, name);
     Grid::SetColumn(avatar, 0);
     content.Children().Append(avatar);
@@ -6168,7 +6212,8 @@ private:
 
     TextBox nickname;
     nickname.Header(box_value(L"社区昵称"));
-    nickname.MaxLength(static_cast<int32_t>(am::max_name_length));
+    if (const auto name = account_name_presentation(account_name_))
+      nickname.MaxLength(name->maximum_utf16_units);
     nickname.Text(hstring(account_name_));
     A11y::SetName(nickname, L"编辑社区昵称");
     form.Children().Append(nickname);
@@ -6242,9 +6287,10 @@ private:
         return;
       }
       const auto &user = *account_user_;
-      const auto typed = am::normalize_name(account_name_);
+      const auto name = account_name_presentation(account_name_);
+      const auto typed = name ? name->normalized : account_name_;
       if (auto button = weak_avatar.get()) {
-        button.Content(make_account_avatar(46, 19, am::preferred_name(user.display_name, user.id)));
+        button.Content(make_account_avatar(46, 19, preferred_account_name(user.display_name, user.id)));
         button.IsEnabled(!account_busy_);
       }
       if (auto label = weak_name.get())

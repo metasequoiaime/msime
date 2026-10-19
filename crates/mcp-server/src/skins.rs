@@ -1,8 +1,7 @@
-//! External candidate-window skins as an agent may see and make them.
+//! AI 助手通过共享安装器创建候选皮肤，清单和资源与社区下载使用同一套校验。
 //!
-//! A skin is a folder under `skins` in the state directory: a `skin.toml` manifest and the images it references, PNG or JPEG for a skin made here (the catalog also reads APNG, GIF and WebP border and widget images in a canvas skin installed by hand, which cannot be made here or shared). The desktop app keeps that folder in step with the signed-in user's cloud library, so a skin written here is uploaded as a private package the next time the app starts or its community page opens. The server itself never signs in: the account session belongs to the desktop app, whose refresh token is rotated on every use, so a second process holding it would sign the user out.
-//!
-//! A skin is written by the same rule the community gallery installs a download by (`candidate_community::install`): the manifest verbatim plus exactly the images it references, a preview among them, and no stylesheet. Every skin made here can therefore be synced and shared without further changes, except one on the `canvas` or `wechat_scroll` base, which the community library does not take yet (`candidate_community::SERVER_UNSUPPORTED_BASES`), or one whose `author` or `description` is an empty string, which the catalog reads as not written but the server still refuses.
+//! 资源支持 PNG/JPEG/APNG/GIF/WebP，预览保持 PNG/JPEG。MCP 只写本地皮肤，
+//! 不持有账号会话；宿主在用户触发同步时检查服务端能力，再上传扩展包。
 
 use msime_client_core::uuid::Uuid;
 use msime_client_services::skin::candidate_community::{self, CandidateSkinPackage};
@@ -36,7 +35,7 @@ pub struct SkinView {
     pub layouts: Vec<String>,
     /// The colour modes the skin supports: dark, light.
     pub themes: Vec<String>,
-    /// 清单基底是否为 `canvas`：仅此时读取九宫格、自由挂件和边距。Web engine 与 macOS、Windows、iOS、Android、HarmonyOS 原生候选窗绘制贴图，尚无对应绘制能力的宿主（目前是 Linux）使用不透明的可读回退。
+    /// 清单基底是否为 `canvas`：仅此时读取九宫格、自由挂件和边距。Web engine 与 macOS、Windows、iOS、Android、HarmonyOS 原生候选窗通过各自图片解码器绘制贴图，尚无对应绘制能力的宿主（目前是 Linux）使用不透明的可读回退。
     pub canvas: bool,
     /// 不阻止加载的提示，例如非 canvas 基底上忽略的专用字段，或需要宿主绘制能力的 canvas 贴图；没有提示时省略。
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -98,7 +97,7 @@ pub struct CreateSkinRequest {
     pub package_id: String,
     /// The whole `skin.toml`, at most 64 KiB.
     pub manifest: String,
-    /// Each image the manifest references (`preview`, `candidate_window.decoration.image`, `candidate_window.background.image` and, with `base = "canvas"`, `candidate_window.border_image.source` and `light_source` and every `candidate_window.decorations[].image`), keyed by its path relative to the skin folder, in standard base64. PNG or JPEG only (the border image and widgets PNG only; .apng, .gif and .webp are refused because the skin must be shareable), each a complete image that decodes with the codec its extension names, at most 3 images, 1 MiB and 2048 pixels on each side each, 2 MiB and 8,000,000 pixels together, the preview at most 256 KiB. The decoration image may be an animated PNG (APNG) of at most 120 frames; every frame counts as a whole image toward the 8,000,000 pixels.
+    /// 清单引用的全部资源，以包内相对路径为键、标准 base64 为值。支持 PNG/JPEG/APNG/GIF/WebP，预览限 PNG/JPEG；最多 37 张，每张 1 MiB、每边 2048 像素，合计 2 MiB 和 8,000,000 像素，预览最多 256 KiB。 动画最多 120 帧，每帧按整张画布计入像素预算。
     pub images: BTreeMap<String, String>,
     /// Replace an existing skin of this id whole. Without it an existing skin is left alone and the call refused.
     #[serde(default)]
@@ -191,10 +190,10 @@ pub fn create(state_dir: &Path, request: &CreateSkinRequest) -> Result<CreatedSk
 fn explain(code: &str) -> &'static str {
     match code {
         "candidate_skin_exists" => "a skin with this package_id is already installed; list_candidate_skins shows it. Pass replace: true to replace it whole, or choose another id",
-        "candidate_skin_file_path" => "images must hold 1 to 3 entries, the preview and any decoration, background, border_image and decorations images counted together, each a relative path inside the skin folder other than skin.toml, unique ignoring case",
-        "candidate_skin_file_type" => "every image must be a .png, .jpg or .jpeg file, and a border_image or decorations image a .png; an animated image must be an APNG saved with a .png name, because .apng, .gif and .webp files are not accepted for shared skins",
-        "candidate_skin_too_large" => "too large: the manifest may be 64 KiB, each image 1 MiB and 2048 pixels on each side, all images 2 MiB and 8,000,000 pixels together (each APNG frame counts as a whole image), an APNG at most 120 frames, and the preview 256 KiB",
-        "candidate_skin_image_invalid" => "an image is not valid standard base64, or its bytes (every frame of an APNG) cannot be decoded as the PNG or JPEG its extension names: it may be truncated or corrupted, so generate it again and pass the whole base64",
+        "candidate_skin_file_path" => "images must hold 1 to 37 entries, the preview and any decoration, background, border_image and decorations images counted together, each a relative path inside the skin folder other than skin.toml, unique ignoring case",
+        "candidate_skin_file_type" => "resources must be .png, .jpg, .jpeg, .apng, .gif or .webp; the preview must be .png, .jpg or .jpeg, and stylesheets are not accepted",
+        "candidate_skin_too_large" => "too large: the manifest may be 64 KiB, each image 1 MiB and 2048 pixels on each side, all images 2 MiB and 8,000,000 pixels together (each animated frame counts as a whole image), an animation at most 120 frames, and the preview 256 KiB",
+        "candidate_skin_image_invalid" => "an image is not valid standard base64, or its bytes (every animation frame) cannot be decoded using the format its extension names: it may be truncated or corrupted, so generate it again and pass the whole base64",
         "storage" => "the skin folder could not be written",
         _ => "the skin was refused",
     }
@@ -450,7 +449,7 @@ mod tests {
         assert!(skin.notices[0].contains("not drawn"), "{:?}", skin.notices);
         assert_eq!(skin.animation.enter, "fade_scale");
 
-        // 九宫格面板和挂件同样计入 3 张图片的上限。
+        // 九宫格面板和挂件可超过旧协议的三张限制，仍须完整引用。
         let crowded = CreateSkinRequest {
             package_id: "crowded".into(),
             manifest: v2_manifest(
@@ -466,9 +465,7 @@ mod tests {
             ]),
             replace: false,
         };
-        assert!(create(state.path(), &crowded)
-            .unwrap_err()
-            .contains("1 to 3 entries"));
+        assert_eq!(create(state.path(), &crowded).unwrap().id, "crowded");
     }
 
     #[test]
@@ -580,7 +577,7 @@ mod tests {
         truncated.images = BTreeMap::from([("preview.png".into(), PNG[..44].into())]);
         assert!(create(state.path(), &truncated)
             .unwrap_err()
-            .contains("cannot be decoded as the PNG or JPEG"));
+            .contains("cannot be decoded using the format"));
 
         assert!(list(state.path()).skins.is_empty());
     }

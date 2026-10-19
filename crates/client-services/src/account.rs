@@ -699,6 +699,7 @@ pub mod harmony_settings;
 mod host_storage;
 /// 账号设置文档与 iOS 键盘设置（App Group）之间的映射，Tauri iOS 和 C 接口共用。
 pub mod ios_settings;
+pub mod name;
 /// 账号页读到的脱敏响应，Tauri 的账号命令和原生设置窗口的 C 接口共用。
 pub mod page;
 /// 无编码常用语的整列表同步。

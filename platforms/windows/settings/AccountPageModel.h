@@ -3,51 +3,14 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include "SettingsText.h"
 
-// 「账号与同步」页的规则，平台固定为 Windows 的桌面账号页（`packages/ui/src/account/account-page.tsx` 不是触屏的那一支）：昵称怎么显示和校验（`account-labels.ts`）、错误码对应的文案（`account-errors.ts` 与 `community-helpers.ts` 的 communityModerationMessage）、两种确认的文字（`account-confirmation.tsx`）、验证码输入和倒计时、账号 ID 的短写（`account-identity-details.tsx`）、「加入水杉」的日期（`formatZhDate`），以及 Windows 的设置同步卡片的说明（`apps/desktop/src/core/desktop-host-services.ts` 的 createDesktopSettingsSync）。账号操作本身在 Rust（msime_client_account），不在这里。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「账号与同步」页的展示规则：错误文案、确认文字、验证码输入和倒计时、账号 ID 短写、头像首字、加入日期，以及设置同步卡片的说明。昵称规范化、校验和默认显示名经 `msime_client_account_name` 调共享 Rust；账号操作经 `msime_client_account`。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::account {
 
-// JavaScript 的 String.prototype.trim 去掉的字符：ASCII 空白、不换行空格、各种 Unicode 空格、行分隔符和 BOM。
-constexpr bool js_space(wchar_t c) {
-  return c == L' ' || c == L'\t' || c == L'\n' || c == L'\v' || c == L'\f' || c == L'\r' ||
-         c == 0x00A0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200A) || c == 0x2028 ||
-         c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000 || c == 0xFEFF;
-}
-
-// normalizeAccountName：首尾去掉空白。
-inline std::wstring normalize_name(std::wstring_view value) {
-  size_t begin = 0;
-  size_t end = value.size();
-  while (begin < end && js_space(value[begin]))
-    ++begin;
-  while (end > begin && js_space(value[end - 1]))
-    --end;
-  return std::wstring(value.substr(begin, end - begin));
-}
-
-// `[...text].length`：按码点数，一个代理对算一个。
-inline size_t code_points(std::wstring_view value) {
-  size_t count = 0;
-  for (size_t i = 0; i < value.size(); ++i) {
-    if (value[i] >= 0xD800 && value[i] <= 0xDBFF && i + 1 < value.size() &&
-        value[i + 1] >= 0xDC00 && value[i + 1] <= 0xDFFF)
-      ++i;
-    ++count;
-  }
-  return count;
-}
-
-constexpr size_t max_name_length = 64;
-
-// isValidAccountName：去掉首尾空白后非空、最多 64 个字符、不含 U+0000–U+001F 和 U+007F。
-inline bool valid_name(std::wstring_view value) {
-  const auto normalized = normalize_name(value);
-  if (normalized.empty() || code_points(normalized) > max_name_length)
-    return false;
-  for (const wchar_t c : normalized)
-    if (c <= 0x1F || c == 0x7F)
-      return false;
-  return true;
+// 登录目标的首尾去掉空白；昵称规范化由共享 Rust 处理。
+inline std::wstring trim_login_target(std::wstring_view value) {
+  return text::trim(value);
 }
 
 // 账号 ID 的前六个字符转成大写，ID 是 ASCII 的 UUID。
@@ -57,12 +20,6 @@ inline std::wstring short_id(std::wstring_view id) {
     if (c >= L'a' && c <= L'z')
       c = static_cast<wchar_t>(c - L'a' + L'A');
   return head;
-}
-
-// preferredAccountName：用户的昵称，没有时是「水杉小鹿·」加 ID 的前六位。
-inline std::wstring preferred_name(std::wstring_view display_name, std::wstring_view id) {
-  auto name = normalize_name(display_name);
-  return name.empty() ? L"水杉小鹿·" + short_id(id) : name;
 }
 
 // 编辑资料里「账号 ID」按钮的文字：「#」加 ID 的前六位。
@@ -298,7 +255,7 @@ constexpr std::wstring_view sync_apply_confirmation =
 inline std::wstring qq_link_digits(std::wstring_view value) {
   std::wstring digits;
   for (const wchar_t c : value)
-    if (!js_space(c) && c != L'-')
+    if (!text::js_space(c) && c != L'-')
       digits.push_back(c);
   return digits;
 }

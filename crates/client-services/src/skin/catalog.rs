@@ -1381,14 +1381,15 @@ pub(crate) fn png_frames(bytes: &[u8]) -> Result<(u32, u32), &'static str> {
 /// GIF 解码时允许分配的内存。逻辑画布每边不超过 [`MAX_IMAGE_SIDE`]，展开成 RGBA 是 16 MiB；逐帧迭代同时持有常驻画布、这一帧的原始缓冲和合成后的整幅画面，所以给三份。`image` 默认不给 GIF 设上限，而帧描述符的宽高不受逻辑画布约束，一个声明 65535×65535 帧的小文件就会让解码器申请约 17 GB，这道上限让它在分配前报错。
 const MAX_GIF_DECODE_ALLOC: u64 = MAX_IMAGE_SIDE as u64 * MAX_IMAGE_SIDE as u64 * 4 * 3;
 
-/// 统计 GIF/WebP 的动画帧。这些格式的帧数不在 `ImageReader` 的公共尺寸接口里，但宿主同样会把每帧展开成整张画布，所以和 APNG 一样受帧数与像素上限约束。`frame_pixels` 是一帧整幅画布的像素数，`remaining_pixels` 是这个包还剩的像素额度：迭代器是惰性的，一超额度就停，不再解码后面的帧，一个包的解码量因此也不超过 [`MAX_PACKAGE_PIXELS`] 加一帧。连第一帧都读不出的旧资源按静态图处理，保持扫描对旧包的宽容；读出几帧之后才损坏的，按已读出的帧数计，因为宿主照样会播放坏帧之前的部分。帧描述符超出解码内存上限的按尺寸超限拒绝。
+/// 统计 GIF/WebP 的动画帧。这些格式的帧数不在 `ImageReader` 的公共尺寸接口里，但宿主同样会把每帧展开成整张画布，所以和 APNG 一样受帧数与像素上限约束。`dimensions` 是一帧整幅画布的尺寸，`remaining_pixels` 是这个包还剩的像素额度：迭代器是惰性的，一超额度就停，不再解码后面的帧，一个包的解码量因此也不超过 [`MAX_PACKAGE_PIXELS`] 加一帧。连第一帧都读不出的旧资源按静态图处理，保持扫描对旧包的宽容；读出几帧之后才损坏的，按已读出的帧数计，因为宿主照样会播放坏帧之前的部分。帧描述符超出解码内存上限的按尺寸超限拒绝；WebP 另外在解码前核对全部内部帧几何，几何无效时拒绝，不回退为静态图。
 fn decoded_animation_frames(
     bytes: &[u8],
     format: image::ImageFormat,
-    frame_pixels: u64,
+    dimensions: (u32, u32),
     remaining_pixels: u64,
 ) -> Result<(u32, u32), &'static str> {
     use image::ImageDecoder;
+    let frame_pixels = u64::from(dimensions.0) * u64::from(dimensions.1);
     let frames = match format {
         image::ImageFormat::Gif => {
             let Ok(mut decoder) = image::codecs::gif::GifDecoder::new(Cursor::new(bytes)) else {
@@ -1403,7 +1404,13 @@ fn decoded_animation_frames(
             decoder.into_frames()
         }
         image::ImageFormat::WebP => {
-            // WebP frames are decoded into a canvas of the container's size, which the caller already checked against MAX_IMAGE_SIDE.
+            // 解码器会先展开内部位流再检查画布尺寸，必须在这里先核对每一帧。
+            super::webp_preflight::check(bytes, dimensions, remaining_pixels).map_err(|error| {
+                match error {
+                    super::webp_preflight::Error::Invalid => "invalid WebP frame geometry",
+                    super::webp_preflight::Error::Limit => IMAGE_DIMENSIONS_TOO_LARGE,
+                }
+            })?;
             let Ok(decoder) = image::codecs::webp::WebPDecoder::new(Cursor::new(bytes)) else {
                 return Ok((1, 1));
             };
@@ -1504,7 +1511,7 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, S
                 decoded_animation_frames(
                     &bytes,
                     format,
-                    u64::from(width) * u64::from(height),
+                    (width, height),
                     MAX_PACKAGE_PIXELS - pixels,
                 )?
             }
