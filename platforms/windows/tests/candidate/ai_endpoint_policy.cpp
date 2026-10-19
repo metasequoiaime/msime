@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include <string>
+#include <string_view>
 
 // CMake 把 shared/contracts/ai-endpoint/cases.json 编进 ai_endpoint_cases.inc（逐字节的数组），Wine 里跑测试时不用再找仓库路径。
 static const unsigned char kCases[] = {
@@ -61,12 +62,20 @@ int main()
         std::cerr << "ai endpoint protocol mismatch\n";
         ++failures;
     }
-    // 局域网的 http 请求直连，https 照旧可以走代理；拒绝的地址根本不发。
-    if (!ai_endpoint_connects_directly("http://192.168.1.20:1234/v1") ||
-        !ai_endpoint_connects_directly("HTTP://LOCALHOST:1234/v1") ||
-        ai_endpoint_connects_directly("https://api.example.com/v1") ||
-        ai_endpoint_connects_directly("http://8.8.8.8/v1")) {
+    // 局域网的 http 请求直连，https 照旧可以走代理；拒绝的地址根本不发。是否直连由已经算出的协议决定，与 AiCandidateWorker、TranslationWorker 里一样：地址只检查一次，同一个结果定协议和是否直连。
+    const auto connects_directly = [](std::string_view endpoint) {
+        return ai_endpoint_protocol_connects_directly(ai_endpoint_protocol(endpoint));
+    };
+    if (!connects_directly("http://192.168.1.20:1234/v1") || !connects_directly("HTTP://LOCALHOST:1234/v1") ||
+        connects_directly("https://api.example.com/v1") || connects_directly("http://8.8.8.8/v1") ||
+        connects_directly(" http://127.0.0.1/v1")) {
         std::cerr << "ai endpoint direct connection mismatch\n";
+        ++failures;
+    }
+    // 不通过检查时协议为空，空协议不直连；只有 http 直连，https 不直连。
+    if (ai_endpoint_protocol_connects_directly({}) || ai_endpoint_protocol_connects_directly("https") ||
+        !ai_endpoint_protocol_connects_directly("http")) {
+        std::cerr << "ai endpoint direct connection by protocol mismatch\n";
         ++failures;
     }
     if (count < 40) {

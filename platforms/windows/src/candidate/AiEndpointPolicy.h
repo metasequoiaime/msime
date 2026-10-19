@@ -69,9 +69,9 @@ inline std::string_view ai_endpoint_protocol(std::string_view url)
     return {};
 }
 
-// 通过检查的明文 http 地址只会是本机或局域网，这类请求直连、不走代理：经过代理就等于把 Token 明文交给代理。https 照旧按系统和环境变量的代理设置走。
-inline bool ai_endpoint_connects_directly(std::string_view url)
+// 通过检查的明文 http 地址只会是本机或局域网，这类请求直连、不走代理：经过代理就等于把 Token 明文交给代理。https 照旧按系统和环境变量的代理设置走。参数是 ai_endpoint_protocol 已经给出的协议而不是地址：调用方检查一次地址、拿同一个结果定协议和是否直连，不为第二个问题再经 C 接口检查一遍；空协议（不通过）不直连。
+inline bool ai_endpoint_protocol_connects_directly(std::string_view protocol)
 {
-    return ai_endpoint_protocol(url) == "http";
+    return protocol == "http";
 }
 } // namespace msime::windows

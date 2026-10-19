@@ -123,7 +123,10 @@ std::optional<std::string> http_request(const nlohmann::json &descriptor,
       return std::nullopt;
     const auto url = descriptor.at("url").get<std::string>();
     const bool ai_endpoint = policy == HttpEndpointPolicy::Ai;
-    if (ai_endpoint ? !ai_translation_url_allowed(url)
+    // AI 接口的地址只检查一次，下面是否直连也用这个结果；其他接口不经 AI 地址规则，协议留空。
+    const std::string_view ai_protocol =
+        ai_endpoint ? ai_endpoint_protocol(url) : std::string_view{};
+    if (ai_endpoint ? ai_protocol.empty()
                     : !valid_candidate_url(
                           url, policy == HttpEndpointPolicy::LoopbackHttp))
       return std::nullopt;
@@ -157,7 +160,7 @@ std::optional<std::string> http_request(const nlohmann::json &descriptor,
                      ai_endpoint || policy == HttpEndpointPolicy::LoopbackHttp
                          ? "http,https"
                          : "https");
-    if (ai_endpoint && ai_endpoint_connects_directly(url))
+    if (ai_endpoint_protocol_connects_directly(ai_protocol))
       curl_easy_setopt(curl.get(), CURLOPT_NOPROXY, "*");
     curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 2500L);
