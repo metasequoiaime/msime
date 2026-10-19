@@ -1014,6 +1014,11 @@ add_executable(candidate-hover-test tests/candidate/CandidateHoverTest.mm)
 target_compile_options(candidate-hover-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(candidate-hover-test PRIVATE "-framework AppKit")
 add_test(NAME candidate-hover COMMAND candidate-hover-test)
+
+add_executable(settings-glass-test tests/settings/SettingsGlassTest.mm)
+target_compile_options(settings-glass-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(settings-glass-test PRIVATE "-framework AppKit" "-framework WebKit")
+add_test(NAME settings-glass COMMAND settings-glass-test)
 # Where the candidate window goes: under the caret, flipped above it when there is no room, and
 # clamped into the display it is on - including one whose coordinates are negative.
 add_executable(candidate-placement-test tests/candidate/CandidatePlacementTest.mm)

@@ -1,0 +1,35 @@
+# Agent Note: macOS 设置窗口原生液态玻璃
+
+Status: implemented
+
+## Problem
+
+设置页是原生宿主拉起的 Tauri / React 公共组件，其实色侧栏遮住窗口材质。只修改候选窗不能满足设置界面的系统液态玻璃要求。
+
+## Decision
+
+在 macOS 设置主窗口后安装原生 `NSGlassEffectView`，透明 WebView 透出侧栏、顶部导航和完整正文区域。分组、分段选择器和按钮使用轻薄高光与半透明底，不再盖上不透明卡片。原生宿主在材质已安装时设置 HTML 能力属性，浏览器预览、旧系统和减少透明度模式使用现有实色。辅助功能变化实时更新，页面重载重新读取当前状态。只改共享设置宿主，不扩展冻结的 AppKit 设置回退。
+
+## Historical audit
+
+- [候选卡片玻璃](../../implemented/feature/2026-10-19-macos-candidate-liquid-glass.md)：部分重叠，复用系统材质与兼容原则，窗口所属进程不同，分别记录。
+- [悬浮表面玻璃](2026-10-19-macos-floating-surfaces-liquid-glass.md)：部分重叠，使用相同的系统版本与辅助功能回退原则，原生输入法与设置进程分别安装材质。
+- 架构文档的设置归属约束继续成立；检索命中的 Windows 设置迁移及移动端设置笔记不涉及本窗口材质。
+
+## Alternatives considered
+
+- CSS 透明和模糊容易部署到共享页面，但不会产生原生液态玻璃，因此只用 CSS 让出背景，材质由 AppKit 绘制。
+- 改写成 AppKit 设置可以直接使用系统侧栏，但会重新扩展已冻结的设置实现，复制共享表单与业务逻辑，因此保留 React。
+
+## Verification
+
+- `settings-glass` 原生测试通过：真实 `WKWebView` 与玻璃的层级、透明窗口／WebView、尺寸变化、重复安装、禁用／重新启用材质、页面重载后读取当前辅助功能状态。
+- 设置导航与平台呈现相关 3 个前端测试文件共 18 项通过；前端类型检查和生产构建通过，Rust `clippy -D warnings` 通过。
+- 本机设置应用及内嵌输入法均通过严格签名验证。设置应用安装到 `/Applications/MSIME.app`，保留旧版备份，内嵌当前候选窗改动，版本与构建号均与输入法一致。
+- EveryAPI 成功截取安装后的真实设置窗：导航连续平铺、没有分类标题，正文也透出原生材质，分组与选择器使用半透明表面。最后一轮提高次要文字对比度并调整按钮透明度，已重新构建安装并再次截图确认。
+
+- 仓库 `verify-local.sh --quick` 通过；相关 7 项 macOS 原生测试全部通过，涵盖设置材质、悬浮工具栏、模式 HUD 和候选／皮肤。Windows 全宿主与 HarmonyOS 阶段因当前前置条件不足跳过，Windows 管道双架构交叉编译通过。
+
+## Consequences
+
+减少透明度模式和旧系统保留实色；当前机器不能覆盖 macOS 13 实机。透明 WebView 的 `drawsBackground` 路径沿用 Tauri 的 macOS 实现，未来 WebKit 变化需要复核。原生背景改变时，HTML 能力属性与窗口透明状态一起更新；正文的透明材质也沿用共享控件的键盘与读屏行为。原生玻璃负责窗口采样，CSS 的分组模糊和高光只绘制其上的内容层次。

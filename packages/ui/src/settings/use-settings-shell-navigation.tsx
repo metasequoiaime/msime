@@ -1,4 +1,4 @@
-import { useState, type MutableRefObject } from "react";
+import type { MutableRefObject } from "react";
 import type { SettingsPageGroup, SettingsPageItem } from "./settings-page-projections";
 import { mobileTabForPage } from "./settings-navigation-helpers";
 import { pages, type SettingsPageId } from "./settings-page-registry";
@@ -13,12 +13,6 @@ export interface UseSettingsShellNavigationOptions {
   navQuery: string;
   setNavQuery: (value: string) => void;
   selectPage: (page: SettingsPageId, replace?: boolean) => void;
-}
-
-const untitledSidebarGroupKey = "__untitled__";
-
-function sidebarGroupKey(group: SettingsPageGroup): string {
-  return group.title ?? untitledSidebarGroupKey;
 }
 
 /** 管理设置外壳的返回出口、父页面和侧栏搜索投影。 */
@@ -60,25 +54,6 @@ export function useSettingsShellNavigation({
         }))
         .filter((group) => group.pages.length > 0)
     : sidebarGroups;
-  const [collapsedSidebarGroups, setCollapsedSidebarGroups] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const isSidebarGroupExpanded = (group: SettingsPageGroup): boolean => {
-    if (!group.title) return true;
-    // 搜索结果和当前页所在组始终可见，避免折叠状态把导航目标藏起来。
-    if (navNeedle || group.pages.some((item) => item.id === navigationPage)) return true;
-    return !collapsedSidebarGroups.has(sidebarGroupKey(group));
-  };
-  const toggleSidebarGroup = (group: SettingsPageGroup) => {
-    if (!group.title) return;
-    const key = sidebarGroupKey(group);
-    setCollapsedSidebarGroups((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
   const navSearchField = (
     <SettingsNavigationSearch
       groups={shownSidebarGroups}
@@ -93,7 +68,5 @@ export function useSettingsShellNavigation({
     goBack,
     shownSidebarGroups,
     navSearchField,
-    isSidebarGroupExpanded,
-    toggleSidebarGroup,
   } as const;
 }

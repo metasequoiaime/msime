@@ -4997,7 +4997,17 @@ pub fn run() {
     };
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
-    let builder = builder.plugin(tauri_nspanel::init());
+    let builder = builder
+        .plugin(tauri_nspanel::init())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+            {
+                if let Some(window) = webview.app_handle().get_webview_window("main") {
+                    let _ = platform::macos::install_settings_glass(&window);
+                }
+            }
+        });
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
         #[cfg(target_os = "linux")]
@@ -5220,6 +5230,8 @@ pub fn run() {
             // is the first chance to colour it, and the theme is only knowable once it exists.
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.set_background_color(Some(chrome_background(main.theme().ok())));
+                #[cfg(target_os = "macos")]
+                platform::macos::install_settings_glass(&main)?;
             }
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             {

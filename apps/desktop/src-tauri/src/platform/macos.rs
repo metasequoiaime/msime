@@ -123,3 +123,19 @@ pub(crate) mod macos_keyboard;
 pub(crate) mod macos_launch;
 #[cfg(target_os = "macos")]
 pub(crate) mod macos_panel_session;
+
+/// 只为设置主窗口安装材质，面板继续使用各自的窗口策略。
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+pub(crate) fn install_settings_glass(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    unsafe extern "C" {
+        fn msime_install_settings_glass(
+            window: *mut std::ffi::c_void,
+            webview: *mut std::ffi::c_void,
+        );
+    }
+    window.with_webview(|webview| {
+        // Tauri 在主线程执行此回调；两个借用指针仅在同步调用期间使用。
+        unsafe { msime_install_settings_glass(webview.ns_window(), webview.inner()) };
+    })
+}

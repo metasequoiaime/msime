@@ -1,0 +1,76 @@
+#import <AppKit/AppKit.h>
+#import <WebKit/WebKit.h>
+#import <objc/runtime.h>
+
+static char MSIMESettingsGlassControllerKey;
+
+@interface MSIMESettingsGlass : NSObject <WKScriptMessageHandler>
+@property(nonatomic, weak) NSWindow *window;
+@property(nonatomic, weak) WKWebView *webview;
+@property(nonatomic, strong) NSView *glass;
+@end
+
+@implementation MSIMESettingsGlass
+- (void)refresh {
+    [self updateEnabled:!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency];
+}
+- (void)updateEnabled:(BOOL)enabled {
+    if (@available(macOS 26.0, *)) {
+        if (enabled && !self.glass) {
+            NSView *content = self.window.contentView;
+            NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:content.bounds];
+            glass.style = NSGlassEffectViewStyleRegular;
+            glass.cornerRadius = 0;
+            glass.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+            [content addSubview:glass positioned:NSWindowBelow relativeTo:nil];
+            self.glass = glass;
+        }
+    } else {
+        enabled = NO;
+    }
+    // 不保留窗口本身的实色垫底，否则玻璃只能采样到固定底色。
+    self.window.opaque = !enabled;
+    self.window.backgroundColor = enabled ? NSColor.clearColor : NSColor.windowBackgroundColor;
+    if (!enabled) {
+        [self.glass removeFromSuperview];
+        self.glass = nil;
+    }
+    NSString *script = [NSString stringWithFormat:
+        @"if (document.documentElement) document.documentElement.dataset.macosLiquidGlass = '%@'", enabled ? @"true" : @"false"];
+    [self.webview evaluateJavaScript:script completionHandler:nil];
+}
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+    if (message.frameInfo.mainFrame) [self refresh];
+}
+- (void)dealloc {
+    [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
+}
+@end
+
+extern "C" void msime_install_settings_glass(void *windowPointer, void *webviewPointer) {
+    NSCAssert(NSThread.isMainThread, @"设置窗口材质必须在主线程安装");
+    if (@available(macOS 26.0, *)) {
+        NSWindow *window = (__bridge NSWindow *)windowPointer;
+        WKWebView *webview = (__bridge WKWebView *)webviewPointer;
+        MSIMESettingsGlass *existing = objc_getAssociatedObject(window, &MSIMESettingsGlassControllerKey);
+        if (existing) {
+            [existing refresh];
+            return;
+        }
+        MSIMESettingsGlass *controller = [MSIMESettingsGlass new];
+        controller.window = window;
+        controller.webview = webview;
+        objc_setAssociatedObject(window, &MSIMESettingsGlassControllerKey, controller, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        // 与 Tauri 的透明 WebView 策略一致；不改变其他窗口的配置。
+        [webview setValue:@NO forKey:@"drawsBackground"];
+        webview.underPageBackgroundColor = NSColor.clearColor;
+        // 每次页面加载都向宿主读取当前辅助功能状态，避免重载后沿用旧快照。
+        [webview.configuration.userContentController addScriptMessageHandler:controller name:@"msimeSettingsGlass"];
+        [webview.configuration.userContentController addUserScript:
+            [[WKUserScript alloc] initWithSource:@"window.webkit.messageHandlers.msimeSettingsGlass.postMessage(null)"
+                injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
+        [NSWorkspace.sharedWorkspace.notificationCenter addObserver:controller selector:@selector(refresh)
+            name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
+        [controller refresh];
+    }
+}

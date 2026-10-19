@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { SettingsSidebar } from "../../../../packages/ui/src/settings/settings-sidebar";
 import { useSettingsShellNavigation } from "../../../../packages/ui/src/settings/use-settings-shell-navigation";
 import type {
   SettingsPageGroup,
@@ -75,20 +76,40 @@ test("侧栏搜索只保留标题命中的分组", () => {
   ]);
 });
 
-test("桌面侧栏分组可折叠，搜索结果和当前页所在组始终展开", () => {
-  const collapsed = renderNavigation({ navigationPage: "input" });
-  const support = groups[1];
-  expect(collapsed.result.current.isSidebarGroupExpanded(support)).toBe(true);
-  act(() => collapsed.result.current.toggleSidebarGroup(support));
-  expect(collapsed.result.current.isSidebarGroupExpanded(support)).toBe(false);
-
-  const current = renderNavigation({ navigationPage: "about" });
-  act(() => current.result.current.toggleSidebarGroup(support));
-  expect(current.result.current.isSidebarGroupExpanded(support)).toBe(true);
-
-  const searched = renderNavigation({ navigationPage: "input", navQuery: "帮助" });
-  act(() => searched.result.current.toggleSidebarGroup(support));
-  expect(searched.result.current.isSidebarGroupExpanded(support)).toBe(true);
+test("侧栏平铺所有页面，不再绘制分类标题和折叠按钮", () => {
+  const selectPage = vi.fn();
+  render(
+    <SettingsSidebar
+      presentation={{
+        macShell: true,
+        ipadShell: false,
+        ipadSidebarShown: false,
+        sidebarBrandShown: true,
+        searchInSidebar: false,
+      }}
+      preview={false}
+      shownSidebarGroups={groups}
+      navigationPage="input"
+      navSearchField={null}
+      windowDragHandlers={{
+        onDoubleClick: vi.fn(),
+        onPointerDown: vi.fn(),
+        onPointerMove: vi.fn(),
+        onPointerUp: vi.fn(),
+        onPointerCancel: vi.fn(),
+        onPointerLeave: vi.fn(),
+      }}
+      selectPage={selectPage}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "支持" })).toBeNull();
+  expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
+    "输入",
+    "帮助与反馈",
+    "关于",
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  expect(selectPage).toHaveBeenCalledWith("feedback");
 });
 
 test("搜索框回调使用外壳的查询 setter和页面选择器", () => {

@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { NavItem } from "../core/platform-controls";
-import { FluentIcon } from "../core/fluent-icons";
 import { logo } from "./settings-options";
 import * as settings from "./settings-style";
 import type { SettingsPageGroup } from "./settings-page-projections";
@@ -13,29 +12,23 @@ export interface SettingsSidebarProps {
     ReturnType<typeof settingsShellPlatformPresentation>,
     "macShell" | "ipadShell" | "ipadSidebarShown" | "sidebarBrandShown" | "searchInSidebar"
   >;
-  mobilePlatform: boolean;
   preview: boolean;
   shownSidebarGroups: readonly SettingsPageGroup[];
   navigationPage: SettingsPageId;
   navSearchField: ReactNode;
   windowDragHandlers: ReturnType<typeof useSettingsWindowInteractions>["windowDragHandlers"];
   selectPage: (page: SettingsPageId) => void;
-  isSidebarGroupExpanded: (group: SettingsPageGroup) => boolean;
-  toggleSidebarGroup: (group: SettingsPageGroup) => void;
 }
 
 /** 设置侧栏只绘制现有导航与平台投影，状态和窗口手势由外壳提供。 */
 export function SettingsSidebar({
   presentation,
-  mobilePlatform,
   preview,
   shownSidebarGroups,
   navigationPage,
   navSearchField,
   windowDragHandlers,
   selectPage,
-  isSidebarGroupExpanded,
-  toggleSidebarGroup,
 }: SettingsSidebarProps) {
   const { macShell, ipadShell, ipadSidebarShown, sidebarBrandShown, searchInSidebar } =
     presentation;
@@ -62,9 +55,8 @@ export function SettingsSidebar({
       )}
       {searchInSidebar && <label className={settings.sidebarSearch}>{navSearchField}</label>}
       <div className={settings.sidebarItems}>
-        {shownSidebarGroups.map((group) => {
-          const expanded = isSidebarGroupExpanded(group);
-          const pages = group.pages.map((item) => (
+        {shownSidebarGroups.flatMap((group) =>
+          group.pages.map((item) => (
             <NavItem
               key={item.id}
               label={item.title}
@@ -73,37 +65,8 @@ export function SettingsSidebar({
               controls="settings-content"
               onSelect={() => selectPage(item.id)}
             />
-          ));
-          if (mobilePlatform || !group.title) return pages;
-          const groupId = `settings-sidebar-group-${group.title}`;
-          const groupLabelId = `${groupId}-label`;
-          return (
-            <section
-              key={group.title}
-              className={settings.sidebarGroup}
-              aria-labelledby={groupLabelId}
-            >
-              <button
-                type="button"
-                className={settings.sidebarGroupToggle}
-                id={groupLabelId}
-                aria-expanded={expanded}
-                aria-controls={groupId}
-                onClick={() => toggleSidebarGroup(group)}
-              >
-                <span>{group.title}</span>
-                <FluentIcon
-                  name="chevron_right"
-                  size={14}
-                  className={settings.sidebarGroupToggleIcon(expanded)}
-                />
-              </button>
-              <div id={groupId} className={settings.sidebarGroupPages} hidden={!expanded}>
-                {pages}
-              </div>
-            </section>
-          );
-        })}
+          )),
+        )}
       </div>
       {shownSidebarGroups.length === 0 && (
         <p className={settings.sidebarEmpty} role="status">

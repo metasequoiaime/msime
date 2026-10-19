@@ -35,4 +35,4 @@ macOS 候选卡片由 `CandidateChrome.h` 自绘底色，即使用 macOS 26 SDK 
 
 ## Consequences
 
-旧系统只能通过 availability 编译检查，当前开发机无法覆盖其实际显示。自定义主题保持原貌；共享 React 设置页不在此次原生候选卡片改动范围内。
+旧系统只能通过 availability 编译检查，当前开发机无法覆盖其实际显示。自定义主题保持原貌；共享 React 设置页由独立窗口宿主接入，见[设置窗口玻璃](2026-10-19-macos-settings-liquid-glass.md)。

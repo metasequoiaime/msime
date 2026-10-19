@@ -2844,3 +2844,94 @@
     box-shadow: none;
   }
 }
+
+/* 原生宿主确认材质已安装后才透出背景；浏览器预览与旧系统仍使用原有实色。 */
+html[data-macos-liquid-glass="true"]:has([data-settings-shell][data-platform="mac"]),
+html[data-macos-liquid-glass="true"] body:has([data-settings-shell][data-platform="mac"]),
+html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"],
+html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-sidebar,
+html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-drag-row,
+html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-toolbar {
+  background: transparent;
+}
+
+html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-sidebar {
+  border-right-color: transparent;
+}
+
+html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-toolbar {
+  border-bottom-color: transparent;
+}
+
+/* 新系统导航使用胶囊选中态，表单沿用共享控件与键盘、读屏行为。 */
+html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"] {
+  --p-nav-r: 18px;
+  --p-group-r: 16px;
+  --p-r-ctl: 10px;
+  --p-seg-r: 16px;
+  --p-seg-item-r: 14px;
+}
+
+/* 正文也透出原生玻璃；分组与控件只叠加轻薄高光，不再使用白色或灰色实心卡片。 */
+html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-content {
+  background: transparent;
+}
+
+html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"] {
+  --p-group-bg: rgba(255, 255, 255, 0.075);
+  --p-group-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 0 0.5px rgba(255, 255, 255, 0.13),
+    0 8px 24px rgba(0, 0, 0, 0.08);
+  --p-seg-bg: rgba(255, 255, 255, 0.08);
+  --p-seg-on: rgba(255, 255, 255, 0.2);
+  --p-btn-bg: rgba(255, 255, 255, 0.12);
+  --p-sw-off: rgba(255, 255, 255, 0.16);
+}
+
+html[data-theme="light"][data-macos-liquid-glass="true"]
+  [data-settings-shell][data-platform="mac"] {
+  --p-group-bg: rgba(255, 255, 255, 0.18);
+  --p-group-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65), 0 0 0 0.5px rgba(255, 255, 255, 0.45),
+    0 8px 24px rgba(0, 0, 0, 0.045);
+  --p-seg-bg: rgba(0, 0, 0, 0.035);
+  --p-seg-on: rgba(255, 255, 255, 0.38);
+  --p-btn-bg: rgba(255, 255, 255, 0.25);
+  --p-sw-off: rgba(0, 0, 0, 0.1);
+}
+
+html[data-macos-liquid-glass="true"]
+  [data-platform="mac"]
+  :is(.settings-glass-group, .settings-glass-segmented) {
+  backdrop-filter: blur(16px) saturate(1.25);
+}
+
+html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-toolbar-preview {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--p-text);
+  border-color: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"] {
+  --card-bg: rgba(255, 255, 255, 0.075);
+  --surface-raised: rgba(255, 255, 255, 0.12);
+  --button-secondary-bg: rgba(255, 255, 255, 0.12);
+  --button-secondary-hover: rgba(255, 255, 255, 0.2);
+  --p-sub: #dedee3;
+  --p-sw-knob-on: rgba(255, 255, 255, 0.86);
+  --p-sw-knob-off: rgba(255, 255, 255, 0.75);
+  --p-sw-knob-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.6), 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+html[data-theme="light"][data-macos-liquid-glass="true"]
+  [data-settings-shell][data-platform="mac"] {
+  --card-bg: rgba(255, 255, 255, 0.18);
+  --surface-raised: rgba(255, 255, 255, 0.25);
+  --button-secondary-bg: rgba(255, 255, 255, 0.25);
+  --button-secondary-hover: rgba(255, 255, 255, 0.4);
+  --p-sub: #39393d;
+}

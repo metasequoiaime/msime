@@ -21,5 +21,16 @@ fn link_ios_swift_runtime_exports() {
 
 fn main() {
     link_ios_swift_runtime_exports();
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rerun-if-changed=macos/settings_glass.mm");
+        cc::Build::new()
+            .cpp(true)
+            .file("macos/settings_glass.mm")
+            .flag("-fobjc-arc")
+            .std("c++17")
+            .compile("msime_settings_glass");
+        println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=WebKit");
+    }
     tauri_build::build()
 }

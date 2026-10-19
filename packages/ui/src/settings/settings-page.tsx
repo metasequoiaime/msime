@@ -193,14 +193,7 @@ function SettingsShell(props: SettingsPageProps) {
       macShell,
       onError: setError,
     });
-  const {
-    parentPage,
-    goBack,
-    shownSidebarGroups,
-    navSearchField,
-    isSidebarGroupExpanded,
-    toggleSidebarGroup,
-  } = useSettingsShellNavigation({
+  const { parentPage, goBack, shownSidebarGroups, navSearchField } = useSettingsShellNavigation({
     page,
     navigationPage,
     launchPage,
@@ -254,15 +247,12 @@ function SettingsShell(props: SettingsPageProps) {
           )}
           <SettingsSidebar
             presentation={shellPresentation}
-            mobilePlatform={mobilePlatform}
             preview={!client.host}
             shownSidebarGroups={shownSidebarGroups}
             navigationPage={navigationPage}
             navSearchField={navSearchField}
             windowDragHandlers={windowDragHandlers}
             selectPage={selectPage}
-            isSidebarGroupExpanded={isSidebarGroupExpanded}
-            toggleSidebarGroup={toggleSidebarGroup}
           />
           <main
             ref={settingsContentRef}
