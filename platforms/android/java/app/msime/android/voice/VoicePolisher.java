@@ -85,8 +85,13 @@ public final class VoicePolisher {
     private static String content(String response) {
         if (response == null) return "";
         try {
-            JSONArray choices = new JSONObject(response).optJSONArray("choices");
+            JSONObject document = new JSONObject(response);
+            // 截断、过滤或错误正文不能替换完整转写；缺省和 null 状态兼容旧服务。
+            if (!document.isNull("error")) return "";
+            JSONArray choices = document.optJSONArray("choices");
             JSONObject first = choices == null ? null : choices.optJSONObject(0);
+            Object reason = first == null ? null : first.opt("finish_reason");
+            if ("length".equals(reason) || "content_filter".equals(reason)) return "";
             JSONObject message = first == null ? null : first.optJSONObject("message");
             return message == null ? "" : JsonPolicy.strictStringOrEmpty(message.opt("content"));
         } catch (JSONException error) {

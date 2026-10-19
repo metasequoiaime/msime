@@ -54,6 +54,12 @@ platforms/android/java/app/msime/android/BoundsPolicy.java
 platforms/android/java/app/msime/android/ColorPolicy.java
 platforms/android/java/app/msime/android/HttpBodyPolicy.java
 platforms/android/java/app/msime/android/HttpConnectionPolicy.java
+platforms/android/java/app/msime/android/AiProviderHeaders.java
+platforms/android/java/app/msime/android/voice/AiEndpointPolicy.java
+platforms/android/java/app/msime/android/voice/AiPolishConfiguration.java
+platforms/android/java/app/msime/android/voice/VoicePolishPolicy.java
+platforms/android/java/app/msime/android/voice/VoicePolisher.java
+platforms/android/tests/device/voice/VoicePolishReplyDeviceSmoke.java
 platforms/android/java/app/msime/android/JsonPolicy.java
 platforms/android/java/app/msime/android/ListPolicy.java
 platforms/android/java/app/msime/android/MapPolicy.java
