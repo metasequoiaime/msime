@@ -2,6 +2,7 @@
 """Windows-parity tests for per-item negative translation caching."""
 import importlib.machinery
 import importlib.util
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -60,6 +61,31 @@ class TranslationCacheParity(unittest.TestCase):
     def test_translation_cache_capacity_matches_windows_worker(self):
         self.assertEqual(provider.MAX_TRANSLATION_CACHE_ENTRIES, 4096)
         self.assertEqual(provider.NEGATIVE_TRANSLATION_CACHE_TTL, 480)
+
+    def test_normalized_credentials_reuse_cache_and_rotation_partitions_it(self):
+        with mock.patch.object(provider, "custom_translation", return_value="你好") as translate:
+            expected = provider.translations(self.query, self.server)
+            self.query["custom_translation"]["api_key"] = " \tsynthetic-key\r\n"
+            self.assertEqual(provider.translations(self.query, self.server), expected)
+            self.assertEqual(translate.call_count, 1)
+            self.query["custom_translation"]["api_key"] = "synthetic-rotated-key"
+            self.assertEqual(provider.translations(self.query, self.server), expected)
+            self.assertEqual(translate.call_count, 2)
+
+    def test_credential_cache_identity_is_private_to_provider_lifetime(self):
+        fresh_provider = importlib.util.module_from_spec(spec)
+        loader.exec_module(fresh_provider)
+        keys = []
+        for module in (provider, fresh_provider):
+            self.server.translation_cache.clear()
+            with mock.patch.object(module, "custom_translation", return_value="你好"):
+                module.translations(self.query, self.server)
+            key = next(iter(self.server.translation_cache))
+            fingerprint = key[0][1]
+            self.assertNotIn(b"synthetic-key", fingerprint)
+            self.assertNotEqual(fingerprint, hashlib.sha256(b"synthetic-key").digest())
+            keys.append(key)
+        self.assertNotEqual(keys[0], keys[1])
 
 
 if __name__ == "__main__":
