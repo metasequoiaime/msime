@@ -301,7 +301,7 @@ mod tests {
             ("enter_only", "[animation]\nenter = 'slide_up'\n"),
         ] {
             let manifest = format!(
-                "schema_version = 2\nid = '{id}'\nname = 'Motion'\nversion = '2.0'\nbase = 'system'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{animation}"
+                "schema_version = 2\nid = '{id}'\nname = 'Motion'\nversion = '2.0'\nbase = 'canvas'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{animation}"
             );
             create(
                 state.path(),
@@ -358,7 +358,7 @@ mod tests {
             ("still", PNG, ""),
         ] {
             let manifest = format!(
-                "schema_version = 2\nid = '{id}'\nname = 'Whale'\nversion = '1.0'\nbase = 'system'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'whale.png'\ntop_inset_dip = 40\nwidth_dip = 60\n{motion}"
+                "schema_version = 2\nid = '{id}'\nname = 'Whale'\nversion = '1.0'\nbase = 'canvas'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'whale.png'\ntop_inset_dip = 40\nwidth_dip = 60\n{motion}"
             );
             create(
                 state.path(),

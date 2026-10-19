@@ -96,7 +96,7 @@ static void TestDeclaredMotion(RowLayoutClient *client)
 id = "declared-motion"
 name = "Declared Motion"
 version = "1"
-base = "system"
+base = "canvas"
 [supports]
 layouts = ["horizontal", "vertical"]
 themes = ["light", "dark"]
@@ -264,7 +264,7 @@ static void TestDecorationMotion(RowLayoutClient *client)
 id = "whale"
 name = "Whale"
 version = "1"
-base = "system"
+base = "canvas"
 [supports]
 layouts = ["horizontal", "vertical"]
 themes = ["light", "dark"]
