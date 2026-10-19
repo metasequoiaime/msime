@@ -143,6 +143,110 @@ fn a_collection_addition_of_a_shipped_word_keeps_the_shipped_weight() {
     );
 }
 
+/// 从 Rime 集合导入到实际候选排序，再停用集合，已有常用字不能改权重或被集合取得所有权。
+#[test]
+fn rime_collection_keeps_shipped_single_character_order_when_disabled() {
+    use crate::tests::{chinese_preferences, read, type_letters};
+    use crate::{msime_client_create, msime_client_destroy, msime_client_focus};
+
+    let root = tempfile::tempdir().unwrap();
+    let mut options = host_options_with_main_dictionary(root.path());
+    options["preferences"] = serde_json::to_value(chinese_preferences()).unwrap();
+    let groups = [
+        ("a", "啊", "阿", "锕"),
+        ("mei", "没", "美", "镁"),
+        ("ke", "可", "科", "氪"),
+    ];
+    for directory in ["resources", "dictionaries"] {
+        let connection =
+            rusqlite::Connection::open(root.path().join(directory).join("msime-pinyin.db"))
+                .unwrap();
+        for (key, first, second, _) in groups {
+            let table = format!("tbl_1_{}", &key[..1]);
+            connection.execute_batch(&format!("CREATE TABLE {table}(key TEXT,jp TEXT,value TEXT,weight INTEGER); CREATE INDEX fixture_{table}_key ON {table}(key);")).unwrap();
+            for (value, weight) in [(first, 1000), (second, 500)] {
+                connection
+                    .execute(
+                        &format!("INSERT INTO {table} VALUES(?1,?2,?3,?4)"),
+                        rusqlite::params![key, &key[..1], value, weight],
+                    )
+                    .unwrap();
+            }
+        }
+    }
+    let candidates = |key: &str| -> Vec<String> {
+        let created = call_android_data(msime_client_create, options.clone());
+        assert_eq!(created["ok"], true, "{created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let view = type_letters(handle, key.as_bytes());
+        let words = view["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|candidate| candidate["text"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+        words
+    };
+    for (key, first, second, _) in groups {
+        assert_eq!(candidates(key), [first, second]);
+    }
+    // 故意把导入权重排成相反顺序，未覆盖已有字时仍保持合成主库的原顺序。
+    let text: String = groups
+        .iter()
+        .map(|(key, first, second, added)| {
+            format!("{first}\t{key}\t0\n{second}\t{key}\t7622\n{added}\t{key}\t400\n")
+        })
+        .collect();
+    let imported = call_android_data(
+        msime_client_dictionary_collections,
+        json!({"options":options,"action":{"operation":"import","name":"合成排序回归","kind":"pinyin","format":"rime","text":text}}),
+    );
+    assert_eq!(imported["ok"], true, "{imported}");
+    assert_eq!(imported["value"]["import"]["imported"], 9);
+    let id = imported["value"]["collections"][0]["id"].clone();
+    let synchronize = || {
+        let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+        assert_eq!(synced["ok"], true, "{synced}");
+        assert_eq!(synced["value"]["pending_count"], 0, "{synced}");
+        assert_eq!(synced["value"]["failed_count"], 0, "{synced}");
+        let flushed = call_android_data(
+            msime_client_dictionary_collections,
+            json!({"options":options,"action":{"operation":"flush"}}),
+        );
+        assert_eq!(flushed["ok"], true, "{flushed}");
+    };
+    synchronize();
+    for (key, first, second, added) in groups {
+        assert_eq!(candidates(key), [first, second, added]);
+    }
+    let disabled = call_android_data(
+        msime_client_dictionary_collections,
+        json!({"options":options,"action":{"operation":"set_enabled","id":id,"enabled":false}}),
+    );
+    assert_eq!(disabled["ok"], true, "{disabled}");
+    synchronize();
+    let connection =
+        rusqlite::Connection::open(root.path().join("dictionaries/msime-pinyin.db")).unwrap();
+    for (key, first, second, _) in groups {
+        assert_eq!(candidates(key), [first, second]);
+        for (value, expected) in [(first, 1000), (second, 500)] {
+            let weight: i64 = connection
+                .query_row(
+                    &format!(
+                        "SELECT weight FROM tbl_1_{} WHERE key=?1 AND value=?2",
+                        &key[..1]
+                    ),
+                    rusqlite::params![key, value],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(weight, expected);
+        }
+    }
+}
+
 #[test]
 fn a_sql_failure_rolls_back_only_its_entry() {
     let root = tempfile::tempdir().unwrap();

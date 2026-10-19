@@ -156,6 +156,44 @@ fn create_with(fixture: &Fixture, name: &str, words: &[PersonalWord]) -> String 
 }
 
 #[test]
+fn collections_borrowed_outbox_keeps_the_existing_wire_format_and_order() {
+    let id = Uuid::from_u128(1);
+    let mut outbox = Outbox::default();
+    let removed = english("removed");
+    let first = PersonalWord {
+        value: "合成\"正文".into(),
+        ..english("first")
+    };
+    let last = english("last");
+    outbox.queue(OutboxKind::Add, id, removed.clone());
+    outbox.queue(OutboxKind::Add, id, first.clone());
+    outbox.queue(OutboxKind::Remove, id, last.clone());
+    outbox.take(&removed.identity());
+    let legacy = serde_json::to_vec(&OutboxFile {
+        operations: outbox.operations().cloned().collect(),
+    })
+    .unwrap();
+    let borrowed = serde_json::to_vec(&OutboxFileRef {
+        operations: OutboxOperations(&outbox),
+    })
+    .unwrap();
+    assert_eq!(borrowed, legacy);
+    let restored = Outbox::from_file(serde_json::from_slice(&borrowed).unwrap()).unwrap();
+    assert_eq!(
+        restored
+            .operations()
+            .map(|operation| operation.word.identity())
+            .collect::<Vec<_>>(),
+        [first.identity(), last.identity()]
+    );
+    assert!(restored.get(&removed.identity()).is_none());
+    assert_eq!(
+        restored.get(&last.identity()).unwrap().op,
+        OutboxKind::Remove
+    );
+}
+
+#[test]
 fn collections_load_lists_import_formats_and_starts_empty() {
     let fixture = Fixture::new();
     let view = fixture.store.load().unwrap();

@@ -114,6 +114,23 @@ struct OutboxFile {
     operations: Vec<OutboxOperation>,
 }
 
+#[derive(Serialize)]
+struct OutboxFileRef<'a> {
+    operations: OutboxOperations<'a>,
+}
+
+/// 序列化时只借用未发送的操作，避免每批复制整个大词库的编码和正文。
+struct OutboxOperations<'a>(&'a Outbox);
+
+impl Serialize for OutboxOperations<'_> {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.0.operations())
+    }
+}
+
 /// `preexisting.json`：集合加入之前用户词库当前视图里就有的词的身份，这些词不随集合删掉。
 #[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -1001,8 +1018,8 @@ impl DictionaryCollectionsStore {
         self.write_json(
             directory,
             std::ffi::OsStr::new(OUTBOX_FILE),
-            &OutboxFile {
-                operations: outbox.operations().cloned().collect(),
+            &OutboxFileRef {
+                operations: OutboxOperations(outbox),
             },
             MAX_OUTBOX_BYTES,
         )
@@ -1144,11 +1161,10 @@ fn validate_collection(metadata: &CollectionMetadata, file: &CollectionFile) -> 
         return Err(DictionaryCollectionsError::Corrupt);
     }
     let mut identities = HashSet::with_capacity(file.entries.len());
-    if file
-        .entries
-        .iter()
-        .any(|word| !valid_stored_word(word, metadata.kind) || !identities.insert(word.identity()))
-    {
+    if file.entries.iter().any(|word| {
+        !valid_stored_word(word, metadata.kind)
+            || !identities.insert((word.key.as_str(), word.value.as_str()))
+    }) {
         return Err(DictionaryCollectionsError::Corrupt);
     }
     Ok(())
@@ -1163,7 +1179,10 @@ struct Outbox {
 
 impl Outbox {
     fn from_file(file: OutboxFile) -> Result<Self> {
-        let mut outbox = Self::default();
+        let mut outbox = Self {
+            operations: Vec::with_capacity(file.operations.len()),
+            positions: HashMap::with_capacity(file.operations.len()),
+        };
         for operation in file.operations {
             if operation.word.validate().is_err() || operation.collection.is_nil() {
                 return Err(DictionaryCollectionsError::Corrupt);
