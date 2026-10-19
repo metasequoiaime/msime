@@ -366,7 +366,15 @@ jobs:
       # 用项目自己的 vitest，不用 npx：npx 的那份从自己的缓存解析 jsdom，起不来 jsdom worker 却照样报成功（见 verify-local.sh 的 typescript 阶段）。
       - name: Run the shared UI tests
         if: ${{ needs.changes.outputs.ui == 'true' }}
-        run: cd apps/desktop && ./node_modules/.bin/vitest run --reporter=dot
+        run: cd apps/desktop && ./node_modules/.bin/vitest run --maxWorkers=2 --reporter=verbose --reporter=junit --outputFile=../../target/shared-ui-junit.xml
+      - name: Upload shared UI test results
+        if: ${{ always() && needs.changes.outputs.ui == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: shared-ui-junit
+          path: target/shared-ui-junit.xml
+          if-no-files-found: warn
+          retention-days: 7
       - name: Shared UI unchanged
         if: ${{ needs.changes.outputs.ui != 'true' }}
         run: echo 'No shared UI changes; UI tests skipped.'
