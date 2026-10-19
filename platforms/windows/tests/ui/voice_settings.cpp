@@ -52,15 +52,12 @@ int main() {
             !is_asr_service_provider(asr_provider_defaults(), L"system") && !is_asr_service_provider(asr_provider_defaults(), L"local"),
         "service providers are the seven cloud ones");
 
-  // 新目录的值直接影响选项、回退和换服务，不依赖编译进界面的服务名单。
+  // 新目录的值直接影响选项和回退，不依赖编译进界面的服务名单。
   const std::vector<ProviderDefaults> catalog{
       {L"synthetic", L"https://example.invalid/new", L"fixture-model", {L"fixture-model"},
        L"https://example.invalid/docs", L"合成服务"}};
   check(asr_provider_choices(catalog)[0].label == L"合成服务" &&
             is_asr_service_provider(catalog, L"synthetic"), "injected catalog controls choices");
-  check(asr_provider_update(catalog, L"synthetic", {}).model == std::wstring(L"fixture-model"),
-        "injected catalog controls provider defaults");
-
   // providerSettingValue：编辑过的值去掉空白，空时退回默认值，不认识的服务为空。
   check(provider_setting_value(L"  https://asr.internal.example/v1  ", L"openai",
                                asr_provider_defaults(), true) == L"https://asr.internal.example/v1",
@@ -70,52 +67,7 @@ int main() {
   check(provider_setting_value(L"", L"unknown", polish_provider_defaults(), false).empty(),
         "an unknown provider has no default");
 
-  // 选系统识别：清掉令牌，原服务的令牌记下来，换回时还原。
-  ProviderFields openai{L"openai", std::wstring(asr_default(L"openai", true)), L"whisper-1",
-                        L"synthetic-openai", {{L"system", L"unused-synthetic"}}};
-  const auto system = asr_provider_update(asr_provider_defaults(), L"system", openai);
-  check(system.provider == L"system" && system.token.empty(), "system recognition has no token");
-  check(system.endpoint && system.endpoint->empty() && system.model && system.model->empty(),
-        "system recognition clears the shipped endpoint and model");
-  check(system.tokens == TokenMap{{L"openai", L"synthetic-openai"}},
-        "the OpenAI token is kept in its slot");
-  const auto restored = asr_provider_update(asr_provider_defaults(),
-      L"openai", {L"system", *system.endpoint, *system.model, system.token, system.tokens});
-  check(restored.token == L"synthetic-openai", "the OpenAI token comes back");
-  check(restored.endpoint == std::wstring(asr_default(L"openai", true)) &&
-            restored.model == std::wstring(L"whisper-1"),
-        "the OpenAI defaults come back");
-  const auto custom = asr_provider_update(asr_provider_defaults(),
-      L"system", {L"", L"https://example.invalid/custom", L"synthetic-model", L"", {}});
-  check(!custom.endpoint && !custom.model, "a custom endpoint and model are kept");
-
-  // 豆包默认的 wss 地址换成 OpenAI 的，令牌不会发给豆包。
-  const auto rewritten = asr_provider_update(asr_provider_defaults(),
-      L"openai", {L"doubao", std::wstring(asr_default(L"doubao", true)), L"", L"", {}});
-  check(rewritten.endpoint == std::wstring(asr_default(L"openai", true)) &&
-            rewritten.model == std::wstring(L"whisper-1"),
-        "the shipped Doubao endpoint is replaced");
-  // 空令牌框去掉原服务那一项。
-  const auto emptied = asr_provider_update(asr_provider_defaults(),
-      L"groq", {L"openai", L"", L"", L"", {{L"openai", L"old"}, {L"groq", L"g"}}});
-  check(emptied.tokens == TokenMap{{L"groq", L"g"}} && emptied.token == L"g",
-        "an empty box removes the old slot");
-  // 不认识的服务只换令牌。
-  const auto unknown = asr_provider_update(asr_provider_defaults(), L"nobody", {L"openai", L"x", L"y", L"t", {}});
-  check(!unknown.endpoint && !unknown.model && unknown.token.empty() &&
-            unknown.tokens == TokenMap{{L"openai", L"t"}},
-        "an unknown provider only swaps the token");
-
-  // 润色换服务：默认模型跟着换，自己填的保留。
-  const auto polish = polish_provider_update(polish_provider_defaults(),
-      L"deepseek", {L"siliconflow", L"https://api.siliconflow.cn/v1/chat/completions",
-                    L"Qwen/Qwen3-8B", L"sf", {}});
-  check(polish.endpoint == std::wstring(L"https://api.deepseek.com/chat/completions") &&
-            polish.model == std::wstring(L"deepseek-v4-flash") && polish.token.empty() &&
-            polish.tokens == TokenMap{{L"siliconflow", L"sf"}},
-        "polish defaults follow the provider");
-  const auto kept = polish_provider_update(polish_provider_defaults(), L"groq", {L"openai", L"", L"my-model", L"", {}});
-  check(kept.endpoint && !kept.model, "a typed polish model is kept");
+  // 换服务的补丁规则由共享 Rust 及 C ABI 测试验证。
 
   // 豆包流式接口。
   check(doubao_stream_endpoint_id(L"wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream") ==

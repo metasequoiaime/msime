@@ -14,6 +14,34 @@ pub extern "C" fn msime_client_voice_provider_catalog() -> *mut c_char {
     })
 }
 
+#[derive(serde::Deserialize)]
+struct VoiceProviderUpdateRequest {
+    service: msime_client_providers::voice::provider_settings::ProviderService,
+    provider: String,
+    current: msime_client_providers::voice::provider_settings::ProviderFields,
+}
+
+/// 计算语音设置的换服务补丁；请求与返回均含凭据，不能记录到日志。
+///
+/// # Safety
+/// `request` 必须指向本次调用期间可读的 `length` 个字节。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_provider_update(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        let query: VoiceProviderUpdateRequest = local_voice_request(request, length, 1 << 20)?;
+        Ok(json!(
+            msime_client_providers::voice::provider_settings::provider_update(
+                query.service,
+                &query.provider,
+                &query.current,
+            )
+        ))
+    })
+}
+
 /// Decode one Doubao v1 response frame for Apple hosts. The returned payload
 /// is UTF-8 JSON text; no frame bytes or credentials are retained.
 ///

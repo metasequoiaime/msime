@@ -12,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-// 「语音输入」页识别服务与润色的展示规则，平台固定为 Windows：共享 Rust 目录的持有模型，换服务时要改哪些字段（asrProviderUpdate、polishProviderUpdate 和 `provider-helpers.ts`），豆包的两种流式接口，识别语言的建议（`voice-language-options.tsx`），内置润色方案（`polish-presets.ts`），「测试配置」何时可用（`voice-credential-test-config.ts`）和本地模型列表的文字（`local-model-helpers.ts`）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「语音输入」页识别服务与润色的展示规则，平台固定为 Windows：共享 Rust 目录的持有模型，豆包的两种流式接口，识别语言的建议（`voice-language-options.tsx`），内置润色方案（`polish-presets.ts`），「测试配置」何时可用（`voice-credential-test-config.ts`）和本地模型列表的文字（`local-model-helpers.ts`）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::voice {
 
 struct Choice {
@@ -65,80 +65,6 @@ inline std::wstring provider_setting_value(std::wstring_view value, std::wstring
   if (!defaults)
     return {};
   return std::wstring(endpoint ? defaults->endpoint : defaults->model);
-}
-
-// 共享页 fillIfDefault：当前值（去掉首尾空白）为空或是某个服务的默认值时换成 next，否则是用户自己填的，保留（返回空）。
-inline std::optional<std::wstring> fill_if_default(std::wstring_view current, std::wstring_view next,
-                                                   std::vector<ProviderDefaults> const &table,
-                                                   bool endpoint) {
-  const auto value = js_trim(current);
-  if (!value.empty()) {
-    const bool known = std::any_of(table.begin(), table.end(), [&](ProviderDefaults const &entry) {
-      const auto shipped = endpoint ? entry.endpoint : entry.model;
-      return !shipped.empty() && shipped == value;
-    });
-    if (!known)
-      return std::nullopt;
-  }
-  return std::wstring(next);
-}
-
-using TokenMap = std::map<std::wstring, std::wstring>;
-
-// 换服务前的那几项：服务、接口地址、模型、令牌框和每个服务各自的令牌。
-struct ProviderFields {
-  std::wstring provider;
-  std::wstring endpoint;
-  std::wstring model;
-  std::wstring token;
-  TokenMap tokens;
-};
-
-// 换服务时要写的字段；endpoint、model 为空表示不改。
-struct ProviderUpdate {
-  std::wstring provider;
-  std::wstring token;
-  TokenMap tokens;
-  std::optional<std::wstring> endpoint;
-  std::optional<std::wstring> model;
-};
-
-// 共享页 swapTokenSlot 加上 fillProviderDefaults：令牌框里的值记回原服务的位置（空时去掉那一项），换上新服务记着的令牌；接口地址和模型还是默认值或空时换成新服务的默认值。
-inline ProviderUpdate provider_update(std::wstring_view provider, ProviderFields const &current,
-                                      std::vector<ProviderDefaults> const &table) {
-  ProviderUpdate update;
-  update.provider = std::wstring(provider);
-  update.tokens = current.tokens;
-  if (!current.provider.empty()) {
-    if (!current.token.empty())
-      update.tokens[current.provider] = current.token;
-    else
-      update.tokens.erase(current.provider);
-  }
-  const auto found = update.tokens.find(update.provider);
-  update.token = found == update.tokens.end() ? std::wstring() : found->second;
-  const auto *defaults = find_defaults(table, provider);
-  if (!defaults)
-    return update;
-  update.endpoint = fill_if_default(current.endpoint, defaults->endpoint, table, true);
-  update.model = fill_if_default(current.model, defaults->model, table, false);
-  return update;
-}
-
-// 共享页 asrProviderUpdate：系统识别和本地模型不向任何服务发送内容，所以不留令牌。
-inline ProviderUpdate asr_provider_update(std::vector<ProviderDefaults> const &table,
-                                          std::wstring_view provider, ProviderFields const &current) {
-  auto update = provider_update(provider, current, table);
-  if (provider == L"system" || provider == L"local") {
-    update.token.clear();
-    update.tokens.erase(std::wstring(provider));
-  }
-  return update;
-}
-
-inline ProviderUpdate polish_provider_update(std::vector<ProviderDefaults> const &table,
-                                             std::wstring_view provider, ProviderFields const &current) {
-  return provider_update(provider, current, table);
 }
 
 // 豆包的两种流式接口（DOUBAO_STREAM_ENDPOINTS），其余地址算「自定义地址」。
