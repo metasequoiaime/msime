@@ -24,6 +24,8 @@ Host API 在取得维护租约后，把集合待发项交给 client-services 提
 - Host API 字典批次测试 16 项通过、3 项忽略；普通 128 项超限测试仍通过，零预算旧路径仍保留 128 项边界。
 - 严格 Clippy（`msime-engine`、`msime-client-services`、`msime-host-api` 全 targets）通过。
 - 33555 词合成 Rime 集合在同一 macOS 调试构建、空主库和精确索引下，直达 scoped 路径 9 轮、总 4155 ms（导入 414 ms、同步 3741 ms、最长同步 2025 ms），约 8074 词/秒。该测量未隔离宿主负载，仍未达到每秒万行目标。
+- Android API 28（`emulator-5566`）已用 `build-apk.sh` 构建发布 APK，并通过 `smoke.sh ... --core`；其中 `DictionaryImportDeviceSmoke` 经安装的 JNI 导入并重载 33555 条 Rime 词条，完整核心套件通过。
+- Android API 35（`emulator-5580`）同一 APK 通过默认完整 `smoke.sh`；其中同样通过 33555 条 Rime 词条导入与重载，系统输入、实时偏好和剪贴板生命周期验收均通过。
 
 ## Consequences
 
