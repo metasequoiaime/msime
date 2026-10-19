@@ -6156,7 +6156,11 @@ public:
             const auto query = request.dump();
             const auto panel_document = response(msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(query.data()), query.size()));
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-            native_canvas_palette_ = panel_document.value("candidate", Json::object());
+            native_canvas_palette_ = host::native_canvas_palette(panel_document);
+            if (native_canvas_assets_ && corner_radius) {
+              native_canvas_assets_->card_radius = *corner_radius;
+              native_canvas_assets_->user_radius = user_radius;
+            }
 #endif
             const auto panel_theme = host::candidate_theme_colors(panel_document, resolved.dark);
             if (panel_theme.candidate_skin == resolved.candidate_skin) colors = panel_theme.colors;
@@ -7407,12 +7411,18 @@ bool FcitxState::renderNativeCanvas() {
   }
   msime::linux_host::NativeCanvasContent content;
   content.preedit = ic_.inputPanel().preedit().toString();
+  if (!content.preedit.empty()) content.preedit_cursor = ic_.inputPanel().preedit().cursor();
   // 拼音行属于画布，客户端内嵌预编辑仍单独保留。
   if (content.preedit.empty() && preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin")
     content.preedit = view_.value("preedit", std::string{});
+  if (!content.preedit.empty() && content.preedit == view_.value("editing_text", std::string{}))
+    content.preedit_cursor = static_cast<int>(std::min(content.preedit.size(),
+        msime::linux_host::strict_json_value(view_, "caret_position", content.preedit.size())));
   content.auxiliary = ic_.inputPanel().auxDown().toString();
-  if (!ic_.inputPanel().auxUp().empty())
+  if (!ic_.inputPanel().auxUp().empty()) {
     content.preedit = ic_.inputPanel().auxUp().toString() + (content.preedit.empty() ? "" : " · " + content.preedit);
+    content.preedit_cursor = -1;
+  }
   content.font = engine_->hint_inputs_.font.empty() ? "sans 16" : engine_->hint_inputs_.font;
   content.horizontal = list->layoutHint() == fcitx::CandidateLayoutHint::Horizontal;
   content.selected = list->cursorIndex();

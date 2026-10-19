@@ -4339,7 +4339,15 @@ selected = "#112233"
 selected_text = "#AABBCC"
 selected_number = "#DDEEFF"
 preedit_caret = "#778899"
+preedit_text = "#123"
+preedit_background = "rgba(1, 2, 3, 0.5)"
+preedit_divider = "transparent"
 selected_translation = "#334455"
+[candidate.light.menu]
+background = "#abc"
+text = "#def"
+hover = "#456"
+border = "#789"
 [candidate.dark]
 text = "#123456"
 "##,
@@ -4379,6 +4387,7 @@ text = "#123456"
     assert_eq!(picked["candidate"]["text"], "#010203");
     assert_eq!(picked["candidate"]["selected"], "#FFFFFF");
     assert_eq!(picked["candidate"]["selected_text"], "#000000");
+    assert_eq!(picked["candidate_details"]["preedit_text"], "#010203");
     assert_eq!(
         picked["candidate_details"]["selected_translation"],
         "#0000009D"
@@ -4387,6 +4396,24 @@ text = "#123456"
     assert_eq!(authored["candidate"]["selected_text"], "#AABBCC");
     assert_eq!(authored["candidate"]["selected_number"], "#DDEEFF");
     assert_eq!(authored["candidate_details"]["preedit_caret"], "#778899");
+    assert_eq!(authored["candidate_details"]["preedit_text"], "#112233");
+    assert_eq!(
+        authored["candidate_details"]["preedit_background"],
+        "#01020380"
+    );
+    assert_eq!(
+        authored["candidate_details"]["preedit_divider"],
+        "#00000000"
+    );
+    for (key, expected) in [
+        ("menu_surface", "#AABBCC"),
+        ("menu_text", "#DDEEFF"),
+        ("menu_hover", "#445566"),
+        ("menu_border", "#778899"),
+    ] {
+        assert_eq!(authored["candidate_details"][key], expected);
+        assert_eq!(fallback["candidate_details"][key], expected);
+    }
     assert!(call(Some(true), false, false, "horizontal")["candidate_skin"].is_null());
 }
 

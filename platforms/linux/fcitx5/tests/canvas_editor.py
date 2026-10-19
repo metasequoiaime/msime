@@ -210,6 +210,87 @@ def color_position(color):
     raise AssertionError("未找到预期颜色")
 
 
+def color_bounds(color):
+    image, _ = screenshot()
+    channels, stride, data = image.get_n_channels(), image.get_rowstride(), image.get_pixels()
+    bounds = window_geometry(native_window())
+    left, top, width, height = (int(bounds[key]) for key in ("X", "Y", "WIDTH", "HEIGHT"))
+    points = [(x, y) for y in range(top, top + height) for x in range(left, left + width)
+              if data[y * stride + x * channels:y * stride + x * channels + 3] == bytes(color)]
+    assert points, f"原生窗口缺少配色 {color}"
+    return min(x for x, _ in points), min(y for _, y in points), max(x for x, _ in points) + 1, max(y for _, y in points) + 1
+
+
+def accept_appearance(manifest, preferences, publish, entry):
+    original = manifest.read_text()
+    bar, hover, background, divider, caret = (22, 180, 240), (242, 128, 17), (61, 20, 80), (153, 77, 222), (0, 255, 204)
+    style = original.replace("[candidate_window]\n", "[candidate_window]\nitem_corner_radius_dip = 12\ncorner_radius_dip = 20\n")
+    for mode in ("light", "dark"):
+        style = style.replace(f"[candidate.{mode}]\n", f"[candidate.{mode}]\n"
+                              "show_selected_bar = true\nselected_bar = '#16B4F0'\nhover = '#F28011'\n"
+                              "preedit_background = '#3D1450'\npreedit_divider = '#994DDE'\n"
+                              "preedit_text = '#FDE75A'\npreedit_caret = '#00FFCC'\n")
+    style += (f"\n[candidate_window.{preferences['candidate_layout']}]\n"
+              "selected_bar_width = 5\nselected_bar_height_em = 1.1\nselected_bar_inside = true\n"
+              "item_extra_height = 24\nitem_gap = 12\n")
+    for mode in ('light', 'dark'):
+        style += (f"\n[candidate.{mode}.menu]\nbackground = '#1F252B'\nborder = '#556677'\n"
+                  "text = '#E1E2E3'\nhover = '#515B65'\n")
+    manifest.write_text(style)
+    wait(lambda: palette_visible((bar, background, divider, caret)))
+    save_image("native-appearance")
+    left, top, right, bottom = color_bounds(SELECTED)
+    _, counts = screenshot()
+    assert counts[SELECTED] < (right - left) * (bottom - top), "高亮仍然是无圆角矩形"
+    bar_box = color_bounds(bar)
+    assert bar_box[2] - bar_box[0] == 5 * NATIVE_SCALE, "选中条宽度未进入实际像素"
+    # 指针只改变 hover，不改变键盘选中项；按下后离开并释放不提交。
+    if preferences['candidate_layout'] == 'horizontal':
+        point = (right + 12 * NATIVE_SCALE + 8 * NATIVE_SCALE, (top + bottom) // 2)
+    else:
+        point = ((left + right) // 2, bottom + 12 * NATIVE_SCALE + 8 * NATIVE_SCALE)
+    subprocess.run(["xdotool", "mousemove", *map(str, point)], check=True, timeout=5)
+    wait(lambda: palette_visible((hover,)))
+    assert color_bounds(SELECTED) == (left, top, right, bottom), "悬停改变了键盘选中项"
+    save_image("native-hover")
+    subprocess.run(["xdotool", "mousedown", "1"], check=True, timeout=5)
+    wait(lambda: not palette_visible((hover,)))
+    save_image("native-pressed")
+    subprocess.run(["xdotool", "mousemove", "0", "0", "mouseup", "1"], check=True, timeout=5)
+    wait(lambda: not palette_visible((hover,)))
+    assert entry.get_text() == "", "拖出候选后的释放错误上屏"
+    # 菜单独立配色进入真实原生窗口；返回仍保留同一候选快照。
+    subprocess.run(["xdotool", "mousemove", str((left + right) // 2), str((top + bottom) // 2), "click", "3"],
+                   check=True, timeout=5)
+    wait(lambda: palette_visible(((31, 37, 43), (225, 226, 227))))
+    assert not palette_visible((background,)), "候选预编辑背景渗进右键菜单"
+    bounds = window_geometry(native_window())
+    point = (int(bounds['X']) + 40 * NATIVE_SCALE,
+             int(bounds['Y']) + int(bounds['HEIGHT']) - 22 * NATIVE_SCALE)
+    subprocess.run(["xdotool", "mousemove", *map(str, point)], check=True, timeout=5)
+    wait(lambda: palette_visible(((81, 91, 101),)))
+    save_image("native-menu")
+    subprocess.run(["xdotool", "click", "1"], check=True, timeout=5)
+    wait(lambda: palette_visible((bar, background, divider, caret)))
+    assert entry.get_text() == "", "返回菜单意外提交候选"
+    # 文字取色器必须覆盖皮肤预编辑文字，再恢复全部外观。
+    preferences['custom_theme'].setdefault('candidate_colors', {})['text'] = '#12EF45'
+    publish()
+    def picked_preedit():
+        # 字体抗锯齿不保证存在足够多纯色像素；只查预编辑背景框内向取色器绿色收敛的字形。
+        left, top, right, bottom = color_bounds(background)
+        image, _ = screenshot()
+        data, stride, channels = image.get_pixels(), image.get_rowstride(), image.get_n_channels()
+        return sum(data[y * stride + x * channels + 1] > data[y * stride + x * channels] + 100 and
+                   data[y * stride + x * channels + 1] > data[y * stride + x * channels + 2] + 100
+                   for y in range(top, bottom) for x in range(left, right)) > 10
+    wait(picked_preedit)
+    del preferences['custom_theme']['candidate_colors']['text']
+    publish()
+    manifest.write_text(original)
+    wait(lambda: all(screenshot()[1][color] < 16 for color in (bar, background, divider, caret)))
+
+
 def click_color(color, button):
     x, y = color_position(color)
     subprocess.run(["xdotool", "mousemove", str(x), str(y), "click", str(button)], check=True, timeout=5)
@@ -466,6 +547,8 @@ def main():
                     subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni"], check=True, timeout=5)
                     wait(lambda: palette_visible((SELECTED,)))
                     manifest.write_text(original_manifest)
+                    wait(lambda: selected_pixels() == original_selected)
+                    accept_appearance(manifest, preferences, publish, entry)
                     wait(lambda: selected_pixels() == original_selected)
                     before_move = window_geometry(native_window())
                     window.move(100, 80)

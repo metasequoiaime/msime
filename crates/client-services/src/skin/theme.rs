@@ -182,6 +182,18 @@ pub struct CandidateDetails {
     pub preedit_caret: Option<String>,
     pub selected_translation: Option<String>,
     pub selected_bar: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preedit_background: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preedit_divider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menu_surface: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menu_border: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menu_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menu_hover: Option<String>,
 }
 
 /// The colours a host draws for the selected theme.
@@ -288,6 +300,7 @@ pub fn resolve(
         (Some(text), None) => Some(with_alpha(text, PICKED_NUMBER_ALPHA)),
         _ => None,
     };
+    let picked_preedit_text = pickers.text.clone();
     explicit.apply(pickers);
     if picked_number.is_some() {
         explicit.number = picked_number;
@@ -299,7 +312,9 @@ pub fn resolve(
     let accent = explicit.accent.or(base_palette.accent);
     let candidate_details = drawn.and_then(|(_, palette)| {
         let details = CandidateDetails {
-            preedit_text: color(&palette.preedit_text),
+            preedit_text: picked_preedit_text
+                .clone()
+                .or_else(|| color(&palette.preedit_text)),
             preedit_caret: color(&palette.preedit_caret),
             selected_translation: color(&palette.selected_translation).map(|authored| {
                 picked_selected_text
@@ -308,6 +323,15 @@ pub fn resolve(
                     .unwrap_or(authored)
             }),
             selected_bar: color(&palette.selected_bar),
+            preedit_background: color(&palette.preedit_background),
+            preedit_divider: color(&palette.preedit_divider),
+            menu_surface: palette
+                .menu
+                .as_ref()
+                .and_then(|menu| color(&menu.background)),
+            menu_border: palette.menu.as_ref().and_then(|menu| color(&menu.border)),
+            menu_text: palette.menu.as_ref().and_then(|menu| color(&menu.text)),
+            menu_hover: palette.menu.as_ref().and_then(|menu| color(&menu.hover)),
         };
         (details != CandidateDetails::default()).then_some(details)
     });

@@ -27,7 +27,7 @@ struct NativeCanvasX11::Impl {
   nlohmann::json palette;
   double scale = 1;
   int width = 1, height = 1;
-  int pressed = -1;
+  int pressed = -1, hovered = -1;
   int cursor_x = 0, cursor_y = 0, cursor_height = 0;
 
   void close() {
@@ -67,7 +67,7 @@ struct NativeCanvasX11::Impl {
     attributes.colormap = colormap;
     attributes.border_pixel = 0;
     attributes.background_pixel = 0;
-    attributes.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask;
+    attributes.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask | EnterWindowMask | LeaveWindowMask;
     window = XCreateWindow(display, root, 0, 0, 1, 1, 0, depth, InputOutput, visual,
         CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attributes);
     if (!window) { close(); return false; }
@@ -100,9 +100,14 @@ struct NativeCanvasX11::Impl {
       XNextEvent(display, &event);
       if (!visible) continue;
       if (event.type == Expose && event.xexpose.count == 0) paint();
+      if (event.type == MotionNotify || event.type == EnterNotify) {
+        const int at = event.type == MotionNotify ? hit(event.xmotion.x, event.xmotion.y) : hit(event.xcrossing.x, event.xcrossing.y);
+        if (hovered != at) { hovered = at; paint(); }
+      }
+      if (event.type == LeaveNotify && hovered != -1) { hovered = -1; paint(); }
       if (event.type == ButtonPress) {
         if (event.xbutton.button == Button3) menu(hit(event.xbutton.x, event.xbutton.y));
-        if (event.xbutton.button == Button1) pressed = hit(event.xbutton.x, event.xbutton.y);
+        if (event.xbutton.button == Button1) { pressed = hit(event.xbutton.x, event.xbutton.y); paint(); }
         if (content.wheel_paging && (event.xbutton.button == Button4 || event.xbutton.button == Button5)) {
           const auto page = content.page;
           const bool next = event.xbutton.button == Button5;
@@ -112,6 +117,7 @@ struct NativeCanvasX11::Impl {
       if (event.type == ButtonRelease && event.xbutton.button == Button1) {
         const int item = pressed;
         pressed = -1;
+        paint();
         if (item == -1 || item != hit(event.xbutton.x, event.xbutton.y)) continue;
         // 回调可能在同一栈上更新 content，先复制函数对象，避免调用中析构它自己。
         const auto select = content.select;
@@ -160,6 +166,7 @@ struct NativeCanvasX11::Impl {
     const auto original = content;
     NativeCanvasContent menu_content;
     menu_content.font = content.font;
+    menu_content.menu = true;
     menu_content.preedit = "候选操作";
     for (const auto &action : actions) menu_content.items.push_back({{}, action.text});
     menu_content.items.push_back({{}, "返回候选"});
@@ -168,12 +175,13 @@ struct NativeCanvasX11::Impl {
         actions[index].invoke();
       } else {
         content = original;
+        pressed = hovered = -1;
         if (measure()) { shape(); move(cursor_x, cursor_y, cursor_height); paint(); }
       }
     };
     content = std::move(menu_content);
     if (!measure()) { content = original; measure(); return; }
-    pressed = -1;
+    pressed = hovered = -1;
     shape(); move(cursor_x, cursor_y, cursor_height); paint();
   }
   void scheduleAnimation(std::uint64_t elapsed_ms) {
@@ -183,8 +191,10 @@ struct NativeCanvasX11::Impl {
       const auto sample = sample_native_canvas_animation(*animation, elapsed_ms);
       if (sample.next_ms && (!next || *sample.next_ms < *next)) next = sample.next_ms;
     };
-    inspect(assets->panel_animation);
-    for (const auto &decoration : assets->decorations) inspect(decoration.animation);
+    if (!content.menu) {
+      inspect(assets->panel_animation);
+      for (const auto &decoration : assets->decorations) inspect(decoration.animation);
+    }
     if (!next) {
       if (animation_timer) animation_timer->setEnabled(false);
       return;
@@ -207,7 +217,7 @@ struct NativeCanvasX11::Impl {
     auto *cr = cairo_create(buffer);
     cairo_scale(cr, scale, scale);
     const auto elapsed_ms = (fcitx::now(CLOCK_MONOTONIC) - animation_started_us) / 1000;
-    paint_native_canvas(cr, *assets, content, layout, palette, elapsed_ms);
+    paint_native_canvas(cr, *assets, content, layout, palette, elapsed_ms, {hovered, pressed});
     if (!composited) {
       cairo_surface_flush(buffer);
       const int stride = cairo_image_surface_get_stride(buffer);
@@ -273,7 +283,7 @@ bool NativeCanvasX11::show(const std::string &display, std::shared_ptr<NativeCan
                            int cursor_x, int cursor_y, int cursor_height) {
   auto &state = *impl_;
   if (!assets || content.items.empty() || !state.open(display)) { hide(); return false; }
-  state.pressed = -1;
+  state.pressed = state.hovered = -1;
   if (!state.visible || state.assets != assets) state.animation_started_us = fcitx::now(CLOCK_MONOTONIC);
   state.assets = std::move(assets); state.content = std::move(content); state.palette = std::move(palette);
   state.cursor_x = cursor_x; state.cursor_y = cursor_y; state.cursor_height = cursor_height;
@@ -289,7 +299,7 @@ bool NativeCanvasX11::show(const std::string &display, std::shared_ptr<NativeCan
 void NativeCanvasX11::move(int x, int y, int height) { impl_->move(x, y, height); }
 void NativeCanvasX11::hide() {
   auto &state = *impl_;
-  state.pressed = -1;
+  state.pressed = state.hovered = -1;
   if (state.visible && state.display && state.window) {
     XUnmapWindow(state.display, state.window);
     XFlush(state.display);

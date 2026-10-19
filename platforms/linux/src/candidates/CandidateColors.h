@@ -173,7 +173,8 @@ inline bool candidate_theme_covers(const nlohmann::json &resolved) {
   return skin != resolved.end() && skin->is_string() && !skin->get<std::string>().empty();
 }
 
-// Map a ResolvedTheme (the `value` of msime_client_resolve_theme) onto the colours the frontends draw. Every null slot, or a null palette as `system` resolves to, takes the Adwaita token from candidate_native_palette in the mode drawn. The frontends paint opaque colours only, so translucent slots are composited: the surface over the native surface, everything else over the surface. The hover slot has no counterpart on the card (neither IBus attributes nor the classic UI theme track the pointer over candidates) and reaches only the Fcitx5 menu highlight, through `menu`; show_selected_bar is not read, because neither frontend draws a selection bar that a package could hide. An empty object resolves to the native tokens, which is also what a host draws when the call fails.
+// 将共享 ResolvedTheme 映射为 IBus 属性和 classicui 静态主题使用的不透明颜色；空槽位取当前明暗的 Adwaita token。
+// 这两条桌面绘制路径不消费独立候选 hover 或选中条；X11 原生画布另行读取共享调色板与 candidate_details。
 inline CandidateTheme candidate_theme_colors(const nlohmann::json &resolved, bool dark) {
   using Json = nlohmann::json;
   CandidateTheme theme;

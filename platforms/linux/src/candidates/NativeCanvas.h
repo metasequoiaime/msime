@@ -34,6 +34,8 @@ struct NativeCanvasAssets {
   std::string font_family;
   double min_width = 0;
   bool explicit_content = false, explicit_line_gap = false, fit_content = false;
+  double card_radius = 0, item_radius = 0, border_width = 0;
+  bool user_radius = false;
 };
 
 inline NativeCanvasRect native_canvas_decoration_box(const NativeCanvasDecoration &decoration,
@@ -58,6 +60,13 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
   result->horizontal = package.value("horizontal", nlohmann::json::object());
   result->vertical = package.value("vertical", nlohmann::json::object());
   result->font_family = package.value("fontFamily", std::string{});
+  const auto number = [&](const char *key) {
+    const auto at = package.find(key);
+    return at != package.end() && at->is_number() ? at->get<double>() : 0.0;
+  };
+  result->card_radius = number("cornerRadiusDip");
+  result->item_radius = number("itemCornerRadiusDip");
+  result->border_width = number("borderWidthDip");
   result->min_width = package.value("minWidthDip", 0.0);
   result->explicit_content = package.contains("contentInsetsDip");
   result->explicit_line_gap = package.contains("lineGapDip");
@@ -113,6 +122,9 @@ struct NativeCanvasContent {
   std::string font = "sans 16";
   bool horizontal = false;
   int selected = -1;
+  // UTF-8 字节位置；-1 表示没有与显示文字同源的光标。
+  int preedit_cursor = -1;
+  bool menu = false;
   bool previous = false, next = false, wheel_paging = false;
   std::vector<NativeCanvasItem> items;
   // 回调持有原 CandidateList 快照；身份围栏仍由 CandidateWord 与运行时复核。
@@ -120,12 +132,24 @@ struct NativeCanvasContent {
   std::function<void(bool)> page;
   std::function<std::vector<NativeCanvasAction>(int)> actions;
 };
+struct NativeCanvasPointer { int hovered = -1, pressed = -1; };
+
+// 只消费共享层规范化后的颜色，保留用户取色器与可读选中文字的优先级。
+inline nlohmann::json native_canvas_palette(const nlohmann::json &document) {
+  auto palette = document.value("candidate", nlohmann::json{});
+  if (!palette.is_object()) palette = nlohmann::json::object();
+  if (const auto details = document.find("candidate_details"); details != document.end() && details->is_object())
+    for (const auto &[key, value] : details->items()) if (!value.is_null()) palette[key] = value;
+  return palette;
+}
+
 struct NativeCanvasMetrics {
   std::string font, number_font;
   double font_size = 0, number_scale = 1, number_min_width = 0;
   std::array<double, 4> content{}, preedit_margin{};
   double gap = 4, extra_height = 8, number_inset = 8, right = 8, number_gap = 0, min_item_width = 0;
-  bool custom_height = false, justify = false;
+  bool custom_height = false, justify = false, corners_follow_card = false, bar_inside = false;
+  double card_radius = 0, item_radius = 0, bar_width = 3, bar_height = 0;
 };
 
 inline NativeCanvasMetrics native_canvas_metrics(cairo_t *cr, const NativeCanvasAssets &assets,
@@ -171,6 +195,12 @@ inline NativeCanvasMetrics native_canvas_metrics(cairo_t *cr, const NativeCanvas
     const double padding = length("padding", 12);
     for (std::size_t at = 0; at < 4; ++at) result.content[at] = assets.width[at] + padding;
   }
+  result.card_radius = assets.card_radius;
+  result.item_radius = assets.item_radius;
+  result.corners_follow_card = assets.user_radius || geometry.value("itemCornersFollowCard", false);
+  result.bar_width = std::max(3.0, length("selectedBarWidth", 3));
+  result.bar_height = std::max(result.bar_width * 2, result.font_size * geometry.value("selectedBarHeightEm", 0.85));
+  result.bar_inside = geometry.value("selectedBarInside", false);
   result.gap = length("itemGap", 4);
   if (content.horizontal && geometry.contains("itemGap") && !assets.fit_content) result.gap += 6;
   result.custom_height = geometry.contains("itemExtraHeight");
@@ -288,6 +318,47 @@ inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasA
   return layout;
 }
 
+// 逐角路径与来源一致：每角上限为短边的一半；0 仍是合法直角。
+inline void native_canvas_round_rect(cairo_t *cr, const NativeCanvasRect &rect, std::array<double, 4> radii) {
+  const double limit = std::max(0.0, std::min(rect.width, rect.height) / 2);
+  for (auto &radius : radii) radius = std::clamp(radius, 0.0, limit);
+  const auto [tl, tr, br, bl] = radii;
+  const double right = rect.x + rect.width, bottom = rect.y + rect.height;
+  constexpr double pi = 3.14159265358979323846;
+  cairo_new_sub_path(cr);
+  cairo_move_to(cr, rect.x + tl, rect.y);
+  cairo_line_to(cr, right - tr, rect.y);
+  if (tr > 0) cairo_arc(cr, right - tr, rect.y + tr, tr, -pi / 2, 0);
+  cairo_line_to(cr, right, bottom - br);
+  if (br > 0) cairo_arc(cr, right - br, bottom - br, br, 0, pi / 2);
+  cairo_line_to(cr, rect.x + bl, bottom);
+  if (bl > 0) cairo_arc(cr, rect.x + bl, bottom - bl, bl, pi / 2, pi);
+  cairo_line_to(cr, rect.x, rect.y + tl);
+  if (tl > 0) cairo_arc(cr, rect.x + tl, rect.y + tl, tl, pi, pi * 1.5);
+  cairo_close_path(cr);
+}
+
+inline std::array<double, 4> native_canvas_item_corners(const NativeCanvasContent &content,
+                                                       const NativeCanvasLayout &layout, std::size_t at) {
+  const auto &metrics = layout.metrics;
+  std::array<double, 4> radii;
+  radii.fill(metrics.item_radius);
+  if (!metrics.corners_follow_card || layout.items.empty()) return radii;
+  const auto &item = layout.items[at];
+  const auto &first = layout.items.front();
+  double bottom = first.y;
+  for (const auto &box : layout.items) bottom = std::max(bottom, box.y + box.height);
+  const bool top = content.preedit.empty() && item.y <= first.y + 0.5;
+  const bool last = item.y + item.height >= bottom - 0.5;
+  const bool left = item.x <= first.x + 0.5;
+  const bool end = item.x + item.width >= layout.panel.x + layout.panel.width - metrics.content[1] - 0.5;
+  if (top && left) radii[0] = metrics.card_radius;
+  if (top && end) radii[1] = metrics.card_radius;
+  if (last && end) radii[2] = metrics.card_radius;
+  if (last && left) radii[3] = metrics.card_radius;
+  return radii;
+}
+
 inline void native_canvas_color(cairo_t *cr, const nlohmann::json &palette, const char *key,
                                 const char *fallback) {
   const auto color = theme_color(palette.value(key, nlohmann::json(fallback))).value_or(*theme_color(fallback));
@@ -314,11 +385,12 @@ inline void native_canvas_image(cairo_t *cr, cairo_surface_t *image, const Nativ
 
 inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, const NativeCanvasContent &content,
                                  const NativeCanvasLayout &layout, const nlohmann::json &palette,
-                                 std::uint64_t elapsed_ms = 0) {
+                                 std::uint64_t elapsed_ms = 0, NativeCanvasPointer pointer = {}) {
   const auto frame = [elapsed_ms](const NativeCanvasImage &image, const std::shared_ptr<const NativeCanvasAnimation> &animation) {
     return animation ? animation->frames[sample_native_canvas_animation(*animation, elapsed_ms).index].get() : image.get();
   };
   const auto widgets = [&](bool front) {
+    if (content.menu) return;
     for (const auto &decoration : assets.decorations) {
       if ((decoration.z >= 1) != front) continue;
       auto box = native_canvas_decoration_box(decoration, layout.panel);
@@ -331,9 +403,24 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
       native_canvas_image(cr, image, {0, 0, width, height}, target);
     }
   };
+  auto colors = palette;
+  // alpha 0 在这些来源槽位表示跟随普通文字或 accent，不是隐藏文字。
+  const auto inherit = [&](const char *key, const char *parent, bool transparent_follows = true) {
+    const auto color = theme_color(colors.value(key, nlohmann::json{}));
+    if (!color || (transparent_follows && color->alpha == 0)) colors[key] = colors.value(parent, nlohmann::json{});
+  };
+  inherit("preedit_text", "text", false); inherit("preedit_caret", "accent"); inherit("selected_bar", "accent");
+  inherit("selected_text", "text"); inherit("selected_number", "number");
+  if (content.menu) {
+    for (const auto &[key, parent] : std::vector<std::pair<const char *, const char *>>{
+        {"surface", "menu_surface"}, {"text", "menu_text"}, {"hover", "menu_hover"}, {"border", "menu_border"}})
+      if (colors.contains(parent)) colors[key] = colors.at(parent);
+    colors["preedit_text"] = colors.value("text", nlohmann::json{});
+    colors["preedit_background"] = colors["preedit_divider"] = "#00000000";
+  }
   widgets(false);
   const auto &panel = layout.panel;
-  if (assets.panel) {
+  if (assets.panel && !content.menu) {
     auto *image = frame(assets.panel, assets.panel_animation);
     const auto axis = [](double length, double before, double after) {
       const double ratio = before + after > length ? length / (before + after) : 1;
@@ -353,31 +440,77 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
           {dx[col], dy[row], dx[col + 1] - dx[col], dy[row + 1] - dy[row]});
     }
   } else {
-    native_canvas_color(cr, palette, "surface", "#f8f8f8");
-    cairo_rectangle(cr, panel.x, panel.y, panel.width, panel.height);
+    native_canvas_color(cr, colors, "surface", "#f8f8f8");
+    const double radius = layout.metrics.card_radius;
+    native_canvas_round_rect(cr, panel, {radius, radius, radius, radius});
     cairo_fill(cr);
   }
   const auto &metrics = layout.metrics;
+  const double border_width = content.menu ? 1 : assets.border_width;
+  if ((!assets.panel || content.menu) && border_width > 0) {
+    native_canvas_color(cr, colors, "border", "#00000000");
+    const double half = border_width / 2, radius = std::max(0.0, metrics.card_radius - half);
+    native_canvas_round_rect(cr, {panel.x + half, panel.y + half, std::max(0.0, panel.width - 2 * half),
+        std::max(0.0, panel.height - 2 * half)}, {radius, radius, radius, radius});
+    cairo_set_line_width(cr, border_width); cairo_stroke(cr);
+  }
   const auto text = [&](const std::string &value, const NativeCanvasRect &rect, const std::string &font_name,
                         const char *key, const char *fallback) {
     auto *line = pango_cairo_create_layout(cr);
     auto *font = pango_font_description_from_string(font_name.c_str());
     pango_layout_set_font_description(line, font);
     pango_layout_set_text(line, value.c_str(), static_cast<int>(value.size()));
-    native_canvas_color(cr, palette, key, fallback);
+    native_canvas_color(cr, colors, key, fallback);
     cairo_move_to(cr, rect.x, rect.y);
     pango_cairo_show_layout(cr, line);
     pango_font_description_free(font);
     g_object_unref(line);
   };
-  text(content.preedit, layout.preedit, metrics.font, "text", "#202020");
+  if (!content.preedit.empty()) {
+    auto background = layout.preedit;
+    background.width = std::max(background.width, panel.x + panel.width - metrics.content[1] -
+        metrics.preedit_margin[1] - background.x);
+    native_canvas_color(cr, colors, "preedit_background", "#00000000");
+    const double radius = metrics.item_radius;
+    native_canvas_round_rect(cr, background, {radius, radius, radius, radius}); cairo_fill(cr);
+    native_canvas_color(cr, colors, "preedit_divider", "#00000000");
+    cairo_rectangle(cr, background.x, background.y + background.height - 1, background.width, 1); cairo_fill(cr);
+    text(content.preedit, layout.preedit, metrics.font, "preedit_text", "#202020");
+    if (!content.menu && content.preedit_cursor >= 0 &&
+        static_cast<std::size_t>(content.preedit_cursor) <= content.preedit.size() &&
+        (static_cast<std::size_t>(content.preedit_cursor) == content.preedit.size() ||
+         (static_cast<unsigned char>(content.preedit[content.preedit_cursor]) & 0xc0) != 0x80)) {
+      auto *line = pango_cairo_create_layout(cr);
+      auto *font = pango_font_description_from_string(metrics.font.c_str());
+      pango_layout_set_font_description(line, font);
+      pango_layout_set_text(line, content.preedit.c_str(), static_cast<int>(content.preedit.size()));
+      PangoRectangle strong{}, weak{};
+      pango_layout_get_cursor_pos(line, content.preedit_cursor, &strong, &weak);
+      native_canvas_color(cr, colors, "preedit_caret", "#3584e4");
+      cairo_rectangle(cr, layout.preedit.x + strong.x / static_cast<double>(PANGO_SCALE),
+          layout.preedit.y + strong.y / static_cast<double>(PANGO_SCALE), 2,
+          strong.height / static_cast<double>(PANGO_SCALE)); cairo_fill(cr);
+      pango_font_description_free(font); g_object_unref(line);
+    }
+  }
+  const auto show_bar = colors.find("show_selected_bar");
+  const bool selection_bar = show_bar != colors.end() && show_bar->is_boolean() && show_bar->get<bool>();
   for (std::size_t at = 0; at < content.items.size(); ++at) {
     auto rect = layout.items[at];
     const bool selected = static_cast<int>(at) == content.selected;
-    if (selected) {
-      native_canvas_color(cr, palette, "selected", "#dceaff");
-      cairo_rectangle(cr, rect.x, rect.y, rect.width, rect.height);
-      cairo_fill(cr);
+    const bool pressed = static_cast<int>(at) == pointer.pressed;
+    const bool hovered = static_cast<int>(at) == pointer.hovered;
+    if (selected || pressed || hovered) {
+      native_canvas_color(cr, colors, (selected || pressed) && !content.menu ? "selected" : "hover",
+          selected || pressed ? "#dceaff" : "#00000010");
+      native_canvas_round_rect(cr, rect, native_canvas_item_corners(content, layout, at)); cairo_fill(cr);
+      if (!content.menu && (selected || pressed) && selection_bar) {
+        native_canvas_color(cr, colors, "selected_bar", "#3584e4");
+        const double width = metrics.bar_width, height = metrics.bar_height, radius = width / 2;
+        native_canvas_round_rect(cr, {rect.x - (metrics.bar_inside ? 0 : width / 2),
+            rect.y + std::max(0.0, (rect.height - height) / 2), width, height},
+            {radius, radius, radius, radius}); cairo_fill(cr);
+      }
     }
     const auto &item = content.items[at];
     const auto text_height = native_canvas_text_size(cr, metrics.font, item.text).second;
