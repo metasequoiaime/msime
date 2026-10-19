@@ -27,6 +27,8 @@ export interface CandidateShortcutsSectionProps {
   paging?: ReactNode;
   /** 接在候选参考行之后、一起收进「按键速查」的其他只读行（面板快捷键）。 */
   extraReference?: ReactNode;
+  /** 桌面将速查放进独立标签时，这里只保留可编辑的候选操作。 */
+  showReference?: boolean;
 }
 
 /** 设计稿中的行内按钮：胶囊形，使用平台的按钮 token，13px 文字。 */
@@ -45,6 +47,7 @@ export function CandidateShortcutsSection({
   onRestoreDefaults,
   paging,
   extraReference,
+  showReference = true,
 }: CandidateShortcutsSectionProps) {
   const numberRowSwitch = showNumberRowSelection && (
     <SwitchRow
@@ -96,18 +99,20 @@ export function CandidateShortcutsSection({
           {numberRowSwitch}
         </GroupList>
       )}
-      <GroupList title="按键速查">
-        <MoreOptions>
-          {reference}
-          {extraReference}
-        </MoreOptions>
-      </GroupList>
+      {showReference && (
+        <GroupList title="按键速查">
+          <MoreOptions>
+            {reference}
+            {extraReference}
+          </MoreOptions>
+        </GroupList>
+      )}
     </>
   );
 }
 
 /** 固定的参考行：显示候选时哪些键用于选择、翻页、移动和编辑。 */
-function CandidateShortcutReference({
+export function CandidateShortcutReference({
   navigation,
   wordCharacter,
   numberRowSelection,
@@ -139,9 +144,7 @@ function CandidateShortcutReference({
       )}
       {navigation.arrows && <ShortcutRow title="移动候选项" chord="↑ / ↓" />}
       {/* 打开左右键移动候选时，左右键先编辑输入串，光标到了这一端才移高亮，所以两行标题都要写清是什么时候发生的。 */}
-      {navigation.left_right && (
-        <ShortcutRow title="移动候选项（输入串两端）" chord="← / →" />
-      )}
+      {navigation.left_right && <ShortcutRow title="移动候选项（输入串两端）" chord="← / →" />}
       {wordCharacter?.enabled && (
         <ShortcutRow
           title="以词定字（上屏首字 / 末字）"

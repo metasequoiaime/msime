@@ -2094,8 +2094,12 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(快捷键|按键设置)$/ }));
-  // 参考行收在「按键速查」里；没有数字键选词开关的宿主不再画只剩说明的「候选操作」组。
-  expect(await screen.findByText("按键速查")).toBeDefined();
+  // 桌面速查在顶部标签中直接展示，切换入口无需先展开「更多选项」。
+  expect(await screen.findByRole("tab", { name: "按键设置", selected: true })).toBeDefined();
+  fireEvent.click(screen.getByRole("tab", { name: "按键速查" }));
+  const reference = screen.getByRole("tabpanel", { name: "按键速查" });
+  expect(reference.querySelector("details")).toBeNull();
+  expect(within(reference).getByText("选择候选")).toBeDefined();
   expect(screen.queryByText("候选操作")).toBeNull();
   expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
   // 开着的几组翻页键合在同一行里，不再各占一行同名的「向前 / 向后翻页」。
@@ -2104,7 +2108,7 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getByText("以词定字（上屏首字 / 末字）")).toBeDefined();
   expect(screen.getByText("↑ / ↓")).toBeDefined();
   expect(screen.getByText("Home / End")).toBeDefined();
-  // Home/End move across the whole candidate list, as on Windows, not within the current page.
+  // Home/End 跨整个候选列表移动，而非仅在当前页内移动。
   expect(screen.getByText("移动到候选列表首项 / 末项（页码随之切换）")).toBeDefined();
   expect(screen.queryByText("Ctrl+Shift+Alt+C")).toBeNull();
 });
