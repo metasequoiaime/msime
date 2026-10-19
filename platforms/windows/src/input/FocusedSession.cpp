@@ -290,7 +290,8 @@ bool FocusedSession::confirm(const FocusLease &lease, uint64_t request) {
 std::optional<PendingReply>
 FocusedSession::select_candidate(const FocusLease &lease, uint64_t session,
                                  uint64_t generation, size_t index,
-                                 uint64_t translation_page) {
+                                 uint64_t translation_page,
+                                 const std::optional<std::string> &expanded_text) {
   check_thread();
   if (!prepared(lease))
     return std::nullopt;
@@ -300,9 +301,35 @@ FocusedSession::select_candidate(const FocusLease &lease, uint64_t session,
     (void)session_.key(MSIME_KEY_POINTER);
     result = composer_->select_candidate(session_, session, generation, index,
                                          translation_page,
-        (lease.transport.capabilities & FanyImeProtocol::CandidateContinuation) != 0);
+        (lease.transport.capabilities & FanyImeProtocol::CandidateContinuation) != 0,
+        expanded_text);
     publish_commit_feedback(result);
     attach_online_query(lease, result);
+  });
+  return result;
+}
+std::optional<CandidateExpansionFetch>
+FocusedSession::expanded_candidates(const FocusLease &lease) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<CandidateExpansionFetch> result;
+  gate_.with_active(lease, [&] {
+    // 回复还没确认送达时不动引擎的代次：送达确认和随后的选词都按那一代核对。释义页上的是义项，不是 Engine 的列表。
+    if (composer_->has_pending() || composer_->translation_page() != 0 ||
+        !session_.input_enabled())
+      return;
+    const auto current = session_.view();
+    if (!current.at("focused").get<bool>() ||
+        current.at("editing_text").get<std::string>().empty() ||
+        current.at("candidates").empty() ||
+        scheme::KeyboardOnlyCandidateList(static_cast<int>(current.value("scheme", 0u))))
+      return;
+    CandidateExpansionFetch fetch;
+    fetch.snapshot = session_.all_candidates(lease.epoch);
+    if (fetch.snapshot.at("generation") != current.at("generation"))
+      fetch.view = session_.view();
+    result = std::move(fetch);
   });
   return result;
 }

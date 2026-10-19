@@ -406,9 +406,69 @@ jobs:
           # Installs the toolchain rust-toolchain.toml pins.
           rustup toolchain install
           bash platforms/windows/build-cross.sh x64
+      # 候选皮肤截图工具在这里随整棵树一起交叉编译，由下面的 windows-skin-gallery 作业在 Windows runner 上运行。只带它和它加载的 DLL，去掉调试信息：Debug 构建的 host DLL 带着整个引擎的调试信息。
+      - name: Stage the candidate skin gallery tool
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        run: |
+          stage=target/windows-candidate-skin-gallery-tool
+          mkdir -p "$stage"
+          for file in msime-candidate-skin-gallery.exe msime_host_api.dll libstdc++-6.dll libwinpthread-1.dll libgcc_s_seh-1.dll; do
+            x86_64-w64-mingw32-strip --strip-debug -o "$stage/$file" "target/windows-full/x64/$file"
+          done
+          ls -l "$stage"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        with:
+          name: windows-candidate-skin-gallery-tool
+          path: target/windows-candidate-skin-gallery-tool/
+          if-no-files-found: error
+          retention-days: 3
       - name: Windows platform unchanged
         if: ${{ needs.changes.outputs.windows != 'true' }}
         run: echo 'No Windows or shared-platform changes; platform gate skipped.'
+
+  # 候选皮肤截图：上面交叉编译的截图工具用 Server 的候选窗把 crates/client-services/tests/fixtures/candidate-skins 里的每款皮肤（和不带皮肤的基线）按横竖排、浅深色画在一页假候选上，从这台 runner 的桌面截下来，作为 windows-candidate-skin-gallery 产物上传，没有 Windows 机器也能看皮肤画得对不对。皮肤加载失败、截图失败或截到空白时这一步失败。
+  windows-skin-gallery:
+    needs: [changes, windows]
+    name: Windows candidate skin gallery
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        with:
+          name: windows-candidate-skin-gallery-tool
+          path: target/windows-candidate-skin-gallery-tool
+      # 托管 runner 的桌面缺省 1024 宽，候选窗最多占工作区一半宽，九个候选加释义挤在一起，英文释义被折成半个单词。调到 1920x1080，截图才像用户的屏幕；调不了只记一行，截图照样进行（工具日志里有实际的工作区）。
+      - name: Raise the desktop resolution
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: powershell
+        run: |
+          try {
+            Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop
+            Write-Host 'Desktop resolution set to 1920x1080'
+          } catch {
+            Write-Host "Desktop resolution unchanged: $($_.Exception.Message)"
+          }
+      - name: Render the candidate skins
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          & target/windows-candidate-skin-gallery-tool/msime-candidate-skin-gallery.exe --skins crates/client-services/tests/fixtures/candidate-skins --output target/windows-candidate-skin-gallery
+          # -1073741515 (0xC0000135) means a DLL the tool imports is missing from the staged directory.
+          if ($LASTEXITCODE -ne 0) { throw "Candidate skin gallery failed with exit code $LASTEXITCODE" }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() && needs.changes.outputs.windows == 'true' }}
+        with:
+          name: windows-candidate-skin-gallery
+          path: target/windows-candidate-skin-gallery/
+          if-no-files-found: warn
+      - name: Windows platform unchanged
+        if: ${{ needs.changes.outputs.windows != 'true' }}
+        run: echo 'No Windows or shared-platform changes; skin gallery skipped.'
 
   # WinUI 3 不在 MinGW 的编译范围内；直接使用发布设置工程做 MSVC 编译。
   windows-settings:

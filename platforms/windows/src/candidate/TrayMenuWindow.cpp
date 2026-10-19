@@ -516,7 +516,8 @@ void TrayMenuWindow::paint() {
     target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), format,
                      rect, fill);
   };
-  const auto size = target->GetSize();
+  // 按窗口客户区定外框，不按渲染目标：合成交换链按 64 像素分档，比窗口大（DeviceResources::GetClientSize）。
+  const auto size = device_.GetClientSize();
   const float inset = palette_.border_width / 2.0f;
   const float row_inset = static_cast<float>(metrics_.inset);
   const float item_radius = static_cast<float>(metrics_.item_radius);

@@ -83,11 +83,11 @@ public:
   std::optional<nlohmann::json>
   apply_translations(const FocusLease &lease, uint64_t generation,
                      const std::string &translations);
-  std::optional<PendingReply> select_candidate(const FocusLease &lease,
-                                               uint64_t session,
-                                               uint64_t generation,
-                                               size_t index,
-                                               uint64_t translation_page);
+  std::optional<PendingReply> select_candidate(
+      const FocusLease &lease, uint64_t session, uint64_t generation, size_t index,
+      uint64_t translation_page,
+      const std::optional<std::string> &expanded_text = std::nullopt);
+  std::optional<CandidateExpansionFetch> expanded_candidates(const FocusLease &lease);
   std::optional<nlohmann::json>
   candidate_action(const FocusLease &lease, uint64_t session,
                    uint64_t generation, size_t index, CandidateAction action,

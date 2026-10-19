@@ -114,7 +114,8 @@ test("自定义 has neither preset models nor an integration page", async () => 
   const openExternalUrl = vi.fn(async () => {});
   await openPage("AI 辅助", openExternalUrl);
 
-  fireEvent.change(screen.getByLabelText("AI 服务提供商"), { target: { value: "custom" } });
+  fireEvent.click(screen.getByRole("combobox", { name: "AI 服务提供商" }));
+  fireEvent.click(screen.getByRole("option", { name: "自定义" }));
   expect(screen.getByLabelText("AI 模型").tagName).toBe("INPUT");
   expect(screen.queryByRole("button", { name: "AI 接入说明与 API Key" })).toBeNull();
 });

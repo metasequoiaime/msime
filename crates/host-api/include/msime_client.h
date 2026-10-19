@@ -514,6 +514,11 @@ char *msime_client_focus(uint64_t session, bool focused);
 char *msime_client_reset_cache(uint64_t session);
 /* Release process-level model caches without a session handle (memory pressure). */
 void msime_client_release_process_cache(void);
+/* 语音设置服务目录。纯函数，无文件、网络或设备访问；响应 value 为 {asr:[preset],polish:[preset]}。
+ * preset 为 {id,title,endpoint,model,models:[string],documentation}，仅含公开预设。
+ * 数组顺序即设置页顺序；不含平台特有的 system/local，宿主按能力追加。
+ * models 仅作建议，不限制用户自定义模型。宿主复制字段后用 msime_client_string_free 释放返回的 JSON 缓冲区。 */
+char *msime_client_voice_provider_catalog(void);
 char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
 /* Capture bounded mono 16 kHz samples. The JSON result is transient audio and

@@ -21,6 +21,7 @@ final class DictionarySnapshotWorker {
   private let session: MetasequoiaInputSessionBridge
   private let queue: DictionarySnapshotQueue
   private let currentAccountID: () throws -> String?
+  private let readVersion: @Sendable (Data) throws -> String
   private var task: Task<Void, Never>?
   private var prepared: Prepared?
   private var lease: DictionarySnapshotQueue.WorkerLease?
@@ -30,8 +31,12 @@ final class DictionarySnapshotWorker {
   var applied: (() -> Void)?
 
   init(session: MetasequoiaInputSessionBridge, queue: DictionarySnapshotQueue = .init(),
-       currentAccountID: @escaping () throws -> String? = { try BackendKeychain().load()?.tokens.user.id }) {
+       currentAccountID: @escaping () throws -> String? = { try BackendKeychain().load()?.tokens.user.id },
+       readVersion: @escaping @Sendable (Data) throws -> String = {
+         try MetasequoiaInputSessionBridge.localDictionaryStateVersion(preparedOptions: $0)
+       }) {
     self.session = session; self.queue = queue; self.currentAccountID = currentAccountID
+    self.readVersion = readVersion
   }
   func stop() {
     task?.cancel()
@@ -45,8 +50,7 @@ final class DictionarySnapshotWorker {
     do {
       let state = try queue.read()
       if let request = state.request, request.status.active {
-        // Queue cancellation can lose a race with another holder of state.lock. Never prepare
-        // or activate that request for a different signed-in account on a later tick.
+        // 取消可能遇到 state.lock 争用；后续轮询仍必须确认账号，不能替另一个账号准备或激活。
         guard let owner = try? currentAccountID() else { return }
         if owner != request.accountID {
           try queue.cancel(accountID: request.accountID)
@@ -71,56 +75,73 @@ final class DictionarySnapshotWorker {
         return
       }
       guard force || state.request?.status.active == true || state.localVersion == nil || Date().timeIntervalSince(lastVersionCheck) >= 10 else { return }
-      let current = try session.localDictionaryStateVersion()
-      try queue.publishLocalVersion(current)
-      lastVersionCheck = Date()
-      guard try queue.read().request?.status.active == true else { return }
-      let lease = try queue.acquireWorkerLease()
-      guard let request = try queue.claim(using: lease) else { return }
-      if current != request.expectedLocalVersion {
-        _ = try queue.complete(id: request.id, using: lease, currentVersion: current, alreadyApplied: false) { current }
-        report?("本地词库已变化，本次快照未应用。请重新确认。")
-        return
-      }
-      let raw = try session.dictionarySnapshotContext()
-      guard let resources = raw["resources"] as? URL, let user = raw["user"] as? URL,
-            let content = raw["contentIdentifier"] as? String,
-            let options = raw["preparedOptions"] as? Data else { throw DictionarySnapshotQueue.Failure.invalid }
-      let context = Context(resources: resources, user: user, content: content, options: options)
-      let file = try queue.fileURL(for: request)
-      self.lease = lease
+      let options = try session.dictionaryStateVersionOptions()
+      let readVersion = self.readVersion
       task = Task { [weak self] in
-        let preparation = Task.detached(priority: .utility) {
-          try DictionarySnapshotBridge.discardInactive(identifier: request.id.uuidString, user: context.user)
-          let snapshot = try BackendPreparedSnapshot(copying: file)
-          guard snapshot.fileSHA256 == request.fileSHA256 else { throw DictionarySnapshotQueue.Failure.invalid }
-          let stream = try BackendSnapshotRecordStream(snapshot: snapshot)
-          let recordCount = snapshot.envelope.overlays + snapshot.envelope.positions + snapshot.envelope.selections
-          let value = try DictionarySnapshotBridge.prepare(resources: context.resources, user: context.user,
-            identifier: request.id.uuidString, contentIdentifier: context.content,
-            maximumRecords: UInt(recordCount), preparedOptions: context.options,
-            nextRecord: { failure in
-              do { return try stream.next() }
-              catch { failure?.pointee = error as NSError; return nil }
-            })
-          return Prepared(value, user: context.user, request: request, lease: lease)
-        }
+        defer { self?.task = nil }
+        var claimedRequest: UUID?
+        let poll = Task.detached(priority: .utility) { try readVersion(options) }
         do {
+          let current = try await withTaskCancellationHandler(operation: { try await poll.value }, onCancel: { poll.cancel() })
+          try Task.checkCancellation()
+          guard let self else { return }
+          try queue.publishLocalVersion(current)
+          lastVersionCheck = Date()
+          // 读取期间账号可能改变；认领之前重新确认归属。实际激活留给下一次空闲 tick。
+          guard let pending = try queue.read().request, pending.status.active,
+                let owner = try? currentAccountID() else { return }
+          guard owner == pending.accountID else {
+            try queue.cancel(accountID: pending.accountID)
+            return
+          }
+          let lease = try queue.acquireWorkerLease()
+          guard let request = try queue.claim(using: lease) else { return }
+          if current != request.expectedLocalVersion {
+            _ = try queue.complete(id: request.id, using: lease, currentVersion: current, alreadyApplied: false) { current }
+            report?("本地词库已变化，本次快照未应用。请重新确认。")
+            return
+          }
+          claimedRequest = request.id
+          let raw = try session.dictionarySnapshotContext()
+          guard let resources = raw["resources"] as? URL, let user = raw["user"] as? URL,
+                let content = raw["contentIdentifier"] as? String,
+                let options = raw["preparedOptions"] as? Data else { throw DictionarySnapshotQueue.Failure.invalid }
+          let context = Context(resources: resources, user: user, content: content, options: options)
+          let file = try queue.fileURL(for: request)
+          self.lease = lease
+
+          let preparation = Task.detached(priority: .utility) {
+            try DictionarySnapshotBridge.discardInactive(identifier: request.id.uuidString, user: context.user)
+            let snapshot = try BackendPreparedSnapshot(copying: file)
+            guard snapshot.fileSHA256 == request.fileSHA256 else { throw DictionarySnapshotQueue.Failure.invalid }
+            let stream = try BackendSnapshotRecordStream(snapshot: snapshot)
+            let recordCount = snapshot.envelope.overlays + snapshot.envelope.positions + snapshot.envelope.selections
+            let value = try DictionarySnapshotBridge.prepare(resources: context.resources, user: context.user,
+              identifier: request.id.uuidString, contentIdentifier: context.content,
+              maximumRecords: UInt(recordCount), preparedOptions: context.options,
+              nextRecord: { failure in
+                do { return try stream.next() }
+                catch { failure?.pointee = error as NSError; return nil }
+              })
+            return Prepared(value, user: context.user, request: request, lease: lease)
+          }
           let result = try await withTaskCancellationHandler(operation: { try await preparation.value }, onCancel: { preparation.cancel() })
           try Task.checkCancellation()
-          self?.prepared = result
+          self.prepared = result
         } catch {
-          if !Task.isCancelled, let owner = self, let state = try? owner.queue.read(),
-             state.request?.id == request.id, state.request?.status.active == true {
-            try? owner.queue.fail(id: request.id)
-            owner.report?(error.localizedDescription)
+          guard !Task.isCancelled, let owner = self else { return }
+          owner.lease = nil
+          if MetasequoiaInputSessionBridge.isSnapshotBusy(error) { return }
+          if case DictionarySnapshotQueue.Failure.busy = error { return }
+          if let claimedRequest, let state = try? owner.queue.read(),
+             state.request?.id == claimedRequest, state.request?.status.active == true {
+            try? owner.queue.fail(id: claimedRequest)
           }
-          self?.lease = nil
+          owner.report?(error.localizedDescription)
         }
-        self?.task = nil
       }
     } catch {
-      // Another holder has the snapshot lease: keep the prepared job and retry next tick.
+      // 租约争用时保留准备结果，留到下一次空闲轮询重试。
       if MetasequoiaInputSessionBridge.isSnapshotBusy(error) { return }
       if case DictionarySnapshotQueue.Failure.busy = error { return }
       if let prepared, let version = try? session.localDictionaryStateVersion() {

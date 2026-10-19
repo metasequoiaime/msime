@@ -17395,3 +17395,17 @@ fn an_oversized_custom_request_does_not_fall_back_to_google() {
     assert!(url["value"].is_null());
     read(msime_client_destroy(handle));
 }
+
+#[test]
+fn voice_provider_catalog_export_matches_the_shared_catalog() {
+    use msime_client_providers::voice::provider_catalog::{ASR_PROVIDERS, POLISH_PROVIDERS};
+    let catalog = read(msime_client_voice_provider_catalog());
+    assert_eq!(catalog["ok"], true);
+    assert_eq!(
+        catalog["value"],
+        serde_json::json!({
+            "asr": ASR_PROVIDERS,
+            "polish": POLISH_PROVIDERS
+        })
+    );
+}

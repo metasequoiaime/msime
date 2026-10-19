@@ -275,7 +275,8 @@ void CandidateFlyoutWindow::paint(Panel &panel) {
       DWRITE_WORD_WRAPPING_NO_WRAP);
   if (!label_format || !chevron_format)
     throw std::runtime_error("Candidate menu text format unavailable");
-  const auto size = target->GetSize();
+  // 按窗口客户区定外框，不按渲染目标：合成交换链按 64 像素分档，比窗口大（DeviceResources::GetClientSize）。
+  const auto size = panel.device.GetClientSize();
   const float inset = palette_.border_width / 2.0f;
   target->BeginDraw();
   // Clear to nothing: only the rounded card is opaque, so the corners stay

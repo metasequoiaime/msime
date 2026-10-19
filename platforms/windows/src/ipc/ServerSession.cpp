@@ -354,13 +354,29 @@ nlohmann::json ServerSession::select(uint64_t epoch, uint64_t generation,
       }
     }
   }
+  return select_with(generation, index, completes_composition, false);
+}
+nlohmann::json ServerSession::select_any(uint64_t epoch, uint64_t generation, size_t index,
+                                         uint8_t source) {
+  check_active(epoch);
+  if (!input_enabled_)
+    throw std::logic_error("Candidate selection while input disabled");
+  return select_with(generation, index, candidate_finishes_composition(source), true);
+}
+nlohmann::json ServerSession::all_candidates(uint64_t epoch) {
+  check_active(epoch);
+  return response(msime_client_all_candidates(session_));
+}
+nlohmann::json ServerSession::select_with(uint64_t generation, size_t index,
+                                          bool completes_composition, bool any) {
   nlohmann::json result;
   {
     // 这几类候选整段送进文档，剩下的读音随后由下面的 MSIME_CANCEL 丢掉，选中的这一段不进 Server 的前缀。核心却只看到「上屏了、读音还剩」，按 HOST_HOLDS_PIECES 当作暂存的一段：不出上屏音，回复的 feedback 为 0，之后的 MSIME_CANCEL 又没有上屏，整段上屏就既不响也不画，还会用 0 把连击徽标清零。所以这次选词不带这一位，离开作用域时恢复，选词抛出也一样。
     std::optional<PiecesReachDocument> whole;
     if (completes_composition)
       whole.emplace(session_, commit_observe_only_);
-    result = response(msime_client_select(session_, generation, index));
+    result = response(any ? msime_client_select_any_candidate(session_, generation, index)
+                          : msime_client_select(session_, generation, index));
   }
   if (completes_composition && !result.at("commit").is_null()) {
     const auto cleared = response(msime_client_command(session_, MSIME_CANCEL));

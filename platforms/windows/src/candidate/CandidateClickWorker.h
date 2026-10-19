@@ -15,6 +15,8 @@ struct CandidateClick {
   uint8_t position = 0;
   // 点到的那一帧的释义页编号（CandidatePresentation::translation_page），Engine 自己的候选为 0。
   uint64_t translation_page = 0;
+  // 卷轴展开网格里点的候选：index 是完整候选列表里的下标，这里是网格上画的文字，Server 按它再核对一次。只用于选词。
+  std::optional<std::string> expanded_text = std::nullopt;
 };
 struct CandidatePage {
   FocusLease lease;

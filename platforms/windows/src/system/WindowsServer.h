@@ -45,9 +45,14 @@ public:
   }
   SelectionRequestResult request_selection(const FocusLease &lease,
       uint64_t session, uint64_t generation, size_t index,
-      uint64_t translation_page) {
+      uint64_t translation_page,
+      const std::optional<std::string> &expanded_text = std::nullopt) {
     return controller_->request_selection(lease, session, generation, index,
-                                          translation_page);
+                                          translation_page, expanded_text);
+  }
+  // 卷轴展开的开与关；见 SessionController。
+  void set_candidate_expansion(const FocusLease &lease, bool open) {
+    controller_->set_candidate_expansion(lease, open);
   }
   CandidateActionRequestResult request_candidate_action(
       const FocusLease &lease, uint64_t session, uint64_t generation,

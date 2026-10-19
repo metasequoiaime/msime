@@ -495,7 +495,10 @@ impl Session {
             && self.input.helpcode_enabled()
             && !self.input.local_mode.annotates_rows();
         let input = &self.input;
-        let candidates = input.candidates().to_vec();
+        let mut candidates = input.candidates().to_vec();
+        for item in &mut candidates {
+            input.apply_english_word_case(item.source, &mut item.word);
+        }
         let preedit = if !self.shuangpin_preedit_uses_raw
             && input.scheme() == SchemeType::Shuangpin
             && input.local_mode == LocalInputMode::None

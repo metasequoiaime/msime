@@ -5,6 +5,15 @@
 use crate::*;
 use msime_client_core::{is_bounded_chars_without_nul, is_bounded_text};
 
+/// 语音设置的公开服务目录；纯函数，不访问偏好或设备。返回值用标准 JSON 信封封装。
+#[no_mangle]
+pub extern "C" fn msime_client_voice_provider_catalog() -> *mut c_char {
+    response(|| {
+        use msime_client_providers::voice::provider_catalog::{ASR_PROVIDERS, POLISH_PROVIDERS};
+        Ok(json!({ "asr": ASR_PROVIDERS, "polish": POLISH_PROVIDERS }))
+    })
+}
+
 /// Decode one Doubao v1 response frame for Apple hosts. The returned payload
 /// is UTF-8 JSON text; no frame bytes or credentials are retained.
 ///

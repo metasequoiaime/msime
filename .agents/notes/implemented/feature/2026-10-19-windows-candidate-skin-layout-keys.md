@@ -56,6 +56,6 @@ msime-windows 里没写的键沿用 `base` 外观的出厂清单（`wechat` 的 
 - 没写的键回到本宿主版式而不是 `base` 外观的出厂值，同一个包在两边仍会有差别；`base = "microsoft"` 但没写 `page_arrows` 的皮肤在这里没有列表翻页箭头。
 - `backdrop` 只是不透明回退，没有模糊材质。
 - 打开 `page_arrows` 的皮肤看不到「n / m」页码，读屏也不再报告页码这一项（两个箭头照常报告、可执行）。
-- `expand_panel` / `expand_rows`、九宫格 `border_image`、自由挂件、insets 和 `line_gap_dip` 仍只解析不绘制；原生设置窗口的皮肤预览也还不画这些键。
+- 九宫格 `border_image`、自由挂件、insets 和 `line_gap_dip` 仍只解析不绘制，`expand_panel` / `expand_rows` 见 [Windows 候选窗绘制皮肤的卷轴展开](2026-10-19-windows-candidate-skin-expand-panel.md)；原生设置窗口的皮肤预览也还不画这些键。
 
 验证：`windows-candidate-card-size`（新增空版式逐位相同、各键的尺寸与行、列表箭头位置与点击、贴角半径）、新加的 `windows-candidate-skin-layout`（JSON 读取、越界值当作没写、横竖排覆盖、em 取整、阴影与底色换算）、`windows-candidate-accessibility`（列表箭头不报页码）以及 `windows-candidate-skin`、`-palette`、`-layout-reload`、`-shadow`、`-window-style`、`-skin-reload`、`-theme-reload`、`windows-skin-resource-revision` 在 Mac Studio 上用 `c++ -std=c++17 -Wall -Wextra -Werror` 编译并通过；`CandidateWindow.cpp` 用本机 `x86_64-w64-mingw32-g++ -fsyntax-only -Wall -Wextra` 检查无错误无警告。`server_main.cpp` 缺 curl 头文件没有单独检查，链接与完整交叉构建交给 PR 上的 Windows CI。没有在真实 Windows 上目测：Direct2D 的逐角圆角路径、圆角三角箭头、悬停与按下底色、阴影档位的观感都还要在屏幕上看一遍。

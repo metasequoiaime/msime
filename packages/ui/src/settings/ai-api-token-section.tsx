@@ -25,7 +25,7 @@ export function AiApiTokenSection({
       description={
         origin
           ? `服务地址：${aiEndpointServiceAddress(endpoint ?? origin) ?? origin}`
-          : endpointHint || "请先在「更多选项」中填写有效的接口地址"
+          : endpointHint || "请先填写有效的接口地址"
       }
       label="AI API Token"
       disabled={!origin}

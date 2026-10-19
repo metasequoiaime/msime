@@ -107,6 +107,17 @@ struct CandidateCardMetrics {
     }
   };
   std::optional<ListArrows> list_arrows;
+  // 皮肤 `expand_panel` 打开时（只在横排）：候选右侧一窄列放展开按钮「∨」，翻页箭头不画，首行也不画翻页。尺寸照 msime-windows candidate_skin_scene.cpp：按钮边长是 1.1 倍字号取整，左右外边距 2 和 1，竖直居中在第一行上；网格每格不窄于 2.6 倍字号取整；滚动条预留 10 DIP，只画 4 DIP 宽的滑块。网格、滚动和点击见 CandidateExpandPanel.h。
+  struct ExpandPanel {
+    double button = 0.0, glyph = 0.0, stroke = 0.0;
+    double margin_left = 2.0, margin_right = 1.0, margin_top = 0.0;
+    double column = 0.0, cell_min = 0.0;
+    // 展开后一屏的网格行数（`expand_rows`）。
+    int rows = 4;
+    double scrollbar = 10.0, thumb_width = 4.0, thumb_inset = 2.0,
+           thumb_right_inset = 2.0, thumb_min = 20.0, thumb_radius = 2.0;
+  };
+  std::optional<ExpandPanel> expand_panel;
 };
 // 首行里 logo、拼音和首行翻页所在的那一段（卡片坐标的上下边）：拼音行外边距之内。
 struct CandidateHeaderBand {
@@ -131,7 +142,9 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
       preedit_font_size > 32.0)
     throw std::invalid_argument("Invalid candidate card font size");
   CandidateCardMetrics metrics;
-  const bool list_arrows = skin.page_arrows && pager_visible;
+  // 卷轴展开打开时 page_arrows 被忽略（candidate_skin_metrics 已经清掉），首行的翻页也不画。
+  const bool expand_panel = skin.expand_panel && skin.horizontal;
+  const bool list_arrows = skin.page_arrows && pager_visible && !expand_panel;
   // `padding` 是卡片边缘到候选的距离，四边相同：行左右各缩进 pad_x / 2，上边 pad_y，下边 slack_y。
   if (skin.padding) {
     metrics.pad_x = *skin.padding * 2.0;
@@ -184,7 +197,8 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
   metrics.logo_visible = logo_visible;
   metrics.preedit_row = (std::max)(
       preedit_visible ? preedit_font_size * 1.4 + 6.0 : 0.0,
-      logo_visible || (pager_visible && !list_arrows) ? metrics.header_row : 0.0);
+      logo_visible || (pager_visible && !list_arrows && !expand_panel) ? metrics.header_row
+                                                                       : 0.0);
   if (preedit_visible) {
     metrics.preedit_margin = skin.preedit_margin;
     metrics.preedit_row += metrics.preedit_margin.top + metrics.preedit_margin.bottom;
@@ -240,11 +254,26 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
     }
     metrics.list_arrows = arrows;
   }
+  if (expand_panel) {
+    CandidateCardMetrics::ExpandPanel panel;
+    panel.button = std::round(font_size * 1.1);
+    panel.glyph = std::round(font_size * 0.6);
+    panel.stroke = (std::max)(1.2, font_size / 13.0);
+    panel.margin_top = (std::max)(0.0, (metrics.candidate_row - panel.button) * 0.5);
+    panel.column = panel.margin_left + panel.button + panel.margin_right;
+    panel.cell_min = std::round(font_size * 2.6);
+    panel.rows = std::clamp(skin.expand_rows, 2, 8);
+    // 按钮列接在候选后面，和翻页箭头那一列一样，候选列自带的 column_gap 已经是它们之间的空。
+    metrics.slack_x = 0.0;
+    metrics.expand_panel = panel;
+  }
   return metrics;
 }
-// 列表里的翻页箭头在横排时占去的宽度（候选右侧那一窄列），没有时为 0。
+// 列表右侧那一窄列占去的宽度：横排的列表翻页箭头，或卷轴展开的按钮；没有时为 0。
 inline double candidate_list_arrow_column(const CandidateCardMetrics &metrics) {
-  return metrics.list_arrows ? metrics.list_arrows->column : 0.0;
+  if (metrics.list_arrows)
+    return metrics.list_arrows->column;
+  return metrics.expand_panel ? metrics.expand_panel->column : 0.0;
 }
 // Row rectangle in card coordinates for rows of one line each; the caller supplies the card width it actually got. candidate_page_layout starts a vertical page from these and grows the rows that carry wrapped runs; the first row's top and minimum height are the same either way. The horizontal branch is an even split of the width, which candidate_page_layout no longer uses: a horizontal page gets columns of each candidate's natural width instead.
 struct CandidateRowBounds {
@@ -630,7 +659,7 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
       input.font_size, input.preedit_font_size, input.preedit_visible,
       input.logo_visible, input.page_width > 0.0, input.skin,
       std::isfinite(input.number_width) ? input.number_width : 0.0);
-  // 皮肤把翻页画在列表里时，横排在候选右侧加一窄列，竖排在最后一行下方加一矮行。
+  // 皮肤把翻页画在列表里时，横排在候选右侧加一窄列，竖排在最后一行下方加一矮行；卷轴展开的按钮也是候选右侧的一窄列。
   const double arrow_column = candidate_list_arrow_column(shape);
   const double arrow_row = shape.list_arrows ? shape.list_arrows->row : 0.0;
   const double pad_x = shape.pad_x, pad_y = shape.pad_y,
@@ -649,8 +678,9 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
   double height = pad_y + slack_y;
   // 首行：显示时的 logo、显示时的拼音，以及翻页。三者都没有时首行高度为 0。
   {
-    const double pager =
-        shape.list_arrows ? 0.0 : candidate_pager_width(input.page_width, shape);
+    const double pager = shape.list_arrows || shape.expand_panel
+                             ? 0.0
+                             : candidate_pager_width(input.page_width, shape);
     width = (std::max)(width, (shape.logo_visible ? shape.logo_side + shape.logo_gap : 0.0) +
                                   (input.preedit_visible
                                        ? input.preedit_width + 6.0 +

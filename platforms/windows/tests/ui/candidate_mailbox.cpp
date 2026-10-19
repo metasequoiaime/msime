@@ -498,4 +498,108 @@ void candidate_mailbox_tests() {
   require(publish(anchored_again, 217));
   require(
       !mailbox.snapshot(gate)); // A late delivery cannot reopen a stopped UI.
+  // 卷轴展开：候选窗点开「∨」后，Server 为眼下这一代取完整候选列表，快照只在同一代时挂着它；换了代次就要再取，只补上释义的同一代不用；收起、隐藏、断开时清掉。
+  {
+    FocusGate expansion_gate;
+    CandidateMailbox expansions;
+    const auto change = expansion_gate.begin(a, 41);
+    require(change.has_value() &&
+            expansion_gate.acknowledge(change->pending, [] { return true; }));
+    const auto lease = change->pending;
+    const auto view = [](uint64_t generation) {
+      nlohmann::json candidates = nlohmann::json::array();
+      for (size_t index = 0; index < 2; ++index)
+        candidates.push_back({{"id", {{"session", 1}, {"generation", generation}, {"index", index}}},
+                              {"text", index == 0 ? "first" : "second"},
+                              {"highlighted", index == 0}});
+      return nlohmann::json{{"session", 1},     {"generation", generation},
+                            {"focused", true},  {"editing_text", "ni"},
+                            {"preedit", "ni"},  {"page", 0},
+                            {"page_count", 3},  {"page_size", 2},
+                            {"candidates", candidates}};
+    };
+    const auto deliver = [&](uint64_t generation, bool traditional = false) {
+      FanyImeNamedpipeData packet{};
+      packet.client_id = lease.transport.client;
+      packet.request_id = generation;
+      packet.event_type = FanyImePipeEventType::KeyEvent;
+      PendingReply reply{};
+      reply.source.client_id = packet.client_id;
+      reply.source.activation_epoch = lease.epoch;
+      reply.source.request_id = packet.request_id;
+      reply.source.transition = {{"view", view(generation)}};
+      reply.traditional_output = traditional;
+      return expansion_gate.with_active(lease,
+                                        [&] { expansions.delivered(lease, reply, packet); });
+    };
+    const auto snapshot = [](uint64_t generation, size_t count) {
+      nlohmann::json candidates = nlohmann::json::array();
+      for (size_t index = 0; index < count; ++index)
+        candidates.push_back({{"id", {{"session", 1}, {"generation", generation}, {"index", index}}},
+                              {"text", "w" + std::to_string(index)},
+                              {"source", index == 3 ? 12 : 0}});
+      return nlohmann::json{{"session", 1}, {"generation", generation}, {"candidates", candidates}};
+    };
+    require(deliver(50));
+    auto shown = expansions.snapshot(expansion_gate);
+    require(shown && shown->page_size == 2 && !shown->expanded && !shown->expansion_open);
+    // 没打开时不取。
+    require(!expansions.expansion_due(lease));
+    expansions.expansion(lease, true);
+    require(expansions.expansion_due(lease));
+    // 快照带着 Server 这一侧开没开，候选窗按它收起。
+    require(expansions.snapshot(expansion_gate)->expansion_open);
+    // 解析：身份对不上的整份不要，占位行跳过。
+    require(expanded_candidates_from_snapshot(snapshot(50, 6), 1, 51).empty());
+    auto items = expanded_candidates_from_snapshot(snapshot(50, 6), 1, 50);
+    require(items.size() == 5 && items[3].index == 4 && items[3].text == "w4");
+    // 别的代次的列表不留。
+    expansions.expanded(lease, 1, 49, items);
+    require(expansions.expansion_due(lease) && !expansions.snapshot(expansion_gate)->expanded);
+    const auto serial = expansions.snapshot(expansion_gate)->render_serial;
+    expansions.expanded(lease, 1, 50, items);
+    shown = expansions.snapshot(expansion_gate);
+    require(shown->expanded && shown->expanded->size() == 5 && shown->render_serial > serial);
+    require(!expansions.expansion_due(lease));
+    // 同一代补上释义：列表还在，不用再取。
+    expansions.translations(lease, view(50));
+    require(expansions.snapshot(expansion_gate)->expanded && !expansions.expansion_due(lease));
+    // 接着打字换了代次：这一页没有网格，直到为新的一代取到。
+    require(deliver(51));
+    require(!expansions.snapshot(expansion_gate)->expanded && expansions.expansion_due(lease));
+    expansions.expanded(lease, 1, 51, expanded_candidates_from_snapshot(snapshot(51, 4), 1, 51));
+    require(expansions.snapshot(expansion_gate)->expanded != nullptr);
+    // 切换简繁只换投影、不换代次：手里的列表是另一种字形，不挂到快照上，要再取；按新的字形取到后才挂上。
+    require(deliver(51, true));
+    require(!expansions.snapshot(expansion_gate)->expanded && expansions.expansion_due(lease));
+    expansions.expanded(lease, 1, 51, expanded_candidates_from_snapshot(snapshot(51, 4), 1, 51));
+    require(expansions.snapshot(expansion_gate)->expanded != nullptr &&
+            !expansions.expansion_due(lease));
+    require(deliver(51, false));
+    require(!expansions.snapshot(expansion_gate)->expanded && expansions.expansion_due(lease));
+    expansions.expanded(lease, 1, 51, expanded_candidates_from_snapshot(snapshot(51, 4), 1, 51));
+    // 别的租约既不取，也拿不到。
+    auto other = lease;
+    ++other.token;
+    require(!expansions.expansion_due(other));
+    // 收起时清掉。
+    expansions.expansion(lease, false);
+    require(!expansions.expansion_due(lease) && !expansions.snapshot(expansion_gate)->expanded);
+    // 候选窗隐藏（上屏或取消）时也清掉。
+    expansions.expansion(lease, true);
+    expansions.expanded(lease, 1, 51, expanded_candidates_from_snapshot(snapshot(51, 4), 1, 51));
+    FanyImeNamedpipeData hide{};
+    hide.client_id = lease.transport.client;
+    hide.event_type = FanyImePipeEventType::HideCandidateWnd;
+    require(expansion_gate.with_active(lease, [&] { expansions.event(lease, hide); }));
+    require(deliver(52));
+    // 候选窗还以为开着时，下一帧的快照告诉它 Server 已经收起（上屏后马上接着打字，候选窗没来得及收起）。
+    require(!expansions.expansion_due(lease) && !expansions.snapshot(expansion_gate)->expanded &&
+            !expansions.snapshot(expansion_gate)->expansion_open);
+    // 断开时清掉。
+    expansions.expansion(lease, true);
+    require(expansions.expansion_due(lease));
+    expansions.disconnected(a);
+    require(!expansions.expansion_due(lease));
+  }
 }

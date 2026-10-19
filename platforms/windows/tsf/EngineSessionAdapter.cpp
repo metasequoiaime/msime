@@ -69,6 +69,15 @@ bool EngineSessionAdapter::select_edge(uint64_t generation, std::size_t index,
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
   return response(msime_client_select_edge(session_, generation, index, edge), out, error);
 }
+bool EngineSessionAdapter::all_candidates(std::string *out, std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_all_candidates(session_), out, error);
+}
+bool EngineSessionAdapter::select_any(uint64_t generation, std::size_t index, std::string *out,
+                                      std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_select_any_candidate(session_, generation, index), out, error);
+}
 bool EngineSessionAdapter::view(std::string *out, std::string *error) const {
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
   return response(msime_client_view(session_), out, error);

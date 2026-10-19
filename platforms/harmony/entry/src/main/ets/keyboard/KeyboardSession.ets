@@ -1,3 +1,4 @@
+import { CandidateCanvasScene, CandidateCanvasResource, CandidateCanvasPolicy } from './candidate/CandidateCanvasPolicy';
 import { NativeCleanup } from './NativeCleanup';
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
@@ -772,19 +773,6 @@ export interface PrepareRequest {
   edition?: string;
 }
 
-/** 词库更新状态与后台下载（`dictionary` 的 `updates`）交给 `client.dictionary` 的引擎选项，字段名与 Rust 的选项相同；ArkTS 不允许无类型的对象字面量，所以单独声明。没有语言词库目录时不带 `language_dictionaries`。 */
-interface DictionaryUpdateOptions {
-  api_version: number;
-  resources: string;
-  preferences_directory: string;
-  user_data: string;
-  cache: string;
-  dictionaries: string;
-  preferences: Record<string, Object>;
-  edition: string;
-  language_dictionaries?: string;
-}
-
 interface SnapshotQueueProcessAction {
   operation: string;
   directory: string;
@@ -992,6 +980,8 @@ export interface KeyboardPreferences {
   readonly candidateCornerRadiusUser: boolean;
   /** Image-only data URL drawn over the card surface, clipped to the card. */
   readonly candidateBackgroundImage: string | null;
+  /** 共享扫描器校验后的 canvas 快照；逐键只消费，不访问文件。 */
+  readonly candidateCanvas: CandidateCanvasScene | null;
   readonly candidateBackgroundFit: CandidateSkinFit;
   readonly candidateBackgroundOpacity: number;
   /** The bounded native motion presets from the selected candidate package. */
@@ -1083,7 +1073,18 @@ interface DictionaryRequest {
   action: DictionaryAction;
 }
 
-
+/** 词库更新状态与后台下载（`dictionary` 的 `updates`）交给 `client.dictionary` 的引擎选项，字段名与 Rust 的选项相同；ArkTS 不允许无类型的对象字面量，所以单独声明。没有语言词库目录时不带 `language_dictionaries`。 */
+interface DictionaryUpdateOptions {
+  api_version: number;
+  resources: string;
+  preferences_directory: string;
+  user_data: string;
+  cache: string;
+  dictionaries: string;
+  preferences: Record<string, Object>;
+  edition: string;
+  language_dictionaries?: string;
+}
 
 interface PersonalDictionarySyncValue {
   pending_count: number;
@@ -1270,6 +1271,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     candidateCornerRadiusVp: null,
     candidateCornerRadiusUser: false,
     candidateBackgroundImage: null,
+    candidateCanvas: null,
     candidateBackgroundFit: 'cover',
     candidateBackgroundOpacity: 1,
     candidateAnimation: { enter: 'none', exit: 'none', selection: 'none', durationMs: 0, staggerMs: 0 },
@@ -1455,12 +1457,53 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  /**
-   * Resolves the global theme for both modes and draws every surface's appearance from the answer.
-   *
-   * The resolve reads the skin root, so it runs when the preferences are read or the theme is chosen, never while drawing. Both modes are resolved up front because each surface keeps its own light/dark rule: the keyboard, the candidate window and the toolbar can sit in different modes at once, and a theme over `system` (a package, say) answers differently in each.
-   */
+  private canvasGeneration: number = 0;
+  private canvasPreferences: PreparedPreferences | null = null;
+
+  private readCandidateCanvas(packages: CandidateSkinPackage[], id: string | null, dark: boolean): CandidateCanvasScene | null {
+    const entry: CandidateSkinPackage | null = id === null ? null : CandidateSkinCatalogPolicy.package(packages, id);
+    if (entry === null || entry.canvas !== true || id === null) return null;
+    const paths: string[] = [];
+    if (entry.borderImage !== undefined && entry.borderImage !== null) {
+      paths.push(!dark && entry.borderImage.lightSource ? entry.borderImage.lightSource : entry.borderImage.source);
+    }
+    for (const decoration of entry.decorations ?? []) {
+      if (!paths.includes(decoration.image)) paths.push(decoration.image);
+    }
+    const resources: CandidateCanvasResource[] = [];
+    let remainingBytes: number = 16 * 1024 * 1024;
+    for (const relative of paths) {
+      try {
+        const request: SkinResourceRequest = {
+          directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'image'
+        };
+        const reply: SkinResourceResponse = JSON.parse(client.skinResource(JSON.stringify(request))) as SkinResourceResponse;
+        if (reply.ok === true && reply.value !== undefined && reply.value !== null
+          && reply.value.bytes.length <= remainingBytes) {
+          remainingBytes -= reply.value.bytes.length;
+          resources.push({ relative: relative, contentType: reply.value.contentType, bytes: new Uint8Array(reply.value.bytes) });
+        }
+      } catch (_) {
+        // 单张资源失败由绘制层回退，不影响候选输入。
+      }
+    }
+    return {
+      key: `${++this.canvasGeneration}:${id}:${dark}`, dark: dark, canvas: true,
+      borderImage: entry.borderImage, decorations: entry.decorations, resources: resources,
+      contentInsetsDip: entry.contentInsetsDip, outerInsetsDip: entry.outerInsetsDip, lineGapDip: entry.lineGapDip,
+    };
+  }
+
+  /** 仅在视图确实绘制当前快照的面板后使用贴图配色，取色器仍由共享 Rust 叠加。 */
+  canvasCandidateColors(key: string): CandidateColors | null {
+    if (this.appearance.candidateCanvas?.key !== key || this.canvasPreferences === null) return null;
+    const resolved: ResolvedTheme | null = this.resolveTheme(this.canvasPreferences, this.appearance.candidateDark, true);
+    return resolved === null ? null : GlobalTheme.candidateColors(resolved.candidate, this.appearance.candidateDark);
+  }
+
+  /** 外观重载时统一解析明暗主题；各界面保留自己的模式规则，逐键绘制不读取皮肤目录。 */
   private applyAppearance(preferences: PreparedPreferences): void {
+    this.canvasPreferences = preferences;
     if (this.themeCatalog.length === 0) {
       this.themeCatalog = this.readThemeCatalog();
     }
@@ -1529,6 +1572,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidateCornerRadiusVp: candidateRadius,
       candidateCornerRadiusUser: userRadiusValid,
       candidateBackgroundImage: backgroundImage.image,
+      candidateCanvas: this.readCandidateCanvas(skinPackages, packageId, candidateDark),
       candidateBackgroundFit: skinBackground === null ? 'cover' : skinBackground.fit,
       candidateBackgroundOpacity: skinBackground === null ? 1 : skinBackground.opacity,
       candidateAnimation: candidateAnimation,
@@ -1618,7 +1662,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /** One mode of the global theme. A refused request draws the native tokens rather than failing the session. */
-  private resolveTheme(preferences: PreparedPreferences, dark: boolean): ResolvedTheme | null {
+  private resolveTheme(preferences: PreparedPreferences, dark: boolean, panelDrawn: boolean = false): ResolvedTheme | null {
     const request: ResolveThemeRequest = {
       // 固定明暗的主题在另一种明暗下按跟随系统解析，见 `GlobalTheme.fitsMode`。两种明暗于是不再一致，`fixedAppearance` 也就不再把各界面钉在那种明暗上。
       global_theme: GlobalTheme.effectiveId(this.themeCatalog, preferences.global_theme, dark),
@@ -1626,7 +1670,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       custom_theme: GlobalTheme.hostDrawnCustomTheme(preferences.custom_theme),
       dark: dark,
       layout: preferences.candidate_layout === 'horizontal' ? 'horizontal' : 'vertical',
-      skins_directory: `${this.stateDirectory}/skins`
+      skins_directory: `${this.stateDirectory}/skins`,
+      canvas_panel_drawn: panelDrawn
     };
     try {
       const resolved: ResolvedTheme | null =
@@ -4419,11 +4464,12 @@ export class KeyboardSession implements HardwareKeyTarget {
         CandidateNumberFontPolicy.size(settings.candidateFontSize), settings.candidateMinWidthVp)
       : CandidateWidthPolicy.widthVp(entries, editing, settings.candidateFontSize,
         settings.candidatePreeditFontSize, settings.candidateMinWidthVp);
-    return settings.candidateShowPreedit
+    const width: number = settings.candidateShowPreedit
       ? CandidatePagerPolicy.panelWidthVp(base, editing, settings.candidatePreeditFontSize, page, pageCount,
         CandidateWidthPolicy.MAX_WIDTH_VP, CandidateLogoPolicy.slotWidthVp(
           CandidateLogoPolicy.visible(KeyboardFormFactor.isDesktop(), settings.candidateShowPreedit)))
       : base;
+    return Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, width + CandidateCanvasPolicy.extraWidth(settings.candidateCanvas));
   }
 
   private publishTranslationPage(): void {

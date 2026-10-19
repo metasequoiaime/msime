@@ -37,6 +37,8 @@ class DeviceResources
     /// because target recreation can be skipped for same-size compositions.
     void SetDpiOverride(FLOAT dpi);
     ID2D1RenderTarget *GetRenderTarget() const;
+    // 窗口客户区按当前绘制 DPI 换算成的 DIP 尺寸。合成交换链按 64 像素分档、只增不减，渲染目标的 GetSize() 因而常比窗口大；内容按窗口排版的表面要用这个尺寸定外框，否则右边和下边会画到窗口外面被裁掉。还没有窗口时退回渲染目标的尺寸。
+    D2D1_SIZE_F GetClientSize() const;
     ID2D1DeviceContext *GetDeviceContext() const;
     IDWriteFactory *GetDWriteFactory() const;
     ID2D1SolidColorBrush *GetSolidColorBrush(const D2D1_COLOR_F &color);

@@ -103,6 +103,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NumberLayerRestartDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Number layer restart acceptance failed" >&2; exit 1; }
+# 中文临时大写用完或取消后返回中文，快速双击仍锁定大写。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ChineseShiftReturnDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Chinese Shift return acceptance failed" >&2; exit 1; }
 # 分词操作通过真实分享接收器、共享常用语存储和系统剪贴板验收。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentActionsDeviceSmoke)
 printf '%s\n' "$result"

@@ -40,6 +40,12 @@ struct Host {
   bool select(uint64_t generation, size_t index, std::string *out, std::string *) {
     selectedGeneration = generation; selectedIndex = index; *out = selected.dump(); return selectOk;
   }
+  // 当前页上没有时的完整列表；这里的用例都不放东西，页上找不到就是找不到（网格里的续接见 host_candidate_continuation.cpp）。
+  bool all_candidates(std::string *out, std::string *) {
+    *out = nlohmann::json{{"ok", true}, {"value", {{"generation", 876}, {"candidates", nlohmann::json::array()}}}}.dump();
+    return true;
+  }
+  bool select_any(uint64_t, size_t, std::string *, std::string *) { return false; }
 };
 void host_guards(const std::string &payload, const nlohmann::json &before, const nlohmann::json &after) {
   Host baseline{{{"ok", true}, {"value", before}},

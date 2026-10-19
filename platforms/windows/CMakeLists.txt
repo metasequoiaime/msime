@@ -507,6 +507,16 @@ else()
 endif()
 add_test(NAME windows-candidate-card-size COMMAND windows-candidate-card-size)
 set_tests_properties(windows-candidate-card-size PROPERTIES TIMEOUT 10)
+# 皮肤的卷轴展开（expand_panel）：按钮那一窄列、等宽网格、一屏的高度、滚动条、点击、滚轮、批次和回到顶部的规则。
+add_executable(windows-candidate-expand-panel tests/ui/candidate_expand_panel.cpp)
+target_include_directories(windows-candidate-expand-panel PRIVATE src)
+if(MSVC)
+  target_compile_options(windows-candidate-expand-panel PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-candidate-expand-panel PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-candidate-expand-panel COMMAND windows-candidate-expand-panel)
+set_tests_properties(windows-candidate-expand-panel PROPERTIES TIMEOUT 10)
 add_executable(windows-candidate-shadow tests/ui/candidate_shadow.cpp)
 target_include_directories(windows-candidate-shadow PRIVATE src)
 if(MSVC)
@@ -1090,6 +1100,18 @@ else()
 endif()
 add_test(NAME windows-candidate-continuation COMMAND windows-candidate-continuation)
 set_tests_properties(windows-candidate-continuation PROPERTIES TIMEOUT 30)
+# TIP 续接时候选不在本会话的当前页上（Server 卷轴展开网格里的候选）：到完整候选列表里按文字找唯一的一个、按全局下标选。只模拟宿主边界，不链接共享库。
+add_executable(windows-host-candidate-continuation tests/input/host_candidate_continuation.cpp
+               tsf/EngineResponse.cpp)
+target_include_directories(windows-host-candidate-continuation PRIVATE ../../crates/host-api/include)
+target_link_libraries(windows-host-candidate-continuation PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-host-candidate-continuation PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-host-candidate-continuation PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-host-candidate-continuation COMMAND windows-host-candidate-continuation)
+set_tests_properties(windows-host-candidate-continuation PROPERTIES TIMEOUT 10)
 add_executable(windows-backspace-selected-phrase tests/input/backspace_selected_phrase.cpp
                tsf/EngineSessionAdapter.cpp tsf/EngineResponse.cpp)
 target_link_libraries(windows-backspace-selected-phrase PRIVATE msime-windows-composer)
@@ -1501,6 +1523,16 @@ foreach(target msime-windows-session windows-session-smoke windows-reply-codec m
     target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
   endif()
 endforeach()
+# 候选皮肤截图工具里不碰 Win32 的部分：文件名、假候选页经 Server 同一个投影后的样子、展开网格的后续候选和空白截图的判断。假候选页走 candidate_presentation_from_view，繁简转换在 msime-windows-composer 里。
+add_executable(windows-candidate-skin-gallery-plan tests/tools/candidate_skin_gallery/gallery_plan.cpp)
+target_link_libraries(windows-candidate-skin-gallery-plan PRIVATE msime-windows-composer)
+if(MSVC)
+  target_compile_options(windows-candidate-skin-gallery-plan PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-candidate-skin-gallery-plan PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-candidate-skin-gallery-plan COMMAND windows-candidate-skin-gallery-plan)
+set_tests_properties(windows-candidate-skin-gallery-plan PROPERTIES TIMEOUT 10)
 # The clipboard store and its presentation mailbox. All three of these sat in
 # the tree with no CMakeLists naming them, so nothing compiled them and they
 # were absent from every build and every count - the same shape as the
@@ -1663,7 +1695,14 @@ if(WIN32)
     target_link_options(msime-client-server PRIVATE /ENTRY:wmainCRTStartup)
   endif()
   target_link_libraries(windows-server-smoke PRIVATE msime-windows-server)
-  foreach(target msime-windows-server windows-server-smoke msime-client-server)
+  # 候选皮肤截图工具：用 Server 的候选窗把皮肤目录里每款皮肤画在一页假候选上，截屏存成 PNG（README「候选皮肤截图」）。它要真实的桌面，所以不是 CTest，名字也不以 windows- 开头，run-tests-wine.sh 不会把它当测试跑；CI 的 Windows candidate skin gallery 作业在 Windows runner 上运行它。
+  add_executable(msime-candidate-skin-gallery tests/tools/candidate_skin_gallery/main.cpp)
+  target_include_directories(msime-candidate-skin-gallery PRIVATE ../../platforms/common)
+  target_link_libraries(msime-candidate-skin-gallery PRIVATE msime-windows-server)
+  if(MINGW)
+    target_link_options(msime-candidate-skin-gallery PRIVATE -municode)
+  endif()
+  foreach(target msime-windows-server windows-server-smoke msime-client-server msime-candidate-skin-gallery)
     # Keep TCHAR/D2D declarations wide in every translation unit. Link-only
     # -municode does not set these macros when compiling the Server library.
     target_compile_definitions(${target} PRIVATE UNICODE _UNICODE NOMINMAX
