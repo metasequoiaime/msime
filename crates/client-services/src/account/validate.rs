@@ -653,7 +653,10 @@ pub(super) fn validate_login_request(
 }
 
 pub(super) fn validate_display_name(value: &str) -> Result<(), AccountError> {
-    if value.is_empty() || value.trim() != value || !crate::text::is_bounded_chars(value, 64) {
+    if value.is_empty()
+        || value.trim() != value
+        || !crate::text::is_bounded_chars(value, super::name::MAX_DISPLAY_NAME_CHARS)
+    {
         return Err(AccountError::Invalid);
     }
     Ok(())
@@ -708,7 +711,7 @@ pub(super) fn validate_user(user: &AccountUser) -> Result<(), AccountError> {
         user_id: user.id.clone(),
     })
     .map_err(|_| AccountError::Invalid)?;
-    if !crate::text::is_bounded_chars(&user.display_name, 64)
+    if !crate::text::is_bounded_chars(&user.display_name, super::name::MAX_DISPLAY_NAME_CHARS)
         || !crate::text::is_bounded_text(&user.created_at, 128)
         || user
             .email

@@ -16,10 +16,11 @@ fn gallery() -> PathBuf {
 }
 
 /// 目录里的全部验证皮肤，按名字排序。新加一个包时要在这里登记，并给它写断言。
-const GALLERY: [&str; 10] = [
+const GALLERY: [&str; 11] = [
     "verify-arrows-chevron",
     "verify-arrows-triangle",
     "verify-canvas",
+    "verify-canvas-frame",
     "verify-canvas-keys-ignored",
     "verify-color-syntax",
     "verify-expand-panel",
@@ -86,14 +87,17 @@ fn every_gallery_skin_loads_without_an_issue() {
             "{id}"
         );
         let (schema_version, canvas) = match id {
-            "verify-canvas" => (2, true),
+            "verify-canvas" | "verify-canvas-frame" => (2, true),
             "verify-canvas-keys-ignored" | "verify-v2-motion-system" => (2, false),
             _ => (1, false),
         };
         assert_eq!(package.schema_version, schema_version, "{id}");
         assert_eq!(package.canvas, canvas, "{id}");
-        // 只有两个 canvas 验证包带提示：一个是贴图需要宿主绘制能力，一个是非 canvas 基底上忽略的画布键。
-        if !matches!(id, "verify-canvas" | "verify-canvas-keys-ignored") {
+        // 只有 canvas 验证包带提示：两个是贴图需要宿主绘制能力，一个是非 canvas 基底上忽略的画布键。
+        if !matches!(
+            id,
+            "verify-canvas" | "verify-canvas-frame" | "verify-canvas-keys-ignored"
+        ) {
             assert!(package.notices.is_empty(), "{id}: {:?}", package.notices);
         }
         // v1 的包不能有动画；`windows_looks` 和 `canvas` 都折成 `system` 交给跨平台主题解析。
@@ -394,6 +398,89 @@ fn canvas_images_decode_frame_by_frame() {
     }
 }
 
+/// `verify-canvas` 没用到的画布写法：一张深浅共用的面板，stretch_dip 盖过 slice_dip、两值简写，不写 width_dip，fill = false；不写内容内边距、外留白和行距；挂件用上 center、left、top、bottom-right 四种锚点和一张 GIF。
+#[test]
+fn canvas_frame_keeps_its_stretch_hollow_panel_and_gif_widget() {
+    let package = package("verify-canvas-frame");
+    assert!(package.canvas);
+    assert_eq!(
+        package.border_image,
+        Some(SkinBorderImage {
+            source: "assets/frame.png".into(),
+            light_source: None,
+            slice_dip: vec![20.0],
+            stretch_dip: Some(vec![10.0, 14.0]),
+            width_dip: None,
+            fill: false,
+        })
+    );
+    assert_eq!(package.content_insets_dip, None);
+    assert_eq!(package.outer_insets_dip, None);
+    assert_eq!(package.line_gap_dip, None);
+    let anchors: Vec<(&str, &str, f64, f64, i32)> = package
+        .decorations
+        .iter()
+        .map(|d| {
+            (
+                d.image.as_str(),
+                d.anchor.as_str(),
+                d.offset_x_dip,
+                d.offset_y_dip,
+                d.z_index,
+            )
+        })
+        .collect();
+    assert_eq!(
+        anchors,
+        [
+            ("assets/seal.png", "center", 0.0, 0.0, 0),
+            ("assets/stars.gif", "left", -16.0, 0.0, 2),
+            ("assets/ribbon.png", "top", 0.0, -10.0, 5),
+            ("assets/leaf.png", "bottom-right", 12.0, 12.0, 1),
+        ]
+    );
+    assert_eq!(package.notices, [CANVAS_RENDERER_NOTICE]);
+    // 面板画得出来时用包写的原配色，画不出来时用 `canvas` 外观的可读配色。
+    let panel = package.panel_candidate.as_ref().unwrap();
+    assert_eq!(panel.light.text.as_deref(), Some("#14532D"));
+    assert_eq!(package.candidate.light.text.as_deref(), Some("#1A1A1A"));
+}
+
+/// 挂件 GIF 是 4 帧整幅画布、带透明色的动图，每一帧都能完整解码，帧数计入像素额度。
+#[test]
+fn canvas_frame_gif_decodes_every_frame() {
+    use image::AnimationDecoder;
+    let bytes = fs::read(gallery().join("verify-canvas-frame/assets/stars.gif")).unwrap();
+    let frames = image::codecs::gif::GifDecoder::new(Cursor::new(&bytes[..]))
+        .unwrap()
+        .into_frames()
+        .collect_frames()
+        .unwrap();
+    assert_eq!(frames.len(), 4);
+    for frame in &frames {
+        let buffer = frame.buffer();
+        assert_eq!(buffer.dimensions(), (48, 48));
+        // 四角是透明的，正中是星星。
+        assert_eq!(buffer.get_pixel(0, 0)[3], 0);
+        assert_eq!(buffer.get_pixel(24, 24)[3], 255);
+    }
+    // 面板图中心是品红：fill = false 时它不该被画出来，按 slice_dip = 20 切的话四角会带上它。
+    let frame = image::load_from_memory(
+        &fs::read(gallery().join("verify-canvas-frame/assets/frame.png")).unwrap(),
+    )
+    .unwrap()
+    .to_rgba8();
+    assert_eq!(frame.dimensions(), (48, 40));
+    assert_eq!(frame.get_pixel(24, 20).0, [0xFF, 0x00, 0xFF, 0xFF]);
+    for (x, y) in [(13, 9), (34, 9), (13, 30), (34, 30)] {
+        assert_ne!(
+            frame.get_pixel(x, y).0,
+            [0xFF, 0x00, 0xFF, 0xFF],
+            "({x}, {y})"
+        );
+    }
+}
+
 #[test]
 fn v2_motion_on_the_system_base_animates_and_floats_an_apng() {
     let package = package("verify-v2-motion-system");
@@ -671,7 +758,7 @@ fn the_gallery_against_community_packing_and_mcp_creation() {
     const FILE_PATH: &str = "candidate_skin_file_path";
     for id in GALLERY {
         let (pack, create) = match id {
-            "verify-canvas" => (Err(PACKAGE), Err(FILE_PATH)),
+            "verify-canvas" | "verify-canvas-frame" => (Err(PACKAGE), Err(FILE_PATH)),
             _ => (Ok(()), Ok(())),
         };
         let packed = candidate_community::pack_as(&gallery(), id, CandidateSkinVisibility::Public);

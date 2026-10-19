@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "AccountPageModel.h"
+#include "SettingsText.h"
 #include "PluginPageModel.h"
 
 // 「主题」页的「社区皮肤」、「插件」页的「社区插件」两个标签和「账号与同步」页「我的内容」打开的社区词库与回复模板的规则和文案，照共享设置在 Windows 上的样子移植：`community-helpers.ts`（错误码的句子、授权行、评分、大小）、`community-skin-category.ts`（皮肤分类）、`community-report.tsx`（举报原因）、`community-publish-validation.ts` 和 `use-community-publication-draft.ts`（发布名称与说明的校验）、`community-card-author.tsx`、`community-rating-metrics.tsx`、`candidate-skin-publish-dialog.tsx` 与 `community-plugins.tsx` 的固定文案，以及 `community-resources.tsx`（词库与回复模板的图库、详情和发布对话框）。社区操作本身在 Rust（msime_client_community），不在这里。不依赖 Windows 和 WinRT 头文件，方便单独测试。
@@ -19,11 +19,8 @@ namespace msime::settings::community {
 
 // ---- 文字 ----
 
-// String.prototype.trim。
-inline std::wstring trim(std::wstring_view value) { return account::normalize_name(value); }
-
-// `[...text].length`：按码点数。
-inline size_t code_points(std::wstring_view value) { return account::code_points(value); }
+using text::trim;
+using text::code_points;
 
 // 下标 i 处的码点，代理对合成一个；`width` 是它占的 UTF-16 单元数。
 inline char32_t code_point_at(std::wstring_view value, size_t i, size_t &width) {

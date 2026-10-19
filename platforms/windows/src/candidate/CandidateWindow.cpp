@@ -247,6 +247,58 @@ rounded_triangle_geometry(ID2D1RenderTarget *target, const D2D1_RECT_F &box,
     return nullptr;
   return geometry;
 }
+// canvas 皮肤的九宫格面板画进 panel（candidate_nine_slice），块的边按当前变换和 DPI 对齐到设备像素。照 msimeui 的 DrawNineSlice，每块用夹住边缘的图像画刷来画：DrawBitmap 缩放时会采到源矩形外面，把相邻那块的颜色渗进接缝。拿不到 ID2D1DeviceContext（分层窗口的回退）时退回 DrawBitmap。
+void draw_canvas_panel(ID2D1RenderTarget *target, ID2D1Bitmap *bitmap,
+                       const CandidateCanvasBorder &border, const CandidateCanvasRect &panel,
+                       float opacity) {
+  if (!(opacity > 0.0f))
+    return;
+  const D2D1_SIZE_U pixels = bitmap->GetPixelSize();
+  const D2D1_SIZE_F dips = bitmap->GetSize();
+  float dpi_x = 96.0f, dpi_y = 96.0f;
+  target->GetDpi(&dpi_x, &dpi_y);
+  D2D1_MATRIX_3X2_F transform{};
+  target->GetTransform(&transform);
+  CandidateCanvasSnap snap;
+  snap.enabled = transform._12 == 0.0f && transform._21 == 0.0f && transform._11 > 0.0f &&
+                 transform._22 > 0.0f && dpi_x > 0.0f && dpi_y > 0.0f;
+  snap.scale_x = transform._11 * dpi_x / 96.0;
+  snap.scale_y = transform._22 * dpi_y / 96.0;
+  snap.offset_x = transform._31 * dpi_x / 96.0;
+  snap.offset_y = transform._32 * dpi_y / 96.0;
+  Microsoft::WRL::ComPtr<ID2D1DeviceContext> context;
+  target->QueryInterface(IID_PPV_ARGS(context.GetAddressOf()));
+  for (const auto &tile : candidate_nine_slice(pixels.width, pixels.height, dips.width,
+                                               dips.height, panel, border.slice, border.width,
+                                               border.fill, snap)) {
+    const D2D1_RECT_F source{static_cast<float>(tile.source.left),
+                             static_cast<float>(tile.source.top),
+                             static_cast<float>(tile.source.right),
+                             static_cast<float>(tile.source.bottom)};
+    const D2D1_RECT_F part{static_cast<float>(tile.destination.left),
+                           static_cast<float>(tile.destination.top),
+                           static_cast<float>(tile.destination.right),
+                           static_cast<float>(tile.destination.bottom)};
+    Microsoft::WRL::ComPtr<ID2D1ImageBrush> image;
+    if (context) {
+      // 图像画刷把源矩形的左上角放在画刷原点上，所以先缩放到这一块的大小，再挪到这一块的位置。
+      const auto placement =
+          D2D1::Matrix3x2F::Scale((part.right - part.left) / (source.right - source.left),
+                                  (part.bottom - part.top) / (source.bottom - source.top)) *
+          D2D1::Matrix3x2F::Translation(part.left, part.top);
+      if (FAILED(context->CreateImageBrush(
+              bitmap,
+              D2D1::ImageBrushProperties(source, D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP,
+                                         D2D1_INTERPOLATION_MODE_LINEAR),
+              D2D1::BrushProperties(opacity, placement), image.GetAddressOf())))
+        image.Reset();
+    }
+    if (image)
+      context->FillRectangle(part, image.Get());
+    else
+      target->DrawBitmap(bitmap, part, opacity, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &source);
+  }
+}
 struct Painting {
   HWND window;
   PAINTSTRUCT state{};
@@ -559,6 +611,11 @@ void CandidateWindow::set_skin_layout(const CandidateSkinLayout &layout) {
   if (layout.expand_panel.value_or(false) != skin_layout_.expand_panel.value_or(false))
     collapse_expansion();
   skin_layout_ = layout;
+  invalidate_geometry();
+}
+void CandidateWindow::set_skin_canvas(CandidateSkinCanvas canvas) {
+  canvas_layers_ = candidate_canvas_layers(canvas.decorations);
+  canvas_ = std::move(canvas);
   invalidate_geometry();
 }
 void CandidateWindow::set_layout(CandidateLayoutSettings settings) {
@@ -1023,6 +1080,15 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                                           font_fallback_.Get());
   input.items = measure_items(value);
   input.wrapped = wrap_measure(value);
+  // canvas：内容内边距让面板比这张卡片四边各大出 canvas_offset_，最小宽度按整块面板比。没有 canvas 时为 0。
+  canvas_offset_ =
+      canvas_.active
+          ? candidate_canvas_content_offset(
+                canvas_, candidate_canvas_base_padding(candidate_card_metrics(
+                             font_size_, preedit_font_size_, show_preedit_, show_app_logo_,
+                             input.page_width > 0.0, input.skin, input.number_width)))
+          : CandidateCanvasEdges{};
+  input.canvas_extra_width = canvas_offset_.left + canvas_offset_.right;
   // 卷轴展开：展开着时卡片按网格变宽变高；后续候选还没到时沿用上一帧的高度。
   const auto grid = input.skin.expand_panel ? expand_grid(value) : ExpandGrid{};
   const auto card =
@@ -1032,16 +1098,24 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                                            expand_.expanded, value.expanded != nullptr,
                                            expand_viewport_))
           : candidate_card_size(input);
-  const auto shadow_left =
-      static_cast<int64_t>(std::lround(shadow_insets_.left * scale));
-  const auto shadow_top =
-      static_cast<int64_t>(std::lround(shadow_insets_.top * scale));
-  const auto shadow_right =
-      static_cast<int64_t>(std::lround(shadow_insets_.right * scale));
-  const auto shadow_bottom =
-      static_cast<int64_t>(std::lround(shadow_insets_.bottom * scale));
+  // 窗口按面板（没有 canvas 时就是卡片）定尺寸、贴着光标摆放；面板四周是阴影的透明边距，canvas 时再加外留白或挂件伸出去的距离（candidate_canvas_margins）。
+  const double panel_width = card.width + canvas_offset_.left + canvas_offset_.right;
+  const double panel_height = card.height + canvas_offset_.top + canvas_offset_.bottom;
+  const CandidateShadowInsets shadow_base{};
+  const auto margins = candidate_canvas_margins(
+      canvas_, {shadow_base.top, shadow_base.right, shadow_base.bottom, shadow_base.left},
+      panel_width, panel_height, static_cast<double>(available_width) / scale,
+      static_cast<double>(available_height) / scale -
+          (decoration_image_.empty() ? 0.0 : decoration_top_));
+  shadow_insets_ = {margins.left + canvas_offset_.left, margins.top + canvas_offset_.top,
+                    margins.right + canvas_offset_.right,
+                    margins.bottom + canvas_offset_.bottom};
+  const auto shadow_left = static_cast<int64_t>(std::lround(margins.left * scale));
+  const auto shadow_top = static_cast<int64_t>(std::lround(margins.top * scale));
+  const auto shadow_right = static_cast<int64_t>(std::lround(margins.right * scale));
+  const auto shadow_bottom = static_cast<int64_t>(std::lround(margins.bottom * scale));
   const auto content_width =
-      (std::min)(static_cast<int64_t>(card.width * scale + 0.5),
+      (std::min)(static_cast<int64_t>(panel_width * scale + 0.5),
                  (std::max)(int64_t{1},
                             available_width - shadow_left - shadow_right));
   // The window has to be tall enough to hold the mascot as well, or the
@@ -1054,7 +1128,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                            ? 0.0f
                            : static_cast<float>(decoration_top_);
   const auto content_height =
-      (std::min)(static_cast<int64_t>(card.height * scale + 0.5) + decoration,
+      (std::min)(static_cast<int64_t>(panel_height * scale + 0.5) + decoration,
                  (std::max)(int64_t{1},
                             available_height - shadow_top - shadow_bottom));
   // A vertical list grows as the user keeps typing. Deciding the flip from the
@@ -1241,13 +1315,17 @@ std::optional<TypingRect> CandidateWindow::typing_effect_card() const {
   RECT outer{};
   if (!GetWindowRect(window_, &outer))
     return std::nullopt;
-  // 和 card_bounds 同样的换算：窗口四周是透明的阴影边距，顶上可能还有吉祥物那一条。
+  // 和 card_bounds 同样的换算：窗口四周是透明的阴影边距（canvas 时还有外留白，卡片是整块面板），顶上可能还有吉祥物那一条。
   const double scale = layout_scale(shown_dpi_);
   const double decoration = decoration_image_.empty() ? 0.0 : decoration_top_ * scale;
-  return TypingRect{static_cast<float>(outer.left + std::lround(shadow_insets_.left * scale)),
-                    static_cast<float>(outer.top + std::lround(shadow_insets_.top * scale + decoration)),
-                    static_cast<float>(outer.right - std::lround(shadow_insets_.right * scale)),
-                    static_cast<float>(outer.bottom - std::lround(shadow_insets_.bottom * scale))};
+  const double left = shadow_insets_.left - canvas_offset_.left,
+               top = shadow_insets_.top - canvas_offset_.top,
+               right = shadow_insets_.right - canvas_offset_.right,
+               bottom = shadow_insets_.bottom - canvas_offset_.bottom;
+  return TypingRect{static_cast<float>(outer.left + std::lround(left * scale)),
+                    static_cast<float>(outer.top + std::lround(top * scale + decoration)),
+                    static_cast<float>(outer.right - std::lround(right * scale)),
+                    static_cast<float>(outer.bottom - std::lround(bottom * scale))};
 }
 void CandidateWindow::paint() {
   DpiScope dpi_scope;
@@ -1375,11 +1453,38 @@ void CandidateWindow::paint() {
                               motion_scale, motion_scale,
                               D2D1::Point2F(size.width / 2.0f, size.height / 2.0f));
   target->SetTransform(transform);
+  // canvas 皮肤的面板比内容卡片四边各大出 canvas_offset_（内容内边距）；没有 canvas 时面板就是卡片。阴影、底色、背景图、外框、打字闪光、吉祥物和自由挂件都对着面板画，候选内容照旧按卡片（frame）排。
+  const CandidateCanvasRect panel{frame.card_left - canvas_offset_.left,
+                                  frame.card_top - canvas_offset_.top,
+                                  frame.card_left + frame.card_width + canvas_offset_.right,
+                                  frame.card_top + frame.card_height + canvas_offset_.bottom};
+  // 自由挂件按 msime-windows CandidateSkinOverlay 的规则贴着面板、等比缩放在自己的框里；跟着进出场动效一起淡入淡出，用户的不透明度只淡化面板，不淡化挂件。
+  auto draw_decorations = [&](const std::vector<CandidateCanvasDecoration> &layer) {
+    for (const auto &decoration : layer) {
+      D2D1_SIZE_F natural{};
+      auto *bitmap = device_.GetBitmapFromFile(decoration.image, &natural);
+      if (!bitmap)
+        continue;
+      if (const auto rect = candidate_canvas_contain(
+              candidate_canvas_decoration_box(decoration, panel), natural.width, natural.height))
+        target->DrawBitmap(bitmap,
+                           D2D1_RECT_F{static_cast<float>(rect->left), static_cast<float>(rect->top),
+                                       static_cast<float>(rect->right),
+                                       static_cast<float>(rect->bottom)},
+                           motion_alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    }
+  };
+  // z_index 低于 1 的挂件在面板和它的阴影之下。
+  draw_decorations(canvas_layers_.below);
+  // 九宫格面板图：画得出来时它就是卡片的样子，底色、背景图、外框和阴影都让给它（同 CSS border-image 与 msime-windows 的 panelImage）。图在套用皮肤时确认过解得出来，这里仍拿不到位图（设备刚丢失之类）时退回底色，下一帧再试。
+  ID2D1Bitmap *const panel_bitmap = candidate_canvas_panel_drawn(canvas_)
+                                        ? device_.GetBitmapFromFile(canvas_.border->source)
+                                        : nullptr;
   const D2D1_RECT_F card_rect{
-      static_cast<float>(frame.card_left) + inset,
-      static_cast<float>(frame.card_top) + inset,
-      static_cast<float>(frame.card_left + frame.card_width) - inset,
-      static_cast<float>(frame.card_top + frame.card_height) - inset};
+      static_cast<float>(panel.left) + inset,
+      static_cast<float>(panel.top) + inset,
+      static_cast<float>(panel.right) - inset,
+      static_cast<float>(panel.bottom) - inset};
   // The Fluent flyout shadow, 0 8px 16px: a 16px CSS blur is a Gaussian of sigma 8. 皮肤的 shadow 档位只缩放它的不透明度，`none` 时不画。
   const float shadow_alpha = candidate_skin_shadow_alpha(skin_layout_.shadow, palette_.shadow_alpha);
   const WindowShadowPass shadow_passes[] = {
@@ -1390,15 +1495,19 @@ void CandidateWindow::paint() {
   const float row_radius = candidate_row_radius(
       style_, skin_layout_.item_corner_radius.value_or(palette_.item_radius), radius);
   // 透明度为 0 的一层画不出来时，draw_window_shadow_passes 会退回一层兜底阴影，所以 `none` 直接跳过。
-  if (shadow_alpha > 0.0f)
+  if (shadow_alpha > 0.0f && !panel_bitmap)
     draw_window_shadow_passes(target, card_rect, radius, shadow_passes,
                               std::size(shadow_passes));
   const D2D1_ROUNDED_RECT card{card_rect, radius, radius};
   // The user's opacity fades the card itself - surface, package background and border - and nothing drawn on it, so the text stays as legible as the theme made it. 要系统材质的皮肤在这里先把底色补成不透明（candidate_skin_surface_alpha）。
-  auto surface = palette_.surface;
-  surface.a = candidate_skin_surface_alpha(skin_layout_.backdrop, surface.a);
-  target->FillRoundedRectangle(card, brush(candidate_faded(surface, style_)));
-  const float background_opacity = background_.opacity * style_.opacity();
+  if (panel_bitmap) {
+    draw_canvas_panel(target, panel_bitmap, *canvas_.border, panel, style_.opacity() * motion_alpha);
+  } else {
+    auto surface = palette_.surface;
+    surface.a = candidate_skin_surface_alpha(skin_layout_.backdrop, surface.a);
+    target->FillRoundedRectangle(card, brush(candidate_faded(surface, style_)));
+  }
+  const float background_opacity = panel_bitmap ? 0.0f : background_.opacity * style_.opacity();
   const uint64_t effect_elapsed = GetTickCount64() - effect_started_;
   const float flash = effect_flashing_ ? typing_effect_flash_alpha(effect_, effect_settings_.intensity, effect_elapsed, effect_settings_.flash_millis) : 0.0f;
   // The package background sits on the surface and under the border and the text, masked by the card's rounded outline.
@@ -1425,8 +1534,8 @@ void CandidateWindow::paint() {
       target->PopLayer();
     }
   }
-  // 皮肤写 `border_width_dip = 0` 就是不要外框，不交给 Direct2D 去画一条 0 宽的线。
-  if (border_width > 0.0f)
+  // 皮肤写 `border_width_dip = 0` 就是不要外框，不交给 Direct2D 去画一条 0 宽的线。面板图自带边框。
+  if (border_width > 0.0f && !panel_bitmap)
     target->DrawRoundedRectangle(card, brush(candidate_faded(palette_.border, style_)),
                                  border_width);
   // The typing flash: a faint accent wash over the surface, under the text, and an accent outline that grows with the style. Both fade with the flash. An effect pack's first colour takes the accent's place.
@@ -1448,9 +1557,9 @@ void CandidateWindow::paint() {
     if (auto *bitmap = device_.GetBitmapFromFile(decoration_image_, &natural)) {
       // A package gives a width, not a box: the height follows the image's own aspect ratio, and artwork too tall for the band plus the pad_y overlap shrinks uniformly instead of being squashed. Placed along the card's top edge as the manifest aligns it, as the settings preview places it.
       if (const auto rect = candidate_decoration_rect(
-              decoration_align_, static_cast<float>(frame.card_left),
-              static_cast<float>(frame.card_left + frame.card_width),
-              static_cast<float>(frame.card_top),
+              decoration_align_, static_cast<float>(panel.left),
+              static_cast<float>(panel.right),
+              static_cast<float>(panel.top),
               static_cast<float>(metrics.pad_x),
               static_cast<float>(metrics.pad_y), decoration_offset_,
               static_cast<float>(decoration_width_), natural.width,
@@ -1876,6 +1985,8 @@ void CandidateWindow::paint() {
       target->DrawLine(D2D1_POINT_2F{tip, cy}, D2D1_POINT_2F{tail, cy + half}, brush(color), stroke);
     }
   }
+  // z_index 不低于 1 的挂件在面板与候选文字之上；挂件只是装饰，点击照样落在下面的候选上。
+  draw_decorations(canvas_layers_.above);
   target->SetTransform(D2D1::Matrix3x2F::Identity());
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.
@@ -1901,9 +2012,8 @@ void CandidateWindow::paint() {
   painted_rows_ = std::move(rows);
   painted_pager_ = pager ? pager : list_pager;
   painted_dpi_ = GetDpiForWindow(window_);
-  painted_card_ = D2D1_RECT_F{static_cast<float>(frame.card_left), static_cast<float>(frame.card_top),
-                              static_cast<float>(frame.card_left + frame.card_width),
-                              static_cast<float>(frame.card_top + frame.card_height)};
+  painted_card_ = D2D1_RECT_F{static_cast<float>(panel.left), static_cast<float>(panel.top),
+                              static_cast<float>(panel.right), static_cast<float>(panel.bottom)};
   painted_expand_ = expand_layout;
   painted_expand_offset_ = expand_offset;
   painted_expand_step_ = metrics.candidate_row + metrics.item_gap;
@@ -2026,7 +2136,9 @@ void CandidateWindow::invoke_accessible(int id, LPARAM token) {
   click_(click);
 }
 CandidateSkinMetrics CandidateWindow::skin_metrics(const CandidatePresentation &value) const {
-  auto skin = candidate_skin_metrics(skin_layout_, horizontal_, font_size_);
+  // canvas 的 `line_gap_dip` 落在拼音行的下外边距上。
+  auto skin = candidate_canvas_skin_metrics(
+      candidate_skin_metrics(skin_layout_, horizontal_, font_size_), canvas_);
   if (skin.expand_panel && (!value.pointer_input || value.translation_page != 0)) {
     skin.expand_panel = false;
     skin.page_arrows = skin_layout_.page_arrows.value_or(false);
