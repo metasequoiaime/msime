@@ -133,6 +133,8 @@ base = "canvas"
 [supports]
 layouts = ["horizontal", "vertical"]
 themes = ["light", "dark"]
+[candidate_window]
+min_width_dip = 240
 [animation]
 enter = "slide_up"
 exit = "fade"
