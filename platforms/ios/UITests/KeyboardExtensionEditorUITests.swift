@@ -23,6 +23,14 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     continueAfterFailure = false
   }
 
+  /// 失败时保留实际界面，区分入口、遮挡和产品行为，不能只看断言行号。
+  private func keepScreenshot(_ name: String, in app: XCUIApplication) {
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = name
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
   /// Add the keyboard in Settings, the way a person does, if it is not already there.
   ///
   /// Writing `AppleKeyboards` into the simulator's global preferences looks like it should be
@@ -63,20 +71,20 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     // 有些布局里面板和其中的列表标题相同。iOS 27 上列表行读作「键盘、<数量>」，按标签匹配不到，改用它的标识符 `KEYBOARDS`。
     let ring = settings.cells["KEYBOARDS"].firstMatch
     if ring.waitForExistence(timeout: 5) { ring.tap() } else { _ = tapRow("键盘", scrolling: false) }
-    // Already added: the keyboard list names it.
-    if settings.staticTexts["水杉输入法"].waitForExistence(timeout: 3) { return }
+    // 已登记的扩展仍需核对完全访问，不能在这里提前返回。
+    if !settings.staticTexts["水杉输入法"].waitForExistence(timeout: 3) {
+      // iOS 27 上这一行写作「添加新键盘」，没有省略号，而且是按钮不是文本；只按前缀找，哪种都认。原来写死「添加新键盘…」找不到它，于是键盘从未被添加，本套件在 iOS 27 上每次都整体跳过。
+      let add = settings.descendants(matching: .any)
+        .matching(NSPredicate(format: "label BEGINSWITH %@", "添加新键盘")).firstMatch
+      guard add.waitForExistence(timeout: 8) else { return }
+      add.tap()
 
-    // iOS 27 上这一行写作「添加新键盘」，没有省略号，而且是按钮不是文本；只按前缀找，哪种都认。原来写死「添加新键盘…」找不到它，于是键盘从未被添加，本套件在 iOS 27 上每次都整体跳过。
-    let add = settings.descendants(matching: .any)
-      .matching(NSPredicate(format: "label BEGINSWITH %@", "添加新键盘")).firstMatch
-    guard add.waitForExistence(timeout: 8) else { return }
-    add.tap()
-
-    let ours = settings.descendants(matching: .any)
-      .matching(NSPredicate(format: "label BEGINSWITH %@", "水杉输入法")).firstMatch
-    for _ in 0..<8 where !ours.exists { settings.swipeUp() }
-    guard ours.waitForExistence(timeout: 8) else { return }
-    ours.tap()
+      let ours = settings.descendants(matching: .any)
+        .matching(NSPredicate(format: "label BEGINSWITH %@", "水杉输入法")).firstMatch
+      for _ in 0..<8 where !ours.exists { settings.swipeUp() }
+      guard ours.waitForExistence(timeout: 8) else { return }
+      ours.tap()
+    }
 
     // Full access is a second, separate confirmation. The keyboard runs without it; only the
     // features that need a network or the shared container do.
@@ -116,8 +124,13 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     let field = app.textFields["keyboardTryoutField"]
     XCTAssertTrue(field.waitForExistence(timeout: 15), "试用编辑器必须可用")
     if toolbarTest { field.tap() }
-    // This screen focuses the field on appearance; tapping an already focused field while the
-    // keyboard animates can land on a key instead.
+    return try activeSystemKeyboard(in: app, field: field, toolbarTest: toolbarTest)
+  }
+
+  /// 共用系统键盘识别与切换流程，编辑器可以属于产品宿主或独立测试应用。
+  private func activeSystemKeyboard(in app: XCUIApplication, field: XCUIElement,
+                                    toolbarTest: Bool = false) throws -> XCUIElement {
+    // 编辑器出现时自动聚焦，键盘动画期间再次点击可能误触按键。
     let focused = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: field)
     if XCTWaiter.wait(for: [focused], timeout: 10) != .completed { field.tap() }
@@ -167,6 +180,108 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     throw XCTSkip(
       "\(keyboardIdentifier) never became the active keyboard. keyboards=\(keys) globe="
         + "\(globe.exists) keys=[\(buttons)]")
+  }
+
+  /// 宿主反复切换四种方案后，在系统键盘验证候选展开、收起和上屏。
+  func testCandidatePanelAfterHostSchemeChanges() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    let editor = XCUIApplication(bundleIdentifier: "app.msime.ios.keyboard-test-host")
+    editor.launchArguments = ["--system-keyboard-editor"]
+    defer { editor.terminate() }
+
+    func selectInHost(_ scheme: String) {
+      if app.state == .notRunning { app.launch() } else { app.activate() }
+      let settings = app.tabBars.buttons["设置"]
+      XCTAssertTrue(settings.waitForExistence(timeout: 10))
+      settings.tap()
+      settings.tap()
+      let input = app.buttons["inputSettingsLink"].firstMatch
+      for _ in 0..<6 where !input.isHittable { app.swipeUp() }
+      XCTAssertTrue(input.waitForExistence(timeout: 10))
+      input.tap()
+      let language = app.buttons["inputLanguage_mandarin"]
+      XCTAssertTrue(language.waitForExistence(timeout: 10))
+      language.tap()
+      if scheme == "shuangpin" {
+        let group = app.buttons["inputSchemeGroup_shuangpin"]
+        XCTAssertTrue(group.waitForExistence(timeout: 5))
+        group.tap()
+      }
+      let option = app.buttons["inputScheme_\(scheme)"]
+      XCTAssertTrue(option.waitForExistence(timeout: 5), "宿主设置必须提供被测方案")
+      option.tap()
+    }
+
+    func typeSyllable(_ scheme: String) {
+      let titles = ["shuangpin": "小鹤双拼", "quanpin": "全拼 26 键",
+                    "nineKey": "全拼 9 键", "fourteenKey": "全拼 14 键"]
+      let loaded = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "value == %@", titles[scheme] ?? "未知方案"),
+        object: editor.buttons["schemeButton"])
+      XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 8), .completed,
+                     "系统扩展必须加载宿主保存的方案，不能继续使用旧键面")
+      let language = editor.buttons["bottomLanguageKey"]
+      if language.label == "切换到中文输入" { language.tap() }
+      switch scheme {
+      case "nineKey":
+        for digit in "64" { editor.buttons["nineKey\(digit)"].tap() }
+      case "fourteenKey":
+        for label in ["按键 B N", "按键 U I"] {
+          let key = editor.buttons[label].exists ? editor.buttons[label] : editor.keys[label]
+          XCTAssertTrue(key.waitForExistence(timeout: 5))
+          key.tap()
+        }
+      default:
+        for label in ["字母 N", "字母 I"] {
+          let key = editor.keys[label]
+          XCTAssertTrue(key.waitForExistence(timeout: 5))
+          key.tap()
+        }
+      }
+      XCTAssertTrue(editor.buttons["candidate-1"].waitForExistence(timeout: 8), "组字必须产生候选")
+    }
+
+    selectInHost("quanpin")
+    #if targetEnvironment(simulator)
+    addKeyboardInSettingsIfNeeded()
+    #endif
+    editor.launch()
+    let field = editor.textFields["systemKeyboardEditor"]
+    XCTAssertTrue(field.waitForExistence(timeout: 10), "独立编辑器测试应用必须已安装")
+    _ = try activeSystemKeyboard(in: editor, field: field)
+    typeSyllable("quanpin")
+    for round in 0..<3 {
+      for scheme in ["shuangpin", "quanpin", "nineKey", "fourteenKey"] {
+        // 保持独立编辑器进程和未完成组字，切到宿主保存方案后再切回来。
+        selectInHost(scheme)
+        editor.activate()
+        _ = try activeSystemKeyboard(in: editor, field: field)
+        let initial = field.value as? String ?? ""
+        let prefix = initial == field.placeholderValue ? "" : initial
+        typeSyllable(scheme)
+        let expand = editor.buttons["expandCandidates"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 5))
+        expand.tap()
+        let candidate = editor.buttons["panelCandidate-1"]
+        XCTAssertTrue(candidate.waitForExistence(timeout: 8), "切换方案后候选必须能够展开")
+        XCTAssertTrue(candidate.isHittable, "展开的候选必须能被真实触摸命中")
+        XCTAssertEqual(expand.label, "收起候选")
+        expand.tap()
+        XCTAssertTrue(candidate.waitForNonExistence(timeout: 5), "收起后不能留下旧面板")
+        expand.tap()
+        XCTAssertTrue(candidate.waitForExistence(timeout: 8), "收起后必须能再次展开")
+        candidate.tap()
+        let committed = field.value as? String ?? ""
+        XCTAssertTrue(committed.hasPrefix(prefix), "选词不能覆盖已有正文")
+        let appended = String(committed.dropFirst(prefix.count))
+        XCTAssertNotNil(appended.range(of: "^[\\p{Han}]+$", options: .regularExpression),
+                        "完整候选必须跨进程提交汉字，不能残留本次原始编码")
+        XCTAssertNotEqual(editor.buttons["returnKey"].label, "确认", "单音节选词后必须结束组字")
+        typeSyllable(scheme)
+      }
+      print("CANDIDATE_PANEL_SCHEME_SWITCH round=\(round + 1) schemes=4 completed=1")
+    }
   }
 
   /// 在真机系统键盘中重复组字、选词和提交，输入始终使用合成拼音。
@@ -277,7 +392,8 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     XCTAssertEqual(field.value as? String, committed + "languge ", "点原文后空格不能重新纠错")
     committed += "languge "
     for letter in "languge" { app.buttons["字母 \(String(letter).uppercased())"].tap() }
-    app.buttons["bottomPeriodKey"].tap()
+    // 手机 26 键的句号在逗号键长按上，独立句号仅用于其他布局。
+    app.buttons["quickPunctuationKey"].press(forDuration: 0.7)
     committed += "language. "
     XCTAssertEqual(field.value as? String, committed, "标点紧随纠错词，随后追加 ASCII 空格")
     app.buttons["shiftButton"].tap()
@@ -329,8 +445,9 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     for _ in 0..<5 where !add.isHittable { grid.swipeLeft() }
     XCTAssertTrue(add.isHittable, "添加语言卡片必须可点击")
     add.tap()
-    XCTAssertTrue(app.navigationBars["输入"].waitForExistence(timeout: 8),
-                  "添加语言应打开应用的输入设置")
+    let opened = app.navigationBars["输入"].waitForExistence(timeout: 8)
+    if !opened { keepScreenshot("添加语言跳转失败", in: app) }
+    XCTAssertTrue(opened, "添加语言应打开应用的输入设置")
   }
 
   /// 数字页只接受字面输入，不能在结束拼音时悄悄选中首选候选。
@@ -354,6 +471,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       key("layoutToggleButton").tap()
       let target = key(identifier)
       revealNumberPadSidebarKey(target, in: app)
+      if !target.isHittable { keepScreenshot("数字侧栏不可点击-\(literal)", in: app) }
       XCTAssertTrue(target.isHittable)
       target.tap()
       expected += "ni" + literal
@@ -391,7 +509,8 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       XCTAssertLessThan(one.maxY, four.minY)
       let zero = key("nineKeyZero").frame
       let space = key("spaceKey").frame
-      XCTAssertGreaterThanOrEqual(zero.width, key("nineKey8").frame.width)
+      // 三倍屏的像素取整允许相邻等宽键相差三分之一点，与布局单测容差一致。
+      XCTAssertGreaterThanOrEqual(zero.width, key("nineKey8").frame.width - 0.5)
       if !key("inputModeSwitchButton").exists {
         XCTAssertEqual(zero.minX, key("nineKey7").frame.minX, accuracy: 1)
         XCTAssertEqual(zero.maxX, key("nineKey7").frame.maxX, accuracy: 1)
@@ -438,8 +557,13 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
   private func revealNumberPadSidebarKey(_ key: XCUIElement, in app: XCUIApplication) {
     let scroll = app.scrollViews["numberPadOperatorScroll"]
     guard scroll.exists else { return }
-    for _ in 0..<4 where !key.isHittable { scroll.swipeDown() }
-    for _ in 0..<4 where !key.isHittable { scroll.swipeUp() }
+    // 侧栏只显示两项，高速 swipe 会直接甩到底并越过乘号。按目标位置短拖动，停稳后重新判断。
+    for _ in 0..<12 where !key.isHittable {
+      let upward = key.frame.midY > scroll.frame.midY
+      let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: upward ? 0.8 : 0.2))
+      let end = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: upward ? 0.3 : 0.7))
+      start.press(forDuration: 0.05, thenDragTo: end, withVelocity: 100, thenHoldForDuration: 0.2)
+    }
   }
 
   /// 用系统键盘在真实编辑器中验收全拼分词和英文大写，覆盖跨进程上屏。
@@ -487,8 +611,14 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     let app = XCUIApplication()
     let field = try focusedTryoutKeyboard(app)
 
+    // 前一项可能留下九键或英文模式，本项显式选择全拼中文。
+    app.buttons["schemeButton"].tap()
+    app.buttons["schemeCard-quanpin"].tap()
+    let language = app.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
+
     for letter in ["N", "I", "H", "A", "O"] {
-      let key = app.keys["字母 \(letter)"]
+      let key = app.buttons["字母 \(letter)"]
       XCTAssertTrue(key.waitForExistence(timeout: 5), "字母 \(letter) is missing from the key face")
       key.tap()
     }
@@ -541,18 +671,40 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     XCTAssertTrue((field.value as? String ?? "").contains("你好"))
   }
 
-  /// 全拼 14 键当成系统键盘来用：点方案卡片切到 14 键，按 BN UI GH AS OP 打出「你好」，从候选条上选它上屏到别人的编辑框里。bu 和 ni 同组码，锁定词库里「不好」的权重高于「你好」，所以只要求「你好」在前几个候选里，与 Android 设备验收和 FourteenKeyKeyboardTests 相同。14 键要用户自己打开，没打开时跳过。
+  /// 先通过原生设置启用全拼 14 键，再按 BN UI GH AS OP，在真实编辑器中选择「你好」。bu 和 ni 同组码，只要求「你好」在前几个候选里。
   func testFourteenKeysTypeNihaoIntoTheHostEditor() throws {
     let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    let input = app.buttons["inputSettingsLink"]
+    for _ in 0..<6 where !input.isHittable { app.swipeUp() }
+    XCTAssertTrue(input.waitForExistence(timeout: 5))
+    input.tap()
+    app.buttons["inputLanguage_mandarin"].tap()
+    let option = app.buttons["inputScheme_fourteenKey"]
+    XCTAssertTrue(option.waitForExistence(timeout: 5))
+    option.tap()
+    // 选项在退场动画完成后才保存，不能在回调之前终止宿主。
+    let dismissed = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"), object: app.buttons["designOptionSheetCancel"])
+    XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+    app.buttons["inputLanguage_mandarin"].tap()
+    XCTAssertTrue(option.isSelected, "十四键选择必须实际保存后再启动扩展")
+    app.buttons["designOptionSheetCancel"].tap()
+    let closed = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"), object: app.buttons["designOptionSheetCancel"])
+    XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 5), .completed)
+    app.terminate()
     let field = try focusedTryoutKeyboard(app)
 
     let scheme = app.buttons["schemeButton"]
     XCTAssertTrue(scheme.waitForExistence(timeout: 5), "the scheme button is missing")
     scheme.tap()
     let card = app.buttons["schemeCard-fourteenKey"]
-    guard card.waitForExistence(timeout: 5) else {
-      throw XCTSkip("全拼 14 键 is not among the enabled schemes on this device.")
-    }
+    let grid = app.descendants(matching: .any)["schemePickerScroll"].firstMatch
+    for _ in 0..<5 where !card.isHittable { grid.swipeLeft() }
+    if !card.isHittable { keepScreenshot("十四键方案不可点击", in: app) }
+    XCTAssertTrue(card.isHittable, "已在原生设置启用的十四键必须能在方案分页中找到")
     card.tap()
 
     for label in ["按键 B N", "按键 U I", "按键 G H", "按键 A S", "按键 O P"] {
@@ -577,6 +729,36 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
   /// lost the second one.
   func testDoublePinyinKeyFaceCarriesTheEngineHints() throws {
     let app = XCUIApplication()
+    // 提示缺省关闭，先通过原生设置开启，结束后恢复原值。
+    func openHints() -> XCUIElement {
+      app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+      app.launch()
+      app.buttons["keyboardLayoutLink"].tap()
+      let toggle = app.switches["appShuangpinKeyHintsToggle"]
+      for _ in 0..<4 where !toggle.isHittable {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.84))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.55))
+        start.press(forDuration: 0.05, thenDragTo: end)
+      }
+      XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+      return toggle
+    }
+    let hints = openHints()
+    let previousHints = try XCTUnwrap(hints.value as? String)
+    if previousHints == "0" {
+      hints.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+    }
+    let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '1'"), object: hints)
+    XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed)
+    addTeardownBlock { @MainActor in
+      app.terminate()
+      let restored = openHints()
+      if restored.value as? String != previousHints {
+        restored.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      }
+      app.terminate()
+    }
+    app.terminate()
     _ = try focusedTryoutKeyboard(app)
 
     let scheme = app.buttons["schemeButton"]
@@ -589,8 +771,10 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     }
     card.tap()
 
-    // The hint rides on the key's accessibility value, so it is readable without pixels.
-    let k = app.keys["字母 K"]
+    let language = app.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
+    // 键位提示位于按键的无障碍值，不依赖截图中的字形识别。
+    let k = app.buttons["字母 K"]
     XCTAssertTrue(k.waitForExistence(timeout: 5), "字母 K is missing from the double-pinyin face")
     let hint = (k.value as? String) ?? ""
     XCTAssertTrue(hint.contains("uai"),

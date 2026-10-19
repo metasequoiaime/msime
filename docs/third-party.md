@@ -313,6 +313,8 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 
 锁文件为每个平台固定一个 sherpa-onnx v1.13.8 的上游预编译产物（来源提交 `11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf`）的 URL、长度和 SHA-256，`scripts/fetch_voice_runtime.py --platform <平台>` 校验后展开到被忽略的 `target/voice-runtime/<平台>/`，各平台的构建与打包脚本从那里取文件。
 
+macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 按需下载：上游的 universal dylib 剥掉局部符号后用本项目的 Developer ID 重签（输入法开着 hardened runtime，只加载同一 Team ID 签名的库），作为本仓库 `voice-runtime-macos-v<版本>` Release 的资产发布，`resources/voice-runtime-macos.lock.json` 固定归档和其中 dylib 的 SHA-256。重签不改动库的代码，Apache-2.0 与 ONNX Runtime 的许可证照旧随输入法 bundle 分发。
+
 | 组件 | 许可证 | 说明 |
 | --- | --- | --- |
 | [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Apache-2.0 | 语音识别运行时。宿主不在构建期链接它，而是在第一次识别时用 `dlopen`/`LoadLibrary` 加载其 C API 库（`shared/voice/LocalAsr.h`）。构建期只需要它的 C 头文件，原样放在 `shared/voice/third_party/sherpa-onnx/c-api.h`，许可证全文在同目录 `LICENSE`。Android 使用上游的 `.aar`，HarmonyOS 使用上游的 `.har`，iOS 使用 `SherpaOnnxC.xcframework` |

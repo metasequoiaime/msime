@@ -511,7 +511,7 @@ cargo run -p msime-input-runtime --example local_modes -- <verified-dictionary-d
 - **设置键映射**：来源 `settings_app.cpp` 里 `path == "…"` 的 73 个键逐个在共享偏好或共享设置页里找到对应物，差异全是命名（`paging_brackets` → `navigation.brackets`、`cn_en_mixed_input` → `mixed_input.english`、`utility.*_mode` → `local_modes.*`、`word_to_character` → `word_character`、`*_helpcode_schema` → `quanpin_helpcode.schema` 等）。`input.wubi_schema` 对应共享字段 `wubi_profile`（86 五笔 / 98 五笔）；`input.japanese_schema` 在来源那边只有一个选项（罗马字），不需要共享字段。
 - **宿主能力矩阵**：`HostCapabilities::for_platform` 里没有任何一项是「Windows 有、macOS 没有」。
 - **悬浮工具栏缩放**：macOS 的白名单 75/100/125/150 与来源下拉逐项相同。
-- **翻页键的缺省**：原生窗口那个三选一的「候选翻页快捷键」只在共享 `navigation` 没有显式布尔值时充当缺省，一旦设置页写过就以共享值为准；它推出的缺省（minus_equal 开、brackets 关、其余开、mouse_wheel 关）与共享 `NavigationPreferences::default()` 逐项相同；后来加的 `left_right`（左右键在输入串两端时移动候选高亮）默认关闭，来源那边没有这一项。
+- **翻页键的缺省**：原生窗口那个三选一的「候选翻页快捷键」只在共享 `navigation` 没有显式布尔值时充当缺省，一旦设置页写过就以共享值为准；它推出的缺省（minus_equal 开、brackets 关、其余开、mouse_wheel 关）与共享 `NavigationPreferences::default()` 逐项相同；后来加的 `left_right`（左右键在输入串两端时移动候选高亮）默认开启，来源那边没有这一项。用户显式关闭后仍以保存值为准。
 - **候选字号**：`metasequoia::mac` 下那两个只认 16/18/20 的 `NormalizeCandidateFontSize` 属保留的 Apple 适配层（`MetasequoiaInputController.mm`，不编进产物）；发出去的宿主走的是 12–32。
 
 混输最小前缀默认值的来源依据：

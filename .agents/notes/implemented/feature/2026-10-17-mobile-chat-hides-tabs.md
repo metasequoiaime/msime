@@ -27,4 +27,4 @@ Status: implemented
 
 - 共享设置页：`apps/desktop` 的 `tests/core/mobile-tab-bar.test.tsx` 与 `tests/settings/mobile-app-chrome.test.tsx` 改为断言对话页没有「主要功能」导航、返回后导航回来、返回再进入草稿仍在，51 项通过。
 - Android：`check-host.sh` 通过；`ChatNavigationDeviceSmoke` 改为断言从 AI 设置和「试用键盘」进入的对话页都看不到 `tab_settings`，返回 AI 设置后标签栏回来且仍选中「设置」。
-- iOS：`OnboardingUITests` 里在对话页上点标签栏的三处改为用导航栏返回，并断言标签栏不可点。
+- iOS：`OnboardingUITests` 在对话页通过导航栏返回，并断言标签栏不可点；包含保存服务配置后进入试用、收起键盘再返回的完整设置遍历，避免只修独立对话用例而遗漏聚合验收路径。

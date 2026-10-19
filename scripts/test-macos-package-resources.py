@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""macOS 发布包只带核心词库，其余三个资源包（日文词典、粤拼/注音词库、手写模型）由 App 按需下载。
+"""macOS 发布包只带核心词库，日文词典、五笔码表（五笔版除外）、粤拼/注音词库、手写模型等资源包由 App 按需下载。
 
 这里静态核对几处必须一致的地方：resources.rs 里不进包的日文文件名单、打包脚本不再取回或拷入资源包、tauri.macos.conf.json 不声明资源包文件、三个资源包锁文件只用不可变的地址（固定 tag 的 GitHub release 附件或固定提交的 raw 地址），以及 ci-macos-package.yml 的改动判断覆盖每个打包输入。任何一处只改一边，都可能出一个缺数据又下载不到的发布包，而这种包在开发机上照样能跑。
 
@@ -34,6 +34,7 @@ PACKAGING_INPUTS = (
     "resources/language-dictionaries.lock.json",
     "resources/handwriting-model.lock.json",
     "resources/offline-glosses.lock.json",
+    "resources/voice-runtime-macos.lock.json",
     "crates/client-core/src/resources.rs",
     "crates/client-providers/src/resource_packs.rs",
     "crates/client-providers/src/voice/local_models.rs",
@@ -124,6 +125,12 @@ def main() -> int:
     # 包内检查要逐个确认按需文件不在 EngineResources 里，名单多了一个文件时这里跟着要求多一行。
     for name in EXPECTED_ON_DEMAND:
         check(f'test ! -e "$resources_dir/EngineResources/{name}"' in package_text, f"package-release.sh does not check that {name} stays out of EngineResources")
+    # 五笔码表按 macOS 的按需规则校验（--platform macos），只随五笔版进包，包内检查按版本二选一。
+    check("--omit-on-demand --platform macos" in package_text, "package-release.sh does not verify EngineResources by the macOS on-demand groups")
+    check('test ! -e "$resources_dir/EngineResources/msime-wubi.db"' in package_text, "package-release.sh does not check that msime-wubi.db stays out of EngineResources outside the wubi edition")
+    match = re.search(r"pub const ON_DEMAND_WUBI_ARTIFACTS: \[&str; \d+\] =\s*\[([^\]]*)\]", RESOURCES_RS.read_text(encoding="utf-8"))
+    check(bool(match) and re.findall(r'"([^"]+)"', match.group(1)) == ["msime-wubi.db"], "ON_DEMAND_WUBI_ARTIFACTS in resources.rs is not exactly msime-wubi.db")
+    check("msime-wubi.db" in desktop_names, "msime-wubi.db is not in resources/desktop-dictionary.lock.json, so the wubi pack has nothing to download")
 
     # tauri.macos.conf.json 不能把资源包文件声明成包内资源。
     language = json.loads(LANGUAGE_LOCK.read_text(encoding="utf-8"))

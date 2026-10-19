@@ -429,6 +429,7 @@ final class ImeStyler {
         if (s.keyboardSurface != null) applySkinBackground(s.keyboardSurface);
         CandidateCanvasAssets canvas = s.candidateAppearance.canvas();
         boolean canvasActive = canvas != null && ViewPolicy.isVisible(s.candidateViewport);
+        s.imeFrame.setKeysCovered(canvas != null && ViewPolicy.isVisible(s.expandedCandidateScroll));
         int candidateSurface = s.candidateAppearance.surface();
         if (s.candidateCanvasRegion != null)
             s.candidateCanvasRegion.apply(canvas, canvasActive, candidateSurface);

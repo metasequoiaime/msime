@@ -9,14 +9,18 @@ source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/macos/EngineResources"
 
 # Use the shared verifier as the source of truth. The staged directory is ignored build output and is rebuilt as one unit, so a failed copy cannot look complete.
-# MSIME_MACOS_OMIT_ON_DEMAND=1 按发布包的规则只暂存核心词库：日文词典那一组文件（词典与两份 Mozc 许可文本，即 resources.rs 的 ON_DEMAND_JAPANESE_ARTIFACTS）不进包，由 App 在用户选日文方案时下载到 resource-packs/japanese。默认的开发流程仍暂存全部文件，作为下载之外的内置兜底。
+# MSIME_MACOS_OMIT_ON_DEMAND=1 按发布包的规则只暂存核心词库：macOS 的按需文件组（resources.rs 的 on_demand_artifacts("macos")：日文词典那一组，即词典与两份 Mozc 许可文本，以及五笔码表 msime-wubi.db）不进包，由 App 在用户选日文或五笔方案时下载到 resource-packs/japanese、resource-packs/wubi。五笔是默认方案的版本（五笔版）离不开五笔码表，照旧带着它。默认的开发流程仍暂存全部文件，作为下载之外的内置兜底。
 verify_flags=()
 if [ "${MSIME_MACOS_OMIT_ON_DEMAND:-0}" = 1 ]; then
-  verify_flags=(--omit-on-demand)
+  verify_flags=(--omit-on-demand --platform macos)
 fi
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} "$source_dir")
 # MSIME_EDITION=<id> 只暂存该版本带的文件（版本表 shared/contracts/editions.json，资源锁 resources/editions/<id>.lock.json），暂存结果按该版本的锁校验。缺省是 full，暂存的文件和校验与引入版本之前相同。
 edition="${MSIME_EDITION:-full}"
+default_scheme=$(python3 -I -c 'import json, sys; print(next(edition["default_scheme"] for edition in json.load(open(sys.argv[1]))["editions"] if edition["id"] == sys.argv[2]))' "$repo_root/shared/contracts/editions.json" "$edition")
+if [ "${MSIME_MACOS_OMIT_ON_DEMAND:-0}" = 1 ] && [ "$default_scheme" = wubi ]; then
+  artifacts="$artifacts"$'\n'msime-wubi.db
+fi
 edition_flags=()
 if [ "$edition" != full ]; then
   edition_lock="$repo_root/resources/editions/$edition.lock.json"

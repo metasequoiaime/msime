@@ -100,7 +100,7 @@ pub type ResourcePackProgress =
 
 /// 每个资源包的安装状态。
 ///
-/// Request `{"state_root": "<absolute dir>"}`; response value `[{"id","state":"missing"|"installed"|"outdated","size","schemes":[...],"import_files":[{"name","url","size"}]}]`, `import_files` being the files an offline install (`files` on install) needs, one entry per pack id (`japanese`, `language-dictionaries`, `handwriting`, `settled-model`, `offline-glosses`, `voice-runtime`). `size` is the download size in bytes. An installed pack lives in `<state_root>/resource-packs/<id>/`. Reads only a few file attributes.
+/// Request `{"state_root": "<absolute dir>"}`; response value `[{"id","state":"missing"|"installed"|"outdated","size","schemes":[...],"import_files":[{"name","url","size"}]}]`, `import_files` being the files an offline install (`files` on install) needs, one entry per pack id (`japanese`, `language-dictionaries`, `handwriting`, `settled-model`, `offline-glosses`, `voice-runtime`, `wubi`, and `voice-runtime-macos` once its lock pins the re-signed runtime). `size` is the download size in bytes. An installed pack lives in `<state_root>/resource-packs/<id>/`. Reads only a few file attributes.
 ///
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
@@ -310,17 +310,20 @@ mod tests {
             .iter()
             .map(|pack| pack["id"].as_str().unwrap())
             .collect();
-        assert_eq!(
-            ids,
-            [
-                "japanese",
-                "language-dictionaries",
-                "handwriting",
-                "settled-model",
-                "offline-glosses",
-                "voice-runtime"
-            ]
-        );
+        // macOS 语音运行库只在锁文件固定了重签的运行库之后才列出。
+        let mut expected = vec![
+            "japanese",
+            "language-dictionaries",
+            "handwriting",
+            "settled-model",
+            "offline-glosses",
+            "voice-runtime",
+            "wubi",
+        ];
+        if ResourcePack::MacosVoiceRuntime.pinned() {
+            expected.push("voice-runtime-macos");
+        }
+        assert_eq!(ids, expected);
         for pack in listed["value"].as_array().unwrap() {
             assert_eq!(pack["state"], "missing");
             assert!(pack["size"].as_u64().unwrap() > 0);

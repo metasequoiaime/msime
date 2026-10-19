@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
@@ -151,6 +152,27 @@ NSString *MSIMELocalVoiceHelperPath(void) {
     return bundled.isAbsolutePath && [files isExecutableFileAtPath:bundled] ? bundled : nil;
 }
 
+NSString *MSIMELocalVoiceRuntimePath(NSDictionary *hostOptions) {
+    static NSString *const Library = @"libsherpa-onnx-c-api.dylib";
+    NSFileManager *files = NSFileManager.defaultManager;
+    const char *helper = std::getenv("MSIME_VOICE_LOCAL_HELPER");
+    if (helper && *helper) return @"";
+    NSString *bundled = [[NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Contents/Frameworks"] stringByAppendingPathComponent:Library];
+    if ([files fileExistsAtPath:bundled]) return @"";
+    id root = [hostOptions isKindOfClass:NSDictionary.class] ? hostOptions[@"preferences_directory"] : nil;
+    if (![root isKindOfClass:NSString.class] || ![root isAbsolutePath]) return nil;
+    // 共享层核对 msime-model.json 记录的字节与编译进来的锁一致、文件都是普通文件；没装完或过期的包报 missing 或 outdated。
+    id packs = HostValue(msime_client_resource_packs, @{@"state_root" : root});
+    BOOL installed = NO;
+    if ([packs isKindOfClass:NSArray.class])
+        for (id pack in packs)
+            if ([pack isKindOfClass:NSDictionary.class] && [pack[@"id"] isEqual:@"voice-runtime-macos"] && [pack[@"state"] isEqual:@"installed"]) installed = YES;
+    if (!installed) return nil;
+    NSString *path = [[[root stringByAppendingPathComponent:@"resource-packs"] stringByAppendingPathComponent:@"voice-runtime-macos"] stringByAppendingPathComponent:Library];
+    struct stat library = {};
+    return lstat(path.fileSystemRepresentation, &library) == 0 && S_ISREG(library.st_mode) ? path : nil;
+}
+
 @interface MSIMELocalVoiceRequest ()
 - (void)helperMessage:(NSDictionary *)message;
 - (void)helperFailed:(NSError *)error session:(NSNumber *)session;
@@ -161,7 +183,7 @@ NSString *MSIMELocalVoiceHelperPath(void) {
 @property(nonatomic, readonly) dispatch_queue_t queue;
 @property(nonatomic, weak) MSIMELocalVoiceRequest *activeRequest; // main only
 + (instancetype)shared;
-- (BOOL)startSession:(NSNumber *)session request:(MSIMELocalVoiceRequest *)request message:(NSDictionary *)message error:(NSError **)error;
+- (BOOL)startSession:(NSNumber *)session request:(MSIMELocalVoiceRequest *)request message:(NSDictionary *)message runtime:(NSString *)runtime error:(NSError **)error;
 - (void)sendMessage:(NSDictionary *)message session:(NSNumber *)session;
 - (void)endSession:(NSNumber *)session;
 @end
@@ -192,7 +214,8 @@ NSString *MSIMELocalVoiceHelperPath(void) {
     [self.activeRequest helperMessage:message];
 }
 
-- (BOOL)launch:(NSError **)error {
+// `runtime` 是 MSIMELocalVoiceRuntimePath 的结果：非空时作为 `--runtime` 交给辅助进程。已经在运行的辅助进程沿用它启动时加载的运行库。
+- (BOOL)launch:(NSString *)runtime error:(NSError **)error {
     NSString *path = MSIMELocalVoiceHelperPath();
     if (!path) {
         if (error) *error = LocalVoiceFailure(@"找不到本地识别组件 msime-voice-local，请重新安装输入法。");
@@ -200,6 +223,7 @@ NSString *MSIMELocalVoiceHelperPath(void) {
     }
     NSTask *task = [NSTask new];
     task.executableURL = [NSURL fileURLWithPath:path];
+    if (runtime.length) task.arguments = @[ @"--runtime", runtime ];
     NSPipe *input = [NSPipe pipe];
     NSPipe *output = [NSPipe pipe];
     task.standardInput = input;
@@ -302,8 +326,8 @@ NSString *MSIMELocalVoiceHelperPath(void) {
     return YES;
 }
 
-- (BOOL)startSession:(NSNumber *)session request:(MSIMELocalVoiceRequest *)request message:(NSDictionary *)message error:(NSError **)error {
-    if (!_task && ![self launch:error]) return NO;
+- (BOOL)startSession:(NSNumber *)session request:(MSIMELocalVoiceRequest *)request message:(NSDictionary *)message runtime:(NSString *)runtime error:(NSError **)error {
+    if (!_task && ![self launch:runtime error:error]) return NO;
     if (![self write:message error:error]) return NO;
     _session = session;
     _sessionRequest = request;
@@ -328,6 +352,7 @@ enum class LocalRequestState : int { idle, streaming, finishing, closed };
 
 @implementation MSIMELocalVoiceRequest {
     NSString *_model;
+    NSString *_runtime;
     NSString *_language;
     NSString *_hotwordMode;
     NSDictionary *_hostOptions;
@@ -349,6 +374,12 @@ enum class LocalRequestState : int { idle, streaming, finishing, closed };
         if (error) *error = LocalVoiceFailure(@"找不到本地识别组件 msime-voice-local，请重新安装输入法。");
         return nil;
     }
+    NSString *runtime = MSIMELocalVoiceRuntimePath(hostOptions);
+    if (!runtime) {
+        if (error) *error = LocalVoiceFailure(@"本地语音识别运行库还没有下载，请在设置的“语音输入”分区下载。");
+        return nil;
+    }
+    _runtime = [runtime copy];
     _model = [model copy];
     id language = options[@"language"];
     _language = [language isKindOfClass:NSString.class] ? [language copy] : @"";
@@ -397,7 +428,7 @@ enum class LocalRequestState : int { idle, streaming, finishing, closed };
         NSMutableDictionary *message = [start mutableCopy];
         if (native) message[@"hotwords"] = [hotwords valueForKey:@"text"];
         NSError *failure = nil;
-        if (![helper startSession:session request:request message:message error:&failure])
+        if (![helper startSession:session request:request message:message runtime:request->_runtime error:&failure])
             dispatch_async(dispatch_get_main_queue(), ^{ [request helperFailed:failure session:session]; });
     });
     return YES;

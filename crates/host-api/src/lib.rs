@@ -838,7 +838,7 @@ impl HostSession {
         self.refresh_plugin_commands();
     }
 
-    /// 输入框获得焦点时，看设置应用是否在会话打开后装好（或移除）了日文、粤拼、注音、笔画的资源包和落定重排模型：只做几次 stat。词典路径有变就记下，等输入空闲时由 `apply_pending` 重建 Engine（重建时日文临时模式的开关按新路径重新判断）；落定重排模型的文件有变就起一个后台线程加载它（经 `sentence_model_settled` 的共享缓存），加载完之后由某次输入空闲的 `apply_pending` 换上。聚焦本身不读词典也不读模型文件。
+    /// 输入框获得焦点时，看设置应用是否在会话打开后装好（或移除）了日文、粤拼、注音、笔画、五笔的资源包和落定重排模型：只做几次 stat。词典路径有变就记下，等输入空闲时由 `apply_pending` 重建 Engine（重建时日文临时模式的开关按新路径重新判断）；落定重排模型的文件有变就起一个后台线程加载它（经 `sentence_model_settled` 的共享缓存），加载完之后由某次输入空闲的 `apply_pending` 换上。聚焦本身不读词典也不读模型文件。
     ///
     /// 资源包目录只在校验完、整体原子发布之后才出现，所以这里看到的文件都是完整的。
     fn refresh_resource_packs(&mut self) {
@@ -863,10 +863,15 @@ impl HostSession {
         let zhuyin = path_text(dictionaries.zhuyin);
         let stroke = path_text(dictionaries.stroke);
         let japanese = path_text(japanese_dictionary(state_root));
+        let wubi = path_text(wubi_dictionary(
+            state_root,
+            Path::new(&self.options.resources),
+        ));
         if cantonese == self.options.cantonese_dictionary
             && zhuyin == self.options.zhuyin_dictionary
             && stroke == self.options.stroke_dictionary
             && japanese == self.options.japanese_dictionary
+            && wubi == self.options.wubi_dictionary
         {
             return;
         }
@@ -874,6 +879,7 @@ impl HostSession {
         self.options.zhuyin_dictionary = zhuyin;
         self.options.stroke_dictionary = stroke;
         self.options.japanese_dictionary = japanese;
+        self.options.wubi_dictionary = wubi;
         self.resources_pending = true;
     }
 
@@ -1438,6 +1444,8 @@ pub(crate) struct LanguageDictionaries {
     pub(crate) cantonese: Option<std::path::PathBuf>,
     pub(crate) zhuyin: Option<std::path::PathBuf>,
     pub(crate) stroke: Option<std::path::PathBuf>,
+    /// 五笔码表不在：资源目录不带 `msime-wubi.db`（本平台的发布包可以不带它），也没有下载的那份，见 [`wubi_dictionary_missing`]。缺省为假，五笔照常可用。
+    pub(crate) wubi_missing: bool,
 }
 
 impl LanguageDictionaries {
@@ -1477,6 +1485,7 @@ impl LanguageDictionaries {
             cantonese: find("msime-cantonese.db"),
             zhuyin: find("msime-zhuyin.db"),
             stroke: find("msime-stroke.db"),
+            wubi_missing: false,
         }
     }
 
@@ -1490,6 +1499,7 @@ impl LanguageDictionaries {
             cantonese: present("msime-cantonese.db"),
             zhuyin: present("msime-zhuyin.db"),
             stroke: present("msime-stroke.db"),
+            wubi_missing: false,
         }
     }
 
@@ -1500,6 +1510,10 @@ impl LanguageDictionaries {
             cantonese: named(&options.cantonese_dictionary),
             zhuyin: named(&options.zhuyin_dictionary),
             stroke: named(&options.stroke_dictionary),
+            wubi_missing: wubi_dictionary_missing(
+                Path::new(&options.resources),
+                &options.wubi_dictionary,
+            ),
         }
     }
 
@@ -1507,12 +1521,13 @@ impl LanguageDictionaries {
         self.cantonese.is_none() && self.zhuyin.is_none() && self.stroke.is_none()
     }
 
-    /// Whether `scheme` can run with these dictionaries: Cantonese, Zhuyin and Stroke need their own, every other scheme reads only the shared resources.
+    /// Whether `scheme` can run with these dictionaries: Cantonese, Zhuyin and Stroke need their own, 五笔要有码表（随包或下载的 `msime-wubi.db`）, every other scheme reads only the shared resources.
     fn serve(&self, scheme: InputScheme) -> bool {
         match scheme {
             InputScheme::Cantonese => self.cantonese.is_some(),
             InputScheme::Zhuyin => self.zhuyin.is_some(),
             InputScheme::Stroke => self.stroke.is_some(),
+            InputScheme::Wubi => !self.wubi_missing,
             _ => true,
         }
     }
@@ -1524,6 +1539,27 @@ fn japanese_dictionary(state_root: Option<&Path>) -> Option<PathBuf> {
     updated_dictionary_file(state, "msime-japanese.dat").or_else(|| {
         resource_packs::installed_file(state, ResourcePack::Japanese, "msime-japanese.dat")
     })
+}
+
+/// 五笔码表 `msime-wubi.db` 的位置，资源目录 `resources` 里有它时为 `None`（Engine 读资源目录里的那份）。macOS 发布包不带它，这时是词库更新里的那份或已下载的 `wubi` 资源包里的那份，都没有时为 `None`。
+fn wubi_dictionary(state_root: Option<&Path>, resources: &Path) -> Option<PathBuf> {
+    let name = msime_engine::assets::WUBI_DICTIONARY;
+    if resources.join(name).is_file() {
+        return None;
+    }
+    let state = state_root?;
+    updated_dictionary_file(state, name)
+        .or_else(|| resource_packs::installed_file(state, ResourcePack::Wubi, name))
+}
+
+/// 五笔方案此时有没有码表可读：本平台的发布包可以不带 `msime-wubi.db`（[`ON_DEMAND_ARTIFACTS`]），资源目录里没有它，宿主也没有交来下载的那份（`wubi_dictionary` 为空）。别的平台的资源目录总是带着它，这里总为假。
+pub(crate) fn wubi_dictionary_missing(resources: &Path, wubi_dictionary: &str) -> bool {
+    let name = msime_engine::assets::WUBI_DICTIONARY;
+    ON_DEMAND_ARTIFACTS
+        .iter()
+        .any(|group| group.contains(&name))
+        && wubi_dictionary.is_empty()
+        && !resources.join(name).is_file()
 }
 
 /// 可选词库只读已经由设置宿主完整校验、原子发布的文件，不在聚焦输入框时联网。
@@ -1721,6 +1757,14 @@ impl HostOptions {
             self.language_dictionaries.as_deref().map(Path::new),
         );
         let japanese = japanese_dictionary(state_root.as_deref());
+        let wubi = path_text(wubi_dictionary(
+            state_root.as_deref(),
+            Path::new(&self.resources),
+        ));
+        let dictionaries = LanguageDictionaries {
+            wubi_missing: wubi_dictionary_missing(Path::new(&self.resources), &wubi),
+            ..dictionaries
+        };
         // Session creation has no diagnostic to carry the reason; the fallback itself is what matters here.
         let edition = self.edition();
         let (scheme, _) = effective_scheme(
@@ -1791,6 +1835,7 @@ impl HostOptions {
             zhuyin_dictionary: path_text(dictionaries.zhuyin),
             stroke_dictionary: path_text(dictionaries.stroke),
             japanese_dictionary: path_text(japanese),
+            wubi_dictionary: wubi,
             helpcode: helpcode.enabled,
             show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
@@ -2008,24 +2053,24 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
     })
 }
 
-/// 当前平台发布包可以不内置、改为按需下载的资源文件：macOS、Android 和 iOS 是日文词典与它的两份 Mozc 许可文本，其余平台照旧全部内置。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，测试在任何主机上都能检查每个目标的取值。
-pub(crate) const ON_DEMAND_ARTIFACTS: &[&str] =
+/// 当前平台发布包可以不内置、改为按需下载的资源文件组：macOS 是日文词典与它的两份 Mozc 许可文本、以及五笔码表，Android 和 iOS 是日文词典那一组，其余平台照旧全部内置。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，测试在任何主机上都能检查每个目标的取值。
+pub(crate) const ON_DEMAND_ARTIFACTS: &[&[&str]] =
     msime_client_core::resources::on_demand_artifacts(std::env::consts::OS);
 
-/// `resources` 实际按哪一份清单发货：`on_demand` 里的文件全部缺席时去掉它们，否则是完整的锁文件。见 [`ResourceSet::as_shipped_in`]。
+/// `resources` 实际按哪一份清单发货：`on_demand` 里每一组文件全部缺席时去掉这一组，否则这一组照锁文件要求。见 [`ResourceSet::as_shipped_in_groups`]。
 pub(crate) fn shipped_specification(
     specification: &ResourceSet,
     resources: &Path,
-    on_demand: &[&str],
+    on_demand: &[&[&str]],
 ) -> ResourceSet {
-    specification.as_shipped_in(resources, on_demand)
+    specification.as_shipped_in_groups(resources, on_demand)
 }
 
 fn verify_resources_once(
     resources: &std::path::Path,
     specification: &ResourceSet,
     state_root: &std::path::Path,
-    on_demand: &[&str],
+    on_demand: &[&[&str]],
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 从内置日文词典的旧版本升级后，第一次启动时校验标记描述的清单变了，会重新哈希一次，这是有意的。
     let shipped = shipped_specification(specification, resources, on_demand);
@@ -2159,7 +2204,7 @@ fn prepare_shipped_host_configuration(
     resources: &std::path::Path,
     state_root: &std::path::Path,
     specification: &ResourceSet,
-    on_demand: &[&str],
+    on_demand: &[&[&str]],
     edition: &'static Edition,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let resources = without_verbatim_prefix(std::fs::canonicalize(resources)?);

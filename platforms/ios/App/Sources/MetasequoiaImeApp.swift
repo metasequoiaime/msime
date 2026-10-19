@@ -327,7 +327,7 @@ private struct MainTabView: View {
     }
     else {
       NavigationStack {
-        SettingsView()
+        SettingsView(navigationRoot: navigation.settingsRoot)
           .navigationDestination(isPresented: $navigation.settingsChat) {
             KeyboardTryoutView(title: "AI 对话", focusRequest: navigation.chatFocusRequest)
           }

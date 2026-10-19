@@ -28,7 +28,7 @@ pub(crate) fn request(
         baseline,
         on_demand: crate::ON_DEMAND_ARTIFACTS
             .iter()
-            .map(|s| (*s).to_owned())
+            .flat_map(|group| group.iter().map(|name| (*name).to_owned()))
             .collect(),
         languages: options
             .language_dictionaries

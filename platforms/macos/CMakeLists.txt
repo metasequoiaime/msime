@@ -354,17 +354,27 @@ add_custom_command(OUTPUT "${MSIME_VOICE_RUNTIME_STAMP}"
   COMMENT "Fetching the pinned sherpa-onnx runtime for on-device speech recognition"
   VERBATIM)
 add_custom_target(macos-voice-runtime DEPENDS "${MSIME_VOICE_RUNTIME_STAMP}")
-add_dependencies(MSIMEClientInputMethod macos-voice-runtime msime-voice-local)
-# 上游的 sherpa-onnx 运行库是 x86_64 + arm64 的通用二进制（约 55 MB）。拷进 bundle 时只抽出 MSIME_BUNDLE_ARCHITECTURES 里的架构：universal 包两种都留，开发构建只编宿主架构时省下另一半。lipo 会破坏上游签名，install.sh 和 package-release.sh 之后都会用 --deep 重新签名整个 bundle。
-set(MSIME_VOICE_RUNTIME_EXTRACT)
-foreach(MSIME_BUNDLE_ARCHITECTURE IN LISTS MSIME_BUNDLE_ARCHITECTURES)
-  list(APPEND MSIME_VOICE_RUNTIME_EXTRACT -extract "${MSIME_BUNDLE_ARCHITECTURE}")
-endforeach()
+# 发布包在 resources/voice-runtime-macos.lock.json 固定了重签的运行库、并且用同一个 Team ID 签名时关掉它（package-release.sh）：运行库不进 bundle，由设置应用作为 voice-runtime-macos 资源包下载，输入法以 --runtime 交给辅助进程（src/voice/LocalVoiceRequest.h）。开发构建照旧内置，签名身份不同的开发者也能直接用本地识别。
+option(MSIME_BUNDLE_VOICE_RUNTIME "Stage the sherpa-onnx runtime into Contents/Frameworks; off leaves it to the voice-runtime-macos resource pack" ON)
+add_dependencies(MSIMEClientInputMethod msime-voice-local)
 add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_SWIFT_BACKEND_OUTPUT}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib"
-  COMMAND lipo "${MSIME_VOICE_RUNTIME_LIBRARY}" ${MSIME_VOICE_RUNTIME_EXTRACT} -output "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:msime-voice-local>" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/MacOS/msime-voice-local")
+if(MSIME_BUNDLE_VOICE_RUNTIME)
+  add_dependencies(MSIMEClientInputMethod macos-voice-runtime)
+  # 上游的 sherpa-onnx 运行库是 x86_64 + arm64 的通用二进制（约 55 MB）。拷进 bundle 时只抽出 MSIME_BUNDLE_ARCHITECTURES 里的架构：universal 包两种都留，开发构建只编宿主架构时省下另一半。lipo 会破坏上游签名，install.sh 和 package-release.sh 之后都会用 --deep 重新签名整个 bundle。
+  set(MSIME_VOICE_RUNTIME_EXTRACT)
+  foreach(MSIME_BUNDLE_ARCHITECTURE IN LISTS MSIME_BUNDLE_ARCHITECTURES)
+    list(APPEND MSIME_VOICE_RUNTIME_EXTRACT -extract "${MSIME_BUNDLE_ARCHITECTURE}")
+  endforeach()
+  add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
+    COMMAND lipo "${MSIME_VOICE_RUNTIME_LIBRARY}" ${MSIME_VOICE_RUNTIME_EXTRACT} -output "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/libsherpa-onnx-c-api.dylib")
+else()
+  # 关掉之后重新构建同一个构建目录时，上一次拷进去的运行库还在 bundle 里，删掉它。
+  add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E rm -f "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/libsherpa-onnx-c-api.dylib")
+endif()
 set(MSIME_OPTIONS_FILE "" CACHE FILEPATH "Optional development runtime configuration; never distribute this file")
 if(MSIME_OPTIONS_FILE)
   target_sources(MSIMEClientInputMethod PRIVATE "${MSIME_OPTIONS_FILE}")
@@ -1146,7 +1156,11 @@ add_test(
   COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/preference_coverage.py"
           "${CMAKE_CURRENT_SOURCE_DIR}/../..")
-# 官方插件包随这次构建放进了 bundle 时，bundle-contents 逐个核对它们到位、内容和构建出的一致。
+# 官方插件包随这次构建放进了 bundle 时，bundle-contents 逐个核对它们到位、内容和构建出的一致。不内置语音运行库的构建，它核对运行库确实不在 bundle 里。
+set(MSIME_BUNDLE_VOICE_RUNTIME_ARGUMENTS "")
+if(NOT MSIME_BUNDLE_VOICE_RUNTIME)
+  set(MSIME_BUNDLE_VOICE_RUNTIME_ARGUMENTS --without-voice-runtime)
+endif()
 set(MSIME_BUNDLE_PLUGIN_PACKS_ARGUMENTS "")
 if(MSIME_STAGED_PLUGIN_PACKS)
   set(MSIME_BUNDLE_PLUGIN_PACKS_ARGUMENTS --plugin-packs "${MSIME_PLUGIN_PACKS_DIR}")
@@ -1157,7 +1171,8 @@ add_test(
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/bundle_contents.py"
           "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>"
           --languages zh-Hans,en
-          ${MSIME_BUNDLE_PLUGIN_PACKS_ARGUMENTS})
+          ${MSIME_BUNDLE_PLUGIN_PACKS_ARGUMENTS}
+          ${MSIME_BUNDLE_VOICE_RUNTIME_ARGUMENTS})
 add_test(
   NAME info-plist-icons
   COMMAND "${Python3_EXECUTABLE}"

@@ -16,6 +16,8 @@ Android、iOS、HarmonyOS 提供触屏方案「全拼 14 键」。解码复用�
 
 Android 的拼音选择位置与触摸尺寸由 [Android 14 键与九键共用左侧栏](../../implemented/bug-fix/2026-10-13-android-fourteen-key-left-spellings.md) 取代；下表的读音行横向选择仍适用于 iOS、HarmonyOS，组码和消歧语义继续共用。
 
+iOS 的键盘设置预览也区分 26 / 14 / 9 键：`KeyboardSkinPreview` 接收显式的 `fourteenKey`，14 键直接复用扩展的 `FourteenKeyLayout.rows`，App target 同时编译这张纯键面表，避免第二张表与真实键盘漂移。第三排两端为分词和删除，第二排不缩进，底行沿用全拼。皮肤缩略图未指定 14 键时保留原先的 26 / 9 键行为；预览的无障碍标签同步说明所画布局。真机验收发现旧预览只按 `nineKey` 二分，选中 14 键时设置行已改变，但预览仍画 26 键，因此这里不能用「非九键」代指 26 键。界面回归用例同时核对选择值、预览布局标签、离页持久化，并保留三种布局的实际渲染图供核对。非拼音方案的同名行是说明文本，因此测试按标识符读取后跳过；从设置返回时等导航标题变化，避免点到消失中的返回键。App 的源文件成员按原有 `KeyboardExtension/Sources` 分组筛选，复用工程已有的文件引用，避免新增重复目录组。
+
 ### 三端行为规格
 
 | 项 | 规格 |
@@ -174,3 +176,9 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 - HarmonyOS：`platforms/harmony/tests/run.sh` 0 失败，`scripts/test-harmony-*.py` 全部通过，`hvigorw assembleHap` 成功；手机模拟器上用临时 bundle 实打你好、西安、长按 QW 选 w、英文切换和三栏面板。2in1、密码框回落和设置页三档没有在设备上验证，只有逻辑测试。
 
 相关：[iOS 读音并入候选行](2026-10-13-ios-inline-reading-top-row.md)——iOS 的其他布局把读音并进了候选行，14 键因为拼音选择条仍单独一行，键盘比 26 键高这一行。
+
+### iOS 键盘设置预览验收
+
+- 在 iPhone 17、iOS 27.0.1 上用 iphone-use 重现「14 键设置、26 键预览」，安装修复后的签名 Release 包，核对 14 键的 5／5／4 个字母键与分词、删除；结束后恢复原有九键。
+- iOS 27.0 模拟器的 `testChineseKeyboardOffersTwentySixFourteenAndNineKeys` 通过，逐档核对标签与返回重进的持久化，并导出、逐张核对 14／9／26 键实际渲染图。前置引导用例切到九键后单独运行，避免上一批五笔用例留下的非拼音布局触发跳过。
+- 模拟器 `build-for-testing` 与真机签名 Release 构建通过；工程成员改用已有分组后重新构建，未再出现重复 `PBXGroup` 警告。`scripts/test-fourteen-key-table.py`、本地 quick 门禁、笔记门禁和 `git diff --check` 通过。

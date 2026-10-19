@@ -13,7 +13,8 @@ static char MSIMESettingsGlassControllerKey;
 
 @implementation MSIMESettingsGlass
 - (void)refresh {
-    [self updateEnabled:!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency];
+    [self updateEnabled:self.window.isKeyWindow && NSApp.isActive &&
+        !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency];
 }
 - (void)updateEnabled:(BOOL)enabled {
     BOOL systemControls = NO;
@@ -63,6 +64,7 @@ static char MSIMESettingsGlassControllerKey;
 }
 - (void)dealloc {
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 @end
 
@@ -92,6 +94,10 @@ extern "C" void msime_install_settings_glass(void *windowPointer, void *webviewP
                 injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
         [NSWorkspace.sharedWorkspace.notificationCenter addObserver:controller selector:@selector(refresh)
             name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
+        for (NSNotificationName name in @[NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification])
+            [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(refresh) name:name object:window];
+        for (NSNotificationName name in @[NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification])
+            [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(refresh) name:name object:NSApp];
         [controller refresh];
     }
 }

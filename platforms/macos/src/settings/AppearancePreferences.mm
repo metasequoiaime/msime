@@ -2875,7 +2875,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (LocalModeBoolean(value)) return [value boolValue];
     if ([key isEqual:@"minus_equal"]) return [self storedPageShortcut] == 0;
     if ([key isEqual:@"brackets"]) return [self storedPageShortcut] == 1;
-    return [@[@"comma_period", @"arrows"] containsObject:key];
+    return [@[@"comma_period", @"arrows", @"left_right"] containsObject:key];
 }
 - (NSDictionary *)wordCharacterOptions {
     NSDictionary *value = _sharedWordCharacter ?: [_defaults dictionaryForKey:WordCharacterKey];

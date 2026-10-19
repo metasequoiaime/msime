@@ -130,7 +130,7 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
     id value = preferences[@"show_app_logo"];
     const BOOL requested = [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() && [value boolValue];
     _logoView.hidden = !requested || _logoView.image.size.width <= 0;
-    _label.font = [NSFont systemFontOfSize:kFontSize weight:NSFontWeightSemibold];
+    _label.font = [NSFont systemFontOfSize:kFontSize weight:NSFontWeightRegular];
     _logoWidth.constant = kLogoSide;
     _logoHeight.constant = kLogoSide;
     _content.spacing = kContentSpacing;

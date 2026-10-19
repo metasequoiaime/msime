@@ -5,12 +5,14 @@ import XCTest
 @MainActor
 final class MorePanelFoldTests: XCTestCase {
   private var savedDefaults: [String: Any] = [:]
+  private var savedSharedPreferences: [String: Any]?
   /// 「完成」写入共享文档的触屏几何参数，测试后恢复原值，免得之后的键盘画得更高。
   private var savedGeometry: [String: Any] = [:]
   private let geometryKeys = ["touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment", "touch_voice_shortcut"]
   private let defaultsKeys = [
     KeyboardPrivacyPreference.incognitoKey, KeyboardFeedbackPreference.soundKey, KeyboardFeedbackPreference.hapticsKey,
     KeyboardLayoutPreference.heightAdjustmentKey,
+    ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey,
   ]
 
   override func setUp() {
@@ -18,7 +20,11 @@ final class MorePanelFoldTests: XCTestCase {
     for key in defaultsKeys {
       savedDefaults[key] = KeyboardFeedbackPreference.defaults.object(forKey: key)
     }
+    // 功能菜单的可用性取决于新键盘初始化时的中英文模式；测试不能继承模拟器上一次运行留下的英文状态。
+    KeyboardFeedbackPreference.defaults.set(true, forKey: ImeModeMemoryPreference.enabledKey)
+    KeyboardFeedbackPreference.defaults.set(true, forKey: ImeModeMemoryPreference.lastChineseKey)
     let document = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
+    savedSharedPreferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     savedGeometry = document.filter { geometryKeys.contains($0.key) }
   }
 
@@ -31,6 +37,10 @@ final class MorePanelFoldTests: XCTestCase {
     MetasequoiaInputSessionBridge.updateSharedPreferences { document in
       for key in keys { document[key] = saved[key] }
     }
+    if let savedSharedPreferences {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { document in document = savedSharedPreferences }
+    }
+    savedSharedPreferences = nil
     super.tearDown()
   }
 
@@ -184,6 +194,10 @@ final class MorePanelFoldTests: XCTestCase {
     }
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     InputSchemePreference.scheme = .quanpin
+    _ = InputSchemePreference.update { selection in
+      selection.enabled = ChineseInputScheme.allCases
+      selection.scheme = .quanpin
+    }
     let controller = makeController(width: 390)
     _ = try openMenu(in: controller)
     XCTAssertTrue(try tile("moreCard-模糊音", in: controller).isEnabled)

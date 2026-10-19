@@ -41,6 +41,6 @@ Status: implemented
 
 ## Verification
 
-- iOS：Mac Studio 上 `MSIMEClientTests`、`MSIMEClientUITests` 的 `build-for-testing` 通过；本机 iPhone 17 / iOS 27.0 模拟器上 `TypingStatisticsTests`（两处）通过，`testStatisticsChartsAndDaySelection`、`testStatisticsOffShowsOnlyTheRecordingNotice` 通过，截图核对 26 键与 9 键热力图。同批运行的 `NineKeyKeyboardTests.testQuanpinSeparatorKeepsChineseAndSplitsCurrentComposition` 失败在打 `xi'an` 后候选里找不到「西安」，与本次统计改动无关（本次没有改键盘与引擎），未在 develop 上复核。
+- iOS：Mac Studio 上 `MSIMEClientTests`、`MSIMEClientUITests` 的 `build-for-testing` 通过；本机 iPhone 17 / iOS 27.0 模拟器上的完整 `MSIMEClientTests` 运行 843 项、跳过 2 项、0 失败，其中 `TypingStatisticsTests` 的 26 键和 9 键热力图及 `MorePanelFoldTests.testFuzzyPinyinFollowsTheScheme` 均通过。热力图测试同时固定共享文档、App Group 方案和中英文记忆，避免键盘初始化时被前一次测试或模拟器偏好覆盖；跳过项仍是未暂存固定上游 canvas 皮肤和固定词典没有离线释义。
 - Android：`check-host.sh` 通过（含 `KeyHeatmapLayoutSmoke`、`KeyPressCountingSmoke`）；Studio 上 `compileFullReleaseJavaWithJavac` 通过。未在设备上查看。
 - 鸿蒙与共享界面：`tsc --noEmit` 通过；`vitest run tests/settings tests/core` 2566 个用例全部通过；`platforms/harmony/tests/run.sh` 0 failure。未改 `.ets`，不需要重新打 HAP。

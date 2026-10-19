@@ -1,8 +1,10 @@
-//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，以及 Android 发布包不再内置的离线释义词典和本地语音运行库。
+//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，Android 发布包不再内置的离线释义词典和本地语音运行库，以及 macOS 发布包不再内置的五笔码表和本地语音运行库。
 //!
-//! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。文件名、URL、长度和 SHA-256 全部来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]；语音运行库从固定的上游归档里取出两个文件，见 [`ResourcePack::archive`]。
+//! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。文件名、URL、长度和 SHA-256 全部来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]；语音运行库从固定的归档里取出文件，见 [`ResourcePack::archive`]。
+//!
+//! 锁文件还没有固定内容的资源包（[`ResourcePack::pinned`] 为假，目前只可能是 macOS 语音运行库在第一次发布之前）不存在：[`ResourcePack::from_id`] 认不出它，[`list`] 不列出它，安装、导入和收编都报 `local_model_unknown`。
 
-use crate::resources::{ResourceSet, ON_DEMAND_JAPANESE_ARTIFACTS};
+use crate::resources::{ResourceSet, ON_DEMAND_JAPANESE_ARTIFACTS, ON_DEMAND_WUBI_ARTIFACTS};
 use crate::voice::local_models::{self, InstallProgress, LocalModelError, MANIFEST_FILE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,6 +27,14 @@ const VOICE_RUNTIME_LOCK: &str = include_str!("../../../resources/voice-runtime.
 /// 从 Android 归档里取出的两个库各自的长度和 SHA-256。
 const VOICE_RUNTIME_ANDROID_LOCK: &str =
     include_str!("../../../resources/voice-runtime-android.lock.json");
+/// macOS 的 sherpa-onnx 运行库：上游 universal dylib 用本项目的 Developer ID 重签后打成 ZIP，作为本仓库 `release_tag` 那个 Release 的资产发布（`.github/workflows/publish-macos-voice-runtime.yml`）。输入法和它的识别辅助进程开着 hardened runtime，库验证只放行同一 Team ID 签名的库，上游原样的 dylib 下载下来也加载不了，所以不能像 Android 那样直接取上游归档。
+const VOICE_RUNTIME_MACOS_LOCK: &str =
+    include_str!("../../../resources/voice-runtime-macos.lock.json");
+/// macOS 语音运行库包里唯一的文件，也是 `shared/voice/LocalAsr.cpp` 在 macOS 上加载的库名。
+pub const MACOS_VOICE_RUNTIME_LIBRARY: &str = "libsherpa-onnx-c-api.dylib";
+/// 重签的 macOS 语音运行库发布在本仓库的 Release 下，锁文件的 `release_tag` 接在后面。
+const MACOS_VOICE_RUNTIME_RELEASES: &str =
+    "https://github.com/metasequoiaime/msime/releases/download/";
 
 /// 读语言词库包里 `msime-<方案>.db` 的输入方案，即偏好里的方案名。
 const LANGUAGE_DICTIONARY_SCHEMES: [&str; 3] = ["cantonese", "zhuyin", "stroke"];
@@ -41,6 +51,10 @@ pub enum ResourcePack {
     OfflineGlosses,
     /// Android arm64 上本地语音识别加载的 `libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，取自 `resources/voice-runtime.lock.json` 固定的 sherpa-onnx `.aar`。
     VoiceRuntime,
+    /// macOS 发布包不再内置的五笔码表 `msime-wubi.db`，即 `desktop-dictionary.lock.json` 里的那一项。
+    Wubi,
+    /// macOS 上本地语音识别加载的 `libsherpa-onnx-c-api.dylib`（universal），取自 `resources/voice-runtime-macos.lock.json` 固定的、用本项目 Developer ID 重签过的归档。锁文件还没固定归档时不存在，见 [`ResourcePack::pinned`]。
+    MacosVoiceRuntime,
 }
 
 /// 手写模型锁文件多一个说明来源的 `source` 字段，所以这里不拒绝未知字段，只取安装需要的两项。
@@ -85,6 +99,22 @@ struct VoiceRuntimeAndroidLock {
     artifacts: Vec<ArchiveMemberLock>,
 }
 
+/// `voice-runtime-macos.lock.json`。`archive` 为 `null`、`artifacts` 为空表示重签的运行库还没发布：这时 macOS 发布包照旧内置运行库，资源包不存在。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VoiceRuntimeMacosLock {
+    /// sherpa-onnx 的来源提交，必须与 `voice-runtime.lock.json` 相同。
+    source_commit: String,
+    /// 重签的是 `voice-runtime.lock.json` 里哪个平台的上游归档。
+    upstream_platform: String,
+    /// 发布归档的 Release 标签，归档的 URL 必须在它下面。
+    release_tag: String,
+    /// 签名用的 Developer ID 所属的 Team ID。发布包只有用同一个 Team ID 签名时才省略内置的运行库（`platforms/macos/package-release.sh`），否则输入法加载不了下载的库。
+    team_id: String,
+    archive: Option<crate::resources::Artifact>,
+    artifacts: Vec<ArchiveMemberLock>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArchiveMemberLock {
@@ -104,14 +134,30 @@ pub struct PackArchive {
 }
 
 impl ResourcePack {
-    pub const ALL: [ResourcePack; 6] = [
+    /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
+    pub const ALL: [ResourcePack; 8] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
         ResourcePack::SettledModel,
         ResourcePack::OfflineGlosses,
         ResourcePack::VoiceRuntime,
+        ResourcePack::Wubi,
+        ResourcePack::MacosVoiceRuntime,
     ];
+
+    /// 锁文件固定了内容、可以下载的资源包，顺序同 [`ResourcePack::ALL`]。
+    pub fn available() -> impl Iterator<Item = ResourcePack> {
+        ResourcePack::ALL.into_iter().filter(|pack| pack.pinned())
+    }
+
+    /// 锁文件是否固定了这个资源包的内容。只有 macOS 语音运行库可能为假：重签的运行库第一次发布、锁文件写上它的地址和摘要之前，这个资源包不存在。
+    pub fn pinned(self) -> bool {
+        match self {
+            ResourcePack::MacosVoiceRuntime => macos_voice_runtime().is_some(),
+            _ => true,
+        }
+    }
 
     pub fn id(self) -> &'static str {
         match self {
@@ -121,11 +167,14 @@ impl ResourcePack {
             ResourcePack::SettledModel => "settled-model",
             ResourcePack::OfflineGlosses => "offline-glosses",
             ResourcePack::VoiceRuntime => "voice-runtime",
+            ResourcePack::Wubi => "wubi",
+            ResourcePack::MacosVoiceRuntime => "voice-runtime-macos",
         }
     }
 
+    /// 按 id 找资源包；锁文件还没固定内容的不算（[`ResourcePack::pinned`]）。
     pub fn from_id(id: &str) -> Option<ResourcePack> {
-        ResourcePack::ALL.into_iter().find(|pack| pack.id() == id)
+        ResourcePack::available().find(|pack| pack.id() == id)
     }
 
     /// 选用这些输入方案时需要该资源包。手写和落定重排模型不对应输入方案。语言词库包只列出锁文件确实固定了 `msime-<方案>.db` 的方案：词库还没发布的方案下载了也装不上，不能当作由这个包提供。
@@ -133,6 +182,7 @@ impl ResourcePack {
         static LANGUAGE_SCHEMES: OnceLock<Vec<&'static str>> = OnceLock::new();
         match self {
             ResourcePack::Japanese => &["japanese"],
+            ResourcePack::Wubi => &["wubi"],
             ResourcePack::LanguageDictionaries => LANGUAGE_SCHEMES.get_or_init(|| {
                 let pinned = &self.set().artifacts;
                 let pinned_names: HashSet<&str> = pinned
@@ -147,11 +197,12 @@ impl ResourcePack {
             ResourcePack::Handwriting
             | ResourcePack::SettledModel
             | ResourcePack::OfflineGlosses
-            | ResourcePack::VoiceRuntime => &[],
+            | ResourcePack::VoiceRuntime
+            | ResourcePack::MacosVoiceRuntime => &[],
         }
     }
 
-    /// 文件不单独下载、而是从一个上游归档里取出的资源包：只有语音运行库，归档是 sherpa-onnx 的 Android `.aar`（各 ABI 的库都在里面，只取 arm64-v8a 的两个）。其余资源包为 `None`。
+    /// 文件不单独下载、而是从一个归档里取出的资源包：两个语音运行库。Android 的归档是 sherpa-onnx 的上游 `.aar`（各 ABI 的库都在里面，只取 arm64-v8a 的两个）；macOS 的是本项目重签后发布的 ZIP，锁文件还没固定它时为 `None`。其余资源包为 `None`。
     pub fn archive(self) -> Option<&'static PackArchive> {
         static VOICE_RUNTIME: OnceLock<PackArchive> = OnceLock::new();
         match self {
@@ -165,13 +216,25 @@ impl ResourcePack {
                         .collect(),
                 }
             })),
+            ResourcePack::MacosVoiceRuntime => macos_voice_runtime().map(|pinned| &pinned.archive),
             _ => None,
         }
     }
 
     /// 该资源包固定的文件清单，取自仓库内的锁文件。从归档取出的文件（[`ResourcePack::archive`]），URL 记的是归档的地址，长度和 SHA-256 是取出后文件本身的。
     pub fn set(self) -> &'static ResourceSet {
-        static SETS: OnceLock<[ResourceSet; 6]> = OnceLock::new();
+        static SETS: OnceLock<[ResourceSet; 7]> = OnceLock::new();
+        static UNPINNED: OnceLock<ResourceSet> = OnceLock::new();
+        if self == ResourcePack::MacosVoiceRuntime {
+            // 还没固定时是没有文件的空清单，它不能通过 `ResourceSet::validate`，也不会被列出或安装。
+            return match macos_voice_runtime() {
+                Some(pinned) => &pinned.set,
+                None => UNPINNED.get_or_init(|| ResourceSet {
+                    source_commit: macos_voice_runtime_lock().source_commit,
+                    artifacts: Vec::new(),
+                }),
+            };
+        }
         let sets = SETS.get_or_init(|| {
             let desktop: ResourceSet =
                 serde_json::from_str(DESKTOP_LOCK).expect("desktop dictionary lock is valid");
@@ -208,6 +271,7 @@ impl ResourcePack {
                         })
                         .collect(),
                 },
+                desktop.only(&ON_DEMAND_WUBI_ARTIFACTS),
             ]
         });
         match self {
@@ -217,6 +281,8 @@ impl ResourcePack {
             ResourcePack::SettledModel => &sets[3],
             ResourcePack::OfflineGlosses => &sets[4],
             ResourcePack::VoiceRuntime => &sets[5],
+            ResourcePack::Wubi => &sets[6],
+            ResourcePack::MacosVoiceRuntime => unreachable!("handled above"),
         }
     }
 
@@ -311,6 +377,88 @@ fn voice_runtime_locks() -> (String, crate::resources::Artifact, Vec<ArchiveMemb
         },
         android.artifacts,
     )
+}
+
+/// 锁文件固定好的 macOS 语音运行库：归档和从中取出的文件清单。
+struct PinnedMacosVoiceRuntime {
+    archive: PackArchive,
+    set: ResourceSet,
+}
+
+fn macos_voice_runtime_lock() -> VoiceRuntimeMacosLock {
+    serde_json::from_str(VOICE_RUNTIME_MACOS_LOCK).expect("macOS voice runtime lock is valid")
+}
+
+/// macOS 语音运行库锁文件里固定的内容；还没发布（`archive` 为 `null`）时为 `None`。
+fn macos_voice_runtime() -> Option<&'static PinnedMacosVoiceRuntime> {
+    static PINNED: OnceLock<Option<PinnedMacosVoiceRuntime>> = OnceLock::new();
+    PINNED
+        .get_or_init(|| pinned_macos_voice_runtime(macos_voice_runtime_lock()))
+        .as_ref()
+}
+
+/// 把 macOS 语音运行库锁文件变成归档和文件清单。来源提交必须与 `voice-runtime.lock.json` 相同，否则锁的是另一个 sherpa-onnx 版本；`archive` 与 `artifacts` 必须同时为空或同时有内容，固定了归档就必须恰好取出 [`MACOS_VOICE_RUNTIME_LIBRARY`] 一个文件。
+fn pinned_macos_voice_runtime(lock: VoiceRuntimeMacosLock) -> Option<PinnedMacosVoiceRuntime> {
+    let runtime: VoiceRuntimeLock =
+        serde_json::from_str(VOICE_RUNTIME_LOCK).expect("voice runtime lock is valid");
+    assert_eq!(
+        runtime.source_commit, lock.source_commit,
+        "the macOS voice runtime lock describes another sherpa-onnx release"
+    );
+    assert!(
+        runtime.platforms.contains_key(&lock.upstream_platform),
+        "the macOS voice runtime lock names an upstream archive the voice runtime lock does not pin"
+    );
+    assert!(
+        lock.team_id.len() == 10
+            && lock
+                .team_id
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit()),
+        "the macOS voice runtime lock names no Team ID"
+    );
+    let Some(archive) = lock.archive else {
+        assert!(
+            lock.artifacts.is_empty(),
+            "the macOS voice runtime lock lists files without an archive"
+        );
+        return None;
+    };
+    assert!(
+        lock.artifacts.len() == 1 && lock.artifacts[0].name == MACOS_VOICE_RUNTIME_LIBRARY,
+        "the macOS voice runtime pack holds exactly {MACOS_VOICE_RUNTIME_LIBRARY}"
+    );
+    // 归档只能来自本仓库那个固定标签的 Release：标签下的资产一经发布就不再替换，锁文件钉的字节才一直下得到。
+    assert!(
+        archive.url
+            == format!(
+                "{MACOS_VOICE_RUNTIME_RELEASES}{}/{}",
+                lock.release_tag, archive.name
+            ),
+        "the macOS voice runtime archive is not the asset of its release tag"
+    );
+    let members = lock
+        .artifacts
+        .iter()
+        .map(|member| (member.member.clone(), member.name.clone()))
+        .collect();
+    let artifacts = lock
+        .artifacts
+        .into_iter()
+        .map(|member| crate::resources::Artifact {
+            name: member.name,
+            url: archive.url.clone(),
+            sha256: member.sha256,
+            size: member.size,
+        })
+        .collect();
+    Some(PinnedMacosVoiceRuntime {
+        archive: PackArchive { archive, members },
+        set: ResourceSet {
+            source_commit: lock.source_commit,
+            artifacts,
+        },
+    })
 }
 
 /// `<state_root>/resource-packs`。
@@ -411,8 +559,7 @@ pub struct ResourcePackStatus {
 /// 每个资源包在 `state_root` 下的安装状态。
 pub fn list(state_root: &Path) -> Vec<ResourcePackStatus> {
     let packs_root = root(state_root);
-    ResourcePack::ALL
-        .into_iter()
+    ResourcePack::available()
         .map(|pack| {
             let state = match published_directory(state_root, pack) {
                 Some(directory) => match local_models::installed_manifest(&packs_root, pack.id()) {
@@ -471,6 +618,9 @@ pub fn install(
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
+    if !pack.pinned() {
+        return Err(LocalModelError::UnknownModel);
+    }
     if let Some(archive) = pack.archive() {
         return local_models::install_archive_members(
             &root(state_root),
@@ -505,6 +655,9 @@ pub fn import(
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
+    if !pack.pinned() {
+        return Err(LocalModelError::UnknownModel);
+    }
     let artifacts = pack.import_artifacts();
     let fetcher = local_models::LocalFileFetcher::matching_sources(
         artifacts.iter().map(local_models::ImportSource::artifact),
@@ -558,6 +711,9 @@ pub fn adopt(
     pack: ResourcePack,
     source_dir: &Path,
 ) -> Result<PathBuf, LocalModelError> {
+    if !pack.pinned() {
+        return Err(LocalModelError::UnknownModel);
+    }
     if !resource_root_is_safe(state_root) {
         return Err(LocalModelError::InvalidRoot);
     }
@@ -600,7 +756,7 @@ mod tests {
 
     #[test]
     fn every_pack_set_validates() {
-        for pack in ResourcePack::ALL {
+        for pack in ResourcePack::available() {
             pack.set().validate().unwrap();
             assert!(pack.size() > 0, "{}", pack.id());
         }
@@ -636,6 +792,24 @@ mod tests {
                 (&locked.url, &locked.sha256, locked.size)
             );
         }
+        let wubi = ResourcePack::Wubi.set();
+        assert_eq!(wubi.source_commit, desktop.source_commit);
+        assert_eq!(wubi.artifacts.len(), 1);
+        let locked = desktop
+            .artifacts
+            .iter()
+            .find(|locked| locked.name == ON_DEMAND_WUBI_ARTIFACTS[0])
+            .unwrap();
+        assert_eq!(
+            (
+                &wubi.artifacts[0].name,
+                &wubi.artifacts[0].sha256,
+                wubi.artifacts[0].size
+            ),
+            (&locked.name, &locked.sha256, locked.size)
+        );
+        assert_eq!(ResourcePack::Wubi.schemes(), ["wubi"]);
+        assert!(ResourcePack::Wubi.archive().is_none());
         assert_eq!(ResourcePack::LanguageDictionaries.set().artifacts.len(), 6);
         assert_eq!(ResourcePack::Handwriting.set().artifacts.len(), 2);
         assert_eq!(ResourcePack::SettledModel.set().artifacts.len(), 1);
@@ -730,8 +904,212 @@ mod tests {
             .all(|artifact| artifact.url == archive.archive.url && artifact.size > 0));
         assert!(pack.schemes().is_empty());
         for other in ResourcePack::ALL {
-            assert_eq!(other.archive().is_some(), other == pack, "{}", other.id());
+            let archived =
+                other == pack || (other == ResourcePack::MacosVoiceRuntime && other.pinned());
+            assert_eq!(other.archive().is_some(), archived, "{}", other.id());
         }
+    }
+
+    /// 合成的 macOS 语音运行库锁：`archive` 为假时是还没发布的样子，否则固定 `zip` 这份归档和其中的 dylib。
+    fn macos_lock(archive: Option<(&[u8], &[u8])>) -> VoiceRuntimeMacosLock {
+        use sha2::{Digest, Sha256};
+        let runtime: Value = serde_json::from_str(VOICE_RUNTIME_LOCK).unwrap();
+        let mut lock = serde_json::json!({
+            "source_commit": runtime["source_commit"],
+            "upstream_platform": "macos",
+            "release_tag": "voice-runtime-macos-v0.0.0",
+            "team_id": "ABCDE12345",
+            "archive": null,
+            "artifacts": [],
+        });
+        if let Some((zip, library)) = archive {
+            lock["archive"] = serde_json::json!({
+                "name": "runtime.zip",
+                "url": format!("{MACOS_VOICE_RUNTIME_RELEASES}voice-runtime-macos-v0.0.0/runtime.zip"),
+                "sha256": hex::encode(Sha256::digest(zip)),
+                "size": zip.len(),
+            });
+            lock["artifacts"] = serde_json::json!([{
+                "name": MACOS_VOICE_RUNTIME_LIBRARY,
+                "member": MACOS_VOICE_RUNTIME_LIBRARY,
+                "sha256": hex::encode(Sha256::digest(library)),
+                "size": library.len(),
+            }]);
+        }
+        serde_json::from_value(lock).unwrap()
+    }
+
+    fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, bytes) in members {
+            writer.start_file(*name, options).unwrap();
+            writer.write_all(bytes).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    /// 仓库里的 macOS 语音运行库锁能读，来源提交与上游运行库锁一致；还没发布时这个资源包不存在：认不出 id、不列出、装不上。
+    #[test]
+    fn the_macos_voice_runtime_pack_exists_only_once_its_archive_is_pinned() {
+        let lock = macos_voice_runtime_lock();
+        let runtime: Value = serde_json::from_str(VOICE_RUNTIME_LOCK).unwrap();
+        assert_eq!(
+            lock.source_commit,
+            runtime["source_commit"].as_str().unwrap()
+        );
+        assert!(lock.release_tag.starts_with("voice-runtime-macos-v"));
+        // 标签不能以 `macos-v` 开头：发布说明和更新检查按这个前缀找 macOS 的应用发布。
+        assert!(!lock.release_tag.starts_with("macos-v"));
+        let pack = ResourcePack::MacosVoiceRuntime;
+        assert_eq!(pack.pinned(), lock.archive.is_some());
+        assert!(pack.schemes().is_empty());
+        let state = tempfile::tempdir().unwrap();
+        let listed = list(state.path())
+            .iter()
+            .any(|status| status.id == pack.id());
+        assert_eq!(listed, pack.pinned());
+        assert_eq!(ResourcePack::from_id(pack.id()).is_some(), pack.pinned());
+        if !pack.pinned() {
+            assert!(pack.archive().is_none() && pack.set().artifacts.is_empty());
+            let cancel = AtomicBool::new(false);
+            assert!(matches!(
+                install(state.path(), pack, &[], &mut |_| {}, &cancel),
+                Err(LocalModelError::UnknownModel)
+            ));
+            assert!(matches!(
+                import(state.path(), pack, &[], &mut |_| {}, &cancel),
+                Err(LocalModelError::UnknownModel)
+            ));
+            assert!(matches!(
+                adopt(state.path(), pack, state.path()),
+                Err(LocalModelError::UnknownModel)
+            ));
+            assert!(!root(state.path()).exists());
+        }
+        assert!(pinned_macos_voice_runtime(macos_lock(None)).is_none());
+    }
+
+    /// 固定了归档的 macOS 锁：归档地址在本仓库的标签下，取出的只有 dylib 一个文件，URL 记归档的地址、长度和摘要是 dylib 本身的。
+    #[test]
+    fn a_pinned_macos_voice_runtime_lock_names_one_library_in_its_release_archive() {
+        let library = b"signed universal dylib";
+        let zip = zip_of(&[(MACOS_VOICE_RUNTIME_LIBRARY, library)]);
+        let pinned = pinned_macos_voice_runtime(macos_lock(Some((&zip, library)))).unwrap();
+        assert_eq!(
+            pinned.archive.members,
+            [(
+                MACOS_VOICE_RUNTIME_LIBRARY.to_owned(),
+                MACOS_VOICE_RUNTIME_LIBRARY.to_owned()
+            )]
+        );
+        assert_eq!(pinned.set.artifacts.len(), 1);
+        assert_eq!(pinned.set.artifacts[0].url, pinned.archive.archive.url);
+        assert_eq!(pinned.set.artifacts[0].size, library.len() as u64);
+        pinned.set.validate().unwrap();
+
+        // 归档不在锁文件自己的标签下：拒绝。
+        let mut elsewhere = macos_lock(Some((&zip, library)));
+        elsewhere.archive.as_mut().unwrap().url =
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/runtime.zip".into();
+        assert!(std::panic::catch_unwind(|| pinned_macos_voice_runtime(elsewhere)).is_err());
+        // 有归档却没列文件、或列了别的文件：拒绝。
+        let mut empty = macos_lock(Some((&zip, library)));
+        empty.artifacts.clear();
+        assert!(std::panic::catch_unwind(|| pinned_macos_voice_runtime(empty)).is_err());
+        let mut other = macos_lock(Some((&zip, library)));
+        other.artifacts[0].name = "libonnxruntime.dylib".into();
+        assert!(std::panic::catch_unwind(|| pinned_macos_voice_runtime(other)).is_err());
+    }
+
+    /// 下载器按锁文件校验 macOS 语音运行库：归档的摘要、取出的 dylib 的摘要有一处对不上就什么也不发布；对得上时只发布那一个 dylib 和 `msime-model.json`。
+    #[test]
+    fn the_macos_voice_runtime_installs_only_the_pinned_bytes() {
+        let library = b"signed universal dylib";
+        let zip = zip_of(&[
+            (MACOS_VOICE_RUNTIME_LIBRARY, library.as_slice()),
+            ("README.txt", b"not installed"),
+        ]);
+        let run = |lock: VoiceRuntimeMacosLock, served: &[u8]| {
+            let pinned = pinned_macos_voice_runtime(lock).unwrap();
+            let picked = tempfile::tempdir().unwrap();
+            let file = picked.path().join("downloaded.zip");
+            fs::write(&file, served).unwrap();
+            let state = tempfile::tempdir().unwrap();
+            let cancel = AtomicBool::new(false);
+            let fetcher = local_models::LocalFileFetcher::matching_sources(
+                [local_models::ImportSource::artifact(
+                    &pinned.archive.archive,
+                )],
+                &[file],
+                &cancel,
+            );
+            let result = fetcher.and_then(|fetcher| {
+                local_models::install_archive_members_with(
+                    &root(state.path()),
+                    "voice-runtime-macos",
+                    &pinned.archive.archive,
+                    &pinned.archive.members,
+                    &pinned.set.artifacts,
+                    &serde_json::json!({"pack": "voice-runtime-macos"}),
+                    &[],
+                    &fetcher,
+                    &mut |_| {},
+                    &cancel,
+                )
+            });
+            let published = root(state.path()).join("voice-runtime-macos");
+            (
+                result,
+                published.is_dir().then(|| {
+                    let mut names: Vec<String> = fs::read_dir(&published)
+                        .unwrap()
+                        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                        .collect();
+                    names.sort();
+                    (
+                        names,
+                        fs::read(published.join(MACOS_VOICE_RUNTIME_LIBRARY)).unwrap(),
+                    )
+                }),
+            )
+        };
+
+        let (result, published) = run(macos_lock(Some((&zip, library))), &zip);
+        result.unwrap();
+        assert_eq!(
+            published,
+            Some((
+                vec![
+                    MACOS_VOICE_RUNTIME_LIBRARY.to_owned(),
+                    MANIFEST_FILE.to_owned()
+                ],
+                library.to_vec()
+            ))
+        );
+
+        // 下到的归档和锁文件的摘要不符（长度相同、内容被改过）。
+        let mut tampered = zip.clone();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 0xff;
+        let (result, published) = run(macos_lock(Some((&zip, library))), &tampered);
+        assert!(
+            matches!(result, Err(LocalModelError::ChecksumMismatch(_))),
+            "{result:?}"
+        );
+        assert_eq!(published, None);
+
+        // 归档本身对得上，但锁文件固定的 dylib 摘要不是归档里那一份（例如没重签的上游库）。
+        let mut lock = macos_lock(Some((&zip, library)));
+        lock.artifacts[0].sha256 = "0".repeat(64);
+        let (result, published) = run(lock, &zip);
+        assert!(
+            matches!(&result, Err(LocalModelError::ChecksumMismatch(name)) if name == MACOS_VOICE_RUNTIME_LIBRARY),
+            "{result:?}"
+        );
+        assert_eq!(published, None);
     }
 
     /// 已经装好同一组字节时，收编不碰来源目录，直接返回已安装的目录。
@@ -794,7 +1172,7 @@ mod tests {
             dictionaries.len(),
             ResourcePack::LanguageDictionaries.set().artifacts.len()
         );
-        for pack in ResourcePack::ALL {
+        for pack in ResourcePack::available() {
             let listed = list(Path::new("/nonexistent"))
                 .into_iter()
                 .find(|status| status.id == pack.id())
@@ -906,7 +1284,7 @@ mod tests {
 
     #[test]
     fn ids_round_trip() {
-        for pack in ResourcePack::ALL {
+        for pack in ResourcePack::available() {
             assert_eq!(ResourcePack::from_id(pack.id()), Some(pack));
             assert_eq!(
                 serde_json::to_value(pack).unwrap(),
@@ -1038,7 +1416,7 @@ mod tests {
     fn list_reports_missing_installed_and_outdated() {
         let state = tempfile::tempdir().unwrap();
         let statuses = list(state.path());
-        assert_eq!(statuses.len(), ResourcePack::ALL.len());
+        assert_eq!(statuses.len(), ResourcePack::available().count());
         assert!(statuses
             .iter()
             .all(|status| status.state == PackState::Missing));
@@ -1207,6 +1585,9 @@ mod tests {
         const ENGINE: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-engine/";
         // 语音运行库来自上游 sherpa-onnx 带版本号的发布资产，字节由锁文件的 SHA-256 固定。
         const SHERPA_RELEASE: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v";
+        // macOS 的语音运行库是重签后发布在本仓库固定标签下的资产，标签下的资产发布后不再替换。
+        const MACOS_RUNTIME_RELEASE: &str =
+            "https://github.com/metasequoiaime/msime/releases/download/voice-runtime-macos-v";
         for pack in ResourcePack::ALL {
             for artifact in &pack.set().artifacts {
                 let url = artifact.url.as_str();
@@ -1218,6 +1599,7 @@ mod tests {
                     url.starts_with(RELEASE)
                         || url.starts_with(MODEL_RELEASE)
                         || url.starts_with(SHERPA_RELEASE)
+                        || url.starts_with(MACOS_RUNTIME_RELEASE)
                         || pinned_engine,
                     "{url}"
                 );

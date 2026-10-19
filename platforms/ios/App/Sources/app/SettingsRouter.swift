@@ -9,7 +9,7 @@ final class SettingsRouter: ObservableObject {
     var id: Self { self }
   }
 
-  /// 要推入的设置页，页面弹出时由导航栈清空。
+  /// 待打开的设置页请求；当前设置栈挂载后消费，栈自己的目的地绑定不回写请求。
   @Published var settingsPage: SettingsPage?
   @Published var accountRoute: AccountRoute?
 

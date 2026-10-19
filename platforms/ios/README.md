@@ -40,7 +40,7 @@ App 的“输入设置 → 标点”页直接读写共享 `PreferencesStore`：�
 
 候选栏的配色是全局主题的一部分（`global_theme`，自定义主题是 `custom_theme`，App Group 镜像 `globalTheme`），在「设置 → 主题」里选，与电脑版同步；那一页的「外部皮肤与候选颜色」对应 `custom_theme.candidate_skin`（浅色模式皮肤）、`custom_theme.candidate_skin_dark`（深色模式皮肤）、`custom_theme.candidate_colors` 和共享的 `candidate_theme`，以前在「候选栏」页，现在按全平台信息架构并入主题页的自定义主题。iOS 的候选栏是键盘的一部分，默认和按键一起用键盘主题的颜色（首选候选用强调色、不填底）；只有打开 iOS 独有的“候选栏使用主题配色”开关（App Group `candidate_palette_follows_desktop`，不参与同步）后，候选栏才换成 client-services 为当前主题解析出的候选配色，也就是桌面候选窗画的那一套：首选候选用主题的高亮色，背景、文字、编号和描边取自主题；`system` 没有候选配色，开关打开也仍画原生候选栏。“明暗”选跟随系统时先看共享的 `theme`，再看系统外观。选外部皮肤或改颜色会切换到「自定义」主题，并以当前主题（或外部皮肤声明的底）为底。外部皮肤在桌面放进皮肤文件夹即可，iOS 的皮肤目录在 App Group 里，“文件”看不到，所以同一处有“导入皮肤”：从“文件”选一个含 `skin.toml` 的皮肤文件夹，经与 Tauri 壳相同的 Rust 导入（`msime_client_skin_import`，先校验文件夹名和清单，同名皮肤整个替换，最多 4096 个文件、256 MB）复制进去；浅色模式和深色模式各有一个皮肤选择器：皮肤只在它清单 `base` 所属的明暗下绘制，`light`、`paper` 底的列在浅色模式，`shuishan`、`night`、`ink` 底的列在深色模式，`system` 底的两边都列、选它同时写两个槽位。选用一款时只写它所属的槽位，与共享设置页的 `applyCandidateSkin` 同一条规则（`GlobalThemePreference.applyingPackage`）：写深色槽位时清掉旧文档放在 `candidate_skin` 里的深色皮肤，写浅色槽位时若深色槽位空着、原来的 `candidate_skin` 是已装的深色或跟随系统的皮肤，先把它挪到深色槽位（已经不在的皮肤直接覆盖）；深色槽位没设时深色模式仍取 `candidate_skin`，只设过一款皮肤的旧文档照旧。取消或删除一款皮肤只清放着它的槽位。列表只列支持横排的外部皮肤，只声明一种明暗的会标出来，两个槽位里的外部皮肤都可以删除。App 用系统颜色选择器编辑文字、背景和首选高亮三种颜色，也能一键恢复皮肤颜色；iPad 并排预览浅色和深色，iPhone 只预览当前外观。主题、候选栏和输入三页顶部都有同一张候选预览卡，按当前主题、开关、候选字号和英文释义设置画出候选栏的样子。键盘下次出现时应用这些改动，不重建 Engine 会话。
 
-开启“候选栏使用主题配色”后，`base = "canvas"` 的候选皮肤在普通条与展开网格（含九键三栏）绘制九宫格、前后层挂件与 APNG/GIF/WebP 帧动画。共享 Rust 校验资源，后台解码，按键复用；面板成功解码才启用贴图配色，失败使用可读回退。普通条固定高度不变，大留白与装饰等比缩小以保留文字空间；隐藏、切后台和系统减少动态效果时停动画。App 的预览卡仍使用安全配色。专项测试为 `MSIMEKeyboardTests/CandidateCanvasTests`；其中上游实图验收从测试模拟器 App Group 的 `MSIME/skins/{green_leaf,sakura-night}` 读取固定上游包，未暂存时明确跳过，并将 16 张真实控制器栅格图写到 `MSIME/canvas-acceptance/`，不把这些图片提交进仓库。
+开启“候选栏使用主题配色”后，`base = "canvas"` 的候选皮肤在普通条与展开网格（含九键三栏）绘制九宫格、前后层挂件与 APNG/GIF/WebP 帧动画。共享 Rust 校验资源，后台解码，按键复用；面板成功解码才启用贴图配色，失败使用可读回退。普通条固定高度不变，大留白与装饰等比缩小以保留文字空间；隐藏、切后台和系统减少动态效果时停动画。App 外部皮肤选择器的三词预览复用同一画布，按实际候选明暗加载，替换同名资源后随页面刷新重载；通用六词预览卡仍使用安全配色。预览专项为 `MSIMEKeyboardTests/CandidateSkinPreviewTests`，键盘专项测试为 `MSIMEKeyboardTests/CandidateCanvasTests`；其中上游实图验收从测试模拟器 App Group 的 `MSIME/skins/{green_leaf,sakura-night}` 读取固定上游包，未暂存时明确跳过，并将 16 张真实控制器栅格图写到 `MSIME/canvas-acceptance/`，不把这些图片提交进仓库。
 
 同一页顶部「字号与字体」一节的两个字号直接写共享文档的 `candidate_font_size` 和 `candidate_preedit_font_size`（默认 18 和 15，与桌面候选窗同一对字段）。iOS 候选用 Dynamic Type 绘制，所以默认值就是原来的 `.body` 和 `.subheadline`，其他值按同一比例放大或缩小，系统文字大小仍在其上生效。手机候选栏宽度有限，候选字号限制在 12–24、编码字号 12–20；停靠的 iPad 键盘是 12–32 和 12–24，浮动的小键盘按手机处理。桌面同步来的更大字号会被夹到当前表面的上限，不改写文档。候选行和编码行随字号变高、键盘整体随之加高，字号变小时行高不低于默认值，触摸目标不缩小。这两个字段只影响键盘自己绘制，不交给会话；键盘每次出现重新读取共享文档后即生效，候选面板同样按这个字号绘制。
 
@@ -311,6 +311,24 @@ xcrun simctl delete "$device"
 
 `KeyboardExtensionEditorUITests` 是唯一把键盘扩展当成系统键盘来用的一组用例：其余所有套件都直接在测试宿主里构造 `KeyboardViewController`，那条路覆盖不到只在运行期才存在的部分——系统是否真的加载这个扩展、扩展进程能否读到 App Group 共享容器、上屏文本是否真的到达别人的 `UITextDocumentProxy`。它要求键盘已在「设置」里启用；没启用时跳过而不是失败，并在跳过信息里带上当时键面上有什么。
 
+`testCandidatePanelAfterHostSchemeChanges` 专门重放 #8782 的应用切换：在独立编辑器中保留未完成组字，切到产品 App 保存方案，再切回原编辑器展开、收起候选并选词上屏，双拼、全拼、九键、十四键共三轮。它复用 `MSIMEKeyboardTestHost` 的 `--system-keyboard-editor` 启动入口；该入口只提供普通 `UITextField`，不加载产品键盘控制器。`MSIMEClientUITests` scheme 同时构建这个独立应用，但运行前需要把它装入目标设备；不能把用例跳过记作验收通过。真机在上面的资源、原生库、语音运行库与 Pods 准备完成后执行：
+
+```sh
+xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace -scheme MSIMEClientUITests \
+  -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' \
+  -derivedDataPath target/ios/derived-device -allowProvisioningUpdates \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing
+xcrun devicectl device install app --device <udid> \
+  target/ios/derived-device/Build/Products/Release-iphoneos/MSIMEKeyboardTestHost.app
+xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace -scheme MSIMEClientUITests \
+  -configuration Release -destination 'platform=iOS,id=<udid>' \
+  -derivedDataPath target/ios/derived-device \
+  -only-testing:MSIMEClientUITests/KeyboardExtensionEditorUITests/testCandidatePanelAfterHostSchemeChanges \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test-without-building
+```
+
+设备须解锁，并已启用水杉系统键盘。用例在独立测试编辑器中只输入合成拼音，不使用设备上的浏览器或备忘录。
+
 **在 iOS 27 模拟器上，键盘能装上但切不过去。** 启用和切换是两件事，要分开看：
 
 - **启用是成功的。** 往 `.GlobalPreferences` 写 `AppleKeyboards`（加上扩展 bundle id `app.msime.ios.keyboard`）并重启模拟器之后，设置 → 通用 → 键盘 → 键盘 里确实列着「水杉输入法 · 中文」。要确认这一点得走 Settings 把每一层的单元格文案打出来看，只凭「键盘环里没有它」会误判成写入无效。
@@ -338,7 +356,8 @@ xcrun simctl delete "$device"
 platforms/ios/build-native.sh simulator
 xcodebuild -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEApp \
   -destination 'platform=iOS Simulator,name=<设备名>' \
-  -derivedDataPath target/ios/derived-sim CODE_SIGNING_ALLOWED=NO build
+  -derivedDataPath target/ios/derived-sim ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES build
 xcrun simctl install booted target/ios/derived-sim/Build/Products/Debug-iphonesimulator/MSIMEApp.app
 xcrun simctl launch booted app.msime.ios
 ```

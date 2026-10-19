@@ -8,6 +8,7 @@ import {
   Checks,
   GroupList,
   LinkRow,
+  MoreOptions,
   NavItem,
   PageIntro,
   Row,
@@ -94,6 +95,17 @@ test("a group without a title is not announced as a landmark", () => {
   );
   expect(screen.queryByRole("region")).toBeNull();
   expect(screen.getByText("候选数量")).toBeTruthy();
+});
+
+test("a rounded group clips an expanded row's hover fill to its corners", () => {
+  render(
+    <GroupList title="自定义主题">
+      <MoreOptions title="自定义配色">
+        <Row title="候选文字颜色" />
+      </MoreOptions>
+    </GroupList>,
+  );
+  expect(document.querySelector(".settings-glass-group")?.className).toContain("overflow-hidden");
 });
 
 test("a hidden row stays on the page with its name but leaves the accessibility tree", () => {

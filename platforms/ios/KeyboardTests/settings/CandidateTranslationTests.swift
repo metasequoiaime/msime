@@ -386,6 +386,36 @@ final class CandidateTranslationTests: XCTestCase {
                    "a dictionary for a language nobody picked reserves nothing")
   }
 
+  func testOfflineGlossSkipsSystemPermissionReads() throws {
+    let previousOnline = CandidateTranslationPreference.onlineEnabled
+    defer { CandidateTranslationPreference.onlineEnabled = previousOnline }
+    CandidateTranslationPreference.onlineEnabled = true
+    let english = try XCTUnwrap(CandidateTranslationPreference.languages.first { $0.code == "EN" })
+    let japanese = try XCTUnwrap(CandidateTranslationPreference.languages.first { $0.code == "JA" })
+    var reads = 0
+    func permission(_ allowed: Bool = true) -> Bool { reads += 1; return allowed }
+    for _ in 0..<9 {
+      XCTAssertTrue(KeyboardViewController.canFillGloss(
+        english, fullAccess: permission(), onlineRoute: true))
+      XCTAssertTrue(KeyboardViewController.canFillGloss(
+        japanese, fullAccess: permission(), onlineRoute: true, offline: ["JA"]))
+    }
+    XCTAssertEqual(reads, 0, "离线候选不应逐词查询系统权限")
+    XCTAssertFalse(KeyboardViewController.canFillGloss(
+      japanese, fullAccess: permission(), onlineRoute: false))
+    XCTAssertEqual(reads, 0, "未配置在线服务时也不应读取权限")
+    XCTAssertTrue(KeyboardViewController.canFillGloss(
+      japanese, fullAccess: permission(), onlineRoute: true))
+    XCTAssertEqual(reads, 1, "需要网络的释义仍须检查系统权限")
+    XCTAssertFalse(KeyboardViewController.canFillGloss(
+      japanese, fullAccess: permission(false), onlineRoute: true))
+    XCTAssertEqual(reads, 2)
+    CandidateTranslationPreference.onlineEnabled = false
+    XCTAssertFalse(KeyboardViewController.canFillGloss(
+      japanese, fullAccess: permission(), onlineRoute: true))
+    XCTAssertEqual(reads, 2, "在线释义关闭时不读权限")
+  }
+
   func testTheUsersOwnServiceOutranksTheOfflineDictionaryWhichOutranksTheAccount() {
     let custom = TranslationRoute.custom(endpoint: "https://example.invalid", apiKey: "k")
     XCTAssertEqual(KeyboardViewController.preferredGloss(offline: "essai", online: "test", route: custom), "test")

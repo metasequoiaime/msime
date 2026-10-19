@@ -56,6 +56,26 @@ final class SkinCommunityAccountTests: XCTestCase {
     }
   }
 
+  func testStartupPreparesAnonymousAccountWhenSignedOut() async {
+    FakeRust.replies(["account.ensure_anonymous": FakeRust.ok(NSNull())], signedIn: nil)
+    await IOSRustAccount.ensureAnonymous(FakeRust.account)
+    XCTAssertEqual(FakeRust.calls.map(\.operation), ["status", "ensure_anonymous"])
+  }
+
+  func testStartupLeavesSignedInAccountAlone() async {
+    FakeRust.replies([:], signedIn: "synthetic-signed-in-user")
+    await IOSRustAccount.ensureAnonymous(FakeRust.account)
+    XCTAssertEqual(FakeRust.calls.map(\.operation), ["status"])
+  }
+
+  func testStartupDoesNotTreatUnreadableAccountAsSignedOut() async {
+    for code in ["account_storage", "rust_client_invalid_response"] {
+      FakeRust.replies(["account.status": FakeRust.failure(code)])
+      await IOSRustAccount.ensureAnonymous(FakeRust.account)
+      XCTAssertEqual(FakeRust.calls.map(\.operation), ["status"], "读取失败不能触发匿名注册：\(code)")
+    }
+  }
+
   func testCurrentUserReadsRustStatusAndUnreadableStateIsAnError() async throws {
     let state = SignedIn("user-1")
     answer(state)

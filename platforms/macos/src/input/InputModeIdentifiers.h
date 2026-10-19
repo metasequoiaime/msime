@@ -60,23 +60,33 @@ static inline BOOL MSIMEPathAncestorsAreReal(NSString *path) {
     return msime::mac::StoragePathIsSafe(path.stringByStandardizingPath.fileSystemRepresentation, true);
 }
 
-// 某个方案此处能否真正运行。粤拼、注音和笔画需要各自的词典（msime-cantonese.db、msime-zhuyin.db、msime-stroke.db）：按 host-api 的顺序，先找设置应用按需下载到 `<preferences_directory>/resource-packs/language-dictionaries/` 的副本（preferences_directory 须为绝对路径，资源包目录须是真实目录且带 msime-model.json，词典须是普通文件，符号链接一律不认），再找 HostOptions 的 `language_dictionaries` 目录；两处都没有时 host-api 会回退，此时提供该方案只会选中一个永远不生效的方案。其余方案（包括缺少日文词典时退化为纯假名的日文）不需要资源集之外的数据。输入法自身从不下载，下载只在设置应用里进行。
+// 某个方案此处能否真正运行。五笔需要码表（见下），粤拼、注音和笔画需要各自的词典（msime-cantonese.db、msime-zhuyin.db、msime-stroke.db）：按 host-api 的顺序，先找设置应用按需下载到 `<preferences_directory>/resource-packs/language-dictionaries/` 的副本（preferences_directory 须为绝对路径，资源包目录须是真实目录且带 msime-model.json，词典须是普通文件，符号链接一律不认），再找 HostOptions 的 `language_dictionaries` 目录；两处都没有时 host-api 会回退，此时提供该方案只会选中一个永远不生效的方案。其余方案（包括缺少日文词典时退化为纯假名的日文）不需要资源集之外的数据。输入法自身从不下载，下载只在设置应用里进行。
 //
 // 本版本不提供的方案在这里不存在：不出现在菜单和设置窗口里，偏好里写着它也会回退（MSIMEEditionInputSchemes，full 不限制）。
+// 下载的资源包 `<preferences_directory>/resource-packs/<pack>/` 里的 `file`：preferences_directory 须为绝对路径，资源包目录须是真实目录且带 msime-model.json，文件须是普通文件，符号链接一律不认。
+static inline BOOL MSIMEResourcePackHasFile(NSDictionary *hostOptions, NSString *pack, NSString *file) {
+    id stateRoot = hostOptions[@"preferences_directory"];
+    if (![stateRoot isKindOfClass:NSString.class] || ![stateRoot length] || ![stateRoot isAbsolutePath]) return NO;
+    NSString *directory = [[stateRoot stringByAppendingPathComponent:@"resource-packs"] stringByAppendingPathComponent:pack];
+    return MSIMEPathAncestorsAreReal(directory) && MSIMEItemHasFileType(directory, NSFileTypeDirectory) &&
+           MSIMEItemHasFileType([directory stringByAppendingPathComponent:@"msime-model.json"], NSFileTypeRegular) &&
+           MSIMEItemHasFileType([directory stringByAppendingPathComponent:file], NSFileTypeRegular);
+}
+
 static inline BOOL MSIMEInputSchemeAvailable(NSString *scheme, NSDictionary *hostOptions) {
     NSArray<NSString *> *offered = MSIMEEditionInputSchemes();
     if (offered && ![offered containsObject:scheme]) return NO;
+    // 五笔要有码表 msime-wubi.db：资源目录（随包或词库更新）里有，或者设置应用下载了 wubi 资源包；macOS 发布包不带它时两处都没有，host-api 回退（wubi_dictionary_missing），这里也不提供。
+    if ([scheme isKindOfClass:NSString.class] && [scheme isEqualToString:@"wubi"]) {
+        id resources = hostOptions[@"resources"];
+        if (![resources isKindOfClass:NSString.class] || ![resources length]) return YES;
+        return MSIMEItemHasFileType([resources stringByAppendingPathComponent:@"msime-wubi.db"], NSFileTypeRegular) ||
+               MSIMEResourcePackHasFile(hostOptions, @"wubi", @"msime-wubi.db");
+    }
     NSDictionary<NSString *, NSString *> *files = @{@"cantonese": @"msime-cantonese.db", @"zhuyin": @"msime-zhuyin.db", @"stroke": @"msime-stroke.db"};
     NSString *file = [scheme isKindOfClass:NSString.class] ? files[scheme] : nil;
     if (!file) return [MSIMEInputSchemeNames() containsObject:scheme];
-    id stateRoot = hostOptions[@"preferences_directory"];
-    if ([stateRoot isKindOfClass:NSString.class] && [stateRoot length] && [stateRoot isAbsolutePath]) {
-        NSString *pack = [[stateRoot stringByAppendingPathComponent:@"resource-packs"] stringByAppendingPathComponent:@"language-dictionaries"];
-        if (MSIMEPathAncestorsAreReal(pack) && MSIMEItemHasFileType(pack, NSFileTypeDirectory) &&
-            MSIMEItemHasFileType([pack stringByAppendingPathComponent:@"msime-model.json"], NSFileTypeRegular) &&
-            MSIMEItemHasFileType([pack stringByAppendingPathComponent:file], NSFileTypeRegular))
-            return YES;
-    }
+    if (MSIMEResourcePackHasFile(hostOptions, @"language-dictionaries", file)) return YES;
     id directory = hostOptions[@"language_dictionaries"];
     if (![directory isKindOfClass:NSString.class] || ![directory length]) return NO;
     BOOL isDirectory = NO;

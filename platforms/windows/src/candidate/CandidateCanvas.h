@@ -50,7 +50,7 @@ inline std::optional<CandidateCanvasAnchor> candidate_canvas_anchor(const std::s
       return anchor;
   return std::nullopt;
 }
-// 九宫格面板。`source` 与 `light_source` 是绝对路径（浅色主题有 `light_source` 时换那张图，几何不变）；`slice` 是切片线，以源图像素计，写了 `stretch_dip` 时用它，否则用 `slice_dip`；`width` 是四边在屏幕上的宽（DIP），没写 `width_dip` 时取切片的数值当 DIP（CSS `border-image-width` 缺省等于切片）；`fill` 决定画不画中心块。
+// 九宫格面板。`source` 与 `light_source` 是资源键（候选窗用绝对路径，设置离屏预览用已安全读取的包内相对键；浅色主题有 `light_source` 时换那张图，几何不变）；`slice` 是切片线，以源图像素计，写了 `stretch_dip` 时用它，否则用 `slice_dip`；`width` 是四边在屏幕上的宽（DIP），没写 `width_dip` 时取切片的数值当 DIP（CSS `border-image-width` 缺省等于切片）；`fill` 决定画不画中心块。
 struct CandidateCanvasBorder {
   std::wstring source, light_source;
   CandidateCanvasEdges slice, width;

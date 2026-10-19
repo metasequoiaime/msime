@@ -44,16 +44,25 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["schemeButton"].tap()
     let card = app.buttons["schemeCard-cantonese"]
     let grid = app.descendants(matching: .any)["schemePickerScroll"].firstMatch
+    // 面板停在当前方案所在页，下载的新语言可能在它左侧。
+    for _ in 0..<5 where !card.isHittable { grid.swipeRight() }
     for _ in 0..<5 where !card.isHittable { grid.swipeLeft() }
     XCTAssertTrue(card.isHittable, "下载完成后键盘必须提供粤拼方案")
     card.tap()
     XCTAssertTrue((app.buttons["schemeButton"].value as? String)?.contains("粤") == true)
+    let language = app.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
     for letter in ["N", "E", "I"] {
-      let key = app.keys.matching(NSPredicate(format: "label IN %@", ["字母 \(letter)", "字母 \(letter.lowercased())"])).firstMatch
+      let key = app.buttons.matching(NSPredicate(format: "label IN %@", ["字母 \(letter)", "字母 \(letter.lowercased())"])).firstMatch
       XCTAssertTrue(key.waitForExistence(timeout: 5))
       key.tap()
     }
     XCTAssertTrue(app.buttons["candidate-1"].waitForExistence(timeout: 10), "下载词库必须产生候选")
+    let before = field.value as? String
+    app.buttons["candidate-1"].tap()
+    let committed = field.value as? String ?? ""
+    XCTAssertNotEqual(committed, before, "下载后的候选必须替换预编辑")
+    XCTAssertNotNil(committed.range(of: "[\\p{Han}]", options: .regularExpression), "下载词库必须通过系统编辑器上屏汉字")
   }
 
   @MainActor
@@ -149,6 +158,29 @@ final class OnboardingUITests: XCTestCase {
     screenshot.name = "我的 › 同步"
     screenshot.lifetime = .keepAlways
     add(screenshot)
+  }
+
+  @MainActor
+  func testSignedOutAccountActionsExplainLoginAndStayUnavailable() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["我的"].tap()
+    let loginAlert = app.alerts["账号与登录"]
+    if loginAlert.waitForExistence(timeout: 3) { loginAlert.buttons["好"].tap() }
+    let card = app.buttons["accountProfileCard"]
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    guard card.label == "未登录，点按登录" else { throw XCTSkip("模拟器上已有登录会话") }
+
+    let clipboard = app.buttons["accountCloudClipboard"]
+    XCTAssertTrue(clipboard.exists)
+    XCTAssertTrue(app.buttons["accountManualSync"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["accountManualSync"].isEnabled)
+    XCTAssertTrue(app.buttons["accountQQLinks"].exists)
+    XCTAssertFalse(app.buttons["accountQQLinks"].isEnabled)
+    XCTAssertFalse(app.buttons["accountPublishedContent"].exists)
+    XCTAssertGreaterThanOrEqual(
+      app.staticTexts.matching(NSPredicate(format: "label == %@", "登录后可用")).count, 2)
   }
 
   /// 通过原生设置页保存，重启应用后仍保留，避免开关只改变预览而没有写入共享容器。
@@ -247,7 +279,7 @@ final class OnboardingUITests: XCTestCase {
     func openPicker() -> XCUIElement {
       reachSettingsLink("keyboardLayoutLink", in: app)
       settingsEntry("keyboardLayoutLink", in: app).tap()
-      let picker = app.buttons["chineseKeyboardPicker"]
+      let picker = app.descendants(matching: .any)["chineseKeyboardPicker"]
       XCTAssertTrue(picker.waitForExistence(timeout: 5), "the 中文键盘 row is missing: \(visible(app))")
       revealBelowKeyboardPreview(picker, in: app)
       return picker
@@ -265,6 +297,12 @@ final class OnboardingUITests: XCTestCase {
       }
       app.buttons[try XCTUnwrap(identifiers[title])].tap()
       XCTAssertTrue(wait(picker, until: "value == '\(title)'"), "the row still reads \(picker.value ?? "")")
+      let preview = app.otherElements["keyboardLayoutPreview"]
+      XCTAssertTrue(wait(preview, until: "label CONTAINS '\(title)'"), "键盘预览必须跟随已选择的布局")
+      let screenshot = XCTAttachment(screenshot: preview.screenshot())
+      screenshot.name = "键盘设置预览-\(title)"
+      screenshot.lifetime = .keepAlways
+      add(screenshot)
       // 离开这一页再回来，读到的是存下的布局，而不是这一页上留着的值。
       picker = openPicker()
       XCTAssertEqual(picker.value as? String, title)
@@ -528,13 +566,18 @@ final class OnboardingUITests: XCTestCase {
     if dismissKeyboard.exists && dismissKeyboard.isHittable { dismissKeyboard.tap() }
     let settingsTab = app.tabBars.buttons["设置"]
     if settingsTab.exists && !settingsTab.isSelected { settingsTab.tap() }
-    // Pop whatever the caller pushed before looking: these entries live on the tab's root, and a
-    // loop that visits one settings page per turn is still standing on the previous one. Tapping
-    // the selected tab does not pop a SwiftUI navigation stack, so the back button does it.
+    // 设置入口位于根页面；遍历时逐层返回，重复点选标签不会弹出 SwiftUI 导航栈。
     for _ in 0..<4 {
+      if app.navigationBars["设置"].exists { break }
+      let title = app.navigationBars.firstMatch.identifier
       let back = app.navigationBars.buttons.element(boundBy: 0)
       guard back.exists, back.isHittable else { break }
       back.tap()
+      // 等到上一页真正出现，避免再次点到转场中正在消失的返回键。
+      let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+        app.navigationBars.firstMatch.exists && app.navigationBars.firstMatch.identifier != title
+      }, object: nil)
+      XCTAssertEqual(XCTWaiter.wait(for: [returned], timeout: 5), .completed)
     }
 
     XCTAssertTrue(scrollIntoView({ settingsEntry(identifier, in: app) }, in: app),
@@ -626,6 +669,22 @@ final class OnboardingUITests: XCTestCase {
     }
     XCTAssertTrue(clearOfBars(entry, in: app), "aiSettingsLink never scrolled into view: \(visible(app))")
     entry.tap()
+  }
+
+  /// 搜索嵌套功能时找到承载它的键盘页，再沿真实入口进入 AI 设置。
+  @MainActor
+  func testAISettingsCanBeFoundFromSearch() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    let search = app.descendants(matching: .any)["settingsSearchField"]
+    XCTAssertTrue(search.waitForExistence(timeout: 5))
+    search.tap()
+    search.typeText("AI")
+    XCTAssertTrue(app.buttons["keyboardLayoutLink"].waitForExistence(timeout: 5))
+    openAISettings(app)
+    XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.textFields["serviceEndpoint"].exists)
   }
 
   @MainActor
@@ -742,6 +801,24 @@ final class OnboardingUITests: XCTestCase {
     communityTab.tap()
     XCTAssertTrue(app.buttons["communityTab-1"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["communityTab-1"].isSelected, "社区标签页的分段在深链接后丢了: \(visible(app))")
+  }
+
+  @MainActor
+  func testSettingsDeepLinkFromTryoutOpensInputSettings() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["keyboardTryoutLink"].tap()
+    XCTAssertTrue(app.textFields["keyboardTryoutField"].waitForExistence(timeout: 5))
+    // 直接经系统交付链接，区分宿主路由与扩展打开 URL 的责任。
+    XCUIDevice.shared.system.open(URL(string: "msime://settings/input")!)
+    let opened = app.navigationBars["输入"].waitForExistence(timeout: 8)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "从试用页打开输入设置"
+    shot.lifetime = .keepAlways
+    add(shot)
+    XCTAssertTrue(opened, "正在试用键盘时的深链接必须进入输入设置，不能只回设置根页")
   }
 
   @MainActor
@@ -1792,7 +1869,7 @@ final class OnboardingUITests: XCTestCase {
     }
     app.buttons["keyboardTryoutLink"].tap()
     let input = app.textFields["keyboardTryoutField"]
-    XCTAssertTrue(input.waitForExistence(timeout: 5))
+    XCTAssertTrue(input.waitForExistence(timeout: 5), visible(app))
     // 模型由后端决定：账号就绪后顶栏既没有模型选择，也没有登录或重新连接按钮。
     XCTAssertTrue(wait(app.buttons["keyboardChatAccountButton"], until: "exists == false"))
     XCTAssertFalse(app.buttons["keyboardChatModelPicker"].exists)
@@ -1865,6 +1942,330 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["aboutSettingsLink"].tap()
     XCTAssertTrue(app.staticTexts["aboutAppVersion"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.navigationBars["关于"].exists)
+  }
+
+  /// 沿「我的」真实入口检查隐私、帮助与许可，避免只有首页链接可见而子页无法返回。
+  @MainActor
+  func testAccountPrivacyHelpAndLicensesRemainReachable() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["我的"].tap()
+
+    func expectPage(_ title: String) {
+      XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = "原生页面-\(title)"
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
+    func back(to title: String) {
+      app.navigationBars.buttons.firstMatch.tap()
+      XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
+    }
+    tapRevealed("accountPrivacyLink", in: app)
+    expectPage("隐私")
+    XCTAssertTrue(app.switches["usageReportingToggle"].exists)
+    tapRevealed("privacyClipboardHistoryLink", in: app)
+    expectPage("剪贴板历史")
+    XCTAssertTrue(app.buttons["clipboardHistorySavePaste"].exists)
+    back(to: "隐私")
+    tapRevealed("privacyLocalModeLink", in: app)
+    expectPage("快捷模式")
+    XCTAssertGreaterThan(app.switches.count, 0)
+    back(to: "隐私")
+    back(to: "我的")
+
+    tapRevealed("accountFeedbackLink", in: app)
+    expectPage("帮助与反馈")
+    tapRevealed("feedbackHelpLink", in: app)
+    expectPage("使用帮助")
+    XCTAssertTrue(app.buttons["helpOpenKeyboardSettings"].exists)
+    back(to: "帮助与反馈")
+    tapRevealed("feedbackDiagnosticLogLink", in: app)
+    expectPage("诊断日志")
+    XCTAssertTrue(app.switches["diagnosticLogEnabled"].exists)
+    back(to: "帮助与反馈")
+    back(to: "我的")
+
+    tapRevealed("aboutSettingsLink", in: app)
+    expectPage("关于")
+    tapRevealed("aboutLicensesLink", in: app)
+    expectPage("开源许可")
+    XCTAssertGreaterThan(app.buttons.count, 1, "打包的许可必须实际列出")
+    back(to: "关于")
+    back(to: "我的")
+    XCTAssertTrue(app.tabBars.buttons["我的"].isSelected)
+  }
+
+  /// 真实二级入口需要同时检查内容和返回，截图只保留合成测试环境。
+  @MainActor
+  private func expectNativePage(_ title: String, in app: XCUIApplication) {
+    XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "二级设置-\(title)"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
+  @MainActor
+  private func returnFromNativePage(to title: String, in app: XCUIApplication) {
+    app.navigationBars.buttons.firstMatch.tap()
+    XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
+  }
+
+  @MainActor
+  func testAdvancedInputPagesExposeControlsAndReturn() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["inputSettingsLink"].tap()
+    tapRevealed("nineKeyShuangpinSettingsLink", in: app)
+    expectNativePage("九键双拼", in: app)
+    XCTAssertTrue(app.descendants(matching: .any)["nineKeyShuangpinProfile"].firstMatch.exists)
+    XCTAssertTrue(app.staticTexts["键位预览"].exists)
+    returnFromNativePage(to: "输入", in: app)
+
+    tapRevealed("helpcodeSettingsLink", in: app)
+    expectNativePage("辅助码", in: app)
+    let quanpin = app.switches["quanpin_helpcode.enabled"]
+    reveal(quanpin, in: app)
+    XCTAssertTrue(quanpin.exists)
+    XCTAssertTrue(app.descendants(matching: .any)["quanpin_helpcode.schema"].firstMatch.exists)
+    returnFromNativePage(to: "输入", in: app)
+
+    tapRevealed("translationProviderLink", in: app)
+    expectNativePage("翻译服务", in: app)
+    XCTAssertTrue(app.descendants(matching: .any)["translationProviderPicker"].firstMatch.exists)
+    returnFromNativePage(to: "输入", in: app)
+    returnFromNativePage(to: "设置", in: app)
+  }
+
+  @MainActor
+  func testDictionaryInformationAndReviewPagesExposeControls() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    tapRevealed("dictionarySettingsLink", in: app)
+    tapRevealed("dictionaryInfoLink", in: app)
+    expectNativePage("词库信息", in: app)
+    XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "内置离线多方案词库")).firstMatch.exists)
+    returnFromNativePage(to: "词库", in: app)
+    tapRevealed("vocabularyReviewSettingsLink", in: app)
+    expectNativePage("背单词", in: app)
+    XCTAssertTrue(app.descendants(matching: .any)["vocabularyWordbookPicker"].firstMatch.exists)
+    XCTAssertTrue(app.buttons["vocabularyImportButton"].exists)
+    returnFromNativePage(to: "词库", in: app)
+    returnFromNativePage(to: "设置", in: app)
+  }
+
+  @MainActor
+  func testVoiceModelAndProviderPagesExposeControls() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    tapRevealed("voiceSettingsLink", in: app)
+    expectNativePage("语音输入", in: app)
+    tapRevealed("localSpeechModelsLink", in: app)
+    expectNativePage("本地语音模型", in: app)
+    let model = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "localModel_")).firstMatch
+    XCTAssertTrue(model.waitForExistence(timeout: 10), "必须实际加载模型目录")
+    returnFromNativePage(to: "语音输入", in: app)
+    tapRevealed("voiceServiceLink", in: app)
+    expectNativePage("语音设置", in: app)
+    XCTAssertTrue(app.buttons["voiceProviderPicker"].exists)
+    returnFromNativePage(to: "语音输入", in: app)
+    returnFromNativePage(to: "设置", in: app)
+  }
+
+  @MainActor
+  func testKeyboardCandidateAndToolbarPagesExposeControls() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["keyboardLayoutLink"].tap()
+    tapRevealed("candidateOptionsSettingsLink", in: app)
+    expectNativePage("候选栏", in: app)
+    XCTAssertTrue(app.descendants(matching: .any)["candidateFontFamily"].firstMatch.exists)
+    returnFromNativePage(to: "键盘", in: app)
+    tapRevealed("keyboardToolbarSettingsLink", in: app)
+    expectNativePage("键盘工具栏", in: app)
+    XCTAssertTrue(app.descendants(matching: .any)["keyboardToolbarPreview"].firstMatch.exists)
+    returnFromNativePage(to: "键盘", in: app)
+    returnFromNativePage(to: "设置", in: app)
+  }
+
+  @MainActor
+  func testStatisticsAboutAndDeveloperPagesReturnWithoutEnablingLogs() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["统计"].tap()
+    app.buttons["statisticsMenu"].tap()
+    app.buttons["typingStatisticsAbout"].tap()
+    expectNativePage("关于统计", in: app)
+    XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "字数只统计水杉键盘提交的字符")).firstMatch.exists)
+    app.navigationBars["关于统计"].buttons["完成"].tap()
+    XCTAssertTrue(wait(app.navigationBars["关于统计"], until: "exists == false"))
+    XCTAssertTrue(app.navigationBars["统计"].exists)
+
+    app.tabBars.buttons["设置"].tap()
+    tapRevealed("developerOptionsLink", in: app)
+    expectNativePage("开发者选项", in: app)
+    let logging = app.switches["developerDiagnosticLogToggle"]
+    XCTAssertTrue(logging.exists)
+    let original = logging.value as? String
+    tapRevealed("diagnosticLogLink", in: app)
+    expectNativePage("诊断日志", in: app)
+    XCTAssertEqual(app.switches["diagnosticLogEnabled"].value as? String, original)
+    returnFromNativePage(to: "开发者选项", in: app)
+    XCTAssertEqual(logging.value as? String, original)
+    returnFromNativePage(to: "设置", in: app)
+  }
+
+  @MainActor
+  func testVoicePolishServicePageReturnsAndRestoresEnabledState() throws {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    tapRevealed("voiceSettingsLink", in: app)
+    tapRevealed("voiceServiceLink", in: app)
+    let polish = app.switches["voicePolishEnabled"]
+    reveal(polish, in: app)
+    let original = try XCTUnwrap(polish.value as? String)
+    addTeardownBlock { @MainActor in
+      app.terminate()
+      app.launch()
+      self.tapRevealed("voiceSettingsLink", in: app)
+      self.tapRevealed("voiceServiceLink", in: app)
+      self.reveal(polish, in: app)
+      if polish.value as? String != original {
+        polish.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(self.wait(polish, until: "value == '\(original)'"))
+      }
+    }
+    if original == "0" {
+      polish.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      XCTAssertTrue(wait(polish, until: "value == '1'"))
+    }
+    tapRevealed("voicePolishService", in: app)
+    expectNativePage("润色服务", in: app)
+    XCTAssertTrue(app.switches["voicePolishSeparate"].exists)
+    returnFromNativePage(to: "语音设置", in: app)
+  }
+
+  @MainActor
+  func testSettingsLayoutAdaptsBetweenRegularAndCompactWidths() throws {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    XCTAssertTrue(app.buttons["设置"].waitForExistence(timeout: 8))
+    let input = app.descendants(matching: .any)["tabletSettings.input"]
+    if input.waitForExistence(timeout: 5) {
+      // iPad regular width 使用分栏；侧栏选中项直接打开右侧详情页。
+      input.tap()
+    } else {
+      // iPhone、iPad compact width 和窄分屏沿用手机导航栈，不应把缺少侧栏标识当成失败。
+      let compactInput = app.descendants(matching: .any)["inputSettingsLink"]
+      XCTAssertTrue(compactInput.waitForExistence(timeout: 5))
+      compactInput.tap()
+    }
+    XCTAssertTrue(app.navigationBars["输入"].waitForExistence(timeout: 5))
+    if input.exists {
+      let layout = app.descendants(matching: .any)["tabletSettings.layout"]
+      XCTAssertTrue(layout.exists)
+      layout.tap()
+      XCTAssertTrue(app.switches["appTabletFullKeysSwitch"].exists)
+      XCTAssertTrue(app.switches["appTabletSplitSwitch"].exists)
+    }
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = input.exists ? "iPad 分栏设置与平板控件" : "紧凑宽度设置导航"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
+  @MainActor
+  func testAICandidatePromptPageAndPunctuationControlsAreReachable() throws {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    openAISettings(app)
+    let enabled = app.switches["keyboardAIEnabled"]
+    reveal(enabled, in: app)
+    let originalEnabled = try XCTUnwrap(enabled.value as? String)
+    if originalEnabled == "0" {
+      enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      XCTAssertTrue(wait(enabled, until: "value == '1'"))
+    }
+    let candidates = app.switches["aiCandidatesEnabled"]
+    reveal(candidates, in: app)
+    let originalCandidates = try XCTUnwrap(candidates.value as? String)
+    // 只检查本地入口，不保存服务配置，不向模型发送内容；失败后也恢复候选开关。
+    addTeardownBlock { @MainActor in
+      app.terminate()
+      app.launch()
+      self.openAISettings(app)
+      self.reveal(enabled, in: app)
+      if originalEnabled == "0" { return }
+      self.reveal(candidates, in: app)
+      if candidates.value as? String != originalCandidates {
+        candidates.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(self.wait(candidates, until: "value == '\(originalCandidates)'"))
+      }
+    }
+    if originalCandidates == "0" {
+      candidates.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      XCTAssertTrue(wait(candidates, until: "value == '1'"))
+    }
+    tapRevealed("aiCandidatePrompt", in: app)
+    expectNativePage("提示词", in: app)
+    XCTAssertTrue(app.descendants(matching: .any)["aiCandidatePromptSlot"].firstMatch.exists)
+    XCTAssertTrue(app.textViews["aiCandidatePromptText"].exists)
+    returnFromNativePage(to: "AI 设置", in: app)
+    if originalCandidates == "0" {
+      reveal(candidates, in: app)
+      candidates.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+      XCTAssertTrue(wait(candidates, until: "value == '0'"))
+    }
+    // 未保存的总开关在重新进入时从原有配置加载，不必触发停用服务。
+    returnFromNativePage(to: "键盘", in: app)
+    returnFromNativePage(to: "设置", in: app)
+    tapRevealed("expressionSettingsLink", in: app)
+    tapRevealed("punctuationSettingsLink", in: app)
+    expectNativePage("标点", in: app)
+    XCTAssertTrue(app.descendants(matching: .any)["quoteStyle"].firstMatch.exists)
+    XCTAssertTrue(app.descendants(matching: .any)["bracketStyle"].firstMatch.exists)
+    XCTAssertTrue(app.switches["smartPunctuation"].exists)
+    returnFromNativePage(to: "表达", in: app)
+  }
+
+  @MainActor
+  func testCommunityReportCanBeInspectedAndCancelled() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-communityPreview"]
+    app.launch()
+    app.tabBars.buttons["社区"].tap()
+    app.buttons["communityTab-1"].tap()
+    let resource = app.buttons["communityResource-10000000-0000-4000-8000-000000000002"]
+    XCTAssertTrue(resource.waitForExistence(timeout: 5))
+    resource.tap()
+    tapRevealed("reportCommunityWork", in: app)
+    expectNativePage("举报", in: app)
+    XCTAssertTrue(app.buttons["submitCommunityReport"].exists)
+    XCTAssertTrue(app.textFields["补充说明（选填）"].exists)
+    app.navigationBars["举报"].buttons["取消"].tap()
+    XCTAssertTrue(wait(app.navigationBars["举报"], until: "exists == false"))
+    XCTAssertTrue(app.buttons["communityImportLocal"].exists)
   }
 
   @MainActor
@@ -2067,7 +2468,11 @@ final class OnboardingUITests: XCTestCase {
       for: NSPredicate(format: "hasKeyboardFocus == false"), evaluatedWith: tryoutField)
     wait(for: [unfocused], timeout: 10)
     XCTAssertEqual(tryoutField.value as? String, "test")
-    app.tabBars.buttons["设置"].tap()
+    // 对话页不带标签栏，收起键盘后仍通过顶部返回来源页。
+    XCTAssertFalse(app.tabBars.buttons["设置"].exists)
+    app.navigationBars.buttons.firstMatch.tap()
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
     // 去开启 在页面顶部的状态卡片里，遍历结束时页面已滚到它下方，所以要把它滚回视野内。
     reachSettingsLink("openKeyboardSettingsButton", in: app)

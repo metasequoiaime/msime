@@ -18,7 +18,13 @@ import {
 } from "../voice/local-model-helpers";
 
 /** 按需下载的资源包 id，与 `msime_client_providers::resource_packs::ResourcePack::id` 一致。 */
-export type ResourcePackId = "japanese" | "language-dictionaries" | "handwriting" | "settled-model";
+export type ResourcePackId =
+  | "japanese"
+  | "language-dictionaries"
+  | "handwriting"
+  | "settled-model"
+  | "wubi"
+  | "voice-runtime-macos";
 
 /** 宿主报告的资源包状态，即 `msime_client_providers::resource_packs::ResourcePackStatus`。`outdated` 表示已下载的文件字节（名字、SHA-256、长度）与当前锁文件不一致：输入法不再使用这份旧文件，要重新下载。只换了下载地址、字节没变的资源包仍是 `installed`。 */
 export type ResourcePackStatus = {
@@ -45,6 +51,8 @@ export const resourcePackTitles: Record<ResourcePackId, string> = {
   "language-dictionaries": "粤语、注音与笔画词库",
   handwriting: "手写模型",
   "settled-model": "桌面神经联想模型",
+  wubi: "五笔码表",
+  "voice-runtime-macos": "本地语音识别运行库",
 };
 
 /** 资源包和本地语音模型共用的下载镜像（`voice_input.asr_model_mirror`）在设置页里的草稿值和修改入口；下载失败时资源包行就地提供它。 */
@@ -82,6 +90,8 @@ export function savedModelMirror(client: Pick<SettingsClient, "load" | "save">):
 /** 选用某个输入方案时需要下载的资源包；不需要额外资源的方案返回 undefined。 */
 export function resourcePackForScheme(scheme: string | undefined): ResourcePackId | undefined {
   if (scheme === "japanese") return "japanese";
+  // 只有 macOS 发布包不带五笔码表时宿主才列出这个资源包；没列出时 ensure 和下载行什么也不做。
+  if (scheme === "wubi") return "wubi";
   if (scheme === "cantonese" || scheme === "zhuyin" || scheme === "stroke")
     return "language-dictionaries";
   return undefined;

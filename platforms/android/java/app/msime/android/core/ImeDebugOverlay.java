@@ -223,8 +223,6 @@ final class ImeDebugOverlay {
             s.diagnosticDismissTask = null;
         }
         s.diagnosticMessage = "";
-        // 只在输入结束（stop）与服务销毁时调用，所以同时记一次 ime_finish。
-        recordEvent(DiagnosticEventKind.IME_FINISH);
         pendingKeyAt = -1;
     }
 

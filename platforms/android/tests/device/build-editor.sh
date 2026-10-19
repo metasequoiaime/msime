@@ -19,7 +19,19 @@ jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
 # 设备冒烟读的共享用例（SessionStoreDeviceSmoke 的 android_v2 会话）打进测试包的 assets，设备上没有仓库。
 mkdir -p "$build_dir/assets/contracts/account-session-layouts"
 cp shared/contracts/account-session-layouts/cases.json "$build_dir/assets/contracts/account-session-layouts/cases.json"
-"$tools_dir/aapt2" link -I "$android_jar" --manifest platforms/android/tests/device/AndroidManifest.xml -A "$build_dir/assets" -o "$build_dir/unsigned.apk"
+editor_manifest=platforms/android/tests/device/AndroidManifest.xml
+# 完整上游皮肤仅用于显式验收；固定提交归档，不能复制检出目录里的未提交资源，也不进入默认测试包。
+if [[ -n "${MSIME_ANDROID_UPSTREAM_SKINS:-}" ]]; then
+  upstream_commit=dd018f79858314ed542a47c528608752b13bd261
+  mkdir -p "$build_dir/assets/upstream-candidate-skins"
+  git -C "$MSIME_ANDROID_UPSTREAM_SKINS" archive "$upstream_commit" skins/green_leaf skins/sakura-night \
+    | tar -xf - -C "$build_dir/assets/upstream-candidate-skins" --strip-components=1
+  # Android 35 每个清单最多 100 项 instrumentation；专项替换一个入口，不增加默认清单的数量。
+  editor_manifest="$build_dir/upstream-manifest.xml"
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.CandidateUpstreamSkinDeviceSmoke/' \
+    platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
+fi
+"$tools_dir/aapt2" link -I "$android_jar" --manifest "$editor_manifest" -A "$build_dir/assets" -o "$build_dir/unsigned.apk"
 (cd "$build_dir/dex" && zip -q -0 "$build_dir/unsigned.apk" classes.dex)
 "$tools_dir/zipalign" -P 16 4 "$build_dir/unsigned.apk" "$build_dir/aligned.apk"
 # Instrumentation that targets app.msime.android only runs when this package carries the app's certificate, so it signs with the same key (scripts/signing.sh).

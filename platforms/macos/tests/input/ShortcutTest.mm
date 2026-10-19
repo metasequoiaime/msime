@@ -2977,18 +2977,19 @@ static void TestPinyinArrowCandidateNavigation() {
         assert([controller handleEvent:ModeKey(key, 0, NO) client:client]);
         assert(session.lastCommand == expected && !client.committed);
     };
-    // 双拼的左右键按音节移动，单独由 TestSegmentEditingChords 覆盖；这里保留全拼的候选导航契约。
-    for (int scheme : {0}) {
+    // 默认交给 runtime；关闭后继续覆盖宿主旧有的端点与高亮分工。
+    for (NSNumber *leftRight in @[@YES, @NO]) {
+        [prefs applySharedCandidatePreferences:@{@"navigation": @{@"left_right": leftRight}}];
         for (BOOL vertical : {NO, YES}) {
             prefs.vertical = vertical;
             for (BOOL expand : {NO, YES}) {
                 prefs.expandCandidates = expand;
-                check(scheme, 5, 0, 123, MSIME_MOVE_LEFT);
-                check(scheme, 5, 1, 123, MSIME_PREVIOUS_CANDIDATE);
-                check(scheme, 2, 0, 124, MSIME_MOVE_RIGHT);
-                check(scheme, 2, 1, 124, MSIME_MOVE_RIGHT);
-                check(scheme, 5, 0, 124, MSIME_NEXT_CANDIDATE);
-                check(scheme, 5, 1, 124, MSIME_NEXT_CANDIDATE);
+                check(0, 5, 0, 123, MSIME_MOVE_LEFT);
+                check(0, 5, 1, 123, leftRight.boolValue ? MSIME_MOVE_LEFT : MSIME_PREVIOUS_CANDIDATE);
+                check(0, 2, 0, 124, MSIME_MOVE_RIGHT);
+                check(0, 2, 1, 124, MSIME_MOVE_RIGHT);
+                check(0, 5, 0, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
+                check(0, 5, 1, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
             }
         }
     }
@@ -3082,7 +3083,7 @@ static void TestExpandedCandidateGrid() {
     [controller closeExpandedCandidates];
     session.lastCommand = UINT32_MAX;
     assert(press(124));
-    assert(session.lastCommand == MSIME_NEXT_CANDIDATE && !expanded());
+    assert(session.lastCommand == MSIME_MOVE_RIGHT && !expanded());
 
     compose();
     NSMutableDictionary *lastPage = [[session gridView] mutableCopy];
@@ -3132,6 +3133,37 @@ static void TestExpandedCandidateGrid() {
     assert(collapse && [collapse.identifier isEqual:@"candidate-collapse"]);
     // 只有高亮那一行标序号，数字键选的就是那一行。
     assert([ExpandedGridSubview(panel, 1).title hasPrefix:@"2  "] && [ExpandedGridSubview(panel, 6).title hasPrefix:@"  "]);
+
+    // 触控板的精确滚动保留行内像素偏移，滚回时位置恢复；用六行网格覆盖虚拟窗口边界。
+    [controller closeExpandedCandidates];
+    session.total = 24;
+    session.pageSize = 4;
+    prefs.pageSize = 4;
+    compose();
+    assert(press(125) && expanded());
+    const CGFloat firstCandidateY = NSMinY(ExpandedGridSubview(panel, 0).frame);
+    [controller setValue:@(-8.0) forKey:@"expandedPendingScrollDelta"];
+    [controller renderCandidates];
+    assert([[controller valueForKey:@"expandedScrollOffset"] doubleValue] > 0.0);
+    assert(fabs(NSMinY(ExpandedGridSubview(panel, 0).frame) - (firstCandidateY - 8.0)) < 0.01);
+    [controller setValue:@8.0 forKey:@"expandedPendingScrollDelta"];
+    [controller renderCandidates];
+    assert(fabs([[controller valueForKey:@"expandedScrollOffset"] doubleValue]) < 0.01);
+    assert(fabs(NSMinY(ExpandedGridSubview(panel, 0).frame) - firstCandidateY) < 0.01);
+    [controller setValue:@(-10000.0) forKey:@"expandedPendingScrollDelta"];
+    [controller renderCandidates];
+    assert([[controller valueForKey:@"expandedFirstRow"] unsignedIntegerValue] == 1);
+    assert(fabs([[controller valueForKey:@"expandedScrollOffset"] doubleValue]) < 0.01);
+    [controller setValue:@10000.0 forKey:@"expandedPendingScrollDelta"];
+    [controller renderCandidates];
+    assert([[controller valueForKey:@"expandedFirstRow"] unsignedIntegerValue] == 0);
+    assert(fabs([[controller valueForKey:@"expandedScrollOffset"] doubleValue]) < 0.01);
+    [controller closeExpandedCandidates];
+    session.total = 23;
+    session.pageSize = 5;
+    prefs.pageSize = 5;
+    compose();
+    assert(press(125) && expanded());
 
     // →、↓ 移动；最后一行短时停在它的最后一个；← 在行内；↑ 回到上一行同一列。
     assert(press(124) && cursor() == 1);
@@ -3341,16 +3373,22 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
         assert(session.lastCommand == [entry[1] unsignedIntValue]);
         [controller setValue:composing forKey:@"view"];
     }
-    // 双拼的普通左右键也按音节移动，避免候选栏打开后在音节内部误触发候选导航。
+    // 默认左右键交给 runtime，关闭该偏好时保留宿主按音节移动的旧路径。
     NSMutableDictionary *shuangpin = [composing mutableCopy];
     shuangpin[@"scheme"] = @1;
-    for (NSArray *entry in @[@[@123, @(MSIME_MOVE_LEFT_SEGMENT)], @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
-        [controller setValue:shuangpin forKey:@"view"];
-        panel.visible = YES;
-        session.lastCommand = UINT32_MAX;
-        assert([controller handleEvent:ModeKey([entry[0] unsignedShortValue], 0, NO) client:client]);
-        assert(session.lastCommand == [entry[1] unsignedIntValue]);
+    const BOOL savedLeftRight = [appearance navigationEnabled:@"left_right"];
+    for (NSNumber *leftRight in @[@YES, @NO]) {
+        [appearance applySharedCandidatePreferences:@{@"navigation": @{@"left_right": leftRight}}];
+        for (NSArray *entry in @[@[@123, @(leftRight.boolValue ? MSIME_MOVE_LEFT : MSIME_MOVE_LEFT_SEGMENT)],
+                                 @[@124, @(leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_MOVE_RIGHT_SEGMENT)]]) {
+            [controller setValue:shuangpin forKey:@"view"];
+            panel.visible = YES;
+            session.lastCommand = UINT32_MAX;
+            assert([controller handleEvent:ModeKey([entry[0] unsignedShortValue], 0, NO) client:client]);
+            assert(session.lastCommand == [entry[1] unsignedIntValue]);
+        }
     }
+    [appearance applySharedCandidatePreferences:@{@"navigation": @{@"left_right": @(savedLeftRight)}}];
     // 没有整句改字的方案（五笔）里 Ctrl+左右照旧按分段移动。
     NSMutableDictionary *wubi = [composing mutableCopy];
     wubi[@"scheme"] = @2;
@@ -11303,20 +11341,27 @@ int main(int argc, char **argv) {
         appearance.globalTheme = @"system";
         [controller appearanceChanged:nil];
         NSDictionary *beforeArrowTransition = session.nextTransition;
-        for (NSNumber *key in @[@123, @124, @125, @126]) {
-            [controller setValue:@{@"focused": @YES, @"scheme": @0, @"editing_text": @"ceshi", @"caret_position": @5,
-                                  @"candidates": @[@{@"text": @"甲", @"highlighted": @YES}]} forKey:@"view"];
-            session.nextTransition = @{@"handled": @YES};
-            layoutPanel.requestedVisible = YES;
-            session.lastCommand = UINT32_MAX;
-            NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
-            assert([controller handleEvent:event client:client]);
-            // 首选左键编辑拼音，末尾右键选择下一候选；此处关闭展开，上下仍移动高亮。
-            const unsigned short code = key.unsignedShortValue;
-            uint32_t expected = code == 123 ? MSIME_MOVE_LEFT : code == 124 ? MSIME_NEXT_CANDIDATE
-                                : code == 126 ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE;
-            assert(session.lastCommand == expected);
+        const BOOL beforeLeftRight = [appearance navigationEnabled:@"left_right"];
+        assert(beforeLeftRight);
+        for (NSNumber *leftRight in @[@YES, @NO]) {
+            [appearance applySharedCandidatePreferences:@{@"navigation": @{@"left_right": leftRight}}];
+            assert([appearance navigationEnabled:@"left_right"] == leftRight.boolValue);
+            for (NSNumber *key in @[@123, @124, @125, @126]) {
+                [controller setValue:@{@"focused": @YES, @"scheme": @0, @"editing_text": @"ceshi", @"caret_position": @5,
+                                      @"candidates": @[@{@"text": @"甲", @"highlighted": @YES}]} forKey:@"view"];
+                session.nextTransition = @{@"handled": @YES};
+                layoutPanel.requestedVisible = YES;
+                session.lastCommand = UINT32_MAX;
+                NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
+                assert([controller handleEvent:event client:client]);
+                // 默认由 runtime 判断左右键端点；显式关闭时仍走宿主旧分支，上下始终移动高亮。
+                const unsigned short code = key.unsignedShortValue;
+                uint32_t expected = code == 123 ? MSIME_MOVE_LEFT : code == 124 ? (leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE)
+                                    : code == 126 ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE;
+                assert(session.lastCommand == expected);
+            }
         }
+        [appearance applySharedCandidatePreferences:@{@"navigation": @{@"left_right": @(beforeLeftRight)}}];
         session.nextTransition = beforeArrowTransition;
         // 后面的字符翻页测试从普通空组字开始，不继承皮肤测试的本地模式。
         [controller setValue:@{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]} forKey:@"view"];

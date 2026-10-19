@@ -181,6 +181,8 @@ PreviousCandidate/NextCandidate/PreviousPage/NextPage 路径消费共享导航�
 
 Wine 有时在 `CreateSymbolicLinkW` 返回成功后仍未创建可由 Win32 观察到的重解析点。符号链接安全测试会先核对链接属性和标签；只有夹具真正存在才运行相应断言，否则测试自身输出跳过提示（批量 Wine 运行器只汇总 EXE 的通过与失败）。真正的重解析点拒绝行为仍需在 Windows 上运行原生测试验证。
 
+`windows-candidate-canvas-preview` 的九宫格像素断言依赖图像画刷的源矩形语义。Wine 10 尚未实现这一语义，`run-tests-wine.sh` 对它明确输出 `SKIP`，不计作通过、不加入已知失败基线；`ci-platforms.yml` 的原生 Windows candidate skin gallery 作业必须执行完整断言，失败会阻止该作业通过。Wine 实现补齐后应移除这条环境跳过。
+
 CI（`.github/workflows/ci-platforms.yml` 的 windows job）在 `debian:trixie-slim` 容器里跑 `build-cross.sh x64`——Ubuntu 24.04 的 MinGW 头文件缺 `d2d1_3.h`。`release-windows.yml` 是手动 `workflow_dispatch`，在 Windows runner 上按版本矩阵（full、wubi、pinyin）各跑一遍 `Build-Client.ps1 -Edition`、打包和装卸冒烟，再用 `installer/tests/coexistence-smoke.ps1` 把几个版本装到同一台机器上，检查它们并存、卸掉一个版本不碰 full，并在 `windows-11-arm` runner 上装卸每个版本、检查 Arm64X TIP 能在原生 ARM64 和模拟 x64 进程里创建，最后一起发布。安装器由 Windows 上的 `installer/Package-SimplySign.ps1` 编译和签名，不在 CI 里产出。
 
 ### 候选皮肤截图

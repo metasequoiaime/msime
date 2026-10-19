@@ -1,4 +1,4 @@
-//! 桌面按需下载的资源包。macOS 发布包不再内置日文词典和粤拼/注音/笔画词库，由设置页在用户选用对应方案时下载；手写模型在第一次打开手写面板时下载（Windows 只在 Ink 没有中文识别器、Linux 只在安装前缀里没有随包模型时才需要）；桌面落定重排模型在打开「桌面神经联想」时下载，三个桌面平台都是这样。
+//! 桌面按需下载的资源包。macOS 发布包不再内置日文词典和粤拼/注音/笔画词库，由设置页在用户选用对应方案时下载；手写模型在第一次打开手写面板时下载（Windows 只在 Ink 没有中文识别器、Linux 只在安装前缀里没有随包模型时才需要）；桌面落定重排模型在打开「桌面神经联想」时下载，三个桌面平台都是这样。macOS 发布包不带五笔码表时，用户选用五笔方案时下载它；macOS 输入法不带本地语音运行库时，用户选用本地识别后下载它。
 //!
 //! 资源包装在 `<state_root>/resource-packs/<id>/`，state_root 就是偏好目录（`PreferencesStore::directory`：macOS 上是 `macos_launch` 解析出的 preferences_directory，Windows 上是 Server 的 DataDir，Linux 上是运行时选项里的状态目录），也是 host-api 查找已下载资源包的同一个目录。下载、校验和整体发布由 `msime_client_providers::resource_packs` 完成；这里只负责决定本机提供哪些资源包、在命令线程之外运行安装、把进度作为 `resource-pack-progress` 事件发给页面，并与语音模型共用 `LocalModelInstalls` 的取消和互斥登记。
 
@@ -48,6 +48,10 @@ pub(crate) struct Installation {
     pub(crate) settled_model: bool,
     /// 安装布局里随包带齐了粤拼、注音和笔画词库。
     pub(crate) language_dictionaries: bool,
+    /// 输入法的资源目录（HostOptions 的 `resources`）带着五笔码表 `msime-wubi.db`。还没有运行时选项时按带着处理。
+    pub(crate) wubi_dictionary: bool,
+    /// 运行的输入法自带本地语音运行库：macOS 上是 `~/Library/Input Methods` 里的输入法 bundle 的 `Contents/Frameworks` 里有 sherpa-onnx 的库；Windows 和 Linux 总是随包带着，为真。
+    pub(crate) voice_runtime: bool,
 }
 
 impl Installation {
@@ -63,8 +67,39 @@ impl Installation {
             // 还没有运行时选项（Linux 首次运行）时不知道装了什么，按带齐处理，与设置页可选方案的判断一致。
             language_dictionaries: host_options
                 .is_none_or(msime_host_api::packaged_language_dictionaries),
+            wubi_dictionary: host_options.is_none_or(bundled_wubi_dictionary),
+            voice_runtime: bundled_voice_runtime(),
         }
     }
+}
+
+/// HostOptions 文档的资源目录里有没有五笔码表。资源目录是校验过的发布包目录或词库更新目录，macOS 发布包不带它时这里为假。
+fn bundled_wubi_dictionary(host_options: &Value) -> bool {
+    host_options
+        .get("resources")
+        .and_then(Value::as_str)
+        .map(std::path::Path::new)
+        .is_some_and(|resources| {
+            resources
+                .join(msime_client_core::resources::ON_DEMAND_WUBI_ARTIFACTS[0])
+                .is_file()
+        })
+}
+
+/// 装在 `~/Library/Input Methods` 里的输入法 bundle 是否自带 sherpa-onnx 运行库。开发构建和锁文件还没固定重签运行库时的发布包都带着；省略了它的发布包要靠 `voice-runtime-macos` 资源包。输入法还没装好时按不带处理：装上的就是这个设置应用里的同一个 bundle。
+#[cfg(target_os = "macos")]
+fn bundled_voice_runtime() -> bool {
+    crate::platform::macos::macos_input_source::installed_bundle_path().is_ok_and(|bundle| {
+        bundle
+            .join("Contents/Frameworks")
+            .join(resource_packs::MACOS_VOICE_RUNTIME_LIBRARY)
+            .is_file()
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn bundled_voice_runtime() -> bool {
+    true
 }
 
 #[cfg(target_os = "windows")]
@@ -98,9 +133,11 @@ const CHINESE_MAIN_COMPONENT: &str = "chinese-main";
 
 /// 本机是否提供这个资源包。
 ///
+/// - 五笔码表只有 macOS 发布包可以不内置：本版本有五笔方案、而资源目录里没有它时列出（五笔版的发布包总带着它）。
 /// - 日文词典和语言词库只有 macOS 发布包不内置，macOS 上总是列出。Windows 随包带着它们，不列出也不下载。Linux 随包带着日文词典；语言词库只在用得到它的版本（版本表 `language_dictionaries` 非空）没有随包带齐时才列出，例如打包时没有备好词库、或不带它们的 Nix 包，否则粤拼、注音和笔画在这台机器上无从启用。
 /// - 手写模型只认汉字，不提供手写的版本（版本表 `features.handwriting` 为 false：日文、越南文和藏文版）不列出也不下载它。macOS 上提供手写的版本都列出它；Windows 上手写面板先用 Ink，只有 Ink 没有中文识别器、且没有随包或指定的模型时才列出；Linux 上没有随包或指定的模型时才列出。没列出时手写面板照常识别，不等下载。
-/// - 离线释义和语音运行库（Android arm64 的库）只在 Android 上按需下载，桌面不列出。
+/// - 离线释义和 Android 的语音运行库只在 Android 上按需下载，桌面不列出。
+/// - macOS 的语音运行库只在 macOS 上、而且运行的输入法没有自带它时列出（锁文件还没固定它时这个资源包根本不存在）。Windows 和 Linux 随包带着各自的运行库。
 /// - 落定重排模型只给中文整句重排，不带中文主词库（版本表 `resources.components` 没有 `chinese-main`：日文、越南文和藏文版）的版本不列出也不下载它，与打包时不装它的规则相同。其他版本在没有随包模型时列出：会话总是优先用随包的那份，有它时下载的用不上。
 fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation) -> bool {
     match pack {
@@ -132,6 +169,14 @@ fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation
         }
         // 离线释义和 Android 的语音运行库只给 Android 按需下载；桌面发布包随包带着离线释义，语音运行库也按各平台的打包方式内置。
         ResourcePack::OfflineGlosses | ResourcePack::VoiceRuntime => false,
+        ResourcePack::Wubi => {
+            installation.platform == DesktopPlatform::Macos
+                && edition.input_schemes.contains(&InputScheme::Wubi)
+                && !installation.wubi_dictionary
+        }
+        ResourcePack::MacosVoiceRuntime => {
+            installation.platform == DesktopPlatform::Macos && !installation.voice_runtime
+        }
     }
 }
 
@@ -227,7 +272,7 @@ pub(crate) fn resource_pack_cancel(
     Ok(installs.cancel(&install_key(pack)))
 }
 
-/// 已保存的方案需要的资源包：当前方案是日文时要日文词典；当前方案或上次使用的中文方案是粤拼/注音/笔画时要语言词库。手写不对应方案，临时日语也不触发下载。
+/// 已保存的方案需要的资源包：当前方案是日文时要日文词典；当前方案或上次使用的中文方案是五笔时要五笔码表，是粤拼/注音/笔画时要语言词库。手写不对应方案，临时日语也不触发下载。
 fn needed_packs(
     scheme: InputScheme,
     last_chinese_scheme: Option<ChineseScheme>,
@@ -235,6 +280,11 @@ fn needed_packs(
     let mut needed = Vec::with_capacity(3);
     if scheme == InputScheme::Japanese {
         needed.push(ResourcePack::Japanese);
+    }
+    if scheme == InputScheme::Wubi
+        || last_chinese_scheme.is_some_and(|last| InputScheme::from(last) == InputScheme::Wubi)
+    {
+        needed.push(ResourcePack::Wubi);
     }
     let language = |scheme: InputScheme| {
         matches!(
@@ -248,11 +298,14 @@ fn needed_packs(
     needed
 }
 
-/// 已保存的偏好需要的资源包：方案需要的词库（[`needed_packs`]），打开了桌面神经联想时还有落定重排模型。
+/// 已保存的偏好需要的资源包：方案需要的词库（[`needed_packs`]），打开了桌面神经联想时还有落定重排模型，语音用本地识别时还有 macOS 的语音运行库（不在 macOS 或输入法自带运行库时由 [`offered_by`] 滤掉）。
 fn needed_by_preferences(preferences: &Preferences) -> Vec<ResourcePack> {
     let mut needed = needed_packs(preferences.scheme, preferences.last_chinese_scheme);
     if preferences.sentence_association.neural_desktop {
         needed.push(ResourcePack::SettledModel);
+    }
+    if preferences.voice_input.asr_provider == "local" {
+        needed.push(ResourcePack::MacosVoiceRuntime);
     }
     needed
 }
@@ -310,6 +363,8 @@ mod tests {
             ink_chinese_recognizer: false,
             settled_model: false,
             language_dictionaries: true,
+            wubi_dictionary: true,
+            voice_runtime: true,
         }
     }
 
@@ -318,7 +373,12 @@ mod tests {
         use ChineseScheme as Last;
         use InputScheme as Scheme;
         assert_eq!(needed_packs(Scheme::Quanpin, None), []);
-        assert_eq!(needed_packs(Scheme::Quanpin, Some(Last::Wubi)), []);
+        // 五笔是当前方案或上次的中文方案时要五笔码表：切回中文时会用到它。
+        assert_eq!(needed_packs(Scheme::Wubi, None), [ResourcePack::Wubi]);
+        assert_eq!(
+            needed_packs(Scheme::Quanpin, Some(Last::Wubi)),
+            [ResourcePack::Wubi]
+        );
         assert_eq!(needed_packs(Scheme::Korean, None), []);
         assert_eq!(
             needed_packs(Scheme::Japanese, None),
@@ -369,6 +429,88 @@ mod tests {
             needed_by_preferences(&preferences),
             [ResourcePack::Japanese, ResourcePack::SettledModel]
         );
+    }
+
+    /// 五笔码表只在 macOS、版本有五笔方案、资源目录里又没有它时列出；资源目录带着它（开发构建、五笔版）或在 Windows 和 Linux 上从不列出。
+    #[test]
+    fn the_wubi_pack_is_offered_only_to_a_macos_package_without_the_table() {
+        for edition in Edition::all() {
+            let wubi = edition.input_schemes.contains(&InputScheme::Wubi);
+            let mut macos = installation(DesktopPlatform::Macos);
+            assert!(
+                !offered_by(ResourcePack::Wubi, edition, &macos),
+                "{}",
+                edition.id
+            );
+            macos.wubi_dictionary = false;
+            assert_eq!(
+                offered_by(ResourcePack::Wubi, edition, &macos),
+                wubi,
+                "{}",
+                edition.id
+            );
+            for platform in [DesktopPlatform::Windows, DesktopPlatform::Linux] {
+                let mut other = installation(platform);
+                other.wubi_dictionary = false;
+                assert!(!offered_by(ResourcePack::Wubi, edition, &other));
+            }
+        }
+        assert!(!offered_by(
+            ResourcePack::Wubi,
+            Edition::by_id("pinyin").unwrap(),
+            &Installation {
+                wubi_dictionary: false,
+                ..installation(DesktopPlatform::Macos)
+            }
+        ));
+        let resources = tempfile::tempdir().unwrap();
+        let document = serde_json::json!({ "resources": resources.path() });
+        assert!(!bundled_wubi_dictionary(&document));
+        std::fs::write(resources.path().join("msime-wubi.db"), b"bundled").unwrap();
+        assert!(bundled_wubi_dictionary(&document));
+        assert!(!bundled_wubi_dictionary(&serde_json::json!({})));
+    }
+
+    /// 语音用本地识别时，启动补齐 macOS 的语音运行库；别的识别服务不需要它。
+    #[test]
+    fn local_recognition_needs_the_macos_voice_runtime() {
+        let mut preferences = Preferences::default();
+        preferences.sentence_association.neural_desktop = false;
+        preferences.voice_input.asr_provider = "doubao".into();
+        assert!(!needed_by_preferences(&preferences).contains(&ResourcePack::MacosVoiceRuntime));
+        preferences.voice_input.asr_provider = "local".into();
+        assert_eq!(
+            needed_by_preferences(&preferences),
+            [ResourcePack::MacosVoiceRuntime]
+        );
+    }
+
+    /// macOS 的语音运行库只在 macOS、且运行的输入法没有自带运行库时列出；Windows 和 Linux 从不列出。
+    #[test]
+    fn the_macos_voice_runtime_is_offered_only_to_an_input_method_without_one() {
+        for edition in Edition::all() {
+            let mut macos = installation(DesktopPlatform::Macos);
+            assert!(!offered_by(
+                ResourcePack::MacosVoiceRuntime,
+                edition,
+                &macos
+            ));
+            macos.voice_runtime = false;
+            assert!(
+                offered_by(ResourcePack::MacosVoiceRuntime, edition, &macos),
+                "{}",
+                edition.id
+            );
+            for platform in [DesktopPlatform::Windows, DesktopPlatform::Linux] {
+                let mut other = installation(platform);
+                other.voice_runtime = false;
+                assert!(!offered_by(
+                    ResourcePack::MacosVoiceRuntime,
+                    edition,
+                    &other
+                ));
+            }
+        }
     }
 
     /// macOS 发布包对每个版本都不内置日文词典。水杉日语只有日文一个方案，用户不会去切换方案：它的状态目录第一次准备好时偏好就是日文（`Preferences::for_edition`），设置应用第一次启动就由这里补下词典。越南文、藏文版不需要任何资源包。

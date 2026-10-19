@@ -3,6 +3,7 @@ import UIKit
 
 /// 手机上的 设置 标签页：搜索框、键盘状态卡片，然后是按移动端设计稿分组卡片排列的各设置页。各行来自 SettingsPage，iPad 侧边栏也读同一份。
 struct SettingsView: View {
+  let navigationRoot: UUID
   @Environment(\.scenePhase) private var scenePhase
   @EnvironmentObject private var router: SettingsRouter
   @EnvironmentObject private var navigation: AppNavigation
@@ -10,12 +11,20 @@ struct SettingsView: View {
   @State private var skin = KeyboardTheme.current
   @State private var values: [SettingsPage: String] = [:]
   @State private var query = ""
+  @State private var selectedPage: SettingsPage?
   /// The notices not yet dismissed, newest first; the newest is shown.
   @State private var notices: [AppNotice] = []
 
   private var skinName: String {
     guard let design = skin.design else { return skin.title }
     return CustomSkinLibrary.designs.first { $0.design == design }?.name ?? skin.title
+  }
+
+  /// 深链接是待消费的请求；导航绑定属于当前栈，旧栈或新栈初始化的回写均不修改请求。
+  private func consumeRequestedPage() {
+    guard navigation.settingsRoot == navigationRoot, let page = router.settingsPage else { return }
+    router.settingsPage = nil
+    selectedPage = page
   }
 
   var body: some View {
@@ -35,7 +44,7 @@ struct SettingsView: View {
         ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
           DesignCard(radius: MetasequoiaTheme.cardRadius) {
             ForEach(group) { page in
-              SettingsCardRow(page: page, value: value(for: page), isLast: page == group.last, selection: $router.settingsPage)
+              SettingsCardRow(page: page, value: value(for: page), isLast: page == group.last, selection: $selectedPage)
             }
           }
         }
@@ -51,8 +60,9 @@ struct SettingsView: View {
     .navigationTitle("设置")
     .navigationBarTitleDisplayMode(.large)
     // 不按当前选中的标签页过滤：切走时读到 nil 会把推入的页面弹掉，切回来再重新推入，页面里更深一层的导航就丢了。
-    .navigationDestination(item: $router.settingsPage) { $0.destination }
-    .onAppear { refresh() }
+    .navigationDestination(item: $selectedPage) { $0.destination }
+    .onAppear { refresh(); consumeRequestedPage() }
+    .onChange(of: router.settingsPage) { _, _ in consumeRequestedPage() }
     .onChange(of: scenePhase) { _, phase in if phase == .active { refresh(); Task { await loadNotices() } } }
     .task { await loadNotices() }
     .tint(MetasequoiaTheme.accent)

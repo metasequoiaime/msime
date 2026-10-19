@@ -43,6 +43,76 @@ $state = Join-Path ([IO.Path]::GetTempPath()) ('msime-settings-ui-' + [Guid]::Ne
 $oldState = $env:MSIME_CLIENT_STATE_DIR
 $pages = @('typing', 'lexicon', 'shortcuts', 'expression', 'voice', 'osk', 'themes', 'candidate', 'toolbar', 'clip', 'ai', 'plugins', 'stats', 'account', 'dev', 'about')
 $process = $null
+# 用仓库许可明确的合成皮肤验证真实设置卡片；颜色块让缺图和旧模式都能被屏幕像素发现。
+function New-CanvasPreviewFixture {
+    $skins = Join-Path $state 'skins'
+    New-Item -ItemType Directory -Force $skins | Out-Null
+    $source = Join-Path $PSScriptRoot '../../../../crates/client-services/tests/fixtures/candidate-skins/verify-canvas'
+    Copy-Item -LiteralPath $source -Destination $skins -Recurse
+    $package = Join-Path $skins 'verify-canvas'
+    $manifest = Join-Path $package 'skin.toml'
+    $body = [IO.File]::ReadAllText($manifest).Replace('name = "星河 · 画布"', 'name = "合成画布"').Replace('slice_dip = [16]', 'slice_dip = [4]')
+    [IO.File]::WriteAllText($manifest, $body, (New-Object Text.UTF8Encoding($false)))
+    foreach ($mode in @('light', 'dark')) {
+        $colors = if ($mode -eq 'light') { @(0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0x00ffff, 0xff00ff, 0x804000, 0x408000, 0x400080) }
+                  else { @(0x123456, 0x234567, 0x345678, 0x456789, 0x56789a, 0x6789ab, 0x789abc, 0x89abcd, 0x9abcde) }
+        $bitmap = New-Object Drawing.Bitmap(12, 12)
+        try {
+            for ($y = 0; $y -lt 12; $y++) {
+                for ($x = 0; $x -lt 12; $x++) {
+                    $rgb = $colors[[int][Math]::Floor($y / 4) * 3 + [int][Math]::Floor($x / 4)]
+                    $bitmap.SetPixel($x, $y, [Drawing.Color]::FromArgb(255, ($rgb -shr 16) -band 255, ($rgb -shr 8) -band 255, $rgb -band 255))
+                }
+            }
+            $bitmap.Save((Join-Path $package "assets/panel-$mode.png"), [Drawing.Imaging.ImageFormat]::Png)
+        } finally { $bitmap.Dispose() }
+    }
+}
+function Assert-CanvasPreview($window, [string]$mode) {
+    Open-Page $window 'themes'
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $image = Find-ById $window 'canvas-preview-verify-canvas-horizontal'
+        if ($image) { break }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $image) { throw 'Canvas image did not load in the native settings card' }
+    $search = Find-ById $window 'settings-search'
+    $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+    $input = $search.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    if (-not $input -and $search.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit) { $input = $search }
+    if (-not $input) { throw 'Settings search input is missing' }
+    $input.SetFocus()
+    $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('合成画布')
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Start-Sleep -Milliseconds 700
+    foreach ($layout in @('horizontal', 'vertical')) {
+        $image = Find-ById $window "canvas-preview-verify-canvas-$layout"
+        if (-not $image -or $image.Current.IsOffscreen) { throw "Canvas $layout image is not visible" }
+        $bounds = $image.Current.BoundingRectangle
+        if ($bounds.Width -lt 40 -or $bounds.Height -lt 15) { throw 'Canvas image has no usable size' }
+        $bitmap = New-Object Drawing.Bitmap([int]$bounds.Width, [int]$bounds.Height)
+        $graphics = [Drawing.Graphics]::FromImage($bitmap)
+        try {
+            $graphics.CopyFromScreen([int]$bounds.X, [int]$bounds.Y, 0, 0, $bitmap.Size)
+            $expected = if ($mode -eq 'light') { 0x00ffff } else { 0x56789a }
+            $count = 0
+            for ($y = 0; $y -lt $bitmap.Height; $y++) {
+                for ($x = 0; $x -lt $bitmap.Width; $x++) {
+                    if (($bitmap.GetPixel($x, $y).ToArgb() -band 0xffffff) -eq $expected) { $count++ }
+                }
+            }
+            $bitmap.Save((Join-Path $outputPath "$mode-canvas-$layout.png"), [Drawing.Imaging.ImageFormat]::Png)
+            if ($count -lt 8) { throw "Canvas $mode $layout panel pixels are absent or from the wrong mode" }
+        } finally {
+            $graphics.Dispose()
+            $bitmap.Dispose()
+        }
+    }
+    Save-Window $window "$mode-canvas-settings.png"
+    $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
+    Write-Host "$mode canvas native card pixels passed in both layouts"
+}
 function Find-ById($parent, [string]$id) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id)
     return $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
@@ -289,6 +359,7 @@ function Save-Window($element, [string]$file) {
 try {
     New-Item -ItemType Directory -Force $state | Out-Null
     $env:MSIME_CLIENT_STATE_DIR = $state
+    New-CanvasPreviewFixture
     if (-not [SettingsWindowProbe]::SetDllDirectory([IO.Path]::GetDirectoryName($programPath))) { throw 'Settings DLL path could not be set' }
     $defaults = [SettingsWindowProbe]::DefaultPreferences() | ConvertFrom-Json
     if (-not $defaults.ok) { throw 'Default preferences could not be loaded' }
@@ -423,6 +494,7 @@ try {
                 Open-Page $window 'typing'
             }
         }
+        Assert-CanvasPreview $window $theme
         # 搜索必须让目标可见：主字体在预设下本来收起，搜索落到它时要画出来；折叠区里的行要把「更多选项」展开。
         Open-Page $window 'candidate'
         Set-CandidateMore $window $false

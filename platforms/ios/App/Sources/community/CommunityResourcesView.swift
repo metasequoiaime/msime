@@ -312,10 +312,9 @@ struct CommunityReplyTemplatesSection: View {
       // 加载和提示挂在这一行上：它总在，而挂在 Section 上的修饰符会分给每一行。
       NavigationLink { CommunityResourcesView(kind: .reply) } label: { Text("浏览更多回复模板") }
         .accessibilityIdentifier("replyCommunityLink")
-        .task {
+        .trackViewRequest(request: $request, pending: $pending, onAppear: {
           startLoad()
-        }
-        .trackViewRequest(request: $request, pending: $pending, onDisappear: {
+        }, onDisappear: {
           addGeneration.invalidate()
           addTasks.values.forEach { $0.cancel() }
           addTasks.removeAll()

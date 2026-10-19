@@ -6,10 +6,17 @@ use msime_client_services::dictionary::personal::{
 use serde_json::json;
 
 fn word(index: u32) -> PersonalWord {
+    // 五万词夹具会跨过 UTF-16 代理区，合成值只使用有效 Unicode 标量。
+    let scalar = 0x4e00 + index;
+    let scalar = if scalar >= 0xd800 {
+        scalar + 0x800
+    } else {
+        scalar
+    };
     PersonalWord {
         kind: PersonalWordKind::Pinyin,
         key: "ni'hao".into(),
-        value: format!("{}蒿", char::from_u32(0x4e00 + index).unwrap()),
+        value: format!("{}蒿", char::from_u32(scalar).unwrap()),
         weight: 10_000,
     }
 }
@@ -702,6 +709,81 @@ fn oversized_edit_batches_are_rejected_before_writing() {
 }
 
 /// 显式运行的合成吞吐测量，普通回归不以本机时间设门槛。
+#[test]
+#[ignore]
+fn synthetic_dictionary_layers_throughput() {
+    let count = std::env::var("MSIME_BATCH_BENCH_WORDS")
+        .ok()
+        .map(|value| value.parse::<u32>().unwrap())
+        .unwrap_or(512);
+    assert!((1..=50_000).contains(&count));
+    for layer in ["engine", "personal"] {
+        let root = tempfile::tempdir().unwrap();
+        let options = host_options_with_main_dictionary(root.path());
+        rusqlite::Connection::open(root.path().join("dictionaries/msime-pinyin.db"))
+            .unwrap()
+            .execute_batch("CREATE INDEX fixture_pinyin ON tbl_2_n(key,value)")
+            .unwrap();
+        let words: Vec<_> = (0..count).map(word).collect();
+        let engine_words: Vec<_> = words.iter().map(engine_word).collect();
+        let request_ids: Vec<_> = (0..count)
+            .map(|index| format!("collections-layer-{index}"))
+            .collect();
+        let engine = engine_options(&options);
+        let personal = PersonalDictionaryStore::new(root.path().join("PersonalDictionary"));
+        let started = std::time::Instant::now();
+        let mut longest = std::time::Duration::ZERO;
+        let mut rounds = 0;
+        for offset in (0..words.len()).step_by(128) {
+            let end = (offset + 128).min(words.len());
+            let batch_started = std::time::Instant::now();
+            if layer == "engine" {
+                let edits: Vec<_> = (offset..end)
+                    .map(|index| msime_engine::host::DictionaryEdit {
+                        previous: None,
+                        replacement: Some(&engine_words[index]),
+                        request_id: &request_ids[index],
+                        preserve_existing: true,
+                    })
+                    .collect();
+                let applied = msime_engine::host::dictionary_edit_batch(&engine, &edits).unwrap();
+                assert_eq!(applied.len(), end - offset);
+                assert!(applied.iter().all(Result::is_ok));
+            } else {
+                personal
+                    .enqueue_import(
+                        words[offset..end].to_vec(),
+                        format!("collections-layer-batch-{offset}"),
+                    )
+                    .unwrap();
+                let applied =
+                    call_android_data(msime_client_personal_dictionary_sync, options.clone());
+                assert_eq!(applied["ok"], true, "{applied}");
+                assert_eq!(applied["value"]["pending_count"], 0, "{applied}");
+                assert_eq!(applied["value"]["failed_count"], 0, "{applied}");
+            }
+            rounds += 1;
+            longest = longest.max(batch_started.elapsed());
+        }
+        let elapsed = started.elapsed();
+        let connection =
+            rusqlite::Connection::open(root.path().join("dictionaries/msime-pinyin.db")).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM tbl_2_n", [], |row| row
+                    .get::<_, u32>(0))
+                .unwrap(),
+            count
+        );
+        eprintln!(
+            "SYNTHETIC_LAYER layer={layer} words={count} rounds={rounds} elapsed_ms={} longest_batch_ms={}",
+            elapsed.as_millis(),
+            longest.as_millis()
+        );
+    }
+}
+
+/// 显式运行的完整导入测量，包含集合持久化与有界同步。
 #[test]
 #[ignore]
 fn synthetic_rime_import_throughput() {

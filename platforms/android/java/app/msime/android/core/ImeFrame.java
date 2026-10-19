@@ -29,6 +29,8 @@ final class ImeFrame {
     private OneHandRow row;
     private OneHandGutterView gutter;
     private String appliedMode = "";
+    private boolean keysCollapsed;
+    private boolean keysCovered;
 
     ImeFrame(MSIMEInputService s) {
         this.s = s;
@@ -85,12 +87,26 @@ final class ImeFrame {
         row.addView(column, LayoutPolicy.weightedWrapParams(1));
         keyboard.addView(row, LayoutPolicy.matchWidthWrapParams());
         appliedMode = "";
+        applyKeysVisibility();
         return column;
     }
 
     /** 外接键盘的候选条模式里收起整行键区（{@link HardwareKeyboardModePolicy#keysCollapsed}）；单手侧栏在同一行里，一起收起。 */
     void setKeysCollapsed(boolean collapsed) {
-        if (row != null) ViewPolicy.setVisible(row, !collapsed);
+        keysCollapsed = collapsed;
+        applyKeysVisibility();
+    }
+
+    /** 半透明候选画布盖住键区时保留测量高度，同时隐藏按键、触摸和可访问性入口。 */
+    void setKeysCovered(boolean covered) {
+        keysCovered = covered;
+        applyKeysVisibility();
+    }
+
+    private void applyKeysVisibility() {
+        if (row == null) return;
+        int visibility = keysCollapsed ? View.GONE : keysCovered ? View.INVISIBLE : View.VISIBLE;
+        if (row.getVisibility() != visibility) row.setVisibility(visibility);
     }
 
     /** 按默认布局参数放入键区。 */

@@ -282,7 +282,7 @@ export const windowIcon =
 export const macosDragRow =
   "settings-mac-drag-row sticky top-0 z-10 -mx-3 h-[52px] shrink-0 bg-[rgba(46,46,48,0.96)] light-theme:bg-[rgba(232,232,234,0.96)]";
 export const macosToolbar =
-  "settings-mac-toolbar sticky top-0 z-10 flex h-[52px] shrink-0 items-center gap-3.5 border-b border-[rgba(255,255,255,0.08)] bg-[rgba(31,31,33,0.82)] px-5 backdrop-blur-[20px] backdrop-saturate-[1.8] select-none light-theme:border-[rgba(0,0,0,0.07)] light-theme:bg-[rgba(242,242,244,0.82)] max-phone:pl-[88px] [&>h1]:m-0 [&>h1]:min-w-0 [&>h1]:truncate [&>h1]:text-[15px] [&>h1]:font-bold";
+  "settings-mac-toolbar sticky top-0 z-10 flex h-[52px] shrink-0 items-center gap-3.5 rounded-bl-[16px] border-b border-[rgba(255,255,255,0.08)] bg-[rgba(31,31,33,0.82)] px-5 backdrop-blur-[20px] backdrop-saturate-[1.8] select-none light-theme:border-[rgba(0,0,0,0.07)] light-theme:bg-[rgba(242,242,244,0.82)] max-phone:pl-[88px] [&>h1]:m-0 [&>h1]:min-w-0 [&>h1]:truncate [&>h1]:text-[15px] [&>h1]:font-bold";
 
 // ---- secret fields ----
 

@@ -2366,8 +2366,21 @@ fn navigation_accepts_windows_candidate_arrow_alias() {
     let parsed: NavigationPreferences = serde_json::from_value(value).unwrap();
     assert!(!parsed.arrows);
     assert!(parsed.mouse_wheel);
-    // 新加的左右键开关在旧文档里没有这个键，缺省必须关闭。
-    assert!(!parsed.left_right);
+    // 旧文档没有这个键时按新的默认行为开启左右候选导航。
+    assert!(parsed.left_right);
+}
+
+#[test]
+fn navigation_left_right_explicit_false_survives_store_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut preferences = Preferences::default();
+    preferences.navigation.left_right = false;
+    let saved = store.save(0, preferences).unwrap();
+    let document: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(document["preferences"]["navigation"]["left_right"], false);
+    assert_eq!(PreferencesStore::new(dir.path()).load().unwrap(), saved);
 }
 
 #[test]

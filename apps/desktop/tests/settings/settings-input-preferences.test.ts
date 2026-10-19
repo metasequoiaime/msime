@@ -30,6 +30,22 @@ test("keeps explicit input choices, including disabled switches", () => {
   expect(values.frequency.mode).toBe("promote");
 });
 
+test("旧文档缺少左右候选导航时沿用开启的默认值", () => {
+  const values = settingsInputPreferences({
+    navigation: {
+      minus_equal: true,
+      comma_period: true,
+      brackets: false,
+      tab: true,
+      page_up_down: true,
+      arrows: true,
+    },
+  });
+
+  expect(values.navigation.left_right).toBe(true);
+  expect(values.navigation).not.toHaveProperty("mouse_wheel");
+});
+
 test("keeps explicit candidate and input mode switches", () => {
   const values = settingsInputPreferences({
     candidate_english_gloss: true,

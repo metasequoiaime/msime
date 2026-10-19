@@ -33,36 +33,38 @@
 #include <utility>
 #include <vector>
 
+#include "../../../shared/contracts/msime_edition.h"
+#include "../../common/HostApiString.h"
+#include "../common/GameCompatProfile.h"
+#include "AccountPageModel.h"
+#include "AiSettings.h"
+#include "AppInputModeRuleList.h"
+#include "CandidateCanvasPreview.h"
+#include "CandidateFontPresets.h"
 #include "CandidatePalette.h"
 #include "CandidateWindowStyle.h"
-#include "ToolbarIcons.h"
-#include "ToolbarLayout.h"
-#include "CommunityPageModel.h"
+#include "ClientAgent.h"
 #include "CloudClipboardRoute.h"
+#include "CommunityPageModel.h"
+#include "FeedbackReport.h"
+#include "FloatingToolbarSizeModel.h"
 #include "GameProcessList.h"
-#include "../common/GameCompatProfile.h"
 #include "LexiconImportModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
 #include "PunctuationSettings.h"
-#include "AccountPageModel.h"
-#include "AiSettings.h"
-#include "AppInputModeRuleList.h"
-#include "FeedbackReport.h"
-#include "FloatingToolbarSizeModel.h"
-#include "CandidateFontPresets.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsNavigation.h"
 #include "SettingsStateDirectory.h"
-#include "ThemeSkinModel.h"
 #include "ShellLauncher.h"
+#include "ThemeSkinModel.h"
+#include "ToolbarIcons.h"
+#include "ToolbarLayout.h"
 #include "TranslationServiceSettings.h"
 #include "TypingStatisticsModel.h"
 #include "VoiceSettings.h"
-#include "ClientAgent.h"
 #include "msime_client.h"
-#include "../../common/HostApiString.h"
-#include "../../../shared/contracts/msime_edition.h"
+#include "msimeui/AnimatedImage.h"
 
 #include <winrt/base.h>
 
@@ -96,12 +98,16 @@
 #include <winrt/Windows.UI.h>
 
 using namespace winrt;
-using namespace Microsoft::UI::Xaml;
-using namespace Microsoft::UI::Xaml::Controls;
-using namespace Microsoft::UI::Xaml::Media;
-using namespace Windows::Data::Json;
+using namespace winrt::Microsoft::UI::Xaml;
+using namespace winrt::Microsoft::UI::Xaml::Controls;
+using namespace winrt::Microsoft::UI::Xaml::Media;
+using namespace winrt::Windows::Data::Json;
 
 namespace {
+
+// WRL 同时声明全局 Microsoft/Windows；本文件的界面名称始终指向 WinRT 投影。
+namespace Microsoft = winrt::Microsoft;
+namespace Windows = winrt::Windows;
 
 // windows.h may declare the COM ::IInspectable as well; this alias always means the WinRT projection.
 using Inspectable = winrt::Windows::Foundation::IInspectable;
@@ -1908,7 +1914,7 @@ msime::windows::CandidatePalette resolved_candidate_palette(Response const &resp
   }
 }
 
-// One package of the skin catalog (msime_client_skin_catalog) with what its card draws: the palette `resolve()` gives it in each mode, read when the catalog is scanned, and its images as package-relative paths.
+// 共享 catalog 的一款皮肤：工作线程读取两种明暗的配色及包内相对图片，设置卡片与社区预览共用。
 struct SkinPackage {
   std::wstring id, name, version, base, author, description;
   std::vector<std::wstring> layouts, themes;
@@ -1923,7 +1929,8 @@ struct SkinPackage {
   std::wstring background_image;
   std::wstring background_fit = L"cover";
   double background_opacity = 1;
-  msime::windows::CandidatePalette light, dark;
+  msime::windows::CandidatePalette light, dark, panel_light, panel_dark;
+  msime::windows::CandidateSkinCanvas canvas;
 };
 
 struct SkinIssue {
@@ -1946,6 +1953,16 @@ struct SkinScan {
   std::vector<SkinIssue> issues;
   std::vector<SkinImageBytes> images;
 };
+
+// canvas 样例的缓存键不可能与合法包 id 开头的资源键冲突。
+std::wstring skin_canvas_preview_key(std::wstring const &id, bool dark, bool vertical) {
+  return L"\ncanvas-preview\n" + id + (dark ? L"/dark/" : L"/light/") +
+         (vertical ? L"vertical" : L"horizontal");
+}
+
+std::optional<std::vector<uint8_t>> render_canvas_preview(SkinPackage const &skin,
+                                                          std::vector<SkinImageBytes> const &images,
+                                                          bool dark, bool vertical);
 
 // The key a package image is kept under: the package id and its relative path.
 std::wstring skin_image_key(std::wstring const &id, std::wstring const &relative) {
@@ -2023,9 +2040,9 @@ skin_resource_bytes(std::string const &answer) {
   return std::pair{answer.substr(type_start, type_end - type_start), std::move(bytes)};
 }
 
-// The palette a package's card draws in one mode: the custom theme made of the package alone over its manifest base, as the shared card layers `customCandidateStyle(skin.base, undefined, palette)`. The layout is one the package declares, since a card previews the package whatever layout the candidate window has.
+// 只由这款包组成的自定义主题配色；排列取包支持的一种，面板确认可画后才使用 panel_drawn 配色。
 msime::windows::CandidatePalette skin_card_palette(SkinPackage const &skin, std::string const &root,
-                                                   bool dark) {
+                                                   bool dark, bool panel_drawn = false) {
   JsonObject custom;
   custom.SetNamedValue(L"base", JsonValue::CreateStringValue(hstring(skin.base)));
   custom.SetNamedValue(L"candidate_skin", JsonValue::CreateStringValue(hstring(skin.id)));
@@ -2034,6 +2051,7 @@ msime::windows::CandidatePalette skin_card_palette(SkinPackage const &skin, std:
   request.SetNamedValue(L"global_theme", JsonValue::CreateStringValue(L"custom"));
   request.SetNamedValue(L"custom_theme", custom);
   request.SetNamedValue(L"dark", JsonValue::CreateBooleanValue(dark));
+  request.SetNamedValue(L"canvas_panel_drawn", JsonValue::CreateBooleanValue(panel_drawn));
   const bool horizontal = !skin.layouts.empty() && skin.layouts.front() == L"horizontal";
   request.SetNamedValue(L"layout",
                         JsonValue::CreateStringValue(horizontal ? L"horizontal" : L"vertical"));
@@ -2063,6 +2081,111 @@ std::vector<uint8_t> skin_image(std::string const &root, std::wstring const &id,
     return {};
   content_type = std::move(resource->first);
   return std::move(resource->second);
+}
+
+// catalog 已验证几何；这里仅把 JSON 投影成候选窗共用的纯数值模型，图片保持包内相对键。
+msime::windows::CandidateSkinCanvas skin_canvas(JsonObject const &object) {
+  using namespace msime::windows;
+  CandidateSkinCanvas canvas;
+  const auto active = object.GetNamedValue(L"canvas", JsonValue::CreateNullValue());
+  if (active.ValueType() != JsonValueType::Boolean || !active.GetBoolean())
+    return canvas;
+  canvas.active = true;
+  auto box = [](JsonObject const &value,
+                wchar_t const *key) -> std::optional<CandidateCanvasEdges> {
+    const auto field = value.GetNamedValue(key, JsonValue::CreateNullValue());
+    if (field.ValueType() != JsonValueType::Array)
+      return std::nullopt;
+    std::vector<double> numbers;
+    for (const auto &item : field.GetArray()) {
+      if (item.ValueType() != JsonValueType::Number || !std::isfinite(item.GetNumber()) ||
+          item.GetNumber() < 0 || item.GetNumber() > 2000)
+        return std::nullopt;
+      numbers.push_back(item.GetNumber());
+    }
+    if (numbers.size() != 1 && numbers.size() != 2 && numbers.size() != 4)
+      return std::nullopt;
+    return candidate_canvas_box(numbers);
+  };
+  const auto border = object.GetNamedValue(L"borderImage", JsonValue::CreateNullValue());
+  if (border.ValueType() == JsonValueType::Object) {
+    const auto fields = border.GetObject();
+    const auto slice = box(fields, L"sliceDip");
+    if (slice) {
+      CandidateCanvasBorder image;
+      image.source = json_text(fields, L"source");
+      image.light_source = json_text(fields, L"lightSource");
+      image.slice = box(fields, L"stretchDip").value_or(*slice);
+      image.width = box(fields, L"widthDip").value_or(image.slice);
+      const auto fill = fields.GetNamedValue(L"fill", JsonValue::CreateNullValue());
+      image.fill = fill.ValueType() != JsonValueType::Boolean || fill.GetBoolean();
+      canvas.border = std::move(image);
+    }
+  }
+  auto insets = [&](wchar_t const *key) -> std::optional<CandidateCanvasEdges> {
+    const auto value = object.GetNamedValue(key, JsonValue::CreateNullValue());
+    if (value.ValueType() != JsonValueType::Object)
+      return std::nullopt;
+    const auto fields = value.GetObject();
+    const auto top = json_number(fields, L"top"), right = json_number(fields, L"right"),
+               bottom = json_number(fields, L"bottom"), left = json_number(fields, L"left");
+    if (!top || !right || !bottom || !left)
+      return std::nullopt;
+    return CandidateCanvasEdges{*top, *right, *bottom, *left};
+  };
+  canvas.content_insets = insets(L"contentInsetsDip");
+  canvas.outer_insets = insets(L"outerInsetsDip");
+  canvas.line_gap = json_number(object, L"lineGapDip");
+  const auto decorations = object.GetNamedValue(L"decorations", JsonValue::CreateNullValue());
+  if (decorations.ValueType() == JsonValueType::Array)
+    for (const auto &value : decorations.GetArray()) {
+      if (canvas.decorations.size() >= 32)
+        break;
+      if (value.ValueType() != JsonValueType::Object)
+        continue;
+      const auto fields = value.GetObject();
+      CandidateCanvasDecoration decoration;
+      decoration.image = json_text(fields, L"image");
+      const auto name = json_text(fields, L"anchor");
+      const auto anchor = candidate_canvas_anchor(name.empty() ? "right" : utf8(hstring(name)));
+      if (!anchor)
+        continue;
+      decoration.anchor = *anchor;
+      decoration.offset_x = json_number(fields, L"offsetXDip").value_or(0);
+      decoration.offset_y = json_number(fields, L"offsetYDip").value_or(0);
+      decoration.width = json_number(fields, L"widthDip").value_or(0);
+      decoration.height = json_number(fields, L"heightDip").value_or(0);
+      decoration.z_index = static_cast<int>(json_number(fields, L"zIndex").value_or(2));
+      canvas.decorations.push_back(std::move(decoration));
+    }
+  return canvas;
+}
+
+// 预览没有用户取色器；仅补 catalog 中共享主题响应未携带、而静态样例实际绘制的细分槽位。
+msime::windows::CandidatePalette skin_preview_palette(
+    JsonObject const &object, msime::windows::CandidatePalette palette, bool dark,
+    bool panel_drawn) {
+  auto candidate = object.GetNamedValue(panel_drawn ? L"panelCandidate" : L"candidate",
+                                        JsonValue::CreateNullValue());
+  if (candidate.ValueType() != JsonValueType::Object)
+    candidate = object.GetNamedValue(L"candidate", JsonValue::CreateNullValue());
+  if (candidate.ValueType() != JsonValueType::Object)
+    return palette;
+  const auto mode = candidate.GetObject().GetNamedValue(dark ? L"dark" : L"light",
+                                                       JsonValue::CreateNullValue());
+  if (mode.ValueType() != JsonValueType::Object)
+    return palette;
+  const auto colors = mode.GetObject();
+  auto optional = [&](wchar_t const *key,
+                       std::optional<msime::windows::CandidateColor> &target) {
+    if (const auto parsed = msime::windows::try_parse_css_color(utf8(hstring(json_text(colors, key)))))
+      target = *parsed;
+  };
+  optional(L"candidate_text", palette.candidate_text);
+  optional(L"preedit_text", palette.preedit_text);
+  optional(L"preedit_background", palette.preedit_background);
+  optional(L"preedit_divider", palette.preedit_divider);
+  return palette;
 }
 
 // Scans the skin root the Server reads (`skins` under the state directory, the root the Tauri shell scans as well), then resolves each package's palettes and reads its images. Reads the disk: call on a worker. A root that cannot be named fails the scan; an unreadable root is an empty catalog, as msime_client_skin_catalog answers it.
@@ -2120,16 +2243,43 @@ SkinScan read_skin_catalog(std::filesystem::path const &root) {
         const double opacity = json_number(fields, L"opacity").value_or(0);
         skin.background_opacity = std::isfinite(opacity) ? std::clamp(opacity, 0.0, 1.0) : 0.0;
       }
-      skin.light = skin_card_palette(skin, path, false);
-      skin.dark = skin_card_palette(skin, path, true);
-      for (auto const *relative : {&skin.decoration_image, &skin.background_image}) {
-        if (relative->empty())
+      skin.canvas = skin_canvas(object);
+      skin.light = skin_preview_palette(object, skin_card_palette(skin, path, false), false, false);
+      skin.dark = skin_preview_palette(object, skin_card_palette(skin, path, true), true, false);
+      skin.panel_light =
+          skin.canvas.active ? skin_preview_palette(object, skin_card_palette(skin, path, false, true),
+                                                     false, true) : skin.light;
+      skin.panel_dark =
+          skin.canvas.active ? skin_preview_palette(object, skin_card_palette(skin, path, true, true),
+                                                     true, true) : skin.dark;
+      std::set<std::wstring> resources{skin.decoration_image, skin.background_image};
+      if (skin.canvas.border) {
+        resources.insert(skin.canvas.border->source);
+        resources.insert(skin.canvas.border->light_source);
+      }
+      for (const auto &decoration : skin.canvas.decorations)
+        resources.insert(decoration.image);
+      for (const auto &relative : resources) {
+        if (relative.empty())
           continue;
         SkinImageBytes image;
-        image.key = skin_image_key(skin.id, *relative);
-        image.bytes = skin_image(path, skin.id, *relative, image.content_type);
+        image.key = skin_image_key(skin.id, relative);
+        image.bytes = skin_image(path, skin.id, relative, image.content_type);
         scan.images.push_back(std::move(image));
       }
+      if (skin.canvas.active)
+        for (const bool dark : {false, true})
+          for (const bool vertical : {false, true}) {
+            if (std::find(skin.themes.begin(), skin.themes.end(), dark ? L"dark" : L"light") ==
+                    skin.themes.end() ||
+                std::find(skin.layouts.begin(), skin.layouts.end(),
+                          vertical ? L"vertical" : L"horizontal") == skin.layouts.end())
+              continue;
+            if (auto bytes = render_canvas_preview(skin, scan.images, dark, vertical))
+              scan.images.push_back({skin_canvas_preview_key(skin.id, dark, vertical),
+                                     (*bytes)[0] == 0x89 ? "image/png" : "image/jpeg",
+                                     std::move(*bytes)});
+          }
       scan.packages.push_back(std::move(skin));
     }
     for (auto const &item : value.GetNamedArray(L"issues")) {
@@ -2540,7 +2690,56 @@ std::optional<std::vector<uint8_t>> encode_preview(IWICImagingFactory *factory, 
 // 社区的预览图上限（client-services 里的 `MAX_PREVIEW_BYTES`）。
 constexpr size_t skin_preview_limit = 256 * 1024;
 
-// renderSkinPreview（skin-preview-render.ts）：给没有预览图的已装皮肤画一张。皮肤支持浅色时画浅色（多数卡片在浅色页面上），配色是 resolve() 给这款包的；有装饰图时先画装饰带，再画按包的圆角和最小宽度的候选窗口，铺上背景图，写上拼音和设置预览里的头五个候选，第一个选中；每 dip 两个像素。PNG 超过 256 KiB 时改用质量 0.85 的 JPEG，仍超过时失败。在工作线程上调用。
+// canvas 卡片和导出使用同一静态绘制，WIC 在工作线程完整解码；不借用用户当前的候选窗口。
+std::optional<std::vector<uint8_t>> render_canvas_preview(SkinPackage const &skin,
+                                                          std::vector<SkinImageBytes> const &images,
+                                                          bool dark, bool vertical) {
+  const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  struct Uninitialize {
+    bool active;
+    ~Uninitialize() {
+      if (active)
+        CoUninitialize();
+    }
+  } uninitialize{SUCCEEDED(apartment)};
+  com_ptr<IWICImagingFactory> factory;
+  if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                              IID_PPV_ARGS(factory.put()))))
+    return std::nullopt;
+  const auto bitmap = msime::windows::candidate_canvas_preview(
+      factory.get(), skin.canvas, dark ? skin.dark : skin.light,
+      dark ? skin.panel_dark : skin.panel_light, dark, vertical, skin.min_width,
+      [&](const std::wstring &relative) -> ::Microsoft::WRL::ComPtr<IWICBitmap> {
+        const auto key = skin_image_key(skin.id, relative);
+        for (const auto &image : images) {
+          if (image.key != key || image.bytes.empty() || image.bytes.size() > 8 * 1024 * 1024)
+            continue;
+          // 与真实候选窗共用合成器，GIF 首帧必须包含逻辑画布和帧偏移。
+          const auto animation = msimeui::AnimatedImage::DecodeMemory(
+              factory.get(), image.bytes.data(), image.bytes.size());
+          if (!animation || animation->FrameCount() == 0)
+            return nullptr;
+          const auto &pixels = animation->FramePixels(0);
+          ::Microsoft::WRL::ComPtr<IWICBitmap> decoded;
+          if (FAILED(factory->CreateBitmapFromMemory(
+                  animation->Width(), animation->Height(), GUID_WICPixelFormat32bppPBGRA,
+                  animation->Width() * 4, static_cast<UINT>(pixels.size()),
+                  const_cast<BYTE *>(pixels.data()), decoded.GetAddressOf())))
+            return nullptr;
+          return decoded;
+        }
+        return nullptr;
+      });
+  if (!bitmap)
+    return std::nullopt;
+  auto png = encode_preview(factory.get(), bitmap.Get(), GUID_ContainerFormatPng, 1);
+  if (png && png->size() <= skin_preview_limit)
+    return png;
+  auto jpeg = encode_preview(factory.get(), bitmap.Get(), GUID_ContainerFormatJpeg, 0.85f);
+  return jpeg && jpeg->size() <= skin_preview_limit ? jpeg : std::nullopt;
+}
+
+// 给没有预览图的已装皮肤生成静态样例：canvas 与设置卡片共用绘制，传统皮肤保留装饰带与背景。优先浅色，使用包支持的排列；每 DIP 两像素，PNG 超过 256 KiB 时尝试 JPEG，仍超限则失败。仅在工作线程调用。
 std::optional<std::vector<uint8_t>> render_skin_preview(SkinPackage const &skin,
                                                         std::vector<SkinImageBytes> const &images) {
   const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -2555,6 +2754,9 @@ std::optional<std::vector<uint8_t>> render_skin_preview(SkinPackage const &skin,
     return std::find(skin.themes.begin(), skin.themes.end(), theme) != skin.themes.end();
   };
   const bool light = has(L"light") || !has(L"dark");
+  if (skin.canvas.active)
+    return render_canvas_preview(skin, images, !light,
+                                 !skin.layouts.empty() && skin.layouts.front() == L"vertical");
   const auto &palette = light ? skin.light : skin.dark;
   constexpr float scale = 2, padding = 16, card_height = 68;
   const bool decorated =
@@ -7515,8 +7717,32 @@ private:
     samples.Spacing(10);
     samples.HorizontalAlignment(HorizontalAlignment::Center);
     samples.VerticalAlignment(VerticalAlignment::Center);
-    samples.Children().Append(make_skin_sample(skin, theme, false));
-    samples.Children().Append(make_skin_sample(skin, theme, true));
+    if (skin.canvas.active) {
+      for (const bool vertical : {false, true}) {
+        if (std::find(skin.layouts.begin(), skin.layouts.end(),
+                      vertical ? L"vertical" : L"horizontal") == skin.layouts.end())
+          continue;
+        const auto key = skin_canvas_preview_key(skin.id, dark, vertical);
+        const auto found = skin_images_.find(key);
+        if (found == skin_images_.end())
+          continue;
+        Image image;
+        image.Source(found->second);
+        image.Stretch(Stretch::Uniform);
+        image.MaxWidth(115);
+        image.MaxHeight(180);
+        watch_skin_image(image, key);
+        A11y::SetAutomationId(image, hstring(L"canvas-preview-" + skin.id +
+                                             (vertical ? L"-vertical" : L"-horizontal")));
+        A11y::SetName(image, hstring(skin.name + (vertical ? L"竖排候选预览" : L"横排候选预览")));
+        samples.Children().Append(image);
+      }
+      if (samples.Children().Size() == 0)
+        samples.Children().Append(make_text(L"皮肤预览暂不可用", 12, palette_.sub));
+    } else {
+      samples.Children().Append(make_skin_sample(skin, theme, false));
+      samples.Children().Append(make_skin_sample(skin, theme, true));
+    }
     stage.Child(samples);
     return stage;
   }

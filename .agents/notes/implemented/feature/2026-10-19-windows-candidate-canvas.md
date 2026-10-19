@@ -46,6 +46,6 @@ msime-windows 让卡片内边距等于 `content_insets_dip`（每边不小于边
 - 动图的首帧与 GIF 逻辑画布缺口由[图片动画](2026-10-19-windows-skin-image-animation.md)补齐；系统没有 WebP 解码器时 WebP 挂件仍不画。
 - 挂件伸出面板时窗口变大，透明的空白仍挡着它下面的窗口的点击（与阴影边距相同）。
 - 套用皮肤和切换明暗时多解码一次面板与挂件（包内像素上限 800 万）；面板画出来时卡片多一次带 `canvas_panel_drawn` 的主题解析。
-- 原生设置窗口的皮肤预览还不画画布。
+- 原生设置卡片与社区导出的静态画布由[设置预览](../bug-fix/2026-10-20-windows-canvas-settings-preview.md)接入，真实候选窗仍独立负责焦点、定位、动画和系统材质。
 
 验证：新加的 `windows-candidate-canvas`（读取与越界、按明暗选图与解码过滤、内容内边距与基准内边距、行距、九种锚点与等比缩放、分层、窗口空白与上限和收缩、九宫格的切块与越界切片与同比缩小与像素对齐、面板最小宽度）以及 `windows-candidate-card-size`、`-skin`、`-skin-layout`、`-expand-panel`、`-shadow` 在 Mac Studio 上用 `c++ -std=c++17 -Wall -Wextra -Werror` 编译通过；`CandidateWindow.cpp`、`server_main.cpp` 和截图工具 `main.cpp` 用本机 `x86_64-w64-mingw32-g++ -fsyntax-only -Wall -Wextra -Werror` 检查通过。新验证皮肤 `verify-canvas-frame` 补上单张面板、`stretch_dip` 两值简写、缺省 `width_dip`、`fill = false`（中心涂成品红，截图里出现就是错）、没写外留白时挂件伸出面板和 GIF 挂件，`cargo test -p msime-client-services skin::` 断言它的解析与 GIF 逐帧解码。Direct2D 的实际画面靠 PR 上 Windows candidate skin gallery 的截图核对。

@@ -6,7 +6,7 @@ elsewhere. None of that says the bundle came out right: a resource can be declar
 localisation can exist in the tree and not be copied, and a provider can be compiled into a library that
 the executable was never linked against. Every one of those is invisible until someone installs the thing.
 
-Usage: bundle_contents.py <path/to/App.app> [--languages zh-Hans,en] [--plugin-packs target/plugin-packs]
+Usage: bundle_contents.py <path/to/App.app> [--languages zh-Hans,en] [--plugin-packs target/plugin-packs] [--without-voice-runtime]
 """
 
 import argparse
@@ -56,6 +56,8 @@ def main() -> int:
     parser.add_argument("--languages", default="")
     # 这次构建放进 bundle 的官方插件包（scripts/build-official-plugins.sh 的产物）。给了才核对：开发构建可以不带它们。
     parser.add_argument("--plugin-packs", type=Path)
+    # 构建时关掉了 MSIME_BUNDLE_VOICE_RUNTIME：sherpa-onnx 运行库由设置应用作为 voice-runtime-macos 资源包下载，bundle 里不能再有它。
+    parser.add_argument("--without-voice-runtime", action="store_true")
     arguments = parser.parse_args()
     bundle = arguments.bundle
     contents = bundle / "Contents"
@@ -169,13 +171,17 @@ def main() -> int:
                 )
 
     # Installed on-device models run in the msime-voice-local helper, which loads the sherpa-onnx runtime from ../Frameworks. The input method spawns it from beside its own executable, so a bundle missing either one accepts a model directory in settings and then fails every recognition.
+    # 省略运行库的构建（--without-voice-runtime）由输入法把下载的 voice-runtime-macos 资源包以 --runtime 交给辅助进程；那时 bundle 里出现运行库说明省略没有生效。
     helper = contents / "MacOS" / "msime-voice-local"
     if not helper.is_file() or not os.access(helper, os.X_OK):
         failures.append("Contents/MacOS/msime-voice-local is missing or not executable; installed voice models cannot run")
     runtime = contents / "Frameworks" / "libsherpa-onnx-c-api.dylib"
-    if not runtime.is_file() or runtime.stat().st_size == 0:
+    if arguments.without_voice_runtime:
+        if runtime.exists():
+            failures.append("Contents/Frameworks/libsherpa-onnx-c-api.dylib was staged although the build leaves the runtime to the voice-runtime-macos resource pack")
+    elif not runtime.is_file() or runtime.stat().st_size == 0:
         failures.append("Contents/Frameworks/libsherpa-onnx-c-api.dylib was not staged; the voice helper has no runtime to load")
-    # The runtime is redistributed third-party code, so its licences travel with it.
+    # The runtime is redistributed third-party code, so its licences travel with it, also when it arrives as a resource pack.
     for notice in ("sherpa-onnx-Apache-2.0.txt", "onnxruntime-MIT.txt", "onnxruntime-ThirdPartyNotices.txt"):
         if not (contents / "Resources" / "Licenses" / notice).is_file():
             failures.append(f"Contents/Resources/Licenses/{notice} is missing; the bundled speech runtime ships without its licence")

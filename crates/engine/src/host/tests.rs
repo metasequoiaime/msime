@@ -82,6 +82,7 @@ fn options(root: &Path) -> EngineOptions {
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
+        wubi_dictionary: String::new(),
     }
 }
 

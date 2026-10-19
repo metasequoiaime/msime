@@ -67,6 +67,15 @@ fn replay_with(user_db: &Path, main_db: Option<&Path>, english_db: &Path) -> Rep
     if attach(&main, english_db, "replay_english").is_err() {
         return fail(result, "cannot attach English dictionary database");
     }
+    // 资源目录不带 `msime-wubi.db`（macOS 发布包改为按需下载）时代次里没有五笔表：五笔行没有能写的表，与没有拼音库的代次一样计入 `skipped`，行留在日志里，码表并进来后的那次回放再写（`generation::merge_downloaded_wubi`）。只要有一张五笔表就照旧逐行写，缺另一张时仍算失败。
+    let wubi_tables = main_db.is_some()
+        && main
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM main.sqlite_master WHERE type='table' AND name IN ('wubi86','wubi98'))",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap_or(true);
     let Ok(mut rows) = journal.prepare(
         "SELECT dictionary,key,value,operation,weight,display FROM user_dictionary_operations ORDER BY updated_at,rowid",
     ) else {
@@ -81,6 +90,10 @@ fn replay_with(user_db: &Path, main_db: Option<&Path>, english_db: &Path) -> Rep
         while let Some(row) = cursor.next()? {
             let operation = JournalRow::read(row)?;
             if main_db.is_none() && operation.kind != b"english" {
+                result.skipped += 1;
+                continue;
+            }
+            if !wubi_tables && (operation.kind == b"wubi" || operation.kind == b"wubi98") {
                 result.skipped += 1;
                 continue;
             }
@@ -394,6 +407,44 @@ pub(super) mod tests {
         assert_eq!(
             weight(&fixture.main, "SELECT weight FROM wubi86 WHERE key='kg'"),
             None
+        );
+    }
+
+    /// 代次里没有任何五笔表（资源目录不带 `msime-wubi.db`）时五笔行跳过，其余行照常写；有一张五笔表时，缺的那张仍按失败回滚。
+    #[test]
+    fn wubi_rows_are_skipped_when_the_generation_has_no_wubi_table() {
+        let fixture = fixture();
+        sql(&fixture.main, "DROP TABLE wubi86; DROP TABLE wubi98;");
+        journal_row(&fixture, "('wubi','kl','号','upsert',11,'',1)");
+        journal_row(&fixture, "('wubi98','kg','号','upsert',12,'',2)");
+        journal_row(&fixture, "('pinyin','ni''hao','您好','upsert',500,'',3)");
+        let result = replay(&fixture.journal, &fixture.main, &fixture.english);
+        assert_eq!(
+            (
+                result.applied,
+                result.skipped,
+                result.failed,
+                result.error.as_str()
+            ),
+            (1, 2, 0, "")
+        );
+        assert_eq!(
+            weight(
+                &fixture.main,
+                "SELECT weight FROM tbl_2_n WHERE value='您好'"
+            ),
+            Some(500)
+        );
+
+        let fixture = self::fixture();
+        sql(&fixture.main, "DROP TABLE wubi98;");
+        journal_row(&fixture, "('wubi','kl','号','upsert',11,'',1)");
+        journal_row(&fixture, "('wubi98','kg','号','upsert',12,'',2)");
+        let result = replay(&fixture.journal, &fixture.main, &fixture.english);
+        assert_eq!((result.applied, result.failed), (1, 1));
+        assert_eq!(
+            weight(&fixture.main, "SELECT count(*) FROM wubi86"),
+            Some(0)
         );
     }
 

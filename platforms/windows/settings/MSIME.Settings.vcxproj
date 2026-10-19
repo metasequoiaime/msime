@@ -66,14 +66,14 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(HostApiInclude);$(MSBuildProjectDirectory)\..\common;$(MSBuildProjectDirectory)\..\src\system;$(MSBuildProjectDirectory)\..\src\candidate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(HostApiInclude);$(MSBuildProjectDirectory)\..\common;$(MSBuildProjectDirectory)\..\src\system;$(MSBuildProjectDirectory)\..\src\candidate;$(MSBuildProjectDirectory)\..\msimeui\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /bigobj %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;MSIME_EDITION_$(MsimeEdition.ToUpperInvariant());MSIME_WINDOWS_VERSION=&quot;$(MsimeVersion)&quot;;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <!-- advapi32、ole32 和 uuid 给 common/StateDirectory.h：注册表里安装器的 DataDir（RegGetValueW）、SHGetKnownFolderPath 返回值的释放（CoTaskMemFree）和 FOLDERID_LocalAppData，与 CMake 的 windows-state-directory 测试链接的相同。 -->
-      <AdditionalDependencies>$(HostApiLibrary);windowsapp.lib;shell32.lib;user32.lib;advapi32.lib;ole32.lib;uuid.lib;d2d1.lib;dwrite.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(HostApiLibrary);windowsapp.lib;shell32.lib;user32.lib;advapi32.lib;ole32.lib;uuid.lib;d2d1.lib;dwrite.lib;windowscodecs.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'RelWithDebInfo' or '$(Configuration)' == 'Release'">
@@ -84,6 +84,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="..\msimeui\src\AnimatedImage.cpp" />
     <ClCompile Include="..\src\system\ShellLauncher.cpp" />
     <ResourceCompile Include="Settings.rc" />
   </ItemGroup>

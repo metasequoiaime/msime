@@ -274,13 +274,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var didRepeatBackspace = false
   private var renderedComposition = false
   private var hasComposition: Bool {
-    get { renderedComposition || session.hasPendingCharacters }
+    get { renderedComposition || hasPendingNineKeyInput }
     set { renderedComposition = newValue }
   }
   /// 测试宿主没有真实文档代理；系统扩展默认启用异步，回归可显式覆盖以检查交付顺序。
   var asynchronousNineKeyInputEnabled = Bundle.main.bundleURL.pathExtension == "appex"
   private var inputDeliveryEpoch: UInt64 = 0
   private var asynchronousInputDocument: UUID?
+  /// 连续九键查询返回的中间组字只保留最新一帧，避免主线程逐个重画候选栏；含上屏文本的快照仍立即交付。
+  private var deferredNineKeySnapshot: MetasequoiaInputSnapshot?
+  private var deferredNineKeyRenderScheduled = false
+  /// 查询已交付但最新候选尚未绘制时仍算输入中，避免提前开始空闲维护或切换方案。
+  var hasPendingNineKeyInput: Bool {
+    session.hasPendingCharacters || deferredNineKeySnapshot != nil
+  }
   private var visibleInputGeneration: UInt64?
   private var visibleCandidateIdentities: [MetasequoiaCandidateIdentity?] = []
   /// 组字中收到内存警告、引擎缓存还没清，等这次组字结束时清（见 `didReceiveMemoryWarning`）。
@@ -518,12 +525,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 手机竖屏键盘：`keyboardHeight()`。
   static var defaultKeyboardHeight: CGFloat { keyboardHeight() }
 
-  /// `onlineRoute` is whether the shared document picks a translation service at all; without one a language that needs the network can never be filled.
-  /// `offline` is the language codes whose offline gloss dictionary is installed.
-  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool, onlineRoute: Bool,
+  /// 离线词典可直接填充释义；仅在启用了在线服务且确实需要网络时读取系统完全访问权限。
+  /// `offline` 是已安装离线释义词典的语言代码，`onlineRoute` 表示已选择翻译服务。
+  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: @autoclosure () -> Bool, onlineRoute: Bool,
                            offline: Set<String> = []) -> Bool {
     !CandidateTranslationPreference.needsNetwork(language, offline: offline)
-      || (CandidateTranslationPreference.onlineEnabled && fullAccess && onlineRoute)
+      || (CandidateTranslationPreference.onlineEnabled && onlineRoute && fullAccess())
   }
 
   static func configuredGlossLines(fullAccess: Bool, onlineRoute: Bool, offline: Set<String> = []) -> Int {
@@ -902,6 +909,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 自己改动的回声：那次改动之后的组字仍是当前的组字。
     if ownEditEcho.isEcho(at: ProcessInfo.processInfo.systemUptime) { return }
     session.flushPendingCharacters()
+    flushDeferredNineKeySnapshot()
     inputDeliveryEpoch &+= 1
     englishCorrectionRejectedPrefix = ""
     finishTemporaryEnglish(force: true)
@@ -932,6 +940,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let previous = asynchronousInputDocument, previous != document {
       inputDeliveryEpoch &+= 1
       session.flushPendingCharacters()
+      flushDeferredNineKeySnapshot()
       render(discardComposition())
       asynchronousInputDocument = document
     }
@@ -956,6 +965,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     compositionContainer?.canvasVisible = false
     candidatePanel?.canvasVisible = false
     session.flushPendingCharacters()
+    flushDeferredNineKeySnapshot()
     inputDeliveryEpoch &+= 1
     englishCorrectionRejectedPrefix = ""
     finishTemporaryEnglish(force: true)
@@ -3331,6 +3341,34 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return row
   }
 
+  private func flushDeferredNineKeySnapshot() {
+    guard let snapshot = deferredNineKeySnapshot else {
+      deferredNineKeyRenderScheduled = false
+      return
+    }
+    deferredNineKeySnapshot = nil
+    deferredNineKeyRenderScheduled = false
+    render(snapshot)
+  }
+
+  private func deliverNineKeySnapshot(_ snapshot: MetasequoiaInputSnapshot,
+                                      epoch: UInt64, document: UUID?) {
+    guard inputDeliveryEpoch == epoch, isChineseMode, inputScheme == .nineKey,
+          KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
+    if snapshot.commitText != nil {
+      flushDeferredNineKeySnapshot()
+      render(snapshot)
+      return
+    }
+    deferredNineKeySnapshot = snapshot
+    guard !deferredNineKeyRenderScheduled else { return }
+    deferredNineKeyRenderScheduled = true
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.flushDeferredNineKeySnapshot()
+    }
+  }
+
   private func handleCharacter(_ character: String) {
     playInputClick()
     if isChineseMode {
@@ -3380,9 +3418,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         asynchronousInputDocument = document
         let epoch = inputDeliveryEpoch
         if session.enqueueNineKeyCharacter(character, completion: { [weak self] snapshot in
-          guard let self, inputDeliveryEpoch == epoch, isChineseMode, inputScheme == .nineKey,
-                KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
-          render(snapshot)
+          self?.deliverNineKeySnapshot(snapshot, epoch: epoch, document: document)
         }) { return }
       }
       render(session.handleCharacter(character))
@@ -5641,6 +5677,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func handleBackspace() {
+    session.flushPendingCharacters()
+    flushDeferredNineKeySnapshot()
     if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
     playInputClick()
     // Deleting document text may take the opening half of a pair with it; a backspace inside a spelling only edits the spelling.
@@ -5818,6 +5856,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func handleSpace() {
+    session.flushPendingCharacters()
+    flushDeferredNineKeySnapshot()
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
     // A space right after a committed Chinese mark rewrites it as ASCII and is swallowed: the
@@ -5877,6 +5917,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // newline after every committed word, and in a field whose return key is 发送 or 完成 it also
   // fired that field's primary action. macOS swallows Return during a composition for this reason.
   private func handleReturn() {
+    session.flushPendingCharacters()
+    flushDeferredNineKeySnapshot()
     defer { finishTemporaryEnglish() }
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
@@ -6111,6 +6153,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil,
                       appendingLiteral: String? = nil) {
+    // 控制命令已产生更新快照时，之前数字的候选帧不能再覆盖选词、删除或模式切换后的状态。
+    deferredNineKeySnapshot = nil
     candidateRevision &+= 1
     // 下面的 `updateCandidateStrip` 用这次快照的候选盖掉 1 键放进来的常用标点。
     nineKeyQuickSymbols = []

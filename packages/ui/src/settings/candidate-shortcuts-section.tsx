@@ -6,6 +6,7 @@ import type {
   NavigationPreferences,
   WordCharacterPreferences,
 } from "./candidate-paging-preferences";
+import { navigationWithDefaults } from "./candidate-paging-preferences";
 import { ShortcutRow } from "./shortcut-row";
 import { SettingsShortcutKey } from "./settings-shortcut-key";
 import { SwitchRow } from "./switch-row";
@@ -121,7 +122,8 @@ export function CandidateShortcutReference({
   CandidateShortcutsSectionProps,
   "navigation" | "wordCharacter" | "numberRowSelection" | "mobile"
 >) {
-  const paging = enabledPagingShortcuts(navigation);
+  const effectiveNavigation = navigationWithDefaults(navigation);
+  const paging = enabledPagingShortcuts(effectiveNavigation);
   return (
     <>
       <ShortcutRow title="选择候选" chord={`Space${numberRowSelection ? " 或 1–9" : ""}`} />
@@ -139,12 +141,14 @@ export function CandidateShortcutReference({
           }
         />
       )}
-      {navigation.mouse_wheel && (
+      {effectiveNavigation.mouse_wheel && (
         <ShortcutRow title={mobile ? "候选栏翻页" : "候选窗口翻页"} chord="鼠标滚轮" />
       )}
-      {navigation.arrows && <ShortcutRow title="移动候选项" chord="↑ / ↓" />}
+      {effectiveNavigation.arrows && <ShortcutRow title="移动候选项" chord="↑ / ↓" />}
       {/* 打开左右键移动候选时，左右键先编辑输入串，光标到了这一端才移高亮，所以两行标题都要写清是什么时候发生的。 */}
-      {navigation.left_right && <ShortcutRow title="移动候选项（输入串两端）" chord="← / →" />}
+      {effectiveNavigation.left_right && (
+        <ShortcutRow title="移动候选项（输入串两端）" chord="← / →" />
+      )}
       {wordCharacter?.enabled && (
         <ShortcutRow
           title="以词定字（上屏首字 / 末字）"

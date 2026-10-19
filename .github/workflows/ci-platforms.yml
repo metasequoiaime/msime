@@ -366,7 +366,15 @@ jobs:
       # 用项目自己的 vitest，不用 npx：npx 的那份从自己的缓存解析 jsdom，起不来 jsdom worker 却照样报成功（见 verify-local.sh 的 typescript 阶段）。
       - name: Run the shared UI tests
         if: ${{ needs.changes.outputs.ui == 'true' }}
-        run: cd apps/desktop && ./node_modules/.bin/vitest run --reporter=dot
+        run: cd apps/desktop && ./node_modules/.bin/vitest run --maxWorkers=2 --reporter=verbose --reporter=junit --outputFile=../../target/shared-ui-junit.xml
+      - name: Upload shared UI test results
+        if: ${{ always() && needs.changes.outputs.ui == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: shared-ui-junit
+          path: target/shared-ui-junit.xml
+          if-no-files-found: warn
+          retention-days: 7
       - name: Shared UI unchanged
         if: ${{ needs.changes.outputs.ui != 'true' }}
         run: echo 'No shared UI changes; UI tests skipped.'
@@ -412,7 +420,7 @@ jobs:
         run: |
           stage=target/windows-candidate-skin-gallery-tool
           mkdir -p "$stage"
-          for file in msime-candidate-skin-gallery.exe windows-candidate-image-animation.exe msime_host_api.dll libstdc++-6.dll libwinpthread-1.dll libgcc_s_seh-1.dll; do
+          for file in msime-candidate-skin-gallery.exe windows-candidate-image-animation.exe windows-candidate-canvas-preview.exe msime_host_api.dll libstdc++-6.dll libwinpthread-1.dll libgcc_s_seh-1.dll; do
             x86_64-w64-mingw32-strip --strip-debug -o "$stage/$file" "target/windows-full/x64/$file"
           done
           ls -l "$stage"
@@ -457,6 +465,8 @@ jobs:
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
+          & target/windows-candidate-skin-gallery-tool/windows-candidate-canvas-preview.exe
+          if ($LASTEXITCODE -ne 0) { throw "Candidate canvas preview tests failed with exit code $LASTEXITCODE" }
           & target/windows-candidate-skin-gallery-tool/windows-candidate-image-animation.exe
           if ($LASTEXITCODE -ne 0) { throw "Candidate image animation tests failed with exit code $LASTEXITCODE" }
           & target/windows-candidate-skin-gallery-tool/msime-candidate-skin-gallery.exe --verify-image-animation --skins crates/client-services/tests/fixtures/candidate-skins --output target/windows-candidate-skin-gallery

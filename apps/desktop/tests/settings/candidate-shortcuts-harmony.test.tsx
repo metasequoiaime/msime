@@ -76,8 +76,8 @@ test("the HarmonyOS phone's paging keys use the design's labels in a two-column 
   ).toBeTruthy();
   expect(screen.queryByText(/鼠标滚轮/)).toBeNull();
   expect(screen.getByRole("checkbox", { name: "↑ / ↓" })).toHaveProperty("checked", true);
-  // 左右键移动候选是后加的可选开关：文档里没有它时按关闭显示。
-  expect(screen.getByRole("checkbox", { name: "← / →" })).toHaveProperty("checked", false);
+  // 旧文档缺少左右键开关时，按默认开启显示。
+  expect(screen.getByRole("checkbox", { name: "← / →" })).toHaveProperty("checked", true);
 
   // 打开以词定字正在使用的那对按键时，仍会把它让出去，与「输入」页一致。
   fireEvent.click(screen.getByRole("checkbox", { name: "[ / ]" }));
@@ -404,6 +404,7 @@ test("the HarmonyOS phone 外接键盘快捷键 page writes the paging keys it s
   const update = setDraft.mock.calls.at(-1)?.[0] as (current: Preferences) => Preferences;
   expect(update({ navigation } as Preferences).navigation).toEqual({
     ...navigation,
+    left_right: true,
     arrows: false,
   });
 });

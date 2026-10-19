@@ -11,7 +11,7 @@ export type NavigationPreferences = {
   page_up_down: boolean;
   mouse_wheel?: boolean;
   arrows: boolean;
-  /** 左右键在输入串两端时移动候选项；未设置即关闭，与 `arrows` 各自独立。和 `mouse_wheel` 一样是可选键，不在默认对象里补写。 */
+  /** 左右键在输入串两端时移动候选项；缺少该字段时按默认开启，与 `arrows` 各自独立。 */
   left_right?: boolean;
 };
 
@@ -24,7 +24,19 @@ export const defaultNavigation: NavigationPreferences = {
   tab: true,
   page_up_down: true,
   arrows: true,
+  left_right: true,
 };
+
+/** 读取旧文档时补齐新增的导航偏好；可选的鼠标滚轮字段仍保持缺省不写入。 */
+export function navigationWithDefaults(navigation?: NavigationPreferences): NavigationPreferences {
+  return navigation
+    ? {
+        ...defaultNavigation,
+        ...navigation,
+        left_right: navigation.left_right ?? defaultNavigation.left_right,
+      }
+    : defaultNavigation;
+}
 
 /** 宿主把 Tab、PageUp/PageDown 两组翻页键固定为开时（`HostCapabilities.tab_page_paging_switches` 为假：macOS、Windows、HarmonyOS），速查按实际生效的样子列出它们，不看文档里存的值。 */
 export function effectiveNavigation(

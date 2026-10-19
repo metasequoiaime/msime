@@ -18,6 +18,8 @@ Android 0.4.1 的语音失败同样没有进入标准诊断包。导出时的本
 
 键盘发起的前台语音窗口通过 `ResultReceiver` 把固定整数事件回传键盘，仍由键盘的既有写入器落盘。接收端只接受语音枚举，并同时检查启动时与收到事件时的日志及隐私开关；键盘停止轮询偏好后仍重读落盘开关，取不到私有目录时跳过诊断。前台窗口本身不打开同一日志文件，避免跨进程读改写丢行。设置页独立发起的语音请求没有这个接收器，本片不声称覆盖该入口。它与[系统识别前台重试](2026-10-15-android-speech-permission-foreground.md)的行为修复互补，不建立原设备根因结论。
 
+生命周期事件直接对应系统回调：`onStartInput` 在当前编辑器的日志与隐私状态生效后记录 `ime_start`，确认相同编辑器并保留组字的重启也记录这次开始；`onFinishInput` 记录 `ime_finish`。清除提示、内部停止或重建引擎不伪造输入结束。旧实现从不写 `ime_start`，却在 `clearDiagnostic` 写 `ime_finish`，所以旧附件的结束次数不能视作系统回调次数；修正不恢复旧日志缺失的语义，也不改变默认日志开关、字段或上传白名单。
+
 ## Historical audit
 
 - [输入失败类别](../../implemented/bug-fix/2026-10-14-android-input-failure-categories.md)：部分取代其只写 logcat 的范围；保留分类、隐私与禁止重放的理由，双方互链。
@@ -36,6 +38,8 @@ Android 0.4.1 的语音失败同样没有进入标准诊断包。导出时的本
 API 28、35 安装当前原生 APK 后，`DiagnosticsBundleDeviceSmoke` 调用真实本地识别器拒绝不存在的合成模型，核对模型检查与失败类别依次进入本地写入器、JNI 和 ZIP；同包的上传编码仍只含原十种事件，合成私人标记被拒绝。`VoiceDiagnosticsPrivacyDeviceSmoke` 在隔离服务对象上验证启动和接收两端的日志开关、隐私模式、密码框、不做个性化学习，以及非语音和越界事件的拒绝；保持旧内存快照时，落盘隐私开关仍生效。两套设备检查均通过。
 
 两版模拟器的 `voice-lifecycle.sh` 验证前台窗口通过 Parcel/Binder 回传引擎与权限失败两个固定整数、不带负载；API 28 还覆盖同步启动拒绝，恢复前停止不会产生识别事件。Rust 诊断测试 12 项、232 项 Android JVM 冒烟、原生库编译与 ELF 校验、原生 APK 构建、相关 clippy、`cargo fmt --check`、`git diff --check` 、`pnpm run verify-notes` 和最终完整重跑的 `bash scripts/verify-local.sh --quick` 通过。编译契约允许清理作用域内新增的固定阶段记录，同时继续要求录音器和原生会话清理。
+
+生命周期修正使用实际安装后的原生 APK 验证：API 28、35 的 `CompositionRestartDeviceSmoke` 均通过，覆盖全拼与首道双拼连续重启、外部清空/改写/移动重建、换字段结束，以及密码框抑制开始记录、返回普通框后恢复记录。新增断言在旧 APK 的 API 28 上稳定失败于缺少 `ime_start`。最终源码的 Android 宿主门禁、严格测试 APK 编译、笔记及差异检查通过；远程 quick 运行 `20261020-044552` 以 0 退出，覆盖 Rust workspace、Android target、Java 和 Apple 桥接，不相关平台按范围跳过。只核对合成验收时间窗中的固定事件计数，不输出日志或输入文本。
 
 ## Consequences
 

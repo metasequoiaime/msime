@@ -4608,6 +4608,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
+        wubi_dictionary: String::new(),
     }
 }
 

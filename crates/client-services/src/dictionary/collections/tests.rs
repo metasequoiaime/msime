@@ -256,6 +256,54 @@ fn collection_flush_scope_retries_a_failed_outbox_checkpoint_without_resending()
 }
 
 #[test]
+fn collection_engine_scope_applies_a_bounded_batch_and_keeps_failures_in_the_personal_queue() {
+    let fixture = Fixture::new();
+    let words: Vec<_> = (0..300).map(|index| english(&letters(index))).collect();
+    create_with(&fixture, "引擎直达", &words);
+    fixture
+        .personal()
+        .synchronize_batch_reporting_present(
+            |requests| Ok(vec![Ok(PersonalWordApplied::Written); requests.len()]),
+            |_| {
+                Ok(PersonalWordPage {
+                    entries: Vec::new(),
+                    has_more: false,
+                })
+            },
+        )
+        .unwrap();
+    let mut flushing = fixture.store.begin_flush().unwrap();
+    let mut ids = Vec::new();
+    let view = flushing
+        .flush_with_engine(|edits| {
+            ids.extend(edits.iter().map(|edit| edit.request_id.clone()));
+            Ok(edits
+                .iter()
+                .enumerate()
+                .map(|(index, _)| {
+                    if index == 7 {
+                        Err("synthetic item failure".to_owned())
+                    } else {
+                        Ok(CollectionEditApplied::Written)
+                    }
+                })
+                .collect())
+        })
+        .unwrap();
+    assert_eq!(view.sent, Some(172));
+    assert_eq!(view.outbox_pending, 0);
+    assert_eq!(ids.len(), 172);
+    assert!(ids.iter().all(|id| id.starts_with("collections-v2-")));
+    let requests = fixture.requests();
+    let pending: Vec<_> = requests
+        .iter()
+        .filter(|request| request.status == PersonalWordRequestStatus::Pending)
+        .collect();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].id, ids[7]);
+}
+
+#[test]
 fn collections_load_lists_import_formats_and_starts_empty() {
     let fixture = Fixture::new();
     let view = fixture.store.load().unwrap();

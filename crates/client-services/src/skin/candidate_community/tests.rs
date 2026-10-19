@@ -887,7 +887,7 @@ fn local_files_are_refused_by_the_same_rules_and_leave_the_previous_skin() {
 
 #[cfg(unix)]
 #[test]
-fn local_files_refuse_symbolic_links_and_fifos() {
+fn local_files_refuse_symbolic_links() {
     use msime_path_trust::untrusted_symlink as symlink;
 
     let state = tempfile::tempdir().unwrap();
@@ -898,17 +898,10 @@ fn local_files_refuse_symbolic_links_and_fifos() {
     fs::write(real.join("bg.png"), png(3000)).unwrap();
     symlink(real.join("bg.png"), files.path().join("linked.png")).unwrap();
     symlink(&real, files.path().join("linked-directory")).unwrap();
-    let fifo = files.path().join("fifo.png");
-    assert!(std::process::Command::new("mkfifo")
-        .arg(&fifo)
-        .status()
-        .unwrap()
-        .success());
     let good = standard_download();
     for target in [
         files.path().join("linked.png"),
         files.path().join("linked-directory").join("bg.png"),
-        fifo,
     ] {
         let mut package = good.clone();
         package.files.remove(BACKGROUND);
@@ -919,6 +912,32 @@ fn local_files_refuse_symbolic_links_and_fifos() {
             "{target:?}"
         );
     }
+    assert!(!root.join("sakura").exists());
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg_attr(
+    target_os = "android",
+    ignore = "Android 的 adb shell 域不允许建 FIFO（SELinux 拒绝 fifo_file create）"
+)]
+fn local_files_refuse_fifos() {
+    let state = tempfile::tempdir().unwrap();
+    let files = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let fifo = files.path().join("fifo.png");
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap()
+        .success());
+    let mut package = standard_download();
+    package.files.remove(BACKGROUND);
+    let local = BTreeMap::from([(BACKGROUND.to_owned(), fifo)]);
+    assert_eq!(
+        install_with_local_files(&root, &package, &local, false),
+        Err(LOCAL_FILE)
+    );
     assert!(!root.join("sakura").exists());
 }
 

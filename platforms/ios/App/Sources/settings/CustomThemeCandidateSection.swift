@@ -21,6 +21,8 @@ struct CustomThemeCandidateSection: View {
   @State private var importingSkin = false
   @State private var skinStatus = ""
   @State private var saveFailed = false
+  @State private var previewResourceRevision = UUID()
+  @ScaledMetric(relativeTo: .body) private var previewHeight = 64.0
   private let tablet = UIDevice.current.userInterfaceIdiom == .pad
 
   var body: some View {
@@ -195,20 +197,9 @@ struct CustomThemeCandidateSection: View {
   }
 
   private func previewStrip(dark: Bool) -> some View {
-    let palette = CandidatePalette.resolve(previewPreferences, systemDark: dark)
-    return HStack(spacing: 6) {
-      ForEach(Array(["水杉", "输入", "输入法"].enumerated()), id: \.offset) { index, word in
-        HStack(spacing: 3) {
-          Text("\(index + 1)").font(.caption).foregroundStyle(Color(palette.number))
-          Text(word).foregroundStyle(Color(palette.text))
-        }
-        .padding(.horizontal, 9).padding(.vertical, 5)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Color(index == 0 ? palette.hover : palette.surface)))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color(palette.border)))
-      }
-    }
-    .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-    .background(RoundedRectangle(cornerRadius: 12).fill(Color(palette.surface)))
+    CandidateSkinPreview(preferences: previewPreferences, systemDark: dark,
+                         resourceRevision: previewResourceRevision)
+    .frame(maxWidth: .infinity).frame(height: previewHeight)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(dark ? "深色预览" : "浅色预览")
   }
@@ -243,6 +234,7 @@ struct CustomThemeCandidateSection: View {
 
   private func reload() {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
+    previewResourceRevision = UUID()
     themeId = GlobalThemePreference.theme(in: preferences)
     customTheme = GlobalThemePreference.customTheme(in: preferences)
     installedSkins = ExternalCandidateSkin.defaultRoot.flatMap(ExternalCandidateSkin.scan) ?? []
