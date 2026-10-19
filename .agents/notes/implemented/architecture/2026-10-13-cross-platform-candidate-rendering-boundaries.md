@@ -46,4 +46,4 @@ Status: implemented
 
 macOS 系统主题的背景材质见[候选卡片液态玻璃](../feature/2026-10-19-macos-candidate-liquid-glass.md)，候选身份、按钮归属与原生定位边界保持不变。
 
-Fcitx5 的静态 canvas 面板通过 [classicui 九宫格映射](../feature/2026-10-19-linux-fcitx-canvas-panel.md)接入，候选窗口、定位与指针继续归桌面；该通路只显示静态 PNG／APNG 默认帧，不代表动画或其他面板完成验收。
+Fcitx5 的静态 canvas 面板通过 [classicui 九宫格映射](../feature/2026-10-19-linux-fcitx-canvas-panel.md)接入，候选窗口、定位与指针继续归桌面；该通路经[共享图片解码](../feature/2026-10-20-linux-canvas-image-formats.md)显示 PNG／APNG 默认图与 GIF／WebP 首帧，不代表动画或其他面板完成验收。

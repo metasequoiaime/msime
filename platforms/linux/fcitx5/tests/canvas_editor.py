@@ -2,6 +2,7 @@
 import ctypes
 import configparser
 from collections import Counter
+import io
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,7 @@ DARK = ((144, 17, 34), (18, 144, 52), (52, 37, 144),
         (20, 92, 114), (113, 90, 35), (139, 79, 49),
         (49, 127, 139), (116, 145, 38), (98, 66, 117))
 LIGHT = tuple(tuple(channel + 80 for channel in color) for color in DARK)
+FORMAT = os.environ.get("MSIME_TEST_CANVAS_FORMAT", "png")
 
 
 def png(colors):
@@ -40,6 +42,21 @@ def png(colors):
                                       for x in range(60)) for y in range(60))
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 60, 60, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def panel_image(colors):
+    if FORMAT == "png":
+        return png(colors)
+    try:
+        from PIL import Image
+    except ImportError:
+        print("skipped: 非 PNG 的合成验收图片需要 Pillow")
+        sys.exit(77)
+    result = io.BytesIO()
+    Image.open(io.BytesIO(png(colors))).save(
+        result, format={"gif": "GIF", "webp": "WEBP"}[FORMAT],
+        lossless=True)
+    return result.getvalue()
 
 
 def screenshot():
@@ -61,7 +78,8 @@ def palette_visible(colors):
 def save_image(name):
     destination = os.environ.get("MSIME_TEST_CANVAS_ARTIFACTS")
     if destination:
-        directory = Path(destination) / os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical")
+        directory = (Path(destination) / FORMAT
+                     / os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical"))
         directory.mkdir(parents=True, exist_ok=True)
         screenshot()[0].savev(str(directory / f"{name}.png"), "png", [], [])
 
@@ -103,14 +121,15 @@ def main():
         options = value(host.msime_client_prepare_host(request, len(request)))
         skin = root / "skins" / "canvas-fixture"
         skin.mkdir(parents=True)
-        (skin / "panel.png").write_bytes(png(DARK))
-        (skin / "light.png").write_bytes(png(LIGHT))
+        panel_file, light_file = f"panel.{FORMAT}", f"light.{FORMAT}"
+        (skin / panel_file).write_bytes(panel_image(DARK))
+        (skin / light_file).write_bytes(panel_image(LIGHT))
         (skin / "skin.toml").write_text(
             "schema_version = 2\nid = 'canvas-fixture'\nname = 'Canvas fixture'\nversion = '1'\nbase = 'canvas'\n"
             "[supports]\nlayouts = ['horizontal', 'vertical']\nthemes = ['light', 'dark']\n"
             "[candidate_window]\ncontent_insets_dip = { top = 12, right = 12, bottom = 12, left = 12 }\n"
             "outer_insets_dip = { top = 4, right = 4, bottom = 4, left = 4 }\n"
-            "[candidate_window.border_image]\nsource = 'panel.png'\nlight_source = 'light.png'\n"
+            f"[candidate_window.border_image]\nsource = '{panel_file}'\nlight_source = '{light_file}'\n"
             "slice_dip = [20]\nwidth_dip = [8]\n[candidate.light]\ntext = '#010203'\n"
             "[candidate.dark]\ntext = '#FDFCFB'\n")
         options["candidate_skin_catalog"] = {
@@ -171,10 +190,10 @@ def main():
                 wait(lambda: palette_visible(DARK) and not palette_visible(LIGHT))
                 save_image("canvas-dark")
                 # 损坏图片必须让真实窗口回退；修复后不得一直沿用缓存的纯色卡片。
-                (skin / "panel.png").write_bytes(b"broken")
+                (skin / panel_file).write_bytes(b"broken")
                 wait(lambda: not palette_visible(DARK) and fallback_visible(root / "data/fcitx5/themes/msime/theme.conf"))
                 save_image("canvas-broken")
-                (skin / "panel.png").write_bytes(png(DARK))
+                (skin / panel_file).write_bytes(panel_image(DARK))
                 wait(lambda: palette_visible(DARK))
                 save_image("canvas-repaired")
                 assert int(subprocess.check_output(["xdotool", "getwindowfocus"])) == xid, "换肤后编辑器失焦"
@@ -183,7 +202,7 @@ def main():
                 wait(lambda: not palette_visible(DARK))
                 control.Exit()
                 assert daemon.wait(timeout=10) == 0, "Fcitx5 未正常退出"
-                print("真实 GTK／classicui canvas 像素、明暗、坏图回退、修复、焦点与选词通过")
+                print(f"真实 GTK／classicui {FORMAT} canvas 像素、明暗、坏图回退、修复、焦点与选词通过")
             finally:
                 if sys.exc_info()[0] is not None:
                     save_image("canvas-failed")

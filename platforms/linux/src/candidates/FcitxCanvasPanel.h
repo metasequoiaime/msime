@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include <cairo.h>
+#include "msime_client.h"
 
 #include "CandidateFcitxTheme.h"
 
@@ -81,7 +82,7 @@ inline std::optional<std::array<int, 4>> fcitx_canvas_insets(const nlohmann::jso
   return result;
 }
 
-inline std::optional<std::string> read_fcitx_canvas_png(const std::filesystem::path &path) {
+inline std::optional<std::string> read_fcitx_canvas_image(const std::filesystem::path &path) {
   const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
   if (descriptor < 0) return std::nullopt;
   struct Close { int fd; ~Close() { ::close(fd); } } close{descriptor};
@@ -101,11 +102,42 @@ inline std::optional<std::string> read_fcitx_canvas_png(const std::filesystem::p
     if (bytes.size() > kFcitxOverlayMaxBytes - static_cast<std::size_t>(count)) return std::nullopt;
     bytes.append(buffer.data(), static_cast<std::size_t>(count));
   }
-  return fcitx_png_size(bytes) ? std::optional<std::string>(std::move(bytes)) : std::nullopt;
+  return bytes.empty() ? std::nullopt : std::optional<std::string>(std::move(bytes));
+}
+
+// 回调只借用共享解码器的 RGBA；当场复制为 Cairo 的本机字节序、预乘 ARGB32。
+inline cairo_surface_t *decode_fcitx_canvas_image(const std::string &bytes) {
+  cairo_surface_t *surface = nullptr;
+  const auto received = msime_client_skin_image_decode(
+      reinterpret_cast<const std::uint8_t *>(bytes.data()), bytes.size(),
+      [](void *context, const std::uint8_t *rgba, std::size_t length, std::uint32_t width, std::uint32_t height) -> std::int32_t {
+        if (!rgba || width == 0 || height == 0 || width > 2048 || height > 2048 ||
+            length != static_cast<std::size_t>(width) * height * 4) return 0;
+        auto *image = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, static_cast<int>(width), static_cast<int>(height));
+        if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) { cairo_surface_destroy(image); return 0; }
+        auto *data = cairo_image_surface_get_data(image);
+        const auto stride = cairo_image_surface_get_stride(image);
+        for (std::uint32_t y = 0; y < height; ++y) for (std::uint32_t x = 0; x < width; ++x) {
+          const auto *pixel = rgba + (static_cast<std::size_t>(y) * width + x) * 4;
+          const auto alpha = static_cast<std::uint32_t>(pixel[3]);
+          const auto premultiply = [alpha](std::uint8_t channel) { return (channel * alpha + 127) / 255; };
+          const std::uint32_t word = alpha << 24 | premultiply(pixel[0]) << 16 |
+                                     premultiply(pixel[1]) << 8 | premultiply(pixel[2]);
+          std::memcpy(data + y * stride + x * 4, &word, 4);
+        }
+        cairo_surface_mark_dirty(image);
+        *static_cast<cairo_surface_t **>(context) = image;
+        return 1;
+      }, &surface);
+  if (received != 1) {
+    if (surface) cairo_surface_destroy(surface);
+    return nullptr;
+  }
+  return surface;
 }
 
 // classicui 的源切片与显示边宽共用 Margin；先分别缩放九块，使两者不同的清单仍保留边框比例。
-// 这里只准备 PNG／APNG 的静态首帧，动画能力不能由生成了贴图推断。
+// 这里只准备静态画布，动画能力不能由生成了贴图推断。
 inline std::optional<FcitxCanvasPanel> prepare_fcitx_canvas_panel(const nlohmann::json &summary,
                                                                 const std::filesystem::path &directory,
                                                                 std::string_view id, bool dark,
@@ -121,7 +153,7 @@ inline std::optional<FcitxCanvasPanel> prepare_fcitx_canvas_panel(const nlohmann
   const auto path = fcitx_canvas_resource(directory, id, *source);
   if (!path) return std::nullopt;
   if (selected_source) *selected_source = *path;
-  const auto bytes = read_fcitx_canvas_png(*path);
+  const auto bytes = read_fcitx_canvas_image(*path);
   if (!bytes) return std::nullopt;
   const auto slice = border->find(border->contains("stretchDip") ? "stretchDip" : "sliceDip");
   if (slice == border->end()) return std::nullopt;
@@ -146,16 +178,9 @@ inline std::optional<FcitxCanvasPanel> prepare_fcitx_canvas_panel(const nlohmann
     panel.outer = *insets;
   }
   for (std::size_t at = 0; at < edge.size(); ++at) panel.margin[at] = edge[at] + panel.outer[at];
-  struct Reader { const std::string &bytes; std::size_t offset = 0; } reader{*bytes};
   using Surface = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;
-  Surface image(cairo_image_surface_create_from_png_stream([](void *closure, unsigned char *out, unsigned int length) {
-    auto &input = *static_cast<Reader *>(closure);
-    if (length > input.bytes.size() - input.offset) return CAIRO_STATUS_READ_ERROR;
-    std::memcpy(out, input.bytes.data() + input.offset, length);
-    input.offset += length;
-    return CAIRO_STATUS_SUCCESS;
-  }, &reader), cairo_surface_destroy);
-  if (cairo_surface_status(image.get()) != CAIRO_STATUS_SUCCESS) return std::nullopt;
+  Surface image(decode_fcitx_canvas_image(*bytes), cairo_surface_destroy);
+  if (!image || cairo_surface_status(image.get()) != CAIRO_STATUS_SUCCESS) return std::nullopt;
   const auto axis = [](double length, double before, double after) {
     const auto factor = before + after > length ? length / (before + after) : 1.0;
     return std::array<double, 4>{0, before * factor, length - after * factor, length};
