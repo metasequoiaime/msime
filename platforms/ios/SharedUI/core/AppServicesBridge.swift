@@ -65,10 +65,19 @@ enum AppServicesBridge {
       }
       return text
     }
-    if let choices = object["choices"] as? [[String: Any]],
-       let message = choices.first?["message"] as? [String: Any],
-       let content = message["content"] as? String,
-       content.utf8.count <= maximumPolishTextBytes { return content }
-    throw ServiceFailure(message: object["error"] as? String ?? "服务未返回可用文字。")
+    // 明确失败或不完整的 AI 回复不能覆盖完整转写；缺省和 null 状态兼容旧服务。
+    if let error = object["error"], !(error is NSNull) {
+      throw ServiceFailure(message: "服务未返回可用文字。")
+    }
+    if let first = (object["choices"] as? [[String: Any]])?.first {
+      let reason = first["finish_reason"] as? String
+      guard reason != "length", reason != "content_filter" else {
+        throw ServiceFailure(message: "服务未返回可用文字。")
+      }
+      if let message = first["message"] as? [String: Any],
+         let content = message["content"] as? String,
+         content.utf8.count <= maximumPolishTextBytes { return content }
+    }
+    throw ServiceFailure(message: "服务未返回可用文字。")
   }
 }

@@ -6,7 +6,23 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
     let denied = request.url?.path == "/denied"
-    let data = Data((denied ? "private server detail" : "{\"choices\":[{\"message\":{\"content\":\"润色结果\"}}]}").utf8)
+    let replies = [
+      "/length": #"{"choices":[{"finish_reason":"length","message":{"content":"润色结果"}}]}"#,
+      "/filtered": #"{"choices":[{"finish_reason":"content_filter","message":{"content":"润色结果"}}]}"#,
+      "/error-object": #"{"error":{"message":"private server detail"},"choices":[{"message":{"content":"润色结果"}}]}"#,
+      "/error-empty-object": #"{"error":{},"choices":[{"message":{"content":"润色结果"}}]}"#,
+      "/error-false": #"{"error":false,"choices":[{"message":{"content":"润色结果"}}]}"#,
+      "/error-zero": #"{"error":0,"choices":[{"message":{"content":"润色结果"}}]}"#,
+      "/error-empty-string": #"{"error":"","choices":[{"message":{"content":"润色结果"}}]}"#,
+      "/error-string": #"{"error":"private server detail","choices":[{"message":{"content":"润色结果"}}]}"#,
+      "/empty-choices": #"{"choices":[]}"#,
+      "/stop": #"{"choices":[{"finish_reason":"stop","message":{"content":"润色结果"}}]}"#,
+      "/null-finish": #"{"choices":[{"finish_reason":null,"message":{"content":"润色结果"}}]}"#,
+      "/null-error": #"{"error":null,"choices":[{"message":{"content":"润色结果"}}]}"#,
+    ]
+    let body = denied ? "private server detail" : replies[request.url?.path ?? ""]
+      ?? #"{"choices":[{"message":{"content":"润色结果"}}]}"#
+    let data = Data(body.utf8)
     let response = HTTPURLResponse(url: request.url!, statusCode: denied ? 401 : 200,
                                    httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -428,6 +444,38 @@ final class CustomServiceTests: XCTestCase {
     } catch {
       XCTAssertTrue(error.localizedDescription.contains("401"))
       XCTAssertFalse(error.localizedDescription.contains("private server detail"))
+    }
+  }
+
+  func testAIRequestRejectsIncompleteAndErrorReplies() async throws {
+    let session = URLSessionConfiguration.ephemeral
+    session.protocolClasses = [FixtureProtocol.self]
+    var configuration = CustomServiceConfiguration()
+    configuration.model = "fixture"
+    for path in ["length", "filtered", "error-object", "error-empty-object", "error-false",
+                 "error-zero", "error-empty-string", "error-string", "empty-choices"] {
+      configuration.endpoint = "https://msime-tests.invalid/\(path)"
+      do {
+        _ = try await CustomServiceClient.request(kind: .ai, configuration: configuration,
+          text: "合成完整转写", token: "fixture-token", sessionConfiguration: session)
+        XCTFail("不应接受 \(path) 回复中的正文")
+      } catch {
+        XCTAssertEqual(error.localizedDescription, "服务未返回可用文字。", path)
+        XCTAssertFalse(error.localizedDescription.contains("private server detail"), path)
+      }
+    }
+  }
+
+  func testAIRequestPreservesCompatibleReplyStates() async throws {
+    let session = URLSessionConfiguration.ephemeral
+    session.protocolClasses = [FixtureProtocol.self]
+    var configuration = CustomServiceConfiguration()
+    configuration.model = "fixture"
+    for path in ["success", "stop", "null-finish", "null-error"] {
+      configuration.endpoint = "https://msime-tests.invalid/\(path)"
+      let result = try await CustomServiceClient.request(kind: .ai, configuration: configuration,
+        text: "合成完整转写", token: "fixture-token", sessionConfiguration: session)
+      XCTAssertEqual(result, "润色结果", path)
     }
   }
 
