@@ -439,6 +439,34 @@ def main():
                     manifest.write_text(manifest.read_text().replace("line_gap_dip = 39", "line_gap_dip = 19"))
                     wait(lambda: palette_top(SELECTED) == selected_before)
                     save_image("native-layout")
+                    # 同一原生窗口热更新布局，测量、高亮和点击区域必须同步改变。
+                    original_manifest = manifest.read_text()
+                    original_selected = selected_pixels()
+                    layout = preferences["candidate_layout"]
+                    styled_manifest = original_manifest + (
+                        f"\n[candidate_window.{layout}]\nitem_extra_height = 34\n"
+                        "number_scale = 0.45\nnumber_inset = 16\nnumber_gap = 24\n"
+                        "item_padding_right = 20\nitem_gap = 12\npreedit_margin_dip = [7, 11, 9, 13]\n")
+                    manifest.write_text(styled_manifest)
+                    wait(lambda: selected_pixels() is not None and
+                         selected_pixels()[1] >= original_selected[1] + 24 * NATIVE_SCALE)
+                    assert palette_top(SELECTED) == selected_before + 7 * NATIVE_SCALE, "拼音上边距未进入真实候选布局"
+                    before_font = selected_pixels()
+                    manifest.write_text(styled_manifest.replace("[candidate_window]\n", "[candidate_window]\nfont_family = 'monospace'\n"))
+                    wait(lambda: selected_pixels() is not None and selected_pixels() != before_font)
+                    save_image("native-skin-layout")
+                    assert focused(), "布局或字体热更新抢走编辑器焦点"
+                    # 点击新增行高底部，若命中仍用旧矩形就会错选下一项。
+                    x, y = color_position(SELECTED)
+                    y += selected_pixels()[1] - 4
+                    subprocess.run(["xdotool", "mousemove", str(x), str(y), "click", "1"], check=True, timeout=5)
+                    wait(lambda: entry.get_text() == "你")
+                    wait(lambda: native_window() is None)
+                    entry.set_text("")
+                    subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni"], check=True, timeout=5)
+                    wait(lambda: palette_visible((SELECTED,)))
+                    manifest.write_text(original_manifest)
+                    wait(lambda: selected_pixels() == original_selected)
                     before_move = window_geometry(native_window())
                     window.move(100, 80)
                     # GTK 3 在下一次光标更新时上报根坐标，候选窗按该坐标重新定位。

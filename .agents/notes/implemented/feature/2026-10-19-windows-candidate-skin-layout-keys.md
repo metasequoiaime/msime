@@ -50,6 +50,8 @@ msime-windows 里没写的键沿用 `base` 外观的出厂清单（`wechat` 的 
 
 ## Consequences
 
+Linux X11 的字体与候选布局由[原生画布布局](2026-10-20-linux-canvas-layout.md)独立接入，沿用同一份共享清单字段，不依赖本宿主的尺寸模型。
+
 收益：为 msime-windows 写的皮肤在 Windows 上得到它们写下的内边距、行距、行高、序号位置与字号、竖条、贴角高亮、拼音行外边距、外框、高亮圆角、阴影档位、列表翻页箭头和收紧宽度；不写这些键的皮肤和无皮肤的卡片不变（`windows-candidate-card-size` 断言空版式下 metrics、卡片尺寸和每一行逐位相同）。版式规则都在不依赖 Windows 的头文件里，本机就能测。
 
 代价：
