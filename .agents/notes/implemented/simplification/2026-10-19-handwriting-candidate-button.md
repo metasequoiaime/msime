@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-把 `HandwritingCandidateButton` 移到 `keyboard/handwriting-candidate-button.tsx`，通过 `@msime/ui` 导出其 props 和组件。保留现有 `ResizeObserver`/窗口缩放回退、Unicode 码点长度计算、字号边界、`Control+C` 复制快捷键、组合输入保护和 `disabled` 行为；`panels.tsx` 只负责传入候选和动作回调。
+把 `HandwritingCandidateButton` 移到 `keyboard/handwriting-candidate-button.tsx`，通过 `@msime/ui` 导出其 props 和组件。保留现有 `ResizeObserver`/窗口缩放回退、Unicode 码点长度计算、字号边界、`Control+C` 复制快捷键、组合输入保护和 `disabled` 行为；[手写识别结果组件](./2026-10-19-handwriting-results.md)负责传入候选和动作回调，面板继续提供状态与宿主能力。
 
 ## Alternatives considered
 

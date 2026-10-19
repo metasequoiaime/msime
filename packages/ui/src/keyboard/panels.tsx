@@ -26,7 +26,6 @@ import type { CSSProperties } from "react";
 import type { GlobalTheme } from "../theme/global-theme";
 import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
-import { StatusMessage } from "../core/status-message";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import { keyboardKeyLabel, keyboardKeyWeight } from "./keyboard-input";
 import { keyboardSkinStyles } from "./keyboard-skin-styles";
@@ -44,7 +43,7 @@ import { CloudDictionarySelectField } from "./cloud-dictionary-select-field";
 import { CloudDictionaryQueryToolbar } from "./cloud-dictionary-query-toolbar";
 import { CloudPinyinSchemeOptions, CloudShuangpinProfileOptions } from "./cloud-scheme-options";
 import { clipboardTooltip, emojiDisplayName, symbolCategoryTitle } from "./emoji-panel-helpers";
-import { HandwritingCandidateButton } from "./handwriting-candidate-button";
+import { HandwritingResults } from "./handwriting-results";
 import { HandwritingInkEditor } from "./handwriting-ink-editor";
 import { HandwritingModelNotice } from "./handwriting-model-notice";
 
@@ -308,79 +307,19 @@ export function HandwritingPanel({
           onClear={clear}
           onRecognize={client.recognizeHandwriting ? retryRecognition : undefined}
         />
-        <section className={surface.recognitionSection}>
-          <h2>识别结果</h2>
-          <div className={surface.handwritingActions} role="group" aria-label="点击手写候选的操作">
-            <span>点击候选：</span>
-            <PanelActivationButtons
-              mode={effectiveMode}
-              onModeChange={selectActivation}
-              disabled={closing || submitting}
-              copyDisabled={!client.copyHandwritingCandidate}
-              inputAvailable={Boolean(client.submitHandwritingCandidate)}
-            />
-          </div>
-          <div
-            className={surface.candidateGrid}
-            // Named so the grid can be reached as a unit: assistive technology announces the group,
-            // and a test has something to hold onto that is not a styling class.
-            role="group"
-            aria-label="识别候选"
-            onKeyDown={navigateCandidates}
-          >
-            {candidates.map((candidate) => (
-              <div className={surface.candidate} key={candidate}>
-                <HandwritingCandidateButton
-                  candidate={candidate}
-                  copy={effectiveMode === "copy"}
-                  disabled={closing || submitting}
-                  onChoose={() => void chooseCandidate(candidate, effectiveMode === "copy")}
-                  onCopy={
-                    client.copyHandwritingCandidate
-                      ? () => void chooseCandidate(candidate, true)
-                      : undefined
-                  }
-                />
-                {effectiveMode === "copy" && client.submitHandwritingCandidate ? (
-                  <button
-                    type="button"
-                    className={surface.candidateCopy}
-                    aria-label={`输入候选 ${candidate}`}
-                    disabled={closing || submitting}
-                    onClick={() => void chooseCandidate(candidate)}
-                  >
-                    输入
-                  </button>
-                ) : (
-                  effectiveMode === "input" &&
-                  client.copyHandwritingCandidate && (
-                    <button
-                      type="button"
-                      className={surface.candidateCopy}
-                      aria-label={`复制候选 ${candidate}`}
-                      disabled={closing || submitting}
-                      onClick={() => void chooseCandidate(candidate, true)}
-                    >
-                      复制
-                    </button>
-                  )
-                )}
-              </div>
-            ))}
-          </div>
-          {!candidates.length && (
-            <div className={surface.handwritingEmpty} aria-hidden="true">
-              <span>
-                <FluentIcon name="pen" size={26} />
-              </span>
-              <p>写下一个字，候选会出现在这里</p>
-              <small>每写完一笔，自动更新识别结果</small>
-            </div>
-          )}
-          {candidates.length > 0 && <div className="flex-1" />}
+        <HandwritingResults
+          candidates={candidates}
+          mode={effectiveMode}
+          copyAvailable={Boolean(client.copyHandwritingCandidate)}
+          inputAvailable={Boolean(client.submitHandwritingCandidate)}
+          disabled={closing || submitting}
+          notice={notice}
+          onModeChange={selectActivation}
+          onNavigate={navigateCandidates}
+          onChoose={chooseCandidate}
+        >
           {handwritingPack && <HandwritingModelNotice packs={packs} mirror={client.modelMirror} />}
-          <StatusMessage role="status">{notice}</StatusMessage>
-        </section>
+        </HandwritingResults>
       </div>
     </main>
   );
