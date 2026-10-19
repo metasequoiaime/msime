@@ -1,10 +1,5 @@
 // @vitest-environment jsdom
-import {
-  selectSettingsTab,
-  settingsFormReady,
-  saveSettingsNow,
-  openVoiceServiceConfig,
-} from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type SettingsClient, type Snapshot } from "@msime/ui";
@@ -603,7 +598,6 @@ test("a host with one commit path is not offered a choice between three", async 
     />,
   );
   await settingsFormReady();
-  openVoiceServiceConfig();
   expect(screen.queryByLabelText("结果提交策略")).toBeNull();
   cleanup();
   render(
@@ -617,8 +611,7 @@ test("a host with one commit path is not offered a choice between three", async 
     />,
   );
   await settingsFormReady();
-  openVoiceServiceConfig();
-  expect(screen.getByLabelText("结果提交策略")).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "结果提交策略" })).toBeTruthy();
 });
 
 test("the shuangpin preedit choice reaches every host that draws the composition", async () => {
@@ -758,7 +751,7 @@ test("a host that can enumerate microphones gets the picker, whatever it is call
           load: async () => initial,
           save: vi.fn(),
           listVoiceCaptureDevices: read,
-          // 录音设备收在「服务配置」子视图里，这里测的是能力。HarmonyOS 只有一种录音方式（`voice_capture_backends` 为 false），只给一个「麦克风」下拉。
+          // 录音设备位于「录音行为」标签，这里测的是能力。HarmonyOS 只有一种录音方式（`voice_capture_backends` 为 false），只给一个「麦克风」下拉。
           host: capabilities({
             platform: "harmony",
             mobile_settings: false,
@@ -770,14 +763,14 @@ test("a host that can enumerate microphones gets the picker, whatever it is call
     );
   voice(true);
   await settingsFormReady();
-  openVoiceServiceConfig();
-  expect(await screen.findByLabelText("麦克风")).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "录音行为" }));
+  expect(screen.getByRole("combobox", { name: "麦克风" })).toBeTruthy();
   expect(screen.queryByLabelText("可用录音设备")).toBeNull();
   cleanup();
   voice(false);
   await settingsFormReady();
-  openVoiceServiceConfig();
-  expect(screen.queryByLabelText("麦克风")).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "录音行为" }));
+  expect(screen.queryByRole("combobox", { name: "麦克风" })).toBeNull();
 });
 
 test("the mode badge switch follows the capability rather than the macOS platform name", async () => {

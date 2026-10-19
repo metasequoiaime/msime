@@ -1,3 +1,4 @@
+import { PageIntro } from "../../core/platform-controls";
 import { useLayoutEffect, useState } from "react";
 import { candidateTabs } from "../candidate-tabs";
 import { useSettingsTabs } from "../use-settings-tabs";
@@ -235,6 +236,9 @@ export function AppearanceSettingsPage() {
   );
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "appearance"} ariaLabel="候选窗口">
+      {!mobilePlatform && (
+        <PageIntro>调整候选窗口的布局、字体和显示方式；皮肤与配色在「主题」中设置。</PageIntro>
+      )}
       {tabs.tabList}
       {/* Linux 上由桌面环境接管候选面板时，限制说明紧跟在预览下面。 */}
       <GroupList>

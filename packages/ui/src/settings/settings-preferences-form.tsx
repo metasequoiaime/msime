@@ -1,3 +1,4 @@
+import { SettingsSearchPage } from "./settings-page-fieldset";
 import { canReloadSettingsPage, canRestoreDefaultsOnPage } from "./settings-page-visibility";
 import { SettingsFormFooter } from "./settings-form-footer";
 import { SettingsFormFrame } from "./settings-form-frame";
@@ -72,44 +73,88 @@ export function SettingsPreferencesForm({
   return (
     <SettingsFormFrame showReload={false} busy={busy}>
       <SettingsFormContext.Provider value={model}>
-        <SkinSettingsPage
-          hidden={skinCommunityShown}
-          tabs={skinTabs}
-          desktopTabs={desktopSkinTabs}
-        />
-        <AppearanceSettingsPage />
-        <FloatingToolbarSettingsPage />
-        <InputSettingsPage />
-        <ExpressionSettingsPage />
-        <AiSettingsPage />
-        <ShortcutSettingsPage />
-        <DictionarySettingsPage />
-        <ScreenKeyboardSettingsPage />
-        <VoiceSettingsPage />
+        <SettingsSearchPage.Provider value="skin">
+          <SkinSettingsPage
+            hidden={skinCommunityShown}
+            tabs={skinTabs}
+            desktopTabs={desktopSkinTabs}
+          />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="appearance">
+          <AppearanceSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="floating-toolbar">
+          <FloatingToolbarSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="input">
+          <InputSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="expression">
+          <ExpressionSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="ai">
+          <AiSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="shortcuts">
+          <ShortcutSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="dictionary">
+          <DictionarySettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="screen-keyboard">
+          <ScreenKeyboardSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="voice">
+          <VoiceSettingsPage />
+        </SettingsSearchPage.Provider>
         {/* 手写并进屏幕键盘页时，那一页自己画手写的分组。 */}
-        {!handwritingOnScreenKeyboardPage && <HandwritingSettingsPage />}
-        <ToolsSettingsPage />
-        <PluginsSettingsPage hidden={pluginCommunityShown} />
-        <DeveloperSettingsPage />
-        <McpSettingsPage />
-        <FeedbackSettingsPage />
-        <HelpSettingsPage
-          busy={busy}
-          hidden={page !== "help"}
-          macos={macosPlatform}
-          mobile={mobilePlatform}
-          ios={iosPlatform}
-          android={androidPlatform}
-          platformHelpIntro={model.platformHelpIntro}
-          platformQuickStart={model.platformQuickStart}
-          platformNetworkDescription={model.platformNetworkDescription}
-          onOpenDocumentation={externalActions.onOpenDocumentation}
-          onOpenSystemKeyboardSettings={externalActions.onOpenSystemKeyboardSettings}
-        />
-        <AboutSettingsPage />
-        <UsageReportingSettingsPage />
+        {!handwritingOnScreenKeyboardPage && (
+          <SettingsSearchPage.Provider value="handwriting">
+            <HandwritingSettingsPage />
+          </SettingsSearchPage.Provider>
+        )}
+        <SettingsSearchPage.Provider value="tools">
+          <ToolsSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="plugins">
+          <PluginsSettingsPage hidden={pluginCommunityShown} />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="developer">
+          <DeveloperSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="mcp">
+          <McpSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="feedback">
+          <FeedbackSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="help">
+          <HelpSettingsPage
+            busy={busy}
+            hidden={page !== "help"}
+            macos={macosPlatform}
+            mobile={mobilePlatform}
+            ios={iosPlatform}
+            android={androidPlatform}
+            platformHelpIntro={model.platformHelpIntro}
+            platformQuickStart={model.platformQuickStart}
+            platformNetworkDescription={model.platformNetworkDescription}
+            onOpenDocumentation={externalActions.onOpenDocumentation}
+            onOpenSystemKeyboardSettings={externalActions.onOpenSystemKeyboardSettings}
+          />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="about">
+          <AboutSettingsPage />
+        </SettingsSearchPage.Provider>
+        <SettingsSearchPage.Provider value="usage-reporting">
+          <UsageReportingSettingsPage />
+        </SettingsSearchPage.Provider>
         {/* 只在打开着时渲染：它和「关于」用同一个统计开关，常驻的话桌面上会有两个。 */}
-        {page === "privacy" && <PrivacySettingsPage />}
+        {page === "privacy" && (
+          <SettingsSearchPage.Provider value="privacy">
+            <PrivacySettingsPage />
+          </SettingsSearchPage.Provider>
+        )}
       </SettingsFormContext.Provider>
       <SettingsFormFooter
         draft={draft}

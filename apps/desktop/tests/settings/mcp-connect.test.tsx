@@ -141,7 +141,7 @@ test("AI 顶部标签保留客户端与权限选择，切换不丢草稿", async
   const connection = screen.getByRole("tab", { name: "连接助手" });
   expect(connection.getAttribute("aria-selected")).toBe("true");
   fireEvent.keyDown(connection, { key: "Home" });
-  const assistance = screen.getByRole("tab", { name: "辅助功能" });
+  const assistance = screen.getByRole("tab", { name: "输入辅助" });
   expect(assistance.getAttribute("aria-selected")).toBe("true");
   const endpoint = screen.getByLabelText("AI 接口地址") as HTMLInputElement;
   fireEvent.change(endpoint, {
@@ -178,12 +178,12 @@ test("桌面旧 MCP 路由和同页重复请求打开 AI 连接标签", async ()
   );
   expect(screen.getByRole("heading", { name: "AI" })).toBeTruthy();
   expect(await mcpGroup()).toBeTruthy();
-  fireEvent.click(screen.getByRole("tab", { name: "辅助功能" }));
+  fireEvent.click(screen.getByRole("tab", { name: "输入辅助" }));
   expect(screen.queryByRole("group", { name: "连接 AI 助手" })).toBeNull();
   view.rerender(<SettingsPage client={client} route={{ page: "mcp", nonce: 2 }} />);
   expect(await mcpGroup()).toBeTruthy();
   view.rerender(<SettingsPage client={client} route={{ page: "ai", nonce: 3 }} />);
-  expect(screen.getByRole("tab", { name: "辅助功能" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("tab", { name: "输入辅助" }).getAttribute("aria-selected")).toBe("true");
   view.rerender(<SettingsPage client={client} route={{ page: "developer", nonce: 4 }} />);
   expect(screen.getByRole("heading", { name: /^(维护与诊断|维护诊断)$/ })).toBeTruthy();
 });

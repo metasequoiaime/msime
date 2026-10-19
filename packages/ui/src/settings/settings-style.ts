@@ -370,7 +370,7 @@ export const mobileTabIcon =
 
 /** 桌面设置页的顶部功能标签，沿用当前平台的分段控件配色。 */
 export const candidateTabs =
-  "grid grid-flow-col auto-cols-fr gap-0.5 rounded-[var(--p-seg-r)] bg-[var(--p-seg-bg)] p-0.5 [border:var(--p-seg-border)] [&>button]:min-h-9 [&>button]:rounded-[var(--p-seg-item-r)] [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-2 [&>button]:text-sm [&>button]:[color:var(--p-text)] [&>button[aria-selected=true]]:bg-[var(--p-seg-on)] [&>button[aria-selected=true]]:[color:var(--p-seg-on-fg)] [&>button[aria-selected=true]]:[box-shadow:var(--p-seg-on-shadow)] [&>button:focus-visible]:outline-2 [&>button:focus-visible]:outline-offset-1 [&>button:focus-visible]:outline-accent";
+  "flex overflow-x-auto gap-0.5 [&>button]:min-w-max [&>button]:flex-1 [&>button]:whitespace-nowrap rounded-[var(--p-seg-r)] bg-[var(--p-seg-bg)] p-0.5 [border:var(--p-seg-border)] [&>button]:min-h-9 [&>button]:rounded-[var(--p-seg-item-r)] [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-2 [&>button]:text-sm [&>button]:[color:var(--p-text)] [&>button[aria-selected=true]]:bg-[var(--p-seg-on)] [&>button[aria-selected=true]]:[color:var(--p-seg-on-fg)] [&>button[aria-selected=true]]:[box-shadow:var(--p-seg-on-shadow)] [&>button:focus-visible]:outline-2 [&>button:focus-visible]:outline-offset-1 [&>button:focus-visible]:outline-accent";
 
 /** 维护页只有两个入口，使用紧凑的分段控件，避免标签横向铺满内容区。 */
 export const maintenanceTabs =

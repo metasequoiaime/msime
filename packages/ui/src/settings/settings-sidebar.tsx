@@ -16,6 +16,7 @@ export interface SettingsSidebarProps {
   shownSidebarGroups: readonly SettingsPageGroup[];
   navigationPage: SettingsPageId;
   navSearchField: ReactNode;
+  navSearchResults?: ReactNode;
   windowDragHandlers: ReturnType<typeof useSettingsWindowInteractions>["windowDragHandlers"];
   selectPage: (page: SettingsPageId) => void;
 }
@@ -27,6 +28,7 @@ export function SettingsSidebar({
   shownSidebarGroups,
   navigationPage,
   navSearchField,
+  navSearchResults,
   windowDragHandlers,
   selectPage,
 }: SettingsSidebarProps) {
@@ -55,20 +57,21 @@ export function SettingsSidebar({
       )}
       {searchInSidebar && <label className={settings.sidebarSearch}>{navSearchField}</label>}
       <div className={settings.sidebarItems}>
-        {shownSidebarGroups.flatMap((group) =>
-          group.pages.map((item) => (
-            <NavItem
-              key={item.id}
-              label={item.title}
-              icon={<img className={settings.sidebarGlyph} src={item.icon} alt="" />}
-              selected={navigationPage === item.id}
-              controls="settings-content"
-              onSelect={() => selectPage(item.id)}
-            />
-          )),
-        )}
+        {navSearchResults ??
+          shownSidebarGroups.flatMap((group) =>
+            group.pages.map((item) => (
+              <NavItem
+                key={item.id}
+                label={item.title}
+                icon={<img className={settings.sidebarGlyph} src={item.icon} alt="" />}
+                selected={navigationPage === item.id}
+                controls="settings-content"
+                onSelect={() => selectPage(item.id)}
+              />
+            )),
+          )}
       </div>
-      {shownSidebarGroups.length === 0 && (
+      {!navSearchResults && shownSidebarGroups.length === 0 && (
         <p className={settings.sidebarEmpty} role="status">
           没有匹配的设置
         </p>
