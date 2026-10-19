@@ -32,7 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
-/// 一个包最多携带的图片数。清单可以引用预览图、装饰图、背景图，以及 v2 九宫格的来源图和自由挂件；上传的每个文件都必须被清单引用。
+/// Most images one package may carry. The manifest can reference only the preview, the decoration image and the background image, and every file must be referenced; canvas packages, whose nine-slice sources and widgets would add more, are refused before upload (see [`SERVER_UNSUPPORTED_BASES`]).
 pub const MAX_PACKAGE_FILES: usize = 3;
 /// Largest single image, as uploaded and after the server re-encodes it.
 pub const MAX_PACKAGE_FILE_BYTES: usize = 1 << 20;
@@ -50,6 +50,8 @@ pub const MAX_DOWNLOAD_RESPONSE_BYTES: usize = 4 << 20;
 pub const MAX_PREVIEW_RESPONSE_BYTES: usize = 512 * 1024;
 /// 服务端精选目录给自己保留的候选皮肤 ID（`internal/skins/catalog.go`）。它们现在也都在 `catalog::is_reserved` 里，这里的检查与之重复，留着是为了让这份清单与服务端的对应关系一目了然。
 pub const SERVER_BUILTIN_IDS: [&str; 4] = ["fluent", "wechat", "graphite", "willow_green"];
+/// 本地目录接受、但服务端 `ParseStored`（`internal/skins/client.go`）还不收的清单 `base`：`canvas` 不在它的 `baseThemeIDs`/`windowsLookIDs` 里，它的九宫格来源图和挂件也不在 `validCandidatePackage` 认的引用之内；`wechat_scroll` 不在 `windowsLookIDs` 里。这样的包在上传前拒绝，免得上传后才收到一个说不清原因的服务端错误。服务端支持后从这里删掉。
+pub const SERVER_UNSUPPORTED_BASES: [&str; 2] = ["canvas", "wechat_scroll"];
 
 const MAX_PUBLISH_RESPONSE_BYTES: usize = 64 * 1024;
 /// Largest sync listing: the per-user library cap of 100 rows at well under 1 KiB each, with room for the cap to grow.
@@ -974,7 +976,7 @@ pub struct PackedSkin {
     pub file_count: usize,
 }
 
-/// 收集清单引用的图片：v1 的装饰图、背景图、预览图，以及 v2 的所有九宫格来源图和自由挂件。每个路径都必须是安全的 PNG 或 JPEG 相对路径，忽略大小写后仍须唯一，因为服务端按大小写不敏感的键存储。v2 资源超过社区文件上限时在上传前拒绝，避免生成其他宿主无法加载的残缺包。
+/// 收集清单引用的图片：装饰图、背景图、预览图，以及 `canvas` 包的九宫格来源图和自由挂件（`canvas` 包目前在 [`pack_as`] 里整包拒绝，这里仍把它们列全，`add_preview` 选新文件名和 `install` 核对文件时都靠这份完整清单）。每个路径都必须是安全的 PNG 或 JPEG 相对路径，忽略大小写后仍须唯一，因为服务端按大小写不敏感的键存储。
 fn referenced_images(summary: &SkinSummary) -> Result<BTreeSet<String>, &'static str> {
     let mut paths = BTreeSet::new();
     let mut add = |path: &str| {
@@ -1073,6 +1075,29 @@ pub fn pack_as(
     if SERVER_BUILTIN_IDS.contains(&id) {
         return Err(PACKAGE);
     }
+    let directory = root.join(id);
+    let input = crate::storage::open_private_file_in(&directory.join(MANIFEST_FILE))
+        .map_err(|_| PACKAGE)?;
+    let manifest = crate::bounded_io::read_bounded_file_with(
+        input,
+        MAX_MANIFEST_BYTES as u64,
+        || TOO_LARGE,
+        |_| PACKAGE,
+    )?;
+    let manifest = String::from_utf8(manifest).map_err(|_| PACKAGE)?;
+    // `SkinSummary::base` 已把 `canvas` 和 msime-windows 外观折成 `system`，服务端认不认要看清单里原本写的 `base`。
+    let declared = toml::from_str::<toml::Table>(manifest.trim_start_matches('\u{feff}'))
+        .map_err(|_| PACKAGE)?;
+    let declared_text = |key: &str| declared.get(key).and_then(toml::Value::as_str);
+    // 目录把空的 `author`、`description` 当作没写（与 msime-windows 相同），服务端 `ParseStored` 仍按长度拒收空串，所以这样的清单也在上传前拒绝。
+    if summary.canvas
+        || declared_text("base").is_some_and(|base| SERVER_UNSUPPORTED_BASES.contains(&base))
+        || ["author", "description"]
+            .into_iter()
+            .any(|key| declared_text(key) == Some(""))
+    {
+        return Err(PACKAGE);
+    }
     let preview = shared_preview(&summary)?;
     let declared = summary.license.clone().filter(|license| {
         license
@@ -1102,7 +1127,6 @@ pub fn pack_as(
     if referenced.len() > MAX_PACKAGE_FILES {
         return Err(TOO_LARGE);
     }
-    let directory = root.join(id);
     let mut files = BTreeMap::new();
     let mut size = 0_usize;
     let mut pixels = 0_u64;
@@ -1140,15 +1164,6 @@ pub fn pack_as(
         }
         files.insert(path.clone(), BASE64.encode(&resource.bytes));
     }
-    let input = crate::storage::open_private_file_in(&directory.join(MANIFEST_FILE))
-        .map_err(|_| PACKAGE)?;
-    let manifest = crate::bounded_io::read_bounded_file_with(
-        input,
-        MAX_MANIFEST_BYTES as u64,
-        || TOO_LARGE,
-        |_| PACKAGE,
-    )?;
-    let manifest = String::from_utf8(manifest).map_err(|_| PACKAGE)?;
     let (suggested_name, suggested_description) =
         suggested_publication_fields(&summary.name, summary.description.as_deref(), id);
     Ok(PackedSkin {

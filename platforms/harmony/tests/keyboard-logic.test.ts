@@ -4299,14 +4299,37 @@ group("resolves external candidate skin tokens without trusting missing fields",
     base: "system",
     animation: { enter: "spring", exit: "fade", selection: "glow", durationMs: 220, staggerMs: 16 },
   };
+  const nonCanvasMotion = CandidateSkinCatalogPolicy.animation([nonCanvasV2], "sample");
   check(
-    CandidateSkinCatalogPolicy.animation([nonCanvasV2], "sample").enter === "fade_scale",
-    "v2 animation is ignored when the package is not based on canvas",
+    nonCanvasMotion.enter === "spring" &&
+      nonCanvasMotion.selection === "glow" &&
+      nonCanvasMotion.durationMs === 220 &&
+      nonCanvasMotion.staggerMs === 16,
+    "v2 animation applies to any base, not only canvas",
   );
   check(
     CandidateSkinCatalogPolicy.animation([{ ...nonCanvasV2, canvas: true }], "sample").enter ===
       "spring",
-    "the host catalog canvas marker enables v2 animation after base normalization",
+    "the host catalog canvas marker does not change v2 animation",
+  );
+  const motionOff = CandidateSkinCatalogPolicy.animation(
+    [
+      {
+        ...nonCanvasV2,
+        animation: {
+          enter: "none",
+          exit: "fade",
+          selection: "none",
+          durationMs: 220,
+          staggerMs: 16,
+        },
+      },
+    ],
+    "sample",
+  );
+  check(
+    motionOff.enter === "none" && motionOff.selection === "none",
+    "a non-canvas v2 package that turns motion off is honoured",
   );
 });
 

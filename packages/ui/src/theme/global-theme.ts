@@ -261,14 +261,14 @@ export type PackageCandidatePalette = Partial<
   >
 > & { showSelectedBar?: boolean | null };
 
-/** `theme::normalized_color`: a package colour as `#RRGGBB` or `#RRGGBBAA` (uppercase), converting `#RGB`, `rgb()`/`rgba()` with 0-255 channels and a 0-1 alpha, and `transparent`; `null` for anything else. */
+/** `theme::normalized_color`: a package colour as `#RRGGBB` or `#RRGGBBAA` (uppercase), converting `#RGB`, `#RGBA` (alpha last, as in `#RRGGBBAA`), `rgb()`/`rgba()` with 0-255 channels and a 0-1 alpha, and `transparent`; `null` for anything else. */
 export function normalizedColor(value: string): string | null {
   const trimmed = value.trim();
   if (trimmed.toLowerCase() === "transparent") return "#00000000";
   if (trimmed.startsWith("#")) {
     const hex = trimmed.slice(1);
     if (!/^[0-9a-f]*$/i.test(hex)) return null;
-    if (hex.length === 3)
+    if (hex.length === 3 || hex.length === 4)
       return `#${[...hex].map((digit) => digit + digit).join("")}`.toUpperCase();
     return hex.length === 6 || hex.length === 8 ? `#${hex.toUpperCase()}` : null;
   }

@@ -184,18 +184,19 @@ await engine.setHelpcode("lantian");  // 换一套，首次下载这张表
 | `night` | 夜青 | 深色 |
 | `ink` | 墨 | 深色 |
 | `wechat` | 微信绿 | 跟随 `dark` |
+| `wechat_scroll` | 微信绿(卷轴) | 跟随 `dark` |
 | `graphite` | 石墨 | 跟随 `dark` |
 | `willow_green` | 杨柳青 | 跟随 `dark` |
 | `autumn_osmanthus` | 秋桂 | 跟随 `dark` |
 | `microsoft` | 微软 | 跟随 `dark` |
 
-五个全局主题自带明暗，和桌面端一样不受 `dark` 影响；后五个是 Windows 版的内置外观，深浅两套配色都有。`SKINS` 导出全部 ID。
+五个全局主题自带明暗，和桌面端一样不受 `dark` 影响；后六个是 Windows 版的内置外观，深浅两套配色都有。网页候选栏不画 Windows 版 `wechat_scroll` 的卷轴展开面板，只取它的配色和圆角。`SKINS` 导出全部 ID。
 
-Windows 外观高亮候选的文字和序号色按 Windows 版的样式表画：`wechat`、`willow_green` 是绿底白字，`graphite` 没有选中底色，只靠更深（深色下更亮）的字色标出高亮。桌面端的 `theme::resolve` 没有这个槽位，`base` 是这些外观的皮肤包在桌面上画普通文字色；皮肤对象自己写了 `selected` 时也画普通文字色。
+Windows 外观高亮候选的文字和序号色按 Windows 版的样式表画：`wechat`、`wechat_scroll`、`willow_green` 是绿底白字，`graphite` 没有选中底色，只靠更深（深色下更亮）的字色标出高亮。桌面端的 `theme::resolve` 没有这个槽位，`base` 是这些外观的皮肤包在桌面上画普通文字色；皮肤对象自己写了 `selected` 时也画普通文字色。
 
 ### 自定义皮肤对象
 
-`skin` 也可以是一个对象，字段与桌面端皮肤包 `skin.toml` 解析后的 JSON（设置页的 `SkinSummary`）相同，只取候选框用得到的部分。尺寸单位 dip 在网页上就是 CSS px。只有 `base: "canvas"` 的 `schemaVersion: 2` 清单启用 `animation`；其他 base 的 v2 清单按 v1 安全降级。动画的 `enter`、`exit`、`selection` 使用 `none`、`fade`、`fade_scale`、`slide_up`、`spring` 或 `glow`，`durationMs` 为 40–600，`staggerMs` 为 0–80。动画由候选栏使用固定的安全关键帧绘制，系统的 reduced-motion 设置会关闭它；不支持这些字段的宿主仍按静态皮肤绘制：
+`skin` 也可以是一个对象，字段与桌面端皮肤包 `skin.toml` 解析后的 JSON（设置页的 `SkinSummary`）相同，只取候选框用得到的部分。尺寸单位 dip 在网页上就是 CSS px。`schemaVersion: 2` 还可以带 `animation`，对任何 base 都生效，没写 `animation` 时采用安全的默认动画：`enter`、`exit`、`selection` 使用 `none`、`fade`、`fade_scale`、`slide_up`、`spring` 或 `glow`，`durationMs` 为 40–600，`staggerMs` 为 0–80。动画由候选栏使用固定的安全关键帧绘制，系统的 reduced-motion 设置会关闭它；不支持这些字段的宿主仍按静态皮肤绘制。`base: "canvas"`（桌面 `SkinSummary` 报成 `base: "system"` 加 `canvas: true`）必须配 `schemaVersion: 2`，否则抛出 `TypeError`；它只额外表示九宫格边框、自由挂件、insets 这些 canvas 专属字段，其他 base 的 v2 清单忽略这些字段但照常播放动画。网页暂不绘制这些贴图原语，canvas 皮肤回退到公共候选卡片：
 
 ```js
 attachInput(textarea, engine, {

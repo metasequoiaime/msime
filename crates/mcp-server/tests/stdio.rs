@@ -254,6 +254,7 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     let listed = ok(&client, "list_candidate_skins", json!({})).await;
     assert_eq!(listed["skins"][0]["id"], "sunset");
     assert_eq!(listed["skins"][0]["synced"], false);
+    assert_eq!(listed["skins"][0]["canvas"], false);
     after_write_interval().await;
     assert!(refused(&client, "create_candidate_skin", skin.clone())
         .await

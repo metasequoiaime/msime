@@ -120,7 +120,7 @@ int main()
 id = "wide-card"
 name = "Wide Card"
 version = "1"
-base = "canvas"
+base = "system"
 [supports]
 layouts = ["vertical"]
 themes = ["light", "dark"]
@@ -146,7 +146,7 @@ stagger_ms = 14
 id = "implicit-card"
 name = "Implicit Card"
 version = "1"
-base = "canvas"
+base = "system"
 [supports]
 layouts = ["vertical"]
 themes = ["light", "dark"]
@@ -388,7 +388,7 @@ min_width_dip = 240
 id = "whale-card"
 name = "Whale Card"
 version = "1"
-base = "canvas"
+base = "system"
 [supports]
 layouts = ["vertical"]
 themes = ["light", "dark"]
@@ -486,7 +486,7 @@ motion_period_ms = 2000
 id = "too-many-frames"
 name = "Too Many Frames"
 version = "1"
-base = "canvas"
+base = "system"
 [supports]
 layouts = ["vertical"]
 themes = ["light"]

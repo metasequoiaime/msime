@@ -29,14 +29,14 @@ const builtinThemes = themes.filter((entry) => entry.candidate !== null);
 if (!systemEntry) throw new Error("theme catalog: no system entry");
 
 /**
- * SDK 接受的内置皮肤 ID，顺序同主题表：`system`（含义见上）、五个全局主题，再加 msime-windows 的五个内置外观。外观在桌面上只能作为皮肤包的 `base`，这里把它们当作一个两种布局、深浅两种模式都支持、没写任何颜色的皮肤包，按 `windows_looks::fill_from_look` 补齐配色和圆角后画在 `system` 之上，与 Windows 上同名外观一致。`fluent` 就是 Windows 原生配色、等同 `system`，不单列；`custom` 是桌面设置里的自定义主题，不是皮肤。
+ * SDK 接受的内置皮肤 ID，顺序同主题表：`system`（含义见上）、五个全局主题，再加 msime-windows 的六个内置外观。外观在桌面上只能作为皮肤包的 `base`，这里把它们当作一个两种布局、深浅两种模式都支持、没写任何颜色的皮肤包，按 `windows_looks::fill_from_look` 补齐配色和圆角后画在 `system` 之上，与 Windows 上同名外观一致。`fluent` 就是 Windows 原生配色、等同 `system`，不单列；`custom` 是桌面设置里的自定义主题，不是皮肤。
  */
 export const SKINS = Object.freeze([
   ...themes.filter((entry) => entry.id === "system" || entry.candidate !== null).map((entry) => entry.id),
   ...windowsLooks.map((look) => look.id),
 ]);
 
-/** `theme::normalized_color`：颜色写成大写的 `#RRGGBB` 或 `#RRGGBBAA`，接受 `#RGB`、通道 0-255 且透明度 0-1 的 `rgb()`/`rgba()` 和 `transparent`；其他一律 `null`。 */
+/** `theme::normalized_color`：颜色写成大写的 `#RRGGBB` 或 `#RRGGBBAA`，接受 `#RGB`、`#RGBA`（透明度在最后，与 `#RRGGBBAA` 相同）、通道 0-255 且透明度 0-1 的 `rgb()`/`rgba()` 和 `transparent`；其他一律 `null`。 */
 export function normalizedColor(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -44,7 +44,7 @@ export function normalizedColor(value) {
   if (trimmed.startsWith("#")) {
     const hex = trimmed.slice(1);
     if (!/^[0-9a-f]*$/i.test(hex)) return null;
-    if (hex.length === 3) return `#${[...hex].map((digit) => digit + digit).join("")}`.toUpperCase();
+    if (hex.length === 3 || hex.length === 4) return `#${[...hex].map((digit) => digit + digit).join("")}`.toUpperCase();
     return hex.length === 6 || hex.length === 8 ? `#${hex.toUpperCase()}` : null;
   }
   const lower = trimmed.toLowerCase();
@@ -166,11 +166,8 @@ function declared(value, allowed) {
 /** 读取 schema v2 动效契约。未知值会被忽略，让新预设在旧网页宿主中安全降级为静态皮肤。 */
 function packageAnimation(skin) {
   const raw = skin?.animation;
-  // 与共享 catalog 一致：v2 只有 canvas 基底才启用；其他 base 的 v2 清单按 v1
-  // 加载，避免网页宿主和原生宿主对同一个包播出不同的动效。
-  const rawBase = skin?.base;
-  const v2 = (Number(skin?.schemaVersion) === 2 || Number(skin?.schema_version) === 2) &&
-    (rawBase === "canvas" || skin?.canvas === true);
+  // 与共享 catalog 一致：v2 对任何 base 都启用有界动画；`canvas` 只决定九宫格与自由挂件这些 canvas 专属字段。
+  const v2 = Number(skin?.schemaVersion) === 2 || Number(skin?.schema_version) === 2;
   if (!v2) return DEFAULT_ANIMATION;
   if (raw === null || typeof raw !== "object") return LIVELY_ANIMATION;
   const preset = (value, fallback) => ANIMATION_PRESETS.includes(value) ? value : fallback;
@@ -216,7 +213,10 @@ function readPackage(skin) {
   const rawBase = skin.base === undefined || skin.base === null ? "system" : skin.base;
   if (typeof rawBase !== "string") throw new TypeError("skin base must be a string");
   const look = windowsLooks.find((entry) => entry.id === rawBase) ?? null;
-  const canvas = rawBase === "canvas" || skin.canvas === true;
+  // 与 `catalog::load` 和 msime-windows 一致：`canvas` 基底必须配 schema 2。
+  if (rawBase === "canvas" && Number(skin.schemaVersion ?? skin.schema_version) !== 2) throw new TypeError("skin base canvas requires schemaVersion 2");
+  // `SkinSummary` 把 canvas 包报成 `base: "system"` 加 `canvas: true`；这个标记不会覆盖全局主题或 Windows 外观基底。
+  const canvas = rawBase === "canvas" || (skin.canvas === true && rawBase === "system");
   const base = (look || canvas || plainWindowsLooks.includes(rawBase)) ? "system" : rawBase;
   if (base !== "system" && !builtinThemes.some((entry) => entry.id === base)) throw new TypeError(`unknown skin base: ${rawBase}`);
   const candidate = skin.candidate !== null && typeof skin.candidate === "object" ? skin.candidate : {};

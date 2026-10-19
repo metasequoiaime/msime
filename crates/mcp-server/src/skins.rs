@@ -1,8 +1,8 @@
 //! External candidate-window skins as an agent may see and make them.
 //!
-//! A skin is a folder under `skins` in the state directory: a `skin.toml` manifest and the PNG or JPEG images it references. The desktop app keeps that folder in step with the signed-in user's cloud library, so a skin written here is uploaded as a private package the next time the app starts or its community page opens. The server itself never signs in: the account session belongs to the desktop app, whose refresh token is rotated on every use, so a second process holding it would sign the user out.
+//! A skin is a folder under `skins` in the state directory: a `skin.toml` manifest and the images it references, PNG or JPEG for a skin made here (the catalog also reads APNG, GIF and WebP border and widget images in a canvas skin installed by hand, which cannot be made here or shared). The desktop app keeps that folder in step with the signed-in user's cloud library, so a skin written here is uploaded as a private package the next time the app starts or its community page opens. The server itself never signs in: the account session belongs to the desktop app, whose refresh token is rotated on every use, so a second process holding it would sign the user out.
 //!
-//! A skin is written by the same rule the community gallery installs a download by (`candidate_community::install`): the manifest verbatim plus exactly the images it references, a preview among them, and no stylesheet. Every skin made here can therefore be synced and shared without further changes.
+//! A skin is written by the same rule the community gallery installs a download by (`candidate_community::install`): the manifest verbatim plus exactly the images it references, a preview among them, and no stylesheet. Every skin made here can therefore be synced and shared without further changes, except one on the `canvas` or `wechat_scroll` base, which the community library does not take yet (`candidate_community::SERVER_UNSUPPORTED_BASES`), or one whose `author` or `description` is an empty string, which the catalog reads as not written but the server still refuses.
 
 use msime_client_core::uuid::Uuid;
 use msime_client_services::skin::candidate_community::{self, CandidateSkinPackage};
@@ -36,6 +36,11 @@ pub struct SkinView {
     pub layouts: Vec<String>,
     /// The colour modes the skin supports: dark, light.
     pub themes: Vec<String>,
+    /// Whether the manifest's base is `canvas`, msime-windows' full-image base: only then are `[candidate_window.border_image]`, `[[candidate_window.decorations]]` and the canvas insets read, and no msime host draws them yet, so the skin shows the opaque canvas look.
+    pub canvas: bool,
+    /// Notes that do not stop the skin from loading, such as canvas-only keys ignored under another base, or a canvas skin's nine-slice panel and widgets that this input method does not draw. Omitted when there are none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notices: Vec<String>,
     /// 有限的 schema v2 动效契约。版本 1 皮肤报告为 `none` 预设。
     pub animation: SkinAnimationView,
     /// 候选窗上方的装饰图，皮肤没有装饰图时省略。
@@ -52,7 +57,7 @@ pub struct SkinDecorationView {
     pub motion: String,
     /// 待机动效一个周期的毫秒数。
     pub motion_period_ms: u16,
-    /// 装饰图的帧数：静态 PNG、JPEG 为 1，APNG 为它的动画帧数。
+    /// 装饰图的帧数：静态 PNG、JPEG 为 1，APNG（以及手动装进皮肤目录的 GIF、WebP）为它的动画帧数。
     pub frames: u32,
     /// 装饰图是不是多帧的 APNG（frames 大于 1）。能播帧动画的宿主（目前是 macOS）播放它，其他宿主只画第一帧。
     pub animated: bool,
@@ -89,11 +94,11 @@ pub struct SkinIssueView {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct CreateSkinRequest {
-    /// The skin's folder name, which must also be the manifest's `id`: lowercase ASCII letters, digits, `_`, `-` and `.`, starting with a letter or digit, at most 64 bytes, and not a built-in theme name.
+    /// The skin's folder name, which must also be the manifest's `id`: lowercase ASCII letters, digits, `_`, `-` and `.`, starting with a letter or digit, at most 64 bytes, and not a reserved id: a built-in theme (system, shuishan, light, paper, night, ink), an msime-windows built-in look (fluent, wechat, wechat_scroll, graphite, willow_green, autumn_osmanthus, microsoft), canvas or default.
     pub package_id: String,
     /// The whole `skin.toml`, at most 64 KiB.
     pub manifest: String,
-    /// Each image the manifest references (`preview`, `candidate_window.decoration.image`, `candidate_window.background.image`), keyed by its path relative to the skin folder, in standard base64. PNG or JPEG only, each a complete image that decodes with the codec its extension names, at most 3 images, 1 MiB and 2048 pixels on each side each, 2 MiB and 8,000,000 pixels together, the preview at most 256 KiB. The decoration image may be an animated PNG (APNG) of at most 120 frames; every frame counts as a whole image toward the 8,000,000 pixels.
+    /// Each image the manifest references (`preview`, `candidate_window.decoration.image`, `candidate_window.background.image` and, with `base = "canvas"`, `candidate_window.border_image.source` and `light_source` and every `candidate_window.decorations[].image`), keyed by its path relative to the skin folder, in standard base64. PNG or JPEG only (the border image and widgets PNG only; .apng, .gif and .webp are refused because the skin must be shareable), each a complete image that decodes with the codec its extension names, at most 3 images, 1 MiB and 2048 pixels on each side each, 2 MiB and 8,000,000 pixels together, the preview at most 256 KiB. The decoration image may be an animated PNG (APNG) of at most 120 frames; every frame counts as a whole image toward the 8,000,000 pixels.
     pub images: BTreeMap<String, String>,
     /// Replace an existing skin of this id whole. Without it an existing skin is left alone and the call refused.
     #[serde(default)]
@@ -129,6 +134,8 @@ pub fn list(state_dir: &Path) -> SkinList {
                 description: package.description,
                 layouts: package.layouts,
                 themes: package.themes,
+                canvas: package.canvas,
+                notices: package.notices,
                 animation: SkinAnimationView {
                     enter: package.animation.enter.id().into(),
                     exit: package.animation.exit.id().into(),
@@ -184,8 +191,8 @@ pub fn create(state_dir: &Path, request: &CreateSkinRequest) -> Result<CreatedSk
 fn explain(code: &str) -> &'static str {
     match code {
         "candidate_skin_exists" => "a skin with this package_id is already installed; list_candidate_skins shows it. Pass replace: true to replace it whole, or choose another id",
-        "candidate_skin_file_path" => "images must hold 1 to 3 entries, each a relative path inside the skin folder other than skin.toml, unique ignoring case",
-        "candidate_skin_file_type" => "every image must be a .png, .jpg or .jpeg file",
+        "candidate_skin_file_path" => "images must hold 1 to 3 entries, the preview and any decoration, background, border_image and decorations images counted together, each a relative path inside the skin folder other than skin.toml, unique ignoring case",
+        "candidate_skin_file_type" => "every image must be a .png, .jpg or .jpeg file, and a border_image or decorations image a .png; an animated image must be an APNG saved with a .png name, because .apng, .gif and .webp files are not accepted for shared skins",
         "candidate_skin_too_large" => "too large: the manifest may be 64 KiB, each image 1 MiB and 2048 pixels on each side, all images 2 MiB and 8,000,000 pixels together (each APNG frame counts as a whole image), an APNG at most 120 frames, and the preview 256 KiB",
         "candidate_skin_image_invalid" => "an image is not valid standard base64, or its bytes (every frame of an APNG) cannot be decoded as the PNG or JPEG its extension names: it may be truncated or corrupted, so generate it again and pass the whole base64",
         "storage" => "the skin folder could not be written",
@@ -193,10 +200,12 @@ fn explain(code: &str) -> &'static str {
     }
 }
 
+const BASE_RULES: &str = "skin.toml: base must be system, a built-in theme (shuishan, light, paper, night, ink), an msime-windows built-in look (fluent, wechat, wechat_scroll, graphite, willow_green, autumn_osmanthus, microsoft), or canvas with schema_version = 2";
+
 /// Why `install` refused the manifest, in words an agent can act on. `install` reports every manifest problem with one code, so the manifest is loaded again here, beside empty stand-ins for the images, by the rule the catalog lists skins by.
 fn manifest_problem(request: &CreateSkinRequest) -> String {
     if !catalog::is_external_id(&request.package_id) {
-        return "package_id must be lowercase ASCII letters, digits, `_`, `-` and `.`, start with a letter or digit, be at most 64 bytes, and not name a built-in theme".into();
+        return "package_id must be lowercase ASCII letters, digits, `_`, `-` and `.`, start with a letter or digit, be at most 64 bytes, and not be a reserved id: a built-in theme (system, shuishan, light, paper, night, ink), an msime-windows built-in look (fluent, wechat, wechat_scroll, graphite, willow_green, autumn_osmanthus, microsoft), canvas or default".into();
     }
     const SHARING_RULES: &str = "a skin must set `preview` to a .png, .jpg or .jpeg image, must not set `toolbar_stylesheet`, and images must hold exactly the images the manifest references";
     let Ok(scratch) = tempfile::tempdir() else {
@@ -226,6 +235,7 @@ fn manifest_problem(request: &CreateSkinRequest) -> String {
         Err(reason) if reason == "manifest id does not match folder" => {
             "the manifest's id must equal package_id".into()
         }
+        Err(reason) if reason == "base must be system or a built-in theme" => BASE_RULES.into(),
         Err(reason) => format!("skin.toml: {reason}"),
         Ok(_) => SHARING_RULES.into(),
     }
@@ -275,6 +285,8 @@ mod tests {
                 description: None,
                 layouts: vec!["horizontal".into(), "vertical".into()],
                 themes: vec!["dark".into(), "light".into()],
+                canvas: false,
+                notices: Vec::new(),
                 animation: SkinAnimationView {
                     enter: "none".into(),
                     exit: "none".into(),
@@ -301,7 +313,7 @@ mod tests {
             ("enter_only", "[animation]\nenter = 'slide_up'\n"),
         ] {
             let manifest = format!(
-                "schema_version = 2\nid = '{id}'\nname = 'Motion'\nversion = '2.0'\nbase = 'canvas'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{animation}"
+                "schema_version = 2\nid = '{id}'\nname = 'Motion'\nversion = '2.0'\nbase = 'system'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{animation}"
             );
             create(
                 state.path(),
@@ -315,14 +327,11 @@ mod tests {
             .unwrap();
         }
         let listed = list(state.path());
-        let animation = |id: &str| {
-            &listed
-                .skins
-                .iter()
-                .find(|skin| skin.id == id)
-                .unwrap()
-                .animation
-        };
+        let skin = |id: &str| listed.skins.iter().find(|skin| skin.id == id).unwrap();
+        let animation = |id: &str| &skin(id).animation;
+        // 版本 2 的动效不限于 canvas：base = system 的清单照样按版本 2 列出。
+        assert_eq!(skin("implicit").schema_version, 2);
+        assert!(!skin("implicit").canvas);
         // 省略 `[animation]` 的版本 2 皮肤照样报出默认组合，但标明一个都没写，macOS 不会播放。
         let implicit = animation("implicit");
         assert_eq!(implicit.enter, "fade_scale");
@@ -358,7 +367,7 @@ mod tests {
             ("still", PNG, ""),
         ] {
             let manifest = format!(
-                "schema_version = 2\nid = '{id}'\nname = 'Whale'\nversion = '1.0'\nbase = 'canvas'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'whale.png'\ntop_inset_dip = 40\nwidth_dip = 60\n{motion}"
+                "schema_version = 2\nid = '{id}'\nname = 'Whale'\nversion = '1.0'\nbase = 'system'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'whale.png'\ntop_inset_dip = 40\nwidth_dip = 60\n{motion}"
             );
             create(
                 state.path(),
@@ -405,6 +414,106 @@ mod tests {
         );
     }
 
+    /// A version 2 manifest on `base`, with `extra` tables after `[candidate_window]`.
+    fn v2_manifest(id: &str, base: &str, extra: &str) -> String {
+        format!(
+            "schema_version = 2\nid = '{id}'\nname = 'Panel'\nversion = '1.0'\nbase = '{base}'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{extra}"
+        )
+    }
+
+    const CANVAS_TABLES: &str = "[candidate_window.border_image]\nsource = 'panel.png'\nslice_dip = [8]\n[[candidate_window.decorations]]\nimage = 'leaf.png'\nanchor = 'top-left'\nwidth_dip = 24\nheight_dip = 24\n";
+
+    #[test]
+    fn a_canvas_skin_with_a_border_image_and_widgets_is_created_and_listed() {
+        let state = tempfile::tempdir().unwrap();
+        create(
+            state.path(),
+            &CreateSkinRequest {
+                package_id: "panel".into(),
+                manifest: v2_manifest("panel", "canvas", CANVAS_TABLES),
+                images: BTreeMap::from([
+                    ("preview.png".into(), PNG.into()),
+                    ("panel.png".into(), PNG.into()),
+                    ("leaf.png".into(), PNG.into()),
+                ]),
+                replace: false,
+            },
+        )
+        .unwrap();
+        let listed = list(state.path());
+        assert!(listed.issues.is_empty(), "{:?}", listed.issues);
+        let skin = &listed.skins[0];
+        assert_eq!(skin.id, "panel");
+        assert_eq!(skin.schema_version, 2);
+        assert!(skin.canvas);
+        assert_eq!(skin.notices.len(), 1, "{:?}", skin.notices);
+        assert!(skin.notices[0].contains("not drawn"), "{:?}", skin.notices);
+        assert_eq!(skin.animation.enter, "fade_scale");
+
+        // 九宫格面板和挂件同样计入 3 张图片的上限。
+        let crowded = CreateSkinRequest {
+            package_id: "crowded".into(),
+            manifest: v2_manifest(
+                "crowded",
+                "canvas",
+                &format!("{CANVAS_TABLES}[[candidate_window.decorations]]\nimage = 'star.png'\nwidth_dip = 12\nheight_dip = 12\n"),
+            ),
+            images: BTreeMap::from([
+                ("preview.png".into(), PNG.into()),
+                ("panel.png".into(), PNG.into()),
+                ("leaf.png".into(), PNG.into()),
+                ("star.png".into(), PNG.into()),
+            ]),
+            replace: false,
+        };
+        assert!(create(state.path(), &crowded)
+            .unwrap_err()
+            .contains("1 to 3 entries"));
+    }
+
+    #[test]
+    fn a_version_2_skin_on_another_base_keeps_its_animation_and_ignores_canvas_keys() {
+        let state = tempfile::tempdir().unwrap();
+        // msime-windows ignores the canvas-only tables under any other base, so their images are neither required nor accepted; [animation] and decoration motion stay version 2 features of every base.
+        create(
+            state.path(),
+            &CreateSkinRequest {
+                package_id: "lively".into(),
+                manifest: v2_manifest(
+                    "lively",
+                    "system",
+                    &format!("{CANVAS_TABLES}[animation]\nenter = 'slide_up'\n"),
+                ),
+                images: BTreeMap::from([("preview.png".into(), PNG.into())]),
+                replace: false,
+            },
+        )
+        .unwrap();
+        let listed = list(state.path());
+        let skin = &listed.skins[0];
+        assert_eq!(skin.schema_version, 2);
+        assert!(!skin.canvas);
+        assert_eq!(skin.notices.len(), 1, "{:?}", skin.notices);
+        assert!(
+            skin.notices[0].contains("border_image"),
+            "{:?}",
+            skin.notices
+        );
+        assert_eq!(skin.animation.enter, "slide_up");
+        assert!(skin.animation.declared.enter);
+    }
+
+    #[test]
+    fn a_skin_on_the_wechat_scroll_look_is_created() {
+        let state = tempfile::tempdir().unwrap();
+        let mut scroll = request("scroll", "Scroll", false);
+        scroll.manifest = scroll.manifest.replace("'night'", "'wechat_scroll'");
+        create(state.path(), &scroll).unwrap();
+        let listed = list(state.path());
+        assert_eq!(listed.skins[0].id, "scroll");
+        assert!(!listed.skins[0].canvas);
+    }
+
     #[test]
     fn an_existing_skin_is_replaced_only_when_asked() {
         let state = tempfile::tempdir().unwrap();
@@ -431,9 +540,14 @@ mod tests {
 
         let mut unsupported = request("sunset", "Sunset", false);
         unsupported.manifest = unsupported.manifest.replace("'night'", "'custom'");
+        assert_eq!(create(state.path(), &unsupported).unwrap_err(), BASE_RULES);
+
+        // msime-windows 的规则：canvas 只用于版本 2。
+        let mut static_canvas = request("sunset", "Sunset", false);
+        static_canvas.manifest = static_canvas.manifest.replace("'night'", "'canvas'");
         assert_eq!(
-            create(state.path(), &unsupported).unwrap_err(),
-            "skin.toml: base must be system or a built-in theme"
+            create(state.path(), &static_canvas).unwrap_err(),
+            "skin.toml: base = canvas requires schema_version 2"
         );
 
         let mut no_preview = request("sunset", "Sunset", false);
@@ -446,7 +560,14 @@ mod tests {
         reserved.manifest = manifest("night", "Night");
         assert!(create(state.path(), &reserved)
             .unwrap_err()
-            .contains("built-in theme"));
+            .contains("reserved id"));
+        for id in ["canvas", "wechat_scroll", "default"] {
+            let mut reserved = request(id, "Reserved", false);
+            reserved.manifest = manifest(id, "Reserved");
+            let refused = create(state.path(), &reserved).unwrap_err();
+            assert!(refused.contains("reserved id"), "{id}: {refused}");
+            assert!(refused.contains("canvas or default"), "{id}: {refused}");
+        }
 
         let mut not_png = request("sunset", "Sunset", false);
         not_png.images = BTreeMap::from([("preview.png".into(), "bm90IGEgcG5n".into())]);

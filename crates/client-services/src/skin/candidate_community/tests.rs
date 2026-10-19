@@ -167,25 +167,68 @@ fn pack_sends_the_manifest_verbatim_and_exactly_the_referenced_images() {
 }
 
 #[test]
-fn pack_includes_v2_border_image_sources_instead_of_dropping_them() {
+fn pack_refuses_bases_the_server_does_not_store_yet() {
     let root = tempfile::tempdir().unwrap();
-    let skin = root.path().join("canvas-demo");
-    fs::create_dir_all(&skin).unwrap();
+    // msime-cloud 还不收 `canvas`（连同九宫格来源图）和 `wechat_scroll`，上传前就拒绝，而不是上传后才收到说不清原因的错误。
+    let canvas = root.path().join("canvas-demo");
+    fs::create_dir_all(&canvas).unwrap();
     fs::write(
-        skin.join("skin.toml"),
+        canvas.join("skin.toml"),
         "schema_version = 2\nid = 'canvas-demo'\nname = 'Canvas'\nversion = '1.0'\nbase = 'canvas'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\n[candidate_window.border_image]\nsource = 'panel.png'\nlight_source = 'panel-light.png'\nslice_dip = [1]\n[license]\nassets = 'CC0-1.0'\n",
     )
     .unwrap();
-    fs::write(skin.join("preview.png"), png(1000)).unwrap();
-    fs::write(skin.join("panel.png"), png(1000)).unwrap();
-    fs::write(skin.join("panel-light.png"), png(1000)).unwrap();
-    let manifest = fs::read_to_string(skin.join("skin.toml")).unwrap();
-    let packed = pack(root.path(), "canvas-demo").unwrap();
-    assert_eq!(packed.manifest, manifest);
+    fs::write(canvas.join("preview.png"), png(1000)).unwrap();
+    fs::write(canvas.join("panel.png"), png(1000)).unwrap();
+    fs::write(canvas.join("panel-light.png"), png(1000)).unwrap();
+    assert!(catalog::load_package(root.path(), "canvas-demo").is_ok());
+    assert_eq!(pack(root.path(), "canvas-demo").unwrap_err(), PACKAGE);
     assert_eq!(
-        packed.files.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["panel-light.png", "panel.png", "preview.png"]
+        pack_as(root.path(), "canvas-demo", CandidateSkinVisibility::Private).unwrap_err(),
+        PACKAGE
     );
+
+    let scroll = root.path().join("scroll-demo");
+    fs::create_dir_all(&scroll).unwrap();
+    fs::write(
+        scroll.join("skin.toml"),
+        "schema_version = 1\nid = 'scroll-demo'\nname = 'Scroll'\nversion = '1.0'\nbase = 'wechat_scroll'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\n[license]\nassets = 'CC0-1.0'\n",
+    )
+    .unwrap();
+    fs::write(scroll.join("preview.png"), png(1000)).unwrap();
+    assert!(catalog::load_package(root.path(), "scroll-demo").is_ok());
+    assert_eq!(pack(root.path(), "scroll-demo").unwrap_err(), PACKAGE);
+
+    // 服务端认得的 msime-windows 外观照常打包。
+    let wechat = root.path().join("wechat-demo");
+    fs::create_dir_all(&wechat).unwrap();
+    fs::write(
+        wechat.join("skin.toml"),
+        "schema_version = 1\nid = 'wechat-demo'\nname = 'Wechat'\nversion = '1.0'\nbase = 'wechat'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\n[license]\nassets = 'CC0-1.0'\n",
+    )
+    .unwrap();
+    fs::write(wechat.join("preview.png"), png(1000)).unwrap();
+    assert!(pack(root.path(), "wechat-demo").is_ok());
+}
+
+#[test]
+fn pack_refuses_an_empty_author_or_description_the_server_still_rejects() {
+    let root = tempfile::tempdir().unwrap();
+    // 目录把空串当作没写，msime-cloud 的 ParseStored 仍按长度拒收，所以打包时拒绝。
+    for (id, line) in [
+        ("empty-author", "author = ''\n"),
+        ("empty-description", "description = ''\n"),
+    ] {
+        let skin = root.path().join(id);
+        fs::create_dir_all(&skin).unwrap();
+        fs::write(
+            skin.join("skin.toml"),
+            format!("schema_version = 1\nid = '{id}'\nname = 'Empty'\nversion = '1.0'\nbase = 'system'\npreview = 'preview.png'\n{line}[supports]\nlayouts = ['horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\n[license]\nassets = 'CC0-1.0'\n"),
+        )
+        .unwrap();
+        fs::write(skin.join("preview.png"), png(1000)).unwrap();
+        assert!(catalog::load_package(root.path(), id).is_ok(), "{id}");
+        assert_eq!(pack(root.path(), id).unwrap_err(), PACKAGE, "{id}");
+    }
 }
 
 #[test]

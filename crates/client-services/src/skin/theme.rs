@@ -409,7 +409,7 @@ pub fn custom_keyboard(design: &TouchKeyboardSkinDesign) -> KeyboardThemePalette
     }
 }
 
-/// An external package colour in the one form the theme contract emits (`#RRGGBB` or `#RRGGBBAA`, uppercase), or `None` for anything a host could not parse the same way. Packages written for the Windows presenter may also use `#RGB`, `rgb()`/`rgba()` with 0-255 channels and a 0-1 alpha, and `transparent`; those are converted rather than dropped.
+/// An external package colour in the one form the theme contract emits (`#RRGGBB` or `#RRGGBBAA`, uppercase), or `None` for anything a host could not parse the same way. Packages written for the Windows presenter may also use `#RGB`, `#RGBA` (alpha last, as in `#RRGGBBAA`), `rgb()`/`rgba()` with 0-255 channels and a 0-1 alpha, and `transparent`; those are converted rather than dropped.
 pub fn normalized_color(value: &str) -> Option<String> {
     let value = value.trim();
     if value.eq_ignore_ascii_case("transparent") {
@@ -420,7 +420,7 @@ pub fn normalized_color(value: &str) -> Option<String> {
             return None;
         }
         return match hex.len() {
-            3 => Some(format!(
+            3 | 4 => Some(format!(
                 "#{}",
                 hex.chars()
                     .flat_map(|digit| [digit, digit])

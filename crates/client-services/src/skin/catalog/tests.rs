@@ -78,7 +78,7 @@ fn decorated_package(root: &Path, decoration: &[u8], motion: &str) {
     fs::write(skin.join("whale.png"), decoration).unwrap();
     fs::write(
         skin.join("skin.toml"),
-        format!("schema_version = 2\nid = 'whale'\nname = 'Whale'\nversion = '1.0'\nbase = 'canvas'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'whale.png'\ntop_inset_dip = 40\nwidth_dip = 60\n{motion}"),
+        format!("schema_version = 2\nid = 'whale'\nname = 'Whale'\nversion = '1.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'whale.png'\ntop_inset_dip = 40\nwidth_dip = 60\n{motion}"),
     )
     .unwrap();
 }
@@ -274,6 +274,89 @@ fn gif_and_webp_decorations_are_dimension_checked_and_counted() {
             expected_frames
         );
     }
+}
+
+#[test]
+fn gif_frames_stop_at_the_frame_limit_and_the_package_budget() {
+    assert_eq!(
+        decoded_animation_frames(
+            &encoded_gif(2, 2, MAX_ANIMATION_FRAMES + 1),
+            image::ImageFormat::Gif,
+            4,
+            u64::MAX
+        ),
+        Err(ANIMATION_TOO_MANY_FRAMES)
+    );
+    // 剩余额度只够两帧半：第三帧解码完就停，不再往下解。
+    assert_eq!(
+        decoded_animation_frames(&encoded_gif(10, 10, 5), image::ImageFormat::Gif, 100, 250),
+        Err(IMAGE_DIMENSIONS_TOO_LARGE)
+    );
+    assert_eq!(
+        decoded_animation_frames(&encoded_gif(10, 10, 5), image::ImageFormat::Gif, 100, 500),
+        Ok((5, 5))
+    );
+}
+
+#[test]
+fn a_gif_with_a_damaged_tail_counts_the_frames_before_it() {
+    let mut bytes = encoded_gif(6, 4, 3);
+    assert_eq!(bytes.pop(), Some(0x3B));
+    bytes.extend([0x99, 0x00, 0x3B]);
+    assert_eq!(
+        decoded_animation_frames(&bytes, image::ImageFormat::Gif, 24, u64::MAX),
+        Ok((3, 3))
+    );
+    // 第一帧都读不出的旧资源仍按静态图处理。
+    assert_eq!(
+        decoded_animation_frames(b"GIF89a", image::ImageFormat::Gif, 24, u64::MAX),
+        Ok((1, 1))
+    );
+}
+
+#[test]
+fn a_gif_frame_larger_than_its_screen_is_rejected_before_allocating() {
+    // 逻辑画布 64x64，第一帧的描述符却声明 65535x65535：不设上限时解码器会为这一帧申请约 17 GB。
+    let mut bytes = b"GIF89a".to_vec();
+    bytes.extend([64, 0, 64, 0, 0x80, 0, 0]);
+    bytes.extend([0, 0, 0, 255, 255, 255]);
+    bytes.extend([0x2C, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
+    bytes.extend([0x02, 0x02, 0x44, 0x01, 0x00, 0x3B]);
+    assert_eq!(
+        decoded_animation_frames(&bytes, image::ImageFormat::Gif, 64 * 64, u64::MAX),
+        Err(IMAGE_DIMENSIONS_TOO_LARGE)
+    );
+    let root = tempdir().unwrap();
+    let skin = root.path().join("animated");
+    fs::create_dir(&skin).unwrap();
+    fs::write(skin.join("decoration.gif"), bytes).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        "schema_version = 2\nid = 'animated'\nname = 'Animated'\nversion = '1'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'decoration.gif'\ntop_inset_dip = 10\nwidth_dip = 10\n",
+    )
+    .unwrap();
+    assert_eq!(
+        load(root.path(), "animated").unwrap_err(),
+        IMAGE_DIMENSIONS_TOO_LARGE
+    );
+}
+
+#[test]
+fn gif_decorations_over_the_package_pixel_budget_are_rejected() {
+    let root = tempdir().unwrap();
+    let skin = root.path().join("animated");
+    fs::create_dir(&skin).unwrap();
+    // 1000x900 的 9 帧合计 8.1M 像素，超过 MAX_PACKAGE_PIXELS。
+    fs::write(skin.join("decoration.gif"), encoded_gif(1000, 900, 9)).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        "schema_version = 2\nid = 'animated'\nname = 'Animated'\nversion = '1'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'decoration.gif'\ntop_inset_dip = 10\nwidth_dip = 10\n",
+    )
+    .unwrap();
+    assert_eq!(
+        load(root.path(), "animated").unwrap_err(),
+        IMAGE_DIMENSIONS_TOO_LARGE
+    );
 }
 
 #[test]
@@ -851,6 +934,7 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             candidate: CandidateColors::default(),
             animation: SkinAnimation::disabled(),
             license: None,
+            notices: Vec::new(),
         }],
         "{catalog:?}"
     );
@@ -863,7 +947,7 @@ fn schema_v2_uses_bounded_lively_animation_presets() {
     fs::create_dir(&skin).unwrap();
     fs::write(
         skin.join("skin.toml"),
-        "schema_version = 2\nid = 'motion'\nname = 'Motion'\nversion = '2.0'\nbase = 'canvas'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nenter = 'spring'\nexit = 'fade'\nselection = 'glow'\nduration_ms = 240\nstagger_ms = 20\n",
+        "schema_version = 2\nid = 'motion'\nname = 'Motion'\nversion = '2.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nenter = 'spring'\nexit = 'fade'\nselection = 'glow'\nduration_ms = 240\nstagger_ms = 20\n",
     )
     .unwrap();
     let package = load(root.path(), "motion").unwrap();
@@ -888,7 +972,7 @@ fn schema_v2_animation_table_keeps_lively_defaults_when_fields_are_omitted() {
     fs::create_dir(&skin).unwrap();
     fs::write(
         skin.join("skin.toml"),
-        "schema_version = 2\nid = 'motion_defaults'\nname = 'Motion defaults'\nversion = '2.0'\nbase = 'canvas'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nduration_ms = 200\n",
+        "schema_version = 2\nid = 'motion_defaults'\nname = 'Motion defaults'\nversion = '2.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nduration_ms = 200\n",
     )
     .unwrap();
     let package = load(root.path(), "motion_defaults").unwrap();
@@ -912,7 +996,7 @@ fn schema_v2_animation_reports_which_presets_the_manifest_declares() {
         fs::create_dir(&skin).unwrap();
         fs::write(
             skin.join("skin.toml"),
-            format!("schema_version = 2\nid = '{id}'\nname = 'Motion'\nversion = '2.0'\nbase = 'canvas'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{animation}"),
+            format!("schema_version = 2\nid = '{id}'\nname = 'Motion'\nversion = '2.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{animation}"),
         )
         .unwrap();
     }
@@ -938,50 +1022,209 @@ fn schema_v2_animation_reports_which_presets_the_manifest_declares() {
 }
 
 #[test]
-fn schema_v2_non_canvas_is_loaded_as_v1_and_ignores_v2_fields() {
-    let root = tempdir().unwrap();
-    let skin = root.path().join("legacy_v2");
-    fs::create_dir(&skin).unwrap();
-    fs::write(
-        skin.join("skin.toml"),
-        "schema_version = 2
-id = 'legacy_v2'
-name = 'Legacy v2 declaration'
+fn schema_v2_non_canvas_keeps_animation_and_ignores_canvas_fields() {
+    // msime 的 v2（`[animation]`、装饰图待机动效、APNG 帧）对任何基底都有效；只有 msime-windows 的画布专用键需要 `base = "canvas"`，其他基底上不校验、不生效，并记一条提示。
+    for base in ["system", "night"] {
+        let root = tempdir().unwrap();
+        let skin = root.path().join("lively");
+        fs::create_dir(&skin).unwrap();
+        fs::write(skin.join("whale.png"), encoded_apng(6, 4, 3)).unwrap();
+        fs::write(
+            skin.join("skin.toml"),
+            format!(
+                "schema_version = 2
+id = 'lively'
+name = 'Lively'
 version = '1.0'
-base = 'system'
+base = '{base}'
 [supports]
 layouts = ['horizontal']
-themes = ['light']
+themes = ['light', 'dark']
 [candidate_window]
+line_gap_dip = 'not-a-number'
 [candidate_window.decoration]
+image = 'whale.png'
 top_inset_dip = 20
 width_dip = 40
-motion = 'not-a-motion'
+motion = 'sway'
 [candidate_window.border_image]
 source = 'missing.png'
 slice_dip = ['not-a-number']
+[[candidate_window.decorations]]
+image = 'missing.png'
 [animation]
-enter = 'not-a-preset'
-duration_ms = 'not-a-duration'
-",
+enter = 'spring'
+exit = 'fade'
+selection = 'glow'
+"
+            ),
+        )
+        .unwrap();
+
+        let catalog = scan(root.path());
+        assert!(catalog.issues.is_empty(), "{base}: {catalog:?}");
+        let package = &catalog.packages[0];
+        assert_eq!(package.schema_version, 2, "{base}");
+        assert!(!package.canvas);
+        assert_eq!(package.animation.enter, SkinAnimationPreset::Spring);
+        assert_eq!(package.animation.exit, SkinAnimationPreset::Fade);
+        assert_eq!(package.animation.selection, SkinAnimationPreset::Glow);
+        assert_eq!(package.decoration_motion, DecorationMotion::Sway);
+        assert_eq!(package.decoration_frames, 3);
+        assert!(package.border_image.is_none());
+        assert!(package.line_gap_dip.is_none());
+        assert!(package.decorations.is_empty());
+        assert_eq!(package.notices.len(), 1, "{base}: {:?}", package.notices);
+        for key in ["border_image", "line_gap_dip", "decorations"] {
+            assert!(package.notices[0].contains(key), "{}", package.notices[0]);
+        }
+        let json = serde_json::to_value(package).unwrap();
+        assert_eq!(json["schemaVersion"], 2);
+        assert_eq!(json["animation"]["enter"], "spring");
+        assert_eq!(json["notices"].as_array().unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn schema_v2_non_canvas_still_validates_animation_and_motion() {
+    let lively = |extra: &str| {
+        format!("schema_version = 2\nid = 'sample'\nname = 'Sample'\nversion = '1.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\ntop_inset_dip = 20\nwidth_dip = 40\n{extra}")
+    };
+    for (extra, reason) in [
+        ("motion = 'spin'\n", "invalid decoration motion"),
+        (
+            "motion_period_ms = 1199\n",
+            "invalid decoration motion_period_ms",
+        ),
+        (
+            "[animation]\nenter = 'not-a-preset'\n",
+            "invalid animation enter",
+        ),
+        (
+            "[animation]\nduration_ms = 'x'\n",
+            "invalid animation duration_ms",
+        ),
+    ] {
+        let catalog = scan_manifest(&lively(extra));
+        assert!(catalog.packages.is_empty(), "{extra}");
+        assert_eq!(catalog.issues[0].reason, reason, "{extra}");
+    }
+    // 版本 1 照旧不能写这些键。
+    let catalog = scan_manifest(
+        &lively("motion = 'float'\n").replace("schema_version = 2", "schema_version = 1"),
+    );
+    assert_eq!(
+        catalog.issues[0].reason,
+        "decoration motion requires schema_version 2"
+    );
+}
+
+#[test]
+fn schema_v2_without_canvas_only_keys_has_no_notices() {
+    let catalog = scan_manifest("schema_version = 2\nid = 'sample'\nname = 'Sample'\nversion = '1.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nenter = 'fade'\n");
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    assert!(catalog.packages[0].notices.is_empty());
+    let json = serde_json::to_value(&catalog.packages[0]).unwrap();
+    assert!(json.get("notices").is_none());
+}
+
+#[test]
+fn canvas_packages_draw_the_canvas_look_and_say_the_panel_is_not_drawn() {
+    let root = tempdir().unwrap();
+    // 九宫格面板在 msime 的宿主上不画：包对着自己深色贴图挑的浅色文字不能落在不透明的白底上，整套换成 canvas 外观，只留强调色。
+    let paneled = root.path().join("paneled");
+    fs::create_dir(&paneled).unwrap();
+    fs::write(paneled.join("panel.png"), encoded_png(12, 12)).unwrap();
+    fs::write(
+        paneled.join("skin.toml"),
+        "schema_version = 2\nid = 'paneled'\nname = 'Paneled'\nversion = '1'\nbase = 'canvas'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\n[candidate_window.border_image]\nsource = 'panel.png'\nslice_dip = [4]\n[candidate.light]\ntext = '#f5ecff'\nnumber = '#f5ecff'\naccent = '#ff00aa'\n",
     )
     .unwrap();
+    let package = load(root.path(), "paneled").unwrap();
+    assert!(package.canvas);
+    assert!(package.border_image.is_some());
+    assert_eq!(package.base, super::super::theme::GlobalTheme::System);
+    let light = &package.candidate.light;
+    assert_eq!(light.surface.as_deref(), Some("#FFFFFF"));
+    assert_eq!(light.text.as_deref(), Some("#1A1A1A"));
+    assert_eq!(light.number.as_deref(), Some("#1A1A1A99"));
+    assert_eq!(light.accent.as_deref(), Some("#ff00aa"));
+    assert_eq!(light.translation.as_deref(), Some("#6940A5"));
+    assert_eq!(package.candidate.dark.surface.as_deref(), Some("#202020"));
+    assert_eq!(package.candidate.dark.text.as_deref(), Some("#F2F2F2"));
+    assert_eq!(package.corner_radius_dip, None);
+    assert_eq!(package.toolbar.corner_radius_dip, Some(8.0));
+    assert_eq!(package.toolbar.light.handle.as_deref(), Some("#6B69D6"));
+    assert_eq!(package.notices, vec![CANVAS_NOT_DRAWN_NOTICE.to_owned()]);
 
-    let package = load(root.path(), "legacy_v2").unwrap();
-    assert_eq!(package.schema_version, 1);
-    assert!(!package.canvas);
-    assert_eq!(package.animation, SkinAnimation::disabled());
-    assert_eq!(package.decoration_motion, DecorationMotion::None);
-    assert!(package.border_image.is_none());
-    assert!(package.decorations.is_empty());
+    // 没有九宫格的 canvas 包只补没写的颜色，自己写的照用，也没有提示。
+    let plain = root.path().join("plain");
+    fs::create_dir(&plain).unwrap();
+    fs::write(
+        plain.join("skin.toml"),
+        "schema_version = 2\nid = 'plain'\nname = 'Plain'\nversion = '1'\nbase = 'canvas'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate.light]\ntext = '#301020'\n",
+    )
+    .unwrap();
+    let package = load(root.path(), "plain").unwrap();
+    assert_eq!(package.candidate.light.text.as_deref(), Some("#301020"));
+    assert_eq!(package.candidate.light.surface.as_deref(), Some("#FFFFFF"));
+    assert!(package.notices.is_empty());
+}
 
-    // Linux 的运行配置只发布它能绘制的公共子集；同一个共享扫描结果仍会
-    // 保留这个包，而不会把 v2 声明误传成可绘制的 canvas 资源。
-    let published = host_candidate_catalog(&scan(root.path()), root.path(), &[]);
-    let entry = &published["packages"][0];
-    assert_eq!(entry["id"], "legacy_v2");
-    assert!(entry.get("border_image").is_none());
-    assert!(entry.get("animation").is_none());
+#[test]
+fn wechat_scroll_packages_inherit_the_detail_slots_and_menu_of_the_look() {
+    let body = format!(
+        "{}[candidate.dark]\naccent = '#123456'\n[candidate.light]\ntranslation = '#010203'\n[candidate.light.menu]\ntext = '#040506'\n",
+        manifest("sample").replace("base = 'night'", "base = 'wechat_scroll'")
+    );
+    let catalog = scan_manifest(&body);
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    let package = &catalog.packages[0];
+    let dark = &package.candidate.dark;
+    assert_eq!(dark.accent.as_deref(), Some("#123456"));
+    assert_eq!(dark.translation.as_deref(), Some("#529CCA"));
+    assert_eq!(dark.preedit_text.as_deref(), Some("#D0D0D0"));
+    assert_eq!(dark.selected_text.as_deref(), Some("#FFFFFF"));
+    assert_eq!(dark.selected_number.as_deref(), Some("#FFFFFFCC"));
+    assert_eq!(
+        dark.menu.as_ref().unwrap().background.as_deref(),
+        Some("#1F1F1F")
+    );
+    let light = &package.candidate.light;
+    assert_eq!(light.translation.as_deref(), Some("#010203"));
+    let menu = light.menu.as_ref().unwrap();
+    assert_eq!(menu.text.as_deref(), Some("#040506"));
+    assert_eq!(menu.hover.as_deref(), Some("#EEEEEE"));
+}
+
+#[test]
+fn empty_author_and_description_mean_not_provided() {
+    let catalog = scan_manifest(&format!(
+        "author = ''\ndescription = ''\n{}",
+        manifest("sample")
+    ));
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    assert_eq!(catalog.packages[0].author, None);
+    assert_eq!(catalog.packages[0].description, None);
+    let catalog = scan_manifest(&format!(
+        "author = '{}'\n{}",
+        "a".repeat(121),
+        manifest("sample")
+    ));
+    assert_eq!(catalog.issues[0].reason, "author has invalid length");
+}
+
+#[test]
+fn toolbar_colours_accept_the_four_digit_hex_form() {
+    let catalog = scan_manifest(&format!(
+        "{}[toolbar.light]\nbackground = '#e8a4'\n",
+        manifest("sample")
+    ));
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    assert_eq!(
+        catalog.packages[0].toolbar.light.background.as_deref(),
+        Some("#EE88AA44")
+    );
 }
 
 #[test]

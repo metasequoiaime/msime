@@ -40,6 +40,12 @@ int main() {
                                  std::filesystem::path())
              .at("custom_theme")
              .at("candidate_skin_dark") == "dusk");
+  auto picked_slotted = slotted;
+  picked_slotted["custom_theme"]["candidate_colors"] = {{"text", "#ff0000"}, {"number", "#00ff00"}};
+  const auto picked_values = candidate_theme_values(picked_slotted);
+  // The pickers the extra skin slots defer to; number and border never reach the host.
+  assert(candidate_theme_pickers(picked_values) == (nlohmann::json{{"text", "#ff0000"}}));
+  assert(candidate_theme_pickers(nlohmann::json::object()) == nlohmann::json::object());
   auto dark_only = slotted;
   dark_only["custom_theme"].erase("candidate_skin");
   assert(candidate_theme_packages(candidate_theme_values(dark_only)) ==

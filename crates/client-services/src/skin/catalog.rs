@@ -248,14 +248,19 @@ pub struct SkinSummary {
     pub toolbar: SkinToolbar,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub toolbar_icon_corner_radius_dip: Option<f64>,
+    /// `[candidate_window.border_image]` 九宫格面板。只在 `base = "canvas"` 时读取；按 msime-windows 的规则校验并保留，供 msime-windows 绘制，当前 msime 各宿主都不画它（见 [`Self::notices`]）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub border_image: Option<SkinBorderImage>,
+    /// `candidate_window.content_insets_dip`，只在 `base = "canvas"` 时读取；校验并保留给 msime-windows，当前 msime 各宿主不使用。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_insets_dip: Option<SkinInsets>,
+    /// `candidate_window.line_gap_dip`，只在 `base = "canvas"` 时读取；校验并保留给 msime-windows，当前 msime 各宿主不使用。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line_gap_dip: Option<f64>,
+    /// `candidate_window.outer_insets_dip`，只在 `base = "canvas"` 时读取；校验并保留给 msime-windows，当前 msime 各宿主不使用。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outer_insets_dip: Option<SkinInsets>,
+    /// `[[candidate_window.decorations]]` 自由挂件，只在 `base = "canvas"` 时读取；校验并保留给 msime-windows，当前 msime 各宿主都不画它们（见 [`Self::notices`]）。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub decorations: Vec<SkinFreeDecoration>,
     pub toolbar_stylesheet: Option<String>,
@@ -265,6 +270,9 @@ pub struct SkinSummary {
     pub animation: SkinAnimation,
     /// Licence metadata the manifest declares for its code and assets. Informational only: nothing is enforced from it.
     pub license: Option<SkinLicense>,
+    /// 不影响加载的提示，对应 msime-windows 的 `package.notices`：例如非 `canvas` 基底上写了只属于 `canvas` 的键而被忽略，或 `canvas` 皮肤的九宫格与挂件在当前宿主上不绘制。包照常列出、照常可用；这些提示不进 [`SkinCatalog::issues`]，那里只放被忽略的无效目录。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notices: Vec<String>,
 }
 
 /// 使用固定动画名称，不接受任意 CSS。这样共享皮肤可以安全同步，各原生宿主也能把相同的动效意图映射到自己的合成器原语。
@@ -417,7 +425,7 @@ pub struct SkinBackground {
     pub opacity: f64,
 }
 
-/// Toolbar colours for one mode, each normalized by `theme::normalized_color` (`#RRGGBB` or `#RRGGBBAA`); a colour it cannot read is left out, as candidate colours are.
+/// Toolbar colours for one mode, each normalized by `theme::normalized_color` to `#RRGGBB` or `#RRGGBBAA` (the manifest may write `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`, `rgb()`, `rgba()` or `transparent`); a colour it cannot read is left out, as candidate colours are.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
 pub struct ToolbarPalette {
     pub background: Option<String>,
@@ -621,6 +629,18 @@ fn optional_string(
     Ok(Some(value.to_owned()))
 }
 
+/// 包的介绍性文字（`author`、`description`）。与 msime-windows 的 `ReadString(..., required = false)` 相同，空字符串等于没写；长度上限照旧。
+fn optional_text(
+    table: &toml::map::Map<String, Value>,
+    key: &str,
+    max: usize,
+) -> Result<Option<String>, String> {
+    match table.get(key) {
+        Some(Value::String(value)) if value.is_empty() => Ok(None),
+        _ => optional_string(table, key, max),
+    }
+}
+
 fn validate_string(value: &str, key: &str, max: usize) -> Result<(), String> {
     if value.is_empty() || value.len() > max {
         return Err(format!("{key} has invalid length"));
@@ -712,19 +732,13 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     let name = required_string(table, "name", 80)?;
     let version = required_string(table, "version", 32)?;
     let base = required_string(table, "base", 32)?;
+    // `canvas` 是 msime-windows 的全贴图基底，九宫格面板、自由挂件和几处内边距只属于它，而且只在 v2 里可写，所以 v1 写 `canvas` 直接拒绝（与 msime-windows 相同）。msime 的 v2 本身（`[animation]`、装饰图待机动效、APNG 帧）对任何基底都有效，不受这里影响。
     let canvas = base == "canvas";
     if canvas && schema_version != 2 {
         return Err("base = canvas requires schema_version 2".into());
     }
-    // 上游协议把 `schema_version = 2` 且非 `canvas` 的清单降级为 v1：
-    // 这类清单仍可加载，但不能因为声明了版本号就误启用动画或其他 v2 能力。
-    let effective_schema_version = if schema_version == 2 && !canvas {
-        1
-    } else {
-        schema_version
-    };
-    let author = optional_string(table, "author", 120)?;
-    let description = optional_string(table, "description", 500)?;
+    let author = optional_text(table, "author", 120)?;
+    let description = optional_text(table, "description", 500)?;
     // `base` 也可以是 msime-windows 的内置外观，Windows 上写的包用的就是它们。外观画在 `system` 之上，包没写的颜色稍后按外观补齐（见 `windows_looks`）；`fluent` 就是 Windows 的原生配色，与 `system` 相同。只有清单这样读；其他地方 `fluent` 是已停用的 ID，一律拒绝。
     let windows_look = is_windows_look(&base).then(|| base.clone());
     let base = if windows_look.is_some() || canvas {
@@ -863,6 +877,22 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         } else {
             (None, None, None, None, Vec::new())
         };
+    let mut notices = Vec::new();
+    if !canvas {
+        // 与 msime-windows 一样，非 `canvas` 基底上的画布专用键不校验、不生效，但要说出来，免得作者以为它们起了作用。
+        let ignored: Vec<&str> = CANVAS_ONLY_WINDOW_KEYS
+            .into_iter()
+            .filter(|key| window.contains_key(*key))
+            .collect();
+        if !ignored.is_empty() {
+            notices.push(format!(
+                "candidate_window.{} only apply with base = \"canvas\" and schema_version = 2; ignored",
+                ignored.join(", candidate_window.")
+            ));
+        }
+    } else if border_image.is_some() || !decorations.is_empty() {
+        notices.push(CANVAS_NOT_DRAWN_NOTICE.to_owned());
+    }
     check_shared_window_keys(window)?;
     // A package without a decoration may leave the whole table out.
     let empty = toml::map::Map::new();
@@ -893,12 +923,8 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         Some("center") => DecorationAlign::Center,
         Some(_) => return Err("invalid decoration".into()),
     };
-    let (decoration_motion, decoration_motion_period_ms) = read_decoration_motion(
-        decoration,
-        decorated,
-        schema_version,
-        effective_schema_version,
-    )?;
+    let (decoration_motion, decoration_motion_period_ms) =
+        read_decoration_motion(decoration, decorated, schema_version)?;
     let background = match window.get("background") {
         None => None,
         Some(value) => Some(read_background(
@@ -937,9 +963,11 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         }
     }
     let mut candidate = read_colors(table)?;
-    let animation = read_animation(table, schema_version, effective_schema_version)?;
+    let animation = read_animation(table, schema_version)?;
     if let Some(look) = &windows_look {
         windows_looks::fill_from_look(look, &mut candidate, &mut corner_radius, &mut toolbar);
+    } else if canvas {
+        windows_looks::fill_from_canvas_look(&mut candidate, &mut toolbar, border_image.is_some());
     }
     let decoration_image = decoration_image.or_else(|| {
         preview
@@ -947,7 +975,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
             .filter(|preview| decorated && is_image(preview))
     });
     let mut summary = SkinSummary {
-        schema_version: effective_schema_version as u8,
+        schema_version: schema_version as u8,
         id,
         name,
         version,
@@ -991,10 +1019,23 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         candidate,
         animation,
         license,
+        notices,
     };
     summary.decoration_frames = validate_image_dimensions(&dir, &summary)?;
     Ok(summary)
 }
+
+/// `[candidate_window]` 里只属于 `base = "canvas"` 的键（msime-windows 的全贴图几何）。其他基底上它们不校验、不生效，只记一条 [`SkinSummary::notices`]。
+const CANVAS_ONLY_WINDOW_KEYS: [&str; 5] = [
+    "border_image",
+    "content_insets_dip",
+    "line_gap_dip",
+    "outer_insets_dip",
+    "decorations",
+];
+
+/// `canvas` 皮肤带九宫格面板或自由挂件时的提示：它们按 msime-windows 的规则校验并保留，但当前 msime 各宿主都不画，候选框改用 `canvas` 外观的不透明底色。
+const CANVAS_NOT_DRAWN_NOTICE: &str = "candidate_window.border_image and candidate_window.decorations are kept for msime-windows but not drawn by this input method; the candidate card uses the opaque canvas look instead";
 
 /// `[candidate_window]` 里由部分原生宿主绘制的键：外框线宽、高亮圆角、阴影、字体和翻页箭头。其他宿主不绘制它们，但仍按共享规则校验，同一个包在每个平台上才会有同样的加载结果。
 fn check_shared_window_keys(window: &toml::map::Map<String, Value>) -> Result<(), String> {
@@ -1326,21 +1367,32 @@ pub(crate) fn png_frames(bytes: &[u8]) -> Result<(u32, u32), &'static str> {
     Ok((frames, frames + thumbnail))
 }
 
-/// 统计 GIF/WebP 的动画帧；这些格式的帧数不在 `ImageReader` 的公共尺寸接口里，
-/// 但宿主同样会把每帧展开成整张画布，所以必须和 APNG 一样受帧数与像素上限约束。
-/// 解码器读不出的旧资源继续按静态图处理，保持扫描阶段对旧包的宽容行为。
+/// GIF 解码时允许分配的内存。逻辑画布每边不超过 [`MAX_IMAGE_SIDE`]，展开成 RGBA 是 16 MiB；逐帧迭代同时持有常驻画布、这一帧的原始缓冲和合成后的整幅画面，所以给三份。`image` 默认不给 GIF 设上限，而帧描述符的宽高不受逻辑画布约束，一个声明 65535×65535 帧的小文件就会让解码器申请约 17 GB，这道上限让它在分配前报错。
+const MAX_GIF_DECODE_ALLOC: u64 = MAX_IMAGE_SIDE as u64 * MAX_IMAGE_SIDE as u64 * 4 * 3;
+
+/// 统计 GIF/WebP 的动画帧。这些格式的帧数不在 `ImageReader` 的公共尺寸接口里，但宿主同样会把每帧展开成整张画布，所以和 APNG 一样受帧数与像素上限约束。`frame_pixels` 是一帧整幅画布的像素数，`remaining_pixels` 是这个包还剩的像素额度：迭代器是惰性的，一超额度就停，不再解码后面的帧，一个包的解码量因此也不超过 [`MAX_PACKAGE_PIXELS`] 加一帧。连第一帧都读不出的旧资源按静态图处理，保持扫描对旧包的宽容；读出几帧之后才损坏的，按已读出的帧数计，因为宿主照样会播放坏帧之前的部分。帧描述符超出解码内存上限的按尺寸超限拒绝。
 fn decoded_animation_frames(
     bytes: &[u8],
     format: image::ImageFormat,
+    frame_pixels: u64,
+    remaining_pixels: u64,
 ) -> Result<(u32, u32), &'static str> {
+    use image::ImageDecoder;
     let frames = match format {
         image::ImageFormat::Gif => {
-            let Ok(decoder) = image::codecs::gif::GifDecoder::new(Cursor::new(bytes)) else {
+            let Ok(mut decoder) = image::codecs::gif::GifDecoder::new(Cursor::new(bytes)) else {
                 return Ok((1, 1));
             };
+            // `Limits` is #[non_exhaustive]: start from the default and set the field.
+            let mut limits = image::Limits::default();
+            limits.max_alloc = Some(MAX_GIF_DECODE_ALLOC);
+            if decoder.set_limits(limits).is_err() {
+                return Err(IMAGE_DIMENSIONS_TOO_LARGE);
+            }
             decoder.into_frames()
         }
         image::ImageFormat::WebP => {
+            // WebP frames are decoded into a canvas of the container's size, which the caller already checked against MAX_IMAGE_SIDE.
             let Ok(decoder) = image::codecs::webp::WebPDecoder::new(Cursor::new(bytes)) else {
                 return Ok((1, 1));
             };
@@ -1350,12 +1402,18 @@ fn decoded_animation_frames(
     };
     let mut count = 0_u32;
     for frame in frames {
-        if frame.is_err() {
-            return Ok((1, 1));
+        match frame {
+            Ok(_) => {}
+            Err(image::ImageError::Limits(_)) => return Err(IMAGE_DIMENSIONS_TOO_LARGE),
+            Err(_) if count == 0 => return Ok((1, 1)),
+            Err(_) => break,
         }
         count = count.saturating_add(1);
         if count > MAX_ANIMATION_FRAMES {
             return Err(ANIMATION_TOO_MANY_FRAMES);
+        }
+        if frame_pixels.saturating_mul(u64::from(count)) > remaining_pixels {
+            return Err(IMAGE_DIMENSIONS_TOO_LARGE);
         }
     }
     let count = count.max(1);
@@ -1430,8 +1488,14 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, S
         }
         let (frames, images) = match format {
             Some(image::ImageFormat::Png) => png_frames(&bytes)?,
+            // `pixels <= MAX_PACKAGE_PIXELS` here: the end of every iteration returns as soon as it is exceeded.
             Some(format @ (image::ImageFormat::Gif | image::ImageFormat::WebP)) => {
-                decoded_animation_frames(&bytes, format)?
+                decoded_animation_frames(
+                    &bytes,
+                    format,
+                    u64::from(width) * u64::from(height),
+                    MAX_PACKAGE_PIXELS - pixels,
+                )?
             }
             _ => (1, 1),
         };
@@ -1452,21 +1516,14 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, S
 fn read_decoration_motion(
     decoration: &toml::map::Map<String, Value>,
     decorated: bool,
-    declared_schema_version: i64,
-    effective_schema_version: i64,
+    schema_version: i64,
 ) -> Result<(DecorationMotion, u16), String> {
     let motion = decoration.get("motion");
     let period = decoration.get("motion_period_ms");
     if motion.is_none() && period.is_none() {
         return Ok((DecorationMotion::None, DEFAULT_DECORATION_MOTION_PERIOD_MS));
     }
-    if effective_schema_version < 2 {
-        // schema 2 但基底不是 `canvas` 时按兼容规则作为 v1 加载；忽略 v2
-        // 专用的装饰动效字段，避免一个本来可用的包因为这些字段消失。
-        // 明确声明 schema 1 时仍拒绝这些字段。
-        if declared_schema_version == 2 {
-            return Ok((DecorationMotion::None, DEFAULT_DECORATION_MOTION_PERIOD_MS));
-        }
+    if schema_version < 2 {
         return Err("decoration motion requires schema_version 2".into());
     }
     let motion = match motion {
@@ -1597,27 +1654,18 @@ fn animation_preset(
 /// 解析有限的 v2 动画表。版本 1 保持逐字节兼容，不会因未知字段意外启用动画。
 fn read_animation(
     table: &toml::map::Map<String, Value>,
-    declared_schema_version: i64,
-    effective_schema_version: i64,
+    schema_version: i64,
 ) -> Result<SkinAnimation, String> {
-    if effective_schema_version < 2 {
-        // 与 Windows catalog 一致：schema 2 但基底不是 `canvas` 时按 v1
-        // 加载，并静默忽略所有 v2 动画字段。
-        if declared_schema_version == 2 {
-            return Ok(SkinAnimation::disabled());
-        }
-        if table.get("animation").is_some() {
-            return Err("animation requires schema_version 2".into());
-        }
-        return Ok(SkinAnimation::disabled());
-    }
     let Some(value) = table.get("animation") else {
-        return Ok(if effective_schema_version == 2 {
+        return Ok(if schema_version == 2 {
             SkinAnimation::lively()
         } else {
             SkinAnimation::disabled()
         });
     };
+    if schema_version < 2 {
+        return Err("animation requires schema_version 2".into());
+    }
     let animation = value.as_table().ok_or("invalid animation")?;
     let duration_ms = match animation.get("duration_ms") {
         None => 180,

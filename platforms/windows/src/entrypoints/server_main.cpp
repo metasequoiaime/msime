@@ -64,6 +64,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <unordered_map>
 #include <cstdlib>
 #include <exception>
@@ -1469,6 +1470,21 @@ int wmain(int argc, wchar_t **argv) {
                     .first;
       return found->second;
     };
+    // The card's palette for a resolved theme: the shared resolution, with the package's extra slots (candidate_text, preedit, selected row, bar and menu colours) the resolution does not carry, under the user's pickers. A canvas package needs nothing more here: the shared catalog already gives it the opaque canvas look, replacing the colours picked for a nine-slice panel this host does not draw, as on every other host.
+    auto card_palette = [&](const CandidateThemeResolution &theme, bool dark) {
+      return apply_candidate_skin_extra_slots(
+          candidate_theme_palette(theme, dark),
+          package_assets(theme.candidate_skin).candidate_colors,
+          candidate_theme_pickers(current_candidate_theme), theme.dark.value_or(dark));
+    };
+    // Canvas packages load here, but their border_image, insets and free decorations are not drawn; say so once per package.
+    std::set<std::string> canvas_skins_noticed;
+    auto notice_canvas_skin = [&](const std::string &id,
+                                  const msime::windows::CandidateSkinAssets &assets) {
+      if (assets.canvas && canvas_skins_noticed.insert(id).second)
+        notice("Candidate skin " + id +
+               " is a canvas skin; this host does not draw its border_image, insets or free decorations yet, so the card uses the canvas look");
+    };
     bool candidate_theme_dirty = true;
     bool candidate_dark_applied = config.dark_theme;
     bool candidate_horizontal_applied = config.horizontal_candidates;
@@ -1490,10 +1506,8 @@ int wmain(int argc, wchar_t **argv) {
     {
       const auto &theme =
           resolved_theme(config.dark_theme, config.horizontal_candidates);
-      auto palette = candidate_theme_palette(theme, config.dark_theme);
+      auto palette = card_palette(theme, config.dark_theme);
       const auto &assets = package_assets(theme.candidate_skin);
-      palette = apply_candidate_skin_palette(palette, assets.candidate_colors,
-                                             config.dark_theme);
       if (config.candidate_selected_bar)
         palette.show_selected_bar = *config.candidate_selected_bar;
       candidates.set_palette(palette);
@@ -1506,24 +1520,20 @@ int wmain(int argc, wchar_t **argv) {
       candidates.set_skin_corner_radius(assets.corner_radius);
       candidates.set_skin_font_family(assets.font_family);
       candidates.set_skin_animation(assets.animation);
+      notice_canvas_skin(theme.candidate_skin, assets);
       candidate_skin_applied = theme.candidate_skin;
     }
     candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
     // The toolbar and the menus draw the card's theme in their own light/dark mode, with the card's layout deciding whether a package is drawn.
     auto surface_palette = [&](bool dark) {
-      const auto &theme = resolved_theme(dark, candidate_horizontal_applied);
-      auto palette = candidate_theme_palette(theme, dark);
-      return apply_candidate_skin_palette(
-          palette, package_assets(theme.candidate_skin).candidate_colors, dark);
+      return card_palette(resolved_theme(dark, candidate_horizontal_applied), dark);
     };
     // The toolbar's palette in `dark`: the theme's, with the toolbar colours and radius of the package that theme draws in that mode.
     auto toolbar_surface_palette = [&](bool dark) {
       const auto &theme = resolved_theme(dark, candidate_horizontal_applied);
-      auto palette = candidate_theme_palette(theme, dark);
-      palette = apply_candidate_skin_palette(
-          palette, package_assets(theme.candidate_skin).candidate_colors, dark);
-      return apply_toolbar_skin(toolbar_palette(std::move(palette)),
-                                package_assets(theme.candidate_skin).toolbar, dark);
+      return apply_toolbar_skin(
+          toolbar_palette(card_palette(theme, dark)),
+          package_assets(theme.candidate_skin).toolbar, dark);
     };
     bool toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
     FloatingToolbarWindow toolbar(
@@ -2132,10 +2142,7 @@ int wmain(int argc, wchar_t **argv) {
         if (candidate_theme_dirty || skin_resources_changed || dark != candidate_dark_applied ||
             candidate_horizontal != candidate_horizontal_applied) {
           const auto &theme = resolved_theme(dark, candidate_horizontal);
-          auto next_palette = candidate_theme_palette(theme, dark);
-          next_palette = apply_candidate_skin_palette(
-              next_palette, package_assets(theme.candidate_skin).candidate_colors,
-              dark);
+          auto next_palette = card_palette(theme, dark);
           if (config.candidate_selected_bar)
             next_palette.show_selected_bar = *config.candidate_selected_bar;
           candidates.set_theme_palette(next_palette);
@@ -2150,6 +2157,7 @@ int wmain(int argc, wchar_t **argv) {
             candidates.set_skin_corner_radius(assets.corner_radius);
             candidates.set_skin_font_family(assets.font_family);
             candidates.set_skin_animation(assets.animation);
+            notice_canvas_skin(theme.candidate_skin, assets);
             candidate_skin_applied = theme.candidate_skin;
           }
           candidate_dark_applied = dark;

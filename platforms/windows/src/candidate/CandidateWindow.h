@@ -76,7 +76,7 @@ public:
   // built-in theme stays in place until a package is actually resolved.
   void set_palette(CandidatePalette palette);
   void set_theme_palette(CandidatePalette palette);
-  // 皮肤字体覆盖当前用户字体；传空恢复用户设置。
+  // 皮肤的 font_family 排在最前，用户配置的字体整体退为回退链；传空、未安装或过长时恢复用户设置。之后的字体偏好变化只更新用户配置，皮肤字体保持在前。
   void set_skin_font_family(const std::string &family);
   void invalidate_skin_images();
   // Minimum card width asked for by the active skin package, in DIPs.
@@ -133,6 +133,8 @@ private:
   // 记下第一次失败并隐藏；error 由 catch 现场先取，免得隐藏窗口时被改写。
   void fail(ComponentFailureSite site);
   void invalidate_geometry();
+  // Rebuild font_family_ and fallback_families_ from the configured fonts and the skin font, and drop the cached fallback chain.
+  void apply_font_chain();
   CandidateBounds card_bounds(const CandidatePresentation &value,
                               const RECT &work, unsigned dpi);
   // Each candidate's runs measured the way paint() draws them, and their wrapped heights. card_bounds and paint share both, so the card is sized for exactly the rows that get drawn.
@@ -204,7 +206,12 @@ private:
   int logo_pixels_ = 0;
   CandidatePalette palette_;
   std::wstring font_family_;
+  // The user's resolved, alias-mapped face; font_family_ is this unless a skin font is active.
   std::wstring configured_font_family_;
+  // The installed, alias-mapped skin font_family; empty when the active skin names none.
+  std::wstring skin_font_family_;
+  // The user's configured fallback faces; fallback_families_ is derived from these and the skin font.
+  std::vector<std::wstring> configured_fallback_families_;
   std::optional<CandidateFontSettings> font_settings_;
   std::optional<bool> dark_theme_;
   bool horizontal_ = false;

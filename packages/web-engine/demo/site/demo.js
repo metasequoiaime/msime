@@ -51,7 +51,7 @@ const EXAMPLES = {
 const HELPCODE_NAMES = { lantian: "蓝天小雨点", ziranma: "自然码", shouyou2_0: "首右 2.0", shouyouplus: "首右 plus", xiaohe: "小鹤形码", jiajia: "加加", wubi86: "五笔 86" };
 
 // 内置皮肤的中文名，与 SDK README 的「内置皮肤」表一致。
-const SKIN_NAMES = { system: "跟随系统", shuishan: "水杉", light: "浅色", paper: "纸白", night: "夜青", ink: "墨", wechat: "微信绿", graphite: "石墨", willow_green: "杨柳青", autumn_osmanthus: "秋桂", microsoft: "微软" };
+const SKIN_NAMES = { system: "跟随系统", shuishan: "水杉", light: "浅色", paper: "纸白", night: "夜青", ink: "墨", wechat: "微信绿", wechat_scroll: "微信绿(卷轴)", graphite: "石墨", willow_green: "杨柳青", autumn_osmanthus: "秋桂", microsoft: "微软" };
 // 画廊里的自定义皮肤示例：皮肤对象的写法与桌面端 skin.toml 相同，装饰图和背景图用 data: 地址的 SVG，不依赖外部文件。
 const LEAF = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 40"><path d="M8 34C14 12 34 4 58 6C54 26 36 36 8 34Z" fill="#2C7A4B"/><path d="M10 33C24 24 38 16 54 9" stroke="#DDF3E2" stroke-width="2" fill="none" stroke-linecap="round"/></svg>')}`;
 const GLOW = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" preserveAspectRatio="none"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#DDF3E2"/><stop offset="1" stop-color="#FFF6DA"/></linearGradient></defs><rect width="10" height="10" fill="url(#g)"/></svg>')}`;

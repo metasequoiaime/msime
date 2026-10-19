@@ -30,8 +30,8 @@ inline constexpr CandidateColor candidate_rgb(uint32_t rgb,
   return {((rgb >> 16) & 0xFF) / 255.0f, ((rgb >> 8) & 0xFF) / 255.0f,
           (rgb & 0xFF) / 255.0f, alpha};
 }
-inline CandidateColor parse_css_color(const std::string &text,
-                                      CandidateColor fallback) {
+// The colour a CSS string names, or none when it names no colour this parser can draw (empty, `auto`, `none`, a malformed rgb()/rgba() or an unsupported hex length). Hex takes #RGB, #RGBA, #RRGGBB and #RRGGBBAA, as msime-windows' ParseCandidateCssColor does.
+inline std::optional<CandidateColor> try_parse_css_color(const std::string &text) {
   auto space = [](unsigned char ch) { return std::isspace(ch) != 0; };
   size_t begin = 0, end = text.size();
   while (begin < end && space(static_cast<unsigned char>(text[begin])))
@@ -40,16 +40,16 @@ inline CandidateColor parse_css_color(const std::string &text,
     --end;
   std::string value = text.substr(begin, end - begin);
   if (value.empty() || value == "auto" || value == "none")
-    return fallback;
+    return std::nullopt;
   // Fully transparent is a deliberate choice, not a missing value.
   if (value == "transparent")
-    return {0.0f, 0.0f, 0.0f, 0.0f};
+    return CandidateColor{0.0f, 0.0f, 0.0f, 0.0f};
   if (value.rfind("rgba(", 0) == 0 || value.rfind("rgb(", 0) == 0) {
     const auto open = value.find('(');
     const auto close = value.rfind(')');
     if (open == std::string::npos || close == std::string::npos ||
         close <= open || close + 1 != value.size())
-      return fallback;
+      return std::nullopt;
     std::string inner = value.substr(open + 1, close - open - 1);
     for (char &ch : inner)
       if (ch == ',')
@@ -57,40 +57,45 @@ inline CandidateColor parse_css_color(const std::string &text,
     std::istringstream stream(inner);
     float r = 0.0f, g = 0.0f, b = 0.0f, a = 1.0f;
     if (!(stream >> r >> g >> b))
-      return fallback;
+      return std::nullopt;
     stream >> std::ws;
     if (!stream.eof()) {
       if (!(stream >> a))
-        return fallback;
+        return std::nullopt;
       stream >> std::ws;
     }
     if (!stream.eof() || !std::isfinite(r) || !std::isfinite(g) ||
         !std::isfinite(b) || !std::isfinite(a) || r < 0.0f || r > 255.0f ||
         g < 0.0f || g > 255.0f || b < 0.0f || b > 255.0f || a < 0.0f ||
         a > 1.0f)
-      return fallback;
-    return {r / 255.0f, g / 255.0f, b / 255.0f, a};
+      return std::nullopt;
+    return CandidateColor{r / 255.0f, g / 255.0f, b / 255.0f, a};
   }
   if (!value.empty() && value.front() == '#')
     value.erase(value.begin());
   for (char ch : value)
     if (!std::isxdigit(static_cast<unsigned char>(ch)))
-      return fallback;
+      return std::nullopt;
   auto channel = [&value](size_t index, size_t width) {
     const auto digits = width == 1 ? std::string(2, value[index])
                                    : value.substr(index, 2);
     return static_cast<uint32_t>(std::stoul(digits, nullptr, 16));
   };
-  if (value.size() == 3)
-    return {channel(0, 1) / 255.0f, channel(1, 1) / 255.0f,
-            channel(2, 1) / 255.0f, 1.0f};
+  if (value.size() == 3 || value.size() == 4)
+    return CandidateColor{channel(0, 1) / 255.0f, channel(1, 1) / 255.0f,
+                          channel(2, 1) / 255.0f,
+                          value.size() == 4 ? channel(3, 1) / 255.0f : 1.0f};
   if (value.size() == 6)
-    return {channel(0, 2) / 255.0f, channel(2, 2) / 255.0f,
-            channel(4, 2) / 255.0f, 1.0f};
+    return CandidateColor{channel(0, 2) / 255.0f, channel(2, 2) / 255.0f,
+                          channel(4, 2) / 255.0f, 1.0f};
   if (value.size() == 8)
-    return {channel(0, 2) / 255.0f, channel(2, 2) / 255.0f,
-            channel(4, 2) / 255.0f, channel(6, 2) / 255.0f};
-  return fallback;
+    return CandidateColor{channel(0, 2) / 255.0f, channel(2, 2) / 255.0f,
+                          channel(4, 2) / 255.0f, channel(6, 2) / 255.0f};
+  return std::nullopt;
+}
+inline CandidateColor parse_css_color(const std::string &text,
+                                      CandidateColor fallback) {
+  return try_parse_css_color(text).value_or(fallback);
 }
 // The candidate slots of a resolved global theme (msime_client_resolve_theme). An absent slot is one the theme leaves to the platform, and keeps the native token; an unparsable one is treated the same way.
 struct CandidatePaletteOverrides {
@@ -116,13 +121,17 @@ struct CandidatePalette {
   CandidateColor menu_border = {1.0f, 1.0f, 1.0f, 0.12f};
   CandidateColor menu_text = candidate_rgb(0xFFFFFF);
   CandidateColor menu_hover = {1.0f, 1.0f, 1.0f, 0.10f};
-  // 皮肤可分别覆盖预编辑、选中释义和选中竖条；没有声明时沿用上面的派生颜色。
+  // 皮肤可分别覆盖候选文字、预编辑、选中释义和选中竖条；没有声明时沿用上面的派生颜色。
+  // Candidate row labels and annotations (a package's `candidate_text`); none draws them in `text`, which the pager, toolbar, keymap, tray, HUD and voice overlay keep using.
+  std::optional<CandidateColor> candidate_text;
   std::optional<CandidateColor> preedit_text;
   std::optional<CandidateColor> preedit_caret;
   std::optional<CandidateColor> selected_translation;
   std::optional<CandidateColor> selected_bar;
+  // The reading's rounded band and the 1 DIP rule under the preedit row.
   std::optional<CandidateColor> preedit_background;
   std::optional<CandidateColor> preedit_divider;
+  // Parsed for catalog parity but not drawn: msime-windows draws it only before its triangle pager buttons, and this card's pager is the "n / m" text indicator with arrows.
   std::optional<CandidateColor> page_arrow_divider;
   // The translation line, when the theme's secondary colour is not simply the numbers (an external package's `translation`); none draws it like the numbers.
   std::optional<CandidateColor> translation;

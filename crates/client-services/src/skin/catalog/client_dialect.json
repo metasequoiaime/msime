@@ -824,9 +824,15 @@
   },
   {
    "name": "empty author",
-   "reason": "author has invalid length",
+   "reason": null,
    "template": "sample",
    "prepend": "author = ''\n"
+  },
+  {
+   "name": "empty description",
+   "reason": null,
+   "template": "sample",
+   "prepend": "description = ''\n"
   },
   {
    "name": "author not a string",
@@ -2178,10 +2184,6 @@
     [
      "align = 'left'\n",
      "align = 'left'\nmotion = 'spin'\n"
-    ],
-    [
-     "base = 'system'",
-     "base = 'canvas'"
     ]
    ]
   },
@@ -2197,10 +2199,6 @@
     [
      "align = 'left'\n",
      "align = 'left'\nmotion = 'Float'\n"
-    ],
-    [
-     "base = 'system'",
-     "base = 'canvas'"
     ]
    ]
   },
@@ -2216,10 +2214,6 @@
     [
      "align = 'left'\n",
      "align = 'left'\nmotion = 1\n"
-    ],
-    [
-     "base = 'system'",
-     "base = 'canvas'"
     ]
    ]
   },
@@ -2235,10 +2229,6 @@
     [
      "align = 'left'\n",
      "align = 'left'\nmotion = 'float'\nmotion_period_ms = 1199\n"
-    ],
-    [
-     "base = 'system'",
-     "base = 'canvas'"
     ]
    ]
   },
@@ -2254,10 +2244,6 @@
     [
      "align = 'left'\n",
      "align = 'left'\nmotion = 'float'\nmotion_period_ms = 8001\n"
-    ],
-    [
-     "base = 'system'",
-     "base = 'canvas'"
     ]
    ]
   },
@@ -2273,10 +2259,6 @@
     [
      "align = 'left'\n",
      "align = 'left'\nmotion = 'float'\nmotion_period_ms = 3000.0\n"
-    ],
-    [
-     "base = 'system'",
-     "base = 'canvas'"
     ]
    ]
   },
@@ -2292,10 +2274,6 @@
     [
      "align = 'left'\n",
      "align = 'left'\nmotion = 'float'\nmotion_period_ms = '3000'\n"
-    ],
-    [
-     "base = 'system'",
-     "base = 'canvas'"
     ]
    ]
   },
@@ -2311,10 +2289,6 @@
     [
      "width_dip = 0\n",
      "width_dip = 0\nmotion = 'float'\n"
-    ],
-    [
-     "base = 'night'",
-     "base = 'canvas'"
     ]
    ]
   }

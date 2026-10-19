@@ -84,6 +84,15 @@ candidate_theme_request(const nlohmann::json &values, bool dark,
     request["skins_directory"] = skins_directory.u8string();
   return request;
 }
+// 自定义主题的候选取色器（`custom_theme.candidate_colors`，编号色和边框色已在 candidate_theme_values 去掉）；没有时是空对象。apply_candidate_skin_extra_slots 据此让取色器优先于皮肤包的细分槽位。
+inline nlohmann::json candidate_theme_pickers(const nlohmann::json &values) {
+  if (values.contains("custom_theme") && values.at("custom_theme").is_object()) {
+    const auto &custom = values.at("custom_theme");
+    if (custom.contains("candidate_colors") && custom.at("candidate_colors").is_object())
+      return custom.at("candidate_colors");
+  }
+  return nlohmann::json::object();
+}
 // What the card draws from a resolved theme: the fixed mode, if the theme has one, the candidate slots it sets, and the package whose decoration and minimum width are drawn.
 struct CandidateThemeResolution {
   std::optional<bool> dark;

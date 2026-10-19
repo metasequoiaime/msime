@@ -73,9 +73,11 @@ Windows 原生界面验收入口是 `tests/tools/settings_ui.ps1`：通过真实
 
 ## 原生界面渲染与皮肤
 
-候选窗、悬浮工具条、托盘菜单和 `msimeui` 的面板 demo 都通过 `msimeui` 的 Direct2D 设备资源绘制，本仓库不引入第二套 D2D 路径。几何与配色从已发布 Windows 呈现器移植：`CandidateCardSize.h` 提供卡片尺寸、行矩形与命中测试的唯一来源，`CandidatePalette.h` 解析皮肤清单里的 CSS 颜色子集（三位/六位/八位十六进制、`rgb()`/`rgba()`、`transparent`），无法表示的写法保留内置 token 而不是渲染出不可见窗口。候选卡片用 DirectWrite 实测预编辑与每个候选的宽度后合成尺寸，工作区一半封顶两个轴；绘制和命中读同一份 metrics，点击不会落到渲染器没画的行上。固定候选只在未高亮时使用 accent；进入高亮行后，候选正文、辅助码和翻译整体改用选中行正文颜色。
+候选窗、悬浮工具条、托盘菜单和 `msimeui` 的面板 demo 都通过 `msimeui` 的 Direct2D 设备资源绘制，本仓库不引入第二套 D2D 路径。几何与配色从已发布 Windows 呈现器移植：`CandidateCardSize.h` 提供卡片尺寸、行矩形与命中测试的唯一来源，`CandidatePalette.h` 解析皮肤清单里的 CSS 颜色子集（三位/四位/六位/八位十六进制、`rgb()`/`rgba()`、`transparent`），无法表示的写法保留内置 token 而不是渲染出不可见窗口。候选卡片用 DirectWrite 实测预编辑与每个候选的宽度后合成尺寸，工作区一半封顶两个轴；绘制和命中读同一份 metrics，点击不会落到渲染器没画的行上。固定候选只在未高亮时使用 accent；进入高亮行后，候选正文、辅助码和翻译整体改用选中行正文颜色。
 
 皮肤经 `msime_client_skin_catalog` 从共享目录进入原生宿主，Server 解析可选的 `appearance`（`skin_directory` 绝对路径、`skin`、`dark_theme`）后下发给候选窗和悬浮工具条。兼容性以清单为准：没有声明当前布局和主题的包保留内置 token，不做半套应用；目录不可读、id 未知或条目畸形都不改变主题，也不让运行中的 Server 失败。独立面板以各自的内置 token 作为缺省值，同时接收解析后的共享调色板。
+
+候选颜色的主体（表面、边框、文字、编号、强调、选中、悬停、释义和选中竖条开关）由 `msime_client_resolve_theme` 按「底、皮肤包、取色器」解析；`CandidateSkin.h` 的 `apply_candidate_skin_extra_slots` 只补上解析层不带的细分槽位，并让取色器优先：`candidate_text` 只给候选正文和注释（工具条、双拼键位、托盘菜单仍用 `text`），`preedit_text`、`preedit_caret`、`preedit_background`（圆角底）、`preedit_divider`（预编辑行下的 1 DIP 分隔线）、`selected_text`、`selected_number`、`selected_translation`、`selected_bar` 和 `menu` 颜色都会画出；设了文字取色器时不叠 `candidate_text`、`preedit_text`，设了选中取色器时不叠三个选中槽位。`page_arrow_divider` 只解析不绘制（这里的翻页是「n / m」文字加箭头，没有三角按钮），`translation_pos`、`translation_separator` 及其选中版本也不读。画不出的颜色值让该槽位保持宿主默认。皮肤的 `font_family` 已安装时排在最前，用户配置的字体整体退为回退链，之后改字体偏好不会把皮肤字体换掉。`base = "canvas"` 的画布皮肤可以加载，但 Windows 宿主还不画 `border_image` 九宫格、内容/外边距和自由挂件：卡片颜色用共享 catalog 给出的不透明 `canvas` 外观（包带九宫格面板时，包为面板贴图挑的候选颜色整套换成该外观，只保留强调色和右键菜单），与其他宿主相同，工具条颜色、字体、背景图、装饰图和动效照常使用，每款包第一次应用时在诊断日志里记一条说明。
 
 Direct2D 的成像工厂是 COM 服务器，这些窗口各自进入套间（`S_FALSE` 仍需配对释放，`RPC_E_CHANGED_MODE` 不动其他模式）；面板在 `--help` 返回之后才进入套间，冒烟运行器不需要额外条件。
 

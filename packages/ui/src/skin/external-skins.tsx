@@ -46,8 +46,12 @@ export type ToolbarPalette = Partial<
 >;
 export type ExternalSkin = {
   id: string;
-  /** 清单版本；版本 2 增加有限的候选窗动效契约。 */
+  /** 清单版本；版本 2 对任何 base 都增加有限的候选窗动效契约（`animation`、装饰 `motion` 与 APNG 帧）。 */
   schemaVersion?: 1 | 2;
+  /** 清单写的是 `base = "canvas"`（此时 `base` 报成 `system`）。只表示九宫格、自由挂件等 canvas 专属字段，设置页预览不绘制它们；不影响动效。 */
+  canvas?: boolean;
+  /** 不影响加载的提示，对应 msime-windows 的 `package.notices`，例如非 canvas 基底上被忽略的 canvas 专属键。 */
+  notices?: string[];
   name: string;
   version: string;
   /** The global theme under the package's own colours; `system` for none. The manifest parser never gives `custom`. */
@@ -67,7 +71,7 @@ export type ExternalSkin = {
   /** 候选窗在屏幕上时装饰图的待机动效，由原生候选窗播放；设置页的预览不播放。 */
   decorationMotion?: "none" | "float" | "sway" | "breathe" | "bounce";
   decorationMotionPeriodMs?: number;
-  /** 装饰图的帧数：没有装饰图为 0，静态图为 1，APNG 为它的动画帧数。 */
+  /** 装饰图的帧数：没有装饰图为 0，静态图为 1，APNG（以及手动装进皮肤目录的 GIF、WebP）为它的动画帧数。 */
   decorationFrames?: number;
   background?: SkinBackground | null;
   toolbar?: { cornerRadiusDip: number | null; dark: ToolbarPalette; light: ToolbarPalette };

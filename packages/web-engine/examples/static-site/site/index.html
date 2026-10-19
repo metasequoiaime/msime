@@ -32,6 +32,7 @@
           <option value="night">夜青</option>
           <option value="ink">墨</option>
           <option value="wechat">微信绿</option>
+          <option value="wechat_scroll">微信绿(卷轴)</option>
           <option value="graphite">石墨</option>
           <option value="willow_green">杨柳青</option>
           <option value="autumn_osmanthus">秋桂</option>
@@ -68,7 +69,7 @@
       let engine = null;
       let detach = () => {};
 
-      // 候选栏的皮肤、排列和明暗；只有 system 和后五个 Windows 外观跟随明暗，五个全局主题自带明暗。
+      // 候选栏的皮肤、排列和明暗；只有 system 和后六个 Windows 外观跟随明暗，五个全局主题自带明暗。
       function attach() {
         detach();
         detach = attachInput(text, engine, {

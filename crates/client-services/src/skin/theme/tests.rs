@@ -797,6 +797,8 @@ fn custom_package_is_used_only_for_declared_modes_and_its_own_id() {
 fn package_colours_normalize_to_hex() {
     for (input, expected) in [
         ("#abc", Some("#AABBCC")),
+        ("#e8a4", Some("#EE88AA44")),
+        ("#abcd", Some("#AABBCCDD")),
         ("#a1b2c3", Some("#A1B2C3")),
         ("#a1b2c3d4", Some("#A1B2C3D4")),
         ("transparent", Some("#00000000")),
@@ -805,6 +807,7 @@ fn package_colours_normalize_to_hex() {
         ("rgba(0,0,0,1.5)", None),
         ("rgb(256,0,0)", None),
         ("#12345", None),
+        ("#1234567", None),
         ("#ggg", None),
         ("red", None),
         ("", None),
@@ -860,6 +863,7 @@ fn summary_packages_keep_only_declared_modes() {
         candidate: Default::default(),
         animation: SkinAnimation::disabled(),
         license: None,
+        notices: Vec::new(),
     };
     let package = ThemePackage::from(&summary);
     assert_eq!(package.base, GlobalTheme::Paper);

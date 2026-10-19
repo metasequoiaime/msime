@@ -265,6 +265,7 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
   configured_font_family_ = font_family_;
   for (auto &family : fallback_families_)
     family = native_font_alias(family);
+  configured_fallback_families_ = fallback_families_;
   if (!reader_)
     throw std::invalid_argument("Missing candidate reader");
   DpiScope dpi_scope;
@@ -442,28 +443,38 @@ bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
     for (auto &name : fallback)
       name = native_font_alias(name);
     auto remembered = settings;
-    configured_font_family_ = primary;
-    font_family_.swap(primary);
-    fallback_families_.swap(fallback);
+    configured_font_family_ = std::move(primary);
+    configured_fallback_families_ = std::move(fallback);
+    // An active skin font stays first; only the configured faces behind it change.
+    apply_font_chain();
     font_settings_ = std::move(remembered);
     font_size_ = settings.size;
     preedit_font_size_ = settings.preedit_size;
-    font_fallback_.Reset();
     invalidate_geometry();
     return true;
   } catch (...) {
     return false;
   }
 }
-void CandidateWindow::set_skin_font_family(const std::string &family) {
-  auto next = family.empty() ? configured_font_family_ : wide(family);
-  if (next.empty() || next.size() > 128 || !installed_font(next))
-    next = configured_font_family_;
-  next = native_font_alias(next);
-  if (font_family_ == next)
-    return;
-  font_family_ = std::move(next);
+void CandidateWindow::apply_font_chain() {
+  auto chain = candidate_skin_font_chain(configured_font_family_,
+                                         configured_fallback_families_,
+                                         skin_font_family_);
+  font_family_ = std::move(chain.primary);
+  fallback_families_ = std::move(chain.fallback);
   font_fallback_.Reset();
+}
+void CandidateWindow::set_skin_font_family(const std::string &family) {
+  // A face that is not installed is no skin font at all, so the user's own chain draws rather than DirectWrite's substitute.
+  std::wstring next = family.empty() ? std::wstring{} : wide(family);
+  if (next.size() > 128 || (!next.empty() && !installed_font(next)))
+    next.clear();
+  if (!next.empty())
+    next = native_font_alias(next);
+  if (skin_font_family_ == next)
+    return;
+  skin_font_family_ = std::move(next);
+  apply_font_chain();
   invalidate_geometry();
 }
 void CandidateWindow::set_layout(CandidateLayoutSettings settings) {
@@ -1205,7 +1216,8 @@ void CandidateWindow::paint() {
     return value;
   };
   const float inset = palette_.border_width / 2.0f;
-  const CandidateColor text_color = palette_.text;
+  // Candidate labels and annotations take a package's `candidate_text`; the pager, toolbar, keymap and menus keep `text`.
+  const CandidateColor text_color = palette_.candidate_text.value_or(palette_.text);
   target->BeginDraw();
   // Clear to nothing: only the rounded card itself is opaque, so the corners
   // stay transparent rather than showing a square window edge.
@@ -1362,8 +1374,18 @@ void CandidateWindow::paint() {
   }
   if (show_preedit_) {
     const D2D1_RECT_F &rect = preedit_rect;
-    if (palette_.preedit_background)
-      target->FillRectangle(rect, brush(*palette_.preedit_background));
+    // A skin's preedit band is rounded like the rows, as msime-windows draws it, and its divider is a 1 DIP rule under the whole preedit row, across the card's content width.
+    if (palette_.preedit_background && rect.right > rect.left)
+      target->FillRoundedRectangle(D2D1_ROUNDED_RECT{rect, row_radius, row_radius},
+                                   brush(*palette_.preedit_background));
+    if (palette_.preedit_divider)
+      target->FillRectangle(
+          D2D1_RECT_F{static_cast<float>(frame.card_left + metrics.pad_x / 2.0),
+                      rect.bottom - 1.0f,
+                      static_cast<float>(frame.card_left + frame.card_width -
+                                         metrics.pad_x / 2.0),
+                      rect.bottom},
+          brush(*palette_.preedit_divider));
     const auto text = wide(value->preedit);
     // Same clamp, same reason as the candidate rows below: a long enough reading would otherwise be drawn past the card, or under the pager.
     if (rect.right > rect.left)

@@ -1,4 +1,5 @@
 #include "CandidateSkin.h"
+#include "CandidateSkinAssets.h"
 #include <chrono>
 #include <fstream>
 #include <stdexcept>
@@ -201,6 +202,115 @@ int main() {
   require(candidate_skin_animation(animated, "mascot").stagger_ms == 0);
   animated["packages"][0]["schemaVersion"] = "2";
   require(candidate_skin_animation(animated, "mascot").duration_ms == 0);
+  // The v2 motion contract holds on any base: a system, a fixed-mode or a canvas base all keep the declared presets.
+  animated["packages"][0]["schemaVersion"] = 2;
+  animated["packages"][0]["animation"]["durationMs"] = 240;
+  for (const char *base : {"system", "night", "canvas"}) {
+    animated["packages"][0]["base"] = base;
+    const auto based = candidate_skin_animation(animated, "mascot");
+    require(based.enter == CandidateSkinAnimationPreset::spring && based.duration_ms == 240);
+  }
+
+  // Extra candidate slots: only what msime_client_resolve_theme does not carry is layered, a value that does not parse stays unset, and the user's pickers keep priority.
+  const Json slots{
+      {"dark",
+       {{"surface", "#101010"},
+        {"text", "#112233"},
+        {"accent", "#202020"},
+        {"translation", "#505050"},
+        {"showSelectedBar", true},
+        {"candidate_text", "#445566"},
+        {"preedit_text", "#ff0000"},
+        {"preedit_caret", "#778899"},
+        {"selected_text", "#808080"},
+        {"selected_number", "#909090"},
+        {"selected_translation", "#0000ff"},
+        {"selected_bar", "#fd8c"},
+        {"preedit_background", "white"},
+        {"preedit_divider", "#303030"},
+        {"page_arrow_divider", "#404040"},
+        {"menu", {{"background", "#111111"}, {"border", "#222222"}, {"text", "#333333"}, {"hover", "#444444"}}}}},
+      {"light", {{"candidate_text", "#010101"}, {"selected_bar", nullptr}}}};
+  const Json no_pickers = Json::object();
+  const auto resolved = candidate_native_palette(true);
+  const auto extra = apply_candidate_skin_extra_slots(resolved, slots, no_pickers, true);
+  // Slots the shared resolution already layered are left as it answered.
+  require(extra.surface == resolved.surface && extra.text == resolved.text &&
+          extra.accent == resolved.accent && !extra.translation &&
+          extra.show_selected_bar == resolved.show_selected_bar);
+  require(extra.candidate_text && *extra.candidate_text == candidate_rgb(0x445566));
+  require(extra.preedit_text && *extra.preedit_text == candidate_rgb(0xFF0000));
+  require(extra.preedit_caret && *extra.preedit_caret == candidate_rgb(0x778899));
+  require(extra.selected_text == candidate_rgb(0x808080) &&
+          extra.selected_number == candidate_rgb(0x909090));
+  require(extra.selected_translation && *extra.selected_translation == candidate_rgb(0x0000FF));
+  require(extra.selected_bar && *extra.selected_bar == candidate_rgb(0xFFDD88, 0xCC / 255.0f));
+  // `white` is no colour this host parses: the slot stays unset instead of turning black.
+  require(!extra.preedit_background);
+  require(extra.preedit_divider && *extra.preedit_divider == candidate_rgb(0x303030));
+  require(extra.page_arrow_divider && *extra.page_arrow_divider == candidate_rgb(0x404040));
+  require(extra.menu_fill == candidate_rgb(0x111111) && extra.menu_border == candidate_rgb(0x222222) &&
+          extra.menu_text == candidate_rgb(0x333333) && extra.menu_hover == candidate_rgb(0x444444));
+  // candidate_text colours the rows only: the toolbar, which derives from `text`, keeps it.
+  require(apply_toolbar_skin(toolbar_palette(extra), CandidateSkinToolbar{}, true).text == resolved.text);
+  // The selected row's translation takes selected_translation; other rows keep the number colour.
+  require(candidate_row_translation_color(extra, true) == candidate_rgb(0x0000FF));
+  require(candidate_row_translation_color(extra, false) == extra.number);
+  // A text picker wins over the package's candidate and preedit text; the caret has no picker and is still drawn.
+  auto red_text = resolved;
+  red_text.text = candidate_rgb(0xFF0000);
+  const auto text_picked = apply_candidate_skin_extra_slots(
+      red_text, slots, Json{{"text", "#ff0000"}}, true);
+  require(text_picked.text == candidate_rgb(0xFF0000) && !text_picked.candidate_text &&
+          !text_picked.preedit_text && text_picked.preedit_caret);
+  // A selected picker keeps the readable selected text and number the resolution derived for it.
+  const auto selected_picked = apply_candidate_skin_extra_slots(
+      resolved, slots, Json{{"selected", "#000000"}}, true);
+  require(selected_picked.selected_text == resolved.selected_text &&
+          selected_picked.selected_number == resolved.selected_number &&
+          !selected_picked.selected_translation && selected_picked.selected_bar);
+  // The light mode takes only its own values; null and absent slots stay unset.
+  const auto light_extra = apply_candidate_skin_extra_slots(
+      candidate_native_palette(false), slots, no_pickers, false);
+  require(light_extra.candidate_text && *light_extra.candidate_text == candidate_rgb(0x010101));
+  require(!light_extra.selected_bar && !light_extra.preedit_caret &&
+          light_extra.selected_text == candidate_native_palette(false).selected_text);
+  // No candidate block, a block that is not an object, an absent mode or an unknown package leave the palette as it is.
+  for (const auto &absent : {Json::object(), Json(7), Json{{"light", Json::object()}}}) {
+    const auto unchanged = apply_candidate_skin_extra_slots(resolved, absent, no_pickers, true);
+    require(!unchanged.candidate_text && !unchanged.preedit_caret && !unchanged.selected_bar &&
+            unchanged.selected_text == resolved.selected_text);
+  }
+  Json coloured = catalog;
+  coloured["packages"][0]["candidate"] = slots;
+  require(apply_candidate_skin_extra_slots(resolved, coloured, "mascot", no_pickers, true).candidate_text.has_value());
+  require(!apply_candidate_skin_extra_slots(resolved, coloured, "absent", no_pickers, true).candidate_text.has_value());
+
+  // The assets carry the package's font, its full candidate block and whether it is a canvas skin.
+  coloured["packages"][0]["fontFamily"] = "Microsoft YaHei";
+  const auto coloured_assets = candidate_skin_assets(coloured, "mascot", root);
+  require(coloured_assets.font_family == "Microsoft YaHei" &&
+          coloured_assets.candidate_colors == slots && !coloured_assets.canvas);
+  coloured["packages"][0]["fontFamily"] = 42;
+  require(candidate_skin_assets(coloured, "mascot", root).font_family.empty());
+  require(candidate_skin_assets(catalog, "mascot", root).candidate_colors == Json::object());
+  // Only the catalog's canvas flag makes a canvas skin; canvas-only fields on another base were already dropped by the catalog and do not count.
+  coloured["packages"][0]["borderImage"] = {{"source", "preview.png"}};
+  require(!candidate_skin_assets(coloured, "mascot", root).canvas);
+  coloured["packages"][0]["schemaVersion"] = 2;
+  coloured["packages"][0]["base"] = "canvas";
+  coloured["packages"][0]["canvas"] = true;
+  require(candidate_skin_assets(coloured, "mascot", root).canvas);
+
+  // A skin font goes first and the user's face leads the fallback chain; without one the configured chain is used as it is.
+  const std::vector<std::wstring> configured_fallback{L"Segoe UI", L"Microsoft YaHei"};
+  const auto plain_chain = candidate_skin_font_chain(L"LXGW WenKai", configured_fallback, L"");
+  require(plain_chain.primary == L"LXGW WenKai" && plain_chain.fallback == configured_fallback);
+  const auto skin_chain = candidate_skin_font_chain(L"LXGW WenKai", configured_fallback, L"Segoe UI");
+  require(skin_chain.primary == L"Segoe UI" &&
+          skin_chain.fallback == std::vector<std::wstring>{L"LXGW WenKai", L"Microsoft YaHei"});
+  const auto same_chain = candidate_skin_font_chain(L"LXGW WenKai", configured_fallback, L"LXGW WenKai");
+  require(same_chain.primary == L"LXGW WenKai" && same_chain.fallback == configured_fallback);
 
   // Background placement: stretch fills, cover crops the overflow, contain letterboxes.
   const CandidateSkinRect card{0, 0, 200, 100};

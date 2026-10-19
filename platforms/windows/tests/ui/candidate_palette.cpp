@@ -27,6 +27,16 @@ int main() {
                232 / 255.0f, 232 / 255.0f, 157 / 255.0f));
   require(same(parse_css_color("  #ff8000\t", fallback), 1.0f, 128 / 255.0f,
                0.0f, 1.0f));
+  // #RGBA, which msime-windows skins use, doubles each digit like #RGB.
+  require(same(parse_css_color("#f808", fallback), 1.0f, 136 / 255.0f, 0.0f,
+               0x88 / 255.0f));
+  require(same(parse_css_color("#FFF8", fallback), 1.0f, 1.0f, 1.0f,
+               0x88 / 255.0f));
+  // The optional form tells "no colour" apart from a colour equal to the fallback.
+  require(!try_parse_css_color("white") && !try_parse_css_color("none") &&
+          !try_parse_css_color("rgb(0 0 0 / 50%)"));
+  require(try_parse_css_color("transparent") == CandidateColor{0.0f, 0.0f, 0.0f, 0.0f});
+  require(try_parse_css_color("#112233") == candidate_rgb(0x112233));
 
   // Functional notation, including the optional alpha argument.
   require(same(parse_css_color("rgb(255, 128, 0)", fallback), 1.0f,

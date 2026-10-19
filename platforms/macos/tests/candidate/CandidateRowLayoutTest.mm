@@ -96,7 +96,7 @@ static void TestDeclaredMotion(RowLayoutClient *client)
 id = "declared-motion"
 name = "Declared Motion"
 version = "1"
-base = "canvas"
+base = "system"
 [supports]
 layouts = ["horizontal", "vertical"]
 themes = ["light", "dark"]
@@ -121,6 +121,39 @@ stagger_ms = 20
     const auto declared = [appearance candidateWindowSkinForDark:NO].animation;
     assert(declared.enter == msime::mac::SkinAnimationPreset::fade_scale && declared.selection == msime::mac::SkinAnimationPreset::spring &&
            declared.durationMs == 400.0 && declared.staggerMs == 20.0);
+    // A canvas base carries the same v2 motion contract as any other base; canvas only adds the nine-slice and widget fields.
+    std::filesystem::create_directory(root / "canvas-motion");
+    {
+        std::ofstream manifest(root / "canvas-motion" / "skin.toml");
+        manifest << R"toml(schema_version = 2
+id = "canvas-motion"
+name = "Canvas Motion"
+version = "1"
+base = "canvas"
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["light", "dark"]
+[animation]
+enter = "slide_up"
+exit = "fade"
+selection = "glow"
+duration_ms = 240
+stagger_ms = 10
+)toml";
+        assert(manifest.good());
+    }
+    {
+        NSString *canvasSuite = [@"app.msime.test.motion.canvas." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *canvasDefaults = [[NSUserDefaults alloc] initWithSuiteName:canvasSuite];
+        [canvasDefaults setObject:@"custom" forKey:@"MSIMEClientGlobalTheme"];
+        [canvasDefaults setObject:@"canvas-motion" forKey:@"MSIMEClientCustomCandidateSkin"];
+        MSIMEAppearancePreferences *canvasAppearance =
+            [[MSIMEAppearancePreferences alloc] initWithDefaults:canvasDefaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+        const auto canvas = [canvasAppearance candidateWindowSkinForDark:NO].animation;
+        assert(canvas.enter == msime::mac::SkinAnimationPreset::slide_up && canvas.selection == msime::mac::SkinAnimationPreset::glow &&
+               canvas.durationMs == 240.0 && canvas.staggerMs == 10.0);
+        MSIMERemoveTestPreferenceSuite(canvasDefaults, canvasSuite);
+    }
     MSIMEInputController *controller = [[MSIMEInputController alloc] init];
     [controller setValue:appearance forKey:@"appearance"];
     [controller setValue:client forKey:@"activeClient"];
@@ -264,7 +297,7 @@ static void TestDecorationMotion(RowLayoutClient *client)
 id = "whale"
 name = "Whale"
 version = "1"
-base = "canvas"
+base = "system"
 [supports]
 layouts = ["horizontal", "vertical"]
 themes = ["light", "dark"]

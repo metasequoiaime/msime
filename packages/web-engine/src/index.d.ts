@@ -187,7 +187,7 @@ export declare function createShiftTap(): {
   up(e: KeyboardEvent): boolean;
 };
 
-/** 内置皮肤 ID：`system`（网页上画桌面端设置页预览的平台默认配色，跟随明暗）、五个全局主题，以及 msime-windows 的五个内置外观。 */
+/** 内置皮肤 ID：`system`（网页上画桌面端设置页预览的平台默认配色，跟随明暗）、五个全局主题，以及 msime-windows 的六个内置外观。 */
 export type MsimeSkinId =
   | "system"
   | "shuishan"
@@ -196,6 +196,7 @@ export type MsimeSkinId =
   | "night"
   | "ink"
   | "wechat"
+  | "wechat_scroll"
   | "graphite"
   | "willow_green"
   | "autumn_osmanthus"
@@ -248,11 +249,11 @@ export interface MsimeSkinPalette {
 /** 皮肤对象，形状同桌面设置页的 `SkinSummary` JSON（只取候选框用得到的字段）。尺寸单位 dip 在网页上就是 CSS px；图片写成 http(s)、blob、`data:image/*` 或相对地址（按页面地址解析），其他地址丢弃。 */
 export interface MsimeSkin {
   id?: string;
-  /** 外部清单的 schema_version；只有 `base: "canvas"` 的 v2 清单启用动画，其他 base 按 v1 安全降级。 */
+  /** 外部清单的 schema_version；写 2 时对任何 base 都启用动画，未提供 animation 也采用漂亮的安全默认动画。九宫格、自由挂件等 canvas 专属字段只在 `base: "canvas"` 时由清单保留。 */
   schemaVersion?: 1 | 2;
   /** 画在哪个主题之上：全局主题、`system` 或 msime-windows 的内置外观（`fluent`、`wechat` 等），默认 `system`。base 为全局主题时，皮肤固定画在那个主题的明暗下。 */
   base?: string;
-  /** 桌面 `SkinSummary` 对 `base = "canvas"` 的标记；网页按它启用 v2 动画并在不支持贴图原语时回退到公共卡片。 */
+  /** 桌面 `SkinSummary` 对 `base = "canvas"` 的标记（此时 `base` 报成 `system`），只表示九宫格与自由挂件这条 canvas 路径；网页不绘制这些贴图原语，回退到公共卡片。动画是否启用不看这个标记，它也不会覆盖全局主题或 Windows 外观基底。`base: "canvas"` 必须配 `schemaVersion: 2`。 */
   canvas?: boolean;
   /** 皮肤支持的布局，不写时全都支持。不支持当前布局或明暗时只画 base（`ResolvedSkin.drawn` 为 false）。 */
   layouts?: readonly MsimeSkinLayout[];
