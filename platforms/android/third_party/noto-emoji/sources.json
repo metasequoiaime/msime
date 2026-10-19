@@ -1,0 +1,152 @@
+{
+  "repository": "https://github.com/googlefonts/noto-emoji",
+  "commit": "e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e",
+  "source_license": "2D/svg/LICENSE",
+  "renderer": "rsvg-convert version 2.63.2\n\nlibraries used:\n  cairo 1.18.6\n  pango 1.58.2\n  harfbuzz 14.6.0\n  fontconfig 2.18.3",
+  "assets": [
+    {
+      "source": "2D/svg/emoji_u1faf1.svg",
+      "source_sha256": "0aa6ff3925fcbb39bb750dab80f7e35d2ac5d86f03dd60ebb0cefb2edb3405ab",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf1.png",
+      "output_sha256": "38fca2c92779e5e165b8bf8d25b4fc9a239632c8cc86fff7a57b43a4813ab7b1"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf1_1f3fb.svg",
+      "source_sha256": "297dbdb269d5687519923d603fbb05a07b0f0930ac99f7d4344957731f24d05a",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf1_1f3fb.png",
+      "output_sha256": "a705ed986c1812446d46571b7260ca298ee3e3fe3099a5e79963e26505612d89"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf1_1f3fc.svg",
+      "source_sha256": "da4571c04c2dead7fa11907658d90c6899205e9c633ad92d1713e92800652426",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf1_1f3fc.png",
+      "output_sha256": "b4dccfd6b4662312d78ad3686ce34976549e33955fee8edd8405988653cee7e7"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf1_1f3fd.svg",
+      "source_sha256": "12467b42fb4aaa5e9abda064d2544989195bbd8e926bff4862dde79929cccf2b",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf1_1f3fd.png",
+      "output_sha256": "51ff6c344995e3be3f9ac6646e011034f4fca5aa126e5af6a088582bf7f82714"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf1_1f3fe.svg",
+      "source_sha256": "9ee2d21b9c7a2c92cde4169da6565d41546a4c805ea396dd98398e2fd379ee49",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf1_1f3fe.png",
+      "output_sha256": "cf3bc3b56b8b025e0656328fae4baa2973d35ca57b04b6194e2275f64545299d"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf1_1f3ff.svg",
+      "source_sha256": "b3de989a7892303c41e4802f8fe6109e2eeb73471d5bddfbe3d42728359268ed",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf1_1f3ff.png",
+      "output_sha256": "7523e5e9d90fa8bad8701ee6a7c892cc158d22a0b405085b5b359a571f9c95e9"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf2.svg",
+      "source_sha256": "d273ab454bfb29587b0dd9f7c3701b0f49a22d166cdb512fa7eafcfb9d3d09c8",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf2.png",
+      "output_sha256": "46e724d49aaf38aba9a569c2e03cdbbe6f72896523782771f3855653ceec0f3d"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf2_1f3fb.svg",
+      "source_sha256": "ee67d664619b7671781da29070ba305b18305829b2553ffc71be80101ba36fad",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf2_1f3fb.png",
+      "output_sha256": "440a5512b117b0dfc240d70bacf1602241571929101af7b4bade08de2f497188"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf2_1f3fc.svg",
+      "source_sha256": "272f3d334eb2e7d48224a20053eff63db6ecd9bcb05c05acc5e169967e302a64",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf2_1f3fc.png",
+      "output_sha256": "8750e9669a058fefa48612b5160e7550e85da7ef8d1a5ee8998485ea4886bb89"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf2_1f3fd.svg",
+      "source_sha256": "c48f16bded3d516dce27ed23fe469ff6188357e6fb578730836180bc9e9e79d9",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf2_1f3fd.png",
+      "output_sha256": "444de22281ef4293eea122abb3ac0ad6945382d221875d6e262f92ae8d50a6f2"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf2_1f3fe.svg",
+      "source_sha256": "d62838e907cfb54e29cd57b424b70f8f77ea603ceb63e04f6e8853cb6d68fa79",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf2_1f3fe.png",
+      "output_sha256": "945e1dfae03f5722de280707218372d41752c7b2b89e05dac89859168700d937"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf2_1f3ff.svg",
+      "source_sha256": "99cbfd9cbcc3de9527e1106d96f1b63bbd123d8dfd79512c67ce23ff236caf18",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf2_1f3ff.png",
+      "output_sha256": "4bd3b36c4a75ce2404cb2a74540fd1426003ceb345614ade0c9dd9bc1fb553ca"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf7.svg",
+      "source_sha256": "bcffe317fcd90680f1ed23f9bc94534e627a69ae33214ab98588a2934d42730e",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf7.png",
+      "output_sha256": "1bb2336df9da4e28182d9b87a84bd5e9b30abb39360f8a59c190fb26e77164da"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf7_1f3fb.svg",
+      "source_sha256": "73814ac5c6be07b1ff1468304b6312fc2a399c80fa89679ad3c7959e9ce68a30",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf7_1f3fb.png",
+      "output_sha256": "3921e7cf1a8e6c3246f226c1376867706f16d7478aeb5608a419f00bd37af3f3"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf7_1f3fc.svg",
+      "source_sha256": "edc9b6214b47a1f6b91d6c1f355dd61555ee794c157d371580571e2061134c54",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf7_1f3fc.png",
+      "output_sha256": "542b4ab1c9c6feca8189d8dc691ed81c0e2ea6bf237696786ec2938980150dde"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf7_1f3fd.svg",
+      "source_sha256": "0e1d09abdf63da868d448017adc1511694845593b3448a36732952b9557241ef",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf7_1f3fd.png",
+      "output_sha256": "2872b54cc364e45da552503d3b2e85d363a53d06251ffbfe4ad263983c4183cd"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf7_1f3fe.svg",
+      "source_sha256": "669a434a9a2904b08a1add854f24bcb0bcb351e0960e80d7d7d0c7cce81425e3",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf7_1f3fe.png",
+      "output_sha256": "dd374068d8e580b17aebe9d5180d694b590a335884585d052d34a8888e5d5793"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf7_1f3ff.svg",
+      "source_sha256": "a6e2ba86f58ba5bd45baef6890d09a27cf1936d3f06bc627073d34b25a9259ef",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf7_1f3ff.png",
+      "output_sha256": "ac859662bc38770b64051359f3293aa7ce1cf8a29656daf0a3148160124642c9"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf8.svg",
+      "source_sha256": "64f70fddbaa1600a684dee7877d330c3c053f37b85bad8fe2895d8104436e3fe",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf8.png",
+      "output_sha256": "46ea5db0227ac576adeab1ba06bfe24fb1cdfc6b9b1a6b055c39b16254d19651"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf8_1f3fb.svg",
+      "source_sha256": "39f7768056344de56b877814ee0185451050a417912261fb113c48e0d9b53887",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf8_1f3fb.png",
+      "output_sha256": "a646e18d4e4c92c2f5d6e983d89fea1c6e223487954abbbc5e013305485f7612"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf8_1f3fc.svg",
+      "source_sha256": "ab68cc0d27e8407e10cce158b697a433cac33d16a4997d8f31a56616c2e41ee3",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf8_1f3fc.png",
+      "output_sha256": "fec525e47f0620f8c3d3a946311f4b9441fdd96487f3070c28c00fd53ea90026"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf8_1f3fd.svg",
+      "source_sha256": "38881b90132f3419a49725f67b59d9cb963effb6976270d2b543782fd88157c9",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf8_1f3fd.png",
+      "output_sha256": "a902a08dec9b85fd0e4077bbddb8205fbb28742dd72a5320551c9c17cdfe6105"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf8_1f3fe.svg",
+      "source_sha256": "dc66e0e114ede5c85e6846bef54f4a6b425fc1a5351adc4baa09cdfa55ce3a4d",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf8_1f3fe.png",
+      "output_sha256": "ffd835b68157bbcb4c869d6c3c09df8e1d2119ba389d63e6ea87a522fd5e351e"
+    },
+    {
+      "source": "2D/svg/emoji_u1faf8_1f3ff.svg",
+      "source_sha256": "c0c341bdbc4e5635555b46663b622553bbbb54a87a594e4dd67c6d160f54cc32",
+      "output": "platforms/android/res/drawable-nodpi/noto_emoji_u1faf8_1f3ff.png",
+      "output_sha256": "36053719eb26cbf5bb925c94c8aef8b879d5743b20aef634d505a66c56536796"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+Noto Emoji hand gesture images
+Copyright 2013 Google, Inc. All Rights Reserved.
+
+Derived from the Apache-2.0 licensed 2D/svg images of googlefonts/noto-emoji
+commit e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e.
+Changes: rendered the original SVG at 128 x 128 pixels with librsvg.
+These images are distributed under Apache License 2.0; see LICENSE.txt
+and the original upstream notice UPSTREAM-LICENSE.txt.
+
+Only the four hand gestures U+1FAF1, U+1FAF2, U+1FAF7, U+1FAF8 and their
+five skin-tone variants are included. No Noto font is included.

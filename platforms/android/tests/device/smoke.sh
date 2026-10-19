@@ -135,6 +135,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.HeavyEqualsCandidateDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Candidate heavy equals glyph acceptance failed" >&2; exit 1; }
+# 四个新手势及肤色在旧系统缺字时仍保留可见候选。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.HandEmojiCandidateDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Candidate hand emoji acceptance failed" >&2; exit 1; }
 # 首道双拼完整候选换代后，释义与面板同步视图，连续选词不得停止输入会话。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CandidateExpansionDeviceSmoke)
 printf '%s\n' "$result"
