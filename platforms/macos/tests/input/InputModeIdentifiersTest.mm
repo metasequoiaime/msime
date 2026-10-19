@@ -398,6 +398,30 @@ int main() {
                 "An unavailable scheme did not fall back the way host-api does.");
         [NSFileManager.defaultManager removeItemAtPath:directory error:nil];
 
+        // 五笔要有码表 msime-wubi.db：资源目录里有，或者下载了 wubi 资源包（带 msime-model.json 的真实目录）。macOS 发布包不带它时两处都没有，五笔像缺词典的粤拼一样回退；HostOptions 没写资源目录时不判断。
+        {
+            NSFileManager *files = NSFileManager.defaultManager;
+            NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+            NSString *resources = [root stringByAppendingPathComponent:@"EngineResources"];
+            NSString *state = [root stringByAppendingPathComponent:@"state"];
+            NSString *pack = [[state stringByAppendingPathComponent:@"resource-packs"] stringByAppendingPathComponent:@"wubi"];
+            [files createDirectoryAtPath:resources withIntermediateDirectories:YES attributes:nil error:nil];
+            [files createDirectoryAtPath:pack withIntermediateDirectories:YES attributes:nil error:nil];
+            NSDictionary *slim = @{@"resources" : resources, @"preferences_directory" : state};
+            require(!MSIMEInputSchemeAvailable(@"wubi", slim) && [MSIMEEffectiveInputScheme(@"wubi", nil, slim) isEqualToString:@"quanpin"] &&
+                        MSIMEInputSchemeAvailable(@"quanpin", slim) && MSIMEInputSchemeAvailable(@"wubi", @{}) && MSIMEInputSchemeAvailable(@"wubi", nil),
+                    "Wubi was available without msime-wubi.db, or needed one when HostOptions names no resources.");
+            [NSData.data writeToFile:[pack stringByAppendingPathComponent:@"msime-wubi.db"] atomically:YES];
+            require(!MSIMEInputSchemeAvailable(@"wubi", slim), "A wubi pack without msime-model.json made Wubi available.");
+            [NSData.data writeToFile:[pack stringByAppendingPathComponent:@"msime-model.json"] atomically:YES];
+            require(MSIMEInputSchemeAvailable(@"wubi", slim) && [MSIMEEffectiveInputScheme(@"wubi", nil, slim) isEqualToString:@"wubi"],
+                    "The downloaded wubi pack did not make Wubi available.");
+            [files removeItemAtPath:pack error:nil];
+            [NSData.data writeToFile:[resources stringByAppendingPathComponent:@"msime-wubi.db"] atomically:YES];
+            require(MSIMEInputSchemeAvailable(@"wubi", slim), "msime-wubi.db in the resource directory did not make Wubi available.");
+            [files removeItemAtPath:root error:nil];
+        }
+
         // 设置应用按需下载的语言词典包（<preferences_directory>/resource-packs/language-dictionaries）同样让方案可用：只认带 msime-model.json 的真实目录里的普通文件，preferences_directory 必须是绝对路径。
         NSFileManager *files = NSFileManager.defaultManager;
         NSString *stateRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];

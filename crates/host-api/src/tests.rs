@@ -307,6 +307,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
+        wubi_dictionary: String::new(),
     };
     apply_local_mode_resource_gates(&mut options, Edition::full());
     assert!(options.local_unicode);
@@ -3443,6 +3444,7 @@ fn the_repeat_gesture_rechecks_the_scheme_after_a_preferences_update() {
             std::fs::create_dir_all(dir.path().join(name)).unwrap();
         }
         let language_dictionaries = dir.path().join("language-dictionaries");
+        bundle_wubi_table(&dir.path().join("resources"));
         // 装入合成注音词库，保证切换后实际运行注音，而不是回退全拼。
         let database =
             rusqlite::Connection::open(language_dictionaries.join("msime-zhuyin.db")).unwrap();
@@ -6232,6 +6234,10 @@ fn history_capture_bridge_validates_and_returns_no_text() {
 pub(super) fn test_host(root: &std::path::Path) -> u64 {
     test_host_preferences(root, chinese_preferences())
 }
+/// 夹具的资源目录带上一个五笔码表文件（空的 SQLite 库）。macOS 的发布包可以不带 `msime-wubi.db`，资源目录里没有它时 host-api 把五笔当作没装（`wubi_dictionary_missing`），这些夹具要的是一个五笔照常可用的安装。
+fn bundle_wubi_table(resources: &std::path::Path) {
+    std::fs::write(resources.join("msime-wubi.db"), b"").unwrap();
+}
 fn chinese_preferences() -> Preferences {
     Preferences {
         default_ime_mode: msime_client_core::preferences::DefaultImeMode::Chinese,
@@ -6244,6 +6250,7 @@ fn test_host_preferences(root: &std::path::Path, preferences: Preferences) -> u6
         std::fs::create_dir_all(&path).unwrap();
         path
     };
+    bundle_wubi_table(&path("resources"));
     let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": preferences }).to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     assert_eq!(created["ok"], true);
@@ -6270,6 +6277,7 @@ fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preference
             .execute_batch(fixture)
             .unwrap();
     }
+    bundle_wubi_table(&resources);
     let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences }).to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     assert_eq!(created["ok"], true);
@@ -10543,6 +10551,7 @@ fn language_dictionaries_beside_the_resources_are_discovered() {
             cantonese: Some(beside.join("msime-cantonese.db")),
             zhuyin: None,
             stroke: None,
+            wubi_missing: false,
         }
     );
 
@@ -10554,6 +10563,7 @@ fn language_dictionaries_beside_the_resources_are_discovered() {
             cantonese: Some(beside.join("msime-cantonese.db")),
             zhuyin: Some(beside.join("msime-zhuyin.db")),
             stroke: None,
+            wubi_missing: false,
         }
     );
 
@@ -10567,6 +10577,7 @@ fn language_dictionaries_beside_the_resources_are_discovered() {
             cantonese: None,
             zhuyin: None,
             stroke: Some(beside.join("msime-stroke.db")),
+            wubi_missing: false,
         }
     );
     assert_eq!(
@@ -10588,16 +10599,19 @@ fn effective_scheme_falls_back_to_the_last_chinese_scheme_then_quanpin() {
         cantonese: Some("/dictionaries/msime-cantonese.db".into()),
         zhuyin: None,
         stroke: None,
+        wubi_missing: false,
     };
     let both = LanguageDictionaries {
         cantonese: Some("/dictionaries/msime-cantonese.db".into()),
         zhuyin: Some("/dictionaries/msime-zhuyin.db".into()),
         stroke: None,
+        wubi_missing: false,
     };
     let stroke_only = LanguageDictionaries {
         cantonese: None,
         zhuyin: None,
         stroke: Some("/dictionaries/msime-stroke.db".into()),
+        wubi_missing: false,
     };
     const OFFERED: Option<&str> = None;
     const NOT_OFFERED: Option<&str> = Some("this host does not offer it");
@@ -10830,6 +10844,7 @@ fn installed_language_dictionaries_enable_their_schemes() {
     let root = tempfile::tempdir().expect("tempdir");
     let resources = root.path().join("resources");
     std::fs::create_dir_all(&resources).expect("resources");
+    bundle_wubi_table(&resources);
     let engine_scheme = |scheme: InputScheme| {
         let preferences = Preferences {
             scheme,
@@ -15425,6 +15440,62 @@ fn publish_resource_pack(state_root: &Path, pack: ResourcePack, files: &[&str]) 
     directory
 }
 
+/// 五笔码表的位置和五笔能否运行：资源目录带着 `msime-wubi.db` 时用它（不另给路径）；不带时用已下载的 `wubi` 资源包；两处都没有时，只在本平台的发布包可以不带它（macOS）时算缺，五笔像缺词库的粤拼一样回退。
+#[test]
+fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_either() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let state = root.path().join("state");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::create_dir_all(&state).unwrap();
+    let on_demand = ON_DEMAND_ARTIFACTS
+        .iter()
+        .any(|group| group.contains(&"msime-wubi.db"));
+    assert_eq!(on_demand, cfg!(target_os = "macos"));
+
+    assert_eq!(super::wubi_dictionary(Some(&state), &resources), None);
+    assert_eq!(super::wubi_dictionary_missing(&resources, ""), on_demand);
+    let preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        last_chinese_scheme: None,
+        ..Preferences::default()
+    };
+    let all = [InputScheme::Quanpin, InputScheme::Wubi];
+    let missing = LanguageDictionaries {
+        wubi_missing: true,
+        ..LanguageDictionaries::default()
+    };
+    let (effective, diagnostic) =
+        effective_scheme(&preferences, &all, &missing, InputScheme::Quanpin);
+    assert_eq!(effective, InputScheme::Quanpin);
+    assert!(diagnostic
+        .unwrap()
+        .contains("its dictionary is not installed"));
+    let (effective, diagnostic) = effective_scheme(
+        &preferences,
+        &all,
+        &LanguageDictionaries::default(),
+        InputScheme::Quanpin,
+    );
+    assert_eq!((effective, diagnostic), (InputScheme::Wubi, None));
+
+    // 下载的资源包。
+    let pack = publish_resource_pack(&state, ResourcePack::Wubi, &["msime-wubi.db"]);
+    let downloaded = super::wubi_dictionary(Some(&state), &resources).unwrap();
+    assert_eq!(downloaded, pack.join("msime-wubi.db"));
+    assert!(!super::wubi_dictionary_missing(
+        &resources,
+        downloaded.to_str().unwrap()
+    ));
+    // 没有状态目录就找不到资源包。
+    assert_eq!(super::wubi_dictionary(None, &resources), None);
+
+    // 随包的优先：Engine 读资源目录，不另给路径。
+    std::fs::write(resources.join("msime-wubi.db"), b"bundled").unwrap();
+    assert_eq!(super::wubi_dictionary(Some(&state), &resources), None);
+    assert!(!super::wubi_dictionary_missing(&resources, ""));
+}
+
 /// 设置应用据此决定 Linux 上要不要列出语言词库资源包：只有记录的目录里三个词库都在才算随包带齐。
 #[test]
 fn packaged_language_dictionaries_need_all_three_in_the_recorded_directory() {
@@ -15456,6 +15527,7 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
         cantonese: Some(recorded.join("msime-cantonese.db")),
         zhuyin: Some(recorded.join("msime-zhuyin.db")),
         stroke: Some(recorded.join("msime-stroke.db")),
+        wubi_missing: false,
     };
     assert_eq!(
         LanguageDictionaries::resolve(Some(&state), Some(&recorded)),
@@ -15494,6 +15566,7 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
             cantonese: Some(pack.join("msime-cantonese.db")),
             zhuyin: Some(recorded.join("msime-zhuyin.db")),
             stroke: Some(recorded.join("msime-stroke.db")),
+            wubi_missing: false,
         }
     );
     assert_eq!(
@@ -15502,6 +15575,7 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
             cantonese: Some(pack.join("msime-cantonese.db")),
             zhuyin: None,
             stroke: None,
+            wubi_missing: false,
         }
     );
 
@@ -15630,7 +15704,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("full-macos"),
-        &ON_DEMAND_JAPANESE_ARTIFACTS,
+        &[&ON_DEMAND_JAPANESE_ARTIFACTS],
     )
     .unwrap();
 
@@ -15640,7 +15714,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("no-license"),
-        &ON_DEMAND_JAPANESE_ARTIFACTS,
+        &[&ON_DEMAND_JAPANESE_ARTIFACTS],
     )
     .is_err());
 
@@ -15650,7 +15724,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("half"),
-        &ON_DEMAND_JAPANESE_ARTIFACTS,
+        &[&ON_DEMAND_JAPANESE_ARTIFACTS],
     )
     .is_err());
 
@@ -15661,7 +15735,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("slim-macos"),
-        &ON_DEMAND_JAPANESE_ARTIFACTS,
+        &[&ON_DEMAND_JAPANESE_ARTIFACTS],
     )
     .unwrap();
 
@@ -15672,7 +15746,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
             &resources,
             &state,
             &specification,
-            &ON_DEMAND_JAPANESE_ARTIFACTS,
+            &[&ON_DEMAND_JAPANESE_ARTIFACTS],
             Edition::full(),
         )
         .unwrap(),
@@ -15703,7 +15777,7 @@ fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
     ] {
         let on_demand = on_demand_artifacts(target);
         if slim_prepares {
-            assert_eq!(on_demand, ON_DEMAND_JAPANESE_ARTIFACTS, "{target}");
+            assert_eq!(on_demand[0], ON_DEMAND_JAPANESE_ARTIFACTS, "{target}");
         } else {
             assert!(on_demand.is_empty(), "{target}");
         }
@@ -15767,7 +15841,7 @@ fn the_verified_marker_is_invalidated_when_the_shipped_set_shrinks() {
         .unwrap()
         .set_modified(modified)
         .unwrap();
-    for name in on_demand {
+    for name in on_demand.iter().flat_map(|group| group.iter()) {
         std::fs::remove_file(resources.join(name)).unwrap();
     }
 
@@ -15785,7 +15859,7 @@ fn the_verified_marker_is_invalidated_when_the_shipped_set_shrinks() {
     replaced[last] ^= 0xff;
     std::fs::write(&pinyin, &replaced).unwrap();
     verify_resources_once(&resources, &specification, &state, on_demand).unwrap();
-    let shipped = specification.as_shipped_in(&resources, on_demand);
+    let shipped = specification.as_shipped_in_groups(&resources, on_demand);
     assert_eq!(shipped.artifacts.len(), 2);
     assert_eq!(
         VerifiedMarker::read(&marker).unwrap().generation,
@@ -16004,6 +16078,7 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
              CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);",
         )
         .unwrap();
+    bundle_wubi_table(&resources);
     let dictionaries = path("dictionaries");
     std::fs::copy(
         resources.join("msime-pinyin.db"),
@@ -16055,6 +16130,7 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
             cantonese: Some(language.join("msime-cantonese.db")),
             zhuyin: None,
             stroke: None,
+            wubi_missing: false,
         }
     );
     assert_eq!(

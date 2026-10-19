@@ -493,6 +493,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
+        wubi_dictionary: String::new(),
     };
     registry().lock().unwrap().insert(
         456,
@@ -605,6 +606,7 @@ fn activation_case(
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
+        wubi_dictionary: String::new(),
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -898,6 +900,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         zhuyin_dictionary: String::new(),
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
+        wubi_dictionary: String::new(),
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -999,14 +1002,14 @@ fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
             activation_id: None,
         }
     };
-    let rejected = |on_demand: &[&str]| {
+    let rejected = |on_demand: &[&[&str]]| {
         matches!(
             prepare(request(), &specification, on_demand, std::iter::empty()),
             Err("snapshot resources rejected")
         )
     };
     assert!(rejected(&[]));
-    assert!(!rejected(&ON_DEMAND_JAPANESE_ARTIFACTS));
+    assert!(!rejected(&[&ON_DEMAND_JAPANESE_ARTIFACTS]));
 }
 
 /// 输入记录（#5659）用例共用的一台「设备」：随包词库只有空表，日志里有一个用户自己的词，以及一条学习调权、一条删除记录、一个固定位置和一条选词计数。

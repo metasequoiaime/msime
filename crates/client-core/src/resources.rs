@@ -40,15 +40,17 @@ pub const ON_DEMAND_JAPANESE_ARTIFACTS: [&str; 3] = [
     "msime-mozc_LICENSE.txt",
 ];
 
-/// 目标系统 `target_os`（取值同 `std::env::consts::OS`）的发布包可以不内置的资源文件：macOS、Android 和 iOS 是日文词典那一组，其余平台照旧全部内置，返回空列表。iOS 的发布构建以 `MSIME_IOS_OMIT_ON_DEMAND=1` 暂存资源（#7687），键盘扩展的 `EngineResources` 不带这一组；这里不列 iOS 时，运行时按完整清单校验，发布包里的键盘一启动就以 `ExistingGeneration`（缺这三个文件）报「输入运行时准备失败」。
+/// macOS 发布包可以不内置、改为按需下载的五笔码表（见 [`on_demand_artifacts`]）。拼音用户用不到它：五笔反查编码只在五笔方案里显示，设置页的五笔查码只在五笔可用时出现；缺少它时五笔方案像缺词库的粤拼一样回退到别的方案，日志里的五笔行在准备代次时跳过。五笔是默认方案的版本（五笔版）的发布包始终带着它，这由打包脚本保证，运行时的校验只容许它缺席。
+pub const ON_DEMAND_WUBI_ARTIFACTS: [&str; 1] = ["msime-wubi.db"];
+
+/// 目标系统 `target_os`（取值同 `std::env::consts::OS`）的发布包可以不内置的资源文件，按组列出：每组整体出现或缺席（见 [`ResourceSet::as_shipped_in_groups`]）。macOS 是日文词典那一组和五笔码表，Android 和 iOS 是日文词典那一组，其余平台照旧全部内置，返回空列表。iOS 的发布构建以 `MSIME_IOS_OMIT_ON_DEMAND=1` 暂存资源（#7687），键盘扩展的 `EngineResources` 不带这一组；这里不列 iOS 时，运行时按完整清单校验，发布包里的键盘一启动就以 `ExistingGeneration`（缺这三个文件）报「输入运行时准备失败」。
 ///
 /// 按参数判断而不是只写 `cfg!`，测试在任何一台主机上都能检查每个目标的规则；宿主按 `std::env::consts::OS` 取本平台的那一份。
-pub const fn on_demand_artifacts(target_os: &str) -> &'static [&'static str] {
-    if same_text(target_os, "macos")
-        || same_text(target_os, "android")
-        || same_text(target_os, "ios")
-    {
-        &ON_DEMAND_JAPANESE_ARTIFACTS
+pub const fn on_demand_artifacts(target_os: &str) -> &'static [&'static [&'static str]] {
+    if same_text(target_os, "macos") {
+        &[&ON_DEMAND_JAPANESE_ARTIFACTS, &ON_DEMAND_WUBI_ARTIFACTS]
+    } else if same_text(target_os, "android") || same_text(target_os, "ios") {
+        &[&ON_DEMAND_JAPANESE_ARTIFACTS]
     } else {
         &[]
     }
@@ -153,6 +155,13 @@ impl ResourceSet {
         } else {
             self.clone()
         }
+    }
+
+    /// [`ResourceSet::as_shipped_in`] 逐组应用：每组文件全部不存在时去掉这一组，组与组互不影响。
+    pub fn as_shipped_in_groups(&self, directory: &Path, groups: &[&[&str]]) -> ResourceSet {
+        groups.iter().fold(self.clone(), |set, group| {
+            set.as_shipped_in(directory, group)
+        })
     }
 
     fn filtered(&self, keep: impl Fn(&str) -> bool) -> ResourceSet {
@@ -1056,26 +1065,80 @@ mod tests {
             .is_err());
     }
 
-    /// macOS、Android 和 iOS 的发布包可以不带日文词典组，Linux、Windows 以及其他目标照旧要求带齐。
+    /// macOS、Android 和 iOS 的发布包可以不带日文词典组，macOS 还可以不带五笔码表；Linux、Windows 以及其他目标照旧要求带齐。
     #[test]
     fn only_macos_android_and_ios_ship_without_the_japanese_group() {
-        assert_eq!(on_demand_artifacts("macos"), ON_DEMAND_JAPANESE_ARTIFACTS);
-        assert_eq!(on_demand_artifacts("android"), ON_DEMAND_JAPANESE_ARTIFACTS);
-        assert_eq!(on_demand_artifacts("ios"), ON_DEMAND_JAPANESE_ARTIFACTS);
-        for target in ["linux", "windows", "", "androi", "android ", "ios "] {
+        assert_eq!(
+            on_demand_artifacts("macos"),
+            [
+                ON_DEMAND_JAPANESE_ARTIFACTS.as_slice(),
+                ON_DEMAND_WUBI_ARTIFACTS.as_slice()
+            ]
+        );
+        assert_eq!(
+            on_demand_artifacts("android"),
+            [ON_DEMAND_JAPANESE_ARTIFACTS.as_slice()]
+        );
+        assert_eq!(
+            on_demand_artifacts("ios"),
+            [ON_DEMAND_JAPANESE_ARTIFACTS.as_slice()]
+        );
+        for target in [
+            "linux", "windows", "", "androi", "android ", "ios ", "macos ",
+        ] {
             assert!(on_demand_artifacts(target).is_empty(), "{target:?}");
         }
         // Android 上不带日文词典组的资源目录按子集校验通过。
         let directory = tempfile::tempdir().unwrap();
         write_core(directory.path());
         let spec = desktop_specification();
-        let shipped = spec.as_shipped_in(directory.path(), on_demand_artifacts("android"));
+        let shipped = spec.as_shipped_in_groups(directory.path(), on_demand_artifacts("android"));
         assert!(ResourceStore::new(directory.path())
             .verify(directory.path(), &shipped)
             .is_ok());
-        let linux = spec.as_shipped_in(directory.path(), on_demand_artifacts("linux"));
+        let linux = spec.as_shipped_in_groups(directory.path(), on_demand_artifacts("linux"));
         assert!(ResourceStore::new(directory.path())
             .verify(directory.path(), &linux)
+            .is_err());
+    }
+
+    /// 按组裁剪：五笔码表和日文词典组各自整体缺席或在场，互不影响；macOS 上两组都缺、只缺一组的目录都按各自的子集校验通过，Android 不容许缺五笔码表。
+    #[test]
+    fn each_on_demand_group_is_left_out_on_its_own() {
+        let mut spec = desktop_specification();
+        spec.artifacts
+            .push(fixture_artifact(ON_DEMAND_WUBI_ARTIFACTS[0], b"wubi"));
+        let macos = on_demand_artifacts("macos");
+        let directory = tempfile::tempdir().unwrap();
+        write_core(directory.path());
+        let shipped = spec.as_shipped_in_groups(directory.path(), macos);
+        assert_eq!(names(&shipped), ["msime-pinyin.db", "msime-english.db"]);
+        assert!(ResourceStore::new(directory.path())
+            .verify(directory.path(), &shipped)
+            .is_ok());
+        // 五笔版那样带着五笔码表、不带日文词典：五笔码表照常校验。
+        fs::write(directory.path().join("msime-wubi.db"), b"wubi").unwrap();
+        let shipped = spec.as_shipped_in_groups(directory.path(), macos);
+        assert_eq!(
+            names(&shipped),
+            ["msime-pinyin.db", "msime-english.db", "msime-wubi.db"]
+        );
+        assert!(ResourceStore::new(directory.path())
+            .verify(directory.path(), &shipped)
+            .is_ok());
+        fs::write(directory.path().join("msime-wubi.db"), b"tampered").unwrap();
+        assert!(ResourceStore::new(directory.path())
+            .verify(
+                directory.path(),
+                &spec.as_shipped_in_groups(directory.path(), macos)
+            )
+            .is_err());
+        // Android 只容许缺日文词典组：缺五笔码表的目录按完整清单校验失败。
+        fs::remove_file(directory.path().join("msime-wubi.db")).unwrap();
+        let android = spec.as_shipped_in_groups(directory.path(), on_demand_artifacts("android"));
+        assert!(names(&android).contains(&"msime-wubi.db"));
+        assert!(ResourceStore::new(directory.path())
+            .verify(directory.path(), &android)
             .is_err());
     }
 

@@ -1,9 +1,9 @@
-//! 开发和打包用：把按需下载的资源包装到指定的 state_root 下（`<state_root>/resource-packs/<id>/`），与 App 运行时下载的位置和格式一致。资源包 id 是 `japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`offline-glosses`、`voice-runtime` 和 `voice-runtime-macos`（锁文件固定了重签的运行库之后才有）；不带 id 时安装全部，打包前据此确认每个资源包的固定地址都还能下载。
+//! 开发和打包用：把按需下载的资源包装到指定的 state_root 下（`<state_root>/resource-packs/<id>/`），与 App 运行时下载的位置和格式一致。资源包 id 是 `japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`offline-glosses`、`voice-runtime`、`wubi` 和 `voice-runtime-macos`（锁文件固定了重签的运行库之后才有）；不带 id 时安装全部，打包前据此确认每个资源包的固定地址都还能下载。
 use msime_client_providers::resource_packs::{self, ResourcePack};
 use std::sync::atomic::AtomicBool;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: install_resource_pack <absolute-state-root> [japanese|language-dictionaries|handwriting|settled-model|offline-glosses|voice-runtime|voice-runtime-macos ...]";
+    let usage = "usage: install_resource_pack <absolute-state-root> [japanese|language-dictionaries|handwriting|settled-model|offline-glosses|voice-runtime|wubi|voice-runtime-macos ...]";
     let mut arguments = std::env::args().skip(1);
     let state_root = std::path::PathBuf::from(arguments.next().ok_or(usage)?);
     let mut packs = Vec::new();

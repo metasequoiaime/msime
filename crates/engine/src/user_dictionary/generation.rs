@@ -283,6 +283,52 @@ fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
+/// 资源目录不带 `msime-wubi.db`、五笔码表来自宿主另行下载的那份 `wubi`（`EngineOptions::wubi_dictionary`，macOS 的 `wubi` 资源包）时，把它并进代次的工作主词库，再回放一遍日志：准备代次时码表还不在，日志里的五笔行被跳过（`replay`），并进来之后才有地方写。返回是否并入了码表。
+///
+/// 工作主词库已有五笔表、代次就是资源目录（只读布局）、没有工作主词库（不读拼音库的版本），或者 `wubi` 不是普通文件 `msime-wubi.db` 时什么也不做。已有五笔表时只读一次 schema，所以每次建会话都调用也不贵。
+pub(crate) fn merge_downloaded_wubi(paths: &RuntimePaths, wubi: &Path) -> Result<bool> {
+    let main_db = paths.dictionary(assets::MAIN_DICTIONARY);
+    if paths.dictionaries == paths.resources
+        || !is_real_file(&main_db)
+        || wubi.file_name() != Some(std::ffi::OsStr::new(assets::WUBI_DICTIONARY))
+        || !is_real_file(wubi)
+    {
+        return Ok(false);
+    }
+    if has_split_wubi_tables(&main_db)? {
+        return Ok(false);
+    }
+    let Some(directory) = wubi.parent() else {
+        return Ok(false);
+    };
+    merge_split_wubi(directory, &main_db)?;
+    replay_into(paths, &paths.dictionaries, true)?;
+    index_reverse_lookup(&paths.dictionaries, true);
+    Ok(true)
+}
+
+/// 工作主词库里是否已有 `wubi86` 或 `wubi98`。
+pub(crate) fn has_split_wubi_tables(main_db: &Path) -> Result<bool> {
+    let present = (|| -> rusqlite::Result<bool> {
+        let path = crate::paths::sqlite_read_only_path_no_follow(main_db)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+        let connection = Connection::open_with_flags(
+            &path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+                | OpenFlags::SQLITE_OPEN_NOFOLLOW
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name IN ('wubi86','wubi98'))",
+            [],
+            |row| row.get(0),
+        )
+    })();
+    present.map_err(|error| {
+        EngineError::failed(format!("cannot read {}: {error}", assets::MAIN_DICTIONARY))
+    })
+}
+
 /// 词库发布把五笔码表单独放在只读的 `msime-wubi.db` 里，`msime-pinyin.db` 不再含 `wubi86`/`wubi98`。五笔的学习调序、删词、个人词典编辑与日志回放都写代次里的工作主词库，五笔 provider 也从它读，所以准备代次（以及重置学习数据）时把这两张表连同索引并回工作副本：读写落在同一个文件上，学到的权重立即可见。资源目录没有 `msime-wubi.db`（旧的合并发布）或工作副本里已有同名表时不动。
 pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
     let source = resources.join(assets::WUBI_DICTIONARY);
@@ -993,6 +1039,78 @@ mod tests {
             ),
             Some(3)
         );
+    }
+
+    /// 资源目录不带 `msime-wubi.db`（macOS 发布包改为按需下载）：准备代次时五笔行跳过、代次照常就绪；宿主交来下载的码表后，建会话时并进工作主词库并补上日志里的五笔行，再来一次什么也不做。
+    #[test]
+    fn a_downloaded_wubi_dictionary_is_merged_into_a_generation_prepared_without_one() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        assert!(!resources.join(assets::WUBI_DICTIONARY).exists());
+        let user = root.path().join("user");
+        fs::create_dir_all(&user).unwrap();
+        let journal = user.join(assets::USER_JOURNAL);
+        sql(&journal, OPERATIONS_DDL);
+        sql(
+            &journal,
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted,updated_at) VALUES
+               ('wubi','wqvb','合成五笔','upsert',9,1,1),
+               ('wubi98','wqvb','你好','upsert',99,1,2)",
+        );
+        let cache = root.path().join("cache");
+        let paths = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        assert_eq!(
+            weight(
+                &main,
+                "SELECT count(*) FROM sqlite_master WHERE name IN ('wubi86','wubi98')"
+            ),
+            Some(0)
+        );
+
+        let pack = root.path().join("resource-packs").join("wubi");
+        fs::create_dir_all(&pack).unwrap();
+        let downloaded = pack.join(assets::WUBI_DICTIONARY);
+        sql(
+            &downloaded,
+            "CREATE TABLE wubi86(\"key\" TEXT NOT NULL,\"value\" TEXT NOT NULL,\"weight\" INTEGER NOT NULL DEFAULT 0,UNIQUE(\"key\",\"value\"));
+             CREATE TABLE wubi98(\"key\" TEXT NOT NULL,\"value\" TEXT NOT NULL,\"weight\" INTEGER NOT NULL DEFAULT 0,UNIQUE(\"key\",\"value\"));
+             INSERT INTO wubi86 VALUES('aaaa','工',90);
+             INSERT INTO wubi98 VALUES('wqvb','你好',80);",
+        );
+        // 不是 `msime-wubi.db` 的文件不认。
+        let renamed = pack.join("other.db");
+        fs::copy(&downloaded, &renamed).unwrap();
+        assert!(!merge_downloaded_wubi(&paths, &renamed).unwrap());
+        assert!(!merge_downloaded_wubi(
+            &paths,
+            &pack.join("missing").join(assets::WUBI_DICTIONARY)
+        )
+        .unwrap());
+
+        assert!(merge_downloaded_wubi(&paths, &downloaded).unwrap());
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubi86 WHERE value='合成五笔'"),
+            Some(9)
+        );
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubi98 WHERE value='你好'"),
+            Some(99)
+        );
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubi86 WHERE value='工'"),
+            Some(90)
+        );
+        // 下载的码表不变；已有五笔表时不再导入。
+        assert_eq!(weight(&downloaded, "SELECT count(*) FROM wubi86"), Some(1));
+        assert!(!merge_downloaded_wubi(&paths, &downloaded).unwrap());
+        assert_eq!(weight(&main, "SELECT count(*) FROM wubi86"), Some(2));
+        // 代次就是资源目录（只读布局）时不写。
+        let read_only = RuntimePaths {
+            dictionaries: paths.resources.clone(),
+            ..paths.clone()
+        };
+        assert!(!merge_downloaded_wubi(&read_only, &downloaded).unwrap());
     }
 
     #[test]

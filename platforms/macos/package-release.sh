@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Build the installable macOS release: the Tauri settings app with the pinned core dictionaries (EngineResources), the licence files and the InputMethodKit bundle 水杉输入法.app embedded as resources, packed into a DMG with a SHA256SUMS beside it.
 #
-# 包里只带装好就能打中文的核心词库（msime-pinyin.db、msime-wubi.db、bigram/trigram、msime-english.db、SCOWL 许可声明 msime-scowl_Copyright.txt、msime-others.db、sentence-model、helpcodes/、msime-dictionary-manifest.json）。其余三个资源包由 App 在首次用到时下载到 <state_root>/resource-packs/<id>/（state_root 默认 ~/Library/Application Support/app.msime.macos），查找时下载的优先、包内或旧版本记录的副本次之，两者都没有时对应功能显示为不可用：
+# 包里只带装好就能打中文的核心词库（msime-pinyin.db、bigram/trigram、msime-english.db、SCOWL 许可声明 msime-scowl_Copyright.txt、msime-others.db、sentence-model、helpcodes/、msime-dictionary-manifest.json；五笔版另带 msime-wubi.db）。其余资源包由 App 在首次用到时下载到 <state_root>/resource-packs/<id>/（state_root 默认 ~/Library/Application Support/app.msime.macos），查找时下载的优先、包内或旧版本记录的副本次之，两者都没有时对应功能显示为不可用：
 #   japanese              msime-japanese.dat 与两份 Mozc 许可文本（mozc_dictionary_oss_README、mozc_LICENSE），用户选日文方案时下载
+#   wubi                  五笔码表 msime-wubi.db，用户选五笔方案时下载。五笔是默认方案的版本（五笔版）照旧随包带着它
 #   language-dictionaries 粤拼、注音与笔画词库及其许可证（resources/language-dictionaries.lock.json），用户选粤拼、注音或笔画时下载
 #   handwriting           手写模型及其许可证（resources/handwriting-model.lock.json），首次打开手写面板时下载
 #   voice-runtime-macos   本地语音识别的 sherpa-onnx 运行库（resources/voice-runtime-macos.lock.json），用户选用本地识别时下载。只在锁文件固定了重签的运行库、并且这次用同一个 Team ID 签名时省略；否则运行库照旧放进输入法 bundle 的 Contents/Frameworks
@@ -197,7 +198,7 @@ fi
 
 # ---- On-demand resource packs ----
 # 编译之前先用 App 运行时的同一个安装器、同一组 URL 和 SHA-256 把 macOS 会下载的资源包（日文词典、语言词库、手写模型、桌面神经联想模型，省略运行库时还有语音运行库）装一遍，失败就在这里停下：资源包不在包里，发布出去的 App 只能靠这些地址补齐，地址失效或内容漂移的发布包不该出去。离线释义和 Android 的语音运行库只给 Android 按需下载，不在这里装。不接管道，安装器的退出码就是这一步的结果。
-on_demand_packs=(japanese language-dictionaries handwriting settled-model)
+on_demand_packs=(japanese wubi language-dictionaries handwriting settled-model)
 if [ "$omit_voice_runtime" = 1 ]; then
   on_demand_packs+=(voice-runtime-macos)
 fi
@@ -313,6 +314,7 @@ display_name="$(python3 "$edition_tool" field --edition "$edition" display_name.
 dmg_prefix="$(python3 "$edition_tool" field --edition "$edition" dmg_prefix)"
 # 非英文离线释义按中文候选查，不提供中文方案的版本（日文、越南文和藏文版）不带：stage-resources.sh 不暂存，check_app 再确认包里没有。
 offline_glosses="$(python3 "$edition_tool" field --edition "$edition" features.offline_glosses)"
+wubi_bundled="$(python3 -I -c 'import json, sys; print(int(next(edition["default_scheme"] for edition in json.load(open(sys.argv[1]))["editions"] if edition["id"] == sys.argv[2]) == "wubi"))' "$repo_root/shared/contracts/editions.json" "$edition")"
 echo "packaging edition $edition: $bundle_name ($bundle_id)"
 
 # ---- Core dictionaries for this edition ----
@@ -418,7 +420,7 @@ check_app() {
     test -d "$root/Contents/Frameworks/Sparkle.framework"
   fi
   test -d "$resources_dir/EngineResources"
-  cargo run --quiet --locked -p msime-client-core --example verify_resources -- --omit-on-demand --edition "$edition" "$resources_dir/EngineResources" >/dev/null
+  cargo run --quiet --locked -p msime-client-core --example verify_resources -- --omit-on-demand --platform macos --edition "$edition" "$resources_dir/EngineResources" >/dev/null
   for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt wubi86_helpcode.txt NOTICE.md NOTICE-jiajia.md NOTICE-wubi86.md; do
     test -f "$resources_dir/EngineResources/helpcodes/$table"
   done
@@ -426,6 +428,12 @@ check_app() {
   test ! -e "$resources_dir/EngineResources/msime-japanese.dat"
   test ! -e "$resources_dir/EngineResources/msime-mozc_dictionary_oss_README.txt"
   test ! -e "$resources_dir/EngineResources/msime-mozc_LICENSE.txt"
+  # 五笔码表只随五笔是默认方案的版本（五笔版）发布，其余版本由 App 在用户选五笔时下载到 resource-packs/wubi。
+  if [ "$wubi_bundled" = 1 ]; then
+    test -f "$resources_dir/EngineResources/msime-wubi.db"
+  else
+    test ! -e "$resources_dir/EngineResources/msime-wubi.db"
+  fi
   # SCOWL 的条款要求它的版权与许可声明随 msime-english.db 一起分发；verify_resources 已按锁文件要求它在场，这里再明确查一次，免得有人把它当成可有可无的文本挪走。
   test -f "$resources_dir/EngineResources/msime-scowl_Copyright.txt"
   test ! -e "$resources_dir/language-dictionaries"

@@ -19,10 +19,16 @@ pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
 
 /// 五笔查码：`text` 里每个不同汉字（以及整段作为一个词）在 86 和 98 码表里的编码，读会话所用的同一份五笔码表（`wubi_database` 选出的文件，含用户加的五笔词）。
 pub fn wubi_code_lookup(options: &EngineOptions, text: &str) -> WubiCodeLookup {
-    crate::wubi::lookup::lookup_codes(
-        &crate::ime::registry::wubi_database(&runtime_paths(options)),
-        text,
-    )
+    let database = crate::ime::registry::wubi_database(&runtime_paths(options));
+    // 下载的码表（`EngineOptions::wubi_dictionary`）要等下一次建会话才并进代次；在那之前查码直接读下载的那份，查码本来就只读码表。
+    let database = if !options.wubi_dictionary.is_empty()
+        && !crate::user_dictionary::generation::has_split_wubi_tables(&database).unwrap_or(false)
+    {
+        std::path::PathBuf::from(&options.wubi_dictionary)
+    } else {
+        database
+    };
+    crate::wubi::lookup::lookup_codes(&database, text)
 }
 
 pub fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String {

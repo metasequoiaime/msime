@@ -149,6 +149,18 @@ pub fn baseline_version(baseline: &ResourceSet) -> String {
         .to_owned()
 }
 
+/// 发布包可以不带、改由资源包提供的桌面词库文件属于哪个资源包：日文词典那一组是 `japanese`，五笔码表是 `wubi`，其余文件随包，为 `None`。更新只在本机已有这份文件（随包或资源包已装）时才下载它的新版本。
+fn on_demand_pack(name: &str) -> Option<crate::resource_packs::ResourcePack> {
+    use crate::resource_packs::ResourcePack;
+    if resources::ON_DEMAND_JAPANESE_ARTIFACTS.contains(&name) {
+        Some(ResourcePack::Japanese)
+    } else if resources::ON_DEMAND_WUBI_ARTIFACTS.contains(&name) {
+        Some(ResourcePack::Wubi)
+    } else {
+        None
+    }
+}
+
 fn validate_selection(selection: &Selection, baseline: &ResourceSet) -> Result<(), UpdateError> {
     if selection.baseline_generation != baseline.generation().map_err(|_| UpdateError::Invalid)?
         || version(&selection.version).is_none()
@@ -176,9 +188,9 @@ fn validate_selection(selection: &Selection, baseline: &ResourceSet) -> Result<(
             return Err(UpdateError::Invalid);
         }
     }
-    // 允许省去按需日文词典，不能省去其他随包资源。
+    // 允许省去按需下载的日文词典和五笔码表，不能省去其他随包资源。
     if baseline.artifacts.iter().any(|p| {
-        !resources::ON_DEMAND_JAPANESE_ARTIFACTS.contains(&p.name.as_str())
+        on_demand_pack(&p.name).is_none()
             && !selection.desktop.artifacts.iter().any(|a| a.name == p.name)
     }) {
         return Err(UpdateError::Invalid);
@@ -513,12 +525,9 @@ fn plan(
     desktop.artifacts.retain(|a| {
         !context.on_demand.contains(&a.name)
             || context.resources.join(&a.name).is_file()
-            || crate::resource_packs::installed_file(
-                &context.state_root,
-                crate::resource_packs::ResourcePack::Japanese,
-                &a.name,
-            )
-            .is_some()
+            || on_demand_pack(&a.name).is_some_and(|pack| {
+                crate::resource_packs::installed_file(&context.state_root, pack, &a.name).is_some()
+            })
     });
     for file in &mut desktop.artifacts {
         if !file.url.starts_with(DOWNLOAD) {

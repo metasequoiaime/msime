@@ -1,10 +1,10 @@
-//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，Android 发布包不再内置的离线释义词典和本地语音运行库，以及 macOS 发布包不再内置的本地语音运行库。
+//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，Android 发布包不再内置的离线释义词典和本地语音运行库，以及 macOS 发布包不再内置的五笔码表和本地语音运行库。
 //!
 //! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。文件名、URL、长度和 SHA-256 全部来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]；语音运行库从固定的归档里取出文件，见 [`ResourcePack::archive`]。
 //!
 //! 锁文件还没有固定内容的资源包（[`ResourcePack::pinned`] 为假，目前只可能是 macOS 语音运行库在第一次发布之前）不存在：[`ResourcePack::from_id`] 认不出它，[`list`] 不列出它，安装、导入和收编都报 `local_model_unknown`。
 
-use crate::resources::{ResourceSet, ON_DEMAND_JAPANESE_ARTIFACTS};
+use crate::resources::{ResourceSet, ON_DEMAND_JAPANESE_ARTIFACTS, ON_DEMAND_WUBI_ARTIFACTS};
 use crate::voice::local_models::{self, InstallProgress, LocalModelError, MANIFEST_FILE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -51,6 +51,8 @@ pub enum ResourcePack {
     OfflineGlosses,
     /// Android arm64 上本地语音识别加载的 `libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，取自 `resources/voice-runtime.lock.json` 固定的 sherpa-onnx `.aar`。
     VoiceRuntime,
+    /// macOS 发布包不再内置的五笔码表 `msime-wubi.db`，即 `desktop-dictionary.lock.json` 里的那一项。
+    Wubi,
     /// macOS 上本地语音识别加载的 `libsherpa-onnx-c-api.dylib`（universal），取自 `resources/voice-runtime-macos.lock.json` 固定的、用本项目 Developer ID 重签过的归档。锁文件还没固定归档时不存在，见 [`ResourcePack::pinned`]。
     MacosVoiceRuntime,
 }
@@ -133,13 +135,14 @@ pub struct PackArchive {
 
 impl ResourcePack {
     /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
-    pub const ALL: [ResourcePack; 7] = [
+    pub const ALL: [ResourcePack; 8] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
         ResourcePack::SettledModel,
         ResourcePack::OfflineGlosses,
         ResourcePack::VoiceRuntime,
+        ResourcePack::Wubi,
         ResourcePack::MacosVoiceRuntime,
     ];
 
@@ -164,6 +167,7 @@ impl ResourcePack {
             ResourcePack::SettledModel => "settled-model",
             ResourcePack::OfflineGlosses => "offline-glosses",
             ResourcePack::VoiceRuntime => "voice-runtime",
+            ResourcePack::Wubi => "wubi",
             ResourcePack::MacosVoiceRuntime => "voice-runtime-macos",
         }
     }
@@ -178,6 +182,7 @@ impl ResourcePack {
         static LANGUAGE_SCHEMES: OnceLock<Vec<&'static str>> = OnceLock::new();
         match self {
             ResourcePack::Japanese => &["japanese"],
+            ResourcePack::Wubi => &["wubi"],
             ResourcePack::LanguageDictionaries => LANGUAGE_SCHEMES.get_or_init(|| {
                 let pinned = &self.set().artifacts;
                 let pinned_names: HashSet<&str> = pinned
@@ -218,7 +223,7 @@ impl ResourcePack {
 
     /// 该资源包固定的文件清单，取自仓库内的锁文件。从归档取出的文件（[`ResourcePack::archive`]），URL 记的是归档的地址，长度和 SHA-256 是取出后文件本身的。
     pub fn set(self) -> &'static ResourceSet {
-        static SETS: OnceLock<[ResourceSet; 6]> = OnceLock::new();
+        static SETS: OnceLock<[ResourceSet; 7]> = OnceLock::new();
         static UNPINNED: OnceLock<ResourceSet> = OnceLock::new();
         if self == ResourcePack::MacosVoiceRuntime {
             // 还没固定时是没有文件的空清单，它不能通过 `ResourceSet::validate`，也不会被列出或安装。
@@ -266,6 +271,7 @@ impl ResourcePack {
                         })
                         .collect(),
                 },
+                desktop.only(&ON_DEMAND_WUBI_ARTIFACTS),
             ]
         });
         match self {
@@ -275,6 +281,7 @@ impl ResourcePack {
             ResourcePack::SettledModel => &sets[3],
             ResourcePack::OfflineGlosses => &sets[4],
             ResourcePack::VoiceRuntime => &sets[5],
+            ResourcePack::Wubi => &sets[6],
             ResourcePack::MacosVoiceRuntime => unreachable!("handled above"),
         }
     }
@@ -785,6 +792,24 @@ mod tests {
                 (&locked.url, &locked.sha256, locked.size)
             );
         }
+        let wubi = ResourcePack::Wubi.set();
+        assert_eq!(wubi.source_commit, desktop.source_commit);
+        assert_eq!(wubi.artifacts.len(), 1);
+        let locked = desktop
+            .artifacts
+            .iter()
+            .find(|locked| locked.name == ON_DEMAND_WUBI_ARTIFACTS[0])
+            .unwrap();
+        assert_eq!(
+            (
+                &wubi.artifacts[0].name,
+                &wubi.artifacts[0].sha256,
+                wubi.artifacts[0].size
+            ),
+            (&locked.name, &locked.sha256, locked.size)
+        );
+        assert_eq!(ResourcePack::Wubi.schemes(), ["wubi"]);
+        assert!(ResourcePack::Wubi.archive().is_none());
         assert_eq!(ResourcePack::LanguageDictionaries.set().artifacts.len(), 6);
         assert_eq!(ResourcePack::Handwriting.set().artifacts.len(), 2);
         assert_eq!(ResourcePack::SettledModel.set().artifacts.len(), 1);

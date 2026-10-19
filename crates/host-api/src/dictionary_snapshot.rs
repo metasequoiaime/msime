@@ -1140,7 +1140,7 @@ fn write_activation_receipt_at(path: &Path, activation_id: &str) -> Result<(), &
 fn prepare(
     request: PrepareRequest,
     specification: &ResourceSet,
-    on_demand: &[&str],
+    on_demand: &[&[&str]],
     stream: impl Iterator<Item = Result<msime_engine::host::DictionaryStateRecord, SnapshotReadError>>
         + 'static,
 ) -> Result<Prepared, &'static str> {

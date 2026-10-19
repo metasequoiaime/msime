@@ -1,6 +1,6 @@
 name: macOS package
 
-# macOS 发布包的打包检查：发布包只带核心词库，日文词典、粤拼/注音词库和手写模型由 App 按需下载。这里确认核心词库的暂存规则、按需资源包仍能按锁文件下载，并在 Apple 芯片的 runner 上真打一次未签名的 universal 包，让打包脚本的问题在发布当天之前暴露出来。
+# macOS 发布包的打包检查：发布包只带核心词库，日文词典、五笔码表、粤拼/注音词库和手写模型由 App 按需下载。这里确认核心词库的暂存规则、按需资源包仍能按锁文件下载，并在 Apple 芯片的 runner 上真打一次未签名的 universal 包，让打包脚本的问题在发布当天之前暴露出来。
 #
 # 这不是分支保护要求的检查，也不在 PR 上跑：打包是合进 develop 之后的事，功能分支只需要编译和测试（见 .agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。推到 develop 时在文件内部算这次推送的改动范围，没碰打包输入的推送里后面的 job 被 `if:` 跳过、上报 skipped。每周一次的定时运行不看路径，资源包地址失效最多隔一周就会报出来。
 
@@ -99,10 +99,11 @@ jobs:
           test ! -e "$staged/msime-japanese.dat"
           test ! -e "$staged/msime-mozc_dictionary_oss_README.txt"
           test ! -e "$staged/msime-mozc_LICENSE.txt"
+          test ! -e "$staged/msime-wubi.db"
           test -f "$staged/msime-pinyin.db"
           test -f "$staged/msime-scowl_Copyright.txt"
           test -f "$staged/helpcodes/helpcode.txt"
-          cargo run --quiet --locked -p msime-client-core --example verify_resources -- --omit-on-demand "$staged"
+          cargo run --quiet --locked -p msime-client-core --example verify_resources -- --omit-on-demand --platform macos "$staged"
           du -sk "$staged"
       - name: Check the packaging contract
         run: python3 scripts/test-macos-package-resources.py
@@ -110,7 +111,7 @@ jobs:
       - name: Install every macOS on-demand resource pack
         run: |
           set -euo pipefail
-          packs=(japanese language-dictionaries handwriting settled-model)
+          packs=(japanese wubi language-dictionaries handwriting settled-model)
           if python3 -I -c 'import json, sys; sys.exit(0 if json.load(open("resources/voice-runtime-macos.lock.json"))["archive"] else 1)'; then
             packs+=(voice-runtime-macos)
           fi
