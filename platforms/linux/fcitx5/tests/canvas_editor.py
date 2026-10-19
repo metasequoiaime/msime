@@ -1,7 +1,8 @@
-"""在隔离 X11 显示上检查真实 GTK 编辑器与 classicui canvas 像素。"""
+"""在隔离 X11／Wayland 显示上检查真实 GTK 编辑器与原生 canvas 像素。"""
 import ctypes
 import configparser
 from collections import Counter
+from contextlib import nullcontext
 import io
 import json
 import os
@@ -19,8 +20,13 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-gi.require_version("GdkX11", "3.0")
-from gi.repository import Gdk, GdkX11, Gtk
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+
+WAYLAND = "--wayland" in sys.argv
+if not WAYLAND:
+    gi.require_version("GdkX11", "3.0")
+    from gi.repository import GdkX11
 from daemon import daemon_environment, wait
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
@@ -60,8 +66,14 @@ def panel_image(colors):
 
 
 def screenshot():
-    root = Gdk.get_default_root_window()
-    image = Gdk.pixbuf_get_from_window(root, 0, 0, root.get_width(), root.get_height())
+    if WAYLAND:
+        loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+        loader.write(subprocess.check_output(["grim", "-"], timeout=5))
+        loader.close()
+        image = loader.get_pixbuf()
+    else:
+        root = Gdk.get_default_root_window()
+        image = Gdk.pixbuf_get_from_window(root, 0, 0, root.get_width(), root.get_height())
     assert image is not None, "无法读取隔离显示的像素"
     channels, stride = image.get_n_channels(), image.get_rowstride()
     data = image.get_pixels()
@@ -75,10 +87,21 @@ def palette_visible(colors):
     return all(counts[color] >= 16 for color in colors)
 
 
+def palette_top(color):
+    image, _ = screenshot()
+    channels, stride = image.get_n_channels(), image.get_rowstride()
+    pixel = bytes(color) + (b"\xff" if channels == 4 else b"")
+    data = image.get_pixels()
+    for y in range(image.get_height()):
+        if pixel in data[y * stride:y * stride + image.get_width() * channels]:
+            return y
+    return None
+
+
 def save_image(name):
     destination = os.environ.get("MSIME_TEST_CANVAS_ARTIFACTS")
     if destination:
-        directory = (Path(destination) / FORMAT
+        directory = (Path(destination) / ("wayland" if WAYLAND else "x11") / FORMAT
                      / os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical"))
         directory.mkdir(parents=True, exist_ok=True)
         screenshot()[0].savev(str(directory / f"{name}.png"), "png", [], [])
@@ -115,8 +138,16 @@ def main():
         assert result["ok"], "共享 Host API 请求失败"
         return result["value"]
 
-    with tempfile.TemporaryDirectory(prefix="msime-canvas-editor-") as directory:
+    # Wayland 模块与编辑器同进程，GLib 读取前就要固定 XDG 目录；X11 面板在独立 daemon 中。
+    profile = os.environ.get("MSIME_TEST_CANVAS_ROOT") if WAYLAND else None
+    if WAYLAND:
+        assert profile and os.environ.get("XDG_DATA_HOME") == str(Path(profile) / "data"), "需要启动前固定的合成配置目录"
+    profile_context = nullcontext(profile) if profile else tempfile.TemporaryDirectory(prefix="msime-canvas-editor-")
+    with profile_context as directory:
         root = Path(directory)
+        if WAYLAND:
+            assert GLib.get_user_data_dir() == str(root / "data"), "GLib 缓存了夹具以外的数据目录"
+            assert GLib.get_user_config_dir() == str(root / "config"), "GLib 缓存了夹具以外的配置目录"
         request = json.dumps({"resources": str(resources), "state_root": str(root / "state")}).encode()
         options = value(host.msime_client_prepare_host(request, len(request)))
         skin = root / "skins" / "canvas-fixture"
@@ -156,8 +187,10 @@ def main():
         # GTK 模块在创建上下文时才连接 daemon，环境必须在创建编辑器之前生效。
         os.environ.update(env)
         os.environ["GTK_IM_MODULE"] = "fcitx"
-        os.environ["GDK_BACKEND"] = "x11"
-        window = None
+        os.environ["GDK_BACKEND"] = "wayland" if WAYLAND else "x11"
+        if WAYLAND:
+            assert Path(env.get("WAYLAND_DISPLAY", "")).is_absolute(), "需要隔离合成器的绝对 socket 路径"
+        window = keyboard = None
         with (root / "daemon.log").open("w") as log:
             daemon = subprocess.Popen(["fcitx5", "-D", "--keep"], env=env, stdout=log, stderr=log)
             try:
@@ -167,23 +200,61 @@ def main():
                 window = Gtk.Window(title="MSIME synthetic canvas editor")
                 entry = Gtk.Entry()
                 entry.set_property("im-module", "fcitx")
+                # 平铺合成器会放大窗口；输入框保持自然高度，候选锚点不能被拉到屏幕底部。
+                entry.set_valign(Gtk.Align.START)
+                if WAYLAND:
+                    entry.set_margin_top(80)
                 window.add(entry)
                 window.show_all()
                 entry.grab_focus()
                 wait(lambda: window.get_window() is not None)
-                xid = GdkX11.X11Window.get_xid(window.get_window())
-                subprocess.run(["xdotool", "windowfocus", "--sync", str(xid)], check=True, timeout=5)
+                if WAYLAND:
+                    assert "Wayland" in type(Gdk.Display.get_default()).__name__, "GTK 未使用 Wayland"
+                    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests/runtime"))
+                    from wayland_keyboard import WaylandKeyboard
+
+                    def pump():
+                        while GLib.MainContext.default().iteration(False):
+                            pass
+
+                    keyboard = WaylandKeyboard(pump, lambda predicate, _description: wait(predicate))
+                    wait(window.is_active)
+                else:
+                    xid = GdkX11.X11Window.get_xid(window.get_window())
+                    subprocess.run(["xdotool", "windowfocus", "--sync", str(xid)], check=True, timeout=5)
+
+                def focused():
+                    if WAYLAND:
+                        return window.is_active() and entry.has_focus()
+                    return int(subprocess.check_output(["xdotool", "getwindowfocus"])) == xid
                 wait(lambda: entry.has_focus())
                 wait(lambda: re.search(r"frontend:dbus\b.*\bfocus:1\b", str(control.DebugInfo())))
                 control.SetCurrentIM("msime")
                 control.Activate()
                 wait(lambda: str(control.CurrentInputMethod()) == "msime")
-                subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "nihao"],
-                               check=True, timeout=5)
+                if WAYLAND:
+                    keyboard.keys(*"nihao")
+                else:
+                    subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "nihao"],
+                                   check=True, timeout=5)
                 wait(lambda: palette_visible(LIGHT))
                 assert entry.get_text() == "", "预编辑文字提前进入编辑器"
-                assert int(subprocess.check_output(["xdotool", "getwindowfocus"])) == xid, "候选窗口抢走焦点"
+                assert focused(), "候选窗口抢走焦点"
                 save_image("canvas-light")
+                if WAYLAND:
+                    # 窗口留在同一输出；GTK 下一次输入上报新光标矩形后，真实 popup 必须跟随。
+                    original_top = palette_top(LIGHT[0])
+                    assert original_top is not None
+                    entry.set_margin_top(200)
+                    wait(lambda: entry.get_allocation().y >= 200)
+                    keyboard.keys("BackSpace", "o")
+                    wait(lambda: (palette_top(LIGHT[0]) or 0) >= original_top + 100)
+                    assert focused(), "移动候选锚点后编辑器失焦"
+                    save_image("canvas-moved")
+                    entry.set_margin_top(80)
+                    wait(lambda: entry.get_allocation().y < 200)
+                    keyboard.keys("BackSpace", "o")
+                    wait(lambda: palette_top(LIGHT[0]) == original_top)
                 preferences["candidate_theme"] = "dark"
                 publish()
                 # 设置页由偏好轮询热更新；ReloadAddonConfig 表示重启服务，会主动清空组字。
@@ -196,19 +267,28 @@ def main():
                 (skin / panel_file).write_bytes(panel_image(DARK))
                 wait(lambda: palette_visible(DARK))
                 save_image("canvas-repaired")
-                assert int(subprocess.check_output(["xdotool", "getwindowfocus"])) == xid, "换肤后编辑器失焦"
-                subprocess.run(["xdotool", "key", "space"], check=True, timeout=5)
+                assert focused(), "换肤后编辑器失焦"
+                if WAYLAND:
+                    keyboard.keys("space")
+                else:
+                    subprocess.run(["xdotool", "key", "space"], check=True, timeout=5)
                 wait(lambda: entry.get_text() == "你好")
                 wait(lambda: not palette_visible(DARK))
                 control.Exit()
                 assert daemon.wait(timeout=10) == 0, "Fcitx5 未正常退出"
-                print(f"真实 GTK／classicui {FORMAT} canvas 像素、明暗、坏图回退、修复、焦点与选词通过")
+                backend = "Wayland 客户端面板" if WAYLAND else "X11 classicui"
+                print(f"真实 GTK／{backend} {FORMAT} canvas 像素、明暗、坏图回退、修复、焦点与选词通过")
             finally:
                 if sys.exc_info()[0] is not None:
                     save_image("canvas-failed")
                     theme = root / "data/fcitx5/themes/msime/theme.conf"
                     if theme.exists():
                         print(theme.read_text(), file=sys.stderr)
+                    classicui = root / "config/fcitx5/conf/classicui.conf"
+                    if classicui.exists():
+                        print(classicui.read_text(), file=sys.stderr)
+                if WAYLAND and keyboard is not None:
+                    keyboard.close()
                 if window is not None:
                     window.destroy()
                 if daemon.poll() is None:
