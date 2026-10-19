@@ -3133,6 +3133,37 @@ static void TestExpandedCandidateGrid() {
     // 只有高亮那一行标序号，数字键选的就是那一行。
     assert([ExpandedGridSubview(panel, 1).title hasPrefix:@"2  "] && [ExpandedGridSubview(panel, 6).title hasPrefix:@"  "]);
 
+    // 触控板的精确滚动保留行内像素偏移，滚回时位置恢复；用六行网格覆盖虚拟窗口边界。
+    [controller closeExpandedCandidates];
+    session.total = 24;
+    session.pageSize = 4;
+    prefs.pageSize = 4;
+    compose();
+    assert(press(125) && expanded());
+    const CGFloat firstCandidateY = NSMinY(ExpandedGridSubview(panel, 0).frame);
+    [controller setValue:@(-8.0) forKey:@"expandedPendingScrollDelta"];
+    [controller renderCandidates];
+    assert([[controller valueForKey:@"expandedScrollOffset"] doubleValue] > 0.0);
+    assert(fabs(NSMinY(ExpandedGridSubview(panel, 0).frame) - (firstCandidateY - 8.0)) < 0.01);
+    [controller setValue:@8.0 forKey:@"expandedPendingScrollDelta"];
+    [controller renderCandidates];
+    assert(fabs([[controller valueForKey:@"expandedScrollOffset"] doubleValue]) < 0.01);
+    assert(fabs(NSMinY(ExpandedGridSubview(panel, 0).frame) - firstCandidateY) < 0.01);
+    [controller setValue:@(-10000.0) forKey:@"expandedPendingScrollDelta"];
+    [controller renderCandidates];
+    assert([[controller valueForKey:@"expandedFirstRow"] unsignedIntegerValue] == 1);
+    assert(fabs([[controller valueForKey:@"expandedScrollOffset"] doubleValue]) < 0.01);
+    [controller setValue:@10000.0 forKey:@"expandedPendingScrollDelta"];
+    [controller renderCandidates];
+    assert([[controller valueForKey:@"expandedFirstRow"] unsignedIntegerValue] == 0);
+    assert(fabs([[controller valueForKey:@"expandedScrollOffset"] doubleValue]) < 0.01);
+    [controller closeExpandedCandidates];
+    session.total = 23;
+    session.pageSize = 5;
+    prefs.pageSize = 5;
+    compose();
+    assert(press(125) && expanded());
+
     // →、↓ 移动；最后一行短时停在它的最后一个；← 在行内；↑ 回到上一行同一列。
     assert(press(124) && cursor() == 1);
     assert(press(125) && cursor() == 6);
