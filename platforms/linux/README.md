@@ -647,6 +647,8 @@ bash platforms/linux/tests/tools/check-image-toolchain.sh \
 
 隔离验收脚本只读挂载源码，输入引擎是仓库里的 Rust crate，不再需要预先准备或借用任何 Engine 树，因此在 worktree 里也能直接跑。它的测试镜像与编译门禁一样按 checkout 路径打 tag，并发的 worktree 不会互相覆盖镜像。随包在线/语音/剪贴板 provider、凭据、豆包鉴权、翻译缓存、录音设备这一整片 Python 测试都在容器内执行。
 
+Fcitx5 的 `tests/tools/check-container.sh /absolute/verified-resources --fcitx5` 还运行 `fcitx5-gtk-canvas-horizontal` 与 `fcitx5-gtk-canvas-vertical`：真实 GTK 编辑器通过本次构建的插件唤起 classicui 候选，读取隔离 X11 显示像素，验证合成九宫格的明暗切换、坏图回退和修复恢复。期间不发送刷新按键，最终检查焦点保持、空格上屏与面板消失。在验收容器内直接运行 CTest 时，设置 `MSIME_TEST_CANVAS_ARTIFACTS` 为可写目录可保留各阶段截图。它覆盖 Xvfb／GTK／classicui，不包含 Wayland 合成器、真实字体或系统安装验收。
+
 `bash tests/tools/check-container.sh /absolute/verified-resources` 创建专用 Linux 容器，源码与词库只读挂载，构建缓存仅写入本仓 target/linux。基础 Rust 镜像固定摘要，apt 开发依赖来自 Debian bookworm 仓库；不声称所有系统包字节级可复现。容器内创建独立 D-Bus 和 IBus daemon，不连接宿主桌面，不修改现有输入源，结束后移除容器并保留构建缓存。
 
 `engine_smoke` 使用真实共享库与固定 Release 词库，通过 D-Bus 调用实际 IBusEngine：验证预编辑与候选信号、上屏、第二页全局索引点击、标点、修饰键/key-up、快捷键取消、失焦、密码隔离与私密文本恢复。另启动实际宿主可执行文件，由独立 Python IBus 输入上下文通过 daemon/factory 输入合成拼音并接收提交。共享核心/运行时/宿主 25 项 Rust 测试纳入本地脚本。
@@ -857,6 +859,8 @@ Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和
 外部皮肤目录只由 Linux 展示层消费，不传给严格校验的 HostOptions。目录由桌面设置写入运行配置的 `candidate_skin_catalog`：保存设置，或设置的外观页、皮肤页扫描皮肤目录时，读取状态目录下的 `skins/`，每个包保留 id、标题（清单 `name`）、清单的 `base` 与 `layouts`，以及清单声明的明暗主题下的调色板（未设任何颜色的模式是空对象）；宿主只列出 id 安全、标题非空、`base` 不是 `custom` 且布局只含 `horizontal`/`vertical` 的条目，调色板原样交给共享层解析，最多 32 个，浅色槽位 `candidate_skin` 与深色槽位 `candidate_skin_dark` 当前选中的皮肤总在其中；IBus 与 Fcitx5 整读运行配置，上限 16 KiB，写入时整份文件超过 15 KiB 就从目录末尾删包，两个槽位选中的皮肤保留。只把包拷进 `skins/` 而不打开设置时，宿主看不到它。启动、菜单主题选择及设置热更新均按最终选择重新解析；目录内容变化也会刷新当前展示。自定义主题的颜色选择器叠在外部皮肤之上，由共享层按设置页同一规则合成，外部皮肤的颜色不写入共享 preferences。
 
 Fcitx5 的 classicui 还可绘制 `base = "canvas"` 的静态 PNG 九宫格面板：支持 `source`／`light_source`、`stretch_dip`（缺省取 `slice_dip`）、独立的 `width_dip`、`fill`、内容与外留白；非整数边距向上取整。资源通过共享包 API 校验，PNG 解码成功后才启用贴图配色，用户文字取色器仍由共享解析器覆盖；坏图回到原生卡片与可读颜色，修复后自动重试。APNG 只显示默认帧。动画、GIF／WebP／JPEG 面板、自由挂件与 canvas 行间距尚未接入 classicui；IBus、GNOME Shell 与 kimpanel 仍受各自面板能力限制，不能据此当作全平台完整绘制。
+
+皮肤资源变化后，主题成功套用或退出覆盖会立即请求当前候选窗口重绘，明暗切换、坏图回退和修复恢复均无需再次按键。不变输入不重复刷新，组合和编辑器焦点保持。
 
 候选明暗 `follow` 跟随颜色模式（与 Windows 的 `theme_cand` 跟随 `theme_mode` 一致）：全局为浅色或深色时直接取用；全局为“跟随系统”（缺省值）时，才通过桌面门户的 `org.freedesktop.appearance/color-scheme` 获取系统明暗偏好，并监听后续变化；异步读取不阻塞 IBus，门户重启后重新接入。明确的 `light`/`dark` 设置优先，门户缺失或未表达偏好时使用浅色。全局主题、自定义主题与外部皮肤共用此解析；水杉、浅色、纸白、夜青、墨自带明暗，选中它们时候选按主题自身的明暗绘制。切换不会重建输入组合。接口依据 [XDG Desktop Portal Settings](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Settings.html)。
 

@@ -322,6 +322,15 @@ if(BUILD_TESTING)
             "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
             "$<TARGET_FILE:msime-fcitx5>")
         set_tests_properties(fcitx5-gtk-editor PROPERTIES TIMEOUT 90)
+        foreach(canvas_layout horizontal vertical)
+          add_test(NAME fcitx5-gtk-canvas-${canvas_layout}
+            COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+              "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+              "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+              "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+              "$<TARGET_FILE:msime-fcitx5>")
+          set_tests_properties(fcitx5-gtk-canvas-${canvas_layout} PROPERTIES TIMEOUT 90)
+        endforeach()
         add_test(NAME fcitx5-ibus-gtk-editor
           COMMAND "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
             "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/daemon.py"

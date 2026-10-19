@@ -488,14 +488,14 @@ int candidateThemeCanvas() {
     auto *classicui = instance.addonManager().addon("classicui", true);
     require(classicui && classicui->getConfig(), "真实 classicui 已加载");
     FcitxEngine engine(&instance);
-    engine.applyCandidatePanelTheme(preferences, true, catalog, true);
+    require(engine.applyCandidatePanelTheme(preferences, true, catalog, true), "首次套用需要刷新候选面板");
     const auto dark = theme_text();
     require(dark.find("Image=canvas-") != std::string::npos && dark.find("NormalColor=#fedcba\n") != std::string::npos,
             "真实宿主写入深色 canvas 贴图与共享贴图配色");
     require(dark.find("[InputPanel/ContentMargin]\nLeft=8\nRight=8\nTop=8\nBottom=8") != std::string::npos,
             "共享清单的内容留白与外留白进入经典面板");
     const auto written = std::filesystem::last_write_time(theme_file);
-    engine.applyCandidatePanelTheme(preferences, true, catalog, false);
+    require(!engine.applyCandidatePanelTheme(preferences, true, catalog, false), "同一资源不重复刷新候选面板");
     require(std::filesystem::last_write_time(theme_file) == written, "不变资源不重写主题");
     engine.applyCandidatePanelTheme(preferences, false, catalog, false);
     const auto light = theme_text();

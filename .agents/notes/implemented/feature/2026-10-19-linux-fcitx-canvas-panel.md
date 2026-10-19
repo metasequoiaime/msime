@@ -14,6 +14,8 @@ Linux 的公共候选目录只携带配色与旧顶部装饰，canvas 包虽然�
 
 这是一段原生绘制增量，动画、其他图片格式、自由挂件、其他 Fcitx UI 与 IBus 的实际绘制仍待补齐，不能据此宣布全平台兼容完成。
 
+资源热更新后请求真实窗口重绘，以及横排／竖排 GTK 像素验收，见[资源刷新与窗口验收](../bug-fix/2026-10-19-linux-canvas-gtk-acceptance.md)。本篇的配置测试不替代该显示层证据。
+
 ## Alternatives considered
 
 - **直接复制源图并使用 `slice_dip` 作为 Margin**：成本低且 classicui 原生支持，但源切片与显示边宽不同时会改变皮肤边框比例；规范化每个切片后再交给 classicui 拉伸。

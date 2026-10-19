@@ -6008,26 +6008,28 @@ public:
   }
   bool candidatePanelFontPending() const { return candidate_font_sync_.pending(); }
   // 配色写入用户目录的 `msime` 主题：后台同步只替换自带或水杉主题，主动选择可接管第三方；无覆盖时恢复仍持有的项，写配置让 classicui 重载。
-  void applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog, bool chosen) {
-    applyCandidatePanelTheme(instance_->addonManager().addon("classicui", true), preferences, system_dark, catalog, chosen);
+  // 返回 true 表示面板主题已套用或退出，调用方需要刷新真实候选窗口。
+  bool applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog, bool chosen) {
+    return applyCandidatePanelTheme(instance_->addonManager().addon("classicui", true), preferences, system_dark, catalog, chosen);
   }
   // 每个有焦点的上下文每 250 ms 都会走到这里（refreshProviderSockets），所以只比廉价的输入：主题请求本身（全局主题、自定义主题、明暗与所画皮肤包的目录条目，颜色完全由它决定）、圆角和装饰图的戳。这些输入已经接管写好过一次就什么也不做，和原先按整份主题文本比较的语义相同：之后用户自己改了 classicui.conf，或卸载时 `msime-linux-setup --unregister` 把主题还原，都不会被这里再改回去。`chosen` 是唯一的例外：用户在主题菜单里重新选择水杉主题时，即使输入没变也要重新接管。
   //
   // 还没接管成功时（用户选了第三方主题、没有经典界面、写主题失败），原先每一拍都重新栅格化并调 `getConfig()`，后者每次都扫描并解析全部已装主题（#5988）。现在只在可能让结果不同的东西变了时才重试：上面的输入、经典界面是否存在，以及它落盘的 Theme/DarkTheme 选择（fcitx5-configtool 改回默认主题会写这个文件，接管随之恢复）。写主题失败另外每 10 秒重试一次，登录时数据目录暂时不可写之类的情况能自己恢复。「重启输入法服务」（resetSessions）清掉两份记录，下一拍无条件重做。
-  void applyCandidatePanelTheme(fcitx::AddonInstance *classicui, const Json &preferences, bool system_dark,
+  bool applyCandidatePanelTheme(fcitx::AddonInstance *classicui, const Json &preferences, bool system_dark,
                                 const Json &catalog, bool chosen) {
     namespace host = msime::linux_host;
     const auto resolved = resolveCandidateTheme(preferences, system_dark, catalog);
     // 无覆盖自定义主题或解析失败才退出；有效系统主题仍绘制水杉样式，只跟随原生配色。
     // 只恢复仍是水杉自己写的项，用户在 fcitx5-configtool 选的主题不动。
     if (!resolved.covers_candidates) {
+      const bool was_applied = !candidate_theme_applied_.empty();
       if (classicui) restore_classicui_theme(*classicui);
       candidate_theme_applied_.clear();
       candidate_canvas_source_.clear();
       candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
       hint_text_width_ = 0;
       hint_inputs_ = FcitxHintInputs{};
-      return;
+      return was_applied;
     }
     auto colors = resolved.colors;
     const auto decoration = host::candidate_skin_decoration(catalog, resolved.candidate_skin);
@@ -6057,7 +6059,7 @@ public:
     // 缓存只决定「同一份输入已经接管写好」这一件事：一拍不调 `getConfig()`，也不重写主题（#5988）；一次新的主动选择（chosen）仍然往下走，重新判断所有权。
     // classicui 落盘的活动主题、跟随深色、字体与 Wayland 字体 DPI 变了时刷新提示（见 read_classicui_hint_stamp）。
     const auto hint_stamp = read_classicui_hint_stamp();
-    if (inputs == candidate_theme_applied_ && !chosen && hint_stamp == classicui_hint_stamp_) return;
+    if (inputs == candidate_theme_applied_ && !chosen && hint_stamp == classicui_hint_stamp_) return false;
     auto attempt = Json{{"inputs", inputs}, {"chosen", chosen}, {"classicui", classicui != nullptr}, {"hint", hint_stamp}};
     if (classicui) {
       const auto selection = read_classicui_theme_selection();
@@ -6066,11 +6068,11 @@ public:
     }
     auto attempt_key = attempt.dump();
     const auto now = std::chrono::steady_clock::now();
-    if (attempt_key == candidate_theme_attempt_ && now < candidate_theme_retry_at_) return;
+    if (attempt_key == candidate_theme_attempt_ && now < candidate_theme_retry_at_) return false;
     candidate_theme_attempt_ = std::move(attempt_key);
     candidate_theme_retry_at_ = std::chrono::steady_clock::time_point::max();
     const auto *live = classicui ? classicui->getConfig() : nullptr;
-    if (!live) return;
+    if (!live) return false;
     fcitx::RawConfig current;
     live->save(current);
     // 模式提示的热路径不读 classicui 配置（getConfig() 会扫描主题目录并逐个解析 theme.conf），
@@ -6078,11 +6080,11 @@ public:
     hint_inputs_ = fcitx_hint_inputs(current, system_dark);
     classicui_hint_stamp_ = hint_stamp;
     // 同一份主题已接管过时，外部配置变化只刷新提示，不追回用户手改或卸载还原的主题。
-    if (inputs == candidate_theme_applied_ && !chosen) return;
+    if (inputs == candidate_theme_applied_ && !chosen) return false;
     const auto *selected = current.valueByPath("Theme");
     const auto *selected_dark = current.valueByPath("DarkTheme");
     // 用户刚在主题菜单里选了水杉主题时（chosen）即使当前是第三方主题也接管；焦点进入、偏好同步、系统明暗变化都只是重读同一份偏好，绝不把用户选的主题换回来。
-    if (!chosen && !host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return;
+    if (!chosen && !host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return false;
     const bool replace_dark = selected_dark && (chosen || host::fcitx_theme_replaceable(*selected_dark));
     // Read once: the icon only changes with the package, and a reinstall restarts Fcitx5 with it.
     static const auto logo = host::load_fcitx_theme_logo(MSIME_ICON_DIR);
@@ -6118,7 +6120,7 @@ public:
       if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration, corner_radius, logo, user_radius,
                                                       host::scale_fcitx_overlay_png, canvas_panel)) {
         candidate_theme_retry_at_ = now + kCandidateThemeRetry;
-        return;
+        return false;
       }
       // 首次准备资源后把已选图片的戳写进同一份缓存，之后每拍只 stat，不再扫描或解码。
       inputs = theme_inputs();
@@ -6139,6 +6141,7 @@ public:
     classicui_hint_stamp_ = read_classicui_hint_stamp();
     candidate_theme_applied_ = std::move(inputs);
     candidate_theme_attempt_.clear();
+    return true;
   }
 #ifdef MSIME_FCITX5_HINT_FONT
   // classicui 的面板只在画水杉主题时才有装饰图；此时把「中」「英」补到主题自己预留的宽度，
@@ -7160,8 +7163,10 @@ bool FcitxState::candidateThemeSelectionChanged(const Json &preferences) {
 }
 
 void FcitxState::syncCandidatePanelTheme(bool chosen) {
-  if (engine_ && session_)
-    engine_->applyCandidatePanelTheme(preferences_, system_dark_, candidate_skin_document_, chosen);
+  if (engine_ && session_ && engine_->applyCandidatePanelTheme(preferences_, system_dark_, candidate_skin_document_, chosen)) {
+    // 资源戳变化可能没有偏好或候选变更；重载主题之后仍要让真实面板重绘，不能等下一个按键。
+    ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  }
   if (engine_) engine_->publishCandidatePanelStatus();
 }
 

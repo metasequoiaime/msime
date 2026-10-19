@@ -751,11 +751,11 @@ def body(text, start, end):
     return text[begin:text.index(end, begin + len(start))]
 publish = body(source, "  void publishCandidatePanelStatus() {", "\n  }\n")
 assert "getConfig" not in publish and "read_classicui_theme_selection()" in publish
-apply_theme = body(source, "  void applyCandidatePanelTheme(fcitx::AddonInstance *classicui,", "\n  }\n")
+apply_theme = body(source, "  bool applyCandidatePanelTheme(fcitx::AddonInstance *classicui,", "\n  }\n")
 # 一次主动选择（chosen）时即使输入没变也重新接管，所以返回条件多了它；主题输入与落盘选择不变时仍不调 getConfig()。
 assert apply_theme.count("classicui->getConfig()") == 1
-assert apply_theme.index("if (inputs == candidate_theme_applied_ && !chosen && hint_stamp == classicui_hint_stamp_) return;") < apply_theme.index("read_classicui_theme_selection()") < apply_theme.index("if (attempt_key == candidate_theme_attempt_ && now < candidate_theme_retry_at_) return;") < apply_theme.index("classicui->getConfig()")
-assert apply_theme.index("hint_inputs_ = fcitx_hint_inputs(current, system_dark);") < apply_theme.index("if (inputs == candidate_theme_applied_ && !chosen) return;") < apply_theme.index("if (!chosen && !host::fcitx_theme_replaceable")
+assert apply_theme.index("if (inputs == candidate_theme_applied_ && !chosen && hint_stamp == classicui_hint_stamp_) return false;") < apply_theme.index("read_classicui_theme_selection()") < apply_theme.index("if (attempt_key == candidate_theme_attempt_ && now < candidate_theme_retry_at_) return false;") < apply_theme.index("classicui->getConfig()")
+assert apply_theme.index("hint_inputs_ = fcitx_hint_inputs(current, system_dark);") < apply_theme.index("if (inputs == candidate_theme_applied_ && !chosen) return false;") < apply_theme.index("if (!chosen && !host::fcitx_theme_replaceable")
 assert '{"hint", hint_stamp}' in apply_theme
 assert "candidate_theme_retry_at_ = now + kCandidateThemeRetry;" in apply_theme
 assert "host::fcitx_candidate_theme(" not in apply_theme
