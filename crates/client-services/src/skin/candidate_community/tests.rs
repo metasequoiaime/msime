@@ -167,6 +167,28 @@ fn pack_sends_the_manifest_verbatim_and_exactly_the_referenced_images() {
 }
 
 #[test]
+fn pack_includes_v2_border_image_sources_instead_of_dropping_them() {
+    let root = tempfile::tempdir().unwrap();
+    let skin = root.path().join("canvas-demo");
+    fs::create_dir_all(&skin).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        "schema_version = 2\nid = 'canvas-demo'\nname = 'Canvas'\nversion = '1.0'\nbase = 'canvas'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\n[candidate_window.border_image]\nsource = 'panel.png'\nlight_source = 'panel-light.png'\nslice_dip = [1]\n[license]\nassets = 'CC0-1.0'\n",
+    )
+    .unwrap();
+    fs::write(skin.join("preview.png"), png(1000)).unwrap();
+    fs::write(skin.join("panel.png"), png(1000)).unwrap();
+    fs::write(skin.join("panel-light.png"), png(1000)).unwrap();
+    let manifest = fs::read_to_string(skin.join("skin.toml")).unwrap();
+    let packed = pack(root.path(), "canvas-demo").unwrap();
+    assert_eq!(packed.manifest, manifest);
+    assert_eq!(
+        packed.files.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["panel-light.png", "panel.png", "preview.png"]
+    );
+}
+
+#[test]
 fn pack_falls_back_to_the_preview_as_decoration_without_duplicating_it() {
     let root = tempfile::tempdir().unwrap();
     write_skin(root.path(), "sakura", TOP, "", "", LICENSE);

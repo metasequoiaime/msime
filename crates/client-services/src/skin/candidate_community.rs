@@ -32,7 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
-/// Most images one package may carry. The manifest can reference only the preview, the decoration image and the background image, and every file must be referenced.
+/// 一个包最多携带的图片数。清单可以引用预览图、装饰图、背景图，以及 v2 九宫格的来源图和自由挂件；上传的每个文件都必须被清单引用。
 pub const MAX_PACKAGE_FILES: usize = 3;
 /// Largest single image, as uploaded and after the server re-encodes it.
 pub const MAX_PACKAGE_FILE_BYTES: usize = 1 << 20;
@@ -974,9 +974,19 @@ pub struct PackedSkin {
     pub file_count: usize,
 }
 
-/// The images a package's manifest references: the decoration image (which the catalog already falls back to an image preview for), the background image and the preview. Each must be a safe relative path to a PNG or JPEG, unique even ignoring case, because the server stores keys case-insensitively.
+/// 收集清单引用的图片：v1 的装饰图、背景图、预览图，以及 v2 的所有九宫格来源图和自由挂件。每个路径都必须是安全的 PNG 或 JPEG 相对路径，忽略大小写后仍须唯一，因为服务端按大小写不敏感的键存储。v2 资源超过社区文件上限时在上传前拒绝，避免生成其他宿主无法加载的残缺包。
 fn referenced_images(summary: &SkinSummary) -> Result<BTreeSet<String>, &'static str> {
     let mut paths = BTreeSet::new();
+    let mut add = |path: &str| {
+        if !catalog::safe_resource(path, MAX_RESOURCE_PATH_BYTES) {
+            return Err(FILE_PATH);
+        }
+        if image_content_type(path).is_none() {
+            return Err(FILE_TYPE);
+        }
+        paths.insert(path.to_owned());
+        Ok(())
+    };
     for path in [
         summary.decoration_image.as_deref(),
         summary
@@ -988,13 +998,16 @@ fn referenced_images(summary: &SkinSummary) -> Result<BTreeSet<String>, &'static
     .into_iter()
     .flatten()
     {
-        if !catalog::safe_resource(path, MAX_RESOURCE_PATH_BYTES) {
-            return Err(FILE_PATH);
+        add(path)?;
+    }
+    if let Some(border) = &summary.border_image {
+        add(&border.source)?;
+        if let Some(path) = border.light_source.as_deref() {
+            add(path)?;
         }
-        if image_content_type(path).is_none() {
-            return Err(FILE_TYPE);
-        }
-        paths.insert(path.to_owned());
+    }
+    for decoration in &summary.decorations {
+        add(&decoration.image)?;
     }
     let lowercase: HashSet<String> = paths.iter().map(|path| path.to_ascii_lowercase()).collect();
     if lowercase.len() != paths.len() {

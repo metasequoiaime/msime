@@ -22,8 +22,8 @@ Status: implemented
 
 ## Consequences
 
-共享 catalog 与 Windows 之间的字段契约扩大，后续修改清单 schema 必须同步 Rust 模型、Windows JSON 消费和对应测试。候选皮肤可以安全携带来源新增字段，Windows 已有渲染路径会显示更完整的颜色和字体效果，旧包不受影响。
+共享 catalog 与 Windows 之间的字段契约扩大，后续修改清单 schema 必须同步 Rust 模型、各平台 JSON 消费和对应测试。候选皮肤可以安全携带来源新增字段，Windows 已有渲染路径会显示更完整的颜色和字体效果，网页、macOS、Linux、HarmonyOS 与 iOS 仍通过同一份扫描与降级规则读取公共字段，旧包不受影响。社区打包会收集 v2 九宫格和自由挂件引用的全部图片；超过服务端文件数或格式边界时在上传前拒绝，避免下载后缺资源。
 
-九宫格、材质、版式、insets 和自由挂件目前只完成解析与传递，仍可能与来源的完整视觉效果有差距；文档明确这一边界，避免把协议支持误报成绘制支持。新增 JSON 和 C++ 字段也扩大了构建面，因此提交前运行皮肤单测、clippy、笔记校验、差异检查和 Windows x64 交叉构建。
+九宫格、材质、版式、insets 和自由挂件目前只完成解析与传递，仍可能与来源的完整视觉效果有差距；文档明确这一边界，避免把协议支持误报成绘制支持。图片边界现在对 PNG/JPEG/GIF/WebP 统一检查尺寸、动画帧和包内像素预算；网页宿主也只在 `base = "canvas"` 时启用 v2 动画，与原生宿主的降级规则一致。新增 JSON 和 C++ 字段也扩大了构建面，因此提交前运行皮肤单测、clippy、笔记校验、差异检查和 Windows x64 交叉构建。
 
-验证结果：`cargo test --locked -p msime-client-services skin::catalog::` 通过（51 项），包含非 `canvas` v2 降级及 Linux host catalog 子集回归；`cargo clippy --locked -p msime-client-services --all-targets -- -D warnings`、`node --test 'packages/web-engine/test/*.test.mjs'`、`platforms/windows/build-cross.sh x64` 与 `git diff --check` 通过。`bash scripts/verify-local.sh --quick` 的 macOS arm64 失败是既有 `candidate-panel` 装饰重绘测试，与本次共享 catalog 修复无关；`pnpm run verify-notes` 仍需在提交前运行。未在真实 Windows 编辑器中目测所有新绘制原语。
+验证结果：`cargo test --locked -p msime-client-services skin::catalog::` 通过（52 项），`cargo test --locked -p msime-client-services skin::candidate_community::` 通过（56 项），包含非 `canvas` v2 降级、GIF/WebP 边界、v2 资源完整打包及 Linux host catalog 子集回归；HarmonyOS 逻辑回归、`cargo clippy --locked -p msime-client-services --all-targets -- -D warnings`、`node --test 'packages/web-engine/test/*.test.mjs'`、`platforms/windows/build-cross.sh x64`、`cargo fmt --all -- --check` 与 `git diff --check` 需在提交前再跑一遍。`bash scripts/verify-local.sh --quick` 的 macOS arm64 失败是既有 `candidate-panel` 装饰重绘测试，与本次共享 catalog 修复无关。未在真实 Windows 编辑器中目测所有新绘制原语。
