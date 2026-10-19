@@ -24,7 +24,7 @@ class CommunityResourceListLifecycleTests(unittest.TestCase):
         self.assertIn("Task { await refreshInstalled() }", self.view)
         self.assertNotIn(".onAppear { request.appear(); Task", self.view)
         self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.view)
-        self.assertIn(".trackViewRequest(request: $request, pending: $pending, onDisappear: {", self.reply)
+        self.assertIn(".trackViewRequest(request: $request, pending: $pending, onAppear: {", self.reply)
         self.assertNotIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.reply)
         self.assertIn("request.wrappedValue.disappear()", TASK)
         self.assertIn("pending.wrappedValue?.cancel()", TASK)
