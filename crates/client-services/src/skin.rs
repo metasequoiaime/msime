@@ -5,6 +5,7 @@
 pub mod ai;
 pub mod app_theme;
 pub mod candidate_community;
+pub mod candidate_editor;
 pub mod candidate_sync;
 pub mod catalog;
 pub mod category;

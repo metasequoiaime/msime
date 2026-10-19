@@ -1591,6 +1591,17 @@ fn load_files<'a>(
     Ok(decoded)
 }
 
+/// 只有 base64 图片的包的 [`load_files`]：设置页「制作皮肤」检查草稿时用（`candidate_editor::check`）。
+pub(crate) fn decode_files(
+    files: &BTreeMap<String, String>,
+) -> Result<Vec<(&str, Vec<u8>)>, &'static str> {
+    let sources: BTreeMap<&str, FileSource<'_>> = files
+        .iter()
+        .map(|(path, data)| (path.as_str(), FileSource::Base64(data)))
+        .collect();
+    load_files(&sources)
+}
+
 /// 读调用方在本机给出的一张图片，只读不写。`path` 必须是绝对路径，各级都不能是符号链接（`msime-path-trust` 列出的系统别名除外，如 macOS 的 `/tmp`），最后一级必须是普通文件：FIFO、设备和目录都拒绝，打开时不会因 FIFO 阻塞。读之前先按文件大小拒绝超过单张上限的图，读时再按同一上限截断，文件在两步之间变大也读不进更多。
 fn read_local_image(path: &Path) -> Result<Vec<u8>, &'static str> {
     if !path.is_absolute() {
