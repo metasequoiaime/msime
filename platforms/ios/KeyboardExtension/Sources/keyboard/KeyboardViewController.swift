@@ -274,7 +274,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var didRepeatBackspace = false
   private var renderedComposition = false
   private var hasComposition: Bool {
-    get { renderedComposition || session.hasPendingCharacters }
+    get { renderedComposition || hasPendingNineKeyInput }
     set { renderedComposition = newValue }
   }
   /// 测试宿主没有真实文档代理；系统扩展默认启用异步，回归可显式覆盖以检查交付顺序。
@@ -284,6 +284,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 连续九键查询返回的中间组字只保留最新一帧，避免主线程逐个重画候选栏；含上屏文本的快照仍立即交付。
   private var deferredNineKeySnapshot: MetasequoiaInputSnapshot?
   private var deferredNineKeyRenderScheduled = false
+  /// 查询已交付但最新候选尚未绘制时仍算输入中，避免提前开始空闲维护或切换方案。
+  var hasPendingNineKeyInput: Bool {
+    session.hasPendingCharacters || deferredNineKeySnapshot != nil
+  }
   private var visibleInputGeneration: UInt64?
   private var visibleCandidateIdentities: [MetasequoiaCandidateIdentity?] = []
   /// 组字中收到内存警告、引擎缓存还没清，等这次组字结束时清（见 `didReceiveMemoryWarning`）。
@@ -6149,6 +6153,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil,
                       appendingLiteral: String? = nil) {
+    // 控制命令已产生更新快照时，之前数字的候选帧不能再覆盖选词、删除或模式切换后的状态。
+    deferredNineKeySnapshot = nil
     candidateRevision &+= 1
     // 下面的 `updateCandidateStrip` 用这次快照的候选盖掉 1 键放进来的常用标点。
     nineKeyQuickSymbols = []

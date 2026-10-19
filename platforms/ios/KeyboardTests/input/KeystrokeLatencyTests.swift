@@ -156,6 +156,81 @@ final class KeystrokeLatencyTests: XCTestCase {
     report("nineKey-long-controller", controllerSamples)
   }
 
+  /// 异步路径分别记录逐键入队和整段查询加候选绘制，不将整段耗时当作单键延迟。
+  func testAsyncNineKeyBurstCosts() async throws {
+    let previous = InputSchemePreference.scheme
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previous
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    CandidateGlossPreference.enabled = true
+    let controller = self.controller(.nineKey)
+    controller.asynchronousNineKeyInputEnabled = true
+    defer { controller.viewWillDisappear(false) }
+    let buttons = Dictionary(uniqueKeysWithValues: try "23456789".map { digit in
+      (digit, try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityIdentifier == "nineKey\(digit)"
+      } as? UIButton))
+    })
+    let space = try key("空格", in: controller)
+    let enter = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "returnKey"
+    })
+    let sequences = ["64426", "94664486", "7487832", "5468426842674436426"]
+    for interval in [0.0, 0.04, 0.07] {
+      var enqueueSamples: [Double] = []
+      var settledSamples: [Double] = []
+      var finalKeySamples: [Double] = []
+      var lateSamples: [Double] = []
+      for _ in 0..<3 {
+        for digits in sequences {
+          let started = CACurrentMediaTime()
+          var finalKeyStarted = started
+          for (index, digit) in digits.enumerated() {
+            let scheduled = started + Double(index) * interval
+            let remaining = scheduled - CACurrentMediaTime()
+            if remaining > 0 {
+              try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+            }
+            let enqueueStarted = CACurrentMediaTime()
+            lateSamples.append(max(0, enqueueStarted - scheduled) * 1000)
+            finalKeyStarted = enqueueStarted
+            buttons[digit]?.sendActions(for: .primaryActionTriggered)
+            enqueueSamples.append((CACurrentMediaTime() - enqueueStarted) * 1000)
+          }
+          // 等最后一个数字完成查询与绘制；首键把回车改成「确认」不代表整段完成。
+          let deadline = CACurrentMediaTime() + 5
+          while controller.hasPendingNineKeyInput && CACurrentMediaTime() < deadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+          }
+          guard !controller.hasPendingNineKeyInput else {
+            XCTFail("异步九键未完成最后一键的候选绘制")
+            return
+          }
+          controller.view.layoutIfNeeded()
+          let settled = CACurrentMediaTime()
+          settledSamples.append((settled - started) * 1000)
+          finalKeySamples.append((settled - finalKeyStarted) * 1000)
+          XCTAssertEqual(enter.accessibilityLabel, "确认")
+          for _ in 0..<64 where enter.accessibilityLabel == "确认" {
+            space.sendActions(for: .primaryActionTriggered)
+            controller.view.layoutIfNeeded()
+          }
+          XCTAssertNotEqual(enter.accessibilityLabel, "确认")
+          // 让旧回调再走一轮，确认提交后不会重新恢复中间帧。
+          await Task.yield()
+          XCTAssertNotEqual(enter.accessibilityLabel, "确认")
+        }
+      }
+      let cadence = Int(interval * 1000)
+      report("nineKey-async-\(cadence)ms-enqueue", enqueueSamples)
+      report("nineKey-async-\(cadence)ms-whole-sequence", settledSamples)
+      report("nineKey-async-\(cadence)ms-final-key", finalKeySamples)
+      report("nineKey-async-\(cadence)ms-schedule-lateness", lateSamples)
+    }
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
