@@ -4,7 +4,7 @@
 //!
 //! 鸿蒙的 ArkTS 桥接（`AccountCloudBridge.ts`）以前把登录会话存成第三种扁平布局 `{access_token, refresh_token, token_type, expires_at, user}`，`expires_at` 是 Unix 毫秒。升级后第一次读到的还是它，所以读取时也认这种布局（只读）；下一次保存按存储的布局写，鸿蒙的目录模式是 Native。
 //!
-//! 本目录里的文件要求属主与所在目录相同。另一个沙箱发布的会话文件（[`read_published_session`]，鸿蒙设置应用与键盘之间的 `session_adopt`）在鸿蒙上改成要求属主是本进程的有效 uid、不看所在目录：发布目录在 data-group 共享目录下，它的属主在真机上没有核对过，两者不一致时与目录相同的规则会让每次采用都失败；设置应用和键盘是同一个应用的两个进程、有效 uid 相同，别的 uid 放进去的文件照样拒收。权限位的规则不变。细节见 `anonymous::owner_is_trusted`。
+//! 本目录里的文件要求属主与所在目录相同。另一个沙箱发布的会话文件（[`read_published_session`]，鸿蒙设置应用与键盘之间的 `session_adopt`）在鸿蒙上改成要求属主是本进程的有效 uid、不看所在目录：发布目录由发布方进程自己建（`SharedStateMirror.ets` 的 `ensureParent`），文件和目录本来就同一个属主；改成看有效 uid 是为了连「别的 uid 先建好发布目录、再放进自己的文件」也拒收（与目录相同的规则会放行这种情况）。前提是设置应用和键盘是同一个应用的两个进程、有效 uid 相同，真机上要核对的是这一点。权限位的规则不变。细节见 `anonymous::owner_is_trusted`。
 
 use super::*;
 use std::fs::File;
