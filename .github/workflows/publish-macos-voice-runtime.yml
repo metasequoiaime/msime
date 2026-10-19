@@ -1,0 +1,88 @@
+name: Publish macOS voice runtime
+# 把 macOS 的 sherpa-onnx 运行库重签后发布成按需下载的资源包归档（platforms/macos/scripts/sign-voice-runtime.sh）。每个 sherpa-onnx 版本只跑一次：签名带时间戳，重跑会得到不同的字节，而已经发出去的 App 钉的是第一次的摘要，所以同一个标签下已有归档时这里拒绝替换。
+# 发布之后把这次运行摘要里（也在 artifact 里）的 voice-runtime-macos.lock.json 提交到 resources/，之后打的 macOS 发布包才省略内置的运行库；在那之前发布包照旧内置它。
+on:
+  workflow_dispatch:
+    inputs:
+      publish: {description: Create the voice-runtime-macos-v release and upload the signed archive (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
+permissions: {contents: write}
+concurrency: {group: publish-macos-voice-runtime, cancel-in-progress: false}
+jobs:
+  sign:
+    # 和 release-macos.yml 一样留在 GitHub 托管的 runner 上：这里用到 Developer ID 证书和公证凭据这些长期凭据。
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}"
+      MACOS_CERTIFICATE_PASSWORD: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}"
+      MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
+      # 没有证书就没有可发布的东西：ad-hoc 签名的库同样过不了库验证。
+      - name: Import Developer ID certificate
+        run: |
+          set -euo pipefail
+          : "${MACOS_CERTIFICATE_P12_BASE64:?the Developer ID certificate secret is not set}"
+          : "${MACOS_SIGNING_IDENTITY:?MACOS_DEVELOPER_ID_APPLICATION is not set}"
+          keychain="$RUNNER_TEMP/msime-signing.keychain-db"
+          password="$(openssl rand -base64 32)"
+          certificate="$RUNNER_TEMP/msime-signing.p12"
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$certificate"
+          security find-identity -v -p codesigning "$keychain" | grep -F "$MACOS_SIGNING_IDENTITY"
+          echo "MSIME_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+      - name: Sign, archive and notarize the runtime
+        env:
+          APPLE_ID: "${{ secrets.MACOS_NOTARY_APPLE_ID }}"
+          APPLE_TEAM_ID: "${{ secrets.MACOS_NOTARY_TEAM_ID }}"
+          APPLE_APP_SPECIFIC_PASSWORD: "${{ secrets.MACOS_NOTARY_APP_SPECIFIC_PASSWORD }}"
+        run: bash platforms/macos/scripts/sign-voice-runtime.sh dist
+      - name: Remove signing keychain
+        if: ${{ always() && env.MSIME_SIGNING_KEYCHAIN != '' }}
+        run: security delete-keychain "$MSIME_SIGNING_KEYCHAIN"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-voice-runtime
+          path: dist/
+          if-no-files-found: error
+      - name: Publish the signed archive
+        if: ${{ inputs.publish }}
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}"}
+        run: |
+          set -euo pipefail
+          tag=$(python3 -I -c 'import json; print(json.load(open("dist/voice-runtime-macos.lock.json"))["release_tag"])')
+          archive=$(python3 -I -c 'import json; print(json.load(open("dist/voice-runtime-macos.lock.json"))["archive"]["name"])')
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if gh release view "$tag" --json assets --jq '.assets[].name' | grep -qxF "$archive"; then
+              echo "::error::$tag already carries $archive. Shipped apps pin its bytes, so it is never replaced; commit the lock that matches it instead."
+              exit 1
+            fi
+          else
+            # 不以 macos-v 开头，也不标为最新：发布说明、更新检查和 Homebrew 都按 macos-v 找应用的发布。
+            gh release create "$tag" --prerelease --latest=false --target "$(git rev-parse HEAD)" --title "macOS voice runtime ${tag#voice-runtime-macos-}" \
+              --notes "macOS 本地语音识别的 sherpa-onnx 运行库：上游 universal dylib 剥掉局部符号后用本项目 Developer ID 重签，设置应用按 resources/voice-runtime-macos.lock.json 固定的 SHA-256 下载校验。资产发布后不再替换。"
+          fi
+          gh release upload "$tag" "dist/$archive"
+          # 从发布地址取回来再核对一次摘要：锁文件钉的必须是用户真正下得到的字节。
+          gh release download "$tag" --pattern "$archive" --dir "$RUNNER_TEMP/published"
+          expected=$(python3 -I -c 'import json; print(json.load(open("dist/voice-runtime-macos.lock.json"))["archive"]["sha256"])')
+          printf '%s  %s\n' "$expected" "$RUNNER_TEMP/published/$archive" | shasum -a 256 --check
+      - name: Summarize the lock to commit
+        run: |
+          {
+            echo '### resources/voice-runtime-macos.lock.json'
+            echo
+            echo 'Commit this as resources/voice-runtime-macos.lock.json once the archive is published; the next macOS release package then leaves the runtime out of the bundle.'
+            echo
+            echo '```json'
+            cat dist/voice-runtime-macos.lock.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -52,7 +52,7 @@ jobs:
               # 打包输入：打包脚本、Tauri 的 macOS 资源声明、核心词库和三个资源包的锁、决定暂存与下载的 client-core、client-providers 代码和示例、发布工作流和这个文件。scripts/test-macos-package-resources.py 核对这份清单覆盖了每个打包输入。
               platforms/macos/package-release.sh|platforms/macos/scripts/settings_updater.py|platforms/macos/stage-resources.sh|apps/desktop/src-tauri/tauri.macos.conf.json)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
-              resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json)
+              resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json|resources/voice-runtime-macos.lock.json)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源锁改动: $path"; exit 0 ;;
               crates/client-core/src/resources.rs|crates/client-providers/src/resource_packs.rs|crates/client-providers/src/voice/local_models.rs)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源代码改动: $path"; exit 0 ;;
@@ -106,9 +106,15 @@ jobs:
           du -sk "$staged"
       - name: Check the packaging contract
         run: python3 scripts/test-macos-package-resources.py
-      # 与 App 运行时同一个安装器、同一组 URL 和 SHA-256：macOS 会下载的四个资源包都要能装上，发布出去的 App 才能补齐它们。离线释义和语音运行库只给 Android 按需下载，不在这里装。
+      # 与 App 运行时同一个安装器、同一组 URL 和 SHA-256：macOS 会下载的资源包都要能装上，发布出去的 App 才能补齐它们。重签的语音运行库在 resources/voice-runtime-macos.lock.json 固定之后才有，也一起装。离线释义和 Android 的语音运行库只给 Android 按需下载，不在这里装。这里的未签名包照旧内置运行库（package-release.sh 只在签名的 Team ID 与锁文件相同时省略），所以下载的那份只能在这里查。
       - name: Install every macOS on-demand resource pack
-        run: cargo run --quiet --locked -p msime-client-providers --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" japanese language-dictionaries handwriting settled-model
+        run: |
+          set -euo pipefail
+          packs=(japanese language-dictionaries handwriting settled-model)
+          if python3 -I -c 'import json, sys; sys.exit(0 if json.load(open("resources/voice-runtime-macos.lock.json"))["archive"] else 1)'; then
+            packs+=(voice-runtime-macos)
+          fi
+          cargo run --quiet --locked -p msime-client-providers --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" "${packs[@]}"
 
   package:
     name: Unsigned universal package

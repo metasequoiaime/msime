@@ -34,6 +34,7 @@ PACKAGING_INPUTS = (
     "resources/language-dictionaries.lock.json",
     "resources/handwriting-model.lock.json",
     "resources/offline-glosses.lock.json",
+    "resources/voice-runtime-macos.lock.json",
     "crates/client-core/src/resources.rs",
     "crates/client-providers/src/resource_packs.rs",
     "crates/client-providers/src/voice/local_models.rs",

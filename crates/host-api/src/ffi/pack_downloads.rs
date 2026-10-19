@@ -100,7 +100,7 @@ pub type ResourcePackProgress =
 
 /// 每个资源包的安装状态。
 ///
-/// Request `{"state_root": "<absolute dir>"}`; response value `[{"id","state":"missing"|"installed"|"outdated","size","schemes":[...],"import_files":[{"name","url","size"}]}]`, `import_files` being the files an offline install (`files` on install) needs, one entry per pack id (`japanese`, `language-dictionaries`, `handwriting`, `settled-model`, `offline-glosses`, `voice-runtime`). `size` is the download size in bytes. An installed pack lives in `<state_root>/resource-packs/<id>/`. Reads only a few file attributes.
+/// Request `{"state_root": "<absolute dir>"}`; response value `[{"id","state":"missing"|"installed"|"outdated","size","schemes":[...],"import_files":[{"name","url","size"}]}]`, `import_files` being the files an offline install (`files` on install) needs, one entry per pack id (`japanese`, `language-dictionaries`, `handwriting`, `settled-model`, `offline-glosses`, `voice-runtime`, and `voice-runtime-macos` once its lock pins the re-signed runtime). `size` is the download size in bytes. An installed pack lives in `<state_root>/resource-packs/<id>/`. Reads only a few file attributes.
 ///
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.

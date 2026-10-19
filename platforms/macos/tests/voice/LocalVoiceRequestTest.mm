@@ -89,6 +89,21 @@ int main(int argc, char **argv) {
         assert(log.length && MSIMELocalVoiceHelperPath());
         [NSFileManager.defaultManager removeItemAtPath:log error:nil];
 
+        // 运行库：用辅助进程替身时不指定；没有替身、bundle 里也没有自带运行库时，只认共享层报告已完整安装的 voice-runtime-macos 资源包，没有状态目录、相对路径和空状态目录都没有运行库。
+        {
+            assert([MSIMELocalVoiceRuntimePath(nil) isEqual:@""]);
+            NSString *helper = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_LOCAL_HELPER"];
+            unsetenv("MSIME_VOICE_LOCAL_HELPER");
+            NSString *state = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+            assert([NSFileManager.defaultManager createDirectoryAtPath:state withIntermediateDirectories:YES attributes:nil error:nil]);
+            assert(!MSIMELocalVoiceRuntimePath(nil));
+            assert(!MSIMELocalVoiceRuntimePath(@{@"preferences_directory" : @"relative"}));
+            assert(!MSIMELocalVoiceRuntimePath(@{@"preferences_directory" : state}));
+            NSError *runtimeError = nil;
+            assert(![[MSIMELocalVoiceRequest alloc] initWithOptions:@{@"asr_model_path" : ModelDirectory(@"native")} hostOptions:@{@"preferences_directory" : state} error:&runtimeError] && runtimeError);
+            setenv("MSIME_VOICE_LOCAL_HELPER", helper.UTF8String, 1);
+        }
+
         // Only an installed model directory is accepted: not a file, not a directory the installer never finished, not a relative path.
         NSString *native = ModelDirectory(@"native");
         NSString *external = ModelDirectory(@"native");

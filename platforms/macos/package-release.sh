@@ -5,7 +5,8 @@
 #   japanese              msime-japanese.dat 与两份 Mozc 许可文本（mozc_dictionary_oss_README、mozc_LICENSE），用户选日文方案时下载
 #   language-dictionaries 粤拼、注音与笔画词库及其许可证（resources/language-dictionaries.lock.json），用户选粤拼、注音或笔画时下载
 #   handwriting           手写模型及其许可证（resources/handwriting-model.lock.json），首次打开手写面板时下载
-# 打包时在编译之前先把三个资源包按 App 用的同一套安装器、URL 和哈希装一遍，链接失效或内容漂移的资源包不会随发布包出去。
+#   voice-runtime-macos   本地语音识别的 sherpa-onnx 运行库（resources/voice-runtime-macos.lock.json），用户选用本地识别时下载。只在锁文件固定了重签的运行库、并且这次用同一个 Team ID 签名时省略；否则运行库照旧放进输入法 bundle 的 Contents/Frameworks
+# 打包时在编译之前先把这些资源包按 App 用的同一套安装器、URL 和哈希装一遍，链接失效或内容漂移的资源包不会随发布包出去。
 #
 # The same steps run locally and in release-macos.yml, so a package that passes here is the package CI publishes.
 #
@@ -183,9 +184,33 @@ create_dmg() {
 # install_resources prints progress on stderr and the verified directory as its last stdout line. Each edition's stage-resources.sh run (below) re-verifies it and stages target/macos/EngineResources, which tauri.macos.conf.json embeds.
 resources="$(cargo run --quiet --locked -p msime-client-core --example install_resources -- "$work/desktop-resources" | tail -n 1)"
 
+# ---- Speech runtime ----
+# 输入法和 msime-voice-local 开着 hardened runtime，库验证只加载同一 Team ID 签名的库。resources/voice-runtime-macos.lock.json 固定了用本项目 Developer ID 重签的运行库、并且这次也用这个 Team ID 签名时，运行库不进包，由设置应用作为 voice-runtime-macos 资源包下载；锁文件还没固定（重签的运行库还没发布）、没有签名身份（ad-hoc）或身份属于别的团队时照旧内置，否则装出来的输入法加载不了下载的库。
+voice_runtime_team="$(python3 -I -c 'import json, sys; lock = json.load(open(sys.argv[1])); print(lock["team_id"] if lock["archive"] else "")' "$repo_root/resources/voice-runtime-macos.lock.json")"
+omit_voice_runtime=0
+if [ -n "$voice_runtime_team" ]; then
+  case "$identity" in
+    *"($voice_runtime_team)") omit_voice_runtime=1 ;;
+    *) echo "warning: the downloadable speech runtime is signed by Team $voice_runtime_team, which this package is not; bundling the runtime instead" >&2 ;;
+  esac
+fi
+
 # ---- On-demand resource packs ----
-# 编译之前先用 App 运行时的同一个安装器、同一组 URL 和 SHA-256 把 macOS 会下载的四个资源包（日文词典、语言词库、手写模型、桌面神经联想模型）装一遍，失败就在这里停下：资源包不在包里，发布出去的 App 只能靠这些地址补齐，地址失效或内容漂移的发布包不该出去。离线释义和语音运行库只给 Android 按需下载，不在这里装。不接管道，安装器的退出码就是这一步的结果。
-cargo run --quiet --locked -p msime-client-providers --example install_resource_pack -- "$work/pack-check" japanese language-dictionaries handwriting settled-model >/dev/null
+# 编译之前先用 App 运行时的同一个安装器、同一组 URL 和 SHA-256 把 macOS 会下载的资源包（日文词典、语言词库、手写模型、桌面神经联想模型，省略运行库时还有语音运行库）装一遍，失败就在这里停下：资源包不在包里，发布出去的 App 只能靠这些地址补齐，地址失效或内容漂移的发布包不该出去。离线释义和 Android 的语音运行库只给 Android 按需下载，不在这里装。不接管道，安装器的退出码就是这一步的结果。
+on_demand_packs=(japanese language-dictionaries handwriting settled-model)
+if [ "$omit_voice_runtime" = 1 ]; then
+  on_demand_packs+=(voice-runtime-macos)
+fi
+cargo run --quiet --locked -p msime-client-providers --example install_resource_pack -- "$work/pack-check" "${on_demand_packs[@]}" >/dev/null
+if [ "$omit_voice_runtime" = 1 ]; then
+  # 下载到的运行库必须是这个团队签的、两种架构都在：否则省略之后的输入法在任何一台 Mac 上都加载不了它。
+  downloaded_runtime="$work/pack-check/resource-packs/voice-runtime-macos/libsherpa-onnx-c-api.dylib"
+  codesign --verify --strict "$downloaded_runtime"
+  test "$(codesign -dv "$downloaded_runtime" 2>&1 | sed -n 's/^TeamIdentifier=//p')" = "$voice_runtime_team"
+  for architecture in "${architectures[@]}"; do
+    lipo "$downloaded_runtime" -verify_arch "$architecture"
+  done
+fi
 
 # ---- Input method bundle ----
 # The minimum system version goes to the C/C++ compilers and to CMake separately, never as MACOSX_DEPLOYMENT_TARGET: rustc applies that to host proc-macro dylibs too, which then fail to load (README.md, 构建与本地测试).
@@ -196,6 +221,7 @@ cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREF
   -DCMAKE_OSX_ARCHITECTURES="$(IFS=';'; echo "${architectures[*]}")" \
   -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMSIME_HOST_LIBRARY="$universal_dir/libmsime_host_api.a" \
   -DMSIME_SPARKLE_APPCAST_BASE_URL="$sparkle_appcast_base" \
+  -DMSIME_BUNDLE_VOICE_RUNTIME="$([ "$omit_voice_runtime" = 1 ] && echo OFF || echo ON)" \
   -DMSIME_REQUIRE_OFFICIAL_PLUGINS="$([ "${MSIME_REQUIRE_OFFICIAL_PLUGINS:-}" = 1 ] && echo ON || echo OFF)"
 # An explicit job count: a bare --parallel with the Makefile generator starts every compile at once and runs a 7 GB runner out of memory (ci-macos.yml).
 cmake --build "$build_dir" --config Release --parallel "$(sysctl -n hw.logicalcpu)"
@@ -214,8 +240,11 @@ ditto "$built_bundle" "$work/input-method/$(basename "$built_bundle")"
 built_bundle="$(only "$work/input-method"/*.app)"
 strip_executable "$built_bundle/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$built_bundle/Contents/Info.plist")"
 strip_executable "$built_bundle/Contents/MacOS/msime-voice-local"
-# dylib 只用 `-x`：完全剥离会删掉使用方要绑定的导出符号。Release 构建已经剥离过 MSIMEBackend.dylib，除非构建目录配置成了别的配置，这一步对它不起作用。
-strip -x "$built_bundle/Contents/Frameworks/MSIMEBackend.dylib" "$built_bundle/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
+# dylib 只用 `-x`：完全剥离会删掉使用方要绑定的导出符号。Release 构建已经剥离过 MSIMEBackend.dylib，除非构建目录配置成了别的配置，这一步对它不起作用。下载的语音运行库在重签之前已经同样剥离过（scripts/sign-voice-runtime.sh）。
+strip -x "$built_bundle/Contents/Frameworks/MSIMEBackend.dylib"
+if [ "$omit_voice_runtime" != 1 ]; then
+  strip -x "$built_bundle/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
+fi
 
 # ---- MCP server ----
 # The same compiler flags as the input method: msime-mcp links the Engine through msime-host-api, and those objects are shared with the build above. Nothing in the app starts it; an agent's MCP configuration runs Contents/MacOS/msime-mcp over stdio.
@@ -436,9 +465,13 @@ check_app() {
     python3 -c 'import json, sys; assert json.load(open(sys.argv[1])) == {"edition": sys.argv[2]}' "$resources_dir/edition.json" "$edition"
   fi
   test -L "$nested/Contents/Frameworks/Sparkle.framework/Versions/Current"
-  # On-device voice models run in this helper, which loads the sherpa-onnx runtime beside it; the CMake build fetches the runtime from resources/voice-runtime.lock.json and stages both.
+  # On-device voice models run in this helper, which loads the sherpa-onnx runtime beside it; the CMake build fetches the runtime from resources/voice-runtime.lock.json and stages both. 省略运行库的包里不能有它：输入法把下载的 voice-runtime-macos 资源包交给辅助进程。
   test -x "$nested/Contents/MacOS/msime-voice-local"
-  test -s "$nested/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
+  if [ "$omit_voice_runtime" = 1 ]; then
+    test ! -e "$nested/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
+  else
+    test -s "$nested/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
+  fi
   grep -q 'com.apple.security.device.audio-input' <<< "$(codesign -d --entitlements - --xml "$nested" 2>/dev/null)" || {
     echo "the embedded input method lost its entitlements: $nested" >&2
     exit 1
