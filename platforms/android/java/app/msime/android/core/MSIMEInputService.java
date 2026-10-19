@@ -1492,6 +1492,7 @@ public final class MSIMEInputService extends InputMethodService {
         cancelInputViewRefresh();
         InputConnection nextConnection = getCurrentInputConnection();
         if (restarting && retainRestartedComposition(info, nextConnection)) {
+            imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_START);
             connection = nextConnection;
             resetCaretAnchor();
             updateAutomaticCapitalization();
@@ -1543,6 +1544,7 @@ public final class MSIMEInputService extends InputMethodService {
         currentEditorPackage = nextPackage;
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
         refreshLocalSettings();
+        imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_START);
         preferencesNotice = "";
         statisticsFailureReported = false;
         // 外观和引擎是两件事。皮肤、方案角标和键高来自同一份偏好，但它们该跟着用户走，而不是跟着
@@ -1690,6 +1692,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
         flushKeyPresses();
         clearQuickDeleteUndo();
