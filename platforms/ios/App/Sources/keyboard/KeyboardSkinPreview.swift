@@ -40,10 +40,11 @@ enum KeyboardPreviewToolbarItem: String, CaseIterable {
   }
 }
 
-// A display-only keyboard: no Engine session, document access, or input side effects.
+/// 仅用于展示的键盘，不创建引擎会话，也不访问输入文档。
 struct KeyboardSkinPreview: View {
   let skin: KeyboardTheme
   let nineKey: Bool
+  var fourteenKey = false
   var layout: KeyboardGeometry = KeyboardLayoutPreference.geometry
   var heightAdjustment: Double = 0
   var topStrip: KeyboardPreviewTopStrip = .candidates
@@ -62,7 +63,7 @@ struct KeyboardSkinPreview: View {
   var body: some View {
     KeyboardPreviewCanvas(referenceHeight: referenceHeight + heightAdjustment) { keyboard }
       .accessibilityElement(children: .ignore)
-      .accessibilityLabel("\(skin.title)，\(nineKey ? "9 键" : "26 键")完整键盘预览")
+      .accessibilityLabel("\(skin.title)，\(layoutTitle)完整键盘预览")
       .accessibilityIdentifier("fullKeyboardSkinPreview")
   }
 
@@ -77,6 +78,8 @@ struct KeyboardSkinPreview: View {
   }
 
   private var drawsHomeIndicator: Bool { topStrip != .candidates }
+
+  private var layoutTitle: String { nineKey ? "9 键" : fourteenKey ? "14 键" : "26 键" }
 
   // Match the native nine-key sidebar proportions within the 390-point canvas.
   private var nineKeySidebarWidth: CGFloat { (390 - 14) * layout.sidebarRatio }
@@ -112,7 +115,7 @@ struct KeyboardSkinPreview: View {
       Text("你号").font(.subheadline)
       Spacer(minLength: 0)
       if KeyboardLayoutPreference.voiceShortcutEnabled { Image(systemName: "waveform").font(.caption) }
-      Text(nineKey ? "九键" : "全拼").font(.caption)
+      Text(nineKey ? "九键" : fourteenKey ? "14 键" : "全拼").font(.caption)
 
     }.padding(.horizontal, 6).frame(height: 32)
       .background(color(skin.keyBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
@@ -171,6 +174,20 @@ struct KeyboardSkinPreview: View {
           key(".")
           key("0")
         }.frame(width: nineKeySidebarWidth)
+      }.frame(maxHeight: .infinity)
+    } else if fourteenKey {
+      VStack(spacing: layout.rowSpacing) {
+        ForEach(Array(FourteenKeyLayout.rows.enumerated()), id: \.offset) { index, keys in
+          if index == FourteenKeyLayout.rows.count - 1 {
+            HStack(spacing: 5) {
+              key("分词", function: true).frame(width: 38)
+              row(keys.map(\.face))
+              key("⌫", function: true).frame(width: 38)
+            }
+          } else {
+            row(keys.map(\.face))
+          }
+        }
       }.frame(maxHeight: .infinity)
     } else {
       VStack(spacing: layout.rowSpacing) {

@@ -584,6 +584,7 @@
 		982D71C4B7F624A89FD43866 /* KeyGapRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97E22A6161FBAC5C568F868A /* KeyGapRouting.swift */; };
 		98DF2166B7B5DB86FD8DB9CF /* BoundedFileReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 915C95E1A1B908177DA4877A /* BoundedFileReader.swift */; };
 		995A33B8488455B5B5BCA1D9 /* GeneratedKeyboardSkinTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C5E334FDFE807831BB80BA /* GeneratedKeyboardSkinTests.swift */; };
+		9979EA28495F113752B181FD /* FourteenKeyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 543C9DADA404F7AA48009C2B /* FourteenKeyLayout.swift */; };
 		99B542DFDEFCE3EF1E3EF403 /* DoubaoWebSocketTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E380781C2A6D1D0E5BD79134 /* DoubaoWebSocketTransport.swift */; };
 		99C5B8DE508CF05E76DFFA77 /* LocalSpeechModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12239F7A8C13CF7CC7C376B5 /* LocalSpeechModel.swift */; };
 		9A34AEFB1AA5ABFF24281810 /* HelpcodeChoicePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C36B0249387E896711FACF /* HelpcodeChoicePolicyTests.swift */; };
@@ -3694,6 +3695,7 @@
 				753210AA3A327B38B0EFC536 /* ExpressionSettingsView.swift in Sources */,
 				473F5D9EBA6AEFA3D4DF46A5 /* ExternalCandidateSkin.swift in Sources */,
 				A35795B48AA7C7BF1A941958 /* FeatureSettingsViews.swift in Sources */,
+				9979EA28495F113752B181FD /* FourteenKeyLayout.swift in Sources */,
 				510E4AB50677EBC9382BA77B /* FrequencyAdjustmentPreference.swift in Sources */,
 				39D7A2F0B08CF364E7E94E1F /* FuzzyPinyinPreference.swift in Sources */,
 				5F3AA0324C7880B5D9970A66 /* FuzzyPinyinSettingsView.swift in Sources */,

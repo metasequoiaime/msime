@@ -247,7 +247,7 @@ final class OnboardingUITests: XCTestCase {
     func openPicker() -> XCUIElement {
       reachSettingsLink("keyboardLayoutLink", in: app)
       settingsEntry("keyboardLayoutLink", in: app).tap()
-      let picker = app.buttons["chineseKeyboardPicker"]
+      let picker = app.descendants(matching: .any)["chineseKeyboardPicker"]
       XCTAssertTrue(picker.waitForExistence(timeout: 5), "the 中文键盘 row is missing: \(visible(app))")
       revealBelowKeyboardPreview(picker, in: app)
       return picker
@@ -265,6 +265,12 @@ final class OnboardingUITests: XCTestCase {
       }
       app.buttons[try XCTUnwrap(identifiers[title])].tap()
       XCTAssertTrue(wait(picker, until: "value == '\(title)'"), "the row still reads \(picker.value ?? "")")
+      let preview = app.otherElements["keyboardLayoutPreview"]
+      XCTAssertTrue(wait(preview, until: "label CONTAINS '\(title)'"), "键盘预览必须跟随已选择的布局")
+      let screenshot = XCTAttachment(screenshot: preview.screenshot())
+      screenshot.name = "键盘设置预览-\(title)"
+      screenshot.lifetime = .keepAlways
+      add(screenshot)
       // 离开这一页再回来，读到的是存下的布局，而不是这一页上留着的值。
       picker = openPicker()
       XCTAssertEqual(picker.value as? String, title)
@@ -528,13 +534,18 @@ final class OnboardingUITests: XCTestCase {
     if dismissKeyboard.exists && dismissKeyboard.isHittable { dismissKeyboard.tap() }
     let settingsTab = app.tabBars.buttons["设置"]
     if settingsTab.exists && !settingsTab.isSelected { settingsTab.tap() }
-    // Pop whatever the caller pushed before looking: these entries live on the tab's root, and a
-    // loop that visits one settings page per turn is still standing on the previous one. Tapping
-    // the selected tab does not pop a SwiftUI navigation stack, so the back button does it.
+    // 设置入口位于根页面；遍历时逐层返回，重复点选标签不会弹出 SwiftUI 导航栈。
     for _ in 0..<4 {
+      if app.navigationBars["设置"].exists { break }
+      let title = app.navigationBars.firstMatch.identifier
       let back = app.navigationBars.buttons.element(boundBy: 0)
       guard back.exists, back.isHittable else { break }
       back.tap()
+      // 等到上一页真正出现，避免再次点到转场中正在消失的返回键。
+      let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+        app.navigationBars.firstMatch.exists && app.navigationBars.firstMatch.identifier != title
+      }, object: nil)
+      XCTAssertEqual(XCTWaiter.wait(for: [returned], timeout: 5), .completed)
     }
 
     XCTAssertTrue(scrollIntoView({ settingsEntry(identifier, in: app) }, in: app),

@@ -78,6 +78,9 @@ targets:
     sources:
       - path: App/Sources
       - path: App/Services
+      - path: KeyboardExtension/Sources
+        includes:
+          - input/FourteenKeyLayout.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**

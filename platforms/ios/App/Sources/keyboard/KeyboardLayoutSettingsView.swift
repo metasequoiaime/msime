@@ -70,7 +70,7 @@ struct KeyboardLayoutSettingsView: View {
     VStack(spacing: 6) {
       grip
       KeyboardSkinPreview(
-        skin: skin, nineKey: nineKey,
+        skin: skin, nineKey: nineKey, fourteenKey: scheme == .fourteenKey,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
         heightAdjustment: height
       )
