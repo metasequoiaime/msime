@@ -1,4 +1,5 @@
 #pragma once
+#include "CandidateCanvas.h"
 #include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
 #include "CandidateExpandPanel.h"
@@ -109,6 +110,8 @@ public:
   void set_skin_corner_radius(std::optional<float> radius) { skin_radius_ = radius; }
   // 包的版式、外框线宽、高亮圆角、阴影档位、材质、翻页箭头、收紧宽度和卷轴展开（CandidateSkinLayout.h）。每次排版按当前排列和字号解析；和用户偏好的先后见 paint() 里的说明。卷轴展开的开关变了就收起。
   void set_skin_layout(const CandidateSkinLayout &layout);
+  // canvas 皮肤在当前明暗下要画的画布（CandidateCanvas.h）：candidate_canvas_drawable 的结果，面板图已经按明暗选好、确认解得出来，挂件只留解得出来的。不是 canvas 包时传默认值（active 为 false），卡片和以前逐位相同。下一次排版按它重新定窗口和卡片的尺寸。
+  void set_skin_canvas(CandidateSkinCanvas canvas);
   // 卷轴展开（CandidateExpandPanel.h）打开或收起时通知 Server（SessionController::set_candidate_expansion）：打开后 Server 才去取这一代的完整候选列表，随快照的 CandidatePresentation::expanded 交回来。
   using Expansion = std::function<void(const FocusLease &, bool)>;
   void set_expansion_handler(Expansion handler) { expansion_ = std::move(handler); }
@@ -129,9 +132,9 @@ public:
   // 第一次失败的位置，只有固定标签和数字，可以写进诊断日志。
   const std::optional<ComponentFailureSite> &failure_site() const { return failure_site_; }
   HWND handle() const { return window_; }
-  // 候选卡片（不含四周的透明阴影边距和顶上吉祥物那一条）此刻的屏幕矩形，物理像素，候选窗不可见时为空。调用方要在每显示器 DPI 感知的线程上下文里，双拼键位图贴着它摆放。
+  // 候选卡片（不含四周的透明阴影边距、canvas 的外留白和顶上吉祥物那一条；canvas 时是整块面板）此刻的屏幕矩形，物理像素，候选窗不可见时为空。调用方要在每显示器 DPI 感知的线程上下文里，双拼键位图贴着它摆放。
   std::optional<TypingRect> card_on_screen() const { return typing_effect_card(); }
-  // 上一帧实际画出的卡片在客户区里的矩形（物理像素，不含阴影边距和吉祥物那一条），还没画过时为空。只读，Server 不用；候选皮肤截图工具拿它和窗口客户区、card_on_screen() 比，确认卡片没有画到窗口外面。
+  // 上一帧实际画出的卡片在客户区里的矩形（物理像素，不含阴影边距、canvas 的外留白和吉祥物那一条；canvas 时是整块面板），还没画过时为空。只读，Server 不用；候选皮肤截图工具拿它和窗口客户区、card_on_screen() 比，确认卡片没有画到窗口外面。
   std::optional<RECT> painted_card() const;
 
 private:
@@ -301,7 +304,13 @@ private:
   // Pixels reserved above the card for the artwork, computed when the card is
   // sized and reused when it is painted so the two cannot disagree.
   float decoration_offset_ = 0.0f;
+  // 内容卡片（行、首行和点击都按它的坐标排）四周的透明空白，DIP。没有 canvas 时就是阴影边距；canvas 时由 card_bounds 和 decoration_offset_ 一起算：面板四周的空白（阴影边距加外留白或挂件伸出去的距离）再加上 canvas_offset_。
   CandidateShadowInsets shadow_insets_{};
+  CandidateSkinCanvas canvas_;
+  // canvas_ 的挂件按 z_index 分成面板之下和面板之上两层。
+  CandidateCanvasLayers canvas_layers_;
+  // 面板比内容卡片四边各多出的距离（candidate_canvas_content_offset，DIP，可以是负数），card_bounds 算好、paint 和命中测试沿用。不是 canvas 时为 0，面板就是卡片。
+  CandidateCanvasEdges canvas_offset_{};
   // Owner-drawn menu labels, kept alive for the duration of the popup: the draw messages carry pointers into this list.
   // Built on first use: most sessions never open the right-click menu, and the flyout owns two windows and two Direct2D devices.
   std::unique_ptr<CandidateFlyoutWindow> flyout_;

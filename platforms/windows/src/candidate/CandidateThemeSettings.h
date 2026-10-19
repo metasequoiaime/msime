@@ -65,11 +65,12 @@ candidate_theme_packages(const nlohmann::json &values) {
   }
   return packages;
 }
-// 一个界面的 msime_client_resolve_theme 请求。`dark` 是这个界面自己的明暗，`horizontal` 是正在绘制的候选布局。`custom_theme` 原样传过去，`candidate_skin_dark` 也在其中；皮肤根目录只要是绝对路径就发送，共享层只在自定义主题的当前明暗槽位指名皮肤包时才读它（深色取 `candidate_skin_dark`，没设时取 `candidate_skin`），宿主自己不挑包。
+// 一个界面的 msime_client_resolve_theme 请求。`dark` 是这个界面自己的明暗，`horizontal` 是正在绘制的候选布局。`custom_theme` 原样传过去，`candidate_skin_dark` 也在其中；皮肤根目录只要是绝对路径就发送，共享层只在自定义主题的当前明暗槽位指名皮肤包时才读它（深色取 `candidate_skin_dark`，没设时取 `candidate_skin`），宿主自己不挑包。`canvas_panel_drawn` 只在候选卡片确实会画出 canvas 包的九宫格面板时为 true（candidate_canvas_panel_drawn），共享层这时给出包为贴图挑的原配色；为 false 时不写这个键，请求与以前相同。
 inline nlohmann::json
 candidate_theme_request(const nlohmann::json &values, bool dark,
                         bool horizontal,
-                        const std::filesystem::path &skins_directory) {
+                        const std::filesystem::path &skins_directory,
+                        bool canvas_panel_drawn = false) {
   nlohmann::json request{
       {"global_theme",
        values.contains("global_theme") && values.at("global_theme").is_string()
@@ -82,6 +83,8 @@ candidate_theme_request(const nlohmann::json &values, bool dark,
     request["custom_theme"] = values.at("custom_theme");
   if (!skins_directory.empty() && skins_directory.is_absolute())
     request["skins_directory"] = skins_directory.u8string();
+  if (canvas_panel_drawn)
+    request["canvas_panel_drawn"] = true;
   return request;
 }
 // 自定义主题的候选取色器（`custom_theme.candidate_colors`，编号色和边框色已在 candidate_theme_values 去掉）；没有时是空对象。apply_candidate_skin_extra_slots 据此让取色器优先于皮肤包的细分槽位。
