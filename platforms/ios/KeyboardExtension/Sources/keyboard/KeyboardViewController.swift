@@ -67,7 +67,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var onlineCandidatesEnabled = false
   private var servicePanel: UIViewController?
   private var replyPanel: UIHostingController<ReplyKeyboardView>?
-  private weak var compositionContainer: UIView?
+  private weak var compositionContainer: CandidateCanvasHostView?
   private let replyModel = ReplyKeyboardModel()
   private var personalDictionaryTimer: Timer?
   private var synchronizingPersonalDictionary = false
@@ -400,6 +400,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var spaceDragEditsComposition = false
   /// The desktop candidate skin the strip draws with, or nil while it follows the keyboard skin (see CandidatePalette).
   private var candidatePalette: CandidatePalette?
+  /// 当前候选皮肤的解码快照，普通条与展开面板共用；解码在后台完成。
+  private var candidateCanvasSkin: ExternalCandidateSkin.Canvas?
+  private var candidateCanvasRequestKey: Data?
+  private var candidateCanvasEpoch: UInt64 = 0
+  private var candidateCanvasActive = true
+  private var candidatePreeditGapConstraint: NSLayoutConstraint?
+  private static let candidateCanvasQueue = DispatchQueue(label: "app.msime.candidate-canvas", qos: .userInitiated)
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
   private var visibleCandidateCodes: [String] = []
@@ -735,6 +742,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    candidateCanvasActive = true
+    candidateCanvasRequestKey = nil
     InputSchemePreference.refreshResourceAvailability()
     // 进程可能跨过换季或应用主题的改动；在下面任何地方解析皮肤之前先刷新。变了就重新解析主题，让末尾的 `applyKeyboardSkin` 给按键换上新的颜色实例：按键进窗口时已按旧季节解析过同一批动态色，同一个实例再设一次 UIButton 不会重新解析。
     if KeyboardTheme.refreshSeason() { KeyboardTheme.reload(session.sharedPreferences, dark: drawsDark) }
@@ -827,6 +836,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       engineCache = "reset"
     }
     ResolvedTheme.clearCacheForMemoryPressure()
+    candidateCanvasEpoch &+= 1
+    candidateCanvasRequestKey = nil
+    candidateCanvasSkin = nil
+    candidatePalette = currentCandidatePalette()
+    applyCandidateAppearance()
     DiagnosticLog.shared.write("memory_released engine_cache=\(engineCache) \(DiagnosticLog.MemorySample.current().fields)")
   }
 
@@ -933,6 +947,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    candidateCanvasActive = false
+    compositionContainer?.canvasVisible = false
+    candidatePanel?.canvasVisible = false
     session.flushPendingCharacters()
     inputDeliveryEpoch &+= 1
     englishCorrectionRejectedPrefix = ""
@@ -1727,7 +1744,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func makeCandidateStrip() -> UIView {
-    let container = UIView()
+    let container = CandidateCanvasHostView()
+    container.minimumContentHeight = 28
     compositionContainer = container
     container.accessibilityIdentifier = "candidateStrip"
     container.backgroundColor = Self.stripBackground(KeyboardTheme.current, palette: nil)
@@ -1829,34 +1847,36 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       equalToConstant: Self.readingRowHeight(preeditScale: preeditFontScale))
     readingRowHeightConstraint = compositionHeight
     // 略低于 required：收起的顶栏（显示方式「隐藏」）比读音行还矮，这时由隐藏的候选行让步，而不是破坏这一行的高度。
-    let contentBottom = content.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+    let contentBottom = content.bottomAnchor.constraint(equalTo: container.candidateContentGuide.bottomAnchor)
     contentBottom.priority = .init(999)
     // 读音并入候选行时与候选行同高，收起的顶栏里同样由它让步。
-    let inlineReadingBottom = compositionRow.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+    let inlineReadingBottom = compositionRow.bottomAnchor.constraint(equalTo: container.candidateContentGuide.bottomAnchor)
     inlineReadingBottom.priority = .init(999)
+    let preeditGap = content.topAnchor.constraint(equalTo: compositionRow.bottomAnchor)
+    candidatePreeditGapConstraint = preeditGap
     separateReadingConstraints = [
-      compositionRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
+      compositionRow.trailingAnchor.constraint(equalTo: container.candidateContentGuide.trailingAnchor, constant: -2),
       compositionHeight,
       preeditButton.trailingAnchor.constraint(lessThanOrEqualTo: compositionRow.trailingAnchor),
-      content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 2),
-      content.topAnchor.constraint(equalTo: compositionRow.bottomAnchor),
+      content.leadingAnchor.constraint(equalTo: container.candidateContentGuide.leadingAnchor, constant: 2),
+      preeditGap,
     ] + spellingStripEdges
     inlineReadingConstraints = [
       inlineReadingBottom,
       preeditButton.trailingAnchor.constraint(equalTo: compositionRow.trailingAnchor),
       compositionRow.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, multiplier: Self.inlineReadingMaximumShare),
       content.leadingAnchor.constraint(equalTo: compositionRow.trailingAnchor),
-      content.topAnchor.constraint(equalTo: container.topAnchor),
+      content.topAnchor.constraint(equalTo: container.candidateContentGuide.topAnchor),
     ]
     inlineReadingCollapse = compositionRow.widthAnchor.constraint(equalToConstant: 0)
     // 设计稿里这一行两端各有 2pt 内边距（dc.html `padding: 0 2px`），工具栏和候选列都一样。
     NSLayoutConstraint.activate([
       stripHeight,
-      compositionRow.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 2),
-      compositionRow.topAnchor.constraint(equalTo: container.topAnchor),
+      compositionRow.leadingAnchor.constraint(equalTo: container.candidateContentGuide.leadingAnchor, constant: 2),
+      compositionRow.topAnchor.constraint(equalTo: container.candidateContentGuide.topAnchor),
       preeditButton.leadingAnchor.constraint(equalTo: compositionRow.leadingAnchor),
       preeditButton.centerYAnchor.constraint(equalTo: compositionRow.centerYAnchor),
-      content.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
+      content.trailingAnchor.constraint(equalTo: container.candidateContentGuide.trailingAnchor, constant: -2),
       contentBottom,
       candidateStack.leadingAnchor.constraint(
         equalTo: candidateScrollView.contentLayoutGuide.leadingAnchor),
@@ -1887,6 +1907,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     applyKeyboardMetrics()
     updatePreferredKeyboardHeight()
     updatePreeditButton()
+    updateCandidateCanvasMetrics()
   }
 
   /// 14 键的拼音选择条：读音右边、横向滚动的一行按钮，内容与九键左列相同（完整音节，再是下一键上能作声母的大写字母）。它只占读音行，不盖住下面的候选行，三端放在同一个位置。
@@ -4245,6 +4266,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       preeditButton.configuration?.titleTextAttributesTransformer = Self.preeditTransformer(scale: preeditScale)
     }
     candidateFontScale = candidateScale
+    updateCandidateCanvasMetrics()
     topRowHeightConstraint?.constant = shownTopRowHeight
     readingRowHeightConstraint?.constant = Self.readingRowHeight(preeditScale: preeditScale)
     updatePreferredKeyboardHeight()
@@ -4823,7 +4845,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         markers: candidatePanelMarkers(snapshot),
         aiPlaceholders: candidatePanelAIPlaceholders(snapshot),
         candidateScale: candidateFontScale, preeditScale: preeditFontScale, candidateFamilies: candidateFontFamilies,
-        showsHeader: false,
+        showsHeader: false, palette: candidatePalette, canvas: candidateCanvasSkin,
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
         menuElements: { [weak self] index in
           guard let self, let snapshot = candidatePanelSnapshot, snapshot.entries.indices.contains(index) else { return [] }
@@ -6254,6 +6276,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.isHidden = showsCandidates || inlineHeightBar != nil || toolbarRowHidden
     // 工具栏内容可以隐藏，但 iOS 键盘扩展不能在组字开始和结束时改变顶栏高度；否则 UIKit 会重排键盘，表现为键盘抖动，严重时还会重新选择输入法。
     inlineHeightBar?.isHidden = showsCandidates
+    compositionContainer?.canvasVisible = showsCandidates && candidateCanvasActive
     readingRow.isHidden = !showsCandidates
     candidateContent?.isHidden = !showsCandidates
     updatePreeditButton()
@@ -6788,13 +6811,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let display = chineseOutput(candidate)
     guard var configuration = button.configuration else { return }
     let skin = KeyboardTheme.current
-    let annotationColor = candidatePalette?.secondary ?? skin.secondary
+    let annotationColor = (number == 1 || converting ? candidatePalette?.selectedTranslation : nil) ?? candidatePalette?.secondary ?? skin.secondary
     if let palette = candidatePalette {
-      // Drawn flat like the desktop candidate window: the first candidate, the one space commits, carries the skin's highlight.
-      configuration.background.customView = nil
+      // canvas 首选用选中色，其余透明；既有桌面配色保留「首选高亮」取色器的 hover 语义。
+      configuration.background.customView = number == 1 && palette.showSelectedBar
+        ? CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent) : nil
       configuration.background.backgroundColor = converting ? palette.selected.withAlphaComponent(0.35)
-        : number == 1 ? palette.hover : palette.surface
-      configuration.background.cornerRadius = 9
+        : number == 1 ? (candidateCanvasSkin == nil ? palette.hover : palette.selected)
+        : candidateCanvasSkin == nil ? palette.surface : .clear
+      configuration.background.cornerRadius = candidateCanvasSkin?.itemCornerRadius ?? 9
       configuration.background.strokeWidth = 1
       configuration.background.strokeColor = palette.border
       configuration.baseForegroundColor = palette.text
@@ -6818,7 +6843,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let pinned = markers.contains { $0.symbol == "pin.fill" }
     configuration.baseForegroundColor = pinned || selected
       ? candidatePalette?.accent ?? skin.accent
-      : candidatePalette?.text ?? skin.keyForeground
+      : (number == 1 ? candidatePalette?.selectedText : nil) ?? candidatePalette?.text ?? skin.keyForeground
     // 在线占位行画成次要色，和真候选区分开（#6888）。
     if aiPlaceholder { configuration.baseForegroundColor = annotationColor }
     // The 훈음 is drawn whole, like an inline hint was, so the chip widens to it rather than cutting it to the gloss column; the glosses under it fit that width.
@@ -7654,6 +7679,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     replyModel.objectWillChange.send()
     let skin = KeyboardTheme.current
     candidatePalette = currentCandidatePalette()
+    refreshCandidatePalette()
     candidateButtonStyleRevision &+= 1
     view.backgroundColor = skin.drawsNativeBackground ? .clear : skin.background
     skinBackdrop.skin = skin
@@ -7698,7 +7724,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateSpellingStrip()
     updateSpaceKeyTitle()
     exitLocalModeButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
-    preeditButton.configuration?.baseForegroundColor = candidatePalette?.secondary ?? skin.secondary
+    preeditButton.configuration?.baseForegroundColor = candidatePalette?.preeditText ?? candidatePalette?.secondary ?? skin.secondary
     expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.text ?? skin.keyForeground
     expandDivider.backgroundColor = skin.hairline
     inlineHeightBar?.apply(skin: skin)
@@ -7709,6 +7735,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       corner.textColor = skin.secondary
     }
     view.tintColor = skin.accent
+    applyCandidateAppearance()
   }
 
   /// 键盘画在深色下：「键盘明暗」设成深色，或者跟随时宿主是深色。
@@ -7727,21 +7754,75 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func currentCandidatePalette() -> CandidatePalette? {
-    CandidatePalette.active(in: session.sharedPreferences, systemDark: traitCollection.userInterfaceStyle == .dark)
+    CandidatePalette.active(in: session.sharedPreferences, systemDark: drawsDark,
+                            canvasPanelDrawn: candidateCanvasSkin?.panelLoaded == true)
   }
 
-  /// Redraw the strip when the resolved candidate palette changed; switching it off goes back through the keyboard skin so the chips get the skin's shape again.
+  /// 候选主题独立决定明暗；资源只在主题、模式或清单变化时重载，异步旧结果不能覆盖新选择。
   private func refreshCandidatePalette() {
+    let preferences = session.sharedPreferences
+    let dark = CandidatePalette.isDark(candidateTheme: preferences?["candidate_theme"] as? String,
+                                       appMode: preferences?["theme"] as? String, systemDark: drawsDark)
+    let resolved = CandidatePalette.followsDesktop ? CandidatePalette.resolveTheme(preferences, systemDark: drawsDark) : nil
+    let id = resolved?.candidateSkin
+    let root = ExternalCandidateSkin.defaultRoot
+    var custom = GlobalThemePreference.customTheme(in: preferences)
+    custom.removeValue(forKey: "keyboard")
+    var request: [String: Any] = ["enabled": CandidatePalette.followsDesktop, "dark": dark,
+      "theme": GlobalThemePreference.theme(in: preferences), "custom": custom]
+    if let id, let root {
+      let manifest = root.appendingPathComponent(id).appendingPathComponent("skin.toml")
+      let attributes = try? FileManager.default.attributesOfItem(atPath: manifest.path)
+      request["manifest_time"] = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+      request["manifest_size"] = attributes?[.size] as? NSNumber ?? 0
+    }
+    let key = try? JSONSerialization.data(withJSONObject: request, options: .sortedKeys)
+    if key != candidateCanvasRequestKey {
+      candidateCanvasEpoch &+= 1
+      let epoch = candidateCanvasEpoch
+      candidateCanvasRequestKey = key
+      candidateCanvasSkin = nil
+      if let id, let root {
+        Self.candidateCanvasQueue.async { [weak self] in
+          let assets = autoreleasepool { ExternalCandidateSkin.canvas(id, dark: dark, root: root) }
+          DispatchQueue.main.async { [weak self] in
+            guard let self, candidateCanvasEpoch == epoch, CandidatePalette.followsDesktop else { return }
+            candidateCanvasSkin = assets
+            candidatePalette = currentCandidatePalette()
+            applyCandidateAppearance()
+          }
+        }
+      }
+    }
     let palette = currentCandidatePalette()
-    guard palette != candidatePalette else { return }
-    if palette == nil { applyKeyboardSkin(); return }
+    guard palette != candidatePalette || compositionContainer?.canvas != candidateCanvasSkin else { return }
     candidatePalette = palette
+    applyCandidateAppearance()
+  }
+
+  private func applyCandidateAppearance() {
     candidateButtonStyleRevision &+= 1
-    compositionContainer?.backgroundColor = palette?.surface
-    exitLocalModeButton.configuration?.baseForegroundColor = palette?.accent
-    preeditButton.configuration?.baseForegroundColor = palette?.secondary
-    expandCandidatesButton.configuration?.baseForegroundColor = palette?.text
+    let skin = KeyboardTheme.current
+    compositionContainer?.canvas = candidateCanvasSkin
+    updateCandidateCanvasMetrics()
+    compositionContainer?.backgroundColor = candidateCanvasSkin?.panelLoaded == true ? .clear : Self.stripBackground(skin, palette: candidatePalette)
+    candidatePanel?.applyAppearance(palette: candidatePalette, canvas: candidateCanvasSkin)
+    candidatePanel?.canvasVisible = candidateCanvasActive
+    exitLocalModeButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
+    preeditButton.configuration?.baseForegroundColor = candidatePalette?.preeditText ?? candidatePalette?.secondary ?? skin.secondary
+    expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.text ?? skin.keyForeground
     renderCandidateStrip()
+  }
+
+  private func updateCandidateCanvasMetrics() {
+    let readingHeight = Self.readingRowHeight(preeditScale: preeditFontScale)
+    // 皮肤只占原行高里可让出的 10pt；放大字号与多行释义的高度全部留给文字。
+    let textHeight = max(28, Self.candidateRowHeight(candidateScale: candidateFontScale, glossed: glossLineCount > 0)
+      + Self.glossHeight(lines: glossLineCount - 1) - 10)
+    let gap = separateReadingRow ? min(candidateCanvasSkin?.lineGap ?? 0, max(0, shownTopRowHeight - readingHeight - textHeight)) : 0
+    compositionContainer?.minimumContentHeight = textHeight + (separateReadingRow ? readingHeight + gap : 0)
+    candidatePreeditGapConstraint?.constant = gap
+    compositionContainer?.setNeedsLayout()
   }
 
   private func refreshTraits(_ previousTraitCollection: UITraitCollection) {
