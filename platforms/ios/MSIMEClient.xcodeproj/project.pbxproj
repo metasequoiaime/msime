@@ -374,6 +374,7 @@
 		6105001A1AA44199C93594F7 /* CandidatePreeditStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE263C0BC7733E7755EEF83 /* CandidatePreeditStyle.swift */; };
 		617A0D11DA434946AD121454 /* PersonalWordBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D8F99AFCDEC3F17D9F1C3B /* PersonalWordBridge.swift */; };
 		624FA42ADFF223A018E177D5 /* UsageReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A42FAEB342260CCA9B4D581 /* UsageReporting.swift */; };
+		6257694B916A7909C9A59283 /* IOSRustAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7366C2C553E793581CBB1B69 /* IOSRustAccount.swift */; };
 		6265FD4FB5F1A1A882244340 /* EnglishSuggestionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDC085E013555DC6ABB2004 /* EnglishSuggestionPolicy.swift */; };
 		627302721EFC99DC711BFF7B /* KeyboardNineKeyPanelColumns.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7CED33C36869979C0260DC /* KeyboardNineKeyPanelColumns.swift */; };
 		62A0C7F2C387F30676A01CE2 /* KeyboardSkinPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 056A372D26C6B68B89E7825B /* KeyboardSkinPickerView.swift */; };
@@ -3007,6 +3008,7 @@
 				FFF62F9326C22CC657FA217A /* IOSResourcePackDownload.swift in Sources */,
 				0B2C4AC261B9DB29A5CD0519 /* IOSResourcePackTests.swift in Sources */,
 				52F479E64A93D99AE4B5C739 /* IOSResourcePacks.swift in Sources */,
+				6257694B916A7909C9A59283 /* IOSRustAccount.swift in Sources */,
 				E84C87D05719F5BA554925BC /* IOSSharedPaths.swift in Sources */,
 				06948089F61E58B72E63160F /* ImeModeMemoryPreference.swift in Sources */,
 				BE8B33EAC337A8AF1B7CF25A /* ImeModeMemoryTests.swift in Sources */,

@@ -10,7 +10,7 @@ App 和键盘扩展读写同一份会话：登录会话和云剪贴板密钥串�
 
 ## Decision
 
-- 注册（4b）：App 启动时 `IOSRustAccount.install()` 装表并注册本进程的会话存储（布局 1、`SHARED`、`BackendRustStoreLayout.standard`），持锁期间用 `beginBackgroundTask` 保持后台执行，免得挂起时还拿着 App Group 的文件锁被系统杀掉（0xdead10cc）。client_agent 由 Rust 拼：平台 `ios`、App 的版本、`uname` 的机型标识（模拟器上是 `SIMULATOR_MODEL_IDENTIFIER`）、「iOS」加系统版本、本版本的 edition。启动时的匿名账号注册改调 `ensure_anonymous`，已经登录或读不了登录状态时不调。
+- 注册（4b）：App 启动时 `IOSRustAccount.install()` 装表并注册本进程的会话存储（布局 1、`SHARED`、`BackendRustStoreLayout.standard`），持锁期间用 `beginBackgroundTask` 保持后台执行，免得挂起时还拿着 App Group 的文件锁被系统杀掉（0xdead10cc）。client_agent 由 Rust 拼：平台 `ios`、App 的版本、`uname` 的机型标识（模拟器上是 `SIMULATOR_MODEL_IDENTIFIER`）、「iOS」加系统版本、本版本的 edition。启动时的匿名账号注册改调 `ensure_anonymous`，已经登录或读不了登录状态时不调。 `status` 的可空返回值先经 `do/catch` 独立读取，再判断是否为 nil；不能用 `guard let` 解包 `try?` 的结果，否则未登录的 nil 会直接返回，已登录时解包后的用户也永远不等于 nil，注册入口因此不会执行。
 - 账号（4b）：登录方式、验证码、Apple（`apple_challenge`、`apple_login`）、Google（`google_challenge`、`google_token_login`）、资料、改名、退出、退出所有设备、注销（`account_delete`）、清除失效登录（`forget`）都经 Rust；读不了登录状态是 `account_storage`，页面报原因并提供清除，不当作已退出。Rust 的登录和退出没有「发布新身份之前」的清理钩子，所以登录换了账号、退出、注销和清除以后由 Swift 取消原来那个账号排队中的词库快照（`SkinCommunityAPI.signIn`、`logout`、`clearExpiredLogin`），取消失败只记诊断。
 - 社区与云端页面（4c）：键盘皮肤和词包、回复模板、举报经 `msime_client_community`（键盘皮肤的下载和举报没登录时由 Rust 用本机匿名账号）；云剪贴板经 `msime_client_account_cloud_clipboard`，每次带本机的设备名（P6），密钥串仍是钥匙串里与键盘共用的那一项；云词库的列表、增删改、导入、导出、整份备份与恢复经 `msime_client_cloud_dictionary`，中转目录是 App 自己临时目录下的 `msime-cloud-dictionary`；「应用到本机」由 Rust 下载并校验整份快照（`snapshot_export_file`），再照旧排进与键盘共用的 Swift 快照队列（`DictionarySnapshotQueue`），由键盘扩展激活。AI 对话改用流式的 `msime_client_account_chat_stream`，进页时读一次 `chat_models` 的默认模型；AI 皮肤改用 `msime_client_ai_skin_generate`；单套皮肤生成、打字统计上传（`typing_upload_*`）和 QQ 群助手（`qq_links`、`qq_link_redeem`、`qq_link_delete`）经 `msime_client_account`。
 - 页面只按打开时的 user.id 绑定：C 上拿不到会话代次，请求前后各读一次 `status`，退出或换了号就丢掉结果；同一个账号的令牌轮换和重新登录不再作废页面。
@@ -44,3 +44,7 @@ App 和键盘扩展读写同一份会话：登录会话和云剪贴板密钥串�
 - 4d：KeyboardTests 的 `RustCloudSyncTests`（run 的请求、先写 App Group 再提交、提交失败恢复、云端被清空的选择、开关和退出、设置同步页的上传和应用），`SchemeDocumentSettingsTests`、`KeyboardSkinTests` 改为对着真的 Rust 导出核对上传的方案、简繁和主题；SharedTests 的 `CloudSyncStateTests`、`CloudSyncMarkingTests` 对着真的 Rust 状态文件测导入、记改动和抑制。Rust 侧 client-services 的 `account::ios_settings` 新增九键双拼的往返用例。
 - 4f：KeyboardTests 的 `TranslationProviderTests` 对着真的 Rust 入口测释义请求体（ZH、大写目标语言）、一条坏值只让那一条没有释义、401 刷新一次后重试、条数不对整页失败。
 - 守护脚本 `test-community-session-binding.py`、`test-community-cloud-import-credentials.py` 改成盯住新的绑定方式；`test-ios-cloud-clipboard-view-lifecycle.py`、`test-ios-cloud-dictionary-files-lifecycle.py`、`test-ios-cloud-dictionary-kind-lifecycle.py`、`test-ios-settings-sync-view-lifecycle.py`、`test-ios-special-file-readers.py`、`test-macos-cloud-dictionary-session-binding.py`、`test-chat-system-prompt-parity.py` 按 Rust 的 user.id 绑定和新文件位置重写，每个都临时改回源码确认过会失败。
+
+2026-10-19 的 iOS 全面验收补上启动预备匿名账号的分支回归：`SkinCommunityAccountTests` 用替身 Rust 函数表检查未登录时按顺序调用 `status` 和 `ensure_anonymous`，已登录、存储错误和无效状态回答只调用 `status`。生产修复前，未登录回归在模拟器复现缺少 `ensure_anonymous` 调用，其余两项通过。`IOSRustAccount.swift` 显式加入键盘测试目标，以编译并测试真实宿主初始化函数；测试不联网，也不读实际钥匙串或 App Group。
+
+修复后 `MSIMEKeyboardTests/SkinCommunityAccountTests` 12 项全部通过，含新增三项启动分支回归。`bash scripts/verify-local.sh --quick` 通过；该回归证明宿主调用顺序和读取失败边界，不把替身函数表结果称为真实联网注册成功。

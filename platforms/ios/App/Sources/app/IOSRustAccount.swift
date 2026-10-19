@@ -21,7 +21,10 @@ enum IOSRustAccount {
 
   /// 本机匿名账号还没有可用会话时注册它，好让键盘在需要之前就能用上（身份和会话在 App Group 里，键盘复用）。已经登录、或者读不了登录状态（钥匙串锁着、未签名的构建）时不注册：读不了不等于没登录，不该为此多注册一个匿名账号。失败时下次启动再试。
   static func ensureAnonymous(_ account: BackendRustAccount) async {
-    guard let signedIn = try? await account.status(), signedIn == nil else { return }
+    let signedIn: BackendAccountClient.User?
+    do { signedIn = try await account.status() }
+    catch { return }
+    guard signedIn == nil else { return }
     _ = try? await account.account(["operation": "ensure_anonymous"])
   }
 
