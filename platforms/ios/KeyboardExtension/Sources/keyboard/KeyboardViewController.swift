@@ -379,8 +379,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 底行是否按手机 26 键底行布局（`usesPhoneBottomRow`），是的话 ， 跟随标点键面，而不是快捷标点菜单的第一个标点。
   private var phoneBottomRowShown = false
   private let nineKeyContainer = UIStackView()
-  private let spellingScrollView = UIScrollView()
-  private let spellingStack = UIStackView()
+  private let spellingScrollView = KeyboardSpellingScrollView()
   private var spellingButtons: [UIButton] = []
   private var usesTraditionalOutput = false
   /// 高情商回复面板是否由工具栏的「回复」按钮打开。它是工具而不是方案：打开时盖住键区，关闭后回到原来的键盘，引擎方案始终不变。
@@ -2322,22 +2321,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func makeSpellingStrip() -> UIView {
     spellingScrollView.showsVerticalScrollIndicator = false
-    // The strip is addressed by this identifier from accessibility and from the tests; it was
-    // dropped on the way over from the Apple client, where the same view carries it.
     spellingScrollView.accessibilityIdentifier = "nineKeySpellingStrip"
     spellingScrollView.disableEdgeEffects()
-    spellingStack.axis = .vertical
-    spellingStack.spacing = 6
-    spellingStack.translatesAutoresizingMaskIntoConstraints = false
-    spellingScrollView.addSubview(spellingStack)
-    NSLayoutConstraint.activate([
-
-      spellingStack.leadingAnchor.constraint(equalTo: spellingScrollView.contentLayoutGuide.leadingAnchor),
-      spellingStack.trailingAnchor.constraint(equalTo: spellingScrollView.contentLayoutGuide.trailingAnchor),
-      spellingStack.topAnchor.constraint(equalTo: spellingScrollView.contentLayoutGuide.topAnchor),
-      spellingStack.bottomAnchor.constraint(equalTo: spellingScrollView.contentLayoutGuide.bottomAnchor),
-      spellingStack.widthAnchor.constraint(equalTo: spellingScrollView.frameLayoutGuide.widthAnchor),
-    ])
     return spellingScrollView
   }
 
@@ -2350,9 +2335,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let inputs = SpellingStripInputs(spellings: spellings, inReadingRow: inReadingRow)
     guard appliedSpellingStripInputs != inputs else { return }
     appliedSpellingStripInputs = inputs
-    fillSpellingButtons(&spellingButtons, in: spellingStack, spellings: inReadingRow ? [] : spellings, readingRow: false)
+    fillSpellingButtons(&spellingButtons, in: nil, spellings: inReadingRow ? [] : spellings, readingRow: false)
     fillSpellingButtons(&readingSpellingButtons, in: readingSpellingStack, spellings: inReadingRow ? spellings : [],
                         readingRow: true)
+    spellingScrollView.buttons = spellingButtons
     let readingStripShown = inReadingRow && !spellings.isEmpty
     if readingSpellingScrollView.isHidden == readingStripShown { readingSpellingScrollView.isHidden = !readingStripShown }
     readingSpellingMinimumWidth?.isActive = readingStripShown
@@ -2366,7 +2352,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 九键侧栏此刻画拼音选择条，而不是标点列。14 键的选择条在读音行里，不占这个侧栏。
   private var sidebarCarriesSpellings: Bool { !showsSymbols && !readingRowCarriesSpellings && !currentNineKeySpellings.isEmpty }
 
-  private func fillSpellingButtons(_ buttons: inout [UIButton], in stack: UIStackView, spellings: [String], readingRow: Bool) {
+  private func fillSpellingButtons(_ buttons: inout [UIButton], in stack: UIStackView?, spellings: [String], readingRow: Bool) {
     while buttons.count < spellings.count {
       let button = UIButton(type: .system)
       button.addAction(UIAction { [weak self, weak button] _ in
@@ -2375,7 +2361,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self.chooseVisibleNineKeySpelling(at: UInt(button.tag))
       }, for: .primaryActionTriggered)
       buttons.append(button)
-      stack.addArrangedSubview(button)
+      if let stack { stack.addArrangedSubview(button) } else { spellingScrollView.addSubview(button) }
     }
     for (index, button) in buttons.enumerated() {
       guard spellings.indices.contains(index) else {
@@ -2401,8 +2387,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         return attributes
       }
       configuration.baseForegroundColor = KeyboardTheme.current.keyForeground
+      configuration.background.backgroundColor = .clear
+      configuration.background.customView = nil
+      configuration.background.strokeWidth = 0
       button.configuration = configuration
-      Self.drawBareInSidebar(button)
+      button.layer.shadowOpacity = 0
       button.tag = index
       button.isHidden = false
       button.accessibilityLabel = KeyboardNineKeyPanelColumns.spellingAccessibilityLabel(spelling)

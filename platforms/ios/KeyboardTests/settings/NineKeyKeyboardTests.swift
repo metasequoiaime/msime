@@ -3135,6 +3135,36 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testSpellingSidebarScrollRangeTracksVisibleButtonsAndWidth() {
+    let strip = KeyboardSpellingScrollView(frame: CGRect(x: 0, y: 0, width: 48, height: 84))
+    let buttons = (0..<20).map { index in
+      let button = UIButton(type: .system)
+      button.setTitle("pin\(index)", for: .normal)
+      strip.addSubview(button)
+      return button
+    }
+    strip.buttons = buttons
+    strip.layoutIfNeeded()
+    XCTAssertGreaterThan(strip.contentSize.height, strip.bounds.height)
+    for (first, next) in zip(buttons, buttons.dropFirst()) {
+      XCTAssertLessThanOrEqual(first.frame.maxY, next.frame.minY)
+    }
+    XCTAssertEqual(buttons.last?.frame.maxY, strip.contentSize.height)
+    strip.contentOffset.y = 100
+    strip.frame.size.width = 72
+    strip.layoutIfNeeded()
+    XCTAssertTrue(buttons.allSatisfy { $0.frame.width == strip.bounds.width })
+    buttons.forEach { $0.isHidden = true }
+    strip.buttons = buttons
+    strip.layoutIfNeeded()
+    XCTAssertEqual(strip.contentSize.height, 0)
+    buttons[3].isHidden = false
+    strip.buttons = buttons
+    strip.layoutIfNeeded()
+    XCTAssertEqual(buttons[3].frame.origin, .zero)
+    XCTAssertEqual(strip.contentSize.height, buttons[3].frame.height)
+  }
+
   func testSpellingSidebarChangesKeepTheKeyLayout() throws {
     let previousScheme = InputSchemePreference.scheme
     let previousEnabled = InputSchemePreference.enabledSchemes

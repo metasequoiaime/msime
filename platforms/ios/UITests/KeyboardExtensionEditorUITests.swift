@@ -210,6 +210,37 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     }
   }
 
+  /// 提交后重新组字，侧栏中复用的拼音按钮仍能被真实触摸命中。
+  func testNineKeySpellingSidebarRemainsTappableAfterCommit() throws {
+    let app = XCUIApplication()
+    let field = try focusedTryoutKeyboard(app)
+    app.buttons["schemeButton"].tap()
+    let card = app.buttons["schemeCard-nineKey"]
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    card.tap()
+    let language = app.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
+    for _ in 0..<3 {
+      for digit in "64426" { app.buttons["nineKey\(digit)"].tap() }
+      let spelling = app.buttons["nineKeySpelling_ni"]
+      XCTAssertTrue(spelling.waitForExistence(timeout: 5))
+      XCTAssertTrue(spelling.isHittable, "重新显示的拼音按钮必须位于可点按的侧栏内")
+      spelling.tap()
+      let candidate = app.buttons["candidate-1"]
+      XCTAssertTrue(candidate.waitForExistence(timeout: 5))
+      candidate.tap()
+      for _ in 0..<12 {
+        guard app.buttons["returnKey"].label == "确认", candidate.exists else { break }
+        candidate.tap()
+      }
+      XCTAssertNotEqual(app.buttons["returnKey"].label, "确认")
+      XCTAssertFalse(app.scrollViews["nineKeySpellingStrip"].isHittable)
+      let committed = field.value as? String ?? ""
+      XCTAssertNotNil(committed.range(of: "^[\\p{Han}]+$", options: .regularExpression))
+    }
+    print("NINEKEY_SPELLING_DEVICE rounds=3 completed=1")
+  }
+
   /// 在系统加载的扩展里点按英文按键，校验原文、默认纠错和明确拒绝纠错。
   func testEnglishCorrectionCommitsThroughTheHostDocument() throws {
     let app = XCUIApplication()

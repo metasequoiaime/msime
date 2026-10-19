@@ -534,3 +534,21 @@ final class CandidateScrollView: UIScrollView {
   }
 
 }
+
+/// 九键拼音列只在固定宽度内竖排按钮；内容变化不向整套键盘传播排列约束。
+final class KeyboardSpellingScrollView: UIScrollView {
+  var buttons: [UIButton] = [] { didSet { setNeedsLayout() } }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    var y: CGFloat = 0
+    for button in buttons where !button.isHidden {
+      let height = ceil(button.intrinsicContentSize.height)
+      let frame = CGRect(x: 0, y: y, width: bounds.width, height: height)
+      if button.frame != frame { button.frame = frame }
+      y += height + 6
+    }
+    let size = CGSize(width: bounds.width, height: max(0, y - 6))
+    if contentSize != size { contentSize = size }
+  }
+}
