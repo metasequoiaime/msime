@@ -991,6 +991,12 @@ fn check_image_with_budget(
             decode_animation_frames(decoder.into_frames(), frame_pixels, remaining_pixels)?
         }
         image::ImageFormat::WebP => {
+            super::webp_preflight::check(bytes, (width, height), remaining_pixels).map_err(
+                |error| match error {
+                    super::webp_preflight::Error::Invalid => IMAGE_INVALID,
+                    super::webp_preflight::Error::Limit => TOO_LARGE,
+                },
+            )?;
             let decoder = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(bytes))
                 .map_err(|_| IMAGE_INVALID)?;
             if decoder.has_animation() {

@@ -103,6 +103,21 @@ fn animated_resources_are_strictly_decoded_and_bounded() {
 }
 
 #[test]
+fn webp_preflight_protects_uploads_and_keeps_valid_alpha_frames() {
+    use crate::skin::webp_preflight::tests::{animated, static_images, with_inner_dimensions};
+    let images = static_images();
+    for bytes in &images {
+        assert_eq!(check_image("image/webp", bytes), Ok(12));
+        let mismatch = with_inner_dimensions(bytes.clone(), 5, 3);
+        assert_eq!(
+            check_image("image/webp", &animated(&[mismatch])),
+            Err(IMAGE_INVALID)
+        );
+    }
+    assert_eq!(check_image("image/webp", &animated(&images)), Ok(36));
+}
+
+#[test]
 fn corrupt_late_animation_frame_leaves_installed_files_unchanged() {
     let source = tempfile::tempdir().unwrap();
     let packed = canvas_fixture(source.path());
@@ -118,11 +133,19 @@ fn corrupt_late_animation_frame_leaves_installed_files_unchanged() {
     let mut bytes = animated_webp();
     let length = bytes.len();
     bytes[length - 7..length - 1].fill(0xff);
-    downloaded
-        .files
-        .insert("moon.webp".into(), BASE64.encode(bytes));
-    assert!(install(target.path(), &downloaded, true).is_err());
-    assert_eq!(snapshot(target.path()), before);
+    use crate::skin::webp_preflight::tests::{animated, static_images, with_inner_dimensions};
+    let images = static_images();
+    let late_mismatch = animated(&[
+        images[0].clone(),
+        with_inner_dimensions(images[2].clone(), 5, 3),
+    ]);
+    for broken in [bytes, late_mismatch] {
+        downloaded
+            .files
+            .insert("moon.webp".into(), BASE64.encode(broken));
+        assert!(install(target.path(), &downloaded, true).is_err());
+        assert_eq!(snapshot(target.path()), before);
+    }
 }
 
 #[test]
