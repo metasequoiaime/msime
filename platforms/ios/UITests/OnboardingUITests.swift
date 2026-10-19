@@ -1912,6 +1912,61 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["关于"].exists)
   }
 
+  /// 沿「我的」真实入口检查隐私、帮助与许可，避免只有首页链接可见而子页无法返回。
+  @MainActor
+  func testAccountPrivacyHelpAndLicensesRemainReachable() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["我的"].tap()
+
+    func expectPage(_ title: String) {
+      XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = "原生页面-\(title)"
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
+    func back(to title: String) {
+      app.navigationBars.buttons.firstMatch.tap()
+      XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
+    }
+    tapRevealed("accountPrivacyLink", in: app)
+    expectPage("隐私")
+    XCTAssertTrue(app.switches["usageReportingToggle"].exists)
+    tapRevealed("privacyClipboardHistoryLink", in: app)
+    expectPage("剪贴板历史")
+    XCTAssertTrue(app.buttons["clipboardHistorySavePaste"].exists)
+    back(to: "隐私")
+    tapRevealed("privacyLocalModeLink", in: app)
+    expectPage("快捷模式")
+    XCTAssertGreaterThan(app.switches.count, 0)
+    back(to: "隐私")
+    back(to: "我的")
+
+    tapRevealed("accountFeedbackLink", in: app)
+    expectPage("帮助与反馈")
+    tapRevealed("feedbackHelpLink", in: app)
+    expectPage("使用帮助")
+    XCTAssertTrue(app.buttons["helpOpenKeyboardSettings"].exists)
+    back(to: "帮助与反馈")
+    tapRevealed("feedbackDiagnosticLogLink", in: app)
+    expectPage("诊断日志")
+    XCTAssertTrue(app.switches["diagnosticLogEnabled"].exists)
+    back(to: "帮助与反馈")
+    back(to: "我的")
+
+    tapRevealed("aboutSettingsLink", in: app)
+    expectPage("关于")
+    tapRevealed("aboutLicensesLink", in: app)
+    expectPage("开源许可")
+    XCTAssertGreaterThan(app.buttons.count, 1, "打包的许可必须实际列出")
+    back(to: "关于")
+    back(to: "我的")
+    XCTAssertTrue(app.tabBars.buttons["我的"].isSelected)
+  }
+
   @MainActor
   func testHandwritingCanBeEnabledSelectedAndDisabled() {
     let app = XCUIApplication()
@@ -2112,7 +2167,11 @@ final class OnboardingUITests: XCTestCase {
       for: NSPredicate(format: "hasKeyboardFocus == false"), evaluatedWith: tryoutField)
     wait(for: [unfocused], timeout: 10)
     XCTAssertEqual(tryoutField.value as? String, "test")
-    app.tabBars.buttons["设置"].tap()
+    // 对话页不带标签栏，收起键盘后仍通过顶部返回来源页。
+    XCTAssertFalse(app.tabBars.buttons["设置"].exists)
+    app.navigationBars.buttons.firstMatch.tap()
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
     // 去开启 在页面顶部的状态卡片里，遍历结束时页面已滚到它下方，所以要把它滚回视野内。
     reachSettingsLink("openKeyboardSettingsButton", in: app)

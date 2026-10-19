@@ -356,7 +356,8 @@ xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace -scheme MSIMEClientU
 platforms/ios/build-native.sh simulator
 xcodebuild -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEApp \
   -destination 'platform=iOS Simulator,name=<设备名>' \
-  -derivedDataPath target/ios/derived-sim CODE_SIGNING_ALLOWED=NO build
+  -derivedDataPath target/ios/derived-sim ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES build
 xcrun simctl install booted target/ios/derived-sim/Build/Products/Debug-iphonesimulator/MSIMEApp.app
 xcrun simctl launch booted app.msime.ios
 ```
