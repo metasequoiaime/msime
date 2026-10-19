@@ -2937,7 +2937,7 @@ html[data-theme="light"][data-macos-liquid-glass="true"]
   --p-sub: #39393d;
 }
 
-/* 弹窗用厚玻璃隔开背后的预览文字，不能复用正文卡片的薄透明表面。 */
+/* 弹窗用厚玻璃隔开背后的预览文字，不能复用正文卡片的薄透明表面。所有浮在页面上的层（对话框、底部面板、全屏子视图、浮动菜单）都带这个类，`apps/desktop/tests/settings/glass-overlay-surface.test.tsx` 逐个检查。 */
 html[data-macos-liquid-glass="true"]
   [data-settings-shell][data-platform="mac"]
   .settings-modal-surface {

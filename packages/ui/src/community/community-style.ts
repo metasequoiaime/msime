@@ -58,7 +58,7 @@ export const scopeMenu = "relative hidden max-tight:block";
 export const scopeMenuSummary =
   "cursor-pointer list-none rounded-lg border border-control-border bg-[var(--dropdown-bg)] px-3 py-[7px] whitespace-nowrap text-body after:ml-[7px] after:text-muted after:content-['⌄'] open:after:content-['⌃'] [&::-webkit-details-marker]:hidden";
 export const scopeMenuList =
-  "absolute top-[calc(100%+6px)] right-0 z-[4] flex min-w-32 flex-col gap-[3px] rounded-[9px] border border-edge bg-[var(--dropdown-bg)] p-[5px] shadow-card";
+  "settings-modal-surface absolute top-[calc(100%+6px)] right-0 z-[4] flex min-w-32 flex-col gap-[3px] rounded-[9px] border border-edge bg-[var(--dropdown-bg)] p-[5px] shadow-card";
 export const scopeMenuItem =
   "m-0 rounded-md border-0 bg-transparent px-[9px] py-[7px] text-left whitespace-nowrap text-body hover:bg-[var(--button-secondary-bg)]";
 
