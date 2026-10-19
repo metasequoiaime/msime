@@ -69,7 +69,7 @@ impl InputSession {
         if source != CandidateSource::EnglishDictionary
             || self.local_mode != LocalInputMode::None
             || self.dedicated_english
-            || self.has_active_helpcode()
+            || (self.has_active_helpcode() && !self.has_literal_capitals())
         {
             return;
         }
@@ -93,6 +93,9 @@ impl InputSession {
 
     /// 前缀或引擎候选经过个人上下文重排，再混入英文、表情、颜文字并应用固定位置。
     pub(super) fn update_mixed_candidates(&mut self) {
+        if self.update_literal_candidates() {
+            return;
+        }
         self.refresh_prefix_candidates();
         let mut decoded = self
             .ranking_candidates

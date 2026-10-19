@@ -92,6 +92,22 @@ int main() {
         assert([MSIMEClientSession emojiCatalogRequest:(NSDictionary *)@[]][@"error"]);
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
         assert(session && !error);
+        // 云描述符与较长 AI 配置共用查询；Apple 桥接不能在 Rust 之前按旧 16 KiB 拒绝。
+        NSString *prompt = [@"s" stringByPaddingToLength:8000 withString:@"s" startingAtIndex:0];
+        NSDictionary *largeAI = @{ @"enabled": @YES, @"provider": @"custom", @"model": @"synthetic",
+            @"endpoint": @"https://ai.example.invalid/v1/chat/completions", @"prompt_custom_1": prompt,
+            @"prompt_custom_2": prompt, @"prompt_custom_3": prompt };
+        NSDictionary *largeQuery = @{ @"scheme": @0, @"generation": @1, @"identity": @"synthetic", @"query_text": @"nihao",
+            @"cache_key": @"synthetic", @"pinyin_segments": @[@"ni", @"hao"], @"cloud_eligible": @YES,
+            @"cloud_candidates": @YES, @"ai_eligible": @NO, @"session_id": @1, @"ai_assistant": largeAI };
+        error = nil;
+        assert([MSIMEClientSession cloudRequestURLForQuery:largeQuery error:&error] && !error);
+        NSString *largeRoot = [root stringByAppendingPathComponent:@"large-cloud-preferences"];
+        NSMutableDictionary *largePreferences = [options[@"preferences"] mutableCopy];
+        largePreferences[@"ai_assistant"] = largeAI;
+        NSDictionary *largeSaved = [MSIMEClientSession savePreferencesInDirectory:largeRoot expectedRevision:0
+            snapshot:@{ @"format_version": @1, @"revision": @0, @"preferences": largePreferences } error:&error];
+        assert(largeSaved && !error);
         NSDictionary *activeOptions = [MSIMEClientSession activeHostOptions];
         assert([activeOptions[@"api_version"] isEqual:@1]);
         error = nil;

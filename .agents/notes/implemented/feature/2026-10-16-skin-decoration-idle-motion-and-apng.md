@@ -35,7 +35,7 @@ motion_period_ms = 3000   # 1200–8000，缺省 3000
 
 - 共享加载器 `crates/client-services/src/skin/catalog.rs` 的 `read_decoration_motion` 解析这两个键。版本 1 写了就以 `decoration motion requires schema_version 2` 拒绝，与 `[animation]` 只在 v2 里可写一致。没有装饰的包写 `motion` 也拒绝。
 - `SkinSummary` 新增 `decoration_motion`、`decoration_motion_period_ms` 和 `decoration_frames`，序列化为 `decorationMotion`、`decorationMotionPeriodMs`、`decorationFrames`。帧数在没有装饰图时为 0，静态图为 1，APNG 为它 `acTL` 声明的帧数。
-- 帧动画不加新键：`image` 指向一张 APNG 就是帧动画。APNG 仍是 `.png`，旧客户端、服务端和不播放帧的宿主都只看到默认图（第一帧）。
+- 帧动画不加新键：`image` 指向一张 APNG 就是帧动画。APNG 可以沿用 `.png` 后缀，让不播放帧的宿主读取默认图；服务端逐帧校验并保留动画。新的 `.apng` 后缀和 GIF/WebP 社区传输见[按服务端能力上传](2026-10-19-community-canvas-resources.md)。
 - 新规则也写进了共享用例表 `catalog/client_dialect.json`，msime-cloud 和 msime-windows 靠各自的同步脚本跟上。
 
 ### 校验与上限
@@ -147,7 +147,7 @@ MCP 的 `create_candidate_skin` 说明和 `make_skin` prompt 写明 `motion`、`
 
 服务端与其他仓库：
 
-- msime-cloud 发布时保留 APNG 的动画块，按本笔记的帧数和逐帧像素规则校验。
+- msime-cloud 已有 APNG 保留与逐帧校验路径；GIF/WebP 和 `.apng` 社区资源扩展见[按服务端能力上传](2026-10-19-community-canvas-resources.md)。
 - msime-cloud 和 msime-windows 用同步脚本刷新 `client_dialect.json` 副本，接受新键。
 
 ### 验证

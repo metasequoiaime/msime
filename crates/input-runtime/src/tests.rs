@@ -260,6 +260,54 @@ fn online_provider_deduplicates_before_enforcing_source_quota() {
 
 #[cfg(unix)]
 #[test]
+fn online_provider_uses_shared_custom_response_parser() {
+    use msime_client_core::cloud::candidates::{
+        build_request, CloudCandidatePreferences, CloudCandidateSource, CloudResponseFormat,
+    };
+    let directory = private_tempdir();
+    let socket = directory.path().join("online.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut line,
+        )
+        .unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["query"]["cloud_request"]["response_path"], "data.0");
+        let reply = json!({"candidates": [], "cloud_response": r#"{"data":["合成套接字候选"]}"#})
+            .to_string()
+            + "\n";
+        std::io::Write::write_all(&mut stream, reply.as_bytes()).unwrap();
+    });
+    let mut query: OnlineQuery = serde_json::from_value(json!({
+        "scheme": 0, "generation": 1, "identity": "synthetic", "query_text": "nihao",
+        "cache_key": "synthetic", "pinyin_segments": ["ni", "hao"], "cloud_eligible": true,
+        "cloud_candidates": true, "ai_eligible": false, "session_id": 5
+    }))
+    .unwrap();
+    query.cloud_request = build_request(
+        &CloudCandidatePreferences {
+            source: CloudCandidateSource::Custom,
+            endpoint: "https://cloud.example.invalid/?q={query}".into(),
+            response_format: CloudResponseFormat::JsonPath,
+            cache_enabled: false,
+            ..Default::default()
+        },
+        "nihao",
+        false,
+    );
+    assert_eq!(
+        UnixSocketProvider::new(socket).query_candidates(query),
+        Some(vec![("合成套接字候选".into(), 0)])
+    );
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn online_provider_filtered_sources_keep_empty_result_unallocated() {
     let directory = private_tempdir();
     let socket = directory.path().join("online.sock");
@@ -2797,6 +2845,7 @@ fn online_provider_worker_is_bounded_and_filters_invalid_results() {
         cloud_eligible: true,
         ai_eligible: true,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 9,
         ai_context: String::new(),
         ai_assistant: None,
@@ -2845,6 +2894,7 @@ fn online_provider_worker_keeps_only_the_latest_completed_result() {
         cloud_eligible: true,
         ai_eligible: false,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 9,
         ai_context: String::new(),
         ai_assistant: None,
@@ -2893,6 +2943,7 @@ fn online_provider_worker_debounces_from_the_latest_submission() {
         cloud_eligible: true,
         ai_eligible: false,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 9,
         ai_context: String::new(),
         ai_assistant: None,
@@ -2937,6 +2988,7 @@ fn cloud_request_requires_eligible_query() {
         cloud_eligible: false,
         ai_eligible: false,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 1,
         ai_context: String::new(),
         ai_assistant: None,
@@ -4560,15 +4612,8 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
 }
 
 #[test]
-fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host() {
-    for (entry, rejected) in [
-        (b'U', b'i'),
-        (b'U', b'I'),
-        (b'K', b'A'),
-        (b'T', b'A'),
-        (b'E', b'1'),
-        (b'U', b'!'),
-    ] {
+fn bare_shortcut_rejected_capitals_stay_in_the_runtime_composition() {
+    for (entry, continuation) in [(b'U', b'V'), (b'U', b'I'), (b'K', b'A'), (b'T', b'A')] {
         let directory = tempfile::tempdir().unwrap();
         let session =
             msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
@@ -4582,6 +4627,55 @@ fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host(
             .unwrap();
         let transition = runtime
             .dispatch(Action::Character {
+                value: continuation,
+                shift: true,
+            })
+            .unwrap();
+        let expected = String::from_utf8(vec![entry, continuation]).unwrap();
+        assert!(transition.handled);
+        assert!(transition.commit.is_none());
+        assert_eq!(transition.view.local_mode, "none");
+        assert_eq!(transition.view.editing_text, expected);
+        let erased = runtime
+            .dispatch(Action::Command(Command::Backspace))
+            .unwrap();
+        assert!(erased.commit.is_none());
+        assert_eq!(erased.view.editing_text, (entry as char).to_string());
+        assert_eq!(erased.view.local_mode, "none");
+        let committed = runtime
+            .dispatch(Action::Command(Command::CommitRaw))
+            .unwrap();
+        assert_eq!(
+            committed.commit.as_deref(),
+            Some((entry as char).to_string().as_str())
+        );
+    }
+}
+
+#[test]
+fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host() {
+    for (entry, spelling, rejected) in [
+        (b'U', "", b'i'),
+        (b'U', "0", b'I'),
+        (b'K', "a", b'A'),
+        (b'T', "r", b'A'),
+        (b'E', "", b'1'),
+        (b'U', "", b'!'),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+            .dispatch(Action::Character {
+                value: entry,
+                shift: true,
+            })
+            .unwrap();
+        type_characters(&mut runtime, spelling);
+        let transition = runtime
+            .dispatch(Action::Character {
                 value: rejected,
                 shift: rejected.is_ascii_uppercase(),
             })
@@ -4589,7 +4683,7 @@ fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host(
         assert!(!transition.handled);
         assert_eq!(
             transition.commit.as_deref(),
-            Some((entry as char).to_string().as_str())
+            Some(format!("{}{spelling}", entry as char).as_str())
         );
         assert_eq!(transition.view.local_mode, "none");
         assert!(transition.view.editing_text.is_empty());
@@ -5408,6 +5502,35 @@ fn character(runtime: &mut Runtime, value: u8) -> Transition {
             shift: value.is_ascii_uppercase(),
         })
         .unwrap()
+}
+
+#[test]
+fn literal_capitals_survive_runtime_space_selection_with_lowercase_chinese() {
+    for (scheme, input, expected) in [
+        (0, "Fnihao", "F你好"),
+        (1, "Fnihc", "F你好"),
+        (0, "NIHAO", "NIHAO"),
+        (1, "NIHC", "NIHC"),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut options = real_engine_options(directory.path());
+        options.scheme = scheme;
+        rusqlite::Connection::open(std::path::Path::new(&options.dictionaries).join(msime_engine::assets::MAIN_DICTIONARY))
+            .unwrap()
+            .execute_batch("CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER); INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',100);")
+            .unwrap();
+        let session = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        for value in input.bytes() {
+            let transition = character(&mut runtime, value);
+            assert!(transition.handled && transition.commit.is_none());
+        }
+        assert_eq!(runtime.view().candidates[0].text, expected);
+        let selected = runtime.dispatch(Action::SelectHighlighted).unwrap();
+        assert_eq!(selected.commit.as_deref(), Some(expected));
+        assert!(selected.view.editing_text.is_empty());
+    }
 }
 
 #[test]
@@ -6759,6 +6882,7 @@ fn a_busy_provider_keeps_only_the_newest_completed_result() {
         cloud_eligible: true,
         ai_eligible: false,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 1,
         ai_context: String::new(),
         ai_assistant: None,
@@ -6871,6 +6995,7 @@ fn scheme_predicates_reproduce_the_ordinal_rules_they_replace() {
         cloud_eligible: true,
         ai_eligible: false,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 1,
         ai_context: String::new(),
         ai_assistant: None,

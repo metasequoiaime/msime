@@ -182,7 +182,7 @@ inline std::wstring candidate_skin_message(std::wstring_view code, bool publishi
   if (code == L"candidate_skin_package")
     return L"皮肤包未通过校验，无法分享或安装。";
   if (code == L"candidate_skin_file_type")
-    return L"仅支持 PNG 或 JPEG 图片，且不能包含样式表。";
+    return L"资源支持 PNG/JPEG/APNG/GIF/WebP，预览须为 PNG/JPEG，不能包含样式表。";
   if (code == L"candidate_skin_file_path")
     return L"皮肤文件名或数量不符合要求。";
   if (code == L"candidate_skin_too_large")
@@ -368,7 +368,7 @@ inline bool asset_license_valid(std::wstring_view value) {
 
 inline constexpr std::wstring_view skin_package_limit = L"2 MB";
 inline constexpr std::wstring_view skin_publish_warning =
-    L"仅上传 skin.toml 与 PNG/JPEG 图片（需包含预览图）；单个文件不超过 1 MB、合计不超过 2 MB、每边不超过 2048 像素。服务器会重新编码图片并去除元数据。登录期间修改本地皮肤，会自动同步到这款作品。";
+    L"上传 skin.toml 与 PNG/JPEG/APNG/GIF/WebP 资源，预览图须为 PNG/JPEG；最多 37 张，单张不超过 1 MB、合计不超过 2 MB、每边不超过 2048 像素。动画最多 120 帧。扩展资源需要服务器支持，处理时保留动画并去除元数据。";
 inline constexpr std::wstring_view plugin_archive_limit = L"8 MB";
 inline constexpr std::wstring_view plugin_publish_warning =
     L"上传的是插件目录中的全部文件（不含隐藏文件），压缩后不超过 8 MB；每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。其他用户下载后会按原样安装。";

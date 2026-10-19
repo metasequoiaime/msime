@@ -667,7 +667,7 @@ pub enum AppInputModeRule {
     English,
 }
 
-/// 「应用例外」的条目上限与应用标识的字节上限。规则表进 Windows Server 的偏好快照和 iOS 桥接的偏好文档（都是整份 16KiB 上限），32 条、每条 64 字节以内最多约 2.6KB；bundle id 和程序文件名很少超过 64 字节。
+/// 「应用例外」的条目上限与应用标识的字节上限。规则表进 Windows Server 的偏好快照和 iOS 桥接的偏好文档；32 条、每条 64 字节以内最多约 2.6KB，bundle id 和程序文件名很少超过 64 字节。
 pub const MAX_APP_INPUT_MODE_RULES: usize = 32;
 pub const MAX_APP_INPUT_MODE_RULE_ID_BYTES: usize = 64;
 
@@ -1136,9 +1136,12 @@ pub struct Preferences {
         skip_serializing_if = "CloudClipboardRelayPreferences::is_default"
     )]
     pub cloud_clipboard_relay: CloudClipboardRelayPreferences,
-    /// 向云候选服务多要一条候选。它会把正在组的拼写发给 `https://inputtools.google.com`，所以新装默认关闭（见 `Default`）；已存文档缺这个字段时读成开启，升级沿用原来的行为。
+    /// 向所选云候选服务发送当前组字。新装默认关闭；旧文档缺开关时沿用开启行为。
     #[serde(default = "enabled_by_default")]
     pub cloud_candidates: bool,
+    /// 本机云候选来源与 HTTP 配置，不参与设置导出和账号同步。
+    #[serde(default)]
+    pub cloud_candidate_provider: crate::cloud::candidates::CloudCandidatePreferences,
     /// 新装默认关闭候选翻译；旧文档缺字段时仍沿用原有开启行为，显式保存的选择不变。
     #[serde(default = "enabled_by_default")]
     pub candidate_translations: bool,
@@ -2467,6 +2470,7 @@ impl Default for Preferences {
             cloud_clipboard_relay: CloudClipboardRelayPreferences::default(),
             // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
             cloud_candidates: false,
+            cloud_candidate_provider: Default::default(),
             candidate_translations: false,
             candidate_english_gloss: false,
             candidate_pronunciation: false,
@@ -2909,6 +2913,7 @@ impl Preferences {
 
         // 中继的地址和令牌成对保留，理由与上面的服务地址相同。
         next.cloud_clipboard_relay = self.cloud_clipboard_relay.clone();
+        next.cloud_candidate_provider = self.cloud_candidate_provider.clone();
 
         next.fuzzy_pinyin.seeded = self.fuzzy_pinyin.seeded;
 
@@ -2996,6 +3001,8 @@ impl Preferences {
                 cursor = next;
             }
         }
+        // 自定义地址、请求头和模板都可能含不以敏感词命名的令牌，整组不进入诊断。
+        value["cloud_candidate_provider"] = REDACTED.into();
         redact_sensitive_keys(&mut value);
         for pointer in DIAGNOSTIC_ENDPOINTS {
             if let Some(slot) = value.pointer_mut(pointer) {
@@ -3008,6 +3015,9 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        if !self.cloud_candidate_provider.validate() {
+            return Err(PreferencesError::InvalidCloudCandidateProvider);
+        }
         if !crate::clipboard::CLIPBOARD_HISTORY_LIMITS.contains(&self.clipboard_history_limit) {
             return Err(PreferencesError::InvalidClipboardHistoryLimit);
         }
@@ -3269,6 +3279,10 @@ pub enum PreferencesError {
     InvalidAppInputModeRules,
     #[error("cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters")]
     InvalidCloudClipboardRelay,
+    #[error(
+        "云候选配置无效：请检查地址、方法、请求头、JSON 模板、响应路径和超时（100–10000 毫秒）"
+    )]
+    InvalidCloudCandidateProvider,
     #[error("clipboard history limit must be one of 50, 100, 200, 500 or 1000")]
     InvalidClipboardHistoryLimit,
     #[error("preferences changed; reload before saving")]

@@ -1381,14 +1381,15 @@ pub(crate) fn png_frames(bytes: &[u8]) -> Result<(u32, u32), &'static str> {
 /// GIF 解码时允许分配的内存。逻辑画布每边不超过 [`MAX_IMAGE_SIDE`]，展开成 RGBA 是 16 MiB；逐帧迭代同时持有常驻画布、这一帧的原始缓冲和合成后的整幅画面，所以给三份。`image` 默认不给 GIF 设上限，而帧描述符的宽高不受逻辑画布约束，一个声明 65535×65535 帧的小文件就会让解码器申请约 17 GB，这道上限让它在分配前报错。
 const MAX_GIF_DECODE_ALLOC: u64 = MAX_IMAGE_SIDE as u64 * MAX_IMAGE_SIDE as u64 * 4 * 3;
 
-/// 统计 GIF/WebP 的动画帧。这些格式的帧数不在 `ImageReader` 的公共尺寸接口里，但宿主同样会把每帧展开成整张画布，所以和 APNG 一样受帧数与像素上限约束。`frame_pixels` 是一帧整幅画布的像素数，`remaining_pixels` 是这个包还剩的像素额度：迭代器是惰性的，一超额度就停，不再解码后面的帧，一个包的解码量因此也不超过 [`MAX_PACKAGE_PIXELS`] 加一帧。连第一帧都读不出的旧资源按静态图处理，保持扫描对旧包的宽容；读出几帧之后才损坏的，按已读出的帧数计，因为宿主照样会播放坏帧之前的部分。帧描述符超出解码内存上限的按尺寸超限拒绝。
+/// 统计 GIF/WebP 的动画帧。这些格式的帧数不在 `ImageReader` 的公共尺寸接口里，但宿主同样会把每帧展开成整张画布，所以和 APNG 一样受帧数与像素上限约束。`dimensions` 是一帧整幅画布的尺寸，`remaining_pixels` 是这个包还剩的像素额度：迭代器是惰性的，一超额度就停，不再解码后面的帧，一个包的解码量因此也不超过 [`MAX_PACKAGE_PIXELS`] 加一帧。连第一帧都读不出的旧资源按静态图处理，保持扫描对旧包的宽容；读出几帧之后才损坏的，按已读出的帧数计，因为宿主照样会播放坏帧之前的部分。帧描述符超出解码内存上限的按尺寸超限拒绝；WebP 另外在解码前核对全部内部帧几何，几何无效时拒绝，不回退为静态图。
 fn decoded_animation_frames(
     bytes: &[u8],
     format: image::ImageFormat,
-    frame_pixels: u64,
+    dimensions: (u32, u32),
     remaining_pixels: u64,
 ) -> Result<(u32, u32), &'static str> {
     use image::ImageDecoder;
+    let frame_pixels = u64::from(dimensions.0) * u64::from(dimensions.1);
     let frames = match format {
         image::ImageFormat::Gif => {
             let Ok(mut decoder) = image::codecs::gif::GifDecoder::new(Cursor::new(bytes)) else {
@@ -1403,7 +1404,13 @@ fn decoded_animation_frames(
             decoder.into_frames()
         }
         image::ImageFormat::WebP => {
-            // WebP frames are decoded into a canvas of the container's size, which the caller already checked against MAX_IMAGE_SIDE.
+            // 解码器会先展开内部位流再检查画布尺寸，必须在这里先核对每一帧。
+            super::webp_preflight::check(bytes, dimensions, remaining_pixels).map_err(|error| {
+                match error {
+                    super::webp_preflight::Error::Invalid => "invalid WebP frame geometry",
+                    super::webp_preflight::Error::Limit => IMAGE_DIMENSIONS_TOO_LARGE,
+                }
+            })?;
             let Ok(decoder) = image::codecs::webp::WebPDecoder::new(Cursor::new(bytes)) else {
                 return Ok((1, 1));
             };
@@ -1504,7 +1511,7 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, S
                 decoded_animation_frames(
                     &bytes,
                     format,
-                    u64::from(width) * u64::from(height),
+                    (width, height),
                     MAX_PACKAGE_PIXELS - pixels,
                 )?
             }
@@ -1908,11 +1915,19 @@ pub fn scan(root: impl AsRef<Path>) -> SkinCatalog {
 /// Most installed skins published to hosts that draw the candidate panel from `candidate_skin_catalog` (the Linux IBus and Fcitx5 hosts). Beyond this a skin menu is no longer usable, and every entry costs the document those hosts read whole.
 pub const HOST_CATALOG_MAX_PACKAGES: usize = 32;
 
-/// The installed skins in the shape a native candidate host reads (`candidate_skin_catalog` in the Linux runtime options): the id, the manifest name as `title`, the `base` global theme id, the declared `layouts`, per declared theme (an empty object when it sets no colour) every candidate colour `theme::resolve` reads (surface, border, text, number, accent, selected, hover, translation, each normalized by `theme::normalized_color`) and `show_selected_bar`, the card's `corner_radius_dip` when the manifest sets one, and for a package that declares a decoration its size and the absolute path of the image drawn there (`decoration_top_dip`, `decoration_width_dip`, `decoration_image`), plus `decoration_align` when it is not the default `right`. `root` is the directory `catalog` was scanned from. Passing an entry to `msime_client_resolve_theme` as `package` therefore resolves exactly as reading the same package from the skin root does.
+/// 原生候选宿主读取的已安装皮肤目录（Linux 运行时选项中的 `candidate_skin_catalog`）。
+/// 每个条目包含 `id`、清单名称 `title`、全局主题 `base`、声明的 `layouts`、各主题的候选配色、
+/// `show_selected_bar`、可选的 `corner_radius_dip`，以及已声明装饰的尺寸、绝对图片路径和非默认对齐。
+/// 配色由 `theme::normalized_color` 规范化；把条目作为 `package` 传给 `msime_client_resolve_theme`，
+/// 与从皮肤根目录加载同一个包的解析结果一致。`root` 必须对应扫描 `catalog` 的目录。
 ///
-/// Everything else in a package - the background image, the toolbar, other paths and stylesheets - stays out: the Linux hosts cannot draw them and every byte counts against the size limit of the document it reads, which is also why an undecorated package carries no decoration keys at all. A colour `normalized_color` cannot read is left out, as `resolve` ignores it. A palette is kept only for a theme the package declares, since every host drops an external skin for a layout or theme it does not support rather than drawing its colours there, and `resolve` does the same with the published `layouts` and themes. Ids and names are already bounded by `scan`; the hosts re-check both, and the decoration's bounds.
+/// 严格条目不携带背景、工具栏、其他路径或样式表，以兼容旧宿主并控制整份文档的大小。
+/// 没有装饰的包不写装饰键；不可解析的颜色省略，只保留清单声明主题的配色。
+/// `scan` 已限制标识与名称，宿主仍复核它们和装饰尺寸；布局与明暗支持范围沿用共享解析器的规则。
 ///
 /// 最多列出 `HOST_CATALOG_MAX_PACKAGES` 个，按目录顺序。`selected` 是自定义主题选中的皮肤（浅色、深色两个槽位）：已安装的一律列出，落在上限之外时挤掉上限内最后几个没选中的，排到末尾，因为屏幕上画的是它们的颜色。
+/// 含 canvas 包且根目录为绝对 UTF-8 路径时，顶层另带 `directory`，供 Fcitx5 按需调用包 API。
+/// 旧宿主继续只读 `packages`；它们严格解析的条目不增加 canvas 字段，配色仍是可读回退。
 pub fn host_candidate_catalog(
     catalog: &SkinCatalog,
     root: &Path,
@@ -1970,7 +1985,14 @@ pub fn host_candidate_catalog(
             }
             entry
         }));
-    serde_json::json!({ "packages": packages })
+    let mut published = serde_json::json!({ "packages": packages });
+    // canvas 宿主按需复用已校验的包 API；顶层扩展不改变旧宿主严格读取的配色条目。
+    if catalog.packages.iter().any(|package| package.canvas) && root.is_absolute() {
+        if let Some(directory) = root.to_str() {
+            published["directory"] = directory.into();
+        }
+    }
+    published
 }
 
 /// The image a decorated package draws above its candidate window: its `decoration_image` (the manifest's `decoration.image`, or else its preview, as on Windows where candidate_presenter.cpp draws `<skins>/<id>/<preview>` in a band `decoration_top_dip` tall). `scan` has already confined it to the package directory and checked it is an image. No decoration is published when the path would not be absolute or not UTF-8, since the host could not open it.

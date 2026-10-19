@@ -90,7 +90,7 @@ import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { NativeReplyPolicy } from './NativeReplyPolicy';
 import { PrivacyGate, PrivacyRecord } from './PrivacyGate';
-import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
+import { OnlineCandidatePolicy, OnlineQuery, CloudHttpDescriptor } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
   TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, AiTranslationConfig, TranslationCandidate
@@ -4584,42 +4584,50 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private async fetchCloud(handle: number, queryDocument: string, epoch: number): Promise<boolean> {
-    let url: string;
-    try {
-      const reply: NativeReply<string> = JSON.parse(
-        client.cloudRequestUrl(queryDocument)) as NativeReply<string>;
-      if (reply.ok !== true || typeof reply.value !== 'string') return false;
-      url = reply.value;
-    } catch (error) {
-      KeyboardLog.error(`cloud query unavailable: ${describeError(error)}`);
-      return false;
+    const query: OnlineQuery = JSON.parse(queryDocument) as OnlineQuery;
+    const descriptor: CloudHttpDescriptor | null | undefined = query.cloud_request;
+    if (descriptor === null || descriptor === undefined || !AiEndpoint.allowed(descriptor.url)
+      || (descriptor.method !== 'GET' && descriptor.method !== 'POST')
+      || descriptor.timeout_ms < 100 || descriptor.timeout_ms > 10000
+      || descriptor.max_response_bytes !== OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES) return false;
+    if (descriptor.cached_response !== undefined) {
+      if (epoch !== this.onlineEpoch || handle !== this.handle) return false;
+      return this.applyCloudBody(handle, queryDocument, descriptor.cached_response);
     }
     const request = http.createHttp();
     installNoRedirectGuard(request);
     this.onlineRequests.add(request);
+    const deadline: number = setTimeout((): void => { request.destroy(); }, descriptor.timeout_ms);
     try {
-      const response: http.HttpResponse = await request.request(url, {
-        method: http.RequestMethod.GET,
-        header: { Accept: 'application/json' },
-        connectTimeout: OnlineCandidatePolicy.CLOUD_TIMEOUT_MS,
-        readTimeout: OnlineCandidatePolicy.CLOUD_TIMEOUT_MS
+      const response: http.HttpResponse = await request.request(descriptor.url, {
+        method: descriptor.method === 'POST' ? http.RequestMethod.POST : http.RequestMethod.GET,
+        header: descriptor.headers,
+        connectTimeout: descriptor.connect_timeout_ms,
+        readTimeout: descriptor.timeout_ms,
+        maxLimit: descriptor.max_response_bytes,
+        extraData: descriptor.method === 'POST' ? descriptor.body_utf8 : undefined
       });
       if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
         || response.responseCode >= 300 || typeof response.result !== 'string'
         || !OnlineCandidatePolicy.acceptsCloudBody(response.result)) return false;
-      const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyCloudResponse(
-        handle, queryDocument, response.result)) as NativeReply<OnlineApplyValue>;
-      if (applied.ok === true && NativeReplyPolicy.hasValue(applied.value)
-        && applied.value.applied) this.render(applied.value.view);
-      return applied.ok === true && NativeReplyPolicy.hasValue(applied.value)
-        && applied.value.applied;
+      return this.applyCloudBody(handle, queryDocument, response.result);
     } catch (error) {
-      KeyboardLog.error(`cloud candidate unavailable: ${describeError(error)}`);
+      KeyboardLog.error('cloud candidate unavailable');
       return false;
     } finally {
+      clearTimeout(deadline);
       this.onlineRequests.delete(request);
       request.destroy();
     }
+  }
+
+  private applyCloudBody(handle: number, queryDocument: string, body: string): boolean {
+    if (!OnlineCandidatePolicy.acceptsCloudBody(body)) return false;
+    const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyCloudResponse(
+      handle, queryDocument, body)) as NativeReply<OnlineApplyValue>;
+    if (applied.ok === true && NativeReplyPolicy.hasValue(applied.value)
+      && applied.value.applied) this.render(applied.value.view);
+    return applied.ok === true && NativeReplyPolicy.hasValue(applied.value) && applied.value.applied;
   }
 
   /** 告诉 Host API 这次 AI 没有回答。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变；万一答了 applied:true 才重画。 */

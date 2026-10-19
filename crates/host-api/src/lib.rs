@@ -471,7 +471,19 @@ impl HostSession {
             prompt_custom_3: ai.prompt_custom_3.clone(),
         });
     }
-    /// The latest requested preference decides, in both directions: a change deferred until the composition ends would otherwise keep a just-disabled cloud answering, or keep a just-enabled one silent for the rest of the composition. Engine takes a cloud row on the query's own eligibility, not on the applied preferences.
+    /// 以最新请求的开关与来源配置判断回包；组字结束才应用的旧偏好不能让已关闭或已切换的服务继续回答。
+    fn cloud_query_is_current(&self, query: &OnlineQuery) -> bool {
+        let preferences = self
+            .requested
+            .as_ref()
+            .map_or(&self.applied, |snapshot| &snapshot.preferences);
+        self.cloud_candidates_enabled()
+            && query.cloud_request.as_ref().map_or_else(
+                || preferences.cloud_candidate_provider == Default::default(),
+                |request| request.provider_id == preferences.cloud_candidate_provider.identity(),
+            )
+    }
+
     fn cloud_candidates_enabled(&self) -> bool {
         self.requested
             .as_ref()
@@ -963,8 +975,15 @@ impl HostSession {
                 previous.preferences.cloud_candidates
             })
             && !snapshot.preferences.cloud_candidates;
-        if cloud_disabled && !self.runtime.is_idle() {
-            // 关闭云候选时移除已显示的云行，并使重新打开前发出的查询失效。
+        let cloud_changed = self
+            .requested
+            .as_ref()
+            .map_or(&self.applied.cloud_candidate_provider, |previous| {
+                &previous.preferences.cloud_candidate_provider
+            })
+            != &snapshot.preferences.cloud_candidate_provider;
+        if (cloud_disabled || cloud_changed) && !self.runtime.is_idle() {
+            // 关闭云候选或切换来源配置时移除旧云行，使迟到回包失效。
             self.runtime
                 .clear_online_candidates(0)
                 .map_err(|e| e.to_string())?;

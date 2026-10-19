@@ -195,3 +195,5 @@ platforms/android/java/app/msime/android/candidate/CandidateManagementAction.jav
 platforms/android/java/app/msime/android/core/AppEdition.java
 platforms/android/java/app/msime/android/keyboard/StrokeKeyboardLayout.java
 platforms/android/java/app/msime/android/voice/AiEndpointPolicy.java
+
+platforms/android/tests/device/candidate/CloudCandidateTransportDeviceSmoke.java

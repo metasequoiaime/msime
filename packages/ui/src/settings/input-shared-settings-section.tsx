@@ -111,6 +111,10 @@ export function InputSharedSettingsSection({
   const cloudCandidatesRow = (
     <CloudCandidatesSection
       value={preferences.cloud_candidates}
+      provider={preferences.cloud_candidate_provider}
+      onProviderChange={(cloud_candidate_provider) =>
+        onPreferencesChange({ cloud_candidate_provider })
+      }
       onChange={(cloud_candidates) => onPreferencesChange({ cloud_candidates })}
     />
   );

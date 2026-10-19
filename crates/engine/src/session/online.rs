@@ -330,6 +330,10 @@ impl InputSession {
     }
 
     fn cloud_query_state(&self) -> CloudQueryState<'_> {
+        // 混合原文不是一串拼音；不能让异步回包重新把字面大写解成中文。
+        if self.has_literal_capitals() {
+            return CloudQueryState::default();
+        }
         let request = self.engine.request();
         let mut state = CloudQueryState::default();
         match self.engine.current_scheme_type() {

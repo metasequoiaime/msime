@@ -903,7 +903,7 @@ int main(int argc, char **argv) {
         conflict["preferences"] = first_preferences;
         rejected([&] { state.queue_preferences(lease, conflict.dump()); });
         rejected(
-            [&] { state.queue_preferences(lease, std::string(16385, 'x')); });
+            [&] { state.queue_preferences(lease, std::string(1048577, 'x')); });
         auto stale = lease;
         ++stale.epoch;
         require(!state.queue_preferences(stale, latest),

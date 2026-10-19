@@ -1,3 +1,4 @@
+import type { CloudCandidateProviderPreferences } from "../settings/cloud-candidates-section";
 import type { InputScheme, ChineseScheme } from "./input-scheme";
 import type { PreeditPreferences } from "../settings/preedit-preferences";
 import type {
@@ -59,6 +60,7 @@ export type Preferences = PunctuationPreferences &
     /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/preferences.rs` 的 `CloudClipboardRelayPreferences`。 */
     cloud_clipboard_relay?: CloudClipboardRelayPreferences;
     cloud_candidates?: boolean;
+    cloud_candidate_provider?: CloudCandidateProviderPreferences;
     candidate_translations?: boolean;
     candidate_english_gloss?: boolean;
     candidate_pronunciation?: boolean;

@@ -1,6 +1,6 @@
 {
  "name": "ri_finish_helpcode_dedicated_english",
- "source": "tests/src/test_runtime_isolation.cpp:39-85; case :414-446",
+ "source": "tests/src/test_runtime_isolation.cpp:39-85; case :414-446; #8773 普通大写保留字面内容，仅小写片段参与中文转换",
  "covers": [
   "finish",
   "helpcode",

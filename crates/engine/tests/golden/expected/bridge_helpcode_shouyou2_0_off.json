@@ -72,19 +72,18 @@
      2,
      3
     ],
-    "candidate_count": 0,
-    "candidates": [],
-    "online_query": {
-     "scheme": "quanpin",
-     "query_text": "ni'h",
-     "cache_key": "nih",
-     "pinyin_segments": [
-      "ni",
-      "h"
-     ],
-     "cloud_eligible": true,
-     "ai_eligible": false
-    }
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "niH",
+      "scheme": "quanpin",
+      "source": 9,
+      "weight": 0,
+      "word": "niH"
+     }
+    ]
    }
   }
  ]

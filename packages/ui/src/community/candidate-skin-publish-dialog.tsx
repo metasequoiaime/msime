@@ -20,7 +20,7 @@ import {
 /** 服务端的包体积上限与打包大小并列，方便作者查看剩余空间。 */
 const packageLimit = "2 MB";
 const publishWarning =
-  "仅上传 skin.toml 与 PNG/JPEG 图片（需包含预览图）；单个文件不超过 1 MB、合计不超过 2 MB、每边不超过 2048 像素。服务器会重新编码图片并去除元数据。登录期间修改本地皮肤，会自动同步到这款作品。";
+  "上传 skin.toml 与 PNG/JPEG/APNG/GIF/WebP 资源，预览图须为 PNG/JPEG；最多 37 张，单张不超过 1 MB、合计不超过 2 MB、每边不超过 2048 像素。动画最多 120 帧。扩展资源需要服务器支持，处理时保留动画并去除元数据。";
 
 export interface CandidateSkinPublishDialogProps extends CandidateSkinPublicationOptions {
   onClose: () => void;

@@ -1,6 +1,7 @@
-//! Sharing candidate-window skin packages through the community library.
+//! 社区候选皮肤打包、传输与原子安装。
 //!
-//! A shared package is an installed skin folder reduced to what the backend accepts: `skin.toml`, sent verbatim, plus the PNG or JPEG images its manifest references (the preview, the decoration image and the background image), base64-encoded. [`pack`] builds that payload from a folder under the host's skin root and [`install`] writes a downloaded one back as a folder the catalog lists. Both mirror every rule of the server (`internal/account/community_candidate.go`) the client can check, because the transport only reports an HTTP status and the page can then name the exact problem.
+//! 保留原始清单和图片，扩展方言或资源上传前探测服务端能力；
+//! 预览保持 PNG/JPEG，动画完整解码并受帧数和整包像素预算约束。
 
 use super::catalog::{self, SkinLicense, SkinSummary};
 pub(crate) use super::catalog::{
@@ -32,8 +33,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
-/// Most images one package may carry. The manifest can reference only the preview, the decoration image and the background image, and every file must be referenced; canvas packages, whose nine-slice sources and widgets would add more, are refused before upload (see [`SERVER_UNSUPPORTED_BASES`]).
-pub const MAX_PACKAGE_FILES: usize = 3;
+/// 最多 37 张：预览、旧装饰、背景、两个九宫格来源与 32 个挂件。
+pub const MAX_PACKAGE_FILES: usize = 37;
+const RESOURCES_QUERY: &str = "resources=canvas-v1";
+const RESOURCES_HEADER: &str = "X-MSIME-Candidate-Resources";
+const RESOURCES_VERSION: &str = "canvas-v1";
 /// Largest single image, as uploaded and after the server re-encodes it.
 pub const MAX_PACKAGE_FILE_BYTES: usize = 1 << 20;
 /// Largest total of all images in one package; `skin.toml` is bounded separately.
@@ -50,8 +54,6 @@ pub const MAX_DOWNLOAD_RESPONSE_BYTES: usize = 4 << 20;
 pub const MAX_PREVIEW_RESPONSE_BYTES: usize = 512 * 1024;
 /// 服务端精选目录给自己保留的候选皮肤 ID（`internal/skins/catalog.go`）。它们现在也都在 `catalog::is_reserved` 里，这里的检查与之重复，留着是为了让这份清单与服务端的对应关系一目了然。
 pub const SERVER_BUILTIN_IDS: [&str; 4] = ["fluent", "wechat", "graphite", "willow_green"];
-/// 本地目录接受、但服务端 `ParseStored`（`internal/skins/client.go`）还不收的清单 `base`：`canvas` 不在它的 `baseThemeIDs`/`windowsLookIDs` 里，它的九宫格来源图和挂件也不在 `validCandidatePackage` 认的引用之内；`wechat_scroll` 不在 `windowsLookIDs` 里。这样的包在上传前拒绝，免得上传后才收到一个说不清原因的服务端错误。服务端支持后从这里删掉。
-pub const SERVER_UNSUPPORTED_BASES: [&str; 2] = ["canvas", "wechat_scroll"];
 
 const MAX_PUBLISH_RESPONSE_BYTES: usize = 64 * 1024;
 /// Largest sync listing: the per-user library cap of 100 rows at well under 1 KiB each, with room for the cap to grow.
@@ -292,6 +294,39 @@ pub trait CandidateSkinCommunityApi: Send + Sync + 'static {
     ) -> Result<CandidateSkinItem, AccountError>;
 }
 
+impl BackendAccountClient {
+    /// 新方言或扩展图片先检查明确的能力声明，不把旧部署忽略查询参数当作支持。
+    fn check_candidate_resources(
+        &self,
+        manifest: &str,
+        files: &BTreeMap<String, String>,
+        token: &str,
+    ) -> Result<(), AccountError> {
+        let declared = toml::from_str::<toml::Table>(manifest.trim_start_matches('\u{feff}'))
+            .map_err(|_| AccountError::Invalid)?;
+        let text = |key: &str| declared.get(key).and_then(toml::Value::as_str);
+        let required = files.len() > 3
+            || files
+                .keys()
+                .any(|path| legacy_image_content_type(path).is_none())
+            || matches!(text("base"), Some("canvas" | "wechat_scroll"))
+            || ["author", "description"]
+                .into_iter()
+                .any(|key| text(key) == Some(""));
+        if required
+            && !self.supports_response_header(
+                &format!("/v1/community/candidate-skins?{RESOURCES_QUERY}"),
+                Some(token),
+                RESOURCES_HEADER,
+                RESOURCES_VERSION,
+            )?
+        {
+            return Err(AccountError::Invalid);
+        }
+        Ok(())
+    }
+}
+
 impl CandidateSkinCommunityApi for BackendAccountClient {
     fn candidate_skins(
         &self,
@@ -315,7 +350,7 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
             .map(|category| format!("&category={}", category.as_str()))
             .unwrap_or_default();
         let path = format!(
-            "/v1/community/candidate-skins?offset={offset}&q={}{scope}{filter}&{INCLUDE_CATEGORY}",
+            "/v1/community/candidate-skins?offset={offset}&q={}{scope}{filter}&{INCLUDE_CATEGORY}&{RESOURCES_QUERY}",
             percent_encode(search)
         );
         let page = self.json::<CandidateSkinPage, ()>(Method::GET, &path, token, None)?;
@@ -332,7 +367,7 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
             return Err(AccountError::Invalid);
         }
         let path = format!(
-            "/v1/community/candidate-skins/{}?{SYNC_FIELDS}&{MODERATION_FIELDS}&{INCLUDE_CATEGORY}",
+            "/v1/community/candidate-skins/{}?{SYNC_FIELDS}&{MODERATION_FIELDS}&{INCLUDE_CATEGORY}&{RESOURCES_QUERY}",
             id.hyphenated()
         );
         let item = self.json::<CandidateSkinItem, ()>(Method::GET, &path, token, None)?;
@@ -369,9 +404,10 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
         token: &str,
     ) -> Result<CandidateSkinItem, AccountError> {
         validate_publish(request)?;
+        self.check_candidate_resources(&request.manifest, &request.files, token)?;
         let item = self.json_with_limits_timeout::<CandidateSkinItem, _>(
             Method::POST,
-            &format!("/v1/community/candidate-skins?{INCLUDE_CATEGORY}"),
+            &format!("/v1/community/candidate-skins?{INCLUDE_CATEGORY}&{RESOURCES_QUERY}"),
             Some(token),
             Some(request),
             MAX_PUBLISH_BODY_BYTES,
@@ -393,7 +429,10 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        let path = format!("/v1/community/candidate-skins/{}/download", id.hyphenated());
+        let path = format!(
+            "/v1/community/candidate-skins/{}/download?{RESOURCES_QUERY}",
+            id.hyphenated()
+        );
         let package = self.json_with_limit_timeout::<CandidateSkinPackage, ()>(
             Method::POST,
             &path,
@@ -437,7 +476,7 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
     ) -> Result<Vec<CandidateSkinSyncEntry>, AccountError> {
         let list = self.json_with_limit::<CandidateSkinSyncList, ()>(
             Method::GET,
-            "/v1/community/candidate-skins/sync",
+            &format!("/v1/community/candidate-skins/sync?{RESOURCES_QUERY}"),
             Some(token),
             None,
             MAX_SYNC_RESPONSE_BYTES,
@@ -453,8 +492,9 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
         token: &str,
     ) -> Result<CandidateSkinItem, AccountError> {
         validate_replace(id, request)?;
+        self.check_candidate_resources(&request.manifest, &request.files, token)?;
         let path = format!(
-            "/v1/community/candidate-skins/{}?{INCLUDE_CATEGORY}",
+            "/v1/community/candidate-skins/{}?{INCLUDE_CATEGORY}&{RESOURCES_QUERY}",
             id.hyphenated()
         );
         let item = self.json_with_limits_timeout::<CandidateSkinItem, _>(
@@ -487,7 +527,7 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
             visibility: CandidateSkinVisibility,
         }
         let path = format!(
-            "/v1/community/candidate-skins/{}?{INCLUDE_CATEGORY}",
+            "/v1/community/candidate-skins/{}?{INCLUDE_CATEGORY}&{RESOURCES_QUERY}",
             id.hyphenated()
         );
         let item = self.json::<CandidateSkinItem, _>(
@@ -517,7 +557,7 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
             category: CandidateSkinCategory,
         }
         let path = format!(
-            "/v1/community/candidate-skins/{}?{INCLUDE_CATEGORY}",
+            "/v1/community/candidate-skins/{}?{INCLUDE_CATEGORY}&{RESOURCES_QUERY}",
             id.hyphenated()
         );
         let item = self.json::<CandidateSkinItem, _>(
@@ -821,7 +861,7 @@ fn validate_item(item: &CandidateSkinItem) -> Result<(), AccountError> {
 }
 
 fn validate_preview(preview: &CandidateSkinPreview) -> Result<(), AccountError> {
-    let content_type = image_content_type(&preview.path);
+    let content_type = legacy_image_content_type(&preview.path);
     if !catalog::safe_resource(&preview.path, MAX_RESOURCE_PATH_BYTES)
         || content_type != Some(preview.content_type.as_str())
         || preview.data.len() > base64_length(MAX_PREVIEW_BYTES)
@@ -851,10 +891,20 @@ fn validate_package(package: &CandidateSkinPackage) -> Result<(), AccountError> 
     Ok(())
 }
 
-/// The content type a shared image is sent with, by its extension: only PNG and JPEG are accepted.
+/// 社区资源按扩展名选择解码器，不从文件内容猜类型。
 fn image_content_type(path: &str) -> Option<&'static str> {
     let (_, extension) = path.rsplit_once('.')?;
     match extension.to_ascii_lowercase().as_str() {
+        "png" | "apng" => Some("image/png"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        _ => None,
+    }
+}
+
+fn legacy_image_content_type(path: &str) -> Option<&'static str> {
+    match path.rsplit_once('.')?.1.to_ascii_lowercase().as_str() {
         "png" => Some("image/png"),
         "jpg" | "jpeg" => Some("image/jpeg"),
         _ => None,
@@ -865,6 +915,8 @@ fn magic_matches(content_type: &str, bytes: &[u8]) -> bool {
     match content_type {
         "image/png" => bytes.starts_with(PNG_MAGIC),
         "image/jpeg" => bytes.starts_with(JPEG_MAGIC),
+        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "image/webp" => bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP",
         _ => false,
     }
 }
@@ -873,9 +925,20 @@ fn magic_matches(content_type: &str, bytes: &[u8]) -> bool {
 ///
 /// 先只读文件头取尺寸，任一边为 0 或超过 [`MAX_IMAGE_SIDE`] 时返回 `candidate_skin_too_large`（与服务端相同），不做完整解码；解码失败、编码与扩展名不符时返回 `candidate_skin_image_invalid`。
 fn check_image(content_type: &str, bytes: &[u8]) -> Result<u64, &'static str> {
+    check_image_with_budget(content_type, bytes, MAX_PACKAGE_PIXELS)
+}
+
+fn check_image_with_budget(
+    content_type: &str,
+    bytes: &[u8],
+    remaining_pixels: u64,
+) -> Result<u64, &'static str> {
+    use image::{AnimationDecoder, ImageDecoder};
     let format = match content_type {
         "image/png" => image::ImageFormat::Png,
         "image/jpeg" => image::ImageFormat::Jpeg,
+        "image/gif" => image::ImageFormat::Gif,
+        "image/webp" => image::ImageFormat::WebP,
         _ => return Err(IMAGE_INVALID),
     };
     // 编码由扩展名决定，不按内容猜：名为 .png 的 JPEG 也要拒绝。
@@ -900,15 +963,77 @@ fn check_image(content_type: &str, bytes: &[u8]) -> Result<u64, &'static str> {
     if width == 0 || height == 0 || width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE {
         return Err(TOO_LARGE);
     }
-    let images = if format == image::ImageFormat::Jpeg {
-        decode_jpeg_strictly(bytes)?;
-        1
-    } else {
-        // APNG 的默认图就是旧宿主和服务端看到的那张，照常完整解码；动画的其余帧另外逐帧解码。
-        reader(bytes).decode().map_err(|_| IMAGE_INVALID)?;
-        decode_png_frames(bytes)?
+    let frame_pixels = u64::from(width) * u64::from(height);
+    if frame_pixels > remaining_pixels {
+        return Err(TOO_LARGE);
+    }
+    let images = match format {
+        image::ImageFormat::Jpeg => {
+            decode_jpeg_strictly(bytes)?;
+            1
+        }
+        image::ImageFormat::Png => {
+            let (_, count) = catalog::png_frames(bytes).map_err(|_| TOO_LARGE)?;
+            if frame_pixels.saturating_mul(u64::from(count)) > remaining_pixels {
+                return Err(TOO_LARGE);
+            }
+            reader(bytes).decode().map_err(|_| IMAGE_INVALID)?;
+            decode_png_frames(bytes)?
+        }
+        image::ImageFormat::Gif => {
+            let mut decoder = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(bytes))
+                .map_err(|_| IMAGE_INVALID)?;
+            let mut limits = image::Limits::default();
+            limits.max_alloc = Some(MAX_IMAGE_DECODE_ALLOC);
+            limits.max_image_width = Some(MAX_IMAGE_SIDE);
+            limits.max_image_height = Some(MAX_IMAGE_SIDE);
+            decoder.set_limits(limits).map_err(|_| TOO_LARGE)?;
+            decode_animation_frames(decoder.into_frames(), frame_pixels, remaining_pixels)?
+        }
+        image::ImageFormat::WebP => {
+            super::webp_preflight::check(bytes, (width, height), remaining_pixels).map_err(
+                |error| match error {
+                    super::webp_preflight::Error::Invalid => IMAGE_INVALID,
+                    super::webp_preflight::Error::Limit => TOO_LARGE,
+                },
+            )?;
+            let decoder = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(bytes))
+                .map_err(|_| IMAGE_INVALID)?;
+            if decoder.has_animation() {
+                decode_animation_frames(decoder.into_frames(), frame_pixels, remaining_pixels)?
+            } else {
+                reader(bytes).decode().map_err(|_| IMAGE_INVALID)?;
+                1
+            }
+        }
+        _ => return Err(IMAGE_INVALID),
     };
-    Ok(u64::from(width) * u64::from(height) * u64::from(images))
+    Ok(frame_pixels * u64::from(images))
+}
+
+/// 惰性逐帧校验，任一帧损坏都拒绝，不沿用本地扫描器对旧素材的宽容。
+fn decode_animation_frames(
+    frames: image::Frames<'_>,
+    frame_pixels: u64,
+    remaining_pixels: u64,
+) -> Result<u32, &'static str> {
+    let mut count = 0u32;
+    for frame in frames {
+        frame.map_err(|error| match error {
+            image::ImageError::Limits(_) => TOO_LARGE,
+            _ => IMAGE_INVALID,
+        })?;
+        count += 1;
+        if count > catalog::MAX_ANIMATION_FRAMES
+            || frame_pixels.saturating_mul(u64::from(count)) > remaining_pixels
+        {
+            return Err(TOO_LARGE);
+        }
+    }
+    if count == 0 {
+        return Err(IMAGE_INVALID);
+    }
+    Ok(count)
 }
 
 /// 逐帧完整解码一张 APNG，返回解码出的整幅画面数（普通 PNG 为 1）。帧数超过 [`catalog::MAX_ANIMATION_FRAMES`] 时返回 `candidate_skin_too_large`；任一帧的数据截断或损坏时返回 `candidate_skin_image_invalid`，否则这样的包装上之后只有某些帧画不出来。解码缓冲按整张画布分配一次，受 [`MAX_IMAGE_DECODE_ALLOC`] 限制。
@@ -976,7 +1101,7 @@ pub struct PackedSkin {
     pub file_count: usize,
 }
 
-/// 收集清单引用的图片：装饰图、背景图、预览图，以及 `canvas` 包的九宫格来源图和自由挂件（`canvas` 包目前在 [`pack_as`] 里整包拒绝，这里仍把它们列全，`add_preview` 选新文件名和 `install` 核对文件时都靠这份完整清单）。每个路径都必须是安全的 PNG 或 JPEG 相对路径，忽略大小写后仍须唯一，因为服务端按大小写不敏感的键存储。
+/// 收集全部生效的图片引用，包括 canvas 九宫格和挂件；路径安全且大小写无冲突。
 fn referenced_images(summary: &SkinSummary) -> Result<BTreeSet<String>, &'static str> {
     let mut paths = BTreeSet::new();
     let mut add = |path: &str| {
@@ -1024,7 +1149,7 @@ fn shared_preview(summary: &SkinSummary) -> Result<&str, &'static str> {
         return Err(FILE_TYPE);
     }
     let preview = summary.preview.as_deref().ok_or(PREVIEW_REQUIRED)?;
-    if !catalog::is_image(preview) || image_content_type(preview).is_none() {
+    if !catalog::is_image(preview) || legacy_image_content_type(preview).is_none() {
         return Err(FILE_TYPE);
     }
     Ok(preview)
@@ -1085,19 +1210,6 @@ pub fn pack_as(
         |_| PACKAGE,
     )?;
     let manifest = String::from_utf8(manifest).map_err(|_| PACKAGE)?;
-    // `SkinSummary::base` 已把 `canvas` 和 msime-windows 外观折成 `system`，服务端认不认要看清单里原本写的 `base`。
-    let declared = toml::from_str::<toml::Table>(manifest.trim_start_matches('\u{feff}'))
-        .map_err(|_| PACKAGE)?;
-    let declared_text = |key: &str| declared.get(key).and_then(toml::Value::as_str);
-    // 目录把空的 `author`、`description` 当作没写（与 msime-windows 相同），服务端 `ParseStored` 仍按长度拒收空串，所以这样的清单也在上传前拒绝。
-    if summary.canvas
-        || declared_text("base").is_some_and(|base| SERVER_UNSUPPORTED_BASES.contains(&base))
-        || ["author", "description"]
-            .into_iter()
-            .any(|key| declared_text(key) == Some(""))
-    {
-        return Err(PACKAGE);
-    }
     let preview = shared_preview(&summary)?;
     let declared = summary.license.clone().filter(|license| {
         license
@@ -1158,7 +1270,11 @@ pub fn pack_as(
         if size > MAX_PACKAGE_BYTES {
             return Err(TOO_LARGE);
         }
-        pixels += check_image(resource.content_type, &resource.bytes)?;
+        pixels += check_image_with_budget(
+            resource.content_type,
+            &resource.bytes,
+            MAX_PACKAGE_PIXELS.saturating_sub(pixels),
+        )?;
         if pixels > MAX_PACKAGE_PIXELS {
             return Err(TOO_LARGE);
         }
@@ -1444,7 +1560,11 @@ fn decode_files(files: &BTreeMap<String, String>) -> Result<Vec<(&str, Vec<u8>)>
             return Err(TOO_LARGE);
         }
         let content_type = image_content_type(path).ok_or(FILE_TYPE)?;
-        pixels += check_image(content_type, &bytes)?;
+        pixels += check_image_with_budget(
+            content_type,
+            &bytes,
+            MAX_PACKAGE_PIXELS.saturating_sub(pixels),
+        )?;
         if pixels > MAX_PACKAGE_PIXELS {
             return Err(TOO_LARGE);
         }
