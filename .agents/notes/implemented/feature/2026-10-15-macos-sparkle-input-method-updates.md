@@ -29,6 +29,8 @@ Sparkle 更新的是输入法本体，也就是 `~/Library/Input Methods` 里那
 
 ### 更新包与 appcast
 
+更新包的存放位置已由[macOS 版本发布页只放 DMG](../process/2026-10-20-macos-release-page-only-dmgs.md)取代：更新包与 appcast 一起放在 `macos-appcast` 上，不再挂在 `macos-vVERSION` 上、也不写进 SHA256SUMS。下面两段保留当时的做法。
+
 每个版本在签名之后把输入法 bundle 打成 `<dmg_prefix>-VERSION-input-method.zip`（随 DMG 挂在 `macos-vVERSION` 上、写进 SHA256SUMS），用 Sparkle 的 `generate_appcast --ed-key-file -` 生成并签名 `appcast-<版本 id>.xml`，私钥只经标准输入传入。目录里只放这一个 zip，appcast 只有这一版、不生成增量包。打包脚本核对 appcast 指向这个 zip、`<sparkle:version>` 等于 bundle 的 `CFBundleVersion`、zip 带 `sparkle:edSignature`、appcast 自己带 `sparkle-signatures` 签名。
 
 `release-macos.yml` 只在 main 上的正式版发布之后，把 appcast 上传到滚动的 `macos-appcast` release（预发布、`--latest=false`，不存在时创建）。上传前确认 zip 已经在 `macos-vVERSION` 上，已发布的 appcast 构建号更高时停下，免得重跑旧版本的发布把它退回去。beta、alpha 和 [nightly](../../implemented/process/2026-10-15-macos-nightly-notarized.md) 的输入法同样带 feed，但不更新 appcast，它们装上之后跟随正式版。
@@ -58,8 +60,8 @@ Sparkle 更新的是输入法本体，也就是 `~/Library/Input Methods` 里那
   - 0.48 那批旧安装的 feed 指向 MSIME-Apple 的 `releases/latest`，仓库合并之后那里不是 macOS 的 appcast，它们暂时收不到这条路径的更新。
   - 设置应用不随 Sparkle 更新，会落后于输入法，直到用户装下一个 DMG；设置页上的新功能要等那时才出现。
   - 静默更新只在用户切换输入源或输入法进程正常退出时安装。从不切换输入源、也不注销的用户，要等手动「检查更新…」或下一次注销。如果这类用户多，可以考虑在输入法长时间闲置时安装。
-  - 更新包从 GitHub 下载，国内可能很慢；dl.msime.app 是否镜像 `macos-v` 的附件取决于 msime-web 的放行名单，这里没有核实。
-  - 每个版本多一个十几 MB 的 zip 附件。
+  - 更新包从 GitHub 下载，国内可能很慢；dl.msime.app 的放行名单与 Sparkle 是否经它下载，见[macOS 版本发布页只放 DMG](../process/2026-10-20-macos-release-page-only-dmgs.md)。
+  - 每个版本多一个十几 MB 的 zip（现在放在 `macos-appcast`，不在版本发布页上）。
   - 第一个带 feed 的版本发出之后，要再发一个版本才能在真实环境里验证一次完整的升级。
 
 ## Verification

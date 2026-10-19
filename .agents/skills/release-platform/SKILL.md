@@ -128,7 +128,8 @@ gh release view <os>-vX.Y.Z --json tagName,isPrerelease,targetCommitish,assets -
 
 - 正式版 `isPrerelease` 必须是 false，否则应用内更新拿不到。
 - 附件齐全：Android 是六个 APK（`msime-android.apk`、`msime-android-<edition>.apk`）各带一个 `.sha256`。有两两大小完全相同的 APK（full 与 pinyin、tibetan 与 vietnamese）是正常的，0.2.2 起就这样，哈希不同就行。
-- macOS 正式版：`macos-appcast` release 上的 `appcast-<版本 id>.xml` 应当被这次发布更新，`<sparkle:version>` 是这次的构建号、`url` 指向 `macos-vX.Y.Z` 上的 `*-input-method.zip`。工作流日志里出现 `SPARKLE_ED_PRIVATE_KEY is not set` 说明这次没有 Sparkle 更新，已装的用户只能手动下载 DMG。
+- macOS：`macos-vX.Y.Z` 上只有六个 DMG 和只列它们的 `SHA256SUMS`，发布说明开头是从版本表生成的下载指引。dSYM 在滚动的 `macos-symbols` release 上（`msime-macos-<发布名>-dsym.zip`）。
+- macOS 正式版：`macos-appcast` release 上的 `appcast-<版本 id>.xml` 应当被这次发布更新，`<sparkle:version>` 是这次的构建号、`url` 指向同在 `macos-appcast` 上的 `*-input-method.zip`（设置应用的 appcast 指向 `*-settings.zip`），旧版本的更新包已被删掉。工作流日志里出现 `SPARKLE_ED_PRIVATE_KEY is not set` 说明这次没有 Sparkle 更新，已装的用户只能手动下载 DMG。
 - Android 下载 full 包核对包名、版本和签名证书。证书不是 `3a889e43…8e4132`（msime-release）的话，老用户没法覆盖升级，必须撤下：
 
   ```sh
