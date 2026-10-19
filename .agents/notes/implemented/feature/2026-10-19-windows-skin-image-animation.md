@@ -28,7 +28,7 @@ MinGW x64 与 x86 均以 `-Wall -Wextra -Werror` 独立编译并链接解码器�
 
 32 位源码的流长度检查用转换回原类型比较来保留截断防护，避免 `size_t` 只有 32 位时出现恒假比较警告。Wine 镜像显式安装 i386 的 OpenGL 与 Mesa：只装 `wine32` 在关闭推荐依赖时缺 `libGL.so.1`，解码测试虽能过，Direct2D 的 WIC 像素目标却建不起来。补齐后，两种架构都实际验证像素换帧。
 
-本机原有 Windows 无系统 API 套件 159 项通过；新测试因依赖 WIC 与 Direct2D，由 Windows 构建和 Wine 单独执行，不把 macOS 跳过计为通过。原生 Windows CI 先运行这 15 项断言，再以 `--verify-image-animation` 在专用桌面的真实 `CandidateWindow` 上检查 APNG、GIF、传统 APNG 装饰无输入时的定时换帧、休眠／唤醒、减少动态效果和隐藏／重开，输出变化前后截图。该选项临时切换非持久化系统偏好并恢复原值；Wine 不支持实际 DirectComposition 合成，不能代替该验收。此记录的 Windows 原生桌面证据仍待 PR CI 产生。
+本机原有 Windows 无系统 API 套件 159 项通过；新测试因依赖 WIC 与 Direct2D，由 Windows 构建和 Wine 单独执行，不把 macOS 跳过计为通过。原生 Windows CI 先运行这 15 项断言，再以 `--verify-image-animation` 在专用桌面的真实 `CandidateWindow` 上检查 APNG、GIF、传统 APNG 装饰无输入时的定时换帧、休眠／唤醒、减少动态效果和隐藏／重开，输出变化前后截图。该选项临时切换非持久化系统偏好并恢复原值；Wine 不支持实际 DirectComposition 合成，不能代替该验收。[Windows GNU CI](https://github.com/metasequoiaime/msime/actions/runs/39275207672/job/118137747854) 全量链接宿主、TSF DLL、Server 与测试通过。[Windows 2025 原生图库](https://github.com/metasequoiaime/msime/actions/runs/39275207672/job/118140505874) 的 15 项断言通过，三个动画场景的换帧、休眠／唤醒、减少动态效果和隐藏／重开均通过；下载产物逐对核对后，APNG 挂件、GIF 挂件、传统 APNG 装饰分别有 221、96、237 个 RGB 像素变化。该证据覆盖真实 CandidateWindow 绘制组件，未覆盖已安装 TSF 在真实编辑器中的输入。
 
 ## Consequences
 
