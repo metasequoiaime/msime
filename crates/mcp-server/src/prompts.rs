@@ -122,6 +122,7 @@ mod tests {
             "[candidate_window.border_image]",
             "[[candidate_window.decorations]]",
             "a host without that renderer",
+            "candidate windows draw these canvas textures using their platform image codecs",
             "opaque canvas look",
             "macOS, Windows, iOS, Android and HarmonyOS candidate windows draw these canvas textures",
             "(Linux for now)",

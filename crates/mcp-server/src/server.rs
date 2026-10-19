@@ -814,7 +814,7 @@ mod tests {
             "[[candidate_window.decorations]]",
             "With any other base these canvas-only keys are ignored",
             "a host without that renderer (Linux for now)",
-            "The Web engine and the macOS, Windows, iOS, Android and HarmonyOS candidate windows draw these canvas textures",
+            "The Web engine and the macOS, Windows, iOS, Android and HarmonyOS candidate windows draw these canvas textures using their platform image codecs",
             // Windows draws the msime-windows layout keys since #8781 and #8791.
             "which Windows draws and the other hosts check so the skin loads alike everywhere but do not draw yet",
             "expand_panel puts a button at the end of the horizontal list",
