@@ -25,6 +25,7 @@ import type {
 import { ActionButton } from "./action-button";
 import { scriptMarker } from "./plugin-script-view";
 import { PluginNavRow } from "./plugin-nav-row";
+import { PluginLibraryView, type PluginLibraryFilter } from "./plugin-library-view";
 
 /** 「脚本插件（实验）」分组要的东西：宿主运行脚本插件时才有。 */
 export type PluginListScripts = {
@@ -38,6 +39,8 @@ export type PluginListScripts = {
 };
 
 export interface PluginListViewProps {
+  /** macOS 插件库的临时筛选由父级保留，返回详情时仍能恢复焦点。 */
+  library?: { filter: PluginLibraryFilter; onFilter: (filter: PluginLibraryFilter) => void };
   /** Absent on a host with no pack store: nothing is listed or imported, but the 声音与效果 entry still opens. */
   hasClient: boolean;
   catalog: PluginCatalogResult;
@@ -65,8 +68,13 @@ export interface PluginListViewProps {
   scripts?: PluginListScripts | null;
 }
 
-/** 我的插件：先是不属于任何一个插件包的设置入口，再是按类型分组、各自打开详情的已安装插件，导入这一行放在最后，因为导入是少见的操作。 */
-export function PluginListView({
+/** 我的插件：macOS 使用可筛选的卡片库，其他宿主保留按类型分组的导航列表。 */
+export function PluginListView(props: PluginListViewProps) {
+  if (props.library) return <PluginLibraryView {...props} library={props.library} />;
+  return <GroupedPluginListView {...props} />;
+}
+
+function GroupedPluginListView({
   hasClient,
   catalog,
   catalogState,

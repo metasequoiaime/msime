@@ -23,6 +23,7 @@ import type {
   ScriptGrantsResult,
 } from "./plugin-types";
 import { PluginListView } from "./plugin-list-view";
+import type { PluginLibraryFilter } from "./plugin-library-view";
 import { runningScriptIds, scriptResidualRisk, ScriptPluginDetailView } from "./plugin-script-view";
 import { MissingPluginView, PluginDetailView } from "./plugin-detail-view";
 import { PluginSoundEffectsView } from "./plugin-sound-effects-view";
@@ -165,6 +166,10 @@ export function PluginsSection({
   // Until a catalog has been read, an empty one says nothing about what is installed: no pack is reported missing.
   const [catalogState, setCatalogState] = useState<"loading" | "loaded" | "failed">("loading");
   const [notice, setNotice] = useState("");
+  const [libraryFilter, setLibraryFilter] = useState<PluginLibraryFilter>({
+    kind: "all",
+    query: "",
+  });
   const [mentions, setMentions] = useState<MentionEntry[]>([]);
   const [savedMentions, setSavedMentions] = useState<MentionEntry[]>([]);
   const [view, setView] = useState<PluginView>(listView);
@@ -542,6 +547,9 @@ export function PluginsSection({
     }
     return (
       <PluginListView
+        library={
+          platform === "macos" ? { filter: libraryFilter, onFilter: setLibraryFilter } : undefined
+        }
         hasClient={Boolean(client)}
         catalog={catalog}
         catalogState={catalogState}
