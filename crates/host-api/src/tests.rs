@@ -1602,7 +1602,7 @@ fn backspace_selection_preference_reaches_real_sessions_and_live_updates() {
 }
 
 /// `navigation.left_right` 是共享偏好但由 runtime 解释：新建会话时读一次，之后每次偏好更新也跟着走，宿主的按键路由一行都不用改。
-/// 打开后右键在输入串末尾换成下一个候选，关着时同一个键什么也不做。
+/// 默认开启时右键在输入串末尾换成下一个候选，显式关闭后同一个键什么也不做。
 #[test]
 fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
     let root = tempfile::tempdir().unwrap();
@@ -1619,21 +1619,35 @@ fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
             .map(|candidate| candidate["text"].as_str().unwrap().to_owned())
     };
 
-    // 关着时右键已经停在输入串末尾：光标不动，高亮留在首选。
-    let closed = read(msime_client_command(handle, 5));
-    assert_eq!(closed["ok"], true, "{closed}");
-    assert_eq!(closed["value"]["view"]["caret_position"], 5, "{closed}");
-    assert_eq!(closed["value"]["view"]["editing_text"], "nihao", "{closed}");
-    let first = highlighted(&closed["value"]["view"]);
-    assert!(first.is_some(), "{closed}");
+    // 默认开启时右键在输入串末尾换成下一个候选，输入串一个字都没变。
+    let default_open = read(msime_client_command(handle, 5));
+    assert_eq!(default_open["ok"], true, "{default_open}");
+    assert_eq!(
+        default_open["value"]["view"]["caret_position"], 5,
+        "{default_open}"
+    );
+    assert_eq!(
+        default_open["value"]["view"]["editing_text"], "nihao",
+        "{default_open}"
+    );
+    let first = default_open["value"]["view"]["candidates"][0]["text"]
+        .as_str()
+        .map(str::to_owned);
+    let default_highlighted = highlighted(&default_open["value"]["view"]);
+    assert!(first.is_some(), "{default_open}");
+    assert_ne!(default_highlighted, first, "{default_open}");
 
-    // 偏好生效后同一个键换成下一个候选，输入串一个字都没变。
-    preferences.navigation.left_right = true;
+    // 显式关闭后同一个键恢复普通光标命令，高亮不变。
+    preferences.navigation.left_right = false;
     assert_eq!(update(handle, 1, &preferences)["ok"], true);
-    let next = read(msime_client_command(handle, 5));
-    assert_ne!(highlighted(&next["value"]["view"]), first, "{next}");
-    assert_eq!(next["value"]["view"]["caret_position"], 5, "{next}");
-    assert_eq!(next["value"]["view"]["editing_text"], "nihao", "{next}");
+    let closed = read(msime_client_command(handle, 5));
+    assert_eq!(
+        highlighted(&closed["value"]["view"]),
+        default_highlighted,
+        "{closed}"
+    );
+    assert_eq!(closed["value"]["view"]["caret_position"], 5, "{closed}");
+
     read(msime_client_destroy(handle));
 }
 

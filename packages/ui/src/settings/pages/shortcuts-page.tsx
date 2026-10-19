@@ -1,7 +1,7 @@
 import { NavigationSection } from "../navigation-section";
 import {
-  defaultNavigation,
   effectiveNavigation,
+  navigationWithDefaults,
   pagingPreferencesPatch,
   restorePagingChange,
   type CandidatePagingChange,
@@ -35,7 +35,7 @@ export function ShortcutSettingsPage() {
     keybindings,
     wordCharacter,
   } = useSettingsForm();
-  const navigation = draft.navigation ?? defaultNavigation;
+  const navigation = navigationWithDefaults(draft.navigation);
   const { onKeybindingsChange, onNumberRowSelectionChange } = createShortcutsSettingsActions({
     setDraft,
   });

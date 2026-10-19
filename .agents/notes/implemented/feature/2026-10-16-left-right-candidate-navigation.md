@@ -10,6 +10,8 @@ Status: implemented
 
 ## Decision
 
+> 默认关闭的历史决定已由 [2026-10-20-issue-8847-left-right-default.md](../bug-fix/2026-10-20-issue-8847-left-right-default.md) 取代；下面记录的是开关初次引入时的实现边界。
+
 新偏好 `navigation.left_right`（`NavigationPreferences`），默认关闭、可选字段：`#[serde(default, skip_serializing_if = "is_false")]`，与 `mouse_wheel` 一样不在设置页的默认对象里补写，旧文档里没有这个键就是关闭。
 
 语义是**编辑优先**：不带修饰键的 ←/→ 先照旧编辑输入串；光标已经停在要移动的那一端、引擎动不了它时，这一次按键改成移动候选高亮（← 上一个、→ 下一个）。到端点以后不再编辑光标，这是本次的取舍。

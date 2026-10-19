@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSettingsTabs } from "../use-settings-tabs";
 import { NavigationSection } from "../navigation-section";
-import { defaultNavigation, pagingPreferencesPatch } from "../candidate-paging-preferences";
+import { navigationWithDefaults, pagingPreferencesPatch } from "../candidate-paging-preferences";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, Row } from "../../core/platform-controls";
 import { InputSchemeSettingsContent } from "../input-scheme-settings-content";
@@ -124,7 +124,7 @@ export function InputSettingsPage() {
   const { onPreferencesChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
   const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({ setDraft });
   const helpcodeImport = useHelpcodeImport(client.plugins, setDraft, refreshHelpcodePacks);
-  const navigation = draft.navigation ?? defaultNavigation;
+  const navigation = navigationWithDefaults(draft.navigation);
   // 升级后补齐已保存偏好需要的资源包由宿主在启动时完成，这里挂载时不自动下载，只在用户选用方案、打开桌面神经联想或点「下载」时下载。提供哪些资源包由宿主的列表决定：日文和语言词库只有 macOS 列出。
   const resourcePacks = useResourcePacks(client.resourcePacks, {
     value: draft.voice_input?.asr_model_mirror ?? "",

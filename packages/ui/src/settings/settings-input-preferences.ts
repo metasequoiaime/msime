@@ -4,7 +4,7 @@ import { defaultFuzzyPinyin } from "./fuzzy-pinyin-preferences";
 import { defaultKeybindings } from "./keybinding-defaults";
 import { defaultLocalModes } from "./local-mode-preferences";
 import { mixedInputDefaultsFor } from "./mixed-input-preferences";
-import { defaultNavigation, defaultWordCharacter } from "./candidate-paging-preferences";
+import { defaultWordCharacter, navigationWithDefaults } from "./candidate-paging-preferences";
 
 export type SettingsInputPreferencesSource = Pick<
   Preferences,
@@ -47,7 +47,7 @@ export function settingsInputPreferences(
     mixedInput: draft?.mixed_input ?? mixedInputDefaultsFor(platform),
     fuzzyPinyin: draft?.fuzzy_pinyin ?? defaultFuzzyPinyin,
     localModes: draft?.local_modes ?? defaultLocalModes,
-    navigation: draft?.navigation ?? defaultNavigation,
+    navigation: navigationWithDefaults(draft?.navigation),
     numberRowSelection: draft?.number_row_selection ?? true,
     candidateEnglishGloss: draft?.candidate_english_gloss ?? false,
     englishSuggestions: draft?.english_suggestions ?? true,

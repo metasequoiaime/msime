@@ -7,7 +7,7 @@ import {
 import { defaultNavigation } from "../../../../packages/ui/src/settings/candidate-paging-preferences";
 
 test("翻页选项读取缺省滚轮为关，Harmony 隐藏它但不改已有偏好", () => {
-  const legacy = Object.freeze({ ...defaultNavigation });
+  const legacy = Object.freeze({ ...defaultNavigation, left_right: undefined });
   expect(navigationShortcutItems(legacy).find(({ value }) => value === "mouse_wheel")).toEqual({
     value: "mouse_wheel",
     label: "鼠标滚轮（候选窗口支持时翻页）",
@@ -21,16 +21,16 @@ test("翻页选项读取缺省滚轮为关，Harmony 隐藏它但不改已有偏
   expect(desktop.find(({ value }) => value === "mouse_wheel")?.checked).toBe(true);
   expect(phone.some(({ value }) => value === "mouse_wheel")).toBe(false);
   expect(phone.find(({ value }) => value === "brackets")?.checked).toBe(true);
-  // 左右键移动候选同样是后加的可选键：桌面和手机都列出，文档里没有它时按关闭显示，桌面用按键对、手机用方向符号。
+  // 左右键移动候选在桌面和手机都列出，缺少字段时按默认开启，桌面用按键对、手机用方向符号。
   expect(desktop.find(({ value }) => value === "left_right")).toEqual({
     value: "left_right",
     label: "左 / 右（移动候选项）",
-    checked: false,
+    checked: true,
   });
   expect(phone.find(({ value }) => value === "left_right")).toEqual({
     value: "left_right",
     label: "← / →",
-    checked: false,
+    checked: true,
   });
   expect(saved.mouse_wheel).toBe(true);
 });

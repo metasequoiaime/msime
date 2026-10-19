@@ -2366,8 +2366,8 @@ fn navigation_accepts_windows_candidate_arrow_alias() {
     let parsed: NavigationPreferences = serde_json::from_value(value).unwrap();
     assert!(!parsed.arrows);
     assert!(parsed.mouse_wheel);
-    // 新加的左右键开关在旧文档里没有这个键，缺省必须关闭。
-    assert!(!parsed.left_right);
+    // 旧文档没有这个键时按新的默认行为开启左右候选导航。
+    assert!(parsed.left_right);
 }
 
 #[test]
