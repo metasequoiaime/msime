@@ -3,6 +3,7 @@
 #include "CandidateRenderSync.h"
 #include "ReplyCodec.h"
 #include "UiSelectionDelivery.h"
+#include <algorithm>
 #include <thread>
 
 namespace msime::windows {
@@ -47,6 +48,7 @@ SessionController::SessionController(
                   push_uiless_candidates(result.lease, *view);
                   if (auto query = state.translation_query(result.lease))
                     (void)translations_.submit(result.lease, std::move(*query));
+                  refresh_expansion(result.lease);
                 }
               });
         } catch (...) {
@@ -82,6 +84,7 @@ SessionController::SessionController(
                   // remain unannotated until the next key event.
                   if (auto query = state.translation_query(result.lease))
                     (void)translations_.submit(result.lease, std::move(*query));
+                  refresh_expansion(result.lease);
                 }
               });
         } catch (...) {
@@ -126,6 +129,8 @@ SessionController::SessionController(
              host_candidates_.delivered(lease, reply, packet);
              if (presentation_.delivered)
                presentation_.delivered(lease, reply, packet);
+             // 卷轴展开着时，新的一页要带上它的后续候选。
+             refresh_expansion(lease);
            },
            [this](const PipeTicket &ticket) {
              candidates_.disconnected(ticket);
@@ -203,7 +208,8 @@ SessionController::~SessionController() { stop(); }
 SelectionRequestResult
 SessionController::request_selection(const FocusLease &lease, uint64_t session,
                                      uint64_t generation, size_t index,
-                                     uint64_t translation_page) {
+                                     uint64_t translation_page,
+                                     const std::optional<std::string> &expanded_text) {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error("Selection cannot reenter controller callbacks");
   std::unique_lock transaction(*transactions_, std::try_to_lock);
@@ -242,13 +248,21 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
       if (candidate.index == index && candidate.session == session &&
           candidate.generation == generation)
         found = true;
+    // 网格里的候选不在当前页上，到这一帧挂着的完整候选列表里找（只有同一代时才挂着）。
+    if (expanded_text) {
+      found = translation_page == 0 && painted->expanded &&
+              std::any_of(painted->expanded->begin(), painted->expanded->end(),
+                          [&](const ExpandedCandidate &item) {
+                            return item.index == index && item.text == *expanded_text;
+                          });
+    }
     if (!found)
       return SelectionRequestResult::Rejected;
     std::optional<PendingReply> pending;
     auto prepared = input_.submit([&](InputState &state) {
       if (!stopping_ && transport_.current(lease.transport))
         pending = state.select_candidate(lease, session, generation, index,
-                                         translation_page);
+                                         translation_page, expanded_text);
     });
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
       return fail();
@@ -284,6 +298,9 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
             presentation_.delivered(lease, *pending, packet);
         });
         delivered = delivered && active;
+        // 只选了一部分、组字还在时候选窗不关，展开也还开着。
+        if (delivered)
+          refresh_expansion(lease);
       }
     });
     if (!confirmed || confirmed->get() != InputTaskStatus::Completed ||
@@ -292,6 +309,41 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
     return SelectionRequestResult::Sent;
   } catch (...) {
     return fail();
+  }
+}
+void SessionController::set_candidate_expansion(const FocusLease &lease, bool open) {
+  candidates_.expansion(lease, open);
+  if (open)
+    refresh_expansion(lease);
+}
+void SessionController::refresh_expansion(const FocusLease &lease) {
+  if (stopping_ || !candidates_.expansion_due(lease) || expansion_queued_.exchange(true))
+    return;
+  try {
+    const auto queued = input_.submit([this, lease](InputState &state) {
+      expansion_queued_ = false;
+      if (stopping_ || !transport_.current(lease.transport) || !candidates_.expansion_due(lease))
+        return;
+      auto fetched = state.expanded_candidates(lease);
+      if (!fetched)
+        return;
+      // 引擎放出了扣着的尾部、代次前进了：这一页的身份跟着换，候选窗和点击都要按新的一代，和翻页一样立刻发布并重新请求释义。
+      if (fetched->view) {
+        candidates_.action(lease, *fetched->view);
+        if (auto query = state.translation_query(lease))
+          (void)translations_.submit(lease, std::move(*query));
+      }
+      const auto session = fetched->snapshot.at("session").get<uint64_t>();
+      const auto generation = fetched->snapshot.at("generation").get<uint64_t>();
+      candidates_.expanded(lease, session, generation,
+                           expanded_candidates_from_snapshot(fetched->snapshot, session,
+                                                             generation));
+    });
+    if (!queued)
+      expansion_queued_ = false;
+  } catch (...) {
+    // 后续候选只是显示用的：队列满或正在停止时这一次不取，下一页再取。
+    expansion_queued_ = false;
   }
 }
 CandidateActionRequestResult SessionController::request_candidate_action(
@@ -356,6 +408,7 @@ CandidateActionRequestResult SessionController::request_candidate_action(
         // query for that replacement view just as a key transition does.
         if (auto query = state.translation_query(lease))
           (void)translations_.submit(lease, std::move(*query));
+        refresh_expansion(lease);
       }
     });
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
@@ -422,6 +475,7 @@ SessionController::request_page(const CandidatePage &page) {
         // waiting for another key event would leave the page unannotated.
         if (auto query = state.translation_query(page.lease))
           (void)translations_.submit(page.lease, std::move(*query));
+        refresh_expansion(page.lease);
       }
     });
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
@@ -844,6 +898,7 @@ void SessionController::run_settled_rerank() {
         candidates_.online(lease, *view);
         push_uiless_candidates(lease, *view);
         push_host_candidates(lease, 2, {}, nullptr);
+        refresh_expansion(lease);
       }
     });
   } catch (...) {

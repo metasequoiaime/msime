@@ -242,6 +242,18 @@ struct ThemeCandidatePalette: Equatable {
   }
 }
 
+/// 共享解析器提供的候选细分色，缺省继续使用候选调色板。
+struct ThemeCandidateDetails: Equatable {
+  var preeditText, selectedTranslation, selectedBar: UIColor?
+
+  init?(_ value: Any?) {
+    guard let value = value as? [String: Any] else { return nil }
+    preeditText = ThemeColor.parse(value["preedit_text"])
+    selectedTranslation = ThemeColor.parse(value["selected_translation"])
+    selectedBar = ThemeColor.parse(value["selected_bar"])
+  }
+}
+
 private func themeAppearance(_ value: Any?) -> UIUserInterfaceStyle? {
   switch value as? String {
   case "dark": .dark
@@ -324,6 +336,7 @@ struct ResolvedTheme: Equatable {
   let candidate: ThemeCandidatePalette?
   let keyboard: ThemeKeyboardPalette?
   let candidateSkin: String?
+  var candidateDetails: ThemeCandidateDetails? = nil
 
   /// The native tokens, which is also what a refused request draws.
   static let system = ResolvedTheme(id: GlobalThemeCatalog.systemId, source: "system", appearance: nil,
@@ -341,10 +354,10 @@ struct ResolvedTheme: Equatable {
     lock.unlock()
   }
 
-  /// Resolve `globalTheme` over `customTheme` (the document's `custom_theme` object) for the horizontal strip. Reads the package from disk when the custom theme names one, so call it when the theme, the mode or the package changes and keep the answer, never while drawing.
+  /// 解析横排候选主题；仅在主题、模式或皮肤变更时调用。面板成功解码后传入能力声明，绘制路径复用结果。
   static func resolve(globalTheme: String, customTheme: [String: Any]?, dark: Bool,
-                      skinsRoot: URL? = ExternalCandidateSkin.defaultRoot) -> ResolvedTheme? {
-    var request: [String: Any] = ["global_theme": globalTheme, "dark": dark, "layout": "horizontal"]
+                      skinsRoot: URL? = ExternalCandidateSkin.defaultRoot, canvasPanelDrawn: Bool = false) -> ResolvedTheme? {
+    var request: [String: Any] = ["global_theme": globalTheme, "dark": dark, "layout": "horizontal", "canvas_panel_drawn": canvasPanelDrawn]
     if let customTheme, !customTheme.isEmpty { request["custom_theme"] = customTheme }
     if let skinsRoot { request["skins_directory"] = skinsRoot.path }
     guard JSONSerialization.isValidJSONObject(request),
@@ -370,7 +383,8 @@ struct ResolvedTheme: Equatable {
     let resolved = ResolvedTheme(id: id, source: source, appearance: themeAppearance(value["appearance"]),
                                  candidate: ThemeCandidatePalette(value["candidate"]),
                                  keyboard: ThemeKeyboardPalette(value["keyboard"]),
-                                 candidateSkin: value["candidate_skin"] as? String)
+                                 candidateSkin: value["candidate_skin"] as? String,
+                                 candidateDetails: ThemeCandidateDetails(value["candidate_details"]))
     lock.lock()
     // A handful of themes and modes are in play at once; a design photo makes a key large, so the cache stays small.
     if cache.count >= 16 { cache.removeAll() }

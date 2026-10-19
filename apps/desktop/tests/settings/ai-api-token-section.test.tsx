@@ -49,7 +49,7 @@ test.each([
 test("disables token input and explains an invalid endpoint", () => {
   render(<AiApiTokenSection origin={null} token="synthetic-token" onTokenChange={vi.fn()} />);
 
-  expect(screen.getByText("请先在「更多选项」中填写有效的接口地址")).toBeTruthy();
+  expect(screen.getByText("请先填写有效的接口地址")).toBeTruthy();
   expect((screen.getByLabelText("AI API Token") as HTMLInputElement).disabled).toBe(true);
 });
 

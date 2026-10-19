@@ -1492,6 +1492,39 @@ std::optional<std::vector<msime::settings::plugins::Mention>> plugin_mentions(Re
   }
 }
 
+// 公开预设没有文件或网络访问，首次绘制时读取一次；持有字段的副本后即可释放 C 接口的 JSON。
+struct VoiceProviderCatalog {
+  std::vector<msime::settings::voice::ProviderDefaults> asr;
+  std::vector<msime::settings::voice::ProviderDefaults> polish;
+};
+
+VoiceProviderCatalog const &voice_provider_catalog() {
+  static const VoiceProviderCatalog catalog = [] {
+    const auto response = take_response(msime_client_voice_provider_catalog());
+    if (!response.ok)
+      throw std::runtime_error("voice provider catalog unavailable");
+    const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+    auto presets = [&value](wchar_t const *key) {
+      std::vector<msime::settings::voice::ProviderDefaults> entries;
+      for (auto const &item : value.GetNamedArray(key)) {
+        const auto preset = item.GetObject();
+        entries.push_back({std::wstring(preset.GetNamedString(L"id").c_str()),
+                           std::wstring(preset.GetNamedString(L"endpoint").c_str()),
+                           std::wstring(preset.GetNamedString(L"model").c_str()),
+                           named_strings(preset, L"models"),
+                           std::wstring(preset.GetNamedString(L"documentation").c_str()),
+                           std::wstring(preset.GetNamedString(L"title").c_str())});
+      }
+      return entries;
+    };
+    VoiceProviderCatalog result{presets(L"asr"), presets(L"polish")};
+    result.asr.push_back({L"system", L"", L"", {}, L"", L"Windows 系统识别"});
+    result.asr.push_back({L"local", L"", L"", {}, L"", L"本地模型（离线）"});
+    return result;
+  }();
+  return catalog;
+}
+
 // 偏好库会不会接受本地识别的下载镜像（asr_model_mirror）或模型目录（asr_model_path）这个值，见 msime_client_voice_model_setting_check。语音页只把认可的值写进设置，免得一个没输完的地址让保存失败。
 bool voice_model_setting_accepted(wchar_t const *field, std::wstring const &value) {
   JsonObject request;
@@ -17871,7 +17904,7 @@ private:
     std::wstring backend, id, label;
   };
 
-  // 共享语音页（`voice-settings-content.tsx` 的桌面分支）在 Windows 上的内容。共享页把服务的配置收进页内的「服务配置」子视图，这个原生页没有子视图控件，所以仍是一整页，但按共享页的先后排：按识别服务说明怎么用的一组，「识别」（开关、服务、识别语言、豆包的自动添加标点、边说边显示），语音快捷键，录音行为，然后是子视图里的那些：「识别服务配置」（接入说明、豆包鉴权方式、旧版 App Key、凭据，「更多选项」里是接口地址、识别模型、资源 ID 和豆包选项；本地模型；末尾是测试），识别结果，文本润色，录音设备。没有子视图可开，所以不画「服务配置」那一行。服务表、换服务的规则和本地模型的文字在 VoiceSettings.h。输入框边输入边写进设置、停下后保存，不重建页面，跟着输入内容变的下拉框选中项和测试按钮由 voice_sync_ 就地更新；下拉框和开关的改动保存后重画整页。
+  // 共享语音页（`voice-settings-content.tsx` 的桌面分支）在 Windows 上的内容。共享页把服务的配置收进页内的「服务配置」子视图，这个原生页没有子视图控件，所以仍是一整页，但按共享页的先后排：按识别服务说明怎么用的一组，「识别」（开关、服务、识别语言、豆包的自动添加标点、边说边显示），语音快捷键，录音行为，然后是子视图里的那些：「识别服务配置」（接入说明、豆包鉴权方式、旧版 App Key、凭据，「更多选项」里是接口地址、识别模型、资源 ID 和豆包选项；本地模型；末尾是测试），识别结果，文本润色，录音设备。没有子视图可开，所以不画「服务配置」那一行。服务目录经 `msime_client_voice_provider_catalog` 从共享 Rust 读取，换服务的控件规则和本地模型的文字在 `VoiceSettings.h`。输入框边输入边写进设置、停下后保存，不重建页面，跟着输入内容变的下拉框选中项和测试按钮由 voice_sync_ 就地更新；下拉框和开关的改动保存后重画整页。
   void build_voice_page(StackPanel const &page) {
     if (!indexing_) {
       credential_test_views_.clear();
@@ -17913,7 +17946,7 @@ private:
                              }, false);
                            }));
     std::vector<Option> providers;
-    for (auto const &choice : vs::asr_provider_choices())
+    for (auto const &choice : vs::asr_provider_choices(voice_provider_catalog().asr))
       providers.push_back({std::wstring(choice.value), std::wstring(choice.label)});
     auto provider_combo = select_control(
         L"识别服务", std::move(providers), provider,
@@ -17958,7 +17991,7 @@ private:
         build_asr_service_rows(config, provider, doubao, auth_mode);
       if (local_voice || indexing_)
         build_local_model_rows(config);
-      if (vs::is_asr_service_provider(provider) || indexing_) {
+      if (vs::is_asr_service_provider(voice_provider_catalog().asr, provider) || indexing_) {
         auto silence = make_text(
             L"测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。", 12,
             palette_.sub);
@@ -18228,7 +18261,7 @@ private:
   // 云服务的几行（VoiceAsrProviderSettingsSection 的 foldAdvanced 排法和 DoubaoOptionsRows）：接入说明、豆包鉴权方式、旧版鉴权的 App Key 和令牌留在外面；接口地址、识别模型、资源 ID 和豆包的识别选项收进「更多选项」，用户改过接口地址或资源 ID 时一打开就展开。豆包的两个流式预设和自定义地址写的都是 asr_endpoint，合成一个「流式接口」下拉，选「自定义地址」或存的地址不是预设时下面多一行地址输入框。豆包的识别请求不读识别模型（VoiceInputSession 只给 DoubaoAsrClient 接口、凭据和资源 ID），选豆包时不画这一行。
   void build_asr_service_rows(StackPanel const &group, std::wstring const &provider, bool doubao,
                               std::wstring const &auth_mode) {
-    const auto *asr_preset = vs::find_defaults(vs::asr_provider_defaults(), provider);
+    const auto *asr_preset = vs::find_defaults(voice_provider_catalog().asr, provider);
     if (asr_preset)
       add_provider_link(group, L"识别服务", asr_preset->documentation);
     if (doubao || indexing_)
@@ -18257,7 +18290,7 @@ private:
     more.HorizontalAlignment(HorizontalAlignment::Stretch);
     more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
     more.IsExpanded(
-        voice_service_more_open_.value_or(vs::asr_advanced_changed(
+        voice_service_more_open_.value_or(vs::asr_advanced_changed(voice_provider_catalog().asr,
             provider, endpoint, document_.String(L"voice_input.asr_resource_id", L""))) ||
         std::find(folded.begin(), folded.end(), focus_row_) != folded.end());
     more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
@@ -18353,10 +18386,10 @@ private:
     config.SetNamedValue(L"provider", string(provider));
     config.SetNamedValue(L"endpoint", string(vs::provider_setting_value(
                                           document_.String(L"voice_input.asr_endpoint", L""),
-                                          provider, vs::asr_provider_defaults(), true)));
+                                          provider, voice_provider_catalog().asr, true)));
     config.SetNamedValue(L"model", string(vs::provider_setting_value(
                                        document_.String(L"voice_input.asr_model", L""), provider,
-                                       vs::asr_provider_defaults(), false)));
+                                       voice_provider_catalog().asr, false)));
     config.SetNamedValue(L"token", string(document_.String(L"voice_input.asr_token", L"")));
     if (provider != L"doubao")
       return config;
@@ -18419,7 +18452,7 @@ private:
     const auto current = provider_fields(L"asr", L"doubao");
     if (provider == current.provider)
       return;
-    const auto update = vs::asr_provider_update(provider, current);
+    const auto update = vs::asr_provider_update(voice_provider_catalog().asr, provider, current);
     const bool locale = provider == L"system" &&
                         document_.String(L"voice_input.language", L"") == L"auto";
     // 换服务像共享页那样重新挂上服务的几行：豆包「流式接口」上次选的「自定义地址」不再算数。
@@ -18450,20 +18483,20 @@ private:
       return;
     const auto provider = document_.String(L"voice_input.polish_provider", L"siliconflow");
     std::vector<Option> providers;
-    for (auto const &choice : vs::polish_provider_choices)
-      providers.push_back({std::wstring(choice.value), std::wstring(choice.label)});
+    for (auto const &preset : voice_provider_catalog().polish)
+      providers.push_back({preset.id, preset.title});
     add_row(group, 0xE753, L"服务提供商", L"",
             select_control(L"文本润色服务提供商", std::move(providers), provider,
                            [this](std::wstring const &value) {
                              const auto current = provider_fields(L"polish", L"siliconflow");
                              if (value == current.provider)
                                return;
-                             const auto update = vs::polish_provider_update(value, current);
+                             const auto update = vs::polish_provider_update(voice_provider_catalog().polish, value, current);
                              change([&](PreferencesDocument &doc) {
                                apply_provider_update(doc, L"polish", update);
                              }, true);
                            }));
-    const auto *polish_preset = vs::find_defaults(vs::polish_provider_defaults(), provider);
+    const auto *polish_preset = vs::find_defaults(voice_provider_catalog().polish, provider);
     if (polish_preset)
       add_provider_link(group, L"文本润色", polish_preset->documentation);
     add_voice_model_picker(group, L"模型", L"", L"文本润色模型", L"voice_input.polish_model",
@@ -18528,10 +18561,10 @@ private:
                           config.SetNamedValue(L"provider", string(current));
                           config.SetNamedValue(L"endpoint", string(vs::provider_setting_value(
                                                                 document_.String(L"voice_input.polish_endpoint", L""),
-                                                                current, vs::polish_provider_defaults(), true)));
+                                                                current, voice_provider_catalog().polish, true)));
                           config.SetNamedValue(L"model", string(vs::provider_setting_value(
                                                              document_.String(L"voice_input.polish_model", L""),
-                                                             current, vs::polish_provider_defaults(), false)));
+                                                             current, voice_provider_catalog().polish, false)));
                           config.SetNamedValue(L"token", string(document_.String(L"voice_input.polish_token", L"")));
                           return config;
                         },

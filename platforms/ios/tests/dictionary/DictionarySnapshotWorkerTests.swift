@@ -40,6 +40,12 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
     worker?.tick(idle: true, fullAccess: false)
     XCTAssertEqual(try queue.read().request?.status, .queued)
     worker?.tick(idle: true, fullAccess: true)
+    // 版本轮询也在后台；先等请求被认领，再验证收起时取消准备与归还租约。
+    let claimDeadline = Date().addingTimeInterval(10)
+    while try queue.read().request?.status == .queued, Date() < claimDeadline {
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    XCTAssertEqual(try queue.read().request?.status, .preparing)
     worker?.stop()
     while worker?.isPreparing == true { try await Task.sleep(nanoseconds: 30_000_000) }
     XCTAssertEqual(try session!.localDictionaryStateVersion(), originalVersion)

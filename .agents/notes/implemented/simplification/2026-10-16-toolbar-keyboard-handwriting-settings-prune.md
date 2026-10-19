@@ -37,6 +37,8 @@ macOS 的屏幕键盘页没有任何偏好之后，页脚不再显示全局的�
 
 ### 屏幕键盘与手写合成一页
 
+内容顺序部分由[键盘与手写设置拆成顶部标签](../feature/2026-10-19-keyboard-handwriting-top-tabs.md)替代：合并入口、能力位与路由别名继续保留，页内内容通过「键盘」「手写」标签分别显示。
+
 - 在桌面宿主上合并（最初只有 macOS 和 Linux，各平台跟进时加上 Windows 和 HarmonyOS 2-in-1）：`settingsPageProjections` 的 `handwritingOnScreenKeyboardPage` 为真、不是触屏宿主且本版本提供手写时，`handwriting` 不进 `availablePages`，`screen-keyboard` 的标题改为「键盘手写」，屏幕键盘页在键盘各组之后画手写那一组（`HandwritingSettingsContent`，和单独的「手写输入」页是同一个组件）。
 - 旧 id 仍然能打开：投影返回 `pageAliases`（`handwriting → screen-keyboard`），`useSettingsNavigation` 在 `selectPage`、宿主路由和启动页上都先查它，`settings:handwriting` 和 `initialPage="handwriting"` 打开合并后的页，而不是落到「输入」。
 - 页面 id 与路由不变，导航顺序由 `settingsNavGroups` 统一定义。最初 `SettingsNavigation.h` 也不变、Windows 两页分开，各平台跟进时 Windows 原生窗口同样并成一页（见下）。触屏宿主的手写页另有内容，不并；不提供手写的版本没有可并的页，屏幕键盘页保留原名。

@@ -27,7 +27,7 @@ extension UIColor {
 // 带标题栏时（默认）面板独自盖住整个键盘：顶部是品牌标志、拼写、候选数和收起箭头。不带标题栏时（`showsHeader: false`）面板用满候选条下方的按键区，拼写和收起箭头由候选条保留，不另放底部按钮。
 //
 // 传入 `columns` 时是全拼九键的三栏面板：左边拼音栏、中间候选网格、右边功能键，同样位于按键区；读音留在上面的候选栏里，所以不画标题栏，返回和退格在右栏里，也不画底栏。
-final class KeyboardCandidatePanelView: UIView {
+final class KeyboardCandidatePanelView: CandidateCanvasHostView {
   static let minimumCellWidth: CGFloat = 64
   static let cellSpacing: CGFloat = 6
   static let cellHeight: CGFloat = 44
@@ -50,11 +50,13 @@ final class KeyboardCandidatePanelView: UIView {
   /// 以选中样式绘制的候选（`accentSoft` 底、强调色半粗体文字），即候选条中高亮的那个，默认是第一个。
   private let selectedIndex: Int
   private let showsHeader: Bool
-  private let skin = KeyboardTheme.current
+  private var skin: KeyboardTheme { KeyboardTheme.current }
+  private var palette: CandidatePalette?
   private let scrollView = UIScrollView()
   private var chips: [CandidateGridButton] = []
   private let count = UILabel()
   private var laidOutWidth: CGFloat = 0
+  private var headerGap: NSLayoutConstraint?
 
   /// 宽 `width` 的网格有几列：CSS auto-fill 的列数，即按 64pt 列宽、6pt 间隔能放下几列，至少一列。
   static func columns(width: CGFloat) -> Int {
@@ -86,7 +88,8 @@ final class KeyboardCandidatePanelView: UIView {
   init(candidates: [String], preedit: String, annotations: [KeyboardCandidateAnnotation] = [],
        markers: [[CandidateMarker]] = [], aiPlaceholders: Set<Int> = [],
        candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, candidateFamilies: [String] = [],
-       selectedIndex: Int = 0, showsHeader: Bool = true,
+       selectedIndex: Int = 0, showsHeader: Bool = true, palette: CandidatePalette? = nil,
+       canvas: ExternalCandidateSkin.Canvas? = nil,
        display: @escaping (String) -> String,
        menuElements: @escaping (Int) -> [UIMenuElement] = { _ in [] },
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void,
@@ -102,10 +105,14 @@ final class KeyboardCandidatePanelView: UIView {
     self.onSelect = onSelect
     self.selectedIndex = selectedIndex
     self.showsHeader = showsHeader
+    self.palette = palette
     super.init(frame: .zero)
+    self.canvas = canvas
+    minimumContentHeight = Self.cellHeight
     accessibilityIdentifier = "candidatePanel"
     // 在按键区里透出键盘自己的背景，与它所替代的按键下方一样。
-    backgroundColor = showsHeader && columns == nil ? skin.keyBackground.withAlphaComponent(0.98) : .clear
+    backgroundColor = canvas?.panelLoaded == true ? .clear : palette?.surface
+      ?? (showsHeader && columns == nil ? skin.keyBackground.withAlphaComponent(0.98) : .clear)
 
     scrollView.translatesAutoresizingMaskIntoConstraints = false
     scrollView.alwaysBounceVertical = false
@@ -118,36 +125,38 @@ final class KeyboardCandidatePanelView: UIView {
         column.translatesAutoresizingMaskIntoConstraints = false
         addSubview(column)
         NSLayoutConstraint.activate([
-          column.topAnchor.constraint(equalTo: topAnchor),
-          column.bottomAnchor.constraint(equalTo: bottomAnchor),
+          column.topAnchor.constraint(equalTo: candidateContentGuide.topAnchor),
+          column.bottomAnchor.constraint(equalTo: candidateContentGuide.bottomAnchor),
           column.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.15),
         ])
       }
       NSLayoutConstraint.activate([
-        columns.leading.leadingAnchor.constraint(equalTo: leadingAnchor),
-        columns.trailing.trailingAnchor.constraint(equalTo: trailingAnchor),
+        columns.leading.leadingAnchor.constraint(equalTo: candidateContentGuide.leadingAnchor),
+        columns.trailing.trailingAnchor.constraint(equalTo: candidateContentGuide.trailingAnchor),
         scrollView.leadingAnchor.constraint(equalTo: columns.leading.trailingAnchor, constant: Self.cellSpacing),
         scrollView.trailingAnchor.constraint(equalTo: columns.trailing.leadingAnchor, constant: -Self.cellSpacing),
-        scrollView.topAnchor.constraint(equalTo: topAnchor),
-        scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        scrollView.topAnchor.constraint(equalTo: candidateContentGuide.topAnchor),
+        scrollView.bottomAnchor.constraint(equalTo: candidateContentGuide.bottomAnchor),
       ])
       rebuildChips()
       return
     }
     NSLayoutConstraint.activate([
-      scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: showsHeader ? 12 : 0),
-      scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: showsHeader ? -12 : 0),
+      scrollView.leadingAnchor.constraint(equalTo: candidateContentGuide.leadingAnchor, constant: showsHeader ? 12 : 0),
+      scrollView.trailingAnchor.constraint(equalTo: candidateContentGuide.trailingAnchor, constant: showsHeader ? -12 : 0),
     ])
     if showsHeader {
       let header = makeHeader(preedit: preedit, preeditScale: preeditScale, onClose: onClose)
+      let gap = scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: canvas?.lineGap ?? 4)
+      headerGap = gap
       NSLayoutConstraint.activate([
-        scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
-        scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+        gap,
+        scrollView.bottomAnchor.constraint(equalTo: candidateContentGuide.bottomAnchor, constant: -8),
       ])
     } else {
       NSLayoutConstraint.activate([
-        scrollView.topAnchor.constraint(equalTo: topAnchor),
-        scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        scrollView.topAnchor.constraint(equalTo: candidateContentGuide.topAnchor, constant: 0),
+        scrollView.bottomAnchor.constraint(equalTo: candidateContentGuide.bottomAnchor, constant: 0),
       ])
     }
     rebuildChips()
@@ -200,14 +209,23 @@ final class KeyboardCandidatePanelView: UIView {
     header.translatesAutoresizingMaskIntoConstraints = false
     addSubview(header)
     NSLayoutConstraint.activate([
-      header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-      header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-      header.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+      header.leadingAnchor.constraint(equalTo: candidateContentGuide.leadingAnchor, constant: 12),
+      header.trailingAnchor.constraint(equalTo: candidateContentGuide.trailingAnchor, constant: -12),
+      header.topAnchor.constraint(equalTo: candidateContentGuide.topAnchor, constant: 6),
       header.heightAnchor.constraint(equalToConstant: 32),
       brandMark.widthAnchor.constraint(equalToConstant: 16),
       brandMark.heightAnchor.constraint(equalToConstant: 16),
     ])
     return header
+  }
+
+  func applyAppearance(palette: CandidatePalette?, canvas: ExternalCandidateSkin.Canvas?) {
+    self.palette = palette
+    self.canvas = canvas
+    headerGap?.constant = canvas?.lineGap ?? 4
+    backgroundColor = canvas?.panelLoaded == true ? .clear : palette?.surface ?? (showsHeader ? skin.keyBackground : .clear)
+    rebuildChips()
+    setNeedsLayout()
   }
 
   func updateAnnotations(_ annotations: [KeyboardCandidateAnnotation]) {
@@ -290,7 +308,7 @@ final class KeyboardCandidatePanelView: UIView {
     let annotation = annotations.indices.contains(index) ? annotations[index] : .none
     let marks = markers.indices.contains(index) ? markers[index] : []
     let selected = index == selectedIndex
-    let secondary = skin.secondary
+    let secondary = (selected ? palette?.selectedTranslation : nil) ?? palette?.secondary ?? skin.secondary
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingTail
     paragraph.alignment = .center
@@ -312,13 +330,19 @@ final class KeyboardCandidatePanelView: UIView {
     var configuration = UIButton.Configuration.plain()
     configuration.attributedTitle = title
     configuration.baseForegroundColor = selected || marks.contains { $0.symbol == "pin.fill" }
-      ? skin.accent : skin.keyForeground
+      ? (selected ? palette?.selectedText : nil) ?? palette?.accent ?? skin.accent : palette?.text ?? skin.keyForeground
     let aiPlaceholder = aiPlaceholders.contains(index)
     if aiPlaceholder { configuration.baseForegroundColor = secondary }
     configuration.contentInsets = Self.cellInsets
     configuration.background.cornerRadius = skin.cornerRadius
-    let fill = selected ? skin.accentSoft : skin.keyBackground
+    let fill = selected ? palette?.selected ?? skin.accentSoft : palette != nil ? UIColor.clear : skin.keyBackground
     configuration.background.backgroundColor = fill
+    if selected, let palette, palette.showSelectedBar {
+      configuration.background.customView = CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent)
+    }
+    configuration.background.strokeWidth = palette == nil ? 0 : 1
+    configuration.background.strokeColor = palette?.border ?? .clear
+    configuration.background.cornerRadius = canvas?.itemCornerRadius ?? skin.cornerRadius
     let chip = CandidateGridButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
@@ -330,7 +354,7 @@ final class KeyboardCandidatePanelView: UIView {
     chip.glossLines = glossLines
     chip.titleLineCount = 1 + glossLines
     // 选中的格子平铺在它的底色上；其余格子都画得像按键，包括阴影。
-    chip.drawsKeyShadow = !selected && skin.hasShadow
+    chip.drawsKeyShadow = palette == nil && !selected && skin.hasShadow
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(text)"

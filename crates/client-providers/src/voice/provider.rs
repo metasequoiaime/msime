@@ -151,18 +151,15 @@ fn resolve_voice_fields(
     }
 }
 
-/// 各润色服务的默认接口与模型（OpenAI 兼容的 Chat Completions）；不认识的服务为 `None`，即「没有配置」。与共享设置页的 `POLISH_PROVIDER_DEFAULTS` 和偏好的出厂润色服务一致：设置页在 `polish_model` 留空时显示的、桌面切换服务时写进去的都是这一份。
+/// 各润色服务的默认接口与模型；设置目录和运行时共用预设，旧配置中的 EveryAPI、Mistral 仍可解析。
 pub fn polish_provider_defaults(provider: &str) -> Option<(&'static str, &'static str)> {
+    if let Some(preset) = super::provider_catalog::POLISH_PROVIDERS
+        .iter()
+        .find(|preset| preset.id == provider)
+    {
+        return Some((preset.endpoint, preset.model));
+    }
     Some(match provider {
-        "openai" => ("https://api.openai.com/v1/chat/completions", "gpt-4o-mini"),
-        "siliconflow" => (
-            "https://api.siliconflow.cn/v1/chat/completions",
-            "Qwen/Qwen3-8B",
-        ),
-        "groq" => (
-            "https://api.groq.com/openai/v1/chat/completions",
-            "llama-3.3-70b-versatile",
-        ),
         "everyapi" => (
             "https://api.everyapi.ai/v1/chat/completions",
             "openai/gpt-4o-mini",
@@ -171,47 +168,16 @@ pub fn polish_provider_defaults(provider: &str) -> Option<(&'static str, &'stati
             "https://api.mistral.ai/v1/chat/completions",
             "mistral-small-latest",
         ),
-        "deepseek" => (
-            "https://api.deepseek.com/chat/completions",
-            "deepseek-v4-flash",
-        ),
         _ => return None,
     })
 }
 
 /// 各联网识别服务的默认接口与模型；系统识别、本地识别和不认识的服务为 `None`。
 pub fn asr_provider_defaults(provider: &str) -> Option<(&'static str, &'static str)> {
-    Some(match provider {
-        "doubao" => (
-            "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
-            "",
-        ),
-        "openai" => (
-            "https://api.openai.com/v1/audio/transcriptions",
-            "whisper-1",
-        ),
-        "siliconflow" => (
-            "https://api.siliconflow.cn/v1/audio/transcriptions",
-            "FunAudioLLM/SenseVoiceSmall",
-        ),
-        "groq" => (
-            "https://api.groq.com/openai/v1/audio/transcriptions",
-            "whisper-large-v3-turbo",
-        ),
-        "everyapi" => (
-            "https://api.everyapi.ai/v1/audio/transcriptions",
-            "volc.seedasr.sauc.duration",
-        ),
-        "mistral" => (
-            "https://api.mistral.ai/v1/audio/transcriptions",
-            "voxtral-mini-latest",
-        ),
-        "bailian" => (
-            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-            "qwen3-asr-flash",
-        ),
-        _ => return None,
-    })
+    super::provider_catalog::ASR_PROVIDERS
+        .iter()
+        .find(|preset| preset.id == provider)
+        .map(|preset| (preset.endpoint, preset.model))
 }
 
 pub fn mobile_voice_polish_configuration(

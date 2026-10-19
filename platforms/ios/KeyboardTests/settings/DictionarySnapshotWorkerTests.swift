@@ -4,6 +4,52 @@ import XCTest
 
 @MainActor
 final class DictionarySnapshotWorkerTests: XCTestCase {
+  func testVersionPollDoesNotBlockMainThreadAndDropsCancelledResult() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let session = MetasequoiaInputSessionBridge(stateRoot: root.appendingPathComponent("State"))
+    let queue = DictionarySnapshotQueue(directory: root.appendingPathComponent("Queue"))
+    let entered = expectation(description: "后台版本读取已开始")
+    let gate = DispatchSemaphore(value: 0)
+    defer { gate.signal() }
+    let worker = DictionarySnapshotWorker(session: session, queue: queue, readVersion: { _ in
+      XCTAssertFalse(Thread.isMainThread)
+      entered.fulfill()
+      XCTAssertEqual(gate.wait(timeout: .now() + 10), .success)
+      return "cancelled-version"
+    })
+    worker.tick(idle: true, fullAccess: true)
+    await fulfillment(of: [entered], timeout: 5)
+    XCTAssertTrue(worker.isPreparing)
+    // 后台读取仍被阻塞时，主线程可以继续执行；重复 tick 不再开启另一次读取。
+    worker.tick(idle: true, fullAccess: true, force: true)
+    XCTAssertNil(try queue.read().localVersion)
+    worker.stop()
+    gate.signal()
+    let deadline = Date().addingTimeInterval(5)
+    while worker.isPreparing, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+    XCTAssertFalse(worker.isPreparing)
+    XCTAssertNil(try queue.read().localVersion, "收起后的迟到版本不能写回队列")
+  }
+
+  func testVersionPollPublishesWithoutActivatingDuringInput() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let session = MetasequoiaInputSessionBridge(stateRoot: root.appendingPathComponent("State"))
+    let version = try session.localDictionaryStateVersion()
+    let queue = DictionarySnapshotQueue(directory: root.appendingPathComponent("Queue"))
+    let worker = DictionarySnapshotWorker(session: session, queue: queue)
+    worker.tick(idle: true, fullAccess: true)
+    _ = session.switchToNineKey()
+    let composing = session.handleCharacter("6")
+    let deadline = Date().addingTimeInterval(10)
+    while worker.isPreparing, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+    XCTAssertFalse(worker.isPreparing)
+    XCTAssertEqual(try queue.read().localVersion, version)
+    XCTAssertEqual(session.handleCharacter("4").preedit, composing.preedit + "4")
+    _ = session.cancel()
+  }
+
   func testQueuedSnapshotForAnotherAccountIsCancelledBeforePreparation() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -66,6 +112,12 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
     worker?.tick(idle: true, fullAccess: false)
     XCTAssertEqual(try queue.read().request?.status, .queued)
     worker?.tick(idle: true, fullAccess: true)
+    // 版本轮询也在后台；先等请求被认领，再验证收起时取消准备与归还租约。
+    let claimDeadline = Date().addingTimeInterval(10)
+    while try queue.read().request?.status == .queued, Date() < claimDeadline {
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    XCTAssertEqual(try queue.read().request?.status, .preparing)
     worker?.stop()
     let firstPreparation = Date()
     while worker?.isPreparing == true { try await Task.sleep(nanoseconds: 30_000_000) }

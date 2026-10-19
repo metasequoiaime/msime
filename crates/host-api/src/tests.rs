@@ -17253,3 +17253,17 @@ fn enabling_cloud_candidates_invalidates_the_preference_update_previous_ids() {
     assert_eq!(selected["value"]["commit"], "拟好");
     read(msime_client_destroy(handle));
 }
+
+#[test]
+fn voice_provider_catalog_export_matches_the_shared_catalog() {
+    use msime_client_providers::voice::provider_catalog::{ASR_PROVIDERS, POLISH_PROVIDERS};
+    let catalog = read(msime_client_voice_provider_catalog());
+    assert_eq!(catalog["ok"], true);
+    assert_eq!(
+        catalog["value"],
+        serde_json::json!({
+            "asr": ASR_PROVIDERS,
+            "polish": POLISH_PROVIDERS
+        })
+    );
+}

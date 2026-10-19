@@ -13,6 +13,11 @@ struct CandidatePalette: Equatable {
   var hover: UIColor
   var surface: UIColor
   var border: UIColor
+  var selectedText: UIColor? = nil
+  var selectedTranslation: UIColor? = nil
+  var preeditText: UIColor? = nil
+  var selectedBar: UIColor? = nil
+  var showSelectedBar = false
 
   static let followsDesktopKey = "candidate_palette_follows_desktop"
   static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
@@ -22,9 +27,10 @@ struct CandidatePalette: Equatable {
   /// The `custom_theme.candidate_colors` slots the App edits; the document may carry more (number, accent, selected, border), which are honoured but left to the desktop.
   static let editableColors: [(slot: String, title: String)] = [("text", "文字"), ("surface", "背景"), ("hover", "首选高亮")]
 
-  /// The palette for `preferences`, or nil while the strip draws with the keyboard palette: the switch is off, or the theme resolves no candidate colours (`system`).
-  static func active(in preferences: [String: Any]?, systemDark: Bool) -> CandidatePalette? {
-    guard followsDesktop, let resolved = resolveTheme(preferences, systemDark: systemDark), resolved.candidate != nil
+  /// 开关关闭或主题未提供候选色时返回 nil；成功绘制面板后才允许使用贴图配色。
+  static func active(in preferences: [String: Any]?, systemDark: Bool, skinsRoot: URL? = ExternalCandidateSkin.defaultRoot,
+                     canvasPanelDrawn: Bool = false) -> CandidatePalette? {
+    guard followsDesktop, let resolved = resolveTheme(preferences, systemDark: systemDark, skinsRoot: skinsRoot, canvasPanelDrawn: canvasPanelDrawn), resolved.candidate != nil
     else { return nil }
     return palette(resolved)
   }
@@ -36,13 +42,13 @@ struct CandidatePalette: Equatable {
   }
 
   static func resolveTheme(_ preferences: [String: Any]?, systemDark: Bool,
-                           skinsRoot: URL? = ExternalCandidateSkin.defaultRoot) -> ResolvedTheme? {
+                           skinsRoot: URL? = ExternalCandidateSkin.defaultRoot, canvasPanelDrawn: Bool = false) -> ResolvedTheme? {
     let dark = isDark(candidateTheme: preferences?["candidate_theme"] as? String, appMode: preferences?["theme"] as? String,
                       systemDark: systemDark)
     // 所选主题属于另一种明暗时候选条和键盘一样按跟随系统画。
     return ResolvedTheme.resolve(globalTheme: GlobalThemeCatalog.effectiveId(GlobalThemePreference.theme(in: preferences), dark: dark),
                                  customTheme: GlobalThemePreference.customTheme(in: preferences),
-                                 dark: dark, skinsRoot: skinsRoot)
+                                 dark: dark, skinsRoot: skinsRoot, canvasPanelDrawn: canvasPanelDrawn)
   }
 
   static func palette(_ resolved: ResolvedTheme) -> CandidatePalette {
@@ -56,7 +62,9 @@ struct CandidatePalette: Equatable {
       selected: candidate?.selected ?? keyboard.accentSoft,
       hover: candidate?.hover ?? .clear,
       surface: candidate?.surface ?? keyboard.background,
-      border: candidate?.border ?? .clear)
+      border: candidate?.border ?? .clear, selectedText: candidate?.selectedText,
+      selectedTranslation: resolved.candidateDetails?.selectedTranslation, preeditText: resolved.candidateDetails?.preeditText,
+      selectedBar: resolved.candidateDetails?.selectedBar, showSelectedBar: candidate?.showSelectedBar ?? false)
   }
 
   /// `candidate_theme` first, then the app's light or dark mode (`theme`), then the system.

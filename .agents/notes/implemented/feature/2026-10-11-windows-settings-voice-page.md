@@ -11,7 +11,7 @@ Status: implemented
 ## Decision
 
 - 页面照共享页的顺序重排：页首一组（本地识别、Windows 系统语音的说明，或「语音面板」打开语音面板的一行）、「识别」、「识别服务配置」（系统识别时不画）、语音快捷键、录音行为、「识别结果」（流式预编辑和原来在第一组的结果提交策略）、「文本润色」、「录音设备」。文案、读屏名、显示条件按 Windows 宿主的能力取（`voice_provider_settings`、`voice_stream_preedit`、`voice_commit_mode`、`voice_capture_devices` 都为真，`localVoiceModels` 带导入，`pickVoiceModelPath` 存在）。共享页不因总开关关着而禁用快捷键和录音开关，原生页也去掉了这层禁用。
-- 规则写成只有头文件的 `VoiceSettings.h`：服务表和各服务的默认地址、模型、已知模型、文档（`voice-providers.ts`、`voice-provider-options.tsx`），`asrProviderUpdate`、`polishProviderUpdate`（令牌按服务存取，地址和模型还是默认值或空时换成新服务的），豆包流式接口，令牌标签，两个测试何时可用，识别语言建议，四个内置润色提示词（逐字照搬，另用脚本与 `polish-presets.ts` 比对过），录音后端选项，以及 `local-model-helpers.ts` 的大小、语言、进度、阶段和错误文案。由 `tests/ui/voice_settings.cpp` 核对，加进 CMake 测试。
+- 服务目录统一在 `client-providers::voice::provider_catalog`，识别与润色的运行时默认值也查询该目录；原生页通过纯函数 `msime_client_voice_provider_catalog` 取得按既有顺序排列的服务、地址、默认与建议模型、文档和名称，复制进持有字符串的快照后释放 JSON。Windows 在识别目录末尾追加系统识别与本地模型，空地址和模型保留原先的清空规则。其余原生展示规则写成只有头文件的 `VoiceSettings.h`：`asrProviderUpdate`、`polishProviderUpdate`（令牌按服务存取，地址和模型还是默认值或空时换成新服务的），豆包流式接口，令牌标签，两个测试何时可用，识别语言建议，四个内置润色提示词（逐字照搬，另用脚本与 `polish-presets.ts` 比对过），录音后端选项，以及 `local-model-helpers.ts` 的大小、语言、进度、阶段和错误文案。由 `tests/ui/voice_settings.cpp` 核对，加进 CMake 测试。
 - 换服务时把整张 `asr_tokens`、`polish_tokens` 写回，与共享页更新草稿的方式相同；选系统识别时把「自动识别」换成 `zh-CN`。换到或换走本地模型时，模型列表的状态清空、进行中请求的结果作废，对应共享页模型管理器的卸载和重新挂载。
 - host-api 新增纯函数 `msime_client_voice_model_setting_check`：`{asr_model_mirror?, asr_model_path?}` → 每个字段偏好库收不收。判断就是 `Preferences::validate` 用的那两条，模型目录那条提成 `preferences::valid_model_path`，`validate` 改为调用它。镜像和目录输入框只写入它认可的值，不认可时标红。
 - 版本表生成器给 `msime_edition.h` 加上 `MSIME_EDITION_TAURI_IDENTIFIER`，原生页的模型根目录是 `%APPDATA%\<identifier>\voice-models`，各版本与自己的 Tauri 应用管同一批模型。
@@ -21,6 +21,9 @@ Status: implemented
 
 ## Alternatives considered
 
+- **从 TypeScript 或 C++ 表生成 Rust 默认值** — 能复用现有展示元数据，改动集中；但共享业务层会依赖宿主工程的表和生成步骤，因此由已有默认值归属的 `client-providers` 拥有公开目录，宿主仅解析持有。
+- **只在 C 接口拼一份目录 JSON** — 不用动运行时查找；但默认值仍有两份，设置页与真正发送请求的语音配置仍可能漂移，因此两者查询同一目录。
+
 - **在 C++ 里照 `validModelMirror` 自己判断镜像** — 不用新增导出；但共享页用浏览器的 `URL`、偏好库用 `url` crate，第三份手写解析早晚和偏好库对不上，对不上的结果就是保存被拒、输入丢失。
 - **镜像不认可时照样写入** — 与共享页的草稿一样；但原生窗口没有草稿，保存被拒会重读设置，正在输入的内容就没了。
 - **模型根目录写死 `app.msime.windows`** — 上一篇笔记原来这样写；但其他版本的 Tauri 应用用自己的 identifier，非 full 版本的原生页会去管 full 的模型目录。
@@ -29,7 +32,8 @@ Status: implemented
 ## Consequences
 
 - 原生窗口不再为语音设置拉起共享应用；语音面板本身仍由 `MSIME.exe` 显示。
-- 共享页的服务表、默认值、润色提示词、模型文案或测试条件改了，要同步 `VoiceSettings.h` 和 `main.cpp`。
+- Windows 不再维护独立服务目录；修改共享 Rust 目录同时影响原生设置和语音运行时。目录不访问偏好、文件、网络或设备，原生页首次使用时同步读一次；JSON 字段由快照持有，控件只在快照存活期间使用字符串视图。后端兼容的 EveryAPI、Mistral 润色仍可解析旧配置，但不新增到原生页原有的四个选项。
+- `packages/ui` 和 Android 的目录迁移、Windows 换服务策略下沉仍待后续切片；共享页的润色提示词、模型文案或测试条件改了，仍要同步 `VoiceSettings.h` 和 `main.cpp`。
 - 共享页的语音页已改成主页面加「服务配置」子视图，按住录音的三个开关合成一个选择、流式接口和接口地址合成一个控件（见[精简语音输入设置页](../simplification/2026-10-16-macos-voice-settings-prune.md)）。本页随后跟进了这些合并和组的先后，但没有子视图控件，仍是一整页，做法和理由记在那篇的「各平台跟进」里。
 - 原生窗口和 Tauri 应用各在自己的进程里登记安装，互不知道；两边同时装同一个模型会怎样没有验证过。
 - 共享页的本地模型管理器在页面隐藏时仍挂载，原生页的状态则保存在窗口上，效果相同：离开页面再回来时进度和说明还在。
@@ -41,3 +45,9 @@ Status: implemented
 - `python platforms/windows/scripts/edition_windows.py gen` 重新生成 `msime_edition.h`，`scripts/test-windows-editions.py`、`scripts/test-editions.py`、`scripts/test-windows-state-dir-parity.py` 通过。
 - 设置工程按 `/WX` 编译通过（`settings-test-build.ps1` 输出 `SETTINGS_BUILD_OK`）；`tests/ui/voice_settings.cpp`、`tests/ui/settings_navigation.cpp`、`tests/ui/translation_service_settings.cpp` 用 `cl /std:c++20 /W4 /WX` 单独编译并运行通过。
 - 没有启动窗口，没有下载模型、读录音设备或对真实服务发过测试请求：各组的排版、进度条、文件对话框、建议列表和测试按钮的实际交互都未在运行中的窗口里检查。
+
+### 共享目录验证
+
+- 目录测试核对原有的七个识别与四个润色服务的顺序、标识唯一、名称与文档完整、建议模型含默认模型，以及每项与运行时解析的默认值相同；系统/本地/未知识别仍不解析为联网配置，旧的 EveryAPI、Mistral 润色默认值保留。
+- C ABI 测试读取并释放真实导出，核对标准信封和全部目录字段；原生纯规则测试用注入目录验证选项、默认值、令牌分槽、自定义值保留、系统/本地识别的行为。
+- 本机相关 Rust 测试共 14 项、两个 crate 的严格 clippy、原生纯规则编译运行、格式与笔记校验均通过；quick 通过，包含 Linux 设置外壳编译、原生宿主 90 项测试、macOS 原生编译和共享 Apple bridge 编译。WinUI 3 设置工程由 PR 的 Windows CI 编译。没有在 Windows 运行中的窗口里验收本片。

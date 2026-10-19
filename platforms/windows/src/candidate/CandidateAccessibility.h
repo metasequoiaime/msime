@@ -8,7 +8,7 @@
 #include <vector>
 
 namespace msime::windows {
-// 候选窗交给读屏的元素，名称与 macOS 候选窗的 accessibilityLabel 一致（InputController.mm）：每行「序号  候选」、页码「第 N 页，共 M 页」、翻页箭头「上一页候选」「下一页候选」、预编辑「候选窗预编辑」、logo 是产品名。
+// 候选窗交给读屏的元素，名称与 macOS 候选窗的 accessibilityLabel 一致（InputController.mm）：每行「序号  候选」、页码「第 N 页，共 M 页」、翻页箭头「上一页候选」「下一页候选」、预编辑「候选窗预编辑」、logo 是产品名。皮肤的卷轴展开另有展开按钮「展开候选」「收起候选」和网格里看得见的候选（只有候选文字，没有序号）。
 
 // 元素 id：候选行是序号（1 到 9），其余是固定的编号，换页、换快照都不变。
 inline constexpr int candidate_accessible_logo = 100;
@@ -16,6 +16,9 @@ inline constexpr int candidate_accessible_preedit = 101;
 inline constexpr int candidate_accessible_page = 102;
 inline constexpr int candidate_accessible_previous = 103;
 inline constexpr int candidate_accessible_next = 104;
+inline constexpr int candidate_accessible_expand = 105;
+// 卷轴展开网格里第 k 个候选的 id 是它加 k。
+inline constexpr int candidate_accessible_expanded_first = 1000;
 inline constexpr const char *candidate_accessible_name = "候选窗";
 
 // 卡片坐标到客户区像素：卡片左上角在画布里的位置（阴影边距和装饰图让出的高度），乘上布局缩放，与悬停提示的区域、点击换算同一套。
@@ -32,6 +35,19 @@ inline std::string candidate_accessible_display(const PresentationCandidate &can
   return text;
 }
 
+// 卷轴展开这一帧画出来的样子：按钮的位置、开没开，滚动区看得见的上下边，以及网格里看得见的候选（在网格里的位置、文字和已经减去滚动偏移的位置）。
+struct CandidateAccessibleExpand {
+  CandidateRowBounds toggle{};
+  bool expanded = false;
+  double top = 0.0, bottom = 0.0;
+  struct Cell {
+    size_t slot = 0;
+    std::string text;
+    CandidateRowBounds bounds{};
+  };
+  std::vector<Cell> cells;
+};
+
 // 按刚画好的页算出元素树。`clickable` 和 `pageable` 是窗口有没有点选、翻页的回调；`pointer_input` 为 false 的列表（只能用键盘选）和鼠标一样不能执行。`product` 是这个版本的产品名（UTF-8）。
 inline AccessibleTree candidate_accessible_tree(const CandidatePresentation &value,
                                                 const std::vector<CandidateRowLayout> &rows,
@@ -40,7 +56,8 @@ inline AccessibleTree candidate_accessible_tree(const CandidatePresentation &val
                                                 bool show_preedit,
                                                 const CandidateAccessibleFrame &frame,
                                                 bool clickable, bool pageable,
-                                                const std::string &product) {
+                                                const std::string &product,
+                                                const CandidateAccessibleExpand *expand = nullptr) {
   AccessibleTree tree{AccessibleContainer::List, candidate_accessible_name, {}};
   const auto client = [&frame](const CandidateRowBounds &box) {
     return AccessibleBounds{(frame.card_left + box.left) * frame.scale,
@@ -100,8 +117,21 @@ inline AccessibleTree candidate_accessible_tree(const CandidatePresentation &val
       tree.elements.push_back(std::move(arrow));
     }
   }
+  if (expand) {
+    AccessibleElement toggle;
+    toggle.id = candidate_accessible_expand;
+    toggle.role = AccessibleRole::Button;
+    toggle.automation_id = "candidate-expand";
+    toggle.name = expand->expanded ? "收起候选" : "展开候选";
+    toggle.invokable = value.pointer_input;
+    toggle.bounds = client(expand->toggle);
+    tree.elements.push_back(std::move(toggle));
+  }
   const size_t count = (std::min)(rows.size(), value.candidates.size());
   for (size_t slot = 0; slot < count; ++slot) {
+    // 卷轴展开滚上去、整行看不见的首行候选不报。
+    if (expand && (rows[slot].bounds.bottom <= expand->top || rows[slot].bounds.top >= expand->bottom))
+      continue;
     const auto &candidate = value.candidates[slot];
     AccessibleElement row;
     row.id = static_cast<int>(slot + 1);
@@ -116,6 +146,17 @@ inline AccessibleTree candidate_accessible_tree(const CandidatePresentation &val
     row.bounds = client(rows[slot].bounds);
     tree.elements.push_back(std::move(row));
   }
+  if (expand)
+    for (const auto &cell : expand->cells) {
+      AccessibleElement item;
+      item.id = candidate_accessible_expanded_first + static_cast<int>(cell.slot);
+      item.role = AccessibleRole::ListItem;
+      item.automation_id = "candidate-expanded-" + std::to_string(cell.slot + 1);
+      item.name = cell.text;
+      item.invokable = clickable && value.pointer_input;
+      item.bounds = client(cell.bounds);
+      tree.elements.push_back(std::move(item));
+    }
   return tree;
 }
 } // namespace msime::windows

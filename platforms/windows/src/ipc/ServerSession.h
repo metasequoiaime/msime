@@ -78,6 +78,10 @@ public:
                                            uint64_t epoch,
                                            const NavigationBindings &bindings);
   nlohmann::json select(uint64_t epoch, uint64_t generation, size_t index);
+  // 卷轴展开网格里的候选：index 是 all_candidates 那份完整列表里的下标，不在当前页上，走 msime_client_select_any_candidate；source 是那一项的来源，云候选这类整段上屏的处理和 select 相同。
+  nlohmann::json select_any(uint64_t epoch, uint64_t generation, size_t index, uint8_t source);
+  // msime_client_all_candidates：这一代的全部候选，下标是全局的。会让引擎放出扣着的尾部，这时代次前进，调用方要重新读 view 并发布。
+  nlohmann::json all_candidates(uint64_t epoch);
   nlohmann::json candidate_action(uint64_t epoch, uint64_t generation,
                                   size_t index, CandidateAction action,
                                   uint8_t position = 0);
@@ -139,6 +143,9 @@ public:
 private:
   void check_thread() const;
   void check_active(uint64_t epoch) const;
+  // select 与 select_any 共用的选词：completes_composition 的候选整段上屏，再丢掉剩下的读音。
+  nlohmann::json select_with(uint64_t generation, size_t index, bool completes_composition,
+                             bool any);
   // 取消结果让组字仍然打开时（韩文、注音的列表关闭，越南文、藏文的原文重新显示，全拼、双拼退出整句改字），再发一次同一个取消命令（MSIME_CANCEL 或 MSIME_CANCEL_AFTER_HOST_COMMIT）丢弃它，真正结束组字的那次派发仍按这个命令归类；其他结果不变。
   nlohmann::json cancel_again(nlohmann::json result, uint32_t command);
   // cancel_composition 和 cancel_after_host_commit 的共同实现：发 `command`，必要时再发一次，确认组字已经没了。

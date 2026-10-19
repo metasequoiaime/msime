@@ -5,18 +5,19 @@ import { GroupList, MoreOptions } from "../core/platform-controls";
 import { ModelPickerRows } from "./model-picker-rows";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import { SwitchRow } from "./switch-row";
-import { SelectRow } from "./select-row";
+import { AiProviderSelect } from "./ai-provider-select";
 import { TextInputRow } from "./text-input-row";
 import { ActionRow } from "./action-row";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
 import { SettingsGroupBlock } from "./settings-group-block";
 import { SettingsManagerBlock } from "./settings-manager-block";
+import * as settings from "./settings-style";
 import type { AiProviderOption } from "./ai-provider-options";
 
 export type { AiProviderOption } from "./ai-provider-options";
 
 export interface AiSettingsPageSectionProps {
-  /** AI 服务的接口地址是否有效；无效时「更多选项」首次显示就展开，因为凭据要等接口地址填对才能用。 */
+  /** AI 服务的接口地址是否有效，用于地址栏的无效状态；凭据仍由 origin 校验控制。 */
   endpointValid?: boolean;
   /** 接口地址不能用时显示在地址栏下方的说明，例如公网 http 为什么被拒绝；地址可用时为空。 */
   endpointHint?: string;
@@ -64,7 +65,7 @@ export interface AiSettingsPageSectionProps {
   trailing: ReactNode;
 }
 
-/** 共享 AI 辅助设置的页面组合：「服务」（接口地址、获取模型列表和自定义提示词收在它的「更多选项」里）、宿主让用户选数量时的「联想」，以及触屏宿主的测试工具。 */
+/** 共享 AI 辅助设置的页面组合：按依赖顺序配置服务，自定义提示词单独折叠。 */
 export function AiSettingsPageSection({
   endpointValid = true,
   endpointHint,
@@ -106,8 +107,13 @@ export function AiSettingsPageSection({
   } as const;
   const slot = slotPrompts[promptSlot as keyof typeof slotPrompts] ?? slotPrompts.custom_1;
   return (
-    <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="AI 辅助">
-      {/* 先把服务接通：开关、服务商、凭据、模型。接口地址一般随服务商预设，获取模型列表和自定义提示词也是接自定义服务或代理的同一批用户才用，一起收进「更多选项」；测试按钮放在组末，测的正是上面这些。 */}
+    <SettingsPageFieldset
+      disabled={disabled}
+      hidden={hidden}
+      ariaLabel="AI 辅助"
+      className="ai-settings"
+    >
+      {/* 接口地址是凭据与模型目录的前提，始终放在它们上方；校验变化不搬动输入节点。 */}
       <GroupList title="服务">
         <SwitchRow
           title="启用 AI 辅助"
@@ -116,18 +122,23 @@ export function AiSettingsPageSection({
           checked={enabled}
           onChange={onEnabledChange}
         />
-        <SelectRow
-          title="服务提供商"
-          aria-label="AI 服务提供商"
+        <AiProviderSelect
+          options={providerOptions}
           value={provider}
-          onChange={(event) => onProviderChange(event.target.value)}
-        >
-          {providerOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.title}
-            </option>
-          ))}
-        </SelectRow>
+          disabled={disabled}
+          hidden={hidden}
+          onChange={onProviderChange}
+        />
+        <TextInputRow
+          title="接口地址"
+          description={endpoint ? endpointHint || undefined : "请填写服务提供商给出的完整接口地址"}
+          label="AI 接口地址"
+          type="url"
+          placeholder="https://example.com/v1/chat/completions"
+          aria-invalid={endpoint && !endpointValid ? true : undefined}
+          value={endpoint}
+          onChange={onEndpointChange}
+        />
         {credentialSection}
         {providerPreset}
         <ModelPickerRows
@@ -137,34 +148,33 @@ export function AiSettingsPageSection({
           model={model}
           onChange={onModelChange}
         />
-        <MoreOptions defaultOpen={!endpointValid}>
-          <TextInputRow
-            title="接口地址"
-            description={endpoint ? endpointHint || undefined : undefined}
-            label="AI 接口地址"
-            type="url"
-            value={endpoint}
-            onChange={onEndpointChange}
-          />
-          {modelCatalog && (
-            <>
-              <ActionRow
-                title="服务模型"
-                description="从当前服务的模型目录读取，加进上面的模型列表；服务不支持时选「自定义…」自己填写。"
-                action={modelCatalog.onFetch}
-                disabled={modelCatalog.busy || !modelCatalog.origin}
-                label={modelCatalog.busy ? "获取中…" : "获取模型列表"}
-              />
-              {modelCatalog.status && (
-                <SettingsGroupNote role="status">{modelCatalog.status}</SettingsGroupNote>
-              )}
-            </>
-          )}
+        {modelCatalog && (
+          <>
+            <ActionRow
+              title="服务模型"
+              description="可从服务获取模型，也可直接填写模型名称。"
+              action={modelCatalog.onFetch}
+              disabled={modelCatalog.busy || !modelCatalog.origin}
+              label={modelCatalog.busy ? "获取中…" : "获取模型列表"}
+            />
+            {modelCatalog.status && (
+              <SettingsGroupNote role="status">{modelCatalog.status}</SettingsGroupNote>
+            )}
+          </>
+        )}
+        <MoreOptions title="自定义提示词">
           {/* 只编辑当前槽位（`prompt_id`）的提示词，存着的槽位和 `prompt_id` 都不动。填了就整个替换内置提示词，内置的那份规定了 JSON 输出格式，说明要讲清楚。 */}
           <SettingsManagerBlock>
             <SettingsTextareaField
-              label="自定义提示词"
-              description={`留空时使用内置的联想提示词。填写后会整个替换内置提示词，不是追加；内置提示词规定了只输出 JSON 格式的候选，自定义时也要这样要求，否则联想可能不出结果。${promptSlot === "custom_1" ? "" : `当前使用的是槽位${slot.name}。`}`}
+              label="提示词内容"
+              description={
+                <span className="block mt-1">
+                  留空使用内置提示词；填写后完整替换，请要求只输出 JSON 格式的候选。
+                  {promptSlot === "custom_1" ? "" : `当前使用槽位${slot.name}。`}
+                </span>
+              }
+              rows={4}
+              className={`${settings.fieldInput} min-h-24 w-full resize-y leading-relaxed`}
               ariaLabel="AI 联想自定义提示词"
               value={slot.value}
               onChange={slot.onChange}

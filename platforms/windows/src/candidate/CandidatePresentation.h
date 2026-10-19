@@ -1,5 +1,6 @@
 #pragma once
 #include "CandidateActionAvailability.h"
+#include "CandidateExpandPanel.h"
 #include "CandidateGlossReadings.h"
 #include "ChineseTextConversion.h"
 #include "FocusGate.h"
@@ -11,6 +12,7 @@
 #include "TranslationDisplay.h"
 #include "WubiCodeHintPolicy.h"
 #include <algorithm>
+#include <memory>
 
 namespace msime::windows {
 // TSF can report the candidate show event before it has a usable text extent.
@@ -159,6 +161,12 @@ struct CandidatePresentation {
   // The 0-based page on show and how many pages the Engine has so far, for the pager in the preedit row. Both zero draw no pager. The count grows as the user pages, because the Engine fetches candidates lazily.
   size_t page = 0;
   size_t page_count = 0;
+  // 每页候选数（view 的 page_size），卷轴展开的网格最多分这么多列；view 没带时为 0。
+  size_t page_size = 0;
+  // 卷轴展开打开时这一代的完整候选列表（msime_client_all_candidates），只在它和这一页同一会话、同一代时由 CandidateMailbox::snapshot 挂上，其余时候为空。共享不可变的一份：候选窗每轮都读一次快照，不必每次复制几百个候选。
+  std::shared_ptr<const std::vector<ExpandedCandidate>> expanded;
+  // Server 这一侧的卷轴展开是不是为这个租约开着（CandidateMailbox::expansion）。候选窗关闭（上屏、取消）时 Server 先清掉它，候选窗按它收起，两边不会一个开着一个关着。
+  bool expansion_open = false;
   // Whether the mouse may pick a row, page the list or open a row's menu. False for a list driven from the keyboard only (scheme::KeyboardOnlyCandidateList).
   bool pointer_input = true;
   // 这一页的候选会不会有释义（candidate_view_shows_glosses）。为 false 时翻译查询为空，横排候选窗不为释义预留高度。
@@ -206,11 +214,39 @@ candidate_gloss_column_range(const PresentationCandidate &candidate, int column)
     return std::nullopt;
   return std::make_pair(start, gloss.size());
 }
-// Copy the view's page position into `output`, dropping one that is not a page of the count rather than drawing "4 / 3".
+// msime_client_all_candidates 的结果里属于 session、generation 的候选，按下标递增，文字是引擎的原文（繁体换算由 CandidateMailbox::expanded 做）。占位行（选它什么都不上屏）、空的和超过 4096 字节的（候选窗画不了）跳过；身份对不上或下标不递增时整份不要。
+inline std::vector<ExpandedCandidate> expanded_candidates_from_snapshot(const nlohmann::json &snapshot,
+                                                                        uint64_t session,
+                                                                        uint64_t generation) {
+  std::vector<ExpandedCandidate> items;
+  if (!snapshot.is_object() || snapshot.value("session", uint64_t{0}) != session ||
+      snapshot.value("generation", uint64_t{0}) != generation ||
+      !snapshot.contains("candidates") || !snapshot.at("candidates").is_array())
+    return items;
+  items.reserve(snapshot.at("candidates").size());
+  for (const auto &candidate : snapshot.at("candidates")) {
+    const auto &id = candidate.at("id");
+    if (id.at("session").get<uint64_t>() != session ||
+        id.at("generation").get<uint64_t>() != generation)
+      return {};
+    const auto index = id.at("index").get<size_t>();
+    if (!items.empty() && index <= items.back().index)
+      return {};
+    const auto source = candidate.value("source", uint8_t{});
+    auto text = candidate.at("text").get<std::string>();
+    if (text.empty() || text.size() > 4096 || source == candidate_source_ai_pending ||
+        source == candidate_source_cloud_pending)
+      continue;
+    items.push_back({index, std::move(text)});
+  }
+  return items;
+}
+// Copy the view's page position and page size into `output`, dropping a position that is not a page of the count rather than drawing "4 / 3".
 inline void candidate_presentation_page(CandidatePresentation &output,
                                         const nlohmann::json &view) {
   const auto page = view.value("page", size_t{0});
   const auto count = view.value("page_count", size_t{0});
+  output.page_size = view.value("page_size", size_t{0});
   if (page < count) {
     output.page = page;
     output.page_count = count;
