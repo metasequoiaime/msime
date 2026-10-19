@@ -38,6 +38,8 @@ CDN 补验的 Android API 28 四个共享 crate 整套通过；API 35 的 base�
 
 鸿蒙逻辑和 C++ 套件、ArkTS 规则检查、iOS 修改文件的 Swift 语法解析通过。原生 WinUI、完整 iOS App/键盘与鸿蒙 HAP 仍需要对应构建及设备验收；Linux 原生宿主和设置外壳容器检查受本机没有 Docker 限制。这些缺口不能由共享层测试或语法检查替代。
 
+后续鸿蒙完整 HAP 编译暴露词库更新参数使用 `Record<string, Object>` 对象字面量的 ArkTS 错误，改用明确的 `DictionaryUpdateOptions` 接口后构建通过。接口保留快照偏好的 `Record` 类型，不误用准备会话后的裁剪偏好类型；序列化字段与可选语言目录条件保持一致。该补验不包含签名和设备侧更新验收。
+
 `scripts/verify-local.sh --quick` 通过，包含 macOS 原生宿主与共享 Apple 桥编译；Windows 交叉构建因共享依赖锁被其他任务占用而跳过，宿主可运行的 168 项 Windows 原生测试通过。
 
 ## Consequences

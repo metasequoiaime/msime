@@ -1070,6 +1070,18 @@ interface DictionaryRequest {
   action: DictionaryAction;
 }
 
+interface DictionaryUpdateOptions {
+  api_version: number;
+  resources: string;
+  preferences_directory: string;
+  user_data: string;
+  cache: string;
+  dictionaries: string;
+  preferences: Record<string, Object>;
+  edition: string;
+  language_dictionaries?: string;
+}
+
 interface PersonalDictionarySyncValue {
   pending_count: number;
 }
@@ -3445,14 +3457,14 @@ export class KeyboardSession implements HardwareKeyTarget {
         const loaded: SnapshotResponse = JSON.parse(client.loadPreferences(stateRoot)) as SnapshotResponse;
         const snapshot: PreferencesSnapshot | null = NativeReplyPolicy.successfulValue(loaded);
         if (snapshot === null) return JSON.stringify(loaded);
-        const options: Record<string, Object> = {
+        const options: DictionaryUpdateOptions = {
           api_version: 1, resources: resources, preferences_directory: stateRoot,
           user_data: `${stateRoot}/user`, cache: `${stateRoot}/cache`,
           dictionaries: `${stateRoot}/user/dictionaries`, preferences: snapshot.preferences,
           edition: AppEdition.current().id,
         };
         const languages: string = `${resources.substring(0, resources.lastIndexOf('/'))}/language-dictionaries`;
-        if (fs.accessSync(languages)) options['language_dictionaries'] = languages;
+        if (fs.accessSync(languages)) options.language_dictionaries = languages;
         return client.dictionary(JSON.stringify({ options: options, action: action }));
       } catch (error) {
         KeyboardLog.error(`dictionary update unavailable: ${describeError(error)}`);
