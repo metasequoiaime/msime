@@ -542,6 +542,14 @@ int main(void)
         [controller renderCandidates];
         MSIMECandidateButton *measured = CandidateButton(panel.contentView, 0);
         assert(measured);
+        // 实际产品渲染入口启用系统材质，切到自定义主题后恢复原来的皮肤底板。
+        assert(((MSIMECandidateChromeView *)panel.contentView).liquidGlassEnabled);
+        appearance.globalTheme = @"custom";
+        [controller renderCandidates];
+        assert(!((MSIMECandidateChromeView *)panel.contentView).liquidGlassEnabled);
+        appearance.globalTheme = @"system";
+        [controller renderCandidates];
+        measured = CandidateButton(panel.contentView, 0);
         NSFont *rowFont = measured.font;
         const CGFloat glyphWidth = [@"水" sizeWithAttributes:@{NSFontAttributeName: rowFont}].width;
         assert(glyphWidth > 0);
@@ -931,6 +939,7 @@ int main(void)
         appearance.showsAppLogo = NO;
         appearance.showsCandidatePreedit = NO;
         assert([controller renderExpandedCandidates]);
+        assert(((MSIMECandidateChromeView *)panel.contentView).liquidGlassEnabled);
         for (NSView *row in panel.contentView.subviews) {
             assert(![row.identifier isEqual:@"candidate-page-indicator"]);
             assert(![row.identifier isEqual:@"candidate-collapse"]);

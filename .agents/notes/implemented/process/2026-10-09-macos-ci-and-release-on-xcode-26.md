@@ -34,3 +34,5 @@ Status: implemented
 - `actionlint` 通过。
 - 本 PR 的 `macOS 15 arm64` 在 `depot-macos-26` 上用 Xcode 26.3 构建、跑 ctest、校验 bundle。
 - 在本分支上手动触发 `ci-macos.yml`（跑 x86_64 和 Sanitizers）和 `ci-macos-package.yml`（打未签名 universal 包，与发版同一个 `package-release.sh`）。
+
+候选卡片通过显式接入 [NSGlassEffectView](../feature/2026-10-19-macos-candidate-liquid-glass.md) 获得原生材质；自绘底板不会因为升级 SDK 自动变成玻璃，最低部署版本仍为 13.0。

@@ -43,3 +43,5 @@ Status: implemented
 代价：能力表是按平台的静态声明，Linux 的两个入口（IBus、Fcitx5）共享一组标志，真实面板差异只能靠运行时 `candidate_panel_limit` 补充；三平台的实机性能基线仍待采集，目前只能用上面的埋点和预算做相对比较。宿主每新增一个自合成列表，都必须自己带上可区分新旧的身份，这条规则没有编译期检查，只能靠评审和各宿主的过期点击测试。
 
 相关记录：[Windows 候选窗与 Mac 对齐](../feature/2026-10-10-windows-candidate-window-mac-parity.md)、[Windows Server 窗口的 UI 自动化](../feature/2026-10-10-windows-server-window-ui-automation.md)、[Fcitx5 系统主题保留品牌样式](../feature/2026-10-09-fcitx5-system-theme-keeps-brand-style.md)。
+
+macOS 系统主题的背景材质见[候选卡片液态玻璃](../feature/2026-10-19-macos-candidate-liquid-glass.md)，候选身份、按钮归属与原生定位边界保持不变。
