@@ -20,6 +20,35 @@ class LoopbackHTTPServer(http.server.HTTPServer):
 REDIRECT_TARGETS = {"asr": "/asr/success", "polish": "/polish/success"}
 
 
+def asr_reply_cases():
+    cases = {}
+    for shape in ("text", "transcription", "result", "chat"):
+        for state in ("absent", "stop", "null-finish", "null-error", "length",
+                      "content_filter", "object-error", "empty-error", "string-error",
+                      "false-error", "zero-error", "blank-error"):
+            payload = {}
+            if shape in ("text", "transcription"):
+                payload[shape] = "synthetic result"
+            elif shape == "result":
+                payload["result"] = {"text": "synthetic result"}
+            else:
+                payload["choices"] = [{"message": {"content": "synthetic result"}}]
+            if state in ("stop", "length", "content_filter", "null-finish"):
+                payload.setdefault("choices", [{}])[0]["finish_reason"] = (
+                    None if state == "null-finish" else state)
+            errors = {"null-error": None, "object-error": {"message": "synthetic failure"},
+                      "empty-error": {}, "string-error": "synthetic failure",
+                      "false-error": False, "zero-error": 0, "blank-error": ""}
+            if state in errors:
+                payload["error"] = errors[state]
+            expected = "success" if state in ("absent", "stop", "null-finish", "null-error") else "failure"
+            cases[f"reply-{shape}-{state}"] = (payload, expected)
+    return cases
+
+
+ASR_REPLY_CASES = asr_reply_cases()
+
+
 class SharedVoiceHandler(http.server.BaseHTTPRequestHandler):
     counts = collections.Counter()
     bodies = {}
@@ -36,6 +65,8 @@ class SharedVoiceHandler(http.server.BaseHTTPRequestHandler):
         # chat 场景是阿里云百炼的回答形状：文字在 choices[0].message.content。
         payload = {"text": "synthetic result"} if mode == "asr" and scenario != "chat" else {
             "choices": [{"message": {"content": "synthetic result"}}]}
+        if mode == "asr" and scenario in ASR_REPLY_CASES:
+            payload = ASR_REPLY_CASES[scenario][0]
         if mode == "polish":
             if scenario in ("length", "content_filter", "stop"):
                 payload["choices"][0]["finish_reason"] = scenario
@@ -85,6 +116,17 @@ with LoopbackHTTPServer(("127.0.0.1", 0), SharedVoiceHandler) as server:
                                check=True, timeout=10, env=environment)
                 assert SharedVoiceHandler.counts[path] == 1
             assert SharedVoiceHandler.counts[f"/{mode}/success"] == 1
+        # 所有转写字段都先检查明确失败状态；空值与缺省状态保持兼容。
+        failures = []
+        for scenario, (_payload, expected) in ASR_REPLY_CASES.items():
+            path = f"/asr/{scenario}"
+            url = f"http://127.0.0.1:{server.server_port}{path}"
+            provider = "bailian" if scenario.startswith("reply-chat-") else "openai"
+            result = subprocess.run([sys.argv[1], "asr", provider, url, expected],
+                                    timeout=10, env=environment)
+            if result.returncode != 0:
+                failures.append(scenario)
+            assert SharedVoiceHandler.counts[path] == 1
         # 非空正文也可能不完整；明确失败时不得让半段文字替换转写。
         for scenario in ("length", "content_filter", "error", "empty-error",
                          "stop", "null-finish", "null-error"):
@@ -120,6 +162,7 @@ with LoopbackHTTPServer(("127.0.0.1", 0), SharedVoiceHandler) as server:
         data = part["input_audio"]["data"]
         assert data.startswith("data:audio/wav;base64,UklGR"), data[:40]
         assert base64.b64decode(data.split(",", 1)[1])[8:16] == b"WAVEfmt "
+        assert not failures, failures
     finally:
         server.shutdown()
         worker.join(timeout=5)

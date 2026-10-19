@@ -93,6 +93,20 @@ int main(int argc, char **argv) {
             assert([rejection.localizedDescription isEqual:@"语音请求失败，请检查识别服务设置"]);
             assert(![rejection.userInfo.description containsString:@"fixture-token"]);
         }
+        // HTTP 成功但转写明确失败时，不得进入润色或把半段文字交给宿主。
+        for (NSString *path in @[@"/asr-error", @"/asr-incomplete", @"/asr-filtered-alias"]) {
+            NSMutableDictionary *failedOptions = [options mutableCopy];
+            failedOptions[@"asr_endpoint"] = [base stringByAppendingString:path];
+            request = [[MSIMEHTTPVoiceRequest alloc] initWithOptions:failedOptions error:nil];
+            request.polishingHandler = ^{ assert(false && "failed ASR must not start polishing"); };
+            __block NSError *rejection = nil;
+            assert([request recognizePCM:valid completion:^(NSString *text, NSError *error) {
+                assert(NSThread.isMainThread && !text && error); rejection = error;
+            } error:nil]);
+            Wait(^BOOL { return rejection != nil; });
+            assert([rejection.userInfo[NSLocalizedFailureReasonErrorKey] isEqual:@"语音识别返回了无法解析的结果。"]);
+            assert(![rejection.userInfo.description containsString:@"synthetic failure"]);
+        }
         request = [[MSIMEHTTPVoiceRequest alloc] initWithOptions:options error:nil];
         [request cancel];
         assert(![request recognizePCM:valid completion:^(NSString *, NSError *) { assert(false); } error:nil]);

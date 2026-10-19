@@ -16,6 +16,7 @@ HarmonyOS 的 `HarmonyVoicePolisher` 将 HTTP 状态与字符串正文交给现�
 
 ## 历史笔记审计
 
+- [转写完整性](2026-10-19-voice-asr-incomplete-reply.md)：部分重叠，共享 C++ 转写入口沿用相同状态规则，失败时不投递正文；本篇的润色回退契约保持不变。
 - [Windows 原生语音对齐](../../implemented/feature/2026-10-10-windows-native-voice-mac-parity.md)：部分重叠，保留润色失败静默回退和 30 秒预算，本篇补齐哪些回复应当失败。
 - [原生语音设置接口](../../implemented/architecture/2026-10-11-windows-settings-voice-host-api.md)：无关，配置探测与实际转写润色是不同入口。
 - [macOS 语音设置裁剪](../../implemented/simplification/2026-10-16-macos-voice-settings-prune.md)：无关，本篇处理实际语音请求，不恢复旧设置控件。

@@ -13,6 +13,7 @@ Status: implemented
 - 没有经过 `MobileVoiceProviderConfiguration` 的宿主各留一份同样的对应：共享 C++ 的 `asr_request_format`（Windows 与 macOS 经它调用 `recognize_cloud_asr`）、Linux 语音服务脚本的 `REQUEST_FORMATS`、HarmonyOS 的 `HttpAsrConfigurationPolicy.requestFormat`、iOS 原生设置的 `VoiceProviderPreset.usesChatAudio`。它们的识别和凭据测试也只按格式分支。
 - 上传上限：百炼限制请求里的音频含 Base64 编码不超过 10 MB，所以 chat_audio 的 WAV 上限是 7,000,000 字节（client-core `CHAT_AUDIO_MAX_WAV_BYTES`、C++ `chat_audio_max_wav_bytes`、Linux `CHAT_AUDIO_MAX_WAV`），16 kHz 单声道 16 位约 218 秒。macOS、Windows、Linux 都按它截取录音：录到上限就结束录音并识别，与 multipart 录满 20 MiB 的处理相同。三处共用一个判断，C++ 是 `batch_capture_sample_limit_for(provider)`（macOS 的 `sampleLimit` 与 Windows 的采集回调都调它），Linux 是 `capture_byte_limit(provider)`。最初的版本只有 macOS 截取，Windows 和 Linux 录满批量上限（约 655 秒或 `--max-recording-seconds`）后才在上传前整段拒绝，说了四分钟的话全部丢掉，Linux 还只回一个不带说明的失败；review 时发现后改成三处一致。`recognize_cloud_asr` 与 Linux `chat_audio()` 的超限检查留着兜底。Android、iOS、HarmonyOS 的录音本来就只有 60 到 120 秒，远在上限以内。
 - 回答解析各宿主都改成先取 `text`，没有时再取 `choices[0].message.content`；`text` 存在但不合法时不回退到 `choices`。
+- macOS 与 Windows 的共享 C++ 转写入口在提取文字前拒绝明确错误、截断与过滤回复，见[转写完整性](../bug-fix/2026-10-19-voice-asr-incomplete-reply.md)；请求格式和上限不变。
 - 设置页（`packages/ui` 的 `ASR_PROVIDER_OPTIONS`、`ASR_PROVIDER_DEFAULTS`、`ASR_SERVICE_PROVIDER_IDS`）、macOS 原生语音设置、iOS 原生语音设置加上「阿里云百炼 · 千问」；`ASR_PROVIDERS` 变成 9 项。凭据测试（`credential::asr`）按格式发一秒静音。
 - 不做百炼的实时流式识别，也不接「小米」：前者需要新的跨平台流式会话设计，后者没有明确的公开识别接口。
 

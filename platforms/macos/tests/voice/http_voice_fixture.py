@@ -32,6 +32,13 @@ class Handler(BaseHTTPRequestHandler):
                 assert b"changed-after-snapshot" not in body
                 assert b'name="language"\r\n\r\nen\r\n' in body
                 response = {"text": "synthetic transcript"}
+            elif self.path == "/asr-error":
+                response = {"text": "synthetic transcript", "error": {"message": "synthetic failure"}}
+            elif self.path in ("/asr-incomplete", "/asr-filtered-alias"):
+                response = {"choices": [{"message": {"content": "synthetic transcript"},
+                                         "finish_reason": "length" if self.path == "/asr-incomplete" else "content_filter"}]}
+                if self.path == "/asr-filtered-alias":
+                    response["text"] = "synthetic transcript"
             elif self.path in ("/asr-denied", "/asr-trace"):
                 assert b"RIFF" in body
                 if self.path == "/asr-denied":
@@ -79,7 +86,9 @@ try:
     # The six-second polish stall is waited out rather than abandoned, so the run needs room for it.
     result = subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}"], timeout=60)
     assert result.returncode == 0 and not errors, (result.returncode, errors)
-    assert counts == {"/asr": 3, "/asr-long": 1, "/asr-denied": 1, "/asr-trace": 2, "/polish": 1, "/polish-failure": 1, "/polish-timeout": 1}, counts
+    assert counts == {"/asr": 3, "/asr-long": 1, "/asr-denied": 1, "/asr-trace": 2,
+                      "/asr-error": 1, "/asr-incomplete": 1, "/asr-filtered-alias": 1,
+                      "/polish": 1, "/polish-failure": 1, "/polish-timeout": 1}, counts
 finally:
     server.shutdown()
     server.server_close()

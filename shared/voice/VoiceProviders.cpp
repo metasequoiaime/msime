@@ -276,12 +276,20 @@ std::string parse_transcription(const std::string &response) {
   } catch (const nlohmann::json::exception &) {
     throw VoiceError("Invalid voice response");
   }
+  if (json.contains("error") && !json["error"].is_null())
+    throw VoiceError("Voice transcription service returned an error");
   const auto member = [](const nlohmann::json &object, const char *key) {
     if (!object.is_object())
       return std::string();
     const auto found = object.find(key);
     return found != object.end() && found->is_string() ? found->get<std::string>() : std::string();
   };
+  // 明确失败状态约束整个回复，不能被优先返回的转写别名绕过。
+  if (json.contains("choices") && json["choices"].is_array() && !json["choices"].empty()) {
+    const auto finish_reason = member(json["choices"][0], "finish_reason");
+    if (finish_reason == "length" || finish_reason == "content_filter")
+      throw VoiceError("Incomplete transcription text");
+  }
   for (const char *key : {"text", "transcription"})
     if (auto text = member(json, key); !text.empty())
       return text;
