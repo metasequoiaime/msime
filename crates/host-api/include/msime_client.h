@@ -519,6 +519,12 @@ void msime_client_release_process_cache(void);
  * 数组顺序即设置页顺序；不含平台特有的 system/local，宿主按能力追加。
  * models 仅作建议，不限制用户自定义模型。宿主复制字段后用 msime_client_string_free 释放返回的 JSON 缓冲区。 */
 char *msime_client_voice_provider_catalog(void);
+/* 切换语音服务的纯函数；请求 <=1 MiB：{service:"voice.asr"|"voice.polish",provider:string,
+ * current:{provider?,endpoint?,model?,token?,tokens?:{id:string}}}。current 缺少的字段按空值处理。
+ * value 为 {provider,token,tokens,endpoint?,model?}：省略地址/模型表示保留原值，空串表示清空。
+ * 不读写偏好、不联网；宿主负责把补丁字段映射到 asr_ 或 polish_ 并保存。
+ * 请求和返回含凭据，禁止记录；返回缓冲区用 msime_client_string_free 释放。 */
+char *msime_client_voice_provider_update(const uint8_t *request, size_t length);
 char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
 /* Capture bounded mono 16 kHz samples. The JSON result is transient audio and

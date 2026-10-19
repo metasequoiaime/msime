@@ -4,6 +4,7 @@ import type {
 } from "../core/provider-credential-contracts";
 import { useEffect, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
+import { useSettingsTabs } from "./use-settings-tabs";
 import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
 import * as settings from "./settings-style";
 import { SettingsPageHeader } from "./settings-page-header";
@@ -44,6 +45,11 @@ import type { useProviderCredentials, VoiceCredentialBindings } from "./use-prov
 import { GroupList, LinkRow, MoreOptions } from "../core/platform-controls";
 import * as platform from "../core/platform-controls-style";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
+
+const voiceTabs = [
+  { id: "input", title: "输入法" },
+  { id: "recording", title: "录音行为" },
+] as const;
 
 /** HarmonyOS 手机上豆包「服务配置」行的状态，与键盘的 `DoubaoCredentialPolicy` 同一套判断：密钥取当前框，空时取 `asr_tokens.doubao`；一项都没填时键盘用系统识别，填了一部分时键盘报缺项。 */
 export function doubaoServiceStatus(voiceInput: VoiceInputPreferences): string {
@@ -186,6 +192,7 @@ export function VoiceSettingsContent({
     encode: () => ({ voiceService: true }),
     isActiveState: (state) => state?.voiceService === true,
   });
+  const { tabList, panel } = useSettingsTabs(voiceTabs, "语音输入设置分类", !mobilePlatform);
   const serviceOpen = serviceSubview === true;
   useEffect(() => {
     if (hidden) resetServiceSubview();
@@ -551,7 +558,7 @@ export function VoiceSettingsContent({
         {captureDevices(!hidden)}
       </SettingsPageFieldset>
     );
-  // 设置窗口的语音页照鸿蒙手机的整理方案：主页面只留常用的几项——总开关、识别服务、「服务配置 ›」、识别语言、自动添加标点、边说边显示，快捷键，提示音和静音。密钥、接口地址、模型、资源 ID、豆包的识别选项、结果提交策略、润色、提示音细分和录音设备都收进「服务配置」子视图。子视图在页面里换上来而不是全屏覆盖，侧栏和标题栏照旧可用；两边都保持挂载，凭据草稿和设备列表这些局部状态不因来回切换丢掉。
+  // 桌面主页面按输入法与录音行为分标签；服务配置仍在页内下钻，两边保持挂载以保留草稿。
   const serviceStatus = desktopVoiceServiceStatus(voiceInput, {
     serviceVoice,
     localVoice,
@@ -597,9 +604,15 @@ export function VoiceSettingsContent({
       {/* 两层 div：外层的 hidden 属性管显隐，内层的 flex 排版类不会把它盖掉。 */}
       <div hidden={serviceOpen}>
         <div className="flex flex-col gap-6">
-          {main}
-          {hotkeys}
-          {recordingBehavior}
+          {tabList}
+          {panel(
+            "input",
+            <>
+              {main}
+              {hotkeys}
+            </>,
+          )}
+          {panel("recording", recordingBehavior)}
         </div>
       </div>
       <div role="region" aria-label="服务配置" hidden={!serviceOpen}>

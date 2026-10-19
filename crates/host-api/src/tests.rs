@@ -17409,3 +17409,52 @@ fn voice_provider_catalog_export_matches_the_shared_catalog() {
         })
     );
 }
+
+#[test]
+fn voice_provider_update_export_returns_the_shared_patch() {
+    let request = serde_json::json!({
+        "service":"voice.asr", "provider":"local", "current":{
+            "provider":"openai", "endpoint":"https://api.openai.com/v1/audio/transcriptions",
+            "model":"whisper-1", "token":"synthetic-openai", "tokens":{"local":"synthetic-unused"}
+        }
+    })
+    .to_string();
+    let result =
+        read(unsafe { msime_client_voice_provider_update(request.as_ptr(), request.len()) });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{
+            "provider":"local", "endpoint":"", "model":"", "token":"",
+            "tokens":{"openai":"synthetic-openai"}
+        }})
+    );
+    let request = serde_json::json!({"service":"voice.polish","provider":"groq","current":{"model":"synthetic-model"}}).to_string();
+    let result =
+        read(unsafe { msime_client_voice_provider_update(request.as_ptr(), request.len()) });
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["value"]["provider"], "groq");
+    assert!(result["value"].get("model").is_none());
+}
+
+#[test]
+fn voice_provider_update_export_rejects_invalid_requests_without_echoing_credentials() {
+    for request in [
+        b"\xff".as_slice(), b"{", b"{}",
+        br#"{"service":"voice.unknown","provider":"openai","current":{"token":"synthetic-private"}}"#,
+        br#"{"service":"voice.asr","provider":42,"current":{}}"#,
+        br#"{"service":"voice.asr","provider":"openai","current":{"tokens":{"openai":42}}}"#,
+        br#"{"service":"voice.asr","provider":"openai","current":null}"#,
+    ] {
+        let result = read(unsafe { msime_client_voice_provider_update(request.as_ptr(), request.len()) });
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["error"], "invalid voice request");
+    }
+    for length in [0, 1, 1_048_577] {
+        let result = read(unsafe { msime_client_voice_provider_update(std::ptr::null(), length) });
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["error"], "invalid voice request buffer");
+    }
+    let result = read(unsafe { msime_client_voice_provider_update(b"x".as_ptr(), 1_048_577) });
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["error"], "invalid voice request buffer");
+}

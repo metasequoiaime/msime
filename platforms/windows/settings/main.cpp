@@ -18494,57 +18494,63 @@ private:
     return config;
   }
 
-  // 每个服务各自记着的令牌（asr_tokens、polish_tokens）。
-  vs::TokenMap token_slots(std::wstring_view key) const {
-    vs::TokenMap tokens;
-    const auto value = document_.Value(key);
-    if (!value || value.ValueType() != JsonValueType::Object)
-      return tokens;
-    for (auto const &entry : value.GetObject())
-      if (entry.Value().ValueType() == JsonValueType::String)
-        tokens[std::wstring(entry.Key().c_str())] = entry.Value().GetString().c_str();
-    return tokens;
-  }
-
-  // 换服务时写的那几项（asrProviderUpdate、polishProviderUpdate 的结果），prefix 是 asr 或 polish。
-  static void apply_provider_update(PreferencesDocument &doc, std::wstring const &prefix,
-                                    vs::ProviderUpdate const &update) {
-    doc.SetString(L"voice_input." + prefix + L"_provider", update.provider);
-    doc.SetString(L"voice_input." + prefix + L"_token", update.token);
+  // 换服务的字段规则归 Rust；这里仅映射当前编辑值与前缀，不记录请求或返回。
+  std::optional<JsonObject> voice_provider_update(std::wstring const &prefix,
+                                                 std::wstring const &provider,
+                                                 std::wstring const &previous) {
+    JsonObject current;
+    current.SetNamedValue(L"provider", JsonValue::CreateStringValue(hstring(previous)));
+    for (auto field : {L"endpoint", L"model", L"token"})
+      current.SetNamedValue(field, JsonValue::CreateStringValue(
+          hstring(document_.String(L"voice_input." + prefix + L"_" + field, L""))));
     JsonObject slots;
-    for (auto const &[provider, token] : update.tokens)
-      slots.SetNamedValue(hstring(provider), JsonValue::CreateStringValue(hstring(token)));
-    doc.SetValue(L"voice_input." + prefix + L"_tokens", slots);
-    if (update.endpoint)
-      doc.SetString(L"voice_input." + prefix + L"_endpoint", *update.endpoint);
-    if (update.model)
-      doc.SetString(L"voice_input." + prefix + L"_model", *update.model);
+    const auto stored = document_.Value(L"voice_input." + prefix + L"_tokens");
+    if (stored && stored.ValueType() == JsonValueType::Object)
+      for (auto const &entry : stored.GetObject())
+        if (entry.Value().ValueType() == JsonValueType::String)
+          slots.SetNamedValue(entry.Key(), entry.Value());
+    current.SetNamedValue(L"tokens", slots);
+    JsonObject request;
+    request.SetNamedValue(L"service", JsonValue::CreateStringValue(hstring(L"voice." + prefix)));
+    request.SetNamedValue(L"provider", JsonValue::CreateStringValue(hstring(provider)));
+    request.SetNamedValue(L"current", current);
+    const auto body = utf8(request.Stringify());
+    const auto response = take_response(msime_client_voice_provider_update(
+        reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+    if (response.ok) {
+      try {
+        return JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+      } catch (...) {
+      }
+    }
+    show_notice(L"切换语音服务失败，请重试。");
+    return std::nullopt;
   }
 
-  vs::ProviderFields provider_fields(std::wstring const &prefix, std::wstring_view fallback) const {
-    return {document_.String(L"voice_input." + prefix + L"_provider", fallback),
-            document_.String(L"voice_input." + prefix + L"_endpoint", L""),
-            document_.String(L"voice_input." + prefix + L"_model", L""),
-            document_.String(L"voice_input." + prefix + L"_token", L""),
-            token_slots(L"voice_input." + prefix + L"_tokens")};
+  static void apply_provider_update(PreferencesDocument &doc, std::wstring const &prefix,
+                                    JsonObject const &update) {
+    for (auto const &entry : update)
+      doc.SetValue(L"voice_input." + prefix + L"_" + entry.Key().c_str(), entry.Value());
   }
 
   // 共享页的 onProviderChange（VoiceInputBasicsSection）：换上新服务的令牌、地址和模型，选系统识别时把「自动识别」换成 zh-CN。换到或换走本地模型时，模型列表像共享页的模型管理器重新挂载一样重读。
   void select_asr_provider(std::wstring const &provider) {
-    const auto current = provider_fields(L"asr", L"doubao");
-    if (provider == current.provider)
+    const auto previous = document_.String(L"voice_input.asr_provider", L"doubao");
+    if (provider == previous)
       return;
-    const auto update = vs::asr_provider_update(voice_provider_catalog().asr, provider, current);
+    const auto update = voice_provider_update(L"asr", provider, previous);
+    if (!update)
+      return;
     const bool locale = provider == L"system" &&
                         document_.String(L"voice_input.language", L"") == L"auto";
     // 换服务像共享页那样重新挂上服务的几行：豆包「流式接口」上次选的「自定义地址」不再算数。
     voice_custom_endpoint_ = false;
     change([&](PreferencesDocument &doc) {
-      apply_provider_update(doc, L"asr", update);
+      apply_provider_update(doc, L"asr", *update);
       if (locale)
         doc.SetString(L"voice_input.language", L"zh-CN");
     }, true);
-    if (provider == L"local" || current.provider == L"local")
+    if (provider == L"local" || previous == L"local")
       reset_local_models();
   }
 
@@ -18570,12 +18576,14 @@ private:
     add_row(group, 0xE753, L"服务提供商", L"",
             select_control(L"文本润色服务提供商", std::move(providers), provider,
                            [this](std::wstring const &value) {
-                             const auto current = provider_fields(L"polish", L"siliconflow");
-                             if (value == current.provider)
+                             const auto previous = document_.String(L"voice_input.polish_provider", L"siliconflow");
+                             if (value == previous)
                                return;
-                             const auto update = vs::polish_provider_update(voice_provider_catalog().polish, value, current);
+                             const auto update = voice_provider_update(L"polish", value, previous);
+                             if (!update)
+                               return;
                              change([&](PreferencesDocument &doc) {
-                               apply_provider_update(doc, L"polish", update);
+                               apply_provider_update(doc, L"polish", *update);
                              }, true);
                            }));
     const auto *polish_preset = vs::find_defaults(voice_provider_catalog().polish, provider);

@@ -32,7 +32,7 @@ async function mount(initialPage: "input" | "expression" | "voice", platform = "
       client={{
         load: async () => initial,
         save,
-        host: testHost({ platform }),
+        host: testHost({ platform, ...(platform === "harmony" ? { mobile_settings: false } : {}) }),
         candidateEnglishGloss: true,
       }}
     />,
@@ -96,24 +96,76 @@ test("标点与翻译按功能拆分，方向键与 Home、End 同步焦点和�
   expect(within(gloss).getByRole("switch", { name: /^候选词翻译/ })).toBeTruthy();
 });
 
-// 语音页不再分标签：主页面只留常用几项，其余收在「服务配置」子视图里。子视图来回切换时两边都保持挂载，润色里没保存的输入照旧留着。
-test("语音页用服务配置子视图代替标签，来回切换保留未保存的输入框", async () => {
+test("语音两个标签与服务配置来回切换保留未保存的输入框", async () => {
   await mount("voice");
-  expect(screen.queryByRole("tablist", { name: "语音输入设置分类" })).toBeNull();
+  const tabs = screen.getByRole("tablist", { name: "语音输入设置分类" });
+  expect(screen.getByRole("tabpanel", { name: "输入法" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "文本润色" })).toBeNull();
   // 这个宿主列不出录音设备，子视图里也没有这一组。
   fireEvent.click(screen.getByRole("button", { name: "服务配置" }));
+  expect(screen.queryByRole("tablist", { name: "语音输入设置分类" })).toBeNull();
   expect(screen.queryByRole("region", { name: "录音设备" })).toBeNull();
   const polish = screen.getByRole("region", { name: "文本润色" });
   fireEvent.click(within(polish).getByRole("switch", { name: "启用文本润色" }));
   const provider = within(polish).getByLabelText("文本润色服务提供商");
   fireEvent.click(screen.getByRole("button", { name: "返回" }));
+  fireEvent.click(within(tabs).getByRole("tab", { name: "录音行为" }));
   expect(screen.getByRole("region", { name: "录音行为" })).toBeTruthy();
+  fireEvent.click(within(tabs).getByRole("tab", { name: "输入法" }));
   fireEvent.click(screen.getByRole("button", { name: "服务配置" }));
   expect(
     within(screen.getByRole("region", { name: "文本润色" })).getByLabelText("文本润色服务提供商"),
   ).toBe(provider);
 });
+
+test.each(["macos", "linux", "windows", "harmony"])(
+  "%s 语音标签隔离内容，保留录音草稿且导航不保存偏好",
+  async (platform) => {
+    const save = await mount("voice", platform);
+    const tabs = screen.getByRole("tablist", { name: "语音输入设置分类" });
+    expect(
+      within(tabs)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual(["输入法", "录音行为"]);
+    const input = within(tabs).getByRole("tab", { name: "输入法" });
+    const recording = within(tabs).getByRole("tab", { name: "录音行为" });
+    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+    expect(screen.getByRole("combobox", { name: "识别服务" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "语音提示音" })).toBeNull();
+    input.focus();
+    fireEvent.keyDown(input, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(recording);
+    expect(screen.getByRole("tabpanel", { name: "录音行为" }).id).toBe(
+      recording.getAttribute("aria-controls"),
+    );
+    expect(screen.queryByRole("combobox", { name: "识别服务" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "语音快捷键" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "服务配置" })).toBeNull();
+    const mute = screen.getByRole("switch", { name: "录音时静音其他声音" });
+    expect(save).not.toHaveBeenCalled();
+    const wasChecked = (mute as HTMLInputElement).checked;
+    fireEvent.click(mute);
+    fireEvent.keyDown(recording, { key: "Home" });
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: "End" });
+    expect(document.activeElement).toBe(recording);
+    expect(screen.getByRole("switch", { name: "录音时静音其他声音" })).toBe(mute);
+    expect(mute).toHaveProperty("checked", !wasChecked);
+    fireEvent.keyDown(recording, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(recording);
+    fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+    expect(screen.getByRole("tabpanel", { name: "录音行为" })).toBeTruthy();
+    saveSettingsNow();
+    await screen.findByText("已保存");
+    expect(save.mock.calls.at(-1)?.[1].voice_input).toEqual(
+      expect.objectContaining({ mute_system_audio: !wasChecked }),
+    );
+  },
+);
 
 test.each(["input", "expression", "voice"] as const)("手机 %s 页保留原布局", async (page) => {
   await mount(page, "ios");
