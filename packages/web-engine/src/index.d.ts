@@ -248,10 +248,12 @@ export interface MsimeSkinPalette {
 /** 皮肤对象，形状同桌面设置页的 `SkinSummary` JSON（只取候选框用得到的字段）。尺寸单位 dip 在网页上就是 CSS px；图片写成 http(s)、blob、`data:image/*` 或相对地址（按页面地址解析），其他地址丢弃。 */
 export interface MsimeSkin {
   id?: string;
-  /** 外部清单的 schema_version；写 2 时未提供 animation 也采用漂亮的安全默认动画。 */
+  /** 外部清单的 schema_version；只有 `base: "canvas"` 的 v2 清单启用动画，其他 base 按 v1 安全降级。 */
   schemaVersion?: 1 | 2;
   /** 画在哪个主题之上：全局主题、`system` 或 msime-windows 的内置外观（`fluent`、`wechat` 等），默认 `system`。base 为全局主题时，皮肤固定画在那个主题的明暗下。 */
   base?: string;
+  /** 桌面 `SkinSummary` 对 `base = "canvas"` 的标记；网页按它启用 v2 动画并在不支持贴图原语时回退到公共卡片。 */
+  canvas?: boolean;
   /** 皮肤支持的布局，不写时全都支持。不支持当前布局或明暗时只画 base（`ResolvedSkin.drawn` 为 false）。 */
   layouts?: readonly MsimeSkinLayout[];
   /** 皮肤支持的明暗，不写时全都支持。 */

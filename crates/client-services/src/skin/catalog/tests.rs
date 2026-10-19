@@ -25,6 +25,33 @@ fn encoded_png(width: u32, height: u32) -> Vec<u8> {
     output.into_inner()
 }
 
+fn encoded_image(width: u32, height: u32, format: image::ImageFormat) -> Vec<u8> {
+    let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        width,
+        height,
+        image::Rgba([0, 0, 0, 255]),
+    ));
+    let mut output = Cursor::new(Vec::new());
+    image.write_to(&mut output, format).unwrap();
+    output.into_inner()
+}
+
+fn encoded_gif(width: u32, height: u32, frames: u32) -> Vec<u8> {
+    let mut output = Cursor::new(Vec::new());
+    let mut encoder = image::codecs::gif::GifEncoder::new(&mut output);
+    encoder
+        .encode_frames((0..frames).map(|frame| {
+            image::Frame::new(image::RgbaImage::from_pixel(
+                width,
+                height,
+                image::Rgba([(frame * 40 % 256) as u8, 0, 0, 255]),
+            ))
+        }))
+        .unwrap();
+    drop(encoder);
+    output.into_inner()
+}
+
 /// 一张 `frames` 帧、`width`×`height` 的 APNG，每帧颜色不同，无限循环。
 fn encoded_apng(width: u32, height: u32, frames: u32) -> Vec<u8> {
     let mut output = Vec::new();
@@ -222,6 +249,31 @@ fn animated_decorations_are_bounded_by_frames_and_decoded_pixels() {
     let root = tempdir().unwrap();
     decorated_package(root.path(), &encoded_apng(1000, 1000, 8), "");
     assert_eq!(load(root.path(), "whale").unwrap().decoration_frames, 8);
+}
+
+#[test]
+fn gif_and_webp_decorations_are_dimension_checked_and_counted() {
+    for (extension, bytes, expected_frames) in [
+        ("gif", encoded_gif(6, 4, 3), 3),
+        ("webp", encoded_image(6, 4, image::ImageFormat::WebP), 1),
+    ] {
+        let root = tempdir().unwrap();
+        let skin = root.path().join("animated");
+        fs::create_dir(&skin).unwrap();
+        let image = format!("decoration.{extension}");
+        fs::write(skin.join(&image), bytes).unwrap();
+        fs::write(
+            skin.join("skin.toml"),
+            format!(
+                "schema_version = 1\nid = 'animated'\nname = 'Animated'\nversion = '1'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = '{image}'\ntop_inset_dip = 10\nwidth_dip = 10\n"
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            load(root.path(), "animated").unwrap().decoration_frames,
+            expected_frames
+        );
+    }
 }
 
 #[test]

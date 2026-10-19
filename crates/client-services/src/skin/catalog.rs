@@ -5,6 +5,7 @@
 //! 04a8df56f86312474a069f4335a1b58da7afaa9e). It does not register a protocol,
 //! authorize a webview origin, sanitize CSS/SVG, or execute resource content.
 
+use image::AnimationDecoder;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Cursor;
@@ -1325,7 +1326,43 @@ pub(crate) fn png_frames(bytes: &[u8]) -> Result<(u32, u32), &'static str> {
     Ok((frames, frames + thumbnail))
 }
 
-/// 检查清单引用的 PNG/JPEG 尺寸，避免宿主把声明为极大尺寸的压缩图片交给系统解码器。APNG 的每一帧都按整张画布计入像素合计，帧数不超过 [`MAX_ANIMATION_FRAMES`]，所以一个包解码后的位图总量与静态图同一个上限。返回装饰图的帧数（没有装饰图时为 0）。
+/// 统计 GIF/WebP 的动画帧；这些格式的帧数不在 `ImageReader` 的公共尺寸接口里，
+/// 但宿主同样会把每帧展开成整张画布，所以必须和 APNG 一样受帧数与像素上限约束。
+/// 解码器读不出的旧资源继续按静态图处理，保持扫描阶段对旧包的宽容行为。
+fn decoded_animation_frames(
+    bytes: &[u8],
+    format: image::ImageFormat,
+) -> Result<(u32, u32), &'static str> {
+    let frames = match format {
+        image::ImageFormat::Gif => {
+            let Ok(decoder) = image::codecs::gif::GifDecoder::new(Cursor::new(bytes)) else {
+                return Ok((1, 1));
+            };
+            decoder.into_frames()
+        }
+        image::ImageFormat::WebP => {
+            let Ok(decoder) = image::codecs::webp::WebPDecoder::new(Cursor::new(bytes)) else {
+                return Ok((1, 1));
+            };
+            decoder.into_frames()
+        }
+        _ => return Ok((1, 1)),
+    };
+    let mut count = 0_u32;
+    for frame in frames {
+        if frame.is_err() {
+            return Ok((1, 1));
+        }
+        count = count.saturating_add(1);
+        if count > MAX_ANIMATION_FRAMES {
+            return Err(ANIMATION_TOO_MANY_FRAMES);
+        }
+    }
+    let count = count.max(1);
+    Ok((count, count))
+}
+
+/// 检查清单引用的 PNG/JPEG/GIF/WebP 尺寸，避免宿主把声明为极大尺寸的压缩图片交给系统解码器。动画图的每一帧都按整张画布计入像素合计，帧数不超过 [`MAX_ANIMATION_FRAMES`]，所以一个包解码后的位图总量与静态图同一个上限。返回装饰图的帧数（没有装饰图时为 0）。
 /// 不能解析的旧资源仍由宿主按原有方式处理；社区发布和安装会再做完整解码检查。
 fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, String> {
     let mut paths = Vec::new();
@@ -1376,7 +1413,12 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, S
         let format = reader.format();
         if !matches!(
             format,
-            Some(image::ImageFormat::Png | image::ImageFormat::Jpeg)
+            Some(
+                image::ImageFormat::Png
+                    | image::ImageFormat::Jpeg
+                    | image::ImageFormat::Gif
+                    | image::ImageFormat::WebP
+            )
         ) {
             continue;
         }
@@ -1386,10 +1428,12 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, S
         if width == 0 || height == 0 || width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE {
             return Err(IMAGE_DIMENSIONS_TOO_LARGE.into());
         }
-        let (frames, images) = if format == Some(image::ImageFormat::Png) {
-            png_frames(&bytes)?
-        } else {
-            (1, 1)
+        let (frames, images) = match format {
+            Some(image::ImageFormat::Png) => png_frames(&bytes)?,
+            Some(format @ (image::ImageFormat::Gif | image::ImageFormat::WebP)) => {
+                decoded_animation_frames(&bytes, format)?
+            }
+            _ => (1, 1),
         };
         if summary.decoration_image.as_deref() == Some(path) {
             decoration_frames = frames;

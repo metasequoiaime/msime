@@ -166,9 +166,13 @@ function declared(value, allowed) {
 /** 读取 schema v2 动效契约。未知值会被忽略，让新预设在旧网页宿主中安全降级为静态皮肤。 */
 function packageAnimation(skin) {
   const raw = skin?.animation;
-  const v2 = Number(skin?.schemaVersion) === 2 || Number(skin?.schema_version) === 2;
+  // 与共享 catalog 一致：v2 只有 canvas 基底才启用；其他 base 的 v2 清单按 v1
+  // 加载，避免网页宿主和原生宿主对同一个包播出不同的动效。
+  const rawBase = skin?.base;
+  const v2 = (Number(skin?.schemaVersion) === 2 || Number(skin?.schema_version) === 2) &&
+    (rawBase === "canvas" || skin?.canvas === true);
   if (!v2) return DEFAULT_ANIMATION;
-  if (raw === null || typeof raw !== "object") return v2 ? LIVELY_ANIMATION : DEFAULT_ANIMATION;
+  if (raw === null || typeof raw !== "object") return LIVELY_ANIMATION;
   const preset = (value, fallback) => ANIMATION_PRESETS.includes(value) ? value : fallback;
   const bounded = (value, min, max, fallback) => typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : fallback;
   return Object.freeze({
@@ -212,7 +216,8 @@ function readPackage(skin) {
   const rawBase = skin.base === undefined || skin.base === null ? "system" : skin.base;
   if (typeof rawBase !== "string") throw new TypeError("skin base must be a string");
   const look = windowsLooks.find((entry) => entry.id === rawBase) ?? null;
-  const base = look || plainWindowsLooks.includes(rawBase) ? "system" : rawBase;
+  const canvas = rawBase === "canvas" || skin.canvas === true;
+  const base = (look || canvas || plainWindowsLooks.includes(rawBase)) ? "system" : rawBase;
   if (base !== "system" && !builtinThemes.some((entry) => entry.id === base)) throw new TypeError(`unknown skin base: ${rawBase}`);
   const candidate = skin.candidate !== null && typeof skin.candidate === "object" ? skin.candidate : {};
   const supports = skin.supports !== null && typeof skin.supports === "object" ? skin.supports : {};
@@ -227,6 +232,7 @@ function readPackage(skin) {
     candidate: { dark: packagePalette(candidate.dark, look?.dark), light: packagePalette(candidate.light, look?.light) },
     selectedText: { dark: lookSelectedText(candidate.dark, look?.dark), light: lookSelectedText(candidate.light, look?.light) },
     animation: packageAnimation(skin),
+    canvas,
     cornerRadius,
     skin,
   };

@@ -283,19 +283,20 @@ test("geometry follows dimension, decorationImage and the background rules", () 
 test("schema v2 resolves a bounded motion contract and safe CSS variables", () => {
   const result = resolveSkin({
     schemaVersion: 2,
-    base: "system",
+    base: "canvas",
     animation: { enter: "spring", exit: "fade", selection: "glow", durationMs: 220, staggerMs: 16 },
   });
   assert.deepEqual(result.animation, { enter: "spring", exit: "fade", selection: "glow", durationMs: 220, staggerMs: 16 });
   assert.equal(result.variables["--msime-skin-animation-duration"], "220ms");
   assert.equal(result.variables["--msime-skin-animation-stagger"], "16ms");
   assertSafeVariables(result.variables);
-  const defaults = resolveSkin({ schemaVersion: 2 });
+  const defaults = resolveSkin({ schemaVersion: 2, base: "canvas" });
   assert.equal(defaults.animation.enter, "fade_scale");
   assert.equal(defaults.animation.selection, "spring");
   const legacy = resolveSkin({ schemaVersion: 1, animation: { enter: "spring" } });
   assert.equal(legacy.animation.enter, "none");
-  assert.equal(resolveSkin({ schemaVersion: 2, animation: { durationMs: 9999 } }).animation.durationMs, 180);
+  assert.equal(resolveSkin({ schemaVersion: 2, base: "canvas", animation: { durationMs: 9999 } }).animation.durationMs, 180);
+  assert.equal(resolveSkin({ schemaVersion: 2, base: "system", animation: { enter: "spring" } }).animation.enter, "none");
 });
 
 test("hostile skin objects are neutralised", () => {

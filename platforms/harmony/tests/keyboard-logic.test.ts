@@ -4293,6 +4293,21 @@ group("resolves external candidate skin tokens without trusting missing fields",
     ) === 2,
     "PNG dimensions preserve the decoration aspect ratio",
   );
+  const nonCanvasV2: CandidateSkinPackage = {
+    ...sample,
+    schemaVersion: 2,
+    base: "system",
+    animation: { enter: "spring", exit: "fade", selection: "glow", durationMs: 220, staggerMs: 16 },
+  };
+  check(
+    CandidateSkinCatalogPolicy.animation([nonCanvasV2], "sample").enter === "fade_scale",
+    "v2 animation is ignored when the package is not based on canvas",
+  );
+  check(
+    CandidateSkinCatalogPolicy.animation([{ ...nonCanvasV2, canvas: true }], "sample").enter ===
+      "spring",
+    "the host catalog canvas marker enables v2 animation after base normalization",
+  );
 });
 
 group("a theme with a fixed mode is offered and drawn only in that mode", () => {

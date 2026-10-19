@@ -26,6 +26,8 @@ export interface CandidateSkinBackgroundEntry {
 export interface CandidateSkinPackage {
   readonly id: string;
   readonly schemaVersion?: number;
+  /** `base = "canvas"` 的 v2 标记；host catalog 会把 base 规范成 `system`，所以不能只看 base。 */
+  readonly canvas?: boolean;
   readonly base: string;
   readonly layouts: string[];
   readonly themes: string[];
@@ -105,6 +107,7 @@ export class CandidateSkinCatalogPolicy {
     if (
       candidate === null ||
       candidate.schemaVersion !== 2 ||
+      (candidate.base !== "canvas" && candidate.canvas !== true) ||
       candidate.animation === null ||
       candidate.animation === undefined
     )
