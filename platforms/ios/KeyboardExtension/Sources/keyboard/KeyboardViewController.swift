@@ -70,6 +70,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private weak var compositionContainer: CandidateCanvasHostView?
   private let replyModel = ReplyKeyboardModel()
   private var personalDictionaryTimer: Timer?
+  private var lastKeyTouchTime: TimeInterval = -.infinity
   private var synchronizingPersonalDictionary = false
   private let preeditButton = UIButton()
   private var appliedPreeditMenuKey: String?
@@ -734,8 +735,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     personalDictionaryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated {
         guard let self else { return }
-        self.synchronizePersonalDictionary(force: false)
-        self.snapshotWorker.tick(idle: !self.hasComposition && !self.isInLocalMode, fullAccess: self.hasFullAccess)
+        // 异步首键尚未渲染时也在输入；词间的短暂停顿不触发同步权限和词库维护。
+        guard !self.hasComposition, !self.isInLocalMode, !self.session.hasPendingCharacters,
+              ProcessInfo.processInfo.systemUptime - self.lastKeyTouchTime >= 0.3 else { return }
+        let fullAccess = self.hasFullAccess
+        self.synchronizePersonalDictionary(force: false, fullAccess: fullAccess)
+        self.snapshotWorker.tick(idle: true, fullAccess: fullAccess)
       }
     }
   }
@@ -4612,8 +4617,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     panel.removeFromParent()
   }
 
-  private func synchronizePersonalDictionary(force: Bool) {
-    guard hasFullAccess, !hasComposition, !isInLocalMode, !synchronizingPersonalDictionary else { return }
+  private func synchronizePersonalDictionary(force: Bool, fullAccess: Bool? = nil) {
+    guard !hasComposition, !isInLocalMode, !synchronizingPersonalDictionary,
+          fullAccess ?? hasFullAccess else { return }
     let store = PersonalDictionaryStore()
     do {
       let state = try store.read()
@@ -7863,6 +7869,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   @objc private func prepareKeyFeedback() {
+    lastKeyTouchTime = ProcessInfo.processInfo.systemUptime
     if KeyboardFeedbackPreference.hapticsEnabled { keyFeedback.prepare() }
   }
 
