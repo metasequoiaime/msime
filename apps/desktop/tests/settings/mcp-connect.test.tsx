@@ -386,7 +386,7 @@ test("writing an entry with permissions asks first, and cancelling writes nothin
 
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   const dialog = await screen.findByRole("alertdialog");
-  expect(dialog.textContent).toContain("修改设置和快捷短语、制作候选窗口皮肤");
+  expect(dialog.textContent).toContain("修改设置和快捷短语、制作、切换和删除候选窗口皮肤");
   expect(dialog.textContent).toContain("读取你的用户词库、查看编码的候选");
   expect(dialog.textContent).toContain("增删、调整和导入词");
   fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
