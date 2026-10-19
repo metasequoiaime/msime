@@ -2,6 +2,8 @@
 
 Status: implemented
 
+桌面主页面不分标签的决定由[输入法与录音行为两个顶部标签](../feature/2026-10-19-voice-input-recording-tabs.md)部分取代；服务配置子视图及其余精简保持。
+
 ## Problem
 
 macOS 设置窗口的「语音输入」页有 5 个标签页、约 43 个控件。多数不是没用，而是平铺和拆分：
