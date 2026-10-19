@@ -101,3 +101,19 @@ test("未知服务商保留原标识并显示连接图标；选回当前服务�
   fireEvent.keyDown(trigger, { key: "Enter" });
   expect(onChange).toHaveBeenCalledExactlyOnceWith("custom");
 });
+
+test("活动选项仅滚动菜单内部，外层滚动仍关闭菜单", () => {
+  const { trigger } = setup();
+  fireEvent.click(trigger);
+  const list = screen.getByRole("listbox");
+  const last = within(list).getByRole("option", { name: "自定义" });
+  Object.defineProperty(list, "clientHeight", { value: 200 });
+  vi.spyOn(list, "getBoundingClientRect").mockReturnValue({ top: 20 } as DOMRect);
+  vi.spyOn(last, "getBoundingClientRect").mockReturnValue({ top: 260, bottom: 292 } as DOMRect);
+  fireEvent.keyDown(trigger, { key: "End" });
+  expect(list.scrollTop).toBe(72);
+  fireEvent.scroll(list);
+  expect(screen.getByRole("listbox")).toBe(list);
+  fireEvent.scroll(document);
+  expect(screen.queryByRole("listbox")).toBeNull();
+});

@@ -108,7 +108,15 @@ function IconProviderSelect({ options, value, disabled, hidden, onChange }: AiPr
   }, [disabled, hidden]);
 
   useEffect(() => {
-    if (visible) document.getElementById(`${id}-${active}`)?.scrollIntoView?.({ block: "nearest" });
+    const list = menu.current;
+    const option = document.getElementById(`${id}-${active}`);
+    if (!visible || !list || !option) return;
+    // 只滚动菜单自身；scrollIntoView 会连外层页面一起移动，触发外部滚动关闭。
+    const top = list.getBoundingClientRect().top + list.clientTop;
+    const rect = option.getBoundingClientRect();
+    if (rect.top < top) list.scrollTop -= top - rect.top;
+    else if (rect.bottom > top + list.clientHeight)
+      list.scrollTop += rect.bottom - top - list.clientHeight;
   }, [visible, active, id]);
 
   return (

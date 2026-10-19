@@ -10440,16 +10440,17 @@ test("the AI page is grouped like the other pages", async () => {
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(page.querySelector(".section")).toBeNull();
-  // 桌面没有「测试工具」（润色测试只在 iOS、Android 上保留），提示词收进「服务」的「更多选项」。Windows 固定 AI 候选数量，「联想」组不出现。
+  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组。
   expect(pageGroupTitles(page)).toEqual(["服务"]);
   const endpoint = within(page).getByLabelText("AI 接口地址");
-  const more = endpoint.closest("details");
-  expect(more).not.toBeNull();
-  expect(more!.open).toBe(false);
+  expect(endpoint.closest("details")).toBeNull();
   const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
   expect(prompt.value).toBe("second");
-  expect(prompt.closest("details")).toBe(more);
-  expect(within(more!).getByRole("button", { name: "获取模型列表" })).toBeTruthy();
+  expect(prompt.closest("details")!.open).toBe(false);
+  expect(prompt.closest("details")!.querySelector("summary")!.textContent).toContain(
+    "自定义提示词",
+  );
+  expect(within(page).getByRole("button", { name: "获取模型列表" }).closest("details")).toBeNull();
   expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });
 
