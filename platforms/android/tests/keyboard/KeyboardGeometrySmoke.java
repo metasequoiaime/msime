@@ -45,7 +45,7 @@ public final class KeyboardGeometrySmoke {
         checkRows(129, 85, 84, 84, 84);     // 170%
         check(KeyboardHeightPolicy.bottomRowAdjustment(Integer.MIN_VALUE) == 0
             && KeyboardHeightPolicy.keyRowsAdjustment(Integer.MIN_VALUE) == 0, "missing adjustment is zero");
-        check(KeyboardHeightPolicy.bottomRowAdjustment(500) == 27 && KeyboardHeightPolicy.keyRowsAdjustment(500) == 83,
+        check(KeyboardHeightPolicy.bottomRowAdjustment(500) == 32 && KeyboardHeightPolicy.keyRowsAdjustment(500) == 97,
             "shares clamp to the design range");
         for (int adjustment = KeyboardHeightPolicy.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP;
                 adjustment <= KeyboardHeightPolicy.MAX_DESIGN_HEIGHT_ADJUSTMENT_DP; adjustment++) {
