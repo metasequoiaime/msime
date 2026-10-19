@@ -1,12 +1,8 @@
 import UIKit
 import XCTest
 
-/// What one keystroke costs inside the extension, key by key.
-///
-/// The shared runtime answers in well under a millisecond, so anything a person feels as the
-/// keyboard falling behind is spent above it — in the view work each key triggers. This measures
-/// the controller's own path rather than a mean over a word: dropped frames come from the tail,
-/// and a mean hides it behind the many cheap keys around it.
+/// 分别测量桥接与按键回调加布局，保留逐键尾延迟。
+/// 测试宿主没有连接真实文档代理；系统键盘的跨进程输入另外验收。
 @MainActor
 final class KeystrokeLatencyTests: XCTestCase {
   override func setUp() {
@@ -86,6 +82,78 @@ final class KeystrokeLatencyTests: XCTestCase {
     }
     report("allCandidates(yi)", all)
     print("GLOSS resources=\(bridge.candidateGlossResources() ?? "nil") enabled=\(CandidateGlossPreference.enabled)")
+  }
+
+  /// 九键长句的桥接与控制器对照；独立会话隔离词频和临时学习。
+  func testNineKeyLongCompositionCosts() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: root)
+    XCTAssertNil(bridge.switchToNineKey().diagnosticText)
+    _ = bridge.setLearningEnabled(false)
+    _ = bridge.setPrivateSession(true)
+    let words = ["nihao", "zhongguo", "shurufa", "jintiantianqihenhao",
+                 "womenyongshurufalianxudaziceshi", "zhonghuarenmingongheguo"]
+    let digitsByLetter = Dictionary(uniqueKeysWithValues:
+      zip(["abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz"], "23456789")
+        .flatMap { letters, digit in letters.map { ($0, digit) } })
+    var bridgeSamples: [Double] = []
+    for round in 0..<3 {
+      for (caseIndex, word) in words.enumerated() {
+        _ = bridge.cancel()
+        var samples: [Double] = []
+        for digit in word.compactMap({ digitsByLetter[$0] }) {
+          let start = CACurrentMediaTime()
+          let snapshot = bridge.handleCharacter(String(digit))
+          samples.append((CACurrentMediaTime() - start) * 1000)
+          XCTAssertNil(snapshot.diagnosticText)
+        }
+        report("nineKey-bridge-round\(round)-case\(caseIndex)", samples)
+        bridgeSamples += samples
+      }
+    }
+    report("nineKey-long-bridge", bridgeSamples)
+
+    let previous = InputSchemePreference.scheme
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previous
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    CandidateGlossPreference.enabled = true
+    let controller = self.controller(.nineKey)
+    defer { controller.viewDidDisappear(false) }
+    var controllerSamples: [Double] = []
+    let buttons = Dictionary(uniqueKeysWithValues: try "23456789".map { digit in
+      (digit, try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityIdentifier == "nineKey\(digit)"
+      } as? UIButton))
+    })
+    let space = try key("空格", in: controller)
+    let enter = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "returnKey"
+    })
+    for round in 0..<3 {
+      for (caseIndex, word) in words.enumerated() {
+        var samples: [Double] = []
+        for digit in word.compactMap({ digitsByLetter[$0] }) {
+          let start = CACurrentMediaTime()
+          buttons[digit]?.sendActions(for: .primaryActionTriggered)
+          controller.view.layoutIfNeeded()
+          samples.append((CACurrentMediaTime() - start) * 1000)
+        }
+        report("nineKey-controller-round\(round)-case\(caseIndex)", samples)
+        controllerSamples += samples
+        // 连续选词直至组字消耗完，下一句必须从空组字开始。
+        XCTAssertEqual(enter.accessibilityLabel, "确认", "必须确实进入九键组字")
+        for _ in 0..<64 where enter.accessibilityLabel == "确认" {
+          space.sendActions(for: .primaryActionTriggered)
+          controller.view.layoutIfNeeded()
+        }
+        XCTAssertNotEqual(enter.accessibilityLabel, "确认", "下一句开始前必须消耗完组字")
+      }
+    }
+    report("nineKey-long-controller", controllerSamples)
   }
 
   private func descendants(_ view: UIView) -> [UIView] {

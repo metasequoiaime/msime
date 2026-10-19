@@ -3097,6 +3097,45 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testSpellingSidebarChangesKeepTheKeyLayout() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    defer { controller.viewDidDisappear(false) }
+    let digit = try button("nineKey6", in: controller)
+    let punctuation = try button("quickPunctuationKey", in: controller)
+    let strip = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "nineKeySpellingStrip"
+    })
+    // 完整布局会重建标点菜单；拼音侧栏切换只需更新它自己，不应重写整套键盘。
+    let menu = try XCTUnwrap(punctuation.menu)
+    let frame = digit.convert(digit.bounds, to: controller.view)
+    for _ in 0..<3 {
+      digit.sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertFalse(strip.isHidden)
+      XCTAssertTrue(punctuation.menu === menu)
+      XCTAssertEqual(digit.convert(digit.bounds, to: controller.view), frame)
+      let delete = try button("nineKeyDelete", in: controller)
+      delete.sendActions(for: .touchDown)
+      delete.sendActions(for: .touchUpInside)
+      controller.view.layoutIfNeeded()
+      XCTAssertTrue(strip.isHidden)
+      XCTAssertTrue(punctuation.menu === menu)
+      XCTAssertEqual(digit.convert(digit.bounds, to: controller.view), frame)
+    }
+  }
+
   func testSpellingStripReusesItsButtonsBetweenKeystrokes() throws {
     let previousScheme = InputSchemePreference.scheme
     let previousEnabled = InputSchemePreference.enabledSchemes
@@ -3127,6 +3166,20 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertTrue(before === after)
     }
     XCTAssertTrue(second.contains { ($0.accessibilityIdentifier ?? "").hasPrefix("nineKeySpelling_") })
+    let labels = second.map { $0.accessibilityLabel }
+    let identifiers = second.map { $0.accessibilityIdentifier }
+    // 清空后再输入同样的组码，缓存的格子必须重新显示，保留读屏身份和拼写。
+    for _ in 0..<3 {
+      let delete = try button("nineKeyDelete", in: controller)
+      delete.sendActions(for: .touchDown)
+      delete.sendActions(for: .touchUpInside)
+    }
+    XCTAssertTrue(second.allSatisfy(\.isHidden))
+    for digit in "646" { try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered) }
+    let restored = descendants(strip).compactMap { $0 as? UIButton }.filter { !$0.isHidden }
+    XCTAssertEqual(restored.map { $0.accessibilityLabel }, labels)
+    XCTAssertEqual(restored.map { $0.accessibilityIdentifier }, identifiers)
+    controller.viewDidDisappear(false)
   }
 
   /// Nine-key digits reach the English candidates too.

@@ -169,6 +169,47 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
         + "\(globe.exists) keys=[\(buttons)]")
   }
 
+  /// 在真机系统键盘中重复组字、选词和提交，输入始终使用合成拼音。
+  func testNineKeyRepeatedChineseInputOnDevice() throws {
+    let app = XCUIApplication()
+    let field = try focusedTryoutKeyboard(app)
+    app.buttons["schemeButton"].tap()
+    let card = app.buttons["schemeCard-nineKey"]
+    XCTAssertTrue(card.waitForExistence(timeout: 5), "九键方案必须可用")
+    card.tap()
+    let language = app.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
+    let digitsByLetter = Dictionary(uniqueKeysWithValues:
+      zip(["abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz"], "23456789")
+        .flatMap { letters, digit in letters.map { ($0, digit) } })
+    for round in 0..<3 {
+      for spelling in ["nihao", "zhongguo", "shurufa", "jintiantianqihenhao"] {
+        let digits = spelling.compactMap { digitsByLetter[$0] }
+        for digit in digits {
+          let key = app.buttons["nineKey\(digit)"]
+          XCTAssertTrue(key.exists, "九键按键必须存在")
+          key.tap()
+        }
+        let candidate = app.buttons["candidate-1"]
+        XCTAssertTrue(candidate.waitForExistence(timeout: 5), "组字之后必须有汉字候选")
+        let before = field.value as? String ?? ""
+        if round.isMultiple(of: 2) { app.buttons["spaceKey"].tap() } else { candidate.tap() }
+        // 首选可能只消费前几个音节，继续提交剩余组字，避免把下一例接进上一例。
+        for _ in 0..<12 {
+          guard app.buttons["returnKey"].label == "确认", candidate.exists else { break }
+          candidate.tap()
+        }
+        let after = field.value as? String ?? ""
+        XCTAssertFalse(after.isEmpty, "汉字必须跨进程上屏")
+        XCTAssertNotEqual(after, before, "提交必须替换预编辑")
+        XCTAssertNotEqual(app.buttons["returnKey"].label, "确认", "提交后不能残留组字")
+        XCTAssertNotNil(after.range(of: "^[\\p{Han}]+$", options: .regularExpression),
+                        "合成拼音提交后只能留下汉字，不能残留数字或拼音")
+      }
+      print("NINEKEY_DEVICE round=\(round + 1) phrases=4 completed=1")
+    }
+  }
+
   /// 在系统加载的扩展里点按英文按键，校验原文、默认纠错和明确拒绝纠错。
   func testEnglishCorrectionCommitsThroughTheHostDocument() throws {
     let app = XCUIApplication()

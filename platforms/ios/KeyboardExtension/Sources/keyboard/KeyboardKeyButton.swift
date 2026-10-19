@@ -370,17 +370,24 @@ final class KeyboardKeyButton: UIButton {
     }
   }
 
+  private var appliedShadowBounds: CGRect?
+  private var appliedShadowRadius: CGFloat?
+
   override func layoutSubviews() {
     super.layoutSubviews()
-    // The key's own pass is the one that sees its final size. The keyboard controller's pass does not run again when the
-    // system walks the window down to its real height while the keyboard appears, so a shadow path taken there kept a
-    // key from the taller frame and hung a dark block below every key until something laid the keyboard out again.
+    // 按钮自己的布局才能看到最终尺寸。控制器不再遍历整棵视图树重复更新阴影；
+    // 按钮尺寸和圆角不变时，候选更新引发的布局也不必重建路径。
     if layer.shadowOpacity > 0 {
-      layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: KeyboardTheme.current.cornerRadius).cgPath
+      let radius = KeyboardTheme.current.cornerRadius
+      if appliedShadowBounds != bounds || appliedShadowRadius != radius || layer.shadowPath == nil {
+        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: radius).cgPath
+        appliedShadowBounds = bounds
+        appliedShadowRadius = radius
+      }
     }
     if let shade = pressShade, shade.opacity > 0 { layoutPressShade() }
     guard let lines = titleLineCount else { return }
-    titleLabel?.numberOfLines = lines
+    if titleLabel?.numberOfLines != lines { titleLabel?.numberOfLines = lines }
   }
 }
 

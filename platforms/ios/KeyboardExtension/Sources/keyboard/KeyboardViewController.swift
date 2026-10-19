@@ -2335,8 +2335,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let readingStripShown = inReadingRow && !spellings.isEmpty
     if readingSpellingScrollView.isHidden == readingStripShown { readingSpellingScrollView.isHidden = !readingStripShown }
     readingSpellingMinimumWidth?.isActive = readingStripShown
-    spellingScrollView.setContentOffset(.zero, animated: false)
-    readingSpellingScrollView.setContentOffset(.zero, animated: false)
+    if spellingScrollView.contentOffset != .zero { spellingScrollView.setContentOffset(.zero, animated: false) }
+    if readingSpellingScrollView.contentOffset != .zero { readingSpellingScrollView.setContentOffset(.zero, animated: false) }
   }
 
   /// 拼音选择条是否在读音行里：全拼 14 键是，九键的在侧栏里。
@@ -2362,7 +2362,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         continue
       }
       let spelling = spellings[index]
-      // Drawn like the punctuation keys that share the sidebar: bare text in the key colour on the sidebar's own fill. The accent is kept for the reading and the chosen candidate.
+      if button.isHidden { button.isHidden = false }
+      // 列表变化不代表每一格都变化；复用同位置的拼写，避免整列重新排版。皮肤由统一的换肤路径更新。
+      guard button.configuration?.title != spelling else { continue }
+      // 与共用侧栏的标点一样，只画文字，强调色留给读音和首选词块。
       // 读音行里的拼音条同样只画文字，字号比读音大一号，左右留出间距好点中，高度就是读音行的高度。
       var configuration = UIButton.Configuration.plain()
       configuration.title = spelling
@@ -5173,7 +5176,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let moreSymbols: Bool
     let toolbarEmojiAvailable: Bool
     let globe: Bool
-    let hasSpellings: Bool
     let geometry: KeyboardGeometry
     let formFactor: KeyboardFormFactor
     let fullKeys: Bool
@@ -5203,7 +5205,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       chinese: isChineseMode, scheme: inputScheme, localMode: currentLocalMode,
       symbols: showsSymbols, moreSymbols: showsMoreSymbols,
       toolbarEmojiAvailable: toolbarEmojiAvailable, globe: needsInputModeSwitchKey,
-      hasSpellings: sidebarCarriesSpellings,
       geometry: KeyboardLayoutPreference.geometry,
       formFactor: formFactor, fullKeys: KeyboardLayoutPreference.tabletFullKeys,
       split: wantsSplitKeyboard)
@@ -5239,10 +5240,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// out costs the same whether or not anything changed, and between two letters of the same word
   /// nothing does.
   private func updateKeyboardLayoutIfNeeded() {
+    updateNineKeySidebar()
     let inputs = layoutInputs
     guard appliedLayoutInputs != inputs else { return }
     appliedLayoutInputs = inputs
     updateKeyboardLayout()
+  }
+
+  /// 拼音与标点只交换侧栏内容，不改变网格和底行约束。
+  private func updateNineKeySidebar() {
+    let hasSpellings = sidebarCarriesSpellings
+    let numberPad = numberPadShown
+    spellingScrollView.isHidden = !hasSpellings
+    punctuationStack.isHidden = hasSpellings || numberPad
+    numberPadSidebar.isHidden = !numberPad
   }
 
   private func updateSymbolKeyFaces() {
@@ -5336,10 +5347,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyRows.forEach { $0.isHidden = !nineKeyFrame || strokePad }
     applyNineKeyDigitLayer(nineKeyDigits)
     updateNineKeyMiddleKey()
-    let hasSpellings = sidebarCarriesSpellings
-    spellingScrollView.isHidden = !hasSpellings
-    punctuationStack.isHidden = hasSpellings || numberPad
-    numberPadSidebar.isHidden = !numberPad
+    updateNineKeySidebar()
     if actionRow != nil {
       let phoneRow = Self.usesPhoneBottomRow(formFactor: formFactor, nineKeyFrame: nineKeyFrame, handwriting: writes, kana: kana,
                                              fourteenKey: fourteenKeyRows)
@@ -6716,25 +6724,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       insets: Self.candidateChipInsets)
   }
 
-  /// `leadLine` is the width of a line under the candidate that must not be cut, a Korean Hanja's 훈음, which widens the chip as the candidate itself would.
-  private func pinCandidateWidth(
-    of button: KeyboardKeyButton, firstLine title: AttributedString?, glossLines: Int, glossLine: CGFloat,
-    leadLine: CGFloat = 0
-  ) {
+  /// 复用构造释义行时已经算好的内容宽度，避免再次转换富文本并测量首行。
+  private func pinCandidateWidth(of button: KeyboardKeyButton, contentWidth: CGFloat?) {
     let existing = button.constraints.first { $0.identifier == "candidateChipWidth" }
-    guard glossLines > 0, let title else {
+    guard let contentWidth else {
       if existing?.isActive == true { existing?.isActive = false }
       return
     }
-    let text = NSAttributedString(title)
-    let separator = (text.string as NSString).range(of: "\n")
-    let head = separator.location == NSNotFound
-      ? NSRange(location: 0, length: text.length)
-      : NSRange(location: 0, length: separator.location)
-    let width = KeyboardKeyButton.chipWidth(
-      titleLine: max(text.attributedSubstring(from: head).size().width, leadLine),
-      glossLine: glossLine, glossLines: glossLines, column: candidateColumnWidth(),
-      insets: button.configuration?.contentInsets ?? .zero)
+    let insets = button.configuration?.contentInsets ?? .zero
+    let width = ceil(contentWidth + insets.leading + insets.trailing)
     if let existing {
       guard !existing.isActive || abs(existing.constant - width) > 0.5 else { return }
       existing.constant = width
@@ -6787,8 +6785,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 在线占位行画成次要色，和真候选区分开（#6888）。
     if aiPlaceholder { configuration.baseForegroundColor = annotationColor }
     // The 훈음 is drawn whole, like an inline hint was, so the chip widens to it rather than cutting it to the gloss column; the glosses under it fit that width.
-    var readingWidth: CGFloat = 0
-    var glossWidth: CGFloat = 0
+    var contentWidth: CGFloat?
     let candidateFont = Self.candidateChipFont(scale: candidateFontScale, families: candidateFontFamilies, weight: weight)
     if annotation.isEmpty && lines.isEmpty && markers.isEmpty {
       configuration.titleLineBreakMode = .byTruncatingTail
@@ -6817,25 +6814,27 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           .foregroundColor: annotationColor,
         ]))
       }
-      let caption = UIFont.systemFont(ofSize: Self.candidateGlossFontSize)
-      readingWidth = reading.map { ceil(($0 as NSString).size(withAttributes: [.font: caption]).width) } ?? 0
-      glossWidth = lines.map { ceil(($0 as NSString).size(withAttributes: [.font: caption]).width) }.max() ?? 0
-      let content = KeyboardKeyButton.chipContentWidth(
-        titleLine: max(NSAttributedString(title).size().width, readingWidth), glossLine: glossWidth,
-        glossLines: lines.count, column: candidateColumnWidth())
-      for gloss in lines {
-        let fitted = KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content)
-        title += AttributedString("\n" + fitted.text, attributes: AttributeContainer([
-          .font: fitted.font, .paragraphStyle: paragraph,
-          .foregroundColor: annotationColor,
-        ]))
+      if !lines.isEmpty {
+        let caption = UIFont.systemFont(ofSize: Self.candidateGlossFontSize)
+        let readingWidth = reading.map { ceil(($0 as NSString).size(withAttributes: [.font: caption]).width) } ?? 0
+        let glossWidth = lines.map { ceil(($0 as NSString).size(withAttributes: [.font: caption]).width) }.max() ?? 0
+        let content = KeyboardKeyButton.chipContentWidth(
+          titleLine: max(NSAttributedString(title).size().width, readingWidth), glossLine: glossWidth,
+          glossLines: lines.count, column: candidateColumnWidth())
+        contentWidth = content
+        for gloss in lines {
+          let fitted = KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content)
+          title += AttributedString("\n" + fitted.text, attributes: AttributeContainer([
+            .font: fitted.font, .paragraphStyle: paragraph,
+            .foregroundColor: annotationColor,
+          ]))
+        }
       }
       configuration.attributedTitle = title
     }
     button.configuration = configuration
     button.titleLineCount = 1 + lines.count
-    pinCandidateWidth(of: button, firstLine: configuration.attributedTitle, glossLines: lines.count,
-                      glossLine: glossWidth, leadLine: readingWidth)
+    pinCandidateWidth(of: button, contentWidth: contentWidth)
     // `hintSpoken` 是注释另有读法时的朗读文字，比如拆字的读音不是还要输入的键。
     button.accessibilityLabel = annotation.isEmpty
       ? "候选词 \(number)：\(display)"
@@ -7111,14 +7110,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     updateSplitKeyboardIfNeeded()
     updatePreferredKeyboardHeight()
-    func updateShadows(_ node: UIView) {
-      if let button = node as? UIButton, button.layer.shadowOpacity > 0 {
-        button.layer.shadowPath = UIBezierPath(roundedRect: button.bounds,
-          cornerRadius: KeyboardTheme.current.cornerRadius).cgPath
-      }
-      node.subviews.forEach { updateShadows($0) }
-    }
-    updateShadows(view)
   }
 
   private var showsPhoneLetterRows: Bool {
