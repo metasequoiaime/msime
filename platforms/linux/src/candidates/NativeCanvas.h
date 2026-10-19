@@ -231,8 +231,8 @@ inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasA
   double x = padding[3], row_height = 0;
   for (const auto &item : content.items) {
     const auto size = native_canvas_text_size(cr, metrics.font, item.text);
-    const auto label = metrics.number_scale == 0 || item.label.empty() ? 0 :
-        std::max(metrics.number_min_width, native_canvas_text_size(cr, metrics.number_font, item.label).first);
+    const auto label = item.label.empty() ? 0 : std::max(metrics.number_min_width,
+        metrics.number_scale == 0 ? 0 : native_canvas_text_size(cr, metrics.number_font, item.label).first);
     const double item_height = metrics.custom_height ? std::max(base_height, size.second) :
         std::max({line, number_line, size.second}) + metrics.extra_height;
     row_height = std::max(row_height, item_height);
@@ -388,8 +388,10 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
     if (metrics.number_scale > 0 && !item.label.empty()) {
       rect.y = top + (centered ? (rect.height - label_size.second) / 2 : 4);
       text(item.label, rect, metrics.number_font, selected ? "selected_number" : "number", "#555555");
-      rect.x += std::max(metrics.number_min_width, label_size.first) + metrics.number_gap;
     }
+    // 序号字号为 0 时不画字形，但来源仍保留最小 9 DIP 序号栏与间距。
+    if (!item.label.empty()) rect.x += std::max(metrics.number_min_width,
+        metrics.number_scale == 0 ? 0 : label_size.first) + metrics.number_gap;
     rect.y = top + (centered ? (rect.height - text_height) / 2 : 4);
     text(item.text, rect, metrics.font, selected ? "selected_text" : "text", "#202020");
   }

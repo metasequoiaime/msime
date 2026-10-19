@@ -114,11 +114,24 @@ void skin_layout() {
     assert(painted.items[0].contains(x, y));
   }
   assert(ink > 100);
-  // 序号缩放为零时不绘制且不占标签间距，候选文字仍正常显示。
+  // 序号缩放为零时不绘制，但仍保留来源的 9 DIP 序号栏与 number_gap。
   assets.geometry["numberScale"] = 0.0;
   const auto no_numbers = host::measure_native_canvas(cr, assets, content);
+  const auto zero_target = image(400, 200, 0);
+  auto *zero_cr = cairo_create(zero_target.get());
+  host::paint_native_canvas(zero_cr, assets, content, no_numbers,
+      {{"surface", "#000000"}, {"selected", "#000000"}, {"selected_text", "#FFFFFF"}, {"selected_number", "#FFFFFF"}});
+  const double text_left = no_numbers.items[0].x + no_numbers.metrics.number_inset + 9 + 18;
+  int text_ink = 0;
+  for (int y = 0; y < no_numbers.height; ++y) for (int x = 0; x < no_numbers.width; ++x) {
+    if ((pixel(zero_target.get(), x, y) & 0xffffff) == 0) continue;
+    ++text_ink;
+    assert(x >= text_left && no_numbers.items[0].contains(x, y));
+  }
+  assert(text_ink > 100);
+  cairo_destroy(zero_cr);
   content.items[0].label.clear();
-  assert(host::measure_native_canvas(cr, assets, content).width == no_numbers.width);
+  assert(no_numbers.width - host::measure_native_canvas(cr, assets, content).width == 27);
   cairo_destroy(cr);
 }
 
