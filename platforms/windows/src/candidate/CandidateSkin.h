@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include "CandidateCanvas.h"
 #include "CandidatePalette.h"
 #include "CandidateSkinLayout.h"
 #include <nlohmann/json.hpp>
@@ -274,6 +275,123 @@ inline CandidateSkinLayout candidate_skin_layout(const nlohmann::json &catalog,
       rows && *rows >= 2.0 && std::floor(*rows) == *rows)
     layout.expand_rows = static_cast<int>(*rows);
   return layout;
+}
+namespace detail {
+// `sliceDip` / `stretchDip` / `widthDip`：1、2 或 4 个 0-500 的数，与 catalog 的 read_box_values 相同；读不懂时为空。
+inline std::optional<std::vector<double>> candidate_skin_box_values(const nlohmann::json &object,
+                                                                   const char *key) {
+  if (!object.contains(key) || !object.at(key).is_array())
+    return std::nullopt;
+  const auto &array = object.at(key);
+  if (array.size() != 1 && array.size() != 2 && array.size() != 4)
+    return std::nullopt;
+  std::vector<double> values;
+  for (const auto &value : array) {
+    if (!value.is_number())
+      return std::nullopt;
+    const auto number = value.get<double>();
+    if (!std::isfinite(number) || number < 0.0 || number > 500.0)
+      return std::nullopt;
+    values.push_back(number);
+  }
+  return values;
+}
+// `SkinInsets`（四个键都在）；上下不超过 max_vertical，左右不超过 max_horizontal，与 catalog 的 read_insets 相同。
+inline std::optional<CandidateCanvasEdges>
+candidate_skin_canvas_insets(const nlohmann::json &object, const char *key, double max_vertical,
+                             double max_horizontal) {
+  if (!object.contains(key) || !object.at(key).is_object())
+    return std::nullopt;
+  const auto &insets = object.at(key);
+  const auto top = candidate_skin_number(insets, "top", max_vertical),
+             right = candidate_skin_number(insets, "right", max_horizontal),
+             bottom = candidate_skin_number(insets, "bottom", max_vertical),
+             left = candidate_skin_number(insets, "left", max_horizontal);
+  if (!top || !right || !bottom || !left)
+    return std::nullopt;
+  return CandidateCanvasEdges{*top, *right, *bottom, *left};
+}
+// -limit 到 limit 之间的数，没写时是 0；不是数或越界时为空。
+inline std::optional<double> candidate_skin_offset(const nlohmann::json &object, const char *key,
+                                                   double limit) {
+  if (!object.contains(key))
+    return 0.0;
+  if (!object.at(key).is_number())
+    return std::nullopt;
+  const auto value = object.at(key).get<double>();
+  if (!std::isfinite(value) || value < -limit || value > limit)
+    return std::nullopt;
+  return value;
+}
+} // namespace detail
+// `base = "canvas"` 包的画布（CandidateCanvas.h）：九宫格面板、内容内边距、外留白、行距和自由挂件。图片路径按包内相对路径解析成绝对路径，和装饰图、背景图同一道检查（不出包目录、不经符号链接、文件存在）。catalog 只在 `canvas` 时才给出这些键；读不懂的面板整个不要（版式也不按它的边宽留），读不懂的挂件只丢那一个，读不懂的内边距、外留白和行距当作没写。
+inline CandidateSkinCanvas candidate_skin_canvas(const nlohmann::json &catalog,
+                                                 const std::string &id,
+                                                 const std::filesystem::path &root) {
+  CandidateSkinCanvas canvas;
+  const auto *package = detail::candidate_skin_package(catalog, id);
+  if (!package || !detail::candidate_skin_flag(*package, "canvas").value_or(false))
+    return canvas;
+  canvas.active = true;
+  if (package->contains("borderImage") && package->at("borderImage").is_object()) {
+    const auto &value = package->at("borderImage");
+    const auto slice = detail::candidate_skin_box_values(value, "sliceDip");
+    auto source = value.contains("source")
+                      ? detail::candidate_skin_file(value.at("source"), id, root)
+                      : std::wstring{};
+    if (slice && !source.empty()) {
+      CandidateCanvasBorder border;
+      border.source = std::move(source);
+      if (value.contains("lightSource"))
+        border.light_source = detail::candidate_skin_file(value.at("lightSource"), id, root);
+      // 写了 stretch_dip 时它盖过 slice_dip；没写 width_dip 时边宽取（盖过之后的）切片数值。
+      const auto stretch = detail::candidate_skin_box_values(value, "stretchDip");
+      border.slice = candidate_canvas_box(stretch ? *stretch : *slice);
+      const auto width = detail::candidate_skin_box_values(value, "widthDip");
+      border.width = width ? candidate_canvas_box(*width) : border.slice;
+      border.fill = detail::candidate_skin_flag(value, "fill").value_or(true);
+      canvas.border = std::move(border);
+    }
+  }
+  canvas.content_insets =
+      detail::candidate_skin_canvas_insets(*package, "contentInsetsDip", 200.0, 500.0);
+  canvas.outer_insets =
+      detail::candidate_skin_canvas_insets(*package, "outerInsetsDip", 500.0, 500.0);
+  canvas.line_gap = detail::candidate_skin_number(*package, "lineGapDip", 100.0);
+  if (package->contains("decorations") && package->at("decorations").is_array())
+    for (const auto &value : package->at("decorations")) {
+      if (canvas.decorations.size() >= 32)
+        break;
+      if (!value.is_object() || !value.contains("image"))
+        continue;
+      CandidateCanvasDecoration decoration;
+      decoration.image = detail::candidate_skin_file(value.at("image"), id, root);
+      const auto anchor = value.contains("anchor") && value.at("anchor").is_string()
+                              ? candidate_canvas_anchor(value.at("anchor").get<std::string>())
+                              : std::optional<CandidateCanvasAnchor>{CandidateCanvasAnchor::right};
+      const auto offset_x = detail::candidate_skin_offset(value, "offsetXDip", 2000.0);
+      const auto offset_y = detail::candidate_skin_offset(value, "offsetYDip", 2000.0);
+      const auto width = detail::candidate_skin_number(value, "widthDip", 2000.0);
+      const auto height = detail::candidate_skin_number(value, "heightDip", 2000.0);
+      if (decoration.image.empty() || !anchor || !offset_x || !offset_y || !width ||
+          !height || !(*width > 0.0) || !(*height > 0.0))
+        continue;
+      decoration.anchor = *anchor;
+      decoration.offset_x = *offset_x;
+      decoration.offset_y = *offset_y;
+      decoration.width = *width;
+      decoration.height = *height;
+      if (value.contains("zIndex")) {
+        if (!value.at("zIndex").is_number_integer())
+          continue;
+        const auto z = value.at("zIndex").get<int64_t>();
+        if (z < -1000 || z > 1000)
+          continue;
+        decoration.z_index = static_cast<int>(z);
+      }
+      canvas.decorations.push_back(std::move(decoration));
+    }
+  return canvas;
 }
 inline CandidateSkinBackground
 candidate_skin_background(const nlohmann::json &catalog, const std::string &id,

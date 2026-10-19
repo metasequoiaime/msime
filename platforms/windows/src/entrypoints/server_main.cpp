@@ -3,6 +3,7 @@
 #include "AuxListener.h"
 #include "VoiceTheme.h"
 #include "CandidateAppearance.h"
+#include "CandidateCanvasImages.h"
 #include "CandidateSkin.h"
 #include "CandidateThemeSettings.h"
 #include "SkinResourceRevision.h"
@@ -1489,10 +1490,10 @@ int wmain(int argc, wchar_t **argv) {
                     .first;
       return found->second;
     };
-    auto resolved_theme = [&](bool dark,
-                              bool horizontal) -> const CandidateThemeResolution & {
-      const auto request = candidate_theme_request(
-          current_candidate_theme, dark, horizontal, config.skin_directory);
+    auto resolved_theme = [&](bool dark, bool horizontal,
+                              bool canvas_panel_drawn = false) -> const CandidateThemeResolution & {
+      const auto request = candidate_theme_request(current_candidate_theme, dark, horizontal,
+                                                   config.skin_directory, canvas_panel_drawn);
       auto key = request.dump();
       auto found = resolved_themes.find(key);
       if (found == resolved_themes.end())
@@ -1500,20 +1501,40 @@ int wmain(int argc, wchar_t **argv) {
                     .first;
       return found->second;
     };
-    // The card's palette for a resolved theme: the shared resolution, with the package's extra slots (candidate_text, preedit, selected row, bar and menu colours) the resolution does not carry, under the user's pickers. A canvas package needs nothing more here: the shared catalog already gives it the opaque canvas look, replacing the colours picked for a nine-slice panel this host does not draw, as on every other host.
+    // The card's palette for a resolved theme: the shared resolution, with the package's extra slots (candidate_text, preedit, selected row, bar and menu colours) the resolution does not carry, under the user's pickers. 不画 canvas 面板的界面（工具条、菜单、语音浮层、双拼键位图，以及面板图解不出来的候选卡片）拿到的是共享 catalog 给 canvas 包的不透明 `canvas` 外观可读配色，与其他宿主相同。
     auto card_palette = [&](const CandidateThemeResolution &theme, bool dark) {
       return apply_candidate_skin_extra_slots(
           candidate_theme_palette(theme, dark),
           package_assets(theme.candidate_skin).candidate_colors,
           candidate_theme_pickers(current_candidate_theme), theme.dark.value_or(dark));
     };
-    // Canvas packages load here, but their border_image, insets and free decorations are not drawn; say so once per package.
+    // 候选卡片在这一种明暗下要画的 canvas 画布：按卡片实际的明暗选面板图，面板和挂件都用 WIC 确认解得出来。不是 canvas 包时为空。
+    auto card_canvas = [&](const CandidateThemeResolution &theme, bool dark) {
+      return candidate_canvas_drawable(package_assets(theme.candidate_skin).canvas_skin,
+                                       !theme.dark.value_or(dark),
+                                       candidate_canvas_image_decodes);
+    };
+    // 候选卡片自己的配色：面板画得出来时向共享层要 `canvas_panel_drawn` 的解析，取包为贴图挑的原配色（取色器照旧优先）；否则就是 card_palette。
+    auto card_canvas_palette = [&](const CandidateThemeResolution &theme, bool dark, bool horizontal,
+                                   const msime::windows::CandidateSkinCanvas &canvas) {
+      return candidate_canvas_panel_drawn(canvas)
+                 ? card_palette(resolved_theme(dark, horizontal, true), dark)
+                 : card_palette(theme, dark);
+    };
+    // canvas 包的面板图或挂件解不出来（文件损坏、系统没有对应的解码器）时，每款包记一次。
     std::set<std::string> canvas_skins_noticed;
     auto notice_canvas_skin = [&](const std::string &id,
-                                  const msime::windows::CandidateSkinAssets &assets) {
-      if (assets.canvas && canvas_skins_noticed.insert(id).second)
+                                  const msime::windows::CandidateSkinAssets &assets,
+                                  const msime::windows::CandidateSkinCanvas &drawn) {
+      if (!assets.canvas_skin.active || !canvas_skins_noticed.insert(id).second)
+        return;
+      if (assets.canvas_skin.border && !candidate_canvas_panel_drawn(drawn))
         notice("Candidate skin " + id +
-               " is a canvas skin; this host does not draw its border_image, insets or free decorations yet, so the card uses the canvas look");
+               ": the canvas border_image does not decode, so the card uses the opaque canvas look");
+      if (const auto dropped =
+              assets.canvas_skin.decorations.size() - drawn.decorations.size())
+        notice("Candidate skin " + id + ": " + std::to_string(dropped) +
+               " canvas decoration image(s) do not decode and are not drawn");
     };
     bool candidate_theme_dirty = true;
     bool candidate_dark_applied = config.dark_theme;
@@ -1536,13 +1557,17 @@ int wmain(int argc, wchar_t **argv) {
     {
       const auto &theme =
           resolved_theme(config.dark_theme, config.horizontal_candidates);
-      auto palette = card_palette(theme, config.dark_theme);
+      const auto canvas = card_canvas(theme, config.dark_theme);
+      auto palette = card_canvas_palette(theme, config.dark_theme,
+                                         config.horizontal_candidates, canvas);
+      auto keymap_palette = card_palette(theme, config.dark_theme);
       const auto &assets = package_assets(theme.candidate_skin);
       if (config.candidate_selected_bar)
-        palette.show_selected_bar = *config.candidate_selected_bar;
+        palette.show_selected_bar = keymap_palette.show_selected_bar =
+            *config.candidate_selected_bar;
       candidates.set_palette(palette);
       if (keymap)
-        keymap->set_palette(palette);
+        keymap->set_palette(keymap_palette);
       // An external package may ask for a wider card than the font implies; the artwork is drawn against that width.
       candidates.set_skin_min_width(assets.min_width);
       candidates.set_skin_decoration(assets.decoration);
@@ -1551,7 +1576,8 @@ int wmain(int argc, wchar_t **argv) {
       candidates.set_skin_layout(assets.layout);
       candidates.set_skin_font_family(assets.font_family);
       candidates.set_skin_animation(assets.animation);
-      notice_canvas_skin(theme.candidate_skin, assets);
+      candidates.set_skin_canvas(canvas);
+      notice_canvas_skin(theme.candidate_skin, assets, canvas);
       candidate_skin_applied = theme.candidate_skin;
     }
     candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
@@ -2173,12 +2199,17 @@ int wmain(int argc, wchar_t **argv) {
         if (candidate_theme_dirty || skin_resources_changed || dark != candidate_dark_applied ||
             candidate_horizontal != candidate_horizontal_applied) {
           const auto &theme = resolved_theme(dark, candidate_horizontal);
-          auto next_palette = card_palette(theme, dark);
+          // 面板图跟着明暗换（`light_source`），所以每次重新套用配色都重新选一次画布。
+          const auto canvas = card_canvas(theme, dark);
+          auto next_palette = card_canvas_palette(theme, dark, candidate_horizontal, canvas);
+          auto keymap_palette = card_palette(theme, dark);
           if (config.candidate_selected_bar)
-            next_palette.show_selected_bar = *config.candidate_selected_bar;
+            next_palette.show_selected_bar = keymap_palette.show_selected_bar =
+                *config.candidate_selected_bar;
           candidates.set_theme_palette(next_palette);
+          candidates.set_skin_canvas(canvas);
           if (keymap)
-            keymap->set_palette(next_palette);
+            keymap->set_palette(keymap_palette);
           if (skin_resources_changed || theme.candidate_skin != candidate_skin_applied) {
             const auto &assets = package_assets(theme.candidate_skin);
             candidates.invalidate_skin_images();
@@ -2189,7 +2220,7 @@ int wmain(int argc, wchar_t **argv) {
             candidates.set_skin_layout(assets.layout);
             candidates.set_skin_font_family(assets.font_family);
             candidates.set_skin_animation(assets.animation);
-            notice_canvas_skin(theme.candidate_skin, assets);
+            notice_canvas_skin(theme.candidate_skin, assets, canvas);
             candidate_skin_applied = theme.candidate_skin;
           }
           candidate_dark_applied = dark;

@@ -1,7 +1,8 @@
 // 候选皮肤截图工具：用 Server 的候选窗（CandidateWindow）把皮肤目录里的每款皮肤画在一页固定的假候选上，从屏幕截下来存成 PNG，没有 Windows 机器也能在 CI 的产物里看皮肤画得对不对。用法和 CI 里的跑法见 platforms/windows/README.md「候选皮肤截图」。
 //
-// 皮肤怎么套用照 server_main.cpp：共享层的 msime_client_skin_catalog 扫目录、msime_client_resolve_theme 按排列和明暗解析主题，配色、最小宽度、装饰图、背景图、圆角、版式、字体和动效经同样的 setter 交给候选窗；共享默认偏好（msime_client_default_preferences）给出字体、字号、缩放、不透明度和首行设置。卷轴展开用 CandidateWindow::open_expansion 打开，Server 那一侧的「开着」和完整候选列表由这里的读取器扮演。
+// 皮肤怎么套用照 server_main.cpp：共享层的 msime_client_skin_catalog 扫目录、msime_client_resolve_theme 按排列和明暗解析主题，canvas 包按明暗选面板图、确认图片解得出来，面板画得出来时再带 `canvas_panel_drawn` 解析一次取贴图原配色，配色、最小宽度、装饰图、背景图、圆角、版式、字体、动效和 canvas 画布经同样的 setter 交给候选窗；共享默认偏好（msime_client_default_preferences）给出字体、字号、缩放、不透明度和首行设置。卷轴展开用 CandidateWindow::open_expansion 打开，Server 那一侧的「开着」和完整候选列表由这里的读取器扮演。
 #include "CandidateSkinGallery.h"
+#include "CandidateCanvasImages.h"
 #include "CandidateFontSettings.h"
 #include "CandidateLayoutSettings.h"
 #include "CandidateSkinAssets.h"
@@ -284,6 +285,8 @@ struct Defaults {
 struct Look {
   CandidatePalette palette;
   CandidateSkinAssets assets;
+  // 这一种明暗下要画的 canvas 画布（candidate_canvas_drawable）；不是 canvas 包时为空。
+  CandidateSkinCanvas canvas;
 };
 
 // 画一张截图并写进 output。成功返回 true；失败时日志里写清楚是哪一步。
@@ -325,6 +328,7 @@ bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defa
     window.set_skin_layout(look.assets.layout);
     window.set_skin_font_family(look.assets.font_family);
     window.set_skin_animation(look.assets.animation);
+    window.set_skin_canvas(look.canvas);
     const auto wait_for_frame = [&](size_t after, DWORD timeout) {
       const ULONGLONG deadline = GetTickCount64() + timeout;
       while (frames <= after && !window.failed() && GetTickCount64() < deadline)
@@ -530,7 +534,7 @@ int wmain(int argc, wchar_t **argv) {
                          package.value("layouts", nlohmann::json::array()).dump() + ", themes " +
                          package.value("themes", nlohmann::json::array()).dump();
       if (package.value("canvas", false))
-        line += ", canvas (border_image, insets and free decorations are not drawn on Windows)";
+        line += ", canvas";
       report(line);
       if (package.contains("notices") && package.at("notices").is_array())
         for (const auto &notice : package.at("notices"))
@@ -597,9 +601,42 @@ int wmain(int argc, wchar_t **argv) {
             Look look;
             if (!skin.empty())
               look.assets = candidate_skin_assets(*catalog, skin, skins);
+            // canvas：按卡片实际的明暗选面板图，解不出来的面板和挂件不画，并写进日志。
+            look.canvas = candidate_canvas_drawable(look.assets.canvas_skin, !theme->dark.value_or(dark),
+                                                    candidate_canvas_image_decodes);
+            auto palette_theme = *theme;
+            if (look.assets.canvas_skin.active) {
+              const bool panel = candidate_canvas_panel_drawn(look.canvas);
+              report(gallery::shot_label(shot) + ": canvas panel " +
+                     (look.assets.canvas_skin.border ? (panel ? "drawn" : "does not decode, opaque canvas look")
+                                                     : std::string("none")) +
+                     ", " + std::to_string(look.canvas.decorations.size()) + " of " +
+                     std::to_string(look.assets.canvas_skin.decorations.size()) + " decorations decode");
+              if (look.assets.canvas_skin.border && !panel) {
+                report(gallery::shot_label(shot) + ": FAILED, the canvas border_image does not decode");
+                ++failed;
+              }
+              if (look.canvas.decorations.size() != look.assets.canvas_skin.decorations.size()) {
+                report(gallery::shot_label(shot) + ": FAILED, a canvas decoration image does not decode");
+                ++failed;
+              }
+              if (panel) {
+                // 和 Server 一样：面板画得出来时取包为贴图挑的原配色。
+                const auto drawn_request = candidate_theme_request(values, dark, horizontal, skins, true);
+                const auto drawn_value = host_call(msime_client_resolve_theme, drawn_request.dump(), error);
+                const auto drawn_theme = drawn_value ? candidate_theme_resolution(*drawn_value) : std::nullopt;
+                if (!drawn_theme) {
+                  report(gallery::shot_label(shot) + ": FAILED, canvas panel theme resolution: " +
+                      (drawn_value ? "unreadable answer " + drawn_value->dump() : error));
+                  ++failed;
+                  continue;
+                }
+                palette_theme = *drawn_theme;
+              }
+            }
             look.palette = apply_candidate_skin_extra_slots(
-                candidate_theme_palette(*theme, dark), look.assets.candidate_colors,
-                candidate_theme_pickers(values), theme->dark.value_or(dark));
+                candidate_theme_palette(palette_theme, dark), look.assets.candidate_colors,
+                candidate_theme_pickers(values), palette_theme.dark.value_or(dark));
             const auto shots = horizontal && look.assets.layout.expand_panel.value_or(false) ? 2 : 1;
             for (int index = 0; index < shots; ++index) {
               shot.expanded = index == 1;
