@@ -10,7 +10,7 @@ Status: implemented
 
 `use-community-candidate-skin-gallery.ts` 提供受客户端驱动的 `useCommunityCandidateSkinGallery`，接收 `client` 和可选的 `localSkins`，持有原页面的业务状态与动作。页面接收 hook 返回的状态和动作，只负责展示与发布对话框接线；hook、选项与返回类型从 `@msime/ui` 导出。
 
-保留每客户端容量 16 的预览 Promise LRU、读取失败后移除并可重试、安装预检的迟到结果守卫，以及安装已完成时总是通知目录重扫的顺序。同步仍只在明确调用时运行，不能因为打开、搜索、筛选或安装而自动同步。发布草稿与宿主文件操作留在已有组件和接口。
+保留每客户端容量 16 的预览 Promise LRU（每个发布 id 一份，按读取时的 `updated_at` 取，作者原地替换后重新读取，见[macOS 皮肤包同名替换](../bug-fix/2026-10-20-macos-replaced-skin-package-refresh.md)）、读取失败后移除并可重试、安装预检的迟到结果守卫，以及安装已完成时总是通知目录重扫的顺序。同步仍只在明确调用时运行，不能因为打开、搜索、筛选或安装而自动同步。发布草稿与宿主文件操作留在已有组件和接口。
 
 ## Alternatives considered
 
