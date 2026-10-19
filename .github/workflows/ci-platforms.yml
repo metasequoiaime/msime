@@ -442,6 +442,17 @@ jobs:
         with:
           name: windows-candidate-skin-gallery-tool
           path: target/windows-candidate-skin-gallery-tool
+      # 托管 runner 的桌面缺省 1024 宽，候选窗最多占工作区一半宽，九个候选加释义挤在一起，英文释义被折成半个单词。调到 1920x1080，截图才像用户的屏幕；调不了只记一行，截图照样进行（工具日志里有实际的工作区）。
+      - name: Raise the desktop resolution
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: powershell
+        run: |
+          try {
+            Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop
+            Write-Host 'Desktop resolution set to 1920x1080'
+          } catch {
+            Write-Host "Desktop resolution unchanged: $($_.Exception.Message)"
+          }
       - name: Render the candidate skins
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh

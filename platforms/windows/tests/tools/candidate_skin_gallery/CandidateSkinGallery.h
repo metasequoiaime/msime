@@ -1,6 +1,7 @@
 #pragma once
 // 候选皮肤截图工具（main.cpp）里不碰 Win32 的部分：截图的文件名、假的候选页和后续候选、判断一张截图是不是空白。windows-candidate-skin-gallery-plan 在任何平台上都能测它们。
 #include "CandidatePresentation.h"
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdlib>
@@ -107,24 +108,73 @@ struct CaptureVerdict {
   size_t total = 0;
   double fraction() const { return total ? static_cast<double>(differing) / static_cast<double>(total) : 0.0; }
 };
+// 一个 BGRA 像素和底色（0xRRGGBB）是否不同：任一通道差超过 tolerance。
+inline bool pixel_differs(const uint8_t *bgra, uint32_t backdrop, int tolerance) {
+  return std::abs(bgra[0] - static_cast<int>(backdrop & 0xff)) > tolerance ||
+         std::abs(bgra[1] - static_cast<int>((backdrop >> 8) & 0xff)) > tolerance ||
+         std::abs(bgra[2] - static_cast<int>((backdrop >> 16) & 0xff)) > tolerance;
+}
 inline CaptureVerdict capture_verdict(const std::vector<uint8_t> &pixels, uint32_t backdrop,
                                       int tolerance = 12) {
   CaptureVerdict verdict;
-  const int red = static_cast<int>((backdrop >> 16) & 0xff);
-  const int green = static_cast<int>((backdrop >> 8) & 0xff);
-  const int blue = static_cast<int>(backdrop & 0xff);
   for (size_t offset = 0; offset + 3 < pixels.size(); offset += 4) {
     ++verdict.total;
-    if (std::abs(pixels[offset] - blue) > tolerance ||
-        std::abs(pixels[offset + 1] - green) > tolerance ||
-        std::abs(pixels[offset + 2] - red) > tolerance)
+    if (pixel_differs(&pixels[offset], backdrop, tolerance))
       ++verdict.differing;
   }
   return verdict;
 }
+// 窗口最外一圈像素里和底色不同的比例，四条边分开算。窗口四周是阴影边距，阴影到边上已经淡没了，最外一圈应该就是底色；卡片的底色、外框或文字出现在这一圈上，说明卡片画到了窗口边上、被窗口裁掉了。
+struct EdgeBleed {
+  double left = 0.0, top = 0.0, right = 0.0, bottom = 0.0;
+  double worst() const { return (std::max)((std::max)(left, right), (std::max)(top, bottom)); }
+};
+inline EdgeBleed edge_bleed(const std::vector<uint8_t> &pixels, int width, int height,
+                            uint32_t backdrop, int tolerance = 12) {
+  EdgeBleed bleed;
+  if (width <= 0 || height <= 0 ||
+      pixels.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4)
+    return bleed;
+  const auto at = [&](int x, int y) {
+    return &pixels[(static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4];
+  };
+  const auto column = [&](int x) {
+    size_t count = 0;
+    for (int y = 0; y < height; ++y)
+      count += pixel_differs(at(x, y), backdrop, tolerance) ? 1 : 0;
+    return static_cast<double>(count) / static_cast<double>(height);
+  };
+  const auto row = [&](int y) {
+    size_t count = 0;
+    for (int x = 0; x < width; ++x)
+      count += pixel_differs(at(x, y), backdrop, tolerance) ? 1 : 0;
+    return static_cast<double>(count) / static_cast<double>(width);
+  };
+  bleed.left = column(0);
+  bleed.right = column(width - 1);
+  bleed.top = row(0);
+  bleed.bottom = row(height - 1);
+  return bleed;
+}
+// 最外一圈里不同的像素超过这个比例就算卡片被裁：画到边上的卡片占满那一边的大半，淡阴影和抗锯齿的零星像素远不到这个量。
+inline constexpr double maximum_edge_fraction = 0.1;
 // 候选窗的整块窗口（含四周透明的阴影边距）里，和底色不同的像素不到这个比例就当作没画出来：截到的只是底色，或者整块是一种颜色。哪怕皮肤的底色恰好和底色一样，候选文字、序号和外框也远超过这个量。
 inline constexpr double minimum_drawn_fraction = 0.005;
 inline bool capture_blank(const CaptureVerdict &verdict) {
   return verdict.total == 0 || verdict.fraction() < minimum_drawn_fraction;
+}
+// 像素矩形，不用 Win32 的 RECT，这样纯逻辑在任何平台上都能测。
+struct PixelRect {
+  long left = 0, top = 0, right = 0, bottom = 0;
+};
+// 上一帧画出的卡片（CandidateWindow::painted_card）是否落在客户区里，且和按窗口尺寸推出的卡片（card_on_screen 换到客户区坐标）每条边相差不超过 tolerance 像素。画卡片用的尺寸和定窗口用的尺寸不是同一个时，这里不成立。
+inline bool card_fits(const PixelRect &painted, long client_width, long client_height,
+                      const PixelRect &expected, long tolerance = 2) {
+  const auto near = [tolerance](long a, long b) { return std::labs(a - b) <= tolerance; };
+  return painted.left >= 0 && painted.top >= 0 && painted.right <= client_width &&
+         painted.bottom <= client_height && painted.right > painted.left &&
+         painted.bottom > painted.top && near(painted.left, expected.left) &&
+         near(painted.top, expected.top) && near(painted.right, expected.right) &&
+         near(painted.bottom, expected.bottom);
 }
 } // namespace msime::windows::gallery

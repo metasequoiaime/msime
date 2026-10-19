@@ -370,29 +370,63 @@ bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defa
       report(label + ": FAILED, GetWindowRect failed with " + std::to_string(GetLastError()));
       return false;
     }
+    // 自检一：上一帧画出的卡片要落在客户区里，并且和按窗口尺寸推出的卡片一样大。画图和定窗口用的不是同一个尺寸时（例如按比窗口大的渲染目标排版），卡片会画出窗口被裁掉。
+    RECT client{};
+    GetClientRect(window.handle(), &client);
+    const auto painted = window.painted_card();
+    const auto on_screen = window.card_on_screen();
+    std::string geometry_problem;
     std::string card;
-    if (const auto on_screen = window.card_on_screen())
-      card = ", card " + std::to_string(std::lround(on_screen->right - on_screen->left)) + "x" +
-             std::to_string(std::lround(on_screen->bottom - on_screen->top));
+    if (!painted || !on_screen) {
+      geometry_problem = "the window reports no painted card";
+    } else {
+      const gallery::PixelRect drawn{painted->left, painted->top, painted->right, painted->bottom};
+      const gallery::PixelRect expected{std::lround(on_screen->left) - rect.left,
+                                        std::lround(on_screen->top) - rect.top,
+                                        std::lround(on_screen->right) - rect.left,
+                                        std::lround(on_screen->bottom) - rect.top};
+      card = ", card " + std::to_string(drawn.right - drawn.left) + "x" +
+             std::to_string(drawn.bottom - drawn.top) + " at (" + std::to_string(drawn.left) + "," +
+             std::to_string(drawn.top) + ")";
+      if (!gallery::card_fits(drawn, client.right, client.bottom, expected))
+        geometry_problem = "the painted card (" + std::to_string(drawn.left) + "," + std::to_string(drawn.top) +
+                           ")-(" + std::to_string(drawn.right) + "," + std::to_string(drawn.bottom) +
+                           ") does not fit the " + std::to_string(client.right) + "x" +
+                           std::to_string(client.bottom) + " client area or differs from the card the window was sized for (" +
+                           std::to_string(expected.left) + "," + std::to_string(expected.top) + ")-(" +
+                           std::to_string(expected.right) + "," + std::to_string(expected.bottom) + ")";
+    }
     std::string error;
     const auto pixels = capture_screen(rect, error);
     if (!pixels) {
       report(label + ": FAILED, capture of " + rect_text(rect) + ": " + error);
       return false;
     }
+    const int width = rect.right - rect.left, height = rect.bottom - rect.top;
     const auto verdict = gallery::capture_verdict(*pixels, backdrop_color);
-    char share[32];
-    std::snprintf(share, sizeof(share), "%.1f%%", verdict.fraction() * 100.0);
+    // 自检二：截图最外一圈应该是底色（阴影到边上已经淡没了），卡片画到边上就是被窗口裁掉了。
+    const auto bleed = gallery::edge_bleed(*pixels, width, height, backdrop_color);
+    char share[96];
+    std::snprintf(share, sizeof(share),
+                  "%.1f%% of pixels differ from the backdrop, edges L%.0f%% T%.0f%% R%.0f%% B%.0f%%",
+                  verdict.fraction() * 100.0, bleed.left * 100.0, bleed.top * 100.0,
+                  bleed.right * 100.0, bleed.bottom * 100.0);
     const auto file = output / std::filesystem::u8path(gallery::shot_file_name(shot));
-    const auto summary = "window " + rect_text(rect) + card + ", " + std::to_string(frames) +
-                         " frames, " + share + " of pixels differ from the backdrop";
-    if (gallery::capture_blank(verdict)) {
-      // 空白的也写出来，产物里能看到截到了什么。
-      (void)write_png(file, rect.right - rect.left, rect.bottom - rect.top, *pixels, error);
-      report(label + ": FAILED, the capture is blank (" + summary + ")");
+    const auto summary = "window " + rect_text(rect) + card + ", " + std::to_string(frames) + " frames, " + share;
+    std::string problem;
+    if (gallery::capture_blank(verdict))
+      problem = "the capture is blank";
+    else if (!geometry_problem.empty())
+      problem = geometry_problem;
+    else if (bleed.worst() > gallery::maximum_edge_fraction)
+      problem = "the card reaches the window edge and is clipped";
+    if (!problem.empty()) {
+      // 有问题的也写出来，产物里能看到截到了什么。
+      (void)write_png(file, width, height, *pixels, error);
+      report(label + ": FAILED, " + problem + " (" + summary + ")");
       return false;
     }
-    if (!write_png(file, rect.right - rect.left, rect.bottom - rect.top, *pixels, error)) {
+    if (!write_png(file, width, height, *pixels, error)) {
       report(label + ": FAILED, writing " + utf8(file.wstring()) + ": " + error);
       return false;
     }

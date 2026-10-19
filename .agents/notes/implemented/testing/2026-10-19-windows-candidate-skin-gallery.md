@@ -20,9 +20,9 @@ Windows 候选窗这几天接连画上了皮肤的版式、外框、阴影、列
 
 ### 截图与空白判断
 
-工具把进程设成每显示器 DPI 感知，用一块纯色底（浅色 `#E6E6E6`、深色 `#202020`）盖住主显示器工作区，鼠标挪到右下角，候选窗锚在工作区左上部。等到候选窗出过帧（`Rendered` 回调）、动效时长加 300 毫秒过去、两次 `DwmFlush` 之后，用 `BitBlt(SRCCOPY | CAPTUREBLT)` 从屏幕 DC 截窗口矩形：屏幕 DC 读的是 DWM 合成后的桌面，DirectComposition 交换链和分层窗口回退都在里面。和底色不同的像素不到 0.5% 算空白。皮肤目录有加载失败的文件夹、主题解析失败、没出帧、候选窗失败、截图空白、PNG 写不出，或一款皮肤一张也没画时，以 1 退出；每一行日志写明皮肤、排列、明暗、窗口与卡片的像素尺寸、帧数和不同像素的比例，空白的那张也写出来，CI 失败只看日志和产物就能定位。
+工具把进程设成每显示器 DPI 感知，用一块纯色底（浅色 `#E6E6E6`、深色 `#202020`）盖住主显示器工作区，鼠标挪到右下角，候选窗锚在工作区左上部。等到候选窗出过帧（`Rendered` 回调）、动效时长加 300 毫秒过去、两次 `DwmFlush` 之后，用 `BitBlt(SRCCOPY | CAPTUREBLT)` 从屏幕 DC 截窗口矩形：屏幕 DC 读的是 DWM 合成后的桌面，DirectComposition 交换链和分层窗口回退都在里面。和底色不同的像素不到 0.5% 算空白。另有两项自检，专抓卡片画出窗口被裁的情况：`CandidateWindow::painted_card()`（上一帧实际画出的卡片矩形）要落在客户区里、和 `card_on_screen()`（按窗口尺寸推出的卡片）每边相差不超过 2 像素；截图最外一圈要是底色，任一边和底色不同的像素超过 10% 就算卡片画到了窗口边上（`edge_bleed`）。第一次在 CI 上跑就是靠看图发现了这类问题，见 [按窗口客户区排版](../bug-fix/2026-10-19-windows-card-size-from-client-area.md)。皮肤目录有加载失败的文件夹、主题解析失败、没出帧、候选窗失败、截图空白、卡片被裁、PNG 写不出，或一款皮肤一张也没画时，以 1 退出；每一行日志写明皮肤、排列、明暗、窗口与卡片的像素尺寸、帧数和不同像素的比例，空白的那张也写出来，CI 失败只看日志和产物就能定位。
 
-文件名、假候选页、后续候选和空白判断放在不碰 Win32 的 `CandidateSkinGallery.h`，由 CTest `windows-candidate-skin-gallery-plan` 覆盖。工具本身要交互桌面，不是 CTest，名字也不以 `windows-` 开头，`run-tests-wine.sh` 不会把它当测试在 Wine 里跑。
+文件名、假候选页、后续候选、空白和卡片被裁的判断放在不碰 Win32 的 `CandidateSkinGallery.h`，由 CTest `windows-candidate-skin-gallery-plan` 覆盖。工具本身要交互桌面，不是 CTest，名字也不以 `windows-` 开头，`run-tests-wine.sh` 不会把它当测试在 Wine 里跑。
 
 ### 在 CI 里怎么跑
 
@@ -42,9 +42,9 @@ Windows 候选窗这几天接连画上了皮肤的版式、外框、阴影、列
 
 代价：
 - 多一个 Windows runner 作业（约几分钟），而且排在交叉构建之后。
-- `CandidateWindow` 多了一个 Server 不用的公开方法 `open_expansion`。
+- `CandidateWindow` 多了两个 Server 不用的公开方法：`open_expansion` 和只读的 `painted_card`。
 - 截的是新装默认偏好下的样子；用户改过字体、缩放、不透明度或取色器时的组合不在其中。工作区小于卡片时卡片会被钳住，截图仍然有效但和大屏上的位置不同。
 - 卷轴展开只截打开后停在顶部的一帧，滚动、悬停和按下的底色不截。
-- 截图只判断「不是空白」，不比对基准图；画错了要靠人看产物。
+- 截图只判断不是空白、卡片没画出窗口，不比对基准图；其余画错了要靠人看产物。
 
 验证：`CandidateSkinGallery.h` 的 `windows-candidate-skin-gallery-plan` 在 Mac Studio 上用 `c++ -std=c++17 -Wall -Wextra -Werror` 编译并通过（繁简转换用原样返回的替身链接）；`main.cpp`、`gallery_plan.cpp` 和改过的 `CandidateWindow.cpp` 用本机 `x86_64-w64-mingw32-g++` 与 `i686-w64-mingw32-g++ -fsyntax-only -Wall -Wextra -Werror` 检查无错误无警告；`ci-platforms.yml` 过了 `actionlint`。链接、在 Windows runner 上真正截到非空白的图、上传产物，只有 PR 上的 CI 能证明。

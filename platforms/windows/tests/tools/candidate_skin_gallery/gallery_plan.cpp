@@ -1,5 +1,6 @@
 // 候选皮肤截图工具里不碰 Win32 的部分（CandidateSkinGallery.h）：文件名、假候选页经 Server 同一个投影后的样子、展开网格的后续候选，以及空白截图的判断。
 #include "CandidateSkinGallery.h"
+#include <algorithm>
 #include <iostream>
 #include <set>
 #include <stdexcept>
@@ -102,6 +103,52 @@ void blank_capture() {
   require(capture_blank(capture_verdict(large, backdrop)));
   require(capture_blank(capture_verdict({}, backdrop)));
 }
+
+void edges() {
+  constexpr uint32_t backdrop = 0xE6E6E6;
+  // 20 x 12 的截图全是底色：四条边都干净。
+  constexpr int width = 20, height = 12;
+  std::vector<uint8_t> pixels;
+  for (int index = 0; index < width * height; ++index)
+    pixels.insert(pixels.end(), {0xe6, 0xe6, 0xe6, 0xff});
+  require(edge_bleed(pixels, width, height, backdrop).worst() == 0.0);
+  // 中间画着卡片、边上只有零星一个淡阴影像素：仍在限度内。
+  const auto set = [&](int x, int y, uint8_t value) {
+    const auto offset = (static_cast<size_t>(y) * width + static_cast<size_t>(x)) * 4;
+    pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = value;
+  };
+  for (int y = 1; y < height - 1; ++y)
+    for (int x = 1; x < width - 1; ++x)
+      set(x, y, 0xff);
+  set(width - 1, 2, 0xd0);
+  auto bleed = edge_bleed(pixels, width, height, backdrop);
+  require(bleed.left == 0.0 && bleed.top == 0.0 && bleed.bottom == 0.0);
+  require(bleed.right > 0.0 && bleed.right <= maximum_edge_fraction);
+  // 卡片一直画到右边和下边（被窗口裁掉的样子）：那两条边超过限度。
+  for (int y = 1; y < height; ++y)
+    set(width - 1, y, 0xff);
+  for (int x = 1; x < width; ++x)
+    set(x, height - 1, 0xff);
+  bleed = edge_bleed(pixels, width, height, backdrop);
+  require(bleed.right > maximum_edge_fraction && bleed.bottom > maximum_edge_fraction);
+  require(bleed.left == 0.0 && bleed.top == 0.0);
+  require(bleed.worst() == (std::max)(bleed.right, bleed.bottom));
+  // 尺寸和像素数对不上时不读越界。
+  require(edge_bleed(pixels, width + 1, height, backdrop).worst() == 0.0);
+}
+
+void card_geometry() {
+  // 592 x 182 的窗口，阴影边距 32/20/32/40：卡片应在 (32,20)-(560,142)。
+  const PixelRect expected{32, 20, 560, 142};
+  require(card_fits({32, 20, 560, 142}, 592, 182, expected));
+  require(card_fits({33, 20, 561, 141}, 592, 182, expected));
+  // 按 640 宽的交换链排出来的卡片：右边越过窗口。
+  require(!card_fits({32, 20, 608, 142}, 592, 182, expected));
+  // 还在窗口里，但和窗口推出的卡片不是一个尺寸。
+  require(!card_fits({32, 20, 540, 142}, 592, 182, expected));
+  require(!card_fits({32, 20, 560, 190}, 592, 182, expected));
+  require(!card_fits({32, 20, 32, 142}, 592, 182, {32, 20, 32, 142}));
+}
 } // namespace
 
 int main() {
@@ -110,6 +157,8 @@ int main() {
     presentation();
     expanded();
     blank_capture();
+    edges();
+    card_geometry();
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;
