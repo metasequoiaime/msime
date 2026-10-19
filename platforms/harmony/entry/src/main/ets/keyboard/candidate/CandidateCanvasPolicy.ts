@@ -37,7 +37,8 @@ export interface CandidateCanvasSpec {
 export interface CandidateCanvasResource {
   readonly relative: string;
   readonly contentType: string;
-  readonly bytes: Uint8Array;
+  /** ArkUI 的 @Prop 深拷贝不能保留 TypedArray，快照只携带可安全复制的字符串。 */
+  readonly base64: string;
 }
 
 export interface CandidateCanvasScene extends CandidateCanvasSpec {
@@ -286,9 +287,8 @@ export class CandidateCanvasPolicy {
   }
 
   /** GIF 的扩展计数是额外重复次数；APNG 和 WebP 已经是总轮数。 */
-  static loops(resource: CandidateCanvasResource): number {
-    const bytes: Uint8Array = resource.bytes;
-    if (resource.contentType === "image/gif") {
+  static loops(contentType: string, bytes: Uint8Array): number {
+    if (contentType === "image/gif") {
       if (bytes.length < 13) return 1;
       let cursor: number = 13 + ((bytes[10] & 128) !== 0 ? 3 * (1 << ((bytes[10] & 7) + 1)) : 0);
       while (cursor < bytes.length) {
@@ -325,7 +325,7 @@ export class CandidateCanvasPolicy {
       }
       return 1;
     }
-    if (resource.contentType === "image/png") {
+    if (contentType === "image/png") {
       let cursor: number = 8;
       while (cursor + 12 <= bytes.length) {
         const length: number = CandidateCanvasPolicy.u32(bytes, cursor, false);
@@ -342,7 +342,7 @@ export class CandidateCanvasPolicy {
         cursor += length + 12;
       }
     }
-    if (resource.contentType === "image/webp") {
+    if (contentType === "image/webp") {
       let cursor: number = 12;
       while (cursor + 8 <= bytes.length) {
         const length: number = CandidateCanvasPolicy.u32(bytes, cursor + 4, true);

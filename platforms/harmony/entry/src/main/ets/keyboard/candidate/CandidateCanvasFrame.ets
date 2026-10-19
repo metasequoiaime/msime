@@ -1,4 +1,6 @@
+import util from '@ohos.util';
 import { image } from '@kit.ImageKit';
+import { CandidateApng, CandidateApngCompositor } from './CandidateApng';
 import { CandidateCanvasPolicy, CandidateCanvasScene,
   CandidateCanvasDecoration, CandidateCanvasRect, CandidateCanvasGeometry } from './CandidateCanvasPolicy';
 
@@ -45,7 +47,16 @@ class CanvasDecodeLease {
       let source: image.ImageSource | null = null;
       let frames: image.PixelMap[] = [];
       try {
-        source = image.createImageSource(resource.bytes.buffer as ArrayBuffer);
+        const bytes: Uint8Array = new util.Base64Helper().decodeSync(resource.base64);
+        const apng: CandidateApng | null = CandidateApng.parse(bytes, remaining);
+        if (apng !== null) {
+          const decoded: DecodedCanvasImage = await CanvasDecodeLease.decodeApng(apng);
+          decoded.relative = resource.relative;
+          result.images.push(decoded);
+          remaining -= decoded.width * decoded.height * decoded.frames.length;
+          continue;
+        }
+        source = image.createImageSource(bytes.buffer as ArrayBuffer);
         const info: image.ImageInfo = await source.getImageInfo();
         let count: number = 1;
         try { count = await source.getFrameCount(); } catch (_) {
@@ -63,7 +74,7 @@ class CanvasDecodeLease {
         decoded.width = info.size.width;
         decoded.height = info.size.height;
         decoded.frames = frames;
-        decoded.loops = CandidateCanvasPolicy.loops(resource);
+        decoded.loops = CandidateCanvasPolicy.loops(resource.contentType, bytes);
         try {
           decoded.durations = await source.getDelayTimeList();
         } catch (_) {
@@ -81,6 +92,49 @@ class CanvasDecodeLease {
       }
     }
     return result;
+  }
+
+  private static async decodeApng(apng: CandidateApng): Promise<DecodedCanvasImage> {
+    const decoded: DecodedCanvasImage = new DecodedCanvasImage();
+    decoded.width = apng.width;
+    decoded.height = apng.height;
+    decoded.loops = apng.loops;
+    const compositor: CandidateApngCompositor = new CandidateApngCompositor(apng.width, apng.height);
+    try {
+      for (const part of apng.parts) {
+        const png: Uint8Array = apng.png(part);
+        const source: image.ImageSource = image.createImageSource(png.buffer as ArrayBuffer);
+        let tile: image.PixelMap | null = null;
+        try {
+          tile = await source.createPixelMap({ desiredPixelFormat: image.PixelMapFormat.RGBA_8888 });
+          const info: image.ImageInfo = await tile.getImageInfo();
+          if (info.size.width !== part.width || info.size.height !== part.height
+            || info.pixelFormat !== image.PixelMapFormat.RGBA_8888
+            || (info.alphaType !== image.AlphaType.PREMUL && info.alphaType !== image.AlphaType.UNPREMUL
+              && info.alphaType !== image.AlphaType.OPAQUE)) throw new Error('invalid candidate PNG pixels');
+          // readPixels 明确指定紧密行距，不依赖解码器内部 stride 或 DMA 对齐。
+          const buffer: ArrayBuffer = new ArrayBuffer(part.width * part.height * 4);
+          await tile.readPixels({ pixels: buffer, offset: 0, stride: part.width * 4,
+            region: { x: 0, y: 0, size: { width: part.width, height: part.height } } });
+          const rgba: Uint8Array = new Uint8Array(buffer);
+          // readPixels 固定返回 BGRA，不能从源 PixelMap 的 RGBA 格式推断字节顺序。
+          CandidateApngCompositor.rgbaFromBgra(rgba, info.alphaType === image.AlphaType.OPAQUE);
+          const pixels: Uint8Array = compositor.render(part, rgba, info.alphaType === image.AlphaType.PREMUL);
+          const frame: image.PixelMap = await image.createPixelMap(pixels.buffer as ArrayBuffer,
+            { size: { width: apng.width, height: apng.height }, pixelFormat: image.PixelMapFormat.RGBA_8888,
+              srcPixelFormat: image.PixelMapFormat.RGBA_8888, alphaType: image.AlphaType.PREMUL });
+          decoded.frames.push(frame);
+          decoded.durations.push(part.delay);
+        } finally {
+          if (tile !== null) await tile.release();
+          await source.release();
+        }
+      }
+      return decoded;
+    } catch (_) {
+      for (const frame of decoded.frames) await frame.release();
+      throw new Error('candidate APNG decode failed');
+    }
   }
 }
 
@@ -252,7 +306,9 @@ export struct CandidateCanvasFrame {
     if (panel !== null && this.scene.borderImage !== null && this.scene.borderImage !== undefined) {
       for (const patch of CandidateCanvasPolicy.patches(this.scene.borderImage, panel.width, panel.height,
         geometry.card, geometry.scale)) {
-        this.under.drawImage(this.frame(panel), patch.source.x, patch.source.y, patch.source.width, patch.source.height,
+        // 本宿主最低 API 21，PixelMap 裁切坐标按 vp 解释，清单切片则是源像素。
+        this.under.drawImage(this.frame(panel), px2vp(patch.source.x), px2vp(patch.source.y),
+          px2vp(patch.source.width), px2vp(patch.source.height),
           patch.destination.x, patch.destination.y, patch.destination.width, patch.destination.height);
         panelDrawn = true;
       }
@@ -266,25 +322,22 @@ export struct CandidateCanvasFrame {
     }
   }
 
-  @Builder
-  underLayer() {
-    Canvas(this.under).width('100%').height('100%').hitTestBehavior(HitTestMode.None)
-      .onReady((): void => { this.ready = true; this.repaint(); })
-  }
-
-  @Builder
-  overLayer() {
-    Canvas(this.over).width('100%').height('100%').hitTestBehavior(HitTestMode.None)
-      .onReady((): void => this.repaint())
-  }
-
   build() {
-    Column() { this.content(); }
+    Stack({ alignContent: Alignment.TopStart }) {
+      // matchParent 在内容测量后匹配尺寸，不让画布反过来撑高候选卡片。
+      Canvas(this.under).width(LayoutPolicy.matchParent).height(LayoutPolicy.matchParent)
+        .hitTestBehavior(HitTestMode.None)
+        .onReady((): void => { this.ready = true; this.repaint(); })
+      Column() { this.content(); }
+        .width('100%')
+        .height(this.frameHeight !== undefined ? this.frameHeight : this.fixedContent ? '100%' : undefined)
+        .padding(this.contentInsets)
+      Canvas(this.over).width(LayoutPolicy.matchParent).height(LayoutPolicy.matchParent)
+        .hitTestBehavior(HitTestMode.None)
+        .onReady((): void => this.repaint())
+    }
     .width('100%')
-    .height(this.frameHeight !== undefined ? this.frameHeight : this.fixedContent ? '100%' : undefined)
-    .padding(this.contentInsets)
-    .background(this.underLayer)
-    .overlay(this.overLayer, { align: Alignment.TopStart })
+    .height(LayoutPolicy.wrapContent)
     .onAreaChange((_old: Area, now: Area): void => {
       this.widthVp = Number(now.width);
       this.heightVp = Number(now.height);
