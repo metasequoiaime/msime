@@ -45,7 +45,9 @@ public final class EditorActivity extends Activity {
         title.setText("MSIME synthetic editor fixture");
         layout.addView(title);
         EditText plain = new EditText(this);
-        plain.setInputType(InputType.TYPE_CLASS_TEXT);
+        // 需要验收真实换行的套件显式使用多行编辑器，普通单行夹具继续保留。
+        plain.setInputType(InputType.TYPE_CLASS_TEXT | (getIntent().getBooleanExtra(
+            "msime_test_multiline", false) ? InputType.TYPE_TEXT_FLAG_MULTI_LINE : 0));
         plain.setContentDescription("msime-test-plain");
         plain.setHint("Plain editor");
         showImeOnFocus(plain);

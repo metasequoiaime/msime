@@ -24,7 +24,7 @@ pub unsafe extern "C" fn msime_client_apply_online_candidate(
     response(|| {
         if query.is_null()
             || candidate.is_null()
-            || query_length > 16384
+            || query_length > msime_input_runtime::MAX_ONLINE_QUERY_BYTES
             || candidate_length > 4096
             || source > 1
         {
@@ -43,7 +43,7 @@ pub unsafe extern "C" fn msime_client_apply_online_candidate(
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(candidate, candidate_length) })
                 .map_err(|_| "candidate is not UTF-8")?;
         with_session(handle, |session| {
-            if source == 0 && !session.cloud_candidates_enabled() {
+            if source == 0 && !session.cloud_query_is_current(&query) {
                 return Ok(json!({"applied":false,"view":session.runtime.view()}));
             }
             if source == 1 && !session.ai_query_is_current(&query) {
@@ -76,19 +76,24 @@ pub unsafe extern "C" fn msime_client_apply_cloud_response(
     body_length: usize,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null() || body.is_null() || query_length > 16384 || body_length > 262144 {
+        if query.is_null()
+            || body.is_null()
+            || query_length > msime_input_runtime::MAX_ONLINE_QUERY_BYTES
+            || body_length > 262144
+        {
             return Err("invalid cloud response buffer".into());
         }
         let query = serde_json::from_slice::<OnlineQuery>(unsafe {
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid online query document")?;
+        let current_cloud_query = query.clone();
         let candidate = msime_input_runtime::cloud_candidate_from_response(query, unsafe {
             std::slice::from_raw_parts(body, body_length)
         });
         with_session(handle, |session| {
             let pending = session.lifecycle_begin(lifecycle::Call::SideChannel);
-            let applied = if session.cloud_candidates_enabled() {
+            let applied = if session.cloud_query_is_current(&current_cloud_query) {
                 if let Some(candidate) = candidate {
                     let OnlineCandidate {
                         query,
@@ -129,7 +134,7 @@ pub unsafe extern "C" fn msime_client_apply_online_candidates(
     response(|| {
         if query.is_null()
             || candidates.is_null()
-            || query_length > 16384
+            || query_length > msime_input_runtime::MAX_ONLINE_QUERY_BYTES
             || candidates_length > 16384
             || source > 1
         {
@@ -144,7 +149,7 @@ pub unsafe extern "C" fn msime_client_apply_online_candidates(
         })
         .map_err(|_| "invalid online candidates document")?;
         with_session(handle, |session| {
-            if source == 0 && !session.cloud_candidates_enabled() {
+            if source == 0 && !session.cloud_query_is_current(&query) {
                 return Ok(json!({"applied":false,"view":session.runtime.view()}));
             }
             if source == 1 && !session.ai_query_is_current(&query) {
@@ -175,7 +180,10 @@ pub unsafe extern "C" fn msime_client_resolve_online_candidates(
     source: u8,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null() || query_length > 16384 || source > 1 {
+        if query.is_null()
+            || query_length > msime_input_runtime::MAX_ONLINE_QUERY_BYTES
+            || source > 1
+        {
             return Err("invalid online resolve buffer".into());
         }
         // 只校验文档是一份在线查询，内容不再用到。

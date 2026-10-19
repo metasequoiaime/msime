@@ -3,6 +3,7 @@
 //! Same `mod tests` as before, so `use super::*` still names the parent.
 
 use super::*;
+use crate::account::msime_client_account_name;
 use msime_client_core::host_surface::compiled_input_schemes;
 use sha2::{Digest, Sha256};
 
@@ -8261,7 +8262,12 @@ fn cloud_response_boundary_guards_identity_permission_and_buffers() {
     for (q, qlen, b, blen) in [
         (std::ptr::null(), 0, body.as_ptr(), body.len()),
         (query.as_ptr(), query.len(), std::ptr::null(), 0),
-        (query.as_ptr(), 16385, body.as_ptr(), body.len()),
+        (
+            query.as_ptr(),
+            msime_input_runtime::MAX_ONLINE_QUERY_BYTES + 1,
+            body.as_ptr(),
+            body.len(),
+        ),
         (query.as_ptr(), query.len(), body.as_ptr(), 262145),
     ] {
         assert_eq!(
@@ -17255,6 +17261,143 @@ fn enabling_cloud_candidates_invalidates_the_preference_update_previous_ids() {
 }
 
 #[test]
+fn cloud_provider_switch_clears_old_rows_and_rejects_late_get_and_post_responses() {
+    use msime_client_core::cloud::candidates::{
+        CloudCandidatePreferences, CloudCandidateSource, CloudHttpMethod, CloudResponseFormat,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        cloud_candidates: true,
+        cloud_candidate_provider: CloudCandidatePreferences {
+            cache_enabled: false,
+            ..Default::default()
+        },
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let apply = |query: &str, body: &[u8]| {
+        read(unsafe {
+            msime_client_apply_cloud_response(
+                handle,
+                query.as_ptr(),
+                query.len(),
+                body.as_ptr(),
+                body.len(),
+            )
+        })
+    };
+    let google = read(msime_client_online_query(handle))["value"].to_string();
+    let google_body = r#"["SUCCESS",[["ni hao",["合成谷歌"]]]]"#.as_bytes();
+    assert_eq!(apply(&google, google_body)["value"]["applied"], true);
+    let original = read(msime_client_view(handle))["value"]["editing_text"].clone();
+    preferences.cloud_candidate_provider = CloudCandidatePreferences {
+        source: CloudCandidateSource::Custom,
+        endpoint: "https://cloud.example.invalid/api?q={query}".into(),
+        headers_json: r#"{"Authorization":"Bearer synthetic"}"#.into(),
+        cache_enabled: false,
+        ..Default::default()
+    };
+    assert_eq!(update(handle, 1, &preferences)["ok"], true);
+    let after = read(msime_client_view(handle))["value"].clone();
+    assert_eq!(after["editing_text"], original);
+    assert!(!after["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["text"] == "合成谷歌"));
+    assert_eq!(apply(&google, google_body)["value"]["applied"], false);
+    let custom_query = read(msime_client_online_query(handle))["value"].clone();
+    assert_eq!(custom_query["cloud_request"]["method"], "GET");
+    assert_eq!(
+        custom_query["cloud_request"]["headers"]["Authorization"],
+        "Bearer synthetic"
+    );
+    assert!(!custom_query["cloud_request"]["url"]
+        .as_str()
+        .unwrap()
+        .contains("inputtools.google"));
+    let custom_query = custom_query.to_string();
+    let body = r#"{"candidates":[{"text":"合成自建"}]}"#.as_bytes();
+    assert_eq!(apply(&custom_query, body)["value"]["applied"], true);
+    preferences.cloud_candidate_provider.method = CloudHttpMethod::Post;
+    preferences.cloud_candidate_provider.endpoint =
+        "https://model.example.invalid/v1/chat/completions".into();
+    preferences.cloud_candidate_provider.body_template =
+        r#"{"model":"synthetic","messages":[{"role":"user","content":"{query}"}]}"#.into();
+    preferences.cloud_candidate_provider.response_format = CloudResponseFormat::JsonPath;
+    preferences.cloud_candidate_provider.response_path = "choices.0.message.content".into();
+    assert_eq!(update(handle, 2, &preferences)["ok"], true);
+    assert_eq!(apply(&custom_query, body)["value"]["applied"], false);
+    let post = read(msime_client_online_query(handle))["value"].clone();
+    assert_eq!(post["cloud_request"]["method"], "POST");
+    let payload: Value =
+        serde_json::from_str(post["cloud_request"]["body_utf8"].as_str().unwrap()).unwrap();
+    assert_eq!(payload["messages"][0]["content"], post["query_text"]);
+    assert!(post["cloud_request"]["body_utf8"]
+        .as_str()
+        .unwrap()
+        .contains("synthetic"));
+    let response = r#"{"choices":[{"message":{"content":"合成模型"}}]}"#.as_bytes();
+    assert_eq!(apply(&post.to_string(), response)["value"]["applied"], true);
+    // 云描述符与三个合法的 AI 提示词共用 OnlineQuery，长度可以超过旧的 16 KiB。
+    preferences.ai_assistant.enabled = true;
+    preferences.ai_assistant.prompt_custom_1 = "synthetic".repeat(900);
+    preferences.ai_assistant.prompt_custom_2 = "synthetic".repeat(900);
+    preferences.ai_assistant.prompt_custom_3 = "synthetic".repeat(900);
+    assert_eq!(update(handle, 3, &preferences)["ok"], true);
+    let large = read(msime_client_online_query(handle))["value"].to_string();
+    assert!(large.len() > 16_384);
+    assert!(large.len() <= msime_input_runtime::MAX_ONLINE_QUERY_BYTES);
+    assert_eq!(
+        apply(
+            &large,
+            r#"{"choices":[{"message":{"content":"合成长配置"}}]}"#.as_bytes()
+        )["value"]["applied"],
+        true
+    );
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn an_oversized_custom_request_does_not_fall_back_to_google() {
+    use msime_client_core::cloud::candidates::{CloudCandidatePreferences, CloudCandidateSource};
+    let dir = tempfile::tempdir().unwrap();
+    let prefix = "https://cloud.example.invalid/api?q={query}&padding=";
+    let endpoint = format!("{prefix}{}", "x".repeat(2048 - prefix.len()));
+    let provider = CloudCandidatePreferences {
+        source: CloudCandidateSource::Custom,
+        endpoint,
+        cache_enabled: false,
+        ..Default::default()
+    };
+    assert!(provider.validate());
+    let handle = test_host_with_pinyin_fixture(
+        dir.path(),
+        Preferences {
+            scheme: InputScheme::Quanpin,
+            cloud_candidates: true,
+            cloud_candidate_provider: provider,
+            ..chinese_preferences()
+        },
+    );
+    read(msime_client_focus(handle, true));
+    type_letters(handle, b"nihaoshijie");
+    let query = read(msime_client_online_query(handle))["value"].clone();
+    assert_eq!(query["cloud_candidates"], true);
+    assert_eq!(query["cloud_eligible"], false);
+    assert!(query["cloud_request"].is_null());
+    let bytes = query.to_string();
+    let url = read(unsafe { msime_client_cloud_request_url(bytes.as_ptr(), bytes.len()) });
+    assert!(url["value"].is_null());
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn voice_provider_catalog_export_matches_the_shared_catalog() {
     use msime_client_providers::voice::provider_catalog::{ASR_PROVIDERS, POLISH_PROVIDERS};
     let catalog = read(msime_client_voice_provider_catalog());
@@ -17292,6 +17435,47 @@ fn voice_provider_update_export_returns_the_shared_patch() {
     assert_eq!(result["ok"], true);
     assert_eq!(result["value"]["provider"], "groq");
     assert!(result["value"].get("model").is_none());
+}
+
+#[test]
+fn account_name_export_returns_the_shared_presentation_without_a_session() {
+    let request = serde_json::json!({"name":"\u{feff} 小鹿 \u{3000}","id":"abcdef12"}).to_string();
+    let result = read(unsafe { msime_client_account_name(request.as_ptr(), request.len()) });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{
+            "normalized":"小鹿","preferred":"小鹿","valid":true,"maximum_chars":64,
+            "maximum_utf16_units":128
+        }})
+    );
+    let request = br#"{"name":"  ","id":"abcdef12"}"#;
+    let result = read(unsafe { msime_client_account_name(request.as_ptr(), request.len()) });
+    assert_eq!(result["value"]["preferred"], "水杉小鹿·ABCDEF");
+    assert_eq!(result["value"]["valid"], false);
+}
+
+#[test]
+fn account_name_export_rejects_invalid_buffers_without_echoing_names() {
+    for request in [
+        b"\xff".as_slice(),
+        b"{",
+        b"{}",
+        br#"{"name":42,"id":"synthetic-private"}"#,
+        br#"{"name":"synthetic-private","id":null}"#,
+        br#"{"name":"synthetic-private","id":"","directory":"unexpected"}"#,
+    ] {
+        let result = read(unsafe { msime_client_account_name(request.as_ptr(), request.len()) });
+        assert_eq!(
+            result,
+            serde_json::json!({"ok":false,"error":"account_invalid"})
+        );
+    }
+    for length in [0, 1, 16_385] {
+        let result = read(unsafe { msime_client_account_name(std::ptr::null(), length) });
+        assert_eq!(result["error"], "account_invalid");
+    }
+    let result = read(unsafe { msime_client_account_name(b"x".as_ptr(), 16_385) });
+    assert_eq!(result["error"], "account_invalid");
 }
 
 #[test]

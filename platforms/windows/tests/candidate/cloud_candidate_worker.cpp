@@ -1,4 +1,5 @@
 #include "CloudCandidateWorker.h"
+#include "msime_client.h"
 
 #include <atomic>
 #include <chrono>
@@ -179,7 +180,7 @@ int main() {
       require(!worker.submit(lease(42, 0, 9), "ni"), "an epoch-less lease is refused");
       require(!worker.submit(lease(42, 7, 0), "ni"), "a token-less lease is refused");
       require(!worker.submit(lease(42, 7, 9), ""), "an empty query is refused");
-      require(!worker.submit(lease(42, 7, 9), std::string(20000, 'a')),
+      require(!worker.submit(lease(42, 7, 9), std::string(MSIME_ONLINE_QUERY_MAX_BYTES + 1, 'a')),
               "an oversized query is refused");
       worker.request_stop();
       require(!worker.submit(lease(42, 7, 9), "ni"), "a stopping worker accepts nothing");

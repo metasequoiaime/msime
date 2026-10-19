@@ -336,12 +336,9 @@ impl InputSession {
         let microsoft_final =
             value == b';' && scheme == SchemeType::Shuangpin && self.profile.uses_semicolon_key();
         let japanese_long_vowel = value == b'-' && scheme == SchemeType::JapaneseRomaji;
-        let starts_pinyin_with_shift = shift_only
-            && self.local_mode_options.shift_letter_entry
-            && !matches!(
-                value,
-                b'U' | b'T' | b'K' | b'E' | b'M' | b'J' | b'Y' | b'R' | b'V' | b'C'
-            );
+        // 已启用的快捷入口在上面处理；被关闭或资源不可用的入口按普通大写字母继续。
+        let starts_pinyin_with_shift =
+            shift_only && self.local_mode_options.shift_letter_entry && !self.uppercase_passthrough;
         let composing_pinyin_uppercase = value.is_ascii_uppercase()
             && (self.has_composition() || starts_pinyin_with_shift)
             && matches!(scheme, SchemeType::Quanpin | SchemeType::Shuangpin);
@@ -460,6 +457,19 @@ impl InputSession {
             LocalInputMode::None => return KeyResult::unhandled(),
         };
         if !accepted {
+            // 空入口还没有模式内容，拒绝的第二枚大写留在同一组字，避免把 UV 拆开上屏。
+            if value.is_ascii_uppercase()
+                && self.local_preedit.len() == 1
+                && self.local_preedit.as_bytes()[0].is_ascii_uppercase()
+                && matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin)
+            {
+                let mut raw = self.local_preedit.clone();
+                raw.push(value as char);
+                self.reset_composition();
+                self.engine.replace_active_raw_input(&raw, &raw);
+                self.update_mixed_candidates();
+                return KeyResult::handled();
+            }
             // 不吞掉模式无法拼写的键；先提交所见原文，再由宿主继续处理当前按键。
             let mut result = self.commit_raw();
             result.handled = false;
@@ -1098,23 +1108,6 @@ impl InputSession {
         text.push_str(mark);
         result.commit = Some(text);
         result
-    }
-
-    /// Shifted capitals can start mixed English input. When that input cannot be a complete
-    /// pinyin spelling, finishing it must preserve the typed word instead of choosing a Chinese
-    /// correction as punctuation or blur does.
-    pub(super) fn shifted_incomplete_pinyin_is_literal(&self) -> bool {
-        if self.dedicated_english
-            || self.local_mode != LocalInputMode::None
-            || !matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin)
-        {
-            return false;
-        }
-        self.raw_with_cases()
-            .as_bytes()
-            .first()
-            .is_some_and(u8::is_ascii_uppercase)
-            && !self.is_all_complete_pure_pinyin()
     }
 
     /// 数值已经出现后，表达式才收单位小写字母；光标插入与末尾输入共用这条规则。

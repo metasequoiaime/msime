@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
   const auto socket_path = msime_cli_provider_socket(
       argc, argv, "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
   if (socket_path.empty()) return 2;
-  std::array<char, 16385> buffer;
+  std::array<char, MSIME_ONLINE_QUERY_MAX_BYTES + 1> buffer;
   const auto request_length = msime::linux_host::read_bounded_cli_input(std::cin, buffer);
   if (!request_length)
     return 2;

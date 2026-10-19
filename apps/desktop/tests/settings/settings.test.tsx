@@ -10187,6 +10187,7 @@ test("handwriting matches Windows candidate priority, uniqueness, and limit", as
 test("a host can open the settings window on the section its menu named", async () => {
   const client: SettingsClient = { load: async () => initial, save: vi.fn() };
   render(<SettingsPage client={client} initialPage="about" />);
+  await settingsFormReady();
   expect(await screen.findByRole("heading", { name: /^(关于|关于水杉)$/ })).toBeDefined();
   // 「其他平台下载」在关于页里，不是单独的页面。
   expect(screen.getByRole("button", { name: "其他平台下载" })).toBeDefined();

@@ -137,6 +137,45 @@ Response take_response(char *raw) {
   }
 }
 
+struct AccountNamePresentation {
+  std::wstring normalized;
+  std::wstring preferred;
+  bool valid = false;
+  int32_t maximum_utf16_units = 0;
+};
+
+// 纯计算接口可在 UI 线程调用；失败时不猜测昵称规则，也不提交未经校验的值。
+std::optional<AccountNamePresentation> account_name_presentation(std::wstring const &name,
+                                                               std::wstring const &id = {}) {
+  try {
+    JsonObject request;
+    request.SetNamedValue(L"name", JsonValue::CreateStringValue(hstring(name)));
+    request.SetNamedValue(L"id", JsonValue::CreateStringValue(hstring(id)));
+    const auto body = utf8(request.Stringify());
+    const auto response = take_response(msime_client_account_name(
+        reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+    if (!response.ok)
+      return std::nullopt;
+    const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+    const auto maximum = value.GetNamedNumber(L"maximum_utf16_units");
+    if (maximum < 1 || maximum > INT32_MAX || std::floor(maximum) != maximum)
+      return std::nullopt;
+    const auto normalized = value.GetNamedString(L"normalized");
+    const auto preferred = value.GetNamedString(L"preferred");
+    return AccountNamePresentation{std::wstring(normalized.c_str(), normalized.size()),
+                                   std::wstring(preferred.c_str(), preferred.size()),
+                                   value.GetNamedBoolean(L"valid"), static_cast<int32_t>(maximum)};
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+std::wstring preferred_account_name(std::wstring const &name, std::wstring const &id) {
+  if (const auto presentation = account_name_presentation(name, id))
+    return presentation->preferred;
+  return name.empty() ? L"水杉账号" : name;
+}
+
 // An environment variable, empty when it is unset. GetEnvironmentVariableW rather than the CRT's _wgetenv, which MSVC deprecates (C4996) and /WX would turn into an error.
 std::wstring environment(const wchar_t *name) {
   std::wstring value(64, L'\0');
@@ -5143,7 +5182,7 @@ private:
   void request_account_code() {
     if (account_channel_ == AccountChannel::none || !account_begin())
       return;
-    const auto target = am::normalize_name(account_target_);
+    const auto target = am::trim_login_target(account_target_);
     if (target.empty()) {
       account_finish(L"account_invalid");
       return;
@@ -5279,13 +5318,18 @@ private:
   void rename_account() {
     if (!account_begin())
       return;
-    if (!am::valid_name(account_name_)) {
+    const auto name = account_name_presentation(account_name_);
+    if (!name) {
+      account_finish(L"account_unavailable");
+      return;
+    }
+    if (!name->valid) {
       account_finish(L"account_invalid");
       return;
     }
     auto action = account_action(L"rename");
     action.SetNamedValue(L"display_name",
-                         JsonValue::CreateStringValue(hstring(am::normalize_name(account_name_))));
+                         JsonValue::CreateStringValue(hstring(name->normalized)));
     account_request(action, [this](Response const &response) {
       if (!response.ok || !apply_account_profile(response, false)) {
         account_finish(account_failure(response));
@@ -5473,7 +5517,7 @@ private:
     if (account_resend_button_) {
       account_resend_button_.Content(box_value(hstring(am::resend_label(seconds))));
       account_resend_button_.IsEnabled(!account_busy_ &&
-                                       !am::normalize_name(account_target_).empty() &&
+                                       !am::trim_login_target(account_target_).empty() &&
                                        seconds == 0);
     }
     if (account_login_button_) {
@@ -6087,7 +6131,7 @@ private:
     content.ColumnDefinitions().Append(avatar_column);
     content.ColumnDefinitions().Append(text_column);
     content.ColumnDefinitions().Append(chevron_column);
-    const auto name = am::preferred_name(user.display_name, user.id);
+    const auto name = preferred_account_name(user.display_name, user.id);
     auto avatar = make_account_avatar(52, 22, name);
     Grid::SetColumn(avatar, 0);
     content.Children().Append(avatar);
@@ -6167,7 +6211,8 @@ private:
 
     TextBox nickname;
     nickname.Header(box_value(L"社区昵称"));
-    nickname.MaxLength(static_cast<int32_t>(am::max_name_length));
+    if (const auto name = account_name_presentation(account_name_))
+      nickname.MaxLength(name->maximum_utf16_units);
     nickname.Text(hstring(account_name_));
     A11y::SetName(nickname, L"编辑社区昵称");
     form.Children().Append(nickname);
@@ -6241,9 +6286,10 @@ private:
         return;
       }
       const auto &user = *account_user_;
-      const auto typed = am::normalize_name(account_name_);
+      const auto name = account_name_presentation(account_name_);
+      const auto typed = name ? name->normalized : account_name_;
       if (auto button = weak_avatar.get()) {
-        button.Content(make_account_avatar(46, 19, am::preferred_name(user.display_name, user.id)));
+        button.Content(make_account_avatar(46, 19, preferred_account_name(user.display_name, user.id)));
         button.IsEnabled(!account_busy_);
       }
       if (auto label = weak_name.get())
@@ -11723,10 +11769,92 @@ private:
 
   }
 
+  // 对话框持有草稿，所有字段确认后一次交给 Rust 校验并持久化。
+  fire_and_forget edit_cloud_provider() {
+    auto lifetime = get_strong();
+    const auto stored = document_.Value(L"cloud_candidate_provider");
+    if (!stored || stored.ValueType() != JsonValueType::Object) co_return;
+    auto config = std::make_shared<JsonObject>(JsonObject::Parse(stored.Stringify()));
+    StackPanel form;
+    form.Spacing(12);
+    form.Children().Append(make_text(L"仅发送当前组字，不发送已上屏内容、词库或历史。配置和凭据只保存在本机。公网使用 HTTPS，本机服务可用 HTTP。", 13, palette_.sub));
+    form.Children().Append(select_control(L"云候选来源", {{L"google", L"Google input-tools"}, {L"custom", L"自定义 HTTP 接口"}},
+      std::wstring(config->GetNamedString(L"source").c_str()), [config](std::wstring const &value) {
+        config->SetNamedValue(L"source", JsonValue::CreateStringValue(hstring(value)));
+      }));
+    auto field = [&](wchar_t const *key, wchar_t const *title, bool multiline) {
+      TextBox box;
+      box.Header(box_value(hstring(title)));
+      box.Text(config->GetNamedString(key, L""));
+      box.MaxLength(4096);
+      box.AcceptsReturn(multiline);
+      if (multiline) box.MinHeight(80);
+      form.Children().Append(box);
+      return box;
+    };
+    const auto endpoint = field(L"endpoint", L"接口地址（GET 用 {query}）", false);
+    form.Children().Append(select_control(L"请求方法", {{L"GET", L"GET"}, {L"POST", L"POST"}},
+      std::wstring(config->GetNamedString(L"method").c_str()), [config](std::wstring const &value) {
+        config->SetNamedValue(L"method", JsonValue::CreateStringValue(hstring(value)));
+      }));
+    const auto headers = field(L"headers_json", L"请求头（JSON，可填写 Authorization）", true);
+    const auto body = field(L"body_template", L"请求体模板（JSON 字符串里的 {query} 自动转义）", true);
+    form.Children().Append(select_control(L"响应格式", {{L"candidates", L"标准 candidates 数组"}, {L"google", L"Google input-tools"}, {L"json_path", L"JSON 路径"}},
+      std::wstring(config->GetNamedString(L"response_format").c_str()), [config](std::wstring const &value) {
+        config->SetNamedValue(L"response_format", JsonValue::CreateStringValue(hstring(value)));
+      }));
+    const auto path = field(L"response_path", L"JSON 路径（例如 data.0 或 choices.0.message.content）", false);
+    NumberBox timeout;
+    timeout.Header(box_value(L"超时（毫秒）"));
+    timeout.Minimum(100); timeout.Maximum(10000);
+    timeout.Value(config->GetNamedNumber(L"timeout_ms"));
+    form.Children().Append(timeout);
+    CheckBox cache;
+    cache.Content(box_value(L"缓存云候选（仅本机内存，按来源隔离，无结果缓存 60 秒）"));
+    cache.IsChecked(config->GetNamedBoolean(L"cache_enabled"));
+    form.Children().Append(cache);
+    auto error = make_text(L"", 13, palette_.sub);
+    form.Children().Append(error);
+    ScrollViewer scroll;
+    scroll.Content(form); scroll.MaxHeight(480);
+    ContentDialog dialog;
+    dialog.Title(box_value(L"云候选服务"));
+    dialog.Content(scroll);
+    dialog.PrimaryButtonText(L"保存"); dialog.CloseButtonText(L"取消");
+    dialog.XamlRoot(root_.XamlRoot());
+    dialog.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
+    dialog.PrimaryButtonClick([this, config, endpoint, headers, body, path, timeout, cache, error](
+        ContentDialog const &, ContentDialogButtonClickEventArgs const &args) {
+      config->SetNamedValue(L"endpoint", JsonValue::CreateStringValue(endpoint.Text()));
+      config->SetNamedValue(L"headers_json", JsonValue::CreateStringValue(headers.Text()));
+      config->SetNamedValue(L"body_template", JsonValue::CreateStringValue(body.Text()));
+      config->SetNamedValue(L"response_path", JsonValue::CreateStringValue(path.Text()));
+      if (!std::isfinite(timeout.Value())) { args.Cancel(true); return; }
+      config->SetNamedValue(L"timeout_ms", JsonValue::CreateNumberValue(timeout.Value()));
+      const auto checked = cache.IsChecked();
+      config->SetNamedValue(L"cache_enabled", JsonValue::CreateBooleanValue(checked && checked.Value()));
+      flush_pending();
+      document_.SetValue(L"cloud_candidate_provider", *config);
+      if (!commit()) {
+        args.Cancel(true);
+        error.Text(L"保存失败，请检查地址、请求头 JSON、请求体模板、响应路径和超时。");
+      } else queue_refresh();
+    });
+    co_await show_dialog(dialog);
+  }
+
   void build_input_habits(StackPanel const &page) {
     auto candidates = add_group(page, L"候选与联想");
-    bool_row(candidates, 0xE753, L"云候选", L"向在线服务请求额外候选",
+    std::wstring cloud_recipient = L"Google input-tools（inputtools.google.com）";
+    if (document_.String(L"cloud_candidate_provider.source", L"google") == L"custom") {
+      cloud_recipient = L"所选自定义服务";
+      try { cloud_recipient = Windows::Foundation::Uri(hstring(document_.String(L"cloud_candidate_provider.endpoint", L""))).Host().c_str(); }
+      catch (...) {}
+    }
+    bool_row(candidates, 0xE753, L"云候选", L"仅将当前拼写发送给 " + cloud_recipient + L"；不发送已上屏内容、词库或历史",
              L"cloud_candidates", false);
+    add_row(candidates, 0xE713, L"云候选服务", L"来源、GET/POST、请求头、JSON 模板、响应路径、超时和缓存",
+            nullptr, button_control(L"配置", [this] { edit_cloud_provider(); }));
     // 触发字符数固定为默认的 5，不再给出（HostCapabilities.mixed_input_minimum_prefix）：调低会让常见简拼被英文词抢走首选。
     bool_row(candidates, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词",
              L"mixed_input.english", true, true);

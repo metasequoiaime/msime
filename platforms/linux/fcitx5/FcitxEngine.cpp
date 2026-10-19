@@ -39,6 +39,7 @@
 #include "../src/candidates/CandidateFcitxTheme.h"
 #include "../src/candidates/FcitxThemeLogo.h"
 #include "../src/candidates/FcitxThemeOverlayScale.h"
+#include "../src/candidates/FcitxCanvasPanel.h"
 #include "../src/candidates/CandidateFontPolicy.h"
 #include "../src/candidates/CandidateWheelPaging.h"
 #include "../src/candidates/PanelRestoreRecord.h"
@@ -6022,21 +6023,37 @@ public:
     if (!resolved.covers_candidates) {
       if (classicui) restore_classicui_theme(*classicui);
       candidate_theme_applied_.clear();
+      candidate_canvas_source_.clear();
+      candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
       hint_text_width_ = 0;
       hint_inputs_ = FcitxHintInputs{};
       return;
     }
-    const auto &colors = resolved.colors;
+    auto colors = resolved.colors;
     const auto decoration = host::candidate_skin_decoration(catalog, resolved.candidate_skin);
     const auto corner_radius = host::candidate_corner_radius(preferences, catalog, resolved.candidate_skin);
     // Only the user's own radius pulls the highlight's corners in with the card.
     const bool user_radius = host::candidate_corner_radius_preference(preferences).has_value();
     // The decoration's stamp stands in for its image, so an unchanged skin costs a stat per refresh, not a copy.
-    auto inputs = Json{
+    const auto canvas_directory = host::fcitx_canvas_directory(catalog);
+    const auto theme_inputs = [&] {
+      Json canvas_stamps = Json::array();
+      if (canvas_directory && host::safe_skin_id(resolved.candidate_skin)) {
+        canvas_stamps.push_back(host::fcitx_canvas_file_stamp(*canvas_directory / resolved.candidate_skin / "skin.toml"));
+        if (!candidate_canvas_source_.empty()) canvas_stamps.push_back(host::fcitx_canvas_file_stamp(candidate_canvas_source_));
+      }
+      return Json{
         {"request", host::candidate_theme_request(preferences, host::candidate_dark_theme(preferences, system_dark), catalog)},
         {"corner_radius", corner_radius ? Json(*corner_radius) : Json(nullptr)},
         {"user_radius", user_radius},
-        {"overlay", host::fcitx_overlay_stamp(decoration)}}.dump();
+        {"overlay", host::fcitx_overlay_stamp(decoration)},
+        {"canvas", std::move(canvas_stamps)}}.dump();
+    };
+    auto inputs = theme_inputs();
+    if (std::chrono::steady_clock::now() >= candidate_canvas_retry_at_) {
+      candidate_theme_applied_.clear();
+      candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
+    }
     // 缓存只决定「同一份输入已经接管写好」这一件事：一拍不调 `getConfig()`，也不重写主题（#5988）；一次新的主动选择（chosen）仍然往下走，重新判断所有权。
     // classicui 落盘的活动主题、跟随深色、字体与 Wayland 字体 DPI 变了时刷新提示（见 read_classicui_hint_stamp）。
     const auto hint_stamp = read_classicui_hint_stamp();
@@ -6071,12 +6088,40 @@ public:
     static const auto logo = host::load_fcitx_theme_logo(MSIME_ICON_DIR);
     // 同一份输入已经写过主题文件，就不必为一次重新接管再栅格化一遍；所有权与 classicui 配置仍照常处理。
     if (inputs != candidate_theme_applied_) {
+      std::optional<host::FcitxCanvasPanel> canvas_panel;
+      candidate_canvas_source_.clear();
+      if (canvas_directory && host::safe_skin_id(resolved.candidate_skin)) {
+        try {
+          const auto encoded = Json{{"directory", canvas_directory->string()}, {"id", resolved.candidate_skin}}.dump();
+          const auto package = response(msime_client_skin_package(reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+          candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
+          canvas_panel = host::prepare_fcitx_canvas_panel(package, *canvas_directory, resolved.candidate_skin, resolved.dark,
+                                                         &candidate_canvas_source_);
+          if (canvas_panel) {
+            auto request = host::candidate_theme_request(preferences, resolved.dark, catalog);
+            request.erase("package");
+            request["skins_directory"] = canvas_directory->string();
+            request["canvas_panel_drawn"] = true;
+            const auto query = request.dump();
+            const auto panel_theme = host::candidate_theme_colors(
+                response(msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(query.data()), query.size())), resolved.dark);
+            if (panel_theme.candidate_skin == resolved.candidate_skin) colors = panel_theme.colors;
+            else canvas_panel.reset();
+          }
+        } catch (const std::exception &) {
+          canvas_panel.reset();
+          // 无效包不能阻止之后的资源修复；失败扫描每十秒重试，不进入每拍热路径。
+          candidate_canvas_retry_at_ = now + kCandidateThemeRetry;
+        }
+      }
       const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
       if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration, corner_radius, logo, user_radius,
-                                                      host::scale_fcitx_overlay_png)) {
+                                                      host::scale_fcitx_overlay_png, canvas_panel)) {
         candidate_theme_retry_at_ = now + kCandidateThemeRetry;
         return;
       }
+      // 首次准备资源后把已选图片的戳写进同一份缓存，之后每拍只 stat，不再扫描或解码。
+      inputs = theme_inputs();
 #ifdef MSIME_FCITX5_HINT_FONT
       // 装饰图的宽度只在写主题时读一次，模式提示切换时直接用结果。
       hint_text_width_ = fcitx_hint_width_from_theme(*file);
@@ -6858,6 +6903,8 @@ public:
   Json candidate_theme_selection_;
   // applyCandidatePanelTheme 上一次接管写好时的主题输入。
   std::string candidate_theme_applied_;
+  std::filesystem::path candidate_canvas_source_;
+  std::chrono::steady_clock::time_point candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
   // 还没接管成功时，上一次尝试所见的主题输入与经典界面落盘的选择；写主题失败时到 candidate_theme_retry_at_ 再试一次，其他情况要等它们变化。
   std::string candidate_theme_attempt_;
   std::chrono::steady_clock::time_point candidate_theme_retry_at_;

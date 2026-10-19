@@ -23,6 +23,14 @@ static void Spin(NSTimeInterval seconds)
     [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]];
 }
 
+// 按完成状态等待主队列回调；单次 runUntilDate 返回不保证到期回调已经执行。
+static bool SpinUntil(BOOL (^finished)(void))
+{
+    const CFTimeInterval deadline = CACurrentMediaTime() + 2.0;
+    while (!finished() && CACurrentMediaTime() < deadline) Spin(0.01);
+    return finished();
+}
+
 static NSButton *CandidateButton(MetasequoiaCandidatePanel *panel, NSInteger tag)
 {
     for (NSView *view in panel.window.contentView.subviews)
@@ -351,11 +359,13 @@ min_width_dip = 240
         // 没有被打断的退场在动画结束后才撤掉退场窗。
         [panel hide];
         Require(!panel.isVisible && motion.exiting, "退场没有开始。");
-        Spin(0.25);
-        Require(!motion.exiting && !motion.exitWindow.isVisible, "退场结束后退场窗没有收起。");
+        Require(SpinUntil(^BOOL { return !motion.exiting && !motion.exitWindow.isVisible; }), "退场结束后退场窗没有收起。");
+        // 连续输入的时间夹具独立于退场回调耗时；忙碌的 CI 可能等完退场就超过 400ms。
+        [motion setValue:@(CACurrentMediaTime()) forKey:@"lastHide"];
         // 同一段连续输入（收起后不到 400ms 又出现）不播进场。
         [panel show:kIMKLocateCandidatesBelowHint];
-        Require(panel.isVisible && !CardEntering(panel), "连续输入中重新出现的候选窗不应播放进场。");
+        Require(panel.isVisible && !CardEntering(panel) && [motion.lastDecision hasPrefix:@"show=burst "],
+                "连续输入中重新出现的候选窗不应播放进场。");
         // 进场途中打开「减弱动态效果」：动画立即撤掉，之后什么都不播。
         [panel hide];
         Spin(0.5);

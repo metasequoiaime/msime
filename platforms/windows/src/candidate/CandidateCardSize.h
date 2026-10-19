@@ -52,6 +52,8 @@ struct CandidateCardInput {
   CandidateSkinMetrics skin;
   // 这一页最宽的序号按序号字号量出的宽度；只有皮肤写了 number_inset、fit_content 或翻页箭头时才用得上，0 时按 msime-windows 的下限 9 DIP 算。
   double number_width = 0.0;
+  // canvas 皮肤的面板比这张卡片左右多出的宽度（candidate_canvas_content_offset 的左右之和，DIP，可以是负数）。最小宽度量的是整块面板（msime-windows 把最小宽度设在带着内容内边距的卡片上），所以比最小宽度时先加上它；0 时与以前相同。
+  double canvas_extra_width = 0.0;
 };
 struct CandidateCardSize {
   double width, height;
@@ -704,7 +706,10 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
     row_width_max = (std::max)(row_width_max, row);
   }
   width = (std::max)(input.horizontal ? row_width_sum : row_width_max, width);
-  width = (std::max)(width + pad_x + slack_x + arrow_column, min_width);
+  const double canvas_extra =
+      std::isfinite(input.canvas_extra_width) ? input.canvas_extra_width : 0.0;
+  width = (std::max)(width + pad_x + slack_x + arrow_column + canvas_extra, min_width) -
+          canvas_extra;
   auto clamp = [](double value, double cap) {
     value = (std::max)(value, 1.0);
     return cap > 1.0 ? (std::min)(value, cap) : value;

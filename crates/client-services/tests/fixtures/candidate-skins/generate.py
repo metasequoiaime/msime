@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""生成 candidate-skins 下各验证皮肤的图片：每个皮肤的 preview.png，`verify-canvas` 的九宫格面板与三个挂件，`verify-v2-motion-system` 的锦鲤 APNG。
+"""生成 candidate-skins 下各验证皮肤的图片：每个皮肤的 preview.png，`verify-canvas` 的九宫格面板与三个挂件，`verify-canvas-frame` 的中空面板框与四个挂件（含一张 GIF），`verify-v2-motion-system` 的锦鲤 APNG。
 
 只用标准库（zlib、struct、tomllib），不读随机数和时间，同一份脚本每次写出同样的像素。预览图的颜色、圆角、外框、阴影、翻页箭头和展开面板都从各自的 skin.toml 读，改了清单重跑一次即可：
 
@@ -55,6 +55,73 @@ def encode_apng(width, height, frames, delay_ms):
             out += _chunk(b"fdAT", struct.pack(">I", sequence) + data)
             sequence += 1
     return out + _chunk(b"IEND", b"")
+
+
+def _lzw(indices, minimum):
+    """GIF 的变长 LZW 压缩，按 GIF89a 的规则在码表满 4096 项时清表重来。"""
+    clear, end = 1 << minimum, (1 << minimum) + 1
+    out, buffer, bits = bytearray(), 0, 0
+    width = minimum + 1
+
+    def emit(code):
+        nonlocal buffer, bits
+        buffer |= code << bits
+        bits += width
+        while bits >= 8:
+            out.append(buffer & 0xFF)
+            buffer >>= 8
+            bits -= 8
+
+    table = {(i,): i for i in range(clear)}
+    emit(clear)
+    current = ()
+    for index in indices:
+        candidate = current + (index,)
+        if candidate in table:
+            current = candidate
+            continue
+        emit(table[current])
+        if len(table) + 2 < 4096:
+            table[candidate] = len(table) + 2
+            if len(table) + 1 >= 1 << width and width < 12:
+                width += 1
+        else:
+            emit(clear)
+            table = {(i,): i for i in range(clear)}
+            width = minimum + 1
+        current = (index,)
+    if current:
+        emit(table[current])
+    emit(end)
+    if bits:
+        out.append(buffer & 0xFF)
+    return bytes(out)
+
+
+def encode_gif(width, height, palette, frames, delay_ms):
+    """调色板 GIF89a 动图：每帧整幅画布、无限循环，下标 0 是透明色，`palette` 是 (r, g, b) 的列表（不超过 255 项，从下标 1 起），`frames` 是每帧的下标数组。"""
+    colors = [(0, 0, 0)] + list(palette)
+    size = 2
+    while (1 << size) < len(colors):
+        size += 1
+    colors += [(0, 0, 0)] * ((1 << size) - len(colors))
+    out = bytearray(b"GIF89a" + struct.pack("<HHBBB", width, height, 0x80 | (size - 1), 0, 0))
+    for r, g, b in colors:
+        out += bytes((r, g, b))
+    out += b"\x21\xFF\x0BNETSCAPE2.0\x03\x01\x00\x00\x00"
+    for indices in frames:
+        # 透明色、换帧前恢复成背景（disposal 2），延时以 1/100 秒计。
+        out += b"\x21\xF9\x04" + bytes((0x09,)) + struct.pack("<H", delay_ms // 10) + b"\x00\x00"
+        out += b"\x2C" + struct.pack("<HHHHB", 0, 0, width, height, 0)
+        data = _lzw(indices, size)
+        out.append(size)
+        for start in range(0, len(data), 255):
+            block = data[start:start + 255]
+            out.append(len(block))
+            out += block
+        out.append(0)
+    out.append(0x3B)
+    return bytes(out)
 
 
 # ---- 颜色 ----
@@ -187,21 +254,25 @@ class Canvas:
                 if 0 <= u <= image.w and 0 <= v <= image.h:
                     self.composite(py * self.w + px, image.sample(u, v), opacity)
 
-    def nine_slice(self, image, x0, y0, x1, y1, slice_px, border):
-        """CSS `border-image` 的 stretch：四角按 `border` 宽画切片，四边与中心拉伸。"""
+    def nine_slice(self, image, x0, y0, x1, y1, slice_px, border, fill=True):
+        """CSS `border-image` 的 stretch：四角按 `border` 宽画切片，四边与中心拉伸，`fill` 为假时中心不画。`slice_px` 与 `border` 是一个数（四边相同）或 (上下, 左右)。"""
+        slice_y, slice_x = slice_px if isinstance(slice_px, tuple) else (slice_px, slice_px)
+        border_y, border_x = border if isinstance(border, tuple) else (border, border)
 
-        def source(position, start, end, size):
+        def source(position, start, end, size, slice_px, border):
             if position < start + border:
-                return (position - start) / border * slice_px
+                return (position - start) / border * slice_px, False
             if position >= end - border:
-                return size - slice_px + (position - (end - border)) / border * slice_px
+                return size - slice_px + (position - (end - border)) / border * slice_px, False
             middle = (end - start) - 2 * border
-            return slice_px + (position - start - border) / middle * (size - 2 * slice_px)
+            return slice_px + (position - start - border) / middle * (size - 2 * slice_px), True
 
         for py in range(max(0, math.floor(y0)), min(self.h, math.ceil(y1))):
-            v = source(py + 0.5, y0, y1, image.h)
+            v, inner_y = source(py + 0.5, y0, y1, image.h, slice_y, border_y)
             for px in range(max(0, math.floor(x0)), min(self.w, math.ceil(x1))):
-                u = source(px + 0.5, x0, x1, image.w)
+                u, inner_x = source(px + 0.5, x0, x1, image.w, slice_x, border_x)
+                if inner_x and inner_y and not fill:
+                    continue
                 self.composite(py * self.w + px, image.sample(u, v))
 
     def paste(self, other, x, y):
@@ -446,8 +517,14 @@ def background(width, height, mode):
     return canvas
 
 
+# 本脚本这一次生成的、不是 PNG 的图（GIF），预览直接用生成时的第一帧。
+GENERATED = {}
+
+
 def load_png(path):
-    """读本脚本写出的 PNG 或 APNG 的默认图（8 位 RGBA、不隔行、滤波 0）。"""
+    """读本脚本写出的 PNG 或 APNG 的默认图（8 位 RGBA、不隔行、滤波 0）；GIF 取 GENERATED 里的第一帧。"""
+    if path in GENERATED:
+        return GENERATED[path]
     data = path.read_bytes()
     position, width, height, idat = 8, 0, 0, b""
     while position < len(data):
@@ -592,8 +669,12 @@ def draw_card(canvas, skin, mode, x, y, per_row=5, rows=1, extra_right=0):
 
     if skin.canvas:
         border = skin.window["border_image"]
-        source = border["light_source"] if mode == "light" else border["source"]
-        canvas.nine_slice(load_png(skin.folder / source), x, y, x1, y1, border["slice_dip"][0], border["width_dip"][0])
+        source = border.get("light_source", border["source"]) if mode == "light" else border["source"]
+        # stretch_dip 盖过 slice_dip，没写 width_dip 时边宽取切片；只画一个值或「上下 左右」两值。
+        slices = border.get("stretch_dip", border["slice_dip"])
+        widths = border.get("width_dip", slices)
+        pair = lambda values: (values[0], values[1] if len(values) > 1 else values[0])
+        canvas.nine_slice(load_png(skin.folder / source), x, y, x1, y1, pair(slices), pair(widths), border.get("fill", True))
     else:
         level = skin.window.get("shadow", "soft")
         blur, alpha, offset = {"none": (1, 0, 0), "soft": (8, 0.16, 2), "strong": (14, 0.42, 5)}[level]
@@ -734,6 +815,71 @@ def cloud():
     return image
 
 
+def frame():
+    """48×40 的竹色面板框：上下 10、左右 14 像素的框和四角的小方块都在切片之内，中心涂成品红，fill = false 时它不该被画出来。"""
+    image = Canvas(48, 40)
+    image.paint(rounded_box(14, 10, 34, 30, 0), rgba("#FF00FF"))
+    outer = rounded_box(1, 1, 47, 39, 6)
+    image.paint(ring(outer, rounded_box(9, 7, 39, 33, 2)), vertical_gradient(rgba("#C9A86A"), rgba("#8C6A33"), 1, 39))
+    image.paint(ring(rounded_box(4, 3, 44, 37, 4), rounded_box(5, 4, 43, 36, 3)), rgba("#F3E2B5CC"))
+    for cx, cy in ((7, 5), (41, 5), (7, 35), (41, 35)):
+        image.paint(rounded_box(cx - 2, cy - 2, cx + 2, cy + 2, 0.6), rgba("#4D7C0F"))
+    return image
+
+
+def seal():
+    image = Canvas(64, 64)
+    image.paint(ring(circle(32, 32, 30), circle(32, 32, 25)), rgba("rgba(22, 163, 74, 0.35)"))
+    image.paint(circle(32, 32, 18), rgba("rgba(22, 163, 74, 0.18)"))
+    return image
+
+
+def ribbon():
+    image = Canvas(120, 32)
+    image.paint(polygon([(2, 4), (22, 4), (14, 16), (22, 28), (2, 28)]), rgba("#B91C1C"))
+    image.paint(polygon([(118, 4), (98, 4), (106, 16), (98, 28), (118, 28)]), rgba("#B91C1C"))
+    image.paint(rounded_box(16, 2, 104, 30, 5), vertical_gradient(rgba("#F87171"), rgba("#DC2626"), 2, 30))
+    image.paint(rounded_box(22, 7, 98, 9, 1), rgba("#FECACA"))
+    return image
+
+
+def leaf():
+    image = Canvas(56, 56)
+    image.paint(polygon([(8, 50), (20, 18), (46, 6), (38, 34)], 2.0), vertical_gradient(rgba("#4ADE80"), rgba("#15803D"), 6, 50))
+    image.paint(polyline([(10, 48), (26, 28), (44, 8)], 1.4), rgba("#DCFCE7"))
+    return image
+
+
+# 星星 GIF 的调色板：下标 0 透明，1 淡金，2 亮白。
+STAR_PALETTE = [(0xFD, 0xE0, 0x47), (0xFF, 0xFF, 0xFF)]
+
+
+def star_frames():
+    """48×48、4 帧的星星：一个四角星从小到大再变小，每帧整幅画布、硬边（GIF 只有一位透明）。返回 (下标数组列表, 第一帧的 Canvas)。"""
+    frames, first = [], None
+    for scale in (0.55, 0.85, 1.0, 0.7):
+        image = Canvas(48, 48)
+        long, short = 20 * scale, 4.5 * scale
+        image.paint(polygon([(24, 24 - long), (24 + short, 24), (24, 24 + long), (24 - short, 24)], 0.3), rgba("#FDE047"))
+        image.paint(polygon([(24 - long, 24), (24, 24 - short), (24 + long, 24), (24, 24 + short)], 0.3), rgba("#FDE047"))
+        image.paint(circle(24, 24, 3.2 * scale + 0.8), rgba("#FFFFFF"))
+        indices = []
+        for r, g, b, a in image.px:
+            if a < 0.5:
+                indices.append(0)
+            else:
+                indices.append(2 if min(r, g, b) / a > 0.9 else 1)
+        # 预览里的第一帧照 GIF 的硬边重画一遍，和宿主解码出来的一样。
+        if first is None:
+            first = Canvas(48, 48)
+            for i, index in enumerate(indices):
+                if index:
+                    color = STAR_PALETTE[index - 1]
+                    first.px[i] = [color[0] / 255, color[1] / 255, color[2] / 255, 1.0]
+        frames.append(indices)
+    return frames, first
+
+
 def koi_frames():
     frames = []
     for frame in range(8):
@@ -766,6 +912,16 @@ def main():
     cloud().save(canvas_assets / "cloud.png")
     frames = twinkle_frames()
     (canvas_assets / "twinkle.png").write_bytes(encode_apng(48, 48, [f.to_bytes() for f in frames], 120))
+
+    frame_assets = ROOT / "verify-canvas-frame" / "assets"
+    frame_assets.mkdir(parents=True, exist_ok=True)
+    frame().save(frame_assets / "frame.png")
+    seal().save(frame_assets / "seal.png")
+    ribbon().save(frame_assets / "ribbon.png")
+    leaf().save(frame_assets / "leaf.png")
+    stars, first = star_frames()
+    (frame_assets / "stars.gif").write_bytes(encode_gif(48, 48, STAR_PALETTE, stars, 150))
+    GENERATED[frame_assets / "stars.gif"] = first
 
     koi_assets = ROOT / "verify-v2-motion-system" / "assets"
     koi_assets.mkdir(parents=True, exist_ok=True)

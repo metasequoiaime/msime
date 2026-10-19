@@ -12,6 +12,7 @@ mod editing;
 mod glide;
 mod input;
 mod learning;
+mod literal;
 mod online;
 pub mod options;
 mod plugin_commands;
@@ -321,7 +322,7 @@ impl Session {
         self.input.set_candidate_position(index, 0)
     }
 
-    /// Finish the whole composition starting with the host-highlighted candidate (0 when none is highlighted); remaining segments use their leading candidate, and an invalid index commits the raw input. A shifted capital that starts an incomplete pinyin spelling also uses the raw input so mixed English is not replaced by a Chinese correction.
+    /// 从宿主高亮的候选开始结束整段组字（没有高亮时为 0），剩余片段使用各自首选；索引无效时提交原文。普通拼音中的大写片段由字面候选保留。
     pub fn finish(&mut self, first_index: usize) -> KeyResult {
         if self.nine_key.active() {
             let result = self.nine_key.finish(first_index);

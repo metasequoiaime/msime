@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`HostSession::update` 比较最新请求的偏好与新快照。当云候选由开变关且会话正在组字时，先调用 `clear_online_candidates(0)`，再发布新偏好。运行时清除来源 0 的缓存和显示行，同时使旧在线查询失效；重新打开后由当前组字生成新查询。相同偏好的重复更新不清理候选。
+`HostSession::update` 比较最新请求的偏好与新快照。当云候选由开变关、或来源配置变化且会话正在组字时，先调用 `clear_online_candidates(0)`，再发布新偏好。运行时清除来源 0 的缓存和显示行，同时使旧在线查询失效；重新打开后由当前组字生成新查询。相同偏好的重复更新不清理候选。来源配置、HTTP 描述符与缓存隔离见[可配置云候选 HTTP 来源](../feature/2026-10-19-custom-cloud-candidate-url.md)。
 
 `Runtime::set_cloud_candidates_enabled` 读取引擎的实际开关，只在值变化时先调用 `advance()`、再改变引擎和刷新快照。直接 Rust 调用的开关双向变化和 Host API 延迟应用的开启都使旧候选 ID 失效；代次耗尽时在修改引擎之前拒绝操作。相同值直接返回，不能让每次无关偏好同步都撤销当前候选身份、释义或高亮。不在运行时另存一份开关缓存，避免已配置的 Session 和 Runtime 状态漂移。
 

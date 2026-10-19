@@ -89,11 +89,7 @@ fn fill_if_default(
     table: &[VoiceProviderPreset],
     field: impl Fn(&VoiceProviderPreset) -> &'static str,
 ) -> Option<&'static str> {
-    // 与原设置页的 String.prototype.trim 一致：包含 BOM，不把 U+0085 当作空白。
-    let value = current.trim_matches(|c| {
-        matches!(c, '\u{9}'..='\u{d}' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}'
-            | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
-    });
+    let value = msime_client_base::text::trim_ui_whitespace(current);
     (value.is_empty()
         || table
             .iter()

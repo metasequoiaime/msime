@@ -72,65 +72,18 @@
      2,
      3
     ],
-    "candidate_count": 5,
+    "candidate_count": 1,
     "candidates": [
      {
       "answers_key": true,
-      "canonical_pinyin": "ni'hao",
-      "pinyin": "ni'h",
+      "canonical_pinyin": "",
+      "pinyin": "niH",
       "scheme": "quanpin",
-      "source": 0,
-      "weight": 200,
-      "word": "你好"
-     },
-     {
-      "answers_key": true,
-      "canonical_pinyin": "ni'hao",
-      "pinyin": "ni'h",
-      "scheme": "quanpin",
-      "source": 0,
-      "weight": 100,
-      "word": "拟好"
-     },
-     {
-      "answers_key": true,
-      "canonical_pinyin": "ni'hao",
-      "pinyin": "ni'h",
-      "scheme": "quanpin",
-      "source": 0,
-      "weight": 90,
-      "word": "𠀀方案𠮷"
-     },
-     {
-      "answers_key": true,
-      "canonical_pinyin": "ni'hao",
-      "pinyin": "ni'h",
-      "scheme": "quanpin",
-      "source": 0,
-      "weight": 80,
-      "word": "C语言 2"
-     },
-     {
-      "answers_key": true,
-      "canonical_pinyin": "ni'hao",
-      "pinyin": "ni'h",
-      "scheme": "quanpin",
-      "source": 0,
-      "weight": 70,
-      "word": "GitHub"
+      "source": 9,
+      "weight": 0,
+      "word": "niH"
      }
-    ],
-    "online_query": {
-     "scheme": "quanpin",
-     "query_text": "ni'h",
-     "cache_key": "nih",
-     "pinyin_segments": [
-      "ni",
-      "h"
-     ],
-     "cloud_eligible": true,
-     "ai_eligible": false
-    }
+    ]
    }
   }
  ]

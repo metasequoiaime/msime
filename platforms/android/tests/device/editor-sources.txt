@@ -150,6 +150,7 @@ platforms/android/tests/device/keyboard/InputFailureCategoryDeviceSmoke.java
 platforms/android/tests/device/candidate/StaleCandidateDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseLanguageReturnDeviceSmoke.java
 platforms/android/tests/device/candidate/HeavyEqualsCandidateDeviceSmoke.java
+platforms/android/tests/device/candidate/HandEmojiCandidateDeviceSmoke.java
 platforms/android/tests/device/keyboard/HelpcodeImportDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateExpansionDeviceSmoke.java
 
@@ -194,3 +195,5 @@ platforms/android/java/app/msime/android/candidate/CandidateManagementAction.jav
 platforms/android/java/app/msime/android/core/AppEdition.java
 platforms/android/java/app/msime/android/keyboard/StrokeKeyboardLayout.java
 platforms/android/java/app/msime/android/voice/AiEndpointPolicy.java
+
+platforms/android/tests/device/candidate/CloudCandidateTransportDeviceSmoke.java

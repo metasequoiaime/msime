@@ -115,7 +115,7 @@ test("a preset prompt is read-only and editing a custom slot saves to that slot"
   expect((screen.getByLabelText("润色提示词") as HTMLTextAreaElement).value).toBe("第三个方案");
 });
 
-test("the AI page edits the active prompt slot inside 更多选项, without a slot selector", async () => {
+test("the AI page edits the active prompt slot inside 自定义提示词, without a slot selector", async () => {
   const save = vi.fn(async (_revision: number, preferences: Preferences) => ({
     ...snapshot,
     revision: snapshot.revision + 1,
@@ -153,7 +153,9 @@ test("the AI page edits the active prompt slot inside 更多选项, without a sl
   expect(within(page).queryByLabelText("AI 联想提示词方案")).toBeNull();
   const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
   expect(prompt.value).toBe("第二个方案");
-  expect(prompt.closest("details")).not.toBeNull();
+  expect(prompt.closest("details")!.open).toBe(false);
+  fireEvent.click(within(page).getByText("自定义提示词").closest("summary")!);
+  expect(prompt.closest("details")!.open).toBe(true);
   // 说明照实说：填写会整个替换内置提示词，不是「额外」追加。
   expect(within(page).getByText(/填写后完整替换，请要求只输出 JSON 格式的候选/)).toBeTruthy();
   expect(within(page).getByText(/当前使用槽位二/)).toBeTruthy();

@@ -1,5 +1,13 @@
 //! Shared text predicates used by client-core input boundaries.
 
+/// 与现有设置界面的 JavaScript `trim` 一致：去掉首尾空白，包含 BOM，不包含 U+0085。
+pub fn trim_ui_whitespace(value: &str) -> &str {
+    value.trim_matches(|c| {
+        matches!(c, '\u{9}'..='\u{d}' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}'
+            | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+    })
+}
+
 /// Whether `value` contains a control character other than the line-oriented controls accepted
 /// by multi-line text fields.
 pub fn has_disallowed_control(value: &str) -> bool {

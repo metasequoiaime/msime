@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "AccountPageModel.h"
+#include "SettingsText.h"
 #include "PluginPageModel.h"
 
 // 「主题」页的「社区皮肤」、「插件」页的「社区插件」两个标签和「账号与同步」页「我的内容」打开的社区词库与回复模板的规则和文案，照共享设置在 Windows 上的样子移植：`community-helpers.ts`（错误码的句子、授权行、评分、大小）、`community-skin-category.ts`（皮肤分类）、`community-report.tsx`（举报原因）、`community-publish-validation.ts` 和 `use-community-publication-draft.ts`（发布名称与说明的校验）、`community-card-author.tsx`、`community-rating-metrics.tsx`、`candidate-skin-publish-dialog.tsx` 与 `community-plugins.tsx` 的固定文案，以及 `community-resources.tsx`（词库与回复模板的图库、详情和发布对话框）。社区操作本身在 Rust（msime_client_community），不在这里。不依赖 Windows 和 WinRT 头文件，方便单独测试。
@@ -19,11 +19,8 @@ namespace msime::settings::community {
 
 // ---- 文字 ----
 
-// String.prototype.trim。
-inline std::wstring trim(std::wstring_view value) { return account::normalize_name(value); }
-
-// `[...text].length`：按码点数。
-inline size_t code_points(std::wstring_view value) { return account::code_points(value); }
+using text::trim;
+using text::code_points;
 
 // 下标 i 处的码点，代理对合成一个；`width` 是它占的 UTF-16 单元数。
 inline char32_t code_point_at(std::wstring_view value, size_t i, size_t &width) {
@@ -185,7 +182,7 @@ inline std::wstring candidate_skin_message(std::wstring_view code, bool publishi
   if (code == L"candidate_skin_package")
     return L"皮肤包未通过校验，无法分享或安装。";
   if (code == L"candidate_skin_file_type")
-    return L"仅支持 PNG 或 JPEG 图片，且不能包含样式表。";
+    return L"资源支持 PNG/JPEG/APNG/GIF/WebP，预览须为 PNG/JPEG，不能包含样式表。";
   if (code == L"candidate_skin_file_path")
     return L"皮肤文件名或数量不符合要求。";
   if (code == L"candidate_skin_too_large")
@@ -371,7 +368,7 @@ inline bool asset_license_valid(std::wstring_view value) {
 
 inline constexpr std::wstring_view skin_package_limit = L"2 MB";
 inline constexpr std::wstring_view skin_publish_warning =
-    L"仅上传 skin.toml 与 PNG/JPEG 图片（需包含预览图）；单个文件不超过 1 MB、合计不超过 2 MB、每边不超过 2048 像素。服务器会重新编码图片并去除元数据。登录期间修改本地皮肤，会自动同步到这款作品。";
+    L"上传 skin.toml 与 PNG/JPEG/APNG/GIF/WebP 资源，预览图须为 PNG/JPEG；最多 37 张，单张不超过 1 MB、合计不超过 2 MB、每边不超过 2048 像素。动画最多 120 帧。扩展资源需要服务器支持，处理时保留动画并去除元数据。";
 inline constexpr std::wstring_view plugin_archive_limit = L"8 MB";
 inline constexpr std::wstring_view plugin_publish_warning =
     L"上传的是插件目录中的全部文件（不含隐藏文件），压缩后不超过 8 MB；每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。其他用户下载后会按原样安装。";

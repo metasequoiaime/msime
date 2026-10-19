@@ -5,12 +5,15 @@
 use super::*;
 use msime_engine::SchemeType;
 
-/// Build the default cloud request for an eligible online query. Hosts perform
-/// the actual network I/O through their injected transport and then submit the
-/// result to `Runtime::apply_online_candidate`.
+/// 兼容只读取 GET 地址的宿主；完整 HTTP 请求由在线查询中的描述符提供。
 pub fn cloud_request_url(query: &OnlineQuery) -> Option<String> {
     if !cloud_query_allowed(query) {
         return None;
+    }
+    if let Some(request) = &query.cloud_request {
+        return (request.validate()
+            && request.method == msime_client_core::cloud::candidates::CloudHttpMethod::Get)
+            .then(|| request.url.clone());
     }
     msime_client_core::cloud::candidates::build_google_url(
         &query.query_text,
@@ -25,7 +28,7 @@ fn cloud_query_allowed(query: &OnlineQuery) -> bool {
         && SchemeType::from_u8(query.scheme).is_some_and(SchemeType::cloud_eligible)
 }
 
-/// Convert a host-fetched Google response into a bounded online result.
+/// 按共享描述符解析宿主取得的响应，旧查询仍按 Google 格式处理。
 pub fn cloud_candidate_from_response(
     query: OnlineQuery,
     response: &[u8],
@@ -33,7 +36,11 @@ pub fn cloud_candidate_from_response(
     if !cloud_query_allowed(&query) {
         return None;
     }
-    let text = msime_client_core::cloud::candidates::parse_google_response(response)?;
+    let text = if let Some(request) = &query.cloud_request {
+        msime_client_core::cloud::candidates::parse_response(request, response)?
+    } else {
+        msime_client_core::cloud::candidates::parse_google_response(response)?
+    };
     Some(OnlineCandidate {
         query,
         text,
@@ -301,27 +308,42 @@ impl UnixSocketProvider {
         if !query.ai_eligible || !query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled) {
             query.ai_context.clear();
         }
-        let timeout = if query.ai_eligible
-            && !query.ai_cache_only
-            && query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled)
+        if query
+            .cloud_request
+            .as_ref()
+            .is_some_and(|request| !request.validate())
         {
-            // Windows ai_assistant.cpp permits eight seconds for model inference, and the provider holds that budget itself. The extra second covers its worker start-up so a reply it accepted at the deadline is not dropped here; a cache probe never waits on the network.
-            std::time::Duration::from_secs(9)
+            return None;
+        }
+        // AI 保留九秒往返预算；云请求再留半秒给 provider 调度，缓存探测不联网。
+        let timeout_ms =
+            if query.ai_eligible && query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled) {
+                9000
+            } else {
+                500
+            };
+        let timeout = std::time::Duration::from_millis(if query.ai_cache_only {
+            500
         } else {
-            std::time::Duration::from_millis(500)
-        };
+            timeout_ms.max(
+                query
+                    .cloud_request
+                    .as_ref()
+                    .map_or(0, |request| request.timeout_ms + 500),
+            )
+        });
         let mut stream = self.connect()?;
         stream
             .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
         let request = json!({"version": 1, "kind": "online", "query": query}).to_string();
-        if request.len() > 16384 || write_request(&mut stream, &request).is_err() {
+        if request.len() > MAX_ONLINE_QUERY_BYTES || write_request(&mut stream, &request).is_err() {
             return None;
         }
         // One response deadline: partial writes by the provider must not
         // restart the inference timeout or grow an unbounded line buffer.
         let deadline = std::time::Instant::now() + timeout;
-        let line = read_bounded_line(&mut stream, deadline, 16_384, false)?;
+        let line = read_bounded_line(&mut stream, deadline, 1_589_248, false)?;
         #[derive(Deserialize)]
         struct Reply {
             text: String,
@@ -330,13 +352,31 @@ impl UnixSocketProvider {
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum Response {
-            Batch { candidates: Vec<Reply> },
+            Batch {
+                candidates: Vec<Reply>,
+                #[serde(default)]
+                cloud_response: Option<String>,
+            },
             Single(Reply),
         }
-        let replies = match serde_json::from_str::<Response>(&line).ok()? {
-            Response::Batch { candidates } => candidates,
-            Response::Single(reply) => vec![reply],
+        let (mut replies, cloud_response) = match serde_json::from_str::<Response>(&line).ok()? {
+            Response::Batch {
+                candidates,
+                cloud_response,
+            } => (candidates, cloud_response),
+            Response::Single(reply) => (vec![reply], None),
         };
+        if let Some(body) = cloud_response {
+            if let Some(candidate) = cloud_candidate_from_response(query.clone(), body.as_bytes()) {
+                replies.insert(
+                    0,
+                    Reply {
+                        text: candidate.text,
+                        source: 0,
+                    },
+                );
+            }
+        }
         if replies.len() > 11 {
             return None;
         }

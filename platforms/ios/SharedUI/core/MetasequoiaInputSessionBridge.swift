@@ -1248,9 +1248,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return data
   }
 
-  /// The HTTPS cloud candidate URL the shared host builds for an eligible query.
+  /// 兼容 GET 查询的共享云候选地址；完整请求通过在线查询描述符执行。
   static func cloudRequestURL(query: Data) -> URL? {
-    guard !query.isEmpty, query.count <= 16_384 else { return nil }
+    guard !query.isEmpty, query.count <= 131_072 else { return nil }
     let value = query.withUnsafeBytes { bytes in
       try? decode(msimeClientCloudRequestURL(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(query.count)))
     }
@@ -1262,7 +1262,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func applyCloudResponse(query: Data, body: Data) throws -> [String: Any] {
     flushPendingCharacters()
     guard handle != 0 else { throw InputBridgeFailure.unavailable }
-    guard !query.isEmpty, query.count <= 16_384, !body.isEmpty, body.count <= 262_144 else {
+    guard !query.isEmpty, query.count <= 131_072, !body.isEmpty, body.count <= 262_144 else {
       throw InputBridgeFailure.invalidResponse
     }
     return try query.withUnsafeBytes { queryBytes in
@@ -1280,7 +1280,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// The AI HTTPS request descriptor for a query, or nil when the assistant's settings no longer match it. It carries the provider credential: never log it.
   func aiRequest(query: Data) -> [String: Any]? {
     flushPendingCharacters()
-    guard handle != 0, !query.isEmpty, query.count <= 16_384 else { return nil }
+    guard handle != 0, !query.isEmpty, query.count <= 131_072 else { return nil }
     return query.withUnsafeBytes { bytes in
       (try? Self.decode(msimeClientAIRequestForQuery(
         handle, bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(query.count)))) as? [String: Any]
@@ -1356,7 +1356,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     flushPendingCharacters()
     guard handle != 0 else { throw InputBridgeFailure.unavailable }
     let payload = try JSONSerialization.data(withJSONObject: candidates)
-    guard !query.isEmpty, query.count <= 16_384, payload.count <= 16_384, source <= 1 else {
+    guard !query.isEmpty, query.count <= 131_072, payload.count <= 16_384, source <= 1 else {
       throw InputBridgeFailure.invalidResponse
     }
     return try query.withUnsafeBytes { queryBytes in
@@ -1375,7 +1375,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func resolveOnlineCandidates(query: Data, source: UInt8) throws -> [String: Any] {
     flushPendingCharacters()
     guard handle != 0 else { throw InputBridgeFailure.unavailable }
-    guard !query.isEmpty, query.count <= 16_384, source <= 1 else {
+    guard !query.isEmpty, query.count <= 131_072, source <= 1 else {
       throw InputBridgeFailure.invalidResponse
     }
     return try query.withUnsafeBytes { queryBytes in

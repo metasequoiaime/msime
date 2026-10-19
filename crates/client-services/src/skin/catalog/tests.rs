@@ -277,23 +277,69 @@ fn gif_and_webp_decorations_are_dimension_checked_and_counted() {
 }
 
 #[test]
+fn catalog_rejects_webp_inner_geometry_instead_of_static_fallback() {
+    use crate::skin::webp_preflight::tests::{animated, static_images, with_inner_dimensions};
+    let images = static_images();
+    assert_eq!(
+        decoded_animation_frames(&animated(&images), image::ImageFormat::WebP, (4, 3), 36),
+        Ok((3, 3))
+    );
+    for bytes in images {
+        let mismatch = with_inner_dimensions(bytes, 5, 3);
+        let bytes = animated(&[mismatch]);
+        assert_eq!(
+            decoded_animation_frames(&bytes, image::ImageFormat::WebP, (4, 3), 12),
+            Err("invalid WebP frame geometry")
+        );
+        let root = tempdir().unwrap();
+        let skin = resource_package(root.path());
+        fs::write(skin.join("motion.webp"), bytes).unwrap();
+        fs::write(
+            skin.join("skin.toml"),
+            manifest("sample")
+                .replace("top_inset_dip = 0", "top_inset_dip = 10")
+                .replace("width_dip = 0", "width_dip = 10")
+                .replace(
+                    "[candidate_window.decoration]",
+                    "[candidate_window.decoration]\nimage = 'motion.webp'",
+                ),
+        )
+        .unwrap();
+        assert_eq!(
+            load(root.path(), "sample").unwrap_err(),
+            "invalid WebP frame geometry"
+        );
+    }
+}
+
+#[test]
 fn gif_frames_stop_at_the_frame_limit_and_the_package_budget() {
     assert_eq!(
         decoded_animation_frames(
             &encoded_gif(2, 2, MAX_ANIMATION_FRAMES + 1),
             image::ImageFormat::Gif,
-            4,
+            (2, 2),
             u64::MAX
         ),
         Err(ANIMATION_TOO_MANY_FRAMES)
     );
     // 剩余额度只够两帧半：第三帧解码完就停，不再往下解。
     assert_eq!(
-        decoded_animation_frames(&encoded_gif(10, 10, 5), image::ImageFormat::Gif, 100, 250),
+        decoded_animation_frames(
+            &encoded_gif(10, 10, 5),
+            image::ImageFormat::Gif,
+            (10, 10),
+            250
+        ),
         Err(IMAGE_DIMENSIONS_TOO_LARGE)
     );
     assert_eq!(
-        decoded_animation_frames(&encoded_gif(10, 10, 5), image::ImageFormat::Gif, 100, 500),
+        decoded_animation_frames(
+            &encoded_gif(10, 10, 5),
+            image::ImageFormat::Gif,
+            (10, 10),
+            500
+        ),
         Ok((5, 5))
     );
 }
@@ -304,12 +350,12 @@ fn a_gif_with_a_damaged_tail_counts_the_frames_before_it() {
     assert_eq!(bytes.pop(), Some(0x3B));
     bytes.extend([0x99, 0x00, 0x3B]);
     assert_eq!(
-        decoded_animation_frames(&bytes, image::ImageFormat::Gif, 24, u64::MAX),
+        decoded_animation_frames(&bytes, image::ImageFormat::Gif, (6, 4), u64::MAX),
         Ok((3, 3))
     );
     // 第一帧都读不出的旧资源仍按静态图处理。
     assert_eq!(
-        decoded_animation_frames(b"GIF89a", image::ImageFormat::Gif, 24, u64::MAX),
+        decoded_animation_frames(b"GIF89a", image::ImageFormat::Gif, (6, 4), u64::MAX),
         Ok((1, 1))
     );
 }
@@ -323,7 +369,7 @@ fn a_gif_frame_larger_than_its_screen_is_rejected_before_allocating() {
     bytes.extend([0x2C, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
     bytes.extend([0x02, 0x02, 0x44, 0x01, 0x00, 0x3B]);
     assert_eq!(
-        decoded_animation_frames(&bytes, image::ImageFormat::Gif, 64 * 64, u64::MAX),
+        decoded_animation_frames(&bytes, image::ImageFormat::Gif, (64, 64), u64::MAX),
         Err(IMAGE_DIMENSIONS_TOO_LARGE)
     );
     let root = tempdir().unwrap();
@@ -1159,6 +1205,16 @@ fn canvas_packages_keep_panel_colours_and_readable_host_fallback() {
     let json = serde_json::to_value(&package).unwrap();
     assert_eq!(json["candidate"]["light"]["text"], "#1A1A1A");
     assert_eq!(json["panelCandidate"]["light"]["text"], "#f5ecff");
+    let published = host_candidate_catalog(&scan(root.path()), root.path(), &["paneled"]);
+    assert_eq!(published["directory"], root.path().to_str().unwrap());
+    let entry = published["packages"][0].clone();
+    assert_eq!(entry["candidate"]["light"]["text"], "#1A1A1A");
+    assert!(super::super::theme::ThemePackage::from_host_catalog_entry(entry).is_ok());
+    assert!(
+        host_candidate_catalog(&scan(root.path()), Path::new("skins"), &[])
+            .get("directory")
+            .is_none()
+    );
     assert_eq!(package.candidate.dark.surface.as_deref(), Some("#202020"));
     assert_eq!(package.candidate.dark.text.as_deref(), Some("#F2F2F2"));
     assert_eq!(package.corner_radius_dip, None);

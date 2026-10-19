@@ -14,3 +14,5 @@ pub mod folder_import;
 pub mod keyboard_trial;
 pub mod season;
 pub mod theme;
+
+mod webp_preflight;
