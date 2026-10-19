@@ -795,13 +795,11 @@ char *msime_client_english_completions(uint64_t session, const uint8_t *prefix,
  * 中文标点下 '\'' 与 '"' 出哪种引号、'[' ']' 出哪种方头括号由偏好 quote_style、bracket_style 决定（契约 shared/contracts/punctuation 的 styles 段）。View.punctuation_marks 报告引擎已应用的样式：{"quotes": "curly"|"corner", "brackets": "solid"|"hollow"}，corner_when_traditional 已按繁体输出开关解析成 curly 或 corner。宿主做成对补全、跨过后半个、空格转换、英文模式下的中文标点和画触屏键面时读它，不自己解析偏好；改了偏好要等空闲重建后它才变，和引擎出字同步。
  */
 char *msime_client_view(uint64_t session);
-/* Return a copied OnlineQuery JSON object, or null when the current composition
- * is not eligible for an online provider. Linux responses may include the
- * validated ai_assistant provider/model/prompt configuration (never its token).
- * The document also carries the validated cloud_candidates preference so a
- * user-owned provider can distinguish cloud suggestions from AI suggestions.
- * The caller may perform provider work off-thread and pass the unchanged
- * document back to apply_online_candidate. */
+/* 在线候选查询包含 cloud_request（GET/POST、请求头、JSON 请求体、超时、响应格式和可选缓存回包）。
+ * 描述符可能含自定义服务凭据，只交给宿主传输，不写日志或上传诊断。
+ * 各接收 OnlineQuery 的接口最多接受 128 KiB UTF-8 JSON；候选列表与回包沿用各自上限。
+ * 云与 AI 共用这份查询，宿主在后台执行后原样交回，组字或来源变化会拒绝迟到结果。 */
+#define MSIME_ONLINE_QUERY_MAX_BYTES 131072
 char *msime_client_online_query(uint64_t session);
 /* Build a validated AI HTTP descriptor for a copied OnlineQuery. The host
  * resolves credentials from its current preferences; the query must still
@@ -819,21 +817,13 @@ char *msime_client_set_ai_credential(uint64_t session, const uint8_t *token,
  * While the composition is a /fy request (command mode) the query is that request alone, whatever the gloss switches say: sentence:true, target_language "zh", one candidate {text, online_gloss:false} holding the English typed after the command, no resources, user_data or offline_gloss_languages, and null when no service of the user's own (tencent, niutrans or custom) is selected. Ask only that service, without the offline dictionary or the gloss cache, and hand the answer back through msime_client_apply_translations, which shows it as the first row and commits the translation.
  */
 char *msime_client_translation_query(uint64_t session);
-/* How long a cloud candidate is worth waiting for: connecting, and in total.
- * Mirrors client-core's cloud::candidates, which takes them from the reference,
- * whose cloud worker gives every phase of the request 2000 ms. A host must not
- * choose its own: a reply arriving after a private deadline is one the
- * reference would have shown.
- */
+/* Google 的默认预算；cloud_request 存在时按描述符中的毫秒预算执行。 */
 #define MSIME_CLOUD_CONNECT_TIMEOUT_MS 2000
 #define MSIME_CLOUD_REQUEST_TIMEOUT_MS 2000
-/* Build the bounded HTTPS cloud URL for an eligible OnlineQuery. The native
- * host performs network I/O and applies the copied result separately. */
+/* 兼容 GET 云候选的 URL 入口；POST 宿主直接执行 OnlineQuery.cloud_request。 */
 char *msime_client_cloud_request_url(const uint8_t *query, size_t query_length);
-/* Parse a host-fetched response using the shared cloud parser. Returns
- * {applied,view}; no-result/malformed provider documents do not mutate input.
- * Query <=16 KiB, response <=256 KiB. Stale queries and disabled cloud
- * preferences (including a pending disable) cannot apply candidates. */
+/* 共享解析器处理宿主取得的云响应，返回 {applied,view}；空或无效响应不改变组字。
+ * 查询最多 128 KiB，响应最多 256 KiB。过期、关闭或切换来源的查询不应用候选。 */
 char *msime_client_apply_cloud_response(uint64_t session,
                                       const uint8_t *query, size_t query_length,
                                       const uint8_t *body, size_t body_length);

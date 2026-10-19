@@ -39,6 +39,8 @@ Tauri 在三个桌面平台上还承载共享面板：表情与符号、手写�
 
 由此，一个设置功能要在 `packages/ui` 实现一次，再在每个原生设置平台（Windows、iOS、Android）各实现一次。为了让每个平台的那一份只剩界面，设置项的校验、默认值、持久化和业务逻辑必须放在共享 Rust 层（偏好在 `crates/client-core`，账号、皮肤、词库等在 `crates/client-services`，语音与 AI 在 `crates/client-providers`，都经 `crates/host-api` 提供给原生宿主），原生设置界面不应复制这些规则。这条规则今天还没有全部落实，也没有脚本门禁：Windows 语音页的服务列表、默认地址与换服务规则（`platforms/windows/settings/VoiceSettings.h`）、账号页的昵称校验（`platforms/windows/settings/AccountPageModel.h`），以及 Android 的语音服务列表与豆包接口地址（`platforms/android/java/app/msime/android/voice/VoiceProviderPolicy.java`）仍写在原生界面一侧；新设置功能要先把规则下沉到上面对应的共享 Rust crate。
 
+云候选服务的 HTTP 配置、模板、响应路径和缓存由 `client-core::cloud::candidates` 持有，Host API 将请求描述符附在在线查询上，各宿主只执行传输；Linux 的在线服务返回原始 JSON 给共享层解析。完整配置和隐私边界见[云候选服务](cloud-candidates.md)。
+
 **macOS 的 AppKit 设置窗口冻结为回退。** `platforms/macos/src/settings/` 的原生设置窗口，以及 `AISettingsWindow.mm`、`TranslationSettingsWindow.mm`、`VoiceProviderSettings.mm` 等独立窗口，只在设置应用找不到、启动失败或 options 路径不是绝对路径时由 `DesktopSettingsLauncher.h` 的回退分支打开，另有以 `--preferences` 启动输入法 bundle 的独立设置窗口。它们只保留为设置应用无法启动时的最小回退，不加新功能；macOS 上的新设置只进共享 React 设置页。
 
 ## 四条不能打破的边界

@@ -1,4 +1,7 @@
-//! Safe, host-independent contract for the Windows cloud-candidate service.
+//! 各宿主共用的云候选协议、状态与缓存。
+
+mod provider;
+pub use provider::*;
 
 use serde_json::Value;
 use std::collections::HashMap;

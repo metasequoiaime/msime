@@ -260,6 +260,54 @@ fn online_provider_deduplicates_before_enforcing_source_quota() {
 
 #[cfg(unix)]
 #[test]
+fn online_provider_uses_shared_custom_response_parser() {
+    use msime_client_core::cloud::candidates::{
+        build_request, CloudCandidatePreferences, CloudCandidateSource, CloudResponseFormat,
+    };
+    let directory = private_tempdir();
+    let socket = directory.path().join("online.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut line,
+        )
+        .unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["query"]["cloud_request"]["response_path"], "data.0");
+        let reply = json!({"candidates": [], "cloud_response": r#"{"data":["合成套接字候选"]}"#})
+            .to_string()
+            + "\n";
+        std::io::Write::write_all(&mut stream, reply.as_bytes()).unwrap();
+    });
+    let mut query: OnlineQuery = serde_json::from_value(json!({
+        "scheme": 0, "generation": 1, "identity": "synthetic", "query_text": "nihao",
+        "cache_key": "synthetic", "pinyin_segments": ["ni", "hao"], "cloud_eligible": true,
+        "cloud_candidates": true, "ai_eligible": false, "session_id": 5
+    }))
+    .unwrap();
+    query.cloud_request = build_request(
+        &CloudCandidatePreferences {
+            source: CloudCandidateSource::Custom,
+            endpoint: "https://cloud.example.invalid/?q={query}".into(),
+            response_format: CloudResponseFormat::JsonPath,
+            cache_enabled: false,
+            ..Default::default()
+        },
+        "nihao",
+        false,
+    );
+    assert_eq!(
+        UnixSocketProvider::new(socket).query_candidates(query),
+        Some(vec![("合成套接字候选".into(), 0)])
+    );
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn online_provider_filtered_sources_keep_empty_result_unallocated() {
     let directory = private_tempdir();
     let socket = directory.path().join("online.sock");
@@ -2797,6 +2845,7 @@ fn online_provider_worker_is_bounded_and_filters_invalid_results() {
         cloud_eligible: true,
         ai_eligible: true,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 9,
         ai_context: String::new(),
         ai_assistant: None,
@@ -2845,6 +2894,7 @@ fn online_provider_worker_keeps_only_the_latest_completed_result() {
         cloud_eligible: true,
         ai_eligible: false,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 9,
         ai_context: String::new(),
         ai_assistant: None,
@@ -2893,6 +2943,7 @@ fn online_provider_worker_debounces_from_the_latest_submission() {
         cloud_eligible: true,
         ai_eligible: false,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 9,
         ai_context: String::new(),
         ai_assistant: None,
@@ -2937,6 +2988,7 @@ fn cloud_request_requires_eligible_query() {
         cloud_eligible: false,
         ai_eligible: false,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 1,
         ai_context: String::new(),
         ai_assistant: None,
@@ -6759,6 +6811,7 @@ fn a_busy_provider_keeps_only_the_newest_completed_result() {
         cloud_eligible: true,
         ai_eligible: false,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 1,
         ai_context: String::new(),
         ai_assistant: None,
@@ -6871,6 +6924,7 @@ fn scheme_predicates_reproduce_the_ordinal_rules_they_replace() {
         cloud_eligible: true,
         ai_eligible: false,
         cloud_candidates: true,
+        cloud_request: None,
         session_id: 1,
         ai_context: String::new(),
         ai_assistant: None,
