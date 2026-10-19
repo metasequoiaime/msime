@@ -88,6 +88,111 @@ fn decoration_motion_and_frames_reach_the_hosts() {
 }
 
 #[test]
+fn windows_skin_v2_fields_and_wechat_scroll_base_are_preserved() {
+    let root = tempdir().unwrap();
+    let skin = root.path().join("canvas_skin");
+    fs::create_dir(&skin).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        "schema_version = 2
+id = 'canvas_skin'
+name = 'Canvas skin'
+version = '1'
+base = 'canvas'
+[supports]
+layouts = ['horizontal', 'vertical']
+themes = ['dark', 'light']
+[candidate_window]
+backdrop = 'mica'
+font_family = '霞鹜文楷'
+page_arrows = false
+fit_content = true
+expand_panel = true
+expand_rows = 4
+padding = '0.5em'
+item_gap = 2
+selected_bar_height_em = 0.8
+preedit_margin_dip = [1, 2]
+[candidate_window.horizontal]
+justify_rows = true
+[candidate_window.content_insets_dip]
+top = 10
+right = 12
+bottom = 10
+left = 12
+[candidate.dark]
+candidate_text = '#EDEDED'
+preedit_text = '#D0D0D0'
+selected_translation = '#FFFFFFCC'
+backdrop_opacity = 0.4
+backdrop_luminosity = 0.9
+[candidate.dark.menu]
+background = '#202020'
+border = '#303030'
+text = '#FFFFFF'
+hover = '#404040'
+
+",
+    )
+    .unwrap();
+    let package = load(root.path(), "canvas_skin").unwrap();
+    assert!(package.canvas);
+    assert_eq!(package.backdrop.as_deref(), Some("mica"));
+    assert_eq!(package.font_family.as_deref(), Some("霞鹜文楷"));
+    assert_eq!(package.expand_rows, Some(4));
+    assert_eq!(
+        package.geometry.padding,
+        Some(SkinLength {
+            value: 0.5,
+            em: true
+        })
+    );
+    assert_eq!(
+        package.geometry.preedit_margin_dip,
+        Some(SkinInsets {
+            top: 1.0,
+            right: 2.0,
+            bottom: 1.0,
+            left: 2.0
+        })
+    );
+    assert!(package.horizontal.justify_rows == Some(true));
+    assert_eq!(package.content_insets_dip.unwrap().left, 12.0);
+    assert_eq!(package.candidate.dark.backdrop_opacity, Some(0.4));
+    assert_eq!(
+        package
+            .candidate
+            .dark
+            .menu
+            .as_ref()
+            .unwrap()
+            .hover
+            .as_deref(),
+        Some("#404040")
+    );
+
+    let scroll = root.path().join("scroll_skin");
+    fs::create_dir(&scroll).unwrap();
+    fs::write(
+        scroll.join("skin.toml"),
+        manifest("scroll_skin").replace("base = 'night'", "base = 'wechat_scroll'"),
+    )
+    .unwrap();
+    let package = load(root.path(), "scroll_skin").unwrap();
+    assert_eq!(package.base, super::super::theme::GlobalTheme::System);
+    assert_eq!(package.candidate.dark.show_selected_bar, Some(false));
+}
+
+#[test]
+fn canvas_requires_v2_and_reserved_canvas_id_is_not_external() {
+    let catalog = scan_manifest(&manifest("sample").replace("base = 'night'", "base = 'canvas'"));
+    assert!(catalog.packages.is_empty());
+    assert!(catalog.issues[0].reason.contains("schema_version 2"));
+    assert!(!is_external_id("canvas"));
+    assert!(!is_external_id("wechat_scroll"));
+}
+
+#[test]
 fn animated_decorations_are_bounded_by_frames_and_decoded_pixels() {
     let root = tempdir().unwrap();
     decorated_package(root.path(), &encoded_apng(2, 2, MAX_ANIMATION_FRAMES), "");
@@ -660,7 +765,20 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             layouts: vec!["vertical".into()],
             themes: vec!["light".into()],
             min_width_dip: 0.0,
+            canvas: false,
             corner_radius_dip: None,
+            border_width_dip: None,
+            item_corner_radius_dip: None,
+            shadow: None,
+            backdrop: None,
+            font_family: None,
+            page_arrows: None,
+            fit_content: None,
+            expand_panel: None,
+            expand_rows: None,
+            geometry: SkinGeometry::default(),
+            horizontal: SkinGeometry::default(),
+            vertical: SkinGeometry::default(),
             decoration_top_dip: 0.0,
             decoration_width_dip: 0.0,
             decoration_image: None,
@@ -670,6 +788,12 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             decoration_frames: 0,
             background: None,
             toolbar: SkinToolbar::default(),
+            toolbar_icon_corner_radius_dip: None,
+            border_image: None,
+            content_insets_dip: None,
+            line_gap_dip: None,
+            outer_insets_dip: None,
+            decorations: Vec::new(),
             toolbar_stylesheet: None,
             preview: None,
             candidate: CandidateColors::default(),
@@ -848,6 +972,7 @@ fn base_names_system_or_a_builtin_theme() {
     // msime-windows 的其他内置外观同样画在 `system` 之上。
     for base in [
         "wechat",
+        "wechat_scroll",
         "graphite",
         "willow_green",
         "autumn_osmanthus",

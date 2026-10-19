@@ -1491,30 +1491,38 @@ int wmain(int argc, wchar_t **argv) {
       const auto &theme =
           resolved_theme(config.dark_theme, config.horizontal_candidates);
       auto palette = candidate_theme_palette(theme, config.dark_theme);
+      const auto &assets = package_assets(theme.candidate_skin);
+      palette = apply_candidate_skin_palette(palette, assets.candidate_colors,
+                                             config.dark_theme);
       if (config.candidate_selected_bar)
         palette.show_selected_bar = *config.candidate_selected_bar;
       candidates.set_palette(palette);
       if (keymap)
         keymap->set_palette(palette);
       // An external package may ask for a wider card than the font implies; the artwork is drawn against that width.
-      const auto &assets = package_assets(theme.candidate_skin);
       candidates.set_skin_min_width(assets.min_width);
       candidates.set_skin_decoration(assets.decoration);
       candidates.set_skin_background(assets.background);
       candidates.set_skin_corner_radius(assets.corner_radius);
+      candidates.set_skin_font_family(assets.font_family);
       candidates.set_skin_animation(assets.animation);
       candidate_skin_applied = theme.candidate_skin;
     }
     candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
     // The toolbar and the menus draw the card's theme in their own light/dark mode, with the card's layout deciding whether a package is drawn.
     auto surface_palette = [&](bool dark) {
-      return candidate_theme_palette(
-          resolved_theme(dark, candidate_horizontal_applied), dark);
+      const auto &theme = resolved_theme(dark, candidate_horizontal_applied);
+      auto palette = candidate_theme_palette(theme, dark);
+      return apply_candidate_skin_palette(
+          palette, package_assets(theme.candidate_skin).candidate_colors, dark);
     };
     // The toolbar's palette in `dark`: the theme's, with the toolbar colours and radius of the package that theme draws in that mode.
     auto toolbar_surface_palette = [&](bool dark) {
       const auto &theme = resolved_theme(dark, candidate_horizontal_applied);
-      return apply_toolbar_skin(toolbar_palette(candidate_theme_palette(theme, dark)),
+      auto palette = candidate_theme_palette(theme, dark);
+      palette = apply_candidate_skin_palette(
+          palette, package_assets(theme.candidate_skin).candidate_colors, dark);
+      return apply_toolbar_skin(toolbar_palette(std::move(palette)),
                                 package_assets(theme.candidate_skin).toolbar, dark);
     };
     bool toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
@@ -2125,6 +2133,9 @@ int wmain(int argc, wchar_t **argv) {
             candidate_horizontal != candidate_horizontal_applied) {
           const auto &theme = resolved_theme(dark, candidate_horizontal);
           auto next_palette = candidate_theme_palette(theme, dark);
+          next_palette = apply_candidate_skin_palette(
+              next_palette, package_assets(theme.candidate_skin).candidate_colors,
+              dark);
           if (config.candidate_selected_bar)
             next_palette.show_selected_bar = *config.candidate_selected_bar;
           candidates.set_theme_palette(next_palette);
@@ -2137,6 +2148,7 @@ int wmain(int argc, wchar_t **argv) {
             candidates.set_skin_decoration(assets.decoration);
             candidates.set_skin_background(assets.background);
             candidates.set_skin_corner_radius(assets.corner_radius);
+            candidates.set_skin_font_family(assets.font_family);
             candidates.set_skin_animation(assets.animation);
             candidate_skin_applied = theme.candidate_skin;
           }

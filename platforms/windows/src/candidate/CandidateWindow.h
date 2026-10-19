@@ -76,6 +76,8 @@ public:
   // built-in theme stays in place until a package is actually resolved.
   void set_palette(CandidatePalette palette);
   void set_theme_palette(CandidatePalette palette);
+  // 皮肤字体覆盖当前用户字体；传空恢复用户设置。
+  void set_skin_font_family(const std::string &family);
   void invalidate_skin_images();
   // Minimum card width asked for by the active skin package, in DIPs.
   void set_skin_min_width(double value) { skin_min_width_ = value; }
@@ -202,6 +204,7 @@ private:
   int logo_pixels_ = 0;
   CandidatePalette palette_;
   std::wstring font_family_;
+  std::wstring configured_font_family_;
   std::optional<CandidateFontSettings> font_settings_;
   std::optional<bool> dark_theme_;
   bool horizontal_ = false;

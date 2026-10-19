@@ -214,6 +214,75 @@ inline CandidateSkinToolbar candidate_skin_toolbar(const nlohmann::json &catalog
   return toolbar;
 }
 
+// 将完整清单中的候选颜色槽位叠到主题解析结果上。共享层负责语法与路径校验，Windows 只接受颜色解析器能画出的值；未支持的槽位保持宿主默认值。
+inline CandidatePalette apply_candidate_skin_palette(
+    CandidatePalette palette, const nlohmann::json &candidate, bool dark);
+inline CandidatePalette apply_candidate_skin_palette(
+    CandidatePalette palette, const nlohmann::json &catalog,
+    const std::string &id, bool dark) {
+  const auto *package = detail::candidate_skin_package(catalog, id);
+  if (!package || !package->contains("candidate") ||
+      !package->at("candidate").is_object())
+    return palette;
+  return apply_candidate_skin_palette(palette, package->at("candidate"), dark);
+}
+
+inline CandidatePalette apply_candidate_skin_palette(
+    CandidatePalette palette, const nlohmann::json &candidate, bool dark) {
+  if (!candidate.is_object())
+    return palette;
+  const auto mode = dark ? "dark" : "light";
+  if (!candidate.contains(mode) || !candidate.at(mode).is_object())
+    return palette;
+  const auto &colors = candidate.at(mode);
+  auto apply = [&colors](const char *key, CandidateColor &target) {
+    if (colors.contains(key) && colors.at(key).is_string())
+      target = parse_css_color(colors.at(key).get<std::string>(), target);
+  };
+  auto optional = [&colors](const char *key,
+                            std::optional<CandidateColor> &target) {
+    if (colors.contains(key) && colors.at(key).is_string())
+      target = parse_css_color(colors.at(key).get<std::string>(),
+                               target.value_or(candidate_rgb(0x000000)));
+  };
+  apply("surface", palette.surface);
+  apply("border", palette.border);
+  apply("text", palette.text);
+  apply("candidate_text", palette.text);
+  apply("number", palette.number);
+  apply("accent", palette.accent);
+  apply("selected", palette.selected);
+  apply("hover", palette.hover);
+  apply("selected_text", palette.selected_text);
+  apply("selected_number", palette.selected_number);
+  if (colors.contains("translation") && colors.at("translation").is_string()) {
+    palette.translation = parse_css_color(colors.at("translation").get<std::string>(),
+                                         palette.number);
+  }
+  optional("preedit_text", palette.preedit_text);
+  optional("preedit_caret", palette.preedit_caret);
+  optional("selected_translation", palette.selected_translation);
+  optional("selected_bar", palette.selected_bar);
+  optional("preedit_background", palette.preedit_background);
+  optional("preedit_divider", palette.preedit_divider);
+  optional("page_arrow_divider", palette.page_arrow_divider);
+  if (colors.contains("showSelectedBar") &&
+      colors.at("showSelectedBar").is_boolean())
+    palette.show_selected_bar = colors.at("showSelectedBar").get<bool>();
+  if (colors.contains("menu") && colors.at("menu").is_object()) {
+    const auto &menu = colors.at("menu");
+    auto menu_color = [&menu](const char *key, CandidateColor &target) {
+      if (menu.contains(key) && menu.at(key).is_string())
+        target = parse_css_color(menu.at(key).get<std::string>(), target);
+    };
+    menu_color("background", palette.menu_fill);
+    menu_color("border", palette.menu_border);
+    menu_color("text", palette.menu_text);
+    menu_color("hover", palette.menu_hover);
+  }
+  return palette;
+}
+
 inline CandidateSkinAnimationPreset candidate_skin_animation_preset(
     const nlohmann::json &value, const char *key,
     CandidateSkinAnimationPreset fallback) {

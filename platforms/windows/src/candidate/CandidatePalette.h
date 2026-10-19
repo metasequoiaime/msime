@@ -116,6 +116,14 @@ struct CandidatePalette {
   CandidateColor menu_border = {1.0f, 1.0f, 1.0f, 0.12f};
   CandidateColor menu_text = candidate_rgb(0xFFFFFF);
   CandidateColor menu_hover = {1.0f, 1.0f, 1.0f, 0.10f};
+  // 皮肤可分别覆盖预编辑、选中释义和选中竖条；没有声明时沿用上面的派生颜色。
+  std::optional<CandidateColor> preedit_text;
+  std::optional<CandidateColor> preedit_caret;
+  std::optional<CandidateColor> selected_translation;
+  std::optional<CandidateColor> selected_bar;
+  std::optional<CandidateColor> preedit_background;
+  std::optional<CandidateColor> preedit_divider;
+  std::optional<CandidateColor> page_arrow_divider;
   // The translation line, when the theme's secondary colour is not simply the numbers (an external package's `translation`); none draws it like the numbers.
   std::optional<CandidateColor> translation;
   // The floating toolbar's separator; none draws it in the border colour.
@@ -147,6 +155,8 @@ inline CandidateColor candidate_row_number_color(const CandidatePalette &palette
 // Resolve the translation line. The theme's `secondary` follows `number` unless a package sets its own translation colour, which is then drawn on every row; otherwise the translation draws like the numbers.
 inline CandidateColor candidate_row_translation_color(const CandidatePalette &palette,
                                                       bool highlighted) {
+  if (highlighted && palette.selected_translation)
+    return *palette.selected_translation;
   return palette.translation ? *palette.translation
                              : candidate_row_number_color(palette, highlighted);
 }

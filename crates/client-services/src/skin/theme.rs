@@ -56,7 +56,7 @@ pub enum ThemeSource {
 }
 
 /// The candidate colours of an installed external skin package, as far as a theme needs them, and where its manifest says it may be drawn. Built from a `SkinSummary` (hosts that scan the skin root) or from an entry of the Linux `candidate_skin_catalog` (hosts that read the published catalog).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ThemePackage {
     pub id: String,
     pub base: GlobalTheme,
@@ -155,6 +155,7 @@ impl ThemePackage {
                     number: palette.number,
                     translation: palette.translation,
                     show_selected_bar: palette.show_selected_bar,
+                    ..CandidatePalette::default()
                 }
             }
         }

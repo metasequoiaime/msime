@@ -59,7 +59,7 @@ const DEFAULT_TOOLBAR_LIGHT: LookToolbar = LookToolbar {
     hover: "#00000014",
 };
 
-const WINDOWS_LOOKS: [WindowsLook; 5] = [
+const WINDOWS_LOOKS: [WindowsLook; 6] = [
     WindowsLook {
         id: "wechat",
         corner_radius_dip: 5.0,
@@ -99,6 +99,49 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             handle: "#07C160",
             hover: "#07C1601F",
             ..DEFAULT_TOOLBAR_LIGHT
+        },
+    },
+    WindowsLook {
+        id: "wechat_scroll",
+        corner_radius_dip: 10.0,
+        toolbar_corner_radius_dip: 8.0,
+        dark: LookCandidate {
+            surface: "#1A1A1A",
+            border: "#2E2E2E",
+            text: "#EDEDED",
+            number: "#8A8A8A",
+            accent: "#07C160",
+            selected: "#07C160",
+            hover: "#07C16033",
+            show_selected_bar: false,
+            selected_text: Some("#FFFFFF"),
+        },
+        light: LookCandidate {
+            surface: "#FFFFFF",
+            border: "#E3E3E3",
+            text: "#1F1F1F",
+            number: "#8C8C8C",
+            accent: "#07C160",
+            selected: "#07C160",
+            hover: "#07C16024",
+            show_selected_bar: false,
+            selected_text: Some("#FFFFFF"),
+        },
+        toolbar_dark: LookToolbar {
+            background: "#1A1A1A",
+            border: "#2E2E2E",
+            handle: "#07C160",
+            divider: "#2E2E2E",
+            icon: "#EDEDED",
+            hover: "#FFFFFF14",
+        },
+        toolbar_light: LookToolbar {
+            background: "#FFFFFF",
+            border: "#E3E3E3",
+            handle: "#07C160",
+            divider: "#E3E3E3",
+            icon: "#1F1F1F",
+            hover: "#0000000D",
         },
     },
     WindowsLook {
@@ -264,13 +307,26 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
 ];
 
 /// msime-windows 的内置外观 ID，清单 `base` 可以写它们。外部皮肤也不能用这些 ID 当文件夹名，否则在 Windows 上会与内置外观冲突。
-pub const WINDOWS_LOOK_IDS: [&str; 6] = [
+pub const WINDOWS_LOOK_IDS: [&str; 7] = [
     "fluent",
     "wechat",
+    "wechat_scroll",
     "graphite",
     "willow_green",
     "autumn_osmanthus",
     "microsoft",
+];
+
+/// Windows 自带清单的完整 ID。`canvas` 是 v2 的基底，不是可以单独选择的外观，但仍须保留给出厂清单。
+pub const WINDOWS_BUILTIN_IDS: [&str; 8] = [
+    "fluent",
+    "wechat",
+    "wechat_scroll",
+    "graphite",
+    "willow_green",
+    "autumn_osmanthus",
+    "microsoft",
+    "canvas",
 ];
 
 /// msime-windows 在皮肤目录里放内置外观设置清单的子目录名，外部皮肤同样不能占用。
