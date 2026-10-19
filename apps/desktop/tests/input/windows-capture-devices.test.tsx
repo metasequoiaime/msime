@@ -24,7 +24,7 @@ const snapshot: Snapshot = {
   },
 };
 
-// Windows 只有一种录音方式（`voice_capture_backends` 为 false）：录音后端、刷新按钮、可用设备和手填设备名合成一个「麦克风」下拉，录音行为标签打开时自动读取列表。
+// Windows 只有一种录音方式（`voice_capture_backends` 为 false）：录音后端、刷新按钮、可用设备和手填设备名合成一个「麦克风」下拉，切到「录音行为」标签时自动读取列表。
 test("Windows saves endpoint identity across duplicate labels and enumeration reorder", async () => {
   const a = { backend: "windows" as const, id: "wasapi:0061", label: "Synthetic microphone" };
   const b = { ...a, id: "wasapi:0062" };

@@ -59,6 +59,7 @@ test("keeps navigation groups and nested route ownership aligned", () => {
   // 桌面上并进别的页、只留作路由别名的页面。
   expect(desktopMergedPages).toEqual({ feedback: "about", mcp: "ai" });
   expect(desktopPage("feedback")).toBe("about");
+  // MCP 在桌面上是「AI」页的「连接助手」标签。
   expect(desktopPage("mcp")).toBe("ai");
   expect(desktopPage("help")).toBe("help");
 });

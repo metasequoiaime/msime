@@ -47,10 +47,10 @@ git log --format='%h %s' <os>-v<上一版>..origin/develop -- platforms/<os> | g
 | Android | 只有 `platforms/android/version.txt`。versionCode 由 `gradle-app/app/build.gradle.kts` 按 `major*1e6 + minor*1e3 + patch` 算，不用手改 |
 | Linux、Windows | 只有 `platforms/<os>/version.txt` |
 | iOS | `version.txt`、`project.yml` 的 `MARKETING_VERSION`、`MSIMEClient.xcodeproj/project.pbxproj` |
-| macOS | `version.txt`、`build-number.txt`（新版本重置为 1）、`Info.plist.in`、`src/core/SupportWindowController.mm` 里的兜底版本字符串。`CFBundleVersion` 由 CMake 从前两个文件算出，Sparkle 靠它判断新旧，不要手写 |
+| macOS | 只有 `version.txt` 和 `build-number.txt`（新版本重置为 1）。`CFBundleShortVersionString`、`CFBundleVersion` 和关于页的兜底版本都由 CMake 从这两个文件生成，Sparkle 靠 `CFBundleVersion` 判断新旧，不要手写 |
 | HarmonyOS | `version.txt`、`AppScope/app.json5` 的 `versionName` **和** `versionCode`（同样按 `major*1e6 + minor*1e3 + patch`，0.2.0 是 2000），versionCode 不递增系统拒绝覆盖安装 |
 
-iOS、macOS、HarmonyOS 改完用 `git grep -nF '<旧版本号>' -- platforms/<os> apps/desktop` 再扫一遍，`47b8e97e1`（0.52.0 一次改了全部平台）是完整的参照。
+iOS、HarmonyOS 改完用 `git grep -nF '<旧版本号>' -- platforms/<os> apps/desktop` 再扫一遍，`47b8e97e1`（0.52.0 一次改了全部平台）是完整的参照。
 
 **develop 本身经常是红的，版本号 PR 要准备好顺手修它。** develop 合并很频繁，两个各自通过 CI 的 PR 合在一起就可能编不过。2026-10-08 发 Android 0.3.0 时一个小时里遇到两次：
 

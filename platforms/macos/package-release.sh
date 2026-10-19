@@ -205,7 +205,7 @@ ctest --test-dir "$build_dir" --no-tests=error --output-on-failure -R '^(bundle-
 built_bundle="$(only "$build_dir"/*.app)"
 imk_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$built_bundle/Contents/Info.plist")"
 if [ "$imk_version" != "$version" ]; then
-  echo "the input method reports $imk_version but the package is $version; bump platforms/macos/Info.plist.in and version.txt together" >&2
+  echo "the input method reports $imk_version but the package is $version; the bundle takes its version from platforms/macos/version.txt, so pass the release version as VERSION or bump version.txt" >&2
   exit 1
 fi
 # 构建目录里的 bundle 保持不剥离，重跑时即使什么都没重新链接，`dsymutil` 也还读得到符号；打包用的是剥离过的副本。Sparkle.framework 保持发布方签名时的原样。
