@@ -33,6 +33,8 @@ Web 面板使用宿主生成的固定 `border-image` 属性，挂件使用 `<img
 
 ## Consequences
 
+Linux X11 的字体与候选布局消费见[原生画布布局](2026-10-20-linux-canvas-layout.md)，不改变本篇共享解析契约。
+
 共享 catalog 与 Windows 之间的字段契约扩大，后续修改清单 schema 必须同步 Rust 模型、各平台 JSON 消费和对应测试。候选皮肤可以安全携带来源新增字段，Windows 已有渲染路径会显示更完整的颜色和字体效果，网页、macOS、Linux、HarmonyOS 与 iOS 仍通过同一份扫描规则读取公共字段，旧包不受影响。社区上传对新基底与空可选文字的保护由[社区画布资源按服务端能力上传](2026-10-19-community-canvas-resources.md) 部分取代：本地创建、打包与安装接受这些清单，真正上传前要求同源服务端明确声明扩展能力。MCP 描述与生成提示词同步说明资源规则；云端不支持时仍保留本机使用。
 
 原生宿主的九宫格、材质、版式、insets 和自由挂件仍未全部绘制，仍与来源的完整视觉效果有差距；Windows 已经绘制的版式、外框、阴影档位、列表翻页箭头和收紧宽度见 [Windows 候选窗绘制皮肤的版式、外框、阴影、翻页箭头与收紧宽度](2026-10-19-windows-candidate-skin-layout-keys.md)，canvas 的九宫格、insets 与自由挂件见 [Windows 候选窗绘制 canvas 皮肤](2026-10-19-windows-candidate-canvas.md)；文档明确这一边界，避免把协议支持误报成绘制支持。图片边界现在对 PNG/JPEG/GIF/WebP 统一检查尺寸、动画帧和包内像素预算；网页宿主与原生宿主一样对任何 base 的 v2 清单启用动画，只有九宫格、自由挂件和 insets 依赖 `canvas`；网页 SDK 还与 catalog 一样拒绝没有 `schemaVersion: 2` 的 `base: "canvas"`，`canvas: true` 标记也不会覆盖全局主题或 Windows 外观基底。代价是 v2 在本仓与来源的含义不再逐字相同：同一个非 canvas v2 包在 msime-windows 上不播动画，在本仓播；以后来源若给非 canvas 的 v2 加新字段，需要逐项判断它属于哪一层。新增 JSON 和 C++ 字段也扩大了构建面，因此提交前运行皮肤单测、clippy、笔记校验、差异检查和 Windows x64 交叉构建。

@@ -864,6 +864,8 @@ Fcitx5 的 classicui 还可绘制 `base = "canvas"` 的静态 PNG／APNG、GIF �
 
 在具备 X11／Pango 的构建中，X11 输入上下文选择有效 canvas 包且 classicui 的明暗主题均归水杉接管时，插件用 Cairo／Pango 原生候选窗补上九种锚点的自由挂件、前后层、外伸留白与独立 `line_gap_dip`。窗口不获取焦点，使用框架上报的根坐标定位，GTK 3 移动整个窗口后在下一次光标更新时上报新位置；跨屏编辑器以光标所在屏幕约束位置。指针选择、翻页与右键操作复用原候选身份和运行时围栏，失焦、清空及切换输入法时隐藏。成功显示后只保留客户端内嵌预编辑并清空桌面面板候选；资源或窗口准备失败时保留原桌面面板。第三方主题、非 canvas、其他活动 UI、Wayland 与 IBus 不进入此路径。有合成器时使用 ARGB，无合成器时使用二值透明轮廓并将半透明像素合到主题底色上；挂件和留白不截获鼠标。
 
+原生 X11 画布按共享 `geometry` 再按当前 `horizontal`／`vertical` 表消费 `padding`、`item_gap`、`item_extra_height`、`number_inset`、`item_padding_right`、`item_min_width`、`number_gap`、`number_scale`、`preedit_margin_dip` 与 `justify_rows`，并遵守 `min_width_dip`。em 按实际 DIP 字号乘后取整，Pango point 字号先换算；皮肤 `font_family` 在用户字体与回退链之前，字号仍来自用户设置。显式 content insets 优先于 padding，`line_gap_dip` 优先于拼音下边距；隐藏拼音不留额外行距。横排单行的均分只分给实际候选，`fit_content` 保持内容收缩并使用对称尾部留白。文字测量、绘制和命中共用布局；热更新同步改变三者。选中竖条、逐角圆角、细分颜色、列表内翻页与展开面板仍待接入。
+
 原生 X11 画布的面板与挂件可播放 APNG、GIF、WebP：APNG/GIF 不超过 10ms 的延时按 100ms，有限播放停在末帧，GIF 无循环声明时只播放一次；WebP 与固定 Windows WIC 回退一致，按 100ms 无限循环。候选刷新、菜单和坐标变化不重启，换肤或重新显示从首帧计时，隐藏和有限末帧不再唤醒。共享动画接口只在换肤时解码，按不同资源累计最多 800 万像素，每图最多 120 帧；旧单帧接口仍保留默认图语义。完整皮肤几何、声明式进退场动画与系统材质尚未补齐；Wayland 的自由画布、IBus、GNOME Shell 与 kimpanel 仍受各自面板协议和能力限制，不能据此当作 Linux 或全平台完整视觉兼容。
 
 皮肤资源变化后，主题成功套用或退出覆盖会立即请求当前候选窗口重绘，明暗切换、坏图回退和修复恢复均无需再次按键。不变输入不重复刷新，组合和编辑器焦点保持。
