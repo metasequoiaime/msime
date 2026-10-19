@@ -8,11 +8,49 @@ use crate::skin::theme::normalized_color;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
-use std::path::PathBuf;
 use tempfile::tempdir;
 
-fn gallery() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/candidate-skins")
+// 设备上没有构建机源码路径，测试程序随身携带同一批合成素材。
+fn gallery() -> tempfile::TempDir {
+    let root = tempdir().unwrap();
+    macro_rules! fixtures {
+        ($($path:literal),+ $(,)?) => {
+            $(
+                let path = root.path().join($path);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/candidate-skins/", $path))).unwrap();
+            )+
+        };
+    }
+    fixtures!(
+        "verify-arrows-chevron/preview.png",
+        "verify-arrows-chevron/skin.toml",
+        "verify-arrows-triangle/preview.png",
+        "verify-arrows-triangle/skin.toml",
+        "verify-canvas-keys-ignored/preview.png",
+        "verify-canvas-keys-ignored/skin.toml",
+        "verify-canvas/assets/cloud.png",
+        "verify-canvas/assets/moon.png",
+        "verify-canvas/assets/panel-dark.png",
+        "verify-canvas/assets/panel-light.png",
+        "verify-canvas/assets/twinkle.png",
+        "verify-canvas/preview.png",
+        "verify-canvas/skin.toml",
+        "verify-color-syntax/preview.png",
+        "verify-color-syntax/skin.toml",
+        "verify-expand-panel/preview.png",
+        "verify-expand-panel/skin.toml",
+        "verify-frame-none/preview.png",
+        "verify-frame-none/skin.toml",
+        "verify-frame-strong/preview.png",
+        "verify-frame-strong/skin.toml",
+        "verify-layout-em/preview.png",
+        "verify-layout-em/skin.toml",
+        "verify-v2-motion-system/assets/koi.png",
+        "verify-v2-motion-system/preview.png",
+        "verify-v2-motion-system/skin.toml",
+    );
+    root
 }
 
 /// 目录里的全部验证皮肤，按名字排序。新加一个包时要在这里登记，并给它写断言。
@@ -31,7 +69,7 @@ const GALLERY: [&str; 11] = [
 ];
 
 fn package(id: &str) -> SkinSummary {
-    load_package(gallery(), id).unwrap_or_else(|reason| panic!("{id}: {reason}"))
+    load_package(gallery().path(), id).unwrap_or_else(|reason| panic!("{id}: {reason}"))
 }
 
 fn em(value: f64) -> Option<SkinLength> {
@@ -61,7 +99,7 @@ fn declared_all() -> SkinAnimationDeclared {
 
 #[test]
 fn every_gallery_skin_loads_without_an_issue() {
-    let catalog = scan(gallery());
+    let catalog = scan(gallery().path());
     assert!(catalog.issues.is_empty(), "{:?}", catalog.issues);
     let mut ids: Vec<&str> = catalog.packages.iter().map(|p| p.id.as_str()).collect();
     ids.sort_unstable();
@@ -378,7 +416,8 @@ fn canvas_keeps_its_panel_insets_widgets_and_motion() {
 /// 挂件 APNG 的每一帧都要能完整解码；静态挂件和面板是单帧 PNG。
 #[test]
 fn canvas_images_decode_frame_by_frame() {
-    let assets = gallery().join("verify-canvas/assets");
+    let gallery = gallery();
+    let assets = gallery.path().join("verify-canvas/assets");
     for (file, frames) in [
         ("twinkle.png", 6),
         ("moon.png", 1),
@@ -726,7 +765,10 @@ fn canvas_keys_on_the_system_base_are_ignored_with_a_notice() {
         }
     );
     // 这些键引用的图片故意不在包里：它们要是被校验了，包会被拒绝。
-    assert!(!gallery().join("verify-canvas-keys-ignored/assets").exists());
+    assert!(!gallery()
+        .path()
+        .join("verify-canvas-keys-ignored/assets")
+        .exists());
     assert_eq!(package.candidate.light.surface.as_deref(), Some("#F7FAFC"));
 }
 
@@ -754,8 +796,10 @@ fn referenced_images(package: &SkinSummary) -> Vec<&str> {
 /// 验证图库的全部包都能社区打包和经 MCP 使用的原子安装路径创建，包括六张资源的 canvas。
 #[test]
 fn the_gallery_against_community_packing_and_mcp_creation() {
+    let gallery = gallery();
     for id in GALLERY {
-        let packed = candidate_community::pack_as(&gallery(), id, CandidateSkinVisibility::Public);
+        let packed =
+            candidate_community::pack_as(gallery.path(), id, CandidateSkinVisibility::Public);
         assert_eq!(
             packed.as_ref().map(|_| ()).map_err(|code| *code),
             Ok(()),
@@ -771,11 +815,11 @@ fn the_gallery_against_community_packing_and_mcp_creation() {
         let files: BTreeMap<String, String> = referenced_images(&summary)
             .into_iter()
             .map(|path| {
-                let bytes = fs::read(gallery().join(id).join(path)).unwrap();
+                let bytes = fs::read(gallery.path().join(id).join(path)).unwrap();
                 (path.to_owned(), BASE64.encode(bytes))
             })
             .collect();
-        let manifest = fs::read_to_string(gallery().join(id).join("skin.toml")).unwrap();
+        let manifest = fs::read_to_string(gallery.path().join(id).join("skin.toml")).unwrap();
         let root = tempdir().unwrap();
         let installed = candidate_community::install(
             root.path(),
