@@ -12,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-// 「语音输入」页识别服务与润色的规则，平台固定为 Windows：服务列表和各服务的默认地址、模型、文档（`packages/ui/src/voice/voice-provider-options.tsx`、`voice-providers.ts`），换服务时要改哪些字段（asrProviderUpdate、polishProviderUpdate 和 `provider-helpers.ts`），豆包的两种流式接口，识别语言的建议（`voice-language-options.tsx`），内置润色方案（`polish-presets.ts`），「测试配置」何时可用（`voice-credential-test-config.ts`）和本地模型列表的文字（`local-model-helpers.ts`）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「语音输入」页识别服务与润色的展示规则，平台固定为 Windows：共享 Rust 目录的持有模型，换服务时要改哪些字段（asrProviderUpdate、polishProviderUpdate 和 `provider-helpers.ts`），豆包的两种流式接口，识别语言的建议（`voice-language-options.tsx`），内置润色方案（`polish-presets.ts`），「测试配置」何时可用（`voice-credential-test-config.ts`）和本地模型列表的文字（`local-model-helpers.ts`）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::voice {
 
 struct Choice {
@@ -20,91 +20,30 @@ struct Choice {
   std::wstring_view label;
 };
 
-// 共享页 ASR_PROVIDER_OPTIONS 的七个云服务，按共享页的顺序。Windows 在它们后面再列「Windows 系统识别」和「本地模型（离线）」（`voice-input-core-section.tsx`），见 asr_provider_choices。
-inline constexpr std::array<Choice, 7> asr_service_choices{{
-    {L"doubao", L"豆包"},
-    {L"siliconflow", L"SiliconFlow"},
-    {L"openai", L"OpenAI"},
-    {L"groq", L"Groq"},
-    {L"everyapi", L"EveryAPI"},
-    {L"mistral", L"Mistral · Voxtral"},
-    {L"bailian", L"阿里云百炼 · 千问"},
-}};
+// Rust 的语音服务目录快照。持有字符串，避免 C 接口的 JSON 缓冲区释放后留下悬空视图。
+struct ProviderDefaults {
+  std::wstring id;
+  std::wstring endpoint;
+  std::wstring model;
+  std::vector<std::wstring> models;
+  std::wstring documentation;
+  std::wstring title;
+};
 
-// Windows 上「识别服务」下拉框的全部选项：云服务，然后是 SAPI 听写和本地模型（Windows 有模型管理器，所以本地识别可用）。
-inline std::vector<Choice> asr_provider_choices() {
-  std::vector<Choice> choices(asr_service_choices.begin(), asr_service_choices.end());
-  choices.push_back({L"system", L"Windows 系统识别"});
-  choices.push_back({L"local", L"本地模型（离线）"});
+// 服务顺序和名称来自共享目录；宿主在读取后追加系统识别与本地模型。
+inline std::vector<Choice> asr_provider_choices(std::vector<ProviderDefaults> const &table) {
+  std::vector<Choice> choices;
+  for (auto const &entry : table)
+    choices.push_back({entry.id, entry.title});
   return choices;
 }
 
-inline constexpr std::array<Choice, 4> polish_provider_choices{{
-    {L"siliconflow", L"SiliconFlow"},
-    {L"openai", L"OpenAI"},
-    {L"deepseek", L"DeepSeek"},
-    {L"groq", L"Groq"},
-}};
-
-// 共享页 ASR_SERVICE_PROVIDER_IDS：用服务凭据、能「测试配置」的识别服务。
-inline bool is_asr_service_provider(std::wstring_view provider) {
-  return std::any_of(asr_service_choices.begin(), asr_service_choices.end(),
-                     [provider](Choice const &choice) { return choice.value == provider; });
-}
-
-// 一个服务的默认接口地址和模型、已知支持的模型和接入文档（共享页的 ProviderDefaults）。
-struct ProviderDefaults {
-  std::wstring_view id;
-  std::wstring_view endpoint;
-  std::wstring_view model;
-  std::vector<std::wstring_view> models;
-  std::wstring_view documentation;
-};
-
-inline std::vector<ProviderDefaults> const &asr_provider_defaults() {
-  static const std::vector<ProviderDefaults> table{
-      {L"system", L"", L"", {}, L""},
-      {L"local", L"", L"", {}, L""},
-      {L"doubao", L"wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", L"", {},
-       L"https://www.volcengine.com/docs/6561/1354869"},
-      {L"openai", L"https://api.openai.com/v1/audio/transcriptions", L"whisper-1",
-       {L"gpt-4o-mini-transcribe", L"gpt-4o-transcribe", L"whisper-1"},
-       L"https://developers.openai.com/api/docs/guides/speech-to-text"},
-      {L"siliconflow", L"https://api.siliconflow.cn/v1/audio/transcriptions",
-       L"FunAudioLLM/SenseVoiceSmall", {L"FunAudioLLM/SenseVoiceSmall"},
-       L"https://siliconflow.readme.io/reference/createaudiotranscriptions"},
-      {L"groq", L"https://api.groq.com/openai/v1/audio/transcriptions", L"whisper-large-v3-turbo",
-       {L"whisper-large-v3-turbo", L"whisper-large-v3"},
-       L"https://console.groq.com/docs/speech-to-text"},
-      {L"everyapi", L"https://api.everyapi.ai/v1/audio/transcriptions",
-       L"volc.seedasr.sauc.duration",
-       {L"volc.seedasr.sauc.duration"},
-       L"https://everyapi.ai/models"},
-      {L"mistral", L"https://api.mistral.ai/v1/audio/transcriptions", L"voxtral-mini-latest",
-       {L"voxtral-mini-latest"},
-       L"https://docs.mistral.ai/studio/audio/speech_to_text/offline_transcription"},
-      {L"bailian", L"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-       L"qwen3-asr-flash", {L"qwen3-asr-flash", L"qwen3-asr-flash-2026-02-10"},
-       L"https://help.aliyun.com/zh/model-studio/qwen-speech-recognition"},
-  };
-  return table;
-}
-
-inline std::vector<ProviderDefaults> const &polish_provider_defaults() {
-  static const std::vector<ProviderDefaults> table{
-      {L"siliconflow", L"https://api.siliconflow.cn/v1/chat/completions", L"Qwen/Qwen3-8B",
-       {L"Qwen/Qwen3-8B", L"Qwen/Qwen3.6-27B"},
-       L"https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation"},
-      {L"openai", L"https://api.openai.com/v1/chat/completions", L"gpt-4o-mini",
-       {L"gpt-4o-mini", L"gpt-4.1-mini"},
-       L"https://developers.openai.com/api/docs/models/gpt-4.1-mini"},
-      {L"deepseek", L"https://api.deepseek.com/chat/completions", L"deepseek-v4-flash",
-       {L"deepseek-v4-flash", L"deepseek-v4-pro"}, L"https://api-docs.deepseek.com/"},
-      {L"groq", L"https://api.groq.com/openai/v1/chat/completions", L"llama-3.3-70b-versatile",
-       {L"llama-3.3-70b-versatile", L"llama-3.1-8b-instant"},
-       L"https://console.groq.com/docs/quickstart"},
-  };
-  return table;
+// 系统识别和本地模型不用云服务凭据，其余服务以共享目录为准。
+inline bool is_asr_service_provider(std::vector<ProviderDefaults> const &table,
+                                    std::wstring_view provider) {
+  return provider != L"system" && provider != L"local" &&
+         std::any_of(table.begin(), table.end(),
+                     [provider](ProviderDefaults const &entry) { return entry.id == provider; });
 }
 
 inline ProviderDefaults const *find_defaults(std::vector<ProviderDefaults> const &table,
@@ -187,8 +126,9 @@ inline ProviderUpdate provider_update(std::wstring_view provider, ProviderFields
 }
 
 // 共享页 asrProviderUpdate：系统识别和本地模型不向任何服务发送内容，所以不留令牌。
-inline ProviderUpdate asr_provider_update(std::wstring_view provider, ProviderFields const &current) {
-  auto update = provider_update(provider, current, asr_provider_defaults());
+inline ProviderUpdate asr_provider_update(std::vector<ProviderDefaults> const &table,
+                                          std::wstring_view provider, ProviderFields const &current) {
+  auto update = provider_update(provider, current, table);
   if (provider == L"system" || provider == L"local") {
     update.token.clear();
     update.tokens.erase(std::wstring(provider));
@@ -196,9 +136,9 @@ inline ProviderUpdate asr_provider_update(std::wstring_view provider, ProviderFi
   return update;
 }
 
-inline ProviderUpdate polish_provider_update(std::wstring_view provider,
-                                             ProviderFields const &current) {
-  return provider_update(provider, current, polish_provider_defaults());
+inline ProviderUpdate polish_provider_update(std::vector<ProviderDefaults> const &table,
+                                             std::wstring_view provider, ProviderFields const &current) {
+  return provider_update(provider, current, table);
 }
 
 // 豆包的两种流式接口（DOUBAO_STREAM_ENDPOINTS），其余地址算「自定义地址」。
@@ -236,13 +176,14 @@ inline std::wstring doubao_test_resource_id(std::wstring_view stored) {
 }
 
 // 「识别服务配置」的「更多选项」打开页面时就展开（advancedChanged）：用户改过接口地址（不为空，也不是这个服务的默认地址），或豆包的资源 ID 不是出厂值，免得改过的值藏起来看不见。
-inline bool asr_advanced_changed(std::wstring_view provider, std::wstring_view endpoint,
+inline bool asr_advanced_changed(std::vector<ProviderDefaults> const &table,
+                                 std::wstring_view provider, std::wstring_view endpoint,
                                  std::wstring_view resource_id) {
-  const auto *defaults = find_defaults(asr_provider_defaults(), provider);
+  const auto *defaults = find_defaults(table, provider);
   const auto stored_endpoint = js_trim(endpoint);
   const auto stored_resource = js_trim(resource_id);
   return (!stored_endpoint.empty() &&
-          stored_endpoint != (defaults ? defaults->endpoint : std::wstring_view())) ||
+          stored_endpoint != (defaults ? std::wstring_view(defaults->endpoint) : std::wstring_view())) ||
          (provider == L"doubao" && !stored_resource.empty() &&
           stored_resource != doubao_default_resource_id);
 }

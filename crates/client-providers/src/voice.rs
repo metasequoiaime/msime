@@ -11,6 +11,7 @@ pub mod hotwords;
 pub mod local_models;
 pub mod numbers;
 pub mod provider;
+pub mod provider_catalog;
 
 /// Whether a host supplied voice operation identifier fits the shared wire contract.
 pub fn is_valid_request_id(value: &str) -> bool {
@@ -105,3 +106,6 @@ mod tests {
         assert!(state.apply(last, "过期").is_none());
     }
 }
+
+#[cfg(test)]
+mod provider_catalog_tests;
