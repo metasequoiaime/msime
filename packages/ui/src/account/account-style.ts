@@ -84,7 +84,7 @@ export const copyId =
 
 export const modalBackdrop = "fixed inset-0 z-20 grid place-items-center bg-black/42 p-5";
 export const modal =
-  "flex max-h-[min(720px,90vh)] w-[min(520px,100%)] flex-col gap-3.5 overflow-auto rounded-2xl border border-edge bg-[var(--dropdown-bg)] p-[22px] text-body shadow-[0_18px_60px_rgb(0_0_0/25%)]";
+  "settings-modal-surface flex max-h-[min(720px,90vh)] w-[min(520px,100%)] flex-col gap-3.5 overflow-auto rounded-2xl border border-edge bg-[var(--dropdown-bg)] p-[22px] text-body shadow-[0_18px_60px_rgb(0_0_0/25%)]";
 export const modalHeading = "flex items-center justify-between gap-3 [&>h2]:m-0";
 
 /** Two columns of facts, one on a phone where a value would otherwise be squeezed to a few glyphs. */

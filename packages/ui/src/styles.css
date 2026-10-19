@@ -2937,6 +2937,36 @@ html[data-theme="light"][data-macos-liquid-glass="true"]
   --p-sub: #39393d;
 }
 
+/* 弹窗用厚玻璃隔开背后的预览文字，不能复用正文卡片的薄透明表面。 */
+html[data-macos-liquid-glass="true"]
+  [data-settings-shell][data-platform="mac"]
+  .settings-modal-surface {
+  background: var(--p-bg);
+  background: color-mix(in srgb, var(--p-bg) 90%, transparent);
+  color: var(--p-text);
+  backdrop-filter: blur(24px) saturate(1.3);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-macos-liquid-glass="true"]
+    [data-settings-shell][data-platform="mac"]
+    .settings-modal-surface {
+    background: var(--p-bg);
+    backdrop-filter: none;
+  }
+}
+
+@media (forced-colors: active) {
+  html[data-macos-liquid-glass="true"]
+    [data-settings-shell][data-platform="mac"]
+    .settings-modal-surface {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+    backdrop-filter: none;
+  }
+}
+
 /* 系统主题的工具栏预览透出当前窗口材质，皮肤包仍保留作者指定的表面。 */
 html[data-macos-liquid-glass="true"]
   [data-platform="mac"]
