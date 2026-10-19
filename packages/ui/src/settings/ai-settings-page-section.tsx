@@ -107,7 +107,12 @@ export function AiSettingsPageSection({
   } as const;
   const slot = slotPrompts[promptSlot as keyof typeof slotPrompts] ?? slotPrompts.custom_1;
   return (
-    <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="AI 辅助">
+    <SettingsPageFieldset
+      disabled={disabled}
+      hidden={hidden}
+      ariaLabel="AI 辅助"
+      className="ai-settings"
+    >
       {/* 接口地址是凭据与模型目录的前提，始终放在它们上方；校验变化不搬动输入节点。 */}
       <GroupList title="服务">
         <SwitchRow

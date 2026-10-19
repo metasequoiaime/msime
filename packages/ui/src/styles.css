@@ -3159,3 +3159,107 @@ html[data-macos-liquid-glass="true"]
     forced-color-adjust: none;
   }
 }
+
+/* macOS 文本框与密钥框使用一致的字体、高度和输入表面，避免浏览器默认的窄白框。 */
+[data-settings-shell][data-platform="mac"] {
+  --settings-input-bg: var(--control-bg);
+  --settings-input-border: var(--control-border);
+}
+
+html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"] {
+  --settings-input-bg: rgba(0, 0, 0, 0.12);
+  --settings-input-border: rgba(255, 255, 255, 0.2);
+}
+
+html[data-theme="light"][data-macos-liquid-glass="true"]
+  [data-settings-shell][data-platform="mac"] {
+  --settings-input-bg: rgba(255, 255, 255, 0.24);
+  --settings-input-border: rgba(0, 0, 0, 0.14);
+}
+
+[data-settings-shell][data-platform="mac"]
+  :is(.settings-text-input, .settings-field-input:is(input, textarea)) {
+  box-sizing: border-box;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--settings-input-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--settings-input-bg);
+  color: var(--p-text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+[data-settings-shell][data-platform="mac"] :is(.settings-text-input, input.settings-field-input) {
+  min-height: 32px;
+}
+
+[data-settings-shell][data-platform="mac"] .settings-text-input {
+  width: 240px;
+}
+
+[data-settings-shell][data-platform="mac"] .settings-text-input[type="number"] {
+  width: 84px;
+}
+
+[data-settings-shell][data-platform="mac"]
+  :is(.settings-text-input, .settings-field-input:is(input, textarea))::placeholder {
+  color: var(--p-sub);
+  opacity: 0.75;
+}
+
+[data-settings-shell][data-platform="mac"]
+  :is(.settings-text-input, .settings-field-input:is(input, textarea))[aria-invalid="true"] {
+  border-color: var(--danger-text);
+}
+
+[data-settings-shell][data-platform="mac"] .secret-input {
+  display: flex;
+  width: 280px;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-settings-shell][data-platform="mac"] .secret-input > input {
+  flex: 1;
+  width: 0;
+}
+
+[data-settings-shell][data-platform="mac"] .secret-input-toggle {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  min-height: 32px;
+  border: 1px solid var(--settings-input-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--p-btn-bg);
+  color: var(--p-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* AI 地址、凭据与模型名称都是长文本，标题在上、输入在下，避免挤进窄小的行尾。 */
+[data-settings-shell][data-platform="mac"] .ai-settings .settings-wide-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+[data-settings-shell][data-platform="mac"] .ai-settings .settings-wide-row-control {
+  min-width: 0;
+  width: 100%;
+}
+
+[data-settings-shell][data-platform="mac"]
+  .ai-settings
+  .settings-wide-row-control
+  > :is(.settings-text-input, .secret-input) {
+  width: 100%;
+}

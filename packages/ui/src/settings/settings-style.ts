@@ -179,7 +179,7 @@ export const importPreview =
 
 export const field = compactFieldLabel;
 export const fieldInput =
-  "min-w-25 rounded-md border border-edge bg-[var(--dropdown-bg)] px-2 py-1.5 text-body";
+  "settings-field-input min-w-25 rounded-md border border-edge bg-[var(--dropdown-bg)] px-2 py-1.5 text-body";
 export const fieldSelect = `${fieldInput} min-w-[150px]`;
 export const dictionaryKindSelect = "min-w-44";
 export const dictionaryFooter =
