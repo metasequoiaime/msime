@@ -30,7 +30,6 @@ Testing by hand:
   config                   Your preferences, one key = value per line
   config get <key>...      Only the values of these preferences, one per line
   config set <key>=<value> Change some, such as scheme=shuangpin
-  Skin schema_version 2 adds safe native enter/exit/selection motion.
   With more than one <keys>, each one's candidates follow a # <keys> line.
   With --json and more than one <keys>, each gets one line of JSON.
   Blank lines and lines starting with # in the keys from stdin are skipped.
@@ -52,6 +51,9 @@ For an AI assistant:
   <args> may also be @file, a UTF-8 file, which works in every shell.
   Tool and prompt names may use - for _. A refused call exits 1.
   The server and these commands offer the same tools under the same flags.
+  A skin's schema_version 2 adds bounded motion on any base; base = canvas,
+  also version 2, is an msime-windows full-image skin. tools describes every
+  skin.toml key, its range and which hosts draw it, under create_candidate_skin.
 
 Flags:
   --options <path>         The runtime-options document the input method reads
