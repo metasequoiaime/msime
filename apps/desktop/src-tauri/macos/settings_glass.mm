@@ -16,7 +16,9 @@ static char MSIMESettingsGlassControllerKey;
     [self updateEnabled:!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency];
 }
 - (void)updateEnabled:(BOOL)enabled {
+    BOOL systemControls = NO;
     if (@available(macOS 26.0, *)) {
+        systemControls = YES;
         if (enabled && !self.glass) {
             NSView *content = self.host;
             NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:content.bounds];
@@ -45,11 +47,19 @@ static char MSIMESettingsGlassControllerKey;
         self.webview.frame = self.host.bounds;
     }
     NSString *script = [NSString stringWithFormat:
-        @"if (document.documentElement) document.documentElement.dataset.macosLiquidGlass = '%@'", enabled ? @"true" : @"false"];
+        @"if (document.documentElement) { document.documentElement.dataset.macosLiquidGlass = '%@'; document.documentElement.dataset.macosSystemControls = '%@'; }",
+        enabled ? @"true" : @"false", systemControls ? @"true" : @"false"];
     [self.webview evaluateJavaScript:script completionHandler:nil];
 }
 - (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
-    if (message.frameInfo.mainFrame) [self refresh];
+    if (!message.frameInfo.mainFrame) return;
+    if ([message.body isKindOfClass:NSDictionary.class]) {
+        id appearance = message.body[@"appearance"];
+        if ([appearance isEqual:@"system"]) self.window.appearance = nil;
+        else if ([appearance isEqual:@"light"]) self.window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+        else if ([appearance isEqual:@"dark"]) self.window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    }
+    [self refresh];
 }
 - (void)dealloc {
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
@@ -74,10 +84,11 @@ extern "C" void msime_install_settings_glass(void *windowPointer, void *webviewP
         // 与 Tauri 的透明 WebView 策略一致；不改变其他窗口的配置。
         [webview setValue:@NO forKey:@"drawsBackground"];
         webview.underPageBackgroundColor = NSColor.clearColor;
-        // 每次页面加载都向宿主读取当前辅助功能状态，避免重载后沿用旧快照。
+        // 页面重载读取实时能力；同步原始外观偏好，让玻璃与文档同色且系统模式不锁死。
         [webview.configuration.userContentController addScriptMessageHandler:controller name:@"msimeSettingsGlass"];
         [webview.configuration.userContentController addUserScript:
-            [[WKUserScript alloc] initWithSource:@"window.webkit.messageHandlers.msimeSettingsGlass.postMessage(null)"
+            [[WKUserScript alloc] initWithSource:
+                @"(() => { const sync = () => window.webkit.messageHandlers.msimeSettingsGlass.postMessage({appearance: document.documentElement?.dataset.settingsAppearance ?? 'system'}); new MutationObserver(sync).observe(document, {subtree: true, attributes: true, attributeFilter: ['data-settings-appearance']}); sync(); })()"
                 injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
         [NSWorkspace.sharedWorkspace.notificationCenter addObserver:controller selector:@selector(refresh)
             name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];

@@ -2922,6 +2922,7 @@ html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"] 
   --button-secondary-bg: rgba(255, 255, 255, 0.12);
   --button-secondary-hover: rgba(255, 255, 255, 0.2);
   --p-sub: #dedee3;
+  --text-muted: var(--p-sub);
   --p-sw-knob-on: rgba(255, 255, 255, 0.86);
   --p-sw-knob-off: rgba(255, 255, 255, 0.75);
   --p-sw-knob-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.6), 0 1px 4px rgba(0, 0, 0, 0.2);
@@ -2947,4 +2948,79 @@ html[data-macos-liquid-glass="true"]
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.25),
     0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* 系统绘制开关、复选框和滑块；减少透明度只关闭材质，不退回自绘控件。 */
+html[data-macos-system-controls="true"]
+  [data-settings-shell][data-platform="mac"]
+  input:is(.platform-switch[switch], .platform-check) {
+  appearance: auto;
+  width: auto;
+  height: auto;
+  border: revert;
+  border-radius: revert;
+  background: revert;
+  box-shadow: none;
+  accent-color: var(--accent-color);
+}
+
+html[data-macos-system-controls="true"]
+  [data-settings-shell][data-platform="mac"]
+  input:is(.platform-switch[switch], .platform-check)::after {
+  content: none;
+}
+
+html[data-macos-system-controls="true"]
+  [data-settings-shell][data-platform="mac"]
+  .platform-slider {
+  appearance: auto;
+  height: auto;
+}
+
+html[data-macos-system-controls="true"]
+  [data-settings-shell][data-platform="mac"]
+  .platform-slider::-webkit-slider-runnable-track {
+  all: revert;
+}
+
+html[data-macos-system-controls="true"]
+  [data-settings-shell][data-platform="mac"]
+  .platform-slider::-webkit-slider-thumb {
+  all: revert;
+}
+
+/* 系统候选样例让出旧实色底板；文字、选中行和自定义主题的底板分别保留。 */
+html[data-macos-liquid-glass="true"]
+  [data-platform="mac"]
+  [data-skin-preview][data-global-theme="system"]
+  .candidate
+  .container {
+  background: var(--p-group-bg);
+  border-color: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* 主题卡片可独立预览明暗，薄色层按预览色取值，避免深色文字落在深色玻璃上。 */
+html[data-macos-liquid-glass="true"]
+  [data-platform="mac"]
+  [data-skin-preview][data-global-theme="system"][data-preview-theme="light"] {
+  --p-group-bg: rgba(255, 255, 255, 0.65);
+}
+
+html[data-macos-liquid-glass="true"]
+  [data-platform="mac"]
+  [data-skin-preview][data-global-theme="system"][data-preview-theme="dark"] {
+  --p-group-bg: rgba(28, 28, 30, 0.65);
+}
+
+html[data-macos-liquid-glass="true"]
+  [data-platform="mac"]
+  [data-skin-preview][data-global-theme="system"]
+  .status-bar {
+  background-color: var(--p-group-bg);
+  border-color: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(16px) saturate(1.25);
 }

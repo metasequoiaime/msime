@@ -3,6 +3,17 @@
 #include <cassert>
 #include "../../../../apps/desktop/src-tauri/macos/settings_glass.mm"
 
+static void CheckAppearance(WKWebView *webview, NSWindow *window, NSString *mode, NSAppearanceName expected) {
+    NSString *script = [NSString stringWithFormat:@"document.documentElement.dataset.settingsAppearance = '%@'", mode];
+    [webview evaluateJavaScript:script completionHandler:nil];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:8];
+    while (deadline.timeIntervalSinceNow > 0) {
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        if (expected ? [window.appearance.name isEqual:expected] : window.appearance == nil) return;
+    }
+    assert(false && "设置窗口未同步文档外观偏好");
+}
+
 int main() {
     @autoreleasepool {
         [NSApplication sharedApplication];
@@ -46,14 +57,41 @@ int main() {
             __block BOOL matched = NO;
             NSString *expected = NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency ? @"false" : @"true";
             while (!matched && deadline.timeIntervalSinceNow > 0) {
-                [webview evaluateJavaScript:@"document.documentElement.dataset.macosLiquidGlass"
+                [webview evaluateJavaScript:@"document.documentElement.dataset.macosLiquidGlass + '/' + document.documentElement.dataset.macosSystemControls"
                     completionHandler:^(id value, NSError *error) {
-                        if (!error && [value isEqual:expected]) matched = YES;
+                        if (!error && [value isEqual:[expected stringByAppendingString:@"/true"]]) matched = YES;
                     }];
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
             }
             assert(matched);
-
+            // 减少透明度可以移除玻璃，系统控件仍由 WebKit 绘制。
+            [controller updateEnabled:NO];
+            deadline = [NSDate dateWithTimeIntervalSinceNow:8];
+            matched = NO;
+            while (!matched && deadline.timeIntervalSinceNow > 0) {
+                [webview evaluateJavaScript:@"document.documentElement.dataset.macosLiquidGlass + '/' + document.documentElement.dataset.macosSystemControls + '/' + ('switch' in document.createElement('input'))"
+                    completionHandler:^(id value, NSError *error) {
+                        if (!error && [value isEqual:@"false/true/true"]) matched = YES;
+                    }];
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            assert(matched);
+            // 明暗必须到达原生材质；系统模式清除覆盖，不能锁在刚才的深色。
+            CheckAppearance(webview, window, @"dark", NSAppearanceNameDarkAqua);
+            CheckAppearance(webview, window, @"light", NSAppearanceNameAqua);
+            CheckAppearance(webview, window, @"dark", NSAppearanceNameDarkAqua);
+            CheckAppearance(webview, window, @"system", nil);
+            CheckAppearance(webview, window, @"invalid", nil);
+            [controller updateEnabled:YES];
+            CheckAppearance(webview, window, @"light", NSAppearanceNameAqua);
+            CheckAppearance(webview, window, @"dark", NSAppearanceNameDarkAqua);
+            assert([controller.glass.effectiveAppearance.name isEqual:NSAppearanceNameDarkAqua]);
+            [webview loadHTMLString:@"<!doctype html><html><body>synthetic reload</body></html>" baseURL:nil];
+            deadline = [NSDate dateWithTimeIntervalSinceNow:8];
+            while (window.appearance != nil && deadline.timeIntervalSinceNow > 0) {
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            assert(window.appearance == nil);
         }
     }
     return 0;

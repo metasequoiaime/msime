@@ -33,3 +33,5 @@ Status: implemented
 ## Consequences
 
 系统玻璃的透明度由系统控制，设置页禁用该模式下的手动滑块并解释原因；自定义主题保留独立设置。不能用整个玻璃视图的 `alphaValue` 模拟仅底板透明，否则候选文字也会淡化。旧系统实机仍不在本机覆盖面内。
+
+设置内部控件与原生背景外观同步由[WebKit 系统控件](../feature/2026-10-19-macos-settings-system-controls.md)补齐；共享 React 表单归属不变。

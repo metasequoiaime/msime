@@ -47,3 +47,5 @@ macOS 原生候选窗画的是 `NativeCandidateTokens`（`platforms/macos/src/ca
 - 选中行悬停的规则顺序在 `candidate-preview-native-tokens.test.ts` 里检查（jsdom 不算 `:hover`，所以查的是两条规则在横排、竖排里的先后）。
 
 共享 UI 的装饰几何与背景透明度纯计算归属见[外部皮肤预览几何](../simplification/2026-10-15-skin-preview-geometry.md)，窗口透明度的覆盖及叠加规则保持本篇约定。
+
+macOS 26 原生玻璃启用时系统预览的半透明底板覆盖见[WebKit 系统控件](../feature/2026-10-19-macos-settings-system-controls.md)，其他主题及几何 token 保持本篇约定。

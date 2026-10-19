@@ -6693,7 +6693,7 @@ static void TestControlOptionSpace() {
     MSIMERestoreVoiceHoldKeys(standardDefaults, previousHoldKeys);
 }
 
-// 从控制器的偏好与模式切换入口验证 HUD，不能只检查孤立面板里有玻璃。
+// 从控制器的偏好与修饰键事件入口验证 HUD，不能只检查孤立面板里有玻璃。
 static void TestGlassInputModeHUD(BOOL visual) {
     NSString *suite = [@"msime.glass-hud." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -6709,9 +6709,14 @@ static void TestGlassInputModeHUD(BOOL visual) {
     [controller applySharedToolbarPreferences:@{@"global_theme":@"system", @"input_mode_hud":@YES, @"theme":@"system"}];
     MSIMEInputModeHUDPanel *hud = MSIMEInputModeHUDPanel.sharedPanel;
     assert(toolbar.liquidGlassEnabled && hud.liquidGlassEnabled);
+    [appearance applySharedInputPreferences:@{@"keybindings":@{@"switch_language_shift":@YES}}];
     appearance.englishMode = NO;
     for (NSNumber *english in @[@YES, @NO]) {
-        [controller setEnglishInputMode:english.boolValue];
+        const unsigned short key = english.boolValue ? 56 : 60;
+        const double pressedAt = english.boolValue ? 1.0 : 2.0;
+        assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, key, NSEventModifierFlagShift, pressedAt) client:client]);
+        assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, key, 0, pressedAt + 0.1) client:client]);
+        assert(appearance.englishMode == english.boolValue);
         assert(hud.visible && [hud.displayedText isEqual:english.boolValue ? @"英" : @"中"]);
         NSTextField *label = [hud valueForKey:@"label"];
         if (@available(macOS 26.0, *)) {
@@ -6730,6 +6735,11 @@ static void TestGlassInputModeHUD(BOOL visual) {
             }
         }
     }
+    [controller applySharedToolbarPreferences:@{@"input_mode_hud":@NO}];
+    [hud orderOut:nil];
+    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 3.0) client:client]);
+    assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 3.1) client:client]);
+    assert(appearance.englishMode && !hud.visible);
     [controller applySharedToolbarPreferences:@{@"global_theme":@"paper"}];
     assert(!toolbar.liquidGlassEnabled && !hud.liquidGlassEnabled);
     assert([hud valueForKey:@"glassBackground"] == nil);

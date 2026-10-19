@@ -35,3 +35,5 @@ Status: implemented
 ## Consequences
 
 减少透明度模式和旧系统保留实色；当前机器不能覆盖 macOS 13 实机。透明 WebView 的 `drawsBackground` 路径沿用 Tauri 的 macOS 实现，未来 WebKit 变化需要复核。原生背景改变时，HTML 能力属性与窗口透明状态一起更新；正文的透明材质也沿用共享控件的键盘与读屏行为。原生玻璃负责窗口采样，CSS 的分组模糊和高光只绘制其上的内容层次。
+
+设置内部的系统开关、复选框、滑块及强制明暗同步见[WebKit 系统控件](2026-10-19-macos-settings-system-controls.md)。

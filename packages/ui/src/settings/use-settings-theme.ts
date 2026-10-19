@@ -11,6 +11,9 @@ export function useSettingsTheme(themeMode: ThemeMode, settingsTheme: SurfaceThe
     if (typeof document === "undefined") return;
     const apply = () => {
       const next = resolveSettingsTheme(themeMode, settingsTheme);
+      // 原生窗口需要原始跟随意图，不能把系统当前的明暗固化成窗口覆盖值。
+      document.documentElement.dataset.settingsAppearance =
+        settingsTheme === "follow" ? themeMode : settingsTheme;
       document.documentElement.dataset.theme = next;
       setResolved(next);
     };

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import styles from "../../../../packages/ui/src/styles.css?raw";
 import controlStyles from "../../../../packages/ui/src/core/platform-controls-style.ts?raw";
@@ -22,7 +22,11 @@ import {
 } from "../../../../packages/ui/src/theme/platform-tokens";
 import { utilityCss } from "../support/utility-css";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  delete document.documentElement.dataset.macosLiquidGlass;
+  delete document.documentElement.dataset.macosSystemControls;
+});
 
 function ToggleRow({ onChange }: { onChange: (checked: boolean) => void }) {
   const [on, setOn] = useState(false);
@@ -54,6 +58,32 @@ test("a group is a region named by its title, and a row names and describes its 
   fireEvent.click(toggle);
   expect(onChange).toHaveBeenCalledWith(true);
   expect((screen.getByRole("switch", { name: "模糊音" }) as HTMLInputElement).checked).toBe(true);
+});
+
+test("macOS system switches retain value and callbacks when glass is disabled", async () => {
+  const onChange = vi.fn();
+  render(<ToggleRow onChange={onChange} />);
+  const toggle = screen.getByRole("switch", { name: "模糊音" }) as HTMLInputElement;
+  expect(toggle.hasAttribute("switch")).toBe(false);
+  await act(async () => {
+    document.documentElement.dataset.macosSystemControls = "true";
+    document.documentElement.dataset.macosLiquidGlass = "true";
+  });
+  expect(toggle.hasAttribute("switch")).toBe(true);
+  fireEvent.click(toggle);
+  expect(toggle.checked).toBe(true);
+  expect(onChange).toHaveBeenCalledWith(true);
+  await act(async () => {
+    document.documentElement.dataset.macosLiquidGlass = "false";
+  });
+  expect(toggle.hasAttribute("switch")).toBe(true);
+  expect(toggle.checked).toBe(true);
+  await act(async () => {
+    delete document.documentElement.dataset.macosSystemControls;
+  });
+  expect(toggle.hasAttribute("switch")).toBe(false);
+  expect(toggle.checked).toBe(true);
+  expect(onChange).toHaveBeenCalledTimes(1);
 });
 
 test("a group without a title is not announced as a landmark", () => {

@@ -21,6 +21,7 @@ import { ActionSheet, type SheetOption } from "./action-sheet";
 import { FluentIcon } from "./fluent-icons";
 import { clamp } from "./number";
 import * as style from "./platform-controls-style";
+import { useMacOSSystemControls } from "./use-macos-liquid-glass";
 
 type RowLabels = { labelId: string; descriptionId?: string };
 const RowLabelsContext = createContext<RowLabels | null>(null);
@@ -189,6 +190,7 @@ export function Switch({
   disabled?: boolean;
 } & Labelled) {
   const names = useRowLabels(labels);
+  const systemControls = useMacOSSystemControls();
   return (
     <span className={style.switchWrap}>
       <span className={style.switchState} aria-hidden="true">
@@ -197,6 +199,7 @@ export function Switch({
       <input
         type="checkbox"
         role="switch"
+        {...(systemControls ? { switch: "" } : {})}
         className="platform-switch"
         checked={checked}
         disabled={disabled}
