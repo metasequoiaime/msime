@@ -43,7 +43,7 @@
 
 static MSIMECandidateButton *CandidateButton(NSView *content, NSInteger tag)
 {
-    for (NSView *view in content.subviews)
+    for (NSView *view in MSIMECandidateControlsView(content).subviews)
         if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag == tag) return (MSIMECandidateButton *)view;
     return nil;
 }
@@ -140,7 +140,7 @@ stagger_ms = 20
     for (NSInteger tag = 0; tag < 9; ++tag) {
         CALayer *rowLayer = CandidateButton(content, tag).layer;
         CAAnimationGroup *reveal = (id)[rowLayer animationForKey:@"msime-candidate-row-reveal"];
-        assert(rowLayer.superlayer == content.layer && reveal != nil);
+        assert(rowLayer.superlayer == CandidateButton(content, tag).superview.layer && reveal != nil);
         const CFTimeInterval begin = [rowLayer convertTime:reveal.beginTime toLayer:nil];
         if (tag == 0) firstBegin = begin;
         lastBegin = begin;
@@ -160,7 +160,7 @@ stagger_ms = 20
     content = panel.contentView;
     MSIMECandidateButton *selected = CandidateButton(content, 2);
     assert(selected.candidateHighlighted && !CandidateButton(content, 0).candidateHighlighted);
-    assert(motion.selectionLayer != nil && motion.selectionLayer.superlayer == content.layer && selected.selectionFillDetached);
+    assert(motion.selectionLayer != nil && motion.selectionLayer.superlayer == selected.superview.layer && selected.selectionFillDetached);
     assert([motion.selectionLayer animationForKey:@"msime-candidate-selection"] != nil);
     assert([selected.layer animationForKey:@"msime-candidate-selection"] == nil);
     assert([CandidateButton(content, 8).layer animationForKey:@"msime-candidate-row-reveal"] != nil);
@@ -866,7 +866,7 @@ int main(void)
         assert(panel.animationBehavior == NSWindowAnimationBehaviorNone);
         assert(CATransform3DIsIdentity(panel.contentView.layer.transform));
         assert([panel.contentView.layer animationForKey:@"msime-candidate-enter-opacity"] == nil);
-        for (NSView *row in panel.contentView.subviews)
+        for (NSView *row in MSIMECandidateControlsView(panel.contentView).subviews)
             assert([row.layer animationForKey:@"msime-candidate-selection"] == nil);
         [controller hideCandidatePanel:"empty"];
         assert(!panel.isVisible);
@@ -940,7 +940,7 @@ int main(void)
         appearance.showsCandidatePreedit = NO;
         assert([controller renderExpandedCandidates]);
         assert(((MSIMECandidateChromeView *)panel.contentView).liquidGlassEnabled);
-        for (NSView *row in panel.contentView.subviews) {
+        for (NSView *row in MSIMECandidateControlsView(panel.contentView).subviews) {
             assert(![row.identifier isEqual:@"candidate-page-indicator"]);
             assert(![row.identifier isEqual:@"candidate-collapse"]);
         }

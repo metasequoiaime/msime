@@ -52,6 +52,7 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
 @implementation MSIMEInputModeHUDPanel {
     NSTextField *_label;
     NSView *_glassBackground;
+    NSView *_chrome;
     NSImageView *_logoView;
     NSTimer *_dismissTimer;
     NSColor *_surfaceColor;
@@ -113,7 +114,11 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
         _logoWidth,
         _logoHeight,
     ]];
-    self.contentView = background;
+    _chrome = background;
+    NSView *host = [[NSView alloc] initWithFrame:background.bounds];
+    host.wantsLayer = YES;
+    [host addSubview:background];
+    self.contentView = host;
     [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self selector:@selector(applyThemeColors)
         name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
     [self applySizingPreferences:@{}];
@@ -175,7 +180,7 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
 // 图层颜色每次显示时按面板当前外观重新解析。
 - (void)applyThemeColors {
     [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
-        self->_glassBackground = MSIMEUpdateNativeGlassBackground(self.contentView, self->_glassBackground,
+        self->_glassBackground = MSIMEUpdateNativeGlassBackground(self.contentView, self->_chrome, self->_glassBackground,
             self.liquidGlassEnabled, kCornerRadius);
         self.contentView.layer.backgroundColor = self->_glassBackground ? NSColor.clearColor.CGColor : self.surfaceColor.CGColor;
         self.contentView.layer.borderColor = self.borderColor.CGColor;

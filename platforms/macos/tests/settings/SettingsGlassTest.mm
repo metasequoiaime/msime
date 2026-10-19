@@ -22,7 +22,9 @@ int main() {
             [controller updateEnabled:YES];
             assert(controller.glass.superview == window.contentView);
             assert(window.contentView.subviews.firstObject == controller.glass);
-            assert(window.contentView.subviews.lastObject == webview);
+            assert(((NSGlassEffectView *)controller.glass).contentView == webview);
+            assert([webview isDescendantOf:controller.glass]);
+            assert(!NSIsEmptyRect(webview.frame));
             assert(NSEqualRects(controller.glass.frame, window.contentView.bounds));
             assert(![[webview valueForKey:@"drawsBackground"] boolValue]);
             assert(!window.opaque);
@@ -35,7 +37,9 @@ int main() {
             assert(webview.superview == window.contentView);
             [controller updateEnabled:YES];
             assert(controller.glass.superview == window.contentView);
-            assert(window.contentView.subviews.lastObject == webview);
+            assert(((NSGlassEffectView *)controller.glass).contentView == webview);
+            assert([webview isDescendantOf:controller.glass]);
+            assert(!NSIsEmptyRect(webview.frame));
             [webview loadHTMLString:@"<!doctype html><html><body>synthetic settings</body></html>" baseURL:nil];
             // 页面重载通过消息读取实时状态；不能只验证原生视图存在却没有透出材质。
             NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:8];

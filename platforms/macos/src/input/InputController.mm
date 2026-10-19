@@ -752,7 +752,7 @@ static void MSIMEReleaseControllerOnMain(__strong id *controller) {
 // word than the one the user sees.
 static NSDictionary *MSIMERenderedCandidateIdentity(NSPanel *panel, NSInteger slot) {
     if (!panel || ![panel.contentView isKindOfClass:NSView.class]) return nil;
-    for (NSView *subview in panel.contentView.subviews) {
+    for (NSView *subview in MSIMECandidateControlsView(panel.contentView).subviews) {
         if (![subview isKindOfClass:MSIMECandidateButton.class] || subview.tag != slot) continue;
         NSDictionary *identity = ((MSIMECandidateButton *)subview).candidateID;
         return [identity isKindOfClass:NSDictionary.class] ? identity : nil;
@@ -762,7 +762,7 @@ static NSDictionary *MSIMERenderedCandidateIdentity(NSPanel *panel, NSInteger sl
 
 static NSDictionary *MSIMERenderedHighlightedCandidateIdentity(NSPanel *panel) {
     if (!panel || ![panel.contentView isKindOfClass:NSView.class]) return nil;
-    for (NSView *subview in panel.contentView.subviews) {
+    for (NSView *subview in MSIMECandidateControlsView(panel.contentView).subviews) {
         if (![subview isKindOfClass:MSIMECandidateButton.class] || subview.tag < 0) continue;
         MSIMECandidateButton *button = (MSIMECandidateButton *)subview;
         if (!button.candidateHighlighted) continue;
@@ -7126,10 +7126,11 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     if (!_candidateMotion) _candidateMotion = [MSIMECandidateMotion new];
     NSMutableArray<NSView *> *rows = [NSMutableArray array];
     MSIMECandidateDecorationView *decoration = nil;
-    for (NSView *subview in _panel.contentView.subviews) {
+    for (NSView *subview in MSIMECandidateControlsView(_panel.contentView).subviews) {
         if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.tag >= 0) [rows addObject:subview];
-        if ([subview isKindOfClass:MSIMECandidateDecorationView.class]) decoration = (MSIMECandidateDecorationView *)subview;
     }
+    for (NSView *subview in _panel.contentView.subviews)
+        if ([subview isKindOfClass:MSIMECandidateDecorationView.class]) decoration = (MSIMECandidateDecorationView *)subview;
     const BOOL wasVisible = _panel.isVisible;
     [_candidateMotion showPanel:_panel animation:_renderedCandidateAnimation rows:rows];
     // 打字时每个键都重新显示一次，只记从隐藏到显示的那一次。
@@ -7149,7 +7150,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 // 高亮在同一个输入串的同一页里换了格位时（方向键、Tab、网格里移动），按皮肤的选中预设装饰新高亮行；高亮本身已经随这一帧同步画好。打字或翻页时 Engine 把高亮放回第一格，那不是选中，不播，与 CandidatePanel 只在 selectCandidateWithIdentifier: 时装饰一致。
 - (void)decorateCandidateSelection:(BOOL)panelWasVisible {
     MSIMECandidateButton *highlighted = nil;
-    for (NSView *subview in _panel.contentView.subviews)
+    for (NSView *subview in MSIMECandidateControlsView(_panel.contentView).subviews)
         if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.tag >= 0 && ((MSIMECandidateButton *)subview).candidateHighlighted) {
             highlighted = (MSIMECandidateButton *)subview;
             break;
@@ -7397,7 +7398,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             button.tag = (NSInteger)index;
             button.candidateHighlighted = index == _expandedCursor;
             button.frame = NSMakeRect(inset + cell.x, rowTop - cell.y - cell.height, cell.width, cell.height);
-            [content addSubview:button];
+            [content.candidateContentView addSubview:button];
         }
         rowTop -= geometry.rowsHeight;
     }
@@ -7412,14 +7413,14 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         const CGFloat indicatorHeight = ceil([rowIndicator sizeWithAttributes:@{NSFontAttributeName: indicatorFont}].height);
         indicator.frame = NSMakeRect(collapseLeft - indicatorGap - indicatorWidth,
                                      controlsBottom + floor((headerRow - indicatorHeight) / 2), indicatorWidth, indicatorHeight);
-        [content addSubview:indicator];
-        [content addSubview:[self expandedCandidatesToggleButton:YES frame:NSMakeRect(collapseLeft, controlsBottom, arrowWidth, headerRow) scale:scale]];
+        [content.candidateContentView addSubview:indicator];
+        [content.candidateContentView addSubview:[self expandedCandidatesToggleButton:YES frame:NSMakeRect(collapseLeft, controlsBottom, arrowWidth, headerRow) scale:scale]];
     }
     if (preedit.length) {
         MSIMECandidatePreeditField *label = [self candidatePreeditLabel:preedit font:preeditFont];
         label.frame = NSMakeRect(inset + logoWidth, headerBottom + floor((headerHeight - preeditHeight) / 2),
                                  width - 2 * inset - logoWidth - controlsWidth - (pageControls ? indicatorGap : 0), preeditHeight);
-        [content addSubview:label];
+        [content.candidateContentView addSubview:label];
     }
     if (logo) {
         NSImageView *mark = [NSImageView imageViewWithImage:logo];
@@ -7427,7 +7428,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         mark.accessibilityLabel = MSIMEEditionDisplayName();
         mark.imageScaling = NSImageScaleProportionallyUpOrDown;
         mark.frame = NSMakeRect(inset + 2 * scale, headerBottom + floor((headerHeight - logoSide) / 2), logoSide, logoSide);
-        [content addSubview:mark];
+        [content.candidateContentView addSubview:mark];
     }
     content.cardTopInset = decorationHeight;
     const NSSize decorationSize = decorationImage.size;
@@ -7574,7 +7575,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         BOOL reusable = YES;
         for (NSUInteger index = 0; index < candidates.count && reusable; ++index) {
             MSIMECandidateButton *button = nil;
-            for (NSView *subview in content.subviews)
+            for (NSView *subview in content.candidateContentView.subviews)
                 if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.tag == (NSInteger)index) {
                     if (button) { reusable = NO; break; }
                     button = (id)subview;
@@ -7609,7 +7610,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             button.needsDisplay = YES;
         }
         if (reusable) {
-            for (NSView *subview in content.subviews)
+            for (NSView *subview in content.candidateContentView.subviews)
                 if ([subview isKindOfClass:MSIMECandidateButton.class] && (subview.tag == -1 || subview.tag == -2)) {
                     MSIMECandidateButton *button = (id)subview;
                     button.candidateID = _view;
@@ -7641,7 +7642,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         // The frame is the laid out row, so a wrapped line is inside the area that takes the click.
         button.frame = NSMakeRect(inset + row.x, rowsTop - row.y - row.height, row.width, row.height);
         ++slot;
-        [content addSubview:button];
+        [content.candidateContentView addSubview:button];
     }
     if (pageControls) {
         // Right-aligned in the top row, centred on the reading when that is taller than the arrows.
@@ -7655,7 +7656,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         const CGFloat indicatorHeight = ceil([pageIndicator sizeWithAttributes:@{NSFontAttributeName: pageIndicatorFont}].height);
         indicator.frame = NSMakeRect(arrowsLeft - indicatorGap - pageIndicatorWidth,
                                      controlsBottom + floor((headerRow - indicatorHeight) / 2), pageIndicatorWidth, indicatorHeight);
-        [content addSubview:indicator];
+        [content.candidateContentView addSubview:indicator];
         for (NSUInteger direction = 0; direction < 2; ++direction) {
             MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:direction == 0 ? @"‹" : @"›" target:self action:@selector(changeCandidatePage:)];
             button.frame = NSMakeRect(arrowsLeft + direction * arrowWidth, controlsBottom, arrowWidth, headerRow);
@@ -7666,21 +7667,21 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             button.accessibilityLabel = direction == 0 ? @"上一页候选" : @"下一页候选";
             // A retained button from an old page cannot navigate a newer view.
             button.candidateID = _view;
-            [content addSubview:button];
+            [content.candidateContentView addSubview:button];
         }
     }
     if (expandable) {
         const CGFloat buttonHeight = compactExpand ? MIN(headerRow, pageGeometry.rows.front().height) : headerRow;
         const CGFloat buttonBottom = compactExpand ? rowsTop - pageGeometry.rows.front().height + floor((pageGeometry.rows.front().height - buttonHeight) / 2)
                                                   : headerBottom + floor((headerHeight - headerRow) / 2);
-        [content addSubview:[self expandedCandidatesToggleButton:NO
+        [content.candidateContentView addSubview:[self expandedCandidatesToggleButton:NO
             frame:NSMakeRect(width - inset - arrowWidth, buttonBottom, arrowWidth, buttonHeight) scale:scale]];
     }
     if (preedit.length) {
         MSIMECandidatePreeditField *label = [self candidatePreeditLabel:preedit font:preeditFont];
         label.frame = NSMakeRect(inset + logoWidth, headerBottom + floor((headerHeight - preeditHeight) / 2),
                                  width - 2 * inset - logoWidth - (pageControlsWidth ? pageControlsWidth + indicatorGap : 0), preeditHeight);
-        [content addSubview:label];
+        [content.candidateContentView addSubview:label];
     }
     if (logo) {
         NSImageView *mark = [NSImageView imageViewWithImage:logo];
@@ -7688,7 +7689,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         mark.accessibilityLabel = MSIMEEditionDisplayName();
         mark.imageScaling = NSImageScaleProportionallyUpOrDown;
         mark.frame = NSMakeRect(inset + 2 * scale, headerBottom + floor((headerHeight - logoSide) / 2), logoSide, logoSide);
-        [content addSubview:mark];
+        [content.candidateContentView addSubview:mark];
     }
     content.cardTopInset = decorationHeight;
     const NSSize decorationSize = decorationImage.size;
@@ -7729,7 +7730,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 - (void)announceHighlightedCandidate:(BOOL)panelWasVisible {
     if (!panelWasVisible) _announcedCandidate = nil;
     NSString *announcement = nil;
-    for (NSView *subview in _panel.contentView.subviews)
+    for (NSView *subview in MSIMECandidateControlsView(_panel.contentView).subviews)
         if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.isAccessibilitySelected) {
             announcement = subview.accessibilityLabel;
             break;
@@ -7767,14 +7768,14 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     content.backgroundOpacity = skin.backgroundOpacity;
     // 普通候选和展开网格都经这里刷新；只有未覆盖皮肤的系统主题使用原生材质。
     content.liquidGlassEnabled = skin.id == "system" && skin.candidateSkin.empty();
-    NSArray<MSIMECandidateButton *> *candidateButtons = [content.subviews filteredArrayUsingPredicate:
+    NSArray<MSIMECandidateButton *> *candidateButtons = [content.candidateContentView.subviews filteredArrayUsingPredicate:
         [NSPredicate predicateWithBlock:^BOOL(NSView *view, NSDictionary *_) {
             return ([view isKindOfClass:MSIMECandidateButton.class] ||
                     [view isKindOfClass:MSIMECandidatePreeditField.class]) &&
                 view.tag >= 0;
         }]];
     // The top row's page controls take the theme's colours too: labelColor would follow the system appearance, not a theme that fixes its own mode. The design draws 「1 / 3」 and ‹ › in the secondary colour (dc.html L1324); an arrow with no page behind it fades further.
-    for (NSView *child in content.subviews) {
+    for (NSView *child in content.candidateContentView.subviews) {
         if ([child.identifier isEqual:@"candidate-page-indicator"] && [child isKindOfClass:NSTextField.class])
             ((NSTextField *)child).textColor = SkinColor(tokens.number);
         if (![child isKindOfClass:MSIMECandidateButton.class] || (child.tag != -1 && child.tag != -2 && child.tag != -3)) continue;
@@ -7820,7 +7821,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 }
 
 - (void)selectCandidate:(MSIMECandidateButton *)button {
-    if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != _panel.contentView) return;
+    if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != MSIMECandidateControlsView(_panel.contentView)) return;
     NSDictionary *identifier = button.candidateID;
     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return;
     uint64_t generation = 0; NSUInteger index = 0;
@@ -7832,7 +7833,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 
 // 鼠标点网格里的候选。按钮可能是上一次重画留下的，所以它记着的身份要和网格此刻同一位置上的候选一致。
 - (void)selectExpandedCandidate:(MSIMECandidateButton *)button {
-    if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != _panel.contentView ||
+    if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != MSIMECandidateControlsView(_panel.contentView) ||
         !_expandedCandidates || button.tag < 0 || (NSUInteger)button.tag >= _expandedCandidates.count ||
         ![button.candidateID isEqual:_expandedCandidates[(NSUInteger)button.tag][@"id"]]) return;
     [self selectExpandedCandidateAtIndex:(NSUInteger)button.tag pointer:YES];
@@ -7840,7 +7841,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 
 // 候选窗首行的展开按钮和网格首行的收起按钮。只读候选、不经 Engine 派发，所以不报告指针。
 - (void)toggleExpandedCandidates:(MSIMECandidateButton *)button {
-    if (!_activeClient || !_session || !_panel.isVisible || button.superview != _panel.contentView) return;
+    if (!_activeClient || !_session || !_panel.isVisible || button.superview != MSIMECandidateControlsView(_panel.contentView)) return;
     if (_expandedCandidates) [self closeExpandedCandidates];
     else [self openExpandedCandidates];
 }
@@ -7937,7 +7938,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 }
 
 - (void)changeCandidatePage:(MSIMECandidateButton *)button {
-    if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != _panel.contentView) return;
+    if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != MSIMECandidateControlsView(_panel.contentView)) return;
     if (![_view isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(_view[@"focused"]) ||
         ![button.candidateID isKindOfClass:NSDictionary.class]) return;
     if (![_view[@"focused"] isKindOfClass:NSNumber.class] ||

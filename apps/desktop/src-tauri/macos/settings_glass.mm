@@ -8,6 +8,7 @@ static char MSIMESettingsGlassControllerKey;
 @property(nonatomic, weak) NSWindow *window;
 @property(nonatomic, weak) WKWebView *webview;
 @property(nonatomic, strong) NSView *glass;
+@property(nonatomic, weak) NSView *host;
 @end
 
 @implementation MSIMESettingsGlass
@@ -17,12 +18,13 @@ static char MSIMESettingsGlassControllerKey;
 - (void)updateEnabled:(BOOL)enabled {
     if (@available(macOS 26.0, *)) {
         if (enabled && !self.glass) {
-            NSView *content = self.window.contentView;
+            NSView *content = self.host;
             NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:content.bounds];
             glass.style = NSGlassEffectViewStyleRegular;
-            glass.cornerRadius = 0;
+            glass.cornerRadius = 20;
             glass.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-            [content addSubview:glass positioned:NSWindowBelow relativeTo:nil];
+            glass.contentView = self.webview;
+            [content addSubview:glass];
             self.glass = glass;
         }
     } else {
@@ -32,8 +34,15 @@ static char MSIMESettingsGlassControllerKey;
     self.window.opaque = !enabled;
     self.window.backgroundColor = enabled ? NSColor.clearColor : NSColor.windowBackgroundColor;
     if (!enabled) {
+        if (@available(macOS 26.0, *)) {
+            ((NSGlassEffectView *)self.glass).contentView = nil;
+        }
         [self.glass removeFromSuperview];
         self.glass = nil;
+        if (self.webview.superview != self.host) [self.host addSubview:self.webview];
+        self.webview.translatesAutoresizingMaskIntoConstraints = YES;
+        self.webview.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        self.webview.frame = self.host.bounds;
     }
     NSString *script = [NSString stringWithFormat:
         @"if (document.documentElement) document.documentElement.dataset.macosLiquidGlass = '%@'", enabled ? @"true" : @"false"];
@@ -60,6 +69,7 @@ extern "C" void msime_install_settings_glass(void *windowPointer, void *webviewP
         MSIMESettingsGlass *controller = [MSIMESettingsGlass new];
         controller.window = window;
         controller.webview = webview;
+        controller.host = webview.superview;
         objc_setAssociatedObject(window, &MSIMESettingsGlassControllerKey, controller, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         // 与 Tauri 的透明 WebView 策略一致；不改变其他窗口的配置。
         [webview setValue:@NO forKey:@"drawsBackground"];

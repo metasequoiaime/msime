@@ -393,21 +393,27 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic) CGFloat cardTopInset;
 // 系统主题允许原生玻璃；旧系统和降低透明度时仍画原有卡片。
 @property(nonatomic) BOOL liquidGlassEnabled;
+@property(nonatomic, strong, readonly) NSView *candidateContentView;
 @end
 @implementation MSIMECandidateChromeView
 {
     NSView *_glassBackground;
+    NSView *_candidateContentView;
 }
 - (instancetype)initWithFrame:(NSRect)frame
 {
     self = [super initWithFrame:frame];
     if (self) {
+        _candidateContentView = [[NSView alloc] initWithFrame:self.bounds];
+        _candidateContentView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        [self addSubview:_candidateContentView];
         [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self
             selector:@selector(accessibilityDisplayOptionsChanged:)
             name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
     }
     return self;
 }
+- (NSView *)candidateContentView { return _candidateContentView; }
 - (void)dealloc
 {
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
@@ -436,21 +442,32 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
                 glass = [[NSGlassEffectView alloc] initWithFrame:self.cardBounds];
                 glass.style = NSGlassEffectViewStyleRegular;
                 glass.identifier = @"candidate-liquid-glass";
-                // 只把空背景交给材质；候选留在原父视图中，旧按钮的点击围栏不变。
-                glass.contentView = [[NSView alloc] initWithFrame:glass.bounds];
+                // 真实候选进入材质的内容容器，系统才能处理文字与背景的可读性。
+                _glassBackground = glass;
+                glass.contentView = _candidateContentView;
                 [self addSubview:glass positioned:NSWindowBelow relativeTo:nil];
                 _glassBackground = glass;
             }
             glass.frame = self.cardBounds;
             glass.cornerRadius = self.cornerRadius;
-            // 透明度只影响底板，候选文字和选中行不跟着淡化。
-            glass.alphaValue = self.fillColor ? self.fillColor.alphaComponent : 1.0;
+            _candidateContentView.frame = glass.bounds;
+            [glass layoutSubtreeIfNeeded];
+            // 透明度由系统材质管理，不能淡化承载候选文字的整棵视图。
+            glass.alphaValue = 1.0;
             self.needsDisplay = YES;
             return;
         }
     }
+    if (@available(macOS 26.0, *)) {
+        if (_glassBackground) ((NSGlassEffectView *)_glassBackground).contentView = nil;
+    }
     [_glassBackground removeFromSuperview];
     _glassBackground = nil;
+    if (_candidateContentView.superview != self)
+        [self addSubview:_candidateContentView positioned:NSWindowBelow relativeTo:nil];
+    _candidateContentView.translatesAutoresizingMaskIntoConstraints = YES;
+    _candidateContentView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    _candidateContentView.frame = self.cardBounds;
     self.needsDisplay = YES;
 }
 - (void)layout
@@ -513,3 +530,9 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     }
 }
 @end
+
+// 所有候选身份校验与遍历都通过当前内容容器，普通测试面板仍可直接放控件。
+static inline NSView *MSIMECandidateControlsView(NSView *view) {
+    return [view isKindOfClass:MSIMECandidateChromeView.class]
+        ? ((MSIMECandidateChromeView *)view).candidateContentView : view;
+}

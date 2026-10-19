@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
   CandidateFontPresetRow,
   CandidateScaleRow,
@@ -29,6 +29,7 @@ import { customCandidatePalette } from "../../../../packages/ui/src/theme/global
 
 afterEach(() => {
   cleanup();
+  delete document.documentElement.dataset.macosLiquidGlass;
   vi.restoreAllMocks();
 });
 
@@ -431,4 +432,30 @@ test("a picked selection colour gives its text black or white by luminance", () 
   expect(system?.selected_text).toBe("#FFFFFF");
   // Without the picker the selected text still follows the accent over a built-in base.
   expect(customCandidatePalette("light", { accent: "#112233" })?.selected_text).toBe("#112233");
+});
+
+test("系统玻璃的不透明度由原生材质管理，辅助功能回退后恢复编辑", async () => {
+  document.documentElement.dataset.macosLiquidGlass = "true";
+  const { onChange } = renderSection({
+    preferences: { global_theme: "system", candidate_opacity_percent: 75 },
+  });
+  const slider = screen.getByRole("slider", { name: "不透明度" }) as HTMLInputElement;
+  expect(slider.disabled).toBe(true);
+  expect(
+    screen.getByText("系统液态玻璃的不透明度由 macOS 管理；自定义主题可单独调整"),
+  ).toBeTruthy();
+  await act(async () => {
+    document.documentElement.dataset.macosLiquidGlass = "false";
+  });
+  expect(slider.disabled).toBe(false);
+  expect(slider.value).toBe("75");
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+test("自定义主题的透明度仍可独立编辑", () => {
+  document.documentElement.dataset.macosLiquidGlass = "true";
+  renderSection({ preferences: { global_theme: "custom", candidate_opacity_percent: 75 } });
+  expect((screen.getByRole("slider", { name: "不透明度" }) as HTMLInputElement).disabled).toBe(
+    false,
+  );
 });

@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+此处最初采用的兄弟背景层方案已被[玻璃内容归属修正](../bug-fix/2026-10-19-macos-glass-content-containment.md)取代：当前实际控件进入玻璃的 `contentView`，回退时恢复普通容器。下述初始结构取舍保留用于说明错误来源；主题启用、兼容与宿主归属边界仍然成立，最新运行验证见修正笔记。
+
 系统主题通过实际 `InputController` 偏好应用入口，同时启用工具栏和 HUD 的原生 `NSGlassEffectView`。共用背景辅助函数，按钮和标签继续位于原内容视图；旧系统、减少透明度模式和自定义主题保留原皮肤。窗口的非激活、拖动、显示时间和鼠标穿透策略不变。
 
 ## Historical audit

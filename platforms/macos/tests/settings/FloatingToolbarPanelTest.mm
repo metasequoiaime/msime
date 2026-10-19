@@ -1,4 +1,5 @@
 #import "../../src/core/FloatingToolbarPanel.h"
+#import "../../src/core/NativeGlassBackground.h"
 #import "../../src/candidate/CandidateSkinAppearance.h"
 
 #include <cassert>
@@ -79,6 +80,20 @@ int main() {
     @autoreleasepool {
         [NSApplication sharedApplication];
 
+        // 内容不能强持有自己的玻璃父视图，否则移除工具栏后整棵内容仍无法释放。
+        __weak NSView *releasedChrome;
+        __weak NSView *releasedGlass;
+        @autoreleasepool {
+            NSView *host = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 200, 40)];
+            NSView *chrome = [[NSClassFromString(@"MetasequoiaFloatingToolbarChromeView") alloc] initWithFrame:host.bounds];
+            assert(chrome);
+            NSView *glass = MSIMEUpdateNativeGlassBackground(host, chrome, nil, YES, 10);
+            [chrome setValue:glass forKey:@"glassBackground"];
+            releasedChrome = chrome;
+            releasedGlass = glass;
+        }
+        assert(!releasedChrome && !releasedGlass);
+
         NSRect visible = NSMakeRect(-1200.0, -800.0, 1920.0, 1080.0);
         NSRect defaultFrame = MSIMEFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 1.0, 1.0), visible, NO);
         // 六个按钮：表情、手写、语音和屏幕键盘需要手动打开，切换输入方案默认开启。
@@ -106,7 +121,13 @@ int main() {
                 NSView *glass = [[panel valueForKey:@"chrome"] valueForKey:@"glassBackground"];
                 assert([glass isKindOfClass:NSGlassEffectView.class]);
                 assert(NSEqualRects(glass.frame, panel.contentView.bounds));
-                assert(panel.contentView.subviews.firstObject == glass);
+                assert(((NSGlassEffectView *)glass).contentView == [panel valueForKey:@"chrome"]);
+                NSButton *visibleButton = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");
+                assert(visibleButton && [visibleButton isDescendantOf:glass]);
+                [panel.contentView layoutSubtreeIfNeeded];
+                assert(!NSIsEmptyRect(visibleButton.frame));
+                NSPoint buttonPoint = [visibleButton convertPoint:NSMakePoint(NSMidX(visibleButton.bounds), NSMidY(visibleButton.bounds)) toView:panel.contentView];
+                assert([panel.contentView hitTest:buttonPoint] == visibleButton);
                 assert(!panel.canBecomeKeyWindow);
             }
         }
@@ -341,6 +362,10 @@ int main() {
         [panel applySizingPreferences:@{}];
         NSArray<NSButton *> *optionalButtons = @[inputMode, punctuation, fullWidth, traditional, emoji, keyboard, settings];
         NSArray<NSString *> *keys = @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+        // 验证真正显示出来的工具栏，玻璃与回退各覆盖所有按钮组合。
+        [panel activateForDelegate:sizingDelegate visible:YES];
+        for (NSNumber *glassEnabled in @[@NO, @YES]) {
+        panel.liquidGlassEnabled = glassEnabled.boolValue;
         for (NSUInteger mask = 0; mask < 128; ++mask) {
             NSMutableDictionary *components = [@{@"scale_percent": @150, @"font_size": @28, @"english_mode": @NO, @"input_scheme": @NO} mutableCopy];
             // Handwriting and voice are absent from every mask below, and absent now means off, so they
@@ -371,6 +396,8 @@ int main() {
                 previousRight = NSMaxX(rect);
             }
         }
+        }
+        panel.liquidGlassEnabled = NO;
         // 不显示 logo 时，同一个视图收窄成 (10 + 4) * 1.5 = 21pt 的握把，仍是拖动把手，分隔线和按钮跟着左移。
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
         {

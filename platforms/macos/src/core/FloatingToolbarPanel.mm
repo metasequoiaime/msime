@@ -453,7 +453,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 @property(nonatomic) SEL appearanceAction;
 @property(nonatomic, copy) NSColor *fillColor;
 @property(nonatomic, copy) NSColor *strokeColor;
-@property(nonatomic, strong) NSView *glassBackground;
+// 玻璃父视图已持有实际内容，这里只保留弱引用，避免互相持有。
+@property(nonatomic, weak) NSView *glassBackground;
 @end
 @implementation MetasequoiaFloatingToolbarChromeView
 - (void)viewDidChangeEffectiveAppearance
@@ -528,6 +529,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     BOOL _imeActive;
     BOOL _idleHidden;
     BOOL _recentInput;
+    BOOL _applyingSkin;
     NSTimer *_idleTimer;
 }
 
@@ -579,7 +581,11 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _chrome.wantsLayer = YES;
     _chrome.layer.cornerRadius = 10.0;
     _chrome.layer.masksToBounds = YES;
-    self.contentView = _chrome;
+    NSView *host = [[NSView alloc] initWithFrame:_chrome.bounds];
+    host.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    _chrome.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    [host addSubview:_chrome];
+    self.contentView = host;
 
     _inputModeButton = ToolbarButton(@"中", @"MetasequoiaFloatingToolbarInputMode", self, @selector(toggleInputMode:));
     // 点开列出可用的输入方案。macOS 27 上粤、注、笔这类菜单栏入口只能由用户自己去系统设置添加，有了它不加入口也能切换。
@@ -826,17 +832,18 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 
 - (void)applySkin
 {
-    if (_inputModeButton == nil || _settingsButton == nil)
+    if (_applyingSkin || _inputModeButton == nil || _settingsButton == nil)
     {
         return;
     }
+    _applyingSkin = YES;
     const BOOL dark = MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance);
     auto tokens = _hasHostToolbarSkin ? (dark ? _darkToolbarSkin : _lightToolbarSkin)
         : (_hasHostSkin ? (dark ? _darkSkin : _lightSkin) : MetasequoiaResolveStoredTheme(dark, NO).tokens);
     // Candidate tokens carry a package's card radius, which is not the toolbar's; only a toolbar palette (ToolbarSkinTokens: the package's toolbar radius, then its stylesheet) sets the toolbar radius.
     if (!_hasHostToolbarSkin) tokens.radius = msime::mac::NativeCandidateTokens(dark).radius;
     _chrome.layer.cornerRadius = tokens.radius * (_appliedScale > 0.0 ? _appliedScale : 1.0);
-    _chrome.glassBackground = MSIMEUpdateNativeGlassBackground(_chrome, _chrome.glassBackground,
+    _chrome.glassBackground = MSIMEUpdateNativeGlassBackground(self.contentView, _chrome, _chrome.glassBackground,
         self.liquidGlassEnabled, _chrome.layer.cornerRadius);
     _chrome.fillColor = MetasequoiaColorFromRgba(tokens.surface);
     _chrome.strokeColor = MetasequoiaColorFromRgba(tokens.border);
@@ -861,6 +868,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
         }
     }
     _chrome.needsDisplay = YES;
+    _applyingSkin = NO;
 }
 
 - (BOOL)canBecomeKeyWindow
@@ -871,7 +879,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 - (void)orderOut:(id)sender
 {
     [super orderOut:sender];
-    if (_inputModeButton == nil || _settingsButton == nil) return;
+    if (_applyingSkin || _inputModeButton == nil || _settingsButton == nil) return;
     // A hidden window gets no mouseExited:, so a button hovered at the moment the toolbar hides would come back highlighted.
     for (MetasequoiaFloatingToolbarButton *button in
          @[ _inputModeButton, _inputSchemeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])

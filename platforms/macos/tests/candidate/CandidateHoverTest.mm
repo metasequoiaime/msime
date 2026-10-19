@@ -39,13 +39,13 @@ int main()
         [cursorButton resetCursorRects];
         assert(cursorButton.capturedCursor == nil);
         assert(NSEqualRects(cursorButton.capturedRect, NSZeroRect));
-        // 背景材质必须避开装饰带，且不改变按钮归属、鼠标命中与可用的回退背景。
+        // 材质承载真实按钮并避开装饰带，切换回退时保留同一按钮及其鼠标命中。
         MSIMECandidateChromeView *chrome = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, 240, 110)];
         chrome.cardTopInset = 30;
         chrome.cornerRadius = 12;
         chrome.fillColor = [NSColor.windowBackgroundColor colorWithAlphaComponent:0.6];
         button.frame = NSMakeRect(8, 8, 160, 36);
-        [chrome addSubview:button];
+        [chrome.candidateContentView addSubview:button];
         chrome.liquidGlassEnabled = YES;
         if (@available(macOS 26.0, *)) {
             if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency) {
@@ -53,8 +53,9 @@ int main()
                 assert([glass isKindOfClass:NSGlassEffectView.class]);
                 assert(NSEqualRects(glass.frame, NSMakeRect(0, 0, 240, 80)));
                 assert(glass.cornerRadius == 12);
-                assert(glass.alphaValue == 0.6);
-                assert(button.superview == chrome);
+                assert(glass.alphaValue == 1.0);
+                assert(glass.contentView == chrome.candidateContentView);
+                assert(button.superview == chrome.candidateContentView);
                 assert([chrome hitTest:NSMakePoint(20, 20)] == button);
                 chrome.frame = NSMakeRect(0, 0, 320, 160);
                 [chrome layout];
@@ -69,7 +70,7 @@ int main()
             assert(chrome.subviews.count == 1);
         }
         chrome.liquidGlassEnabled = NO;
-        assert(chrome.subviews.count == 1 && chrome.subviews.firstObject == button);
+        assert(chrome.subviews.count == 1 && chrome.subviews.firstObject == chrome.candidateContentView && button.superview == chrome.candidateContentView);
         assert(chrome.fillColor.alphaComponent == 0.6);
         puts("Candidate hover tracking passed");
     }

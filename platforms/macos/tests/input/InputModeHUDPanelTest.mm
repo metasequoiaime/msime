@@ -80,6 +80,10 @@ int main() {
                     NSView *glass = [hud valueForKey:@"glassBackground"];
                     Require([glass isKindOfClass:NSGlassEffectView.class], "HUD 未安装原生玻璃");
                     Require(NSEqualRects(glass.frame, hud.contentView.bounds), "HUD 材质尺寸不匹配");
+                    NSTextField *visibleLabel = [hud valueForKey:@"label"];
+                    Require([visibleLabel isDescendantOf:((NSGlassEffectView *)glass).contentView], "HUD 文字没有进入玻璃内容容器");
+                    [hud.contentView layoutSubtreeIfNeeded];
+                    Require(!NSIsEmptyRect(visibleLabel.frame), "HUD 文字被布局隐藏");
                     Require(hud.ignoresMouseEvents, "HUD 丢失鼠标穿透");
                     Require(hud.contentView.layer.borderWidth == 0, "HUD 仍绘制实色边框");
                 }

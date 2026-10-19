@@ -2935,3 +2935,16 @@ html[data-theme="light"][data-macos-liquid-glass="true"]
   --button-secondary-hover: rgba(255, 255, 255, 0.4);
   --p-sub: #39393d;
 }
+
+/* 系统主题的工具栏预览透出当前窗口材质，皮肤包仍保留作者指定的表面。 */
+html[data-macos-liquid-glass="true"]
+  [data-platform="mac"]
+  [data-toolbar-preview][data-global-theme="system"]
+  .ftb-preview-host
+  .status-bar {
+  background-color: var(--p-group-bg);
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 8px 24px rgba(0, 0, 0, 0.08);
+}

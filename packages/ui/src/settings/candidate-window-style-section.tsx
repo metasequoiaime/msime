@@ -1,3 +1,4 @@
+import { useMacOSLiquidGlass } from "../core/use-macos-liquid-glass";
 import type { HostPlatform } from "../core/host-capabilities";
 import type { ReactNode } from "react";
 import type { Preferences } from "../core/preferences-model";
@@ -112,7 +113,7 @@ export interface CandidateWindowStyleSectionProps {
   preferences: Pick<
     CandidateWindowStylePreferences,
     "candidate_opacity_percent" | "candidate_corner_radius" | "candidate_padding"
-  >;
+  > & { global_theme?: Preferences["global_theme"] };
   /** 宿主平台，决定「跟随皮肤」时滑块停在哪个圆角和内边距上。 */
   platform?: HostPlatform;
   showOpacity: boolean;
@@ -156,6 +157,9 @@ export function CandidateWindowStyleRows({
   showPadding = false,
   onChange,
 }: Omit<CandidateWindowStyleSectionProps, "children">) {
+  const nativeGlass = useMacOSLiquidGlass();
+  const systemOpacity =
+    platform === "macos" && nativeGlass && (preferences.global_theme ?? "system") === "system";
   const opacity = candidateOpacityPercent(preferences.candidate_opacity_percent);
   const radius = candidateCornerRadius(preferences.candidate_corner_radius);
   const padding = candidateCardPadding(preferences.candidate_padding);
@@ -164,10 +168,15 @@ export function CandidateWindowStyleRows({
       {showOpacity && (
         <SliderRow
           title="不透明度"
-          description={`${opacity}%，文字和焦点高亮保持不透明`}
+          description={
+            systemOpacity
+              ? "系统液态玻璃的不透明度由 macOS 管理；自定义主题可单独调整"
+              : `${opacity}%，文字和焦点高亮保持不透明`
+          }
           {...candidateOpacitySlider}
+          disabled={systemOpacity}
           value={opacity}
-          valueText={`${opacity}%`}
+          valueText={systemOpacity ? "跟随系统" : `${opacity}%`}
           onChange={(value) => onChange(candidateOpacityPatch(value))}
         />
       )}
