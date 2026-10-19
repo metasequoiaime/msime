@@ -35,3 +35,5 @@ Status: implemented
 - `tests/ui/theme_skin_model.cpp` 和 `tests/ui/settings_navigation.cpp` 用 `cl /W4 /WX`（C++17 和 C++20）单独编译并运行通过；设置工程按 `/WX` 编译通过（`settings-test-build.ps1` 输出 `SETTINGS_BUILD_OK`）。
 - 没有改 Rust，没有跑 cargo。
 - 没有启动设置窗口：卡片的实际样子、图片解码、取色器浮出层、开关写入后的重画、窗口激活时的重扫和打开资源管理器都没有在运行中的窗口里检查过；`-Wall -Wextra -Werror` 的 GCC/Clang 编译也没有在本机跑。
+
+canvas 包的静态卡片和社区预览现在共用离屏绘制入口，复用候选窗的九宫格、挂件分层、内容／外留白及行距计算，见[canvas 设置预览](../bug-fix/2026-10-20-windows-canvas-settings-preview.md)。传统背景与装饰带的原路径保留。

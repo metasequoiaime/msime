@@ -773,7 +773,9 @@ if [ "$quick" -eq 0 ]; then
     sed -n '1,2p' "$wine_log"
   else
     grep "^FAIL " "$wine_log" | sed 's/^FAIL /wine /' > "$observed_wine"
-    echo "wine: $(grep -c '^PASS' "$wine_log") passed, $(grep -c '^FAIL ' "$wine_log") failed"
+    echo "wine: $(grep -c '^PASS' "$wine_log") passed, $(grep -c '^FAIL ' "$wine_log") failed, $(grep -c '^SKIP ' "$wine_log") skipped"
+    # 环境不支持的原生像素套件必须在总门禁中显示原因，不能悄悄消失。
+    grep '^SKIP ' "$wine_log" || true
     compare "windows suites under wine" "$observed_wine"
   fi
   rm -f "$wine_log"

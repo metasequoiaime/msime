@@ -412,7 +412,7 @@ jobs:
         run: |
           stage=target/windows-candidate-skin-gallery-tool
           mkdir -p "$stage"
-          for file in msime-candidate-skin-gallery.exe windows-candidate-image-animation.exe msime_host_api.dll libstdc++-6.dll libwinpthread-1.dll libgcc_s_seh-1.dll; do
+          for file in msime-candidate-skin-gallery.exe windows-candidate-image-animation.exe windows-candidate-canvas-preview.exe msime_host_api.dll libstdc++-6.dll libwinpthread-1.dll libgcc_s_seh-1.dll; do
             x86_64-w64-mingw32-strip --strip-debug -o "$stage/$file" "target/windows-full/x64/$file"
           done
           ls -l "$stage"
@@ -457,6 +457,8 @@ jobs:
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
+          & target/windows-candidate-skin-gallery-tool/windows-candidate-canvas-preview.exe
+          if ($LASTEXITCODE -ne 0) { throw "Candidate canvas preview tests failed with exit code $LASTEXITCODE" }
           & target/windows-candidate-skin-gallery-tool/windows-candidate-image-animation.exe
           if ($LASTEXITCODE -ne 0) { throw "Candidate image animation tests failed with exit code $LASTEXITCODE" }
           & target/windows-candidate-skin-gallery-tool/msime-candidate-skin-gallery.exe --verify-image-animation --skins crates/client-services/tests/fixtures/candidate-skins --output target/windows-candidate-skin-gallery

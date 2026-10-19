@@ -249,6 +249,12 @@ for exe in /bin-win/windows-*.exe /bin-win/tsf/msime-tsf-*.exe /bin-win/msimeui-
            /bin-win/bin/msimeui-tests.exe /bin-rust/rust-*.exe; do
   [ -f "$exe" ] || continue
   name=$(basename "$exe" .exe)
+  # Wine 10 的图像画刷未实现 source_rect，无法验证九宫格像素；
+  # 此套件由 ci-platforms.yml 的 Windows candidate skin gallery 强制执行。
+  if [ "$name" = windows-candidate-canvas-preview ]; then
+    echo "SKIP $name: Wine image brushes lack source_rect; required on native Windows CI"
+    continue
+  fi
   cp "$exe" /run/t/ 2>/dev/null || continue
   argument=""
   [ "$name" = windows-session-smoke ] && argument="$MSIME_RESOURCES"
