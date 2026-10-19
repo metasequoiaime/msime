@@ -31,7 +31,7 @@ def wait(predicate):
 def daemon_environment(root, addon):
     """把真实 daemon 的目录、插件与状态限制在合成夹具内。"""
     config = root / "config" / "fcitx5"
-    config.mkdir(parents=True)
+    config.mkdir(parents=True, exist_ok=True)
     (config / "profile").write_text(
         "[Groups/0]\nName=Default\nDefault Layout=us\nDefaultIM=msime\n"
         "[Groups/0/Items/0]\nName=keyboard-us\nLayout=\n"
