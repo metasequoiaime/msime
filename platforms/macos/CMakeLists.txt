@@ -154,6 +154,9 @@ if(NOT MSIME_MACOS_VERSION MATCHES "^([0-9]+)\\.([0-9][0-9]?[0-9]?)\\.([0-9][0-9
 endif()
 math(EXPR MACOSX_BUNDLE_BUNDLE_VERSION "((${CMAKE_MATCH_1} * 1000 + ${CMAKE_MATCH_2}) * 1000 + ${CMAKE_MATCH_3}) * 1000 + ${MSIME_BUILD_NUMBER}")
 message(STATUS "Bundle build number: ${MACOSX_BUNDLE_BUNDLE_VERSION}")
+# version.txt is the only place the version is written: Info.plist.in takes CFBundleShortVersionString from this variable, and the sources that need a fallback for an unbundled executable read MSIME_MACOS_VERSION_STRING, so a release bumps version.txt (and build-number.txt) and nothing else.
+set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${MSIME_MACOS_VERSION}")
+add_compile_definitions(MSIME_MACOS_VERSION_STRING="${MSIME_MACOS_VERSION}")
 # 版本（edition）是 shared/contracts/editions.json 里的 id。full 用 Info.plist.in 和 resources/<语言>.lproj/InfoPlist.strings 原样构建，产物与引入版本之前相同；其他版本由 scripts/edition_bundle.py 在配置时从同样的模板生成该版本的 Info.plist 和 InfoPlist.strings（bundle id、模式、版本键），可执行文件也改成该版本的名字。原生代码在运行时从 Info.plist 读版本身份（src/core/EditionIdentity.h），所以除了这几个文件，各版本编出来的东西完全一样；发布包只编 full，再用同一个脚本把 bundle 改成各个版本（package-release.sh）。
 set(MSIME_EDITION "full" CACHE STRING "Edition id from shared/contracts/editions.json")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
