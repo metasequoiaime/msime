@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`useHandwritingPanel` 集中管理手写面板的状态、异步代次、指针动作、候选提交、资源包等待和关闭清理；`HandwritingPanel` 继续保留完整的 SVG、按钮、候选网格、模型提示和窗口拖动 JSX。hook 复用现有 `useAsyncGeneration`、`useLatestRef`、`useResourcePacks`、`usePanelDrag` 和存储工具，返回视图所需的状态与回调。客户端切换时旧识别和提交结果继续由各自代次隔离，卸载和关闭继续取消队列与指针捕获。
+`useHandwritingPanel` 集中管理手写面板的状态、异步代次、指针动作、候选提交、资源包等待和关闭清理；`HandwritingPanel` 组合笔迹编辑、候选、模型提示和窗口拖动视图，笔迹区 JSX 由[手写笔迹编辑组件](./2026-10-19-handwriting-ink-editor.md)持有。hook 复用现有 `useAsyncGeneration`、`useLatestRef`、`useResourcePacks`、`usePanelDrag` 和存储工具，返回视图所需的状态与回调。客户端切换时旧识别和提交结果继续由各自代次隔离，卸载和关闭继续取消队列与指针捕获。
 
 ## Alternatives considered
 

@@ -1690,6 +1690,10 @@ export {
 } from "./keyboard/panels";
 export { HandwritingModelNotice } from "./keyboard/handwriting-model-notice";
 export {
+  HandwritingInkEditor,
+  type HandwritingInkEditorProps,
+} from "./keyboard/handwriting-ink-editor";
+export {
   HandwritingCandidateButton,
   type HandwritingCandidateButtonProps,
 } from "./keyboard/handwriting-candidate-button";

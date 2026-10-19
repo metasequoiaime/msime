@@ -45,6 +45,7 @@ import { CloudDictionaryQueryToolbar } from "./cloud-dictionary-query-toolbar";
 import { CloudPinyinSchemeOptions, CloudShuangpinProfileOptions } from "./cloud-scheme-options";
 import { clipboardTooltip, emojiDisplayName, symbolCategoryTitle } from "./emoji-panel-helpers";
 import { HandwritingCandidateButton } from "./handwriting-candidate-button";
+import { HandwritingInkEditor } from "./handwriting-ink-editor";
 import { HandwritingModelNotice } from "./handwriting-model-notice";
 
 export { emojiDisplayName } from "./emoji-panel-helpers";
@@ -289,80 +290,24 @@ export function HandwritingPanel({
         onClose={() => void closeHandwriting()}
       />
       <div className={surface.handwritingBody}>
-        <section className={surface.inkSection}>
-          <svg
-            className={surface.inkCanvas}
-            data-drawing={drawing.length > 0}
-            tabIndex={0}
-            viewBox="0 0 420 420"
-            onPointerDown={start}
-            onPointerMove={move}
-            onPointerUp={end}
-            onPointerCancel={cancel}
-            onLostPointerCapture={cancel}
-            aria-label="手写画布"
-            aria-disabled={closing}
-          >
-            <g className={surface.inkGuides} aria-hidden="true">
-              <path d="M210 20V400 M20 210H400 M20 20L400 400 M400 20L20 400" />
-            </g>
-            {renderStrokes.map((stroke, index) =>
-              stroke.points.length === 1 ? (
-                <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} />
-              ) : (
-                <polyline
-                  key={index}
-                  points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")}
-                />
-              ),
-            )}
-            {!renderStrokes.length && (
-              <text x="210" y="215" textAnchor="middle">
-                请在这里书写
-              </text>
-            )}
-          </svg>
-          <div className={surface.inkActions}>
-            <button
-              type="button"
-              className={surface.inkAction}
-              onClick={undo}
-              disabled={closing || (!strokes.length && !drawing.length)}
-              aria-keyshortcuts="Control+z Meta+z"
-            >
-              ↶ 撤销
-            </button>
-            <button
-              type="button"
-              className={surface.inkAction}
-              onClick={redo}
-              disabled={closing || !redoStrokes.length || drawing.length > 0}
-              aria-keyshortcuts="Control+Shift+z Meta+Shift+z Control+y"
-            >
-              ↷ 重做
-            </button>
-            <button
-              type="button"
-              className={surface.inkAction}
-              onClick={clear}
-              disabled={closing || (!strokes.length && !drawing.length && !redoStrokes.length)}
-            >
-              × 重写
-            </button>
-            {client.recognizeHandwriting && (
-              <button
-                type="button"
-                className={surface.inkAction}
-                onClick={retryRecognition}
-                disabled={
-                  closing || !strokes.length || drawing.length > 0 || recognizing || submitting
-                }
-              >
-                {recognizing ? "识别中…" : "重新识别"}
-              </button>
-            )}
-          </div>
-        </section>
+        <HandwritingInkEditor
+          strokes={renderStrokes}
+          drawing={drawing.length > 0}
+          disabled={closing}
+          recognizing={recognizing}
+          canUndo={strokes.length > 0 || drawing.length > 0}
+          canRedo={redoStrokes.length > 0 && drawing.length === 0}
+          canClear={strokes.length > 0 || drawing.length > 0 || redoStrokes.length > 0}
+          canRecognize={strokes.length > 0 && drawing.length === 0 && !recognizing && !submitting}
+          onStart={start}
+          onMove={move}
+          onEnd={end}
+          onCancel={cancel}
+          onUndo={undo}
+          onRedo={redo}
+          onClear={clear}
+          onRecognize={client.recognizeHandwriting ? retryRecognition : undefined}
+        />
         <section className={surface.recognitionSection}>
           <h2>识别结果</h2>
           <div className={surface.handwritingActions} role="group" aria-label="点击手写候选的操作">
