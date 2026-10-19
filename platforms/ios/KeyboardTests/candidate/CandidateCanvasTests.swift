@@ -400,10 +400,18 @@ final class CandidateCanvasTests: XCTestCase {
     [candidate.dark]
     """)
     try text.write(to: manifest, atomically: true, encoding: .utf8)
+    let skinPreferences: [String: Any] = ["global_theme": "custom", "custom_theme": ["candidate_skin": "canvas-fixture"]]
+    let skinResolved = try XCTUnwrap(CandidatePalette.resolveTheme(skinPreferences, systemDark: false, skinsRoot: root, canvasPanelDrawn: true))
+    let skinPalette = CandidatePalette.palette(skinResolved)
+    XCTAssertEqual(ThemeColor.hex(try XCTUnwrap(skinPalette.preeditText)), "#102030")
+    XCTAssertEqual(ThemeColor.hex(try XCTUnwrap(skinPalette.selectedTranslation)), "#405060")
+    XCTAssertEqual(ThemeColor.hex(try XCTUnwrap(skinPalette.selectedBar)), "#708090")
+    XCTAssertTrue(skinPalette.showSelectedBar)
+
     let preferences: [String: Any] = ["global_theme": "custom", "custom_theme": ["candidate_skin": "canvas-fixture", "candidate_colors": ["text": "#112233"]]]
     let resolved = try XCTUnwrap(CandidatePalette.resolveTheme(preferences, systemDark: false, skinsRoot: root, canvasPanelDrawn: true))
     let palette = CandidatePalette.palette(resolved)
-    XCTAssertEqual(ThemeColor.hex(try XCTUnwrap(palette.preeditText)), "#102030")
+    XCTAssertEqual(ThemeColor.hex(try XCTUnwrap(palette.preeditText)), "#112233")
     XCTAssertEqual(ThemeColor.hex(try XCTUnwrap(palette.selectedTranslation)), "#405060")
     XCTAssertEqual(ThemeColor.hex(try XCTUnwrap(palette.selectedBar)), "#708090")
     XCTAssertEqual(ThemeColor.hex(palette.text), "#112233")
