@@ -10,7 +10,7 @@ Status: implemented
 
 沿用共享 catalog 的已校验输出，按公共 `geometry`、当前排列覆盖表的顺序消费布局。Pango 保留用户字号，皮肤 `fontFamily` 排在用户字体及其回退链之前；按实际 DIP 字号换算 em 并取整，不能把 Pango 的 point 直接当作 DIP。测量、绘制、点击共用同一份布局与字体，不能只改变绘制偏移。
 
-消费 `padding`、`item_gap`、`item_extra_height`、`number_inset`、`item_padding_right`、`item_min_width`、`number_gap`、`number_scale`、`preedit_margin_dip`、`justify_rows` 和 `min_width_dip`。显式 content insets 仍按每边与九宫格边宽取最大值，未指定时才使用皮肤 padding；`line_gap_dip` 优先于拼音底部 margin。没有相关字段时保留既有布局。当前原生横排只有一行，均分只作用于该行真实存在的候选。隐藏拼音时本来就不留行距，`trim_hidden_preedit_gap` 无额外动作。`fit_content` 只改变横排显式间距的额外 6 DIP 及内容尾部留白，现有宽度本来就随内容收缩。
+消费 `padding`、`item_gap`、`item_extra_height`、`number_inset`、`item_padding_right`、`item_min_width`、`number_gap`、`number_scale`、`preedit_margin_dip`、`justify_rows` 和 `min_width_dip`。显式 content insets 仍按每边与九宫格边宽取最大值，未指定时才使用皮肤 padding；`line_gap_dip` 优先于拼音底部 margin。没有相关字段时保留既有布局。当前原生横排只有一行，均分只作用于该行真实存在的候选。`number_scale = 0` 隐藏序号字形，但仍保留来源的最小 9 DIP 序号栏与 `number_gap`，避免把合法零值误当作移除整个标签。隐藏拼音时本来就不留行距，`trim_hidden_preedit_gap` 无额外动作。`fit_content` 只改变横排显式间距的额外 6 DIP 及内容尾部留白，现有宽度本来就随内容收缩。
 
 ### 旧笔记审计
 
@@ -27,11 +27,13 @@ Status: implemented
 
 ## Testing
 
-原生测试覆盖横竖排覆盖、DIP/em、独立序号字号、边距与最小宽度；真实 GTK 验收检查配置热更新改变候选几何、文本仍在点击区域内，恢复默认后像素布局恢复。Debian 12 专用容器 run `20261020-052557` 中的 35 项原生、真实 GTK、图片动画与 Wayland 静态回退全部执行通过，无失败或跳过；其中六项普通／2 倍缩放／合成器横竖排窗口同时检查布局与字体热更新、恢复原布局，以及点击新增行高底部正确上屏。
+原生测试覆盖横竖排覆盖、DIP/em、独立序号字号、边距与最小宽度；真实 GTK 验收检查配置热更新改变候选几何、文本仍在点击区域内，恢复默认后像素布局恢复。Debian 12 专用容器 run `20261020-055251` 中的 35 项原生、真实 GTK、图片动画与 Wayland 静态回退全部执行通过，无失败或跳过；其中六项普通／2 倍缩放／合成器横竖排窗口同时检查布局与字体热更新、恢复原布局，以及点击新增行高底部正确上屏。
+
+零字号边界另用实际 Cairo 像素验证：序号栏保持空白，候选文字位于保留的 9 DIP 栏宽与 `number_gap` 之后。
 
 额外用父提交 `c8e8c6c99f` 的真实绘制实现作临时对照，三组 point／px 字号乘横竖排共六组未指定布局场景，窗口尺寸和逐像素绘制均一致；不把旧实现复制进长期测试。
 
-完整 quick（构建机 run `20261020-053112`）通过：Linux 原生 93/93、full/wubi 构建与安装隔离、共享 Rust、Android target／Java 宿主、WebAssembly、Linux 设置、macOS 原生及 Apple 桥接均通过。HarmonyOS HAP 因缺打包前置跳过；Windows 原生／MinGW 和 pipe 因工具链缺失跳过，当前宿主可运行的 Windows 策略测试为 171 项通过、2 项按宿主差异排除、62 项需 Windows 构建；参考仓库对照、词库再生成和部分可选检查按原脚本跳过。不将编译当作其他平台设备验收。
+完整 quick（构建机 run `20261020-055747`）通过：Linux 原生 93/93、full/wubi 构建与安装隔离、共享 Rust、Android target／Java 宿主、WebAssembly、Linux 设置、macOS 原生及 Apple 桥接均通过。HarmonyOS HAP 因缺打包前置跳过；Windows 原生／MinGW 和 pipe 因工具链缺失跳过，当前宿主可运行的 Windows 策略测试为 171 项通过、2 项按宿主差异排除、62 项需 Windows 构建；参考仓库对照、词库再生成和部分可选检查按原脚本跳过。不将编译当作其他平台设备验收。
 
 Rust 格式、Python 语法、笔记门禁与差异检查通过。
 
