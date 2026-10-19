@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -82,6 +83,65 @@ def screenshot():
     return image, Counter(zip(packed[0::channels], packed[1::channels], packed[2::channels]))
 
 
+NATIVE = os.environ.get("MSIME_TEST_NATIVE_CANVAS") == "1"
+NATIVE_SCALE = int(os.environ.get("GDK_SCALE", "1"))
+COMPOSITED = os.environ.get("MSIME_TEST_COMPOSITED") == "1"
+SELECTED = (7, 91, 173)
+WIDGET = (255, 0, 171)
+
+
+def native_window():
+    result = subprocess.run(["xdotool", "search", "--onlyvisible", "--class", "^MSIMECandidateCanvas$"],
+                            stdout=subprocess.PIPE, text=True, timeout=5)
+    return result.stdout.strip().splitlines()[0] if result.returncode == 0 else None
+
+
+def window_geometry(window):
+    output = subprocess.check_output(["xdotool", "getwindowgeometry", "--shell", window], text=True, timeout=5)
+    return dict(line.split("=", 1) for line in output.strip().splitlines())
+
+
+def selected_pixels():
+    image, _ = screenshot()
+    channels, stride = image.get_n_channels(), image.get_rowstride()
+    data = image.get_pixels()
+    window = native_window()
+    if not window:
+        return None
+    bounds = window_geometry(window)
+    start_x, start_y, width, height = (int(bounds[key]) for key in ("X", "Y", "WIDTH", "HEIGHT"))
+    points = []
+    expected = bytes(SELECTED)
+    for y in range(start_y, start_y + height):
+        row = data[y * stride:y * stride + image.get_width() * channels]
+        for x in range(start_x, start_x + width):
+            if row[x * channels:x * channels + 3] == expected:
+                points.append((x, y))
+    if not points:
+        return None
+    left, right = min(x for x, _ in points), max(x for x, _ in points) + 1
+    top, bottom = min(y for _, y in points), max(y for _, y in points) + 1
+    return right - left, bottom - top, b"".join(
+        data[y * stride + left * channels:y * stride + right * channels] for y in range(top, bottom))
+
+
+def color_position(color):
+    image, _ = screenshot()
+    channels, stride = image.get_n_channels(), image.get_rowstride()
+    data = image.get_pixels()
+    for y in range(image.get_height()):
+        for x in range(image.get_width()):
+            offset = y * stride + x * channels
+            if data[offset:offset + 3] == bytes(color):
+                return x + 2, y + 2
+    raise AssertionError("未找到预期颜色")
+
+
+def click_color(color, button):
+    x, y = color_position(color)
+    subprocess.run(["xdotool", "mousemove", str(x), str(y), "click", str(button)], check=True, timeout=5)
+
+
 def palette_visible(colors):
     _, counts = screenshot()
     return all(counts[color] >= 16 for color in colors)
@@ -101,7 +161,8 @@ def palette_top(color):
 def save_image(name):
     destination = os.environ.get("MSIME_TEST_CANVAS_ARTIFACTS")
     if destination:
-        directory = (Path(destination) / ("wayland" if WAYLAND else "x11") / FORMAT
+        directory = (Path(destination) / ((f"native-x11-{NATIVE_SCALE}x" + ("-composited" if COMPOSITED else ""))
+                     if NATIVE else "wayland" if WAYLAND else "x11") / FORMAT
                      / os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical"))
         directory.mkdir(parents=True, exist_ok=True)
         screenshot()[0].savev(str(directory / f"{name}.png"), "png", [], [])
@@ -163,6 +224,16 @@ def main():
             f"[candidate_window.border_image]\nsource = '{panel_file}'\nlight_source = '{light_file}'\n"
             "slice_dip = [20]\nwidth_dip = [8]\n[candidate.light]\ntext = '#010203'\n"
             "[candidate.dark]\ntext = '#FDFCFB'\n")
+        if NATIVE:
+            assert not WAYLAND, "原生 X11 验收不能在 Wayland 冒充通过"
+            (skin / "widget.png").write_bytes(png((WIDGET,) * 9))
+            manifest = skin / "skin.toml"
+            text = manifest.read_text().replace("[candidate_window]\n", "[candidate_window]\nline_gap_dip = 19\n")
+            text = text.replace("[candidate.light]\n", "[candidate.light]\nselected = '#075BAD'\n")
+            text = text.replace("[candidate.dark]\n", "[candidate.dark]\nselected = '#075BAD'\n")
+            text += ("[[candidate_window.decorations]]\nimage = 'widget.png'\nanchor = 'top-right'\n"
+                     "offset_x_dip = 24\noffset_y_dip = -24\nwidth_dip = 20\nheight_dip = 20\nz_index = 2\n")
+            manifest.write_text(text)
         options["candidate_skin_catalog"] = {
             "directory": str(skin.parent), "packages": [{
                 "id": "canvas-fixture", "title": "Canvas fixture", "base": "system",
@@ -171,6 +242,8 @@ def main():
         preferences.update(learning=False, cloud_candidates=False, usage_reporting=False,
                            global_theme="custom", candidate_theme="light",
                            candidate_layout=os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical"))
+        if NATIVE:
+            preferences["navigation"]["mouse_wheel"] = True
         preferences["custom_theme"].update(base="system", candidate_skin="canvas-fixture",
                                            candidate_skin_dark="canvas-fixture")
 
@@ -190,10 +263,14 @@ def main():
         os.environ["GDK_BACKEND"] = "wayland" if WAYLAND else "x11"
         if WAYLAND:
             assert Path(env.get("WAYLAND_DISPLAY", "")).is_absolute(), "需要隔离合成器的绝对 socket 路径"
-        window = keyboard = None
+        window = keyboard = control = compositor = None
         with (root / "daemon.log").open("w") as log:
             daemon = subprocess.Popen(["fcitx5", "-D", "--keep"], env=env, stdout=log, stderr=log)
             try:
+                if COMPOSITED:
+                    assert NATIVE and not WAYLAND, "合成器用例只验收原生 X11 画布"
+                    compositor = subprocess.Popen(["xcompmgr", "-a"], env=env, stdout=log, stderr=log)
+                    wait(lambda: Gdk.selection_owner_get(Gdk.Atom.intern("_NET_WM_CM_S0", False)) is not None)
                 wait(lambda: bus.name_has_owner("org.fcitx.Fcitx5"))
                 control = dbus.Interface(bus.get_object("org.fcitx.Fcitx5", "/controller"),
                                          "org.fcitx.Fcitx.Controller1")
@@ -220,7 +297,15 @@ def main():
                     keyboard = WaylandKeyboard(pump, lambda predicate, _description: wait(predicate))
                     wait(window.is_active)
                 else:
+                    wait(lambda: window.get_window().is_viewable())
+                    Gdk.Display.get_default().sync()
                     xid = GdkX11.X11Window.get_xid(window.get_window())
+                    subprocess.run(["xdotool", "windowfocus", "--sync", str(xid)], check=True, timeout=5)
+                    # GTK 模块异步建立 D-Bus 上下文；连接前的首次焦点事件可能丢失。
+                    wait(lambda: "frontend:dbus" in str(control.DebugInfo()))
+                    root_xid = GdkX11.X11Window.get_xid(Gdk.get_default_root_window())
+                    subprocess.run(["xdotool", "windowfocus", "--sync", str(root_xid)], check=True, timeout=5)
+                    wait(lambda: not entry.has_focus())
                     subprocess.run(["xdotool", "windowfocus", "--sync", str(xid)], check=True, timeout=5)
 
                 def focused():
@@ -229,17 +314,44 @@ def main():
                     return int(subprocess.check_output(["xdotool", "getwindowfocus"])) == xid
                 wait(lambda: entry.has_focus())
                 wait(lambda: re.search(r"frontend:dbus\b.*\bfocus:1\b", str(control.DebugInfo())))
+                focused_line = next(line for line in str(control.DebugInfo()).splitlines()
+                                    if re.search(r"frontend:dbus\b.*\bfocus:1\b", line))
+                focused_context = re.search(r"IC \[[^\]]+\]", focused_line).group()
                 control.SetCurrentIM("msime")
                 control.Activate()
                 wait(lambda: str(control.CurrentInputMethod()) == "msime")
                 if WAYLAND:
                     keyboard.keys(*"nihao")
                 else:
-                    subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "nihao"],
+                    subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni" if NATIVE else "nihao"],
                                    check=True, timeout=5)
                 wait(lambda: palette_visible(LIGHT))
                 assert entry.get_text() == "", "预编辑文字提前进入编辑器"
                 assert focused(), "候选窗口抢走焦点"
+                if NATIVE:
+                    wait(native_window)
+                    if COMPOSITED:
+                        popup = GdkX11.X11Window.foreign_new_for_display(Gdk.Display.get_default(), int(native_window()))
+                        assert popup.get_visual().get_depth() == 32, "合成器存在时没有创建 ARGB 候选窗"
+                    wait(lambda: palette_visible((WIDGET, SELECTED)))
+                    selected_before = palette_top(SELECTED)
+                    widget_before = palette_top(WIDGET)
+                    assert widget_before < selected_before, "上方挂件未扩展原生窗口留白"
+                    # 修改的只是拼音下方行距；真实窗口中的首行候选也必须相应移动。
+                    manifest = skin / "skin.toml"
+                    manifest.write_text(manifest.read_text().replace("line_gap_dip = 19", "line_gap_dip = 39"))
+                    wait(lambda: palette_top(SELECTED) == selected_before + 20 * NATIVE_SCALE)
+                    assert palette_top(WIDGET) == widget_before, "行距改变错误地移动了挂件"
+                    manifest.write_text(manifest.read_text().replace("line_gap_dip = 39", "line_gap_dip = 19"))
+                    wait(lambda: palette_top(SELECTED) == selected_before)
+                    save_image("native-layout")
+                    before_move = window_geometry(native_window())
+                    window.move(100, 80)
+                    # GTK 3 在下一次光标更新时上报根坐标，候选窗按该坐标重新定位。
+                    subprocess.run(["xdotool", "key", "BackSpace", "i"], check=True, timeout=5)
+                    wait(lambda: window_geometry(native_window())["X"] != before_move["X"])
+                    assert focused(), "移动输入框后候选窗口抢走焦点"
+
                 save_image("canvas-light")
                 if WAYLAND:
                     # 窗口留在同一输出；GTK 下一次输入上报新光标矩形后，真实 popup 必须跟随。
@@ -268,12 +380,87 @@ def main():
                 wait(lambda: palette_visible(DARK))
                 save_image("canvas-repaired")
                 assert focused(), "换肤后编辑器失焦"
-                if WAYLAND:
+                if NATIVE:
+                    wait(native_window)
+                    # 按下后更新候选，再释放旧鼠标事件，不能误选新页中相同的格位。
+                    x, y = color_position(SELECTED)
+                    subprocess.run(["xdotool", "mousemove", str(x), str(y), "mousedown", "1"], check=True, timeout=5)
+                    old_pixels = selected_pixels()
+                    subprocess.run(["xdotool", "key", "BackSpace"], check=True, timeout=5)
+                    wait(lambda: selected_pixels() != old_pixels)
+                    subprocess.run(["xdotool", "mouseup", "1", "key", "i"], check=True, timeout=5)
+                    wait(lambda: selected_pixels() == old_pixels)
+                    assert entry.get_text() == "", "旧鼠标释放错误地提交了新代次候选"
+                    x, y = color_position(SELECTED)
+                    bounds = window_geometry(native_window())
+                    menu_offset = x - int(bounds["X"]), y - int(bounds["Y"])
+                    click_color(SELECTED, 3)
+                    wait(lambda: not palette_visible((SELECTED,)))
+                    save_image("native-context-menu")
+                    # 实际触发首行“置顶”，确认写入本次合成词库且没有提交文字。
+                    bounds = window_geometry(native_window())
+                    subprocess.run(["xdotool", "mousemove", str(int(bounds["X"]) + menu_offset[0]),
+                                    str(int(bounds["Y"]) + menu_offset[1]), "click", "1"], check=True, timeout=5)
+
+                    def pinned():
+                        journal = root / "state/user/msime_user.db"
+                        if not journal.exists():
+                            return False
+                        with sqlite3.connect(journal.as_uri() + "?mode=ro", uri=True) as connection:
+                            return connection.execute(
+                                "SELECT count(*) FROM pinned_candidates WHERE context_key=? AND value=?", ("ni", "你")
+                            ).fetchone()[0] == 1
+
+                    wait(pinned)
+                    wait(lambda: palette_visible((SELECTED,)))
+                    assert entry.get_text() == "", "置顶操作错误地提交文字"
+                    click_color(SELECTED, 3)
+                    wait(lambda: not palette_visible((SELECTED,)))
+                    # 按键仍进编辑器并由运行时重建候选，不能被候选窗口抢焦点。
+                    subprocess.run(["xdotool", "key", "BackSpace", "i"], check=True, timeout=5)
+                    wait(lambda: palette_visible((SELECTED,)))
+                    assert focused(), "右键菜单抢走编辑器焦点"
+                    before_page = selected_pixels()
+                    click_color(SELECTED, 5)
+                    wait(lambda: selected_pixels() != before_page)
+                    wait(lambda: palette_visible((SELECTED,)))
+                    save_image("native-next-page")
+                    click_color(SELECTED, 4)
+                    wait(lambda: selected_pixels() == before_page)
+                    # 左键选择使用当前 CandidateWord 身份，必须真实上屏。
+                    click_color(SELECTED, 1)
+                elif WAYLAND:
                     keyboard.keys("space")
                 else:
                     subprocess.run(["xdotool", "key", "space"], check=True, timeout=5)
-                wait(lambda: entry.get_text() == "你好")
+                wait(lambda: entry.get_text() == ("你" if NATIVE else "你好"))
                 wait(lambda: not palette_visible(DARK))
+                if NATIVE:
+                    wait(lambda: native_window() is None)
+                if NATIVE:
+                    subprocess.run(["xdotool", "type", "--clearmodifiers", "ni"], check=True, timeout=5)
+                    wait(native_window)
+                    other = Gtk.Window(title="MSIME synthetic second editor")
+                    other.add(Gtk.Entry())
+                    other.show_all()
+                    wait(lambda: other.get_window() is not None and other.get_window().is_viewable())
+                    Gdk.Display.get_default().sync()
+                    other_xid = GdkX11.X11Window.get_xid(other.get_window())
+                    subprocess.run(["xdotool", "windowfocus", "--sync", str(other_xid)], check=True, timeout=5)
+                    wait(lambda: native_window() is None)
+                    save_image("native-unfocused")
+                    subprocess.run(["xdotool", "windowfocus", "--sync", str(xid)], check=True, timeout=5)
+                    wait(focused)
+                    wait(lambda: re.search(re.escape(focused_context) + r".*\bfocus:1\b", str(control.DebugInfo())))
+                    control.SetCurrentIM("msime")
+                    control.Activate()
+                    wait(lambda: str(control.CurrentInputMethod()) == "msime")
+                    subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni"],
+                                   check=True, timeout=5)
+                    wait(native_window)
+                    control.SetCurrentIM("keyboard-us")
+                    wait(lambda: native_window() is None)
+                    other.destroy()
                 control.Exit()
                 assert daemon.wait(timeout=10) == 0, "Fcitx5 未正常退出"
                 backend = "Wayland 客户端面板" if WAYLAND else "X11 classicui"
@@ -281,6 +468,12 @@ def main():
             finally:
                 if sys.exc_info()[0] is not None:
                     save_image("canvas-failed")
+                    if control is not None:
+                        print(control.DebugInfo(), file=sys.stderr)
+                        print("失败时输入法", control.CurrentInputMethod(), "状态", control.State(),
+                              "编辑器", repr(entry.get_text()), file=sys.stderr)
+                    for status in (root / "run").rglob("input-status.json"):
+                        print(status.read_text(), file=sys.stderr)
                     theme = root / "data/fcitx5/themes/msime/theme.conf"
                     if theme.exists():
                         print(theme.read_text(), file=sys.stderr)
@@ -294,6 +487,9 @@ def main():
                 if daemon.poll() is None:
                     daemon.terminate()
                     daemon.wait(timeout=10)
+                if compositor is not None:
+                    compositor.terminate()
+                    compositor.wait(timeout=10)
                 if sys.exc_info()[0] is not None:
                     # 此日志仅含隔离的合成状态，不读取用户输入或用户配置。
                     print((root / "daemon.log").read_text(), file=sys.stderr)

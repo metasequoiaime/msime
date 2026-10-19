@@ -48,3 +48,5 @@ Wayland 用同一个合成皮肤夹具，运行独立无头 Sway，关闭 Xwayla
 资源变更不再等待下一次按键才反映到候选窗口。新增测试依赖验收镜像已有的 GTK、Python D-Bus/GI、Xvfb 与 xdotool，沿用现有已验证资源及 Xvfb／xdotool 的注册门槛；普通原生构建门禁仍可独立运行。像素统计使用合成纯色边框，避免把字体抗锯齿差异当作皮肤失败。
 
 原先证据只覆盖隔离的 X11／GTK／classicui 路径；本次扩展到独立无头 Sway 的 GTK 原生 Wayland 客户端面板。Xvfb 不包含桌面合成器和真实显示缩放；本次镜像补充中文字体，无头 Sway 的字形与定位证据仍不能代替发行版桌面和真实显示缩放验收。PNG／GIF／WebP 的静态面板验收见[共享图片解码](../feature/2026-10-20-linux-canvas-image-formats.md)。合成器原生 input-method popup、GNOME Shell、kimpanel、动画与自由挂件仍需各自实现与验收，不能据此宣布全平台兼容完成。
+
+X11 canvas 的窗口所有权由[原生 X11 画布](../architecture/2026-10-20-linux-native-canvas-x11.md)部分取代：有效 canvas 包、X11 输入上下文和水杉持有的 classicui 主题使用原生候选窗，挂件与独立行距由该路径绘制；其余上下文继续使用本篇的桌面面板路径。静态图片不代表接通动画，Wayland 与其他 UI 的缺口仍保留。

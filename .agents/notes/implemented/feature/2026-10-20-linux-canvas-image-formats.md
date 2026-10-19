@@ -33,3 +33,5 @@ canvas 清单允许 PNG、APNG、GIF 和 WebP，Fcitx5 的面板却只调用 Cai
 ## Consequences
 
 合法包的静态面板不再因编码格式退回纯色，宿主无需依赖发行版的图片 loader。代价是增加一个有生命周期约束的 C 回调，Cairo 转换时短暂同时持有非预乘与预乘的画布。首次加载仍在宿主线程上解码，受输入与尺寸预算限制；每次偏好轮询不重复解码。动画、自由挂件、IBus 和其他 Fcitx UI 仍未接通，不能把这一步称作 Linux 完整视觉兼容。
+
+X11 canvas 的窗口所有权由[原生 X11 画布](../architecture/2026-10-20-linux-native-canvas-x11.md)部分取代：有效 canvas 包、X11 输入上下文和水杉持有的 classicui 主题使用原生候选窗，挂件与独立行距由该路径绘制；其余上下文继续使用本篇的桌面面板路径。静态图片不代表接通动画，Wayland 与其他 UI 的缺口仍保留。

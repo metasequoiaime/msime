@@ -40,6 +40,9 @@
 #include "../src/candidates/FcitxThemeLogo.h"
 #include "../src/candidates/FcitxThemeOverlayScale.h"
 #include "../src/candidates/FcitxCanvasPanel.h"
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+#include "../src/candidates/NativeCanvasX11.h"
+#endif
 #include "../src/candidates/CandidateFontPolicy.h"
 #include "../src/candidates/CandidateWheelPaging.h"
 #include "../src/candidates/PanelRestoreRecord.h"
@@ -551,6 +554,9 @@ public:
   }
   ~FcitxState() override { close(); }
   void close() {
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+    if (native_canvas_) native_canvas_->hide();
+#endif
     // Every way out of a session passes here, focus loss, deactivation and teardown included, and options_path_ is still the batch's directory.
     releaseFocusResources();
     if (session_) msime_linux_diagnostic_write("focus_out");
@@ -684,6 +690,9 @@ public:
   // 菜单动作能否作用到这个上下文：有焦点，或者它是失焦后托盘仍然指向的那一个。FcitxEngine 在这里只是前向声明，定义在它之后。
   bool menuTarget() const;
   void clearPanel() {
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+    if (native_canvas_) native_canvas_->hide();
+#endif
     ic_.inputPanel().reset();
     ic_.updatePreedit();
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
@@ -3618,6 +3627,10 @@ public:
     command(MSIME_CANCEL_AFTER_HOST_COMMIT);
   }
   void render();
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+  bool renderNativeCanvas();
+  std::unique_ptr<msime::linux_host::NativeCanvasX11> native_canvas_;
+#endif
   std::string candidateAux() const;
   bool removeCandidateSlot(size_t slot) {
     if (!ensure() || restricted() || privateInput() || !ic_.hasFocus()) return false;
@@ -4094,6 +4107,43 @@ private:
   uint8_t fixed_position_;
 };
 
+// 新旧 Fcitx5 共用同一份操作列表和身份校验；旧版没有 ActionableCandidateList。
+std::vector<std::pair<int, std::string>> candidateMenuActions(FcitxState &state, const FcitxCandidate &item) {
+  std::vector<std::pair<int, std::string>> actions;
+  if (state.translationCandidatesActive() || !state.ic_.hasFocus() || !state.input_enabled_ ||
+      state.restricted() || state.privateInput() || state.session_ != item.session() ||
+      msime::linux_host::strict_json_value(state.view_, "generation", uint64_t{}) != item.generation()) return actions;
+  const auto scheme = msime::linux_host::strict_json_value(state.view_, "scheme", 0u);
+  if (!msime::linux_host::candidate_dictionary_actions_available(scheme, item.source())) return actions;
+  actions.emplace_back(1, msime::linux_host::candidate_pin_label);
+  if (msime::linux_host::candidate_dictionary_removal_available(scheme, item.source(), item.text()))
+    actions.emplace_back(2, "删除候选");
+  for (int slot = 1; slot <= 5; ++slot)
+    actions.emplace_back(10 + slot, msime::linux_host::candidate_fix_label(slot));
+  if (item.fixedPosition() > 0) actions.emplace_back(20, "取消固定");
+  return actions;
+}
+void triggerCandidateMenuAction(FcitxState &state, const FcitxCandidate &item, int action) {
+  // ensure() 可能替换当前页；先保留身份，再让运行时复核会话、代次和全局序号。
+  const auto session = item.session();
+  const auto generation = item.generation();
+  const auto index = item.index();
+  const auto actions = candidateMenuActions(state, item);
+  if (std::none_of(actions.begin(), actions.end(),
+      [action](const auto &available) { return available.first == action; })) return;
+  try {
+    if (!state.ensure() || state.session_ != session ||
+        msime::linux_host::strict_json_value(state.view_, "generation", uint64_t{}) != generation) return;
+    char *raw = nullptr;
+    if (action == 1) raw = msime_client_pin_candidate(session, generation, index);
+    else if (action == 2) raw = msime_client_remove_candidate(session, generation, index);
+    else if (action >= 11 && action <= 15)
+      raw = msime_client_fix_candidate_position(session, generation, index, static_cast<uint8_t>(action - 10));
+    else if (action == 20) raw = msime_client_clear_candidate_position(session, generation, index);
+    if (raw) state.apply(raw);
+  } catch (...) {}
+}
+
 // The runtime already pages candidates. Never page its current page a second time.
 class FcitxPage : public fcitx::CandidateList,
                   public fcitx::PageableCandidateList
@@ -4151,57 +4201,18 @@ public:
   std::vector<fcitx::CandidateAction>
   candidateActions(const fcitx::CandidateWord &candidate) const override {
     std::vector<fcitx::CandidateAction> actions;
-    if (state_.translationCandidatesActive()) return actions;
     const auto *item = dynamic_cast<const FcitxCandidate *>(&candidate);
     if (!item) return actions;
-    if (!state_.ic_.hasFocus() || !state_.input_enabled_ || state_.restricted() ||
-        state_.privateInput() || state_.session_ != item->session() ||
-        msime::linux_host::strict_json_value(state_.view_, "generation", uint64_t{}) != item->generation()) return actions;
-    const auto scheme = msime::linux_host::strict_json_value(state_.view_, "scheme", 0u);
-    if (!msime::linux_host::candidate_dictionary_actions_available(scheme, item->source()))
-      return actions;
-    // One pin, one optional removal, five fixed positions, and one optional clear.
-    actions.reserve(8);
-    const auto make = [](int id, const char *text) {
+    for (const auto &[id, text] : candidateMenuActions(state_, *item)) {
       fcitx::CandidateAction action;
-      action.setId(id);
-      action.setText(text);
-      return action;
-    };
-    actions.push_back(make(1, msime::linux_host::candidate_pin_label));
-    const auto source = item->source();
-    const auto fixedPosition = item->fixedPosition();
-    if (msime::linux_host::candidate_dictionary_removal_available(
-            scheme, source,
-            item->text()))
-      actions.push_back(make(2, "删除候选"));
-    for (int slot = 1; slot <= 5; ++slot)
-      actions.push_back(make(10 + slot, msime::linux_host::candidate_fix_label(slot).c_str()));
-    if (fixedPosition > 0) actions.push_back(make(20, "取消固定"));
+      action.setId(id); action.setText(text);
+      actions.push_back(std::move(action));
+    }
     return actions;
   }
   void triggerAction(const fcitx::CandidateWord &candidate, int action) override {
-    const auto *item = dynamic_cast<const FcitxCandidate *>(&candidate);
-    if (!item) return;
-    // ensure() can clear the panel and destroy this page and its candidate.
-    auto *state = &state_;
-    const auto session = item->session();
-    const auto generation = item->generation();
-    const auto index = item->index();
-    const auto actions = candidateActions(candidate);
-    if (std::none_of(actions.begin(), actions.end(),
-        [action](const auto &available) { return available.id() == action; })) return;
-    try {
-      if (!state->ensure() || state->session_ != session ||
-          msime::linux_host::strict_json_value(state->view_, "generation", uint64_t{}) != generation) return;
-      char *raw = nullptr;
-      if (action == 1) raw = msime_client_pin_candidate(session, generation, index);
-      else if (action == 2) raw = msime_client_remove_candidate(session, generation, index);
-      else if (action >= 11 && action <= 15)
-        raw = msime_client_fix_candidate_position(session, generation, index, static_cast<uint8_t>(action - 10));
-      else if (action == 20) raw = msime_client_clear_candidate_position(session, generation, index);
-      if (raw) state->apply(raw);
-    } catch (...) {}
+    if (const auto *item = dynamic_cast<const FcitxCandidate *>(&candidate))
+      triggerCandidateMenuAction(state_, *item, action);
   }
 #endif
 private:
@@ -6028,6 +6039,11 @@ public:
       if (classicui) restore_classicui_theme(*classicui);
       candidate_theme_applied_.clear();
       candidate_canvas_source_.clear();
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+      native_canvas_assets_.reset();
+      native_canvas_sources_.clear();
+      native_canvas_owned_ = false;
+#endif
       candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
       hint_text_width_ = 0;
       hint_inputs_ = FcitxHintInputs{};
@@ -6045,6 +6061,9 @@ public:
       if (canvas_directory && host::safe_skin_id(resolved.candidate_skin)) {
         canvas_stamps.push_back(host::fcitx_canvas_file_stamp(*canvas_directory / resolved.candidate_skin / "skin.toml"));
         if (!candidate_canvas_source_.empty()) canvas_stamps.push_back(host::fcitx_canvas_file_stamp(candidate_canvas_source_));
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+        for (const auto &source : native_canvas_sources_) canvas_stamps.push_back(host::fcitx_canvas_file_stamp(source));
+#endif
       }
       return Json{
         {"request", host::candidate_theme_request(preferences, host::candidate_dark_theme(preferences, system_dark), catalog)},
@@ -6081,8 +6100,21 @@ public:
     // 每次同步在这里记下它画的主题、字体与 Wayland 字体 DPI。
     hint_inputs_ = fcitx_hint_inputs(current, system_dark);
     classicui_hint_stamp_ = hint_stamp;
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+    const bool native_was_owned = native_canvas_owned_;
+    const auto *native_theme = current.valueByPath("Theme");
+    const auto *native_dark_theme = current.valueByPath("DarkTheme");
+    native_canvas_owned_ = native_theme && *native_theme == host::kFcitxCandidateTheme &&
+        host::fcitx_candidate_theme_drawn(*native_theme, native_dark_theme);
+#endif
     // 同一份主题已接管过时，外部配置变化只刷新提示，不追回用户手改或卸载还原的主题。
-    if (inputs == candidate_theme_applied_ && !chosen) return false;
+    if (inputs == candidate_theme_applied_ && !chosen) {
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+      return native_was_owned != native_canvas_owned_;
+#else
+      return false;
+#endif
+    }
     const auto *selected = current.valueByPath("Theme");
     const auto *selected_dark = current.valueByPath("DarkTheme");
     // 用户刚在主题菜单里选了水杉主题时（chosen）即使当前是第三方主题也接管；焦点进入、偏好同步、系统明暗变化都只是重读同一份偏好，绝不把用户选的主题换回来。
@@ -6093,6 +6125,10 @@ public:
     // 同一份输入已经写过主题文件，就不必为一次重新接管再栅格化一遍；所有权与 classicui 配置仍照常处理。
     if (inputs != candidate_theme_applied_) {
       std::optional<host::FcitxCanvasPanel> canvas_panel;
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+      native_canvas_assets_.reset();
+      native_canvas_sources_.clear();
+#endif
       candidate_canvas_source_.clear();
       if (canvas_directory && host::safe_skin_id(resolved.candidate_skin)) {
         try {
@@ -6101,18 +6137,40 @@ public:
           candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
           canvas_panel = host::prepare_fcitx_canvas_panel(package, *canvas_directory, resolved.candidate_skin, resolved.dark,
                                                          &candidate_canvas_source_);
-          if (canvas_panel) {
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+          native_canvas_assets_ = host::load_native_canvas(package, *canvas_directory, resolved.candidate_skin, resolved.dark);
+          for (const auto &item : package.value("decorations", Json::array())) {
+            if (const auto source = host::fcitx_canvas_resource(*canvas_directory, resolved.candidate_skin, item.at("image")))
+              native_canvas_sources_.push_back(*source);
+          }
+#endif
+          if (canvas_panel
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+              || native_canvas_assets_
+#endif
+          ) {
             auto request = host::candidate_theme_request(preferences, resolved.dark, catalog);
             request.erase("package");
             request["skins_directory"] = canvas_directory->string();
-            request["canvas_panel_drawn"] = true;
+            request["canvas_panel_drawn"] = canvas_panel.has_value();
             const auto query = request.dump();
-            const auto panel_theme = host::candidate_theme_colors(
-                response(msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(query.data()), query.size())), resolved.dark);
+            const auto panel_document = response(msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(query.data()), query.size()));
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+            native_canvas_palette_ = panel_document.value("candidate", Json::object());
+#endif
+            const auto panel_theme = host::candidate_theme_colors(panel_document, resolved.dark);
             if (panel_theme.candidate_skin == resolved.candidate_skin) colors = panel_theme.colors;
-            else canvas_panel.reset();
+            else {
+              canvas_panel.reset();
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+              native_canvas_assets_.reset();
+#endif
+            }
           }
         } catch (const std::exception &) {
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+          native_canvas_assets_.reset();
+#endif
           canvas_panel.reset();
           // 无效包不能阻止之后的资源修复；失败扫描每十秒重试，不进入每拍热路径。
           candidate_canvas_retry_at_ = now + kCandidateThemeRetry;
@@ -6142,6 +6200,10 @@ public:
     hint_inputs_ = fcitx_hint_inputs(current, system_dark);
     classicui_hint_stamp_ = read_classicui_hint_stamp();
     candidate_theme_applied_ = std::move(inputs);
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+    native_canvas_owned_ = host::fcitx_candidate_theme_drawn(
+        *current.valueByPath("Theme"), current.valueByPath("DarkTheme"));
+#endif
     candidate_theme_attempt_.clear();
     return true;
   }
@@ -6501,6 +6563,28 @@ public:
     maintenance_menu_.addAction(&fix4_action_);
     maintenance_menu_.addAction(&fix5_action_);
     maintenance_menu_.addAction(&clear_action_);
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+    native_canvas_cursor_watch_ = instance->watchEvent(
+        fcitx::EventType::InputContextCursorRectChanged, fcitx::EventWatcherPhase::PostInputMethod,
+        [this](fcitx::Event &event) {
+          auto *ic = static_cast<fcitx::InputContextEvent &>(event).inputContext();
+          auto *state = ic->propertyFor(&factory_);
+          if (!state->native_canvas_) return;
+          const auto rect = ic->cursorRect();
+          state->native_canvas_->move(rect.left(), rect.top(), rect.height());
+        });
+    native_canvas_ui_watch_ = instance->watchEvent(
+        fcitx::EventType::UIChanged, fcitx::EventWatcherPhase::PostInputMethod,
+        [this](fcitx::Event &) {
+          instance_->inputContextManager().foreach([this](fcitx::InputContext *ic) {
+            auto *state = ic->propertyFor(&factory_);
+            if (state->session_ && ic->hasFocus()) {
+              try { state->render(); } catch (...) { unavailable(*state); }
+            }
+            return true;
+          });
+        });
+#endif
     capability_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextCapabilityChanged,
         fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
@@ -6909,6 +6993,14 @@ public:
   // applyCandidatePanelTheme 上一次接管写好时的主题输入。
   std::string candidate_theme_applied_;
   std::filesystem::path candidate_canvas_source_;
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+  std::shared_ptr<msime::linux_host::NativeCanvasAssets> native_canvas_assets_;
+  std::vector<std::filesystem::path> native_canvas_sources_;
+  Json native_canvas_palette_ = Json::object();
+  bool native_canvas_owned_ = false;
+  std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> native_canvas_cursor_watch_;
+  std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> native_canvas_ui_watch_;
+#endif
   std::chrono::steady_clock::time_point candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
   // 还没接管成功时，上一次尝试所见的主题输入与经典界面落盘的选择；写主题失败时到 candidate_theme_retry_at_ 再试一次，其他情况要等它们变化。
   std::string candidate_theme_attempt_;
@@ -7166,8 +7258,12 @@ bool FcitxState::candidateThemeSelectionChanged(const Json &preferences) {
 
 void FcitxState::syncCandidatePanelTheme(bool chosen) {
   if (engine_ && session_ && engine_->applyCandidatePanelTheme(preferences_, system_dark_, candidate_skin_document_, chosen)) {
-    // 资源戳变化可能没有偏好或候选变更；重载主题之后仍要让真实面板重绘，不能等下一个按键。
-    ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    // 资源戳变化可能没有偏好或候选变更；原生窗口从当前视图重建，不沿用清空给桌面 UI 的数据。
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+    if (native_canvas_ && ic_.hasFocus()) render();
+    else
+#endif
+      ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     // GTK 的客户端面板异步监视主题文件；当前这次更新可能先于重载。下一轮偏好轮询再刷新一次，
     // 只重画当前面板，不保存候选快照；失焦、关闭与之后的换肤都会取消或替换这次刷新。
     candidate_theme_refresh_at_.reset();
@@ -7293,9 +7389,70 @@ void FcitxState::render() {
     ic_.inputPanel().setAuxUp(fcitx::Text("Emoji 搜索：" + emoji_search_));
   if (voice_loading_ && (!wave_overlay_surface_ || wave_overlay_failed_))
     updateVoiceOverlay();
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+  renderNativeCanvas();
+#endif
   ic_.updatePreedit();
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
+
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+bool FcitxState::renderNativeCanvas() {
+  const auto list = ic_.inputPanel().candidateList();
+  if (!engine_ || !engine_->native_canvas_owned_ || !engine_->native_canvas_assets_ ||
+      engine_->instance_->currentUI() != "classicui" || !ic_.hasFocus() ||
+      ic_.display().rfind("x11:", 0) != 0 || !list || list->size() == 0) {
+    if (native_canvas_) native_canvas_->hide();
+    return false;
+  }
+  msime::linux_host::NativeCanvasContent content;
+  content.preedit = ic_.inputPanel().preedit().toString();
+  // 拼音行属于画布，客户端内嵌预编辑仍单独保留。
+  if (content.preedit.empty() && preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin")
+    content.preedit = view_.value("preedit", std::string{});
+  content.auxiliary = ic_.inputPanel().auxDown().toString();
+  if (!ic_.inputPanel().auxUp().empty())
+    content.preedit = ic_.inputPanel().auxUp().toString() + (content.preedit.empty() ? "" : " · " + content.preedit);
+  content.font = engine_->hint_inputs_.font.empty() ? "sans 16" : engine_->hint_inputs_.font;
+  content.horizontal = list->layoutHint() == fcitx::CandidateLayoutHint::Horizontal;
+  content.selected = list->cursorIndex();
+  content.wheel_paging = msime::linux_host::read_candidate_wheel_paging(preferences_);
+  for (int at = 0; at < list->size(); ++at)
+    content.items.push_back({list->label(at).toString(), list->candidate(at).text().toString()});
+  content.select = [this, list](int at) {
+    if (ic_.hasFocus() && !restricted() && at >= 0 && at < list->size()) list->candidate(at).select(&ic_);
+  };
+  if (auto *page = list->toPageable()) {
+    content.previous = page->hasPrev(); content.next = page->hasNext();
+    content.page = [this, list](bool next) {
+      if (!ic_.hasFocus() || restricted()) return;
+      auto *page = list->toPageable();
+      if (next) page->next(); else page->prev();
+    };
+  }
+  content.actions = [this, list](int at) {
+    std::vector<msime::linux_host::NativeCanvasAction> result;
+    if (!ic_.hasFocus() || restricted() || at < 0 || at >= list->size()) return result;
+    const auto *item = dynamic_cast<const FcitxCandidate *>(&list->candidate(at));
+    if (!item) return result;
+    for (const auto &[id, text] : candidateMenuActions(*this, *item)) {
+      result.push_back({text, [this, list, at, id] {
+        const auto &candidate = static_cast<const FcitxCandidate &>(list->candidate(at));
+        triggerCandidateMenuAction(*this, candidate, id);
+      }});
+    }
+    return result;
+  };
+  if (!native_canvas_) native_canvas_ = std::make_unique<msime::linux_host::NativeCanvasX11>(*loop_);
+  const auto cursor = ic_.cursorRect();
+  if (!native_canvas_->show(ic_.display(), engine_->native_canvas_assets_, std::move(content),
+      engine_->native_canvas_palette_, cursor.left(), cursor.top(), cursor.height())) return false;
+  const auto client_preedit = ic_.inputPanel().clientPreedit();
+  ic_.inputPanel().reset();
+  ic_.inputPanel().setClientPreedit(client_preedit);
+  return true;
+}
+#endif
 
 void FcitxState::maintenance(int operation) {
   if (!ensure() || view_.value("candidates", Json::array()).empty()) return;
