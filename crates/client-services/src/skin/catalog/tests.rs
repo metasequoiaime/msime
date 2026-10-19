@@ -51,7 +51,7 @@ fn decorated_package(root: &Path, decoration: &[u8], motion: &str) {
     fs::write(skin.join("whale.png"), decoration).unwrap();
     fs::write(
         skin.join("skin.toml"),
-        format!("schema_version = 2\nid = 'whale'\nname = 'Whale'\nversion = '1.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'whale.png'\ntop_inset_dip = 40\nwidth_dip = 60\n{motion}"),
+        format!("schema_version = 2\nid = 'whale'\nname = 'Whale'\nversion = '1.0'\nbase = 'canvas'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\nimage = 'whale.png'\ntop_inset_dip = 40\nwidth_dip = 60\n{motion}"),
     )
     .unwrap();
 }
@@ -811,7 +811,7 @@ fn schema_v2_uses_bounded_lively_animation_presets() {
     fs::create_dir(&skin).unwrap();
     fs::write(
         skin.join("skin.toml"),
-        "schema_version = 2\nid = 'motion'\nname = 'Motion'\nversion = '2.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nenter = 'spring'\nexit = 'fade'\nselection = 'glow'\nduration_ms = 240\nstagger_ms = 20\n",
+        "schema_version = 2\nid = 'motion'\nname = 'Motion'\nversion = '2.0'\nbase = 'canvas'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nenter = 'spring'\nexit = 'fade'\nselection = 'glow'\nduration_ms = 240\nstagger_ms = 20\n",
     )
     .unwrap();
     let package = load(root.path(), "motion").unwrap();
@@ -836,7 +836,7 @@ fn schema_v2_animation_table_keeps_lively_defaults_when_fields_are_omitted() {
     fs::create_dir(&skin).unwrap();
     fs::write(
         skin.join("skin.toml"),
-        "schema_version = 2\nid = 'motion_defaults'\nname = 'Motion defaults'\nversion = '2.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nduration_ms = 200\n",
+        "schema_version = 2\nid = 'motion_defaults'\nname = 'Motion defaults'\nversion = '2.0'\nbase = 'canvas'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nduration_ms = 200\n",
     )
     .unwrap();
     let package = load(root.path(), "motion_defaults").unwrap();
@@ -860,7 +860,7 @@ fn schema_v2_animation_reports_which_presets_the_manifest_declares() {
         fs::create_dir(&skin).unwrap();
         fs::write(
             skin.join("skin.toml"),
-            format!("schema_version = 2\nid = '{id}'\nname = 'Motion'\nversion = '2.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{animation}"),
+            format!("schema_version = 2\nid = '{id}'\nname = 'Motion'\nversion = '2.0'\nbase = 'canvas'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n{animation}"),
         )
         .unwrap();
     }
@@ -883,6 +883,53 @@ fn schema_v2_animation_reports_which_presets_the_manifest_declares() {
         serde_json::to_value(&enter.animation).unwrap()["declared"],
         serde_json::json!({"enter": true, "exit": false, "selection": false})
     );
+}
+
+#[test]
+fn schema_v2_non_canvas_is_loaded_as_v1_and_ignores_v2_fields() {
+    let root = tempdir().unwrap();
+    let skin = root.path().join("legacy_v2");
+    fs::create_dir(&skin).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        "schema_version = 2
+id = 'legacy_v2'
+name = 'Legacy v2 declaration'
+version = '1.0'
+base = 'system'
+[supports]
+layouts = ['horizontal']
+themes = ['light']
+[candidate_window]
+[candidate_window.decoration]
+top_inset_dip = 20
+width_dip = 40
+motion = 'not-a-motion'
+[candidate_window.border_image]
+source = 'missing.png'
+slice_dip = ['not-a-number']
+[animation]
+enter = 'not-a-preset'
+duration_ms = 'not-a-duration'
+",
+    )
+    .unwrap();
+
+    let package = load(root.path(), "legacy_v2").unwrap();
+    assert_eq!(package.schema_version, 1);
+    assert!(!package.canvas);
+    assert_eq!(package.animation, SkinAnimation::disabled());
+    assert_eq!(package.decoration_motion, DecorationMotion::None);
+    assert!(package.border_image.is_none());
+    assert!(package.decorations.is_empty());
+
+    // Linux 的运行配置只发布它能绘制的公共子集；同一个共享扫描结果仍会
+    // 保留这个包，而不会把 v2 声明误传成可绘制的 canvas 资源。
+    let published = host_candidate_catalog(&scan(root.path()), root.path(), &[]);
+    let entry = &published["packages"][0];
+    assert_eq!(entry["id"], "legacy_v2");
+    assert!(entry.get("border_image").is_none());
+    assert!(entry.get("animation").is_none());
 }
 
 #[test]

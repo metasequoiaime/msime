@@ -1,4 +1,4 @@
-# Agent Note: Windows 候选皮肤清单与 msime-windows 对齐
+# Agent Note: 跨平台候选皮肤清单与 msime-windows 对齐
 
 Status: implemented
 
@@ -8,9 +8,9 @@ Status: implemented
 
 ## Decision
 
-共享 `crates/client-services` 的 catalog 现在保留现有 v1 与动画契约，并解析 `canvas` / `wechat_scroll` 基底、完整候选颜色、候选字体、版式、材质、九宫格、insets、动画图片和自由挂件字段。扫描阶段统一执行数值范围、字体、资源路径、动画帧和挂件数量校验；`canvas` 通过 `SkinSummary.canvas` 传递，不扩大 `GlobalTheme`，`canvas` 与 `wechat_scroll` 也加入保留 ID 规则。
+共享 `crates/client-services` 的 catalog 现在保留现有 v1 与动画契约，并解析 `canvas` / `wechat_scroll` 基底、完整候选颜色、候选字体、版式、材质、九宫格、insets、动画图片和自由挂件字段。扫描阶段统一执行数值范围、字体、资源路径、动画帧和挂件数量校验；`canvas` 通过 `SkinSummary.canvas` 传递，不扩大 `GlobalTheme`，`canvas` 与 `wechat_scroll` 也加入保留 ID 规则。`schema_version = 2` 但 `base` 不是 `canvas` 时按上游规则降级为 v1，v2 动画、动效、九宫格和挂件字段被忽略，避免只看版本号误启用高级能力。所有宿主都经过这一个共享扫描器或其 host API；能绘制完整字段的宿主读取 `SkinSummary`，Linux 等只支持公共子集的宿主通过 `host_candidate_catalog` 得到安全子集，不会各自复制一套 manifest 规则。
 
-`SkinSummary` 继续使用 camelCase JSON。Windows 候选宿主从已解析的清单中消费候选颜色、候选字体以及已有的装饰图、背景图、工具栏和固定动画资源。候选颜色覆盖预编辑文字与光标、选中候选文字、序号、释义、选中竖条和右键菜单；未声明或无法解析的颜色沿用主题默认值。几何、材质、九宫格、insets 与自由挂件字段完成安全解析与传递，但在对应 Direct2D 绘制能力接入前不伪装成已绘制。
+`SkinSummary` 继续使用 camelCase JSON。Windows、macOS、HarmonyOS、iOS 及共享设置页都从这份解析结果或 host API 结果消费候选颜色、装饰图、背景图、工具栏和固定动画资源；各宿主只绘制自己支持的字段。候选颜色覆盖预编辑文字与光标、选中候选文字、序号、释义、选中竖条和右键菜单；未声明或无法解析的颜色沿用主题默认值。几何、材质、九宫格、insets 与自由挂件字段完成安全解析与传递，但在对应宿主绘制能力接入前不伪装成已绘制。
 
 旧皮肤缺省字段保持原有主题和布局行为，未知或越界资源继续拒绝；Windows 不执行皮肤提供的脚本或任意动画，只接受共享层声明的固定动画预设。
 
@@ -26,4 +26,4 @@ Status: implemented
 
 九宫格、材质、版式、insets 和自由挂件目前只完成解析与传递，仍可能与来源的完整视觉效果有差距；文档明确这一边界，避免把协议支持误报成绘制支持。新增 JSON 和 C++ 字段也扩大了构建面，因此提交前运行皮肤单测、clippy、笔记校验、差异检查和 Windows x64 交叉构建。
 
-验证结果：`cargo test --locked -p msime-client-services skin::` 通过（246 项）；`platforms/windows/build-cross.sh x64` 通过；`git diff --check` 与 `pnpm run verify-notes` 通过。`scripts/verify-local.sh --quick` 的一次旧构建缓存曾在 `CandidateSkinAssets` 新字段补齐前报告 `-Werror=missing-field-initializers`，随后重新交叉构建已通过；未在真实 Windows 编辑器中目测所有新绘制原语。
+验证结果：`cargo test --locked -p msime-client-services skin::catalog::` 通过（51 项），包含非 `canvas` v2 降级及 Linux host catalog 子集回归；`cargo clippy --locked -p msime-client-services --all-targets -- -D warnings`、`node --test 'packages/web-engine/test/*.test.mjs'`、`platforms/windows/build-cross.sh x64` 与 `git diff --check` 通过。`bash scripts/verify-local.sh --quick` 的 macOS arm64 失败是既有 `candidate-panel` 装饰重绘测试，与本次共享 catalog 修复无关；`pnpm run verify-notes` 仍需在提交前运行。未在真实 Windows 编辑器中目测所有新绘制原语。

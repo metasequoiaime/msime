@@ -16,7 +16,7 @@ const parity = JSON.parse(readFileSync(resolve(repoRoot, "apps/desktop/tests/can
 const COLOR = /^#[0-9A-F]{6}([0-9A-F]{2})?$/;
 const PALETTE_KEYS = ["surface", "border", "text", "number", "secondary", "accent", "selected", "selectedText", "selectedNumber", "hover", "showSelectedBar"];
 const camel = { selected_text: "selectedText", selected_number: "selectedNumber", show_selected_bar: "showSelectedBar" };
-const WINDOWS_LOOKS = ["wechat", "graphite", "willow_green", "autumn_osmanthus", "microsoft"];
+const WINDOWS_LOOKS = ["wechat", "wechat_scroll", "graphite", "willow_green", "autumn_osmanthus", "microsoft"];
 // CSS 声明里能用来跳出值的字符和片段。
 const BREAKOUT = /[;{}"'\\<>\n\r]|url\((?!")|\)(?!$)|javascript:/i;
 

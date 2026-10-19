@@ -34,12 +34,12 @@ pub struct CandidatePalette {
     pub number: Option<String>,
     /// Secondary candidate text (translations, comments); the resolved theme's `secondary` slot.
     pub translation: Option<String>,
-    /// 释义里的词性与义项分隔符；Windows 皮肤可单独指定，其他宿主可忽略。
+    /// 释义里的词性与义项分隔符；支持的宿主可单独指定，其他宿主可忽略。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub translation_pos: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub translation_separator: Option<String>,
-    /// Windows 候选窗的细分文字槽位。
+    /// 候选窗的细分文字槽位；不支持该槽位的宿主沿用基础颜色。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -68,7 +68,7 @@ pub struct CandidatePalette {
     pub backdrop_opacity: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backdrop_luminosity: Option<f64>,
-    /// Windows 候选窗右键菜单颜色；未声明时沿用候选窗基础颜色。
+    /// 候选窗右键菜单颜色；未声明时沿用候选窗基础颜色。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menu: Option<CandidateMenuPalette>,
     #[serde(rename(serialize = "showSelectedBar", deserialize = "show_selected_bar"))]
@@ -127,7 +127,7 @@ fn read_colors(table: &toml::map::Map<String, Value>) -> Result<CandidateColors,
     Ok(colors)
 }
 
-/// `[candidate.dark]` / `[candidate.light]` 里的颜色键：前八个各平台都画，其余是 msime-windows 的细分配色，别的平台只校验不画。
+/// `[candidate.dark]` / `[candidate.light]` 里的颜色键：基础槽位由各宿主绘制，其余细分槽位由支持它们的宿主绘制，其他宿主只校验并沿用基础颜色。
 const CANDIDATE_COLOR_KEYS: [&str; 24] = [
     "accent",
     "selected",
@@ -155,7 +155,7 @@ const CANDIDATE_COLOR_KEYS: [&str; 24] = [
     "backdrop_luminosity",
 ];
 
-/// `[candidate.<明暗>.menu]` 的颜色键，即 msime-windows 候选框右键菜单的配色。
+/// `[candidate.<明暗>.menu]` 的颜色键，即候选框右键菜单的配色。
 const MENU_COLOR_KEYS: [&str; 4] = ["background", "border", "text", "hover"];
 
 /// 清单里的颜色值会被 msime-windows 拼进 WebView2 页面的 CSS 声明，所以每个平台都只放行颜色写法用得到的字符，挡住 `;`、`{}` 之类能跳出声明的写法；这样同一个包在每个平台上要么都能加载，要么都被拒绝。字符合法但读不懂的颜色仍然只是不画。
@@ -715,6 +715,13 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     if canvas && schema_version != 2 {
         return Err("base = canvas requires schema_version 2".into());
     }
+    // 上游协议把 `schema_version = 2` 且非 `canvas` 的清单降级为 v1：
+    // 这类清单仍可加载，但不能因为声明了版本号就误启用动画或其他 v2 能力。
+    let effective_schema_version = if schema_version == 2 && !canvas {
+        1
+    } else {
+        schema_version
+    };
     let author = optional_string(table, "author", 120)?;
     let description = optional_string(table, "description", 500)?;
     // `base` 也可以是 msime-windows 的内置外观，Windows 上写的包用的就是它们。外观画在 `system` 之上，包没写的颜色稍后按外观补齐（见 `windows_looks`）；`fluent` 就是 Windows 的原生配色，与 `system` 相同。只有清单这样读；其他地方 `fluent` 是已停用的 ID，一律拒绝。
@@ -855,7 +862,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         } else {
             (None, None, None, None, Vec::new())
         };
-    check_windows_window_keys(window)?;
+    check_shared_window_keys(window)?;
     // A package without a decoration may leave the whole table out.
     let empty = toml::map::Map::new();
     let decoration = match window.get("decoration") {
@@ -885,8 +892,12 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         Some("center") => DecorationAlign::Center,
         Some(_) => return Err("invalid decoration".into()),
     };
-    let (decoration_motion, decoration_motion_period_ms) =
-        read_decoration_motion(decoration, decorated, schema_version)?;
+    let (decoration_motion, decoration_motion_period_ms) = read_decoration_motion(
+        decoration,
+        decorated,
+        schema_version,
+        effective_schema_version,
+    )?;
     let background = match window.get("background") {
         None => None,
         Some(value) => Some(read_background(
@@ -925,7 +936,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         }
     }
     let mut candidate = read_colors(table)?;
-    let animation = read_animation(table, schema_version)?;
+    let animation = read_animation(table, schema_version, effective_schema_version)?;
     if let Some(look) = &windows_look {
         windows_looks::fill_from_look(look, &mut candidate, &mut corner_radius, &mut toolbar);
     }
@@ -935,7 +946,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
             .filter(|preview| decorated && is_image(preview))
     });
     let mut summary = SkinSummary {
-        schema_version: schema_version as u8,
+        schema_version: effective_schema_version as u8,
         id,
         name,
         version,
@@ -984,8 +995,8 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     Ok(summary)
 }
 
-/// `[candidate_window]` 里只有 msime-windows 会画的键：外框线宽、高亮圆角、阴影、字体和翻页箭头。别的平台不画它们，但按 Windows 的规则校验，同一个包在每个平台上才会有同样的加载结果。
-fn check_windows_window_keys(window: &toml::map::Map<String, Value>) -> Result<(), String> {
+/// `[candidate_window]` 里由部分原生宿主绘制的键：外框线宽、高亮圆角、阴影、字体和翻页箭头。其他宿主不绘制它们，但仍按共享规则校验，同一个包在每个平台上才会有同样的加载结果。
+fn check_shared_window_keys(window: &toml::map::Map<String, Value>) -> Result<(), String> {
     for (key, max) in [("border_width_dip", 4.0), ("item_corner_radius_dip", 16.0)] {
         if let Some(value) = window.get(key) {
             number_in(value, 0.0..=max).ok_or_else(|| format!("invalid {key}"))?;
@@ -997,7 +1008,7 @@ fn check_windows_window_keys(window: &toml::map::Map<String, Value>) -> Result<(
         }
     }
     if let Some(value) = window.get("font_family") {
-        // Windows 把字体名加上引号拼进 CSS 的 font-family 和页面脚本字符串，所以挡住引号、反斜杠、逗号、分号、括号类符号、反引号和控制字符；中文字体名的非 ASCII 字节照常放行。
+        // 原生宿主和设置页都可能把字体名放进 CSS 或脚本字符串，所以挡住引号、反斜杠、逗号、分号、括号类符号、反引号和控制字符；中文字体名的非 ASCII 字节照常放行。
         let valid = value.as_str().is_some_and(|family| {
             !family.is_empty()
                 && family.len() <= 64
@@ -1397,14 +1408,21 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, S
 fn read_decoration_motion(
     decoration: &toml::map::Map<String, Value>,
     decorated: bool,
-    schema_version: i64,
+    declared_schema_version: i64,
+    effective_schema_version: i64,
 ) -> Result<(DecorationMotion, u16), String> {
     let motion = decoration.get("motion");
     let period = decoration.get("motion_period_ms");
     if motion.is_none() && period.is_none() {
         return Ok((DecorationMotion::None, DEFAULT_DECORATION_MOTION_PERIOD_MS));
     }
-    if schema_version < 2 {
+    if effective_schema_version < 2 {
+        // schema 2 但基底不是 `canvas` 时按兼容规则作为 v1 加载；忽略 v2
+        // 专用的装饰动效字段，避免一个本来可用的包因为这些字段消失。
+        // 明确声明 schema 1 时仍拒绝这些字段。
+        if declared_schema_version == 2 {
+            return Ok((DecorationMotion::None, DEFAULT_DECORATION_MOTION_PERIOD_MS));
+        }
         return Err("decoration motion requires schema_version 2".into());
     }
     let motion = match motion {
@@ -1535,18 +1553,27 @@ fn animation_preset(
 /// 解析有限的 v2 动画表。版本 1 保持逐字节兼容，不会因未知字段意外启用动画。
 fn read_animation(
     table: &toml::map::Map<String, Value>,
-    schema_version: i64,
+    declared_schema_version: i64,
+    effective_schema_version: i64,
 ) -> Result<SkinAnimation, String> {
+    if effective_schema_version < 2 {
+        // 与 Windows catalog 一致：schema 2 但基底不是 `canvas` 时按 v1
+        // 加载，并静默忽略所有 v2 动画字段。
+        if declared_schema_version == 2 {
+            return Ok(SkinAnimation::disabled());
+        }
+        if table.get("animation").is_some() {
+            return Err("animation requires schema_version 2".into());
+        }
+        return Ok(SkinAnimation::disabled());
+    }
     let Some(value) = table.get("animation") else {
-        return Ok(if schema_version == 2 {
+        return Ok(if effective_schema_version == 2 {
             SkinAnimation::lively()
         } else {
             SkinAnimation::disabled()
         });
     };
-    if schema_version < 2 {
-        return Err("animation requires schema_version 2".into());
-    }
     let animation = value.as_table().ok_or("invalid animation")?;
     let duration_ms = match animation.get("duration_ms") {
         None => 180,
