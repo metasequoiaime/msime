@@ -522,7 +522,8 @@ void msime_client_release_process_cache(void);
  * models 仅作建议，不限制用户自定义模型。宿主复制字段后用 msime_client_string_free 释放返回的 JSON 缓冲区。 */
 char *msime_client_voice_provider_catalog(void);
 /* 切换语音服务的纯函数；请求 <=1 MiB：{service:"voice.asr"|"voice.polish",provider:string,
- * current:{provider?,endpoint?,model?,token?,tokens?:{id:string}}}。current 缺少的字段按空值处理。
+ * current:{provider?,endpoint?,model?,token?,tokens?:{id:string}},field_policy?:"fill_defaults"|"clear"}。
+ * current 缺少的字段按空值处理。field_policy 缺省为 fill_defaults，只替换空白或出厂值；clear 在换服务时清空地址和模型。
  * value 为 {provider,token,tokens,endpoint?,model?}：省略地址/模型表示保留原值，空串表示清空。
  * 不读写偏好、不联网；宿主负责把补丁字段映射到 asr_ 或 polish_ 并保存。
  * 请求和返回含凭据，禁止记录；返回缓冲区用 msime_client_string_free 释放。 */

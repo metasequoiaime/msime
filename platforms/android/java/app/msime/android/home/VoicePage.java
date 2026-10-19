@@ -28,15 +28,13 @@ import app.msime.android.VoicePolishPolicy;
 import app.msime.android.VoicePolishSettingsPolicy;
 import app.msime.android.VoiceProviderCatalog;
 import app.msime.android.VoiceProviderPolicy;
+import app.msime.android.VoiceProviderSettings;
 import app.msime.android.VoiceRecognitionActivity;
 import app.msime.android.core.InputViewValuePolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -303,7 +301,7 @@ public final class VoicePage extends ReloadingDetailPage {
     }
 
     /**
-     * 换服务：凭据按 {@link VoiceProviderPolicy#switchTokens} 换槽，接口和模型清空交给共享层补默认值。换到本地模型而还没选用模型时，选用已经装好的第一个。
+     * 换服务：共享 Rust 计算凭据换槽并清空接口和模型，运行时解析再补默认值。换到本地模型而还没选用模型时，选用已经装好的第一个。
      *
      * @param installedModel 已装好的第一个本地模型目录，没有时为 null
      */
@@ -312,15 +310,7 @@ public final class VoicePage extends ReloadingDetailPage {
             JSONObject voice = KeyboardSheets.child(preferences, "voice_input");
             String from = InputViewValuePolicy.textOr(voice, "asr_provider", "");
             if (provider.equals(from)) return;
-            VoiceProviderPolicy.Tokens tokens = VoiceProviderPolicy.switchTokens(from, provider,
-                InputViewValuePolicy.textOr(voice, "asr_token", ""), slots(voice.optJSONObject("asr_tokens")));
-            voice.put("asr_provider", provider);
-            voice.put("asr_token", tokens.token());
-            JSONObject next = new JSONObject();
-            for (Map.Entry<String, String> entry : tokens.tokens().entrySet()) next.put(entry.getKey(), entry.getValue());
-            voice.put("asr_tokens", next);
-            voice.put("asr_endpoint", "");
-            voice.put("asr_model", "");
+            VoiceProviderSettings.switchProvider(voice, "asr", provider);
             if (VoiceProviderPolicy.LOCAL.equals(provider) && installedModel != null
                     && InputViewValuePolicy.textOr(voice, "asr_model_path", "").trim().isEmpty())
                 voice.put("asr_model_path", installedModel);
@@ -573,18 +563,6 @@ public final class VoicePage extends ReloadingDetailPage {
         dialog.show();
     }
 
-    private static Map<String, String> slots(@Nullable JSONObject value) {
-        Map<String, String> slots = new LinkedHashMap<>();
-        if (value == null) return slots;
-        for (Iterator<String> keys = value.keys(); keys.hasNext(); ) {
-            String key = keys.next();
-            Object token = value.opt(key);
-            if (token instanceof String text) slots.put(key, text);
-        }
-        return slots;
-    }
-
-
     private static boolean hasToken(String direct, @Nullable JSONObject slots, String provider) {
         return !direct.isEmpty() || (slots != null && !slots.optString(provider, "").trim().isEmpty());
     }
@@ -647,15 +625,7 @@ public final class VoicePage extends ReloadingDetailPage {
             JSONObject voice = KeyboardSheets.child(preferences, "voice_input");
             String from = InputViewValuePolicy.textOr(voice, "polish_provider", "");
             if (provider.equals(from)) return;
-            VoiceProviderPolicy.Tokens tokens = VoiceProviderPolicy.switchTokens(from, provider,
-                InputViewValuePolicy.textOr(voice, "polish_token", ""), slots(voice.optJSONObject("polish_tokens")));
-            voice.put("polish_provider", provider);
-            voice.put("polish_token", tokens.token());
-            JSONObject next = new JSONObject();
-            for (Map.Entry<String, String> entry : tokens.tokens().entrySet()) next.put(entry.getKey(), entry.getValue());
-            voice.put("polish_tokens", next);
-            voice.put("polish_endpoint", "");
-            voice.put("polish_model", "");
+            VoiceProviderSettings.switchProvider(voice, "polish", provider);
         });
     }
 

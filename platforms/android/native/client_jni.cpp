@@ -38,6 +38,8 @@ static jbyteArray response(JNIEnv *env, char *value) {
 namespace {
 template <typename Call> jbyteArray bounded_request(JNIEnv *env, jbyteArray request, jsize limit, Call call);
 constexpr jsize kThemeRequestLimit = 1 * 1024 * 1024;
+// 与 msime_client_voice_provider_update 的请求上限一致；请求和响应不得记录。
+constexpr jsize kVoiceProviderRequestLimit = 1 * 1024 * 1024;
 constexpr jsize kTypingStatisticsRequestLimit = 65536;
 constexpr jsize kTypingStatisticsDirectoryLimit = 16384;
 constexpr jsize kPersonalDictionaryRequestLimit = 2248576;
@@ -124,6 +126,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_themeCatalogRaw
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceProviderCatalogRaw(JNIEnv *env, jclass) {
     return response(env, msime_client_voice_provider_catalog());
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceProviderUpdateRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kVoiceProviderRequestLimit, msime_client_voice_provider_update);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resolveThemeRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kThemeRequestLimit, msime_client_resolve_theme);

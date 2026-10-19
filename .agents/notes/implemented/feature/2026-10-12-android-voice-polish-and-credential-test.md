@@ -15,7 +15,7 @@ Android 键盘按共享解析的 `mobile_voice_polish_configuration` 在识别�
 - `polish_provider_defaults` 里 SiliconFlow 和 DeepSeek 的默认值改成与共享设置页的 `POLISH_PROVIDER_DEFAULTS` 一致：SiliconFlow 用 `Qwen/Qwen3-8B`（原来是 `Qwen/Qwen2.5-7B-Instruct`），DeepSeek 用 `https://api.deepseek.com/chat/completions` 加 `deepseek-v4-flash`（原来是 `/v1/chat/completions` 加 `deepseek-chat`）。这两个值只在 `polish_model` 和 `polish_endpoint` 留空时才用到；Android 页面切换服务时会清空这两项，所以它们就是 Android 用户实际发出的值。桌面切换服务时写进偏好的、Android 出厂偏好里存的，也都是新值。
 - `VoicePage`：
   - 加「润色」组。开关同时写 `polish_text` 和 `polish_enabled`，和共享页一样，键盘任一个开着就润色。打开后有润色服务（经 `VoiceProviderCatalog` 从共享 Rust 的 `POLISH_PROVIDERS` 读取，名称与顺序直接用于选择器；目录不可用时禁用服务选择）、API Key、模型、接口地址、润色方案（四个内置方案加三个自定义槽位），选自定义槽位时可以编辑它的内容。
-  - 切换润色服务的规则同识别服务：凭据换槽（`VoiceProviderPolicy.switchTokens`），接口和模型清空。
+  - 切换润色服务的规则同识别服务：通过 `VoiceProviderSettings` 调共享 `msime_client_voice_provider_update`，显式采用 `clear` 字段策略，凭据换槽并清空接口和模型。
   - 开关打开、共享解析却没给出润色配置时，开关下面写明识别结果不会被润色。
   - 识别服务（联网服务）和润色组各有一行「测试连接」，在工作线程上调用。结果用对话框显示：共享层的结果文案可能超过 Toast 的两行。
 - 润色方案、提示词字段与状态文案仍在 `voice/VoicePolishSettingsPolicy.java`，配 JVM 冒烟；服务目录与名称在 `VoiceProviderCatalog` 中持有共享快照，不再保留 Java 版 `PROVIDERS` 和标签数组。新的行标题加进 `PageId.VOICE` 的搜索关键词。

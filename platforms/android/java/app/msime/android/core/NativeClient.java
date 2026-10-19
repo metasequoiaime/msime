@@ -394,6 +394,16 @@ public final class NativeClient {
     /** 共享语音服务与豆包流式接口目录；纯计算，不读写偏好、不联网。 */
     public static String voiceProviderCatalog() { return TextPolicy.utf8(voiceProviderCatalogRaw()); }
 
+    /** 纯计算的换服务补丁，含凭据；不得记录请求或响应，与 C ABI 共用 1 MiB 的 UTF-8 上限。 */
+    public static String voiceProviderUpdate(String request) {
+        if (request == null || request.length() > 1_048_576)
+            throw new IllegalArgumentException("Voice provider request is too large");
+        byte[] payload = utf8(request);
+        if (payload.length > 1_048_576)
+            throw new IllegalArgumentException("Voice provider request is too large");
+        return TextPolicy.utf8(voiceProviderUpdateRaw(payload));
+    }
+
     /**
      * The user's own pinyin dictionary words as recognition hotwords: `{"options": HostOptions, "limit": n}` in, `{"hotwords":[{"text","pinyin"}]}` out. Reads the dictionary store, so call on a worker.
      */
@@ -941,6 +951,7 @@ public final class NativeClient {
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
     private static native byte[] voiceProviderCatalogRaw();
+    private static native byte[] voiceProviderUpdateRaw(byte[] request);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
     private static native byte[] resetCacheRaw(long session);
     private static native void releaseProcessCacheRaw();

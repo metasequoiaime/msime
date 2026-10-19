@@ -24,6 +24,8 @@ struct VoiceProviderUpdateRequest {
     service: msime_client_providers::voice::provider_settings::ProviderService,
     provider: String,
     current: msime_client_providers::voice::provider_settings::ProviderFields,
+    #[serde(default)]
+    field_policy: msime_client_providers::voice::provider_settings::ProviderFieldPolicy,
 }
 
 /// 计算语音设置的换服务补丁；请求与返回均含凭据，不能记录到日志。
@@ -42,6 +44,7 @@ pub unsafe extern "C" fn msime_client_voice_provider_update(
                 query.service,
                 &query.provider,
                 &query.current,
+                query.field_policy,
             )
         ))
     })

@@ -17440,6 +17440,49 @@ fn voice_provider_catalog_export_matches_the_shared_catalog() {
 }
 
 #[test]
+fn voice_provider_update_export_clears_fields_only_with_the_explicit_policy() {
+    for (service, provider) in [
+        ("voice.asr", "openai"),
+        ("voice.asr", "system"),
+        ("voice.asr", "local"),
+        ("voice.asr", "synthetic-future-provider"),
+        ("voice.polish", "deepseek"),
+    ] {
+        let request = serde_json::json!({
+            "service":service, "provider":provider, "field_policy":"clear", "current":{
+                "provider":"groq", "endpoint":"https://example.invalid/synthetic-proxy",
+                "model":"synthetic-custom", "token":"synthetic-current",
+                "tokens":{provider:"synthetic-target"}
+            }
+        })
+        .to_string();
+        let result =
+            read(unsafe { msime_client_voice_provider_update(request.as_ptr(), request.len()) });
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["value"]["endpoint"], "");
+        assert_eq!(result["value"]["model"], "");
+        assert_eq!(result["value"]["tokens"]["groq"], "synthetic-current");
+        if matches!(provider, "system" | "local") {
+            assert_eq!(result["value"]["token"], "");
+            assert!(result["value"]["tokens"].get(provider).is_none());
+        } else {
+            assert_eq!(result["value"]["token"], "synthetic-target");
+        }
+    }
+    let request = serde_json::json!({
+        "service":"voice.asr", "provider":"openai", "field_policy":"clear", "current":{
+            "provider":"openai", "endpoint":"https://example.invalid/synthetic-proxy",
+            "model":"synthetic-custom", "token":"synthetic-current"
+        }
+    })
+    .to_string();
+    let result =
+        read(unsafe { msime_client_voice_provider_update(request.as_ptr(), request.len()) });
+    assert!(result["value"].get("endpoint").is_none());
+    assert!(result["value"].get("model").is_none());
+}
+
+#[test]
 fn voice_provider_update_export_returns_the_shared_patch() {
     let request = serde_json::json!({
         "service":"voice.asr", "provider":"local", "current":{
@@ -17514,6 +17557,9 @@ fn voice_provider_update_export_rejects_invalid_requests_without_echoing_credent
         br#"{"service":"voice.asr","provider":42,"current":{}}"#,
         br#"{"service":"voice.asr","provider":"openai","current":{"tokens":{"openai":42}}}"#,
         br#"{"service":"voice.asr","provider":"openai","current":null}"#,
+        br#"{"service":"voice.asr","provider":"openai","field_policy":"unknown","current":{"token":"synthetic-private"}}"#,
+        br#"{"service":"voice.asr","provider":"openai","field_policy":true,"current":{}}"#,
+        br#"{"service":"voice.asr","provider":"openai","field_policy":null,"current":{}}"#,
     ] {
         let result = read(unsafe { msime_client_voice_provider_update(request.as_ptr(), request.len()) });
         assert_eq!(result["ok"], false);

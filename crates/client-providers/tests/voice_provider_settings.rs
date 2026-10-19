@@ -1,5 +1,5 @@
 use msime_client_providers::voice::provider_settings::{
-    provider_update, ProviderFields, ProviderService,
+    provider_update, ProviderFieldPolicy, ProviderFields, ProviderService,
 };
 use serde_json::{json, Value};
 
@@ -8,6 +8,7 @@ fn update(service: ProviderService, provider: &str, current: Value) -> Value {
         service,
         provider,
         &serde_json::from_value::<ProviderFields>(current).unwrap(),
+        ProviderFieldPolicy::default(),
     ))
     .unwrap()
 }
@@ -191,7 +192,12 @@ fn polish_switch_uses_only_the_settings_catalog_and_keeps_custom_models() {
 #[test]
 fn fields_default_to_empty_and_the_source_snapshot_is_unchanged() {
     let current: ProviderFields = serde_json::from_value(json!({})).unwrap();
-    let _patch = provider_update(ProviderService::Asr, "openai", &current);
+    let _patch = provider_update(
+        ProviderService::Asr,
+        "openai",
+        &current,
+        ProviderFieldPolicy::default(),
+    );
     assert!(current.provider.is_empty());
     assert!(current.token.is_empty());
     assert!(current.tokens.is_empty());
@@ -203,4 +209,39 @@ fn fields_default_to_empty_and_the_source_snapshot_is_unchanged() {
         )["tokens"],
         json!({"openai":"synthetic-old"})
     );
+}
+
+#[test]
+fn clearing_fields_keeps_the_same_token_rules_and_does_not_mutate_the_source() {
+    let current: ProviderFields = serde_json::from_value(json!({
+        "provider":"openai", "endpoint":"https://example.invalid/synthetic-custom",
+        "model":"synthetic-model", "token":"synthetic-current",
+        "tokens":{"groq":"synthetic-target"}
+    }))
+    .unwrap();
+    let patch = serde_json::to_value(provider_update(
+        ProviderService::Asr,
+        "groq",
+        &current,
+        ProviderFieldPolicy::Clear,
+    ))
+    .unwrap();
+    assert_eq!(
+        patch,
+        json!({
+            "provider":"groq", "endpoint":"", "model":"", "token":"synthetic-target",
+            "tokens":{"openai":"synthetic-current", "groq":"synthetic-target"}
+        })
+    );
+    assert_eq!(current.endpoint, "https://example.invalid/synthetic-custom");
+    assert_eq!(current.tokens.len(), 1);
+    let same = serde_json::to_value(provider_update(
+        ProviderService::Asr,
+        "openai",
+        &current,
+        ProviderFieldPolicy::Clear,
+    ))
+    .unwrap();
+    assert!(same.get("endpoint").is_none());
+    assert!(same.get("model").is_none());
 }
