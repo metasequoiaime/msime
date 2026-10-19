@@ -12,6 +12,7 @@ pub mod category;
 pub mod community;
 pub mod custom_library;
 pub mod folder_import;
+pub mod image_animation;
 pub mod image_frame;
 pub mod keyboard_trial;
 pub mod season;

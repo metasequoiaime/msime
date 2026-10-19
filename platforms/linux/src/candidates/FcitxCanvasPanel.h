@@ -105,27 +105,35 @@ inline std::optional<std::string> read_fcitx_canvas_image(const std::filesystem:
   return bytes.empty() ? std::nullopt : std::optional<std::string>(std::move(bytes));
 }
 
+// 宿主复制借用的 RGBA 为 Cairo 原生字节序的预乘像素。
+inline cairo_surface_t *copy_fcitx_canvas_rgba(const std::uint8_t *rgba, std::size_t length,
+                                             std::uint32_t width, std::uint32_t height) {
+  if (!rgba || width == 0 || height == 0 || width > 2048 || height > 2048 ||
+      length != static_cast<std::size_t>(width) * height * 4) return nullptr;
+  auto *image = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, static_cast<int>(width), static_cast<int>(height));
+  if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) { cairo_surface_destroy(image); return nullptr; }
+  auto *data = cairo_image_surface_get_data(image);
+  const auto stride = cairo_image_surface_get_stride(image);
+  for (std::uint32_t y = 0; y < height; ++y) for (std::uint32_t x = 0; x < width; ++x) {
+    const auto *pixel = rgba + (static_cast<std::size_t>(y) * width + x) * 4;
+    const auto alpha = static_cast<std::uint32_t>(pixel[3]);
+    const auto premultiply = [alpha](std::uint8_t channel) { return (channel * alpha + 127) / 255; };
+    const std::uint32_t word = alpha << 24 | premultiply(pixel[0]) << 16 |
+                               premultiply(pixel[1]) << 8 | premultiply(pixel[2]);
+    std::memcpy(data + y * stride + x * 4, &word, 4);
+  }
+  cairo_surface_mark_dirty(image);
+  return image;
+}
+
 // 回调只借用共享解码器的 RGBA；当场复制为 Cairo 的本机字节序、预乘 ARGB32。
 inline cairo_surface_t *decode_fcitx_canvas_image(const std::string &bytes) {
   cairo_surface_t *surface = nullptr;
   const auto received = msime_client_skin_image_decode(
       reinterpret_cast<const std::uint8_t *>(bytes.data()), bytes.size(),
       [](void *context, const std::uint8_t *rgba, std::size_t length, std::uint32_t width, std::uint32_t height) -> std::int32_t {
-        if (!rgba || width == 0 || height == 0 || width > 2048 || height > 2048 ||
-            length != static_cast<std::size_t>(width) * height * 4) return 0;
-        auto *image = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, static_cast<int>(width), static_cast<int>(height));
-        if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) { cairo_surface_destroy(image); return 0; }
-        auto *data = cairo_image_surface_get_data(image);
-        const auto stride = cairo_image_surface_get_stride(image);
-        for (std::uint32_t y = 0; y < height; ++y) for (std::uint32_t x = 0; x < width; ++x) {
-          const auto *pixel = rgba + (static_cast<std::size_t>(y) * width + x) * 4;
-          const auto alpha = static_cast<std::uint32_t>(pixel[3]);
-          const auto premultiply = [alpha](std::uint8_t channel) { return (channel * alpha + 127) / 255; };
-          const std::uint32_t word = alpha << 24 | premultiply(pixel[0]) << 16 |
-                                     premultiply(pixel[1]) << 8 | premultiply(pixel[2]);
-          std::memcpy(data + y * stride + x * 4, &word, 4);
-        }
-        cairo_surface_mark_dirty(image);
+        auto *image = copy_fcitx_canvas_rgba(rgba, length, width, height);
+        if (!image) return 0;
         *static_cast<cairo_surface_t **>(context) = image;
         return 1;
       }, &surface);

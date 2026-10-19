@@ -649,7 +649,7 @@ bash platforms/linux/tests/tools/check-image-toolchain.sh \
 
 Fcitx5 的 `tests/tools/check-container.sh /absolute/verified-resources --fcitx5` 还运行 `fcitx5-gtk-canvas-horizontal` 与 `fcitx5-gtk-canvas-vertical`，以及各自的 `-gif`、`-webp` 用例（合成图片需要 Pillow，专用验收镜像已包含）：真实 GTK 编辑器通过本次构建的插件唤起 classicui 候选，读取隔离 X11 显示像素，验证合成九宫格的明暗切换、坏图回退和修复恢复。期间不发送刷新按键，最终检查焦点保持、空格上屏与面板消失。在验收容器内直接运行 CTest 时，设置 `MSIME_TEST_CANVAS_ARTIFACTS` 为可写目录可保留各阶段截图。它覆盖 Xvfb／GTK／classicui，不包含 Wayland 合成器、真实字体或系统安装验收。
 
-同一验收还包含 `fcitx5-native-canvas-horizontal`／`vertical` 及各自的 `-scale2`、`-composited`：真实 GTK 编辑器检查原生 X11 窗口的挂件像素、独立行距热更新、随框架坐标移动、明暗、坏图回退与恢复、过期鼠标释放、滚轮翻页、左键上屏、右键置顶写入合成词库，以及失焦和切换输入法时隐藏。`-composited` 用专用 `xcompmgr` 检查实际 ARGB 窗口，其他用例覆盖无合成器的 Shape 回退。`linux-candidate-native-canvas` 在内存中检查几何、锚点、层级与透明中心；它不能替代这些真实窗口用例。
+同一验收还包含 `fcitx5-native-canvas-horizontal`／`vertical` 及各自的 `-scale2`、`-composited`：真实 GTK 编辑器检查原生 X11 窗口的挂件像素、独立行距热更新、随框架坐标移动、明暗、坏图回退与恢复、过期鼠标释放、滚轮翻页、左键上屏、右键置顶写入合成词库，以及失焦和切换输入法时隐藏。`-composited` 用专用 `xcompmgr` 检查实际 ARGB 窗口，其他用例覆盖无合成器的 Shape 回退。`linux-candidate-native-canvas` 在内存中检查几何、锚点、层级与透明中心；它不能替代这些真实窗口用例。另有 `fcitx5-native-canvas-{horizontal,vertical}-animation-{apng,gif,webp}` 六项真实 GTK 图片播放验收，覆盖连续输入、隐藏重显、同路径资源替换和九宫格边框动画。
 
 `bash tests/tools/check-container.sh /absolute/verified-resources` 创建专用 Linux 容器，源码与词库只读挂载，构建缓存仅写入本仓 target/linux。基础 Rust 镜像固定摘要，apt 开发依赖来自 Debian bookworm 仓库；不声称所有系统包字节级可复现。容器内创建独立 D-Bus 和 IBus daemon，不连接宿主桌面，不修改现有输入源，结束后移除容器并保留构建缓存。
 
@@ -864,7 +864,7 @@ Fcitx5 的 classicui 还可绘制 `base = "canvas"` 的静态 PNG／APNG、GIF �
 
 在具备 X11／Pango 的构建中，X11 输入上下文选择有效 canvas 包且 classicui 的明暗主题均归水杉接管时，插件用 Cairo／Pango 原生候选窗补上九种锚点的自由挂件、前后层、外伸留白与独立 `line_gap_dip`。窗口不获取焦点，使用框架上报的根坐标定位，GTK 3 移动整个窗口后在下一次光标更新时上报新位置；跨屏编辑器以光标所在屏幕约束位置。指针选择、翻页与右键操作复用原候选身份和运行时围栏，失焦、清空及切换输入法时隐藏。成功显示后只保留客户端内嵌预编辑并清空桌面面板候选；资源或窗口准备失败时保留原桌面面板。第三方主题、非 canvas、其他活动 UI、Wayland 与 IBus 不进入此路径。有合成器时使用 ARGB，无合成器时使用二值透明轮廓并将半透明像素合到主题底色上；挂件和留白不截获鼠标。
 
-原生 X11 画布仍只绘制静态图片，动画、完整皮肤几何与系统材质尚未补齐；Wayland 的自由画布、IBus、GNOME Shell 与 kimpanel 仍受各自面板协议和能力限制，不能据此当作 Linux 或全平台完整视觉兼容。
+原生 X11 画布的面板与挂件可播放 APNG、GIF、WebP：APNG/GIF 不超过 10ms 的延时按 100ms，有限播放停在末帧，GIF 无循环声明时只播放一次；WebP 与固定 Windows WIC 回退一致，按 100ms 无限循环。候选刷新、菜单和坐标变化不重启，换肤或重新显示从首帧计时，隐藏和有限末帧不再唤醒。共享动画接口只在换肤时解码，按不同资源累计最多 800 万像素，每图最多 120 帧；旧单帧接口仍保留默认图语义。完整皮肤几何、声明式进退场动画与系统材质尚未补齐；Wayland 的自由画布、IBus、GNOME Shell 与 kimpanel 仍受各自面板协议和能力限制，不能据此当作 Linux 或全平台完整视觉兼容。
 
 皮肤资源变化后，主题成功套用或退出覆盖会立即请求当前候选窗口重绘，明暗切换、坏图回退和修复恢复均无需再次按键。不变输入不重复刷新，组合和编辑器焦点保持。
 

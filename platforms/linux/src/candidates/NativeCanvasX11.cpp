@@ -19,6 +19,8 @@ struct NativeCanvasX11::Impl {
   std::string name;
   bool visible = false, composited = false;
   std::unique_ptr<fcitx::EventSourceIO> input;
+  std::unique_ptr<fcitx::EventSourceTime> animation_timer;
+  std::uint64_t animation_started_us = 0;
   std::shared_ptr<NativeCanvasAssets> assets;
   NativeCanvasContent content;
   NativeCanvasLayout layout;
@@ -29,6 +31,7 @@ struct NativeCanvasX11::Impl {
   int cursor_x = 0, cursor_y = 0, cursor_height = 0;
 
   void close() {
+    animation_timer.reset();
     input.reset();
     if (display) {
       if (window) XDestroyWindow(display, window);
@@ -173,12 +176,38 @@ struct NativeCanvasX11::Impl {
     pressed = -1;
     shape(); move(cursor_x, cursor_y, cursor_height); paint();
   }
+  void scheduleAnimation(std::uint64_t elapsed_ms) {
+    std::optional<std::uint64_t> next;
+    const auto inspect = [&](const std::shared_ptr<const NativeCanvasAnimation> &animation) {
+      if (!animation) return;
+      const auto sample = sample_native_canvas_animation(*animation, elapsed_ms);
+      if (sample.next_ms && (!next || *sample.next_ms < *next)) next = sample.next_ms;
+    };
+    inspect(assets->panel_animation);
+    for (const auto &decoration : assets->decorations) inspect(decoration.animation);
+    if (!next) {
+      if (animation_timer) animation_timer->setEnabled(false);
+      return;
+    }
+    const auto deadline = animation_started_us + (elapsed_ms + *next) * 1000;
+    if (!animation_timer) {
+      animation_timer = loop.addTimeEvent(CLOCK_MONOTONIC, deadline, 0,
+          [this](fcitx::EventSourceTime *, std::uint64_t) {
+            paint();
+            return true;
+          });
+    } else {
+      animation_timer->setTime(deadline);
+      animation_timer->setOneShot();
+    }
+  }
   void paint() {
     if (!visible || !assets) return;
     auto *buffer = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
     auto *cr = cairo_create(buffer);
     cairo_scale(cr, scale, scale);
-    paint_native_canvas(cr, *assets, content, layout, palette);
+    const auto elapsed_ms = (fcitx::now(CLOCK_MONOTONIC) - animation_started_us) / 1000;
+    paint_native_canvas(cr, *assets, content, layout, palette, elapsed_ms);
     if (!composited) {
       cairo_surface_flush(buffer);
       const int stride = cairo_image_surface_get_stride(buffer);
@@ -207,6 +236,7 @@ struct NativeCanvasX11::Impl {
     cairo_destroy(cr);
     cairo_surface_destroy(surface); cairo_surface_destroy(buffer);
     XFlush(display);
+    scheduleAnimation(elapsed_ms);
   }
   void shape() {
     const auto region = XCreateRegion();
@@ -244,6 +274,7 @@ bool NativeCanvasX11::show(const std::string &display, std::shared_ptr<NativeCan
   auto &state = *impl_;
   if (!assets || content.items.empty() || !state.open(display)) { hide(); return false; }
   state.pressed = -1;
+  if (!state.visible || state.assets != assets) state.animation_started_us = fcitx::now(CLOCK_MONOTONIC);
   state.assets = std::move(assets); state.content = std::move(content); state.palette = std::move(palette);
   state.cursor_x = cursor_x; state.cursor_y = cursor_y; state.cursor_height = cursor_height;
   state.scale = x11_overlay_scale(state.display);
@@ -264,6 +295,7 @@ void NativeCanvasX11::hide() {
     XFlush(state.display);
   }
   state.visible = false;
+  if (state.animation_timer) state.animation_timer->setEnabled(false);
   state.content = {};
 }
 

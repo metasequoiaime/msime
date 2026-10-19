@@ -432,6 +432,18 @@ typedef int32_t (*msime_client_skin_image_callback)(void *context, const uint8_t
                                                    size_t length, uint32_t width, uint32_t height);
 int32_t msime_client_skin_image_decode(const uint8_t *bytes, size_t length,
                                       msime_client_skin_image_callback on_frame, void *context);
+/* 同步解码整张 PNG/APNG、GIF、JPEG、WebP，全部验证成功后才按序回调。
+ * 每帧为完整画布，像素格式、借用期和线程要求与单帧接口一致；最多 120 帧、800 万像素。
+ * index 从 0 开始，count 为总帧数；delay_ms 是该帧持续时间，静态图为 0。
+ * play_count 是完整播放次数，0 表示无限；有限播放结束保持末帧。
+ * GIF 无循环声明时播放一次；APNG/GIF <=10ms 归一化为 100ms；WebP 多帧固定 100ms 无限。
+ * 坏图、空指针和超限返回 0 且无回调。任一回调不返回 1 时停止并返回 0，宿主须丢弃已收帧。
+ * 宿主必须对同一包的不同图片累计像素预算；不能在逐键绘制中调用。 */
+typedef int32_t (*msime_client_skin_animation_callback)(void *context, const uint8_t *rgba,
+    size_t length, uint32_t width, uint32_t height, uint32_t index, uint32_t count,
+    uint32_t delay_ms, uint32_t play_count);
+int32_t msime_client_skin_animation_decode(const uint8_t *bytes, size_t length,
+    msime_client_skin_animation_callback on_frame, void *context);
 /* JSON {directory:absolute path,id:skin id,relative:package asset,kind:"image"|"font"}.
  * Returns {contentType,bytes}; the manifest and package containment are
  * revalidated for every call and the requested kind must match the asset. */

@@ -13,6 +13,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import zlib
 
 import dbus
@@ -52,7 +53,7 @@ def png(colors):
 
 
 def panel_image(colors):
-    if FORMAT == "png":
+    if FORMAT in ("png", "apng"):
         return png(colors)
     try:
         from PIL import Image
@@ -64,6 +65,77 @@ def panel_image(colors):
         result, format={"gif": "GIF", "webp": "WEBP"}[FORMAT],
         lossless=True)
     return result.getvalue()
+
+
+def animation_image(first, second):
+    from PIL import Image
+    frames = [Image.open(io.BytesIO(png(colors))).convert("RGBA") for colors in (first, second)]
+    result = io.BytesIO()
+    frames[0].save(result, format={"apng": "PNG", "gif": "GIF", "webp": "WEBP"}[FORMAT],
+                   save_all=True, append_images=frames[1:], duration=[200, 1000],
+                   loop=1 if FORMAT == "apng" else 0,
+                   lossless=True)
+    data = result.getvalue()
+    if FORMAT == "gif":
+        # 无循环扩展才是一次播放；Pillow 的 loop=0 会生成无限循环扩展。
+        data = data.replace(b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00", b"")
+    return data
+
+
+def accept_animation(skin, entry, control, daemon):
+    second, replacement = (0, 239, 215), (255, 171, 0)
+    # image-webp 的非预乘 alpha 合成对完全不透明通道仍可能向下舍入一级。
+    # 此处检验帧变化，WebP 每通道最多允许 1 的误差；APNG/GIF 保持精确颜色断言。
+    def count_color(counts, color):
+        if FORMAT != "webp":
+            return counts[color]
+        return sum(counts[(r, g, b)] for r in range(max(0, color[0] - 1), min(255, color[0] + 1) + 1)
+                   for g in range(max(0, color[1] - 1), min(255, color[1] + 1) + 1)
+                   for b in range(max(0, color[2] - 1), min(255, color[2] + 1) + 1))
+
+    def visible(colors):
+        _, counts = screenshot()
+        return all(count_color(counts, color) >= 16 for color in colors)
+
+    wait(native_window)
+    wait(lambda: visible((second,)))
+    if FORMAT != "webp":
+        # 有限动画已经进入末帧；连续候选更新不能重新显示首帧。
+        for _ in range(6):
+            subprocess.run(["xdotool", "key", "--delay", "1", "BackSpace", "i"], check=True, timeout=5)
+            wait(lambda: visible((SELECTED,)))
+            assert visible((second,)) and not visible((WIDGET,)), "候选刷新重启了动画"
+    else:
+        # 在反复刷新候选期间，固定 100ms 的 WebP 必须继续循环到两个画面。
+        seen = set()
+        deadline = time.monotonic() + 1.2
+        while time.monotonic() < deadline:
+            subprocess.run(["xdotool", "key", "--delay", "1", "BackSpace", "i"], check=True, timeout=5)
+            while GLib.MainContext.default().iteration(False):
+                pass
+            _, counts = screenshot()
+            seen.update(color for color in (WIDGET, second) if count_color(counts, color) >= 16)
+        assert seen == {WIDGET, second}, "连续候选刷新阻止了 WebP 播放"
+    save_image("animation-playing")
+    subprocess.run(["xdotool", "key", "Escape"], check=True, timeout=5)
+    wait(lambda: native_window() is None)
+    subprocess.run(["xdotool", "type", "--delay", "1", "ni"], check=True, timeout=5)
+    wait(lambda: visible((WIDGET,)))
+    wait(lambda: visible((second,)))
+    # 同一路径更换内容后必须失效帧缓存，同时重置播放时间。
+    (skin / f"widget.{FORMAT}").write_bytes(animation_image((replacement,) * 9, (second,) * 9))
+    wait(lambda: visible((replacement,)))
+    wait(lambda: visible((second,)))
+    # 九宫格边框也走动画序列，而不是只有自由挂件会动。
+    (skin / f"light.{FORMAT}").write_bytes(animation_image(LIGHT, DARK))
+    wait(lambda: visible(DARK))
+    save_image("animation-panel")
+    control.SetCurrentIM("keyboard-us")
+    wait(lambda: native_window() is None)
+    assert entry.get_text() == "", "动画验收意外提交了预编辑"
+    control.Exit()
+    assert daemon.wait(timeout=10) == 0
+    print(f"真实 GTK 原生 {FORMAT} 动画、连续输入、隐藏重显、文件失效和九宫格播放通过")
 
 
 def screenshot():
@@ -84,6 +156,7 @@ def screenshot():
 
 
 NATIVE = os.environ.get("MSIME_TEST_NATIVE_CANVAS") == "1"
+ANIMATION = os.environ.get("MSIME_TEST_CANVAS_ANIMATION") == "1"
 NATIVE_SCALE = int(os.environ.get("GDK_SCALE", "1"))
 COMPOSITED = os.environ.get("MSIME_TEST_COMPOSITED") == "1"
 SELECTED = (7, 91, 173)
@@ -226,12 +299,14 @@ def main():
             "[candidate.dark]\ntext = '#FDFCFB'\n")
         if NATIVE:
             assert not WAYLAND, "原生 X11 验收不能在 Wayland 冒充通过"
-            (skin / "widget.png").write_bytes(png((WIDGET,) * 9))
+            widget_name = f"widget.{FORMAT}" if ANIMATION else "widget.png"
+            (skin / widget_name).write_bytes(animation_image((WIDGET,) * 9, ((0, 239, 215),) * 9)
+                                             if ANIMATION else png((WIDGET,) * 9))
             manifest = skin / "skin.toml"
             text = manifest.read_text().replace("[candidate_window]\n", "[candidate_window]\nline_gap_dip = 19\n")
             text = text.replace("[candidate.light]\n", "[candidate.light]\nselected = '#075BAD'\n")
             text = text.replace("[candidate.dark]\n", "[candidate.dark]\nselected = '#075BAD'\n")
-            text += ("[[candidate_window.decorations]]\nimage = 'widget.png'\nanchor = 'top-right'\n"
+            text += (f"[[candidate_window.decorations]]\nimage = '{widget_name}'\nanchor = 'top-right'\n"
                      "offset_x_dip = 24\noffset_y_dip = -24\nwidth_dip = 20\nheight_dip = 20\nz_index = 2\n")
             manifest.write_text(text)
         options["candidate_skin_catalog"] = {
@@ -313,7 +388,22 @@ def main():
                         return window.is_active() and entry.has_focus()
                     return int(subprocess.check_output(["xdotool", "getwindowfocus"])) == xid
                 wait(lambda: entry.has_focus())
-                wait(lambda: re.search(r"frontend:dbus\b.*\bfocus:1\b", str(control.DebugInfo())))
+                next_focus_retry = 0.0
+
+                def ime_focused():
+                    nonlocal next_focus_retry
+                    if re.search(r"frontend:dbus\b.*\bfocus:1\b", str(control.DebugInfo())):
+                        return True
+                    # GTK 创建远端上下文是异步的；连接之前发出的首次焦点可能丢失。
+                    # 只在握手未完成时重发真实窗口焦点，不重启 daemon 或绕过输入框。
+                    if not WAYLAND and time.monotonic() >= next_focus_retry:
+                        subprocess.run(["xdotool", "windowfocus", "--sync", str(root_xid)], check=True, timeout=5)
+                        wait(lambda: not entry.has_focus())
+                        subprocess.run(["xdotool", "windowfocus", "--sync", str(xid)], check=True, timeout=5)
+                        next_focus_retry = time.monotonic() + 0.5
+                    return False
+
+                wait(ime_focused)
                 focused_line = next(line for line in str(control.DebugInfo()).splitlines()
                                     if re.search(r"frontend:dbus\b.*\bfocus:1\b", line))
                 focused_context = re.search(r"IC \[[^\]]+\]", focused_line).group()
@@ -328,6 +418,10 @@ def main():
                 wait(lambda: palette_visible(LIGHT))
                 assert entry.get_text() == "", "预编辑文字提前进入编辑器"
                 assert focused(), "候选窗口抢走焦点"
+                if ANIMATION:
+                    assert NATIVE and not WAYLAND
+                    accept_animation(skin, entry, control, daemon)
+                    return
                 if NATIVE:
                     wait(native_window)
                     if COMPOSITED:

@@ -347,6 +347,17 @@ if(BUILD_TESTING)
                 "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
                 "$<TARGET_FILE:msime-fcitx5>")
             set_tests_properties(fcitx5-native-canvas-${canvas_layout}-scale2 PROPERTIES TIMEOUT 90)
+            foreach(animation_format apng gif webp)
+              add_test(NAME fcitx5-native-canvas-${canvas_layout}-animation-${animation_format}
+                COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+                  MSIME_TEST_NATIVE_CANVAS=1 MSIME_TEST_CANVAS_ANIMATION=1
+                  MSIME_TEST_CANVAS_FORMAT=${animation_format}
+                  "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+                  "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+                  "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                  "$<TARGET_FILE:msime-fcitx5>")
+              set_tests_properties(fcitx5-native-canvas-${canvas_layout}-animation-${animation_format} PROPERTIES TIMEOUT 90)
+            endforeach()
             find_program(XCOMPMGR xcompmgr)
             if(XCOMPMGR)
               add_test(NAME fcitx5-native-canvas-${canvas_layout}-composited

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "FcitxCanvasPanel.h"
+#include "NativeCanvasAnimation.h"
 #include <pango/pangocairo.h>
 #include <functional>
 #include <map>
@@ -14,12 +14,12 @@ struct NativeCanvasRect {
     return px >= x && py >= y && px < x + width && py < y + height;
   }
 };
-using NativeCanvasImage = std::shared_ptr<cairo_surface_t>;
 struct NativeCanvasDecoration {
   NativeCanvasImage image;
   std::string anchor;
   double x = 0, y = 0, width = 0, height = 0;
   int z = 2;
+  std::shared_ptr<const NativeCanvasAnimation> animation = {};
 };
 struct NativeCanvasAssets {
   NativeCanvasImage panel;
@@ -27,6 +27,7 @@ struct NativeCanvasAssets {
   bool fill = true;
   double line_gap = 0;
   std::vector<NativeCanvasDecoration> decorations;
+  std::shared_ptr<const NativeCanvasAnimation> panel_animation = {};
 };
 
 inline NativeCanvasRect native_canvas_decoration_box(const NativeCanvasDecoration &decoration,
@@ -47,20 +48,22 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
                                                             const std::string &id, bool dark) {
   if (!package.is_object() || package.value("id", std::string{}) != id || !package.value("canvas", false)) return {};
   auto result = std::make_shared<NativeCanvasAssets>();
-  std::map<std::string, NativeCanvasImage> cache;
-  auto load = [&](const nlohmann::json &name) -> NativeCanvasImage {
+  std::map<std::string, std::shared_ptr<const NativeCanvasAnimation>> cache;
+  std::uint64_t remaining_pixels = 8000000;
+  auto load = [&](const nlohmann::json &name) -> std::shared_ptr<const NativeCanvasAnimation> {
     const auto path = fcitx_canvas_resource(directory, id, name);
     if (!path) return {};
     const auto key = path->string();
     if (const auto at = cache.find(key); at != cache.end()) return at->second;
     const auto bytes = read_fcitx_canvas_image(*path);
-    NativeCanvasImage image(bytes ? decode_fcitx_canvas_image(*bytes) : nullptr, cairo_surface_destroy);
+    auto image = bytes ? decode_native_canvas_animation(*bytes, remaining_pixels) : nullptr;
     cache.emplace(key, image);
     return image;
   };
   if (const auto border = package.find("borderImage"); border != package.end() && border->is_object()) {
-    result->panel = load(border->at(!dark && border->contains("lightSource") ? "lightSource" : "source"));
-    if (!result->panel) return {};
+    result->panel_animation = load(border->at(!dark && border->contains("lightSource") ? "lightSource" : "source"));
+    if (!result->panel_animation) return {};
+    result->panel = result->panel_animation->frames.front();
     result->slice = fcitx_canvas_box(border->at(border->contains("stretchDip") ? "stretchDip" : "sliceDip")).value();
     result->width = border->contains("widthDip") ? fcitx_canvas_box(border->at("widthDip")).value() : result->slice;
     result->fill = border->value("fill", true);
@@ -79,10 +82,10 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
   result->line_gap = package.value("lineGapDip", 0.0);
   for (const auto &item : package.value("decorations", nlohmann::json::array())) {
     auto image = load(item.at("image"));
-    if (!image) continue;
-    result->decorations.push_back({std::move(image), item.value("anchor", std::string("right")),
+    if (!image) return {};
+    result->decorations.push_back({image->frames.front(), item.value("anchor", std::string("right")),
         item.value("offsetXDip", 0.0), item.value("offsetYDip", 0.0),
-        item.at("widthDip"), item.at("heightDip"), item.value("zIndex", 2)});
+        item.at("widthDip"), item.at("heightDip"), item.value("zIndex", 2), std::move(image)});
   }
   std::stable_sort(result->decorations.begin(), result->decorations.end(),
       [](const auto &left, const auto &right) { return left.z < right.z; });
@@ -201,28 +204,34 @@ inline void native_canvas_image(cairo_t *cr, cairo_surface_t *image, const Nativ
 }
 
 inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, const NativeCanvasContent &content,
-                                 const NativeCanvasLayout &layout, const nlohmann::json &palette) {
+                                 const NativeCanvasLayout &layout, const nlohmann::json &palette,
+                                 std::uint64_t elapsed_ms = 0) {
+  const auto frame = [elapsed_ms](const NativeCanvasImage &image, const std::shared_ptr<const NativeCanvasAnimation> &animation) {
+    return animation ? animation->frames[sample_native_canvas_animation(*animation, elapsed_ms).index].get() : image.get();
+  };
   const auto widgets = [&](bool front) {
     for (const auto &decoration : assets.decorations) {
       if ((decoration.z >= 1) != front) continue;
       auto box = native_canvas_decoration_box(decoration, layout.panel);
-      const double width = cairo_image_surface_get_width(decoration.image.get());
-      const double height = cairo_image_surface_get_height(decoration.image.get());
+      auto *image = frame(decoration.image, decoration.animation);
+      const double width = cairo_image_surface_get_width(image);
+      const double height = cairo_image_surface_get_height(image);
       const double ratio = std::min(box.width / width, box.height / height);
       const NativeCanvasRect target{box.x + (box.width - width * ratio) / 2,
           box.y + (box.height - height * ratio) / 2, width * ratio, height * ratio};
-      native_canvas_image(cr, decoration.image.get(), {0, 0, width, height}, target);
+      native_canvas_image(cr, image, {0, 0, width, height}, target);
     }
   };
   widgets(false);
   const auto &panel = layout.panel;
   if (assets.panel) {
+    auto *image = frame(assets.panel, assets.panel_animation);
     const auto axis = [](double length, double before, double after) {
       const double ratio = before + after > length ? length / (before + after) : 1;
       return std::array<double, 4>{0, before * ratio, length - after * ratio, length};
     };
-    const auto sx = axis(cairo_image_surface_get_width(assets.panel.get()), assets.slice[3], assets.slice[1]);
-    const auto sy = axis(cairo_image_surface_get_height(assets.panel.get()), assets.slice[0], assets.slice[2]);
+    const auto sx = axis(cairo_image_surface_get_width(image), assets.slice[3], assets.slice[1]);
+    const auto sy = axis(cairo_image_surface_get_height(image), assets.slice[0], assets.slice[2]);
     const double factor = std::min({1.0, panel.width / std::max(1.0, assets.width[3] + assets.width[1]),
                                    panel.height / std::max(1.0, assets.width[0] + assets.width[2])});
     const std::array<double, 4> dx{panel.x, panel.x + assets.width[3] * factor,
@@ -231,7 +240,7 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
         panel.y + panel.height - assets.width[2] * factor, panel.y + panel.height};
     for (int row = 0; row < 3; ++row) for (int col = 0; col < 3; ++col) {
       if (!assets.fill && row == 1 && col == 1) continue;
-      native_canvas_image(cr, assets.panel.get(), {sx[col], sy[row], sx[col + 1] - sx[col], sy[row + 1] - sy[row]},
+      native_canvas_image(cr, image, {sx[col], sy[row], sx[col + 1] - sx[col], sy[row + 1] - sy[row]},
           {dx[col], dy[row], dx[col + 1] - dx[col], dy[row + 1] - dy[row]});
     }
   } else {

@@ -45,6 +45,56 @@ pub unsafe extern "C" fn msime_client_skin_image_decode(
     .unwrap_or(0)
 }
 
+pub type SkinAnimationCallback =
+    unsafe extern "C" fn(*mut c_void, *const u8, usize, u32, u32, u32, u32, u32, u32) -> i32;
+
+/// 整张图片验证后按序同步发布完整画布帧；回调拒绝或 panic 返回 0。
+/// # Safety
+/// 输入、回调和 context 的有效性及像素借用期限与静态接口一致。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_skin_animation_decode(
+    bytes: *const u8,
+    length: usize,
+    on_frame: Option<SkinAnimationCallback>,
+    context: *mut c_void,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(callback) = on_frame else { return 0 };
+        if bytes.is_null()
+            || length == 0
+            || length > msime_client_services::skin::catalog::MAX_RESOURCE_BYTES
+        {
+            return 0;
+        }
+        // 安全：调用者提供可读输入，长度已限制，解码失败不会发布部分帧。
+        let bytes = unsafe { std::slice::from_raw_parts(bytes, length) };
+        let Ok(animation) = msime_client_services::skin::image_animation::decode(bytes) else {
+            return 0;
+        };
+        for (index, frame) in animation.frames.iter().enumerate() {
+            // 安全：像素在同步回调期间有效，宿主必须在回调内复制。
+            let accepted = unsafe {
+                callback(
+                    context,
+                    frame.rgba.as_ptr(),
+                    frame.rgba.len(),
+                    frame.width,
+                    frame.height,
+                    index as u32,
+                    animation.frames.len() as u32,
+                    animation.delays_ms[index],
+                    animation.play_count,
+                )
+            };
+            if accepted != 1 {
+                return 0;
+            }
+        }
+        1
+    }))
+    .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +122,99 @@ mod tests {
 
     unsafe extern "C" fn reject(_: *mut c_void, _: *const u8, _: usize, _: u32, _: u32) -> i32 {
         0
+    }
+
+    #[test]
+    fn animation_validates_before_callbacks_and_cancellation_discards_partial_result() {
+        // 两帧 1x1 红蓝 GIF，压缩数据和配置均为合成值。
+        let mut gif = b"GIF89a".to_vec();
+        gif.extend([1, 0, 1, 0, 128, 0, 0, 255, 0, 0, 0, 0, 255]);
+        for bits in [0x44, 0x4c] {
+            gif.extend([0x21, 0xf9, 4, 4, 1, 0, 0, 0]);
+            gif.extend([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, bits, 1, 0]);
+        }
+        gif.push(0x3b);
+        #[derive(Default)]
+        struct Frames {
+            pixels: Vec<Vec<u8>>,
+            reject: bool,
+        }
+        unsafe extern "C" fn frame(
+            context: *mut c_void,
+            rgba: *const u8,
+            length: usize,
+            width: u32,
+            height: u32,
+            index: u32,
+            count: u32,
+            delay: u32,
+            plays: u32,
+        ) -> i32 {
+            let value = unsafe { &mut *context.cast::<Frames>() };
+            assert_eq!((width, height, count, delay, plays), (1, 1, 2, 100, 1));
+            assert_eq!(index as usize, value.pixels.len());
+            value
+                .pixels
+                .push(unsafe { std::slice::from_raw_parts(rgba, length) }.to_vec());
+            i32::from(!value.reject)
+        }
+        let mut received = Frames::default();
+        unsafe {
+            let context = (&mut received as *mut Frames).cast();
+            assert_eq!(
+                msime_client_skin_animation_decode(gif.as_ptr(), gif.len(), Some(frame), context),
+                1
+            );
+            assert_eq!(
+                received.pixels,
+                [vec![255, 0, 0, 255], vec![0, 0, 255, 255]]
+            );
+            received.pixels.clear();
+            assert_eq!(
+                msime_client_skin_animation_decode(
+                    gif.as_ptr(),
+                    gif.len() - 4,
+                    Some(frame),
+                    context
+                ),
+                0
+            );
+            assert!(received.pixels.is_empty());
+            assert_eq!(
+                msime_client_skin_animation_decode(
+                    std::ptr::null(),
+                    gif.len(),
+                    Some(frame),
+                    context
+                ),
+                0
+            );
+            assert_eq!(
+                msime_client_skin_animation_decode(gif.as_ptr(), usize::MAX, Some(frame), context),
+                0
+            );
+            assert_eq!(
+                msime_client_skin_animation_decode(gif.as_ptr(), gif.len(), None, context),
+                0
+            );
+            received.reject = true;
+            assert_eq!(
+                msime_client_skin_animation_decode(gif.as_ptr(), gif.len(), Some(frame), context),
+                0
+            );
+            assert_eq!(received.pixels.len(), 1);
+            let mut single = Received::default();
+            assert_eq!(
+                msime_client_skin_image_decode(
+                    gif.as_ptr(),
+                    gif.len(),
+                    Some(accept),
+                    (&mut single as *mut Received).cast()
+                ),
+                1
+            );
+            assert_eq!(single.calls, 1);
+        }
     }
 
     #[test]

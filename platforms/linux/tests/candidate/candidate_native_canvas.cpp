@@ -19,6 +19,57 @@ std::uint32_t pixel(cairo_surface_t *surface, int x, int y) {
   return value;
 }
 int main() {
+  // 完整次数、精确帧边界、跨循环和有限末帧停止唤醒。
+  host::NativeCanvasAnimation animation;
+  animation.frames = {image(1, 1, 0xff0000), image(1, 1, 0x0000ff)};
+  animation.delays_ms = {100, 40};
+  animation.play_count = 2;
+  const auto sample = [&](std::uint64_t elapsed, std::size_t index, std::optional<std::uint64_t> next) {
+    const auto result = host::sample_native_canvas_animation(animation, elapsed);
+    assert(result.index == index && result.next_ms == next);
+  };
+  sample(0, 0, 100); sample(99, 0, 1); sample(100, 1, 40);
+  sample(139, 1, 1); sample(140, 0, 100); sample(240, 1, {});
+  sample(280, 1, {}); sample(UINT64_MAX, 1, {});
+  animation.play_count = 0;
+  sample(280, 0, 100); sample(1000000000, 0, 80);
+  animation.frames.resize(1); animation.delays_ms.resize(1);
+  sample(0, 0, {});
+  // 解码回调按整幅画布逐帧扣包预算；失败不能提交部分帧或消耗预算。
+  std::string gif("GIF89a");
+  const unsigned char header[] = {1, 0, 1, 0, 128, 0, 0, 255, 0, 0, 0, 0, 255};
+  gif.append(reinterpret_cast<const char *>(header), sizeof(header));
+  for (const unsigned char bits : {0x44, 0x4c}) {
+    const unsigned char block[] = {0x21, 0xf9, 4, 4, 1, 0, 0, 0,
+        0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, bits, 1, 0};
+    gif.append(reinterpret_cast<const char *>(block), sizeof(block));
+  }
+  gif.push_back(0x3b);
+  std::uint64_t budget = 3;
+  const auto decoded = host::decode_native_canvas_animation(gif, budget);
+  assert(decoded && decoded->frames.size() == 2 && budget == 1);
+  assert((pixel(decoded->frames[0].get(), 0, 0) & 0xffffff) == 0xff0000);
+  assert((pixel(decoded->frames[1].get(), 0, 0) & 0xffffff) == 0x0000ff);
+  assert(!host::decode_native_canvas_animation(gif, budget) && budget == 1);
+
+  // 同一路径只占一份帧缓存；不同路径不能分别绕过整个包的像素预算。
+  std::string root_template = (std::filesystem::temp_directory_path() / "msime-canvas-animation-XXXXXX").string();
+  const auto *created = ::mkdtemp(root_template.data());
+  assert(created);
+  const std::filesystem::path root(created);
+  struct Cleanup { std::filesystem::path root; ~Cleanup() { std::filesystem::remove_all(root); } } cleanup{root};
+  std::filesystem::create_directory(root / "fixture");
+  const auto large = image(2048, 2048, 0x123456);
+  for (const auto *name : {"a.png", "b.png"})
+    assert(cairo_surface_write_to_png(large.get(), (root / "fixture" / name).c_str()) == CAIRO_STATUS_SUCCESS);
+  Json package = {{"id", "fixture"}, {"canvas", true},
+      {"borderImage", {{"source", "a.png"}, {"sliceDip", {2}}}},
+      {"decorations", Json::array({{{"image", "a.png"}, {"widthDip", 20}, {"heightDip", 20}}})}};
+  const auto cached = host::load_native_canvas(package, root, "fixture", true);
+  assert(cached && cached->panel_animation == cached->decorations[0].animation);
+  package["decorations"][0]["image"] = "b.png";
+  assert(!host::load_native_canvas(package, root, "fixture", true));
+
   const auto target = image(700, 700, 0);
   auto *cr = cairo_create(target.get());
   host::NativeCanvasAssets assets;
