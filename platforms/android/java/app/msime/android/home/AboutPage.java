@@ -114,6 +114,7 @@ public final class AboutPage extends DetailPage {
 
         GroupCard links = GroupCard.add(sectionColumn(column, "链接"), null).withDividers(Ui.ROW_PADDING_H);
         links.nav("官网", null, "msime.app", () -> openLink(context, SITE));
+        links.nav("项目主页", null, "github.com/metasequoiaime/msime", () -> openLink(context, REPOSITORY));
         links.nav("隐私政策", null, null, () -> openLink(context, PRIVACY));
         GroupCard.Row licences = links.nav("开源许可", null, null, this::showLicences);
         if (play) {
