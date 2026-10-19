@@ -8878,6 +8878,7 @@ test("the 剪贴板 page sends a history entry through the host's cloud clipboar
   expect(cloudClipboardRequest).not.toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole("button", { name: /^(剪贴板|剪贴管理)$/ }));
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   expect(await screen.findByText("synthetic cloud")).toBeDefined();
   const send = screen.getByRole("button", { name: "发到云剪贴板" });
   await waitFor(() => expect(send.hasAttribute("disabled")).toBe(false));
