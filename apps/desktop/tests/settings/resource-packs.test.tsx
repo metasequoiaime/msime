@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { selectSettingsTab, saveSettingsNow, settingsFormReady } from "../support/settings-form";
+import {
+  openVoiceServiceConfig,
+  selectSettingsTab,
+  saveSettingsNow,
+  settingsFormReady,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
@@ -35,6 +40,8 @@ const sizes: Record<ResourcePackId, number> = {
   "language-dictionaries": 18_900_000,
   handwriting: 26_861_246,
   "settled-model": 25_480_184,
+  wubi: 14_536_704,
+  "voice-runtime-macos": 16_466_276,
 };
 
 /** 一个假的资源包服务：install 返回的 promise 由测试决定何时完成或失败，进度由测试手动推送。`offered` 是宿主列出的资源包，缺省是 macOS 列出的全部。 */
@@ -47,6 +54,8 @@ function fakePacks(
     "language-dictionaries": "missing",
     handwriting: "missing",
     "settled-model": "missing",
+    wubi: "missing",
+    "voice-runtime-macos": "missing",
     ...state,
   };
   const listeners = new Set<(progress: LocalVoiceModelProgress) => void>();
@@ -236,6 +245,99 @@ test("a cancelled download clears the error and offers the download again", asyn
   await packs.fail("japanese", "local_model_cancelled");
   expect(await screen.findByRole("button", { name: "下载日文词库" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "重新下载日文词库" })).toBeNull();
+});
+
+test("picking 五笔 downloads the Wubi table when the macOS package leaves it out", async () => {
+  const packs = fakePacks({}, [
+    "japanese",
+    "language-dictionaries",
+    "handwriting",
+    "settled-model",
+    "wubi",
+  ]);
+  const save = renderSettings("macos", packs.client);
+  await settingsFormReady();
+  await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
+
+  fireEvent.click(within(schemeGroup()).getByRole("radio", { name: "五笔" }));
+  expect(packs.client.install).toHaveBeenCalledWith("wubi");
+  packs.emit({ id: "wubi", stage: "download", downloaded: 7_268_352, total: 14_536_704 });
+  expect(await screen.findByText("下载中 50%")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "取消下载五笔码表" })).toBeTruthy();
+  await saveSettingsNow();
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ scheme: "wubi" })),
+  );
+  await packs.finish("wubi");
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "取消下载五笔码表" })).toBeNull(),
+  );
+});
+
+test("a package that carries the Wubi table never downloads it", async () => {
+  // 开发构建和水杉五笔带着五笔码表，宿主不列出 wubi 资源包。
+  const packs = fakePacks();
+  renderSettings("macos", packs.client);
+  await settingsFormReady();
+  await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
+  fireEvent.click(within(schemeGroup()).getByRole("radio", { name: "五笔" }));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  expect(packs.client.install).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "下载五笔码表" })).toBeNull();
+});
+
+function renderVoiceSettings(resourcePacks: ResourcePackClient, provider: string) {
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      voice_input: { language: "zh-CN", enabled: true, asr_provider: provider },
+    },
+  };
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot),
+        save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+          ...snapshot,
+          revision: snapshot.revision + 1,
+          preferences,
+        })),
+        host: testHost({ platform: "macos" }),
+        resourcePacks,
+      }}
+    />,
+  );
+}
+
+test("choosing on-device recognition downloads the speech runtime the input method leaves out", async () => {
+  const packs = fakePacks({}, ["voice-runtime-macos"]);
+  renderVoiceSettings(packs.client, "doubao");
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
+  expect(screen.queryByRole("button", { name: "下载本地语音识别运行库" })).toBeNull();
+
+  fireEvent.change(await screen.findByRole("combobox", { name: "识别服务" }), {
+    target: { value: "local" },
+  });
+  await waitFor(() => expect(packs.client.install).toHaveBeenCalledWith("voice-runtime-macos"));
+  expect(packs.client.install).toHaveBeenCalledTimes(1);
+  openVoiceServiceConfig();
+  expect(await screen.findByRole("button", { name: "取消下载本地语音识别运行库" })).toBeTruthy();
+});
+
+test("opening the voice page with on-device recognition already chosen offers the runtime without downloading it", async () => {
+  const packs = fakePacks({}, ["voice-runtime-macos"]);
+  renderVoiceSettings(packs.client, "local");
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
+  openVoiceServiceConfig();
+  expect(await screen.findByRole("button", { name: "下载本地语音识别运行库" })).toBeTruthy();
+  expect(packs.client.install).not.toHaveBeenCalled();
 });
 
 test("a host that bundles the dictionaries never downloads them", async () => {
