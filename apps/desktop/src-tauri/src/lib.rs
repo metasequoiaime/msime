@@ -1005,6 +1005,75 @@ fn rescan_skin_catalog(root: PathBuf, runtime: &RuntimeOptionsState) -> SkinCata
     response
 }
 
+/// 「制作皮肤」的草稿：页面只交出文件夹名、`skin.toml` 全文和图片，规则全在 `skin::candidate_editor`。
+fn candidate_skin_draft(
+    package_id: String,
+    manifest: String,
+    files: std::collections::BTreeMap<String, String>,
+) -> msime_client_services::skin::candidate_editor::CandidateSkinDraft {
+    msime_client_services::skin::candidate_editor::CandidateSkinDraft {
+        package_id,
+        manifest,
+        files,
+    }
+}
+
+/// 不写皮肤目录，按目录扫描的规则读一遍草稿：页面用它取一个基底外观补齐后的配色。
+#[tauri::command]
+async fn candidate_skin_check(
+    package_id: String,
+    manifest: String,
+    files: std::collections::BTreeMap<String, String>,
+) -> Result<
+    msime_client_services::skin::catalog::SkinSummary,
+    msime_client_services::skin::candidate_editor::CandidateSkinFailure,
+> {
+    use msime_client_services::skin::candidate_editor::{self, CandidateSkinFailure};
+    let draft = candidate_skin_draft(package_id, manifest, files);
+    tauri::async_runtime::spawn_blocking(move || candidate_editor::check(&draft))
+        .await
+        .map_err(|_| CandidateSkinFailure::code("storage"))?
+}
+
+/// 把草稿装进宿主的皮肤根目录并重扫，Linux 上重扫也把新目录发布给 IBus 和 Fcitx5 宿主。
+fn create_candidate_skin_at(
+    root: PathBuf,
+    runtime: &RuntimeOptionsState,
+    draft: &msime_client_services::skin::candidate_editor::CandidateSkinDraft,
+    replace: bool,
+) -> Result<
+    msime_client_services::skin::candidate_editor::CreatedCandidateSkin,
+    msime_client_services::skin::candidate_editor::CandidateSkinFailure,
+> {
+    let created = msime_client_services::skin::candidate_editor::create(&root, draft, replace)?;
+    rescan_skin_catalog(root, runtime);
+    Ok(created)
+}
+
+#[tauri::command]
+async fn candidate_skin_create(
+    directory: tauri::State<'_, SkinDirectoryState>,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+    package_id: String,
+    manifest: String,
+    files: std::collections::BTreeMap<String, String>,
+    replace: bool,
+) -> Result<
+    msime_client_services::skin::candidate_editor::CreatedCandidateSkin,
+    msime_client_services::skin::candidate_editor::CandidateSkinFailure,
+> {
+    use msime_client_services::skin::candidate_editor::CandidateSkinFailure;
+    // 根目录由宿主决定，页面只给文件夹名。
+    let root = directory.0.clone();
+    let runtime = runtime.inner().clone();
+    let draft = candidate_skin_draft(package_id, manifest, files);
+    tauri::async_runtime::spawn_blocking(move || {
+        create_candidate_skin_at(root, &runtime, &draft, replace)
+    })
+    .await
+    .map_err(|_| CandidateSkinFailure::code("storage"))?
+}
+
 /// Discover the helper-code tables shipped beside the Engine's verified resources. The WebView
 /// receives metadata only; the resource path stays in the host options state and never comes from
 /// page input.
@@ -5575,6 +5644,8 @@ pub fn run() {
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             install_mcp_client,
             scan_skin_catalog,
+            candidate_skin_check,
+            candidate_skin_create,
             list_helpcode_schemas,
             resolve_theme,
             validate_shuangpin_custom_profile,

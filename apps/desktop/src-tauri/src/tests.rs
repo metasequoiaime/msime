@@ -1448,6 +1448,51 @@ fn scanning_missing_skin_directory_does_not_create_it() {
     assert!(!root.exists());
 }
 
+#[test]
+fn a_drafted_candidate_skin_installs_into_the_host_skin_root() {
+    // 1×1 的合成 PNG。
+    const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==";
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let runtime = super::RuntimeOptionsState {
+        path: None,
+        document: std::sync::Arc::new(std::sync::Mutex::new(serde_json::Value::Null)),
+        skins: Some(root.clone()),
+    };
+    let draft = |name: &str| {
+        super::candidate_skin_draft(
+            "drafted".into(),
+            format!(
+                "schema_version = 1\nid = 'drafted'\nname = '{name}'\nversion = '1.0'\nbase = 'system'\npreview = 'preview.png'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\nmin_width_dip = 0\n"
+            ),
+            std::collections::BTreeMap::from([("preview.png".into(), PNG.into())]),
+        )
+    };
+    let created =
+        super::create_candidate_skin_at(root.clone(), &runtime, &draft("草稿"), false).unwrap();
+    assert_eq!(created.id, "drafted");
+    assert!(!created.replaced);
+    let catalog = super::read_skin_catalog(root.clone()).catalog;
+    assert_eq!(catalog.packages.len(), 1);
+    assert_eq!(catalog.packages[0].name, "草稿");
+    // 同名皮肤只在页面确认覆盖后才替换。
+    assert_eq!(
+        super::create_candidate_skin_at(root.clone(), &runtime, &draft("第二版"), false)
+            .unwrap_err()
+            .code,
+        "candidate_skin_exists"
+    );
+    assert!(
+        super::create_candidate_skin_at(root.clone(), &runtime, &draft("第二版"), true)
+            .unwrap()
+            .replaced
+    );
+    assert_eq!(
+        super::read_skin_catalog(root).catalog.packages[0].name,
+        "第二版"
+    );
+}
+
 // The diagnostic-log action takes no path from the webview: it resolves from the host's preferences directory alone, selects the file in Finder once the input method has written it, and falls back to the directory before that.
 #[test]
 fn diagnostic_log_target_resolves_from_the_host_directory() {
