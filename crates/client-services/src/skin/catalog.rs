@@ -1908,11 +1908,19 @@ pub fn scan(root: impl AsRef<Path>) -> SkinCatalog {
 /// Most installed skins published to hosts that draw the candidate panel from `candidate_skin_catalog` (the Linux IBus and Fcitx5 hosts). Beyond this a skin menu is no longer usable, and every entry costs the document those hosts read whole.
 pub const HOST_CATALOG_MAX_PACKAGES: usize = 32;
 
-/// The installed skins in the shape a native candidate host reads (`candidate_skin_catalog` in the Linux runtime options): the id, the manifest name as `title`, the `base` global theme id, the declared `layouts`, per declared theme (an empty object when it sets no colour) every candidate colour `theme::resolve` reads (surface, border, text, number, accent, selected, hover, translation, each normalized by `theme::normalized_color`) and `show_selected_bar`, the card's `corner_radius_dip` when the manifest sets one, and for a package that declares a decoration its size and the absolute path of the image drawn there (`decoration_top_dip`, `decoration_width_dip`, `decoration_image`), plus `decoration_align` when it is not the default `right`. `root` is the directory `catalog` was scanned from. Passing an entry to `msime_client_resolve_theme` as `package` therefore resolves exactly as reading the same package from the skin root does.
+/// 原生候选宿主读取的已安装皮肤目录（Linux 运行时选项中的 `candidate_skin_catalog`）。
+/// 每个条目包含 `id`、清单名称 `title`、全局主题 `base`、声明的 `layouts`、各主题的候选配色、
+/// `show_selected_bar`、可选的 `corner_radius_dip`，以及已声明装饰的尺寸、绝对图片路径和非默认对齐。
+/// 配色由 `theme::normalized_color` 规范化；把条目作为 `package` 传给 `msime_client_resolve_theme`，
+/// 与从皮肤根目录加载同一个包的解析结果一致。`root` 必须对应扫描 `catalog` 的目录。
 ///
-/// Everything else in a package - the background image, the toolbar, other paths and stylesheets - stays out: the Linux hosts cannot draw them and every byte counts against the size limit of the document it reads, which is also why an undecorated package carries no decoration keys at all. A colour `normalized_color` cannot read is left out, as `resolve` ignores it. A palette is kept only for a theme the package declares, since every host drops an external skin for a layout or theme it does not support rather than drawing its colours there, and `resolve` does the same with the published `layouts` and themes. Ids and names are already bounded by `scan`; the hosts re-check both, and the decoration's bounds.
+/// 严格条目不携带背景、工具栏、其他路径或样式表，以兼容旧宿主并控制整份文档的大小。
+/// 没有装饰的包不写装饰键；不可解析的颜色省略，只保留清单声明主题的配色。
+/// `scan` 已限制标识与名称，宿主仍复核它们和装饰尺寸；布局与明暗支持范围沿用共享解析器的规则。
 ///
 /// 最多列出 `HOST_CATALOG_MAX_PACKAGES` 个，按目录顺序。`selected` 是自定义主题选中的皮肤（浅色、深色两个槽位）：已安装的一律列出，落在上限之外时挤掉上限内最后几个没选中的，排到末尾，因为屏幕上画的是它们的颜色。
+/// 含 canvas 包且根目录为绝对 UTF-8 路径时，顶层另带 `directory`，供 Fcitx5 按需调用包 API。
+/// 旧宿主继续只读 `packages`；它们严格解析的条目不增加 canvas 字段，配色仍是可读回退。
 pub fn host_candidate_catalog(
     catalog: &SkinCatalog,
     root: &Path,
@@ -1970,7 +1978,14 @@ pub fn host_candidate_catalog(
             }
             entry
         }));
-    serde_json::json!({ "packages": packages })
+    let mut published = serde_json::json!({ "packages": packages });
+    // canvas 宿主按需复用已校验的包 API；顶层扩展不改变旧宿主严格读取的配色条目。
+    if catalog.packages.iter().any(|package| package.canvas) && root.is_absolute() {
+        if let Some(directory) = root.to_str() {
+            published["directory"] = directory.into();
+        }
+    }
+    published
 }
 
 /// The image a decorated package draws above its candidate window: its `decoration_image` (the manifest's `decoration.image`, or else its preview, as on Windows where candidate_presenter.cpp draws `<skins>/<id>/<preview>` in a band `decoration_top_dip` tall). `scan` has already confined it to the package directory and checked it is an image. No decoration is published when the path would not be absolute or not UTF-8, since the host could not open it.

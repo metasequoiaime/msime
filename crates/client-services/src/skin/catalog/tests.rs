@@ -1159,6 +1159,16 @@ fn canvas_packages_keep_panel_colours_and_readable_host_fallback() {
     let json = serde_json::to_value(&package).unwrap();
     assert_eq!(json["candidate"]["light"]["text"], "#1A1A1A");
     assert_eq!(json["panelCandidate"]["light"]["text"], "#f5ecff");
+    let published = host_candidate_catalog(&scan(root.path()), root.path(), &["paneled"]);
+    assert_eq!(published["directory"], root.path().to_str().unwrap());
+    let entry = published["packages"][0].clone();
+    assert_eq!(entry["candidate"]["light"]["text"], "#1A1A1A");
+    assert!(super::super::theme::ThemePackage::from_host_catalog_entry(entry).is_ok());
+    assert!(
+        host_candidate_catalog(&scan(root.path()), Path::new("skins"), &[])
+            .get("directory")
+            .is_none()
+    );
     assert_eq!(package.candidate.dark.surface.as_deref(), Some("#202020"));
     assert_eq!(package.candidate.dark.text.as_deref(), Some("#F2F2F2"));
     assert_eq!(package.corner_radius_dip, None);
