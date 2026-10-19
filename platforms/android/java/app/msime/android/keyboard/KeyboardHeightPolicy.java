@@ -11,13 +11,13 @@ public final class KeyboardHeightPolicy {
     public static final int KEYBOARD_ROW_COUNT = 4;
 
     public static final int MIN_HEIGHT_PERCENT = 75;
-    public static final int MAX_HEIGHT_PERCENT = 160;
+    public static final int MAX_HEIGHT_PERCENT = 170;
     public static final int DEFAULT_HEIGHT_PERCENT = 100;
     public static final int HEIGHT_PERCENT_BASE_DP = 184;
     public static final int MIN_DESIGN_HEIGHT_ADJUSTMENT_DP = -46;
-    public static final int MAX_DESIGN_HEIGHT_ADJUSTMENT_DP = 110;
+    public static final int MAX_DESIGN_HEIGHT_ADJUSTMENT_DP = 129;
     public static final int LEGACY_MAX_DESIGN_HEIGHT_ADJUSTMENT_DP = 55;
-    public static final int WINDOW_HEIGHT_ADJUSTMENT_PERCENT = 14;
+    public static final int WINDOW_HEIGHT_ADJUSTMENT_PERCENT = 17;
 
     public static int bottomRowAdjustment(int adjustment) {
         return Math.floorDiv(designHeightAdjustment(adjustment), KEYBOARD_ROW_COUNT);

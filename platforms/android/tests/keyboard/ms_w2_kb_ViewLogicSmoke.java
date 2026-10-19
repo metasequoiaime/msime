@@ -84,13 +84,13 @@ public final class ms_w2_kb_ViewLogicSmoke {
         check(FunctionPanelView.stateText(FunctionPanelView.State.NONE) == null, "plain entries have no state");
         check(FunctionPanelView.ITEM_HEIGHT_DP == 52f, "panel tiles are 52dp");
 
-        // 内联高度条：75–160，拖动换算与文案。
+        // 内联高度条：75–170，拖动换算与文案。
         check("键盘布局调整".equals(InlineHeightBar.DESCRIPTION), "layout bar description");
-        check(InlineHeightBar.clamp(60) == 75 && InlineHeightBar.clamp(170) == 160 && InlineHeightBar.clamp(150) == 150, "clamp to 75-160");
-        check(InlineHeightBar.MIN_PERCENT == 75 && InlineHeightBar.MAX_PERCENT == 160, "bar range matches the settings slider");
+        check(InlineHeightBar.clamp(60) == 75 && InlineHeightBar.clamp(180) == 170 && InlineHeightBar.clamp(150) == 150, "clamp to 75-170");
+        check(InlineHeightBar.MIN_PERCENT == 75 && InlineHeightBar.MAX_PERCENT == 170, "bar range matches the settings slider");
         check(InlineHeightBar.percentForDrag(100, -50f, 500f) == 110, "dragging up by 10% of the base grows 10%");
         check(InlineHeightBar.percentForDrag(100, 100f, 500f) == 80, "dragging down shrinks");
-        check(InlineHeightBar.percentForDrag(100, -1000f, 500f) == 160, "drag clamps at the top");
+        check(InlineHeightBar.percentForDrag(100, -1000f, 500f) == 170, "drag clamps at the top");
         check(InlineHeightBar.percentForDrag(120, 30f, 0f) == 120, "unmeasured base keeps the start");
         check("上下拖动调整 · 105%".equals(InlineHeightBar.label(105)), "drag handle label");
         // #5564：百分比旁边显示键盘实际高度；还没量到时只显示百分比。
