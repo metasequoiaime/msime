@@ -137,6 +137,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios
         PRODUCT_NAME: MSIMEApp
+        # 明确声明手机和平板，避免不同版本的 XcodeGen 默认值变化把 iPad 降级成 iPhone 兼容模式；平板设置分栏和键盘形态只有在真实 iPad idiom 下才会运行。
+        TARGETED_DEVICE_FAMILY: "1,2"
         # 发布时由 upload-testflight.sh 在命令行传入描述文件名，配合 CODE_SIGN_STYLE=Manual 让 App 与键盘各用各的 App Store 描述文件；本地开发不传，值为空，仍是自动签名。
         PROVISIONING_PROFILE_SPECIFIER: "$(MSIME_IOS_APP_PROFILE)"
         # 出口合规：只用系统提供的 HTTPS 等豁免加密。写进 Info.plist 后上传的构建自带答案，不会停在 App Store Connect 的「缺少合规信息」而无法分发给 TestFlight 测试组（此前每个构建都在网页上手动答「否」）。

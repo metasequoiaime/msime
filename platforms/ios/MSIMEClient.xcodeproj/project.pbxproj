@@ -3982,6 +3982,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios;
 				PRODUCT_NAME = MSIMEApp;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				PROVISIONING_PROFILE_SPECIFIER = "$(MSIME_IOS_APP_PROFILE)";
 			};
 			name = Release;
@@ -4073,6 +4074,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.keyboard;
 				PRODUCT_NAME = MSIMEKeyboardExtension;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				PROVISIONING_PROFILE_SPECIFIER = "$(MSIME_IOS_KEYBOARD_PROFILE)";
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h";
 			};
@@ -4164,6 +4166,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios;
 				PRODUCT_NAME = MSIMEApp;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				PROVISIONING_PROFILE_SPECIFIER = "$(MSIME_IOS_APP_PROFILE)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 			};
@@ -4231,6 +4234,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.keyboard;
 				PRODUCT_NAME = MSIMEKeyboardExtension;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				PROVISIONING_PROFILE_SPECIFIER = "$(MSIME_IOS_KEYBOARD_PROFILE)";
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h";
 			};

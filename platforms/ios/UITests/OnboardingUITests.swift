@@ -1846,7 +1846,7 @@ final class OnboardingUITests: XCTestCase {
     }
     app.buttons["keyboardTryoutLink"].tap()
     let input = app.textFields["keyboardTryoutField"]
-    XCTAssertTrue(input.waitForExistence(timeout: 5))
+    XCTAssertTrue(input.waitForExistence(timeout: 5), visible(app))
     // 模型由后端决定：账号就绪后顶栏既没有模型选择，也没有登录或重新连接按钮。
     XCTAssertTrue(wait(app.buttons["keyboardChatAccountButton"], until: "exists == false"))
     XCTAssertFalse(app.buttons["keyboardChatModelPicker"].exists)
@@ -2136,6 +2136,28 @@ final class OnboardingUITests: XCTestCase {
     expectNativePage("润色服务", in: app)
     XCTAssertTrue(app.switches["voicePolishSeparate"].exists)
     returnFromNativePage(to: "语音设置", in: app)
+  }
+
+  @MainActor
+  func testTabletSettingsSidebarSelectsPagesAndShowsTabletControls() throws {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    XCTAssertTrue(app.buttons["设置"].waitForExistence(timeout: 8))
+    let input = app.descendants(matching: .any)["tabletSettings.input"]
+    XCTAssertTrue(input.waitForExistence(timeout: 5))
+    input.tap()
+    XCTAssertTrue(app.navigationBars["输入"].waitForExistence(timeout: 5))
+    let layout = app.descendants(matching: .any)["tabletSettings.layout"]
+    XCTAssertTrue(layout.exists)
+    layout.tap()
+    XCTAssertTrue(app.switches["appTabletFullKeysSwitch"].exists)
+    XCTAssertTrue(app.switches["appTabletSplitSwitch"].exists)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "iPad 分栏设置与平板控件"
+    shot.lifetime = .keepAlways
+    add(shot)
   }
 
   @MainActor
