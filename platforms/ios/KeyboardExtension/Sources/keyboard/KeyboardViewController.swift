@@ -281,6 +281,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   var asynchronousNineKeyInputEnabled = Bundle.main.bundleURL.pathExtension == "appex"
   private var inputDeliveryEpoch: UInt64 = 0
   private var asynchronousInputDocument: UUID?
+  /// 连续九键查询返回的中间组字只保留最新一帧，避免主线程逐个重画候选栏；含上屏文本的快照仍立即交付。
+  private var deferredNineKeySnapshot: MetasequoiaInputSnapshot?
+  private var deferredNineKeyRenderScheduled = false
   private var visibleInputGeneration: UInt64?
   private var visibleCandidateIdentities: [MetasequoiaCandidateIdentity?] = []
   /// 组字中收到内存警告、引擎缓存还没清，等这次组字结束时清（见 `didReceiveMemoryWarning`）。
@@ -902,6 +905,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 自己改动的回声：那次改动之后的组字仍是当前的组字。
     if ownEditEcho.isEcho(at: ProcessInfo.processInfo.systemUptime) { return }
     session.flushPendingCharacters()
+    flushDeferredNineKeySnapshot()
     inputDeliveryEpoch &+= 1
     englishCorrectionRejectedPrefix = ""
     finishTemporaryEnglish(force: true)
@@ -3331,6 +3335,34 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return row
   }
 
+  private func flushDeferredNineKeySnapshot() {
+    guard let snapshot = deferredNineKeySnapshot else {
+      deferredNineKeyRenderScheduled = false
+      return
+    }
+    deferredNineKeySnapshot = nil
+    deferredNineKeyRenderScheduled = false
+    render(snapshot)
+  }
+
+  private func deliverNineKeySnapshot(_ snapshot: MetasequoiaInputSnapshot,
+                                      epoch: UInt64, document: UUID) {
+    guard inputDeliveryEpoch == epoch, isChineseMode, inputScheme == .nineKey,
+          KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
+    if snapshot.commitText != nil {
+      flushDeferredNineKeySnapshot()
+      render(snapshot)
+      return
+    }
+    deferredNineKeySnapshot = snapshot
+    guard !deferredNineKeyRenderScheduled else { return }
+    deferredNineKeyRenderScheduled = true
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.flushDeferredNineKeySnapshot()
+    }
+  }
+
   private func handleCharacter(_ character: String) {
     playInputClick()
     if isChineseMode {
@@ -3380,9 +3412,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         asynchronousInputDocument = document
         let epoch = inputDeliveryEpoch
         if session.enqueueNineKeyCharacter(character, completion: { [weak self] snapshot in
-          guard let self, inputDeliveryEpoch == epoch, isChineseMode, inputScheme == .nineKey,
-                KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
-          render(snapshot)
+          self?.deliverNineKeySnapshot(snapshot, epoch: epoch, document: document)
         }) { return }
       }
       render(session.handleCharacter(character))
@@ -5641,6 +5671,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func handleBackspace() {
+    session.flushPendingCharacters()
+    flushDeferredNineKeySnapshot()
     if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
     playInputClick()
     // Deleting document text may take the opening half of a pair with it; a backspace inside a spelling only edits the spelling.
@@ -5818,6 +5850,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func handleSpace() {
+    session.flushPendingCharacters()
+    flushDeferredNineKeySnapshot()
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
     // A space right after a committed Chinese mark rewrites it as ASCII and is swallowed: the
@@ -5877,6 +5911,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // newline after every committed word, and in a field whose return key is 发送 or 完成 it also
   // fired that field's primary action. macOS swallows Return during a composition for this reason.
   private func handleReturn() {
+    session.flushPendingCharacters()
+    flushDeferredNineKeySnapshot()
     defer { finishTemporaryEnglish() }
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
