@@ -2,29 +2,13 @@ import app.msime.android.VoiceProviderPolicy;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** The settings page's recognition-service rules: what can be picked, how credentials move between slots, which endpoints may be stored. */
+/** 设置页的凭据换槽、接口校验与状态提示；目录展示另由共享快照冒烟覆盖。 */
 public final class VoiceProviderPolicySmoke {
     static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }
 
     public static void main(String[] args) {
-        // Every id offered must be one the shared document accepts and the shared resolver knows; the shared list is crates/client-core ASR_PROVIDERS.
-        String[] accepted = {"doubao", "siliconflow", "openai", "groq", "everyapi", "mistral", "bailian", "system", "local"};
-        for (String provider : VoiceProviderPolicy.PROVIDERS) {
-            boolean known = false;
-            for (String candidate : accepted) known |= candidate.equals(provider);
-            check(known, provider + " is accepted by the shared preferences validation");
-        }
-        check(VoiceProviderPolicy.PROVIDERS[0].equals("system") && VoiceProviderPolicy.PROVIDERS[1].equals("local"),
-            "the two services that need no key come first");
-
-        check(VoiceProviderPolicy.label("").equals("系统识别") && VoiceProviderPolicy.label(null).equals("系统识别"),
-            "nothing stored reads as the platform recogniser");
-        check(VoiceProviderPolicy.label("local").equals("本地模型"), "a model chosen elsewhere is named");
-        check(VoiceProviderPolicy.label("bailian").equals("阿里云百炼 · 千问"), "labels match the shared settings page");
-        check(VoiceProviderPolicy.label("future").equals("future"), "an unknown id is shown as stored");
-
         check(VoiceProviderPolicy.network("openai") && VoiceProviderPolicy.network("doubao"), "cloud services need a key");
         check(!VoiceProviderPolicy.network("system") && !VoiceProviderPolicy.network("local")
                 && !VoiceProviderPolicy.network("") && !VoiceProviderPolicy.network(null),
@@ -74,19 +58,11 @@ public final class VoiceProviderPolicySmoke {
             "a cleartext endpoint would send the key in the clear");
         check(VoiceProviderPolicy.endpointProblem("openai", "https://user@proxy.example.com/v1") != null,
             "credentials in the authority are refused, as the shared validation does");
-        check(VoiceProviderPolicy.endpointProblem("openai", VoiceProviderPolicy.DOUBAO_ASYNC) != null,
+        check(VoiceProviderPolicy.endpointProblem("openai", "wss://example.invalid/stream") != null,
             "a Doubao socket address is not an upload endpoint");
-        check(VoiceProviderPolicy.endpointProblem("doubao", VoiceProviderPolicy.DOUBAO_NOSTREAM) == null
+        check(VoiceProviderPolicy.endpointProblem("doubao", "wss://example.invalid/stream") == null
                 && VoiceProviderPolicy.endpointProblem("doubao", "https://openspeech.bytedance.com/x") != null,
             "Doubao only streams over wss");
-
-        check(VoiceProviderPolicy.doubaoEndpointLabel(VoiceProviderPolicy.DOUBAO_NOSTREAM).equals("整句流式"),
-            "the whole-sentence interface is named");
-        check(VoiceProviderPolicy.doubaoEndpointLabel("").equals("双向流式")
-                && VoiceProviderPolicy.doubaoEndpointLabel(VoiceProviderPolicy.DOUBAO_ASYNC).equals("双向流式"),
-            "empty resolves to the shared default, the bidirectional interface");
-        check(VoiceProviderPolicy.doubaoEndpointLabel("wss://example.com/asr").equals("自定义地址"),
-            "anything else is a custom address");
 
         // The shipped default provider is doubao with no key; the row must say the keyboard is really using the platform recogniser.
         check("密钥未填写完整，暂用系统识别".equals(VoiceProviderPolicy.status("doubao", null)),

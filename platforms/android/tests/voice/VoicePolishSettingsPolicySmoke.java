@@ -1,23 +1,12 @@
 import app.msime.android.VoicePolishSettingsPolicy;
 
-/** The settings page's polish group: providers and prompt ids shared with the React page, where custom prompts are stored, and why polishing would not run. */
+/** 润色方案、自定义提示词字段和状态提示；服务名称由共享目录快照冒烟覆盖。 */
 public final class VoicePolishSettingsPolicySmoke {
     static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }
 
     public static void main(String[] args) {
-        // The shared preferences accept these polish providers (crates/client-core POLISH_PROVIDERS); every one offered must be among them.
-        String[] accepted = {"siliconflow", "openai", "deepseek", "groq", "doubao"};
-        for (String provider : VoicePolishSettingsPolicy.PROVIDERS) {
-            boolean known = false;
-            for (String candidate : accepted) known |= candidate.equals(provider);
-            check(known, provider + " is accepted by the shared preferences validation");
-        }
-        check(VoicePolishSettingsPolicy.providerLabel("").equals("SiliconFlow"), "nothing stored reads as the shipped default");
-        check(VoicePolishSettingsPolicy.providerLabel("deepseek").equals("DeepSeek"), "labels match the shared page");
-        check(VoicePolishSettingsPolicy.providerLabel("future").equals("future"), "an unknown id is shown as stored");
-
         check(VoicePolishSettingsPolicy.promptLabel("").equals("精炼整理"), "nothing stored reads as the shipped cleanup preset");
         check(VoicePolishSettingsPolicy.promptLabel("zh2en").equals("中翻英")
                 && VoicePolishSettingsPolicy.promptLabel("custom_2").equals("自定义二"), "preset names match the shared page");

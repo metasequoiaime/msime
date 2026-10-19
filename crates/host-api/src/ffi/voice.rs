@@ -9,8 +9,13 @@ use msime_client_core::{is_bounded_chars_without_nul, is_bounded_text};
 #[no_mangle]
 pub extern "C" fn msime_client_voice_provider_catalog() -> *mut c_char {
     response(|| {
-        use msime_client_providers::voice::provider_catalog::{ASR_PROVIDERS, POLISH_PROVIDERS};
-        Ok(json!({ "asr": ASR_PROVIDERS, "polish": POLISH_PROVIDERS }))
+        use msime_client_providers::voice::provider_catalog::{
+            ASR_PROVIDERS, DOUBAO_STREAM_ENDPOINTS, POLISH_PROVIDERS,
+        };
+        Ok(json!({
+            "asr": ASR_PROVIDERS, "polish": POLISH_PROVIDERS,
+            "doubao_stream_endpoints": DOUBAO_STREAM_ENDPOINTS
+        }))
     })
 }
 

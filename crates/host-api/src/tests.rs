@@ -17398,15 +17398,40 @@ fn an_oversized_custom_request_does_not_fall_back_to_google() {
 }
 
 #[test]
+fn voice_provider_catalog_export_includes_doubao_stream_choices() {
+    let catalog = read(msime_client_voice_provider_catalog());
+    let value = &catalog["value"];
+    assert_eq!(
+        value["doubao_stream_endpoints"],
+        serde_json::json!([
+            {"id":"nostream", "label":"整句流式", "title":"整句流式（准确率更高）",
+             "endpoint":"wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"},
+            {"id":"async", "label":"双向流式", "title":"双向流式（增量结果）",
+             "endpoint":"wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"}
+        ])
+    );
+    let default = &value["asr"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|provider| provider["id"] == "doubao")
+        .unwrap()["endpoint"];
+    assert_eq!(default, &value["doubao_stream_endpoints"][1]["endpoint"]);
+}
+
+#[test]
 fn voice_provider_catalog_export_matches_the_shared_catalog() {
-    use msime_client_providers::voice::provider_catalog::{ASR_PROVIDERS, POLISH_PROVIDERS};
+    use msime_client_providers::voice::provider_catalog::{
+        ASR_PROVIDERS, DOUBAO_STREAM_ENDPOINTS, POLISH_PROVIDERS,
+    };
     let catalog = read(msime_client_voice_provider_catalog());
     assert_eq!(catalog["ok"], true);
     assert_eq!(
         catalog["value"],
         serde_json::json!({
             "asr": ASR_PROVIDERS,
-            "polish": POLISH_PROVIDERS
+            "polish": POLISH_PROVIDERS,
+            "doubao_stream_endpoints": DOUBAO_STREAM_ENDPOINTS
         })
     );
 }

@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 设置页「识别服务」那一组的规则：可选哪些服务、怎么称呼、切换服务时凭据和接口字段怎么改、手填的接口地址能不能存。
+ * 设置页「识别服务」的凭据换槽、字段校验与状态文案；公开服务和接口目录由 {@link VoiceProviderCatalog} 读取共享 Rust。
  *
  * <p>这里不推导任何默认接口或模型。键盘经 `msime_client_mobile_voice_configuration` 读共享解析，`asr_endpoint` 和 `asr_model` 留空时由共享层补上该服务的默认值，所以切换服务时把这两项清空就够了，不需要在 Java 里再放一份默认值表。共享设置页切换时会保留不是任何预设的自定义地址；这里不保留，因为那个地址是为上一个服务填的，留着它会把新服务的密钥发到旧服务的主机上。
  *
@@ -17,28 +17,7 @@ public final class VoiceProviderPolicy {
     /** 豆包两种鉴权：新版控制台的 API Key，旧版控制台的 App ID + Access Token。空值按 API Key。 */
     public static final String AUTH_API_KEY = "api_key";
     public static final String AUTH_LEGACY = "legacy";
-    /** 豆包的两个流式接口，与共享设置页 `DOUBAO_STREAM_ENDPOINTS` 一致。 */
-    public static final String DOUBAO_NOSTREAM = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream";
-    public static final String DOUBAO_ASYNC = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async";
-
-    /** 设置页可选的服务，按显示顺序。 */
-    public static final String[] PROVIDERS = {
-        SYSTEM, LOCAL, DoubaoAsrPolicy.PROVIDER, "siliconflow", "openai", "groq", "everyapi", "mistral", "bailian",
-    };
-    private static final String[] LABELS = {
-        "系统识别", "本地模型", "豆包", "SiliconFlow", "OpenAI", "Groq", "EveryAPI", "Mistral · Voxtral", "阿里云百炼 · 千问",
-    };
-
     private VoiceProviderPolicy() {}
-
-    /** 显示名；不认识的 id 原样显示。 */
-    public static String label(String provider) {
-        if (provider == null || provider.isEmpty()) return LABELS[0];
-        for (int index = 0; index < PROVIDERS.length; index++) {
-            if (PROVIDERS[index].equals(provider)) return LABELS[index];
-        }
-        return provider;
-    }
 
     /** 要联网、要密钥的服务：除系统识别和本地模型以外的全部。 */
     public static boolean network(String provider) {
@@ -86,14 +65,6 @@ public final class VoiceProviderPolicy {
         String scheme = streaming ? "wss://" : "https://";
         if (TextPolicy.validAuthority(value, scheme, AiPolishConfiguration.MAX_ENDPOINT_LENGTH)) return null;
         return streaming ? "豆包的接口地址要以 wss:// 开头" : "接口地址要以 https:// 开头，且不能带用户名或密码";
-    }
-
-    /** 豆包识别接口的显示名：两个预设各有名字，留空按共享默认（双向流式），其余是自定义地址。 */
-    public static String doubaoEndpointLabel(String endpoint) {
-        String value = endpoint == null ? "" : endpoint.trim();
-        if (value.equals(DOUBAO_NOSTREAM)) return "整句流式";
-        if (value.isEmpty() || value.equals(DOUBAO_ASYNC)) return "双向流式";
-        return "自定义地址";
     }
 
     /**

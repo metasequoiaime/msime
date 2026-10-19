@@ -391,6 +391,9 @@ public final class NativeClient {
         return TextPolicy.utf8(mobileVoiceConfigurationRaw(utf8(directory)));
     }
 
+    /** 共享语音服务与豆包流式接口目录；纯计算，不读写偏好、不联网。 */
+    public static String voiceProviderCatalog() { return TextPolicy.utf8(voiceProviderCatalogRaw()); }
+
     /**
      * The user's own pinyin dictionary words as recognition hotwords: `{"options": HostOptions, "limit": n}` in, `{"hotwords":[{"text","pinyin"}]}` out. Reads the dictionary store, so call on a worker.
      */
@@ -937,6 +940,7 @@ public final class NativeClient {
     private static native byte[] setPrivateSessionRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
+    private static native byte[] voiceProviderCatalogRaw();
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
     private static native byte[] resetCacheRaw(long session);
     private static native void releaseProcessCacheRaw();

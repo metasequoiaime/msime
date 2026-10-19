@@ -13,12 +13,36 @@ pub struct VoiceProviderPreset {
     pub documentation: &'static str,
 }
 
+/// 豆包流式识别的公开接口选项；短名称用于设置行，完整名称用于选择器。
+#[derive(Debug, Serialize)]
+pub struct DoubaoStreamEndpointPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub title: &'static str,
+    pub endpoint: &'static str,
+}
+
+pub const DOUBAO_STREAM_ENDPOINTS: &[DoubaoStreamEndpointPreset] = &[
+    DoubaoStreamEndpointPreset {
+        id: "nostream",
+        label: "整句流式",
+        title: "整句流式（准确率更高）",
+        endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
+    },
+    DoubaoStreamEndpointPreset {
+        id: "async",
+        label: "双向流式",
+        title: "双向流式（增量结果）",
+        endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+    },
+];
+
 /// 设置页的识别服务，顺序与现有下拉框一致。
 pub const ASR_PROVIDERS: &[VoiceProviderPreset] = &[
     VoiceProviderPreset {
         id: "doubao",
         title: "豆包",
-        endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+        endpoint: DOUBAO_STREAM_ENDPOINTS[1].endpoint,
         model: "",
         models: &[],
         documentation: "https://www.volcengine.com/docs/6561/1354869",
