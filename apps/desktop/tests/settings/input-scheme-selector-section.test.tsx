@@ -18,7 +18,7 @@ test("renders the selector in a row, forwards radio changes and honors hidden st
   expect(onChange).toHaveBeenCalledWith("shuangpin");
 
   rerender(<InputSchemeSelectorSection hidden value="quanpin" onChange={onChange} />);
-  expect(screen.getByText("输入方案").closest("div")?.hasAttribute("hidden")).toBe(true);
+  expect(screen.getByText("中文方案").closest("div")?.hasAttribute("hidden")).toBe(true);
 });
 
 const allSchemes = [

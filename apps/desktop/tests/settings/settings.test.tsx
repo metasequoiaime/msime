@@ -7197,8 +7197,8 @@ const referenceSections: {
     page: "input",
     button: "输入设置",
     titles: [
-      "输入模式",
-      "输入方案",
+      "输入语言",
+      "中文方案",
       "双拼方案",
       "五笔方案",
       "日语方案",
@@ -8004,8 +8004,8 @@ test.each(optionHosts)(
     ]);
     const present = sectionTitles(input);
     const expected = [
-      "输入模式",
-      "输入方案",
+      "输入语言",
+      "中文方案",
       "双拼方案",
       // 双拼方案只在双拼下显示，五笔方案只在五笔下显示，日语只有一个方案、只在日语下显示，但都仍在页面里。
       "五笔方案",
@@ -8020,8 +8020,7 @@ test.each(optionHosts)(
       "拼音方案调频",
     ];
     const ordered = present.filter((text) => expected.includes(text));
-    // 输入方案 has a touch variant and a desktop variant; only one is ever shown, but both can be in
-    // the tree, so collapse a repeat rather than reading it as a move.
+    // 同名设置可能因宿主分支保留在树中，核对顺序前先合并相邻重复项。
     const collapsed = ordered.filter((title, index) => title !== ordered[index - 1]);
     expect(collapsed).toEqual(expected);
   },
@@ -9586,7 +9585,9 @@ test.each([
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   await screen.findByRole("radio", { name: label });
-  fireEvent.click(screen.getByRole("radio", { name: "日文" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "输入语言" }), {
+    target: { value: "japanese" },
+  });
   expect(screen.queryByRole("radio", { name: label })).toBeNull();
   // 日语只有一个方案，用一行说明代替只有一项的选择器。
   const romaji = () => screen.getByText(/^罗马音：/);
@@ -9599,9 +9600,11 @@ test.each([
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
-  await screen.findByRole("radio", { name: "中文" });
+  await screen.findByRole("combobox", { name: "输入语言" });
   expect(romaji().closest("[hidden]")).toBeNull();
-  fireEvent.click(screen.getByRole("radio", { name: "中文" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "输入语言" }), {
+    target: { value: "chinese" },
+  });
   expect((screen.getByRole("radio", { name: label }) as HTMLInputElement).checked).toBe(true);
   expect(romaji().closest("[hidden]")).not.toBeNull();
 });

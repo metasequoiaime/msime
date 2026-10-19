@@ -138,7 +138,9 @@ test("picking 日文 saves the scheme at once and downloads the Japanese diction
   await screen.findByRole("switch", { name: /^临时日语/ });
   await screen.findByRole("button", { name: "下载日文词库" });
 
-  fireEvent.click(within(schemeGroup()).getByRole("radio", { name: "日文" }));
+  fireEvent.change(within(schemeGroup()).getByRole("combobox", { name: "输入语言" }), {
+    target: { value: "japanese" },
+  });
   expect(packs.client.install).toHaveBeenCalledTimes(1);
   expect(packs.client.install).toHaveBeenCalledWith("japanese");
   // 下载还在进行，方案已经保存，运行时在词库到位前自行回退。
@@ -243,7 +245,9 @@ test("a host that bundles the dictionaries never downloads them", async () => {
   await settingsFormReady();
   await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
   fireEvent.click(within(schemeGroup()).getByRole("radio", { name: "粤拼" }));
-  fireEvent.click(within(schemeGroup()).getByRole("radio", { name: "日文" }));
+  fireEvent.change(within(schemeGroup()).getByRole("combobox", { name: "输入语言" }), {
+    target: { value: "japanese" },
+  });
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
