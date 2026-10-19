@@ -57,6 +57,9 @@ For an AI assistant:
   skin.toml key, its range and which hosts draw it, under create_candidate_skin.
   Its image_files maps each image path in skin.toml to the absolute path of a
   file on this computer, which is only read, instead of base64 in images.
+  publish_candidate_skin shares an installed skin with the skin community,
+  public or private, using the account the settings app signed in to; the
+  server never signs in or asks for a password itself.
 
 Flags:
   --options <path>         The runtime-options document the input method reads
