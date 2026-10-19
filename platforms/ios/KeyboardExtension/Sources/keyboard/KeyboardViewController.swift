@@ -525,12 +525,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 手机竖屏键盘：`keyboardHeight()`。
   static var defaultKeyboardHeight: CGFloat { keyboardHeight() }
 
-  /// `onlineRoute` is whether the shared document picks a translation service at all; without one a language that needs the network can never be filled.
-  /// `offline` is the language codes whose offline gloss dictionary is installed.
-  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool, onlineRoute: Bool,
+  /// 离线词典可直接填充释义；仅在启用了在线服务且确实需要网络时读取系统完全访问权限。
+  /// `offline` 是已安装离线释义词典的语言代码，`onlineRoute` 表示已选择翻译服务。
+  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: @autoclosure () -> Bool, onlineRoute: Bool,
                            offline: Set<String> = []) -> Bool {
     !CandidateTranslationPreference.needsNetwork(language, offline: offline)
-      || (CandidateTranslationPreference.onlineEnabled && fullAccess && onlineRoute)
+      || (CandidateTranslationPreference.onlineEnabled && onlineRoute && fullAccess())
   }
 
   static func configuredGlossLines(fullAccess: Bool, onlineRoute: Bool, offline: Set<String> = []) -> Int {
