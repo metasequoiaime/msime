@@ -1793,6 +1793,42 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(shift.accessibilityValue, "关闭")
   }
 
+  func testNineKeyPressFeedbackDoesNotOutlastHighlight() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .nineKey
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 414, height: 320))
+    let controller = KeyboardViewController()
+    window.rootViewController = controller
+    window.isHidden = false
+    defer { window.isHidden = true }
+    controller.loadViewIfNeeded()
+    controller.view.layoutIfNeeded()
+    for digit in 1...9 {
+      let key = try XCTUnwrap(try button("nineKey\(digit)", in: controller) as? KeyboardKeyButton)
+      XCTAssertFalse(key.animatesPressFeedback)
+      key.configuration?.background.backgroundColor = .white
+      let center = key.center
+      let bounds = key.bounds
+      for _ in 0..<3 {
+        key.isHighlighted = true
+        XCTAssertNil(key.layer.animation(forKey: "transform"))
+        let shade = try XCTUnwrap(key.layer.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
+        XCTAssertEqual(shade.opacity, Float(KeyboardKeyButton.keyPressShade))
+        XCTAssertNil(shade.animation(forKey: "opacity"))
+        key.isHighlighted = false
+        XCTAssertTrue(key.transform.isIdentity)
+        XCTAssertNil(key.layer.animation(forKey: "transform"))
+        XCTAssertEqual(shade.opacity, 0)
+        XCTAssertNil(shade.animation(forKey: "opacity"))
+        XCTAssertEqual(key.center, center)
+        XCTAssertEqual(key.bounds, bounds)
+      }
+    }
+    // 其他按钮仍保留原有反馈时序。
+    XCTAssertTrue(try XCTUnwrap(try button("spaceKey", in: controller) as? KeyboardKeyButton).animatesPressFeedback)
+  }
+
   func testPressFeedbackPreservesLayoutAndResetsAfterInterruption() {
     let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 414, height: 260))
     let controller = UIViewController()

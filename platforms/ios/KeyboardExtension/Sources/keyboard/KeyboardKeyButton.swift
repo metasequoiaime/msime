@@ -69,6 +69,9 @@ final class KeyboardKeyButton: UIButton {
     }
   }
 
+  /// 连续输入的九键关闭过渡，其他按钮保留原有动画。
+  var animatesPressFeedback = true
+
   static let keyPressScale: CGFloat = 0.96
   /// 以这个透明度叠在底色上的黑色，看起来就是设计稿的 `brightness(.86)`。
   static let keyPressShade: CGFloat = 0.14
@@ -116,7 +119,7 @@ final class KeyboardKeyButton: UIButton {
       scale = 1
       shade = pressed ? 1 - value : 0
     }
-    let duration = KeyPressMotion.duration(for: pressFeedback)
+    let duration = animatesPressFeedback ? KeyPressMotion.duration(for: pressFeedback) : 0
     KeyPressMotion.animate(self, scale: scale, duration: duration)
     setPressShade(shade, duration: duration)
     if let opacity {
@@ -143,6 +146,10 @@ final class KeyboardKeyButton: UIButton {
       layoutPressShade()
     }
     CATransaction.begin()
+    if duration == 0 {
+      CATransaction.setDisableActions(true)
+      shade.removeAnimation(forKey: "opacity")
+    }
     CATransaction.setAnimationDuration(duration)
     CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .linear))
     shade.opacity = Float(value)
@@ -507,6 +514,11 @@ enum KeyPressMotion {
       return
     }
     let target = scale == 1 ? CGAffineTransform.identity : CGAffineTransform(scaleX: scale, y: scale)
+    if duration == 0 {
+      view.layer.removeAnimation(forKey: "transform")
+      UIView.performWithoutAnimation { view.transform = target }
+      return
+    }
     guard view.transform != target else { return }
     UIView.animate(withDuration: duration, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState, .curveLinear]) {
       view.transform = target

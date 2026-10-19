@@ -1463,6 +1463,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           else if letters == nil && self.inputScheme != .nineKeyShuangpin { self.showNineKeyQuickSymbols() }
           else { self.handleCharacter(String(digit)) }
         }
+        // 连续输入时，按压状态直接跟随手指，不在抬指后继续缩放。
+        (button as? KeyboardKeyButton)?.animatesPressFeedback = false
         button.accessibilityIdentifier = "nineKey\(digit)"
         if var configuration = button.configuration {
           configuration.contentInsets = .zero
