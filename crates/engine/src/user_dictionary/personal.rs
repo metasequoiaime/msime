@@ -205,7 +205,7 @@ pub fn edit_personal_dictionary_with(
 /// 一批最多 128 项，和跨进程个人词库队列的活动请求上限一致。
 pub const MAX_EDIT_BATCH: usize = 128;
 /// 集合直达 Engine 的专用追加导入上限；普通编辑仍使用 128 项。
-pub const MAX_COLLECTION_IMPORT_BATCH: usize = 2048;
+pub const MAX_COLLECTION_IMPORT_BATCH: usize = 4096;
 
 /// 一次编辑的借用参数；请求回执格式与单项入口相同。
 #[derive(Clone, Copy)]

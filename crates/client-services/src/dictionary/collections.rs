@@ -45,7 +45,7 @@ const MAX_VALUE_BYTES: usize = 1024;
 /// 个人词库队列同时接受的未完成请求数（`personal.rs` 的 `MAX_ACTIVE_REQUESTS`），也是一批最多送出的条数。
 const PERSONAL_QUEUE_CAPACITY: usize = 128;
 /// 直达 Engine 的单次有界事务上限；个人队列仍保持 128 项。
-pub const ENGINE_BATCH_CAPACITY: usize = 2048;
+pub const ENGINE_BATCH_CAPACITY: usize = 4096;
 const MAX_INDEX_BYTES: u64 = 1024 * 1024;
 const MAX_COLLECTION_BYTES: u64 = 48 * 1024 * 1024;
 const MAX_OUTBOX_BYTES: u64 = 96 * 1024 * 1024;
