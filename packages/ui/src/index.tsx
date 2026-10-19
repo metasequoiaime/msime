@@ -1952,6 +1952,12 @@ export {
   type SettingsFeaturePagesProps,
 } from "./settings/settings-feature-pages";
 
+export {
+  CandidateFontSettingsRows,
+  type CandidateFontSettingsRowsPreferences,
+  type CandidateFontSettingsRowsProps,
+} from "./settings/candidate-font-settings-rows";
+
 export { useVoicePanel, type VoicePanelState } from "./keyboard/use-voice-panel";
 
 export { useHandwritingPanel, type HandwritingPanelState } from "./keyboard/use-handwriting-panel";
