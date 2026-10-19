@@ -16,6 +16,8 @@ Status: implemented
 - iOS（`HelpcodeSettingsView`，规则在 `HelpcodeChoicePolicy.swift`，与 Android 的同名类逐条对应）：「输入 › 辅助码 › 更多辅助码设置」里双拼、全拼两组各有「导入辅助码表…」（SwiftUI `fileImporter`，放行 `.plainText`、`.text` 和 `.data`），导入成功后选中到发起导入的那一组（发起的方案存在 `importScheme`，与选择器的开关 `importing` 分开：SwiftUI 在调用 `fileImporter` 的完成回调之前先把 `isPresented` 置为 false，第一版用 `Binding(get: { importTarget != nil }, set: { … importTarget = nil })` 当开关，回调里读到的永远是 nil，双拼组的导入被选进了全拼）；两组的「辅助码方案」在七个内置方案之后列出导入的包，「已导入的码表」一节左滑删除。「输入」页的「辅助码方案」行用同一套规则列出和选择。读文件用 `BoundedFileReader` 先按字节限 1 MiB，再 `String(data:encoding: .utf8)` 严格解码，解码失败不调用。`state_root` 是 App Group 下的 `MSIME` 目录（`MetasequoiaInputSessionBridge.sharedStateDirectory`），键盘的 `preferences_directory` 就是它；桥接层的 `MetasequoiaInputSessionBridge.plugins` 保留失败回答里的 `detail`，现有的 `decodeResponse` 只留失败码。`appEditedKeys` 加上整个 `plugins` 对象：iOS 键盘自己不写 `plugins` 的任何键，文档里的就是准的；交给活着的会话后，会话空闲时用新选择重建 Engine，聚焦时 `refresh_plugin_tables` 再按包目录的戳换表。
 - HarmonyOS 的后续入口见[鸿蒙单表导入](2026-10-16-harmony-helpcode-table-import.md)，该决定取代本篇原先因独立沙箱暂缓鸿蒙的安排。[共享沙箱镜像](../../implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md)已经覆盖偏好与插件目录；共享输入页在宿主提供导入能力时显示系统选择器入口，仍依赖签名授权，模拟器不能证明跨沙箱生效。Android、iOS 与本篇的 Rust 单表导入契约不变。
 
+Android 设备夹具复用已校验的只读资源，在合成目录内复制一份拼音主库作为独立工作库；用户目录、缓存与偏好也保持独立。它不再把安装产品的可写工作库与合成用户目录配对，避免与活跃输入法争抢维护锁。副本使用 `File.toPath` 和 `Files.copy`，兼容 API 28，随夹具目录清理。
+
 ## Alternatives considered
 
 - **同时取消预分配容量上限** — 直接按文件长度预估全部条目可减少大表增长次数；但 1 MiB 注释加一条数据也会预分配约二十万条，移动端会为不存在的数据占用内存。三万只作为初始容量，不作为接受条件。
@@ -23,6 +25,8 @@ Status: implemented
 - **复制进资源目录的 `helpcodes/custom/`，选 `custom/<stem>`** — 与桌面手工放文件的路径完全一致，Engine 已经会读，规则也宽松（后出现的行覆盖前面的，码截到两个字母），用户在桌面能用的表在手机上一定能用，这是它最强的理由。不用它：iOS 的资源目录是只读的 app bundle，鸿蒙每个进程各自暂存一份资源，Android 的资源目录由 `Bootstrap.prepare` 在安装包变化后管理；而插件目录是设置进程和键盘都看得见的那一份，有跨进程锁、原子换入，坏表在导入时就拒绝而不是在键盘里静默截断。代价是与桌面 `custom/` 的宽松规则不一致，桌面能用的表在手机上可能被拒，报错里因此写明文件名、原因和行号。
 - **扩展 `import` 接受 `.txt` 路径** — 少一个 action，宿主像导入文件夹一样传路径。不用它：移动端选到的是 content URI（Android）或 security-scoped URL（iOS），传路径就得先在宿主里复制一份到可读的位置，再让核心再复制一遍；正文放进 JSON 只读一次，严格解码也留在宿主，GBK 表能在调用前就给出「不是 UTF-8」而不是被替换字符变成「等号左边必须恰好是一个字」。
 - **在系统临时目录（`tempfile::tempdir()`）暂存** — 写法最短。不用它：Android 应用没有可写的 `TMPDIR`，`env::temp_dir()` 落到 `/data/local/tmp`，应用写不进去；暂存在 `root` 下用 `.staging-` 前缀，中断留下的目录还能被下一次导入按一小时规则清掉。
+
+- **在辅助码用例前临时停用输入法**：可以避免复制主库，耗时较少；但会改变设备全局状态并依赖恢复顺序，仍保留合成用户目录与产品工作库混用的前提。测试夹具采用完整隔离，产品维护锁的规则不变。
 
 ## Consequences
 
@@ -40,3 +44,7 @@ Status: implemented
 - `cargo test -p msime-host-api --lib plugins`：`plugins_boundary_imports_a_helpcode_table_the_session_then_reads` 导入后把 `plugins.helpcode_pack_shuangpin` 设成返回的 id，会话里「你」的码被替换；坏表返回 `{ok:false,error:"plugin_invalid",detail}`。
 - `bash platforms/android/check-host.sh` 编译并运行 `tests/home/HelpcodeChoicePolicySmoke.java`。
 - iOS：`MSIMEClientTests` 里的 `HelpcodeChoicePolicyTests` 覆盖选包只写这一份的包键且保留按键音包、选内置方案清包、没选包时不碰 `plugins`、删除清掉两份选择、「未找到」项、目录过滤、严格解码和失败提示；`HelpcodeSettingsTests.testImportedTableReachesTheLiveSessionAndRemovalFallsBack` 用合成码表导入后让已打开的会话 `reloadSharedPreferences`，Shift Y 的首选从自然码的「识」变成表里的「是」，删除后退回「识」。去掉 `appEditedKeys` 里的 `plugins` 时这一条失败。`scripts/test-ios-file-importer-target.py` 要求 `platforms/ios` 下每个 `fileImporter`/`fileExporter` 的 `isPresented` 都是单纯的 `$` 状态，并要求辅助码页按 `importScheme` 导入；第一版的写法让它失败。单元测试直接调静态的 `importTable(_:into:)`，走不到选择器回调，这一处只有这条源码检查守着，还没有在模拟器里真的选一个文件走完双拼组的导入。改了文件读写，按 AGENTS.md 合并前还要在 API 28（`--core`）和 35 模拟器上跑 `smoke.sh` 并手工导入、选用、删除一次码表。
+
+Android 整套冒烟在「载入码表到 Engine」处复现 `dictionary maintenance busy`，原因是旧夹具仍引用产品可写工作库。只改成空目录会得到空候选，必须从只读资源复制主库；首轮误用 `Path.of` 被 API 28 实测拒绝，现用 `File.toPath`。最终测试 APK 在 API 28、35 均通过十万条导入、目录重载、末行候选过滤与删除，API 35 保留 `--no-restart`，没有通过重启产品回避锁竞争。该夹具修正在[三万行词库容量](../bug-fix/2026-10-19-dictionary-collection-capacity.md)验收时发现，不改变辅助码产品行为。
+
+辅助码夹具后续分支以 `e4252f4499` 为基线重新构建测试 APK，复用设备上已验证的原生 release 产品；API 28、35 的同一专项再次通过（API 35 继续附着运行）。该分支 quick（`20261019-220541`）通过，按改动范围实际检查 Rust 工作区、Android 目标、Java 宿主与 Apple bridge，其余平台跳过；笔记校验在本机单独通过。没有重跑完整产品 APK 吞吐测量或将此前失败的整套界面冒烟记为通过。

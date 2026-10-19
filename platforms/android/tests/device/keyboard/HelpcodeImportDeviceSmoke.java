@@ -51,8 +51,12 @@ public final class HelpcodeImportDeviceSmoke extends Instrumentation {
             preferences.put("scheme", "quanpin").put("learning", false).put("cloud_candidates", false)
                 .put("quanpin_helpcode", new JSONObject().put("enabled", true).put("schema", "ziranma"))
                 .put("plugins", new JSONObject().put("helpcode_pack_quanpin", id));
+            stage = "prepare isolated working dictionary";
+            Path dictionaries = Files.createDirectories(root.resolve("dictionaries"));
+            Files.copy(new File(installed.getString("resources"), "msime-pinyin.db").toPath(),
+                dictionaries.resolve("msime-pinyin.db"));
             JSONObject options = new JSONObject().put("api_version", 1).put("resources", installed.getString("resources"))
-                .put("dictionaries", installed.getString("dictionaries"))
+                .put("dictionaries", dictionaries.toString())
                 .put("user_data", Files.createDirectories(root.resolve("user")).toString())
                 .put("cache", Files.createDirectories(root.resolve("cache")).toString())
                 .put("preferences_directory", root.resolve("state").toString()).put("preferences", preferences);

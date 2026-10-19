@@ -42,4 +42,4 @@ Windows 的截图工具渲染的也是这批包，这是它们放在共享 crate
 
 Android 交叉编译的测试程序带着构建主机的 `CARGO_MANIFEST_DIR`，设备没有那个源码目录。2026-10-19 的 API 28/35 整套 services 回归因此有 13 个图库用例找不到夹具。该容量分支最初由设备 runner 复制图库，再通过 `MSIME_CANDIDATE_SKIN_FIXTURES` 传入测试路径。合入 `develop` 的[社区画布资源实现](../feature/2026-10-19-community-canvas-resources.md)后，沿用上游的 `include_bytes!` 嵌入夹具并写入临时目录；移除重复复制和环境变量约定。测试程序自带素材，不再要求 runner 同步图库，也不依赖设备上存在构建机路径；图库用例全部保留。
 
-补齐夹具后，API 28、35 的 services 整套单测均为 1151 项通过、9 项忽略、4 项按既有硬链接规则过滤；本图库的 13 项全部执行通过。这是原路径传递实现的设备证据；本次合并结果的验证记录在 [PR #8824](https://github.com/metasequoiaime/msime/pull/8824)。
+容量分支补入当时 `develop` 后，API 28、35 的 services 整套单测均为 1167 项通过、9 项忽略、4 项按既有硬链接规则过滤；图库 15 项实际执行通过。此结果包含社区画布扩展后的用例，详见[容量验证记录](../bug-fix/2026-10-19-dictionary-collection-capacity.md)。

@@ -27,17 +27,17 @@ Status: implemented
 
 ## Verification
 
-宿主 services 单测 1198 项通过、1 项忽略；host-api 的 8 MiB 细胞词库容量回归通过，断言使用共享集合上限而非旧的 20000。两包全部 targets 的严格 Clippy 通过。
+初始容量切片的宿主 services 单测 1198 项通过、1 项忽略；host-api 的 8 MiB 细胞词库容量回归通过，断言使用共享集合上限而非旧的 20000。两包全部 targets 的严格 Clippy 通过。
 
-API 28、35 专用 AVD 均在默认 shell 身份下运行 client-base/core/providers/services 整套单测，分别为 36、419、224、1152 项通过；硬链接等平台不支持用例沿用既有跳过规则。33555 条合成 Rime 导入、重载尾部和 50000 容量边界在设备执行通过。顺带修正[图库夹具定位](../testing/2026-10-19-candidate-skin-gallery-fixtures.md)，13 项真实图库测试在两设备执行通过，没有扩大跳过范围。
+API 28、35 专用 AVD 均在默认 shell 身份下运行 client-base/core/providers/services 整套单测，分别为 36、425、224、1167 项通过；硬链接等平台不支持用例沿用既有跳过规则。33555 条合成 Rime 导入、重载尾部和 50000 容量边界在设备执行通过。合并最新 `develop` 时沿用[社区画布资源](../feature/2026-10-19-community-canvas-resources.md)已有的 `include_bytes!` 图库夹具，不再另设设备路径环境变量和复制步骤；它同样解决构建机源码路径在设备上不存在的问题。图库用例实际执行，不扩大跳过范围。
 
-API 28、35 均安装含本次原生库的 arm64 APK，从 `DictionaryCollectionsStore.importFile` 导入 33555 行合成 Rime 词，报告未截断且无失败；经 JNI 重新加载集合，再核对磁盘计数及末行的编码、内容和权重。原有 74 词全部应用、第六词进入九键候选、活跃会话的繁忙队列保留及关闭后的重试仍通过。普通容量阶段验证完整导入及落盘重载；显式传入 `measure_capacity=true` 时继续同步到全部写入，并核对 SQLite 总数。两 API 的显式完整写入测量分别为 95140 / 78664 ms、248 轮、最慢同步 1067 / 887 ms，均实际应用 33555 词。这是同机先后运行两版模拟器、全部词共用 `ni hao` 编码且该表无索引的空合成主库与原生 release APK 压力测量（构建日志确认 Rust `release` 优化），不代表正式词库或真实手机，也未达到每秒万行。不能将这组测量与不同运行负载下的旧测量直接比较为提速。
+API 28、35 均安装含本次原生库的 arm64 APK，从 `DictionaryCollectionsStore.importFile` 导入 33555 行合成 Rime 词，报告未截断且无失败；经 JNI 重新加载集合，再核对磁盘计数及末行的编码、内容和权重。原有 74 词全部应用、第六词进入九键候选、活跃会话的繁忙队列保留及关闭后的重试仍通过。普通容量阶段验证完整导入及落盘重载；显式传入 `measure_capacity=true` 时继续同步到全部写入，并核对 SQLite 总数。合并最新 `develop` 前，两 API 的显式完整写入测量分别为 95140 / 78664 ms、248 轮、最慢同步 1067 / 887 ms，均实际应用 33555 词。这是同机先后运行两版模拟器、全部词共用 `ni hao` 编码且该表无索引的空合成主库与原生 release APK 压力测量（构建日志确认 Rust `release` 优化），不代表正式词库或真实手机，也未达到每秒万行。不能将这组测量与不同运行负载下的旧测量直接比较为提速。
 
 macOS 调试构建、空合成主库加索引、33555 词实际全部导入并写入引擎的显式测量：263 轮、70266 ms，最慢同步 129 ms。10 秒进程采样的大量调用落在集合 `read_state` 和 `write_outbox`，证明仍有全量集合/待发文件的重复工作；这是调试构建及副盘上的单次测量，不能外推为手机或发布版吞吐，也没有达到每秒万行。首次测量的 `collections_io` 来自远端系统盘耗尽，未产生吞吐结果；改用副盘的测试临时目录后才完成上述测量。
 
-本轮 API 28 的 `smoke.sh --core` 在剪贴板全文导出「完整 Unicode 快照及顺序」断言失败，后续套件未运行；不计整套通过。没有修改产品或放宽断言，独立复跑 `clipboard-export.sh` 的 select/verify 两阶段均通过，失败原因尚未确定。API 35 的普通 `smoke.sh` 在剪贴板导出选择器的授权确认阶段找不到合成控件，后续套件未运行，同样不计整套通过。词库导入和排序专项在两 API 独立完成，不受该全套结果替代。
+合并后的 API 28 `smoke.sh --core` 在剪贴板全文导出的真实键盘面板阶段找不到合成控件，后续套件未运行；不计整套通过。合并前一次在 Unicode 快照/顺序断言失败，未改产品或放宽断言，独立复跑 select/verify 两阶段均通过，原因仍待确认。合并后的 API 35 已通过剪贴板导出两阶段，随后辅助码用例复用产品工作库而遇到维护锁繁忙；[辅助码夹具](../feature/2026-10-12-mobile-helpcode-table-import.md)现从只读资源复制独立工作库，两 API 的十万条导入专项均通过。整套冒烟后续用例未补为全绿；词库导入与排序专项在两 API 独立完成。
 
-最终源码 quick（`20261019-211452`）和格式检查通过：Rust 工作区、Android/WebAssembly 目标、Java 宿主、Linux 设置壳与原生 90 项、macOS 原生编译和 Apple bridge 均通过。Windows 本机可运行 169 项通过；MinGW/pipe 与 HarmonyOS 原生打包因缺工具或暂存环境跳过，不计通过。笔记在本机另行验证。
+容量分支补入当时 `develop` 后的 quick（`20261019-215350`）和格式检查通过：Rust 工作区、Android/WebAssembly 目标、Java 宿主、Linux 设置壳与原生 92 项、macOS 原生编译和 Apple bridge 均通过。Windows 本机可运行 170 项通过；MinGW/pipe 与 HarmonyOS 原生打包因缺工具或暂存环境跳过，不计通过。笔记在本机另行验证。
 
 ## Consequences
 
