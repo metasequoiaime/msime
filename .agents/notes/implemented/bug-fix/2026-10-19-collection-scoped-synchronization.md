@@ -55,3 +55,5 @@ Status: implemented
 
 集合保留已有词条的回执恢复语义见[保留已有词条的导入回执](2026-10-20-preserved-import-receipts.md)。
 
+集合待发项的直达批次见[集合待发项直达 Engine 有界批次](2026-10-20-collection-engine-batch-delivery.md)；本篇原有作用域锁和预算契约仍适用。
+

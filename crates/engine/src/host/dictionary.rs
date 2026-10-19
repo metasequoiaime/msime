@@ -165,6 +165,18 @@ pub fn dictionary_edit_batch(
     ))
 }
 
+/// 集合直达导入的专用批量入口，使用更大的有界事务；普通编辑仍限制为 128 项。
+pub fn dictionary_edit_collection_batch(
+    options: &EngineOptions,
+    edits: &[DictionaryEdit<'_>],
+) -> Result<Vec<Result<DictionaryApplied>>> {
+    released(personal::edit_personal_dictionary_collection_batch_with(
+        &runtime_paths(options),
+        main_dictionary(options),
+        edits,
+    ))
+}
+
 /// Refuses to reset the packaged bundle in place and needs both packaged dictionaries. 方案集合不读 `msime-pinyin.db` 时只需要、也只换回 `msime-english.db`。
 pub fn reset_learned_data(options: &EngineOptions) -> Result<()> {
     released(reset::reset_learned_data_with(

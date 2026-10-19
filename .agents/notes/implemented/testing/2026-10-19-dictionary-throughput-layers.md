@@ -33,8 +33,12 @@ Host API 增加显式运行、默认忽略的分层吞吐测量。在相同的�
 
 五万词夹具已跳过 Unicode 代理区，构造有效标量且保留 33555 词规模的既有值。一次补跑曾复用修改前的旧二进制而在代理区崩溃，不计通过；上述两轮来自明确重编后的源码。严格 Clippy 与本机格式、差异、笔记门禁通过。远端 quick `20261020-001716` 通过，覆盖 Rust workspace、Android 与 WebAssembly 检查、Android host Java、Linux 设置壳与原生 92 项测试、macOS 原生编译及 Apple bridge；缺少 MinGW、Windows pipe、HarmonyOS staged 资源和 pnpm 的阶段按脚本跳过。
 
+随后加入集合直达 Engine 的专用 2048 项入口后，33555 词完整 scoped 测量为 9 轮、4155 ms（导入 414 ms、同步 3741 ms、最长同步 2025 ms），约 8074 词/秒。它仍在同一未隔离宿主负载下运行，尚未达到每秒万行；直达实现的恢复边界与版本迁移仍需提案中的后续工作。
+
 ## Consequences
 
 分层测试只使用合成值，不读取报告附件或用户词库。空主库、固定编码与索引、宿主负载均影响结果，不能外推为正式词库或真机承诺。忽略的测量必须显式运行并记录结果；代码本身不是性能目标已经达到的证据。
 
 下一步交付边界的恢复约束见[稳定集合意图提案](../../proposed/bug-fix/2026-10-19-durable-collection-delivery.md)；该篇仍为提案，不改变这里已实现的产品契约。
+
+集合直达实现及其回退语义见[集合待发项直达 Engine 有界批次](../bug-fix/2026-10-20-collection-engine-batch-delivery.md)。

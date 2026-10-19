@@ -204,6 +204,8 @@ pub fn edit_personal_dictionary_with(
 
 /// 一批最多 128 项，和跨进程个人词库队列的活动请求上限一致。
 pub const MAX_EDIT_BATCH: usize = 128;
+/// 集合直达 Engine 的专用追加导入上限；普通编辑仍使用 128 项。
+pub const MAX_COLLECTION_IMPORT_BATCH: usize = 2048;
 
 /// 一次编辑的借用参数；请求回执格式与单项入口相同。
 #[derive(Clone, Copy)]
@@ -233,7 +235,30 @@ pub fn edit_personal_dictionary_batch_with(
     main_dictionary: bool,
     edits: &[PersonalDictionaryEdit<'_>],
 ) -> Result<Vec<Result<PersonalDictionaryApplied>>> {
-    if edits.len() > MAX_EDIT_BATCH {
+    edit_personal_dictionary_batch_with_limit(paths, main_dictionary, edits, MAX_EDIT_BATCH)
+}
+
+/// 集合导入使用的专用批量入口，不改变普通编辑的 128 项上限。
+pub fn edit_personal_dictionary_collection_batch_with(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    edits: &[PersonalDictionaryEdit<'_>],
+) -> Result<Vec<Result<PersonalDictionaryApplied>>> {
+    edit_personal_dictionary_batch_with_limit(
+        paths,
+        main_dictionary,
+        edits,
+        MAX_COLLECTION_IMPORT_BATCH,
+    )
+}
+
+fn edit_personal_dictionary_batch_with_limit(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    edits: &[PersonalDictionaryEdit<'_>],
+    max_batch: usize,
+) -> Result<Vec<Result<PersonalDictionaryApplied>>> {
+    if edits.len() > max_batch {
         return Err(failed("Personal dictionary edit batch is too large"));
     }
     if edits.is_empty() {
