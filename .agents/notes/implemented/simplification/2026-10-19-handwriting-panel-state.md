@@ -25,3 +25,5 @@ Status: implemented
 ## Consequences
 
 抽取期间最容易遗漏 JSX 使用的回调或把 effect 依赖改掉；通过保留现有行为测试、补充 hook 契约检查和完整 quick 验证降低风险。
+
+本片把手写模型提示从面板主体中继续拆成独立组件，组件的下载状态与镜像编辑契约见[手写模型下载提示组件](./2026-10-19-handwriting-model-notice.md)。
