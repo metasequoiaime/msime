@@ -170,6 +170,83 @@ double wrapped_height(msimeui::DeviceResources &device, const std::wstring &text
   return std::ceil(measured_width(device, text, family, size, fallback) / width) *
          static_cast<double>(size) * 1.25;
 }
+// 四个角各用自己圆角的矩形，依次是左上、右上、右下、左下，皮肤 `item_corners_follow_card` 的高亮用它。每个半径不超过短边的一半；建不出几何时为空，调用方退回普通圆角矩形。
+Microsoft::WRL::ComPtr<ID2D1PathGeometry>
+corner_rect_geometry(ID2D1RenderTarget *target, const D2D1_RECT_F &rect,
+                     const std::array<double, 4> &radii) {
+  const float width = rect.right - rect.left, height = rect.bottom - rect.top;
+  Microsoft::WRL::ComPtr<ID2D1Factory> factory;
+  target->GetFactory(&factory);
+  Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
+  Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
+  if (!(width > 0.0f) || !(height > 0.0f) || !factory ||
+      FAILED(factory->CreatePathGeometry(geometry.GetAddressOf())) ||
+      FAILED(geometry->Open(sink.GetAddressOf())))
+    return nullptr;
+  const float limit = (std::min)(width, height) * 0.5f;
+  auto radius = [limit](double value) {
+    return (std::max)(0.0f, (std::min)(static_cast<float>(value), limit));
+  };
+  const float top_left = radius(radii[0]), top_right = radius(radii[1]),
+              bottom_right = radius(radii[2]), bottom_left = radius(radii[3]);
+  auto arc = [&sink](float x, float y, float r) {
+    if (r > 0.0f)
+      sink->AddArc(D2D1_ARC_SEGMENT{D2D1_POINT_2F{x, y}, D2D1_SIZE_F{r, r}, 0.0f,
+                                    D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL});
+  };
+  sink->BeginFigure(D2D1_POINT_2F{rect.left + top_left, rect.top}, D2D1_FIGURE_BEGIN_FILLED);
+  sink->AddLine(D2D1_POINT_2F{rect.right - top_right, rect.top});
+  arc(rect.right, rect.top + top_right, top_right);
+  sink->AddLine(D2D1_POINT_2F{rect.right, rect.bottom - bottom_right});
+  arc(rect.right - bottom_right, rect.bottom, bottom_right);
+  sink->AddLine(D2D1_POINT_2F{rect.left + bottom_left, rect.bottom});
+  arc(rect.left, rect.bottom - bottom_left, bottom_left);
+  sink->AddLine(D2D1_POINT_2F{rect.left, rect.top + top_left});
+  arc(rect.left + top_left, rect.top, top_left);
+  sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+  if (FAILED(sink->Close()))
+    return nullptr;
+  return geometry;
+}
+// 列表翻页箭头的实心三角，尖朝前一页（左）或后一页（右），在 box 里居中，高 glyph_size、宽为高的 0.84 倍；三个角沿两条边各切掉 roundness 再用曲线连起来，整个是一块填充，半透明（不可用）时也看不到叠出来的深色。照 msime-windows PagerArrows.cpp 的 RenderTriangle。
+Microsoft::WRL::ComPtr<ID2D1PathGeometry>
+rounded_triangle_geometry(ID2D1RenderTarget *target, const D2D1_RECT_F &box,
+                          bool previous, float glyph_size, float roundness) {
+  Microsoft::WRL::ComPtr<ID2D1Factory> factory;
+  target->GetFactory(&factory);
+  Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
+  Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
+  if (!factory || FAILED(factory->CreatePathGeometry(geometry.GetAddressOf())) ||
+      FAILED(geometry->Open(sink.GetAddressOf())))
+    return nullptr;
+  const float height = (std::min)(glyph_size, box.bottom - box.top);
+  const float width = height * 0.84f;
+  const float cx = (box.left + box.right) * 0.5f, cy = (box.top + box.bottom) * 0.5f;
+  const float tip_x = previous ? cx - width * 0.5f : cx + width * 0.5f;
+  const float base_x = previous ? cx + width * 0.5f : cx - width * 0.5f;
+  const D2D1_POINT_2F corners[3] = {D2D1_POINT_2F{tip_x, cy},
+                                    D2D1_POINT_2F{base_x, cy - height * 0.5f},
+                                    D2D1_POINT_2F{base_x, cy + height * 0.5f}};
+  // 不超过最短边的一半，相邻两处切口不会交叉。
+  const float radius = (std::max)(0.0f, (std::min)(roundness, height * 0.5f));
+  auto toward = [radius](D2D1_POINT_2F from, D2D1_POINT_2F to) {
+    const float dx = to.x - from.x, dy = to.y - from.y;
+    const float length = std::sqrt(dx * dx + dy * dy);
+    const float t = length > 0.0f ? radius / length : 0.0f;
+    return D2D1_POINT_2F{from.x + dx * t, from.y + dy * t};
+  };
+  sink->BeginFigure(toward(corners[0], corners[1]), D2D1_FIGURE_BEGIN_FILLED);
+  for (int i = 1; i <= 3; ++i) {
+    const D2D1_POINT_2F corner = corners[i % 3];
+    sink->AddLine(toward(corner, corners[i - 1]));
+    sink->AddQuadraticBezier(
+        D2D1_QUADRATIC_BEZIER_SEGMENT{corner, toward(corner, corners[(i + 1) % 3])});
+  }
+  sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+  if (FAILED(sink->Close()))
+    return nullptr;
+  return geometry;
+}
 struct Painting {
   HWND window;
   PAINTSTRUCT state{};
@@ -477,6 +554,10 @@ void CandidateWindow::set_skin_font_family(const std::string &family) {
   apply_font_chain();
   invalidate_geometry();
 }
+void CandidateWindow::set_skin_layout(const CandidateSkinLayout &layout) {
+  skin_layout_ = layout;
+  invalidate_geometry();
+}
 void CandidateWindow::set_layout(CandidateLayoutSettings settings) {
   if (horizontal_ == settings.horizontal && show_preedit_ == settings.show_preedit &&
       wubi_code_hint_ == settings.wubi_code_hint &&
@@ -509,6 +590,7 @@ void CandidateWindow::invalidate_geometry() {
   pressed_.reset();
   pressed_page_.reset();
   hovered_.reset();
+  hovered_page_.reset();
   wheel_accumulator_ = 0;
   tallest_ = 0;
   if (window_)
@@ -527,6 +609,7 @@ void CandidateWindow::hide_now() {
   pressed_.reset();
   pressed_page_.reset();
   hovered_.reset();
+  hovered_page_.reset();
   wheel_accumulator_ = 0;
   // 提示是候选窗拥有的弹出窗口，候选窗隐藏时它不会跟着消失，正开着的提示要收起来。
   if (tooltip_)
@@ -893,6 +976,8 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   input.skin_min_width = skin_min_width_;
   input.logo_visible = show_app_logo_;
   input.reserved_secondary_lines = reserved_secondary_lines(value);
+  input.skin = candidate_skin_metrics(skin_layout_, horizontal_, font_size_);
+  input.number_width = number_label_width(value.candidates.size(), input.skin);
   if (horizontal_)
     input.reserved_secondary_height =
         reserved_secondary_height(input.reserved_secondary_lines);
@@ -979,6 +1064,20 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
                      candidate_secondary_lines(candidate)});
   }
   return items;
+}
+double CandidateWindow::number_label_width(size_t count,
+                                           const CandidateSkinMetrics &skin) {
+  if (!skin.number_inset && !skin.fit_content && !(skin.page_arrows && !skin.horizontal))
+    return 0.0;
+  const auto size = static_cast<float>(
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_, show_app_logo_,
+                             false, skin)
+          .number_font);
+  double widest = 0.0;
+  for (size_t number = 1; number <= (std::min)(count, size_t{9}); ++number)
+    widest = (std::max)(widest, measured_width(device_, std::to_wstring(number), font_family_,
+                                               size, font_fallback_.Get()));
+  return widest;
 }
 size_t CandidateWindow::reserved_secondary_lines(
     const CandidatePresentation &value) const {
@@ -1140,9 +1239,11 @@ void CandidateWindow::paint() {
   // name the Direct2D declaration picked up for this target.
   // 首行高度取决于有没有 logo 和翻页，必须和 card_bounds 量尺寸时一样算，行的位置和点击区域才对得上。
   const auto label = pager_label(*value);
-  const auto metrics = candidate_card_metrics(font_size_, preedit_font_size_,
-                                              show_preedit_, show_app_logo_,
-                                              !label.empty());
+  // 皮肤的版式也和 card_bounds 一样解析，同一个序号宽度。
+  const auto skin = candidate_skin_metrics(skin_layout_, horizontal_, font_size_);
+  const auto metrics = candidate_card_metrics(
+      font_size_, preedit_font_size_, show_preedit_, show_app_logo_, !label.empty(), skin,
+      number_label_width(value->candidates.size(), skin));
   const auto size = target->GetSize();
   const auto frame = candidate_shadow_frame(
       size.width -
@@ -1215,7 +1316,9 @@ void CandidateWindow::paint() {
     set_candidate_font_fallback(value, font_fallback_.Get());
     return value;
   };
-  const float inset = palette_.border_width / 2.0f;
+  // 皮肤与用户偏好的先后，和颜色、字体的叠法一样：用户在设置里真正能改的项由用户说了算，其余的由皮肤包决定，皮肤没写的回到调色板。卡片圆角是用户的 candidate_corner_radius，其次皮肤的 corner_radius_dip，再次调色板；高亮圆角是皮肤的 item_corner_radius_dip 或调色板的，用户设了卡片圆角时仍被它封顶（candidate_row_radius）；外框线宽、阴影档位、材质和版式 Windows 上没有用户偏好，皮肤直接决定；用户的不透明度照常淡化卡片底色、背景图和外框。
+  const float border_width = skin_layout_.border_width.value_or(palette_.border_width);
+  const float inset = border_width / 2.0f;
   // Candidate labels and annotations take a package's `candidate_text`; the pager, toolbar, keymap and menus keep `text`.
   const CandidateColor text_color = palette_.candidate_text.value_or(palette_.text);
   target->BeginDraw();
@@ -1238,18 +1341,24 @@ void CandidateWindow::paint() {
       static_cast<float>(frame.card_top) + inset,
       static_cast<float>(frame.card_left + frame.card_width) - inset,
       static_cast<float>(frame.card_top + frame.card_height) - inset};
-  // The Fluent flyout shadow, 0 8px 16px: a 16px CSS blur is a Gaussian of sigma 8.
+  // The Fluent flyout shadow, 0 8px 16px: a 16px CSS blur is a Gaussian of sigma 8. 皮肤的 shadow 档位只缩放它的不透明度，`none` 时不画。
+  const float shadow_alpha = candidate_skin_shadow_alpha(skin_layout_.shadow, palette_.shadow_alpha);
   const WindowShadowPass shadow_passes[] = {
-      {8.0f, palette_.shadow_alpha, 0.0f, 8.0f},
+      {8.0f, shadow_alpha, 0.0f, 8.0f},
   };
   // The user's radius, else the package's, else the theme's.
   const float radius = candidate_card_radius(style_, skin_radius_, palette_.radius);
-  const float row_radius = candidate_row_radius(style_, palette_.item_radius, radius);
-  draw_window_shadow_passes(target, card_rect, radius, shadow_passes,
-                            std::size(shadow_passes));
+  const float row_radius = candidate_row_radius(
+      style_, skin_layout_.item_corner_radius.value_or(palette_.item_radius), radius);
+  // 透明度为 0 的一层画不出来时，draw_window_shadow_passes 会退回一层兜底阴影，所以 `none` 直接跳过。
+  if (shadow_alpha > 0.0f)
+    draw_window_shadow_passes(target, card_rect, radius, shadow_passes,
+                              std::size(shadow_passes));
   const D2D1_ROUNDED_RECT card{card_rect, radius, radius};
-  // The user's opacity fades the card itself - surface, package background and border - and nothing drawn on it, so the text stays as legible as the theme made it.
-  target->FillRoundedRectangle(card, brush(candidate_faded(palette_.surface, style_)));
+  // The user's opacity fades the card itself - surface, package background and border - and nothing drawn on it, so the text stays as legible as the theme made it. 要系统材质的皮肤在这里先把底色补成不透明（candidate_skin_surface_alpha）。
+  auto surface = palette_.surface;
+  surface.a = candidate_skin_surface_alpha(skin_layout_.backdrop, surface.a);
+  target->FillRoundedRectangle(card, brush(candidate_faded(surface, style_)));
   const float background_opacity = background_.opacity * style_.opacity();
   const uint64_t effect_elapsed = GetTickCount64() - effect_started_;
   const float flash = effect_flashing_ ? typing_effect_flash_alpha(effect_, effect_settings_.intensity, effect_elapsed, effect_settings_.flash_millis) : 0.0f;
@@ -1277,8 +1386,10 @@ void CandidateWindow::paint() {
       target->PopLayer();
     }
   }
-  target->DrawRoundedRectangle(card, brush(candidate_faded(palette_.border, style_)),
-                               palette_.border_width);
+  // 皮肤写 `border_width_dip = 0` 就是不要外框，不交给 Direct2D 去画一条 0 宽的线。
+  if (border_width > 0.0f)
+    target->DrawRoundedRectangle(card, brush(candidate_faded(palette_.border, style_)),
+                                 border_width);
   // The typing flash: a faint accent wash over the surface, under the text, and an accent outline that grows with the style. Both fade with the flash. An effect pack's first colour takes the accent's place.
   if (flash > 0.0f) {
     const auto flash_color = effect_settings_.color ? candidate_rgb(*effect_settings_.color) : palette_.accent;
@@ -1289,7 +1400,7 @@ void CandidateWindow::paint() {
     auto outline = flash_color;
     outline.a = typing_effect_quantized_alpha(flash);
     target->DrawRoundedRectangle(card, brush(outline),
-                                 palette_.border_width + static_cast<float>(static_cast<uint32_t>(effect_.style)));
+                                 border_width + static_cast<float>(static_cast<uint32_t>(effect_.style)));
   }
   // The mascot, drawn last so it sits over the card's top edge - that overlap
   // is the whole point of the decoration.
@@ -1323,12 +1434,15 @@ void CandidateWindow::paint() {
             metrics.logo_side * layout_scale(GetDpiForWindow(window_))))))
       target->DrawBitmap(logo, box(candidate_logo_bounds(metrics)), 1.0f,
                          D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-  const std::optional<CandidatePagerLayout> pager = candidate_pager_layout(
-      frame.card_width,
-      measured_width(device_, label, font_family_,
-                     static_cast<float>(metrics.pager_font),
-                     font_fallback_.Get()),
-      metrics);
+  // 皮肤打开 `page_arrows` 时首行不画翻页，箭头在候选画完之后画进列表（candidate_list_arrows_layout）。
+  const std::optional<CandidatePagerLayout> pager =
+      metrics.list_arrows ? std::nullopt
+                          : candidate_pager_layout(
+                                frame.card_width,
+                                measured_width(device_, label, font_family_,
+                                               static_cast<float>(metrics.pager_font),
+                                               font_fallback_.Get()),
+                                metrics);
   if (pager) {
     target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
                       format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_TRAILING),
@@ -1345,14 +1459,16 @@ void CandidateWindow::paint() {
                       format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_CENTER),
                       box(pager->next), brush(palette_.number));
   }
+  // 拼音占首行里 logo 之后、翻页之前的那一段，再按皮肤的 preedit_margin_dip 往里收。
+  const auto band = candidate_header_band(metrics);
   const D2D1_RECT_F preedit_rect{
       static_cast<float>(frame.card_left + candidate_preedit_left(metrics)),
-      static_cast<float>(frame.card_top + metrics.pad_y),
+      static_cast<float>(frame.card_top + band.top),
       static_cast<float>(frame.card_left +
                          (pager ? pager->left - metrics.pager_gap
-                                : frame.card_width - metrics.pad_x / 2.0)),
-      static_cast<float>(frame.card_top) +
-          static_cast<float>(metrics.pad_y + metrics.preedit_row)};
+                                : frame.card_width - metrics.pad_x / 2.0 -
+                                      metrics.preedit_margin.right)),
+      static_cast<float>(frame.card_top) + static_cast<float>(band.bottom)};
   // The combo count, right-aligned at the end of the preedit row before the pager. Drawn only where it fits beside the reading, so it never covers what the user is typing.
   if (!effect_badge_elsewhere_ && typing_effect_shows_combo(effect_.combo, effect_elapsed)) {
     const auto combo = L"\u00D7" + std::to_wstring(effect_.combo);
@@ -1405,7 +1521,7 @@ void CandidateWindow::paint() {
           DWRITE_FONT_WEIGHT_SEMI_BOLD);
       const float x = rect.left + static_cast<float>(offset);
       // A hairline rather than a filled block, so it does not obscure the character it sits before.
-      const float inset_y = static_cast<float>(metrics.preedit_row) * 0.15f;
+      const float inset_y = static_cast<float>(band.height) * 0.15f;
       // A caret past the clipped preedit is not drawn, so it cannot land on the pager.
       if (x <= rect.right)
         target->FillRectangle(
@@ -1426,6 +1542,11 @@ void CandidateWindow::paint() {
       candidate_reserved_row_height(metrics, reserved_lines,
                                     reserved_secondary_height(reserved_lines)));
   const float first_line = static_cast<float>(metrics.candidate_row);
+  // 皮肤 `item_corners_follow_card`：高亮落在列表四角上的角跟卡片同圆角。msime-windows 以外圆角大于 0 作为开关，卡片是直角时也取一个极小值，免得贴角的高亮退回普通圆角、从直角外框里探出来。
+  const auto rows_area = metrics.corners_follow_card
+                             ? candidate_rows_area(frame.card_width, rows, metrics)
+                             : std::nullopt;
+  const double outer_radius = (std::max)(static_cast<double>(radius), 0.01);
   for (size_t i = 0; i < count; ++i) {
     const auto &row = rows[i].bounds;
     const auto &item = rows[i].item;
@@ -1453,17 +1574,32 @@ void CandidateWindow::paint() {
         fill_color.a *= typing_effect_quantized_alpha(0.45f + 0.55f * eased);
       }
       const D2D1_ROUNDED_RECT selection{fill, row_radius, row_radius};
-      target->FillRoundedRectangle(selection, brush(fill_color));
+      Microsoft::WRL::ComPtr<ID2D1PathGeometry> cornered;
+      if (rows_area)
+        cornered = corner_rect_geometry(
+            target, fill,
+            candidate_row_corner_radii(row, *rows_area, metrics.preedit_row <= 0.0,
+                                       row_radius, outer_radius));
+      if (cornered)
+        target->FillGeometry(cornered.Get(), brush(fill_color));
+      else
+        target->FillRoundedRectangle(selection, brush(fill_color));
       if (moving && active_animation_ == CandidateSkinAnimationPreset::glow) {
         auto glow = palette_.accent;
         glow.a = typing_effect_quantized_alpha(0.65f * (1.0f - eased));
-        target->DrawRoundedRectangle(selection, brush(glow), 2.0f);
+        if (cornered)
+          target->DrawGeometry(cornered.Get(), brush(glow), 2.0f);
+        else
+          target->DrawRoundedRectangle(selection, brush(glow), 2.0f);
       }
       if (value->candidates[i].highlighted && palette_.show_selected_bar) {
+        // 竖条的宽、高和位置可以由皮肤改（selected_bar_width、selected_bar_height_em、selected_bar_inside）。
         const auto extent = candidate_selection_bar(
-            rect.left, rect.top, rect.bottom, metrics.candidate_row);
+            rect.left, rect.top, rect.bottom, metrics.candidate_row,
+            metrics.selection_bar_width, metrics.selection_bar_height,
+            metrics.selection_bar_inside);
         const float bar_radius =
-            static_cast<float>(candidate_selection_bar_width * 0.5);
+            static_cast<float>(metrics.selection_bar_width * 0.5);
         const D2D1_ROUNDED_RECT bar{{static_cast<float>(extent.left),
                                      static_cast<float>(extent.top),
                                      static_cast<float>(extent.right),
@@ -1484,12 +1620,18 @@ void CandidateWindow::paint() {
             ? number_color
             : candidate_row_text_color(palette_, text_color, selected,
                                        value->candidates[i].fixed_position != 0);
+    // 序号默认在自己那一栏里右对齐；皮肤写了 number_inset 时从行左缘 number_inset 处左对齐，到候选文字之前为止。number_scale 让序号字号小到画不出（0）时就不画。
     const auto number_label = std::to_wstring(i + 1);
-    target->DrawText(number_label.c_str(), static_cast<UINT32>(number_label.size()),
-                      format(font_size_, DWRITE_TEXT_ALIGNMENT_TRAILING),
-                      D2D1_RECT_F{rect.left, rect.top, rect.left + number,
-                                  rect.top + first_line},
-                      brush(number_color));
+    if (metrics.number_font >= 1.0)
+      target->DrawText(
+          number_label.c_str(), static_cast<UINT32>(number_label.size()),
+          format(metrics.number_font, metrics.number_inset ? DWRITE_TEXT_ALIGNMENT_LEADING
+                                                           : DWRITE_TEXT_ALIGNMENT_TRAILING),
+          metrics.number_inset
+              ? D2D1_RECT_F{rect.left + static_cast<float>(*metrics.number_inset), rect.top,
+                            rect.left + gutter, rect.top + first_line}
+              : D2D1_RECT_F{rect.left, rect.top, rect.left + number, rect.top + first_line},
+          brush(number_color));
     const auto text = wide(candidate_primary_text(value->candidates[i]));
     // Text wider than its column was laid out wrapped (wrapped_height() at this same width), and the row already grew by that height, so it wraps here inside the row that hit testing uses. Text that fits keeps the single-line format, so rounding cannot wrap what was laid out as one line. Still clipped to the row as a guard: without it anything the layout did not account for would paint past the card edge onto the transparent shadow margin.
     target->DrawText(
@@ -1574,6 +1716,50 @@ void CandidateWindow::paint() {
     if (!underlined)
       draw_run(secondary, item.translation, metrics.translation_font, translation_color);
   }
+  // 皮肤 `page_arrows`：两枚翻页箭头画在列表里，按 msime-windows 的 PagerArrows。chevron 是序号色的折线，triangle 是候选文字色的实心三角、横排时前面一条 page_arrow_divider 色的竖线；悬停时铺 hover 底色，按下时铺 selected（透明时仍是 hover）。上一页在第一页上变暗、不响应，下一页一直可用，和首行的翻页同一条规则。
+  const auto list_pager = candidate_list_arrows_layout(frame.card_width, rows, metrics);
+  if (list_pager && metrics.list_arrows) {
+    const auto &arrows = *metrics.list_arrows;
+    if (arrows.divider_width > 0.0 && palette_.page_arrow_divider) {
+      const auto &previous = list_pager->previous;
+      target->FillRectangle(box({previous.left - arrows.divider_gap - arrows.divider_width,
+                                 previous.top, previous.left - arrows.divider_gap,
+                                 previous.bottom}),
+                            brush(*palette_.page_arrow_divider));
+    }
+    const CandidateColor glyph = arrows.triangle ? text_color : palette_.number;
+    const float button_radius = arrows.triangle ? row_radius : (std::min)(3.0f, row_radius);
+    for (const bool previous : {true, false}) {
+      const D2D1_RECT_F part = box(previous ? list_pager->previous : list_pager->next);
+      const bool enabled = !previous || value->page > 0;
+      if (enabled && (pressed_page_ == previous || hovered_page_ == previous)) {
+        const auto fill = pressed_page_ == previous && palette_.selected.a > 0.001f
+                              ? palette_.selected
+                              : palette_.hover;
+        target->FillRoundedRectangle(D2D1_ROUNDED_RECT{part, button_radius, button_radius},
+                                     brush(fill));
+      }
+      auto color = glyph;
+      if (!enabled)
+        color.a *= arrows.triangle ? 0.25f : 0.3f;
+      if (arrows.triangle) {
+        if (const auto shape = rounded_triangle_geometry(
+                target, part, previous, static_cast<float>(arrows.glyph_size),
+                static_cast<float>(arrows.stroke)))
+          target->FillGeometry(shape.Get(), brush(color));
+        continue;
+      }
+      // 高是宽两倍的折线：前一页「<」，后一页「>」。
+      const float half = (std::min)(static_cast<float>(arrows.glyph_size), part.bottom - part.top) * 0.5f;
+      const float depth = (std::min)(static_cast<float>(arrows.glyph_width()), half * 0.55f);
+      const float cx = (part.left + part.right) * 0.5f, cy = (part.top + part.bottom) * 0.5f;
+      const float tip = previous ? cx - depth * 0.5f : cx + depth * 0.5f;
+      const float tail = previous ? cx + depth * 0.5f : cx - depth * 0.5f;
+      const float stroke = static_cast<float>(arrows.stroke);
+      target->DrawLine(D2D1_POINT_2F{tail, cy - half}, D2D1_POINT_2F{tip, cy}, brush(color), stroke);
+      target->DrawLine(D2D1_POINT_2F{tip, cy}, D2D1_POINT_2F{tail, cy + half}, brush(color), stroke);
+    }
+  }
   target->SetTransform(D2D1::Matrix3x2F::Identity());
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.
@@ -1597,7 +1783,7 @@ void CandidateWindow::paint() {
     throw std::runtime_error("Candidate presentation failed");
   painted_ = value;
   painted_rows_ = std::move(rows);
-  painted_pager_ = pager;
+  painted_pager_ = pager ? pager : list_pager;
   painted_dpi_ = GetDpiForWindow(window_);
   sync_tooltips();
   if (accessible_)
@@ -1809,6 +1995,9 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                              ? std::nullopt
                              : self->hit(static_cast<short>(LOWORD(lparam)),
                                          static_cast<short>(HIWORD(lparam)));
+        // 列表里的翻页箭头按下时铺按下底色，要重画。
+        if (self->pressed_page_ && self->painted_pager_ && self->painted_pager_->in_list)
+          InvalidateRect(window, nullptr, FALSE);
         if (self->pressed_ || self->pressed_page_) {
           SetCapture(window);
           TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
@@ -1833,6 +2022,13 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
             if (self->painted_->candidates[i].index == click->index) hovered = i;
         }
         if (hovered != self->hovered_) { self->hovered_ = hovered; InvalidateRect(window, nullptr, FALSE); }
+        // 只有列表里的翻页箭头画悬停底色；首行的翻页照旧不画。
+        const auto hovered_page =
+            self->painted_pager_ && self->painted_pager_->in_list ? arrow : std::nullopt;
+        if (hovered_page != self->hovered_page_) {
+          self->hovered_page_ = hovered_page;
+          InvalidateRect(window, nullptr, FALSE);
+        }
         return 0;
       }
       case WM_LBUTTONUP: {
@@ -1846,6 +2042,9 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         self->pressed_page_.reset();
         if (GetCapture() == window) ReleaseCapture();
         if (pressed_page) {
+          // 收起按下底色；翻了页也会重画，没翻页（松开时已离开箭头）也要重画。
+          if (self->painted_pager_ && self->painted_pager_->in_list)
+            InvalidateRect(window, nullptr, FALSE);
           // One page per click, in the direction of the arrow the press started on. The painted page's identity goes with it, so the Server refuses a click on a page that has since changed.
           if (self->pager_hit(static_cast<short>(LOWORD(lparam)),
                               static_cast<short>(HIWORD(lparam))) ==
@@ -1882,9 +2081,12 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
       case WM_CAPTURECHANGED:
       case WM_MOUSELEAVE:
         if (GetCapture() == window) ReleaseCapture();
+        if (self->hovered_page_ || self->pressed_page_)
+          InvalidateRect(window, nullptr, FALSE);
         self->pressed_.reset();
         self->pressed_page_.reset();
         self->hovered_.reset();
+        self->hovered_page_.reset();
         SetCursor(LoadCursorW(nullptr, wide_cursor(IDC_ARROW)));
         return 0;
       case WM_NOTIFY: {
@@ -1942,6 +2144,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         self->pressed_.reset();
         self->pressed_page_.reset();
         self->hovered_.reset();
+        self->hovered_page_.reset();
         return message == WM_POWERBROADCAST ? TRUE : 0;
       case WM_PAINT:
         self->paint();

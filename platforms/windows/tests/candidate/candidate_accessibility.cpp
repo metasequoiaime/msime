@@ -164,6 +164,24 @@ int main() {
     const auto short_rows = candidate_accessible_tree(value, rows, pager, metrics, true, frame,
                                                       true, true, "水杉输入法");
     require(!accessible_element(short_rows, 3));
+    // 皮肤 `page_arrows` 把翻页画进列表：两个箭头照常报告、照常可执行，但列表里没有页码，不报告页码；拼音一直到右边距。
+    value.candidates.pop_back();
+    value.preedit = "ni hao";
+    value.page = 1;
+    CandidateSkinMetrics skin;
+    skin.page_arrows = true;
+    const auto listed_metrics = candidate_card_metrics(16.0, 16.0, true, true, true, skin);
+    const auto listed = candidate_list_arrows_layout(240.0, rows, listed_metrics);
+    require(listed && listed->in_list);
+    const auto listed_tree = candidate_accessible_tree(value, rows, listed, listed_metrics, true,
+                                                       frame, true, true, "水杉输入法");
+    require(!accessible_element(listed_tree, candidate_accessible_page));
+    require(element(listed_tree, candidate_accessible_previous).invokable &&
+            element(listed_tree, candidate_accessible_next).invokable);
+    require(element(listed_tree, candidate_accessible_next).bounds.top ==
+            (20.0 + listed->next.top) * 1.5);
+    require(element(listed_tree, candidate_accessible_preedit).bounds.right ==
+            (8.0 + 240.0 - listed_metrics.pad_x / 2.0) * 1.5);
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

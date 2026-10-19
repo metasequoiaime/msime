@@ -1543,6 +1543,7 @@ int wmain(int argc, wchar_t **argv) {
       candidates.set_skin_decoration(assets.decoration);
       candidates.set_skin_background(assets.background);
       candidates.set_skin_corner_radius(assets.corner_radius);
+      candidates.set_skin_layout(assets.layout);
       candidates.set_skin_font_family(assets.font_family);
       candidates.set_skin_animation(assets.animation);
       notice_canvas_skin(theme.candidate_skin, assets);
@@ -2180,6 +2181,7 @@ int wmain(int argc, wchar_t **argv) {
             candidates.set_skin_decoration(assets.decoration);
             candidates.set_skin_background(assets.background);
             candidates.set_skin_corner_radius(assets.corner_radius);
+            candidates.set_skin_layout(assets.layout);
             candidates.set_skin_font_family(assets.font_family);
             candidates.set_skin_animation(assets.animation);
             notice_canvas_skin(theme.candidate_skin, assets);
