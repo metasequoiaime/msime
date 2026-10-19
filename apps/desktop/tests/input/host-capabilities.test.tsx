@@ -110,7 +110,7 @@ test("a touch host that can name the editor's application gets the mode scope co
   await screen.findByLabelText("中英文状态");
   cleanup();
   mount({ host: capabilities({ platform: "android", ime_mode_scope: false }) });
-  await screen.findByLabelText("输入模式");
+  await screen.findByLabelText("输入语言");
   expect(screen.queryByLabelText("中英文状态")).toBeNull();
 });
 
