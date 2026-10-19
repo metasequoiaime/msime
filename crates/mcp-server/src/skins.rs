@@ -37,8 +37,7 @@ pub struct SkinView {
     pub themes: Vec<String>,
     /// 清单基底是否为 `canvas`：仅此时读取九宫格、自由挂件和边距。Web engine 与 macOS、Windows、iOS、Android、HarmonyOS 原生候选窗通过各自图片解码器绘制贴图，尚无对应绘制能力的宿主（目前是 Linux）使用不透明的可读回退。
     pub canvas: bool,
-    /// 不阻止加载的提示，例如非 canvas 基底上忽略的专用字段，或需要宿主绘制能力的 canvas 贴图；没有提示时省略。
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// 不阻止加载的提示，例如非 canvas 基底上忽略的专用字段，或需要宿主绘制能力的 canvas 贴图；没有提示时是空列表。始终输出：输出 schema 把它列为必填，省略会让按 schema 校验结构化结果的客户端（如 Claude Code）拒绝整个列表。
     pub notices: Vec<String>,
     /// 有限的 schema v2 动效契约。版本 1 皮肤报告为 `none` 预设。
     pub animation: SkinAnimationView,
@@ -259,6 +258,26 @@ mod tests {
             images: BTreeMap::from([("preview.png".into(), PNG.into())]),
             replace,
         }
+    }
+
+    #[test]
+    fn every_field_the_output_schema_requires_is_in_the_listing() {
+        let state = tempfile::tempdir().unwrap();
+        create(state.path(), &request("sunset", "Sunset", false)).unwrap();
+        let listed = serde_json::to_value(list(state.path())).unwrap();
+        let skin = &listed["skins"][0];
+        let schema = serde_json::to_value(rmcp::schemars::schema_for!(SkinView)).unwrap();
+        let required = schema["required"]
+            .as_array()
+            .expect("SkinView has required fields");
+        for field in required {
+            let field = field.as_str().unwrap();
+            assert!(
+                skin.get(field).is_some(),
+                "the output schema requires {field}, but the listing left it out: {skin}"
+            );
+        }
+        assert_eq!(skin["notices"], serde_json::json!([]));
     }
 
     #[test]

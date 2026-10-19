@@ -104,7 +104,7 @@ export const destructive = "rounded-lg border border-danger bg-danger px-3 py-[7
 
 export const backdrop = "fixed inset-0 z-20 grid place-items-center overflow-auto bg-black/45 p-6";
 export const dialog =
-  "flex max-h-[calc(100vh-48px)] w-[min(620px,100%)] flex-col gap-3.5 overflow-auto rounded-[14px] border border-edge-strong bg-raised p-5 text-body shadow-[0_18px_60px_rgba(0,0,0,0.28)]";
+  "settings-modal-surface flex max-h-[calc(100vh-48px)] w-[min(620px,100%)] flex-col gap-3.5 overflow-auto rounded-[14px] border border-edge-strong bg-raised p-5 text-body shadow-[0_18px_60px_rgba(0,0,0,0.28)]";
 export const dialogHeading = "flex items-center justify-between gap-3";
 export const dialogTitle = "m-0 text-lg text-body";
 export const dialogClose =
