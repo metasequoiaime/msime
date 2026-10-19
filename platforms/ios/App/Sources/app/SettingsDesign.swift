@@ -64,7 +64,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .ai: return ["标点", "联想", "英文", "空格"]
     case .phrases: return ["短语", "快捷回复"]
     case .dictionary: return ["词库", "自造词", "学习"]
-    case .layout: return ["键盘", "高度", "间距", "按键音", "振动"]
+    case .layout: return ["键盘", "高度", "间距", "按键音", "振动", "AI", "润色", "回复模板", "端点", "模型", "提示词"]
     case .voice: return ["语音", "识别"]
     case .handwriting: return ["手写"]
     case .developer: return ["日志", "诊断", "重置"]

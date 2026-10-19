@@ -639,6 +639,22 @@ final class OnboardingUITests: XCTestCase {
     entry.tap()
   }
 
+  /// 搜索嵌套功能时找到承载它的键盘页，再沿真实入口进入 AI 设置。
+  @MainActor
+  func testAISettingsCanBeFoundFromSearch() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    let search = app.descendants(matching: .any)["settingsSearchField"]
+    XCTAssertTrue(search.waitForExistence(timeout: 5))
+    search.tap()
+    search.typeText("AI")
+    XCTAssertTrue(app.buttons["keyboardLayoutLink"].waitForExistence(timeout: 5))
+    openAISettings(app)
+    XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.textFields["serviceEndpoint"].exists)
+  }
+
   @MainActor
   func testChatIsSecondaryAndReturnsToSettings() {
     continueAfterFailure = false

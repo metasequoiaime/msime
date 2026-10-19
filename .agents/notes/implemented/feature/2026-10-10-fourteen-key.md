@@ -180,5 +180,5 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 ### iOS 键盘设置预览验收
 
 - 在 iPhone 17、iOS 27.0.1 上用 iphone-use 重现「14 键设置、26 键预览」，安装修复后的签名 Release 包，核对 14 键的 5／5／4 个字母键与分词、删除；结束后恢复原有九键。
-- iOS 27.1 模拟器的 `testChineseKeyboardOffersTwentySixFourteenAndNineKeys` 通过，逐档核对标签与返回重进的持久化，并导出、逐张核对 14／9／26 键实际渲染图。前置引导用例切到九键后单独运行，避免上一批五笔用例留下的非拼音布局触发跳过。
+- iOS 27.0 模拟器的 `testChineseKeyboardOffersTwentySixFourteenAndNineKeys` 通过，逐档核对标签与返回重进的持久化，并导出、逐张核对 14／9／26 键实际渲染图。前置引导用例切到九键后单独运行，避免上一批五笔用例留下的非拼音布局触发跳过。
 - 模拟器 `build-for-testing` 与真机签名 Release 构建通过；工程成员改用已有分组后重新构建，未再出现重复 `PBXGroup` 警告。`scripts/test-fourteen-key-table.py`、本地 quick 门禁、笔记门禁和 `git diff --check` 通过。
