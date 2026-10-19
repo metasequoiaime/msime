@@ -304,6 +304,9 @@ impl InputSession {
 
     /// input_session_composition.cpp:714-748, with the selected row's scheme deciding the native-wubi branch.
     pub(super) fn selection_completes_composition(&self, selected: &WordItem) -> bool {
+        if let Some(consumed) = self.literal_candidate_consumed(selected) {
+            return consumed == self.raw_with_cases().len();
+        }
         // Japanese, Korean and native wubi selections always finish: their advancement never continues.
         if self.engine.current_scheme_type().selection_completes()
             || selected.scheme == SchemeType::Wubi
@@ -566,6 +569,9 @@ impl InputSession {
 
     /// input_session_composition.cpp:417-449.
     pub(super) fn pinyin_segmentation_with_cases(&self) -> Cow<'_, str> {
+        if self.has_literal_capitals() {
+            return Cow::Borrowed(self.raw_with_cases());
+        }
         let request = self.engine.request();
         match self.engine.current_scheme_type() {
             SchemeType::Wubi => Cow::Borrowed(&request.raw_input),

@@ -17,6 +17,7 @@ static BOOL MSIMEIsAllowedDescriptorURL(NSURL *url) {
     NSURLSessionDataTask *_task;
     NSMutableData *_body;
     void (^_completion)(NSData *);
+    NSData *_cachedResponse;
     BOOL _started;
     BOOL _accepted;
     NSURLRequest *_translationRequest;
@@ -33,6 +34,45 @@ static BOOL MSIMEIsAllowedDescriptorURL(NSURL *url) {
         // NSURLSession has no separate connect budget, so the total is what can be honoured here;
         // the connect half of the shared pair is a subset of it.
         _timeout = MSIME_CLOUD_REQUEST_TIMEOUT_MS / 1000.0;
+    }
+    return self;
+}
+- (instancetype)initWithCloudDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
+                            completion:(void (^)(NSData *))completion {
+    self = [self initWithURL:nil configuration:configuration completion:completion];
+    if (!self) return nil;
+    if (![descriptor isKindOfClass:NSDictionary.class]) return self;
+    NSString *address = descriptor[@"url"];
+    NSString *method = descriptor[@"method"];
+    NSNumber *timeout = descriptor[@"timeout_ms"];
+    NSDictionary *headers = descriptor[@"headers"];
+    NSString *payload = descriptor[@"body_utf8"];
+    if (![address isKindOfClass:NSString.class] || [address lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 4096 ||
+        [address containsString:@"\\"] || [address rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound ||
+        ![@[@"GET", @"POST"] containsObject:method] || ![timeout isKindOfClass:NSNumber.class] ||
+        timeout.doubleValue < 100 || timeout.doubleValue > 10000 ||
+        ![descriptor[@"max_response_bytes"] isEqual:@262144] || ![headers isKindOfClass:NSDictionary.class] ||
+        headers.count > 18 || ![payload isKindOfClass:NSString.class] ||
+        [payload lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 8192) return self;
+    NSURL *url = [NSURL URLWithString:address];
+    if (!MSIMEIsAllowedDescriptorURL(url) || !url.host.length || url.user || url.password || url.fragment) return self;
+    for (id name in headers) {
+        id value = headers[name];
+        if (![name isKindOfClass:NSString.class] || ![value isKindOfClass:NSString.class] ||
+            [name rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound ||
+            [value rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) return self;
+    }
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = method;
+    request.allHTTPHeaderFields = headers;
+    if ([method isEqual:@"POST"]) request.HTTPBody = [payload dataUsingEncoding:NSUTF8StringEncoding];
+    request.HTTPShouldHandleCookies = NO;
+    _timeout = timeout.doubleValue / 1000.0;
+    request.timeoutInterval = _timeout;
+    _translationRequest = request;
+    if ([descriptor[@"cached_response"] isKindOfClass:NSString.class]) {
+        NSData *cached = [descriptor[@"cached_response"] dataUsingEncoding:NSUTF8StringEncoding];
+        if (cached.length <= 262144) _cachedResponse = cached;
     }
     return self;
 }
@@ -154,6 +194,7 @@ static BOOL MSIMEIsAllowedDescriptorURL(NSURL *url) {
     NSAssert(NSThread.isMainThread, @"Cloud transport must run on main thread");
     if (_started || !_completion) return;
     _started = YES;
+    if (_cachedResponse) { [self finish:_cachedResponse]; return; }
     if (!_translationRequest && (![_url.scheme isEqual:@"https"] || ![_url.host isEqual:@"inputtools.google.com"] ||
         _url.user || _url.password || (_url.port && _url.port.integerValue != 443))) {
         [self finish:nil]; return;

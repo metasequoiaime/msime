@@ -7,6 +7,18 @@ export interface OnlineAssistantConfig {
   candidate_limit: number;
 }
 
+export interface CloudHttpDescriptor {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body_utf8: string;
+  timeout_ms: number;
+  connect_timeout_ms: number;
+  max_response_bytes: number;
+  provider_id: string;
+  cached_response?: string;
+}
+
 export interface OnlineQuery {
   generation: number;
   session_id: number;
@@ -15,6 +27,7 @@ export interface OnlineQuery {
   cloud_eligible: boolean;
   ai_eligible: boolean;
   cloud_candidates: boolean;
+  cloud_request?: CloudHttpDescriptor | null;
   ai_assistant?: OnlineAssistantConfig | null;
 }
 
@@ -62,6 +75,7 @@ export class OnlineCandidatePolicy {
     return (
       `${query.session_id}:${query.cache_key}:${query.identity}:` +
       `${query.cloud_candidates}:${query.cloud_eligible}:${query.ai_eligible}:` +
+      `${query.cloud_request?.provider_id ?? ""}:` +
       `${assistant?.enabled === true ? JSON.stringify(assistant) : ""}`
     );
   }

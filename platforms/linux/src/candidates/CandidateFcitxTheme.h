@@ -79,6 +79,17 @@ struct FcitxThemeFiles {
   std::vector<FcitxThemeImage> images;
 };
 
+// 已解码并规范化的 canvas 面板；四边顺序为上、右、下、左，classicui 继续负责动态窗口大小。
+struct FcitxCanvasPanel {
+  std::string file;
+  std::array<int, 4> margin{};
+  std::array<int, 4> content{};
+  std::array<int, 4> outer{};
+  std::vector<FcitxThemeImage> images;
+};
+
+inline constexpr std::string_view kFcitxCanvasPrefix = "canvas-";
+
 template <typename ShapeNames>
 inline void fcitx_collect_shape_names(const FcitxThemeFiles &theme, ShapeNames &names) {
   names.reserve(theme.images.size());
@@ -207,7 +218,8 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
                                                    const std::optional<FcitxThemeOverlay> &overlay = std::nullopt,
                                                    const std::optional<double> &corner_radius = std::nullopt,
                                                    const std::optional<FcitxThemeLogo> &logo = std::nullopt,
-                                                   bool user_radius = false) {
+                                                   bool user_radius = false,
+                                                   const std::optional<FcitxCanvasPanel> &canvas_panel = std::nullopt) {
   using G = FcitxPanelGeometry;
   using M = FcitxMenuGeometry;
   FcitxThemeFiles files;
@@ -335,16 +347,21 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
           "FullWidthHighlight=True\n"
           "PageButtonAlignment=Top\n\n"
           "[InputPanel/Background]\n"
-       << "Image=" << panel << "\n"
+       << "Image=" << (canvas_panel ? canvas_panel->file : panel) << "\n"
        << "Color=" << fcitx_theme_color(surface) << "\n"
        << "BorderColor=" << border << "\n"
        << "BorderWidth=" << border_width << "\n" << decoration << "\n"
-       << "[InputPanel/Background/Margin]\n" << fcitx_margin(slice_left, slice_right, slice_top, slice_bottom)
+       << "[InputPanel/Background/Margin]\n"
+       << (canvas_panel ? fcitx_margin(canvas_panel->margin[3], canvas_panel->margin[1], canvas_panel->margin[0], canvas_panel->margin[2])
+                        : fcitx_margin(slice_left, slice_right, slice_top, slice_bottom))
        << "[InputPanel/ShadowMargin]\n"
-       << fcitx_margin(G::shadow_left, G::shadow_right, shadow_top, G::shadow_bottom)
+       << (canvas_panel ? fcitx_margin(canvas_panel->outer[3], canvas_panel->outer[1], canvas_panel->outer[0], canvas_panel->outer[2])
+                        : fcitx_margin(G::shadow_left, G::shadow_right, shadow_top, G::shadow_bottom))
        << "[InputPanel/ContentMargin]\n"
-       << fcitx_margin(content_left + lead, G::shadow_right + inset + G::padding,
-                       shadow_top + inset + G::padding, G::shadow_bottom + inset + G::padding)
+       << (canvas_panel ? fcitx_margin(canvas_panel->content[3] + canvas_panel->outer[3], canvas_panel->content[1] + canvas_panel->outer[1],
+                                      canvas_panel->content[0] + canvas_panel->outer[0], canvas_panel->content[2] + canvas_panel->outer[2])
+                        : fcitx_margin(content_left + lead, G::shadow_right + inset + G::padding,
+                                       shadow_top + inset + G::padding, G::shadow_bottom + inset + G::padding))
        << "[InputPanel/TextMargin]\n" << fcitx_margin(G::item_left, G::item_right, G::item_vertical, G::item_vertical)
        << "[InputPanel/Highlight]\n";
   if (!highlight_image.empty()) conf << "Image=" << highlight_image << "\n";
@@ -383,6 +400,8 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
        << fcitx_margin(M::item_horizontal, M::item_horizontal, M::item_vertical, M::item_vertical);
   files.conf = conf.str();
   files.conf.pop_back();
+  if (canvas_panel)
+    files.images.insert(files.images.end(), canvas_panel->images.begin(), canvas_panel->images.end());
   return files;
 }
 
@@ -566,12 +585,13 @@ inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const
                                         const std::optional<CandidateSkinDecoration> &decoration,
                                         const std::optional<double> &corner_radius = std::nullopt,
                                         const std::optional<FcitxThemeLogo> &logo = std::nullopt,
-                                        bool user_radius = false, const FcitxOverlayScaler &scale = {}) {
+                                        bool user_radius = false, const FcitxOverlayScaler &scale = {},
+                                        const std::optional<FcitxCanvasPanel> &canvas_panel = std::nullopt) {
   const auto directory = file.parent_path();
   if (!prepare_candidate_directory(directory)) return false;
   const auto overlay =
-      decoration ? stage_fcitx_overlay(directory, *decoration, fcitx_card_padding(colors), scale) : std::nullopt;
-  const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo, user_radius);
+      decoration && !canvas_panel ? stage_fcitx_overlay(directory, *decoration, fcitx_card_padding(colors), scale) : std::nullopt;
+  const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo, user_radius, canvas_panel);
   std::vector<std::string> shapes;
   fcitx_collect_shape_names(theme, shapes);
   for (const auto &image : theme.images) {
@@ -583,6 +603,7 @@ inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const
   if (overlay) overlays = {overlay->file, fcitx_overlay_2x_name(overlay->file)};
   remove_stale_fcitx_files(directory, kFcitxOverlayPrefix, overlays);
   remove_stale_fcitx_files(directory, kFcitxShapePrefix, shapes);
+  remove_stale_fcitx_files(directory, kFcitxCanvasPrefix, shapes);
   return true;
 }
 

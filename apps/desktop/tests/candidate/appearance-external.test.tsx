@@ -314,7 +314,8 @@ test("a host with a theme call previews its own resolve() answer", async () => {
     dark: true,
     layout: "vertical",
   });
-  expect(document.adoptedStyleSheets).toHaveLength(1);
+  // 配色先更新 DOM，选中条的样式表随后在 effect 中安装。
+  await waitFor(() => expect(document.adoptedStyleSheets).toHaveLength(1));
 });
 
 test("unsupported light mode removes dark preview and recovers on switching back", async () => {

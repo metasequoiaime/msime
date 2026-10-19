@@ -296,38 +296,36 @@
      2,
      3
     ],
-    "candidate_count": 2,
+    "candidate_count": 3,
     "candidates": [
      {
-      "word": "你",
-      "pinyin": "ni",
-      "canonical_pinyin": "ni",
-      "source": 0,
+      "word": "你C",
+      "pinyin": "niC",
+      "canonical_pinyin": "",
+      "source": 8,
       "scheme": "quanpin",
       "weight": 10000,
-      "answers_key": false
+      "answers_key": true
      },
      {
-      "word": "拟",
-      "pinyin": "ni",
-      "canonical_pinyin": "ni",
-      "source": 0,
+      "word": "拟C",
+      "pinyin": "niC",
+      "canonical_pinyin": "",
+      "source": 8,
       "scheme": "quanpin",
       "weight": 9000,
-      "answers_key": false
+      "answers_key": true
+     },
+     {
+      "word": "niC",
+      "pinyin": "niC",
+      "canonical_pinyin": "",
+      "source": 9,
+      "scheme": "quanpin",
+      "weight": 0,
+      "answers_key": true
      }
-    ],
-    "online_query": {
-     "scheme": "quanpin",
-     "query_text": "ni'c",
-     "cache_key": "nic",
-     "pinyin_segments": [
-      "ni",
-      "c"
-     ],
-     "cloud_eligible": true,
-     "ai_eligible": false
-    }
+    ]
    }
   },
   {

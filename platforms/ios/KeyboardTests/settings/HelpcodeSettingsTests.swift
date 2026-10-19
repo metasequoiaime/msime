@@ -43,11 +43,12 @@ final class HelpcodeSettingsTests: XCTestCase {
     update { $0["enabled"] = false }
     await reload(bridge)
 
-    // 关掉辅助码后，Shift 字母按普通拼音字母留在组合里（#7106）：预编辑保留大写，候选与小写的 shiy 相同，不再按讠部首筛出「识」。
+    // 关掉辅助码后，Shift 字母成为大写字面片段；只转换前面的 shi，不再按讠部首筛出「识」。
     let off = compose(bridge, "shi", helpcode: "Y")
     let lowercase = compose(bridge, "shiy", helpcode: nil)
     XCTAssertEqual(off.preedit, "shiY")
-    XCTAssertEqual(off.candidates.first, lowercase.candidates.first)
+    XCTAssertEqual(off.candidates.first, plain.candidates.first.map { $0 + "Y" })
+    XCTAssertNotEqual(off.candidates.first, lowercase.candidates.first)
     XCTAssertNotEqual(off.candidates.first, "识")
   }
 

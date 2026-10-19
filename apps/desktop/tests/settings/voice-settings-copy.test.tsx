@@ -143,7 +143,7 @@ test("Windows is not told its voice input runs through a Linux provider", async 
   // On Windows these options drive VoiceHotkeyController, CuePlayer and
   // SystemAudioMuter in-process; there is no provider socket involved.
   expect(screen.getByText("语音快捷键")).toBeTruthy();
-  expect(screen.getByText("录音行为")).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "录音行为" })).toBeTruthy();
   expect(screen.queryByText(/语音需要单独运行的语音服务/)).toBeNull();
   expect(screen.queryByText(/录音和识别由已配置的语音服务完成/)).toBeNull();
   expect(screen.getByText("在本机录音，音频发送给下方选择的识别服务转写")).toBeTruthy();
@@ -161,7 +161,7 @@ test("macOS keeps voice submission in the native input-method process", async ()
 test("Linux keeps the wording that is accurate there", async () => {
   await openVoice("linux");
   // 录音行为在各平台同名；Linux 的不同之处（选项随请求交给语音服务）写在组说明里，用户可见的文案不出现 provider。
-  expect(screen.getByText("录音行为")).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "录音行为" })).toBeTruthy();
   expect(screen.getByText(/随请求传给用户管理的语音服务/)).toBeTruthy();
   expect(screen.queryByText("Linux provider 行为")).toBeNull();
   // The shortcuts work the same under IBus and Fcitx5, so the section is not named after one host.
@@ -268,7 +268,7 @@ test("iOS handwriting points to the keyboard extension instead of a desktop pane
   expect(openSystemKeyboardSettings).toHaveBeenCalledOnce();
 });
 
-// 语音页主页面只留常用的几项：识别、快捷键、录音行为。识别服务的配置（检查按钮在配置组末尾）、识别结果、润色、提示音细分和录音设备收在「服务配置」子视图里，照鸿蒙手机的整理方案。
+// 主页面按输入法与录音行为分标签；识别服务、结果、润色与设备继续收在服务配置子视图。
 test("the voice page keeps the common rows and folds the service into its own view", async () => {
   render(
     <SettingsPage
@@ -288,10 +288,14 @@ test("the voice page keeps the common rows and folds the service into its own vi
     [...root.querySelectorAll("[data-group-title]")].map((node) => node.textContent ?? "");
   const config = page.querySelector('[aria-label="服务配置"][role="region"]')!;
   expect(config.hasAttribute("hidden")).toBe(true);
-  const main = [...page.querySelectorAll("[data-group-title]")]
-    .filter((node) => !config.contains(node))
-    .map((node) => node.textContent ?? "");
-  expect(main).toEqual(["语音面板", "识别", "语音快捷键", "录音行为"]);
+  expect(titles(screen.getByRole("tabpanel", { name: "输入法" }))).toEqual([
+    "语音面板",
+    "识别",
+    "语音快捷键",
+  ]);
+  fireEvent.click(screen.getByRole("tab", { name: "录音行为" }));
+  expect(titles(screen.getByRole("tabpanel", { name: "录音行为" }))).toEqual(["录音行为"]);
+  fireEvent.click(screen.getByRole("tab", { name: "输入法" }));
   expect(screen.queryByRole("textbox", { name: "Doubao 资源 ID" })).toBeNull();
   // 「服务配置」一行写着凭据填没填：旧版鉴权填了令牌、没填 App ID。
   const row = screen.getByRole("button", { name: "服务配置" });

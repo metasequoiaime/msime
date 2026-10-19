@@ -8,22 +8,64 @@ use crate::skin::theme::normalized_color;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
-use std::path::PathBuf;
 use tempfile::tempdir;
 
-fn gallery() -> PathBuf {
-    std::env::var_os("MSIME_CANDIDATE_SKIN_FIXTURES")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/candidate-skins")
-        })
+// 设备上没有构建机源码路径，测试程序随身携带同一批合成素材。
+fn gallery() -> tempfile::TempDir {
+    let root = tempdir().unwrap();
+    macro_rules! fixtures {
+        ($($path:literal),+ $(,)?) => {
+            $(
+                let path = root.path().join($path);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/candidate-skins/", $path))).unwrap();
+            )+
+        };
+    }
+    fixtures!(
+        "verify-arrows-chevron/preview.png",
+        "verify-arrows-chevron/skin.toml",
+        "verify-arrows-triangle/preview.png",
+        "verify-arrows-triangle/skin.toml",
+        "verify-canvas-frame/assets/frame.png",
+        "verify-canvas-frame/assets/leaf.png",
+        "verify-canvas-frame/assets/ribbon.png",
+        "verify-canvas-frame/assets/seal.png",
+        "verify-canvas-frame/assets/stars.gif",
+        "verify-canvas-frame/preview.png",
+        "verify-canvas-frame/skin.toml",
+        "verify-canvas-keys-ignored/preview.png",
+        "verify-canvas-keys-ignored/skin.toml",
+        "verify-canvas/assets/cloud.png",
+        "verify-canvas/assets/moon.png",
+        "verify-canvas/assets/panel-dark.png",
+        "verify-canvas/assets/panel-light.png",
+        "verify-canvas/assets/twinkle.png",
+        "verify-canvas/preview.png",
+        "verify-canvas/skin.toml",
+        "verify-color-syntax/preview.png",
+        "verify-color-syntax/skin.toml",
+        "verify-expand-panel/preview.png",
+        "verify-expand-panel/skin.toml",
+        "verify-frame-none/preview.png",
+        "verify-frame-none/skin.toml",
+        "verify-frame-strong/preview.png",
+        "verify-frame-strong/skin.toml",
+        "verify-layout-em/preview.png",
+        "verify-layout-em/skin.toml",
+        "verify-v2-motion-system/assets/koi.png",
+        "verify-v2-motion-system/preview.png",
+        "verify-v2-motion-system/skin.toml",
+    );
+    root
 }
 
 /// 目录里的全部验证皮肤，按名字排序。新加一个包时要在这里登记，并给它写断言。
-const GALLERY: [&str; 10] = [
+const GALLERY: [&str; 11] = [
     "verify-arrows-chevron",
     "verify-arrows-triangle",
     "verify-canvas",
+    "verify-canvas-frame",
     "verify-canvas-keys-ignored",
     "verify-color-syntax",
     "verify-expand-panel",
@@ -34,7 +76,7 @@ const GALLERY: [&str; 10] = [
 ];
 
 fn package(id: &str) -> SkinSummary {
-    load_package(gallery(), id).unwrap_or_else(|reason| panic!("{id}: {reason}"))
+    load_package(gallery().path(), id).unwrap_or_else(|reason| panic!("{id}: {reason}"))
 }
 
 fn em(value: f64) -> Option<SkinLength> {
@@ -64,7 +106,7 @@ fn declared_all() -> SkinAnimationDeclared {
 
 #[test]
 fn every_gallery_skin_loads_without_an_issue() {
-    let catalog = scan(gallery());
+    let catalog = scan(gallery().path());
     assert!(catalog.issues.is_empty(), "{:?}", catalog.issues);
     let mut ids: Vec<&str> = catalog.packages.iter().map(|p| p.id.as_str()).collect();
     ids.sort_unstable();
@@ -90,14 +132,17 @@ fn every_gallery_skin_loads_without_an_issue() {
             "{id}"
         );
         let (schema_version, canvas) = match id {
-            "verify-canvas" => (2, true),
+            "verify-canvas" | "verify-canvas-frame" => (2, true),
             "verify-canvas-keys-ignored" | "verify-v2-motion-system" => (2, false),
             _ => (1, false),
         };
         assert_eq!(package.schema_version, schema_version, "{id}");
         assert_eq!(package.canvas, canvas, "{id}");
-        // 只有两个 canvas 验证包带提示：一个是贴图需要宿主绘制能力，一个是非 canvas 基底上忽略的画布键。
-        if !matches!(id, "verify-canvas" | "verify-canvas-keys-ignored") {
+        // 只有 canvas 验证包带提示：两个是贴图需要宿主绘制能力，一个是非 canvas 基底上忽略的画布键。
+        if !matches!(
+            id,
+            "verify-canvas" | "verify-canvas-frame" | "verify-canvas-keys-ignored"
+        ) {
             assert!(package.notices.is_empty(), "{id}: {:?}", package.notices);
         }
         // v1 的包不能有动画；`windows_looks` 和 `canvas` 都折成 `system` 交给跨平台主题解析。
@@ -378,7 +423,8 @@ fn canvas_keeps_its_panel_insets_widgets_and_motion() {
 /// 挂件 APNG 的每一帧都要能完整解码；静态挂件和面板是单帧 PNG。
 #[test]
 fn canvas_images_decode_frame_by_frame() {
-    let assets = gallery().join("verify-canvas/assets");
+    let gallery = gallery();
+    let assets = gallery.path().join("verify-canvas/assets");
     for (file, frames) in [
         ("twinkle.png", 6),
         ("moon.png", 1),
@@ -395,6 +441,99 @@ fn canvas_images_decode_frame_by_frame() {
         for _ in 0..frames {
             reader.next_frame(&mut buffer).unwrap();
         }
+    }
+}
+
+/// `verify-canvas` 没用到的画布写法：一张深浅共用的面板，stretch_dip 盖过 slice_dip、两值简写，不写 width_dip，fill = false；不写内容内边距、外留白和行距；挂件用上 center、left、top、bottom-right 四种锚点和一张 GIF。
+#[test]
+fn canvas_frame_keeps_its_stretch_hollow_panel_and_gif_widget() {
+    let package = package("verify-canvas-frame");
+    assert!(package.canvas);
+    assert_eq!(
+        package.border_image,
+        Some(SkinBorderImage {
+            source: "assets/frame.png".into(),
+            light_source: None,
+            slice_dip: vec![20.0],
+            stretch_dip: Some(vec![10.0, 14.0]),
+            width_dip: None,
+            fill: false,
+        })
+    );
+    assert_eq!(package.content_insets_dip, None);
+    assert_eq!(package.outer_insets_dip, None);
+    assert_eq!(package.line_gap_dip, None);
+    let anchors: Vec<(&str, &str, f64, f64, i32)> = package
+        .decorations
+        .iter()
+        .map(|d| {
+            (
+                d.image.as_str(),
+                d.anchor.as_str(),
+                d.offset_x_dip,
+                d.offset_y_dip,
+                d.z_index,
+            )
+        })
+        .collect();
+    assert_eq!(
+        anchors,
+        [
+            ("assets/seal.png", "center", 0.0, 0.0, 0),
+            ("assets/stars.gif", "left", -16.0, 0.0, 2),
+            ("assets/ribbon.png", "top", 0.0, -10.0, 5),
+            ("assets/leaf.png", "bottom-right", 12.0, 12.0, 1),
+        ]
+    );
+    assert_eq!(package.notices, [CANVAS_RENDERER_NOTICE]);
+    // 面板画得出来时用包写的原配色，画不出来时用 `canvas` 外观的可读配色。
+    let panel = package.panel_candidate.as_ref().unwrap();
+    assert_eq!(panel.light.text.as_deref(), Some("#14532D"));
+    assert_eq!(package.candidate.light.text.as_deref(), Some("#1A1A1A"));
+}
+
+/// 挂件 GIF 是 4 帧整幅画布、带透明色的动图，每一帧都能完整解码，帧数计入像素额度。
+#[test]
+fn canvas_frame_gif_decodes_every_frame() {
+    use image::AnimationDecoder;
+    let bytes = fs::read(
+        gallery()
+            .path()
+            .join("verify-canvas-frame/assets/stars.gif"),
+    )
+    .unwrap();
+    let frames = image::codecs::gif::GifDecoder::new(Cursor::new(&bytes[..]))
+        .unwrap()
+        .into_frames()
+        .collect_frames()
+        .unwrap();
+    assert_eq!(frames.len(), 4);
+    for frame in &frames {
+        let buffer = frame.buffer();
+        assert_eq!(buffer.dimensions(), (48, 48));
+        // 四角是透明的，正中是星星。
+        assert_eq!(buffer.get_pixel(0, 0)[3], 0);
+        assert_eq!(buffer.get_pixel(24, 24)[3], 255);
+    }
+    // 面板图中心是品红：fill = false 时它不该被画出来，按 slice_dip = 20 切的话四角会带上它。
+    let frame = image::load_from_memory(
+        &fs::read(
+            gallery()
+                .path()
+                .join("verify-canvas-frame/assets/frame.png"),
+        )
+        .unwrap(),
+    )
+    .unwrap()
+    .to_rgba8();
+    assert_eq!(frame.dimensions(), (48, 40));
+    assert_eq!(frame.get_pixel(24, 20).0, [0xFF, 0x00, 0xFF, 0xFF]);
+    for (x, y) in [(13, 9), (34, 9), (13, 30), (34, 30)] {
+        assert_ne!(
+            frame.get_pixel(x, y).0,
+            [0xFF, 0x00, 0xFF, 0xFF],
+            "({x}, {y})"
+        );
     }
 }
 
@@ -643,7 +782,10 @@ fn canvas_keys_on_the_system_base_are_ignored_with_a_notice() {
         }
     );
     // 这些键引用的图片故意不在包里：它们要是被校验了，包会被拒绝。
-    assert!(!gallery().join("verify-canvas-keys-ignored/assets").exists());
+    assert!(!gallery()
+        .path()
+        .join("verify-canvas-keys-ignored/assets")
+        .exists());
     assert_eq!(package.candidate.light.surface.as_deref(), Some("#F7FAFC"));
 }
 
@@ -668,20 +810,16 @@ fn referenced_images(package: &SkinSummary) -> Vec<&str> {
     paths
 }
 
-/// 社区打包（`candidate_community::pack`，公开发布）与 MCP 创建（`create_candidate_skin` 走的 `candidate_community::install`，传入清单原文和它引用的全部图片）对每个验证包的结果。`canvas` 在 msime-cloud 接受之前被打包拒绝；它引用 6 张图，也超过创建允许的 3 张。服务端支持 `canvas` 之后这张表要跟着改。
+/// 验证图库的全部包都能社区打包和经 MCP 使用的原子安装路径创建，包括六张资源的 canvas。
 #[test]
 fn the_gallery_against_community_packing_and_mcp_creation() {
-    const PACKAGE: &str = "candidate_skin_package";
-    const FILE_PATH: &str = "candidate_skin_file_path";
+    let gallery = gallery();
     for id in GALLERY {
-        let (pack, create) = match id {
-            "verify-canvas" => (Err(PACKAGE), Err(FILE_PATH)),
-            _ => (Ok(()), Ok(())),
-        };
-        let packed = candidate_community::pack_as(&gallery(), id, CandidateSkinVisibility::Public);
+        let packed =
+            candidate_community::pack_as(gallery.path(), id, CandidateSkinVisibility::Public);
         assert_eq!(
             packed.as_ref().map(|_| ()).map_err(|code| *code),
-            pack,
+            Ok(()),
             "{id}: pack"
         );
         if let Ok(packed) = &packed {
@@ -694,11 +832,11 @@ fn the_gallery_against_community_packing_and_mcp_creation() {
         let files: BTreeMap<String, String> = referenced_images(&summary)
             .into_iter()
             .map(|path| {
-                let bytes = fs::read(gallery().join(id).join(path)).unwrap();
+                let bytes = fs::read(gallery.path().join(id).join(path)).unwrap();
                 (path.to_owned(), BASE64.encode(bytes))
             })
             .collect();
-        let manifest = fs::read_to_string(gallery().join(id).join("skin.toml")).unwrap();
+        let manifest = fs::read_to_string(gallery.path().join(id).join("skin.toml")).unwrap();
         let root = tempdir().unwrap();
         let installed = candidate_community::install(
             root.path(),
@@ -712,7 +850,7 @@ fn the_gallery_against_community_packing_and_mcp_creation() {
         );
         assert_eq!(
             installed.as_ref().map(|_| ()).map_err(|code| *code),
-            create,
+            Ok(()),
             "{id}: create"
         );
         if installed.is_ok() {

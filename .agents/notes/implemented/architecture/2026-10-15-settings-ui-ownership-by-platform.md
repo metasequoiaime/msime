@@ -38,7 +38,7 @@ macOS 的 AppKit 设置窗口冻结为最小回退。`platforms/macos/src/settin
 
 ## Consequences
 
-- **收益**：文档与代码一致，贡献者看归属表就知道一个设置功能要改哪几处。原生设置平台保留各自系统的界面。macOS 回退窗口冻结后，macOS 上同一个设置只写一份（React），四份里少掉 AppKit 那一份。业务规则按这条规则下沉到 Rust 层后，四份界面读写的是同一份偏好与同一套校验；今天还有规则写在原生界面里，例如 Windows 语音页的换服务规则（`VoiceSettings.h`；目录和默认值已由 `client-providers` 提供）、账号页的昵称校验（`AccountPageModel.h`）和 Android 的语音服务列表（`VoiceProviderPolicy.java`）。
+- **收益**：文档与代码一致，贡献者看归属表就知道一个设置功能要改哪几处。原生设置平台保留各自系统的界面。macOS 回退窗口冻结后，macOS 上同一个设置只写一份（React），四份里少掉 AppKit 那一份。业务规则按这条规则下沉到 Rust 层后，四份界面读写的是同一份偏好与同一套校验；今天还有规则写在原生界面里，例如 Android 的语音服务列表（`VoiceProviderPolicy.java`）；Windows 语音页的目录与换服务字段补丁已由 `client-providers` 经 C ABI 提供，账号页的昵称规范化、校验、默认显示名和长度上限由 `client-services` 经 `msime_client_account_name` 提供，原生页只转换字段、绘制并提交。
 - **代价**：每个设置功能仍要写四份界面（`packages/ui`、Windows、iOS、Android），评审要逐个平台核对有没有漏。Rust 层没有承接的设置规则会在各平台界面里各写一份，开始漂移；把规则下沉到 `client-core` 是每个新设置功能的前置工作。macOS 用户落到回退窗口时看不到冻结之后新加的设置。[Windows 界面采用 macOS 的分组与选中样式](../feature/2026-10-15-windows-ui-macos-layout.md)以 macOS 的 `SettingsLayout.h`、`AppearancePreferences.mm` 为 Windows 设置的布局和信息结构依据，而这些 AppKit 窗口现在冻结了：之后 macOS 的新设置只进 React，Windows 再拿 AppKit 窗口当参照时，新设置项在那里找不到对应，参照物要改看共享 React 设置页的同一页。
 - **已知上限与重访信号**：冻结和「每平台只写界面」都没有脚本门禁，靠评审守住。出现以下任一情况时重访：同一设置在不同平台的行为因为规则写在界面层而出了不一致的缺陷；Tauri iOS 工程或 Android 合包开始随产品发布；macOS 设置应用启动失败、用户长期停在回退窗口的报告变多；某个原生设置平台的维护跟不上新功能，四份界面里经常缺一份。
 

@@ -12,6 +12,7 @@ pub mod local_models;
 pub mod numbers;
 pub mod provider;
 pub mod provider_catalog;
+pub mod provider_settings;
 
 /// Whether a host supplied voice operation identifier fits the shared wire contract.
 pub fn is_valid_request_id(value: &str) -> bool {

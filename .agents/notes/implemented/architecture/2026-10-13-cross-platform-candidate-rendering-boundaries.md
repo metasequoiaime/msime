@@ -45,3 +45,5 @@ Status: implemented
 相关记录：[Windows 候选窗与 Mac 对齐](../feature/2026-10-10-windows-candidate-window-mac-parity.md)、[Windows Server 窗口的 UI 自动化](../feature/2026-10-10-windows-server-window-ui-automation.md)、[Fcitx5 系统主题保留品牌样式](../feature/2026-10-09-fcitx5-system-theme-keeps-brand-style.md)。
 
 macOS 系统主题的背景材质见[候选卡片液态玻璃](../feature/2026-10-19-macos-candidate-liquid-glass.md)，候选身份、按钮归属与原生定位边界保持不变。
+
+Fcitx5 的静态 canvas 面板通过 [classicui 九宫格映射](../feature/2026-10-19-linux-fcitx-canvas-panel.md)接入，候选窗口、定位与指针继续归桌面；该通路只显示静态 PNG／APNG 默认帧，不代表动画或其他面板完成验收。

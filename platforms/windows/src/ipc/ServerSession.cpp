@@ -59,7 +59,7 @@ private:
 } // namespace
 ServerSession::ServerSession(uint64_t client_id, const std::string &options)
     : client_(client_id) {
-  if (!client_ || options.size() > 16384 || msime_client_abi_version() != 3)
+  if (!client_ || options.size() > 1048576 || msime_client_abi_version() != 3)
     throw std::invalid_argument("Invalid Windows session configuration");
   const auto document = nlohmann::json::parse(options);
   preferences_ = document.value("preferences", nlohmann::json::object());
@@ -424,7 +424,7 @@ std::optional<std::string> ServerSession::online_query(uint64_t epoch) {
     if (value.is_null() || !value.is_object())
       return std::nullopt;
     auto serialized = value.dump();
-    if (serialized.empty() || serialized.size() > 16384)
+    if (serialized.empty() || serialized.size() > MSIME_ONLINE_QUERY_MAX_BYTES)
       return std::nullopt;
     return serialized;
   } catch (...) {
@@ -436,7 +436,7 @@ std::optional<std::string> ServerSession::online_query(uint64_t epoch) {
 std::optional<std::string> ServerSession::ai_request(uint64_t epoch,
                                                      const std::string &query) {
   check_active(epoch);
-  if (query.empty() || query.size() > 16384)
+  if (query.empty() || query.size() > MSIME_ONLINE_QUERY_MAX_BYTES)
     return std::nullopt;
   try {
     const auto value = response(msime_client_ai_request_for_query(
@@ -476,7 +476,7 @@ std::optional<nlohmann::json>
 ServerSession::apply_cloud_response(uint64_t epoch, const std::string &query,
                                      const std::string &body) {
   check_active(epoch);
-  if (query.empty() || query.size() > 16384 || body.empty() ||
+  if (query.empty() || query.size() > MSIME_ONLINE_QUERY_MAX_BYTES || body.empty() ||
       body.size() > 256 * 1024)
     return std::nullopt;
   try {
@@ -497,7 +497,7 @@ std::optional<nlohmann::json>
 ServerSession::apply_ai_candidates(uint64_t epoch, const std::string &query,
                                    const std::string &candidates) {
   check_active(epoch);
-  if (query.empty() || query.size() > 16384 || candidates.empty() ||
+  if (query.empty() || query.size() > MSIME_ONLINE_QUERY_MAX_BYTES || candidates.empty() ||
       candidates.size() > 16384)
     return std::nullopt;
   try {
@@ -519,7 +519,7 @@ ServerSession::apply_ai_candidates(uint64_t epoch, const std::string &query,
 std::optional<nlohmann::json>
 ServerSession::resolve_ai_candidates(uint64_t epoch, const std::string &query) {
   check_active(epoch);
-  if (query.empty() || query.size() > 16384)
+  if (query.empty() || query.size() > MSIME_ONLINE_QUERY_MAX_BYTES)
     return std::nullopt;
   try {
     const auto value = response(msime_client_resolve_online_candidates(

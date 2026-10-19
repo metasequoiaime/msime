@@ -1,4 +1,5 @@
 #include "AiCandidateWorker.h"
+#include "msime_client.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -369,7 +370,7 @@ int main() {
               "a token-less lease is refused");
       require(!harness.submit(lease(42, 7, 9), ""),
               "an empty query is refused");
-      require(!harness.submit(lease(42, 7, 9), std::string(20000, 'a')),
+      require(!harness.submit(lease(42, 7, 9), std::string(MSIME_ONLINE_QUERY_MAX_BYTES + 1, 'a')),
               "an oversized query is refused");
       harness.worker.request_stop();
       require(!harness.submit(lease(42, 7, 9), query_for("ni")),

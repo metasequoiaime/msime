@@ -438,6 +438,97 @@ void emojiGroupResultFencing() {
           "emoji groups reject results without a category fence");
 }
 
+// 通过产品的包 API、配色解析与经典界面接管路径验证 canvas；所有路径与图片均为合成值。
+int candidateThemeCanvas() {
+  namespace host = msime::linux_host;
+  char temporary[] = "/tmp/msime-fcitx-theme-canvas-XXXXXX";
+  const auto *directory = mkdtemp(temporary);
+  require(directory != nullptr, "canvas fixture directory");
+  const std::filesystem::path root(directory), skins = root / "skins", skin = skins / "canvas-fixture";
+  for (const auto *name : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"})
+    setenv(name, directory, 1);
+  setenv("MSIME_FCITX5_OPTIONS", (root / "missing-options.json").c_str(), 1);
+  std::filesystem::create_directories(skin);
+  const auto paint = [&](const char *name, std::uint32_t color) {
+    host::FcitxCanvas image(12, 12, 1);
+    for (int y = 0; y < 12; ++y) for (int x = 0; x < 12; ++x) image.blend(x, y, color, 1);
+    std::ofstream(skin / name, std::ios::binary) << host::fcitx_png_encode(image);
+  };
+  paint("panel.png", 0x102030);
+  paint("light.png", 0x403020);
+  std::ofstream(skin / "skin.toml") <<
+      "schema_version = 2\nid = 'canvas-fixture'\nname = 'Canvas fixture'\nversion = '1'\nbase = 'canvas'\n"
+      "[supports]\nlayouts = ['horizontal', 'vertical']\nthemes = ['light', 'dark']\n"
+      "[candidate_window]\ncontent_insets_dip = { top = 6, right = 6, bottom = 6, left = 6 }\nouter_insets_dip = { top = 2, right = 2, bottom = 2, left = 2 }\n"
+      "[candidate_window.border_image]\nsource = 'panel.png'\nlight_source = 'light.png'\nslice_dip = [3]\nwidth_dip = [5]\n"
+      "[candidate.light]\ntext = '#ABCDEF'\n[candidate.dark]\ntext = '#FEDCBA'\n";
+  const Json entry{
+      {"id", "canvas-fixture"}, {"title", "Canvas fixture"}, {"base", "system"},
+      {"layouts", {"horizontal", "vertical"}},
+      {"candidate", {
+          {"light", {{"surface", "#FFFFFF"}, {"text", "#1A1A1A"}}},
+          {"dark", {{"surface", "#202020"}, {"text", "#F2F2F2"}}}
+      }}
+  };
+  const Json catalog{{"directory", skins.string()}, {"packages", Json::array({entry})}};
+  Json preferences{{"global_theme", "custom"}, {"custom_theme", {{"base", "system"}, {"candidate_skin", "canvas-fixture"}}}};
+  const auto theme_file = root / "fcitx5/themes/msime/theme.conf";
+  const auto theme_text = [&] { std::ifstream in(theme_file); return std::string(std::istreambuf_iterator<char>(in), {}); };
+  char program[] = "msime-canvas-test", disabled[] = "--disable=all", enabled[] = "--enable=classicui";
+  char *args[] = {program, disabled, enabled, nullptr};
+  {
+    fcitx::Instance instance(3, args);
+    instance.addonManager().registerDefaultLoader(nullptr);
+    instance.initialize();
+    if (!instance.addonManager().addonInfo("classicui")) {
+      std::filesystem::remove_all(root);
+      std::cout << "skipped: classicui runtime is not installed\n";
+      return 77;
+    }
+    auto *classicui = instance.addonManager().addon("classicui", true);
+    require(classicui && classicui->getConfig(), "真实 classicui 已加载");
+    FcitxEngine engine(&instance);
+    engine.applyCandidatePanelTheme(preferences, true, catalog, true);
+    const auto dark = theme_text();
+    require(dark.find("Image=canvas-") != std::string::npos && dark.find("NormalColor=#fedcba\n") != std::string::npos,
+            "真实宿主写入深色 canvas 贴图与共享贴图配色");
+    require(dark.find("[InputPanel/ContentMargin]\nLeft=8\nRight=8\nTop=8\nBottom=8") != std::string::npos,
+            "共享清单的内容留白与外留白进入经典面板");
+    const auto written = std::filesystem::last_write_time(theme_file);
+    engine.applyCandidatePanelTheme(preferences, true, catalog, false);
+    require(std::filesystem::last_write_time(theme_file) == written, "不变资源不重写主题");
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    const auto light = theme_text();
+    require(light != dark && light.find("NormalColor=#abcdef\n") != std::string::npos, "明暗切换同时更新贴图与文字色");
+    preferences["custom_theme"]["candidate_colors"]["text"] = "#112233";
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    require(theme_text().find("NormalColor=#112233\n") != std::string::npos, "共享取色器继续覆盖皮肤文字色");
+    preferences["custom_theme"].erase("candidate_colors");
+    paint("light.png", 0x665544);
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    require(theme_text() != light, "原地更新图片使缓存失效");
+    std::ofstream(skin / "light.png", std::ios::binary) << "broken";
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    require(theme_text().find("Image=canvas-") == std::string::npos && theme_text().find("NormalColor=#1a1a1a\n") != std::string::npos,
+            "包校验失败回到可读配色与原生卡片");
+    paint("light.png", 0x665544);
+    engine.candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point{};
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    require(theme_text().find("Image=canvas-") != std::string::npos, "坏图修复后到期重新读取包");
+    fcitx::RawConfig external;
+    external.setValueByPath("Theme", "Nord-Dark");
+    classicui->setConfig(external);
+    paint("light.png", 0x223344);
+    engine.applyCandidatePanelTheme(preferences, false, catalog, false);
+    fcitx::RawConfig current;
+    classicui->getConfig()->save(current);
+    require(current.valueByPath("Theme") && *current.valueByPath("Theme") == "Nord-Dark", "资源更新不夺回第三方主题");
+  }
+  removeFixtureTree(root);
+  std::cout << "真实 classicui 的 canvas 资源、明暗、配色协商与所有权通过\n";
+  return 0;
+}
+
 // 用真实 classicui 配置验证接管与恢复：缺省和切回「系统」保留水杉样式，只有主动选择才从第三方主题手里接管；无覆盖自定义主题与解析失败仍恢复持有项。每个 fcitx::Instance 就是一次进程启动（内存里的缓存与所有权状态从零开始），所有路径都指向合成目录；机器上只有 classicui 开发库而没有运行库时跳过（77）。
 int candidateThemePriority() {
   char temporary[] = "/tmp/msime-fcitx-theme-priority-XXXXXX";
@@ -1092,6 +1183,7 @@ int main(int argc, char **argv) {
   try {
     if (argc == 2 && std::string(argv[1]) == "--cloud-clipboard") return cloudClipboardResultFencing();
     if (argc == 2 && std::string(argv[1]) == "--theme-priority") return candidateThemePriority();
+    if (argc == 2 && std::string(argv[1]) == "--theme-canvas") return candidateThemeCanvas();
 #ifdef MSIME_FCITX5_HINT_FONT
     if (argc == 2 && std::string(argv[1]) == "--theme-hint") return candidateThemeHint();
 #endif

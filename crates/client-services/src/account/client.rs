@@ -248,6 +248,35 @@ impl BackendAccountClient {
         read_bounded_response(response, maximum_response_bytes)
     }
 
+    /// 探测同源接口明确返回的能力头，仍完整读取有界正文并处理 HTTP 错误。
+    pub(crate) fn supports_response_header(
+        &self,
+        path: &str,
+        token: Option<&str>,
+        header: &str,
+        expected: &str,
+    ) -> Result<bool, AccountError> {
+        let response = self
+            .prepare(
+                Method::GET,
+                path,
+                token,
+                None,
+                MAX_JSON_BYTES,
+                "application/json",
+            )?
+            .timeout(Duration::from_secs(30))
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
+        let supported = response
+            .headers()
+            .get(header)
+            .and_then(|value| value.to_str().ok())
+            == Some(expected);
+        read_bounded_response(response, MAX_JSON_BYTES)?;
+        Ok(supported)
+    }
+
     /// 校验路径、凭据和请求体后组装请求；请求只会发往构造时给定的源站。
     pub(super) fn prepare(
         &self,

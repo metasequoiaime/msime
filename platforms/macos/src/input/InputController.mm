@@ -3259,6 +3259,11 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     return [[MSIMECloudCandidateRequest alloc] initWithURL:url configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
 }
 
+- (MSIMECloudCandidateRequest *)cloudRequestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion {
+    return [[MSIMECloudCandidateRequest alloc] initWithCloudDescriptor:descriptor
+        configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
+}
+
 /// How long the composition stands still before the larger model ranks it.
 ///
 /// Shorter than the half second the cloud path waits, because this one is local and it changes
@@ -3303,8 +3308,13 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)synchronizeCloudCandidates {
     NSDictionary *query = _activeClient && _session && !_focusPending && !_appearance.englishMode &&
         (!_appearance || _appearance.cloudCandidatesEnabled) ? [_session onlineQueryWithError:nil] : nil;
+    if (!MSIMEStrictBoolean(query[@"cloud_candidates"]) || !MSIMEStrictBoolean(query[@"cloud_eligible"])) {
+        [self cancelCloudCandidates];
+        return;
+    }
     NSString *url = query ? [MSIMEClientSession cloudRequestURLForQuery:query error:nil] : nil;
-    if (!url) { [self cancelCloudCandidates]; return; }
+    NSDictionary *descriptor = query[@"cloud_request"];
+    if (!url && ![descriptor isKindOfClass:NSDictionary.class]) { [self cancelCloudCandidates]; return; }
     if ([_cloudQuery isEqual:query]) return;
     [self cancelCloudCandidates];
     _cloudQuery = [query copy];
@@ -3320,7 +3330,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
             (controller->_appearance && !controller->_appearance.cloudCandidatesEnabled) ||
             ![[session onlineQueryWithError:nil] isEqual:query]) return;
         controller->_cloudTimer = nil;
-        controller->_cloudRequest = [controller cloudRequestForURL:[NSURL URLWithString:url] completion:^(NSData *body) {
+        void (^completion)(NSData *) = ^(NSData *body) {
             MSIMEInputController *current = weakSelf;
             if (!current || current->_cloudEpoch != epoch || current->_session != session ||
                 current->_activeClient != client || current->_focusPending || current->_appearance.englishMode ||
@@ -3343,7 +3353,12 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
                 // query eligible for a later render after local candidates are restored.
                 current->_cloudQuery = nil;
             }
-        }];
+        };
+        if ([descriptor isKindOfClass:NSDictionary.class]) {
+            controller->_cloudRequest = [controller cloudRequestForDescriptor:descriptor completion:completion];
+        } else {
+            controller->_cloudRequest = [controller cloudRequestForURL:[NSURL URLWithString:url] completion:completion];
+        }
         [controller->_cloudRequest start];
     }];
     [NSRunLoop.mainRunLoop addTimer:_cloudTimer forMode:NSRunLoopCommonModes];
@@ -5024,7 +5039,7 @@ static BOOL MSIMECloudConsentPrompting = NO;
 static NSString *const MSIMECloudConsentTitle = @"联网功能";
 static NSString *const MSIMECloudConsentMessage =
     @"拼音切分、候选排序和词频学习全部在本机完成，不联网。\n\n"
-    @"启用云候选：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。\n\n"
+    @"启用云候选：输入过程中把正在输入的拼写发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。\n\n"
     @"不启用时，输入内容不会离开这台 Mac：AI 联想和语音输入要你自己填入 API token，候选翻译要你在设置里选择翻译服务，之后才会发出请求。之后可在「设置 → 输入」的「云候选」里更改。";
 
 /// Show the consent prompt and report the choice: @YES, @NO, or nil when it closed without one. Overridden by tests.
@@ -5036,7 +5051,15 @@ static NSString *const MSIMECloudConsentMessage =
     pending = [completion copy];
     alert = [NSAlert new];
     alert.messageText = MSIMECloudConsentTitle;
-    alert.informativeText = MSIMECloudConsentMessage;
+    NSDictionary *preferences = [_appearance sharedPreferencesByMerging:_session.hostOptions[@"preferences"] ?: @{}];
+    NSDictionary *provider = preferences[@"cloud_candidate_provider"];
+    NSString *recipient = @"Google input-tools（inputtools.google.com）";
+    if ([provider[@"source"] isEqual:@"custom"] && [provider[@"endpoint"] isKindOfClass:NSString.class]) {
+        NSString *endpoint = [provider[@"endpoint"] stringByReplacingOccurrencesOfString:@"{query}" withString:@"query"];
+        recipient = [NSURL URLWithString:endpoint].host ?: @"所选自定义服务";
+    }
+    alert.informativeText = [MSIMECloudConsentMessage stringByReplacingOccurrencesOfString:
+        @"Google 的 input-tools 服务（inputtools.google.com）" withString:recipient];
     // 「不启用」排第一，是回车对应的默认按钮：对话框在用户打字时弹出，顺手的一个回车不能替用户打开联网。
     NSButton *disable = [alert addButtonWithTitle:@"不启用"];
     NSButton *enable = [alert addButtonWithTitle:@"启用云候选"];

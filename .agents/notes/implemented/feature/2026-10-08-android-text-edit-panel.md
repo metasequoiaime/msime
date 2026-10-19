@@ -43,3 +43,5 @@ Status: implemented
 - #8487：`check-host.sh` 通过（242 个 Android JVM smoke、150 个设备测试源编译），`TextEditPanelModelSmoke` 覆盖三项滚动快捷键、直接按键码和原有 4 × 4 网格。
 - `TextEditRecentClipboardDeviceSmoke` 在 API 28、API 35 专用模拟器通过：开启后键面及无障碍描述为「取消选择」，方向键延伸 EditText 选区；关闭后恢复「选择」，下一次方向键只移动光标。原有复制、剪切、粘贴、顶部预览和返回键验收同时通过。
 - `bash scripts/verify-local.sh --quick`、`pnpm run verify-notes` 与差异检查通过。
+
+2026-10-19 整套设备回归复查：换行专项原来向单行 `EditText` 断言换行，数字页返回也硬编码旧英文键面 `ABC`。合成编辑器现在通过专用 Intent 参数为该套件启用多行，其余套件仍使用原单行输入框；返回数字页按稳定的「切换到字母键盘」无障碍动作查找，兼容当前中文九宫格。API 35 独立专项通过：滚动、空格、真实换行、数字往返、选择、复制剪切、预览和返回均执行。没有修改产品提交换行或数字页的行为。

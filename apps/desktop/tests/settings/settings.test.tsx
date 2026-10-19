@@ -8878,6 +8878,7 @@ test("the 剪贴板 page sends a history entry through the host's cloud clipboar
   expect(cloudClipboardRequest).not.toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole("button", { name: /^(剪贴板|剪贴管理)$/ }));
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   expect(await screen.findByText("synthetic cloud")).toBeDefined();
   const send = screen.getByRole("button", { name: "发到云剪贴板" });
   await waitFor(() => expect(send.hasAttribute("disabled")).toBe(false));
@@ -10186,6 +10187,7 @@ test("handwriting matches Windows candidate priority, uniqueness, and limit", as
 test("a host can open the settings window on the section its menu named", async () => {
   const client: SettingsClient = { load: async () => initial, save: vi.fn() };
   render(<SettingsPage client={client} initialPage="about" />);
+  await settingsFormReady();
   expect(await screen.findByRole("heading", { name: /^(关于|关于水杉)$/ })).toBeDefined();
   // 「其他平台下载」在关于页里，不是单独的页面。
   expect(screen.getByRole("button", { name: "其他平台下载" })).toBeDefined();

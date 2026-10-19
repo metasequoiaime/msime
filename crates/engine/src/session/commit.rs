@@ -111,14 +111,6 @@ impl InputSession {
         self.close_korean_hanja();
         let mut result = KeyResult::unhandled();
         // 高亮停在 AI 占位行上时，按没有高亮处理：上屏首选，不上屏占位文字。
-        // A shifted capital starts mixed English, but an incomplete pinyin spelling can still
-        // have Chinese correction rows. Preserve the typed word when no candidate was explicitly
-        // highlighted; explicit candidate choices keep their normal semantics.
-        let first_index = if first_index == 0 && self.shifted_incomplete_pinyin_is_literal() {
-            usize::MAX
-        } else {
-            first_index
-        };
         let mut index = if self.candidates().get(first_index).is_some_and(|item| {
             matches!(
                 item.source,
@@ -168,6 +160,9 @@ impl InputSession {
 
     /// input_session.cpp:828-956.
     pub(super) fn commit(&mut self, index: usize) -> KeyResult {
+        if let Some(result) = self.commit_literal_candidate(index) {
+            return result;
+        }
         // A selection made while a caret prefix is decoded leaves prefix mode: the rest of the composition decodes whole again.
         self.caret = None;
         // A Zhuyin commit is the converted text, whatever the list shows: its rows are choices inside the conversion, made through `select_in_open_list`. The pending syllable is dropped, nothing is learned, and a composition that converted nothing yet commits nothing.

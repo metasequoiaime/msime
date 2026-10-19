@@ -64,8 +64,8 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
                 await(field("msime-test-plain").and(node -> equalsText(TEXT + " \n", node.getText())));
                 stage = "editor number shortcut";
                 click("打开数字键盘");
-                await(key("ABC"));
-                click("ABC");
+                await(described("切换到字母键盘"));
+                click("切换到字母键盘");
                 openPanel();
             }
             Rect before = bounds(awaitStableBounds(described("文本编辑面板")));
@@ -144,7 +144,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
 
     private void openPanel() throws Exception {
         restartIme();
-        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity --ez msime_test_multiline true");
         tap(field("msime-test-plain"));
         await(key("n"));
         Bundle args = new Bundle();

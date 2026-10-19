@@ -104,6 +104,7 @@ final class CandidateMarkerTests: XCTestCase {
     XCTAssertEqual(try chip(4).accessibilityLabel, "候选词 4：泥")
 
     panel.reload(candidates: ["你", "妮", "—"], annotations: [], markers: [], aiPlaceholders: [2])
+    panel.layoutIfNeeded()
     XCTAssertEqual(try chip(3).configuration?.baseForegroundColor, skin.secondary)
     XCTAssertEqual(try chip(3).accessibilityLabel, "候选词 3：AI 候选没有结果")
   }
@@ -150,6 +151,9 @@ final class CandidateMarkerTests: XCTestCase {
     panel.reload(candidates: candidates, annotations: [], markers: [], keepingScrollPosition: true)
     panel.layoutIfNeeded()
     XCTAssertEqual(scroll.contentOffset.y, 100, accuracy: 0.5)
+    let collection = try XCTUnwrap(scroll as? UICollectionView)
+    collection.scrollToItem(at: IndexPath(item: 5, section: 0), at: .centeredVertically, animated: false)
+    collection.layoutIfNeeded()
     let seat = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-6" } as? UIButton)
     XCTAssertEqual(seat.accessibilityLabel, "候选词 6：合成一")
 

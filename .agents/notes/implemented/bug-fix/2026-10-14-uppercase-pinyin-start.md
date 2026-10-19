@@ -14,6 +14,8 @@ Status: implemented
 
 英文混输行仅在快照和上屏文本的副本中恢复实际输入的前缀拼写；两个及以上全大写字母把整个补全词转为大写，单个大写字母只恢复前缀，后续可继续输入首字母大写的词。小写输入保留词库自身的专名拼写。辅助码激活时大写尾字母仍属于辅助码，不参与英文词形恢复。内部候选保留词库原始的 `word` 和规范化的 `pinyin`，供调频、置顶和删除定位原词条；快照显示和选词上屏调用同一套词形恢复逻辑。
 
+#8774 中没有启用的快捷入口也遵循同一接受规则：入口查找未命中后，所有 Shift 大写字母都能开始全拼或双拼组字，不再按入口字母表再次排除。模式开关、方案允许列表或资源能力拒绝了 `R/C/V` 时，按键不应落入既不能进模式又不能组字的空档。已启用的入口仍在接受过滤之前运行，总开关关闭和非 Shift 大写继续保持透传。
+
 ## Alternatives considered
 
 - **只在 macOS 宿主拼接首个大写字母**：可以针对报告平台做补丁，但会让 Android、Windows、Linux 和共享引擎的实体键盘行为不同，也无法复用 Engine 已有的大小写原文与查询键分离逻辑。
@@ -25,7 +27,7 @@ Status: implemented
 
 Shift+大写字母现在可以成为拼音组字的首键，后续英文字符会在同一组字里参与英文混输，原始大小写可在预编辑和原样提交中保留。仅 Caps Lock 或宿主未标记 Shift 的空闲大写字符仍保持透传语义；快捷模式入口及其他方案不变。
 
-当这段原文无法完整切成拼音时，结束组字也保留用户输入的英文原文。这样 `Observable<` 不会因为纠错候选存在而把中文首候选误上屏；完整拼音（例如 `Ni`）仍按首候选结束组字。
+接收大写与恢复英文词形的决定继续成立。普通大写仍参与中文查询、完整拼音 `Ni` 仍按「你」结束组字的旧边界由[大写字面片段](2026-10-19-uppercase-literal-pinyin-boundaries.md)取代：大写保留字面含义，小写片段独立转换，结束组字与明确选词使用同一套候选及原文消费范围。
 
 ## Verification
 
@@ -34,3 +36,5 @@ Shift+大写字母现在可以成为拼音组字的首键，后续英文字符�
 `mixed_english_completion_and_commit_keep_typed_case_without_changing_lookup_key` 覆盖首字母大写、全大写、混合前缀和词库专名拼写；`mixed_english_case_preserves_dictionary_identity_for_frequency_learning` 覆盖大写显示下的手动调频、词库原始显示字段与最终上屏，防止显示恢复破坏维护接口。
 
 #8776 最终验证：引擎单元测试 2349 通过、49 忽略；golden 31 通过，包含 300 个合成场景。严格 all-targets clippy、格式、笔记校验和 quick 通过。quick 在本工作树的远程 macOS 镜像运行，覆盖 workspace、Android、Wasm、Java 宿主、Linux 共享壳与原生宿主（90 项测试）、macOS 原生与共享 Apple 桥接编译；远程缺 Node、HarmonyOS 暂存依赖及 MinGW 的阶段明确跳过。笔记在本机单独验证；指定旧真实词库未就绪，不把真实词库 golden 的跳过或宿主编译当作输入法 UI 验收。
+
+`disabled_shift_shortcuts_leave_every_capital_available_for_pinyin` 遍历全拼、双拼的 26 个大写字母；旧实现首次在 `C` 失败，修复后各键的预编辑与原文提交保持大小写。拆字默认关闭的既有回归改为断言普通拼音组字，开启拆字与关闭总开关的用例继续约束原入口语义。[空入口拒绝大写的衔接](2026-10-19-bare-shortcut-capital-continuation.md)同时修复 `UV` 提前上屏，两部分共同覆盖 #8774；大写是否参与中文候选仍由 #8773 另行处理。

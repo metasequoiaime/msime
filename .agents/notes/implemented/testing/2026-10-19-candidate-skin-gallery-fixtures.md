@@ -39,6 +39,6 @@ Windows 的截图工具渲染的也是这批包，这是它们放在共享 crate
 
 验证：`rbuild cargo test --locked -p msime-client-services skin::` 通过（277 项，其中本图库 13 项）；`rbuild cargo clippy --locked -p msime-client-services --all-targets -- -D warnings` 无警告；`cargo fmt --all -- --check` 通过；`generate.py` 重跑后所有图片的哈希不变。
 
-Android 交叉编译的测试程序带着构建主机的 `CARGO_MANIFEST_DIR`，设备没有那个源码目录。2026-10-19 的 API 28/35 整套 services 回归因此有 13 个图库用例找不到夹具。设备 runner 现在把同一份图库复制到专用 AVD 的临时测试目录，并通过 `MSIME_CANDIDATE_SKIN_FIXTURES` 传路径；宿主不设置时仍读源码里的原目录。不跳过图库用例，不在手机上伪造主机路径；该变量只在测试模块中消费。
+Android 交叉编译的测试程序带着构建主机的 `CARGO_MANIFEST_DIR`，设备没有那个源码目录。2026-10-19 的 API 28/35 整套 services 回归因此有 13 个图库用例找不到夹具。该容量分支最初由设备 runner 复制图库，再通过 `MSIME_CANDIDATE_SKIN_FIXTURES` 传入测试路径。合入 `develop` 的[社区画布资源实现](../feature/2026-10-19-community-canvas-resources.md)后，沿用上游的 `include_bytes!` 嵌入夹具并写入临时目录；移除重复复制和环境变量约定。测试程序自带素材，不再要求 runner 同步图库，也不依赖设备上存在构建机路径；图库用例全部保留。
 
-补齐夹具后，API 28、35 的 services 整套单测均为 1151 项通过、9 项忽略、4 项按既有硬链接规则过滤；本图库的 13 项全部执行通过。runner 每次先清空固定的图库夹具子目录，再复制当前版本，避免删除的文件残留导致伪失败。
+补齐夹具后，API 28、35 的 services 整套单测均为 1151 项通过、9 项忽略、4 项按既有硬链接规则过滤；本图库的 13 项全部执行通过。这是原路径传递实现的设备证据；本次合并结果的验证记录在 [PR #8824](https://github.com/metasequoiaime/msime/pull/8824)。

@@ -27,6 +27,7 @@ struct CandidateOptionsSettingsView: View {
   @State private var fontFamilies: [String] = []
   @State private var shuangpinRaw = true
   @State private var saveFailed = false
+  @State private var cloudRecipient = "Google input-tools（inputtools.google.com）"
   /// A docked iPad keyboard has room for larger candidates than a phone strip; the keyboard applies the same limits when it draws.
   private let tablet = UIDevice.current.userInterfaceIdiom == .pad
 
@@ -84,9 +85,17 @@ struct CandidateOptionsSettingsView: View {
 
         DesignGroup(title: "候选内容", footer: saveFailed ? SettingsSaveFailure.message : nil) {
           // 副标题就是隐私说明：只有打开这个开关，输入的编码才会离开设备。
-          DesignToggleRow(title: "云候选", subtitle: "开启后正在输入的编码会发送到 Google 输入法服务获取候选，需允许完全访问",
+          DesignToggleRow(title: "云候选", subtitle: "仅将当前拼写发送给 \(cloudRecipient)，不发送已上屏内容、词库或历史；需允许完全访问",
                           isOn: $cloudCandidates)
             .accessibilityIdentifier("cloudCandidates")
+          DesignDivider()
+          NavigationLink {
+            CloudCandidateServiceSettingsView()
+          } label: {
+            DesignNavRowLabel(title: "云候选服务", value: cloudRecipient)
+          }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("cloudCandidateService")
           DesignDivider()
           DesignToggleRow(title: "英文单词提示", subtitle: "英文输入时提示常用单词，点选补全", isOn: $englishSuggestions)
             .accessibilityIdentifier("englishSuggestions")
@@ -194,6 +203,10 @@ struct CandidateOptionsSettingsView: View {
 
   private func reload() {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
+    let provider = preferences["cloud_candidate_provider"] as? [String: Any] ?? [:]
+    if provider["source"] as? String == "custom", let endpoint = provider["endpoint"] as? String {
+      cloudRecipient = URL(string: endpoint.replacingOccurrences(of: "{query}", with: "query"))?.host ?? "所选自定义服务"
+    } else { cloudRecipient = "Google input-tools（inputtools.google.com）" }
     let mixed = preferences["mixed_input"] as? [String: Any] ?? [:]
     english = mixed["english"] as? Bool ?? english
     minimumPrefix = Self.minimumPrefix(mixed["minimum_prefix"]) ?? minimumPrefix
@@ -268,5 +281,100 @@ private struct CandidateFontFamilyList: View {
       }
     }
     .accessibilityAddTraits(family == selection ? .isSelected : [])
+  }
+}
+
+
+/// 所有服务字段一次交给共享偏好保存，避免编辑尚未完成时覆盖有效配置。
+private struct CloudCandidateServiceSettingsView: View {
+  @State private var source = "google"
+  @State private var endpoint = ""
+  @State private var method = "GET"
+  @State private var headers = "{}"
+  @State private var bodyTemplate = ""
+  @State private var responseFormat = "candidates"
+  @State private var responsePath = ""
+  @State private var timeout = ""
+  @State private var cacheEnabled = true
+  @State private var saveFailed = false
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    Form {
+      Section {
+        Picker("云候选来源", selection: $source) {
+          Text("Google input-tools").tag("google")
+          Text("自定义 HTTP 接口").tag("custom")
+        }
+        .accessibilityIdentifier("cloudCandidateSource")
+      } footer: {
+        Text("只发送当前正在组的拼写，不发送已上屏内容、词库或历史。配置和凭据只保存在本机。")
+      }
+      if source == "custom" {
+        Section("HTTP 请求") {
+          TextField("接口地址（GET 用 {query}）", text: $endpoint)
+            .accessibilityIdentifier("cloudCandidateEndpoint")
+          Picker("请求方法", selection: $method) {
+            Text("GET").tag("GET"); Text("POST").tag("POST")
+          }
+          Text("请求头（JSON，例如 Authorization）").font(.caption)
+          TextEditor(text: $headers).frame(minHeight: 80)
+            .accessibilityIdentifier("cloudCandidateHeaders")
+          if method == "POST" {
+            Text("请求体模板（JSON，字符串中的 {query} 自动转义替换）").font(.caption)
+            TextEditor(text: $bodyTemplate).frame(minHeight: 100)
+              .accessibilityIdentifier("cloudCandidateBodyTemplate")
+          }
+        }
+        Section("响应") {
+          Picker("响应格式", selection: $responseFormat) {
+            Text("标准 candidates 数组").tag("candidates")
+            Text("Google input-tools").tag("google")
+            Text("JSON 路径").tag("json_path")
+          }
+          if responseFormat == "json_path" {
+            TextField("JSON 路径，例如 data.0", text: $responsePath)
+              .accessibilityIdentifier("cloudCandidateResponsePath")
+          }
+        }
+      }
+      Section {
+        TextField("超时（毫秒）", text: $timeout).keyboardType(.numberPad)
+          .accessibilityIdentifier("cloudCandidateTimeout")
+        Toggle("缓存云候选", isOn: $cacheEnabled)
+      } footer: {
+        Text("超时范围由共享层校验（100–10000 毫秒）。缓存仅留在本机内存，各来源独立；无结果缓存 60 秒。公网地址使用 HTTPS，本机服务可用 HTTP。")
+      }
+      if saveFailed { Text("保存失败，请检查接口地址、请求头 JSON、请求体模板、响应路径和超时。").foregroundStyle(.red) }
+    }
+    .textInputAutocapitalization(.never).autocorrectionDisabled()
+    .navigationTitle("云候选服务").navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) { Button("保存", action: save) }
+    }
+    .onAppear(perform: load)
+  }
+
+  private func load() {
+    guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences(),
+          let provider = preferences["cloud_candidate_provider"] as? [String: Any] else { return }
+    source = provider["source"] as? String ?? source
+    endpoint = provider["endpoint"] as? String ?? endpoint
+    method = provider["method"] as? String ?? method
+    headers = provider["headers_json"] as? String ?? headers
+    bodyTemplate = provider["body_template"] as? String ?? bodyTemplate
+    responseFormat = provider["response_format"] as? String ?? responseFormat
+    responsePath = provider["response_path"] as? String ?? responsePath
+    timeout = (provider["timeout_ms"] as? NSNumber)?.stringValue ?? timeout
+    cacheEnabled = provider["cache_enabled"] as? Bool ?? cacheEnabled
+  }
+
+  private func save() {
+    guard let milliseconds = Int(timeout) else { saveFailed = true; return }
+    let provider: [String: Any] = ["source": source, "endpoint": endpoint, "method": method,
+      "headers_json": headers, "body_template": bodyTemplate, "response_format": responseFormat,
+      "response_path": responsePath, "timeout_ms": milliseconds, "cache_enabled": cacheEnabled]
+    saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0["cloud_candidate_provider"] = provider }
+    if !saveFailed { dismiss() }
   }
 }

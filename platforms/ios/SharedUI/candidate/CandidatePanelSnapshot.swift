@@ -1,6 +1,6 @@
 import Foundation
 
-/// A bounded, generation-stable copy of every candidate used by expanded keyboard panels.
+/// 展开面板使用的完整候选快照：逐行校验文字与代次，不套用释义请求的条数上限。
 struct CandidatePanelSnapshot: Equatable, Sendable {
   struct Entry: Equatable, Sendable {
     let text: String
@@ -37,8 +37,7 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
           let generation = CandidateGlossModel.integerValue(generationValue, maximum: UInt64.max),
           let preedit = value["preedit"] as? String,
           CandidateGlossModel.isBounded(preedit, allowingEmpty: true),
-          let candidates = value["candidates"] as? [[String: Any]],
-          candidates.count <= 4096 else { throw Failure.invalidResponse }
+          let candidates = value["candidates"] as? [[String: Any]] else { throw Failure.invalidResponse }
     var seen = Set<UInt64>()
     let entries = try candidates.compactMap { candidate -> Entry? in
       guard let text = candidate["text"] as? String,
