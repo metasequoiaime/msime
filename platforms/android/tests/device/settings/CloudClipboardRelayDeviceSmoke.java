@@ -264,7 +264,7 @@ public final class CloudClipboardRelayDeviceSmoke extends Instrumentation {
     }
 
     /**
-     * 设置页和键盘用的那份密钥串：只有加密后的 `cloud-clipboard-relay-keystore` 和它的锁，没有共享入口那种明文 JSON，也没有它的锁文件；文件第一个字节是格式版本 1，内容里看不到密钥串的 `v1.` 前缀、绑定和 JSON 字段名。
+     * 设置页和键盘用的那份密钥串：只有加密后的 `cloud-clipboard-relay-keystore` 和它的两把锁（读写用的 `.lock`、删除次数那把 `.removals`），没有共享入口那种明文 JSON，也没有它的锁文件；文件第一个字节是格式版本 1，内容里看不到密钥串的 `v1.` 前缀、绑定和 JSON 字段名。
      */
     private static void checkSealed(File keys) throws Exception {
         File file = new File(keys, "cloud-clipboard-relay-keystore");
@@ -275,8 +275,9 @@ public final class CloudClipboardRelayDeviceSmoke extends Instrumentation {
             "the relay keystore is sealed by AndroidKeyStore, not plain text");
         String[] names = keys.list();
         java.util.Arrays.sort(names);
-        check(java.util.Arrays.equals(names, new String[] {"cloud-clipboard-relay-keystore", "cloud-clipboard-relay-keystore.lock"}),
-            "only the sealed keystore and its lock are there: " + java.util.Arrays.toString(names));
+        check(java.util.Arrays.equals(names, new String[] {"cloud-clipboard-relay-keystore", "cloud-clipboard-relay-keystore.lock",
+                "cloud-clipboard-relay-keystore.removals"}),
+            "only the sealed keystore and its two locks are there: " + java.util.Arrays.toString(names));
     }
 
     private static JSONObject list() throws Exception {
