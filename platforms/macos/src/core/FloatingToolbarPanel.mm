@@ -1,3 +1,4 @@
+#import "NativeGlassBackground.h"
 #import "FloatingToolbarPanel.h"
 #import "../candidate/CandidatePlacement.h"
 #import "../candidate/CandidateSkinAppearance.h"
@@ -452,6 +453,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 @property(nonatomic) SEL appearanceAction;
 @property(nonatomic, copy) NSColor *fillColor;
 @property(nonatomic, copy) NSColor *strokeColor;
+@property(nonatomic, strong) NSView *glassBackground;
 @end
 @implementation MetasequoiaFloatingToolbarChromeView
 - (void)viewDidChangeEffectiveAppearance
@@ -468,6 +470,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
+    if (self.glassBackground) return;
     const CGFloat radius = self.layer.cornerRadius;
     NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:radius yRadius:radius];
     [(self.fillColor != nil ? self.fillColor : NSColor.windowBackgroundColor) setFill];
@@ -568,6 +571,8 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     // force: is required because this panel is borderless and therefore not resizable.
     [self setFrameUsingName:kToolbarFrameAutosaveName force:YES];
 
+    [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self selector:@selector(applySkin)
+        name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
     _chrome = [[MetasequoiaFloatingToolbarChromeView alloc] initWithFrame:self.contentView.bounds];
     _chrome.appearanceTarget = self;
     _chrome.appearanceAction = @selector(applySkin);
@@ -814,6 +819,11 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     [self applySkin];
 }
 
+- (void)setLiquidGlassEnabled:(BOOL)enabled {
+    _liquidGlassEnabled = enabled;
+    [self applySkin];
+}
+
 - (void)applySkin
 {
     if (_inputModeButton == nil || _settingsButton == nil)
@@ -826,6 +836,8 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     // Candidate tokens carry a package's card radius, which is not the toolbar's; only a toolbar palette (ToolbarSkinTokens: the package's toolbar radius, then its stylesheet) sets the toolbar radius.
     if (!_hasHostToolbarSkin) tokens.radius = msime::mac::NativeCandidateTokens(dark).radius;
     _chrome.layer.cornerRadius = tokens.radius * (_appliedScale > 0.0 ? _appliedScale : 1.0);
+    _chrome.glassBackground = MSIMEUpdateNativeGlassBackground(_chrome, _chrome.glassBackground,
+        self.liquidGlassEnabled, _chrome.layer.cornerRadius);
     _chrome.fillColor = MetasequoiaColorFromRgba(tokens.surface);
     _chrome.strokeColor = MetasequoiaColorFromRgba(tokens.border);
     NSColor *text = MetasequoiaColorFromRgba(tokens.text);

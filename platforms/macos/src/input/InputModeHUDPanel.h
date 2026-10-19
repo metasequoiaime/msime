@@ -10,6 +10,8 @@ FOUNDATION_EXPORT NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSi
 
 /// A short, non-activating badge shown after the user switches Chinese/English input.
 @interface MSIMEInputModeHUDPanel : NSPanel
+/// 系统主题在 macOS 26 起使用原生材质，旧系统与减少透明度模式回退。
+@property(nonatomic) BOOL liquidGlassEnabled;
 + (instancetype)sharedPanel;
 - (void)showEnglishInputMode:(BOOL)englishInputMode nearCaretRect:(NSRect)caretRect;
 /// The badge's fill, outline and glyph colour: the floating toolbar's, so it follows the selected theme and skin. Pass dynamic colours to follow the appearance. Until set, the system window colours.

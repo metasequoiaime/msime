@@ -74,6 +74,19 @@ int main() {
             Require([hud.displayedText isEqualToString:@"英"], "English HUD missing");
             [hud showEnglishInputMode:NO nearCaretRect:caret];
             Require([hud.displayedText isEqualToString:@"中"], "Chinese HUD missing");
+            hud.liquidGlassEnabled = YES;
+            if (@available(macOS 26.0, *)) {
+                if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency) {
+                    NSView *glass = [hud valueForKey:@"glassBackground"];
+                    Require([glass isKindOfClass:NSGlassEffectView.class], "HUD 未安装原生玻璃");
+                    Require(NSEqualRects(glass.frame, hud.contentView.bounds), "HUD 材质尺寸不匹配");
+                    Require(hud.ignoresMouseEvents, "HUD 丢失鼠标穿透");
+                    Require(hud.contentView.layer.borderWidth == 0, "HUD 仍绘制实色边框");
+                }
+            }
+            hud.liquidGlassEnabled = NO;
+            Require([hud valueForKey:@"glassBackground"] == nil, "HUD 回退未移除材质");
+            Require(CGColorEqualToColor(hud.contentView.layer.backgroundColor, surface.CGColor), "HUD 回退未恢复皮肤");
             [hud orderOut:nil];
         } catch (const std::exception &error) { std::fprintf(stderr, "%s\n", error.what()); return 1; }
     }

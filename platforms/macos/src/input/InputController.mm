@@ -5494,6 +5494,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
+    const BOOL systemGlass = [_appearance.globalTheme isEqual:@"system"];
+    _toolbar.liquidGlassEnabled = systemGlass;
+    [MSIMEInputModeHUDPanel sharedPanel].liquidGlassEnabled = systemGlass;
     [_toolbar applyThemePreferences:toolbarThemePreferences];
     // The mode badge wears the toolbar's palette, so it is drawn in the toolbar's mode too; it is updated whether or not the toolbar is shown.
     [[MSIMEInputModeHUDPanel sharedPanel] applyThemePreferences:toolbarThemePreferences];

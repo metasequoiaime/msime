@@ -100,6 +100,19 @@ int main() {
         assert(!MetasequoiaWindowCoversDisplay(CGRectZero, display));
 
         MSIMEFloatingToolbarPanel *panel = [[MSIMEFloatingToolbarPanel alloc] init];
+        panel.liquidGlassEnabled = YES;
+        if (@available(macOS 26.0, *)) {
+            if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency) {
+                NSView *glass = [[panel valueForKey:@"chrome"] valueForKey:@"glassBackground"];
+                assert([glass isKindOfClass:NSGlassEffectView.class]);
+                assert(NSEqualRects(glass.frame, panel.contentView.bounds));
+                assert(panel.contentView.subviews.firstObject == glass);
+                assert(!panel.canBecomeKeyWindow);
+            }
+        }
+        panel.liquidGlassEnabled = NO;
+        assert([[panel valueForKey:@"chrome"] valueForKey:@"glassBackground"] == nil);
+
         assert(panel != nil && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
         assert((panel.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllSpaces) != 0);
         assert((panel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary) != 0);

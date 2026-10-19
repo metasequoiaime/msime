@@ -1,4 +1,5 @@
 #import "InputModeHUDPanel.h"
+#import "../core/NativeGlassBackground.h"
 #import "../candidate/CandidatePlacement.h"
 #import "../candidate/CandidateWindowLevel.h"
 
@@ -50,6 +51,7 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
 
 @implementation MSIMEInputModeHUDPanel {
     NSTextField *_label;
+    NSView *_glassBackground;
     NSImageView *_logoView;
     NSTimer *_dismissTimer;
     NSColor *_surfaceColor;
@@ -112,6 +114,8 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
         _logoHeight,
     ]];
     self.contentView = background;
+    [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self selector:@selector(applyThemeColors)
+        name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
     [self applySizingPreferences:@{}];
     [self applyThemeColors];
     return self;
@@ -158,12 +162,24 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
 - (NSColor *)borderColor { return _borderColor ?: NSColor.separatorColor; }
 - (NSColor *)textColor { return _textColor ?: NSColor.labelColor; }
 
-// Layer colours are resolved once, so they are taken again in the panel's current appearance each time it is shown.
+- (void)setLiquidGlassEnabled:(BOOL)enabled {
+    _liquidGlassEnabled = enabled;
+    [self applyThemeColors];
+}
+
+- (void)dealloc {
+    [_dismissTimer invalidate];
+    [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
+}
+
+// 图层颜色每次显示时按面板当前外观重新解析。
 - (void)applyThemeColors {
     [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
-        self.contentView.layer.backgroundColor = self.surfaceColor.CGColor;
+        self->_glassBackground = MSIMEUpdateNativeGlassBackground(self.contentView, self->_glassBackground,
+            self.liquidGlassEnabled, kCornerRadius);
+        self.contentView.layer.backgroundColor = self->_glassBackground ? NSColor.clearColor.CGColor : self.surfaceColor.CGColor;
         self.contentView.layer.borderColor = self.borderColor.CGColor;
-        self.contentView.layer.borderWidth = kBorderWidth;
+        self.contentView.layer.borderWidth = self->_glassBackground ? 0.0 : kBorderWidth;
         self->_label.textColor = self.textColor;
     }];
 }

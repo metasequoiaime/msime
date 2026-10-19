@@ -36,6 +36,8 @@ FOUNDATION_EXPORT BOOL MetasequoiaFrontmostApplicationOwnsFullscreenDisplay(void
 FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target);
 
 @interface MetasequoiaFloatingToolbarPanel : NSPanel
+/// 系统主题在 macOS 26 起使用原生材质，旧系统与减少透明度模式回退。
+@property(nonatomic) BOOL liquidGlassEnabled;
 @property(nonatomic, weak) id<MetasequoiaFloatingToolbarDelegate> toolbarDelegate;
 + (instancetype)sharedPanel;
 - (void)updateEnglishInputMode:(BOOL)englishInputMode
