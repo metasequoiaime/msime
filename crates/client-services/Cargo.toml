@@ -35,7 +35,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 zip = { version = "9.0", default-features = false, features = ["deflate-flate2"] }
 # Notice bodies are simple Markdown; HarmonyOS's RichText gets HTML rendered here (raw HTML escaped, unsafe links dropped). Only the HTML writer: the default `getopts` feature is for the crate's command-line binary.
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
-# 候选窗口皮肤的图片在安装、发布和补预览图之前完整解码一遍，和服务端重新编码时一样；只看签名会放过截断的图。社区包的安装、发布和补预览图仍只接受 PNG 和 JPEG；GIF 和 WebP 只在本地清单扫描时检查尺寸、动画帧数和像素合计（读不出的按静态图处理），宿主照常播放，与 msime-windows 接受的图片格式一致。`gif` 和 `webp` 两个特性为此新引入 gif 0.14.2（连带 color_quant 1.1.0、weezl 0.1.12）和 image-webp 0.2.4（连带 quick-error 2.0.1）。
+# 社区包完整解码 PNG/JPEG/APNG/GIF/WebP，保留动画且限制帧数与像素预算；预览仍只接受 PNG/JPEG。与本地扫描共用已有解码特性，不新增依赖。
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 # `image` 固定用宽松模式解码 JPEG，截断的 JPEG 也能“解码成功”，所以 JPEG 直接用严格模式的 `zune-jpeg` 解码。版本和特性与 `image` 依赖的那份相同，不引入新的 crate。
 zune-jpeg = "0.5.15"

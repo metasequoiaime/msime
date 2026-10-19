@@ -751,20 +751,14 @@ fn referenced_images(package: &SkinSummary) -> Vec<&str> {
     paths
 }
 
-/// 社区打包（`candidate_community::pack`，公开发布）与 MCP 创建（`create_candidate_skin` 走的 `candidate_community::install`，传入清单原文和它引用的全部图片）对每个验证包的结果。`canvas` 在 msime-cloud 接受之前被打包拒绝；它引用 6 张图，也超过创建允许的 3 张。服务端支持 `canvas` 之后这张表要跟着改。
+/// 验证图库的全部包都能社区打包和经 MCP 使用的原子安装路径创建，包括六张资源的 canvas。
 #[test]
 fn the_gallery_against_community_packing_and_mcp_creation() {
-    const PACKAGE: &str = "candidate_skin_package";
-    const FILE_PATH: &str = "candidate_skin_file_path";
     for id in GALLERY {
-        let (pack, create) = match id {
-            "verify-canvas" | "verify-canvas-frame" => (Err(PACKAGE), Err(FILE_PATH)),
-            _ => (Ok(()), Ok(())),
-        };
         let packed = candidate_community::pack_as(&gallery(), id, CandidateSkinVisibility::Public);
         assert_eq!(
             packed.as_ref().map(|_| ()).map_err(|code| *code),
-            pack,
+            Ok(()),
             "{id}: pack"
         );
         if let Ok(packed) = &packed {
@@ -795,7 +789,7 @@ fn the_gallery_against_community_packing_and_mcp_creation() {
         );
         assert_eq!(
             installed.as_ref().map(|_| ()).map_err(|code| *code),
-            create,
+            Ok(()),
             "{id}: create"
         );
         if installed.is_ok() {

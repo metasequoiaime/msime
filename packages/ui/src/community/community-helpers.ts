@@ -139,7 +139,7 @@ export function candidateSkinMessage(error: unknown, publishing = false): string
     case "candidate_skin_package":
       return "皮肤包未通过校验，无法分享或安装。";
     case "candidate_skin_file_type":
-      return "仅支持 PNG 或 JPEG 图片，且不能包含样式表。";
+      return "资源支持 PNG/JPEG/APNG/GIF/WebP，预览须为 PNG/JPEG，不能包含样式表。";
     case "candidate_skin_file_path":
       return "皮肤文件名或数量不符合要求。";
     case "candidate_skin_too_large":
