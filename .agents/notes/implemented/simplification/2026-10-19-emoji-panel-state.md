@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-由公共 `useEmojiPanel` 管理这些状态和动作，返回显示数据、导航绑定和语义动作。剪贴板记录由受控的 [EmojiClipboardEntries](2026-10-19-emoji-clipboard-entries.md) 消费条目和动作；`EmojiPanel` 保留其他 JSX、宿主能力控制和按钮文案，搜索框与记录共用内部字段样式；搜索、重载、激活模式、更多入口和分页使用 hook 动作。保留现有 effect 顺序、请求代次、400 ms 可见轮询、宿主订阅补读、剪贴板修改守卫和删除后的焦点恢复。
+由公共 `useEmojiPanel` 管理这些状态和动作，返回显示数据、导航绑定和语义动作。剪贴板记录由受控的 [EmojiClipboardEntries](2026-10-19-emoji-clipboard-entries.md) 消费条目和动作，最近符号、符号目录和通用目录共用受控的 [EmojiItemButton](2026-10-19-emoji-item-button.md)，面板统一把原文和关键词交给既有选择动作；`EmojiPanel` 保留其他 JSX、宿主能力控制和按钮文案，搜索框、记录与目录按钮使用内部样式模块；搜索、重载、激活模式、更多入口和分页使用 hook 动作。保留现有 effect 顺序、请求代次、400 ms 可见轮询、宿主订阅补读、剪贴板修改守卫和删除后的焦点恢复。
 
 ## Existing notes audit
 

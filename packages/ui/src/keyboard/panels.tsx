@@ -46,9 +46,11 @@ import { CloudDictionaryKindSelect } from "./cloud-dictionary-kind-select";
 import { CloudDictionarySelectField } from "./cloud-dictionary-select-field";
 import { CloudDictionaryQueryToolbar } from "./cloud-dictionary-query-toolbar";
 import { CloudPinyinSchemeOptions, CloudShuangpinProfileOptions } from "./cloud-scheme-options";
-import { emojiDisplayName, symbolCategoryTitle } from "./emoji-panel-helpers";
+import { symbolCategoryTitle } from "./emoji-panel-helpers";
+import type { EmojiCatalogItem } from "../emoji/emoji-catalog";
 import { panelField } from "./emoji-panel-style";
 import { EmojiClipboardEntries } from "./emoji-clipboard-entries";
+import { EmojiItemButton } from "./emoji-item-button";
 import { HandwritingResults } from "./handwriting-results";
 import { HandwritingInkEditor } from "./handwriting-ink-editor";
 import { HandwritingModelNotice } from "./handwriting-model-notice";
@@ -1423,20 +1425,6 @@ const panelChip = (chosen: boolean) =>
       : `border-transparent bg-transparent ${panelDim} ${panelRaise} focus-visible:bg-[#303038] focus-visible:text-[#f5f5f7] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:text-[#202124]`
   }`;
 const panelEmpty = `m-0 flex min-h-[220px] items-center justify-center text-center text-sm ${surface.panelMuted}`;
-/*
- * A tile. Grid tiles are uniform squares; flow tiles hold kaomoji and captioned symbols, so they size
- * to their content and wrap their text instead. The `:nth-child(n)` the stylesheet used on the group
- * was only there to win a specificity fight with the grid rule -- a fight utilities do not have.
- */
-const panelTile = (flow: boolean, compact = false) =>
-  `flex min-w-0 items-center justify-center overflow-hidden rounded-[9px] border border-transparent bg-transparent text-center font-emoji-text leading-[1.2] wrap-anywhere ${surface.panelText} hover:border-[#555560] hover:bg-[#303038] focus-visible:border-[#555560] focus-visible:bg-[#303038] group-data-[panel-theme=light]:hover:border-[#c8ccd5] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:border-[#c8ccd5] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3] disabled:cursor-wait disabled:opacity-55 ${
-    flow
-      ? "max-w-full flex-[0_1_auto] min-h-12 px-3 py-2.5 text-xl whitespace-pre-wrap"
-      : compact
-        ? "h-10 min-h-10 p-1 text-xl"
-        : "min-h-[66px] p-1.5 text-[29px]"
-  }`;
-
 export function EmojiPanel({
   client,
   theme = "dark",
@@ -1491,6 +1479,7 @@ export function EmojiPanel({
     previousItemPage,
     nextItemPage,
   } = useEmojiPanel(client, initialPage);
+  const selectCatalogItem = (item: EmojiCatalogItem) => copy(item.text, false, item.keywords);
   return (
     <main
       {...navigation}
@@ -1681,15 +1670,13 @@ export function EmojiPanel({
             <div className="mt-1 flex gap-1 overflow-x-auto">
               {symbolRecent.length ? (
                 symbolRecent.map((item) => (
-                  <button
-                    type="button"
+                  <EmojiItemButton
                     key={item.text}
-                    className={`${panelTile(false, true)} shrink-0 min-w-10`}
-                    title={emojiDisplayName(item.keywords, item.text)}
-                    onClick={() => copy(item.text, false, item.keywords)}
-                  >
-                    {item.text}
-                  </button>
+                    item={item}
+                    compact
+                    className="shrink-0 min-w-10"
+                    onSelect={selectCatalogItem}
+                  />
                 ))
               ) : (
                 <p className={`my-1 text-xs ${panelDim}`}>使用过的符号会显示在这里</p>
@@ -1724,16 +1711,13 @@ export function EmojiPanel({
                   </h2>
                   <div className="grid grid-cols-[repeat(auto-fill,minmax(36px,1fr))] gap-1">
                     {group.items.map((item, index) => (
-                      <button
-                        type="button"
+                      <EmojiItemButton
                         key={`${index}-${item.text}`}
-                        className={panelTile(false, true)}
-                        data-emoji-navigation-item
-                        title={emojiDisplayName(item.keywords, item.text)}
-                        onClick={() => copy(item.text, false, item.keywords)}
-                      >
-                        {item.text}
-                      </button>
+                        item={item}
+                        compact
+                        navigable
+                        onSelect={selectCatalogItem}
+                      />
                     ))}
                   </div>
                 </div>
@@ -1875,17 +1859,14 @@ export function EmojiPanel({
                 }
               >
                 {group.items.map((item, index) => (
-                  <button
-                    type="button"
-                    className={panelTile(group.flow === true)}
-                    data-emoji-navigation-item
+                  <EmojiItemButton
+                    item={item}
+                    flow={group.flow === true}
+                    navigable
                     disabled={clipboardBusy}
                     key={`${index}-${item.text}`}
-                    title={emojiDisplayName(item.keywords, item.text)}
-                    onClick={() => void copy(item.text, false, item.keywords)}
-                  >
-                    {item.text}
-                  </button>
+                    onSelect={selectCatalogItem}
+                  />
                 ))}
               </div>
             </div>
