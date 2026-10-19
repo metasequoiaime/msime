@@ -14,8 +14,8 @@
 # Usage: platforms/macos/package-release.sh [--editions ID[,ID...]] [VERSION] [OUT_DIR]
 #   --editions 是版本表 shared/contracts/editions.json 里的版本 id，缺省只打 full，产物与引入版本之前相同。几个版本共用一次编译：输入法、msime-mcp 和设置应用的可执行文件都只编一遍，每个版本只重新暂存自己的资源、用 platforms/macos/scripts/edition_bundle.py 把输入法 bundle 改成该版本的身份、按该版本的 identifier 和 productName 打一个设置应用，再各出一个 DMG。多个版本可以同时安装，彼此完全隔离。
 #   VERSION defaults to platforms/macos/version.txt, the version release-macos.yml tags as macos-vVERSION. It becomes the version the settings app reports, so the in-app update check compares like with like, and it must equal the input method's CFBundleShortVersionString (platforms/macos/Info.plist.in).
-#   OUT_DIR defaults to target/macos-package/dist and receives one <dmg_prefix>-VERSION-universal.dmg per edition (full: msime-macos-VERSION-universal.dmg) and SHA256SUMS.
-#   发布的可执行文件在剥离符号之前先生成 dSYM，放在 target/macos-package/dsym，每次运行开头清空；全部版本打完后再打成 OUT_DIR 里的 msime-macos-VERSION-dsym.zip，release-macos.yml 把它作为发布资产上传。各版本带的是同样的四个可执行文件，一份覆盖全部版本。
+#   OUT_DIR 缺省是 target/macos-package/dist，每个版本在里面得到一个 <dmg_prefix>-VERSION-universal.dmg（full 是 msime-macos-VERSION-universal.dmg），另有只列这些 DMG 的 SHA256SUMS：版本发布页上只放它们。
+#   发布的可执行文件在剥离符号之前先生成 dSYM，放在 target/macos-package/dsym，每次运行开头清空；全部版本打完后再打成 OUT_DIR 里的 msime-macos-VERSION-dsym.zip，release-macos.yml 把它传到滚动的 macos-symbols release，不放进版本发布页。各版本带的是同样的四个可执行文件，一份覆盖全部版本。
 #
 # Environment:
 #   MSIME_SPARKLE_ROOT            required; directory containing the pinned Sparkle.framework (see README.md)
@@ -27,7 +27,7 @@
 #                                 when all three are set (and an identity is), the DMG is notarized and stapled
 #   MSIME_SPARKLE_PRIVATE_KEY     与 platforms/macos/sparkle-public-key.txt 对应的 base64 EdDSA 私钥（generate_keys -x 导出的 32 字节种子或旧版 96 字节格式）。同时具备私钥和签名身份时，每个发行版本生成输入法与完整设置应用的签名归档和独立 appcast；缺少时不配置更新通道，保留下载页入口
 #   MSIME_SPARKLE_APPCAST_BASE_URL    where the appcast-<edition>.xml files are served; defaults to the macos-appcast release
-#   MSIME_SPARKLE_DOWNLOAD_URL_PREFIX where the update zips are served; defaults to the macos-vVERSION release
+#   MSIME_SPARKLE_DOWNLOAD_URL_PREFIX 更新包的下载地址前缀，缺省也是 macos-appcast release：更新包和 appcast 放在一起，不进版本发布页（见 platforms/macos/scripts/publish-sparkle-feed.sh）
 #
 # 产物是 universal 的：Apple 芯片和 Intel Mac 用同一个包。Rust 产物按两个 target 各编一次再用 lipo 合并，CMake 的目标和 Swift 后端经 CMAKE_OSX_ARCHITECTURES 编出双架构，打包后 check_app 逐个核对包里的 Mach-O 都含两种架构。需要 rustup target add aarch64-apple-darwin x86_64-apple-darwin。
 set -Eeuo pipefail
@@ -69,7 +69,7 @@ if [ -n "$sparkle_key" ] && [ -z "$identity" ]; then
 fi
 if [ -n "$sparkle_key" ]; then
   sparkle_appcast_base="${MSIME_SPARKLE_APPCAST_BASE_URL:-https://github.com/metasequoiaime/msime/releases/download/macos-appcast/}"
-  sparkle_download_prefix="${MSIME_SPARKLE_DOWNLOAD_URL_PREFIX:-https://github.com/metasequoiaime/msime/releases/download/macos-v$version/}"
+  sparkle_download_prefix="${MSIME_SPARKLE_DOWNLOAD_URL_PREFIX:-https://github.com/metasequoiaime/msime/releases/download/macos-appcast/}"
   # 私钥与仓库里的公钥对不上时，发出去的每个更新包都会被 Sparkle 当作签名无效拒绝，而发版本身照常成功；所以在编译之前从私钥推出公钥比一遍。macOS 自带的 LibreSSL 不支持 Ed25519，用 Homebrew 的 OpenSSL 3。
   # Sparkle 认两种私钥（common_cli/Secret.swift）：generate_keys 现在导出的 32 字节种子，公钥由它推出；以前的 96 字节格式是 64 字节私钥接 32 字节公钥。
   case "$(printf '%s' "$sparkle_key" | /usr/bin/base64 -D | wc -c | tr -d '[:space:]')" in
@@ -278,9 +278,9 @@ tauri_bundle_dir="$CARGO_TARGET_DIR/release/bundle/macos"
 glosses="$repo_root/target/macos/offline-glosses"
 
 mkdir -p "$out_dir"
-rm -f "$out_dir/SHA256SUMS" "$out_dir"/appcast-*.xml "$out_dir"/*-input-method.zip "$out_dir"/*-settings.zip
+rm -f "$out_dir/SHA256SUMS" "$out_dir/sparkle-SHA256SUMS" "$out_dir"/appcast-*.xml "$out_dir"/*-input-method.zip "$out_dir"/*-settings.zip
 dmgs=()
-# 更新 zip 随 DMG 一起挂在 macos-vVERSION 上并写进 SHA256SUMS；appcast 挂在滚动的 macos-appcast 上，不写进去。
+# 更新 zip 和 appcast 都挂在滚动的 macos-appcast 上，不进版本发布页；zip 的摘要写进单独的 sparkle-SHA256SUMS，随它们一起上传。
 update_zips=()
 
 # 同一种签名与校验流程分别生成输入法和完整设置应用的更新归档。
@@ -594,12 +594,15 @@ for edition in "${editions[@]}"; do
   package_edition "$edition"
 done
 
-# 所有版本的 DMG 都打完之后才把 dSYM 打成一个 zip：各版本带的是同一组可执行文件，只编一次、只剥离一次，所以一份 dSYM 覆盖全部版本。zip 随 DMG 一起作为发布资产上传并写进 SHA256SUMS，用来符号化这个版本的崩溃报告。
+# 所有版本的 DMG 都打完之后才把 dSYM 打成一个 zip：各版本带的是同一组可执行文件，只编一次、只剥离一次，所以一份 dSYM 覆盖全部版本。zip 长期留在 macos-symbols release 上，用来符号化这个版本的崩溃报告；它不进 SHA256SUMS，上传时以 GitHub 记录的摘要核对。
 dsym_zip="$out_dir/msime-macos-$version-dsym.zip"
 rm -f "$dsym_zip"
 ditto -c -k --keepParent "$dsym_dir" "$dsym_zip"
 
-(cd "$out_dir" && shasum -a 256 -- "${dmgs[@]##*/}" "${dsym_zip##*/}" ${update_zips[@]+"${update_zips[@]##*/}"} > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
+(cd "$out_dir" && shasum -a 256 -- "${dmgs[@]##*/}" > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
+if [ ${#update_zips[@]} -gt 0 ]; then
+  (cd "$out_dir" && shasum -a 256 -- "${update_zips[@]##*/}" > sparkle-SHA256SUMS && shasum -a 256 -c sparkle-SHA256SUMS)
+fi
 for dmg in "${dmgs[@]}"; do
   echo "macOS package: $dmg"
 done
