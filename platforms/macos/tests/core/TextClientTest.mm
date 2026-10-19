@@ -3,13 +3,13 @@
 #import "MSIMEClientSession.h"
 #include "msime_client.h"
 #include <cassert>
+#include <initializer_list>
 #include <sqlite3.h>
 #include <string>
 
 @interface FakeTextClient : NSObject <MSIMETextClient>
 @property(nonatomic, copy) NSString *committed;
-// Whatever setMarkedText: was handed. A plain string for an ordinary composition, an
-// attributed one once a phrase piece leads it, which is what the clause styling needs.
+// 保留传给客户端的原始对象，分别核对标记样式与文字内容。
 @property(nonatomic, strong) id marked;
 @property(nonatomic) NSRange selection;
 @property(nonatomic, strong) NSMutableArray<NSString *> *events;
@@ -490,11 +490,43 @@ static void TestTrackedMarkedText() {
     assert(client.events.count == 6);
 }
 
+static void TestInlinePreeditCaretStyle() {
+    [NSApplication sharedApplication];
+    FakeTextClient *client = [FakeTextClient new];
+    NSTextView *editor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 640, 160)];
+    for (MSIMEInlinePreeditStyle style : {MSIMEInlinePreeditStyleRaw, MSIMEInlinePreeditStylePinyin}) {
+        for (NSUInteger position = 0; position <= 5; ++position) {
+            MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"nihao", @"preedit": @"ni'hao",
+                                                               @"caret_position": @(position)}}, client, style);
+            NSString *expected = style == MSIMEInlinePreeditStyleRaw ? @"nihao" : @"ni'hao";
+            const NSUInteger offset = style == MSIMEInlinePreeditStyleRaw ? position :
+                MSIMEPreeditCaretPosition(@"nihao", @"ni'hao", @(position));
+            assert([client.markedString isEqual:expected]);
+            assert(NSEqualRanges(client.selection, NSMakeRange(offset, 0)));
+            assert([client.marked isKindOfClass:NSAttributedString.class]);
+            NSAttributedString *marked = client.marked;
+            for (NSUInteger index = 0; index < marked.length; ++index) {
+                NSDictionary *attributes = [marked attributesAtIndex:index effectiveRange:nullptr];
+                assert([attributes[NSUnderlineStyleAttributeName] isEqual:@(NSUnderlineStyleSingle)]);
+                assert([attributes[NSMarkedClauseSegmentAttributeName] isEqual:@0]);
+                assert(!attributes[NSFontAttributeName] && !attributes[NSForegroundColorAttributeName] &&
+                       !attributes[NSBackgroundColorAttributeName]);
+            }
+            // 让真实 AppKit 客户端消费桥接结果，不能只验证替身收到的下标。
+            [editor setMarkedText:marked selectedRange:client.selection replacementRange:NSMakeRange(NSNotFound, 0)];
+            assert([editor.string isEqual:expected] && editor.hasMarkedText);
+            assert(NSEqualRanges(editor.selectedRange, NSMakeRange(offset, 0)));
+            assert(editor.shouldDrawInsertionPoint);
+        }
+    }
+}
+
 int main() {
     @autoreleasepool {
         assert(MSIMEPreeditCaretPosition(@"abc", @"abc", @1) == 1);
         for (id invalid in @[@YES, @0.5, @1.5])
             assert(MSIMEPreeditCaretPosition(@"abc", @"abc", invalid) == 3);
+        TestInlinePreeditCaretStyle();
         TestTrackedMarkedText();
         FakeTextClient *client = [FakeTextClient new];
         client.events = [NSMutableArray array];
@@ -586,10 +618,9 @@ int main() {
             assert([first[NSMarkedClauseSegmentAttributeName] isEqual:@0]);
             assert([rest[NSMarkedClauseSegmentAttributeName] isEqual:@1]);
         }
-        // An ordinary composition with nothing chosen yet stays a plain string: there is only one
-        // clause, and a host that never holds a phrase piece is unaffected by any of this.
+        // 普通组字显式标出单个子句，不依赖 IMK 的默认标记样式。
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"paobu", @"caret_position": @2}}, client);
-        assert([client.marked isKindOfClass:NSString.class]);
+        assert([client.marked isKindOfClass:NSAttributedString.class]);
 
         // The caret inside the remaining reading moves with it.
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"paobu", @"phrase_prefix": @"海滩",

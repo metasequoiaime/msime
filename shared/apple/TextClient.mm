@@ -224,6 +224,13 @@ void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETe
                                  NSMarkedClauseSegmentAttributeName: @1}
                          range:NSMakeRange(phraseLength, marked.length - phraseLength)];
         displayed = clauses;
+    } else if (marked.length > 0) {
+        // 普通组字也明确标出子句与下划线，不依赖 IMK 与客户端的默认标记样式。
+        // 光标只由下方的零长度选区表达，不把竖线等标记混进应用文字。
+        displayed = [[NSAttributedString alloc] initWithString:marked attributes:@{
+            NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle),
+            NSMarkedClauseSegmentAttributeName: @0
+        }];
     }
 #endif
     // Only the clear of a composition that is not there is skipped; after a commit the clear still goes out, as it always has.

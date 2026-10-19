@@ -548,7 +548,8 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)range {
     (void)selection;
     (void)range;
-    self.marked = text;
+    // 路由用例只关心文字；属性与光标由 TextClientTest 的原生客户端回归覆盖。
+    self.marked = [text isKindOfClass:NSAttributedString.class] ? [text string] : text;
 }
 @end
 
