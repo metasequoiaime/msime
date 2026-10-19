@@ -2850,8 +2850,7 @@ html[data-macos-liquid-glass="true"]:has([data-settings-shell][data-platform="ma
 html[data-macos-liquid-glass="true"] body:has([data-settings-shell][data-platform="mac"]),
 html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"],
 html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-sidebar,
-html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-drag-row,
-html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-toolbar {
+html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-drag-row {
   background: transparent;
 }
 
@@ -2872,9 +2871,19 @@ html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"] 
   --p-seg-item-r: 14px;
 }
 
-/* 正文也透出原生玻璃；分组与控件只叠加轻薄高光，不再使用白色或灰色实心卡片。 */
-html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-content {
-  background: transparent;
+/* 只有侧栏透出材质，正文与工具栏使用相同的实色底。 */
+html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"] {
+  --settings-main-bg: #1f1f21;
+}
+
+html[data-theme="light"][data-macos-liquid-glass="true"]
+  [data-settings-shell][data-platform="mac"] {
+  --settings-main-bg: #f2f2f4;
+}
+
+html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-content,
+html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-toolbar {
+  background: var(--settings-main-bg);
 }
 
 html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"] {

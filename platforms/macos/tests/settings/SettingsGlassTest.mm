@@ -3,6 +3,21 @@
 #include <cassert>
 #include "../../../../apps/desktop/src-tauri/macos/settings_glass.mm"
 
+// 合成焦点和应用状态，避免测试抢走真实桌面的焦点。
+@interface SettingsGlassTestWindow : NSWindow
+@property(nonatomic) BOOL simulatedKey;
+@end
+@implementation SettingsGlassTestWindow
+- (BOOL)isKeyWindow { return self.simulatedKey; }
+@end
+
+static BOOL ApplicationActive = YES;
+static BOOL TestApplicationActive(id application, SEL selector) {
+    (void)application;
+    (void)selector;
+    return ApplicationActive;
+}
+
 static void CheckAppearance(WKWebView *webview, NSWindow *window, NSString *mode, NSAppearanceName expected) {
     NSString *script = [NSString stringWithFormat:@"document.documentElement.dataset.settingsAppearance = '%@'", mode];
     [webview evaluateJavaScript:script completionHandler:nil];
@@ -17,9 +32,10 @@ static void CheckAppearance(WKWebView *webview, NSWindow *window, NSString *mode
 static void TestSettingsGlass() {
     @autoreleasepool {
         [NSApplication sharedApplication];
-        NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1000, 780)
+        SettingsGlassTestWindow *window = [[SettingsGlassTestWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1000, 780)
             styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskResizable
             backing:NSBackingStoreBuffered defer:NO];
+        window.simulatedKey = YES;
         WKWebView *webview = [[WKWebView alloc] initWithFrame:window.contentView.bounds];
         webview.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         [window.contentView addSubview:webview];
@@ -51,6 +67,23 @@ static void TestSettingsGlass() {
             assert(((NSGlassEffectView *)controller.glass).contentView == webview);
             assert([webview isDescendantOf:controller.glass]);
             assert(!NSIsEmptyRect(webview.frame));
+            // 真正的通知入口要同步移除和恢复材质，并保留同一 WebView。
+            for (NSNumber *active in @[@NO, @YES]) {
+                ApplicationActive = active.boolValue;
+                [NSNotificationCenter.defaultCenter postNotificationName:active.boolValue ? NSApplicationDidBecomeActiveNotification : NSApplicationDidResignActiveNotification object:NSApp];
+                BOOL enabled = active.boolValue && !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency;
+                assert((controller.glass != nil) == enabled);
+                assert(window.opaque == !enabled);
+                assert([webview isDescendantOf:window.contentView]);
+            }
+            for (NSNumber *key in @[@NO, @YES]) {
+                window.simulatedKey = key.boolValue;
+                [NSNotificationCenter.defaultCenter postNotificationName:key.boolValue ? NSWindowDidBecomeKeyNotification : NSWindowDidResignKeyNotification object:window];
+                BOOL enabled = key.boolValue && !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency;
+                assert((controller.glass != nil) == enabled);
+                assert(window.opaque == !enabled);
+                assert([webview isDescendantOf:window.contentView]);
+            }
             [webview loadHTMLString:@"<!doctype html><html><body>synthetic settings</body></html>" baseURL:nil];
             // 页面重载通过消息读取实时状态；不能只验证原生视图存在却没有透出材质。
             NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:8];
@@ -111,6 +144,9 @@ static BOOL TestReducedTransparency(id workspace, SEL selector) {
 
 int main() {
     @autoreleasepool {
+        [NSApplication sharedApplication];
+        Method activeMethod = class_getInstanceMethod(NSApplication.class, @selector(isActive));
+        IMP originalActive = method_setImplementation(activeMethod, (IMP)TestApplicationActive);
         Method method = class_getInstanceMethod(NSWorkspace.class, @selector(accessibilityDisplayShouldReduceTransparency));
         IMP original = method_setImplementation(method, (IMP)TestReducedTransparency);
         for (NSNumber *reduced in @[@NO, @YES]) {
@@ -118,6 +154,7 @@ int main() {
             TestSettingsGlass();
         }
         method_setImplementation(method, original);
+        method_setImplementation(activeMethod, originalActive);
     }
     return 0;
 }
