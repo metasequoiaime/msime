@@ -652,6 +652,27 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
 }
 
+// 只利用取光标矩形时已经返回的颜色，不读取文档或截屏；无有效颜色时继续跟随系统。
+static NSAppearance *MSIMECandidateHostAppearance(NSDictionary *attributes) {
+    if (![attributes isKindOfClass:NSDictionary.class]) return nil;
+    for (NSString *key in @[NSBackgroundColorAttributeName, NSBackgroundColorDocumentAttribute, NSForegroundColorAttributeName]) {
+        id value = attributes[key];
+        if (![value isKindOfClass:NSColor.class]) continue;
+        NSColor *color = [value colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        if (!color || color.alphaComponent < 0.95) continue;
+        CGFloat r = color.redComponent, g = color.greenComponent, b = color.blueComponent;
+        if (!std::isfinite(r) || !std::isfinite(g) || !std::isfinite(b)) continue;
+        const BOOL foreground = [key isEqual:NSForegroundColorAttributeName];
+        // 彩色语法高亮不能代表整个输入区的背景，只有中性文字能作后备依据。
+        if (foreground && MAX(r, MAX(g, b)) - MIN(r, MIN(g, b)) > 0.12) continue;
+        auto linear = [](CGFloat v) { return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+        const double luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+        const BOOL dark = foreground ? luminance > 0.179 : luminance <= 0.179;
+        return [NSAppearance appearanceNamed:dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
+    }
+    return nil;
+}
+
 // A theme colour for a floating panel that resolves in whichever appearance the panel is drawn in: the light palette's value in Aqua, the dark palette's in Dark Aqua.
 static NSColor *MSIMEThemedSkinColor(NSString *name, msime::mac::Rgba lightColor, msime::mac::Rgba darkColor) {
     NSColor *lightValue = SkinColor(lightColor), *darkValue = SkinColor(darkColor);
@@ -1158,6 +1179,7 @@ static NSImage *MSIMECandidateLogoImage() {
     id _voicePermissionToken;
     uint64_t _voiceGeneration;
     id _activeClient;
+    NSAppearance *_candidateHostAppearance;
     MSIMEToolTextReturn _emojiReturn;
     MSIMEDesktopInputSession *_desktopInputSession;
     MSIMEPanelTextCompletion _desktopEmojiCompletion;
@@ -7169,6 +7191,21 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
                                       accent:_renderedCandidateAccent animation:_renderedCandidateAnimation];
 }
 
+// 显式明暗及皮肤仍由用户决定；仅系统主题的自动模式采用输入区配色。
+- (NSAppearance *)candidateAppearanceForClientAttributes:(NSDictionary *)attributes {
+    NSAppearance *override = [_appearance candidateAppearanceOverride];
+    NSAppearance *host = nil;
+    if (@available(macOS 26.0, *)) {
+        if (!override && [_appearance.globalTheme isEqual:@"system"] &&
+            [_appearance.themeMode isEqual:@"system"] && [_appearance.candidateTheme isEqual:@"follow"])
+            host = MSIMECandidateHostAppearance(attributes);
+    }
+    const BOOL update = _appearance.candidateAppearanceOverrideConfigured || _candidateHostAppearance != nil || host != nil;
+    _candidateHostAppearance = host;
+    if (update) _panel.appearance = override ?: host;
+    return override ?: host;
+}
+
 // The candidate window, created on first use. Its wheel pages the Engine's candidates, or scrolls the expanded grid while that is open.
 - (MSIMECandidatePanel *)candidatePanelWithAppearance:(NSAppearance *)candidateAppearance {
     if (!_panel) {
@@ -7192,7 +7229,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         _panel.hidesOnDeactivate = NO;
         _panel.becomesKeyOnlyIfNeeded = YES;
         _panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
-        if (_appearance.candidateAppearanceOverrideConfigured) _panel.appearance = candidateAppearance;
+        if (_appearance.candidateAppearanceOverrideConfigured || _candidateHostAppearance) _panel.appearance = candidateAppearance;
     }
     return (MSIMECandidatePanel *)_panel;
 }
@@ -7292,14 +7329,14 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const bool timed = msime_macos_diagnostic_enabled();
     const uint64_t buildStarted = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
     NSRect reportedCursor = NSZeroRect;
-    [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
+    NSDictionary *clientAttributes = [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
     NSRect cursor = [self candidateCaretForRendering:reportedCursor];
     if (!MSIMEValidCaret(cursor)) return NO;
     NSScreen *screen = MSIMECandidateScreen(cursor);
     if (!screen) return NO;
     const NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
-    NSAppearance *candidateAppearance = [_appearance candidateAppearanceOverride];
+    NSAppearance *candidateAppearance = [self candidateAppearanceForClientAttributes:clientAttributes];
     MSIMECandidatePanel *candidatePanel = [self candidatePanelWithAppearance:candidateAppearance];
     if (_appearance.candidateAppearanceOverrideConfigured) _panel.appearance = candidateAppearance;
     NSAppearance *currentAppearance = candidateAppearance ?: _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
@@ -7490,14 +7527,14 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         if (!MSIMECandidateTranslationColumn(highlighted, _armedGlossColumn).length) _armedGlossColumn = 0;
     }
     NSRect reportedCursor = NSZeroRect;
-    [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
+    NSDictionary *clientAttributes = [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
     NSRect cursor = [self candidateCaretForRendering:reportedCursor];
     if (!MSIMEValidCaret(cursor)) { _renderedCandidateView = nil; [self hideCandidatePanel:"invalid_caret"]; return; }
     NSScreen *screen = MSIMECandidateScreen(cursor);
     if (!screen) { _renderedCandidateView = nil; [self hideCandidatePanel:"no_screen"]; return; }
     NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
-    NSAppearance *candidateAppearance = [_appearance candidateAppearanceOverride];
+    NSAppearance *candidateAppearance = [self candidateAppearanceForClientAttributes:clientAttributes];
     if (_appearance.candidateAppearanceOverrideConfigured) _panel.appearance = candidateAppearance;
     const BOOL vertical = _appearance.vertical;
     NSAppearance *currentAppearance = candidateAppearance ?: _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
@@ -7747,7 +7784,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     NSString *match = [content.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     const BOOL dark = [match isEqual:NSAppearanceNameDarkAqua];
     const auto skin = [_appearance candidateWindowSkinForDark:dark];
-    const auto &tokens = skin.tokens;
+    auto tokens = skin.tokens;
     if (tokens.showSelectedBar != _skinShowsSelectedBar) { [self renderCandidates]; return; }
     // 明暗切换后画的是另一个槽位的包（或者这种明暗不画包）：装饰、最小宽度和圆角都跟着变，只换颜色不够，整页重排一次。重排结束时还会回到这里，那时包已经对上，不会再重排。面板没在屏幕上时不重排：重排会把它重新显示出来，下一次显示候选时本来就按当时的明暗排版。
     if (skin.candidateSkin != _renderedCandidateSkin && _panel.isVisible && !_rerenderingForCandidateSkin) {
@@ -7768,6 +7805,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     content.backgroundOpacity = skin.backgroundOpacity;
     // 普通候选和展开网格都经这里刷新；只有未覆盖皮肤的系统主题使用原生材质。
     content.liquidGlassEnabled = skin.id == "system" && skin.candidateSkin.empty();
+    if (content.liquidGlassActive) msime::mac::ApplyNativeGlassCandidateContrast(tokens, dark);
     NSArray<MSIMECandidateButton *> *candidateButtons = [content.candidateContentView.subviews filteredArrayUsingPredicate:
         [NSPredicate predicateWithBlock:^BOOL(NSView *view, NSDictionary *_) {
             return ([view isKindOfClass:MSIMECandidateButton.class] ||

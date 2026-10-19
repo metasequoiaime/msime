@@ -395,6 +395,8 @@ struct ResolvedSkin
 bool IsSafeSkinId(std::string_view id);
 // The native macOS candidate tokens (design-tokens-desktop §1.2) that every null slot of a resolved theme falls back to.
 SkinTokens NativeCandidateTokens(bool dark);
+// 玻璃底板会混入背后的内容，次要文字和选中行使用独立的高对比颜色。
+void ApplyNativeGlassCandidateContrast(SkinTokens &tokens, bool dark);
 // The selected row's foregrounds for a palette that left them to the platform, derived from the fill actually drawn (THEME_CONTRACT §5 step 6): white or near-black on an opaque fill, the number at 0.82 like the native one, and the row's own text and number colours on a translucent fill, where they are what stays readable. On the native solid accent this gives the native white. `translation` 为真且皮肤给了释义色时，选中行的释义色按选中序号同样的规则推导。
 void DeriveSelectedForegrounds(SkinTokens &tokens, bool text, bool number, bool translation = true);
 // A resolved candidate skin with the user's style laid over it, for the candidate window and its preview only: the floating toolbar and the colour wells keep the skin as resolved.

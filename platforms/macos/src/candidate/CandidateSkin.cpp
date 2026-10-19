@@ -114,6 +114,17 @@ SkinTokens NativeCandidateTokens(bool dark)
     return tokens;
 }
 
+void ApplyNativeGlassCandidateContrast(SkinTokens &tokens, bool dark)
+{
+    tokens.number = Rgb(dark ? 0xD1D1D6 : 0x202024);
+    tokens.selectedNumber = Rgb(0xFFFFFF);
+    if (dark)
+    {
+        tokens.selectedText = Rgb(0x102419);
+        tokens.selectedNumber = Rgb(0x1D3327);
+    }
+}
+
 void DeriveSelectedForegrounds(SkinTokens &tokens, bool text, bool number, bool translation)
 {
     if (text)

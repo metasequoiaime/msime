@@ -3008,12 +3008,17 @@ html[data-macos-liquid-glass="true"]
   [data-platform="mac"]
   [data-skin-preview][data-global-theme="system"][data-preview-theme="light"] {
   --p-group-bg: rgba(255, 255, 255, 0.65);
+  --cand-num: #202024;
+  --cand-selected-num: #ffffff;
 }
 
 html[data-macos-liquid-glass="true"]
   [data-platform="mac"]
   [data-skin-preview][data-global-theme="system"][data-preview-theme="dark"] {
   --p-group-bg: rgba(28, 28, 30, 0.65);
+  --cand-num: #d1d1d6;
+  --cand-selected-text: #102419;
+  --cand-selected-num: #1d3327;
 }
 
 html[data-macos-liquid-glass="true"]

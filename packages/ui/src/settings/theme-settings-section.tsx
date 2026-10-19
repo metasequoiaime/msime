@@ -1,3 +1,4 @@
+import { useMacOSLiquidGlass } from "../core/use-macos-liquid-glass";
 import { GroupList } from "../core/platform-controls";
 import { ScreenKeyboardThemeSection } from "./screen-keyboard-theme-section";
 import { SurfaceThemeRow } from "./surface-theme-row";
@@ -31,6 +32,7 @@ export function CandidateThemeRow({
   linux: boolean;
   onChange: (value: SurfaceTheme) => void;
 }) {
+  const glass = useMacOSLiquidGlass();
   return (
     <SurfaceThemeRow
       title={mobile ? "候选栏主题" : "候选窗口主题"}
@@ -39,7 +41,9 @@ export function CandidateThemeRow({
           ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
           : linux
             ? "覆盖颜色模式；IBus 候选窗口与 Fcitx5 经典界面按此明暗着色"
-            : "覆盖颜色模式，只影响候选窗口"
+            : glass
+              ? "系统主题自动参考输入区配色，不支持时跟随系统；可单独指定明暗"
+              : "覆盖颜色模式，只影响候选窗口"
       }
       value={value}
       onChange={onChange}

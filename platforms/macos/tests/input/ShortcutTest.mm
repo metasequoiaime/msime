@@ -10555,8 +10555,10 @@ int main(int argc, char **argv) {
         MSIMECandidateButton *pagedCandidate = PageButton(layoutPanel.contentView, 0);
         assert(NSMinY(previous.frame) >= NSMaxY(pagedCandidate.frame) && NSMinY(next.frame) == NSMinY(previous.frame));
         assert(NSMaxX(next.frame) <= layoutPanel.contentView.bounds.size.width && NSMaxX(pageIndicator.frame) <= NSMinX(previous.frame));
-        // 「1 / 3」 and ‹ › are the design's 13pt secondary run (dc.html L1324).
-        const auto pageTokens = [appearance resolvedSkinForDark:[[layoutPanel.contentView.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqual:NSAppearanceNameDarkAqua]].tokens;
+        // 页码与箭头共用 13pt 次要色，玻璃模式使用同一份高对比覆盖。
+        auto pageTokens = [appearance resolvedSkinForDark:[[layoutPanel.contentView.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqual:NSAppearanceNameDarkAqua]].tokens;
+        if (((MSIMECandidateChromeView *)layoutPanel.contentView).liquidGlassActive)
+            msime::mac::ApplyNativeGlassCandidateContrast(pageTokens, [[layoutPanel.contentView.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqual:NSAppearanceNameDarkAqua]);
         assert(next.titleColor && [next.titleColor isEqual:SkinColor(pageTokens.number)]);
         assert([pageIndicator.textColor isEqual:SkinColor(pageTokens.number)] && pageIndicator.font.pointSize == 13);
         {
@@ -11219,7 +11221,8 @@ int main(int argc, char **argv) {
                     // Exercise the same callback AppKit uses for a system appearance change.
                     [chrome viewDidChangeEffectiveAppearance];
                     const BOOL dark = [theme isEqual:NSAppearanceNameDarkAqua];
-                    const auto tokens = [appearance resolvedSkinForDark:dark].tokens;
+                    auto tokens = [appearance resolvedSkinForDark:dark].tokens;
+                    if (chrome.liquidGlassActive) msime::mac::ApplyNativeGlassCandidateContrast(tokens, dark);
                     assert([chrome.fillColor isEqual:SkinColor(tokens.surface)]);
                     assert([chrome.strokeColor isEqual:SkinColor(tokens.border)]);
                     assert(chrome.cornerRadius == tokens.radius && chrome.lineWidth == tokens.borderWidth);
@@ -11240,7 +11243,7 @@ int main(int argc, char **argv) {
                     assert([unselected.translationColor isEqual:SkinColor(tokens.number)]);
                     if ([skinID isEqual:@"shuishan"] || [skinID isEqual:@"system"]) {
                         NSColor *gloss = [unselected.translationColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
-                        const unsigned expected = [skinID isEqual:@"shuishan"] ? 0x9FB5A3 : dark ? 0x98989D : 0x6E6E73;
+                        const unsigned expected = [skinID isEqual:@"shuishan"] ? 0x9FB5A3 : chrome.liquidGlassActive ? (dark ? 0xD1D1D6 : 0x202024) : (dark ? 0x98989D : 0x6E6E73);
                         assert(fabs(gloss.redComponent - ((expected >> 16) & 0xFF) / 255.0) < 0.002);
                         assert(fabs(gloss.greenComponent - ((expected >> 8) & 0xFF) / 255.0) < 0.002);
                         assert(fabs(gloss.blueComponent - (expected & 0xFF) / 255.0) < 0.002);

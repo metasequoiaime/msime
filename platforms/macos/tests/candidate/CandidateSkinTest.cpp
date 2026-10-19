@@ -101,6 +101,15 @@ int main() {
         assert(msime::mac::CandidateRowRadius(t, true) == 6);
         assert(msime::mac::CandidateRowRadius(t, false) == 6);
     }
+    // 用实际浅／深玻璃底色范围检查小字和选中行，不能只检查换了一个色值。
+    for (bool dark : {false, true}) {
+        auto tokens = NativeCandidateTokens(dark);
+        msime::mac::ApplyNativeGlassCandidateContrast(tokens, dark);
+        const auto plate = *msime::mac::ParseCssColor(dark ? "#48484A" : "#88888A");
+        assert(ContrastOn(tokens.number, plate) >= 4.5);
+        assert(ContrastOn(tokens.selectedText, tokens.selected) >= 4.5);
+        assert(ContrastOn(tokens.selectedNumber, tokens.selected) >= 4.5);
+    }
     msime::mac::SkinTokens split;
     split.candidateRadius = 3.0f;
     split.selectedRadius = 7.0f;

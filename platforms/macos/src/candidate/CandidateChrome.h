@@ -393,6 +393,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic) CGFloat cardTopInset;
 // 系统主题允许原生玻璃；旧系统和降低透明度时仍画原有卡片。
 @property(nonatomic) BOOL liquidGlassEnabled;
+@property(nonatomic, readonly) BOOL liquidGlassActive;
 @property(nonatomic, strong, readonly) NSView *candidateContentView;
 @end
 @implementation MSIMECandidateChromeView
@@ -414,6 +415,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     return self;
 }
 - (NSView *)candidateContentView { return _candidateContentView; }
+- (BOOL)liquidGlassActive { return _glassBackground != nil; }
 - (void)dealloc
 {
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
