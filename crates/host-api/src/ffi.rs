@@ -232,6 +232,7 @@ pub mod providers;
 pub mod reporting;
 pub mod session;
 pub mod session_store;
+pub mod skin_image;
 pub mod translation;
 pub mod voice;
 
@@ -251,5 +252,6 @@ pub use pack_downloads::*;
 pub use plugins::*;
 pub use providers::*;
 pub use session::*;
+pub use skin_image::*;
 pub use translation::*;
 pub use voice::*;

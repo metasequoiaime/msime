@@ -256,7 +256,8 @@ if(BUILD_TESTING)
   add_test(NAME linux-candidate-fcitx-overlay-scale COMMAND linux-candidate-fcitx-overlay-scale-test)
   add_executable(linux-candidate-fcitx-canvas-test ../tests/candidate/candidate_fcitx_canvas.cpp)
   target_compile_options(linux-candidate-fcitx-canvas-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
-  target_link_libraries(linux-candidate-fcitx-canvas-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json)
+  target_include_directories(linux-candidate-fcitx-canvas-test PRIVATE ../../../crates/host-api/include)
+  target_link_libraries(linux-candidate-fcitx-canvas-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
   add_test(NAME linux-candidate-fcitx-canvas COMMAND linux-candidate-fcitx-canvas-test)
   # 接管、退出与恢复需要真实的 classicui 运行库；只装开发库的构建环境没有它，这时候跳过（77）。这不依赖已验证词库，所以与下面的资源 fixture 分开注册。
   find_library(MSIME_FCITX5_CLASSICUI NAMES classicui PATH_SUFFIXES fcitx5)
@@ -330,6 +331,17 @@ if(BUILD_TESTING)
               "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
               "$<TARGET_FILE:msime-fcitx5>")
           set_tests_properties(fcitx5-gtk-canvas-${canvas_layout} PROPERTIES TIMEOUT 90)
+          foreach(canvas_format gif webp)
+            add_test(NAME fcitx5-gtk-canvas-${canvas_layout}-${canvas_format}
+              COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+                MSIME_TEST_CANVAS_FORMAT=${canvas_format}
+                "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+                "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+                "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                "$<TARGET_FILE:msime-fcitx5>")
+            set_tests_properties(fcitx5-gtk-canvas-${canvas_layout}-${canvas_format}
+              PROPERTIES TIMEOUT 90 SKIP_RETURN_CODE 77)
+          endforeach()
         endforeach()
         add_test(NAME fcitx5-ibus-gtk-editor
           COMMAND "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
