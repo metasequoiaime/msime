@@ -1,7 +1,11 @@
 //! The tools, and the limits around the ones that write.
 //!
-//! Every tool reads the runtime-options document afresh, so the server follows the settings page when it moves the data directory or changes the dictionaries without being restarted. Nothing typed and no credential leaves the input method through here, and no dictionary content beyond quick phrases unless the user started the server with --allow-dictionary-read. The diagnostic log is always readable: it holds event names, timings and error codes, the user turns it on themselves, and the keys the Windows TIP traces are blanked before a line is returned; the audit lines on stderr name the tool and the outcome, never what was written.
+//! 每个工具都重新读运行时选项，所以设置页搬走数据目录或改了词库之后，服务器不用重启就能跟上。输入的内容和凭据都不经这里离开输入法：社区工具只发送用户要求发布的那款皮肤，用的是设置应用保存的账号会话，会话里的令牌从不出现在结果里；除快捷短语外的词库内容，只有用户以 --allow-dictionary-read 启动服务器时才读。诊断日志总是可读：里面只有事件名、耗时和错误码，由用户自己打开，Windows TIP 记下的按键在返回前清空；stderr 上的审计行只写工具名和结果，从不写写入了什么。
 
+use crate::community::{
+    self, CommunitySkinList, CommunitySkinRequest, DeletedCommunitySkin, PublishRequest,
+    PublishedSkin, VisibilityChanged, VisibilityRequest,
+};
 use crate::config::Config;
 use crate::diagnostics::{self, LogRequest, LogView, SwitchRequest, SwitchView};
 use crate::preferences::{self, PreferencesChange, PreferencesView};
@@ -41,10 +45,13 @@ const WRITE_LOCK: &str = "mcp-write.lock";
 /// 写锁只保存一个毫秒时间戳，拒绝异常膨胀的内容以免无界分配内存。
 const WRITE_LOCK_READ_LIMIT: u64 = 128;
 
-const WRITE_TOOLS: [&str; 4] = [
+const WRITE_TOOLS: [&str; 7] = [
     "create_candidate_skin",
     "delete_candidate_skin",
+    "delete_community_skin",
     "edit_quick_phrases",
+    "publish_candidate_skin",
+    "set_community_skin_visibility",
     "update_preferences",
 ];
 /// Offered with --allow-dictionary-read.
@@ -52,7 +59,7 @@ const DICTIONARY_READ_TOOLS: [&str; 2] = ["list_dictionary_words", "lookup_candi
 /// Offered with --allow-write and --allow-dictionary-read together: an edit or import also tells whether a word is there.
 const DICTIONARY_WRITE_TOOLS: [&str; 2] = ["edit_dictionary_words", "import_dictionary_words"];
 
-const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. update_preferences switches the input method to a skin, get_candidate_skin shows an installed skin's manifest and image files so it can be changed and installed again, and delete_candidate_skin removes one the user no longer wants. The app can sync skins to the user's cloud library as private packages when the user requests sync, from where they can publish them; extended resources require explicit server support; this server never signs in to the account itself. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
+const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. update_preferences switches the input method to a skin, get_candidate_skin shows an installed skin's manifest and image files so it can be changed and installed again, and delete_candidate_skin removes one the user no longer wants. The app can sync skins to the user's cloud library as private packages when the user requests sync. With --allow-write, publish_candidate_skin uploads an installed skin to the skin community, public or private, using the account the user signed in to in the 水杉输入法 settings app; this server never signs in to the account itself, so if no one is signed in, ask the user to sign in there. Before publishing publicly, confirm with the user that everyone may see the skin and that they have the right to share its images. list_community_skins lists the account's community skins, set_community_skin_visibility makes one private again and delete_community_skin removes one. Extended resources require explicit server support. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
 
 #[derive(Clone)]
 pub struct MsimeServer {
@@ -412,6 +419,126 @@ impl MsimeServer {
         .await;
         eprintln!(
             "msime-mcp: delete_candidate_skin {}",
+            if result.is_ok() { "deleted" } else { "refused" }
+        );
+        result
+    }
+
+    #[tool(
+        name = "publish_candidate_skin",
+        description = "Upload an installed candidate-window skin (an id list_candidate_skins lists) to the 水杉输入法 skin community, using the account the user signed in to in the 水杉输入法 settings app. This server never signs in or handles passwords: when no one is signed in it says so, and you ask the user to sign in there and try again. visibility is required and has no default: public lists the skin in the community, where everyone can see, download and rate it; private keeps it in the user's own cloud library, visible only to them. Before publishing publicly, ask the user in plain words to confirm that everyone may see it and that they made the images or have the right to share them; a skin someone else published, downloaded from the community, is not theirs to publish. A public skin must say who may reuse its images in skin.toml's [license] assets: when the manifest has none, ask the user and pass license_assets, an SPDX id such as CC-BY-4.0 (reuse with credit) or CC0-1.0 (no conditions) or their own words, which is written into the manifest before the upload. name (1-32 characters) and description (at most 280) are the listing's title and text, by default the manifest's name and description; category is nature, guofeng, acg, cute, food, tech, minimal or other. The skin is checked on this computer before anything is sent, by the rules the settings app's publish dialog uses: a PNG or JPEG preview of at most 256 KiB, only the images the manifest references, each at most 1 MiB, at most 37 together of at most 2 MiB and 8,000,000 pixels, and no toolbar_stylesheet; more than 3 images, APNG, GIF or WebP files and the canvas and wechat_scroll bases also need a community server that accepts them. When this account's library already has the skin (synced by the settings app or published before, matched by package_id), that entry is replaced and given this visibility and category instead of a second one being made; the result says which and gives the entry's community id. An account keeps at most 100 skins, at most 20 of them public, and may publish publicly at most 10 times an hour. Only offered when the user started the server with --allow-write.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn publish_candidate_skin(
+        &self,
+        Parameters(request): Parameters<PublishRequest>,
+    ) -> Result<Json<PublishedSkin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let service = community::service(&state_dir, config.edition(&document)?)?;
+            community::publish(&state_dir, &service, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: publish_candidate_skin {}",
+            match &result {
+                Ok(published) if published.0.replaced => "replaced",
+                Ok(_) => "published",
+                Err(_) => "refused",
+            }
+        );
+        result
+    }
+
+    #[tool(
+        name = "list_community_skins",
+        description = "List the candidate-window skins in the signed-in account's community library: the ones the settings app synced and the ones published, private ones included. Gives each one's community id, package_id (the installed skin id it was made from), visibility (public or private) and when it last changed. Uses the account the user signed in to in the 水杉输入法 settings app; this server never signs in itself, so when no one is signed in, ask the user to sign in there.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn list_community_skins(&self) -> Result<Json<CommunitySkinList>, String> {
+        let config = self.config.clone();
+        blocking(move || {
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let service = community::service(&state_dir, config.edition(&document)?)?;
+            community::list(&service).map(Json)
+        })
+        .await
+    }
+
+    #[tool(
+        name = "set_community_skin_visibility",
+        description = "Make a skin in the signed-in account's community library private, so only the user sees it while its downloads and ratings are kept, or public again. Takes the community id list_community_skins or publish_candidate_skin gave. Making a skin public shows it to everyone: confirm with the user first, as for publish_candidate_skin. It needs [license] assets in the skin.toml that was uploaded, so for a skin without one use publish_candidate_skin with visibility public and license_assets instead. Only offered when the user started the server with --allow-write.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn set_community_skin_visibility(
+        &self,
+        Parameters(request): Parameters<VisibilityRequest>,
+    ) -> Result<Json<VisibilityChanged>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let service = community::service(&state_dir, config.edition(&document)?)?;
+            community::set_visibility(&service, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: set_community_skin_visibility {}",
+            match &result {
+                Ok(changed) if changed.0.visibility == community::Visibility::Public => "public",
+                Ok(_) => "private",
+                Err(_) => "refused",
+            }
+        );
+        result
+    }
+
+    #[tool(
+        name = "delete_community_skin",
+        description = "Delete a skin from the signed-in account's community library for good, with its downloads and ratings; copies other people already installed stay on their computers. Takes the community id list_community_skins or publish_candidate_skin gave. Confirm with the user first; to only hide a public skin, use set_community_skin_visibility with private instead. The installed skin on this computer is left alone, and the next time the settings app syncs it uploads it again as a new private skin; delete it here with delete_candidate_skin as well if the user wants it gone everywhere. Only offered when the user started the server with --allow-write.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn delete_community_skin(
+        &self,
+        Parameters(request): Parameters<CommunitySkinRequest>,
+    ) -> Result<Json<DeletedCommunitySkin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let service = community::service(&state_dir, config.edition(&document)?)?;
+            community::delete(&state_dir, &service, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: delete_community_skin {}",
             if result.is_ok() { "deleted" } else { "refused" }
         );
         result
@@ -789,6 +916,7 @@ mod tests {
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
+                "list_community_skins",
                 "list_quick_phrases",
                 "read_diagnostic_log",
                 "set_diagnostic_log"
@@ -799,13 +927,17 @@ mod tests {
             [
                 "create_candidate_skin",
                 "delete_candidate_skin",
+                "delete_community_skin",
                 "edit_quick_phrases",
                 "get_candidate_skin",
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
+                "list_community_skins",
                 "list_quick_phrases",
+                "publish_candidate_skin",
                 "read_diagnostic_log",
+                "set_community_skin_visibility",
                 "set_diagnostic_log",
                 "update_preferences"
             ]
@@ -817,6 +949,7 @@ mod tests {
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
+                "list_community_skins",
                 "list_dictionary_words",
                 "list_quick_phrases",
                 "lookup_candidates",
@@ -829,6 +962,7 @@ mod tests {
             [
                 "create_candidate_skin",
                 "delete_candidate_skin",
+                "delete_community_skin",
                 "edit_dictionary_words",
                 "edit_quick_phrases",
                 "get_candidate_skin",
@@ -836,10 +970,13 @@ mod tests {
                 "get_typing_statistics",
                 "import_dictionary_words",
                 "list_candidate_skins",
+                "list_community_skins",
                 "list_dictionary_words",
                 "list_quick_phrases",
                 "lookup_candidates",
+                "publish_candidate_skin",
                 "read_diagnostic_log",
+                "set_community_skin_visibility",
                 "set_diagnostic_log",
                 "update_preferences"
             ]
@@ -945,6 +1082,40 @@ mod tests {
         ] {
             assert!(update.contains(word), "{word}");
         }
+    }
+
+    #[test]
+    fn community_tools_ask_before_sharing_and_never_sign_in() {
+        let description = |name: &str| {
+            server(true)
+                .tool_router
+                .list_all()
+                .into_iter()
+                .find(|tool| tool.name == name)
+                .and_then(|tool| tool.description)
+                .unwrap()
+                .to_string()
+        };
+        let publish = description("publish_candidate_skin");
+        for word in [
+            "the account the user signed in to in the 水杉输入法 settings app",
+            "This server never signs in or handles passwords",
+            "visibility is required and has no default",
+            "ask the user in plain words to confirm that everyone may see it and that they made the images or have the right to share them",
+            "pass license_assets",
+            "that entry is replaced",
+            "Only offered when the user started the server with --allow-write",
+        ] {
+            assert!(publish.contains(word), "{word}");
+        }
+        assert!(
+            description("set_community_skin_visibility").contains("confirm with the user first")
+        );
+        assert!(description("delete_community_skin").contains("Confirm with the user first"));
+        assert!(description("list_community_skins").contains("this server never signs in itself"));
+        // 服务器说明仍然声明它不登录。
+        assert!(INSTRUCTIONS.contains("this server never signs in to the account itself"));
+        assert!(INSTRUCTIONS.contains("confirm with the user"));
     }
 
     #[test]

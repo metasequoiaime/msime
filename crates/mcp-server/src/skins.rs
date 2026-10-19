@@ -1,6 +1,6 @@
 //! AI 助手通过共享安装器创建候选皮肤，清单和资源与社区下载使用同一套校验。
 //!
-//! 资源支持 PNG/JPEG/APNG/GIF/WebP，预览保持 PNG/JPEG。图片可以是 base64，也可以是本机文件的绝对路径：代理先用代码把图写成文件再给路径，免得几十 KB 的 base64 在转写时出错。MCP 只写本地皮肤，不持有账号会话；宿主在用户触发同步时检查服务端能力，再上传扩展包。
+//! 资源支持 PNG/JPEG/APNG/GIF/WebP，预览保持 PNG/JPEG。图片可以是 base64，也可以是本机文件的绝对路径：代理先用代码把图写成文件再给路径，免得几十 KB 的 base64 在转写时出错。这里只写本地皮肤；发布到社区在 `community` 模块，借用设置应用保存的账号会话，服务器自己从不登录。设置应用在用户触发同步时检查服务端能力，再上传扩展包。
 
 use msime_client_core::edition::Edition;
 use msime_client_core::preferences::PreferencesStore;

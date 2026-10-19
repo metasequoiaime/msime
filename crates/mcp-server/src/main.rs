@@ -4,6 +4,7 @@
 
 mod bounded;
 mod cli;
+mod community;
 mod config;
 mod diagnostics;
 mod preferences;

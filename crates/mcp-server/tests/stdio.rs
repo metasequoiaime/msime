@@ -136,6 +136,7 @@ async fn read_only_by_default() {
             "get_preferences",
             "get_typing_statistics",
             "list_candidate_skins",
+            "list_community_skins",
             "list_quick_phrases",
             "read_diagnostic_log",
             "set_diagnostic_log"
@@ -159,7 +160,7 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
     let (client, _child) = start(&options, &["--allow-write"]).await;
-    assert_eq!(tool_names(&client).await.len(), 11);
+    assert_eq!(tool_names(&client).await.len(), 15);
 
     // Quick phrases: add, list, replace, remove, with a failure in the middle of a batch.
     let outcome = ok(
@@ -296,7 +297,7 @@ async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
     client.cancel().await.unwrap();
 
     let (client, _child) = start(&options, &["--allow-write", "--allow-dictionary-read"]).await;
-    assert_eq!(tool_names(&client).await.len(), 15);
+    assert_eq!(tool_names(&client).await.len(), 19);
 
     let outcome = ok(
         &client,
@@ -642,6 +643,7 @@ fn the_command_line_runs_the_same_tools() {
             "get_preferences",
             "get_typing_statistics",
             "list_candidate_skins",
+            "list_community_skins",
             "list_quick_phrases",
             "read_diagnostic_log",
             "set_diagnostic_log"
