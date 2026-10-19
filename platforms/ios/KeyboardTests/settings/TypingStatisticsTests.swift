@@ -2,6 +2,42 @@ import XCTest
 import UIKit
 
 final class TypingStatisticsTests: XCTestCase {
+  private var savedSharedPreferences: [String: Any]?
+  private var savedAppGroupValues: [String: Any?] = [:]
+  private let appGroupKeys = [InputSchemePreference.enabledSchemesKey, "chineseInputScheme",
+                              ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey]
+
+  override func setUp() {
+    super.setUp()
+    savedSharedPreferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    let defaults = ImeModeMemoryPreference.defaults
+    for key in appGroupKeys { savedAppGroupValues[key] = defaults.object(forKey: key) }
+
+    // `KeyboardViewController.viewWillAppear` 先把共享文档镜像到 App Group，再读取方案；两处都固定为同一个中文方案，避免热力图测试依赖前一项测试或模拟器里的用户偏好。
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    InputSchemePreference.scheme = .quanpin
+    _ = InputSchemePreference.update { selection in
+      selection.enabled = ChineseInputScheme.allCases
+      selection.scheme = .quanpin
+    }
+    defaults.set(false, forKey: ImeModeMemoryPreference.enabledKey)
+    defaults.removeObject(forKey: ImeModeMemoryPreference.lastChineseKey)
+  }
+
+  override func tearDown() {
+    if let savedSharedPreferences {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { document in document = savedSharedPreferences }
+    }
+    let defaults = ImeModeMemoryPreference.defaults
+    for key in appGroupKeys {
+      if let value = savedAppGroupValues[key] { defaults.set(value, forKey: key) }
+      else { defaults.removeObject(forKey: key) }
+    }
+    savedAppGroupValues.removeAll()
+    savedSharedPreferences = nil
+    super.tearDown()
+  }
+
   func testEnabledResponseRequiresABooleanField() throws {
     XCTAssertTrue(try TypingStatisticsStore.strictEnabled(["enabled": true]))
     XCTAssertFalse(try TypingStatisticsStore.strictEnabled(["enabled": false]))
@@ -538,6 +574,10 @@ final class TypingStatisticsTests: XCTestCase {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     InputSchemePreference.scheme = .nineKey
+    _ = InputSchemePreference.update { selection in
+      selection.enabled = ChineseInputScheme.allCases
+      selection.scheme = .nineKey
+    }
     let controller = Self.phoneKeyboard()
     let views = Self.descendants(controller.view)
     func view(_ identifier: String) throws -> UIView {
