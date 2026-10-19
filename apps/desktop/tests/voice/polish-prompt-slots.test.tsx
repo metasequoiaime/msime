@@ -155,8 +155,8 @@ test("the AI page edits the active prompt slot inside 更多选项, without a sl
   expect(prompt.value).toBe("第二个方案");
   expect(prompt.closest("details")).not.toBeNull();
   // 说明照实说：填写会整个替换内置提示词，不是「额外」追加。
-  expect(within(page).getByText(/整个替换内置提示词，不是追加/)).toBeTruthy();
-  expect(within(page).getByText(/当前使用的是槽位二/)).toBeTruthy();
+  expect(within(page).getByText(/填写后完整替换，请要求只输出 JSON 格式的候选/)).toBeTruthy();
+  expect(within(page).getByText(/当前使用槽位二/)).toBeTruthy();
   expect(within(page).queryByText(/额外提示词/)).toBeNull();
   fireEvent.change(prompt, { target: { value: "改过的方案" } });
   saveSettingsNow();

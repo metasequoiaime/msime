@@ -267,9 +267,11 @@ test("saving a relay on the clipboard page checks the cloud clipboard again over
   );
   await settingsFormReady();
   expect(await screen.findByText(CLOUD_CLIPBOARD_SIGNED_OUT)).toBeDefined();
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   const send = await screen.findByRole("button", { name: "发到云剪贴板" });
   expect(send.hasAttribute("disabled")).toBe(true);
 
+  fireEvent.click(screen.getByRole("tab", { name: "剪贴板" }));
   fireEvent.click(screen.getByRole("radio", { name: "自建中继" }));
   fireEvent.change(screen.getByRole("textbox", { name: "中继地址" }), {
     target: { value: "https://relay.example.test/msime" },
@@ -280,6 +282,7 @@ test("saving a relay on the clipboard page checks the cloud clipboard again over
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
 
   await waitFor(() => expect(cloudClipboardRequest).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "发到云剪贴板" }).hasAttribute("disabled")).toBe(
       false,

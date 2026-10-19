@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import {
+  selectSettingsTab,
+  settingsFormReady,
+  saveSettingsNow,
+  openVoiceServiceConfig,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type SettingsClient, type Snapshot } from "@msime/ui";
@@ -110,7 +115,7 @@ test("a touch host that can name the editor's application gets the mode scope co
   await screen.findByLabelText("中英文状态");
   cleanup();
   mount({ host: capabilities({ platform: "android", ime_mode_scope: false }) });
-  await screen.findByLabelText("输入模式");
+  await screen.findByRole("combobox", { name: "输入语言" });
   expect(screen.queryByLabelText("中英文状态")).toBeNull();
 });
 
@@ -597,7 +602,8 @@ test("a host with one commit path is not offered a choice between three", async 
       }}
     />,
   );
-  await screen.findByText("录音行为");
+  await settingsFormReady();
+  openVoiceServiceConfig();
   expect(screen.queryByLabelText("结果提交策略")).toBeNull();
   cleanup();
   render(
@@ -610,7 +616,9 @@ test("a host with one commit path is not offered a choice between three", async 
       }}
     />,
   );
-  expect(await screen.findByLabelText("结果提交策略")).toBeTruthy();
+  await settingsFormReady();
+  const service = openVoiceServiceConfig();
+  expect(within(service).getByRole("combobox", { name: "结果提交策略" })).toBeTruthy();
 });
 
 test("the shuangpin preedit choice reaches every host that draws the composition", async () => {
@@ -761,12 +769,15 @@ test("a host that can enumerate microphones gets the picker, whatever it is call
       />,
     );
   voice(true);
-  expect(await screen.findByLabelText("麦克风")).toBeTruthy();
+  await settingsFormReady();
+  const service = openVoiceServiceConfig();
+  expect(within(service).getByRole("combobox", { name: "麦克风" })).toBeTruthy();
   expect(screen.queryByLabelText("可用录音设备")).toBeNull();
   cleanup();
   voice(false);
-  await screen.findByText("录音行为");
-  expect(screen.queryByLabelText("麦克风")).toBeNull();
+  await settingsFormReady();
+  openVoiceServiceConfig();
+  expect(screen.queryByRole("combobox", { name: "麦克风" })).toBeNull();
 });
 
 test("the mode badge switch follows the capability rather than the macOS platform name", async () => {
