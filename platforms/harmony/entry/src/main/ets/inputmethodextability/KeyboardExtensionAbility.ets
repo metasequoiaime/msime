@@ -1,3 +1,4 @@
+import { CandidateCanvasPolicy } from '../keyboard/candidate/CandidateCanvasPolicy';
 import InputMethodExtensionAbility from '@ohos.InputMethodExtensionAbility';
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import Want from '@ohos.app.ability.Want';
@@ -392,10 +393,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       ? KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
         KeyboardSession.shared.glossRows(), settings.candidateFontSize,
         settings.candidatePreeditFontSize, true)
-      : KeyboardMetrics.candidateHeightVp(settings.candidateLayout, this.candidateCount,
+      : (KeyboardMetrics.candidateHeightVp(settings.candidateLayout, this.candidateCount,
         settings.candidateShowPreedit, settings.candidateDecorationTopVp,
         KeyboardSession.shared.glossRows(), settings.candidateFontSize,
-        settings.candidatePreeditFontSize);
+        settings.candidatePreeditFontSize) + CandidateCanvasPolicy.extraHeight(settings.candidateCanvas, settings.candidateShowPreedit));
     const widthVp: number = tall ? DESKTOP_SURFACE_WIDTH_VP : this.candidateWidthVp;
     await this.panel.resize(Math.round(widthVp * this.density),
       Math.round(heightVp * this.density));
@@ -517,10 +518,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
     const width: number = this.candidateWidthVp * this.density;
     const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
-    const height: number = KeyboardMetrics.candidateHeightVp(settings.candidateLayout,
+    const height: number = (KeyboardMetrics.candidateHeightVp(settings.candidateLayout,
       this.candidateCount, settings.candidateShowPreedit,
       settings.candidateDecorationTopVp, KeyboardSession.shared.glossRows(),
-      settings.candidateFontSize, settings.candidatePreeditFontSize) * this.density;
+      settings.candidateFontSize, settings.candidatePreeditFontSize) + CandidateCanvasPolicy.extraHeight(settings.candidateCanvas, settings.candidateShowPreedit)) * this.density;
     const gap: number = KeyboardMetrics.CANDIDATE_WINDOW_GAP_VP * this.density;
     const anchor: CandidateAnchor = CandidateAnchorPolicy.position(settings.candidateFollowCursor,
       this.candidateAnchor, this.caret);
@@ -964,10 +965,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         // 面板尺寸与视图布局使用同一组数值，避免裁掉最底行。
         const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
         const heightVp: number = desktop
-          ? KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0,
+          ? (KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0,
             settings.candidateShowPreedit, settings.candidateDecorationTopVp,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
-            settings.candidatePreeditFontSize)
+            settings.candidatePreeditFontSize) + CandidateCanvasPolicy.extraHeight(settings.candidateCanvas, settings.candidateShowPreedit))
           // 刚创建时还没有组字也没有面板，工具条画不画只看工具栏设置，视图之后按同一条规则（`TouchToolbarPolicy`）改高度。
           : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
