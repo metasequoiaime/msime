@@ -187,9 +187,9 @@ test.each([
 });
 
 test.each([
-  ["voice", "输入法", "录音行为", "notes", "settings", "录音期间的静音行为"],
+  ["voice", "识别与输入", "录音行为", "notes", "settings", "录音期间的静音行为"],
   ["screen-keyboard", "键盘", "手写", "input", "notes", "手写识别与输入方式"],
-  ["tools", "剪贴板", "历史记录", "sync", "notes", "已保存的剪贴板记录"],
+  ["tools", "设置", "历史记录", "sync", "notes", "已保存的剪贴板记录"],
 ] as const)(
   "%s 点击和方向键切换时页首与面板同步，离页回来保留选择且不保存偏好",
   async (initialPage, firstTab, secondTab, firstScene, secondScene, description) => {
