@@ -155,7 +155,7 @@ test("选「自定义…」才出现字体框，选回预设就收起；非预�
   const field = screen.getByLabelText("主字体") as HTMLInputElement;
   expect(field.value).toBe("Noto Sans SC");
   fireEvent.click(screen.getByRole("tab", { name: "布局" }));
-  fireEvent.click(screen.getByRole("button", { name: "主题外观" }));
+  fireEvent.click(screen.getByRole("button", { name: "主题" }));
   fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
   fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   expect(screen.getByRole("combobox", { name: "主字体" })).toBe(field);

@@ -47,11 +47,11 @@ async function handwritingPage(mobile = true) {
   }
   const list = screen.getByRole("navigation", { name: "设置分类" });
   const row = [...list.querySelectorAll("button")].find(
-    (item) => item.textContent?.trim() === "键盘手写",
+    (item) => item.textContent?.trim() === "键盘与手写",
   );
   if (!row) throw new Error("no row for 屏幕键盘与手写");
   fireEvent.click(row);
-  const page = screen.getByRole("group", { name: "键盘手写" });
+  const page = screen.getByRole("group", { name: "键盘与手写" });
   fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
   return within(page).getByRole("tabpanel", { name: "手写" });
 }
@@ -83,8 +83,8 @@ test("a desktop host still gets the launch button", async () => {
   renderSettings("windows");
   const { fireEvent } = await import("@testing-library/react");
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "键盘手写" }));
-  const page = screen.getByRole("group", { name: "键盘手写" });
+  fireEvent.click(screen.getByRole("button", { name: "键盘与手写" }));
+  const page = screen.getByRole("group", { name: "键盘与手写" });
   fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
   expect(within(page).getByText("打开手写识别板")).toBeTruthy();
 });

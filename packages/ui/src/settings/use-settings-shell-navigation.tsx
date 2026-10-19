@@ -45,7 +45,7 @@ export function useSettingsShellNavigation({
     ? sidebarGroups
         .map((group) => ({
           ...group,
-          // 菜单缩短名称后，仍能用「AI」「快捷键」「工具栏」等原名找到页面。
+          // 显示名和注册名都参与搜索，合并后的「键盘与手写」仍能按「屏幕键盘」查找。
           pages: group.pages.filter((item) =>
             [item.title, pages.find((page) => page.id === item.id)?.title ?? ""].some((title) =>
               title.toLocaleLowerCase().includes(navNeedle),

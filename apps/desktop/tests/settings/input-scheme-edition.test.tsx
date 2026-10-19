@@ -259,12 +259,12 @@ test("the settings navigation offers handwriting only in an edition with handwri
   expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
   // 没有手写可并，屏幕键盘页保留原名。
   expect(screen.getByRole("button", { name: "屏幕键盘" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "键盘手写" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "键盘与手写" })).toBeNull();
   expect(screen.getByRole("button", { name: "语音输入" })).toBeTruthy();
   cleanup();
 
   await open(wubiHost, "wubi");
   // 桌面上手写并进屏幕键盘页，页名随之改为「屏幕键盘与手写」。
-  expect(screen.getByRole("button", { name: "键盘手写" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "键盘与手写" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
 });

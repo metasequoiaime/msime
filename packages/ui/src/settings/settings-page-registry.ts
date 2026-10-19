@@ -156,25 +156,3 @@ export const desktopMergedPages: Partial<Record<SettingsPageId, SettingsPageId>>
 export function desktopPage(id: SettingsPageId): SettingsPageId {
   return desktopMergedPages[id] ?? id;
 }
-
-/** 桌面菜单使用四字名称；触屏宿主继续由 `mobilePageTitle` 命名。 */
-const desktopPageTitles: Partial<Record<SettingsPageId, string>> = {
-  input: "输入设置",
-  dictionary: "词库管理",
-  shortcuts: "按键设置",
-  expression: "标点翻译",
-  skin: "主题外观",
-  "floating-toolbar": "快捷工具",
-  tools: "剪贴管理",
-  ai: "智能辅助",
-  mcp: "AI助手",
-  plugins: "扩展插件",
-  account: "账号管理",
-  developer: "维护诊断",
-  about: "关于水杉",
-};
-
-/** 桌面共用菜单名称；页面 id、宿主路由与触屏名称不随文案变化。 */
-export function desktopPageTitle(id: SettingsPageId, title: string): string {
-  return desktopPageTitles[id] ?? title;
-}

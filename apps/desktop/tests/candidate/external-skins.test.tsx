@@ -207,7 +207,7 @@ test("settings forwards the declared toolbar reader using only package id", asyn
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "主题外观" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   await waitFor(() => expect(readSkinToolbarCss).toHaveBeenCalledExactlyOnceWith("sample"));
 });
 test("settings forwards the font reader with package id and relative name", async () => {
@@ -233,7 +233,7 @@ test("settings forwards the font reader with package id and relative name", asyn
         }}
       />,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "主题外观" }));
+    fireEvent.click(await screen.findByRole("button", { name: "主题" }));
     await waitFor(() =>
       expect(readSkinFont).toHaveBeenCalledExactlyOnceWith("sample", "fonts/test.woff2"),
     );
@@ -329,7 +329,7 @@ test("settings forwards image reader and existing CSP permits image data without
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "主题外观" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   await waitFor(() =>
     expect(readSkinImage).toHaveBeenCalledExactlyOnceWith("sample", "images/top.png"),
   );
@@ -615,7 +615,7 @@ test("settings forwards the open directory capability", async () => {
   const openSkinDirectory = vi.fn().mockResolvedValue(undefined);
   const save = vi.fn();
   render(<SettingsPage client={{ load: async () => initial, save, openSkinDirectory }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "主题外观" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   fireEvent.click(screen.getByRole("button", { name: "打开目录" }));
   await screen.findByRole("button", { name: "打开目录" });
   expect(openSkinDirectory).toHaveBeenCalledWith();
@@ -886,7 +886,7 @@ test("external selection enters the revisioned draft; preview toggles never save
     />,
   );
   await settingsFormReady();
-  fireEvent.click(await screen.findByRole("button", { name: "主题外观" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   const card = await screen.findByRole("article", { name: "Sample skin" });
   fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("false");
@@ -958,7 +958,7 @@ test("settings synchronize all cards and reset local overrides on candidate them
     fireEvent.click(
       within(screen.getByRole("radiogroup", { name: "颜色模式" })).getByRole("radio", { name }),
     );
-  fireEvent.click(await screen.findByRole("button", { name: "主题外观" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   mode("浅色");
   await screen.findByRole("article", { name: "Sample skin" });
   const scansBeforePreviewChanges = scan.mock.calls.length;
@@ -1012,7 +1012,7 @@ test("settings without a layout use the same vertical default for skin compatibi
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "主题外观" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   expect(
     ((await screen.findByRole("switch", { name: "Sample skin" })) as HTMLButtonElement).disabled,
   ).toBe(true);
@@ -1425,7 +1425,7 @@ test("the theme page opens the candidate publish dialog outside the settings fie
     />,
   );
   // A desktop host browses candidate-window skins on 主题, so it lists no 社区 page.
-  fireEvent.click(await screen.findByRole("button", { name: "主题外观" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   expect(screen.queryByRole("button", { name: "社区" })).toBeNull();
   const card = await screen.findByRole("article", { name: "Sample skin" });
   fireEvent.click(within(card).getByRole("button", { name: "发布到社区" }));

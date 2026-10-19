@@ -12,6 +12,8 @@ Status: implemented
 
 ## Historical audit
 
+导航标题沿用[按功能语义命名](2026-10-19-settings-navigation-semantic-titles.md)，不限制长度；侧栏仍连续平铺。
+
 [功能分组折叠](../../implemented/simplification/2026-10-18-settings-sidebar-groups.md)的共享侧栏呈现决定由本次要求取代；Windows 原生窗口和移动分组投影不在本次 macOS 设置包的变更内。独立侧栏组件的所有权不变。
 
 ## Alternatives considered
@@ -22,7 +24,7 @@ Status: implemented
 
 设置导航与平台呈现的 3 个测试文件共 18 项通过，覆盖页面连续显示、没有分类按钮、点击路由与搜索。类型检查与生产构建通过，已安装的实际设置窗截图确认侧栏连续平铺。
 
-共享 UI 全套回归还需同步设置页与 HarmonyOS 2in1 的既有集成断言：第一个侧栏按钮是「输入设置」，连续页面列表不包含分类按钮或分组区域。它们使用同一共享侧栏，不能继续要求已移除的「打字」分类标题。
+共享 UI 全套回归还需同步设置页与 HarmonyOS 2in1 的既有集成断言：第一个侧栏按钮是「输入」，连续页面列表不包含分类按钮或分组区域。它们使用同一共享侧栏，不能继续要求已移除的「打字」分类标题。
 
 ## Consequences
 

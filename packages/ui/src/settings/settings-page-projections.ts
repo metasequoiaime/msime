@@ -21,14 +21,12 @@ export interface SettingsPageProjectionOptions {
   hasPlugins: boolean;
   /** 「手写输入」页：手写识别器只认汉字，不提供手写的版本（`EditionInfo.handwriting` 为 false）没有这一页。 */
   hasHandwriting: boolean;
-  /** 「手写输入」并进「屏幕键盘」页，那一页改叫「键盘手写」。macOS、Linux、Windows 和 HarmonyOS 2-in-1 上手写页只有一个打开按钮或一段说明，单占一个侧栏入口不值得，Windows 原生设置窗口的 `SettingsNavigation.h` 也同样并成一页；触屏宿主的手写页另有内容，不并。本版本不提供手写时没有可并的页。 */
+  /** 「手写输入」并进「屏幕键盘」页，那一页改叫「键盘与手写」。macOS、Linux、Windows 和 HarmonyOS 2-in-1 上手写页只有一个打开按钮或一段说明，单占一个侧栏入口不值得，Windows 原生设置窗口的 `SettingsNavigation.h` 也同样并成一页；触屏宿主的手写页另有内容，不并。本版本不提供手写时没有可并的页。 */
   handwritingOnScreenKeyboardPage?: boolean;
   /** 宿主能报告本机 MCP 服务状态时，提供独立的「AI 助手」设置页。 */
   hasMcp: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   mobilePageTitle: (id: SettingsPageId, title: string) => string;
-  /** 桌面宿主按平台改写页名（`desktopPageTitle`）；缺省时用注册表里的名字。 */
-  desktopPageTitle?: (id: SettingsPageId, title: string) => string;
 }
 
 export interface SettingsPageItem {
@@ -55,7 +53,7 @@ export interface SettingsPageProjections {
 }
 
 /** 合并后「屏幕键盘」页的标题。 */
-export const screenKeyboardAndHandwritingTitle = "键盘手写";
+export const screenKeyboardAndHandwritingTitle = "键盘与手写";
 
 // 模块级常量，每次渲染拿到同一个对象，依赖它的 effect 不会白白重跑。
 const handwritingAliases: Partial<Record<SettingsPageId, SettingsPageId>> = {
@@ -80,7 +78,6 @@ export function settingsPageProjections({
   hasMcp,
   mobileHiddenPageIds,
   mobilePageTitle,
-  desktopPageTitle = (_id, title) => title,
 }: SettingsPageProjectionOptions): SettingsPageProjections {
   const handwritingOnScreenKeyboardPage = combineHandwriting && hasHandwriting && !mobilePlatform;
   const availablePages = pages
@@ -109,7 +106,7 @@ export function settingsPageProjections({
         ? mobilePageTitle(item.id, item.title)
         : handwritingOnScreenKeyboardPage && item.id === "screen-keyboard"
           ? screenKeyboardAndHandwritingTitle
-          : desktopPageTitle(item.id, item.title),
+          : item.title,
     }));
 
   // 触屏的「设置」列表（和 iPad 侧栏）不列底部标签页自己的根页：社区、统计、我的已经各占一格。桌面和 2in1 的侧栏不经过这条过滤。

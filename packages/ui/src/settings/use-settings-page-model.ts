@@ -5,7 +5,7 @@ import { mobilePageTitle } from "./mobile-tab-helpers";
 import { desktopDownloadUrl, fallbackAppVersion } from "./app-resources";
 import { useSettingsNavigation } from "./use-settings-navigation";
 import { useSettingsPageRouting } from "./use-settings-page-routing";
-import { desktopPageTitle, type SettingsPageId } from "./settings-page-registry";
+import type { SettingsPageId } from "./settings-page-registry";
 import { settingsPageProjections } from "./settings-page-projections";
 import { mobileHiddenPageIds, settingsPageModelVisibility } from "./settings-page-model-visibility";
 import { settingsInputPreferences } from "./settings-input-preferences";
@@ -603,7 +603,6 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     hasMcp: Boolean(client.mcpServerStatus),
     mobileHiddenPageIds,
     mobilePageTitle,
-    desktopPageTitle,
   });
   const {
     mobileActiveTab,

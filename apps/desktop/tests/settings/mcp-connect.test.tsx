@@ -109,7 +109,7 @@ async function mcpGroup() {
 test("a host without the server shows no section", async () => {
   await openMcp({});
   expect(screen.queryByRole("group", { name: "连接 AI 助手" })).toBeNull();
-  expect(screen.queryByRole("tab", { name: "AI助手" })).toBeNull();
+  expect(screen.queryByRole("tab", { name: "AI 助手" })).toBeNull();
 });
 
 test("AI 助手作为独立设置页保留客户端与权限选择", async () => {
@@ -134,8 +134,8 @@ test("AI 助手作为独立设置页保留客户端与权限选择", async () =>
     "checked",
     false,
   );
-  expect(screen.getByRole("heading", { name: "AI助手" })).toBeTruthy();
-  expect(screen.queryByRole("tab", { name: "AI助手" })).toBeNull();
+  expect(screen.getByRole("heading", { name: "AI 助手" })).toBeTruthy();
+  expect(screen.queryByRole("tab", { name: "AI 助手" })).toBeNull();
 });
 
 test("桌面旧 MCP 路由直接打开独立的 AI 助手页", async () => {
@@ -147,14 +147,14 @@ test("桌面旧 MCP 路由直接打开独立的 AI 助手页", async () => {
   };
   const view = render(<SettingsPage client={client} initialPage="mcp" />);
   await settingsFormReady();
-  expect(screen.getByRole("heading", { name: "AI助手" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "AI 助手" })).toBeTruthy();
   expect(await mcpGroup()).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
   expect(screen.queryByRole("group", { name: "连接 AI 助手" })).toBeNull();
   view.rerender(
     <SettingsPage client={client} initialPage="mcp" route={{ page: "mcp", nonce: 1 }} />,
   );
-  expect(screen.getByRole("heading", { name: "AI助手" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "AI 助手" })).toBeTruthy();
   expect(await mcpGroup()).toBeTruthy();
   view.rerender(<SettingsPage client={client} route={{ page: "developer", nonce: 2 }} />);
   expect(screen.getByRole("heading", { name: /^(维护与诊断|维护诊断)$/ })).toBeTruthy();
@@ -169,7 +169,7 @@ test("没有 MCP 能力时旧路由回退到输入页，不显示空标签", asy
   );
   await settingsFormReady();
   await screen.findByRole("heading", { name: /^(输入|输入设置)$/ });
-  expect(screen.queryByRole("tab", { name: "AI助手" })).toBeNull();
+  expect(screen.queryByRole("tab", { name: "AI 助手" })).toBeNull();
 });
 
 test("手机设置列表提供独立的 AI 助手入口", async () => {

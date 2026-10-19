@@ -6169,8 +6169,8 @@ test("macOS shows the screen keyboard without size controls and previews the fix
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "键盘手写" }));
-  const page = await screen.findByRole("group", { name: "键盘手写" });
+  fireEvent.click(screen.getByRole("button", { name: "键盘与手写" }));
+  const page = await screen.findByRole("group", { name: "键盘与手写" });
   expect(within(page).getByRole("tab", { name: "键盘", selected: true })).toBeTruthy();
   expect(within(page).queryByRole("tabpanel", { name: "手写" })).toBeNull();
   for (const slider of ["键盘高度", "按键间距", "行间距"])
@@ -6209,8 +6209,8 @@ test("Linux keeps the spacing sliders but drops the height that its keyboard win
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "键盘手写" }));
-  const page = await screen.findByRole("group", { name: "键盘手写" });
+  fireEvent.click(screen.getByRole("button", { name: "键盘与手写" }));
+  const page = await screen.findByRole("group", { name: "键盘与手写" });
   expect(within(page).queryByRole("slider", { name: "键盘高度" })).toBeNull();
   expect(within(page).getByRole("slider", { name: "按键间距" })).toBeTruthy();
   expect(within(page).getByRole("slider", { name: "行间距" })).toBeTruthy();
@@ -6239,8 +6239,8 @@ test("Windows folds handwriting into the screen keyboard page and keeps every si
   );
   await settingsReady();
   expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "键盘手写" }));
-  const page = await screen.findByRole("group", { name: "键盘手写" });
+  fireEvent.click(screen.getByRole("button", { name: "键盘与手写" }));
+  const page = await screen.findByRole("group", { name: "键盘与手写" });
   for (const slider of ["键盘高度", "按键间距", "行间距"])
     expect(within(page).getByRole("slider", { name: slider })).toBeTruthy();
   // Windows 不是 touch_toolbar_components 的宿主，说明不再提工具栏按钮。
@@ -6848,19 +6848,19 @@ test("侧栏连续平铺页面，宿主不提供的页不留空位", async () =>
     .getAllByRole("button")
     .map((item) => item.textContent ?? "");
   expect(titles).toEqual([
-    "输入设置",
-    "词库管理",
-    "按键设置",
-    "标点翻译",
+    "输入",
+    "词库",
+    "快捷键",
+    "标点与翻译",
     "语音输入",
-    "键盘手写",
-    "主题外观",
+    "键盘与手写",
+    "主题",
     "候选窗口",
-    "快捷工具",
-    "剪贴管理",
-    "智能辅助",
-    "维护诊断",
-    "关于水杉",
+    "悬浮工具栏",
+    "剪贴板",
+    "AI 辅助",
+    "维护与诊断",
+    "关于",
   ]);
   expect(within(sidebar).queryAllByRole("region")).toHaveLength(0);
   for (const title of ["打字", "输入方式", "外观", "工具", "支持"]) {
@@ -7200,7 +7200,7 @@ const referenceSections: {
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     titles: [
       "输入语言",
       "中文方案",
@@ -7232,7 +7232,7 @@ const referenceSections: {
   {
     // The reference's 输入 sections that shape what is written rather than how it is typed.
     page: "expression",
-    button: "标点翻译",
+    button: "标点与翻译",
     titles: [
       "候选词翻译",
       // 参考窗口的「始终使用英文标点」开关（这里的 `chinese_punctuation`，极性相反）和「固定标点」选择描述的是同一个决定，锁定时宿主根本不看前者，所以这里合成一个「标点」选择，两个参考设置的每种有效组合都还能选到（见下面 referenceOptions 里的这一项）。
@@ -7244,7 +7244,7 @@ const referenceSections: {
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     group: "辅助码",
     titles: [
       "双拼辅助码",
@@ -7259,12 +7259,12 @@ const referenceSections: {
   },
   {
     page: "tools",
-    button: "剪贴管理",
+    button: "剪贴板",
     titles: ["剪贴板历史"],
   },
   {
     page: "floating-toolbar",
-    button: "快捷工具",
+    button: "悬浮工具栏",
     // 参考窗口的「工具栏缩放」和「图标尺寸」相乘才是工具栏的大小，这里合成一个「工具栏大小」，选一档同时写两个值。
     titles: ["在桌面显示悬浮工具栏", "按钮", "工具栏大小"],
   },
@@ -7298,7 +7298,7 @@ const referenceSections: {
   },
   {
     page: "skin",
-    button: "主题外观",
+    button: "主题",
     titles: [
       // 来源把四套内置皮肤各自做成一节；这里是一个皮肤选择器，四套在同一个卡片列表里，
       // 所以只有「外部皮肤」是小节。皮肤本身四套都在（CandidateSkin.cpp 与皮肤页的名字）。
@@ -7317,7 +7317,7 @@ const referenceSections: {
   },
   {
     page: "dictionary",
-    button: "词库管理",
+    button: "词库",
     titles: [
       // 来源分成「批量导入纯汉字词组」与「导出词库」两节；这里是一节带类别选择的词库管理，
       // 查询、新增、编辑、导入、导出都在其中，导入说明里写明支持纯汉字自动注音。
@@ -7326,7 +7326,7 @@ const referenceSections: {
   },
   {
     page: "ai",
-    button: "智能辅助",
+    button: "AI 辅助",
     titles: [
       // 来源：启用 AI 联想。这里的开关还管 iOS 键盘的 AI 回复与 Android 的选中文字润色，
       // 所以名字不按来源收窄到候选联想。
@@ -7340,7 +7340,7 @@ const referenceSections: {
   },
   {
     page: "shortcuts",
-    button: "按键设置",
+    button: "快捷键",
     titles: [
       // 来源：中英文切换。简繁切换在来源是并列的一节，这里是这一节里的一行，且键名按平台
       // 改写（Control 对 Ctrl），所以不在这里钉。
@@ -7353,7 +7353,7 @@ const referenceSections: {
   {
     // 参考窗口把日志放在「关于」；设计稿把它们移到「维护与诊断」。
     page: "developer",
-    button: "维护诊断",
+    button: "维护与诊断",
     titles: [
       // 来源另有「TSF 端日志」，那是 Windows 的 TIP 进程，按平台门控。
       "Server 端日志",
@@ -7362,18 +7362,18 @@ const referenceSections: {
   {
     page: "help",
     button: "帮助",
-    via: "关于水杉",
+    via: "关于",
     titles: ["快速上手", "基本功能"],
   },
 ];
 
 // 桌面宿主（Windows 和 macOS 都是）把「屏幕键盘」和「手写输入」并成一页「屏幕键盘与手写」，两张表项都在那一页上找。
 const mergedPages: Record<string, string> = {
-  屏幕键盘: "键盘手写",
-  手写输入: "键盘手写",
+  屏幕键盘: "键盘与手写",
+  手写输入: "键盘与手写",
 };
 
-/** 菜单显示名称与内容分组各自有契约，不能拿四字菜单名查询页面内的 fieldset。 */
+/** 菜单显示名称与内容分组各自有契约，不能拿菜单名查询页面内的 fieldset。 */
 const referencePageGroups: Record<string, string> = {
   input: "输入",
   expression: "标点与翻译",
@@ -7436,7 +7436,7 @@ test.each(referenceSections)(
     await settingsReady();
     if (via) {
       fireEvent.click(screen.getByRole("button", { name: via }));
-      if (via === "关于水杉") selectSettingsTab("帮助与反馈");
+      if (via === "关于") selectSettingsTab("帮助与反馈");
     }
     const pageName = mergedPages[button] ?? button;
     fireEvent.click(screen.getByRole("button", { name: pageName }));
@@ -7551,7 +7551,7 @@ test.each(referenceSections)(
     await settingsReady();
     if (via) {
       fireEvent.click(screen.getByRole("button", { name: via }));
-      if (via === "关于水杉") selectSettingsTab("帮助与反馈");
+      if (via === "关于") selectSettingsTab("帮助与反馈");
     }
     const pageName = mergedPages[button] ?? button;
     fireEvent.click(screen.getByRole("button", { name: pageName }));
@@ -7648,11 +7648,11 @@ test("on the desktop 帮助与反馈 lives in 关于: its route opens 关于 and
   expect(within(sidebar).queryByRole("button", { name: "帮助与反馈" })).toBeNull();
   fireEvent.click(within(page).getByRole("button", { name: "帮助" }));
   expect(await screen.findByRole("group", { name: "开始输入" })).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "返回关于水杉" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回关于" }));
   expect(await screen.findByRole("group", { name: "关于" })).toBeTruthy();
 });
 
-test("桌面账号菜单与标题统一为账号管理", async () => {
+test("桌面账号菜单与标题统一为账号与同步", async () => {
   const accountClient = {
     status: vi.fn().mockResolvedValue({ user: null }),
     providers: vi.fn().mockResolvedValue({ email: true, phone: false }),
@@ -7665,9 +7665,9 @@ test("桌面账号菜单与标题统一为账号管理", async () => {
     clearExpired: vi.fn(),
   };
   for (const [platform, title] of [
-    ["macos", "账号管理"],
-    ["linux", "账号管理"],
-    ["windows", "账号管理"],
+    ["macos", "账号与同步"],
+    ["linux", "账号与同步"],
+    ["windows", "账号与同步"],
   ] as const) {
     render(
       <SettingsPage
@@ -7756,70 +7756,70 @@ const referenceOptions: {
   {
     // The reference's 主题模式 select, a segmented control named 颜色模式 on the design's 主题 page: next to a picker of themes, 主题模式 read as a second one. The choices are the reference's, in the design's order.
     page: "skin",
-    button: "主题外观",
+    button: "主题",
     control: "颜色模式",
     role: "radiogroup",
     options: ["跟随系统", "浅色", "深色"],
   },
   {
     page: "skin",
-    button: "主题外观",
+    button: "主题",
     control: "设置界面主题",
     options: ["跟随颜色模式", "深色", "浅色"],
   },
   {
     // This one once read a bare 跟随; every surface theme names what it follows, 跟随颜色模式.
     page: "skin",
-    button: "主题外观",
+    button: "主题",
     control: "候选窗口主题",
     options: ["跟随颜色模式", "深色", "浅色"],
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     control: "双拼方案",
     options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼", "智能 ABC 双拼"],
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     control: "触发字符数",
     options: ["1", "2", "3", "4", "5", "6", "7", "8"],
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     control: "调频方式",
     options: ["关闭", "一次置顶", "折半调频", "线性调频", "一次置前"],
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     control: "触发频次(第几次上屏触发)",
     options: ["1", "2", "3", "4", "5", "6"],
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     control: "线性调频步长",
     options: ["1", "2", "3", "4", "5", "6"],
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     control: "双拼辅助码方案",
     options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"],
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     control: "全拼辅助码方案",
     options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加", "五笔 86"],
   },
   {
     // 参考窗口的「工具栏缩放」（75–150%）和「图标尺寸」（16–28）合成这一个大小；175% 是 150% 缩放加 28 的图标，最大尺寸和参考窗口相同。
     page: "floating-toolbar",
-    button: "快捷工具",
+    button: "悬浮工具栏",
     control: "工具栏大小",
     options: ["75%", "100%", "125%", "150%", "175%"],
   },
@@ -7836,19 +7836,19 @@ const referenceOptions: {
   {
     // 参考窗口「固定标点」的三项加上「始终使用英文标点」开关合成的选择：跟随中英文状态时的起始标点拆成中文标点、英文标点两项，两种锁定各一项。
     page: "expression",
-    button: "标点翻译",
+    button: "标点与翻译",
     control: "标点",
     options: ["中文标点", "英文标点", "始终中文标点（英文模式也用）", "始终英文标点"],
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     control: "默认中英文",
     options: ["中文", "英文"],
   },
   {
     page: "input",
-    button: "输入设置",
+    button: "输入",
     control: "中英文状态",
     options: ["按应用记忆", "全局统一"],
   },
@@ -8400,19 +8400,19 @@ test("macOS 侧栏连续平铺所有可用页面", async () => {
       .getAllByRole("button")
       .map((item) => item.textContent ?? ""),
   ).toEqual([
-    "输入设置",
-    "词库管理",
-    "按键设置",
-    "标点翻译",
+    "输入",
+    "词库",
+    "快捷键",
+    "标点与翻译",
     "语音输入",
-    "键盘手写",
-    "主题外观",
+    "键盘与手写",
+    "主题",
     "候选窗口",
-    "快捷工具",
-    "剪贴管理",
-    "智能辅助",
-    "维护诊断",
-    "关于水杉",
+    "悬浮工具栏",
+    "剪贴板",
+    "AI 辅助",
+    "维护与诊断",
+    "关于",
   ]);
   expect(within(sidebar).queryAllByRole("region")).toHaveLength(0);
 });
@@ -8820,7 +8820,7 @@ test("macOS opens handwriting for copying while input-session panels use the nat
 
   // 手写在 macOS 上并进「屏幕键盘与手写」页。
   expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "键盘手写" }));
+  fireEvent.click(screen.getByRole("button", { name: "键盘与手写" }));
   fireEvent.click(screen.getByRole("tab", { name: "手写" }));
   expect(await screen.findByText("macOS 手写识别板")).toBeDefined();
   expect(screen.getByText(/从这里打开可识别并复制文字/)).toBeDefined();
@@ -10197,7 +10197,7 @@ test("a host can open the settings window on the section its menu named", async 
   for (const id of ["not-a-page", "download", "helpcode", "community"]) {
     render(<SettingsPage client={client} initialPage={id} />);
     await settingsFormReady();
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("输入设置");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("输入");
     cleanup();
   }
 });

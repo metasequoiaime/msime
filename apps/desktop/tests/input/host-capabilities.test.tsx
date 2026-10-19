@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import {
+  selectSettingsTab,
+  settingsFormReady,
+  saveSettingsNow,
+  openVoiceServiceConfig,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type SettingsClient, type Snapshot } from "@msime/ui";
@@ -110,7 +115,7 @@ test("a touch host that can name the editor's application gets the mode scope co
   await screen.findByLabelText("中英文状态");
   cleanup();
   mount({ host: capabilities({ platform: "android", ime_mode_scope: false }) });
-  await screen.findByLabelText("输入模式");
+  await settingsFormReady();
   expect(screen.queryByLabelText("中英文状态")).toBeNull();
 });
 
@@ -597,7 +602,8 @@ test("a host with one commit path is not offered a choice between three", async 
       }}
     />,
   );
-  await screen.findByText("录音行为");
+  await settingsFormReady();
+  openVoiceServiceConfig();
   expect(screen.queryByLabelText("结果提交策略")).toBeNull();
   cleanup();
   render(
@@ -610,7 +616,9 @@ test("a host with one commit path is not offered a choice between three", async 
       }}
     />,
   );
-  expect(await screen.findByLabelText("结果提交策略")).toBeTruthy();
+  await settingsFormReady();
+  openVoiceServiceConfig();
+  expect(screen.getByLabelText("结果提交策略")).toBeTruthy();
 });
 
 test("the shuangpin preedit choice reaches every host that draws the composition", async () => {
@@ -761,11 +769,14 @@ test("a host that can enumerate microphones gets the picker, whatever it is call
       />,
     );
   voice(true);
+  await settingsFormReady();
+  openVoiceServiceConfig();
   expect(await screen.findByLabelText("麦克风")).toBeTruthy();
   expect(screen.queryByLabelText("可用录音设备")).toBeNull();
   cleanup();
   voice(false);
-  await screen.findByText("录音行为");
+  await settingsFormReady();
+  openVoiceServiceConfig();
   expect(screen.queryByLabelText("麦克风")).toBeNull();
 });
 
@@ -809,8 +820,8 @@ test("a host whose skin folder is unreachable is offered an import, not a folder
     openSkinDirectory: async () => undefined,
   });
   await settingsFormReady();
-  // 2in1 是桌面形态，本地皮肤操作在「主题外观」的「本地皮肤」标签中。
-  fireEvent.click(screen.getByRole("button", { name: "主题外观" }));
+  // 2in1 是桌面形态，本地皮肤操作在「主题」的「本地皮肤」标签中。
+  fireEvent.click(screen.getByRole("button", { name: "主题" }));
   selectSettingsTab("本地皮肤");
   expect(screen.getByRole("button", { name: "导入皮肤" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "打开目录" })).toBeNull();
@@ -823,7 +834,7 @@ test("a desktop host still opens its skin folder", async () => {
     openSkinDirectory: async () => undefined,
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "主题外观" }));
+  fireEvent.click(screen.getByRole("button", { name: "主题" }));
   selectSettingsTab("本地皮肤");
   expect(screen.getByRole("button", { name: "打开目录" })).toBeTruthy();
 });
