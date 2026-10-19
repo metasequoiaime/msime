@@ -8491,7 +8491,7 @@ static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   IBUS_OBJECT_CLASS(klass)->destroy = destroy;
 }
 void msime_ibus_configure(const std::string &options) {
-  if (options.size() > 16384 || msime_client_abi_version() != 3)
+  if (options.size() > 1048576 || msime_client_abi_version() != 3)
     throw std::runtime_error("Invalid host configuration");
   auto next = Json::parse(options);
   if (!next.is_object() || !next.contains("preferences") ||

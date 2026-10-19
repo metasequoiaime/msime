@@ -17,7 +17,7 @@ namespace msime::windows
 namespace
 {
 constexpr auto kDebounce = std::chrono::milliseconds(500);
-constexpr size_t kMaximumQueryBytes = 16384;
+constexpr size_t kMaximumQueryBytes = MSIME_ONLINE_QUERY_MAX_BYTES;
 constexpr size_t kMaximumResponseBytes = 256 * 1024;
 
 struct Response
@@ -135,9 +135,25 @@ bool CloudCandidateWorker::cancelled(uint64_t serial) const noexcept
 std::string CloudCandidateWorker::fetch(const std::string &query,
                                         const std::function<bool()> &cancelled)
 {
-    const auto url = request_url(query);
-    if (url.empty() || (cancelled && cancelled()))
-        return {};
+    nlohmann::json descriptor;
+    try {
+        const auto document = nlohmann::json::parse(query);
+        if (document.contains("cloud_request") && document.at("cloud_request").is_object())
+            descriptor = document.at("cloud_request");
+        else
+            descriptor = {{"url", request_url(query)}, {"method", "GET"}, {"headers", nlohmann::json::object()},
+                          {"body_utf8", ""}, {"timeout_ms", MSIME_CLOUD_REQUEST_TIMEOUT_MS},
+                          {"connect_timeout_ms", MSIME_CLOUD_CONNECT_TIMEOUT_MS}};
+        if (descriptor.contains("cached_response"))
+            return descriptor.at("cached_response").get<std::string>();
+    } catch (...) { return {}; }
+    const auto url = descriptor.value("url", std::string{});
+    const auto method = descriptor.value("method", std::string{});
+    const auto timeout = descriptor.value("timeout_ms", 0L);
+    const auto connect_timeout = descriptor.value("connect_timeout_ms", 0L);
+    if (!valid_candidate_url(url, true) || (method != "GET" && method != "POST") ||
+        timeout < 100 || timeout > 10000 || connect_timeout <= 0 || connect_timeout > timeout ||
+        (cancelled && cancelled())) return {};
 
     static std::once_flag curl_once;
     std::call_once(curl_once, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
@@ -147,11 +163,12 @@ std::string CloudCandidateWorker::fetch(const std::string &query,
 
     Response response{{}, cancelled};
     curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, "https");
+    curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, url.rfind("https://", 0) == 0 ? "https" : "http");
+    if (url.rfind("http://", 0) == 0) curl_easy_setopt(curl.get(), CURLOPT_PROXY, "");
     curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS,
-                     static_cast<long>(MSIME_CLOUD_CONNECT_TIMEOUT_MS));
-    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, static_cast<long>(MSIME_CLOUD_REQUEST_TIMEOUT_MS));
+                     connect_timeout);
+    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, timeout);
     curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "MSIME-Client/1.0");
     curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_response);
@@ -159,10 +176,32 @@ std::string CloudCandidateWorker::fetch(const std::string &query,
     curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, transfer_progress);
     curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &cancelled);
+    const auto headers = descriptor.value("headers", nlohmann::json::object());
+    if (!headers.is_object() || headers.size() > 18) return {};
+    curl_slist *raw_headers = nullptr;
+    for (auto it = headers.begin(); it != headers.end(); ++it) {
+        if (!it.value().is_string() || !valid_candidate_header_name(it.key()) ||
+            !valid_candidate_header_value(it.value().get<std::string>())) {
+            curl_slist_free_all(raw_headers); return {};
+        }
+        const auto line = it.key() + ": " + it.value().get<std::string>();
+        auto *next = curl_slist_append(raw_headers, line.c_str());
+        if (!next) { curl_slist_free_all(raw_headers); return {}; }
+        raw_headers = next;
+    }
+    std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> request_headers(raw_headers, curl_slist_free_all);
+    curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, request_headers.get());
+    const auto body = descriptor.value("body_utf8", std::string{});
+    if (body.size() > 8192) return {};
+    if (method == "POST") {
+        curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, body.data());
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body.size()));
+    }
     const auto result = curl_easy_perform(curl.get());
     long status = 0;
     curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &status);
-    if (result != CURLE_OK || status != 200 || (cancelled && cancelled()))
+    if (result != CURLE_OK || (status < 200 || status >= 300) || (cancelled && cancelled()))
         return {};
     return std::move(response.body);
 }

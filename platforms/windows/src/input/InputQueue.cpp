@@ -56,7 +56,7 @@ struct WorkerScope {
 } // namespace
 InputState::InputState(FocusGate &gate, size_t clients, std::string options)
     : gate_(gate), router_(gate, clients), options_(std::move(options)) {
-  if (options_.empty() || options_.size() > 16384)
+  if (options_.empty() || options_.size() > 1048576)
     throw std::invalid_argument("Invalid input queue configuration");
   const auto document = nlohmann::json::parse(options_);
   navigation_ = preference_navigation(

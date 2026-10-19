@@ -115,6 +115,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CopyDeviceInfoDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Device information copy acceptance failed" >&2; exit 1; }
+# 云候选描述符经过安装产品的 HTTP 栈，不读取偏好或真实输入。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CloudCandidateTransportDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Custom cloud transport acceptance failed" >&2; exit 1; }
 # 在安装产品中区分失败来源；只用合成响应和拒写连接，不读取实际输入。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.InputFailureCategoryDeviceSmoke)
 printf '%s\n' "$result"

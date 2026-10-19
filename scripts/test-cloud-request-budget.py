@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Every host waits the same amount of time for a cloud candidate.
+"""各宿主使用共享云候选默认时限与描述符预算。
 
 云候选等多久是产品的预算，不归某个宿主：参考实现给请求的每个阶段都是 2000 ms（WinHTTP 的 `WinHttpSetTimeouts(2000, 2000, 2000, 2000)`），时限内返回的结果就是用户该看到的候选。这里每个宿主用自己的网络库发请求——Apple 上是 NSURLSession，Windows 上是 libcurl，Android 是 HttpURLConnection，HarmonyOS 是系统 http 模块——编译器拦不住哪一个悄悄换成别的时限，而丢掉的云候选和本来就没有云结果看起来一模一样。
 
-所以数字在 `client-core` 里声明一次，C 头文件为 C++ 与 Objective-C 宿主重复同一对常量；Android 和 HarmonyOS 读不到这两处，各有一个常量，这里核对它们的值与 client-core 相同。同时检查每个宿主发云候选请求的那一段代码只读常量，不另写字面量时限。
+默认时限在 `client-core` 声明，C 头文件及旧宿主兼容常量继续核对默认值。自定义服务由共享描述符给出时限，各宿主读取描述符，不重新指定私有预算。
 """
 
 from __future__ import annotations
@@ -33,15 +33,17 @@ HOSTS = [
         ROOT / "platforms/android/java/app/msime/android/candidate/OnlineCandidateTransport.java",
         [
             "HttpConnectionPolicy.setTimeouts(connection,",
-            "OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS, OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS)",
+            "HttpConnectionPolicy.setTimeouts(connection, connectTimeout, timeout)",
+            'descriptor, "timeout_ms"',
+            'descriptor, "connect_timeout_ms"',
         ],
-        (r"public static String cloud\(String url\)", r"\n    (?:public|private|protected) ", r"set(?:Connect|Read)Timeout\((\d+)"),
+        (r"public static String cloud\(JSONObject descriptor\)", r"\n    (?:public|private|protected) ", r"set(?:Connect|Read)Timeout\((\d+)"),
     ),
     (
         ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets",
         [
-            "connectTimeout: OnlineCandidatePolicy.CLOUD_TIMEOUT_MS",
-            "readTimeout: OnlineCandidatePolicy.CLOUD_TIMEOUT_MS",
+            "connectTimeout: descriptor.connect_timeout_ms",
+            "readTimeout: descriptor.timeout_ms",
         ],
         (r"private async fetchCloud\(", r"\n  (?:private|public|protected) ", r"(?:connectTimeout|readTimeout):\s*(\d+)"),
     ),
@@ -90,8 +92,9 @@ def linux_ai_budget(failures: list[str]) -> bool:
                 f"the Linux online provider's {name} is {found.group(1) if found else None} s, and client-providers' AI descriptor asks for {expected_ms} ms"
             )
     # worker 会拒绝超过上限的期限；上限低于调用方预算会让每个请求在发出前静默失败（ai_polish_test 曾以 8 秒请求撞上 7 秒上限）。账号注册与刷新已经由 Rust host-api 负责，不再占用 Python worker 的预算。
-    if "HTTP_WORKER_MAX_TIMEOUT = AI_REQUEST_TIMEOUT" not in provider:
-        failures.append("the Linux HTTP worker max timeout no longer follows the AI request budget")
+    found = re.search(r"^HTTP_WORKER_MAX_TIMEOUT = ([0-9.]+)$", provider, re.M)
+    if not found or float(found.group(1)) * 1000 < max(total_ms, 10000):
+        failures.append("the Linux HTTP worker cannot cover the AI and configurable cloud budgets")
     if "not 0 < timeout <= HTTP_WORKER_MAX_TIMEOUT" not in provider:
         failures.append("the Linux HTTP worker no longer validates requests against its declared max timeout")
     # 「水杉账号」释义整条经 msime_client_account 的 translate（会话、令牌、请求和逐项规范化都在 Rust），provider 不再自己取令牌、发 /v1/translate。
@@ -106,13 +109,15 @@ def linux_ai_budget(failures: list[str]) -> bool:
     if not re.search(r"fetch\(config\[\"endpoint\"\], AI_REQUEST_TIMEOUT,[^)]*connect_timeout=AI_CONNECT_TIMEOUT\)", provider):
         failures.append("the Linux AI candidate request does not use AI_REQUEST_TIMEOUT and AI_CONNECT_TIMEOUT")
 
-    # The engine's socket deadline must outlast the provider's budget, or a reply the provider accepts at the edge is dropped on the way back.
+    # socket 总时限至少覆盖 AI 预算，并随较长的云请求预算延长；缓存探测仍不等网络。
     transport = LINUX_TRANSPORT.read_text(encoding="utf-8")
-    found = re.search(r"ai_cache_only[^{]*\{[^}]*Duration::from_secs\((\d+)\)", transport)
-    if not found or int(found.group(1)) * 1000 <= total_ms:
+    found = re.search(r"let timeout_ms\s*=\s*if query\.ai_eligible[^{}]*\{\s*(\d+)", transport)
+    if not found or int(found.group(1)) <= total_ms:
         failures.append(
-            f"the Linux online transport waits {found.group(1) if found else None} s for an AI reply, which does not outlast the {total_ms} ms budget"
+            f"the Linux online transport waits {found.group(1) if found else None} ms for an AI reply, which does not outlast the {total_ms} ms budget"
         )
+    if "Duration::from_millis(if query.ai_cache_only" not in transport or "request.timeout_ms + 500" not in transport:
+        failures.append("the Linux socket deadline no longer handles cache probes and cloud request budgets")
 
     ibus = LINUX_IBUS.read_text(encoding="utf-8")
     for name, expected in (("kAiIdleDelayMs", AI_IDLE_DELAY_MS), ("kCloudIdleDelayMs", CLOUD_IDLE_DELAY_MS)):

@@ -11691,10 +11691,92 @@ private:
 
   }
 
+  // 对话框持有草稿，所有字段确认后一次交给 Rust 校验并持久化。
+  fire_and_forget edit_cloud_provider() {
+    auto lifetime = get_strong();
+    const auto stored = document_.Value(L"cloud_candidate_provider");
+    if (!stored || stored.ValueType() != JsonValueType::Object) co_return;
+    auto config = std::make_shared<JsonObject>(JsonObject::Parse(stored.Stringify()));
+    StackPanel form;
+    form.Spacing(12);
+    form.Children().Append(make_text(L"仅发送当前组字，不发送已上屏内容、词库或历史。配置和凭据只保存在本机。公网使用 HTTPS，本机服务可用 HTTP。", 13, palette_.sub));
+    form.Children().Append(select_control(L"云候选来源", {{L"google", L"Google input-tools"}, {L"custom", L"自定义 HTTP 接口"}},
+      std::wstring(config->GetNamedString(L"source").c_str()), [config](std::wstring const &value) {
+        config->SetNamedValue(L"source", JsonValue::CreateStringValue(hstring(value)));
+      }));
+    auto field = [&](wchar_t const *key, wchar_t const *title, bool multiline) {
+      TextBox box;
+      box.Header(box_value(hstring(title)));
+      box.Text(config->GetNamedString(key, L""));
+      box.MaxLength(4096);
+      box.AcceptsReturn(multiline);
+      if (multiline) box.MinHeight(80);
+      form.Children().Append(box);
+      return box;
+    };
+    const auto endpoint = field(L"endpoint", L"接口地址（GET 用 {query}）", false);
+    form.Children().Append(select_control(L"请求方法", {{L"GET", L"GET"}, {L"POST", L"POST"}},
+      std::wstring(config->GetNamedString(L"method").c_str()), [config](std::wstring const &value) {
+        config->SetNamedValue(L"method", JsonValue::CreateStringValue(hstring(value)));
+      }));
+    const auto headers = field(L"headers_json", L"请求头（JSON，可填写 Authorization）", true);
+    const auto body = field(L"body_template", L"请求体模板（JSON 字符串里的 {query} 自动转义）", true);
+    form.Children().Append(select_control(L"响应格式", {{L"candidates", L"标准 candidates 数组"}, {L"google", L"Google input-tools"}, {L"json_path", L"JSON 路径"}},
+      std::wstring(config->GetNamedString(L"response_format").c_str()), [config](std::wstring const &value) {
+        config->SetNamedValue(L"response_format", JsonValue::CreateStringValue(hstring(value)));
+      }));
+    const auto path = field(L"response_path", L"JSON 路径（例如 data.0 或 choices.0.message.content）", false);
+    NumberBox timeout;
+    timeout.Header(box_value(L"超时（毫秒）"));
+    timeout.Minimum(100); timeout.Maximum(10000);
+    timeout.Value(config->GetNamedNumber(L"timeout_ms"));
+    form.Children().Append(timeout);
+    CheckBox cache;
+    cache.Content(box_value(L"缓存云候选（仅本机内存，按来源隔离，无结果缓存 60 秒）"));
+    cache.IsChecked(config->GetNamedBoolean(L"cache_enabled"));
+    form.Children().Append(cache);
+    auto error = make_text(L"", 13, palette_.sub);
+    form.Children().Append(error);
+    ScrollViewer scroll;
+    scroll.Content(form); scroll.MaxHeight(480);
+    ContentDialog dialog;
+    dialog.Title(box_value(L"云候选服务"));
+    dialog.Content(scroll);
+    dialog.PrimaryButtonText(L"保存"); dialog.CloseButtonText(L"取消");
+    dialog.XamlRoot(root_.XamlRoot());
+    dialog.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
+    dialog.PrimaryButtonClick([this, config, endpoint, headers, body, path, timeout, cache, error](
+        ContentDialog const &, ContentDialogButtonClickEventArgs const &args) {
+      config->SetNamedValue(L"endpoint", JsonValue::CreateStringValue(endpoint.Text()));
+      config->SetNamedValue(L"headers_json", JsonValue::CreateStringValue(headers.Text()));
+      config->SetNamedValue(L"body_template", JsonValue::CreateStringValue(body.Text()));
+      config->SetNamedValue(L"response_path", JsonValue::CreateStringValue(path.Text()));
+      if (!std::isfinite(timeout.Value())) { args.Cancel(true); return; }
+      config->SetNamedValue(L"timeout_ms", JsonValue::CreateNumberValue(timeout.Value()));
+      const auto checked = cache.IsChecked();
+      config->SetNamedValue(L"cache_enabled", JsonValue::CreateBooleanValue(checked && checked.Value()));
+      flush_pending();
+      document_.SetValue(L"cloud_candidate_provider", *config);
+      if (!commit()) {
+        args.Cancel(true);
+        error.Text(L"保存失败，请检查地址、请求头 JSON、请求体模板、响应路径和超时。");
+      } else queue_refresh();
+    });
+    co_await show_dialog(dialog);
+  }
+
   void build_input_habits(StackPanel const &page) {
     auto candidates = add_group(page, L"候选与联想");
-    bool_row(candidates, 0xE753, L"云候选", L"向在线服务请求额外候选",
+    std::wstring cloud_recipient = L"Google input-tools（inputtools.google.com）";
+    if (document_.String(L"cloud_candidate_provider.source", L"google") == L"custom") {
+      cloud_recipient = L"所选自定义服务";
+      try { cloud_recipient = Windows::Foundation::Uri(hstring(document_.String(L"cloud_candidate_provider.endpoint", L""))).Host().c_str(); }
+      catch (...) {}
+    }
+    bool_row(candidates, 0xE753, L"云候选", L"仅将当前拼写发送给 " + cloud_recipient + L"；不发送已上屏内容、词库或历史",
              L"cloud_candidates", false);
+    add_row(candidates, 0xE713, L"云候选服务", L"来源、GET/POST、请求头、JSON 模板、响应路径、超时和缓存",
+            nullptr, button_control(L"配置", [this] { edit_cloud_provider(); }));
     // 触发字符数固定为默认的 5，不再给出（HostCapabilities.mixed_input_minimum_prefix）：调低会让常见简拼被英文词抢走首选。
     bool_row(candidates, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词",
              L"mixed_input.english", true, true);

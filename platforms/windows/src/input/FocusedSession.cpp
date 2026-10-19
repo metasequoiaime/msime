@@ -581,7 +581,7 @@ bool FocusedSession::queue_preferences(const FocusLease &lease,
   if (!prepared(lease))
     return false;
   return gate_.with_active(lease, [&] {
-    if (snapshot.empty() || snapshot.size() > 16384)
+    if (snapshot.empty() || snapshot.size() > 1048576)
       throw std::invalid_argument("Invalid preferences snapshot size");
     auto document = nlohmann::json::parse(snapshot);
     if (!document.is_object() || !document.contains("revision") ||

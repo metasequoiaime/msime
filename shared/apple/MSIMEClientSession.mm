@@ -157,7 +157,7 @@ static NSDictionary *decode(char *response, NSError **error) {
         setError(error, @"AI 查询格式错误"); return nil;
     }
     NSData *data = [NSJSONSerialization dataWithJSONObject:query options:0 error:error];
-    if (!data || data.length > 16384) { setError(error, @"AI 查询过大"); return nil; }
+    if (!data || data.length > MSIME_ONLINE_QUERY_MAX_BYTES) { setError(error, @"AI 查询过大"); return nil; }
     id value = decodeValue(msime_client_ai_request_for_query(
         _handle, static_cast<const uint8_t *>(data.bytes), data.length), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;
@@ -180,7 +180,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     }
     NSData *queryData = [NSJSONSerialization dataWithJSONObject:query options:0 error:error];
     NSData *candidateData = [NSJSONSerialization dataWithJSONObject:candidates options:0 error:error];
-    if (!queryData || !candidateData || queryData.length > 16384 || candidateData.length > 16384) {
+    if (!queryData || !candidateData || queryData.length > MSIME_ONLINE_QUERY_MAX_BYTES || candidateData.length > 16384) {
         setError(error, @"在线候选请求过大"); return nil;
     }
     return decode(msime_client_apply_online_candidates(_handle, (const uint8_t *)queryData.bytes, queryData.length,
@@ -192,7 +192,7 @@ static NSDictionary *decode(char *response, NSError **error) {
         setError(error, @"在线候选格式错误"); return nil;
     }
     NSData *queryData = [NSJSONSerialization dataWithJSONObject:query options:0 error:error];
-    if (!queryData || queryData.length > 16384) { setError(error, @"在线候选请求过大"); return nil; }
+    if (!queryData || queryData.length > MSIME_ONLINE_QUERY_MAX_BYTES) { setError(error, @"在线候选请求过大"); return nil; }
     return decode(msime_client_resolve_online_candidates(_handle, (const uint8_t *)queryData.bytes, queryData.length,
         (uint8_t)source), error);
 }
@@ -334,7 +334,7 @@ static NSDictionary *decode(char *response, NSError **error) {
 + (NSString *)cloudRequestURLForQuery:(NSDictionary *)query error:(NSError **)error {
     if (![NSJSONSerialization isValidJSONObject:query]) { setError(error, @"在线查询格式错误"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:query options:0 error:error];
-    if (!data || data.length > 16384) { setError(error, @"在线查询过大"); return nil; }
+    if (!data || data.length > MSIME_ONLINE_QUERY_MAX_BYTES) { setError(error, @"在线查询过大"); return nil; }
     id value = decodeValue(msime_client_cloud_request_url((const uint8_t *)data.bytes, data.length), error);
     return [value isKindOfClass:NSString.class] ? value : nil;
 }
@@ -342,7 +342,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![body isKindOfClass:NSData.class] || body.length == 0 || body.length > 262144 ||
         ![NSJSONSerialization isValidJSONObject:query]) { setError(error, @"云候选响应格式错误或过大"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:query options:0 error:error];
-    if (!data || data.length > 16384) { setError(error, @"在线查询过大"); return nil; }
+    if (!data || data.length > MSIME_ONLINE_QUERY_MAX_BYTES) { setError(error, @"在线查询过大"); return nil; }
     return decode(msime_client_apply_cloud_response(_handle, (const uint8_t *)data.bytes, data.length,
         (const uint8_t *)body.bytes, body.length), error);
 }
@@ -568,7 +568,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath || ![NSJSONSerialization isValidJSONObject:snapshot]) { setError(error, @"偏好保存参数无效"); return nil; }
     NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
     NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:error];
-    if (!data || data.length > 16384) { setError(error, @"偏好快照过大"); return nil; }
+    if (!data || data.length > 1048576) { setError(error, @"偏好快照过大"); return nil; }
     return decode(msime_client_save_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length, revision, static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
 + (NSDictionary *)loadPreferencesInDirectory:(NSString *)directory error:(NSError **)error {

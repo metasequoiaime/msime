@@ -10,7 +10,7 @@ enum OnlineRequestPolicy {
 /// One bounded HTTPS request for a cloud or AI candidate provider.
 struct OnlineCandidateRequest: Sendable {
   var urlRequest: URLRequest
-  /// 只有 AI 候选可以走本机或局域网的 http（`AIEndpointPolicy`）；云候选和翻译始终只走 https。
+  /// 共享层已校验的本机 HTTP 云候选与本机、局域网 AI 请求可开启此项。
   var allowsLocalHTTP = false
   /// How long the connection may sit idle, connecting included.
   var connectTimeout: TimeInterval
