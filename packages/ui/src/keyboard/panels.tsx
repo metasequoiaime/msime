@@ -36,7 +36,7 @@ import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import type { NineKeyShuangpinKeyFace } from "../settings/nine-key-shuangpin-profile";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import { CloudDictionaryEntryCard } from "./cloud-dictionary-entry-card";
-import { CloudDictionaryItem } from "./cloud-dictionary-item";
+import { CloudCandidateResults, CloudFixedPositions } from "./cloud-candidate-results";
 import { CloudPanelHeader } from "./cloud-panel-header";
 import { CloudDictionaryPagination } from "./cloud-dictionary-pagination";
 import { NativePanelHeader } from "./native-panel-header";
@@ -61,7 +61,6 @@ import {
   CloudClipboardPendingNotice,
   CloudClipboardWaitingDevices,
 } from "./cloud-clipboard-devices";
-import { candidateMutationCode } from "./cloud-response";
 import type { TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 
 export type {
@@ -1281,97 +1280,19 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
           排序、固定位置和删除只保存到当前账号；本机键盘需要后续同步才会采用云端状态。
         </p>
         {query && (
-          <div className={cloud.dictionaryList} aria-label="云端候选结果">
-            <p>
-              查询编码：{query.text} · 云端版本 {revision}
-            </p>
-            {candidates.length ? (
-              candidates.map((candidate, index) => (
-                <CloudDictionaryItem
-                  key={`${candidateMutationCode(candidate)}:${candidate.word}`}
-                  ariaLabel={`调频候选 ${candidate.word}`}
-                  busy={busy}
-                  disabled={kind === "quick"}
-                  onClick={() => void rank(candidate)}
-                  actions={
-                    kind !== "quick" && (
-                      <>
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => void rank(candidate)}
-                          disabled={busy}
-                        >
-                          调频
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => void setFixed(candidate, position)}
-                          disabled={busy}
-                        >
-                          固定
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => void remove(candidate)}
-                          disabled={
-                            busy || (kind !== "english" && Array.from(candidate.word).length <= 1)
-                          }
-                        >
-                          删除
-                        </button>
-                      </>
-                    )
-                  }
-                >
-                  <strong>
-                    {index + 1}. <span className="wrap-anywhere">{candidate.word}</span>
-                  </strong>
-                  <small>
-                    {candidate.code} · 权重 {candidate.weight}
-                  </small>
-                </CloudDictionaryItem>
-              ))
-            ) : (
-              <p className={cloud.dictionaryEmpty}>没有匹配的候选</p>
-            )}
-          </div>
+          <CloudCandidateResults
+            kind={kind}
+            queryText={query.text}
+            revision={revision}
+            candidates={candidates}
+            busy={busy}
+            position={position}
+            onRank={rank}
+            onSetFixed={setFixed}
+            onRemove={remove}
+          />
         )}
-        {query && candidates.length > 0 && (
-          <p className={cloud.dictionaryMobileHint}>
-            点按候选可调频；窄屏下的固定和删除操作会分组显示。
-          </p>
-        )}
-        {positions.length > 0 && (
-          <div className={cloud.dictionaryList} aria-label="固定位置">
-            <p>此查询的固定位置</p>
-            {positions.map((item) => (
-              <article
-                className={cloud.dictionaryItem}
-                key={`${item.context}:${item.code}:${item.word}`}
-              >
-                <div className={`${cloud.dictionaryItemMain} ${cloud.dictionaryItemStatic}`}>
-                  <strong>
-                    第 {item.position} 位 · {item.word}
-                  </strong>
-                  <small>{item.code}</small>
-                </div>
-                <div className={cloud.dictionaryItemActions}>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => void unfix(item)}
-                    disabled={busy}
-                  >
-                    取消固定
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
+        <CloudFixedPositions items={positions} busy={busy} onUnfix={unfix} />
         <p className={cloud.dictionaryNote} role="status">
           {notice}
         </p>

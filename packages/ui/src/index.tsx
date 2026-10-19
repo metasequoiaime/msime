@@ -1758,6 +1758,12 @@ export {
   CloudDictionaryItem,
   type CloudDictionaryItemProps,
 } from "./keyboard/cloud-dictionary-item";
+export {
+  CloudCandidateResults,
+  type CloudCandidateResultsProps,
+  CloudFixedPositions,
+  type CloudFixedPositionsProps,
+} from "./keyboard/cloud-candidate-results";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
   PanelActivationButtons,

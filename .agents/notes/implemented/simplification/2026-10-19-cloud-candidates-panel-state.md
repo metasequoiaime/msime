@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-提供 `useCloudCandidatesPanel(client)` 与派生的 `CloudCandidatesPanelState`，搬出现有状态、查询、确认和修改后刷新。面板保留完整 JSX、窗口导航、可见性与控件约束，继续复用 `usePanelAction`、`useLatestRef`、`useConfirm` 和既有云词库协议。
+提供 `useCloudCandidatesPanel(client)` 与派生的 `CloudCandidatesPanelState`，搬出现有状态、查询、确认和修改后刷新。面板组合[候选结果与固定位置视图](./2026-10-19-cloud-candidate-results.md)，保留窗口导航、查询可见性与参数控件约束，继续复用 `usePanelAction`、`useLatestRef`、`useConfirm` 和既有云词库协议。
 
 保留明确查询才发送编码、规范拼音用于修改、简拼与快捷短语分流、先显示候选再加载固定位置、修改后按已确认查询刷新。先以真实组件回归验证旧确认与旧修改回复的宿主隔离，确认缺陷后在同一片复用操作代次修复。
 
@@ -28,7 +28,7 @@ Status: implemented
 
 ## Verification
 
-新增 hook 测试先因缺少公开导出失败；抽取后 hook、确认生命周期、旧面板消费者、查询栏、动作和确认框相关套件共 60 项通过，设置页真实候选消费者 2 项通过。保留完整 JSX 和已有类型导出；确认与修改回归先证明旧宿主误发，再以代次守卫修复。桌面构建、HarmonyOS 类型检查与改动文件 lint 通过；独立审查新增 22 项通过，55 个传递模块无入口循环。
+新增 hook 测试先因缺少公开导出失败；抽取后 hook、确认生命周期、旧面板消费者、查询栏、动作和确认框相关套件共 60 项通过，设置页真实候选消费者 2 项通过。保留已有类型导出与 JSX 结构；确认与修改回归先证明旧宿主误发，再以代次守卫修复。桌面构建、HarmonyOS 类型检查与改动文件 lint 通过；独立审查新增 22 项通过，55 个传递模块无入口循环。
 
 ## Consequences
 

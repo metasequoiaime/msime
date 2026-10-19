@@ -37,6 +37,39 @@ async function query() {
 }
 afterEach(cleanup);
 
+test("面板固定按钮使用当前选定位置与规范编码，确认后刷新原查询", async () => {
+  const client = host();
+  render(<CloudCandidatesPanel client={client} />);
+  await query();
+  fireEvent.change(screen.getByRole("combobox", { name: "固定位置" }), {
+    target: { value: "4" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "云端候选编码" }), {
+    target: { value: "synthetic-draft" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "固定" }));
+  await screen.findByRole("alertdialog");
+  expect(client.request).toHaveBeenCalledTimes(2);
+  await answerConfirm("confirm");
+  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("固定位置已更新"));
+  expect(client.request).toHaveBeenNthCalledWith(3, {
+    operation: "set_fixed_position",
+    context: "synthetic:context",
+    code: "syn'thetic",
+    word: "合成候选",
+    position: 4,
+    revision: 7,
+  });
+  expect(client.request).toHaveBeenNthCalledWith(4, {
+    operation: "candidates",
+    text: "synthetic",
+    kind: "pinyin",
+    scheme: "pinyin",
+    profile: "xiaohe",
+    limit: 100,
+  });
+});
+
 test.each(["调频", "删除", "固定", "取消固定"])(
   "%s 确认期间替换客户端后不调用旧宿主",
   async (action) => {
