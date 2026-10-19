@@ -2007,3 +2007,7 @@ fn host_palette(palette: &CandidatePalette) -> serde_json::Map<String, serde_jso
 
 #[cfg(test)]
 mod tests;
+
+/// `tests/fixtures/candidate-skins` 下验证皮肤的解析结果。
+#[cfg(test)]
+mod gallery_tests;
