@@ -7,6 +7,7 @@ import { useCloudDictionaryApplyPanel } from "./use-cloud-dictionary-apply-panel
 import { useCloudDictionaryPanel } from "./use-cloud-dictionary-panel";
 import { useCloudClipboardPanel } from "./use-cloud-clipboard-panel";
 import { useVoicePanel } from "./use-voice-panel";
+import { VoiceResults } from "./voice-results";
 import type {
   PanelClient,
   VoicePanelClient,
@@ -378,48 +379,18 @@ export function VoicePanel({
             取消录音
           </button>
         )}
-        <textarea
-          className={surface.voiceTextArea}
-          aria-label="识别结果"
-          aria-describedby={exceedsSubmitLimit ? "voice-result-limit" : undefined}
-          aria-invalid={exceedsSubmitLimit || undefined}
-          value={text}
-          maxLength={4096}
-          onChange={(event) => updateText(event.target.value)}
-          placeholder="识别结果会显示在这里"
-          rows={4}
+        <VoiceResults
+          text={text}
+          exceedsSubmitLimit={exceedsSubmitLimit}
+          inputAvailable={Boolean(client.sendVoiceText ?? client.sendText)}
+          copyAvailable={Boolean(client.copyText)}
+          busy={busy}
+          submitting={submitting}
+          copying={copying}
+          onTextChange={updateText}
+          onSubmit={submit}
+          onClear={clear}
         />
-        {exceedsSubmitLimit && (
-          <p id="voice-result-limit" className={surface.voiceNote} role="status">
-            内容超过单次提交长度，请精简或复制结果后手动粘贴。
-          </p>
-        )}
-        <button
-          type="button"
-          className={surface.voiceSubmit}
-          onClick={() => void submit()}
-          disabled={
-            !text ||
-            exceedsSubmitLimit ||
-            !(client.sendVoiceText ?? client.sendText) ||
-            busy ||
-            submitting
-          }
-        >
-          {submitting && !copying ? "正在提交…" : "提交到当前窗口"}
-        </button>
-        {client.copyText && (
-          <button
-            type="button"
-            onClick={() => void submit(true)}
-            disabled={!text || busy || submitting}
-          >
-            {copying ? "正在复制…" : "复制结果"}
-          </button>
-        )}
-        <button type="button" onClick={clear} disabled={!text || busy}>
-          清空结果
-        </button>
         {busy && client.cancelVoice && <p className={surface.voiceNote}>按 Esc 取消录音</p>}
         <p className={surface.voiceNote} role="status">
           {notice}

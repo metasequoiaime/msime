@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-公开 `useVoicePanel` 与状态类型，接收既有 `VoicePanelClient`，集中持有原状态、effect、拖动与动作。面板只消费结果并渲染原 JSX；清空按钮的文本与提示更新合为 hook 动作。客户端、识别、提交、文本代次继续复用 `useAsyncGeneration`，事件继续使用 `trackAsyncSubscription`，不新增请求协议或状态框架。
+公开 `useVoicePanel` 与状态类型，接收既有 `VoicePanelClient`，集中持有原状态、effect、拖动与动作。面板只消费状态并渲染，结果编辑与提交、复制、清空控件由[公共结果视图](2026-10-19-voice-results.md)承载；清空按钮的文本与提示更新合为 hook 动作。客户端、识别、提交、文本代次继续复用 `useAsyncGeneration`，事件继续使用 `trackAsyncSubscription`，不新增请求协议或状态框架。
 
 ## Historical audit
 
@@ -33,4 +33,4 @@ Status: implemented
 
 语音会话可被公共组件之外的调用方复用，代价是新增公开 hook 与返回状态契约。
 
-effect 和代次初始化顺序必须保持；取消立即更新本地状态，不等待宿主确认。面板的禁用条件、Escape 条件、能力可见性和主题仍属于原展示，hook 不额外修改操作许可。不改变文件读写、权限或原生资源，前端测试不代表原生录音设备验收。
+effect 和代次初始化顺序必须保持；取消立即更新本地状态，不等待宿主确认。面板与结果视图的禁用条件、Escape 条件、能力可见性和主题仍属于展示，hook 不额外修改操作许可。不改变文件读写、权限或原生资源，前端测试不代表原生录音设备验收。
