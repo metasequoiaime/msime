@@ -1,8 +1,26 @@
-//! 设置页切换语音服务时的字段补丁；不读写偏好、不联网，也不记录凭据。
+//! 语音设置页的接口预检与换服务字段补丁；不读写偏好、不联网，也不记录凭据。
 
 use super::provider_catalog::{VoiceProviderPreset, ASR_PROVIDERS, POLISH_PROVIDERS};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+/// 设置页允许留空使用默认地址；复用运行时 URL 解析，并保留移动宿主的协议和字符限制。
+pub fn endpoint_issue(endpoint: &str, websocket: bool) -> Option<&'static str> {
+    let endpoint = endpoint.trim();
+    let prefix = if websocket { "wss://" } else { "https://" };
+    if endpoint.is_empty()
+        || (endpoint.starts_with(prefix)
+            && !endpoint.contains('@')
+            && super::provider::valid_mobile_voice_endpoint(endpoint, websocket))
+    {
+        return None;
+    }
+    Some(if websocket {
+        "豆包的接口地址要以 wss:// 开头"
+    } else {
+        "接口地址要以 https:// 开头，且不能带用户名或密码"
+    })
+}
 
 #[derive(Clone, Copy, Deserialize)]
 pub enum ProviderService {

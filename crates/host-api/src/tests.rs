@@ -17509,6 +17509,43 @@ fn voice_provider_update_export_returns_the_shared_patch() {
 }
 
 #[test]
+fn voice_endpoint_issue_export_uses_shared_validation_without_echoing_input() {
+    for (endpoint, websocket, accepted) in [
+        ("", false, true),
+        (" https://例子.invalid/合成🍃 ", false, true),
+        ("https://example.invalid:bad/v1", false, false),
+        ("https://[broken/v1", false, false),
+        ("wss://example.invalid/stream", true, true),
+        ("https://example.invalid/stream", true, false),
+    ] {
+        let result = read(unsafe {
+            msime_client_voice_endpoint_issue(endpoint.as_ptr(), endpoint.len(), websocket)
+        });
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["value"]["accepted"], accepted);
+        assert_eq!(result["value"]["issue"].is_null(), accepted);
+    }
+    for (pointer, length) in [
+        (std::ptr::null(), 0),
+        (std::ptr::null(), 1),
+        (b"x".as_ptr(), 65_537),
+        (b"\xff".as_ptr(), 1),
+    ] {
+        let result = read(unsafe { msime_client_voice_endpoint_issue(pointer, length, false) });
+        assert_eq!(
+            result,
+            serde_json::json!({"ok": false, "error": "invalid voice endpoint"})
+        );
+    }
+    let oversized = "x".repeat(65_536);
+    let result = read(unsafe {
+        msime_client_voice_endpoint_issue(oversized.as_ptr(), oversized.len(), false)
+    });
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["value"]["accepted"], false);
+}
+
+#[test]
 fn account_name_export_returns_the_shared_presentation_without_a_session() {
     let request = serde_json::json!({"name":"\u{feff} 小鹿 \u{3000}","id":"abcdef12"}).to_string();
     let result = read(unsafe { msime_client_account_name(request.as_ptr(), request.len()) });

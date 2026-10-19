@@ -222,6 +222,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.VoiceProviderSettingsDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Shared voice settings JNI acceptance failed" >&2; exit 1; }
+# 语音接口提示与运行时共用校验；只传合成地址，不保存或联网。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.VoiceEndpointSettingsDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Shared voice endpoint JNI acceptance failed" >&2; exit 1; }
 # 账号与云端的 JNI 入口和注入的会话存储（#8201）经真实 JNI 与 Rust 核对；只用合成会话、不联网，最低 API 的核心验收也执行。
 # 其中旧快照队列那一项（迁移计划 P13）要在主进程里真的激活一份整份快照，激活要独占词库维护权；输入法还绑着时 `:ime` 的会话占着词库，Rust 答 snapshot_unavailable。产品里激活只在键盘会话结束以后的 `:ime` 空闲时做，所以这里先停用本输入法让系统解绑它，跑完再启用、选回来，后面的套件照旧用它。
 "$adb" -s "$serial" shell ime disable app.msime.android/.MSIMEInputService >/dev/null

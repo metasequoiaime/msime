@@ -1,6 +1,6 @@
 import app.msime.android.VoiceProviderPolicy;
 
-/** 设置页的接口校验与状态提示；换服务补丁由共享 Rust 和设备 JNI 冒烟覆盖。 */
+/** 设置页的凭据校验与状态提示；接口校验、换服务补丁由共享 Rust 和设备 JNI 冒烟覆盖。 */
 public final class VoiceProviderPolicySmoke {
     static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -26,18 +26,9 @@ public final class VoiceProviderPolicySmoke {
             "Doubao keys travel in handshake headers and must be ASCII");
         check(!VoiceProviderPolicy.validCredential("openai", "x".repeat(16 * 1024 + 1)), "the shared length bound applies");
 
-        check(VoiceProviderPolicy.endpointProblem("openai", "") == null, "empty means the provider's default");
-        check(VoiceProviderPolicy.endpointProblem("openai", "https://proxy.example.com/v1/audio/transcriptions") == null,
-            "an https proxy is accepted");
-        check(VoiceProviderPolicy.endpointProblem("openai", "http://proxy.example.com/v1") != null,
-            "a cleartext endpoint would send the key in the clear");
-        check(VoiceProviderPolicy.endpointProblem("openai", "https://user@proxy.example.com/v1") != null,
-            "credentials in the authority are refused, as the shared validation does");
-        check(VoiceProviderPolicy.endpointProblem("openai", "wss://example.invalid/stream") != null,
-            "a Doubao socket address is not an upload endpoint");
-        check(VoiceProviderPolicy.endpointProblem("doubao", "wss://example.invalid/stream") == null
-                && VoiceProviderPolicy.endpointProblem("doubao", "https://openspeech.bytedance.com/x") != null,
-            "Doubao only streams over wss");
+        check(VoiceProviderPolicy.endpointProblem("openai", "https://example.invalid/v1") != null
+                && VoiceProviderPolicy.endpointProblem("openai", "") != null,
+            "共享 JNI 不可用时不放行保存；地址规则由 Rust 和真实 JNI 设备套件验证");
 
         // The shipped default provider is doubao with no key; the row must say the keyboard is really using the platform recogniser.
         check("密钥未填写完整，暂用系统识别".equals(VoiceProviderPolicy.status("doubao", null)),
@@ -63,6 +54,6 @@ public final class VoiceProviderPolicySmoke {
         check("还要下载本地语音运行库".equals(VoiceProviderPolicy.localStatus(true, false)),
             "a thin package also needs the runtime");
         check(VoiceProviderPolicy.localStatus(true, true) == null, "a ready local model needs no remark");
-        System.out.println("Android voice provider settings: provider list, token slots, credentials and endpoints passed");
+        System.out.println("Android voice provider settings: credentials, status and unavailable endpoint bridge passed");
     }
 }

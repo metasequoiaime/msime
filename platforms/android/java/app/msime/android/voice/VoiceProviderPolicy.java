@@ -1,7 +1,10 @@
 package app.msime.android;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 /**
- * 设置页「识别服务」的字段校验与状态文案；服务目录和换服务补丁经原生桥读取共享 Rust。
+ * 设置页「识别服务」的凭据校验与状态文案；服务目录、接口提示和换服务补丁经原生桥读取共享 Rust。
  *
  * <p>这里不推导任何默认接口或模型。键盘经 `msime_client_mobile_voice_configuration` 读共享解析，`asr_endpoint` 和 `asr_model` 留空时由共享层补上该服务的默认值，所以切换服务时把这两项清空就够了，不需要在 Java 里再放一份默认值表。共享设置页切换时会保留不是任何预设的自定义地址；这里不保留，因为那个地址是为上一个服务填的，留着它会把新服务的密钥发到旧服务的主机上。
  *
@@ -34,14 +37,32 @@ public final class VoiceProviderPolicy {
         return !DoubaoAsrPolicy.isStreaming(provider) || trimmed.chars().allMatch(c -> c < 0x80);
     }
 
-    /** 手填的接口地址为什么不能存；留空（用默认地址）或可以存时为 null。豆包只走 `wss://`，其他只走 `https://`：密钥在请求头里，键盘不会往明文连接上发。 */
+    /** 读取共享运行时规则的设置提示；留空用默认值，失败时返回错误提示并阻止保存。 */
     public static String endpointProblem(String provider, String endpoint) {
-        String value = endpoint == null ? "" : endpoint.trim();
-        if (value.isEmpty()) return null;
-        boolean streaming = DoubaoAsrPolicy.isStreaming(provider);
-        String scheme = streaming ? "wss://" : "https://";
-        if (TextPolicy.validAuthority(value, scheme, AiPolishConfiguration.MAX_ENDPOINT_LENGTH)) return null;
-        return streaming ? "豆包的接口地址要以 wss:// 开头" : "接口地址要以 https:// 开头，且不能带用户名或密码";
+        try {
+            return endpointIssue(NativeClient.voiceEndpointIssue(endpoint == null ? "" : endpoint,
+                DoubaoAsrPolicy.isStreaming(provider)));
+        } catch (IllegalArgumentException | LinkageError error) {
+            return ENDPOINT_UNAVAILABLE;
+        }
+    }
+
+    private static final String ENDPOINT_UNAVAILABLE = "接口地址校验暂不可用，请稍后重试";
+
+    /** 只接受完整且不矛盾的成功信封，不把缺字段或字符串布尔值当成允许保存。 */
+    private static String endpointIssue(String response) {
+        try {
+            JSONObject value = response == null ? null : JsonPolicy.objectValue(new JSONObject(response));
+            if (value == null || !value.has("issue")) return ENDPOINT_UNAVAILABLE;
+            Boolean accepted = JsonPolicy.strictBoolean(value.opt("accepted"));
+            if (Boolean.TRUE.equals(accepted) && value.isNull("issue")) return null;
+            String issue = JsonPolicy.strictString(value.opt("issue"));
+            if (Boolean.FALSE.equals(accepted) && issue != null && !issue.isEmpty()
+                    && TextPolicy.boundedNonBlank(issue, 512)) return issue;
+        } catch (JSONException error) {
+            return ENDPOINT_UNAVAILABLE;
+        }
+        return ENDPOINT_UNAVAILABLE;
     }
 
     /**

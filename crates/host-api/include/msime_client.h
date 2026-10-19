@@ -528,6 +528,11 @@ char *msime_client_voice_provider_catalog(void);
  * 不读写偏好、不联网；宿主负责把补丁字段映射到 asr_ 或 polish_ 并保存。
  * 请求和返回含凭据，禁止记录；返回缓冲区用 msime_client_string_free 释放。 */
 char *msime_client_voice_provider_update(const uint8_t *request, size_t length);
+/* 语音设置接口预检；输入是 <=64 KiB 的 UTF-8 地址，websocket 为 true 时按 wss 校验，否则按 https 校验。
+ * 首尾空白与运行时解析一样去除，空地址表示使用默认值；非空地址复用运行时的 2048 字节和 URL 形状规则，并保留移动宿主的小写协议、无 @ 限制。
+ * value 为 {accepted:boolean,issue:string|null}；失败提示固定，不回显输入，不访问偏好或网络。
+ * 空引用、超限和非法 UTF-8 返回错误；返回缓冲区用 msime_client_string_free 释放。 */
+char *msime_client_voice_endpoint_issue(const uint8_t *endpoint, size_t length, bool websocket);
 char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
 /* Capture bounded mono 16 kHz samples. The JSON result is transient audio and
