@@ -311,6 +311,21 @@ struct CollectionsLock {
     _lock: crate::file_lock::ScopedFileLock,
 }
 
+/// 同一次有界同步中的集合刷新；作用域持有集合锁，各批发送后仍立即持久化。
+pub struct CollectionFlush<'a> {
+    store: &'a DictionaryCollectionsStore,
+    lock: CollectionsLock,
+    state: State,
+}
+
+impl CollectionFlush<'_> {
+    /// 收回执并发送下一批，不重新读取本作用域已经校验的集合。
+    pub fn flush(&mut self) -> Result<DictionaryCollectionsView> {
+        self.store
+            .flush_state(&self.lock.directory, &mut self.state)
+    }
+}
+
 impl DictionaryCollectionsStore {
     pub fn new(preferences_directory: impl AsRef<Path>, personal: PersonalDictionaryStore) -> Self {
         Self {
@@ -679,12 +694,31 @@ impl DictionaryCollectionsStore {
 
     /// 把待发送队列里的增删在个人词库队列有空位时送进去，返回这次送出的条数。个人词库正忙（键盘持有它的锁）或队列已满时什么也不送，等下次再来。
     pub fn flush(&self) -> Result<DictionaryCollectionsView> {
+        self.begin_flush()?.flush()
+    }
+
+    /// 在原集合锁内读取并校验一次状态；调用方必须为整个刷新作用域设置时间预算。
+    pub fn begin_flush(&self) -> Result<CollectionFlush<'_>> {
         let lock = self.lock()?;
-        let mut state = self.read_state(&lock.directory)?;
-        let (sent, failure) = self.flush_locked(&lock.directory, &mut state);
+        let state = self.read_state(&lock.directory)?;
+        Ok(CollectionFlush {
+            store: self,
+            lock,
+            state,
+        })
+    }
+
+    fn flush_state(
+        &self,
+        directory: &crate::file_lock::PrivateDirectory,
+        state: &mut State,
+    ) -> Result<DictionaryCollectionsView> {
+        let (sent, failure) = self.flush_locked(directory, state);
         // 已经送出的部分先落盘，再报告送后面那部分时遇到的错误，免得下次重复送。
-        if sent > 0 || state.outbox_dirty {
-            self.write_outbox(&lock.directory, &state.outbox)?;
+        state.outbox_dirty |= sent > 0;
+        if state.outbox_dirty {
+            self.write_outbox(directory, &state.outbox)?;
+            state.outbox_dirty = false;
         }
         if let Some(error) = failure {
             return Err(error);

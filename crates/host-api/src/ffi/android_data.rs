@@ -81,7 +81,22 @@ pub unsafe extern "C" fn msime_client_common_phrases(
 #[serde(deny_unknown_fields)]
 struct DictionaryCollectionsRequest {
     options: HostOptions,
-    action: DictionaryCollectionsAction,
+    action: HostDictionaryCollectionsAction,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+enum HostDictionaryCollectionsAction {
+    Synchronize {
+        #[serde(default = "default_collection_sync_budget")]
+        budget_millis: u16,
+    },
+    #[serde(untagged)]
+    Collection(DictionaryCollectionsAction),
+}
+
+fn default_collection_sync_budget() -> u16 {
+    2000
 }
 
 /// `hans` 导入的读音，来自 Engine 的汉字转拼音。
@@ -94,7 +109,7 @@ impl HanReadings for EngineReadings<'_> {
     }
 }
 
-/// 命名词库。请求 `{options: 宿主选项（须带 preferences_directory）, action: {operation, ...}}`，操作见 client-services `dictionary::collections`。词条经个人词库队列（`<preferences_directory>/PersonalDictionary`）送进 Engine，键盘下次同步时应用。成功时返回集合视图；失败时 `error` 是稳定错误码（`collections_*`、`builtin_locked`、`unsupported_format` 等）。
+/// 命名词库。请求 `{options: 宿主选项（须带 preferences_directory）, action: {operation, ...}}`，普通操作见 client-services `dictionary::collections`，返回集合视图。`synchronize` 的 `budget_millis` 为 1–2000，默认 2000；在软预算内逐批应用个人队列并补充集合待发项，返回总 `pending_count`、`failed_count` 与最后一轮 `sent`；每批至多 128 项并释放维护租约。失败时 `error` 是稳定错误码（`collections_*`、`builtin_locked`、`unsupported_format` 等）。
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.
@@ -122,6 +137,18 @@ pub unsafe extern "C" fn msime_client_dictionary_collections(
                         .preferences
                         .validate()
                         .map_err(|_| "collections_invalid".to_owned())?;
+                    let action = match request.action {
+                        HostDictionaryCollectionsAction::Synchronize { budget_millis } => {
+                            if !(1..=2000).contains(&budget_millis) {
+                                return Err("collections_invalid".into());
+                            }
+                            return crate::dictionary::synchronize_collections_with_budget(
+                                &request.options,
+                                std::time::Duration::from_millis(u64::from(budget_millis)),
+                            );
+                        }
+                        HostDictionaryCollectionsAction::Collection(action) => action,
+                    };
                     let directory = request
                         .options
                         .preferences_directory
@@ -136,7 +163,7 @@ pub unsafe extern "C" fn msime_client_dictionary_collections(
                     );
                     let readings = EngineReadings(&options);
                     let view = store
-                        .perform(request.action, Some(&readings))
+                        .perform(action, Some(&readings))
                         .map_err(|error| error.code().to_owned())?;
                     serde_json::to_value(view).map_err(|error| error.to_string())
                 },

@@ -194,6 +194,68 @@ fn collections_borrowed_outbox_keeps_the_existing_wire_format_and_order() {
 }
 
 #[test]
+fn collection_flush_scope_checkpoints_each_batch_before_releasing_its_lock() {
+    let fixture = Fixture::new();
+    let words: Vec<_> = (0..300).map(|index| english(&letters(index))).collect();
+    create_with(&fixture, "合成刷新作用域", &words);
+    let personal = fixture.personal();
+    let mut flushing = fixture.store.begin_flush().unwrap();
+    for remaining in [44, 0] {
+        personal
+            .synchronize_batch_reporting_present(
+                |requests| Ok(vec![Ok(PersonalWordApplied::Written); requests.len()]),
+                |_| {
+                    Ok(PersonalWordPage {
+                        entries: Vec::new(),
+                        has_more: false,
+                    })
+                },
+            )
+            .unwrap();
+        let view = flushing.flush().unwrap();
+        assert_eq!(view.outbox_pending, remaining);
+        let durable: OutboxFile = serde_json::from_slice(
+            &std::fs::read(fixture.store.directory.join(OUTBOX_FILE)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(durable.operations.len(), remaining);
+    }
+    drop(flushing);
+    assert_eq!(fixture.store.load().unwrap().outbox_pending, 0);
+    assert_eq!(personal.read().unwrap().pending_count(), 44);
+}
+
+#[test]
+fn collection_flush_scope_retries_a_failed_outbox_checkpoint_without_resending() {
+    let fixture = Fixture::new();
+    let words: Vec<_> = (0..300).map(|index| english(&letters(index))).collect();
+    create_with(&fixture, "合成写盘故障", &words);
+    fixture
+        .personal()
+        .synchronize_batch_reporting_present(
+            |requests| Ok(vec![Ok(PersonalWordApplied::Written); requests.len()]),
+            |_| {
+                Ok(PersonalWordPage {
+                    entries: Vec::new(),
+                    has_more: false,
+                })
+            },
+        )
+        .unwrap();
+    let mut flushing = fixture.store.begin_flush().unwrap();
+    let outbox = fixture.store.directory.join(OUTBOX_FILE);
+    let before = std::fs::read(&outbox).unwrap();
+    std::fs::remove_file(&outbox).unwrap();
+    std::fs::create_dir(&outbox).unwrap();
+    assert!(flushing.flush().is_err());
+    std::fs::remove_dir(&outbox).unwrap();
+    std::fs::write(&outbox, before).unwrap();
+    assert_eq!(flushing.flush().unwrap().sent, Some(0));
+    let durable: OutboxFile = serde_json::from_slice(&std::fs::read(&outbox).unwrap()).unwrap();
+    assert_eq!(durable.operations.len(), 44);
+}
+
+#[test]
 fn collections_load_lists_import_formats_and_starts_empty() {
     let fixture = Fixture::new();
     let view = fixture.store.load().unwrap();
