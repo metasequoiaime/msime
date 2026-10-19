@@ -19,6 +19,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults;
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults skinsRoot:(NSURL *)root;
 - (void)reloadSkins;
+/// 选中的皮肤包在原处被同名替换（安装、皮肤编辑器或 MCP 的 replace）或被手工改过时重新解析，返回是否重新解析了。只对浅色、深色槽位的包目录、skin.toml 和画出的装饰图、背景图各做一次 stat，不列目录、不读文件，可以在候选窗出现前和每秒的偏好轮询里调用。不发 MSIMEAppearanceDidChangeNotification：设置没有变，调用方自己刷新它画的东西。
+- (BOOL)reloadReplacedSkinPackages;
 - (BOOL)applyCloudSettingsSnapshot:(NSDictionary *)values;
 - (NSDictionary *)cloudSettingsSnapshot;
 /// The skin browser, which is the 皮肤 page itself rather than a window of its own.

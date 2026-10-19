@@ -25,6 +25,7 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #import "../core/WindowPresentation.h"
 #include "ShuangpinProfileNames.h"
 #include "../candidate/CandidatePageSize.h"
+#include <sys/stat.h>
 
 @interface MSIMETranslationSettingsWindow (Lifecycle)
 - (void)invalidatePendingCallbacks;
@@ -1136,6 +1137,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     msime::mac::SkinTokens _darkToolbarSkin;
     /// What _lightSkin and _darkSkin were resolved from, so a reload that changed nothing the theme depends on does not read the skin package again.
     NSString *_resolvedThemeKey;
+    /// 解析前取的选中皮肤包目录和 skin.toml 的身份，以及解析后取的它画的装饰图、背景图的身份，见 -reloadReplacedSkinPackages。
+    NSString *_resolvedPackageIdentity;
+    NSString *_resolvedImageIdentity;
     std::vector<msime::mac::SkinListEntry> _skins;
     MSIMECandidatePreviewView *_preview;
     NSSegmentedControl *_candidateSettingsTabs;
@@ -1621,7 +1625,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     custom.candidateColors.surface = self.candidateSurfaceColor.UTF8String ?: "";
     return custom;
 }
-/// Everything the resolved theme depends on besides the package files themselves, which -reloadSkins rereads.
+/// 解析结果依赖的设置项，不含皮肤包文件本身：包文件由 -reloadSkins 重读，同名包被替换由 -reloadReplacedSkinPackages 发现。
 - (NSString *)themeResolutionKey {
     return [@[
         self.globalTheme, self.customThemeBase, self.customCandidateSkin ?: @"", self.customCandidateSkinDark ?: @"",
@@ -1634,7 +1638,53 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)resolveSelectedSkinIfChanged {
     if (![_resolvedThemeKey isEqual:[self themeResolutionKey]]) [self resolveSelectedSkin];
 }
+/// 每个路径一次 stat，拼成设备号、inode、修改时间（纳秒）和大小；读不到的记作「-」。只看元数据，不列目录也不读文件。
+static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
+    NSMutableString *identity = [NSMutableString string];
+    for (const auto &path : paths) {
+        struct stat info;
+        if (path.empty() || stat(path.c_str(), &info) != 0) {
+            [identity appendString:@"-;"];
+            continue;
+        }
+        [identity appendFormat:@"%llu:%llu:%lld.%ld:%lld;", (unsigned long long)info.st_dev, (unsigned long long)info.st_ino,
+                               (long long)info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec, (long long)info.st_size];
+    }
+    return identity;
+}
+/// 浅色、深色槽位里选中的包的目录和 skin.toml。安装、皮肤编辑器和 MCP 替换同名皮肤时是在暂存目录写好整包再 rename 换进来（client-services 的 `candidate_community::install`），目录的 inode 一定变；手工改 skin.toml 时它的修改时间变。
+- (NSString *)selectedPackageIdentity {
+    const std::filesystem::path root = _skinsRoot.fileSystemRepresentation ?: "";
+    if (root.empty()) return @"";
+    std::vector<std::string> paths;
+    for (NSString *id in @[ self.customCandidateSkin ?: @"", self.customCandidateSkinDark ?: @"" ]) {
+        if (!id.length || !msime::mac::IsSafeSkinId(id.UTF8String)) continue;
+        const std::filesystem::path folder = root / id.UTF8String;
+        if (std::find(paths.begin(), paths.end(), folder.string()) != paths.end()) continue;
+        paths.push_back(folder.string());
+        paths.push_back((folder / "skin.toml").string());
+    }
+    return SkinFilesIdentity(paths);
+}
+/// 两种明暗画的装饰图和背景图，覆盖原地改写图片文件、目录 inode 不变的情形。
+- (NSString *)resolvedImageIdentity {
+    std::vector<std::string> paths;
+    for (const auto *skin : {&_lightSkin, &_darkSkin}) {
+        for (const auto &path : {skin->decorationPath, skin->backgroundPath}) {
+            if (!path.empty() && std::find(paths.begin(), paths.end(), path) == paths.end()) paths.push_back(path);
+        }
+    }
+    return SkinFilesIdentity(paths);
+}
+- (BOOL)reloadReplacedSkinPackages {
+    if ([_resolvedPackageIdentity isEqual:[self selectedPackageIdentity]] && [_resolvedImageIdentity isEqual:[self resolvedImageIdentity]])
+        return NO;
+    [self resolveSelectedSkin];
+    return YES;
+}
 - (void)resolveSelectedSkin {
+    // 在读包之前取：读的过程中包又被换掉时，下一次检查看到的身份和这里不同，会再解析一次，而不是把新身份记在旧内容上。
+    _resolvedPackageIdentity = [self selectedPackageIdentity];
     const std::filesystem::path root = _skinsRoot.fileSystemRepresentation ?: "";
     const std::string_view layout = self.vertical ? "vertical" : "horizontal";
     const msime::mac::CustomTheme custom = [self customTheme];
@@ -1661,6 +1711,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _darkDecorationImage = decorationPath(_darkSkin) == decorationPath(_lightSkin) ? _lightDecorationImage : load(decorationPath(_darkSkin));
     _lightBackgroundImage = load(_lightSkin.backgroundPath);
     _darkBackgroundImage = _darkSkin.backgroundPath == _lightSkin.backgroundPath ? _lightBackgroundImage : load(_darkSkin.backgroundPath);
+    _resolvedImageIdentity = [self resolvedImageIdentity];
 }
 - (MSIMECandidateCanvasAssets *)canvasAssetsForDark:(BOOL)dark {
     [self resolveSelectedSkinIfChanged];

@@ -5333,6 +5333,8 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
             // Catches a maintenance notification that never arrived.
             [MSIMEInputController releaseQuiescedDictionarySessions];
             [owner reloadPreferences];
+            // 正在显示的候选窗不会经过下面 -renderCandidates 里「出现前」的那次检查，替换要在这里赶上。
+            if ([owner applyReplacedSkinPackages] && owner->_activeClient && owner->_panel.isVisible) [owner renderCandidates];
         }];
         [self reloadPreferences];
     }
@@ -5411,6 +5413,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     } else {
         msime_macos_diagnostic_write("preferences_apply_failed");
     }
+}
+
+// 选中的皮肤包被同名替换（MCP 的 `create_candidate_skin` 带 replace、皮肤编辑器、图库重装）时选择没变，偏好文档的 revision 也不变，-completePreferenceLoad: 不会重新应用，旧的配色和装饰图会一直画到进程重启。这里问外观设置包是否换过（几次 stat），换过就让工具栏取新的调色板；候选窗的皮肤和装饰图在下一次绘制时从外观设置读。
+- (BOOL)applyReplacedSkinPackages {
+    if (!_appearance || ![_appearance reloadReplacedSkinPackages]) return NO;
+    [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
+    [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
+                            darkSkin:[_appearance toolbarSkinForDark:YES]];
+    return YES;
 }
 
 - (void)reloadPreferences {
@@ -7664,6 +7675,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     if (!screen) { _renderedCandidateView = nil; [self hideCandidatePanel:"no_screen"]; return; }
     NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
+    // 只在候选窗从隐藏到出现时查，同一次输入里的后续按键不再 stat；显示期间的替换由每秒的偏好轮询发现。
+    if (!_panel.isVisible) [self applyReplacedSkinPackages];
     NSAppearance *candidateAppearance = [self candidateAppearanceForClientAttributes:clientAttributes];
     if (_appearance.candidateAppearanceOverrideConfigured) _panel.appearance = candidateAppearance;
     const BOOL vertical = _appearance.vertical;

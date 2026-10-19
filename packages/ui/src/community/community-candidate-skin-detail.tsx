@@ -86,6 +86,7 @@ export function CommunityCandidateSkinDetail({
     >
       <CandidateSkinPreviewImage
         id={skin.id}
+        revision={skin.updated_at}
         name={skin.name}
         load={load}
         className={style.detailStage}

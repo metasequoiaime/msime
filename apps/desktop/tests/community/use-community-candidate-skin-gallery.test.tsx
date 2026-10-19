@@ -92,11 +92,31 @@ test("预览在同一客户端共用 Promise，失败后可重新读取", async 
   const community = client();
   vi.mocked(community.preview).mockRejectedValueOnce(new Error("synthetic preview failure"));
   const { result } = renderHook(() => useCommunityCandidateSkinGallery({ client: community }));
-  const failed = result.current.loadPreview(skin.id);
-  expect(result.current.loadPreview(skin.id)).toBe(failed);
+  const failed = result.current.loadPreview(skin.id, skin.updated_at);
+  expect(result.current.loadPreview(skin.id, skin.updated_at)).toBe(failed);
   await expect(failed).rejects.toThrow("synthetic preview failure");
-  await expect(result.current.loadPreview(skin.id)).resolves.toBe("data:image/png;base64,AA==");
+  await expect(result.current.loadPreview(skin.id, skin.updated_at)).resolves.toBe("data:image/png;base64,AA==");
   expect(community.preview).toHaveBeenCalledTimes(2);
+});
+
+test("作者原地替换作品后 updated_at 变化，预览重新读取且不再给出旧图", async () => {
+  const community = client();
+  vi.mocked(community.preview)
+    .mockResolvedValueOnce({ dataUrl: "data:image/png;base64,AA==" })
+    .mockResolvedValueOnce({ dataUrl: "data:image/png;base64,AQ==" });
+  const { result } = renderHook(() => useCommunityCandidateSkinGallery({ client: community }));
+  await expect(result.current.loadPreview(skin.id, skin.updated_at)).resolves.toBe(
+    "data:image/png;base64,AA==",
+  );
+  const replaced = "2026-10-20T00:26:00Z";
+  await expect(result.current.loadPreview(skin.id, replaced)).resolves.toBe(
+    "data:image/png;base64,AQ==",
+  );
+  await expect(result.current.loadPreview(skin.id, replaced)).resolves.toBe(
+    "data:image/png;base64,AQ==",
+  );
+  expect(community.preview).toHaveBeenCalledTimes(2);
+  expect(community.preview).toHaveBeenLastCalledWith(skin.id);
 });
 
 test("更换客户端后预览缓存隔离，旧 Promise 仍交给旧消费者收尾", async () => {
@@ -108,12 +128,12 @@ test("更换客户端后预览缓存隔离，旧 Promise 仍交给旧消费者�
     ({ community }) => useCommunityCandidateSkinGallery({ client: community }),
     { initialProps: { community: previous } },
   );
-  const oldPreview = result.current.loadPreview(skin.id);
+  const oldPreview = result.current.loadPreview(skin.id, skin.updated_at);
   rerender({ community: next });
-  await expect(result.current.loadPreview(skin.id)).resolves.toBe("data:image/png;base64,AA==");
+  await expect(result.current.loadPreview(skin.id, skin.updated_at)).resolves.toBe("data:image/png;base64,AA==");
   pending.resolve({ dataUrl: "data:image/png;base64,AQ==" });
   await expect(oldPreview).resolves.toBe("data:image/png;base64,AQ==");
-  await expect(result.current.loadPreview(skin.id)).resolves.toBe("data:image/png;base64,AA==");
+  await expect(result.current.loadPreview(skin.id, skin.updated_at)).resolves.toBe("data:image/png;base64,AA==");
   expect(next.preview).toHaveBeenCalledOnce();
 });
 

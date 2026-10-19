@@ -21,6 +21,7 @@ export function CommunityCandidateSkinCard({ skin, load, open }: CommunityCandid
     <CommunityCard aria-label={`查看候选窗口皮肤 ${skin.name}`} onClick={open}>
       <CandidateSkinPreviewImage
         id={skin.id}
+        revision={skin.updated_at}
         name={skin.name}
         load={load}
         className={style.cardStage}

@@ -86,21 +86,22 @@ export function useCommunityCandidateSkinGallery({
   const changeCategory = (next: CandidateSkinCategory | null) =>
     categoryFilter.change(next, () => requestList(activeSearch, false));
 
-  // 每个客户端的卡片和详情共用同一个包的预览；更换客户端后不沿用旧缓存。
+  // 每个客户端的卡片和详情共用同一个包的预览；更换客户端后不沿用旧缓存。每个发布 id 只留一份，记着读它时作品的 `updated_at`：作者用 PUT 原地替换后 id 不变、`updated_at` 变了，旧预览在这里被新的一份顶掉，不会一直显示到设置应用重启。
   const loadPreview = useMemo<CandidateSkinPreviewLoader>(() => {
-    const cache = new Map<string, Promise<string>>();
-    return (id) => {
+    const cache = new Map<string, { revision: string; pending: Promise<string> }>();
+    return (id, revision) => {
       const cached = cache.get(id);
-      if (cached) {
+      if (cached?.revision === revision) {
         cache.delete(id);
         cache.set(id, cached);
-        return cached;
+        return cached.pending;
       }
       const pending = client.preview(id).then((value) => value.dataUrl);
       pending.catch(() => {
-        if (cache.get(id) === pending) cache.delete(id);
+        if (cache.get(id)?.pending === pending) cache.delete(id);
       });
-      cache.set(id, pending);
+      cache.delete(id);
+      cache.set(id, { revision, pending });
       while (cache.size > CANDIDATE_SKIN_PREVIEW_CACHE_CAPACITY) {
         const oldest = cache.keys().next().value;
         if (oldest === undefined) break;
