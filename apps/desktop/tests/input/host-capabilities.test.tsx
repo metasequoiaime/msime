@@ -110,7 +110,7 @@ test("a touch host that can name the editor's application gets the mode scope co
   await screen.findByLabelText("中英文状态");
   cleanup();
   mount({ host: capabilities({ platform: "android", ime_mode_scope: false }) });
-  await screen.findByLabelText("输入模式");
+  await screen.findByLabelText("输入语言");
   expect(screen.queryByLabelText("中英文状态")).toBeNull();
 });
 
@@ -597,7 +597,7 @@ test("a host with one commit path is not offered a choice between three", async 
       }}
     />,
   );
-  await screen.findByText("录音行为");
+  await screen.findByRole("tab", { name: "录音行为" });
   expect(screen.queryByLabelText("结果提交策略")).toBeNull();
   cleanup();
   render(
@@ -765,7 +765,7 @@ test("a host that can enumerate microphones gets the picker, whatever it is call
   expect(screen.queryByLabelText("可用录音设备")).toBeNull();
   cleanup();
   voice(false);
-  await screen.findByText("录音行为");
+  await screen.findByRole("tab", { name: "录音行为" });
   expect(screen.queryByLabelText("麦克风")).toBeNull();
 });
 
