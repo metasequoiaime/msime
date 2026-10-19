@@ -4560,15 +4560,8 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
 }
 
 #[test]
-fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host() {
-    for (entry, rejected) in [
-        (b'U', b'i'),
-        (b'U', b'I'),
-        (b'K', b'A'),
-        (b'T', b'A'),
-        (b'E', b'1'),
-        (b'U', b'!'),
-    ] {
+fn bare_shortcut_rejected_capitals_stay_in_the_runtime_composition() {
+    for (entry, continuation) in [(b'U', b'V'), (b'U', b'I'), (b'K', b'A'), (b'T', b'A')] {
         let directory = tempfile::tempdir().unwrap();
         let session =
             msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
@@ -4582,6 +4575,55 @@ fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host(
             .unwrap();
         let transition = runtime
             .dispatch(Action::Character {
+                value: continuation,
+                shift: true,
+            })
+            .unwrap();
+        let expected = String::from_utf8(vec![entry, continuation]).unwrap();
+        assert!(transition.handled);
+        assert!(transition.commit.is_none());
+        assert_eq!(transition.view.local_mode, "none");
+        assert_eq!(transition.view.editing_text, expected);
+        let erased = runtime
+            .dispatch(Action::Command(Command::Backspace))
+            .unwrap();
+        assert!(erased.commit.is_none());
+        assert_eq!(erased.view.editing_text, (entry as char).to_string());
+        assert_eq!(erased.view.local_mode, "none");
+        let committed = runtime
+            .dispatch(Action::Command(Command::CommitRaw))
+            .unwrap();
+        assert_eq!(
+            committed.commit.as_deref(),
+            Some((entry as char).to_string().as_str())
+        );
+    }
+}
+
+#[test]
+fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host() {
+    for (entry, spelling, rejected) in [
+        (b'U', "", b'i'),
+        (b'U', "0", b'I'),
+        (b'K', "a", b'A'),
+        (b'T', "r", b'A'),
+        (b'E', "", b'1'),
+        (b'U', "", b'!'),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+            .dispatch(Action::Character {
+                value: entry,
+                shift: true,
+            })
+            .unwrap();
+        type_characters(&mut runtime, spelling);
+        let transition = runtime
+            .dispatch(Action::Character {
                 value: rejected,
                 shift: rejected.is_ascii_uppercase(),
             })
@@ -4589,7 +4631,7 @@ fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host(
         assert!(!transition.handled);
         assert_eq!(
             transition.commit.as_deref(),
-            Some((entry as char).to_string().as_str())
+            Some(format!("{}{spelling}", entry as char).as_str())
         );
         assert_eq!(transition.view.local_mode, "none");
         assert!(transition.view.editing_text.is_empty());

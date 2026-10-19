@@ -817,6 +817,41 @@ fn mixed_english_case_preserves_dictionary_identity_for_frequency_learning() {
 }
 
 #[test]
+fn disabled_shift_shortcuts_leave_every_capital_available_for_pinyin() {
+    let fixture = Fixture::new(HELLO_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        for letter in b'A'..=b'Z' {
+            let mut session = fixture.session_with(|options| {
+                options.scheme = scheme;
+                options.local_modes = crate::types::LocalModeOptions {
+                    unicode: false,
+                    date_time: false,
+                    quick_phrase: false,
+                    emoji: false,
+                    kaomoji: false,
+                    super_jianpin: false,
+                    temporary_english: false,
+                    temporary_japanese: false,
+                    ..Default::default()
+                };
+            });
+            assert!(
+                session.character(letter, true).handled,
+                "{scheme:?}: {}",
+                letter as char
+            );
+            let snapshot = session.snapshot();
+            assert_eq!(snapshot.local_mode, LocalInputMode::None);
+            assert_eq!(snapshot.preedit, (letter as char).to_string());
+            assert_eq!(
+                session.command(Command::CommitRaw).commit.as_deref(),
+                Some((letter as char).to_string().as_str())
+            );
+        }
+    }
+}
+
+#[test]
 fn punctuation_after_unspellable_shifted_word_commits_typed_text() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
@@ -4300,11 +4335,47 @@ fn nine_key_digits_of_a_keyword_add_date_time_rows() {
 }
 
 #[test]
+fn rejected_capital_after_bare_shortcut_keeps_both_letters_composing() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        for (entry, continuation) in [
+            (b'U', b'V'),
+            (b'U', b'I'),
+            (b'T', b'A'),
+            (b'K', b'A'),
+            (b'V', b'Z'),
+        ] {
+            let mut session = fixture.session_with(|options| {
+                options.scheme = scheme;
+                options.local_modes.expression = true;
+            });
+            assert!(session.character(entry, true).handled);
+            assert_ne!(session.snapshot().local_mode, LocalInputMode::None);
+            let result = session.character(continuation, true);
+            assert!(
+                result.handled,
+                "{scheme:?}: {}{}",
+                entry as char, continuation as char
+            );
+            assert!(result.commit.is_none());
+            let expected = String::from_utf8(vec![entry, continuation]).unwrap();
+            let snapshot = session.snapshot();
+            assert_eq!(snapshot.local_mode, LocalInputMode::None);
+            assert_eq!(snapshot.preedit, expected);
+            assert_eq!(
+                session.command(Command::CommitRaw).commit.as_deref(),
+                Some(expected.as_str())
+            );
+        }
+    }
+}
+
+#[test]
 fn rejected_local_mode_characters_commit_raw_and_return_the_key() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     for (entry, spelling, rejected) in [
         (b'U', "", b'i'),
-        (b'U', "", b'I'),
+        (b'U', "0041", b'I'),
         (b'U', "0041", b'g'),
         (b'T', "rq", b'A'),
         (b'K', "ab", b'A'),
@@ -4557,18 +4628,20 @@ fn temporary_local_modes_keep_their_composition_when_returning_a_key() {
 }
 
 #[test]
-fn disabled_local_modes_leave_the_key_to_the_host() {
+fn disabled_local_modes_leave_the_key_to_pinyin() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
         options.local_modes.temporary_english = false;
         options.local_modes.unicode = false;
     });
-    assert!(!session.character(b'Y', true).handled);
-    // 连续大写里只有第一枚字母能进快捷模式（#7616），所以这里每问一枚就结束上一串。
-    session.reset_context();
-    assert!(!session.character(b'U', true).handled);
-    session.reset_context();
+    for &letter in b"YU" {
+        assert!(session.character(letter, true).handled);
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+        assert_eq!(session.snapshot().preedit, (letter as char).to_string());
+        session.command(Command::Cancel);
+    }
     assert!(session.character(b'K', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::QuickPhrase);
 }
 
 #[test]
@@ -4617,9 +4690,10 @@ fn chaizi_rows(session: &Session) -> Vec<(String, CandidateSource)> {
 #[test]
 fn chaizi_opens_on_shift_c_in_pinyin_and_wubi_only() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
-    // 默认关：Shift+C 交还宿主打出大写 C。
+    // 拆字默认关：Shift+C 留在普通拼音组字中，不进入拆字模式。
     let mut session = fixture.session();
-    assert!(!session.character(b'C', true).handled);
+    assert!(session.character(b'C', true).handled);
+    assert_eq!(session.snapshot().preedit, "C");
     assert_eq!(session.input.local_mode, LocalInputMode::None);
     assert!(!crate::types::LocalModeOptions::default().chaizi);
 
@@ -5646,7 +5720,10 @@ fn generated_modes_are_off_by_default() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
     assert!(session.snapshot().spelling_symbols.is_empty());
-    assert!(!session.character(b'V', true).handled);
+    assert!(session.character(b'V', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+    assert_eq!(session.snapshot().preedit, "V");
+    session.command(Command::Cancel);
     assert!(!session.character(b'/', false).handled);
     assert!(!session.character(b'@', false).handled);
     assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
@@ -9863,7 +9940,7 @@ fn set_punctuation_marks_applies_live_without_resetting_alternation() {
     assert_eq!(session.punctuation(b'[').commit.as_deref(), Some("【"));
 }
 
-/// #7616：连续按住 Shift 打大写时只有第一枚字母能进快捷模式。报告里按住 Shift 连打 `MRI`，`R` 是临时日文入口，但它在 `M` 之后，所以交给宿主，整串照常是大写字母。
+/// #7616：已经透传给宿主的大写串不会中途进入快捷模式；未启用的 Shift 入口则在同一拼音组字里继续。
 #[test]
 fn only_the_first_letter_of_an_uppercase_run_opens_a_shortcut() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
@@ -9874,11 +9951,21 @@ fn only_the_first_letter_of_an_uppercase_run_opens_a_shortcut() {
             SchemeType::JapaneseRomaji,
         ]);
         options.local_modes.temporary_japanese = true;
-        // 报告里的人没有开颜文字，`M` 才落到宿主手里；开着的话 `M` 自己就是这一串的第一枚字母。
+        // 关闭颜文字后，Shift+M 应进入普通拼音组字。
         options.local_modes.kaomoji = false;
     });
 
-    assert!(!session.character(b'M', true).handled);
+    assert!(session.character(b'M', true).handled);
+    assert!(session.character(b'R', true).handled);
+    assert!(session.character(b'E', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+    assert_eq!(
+        session.command(Command::CommitRaw).commit.as_deref(),
+        Some("MRE")
+    );
+
+    // 非 Shift 大写先透传，后续入口键继续交给宿主。
+    assert!(!session.character(b'M', false).handled);
     // 临时日文的 `R` 和表情的 `E` 都是入口键，但都在 `M` 之后，所以照常当大写字母交给宿主。
     assert!(!session.character(b'R', true).handled);
     assert!(!session.character(b'E', true).handled);
@@ -9894,7 +9981,7 @@ fn only_the_first_letter_of_an_uppercase_run_opens_a_shortcut() {
     assert!(session.command(Command::Cancel).handled);
 
     // 命令同样结束这一串：回车之后的第一枚字母重新算第一枚。
-    assert!(!session.character(b'M', true).handled);
+    assert!(!session.character(b'M', false).handled);
     assert!(!session.command(Command::CommitRaw).handled);
     assert!(session.character(b'E', true).handled);
     assert_eq!(session.snapshot().local_mode, LocalInputMode::Emoji);
@@ -9938,14 +10025,14 @@ fn a_host_finish_ends_the_uppercase_run() {
                 SchemeType::Shuangpin,
                 SchemeType::JapaneseRomaji,
             ]);
-            // 颜文字关掉，`M` 才会交给宿主（它仍是入口字母，所以不会开始拼音组字）。
+            // 非 Shift 大写交还宿主，用它建立一串已透传的大写。
             options.local_modes.kaomoji = false;
             options.local_modes.temporary_english = true;
         })
     };
 
     let mut session = setup();
-    assert!(!session.character(b'M', true).handled);
+    assert!(!session.character(b'M', false).handled);
     session.finish(0);
     assert!(session.character(b'Y', true).handled);
     assert_eq!(
@@ -9955,7 +10042,7 @@ fn a_host_finish_ends_the_uppercase_run() {
 
     // 引擎侧的标点路由本来就结束这一串，一并钉住。
     let mut session = setup();
-    assert!(!session.character(b'M', true).handled);
+    assert!(!session.character(b'M', false).handled);
     session.punctuation(b'.');
     assert!(session.character(b'Y', true).handled);
     assert_eq!(

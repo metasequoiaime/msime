@@ -1,7 +1,7 @@
 {
  "name": "local_shortcuts_disabled",
  "source": "tests/src/test_input_session.cpp:384-430,534-535; cases :1369-1375,1413-1419,1466-1472,1570-1577",
- "note": "The ctest disables each shortcut in its own session; one session with all five off records the same refusals.",
+ "note": "Rust 行为修复 #8774：各快捷模式关闭后，其 Shift 入口继续参与普通拼音组字；本场景连续输入关闭的入口，验证不会中途开启模式。历史 C++ 来源保留在 source。",
  "covers": [
   "local modes"
  ],
