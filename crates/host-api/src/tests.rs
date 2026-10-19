@@ -3,6 +3,7 @@
 //! Same `mod tests` as before, so `use super::*` still names the parent.
 
 use super::*;
+use crate::account::msime_client_account_name;
 use msime_client_core::host_surface::compiled_input_schemes;
 use sha2::{Digest, Sha256};
 
@@ -17292,6 +17293,47 @@ fn voice_provider_update_export_returns_the_shared_patch() {
     assert_eq!(result["ok"], true);
     assert_eq!(result["value"]["provider"], "groq");
     assert!(result["value"].get("model").is_none());
+}
+
+#[test]
+fn account_name_export_returns_the_shared_presentation_without_a_session() {
+    let request = serde_json::json!({"name":"\u{feff} 小鹿 \u{3000}","id":"abcdef12"}).to_string();
+    let result = read(unsafe { msime_client_account_name(request.as_ptr(), request.len()) });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{
+            "normalized":"小鹿","preferred":"小鹿","valid":true,"maximum_chars":64,
+            "maximum_utf16_units":128
+        }})
+    );
+    let request = br#"{"name":"  ","id":"abcdef12"}"#;
+    let result = read(unsafe { msime_client_account_name(request.as_ptr(), request.len()) });
+    assert_eq!(result["value"]["preferred"], "水杉小鹿·ABCDEF");
+    assert_eq!(result["value"]["valid"], false);
+}
+
+#[test]
+fn account_name_export_rejects_invalid_buffers_without_echoing_names() {
+    for request in [
+        b"\xff".as_slice(),
+        b"{",
+        b"{}",
+        br#"{"name":42,"id":"synthetic-private"}"#,
+        br#"{"name":"synthetic-private","id":null}"#,
+        br#"{"name":"synthetic-private","id":"","directory":"unexpected"}"#,
+    ] {
+        let result = read(unsafe { msime_client_account_name(request.as_ptr(), request.len()) });
+        assert_eq!(
+            result,
+            serde_json::json!({"ok":false,"error":"account_invalid"})
+        );
+    }
+    for length in [0, 1, 16_385] {
+        let result = read(unsafe { msime_client_account_name(std::ptr::null(), length) });
+        assert_eq!(result["error"], "account_invalid");
+    }
+    let result = read(unsafe { msime_client_account_name(b"x".as_ptr(), 16_385) });
+    assert_eq!(result["error"], "account_invalid");
 }
 
 #[test]
