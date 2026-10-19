@@ -292,6 +292,8 @@ JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器�
 `InputFailureCategoryDeviceSmoke` 从已安装产品调用真实响应解析与编辑器写入，用合成响应和拒绝组字的连接区分原生拒绝、响应损坏、编辑器拒写和 JNI 链接错误，检查异常原文不会进入诊断类别。`smoke.sh` 的普通与 `--core` 路径都运行。输入失败的 logcat 记录只包含 `input_failure reason=<固定类别>`，不包含异常说明、堆栈或输入内容；诊断 ZIP 的 P19 输入事件格式不变。
 `ChineseLanguageReturnDeviceSmoke` 验收中文九键与 14 键进入英文、日语九键，输入日文并切换输入框三次后仍返回原中文入口，检查真实键面和保存的选择。API 35 的 `smoke.sh` 默认注册；API 28 可单独执行 `adb -s emulator-5566 shell am instrument -w app.msime.android.test/app.msime.android.test.ChineseLanguageReturnDeviceSmoke`。使用带日语词库的完整 APK；旧 AVD 的资源目录缺少日文文件时只临时补齐 APK 自带文件，结束后恢复偏好、本机设置、输入模式和默认输入法，并移除测试补入的文件。
 
+`ChineseShiftReturnDeviceSmoke` 在安装后的原生服务中创建隔离的首道双拼会话，用合成编辑器验证临时 Shift 的一次性大写、慢速取消、双击锁定及关闭、实体字母输入和会话停止后返回中文，并确认临时状态不写入模式记忆。API 28/35 的核心 `smoke.sh` 均运行；装包后也可单独执行 `adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.test.ChineseShiftReturnDeviceSmoke`。它覆盖安装产品的实际按钮处理与运行时状态，不代表第三方应用或 Redmi 真机验收。
+
 ## 两个 APK 入口，不要选错
 
 `platforms/android` 有两个构建脚本，同一个版本的产物**同名同路径**（full 是 `target/android/msime-android.apk`，其他版本是 `target/android/msime-android-<id>.apk`，见上节），装到设备上也是同一个包名，但内容完全不同：

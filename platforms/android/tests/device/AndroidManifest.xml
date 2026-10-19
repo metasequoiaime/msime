@@ -4,6 +4,7 @@
     <instrumentation android:name="app.msime.android.test.VoiceRecognitionLifecycleDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SyntheticSpeechSetup" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.QuanpinSeparatorDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.ChineseShiftReturnDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.DictionaryImportDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.ClipboardSegmentDragDeviceSmoke" android:targetPackage="app.msime.android" />
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
