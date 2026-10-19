@@ -7,6 +7,7 @@ import { useCloudDictionaryApplyPanel } from "./use-cloud-dictionary-apply-panel
 import { useCloudDictionaryPanel } from "./use-cloud-dictionary-panel";
 import { useCloudClipboardPanel } from "./use-cloud-clipboard-panel";
 import { useVoicePanel } from "./use-voice-panel";
+import { CloudClipboardHistory } from "./cloud-clipboard-history";
 import { VoiceResults } from "./voice-results";
 import type {
   PanelClient,
@@ -572,38 +573,13 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
                 条云端记录无法在本设备解密，已略去。它们可能是用另一把密钥写入的。
               </p>
             )}
-            <div className={cloud.clipboardList} aria-label="云端历史">
-              {items.length ? (
-                items.map((item) => (
-                  <article className={cloud.clipboardItem} key={item.id}>
-                    <button type="button" disabled={busy} onClick={() => void choose(item)}>
-                      {item.text}
-                    </button>
-                    {client.copyText && (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        aria-label="复制此条云端记录"
-                        onClick={() => void choose(item, true)}
-                      >
-                        复制
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className={cloud.clipboardDelete}
-                      aria-label={`删除 ${item.text}`}
-                      onClick={() => void remove(item.id)}
-                      disabled={busy}
-                    >
-                      删除
-                    </button>
-                  </article>
-                ))
-              ) : (
-                <p className={cloud.clipboardNote}>暂无云端历史</p>
-              )}
-            </div>
+            <CloudClipboardHistory
+              items={items}
+              busy={busy}
+              copyAvailable={!!client.copyText}
+              onChoose={choose}
+              onRemove={remove}
+            />
           </>
         )}
         <p className={cloud.clipboardNote} role="status">

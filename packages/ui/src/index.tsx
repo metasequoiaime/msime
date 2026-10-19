@@ -1694,6 +1694,10 @@ export { HandwritingResults, type HandwritingResultsProps } from "./keyboard/han
 export { KeyboardKeyButton, type KeyboardKeyButtonProps } from "./keyboard/keyboard-key-button";
 export { VoiceResults, type VoiceResultsProps } from "./keyboard/voice-results";
 export {
+  CloudClipboardHistory,
+  type CloudClipboardHistoryProps,
+} from "./keyboard/cloud-clipboard-history";
+export {
   HandwritingInkEditor,
   type HandwritingInkEditorProps,
 } from "./keyboard/handwriting-ink-editor";
@@ -1705,6 +1709,7 @@ export type {
   CloudCandidate,
   CloudCandidateKind,
   CloudClipboardAction,
+  CloudClipboardItem,
   CloudClipboardPanelClient,
   CloudDictionaryAction,
   CloudDictionaryCatalogEntry,
