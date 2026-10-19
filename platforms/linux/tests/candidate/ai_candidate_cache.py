@@ -163,6 +163,14 @@ class AiCandidateCache(unittest.TestCase):
             self.configured(query())
         self.assertEqual(len(self.state.cache), 1)
 
+    def test_cache_identity_changes_with_provider_lifetime(self):
+        fresh_provider = importlib.util.module_from_spec(spec)
+        loader.exec_module(fresh_provider)
+        request = query()
+        key = provider.ai_cache_key(request, self.config)
+        self.assertEqual(provider.ai_cache_key(request, self.config), key)
+        self.assertNotEqual(fresh_provider.ai_cache_key(request, self.config), key)
+
     def test_cache_probe_returns_a_hit_without_the_network(self):
         rows = [{"text": "你好", "source": 1}]
         with mock.patch.object(provider, "load_ai_config",
@@ -336,7 +344,7 @@ def request_line(kind, size, query=None):
 
 
 class RequestLineLimit(unittest.TestCase):
-    """UnixSocketProvider::ai_test sends up to 32768 bytes; every other request is capped at 16384."""
+    """在线请求最多 128 KiB，AI 测试最多 32 KiB，其余请求最多 16 KiB。"""
 
     def read(self, line):
         return provider.read_request(io.BytesIO(line))
@@ -351,9 +359,13 @@ class RequestLineLimit(unittest.TestCase):
         self.assertIsNone(self.read(request_line("ai_test", 32769)))
 
     def test_other_requests_keep_the_16_kib_limit(self):
-        self.assertIsNotNone(self.read(request_line("online", 16384)))
-        for kind in ("online", "translation", "ai_models", "credential_test"):
+        for kind in ("translation", "ai_models", "credential_test"):
+            self.assertIsNotNone(self.read(request_line(kind, 16384)), kind)
             self.assertIsNone(self.read(request_line(kind, 16385)), kind)
+
+    def test_online_requests_keep_the_128_kib_limit(self):
+        self.assertIsNotNone(self.read(request_line("online", 131072)))
+        self.assertIsNone(self.read(request_line("online", 131073)))
 
     def test_truncated_line_is_refused(self):
         self.assertIsNone(self.read(request_line("ai_test", 20000)[:-1]))

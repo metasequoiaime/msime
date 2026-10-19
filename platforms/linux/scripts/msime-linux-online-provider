@@ -239,6 +239,8 @@ http_process_lock = threading.Lock()
 http_stopping = threading.Event()
 MAX_AI_CACHE_ENTRIES = 4096
 MAX_TRANSLATION_CACHE_ENTRIES = 4096
+# 缓存不跨进程保留；随机密钥让凭据指纹也只在本进程内稳定。
+_CREDENTIAL_CACHE_KEY = os.urandom(32)
 NEGATIVE_TRANSLATION_CACHE_TTL = 480
 CLOUD_REQUEST_TIMEOUT = 2.0
 # AI 推理与 Windows、client-providers 保持 8 秒总预算和 2.5 秒连接预算。
@@ -464,6 +466,10 @@ def ai_config_matches(options, config):
         for key in ("provider", "endpoint", "model"))
 
 
+def credential_cache_fingerprint(value):
+    return hmac.digest(_CREDENTIAL_CACHE_KEY, value, "sha256")
+
+
 def ai_cache_key(query, config):
     options = query.get("ai_assistant")
     segments = query.get("pinyin_segments")
@@ -479,9 +485,8 @@ def ai_cache_key(query, config):
     token = config.get("token") if isinstance(config, dict) else None
     if not isinstance(token, str):
         return None
-    # A credential rotation must not reuse an answer generated under the
-    # previous credential. Keep only a digest in the in-memory key.
-    identity["credential_sha256"] = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    # 凭据轮换后不能复用旧答案；内存缓存键只保留本进程的凭据指纹。
+    identity["credential_hmac"] = credential_cache_fingerprint(token.encode("utf-8")).hex()
     configured_limit = options.get("candidate_limit", 3)
     identity["candidate_limit"] = (configured_limit
                                     if type(configured_limit) is int and 1 <= configured_limit <= 10
@@ -874,7 +879,7 @@ def translations(query, server):
             return []
         app_id, apikey = app_id.strip(), apikey.strip()
         niutrans = {"enabled": True, "app_id": app_id, "apikey": apikey}
-        provider = ("niutrans", hashlib.sha256((app_id + "\0" + apikey).encode()).digest())
+        provider = ("niutrans", credential_cache_fingerprint((app_id + "\0" + apikey).encode()))
     elif selected == "custom":
         endpoint = custom.get("endpoint", "")
         if not isinstance(endpoint, str) or len(endpoint) > 2048:
@@ -890,8 +895,8 @@ def translations(query, server):
         # requests in both directions and for cache identity, without editing
         # the incoming query or the user's persisted preferences.
         custom = {**custom, "endpoint": endpoint, "api_key": token}
-        # Keep credentials out of cache keys and separate caches when they change.
-        provider = (endpoint, hashlib.sha256(token.encode()).digest())
+        # 缓存键不保留凭据，凭据改变时隔离缓存。
+        provider = (endpoint, credential_cache_fingerprint(token.encode()))
     elif selected == "ai":
         # options 要在这里先取出来：下面才赋值的话，Python 把它当成还没赋值的局部变量，这一行抛 UnboundLocalError，AI 候选翻译从来没走到请求那一步。
         options = query.get("ai_assistant")
@@ -904,7 +909,7 @@ def translations(query, server):
         if not tencent_config:
             return []
         scope = json.dumps(tencent_config, sort_keys=True, separators=(",", ":")).encode()
-        provider = ("tencent", hashlib.sha256(scope).digest())
+        provider = ("tencent", credential_cache_fingerprint(scope))
     deadline = time.monotonic() + 6
     if selected == "ai":
         rows = []
