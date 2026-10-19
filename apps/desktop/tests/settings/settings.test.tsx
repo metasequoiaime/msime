@@ -6166,6 +6166,8 @@ test("macOS shows the screen keyboard without size controls and previews the fix
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "键盘手写" }));
   const page = await screen.findByRole("group", { name: "键盘手写" });
+  expect(within(page).getByRole("tab", { name: "键盘", selected: true })).toBeTruthy();
+  expect(within(page).queryByRole("tabpanel", { name: "手写" })).toBeNull();
   for (const slider of ["键盘高度", "按键间距", "行间距"])
     expect(within(page).queryByRole("slider", { name: slider })).toBeNull();
   expect(within(page).queryByText("尺寸")).toBeNull();
@@ -6176,8 +6178,13 @@ test("macOS shows the screen keyboard without size controls and previews the fix
   expect(preview.getAttribute("data-row-spacing")).toBe("7.0");
   expect(preview.getAttribute("data-keyboard-height")).toBe("400");
   expect(within(page).getByText("打开屏幕键盘")).toBeTruthy();
+  fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
   expect(within(page).getByText("macOS 手写识别板")).toBeTruthy();
   expect(within(page).getByText("打开手写识别板")).toBeTruthy();
+  expect(within(page).getByRole("tabpanel", { name: "手写" })).toBeTruthy();
+  expect(within(page).queryByRole("img", { name: "屏幕键盘完整布局预览" })).toBeNull();
+  fireEvent.click(within(page).getByRole("tab", { name: "键盘" }));
+  expect(within(page).getByRole("img", { name: "屏幕键盘完整布局预览" })).toBe(preview);
   // 这一页没有偏好，页脚不给全局的「恢复默认设置」。
   expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
   expect(save).not.toHaveBeenCalled();
@@ -6204,11 +6211,12 @@ test("Linux keeps the spacing sliders but drops the height that its keyboard win
   expect(within(page).getByRole("slider", { name: "行间距" })).toBeTruthy();
   expect(within(page).getByLabelText("拖动预览调整键盘间距")).toBeTruthy();
   expect(within(page).getByText("间距和顶部语音入口回到默认")).toBeTruthy();
-  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
   fireEvent.click(within(page).getByRole("button", { name: "恢复屏幕键盘默认设置" }));
   const dialog = await screen.findByRole("alertdialog");
   expect(within(dialog).getByText("间距和顶部语音入口都会回到默认。")).toBeTruthy();
   await answerConfirm("cancel");
+  fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
+  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
 });
 
 // Windows 的手写页也只有一个打开按钮，与原生设置窗口一样并进「屏幕键盘与手写」；Windows 有触屏设备，高度和间距都在。
@@ -6230,9 +6238,10 @@ test("Windows folds handwriting into the screen keyboard page and keeps every si
   const page = await screen.findByRole("group", { name: "键盘手写" });
   for (const slider of ["键盘高度", "按键间距", "行间距"])
     expect(within(page).getByRole("slider", { name: slider })).toBeTruthy();
-  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
   // Windows 不是 touch_toolbar_components 的宿主，说明不再提工具栏按钮。
   expect(within(page).getByText("高度、间距和顶部语音入口回到默认")).toBeTruthy();
+  fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
+  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
 });
 
 test("skin preview switches are independent, reversible and do not change saved selection", async () => {
@@ -8808,6 +8817,7 @@ test("macOS opens handwriting for copying while input-session panels use the nat
   // 手写在 macOS 上并进「屏幕键盘与手写」页。
   expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "键盘手写" }));
+  fireEvent.click(screen.getByRole("tab", { name: "手写" }));
   expect(await screen.findByText("macOS 手写识别板")).toBeDefined();
   expect(screen.getByText(/从这里打开可识别并复制文字/)).toBeDefined();
   expect(screen.getByText(/从输入法悬浮工具栏或菜单打开手写板/)).toBeDefined();

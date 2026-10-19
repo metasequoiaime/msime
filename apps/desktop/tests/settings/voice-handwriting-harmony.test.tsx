@@ -512,9 +512,12 @@ test("the 2-in-1 handwriting instructions sit on the merged screen keyboard page
   await settingsFormReady();
   const page = screen.getByRole("group", { name: "键盘手写" });
   expect(screen.queryByRole("group", { name: "手写输入" })).toBeNull();
+  expect(within(page).getByRole("tab", { name: "键盘", selected: true })).toBeTruthy();
   expect(within(page).queryByRole("slider", { name: "识别等待时间" })).toBeNull();
+  fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
   expect(within(page).getByText(/2-in-1 候选窗口不绘制键面/)).toBeTruthy();
-  expect(groupTitles(page).slice(-2)).toEqual(["HarmonyOS 键盘手写", "外观"]);
+  const handwriting = within(page).getByRole("tabpanel", { name: "手写" });
+  expect(groupTitles(handwriting)).toEqual(["HarmonyOS 键盘手写"]);
 });
 
 // ---- 键盘 ----
