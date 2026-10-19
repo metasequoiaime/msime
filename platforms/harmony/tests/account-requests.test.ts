@@ -574,6 +574,43 @@ async function main(): Promise<void> {
     },
   );
 
+  await group(
+    "an unchanged answer given only because the local session was unreadable is tried again",
+    () => {
+      const unreadable = adoptionResult(
+        '{"ok":true,"value":{"outcome":"unchanged","local_unreadable":true}}',
+      );
+      check(
+        unreadable.outcome === "unchanged" && unreadable.localUnreadable,
+        "the unreadable local side is read from the reply",
+      );
+      check(
+        !adoptionResult('{"ok":true,"value":{"outcome":"unchanged"}}').localUnreadable,
+        "a plain unchanged is not marked",
+      );
+      const tracker = new AdoptionTracker();
+      tracker.answered("keyboard", "account", "k1", unreadable);
+      check(
+        tracker.due("keyboard", "account", "k1"),
+        "the same publication is adopted again once the local session may be readable",
+      );
+      tracker.answered(
+        "keyboard",
+        "account",
+        "k1",
+        adoptionResult('{"ok":true,"value":{"outcome":"unchanged"}}'),
+      );
+      check(!tracker.due("keyboard", "account", "k1"), "a plain unchanged is remembered");
+      tracker.answered(
+        "keyboard",
+        "account",
+        "k2",
+        adoptionResult('{"ok":true,"value":{"outcome":"adopted"}}'),
+      );
+      check(!tracker.due("keyboard", "account", "k2"), "an adopted one is remembered");
+    },
+  );
+
   await group("authenticated requests wait for the adoption queued before them", async () => {
     const gate = new SerialGate();
     const order: string[] = [];

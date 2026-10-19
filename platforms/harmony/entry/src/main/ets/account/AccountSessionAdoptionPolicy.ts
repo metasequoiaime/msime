@@ -53,10 +53,11 @@ export function sessionAdoptRequest(
   return JSON.stringify({ directory, action });
 }
 
-/** `session_adopt` 的结果：`adopted`、`unchanged`、`cleared` 之一；失败时 `outcome` 为空串，`error` 是错误码。 */
+/** `session_adopt` 的结果：`adopted`、`unchanged`、`cleared` 之一；失败时 `outcome` 为空串，`error` 是错误码。`localUnreadable` 是 Rust 回答里的 `local_unreadable`：本地会话读不了、发布的这份按规则没有用，这个 `unchanged` 不只取决于发布物。 */
 export interface AdoptionResult {
   readonly outcome: string;
   readonly error: string;
+  readonly localUnreadable: boolean;
 }
 
 const OUTCOMES: readonly string[] = ["adopted", "unchanged", "cleared"];
@@ -66,21 +67,22 @@ export function adoptionResult(reply: string): AdoptionResult {
   try {
     envelope = JSON.parse(reply);
   } catch {
-    return { outcome: "", error: "account_unavailable" };
+    return { outcome: "", error: "account_unavailable", localUnreadable: false };
   }
-  if (!jsonObject(envelope)) return { outcome: "", error: "account_unavailable" };
+  if (!jsonObject(envelope)) return { outcome: "", error: "account_unavailable", localUnreadable: false };
   if (envelope.ok !== true) {
     const error: unknown = envelope.error;
     return {
       outcome: "",
       error: typeof error === "string" && error.length > 0 ? error : "account_unavailable",
+      localUnreadable: false,
     };
   }
   const value: unknown = envelope.value;
   const outcome: unknown = jsonObject(value) ? value.outcome : undefined;
   return typeof outcome === "string" && OUTCOMES.includes(outcome)
-    ? { outcome, error: "" }
-    : { outcome: "", error: "account_unavailable" };
+    ? { outcome, error: "", localUnreadable: jsonObject(value) && value.local_unreadable === true }
+    : { outcome: "", error: "account_unavailable", localUnreadable: false };
 }
 
 /**
@@ -101,6 +103,8 @@ export function adoptionFailureMessage(item: string, from: string, error: string
 
 /**
  * 记住每份发布物最后一次成功采用时的指纹，指纹没变就不再调 Rust：同一份发布物再采用一次，结论只能是 `unchanged`，而每次调用都要拿一次 `account-refresh.lock`。失败的不记，下一次照样再试；同一份发布物的失败只报告一次。
+ *
+ * 本地会话读不了时的 `unchanged`（Rust 带 `local_unreadable`）也不记：那个结论取决于本地此刻读不读得了，不是发布物本身。记下的话本地恢复可读以后，键盘那份刷新过的会话在它再次发布之前一直不被采用，设置应用拿已经被键盘用过的刷新令牌去刷新，超过服务端 30 秒宽限就是重放，两个沙箱一起登出。
  */
 export class AdoptionTracker {
   private readonly adopted: Map<string, string> = new Map<string, string>();
@@ -114,6 +118,15 @@ export class AdoptionTracker {
   succeeded(from: string, item: string, fingerprint: string): void {
     this.adopted.set(`${from}/${item}`, fingerprint);
     this.reported.delete(`${from}/${item}`);
+  }
+
+  /** Rust 给出了结论（`result.outcome` 非空）时调：本地读不了而没有采用的不记指纹，下一次照样再调 Rust。 */
+  answered(from: string, item: string, fingerprint: string, result: AdoptionResult): void {
+    if (result.localUnreadable) {
+      this.reported.delete(`${from}/${item}`);
+      return;
+    }
+    this.succeeded(from, item, fingerprint);
   }
 
   /** 记下一次失败；这份发布物第一次失败时返回要写的日志，之后返回 null。 */

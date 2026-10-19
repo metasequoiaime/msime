@@ -82,7 +82,7 @@ export class AccountSessionAdoption {
     }
     const result: AdoptionResult = adoptionResult(reply);
     if (result.outcome.length > 0) {
-      tracker.succeeded(publisher, session.item, fingerprint);
+      tracker.answered(publisher, session.item, fingerprint, result);
       if (result.outcome !== 'unchanged') {
         KeyboardLog.info(`session ${result.outcome} from ${publisher} (${session.item})`);
       }

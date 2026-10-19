@@ -224,14 +224,24 @@ fn the_settings_app_takes_the_anonymous_account_the_keyboard_registered_first() 
     );
     assert_eq!(local(&settings), None);
     private_file(&settings.join(ACCOUNT_SESSION_FILE), b"not a session");
+    // 读不了时结论单独报出来：它取决于本地此刻的状态，宿主不能把这份发布物记成「不用再试」。
     assert_eq!(
-        session(&settings).adopt_session(Some(signed_in), SessionAdoptSource::Keyboard),
-        Ok(SessionAdoptOutcome::Unchanged)
+        session(&settings).adopt_session(Some(signed_in.clone()), SessionAdoptSource::Keyboard),
+        Ok(SessionAdoptOutcome::LocalUnreadable)
     );
     assert_eq!(
         std::fs::read(settings.join(ACCOUNT_SESSION_FILE)).unwrap(),
         b"not a session"
     );
+    // 本地恢复可读、是同一个账号刷新前的那份：同一份发布物这次就该采用。
+    storage(&settings)
+        .save(&saved("person-a", Some(3), 30, 'e'))
+        .unwrap();
+    assert_eq!(
+        session(&settings).adopt_session(Some(signed_in), SessionAdoptSource::Keyboard),
+        Ok(SessionAdoptOutcome::Adopted)
+    );
+    assert_eq!(local(&settings), has("person-a", 'd'));
 }
 
 #[test]

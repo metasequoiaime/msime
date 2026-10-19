@@ -13,8 +13,9 @@ use msime_client_services::account::{
     AccountChatMessage, AccountDataSummary, AccountError, AccountFailure, AccountFeedbackInput,
     AccountPhrase, AccountPhrases, AccountPreferenceValue, AccountPreferences,
     AccountSessionStorage, AccountTranslateRequest, AccountVoiceContributionInput,
-    AnonymousIdentitySource, BackendAccountSession, ChatStreamCancel, SessionAdoptSource,
-    DEFAULT_TRANSLATE_TIMEOUT_MS, MAX_VOICE_CONTRIBUTION_AUDIO_BYTES, TRANSLATE_TIMEOUT_MS,
+    AnonymousIdentitySource, BackendAccountSession, ChatStreamCancel, SessionAdoptOutcome,
+    SessionAdoptSource, DEFAULT_TRANSLATE_TIMEOUT_MS, MAX_VOICE_CONTRIBUTION_AUDIO_BYTES,
+    TRANSLATE_TIMEOUT_MS,
 };
 use msime_client_services::diagnostics::upload::{
     prepare_upload, valid_diagnostic_label, DIAGNOSTIC_TTLS,
@@ -756,7 +757,13 @@ where
                         &published_identity,
                     )?,
             };
-            Ok(json!({ "outcome": outcome }))
+            // 本地读不了而没有采用时仍报 unchanged（老宿主照旧能认），另外带 local_unreadable，让宿主知道这个结论不只取决于发布物、同一份以后还要再试。
+            Ok(match outcome {
+                SessionAdoptOutcome::LocalUnreadable => {
+                    json!({ "outcome": SessionAdoptOutcome::Unchanged, "local_unreadable": true })
+                }
+                outcome => json!({ "outcome": outcome }),
+            })
         }
     }
 }

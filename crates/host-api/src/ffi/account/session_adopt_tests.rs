@@ -110,6 +110,47 @@ fn the_keyboard_takes_the_settings_apps_session_and_its_sign_out() {
     );
 }
 
+/// 设置应用本地的登录会话读不了时，键盘发布的那份按规则不用，但回答里带 local_unreadable：本地恢复可读以后同一份发布物就该采用（同一个账号、键盘那份是刷新过的），宿主不能把它记成不用再试。
+#[test]
+fn an_unreadable_local_session_is_reported_so_the_same_publication_is_tried_again() {
+    let root = tempfile::tempdir().unwrap();
+    let published = root.path().join("group").join("keyboard").join("state");
+    let settings = root.path().join("settings").join("state");
+    let mut refreshed = saved("person-a", 'c');
+    refreshed.expires_at_unix_ms += 60_000;
+    account_storage(&published).save(&refreshed).unwrap();
+    private_write(&settings.join(ACCOUNT_SESSION_FILE), b"not a session");
+
+    let path = published.join(ACCOUNT_SESSION_FILE);
+    let request = json!({ "operation": "session_adopt", "path": path, "item": "account", "from": "keyboard" });
+    assert_eq!(
+        adopt(&settings, request.clone()),
+        json!({ "ok": true, "value": { "outcome": "unchanged", "local_unreadable": true } })
+    );
+    assert_eq!(
+        std::fs::read(settings.join(ACCOUNT_SESSION_FILE)).unwrap(),
+        b"not a session"
+    );
+
+    // 本地恢复成同一个账号刷新前的那份：同一份发布物这次采用。
+    account_storage(&settings)
+        .save(&saved("person-a", 'b'))
+        .unwrap();
+    assert_eq!(
+        adopt(&settings, request.clone()),
+        json!({ "ok": true, "value": { "outcome": "adopted" } })
+    );
+    assert_eq!(
+        refresh_token(account_storage(&settings).load().unwrap()),
+        Some("c".repeat(64))
+    );
+    // 本地读得了时规则给出的 unchanged 不带这个字段。
+    assert_eq!(
+        adopt(&settings, request),
+        json!({ "ok": true, "value": { "outcome": "unchanged" } })
+    );
+}
+
 #[test]
 fn a_flat_harmony_session_published_before_the_upgrade_is_adopted_as_native() {
     let root = tempfile::tempdir().unwrap();

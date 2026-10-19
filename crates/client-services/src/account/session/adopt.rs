@@ -30,6 +30,8 @@ pub enum SessionAdoptOutcome {
     Adopted,
     /// 本地的会话（或没有会话）保持原样。
     Unchanged,
+    /// 本地的会话读不了，发布的这份按规则不用（只有登录会话、`from: Keyboard` 会这样），本地保持原样。与 [`Self::Unchanged`] 不同的是这个结论取决于本地此刻读不读得了，不只取决于发布的这一份：本地恢复可读以后，同一份发布物可能就该采用了（同一个账号、发布的更新），宿主不能据此认定同一份发布物以后都不用再试。
+    LocalUnreadable,
     /// 设置应用那边没有登录会话，本地的登录会话已经清掉。
     Cleared,
 }
@@ -37,7 +39,7 @@ pub enum SessionAdoptOutcome {
 impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     /// 登录会话（`account-session.json`）用：按模块说明的规则决定是否采用 `published`（`None` 是发布方没有这份会话），整个过程持有存储的刷新锁，与刷新、登录、退出互斥。`from: Settings` 且 `published` 是 `None` 时清掉本地会话（与 [`Self::forget`] 相同，不联网）。
     ///
-    /// 本地没有会话或读不了时，`Settings` 发布的直接替换，`Keyboard` 发布的不用（匿名会话两个方向都用，见 [`Self::adopt_anonymous_session`]）。`published` 不合法时是 [`AccountError::Storage`]，本地不动。采用的会话与刚读到的本地会话或内存里那份不是同一次登录（`user.id` 或 `session_id` 不同）时推进会话代次，不论这个对象读没读过存储，进行中的操作、刷新和登录都不会再把旧会话或自己的会话写上去。
+    /// 本地没有会话或读不了时，`Settings` 发布的直接替换，`Keyboard` 发布的不用（匿名会话两个方向都用，见 [`Self::adopt_anonymous_session`]）；读不了而不用时结果是 [`SessionAdoptOutcome::LocalUnreadable`]，不是 `Unchanged`。`published` 不合法时是 [`AccountError::Storage`]，本地不动。采用的会话与刚读到的本地会话或内存里那份不是同一次登录（`user.id` 或 `session_id` 不同）时推进会话代次，不论这个对象读没读过存储，进行中的操作、刷新和登录都不会再把旧会话或自己的会话写上去。
     pub fn adopt_session(
         &self,
         published: Option<SavedAccountSession>,
@@ -110,7 +112,11 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 _ => from == SessionAdoptSource::Settings,
             };
             if !adopt {
-                return Ok(SessionAdoptOutcome::Unchanged);
+                return Ok(if local.is_err() {
+                    SessionAdoptOutcome::LocalUnreadable
+                } else {
+                    SessionAdoptOutcome::Unchanged
+                });
             }
             let restore = match identity {
                 Some((directory, identity)) => {
