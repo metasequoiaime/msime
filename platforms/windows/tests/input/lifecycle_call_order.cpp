@@ -201,6 +201,12 @@ char *msime_client_select_edge(uint64_t, uint64_t, size_t index, uint8_t) {
   nlohmann::json value{{"handled", false}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", view()}};
   return answer(value);
 }
+// 卷轴展开取完整列表、按全局下标选择；这里的生命周期顺序不走展开，给空列表和未处理即可。
+char *msime_client_all_candidates(uint64_t) { return answer(nullptr); }
+char *msime_client_select_any_candidate(uint64_t, uint64_t, size_t index) {
+  record("select_any", index);
+  return transition(nullptr);
+}
 uint32_t msime_client_set_lifecycle(uint64_t, uint32_t flags) {
   record("set_lifecycle", flags);
   fake_lifecycle = flags;
