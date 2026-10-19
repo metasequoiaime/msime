@@ -2095,6 +2095,11 @@ void CandidateWindow::toggle_expansion() {
   pressed_cell_.reset();
   refresh();
 }
+bool CandidateWindow::open_expansion() {
+  if (!expand_.expanded)
+    toggle_expansion();
+  return expand_.expanded;
+}
 void CandidateWindow::collapse_expansion() {
   if (!expand_.expanded)
     return;

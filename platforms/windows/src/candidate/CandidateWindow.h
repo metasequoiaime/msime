@@ -112,6 +112,8 @@ public:
   // 卷轴展开（CandidateExpandPanel.h）打开或收起时通知 Server（SessionController::set_candidate_expansion）：打开后 Server 才去取这一代的完整候选列表，随快照的 CandidatePresentation::expanded 交回来。
   using Expansion = std::function<void(const FocusLease &, bool)>;
   void set_expansion_handler(Expansion handler) { expansion_ = std::move(handler); }
+  // 和点「∨」一样打开卷轴展开，展开通知照常发出；这一帧没有画出按钮或已经展开时什么也不做。返回此刻是否展开着。Server 不调它，候选皮肤截图工具（tests/tools/candidate_skin_gallery）用它画展开状态。
+  bool open_expansion();
   // The package's bounded native motion model. Reduced motion in Windows
   // disables it at paint time without changing the candidate semantics.
   void set_skin_animation(CandidateSkinAnimation animation) {

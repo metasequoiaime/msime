@@ -173,13 +173,23 @@ PreviousCandidate/NextCandidate/PreviousPage/NextPage 路径消费共享导航�
 
 ## 测试与 CI
 
-`platforms/windows/CMakeLists.txt` 注册 96 个 CTest，`tsf/CMakeLists.txt` 另有 19 个，`tests/native-pipe/`（仅 Windows）2 个，`msimeui/tests/` 1 个；`tsf/tests/exports/`、`tsf/tests/registration_profiles/`、`tsf/tests/registration_categories/` 和 `tests/server-manifest/` 是各自 configure 的独立子工程。PowerShell 侧另有 `tests/tools/*.ps1` 与 `installer/tests/*.ps1` 覆盖构建编排、PE 门禁、通知收集、运行器控制和安装器编排。
+`platforms/windows/CMakeLists.txt` 注册 97 个 CTest，`tsf/CMakeLists.txt` 另有 19 个，`tests/native-pipe/`（仅 Windows）2 个，`msimeui/tests/` 1 个；`tsf/tests/exports/`、`tsf/tests/registration_profiles/`、`tsf/tests/registration_categories/` 和 `tests/server-manifest/` 是各自 configure 的独立子工程。PowerShell 侧另有 `tests/tools/*.ps1` 与 `installer/tests/*.ps1` 覆盖构建编排、PE 门禁、通知收集、运行器控制和安装器编排。
 
 `bash platforms/windows/run-tests-wine.sh x64` 把交叉构建出的 C++ 套件（`windows-*.exe`、`tsf/msime-tsf-*.exe`、`tsf/tests/registration_*/msime-tsf-*.exe`、`bin/msimeui-tests.exe`）与 Windows 目标的 Rust 宿主及集成测试放在 `xvfb-run -a wine` 下执行，每个程序 120 秒超时。TSF 的两个标点 wiring 测试会读取只读挂载的 `platforms/windows/tsf` 源码。Rust 通用库单测和 golden 用例仍交给工作区 `cargo test`；它们在交叉编译时编译，但不在仿真的 Wine 中重复运行。结果与 `scripts/known-failures.txt` 比对；不带 `--quick` 的 `scripts/verify-local.sh` 会自动调用它。
 
 Wine 有时在 `CreateSymbolicLinkW` 返回成功后仍未创建可由 Win32 观察到的重解析点。符号链接安全测试会先核对链接属性和标签；只有夹具真正存在才运行相应断言，否则测试自身输出跳过提示（批量 Wine 运行器只汇总 EXE 的通过与失败）。真正的重解析点拒绝行为仍需在 Windows 上运行原生测试验证。
 
 CI（`.github/workflows/ci-platforms.yml` 的 windows job）在 `debian:trixie-slim` 容器里跑 `build-cross.sh x64`——Ubuntu 24.04 的 MinGW 头文件缺 `d2d1_3.h`。`release-windows.yml` 是手动 `workflow_dispatch`，在 Windows runner 上按版本矩阵（full、wubi、pinyin）各跑一遍 `Build-Client.ps1 -Edition`、打包和装卸冒烟，再用 `installer/tests/coexistence-smoke.ps1` 把几个版本装到同一台机器上，检查它们并存、卸掉一个版本不碰 full，并在 `windows-11-arm` runner 上装卸每个版本、检查 Arm64X TIP 能在原生 ARM64 和模拟 x64 进程里创建，最后一起发布。安装器由 Windows 上的 `installer/Package-SimplySign.ps1` 编译和签名，不在 CI 里产出。
+
+### 候选皮肤截图
+
+`tests/tools/candidate_skin_gallery/` 是截图工具 `msime-candidate-skin-gallery.exe`（只在 WIN32 构建里）：它用 Server 的候选窗 `CandidateWindow`，把皮肤根目录里每款皮肤画在一页固定的假候选上（拼音 `shuru`，九个候选「输入 书 数 树 熟 术 属 鼠 舒」各带一行英文释义，第一页、共三页），从屏幕截下来存成 PNG。皮肤的套用照 `server_main.cpp`：`msime_client_skin_catalog` 扫目录，`msime_client_resolve_theme` 按排列和明暗解析主题（等于在设置里把这款皮肤选进自定义主题），配色、最小宽度、装饰图、背景图、圆角、版式、字体和动效经 Server 用的同一组 setter 交给候选窗；字体、字号、缩放、不透明度和首行取共享默认偏好（`msime_client_default_preferences`）。每款皮肤和不带皮肤的基线各截横排、竖排 × 浅色、深色四张，写了 `expand_panel` 的皮肤在横排再各截一张打开卷轴展开的（经 `CandidateWindow::open_expansion` 打开，网格是固定的 36 个后续候选）；包没有声明的排列或明暗跳过，和 Server 一样不画。文件名是 `<皮肤 id 或 no-skin>__<horizontal|vertical>-<light|dark>[-expanded].png`。
+
+截图从屏幕 DC 截候选窗的整个窗口（含四周透明的阴影边距和装饰图那一条），截的是 DWM 合成之后的画面，DirectComposition 交换链和分层窗口回退都在里面。运行时它用一块纯色底（浅色 `#E6E6E6`、深色 `#202020`）盖住主显示器的工作区，把鼠标挪到右下角，候选窗出现在工作区左上部；和底色不同的像素不到 0.5% 就算截到空白。皮肤目录有加载失败的文件夹（catalog 的 `issues`）、主题解析失败、候选窗没出帧或失败、截图空白、PNG 写不出，或一款皮肤四种组合里一张也没画时，工具以 1 退出；日志逐行写明哪款皮肤、哪张截图、窗口和卡片的像素尺寸、出了几帧、不同像素的比例，空白的那张也照样写出来。不碰 Win32 的部分（文件名、假候选页经 `candidate_presentation_from_view` 的投影、展开网格的后续候选、空白判断）在 `CandidateSkinGallery.h`，由 CTest `windows-candidate-skin-gallery-plan` 覆盖。
+
+在 Windows 上本地运行：把交叉构建的 `target/windows-full/x64` 目录（至少 `msime-candidate-skin-gallery.exe`、`msime_host_api.dll` 和 `stage-runtime.sh` 放进去的三个 MinGW 运行时 DLL）带到一台有桌面的 Windows 10 1703 或更新的机器上，在仓库根目录执行 `msime-candidate-skin-gallery.exe --skins crates\client-services\tests\fixtures\candidate-skins --output <输出目录>`。两个参数都可以省，缺省就是这个皮肤目录和 `target\windows-candidate-skin-gallery`（相对当前目录）。运行的几十秒里不要动鼠标、不要切窗口。它要交互桌面，所以不是 CTest，名字也不以 `windows-` 开头，`run-tests-wine.sh` 不会去跑它；Wine 的 DirectComposition 只是桩，截不出可信的画面。
+
+CI 里 `windows` job 交叉编译出它以后，把它、host DLL 和三个运行时 DLL 去掉调试信息，上传为 `windows-candidate-skin-gallery-tool`；`windows-skin-gallery` job（Windows candidate skin gallery，`windows-2025`）下载后对 `crates/client-services/tests/fixtures/candidate-skins` 运行，截图上传为产物 `windows-candidate-skin-gallery`，这一步失败时也上传。
 
 ## 管道 I/O 与进程身份绑定
 

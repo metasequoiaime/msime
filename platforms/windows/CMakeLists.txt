@@ -1523,6 +1523,16 @@ foreach(target msime-windows-session windows-session-smoke windows-reply-codec m
     target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
   endif()
 endforeach()
+# 候选皮肤截图工具里不碰 Win32 的部分：文件名、假候选页经 Server 同一个投影后的样子、展开网格的后续候选和空白截图的判断。假候选页走 candidate_presentation_from_view，繁简转换在 msime-windows-composer 里。
+add_executable(windows-candidate-skin-gallery-plan tests/tools/candidate_skin_gallery/gallery_plan.cpp)
+target_link_libraries(windows-candidate-skin-gallery-plan PRIVATE msime-windows-composer)
+if(MSVC)
+  target_compile_options(windows-candidate-skin-gallery-plan PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-candidate-skin-gallery-plan PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-candidate-skin-gallery-plan COMMAND windows-candidate-skin-gallery-plan)
+set_tests_properties(windows-candidate-skin-gallery-plan PROPERTIES TIMEOUT 10)
 # The clipboard store and its presentation mailbox. All three of these sat in
 # the tree with no CMakeLists naming them, so nothing compiled them and they
 # were absent from every build and every count - the same shape as the
@@ -1685,7 +1695,14 @@ if(WIN32)
     target_link_options(msime-client-server PRIVATE /ENTRY:wmainCRTStartup)
   endif()
   target_link_libraries(windows-server-smoke PRIVATE msime-windows-server)
-  foreach(target msime-windows-server windows-server-smoke msime-client-server)
+  # 候选皮肤截图工具：用 Server 的候选窗把皮肤目录里每款皮肤画在一页假候选上，截屏存成 PNG（README「候选皮肤截图」）。它要真实的桌面，所以不是 CTest，名字也不以 windows- 开头，run-tests-wine.sh 不会把它当测试跑；CI 的 Windows candidate skin gallery 作业在 Windows runner 上运行它。
+  add_executable(msime-candidate-skin-gallery tests/tools/candidate_skin_gallery/main.cpp)
+  target_include_directories(msime-candidate-skin-gallery PRIVATE ../../platforms/common)
+  target_link_libraries(msime-candidate-skin-gallery PRIVATE msime-windows-server)
+  if(MINGW)
+    target_link_options(msime-candidate-skin-gallery PRIVATE -municode)
+  endif()
+  foreach(target msime-windows-server windows-server-smoke msime-client-server msime-candidate-skin-gallery)
     # Keep TCHAR/D2D declarations wide in every translation unit. Link-only
     # -municode does not set these macros when compiling the Server library.
     target_compile_definitions(${target} PRIVATE UNICODE _UNICODE NOMINMAX
