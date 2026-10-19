@@ -45,6 +45,8 @@ Status: implemented
 
 远程独立镜像的最终完整回归：引擎 2359 项通过、49 项忽略，runtime 324 项通过，golden 31 项通过（300 个场景）。两 crate 的全部 targets 严格 Clippy 与格式检查通过。首轮 quick 的平台编译通过，但工具契约误用系统 Python 3.9 失败；显式改用已安装的 Python 3.14 后重跑 quick，最终通过：Rust 工作区、Android 与 WebAssembly 目标、Java 宿主、Linux 设置壳和原生 90 项、macOS 原生宿主、共享 Apple bridge 均通过。Windows 本机可运行 169 项通过，2 项因宿主差异排除，61 项需要 Windows；MinGW/pipe 与 HarmonyOS 真打包因环境缺失跳过，不计通过。不能把该首轮记为门禁通过。
 
+iOS 的辅助码关闭回归现在核对 `shiY` 的大写字面片段：只把 `shi` 转换成原首选，再保留 `Y`；不再要求与全小写 `shiy` 的候选相同。开启辅助码时的 `Y` 仍按部首筛出「识」。原生 arm64 测试包在远端构建后，因远端系统盘耗尽而无法安装；复用同一编译产物，在本机同版本 iOS 27 模拟器执行 `HelpcodeSettingsTests`，5 项全部通过，不计作真实系统键盘验收。补测后的 quick（`20261019-204348`）通过，Linux 设置壳和原生 90 项均实际执行通过；笔记在本机单独校验通过。
+
 ## Reproduction
 
 最初在未修改生产代码的独立远程 macOS 镜像运行 `cargo test -p msime-engine --lib capital_`：全拼 `NIHAO` 的首候选实际为「你好」；`Fnihao` 的候选实际为空，两项均失败。每项在全拼断言处即失败，该红阶段不代表双拼也已实测。修复后的回归执行完整的全拼和双拼分支。
