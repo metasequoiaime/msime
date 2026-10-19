@@ -271,7 +271,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var spaceHoldMovesCursor = false
   private var backspaceRepeatTimer: Timer?
   private var didRepeatBackspace = false
-  private var hasComposition = false
+  private var renderedComposition = false
+  private var hasComposition: Bool {
+    get { renderedComposition || session.hasPendingCharacters }
+    set { renderedComposition = newValue }
+  }
+  /// 测试宿主没有真实文档代理；系统扩展默认启用异步，回归可显式覆盖以检查交付顺序。
+  var asynchronousNineKeyInputEnabled = Bundle.main.bundleURL.pathExtension == "appex"
+  private var inputDeliveryEpoch: UInt64 = 0
+  private var asynchronousInputDocument: UUID?
+  private var visibleInputGeneration: UInt64?
+  private var visibleCandidateIdentities: [MetasequoiaCandidateIdentity?] = []
   /// 组字中收到内存警告、引擎缓存还没清，等这次组字结束时清（见 `didReceiveMemoryWarning`）。
   private var engineCacheResetPending = false
   private var pairedPunctuation = PairedPunctuationStack()
@@ -873,6 +883,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     // 自己改动的回声：那次改动之后的组字仍是当前的组字。
     if ownEditEcho.isEcho(at: ProcessInfo.processInfo.systemUptime) { return }
+    session.flushPendingCharacters()
+    inputDeliveryEpoch &+= 1
     englishCorrectionRejectedPrefix = ""
     finishTemporaryEnglish(force: true)
     // With 行内预编辑 the host already holds the letters: moving the caret out of marked text makes them ordinary text, and clearing the field removes them. Committing the composition as well would write it a second time, so the engine lets it go instead.
@@ -898,6 +910,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func textDidChange(_ textInput: UITextInput?) {
     super.textDidChange(textInput)
+    let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy)
+    if let previous = asynchronousInputDocument, previous != document {
+      inputDeliveryEpoch &+= 1
+      session.flushPendingCharacters()
+      render(discardComposition())
+      asynchronousInputDocument = document
+    }
     synchronizeInputContext()
     // 宿主可能把焦点换到了凭据输入框，诊断日志跟着当前输入框开关；只在闸门的判断变了时重新配置，不必每次按键都去读偏好。
     if privacyGate.allows(.diagnosticLog) == diagnosticLogSuppressed { configureDiagnosticLog() }
@@ -915,6 +934,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    session.flushPendingCharacters()
+    inputDeliveryEpoch &+= 1
     englishCorrectionRejectedPrefix = ""
     finishTemporaryEnglish(force: true)
     DiagnosticLog.shared.write("focus_out")
@@ -2351,7 +2372,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.addAction(UIAction { [weak self, weak button] _ in
         guard let self, let button else { return }
         self.playInputClick()
-        self.render(self.session.chooseNineKeySpelling(at: UInt(button.tag)))
+        self.chooseVisibleNineKeySpelling(at: UInt(button.tag))
       }, for: .primaryActionTriggered)
       buttons.append(button)
       stack.addArrangedSubview(button)
@@ -3335,6 +3356,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           updateLetterCaseControls()
         }
         return
+      }
+      if asynchronousNineKeyInputEnabled, inputScheme == .nineKey, !isInLocalMode,
+         ("2"..."9").contains(character) {
+        let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy)
+        asynchronousInputDocument = document
+        let epoch = inputDeliveryEpoch
+        if session.enqueueNineKeyCharacter(character, completion: { [weak self] snapshot in
+          guard let self, inputDeliveryEpoch == epoch, isChineseMode, inputScheme == .nineKey,
+                KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
+          render(snapshot)
+        }) { return }
       }
       render(session.handleCharacter(character))
     } else {
@@ -4879,7 +4911,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     switch action {
     case .spelling(let index):
       playInputClick()
-      render(session.chooseNineKeySpelling(at: UInt(index)))
+      chooseVisibleNineKeySpelling(at: UInt(index))
     case .stroke(let key):
       playInputClick()
       setNineKeyFilter(singleCharacter: currentNineKeySingleCharacter, strokes: currentNineKeyStrokes + key)
@@ -6087,7 +6119,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       insertOwnText(commit + (appendingLiteral ?? ""), source: source,
                     replacingComposition: snapshot.commitText != nil)
     }
-    let wasComposing = hasComposition
+    let wasComposing = renderedComposition
     let wasKoreanHanjaListOpen = koreanHanjaListOpen
     hasComposition = !snapshot.preedit.isEmpty
     if hasComposition != wasComposing { updateFourteenKeySeparator() }
@@ -6123,7 +6155,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         drawsKeysAsGlyphs: isChineseMode && inputScheme.drawsKeysAsGlyphs, phrasePrefix: snapshot.phrasePrefix, preedit: shownPreedit,
         editingText: snapshot.editingText, japaneseReading: japaneseReading)
       : "")
+    visibleInputGeneration = snapshot.generation
     let visibleIndices = CandidateMarker.visibleIndices(sources: snapshot.candidateSources)
+    visibleCandidateIdentities = visibleIndices.map {
+      snapshot.candidateIdentities.indices.contains($0) ? snapshot.candidateIdentities[$0] : nil
+    }
     func visibleValues<T>(_ values: [T]) -> [T] {
       visibleIndices.compactMap { values.indices.contains($0) ? values[$0] : nil }
     }
@@ -6168,6 +6204,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     RunLoop.main.add(timer, forMode: .common)
     diagnosticDismissTimer = timer
+  }
+
+  private func chooseVisibleNineKeySpelling(at index: UInt) {
+    if let generation = visibleInputGeneration {
+      render(session.chooseNineKeySpelling(generation: generation, at: index))
+    } else {
+      render(session.chooseNineKeySpelling(at: index))
+    }
   }
 
   private func updateCandidateStrip(preedit: String, candidates: [String],
@@ -6715,7 +6759,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
     guard visibleCandidateEngineIndices.indices.contains(index) else { return }
-    render(session.selectCandidate(at: UInt(visibleCandidateEngineIndices[index])))
+    if visibleCandidateIdentities.indices.contains(index), let identity = visibleCandidateIdentities[index] {
+      render(session.selectCandidate(generation: identity.generation, globalIndex: identity.index))
+    } else {
+      render(session.selectCandidate(at: UInt(visibleCandidateEngineIndices[index])))
+    }
   }
 
   private func candidateColumnWidth() -> CGFloat {
@@ -6877,7 +6925,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       .filter { !$0.isEmpty }
       .map { gloss in
         UIAction(title: gloss, image: UIImage(systemName: "character.bubble")) { [weak self] _ in
-          guard let self, isCurrent() else { return }
+          guard let self else { return }
+          session.flushPendingCharacters()
+          guard isCurrent() else { return }
           playInputClick()
           insertOwnText(gloss, source: .local)
           render(session.cancel())
@@ -6912,16 +6962,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let revision = candidateRevision
     let glosses = glossMenuElements(at: index)
     let fixedPosition = visibleCandidateFixedPositions.indices.contains(index) ? visibleCandidateFixedPositions[index] : 0
+    let identity = visibleCandidateIdentities.indices.contains(index) ? visibleCandidateIdentities[index] : nil
     let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       guard let self, candidateRevision == revision,
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
       guard visibleCandidateEngineIndices.indices.contains(index) else { return nil }
+      if let identity {
+        return session.editCandidate(generation: identity.generation, globalIndex: identity.index, action: operation)
+      }
       return session.editCandidate(at: UInt(visibleCandidateEngineIndices[index]), expectedWord: candidate, action: operation)
     }
     let edges = wordCharacterMenuElements(candidate: candidate) { [weak self] last in
       guard let self, candidateRevision == revision,
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
       guard visibleCandidateEngineIndices.indices.contains(index) else { return nil }
+      if let identity {
+        return session.selectCandidateEdge(generation: identity.generation, globalIndex: identity.index, last: last)
+      }
       return session.selectCandidateEdge(at: UInt(visibleCandidateEngineIndices[index]), last: last)
     }
     return edges + glosses + management

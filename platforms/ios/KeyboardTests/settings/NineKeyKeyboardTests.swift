@@ -3097,6 +3097,44 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testAsyncNineKeyFirstDigitIsConsumedBeforeSpaceDeleteAndDismissal() async throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for boundary in ["space", "delete", "dismiss", "hostChange", "mode"] {
+      InputSchemePreference.scheme = .nineKey
+      let controller = KeyboardViewController()
+      controller.asynchronousNineKeyInputEnabled = true
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+      controller.viewWillAppear(false)
+      let digit = try button("nineKey6", in: controller)
+      let gate = DispatchSemaphore(value: 0)
+      defer { gate.signal() }
+      MSIMEInputThread.shared.async { gate.wait() }
+      digit.sendActions(for: .primaryActionTriggered)
+      gate.signal()
+      if boundary == "space" {
+        try button("spaceKey", in: controller).sendActions(for: .primaryActionTriggered)
+      } else if boundary == "delete" {
+        let key = try button("nineKeyDelete", in: controller)
+        key.sendActions(for: .touchDown)
+        key.sendActions(for: .touchUpInside)
+      } else if boundary == "hostChange" {
+        controller.textWillChange(nil)
+      } else if boundary == "mode" {
+        try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      } else {
+        controller.viewWillDisappear(false)
+      }
+      XCTAssertNotEqual(try button("returnKey", in: controller).accessibilityLabel, "确认", boundary)
+      let drained = expectation(description: "旧数字续点不能恢复已结束的组字")
+      DispatchQueue.main.async { drained.fulfill() }
+      await fulfillment(of: [drained], timeout: 10)
+      XCTAssertNotEqual(try button("returnKey", in: controller).accessibilityLabel, "确认", boundary)
+      if boundary != "dismiss" { controller.viewWillDisappear(false) }
+    }
+  }
+
   func testSpellingSidebarChangesKeepTheKeyLayout() throws {
     let previousScheme = InputSchemePreference.scheme
     let previousEnabled = InputSchemePreference.enabledSchemes

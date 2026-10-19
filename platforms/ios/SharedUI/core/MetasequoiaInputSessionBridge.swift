@@ -6,69 +6,69 @@ private typealias MSIMEByte = UInt8
 @_silgen_name("msime_client_prepare_host")
 private func msimeClientPrepareHost(_ options: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_create")
-private func msimeClientCreate(_ options: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientCreateRaw(_ options: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_destroy")
-private func msimeClientDestroy(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+private func msimeClientDestroyRaw(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_focus")
-private func msimeClientFocus(_ session: UInt64, _ focused: Bool) -> UnsafeMutablePointer<CChar>?
+private func msimeClientFocusRaw(_ session: UInt64, _ focused: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_string_free")
 private func msimeClientStringFree(_ value: UnsafeMutablePointer<CChar>?)
 @_silgen_name("msime_client_character")
-private func msimeClientCharacter(_ session: UInt64, _ value: MSIMEByte, _ shift: Bool) -> UnsafeMutablePointer<CChar>?
+private func msimeClientCharacterRaw(_ session: UInt64, _ value: MSIMEByte, _ shift: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_glide")
-private func msimeClientGlide(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientGlideRaw(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_punctuation")
-private func msimeClientPunctuation(_ session: UInt64, _ value: MSIMEByte) -> UnsafeMutablePointer<CChar>?
+private func msimeClientPunctuationRaw(_ session: UInt64, _ value: MSIMEByte) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_punctuation_with_context")
-private func msimeClientPunctuationWithContext(
+private func msimeClientPunctuationWithContextRaw(
   _ session: UInt64, _ value: MSIMEByte, _ preceding: UInt32
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_command")
-private func msimeClientCommand(_ session: UInt64, _ command: UInt32) -> UnsafeMutablePointer<CChar>?
+private func msimeClientCommandRaw(_ session: UInt64, _ command: UInt32) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_reset_cache")
-private func msimeClientResetCache(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+private func msimeClientResetCacheRaw(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select")
-private func msimeClientSelect(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSelectRaw(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select_any_candidate")
-private func msimeClientSelectAnyCandidate(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSelectAnyCandidateRaw(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select_edge")
-private func msimeClientSelectEdge(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ edge: UInt8) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSelectEdgeRaw(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ edge: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_pin_candidate")
-private func msimeClientPinCandidate(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientPinCandidateRaw(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_remove_candidate")
-private func msimeClientRemoveCandidate(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientRemoveCandidateRaw(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_fix_candidate_position")
-private func msimeClientFixCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ position: UInt8) -> UnsafeMutablePointer<CChar>?
+private func msimeClientFixCandidatePositionRaw(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ position: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_clear_candidate_position")
-private func msimeClientClearCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientClearCandidatePositionRaw(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_balance_paired_punctuation_after_auto_close")
-private func msimeClientBalancePairedPunctuationAfterAutoClose(_ session: UInt64, _ opening: MSIMEByte) -> UnsafeMutablePointer<CChar>?
+private func msimeClientBalancePairedPunctuationAfterAutoCloseRaw(_ session: UInt64, _ opening: MSIMEByte) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_smart_punctuation_arm")
-private func msimeClientSmartPunctuationArm(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSmartPunctuationArmRaw(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_smart_punctuation_decide")
-private func msimeClientSmartPunctuationDecide(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSmartPunctuationDecideRaw(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_nine_key_shuangpin_layout")
 private func msimeClientNineKeyShuangpinLayout(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_shuangpin_key_hints")
 private func msimeClientShuangpinKeyHints(_ profile: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_choose_nine_key_spelling")
-private func msimeClientChooseNineKeySpelling(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientChooseNineKeySpellingRaw(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_nine_key_filter")
-private func msimeClientSetNineKeyFilter(_ session: UInt64, _ singleCharacter: Bool, _ strokes: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSetNineKeyFilterRaw(_ session: UInt64, _ singleCharacter: Bool, _ strokes: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_key_grid")
-private func msimeClientSetKeyGrid(_ session: UInt64, _ grid: UInt8) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSetKeyGridRaw(_ session: UInt64, _ grid: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_grid_key")
-private func msimeClientGridKey(_ session: UInt64, _ letter: MSIMEByte) -> UnsafeMutablePointer<CChar>?
+private func msimeClientGridKeyRaw(_ session: UInt64, _ letter: MSIMEByte) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_chinese_punctuation")
-private func msimeClientSetChinesePunctuation(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSetChinesePunctuationRaw(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_ai_credential")
-private func msimeClientSetAICredential(_ session: UInt64, _ token: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSetAICredentialRaw(_ session: UInt64, _ token: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_character_width")
-private func msimeClientSetCharacterWidth(_ session: UInt64, _ fullwidth: Bool) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSetCharacterWidthRaw(_ session: UInt64, _ fullwidth: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_private_session")
-private func msimeClientSetPrivateSession(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
+private func msimeClientSetPrivateSessionRaw(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_update_preferences")
-private func msimeClientUpdatePreferences(_ session: UInt64, _ snapshot: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientUpdatePreferencesRaw(_ session: UInt64, _ snapshot: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_load_preferences")
 private func msimeClientLoadPreferences(_ directory: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_save_preferences")
@@ -77,11 +77,11 @@ private func msimeClientSavePreferences(
   _ snapshot: UnsafePointer<MSIMEByte>?, _ snapshotLength: UInt
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_view")
-private func msimeClientView(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+private func msimeClientViewRaw(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_all_candidates")
-private func msimeClientAllCandidates(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+private func msimeClientAllCandidatesRaw(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_english_completions")
-private func msimeClientEnglishCompletions(
+private func msimeClientEnglishCompletionsRaw(
   _ session: UInt64, _ prefix: UnsafePointer<MSIMEByte>?, _ prefixLength: UInt, _ limit: UInt
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_english_completions_request")
@@ -100,21 +100,21 @@ private func msimeClientEmojiCatalogRequest(
   _ resources: UnsafePointer<MSIMEByte>?, _ resourcesLength: UInt
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_apply_translations")
-private func msimeClientApplyTranslations(
+private func msimeClientApplyTranslationsRaw(
   _ session: UInt64, _ generation: UInt64,
   _ translations: UnsafePointer<MSIMEByte>?, _ translationsLength: UInt
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_online_query")
-private func msimeClientOnlineQuery(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+private func msimeClientOnlineQueryRaw(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_cloud_request_url")
 private func msimeClientCloudRequestURL(_ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_apply_cloud_response")
-private func msimeClientApplyCloudResponse(
+private func msimeClientApplyCloudResponseRaw(
   _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt,
   _ body: UnsafePointer<MSIMEByte>?, _ bodyLength: UInt
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_ai_request_for_query")
-private func msimeClientAIRequestForQuery(
+private func msimeClientAIRequestForQueryRaw(
   _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_parse_ai_response")
@@ -136,12 +136,12 @@ private func msimeClientParseNiuTransTranslationResponse(_ body: UnsafePointer<M
 @_silgen_name("msime_client_parse_custom_translation_response")
 private func msimeClientParseCustomTranslationResponse(_ body: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_apply_online_candidates")
-private func msimeClientApplyOnlineCandidates(
+private func msimeClientApplyOnlineCandidatesRaw(
   _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt,
   _ candidates: UnsafePointer<MSIMEByte>?, _ candidatesLength: UInt, _ source: UInt8
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_resolve_online_candidates")
-private func msimeClientResolveOnlineCandidates(
+private func msimeClientResolveOnlineCandidatesRaw(
   _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt, _ source: UInt8
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_dictionary")
@@ -153,6 +153,213 @@ private func msimeClientSnapshotVersion(_ options: UnsafePointer<MSIMEByte>?, _ 
 @_silgen_name("msime_client_snapshot_activate")
 private func msimeClientSnapshotActivate(_ handle: UInt64, _ expected: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 
+/// C ABI会话绑定创建线程；串行队列可能换线程，因此所有会话调用由这一条常驻线程拥有。
+final class MSIMEInputThread: @unchecked Sendable {
+  static let shared = MSIMEInputThread()
+  private let condition = NSCondition()
+  private var tasks: [() -> Void] = []
+  private var thread: Thread!
+
+  private init() {
+    thread = Thread { [self] in
+      while true {
+        condition.lock()
+        while tasks.isEmpty { condition.wait() }
+        let task = tasks.removeFirst()
+        condition.unlock()
+        autoreleasepool { task() }
+      }
+    }
+    thread.name = "app.msime.ios.input"
+    thread.qualityOfService = .userInteractive
+    thread.start()
+  }
+
+  func async(_ operation: @escaping () -> Void) {
+    condition.lock()
+    tasks.append(operation)
+    condition.signal()
+    condition.unlock()
+  }
+
+  func sync<Value>(_ operation: @escaping () -> Value) -> Value {
+    if Thread.current === thread { return operation() }
+    let completed = DispatchSemaphore(value: 0)
+    var result: Value?
+    async {
+      result = operation()
+      completed.signal()
+    }
+    completed.wait()
+    return result!
+  }
+}
+
+private func msimeClientCreate(_ options: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientCreateRaw(options, length) }
+}
+
+private func msimeClientDestroy(_ session: UInt64) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientDestroyRaw(session) }
+}
+
+private func msimeClientFocus(_ session: UInt64, _ focused: Bool) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientFocusRaw(session, focused) }
+}
+
+private func msimeClientCharacter(_ session: UInt64, _ value: MSIMEByte, _ shift: Bool) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientCharacterRaw(session, value, shift) }
+}
+
+private func msimeClientGlide(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientGlideRaw(session, request, length) }
+}
+
+private func msimeClientPunctuation(_ session: UInt64, _ value: MSIMEByte) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientPunctuationRaw(session, value) }
+}
+
+private func msimeClientPunctuationWithContext(
+  _ session: UInt64, _ value: MSIMEByte, _ preceding: UInt32
+) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientPunctuationWithContextRaw(session, value, preceding) }
+}
+
+private func msimeClientCommand(_ session: UInt64, _ command: UInt32) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientCommandRaw(session, command) }
+}
+
+private func msimeClientResetCache(_ session: UInt64) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientResetCacheRaw(session) }
+}
+
+private func msimeClientSelect(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSelectRaw(session, generation, index) }
+}
+
+private func msimeClientSelectAnyCandidate(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSelectAnyCandidateRaw(session, generation, index) }
+}
+
+private func msimeClientSelectEdge(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ edge: UInt8) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSelectEdgeRaw(session, generation, index, edge) }
+}
+
+private func msimeClientPinCandidate(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientPinCandidateRaw(session, generation, index) }
+}
+
+private func msimeClientRemoveCandidate(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientRemoveCandidateRaw(session, generation, index) }
+}
+
+private func msimeClientFixCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ position: UInt8) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientFixCandidatePositionRaw(session, generation, index, position) }
+}
+
+private func msimeClientClearCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientClearCandidatePositionRaw(session, generation, index) }
+}
+
+private func msimeClientBalancePairedPunctuationAfterAutoClose(_ session: UInt64, _ opening: MSIMEByte) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientBalancePairedPunctuationAfterAutoCloseRaw(session, opening) }
+}
+
+private func msimeClientSmartPunctuationArm(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSmartPunctuationArmRaw(session, request, length) }
+}
+
+private func msimeClientSmartPunctuationDecide(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSmartPunctuationDecideRaw(session, request, length) }
+}
+
+private func msimeClientChooseNineKeySpelling(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientChooseNineKeySpellingRaw(session, generation, index) }
+}
+
+private func msimeClientSetNineKeyFilter(_ session: UInt64, _ singleCharacter: Bool, _ strokes: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSetNineKeyFilterRaw(session, singleCharacter, strokes, length) }
+}
+
+private func msimeClientSetKeyGrid(_ session: UInt64, _ grid: UInt8) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSetKeyGridRaw(session, grid) }
+}
+
+private func msimeClientGridKey(_ session: UInt64, _ letter: MSIMEByte) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientGridKeyRaw(session, letter) }
+}
+
+private func msimeClientSetChinesePunctuation(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSetChinesePunctuationRaw(session, enabled) }
+}
+
+private func msimeClientSetAICredential(_ session: UInt64, _ token: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSetAICredentialRaw(session, token, length) }
+}
+
+private func msimeClientSetCharacterWidth(_ session: UInt64, _ fullwidth: Bool) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSetCharacterWidthRaw(session, fullwidth) }
+}
+
+private func msimeClientSetPrivateSession(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSetPrivateSessionRaw(session, enabled) }
+}
+
+private func msimeClientUpdatePreferences(_ session: UInt64, _ snapshot: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientUpdatePreferencesRaw(session, snapshot, length) }
+}
+
+private func msimeClientView(_ session: UInt64) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientViewRaw(session) }
+}
+
+private func msimeClientAllCandidates(_ session: UInt64) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientAllCandidatesRaw(session) }
+}
+
+private func msimeClientEnglishCompletions(
+  _ session: UInt64, _ prefix: UnsafePointer<MSIMEByte>?, _ prefixLength: UInt, _ limit: UInt
+) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientEnglishCompletionsRaw(session, prefix, prefixLength, limit) }
+}
+
+private func msimeClientApplyTranslations(
+  _ session: UInt64, _ generation: UInt64,
+  _ translations: UnsafePointer<MSIMEByte>?, _ translationsLength: UInt
+) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientApplyTranslationsRaw(session, generation, translations, translationsLength) }
+}
+
+private func msimeClientOnlineQuery(_ session: UInt64) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientOnlineQueryRaw(session) }
+}
+
+private func msimeClientApplyCloudResponse(
+  _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt,
+  _ body: UnsafePointer<MSIMEByte>?, _ bodyLength: UInt
+) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientApplyCloudResponseRaw(session, query, queryLength, body, bodyLength) }
+}
+
+private func msimeClientAIRequestForQuery(
+  _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt
+) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientAIRequestForQueryRaw(session, query, queryLength) }
+}
+
+private func msimeClientApplyOnlineCandidates(
+  _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt,
+  _ candidates: UnsafePointer<MSIMEByte>?, _ candidatesLength: UInt, _ source: UInt8
+) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientApplyOnlineCandidatesRaw(session, query, queryLength, candidates, candidatesLength, source) }
+}
+
+private func msimeClientResolveOnlineCandidates(
+  _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt, _ source: UInt8
+) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientResolveOnlineCandidatesRaw(session, query, queryLength, source) }
+}
+
 enum MetasequoiaCandidateAction: Equatable {
   /// `position` is 1...5, the range the shared layer accepts and the desktop candidate menu offers.
   case promote, remove, fix(position: UInt8), clearPosition
@@ -160,6 +367,11 @@ enum MetasequoiaCandidateAction: Equatable {
 
 enum MetasequoiaFrequencyAdjustmentMode: UInt8 {
   case pin, halve, linear, promote, disabled
+}
+
+struct MetasequoiaCandidateIdentity: Equatable, Sendable {
+  let generation: UInt64
+  let index: UInt64
 }
 
 struct MetasequoiaInputSnapshot: Equatable, Sendable {
@@ -174,6 +386,9 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let phrasePrefix: String
   let candidates: [String]
   let candidateCodes: [String]
+  /// 画面上每个候选的身份；异步输入之后不能用引擎最新页解释旧按钮的位置。
+  let candidateIdentities: [MetasequoiaCandidateIdentity?]
+  let generation: UInt64?
   let candidateGlosses: [String]
   /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, the spelling a typo correction replaced, or a Korean Hanja's 훈음. Never part of the committed text.
   let candidateAnnotations: [String]
@@ -214,7 +429,9 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
 
   init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
        phrasePrefix: String = "",
-       candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
+       candidates: [String] = [], candidateCodes: [String] = [],
+       candidateIdentities: [MetasequoiaCandidateIdentity?] = [], generation: UInt64? = nil,
+       candidateGlosses: [String] = [],
        candidateAnnotations: [String] = [], candidateSources: [Int] = [], candidateFixedPositions: [Int] = [],
        candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
@@ -228,6 +445,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.phrasePrefix = phrasePrefix
     self.candidates = candidates
     self.candidateCodes = candidateCodes
+    self.candidateIdentities = candidateIdentities
+    self.generation = generation
     self.candidateGlosses = candidateGlosses
     self.candidateAnnotations = candidateAnnotations
     self.candidateSources = candidateSources
@@ -265,6 +484,74 @@ private enum InputBridgeFailure: LocalizedError {
 /// and never keeps Engine pointers or input text outside the returned snapshot.
 final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var handle: UInt64 = 0
+  private final class PendingCharacter {
+    var snapshot: MetasequoiaInputSnapshot?
+    let completion: (MetasequoiaInputSnapshot) -> Void
+    init(_ completion: @escaping (MetasequoiaInputSnapshot) -> Void) { self.completion = completion }
+  }
+  private let pendingCharactersLock = NSLock()
+  private var pendingCharacters: [PendingCharacter] = []
+
+  var hasPendingCharacters: Bool {
+    pendingCharactersLock.lock()
+    defer { pendingCharactersLock.unlock() }
+    return !pendingCharacters.isEmpty
+  }
+
+  /// 只接收普通全拼九键数字；字节与句柄按值移交，所有结果仍按投递顺序交给主线程。
+  @discardableResult
+  func enqueueNineKeyCharacter(_ character: String,
+                               completion: @escaping (MetasequoiaInputSnapshot) -> Void) -> Bool {
+    precondition(Thread.isMainThread)
+    guard handle != 0, keyGrid == .nineKey,
+          let byte = Self.ascii(character), (50...57).contains(byte) else { return false }
+    let pending = PendingCharacter(completion)
+    let sessionHandle = handle
+    pendingCharactersLock.lock()
+    pendingCharacters.append(pending)
+    pendingCharactersLock.unlock()
+    MSIMEInputThread.shared.async { [weak self] in
+      guard let self else { return }
+      let snapshot: MetasequoiaInputSnapshot
+      do {
+        guard let value = try Self.decode(msimeClientCharacter(sessionHandle, byte, false)) as? [String: Any]
+        else { throw InputBridgeFailure.invalidResponse }
+        snapshot = try Self.snapshot(value)
+      } catch {
+        snapshot = MetasequoiaInputSnapshot(diagnosticText: error.localizedDescription)
+      }
+      pendingCharactersLock.lock()
+      pending.snapshot = snapshot
+      pendingCharactersLock.unlock()
+      DispatchQueue.main.async { [weak self] in self?.deliverCompletedCharacters() }
+    }
+    return true
+  }
+
+  /// 空格、删除、设置与焦点边界先完成此前数字；回调不持锁执行，允许渲染过程中再次读会话。
+  func flushPendingCharacters() {
+    guard hasPendingCharacters else { return }
+    precondition(Thread.isMainThread)
+    repeat {
+      MSIMEInputThread.shared.sync {}
+      deliverCompletedCharacters()
+    } while hasPendingCharacters
+  }
+
+  private func deliverCompletedCharacters() {
+    precondition(Thread.isMainThread)
+    while true {
+      pendingCharactersLock.lock()
+      guard let pending = pendingCharacters.first, let snapshot = pending.snapshot else {
+        pendingCharactersLock.unlock()
+        return
+      }
+      pendingCharacters.removeFirst()
+      pendingCharactersLock.unlock()
+      // 每次只移交一项；回调中的控制命令仍能先排空剩余结果，再改变会话状态。
+      pending.completion(snapshot)
+    }
+  }
   private var options: [String: Any]
   private var stateRoot: String?
   /// The session reads the App Group document rather than a test's own directory, so its writes are the user's settings changes that cloud sync uploads.
@@ -436,7 +723,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   var fuzzyPinyinRulesApplied: UInt32? { appliedFuzzyPinyinRules }
 
   /// 最新的规范 PreferencesStore 文档，只读地暴露给键盘自己的读取（五笔剩余编码提示）和原生设置。
-  /// 读取时调用方必须留在会话所属的线程上。
+  /// Swift桥接状态由调用方串行访问，C会话的线程归属由固定会话线程独立保证。
   var sharedPreferences: [String: Any]? {
     options["preferences"] as? [String: Any]
   }
@@ -745,6 +1032,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// Tell the Engine the keyboard wrote the closing half of a pair it opened. Only book titles need it: the Engine nests 《 then 〈 until it sees a 》, and an auto-closed 》 never passes through it, so without this the next < would open 〈.
   @discardableResult
   func balancePairedPunctuationAfterAutoClose(opening: String) -> Bool {
+    flushPendingCharacters()
     guard let byte = Self.ascii(opening), handle != 0 else { return false }
     return (try? Self.decode(msimeClientBalancePairedPunctuationAfterAutoClose(handle, byte))) != nil
   }
@@ -757,6 +1045,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func smartPunctuationArming(ascii: String, commit: String, timestampMilliseconds: UInt64,
                               editorGeneration: UInt64,
                               autoClosedPair: Bool) -> [String: Any] {
+    flushPendingCharacters()
     guard let byte = Self.ascii(ascii), handle != 0 else { return [:] }
     let request: [String: Any] = ["ascii": byte, "commit": commit,
                                   "timestamp_ms": timestampMilliseconds,
@@ -773,6 +1062,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func smartPunctuationDecision(character: String, preceding: String?,
                                 timestampMilliseconds: UInt64, editorGeneration: UInt64,
                                 repeatSnapshot: Any?, spaceSnapshot: Any?) -> [String: Any] {
+    flushPendingCharacters()
     guard let byte = Self.ascii(character), handle != 0 else { return [:] }
     let request: [String: Any] = ["character": byte, "preceding": preceding ?? NSNull(),
                                   "timestamp_ms": timestampMilliseconds,
@@ -815,13 +1105,13 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   func selectCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
     guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
-    return dispatch { msimeClientSelect(handle, generation, index) }
+    return dispatch(preservingViewOnRejection: true) { msimeClientSelect(handle, generation, index) }
   }
 
   /// Select an entry of the expanded panel. Panel positions index the Engine's whole answer, and `selectCandidate(generation:globalIndex:)` only accepts the page the strip is showing, so anything past the ninth candidate came back as stale.
   func selectAnyCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
     guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
-    return dispatch { msimeClientSelectAnyCandidate(handle, generation, index) }
+    return dispatch(preservingViewOnRejection: true) { msimeClientSelectAnyCandidate(handle, generation, index) }
   }
 
   /// Whether a whole-answer candidate sits on the page the strip is showing. Pin, remove, fix and 以词定字 are page-bounded in the runtime, so the expanded panel offers them only for these entries.
@@ -845,16 +1135,18 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   func selectCandidateEdge(generation: UInt64, globalIndex: UInt64, last: Bool) -> MetasequoiaInputSnapshot {
     guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
-    return dispatch { msimeClientSelectEdge(handle, generation, index, last ? 1 : 0) }
+    return dispatch(preservingViewOnRejection: true) { msimeClientSelectEdge(handle, generation, index, last ? 1 : 0) }
   }
 
   func allCandidates() throws -> [String: Any] {
-    try Self.callHandle(msimeClientAllCandidates, handle)
+    flushPendingCharacters()
+    return try Self.callHandle(msimeClientAllCandidates, handle)
   }
 
   /// Read-only English completion lookup for the word immediately before the cursor.
   /// The caller owns the document-context parsing; the Engine session remains untouched.
   func englishCompletions(forPrefix prefix: String, limit: Int) -> [String] {
+    flushPendingCharacters()
     guard handle != 0, (1...32).contains(limit),
           !prefix.isEmpty, prefix.utf8.count <= 64,
           prefix.utf8.allSatisfy({ ($0 >= 65 && $0 <= 90) || ($0 >= 97 && $0 <= 122) })
@@ -936,7 +1228,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   func applyTranslations(generation: UInt64, translations: Data) throws -> [String: Any] {
-    try translations.withUnsafeBytes { bytes in
+    flushPendingCharacters()
+    return try translations.withUnsafeBytes { bytes in
       let value = try Self.decode(msimeClientApplyTranslations(
         handle, generation, bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(translations.count)))
       guard let dictionary = value as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
@@ -948,6 +1241,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   ///
   /// The document is handed back unchanged with a provider's result; the session refuses a result for a composition that has since moved on.
   func onlineQuery() -> Data? {
+    flushPendingCharacters()
     guard handle != 0, let value = try? Self.decode(msimeClientOnlineQuery(handle)),
           let query = value as? [String: Any],
           let data = try? JSONSerialization.data(withJSONObject: query) else { return nil }
@@ -966,6 +1260,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   /// Hand a fetched cloud reply to the shared parser. Returns `{applied, view}`.
   func applyCloudResponse(query: Data, body: Data) throws -> [String: Any] {
+    flushPendingCharacters()
     guard handle != 0 else { throw InputBridgeFailure.unavailable }
     guard !query.isEmpty, query.count <= 16_384, !body.isEmpty, body.count <= 262_144 else {
       throw InputBridgeFailure.invalidResponse
@@ -984,6 +1279,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   /// The AI HTTPS request descriptor for a query, or nil when the assistant's settings no longer match it. It carries the provider credential: never log it.
   func aiRequest(query: Data) -> [String: Any]? {
+    flushPendingCharacters()
     guard handle != 0, !query.isEmpty, query.count <= 16_384 else { return nil }
     return query.withUnsafeBytes { bytes in
       (try? Self.decode(msimeClientAIRequestForQuery(
@@ -1057,6 +1353,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   /// Apply one provider's candidates (cloud 0, AI 1) to the query they answer. Returns `{applied, view}`.
   func applyOnlineCandidates(query: Data, candidates: [String], source: UInt8) throws -> [String: Any] {
+    flushPendingCharacters()
     guard handle != 0 else { throw InputBridgeFailure.unavailable }
     let payload = try JSONSerialization.data(withJSONObject: candidates)
     guard !query.isEmpty, query.count <= 16_384, payload.count <= 16_384, source <= 1 else {
@@ -1076,6 +1373,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   /// AI 回答为空、失败或被拒时调用（`source` 只认 1）。共享内核已经不放 AI 占位行，这个调用不改候选列表，总是答 `applied:false`；保留它只为宿主和 C ABI 不变。Returns `{applied, view}`.
   func resolveOnlineCandidates(query: Data, source: UInt8) throws -> [String: Any] {
+    flushPendingCharacters()
     guard handle != 0 else { throw InputBridgeFailure.unavailable }
     guard !query.isEmpty, query.count <= 16_384, source <= 1 else {
       throw InputBridgeFailure.invalidResponse
@@ -1096,7 +1394,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   func chooseNineKeySpelling(at index: UInt) -> MetasequoiaInputSnapshot {
     let generation = (try? view()).flatMap { Self.strictUInt64($0["generation"]) } ?? 0
-    return dispatch { msimeClientChooseNineKeySpelling(handle, generation, index) }
+    return chooseNineKeySpelling(generation: generation, at: index)
+  }
+
+  func chooseNineKeySpelling(generation: UInt64, at index: UInt) -> MetasequoiaInputSnapshot {
+    dispatch(preservingViewOnRejection: true) { msimeClientChooseNineKeySpelling(handle, generation, index) }
   }
 
   /// 九键展开面板的候选筛选：`singleCharacter` 只留单字，`strokes` 是首字笔顺前缀（h 横、s 竖、p 撇、n 点、z 折，最多 64 笔，空串表示不按笔画）。两项一起交给 Engine，作用到这次组字结束；当前状态从快照的 `nineKeySingleCharacter`、`nineKeyStrokes` 读。
@@ -1165,6 +1467,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
   /// 把隐私模式告诉运行时（与 Android 的 `markPrivateSession` 相同）：隐私会话不记选词位置和上屏效率。学习本身仍由偏好里的 `learning` 决定。返回运行时是否接受。
   @discardableResult func setPrivateSession(_ enabled: Bool) -> Bool {
+    flushPendingCharacters()
     privateSession = enabled
     guard handle != 0 else { return false }
     return (try? Self.decode(msimeClientSetPrivateSession(handle, enabled))) != nil
@@ -1181,6 +1484,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   private func applyAICredential() -> Bool {
+    flushPendingCharacters()
     guard handle != 0 else { return false }
     let bytes = Array((aiCredential ?? "").utf8)
     let response: Any? = try? bytes.withUnsafeBufferPointer { buffer -> Any in
@@ -1228,13 +1532,13 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard let indexValue = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
     switch action {
     case .promote:
-      return dispatch { msimeClientPinCandidate(handle, generation, indexValue) }
+      return dispatch(preservingViewOnRejection: true) { msimeClientPinCandidate(handle, generation, indexValue) }
     case .remove:
-      return dispatch { msimeClientRemoveCandidate(handle, generation, indexValue) }
+      return dispatch(preservingViewOnRejection: true) { msimeClientRemoveCandidate(handle, generation, indexValue) }
     case .fix(let position):
-      return dispatch { msimeClientFixCandidatePosition(handle, generation, indexValue, position) }
+      return dispatch(preservingViewOnRejection: true) { msimeClientFixCandidatePosition(handle, generation, indexValue, position) }
     case .clearPosition:
-      return dispatch { msimeClientClearCandidatePosition(handle, generation, indexValue) }
+      return dispatch(preservingViewOnRejection: true) { msimeClientClearCandidatePosition(handle, generation, indexValue) }
     }
   }
 
@@ -1286,6 +1590,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   // rather than only pause learning. Destroying also ends learning writes, which is what pausing
   // was for.
   func suspendDictionarySession() -> Bool {
+    flushPendingCharacters()
     guard !suspended else { return true }
     guard !hasComposition else { return false }
     if handle != 0 {
@@ -1347,6 +1652,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   func activateDictionarySnapshot(_ snapshot: MSIMEPreparedDictionarySnapshot,
                                   expectedVersion: String) throws {
+    flushPendingCharacters()
     guard handle != 0 else { throw InputBridgeFailure.unavailable }
     let fields = expectedVersion.split(separator: ":", omittingEmptySubsequences: false)
     guard fields.count == 3, fields[0] == "local-v1", fields[2].utf8.count == 64 else {
@@ -1493,7 +1799,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return msimeClientCharacter(handle, byte, shift)
   }
 
-  private func dispatch(_ operation: () -> UnsafeMutablePointer<CChar>?) -> MetasequoiaInputSnapshot {
+  private func dispatch(preservingViewOnRejection: Bool = false,
+                        _ operation: () -> UnsafeMutablePointer<CChar>?) -> MetasequoiaInputSnapshot {
+    flushPendingCharacters()
     guard handle != 0 else {
       return diagnostic(initializationDiagnostic ?? "输入运行时尚未准备完成。")
     }
@@ -1501,7 +1809,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       guard let value = try Self.decode(operation()) as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
       return try Self.snapshot(value)
     }
-    catch { return diagnostic(error.localizedDescription) }
+    catch InputBridgeFailure.response(let message) {
+      // 旧画面的身份被运行时拒绝时，组字仍在；返回当前视图，避免把错误误画成清空。
+      if preservingViewOnRejection,
+         let current = try? Self.callHandle(msimeClientView, handle),
+         let snapshot = try? Self.snapshot(["view": current, "diagnostic": message]) {
+        return snapshot
+      }
+      return diagnostic(message)
+    } catch { return diagnostic(error.localizedDescription) }
   }
 
   private func diagnostic(_ message: String) -> MetasequoiaInputSnapshot {
@@ -1509,7 +1825,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   private func view() throws -> [String: Any] {
-    try Self.callHandle(msimeClientView, handle)
+    flushPendingCharacters()
+    return try Self.callHandle(msimeClientView, handle)
   }
 
   private func currentCandidates() throws -> [[String: Any]] {
@@ -1517,6 +1834,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   private func updatePreferences(_ mutate: (inout [String: Any]) -> Void) -> Bool {
+    flushPendingCharacters()
     guard handle != 0 else { return false }
     let previous = (options["preferences"] as? [String: Any]) ?? [:]
     var prefs = previous
@@ -1614,6 +1932,14 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       phrasePrefix: view["phrase_prefix"] as? String ?? "",
       candidates: rows.compactMap { $0["text"] as? String },
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
+      candidateIdentities: try rows.map { row in
+        guard let raw = row["id"] else { return nil }
+        guard let identity = raw as? [String: Any],
+              let generation = strictUInt64(identity["generation"]),
+              let index = strictUInt64(identity["index"]) else { throw InputBridgeFailure.invalidResponse }
+        return MetasequoiaCandidateIdentity(generation: generation, index: index)
+      },
+      generation: try view["generation"].map { try number($0) },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
       candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
       candidateSources: candidateSources,
