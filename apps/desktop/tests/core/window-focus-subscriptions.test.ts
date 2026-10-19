@@ -164,7 +164,7 @@ test("窗口事件调用方复用公共注册与清理", () => {
   const sources = Object.values(
     import.meta.glob<string>(
       [
-        "../../../../packages/ui/src/keyboard/panels.tsx",
+        "../../../../packages/ui/src/keyboard/handwriting-candidate-button.tsx",
         "../../../../packages/ui/src/settings/use-flush-on-window-leave.ts",
       ],
       { eager: true, query: "?raw", import: "default" },
