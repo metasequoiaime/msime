@@ -57,9 +57,9 @@ test("keeps navigation groups and nested route ownership aligned", () => {
     "try-keyboard": "home",
   });
   // 桌面上并进别的页、只留作路由别名的页面。
-  expect(desktopMergedPages).toEqual({ feedback: "about" });
+  expect(desktopMergedPages).toEqual({ feedback: "about", mcp: "ai" });
   expect(desktopPage("feedback")).toBe("about");
-  expect(desktopPage("mcp")).toBe("mcp");
+  expect(desktopPage("mcp")).toBe("ai");
   expect(desktopPage("help")).toBe("help");
 });
 

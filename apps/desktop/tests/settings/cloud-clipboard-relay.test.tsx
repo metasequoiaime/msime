@@ -212,11 +212,17 @@ test("does not echo a saved relay token and keeps it when only the address chang
 
   const token = screen.getByLabelText("中继令牌") as HTMLInputElement;
   expect(token.value).toBe("");
-  fireEvent.change(screen.getByRole("textbox", { name: "中继地址" }), {
+  const address = screen.getByRole("textbox", { name: "中继地址" }) as HTMLInputElement;
+  // 草稿先挂载，加载请求的 finally 才解除禁用；等到用户实际可编辑时再输入。
+  await waitFor(() => {
+    expect(address.matches(":disabled")).toBe(false);
+    expect(address.value).toBe("https://relay.example.test/old");
+  });
+  fireEvent.change(address, {
     target: { value: "https://relay.example.test/new" },
   });
   const saveButton = screen.getByRole("button", { name: "保存中继设置" }) as HTMLButtonElement;
-  await waitFor(() => expect(saveButton.disabled).toBe(false));
+  await waitFor(() => expect(saveButton.matches(":disabled")).toBe(false));
   fireEvent.click(saveButton);
   saveSettingsNow();
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));

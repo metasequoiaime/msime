@@ -244,7 +244,12 @@ test.each([true, false])("HarmonyOS 输入设置完成导入并保存发起组�
   );
   await settingsFormReady();
   selectSettingsTab("进阶");
-  fireEvent.click(screen.getByRole("button", { name: "导入双拼辅助码表" }));
+  const importButton = screen.getByRole("button", { name: "导入双拼辅助码表" });
+  // 表单挂载不代表加载已结束；禁用的 fieldset 内点击不会触发导入。
+  await waitFor(() => expect(importButton.matches(":disabled")).toBe(false));
+  await act(async () => {
+    fireEvent.click(importButton);
+  });
   if (mobile) {
     // 鸿蒙手机用选择面板，已选码表显示在行上，原生 select 只负责传递值。
     expect(
