@@ -1,11 +1,113 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ClipboardHistorySection, type ClipboardHistoryEntry } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+const paginationProps = {
+  historyEnabled: true,
+  persistedHistoryEnabled: true,
+  ios: false,
+  onToggle: vi.fn(),
+  onError: vi.fn(),
+};
+
+function syntheticHistory(count: number, prefix = "合成分页记录"): ClipboardHistoryEntry[] {
+  return Array.from({ length: count }, (_, index) => ({
+    text: `${prefix} ${index + 1}`,
+    timestampMs: 1_700_000_000_000 + index,
+    pinned: index === 0,
+  }));
+}
+
+test("历史每页只渲染 20 条，翻页不重读且操作对应当前页记录", async () => {
+  const copy = vi.fn().mockResolvedValue(undefined);
+  const list = vi.fn().mockResolvedValue(syntheticHistory(45));
+  render(<ClipboardHistorySection {...paginationProps} client={{ clear: vi.fn(), list, copy }} />);
+  await screen.findByText("第 1 / 3 页 · 共 45 条");
+  expect(screen.getAllByRole("button", { name: "重新复制" })).toHaveLength(20);
+  expect(screen.getByText("合成分页记录 20")).toBeTruthy();
+  expect(screen.queryByText("合成分页记录 21")).toBeNull();
+  expect(screen.getByRole("button", { name: "上一页" }).hasAttribute("disabled")).toBe(true);
+
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  expect(screen.getByText("第 2 / 3 页 · 共 45 条")).toBeTruthy();
+  expect(screen.queryByText("合成分页记录 20")).toBeNull();
+  const row = screen.getByText("合成分页记录 21").closest("[data-clipboard-entry-row]")!;
+  fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "重新复制" }));
+  expect(copy).toHaveBeenCalledExactlyOnceWith("合成分页记录 21");
+
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  expect(screen.getByText("第 3 / 3 页 · 共 45 条")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "重新复制" })).toHaveLength(5);
+  expect(screen.getByRole("button", { name: "下一页" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "上一页" }));
+  expect(screen.getByText("合成分页记录 21")).toBeTruthy();
+  expect(list).toHaveBeenCalledOnce();
+});
+
+test("删除末页最后一条回退，清空后也清除分页", async () => {
+  let entries = syntheticHistory(21);
+  const client = {
+    list: vi.fn(async () => entries),
+    remove: vi.fn(async (text: string) => {
+      entries = entries.filter((entry) => entry.text !== text);
+    }),
+    clear: vi.fn(async () => {
+      entries = [];
+    }),
+  };
+  const view = render(
+    <ClipboardHistorySection {...paginationProps} client={client} revision={1} />,
+  );
+  await screen.findByText("第 1 / 2 页 · 共 21 条");
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  fireEvent.click(screen.getByRole("button", { name: "删除剪贴板记录" }));
+  await screen.findByText("合成分页记录 1");
+  expect(client.remove).toHaveBeenCalledExactlyOnceWith("合成分页记录 21");
+  expect(screen.queryByRole("button", { name: "下一页" })).toBeNull();
+
+  entries = syntheticHistory(45);
+  view.rerender(<ClipboardHistorySection {...paginationProps} client={client} revision={2} />);
+  await screen.findByText("第 1 / 3 页 · 共 45 条");
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  fireEvent.click(screen.getByRole("button", { name: "清空历史" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认清空" }));
+  await screen.findByText("暂无历史记录");
+  expect(client.clear).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("button", { name: "上一页" })).toBeNull();
+});
+
+test("删除后仍有当前页时不跳回第一页，替换客户端则重置页码", async () => {
+  let entries = syntheticHistory(45);
+  const client = {
+    clear: vi.fn(),
+    list: vi.fn(async () => entries),
+    remove: vi.fn(async (text: string) => {
+      entries = entries.filter((entry) => entry.text !== text);
+    }),
+  };
+  const view = render(<ClipboardHistorySection {...paginationProps} client={client} />);
+  await screen.findByText("第 1 / 3 页 · 共 45 条");
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "删除剪贴板记录" })[0]);
+  await screen.findByText("第 2 / 3 页 · 共 44 条");
+  expect(screen.getByText("合成分页记录 22")).toBeTruthy();
+  expect(screen.queryByText("合成分页记录 1")).toBeNull();
+
+  view.rerender(
+    <ClipboardHistorySection
+      {...paginationProps}
+      client={{ clear: vi.fn(), list: async () => syntheticHistory(45, "合成新客户端") }}
+    />,
+  );
+  await screen.findByText("合成新客户端 1");
+  expect(screen.getByText("第 1 / 3 页 · 共 45 条")).toBeTruthy();
+  expect(screen.queryByText("合成新客户端 21")).toBeNull();
 });
 
 test("clipboard history loads entries and toggles a pin", async () => {

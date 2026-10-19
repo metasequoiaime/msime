@@ -1,5 +1,5 @@
 import { SettingsGroupNote } from "./settings-group-note";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import * as settings from "./settings-style";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import { SettingsManagerBlock } from "./settings-manager-block";
@@ -18,6 +18,9 @@ import {
   defaultClipboardHistoryLimit,
 } from "./clipboard-history-preferences";
 import { SelectRow } from "./select-row";
+import { DictionaryPagination } from "./dictionary-pagination";
+
+const HISTORY_PAGE_SIZE = 20;
 
 export type { ClipboardHistoryClient, ClipboardHistoryEntry } from "./clipboard-history-model";
 
@@ -74,6 +77,18 @@ export function ClipboardHistorySection({
     cloudRoute,
     historyShown,
   });
+  const [offset, setOffset] = useState(0);
+  const lastOffset =
+    Math.max(0, Math.ceil(entries.length / HISTORY_PAGE_SIZE) - 1) * HISTORY_PAGE_SIZE;
+  const currentOffset = Math.min(offset, lastOffset);
+  const visibleEntries = entries.slice(currentOffset, currentOffset + HISTORY_PAGE_SIZE);
+
+  useEffect(() => {
+    setOffset(0);
+  }, [client, ios, historyEnabled, persistedHistoryEnabled]);
+  useEffect(() => {
+    setOffset((previous) => Math.min(previous, lastOffset));
+  }, [lastOffset]);
 
   const clipboardDescription = ios
     ? "由键盘的“允许完全访问”权限控制；记录仅保存在本机。"
@@ -123,11 +138,23 @@ export function ClipboardHistorySection({
       {historyShown && (
         <GroupList title="历史记录">
           {cloudNote && <SettingsGroupNote role="status">{cloudNote}</SettingsGroupNote>}
+          {entries.length > HISTORY_PAGE_SIZE && (
+            <SettingsManagerBlock>
+              <DictionaryPagination
+                busy={historyBusy}
+                offset={currentOffset}
+                hasMore={currentOffset < lastOffset}
+                status={`第 ${currentOffset / HISTORY_PAGE_SIZE + 1} / ${lastOffset / HISTORY_PAGE_SIZE + 1} 页 · 共 ${entries.length} 条`}
+                pageSize={HISTORY_PAGE_SIZE}
+                onPageChange={setOffset}
+              />
+            </SettingsManagerBlock>
+          )}
           <div className={settings.clipboardList} aria-label="剪贴板历史">
             {entries.length === 0 ? (
               <SettingsEmptyMessage>暂无历史记录</SettingsEmptyMessage>
             ) : (
-              entries.map((entry) => (
+              visibleEntries.map((entry) => (
                 <div className={settings.clipboardRow} data-clipboard-entry-row="" key={entry.text}>
                   <span className={settings.clipboardEntry}>
                     <span title={entry.text}>{entry.text}</span>
