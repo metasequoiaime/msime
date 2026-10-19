@@ -27,7 +27,8 @@ import type { GlobalTheme } from "../theme/global-theme";
 import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
-import { keyboardKeyLabel, keyboardKeyWeight } from "./keyboard-input";
+import { keyboardKeyWeight } from "./keyboard-input";
+import { KeyboardKeyButton } from "./keyboard-key-button";
 import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import type { NineKeyShuangpinKeyFace } from "../settings/nine-key-shuangpin-profile";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
@@ -171,58 +172,29 @@ export function KeyboardPanel({
         <div className={surface.keyboardLayout} data-keyboard-layout-grid="" style={keyboardStyle}>
           {rows.map((row, rowIndex) => (
             <div className={surface.keyboardRow} data-keyboard-row="" key={rowIndex}>
-              {row.map((keyToRender, keyIndex) => {
-                const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
-                const label = keyboardKeyLabel(keyToRender, shifted);
-                return (
-                  <button
-                    type="button"
-                    disabled={openingVoice}
-                    key={`${keyToRender.label}-${keyIndex}`}
-                    style={{
-                      flexGrow:
-                        activeLayout === "nine_key" || activeLayout === "nine_key_shuangpin"
-                          ? 1
-                          : keyboardKeyWeight(
-                              keyToRender.label,
-                              keyIndex,
-                              row.some((item) => item.virtualKey === 0x20),
-                            ),
-                    }}
-                    aria-pressed={
-                      keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined
-                    }
-                    data-key-material={keyMaterial}
-                    className={`keyboard-key ${surface.keyboardKey({
-                      material: keyMaterial,
-                      active: Boolean(
-                        keyToRender.modifier && renderedModifiers.has(keyToRender.modifier),
-                      ),
-                      wide: keyToRender.label.length > 1,
-                    })}`}
-                    onPointerDown={(event) => beginPointerKey(event, keyToRender)}
-                    onPointerUp={endPointerKey}
-                    onPointerCancel={cancelPointerKey}
-                    onPointerLeave={stopKeyRepeat}
-                    onClick={(event) => {
-                      // Pointer activation is delivered on pointerdown for immediate response and repeat, or on Windows on release over the same key. A detail-zero click comes from keyboard or assistive activation and still sends exactly one key.
-                      if (
-                        keyToRender.modifier ||
-                        keyToRender.virtualKey === 0x90 ||
-                        event.detail === 0
-                      )
-                        pressKey(
-                          resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""),
-                        );
-                    }}
-                  >
-                    <span data-key-label="">{label}</span>
-                    {keyToRender.hint && (
-                      <span className={surface.keyboardKeyHint}>{keyToRender.hint}</span>
-                    )}
-                  </button>
-                );
-              })}
+              {row.map((keyToRender, keyIndex) => (
+                <KeyboardKeyButton
+                  key={`${keyToRender.label}-${keyIndex}`}
+                  keyToRender={keyToRender}
+                  modifiers={renderedModifiers}
+                  material={keyMaterial}
+                  disabled={openingVoice}
+                  flexGrow={
+                    activeLayout === "nine_key" || activeLayout === "nine_key_shuangpin"
+                      ? 1
+                      : keyboardKeyWeight(
+                          keyToRender.label,
+                          keyIndex,
+                          row.some((item) => item.virtualKey === 0x20),
+                        )
+                  }
+                  onPointerDown={beginPointerKey}
+                  onPointerUp={endPointerKey}
+                  onPointerCancel={cancelPointerKey}
+                  onPointerLeave={stopKeyRepeat}
+                  onActivate={(key, displayed) => pressKey(resolveRenderedKey(key, displayed))}
+                />
+              ))}
             </div>
           ))}
         </div>

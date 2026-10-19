@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`keyboard-input.ts` 提供公共 `isKeyboardLetter` 与 `keyboardKeyLabel`，供三处调用。标签方法只根据调用方传入的布尔值选择原标签、显式 Shift 标签或 ASCII 大写回退，不读取修饰键状态，不重新解释 Caps Lock。调用方保留现有单字符键面限制、发送大小写判断、虚拟键和同步 DOM 更新时机。
+`keyboard-input.ts` 提供公共 `isKeyboardLetter` 与 `keyboardKeyLabel`，供三处调用。标签方法只根据调用方传入的布尔值选择原标签、显式 Shift 标签或 ASCII 大写回退，不读取修饰键状态，不重新解释 Caps Lock。[公共按键按钮](2026-10-19-keyboard-key-button.md)保留单字符键面限制，状态 hook 保留发送大小写判断、虚拟键和同步 DOM 更新时机。
 
 历史检索：[屏幕键盘状态](../../implemented/simplification/2026-10-19-keyboard-panel-state.md) 管理面板状态边界，与本片部分重叠，保留并互链；实体键 Caps Lock 切换、Engine 大写拼音和原生平台键面笔记属于其他输入路径，不修改。没有已有笔记承载共享面板标签计算。
 
