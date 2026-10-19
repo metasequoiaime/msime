@@ -12,6 +12,8 @@ Windows 实际候选窗已支持 canvas，原生设置的外部皮肤卡片和�
 
 预览只展示该包，不带用户取色器。主题响应提供基础配色，catalog 的 `candidate`／`panelCandidate` 补入候选正文、预编辑文字、底带与分隔线这些静态样例实际绘制的细分槽位；面板坏图时整套回退，不残留贴图专用预编辑色。
 
+共用绘制头带入 WRL 的全局 `Microsoft`／`Windows` 命名空间，设置文件的界面名称显式绑定到 `winrt` 投影，原生 `ComPtr` 使用 `::Microsoft::WRL`，避免只在 MSVC 的 WinUI 构建中暴露的命名空间歧义。
+
 ## Historical audit
 
 - [原生皮肤卡片](../../implemented/feature/2026-10-11-windows-settings-custom-theme-skins.md)部分重叠：保留选择、槽位和异步扫描，本篇补绘制。

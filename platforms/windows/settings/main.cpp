@@ -98,12 +98,16 @@
 #include <winrt/Windows.UI.h>
 
 using namespace winrt;
-using namespace Microsoft::UI::Xaml;
-using namespace Microsoft::UI::Xaml::Controls;
-using namespace Microsoft::UI::Xaml::Media;
-using namespace Windows::Data::Json;
+using namespace winrt::Microsoft::UI::Xaml;
+using namespace winrt::Microsoft::UI::Xaml::Controls;
+using namespace winrt::Microsoft::UI::Xaml::Media;
+using namespace winrt::Windows::Data::Json;
 
 namespace {
+
+// WRL 同时声明全局 Microsoft/Windows；本文件的界面名称始终指向 WinRT 投影。
+namespace Microsoft = winrt::Microsoft;
+namespace Windows = winrt::Windows;
 
 // windows.h may declare the COM ::IInspectable as well; this alias always means the WinRT projection.
 using Inspectable = winrt::Windows::Foundation::IInspectable;
@@ -2705,7 +2709,7 @@ std::optional<std::vector<uint8_t>> render_canvas_preview(SkinPackage const &ski
   const auto bitmap = msime::windows::candidate_canvas_preview(
       factory.get(), skin.canvas, dark ? skin.dark : skin.light,
       dark ? skin.panel_dark : skin.panel_light, dark, vertical, skin.min_width,
-      [&](const std::wstring &relative) -> Microsoft::WRL::ComPtr<IWICBitmap> {
+      [&](const std::wstring &relative) -> ::Microsoft::WRL::ComPtr<IWICBitmap> {
         const auto key = skin_image_key(skin.id, relative);
         for (const auto &image : images) {
           if (image.key != key || image.bytes.empty() || image.bytes.size() > 8 * 1024 * 1024)
@@ -2716,7 +2720,7 @@ std::optional<std::vector<uint8_t>> render_canvas_preview(SkinPackage const &ski
           if (!animation || animation->FrameCount() == 0)
             return nullptr;
           const auto &pixels = animation->FramePixels(0);
-          Microsoft::WRL::ComPtr<IWICBitmap> decoded;
+          ::Microsoft::WRL::ComPtr<IWICBitmap> decoded;
           if (FAILED(factory->CreateBitmapFromMemory(
                   animation->Width(), animation->Height(), GUID_WICPixelFormat32bppPBGRA,
                   animation->Width() * 4, static_cast<UINT>(pixels.size()),
