@@ -158,7 +158,7 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
     let (client, _child) = start(&options, &["--allow-write"]).await;
-    assert_eq!(tool_names(&client).await.len(), 9);
+    assert_eq!(tool_names(&client).await.len(), 10);
 
     // Quick phrases: add, list, replace, remove, with a failure in the middle of a batch.
     let outcome = ok(
@@ -295,7 +295,7 @@ async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
     client.cancel().await.unwrap();
 
     let (client, _child) = start(&options, &["--allow-write", "--allow-dictionary-read"]).await;
-    assert_eq!(tool_names(&client).await.len(), 13);
+    assert_eq!(tool_names(&client).await.len(), 14);
 
     let outcome = ok(
         &client,
@@ -1051,6 +1051,54 @@ async fn an_agent_manages_candidate_skins() {
     .await;
     assert_eq!(restored["global_theme"], "system");
     assert_eq!(restored["candidate_skin_dark"], Value::Null);
+
+    // 删掉它：内置主题拒绝；选着时拒绝；取下后删掉，目录里不再列出。
+    after_write_interval().await;
+    let error = refused(
+        &client,
+        "delete_candidate_skin",
+        json!({ "package_id": "night" }),
+    )
+    .await;
+    assert!(error.contains("cannot be deleted"), "{error}");
+    after_write_interval().await;
+    ok(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": restored["revision"], "candidate_skin_dark": "dusk" }),
+    )
+    .await;
+    after_write_interval().await;
+    let error = refused(
+        &client,
+        "delete_candidate_skin",
+        json!({ "package_id": "dusk" }),
+    )
+    .await;
+    assert!(error.contains("chosen as candidate_skin_dark"), "{error}");
+    let chosen = ok(&client, "get_preferences", json!({})).await;
+    after_write_interval().await;
+    ok(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": chosen["revision"], "candidate_skin_dark": null, "global_theme": "system" }),
+    )
+    .await;
+    after_write_interval().await;
+    assert_eq!(
+        ok(
+            &client,
+            "delete_candidate_skin",
+            json!({ "package_id": "dusk" })
+        )
+        .await,
+        json!({ "id": "dusk", "synced": false })
+    );
+    assert_eq!(
+        ok(&client, "list_candidate_skins", json!({})).await["skins"],
+        json!([])
+    );
+    assert!(!directory.path().join("skins/dusk").exists());
 
     client.cancel().await.unwrap();
 }

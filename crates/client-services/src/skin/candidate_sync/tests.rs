@@ -536,6 +536,71 @@ fn deleting_a_synced_package_locally_removes_it_from_the_library() {
 }
 
 #[test]
+fn a_deleted_synced_package_leaves_the_library_on_the_next_run_without_coming_back() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    write_skin(&fixture.root, "local", "本机", 2);
+    fixture.sync();
+    // 只删 sakura：报告它同步过，同步状态原样留着，下一次同步据此删掉库里那一行。
+    let state = fs::read(&fixture.state).unwrap();
+    assert_eq!(
+        delete_installed(&fixture.root, &fixture.state, "sakura"),
+        Ok(true)
+    );
+    assert!(!fixture.root.join("sakura").exists());
+    assert!(fixture.installed("local"));
+    assert_eq!(fs::read(&fixture.state).unwrap(), state);
+    let report = fixture.sync();
+    assert_eq!(report.deleted_cloud, ids(&["sakura"]));
+    assert!(report.downloaded.is_empty());
+    assert!(!fixture.root.join("sakura").exists());
+    assert_eq!(fixture.sync(), CandidateSkinSyncReport::default());
+    assert!(!synced_packages(&fixture.state).contains_key("sakura"));
+}
+
+#[test]
+fn deleting_refuses_reserved_names_missing_skins_and_anything_but_a_folder() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    assert_eq!(
+        delete_installed(&fixture.root, &fixture.state, "sakura"),
+        Ok(false)
+    );
+    for id in ["night", "fluent", "default", "../skins", ".removed-x", ""] {
+        assert_eq!(
+            delete_installed(&fixture.root, &fixture.state, id),
+            Err(PACKAGE),
+            "{id}"
+        );
+    }
+    assert_eq!(
+        delete_installed(&fixture.root, &fixture.state, "sakura"),
+        Err(NOT_INSTALLED)
+    );
+    fs::write(fixture.root.join("stray"), b"not a skin").unwrap();
+    assert_eq!(
+        delete_installed(&fixture.root, &fixture.state, "stray"),
+        Err(PACKAGE)
+    );
+    assert!(fixture.root.join("stray").is_file());
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().unwrap();
+        write_skin(outside.path(), "linked", "链接", 3);
+        msime_path_trust::untrusted_symlink(
+            outside.path().join("linked"),
+            fixture.root.join("linked"),
+        )
+        .unwrap();
+        assert_eq!(
+            delete_installed(&fixture.root, &fixture.state, "linked"),
+            Err(PACKAGE)
+        );
+        assert!(outside.path().join("linked").join("skin.toml").is_file());
+    }
+}
+
+#[test]
 fn a_local_deletion_does_not_discard_a_newer_library_copy() {
     let fixture = Fixture::new();
     write_skin(&fixture.root, "sakura", "樱花", 1);

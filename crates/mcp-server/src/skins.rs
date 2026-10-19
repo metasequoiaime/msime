@@ -2,6 +2,8 @@
 //!
 //! 资源支持 PNG/JPEG/APNG/GIF/WebP，预览保持 PNG/JPEG。图片可以是 base64，也可以是本机文件的绝对路径：代理先用代码把图写成文件再给路径，免得几十 KB 的 base64 在转写时出错。MCP 只写本地皮肤，不持有账号会话；宿主在用户触发同步时检查服务端能力，再上传扩展包。
 
+use msime_client_core::edition::Edition;
+use msime_client_core::preferences::PreferencesStore;
 use msime_client_core::uuid::Uuid;
 use msime_client_services::skin::candidate_community::{self, CandidateSkinPackage};
 use msime_client_services::skin::{candidate_sync, catalog};
@@ -114,6 +116,23 @@ pub struct CreatedSkin {
     pub replaced: bool,
 }
 
+/// 指定一款已安装的皮肤。
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct SkinRequest {
+    /// 皮肤的 id，即 list_candidate_skins 给出的 id，也是皮肤目录里的文件夹名。
+    pub package_id: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct DeletedSkin {
+    pub id: String,
+    /// 设置应用是否把它同步到过用户的云端皮肤库。同步过的，设置应用下一次同步时把库里私有的那份一起删掉；公开发布的那份保留，删除前在另一台设备上改过的那份会被下载回来。
+    pub synced: bool,
+}
+
 fn root(state_dir: &Path) -> PathBuf {
     state_dir.join(SKIN_DIRECTORY)
 }
@@ -197,6 +216,46 @@ pub fn create(state_dir: &Path, request: &CreateSkinRequest) -> Result<CreatedSk
         Err("candidate_skin_package") => Err(manifest_problem(request)),
         Err("candidate_skin_file_unreadable") => Err(local_file_problem(&request.image_files)),
         Err(code) => Err(explain(code).to_owned()),
+    }
+}
+
+/// 删掉一款用户装的皮肤。偏好里选着它（浅色或深色槽位，无论当前主题是不是 custom）时拒绝，不顺手改偏好：改偏好要走 update_preferences 的修订号比较，删除不该绕开它。同步状态由共享的 `candidate_sync::delete_installed` 保留，见那里的说明。
+pub fn delete(
+    state_dir: &Path,
+    edition: &'static Edition,
+    request: &SkinRequest,
+) -> Result<DeletedSkin, String> {
+    let id = request.package_id.as_str();
+    if !catalog::is_external_id(id) {
+        return Err(format!("{id:?} is not a skin the user installed: built-in themes, msime-windows built-in looks, canvas and default cannot be deleted, and a skin id is lowercase ASCII letters, digits, `_`, `-` and `.`"));
+    }
+    let custom = PreferencesStore::for_edition(state_dir, edition)
+        .load()
+        .map_err(|error| error.to_string())?
+        .preferences
+        .custom_theme;
+    let slots: Vec<&str> = [
+        ("candidate_skin", &custom.candidate_skin),
+        ("candidate_skin_dark", &custom.candidate_skin_dark),
+    ]
+    .into_iter()
+    .filter(|(_, skin)| skin.as_deref() == Some(id))
+    .map(|(slot, _)| slot)
+    .collect();
+    if !slots.is_empty() {
+        return Err(format!("{id} is chosen as {} in the preferences; choose another skin there, or set it to null, with update_preferences first", slots.join(" and ")));
+    }
+    let root = root(state_dir);
+    match candidate_sync::delete_installed(&root, &state_dir.join(candidate_sync::STATE_FILE), id) {
+        Ok(synced) => Ok(DeletedSkin {
+            id: id.to_owned(),
+            synced,
+        }),
+        Err("candidate_skin_not_installed") => Err(format!(
+            "no skin {id} is installed; list_candidate_skins shows the installed skins"
+        )),
+        Err("candidate_skin_package") => Err(format!("{id} in the skin directory is not a folder (it is a file or a symbolic link), which this tool does not remove")),
+        Err(_) => Err("the skin folder could not be removed".into()),
     }
 }
 
@@ -730,6 +789,90 @@ mod tests {
         std::fs::write(&file, &PNG_BYTES[..40]).unwrap();
         let error = create(state.path(), &from_file("sunset", &file)).unwrap_err();
         assert!(error.contains("pass its path in image_files"), "{error}");
+        assert!(list(state.path()).skins.is_empty());
+    }
+
+    #[test]
+    fn a_skin_is_deleted_unless_it_is_chosen_or_not_the_users() {
+        use msime_client_core::preferences::Preferences;
+        let state = tempfile::tempdir().unwrap();
+        let edition = Edition::full();
+        let delete = |id: &str| {
+            delete(
+                state.path(),
+                edition,
+                &SkinRequest {
+                    package_id: id.into(),
+                },
+            )
+        };
+        create(state.path(), &request("sunset", "Sunset", false)).unwrap();
+        create(state.path(), &request("dusk", "Dusk", false)).unwrap();
+
+        // 偏好里选着它时拒绝，哪怕当前主题不是 custom。
+        let store = PreferencesStore::new(state.path());
+        let mut preferences = Preferences::default();
+        preferences.custom_theme.candidate_skin_dark = Some("sunset".into());
+        store.save(0, preferences).unwrap();
+        let error = delete("sunset").unwrap_err();
+        assert!(error.contains("chosen as candidate_skin_dark"), "{error}");
+        assert!(state.path().join("skins/sunset").is_dir());
+
+        for (id, expected) in [
+            ("night", "cannot be deleted"),
+            ("fluent", "cannot be deleted"),
+            ("../skins", "cannot be deleted"),
+            ("missing", "no skin missing is installed"),
+        ] {
+            let error = delete(id).unwrap_err();
+            assert!(error.contains(expected), "{id}: {error}");
+        }
+        std::fs::write(state.path().join("skins/stray"), b"not a skin").unwrap();
+        assert!(delete("stray").unwrap_err().contains("is not a folder"));
+
+        let deleted = delete("dusk").unwrap();
+        assert_eq!(
+            deleted,
+            DeletedSkin {
+                id: "dusk".into(),
+                synced: false
+            }
+        );
+        crate::assert_required_fields_present::<DeletedSkin>(
+            &serde_json::to_value(&deleted).unwrap(),
+        );
+        assert!(!state.path().join("skins/dusk").exists());
+        let listed = list(state.path());
+        assert_eq!(listed.skins.len(), 1);
+        assert_eq!(listed.skins[0].id, "sunset");
+    }
+
+    #[test]
+    fn deleting_a_synced_skin_says_so_and_keeps_the_sync_state() {
+        let state = tempfile::tempdir().unwrap();
+        create(state.path(), &request("sunset", "Sunset", false)).unwrap();
+        let sync_state = state.path().join(candidate_sync::STATE_FILE);
+        std::fs::write(
+            &sync_state,
+            serde_json::to_vec(&serde_json::json!({
+                "user_id": "user",
+                "packages": { "sunset": { "cloud_id": Uuid::new_v4(), "cloud_digest": "a", "local_digest": "b" } }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let before = std::fs::read(&sync_state).unwrap();
+        let deleted = delete(
+            state.path(),
+            Edition::full(),
+            &SkinRequest {
+                package_id: "sunset".into(),
+            },
+        )
+        .unwrap();
+        assert!(deleted.synced);
+        // 同步状态留着，设置应用下一次同步才知道要把云端那份一起删掉，而不是当成新包下载回来。
+        assert_eq!(std::fs::read(&sync_state).unwrap(), before);
         assert!(list(state.path()).skins.is_empty());
     }
 

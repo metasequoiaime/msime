@@ -1119,10 +1119,16 @@ mod tests {
         let stored = PreferencesStore::new(state).load().unwrap().preferences;
         assert_eq!(stored.custom_theme.base, GlobalTheme::System);
 
-        // 只换主题。
+        // 只换主题。没有皮肤的视图照样输出两个槽位（null），输出 schema 要求的字段一个不缺。
         let builtin =
             run(json!({ "expected_revision": cleared.revision, "global_theme": "paper" })).unwrap();
         assert_eq!(builtin.global_theme, Theme::Paper);
+        let view = serde_json::to_value(&builtin).unwrap();
+        assert_eq!(view["candidate_skin"], Value::Null);
+        crate::assert_required_fields_present::<PreferencesView>(&view);
+        crate::assert_required_fields_present::<PreferencesView>(
+            &serde_json::to_value(&plain).unwrap(),
+        );
     }
 
     fn change(revision: u64) -> PreferencesChange {

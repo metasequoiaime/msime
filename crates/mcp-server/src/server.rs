@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::diagnostics::{self, LogRequest, LogView, SwitchRequest, SwitchView};
 use crate::preferences::{self, PreferencesChange, PreferencesView};
 use crate::prompts::WRITE_PROMPTS;
-use crate::skins::{self, CreateSkinRequest, CreatedSkin, SkinList};
+use crate::skins::{self, CreateSkinRequest, CreatedSkin, DeletedSkin, SkinList, SkinRequest};
 use crate::statistics::{self, StatisticsRequest, StatisticsView};
 use crate::words;
 use crate::words::{
@@ -39,8 +39,9 @@ const WRITE_LOCK: &str = "mcp-write.lock";
 /// 写锁只保存一个毫秒时间戳，拒绝异常膨胀的内容以免无界分配内存。
 const WRITE_LOCK_READ_LIMIT: u64 = 128;
 
-const WRITE_TOOLS: [&str; 3] = [
+const WRITE_TOOLS: [&str; 4] = [
     "create_candidate_skin",
+    "delete_candidate_skin",
     "edit_quick_phrases",
     "update_preferences",
 ];
@@ -49,7 +50,7 @@ const DICTIONARY_READ_TOOLS: [&str; 2] = ["list_dictionary_words", "lookup_candi
 /// Offered with --allow-write and --allow-dictionary-read together: an edit or import also tells whether a word is there.
 const DICTIONARY_WRITE_TOOLS: [&str; 2] = ["edit_dictionary_words", "import_dictionary_words"];
 
-const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. The app can sync skins to the user's cloud library as private packages when the user requests sync, from where they can publish them; extended resources require explicit server support; this server never signs in to the account itself. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
+const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. update_preferences switches the input method to a skin, and delete_candidate_skin removes one the user no longer wants. The app can sync skins to the user's cloud library as private packages when the user requests sync, from where they can publish them; extended resources require explicit server support; this server never signs in to the account itself. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
 
 #[derive(Clone)]
 pub struct MsimeServer {
@@ -362,6 +363,37 @@ impl MsimeServer {
                 Ok(_) => "installed",
                 Err(_) => "refused",
             }
+        );
+        result
+    }
+
+    #[tool(
+        name = "delete_candidate_skin",
+        description = "Delete one skin the user installed: the folder named package_id directly under the input method's skin directory, with everything in it. Refused for a built-in theme, an msime-windows built-in look, canvas or default, for a name that is not installed, for anything there that is not a real folder (a file or a symbolic link), and for a skin chosen as candidate_skin or candidate_skin_dark in the preferences, even while another theme is shown: choose another skin or set the slot to null with update_preferences first. Says whether the desktop app had synced the skin to the user's cloud library; if it had, the app's next sync removes the private copy there too, leaves a publicly published copy published, and downloads it again if it was changed on another device since. Only offered when the user started the server with --allow-write.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_candidate_skin(
+        &self,
+        Parameters(request): Parameters<SkinRequest>,
+    ) -> Result<Json<DeletedSkin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            skins::delete(&state_dir, config.edition(&document)?, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: delete_candidate_skin {}",
+            if result.is_ok() { "deleted" } else { "refused" }
         );
         result
     }
@@ -746,6 +778,7 @@ mod tests {
             names(&server(true)),
             [
                 "create_candidate_skin",
+                "delete_candidate_skin",
                 "edit_quick_phrases",
                 "get_preferences",
                 "get_typing_statistics",
@@ -773,6 +806,7 @@ mod tests {
             names(&server_with(true, true)),
             [
                 "create_candidate_skin",
+                "delete_candidate_skin",
                 "edit_dictionary_words",
                 "edit_quick_phrases",
                 "get_preferences",
@@ -838,6 +872,16 @@ mod tests {
             "refuses a file over 1 MiB before reading it",
         ] {
             assert!(create.contains(word), "{word}");
+        }
+        let delete = description("delete_candidate_skin");
+        for word in [
+            "directly under the input method's skin directory",
+            "anything there that is not a real folder (a file or a symbolic link)",
+            "chosen as candidate_skin or candidate_skin_dark in the preferences",
+            "the app's next sync removes the private copy there too",
+            "Only offered when the user started the server with --allow-write",
+        ] {
+            assert!(delete.contains(word), "{word}");
         }
         let list = description("list_candidate_skins");
         assert!(list.contains("idle motion, motion period and frame count"));

@@ -28,6 +28,8 @@ const RATE_LIMITED: &str = "account_rate_limited";
 const LIBRARY_LIMIT: &str = "candidate_skin_library_limit";
 const PACKAGE: &str = "candidate_skin_package";
 const STORAGE: &str = "storage";
+/// [`delete_installed`] 要删的皮肤文件夹不存在。
+const NOT_INSTALLED: &str = "candidate_skin_not_installed";
 /// A public package removed locally: taking it down would clear its downloads and ratings, so that stays a choice made in the gallery.
 const PUBLIC_KEPT: &str = "candidate_skin_public_kept";
 
@@ -374,6 +376,37 @@ pub fn synced_packages(state_path: &Path) -> BTreeMap<String, Uuid> {
         .into_iter()
         .map(|(id, synced)| (id, synced.cloud_id))
         .collect()
+}
+
+/// 删掉皮肤目录 `root` 下用户装的皮肤 `id`，返回它是否和账号的皮肤库同步过（[`synced_packages`] 里有它）。
+///
+/// 只删 `root` 下直接的、真实的文件夹：名字必须是外部皮肤 id（`catalog::is_external_id`，内置主题、msime-windows 内置外观和 `default` 都不是），不存在时返回 `candidate_skin_not_installed`，是文件或符号链接时返回 `candidate_skin_package`，什么都不删。文件夹先改名为目录扫描看不到的 `.removed-<id>` 再删，中途失败就改回来，所以不会留下删了一半、还列在目录里的皮肤。持有同步运行锁和状态文件锁，与本机设置应用的同步运行互斥。
+///
+/// 同步状态不动：下一次同步看到一个同步过、本地已不在、库里那一行也没变的包，会把库里私有的那一行一起删掉；公开发布的那一行保留（下架留给图库里的选择），另一台设备改过的那一行会被下载回来。这与在磁盘上删掉皮肤文件夹之后相同。若这里同时忘掉同步状态，下一次同步会把库里那一行当成别处新加的包重新下载回来。
+pub fn delete_installed(root: &Path, state_path: &Path, id: &str) -> Result<bool, &'static str> {
+    if !catalog::is_external_id(id) {
+        return Err(PACKAGE);
+    }
+    let _run = lock_runs();
+    let state_lock = lock_state(state_path)?;
+    let synced = load_state_locked(&state_lock).packages.contains_key(id);
+    crate::storage::reject_symlink(root).map_err(|_| STORAGE)?;
+    let _writes = super::folder_import::lock_skin_root();
+    match std::fs::symlink_metadata(root.join(id)) {
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => return Err(PACKAGE),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Err(NOT_INSTALLED),
+        Err(_) => return Err(STORAGE),
+    }
+    #[cfg(unix)]
+    let removed = remove_local_skin_at(root, id).is_ok();
+    #[cfg(not(unix))]
+    let removed = remove_local_skin_by_path(root, id);
+    if removed {
+        Ok(synced)
+    } else {
+        Err(STORAGE)
+    }
 }
 
 /// Why [`publish`] failed: a package rule, or the account request.
