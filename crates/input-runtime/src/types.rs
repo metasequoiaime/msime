@@ -36,6 +36,9 @@ pub struct Candidate {
     pub highlighted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub translation: Option<String>,
+    /// 与 `translation` 同源的 UTF-8 字节范围；空时省略，旧宿主可忽略。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub translation_runs: Vec<msime_client_core::translation::TranslationRun>,
     /// 脚本插件给这一行加的注释（≤ 32 个 UTF-16 码元，不含控制和格式字符），和引擎的 `annotation` 分开放：宿主按 `annotation` 画辅助码、韩文汉字释义，插件的注释不能混进去。没有时不出现在 JSON 里，只在桌面编译。
     #[cfg(any(
         target_os = "macos",

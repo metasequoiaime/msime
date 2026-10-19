@@ -111,6 +111,8 @@ void koreanHanjaGlossRow() {
               shown(glossed).formatAt(1) == secondary &&
               shown(glossed).formatAt(2) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::NoFlag),
           "a translation follows the 훈음 and the annotation is not drawn twice");
+  require(glossed.display().body == "韓  나라 이름 한, 한나라 한" && glossed.display().translation == "Korea",
+          "原生画布和 classicui 保留同一训音与释义，候选正文不含释义");
   const auto helpcode = word(Json{{"text", "你"}, {"annotation", "ab"}}, true, std::string());
   require(shown(helpcode).toString() == "你  ab" && shown(helpcode).size() == 1, "a helpcode stays plain row text");
   require(word(Json{{"text", "你"}, {"annotation", "ab"}}, false, std::string()).text() == "你" &&
@@ -136,6 +138,13 @@ void scriptAnnotationRow() {
                               {"translation", "you"}}, true);
   require(shown(both).toString() == "你  ab  you  〔常用〕",
           "the engine annotation and the translation stay, the script annotation comes last");
+  require(both.display().body == "你  ab" && both.display().translation == "you" &&
+              both.display().suffix == "  〔常用〕" && both.text() == "你",
+          "原生画布独立保留正文、释义与插件后缀，上屏文字不变");
+  const Json runs = Json::array({Json{{"start", 0}, {"length", 2}, {"role", "pos"}}});
+  const auto segmented = word(Json{{"text", "你"}, {"translation", "n. synthetic"}, {"translation_runs", runs}}, false);
+  require(segmented.display().translation_runs == runs && segmented.display().translation == "n. synthetic",
+          "原生画布接收共享层的同源释义分段，不在宿主重新解析");
   const auto hanja = word(Json{{"text", "韓"}, {"annotation", "나라 이름 한"}, {"script_annotation", "注"}},
                           false, "나라 이름 한");
   require(shown(hanja).toString() == "韓  나라 이름 한  〔注〕",

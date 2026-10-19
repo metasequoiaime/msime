@@ -799,10 +799,12 @@ for host in (source, ibus_source):
     assert "msime::linux_host::candidate_script_annotation(candidate)" in host
     assert "msime::linux_host::candidate_script_annotation_suffix(" in host
     assert '"script_annotation"' not in host
-fcitx_row = body(source, "fcitx::Text candidateRowText(", "\n}\n")
+fcitx_row = body(source, "FcitxCandidateDisplay candidateDisplay(", "\n}\n")
 assert fcitx_row.index('candidate.at("translation")') < fcitx_row.index(
     "candidate_script_annotation(candidate)"
-) < fcitx_row.index("fcitx::TextFormatFlag::DontCommit});\n  return row;")
+) < fcitx_row.index("row.append(display.suffix,") < fcitx_row.index(
+    "fcitx::TextFormatFlags{fcitx::TextFormatFlag::DontCommit});\n  }\n  display.classic = std::move(row);"
+) < fcitx_row.rindex("return display;")
 ibus_row = body(
     ibus_source,
     "  for (size_t index = 0; index < candidates.size(); ++index) {\n    const auto &candidate = candidates.at(index);\n    auto value = candidate.at(\"text\").get<std::string>();",

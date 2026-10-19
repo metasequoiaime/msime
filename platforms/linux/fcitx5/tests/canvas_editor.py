@@ -2,17 +2,19 @@
 import ctypes
 import configparser
 from collections import Counter
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 import io
 import json
 import os
 from pathlib import Path
 import re
 import sqlite3
+import socket
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zlib
 
@@ -163,6 +165,58 @@ SELECTED = (7, 91, 173)
 WIDGET = (255, 0, 171)
 
 
+def synthetic_translation_provider(root, cleanups):
+    """只返回合成释义，通过真实本地 socket 进入宿主刷新链。"""
+    path = root / "translation.sock"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(path))
+    server.listen(4)
+    server.settimeout(0.2)
+    stopped, errors = threading.Event(), []
+
+    def serve():
+        while not stopped.is_set():
+            try:
+                client, _ = server.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                if not stopped.is_set():
+                    errors.append("合成释义 socket 意外关闭")
+                return
+            try:
+                with client:
+                    client.settimeout(2)
+                    request = b""
+                    while b"\n" not in request and len(request) < 65536:
+                        chunk = client.recv(4096)
+                        if not chunk:
+                            break
+                        request += chunk
+                    document = json.loads(request)
+                    assert document["kind"] == "translation"
+                    texts = document["query"]["candidates"]
+                    reply = {"translations": ([{"text": texts[0], "translation": "proper n. MMM；n. MMM"}]
+                                               if texts else [])}
+                    client.sendall(json.dumps(reply).encode() + b"\n")
+            except Exception as error:
+                if not stopped.is_set():
+                    errors.append(type(error).__name__)
+
+    thread = threading.Thread(target=serve, name="synthetic-canvas-translation", daemon=True)
+    thread.start()
+
+    def close():
+        stopped.set()
+        server.close()
+        thread.join(timeout=3)
+        assert not thread.is_alive(), "合成释义服务未退出"
+        assert not errors, f"合成释义协议失败：{errors}"
+
+    cleanups.callback(close)
+    return str(path)
+
+
 def native_window():
     result = subprocess.run(["xdotool", "search", "--onlyvisible", "--class", "^MSIMECandidateCanvas$"],
                             stdout=subprocess.PIPE, text=True, timeout=5)
@@ -291,6 +345,61 @@ def accept_appearance(manifest, preferences, publish, entry):
     wait(lambda: all(screenshot()[1][color] < 16 for color in (bar, background, divider, caret)))
 
 
+def accept_translation(manifest, preferences, publish, entry):
+    original = manifest.read_text()
+    normal = ((239, 48, 64), (20, 223, 90), (40, 112, 255))
+    selected = ((255, 212, 42), (250, 57, 224), (38, 231, 231))
+    keys = ("translation", "translation_pos", "translation_separator", "selected_translation",
+            "selected_translation_pos", "selected_translation_separator")
+    style = original
+    for mode in ("light", "dark"):
+        slots = "".join(f"{key} = '#{r:02X}{g:02X}{b:02X}'\n"
+                        for key, (r, g, b) in zip(keys, normal + selected))
+        style = style.replace(f"[candidate.{mode}]\n", f"[candidate.{mode}]\n{slots}")
+    manifest.write_text(style)
+    preferences.update(candidate_translations=True, candidate_english_gloss=False, translation_target_language="en")
+    publish()
+
+    def visible(colors, background=SELECTED):
+        _, counts = screenshot()
+        # 小字号分号可能只有一个纯色像素；检查前景与已知底色之间的抗锯齿混合线。
+        def ink(color):
+            delta = tuple(value - base for value, base in zip(color, background))
+            length = sum(value * value for value in delta)
+            result = 0
+            for actual, count in counts.items():
+                alpha = sum((value - base) * change for value, base, change in zip(actual, background, delta)) / length
+                if 0.6 <= alpha <= 1.02 and all(abs(value - (base + alpha * change)) <= 4
+                                               for value, base, change in zip(actual, background, delta)):
+                    result += count
+            return result
+        return all(ink(color) >= 2 for color in colors)
+
+    wait(lambda: visible(selected))
+    save_image("native-translation-selected")
+    subprocess.run(["xdotool", "key", "Down"], check=True, timeout=5)
+    wait(lambda: visible(normal, LIGHT[4]))
+    save_image("native-translation-normal")
+    subprocess.run(["xdotool", "key", "Up"], check=True, timeout=5)
+    wait(lambda: visible(selected))
+    replacement = (198, 103, 241)
+    manifest.write_text(style.replace("#FA39E0", "#C667F1"))
+    wait(lambda: visible((selected[0], replacement, selected[2])))
+    save_image("native-translation-hot-update")
+    left, top, right, bottom = color_bounds(SELECTED)
+    subprocess.run(["xdotool", "mousemove", str((left + right) // 2), str((top + bottom) // 2), "click", "1"],
+                   check=True, timeout=5)
+    wait(lambda: entry.get_text() == "你")
+    assert "MMM" not in entry.get_text(), "释义进入了上屏文字"
+    wait(lambda: native_window() is None)
+    preferences["candidate_translations"] = False
+    publish()
+    manifest.write_text(original)
+    entry.set_text("")
+    subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni"], check=True, timeout=5)
+    wait(lambda: palette_visible((SELECTED,)))
+
+
 def click_color(color, button):
     x, y = color_position(color)
     subprocess.run(["xdotool", "mousemove", str(x), str(y), "click", str(button)], check=True, timeout=5)
@@ -358,7 +467,7 @@ def main():
     if WAYLAND:
         assert profile and os.environ.get("XDG_DATA_HOME") == str(Path(profile) / "data"), "需要启动前固定的合成配置目录"
     profile_context = nullcontext(profile) if profile else tempfile.TemporaryDirectory(prefix="msime-canvas-editor-")
-    with profile_context as directory:
+    with profile_context as directory, ExitStack() as cleanups:
         root = Path(directory)
         if WAYLAND:
             assert GLib.get_user_data_dir() == str(root / "data"), "GLib 缓存了夹具以外的数据目录"
@@ -400,6 +509,8 @@ def main():
                            candidate_layout=os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical"))
         if NATIVE:
             preferences["navigation"]["mouse_wheel"] = True
+            preferences.update(candidate_translations=False, candidate_english_gloss=False)
+            options["translation_provider_socket"] = synthetic_translation_provider(root, cleanups)
         preferences["custom_theme"].update(base="system", candidate_skin="canvas-fixture",
                                            candidate_skin_dark="canvas-fixture")
 
@@ -549,6 +660,8 @@ def main():
                     manifest.write_text(original_manifest)
                     wait(lambda: selected_pixels() == original_selected)
                     accept_appearance(manifest, preferences, publish, entry)
+                    wait(lambda: selected_pixels() == original_selected)
+                    accept_translation(manifest, preferences, publish, entry)
                     wait(lambda: selected_pixels() == original_selected)
                     before_move = window_geometry(native_window())
                     window.move(100, 80)

@@ -44,3 +44,5 @@ Linux X11 的字体与候选布局消费见[原生画布布局](2026-10-20-linux
 Web 绘制切片的后续验证：本机 `node --test 'packages/web-engine/test/*.test.mjs'` 36 项通过；`CHROME_BIN=... node packages/web-engine/test/candidates.browser.mjs` 通过，截图像素断言覆盖九宫格四角/边缘/中心、挂件前后层级、裁切、点击穿透、留白定位、图片失败与过期回调，以及 APNG/GIF 面板和挂件的真实帧变化。减弱动态效果时首帧保持不变，实时切换系统偏好和无 CORS 响应头的跨域图片同样通过。固定上游 `c0a9d371` 的 `green_leaf` 与 `sakura-night` 实际图片在浅/深色与横/竖排的八种组合中显示正常；这些源资源只用于本机验收，没有复制进本仓库。类型声明检查、`cargo fmt --all -- --check`、本机 services 皮肤测试 262 项、MCP 单测 69 项与 stdio 11 项、services/MCP 的 `clippy --all-targets -- -D warnings` 均通过。以上只覆盖 Web 贴图绘制与共享回退契约，不代表其余原生宿主具备完整贴图能力。
 
 选中条、逐角高亮、悬停与预编辑配色由[原生画布外观](../../implemented/feature/2026-10-20-linux-canvas-appearance.md)补充，保留本篇其余范围与生命周期规则。
+
+[候选释义分段](2026-10-20-candidate-translation-runs.md)由共享 Rust 层发布 UTF-8 同源范围与规范化颜色；Linux 原生画布消费这些范围，其他宿主可继续忽略新增的可选字段。

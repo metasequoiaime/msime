@@ -182,6 +182,17 @@ pub struct CandidateDetails {
     pub preedit_caret: Option<String>,
     pub selected_translation: Option<String>,
     pub selected_bar: Option<String>,
+    /// 显式释义色与分段色；不把 `secondary` 的序号默认色误当成皮肤声明的释义色。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation_pos: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation_separator: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_translation_pos: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_translation_separator: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preedit_background: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -311,17 +322,30 @@ pub fn resolve(
     let number = explicit.number.or(base_palette.number);
     let accent = explicit.accent.or(base_palette.accent);
     let candidate_details = drawn.and_then(|(_, palette)| {
+        let selected_detail = |value: &Option<String>| {
+            color(value).map(|authored| {
+                picked_selected_text
+                    .as_deref()
+                    .map(|text| with_alpha(text, PICKED_NUMBER_ALPHA))
+                    .unwrap_or(authored)
+            })
+        };
+        let selected_translation = selected_detail(&palette.selected_translation);
         let details = CandidateDetails {
             preedit_text: picked_preedit_text
                 .clone()
                 .or_else(|| color(&palette.preedit_text)),
             preedit_caret: color(&palette.preedit_caret),
-            selected_translation: color(&palette.selected_translation).map(|authored| {
-                picked_selected_text
-                    .as_deref()
-                    .map(|text| with_alpha(text, PICKED_NUMBER_ALPHA))
-                    .unwrap_or(authored)
-            }),
+            translation: color(&palette.translation),
+            translation_pos: color(&palette.translation_pos),
+            translation_separator: color(&palette.translation_separator),
+            selected_translation_pos: selected_detail(&palette.selected_translation_pos)
+                .or_else(|| selected_translation.clone()),
+            selected_translation_separator: selected_detail(
+                &palette.selected_translation_separator,
+            )
+            .or_else(|| selected_translation.clone()),
+            selected_translation,
             selected_bar: color(&palette.selected_bar),
             preedit_background: color(&palette.preedit_background),
             preedit_divider: color(&palette.preedit_divider),

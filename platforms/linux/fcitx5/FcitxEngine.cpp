@@ -4043,15 +4043,23 @@ public:
   size_t translation_cursor_ = 0;
 };
 
-// The row as the panel draws it.
+// classicui 的文字和原生画布的分段来自同一份候选快照。
+struct FcitxCandidateDisplay {
+  fcitx::Text classic;
+  std::string body, translation, suffix;
+  Json translation_runs = Json::array();
+};
 // `variant` 是繁体变体的编号，只在 `traditional` 为真时用到。
-fcitx::Text candidateRowText(const Json &candidate, bool traditional, bool annotations,
-                             const std::string &hanjaGloss, uint32_t variant) {
+FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, bool annotations,
+                                     const std::string &hanjaGloss, uint32_t variant) {
+  FcitxCandidateDisplay display;
   // Engine 候选来源 12 是 AI 占位行（「…」或「—」）：Fcitx5 的文本格式没有颜色，用斜体表示它是次要的，并标明不上屏（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
-  if (msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 12)
-    return fcitx::Text(candidate.at("text").get<std::string>(),
-                       fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic,
-                                              fcitx::TextFormatFlag::DontCommit});
+  if (msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 12) {
+    display.body = candidate.at("text").get<std::string>();
+    display.classic = fcitx::Text(display.body,
+        fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic, fcitx::TextFormatFlag::DontCommit});
+    return display;
+  }
   fcitx::Text row((traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>(), variant)
                                : candidate.at("text").get<std::string>()) +
       // Engine-corrected spellings carry the same light marker Windows and the IBus host draw. Only the displayed row gets it: selection goes by session/generation/index, and text_ below, which the candidate actions (dictionary removal) read, stays the Engine's text.
@@ -4064,27 +4072,40 @@ fcitx::Text candidateRowText(const Json &candidate, bool traditional, bool annot
   if (!hanjaGloss.empty())
     row.append("  " + hanjaGloss, fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic,
                                                          fcitx::TextFormatFlag::DontCommit});
-  if (candidate.contains("translation") && candidate.at("translation").is_string())
-    row.append("  " + candidate.at("translation").get<std::string>());
+  display.body = row.toString();
+  if (candidate.contains("translation") && candidate.at("translation").is_string()) {
+    display.translation = candidate.at("translation").get<std::string>();
+    display.translation_runs = candidate.value("translation_runs", Json::array());
+    row.append("  " + display.translation);
+  }
   // 脚本插件的注释排在整行最后，单独一段：不受辅助码设置影响，不做繁体转换（那是插件自己写的文字），只供显示，所以和训音一样标 DontCommit。
   const auto scriptAnnotation = msime::linux_host::candidate_script_annotation(candidate);
-  if (!scriptAnnotation.empty())
-    row.append(msime::linux_host::candidate_script_annotation_suffix(scriptAnnotation),
+  if (!scriptAnnotation.empty()) {
+    display.suffix = msime::linux_host::candidate_script_annotation_suffix(scriptAnnotation);
+    row.append(display.suffix,
                fcitx::TextFormatFlags{fcitx::TextFormatFlag::DontCommit});
-  return row;
+  }
+  display.classic = std::move(row);
+  return display;
 }
 
 class FcitxCandidate : public fcitx::CandidateWord {
 public:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional,
                  bool annotations, const std::string &hanjaGloss, uint32_t variant = 0)
-      : CandidateWord(candidateRowText(candidate, traditional, annotations, hanjaGloss, variant)), factory_(factory),
+      : FcitxCandidate(factory, candidate, candidateDisplay(candidate, traditional, annotations, hanjaGloss, variant)) {}
+  const FcitxCandidateDisplay &display() const { return display_; }
+private:
+  FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, FcitxCandidateDisplay display)
+      : CandidateWord(std::move(display.classic)), factory_(factory),
         session_(msime::linux_host::strict_json_required_integer<uint64_t>(candidate.at("id").at("session"))),
         generation_(msime::linux_host::strict_json_required_integer<uint64_t>(candidate.at("id").at("generation"))),
         index_(msime::linux_host::strict_json_required_integer<size_t>(candidate.at("id").at("index"))),
         source_(msime::linux_host::strict_json_value(candidate, "source", uint64_t{})),
         text_(candidate.at("text").get<std::string>()),
-        fixed_position_(msime::linux_host::strict_json_value(candidate, "fixed_position", uint8_t{})) {}
+        fixed_position_(msime::linux_host::strict_json_value(candidate, "fixed_position", uint8_t{})),
+        display_(std::move(display)) {}
+public:
   void select(fcitx::InputContext *ic) const override {
     try {
       auto *state = ic->propertyFor(factory_);
@@ -4105,6 +4126,7 @@ private:
   uint64_t source_;
   std::string text_;
   uint8_t fixed_position_;
+  FcitxCandidateDisplay display_;
 };
 
 // 新旧 Fcitx5 共用同一份操作列表和身份校验；旧版没有 ActionableCandidateList。
@@ -7427,8 +7449,15 @@ bool FcitxState::renderNativeCanvas() {
   content.horizontal = list->layoutHint() == fcitx::CandidateLayoutHint::Horizontal;
   content.selected = list->cursorIndex();
   content.wheel_paging = msime::linux_host::read_candidate_wheel_paging(preferences_);
-  for (int at = 0; at < list->size(); ++at)
-    content.items.push_back({list->label(at).toString(), list->candidate(at).text().toString()});
+  for (int at = 0; at < list->size(); ++at) {
+    if (const auto *candidate = dynamic_cast<const FcitxCandidate *>(&list->candidate(at))) {
+      const auto &display = candidate->display();
+      content.items.push_back({list->label(at).toString(), display.body, display.translation,
+          display.suffix, display.translation_runs});
+    } else {
+      content.items.push_back({list->label(at).toString(), list->candidate(at).text().toString()});
+    }
+  }
   content.select = [this, list](int at) {
     if (ic_.hasFocus() && !restricted() && at >= 0 && at < list->size()) list->candidate(at).select(&ic_);
   };

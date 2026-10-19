@@ -1,10 +1,13 @@
-//! Parsing and validation helpers for DeepLX-compatible custom translation services.
+//! 翻译服务校验、释义格式与候选显示分段的共享规则。
 
 use hmac::{Hmac, KeyInit, Mac};
 use md5::Md5;
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
+
+mod display;
+pub use display::{translation_runs, TranslationRun, TranslationRunRole};
 
 /// 候选可能是完整句子；按 Unicode 标量值限制长度，确保各宿主在发送私密文本前使用同一上限。
 pub const MAX_SOURCE_CHARS: usize = 256;

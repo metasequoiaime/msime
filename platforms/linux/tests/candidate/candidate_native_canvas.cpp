@@ -222,9 +222,72 @@ void skin_appearance() {
   cairo_destroy(cr);
 }
 
+void translation_appearance() {
+  host::NativeCanvasAssets assets;
+  host::NativeCanvasContent content;
+  content.font = "Sans 30px";
+  content.items = {{"", "MMMM", "n. MMM；v. MMM", " MM", Json::array({
+      Json{{"start", 0}, {"length", 2}, {"role", "pos"}},
+      Json{{"start", 6}, {"length", 3}, {"role", "separator"}},
+      Json{{"start", 9}, {"length", 2}, {"role", "pos"}}})}};
+  Json palette = {{"surface", "#000000"}, {"selected", "#000000"}, {"hover", "#000000"},
+      {"text", "#FFFFFF"}, {"selected_text", "#FFFFFF"}, {"translation", "#FF0000"},
+      {"translation_pos", "#00FF00"}, {"translation_separator", "#0000FF"},
+      {"selected_translation", "#00FFFF"}, {"selected_translation_pos", "#FF00FF"},
+      {"selected_translation_separator", "#FF8000"}};
+  const auto render = [&](host::NativeCanvasPointer pointer = {}) {
+    auto target = image(1000, 400, 0);
+    auto *cr = cairo_create(target.get());
+    const auto layout = host::measure_native_canvas(cr, assets, content);
+    host::paint_native_canvas(cr, assets, content, layout, palette, 0, pointer);
+    std::map<std::uint32_t, int> colors;
+    for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x) {
+      const auto color = pixel(target.get(), x, y) & 0xffffff;
+      if (color != 0) assert(layout.items[0].contains(x, y));
+      ++colors[color];
+    }
+    cairo_destroy(cr);
+    return std::make_pair(layout, colors);
+  };
+  const auto normal = render();
+  assert(normal.second.at(0xffffff) > 100);
+  for (const auto color : {0xff0000u, 0x00ff00u, 0x0000ffu}) assert(normal.second.at(color) > 3);
+  assert(render({0, -1}).second == normal.second);
+  content.selected = 0;
+  const auto selected = render();
+  for (const auto color : {0x00ffffu, 0xff00ffu, 0xff8000u}) assert(selected.second.at(color) > 3);
+  content.selected = -1;
+  assert(render({0, 0}).second == selected.second);
+  // 错位的 UTF-8 范围、越界、负数和未知角色不能改变颜色或破坏字形。
+  const auto valid_runs = content.items[0].translation_runs;
+  for (const auto &run : Json::array({
+      Json{{"start", 7}, {"length", 1}, {"role", "pos"}},
+      Json{{"start", -1}, {"length", 1}, {"role", "pos"}},
+      Json{{"start", 0}, {"length", 999999}, {"role", "pos"}},
+      Json{{"start", 3}, {"length", 2}, {"role", "unknown"}}}))
+    content.items[0].translation_runs.push_back(run);
+  assert(render().second == normal.second);
+  content.items[0].translation_runs = valid_runs;
+  content.horizontal = true;
+  const auto horizontal = render();
+  assert(horizontal.first.items[0].height > normal.first.items[0].height);
+  assert(horizontal.first.items[0].width < normal.first.items[0].width);
+  for (const auto color : {0xff0000u, 0x00ff00u, 0x0000ffu}) assert(horizontal.second.at(color) > 3);
+  // 透明的选中分段色回到普通分段色；透明释义色回到正文色乘来源的 0.62。
+  content.selected = 0;
+  for (const auto key : {"selected_translation", "selected_translation_pos", "selected_translation_separator"})
+    palette[key] = "#00000000";
+  assert(render().second == horizontal.second);
+  content.items[0].translation_runs = Json::array();
+  palette["translation"] = "#00000000";
+  const auto inherited = render();
+  assert(inherited.second.at(0x9e9e9e) > 3);
+}
+
 int main() {
   skin_layout();
   skin_appearance();
+  translation_appearance();
   // 完整次数、精确帧边界、跨循环和有限末帧停止唤醒。
   host::NativeCanvasAnimation animation;
   animation.frames = {image(1, 1, 0xff0000), image(1, 1, 0x0000ff)};

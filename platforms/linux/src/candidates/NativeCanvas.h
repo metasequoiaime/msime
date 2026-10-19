@@ -115,7 +115,11 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
   return result;
 }
 
-struct NativeCanvasItem { std::string label, text; };
+struct NativeCanvasItem {
+  std::string label, text;
+  std::string translation = {}, suffix = {};
+  nlohmann::json translation_runs = nlohmann::json::array();
+};
 struct NativeCanvasAction { std::string text; std::function<void()> invoke; };
 struct NativeCanvasContent {
   std::string preedit, auxiliary;
@@ -240,6 +244,77 @@ inline std::pair<double, double> native_canvas_text_size(cairo_t *cr, const std:
   return {static_cast<double>(width), static_cast<double>(height)};
 }
 
+// 释义范围按原串字节解释；只给共享层识别的区段加属性，不在宿主重做词性识别。
+inline PangoLayout *native_canvas_item_layout(cairo_t *cr, const NativeCanvasMetrics &metrics,
+    const NativeCanvasItem &item, bool horizontal, const nlohmann::json &colors = nlohmann::json::object(),
+    bool highlighted = false) {
+  auto *line = pango_cairo_create_layout(cr);
+  auto *font = pango_font_description_from_string(metrics.font.c_str());
+  pango_layout_set_font_description(line, font);
+  pango_font_description_free(font);
+  const std::string gap = item.translation.empty() ? "" : horizontal ? "\n" : " ";
+  const auto value = item.text + gap + item.translation + item.suffix;
+  pango_layout_set_text(line, value.c_str(), static_cast<int>(value.size()));
+  if (item.translation.empty()) return line;
+  const auto start = item.text.size() + gap.size(), end = start + item.translation.size();
+  auto *attributes = pango_attr_list_new();
+  const auto insert = [&](PangoAttribute *attribute, std::size_t from, std::size_t to) {
+    attribute->start_index = static_cast<guint>(from);
+    attribute->end_index = static_cast<guint>(to);
+    pango_attr_list_change(attributes, attribute);
+  };
+  insert(pango_attr_size_new_absolute(static_cast<int>(std::round(metrics.font_size * 0.78 * PANGO_SCALE))), start, end);
+  if (!horizontal) {
+    PangoRectangle ink{}, logical{0, 0, static_cast<int>(std::round(metrics.font_size * 0.65 * PANGO_SCALE)), 0};
+    insert(pango_attr_shape_new(&ink, &logical), item.text.size(), start);
+  }
+  const auto color = [&](const char *key) { return theme_color(colors.value(key, nlohmann::json{})); };
+  const auto visible = [](const std::optional<ThemeColor> &color) { return color && color->alpha > 0; };
+  auto base = color(highlighted ? "selected_text" : "text");
+  if (!base) base = color("text");
+  if (!base) base = ThemeColor{0x202020, 255};
+  auto translation = highlighted ? color("selected_translation") : std::optional<ThemeColor>{};
+  if (!visible(translation)) translation = color("translation");
+  if (!visible(translation)) {
+    translation = base;
+    translation->alpha = static_cast<std::uint8_t>(std::round(translation->alpha * 0.62));
+  }
+  const auto paint = [&](ThemeColor color, std::size_t from, std::size_t to) {
+    insert(pango_attr_foreground_new(((color.rgb >> 16) & 255) * 257,
+        ((color.rgb >> 8) & 255) * 257, (color.rgb & 255) * 257), from, to);
+    insert(pango_attr_foreground_alpha_new(color.alpha * 257), from, to);
+  };
+  paint(*translation, start, end);
+  if (item.translation_runs.is_array()) for (const auto &run : item.translation_runs) {
+    if (!run.is_object() || !run.contains("start") || !run.contains("length") ||
+        !run["start"].is_number_integer() || !run["length"].is_number_integer() ||
+        run["start"] < 0 || run["length"] <= 0 || run["start"] > item.translation.size() ||
+        !run.contains("role") || !run["role"].is_string()) continue;
+    const auto from = run["start"].get<std::size_t>(), length = run["length"].get<std::size_t>();
+    if (length > item.translation.size() - from ||
+        !g_utf8_validate(item.translation.data() + from, static_cast<gssize>(length), nullptr)) continue;
+    const auto role = run["role"].get<std::string>();
+    if (role != "pos" && role != "separator") continue;
+    const char *normal = role == "pos" ? "translation_pos" : "translation_separator";
+    const char *selected = role == "pos" ? "selected_translation_pos" : "selected_translation_separator";
+    auto run_color = highlighted ? color(selected) : std::optional<ThemeColor>{};
+    if (!visible(run_color)) run_color = color(normal);
+    paint(visible(run_color) ? *run_color : *translation, start + from, start + from + length);
+  }
+  pango_layout_set_attributes(line, attributes);
+  pango_attr_list_unref(attributes);
+  return line;
+}
+
+inline std::pair<double, double> native_canvas_item_size(cairo_t *cr, const NativeCanvasMetrics &metrics,
+                                                        const NativeCanvasItem &item, bool horizontal) {
+  auto *line = native_canvas_item_layout(cr, metrics, item, horizontal);
+  int width = 0, height = 0;
+  pango_layout_get_pixel_size(line, &width, &height);
+  g_object_unref(line);
+  return {static_cast<double>(width), static_cast<double>(height)};
+}
+
 inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets,
                                                 const NativeCanvasContent &content) {
   NativeCanvasLayout layout;
@@ -260,7 +335,7 @@ inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasA
   const double base_height = std::max({line, number_line, metrics.font_size * 1.35 + metrics.extra_height});
   double x = padding[3], row_height = 0;
   for (const auto &item : content.items) {
-    const auto size = native_canvas_text_size(cr, metrics.font, item.text);
+    const auto size = native_canvas_item_size(cr, metrics, item, content.horizontal);
     const auto label = item.label.empty() ? 0 : std::max(metrics.number_min_width,
         metrics.number_scale == 0 ? 0 : native_canvas_text_size(cr, metrics.number_font, item.label).first);
     const double item_height = metrics.custom_height ? std::max(base_height, size.second) :
@@ -513,20 +588,24 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
       }
     }
     const auto &item = content.items[at];
-    const auto text_height = native_canvas_text_size(cr, metrics.font, item.text).second;
+    const auto text_height = native_canvas_item_size(cr, metrics, item, content.horizontal).second;
     const auto label_size = native_canvas_text_size(cr, metrics.number_font, item.label);
     const double top = rect.y;
     const bool centered = metrics.custom_height || metrics.number_scale != 1 || !assets.font_family.empty();
     rect.x += metrics.number_inset;
     if (metrics.number_scale > 0 && !item.label.empty()) {
       rect.y = top + (centered ? (rect.height - label_size.second) / 2 : 4);
-      text(item.label, rect, metrics.number_font, selected ? "selected_number" : "number", "#555555");
+      text(item.label, rect, metrics.number_font, selected || pressed ? "selected_number" : "number", "#555555");
     }
     // 序号字号为 0 时不画字形，但来源仍保留最小 9 DIP 序号栏与间距。
     if (!item.label.empty()) rect.x += std::max(metrics.number_min_width,
         metrics.number_scale == 0 ? 0 : label_size.first) + metrics.number_gap;
     rect.y = top + (centered ? (rect.height - text_height) / 2 : 4);
-    text(item.text, rect, metrics.font, selected ? "selected_text" : "text", "#202020");
+    auto *line = native_canvas_item_layout(cr, metrics, item, content.horizontal, colors, selected || pressed);
+    native_canvas_color(cr, colors, selected || pressed ? "selected_text" : "text", "#202020");
+    cairo_move_to(cr, rect.x, rect.y);
+    pango_cairo_show_layout(cr, line);
+    g_object_unref(line);
   }
   text(content.auxiliary, layout.auxiliary, metrics.font, "secondary", "#555555");
   if (content.previous) text("‹", layout.previous, metrics.font, "text", "#202020");

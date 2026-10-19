@@ -1260,6 +1260,11 @@ fn canvas_details_are_normalized_and_follow_text_picker_and_drawn_mode() {
             preedit_divider: Some("transparent".into()),
             preedit_caret: Some("#456".into()),
             selected_bar: Some("#789".into()),
+            translation: Some("#abc".into()),
+            translation_pos: Some("#1234".into()),
+            translation_separator: Some("rgba(3, 4, 5, 0.5)".into()),
+            selected_translation: Some("#def".into()),
+            selected_translation_pos: Some("#654321".into()),
             menu: Some(CandidateMenuPalette {
                 background: Some("#abc".into()),
                 border: Some("transparent".into()),
@@ -1279,6 +1284,14 @@ fn canvas_details_are_normalized_and_follow_text_picker_and_drawn_mode() {
     assert_eq!(result.preedit_divider.as_deref(), Some("#00000000"));
     assert_eq!(result.preedit_caret.as_deref(), Some("#445566"));
     assert_eq!(result.selected_bar.as_deref(), Some("#778899"));
+    assert_eq!(result.translation.as_deref(), Some("#AABBCC"));
+    assert_eq!(result.translation_pos.as_deref(), Some("#11223344"));
+    assert_eq!(result.translation_separator.as_deref(), Some("#03040580"));
+    assert_eq!(result.selected_translation_pos.as_deref(), Some("#654321"));
+    assert_eq!(
+        result.selected_translation_separator.as_deref(),
+        Some("#DDEEFF")
+    );
     assert_eq!(result.menu_surface.as_deref(), Some("#AABBCC"));
     assert_eq!(result.menu_border.as_deref(), Some("#00000000"));
     assert_eq!(result.menu_text.as_deref(), Some("#DDEEFF"));
@@ -1293,4 +1306,20 @@ fn canvas_details_are_normalized_and_follow_text_picker_and_drawn_mode() {
     );
     assert!(details(&custom, true, CandidateLayout::Vertical).is_none());
     assert!(details(&custom, false, CandidateLayout::Horizontal).is_none());
+    custom.candidate_colors.selected = Some("#ffffff".into());
+    let picked = details(&custom, false, CandidateLayout::Vertical).unwrap();
+    let readable = with_alpha("#000000", PICKED_NUMBER_ALPHA);
+    assert_eq!(
+        picked.selected_translation.as_deref(),
+        Some(readable.as_str())
+    );
+    assert_eq!(
+        picked.selected_translation_pos.as_deref(),
+        Some(readable.as_str())
+    );
+    assert_eq!(
+        picked.selected_translation_separator.as_deref(),
+        Some(readable.as_str())
+    );
+    assert_eq!(picked.translation_pos.as_deref(), Some("#11223344"));
 }

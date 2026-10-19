@@ -3,6 +3,50 @@
 use super::*;
 use crate::tests::{read, test_host};
 
+#[test]
+fn candidate_translation_runs_share_original_utf8_text_and_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    let mut view = Value::Null;
+    for byte in b"U4e2d" {
+        view = read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ))["value"]["view"]
+            .clone();
+    }
+    let before = &view["candidates"][0];
+    assert!(before.get("translation_runs").is_none());
+    let translation = "n. 合成； v. synthetic";
+    let payload =
+        serde_json::to_vec(&json!([{ "text": before["text"], "translation": translation }]))
+            .unwrap();
+    // SAFETY: 合成缓冲区在调用期间有效，返回字符串交由 read 释放。
+    let applied = read(unsafe {
+        msime_client_apply_translations(
+            handle,
+            view["generation"].as_u64().unwrap(),
+            payload.as_ptr(),
+            payload.len(),
+        )
+    });
+    let after = &applied["value"]["view"]["candidates"][0];
+    assert_eq!(after["id"], before["id"]);
+    assert_eq!(after["text"], before["text"]);
+    assert_eq!(after["translation"], translation);
+    let expected = json!([
+        { "start": 0, "length": 2, "role": "pos" },
+        { "start": 9, "length": 3, "role": "separator" },
+        { "start": 13, "length": 2, "role": "pos" }
+    ]);
+    assert_eq!(after["translation_runs"], expected);
+    let all = read(msime_client_all_candidates(handle));
+    assert_eq!(all["value"]["candidates"][0]["translation_runs"], expected);
+    read(msime_client_destroy(handle));
+}
+
 fn gloss(request: Value) -> Value {
     let bytes = request.to_string();
     // SAFETY: 缓冲区在调用期间有效，返回的字符串由 read 释放。
