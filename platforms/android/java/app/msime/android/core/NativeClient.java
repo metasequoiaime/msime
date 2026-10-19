@@ -43,6 +43,8 @@ public final class NativeClient {
     public static String themeCatalog() { return TextPolicy.utf8(themeCatalogRaw()); }
     /** 解析当前主题的单种明暗配色；带 `skins_directory` 的请求会校验包资源，必须在工作线程调用。 */
     public static String resolveTheme(String request) { return TextPolicy.utf8(resolveThemeRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    public static String skinPackage(String request) { return TextPolicy.utf8(skinPackageRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    public static String skinResource(String request) { return TextPolicy.utf8(skinResourceRaw(request.getBytes(StandardCharsets.UTF_8))); }
     /** 应用主题目录：`{app_themes:[{id,title,season,seasonal,light,dark}],default}`。纯计算。 */
     public static String appThemeCatalog() { return TextPolicy.utf8(appThemeCatalogRaw()); }
     /** 应用主题在本地月份与明暗模式下的颜色：`{id,season,accent,accent_soft,on_accent,background,card,hair}`。纯计算，可在主线程调用。 */
@@ -886,6 +888,8 @@ public final class NativeClient {
     private static native int typingStatisticsEnabledRaw(byte[] directory);
     private static native byte[] themeCatalogRaw();
     private static native byte[] resolveThemeRaw(byte[] request);
+    private static native byte[] skinPackageRaw(byte[] request);
+    private static native byte[] skinResourceRaw(byte[] request);
     private static native byte[] appThemeCatalogRaw();
     private static native byte[] resolveAppThemeRaw(byte[] request);
     private static native byte[] restoreDefaultPreferencesRaw(byte[] directory, long expectedRevision);

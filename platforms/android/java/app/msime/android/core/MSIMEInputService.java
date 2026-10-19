@@ -146,6 +146,8 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout candidates;
     private LinearLayout verticalCandidates;
     FrameLayout candidateViewport;
+    CandidateCanvasColumn candidateCanvasRegion;
+    CandidateCanvasFrame expandedCandidateCanvas;
     private HorizontalScrollView horizontalCandidateScroll;
     private ScrollView verticalCandidateScroll;
     private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
@@ -7730,6 +7732,8 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.hide(expandedCandidates);
             if (expandedCandidateScroll != null)
                 ViewPolicy.hide(expandedCandidateScroll);
+            if (expandedCandidateCanvas != null)
+                ViewPolicy.hide(expandedCandidateCanvas);
         }
         if (imeNineKeyPanel != null) imeNineKeyPanel.dismiss();
     }
@@ -8322,7 +8326,8 @@ public final class MSIMEInputService extends InputMethodService {
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
         surface.fullBleed.add(imeLetterRows.keyPreviewLayer);
         keyboardSurface.addView(imeLetterRows.keyPreviewLayer, LayoutPolicy.frameMatchParentParams());
-        LinearLayout candidateRegion = LayoutPolicy.column(this);
+        candidateCanvasRegion = new CandidateCanvasColumn(this);
+        LinearLayout candidateRegion = candidateCanvasRegion;
         imeToolbar.buildCandidateHeader(candidateRegion);
         diagnosticView = ViewPolicy.textLabel(this, "", 12);
         KeyboardTypographyPolicy.setKeyTextSize(diagnosticView, 12);
@@ -8512,7 +8517,10 @@ public final class MSIMEInputService extends InputMethodService {
         expandedCandidateScroll.addView(expandedCandidates,
             LayoutPolicy.scrollMatchParentParams());
         ViewPolicy.hide(expandedCandidateScroll);
-        keyboardSurface.addView(expandedCandidateScroll, LayoutPolicy.frameMatchParentParams());
+        expandedCandidateCanvas = new CandidateCanvasFrame(this);
+        expandedCandidateCanvas.addView(expandedCandidateScroll, LayoutPolicy.frameMatchParentParams());
+        ViewPolicy.hide(expandedCandidateCanvas);
+        keyboardSurface.addView(expandedCandidateCanvas, LayoutPolicy.frameMatchParentParams());
         keyboardSurface.addView(imeNineKeyPanel.build(), LayoutPolicy.frameMatchParentParams());
         clipboardPanel = LayoutPolicy.column(this);
         ViewPolicy.setSymmetricPadding(clipboardPanel, 24, 16);

@@ -55,6 +55,11 @@ public final class CandidateAppearance {
 
     /** 共享解析器确认当前包生效后，只覆盖候选栏，缺失色槽和字体仍取宿主的既有外观。 */
     public static Palette fromResolved(Palette fallback, String id, Map<String, String> colours) {
+        return fromResolved(fallback, id, colours, null);
+    }
+
+    public static Palette fromResolved(Palette fallback, String id, Map<String, String> colours,
+            CandidateCanvasAssets canvas) {
         int text = resolvedColour(colours, "text", fallback.text());
         int accent = resolvedColour(colours, "accent", fallback.accent());
         int selected = resolvedColour(colours, "selected", fallback.chip());
@@ -68,7 +73,7 @@ public final class CandidateAppearance {
             fallback.fontFamily(), fallback.englishFont(), fallback.fallbackFonts(),
             selected, selectedText,
             resolvedColour(colours, "secondary", number),
-            resolvedColour(colours, "selected_number", selectedText), true);
+            resolvedColour(colours, "selected_number", selectedText), true, canvas, colours);
     }
 
     private static int resolvedColour(Map<String, String> colours, String name, int fallback) {
@@ -128,6 +133,8 @@ public final class CandidateAppearance {
         private final int secondary;
         private final int selectedNumber;
         private final boolean externalSkin;
+        private final CandidateCanvasAssets canvas;
+        private final Map<String, String> details;
 
         private Palette(String id, int text, int number, int accent, int selected,
                         int hover, int surface, int border, String fontFamily,
@@ -140,6 +147,15 @@ public final class CandidateAppearance {
                         int hover, int surface, int border, String fontFamily,
                         String englishFont, List<String> fallbackFonts, int chip, int chipText,
                         int secondary, int selectedNumber, boolean externalSkin) {
+            this(id, text, number, accent, selected, hover, surface, border, fontFamily,
+                englishFont, fallbackFonts, chip, chipText, secondary, selectedNumber, externalSkin, null, Map.of());
+        }
+
+        private Palette(String id, int text, int number, int accent, int selected,
+                        int hover, int surface, int border, String fontFamily,
+                        String englishFont, List<String> fallbackFonts, int chip, int chipText,
+                        int secondary, int selectedNumber, boolean externalSkin, CandidateCanvasAssets canvas,
+                        Map<String, String> details) {
             this.id = id;
             this.text = text;
             this.number = number;
@@ -156,6 +172,8 @@ public final class CandidateAppearance {
             this.secondary = secondary;
             this.selectedNumber = selectedNumber;
             this.externalSkin = externalSkin;
+            this.canvas = canvas;
+            this.details = Map.copyOf(details);
         }
 
         public String id() { return id; }
@@ -163,8 +181,10 @@ public final class CandidateAppearance {
         public int number() { return number; }
         public int numberFor(boolean selected) { return selected ? selectedNumber : number; }
         public int secondaryFor(boolean selected) {
-            return selected ? ColorPolicy.withAlpha(chipText, 0.58f) : secondary;
+            return selected ? resolvedColour(details, "selected_translation", ColorPolicy.withAlpha(chipText, 0.58f)) : secondary;
         }
+        public int preeditText() { return resolvedColour(details, "preedit_text", number); }
+        public int preeditCaret(int fallback) { return resolvedColour(details, "preedit_caret", fallback); }
         public int accent() { return accent; }
         public int selected() { return selected; }
         public int hover() { return hover; }
@@ -179,6 +199,7 @@ public final class CandidateAppearance {
         public int chipText() { return chipText; }
         /** 是否使用外部候选包，展开网格据此使用候选底色而非键帽底色。 */
         public boolean externalSkin() { return externalSkin; }
+        public CandidateCanvasAssets canvas() { return canvas; }
         /** 新设计里某个候选的底色：首选为 {@link #chip()}，其余不填（0）。 */
         public int chipFor(boolean selected) { return selected ? chip : 0; }
         /** 新设计里某个候选的字重：首选 600，其余 400。 */
@@ -197,7 +218,9 @@ public final class CandidateAppearance {
                 + ":" + Integer.toHexString(border) + ":" + fontFamily + ":" + englishFont
                 + ":" + String.join(",", fallbackFonts) + ":" + Integer.toHexString(chip)
                 + ":" + Integer.toHexString(chipText) + ":" + externalSkin
-                + ":" + Integer.toHexString(secondary) + ":" + Integer.toHexString(selectedNumber);
+                + ":" + Integer.toHexString(secondary) + ":" + Integer.toHexString(selectedNumber)
+                + ":" + preeditText() + ":" + preeditCaret(accent) + ":" + secondaryFor(true)
+                + ":" + (canvas == null ? "" : canvas.key());
         }
     }
 }

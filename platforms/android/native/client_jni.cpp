@@ -125,6 +125,12 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_themeCatalogRaw
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resolveThemeRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kThemeRequestLimit, msime_client_resolve_theme);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_skinPackageRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return json_call(env, request, msime_client_skin_package);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_skinResourceRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return json_call(env, request, msime_client_skin_resource);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_typingStatisticsRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kTypingStatisticsRequestLimit, msime_client_typing_statistics);
 }

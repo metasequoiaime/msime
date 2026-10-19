@@ -139,6 +139,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CandidateSkinDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Candidate skin package acceptance failed" >&2; exit 1; }
+# Canvas 像素和动画必须在 Android 的真实解码器与绘制器中验收。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CandidateCanvasDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Candidate canvas acceptance failed" >&2; exit 1; }
 if [[ "$feedback" == true ]]; then
   # 使用真实反馈页连续输入合成文字，不点击提交；API 28 的 --core 也能单独带上此回归。
   result=$(run_instrumentation app.msime.android.test/app.msime.android.test.FeedbackInputStabilityDeviceSmoke)

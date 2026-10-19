@@ -405,7 +405,8 @@ final class ImeToolbar {
             brand.setPanelOpen(s.anyToolbarPanelOpen(), activeBackgroundColor);
         }
         if (s.expandCandidates instanceof CandidateChevronButton chevron) {
-            chevron.setColors(foregroundColor, hairlineColor);
+            chevron.setColors(s.candidateAppearance.externalSkin() ? s.candidateAppearance.text() : foregroundColor,
+                s.candidateAppearance.externalSkin() ? s.candidateAppearance.border() : hairlineColor);
             chevron.setExpanded(s.candidatePanelOpen, true);
         }
         if (s.inlineHeightBar != null)
@@ -414,7 +415,8 @@ final class ImeToolbar {
         if (s.floatingBar != null) s.floatingBar.setColors(foregroundColor);
         s.imeBottomBar.style(iconColor, activeIconColor, activeBackgroundColor);
         if (s.preedit != null) {
-            ViewPolicy.setTextColor(s.preedit, hintColor);
+            ViewPolicy.setTextColor(s.preedit, s.candidateAppearance.externalSkin()
+                && ViewPolicy.isVisible(s.candidateViewport) ? s.candidateAppearance.preeditText() : hintColor);
             // 读音的字号只归 ImeStyler.applySkin 管（设置「预编辑字号」按比例缩放，见 ReadingRowPolicy.textSizeSp）。这里原来又写死成 12sp，排在 applySkin 之后，设置怎么改读音都是 12sp（#6107）。
             ViewPolicy.clearBackground(s.preedit);
             ViewPolicy.clearPadding(s.preedit);
