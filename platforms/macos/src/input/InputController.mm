@@ -5857,8 +5857,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     MSIMECandidateChromeView *card = _panel.isVisible && [_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]
         ? (MSIMECandidateChromeView *)_panel.contentView
         : nil;
-    const NSRect bounds = card.bounds;
-    const NSRect cardRect = card ? NSMakeRect(NSMinX(bounds), NSMinY(bounds), NSWidth(bounds), MAX(0.0, NSHeight(bounds) - MAX(0.0, card.cardTopInset))) : NSZeroRect;
+    const NSRect cardRect = card ? card.cardBounds : NSZeroRect;
     [panel presentEffect:packed commit:commit caretRect:caret candidateView:card cardRect:cardRect cornerRadius:card.cornerRadius];
 }
 
@@ -7535,7 +7534,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     if (_panel.contentView != content) return YES;
     const NSSize panelSize = _panel.frame.size;
     _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, false, _panel.isVisible);
-    const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, 0, [self candidateCardTopInset]);
+    const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, 0, [self candidateCardTopInset],
+                                                content.canvasOuterInsets.left, content.canvasOuterInsets.bottom);
     [_panel setFrameOrigin:origin];
     const BOOL wasVisible = _panel.isVisible;
     [self claimCandidatePanel];
@@ -7708,7 +7708,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             [self refreshCandidateSkin];
             const NSSize panelSize = _panel.frame.size;
             _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, vertical, _panel.isVisible);
-            [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0, [self candidateCardTopInset])];
+            [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0,
+                [self candidateCardTopInset], content.canvasOuterInsets.left, content.canvasOuterInsets.bottom)];
             [self claimCandidatePanel];
             [self showCandidatePanel];
             return;
@@ -7799,7 +7800,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const NSSize panelSize = _panel.frame.size;
     // Every hide path orders the panel out, so a panel that is not on screen yet starts a fresh flip memory.
     _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, vertical, _panel.isVisible);
-    const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0, [self candidateCardTopInset]);
+    const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0,
+        [self candidateCardTopInset], content.canvasOuterInsets.left, content.canvasOuterInsets.bottom);
     [_panel setFrameOrigin:origin];
     const BOOL wasVisible = _panel.isVisible;
     [self claimCandidatePanel];

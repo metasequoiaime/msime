@@ -691,6 +691,13 @@ static void TestCanvasHost(const std::filesystem::path &root, NSString *identifi
             MSIMECandidateChromeView *chrome = (id)panel.contentView;
             assert(chrome.canvasPanelLoaded && !chrome.liquidGlassActive && !panel.hasShadow);
             const NSRect card = chrome.cardBounds;
+            // NSWindow 按物理像素对齐，150% 的外留白可能落在半像素上。
+            const CGFloat positionTolerance = 1.0 / panel.backingScaleFactor + 0.01;
+            if (std::abs(NSMinX(panel.frame) + NSMinX(card) - NSMinX(client.caret)) > positionTolerance)
+                fprintf(stderr, "canvas x window=%.3f card=%.3f caret=%.3f backing=%.3f percent=%ld expanded=%d\n",
+                    NSMinX(panel.frame), NSMinX(card), NSMinX(client.caret), panel.backingScaleFactor,
+                    (long)percent.integerValue, expanded.boolValue);
+            assert(std::abs(NSMinX(panel.frame) + NSMinX(card) - NSMinX(client.caret)) <= positionTolerance);
             assert(std::abs(NSMinX(card) - skin.canvas->outer.left) < 0.01);
             assert(std::abs(NSMinY(card) - skin.canvas->outer.bottom) < 0.01);
             assert(std::abs(NSWidth(chrome.bounds) - NSWidth(card) - skin.canvas->outer.left - skin.canvas->outer.right) < 0.01);
@@ -769,6 +776,7 @@ static void TestCanvasHost(const std::filesystem::path &root, NSString *identifi
     }
     // 没有预编辑和翻页首行时，line_gap 不得在卡片顶部留下空行。
     appearance.showsCandidatePreedit = NO;
+    client.caret = NSMakeRect(NSMidX(screen), NSMinY(screen) + 1, 1, 20);
     [controller setValue:nil forKey:@"expandedCandidates"];
     for (NSNumber *expanded in @[@NO, @YES]) {
         if (expanded.boolValue) {
@@ -777,6 +785,9 @@ static void TestCanvasHost(const std::filesystem::path &root, NSString *identifi
         } else [controller renderCandidates];
         MSIMECandidateChromeView *chrome = (id)panel.contentView;
         const auto skin = [appearance candidateWindowSkinForDark:YES];
+        // 底部挂件留白较大时，整窗夹紧会把卡片向上推，不能用未夹紧的光标位置作期望。
+        const CGFloat cardBottom = MAX(NSMaxY(client.caret) + 4, NSMinY(screen) + NSMinY(chrome.cardBounds));
+        assert(std::abs(NSMinY(panel.frame) + NSMinY(chrome.cardBounds) - cardBottom) <= 1.0 / panel.backingScaleFactor + 0.01);
         assert(std::abs(NSMaxY(CandidateButton(chrome, 0).frame) - NSHeight(chrome.cardBounds) + skin.canvas->content->top) < 0.01);
     }
     [controller hideCandidatePanel:"empty"];

@@ -14,6 +14,8 @@ Status: implemented
 
 包内 `item_corner_radius_dip` 同时用于候选选中与悬停轮廓，随候选缩放。宿主不透明度只淡化面板，不影响文字或自由挂件。同一个包的明暗切换复用布局与候选按钮，移除旧 canvas 绘制层后挂上对应模式的缓存资源，避免只换文字颜色而继续显示旧贴图。
 
+光标定位以卡片为准，左、下外留白不参与对齐和翻转判断；整个窗口仍按 macOS 原有规则夹进屏幕可见区域。打字特效直接消费同一份 `cardBounds`，不把透明外留白算进卡片轮廓。
+
 ## Alternatives considered
 
 - **直接把 `candidate` 换成原贴图颜色**：所有宿主能立刻读到同一套原色，但尚未绘制贴图的宿主会在纯色回退上丢失文字对比，所以保留明确的能力开关。
@@ -29,10 +31,12 @@ Status: implemented
 ## Verification
 
 - `candidate-row-layout` 通过真实 `InputController.mm` 验证明暗、横竖排、100%／150% 缩放、普通与展开候选；检查四边内容与窗口留白、精确的预编辑行间距、隐藏首行不留空行、前后层级、点击穿透、旧按钮身份失效、行圆角和细分文字色。同一个包原地切换明暗时验证资源槽位、实际裁切图片和按钮身份，反复切换不叠加旧绘制层。
+- `candidate-placement` 检查左外留白的光标对齐、翻到光标上方时扣除底外留白，以及只有透明留白放不下时不提前翻转；生产控制器验证普通页与展开网格的实际屏幕坐标。
 - `candidate-canvas` 栅格像素检查固定边宽、中心不填充、挂件 contain 与资源失败；合成 APNG/GIF/WebP 的帧颜色和时长正确，GIF 无循环、有限重复、10ms 帧归一化均有断言。测试在进程内固定减弱动态效果读数，验证实时切换、睡眠／唤醒与隐藏，不改系统设置。
 - 固定上游 `c0a9d371f00b7b309c07e78bc0fd27d3a0d4f5b1` 的 `green_leaf`、`sakura-night`，以 `candidate-row-layout-test --canvas-upstream <skins-root> <output>` 运行生产控制器。明暗 × 横竖排 × 普通／展开共 16 张原生栅格图完成目测；外部资源只用于验收，没有复制进仓库。
 - Rust：services 皮肤 264 项、host-api 单测 881 项通过（3 项忽略），新增能力协商用例单独通过；MCP 单测 69 项与 stdio 11 项通过，相关 fmt 与 clippy 通过。
 - 原生全套第一次运行 152／153 项通过，失败为 HTTP 语音夹具在客户端切换后异步重载真实偏好，调用未实现的 `updatePreferencesSnapshot:error:`。语音控制器夹具现与已有 `ensureAppearance` 一样固定 `reloadPreferences`，只消费合成偏好；不改产品重载或识别流程。修正后与候选、玻璃等相关 8 组测试通过。
+- `verify-local.sh --quick` 在最新 `develop` 基线上通过，包含 Rust、Android、WebAssembly、Linux 设置壳与 90 项原生测试、macOS 全部目标及 Apple 桥；构建机缺少 Node、Windows MinGW 和 HarmonyOS 原生前置，对应检查跳过。笔记在本机通过 `pnpm run verify-notes` 验证。
 
 ## Consequences
 
