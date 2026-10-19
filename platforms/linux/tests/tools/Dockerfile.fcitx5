@@ -4,5 +4,5 @@ FROM ${BASE_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fcitx5 fcitx5-modules fcitx5-frontend-gtk3 \
     libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev \
-    libgtk-3-dev libdbus-1-dev dbus-x11 python3-dbus python3-gi python3-pil && \
+    libgtk-3-dev libdbus-1-dev dbus-x11 python3-dbus python3-gi python3-pil grim fonts-noto-cjk && \
     rm -rf /var/lib/apt/lists/*

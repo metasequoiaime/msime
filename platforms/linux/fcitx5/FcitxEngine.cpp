@@ -540,6 +540,7 @@ public:
   }
   // 离开输入框时不论会话关不关都要做的：写出按键统计，收起语音浮层，停掉音乐，连击与按键重复从头算（连击属于会话，下一个从零开始）。
   void releaseFocusResources() {
+    candidate_theme_refresh_at_.reset();
     flushKeyPresses(key_presses_.take());
     key_presses_.forget_held();
     hideVoiceOverlay();
@@ -3832,6 +3833,7 @@ public:
   CandidateSkinCatalog candidate_skin_catalog_;
   // The catalogue as runtime-options.json carries it, palettes included: an installed skin's colours are read from here when the classic UI theme is built.
   Json candidate_skin_document_;
+  std::optional<std::chrono::steady_clock::time_point> candidate_theme_refresh_at_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
   std::shared_future<Json> preferences_job_;
@@ -7166,6 +7168,15 @@ void FcitxState::syncCandidatePanelTheme(bool chosen) {
   if (engine_ && session_ && engine_->applyCandidatePanelTheme(preferences_, system_dark_, candidate_skin_document_, chosen)) {
     // 资源戳变化可能没有偏好或候选变更；重载主题之后仍要让真实面板重绘，不能等下一个按键。
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    // GTK 的客户端面板异步监视主题文件；当前这次更新可能先于重载。下一轮偏好轮询再刷新一次，
+    // 只重画当前面板，不保存候选快照；失焦、关闭与之后的换肤都会取消或替换这次刷新。
+    candidate_theme_refresh_at_.reset();
+    if (ic_.capabilityFlags().test(fcitx::CapabilityFlag::ClientSideInputPanel))
+      candidate_theme_refresh_at_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+  } else if (candidate_theme_refresh_at_ && std::chrono::steady_clock::now() >= *candidate_theme_refresh_at_) {
+    candidate_theme_refresh_at_.reset();
+    if (session_ && ic_.hasFocus() && !restricted())
+      ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   }
   if (engine_) engine_->publishCandidatePanelStatus();
 }

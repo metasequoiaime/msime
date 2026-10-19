@@ -350,6 +350,24 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:msime-fcitx5>" --ibus-frontend)
         set_tests_properties(fcitx5-ibus-gtk-editor PROPERTIES TIMEOUT 90)
       endif()
+      find_program(SWAY_EXECUTABLE sway)
+      find_program(GRIM_EXECUTABLE grim)
+      find_program(WAYLAND_KEYBOARD_EXECUTABLE msime-test-wayland-keyboard)
+      if(SWAY_EXECUTABLE AND GRIM_EXECUTABLE AND WAYLAND_KEYBOARD_EXECUTABLE)
+        foreach(canvas_layout horizontal vertical)
+          foreach(canvas_format png gif webp)
+            add_test(NAME fcitx5-wayland-canvas-${canvas_layout}-${canvas_format}
+              COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+                MSIME_TEST_CANVAS_FORMAT=${canvas_format}
+                bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_wayland.sh"
+                "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                "$<TARGET_FILE:msime-fcitx5>")
+            set_tests_properties(fcitx5-wayland-canvas-${canvas_layout}-${canvas_format}
+              PROPERTIES TIMEOUT 90 SKIP_RETURN_CODE 77
+              WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+          endforeach()
+        endforeach()
+      endif()
     endif()
   endif()
 endif()
