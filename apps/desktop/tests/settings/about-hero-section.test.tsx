@@ -12,7 +12,13 @@ afterEach(() => {
 });
 
 test("renders the product mark, name, and platform description", () => {
-  render(<AboutHeroSection logo="data:image/svg+xml,synthetic" description="桌面输入体验" />);
+  const { container } = render(
+    <AboutHeroSection logo="data:image/svg+xml,synthetic" description="桌面输入体验" />,
+  );
+  const welcome = container.querySelector('img[data-mascot="welcome"]')!;
+  expect(welcome.getAttribute("aria-hidden")).toBe("true");
+  expect(welcome.getAttribute("alt")).toBe("");
+  expect(screen.getAllByRole("img")).toHaveLength(1);
 
   expect((screen.getByRole("img", { name: "水杉 IME" }) as HTMLImageElement).src).toBe(
     "data:image/svg+xml,synthetic",
