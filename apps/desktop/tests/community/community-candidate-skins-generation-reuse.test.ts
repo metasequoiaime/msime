@@ -12,6 +12,6 @@ test("candidate skin preview loading reuses the shared owner generation lifecycl
     ),
   )[0];
 
-  expect(source).toContain("useAsyncGeneration(id, load)");
+  expect(source).toContain("useAsyncGeneration(id, revision, load)");
   expect(source).not.toContain("let active = true");
 });

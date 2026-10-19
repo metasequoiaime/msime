@@ -95,7 +95,9 @@ test("预览在同一客户端共用 Promise，失败后可重新读取", async 
   const failed = result.current.loadPreview(skin.id, skin.updated_at);
   expect(result.current.loadPreview(skin.id, skin.updated_at)).toBe(failed);
   await expect(failed).rejects.toThrow("synthetic preview failure");
-  await expect(result.current.loadPreview(skin.id, skin.updated_at)).resolves.toBe("data:image/png;base64,AA==");
+  await expect(result.current.loadPreview(skin.id, skin.updated_at)).resolves.toBe(
+    "data:image/png;base64,AA==",
+  );
   expect(community.preview).toHaveBeenCalledTimes(2);
 });
 
@@ -130,10 +132,14 @@ test("更换客户端后预览缓存隔离，旧 Promise 仍交给旧消费者�
   );
   const oldPreview = result.current.loadPreview(skin.id, skin.updated_at);
   rerender({ community: next });
-  await expect(result.current.loadPreview(skin.id, skin.updated_at)).resolves.toBe("data:image/png;base64,AA==");
+  await expect(result.current.loadPreview(skin.id, skin.updated_at)).resolves.toBe(
+    "data:image/png;base64,AA==",
+  );
   pending.resolve({ dataUrl: "data:image/png;base64,AQ==" });
   await expect(oldPreview).resolves.toBe("data:image/png;base64,AQ==");
-  await expect(result.current.loadPreview(skin.id, skin.updated_at)).resolves.toBe("data:image/png;base64,AA==");
+  await expect(result.current.loadPreview(skin.id, skin.updated_at)).resolves.toBe(
+    "data:image/png;base64,AA==",
+  );
   expect(next.preview).toHaveBeenCalledOnce();
 });
 

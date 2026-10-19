@@ -45,7 +45,7 @@ test("candidate skin card renders its preview metadata and opens the detail", as
 
   card.click();
   expect(open).toHaveBeenCalledOnce();
-  expect(load).toHaveBeenCalledWith(skin().id);
+  expect(load).toHaveBeenCalledWith(skin().id, skin().updated_at);
 });
 
 test("candidate skin card keeps owner and removed metadata rules", () => {
