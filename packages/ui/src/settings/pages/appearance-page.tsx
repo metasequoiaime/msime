@@ -3,7 +3,6 @@ import { candidateTabs } from "../candidate-tabs";
 import { useSettingsTabs } from "../use-settings-tabs";
 import { AppearanceCandidatePreview } from "../../candidate/appearance-candidate-preview";
 import { CandidateFontControls } from "../../candidate/candidate-font-controls";
-import { currentCandidateFontPreset } from "../../candidate/candidate-font-presets";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, MoreOptions } from "../../core/platform-controls";
 import { CandidateFollowCursorSection } from "../candidate-follow-cursor-section";
@@ -20,12 +19,12 @@ import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidateFontUnsupportedNotice } from "../candidate-font-unsupported-notice";
 import { createAppearanceSettingsActions } from "../appearance-settings-actions";
 import {
-  CandidateFontPresetRow,
   CandidateScaleRow,
   CandidateWindowStyleRows,
   CandidateWindowStyleSection,
 } from "../candidate-window-style-section";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+import { CandidateFontSettingsRows } from "../candidate-font-settings-rows";
 
 /** 候选窗口按功能分区，共用预览；手机保留直列和折叠区。 */
 export function AppearanceSettingsPage() {
@@ -96,7 +95,6 @@ export function AppearanceSettingsPage() {
               ),
         };
   // 字体不属于预设（例如霞鹜文楷），或用户刚点了「自定义…」时显示字体框。
-  const showFontField = customFont || currentCandidateFontPreset(draft, host?.platform) === null;
   const layoutControls = (
     <>
       {/* iOS 候选栏的排列和每页数量都是固定的，这两行在那里不出现。 */}
@@ -119,27 +117,16 @@ export function AppearanceSettingsPage() {
     <>
       {showCandidateFontControls ? (
         <>
-          <CandidateFontPresetRow
+          <CandidateFontSettingsRows
             preferences={draft}
             platform={host?.platform}
+            readFonts={client.listFontFamilies}
+            showFontSize
+            showPreeditFont={false}
+            englishFont={false}
             onChange={appearanceActions.onPreferencesChange}
             custom={customFont}
             onCustomChange={setCustomFont}
-          />
-          {showFontField && (
-            <CandidateFontControls
-              value={draft}
-              onChange={appearanceActions.onPreferencesChange}
-              readFonts={client.listFontFamilies}
-              windows={host?.platform === "windows"}
-              englishFont={false}
-            />
-          )}
-          <CandidateSizingSection
-            preferences={draft}
-            showFontControls
-            showPreeditFont={false}
-            onChange={appearanceActions.onPreferencesChange}
           />
         </>
       ) : (
@@ -383,22 +370,13 @@ function HarmonyPhoneCandidateGroups() {
         <MoreOptions>
           {showCandidateFontControls && (
             <>
-              <CandidateFontPresetRow
+              <CandidateFontSettingsRows
                 preferences={draft}
                 platform={host?.platform}
-                onChange={appearanceActions.onPreferencesChange}
-              />
-              <CandidateFontControls
-                value={draft}
-                onChange={appearanceActions.onPreferencesChange}
                 readFonts={client.listFontFamilies}
-                windows={false}
-                englishFont={showCandidateEnglishFont}
-              />
-              <CandidateSizingSection
-                preferences={draft}
-                showFontControls={false}
+                showFontSize={false}
                 showPreeditFont={showCandidatePreeditFont}
+                englishFont={showCandidateEnglishFont}
                 onChange={appearanceActions.onPreferencesChange}
               />
             </>
