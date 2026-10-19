@@ -25,6 +25,7 @@
 // which is how the rest of this UI stack spells DrawTextW.
 #include <windows.h>
 #include <msimeui/DeviceResources.h>
+#include "CandidateImageFrames.h"
 // IDWriteFontFallback and IDWriteTextFormat1 live here, not in dwrite.h.
 #include <dwrite_2.h>
 
@@ -164,6 +165,8 @@ private:
   // 预留的 lines 行释义用释义字体量出的高度（lines 行占位文字，和 wrap_measure 量多行释义同一种格式），交给 candidate_reserved_row_height。不到两行时为 0：一行释义按固定行高算，不用量。
   double reserved_secondary_height(size_t lines);
   void paint();
+  ID2D1Bitmap *skin_image(const std::wstring &path, D2D1_SIZE_F *size = nullptr);
+  void schedule_image_frame();
   // UI thread: adopt the waiting typing effect and start its flash and combo timers.
   void take_typing_effect();
   // Repaint for the next flash frame, and stop the timer once the flash has faded.
@@ -266,6 +269,9 @@ private:
   } apartment_;
   // Direct2D through the shared UI stack; no second renderer in this tree.
   msimeui::DeviceResources device_;
+  CandidateImageFrames image_frames_;
+  uint64_t image_epoch_ = 0;
+  bool image_suspended_ = false;
   HICON logo_ = nullptr;
   int logo_pixels_ = 0;
   CandidatePalette palette_;

@@ -16,8 +16,9 @@ FROM debian:trixie-slim
 # being unable to run it at all.
 RUN dpkg --add-architecture i386 \
  && apt-get update -qq \
- && apt-get install -y -qq --no-install-recommends wine wine32 wine64 xvfb xauth \
+ && apt-get install -y -qq --no-install-recommends wine wine32 wine64 xvfb xauth libgl1:i386 libgl1-mesa-dri:i386 \
  && rm -rf /var/lib/apt/lists/*
+# 32 位 Direct2D 也通过 OpenGL 建立 WIC 绘制目标，不能只安装 amd64 的 Mesa。
 ENV WINEDEBUG=-all
 ENV WINEPREFIX=/wine
 # Create the prefix under a display. Without one, prefix creation completes far

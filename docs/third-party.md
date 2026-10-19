@@ -396,3 +396,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 ## 新增依赖时
 
 引入新的上游代码、字体、图标、模型或服务 SDK 时，同时提交来源提交、许可证文本、通知位置和分发限制，并在本文件登记——不要只在 README 留一个链接。资源锁文件只校验内容，不授予任何分发权利。
+
+## Windows 皮肤图片动画
+
+`platforms/windows/msimeui` 的 `AnimatedImage` 与部分图片测试来自 msime-windows 固定提交 `dd018f79858314ed542a47c528608752b13bd261`，按 GPL-3.0 分发；来源路径、本地调整和完整许可见 [UPSTREAM.md](../platforms/windows/msimeui/UPSTREAM.md) 与 [LICENSE](../platforms/windows/msimeui/LICENSE)。仍使用 Windows 系统 WIC 解码，不打包新的第三方编解码库。

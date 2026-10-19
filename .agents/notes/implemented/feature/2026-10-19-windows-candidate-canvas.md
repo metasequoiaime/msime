@@ -22,12 +22,12 @@ msime-windows 让卡片内边距等于 `content_insets_dip`（每边不小于边
 
 ### 挂件与窗口空白
 
-- 挂件的框（`width_dip` × `height_dip`）按九种锚点贴着面板再加偏移，图片在框里等比缩放居中；按 `z_index` 稳定排序，低于 1 的在面板和阴影之下，其余在候选文字之上。随进出场动效淡入淡出，不拦点击（命中测试本来只看候选行）。动图（APNG、GIF、WebP）只画第一帧，与本宿主的装饰图相同：Windows 宿主还没有逐帧播放。
+- 挂件的框（`width_dip` × `height_dip`）按九种锚点贴着面板再加偏移，图片在框里等比缩放居中；按 `z_index` 稳定排序，低于 1 的在面板和阴影之下，其余在候选文字之上。随进出场动效淡入淡出，不拦点击（命中测试本来只看候选行）。动图播放由后续[图片动画](2026-10-19-windows-skin-image-animation.md)补齐：APNG 与 GIF 按有界合成后的逻辑画布逐帧播放，WebP 仍依赖 WIC 编解码器。
 - 窗口在阴影边距之外照 msime-windows 再留 `outer_insets_dip`；挂件的框伸得比它更远时按挂件留，每边至多 500 DIP（`outer_insets_dip` 的上限），工作区放不下时只按比例收小这部分。`card_bounds` 每次排版算出 `shadow_insets_`（内容卡片四周的空白）与 `canvas_offset_`，窗口仍按面板贴光标摆放；`card_on_screen()` 与 `painted_card()` 报的是面板，截图工具的「卡片没画出窗口」自检照样成立。
 
 ### 解码与配色
 
-套用皮肤时 `CandidateCanvasImages.h` 用和 `DeviceResources::GetBitmapFromFile` 相同的 WIC 路径完整解码面板和每个挂件的第一帧（`candidate_canvas_drawable`）。面板解得出来，Server 才在 `msime_client_resolve_theme` 请求里带 `canvas_panel_drawn`，取共享层保留的贴图原配色（`panelCandidate`，取色器仍优先）；解不出来时面板留空，卡片退回不透明 `canvas` 外观的可读配色。解不出来的挂件不画。两种情况每款包在诊断日志里各记一次。工具条、菜单、语音浮层和双拼键位图不画面板，始终用回退配色。位图仍由 `GetBitmapFromFile` 按路径缓存，设备丢失时随 `DiscardTarget` 清掉、下一帧重建，皮肤重载时随 `invalidate_skin_images` 清掉；明暗切换时重新选图、重新确认。
+套用皮肤时 `CandidateCanvasImages.h` 用和 `DeviceResources::GetBitmapFromFile` 相同的 WIC 路径完整解码面板和每个挂件的第一帧（`candidate_canvas_drawable`）。面板解得出来，Server 才在 `msime_client_resolve_theme` 请求里带 `canvas_panel_drawn`，取共享层保留的贴图原配色（`panelCandidate`，取色器仍优先）；解不出来时面板留空，卡片退回不透明 `canvas` 外观的可读配色。解不出来的挂件不画。两种情况每款包在诊断日志里各记一次。工具条、菜单、语音浮层和双拼键位图不画面板，始终用回退配色。静态位图由 `GetBitmapFromFile` 按路径缓存，动画的 CPU 快照与当前 GPU 帧归[图片动画缓存](2026-10-19-windows-skin-image-animation.md)；设备丢失时 GPU 资源随 `DiscardTarget` 清掉、下一帧重建，皮肤重载时随 `invalidate_skin_images` 清掉；明暗切换时重新选图、重新确认。
 
 共享 catalog 的 `CANVAS_RENDERER_NOTICE` 不点名宿主，`fill_from_canvas_look` 的回退只在宿主没说画出面板时使用，都不用改，其他宿主的行为不变。
 
@@ -36,14 +36,14 @@ msime-windows 让卡片内边距等于 `content_insets_dip`（每边不小于边
 - **照搬 msime-windows 的 `outer_insets_dip` 语义，挂件超出外留白就被窗口裁掉** —— 与来源逐像素一致，窗口也不会因为一个偏移写得很远的挂件变大。不采用：挂件的框在排版时就算得出来，按它多留空白不需要解码图片；没写或写小了外留白的包（自制皮肤很常见）在这里不会被裁掉半个挂件，写对了的包结果与来源相同。代价是这类包的窗口比来源大一些，所以加了每边 500 DIP 的上限和工作区收缩。
 - **把内容内边距直接写进 `CandidateCardMetrics`（改 pad_x、pad_y、slack_y）** —— 少一层坐标换算。不采用：pad_x 同时决定行缩进、首行翻页的位置和收紧宽度的对称留白，内边距四边不等时没法用一个 pad_x 表达；整块平移只动卡片外框和窗口空白，现有的版式算式与点击、读屏都不用改，也就不会碰到非 canvas 皮肤。
 - **画的时候再决定配色（GetBitmapFromFile 成功才切到贴图原配色）** —— 不用在套用皮肤时多解码一次。不采用：配色由 Server 经共享层解析，候选窗画的时候拿不到 `panelCandidate`，而面板失败时一帧白底浅字比多解码一次更糟；在套用时确认还能顺带挡掉坏挂件，否则 GetBitmapFromFile 不缓存失败，每一帧都会重新解一次。
-- **挂件和面板播放动图帧** —— 来源用 `GetImageFrame` 按动画时钟换帧。不采用：要给 msimeui 加逐帧解码与换帧定时器，正和材质那项工作改同一个文件；本宿主的装饰图也只画第一帧，留到装饰图一起播放时再做。
+- **挂件和面板播放动图帧** —— 来源用 `GetImageFrame` 按动画时钟换帧。不采用：要给 msimeui 加逐帧解码与换帧定时器，正和材质那项工作改同一个文件；当时本宿主的装饰图也只画第一帧，留到装饰图一起播放时再做。该并行修改约束已解除，由后续[图片动画决定](2026-10-19-windows-skin-image-animation.md)取代首帧妥协，几何与配色决定保留。
 
 ## Consequences
 
 收益：为 msime-windows 写的全贴图皮肤在 Windows 候选窗上得到九宫格面板、按明暗换图、内容内边距、拼音行行距、面板上下两层挂件和外留白，配色用包为贴图挑的原色；Windows 不再是用不透明回退的宿主，只剩 Linux。非 canvas 皮肤与无皮肤时所有新路径都关着（`candidate_canvas_margins` 原样返回阴影边距，`canvas_extra_width = 0` 时卡片尺寸逐位不变）。
 
 代价：
-- 动图只画第一帧；GIF 的第一帧按 WIC 解出的那一帧画，不按逻辑画布合成，第一帧不覆盖整幅画布的 GIF 会画得偏小。系统没有 WebP 解码器时 WebP 挂件不画。
+- 动图的首帧与 GIF 逻辑画布缺口由[图片动画](2026-10-19-windows-skin-image-animation.md)补齐；系统没有 WebP 解码器时 WebP 挂件仍不画。
 - 挂件伸出面板时窗口变大，透明的空白仍挡着它下面的窗口的点击（与阴影边距相同）。
 - 套用皮肤和切换明暗时多解码一次面板与挂件（包内像素上限 800 万）；面板画出来时卡片多一次带 `canvas_panel_drawn` 的主题解析。
 - 原生设置窗口的皮肤预览还不画画布。

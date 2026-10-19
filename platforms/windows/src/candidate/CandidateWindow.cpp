@@ -45,6 +45,7 @@ constexpr wchar_t class_name[] = L"MSIME.Client.Preview.Candidates" MSIME_EDITIO
 constexpr UINT_PTR typing_flash_timer = 0x4501;
 constexpr UINT_PTR typing_combo_timer = 0x4502;
 constexpr UINT_PTR skin_animation_timer = 0x4503;
+constexpr UINT_PTR image_frame_timer = 0x4504;
 constexpr UINT typing_flash_frame_millis = 30;
 // 还没有会话发布特效设置时闪光的强度。Windows 固定打字效果强度为 50（client-core 的 `HostPlatform::fixed_effect_intensity`），不读 plugins.effect_intensity；特效包自带的强度随每个按键从输入线程发布（TypingEffectSignal），不受影响。
 constexpr uint32_t typing_effect_default_intensity = 50;
@@ -470,6 +471,8 @@ CandidateWindow::Apartment::~Apartment() {
     CoUninitialize();
 }
 CandidateWindow::~CandidateWindow() {
+  KillTimer(window_, image_frame_timer);
+  image_frames_.stop();
   finish_skin_animation();
   // 先断开读屏拿着的提供者，再销毁窗口。
   accessible_.reset();
@@ -570,6 +573,9 @@ void CandidateWindow::set_theme_palette(CandidatePalette palette) {
   invalidate_geometry();
 }
 void CandidateWindow::invalidate_skin_images() {
+  KillTimer(window_, image_frame_timer);
+  image_frames_.clear();
+  image_epoch_ = 0;
   device_.ClearBitmapCache();
   invalidate_geometry();
 }
@@ -690,6 +696,9 @@ void CandidateWindow::invalidate_geometry() {
     InvalidateRect(window_, nullptr, FALSE);
 }
 void CandidateWindow::hide_now() {
+  KillTimer(window_, image_frame_timer);
+  image_frames_.stop();
+  image_epoch_ = 0;
   finish_skin_animation();
   exit_value_.reset();
   // The composition is over, so the next one starts its flip decision fresh.
@@ -1352,6 +1361,23 @@ std::optional<TypingRect> CandidateWindow::typing_effect_card() const {
                     static_cast<float>(outer.right - std::lround(right * scale)),
                     static_cast<float>(outer.bottom - std::lround(bottom * scale))};
 }
+ID2D1Bitmap *CandidateWindow::skin_image(const std::wstring &path, D2D1_SIZE_F *size) {
+  if (auto *bitmap = image_frames_.frame(path, size))
+    return bitmap;
+  return device_.GetBitmapFromFile(path, size);
+}
+
+void CandidateWindow::schedule_image_frame() {
+  KillTimer(window_, image_frame_timer);
+  if (!IsWindowVisible(window_) || image_suspended_ || failed_)
+    return;
+  if (const auto delay = image_frames_.next_delay()) {
+    // Win32 定时器最低 10ms；只预约真正的帧边界，有限循环末帧没有下一次唤醒。
+    const auto interval = (std::clamp)(*delay, uint64_t{USER_TIMER_MINIMUM}, uint64_t{USER_TIMER_MAXIMUM});
+    SetTimer(window_, image_frame_timer, static_cast<UINT>(interval), nullptr);
+  }
+}
+
 void CandidateWindow::paint() {
   DpiScope dpi_scope;
   Painting painting(window_);
@@ -1388,6 +1414,13 @@ void CandidateWindow::paint() {
   auto *target = device_.GetRenderTarget();
   if (!target)
     throw std::runtime_error("Candidate render target unavailable");
+  BOOL images_enabled = TRUE;
+  if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &images_enabled, 0))
+    images_enabled = TRUE;
+  const auto image_now = GetTickCount64();
+  if (image_epoch_ == 0)
+    image_epoch_ = image_now;
+  image_frames_.begin_frame(target, image_now - image_epoch_, images_enabled && !image_suspended_);
   // DrawText goes through the windows.h macro so the call matches whichever
   // name the Direct2D declaration picked up for this target.
   // 首行高度取决于有没有 logo 和翻页，必须和 card_bounds 量尺寸时一样算，行的位置和点击区域才对得上。
@@ -1499,7 +1532,7 @@ void CandidateWindow::paint() {
   auto draw_decorations = [&](const std::vector<CandidateCanvasDecoration> &layer) {
     for (const auto &decoration : layer) {
       D2D1_SIZE_F natural{};
-      auto *bitmap = device_.GetBitmapFromFile(decoration.image, &natural);
+      auto *bitmap = skin_image(decoration.image, &natural);
       if (!bitmap)
         continue;
       if (const auto rect = candidate_canvas_contain(
@@ -1515,7 +1548,7 @@ void CandidateWindow::paint() {
   draw_decorations(canvas_layers_.below);
   // 九宫格面板图：画得出来时它就是卡片的样子，底色、背景图、外框和阴影都让给它（同 CSS border-image 与 msime-windows 的 panelImage）。图在套用皮肤时确认过解得出来，这里仍拿不到位图（设备刚丢失之类）时退回底色，下一帧再试。
   ID2D1Bitmap *const panel_bitmap = candidate_canvas_panel_drawn(canvas_)
-                                        ? device_.GetBitmapFromFile(canvas_.border->source)
+                                        ? skin_image(canvas_.border->source)
                                         : nullptr;
   const D2D1_RECT_F card_rect{
       static_cast<float>(panel.left) + inset,
@@ -1579,7 +1612,7 @@ void CandidateWindow::paint() {
   // The package background sits on the surface and under the border and the text, masked by the card's rounded outline.
   if (!background_.image.empty() && background_opacity > 0.0f) {
     D2D1_SIZE_F natural{};
-    auto *bitmap = device_.GetBitmapFromFile(background_.image, &natural);
+    auto *bitmap = skin_image(background_.image, &natural);
     const auto rects = candidate_background_rects(
         background_.fit,
         {card_rect.left, card_rect.top, card_rect.right, card_rect.bottom},
@@ -1620,7 +1653,7 @@ void CandidateWindow::paint() {
   // is the whole point of the decoration.
   if (!decoration_image_.empty() && decoration_offset_ > 0.0f) {
     D2D1_SIZE_F natural{};
-    if (auto *bitmap = device_.GetBitmapFromFile(decoration_image_, &natural)) {
+    if (auto *bitmap = skin_image(decoration_image_, &natural)) {
       // A package gives a width, not a box: the height follows the image's own aspect ratio, and artwork too tall for the band plus the pad_y overlap shrinks uniformly instead of being squashed. Placed along the card's top edge as the manifest aligns it, as the settings preview places it.
       if (const auto rect = candidate_decoration_rect(
               decoration_align_, static_cast<float>(panel.left),
@@ -2073,6 +2106,7 @@ void CandidateWindow::paint() {
     // frame still matches, so leaving it set would suppress the very repaint
     // this path is counting on, and painted_ would stay behind for good. That
     // also strands clicks, because hit() refuses without a painted page.
+    image_frames_.reset_target();
     device_.DiscardTarget();
     shown_.reset();
     InvalidateRect(window_, nullptr, FALSE);
@@ -2082,6 +2116,7 @@ void CandidateWindow::paint() {
     throw std::runtime_error("Candidate drawing failed");
   if (FAILED(presented))
     throw std::runtime_error("Candidate presentation failed");
+  schedule_image_frame();
   painted_ = value;
   painted_rows_ = std::move(rows);
   painted_pager_ = pager ? pager : list_pager;
@@ -2730,9 +2765,17 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
           self->accessible_->disconnect();
         break;
       case WM_POWERBROADCAST:
+        if (wparam == PBT_APMSUSPEND) {
+          self->image_suspended_ = true;
+          self->image_frames_.stop();
+          KillTimer(window, image_frame_timer);
+          return TRUE;
+        }
         if (wparam != PBT_APMRESUMEAUTOMATIC &&
             wparam != PBT_APMRESUMECRITICAL && wparam != PBT_APMRESUMESUSPEND)
           break;
+        self->image_suspended_ = false;
+        self->image_epoch_ = 0;
         [[fallthrough]];
       case WM_DISPLAYCHANGE:
       case WM_DWMCOMPOSITIONCHANGED:
@@ -2742,12 +2785,18 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         // can invalidate that device, while a high-to-low DPI move can leave
         // the old surface large enough to bypass EnsureForComposition's size
         // rebuild. Recreate it before the next frame in every case.
+        self->image_frames_.reset_target();
         self->device_.DiscardTarget();
         // 反应式锁存的触发之一：游戏刚弹出候选窗就改了显示模式。
         if (message == WM_DISPLAYCHANGE)
           self->display_changed_ = true;
         [[fallthrough]];
       case WM_SETTINGCHANGE:
+        KillTimer(window, image_frame_timer);
+        self->image_frames_.stop();
+        self->image_epoch_ = 0;
+        if (IsWindowVisible(window))
+          InvalidateRect(window, nullptr, FALSE);
         // The next refresh recomputes from the authenticated caret anchor;
         // do not recursively reposition from inside SetWindowPos's callback.
         self->shown_.reset();
@@ -2764,6 +2813,12 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         self->take_typing_effect();
         return 0;
       case WM_TIMER:
+        if (wparam == image_frame_timer) {
+          KillTimer(window, image_frame_timer);
+          if (IsWindowVisible(window) && !self->image_suspended_)
+            InvalidateRect(window, nullptr, FALSE);
+          return 0;
+        }
         if (wparam == skin_animation_timer) {
           self->skin_animation_tick();
           return 0;

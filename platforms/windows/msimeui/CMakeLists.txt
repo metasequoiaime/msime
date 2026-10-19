@@ -20,6 +20,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 add_library(msimeui STATIC
+    src/AnimatedImage.cpp
     src/Application.cpp
     src/Brush.cpp
     src/Controls.cpp
@@ -39,6 +40,7 @@ add_library(msimeui STATIC
     src/tsf/TextLayout.cpp
     src/tsf/TextStore.cpp
     src/tsf/TsfTextServices.cpp
+    include/msimeui/AnimatedImage.h
     include/msimeui/Application.h
     include/msimeui/Brush.h
     src/DebugLog.h

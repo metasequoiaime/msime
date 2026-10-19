@@ -5,7 +5,10 @@
 #include <string>
 
 namespace msime::windows {
-// canvas 皮肤的一张图（九宫格面板或自由挂件）能不能画：用和 msimeui DeviceResources::GetBitmapFromFile 相同的 WIC 路径打开文件、取第一帧、转成 32bpp PBGRA，并把像素真正解出来。只看文件头会放过数据损坏的图，那样候选窗每画一帧都要重新解一次，而且面板解不出来时卡片要用的是另一套配色（共享层的 `canvas_panel_drawn`），必须在套用皮肤时就知道。动图（APNG、GIF、WebP）只看第一帧，Windows 宿主只画第一帧。系统没有对应解码器（例如没装 WebP 扩展）时同样算解不出来。调用线程要已经进入 COM 套间：Server 主线程和截图工具都由 CandidateWindow 的 Apartment 或自己的 CoInitializeEx 负责。
+// 套用 canvas 配色前，用 WIC 完整解码默认图，确认至少能提供静态可读外观。
+// 动画由 CandidateImageFrames 另行有界解码、合成并播放；损坏或超预算时保持这个默认图。
+// WebP 沿用上游的系统 WIC 解码器要求；调用线程必须已进入 COM 套间。
+
 inline bool candidate_canvas_image_decodes(const std::wstring &path) {
   if (path.empty())
     return false;

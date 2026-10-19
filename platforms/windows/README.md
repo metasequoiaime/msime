@@ -193,6 +193,8 @@ CI（`.github/workflows/ci-platforms.yml` 的 windows job）在 `debian:trixie-s
 
 在 Windows 上本地运行：把交叉构建的 `target/windows-full/x64` 目录（至少 `msime-candidate-skin-gallery.exe`、`msime_host_api.dll` 和 `stage-runtime.sh` 放进去的三个 MinGW 运行时 DLL）带到一台有桌面的 Windows 10 1703 或更新的机器上，在仓库根目录执行 `msime-candidate-skin-gallery.exe --skins crates\client-services\tests\fixtures\candidate-skins --output <输出目录>`。两个参数都可以省，缺省就是这个皮肤目录和 `target\windows-candidate-skin-gallery`（相对当前目录）。运行的几十秒里不要动鼠标、不要切窗口。它要交互桌面，所以不是 CTest，名字也不以 `windows-` 开头，`run-tests-wine.sh` 不会去跑它；Wine 的 DirectComposition 只是桩，截不出可信的画面。
 
+专用测试桌面上可加 `--verify-image-animation`：工具对 `verify-canvas`（APNG 自由挂件）、`verify-canvas-frame`（GIF 自由挂件）与 `verify-v2-motion-system`（传统 APNG 装饰）检查没有按键与主动刷新时窗口像素确实变化，并检查休眠／唤醒、减弱动态效果、隐藏／重开。该选项在测试期间临时切换非持久化的系统动画偏好，退出恢复原值；不要在日常桌面使用。变化前后和减弱动态效果的截图随图库输出。CI 在原生 Windows runner 上先运行 `windows-candidate-image-animation.exe` 的解码与缓存像素断言，再启用这个选项。
+
 CI 里 `windows` job 交叉编译出它以后，把它、host DLL 和三个运行时 DLL 去掉调试信息，上传为 `windows-candidate-skin-gallery-tool`；`windows-skin-gallery` job（Windows candidate skin gallery，`windows-2025`）下载后对 `crates/client-services/tests/fixtures/candidate-skins` 运行，截图上传为产物 `windows-candidate-skin-gallery`，这一步失败时也上传。
 
 ## 管道 I/O 与进程身份绑定

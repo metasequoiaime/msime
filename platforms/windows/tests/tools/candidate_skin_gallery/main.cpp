@@ -303,9 +303,109 @@ struct Look {
   CandidateSkinCanvas canvas;
 };
 
+// 只在显式 --verify-image-animation 的专用测试桌面上切换非持久化系统偏好。
+class AnimationPreference final {
+public:
+  AnimationPreference() {
+    if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &original_, 0))
+      throw std::runtime_error("animation preference unavailable");
+  }
+  ~AnimationPreference() {
+    SystemParametersInfoW(SPI_SETCLIENTAREAANIMATION, 0,
+                            reinterpret_cast<void *>(static_cast<UINT_PTR>(original_ != FALSE)), 0);
+  }
+  void set(bool enabled, HWND window) {
+    if (!SystemParametersInfoW(SPI_SETCLIENTAREAANIMATION, 0,
+                                reinterpret_cast<void *>(static_cast<UINT_PTR>(enabled)), 0))
+      throw std::runtime_error("animation preference cannot be changed on the test desktop");
+    SendMessageW(window, WM_SETTINGCHANGE, SPI_SETCLIENTAREAANIMATION, 0);
+  }
+private:
+  BOOL original_ = TRUE;
+};
+
+void verify_image_animation(CandidateWindow &window, const GalleryShot &shot, size_t &frames,
+                            const std::filesystem::path &output) {
+  AnimationPreference preference;
+  window.set_skin_animation({});
+  preference.set(true, window.handle());
+  pump(nullptr, 100);
+  RECT rect{};
+  if (!GetWindowRect(window.handle(), &rect))
+    throw std::runtime_error("animation capture rectangle unavailable");
+  std::string error;
+  const auto capture = [&]() {
+    DwmFlush();
+    const auto pixels = capture_screen(rect, error);
+    if (!pixels)
+      throw std::runtime_error("animation capture failed: " + error);
+    return *pixels;
+  };
+  const auto save = [&](const char *stage, const std::vector<uint8_t> &pixels) {
+    auto file = output / std::filesystem::u8path(gallery::shot_file_name(shot));
+    file.replace_filename(file.stem().wstring() + L"__" + std::filesystem::path(stage).wstring() + L".png");
+    if (!write_png(file, rect.right - rect.left, rect.bottom - rect.top, pixels, error))
+      throw std::runtime_error("animation evidence write failed: " + error);
+  };
+  const auto initial = capture();
+  save("animation-start", initial);
+  const auto before = frames;
+  bool changed = false;
+  for (size_t index = 0; index < 12; ++index) {
+    // 只派发 Win32 消息；不调用 refresh，也不主动让候选窗失效。
+    pump(nullptr, 75);
+    const auto current = capture();
+    size_t differences = 0;
+    for (size_t pixel = 0; pixel + 3 < current.size(); pixel += 4)
+      if (current[pixel] != initial[pixel] || current[pixel + 1] != initial[pixel + 1] ||
+          current[pixel + 2] != initial[pixel + 2]) ++differences;
+    if (differences > 20 && frames > before + 1) {
+      save("animation-changed", current);
+      changed = true;
+      break;
+    }
+  }
+  if (!changed)
+    throw std::runtime_error("image timer did not change the native window pixels without input");
+
+  SendMessageW(window.handle(), WM_POWERBROADCAST, PBT_APMSUSPEND, 0);
+  pump(nullptr, 50);
+  const auto sleeping = frames;
+  pump(nullptr, 300);
+  if (frames != sleeping)
+    throw std::runtime_error("image timer continued while suspended");
+  SendMessageW(window.handle(), WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC, 0);
+  pump(nullptr, 400);
+  if (frames <= sleeping + 1)
+    throw std::runtime_error("image animation did not recover after resume");
+
+  preference.set(false, window.handle());
+  pump(nullptr, 100);
+  const auto still = capture();
+  save("reduced-motion", still);
+  const auto stopped = frames;
+  pump(nullptr, 350);
+  if (frames != stopped || capture() != still)
+    throw std::runtime_error("reduced motion continued changing frames or pixels");
+
+  preference.set(true, window.handle());
+  pump(nullptr, 200);
+  window.hide();
+  pump(nullptr, 50);
+  const auto hidden = frames;
+  pump(nullptr, 300);
+  if (IsWindowVisible(window.handle()) || frames != hidden)
+    throw std::runtime_error("hidden candidate window retained its image timer");
+  window.refresh();
+  pump(nullptr, 400);
+  if (!IsWindowVisible(window.handle()) || frames <= hidden + 1)
+    throw std::runtime_error("image animation did not restart after show");
+  report(gallery::shot_label(shot) + ": image animation pixels, suspend/resume, reduced motion and hide/show passed");
+}
+
 // 画一张截图并写进 output。成功返回 true；失败时日志里写清楚是哪一步。
 bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defaults, POINT anchor,
-                 Backdrop &backdrop, const std::filesystem::path &output) {
+                 Backdrop &backdrop, const std::filesystem::path &output, bool verify_images) {
   const auto label = gallery::shot_label(shot);
   const uint32_t backdrop_color = shot.dark ? dark_backdrop : light_backdrop;
   // 要系统材质的皮肤铺条纹，先截下候选窗出现之前的屏幕，空白和裁边的自检拿它比，而不是和纯色比。
@@ -478,6 +578,10 @@ bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defa
       return false;
     }
     report(label + ": " + summary + " -> " + utf8(file.filename().wstring()));
+    if (verify_images && shot.horizontal && !shot.dark && !shot.expanded &&
+        (shot.skin == "verify-canvas" || shot.skin == "verify-canvas-frame" ||
+         shot.skin == "verify-v2-motion-system"))
+      verify_image_animation(window, shot, frames, output);
     return true;
   } catch (const std::exception &exception) {
     report(label + ": FAILED, " + exception.what());
@@ -486,7 +590,7 @@ bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defa
 }
 
 int usage() {
-  std::cout << "Usage: msime-candidate-skin-gallery [--skins <skin root>] [--output <directory>]\n"
+  std::cout << "Usage: msime-candidate-skin-gallery [--skins <skin root>] [--output <directory>] [--verify-image-animation]\n"
                "Renders the Windows candidate window for every skin under the skin root (default "
                "crates/client-services/tests/fixtures/candidate-skins) and for no skin, horizontal "
                "and vertical, light and dark, plus the expanded panel of expand_panel skins, and "
@@ -502,10 +606,13 @@ int usage() {
 int wmain(int argc, wchar_t **argv) {
   std::filesystem::path skins = L"crates/client-services/tests/fixtures/candidate-skins";
   std::filesystem::path output = L"target/windows-candidate-skin-gallery";
+  bool verify_images = false;
   for (int index = 1; index < argc; ++index) {
     const std::wstring argument = argv[index];
     if ((argument == L"--skins" || argument == L"--output") && index + 1 < argc)
       (argument == L"--skins" ? skins : output) = argv[++index];
+    else if (argument == L"--verify-image-animation")
+      verify_images = true;
     else
       return usage();
   }
@@ -707,7 +814,7 @@ int wmain(int argc, wchar_t **argv) {
             const auto shots = horizontal && look.assets.layout.expand_panel.value_or(false) ? 2 : 1;
             for (int index = 0; index < shots; ++index) {
               shot.expanded = index == 1;
-              if (render_shot(shot, look, defaults, anchor, backdrop, output)) {
+              if (render_shot(shot, look, defaults, anchor, backdrop, output, verify_images)) {
                 ++written;
                 ++drawn;
               } else {
