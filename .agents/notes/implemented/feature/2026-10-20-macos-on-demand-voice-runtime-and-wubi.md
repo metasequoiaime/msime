@@ -60,8 +60,8 @@ Status: implemented
 ## Consequences
 
 - **体积**：
-  - universal 发布包里输入法 bundle 少约 40 MB（剥离后的 universal dylib）。开发构建（只有 arm64、未剥离）实测 bundle 从 201 MB 降到 176 MB。
-  - 全功能版和拼音版的 `EngineResources` 少 14.5 MB（`msime-wubi.db` 14,536,704 字节）。
+  - universal 发布包里输入法 bundle 少约 40 MB（剥离后的 universal dylib 41,800,064 字节）。用户选本地识别时下载约 16.5 MB 的 ZIP。开发构建（只有 arm64、未剥离）实测 bundle 从 201 MB 降到 176 MB。
+  - 全功能版和拼音版的 `EngineResources` 少 14.5 MB（`msime-wubi.db` 14,536,704 字节），按 `MSIME_MACOS_OMIT_ON_DEMAND=1` 暂存实测从约 120,420 KiB 降到 106,224 KiB；五笔版仍是 116,036 KiB（它本来就不带整句模型）。
   - 解压后的 `MSIME.app` 合计约少 55 MB，从约 300 MiB 降到约 245 MiB。前提是锁文件已固定运行库；固定之前只少五笔那 14.5 MB。
   - DMG 用 LZMA 压缩，少得比解压后小。
 - **第一次发版要手工走一步**：合并后锁文件是 `null`，发布包照旧内置运行库。维护者手动运行 Publish macOS voice runtime（勾选 `publish`），把运行摘要里的 `voice-runtime-macos.lock.json` 经普通 PR 提交到 `resources/`，之后的 macOS 发布才省掉运行库。以后 sherpa-onnx 升级时，先把锁文件的 `release_tag` 改成新版本并清空 `archive` 和 `artifacts`，再重复这一步。
@@ -76,7 +76,8 @@ Status: implemented
   - macOS CMake 在 `MSIME_BUNDLE_VOICE_RUNTIME` 为 ON 和 OFF 时都构建通过，`bundle-contents`、`local-voice-request` 和 `backend-library-load` 都通过。
   - `MSIME_MACOS_OMIT_ON_DEMAND=1` 暂存后，全功能版、拼音版和日文版的 `EngineResources` 没有 `msime-wubi.db`，五笔版仍有，并按 `--platform macos` 规则校验通过。
   - `wubi` 资源包能从锁文件地址下载并通过校验。
-  - 重签运行库的签名脚本和发布工作流在合并前没有用真实凭据跑过，第一次手动运行就是它们的验收。装好资源包后在真机上用本地模型识别一次，也要等运行库发布后才能做。
+  - 签名脚本在本机用维护者的 Developer ID 跑过一次（只签名，没有公证，也没有发布）：剥离后的 universal dylib 41,800,064 字节，ZIP 16,466,276 字节。把这份 dylib 以 `--runtime` 交给 `~/Library/Input Methods` 里已装、开着 hardened runtime 的 `msime-voice-local`，握手报告 `available: true`。同一个辅助进程加载上游原样（ad-hoc 签名）的 dylib 时，库验证拒绝，`dlopen` 报 code signature 错误。重签的必要性和 `--runtime` 这条加载路径都由此得到确认。
+  - 发布工作流本身（证书导入、公证、上传 Release）在合并前没有跑过，第一次手动运行就是它的验收。装好资源包后由输入法发起一次真实的本地识别，要等运行库发布、锁文件固定之后才能做。
 - **其他平台**：
   - Windows 的安装包同样带着 sherpa 运行库和 `msime-wubi.db`。五笔码表可以复用这里的机制：把 `"windows"` 加进 `on_demand_artifacts`，让 `Prepare-PackageFiles.ps1` 省掉它，`offered_by` 加 Windows 分支。这需要在 Windows 上验收，留作后续。Windows 运行库要先让 `resource_packs` 支持按平台的 `tar.bz2` 成员锁，Server 也要改为从用户可写的数据目录加载不签名的 DLL，这是一个单独的安全决定。
   - Linux 发布包本来就不带词库，用户用 `msime-linux-setup --download` 取回，五笔码表无需再拆。运行库随 deb/rpm 和各发行版的打包分发，x86_64 归档约 9 MB。改成按需下载同样要先支持 `tar.bz2` 成员锁，NixOS 还加载不了上游原样的 `.so`，所以留作后续。
