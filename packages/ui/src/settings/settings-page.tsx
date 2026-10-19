@@ -22,6 +22,7 @@ import { WindowTitlebar } from "./window-titlebar";
 import * as settings from "./settings-style";
 import { FluentIcon } from "../core/fluent-icons";
 import { SettingsPluginCommunitySection } from "./settings-plugin-community-section";
+import { SettingsSkinEditorSection } from "./settings-skin-editor-section";
 import { SettingsSkinCommunitySection } from "./settings-skin-community-section";
 import {
   ScreenKeyboardLayoutContext,
@@ -166,11 +167,15 @@ function SettingsShell(props: SettingsPageProps) {
     hasCommunitySkins: Boolean(client.communitySkins),
     hasCommunityCandidateSkins: Boolean(client.communityCandidateSkins),
     hasCommunityPlugins: Boolean(client.communityPlugins),
+    hasCandidateSkinEditor: Boolean(
+      model.host?.candidate_skin_editor && client.candidateSkinEditor && !mobilePlatform,
+    ),
   });
   const {
     skinTabs,
     desktopTabs: desktopSkinTabs,
     skinCommunityShown,
+    skinEditorShown,
     pluginCommunityShown,
   } = communityViews;
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
@@ -387,6 +392,11 @@ function SettingsShell(props: SettingsPageProps) {
                 onSkinViewChange={setSkinView}
                 onSkinApplied={recordCommunitySkin}
               />
+              <SettingsSkinEditorSection
+                model={model}
+                views={communityViews}
+                onSkinViewChange={setSkinView}
+              />
               <SettingsPluginCommunitySection
                 model={model}
                 views={communityViews}
@@ -398,7 +408,8 @@ function SettingsShell(props: SettingsPageProps) {
                   model={{ ...model, draft }}
                   skinTabs={skinTabs}
                   desktopSkinTabs={desktopSkinTabs}
-                  skinCommunityShown={skinCommunityShown}
+                  // 社区图库和「制作皮肤」都画在表单之外，选中其一时表单里的皮肤页隐藏。
+                  skinCommunityShown={skinCommunityShown || skinEditorShown}
                   pluginCommunityShown={pluginCommunityShown}
                   externalActions={externalActions}
                   onRestoreDefaults={onRestoreDefaults}

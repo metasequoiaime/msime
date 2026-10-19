@@ -18,6 +18,8 @@ import {
   type Preferences,
   type SavedTouchKeyboardSkin,
   type SkinCatalog,
+  type ExternalSkin,
+  type CreatedCandidateSkin,
   type SkinFont,
   type SkinImage,
   CloudClipboardPanel,
@@ -1345,6 +1347,32 @@ function makeClient(
         ),
       ),
     scanSkinCatalog: async () => unwrap<SkinCatalog>(native.scanSkinCatalog()),
+    // 「制作皮肤」：宿主在工作线程上调用 `msime_client_candidate_skin_editor`，装进哪个目录由 ArkTS 一侧填，页面不指名路径。拒绝时带上清单没通过校验的原因。
+    candidateSkinEditor: {
+      check: async ({ packageId, manifest, files }) =>
+        unwrapPlugin<ExternalSkin>(
+          await bridgeRequest(
+            native,
+            "candidate_skin_editor",
+            JSON.stringify({ operation: "check", package_id: packageId, manifest, files }),
+          ),
+        ),
+      create: async ({ packageId, manifest, files }, replace) =>
+        unwrapPlugin<CreatedCandidateSkin>(
+          await bridgeRequest(
+            native,
+            "candidate_skin_editor",
+            JSON.stringify({
+              operation: "create",
+              package_id: packageId,
+              manifest,
+              files,
+              replace,
+            }),
+            60000,
+          ),
+        ),
+    },
     readSkinImage: async (id: string, relative: string) =>
       unwrap<SkinImage>(native.readSkinImage(id, relative)),
     readSkinFont: async (id: string, relative: string) =>

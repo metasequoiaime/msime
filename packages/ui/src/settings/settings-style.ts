@@ -122,6 +122,29 @@ export const skinPreviewStage = "flex min-w-0 items-start overflow-hidden px-6 p
 /** A theme card's horizontal and vertical candidate stages side by side. Neither shrinks, so a card too narrow for both wraps the vertical one under the horizontal one instead of clipping either. */
 export const skinCandidateStages = "flex flex-wrap items-start [&>*]:max-w-full [&>*]:shrink-0";
 
+// ---- 「制作皮肤」编辑器 ----
+
+/** 编辑时一直看得见的预览：贴在内容区顶部，下面的表单从它底下滚过。 */
+export const skinEditorPreview =
+  "sticky top-0 z-10 flex flex-col gap-3 rounded-[var(--p-group-r)] border border-edge bg-[var(--p-group-bg)] p-4 shadow-card linux:shadow-none";
+export const skinEditorPreviewBar = "flex flex-wrap items-center justify-between gap-3";
+export const skinEditorPreviewModes =
+  "grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]";
+export const skinEditorPreviewCard =
+  "flex min-w-0 flex-col gap-1.5 overflow-hidden rounded-lg [&_[data-skin-preview]]:rounded-lg";
+export const skinEditorPreviewEmpty =
+  "flex min-h-24 min-w-0 flex-col justify-center gap-1.5 rounded-lg border border-dashed border-edge px-4 py-3";
+export const skinEditorPreviewLabel = "text-xs font-medium text-muted";
+export const skinEditorColor = "flex items-center gap-2";
+export const skinEditorHex = "settings-text-input w-[7.5rem] font-mono uppercase";
+export const skinEditorContrast =
+  "m-0 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-[13px] [color:var(--p-sub)]";
+export const skinEditorContrastValue = (ok: boolean) =>
+  `m-0 text-right tabular-nums ${ok ? "" : "font-medium text-danger"}`;
+export const skinEditorActions = "flex flex-wrap items-center gap-3";
+export const skinEditorImageName = "max-w-48 truncate text-[13px] [color:var(--p-sub)]";
+export const skinEditorProblems = "m-0 flex flex-col gap-1 pl-5 text-[13px] text-danger";
+
 // ---- the floating toolbar editor ----
 
 export const toolbarPreview = (enabled: boolean) =>

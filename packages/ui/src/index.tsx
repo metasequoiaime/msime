@@ -1639,6 +1639,14 @@ export {
 } from "./community/community-plugin-model";
 export { CommunityPage, type CommunityPageProps } from "./community/community-page";
 export type { SkinCatalog, ExternalSkin } from "./skin/external-skins";
+export {
+  normalizeCandidateSkinDraft,
+  type CandidateSkinDraft,
+  type CandidateSkinEditorClient,
+  type CandidateSkinPackageRequest,
+  type CreatedCandidateSkin,
+} from "./skin/candidate-skin-draft";
+export { CandidateSkinEditor } from "./skin/candidate-skin-editor";
 export type { SkinImage, SkinImageReader } from "./skin/skin-image";
 export type { SkinFont, SkinFontReader } from "./skin/skin-font";
 export {

@@ -265,6 +265,13 @@ const client: SettingsClient = {
   readAppReleaseDate: () => invoke<string>("app_release_date"),
   resolveFontFamilies: (names) => invoke("resolve_font_families", { names }),
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
+  // 「制作皮肤」：两条命令都走 client-services 的 `skin::candidate_editor`，失败以 `{code, detail}` 拒绝；装进哪个目录由宿主决定。
+  candidateSkinEditor: {
+    check: ({ packageId, manifest, files }) =>
+      invoke("candidate_skin_check", { packageId, manifest, files }),
+    create: ({ packageId, manifest, files }, replace) =>
+      invoke("candidate_skin_create", { packageId, manifest, files, replace }),
+  },
   listHelpcodeSchemas: () => invoke<CustomHelpcodeSchema[]>("list_helpcode_schemas"),
   resolveTheme: (request) => invoke("resolve_theme", { request }),
   // 两个都是无副作用的计算（host-api 不留存的校验和内置方案的表），桌面宿主都注册了，输入页据此提供自定义双拼的编辑、导入和导出。
