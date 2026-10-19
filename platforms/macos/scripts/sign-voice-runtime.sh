@@ -55,12 +55,14 @@ for attempt in 1 2 3 4 5; do
   exit 1
 done
 codesign --verify --strict --verbose=2 "$signed"
-signed_team=$(codesign -dv "$signed" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+# 先整段取出再匹配：直接接 `grep -q` 时 grep 读到就退出，codesign 收到 SIGPIPE，pipefail 会把匹配成功报成失败。
+signature=$(codesign -dv "$signed" 2>&1)
+signed_team=$(sed -n 's/^TeamIdentifier=//p' <<< "$signature")
 if [ "$signed_team" != "$team_id" ]; then
   echo "the signed runtime carries Team ID '$signed_team', not $team_id" >&2
   exit 1
 fi
-codesign -dv "$signed" 2>&1 | grep -q 'flags=.*runtime' || { echo "the signed runtime has no hardened runtime flag" >&2; exit 1; }
+grep -q 'flags=.*(runtime)' <<< "$signature" || { echo "the signed runtime has no hardened runtime flag" >&2; exit 1; }
 
 archive_name="sherpa-onnx-v$version-macos-universal-signed.zip"
 mkdir -p "$out_dir"
