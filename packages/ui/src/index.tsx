@@ -1764,6 +1764,10 @@ export {
   CloudFixedPositions,
   type CloudFixedPositionsProps,
 } from "./keyboard/cloud-candidate-results";
+export {
+  CloudDictionaryApplyContent,
+  type CloudDictionaryApplyContentProps,
+} from "./keyboard/cloud-dictionary-apply-content";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
   PanelActivationButtons,
