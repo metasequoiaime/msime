@@ -37,3 +37,5 @@ Status: implemented
 显式准备模式和等待设置保存避免不同用例互相污染，截图保留用于区分操作问题与产品问题。UI 用例仍有意保留上屏内容断言，不用放宽语义来换取通过。真机 USB 当前断开；普通 XCTest 等待空闲后的点按不能证明快速手打延迟改善。模拟器允许准备完全访问；用户真机不重新登记键盘、不修改信任或清空数据。
 
 - iPad 设备族修复后，iPad Air 13 英寸 regular width 的设置分栏与平板专属控件通过 `OnboardingUITests/testTabletSettingsSidebarSelectsPagesAndShowsTabletControls`（9.197 秒），截图已人工查看；iPad mini 竖屏为 compact width，继续使用手机设置栈。该项不改变真机系统键盘九键连续输入仍未完成的结论。
+
+- 未登录账号页入口验收通过 `OnboardingUITests/testSignedOutAccountActionsExplainLoginAndStayUnavailable`（12.924 秒）：云剪贴板、手动同步和 QQ 群助手显示登录后可用且保持禁用，我的发布与收藏不伪造登录入口；未开启云剪贴板、未提交绑定码，也未访问需要真实账号的子页。

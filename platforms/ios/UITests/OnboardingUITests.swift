@@ -160,6 +160,29 @@ final class OnboardingUITests: XCTestCase {
     add(screenshot)
   }
 
+  @MainActor
+  func testSignedOutAccountActionsExplainLoginAndStayUnavailable() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["我的"].tap()
+    let loginAlert = app.alerts["账号与登录"]
+    if loginAlert.waitForExistence(timeout: 3) { loginAlert.buttons["好"].tap() }
+    let card = app.buttons["accountProfileCard"]
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    guard card.label == "未登录，点按登录" else { throw XCTSkip("模拟器上已有登录会话") }
+
+    let clipboard = app.buttons["accountCloudClipboard"]
+    XCTAssertTrue(clipboard.exists)
+    XCTAssertTrue(app.buttons["accountManualSync"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["accountManualSync"].isEnabled)
+    XCTAssertTrue(app.buttons["accountQQLinks"].exists)
+    XCTAssertFalse(app.buttons["accountQQLinks"].isEnabled)
+    XCTAssertFalse(app.buttons["accountPublishedContent"].exists)
+    XCTAssertGreaterThanOrEqual(
+      app.staticTexts.matching(NSPredicate(format: "label == %@", "登录后可用")).count, 2)
+  }
+
   /// 通过原生设置页保存，重启应用后仍保留，避免开关只改变预览而没有写入共享容器。
   @MainActor
   func testHideLanguageKeySettingPersistsAcrossRelaunch() throws {
