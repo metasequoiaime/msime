@@ -489,6 +489,19 @@ HRESULT DeviceResources::Present()
     return hr;
 }
 
+D2D1_SIZE_F DeviceResources::GetClientSize() const
+{
+    RECT rc = {};
+    if (!hwnd_ || !GetClientRect(hwnd_, &rc))
+    {
+        auto *target = GetRenderTarget();
+        return target ? target->GetSize() : D2D1::SizeF(0.0f, 0.0f);
+    }
+    // 与 BindCompositionSurface、EnsureLayered 给渲染目标设的 DPI 同一个来源，换算出的 DIP 和画图用的坐标一致。
+    const FLOAT scale = 96.0f / DpiForHwnd();
+    return D2D1::SizeF(static_cast<FLOAT>(rc.right) * scale, static_cast<FLOAT>(rc.bottom) * scale);
+}
+
 ID2D1RenderTarget *DeviceResources::GetRenderTarget() const
 {
     if (layered_ && dcTarget_)

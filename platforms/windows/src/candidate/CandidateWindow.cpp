@@ -1282,7 +1282,8 @@ void CandidateWindow::paint() {
   const auto metrics = candidate_card_metrics(
       font_size_, preedit_font_size_, show_preedit_, show_app_logo_, !label.empty(), skin,
       number_label_width(value->candidates.size(), skin));
-  const auto size = target->GetSize();
+  // 卡片按窗口客户区排，和 card_bounds 定的窗口尺寸一致。渲染目标比窗口大（合成交换链按 64 像素分档、只增不减），按它的 GetSize() 排会把卡片右边和下边画到窗口外面裁掉。
+  const auto size = device_.GetClientSize();
   const auto frame = candidate_shadow_frame(
       size.width -
           static_cast<float>(shadow_insets_.left + shadow_insets_.right),
@@ -1900,6 +1901,9 @@ void CandidateWindow::paint() {
   painted_rows_ = std::move(rows);
   painted_pager_ = pager ? pager : list_pager;
   painted_dpi_ = GetDpiForWindow(window_);
+  painted_card_ = D2D1_RECT_F{static_cast<float>(frame.card_left), static_cast<float>(frame.card_top),
+                              static_cast<float>(frame.card_left + frame.card_width),
+                              static_cast<float>(frame.card_top + frame.card_height)};
   painted_expand_ = expand_layout;
   painted_expand_offset_ = expand_offset;
   painted_expand_step_ = metrics.candidate_row + metrics.item_gap;
@@ -2094,6 +2098,16 @@ void CandidateWindow::toggle_expansion() {
   hovered_cell_.reset();
   pressed_cell_.reset();
   refresh();
+}
+std::optional<RECT> CandidateWindow::painted_card() const {
+  if (!painted_card_ || !painted_dpi_)
+    return std::nullopt;
+  // DIP 到像素和画图同一个比例：渲染目标的 DPI 是窗口 DPI 乘用户缩放（layout_scale）。
+  const double scale = layout_scale(painted_dpi_);
+  return RECT{static_cast<LONG>(std::lround(painted_card_->left * scale)),
+              static_cast<LONG>(std::lround(painted_card_->top * scale)),
+              static_cast<LONG>(std::lround(painted_card_->right * scale)),
+              static_cast<LONG>(std::lround(painted_card_->bottom * scale))};
 }
 bool CandidateWindow::open_expansion() {
   if (!expand_.expanded)

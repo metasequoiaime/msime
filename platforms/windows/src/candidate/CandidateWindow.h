@@ -131,6 +131,8 @@ public:
   HWND handle() const { return window_; }
   // 候选卡片（不含四周的透明阴影边距和顶上吉祥物那一条）此刻的屏幕矩形，物理像素，候选窗不可见时为空。调用方要在每显示器 DPI 感知的线程上下文里，双拼键位图贴着它摆放。
   std::optional<TypingRect> card_on_screen() const { return typing_effect_card(); }
+  // 上一帧实际画出的卡片在客户区里的矩形（物理像素，不含阴影边距和吉祥物那一条），还没画过时为空。只读，Server 不用；候选皮肤截图工具拿它和窗口客户区、card_on_screen() 比，确认卡片没有画到窗口外面。
+  std::optional<RECT> painted_card() const;
 
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
@@ -236,6 +238,8 @@ private:
   // 鼠标停在列表里的哪一枚翻页箭头上（皮肤 `page_arrows`），按 msime-windows 的 PagerArrows 画悬停底色；首行的翻页没有悬停底色。
   std::optional<bool> hovered_page_;
   unsigned painted_dpi_ = 0;
+  // 上一帧画出的卡片矩形（DIP），painted_card() 读它。
+  std::optional<D2D1_RECT_F> painted_card_;
   bool failed_ = false;
   std::optional<ComponentFailureSite> failure_site_;
   unsigned font_size_ = 16;
