@@ -175,6 +175,15 @@ impl ThemePackage {
     }
 }
 
+/// 宿主可选消费的细分文字与装饰颜色。留空仍沿用该宿主既有的 token。
+#[derive(Debug, Default, Clone, PartialEq, Serialize)]
+pub struct CandidateDetails {
+    pub preedit_text: Option<String>,
+    pub preedit_caret: Option<String>,
+    pub selected_translation: Option<String>,
+    pub selected_bar: Option<String>,
+}
+
 /// The colours a host draws for the selected theme.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ResolvedTheme {
@@ -184,6 +193,8 @@ pub struct ResolvedTheme {
     pub appearance: Option<ThemeAppearance>,
     /// `system` 和 `native` 为 `None`：画平台 token。
     pub candidate: Option<CandidateThemePalette>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_details: Option<CandidateDetails>,
     /// `system` 和 `native` 为 `None`：画平台键盘。
     pub keyboard: Option<KeyboardThemePalette>,
     /// The external package drawn on this surface: the custom theme names it, it was found, and its manifest declares both `layout` and the mode drawn. Hosts draw the package's decoration and minimum width only when this is set.
@@ -219,6 +230,7 @@ pub fn resolve(
             candidate: Some(builtin.candidate()),
             keyboard: Some(builtin.keyboard()),
             candidate_skin: None,
+            candidate_details: None,
         };
     }
     // `native` 与 `system` 一样不带调色板，两者的区别只在宿主怎么画：`id` 原样带回，宿主据此分辨。
@@ -230,6 +242,7 @@ pub fn resolve(
             candidate: None,
             keyboard: None,
             candidate_skin: None,
+            candidate_details: None,
         };
     }
     let package = package
@@ -266,7 +279,7 @@ pub fn resolve(
         explicit.apply(Overrides::from_package(palette));
     }
     let pickers = Overrides::from_pickers(&custom.candidate_colors);
-    // A picked selection colour can be anything, so the text drawn on it is black or white by its luminance rather than the accent, which may vanish against it. Packages carry no selected text colour, so the picker is the only source this has to answer.
+    // 选中底色取色器优先于包内的选中文字色；按实际底色推导黑白文字，避免旧的贴图配色落在新底色上失去对比。
     let picked_selected_text = pickers.selected.as_deref().map(|selected| {
         let background = u32::from_str_radix(&selected[1..7], 16).unwrap_or_default();
         rgb(readable_text(background))
@@ -284,6 +297,20 @@ pub fn resolve(
     let text = explicit.text.or(base_palette.text);
     let number = explicit.number.or(base_palette.number);
     let accent = explicit.accent.or(base_palette.accent);
+    let candidate_details = drawn.and_then(|(_, palette)| {
+        let details = CandidateDetails {
+            preedit_text: color(&palette.preedit_text),
+            preedit_caret: color(&palette.preedit_caret),
+            selected_translation: color(&palette.selected_translation).map(|authored| {
+                picked_selected_text
+                    .as_deref()
+                    .map(|text| with_alpha(text, PICKED_NUMBER_ALPHA))
+                    .unwrap_or(authored)
+            }),
+            selected_bar: color(&palette.selected_bar),
+        };
+        (details != CandidateDetails::default()).then_some(details)
+    });
     let candidate = CandidateThemePalette {
         surface: explicit.surface.or(base_palette.surface),
         border: explicit.border.or(base_palette.border),
@@ -296,9 +323,13 @@ pub fn resolve(
         }),
         selected_number: match &picked_selected_text {
             Some(text) => Some(with_alpha(text, PICKED_NUMBER_ALPHA)),
-            None => number.clone().filter(|_| derived),
+            None => explicit
+                .selected_number
+                .or_else(|| number.clone().filter(|_| derived)),
         },
-        selected_text: picked_selected_text.or_else(|| accent.clone().filter(|_| derived)),
+        selected_text: picked_selected_text
+            .or(explicit.selected_text)
+            .or_else(|| accent.clone().filter(|_| derived)),
         hover: explicit.hover.or_else(|| {
             text.as_deref()
                 .filter(|_| derived)
@@ -320,12 +351,15 @@ pub fn resolve(
             .map(custom_keyboard)
             .or_else(|| base.map(BuiltinTheme::keyboard)),
         candidate_skin: drawn.map(|(package, _)| package.id.clone()),
+        candidate_details,
     }
 }
 
 /// The candidate slots a package palette or the pickers set explicitly, normalized; unset and unparseable values are `None`.
 #[derive(Default)]
 struct Overrides {
+    selected_text: Option<String>,
+    selected_number: Option<String>,
     surface: Option<String>,
     border: Option<String>,
     text: Option<String>,
@@ -343,7 +377,9 @@ impl Overrides {
         Self {
             surface: color(&palette.surface),
             border: color(&palette.border),
-            text: color(&palette.text),
+            text: color(&palette.candidate_text).or_else(|| color(&palette.text)),
+            selected_text: color(&palette.selected_text),
+            selected_number: color(&palette.selected_number),
             number: color(&palette.number),
             accent: color(&palette.accent),
             selected: color(&palette.selected),
@@ -364,6 +400,8 @@ impl Overrides {
             hover: color(&pickers.hover),
             translation: None,
             show_selected_bar: None,
+            selected_text: None,
+            selected_number: None,
         }
     }
 
@@ -374,6 +412,8 @@ impl Overrides {
                 *target = value;
             }
         }
+        over(&mut self.selected_text, top.selected_text);
+        over(&mut self.selected_number, top.selected_number);
         over(&mut self.surface, top.surface);
         over(&mut self.border, top.border);
         over(&mut self.text, top.text);

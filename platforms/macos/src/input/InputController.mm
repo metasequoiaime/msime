@@ -1228,6 +1228,7 @@ static NSImage *MSIMECandidateLogoImage() {
     NSString *_animatedHighlightContext;
     // 候选窗的进场、退场和选中动效，第一次显示候选窗时创建。
     MSIMECandidateMotion *_candidateMotion;
+    CFTimeInterval _canvasAnimationAnchor;
     // 上一次排版时皮肤包装饰图的待机动效和周期，显示候选窗时交给 _candidateMotion。
     msime::mac::DecorationMotion _renderedDecorationMotion;
     double _renderedDecorationPeriodMs;
@@ -7139,6 +7140,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     // 只有普通收起（上屏、取消、切到英文）可以播退场；失焦、会话替换、光标无效等立即收起，不在屏幕上留旧候选文字。
     const BOOL allowExit = strcmp(reason, "empty") == 0 || strcmp(reason, "english_mode") == 0;
     const BOOL wasVisible = _panel.isVisible;
+    if ([_panel.contentView isKindOfClass:MSIMECandidateChromeView.class])
+        [(MSIMECandidateChromeView *)_panel.contentView setCanvasPlaybackVisible:NO anchor:0];
+    _canvasAnimationAnchor = 0;
     if (_candidateMotion) [_candidateMotion hidePanel:_panel animation:_renderedCandidateAnimation allowExit:allowExit];
     else [_panel orderOut:nil];
     if (wasVisible && _candidateMotion) [self logCandidateMotion];
@@ -7159,6 +7163,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     if (!wasVisible) [self logCandidateMotion];
     // 每次排版都换了新的装饰视图，动画重新挂上，相位接着上一帧。
     [_candidateMotion animateDecoration:decoration motion:_renderedDecorationMotion periodMs:_renderedDecorationPeriodMs];
+    if (_canvasAnimationAnchor <= 0) _canvasAnimationAnchor = CACurrentMediaTime();
+    if ([_panel.contentView isKindOfClass:MSIMECandidateChromeView.class])
+        [(MSIMECandidateChromeView *)_panel.contentView setCanvasPlaybackVisible:YES anchor:_canvasAnimationAnchor];
 }
 
 - (MSIMEDecorationFrames *)decorationFramesForImage:(NSImage *)image path:(const std::string &)path {
@@ -7236,7 +7243,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 
 // 面板现在这张卡片顶上的装饰透明带高度，和 _panel.frame.size 一样从面板上读：refreshCandidateSkin 发现明暗换了包时会整页重排，局部变量里的装饰高度可能已经不是面板上的那一张。
 - (CGFloat)candidateCardTopInset {
-    return [_panel.contentView isKindOfClass:MSIMECandidateChromeView.class] ? ((MSIMECandidateChromeView *)_panel.contentView).cardTopInset : 0;
+    if (![_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) return 0;
+    MSIMECandidateChromeView *content = (id)_panel.contentView;
+    return content.cardTopInset + content.canvasOuterInsets.top;
 }
 
 // The reading in the card's top row, with the caret where the composition has it.
@@ -7324,6 +7333,39 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     return button;
 }
 
+// 原有行度量保留字体与释义的排版规则，canvas 在最后一步将统一边距换成四边边距。
+- (void)configureCanvasForContent:(MSIMECandidateChromeView *)content skin:(const msime::mac::ResolvedSkin &)skin
+                            dark:(BOOL)dark inset:(CGFloat)inset headerHeight:(CGFloat)headerHeight {
+    if (!skin.canvas) return;
+    const auto &canvas = *skin.canvas;
+    const auto padding = msime::mac::CanvasContentInsets(canvas, inset);
+    const CGFloat gap = headerHeight > 0 ? canvas.lineGap.value_or(0) : 0;
+    const CGFloat deltaWidth = padding.left + padding.right - 2 * inset;
+    const CGFloat deltaHeight = padding.top + padding.bottom - 2 * inset + gap;
+    for (NSView *child in content.candidateContentView.subviews) {
+        NSRect frame = child.frame;
+        frame.origin.x += padding.left - inset;
+        frame.origin.y += padding.bottom - inset;
+        if (![child isKindOfClass:MSIMECandidateButton.class] || child.tag < 0) frame.origin.y += gap;
+        child.frame = frame;
+    }
+    // 旧装饰带仍相对卡片顶部；自由挂件则相对新的卡片矩形定位。
+    for (NSView *child in content.subviews) if ([child isKindOfClass:MSIMECandidateDecorationView.class]) {
+        NSRect frame = child.frame;
+        frame.origin.x += canvas.outer.left + deltaWidth / 2;
+        frame.origin.y += canvas.outer.bottom + deltaHeight;
+        child.frame = frame;
+    }
+    content.canvasOuterInsets = canvas.outer;
+    NSSize size = content.frame.size;
+    size.width += deltaWidth + canvas.outer.left + canvas.outer.right;
+    size.height += deltaHeight + canvas.outer.top + canvas.outer.bottom;
+    content.frame = NSMakeRect(0, 0, size.width, size.height);
+    [_panel setContentSize:size];
+    [content layoutSubtreeIfNeeded];
+    [content configureCanvas:canvas assets:[_appearance canvasAssetsForDark:dark]];
+}
+
 // 画展开的候选网格，见「展开的候选网格」一节。皮肤、字体、首行和装饰与普通候选窗一致，每一行按普通候选窗排一页的方式排（candidatePageGeometry:），行与行上下叠起来。光标位置无效、找不到屏幕时返回 NO，由调用方收起网格。
 - (BOOL)renderExpandedCandidates {
     const bool timed = msime_macos_diagnostic_enabled();
@@ -7345,6 +7387,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     const auto tokens = skin.tokens;
     _skinShowsSelectedBar = tokens.showSelectedBar;
+    if (_renderedCandidateSkin != skin.candidateSkin) _canvasAnimationAnchor = 0;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;
     _renderedDecorationMotion = skin.decorationMotion;
@@ -7391,6 +7434,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap : 0;
     const CGFloat headerWidth = 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControls ? indicatorGap : 0) + controlsWidth;
 
+    NSRect rowVisible = visible;
+    const CGFloat canvasExtra = skin.canvas ? msime::mac::CanvasExtraWidth(*skin.canvas, inset) : 0;
+    rowVisible.size.width = MAX(0.0, rowVisible.size.width - canvasExtra);
     std::vector<MSIMECandidatePageGeometry> layouts;
     NSMutableArray<NSArray<NSDictionary *> *> *rowCandidates = [NSMutableArray arrayWithCapacity:visibleRows];
     CGFloat width = headerWidth;
@@ -7399,8 +7445,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         const NSUInteger start = row * columns;
         NSArray<NSDictionary *> *slice = [_expandedCandidates subarrayWithRange:NSMakeRange(start, MIN(columns, count - start))];
         layouts.push_back([self candidatePageGeometry:slice font:font glossFont:glossFont showSelectedBar:tokens.showSelectedBar
-                                                inset:inset paging:NO visible:visible preeditWidth:0
-                                         minimumWidth:MAX(skin.minWidthDip, skin.decorationWidthDip) reservesGloss:NO]);
+                                                inset:inset paging:NO visible:rowVisible preeditWidth:0
+                                         minimumWidth:MAX(0.0, MAX(skin.minWidthDip, skin.decorationWidthDip) - canvasExtra) reservesGloss:NO]);
         [rowCandidates addObject:slice];
         width = MAX(width, layouts.back().width);
         rowsHeight += layouts.back().rowsHeight;
@@ -7478,6 +7524,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         decoration.frames = [self decorationFramesForImage:decorationImage path:skin.decorationPath];
         [content addSubview:decoration];
     }
+    [self configureCanvasForContent:content skin:skin dark:skinDark inset:inset headerHeight:headerHeight];
     _panel.contentView = content;
     // 网格不是 Engine 的一页：清掉记下的那一页，收起后第一次重画走完整的重建，而不是在网格的按钮上原地改释义。
     _renderedCandidateView = nil;
@@ -7544,6 +7591,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     const auto geometry = skin.tokens;
     _skinShowsSelectedBar = geometry.showSelectedBar;
+    if (_renderedCandidateSkin != skin.candidateSkin) _canvasAnimationAnchor = 0;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;
     _renderedDecorationMotion = skin.decorationMotion;
@@ -7585,11 +7633,13 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap : 0;
     const CGFloat headerWidth = preedit.length || pageControls || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControlsWidth ? indicatorGap : 0) + pageControlsWidth : 0;
     NSRect rowVisible = visible;
+    const CGFloat canvasExtra = skin.canvas ? msime::mac::CanvasExtraWidth(*skin.canvas, inset) : 0;
+    rowVisible.size.width = MAX(0.0, rowVisible.size.width - canvasExtra);
     if (compactExpand) rowVisible.size.width = MAX(0.0, rowVisible.size.width - arrowWidth);
     const MSIMECandidatePageGeometry pageGeometry =
         [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:geometry.showSelectedBar inset:inset
                              paging:pageControls visible:rowVisible preeditWidth:headerWidth
-                       minimumWidth:MAX(skin.minWidthDip, skin.decorationWidthDip)];
+                       minimumWidth:MAX(0.0, MAX(skin.minWidthDip, skin.decorationWidthDip) - canvasExtra)];
     const CGFloat width = pageGeometry.width + (compactExpand ? arrowWidth : 0);
     MSIMECandidatePanel *candidatePanel = [self candidatePanelWithAppearance:candidateAppearance];
     if (!candidatePanel.wheelPaging) [candidatePanel resetWheelAccumulator];
@@ -7605,7 +7655,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     // Gloss replies keep the candidate IDs and all panel structure stable. Repaint those rows in
     // place when their geometry is unchanged; a page or layout change still takes the full rebuild
     // below, which deliberately detaches every old button.
-    if (MSIMEOnlyCandidateTranslationsChanged(previousRenderedView, _view) &&
+    if (!skin.canvas && MSIMEOnlyCandidateTranslationsChanged(previousRenderedView, _view) &&
         [_panel.contentView isKindOfClass:MSIMECandidateChromeView.class] &&
         NSEqualSizes(_panel.frame.size, NSMakeSize(width, height))) {
         MSIMECandidateChromeView *content = (id)_panel.contentView;
@@ -7740,6 +7790,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         decoration.frames = [self decorationFramesForImage:decorationImage path:skin.decorationPath];
         [content addSubview:decoration];
     }
+    [self configureCanvasForContent:content skin:skin dark:skinDark inset:inset headerHeight:headerHeight];
     _panel.contentView = content;
     _renderedCandidateView = [_view copy];
     content.appearanceTarget = self;
@@ -7793,6 +7844,11 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         _rerenderingForCandidateSkin = NO;
         return;
     }
+    // 同一个包的明暗模式也可能使用不同贴图；保留布局和候选身份，只替换缓存的绘制层。
+    if (skin.canvas && content.canvasAssets != [_appearance canvasAssetsForDark:dark]) {
+        [content configureCanvas:*skin.canvas assets:[_appearance canvasAssetsForDark:dark]];
+        [content setCanvasPlaybackVisible:_panel.isVisible anchor:_canvasAnimationAnchor];
+    }
     // The card's own opacity is already in the surface and border alpha and in backgroundOpacity, rather than in the panel's alphaValue, which would fade the candidates along with the card.
     content.fillColor = SkinColor(tokens.surface);
     content.strokeColor = SkinColor(tokens.border);
@@ -7805,6 +7861,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     content.backgroundOpacity = skin.backgroundOpacity;
     // 普通候选和展开网格都经这里刷新；只有未覆盖皮肤的系统主题使用原生材质。
     content.liquidGlassEnabled = skin.id == "system" && skin.candidateSkin.empty();
+    // canvas 的外观包含在贴图里，不额外给透明留白和挂件叠加系统窗口阴影。
+    _panel.hasShadow = !skin.canvas.has_value();
     if (content.liquidGlassActive) msime::mac::ApplyNativeGlassCandidateContrast(tokens, dark);
     NSArray<MSIMECandidateButton *> *candidateButtons = [content.candidateContentView.subviews filteredArrayUsingPredicate:
         [NSPredicate predicateWithBlock:^BOOL(NSView *view, NSDictionary *_) {
@@ -7827,9 +7885,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     }
     for (MSIMECandidateButton *button in candidateButtons) {
         if ([button.identifier isEqual:@"candidate-preedit"] && [button isKindOfClass:NSTextField.class]) {
-            ((NSTextField *)(id)button).textColor = SkinColor(tokens.accent);
+            ((NSTextField *)(id)button).textColor = SkinColor(tokens.preeditText.value_or(tokens.accent));
             if ([button isKindOfClass:MSIMECandidatePreeditField.class])
-                ((MSIMECandidatePreeditField *)(id)button).caretColor = SkinColor(tokens.accent);
+                ((MSIMECandidatePreeditField *)(id)button).caretColor = SkinColor(tokens.preeditCaret.value_or(tokens.accent));
         }
         if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
         button.fillColor = SkinColor(tokens.selected);
@@ -7843,12 +7901,14 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         // The translation is the theme's secondary colour, which always equals the number colour: the design draws a plain row's gloss in cSub (dc.html L2150, L2183), the theme's kb.sub or the platform's sub, and on the selected fill in candSelTr (dc.html L1533), the selected number's colour. A fixed-position row keeps the Windows renderer's rule instead, where the translation is a child of the candidate text and takes its fixed-position colour at reduced opacity.
         // A package's own translation colour is its secondary colour, drawn on every row as Windows does.
         // 选中行换成按选中底色推导的释义色（SkinTokens::selectedTranslation），释义和它下面的读音才不会和不透明的选中底色同色。
-        if (tokens.translation)
-            button.translationColor = SkinColor(button.candidateHighlighted && tokens.selectedTranslation ? *tokens.selectedTranslation : *tokens.translation);
+        if (button.candidateHighlighted && tokens.selectedTranslation)
+            button.translationColor = SkinColor(*tokens.selectedTranslation);
+        else if (tokens.translation)
+            button.translationColor = SkinColor(*tokens.translation);
         else if (button.candidateFixed) button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
         else button.translationColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
-        button.barColor = SkinColor(tokens.accent);
+        button.barColor = SkinColor(tokens.selectedBar.value_or(tokens.accent));
         button.showSelectedBar = tokens.showSelectedBar;
         button.cornerRadius = msime::mac::CandidateRowRadius(tokens, button.candidateHighlighted);
         button.selectionLeftInset = MSIMECandidateScale(_appearance);

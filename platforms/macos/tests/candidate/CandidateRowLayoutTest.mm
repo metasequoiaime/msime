@@ -639,12 +639,233 @@ static void TestHostAppearance(BOOL visual)
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 使用生产控制器渲染 canvas，点击与候选身份仍通过原来的内容容器。
+static void TestCanvasHost(const std::filesystem::path &root, NSString *identifier, NSString *output)
+{
+    NSString *suite = [@"app.msime.test.canvas-host." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    [defaults setObject:@"custom" forKey:@"MSIMEClientGlobalTheme"];
+    [defaults setObject:identifier forKey:@"MSIMEClientCustomCandidateSkin"];
+    [defaults setObject:identifier forKey:@"MSIMEClientCustomCandidateSkinDark"];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults
+        skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+    appearance.showsAppLogo = NO;
+    appearance.showsCandidatePreedit = YES;
+    appearance.showsCandidatePageNumber = NO;
+    appearance.candidateTranslations = YES;
+    appearance.candidateTheme = @"follow";
+    MSIMEInputController *controller = [[MSIMEInputController alloc] init];
+    RowLayoutClient *client = [RowLayoutClient new];
+    const NSRect screen = NSScreen.mainScreen.visibleFrame;
+    client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
+    RowLayoutPanel *panel = [[RowLayoutPanel alloc] initWithContentRect:NSZeroRect
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    NSMutableArray *rows = [NSMutableArray array];
+    for (NSUInteger at = 0; at < 3; ++at) [rows addObject:@{
+        @"id":@{@"session":@1, @"generation":@7, @"index":@(at)}, @"text":@[@"合成", @"测试", @"候选"][at],
+        @"translation":@[@"synthetic", @"test", @"candidate"][at], @"highlighted":@(at == 0)}];
+    NSDictionary *view = @{@"session":@1, @"generation":@7, @"focused":@YES,
+        @"editing_text":@"ceshi", @"page":@0, @"page_count":@1, @"candidates":rows};
+    NSEvent *rightClick = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:NSZeroPoint modifierFlags:0
+        timestamp:0 windowNumber:0 context:nil eventNumber:1 clickCount:1 pressure:1];
+    for (NSNumber *percent in @[@100, @150]) for (NSNumber *vertical in @[@NO, @YES]) for (NSNumber *dark in @[@NO, @YES]) {
+        appearance.candidateScalePercent = percent.integerValue;
+        appearance.candidateOpacityPercent = percent.integerValue == 150 ? 75 : 100;
+        appearance.vertical = vertical.boolValue;
+        appearance.themeMode = dark.boolValue ? @"dark" : @"light";
+        [controller setValue:nil forKey:@"expandedCandidates"];
+        [controller setValue:view forKey:@"view"];
+        const auto skin = [appearance candidateWindowSkinForDark:dark.boolValue];
+        assert(skin.canvas && skin.canvasPanelDrawn);
+        assert([appearance canvasAssetsForDark:dark.boolValue] == [appearance canvasAssetsForDark:dark.boolValue]);
+        const auto padding = msime::mac::CanvasContentInsets(*skin.canvas, msime::mac::CandidateInset(skin.tokens));
+        for (NSNumber *expanded in @[@NO, @YES]) {
+            if (expanded.boolValue) {
+                [controller setValue:rows forKey:@"expandedCandidates"];
+                [controller setValue:@0 forKey:@"expandedCursor"];
+                assert([controller renderExpandedCandidates]);
+            } else [controller renderCandidates];
+            MSIMECandidateChromeView *chrome = (id)panel.contentView;
+            assert(chrome.canvasPanelLoaded && !chrome.liquidGlassActive && !panel.hasShadow);
+            const NSRect card = chrome.cardBounds;
+            assert(std::abs(NSMinX(card) - skin.canvas->outer.left) < 0.01);
+            assert(std::abs(NSMinY(card) - skin.canvas->outer.bottom) < 0.01);
+            assert(std::abs(NSWidth(chrome.bounds) - NSWidth(card) - skin.canvas->outer.left - skin.canvas->outer.right) < 0.01);
+            assert(std::abs(NSHeight(chrome.bounds) - NSHeight(card) - skin.canvas->outer.top - skin.canvas->outer.bottom) < 0.01);
+            assert(NSEqualRects(chrome.candidateContentView.frame, card));
+            MSIMECandidateButton *first = CandidateButton(chrome, 0);
+            assert(first.superview == chrome.candidateContentView);
+            const CGFloat itemRadius = [identifier isEqual:@"canvas-host"] ? 3.5 : [identifier isEqual:@"green_leaf"] ? 5 : 6;
+            assert(std::abs(first.cornerRadius - itemRadius * percent.doubleValue / 100) < 0.01);
+            assert(std::abs(NSMinX(first.frame) - padding.left) < 0.01);
+            CGFloat bottom = CGFLOAT_MAX;
+            for (NSInteger tag = 0; tag < 3; ++tag) {
+                MSIMECandidateButton *button = CandidateButton(chrome, tag);
+                assert(button && NSMaxX(button.frame) <= NSWidth(card) - padding.right + 0.01);
+                bottom = MIN(bottom, NSMinY(button.frame));
+            }
+            assert(std::abs(bottom - padding.bottom) < 0.01);
+            const NSPoint hit = [first convertPoint:NSMakePoint(NSMidX(first.bounds), NSMidY(first.bounds)) toView:chrome];
+            assert([chrome hitTest:hit] == first);
+            assert([first.titleColor isEqual:SkinColor(skin.tokens.selectedText)]);
+            assert([CandidateButton(chrome, 1).titleColor isEqual:SkinColor(skin.tokens.text)]);
+            assert([first.barColor isEqual:SkinColor(skin.tokens.selectedBar.value_or(skin.tokens.accent))]);
+            if (expanded.boolValue) assert(first.action == @selector(selectExpandedCandidate:));
+            else assert([first menuForEvent:rightClick] != nil);
+            MSIMECandidatePreeditField *preedit = nil;
+            NSMutableArray *levels = [NSMutableArray array];
+            for (NSView *child in chrome.candidateContentView.subviews)
+                if ([child.identifier isEqual:@"candidate-preedit"]) preedit = (id)child;
+            assert(preedit && [preedit.textColor isEqual:SkinColor(skin.tokens.preeditText.value_or(skin.tokens.accent))]);
+            assert([preedit.caretColor isEqual:SkinColor(skin.tokens.preeditCaret.value_or(skin.tokens.accent))]);
+            assert(std::abs(NSMinY(preedit.frame) - NSMaxY(first.frame) - skin.canvas->lineGap.value_or(0)) < 0.01);
+            for (NSView *child in chrome.subviews) {
+                if ([child isKindOfClass:MSIMECandidateCanvasView.class]) {
+                    [levels addObject:child.identifier];
+                    assert([child hitTest:hit] == nil);
+                    for (CALayer *sprite in child.layer.sublayers)
+                        assert(std::abs(sprite.opacity - ([child.identifier isEqual:@"candidate-canvas-0"] ? skin.canvas->panelOpacity : 1.0)) < 0.01);
+                } else if ([child isKindOfClass:MSIMECandidateCardBackgroundView.class]) [levels addObject:@"background"];
+                else if (child == chrome.candidateContentView) [levels addObject:@"controls"];
+            }
+            assert(([levels isEqual:@[@"candidate-canvas--1", @"background", @"candidate-canvas-0", @"controls", @"candidate-canvas-1"]]));
+            // 系统切换明暗而包 ID 不变时，候选按钮保持身份，贴图和文字一起换槽位。
+            NSAppearance *originalAppearance = chrome.appearance;
+            chrome.appearance = [NSAppearance appearanceNamed:dark.boolValue ? NSAppearanceNameAqua : NSAppearanceNameDarkAqua];
+            [controller refreshCandidateSkin];
+            assert(panel.contentView == chrome && CandidateButton(chrome, 0) == first);
+            assert(chrome.canvasAssets == [appearance canvasAssetsForDark:!dark.boolValue]);
+            const auto otherSkin = [appearance candidateWindowSkinForDark:!dark.boolValue];
+            assert([first.titleColor isEqual:SkinColor(otherSkin.tokens.selectedText)]);
+            if ([identifier isEqual:@"canvas-host"]) {
+                for (NSView *child in chrome.subviews) if ([child.identifier isEqual:@"candidate-canvas-0"])
+                    assert(CGImageGetWidth((__bridge CGImageRef)child.layer.sublayers[4].contents) == (dark.boolValue ? 10 : 8));
+            }
+            chrome.appearance = originalAppearance;
+            [controller refreshCandidateSkin];
+            assert(chrome.canvasAssets == [appearance canvasAssetsForDark:dark.boolValue]);
+            NSUInteger canvasViews = 0;
+            for (NSView *child in chrome.subviews) if ([child isKindOfClass:MSIMECandidateCanvasView.class]) ++canvasViews;
+            assert(canvasViews == 3);
+            if (output && percent.integerValue == 100) {
+                chrome.wantsLayer = YES;
+                [chrome displayIfNeeded];
+                NSBitmapImageRep *bitmap = [chrome bitmapImageRepForCachingDisplayInRect:chrome.bounds];
+                [chrome cacheDisplayInRect:chrome.bounds toBitmapImageRep:bitmap];
+                NSString *file = [NSString stringWithFormat:@"%@-%@-%@-%@.png", identifier,
+                    dark.boolValue ? @"dark" : @"light", vertical.boolValue ? @"vertical" : @"horizontal", expanded.boolValue ? @"expanded" : @"page"];
+                assert([[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}]
+                    writeToFile:[output stringByAppendingPathComponent:file] atomically:YES]);
+            }
+        }
+        [controller setValue:nil forKey:@"expandedCandidates"];
+        [controller renderCandidates];
+        MSIMECandidateButton *stale = CandidateButton(panel.contentView, 0);
+        [controller renderCandidates];
+        assert([stale menuForEvent:rightClick] == nil);
+    }
+    // 没有预编辑和翻页首行时，line_gap 不得在卡片顶部留下空行。
+    appearance.showsCandidatePreedit = NO;
+    [controller setValue:nil forKey:@"expandedCandidates"];
+    for (NSNumber *expanded in @[@NO, @YES]) {
+        if (expanded.boolValue) {
+            [controller setValue:rows forKey:@"expandedCandidates"];
+            assert([controller renderExpandedCandidates]);
+        } else [controller renderCandidates];
+        MSIMECandidateChromeView *chrome = (id)panel.contentView;
+        const auto skin = [appearance candidateWindowSkinForDark:YES];
+        assert(std::abs(NSMaxY(CandidateButton(chrome, 0).frame) - NSHeight(chrome.cardBounds) + skin.canvas->content->top) < 0.01);
+    }
+    [controller hideCandidatePanel:"empty"];
+    [controller setValue:nil forKey:@"activeClient"];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestCanvasHostFixture()
+{
+    const auto root = std::filesystem::temp_directory_path() / ("msime-canvas-host-" + std::string(NSUUID.UUID.UUIDString.UTF8String));
+    std::filesystem::create_directories(root / "canvas-host");
+    WriteApng(root / "canvas-host" / "panel.png", 12, 12, 1, 0.1);
+    WriteApng(root / "canvas-host" / "panel-light.png", 14, 12, 1, 0.1);
+    {
+        std::ofstream manifest(root / "canvas-host" / "skin.toml");
+        manifest << R"toml(schema_version = 2
+id = "canvas-host"
+name = "合成 canvas 控制器夹具"
+version = "1"
+base = "canvas"
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["light", "dark"]
+[candidate_window]
+min_width_dip = 240
+line_gap_dip = 9
+item_corner_radius_dip = 3.5
+[candidate_window.border_image]
+source = "panel.png"
+light_source = "panel-light.png"
+slice_dip = [2]
+width_dip = [4]
+[candidate_window.content_insets_dip]
+top = 17
+right = 21
+bottom = 19
+left = 23
+[candidate_window.outer_insets_dip]
+top = 11
+right = 13
+bottom = 7
+left = 5
+[[candidate_window.decorations]]
+image = "panel.png"
+width_dip = 12
+height_dip = 18
+anchor = "top-left"
+z_index = 0
+[[candidate_window.decorations]]
+image = "panel.png"
+width_dip = 16
+height_dip = 12
+anchor = "bottom-right"
+z_index = 2
+[candidate.light]
+text = "#123456"
+preedit_text = "#aabbcc"
+preedit_caret = "#778899"
+selected = "#112233"
+selected_text = "#ffffff"
+selected_bar = "#eecc77"
+[candidate.dark]
+text = "#abcdef"
+preedit_text = "#ccbbaa"
+preedit_caret = "#998877"
+selected = "#112233"
+selected_text = "#ffffff"
+selected_bar = "#77ccee"
+)toml";
+        assert(manifest.good());
+    }
+    TestCanvasHost(root, @"canvas-host", nil);
+    std::filesystem::remove_all(root);
+}
+
 int main(int argc, char **argv)
 {
     @autoreleasepool
     {
         [NSApplication sharedApplication];
         if (argc == 2 && std::string(argv[1]) == "--glass-host-visual") { TestHostAppearance(YES); return 0; }
+        if (argc == 4 && std::string(argv[1]) == "--canvas-upstream") {
+            NSString *output = @(argv[3]);
+            assert([NSFileManager.defaultManager createDirectoryAtPath:output withIntermediateDirectories:YES attributes:nil error:nil]);
+            TestCanvasHost(std::filesystem::path(argv[2]), @"green_leaf", output);
+            TestCanvasHost(std::filesystem::path(argv[2]), @"sakura-night", output);
+            return 0;
+        }
+        TestCanvasHostFixture();
         TestHostAppearance(NO);
         NSString *suite = [@"app.msime.test.rowfit." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];

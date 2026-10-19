@@ -6,6 +6,7 @@
 #include "CandidateSkin.h"
 #import "CandidatePronunciation.h"
 #import "CandidateMotion.h"
+#import "CandidateCanvas.h"
 // Drawing adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
 // A reading is quieter than the gloss it follows, relative to the gloss colour.
@@ -395,16 +396,37 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic) BOOL liquidGlassEnabled;
 @property(nonatomic, readonly) BOOL liquidGlassActive;
 @property(nonatomic, strong, readonly) NSView *candidateContentView;
+@property(nonatomic) msime::mac::SkinInsets canvasOuterInsets;
+@property(nonatomic) BOOL canvasPanelLoaded;
+@property(nonatomic, strong, readonly) MSIMECandidateCanvasAssets *canvasAssets;
+- (void)drawCandidateCard;
+- (void)configureCanvas:(const msime::mac::SkinCanvas &)canvas assets:(MSIMECandidateCanvasAssets *)assets;
+- (void)setCanvasPlaybackVisible:(BOOL)visible anchor:(CFTimeInterval)anchor;
+@end
+
+@interface MSIMECandidateCardBackgroundView : NSView
+@property(nonatomic, weak) MSIMECandidateChromeView *owner;
+@end
+@implementation MSIMECandidateCardBackgroundView
+- (BOOL)isOpaque { return NO; }
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+- (void)drawRect:(NSRect)dirtyRect { (void)dirtyRect; [self.owner drawCandidateCard]; }
 @end
 @implementation MSIMECandidateChromeView
 {
     NSView *_glassBackground;
     NSView *_candidateContentView;
+    MSIMECandidateCardBackgroundView *_cardBackground;
+    NSArray<MSIMECandidateCanvasView *> *_canvasViews;
 }
 - (instancetype)initWithFrame:(NSRect)frame
 {
     self = [super initWithFrame:frame];
     if (self) {
+        _cardBackground = [[MSIMECandidateCardBackgroundView alloc] initWithFrame:self.bounds];
+        _cardBackground.owner = self;
+        _cardBackground.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        [self addSubview:_cardBackground];
         _candidateContentView = [[NSView alloc] initWithFrame:self.bounds];
         _candidateContentView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         [self addSubview:_candidateContentView];
@@ -427,8 +449,10 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 }
 - (NSRect)cardBounds
 {
-    return NSMakeRect(NSMinX(self.bounds), NSMinY(self.bounds), NSWidth(self.bounds),
-                     MAX(0.0, NSHeight(self.bounds) - MAX(0.0, self.cardTopInset)));
+    const auto outer = self.canvasOuterInsets;
+    return NSMakeRect(NSMinX(self.bounds) + outer.left, NSMinY(self.bounds) + outer.bottom,
+                     MAX(0.0, NSWidth(self.bounds) - outer.left - outer.right),
+                     MAX(0.0, NSHeight(self.bounds) - MAX(0.0, self.cardTopInset) - outer.top - outer.bottom));
 }
 - (void)setLiquidGlassEnabled:(BOOL)enabled
 {
@@ -456,6 +480,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
             [glass layoutSubtreeIfNeeded];
             // 透明度由系统材质管理，不能淡化承载候选文字的整棵视图。
             glass.alphaValue = 1.0;
+            _cardBackground.needsDisplay = YES;
             self.needsDisplay = YES;
             return;
         }
@@ -466,10 +491,11 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     [_glassBackground removeFromSuperview];
     _glassBackground = nil;
     if (_candidateContentView.superview != self)
-        [self addSubview:_candidateContentView positioned:NSWindowBelow relativeTo:nil];
+        [self addSubview:_candidateContentView positioned:NSWindowAbove relativeTo:_cardBackground];
     _candidateContentView.translatesAutoresizingMaskIntoConstraints = YES;
     _candidateContentView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _candidateContentView.frame = self.cardBounds;
+    _cardBackground.needsDisplay = YES;
     self.needsDisplay = YES;
 }
 - (void)layout
@@ -495,11 +521,36 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 #pragma clang diagnostic pop
     }
 }
-- (void)drawRect:(NSRect)dirtyRect
+- (void)setNeedsDisplay:(BOOL)value
 {
-    (void)dirtyRect;
+    [super setNeedsDisplay:value];
+    if (value) _cardBackground.needsDisplay = YES;
+}
+- (void)configureCanvas:(const msime::mac::SkinCanvas &)canvas assets:(MSIMECandidateCanvasAssets *)assets
+{
+    for (MSIMECandidateCanvasView *view in _canvasViews) [view removeFromSuperview];
+    _canvasAssets = assets;
+    self.canvasPanelLoaded = assets.panelLoaded;
+    NSMutableArray *views = [NSMutableArray array];
+    for (NSNumber *level in @[@(-1), @0, @1]) {
+        MSIMECandidateCanvasView *view = [[MSIMECandidateCanvasView alloc] initWithFrame:self.bounds assets:assets canvas:canvas card:self.cardBounds level:level.integerValue];
+        view.identifier = [NSString stringWithFormat:@"candidate-canvas-%ld", (long)level.integerValue];
+        if (level.integerValue < 0) [self addSubview:view positioned:NSWindowBelow relativeTo:_cardBackground];
+        else if (level.integerValue == 0) [self addSubview:view positioned:NSWindowAbove relativeTo:_cardBackground];
+        else [self addSubview:view positioned:NSWindowAbove relativeTo:nil];
+        [views addObject:view];
+    }
+    _canvasViews = views;
+    self.needsDisplay = YES;
+}
+- (void)setCanvasPlaybackVisible:(BOOL)visible anchor:(CFTimeInterval)anchor
+{
+    for (MSIMECandidateCanvasView *view in _canvasViews) [view setPlaybackVisible:visible anchor:anchor];
+}
+- (void)drawCandidateCard
+{
     // 原生玻璃提供底色和边缘高光，不再叠一层不透明填色把材质盖住。
-    if (_glassBackground) return;
+    if (_glassBackground || self.canvasPanelLoaded) return;
     // 坐标未翻转：装饰带在顶部，卡片只占下面的部分。
     const NSRect bounds = self.cardBounds;
     NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:bounds
