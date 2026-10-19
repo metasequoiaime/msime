@@ -182,6 +182,36 @@ int main() {
             (20.0 + listed->next.top) * 1.5);
     require(element(listed_tree, candidate_accessible_preedit).bounds.right ==
             (8.0 + 240.0 - listed_metrics.pad_x / 2.0) * 1.5);
+    // 皮肤的卷轴展开：展开按钮按开没开叫「展开候选」或「收起候选」，可以执行；网格里看得见的候选只报文字，id 从 candidate_accessible_expanded_first 起；首行整行滚出滚动区的候选不报。
+    CandidateAccessibleExpand expand;
+    expand.toggle = {220.0, 40.0, 238.0, 58.0};
+    expand.top = 40.0;
+    expand.bottom = 140.0;
+    expand.cells.push_back({0, "你", {6.0, 102.0, 60.0, 126.0}});
+    expand.cells.push_back({1, "呢", {62.0, 102.0, 116.0, 126.0}});
+    const auto collapsed_tree = candidate_accessible_tree(value, rows, std::nullopt, metrics, true,
+                                                          frame, true, true, "水杉输入法", &expand);
+    const auto &toggle = element(collapsed_tree, candidate_accessible_expand);
+    require(toggle.role == AccessibleRole::Button && toggle.name == "展开候选" && toggle.invokable &&
+            toggle.automation_id == "candidate-expand" && toggle.bounds.left == (8.0 + 220.0) * 1.5);
+    expand.expanded = true;
+    std::vector<CandidateRowLayout> scrolled = rows;
+    scrolled[0].bounds.top = 10.0;
+    scrolled[0].bounds.bottom = 38.0;
+    const auto expanded_tree = candidate_accessible_tree(value, scrolled, std::nullopt, metrics,
+                                                         true, frame, true, true, "水杉输入法",
+                                                         &expand);
+    require(element(expanded_tree, candidate_accessible_expand).name == "收起候选");
+    require(!accessible_element(expanded_tree, 1) && accessible_element(expanded_tree, 2));
+    const auto &cell = element(expanded_tree, candidate_accessible_expanded_first + 1);
+    require(cell.role == AccessibleRole::ListItem && cell.name == "呢" && cell.invokable &&
+            cell.automation_id == "candidate-expanded-2" && cell.bounds.top == (20.0 + 102.0) * 1.5);
+    // 只能用键盘选的列表和鼠标一样不能执行。
+    value.pointer_input = false;
+    const auto keyboard_tree = candidate_accessible_tree(value, rows, std::nullopt, metrics, true,
+                                                         frame, true, true, "水杉输入法", &expand);
+    require(!element(keyboard_tree, candidate_accessible_expand).invokable &&
+            !element(keyboard_tree, candidate_accessible_expanded_first).invokable);
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

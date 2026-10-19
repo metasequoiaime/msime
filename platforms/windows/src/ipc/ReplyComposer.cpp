@@ -604,7 +604,8 @@ void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
 }
 std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &session,
     uint64_t expected_session, uint64_t generation, size_t index,
-    uint64_t translation_page, bool continuation_supported) {
+    uint64_t translation_page, bool continuation_supported,
+    const std::optional<std::string> &expanded_text) {
   if (pending_ || !session.input_enabled()) return std::nullopt;
   traditional_output_ = traditional_projection(session);
   const auto view = session.view();
@@ -617,6 +618,8 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
     return std::nullopt;
   // A pick made here would leave the TIP's own host session behind (scheme::KeyboardOnlyCandidateList).
   if (scheme::KeyboardOnlyCandidateList(view_scheme(view)))
+    return std::nullopt;
+  if (expanded_text && translation_page_active_)
     return std::nullopt;
   // 鼠标点选上屏的是候选本身，预选的释义列随之作废：选中后送达的 view 不带列号，候选窗不再画下划线，留着它会让下一个空格、数字上屏用户看不到的那一列。
   armed_gloss_column_ = 0;
@@ -645,17 +648,28 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
   }
   bool found = false;
   std::string selected_candidate;
-  for (const auto &candidate : view.at("candidates")) {
+  uint8_t selected_source = 0;
+  // 网格里的候选在完整列表里找；这一代的尾部在展开时已经放出来了，所以这里取到的仍是同一代。
+  const auto all = expanded_text ? session.all_candidates(epoch_) : nlohmann::json();
+  const auto &listed = expanded_text ? all : view;
+  if (expanded_text && listed.at("generation") != generation)
+    return std::nullopt;
+  for (const auto &candidate : listed.at("candidates")) {
     const auto &id = candidate.at("id");
     if (id.at("session") == expected_session &&
         id.at("generation") == generation && id.at("index") == index) {
       found = true;
       selected_candidate = candidate.at("text").get<std::string>();
+      selected_source = candidate.value("source", uint8_t{});
     }
   }
-  if (!found)
+  if (!found || (expanded_text && simplified_to_traditional(selected_candidate,
+                                                            traditional_output_) !=
+                                      *expanded_text))
     return std::nullopt;
-  auto transition = session.select(epoch_, generation, index);
+  auto transition = expanded_text
+                        ? session.select_any(epoch_, generation, index, selected_source)
+                        : session.select(epoch_, generation, index);
   const auto &commit = transition.at("commit");
   const auto delta =
       commit.is_null() ? std::string{} : commit.get<std::string>();

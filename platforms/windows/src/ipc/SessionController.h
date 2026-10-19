@@ -88,9 +88,13 @@ public:
   // External I/O thread only, never a window/input callback. Busy is a dropped
   // request, not queued/replayed. Sent means delivery confirmed, not TSF applied.
   // translation_page 是点击所在那一帧的 CandidatePresentation::translation_page，和 session、generation 一起认定点的是哪一张表。
+  // expanded_text 有值时是卷轴展开网格里的候选（CandidateClick::expanded_text）：index 是完整候选列表里的下标，画出来的那一帧挂着的完整列表里必须有这一项、文字相同。
   SelectionRequestResult request_selection(const FocusLease &lease,
       uint64_t session, uint64_t generation, size_t index,
-      uint64_t translation_page);
+      uint64_t translation_page,
+      const std::optional<std::string> &expanded_text = std::nullopt);
+  // 卷轴展开：候选窗点开「∨」（open 为 true）或收起、隐藏（false）。界面线程调用，不等待：打开时排一个输入队列任务去取完整候选列表，取到后随候选快照交给候选窗。之后每发布一页新的代次都会再取一次，直到收起。
+  void set_candidate_expansion(const FocusLease &lease, bool open);
   // 释义页上的行（translation_page 不为 0）没有候选动作，一律拒绝。
   CandidateActionRequestResult request_candidate_action(
       const FocusLease &lease, uint64_t session, uint64_t generation,
@@ -125,6 +129,9 @@ public:
 
 private:
   void run();
+  // 展开开着、而手里的完整候选列表不是眼下这一代时，排一个任务去取（CandidateMailbox::expansion_due）。同一时刻最多排一个；取的时候引擎代次前进了，就先发布新的 view，再交出列表。只在发布了新一页之后调用，不阻塞。
+  void refresh_expansion(const FocusLease &lease);
+  std::atomic<bool> expansion_queued_{false};
   /// The composition that has been standing still, and since when.
   ///
   /// Windows has no run loop here to hang a timer on, so the settle pass rides

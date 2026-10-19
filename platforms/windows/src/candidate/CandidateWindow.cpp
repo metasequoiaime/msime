@@ -555,6 +555,9 @@ void CandidateWindow::set_skin_font_family(const std::string &family) {
   invalidate_geometry();
 }
 void CandidateWindow::set_skin_layout(const CandidateSkinLayout &layout) {
+  // 换了一个不再（或刚开始）卷轴展开的皮肤：展开区随之拆掉，界面和 Server 都回到收起（msime-windows 的场景重建同样收起）。
+  if (layout.expand_panel.value_or(false) != skin_layout_.expand_panel.value_or(false))
+    collapse_expansion();
   skin_layout_ = layout;
   invalidate_geometry();
 }
@@ -593,6 +596,14 @@ void CandidateWindow::invalidate_geometry() {
   hovered_page_.reset();
   wheel_accumulator_ = 0;
   tallest_ = 0;
+  // 展开区按新的字体和版式重排；开着的展开保持开着。
+  painted_expand_.reset();
+  painted_grid_ = {};
+  hovered_cell_.reset();
+  pressed_cell_.reset();
+  hovered_toggle_ = pressed_toggle_ = hovered_scrollbar_ = false;
+  thumb_grab_.reset();
+  grid_width_cache_.clear();
   if (window_)
     InvalidateRect(window_, nullptr, FALSE);
 }
@@ -611,6 +622,14 @@ void CandidateWindow::hide_now() {
   hovered_.reset();
   hovered_page_.reset();
   wheel_accumulator_ = 0;
+  // 候选窗关闭（上屏或取消输入）时收起卷轴展开。
+  collapse_expansion();
+  painted_expand_.reset();
+  painted_grid_ = {};
+  hovered_cell_.reset();
+  pressed_cell_.reset();
+  hovered_toggle_ = pressed_toggle_ = hovered_scrollbar_ = false;
+  thumb_grab_.reset();
   // 提示是候选窗拥有的弹出窗口，候选窗隐藏时它不会跟着消失，正开着的提示要收起来。
   if (tooltip_)
     SendMessageW(tooltip_, TTM_POP, 0, 0);
@@ -782,6 +801,16 @@ void CandidateWindow::reposition() {
   if (!value || !value->visible) {
     hide();
     return;
+  }
+  // Server 那边已经收起（候选窗关闭过）、焦点换到了别的客户端、改成了竖排，或这一页不能展开（释义页、只能用键盘选的列表）时收起；继续输入时保持展开。
+  if (candidate_expand_stale(
+          expand_.expanded, value->expansion_open,
+          expand_lease_ && expand_lease_->epoch == value->lease.epoch &&
+              expand_lease_->token == value->lease.token &&
+              same_ticket(expand_lease_->transport, value->lease.transport),
+          skin_metrics(*value).expand_panel)) {
+    collapse_expansion();
+    shown_.reset();
   }
   if (finishing_animation_) {
     finishing_animation_ = false;
@@ -976,7 +1005,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   input.skin_min_width = skin_min_width_;
   input.logo_visible = show_app_logo_;
   input.reserved_secondary_lines = reserved_secondary_lines(value);
-  input.skin = candidate_skin_metrics(skin_layout_, horizontal_, font_size_);
+  input.skin = skin_metrics(value);
   input.number_width = number_label_width(value.candidates.size(), input.skin);
   if (horizontal_)
     input.reserved_secondary_height =
@@ -986,14 +1015,23 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
         device_, wide(value.preedit), font_family_,
         static_cast<float>(preedit_font_size_), font_fallback_.Get(),
         DWRITE_FONT_WEIGHT_SEMI_BOLD);
-  // 翻页和拼音共用首行；只要有 logo 或翻页，拼音隐藏时首行也照样画。
-  input.page_width = measured_width(
-      device_, pager_label(value), font_family_,
-      static_cast<float>(CandidateCardMetrics{}.pager_font),
-      font_fallback_.Get());
+  // 翻页和拼音共用首行；只要有 logo 或翻页，拼音隐藏时首行也照样画。卷轴展开的皮肤不画翻页。
+  input.page_width = input.skin.expand_panel
+                         ? 0.0
+                         : measured_width(device_, pager_label(value), font_family_,
+                                          static_cast<float>(CandidateCardMetrics{}.pager_font),
+                                          font_fallback_.Get());
   input.items = measure_items(value);
   input.wrapped = wrap_measure(value);
-  const auto card = candidate_card_size(input);
+  // 卷轴展开：展开着时卡片按网格变宽变高；后续候选还没到时沿用上一帧的高度。
+  const auto grid = input.skin.expand_panel ? expand_grid(value) : ExpandGrid{};
+  const auto card =
+      input.skin.expand_panel
+          ? candidate_expand_card_size(input, grid_widths(grid), expand_page_size(value),
+                                       candidate_expand_held_viewport(
+                                           expand_.expanded, value.expanded != nullptr,
+                                           expand_viewport_))
+          : candidate_card_size(input);
   const auto shadow_left =
       static_cast<int64_t>(std::lround(shadow_insets_.left * scale));
   const auto shadow_top =
@@ -1238,9 +1276,9 @@ void CandidateWindow::paint() {
   // DrawText goes through the windows.h macro so the call matches whichever
   // name the Direct2D declaration picked up for this target.
   // 首行高度取决于有没有 logo 和翻页，必须和 card_bounds 量尺寸时一样算，行的位置和点击区域才对得上。
-  const auto label = pager_label(*value);
-  // 皮肤的版式也和 card_bounds 一样解析，同一个序号宽度。
-  const auto skin = candidate_skin_metrics(skin_layout_, horizontal_, font_size_);
+  // 皮肤的版式也和 card_bounds 一样解析，同一个序号宽度。卷轴展开的皮肤不画翻页。
+  const auto skin = skin_metrics(*value);
+  const auto label = skin.expand_panel ? std::wstring{} : pager_label(*value);
   const auto metrics = candidate_card_metrics(
       font_size_, preedit_font_size_, show_preedit_, show_app_logo_, !label.empty(), skin,
       number_label_width(value->candidates.size(), skin));
@@ -1536,11 +1574,38 @@ void CandidateWindow::paint() {
   const size_t count = value->candidates.size();
   // Laid out at the width actually drawn, which the work area may have narrowed below what card_bounds asked for.
   const size_t reserved_lines = horizontal_ ? reserved_secondary_lines(*value) : 0;
-  auto rows = candidate_page_layout(
-      measure_items(*value), frame.card_width, metrics, horizontal_,
-      wrap_measure(*value),
-      candidate_reserved_row_height(metrics, reserved_lines,
-                                    reserved_secondary_height(reserved_lines)));
+  const auto items = measure_items(*value);
+  const auto wrapped = wrap_measure(*value);
+  const double minimum_row = candidate_reserved_row_height(
+      metrics, reserved_lines, reserved_secondary_height(reserved_lines));
+  // 卷轴展开：首行和网格排在滚动区里，按当前偏移往上移（偏移按设备像素取整，文字不会在两帧之间重采样）；按钮固定在右上角。滚动区的高度不超过这张卡片实际拿到的高度。
+  std::optional<CandidateExpandLayout> expand_layout;
+  ExpandGrid grid;
+  double expand_offset = 0.0;
+  std::vector<CandidateRowLayout> rows;
+  if (metrics.expand_panel) {
+    grid = expand_grid(*value);
+    expand_layout = candidate_expand_layout(
+        items, frame.card_width, metrics, grid_widths(grid), expand_page_size(*value),
+        frame.card_height - metrics.pad_y - metrics.slack_y - metrics.preedit_row, wrapped,
+        minimum_row,
+        candidate_expand_held_viewport(expand_.expanded, value->expanded != nullptr,
+                                       expand_viewport_));
+    candidate_expand_clamp(expand_, expand_layout->max_offset());
+    const double pixels = layout_scale(GetDpiForWindow(window_));
+    expand_offset = std::round(expand_.offset * pixels) / pixels;
+    rows = expand_layout->rows;
+    for (auto &row : rows) {
+      row.bounds.top -= expand_offset;
+      row.bounds.bottom -= expand_offset;
+    }
+    target->PushAxisAlignedClip(box({expand_layout->left, expand_layout->top,
+                                     expand_layout->right, expand_layout->bottom()}),
+                                D2D1_ANTIALIAS_MODE_ALIASED);
+  } else {
+    rows = candidate_page_layout(items, frame.card_width, metrics, horizontal_, wrapped,
+                                 minimum_row);
+  }
   const float first_line = static_cast<float>(metrics.candidate_row);
   // 皮肤 `item_corners_follow_card`：高亮落在列表四角上的角跟卡片同圆角。msime-windows 以外圆角大于 0 作为开关，卡片是直角时也取一个极小值，免得贴角的高亮退回普通圆角、从直角外框里探出来。
   const auto rows_area = metrics.corners_follow_card
@@ -1716,6 +1781,56 @@ void CandidateWindow::paint() {
     if (!underlined)
       draw_run(secondary, item.translation, metrics.translation_font, translation_color);
   }
+  if (expand_layout) {
+    // 网格：没有序号、没有选中态，文字和首行的候选文字对齐；悬停和按下都铺 hover 底色（msime-windows 的网格沿用首行的外观，selectable 关掉）。只画看得见的那几行。
+    const auto cell_text = candidate_row_text_color(palette_, text_color, false, false);
+    for (size_t slot = 0; slot < expand_layout->cells.size() && slot < grid.count; ++slot) {
+      auto cell = expand_layout->cells[slot];
+      cell.top -= expand_offset;
+      cell.bottom -= expand_offset;
+      if (cell.bottom <= expand_layout->top || cell.top >= expand_layout->bottom())
+        continue;
+      const auto rect = box(cell);
+      if (hovered_cell_ == slot || pressed_cell_ == slot)
+        target->FillRoundedRectangle(D2D1_ROUNDED_RECT{rect, row_radius, row_radius},
+                                     brush(palette_.hover));
+      const auto text = wide((*grid.items)[grid.start + slot].text);
+      target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
+                       format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
+                       D2D1_RECT_F{rect.left + gutter, rect.top, rect.right, rect.bottom},
+                       brush(cell_text), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
+    // 细滚动条：只画滑块，不画轨道，序号色；指针在滚动条上或正在拖时更深（msime-windows 的 0.45 与 0.85）。
+    if (const auto thumb = candidate_expand_thumb(*expand_layout, expand_.offset)) {
+      auto color = palette_.number;
+      color.a *= hovered_scrollbar_ || thumb_grab_ ? 0.85f : 0.45f;
+      const float thumb_radius = static_cast<float>(metrics.expand_panel->thumb_radius);
+      target->FillRoundedRectangle(D2D1_ROUNDED_RECT{box(*thumb), thumb_radius, thumb_radius},
+                                   brush(color));
+    }
+    target->PopAxisAlignedClip();
+    // 展开按钮：序号色的折线，收起时尖朝下「∨」，展开时尖朝上「∧」；悬停铺 hover，按下铺 selected（透明时仍是 hover）。
+    const auto &panel = *metrics.expand_panel;
+    const auto button = box(expand_layout->toggle);
+    if (pressed_toggle_ || hovered_toggle_) {
+      const float button_radius = (std::min)(4.0f, row_radius);
+      const auto fill = pressed_toggle_ && palette_.selected.a > 0.001f ? palette_.selected
+                                                                        : palette_.hover;
+      target->FillRoundedRectangle(D2D1_ROUNDED_RECT{button, button_radius, button_radius},
+                                   brush(fill));
+    }
+    const float half_width =
+        (std::min)(static_cast<float>(panel.glyph), button.right - button.left) * 0.5f;
+    const float half_height = half_width * 0.5f;
+    const float cx = (button.left + button.right) * 0.5f, cy = (button.top + button.bottom) * 0.5f;
+    const float tip = expand_.expanded ? cy - half_height : cy + half_height;
+    const float tail = expand_.expanded ? cy + half_height : cy - half_height;
+    const float stroke = static_cast<float>(panel.stroke);
+    target->DrawLine(D2D1_POINT_2F{cx - half_width, tail}, D2D1_POINT_2F{cx, tip},
+                     brush(palette_.number), stroke);
+    target->DrawLine(D2D1_POINT_2F{cx, tip}, D2D1_POINT_2F{cx + half_width, tail},
+                     brush(palette_.number), stroke);
+  }
   // 皮肤 `page_arrows`：两枚翻页箭头画在列表里，按 msime-windows 的 PagerArrows。chevron 是序号色的折线，triangle 是候选文字色的实心三角、横排时前面一条 page_arrow_divider 色的竖线；悬停时铺 hover 底色，按下时铺 selected（透明时仍是 hover）。上一页在第一页上变暗、不响应，下一页一直可用，和首行的翻页同一条规则。
   const auto list_pager = candidate_list_arrows_layout(frame.card_width, rows, metrics);
   if (list_pager && metrics.list_arrows) {
@@ -1785,15 +1900,41 @@ void CandidateWindow::paint() {
   painted_rows_ = std::move(rows);
   painted_pager_ = pager ? pager : list_pager;
   painted_dpi_ = GetDpiForWindow(window_);
+  painted_expand_ = expand_layout;
+  painted_expand_offset_ = expand_offset;
+  painted_expand_step_ = metrics.candidate_row + metrics.item_gap;
+  painted_grid_ = grid;
+  if (expand_layout && expand_.expanded && grid.count > 0)
+    expand_viewport_ = expand_layout->viewport;
   sync_tooltips();
-  if (accessible_)
+  if (accessible_) {
+    // 展开区：按钮，以及网格里看得见的候选；首行滚出去的候选不报。
+    std::optional<CandidateAccessibleExpand> accessible_expand;
+    if (expand_layout) {
+      accessible_expand.emplace();
+      accessible_expand->toggle = expand_layout->toggle;
+      accessible_expand->expanded = expand_.expanded;
+      accessible_expand->top = expand_layout->top;
+      accessible_expand->bottom = expand_layout->bottom();
+      for (size_t slot = 0; slot < expand_layout->cells.size() && slot < grid.count; ++slot) {
+        auto cell = expand_layout->cells[slot];
+        cell.top -= expand_offset;
+        cell.bottom -= expand_offset;
+        if (cell.bottom > expand_layout->top && cell.top < expand_layout->bottom())
+          accessible_expand->cells.push_back({slot, (*grid.items)[grid.start + slot].text, cell});
+      }
+    }
     accessible_->publish(candidate_accessible_tree(
         *painted_, painted_rows_, painted_pager_, metrics, show_preedit_,
         CandidateAccessibleFrame{frame.card_left, frame.card_top, frame.card_width,
                                  layout_scale(painted_dpi_)},
-        static_cast<bool>(click_), static_cast<bool>(page_), MSIME_EDITION_DISPLAY_NAME_UTF8));
+        static_cast<bool>(click_), static_cast<bool>(page_), MSIME_EDITION_DISPLAY_NAME_UTF8,
+        accessible_expand ? &*accessible_expand : nullptr));
+  }
   if (rendered_)
     rendered_(*painted_);
+  // 后续候选不够填满一屏时，不用等滚动就再排一批。
+  reveal_if_near_end();
 }
 void CandidateWindow::sync_tooltips() {
   if (!tooltip_ || !painted_)
@@ -1803,12 +1944,21 @@ void CandidateWindow::sync_tooltips() {
   std::vector<RECT> rects;
   if (painted_->pointer_input) {
     rects.reserve(painted_rows_.size());
-    for (const auto &row : painted_rows_)
+    for (const auto &row : painted_rows_) {
+      // 卷轴展开时首行随内容滚动，提示的区域只留看得见的那一段；整行滚出去时区域为空，不弹提示。下标仍和候选一一对应。
+      double top = row.bounds.top, bottom = row.bounds.bottom;
+      if (painted_expand_) {
+        top = (std::max)(top, painted_expand_->top);
+        bottom = (std::min)(bottom, painted_expand_->bottom());
+        if (bottom < top)
+          bottom = top;
+      }
       rects.push_back(
           {static_cast<LONG>(std::floor((row.bounds.left + shadow_insets_.left) * scale)),
-           static_cast<LONG>(std::floor((row.bounds.top + shadow_insets_.top + decoration_offset_) * scale)),
+           static_cast<LONG>(std::floor((top + shadow_insets_.top + decoration_offset_) * scale)),
            static_cast<LONG>(std::ceil((row.bounds.right + shadow_insets_.left) * scale)),
-           static_cast<LONG>(std::ceil((row.bounds.bottom + shadow_insets_.top + decoration_offset_) * scale))});
+           static_cast<LONG>(std::ceil((bottom + shadow_insets_.top + decoration_offset_) * scale))});
+    }
   }
   const auto same = [](const RECT &a, const RECT &b) {
     return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
@@ -1844,6 +1994,16 @@ void CandidateWindow::invoke_accessible(int id, LPARAM token) {
       !painted_->pointer_input || !IsWindowVisible(window_))
     return;
   const auto &value = *painted_;
+  // 展开按钮与点它一样；网格里的候选与点它一样上屏。
+  if (id == candidate_accessible_expand) {
+    if (painted_expand_)
+      toggle_expansion();
+    return;
+  }
+  if (id >= candidate_accessible_expanded_first) {
+    commit_cell(static_cast<size_t>(id - candidate_accessible_expanded_first));
+    return;
+  }
   // 翻页与点箭头一样一次一页，带上画出来的那一页的身份，页已经换了时 Server 会拒绝。
   if (id == candidate_accessible_previous || id == candidate_accessible_next) {
     const bool previous = id == candidate_accessible_previous;
@@ -1860,6 +2020,113 @@ void CandidateWindow::invoke_accessible(int id, LPARAM token) {
   CandidateClick click{value.lease, candidate.session, candidate.generation, candidate.index};
   click.translation_page = value.translation_page;
   click_(click);
+}
+CandidateSkinMetrics CandidateWindow::skin_metrics(const CandidatePresentation &value) const {
+  auto skin = candidate_skin_metrics(skin_layout_, horizontal_, font_size_);
+  if (skin.expand_panel && (!value.pointer_input || value.translation_page != 0)) {
+    skin.expand_panel = false;
+    skin.page_arrows = skin_layout_.page_arrows.value_or(false);
+  }
+  return skin;
+}
+size_t CandidateWindow::expand_page_size(const CandidatePresentation &value) {
+  return value.page_size ? value.page_size : value.candidates.size();
+}
+CandidateWindow::ExpandGrid CandidateWindow::expand_grid(const CandidatePresentation &value) {
+  ExpandGrid grid;
+  if (!expand_.expanded || !value.expanded || value.candidates.empty() ||
+      !skin_metrics(value).expand_panel)
+    return grid;
+  size_t last = 0;
+  for (const auto &candidate : value.candidates)
+    last = (std::max)(last, candidate.index);
+  grid.items = value.expanded;
+  grid.start = candidate_expand_start(*grid.items, last);
+  grid.available = grid.items->size() - grid.start;
+  if (grid.available == 0)
+    return grid;
+  const auto &first = (*grid.items)[grid.start];
+  candidate_expand_sync(expand_, first.index, first.text, grid.available);
+  grid.count = (std::min)(expand_.revealed, grid.available);
+  return grid;
+}
+std::vector<double> CandidateWindow::grid_widths(const ExpandGrid &grid) {
+  std::vector<double> widths;
+  if (!grid.items || grid.count == 0)
+    return widths;
+  // 缓存只为眼下的几批候选服务，长过上限时只留这一批的。
+  std::vector<const std::string *> batch;
+  batch.reserve(grid.count);
+  for (size_t slot = 0; slot < grid.count; ++slot)
+    batch.push_back(&(*grid.items)[grid.start + slot].text);
+  candidate_expand_trim_widths(grid_width_cache_, batch);
+  device_.EnsureFactories();
+  if (!fallback_families_.empty() && !font_fallback_)
+    font_fallback_ = build_font_fallback(device_.GetDWriteFactory(), fallback_families_);
+  widths.reserve(grid.count);
+  for (size_t slot = 0; slot < grid.count; ++slot) {
+    const auto &text = (*grid.items)[grid.start + slot].text;
+    auto found = grid_width_cache_.find(text);
+    if (found == grid_width_cache_.end())
+      found = grid_width_cache_
+                  .emplace(text, measured_width(device_, wide(text), font_family_,
+                                                static_cast<float>(font_size_),
+                                                font_fallback_.Get()))
+                  .first;
+    widths.push_back(found->second);
+  }
+  return widths;
+}
+void CandidateWindow::toggle_expansion() {
+  if (!painted_ || !painted_expand_)
+    return;
+  if (expand_.expanded) {
+    collapse_expansion();
+  } else {
+    candidate_expand_open(expand_);
+    expand_lease_ = painted_->lease;
+    expand_viewport_ = 0.0;
+    if (expansion_)
+      expansion_(painted_->lease, true);
+  }
+  // 展开与收起是两种尺寸：立刻按新的状态重新排版，不等主循环下一轮。
+  shown_.reset();
+  hovered_cell_.reset();
+  pressed_cell_.reset();
+  refresh();
+}
+void CandidateWindow::collapse_expansion() {
+  if (!expand_.expanded)
+    return;
+  const auto lease = expand_lease_;
+  candidate_expand_collapse(expand_);
+  expand_lease_.reset();
+  expand_viewport_ = 0.0;
+  if (expansion_ && lease)
+    expansion_(*lease, false);
+}
+void CandidateWindow::reveal_if_near_end() {
+  if (!painted_expand_ ||
+      !candidate_expand_wants_more(expand_, painted_expand_->max_offset(), painted_expand_step_,
+                                   painted_grid_.available) ||
+      !candidate_expand_reveal(expand_, painted_grid_.available))
+    return;
+  shown_.reset();
+  InvalidateRect(window_, nullptr, FALSE);
+}
+void CandidateWindow::commit_cell(size_t slot) {
+  if (!click_ || !painted_ || !painted_->pointer_input || !painted_grid_.items ||
+      slot >= painted_grid_.count || !IsWindowVisible(window_))
+    return;
+  const auto &item = (*painted_grid_.items)[painted_grid_.start + slot];
+  CandidateClick click{painted_->lease, painted_->session, painted_->generation, item.index};
+  click.expanded_text = item.text;
+  click_(click);
+}
+std::pair<double, double> CandidateWindow::card_point(int x, int y) const {
+  const double scale = layout_scale(painted_dpi_);
+  return {x / scale - shadow_insets_.left,
+          y / scale - shadow_insets_.top - static_cast<double>(decoration_offset_)};
 }
 std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!click_ || !painted_ || !painted_->pointer_input || !IsWindowVisible(window_))
@@ -1879,8 +2146,15 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
                              shadow_insets_.bottom - decoration_offset_;
   if (card_x < 0.0 || card_y < 0.0)
     return std::nullopt;
-  const auto row =
-      candidate_card_hit(card_x, card_y, card_width, card_height, painted_rows_);
+  // 卷轴展开时首行在滚动区里：只有看得见的那一段点得到。
+  std::optional<size_t> row;
+  if (painted_expand_) {
+    const auto part = candidate_expand_hit(*painted_expand_, painted_expand_offset_, card_x, card_y);
+    if (part.part == CandidateExpandPart::row)
+      row = part.index;
+  } else {
+    row = candidate_card_hit(card_x, card_y, card_width, card_height, painted_rows_);
+  }
   if (!row || *row >= painted_->candidates.size())
     return std::nullopt;
   const auto &candidate = painted_->candidates[*row];
@@ -1959,7 +2233,21 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
       case WM_MOUSEACTIVATE:
         return self->click_ ? MA_NOACTIVATE : MA_NOACTIVATEANDEAT;
       case WM_MOUSEWHEEL: {
-        if (!self->mouse_wheel_) {
+        const auto route = candidate_wheel_route(
+            self->expand_.expanded && self->painted_expand_.has_value(), self->mouse_wheel_);
+        if (route == CandidateWheelRoute::scroll) {
+          // 展开着：首行与网格一起滚，不翻页，也不看「鼠标滚轮翻页」开关；滚到顶或底就停住。
+          self->wheel_accumulator_ = 0;
+          if (!IsWindowVisible(window))
+            return 0;
+          if (candidate_expand_scroll(self->expand_, GET_WHEEL_DELTA_WPARAM(wparam), WHEEL_DELTA,
+                                      self->painted_expand_step_,
+                                      self->painted_expand_->max_offset()))
+            InvalidateRect(window, nullptr, FALSE);
+          self->reveal_if_near_end();
+          return 0;
+        }
+        if (route == CandidateWheelRoute::pass) {
           // Keep the opt-in contract shared with the Server. Returning the
           // message to the default procedure preserves the pre-feature
           // behavior when wheel paging is disabled instead of swallowing a
@@ -1989,6 +2277,40 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         return 0;
       }
       case WM_LBUTTONDOWN:
+        // 展开区：按钮、滚动条和网格先认；落在首行上的照常走下面的候选点击。
+        if (self->painted_expand_ && self->painted_ && self->painted_->pointer_input &&
+            IsWindowVisible(window)) {
+          const auto [card_x, card_y] = self->card_point(static_cast<short>(LOWORD(lparam)),
+                                                         static_cast<short>(HIWORD(lparam)));
+          const auto &layout = *self->painted_expand_;
+          const auto part =
+              candidate_expand_hit(layout, self->painted_expand_offset_, card_x, card_y);
+          bool captured = false;
+          if (part.part == CandidateExpandPart::toggle) {
+            self->pressed_toggle_ = captured = true;
+          } else if (part.part == CandidateExpandPart::scrollbar) {
+            if (const auto thumb = candidate_expand_thumb(layout, self->expand_.offset)) {
+              // 在轨道上滑块之外按下：滑块中心先跳到那里，再接着拖。
+              double grab = card_y - thumb->top;
+              if (card_y < thumb->top || card_y >= thumb->bottom) {
+                grab = (thumb->bottom - thumb->top) * 0.5;
+                self->expand_.offset = candidate_expand_drag(layout, card_y, grab);
+              }
+              self->thumb_grab_ = grab;
+              captured = true;
+            }
+          } else if (part.part == CandidateExpandPart::cell && part.index < self->painted_grid_.count) {
+            self->pressed_cell_ = part.index;
+            captured = true;
+          }
+          if (captured) {
+            InvalidateRect(window, nullptr, FALSE);
+            SetCapture(window);
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
+            TrackMouseEvent(&track);
+            return 0;
+          }
+        }
         self->pressed_page_ = self->pager_hit(static_cast<short>(LOWORD(lparam)),
                                               static_cast<short>(HIWORD(lparam)));
         self->pressed_ = self->pressed_page_
@@ -2014,8 +2336,38 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                      static_cast<short>(HIWORD(lparam)));
         const auto arrow = self->pager_hit(static_cast<short>(LOWORD(lparam)),
                                            static_cast<short>(HIWORD(lparam)));
-        SetCursor(LoadCursorW(nullptr, click || arrow ? wide_cursor(IDC_HAND)
-                                                      : wide_cursor(IDC_ARROW)));
+        // 展开区的悬停：按钮、网格里的候选和滚动条；拖滚动条时滚动跟着指针。
+        bool expand_hand = false;
+        if (self->painted_expand_ && self->painted_ && self->painted_->pointer_input) {
+          const auto [card_x, card_y] = self->card_point(static_cast<short>(LOWORD(lparam)),
+                                                         static_cast<short>(HIWORD(lparam)));
+          const auto &layout = *self->painted_expand_;
+          if (self->thumb_grab_ && (wparam & MK_LBUTTON)) {
+            const double offset = candidate_expand_drag(layout, card_y, *self->thumb_grab_);
+            if (offset != self->expand_.offset) {
+              self->expand_.offset = offset;
+              InvalidateRect(window, nullptr, FALSE);
+              self->reveal_if_near_end();
+            }
+          }
+          const auto part =
+              candidate_expand_hit(layout, self->painted_expand_offset_, card_x, card_y);
+          const bool toggle = part.part == CandidateExpandPart::toggle;
+          const bool scrollbar = part.part == CandidateExpandPart::scrollbar;
+          const auto cell = part.part == CandidateExpandPart::cell && part.index < self->painted_grid_.count
+                                ? std::optional<size_t>(part.index)
+                                : std::nullopt;
+          if (toggle != self->hovered_toggle_ || scrollbar != self->hovered_scrollbar_ ||
+              cell != self->hovered_cell_) {
+            self->hovered_toggle_ = toggle;
+            self->hovered_scrollbar_ = scrollbar;
+            self->hovered_cell_ = cell;
+            InvalidateRect(window, nullptr, FALSE);
+          }
+          expand_hand = toggle || cell.has_value();
+        }
+        SetCursor(LoadCursorW(nullptr, click || arrow || expand_hand ? wide_cursor(IDC_HAND)
+                                                                     : wide_cursor(IDC_ARROW)));
         std::optional<size_t> hovered;
         if (click && self->painted_) {
           for (size_t i = 0; i < self->painted_->candidates.size(); ++i)
@@ -2038,9 +2390,31 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         // this handler is about to read, and the click never reaches click_.
         const auto pressed = self->pressed_;
         const auto pressed_page = self->pressed_page_;
+        const bool pressed_toggle = self->pressed_toggle_;
+        const auto pressed_cell = self->pressed_cell_;
+        const bool dragging = self->thumb_grab_.has_value();
         self->pressed_.reset();
         self->pressed_page_.reset();
+        self->pressed_toggle_ = false;
+        self->pressed_cell_.reset();
+        self->thumb_grab_.reset();
         if (GetCapture() == window) ReleaseCapture();
+        // 展开区：在按钮上按下又松开才展开或收起；在网格的同一个候选上按下又松开才上屏。
+        if (pressed_toggle || pressed_cell || dragging) {
+          InvalidateRect(window, nullptr, FALSE);
+          if (self->painted_expand_) {
+            const auto [card_x, card_y] = self->card_point(static_cast<short>(LOWORD(lparam)),
+                                                           static_cast<short>(HIWORD(lparam)));
+            const auto part = candidate_expand_hit(*self->painted_expand_,
+                                                   self->painted_expand_offset_, card_x, card_y);
+            if (pressed_toggle && part.part == CandidateExpandPart::toggle)
+              self->toggle_expansion();
+            else if (pressed_cell && part.part == CandidateExpandPart::cell &&
+                     part.index == *pressed_cell)
+              self->commit_cell(*pressed_cell);
+          }
+          return 0;
+        }
         if (pressed_page) {
           // 收起按下底色；翻了页也会重画，没翻页（松开时已离开箭头）也要重画。
           if (self->painted_pager_ && self->painted_pager_->in_list)
@@ -2080,13 +2454,26 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
       case WM_CANCELMODE:
       case WM_CAPTURECHANGED:
       case WM_MOUSELEAVE:
+        // 拖滚动条时指针可以离开卡片，捕获还在就接着拖，只收起悬停。
+        if (message == WM_MOUSELEAVE && self->thumb_grab_ && GetCapture() == window) {
+          self->hovered_cell_.reset();
+          self->hovered_toggle_ = false;
+          InvalidateRect(window, nullptr, FALSE);
+          return 0;
+        }
         if (GetCapture() == window) ReleaseCapture();
-        if (self->hovered_page_ || self->pressed_page_)
+        if (self->hovered_page_ || self->pressed_page_ || self->hovered_cell_ ||
+            self->pressed_cell_ || self->hovered_toggle_ || self->pressed_toggle_ ||
+            self->hovered_scrollbar_ || self->thumb_grab_)
           InvalidateRect(window, nullptr, FALSE);
         self->pressed_.reset();
         self->pressed_page_.reset();
         self->hovered_.reset();
         self->hovered_page_.reset();
+        self->hovered_cell_.reset();
+        self->pressed_cell_.reset();
+        self->hovered_toggle_ = self->pressed_toggle_ = self->hovered_scrollbar_ = false;
+        self->thumb_grab_.reset();
         SetCursor(LoadCursorW(nullptr, wide_cursor(IDC_ARROW)));
         return 0;
       case WM_NOTIFY: {

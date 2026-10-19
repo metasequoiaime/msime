@@ -22,6 +22,11 @@ void record_typing_keys_async(const std::string &directory,
                               const std::string &day,
                               const std::map<std::string, uint64_t> &keys);
 enum class HideCandidateDisposition { Rejected, Cancelled, Suppressed };
+// 卷轴展开取到的完整候选列表（msime_client_all_candidates 的结果），以及取它时引擎放出扣着的尾部、代次前进后重新读到的 view（代次没变时为空）。
+struct CandidateExpansionFetch {
+  nlohmann::json snapshot;
+  std::optional<nlohmann::json> view;
+};
 
 // One registered client's queue-owned adapter. No pipe I/O runs here; the
 // controller prepares on the input queue, writes the focus fence on an I/O
@@ -50,9 +55,13 @@ public:
   // Only queue this after successful I/O or verified local-only completion.
   // A false return means the receipt is obsolete; never replay the key.
   bool confirm(const FocusLease &lease, uint64_t request);
+  // expanded_text 有值时是卷轴展开网格里点的候选：index 是完整候选列表里的下标，expanded_text 是网格上画的文字，见 ReplyComposer::select_candidate。
   std::optional<PendingReply> select_candidate(const FocusLease &lease,
       uint64_t session, uint64_t generation, size_t index,
-      uint64_t translation_page);
+      uint64_t translation_page,
+      const std::optional<std::string> &expanded_text = std::nullopt);
+  // 卷轴展开：为眼下这一页取完整候选列表。有等待送达确认的回复、释义页开着、没有候选或候选只能用键盘选时不取，返回空。
+  std::optional<CandidateExpansionFetch> expanded_candidates(const FocusLease &lease);
   std::optional<nlohmann::json>
   candidate_action(const FocusLease &lease, uint64_t session,
                    uint64_t generation, size_t index, CandidateAction action,

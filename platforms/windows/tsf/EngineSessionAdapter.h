@@ -56,6 +56,9 @@ public:
   bool command(uint32_t, std::string *, std::string *);
   bool select(uint64_t, std::size_t, std::string *, std::string *);
   bool select_edge(uint64_t, std::size_t, uint8_t, std::string *, std::string *);
+  // msime_client_all_candidates 与 msime_client_select_any_candidate：续接 Server 卷轴展开网格里的候选时，这个候选不在本会话的当前页上，要到这一代的完整列表里找、按全局下标选（HostCandidateContinuation.h）。
+  bool all_candidates(std::string *, std::string *);
+  bool select_any(uint64_t, std::size_t, std::string *, std::string *);
   bool view(std::string *, std::string *) const;
   bool online_query(std::string *, std::string *) const;
   bool apply_cloud(const std::string &, const std::string &, std::string *, std::string *);
